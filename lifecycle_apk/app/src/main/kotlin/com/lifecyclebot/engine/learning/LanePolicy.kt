@@ -94,7 +94,7 @@ object LanePolicy {
     private fun defaultPolicyFor(lane: String): State {
         val key = lane.uppercase()
         return when {
-            key.startsWith("UNKNOWN")     -> State.PAPER_MICRO_EXECUTION  // V5.9.1325: never stop trading — micro-probe unknown lanes
+            key.startsWith("UNKNOWN")     -> State.RETRAINING  // V5.0.6107: observe/retrain, no paid micro execution
             // V5.0.4526 — restore AATE core execution semantics. These are LIVE
             // meme strategy lanes, not permanent paper-micro lanes. Toxic buckets
             // should be pivoted by AgenticStyleRouter/LaneToxicityGuard/LiveStylePivotRouter,
@@ -106,7 +106,7 @@ object LanePolicy {
             key.contains("QUALITY")       -> State.NORMAL_EXECUTION
             key.contains("BLUECHIP")      -> State.NORMAL_EXECUTION
             key.contains("WHALE")         -> State.REDUCED_SIZE_EXECUTION
-            key.contains("PRESALE")       -> State.PAPER_MICRO_EXECUTION
+            key.contains("PRESALE")       -> State.RETRAINING
             // V5.0.6094 — new lanes are first-class policy citizens, not anonymous
             // fall-throughs. Paper samples them normally; live authority is still
             // controlled by FDG route verdict/quarantine and lab-proof release.
@@ -134,9 +134,9 @@ object LanePolicy {
         State.INVALID_UNTRADEABLE     -> 0.00
         State.TRAIN_ONLY_NO_OPEN      -> 0.00
         State.SHADOW_TRACK_ONLY       -> 0.00
-        State.RETRAINING              -> 0.20
+        State.RETRAINING              -> 0.00
         State.DEMOTION_CANDIDATE      -> 0.40
-        State.PAPER_MICRO_EXECUTION   -> 0.10
+        State.PAPER_MICRO_EXECUTION   -> 0.00
         State.REDUCED_SIZE_EXECUTION  -> 0.60
         State.PROMOTION_CANDIDATE     -> 0.80
         State.NORMAL_EXECUTION        -> 1.00
@@ -248,9 +248,9 @@ object LanePolicy {
     // rolling win/loss window per lane AND per (lane,band) bucket, then moves the
     // policy State so the entry gate actually responds to results:
     //   • bleeding bucket  → step DOWN one executable rung (e.g. NORMAL →
-    //     REDUCED_SIZE → DEMOTION_CANDIDATE → PAPER_MICRO). Never below
-    //     PAPER_MICRO_EXECUTION — Train-First doctrine: keep sampling, never
-    //     hard-block a valid lane, never zero a lane out.
+    //     REDUCED_SIZE → DEMOTION_CANDIDATE → RETRAINING). V5.0.6107:
+    //     train-first means observe + LLM Lab re-strategize, not paying for
+    //     paper/live micro execution of proven-toxic setups.
     //   • recovering bucket → step UP one rung toward NORMAL_EXECUTION.
     // Window resets after each transition so the next regime is judged fresh.
     private const val OUTCOME_WINDOW_MIN_SAMPLES = 12   // need a real sample before moving
@@ -336,15 +336,15 @@ object LanePolicy {
         if (n >= OUTCOME_WINDOW_MIN_SAMPLES * 2) { cell.winWindow.set(0); cell.lossWindow.set(0) }
     }
 
-    // Step DOWN exactly one executable rung. FLOOR at PAPER_MICRO_EXECUTION so a
-    // valid lane is never hard-blocked / zeroed (Train-First). INVALID_UNTRADEABLE
-    // is reserved for explicit invalid-data states, never reached by WR decay.
+    // Step DOWN exactly one executable rung. FLOOR at RETRAINING so a valid lane
+    // remains trainable through NoTradeObservation + LLM Lab strategy search, but
+    // does not keep paying for toxic paper/live micro execution.
     private fun demoteOneRung(s: State): State = when (s) {
         State.NORMAL_EXECUTION       -> State.REDUCED_SIZE_EXECUTION
         State.PROMOTION_CANDIDATE    -> State.REDUCED_SIZE_EXECUTION
         State.REDUCED_SIZE_EXECUTION -> State.DEMOTION_CANDIDATE
-        State.DEMOTION_CANDIDATE     -> State.PAPER_MICRO_EXECUTION
-        else                         -> s   // already at/below paper-micro → hold (keep sampling)
+        State.DEMOTION_CANDIDATE     -> State.RETRAINING
+        else                         -> s   // already at/below retraining → hold (keep observing)
     }
 
     // Step UP exactly one rung toward NORMAL_EXECUTION.

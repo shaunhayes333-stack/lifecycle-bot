@@ -28,7 +28,7 @@ object FdgRouteVerdict {
         BLOCK_OPERATOR_DISABLED("BLOCK_OPERATOR_DISABLED");
 
         val executable: Boolean
-            get() = this == ALLOW_NORMAL || this == ALLOW_REDUCED_SIZE || this == ALLOW_PAPER_MICRO
+            get() = this == ALLOW_NORMAL || this == ALLOW_REDUCED_SIZE
 
         val trainable: Boolean
             get() = this != BLOCK_INVALID_DATA && this != BLOCK_OPERATOR_DISABLED
@@ -53,24 +53,18 @@ object FdgRouteVerdict {
         if (hardReason != null && hardReason.isNotBlank()) return Verdict.BLOCK_HARD_SAFETY
 
         val policy = LanePolicy.effectiveState(lane, scoreBand)
-        // V5.9.1325 — TRAIN-FIRST DOCTRINE ENFORCEMENT.
-        // Operator mandate: "v3/fdg is the final authority. never stop trading.
-        // 1000+ quality trades a day. learn the right way." Any policy state
-        // that is NOT a hard-safety failure must keep producing trades (at micro
-        // size) so the bot keeps learning. SHADOW_TRACK_ONLY and TRAIN_ONLY_NO_OPEN
-        // previously returned non-executable verdicts → caller set blockReason →
-        // bot choked (only 6 executions at 722 trades). Collapse them to
-        // ALLOW_PAPER_MICRO so the train-first invariant ("trainability ≠ executability,
-        // but bot never stops trading") holds.
+        // V5.0.6107 — train-first without paid toxic micro execution.
+        // Strategy-failing states remain trainable via NoTradeObservation and LLM Lab
+        // strategy search, but are NOT executable until LanePolicy/Lab proves recovery.
         return when (policy) {
             LanePolicy.State.NORMAL_EXECUTION       -> Verdict.ALLOW_NORMAL
             LanePolicy.State.PROMOTION_CANDIDATE    -> Verdict.ALLOW_NORMAL
             LanePolicy.State.REDUCED_SIZE_EXECUTION -> Verdict.ALLOW_REDUCED_SIZE
             LanePolicy.State.DEMOTION_CANDIDATE     -> Verdict.ALLOW_REDUCED_SIZE
-            LanePolicy.State.PAPER_MICRO_EXECUTION  -> Verdict.ALLOW_PAPER_MICRO
-            LanePolicy.State.RETRAINING             -> Verdict.ALLOW_PAPER_MICRO
-            LanePolicy.State.SHADOW_TRACK_ONLY      -> Verdict.ALLOW_PAPER_MICRO  // V5.9.1325: never stop trading
-            LanePolicy.State.TRAIN_ONLY_NO_OPEN     -> Verdict.ALLOW_PAPER_MICRO  // V5.9.1325: never stop trading
+            LanePolicy.State.PAPER_MICRO_EXECUTION  -> Verdict.ROUTE_TRAIN_ONLY
+            LanePolicy.State.RETRAINING             -> Verdict.ROUTE_TRAIN_ONLY
+            LanePolicy.State.SHADOW_TRACK_ONLY      -> Verdict.ROUTE_SHADOW_TRACK
+            LanePolicy.State.TRAIN_ONLY_NO_OPEN     -> Verdict.ROUTE_TRAIN_ONLY
             LanePolicy.State.INVALID_UNTRADEABLE    -> Verdict.BLOCK_INVALID_DATA
         }
     }

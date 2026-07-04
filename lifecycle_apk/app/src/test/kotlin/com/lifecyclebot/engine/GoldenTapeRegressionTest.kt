@@ -1658,7 +1658,7 @@ class GoldenTapeRegressionTest {
         assertTrue(lab.contains("AUTONOMOUS_LAB_PIVOT_SEED"))
         assertTrue(lab.contains("fun seedFromTacticFailure"))
         assertTrue(lab.contains("status = LabStrategyStatus.ACTIVE"))
-        assertTrue(lab.contains("sizingSol = 0.05"))
+        assertTrue("V5.0.6107: LLM Lab auto-pivot must use economic paper sizing, not 0.05 SOL toy strategies", lab.contains("economicLabSizingSol(0.08)") && lab.contains("LAB_POLICY_REINTRODUCTION_6107") && !lab.contains("sizingSol = 0.05"))
         assertTrue(lab.contains("ACTIVE lab paper experiment only; not promoted/live-authorized"))
         val seedStart = lab.indexOf("fun seedFromTacticFailure")
         val seedEnd = lab.indexOf("/** Permanently delete all archived strategies. */", seedStart).takeIf { it > seedStart } ?: lab.length
@@ -2974,11 +2974,11 @@ class GoldenTapeRegressionTest {
         assertTrue("paperSell must finalize the paper authority when ledger closes", exec.contains("PaperPositionCloseAuthority.markClosed(\"PAPER\", tradeId.mint"))
 
         assertTrue("paper buy must clamp before position and journal mutation", exec.contains("clampPaperTradeSol(finalSol"))
-        assertTrue("paper buy max must be bankroll-backed live-transfer size, not legacy maxPositionSol micro-cap", exec.contains("ALL PAPER ENTRIES") && exec.contains("paperSimulatedBalance * 0.10") && exec.contains("coerceIn(legacyMax, 2.0)"))
-        assertTrue("paper buy min must have a live-transfer floor for all entries", exec.contains("live-transfer floor") && exec.contains("paperSimulatedBalance * 0.01"))
+        assertTrue("paper buy max must be bankroll-backed economic live-transfer size, not legacy maxPositionSol micro-cap", exec.contains("ALL PAPER ENTRIES") && exec.contains("paperSimulatedBalance * 0.20") && exec.contains("coerceIn(legacyMax, 3.0)"))
+        assertTrue("paper buy min must have an economic live-transfer floor for all entries", exec.contains("economic paper floor") && exec.contains("paperSimulatedBalance * 0.05"))
         assertTrue("paper buy clamp telemetry must exist", exec.contains("PAPER_BUY_SIZE_CLAMPED"))
 
-        assertTrue("paper sanity must use the same live-transfer sizing bounds before quarantining rows", paperSanity.contains("paperSimulatedBalance * 0.10") && paperSanity.contains("paperSimulatedBalance * 0.01") && paperSanity.contains("PAPER_SOL_ABOVE_CONFIG_MAX"))
+        assertTrue("paper sanity must use the same economic live-transfer sizing bounds before quarantining rows", paperSanity.contains("paperSimulatedBalance * 0.20") && paperSanity.contains("paperSimulatedBalance * 0.05") && paperSanity.contains("PAPER_SOL_ABOVE_CONFIG_MAX"))
         assertTrue("paper sanity must emit required quarantine label", paperSanity.contains("PAPER_LEARNING_ROW_QUARANTINED"))
         assertTrue("TradeHistoryStore must filter corrupted historical rows", tradeStore.contains("PaperLearningSanity.inspect(t)"))
         assertTrue("TradeRowSanityCheck must quarantine paper corrupt rows", rowSanity.contains("PAPER_ROW_CORRUPT"))
@@ -6556,7 +6556,7 @@ class GoldenTapeRegressionTest {
         val route = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/FdgRouteVerdict.kt").readText()
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue("V5.0.4526: SHITCOIN/MANIPULATED must be real reduced execution lanes, not permanent paper-micro defaults", lane.contains("key.contains(" + "\"SHITCOIN\"" + ")      -> State.REDUCED_SIZE_EXECUTION") && lane.contains("key.contains(" + "\"MANIPULATED\"" + ")   -> State.REDUCED_SIZE_EXECUTION") && lane.contains("not permanent paper-micro lanes"))
-        assertTrue("V5.0.6094: live learned danger routing must keep PAPER_MICRO paper-only instead of escalating to reduced live buys", route.contains("LIVE_BLEEDER_PAPER_ONLY_BLOCK_6094") && route.contains("v == Verdict.ALLOW_PAPER_MICRO") && route.contains("Verdict.BLOCK_LIVE_BLEEDER_PAPER_ONLY") && !route.contains("LIVE_PAPER_MICRO_ESCALATED_TO_REDUCED_4526"))
+        assertTrue("V5.0.6107: learned danger routing must not emit paid PAPER_MICRO execution for retraining states", route.contains("V5.0.6107") && route.contains("LanePolicy.State.RETRAINING             -> Verdict.ROUTE_TRAIN_ONLY") && route.contains("LanePolicy.State.SHADOW_TRACK_ONLY      -> Verdict.ROUTE_SHADOW_TRACK") && !route.contains("LIVE_PAPER_MICRO_ESCALATED_TO_REDUCED_4526"))
         assertTrue("V5.0.4526: live FDG must reject micro/probe dust tuition and require strategy pivot", fdg.contains("LIVE_DUST_TUITION_REQUIRES_STRATEGY_PIVOT_4526") && fdg.contains("live_dust_tuition_rejected_4526") && fdg.contains("NoTradeObservationStore.recordBlock"))
         assertTrue("V5.0.4526: valid live routes multiplier-stacked below core must restore AATE core buy floor", fdg.contains("live_core_size_floor_4526") && fdg.contains("com.lifecyclebot.data.BotConfig().smallBuySol") && fdg.contains("valid live route restored"))
     }
@@ -7127,6 +7127,16 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6106: paper learning must train on economic compounding-size tickets, not 1% toy buys", paperSanity6106.contains("paperSimulatedBalance * 0.05") && paperSanity6106.contains("paperSimulatedBalance * 0.20") && paperSanity6106.contains("economic paper training floor"))
         assertTrue("V5.0.6106: losing learned buckets pause/retrain instead of paying for micro paper probes", fdg6106.contains("lane_retraining_paused_6106") && fdg6106.contains("bcg_lane_retraining_paused_6106") && fdg6106.contains("paper_low_conf_economic_dampen_6106") && !fdg6106.contains("train_first_micro_probe") && !fdg6106.contains("bcg_train_first_micro_probe"))
         assertTrue("V5.0.6106: CryptoAlt open positions are synthesized into the main UI Open Positions model", mainUi6106.contains("CRYPTO_ALT_TRADER_6106") && mainUi6106.contains("CryptoAltTrader.getOpenPositions()") && mainUi6106.contains("CRYPTO_SPOT") && mainUi6106.contains("CRYPTO_LEV"))
+        val lanePolicy6107 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/LanePolicy.kt").readText()
+        val route6107 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/FdgRouteVerdict.kt").readText()
+        val lab6107 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/lab/LlmLabEngine.kt").readText()
+        val labStore6107 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/lab/LlmLabStore.kt").readText()
+        val bot6107 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.6107: LanePolicy demotes toxic lanes to RETRAINING, not PAPER_MICRO execution", lanePolicy6107.contains("State.DEMOTION_CANDIDATE     -> State.RETRAINING") && lanePolicy6107.contains("""key.contains("PRESALE")       -> State.RETRAINING""") && lanePolicy6107.contains("State.RETRAINING              -> 0.00"))
+        assertTrue("V5.0.6107: FDG late LanePolicy consumer must pause retraining states without 0.01 floor", fdg6106.contains("LANE_POLICY_RETRAINING_PAUSED_6107") && fdg6106.contains("finalSize = 0.0") && fdg6106.contains("NoTradeObservationStore.recordBlock"))
+        assertTrue("V5.0.6107: LLM Lab must use economic compounding-size strategies and lane reintroduction", lab6107.contains("economicLabSizingSol") && lab6107.contains("sizingSol      number 1.0..20.0") && lab6107.contains("LAB_POLICY_REINTRODUCTION_6107") && labStore6107.contains("MIN_PAPER_PNL_SOL_FOR_PROMOTION = 1.0") && !lab6107.contains("sizingSol = 0.05"))
+        assertTrue("V5.0.6107: FdgRouteVerdict must route retraining to train-only/no-open, not executable micro", route6107.contains("LanePolicy.State.RETRAINING             -> Verdict.ROUTE_TRAIN_ONLY") && route6107.contains("LanePolicy.State.PAPER_MICRO_EXECUTION  -> Verdict.ROUTE_TRAIN_ONLY") && !route6107.contains("LanePolicy.State.RETRAINING             -> Verdict.ALLOW_PAPER_MICRO"))
+        assertTrue("V5.0.6107: paper treasury back-fund floor must match compounding-size paper entries", bot6107.contains("cfg.paperSimulatedBalance * 0.20") && bot6107.contains("compounding-size entries after 6106 economic sizing"))
     }
 
 

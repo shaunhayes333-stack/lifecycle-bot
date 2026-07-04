@@ -14115,14 +14115,14 @@ class BotService : Service() {
                             RunTracker30D.syncBalance(balanceSol)
                         }
 
-                        // V5.9.399 — back-fund the paper wallet from treasury
-                        // when it dries up. Only paper mode (live treasury is
-                        // on-chain locked, not auto-pullable). Floor = 10% of
-                        // configured starting capital. Runs every 5 loops to
-                        // smooth out churn.
+                        // V5.9.399 / V5.0.6107 — back-fund the paper wallet from
+                        // treasury when it dries up. Only paper mode (live treasury
+                        // is on-chain locked, not auto-pullable). Floor = 20% of
+                        // configured starting capital so paper can keep training
+                        // compounding-size entries after 6106 economic sizing.
                         if (cfg.paperMode && loopCount % 5 == 0) {
                             try {
-                                val floor = (cfg.paperSimulatedBalance * 0.10).coerceAtLeast(1.0)
+                                val floor = (cfg.paperSimulatedBalance * 0.20).coerceAtLeast(1.0)
                                 val pulled = TreasuryManager.backFundPaperWalletIfLow(
                                     walletSol = balanceSol,
                                     floorSol  = floor,

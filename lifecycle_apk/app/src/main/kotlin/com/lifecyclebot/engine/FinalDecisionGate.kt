@@ -4608,30 +4608,48 @@ object FinalDecisionGate {
                 // and trade back through it. Only genuine INVALID_UNTRADEABLE (unsafe /
                 // unsellable data — already in the original veto whitelist) may zero out.
                 val isTrueUntradeable = lpState == com.lifecyclebot.engine.learning.LanePolicy.State.INVALID_UNTRADEABLE
-                val liveRuntime = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { !config.paperMode }
-                val liveParityMicro = liveRuntime && lpState == com.lifecyclebot.engine.learning.LanePolicy.State.PAPER_MICRO_EXECUTION
-                // V5.9.1559 — PAPER_MICRO_EXECUTION is a paper/probe state name. In LIVE
-                // it must NOT choke real execution down to the 0.01 SOL floor forever.
-                // Treat it as reduced-size live execution: still cautious, but mirrors
-                // paper decision volume/win-rate shape instead of becoming a live no-op.
-                val shapeW = when {
-                    isTrueUntradeable -> lpWeight
-                    liveParityMicro   -> lpWeight.coerceAtLeast(0.35)
-                    else              -> lpWeight.coerceAtLeast(0.05)
-                }
-                finalSize = (finalSize * shapeW).coerceAtLeast(if (isTrueUntradeable) 0.0 else if (liveParityMicro) 0.025 else 0.01)
-                val lpLabel = if (liveParityMicro) "LIVE_REDUCED_FROM_${lpState.name}" else lpState.name
-                tags.add("lane_policy:${lpLabel}×${"%.2f".format(shapeW)}")
-                checks.add(GateCheck("lane_policy_weight", true,
-                    "lane=$laneName band=$lpScoreBand state=${lpLabel} execW=${"%.2f".format(shapeW)} size ${beforeLp.format(3)}→${finalSize.format(3)}"))
-                ErrorLogger.info("FDG", "🛞 LANE_POLICY_EXEC_WEIGHT ${ts.symbol} lane=$laneName band=$lpScoreBand ${lpLabel} ×${"%.2f".format(shapeW)} size ${beforeLp.format(3)}→${finalSize.format(3)}")
-                // Train-First telemetry note for weak buckets — but we DO open the trade.
-                com.lifecyclebot.engine.learning.LanePolicy.noteRetrainingSample(laneName, lpScoreBand)
-                // ONLY genuinely untradeable (unsafe data) is routed no-open. Strategy
-                // weakness NEVER stops the trade — the small size is the expression.
-                if (isTrueUntradeable && shapeW <= 0.0) {
-                    blockReasonFinal = blockReasonFinal ?: "LANE_POLICY_INVALID_UNTRADEABLE"
+                val isRetrainingNoOpen6107 = lpState == com.lifecyclebot.engine.learning.LanePolicy.State.RETRAINING ||
+                    lpState == com.lifecyclebot.engine.learning.LanePolicy.State.TRAIN_ONLY_NO_OPEN ||
+                    lpState == com.lifecyclebot.engine.learning.LanePolicy.State.SHADOW_TRACK_ONLY ||
+                    lpState == com.lifecyclebot.engine.learning.LanePolicy.State.PAPER_MICRO_EXECUTION
+                // V5.0.6107 — strategy weakness that has reached retraining state is
+                // trainable but not executable. Do not floor it back into 0.01 SOL.
+                // It records NoTradeObservation and waits for LLM Lab / LanePolicy
+                // proof before reintroduction into paper/live execution.
+                if (isRetrainingNoOpen6107 || isTrueUntradeable) {
+                    finalSize = 0.0
                     shouldTradeFinal = false
+                    blockReasonFinal = blockReasonFinal ?: if (isTrueUntradeable) "LANE_POLICY_INVALID_UNTRADEABLE" else "LANE_POLICY_RETRAINING_PAUSED_6107_${lpState.name}"
+                    blockLevelFinal = if (isTrueUntradeable) BlockLevel.HARD else BlockLevel.EDGE
+                    tags.add(if (isTrueUntradeable) "lane_policy_invalid_untradeable" else "lane_policy_retraining_paused_6107")
+                    checks.add(GateCheck("lane_policy_weight", false,
+                        "lane=$laneName band=$lpScoreBand state=${lpState.name} no-open ${beforeLp.format(3)}→0.000 awaiting LLM Lab/LanePolicy reintroduction"))
+                    try {
+                        com.lifecyclebot.engine.learning.NoTradeObservationStore.recordBlock(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            lane = laneName,
+                            scoreBand = lpScoreBand,
+                            score = effectiveGateScore6025.toInt(),
+                            confidence = candidate.aiConfidence.toInt(),
+                            entryLiqUsd = ts.lastLiquidityUsd,
+                            entryMcapUsd = ts.lastMcap,
+                            entryPrice = ts.lastPrice,
+                            source = ts.source.ifEmpty { "UNKNOWN" },
+                            blockReason = blockReasonFinal ?: lpState.name,
+                            verdictTag = lpState.name,
+                        )
+                    } catch (_: Throwable) {}
+                    com.lifecyclebot.engine.learning.LanePolicy.noteRetrainingSample(laneName, lpScoreBand)
+                    ErrorLogger.info("FDG", "🧪 LANE_POLICY_RETRAINING_PAUSED_6107 ${ts.symbol} lane=$laneName band=$lpScoreBand state=${lpState.name} size ${beforeLp.format(3)}→0")
+                } else {
+                    val shapeW = lpWeight.coerceAtLeast(0.05)
+                    finalSize = (finalSize * shapeW).coerceAtLeast(0.01)
+                    tags.add("lane_policy:${lpState.name}×${"%.2f".format(shapeW)}")
+                    checks.add(GateCheck("lane_policy_weight", true,
+                        "lane=$laneName band=$lpScoreBand state=${lpState.name} execW=${"%.2f".format(shapeW)} size ${beforeLp.format(3)}→${finalSize.format(3)}"))
+                    ErrorLogger.info("FDG", "🛞 LANE_POLICY_EXEC_WEIGHT ${ts.symbol} lane=$laneName band=$lpScoreBand ${lpState.name} ×${"%.2f".format(shapeW)} size ${beforeLp.format(3)}→${finalSize.format(3)}")
+                    com.lifecyclebot.engine.learning.LanePolicy.noteRetrainingSample(laneName, lpScoreBand)
                 }
             }
         } catch (_: Throwable) { /* lane policy must never break the entry pipeline */ }

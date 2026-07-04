@@ -36,13 +36,13 @@ object LlmLabStore {
     //
     // V5.9.810 — operator mandate: 'allow llm to automatically introduce
     // strategies above 33% winrate and good profits.' Lowered to 30 trades
-    // (matches archive trigger) + 33% WR + ≥0.05 SOL paper profit. This
-    // captures asymmetric-R/R strategies like Genesis · Sniper that hit
-    // a low WR but with large average winners. Live-money gate
+    // (matches archive trigger) + 33% WR + meaningful paper profit. V5.0.6107:
+    // with lab trades now sized at 5%-20% of bankroll, promotion must prove real
+    // economic edge, not a dust-PnL artifact. Live-money gate
     // (LabPromotedFeed.requireLiveApproval) still requires operator tap.
     const val MIN_TRADES_BEFORE_PROMOTION = 30
     const val MIN_WR_FOR_PROMOTION_PCT = 33.0
-    const val MIN_PAPER_PNL_SOL_FOR_PROMOTION = 0.05    // ~$6+ proof of asymmetric-R/R
+    const val MIN_PAPER_PNL_SOL_FOR_PROMOTION = 1.0
     const val ARCHIVE_LOSER_AFTER_TRADES = 30
     const val ARCHIVE_LOSER_BELOW_WR_PCT = 30.0
 

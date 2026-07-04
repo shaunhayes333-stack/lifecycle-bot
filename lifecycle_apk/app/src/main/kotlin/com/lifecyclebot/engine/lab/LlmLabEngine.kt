@@ -108,6 +108,12 @@ object LlmLabEngine {
         seedDefaultsIfEmpty()
     }
 
+    /** V5.0.6107 — Lab paper must train live-compounding economics too. */
+    private fun economicLabSizingSol(fraction: Double = 0.08): Double {
+        val bankroll = try { LlmLabStore.getPaperBalance() } catch (_: Throwable) { LlmLabStore.DEFAULT_PAPER_BALANCE_SOL }
+        return (bankroll.coerceAtLeast(LlmLabStore.DEFAULT_PAPER_BALANCE_SOL) * fraction.coerceIn(0.03, 0.25)).coerceIn(1.0, 20.0)
+    }
+
     /** Called periodically from BotService.botLoop. Gated; cheap. */
     fun tick(universeFeed: () -> List<LabUniverseTick>) {
         if (!LlmLabStore.isEnabled()) return
@@ -171,7 +177,7 @@ object LlmLabEngine {
                 asset = LabAssetClass.MEME,
                 entryScoreMin = 55,  entryRegime = "ANY",
                 takeProfitPct = 25.0, stopLossPct = -8.0, maxHoldMins = 60,
-                sizingSol = 0.20,   generation = 1, status = LabStrategyStatus.ACTIVE,
+                sizingSol = economicLabSizingSol(0.06),   generation = 1, status = LabStrategyStatus.ACTIVE,
             ),
             LabStrategy(
                 id = LlmLabStore.newStrategyId(),
@@ -180,7 +186,7 @@ object LlmLabEngine {
                 asset = LabAssetClass.ANY,
                 entryScoreMin = 70,  entryRegime = "ANY",
                 takeProfitPct = 50.0, stopLossPct = -10.0, maxHoldMins = 180,
-                sizingSol = 0.30,   generation = 1, status = LabStrategyStatus.ACTIVE,
+                sizingSol = economicLabSizingSol(0.08),   generation = 1, status = LabStrategyStatus.ACTIVE,
             ),
             LabStrategy(
                 id = LlmLabStore.newStrategyId(),
@@ -189,7 +195,7 @@ object LlmLabEngine {
                 asset = LabAssetClass.ANY,
                 entryScoreMin = 50,  entryRegime = "ANY",
                 takeProfitPct = 8.0, stopLossPct = -5.0, maxHoldMins = 30,
-                sizingSol = 0.15,   generation = 1, status = LabStrategyStatus.ACTIVE,
+                sizingSol = economicLabSizingSol(0.10),   generation = 1, status = LabStrategyStatus.ACTIVE,
             ),
         )
         seeds.forEach { LlmLabStore.addStrategy(it) }
@@ -230,7 +236,7 @@ object LlmLabEngine {
             takeProfitPct = jitter(parent.takeProfitPct).coerceIn(3.0, 100.0),
             stopLossPct = jitter(parent.stopLossPct).coerceIn(-50.0, -2.0),
             maxHoldMins = jitter(parent.maxHoldMins.toDouble()).toInt().coerceIn(15, 480),
-            sizingSol = jitter(parent.sizingSol).coerceIn(0.05, 1.0),
+            sizingSol = jitter(maxOf(parent.sizingSol, economicLabSizingSol(0.05))).coerceIn(economicLabSizingSol(0.05), economicLabSizingSol(0.20)),
             parentId = parent.id,
             generation = parent.generation + 1,
             status = LabStrategyStatus.ACTIVE,
@@ -285,7 +291,7 @@ object LlmLabEngine {
                 takeProfitPct = params.first,
                 stopLossPct = params.second,
                 maxHoldMins = params.third,
-                sizingSol = 0.05,
+                sizingSol = economicLabSizingSol(0.08),
                 parentId = null,
                 generation = 1,
                 status = LabStrategyStatus.ACTIVE,
@@ -347,7 +353,7 @@ OUTPUT JSON FIELDS (all required):
   takeProfitPct  number 3..50
   stopLossPct    number -3..-30 (negative)
   maxHoldMins    integer 15..480
-  sizingSol      number 0.05..1.0
+  sizingSol      number 1.0..20.0, preferably 5%-20% of the current lab bankroll; no micro/toy sizing
 
 Reply with just the JSON object, nothing else.
         """.trimIndent()
@@ -406,7 +412,7 @@ Reply with just the JSON object, nothing else.
                 takeProfitPct = o.optDouble("takeProfitPct", 10.0).coerceIn(2.0, 100.0),
                 stopLossPct = o.optDouble("stopLossPct", -8.0).coerceIn(-50.0, -2.0),
                 maxHoldMins = o.optInt("maxHoldMins", 90).coerceIn(10, 720),
-                sizingSol = o.optDouble("sizingSol", 0.25).coerceIn(0.05, 2.0),
+                sizingSol = o.optDouble("sizingSol", economicLabSizingSol(0.08)).coerceIn(economicLabSizingSol(0.05), economicLabSizingSol(0.20)),
                 generation = 1,
                 status = LabStrategyStatus.ACTIVE,
             )
@@ -458,7 +464,8 @@ Reply with just the JSON object, nothing else.
                 })
             } catch (_: Throwable) { 1.0 }
 
-            val sized = (s.sizingSol * biasMult).coerceIn(s.sizingSol * 0.5, s.sizingSol * 1.5)
+            val strategyEconomicSize6107 = maxOf(s.sizingSol, economicLabSizingSol(0.05))
+            val sized = (strategyEconomicSize6107 * biasMult).coerceIn(strategyEconomicSize6107 * 0.5, strategyEconomicSize6107 * 1.5)
             if (sized > LlmLabStore.getPaperBalance()) continue
             LlmLabTrader.openPaper(s, candidate, sized)
         }
@@ -501,11 +508,26 @@ Reply with just the JSON object, nothing else.
                 s.paperPnlSol >= LlmLabStore.MIN_PAPER_PNL_SOL_FOR_PROMOTION
             ) {
                 LlmLabStore.updateStrategy(s.copy(status = LabStrategyStatus.PROMOTED))
+                try { markLanePolicyRecoveredByLab6107(s) } catch (_: Throwable) {}
                 ErrorLogger.info(TAG, "🧪 AUTO-PROMOTED ${s.name} → live influence " +
                     "(${s.paperTrades} trades · WR ${"%.0f".format(s.winRatePct())}% · " +
                     "PnL ${"%+.3f".format(s.paperPnlSol)}◎)")
             }
         }
+    }
+
+    private fun markLanePolicyRecoveredByLab6107(s: LabStrategy) {
+        // AutoPivot names are emitted as: "AutoPivot · LANE SCORE TACTIC".
+        // When one proves itself, mark the original lane/bucket as improved so
+        // LanePolicy can climb out of RETRAINING and reintroduce execution.
+        val raw = s.name.removePrefix("AutoPivot ·").trim()
+        if (raw.isBlank()) return
+        val parts = raw.split(" ").filter { it.isNotBlank() }
+        val lane = parts.getOrNull(0)?.trim()?.uppercase() ?: return
+        val scoreBand = parts.getOrNull(1)?.trim()?.uppercase()?.takeIf { it.startsWith("S") } ?: "S41-60"
+        com.lifecyclebot.engine.learning.LanePolicy.noteImprovement(lane, scoreBand)
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAB_POLICY_REINTRODUCTION_6107") } catch (_: Throwable) {}
+        ErrorLogger.info(TAG, "🧪 LAB_POLICY_REINTRODUCTION_6107 lane=$lane band=$scoreBand via ${s.name}")
     }
 
     // ────────────────────────────────────────────────────────────────────────
