@@ -12856,8 +12856,24 @@ class Executor(
         // capacity does not exist, reject once with a truthful low-capacity reason.
         val liveRentReserveSol = 0.012
         val liveCfg = cfg()
-        val minNonMicroLiveBuySol = liveCfg.minLiveBuySol.coerceAtLeast(0.0)
-        val liveMinExecutableBuySol = if (liveCfg.allowLiveMicroProbe) 0.005 else minNonMicroLiveBuySol
+        val minNonMicroLiveBuySol = liveCfg.minLiveBuySol.coerceAtLeast(com.lifecyclebot.engine.LiveSizingProfile.MIN_ENTRY_SOL)
+        // V5.0.6104 — micro-probe mode must be explicit. The old config-level
+        // allowLiveMicroProbe let ordinary QUALITY/MOONSHOT/TREASURY buys pass at
+        // 0.003–0.007 SOL after pending-proof and learned-risk multipliers. That
+        // is unsustainable live trading. Only labelled probe/dust paths may use
+        // the 0.005 executable micro floor; normal live lane buys must honor the
+        // non-micro compound floor.
+        val explicitLiveMicroProbe6104 = listOf(
+            layerTag,
+            identity?.source ?: "",
+            ts.source,
+            ts.position.entryPhase,
+            ts.position.tradingMode,
+        ).any { raw ->
+            val r = raw.uppercase()
+            r.contains("PROBE_ONLY") || r.contains("DUST_PROBE") || r.contains("MICRO_PROBE") || r.contains("LOW_LIQUIDITY_DUST_PROBE")
+        }
+        val liveMinExecutableBuySol = if (liveCfg.allowLiveMicroProbe && explicitLiveMicroProbe6104) 0.005 else minNonMicroLiveBuySol
         val maxConfigLiveBuySol = liveCfg.maxLiveBuySol.takeIf { it > 0.0 } ?: Double.MAX_VALUE
         val walletRiskCapSol = (walletSol * liveCfg.maxWalletRiskPerTradePct.coerceIn(0.0, 1.0)).takeIf { it > 0.0 } ?: Double.MAX_VALUE
         val maxSpendableSol = minOf(walletSol - liveRentReserveSol, maxConfigLiveBuySol, walletRiskCapSol)
@@ -12882,7 +12898,7 @@ class Executor(
         if (livePendingProofPenalty) {
             val old = sol
             val shaped = (sol * 0.35).coerceAtMost(maxSpendableSol).coerceAtLeast(0.0)
-            sol = if (!liveCfg.allowLiveMicroProbe && shaped < liveMinExecutableBuySol) liveMinExecutableBuySol else shaped
+            sol = if (shaped < liveMinExecutableBuySol) liveMinExecutableBuySol else shaped
             try {
                 ForensicLogger.lifecycle(
                     "LIVE_PENDING_PROOF_LEARNED_RISK_CLAMP",
@@ -12892,15 +12908,17 @@ class Executor(
             } catch (_: Throwable) {}
         }
         val baseRealisticSol = realisticLiveEntrySize(ts, sol, walletSol, score, layerTag.ifBlank { identity?.source ?: ts.source }, "liveBuy.final")
-        // Unknown proof lowers confidence and learned risk until proof arrives;
-        // it does not force every live buy into a fixed micro cap.
-        val realisticSolRaw = if (livePendingProofPenalty) baseRealisticSol * 0.35 else baseRealisticSol
-        val realisticSol = if (!liveCfg.allowLiveMicroProbe && realisticSolRaw < liveMinExecutableBuySol) liveMinExecutableBuySol else realisticSolRaw
-        if (livePendingProofPenalty && realisticSol < baseRealisticSol) {
-            val old = baseRealisticSol
-            sol = realisticSol.coerceAtMost(maxSpendableSol).coerceAtLeast(0.0)
-            try { ForensicLogger.lifecycle("LIVE_PENDING_PROOF_REALISTIC_SIZE_RISK_SHAPED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old shaped=$sol detail=${livePendingProofPenaltyDetail.take(120)}") } catch (_: Throwable) {}
-        } else if (realisticSol > maxSpendableSol) {
+        // V5.0.6104 — pending-proof risk is already applied once before the
+        // realistic size authority. Do not multiply by 0.35 a second time after
+        // LiveSizingProfile/realisticLiveEntrySize lift the trade to a sustainable
+        // non-micro floor. Double-shaping was turning 0.060 SOL floors into
+        // 0.006–0.021 SOL dust buys across every lane.
+        val realisticSolRaw = baseRealisticSol
+        val realisticSol = if (realisticSolRaw < liveMinExecutableBuySol) liveMinExecutableBuySol else realisticSolRaw
+        if (livePendingProofPenalty && sol < baseRealisticSol) {
+            try { ForensicLogger.lifecycle("LIVE_PENDING_PROOF_REALISTIC_SIZE_FLOOR_PRESERVED_6104", "mint=${ts.mint.take(10)} symbol=${ts.symbol} preRealistic=$sol floor=${baseRealisticSol.fmt(4)} final=${realisticSol.fmt(4)} detail=${livePendingProofPenaltyDetail.take(120)}") } catch (_: Throwable) {}
+        }
+        if (realisticSol > maxSpendableSol) {
             val old = realisticSol
             sol = maxSpendableSol
             try { ForensicLogger.lifecycle("LIVE_REALISTIC_SIZE_CLAMPED_TO_SPENDABLE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old spendable=$maxSpendableSol walletSol=$walletSol") } catch (_: Throwable) {}
