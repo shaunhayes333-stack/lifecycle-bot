@@ -2858,13 +2858,14 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun event_triggered_sentience_is_safe_and_non_mutating() {
+    fun event_triggered_sentience_feeds_strategy_authority_without_hot_path_calls() {
         val sentience = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt").readText()
         val doctor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeDoctor.kt").readText()
         assertTrue(sentience.contains("EVENT_TRIGGERED_SENTIENCE_SAFE"))
         assertTrue(sentience.contains("fun noteRuntimeEvent"))
-        assertTrue(sentience.contains("event_only:no_mutation"))
-        assertTrue(sentience.contains("no Gemini/Groq/LLM call"))
+        assertTrue(sentience.contains("event_to_strategy_authority_6090"))
+        assertTrue(sentience.contains("feeding this into autonomous strategy authority"))
+        assertTrue(sentience.contains("no Gemini/Groq/LLM call here"))
         assertTrue(doctor.contains("publishSentienceEventReflections"))
         assertTrue(doctor.contains("SentienceOrchestrator.noteRuntimeEvent"))
         assertFalse("safe autonomy event reflection must not reintroduce 3807 scorer telemetry hook", java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/UnifiedScorer.kt").readText().contains("AIStackSnapshot"))
@@ -4532,7 +4533,7 @@ class GoldenTapeRegressionTest {
     fun asyncStrategyLab4245ReviewedApplyLayerIsBoundedSoftSizeOnly() {
         val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsyncStrategyLab.kt").readText()
         val hyp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyHypothesisEngine.kt").readText()
-        assertTrue("V5.0.4245: AsyncStrategyLab reviewed apply layer must require symbolicChecked background-only hypotheses", lab.contains("fun reviewedSizeBias") && lab.contains("it.backgroundOnly && it.symbolicChecked") && lab.contains("bias.coerceIn(0.92, 1.08)"))
+        assertTrue("V5.0.6090: AsyncStrategyLab reviewed apply layer must require symbolicChecked background-only hypotheses and provide real bounded authority", lab.contains("fun reviewedSizeBias") && lab.contains("it.backgroundOnly && it.symbolicChecked") && lab.contains("coerceIn(0.60, 1.55)"))
         assertTrue("V5.0.4245: StrategyHypothesisEngine must consume reviewed lab bias as soft multiplier only", hyp.contains("AsyncStrategyLab.reviewedSizeBias") && hyp.contains("ASYNC_STRATEGY_LAB_REVIEWED_SIZE_BIAS_4245") && hyp.contains("reviewedLabBias * strategyVariantBias4342") && hyp.contains("coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)"))
         assertFalse("V5.0.4245: reviewed lab bias must not introduce hard veto or zero sizing", lab.contains("return 0.0") || hyp.contains("return 0.0"))
     }
@@ -4699,7 +4700,7 @@ class GoldenTapeRegressionTest {
         val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val sweeper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MemeTraderFullAuditSweeper.kt").readText()
-        assertTrue("V5.0.4267: MetaCognition bridge must consume trust multipliers and map trader lanes", bridge.contains("MetaCognitionAI.getTrustMultiplier") && bridge.contains("SHITCOIN_TRADER") && bridge.contains("MOONSHOT_TRADER") && bridge.contains("coerceIn(0.94, 1.08)"))
+        assertTrue("V5.0.6090: MetaCognition bridge must consume trust multipliers and map trader lanes with real bounded authority", bridge.contains("MetaCognitionAI.getTrustMultiplier") && bridge.contains("SHITCOIN_TRADER") && bridge.contains("MOONSHOT_TRADER") && bridge.contains("coerceIn(0.65, 1.45)"))
         assertTrue("V5.0.4267: Executor must consume MetaCognition in the shared paper/live size stack", exec.contains("MetaCognitionExecutorBridge.sizeMultiplierForLane") && exec.contains("METACOGNITION_EXECUTOR_SIZE_SHAPED_4267") && exec.contains("metaCognitionSizeMult"))
         assertTrue("V5.0.4267: full meme audit sweeper must close Pass J only with executor-side MetaCognition consumption", sweeper.contains("PASS_J_METACOGNITION_CONSUMPTION_4261") && sweeper.contains("MetaCognitionExecutorBridge.sizeMultiplierForLane"))
     }
