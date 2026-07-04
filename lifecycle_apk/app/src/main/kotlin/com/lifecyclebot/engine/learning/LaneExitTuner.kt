@@ -265,6 +265,13 @@ object LaneExitTuner {
             }
             append("  Read: tpMult>1 => lane lets winners run further; <1 => banks sooner.\n")
             append("        slMult>1 => wider stop (still clamped to -15%); <1 => tighter.\n")
+            if (replayBiasByLane.isNotEmpty()) {
+                append("  LaneStrategyReplay bias 6093: ")
+                append(replayBiasByLane.entries.sortedBy { it.key }.joinToString(" · ") { (lane, b) ->
+                    "${lane}:${b.profile} tp×=${"%.2f".format(b.tpMult)} sl×=${"%.2f".format(b.slMult)} n=${b.n}"
+                })
+                append('\n')
+            }
         }
       } catch (_: Throwable) { "" }
     }
