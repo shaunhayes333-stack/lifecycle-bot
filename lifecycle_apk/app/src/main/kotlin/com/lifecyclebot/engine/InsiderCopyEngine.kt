@@ -38,10 +38,11 @@ import java.util.concurrent.atomic.AtomicLong
  *
  *   3. Emit telemetry counters for the main UI insider tile.
  *
- * Out of scope for V5.9.367 (queued for V5.9.368):
- *   - Forced copy-BUY on Markets/CryptoAlts traders (each trader needs
- *     its own forceCopyEntry public method to map a wallet's BUY of
- *     a known-symbol asset into a synthetic signal).
+ * V5.0.6096 update:
+ *   - Forced copy-BUY on CryptoAltTrader is now in scope via
+ *     CryptoAltTrader.copyBuyFromInsiderSignal(), so INSIDER_SHARK is not
+ *     just visible/advisory — it opens Crypto Universe paper trades through
+ *     the normal alt sizing/exposure/learning path.
  */
 object InsiderCopyEngine {
 
@@ -98,6 +99,7 @@ object InsiderCopyEngine {
                     confidence  = signal.confidence,
                     walletLabel = signal.walletLabel,
                 )
+                copyBuyCryptoAlt6096(signal.tokenSymbol, signal.confidence, signal.walletLabel)
             }
             "SELL", "DISTRIBUTION" -> {
                 if (isAlpha || signal.confidence >= 70) {
@@ -132,6 +134,7 @@ object InsiderCopyEngine {
                     confidence  = signal.confidence,
                     walletLabel = signal.wallet.label,
                 )
+                copyBuyCryptoAlt6096(symbol, signal.confidence, signal.wallet.label)
             }
             com.lifecyclebot.v3.scoring.InsiderTrackerAI.InsiderSignalType.DISTRIBUTION -> {
                 if (isAlpha || signal.confidence >= 70) {
@@ -144,6 +147,17 @@ object InsiderCopyEngine {
                 }
             }
             else -> {} // TRANSFER_OUT, TRANSFER_IN, FRONT_RUN, UNUSUAL — informational
+        }
+    }
+
+    private fun copyBuyCryptoAlt6096(symbol: String, confidence: Int, walletLabel: String) {
+        try {
+            val opened = com.lifecyclebot.perps.CryptoAltTrader.copyBuyFromInsiderSignal(symbol, confidence, walletLabel)
+            if (opened) {
+                ErrorLogger.info(TAG, "🦈 INSIDER-SHARK CRYPTO BUY OPENED: $symbol ($walletLabel, conf=$confidence) — routed to CryptoAltTrader")
+            }
+        } catch (t: Throwable) {
+            ErrorLogger.warn(TAG, "copyBuyCryptoAlt6096($symbol) error: ${t.message}")
         }
     }
 

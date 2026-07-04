@@ -7939,6 +7939,8 @@ This cannot be undone!
         val winRate        = (stats["winRate"] as? Double) ?: 0.0
         val totalPnlSol    = (stats["totalPnlSol"] as? Double) ?: 0.0
         val phase          = (stats["learningPhase"] as? String) ?: "BOOTSTRAP"
+        val layerPolicy    = (stats["layerPolicy"] as? String) ?: "41+ MEME+CRYPTO layers"
+        val sizePolicy     = (stats["sizePolicy"] as? String) ?: "MEME_PARITY sizing"
 
         // Alts readiness thresholds (mirrors CryptoAltTrader.isLiveReady)
         val WR_READY      = 52.0
@@ -7993,7 +7995,7 @@ This cannot be undone!
                 tvLiveReadinessBadge.text = "READY"
                 tvLiveReadinessBadge.setTextColor(Color.BLACK)
                 tvLiveReadinessBadge.setCachedBackground(R.drawable.pill_bg_green)
-                tvReadinessRecommendation.text = "READY · Crypto paper edge is profitable."
+                tvReadinessRecommendation.text = "READY · Crypto paper edge profitable · $sizePolicy"
                 tvReadinessRecommendation.setTextColor(green)
             }
             isAlmostReady -> {
@@ -8004,7 +8006,7 @@ This cannot be undone!
                 if (gatingTrades < TRADES_READY) needed.add("${TRADES_READY - gatingTrades} more trades")
                 if (winRate < WR_READY)              needed.add("WR ${winRate.toInt()}% → need ${WR_READY.toInt()}%")
                 if (!isProfitable)                   needed.add("positive PnL")
-                tvReadinessRecommendation.text = "ALMOST READY · Need: ${needed.joinToString(" · ")}"
+                tvReadinessRecommendation.text = "ALMOST READY · Need: ${needed.joinToString(" · ")} · $layerPolicy"
                 tvReadinessRecommendation.setTextColor(amber)
             }
             else -> {
@@ -8015,7 +8017,7 @@ This cannot be undone!
                 if (gatingTrades < TRADES_READY) needed.add("${TRADES_READY - gatingTrades} more trades")
                 if (winRate < WR_READY)              needed.add("WR ${winRate.toInt()}% → need ${WR_READY.toInt()}%")
                 if (!isProfitable)                   needed.add("positive PnL")
-                tvReadinessRecommendation.text = "LEARNING · ${needed.joinToString(" · ")}"
+                tvReadinessRecommendation.text = "LEARNING · ${needed.joinToString(" · ")} · $layerPolicy"
                 tvReadinessRecommendation.setTextColor(red)
             }
         }

@@ -7087,6 +7087,9 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6095: Crypto toxic buckets must soft-shape tactic/size instead of hard-returning", cryptoAlt6095.contains("CRYPTO_TOXIC_PATTERN_SOFT_SHAPE_6095") && cryptoAlt6095.contains("cryptoToxicSizeMult6095 = 0.35") && !cryptoAlt6095.contains("CRYPTO_TOXIC_PATTERN_HARD_BLOCK"))
         assertTrue("V5.0.6095: Crypto V3 bridge must receive realistic liquidity context", cryptoAlt6095.contains("entryLiqUsd = altLiqMcapHint(mktSym).first") && cryptoAlt6095.contains("MEME trader's rich entry snapshot structure"))
         assertTrue("V5.0.6095: main UI must surface the expanded MEME+CRYPTO layer stack", mainActivity6095.contains("41+ layers · MEME+CRYPTO") && mainLayout6095.contains("41+ layers · MEME+CRYPTO"))
+        val insiderCopy6096 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InsiderCopyEngine.kt").readText()
+        assertTrue("V5.0.6096: INSIDER_SHARK/COPY must open Crypto Universe positions, not just MEME/watchlist advisories", cryptoAlt6095.contains("copyBuyFromInsiderSignal") && cryptoAlt6095.contains("INSIDER_SHARK_CRYPTO_COPY_BUY_6096") && insiderCopy6096.contains("copyBuyCryptoAlt6096") && insiderCopy6096.contains("CryptoAltTrader.copyBuyFromInsiderSignal"))
+        assertTrue("V5.0.6096: ALTS readiness must expose crypto size/layer policy on the main UI", cryptoAlt6095.contains("sizePolicy") && cryptoAlt6095.contains("layerPolicy") && mainActivity6095.contains("val layerPolicy") && mainActivity6095.contains("val sizePolicy") && mainActivity6095.contains("\$layerPolicy"))
     }
 
 

@@ -3376,6 +3376,35 @@ object CryptoAltTrader {
      * Open a simulated CryptoAlt paper position from the chat layer.
      * Size is clamped to [0.05, 2.0] SOL for safety.
      */
+    /**
+     * V5.0.6096 — INSIDER_SHARK/COPY layer opens Crypto Universe positions too.
+     * The prior InsiderCopyEngine could enqueue MEME mints and copy-exit alts,
+     * but its own comment admitted forced copy-BUY on CryptoAlts was out of
+     * scope. That made the new INSIDER_SHARK layer visible/advisory while not
+     * actually trading the broader crypto universe. Route through the existing
+     * LLM paper buy hook so the normal CryptoAlt sizing/exposure/learning stack
+     * owns the position. Live execution remains governed by the normal runtime
+     * mode + route-proof path; this is a signal bridge, not a bypass.
+     */
+    fun copyBuyFromInsiderSignal(symbol: String, confidence: Int, walletLabel: String): Boolean {
+        val clean = symbol.trim().uppercase()
+        if (clean.isBlank()) return false
+        return try {
+            val confMult = (confidence.toDouble() / 100.0).coerceIn(0.50, 1.80)
+            val bal = getEffectiveBalance().takeIf { it > 0.0 } ?: 1.0
+            val size = (bal * (DEFAULT_SIZE_PCT / 100.0) * confMult).coerceIn(0.05, bal * 0.45)
+            val res = llmOpenPaperBuy(clean, size, "INSIDER_SHARK_COPY_BUY_6096 wallet=${walletLabel.take(24)} conf=$confidence")
+            if (res.success) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("INSIDER_SHARK_CRYPTO_COPY_BUY_6096") } catch (_: Throwable) {}
+                ErrorLogger.info(TAG, "🦈 INSIDER_SHARK_CRYPTO_COPY_BUY_6096 $clean size=${size.fmt(3)}◎ wallet=${walletLabel.take(24)} conf=$confidence")
+            }
+            res.success
+        } catch (t: Throwable) {
+            ErrorLogger.warn(TAG, "INSIDER_SHARK_CRYPTO_COPY_BUY_6096 $clean error: ${t.message}")
+            false
+        }
+    }
+
     fun llmOpenPaperBuy(symbol: String, sizeSol: Double, reason: String): LlmTradeResult {
         if (!isPaperMode.get()) return LlmTradeResult.Rejected("HARD RULE V5.9.187: LLM cannot spend real money. Paper mode only.")
         val ticker = symbol.trim().uppercase()
@@ -3545,7 +3574,9 @@ object CryptoAltTrader {
             "openPositions"  to positions.size,
             "paperBalance"   to paperBalance,
             "isLiveMode"     to !isPaperMode.get(),
-            "learningPhase"  to getPhaseLabel()
+            "learningPhase"  to getPhaseLabel(),
+            "sizePolicy"      to "MEME_PARITY_6095 base=6pct cap=45pct toxic_soft_shape",
+            "layerPolicy"     to "41+ MEME+CRYPTO layers · DIAMOND/INSIDER_SHARK/COPY visible"
         )
     }
 
