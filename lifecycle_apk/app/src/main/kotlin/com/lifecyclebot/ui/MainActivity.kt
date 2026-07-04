@@ -6920,7 +6920,7 @@ for legal compliance.
                     else -> red
                 })
             } else {
-                tvAiHealth.text = "25 layers"
+                tvAiHealth.text = "41+ layers · MEME+CRYPTO"
                 tvAiHealth.setTextColor(green)
             }
 
@@ -10197,7 +10197,7 @@ $regimeTransitionStatus
     }
 
     /**
-     * Shows status of all 25 AI layers
+     * Shows status of all 41+ AI layers, including MEME and Crypto Universe outer layers
      */
     private fun showAILayersDialog() {
         try {

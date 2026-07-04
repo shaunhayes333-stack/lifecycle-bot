@@ -130,7 +130,13 @@ object CryptoAltTrader {
     private const val SCAN_INTERVAL_MS      = 12_000L       // 12-second scan cycle
     private const val DYN_SCAN_INTERVAL_MS  = 30_000L       // Dynamic token scan every 30s
     private const val DYN_BATCH_SIZE        = 200           // Tokens per dynamic scan batch
-    private const val DEFAULT_SIZE_PCT      = 3.0           // 3% of balance per trade (20 pos max = 60% total exposure)
+    // V5.0.6095 — Crypto Universe MEME-parity sizing. 3% base kept the entire
+    // rest-of-crypto universe behaving like perpetual micro-probes while MEME
+    // lanes used compounding pressure, lane EV and winner ceilings. Raise the
+    // base to 6% and let the existing exposure cap / route proof / wallet lock
+    // act as safety; toxic strategy intelligence soft-shapes below instead of
+    // amputating throughput.
+    private const val DEFAULT_SIZE_PCT      = 6.0           // V5.0.6095: 3→6% balance base; no more crypto-only micro treadmill
     private const val DEFAULT_LEVERAGE      = 3.0           // Default leverage (when not SPOT)
     // V5.9.8: DEFAULT_TP_SPOT removed — now dynamic via FluidLearningAI
     private const val DEFAULT_SL_SPOT       = 3.5           // SPOT stop-loss %
@@ -1902,19 +1908,21 @@ object CryptoAltTrader {
         // (tradingMode|scoreBand); the crypto lane tag is distinct from meme
         // lane tags so this only ever hard-blocks crypto lanes that have
         // proven-toxic buckets (sample≥30, lossRate≥90%, meanPnl≤-8%).
+        var cryptoToxicSizeMult6095 = 1.0
         run cryptoParityToxicGate@{
             try {
                 val cryptoLane = if (isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV"
                 val toxic = com.lifecyclebot.engine.LosingPatternMemory.stats(cryptoLane, signal.score.toInt())
                 if (toxic.sample >= 30 && toxic.lossRatePct >= 90.0 && toxic.meanPnl <= -8.0) {
                     val bucketId = try { com.lifecyclebot.engine.LosingPatternMemory.bucketKey(cryptoLane, signal.score.toInt()) } catch (_: Throwable) { "$cryptoLane|?" }
+                    cryptoToxicSizeMult6095 = 0.35
                     ErrorLogger.warn(TAG,
-                        "🚫 CRYPTO_TOXIC_PATTERN_HARD_BLOCK ${mktSym} bucket=$bucketId n=${toxic.sample} lossRate=${"%.1f".format(toxic.lossRatePct)}% mean=${"%.1f".format(toxic.meanPnl)}% — proven-toxic, hard-blocked")
-                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_TOXIC_PATTERN_HARD_BLOCK") } catch (_: Throwable) {}
-                    return
+                        "🪙 CRYPTO_TOXIC_PATTERN_SOFT_SHAPE_6095 ${mktSym} bucket=$bucketId n=${toxic.sample} lossRate=${"%.1f".format(toxic.lossRatePct)}% mean=${"%.1f".format(toxic.meanPnl)}% — tactic/size pivot, not hard-block")
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_TOXIC_PATTERN_SOFT_SHAPE_6095") } catch (_: Throwable) {}
                 }
             } catch (_: Throwable) {}
         }
+        sizeSol *= cryptoToxicSizeMult6095
 
         if (sizeSol < 0.01) {
             ErrorLogger.warn(TAG, "Insufficient balance for ${mktSym} (${sizeSol} SOL)")
@@ -1962,7 +1970,16 @@ object CryptoAltTrader {
 
         // Hivemind size / TP modifier
         val (_, hiveSizeMult, hiveTpAdj) = hiveEntryModifier(mktSym)
-        val finalSize = (sizeSol * hiveSizeMult).coerceIn(0.01, balance * 0.25)
+        // V5.0.6095 — MEME parity: Crypto Universe should not be trapped in
+        // a micro-only treadmill. Keep anti-dust minimum, but allow the same
+        // compounding/winner pressure already included above to express up to
+        // 45% of available mode-local balance. Total portfolio risk cap remains
+        // 80%, wallet lock still applies live, and route proof still gates real buys.
+        val finalSize = (sizeSol * hiveSizeMult).coerceIn(0.01, balance * 0.45)
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_UNIVERSE_MEME_PARITY_SIZE_6095")
+            ErrorLogger.info(TAG, "🪙 CRYPTO_UNIVERSE_MEME_PARITY_SIZE_6095 ${mktSym} base=${"%.4f".format(sizeSol)} hive=${"%.2f".format(hiveSizeMult)} final=${"%.4f".format(finalSize)} bal=${"%.4f".format(balance)} toxic=${"%.2f".format(cryptoToxicSizeMult6095)}")
+        } catch (_: Throwable) {}
         val finalTp   = ((tpPct * tpMult) + hiveTpAdj).coerceAtLeast(1.5)
         // V5.9.432 — SL floor raised from 1.5% → 4% for SPOT, 3% → 6% for
         // LEVERAGE (via DEFAULT_SL_SPOT/LEV below-clamp). Prior 1.5% floor
@@ -2104,7 +2121,11 @@ object CryptoAltTrader {
                 assetClass = "ALT",
                 direction = signal.direction.name,
                 entryPrice = signal.price,
-                entryLiqUsd = 500_000.0,
+                // V5.0.6095 — feed V3 bridge realistic Crypto Universe liquidity
+                // instead of a stale fixed 500k. This makes the new/outer layers
+                // visible and trainable on actual crypto-tier context, matching
+                // the MEME trader's rich entry snapshot structure.
+                entryLiqUsd = altLiqMcapHint(mktSym).first,
                 v3Score = signal.score,
                 entryReason = signal.reasons.take(6).joinToString("|").ifBlank { "CryptoAlt:${signal.direction.name}" },
                 traderSource = "CryptoAlt",

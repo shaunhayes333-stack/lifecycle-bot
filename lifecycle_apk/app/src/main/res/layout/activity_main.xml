@@ -5129,7 +5129,7 @@
                         android:fontFamily="monospace" android:letterSpacing="0.08"/>
                     <TextView android:id="@+id/tvAiHealth"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="25 layers" android:textColor="#14F195"
+                        android:text="41+ layers · MEME+CRYPTO" android:textColor="#14F195"
                         android:textSize="11sp" android:fontFamily="monospace" android:textStyle="bold"/>
                 </LinearLayout>
 

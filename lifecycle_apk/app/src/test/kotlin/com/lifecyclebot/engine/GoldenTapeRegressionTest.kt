@@ -7079,6 +7079,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6094: lane quarantine blocks live entries but paper keeps quarantined lanes sampling", botService6087.contains("PAPER_LANE_QUARANTINE_STILL_SAMPLING_6094") && botService6087.contains("RuntimeModeAuthority.isPaper()") && botService6087.contains("paper_enabled_live_quarantined") && botService6087.contains("LaneQuarantineController.logBlockedEntry"))
         val lanePolicy6094 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/LanePolicy.kt").readText()
         assertTrue("V5.0.6094: new lanes must be explicit first-class LanePolicy citizens", lanePolicy6094.contains("DIAMOND") && lanePolicy6094.contains("INSIDER") && lanePolicy6094.contains("SHARK") && lanePolicy6094.contains("new lanes are first-class policy citizens"))
+        val cryptoAlt6095 = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val mainActivity6095 = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        val mainLayout6095 = java.io.File("src/main/res/layout/activity_main.xml").readText()
+        assertTrue("V5.0.6095: Crypto Universe must use MEME-parity sizing, not a micro-only treadmill", cryptoAlt6095.contains("DEFAULT_SIZE_PCT      = 6.0") && cryptoAlt6095.contains("CRYPTO_UNIVERSE_MEME_PARITY_SIZE_6095") && cryptoAlt6095.contains("balance * 0.45"))
+        assertTrue("V5.0.6095: Crypto toxic buckets must soft-shape tactic/size instead of hard-returning", cryptoAlt6095.contains("CRYPTO_TOXIC_PATTERN_SOFT_SHAPE_6095") && cryptoAlt6095.contains("cryptoToxicSizeMult6095 = 0.35") && !cryptoAlt6095.contains("CRYPTO_TOXIC_PATTERN_HARD_BLOCK"))
+        assertTrue("V5.0.6095: Crypto V3 bridge must receive realistic liquidity context", cryptoAlt6095.contains("entryLiqUsd = altLiqMcapHint(mktSym).first") && cryptoAlt6095.contains("MEME trader's rich entry snapshot structure"))
+        assertTrue("V5.0.6095: main UI must surface the expanded MEME+CRYPTO layer stack", mainActivity6095.contains("41+ layers · MEME+CRYPTO") && mainLayout6095.contains("41+ layers · MEME+CRYPTO"))
     }
 
 
