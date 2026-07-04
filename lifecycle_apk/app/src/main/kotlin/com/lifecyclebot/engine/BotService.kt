@@ -9002,18 +9002,14 @@ class BotService : Service() {
                         val pos = ts.position
                         val entryPx = pos.entryPrice
                         if (pos.isOpen && entryPx > 0.0) {
-                            val modeUpperForTickLock = pos.tradingMode.uppercase()
-                            val isMeme = (pos.isShitCoinPosition || modeUpperForTickLock.contains("MOONSHOT") || modeUpperForTickLock.contains("SHITCOIN"))
-                            // V5.0.3988 — LIVE RUNNER CAPTURE PARITY. The old tick-time
-                            // peak/giveback lock only protected cleanly stamped meme lanes and
-                            // explicitly excluded BlueChip/Treasury. Mis-stamped live runners or
-                            // quality/project-sniper winners could give back MFE before the slower
-                            // lane-specific exit path saw them. All LIVE positions now receive the
-                            // same fast hard-floor + peak-giveback shell; paper remains meme-only.
-                            val tickProfitLockEligible = (!pos.isPaperPosition) || isMeme
-                            if (!tickProfitLockEligible) {
-                                try { ForensicLogger.lifecycle("TICK_PROFIT_LOCK_SKIPPED_LANE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} mode=${pos.tradingMode} paper=${pos.isPaperPosition}") } catch (_: Throwable) {}
-                            }
+                            // V5.0.6083 — TICK-TIME EXIT PARITY FOR EVERY OPEN POSITION.
+                            // Runtime 6081 report showed BLUE_CHIP/PRESALE/LONG_HOLD paper
+                            // positions repeatedly logging TICK_PROFIT_LOCK_SKIPPED_LANE while
+                            // open winners/losers waited for slower lane exits. The 1Hz tick path
+                            // has the freshest price and must provide the universal hard-floor +
+                            // peak/giveback shell for ALL open positions. Lane-specific exits can
+                            // still add smarter behavior; they cannot be the only runner safety net.
+                            val tickProfitLockEligible = true
                             if (tickProfitLockEligible) {
                                 val rawTickPnlPctNow = (priceUsd - entryPx) / entryPx * 100.0
                                 // V5.0.4152 — UI/EXEC HIGH-LOCK PARITY.

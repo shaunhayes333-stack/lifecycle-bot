@@ -3378,13 +3378,14 @@ for legal compliance.
             // Stats are calculated from ALL stored trades, not just 24h.
             // Data persists across app restarts and is never auto-cleared.
             // ═══════════════════════════════════════════════════════════════════
-            // V5.0.6024 — headline/UI stats must use StrategyTruthLedger-clean
-            // terminal SELL rows, not raw forensic journal rows. Raw rows remain
-            // preserved in Journal/Operational Report for audit, but the main
-            // dashboard should not paint recovered/duplicate/partial forensic rows
-            // as live strategy PnL.
-            val rawPersistedStats6024 = com.lifecyclebot.engine.TradeHistoryStore.getStatsCached() // raw audit fallback
-            val persistedStats = try { com.lifecyclebot.engine.TradeHistoryStore.getCleanStatsSnapshot4517() } catch (_: Throwable) { rawPersistedStats6024 }
+            // V5.0.6084 — DASHBOARD/JOURNAL PARITY.
+            // Operator screenshot 2026-07-04: main dashboard showed 35 trades / 20% WR
+            // while the Trade Journal showed raw persisted journal totals (581 rows,
+            // 53% WR). This panel is the main UI promise, not the strategy-clean
+            // report card, so it must mirror the Journal header byte-for-byte. Keep
+            // StrategyTruthLedger-clean stats for reports/diagnostics; do not mux them
+            // into the dashboard headline and make the app look like two bots.
+            val persistedStats = com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
             // V5.9.355 — Pull meme WR + W/L/S from RunTracker30D so the hero
             // tile matches the 30-Day Proof card byte-for-byte. User report:
             // "the meme coin 30 day is at 26% the livereadiness is drawing
@@ -8148,18 +8149,18 @@ This cannot be undone!
             // the scoreboard can never diverge or carry stale post-reset counts.
             // Per-trader vars above are kept ONLY as a fallback if the journal
             // read throws (defensive); canonical path is authoritative.
-            // V5.0.6024 — ALL TRADERS headline uses StrategyTruthLedger-clean truth.
-            // getCanonicalTotals() is raw journal/audit truth and can include recovered
-            // inventory, duplicate terminal fanout and partial non-terminal rows; that
-            // belongs in Journal/forensics, not the red/green home-card strategy score.
-            val cleanStats6024 = try { com.lifecyclebot.engine.TradeHistoryStore.getCleanStatsSnapshot4517() } catch (_: Throwable) { null }
+            // V5.0.6084 — ALL TRADERS footer mirrors Trade Journal raw cache too.
+            // The Journal tab is what the operator uses to audit actual persisted rows;
+            // this footer must not silently switch to StrategyTruth-clean rows and print
+            // a different trade count / WR / PnL from the Journal screen above it.
+            val rawStats6084 = try { com.lifecyclebot.engine.TradeHistoryStore.getStatsCached() } catch (_: Throwable) { null }
             val canon = try { com.lifecyclebot.engine.TradeHistoryStore.getCanonicalTotals() } catch (_: Throwable) { null }
-            val totalTrades = cleanStats6024?.totalStoredTrades ?: canon?.trades ?: (memeTrades + altsTrades + perpsTrades)
-            val totalWins   = cleanStats6024?.totalWins ?: canon?.wins   ?: (memeWins + altsWins + perpsWins)
-            val totalLoss   = cleanStats6024?.totalLosses ?: canon?.losses ?: (memeLosses + altsLosses + perpsLosses)
+            val totalTrades = rawStats6084?.totalStoredTrades ?: canon?.trades ?: (memeTrades + altsTrades + perpsTrades)
+            val totalWins   = rawStats6084?.totalWins ?: canon?.wins   ?: (memeWins + altsWins + perpsWins)
+            val totalLoss   = rawStats6084?.totalLosses ?: canon?.losses ?: (memeLosses + altsLosses + perpsLosses)
             val totalDecisive = totalWins + totalLoss
-            val blendedWR = cleanStats6024?.winRate ?: if (totalDecisive > 0) totalWins * 100.0 / totalDecisive else 0.0
-            val totalPnl  = cleanStats6024?.totalPnlSol ?: canon?.pnlSol ?: (memePnl + altsPnl + perpsPnl)
+            val blendedWR = rawStats6084?.winRate ?: if (totalDecisive > 0) totalWins * 100.0 / totalDecisive else 0.0
+            val totalPnl  = rawStats6084?.totalPnlSol ?: canon?.pnlSol ?: (memePnl + altsPnl + perpsPnl)
 
             val wrLabel = if (totalDecisive > 0) "${blendedWR.toInt()}% WR" else "--% WR"
             val pnlSign = if (totalPnl >= 0) "+" else ""
@@ -8170,10 +8171,8 @@ This cannot be undone!
             // as the total above, so the breakdown always sums to the headline
             // count (was RunTracker30D buckets, a separate counter that drifts).
             val perAssetLine = try {
-                if (cleanStats6024 != null) {
-                    val raw = canon
-                    val excluded = ((raw?.trades ?: 0) - cleanStats6024.totalStoredTrades).coerceAtLeast(0)
-                    "strategy-clean · raw journal preserved${if (excluded > 0) " · excluded=${excluded}" else ""}"
+                if (rawStats6084 != null) {
+                    "journal raw parity"
                 } else {
                     val bd = com.lifecyclebot.engine.TradeHistoryStore.getAssetBreakdown()
                     fun fmt(label: String, key: String): String {

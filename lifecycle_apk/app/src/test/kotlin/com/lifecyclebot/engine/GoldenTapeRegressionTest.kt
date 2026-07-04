@@ -2691,7 +2691,7 @@ class GoldenTapeRegressionTest {
         val growth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveGrowthDoctrine.kt").readText()
         assertTrue("Live growth doctrine must be materially aggressive for 2x-5x/day target", growth.contains("AGGRESSIVE_2X_5X_LIVE_WALLET_GROWTH") && growth.contains("\"MOONSHOT\" -> 0.35") && growth.contains("walletSol < 10.0 -> 1.250"))
         assertTrue("Final live sizing must emit full growth/cap telemetry", exec.contains("GROWTH_MODE_TRACE") && exec.contains("liquidityCap") && exec.contains("walletCap") && exec.contains("minExec"))
-        assertTrue("All live lanes must receive tick-time runner/hard-floor protection", bot.contains("LIVE RUNNER CAPTURE PARITY") && bot.contains("tickProfitLockEligible") && bot.contains("TICK_PROFIT_LOCK_SKIPPED_LANE"))
+        assertTrue("V5.0.6083: all paper/live lanes must receive tick-time runner/hard-floor protection", bot.contains("V5.0.6083") && bot.contains("val tickProfitLockEligible = true") && !bot.contains("""ForensicLogger.lifecycle("TICK_PROFIT_LOCK_SKIPPED_LANE"""))
         assertTrue("V5.0.4152: tick/universal peak-lock exits must use the same FluidLearningAI high-lock floor shown in UI, not stale loose peak ratios",
             bot.contains("UI/EXEC HIGH-LOCK PARITY") && bot.contains("TICK_PROFIT_LOCK_EXEC_PRICE_REBASE") &&
             bot.contains("FluidLearningAI.getDynamicFluidStop") && bot.contains("pnlPctNow >= lockedFloor") &&
@@ -7041,6 +7041,10 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6081: wallet compounding must use mode-local realized SELL+PARTIAL_SELL money rows, not blended terminal-only strategy rows", walletGov6081.contains("V5.0.6081") && walletGov6081.contains("RuntimeModeAuthority.isPaper()") && walletGov6081.contains("mode6081") && walletGov6081.contains("PARTIAL_SELL") && walletGov6081.contains("RealizedWalletCompounding.moneyRows6081"))
         val exec6082 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("V5.0.6082: paper sizing must exercise live-money compounding floors and winner ceiling for parity", exec6082.contains("moneySizingMode6082") && exec6082.contains("RuntimeModeAuthority.isPaper()") && exec6082.contains("winnerMaxBoost = if (moneySizingMode6082") && exec6082.contains("MONEY_MODE_ABS_FLOOR_LIFT_6082"))
+        val bot6083 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.6083: tick-time hard-floor/profit-lock shell must cover all paper/live lanes, not skip BLUECHIP/PRESALE/LONG_HOLD", bot6083.contains("V5.0.6083") && bot6083.contains("val tickProfitLockEligible = true") && !bot6083.contains("""ForensicLogger.lifecycle("TICK_PROFIT_LOCK_SKIPPED_LANE"""))
+        val main6084 = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue("V5.0.6084: main dashboard headline/footer stats must mirror Trade Journal raw cached totals, not StrategyTruth clean stats", main6084.contains("V5.0.6084") && main6084.contains("DASHBOARD/JOURNAL PARITY") && main6084.contains("val persistedStats = com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()") && main6084.contains("val rawStats6084 = try { com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()") && main6084.contains("journal raw parity") && !main6084.contains("val persistedStats = try { com.lifecyclebot.engine.TradeHistoryStore.getCleanStatsSnapshot4517()") && !main6084.contains("val cleanStats6024 = try { com.lifecyclebot.engine.TradeHistoryStore.getCleanStatsSnapshot4517()"))
     }
 
 
