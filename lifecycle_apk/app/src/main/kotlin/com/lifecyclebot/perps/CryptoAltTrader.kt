@@ -3394,11 +3394,12 @@ object CryptoAltTrader {
             val bal = getEffectiveBalance().takeIf { it > 0.0 } ?: 1.0
             val size = (bal * (DEFAULT_SIZE_PCT / 100.0) * confMult).coerceIn(0.05, bal * 0.45)
             val res = llmOpenPaperBuy(clean, size, "INSIDER_SHARK_COPY_BUY_6096 wallet=${walletLabel.take(24)} conf=$confidence")
-            if (res.success) {
+            val opened = res is LlmTradeResult.Success
+            if (opened) {
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("INSIDER_SHARK_CRYPTO_COPY_BUY_6096") } catch (_: Throwable) {}
                 ErrorLogger.info(TAG, "🦈 INSIDER_SHARK_CRYPTO_COPY_BUY_6096 $clean size=${size.fmt(3)}◎ wallet=${walletLabel.take(24)} conf=$confidence")
             }
-            res.success
+            opened
         } catch (t: Throwable) {
             ErrorLogger.warn(TAG, "INSIDER_SHARK_CRYPTO_COPY_BUY_6096 $clean error: ${t.message}")
             false
