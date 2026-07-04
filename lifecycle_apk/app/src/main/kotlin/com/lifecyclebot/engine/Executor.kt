@@ -3896,13 +3896,16 @@ class Executor(
         // we never go nuclear. Subsequent top-ups stay at the same
         // gain-scaled level rather than decaying.
         val peakGainPct = pos.peakGainPct.coerceAtLeast(0.0)
-        val growthBonus = (peakGainPct / 50.0).coerceIn(0.0, 1.0)
-        val growthMultiplier = (1.0 + growthBonus).coerceAtMost(2.0)
+        val diamondHands6091 = pos.tradingMode.equals("DIAMOND_HANDS", true) || pos.isLongHold
+        val growthBonus = (peakGainPct / 50.0).coerceIn(0.0, if (diamondHands6091) 2.0 else 1.0)
+        val growthMultiplier = (1.0 + growthBonus).coerceAtMost(if (diamondHands6091) 3.0 else 2.0)
         var size       = initSize * growthMultiplier
 
-        // Top-up cap from config
+        // Top-up cap from config. V5.0.6091: DIAMOND_HANDS/long-hold runners get
+        // deeper pyramiding room while still obeying portfolio exposure and wallet caps.
         val currentTotal  = pos.costSol
-        val remainingRoom = c.topUpMaxTotalSol - currentTotal
+        val maxTopUpTotal6091 = if (diamondHands6091) c.topUpMaxTotalSol * 3.0 else c.topUpMaxTotalSol
+        val remainingRoom = maxTopUpTotal6091 - currentTotal
         size = size.coerceAtMost(remainingRoom)
 
         // ── V5.9.894 — totalExposureSol finally consumed in top-up sizing ──
@@ -3932,9 +3935,49 @@ class Executor(
         }
         size = size.coerceAtMost(exposureRoomSol)
 
-        // Minimum viable trade
-        return size.coerceAtMost(walletSol * 0.15)  // never more than 15% of wallet in one add
+        // Minimum viable trade. V5.0.6091: diamond/long-hold runners may add more
+        // per step, but still never exceed the 70% portfolio exposure ceiling above.
+        val perAddWalletPct6091 = if (diamondHands6091) 0.25 else 0.15
+        return size.coerceAtMost(walletSol * perAddWalletPct6091)
                .coerceAtLeast(0.0)
+    }
+
+    /** V5.0.6091 — autonomous add-to-winner trigger.
+     * AGI/SSI/LLM/sentience should be able to add to an existing winner when fresh
+     * conviction appears (whale/velocity buy-in, bull fan, holder growth, slow-build
+     * diamond runner), instead of waiting for a stale meta.topUpReady flag. This never
+     * averages down and never bypasses rug/security/portfolio exposure checks; it only
+     * routes healthy open-position conviction into the existing doTopUp() executor.
+     */
+    private fun autonomousTopUpSignal6091(
+        ts: TokenState,
+        entryScore: Double,
+        exitScore: Double,
+        emafanAlignment: String,
+        volScore: Double,
+        exhaust: Boolean,
+    ): Boolean {
+        return try {
+            val pos = ts.position
+            if (!pos.isOpen || !cfg().autoTrade) return false
+            if (exhaust || exitScore >= 65.0) return false
+            val currentPrice = getActualPrice(ts)
+            val gainPct = pct(pos.entryPrice, currentPrice)
+            if (gainPct < 2.0) return false // add to winners only — never average down
+            val whaleBid = ts.meta.whaleSummary.isNotBlank() || ts.meta.velocityScore >= 70.0
+            val bullStructure = emafanAlignment in listOf("BULL_FAN", "BULL_FLAT") && volScore >= 45.0
+            val holderConviction = ts.holderGrowthRate >= 10.0 && (ts.peakHolderCount >= 50 || ts.holderDataResolved)
+            val diamondConviction = pos.tradingMode.equals("DIAMOND_HANDS", true) || pos.isLongHold ||
+                (gainPct >= 25.0 && bullStructure && holderConviction && ts.lastLiquidityUsd >= 8_000.0)
+            val agiConviction = entryScore >= 65.0 && bullStructure && ts.lastLiquidityUsd >= 4_000.0
+            val runnerConviction = pos.peakGainPct >= 20.0 || gainPct >= 12.0
+            val dangerClear = ts.lastLiquidityUsd >= 2_500.0 && !ts.meta.breakdown && emafanAlignment != "BEAR_FAN"
+            dangerClear && (
+                (whaleBid && gainPct >= 3.0) ||
+                (agiConviction && runnerConviction) ||
+                diamondConviction
+            )
+        } catch (_: Throwable) { false }
     }
 
     /**
@@ -3962,7 +4005,8 @@ class Executor(
     ): Boolean {
         val c   = cfg()
         val pos = ts.position
-        if (!c.topUpEnabled)   return false
+        val autonomyTopUp6091 = autonomousTopUpSignal6091(ts, entryScore, exitScore, emafanAlignment, volScore, exhaust)
+        if (!c.topUpEnabled && !autonomyTopUp6091) return false
         if (!pos.isOpen)       return false
         if (!c.autoTrade)      return false
 
@@ -3981,7 +4025,9 @@ class Executor(
         val effectiveMax = when {
             gainPctNow >= 10000.0 -> 10    // 100x+ moonshot: up to 10 top-ups
             gainPctNow >= 1000.0  -> 7     // 10x+ strong runner: up to 7 top-ups
-            pos.isLongHold || pos.entryScore >= 75.0 -> 5
+            pos.tradingMode.equals("DIAMOND_HANDS", true) -> 12
+            pos.isLongHold || pos.entryScore >= 75.0 -> 7
+            autonomyTopUp6091 -> 6
             else -> c.topUpMaxCount
         }
         if (nextTopUp > effectiveMax) return false
@@ -3995,33 +4041,38 @@ class Executor(
         // and each subsequent rung needs +12% more (was +30%). Forces
         // the new bigger-on-winners behaviour onto existing operator
         // configs that still have the old 25/30 saved in prefs.
-        val earlyFirst = pos.entryScore >= 75.0 && pos.topUpCount == 0
-        val baseMin    = if (earlyFirst) 8.0 else c.topUpMinGainPct.coerceAtMost(10.0)
-        val stepGain   = c.topUpGainStepPct.coerceAtMost(12.0)
+        val earlyFirst = (pos.entryScore >= 75.0 || autonomyTopUp6091) && pos.topUpCount == 0
+        val baseMin    = when {
+            autonomyTopUp6091 && pos.topUpCount == 0 -> 3.0
+            earlyFirst -> 8.0
+            else -> c.topUpMinGainPct.coerceAtMost(10.0)
+        }
+        val stepGain   = if (autonomyTopUp6091) c.topUpGainStepPct.coerceAtMost(8.0) else c.topUpGainStepPct.coerceAtMost(12.0)
         val requiredGain = baseMin + (pos.topUpCount * stepGain)
         if (gainPct < requiredGain) return false
 
         // Cooldown since last top-up
         if (pos.topUpCount > 0) {
             val minsSinceTopUp = (System.currentTimeMillis() - pos.lastTopUpTime) / 60_000.0
-            if (minsSinceTopUp < c.topUpMinCooldownMins) return false
+            val cooldownMins6091 = if (autonomyTopUp6091) c.topUpMinCooldownMins.coerceAtMost(2.0) else c.topUpMinCooldownMins
+            if (minsSinceTopUp < cooldownMins6091) return false
         }
 
         // EMA fan requirement
-        if (c.topUpRequireEmaFan && emafanAlignment != "BULL_FAN") return false
+        if (c.topUpRequireEmaFan && emafanAlignment != "BULL_FAN" && !autonomyTopUp6091) return false
 
         // Don't add into exhaustion
         if (exhaust) return false
 
         // Don't add if exit score is very high (momentum dying)
         // Raised threshold from 35 to 50 to allow more top-ups on runners
-        if (exitScore >= 50.0) return false
+        if (exitScore >= (if (autonomyTopUp6091) 65.0 else 50.0)) return false
 
         // Don't add if entry score is very low (market structure weak)
         if (entryScore < 15.0) return false  // was 20.0 - lowered for more aggressive pyramiding
 
         // Volume must be healthy (but not required to be super strong)
-        if (volScore < 25.0) return false  // was 30.0 - lowered
+        if (volScore < (if (autonomyTopUp6091) 20.0 else 25.0)) return false  // was 30.0 - lowered
 
         // ═══════════════════════════════════════════════════════════════════
         // TREASURY-AWARE MAX POSITION SIZE
@@ -7794,7 +7845,8 @@ class Executor(
             }
         }
 
-        if (cfg().autoTrade && ts.position.isOpen && ts.meta.topUpReady) {
+        val autonomousTopUp6091a = autonomousTopUpSignal6091(ts, entryScore, ts.exitScore, ts.meta.emafanAlignment, ts.meta.volScore, ts.meta.exhaustion)
+        if (cfg().autoTrade && ts.position.isOpen && (ts.meta.topUpReady || autonomousTopUp6091a)) {
             val topUpReady = shouldTopUp(
                 ts              = ts,
                 entryScore      = entryScore,
@@ -7804,6 +7856,7 @@ class Executor(
                 exhaust         = ts.meta.exhaustion,
             )
             if (topUpReady) {
+                try { ForensicLogger.lifecycle("AUTONOMOUS_TOPUP_SIGNAL_6091", "symbol=${ts.symbol} mint=${ts.mint.take(10)} meta=${ts.meta.topUpReady} autonomy=$autonomousTopUp6091a gain=${pct(ts.position.entryPrice, getActualPrice(ts)).fmt(1)} whale=${ts.meta.whaleSummary.isNotBlank()} vel=${ts.meta.velocityScore.fmt(1)} ema=${ts.meta.emafanAlignment} vol=${ts.meta.volScore.fmt(1)}") } catch (_: Throwable) {}
                 doTopUp(ts, walletSol, wallet, totalExposureSol)
             }
         }
@@ -8150,6 +8203,18 @@ class Executor(
                     isPaperMode = isPaperRT(),
                 )
                 
+                if (holdEval.action == HoldingLogicLayer.HoldAction.ADD_MORE && cfg().autoTrade) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "HOLDING_LOGIC_ADD_MORE_TOPUP_6091",
+                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} mode=${ts.position.tradingMode} reason=${holdEval.reason.take(120)} confidence=${holdEval.confidence.fmt(1)} pnl=${currentPnlPct.fmt(1)}",
+                        )
+                        PipelineHealthCollector.labelInc("HOLDING_LOGIC_ADD_MORE_TOPUP_6091")
+                    } catch (_: Throwable) {}
+                    doTopUp(ts, walletSol, wallet, totalExposureSol)
+                    return
+                }
+
                 if (holdEval.action == HoldingLogicLayer.HoldAction.SWITCH_MODE && 
                     holdEval.modeSwitchRecommendation?.shouldSwitch == true) {
                     val rec = holdEval.modeSwitchRecommendation
@@ -8292,7 +8357,8 @@ class Executor(
                 }
             }
             
-            if (cfg().autoTrade && decision.meta.topUpReady) {
+            val autonomousTopUp6091b = autonomousTopUpSignal6091(ts, decision.entryScore, decision.exitScore, decision.meta.emafanAlignment, decision.meta.volScore, decision.meta.exhaustion)
+            if (cfg().autoTrade && (decision.meta.topUpReady || autonomousTopUp6091b)) {
                 val topUpReady = shouldTopUp(
                     ts = ts,
                     entryScore = decision.entryScore,
@@ -8302,6 +8368,7 @@ class Executor(
                     exhaust = decision.meta.exhaustion,
                 )
                 if (topUpReady) {
+                    try { ForensicLogger.lifecycle("AUTONOMOUS_DECISION_TOPUP_SIGNAL_6091", "symbol=${ts.symbol} mint=${ts.mint.take(10)} meta=${decision.meta.topUpReady} autonomy=$autonomousTopUp6091b gain=${pct(ts.position.entryPrice, getActualPrice(ts)).fmt(1)} whale=${ts.meta.whaleSummary.isNotBlank()} vel=${ts.meta.velocityScore.fmt(1)} ema=${decision.meta.emafanAlignment} vol=${decision.meta.volScore.fmt(1)}") } catch (_: Throwable) {}
                     doTopUp(ts, walletSol, wallet, totalExposureSol)
                 }
             }

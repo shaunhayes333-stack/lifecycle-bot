@@ -115,7 +115,8 @@ object HoldingLogicLayer {
         "MOONSHOT" to ModeHoldParams("MOONSHOT", 200.0, -25.0, 15.0, 24 * 60 * 60 * 1000L, true, listOf(100.0, 300.0, 500.0)),
         "PUMP_SNIPER" to ModeHoldParams("PUMP_SNIPER", 50.0, -20.0, 10.0, 30 * 60 * 1000L, true, listOf(25.0, 50.0)),
         "COPY_TRADE" to ModeHoldParams("COPY_TRADE", 40.0, -15.0, 8.0, 2 * 60 * 60 * 1000L, true, listOf(25.0, 50.0)),
-        "LONG_HOLD" to ModeHoldParams("LONG_HOLD", 500.0, -30.0, 20.0, 7 * 24 * 60 * 60 * 1000L, false, listOf(100.0, 250.0, 500.0)),
+        "LONG_HOLD" to ModeHoldParams("LONG_HOLD", 500.0, -30.0, 20.0, 7 * 24 * 60 * 60 * 1000L, true, listOf(100.0, 250.0, 500.0)),
+        "DIAMOND_HANDS" to ModeHoldParams("DIAMOND_HANDS", 5000.0, -35.0, 35.0, 30 * 24 * 60 * 60 * 1000L, false, listOf(250.0, 1000.0, 2500.0)),
         "BLUE_CHIP" to ModeHoldParams("BLUE_CHIP", 100.0, -10.0, 5.0, 30 * 24 * 60 * 60 * 1000L, false, listOf(50.0, 100.0)),
         "CYCLIC" to ModeHoldParams("CYCLIC", 25.0, -12.0, 6.0, 60 * 60 * 1000L, true, listOf(15.0, 25.0)),
         "SLEEPER" to ModeHoldParams("SLEEPER", 300.0, -35.0, 20.0, 48 * 60 * 60 * 1000L, true, listOf(100.0, 200.0, 400.0)),
@@ -167,6 +168,13 @@ object HoldingLogicLayer {
             
             val holdTimeMs = System.currentTimeMillis() - position.entryTime
             val holdTimeMinutes = holdTimeMs / (60 * 1000)
+            // V5.0.6091 — SSI pilot exit authority finally actuated. Patience >1 lets
+            // conviction runners breathe; patience <1 banks faster. Hard stop-loss and
+            // AEM hard-safety exits above remain untouched.
+            val ssiExitPatience6091 = try { SsiPilotCouncil.exitPatience().coerceIn(0.65, 1.55) } catch (_: Throwable) { 1.0 }
+            val targetProfit6091 = params.targetProfitPct * ssiExitPatience6091
+            val trailingStopPct6091 = params.trailingStopPct * ssiExitPatience6091
+            val maxHoldTimeMs6091 = (params.maxHoldTimeMs.toDouble() * ssiExitPatience6091).toLong().coerceAtLeast(params.maxHoldTimeMs / 2L)
             
             // ─────────────────────────────────────────────────────────────────
             // V5.2: Get fluid hold time parameters from FluidLearningAI
@@ -256,18 +264,39 @@ object HoldingLogicLayer {
             }
             
             // Trailing stop (after profit achieved)
-            if (position.peakGainPct > params.targetProfitPct * 0.5) {
-                val trailingStop = position.peakGainPct - params.trailingStopPct
+            if (position.peakGainPct > targetProfit6091 * 0.5) {
+                val trailingStop = position.peakGainPct - trailingStopPct6091
                 if (currentPnlPct < trailingStop) {
                     return HoldEvaluation(
                         action = HoldAction.EXIT_NOW,
-                        reason = "Trailing stop: ${currentPnlPct.toInt()}% < peak-trail (${position.peakGainPct.toInt()}%-${params.trailingStopPct.toInt()}%)",
+                        reason = "Trailing stop: ${currentPnlPct.toInt()}% < peak-trail (${position.peakGainPct.toInt()}%-${trailingStopPct6091.toInt()}%) ssiPatience=${"%.2f".format(ssiExitPatience6091)}",
                         confidence = 90.0,
                         urgency = Urgency.HIGH,
                     )
                 }
             }
             
+            // V5.0.6091 — DIAMOND_HANDS is not blind bagholding. It exists to ride
+            // the first move to monster FDV, then get out when the top starts giving back.
+            // Hard safety above still fires first; this is profit/top capture.
+            val diamondHandsMode6091 = position.tradingMode.equals("DIAMOND_HANDS", true) || position.isLongHold
+            if (diamondHandsMode6091 && position.peakGainPct >= 150.0) {
+                val diamondTrail6091 = when {
+                    position.peakGainPct >= 1000.0 -> 22.0
+                    position.peakGainPct >= 500.0 -> 28.0
+                    else -> 35.0
+                } * ssiExitPatience6091.coerceAtMost(1.15)
+                val diamondGiveback6091 = position.peakGainPct - currentPnlPct
+                if (diamondGiveback6091 >= diamondTrail6091) {
+                    return HoldEvaluation(
+                        action = HoldAction.EXIT_NOW,
+                        reason = "DIAMOND_TOP_GIVEBACK_6091 peak=${position.peakGainPct.toInt()}% now=${currentPnlPct.toInt()}% giveback=${diamondGiveback6091.toInt()}% trail=${diamondTrail6091.toInt()}%",
+                        confidence = 88.0,
+                        urgency = Urgency.HIGH,
+                    )
+                }
+            }
+
             // V5.2: Fluid max hold time exceeded (layer-specific, learning-aware)
             if (holdTimeMinutes > fluidMaxHold) {
                 return HoldEvaluation(
@@ -279,10 +308,10 @@ object HoldingLogicLayer {
             }
             
             // Legacy max hold time fallback
-            if (holdTimeMs > params.maxHoldTimeMs) {
+            if (holdTimeMs > maxHoldTimeMs6091) {
                 return HoldEvaluation(
                     action = HoldAction.EXIT_NOW,
-                    reason = "Max hold time exceeded: ${holdTimeMinutes}min > ${params.maxHoldTimeMs / 60000}min",
+                    reason = "Max hold time exceeded: ${holdTimeMinutes}min > ${maxHoldTimeMs6091 / 60000}min ssiPatience=${"%.2f".format(ssiExitPatience6091)}",
                     confidence = 75.0,
                     urgency = Urgency.HIGH,
                 )
@@ -315,11 +344,12 @@ object HoldingLogicLayer {
             // ─────────────────────────────────────────────────────────────────
             
             if (!isTooEarly) {
-                for (scaleOutLevel in params.scaleOutAt) {
-                    if (currentPnlPct >= scaleOutLevel && position.partialSoldPct < scaleOutLevel) {
+                for (rawScaleOutLevel in params.scaleOutAt) {
+                    val scaleOutLevel = rawScaleOutLevel * ssiExitPatience6091
+                    if (currentPnlPct >= scaleOutLevel && position.partialSoldPct < rawScaleOutLevel) {
                         return HoldEvaluation(
                             action = HoldAction.SCALE_OUT,
-                            reason = "Scale-out target hit: ${currentPnlPct.toInt()}% >= ${scaleOutLevel.toInt()}%",
+                            reason = "Scale-out target hit: ${currentPnlPct.toInt()}% >= ${scaleOutLevel.toInt()}% ssiPatience=${"%.2f".format(ssiExitPatience6091)}",
                             confidence = 40.0,
                             urgency = Urgency.NORMAL,
                         )
@@ -331,15 +361,19 @@ object HoldingLogicLayer {
             // 4. CHECK FOR ADD-MORE OPPORTUNITY
             // ─────────────────────────────────────────────────────────────────
             
-            val canAddMore = isPaperMode || !position.isFullyBuilt
-            if (canAddMore && currentPnlPct > 5.0 && currentPnlPct < params.targetProfitPct * 0.3) {
-                // Token is slightly profitable and momentum is building
-                val hasGoodMomentum = ts.meta.momScore > 30 && ts.meta.volScore > 25
-                if (hasGoodMomentum && holdTimeMinutes > 2) {
+            val diamondHands6091 = position.tradingMode.equals("DIAMOND_HANDS", true) || position.isLongHold
+            val canAddMore = isPaperMode || !position.isFullyBuilt || diamondHands6091
+            if (canAddMore && currentPnlPct > 3.0 && currentPnlPct < params.targetProfitPct * 0.45) {
+                // V5.0.6091 — AGI/SSI add-to-winner authority: token is profitable and
+                // conviction/momentum is building, including whale/holder-growth runners.
+                val whaleBid6091 = ts.meta.whaleSummary.isNotBlank() || ts.meta.velocityScore >= 70.0
+                val holderConviction6091 = ts.holderGrowthRate >= 10.0 && (ts.peakHolderCount >= 50 || ts.holderDataResolved)
+                val hasGoodMomentum = ts.meta.momScore > 30 && ts.meta.volScore > 25 && !ts.meta.exhaustion
+                if ((hasGoodMomentum || whaleBid6091 || holderConviction6091) && holdTimeMinutes > 2) {
                     return HoldEvaluation(
                         action = HoldAction.ADD_MORE,
-                        reason = "Confirmed move with momentum (pnl=${currentPnlPct.toInt()}%, mom=${ts.meta.momScore.toInt()})",
-                        confidence = 35.0,
+                        reason = "AGI add-more conviction (pnl=${currentPnlPct.toInt()}%, mom=${ts.meta.momScore.toInt()}, whale=${whaleBid6091}, holders=+${ts.holderGrowthRate.toInt()}%)",
+                        confidence = if (diamondHands6091 || whaleBid6091) 60.0 else 42.0,
                         urgency = Urgency.LOW,
                     )
                 }
@@ -349,8 +383,8 @@ object HoldingLogicLayer {
             // 5. TIGHTEN STOPS IF IN PROFIT
             // ─────────────────────────────────────────────────────────────────
             
-            if (currentPnlPct > params.targetProfitPct * 0.7) {
-                val tighterStop = currentPnlPct - (params.trailingStopPct * 0.6)
+            if (currentPnlPct > targetProfit6091 * 0.7) {
+                val tighterStop = currentPnlPct - (trailingStopPct6091 * 0.6)
                 return HoldEvaluation(
                     action = HoldAction.HOLD_TIGHTER,
                     reason = "Near target, tightening stop to ${tighterStop.toInt()}%",
@@ -366,7 +400,7 @@ object HoldingLogicLayer {
             
             return HoldEvaluation(
                 action = HoldAction.HOLD,
-                reason = "Holding: pnl=${currentPnlPct.toInt()}%, target=${params.targetProfitPct.toInt()}%, time=${holdTimeMinutes}min",
+                reason = "Holding: pnl=${currentPnlPct.toInt()}%, target=${targetProfit6091.toInt()}%, time=${holdTimeMinutes}min ssiPatience=${"%.2f".format(ssiExitPatience6091)}",
                 confidence = 50.0,
                 modeSwitchRecommendation = modeSwitchRec,  // Include even if not acting on it
                 urgency = Urgency.NORMAL,
@@ -421,6 +455,30 @@ object HoldingLogicLayer {
             }
         }
         
+        // ─────────────────────────────────────────────────────────────────
+        // Any conviction runner → DIAMOND_HANDS
+        // Slow-build, high-liquidity, holder-growing runners can be worth hours/days/weeks.
+        // This mode keeps hard safety but avoids short-mode max-hold/scale-out churn.
+        // ─────────────────────────────────────────────────────────────────
+        if (currentMode !in listOf("DIAMOND_HANDS", "PUMP_DUMP", "ARBITRAGE", "MARKET_MAKER")) {
+            val slowBuildRunner6091 = currentPnlPct >= 35.0 && holdMinutes >= 20
+            val strongStructure6091 = ts.meta.emafanAlignment in listOf("BULL_FAN", "BULL_FLAT") && ts.meta.volScore >= 45 && !ts.meta.exhaustion
+            val holderGrowth6091 = ts.holderGrowthRate >= 15.0 && (ts.peakHolderCount >= 75 || ts.holderDataResolved)
+            val liquidEnough6091 = ts.lastLiquidityUsd >= 12_000.0
+            val whaleOrConviction6091 = ts.meta.whaleSummary.isNotBlank() || ts.meta.velocityScore >= 70.0 || position.entryScore >= 72.0
+            if (slowBuildRunner6091 && strongStructure6091 && holderGrowth6091 && liquidEnough6091 && whaleOrConviction6091) {
+                return ModeSwitchRecommendation(
+                    shouldSwitch = true,
+                    newMode = "DIAMOND_HANDS",
+                    newModeEmoji = "💎",
+                    reason = "Diamond-hands slow-build runner: pnl=${currentPnlPct.toInt()}% holders=+${ts.holderGrowthRate.toInt()}% liq=$${ts.lastLiquidityUsd.toInt()} whale=${ts.meta.whaleSummary.isNotBlank()}",
+                    confidence = 72.0,
+                    newTargetPct = 5000.0,
+                    newStopPct = currentPnlPct * 0.45,
+                )
+            }
+        }
+
         // ─────────────────────────────────────────────────────────────────
         // MOONSHOT → LONG_HOLD
         // If moonshot gains significant value and fundamentals are strong
@@ -561,7 +619,10 @@ object HoldingLogicLayer {
             // Recovery plays
             source.contains("REVIVAL", ignoreCase = true) -> "REVIVAL"
             
-            // Established tokens
+            // First-ride conviction tokens. V5.0.6091: DIAMOND_HANDS catches early
+            // low/mid-cap rides before they are obvious, then uses top-capture exits.
+            age in (10L * 60 * 1000)..(14L * 24 * 60 * 60 * 1000) && mcap in 10_000.0..250_000.0 && liquidity >= 3_000.0 && volScore >= 45.0 -> "DIAMOND_HANDS"
+            liquidity > 15000 && mcap > 75000 && volScore >= 55.0 -> "DIAMOND_HANDS"
             liquidity > 5000 && mcap > 50000 -> "BLUE_CHIP"
             liquidity > 10000 -> "LONG_HOLD"
             
@@ -583,6 +644,7 @@ object HoldingLogicLayer {
             "PUMP_SNIPER" -> "🔫"
             "COPY_TRADE" -> "🦊"
             "LONG_HOLD" -> "💎"
+            "DIAMOND_HANDS" -> "💎"
             "BLUE_CHIP" -> "🔵"
             "CYCLIC" -> "♻️"
             "SLEEPER" -> "💤"
@@ -617,7 +679,7 @@ object HoldingLogicLayer {
             "COPY_TRADE", "WHALE_FOLLOW", "LIQUIDATION_HUNTER" -> "V3"
             
             // Blue Chip layer modes  
-            "BLUE_CHIP", "LONG_HOLD", "SLEEPER" -> "BLUECHIP"
+            "BLUE_CHIP", "LONG_HOLD", "DIAMOND_HANDS", "SLEEPER" -> "BLUECHIP"
             
             // Moonshot layer modes
             "MOONSHOT", "MOONSHOT_ORBITAL", "MOONSHOT_LUNAR", 
