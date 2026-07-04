@@ -9674,7 +9674,11 @@ class BotService : Service() {
                 } catch (_: Throwable) {}
                 return laneBase.copy(
                     signal = "BUY", finalSignal = "BUY", shouldTrade = true,
-                    blockReason = "GOOD_LANE_VOLUME_PIVOT_6020",
+                    // V5.0.6101 — this is a positive BUY pivot, not a block.
+                    // Keeping GOOD_LANE_VOLUME_PIVOT_6020 in blockReason made
+                    // FDG/EXEC telemetry count successful rescue volume as blocks,
+                    // confusing AGI/doctor intervention and operator triage.
+                    blockReason = "",
                     edgeVeto = false,
                     edgeQuality = if (laneBase.edgeQuality == "SKIP") "B" else laneBase.edgeQuality,
                     finalQuality = if (cleanQuality == "C") "B" else cleanQuality,

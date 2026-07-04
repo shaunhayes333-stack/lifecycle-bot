@@ -7105,6 +7105,12 @@ class GoldenTapeRegressionTest {
         val mainUi6100 = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
         assertTrue("V5.0.6100: route-pending UI must fall back to persisted entry route metadata for held winners", mainUi6100.contains("entryRoute6100") && mainUi6100.contains("pos.entryPriceSource") && mainUi6100.contains("pos.entryPoolAddress") && mainUi6100.contains("UNREALIZED · entry route"))
         assertTrue("V5.0.6100: material runners with known persisted buy route must harvest even when volatile RealPriceLock cache is missing/disagrees", executor6099.contains("tryPersistedEntryRouteHarvest6099") && executor6099.contains("PERSISTED_ENTRY_ROUTE_HARVEST_6099") && executor6099.contains("realpricelock_missing_or_disagrees_but_buy_route_known") && executor6099.contains("""tryPersistedEntryRouteHarvest6099("ultra_runner_bank")""") && executor6099.contains("""tryPersistedEntryRouteHarvest6099("wallet_growth_harvest")"""))
+        val fanout6101 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveLaneFanoutPressure.kt").readText()
+        val botService6101 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.6101: live fanout pressure must engage during severe low-WR bootstrap instead of waiting for 40 closes", fanout6101.contains("bootstrapSeverePressure6101") && fanout6101.contains("ratio > 18.0") && fanout6101.contains("n >= 10") && fanout6101.contains("wr < 25.0") && fanout6101.contains("bootstrap_severe_fanout_pressure_low_wr"))
+        val emptyBlockReason6101 = "blockReason = " + "\"" + "\""
+        val badGoodLaneBlockReason6101 = "blockReason = " + "\"" + "GOOD_LANE_VOLUME_PIVOT_6020" + "\""
+        assertTrue("V5.0.6101: GOOD_LANE_VOLUME_PIVOT is a positive BUY pivot and must not be emitted as blockReason", botService6101.contains("GOOD_LANE_VOLUME_PIVOT_6020") && botService6101.contains("positive BUY pivot") && botService6101.contains(emptyBlockReason6101) && !botService6101.contains(badGoodLaneBlockReason6101))
     }
 
 
