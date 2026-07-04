@@ -602,6 +602,21 @@ class MainActivity : AppCompatActivity() {
     )
     @Volatile private var cachedOpenPositionsModel6078: OpenPositionsModel6078 = OpenPositionsModel6078()
     private val mainModelRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    private data class JournalParityUiSnapshot6085(
+        val updatedAtMs: Long = 0L,
+        val rowCount: Int = 0,
+        val totalWins: Int = 0,
+        val totalLosses: Int = 0,
+        val scratchCount: Int = 0,
+        val winRate: Double = 0.0,
+        val totalPnlSol: Double = 0.0,
+        val avgWinPct: Double = 0.0,
+        val avgLossPct: Double = 0.0,
+    )
+    @Volatile private var cachedJournalParity6085: JournalParityUiSnapshot6085 = JournalParityUiSnapshot6085()
+    private val journalParityRefreshInFlight6085 = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val JOURNAL_PARITY_REFRESH_MS_6085: Long = 1_000L
+
 
     // V5.9.1474 — hard global repaint gate. While the bot is running, the live
     // dashboard repaint is observability-only and must never exceed ~1Hz, no
@@ -2552,6 +2567,123 @@ for legal compliance.
     // Non-blocking: the binders read whatever snapshot is currently cached (instant),
     // this recompute publishes the next frame in the background. Always coherent,
     // never half-sorted, never stalls the loop.
+    private fun refreshJournalParitySnapshot6085Async(state: UiState) {
+        val now = System.currentTimeMillis()
+        if (now - cachedJournalParity6085.updatedAtMs < JOURNAL_PARITY_REFRESH_MS_6085) return
+        if (!journalParityRefreshInFlight6085.compareAndSet(false, true)) return
+        val tokensSnapshot = try { state.tokens.values.toList() } catch (_: Throwable) { emptyList<com.lifecyclebot.data.TokenState>() }
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                // V5.0.6085 — EXACT JOURNAL HEADER PARITY HELPER.
+                // JournalActivity.refreshTrades() builds its header from:
+                // getAllValidTradesSnapshot(5000) / DB fallback + current TokenState.trades,
+                // then TradeJournal.getStatsFiltered(filtered). Dashboard must use this
+                // same lifecycle-row pipeline or the main UI and Journal will drift forever.
+                val rawTrades = run {
+                    val mem = com.lifecyclebot.engine.TradeHistoryStore.getAllValidTradesSnapshot(5_000)
+                    if (mem.isNotEmpty()) mem else com.lifecyclebot.engine.TradeHistoryStore.getAllTradesFromDb()
+                }
+                val seenKeys = rawTrades.map { t -> jfKey6085(t.ts, t.mint, t.side) }.toHashSet()
+                val tokenTrades = mutableListOf<com.lifecyclebot.data.Trade>()
+                tokensSnapshot.forEach { ts ->
+                    ts.trades.forEach { t ->
+                        val k = jfKey6085(t.ts, t.mint, t.side)
+                        if (k !in seenKeys) {
+                            seenKeys.add(k)
+                            tokenTrades.add(t)
+                        }
+                    }
+                }
+                val symbolByMint = tokensSnapshot.associate { it.mint to it.symbol }
+                val entries = (rawTrades + tokenTrades)
+                    .filter { com.lifecyclebot.engine.TradeHistoryStore.isValidAccountingTrade(it) }
+                    .sortedByDescending { it.ts }
+                    .map { t -> journalEntryForDashboard6085(t, symbolByMint[t.mint] ?: t.mint.take(8)) }
+                val stats = com.lifecyclebot.engine.TradeJournal(applicationContext).getStatsFiltered(entries)
+                val fresh = JournalParityUiSnapshot6085(
+                    updatedAtMs = System.currentTimeMillis(),
+                    rowCount = entries.size,
+                    totalWins = stats.totalWins,
+                    totalLosses = stats.totalLosses,
+                    scratchCount = stats.scratchCount,
+                    winRate = stats.winRate,
+                    totalPnlSol = stats.totalPnlSol,
+                    avgWinPct = stats.avgWinPct,
+                    avgLossPct = stats.avgLossPct,
+                )
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    cachedJournalParity6085 = fresh
+                }
+            } catch (e: Throwable) {
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_JOURNAL_PARITY_REFRESH_FAIL_6085", "${e.javaClass.simpleName}:${e.message}") } catch (_: Throwable) {}
+            } finally {
+                journalParityRefreshInFlight6085.set(false)
+            }
+        }
+    }
+
+    private fun jfKey6085(ts: Long, mint: String, side: String): String = "${ts}_${mint}_${side}"
+
+    private fun journalParityStatsSnapshot6085(): com.lifecyclebot.engine.TradeHistoryStore.StatsSnapshot? {
+        val j = cachedJournalParity6085
+        if (j.updatedAtMs <= 0L) return null
+        return com.lifecyclebot.engine.TradeHistoryStore.StatsSnapshot(
+            trades24h = j.rowCount,
+            winRate24h = j.winRate.toInt(),
+            pnl24hSol = j.totalPnlSol,
+            totalStoredTrades = j.rowCount,
+            totalTrades = j.rowCount,
+            winRate = j.winRate,
+            avgWinPct = j.avgWinPct,
+            avgLossPct = j.avgLossPct,
+            profitFactor = 0.0,
+            totalPnlSol = j.totalPnlSol,
+            avgHoldTimeMinutes = 0,
+            totalWins = j.totalWins,
+            totalLosses = j.totalLosses,
+            totalScratches = j.scratchCount,
+            wins24h = j.totalWins,
+            losses24h = j.totalLosses,
+            scratches24h = j.scratchCount,
+        )
+    }
+
+    private fun journalEntryForDashboard6085(t: com.lifecyclebot.data.Trade, symbol: String): com.lifecyclebot.engine.TradeJournal.JournalEntry {
+        val sellLike = t.side.equals("SELL", true) || t.side.equals("PARTIAL_SELL", true)
+        val entryPx = t.entryPriceSnapshot.takeIf { it > 0.0 } ?: if (!sellLike) t.price else 0.0
+        return com.lifecyclebot.engine.TradeJournal.JournalEntry(
+            ts = t.ts,
+            symbol = symbol,
+            mint = t.mint,
+            side = t.side,
+            entryPrice = entryPx,
+            exitPrice = if (sellLike) t.price else 0.0,
+            solAmount = t.sol,
+            pnlSol = t.pnlSol,
+            pnlPct = t.pnlPct,
+            reason = t.reason,
+            mode = t.mode,
+            score = t.score,
+            durationMins = 0.0,
+            phase = "",
+            tradingMode = t.tradingMode,
+            tradingModeEmoji = t.tradingModeEmoji,
+            feeSol = t.feeSol,
+            netPnlSol = t.netPnlSol,
+            proofState = t.proofState,
+            positionId = t.positionId,
+            entryTsMs = t.entryTsMs,
+            entryMcapUsd = t.entryMcapUsd,
+            entryQtyToken = t.entryQtyToken,
+            entryCostSol = t.entryCostSol,
+            entryDecimals = t.entryDecimals,
+            soldQtyToken = t.soldQtyToken,
+            remainingQtyToken = t.remainingQtyToken,
+            entryPriceSource = t.entryPriceSource,
+            entryPoolAddress = t.entryPoolAddress,
+        )
+    }
+
     private fun precomputeMainRenderModelAsync(state: UiState) {
         if (!mainModelRefreshInFlight.compareAndSet(false, true)) return
         // Snapshot token refs NOW on the calling thread (cheap shallow copy) so the
@@ -2737,6 +2869,7 @@ for legal compliance.
         // binders below consume the previously-published immutable model. This is
         // the single point that feeds renderWatchlist + renderOpenPositions.
         precomputeMainRenderModelAsync(state)
+        refreshJournalParitySnapshot6085Async(state)
 
         // V5.9.1416 — reset the per-tick heavy-render budget at the start of each
         // pass. Caps synchronous panel re-inflation per frame; overflow defers.
@@ -2852,7 +2985,10 @@ for legal compliance.
         // it from current cash, because cash excludes open deployed capital and may
         // be a different wallet epoch than the lifetime journal.
         val journalStats = try {
-            com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
+            // V5.0.6085 — use the same cached JournalActivity parity snapshot as the
+            // stats tiles. Fallback only exists for the first second before the async
+            // Journal-equivalent refresh publishes.
+            journalParityStatsSnapshot6085() ?: com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
         } catch (_: Throwable) { null }
         val realizedPnlSol = journalStats?.totalPnlSol ?: ws.totalPnlSol
         val pnl    = realizedPnlSol
@@ -3385,7 +3521,7 @@ for legal compliance.
             // report card, so it must mirror the Journal header byte-for-byte. Keep
             // StrategyTruthLedger-clean stats for reports/diagnostics; do not mux them
             // into the dashboard headline and make the app look like two bots.
-            val persistedStats = com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
+            val persistedStats = journalParityStatsSnapshot6085() ?: com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
             // V5.9.355 — Pull meme WR + W/L/S from RunTracker30D so the hero
             // tile matches the 30-Day Proof card byte-for-byte. User report:
             // "the meme coin 30 day is at 26% the livereadiness is drawing
@@ -8153,7 +8289,7 @@ This cannot be undone!
             // The Journal tab is what the operator uses to audit actual persisted rows;
             // this footer must not silently switch to StrategyTruth-clean rows and print
             // a different trade count / WR / PnL from the Journal screen above it.
-            val rawStats6084 = try { com.lifecyclebot.engine.TradeHistoryStore.getStatsCached() } catch (_: Throwable) { null }
+            val rawStats6084 = try { journalParityStatsSnapshot6085() ?: com.lifecyclebot.engine.TradeHistoryStore.getStatsCached() } catch (_: Throwable) { null }
             val canon = try { com.lifecyclebot.engine.TradeHistoryStore.getCanonicalTotals() } catch (_: Throwable) { null }
             val totalTrades = rawStats6084?.totalStoredTrades ?: canon?.trades ?: (memeTrades + altsTrades + perpsTrades)
             val totalWins   = rawStats6084?.totalWins ?: canon?.wins   ?: (memeWins + altsWins + perpsWins)
