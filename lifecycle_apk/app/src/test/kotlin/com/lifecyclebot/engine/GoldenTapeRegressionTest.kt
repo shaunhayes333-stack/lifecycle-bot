@@ -7090,6 +7090,9 @@ class GoldenTapeRegressionTest {
         val insiderCopy6096 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InsiderCopyEngine.kt").readText()
         assertTrue("V5.0.6096: INSIDER_SHARK/COPY must open Crypto Universe positions, not just MEME/watchlist advisories", cryptoAlt6095.contains("copyBuyFromInsiderSignal") && cryptoAlt6095.contains("INSIDER_SHARK_CRYPTO_COPY_BUY_6096") && insiderCopy6096.contains("copyBuyCryptoAlt6096") && insiderCopy6096.contains("CryptoAltTrader.copyBuyFromInsiderSignal"))
         assertTrue("V5.0.6096: ALTS readiness must expose crypto size/layer policy on the main UI", cryptoAlt6095.contains("sizePolicy") && cryptoAlt6095.contains("layerPolicy") && mainActivity6095.contains("val layerPolicy") && mainActivity6095.contains("val sizePolicy") && mainActivity6095.contains("\$layerPolicy"))
+        val cyclic6097 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt").readText()
+        assertTrue("V5.0.6097: CYCLIC ring must guard entry sellability/liquidity/age before a -15 floor can gap to -98", cyclic6097.contains("cyclicEntrySellabilityGuard6097") && cyclic6097.contains("CYCLIC_SELLABILITY_ENTRY_REJECT_6097") && cyclic6097.contains("liq < 15_000.0") && cyclic6097.contains("ageMin in 0.0..3.0") && cyclic6097.contains("lpUnlockedRisk && liq < 50_000.0"))
+        assertTrue("V5.0.6097: CYCLIC normal and starvation-probe filters must both apply sellability guard", cyclic6097.contains("""cyclicEntrySellabilityGuard6097(ts, "candidate")""") && cyclic6097.contains("""cyclicEntrySellabilityGuard6097(ts, "probe")"""))
     }
 
 

@@ -198,6 +198,46 @@ object CyclicTradeEngine {
      * current price. Use Executor's source-aware resolver, require a fresh feed,
      * and run OpenPnlSanity before any PnL/exit/UI state is published.
      */
+    /**
+     * V5.0.6097 — CYCLIC sellability entry guard.
+     * Report 5.0.6096 showed CYCLIC_HARD_FLOOR_-15 booking at -98%. The
+     * stale-price path was already fixed; this is a different failure mode:
+     * Cyclic's entry filter checked fresh price/score/blacklists but not basic
+     * sellability/safety/liquidity/age. A fixed compounding ring is not the
+     * first-minute sniper lane. It must avoid candidates whose next valid mark
+     * can gap straight through the universal -15% floor before the next tick.
+     */
+    private fun cyclicEntrySellabilityGuard6097(ts: TokenState, context: String): Boolean {
+        return try {
+            val safety = ts.safety
+            val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() } ?: 0.0
+            val ageMin = safety.tokenAgeMinutes.takeIf { it >= 0.0 }
+                ?: ((System.currentTimeMillis() - ts.addedToWatchlistAt).coerceAtLeast(0L) / 60_000.0)
+            val hardText = buildString {
+                append(safety.summary).append(' ')
+                append(safety.nameFlag).append(' ')
+                append(safety.bundleRisk).append(' ')
+                append(safety.bundleReason).append(' ')
+                safety.hardBlockReasons.forEach { append(it).append(' ') }
+                safety.softPenalties.forEach { append(it.first).append(' ') }
+            }.lowercase()
+            val lpUnlockedRisk = hardText.contains("lp unlocked") || hardText.contains("large amount of lp unlocked") || safety.lpLockPct == 0.0
+            val unverifiedRisk = hardText.contains("unverified")
+            val holderRisk = safety.topHolderPct >= 65.0 || (ts.topHolderPct ?: -1.0) >= 65.0 || hardText.contains("low amount of holders") || hardText.contains("holder concentration")
+            val lowLiq = liq > 0.0 && liq < 15_000.0
+            val tooFresh = ageMin in 0.0..3.0
+            val blocked = safety.isBlocked || safety.tier == SafetyTier.HARD_BLOCK || safety.hardBlockReasons.isNotEmpty()
+            val reject = blocked || lowLiq || tooFresh || (lpUnlockedRisk && liq < 50_000.0) || (unverifiedRisk && liq < 50_000.0) || holderRisk
+            if (reject) {
+                try { PipelineHealthCollector.labelInc("CYCLIC_SELLABILITY_ENTRY_REJECT_6097") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("CYCLIC_SELLABILITY_ENTRY_REJECT_6097", "context=$context symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=$liq ageMin=${"%.1f".format(ageMin)} tier=${safety.tier} lpLock=${safety.lpLockPct} holder=${safety.topHolderPct} reasons=${safety.hardBlockReasons.joinToString("|")}") } catch (_: Throwable) {}
+            }
+            !reject
+        } catch (_: Throwable) {
+            true // fail-open on guard bugs; hard safety still lives in TokenSafetyChecker/FDG/Executor
+        }
+    }
+
     private fun resolveCyclicPrice(
         ts: TokenState,
         executor: Executor,
@@ -498,6 +538,7 @@ object CyclicTradeEngine {
                 val tokenScore = (ts.lastV3Score ?: ts.entryScore.toInt()).toDouble()
                 !ts.position.isOpen
                     && resolveCyclicPrice(ts, executor, 0.0, "candidate", requireFresh = true).ok
+                    && cyclicEntrySellabilityGuard6097(ts, "candidate")
                     && tokenScore >= effectiveMinScore
                     && ts.mint != currentMint   // don't immediately re-enter same token
                     // V5.9.451 — TokenBlacklist + MemeLossStreakGuard respect.
@@ -567,6 +608,7 @@ object CyclicTradeEngine {
                         val tScore = (ts.lastV3Score ?: ts.entryScore.toInt()).toDouble()
                         !ts.position.isOpen
                             && resolveCyclicPrice(ts, executor, 0.0, "probe", requireFresh = true).ok
+                            && cyclicEntrySellabilityGuard6097(ts, "probe")
                             && tScore >= probeFloor
                             && ts.mint != currentMint
                             && !TokenBlacklist.isBlocked(ts.mint)
