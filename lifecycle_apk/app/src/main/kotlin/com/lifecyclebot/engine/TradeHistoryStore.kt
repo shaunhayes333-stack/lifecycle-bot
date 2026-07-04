@@ -510,6 +510,7 @@ object TradeHistoryStore {
             upper.contains("MANIP") -> "MANIPULATED"
             upper.contains("EXPRESS") -> "EXPRESS"
             upper.contains("CYCLIC") -> "CYCLIC"
+            upper.contains("INSIDER") || upper.contains("SHARK") -> "COPYTRADE"
             upper.contains("COPYTRADE") || upper.contains("COPY") -> "COPYTRADE"
             upper.contains("PROJECTSNIPER") || upper.contains("SNIPER") -> "PROJECT_SNIPER"
             upper.contains("DIPHUNTER") -> "DIP_HUNTER"

@@ -127,6 +127,7 @@ object HoldingLogicLayer {
         "MICRO_CAP" to ModeHoldParams("MICRO_CAP", 300.0, -40.0, 25.0, 12 * 60 * 60 * 1000L, true, listOf(100.0, 200.0, 500.0)),
         "REVIVAL" to ModeHoldParams("REVIVAL", 200.0, -35.0, 18.0, 6 * 60 * 60 * 1000L, true, listOf(100.0, 200.0)),
         "WHALE_FOLLOW" to ModeHoldParams("WHALE_FOLLOW", 50.0, -15.0, 8.0, 2 * 60 * 60 * 1000L, true, listOf(25.0, 50.0)),
+        "INSIDER_SHARK" to ModeHoldParams("INSIDER_SHARK", 400.0, -20.0, 24.0, 12 * 60 * 60 * 1000L, true, listOf(50.0, 150.0, 400.0)),
         "PUMP_DUMP" to ModeHoldParams("PUMP_DUMP", 40.0, -20.0, 8.0, 15 * 60 * 1000L, false, listOf(20.0, 40.0)),
         "MARKET_MAKER" to ModeHoldParams("MARKET_MAKER", 8.0, -5.0, 3.0, 30 * 60 * 1000L, false, listOf(5.0, 8.0)),
         "LIQUIDATION_HUNTER" to ModeHoldParams("LIQUIDATION_HUNTER", 80.0, -25.0, 12.0, 4 * 60 * 60 * 1000L, true, listOf(40.0, 80.0)),
@@ -606,6 +607,9 @@ object HoldingLogicLayer {
         source: String,
     ): String {
         return when {
+            // Named-wallet/social shark alpha
+            source.contains("INSIDER", ignoreCase = true) || source.contains("SHARK", ignoreCase = true) -> "INSIDER_SHARK"
+
             // Ultra new token
             age < 5 * 60 * 1000 && source.contains("PUMP", ignoreCase = true) -> "PRESALE_SNIPE"
             age < 10 * 60 * 1000 && volScore > 80 -> "PUMP_SNIPER"
@@ -655,6 +659,7 @@ object HoldingLogicLayer {
             "MICRO_CAP" -> "🔬"
             "REVIVAL" -> "🔥"
             "WHALE_FOLLOW" -> "🐋"
+            "INSIDER_SHARK" -> "🦈"
             "PUMP_DUMP" -> "💣"
             "MARKET_MAKER" -> "🏛️"
             "LIQUIDATION_HUNTER" -> "🦅"
@@ -676,7 +681,7 @@ object HoldingLogicLayer {
             
             // V3/Quality layer modes
             "STANDARD", "MOMENTUM_SWING", "REVIVAL", "CYCLIC", "NICHE", 
-            "COPY_TRADE", "WHALE_FOLLOW", "LIQUIDATION_HUNTER" -> "V3"
+            "COPY_TRADE", "WHALE_FOLLOW", "INSIDER_SHARK", "LIQUIDATION_HUNTER" -> "V3"
             
             // Blue Chip layer modes  
             "BLUE_CHIP", "LONG_HOLD", "DIAMOND_HANDS", "SLEEPER" -> "BLUECHIP"

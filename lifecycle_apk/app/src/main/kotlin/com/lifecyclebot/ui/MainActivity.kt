@@ -5053,11 +5053,17 @@ for legal compliance.
             if (chip != null) {
                 val paperCount = positions.count { it.position.isPaperPosition }
                 val liveCount = positions.size - paperCount
+                val diamondCount = positions.count { it.position.tradingMode.equals("DIAMOND_HANDS", true) || it.position.isLongHold }
+                val sharkCount = positions.count { it.position.tradingMode.equals("INSIDER_SHARK", true) || it.source.contains("INSIDER", true) || it.source.contains("SHARK", true) }
+                val laneChip = buildString {
+                    if (diamondCount > 0) append(" · DIAMOND $diamondCount expand=3x")
+                    if (sharkCount > 0) append(" · SHARK $sharkCount")
+                }
                 chip.text = when {
                     positions.isEmpty()     -> ""
-                    liveCount == 0          -> "PAPER"
-                    paperCount == 0         -> "LIVE LIVE"
-                    else                    -> "PAPER ${paperCount} paper · LIVE ${liveCount} live"
+                    liveCount == 0          -> "PAPER$laneChip"
+                    paperCount == 0         -> "LIVE LIVE$laneChip"
+                    else                    -> "PAPER ${paperCount} paper · LIVE ${liveCount} live$laneChip"
                 }
                 chip.setTextColor(when {
                     paperCount > 0 && liveCount > 0 -> 0xFFFFAA00.toInt()  // mixed = amber
@@ -8909,9 +8915,16 @@ This cannot be undone!
             val bypassCount = com.lifecyclebot.engine.MarketsTelemetry.multiScannerBypasses.get()
             val insiderBuys = com.lifecyclebot.engine.InsiderCopyEngine.totalCopyBuys.get()
             val insiderExits = com.lifecyclebot.engine.InsiderCopyEngine.totalCopyExits.get()
-            val insiderSuffix = if (insiderBuys > 0 || insiderExits > 0) {
-                " · WHALE$insiderBuys/$insiderExits"
+            val insiderSummary = try { com.lifecyclebot.engine.InsiderCopyEngine.getUiSummary() } catch (_: Throwable) { "" }
+            val insiderSuffix = if (insiderBuys > 0 || insiderExits > 0 || insiderSummary.contains("signals=", true)) {
+                " · SHARK $insiderBuys/$insiderExits ${insiderSummary.take(96)}"
             } else ""
+            val diamondOpen = try {
+                cachedOpenPositionsModel6078.allSorted.count { t ->
+                    t.position.tradingMode.equals("DIAMOND_HANDS", true) || t.position.isLongHold
+                }
+            } catch (_: Throwable) { 0 }
+            val diamondSuffix = " · DIAMOND open=$diamondOpen expand=3x/70% top-capture=on"
             val scannerPulse = if (tele.src > 0 || tele.ok > 0 || tele.err > 0) {
                 "SRC ${tele.src}/${tele.ok}/${tele.err} → RAW ${tele.raw} → ENQ ${tele.enq}"
             } else {
@@ -8920,7 +8933,7 @@ This cannot be undone!
             "$scannerPulse → MQ $mqSize → WL ${activeTokensSize}  ·  Prob $probSize · LIQ-rej ${tele.liqRej} · SAT ${tele.sat}" +
                 (if (!tele.alive && tele.ageSec > 90) " · WARNscan stale ${tele.ageSec}s" else "") +
                 (if (bypassCount > 0) " · OKBypass $bypassCount" else "") +
-                insiderSuffix
+                insiderSuffix + diamondSuffix
         } catch (_: Exception) { "" }
         tvWatchlistHeader.text = if (funnelLine.isNotEmpty()) {
             "Watchlist (${activeTokensSize})\n$funnelLine"

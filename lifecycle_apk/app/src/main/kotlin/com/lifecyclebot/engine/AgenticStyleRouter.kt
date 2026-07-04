@@ -39,6 +39,7 @@ object AgenticStyleRouter {
         MAINSTREAM_CRYPTO_SWING("mainstream_crypto_swing", setOf("QUALITY", "BLUECHIP", "MOONSHOT"), setOf("MAINSTREAM_CRYPTO", "SWING", "QUALITY_DEPTH"), 0.96, 1.22, 2.10),
         VOLUME_IGNITION_SCALP("volume_ignition_scalp", setOf("EXPRESS", "SHITCOIN", "MANIPULATED"), setOf("VOLUME_IGNITION", "ORDER_FLOW", "SCALP"), 0.78, 0.92, 0.75),
         SMART_WALLET_COPY_FOLLOW("smart_wallet_copy_follow", setOf("QUALITY", "MOONSHOT", "BLUECHIP"), setOf("COPY_TRADE", "WHALE_WALLET", "SMART_MONEY"), 0.82, 1.12, 1.70),
+        INSIDER_SHARK_FOLLOW("insider_shark_follow", setOf("INSIDER_SHARK", "MOONSHOT", "QUALITY"), setOf("INSIDER_WALLET", "SOCIAL_ALPHA", "SMART_MONEY", "COPY_TRADE"), 0.92, 1.35, 2.40),
         NARRATIVE_SOCIAL_IGNITION("narrative_social_ignition", setOf("MANIPULATED", "SHITCOIN", "EXPRESS"), setOf("NARRATIVE", "SOCIAL", "SENTIMENT"), 0.72, 1.02, 0.85),
         LIQUIDITY_DEPTH_QUALITY("liquidity_depth_quality", setOf("QUALITY", "BLUECHIP", "TREASURY"), setOf("LIQUIDITY_DEPTH", "QUALITY_DEPTH", "MAINSTREAM_CRYPTO"), 1.05, 1.18, 2.20),
         PANIC_REVERSION_BOUNCE("panic_reversion_bounce", setOf("DIP_HUNTER", "TREASURY", "QUALITY"), setOf("PANIC_REVERSION", "REENTRY_RECOVERY", "DIP_RECLAIM"), 0.62, 0.95, 1.05),
@@ -248,6 +249,7 @@ object AgenticStyleRouter {
             classification.tradeType == ModeRouter.TradeType.BREAKOUT_CONTINUATION -> Style.BREAKOUT_RUNNER
             classification.tradeType == ModeRouter.TradeType.GRADUATION -> Style.SWING_HOLD
             classification.tradeType == ModeRouter.TradeType.REVERSAL_RECLAIM -> Style.PULLBACK_RECLAIM
+            classification.tradeType == ModeRouter.TradeType.INSIDER_SHARK -> Style.INSIDER_SHARK_FOLLOW
             classification.tradeType == ModeRouter.TradeType.WHALE_ACCUMULATION -> Style.WHALE_FOLLOW
             classification.tradeType == ModeRouter.TradeType.TREND_PULLBACK -> Style.REACCUMULATION
             classification.tradeType == ModeRouter.TradeType.SENTIMENT_IGNITION -> Style.QUICK_FLIP

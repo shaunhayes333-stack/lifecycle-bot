@@ -111,6 +111,15 @@ object ModeRouter {
             maxHoldMins = 120,       // Medium patience
             riskTier = 3,
         ),
+        INSIDER_SHARK(
+            emoji = "🦈",
+            label = "Insider Shark",
+            maxSizePct = 8.0,
+            defaultStopPct = 18.0,
+            defaultTpPct = 45.0,
+            maxHoldMins = 240,
+            riskTier = 3,
+        ),
         UNKNOWN(
             emoji = "❓",
             label = "Unknown",
@@ -154,7 +163,23 @@ object ModeRouter {
         val tokenAgeMins = if (hist.isNotEmpty()) {
             (now - hist.first().ts) / 60_000.0
         } else 999.0
-        
+
+        val sourceTags = buildString {
+            append(ts.source.uppercase())
+            append('|')
+            append(ts.laneAffinity.joinToString("|") { it.uppercase() })
+            append('|')
+            append(ts.toolAffinity.joinToString("|") { it.uppercase() })
+        }
+        if (sourceTags.contains("INSIDER_SHARK") || sourceTags.contains("INSIDER_WALLET") || sourceTags.contains("SOCIAL_ALPHA")) {
+            scores[TradeType.INSIDER_SHARK] = scores[TradeType.INSIDER_SHARK]!! + 82.0
+            signals.add("INSIDER_SHARK: wallet/social shark alpha source")
+            if (sourceTags.contains("SMART_MONEY") || sourceTags.contains("COPY_TRADE")) {
+                scores[TradeType.INSIDER_SHARK] = scores[TradeType.INSIDER_SHARK]!! + 8.0
+                signals.add("INSIDER_SHARK: smart-money/copy confirmation")
+            }
+        }
+
         // ─────────────────────────────────────────────────────────────────
         // FRESH LAUNCH DETECTION
         // ─────────────────────────────────────────────────────────────────
@@ -695,6 +720,7 @@ object ModeRouter {
             TradeType.REVERSAL_RECLAIM -> UnifiedModeOrchestrator.ExtendedMode.REVIVAL
             TradeType.WHALE_ACCUMULATION -> UnifiedModeOrchestrator.ExtendedMode.WHALE_FOLLOW
             TradeType.COPY_TRADE -> UnifiedModeOrchestrator.ExtendedMode.COPY_TRADE
+            TradeType.INSIDER_SHARK -> UnifiedModeOrchestrator.ExtendedMode.COPY_TRADE
             TradeType.GRADUATION -> UnifiedModeOrchestrator.ExtendedMode.MOONSHOT
             TradeType.TREND_PULLBACK -> UnifiedModeOrchestrator.ExtendedMode.STANDARD
             TradeType.SENTIMENT_IGNITION -> UnifiedModeOrchestrator.ExtendedMode.PUMP_SNIPER

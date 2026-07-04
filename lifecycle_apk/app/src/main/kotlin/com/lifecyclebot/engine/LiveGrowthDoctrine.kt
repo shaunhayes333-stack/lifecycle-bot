@@ -25,7 +25,7 @@ object LiveGrowthDoctrine {
         "STANDARD", "QUALITY", "BLUECHIP", "BLUE_CHIP", "TREASURY",
         "MOONSHOT", "SHITCOIN", "MANIPULATED", "MANIP", "DIP_HUNTER",
         "PROJECT_SNIPER", "SNIPER", "EXPRESS", "CYCLIC", "PRESALE",
-        "PUMP_SNIPER", "WHALE", "WHALE_FOLLOW", "COPY", "COPY_TRADE",
+        "PUMP_SNIPER", "WHALE", "WHALE_FOLLOW", "INSIDER_SHARK", "COPY", "COPY_TRADE",
         "MICRO_CAP", "REVIVAL", "ARBITRAGE", "MARKET_MAKER", "LIQUIDATION_HUNTER"
     )
 
@@ -33,7 +33,7 @@ object LiveGrowthDoctrine {
         "PUMP_FUN", "PUMP_GRADUATION", "RAYDIUM", "JUPITER", "METIS",
         "DEX", "SMART_CHART", "MFE_TRAIL", "DIAMOND_HANDS", "DEGEN_ENTRY",
         "MICRO_SNIPE", "SNIPE_AGE_GATE", "PULLBACK_RECLAIM", "DIP_RECLAIM",
-        "REENTRY_RECOVERY", "WHALE", "WHALE_WALLET", "COPY_TRADE",
+        "REENTRY_RECOVERY", "WHALE", "WHALE_WALLET", "INSIDER_WALLET", "SOCIAL_ALPHA", "COPY_TRADE",
         "SMART_MONEY", "NARRATIVE", "SOCIAL", "SENTIMENT", "ORDER_FLOW",
         "SCALP", "ARB", "FLOW_IMBALANCE", "VENUE_LAG", "MEV_PROTECTION",
         "JITO", "DEFENSIVE_PROBE", "PATTERN_CLASSIFIER", "PATTERN_BACKTESTER"
@@ -62,6 +62,7 @@ object LiveGrowthDoctrine {
             l.contains("SNIP") || l.contains("PRESALE") || l.contains("PUMP") || l.contains("FRESH") -> "PROJECT_SNIPER"
             l.contains("EXPRESS") || l.contains("SCALP") -> "EXPRESS"
             l.contains("CYCLIC") -> "CYCLIC"
+            l.contains("INSIDER") || l.contains("SHARK") -> "INSIDER_SHARK"
             l.contains("WHALE") -> "WHALE_FOLLOW"
             l.contains("COPY") -> "COPY_TRADE"
             l.contains("ARB") || l.contains("FLOW") || l.contains("VENUE") -> "ARBITRAGE"
@@ -84,6 +85,7 @@ object LiveGrowthDoctrine {
             "QUALITY" -> 1.42
             "BLUECHIP" -> 1.40
             "PROJECT_SNIPER" -> 1.34
+            "INSIDER_SHARK" -> 1.24
             "WHALE_FOLLOW" -> 1.16
             "COPY_TRADE" -> 0.96
             "DIP_HUNTER" -> 1.08
@@ -97,7 +99,7 @@ object LiveGrowthDoctrine {
         }
         val liqPct = when (c) {
             "QUALITY", "BLUECHIP", "MOONSHOT" -> 0.0080
-            "PROJECT_SNIPER", "WHALE_FOLLOW" -> 0.0060
+            "PROJECT_SNIPER", "WHALE_FOLLOW", "INSIDER_SHARK" -> 0.0060
             "DIP_HUNTER", "CYCLIC", "COPY_TRADE" -> 0.0044
             "SHITCOIN", "MANIPULATED", "EXPRESS", "ARBITRAGE" -> 0.0035
             else -> 0.0045
@@ -105,7 +107,7 @@ object LiveGrowthDoctrine {
         val maxWalletPct = when (c) {
             "MOONSHOT" -> 0.35
             "QUALITY", "BLUECHIP" -> 0.28
-            "PROJECT_SNIPER", "WHALE_FOLLOW" -> 0.26
+            "PROJECT_SNIPER", "WHALE_FOLLOW", "INSIDER_SHARK" -> 0.26
             "TREASURY" -> 0.16
             "COPY_TRADE", "DIP_HUNTER", "CYCLIC" -> 0.14
             else -> 0.10

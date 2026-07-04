@@ -50,6 +50,7 @@ object TokenMergeQueue {
         "BIRDEYE_TRENDING" to 60,
         "HELIUS_PROGRAM" to 59,
         "SOLANA_RPC_PROGRAM" to 59,
+        "INSIDER_SHARK" to 76,
         "WHALE_COPY" to 55,
         "DATA_ORCHESTRATOR" to 50,
         "V3_SCANNER" to 48,
@@ -285,8 +286,10 @@ object TokenMergeQueue {
 
         val fastTrackBonus = if (
             scanners.size == 1 &&
-            bestScanner in setOf("DEX_BOOSTED", "DEX_TRENDING", "V3_PREMIUM", "WHALE_COPY") &&
-            liquidityUsd >= HIGH_QUALITY_SINGLE_LIQUIDITY
+            (
+                bestScanner == "INSIDER_SHARK" ||
+                (bestScanner in setOf("DEX_BOOSTED", "DEX_TRENDING", "V3_PREMIUM", "WHALE_COPY") && liquidityUsd >= HIGH_QUALITY_SINGLE_LIQUIDITY)
+            )
         ) {
             HIGH_QUALITY_SINGLE_BONUS
         } else {
@@ -306,6 +309,7 @@ object TokenMergeQueue {
         if (src.contains("RAYDIUM") || src.contains("NEW_POOL")) out += listOf("MOONSHOT", "SHITCOIN", "MANIPULATED", "DIP_HUNTER")
         if (src.contains("METEORA") || src.contains("ORCA") || src.contains("PUMPSWAP") || src.contains("JUPITER") || src.contains("HELIUS") || src.contains("SOLANA_RPC")) out += listOf("MOONSHOT", "PROJECT_SNIPER", "QUALITY", "BLUECHIP", "STANDARD", "CORE", "V3")
         if (src.contains("DEX_BOOSTED") || src.contains("DEX_TRENDING") || src.contains("COINGECKO") || src.contains("BIRDEYE")) out += listOf("QUALITY", "BLUECHIP", "TREASURY", "STANDARD", "CORE", "V3")
+        if (src.contains("INSIDER") || src.contains("SHARK")) out += listOf("INSIDER_SHARK", "WHALE_FOLLOW", "COPY_TRADE", "MOONSHOT", "QUALITY")
         if (src.contains("WHALE")) out += listOf("QUALITY", "BLUECHIP", "TREASURY")
         if (marketCapUsd in 75_000.0..1_000_000.0) out += "QUALITY"
         if (marketCapUsd >= 1_000_000.0 || liquidityUsd >= 75_000.0) out += "BLUECHIP"
@@ -323,6 +327,7 @@ object TokenMergeQueue {
         if (src.contains("PUMPSWAP")) out += listOf("PUMPSWAP", "MEME")
         if (src.contains("JUPITER")) out += listOf("JUPITER", "ROUTE_GRAPH", "SOLANA_WIDE")
         if (src.contains("HELIUS") || src.contains("SOLANA_RPC")) out += listOf("PROGRAM_ACCOUNT", "SOLANA_WIDE")
+        if (src.contains("INSIDER") || src.contains("SHARK")) out += listOf("INSIDER_WALLET", "SOCIAL_ALPHA", "SMART_MONEY", "COPY_TRADE")
         if (src.contains("DEX")) out += "DEX"
         if (src.contains("COINGECKO") || src.contains("BIRDEYE")) out += "TRENDING"
         if (marketCapUsd >= 75_000.0 || liquidityUsd >= 25_000.0) out += "QUALITY_DEPTH"

@@ -9758,6 +9758,7 @@ class BotService : Service() {
         ModeRouter.TradeType.FRESH_LAUNCH        -> setOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS", "MANIPULATED")  // quick snipe
         ModeRouter.TradeType.BREAKOUT_CONTINUATION -> setOf("MOONSHOT", "CYCLIC", "EXPRESS")                       // runner
         ModeRouter.TradeType.GRADUATION          -> setOf("MOONSHOT", "MANIPULATED", "CYCLIC")                     // chaos→structure
+        ModeRouter.TradeType.INSIDER_SHARK      -> setOf("INSIDER_SHARK", "MOONSHOT", "QUALITY")                     // named-wallet/social shark alpha
         ModeRouter.TradeType.WHALE_ACCUMULATION  -> setOf("QUALITY", "BLUECHIP", "CYCLIC")                         // smart money
         ModeRouter.TradeType.REVERSAL_RECLAIM    -> setOf("DIP_HUNTER", "CASHGEN", "TREASURY")                     // dip reclaim
         ModeRouter.TradeType.TREND_PULLBACK      -> setOf("QUALITY", "TREASURY", "CYCLIC", "CASHGEN")              // orderly uptrend
@@ -23777,6 +23778,7 @@ if (hotExitHandledSweep) {
                 "MOMENTUM_SWING" -> ModeRouter.TradeType.BREAKOUT_CONTINUATION
                 "REVIVAL" -> ModeRouter.TradeType.REVERSAL_RECLAIM
                 "WHALE_FOLLOW" -> ModeRouter.TradeType.WHALE_ACCUMULATION
+                "INSIDER_SHARK" -> ModeRouter.TradeType.INSIDER_SHARK
                 "COPY_TRADE" -> ModeRouter.TradeType.COPY_TRADE  // FIX: Separate exit logic
                 "MOONSHOT" -> ModeRouter.TradeType.GRADUATION
                 "PUMP_SNIPER" -> ModeRouter.TradeType.SENTIMENT_IGNITION
@@ -23826,6 +23828,7 @@ if (hotExitHandledSweep) {
                     "MOMENTUM_SWING" -> ModeRouter.TradeType.BREAKOUT_CONTINUATION
                     "REVIVAL" -> ModeRouter.TradeType.REVERSAL_RECLAIM
                     "WHALE_FOLLOW" -> ModeRouter.TradeType.WHALE_ACCUMULATION
+                    "INSIDER_SHARK" -> ModeRouter.TradeType.INSIDER_SHARK
                     "COPY_TRADE" -> ModeRouter.TradeType.COPY_TRADE
                     "MOONSHOT" -> ModeRouter.TradeType.GRADUATION
                     "PUMP_SNIPER" -> ModeRouter.TradeType.SENTIMENT_IGNITION

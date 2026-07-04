@@ -5963,6 +5963,16 @@ class Executor(
                 ts.position.lowestPrice = currentPrice
         }
 
+        try {
+            val insiderExit6092 = InsiderCopyEngine.exitSignalForMint(ts.mint, ts.symbol)
+            if (insiderExit6092 != null) {
+                ForensicLogger.lifecycle("INSIDER_SHARK_MEME_EXIT_6092", "symbol=${ts.symbol} mint=${ts.mint.take(10)} wallet=${insiderExit6092.walletLabel} conf=${insiderExit6092.confidence} path=runManageOnly")
+                PipelineHealthCollector.labelInc("INSIDER_SHARK_MEME_EXIT_6092")
+                requestSell(ts, "INSIDER_SHARK_COPY_EXIT_6092_${insiderExit6092.walletLabel.take(18)}", wallet, walletSol)
+                return
+            }
+        } catch (_: Throwable) {}
+
         // V5.9.1259 — UNIVERSAL STALE-FEED EVICTION (volume unblock).
         // ════════════════════════════════════════════════════════════════
         // Runtime evidence (session 9612dbdf, 19:44): 10 open SHITCOIN/MOONSHOT/
@@ -8188,6 +8198,13 @@ class Executor(
 
         if (ts.position.isOpen) {
             try {
+                val insiderExit6092 = InsiderCopyEngine.exitSignalForMint(ts.mint, ts.symbol)
+                if (insiderExit6092 != null) {
+                    ForensicLogger.lifecycle("INSIDER_SHARK_MEME_EXIT_6092", "symbol=${ts.symbol} mint=${ts.mint.take(10)} wallet=${insiderExit6092.walletLabel} conf=${insiderExit6092.confidence} path=maybeActWithDecision")
+                    PipelineHealthCollector.labelInc("INSIDER_SHARK_MEME_EXIT_6092")
+                    requestSell(ts, "INSIDER_SHARK_COPY_EXIT_6092_${insiderExit6092.walletLabel.take(18)}", wallet, walletSol)
+                    return
+                }
                 val currentPnlPct = ((getActualPrice(ts) - ts.position.entryPrice) / ts.position.entryPrice) * 100
                 // V5.0.4109 — DEADLOCK FIX. Previously this was a
                 // runBlocking { HoldingLogicLayer.evaluatePosition(...) } call
