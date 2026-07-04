@@ -9514,7 +9514,12 @@ class Executor(
         // it harder than the legacy 1.75× ceiling. Route, wallet, liquidity,
         // reserve, zero-liq, and rug safety remain enforced by realisticLiveEntrySize
         // and upstream gates.
-        val winnerMaxBoost = if (RuntimeModeAuthority.isLive() && laneEvMult > 1.0) 2.35 else 1.75
+        // V5.0.6082 — PAPER/LIVE COMPOUNDING SIZE PARITY.
+        // Paper is the live-money simulator. If a lane is proven edge, paper must
+        // exercise the same winner ceiling/anti-dust pressure as live or it cannot
+        // validate whether a $100 wallet can compound aggressively.
+        val moneySizingMode6082 = RuntimeModeAuthority.isLive() || RuntimeModeAuthority.isPaper()
+        val winnerMaxBoost = if (moneySizingMode6082 && laneEvMult > 1.0) 2.35 else 1.75
         // V5.0.4129 — ABSOLUTE FLOOR + PATTERN GOLDEN GOOSE SIZE OVERRIDE.
         // Operator: "+24,570% generated only $0.33 due to tiny entry size." The
         // previous relative floor (liveFloorMult × sol) couldn't recover absolute
@@ -9609,7 +9614,7 @@ class Executor(
             com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER  -> 1.20
             else                                                    -> 1.00
         }
-        val absMinSol4129 = if (RuntimeModeAuthority.isLive() &&
+        val absMinSol4129 = if (moneySizingMode6082 &&
                                 walletSol > absEntryFloor4129 * 2.5 &&
                                 gooseVerdict4129 != com.lifecyclebot.engine.TokenWinMemory.Verdict.TOXIC &&
                                 gooseVerdict4129 != com.lifecyclebot.engine.TokenWinMemory.Verdict.CATASTROPHIC) {
@@ -9619,8 +9624,8 @@ class Executor(
         val upperCap4129 = sol * winnerMaxBoost * gooseUpperMult4129
         val effSolRaw = (sol * multiplierProduct * laneTilt4132 * bridgeMult4132).coerceIn(maxOf(relMinSol4129, absMinSol4129), upperCap4129 * laneTilt4132)
         if (absMinSol4129 > 0.0 && (sol * multiplierProduct) < absMinSol4129) {
-            try { ForensicLogger.lifecycle("LIVE_ABS_FLOOR_LIFT_V4129", "symbol=${ts.symbol} lane=$laneTag goose=${gooseVerdict4129.name} raw=${(sol*multiplierProduct).fmt(4)} → lift=${absMinSol4129.fmt(4)} wallet=${walletSol.fmt(3)}") } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("LIVE_ABS_FLOOR_LIFT_${gooseVerdict4129.name}") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("MONEY_MODE_ABS_FLOOR_LIFT_6082", "symbol=${ts.symbol} lane=$laneTag mode=${if (RuntimeModeAuthority.isPaper()) "paper" else "live"} goose=${gooseVerdict4129.name} raw=${(sol*multiplierProduct).fmt(4)} → lift=${absMinSol4129.fmt(4)} wallet=${walletSol.fmt(3)}") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("MONEY_MODE_ABS_FLOOR_LIFT_6082_${gooseVerdict4129.name}") } catch (_: Throwable) {}
         }
         if (dumpRegimeLive) {
             try { ForensicLogger.lifecycle("DUMP_REGIME_LIVE_SIZE_SHAPED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag regimeMult=$regimeMult laneCap=$laneSizeCap floor=$liveFloorMult raw=${effSolRaw.fmt(4)}") } catch (_: Throwable) {}

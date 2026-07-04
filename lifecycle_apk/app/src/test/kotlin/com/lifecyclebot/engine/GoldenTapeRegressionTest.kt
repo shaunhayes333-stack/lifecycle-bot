@@ -7039,6 +7039,8 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6080: runner/give-back exits must bypass paper settle-in so warmup cannot let peaks collapse", bot6080.contains("DRAWDOWN_FROM_PEAK_SETTLE_BYPASS_6080") && bot6080.indexOf("DRAWDOWN_FROM_PEAK_SETTLE_BYPASS_6080") < bot6080.indexOf("isInPaperSettleIn(ts, cfg.paperMode)"))
         val walletGov6081 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RealizedWalletCompoundingGovernor.kt").readText()
         assertTrue("V5.0.6081: wallet compounding must use mode-local realized SELL+PARTIAL_SELL money rows, not blended terminal-only strategy rows", walletGov6081.contains("V5.0.6081") && walletGov6081.contains("RuntimeModeAuthority.isPaper()") && walletGov6081.contains("mode6081") && walletGov6081.contains("PARTIAL_SELL") && walletGov6081.contains("RealizedWalletCompounding.moneyRows6081"))
+        val exec6082 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6082: paper sizing must exercise live-money compounding floors and winner ceiling for parity", exec6082.contains("moneySizingMode6082") && exec6082.contains("RuntimeModeAuthority.isPaper()") && exec6082.contains("winnerMaxBoost = if (moneySizingMode6082") && exec6082.contains("MONEY_MODE_ABS_FLOOR_LIFT_6082"))
     }
 
 
