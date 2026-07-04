@@ -144,13 +144,15 @@ object ReportingHub {
         val journal = try { TradeHistoryStore.getStatsCached() } catch (_: Throwable) { null }
         val avgCycle = if (snap != null && snap.cycleCount > 0L) snap.totalCycleMs / snap.cycleCount else -1L
         fun phase(name: String): Long = snap?.phaseCounts?.get(name) ?: 0L
-        val loop = phase("BOT_LOOP_TICK")
+        fun label6098(name: String): Long = snap?.labelCounts?.get(name) ?: 0L
+        val loop = phase("BOT_LOOP_TICK").takeIf { it > 0L } ?: label6098("BOT_LOOP_TICK")
         val intake = phase("INTAKE")
         val lane = phase("LANE_EVAL")
         val fdg = phase("FDG")
         val exec = phase("EXEC")
-        val journalRows = phase("TRADEJRNL_REC")
-        appendLine("Runtime: state=${rt?.state ?: "?"} active=${rt?.runtimeActive ?: "?"} paper=${rt?.paperMode ?: "?"} enabled=${rt?.enabledTraders ?: "?"}")
+        val journalRows = phase("TRADEJRNL_REC").takeIf { it > 0L } ?: label6098("TRADEJRNL_REC")
+        val authorityEnabled6098 = safe("enabled_authority_6098") { EnabledTraderAuthority.snapshotStr() }
+        appendLine("Runtime: state=${rt?.state ?: "?"} active=${rt?.runtimeActive ?: "?"} paper=${rt?.paperMode ?: "?"} enabled=${rt?.enabledTraders ?: "?"} authority=$authorityEnabled6098")
         appendLine("Funnel: loop=$loop intake=$intake lane=$lane fdg=$fdg exec=$exec journal=$journalRows")
         appendLine("ANR: hints=${snap?.anrHints ?: -1} maxFrame=${snap?.maxFrameGapMs ?: -1}ms avgCycle=${avgCycle}ms")
         appendLine("Journal cache: trades=${journal?.totalStoredTrades ?: -1} WR=${journal?.winRate?.let { String.format(Locale.US, "%.1f", it) } ?: "?"}% PnL=${journal?.totalPnlSol?.let { String.format(Locale.US, "%.4f", it) } ?: "?"} SOL")
@@ -205,8 +207,13 @@ object ReportingHub {
         val pipe = safeSnapshot { PipelineHealthCollector.snapshot() }
         val wallet = try { BotService.status.walletSol } catch (_: Throwable) { 0.0 }
         val open = try { BotService.status.openPositions.toList() } catch (_: Throwable) { emptyList() }
-        var trustedOpenPnl = 0.0
-        var trustedOpenCount = 0
+        var trustedLiveOpenPnl = 0.0
+        var trustedLiveOpenCount = 0
+        var trustedPaperOpenPnl = 0.0
+        var trustedPaperOpenCount = 0
+        val localLiveOpen6098 = open.count { !it.position.isPaperPosition }
+        val localPaperOpen6098 = open.count { it.position.isPaperPosition }
+        val hostTrackerOpen6098 = safeSnapshot { HostWalletTokenTracker.getOpenCount() } ?: -1
         val top = open.asSequence().map { ts ->
             val p = ts.position
             // V5.0.6037: no local price/PnL math here; consume canonical pricing truth below.
@@ -214,7 +221,8 @@ object ReportingHub {
             val route = try { RealPriceLock.lastRouteTruth(ts.mint) } catch (_: Throwable) { null }
             val pnlPct = truth6037.pnlPct
             val pnlSol = truth6037.pnlSol
-            if (truth6037.trusted && !p.isPaperPosition && pnlSol > 0.0) { trustedOpenPnl += pnlSol; trustedOpenCount += 1 }
+            if (truth6037.trusted && !p.isPaperPosition) { trustedLiveOpenPnl += pnlSol; if (pnlSol > 0.0) trustedLiveOpenCount += 1 }
+            if (truth6037.trusted && p.isPaperPosition) { trustedPaperOpenPnl += pnlSol; if (pnlSol > 0.0) trustedPaperOpenCount += 1 }
             val routeTxt = when {
                 route != null -> "route=${route.impliedRatio.fmt1()}x/${if (route.ok) "ok" else "claim_mismatch"}"
                 else -> "route=canonical_mark_source:${truth6037.source}"
@@ -222,7 +230,7 @@ object ReportingHub {
             val basisTxt = if (truth6037.trusted) "basis=trusted" else "basis=${truth6037.reason.ifBlank { "untrusted" }}"
             Triple(pnlPct, pnlSol, "${ts.symbol.ifBlank { ts.mint.take(6) }} lane=${p.tradingMode.ifBlank { "?" }} ${basisTxt} ${routeTxt} open=${p.costSol.fmt4()} mark=${truth6037.markPrice} pnl=${pnlPct.fmt1()}%/${pnlSol.fmt4()} SOL")
         }.sortedByDescending { it.first }.take(5).toList()
-        appendLine("wallet=${wallet.fmt4()} SOL hostOpen=${open.count { !it.position.isPaperPosition }} trustedOpen=${trustedOpenPnl.fmt4()} SOL runners=$trustedOpenCount note=open_unrealized_not_wallet_until_sell_finality")
+        appendLine("wallet=${wallet.fmt4()} SOL localOpen=live:$localLiveOpen6098 paper:$localPaperOpen6098 hostTracker=$hostTrackerOpen6098 trustedLiveOpen=${trustedLiveOpenPnl.fmt4()} SOL liveRunners=$trustedLiveOpenCount trustedPaperOpen=${trustedPaperOpenPnl.fmt4()} SOL paperRunners=$trustedPaperOpenCount note=open_unrealized_not_wallet_until_sell_finality")
         if (pipe != null) {
             fun label(k: String): Long = pipe.labelCounts[k] ?: 0L
             appendLine("harvest: walletGrowth=${label("WALLET_GROWTH_HARVEST_TRIGGERED_6028")} routeReal=${label("ROUTE_REAL_CLAIM_MISMATCH_HARVEST_6029")} priceUnreal=${label("WALLET_GROWTH_HARVEST_DEFERRED_PRICE_UNREAL_6028") + label("ULTRA_RUNNER_BANK_DEFERRED_PRICE_UNREAL")} walletNull=${label("WALLET_GROWTH_HARVEST_DEFERRED_WALLET_NULL_6028")}")
@@ -254,15 +262,16 @@ object ReportingHub {
             val raw = TradeHistoryStore.getRecentValidClosedTradesRaw(limit = 2_500, includePartials = true)
             StrategyTruthLedger.clean(raw, 2_500)
         }
-        appendLine("Runtime: state=${rt?.state ?: "?"} active=${rt?.runtimeActive ?: "?"} paper=${rt?.paperMode ?: "?"} enabled=${rt?.enabledTraders ?: "?"}")
+        val authorityEnabled6098 = safe("enabled_authority_6098") { EnabledTraderAuthority.snapshotStr() }
+        appendLine("Runtime: state=${rt?.state ?: "?"} active=${rt?.runtimeActive ?: "?"} paper=${rt?.paperMode ?: "?"} enabled=${rt?.enabledTraders ?: "?"} authority=$authorityEnabled6098")
         appendLine("Doctor: ${doctor?.diagnosis?.faultCode ?: "?"}/${doctor?.diagnosis?.subsystem ?: "?"} confidence=${doctor?.diagnosis?.confidence?.fmt2() ?: "?"} faults=${doctor?.faults?.size ?: "?"}")
         if (pipe != null) {
-            val loop = pipe.phaseCounts["BOT_LOOP_TICK"] ?: 0L
+            val loop = (pipe.phaseCounts["BOT_LOOP_TICK"] ?: 0L).takeIf { it > 0L } ?: (pipe.labelCounts["BOT_LOOP_TICK"] ?: 0L)
             val intake = pipe.phaseCounts["INTAKE"] ?: 0L
             val lane = pipe.phaseCounts["LANE_EVAL"] ?: 0L
             val fdg = ((pipe.phaseAllow["FDG"] ?: 0L) + (pipe.phaseBlock["FDG"] ?: 0L)).takeIf { it > 0L } ?: (pipe.phaseCounts["FDG"] ?: 0L)
             val exec = pipe.phaseCounts["EXEC"] ?: 0L
-            val journalRows = pipe.labelCounts["TRADEJRNL_REC"] ?: 0L
+            val journalRows = (pipe.phaseCounts["TRADEJRNL_REC"] ?: 0L).takeIf { it > 0L } ?: (pipe.labelCounts["TRADEJRNL_REC"] ?: 0L)
             // V5.0.3829 — `avgCycleMs` is not a snapshot field, it is derived
             // from totalCycleMs/cycleCount. The previous V5.0.3828 broke
             // :app:compileReleaseKotlin by referencing a non-existent property.
@@ -581,6 +590,8 @@ object ReportingHub {
             appendLine("  scanner=${runtime.scannerActive}")
             appendLine("  paper=${runtime.paperMode}")
             appendLine("  enabled=${runtime.enabledTraders}")
+            val authorityRuntime6098 = safe("enabled_authority_6098") { EnabledTraderAuthority.snapshotStr() }
+            appendLine("  authority=$authorityRuntime6098")
         } else {
             appendLine("  unavailable")
         }

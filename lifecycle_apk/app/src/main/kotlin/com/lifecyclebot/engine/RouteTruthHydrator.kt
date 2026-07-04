@@ -42,6 +42,37 @@ object RouteTruthHydrator {
             return Result(true, src, reason)
         }
 
+        // V5.0.6099 — HELD TOKEN BUY-ROUTE HYDRATION.
+        // If we are already holding the token, the entry Position is route
+        // authority. Do not let a scanner/provider cache miss demote a held
+        // winner to WATCH_PROBATION_ROUTE_UNKNOWN. We know how we bought it:
+        // entryPriceSource + entryPoolAddress were stamped at buy finality.
+        val heldEntrySource6099 = ts.position.entryPriceSource.ifBlank { ts.lastPriceSource.ifBlank { ts.source } }
+        val heldEntryPool6099 = ts.position.entryPoolAddress.ifBlank { ts.lastPricePoolAddr.ifBlank { ts.pairAddress } }
+        if (ts.position.isOpen && (heldEntrySource6099.isNotBlank() || heldEntryPool6099.isNotBlank())) {
+            if (tm.poolAddress.isBlank() && heldEntryPool6099.isNotBlank()) tm.poolAddress = heldEntryPool6099
+            if (tm.pairAddress.isBlank() && ts.pairAddress.isNotBlank()) tm.pairAddress = ts.pairAddress
+            if (tm.sourceScanner.isBlank()) tm.sourceScanner = ts.source
+            val hay = listOf(heldEntrySource6099, heldEntryPool6099, ts.source, tm.venue, tm.dexId, tm.routeStatus).joinToString(" ").uppercase()
+            return when {
+                hay.contains("PUMP") && !tm.migratedOrGraduated -> {
+                    if (tm.pumpFunBondingCurveAddress.isBlank()) tm.pumpFunBondingCurveAddress = heldEntryPool6099
+                    tm.pumpFunExecutable = true
+                    hit("ENTRY_PUMP", "heldEntrySource=$heldEntrySource6099 pool=${heldEntryPool6099.take(12)}")
+                }
+                hay.contains("JUPITER") || hay.contains("ULTRA") || hay.contains("METIS") -> {
+                    tm.jupiterQuoteOk = tm.jupiterQuoteOk || tm.expectedOutAmount > 0.0
+                    hit("ENTRY_JUPITER", "heldEntrySource=$heldEntrySource6099 pool=${heldEntryPool6099.take(12)}")
+                }
+                heldEntryPool6099.isNotBlank() || hay.contains("RAYDIUM") || hay.contains("ORCA") || hay.contains("METEORA") || hay.contains("DEX") || hay.contains("POOL") -> {
+                    tm.dexRouteOk = true
+                    if (tm.dexId == "UNKNOWN" && ts.lastPriceDex.isNotBlank()) tm.dexId = ts.lastPriceDex
+                    hit("ENTRY_POOL", "heldEntrySource=$heldEntrySource6099 pool=${heldEntryPool6099.take(12)} dex=${tm.dexId}")
+                }
+                else -> hit("ENTRY_SOURCE", "heldEntrySource=$heldEntrySource6099 pool=${heldEntryPool6099.take(12)}")
+            }
+        }
+
         // 1. PumpPortal / Pump.fun bonding route from source/TokenMap.
         val pumpSource = ts.source.contains("PUMP", ignoreCase = true) || ts.lastPriceSource.contains("PUMP", ignoreCase = true)
         if (tm.pumpFunExecutable && (tm.pumpFunBondingCurveAddress.isNotBlank() || pumpSource) && !tm.migratedOrGraduated) {

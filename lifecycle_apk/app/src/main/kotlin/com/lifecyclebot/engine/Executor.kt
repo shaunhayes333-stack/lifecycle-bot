@@ -86,6 +86,49 @@ private val REAL_PRICE_SOURCES: Set<String> = setOf(
 private fun isRealPriceSource(source: String): Boolean =
     source.uppercase() in REAL_PRICE_SOURCES
 
+private enum class SellRoutePriority6099 { PUMP_FIRST, JUPITER_FIRST, UNKNOWN_BUY_ROUTE }
+
+private fun sellRoutePriorityFromBuyRoute6099(ts: TokenState): SellRoutePriority6099 {
+    val p = ts.position
+    val tm = ts.tokenMap
+    val hay = listOf(
+        p.entryPriceSource,
+        p.entryPoolAddress,
+        p.entryPolicySnapshot,
+        ts.lastPriceSource,
+        ts.lastPricePoolAddr,
+        ts.pairAddress,
+        ts.source,
+        tm.sourceScanner,
+        tm.venue,
+        tm.dexId,
+        tm.routeStatus,
+        tm.poolAddress,
+        tm.pairAddress,
+        tm.pumpFunBondingCurveAddress,
+    ).joinToString(" ").uppercase()
+    return when {
+        hay.contains("PUMP") && !tm.migratedOrGraduated -> SellRoutePriority6099.PUMP_FIRST
+        hay.contains("JUPITER") || hay.contains("ULTRA") || hay.contains("METIS") || tm.jupiterQuoteOk || tm.expectedOutAmount > 0.0 -> SellRoutePriority6099.JUPITER_FIRST
+        hay.contains("RAYDIUM") || hay.contains("ORCA") || hay.contains("METEORA") || hay.contains("DEX") || hay.contains("POOL") || p.entryPoolAddress.isNotBlank() || ts.lastPricePoolAddr.isNotBlank() || ts.pairAddress.isNotBlank() -> SellRoutePriority6099.JUPITER_FIRST
+        else -> SellRoutePriority6099.UNKNOWN_BUY_ROUTE
+    }
+}
+
+private fun shouldTryPumpDirectFirst6099(ts: TokenState, label: String): Boolean {
+    val priority = sellRoutePriorityFromBuyRoute6099(ts)
+    val pumpInvalid = try { com.lifecyclebot.engine.sell.MemeVenueRouter.isPumpRouteInvalid(ts.mint) } catch (_: Throwable) { false }
+    val pumpFirst = priority == SellRoutePriority6099.PUMP_FIRST && !pumpInvalid
+    try {
+        ForensicLogger.lifecycle(
+            "SELL_ROUTE_PRIORITY_BUY_ROUTE_6099",
+            "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=$label priority=$priority pumpFirst=$pumpFirst pumpInvalid=$pumpInvalid entrySource=${ts.position.entryPriceSource} entryPool=${ts.position.entryPoolAddress.take(16)} source=${ts.source} lastPriceSource=${ts.lastPriceSource} pool=${ts.lastPricePoolAddr.take(16)} routeStatus=${ts.tokenMap.routeStatus}"
+        )
+    } catch (_: Throwable) {}
+    try { PipelineHealthCollector.labelInc("SELL_ROUTE_PRIORITY_${priority.name}_6099") } catch (_: Throwable) {}
+    return pumpFirst
+}
+
 /**
  * FIX #3: Rugged contracts blacklist - stores by mint address (not ticker)
  * Persists across restarts. No rebuy after -33% loss.
@@ -5369,9 +5412,10 @@ class Executor(
             val pfPumpTip = effectiveJitoTipLamports(c, urgent = isDrainExit)
             // V5.9.1533 — spec item 7: skip Pump-direct when this mint's pump route was
             // invalidated by a prior 0x1787; let the Jupiter/venue ladder re-resolve.
-            sig = if (com.lifecyclebot.engine.sell.MemeVenueRouter.isPumpRouteInvalid(ts.mint)) {
-                try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_RERESOLVE",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=PROFIT-LOCK reason=pump_route_invalid") } catch (_: Throwable) {}
+            val profitLockPumpFirst6099 = shouldTryPumpDirectFirst6099(ts, "PROFIT-LOCK")
+            sig = if (!profitLockPumpFirst6099) {
+                try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_BUY_ROUTE_6099",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=PROFIT-LOCK priority=${sellRoutePriorityFromBuyRoute6099(ts)} action=jupiter_first") } catch (_: Throwable) {}
                 null
             } else tryPumpPortalSell(
                 ts = ts,
@@ -6867,9 +6911,10 @@ class Executor(
                 // forecast, not a settlement).
                 val partialJito = c.jitoEnabled
                 val partialTip = effectiveJitoTipLamports(c, urgent = false)
-                val pumpSig = if (com.lifecyclebot.engine.sell.MemeVenueRouter.isPumpRouteInvalid(ts.mint)) {
-                    try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_RERESOLVE",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=PARTIAL reason=pump_route_invalid") } catch (_: Throwable) {}
+                val partialPumpFirst6099 = shouldTryPumpDirectFirst6099(ts, "PARTIAL")
+                val pumpSig = if (!partialPumpFirst6099) {
+                    try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_BUY_ROUTE_6099",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=PARTIAL priority=${sellRoutePriorityFromBuyRoute6099(ts)} action=jupiter_first") } catch (_: Throwable) {}
                     null
                 } else tryPumpPortalSell(
                     ts = ts,
@@ -18045,9 +18090,10 @@ class Executor(
                     "reason=${if (pumpMint) "pump_mint" else "primary"} " +
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} jupiterQuote=${if (jupiterQuoteUnavailable) "unavailable" else "available_fallback"}")
             } catch (_: Throwable) {}
-            sig = if (com.lifecyclebot.engine.sell.MemeVenueRouter.isPumpRouteInvalid(ts.mint)) {
-                try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_RERESOLVE",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=EXIT reason=pump_route_invalid next=jupiter_ladder") } catch (_: Throwable) {}
+            val exitPumpFirst6099 = shouldTryPumpDirectFirst6099(ts, "EXIT")
+            sig = if (!exitPumpFirst6099) {
+                try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_BUY_ROUTE_6099",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=EXIT priority=${sellRoutePriorityFromBuyRoute6099(ts)} action=jupiter_first") } catch (_: Throwable) {}
                 null
             } else tryPumpPortalSell(
                 ts = ts,
@@ -20251,14 +20297,16 @@ class Executor(
             val sellUnits = resolveSellUnitsForMint(mint, qty, wallet = wallet)
             val sellSlippage = (c.slippageBps * 3).coerceAtMost(500)   // V5.9.103: hard cap 5%
 
-            // V5.9.495 — PUMP-FIRST routing for orphan sweep.
-            // Synthesise a TokenState shim so tryPumpPortalSell can log
-            // with the right symbol/mint. We pass a minimal stub.
-            val orphanTs = TokenState(mint = mint, symbol = "ORPHAN-${mint.take(4)}")
+            // V5.0.6099 — ORPHAN ROUTE DATA RECOVERY. Prefer the live token
+            // storage record so sell routing can use the same source/pool used at
+            // buy/open. Only synthesize a blank shim if the mint is truly absent.
+            val orphanTs = try { BotService.status.tokens[mint] } catch (_: Throwable) { null }
+                ?: TokenState(mint = mint, symbol = "ORPHAN-${mint.take(4)}")
             val orphanKey = LiveTradeLogStore.keyFor(mint, System.currentTimeMillis())
-            val pumpSig = if (com.lifecyclebot.engine.sell.MemeVenueRouter.isPumpRouteInvalid(mint)) {
-                try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_RERESOLVE",
-                    "mint=${mint.take(10)} label=ORPHAN-SWEEP reason=pump_route_invalid") } catch (_: Throwable) {}
+            val orphanPumpFirst6099 = shouldTryPumpDirectFirst6099(orphanTs, "ORPHAN-SWEEP")
+            val pumpSig = if (!orphanPumpFirst6099) {
+                try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_BUY_ROUTE_6099",
+                    "mint=${mint.take(10)} label=ORPHAN-SWEEP priority=${sellRoutePriorityFromBuyRoute6099(orphanTs)} action=jupiter_first") } catch (_: Throwable) {}
                 null
             } else tryPumpPortalSell(
                 ts = orphanTs,
