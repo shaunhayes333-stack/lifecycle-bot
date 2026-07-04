@@ -9537,7 +9537,7 @@ class Executor(
         val dampers6109 = cascadeComponents6109.filter { it < 1.0 && it > 0.0 }
         val boosters6109 = cascadeComponents6109.filter { it >= 1.0 }
         val damperGeomean6109 = if (dampers6109.isNotEmpty()) {
-            kotlin.math.exp(dampers6109.map { kotlin.math.log(it) }.average())
+            kotlin.math.exp(dampers6109.map { kotlin.math.ln(it) }.average())
         } else 1.0
         val boosterProduct6109 = boosters6109.fold(1.0) { acc, v -> acc * v }
         val multiplierProductRaw = (damperGeomean6109 * boosterProduct6109).also {
