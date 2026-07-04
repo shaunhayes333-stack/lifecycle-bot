@@ -149,8 +149,32 @@ object RealizedWalletCompoundingGovernor {
 
     private fun computeSnapshot(nowMs: Long): Snapshot {
         val raw = try { TradeHistoryStore.getRecentValidClosedTradesRaw(limit = 750, includePartials = true) } catch (_: Throwable) { emptyList() }
-        val clean = try { StrategyTruthLedger.clean(raw, 750).rows } catch (_: Throwable) { emptyList() }
-        val terminal = clean.filter { it.side.equals("SELL", true) }
+        // V5.0.6081 — REALIZED MONEY ROWS, MODE-LOCAL.
+        // StrategyTruthLedger intentionally excludes non-terminal partials for final
+        // strategy grading. This governor is different: it controls wallet growth,
+        // so harvested PARTIAL_SELL SOL is real money and must compound in the
+        // current runtime mode only. Never blend paper/live, and never use recovery
+        // inventory or bad-basis rows as compounding evidence.
+        val paperRuntime6081 = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { GlobalTradeRegistry.isPaperMode }
+        val mode6081 = if (paperRuntime6081) "paper" else "live"
+        val seenMoneyKeys6081 = LinkedHashSet<String>()
+        val terminal = raw.asSequence()
+            .filter { it.mode.equals(mode6081, true) }
+            .filter { it.side.equals("SELL", true) || it.side.equals("PARTIAL_SELL", true) }
+            .filter { !StrategyTruthLedger.isRecoveryInventory(it) }
+            .filter { StrategyTruthLedger.hasValidEntryBasis(it) }
+            .filter { LearningPnlSanitizer.inspectTrade(it, "RealizedWalletCompounding.moneyRows6081", emit = false).ok }
+            .filter {
+                val key = listOf(
+                    it.positionId.ifBlank { it.mint },
+                    it.side.uppercase(),
+                    it.ts.toString(),
+                    it.reason,
+                    it.sig
+                ).joinToString("|")
+                seenMoneyKeys6081.add(key)
+            }
+            .toList()
         val trades = terminal.size
         val wins = terminal.count { (it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol) > 0.0 }
         val losses = terminal.count { (it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol) < 0.0 }
@@ -168,8 +192,7 @@ object RealizedWalletCompoundingGovernor {
             // the simulated paper wallet, not the on-chain SOL balance. Paper
             // and live must use symmetric wallet math or the compounding tier
             // thresholds trigger on the wrong base.
-            val paperMode6072 = com.lifecyclebot.engine.GlobalTradeRegistry.isPaperMode
-            if (paperMode6072) {
+            if (paperRuntime6081) {
                 BotService.status.paperWalletSol.takeIf { it.isFinite() && it > 0.0 }
                     ?: BotService.status.walletSol
             } else {

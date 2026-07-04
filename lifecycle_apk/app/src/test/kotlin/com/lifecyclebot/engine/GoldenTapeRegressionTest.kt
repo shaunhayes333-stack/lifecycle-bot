@@ -7037,6 +7037,8 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6079: paper mode must compound/learn from clean paper terminal rows while live mode remains clean-live isolated", strategyTelemetry6079.contains("computeCleanPaperTerminalLeaderboard") && liveStrategyTuner6079.contains("RuntimeModeAuthority.isPaper()") && liveStrategyTuner6079.contains("computeCleanPaperTerminalLeaderboard") && liveStrategyTuner6079.contains("computeCleanLiveTerminalLeaderboard"))
         val bot6080 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.6080: runner/give-back exits must bypass paper settle-in so warmup cannot let peaks collapse", bot6080.contains("DRAWDOWN_FROM_PEAK_SETTLE_BYPASS_6080") && bot6080.indexOf("DRAWDOWN_FROM_PEAK_SETTLE_BYPASS_6080") < bot6080.indexOf("isInPaperSettleIn(ts, cfg.paperMode)"))
+        val walletGov6081 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RealizedWalletCompoundingGovernor.kt").readText()
+        assertTrue("V5.0.6081: wallet compounding must use mode-local realized SELL+PARTIAL_SELL money rows, not blended terminal-only strategy rows", walletGov6081.contains("V5.0.6081") && walletGov6081.contains("RuntimeModeAuthority.isPaper()") && walletGov6081.contains("mode6081") && walletGov6081.contains("PARTIAL_SELL") && walletGov6081.contains("RealizedWalletCompounding.moneyRows6081"))
     }
 
 
