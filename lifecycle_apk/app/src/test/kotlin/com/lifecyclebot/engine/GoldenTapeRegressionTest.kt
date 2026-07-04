@@ -7065,9 +7065,10 @@ class GoldenTapeRegressionTest {
         val modeRouter6092 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ModeRouter.kt").readText()
         val styleRouter6092 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
         val mainUi6092 = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        val modeSpecificExits6092 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ModeSpecificExits.kt").readText()
         assertTrue("V5.0.6092: insider shark copy-buy must enqueue as dedicated source with lane/tool affinity", insiderCopy6092.contains("scanner  =") && insiderCopy6092.contains("INSIDER_SHARK") && insiderCopy6092.contains("laneAffinity = setOf") && insiderCopy6092.contains("INSIDER_WALLET") && merge6092.contains("INSIDER_SHARK") && merge6092.contains("bestScanner =="))
         assertTrue("V5.0.6092: insider shark must be a real ModeRouter/AgenticStyle route, not hidden WHALE_COPY", modeRouter6092.contains("INSIDER_SHARK(") && modeRouter6092.contains("wallet/social shark alpha source") && modeRouter6092.contains("TradeType.INSIDER_SHARK -> UnifiedModeOrchestrator.ExtendedMode.COPY_TRADE") && styleRouter6092.contains("INSIDER_SHARK_FOLLOW") && styleRouter6092.contains("ModeRouter.TradeType.INSIDER_SHARK"))
-        assertTrue("V5.0.6092: insider shark distribution must sell memetrader positions and show on main UI", exec6091.contains("INSIDER_SHARK_MEME_EXIT_6092") && insiderCopy6092.contains("exitSignalForMint") && mainUi6092.contains("getUiSummary()") && mainUi6092.contains("SHARK"))
+        assertTrue("V5.0.6092: insider shark distribution must sell memetrader positions and show on main UI", exec6091.contains("INSIDER_SHARK_MEME_EXIT_6092") && insiderCopy6092.contains("exitSignalForMint") && modeSpecificExits6092.contains("ModeRouter.TradeType.INSIDER_SHARK -> evaluateCopyTradeExit") && mainUi6092.contains("getUiSummary()") && mainUi6092.contains("SHARK"))
         assertTrue("V5.0.6092: Diamond Hands lane must have main UI visibility plus expansion status", mainUi6092.contains("diamondOpen") && mainUi6092.contains("DIAMOND open=") && mainUi6092.contains("expand=3x/70%") && mainUi6092.contains("diamondCount") && mainUi6092.contains("diamondCount") && mainUi6092.contains("expand=3x"))
     }
 

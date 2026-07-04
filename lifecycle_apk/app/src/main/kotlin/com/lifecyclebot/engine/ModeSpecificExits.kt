@@ -60,6 +60,7 @@ object ModeSpecificExits {
             ModeRouter.TradeType.BREAKOUT_CONTINUATION -> "B"  // Medium hold
             ModeRouter.TradeType.REVERSAL_RECLAIM -> "B"       // Medium patience
             ModeRouter.TradeType.WHALE_ACCUMULATION -> "A"     // Patient hold
+            ModeRouter.TradeType.INSIDER_SHARK -> "A"          // Named-wallet/social shark alpha, patient copy-follow
             ModeRouter.TradeType.COPY_TRADE -> "B"             // Medium patience
             ModeRouter.TradeType.GRADUATION -> "B"             // Event-based
             ModeRouter.TradeType.TREND_PULLBACK -> "A+"        // Maximum patience
@@ -249,6 +250,7 @@ object ModeSpecificExits {
             ModeRouter.TradeType.BREAKOUT_CONTINUATION -> evaluateBreakoutExit(ts, currentPnlPct, holdTimeMs)
             ModeRouter.TradeType.REVERSAL_RECLAIM -> evaluateReversalExit(ts, currentPnlPct, holdTimeMs)
             ModeRouter.TradeType.WHALE_ACCUMULATION -> evaluateWhaleFollowExit(ts, currentPnlPct, holdTimeMs)
+            ModeRouter.TradeType.INSIDER_SHARK -> evaluateCopyTradeExit(ts, currentPnlPct, holdTimeMs)  // Isolated shark copy-follow exit
             ModeRouter.TradeType.COPY_TRADE -> evaluateCopyTradeExit(ts, currentPnlPct, holdTimeMs)  // PRIORITY 5: Isolated exit
             ModeRouter.TradeType.GRADUATION -> evaluateGraduationExit(ts, currentPnlPct, holdTimeMs)
             ModeRouter.TradeType.TREND_PULLBACK -> evaluateTrendPullbackExit(ts, currentPnlPct, holdTimeMs)
