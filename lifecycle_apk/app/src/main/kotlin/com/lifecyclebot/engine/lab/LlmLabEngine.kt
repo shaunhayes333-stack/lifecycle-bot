@@ -146,6 +146,70 @@ object LlmLabEngine {
             lastCullMs.set(now)
             runCatching { runCullCycle() }
         }
+
+        // V5.0.6120g — SWARM LAB WINNER CONSUMER (Tier D). Every 30 min, pull
+        // the swarm's promoted lab strategies from other AATE instances via
+        // CollectiveLearning.getSwarmLabWinners and seed any we haven't seen
+        // before into our local strategy pool. 8× LLM invention throughput
+        // — while our Lab is inventing 1 strategy per creation gap, the 7
+        // other instances are inventing theirs and cross-pollinating.
+        // Bounded (max 4 seeds per pull), rate-limited (30 min between pulls),
+        // deduped by strategy name, fail-open on any Turso error.
+        if (now - lastSwarmSeedMs.get() >= SWARM_SEED_INTERVAL_MS) {
+            lastSwarmSeedMs.set(now)
+            GlobalScope.launch(Dispatchers.IO) {
+                runCatching { runSwarmSeedCycle() }
+            }
+        }
+    }
+
+    private val lastSwarmSeedMs = java.util.concurrent.atomic.AtomicLong(0L)
+    private val SWARM_SEED_INTERVAL_MS = 30L * 60L * 1000L
+    private val seenSwarmStrategyNames = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    private suspend fun runSwarmSeedCycle() {
+        val winners = try {
+            com.lifecyclebot.collective.CollectiveLearning.getSwarmLabWinners(24L * 60L * 60L * 1000L)
+        } catch (_: Throwable) { emptyList() }
+        if (winners.isEmpty()) return
+
+        var seeded = 0
+        for (row in winners) {
+            if (seeded >= 4) break
+            try {
+                val name = (row["symbol"] as? String)?.trim().orEmpty()
+                if (name.isBlank()) continue
+                if (seenSwarmStrategyNames.contains(name)) continue
+                val wr = (row["score"] as? Number)?.toDouble() ?: 0.0
+                val avgPnl = (row["price"] as? Number)?.toDouble() ?: 0.0
+                // Only take clearly winning swarm strategies. Weak seeds
+                // just pollute our pool.
+                if (wr < 45.0 || avgPnl < 15.0) continue
+                seenSwarmStrategyNames.add(name)
+                // Build a synthetic seed strategy from the swarm hint. The
+                // Lab's own EVAL cycle will decide within days whether to
+                // promote or cull it — this just puts it in the arena.
+                val seed = LabStrategy(
+                    id = LlmLabStore.newStrategyId(),
+                    name = "swarm/$name".take(64),
+                    rationale = "seeded from hive swarm — wr=${wr.toInt()}% avgPnl=${avgPnl.toInt()}% n_swarm_verified",
+                    asset = LabAssetClass.MEME,
+                    entryScoreMin = 55,
+                    entryRegime = "ANY",
+                    takeProfitPct = 40.0,
+                    stopLossPct = -12.0,
+                    maxHoldMins = 45,
+                    sizingSol = economicLabSizingSol(0.08),
+                    status = LabStrategyStatus.DRAFT,
+                )
+                LlmLabStore.addStrategy(seed)
+                seeded += 1
+                try { PipelineHealthCollector.labelInc("SWARM_LAB_SEED_ACCEPTED_6120g") } catch (_: Throwable) {}
+            } catch (_: Throwable) { /* skip malformed row */ }
+        }
+        if (seeded > 0) {
+            ErrorLogger.info(TAG, "🐝🧪 Swarm seeded $seeded new strategies from hive")
+        }
     }
 
     // ────────────────────────────────────────────────────────────────────────

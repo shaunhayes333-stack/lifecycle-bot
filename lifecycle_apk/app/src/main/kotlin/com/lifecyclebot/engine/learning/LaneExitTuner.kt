@@ -211,6 +211,26 @@ object LaneExitTuner {
         val winners = w.filter { it.win }
         val avgWinPct = if (winners.isEmpty()) 0.0 else winners.map { it.pnlPct }.average()
         val runnerLane = avgWinPct >= 10.0 * kotlin.math.abs(avgLoss) && winners.size >= 3
+
+        // V5.0.6120g — MODERATE-EV-BLEEDER FIX. Operator report showed STANDARD
+        // lane pWin=47% E=-8.0% over 23 live trades — losses running ~2× wins.
+        // The prior three branches all missed this pattern:
+        //   • aggressive-bleed needed WR<20% (STANDARD is 47%)
+        //   • stop-leak clamp needed avgLoss<=-20 (STANDARD's ~-14)
+        //   • runner-preservation only ADDS SL room, doesn't tighten
+        // Result: STANDARD's slMult stayed at 1.00, letting losers run to
+        // whatever the base stop was, so 47% wins × +6% couldn't offset
+        // 53% losses × -14%. The moderate-bleed pattern is: net-negative
+        // realized PnL, WR in the 30-55% band, and peaks moderate (not
+        // enough peak evidence to lean on runner protection). Tighten by
+        // ONE step per recompute so the lane converges toward positive EV.
+        // Guarded by !runnerLane so a lane with genuine asymmetric winners
+        // is never touched.
+        val moderateBleed6120g = !runnerLane &&
+            avgReal < -3.0 &&
+            wr in 0.30..0.55 &&
+            avgPeak < 25.0 &&
+            n >= MIN_SAMPLE
         when {
             // V5.0.3765 — low-WR/no-runner bleed fix. The old rule widened stops
             // whenever stop-hit rate was high and avgPeak was low. In a sub-20% WR
@@ -219,6 +239,8 @@ object LaneExitTuner {
             // until it proves it can produce peaks/wins again. Runner lanes are still
             // protected above by the TP/giveBack logic and by the avgPeak guard here.
             wr < 0.20 && avgReal < 0.0 && avgPeak < 15.0 -> sl -= STEP * 2.0
+            // V5.0.6120g — MODERATE-EV-BLEED. See doc-block above.
+            moderateBleed6120g -> sl -= STEP
             // V5.0.3973 — STOP-LOSS LEAK CLAMP. If a lane's stop rows are
             // repeatedly deep red, do not widen its stop just because some peak
             // evidence exists elsewhere. The 3971 report showed STOP_LOSS rows
@@ -230,7 +252,7 @@ object LaneExitTuner {
             slHitRate < 0.25 && avgLoss <= -10.0 -> sl -= STEP
         }
         val stopLeakClamp = slHitRate >= 0.35 && avgLoss <= -20.0
-        val slCap = if ((wr < 0.20 && avgReal < 0.0 && avgPeak < 15.0) || stopLeakClamp) 1.0 else SL_MAX
+        val slCap = if ((wr < 0.20 && avgReal < 0.0 && avgPeak < 15.0) || stopLeakClamp || moderateBleed6120g) 1.0 else SL_MAX
         // RUNNER-LANE FLOOR: never let the stop tighten below 1.0× when wins
         // dwarf losses by ≥10×. Widens further if existing tuner logic
         // already raised it; never pulls it back below neutral.
