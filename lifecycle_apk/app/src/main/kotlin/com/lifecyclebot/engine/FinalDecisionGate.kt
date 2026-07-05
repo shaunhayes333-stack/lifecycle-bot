@@ -3649,12 +3649,34 @@ object FinalDecisionGate {
 
                 if (pattern != null && pattern.isReliable) {
                     val wr = pattern.winRate
+                    val n = pattern.totalTrades
+                    val avgPnl = pattern.avgPnlPct
+                    // V5.0.6120d — HIVEMIND 8× AMPLIFIER. Old shape topped
+                    // out at ±20% sizing on a matured swarm winner — which
+                    // wasted the swarm's core edge (n=8× more trade data
+                    // than any single instance). The tiers below give the
+                    // swarm real teeth: a >=+50% mean-PnL pattern with 30+
+                    // swarm trades gets a GOLD-tier ×1.5; a <=-30% mean-PnL
+                    // pattern with 30+ trades gets a CATASTROPHIC ×0.20
+                    // dampen (effective near-veto without breaking doctrine
+                    // #86 fail-open). Doctrine still soft-shape — bounded
+                    // and floor-clamped so nothing goes to zero.
+                    //
+                    //   swarm GOLD:  wr>=65 AND n>=30 AND avgPnl>=+50   →×1.50
+                    //   swarm STRONG: wr>=60 AND n>=20 AND avgPnl>=+20  →×1.30
+                    //   swarm winner: wr>=55                            →×1.15
+                    //   swarm loser:  wr<=35                            →×0.75
+                    //   swarm TOXIC:  wr<=25 AND n>=20                  →×0.40
+                    //   swarm CATA:   wr<=15 AND n>=30 AND avgPnl<=-30  →×0.20
+                    //   else                                            → 1.00
                     val collectiveMult = when {
-                        wr >= 65.0 -> 1.20
-                        wr >= 55.0 -> 1.10
-                        wr <= 25.0 -> 0.60
-                        wr <= 35.0 -> 0.80
-                        else        -> 1.00
+                        wr <= 15.0 && n >= 30 && avgPnl <= -30.0 -> 0.20
+                        wr <= 25.0 && n >= 20                    -> 0.40
+                        wr <= 35.0                               -> 0.75
+                        wr >= 65.0 && n >= 30 && avgPnl >= 50.0  -> 1.50
+                        wr >= 60.0 && n >= 20 && avgPnl >= 20.0  -> 1.30
+                        wr >= 55.0                               -> 1.15
+                        else                                     -> 1.00
                     }
                     if (collectiveMult != 1.00) {
                         val originalSize = finalSize
@@ -3666,7 +3688,7 @@ object FinalDecisionGate {
                                 "collective_brain",
                                 true,
                                 "Swarm $direction ${originalSize.format(3)} → ${finalSize.format(3)} " +
-                                "(wr=${wr.format(0)}% n=${pattern.totalTrades} sig=$patternType/$discoverySource/$liquidityBucket/$emaTrend)"
+                                "(wr=${wr.format(0)}% n=$n avgPnl=${avgPnl.format(0)}% mult=${collectiveMult.format(2)}× sig=$patternType/$discoverySource/$liquidityBucket/$emaTrend)"
                             )
                         )
                     }

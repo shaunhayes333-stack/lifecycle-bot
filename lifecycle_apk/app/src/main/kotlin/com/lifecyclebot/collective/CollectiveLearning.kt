@@ -49,7 +49,21 @@ object CollectiveLearning {
     /** V5.7.3: Public getter for TursoClient (used by perps learning) */
     fun getClient(): TursoClient? = client
 
-    private const val SYNC_INTERVAL_MS = 15 * 60 * 1000L
+    // V5.0.6120d — HIVEMIND AMPLIFICATION. Operator: "8 instances means the
+    // bot should have its intelligence ×8." The pipe was wired but running
+    // at a 15-minute sync interval — on install-over sessions shorter than
+    // that the swarm brain never propagates at all. Doctrine: pull often,
+    // push on every close, act on the pool the swarm has confirmed.
+    //
+    // Two-tier cadence:
+    //   HOT   — pull blacklist + patterns every 90s so a losing pattern
+    //           the swarm just proved lands before we run more entries on
+    //           it. Downloading is cheap (SELECT queries against Turso).
+    //   FULL  — full sync including mode_stats + whale_stats + local
+    //           pattern aggregate UPLOAD every 5 min (writes are heavier
+    //           and don't need HOT cadence to stay useful).
+    private const val SYNC_INTERVAL_MS = 90_000L        // was 15 min → now 90s
+    private const val FULL_SYNC_INTERVAL_MS = 300_000L  // 5 min for heavier writes
 
     private var totalUploadAttemptsThisSession = 0
     private var totalUploadSuccessThisSession = 0
@@ -1582,12 +1596,44 @@ object CollectiveLearning {
     private fun startBackgroundSync() {
         syncJob?.cancel()
         syncJob = scope.launch {
+            // V5.0.6120d — IMMEDIATE FIRST SYNC. The old loop delayed 15 min
+            // BEFORE the first sync — on any bot session shorter than that
+            // (very common on the operator's install-over workflow), the
+            // swarm brain never propagated at all. Now: fire a full sync
+            // on the very next tick after startBackgroundSync launches.
+            var lastFullSyncMs = 0L
+            try {
+                if (isEnabled()) {
+                    uploadLocalPatternAggregates()
+                    downloadAll()
+                    lastFullSyncMs = System.currentTimeMillis()
+                    Log.i(TAG, "✅ HIVE FIRST-SYNC complete — swarm brain live from tick 0")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "First-sync error: ${e.message}")
+            }
             while (isActive) {
                 delay(SYNC_INTERVAL_MS)
                 if (isEnabled()) {
                     try {
-                        uploadLocalPatternAggregates()
-                        downloadAll()
+                        // HOT path — always pull latest patterns + blacklist
+                        // so swarm-confirmed losers land within 90s and
+                        // swarm-confirmed winners are ready to boost sizing.
+                        downloadPatterns()
+                        downloadBlacklist()
+                        // FULL path — heavier upload + mode/whale/mint stats
+                        // only every 5 min so we don't hammer Turso writes.
+                        val nowMs = System.currentTimeMillis()
+                        if (nowMs - lastFullSyncMs >= FULL_SYNC_INTERVAL_MS) {
+                            uploadLocalPatternAggregates()
+                            downloadModeStats()
+                            downloadWhaleStats()
+                            downloadTokenMints()
+                            lastFullSyncMs = nowMs
+                            lastSyncTime = nowMs
+                            totalDownloadsThisSession++
+                            saveCacheToPrefs()
+                        }
                     } catch (e: Exception) {
                         Log.e(TAG, "Background sync error: ${e.message}")
                     }
