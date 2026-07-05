@@ -10727,6 +10727,38 @@ class BotService : Service() {
             }
         }
 
+        // V5.0.6123/6124d — Full lifecycle assessment at function-body scope
+        // so ALL downstream code (coldPump run block, lane affinity, watchlist,
+        // probation) can access adjustedConfidence6124 and patternGateVerdict6123.
+        val existingTs6123 = try { status.tokens[mint] } catch (_: Throwable) { null }
+        val patternGateVerdict6123 = try {
+            com.lifecyclebot.engine.ScannerIntakePatternGate.evaluate(
+                mint = mint,
+                symbol = symbol,
+                name = name,
+                source = source,
+                rawConfidence = confidence,
+                liquidityUsd = liquidityUsd,
+                marketCapUsd = marketCapUsd,
+                volumeH1 = volumeH1,
+                allSources = allSources,
+                holderGrowthRate = existingTs6123?.holderGrowthRate ?: 0.0,
+                priceChange1h = existingTs6123?.lastPriceChange1h ?: 0.0,
+                buyPressurePct = existingTs6123?.lastBuyPressurePct ?: 50.0,
+                ts = existingTs6123,
+            )
+        } catch (_: Throwable) { null }
+        val adjustedConfidence6124 = if (patternGateVerdict6123 != null) patternGateVerdict6123.adjustedConfidence else confidence
+        if (patternGateVerdict6123 != null) {
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "SCANNER_LIFECYCLE_INTAKE_6123",
+                    "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source rawConf=$confidence adjConf=${patternGateVerdict6123.adjustedConfidence} stage=${patternGateVerdict6123.lifecycleStage} setup=${patternGateVerdict6123.cheatSheetSetup} ev=${"%.2f".format(patternGateVerdict6123.evScore)} lanes=${patternGateVerdict6123.recommendedLanes.joinToString(",")} probation=${patternGateVerdict6123.recommendProbationOnly} reason=${patternGateVerdict6123.reason}"
+                )
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SCANNER_LIFECYCLE_INTAKE_6123")
+            } catch (_: Throwable) {}
+        }
+
         // V5.9.1228 — PumpPortal cold-flow goes to probation-only, not hot
         // watchlist. 3195 had PUMP_PORTAL_WS=7404 intake hits, vol1h=0 on the
         // repeated rows, WATCHLIST_PROBATION_DEMOTE=626, and projected execs
@@ -10784,37 +10816,6 @@ class BotService : Service() {
             val sourceBrainProbationOnly = !lenientIntake && !isUserAdded && !isRestoredVetted && !multiSourceConfirmed &&
                 sourceBrainMult < 0.65 && liquidityUsd < 7_500.0 && volumeH1 <= 0.0
             val sourceBrainHotRescue = sourceBrainMult >= 1.25 && (multiSourceConfirmed || liquidityUsd >= 10_000.0 || volumeH1 > 0.0)
-        // V5.0.6123/6124c — UPGRADED: Full lifecycle assessment moved BEFORE
-        // coldPump/intake so all downstream code can use adjustedConfidence6124.
-        val existingTs6123 = try { status.tokens[mint] } catch (_: Throwable) { null }
-        val patternGateVerdict6123 = try {
-            com.lifecyclebot.engine.ScannerIntakePatternGate.evaluate(
-                mint = mint,
-                symbol = symbol,
-                name = name,
-                source = source,
-                rawConfidence = confidence,
-                liquidityUsd = liquidityUsd,
-                marketCapUsd = marketCapUsd,
-                volumeH1 = volumeH1,
-                allSources = allSources,
-                holderGrowthRate = existingTs6123?.holderGrowthRate ?: 0.0,
-                priceChange1h = existingTs6123?.lastPriceChange1h ?: 0.0,
-                buyPressurePct = existingTs6123?.lastBuyPressurePct ?: 50.0,
-                ts = existingTs6123,
-            )
-        } catch (_: Throwable) { null }
-        val adjustedConfidence6124 = if (patternGateVerdict6123 != null) patternGateVerdict6123.adjustedConfidence else confidence
-        if (patternGateVerdict6123 != null) {
-            try {
-                com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                    "SCANNER_LIFECYCLE_INTAKE_6123",
-                    "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source rawConf=$confidence adjConf=${patternGateVerdict6123.adjustedConfidence} stage=${patternGateVerdict6123.lifecycleStage} setup=${patternGateVerdict6123.cheatSheetSetup} ev=${"%.2f".format(patternGateVerdict6123.evScore)} lanes=${patternGateVerdict6123.recommendedLanes.joinToString(",")} probation=${patternGateVerdict6123.recommendProbationOnly} reason=${patternGateVerdict6123.reason}"
-                )
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SCANNER_LIFECYCLE_INTAKE_6123")
-            } catch (_: Throwable) {}
-        }
-
             val coldPumpBase = !lenientIntake && isPumpPortalWs && !isUserAdded && !isRestoredVetted && volumeH1 <= 0.0 && liquidityUsd < 5_000.0
             val coldPump = coldPumpBase || sourceBrainProbationOnly || (pressureDecision.probationOnly && !sourceBrainHotRescue)
             if (sourceBrainProbationOnly || sourceBrainHotRescue) {
