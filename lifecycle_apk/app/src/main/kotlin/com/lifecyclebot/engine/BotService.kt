@@ -8841,7 +8841,28 @@ class BotService : Service() {
                     val prev = ts.lastPrice
                     if (prev > 0.0) {
                         val jumpMult = priceUsd / prev
-                        if (jumpMult > 100.0 || jumpMult < 0.01) {
+                        // V5.0.6120 — SPIKE PASS-THROUGH. A parabolic upward
+                        // wick on an OPEN position must reach SpikeGuardExit
+                        // so the chunked exit can fire. The original 100x
+                        // reject was there for phantom-win prevention on
+                        // CLOSED tokens ingested from scanners; on OPEN
+                        // positions with real capital at risk we would
+                        // rather act on a genuine wick than mis-tag it as
+                        // a glitch and hold through the reversal.
+                        val posOpen6120 = ts.position.isOpen
+                        val allowUpwardWick6120 = posOpen6120 && jumpMult > 100.0 && jumpMult < 100_000.0
+                        if (allowUpwardWick6120) {
+                            try {
+                                ForensicLogger.lifecycle(
+                                    "WS_TICK_UPWARD_WICK_PASS_6120",
+                                    "mint=${ts.mint.take(10)} sym=${ts.symbol} prev=$prev new=$priceUsd" +
+                                        " jump=${"%.1f".format(jumpMult)}x — parabolic tick on open position, forwarding to SpikeGuardExit",
+                                )
+                                PipelineHealthCollector.labelInc("WS_TICK_UPWARD_WICK_PASS_6120")
+                            } catch (_: Throwable) {}
+                            ts.wsTickRejectStreak = 0
+                            // Fall through and accept the tick.
+                        } else if (jumpMult > 100.0 || jumpMult < 0.01) {
                             ts.wsTickRejectStreak += 1
                             if (ts.wsTickRejectStreak >= 50) {
                                 ErrorLogger.warn("BotService",
@@ -9046,6 +9067,30 @@ class BotService : Service() {
                                     pos.peakGainPct = pnlPctNow
                                 }
                                 val peakPct = pos.peakGainPct
+
+                                // V5.0.6120 — SPIKE GUARD (operator report: ansem "1000%
+                                // gain on panel but tiny realized"; RUNNER +3358% mark
+                                // peak collapsed to -87% with position still open). Fire
+                                // the wick-capture ladder using the RAW WS mark price
+                                // (priceUsd) — not the Jupiter-verified execPx — so a
+                                // parabolic tick is caught even when Jupiter disagrees
+                                // with the mark. SpikeGuardExit chunks the exit into 4
+                                // progressive partials that fill on thin pools where a
+                                // single full-size sell would price-impact-abort. Fully
+                                // isolated: never touches pos.peakGainPct, non-blocking
+                                // (chunks fire on a daemon thread), rate-limited per mint.
+                                try {
+                                    val cfgSpike = ConfigStore.load(applicationContext)
+                                    val walletSpike = walletManager.getWallet()
+                                    val balSpike = status.getEffectiveBalance(cfgSpike.paperMode)
+                                    com.lifecyclebot.engine.SpikeGuardExit.processTick(
+                                        ts = ts,
+                                        executor = executor,
+                                        wallet = walletSpike,
+                                        walletSol = balSpike,
+                                        priceUsdMark = priceUsd,
+                                    )
+                                } catch (_: Throwable) { /* never break the tick loop */ }
 
                                 // ─── Guard 1: TICK_HARD_FLOOR @ -10% ───
                                 // V5.9.1564 — SANITY: a single tick can read a stale entry
