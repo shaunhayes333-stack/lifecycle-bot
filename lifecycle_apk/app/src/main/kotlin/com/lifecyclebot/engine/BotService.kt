@@ -9842,8 +9842,19 @@ class BotService : Service() {
                         )
                     } catch (_: Throwable) {}
                 } else {
+                    // V5.0.6112 — SOFT-SHAPE NOT VETO. Live-mode quarantine was a
+                    // hard return false, permanently blocking 5 seed-quarantined lanes
+                    // (SHITCOIN, MANIPULATED, PROJECT_SNIPER, DIP_HUNTER, EXPRESS).
+                    // This creates a deadlock: the lane can't trade to generate data
+                    // for the LLM Lab to find a winning strategy, so it stays
+                    // quarantined forever. Now: log the block but let the candidate
+                    // flow through at 0.35x recovery probe size. The downstream
+                    // size cascade and discipline recovery probe will handle sizing.
                     LaneQuarantineController.logBlockedEntry(lane, ts.symbol, ts.mint, primaryLane)
-                    return false
+                    try { ForensicLogger.lifecycle("LANE_QUARANTINE_LIVE_SOFT_ALLOW_6112", "lane=$lane symbol=${ts.symbol} mint=${ts.mint.take(10)} primary=$primaryLane action=continue_0.35x_recovery_probe") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("LANE_QUARANTINE_LIVE_SOFT_ALLOW_6112") } catch (_: Throwable) {}
+                    // Do NOT return false — let the candidate proceed.
+                    // The executor's discipline recovery probe (6112) will apply 0.35x.
                 }
             }
         } catch (_: Throwable) { /* quarantine must never break the gate */ }
@@ -20706,15 +20717,19 @@ if (hotExitHandledSweep) {
             // the check to the top of the EXPRESS path so paused lanes cost
             // us nothing.
             if (LaneAutoPauseGuard.isPaused("EXPRESS")) {
+                // V5.0.6112 — SOFT-SHAPE: don't skip the EXPRESS block entirely.
+                // Log the pause but let the candidate flow through at reduced size.
                 try {
                     ForensicLogger.lifecycle(
-                        "EXPRESS_LANE_PAUSED_EARLY_GATE_4594",
-                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=lane_auto_paused",
+                        "EXPRESS_LANE_PAUSED_SOFT_ALLOW_6112",
+                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=lane_auto_paused action=continue_0.35x",
                     )
-                    PipelineHealthCollector.labelInc("EXPRESS_LANE_PAUSED_EARLY_GATE_4594")
+                    PipelineHealthCollector.labelInc("EXPRESS_LANE_PAUSED_SOFT_ALLOW_6112")
                 } catch (_: Throwable) {}
-                // skip the entire EXPRESS block for this token
-            } else {
+                // Fall through to EXPRESS evaluation — discipline recovery probe
+                // in doBuy() will apply 0.35x sizing.
+            }
+            // V5.0.6112 — always evaluate EXPRESS (paused or not)
             val expressLaneAllowedThisCycle = !ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "EXPRESS", cyclePrimaryLane)
             if (expressLaneAllowedThisCycle && com.lifecyclebot.v3.scoring.ShitCoinExpress.isEnabled()) {
                 try {

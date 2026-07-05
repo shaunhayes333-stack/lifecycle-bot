@@ -7155,6 +7155,9 @@ class GoldenTapeRegressionTest {
         val executor6112 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("V5.0.6112: doBuy discipline veto must be soft 0.35x probe, not hard return", executor6112.contains("DISCIPLINE_RECOVERY_PROBE_DOBUY_6112") && executor6112.contains("disciplineRecoveryMult6112") && !executor6112.contains("DISCIPLINE_VETO_V4132"))
         assertTrue("V5.0.6112: scanner bridge veto must be soft shape, not hard return", executor6112.contains("SCANNER_BRIDGE_SOFT_SHAPE_6112") && !executor6112.contains("SCANNER_BRIDGE_VETO_V4132"))
+        val bot6113 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.6113: live-mode lane quarantine must be soft allow", bot6113.contains("LANE_QUARANTINE_LIVE_SOFT_ALLOW_6112"))
+        assertTrue("V5.0.6113: EXPRESS early-gate pause must be soft allow", bot6113.contains("EXPRESS_LANE_PAUSED_SOFT_ALLOW_6112"))
     }
 
 
