@@ -61,6 +61,17 @@ object RealizedWalletCompoundingGovernor {
     fun sizeMultiplierForLane(lane: String?): Double {
         val g = sizeMultiplier()
         if (g >= 1.0) return g
+        // V5.0.6110 — SMALL-WALLLET DEATH-SPIRAL BREAK.
+        // When wallet < 1 SOL AND no open positions, the defensive squeeze
+        // creates a death spiral: can't trade → can't recover → stay defensive
+        // → smaller sizes → can't trade. With zero open risk, there is nothing
+        // to defend — lift to 1.0 so the bot can actually enter trades and
+        // start recovering.
+        val snap = cached
+        if (snap.walletSol < 1.0 && snap.trustedOpenRunnerCount == 0 && snap.trustedOpenUnrealizedSol == 0.0) {
+            try { PipelineHealthCollector.labelInc("WALLET_COMPOUND_SMALL_WALLET_DEATH_SPIRAL_BREAK_6110") } catch (_: Throwable) {}
+            return 1.0
+        }
         return try {
             val adj = LiveStrategyTuner.adjustment(lane)
             if (adj.trades >= 5 && adj.totalSolPnl > 0.0) {

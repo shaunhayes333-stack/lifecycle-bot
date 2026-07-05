@@ -8190,11 +8190,26 @@ class Executor(
             // Removed entirely — the same brain already influences
             // entryScore / sizing earlier in the pipeline.
             
+            // V5.0.6110 — WALLET-RELATIVE MIN LIFT instead of premature kill.
+            // The old `size < 0.001 → return` was killing 48/51 live buy attempts
+            // because SmartSizer's internal cascade (confMult×probeMult×liqMult×
+            // ddMult = 0.11x) plus the Executor cascade produced ~0.001 SOL on a
+            // 0.47 SOL wallet. Instead of rejecting, lift to a wallet-relative
+            // minimum (2% of spendable) and let realisticLiveEntrySize handle
+            // the final floor. This breaks the "can't trade → can't recover →
+            // stay defensive → smaller sizes → can't trade" death spiral.
             if (size < 0.001) {
-                ErrorLogger.debug("Executor", "🪫 ${ts.symbol} SIZE TOO SMALL: $size | wallet=$walletSol | paper=$isPaperMode | liq=${ts.lastLiquidityUsd}")
-                onLog("Insufficient capacity for new position on ${ts.symbol} (size=$size)", ts.mint)
-                if (!isPaperMode) livePreAttemptHardReject(ts, size, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "maybeAct.size=$size wallet=$walletSol liq=${ts.lastLiquidityUsd}")
-                return
+                if (!isPaperMode && walletSol > 0.02) {
+                    val walletRelMin6110 = (walletSol * 0.02).coerceIn(0.005, 0.060)
+                    size = walletRelMin6110
+                    try { ForensicLogger.lifecycle("WALLET_REL_MIN_LIFT_6110", "mint=${ts.mint.take(10)} symbol=${ts.symbol} oldSize=0.001- lifted=$size walletSol=$walletSol path=maybeAct") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("WALLET_REL_MIN_LIFT_6110") } catch (_: Throwable) {}
+                } else {
+                    ErrorLogger.debug("Executor", "🪫 ${ts.symbol} SIZE TOO SMALL: $size | wallet=$walletSol | paper=$isPaperMode | liq=${ts.lastLiquidityUsd}")
+                    onLog("Insufficient capacity for new position on ${ts.symbol} (size=$size)", ts.mint)
+                    if (!isPaperMode) livePreAttemptHardReject(ts, size, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "maybeAct.size=$size wallet=$walletSol liq=${ts.lastLiquidityUsd}")
+                    return
+                }
             }
             
             ErrorLogger.info("Executor", "✅ ${ts.symbol} SIZE OK: $size SOL - proceeding to doBuy()")
@@ -8624,11 +8639,19 @@ class Executor(
             }
         }
         
+        // V5.0.6110 — WALLET-RELATIVE MIN LIFT (same fix as maybeAct path).
         if (size < 0.001) {
-            ErrorLogger.debug("Executor", "🪫 ${ts.symbol} SIZE TOO SMALL: $size | quality=${decision.finalQuality}")
-            onLog("Insufficient capacity for ${ts.symbol} (size=$size)", ts.mint)
-            if (!isPaper) livePreAttemptHardReject(ts, size, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "maybeActWithDecision.size=$size")
-            return
+            if (!isPaper && walletSol > 0.02) {
+                val walletRelMin6110b = (walletSol * 0.02).coerceIn(0.005, 0.060)
+                size = walletRelMin6110b
+                try { ForensicLogger.lifecycle("WALLET_REL_MIN_LIFT_6110", "mint=${ts.mint.take(10)} symbol=${ts.symbol} oldSize=0.001- lifted=$size walletSol=$walletSol path=maybeActWithDecision") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("WALLET_REL_MIN_LIFT_6110") } catch (_: Throwable) {}
+            } else {
+                ErrorLogger.debug("Executor", "🪫 ${ts.symbol} SIZE TOO SMALL: $size | quality=${decision.finalQuality}")
+                onLog("Insufficient capacity for ${ts.symbol} (size=$size)", ts.mint)
+                if (!isPaper) livePreAttemptHardReject(ts, size, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "maybeActWithDecision.size=$size")
+                return
+            }
         }
         
         if (isPaper) {
