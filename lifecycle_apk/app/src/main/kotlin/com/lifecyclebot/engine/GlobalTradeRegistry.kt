@@ -298,7 +298,7 @@ object GlobalTradeRegistry {
         holderCount: Int = 0,
         marketRegime: String = "",
     ) {
-        val entry = watchlist[mint] ?: probationEntries[mint]?.let { p ->
+        val entry = watchlist[mint] ?: probation[mint]?.let { p ->
             // If token is in probation, stamp there and promote to watchlist
             // so the trade history is visible on the main registry
             null

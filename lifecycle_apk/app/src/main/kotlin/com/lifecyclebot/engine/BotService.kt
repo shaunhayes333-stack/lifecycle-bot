@@ -10806,7 +10806,7 @@ class BotService : Service() {
                         source = allSources.joinToString("+").ifBlank { source },
                         initialMcap = marketCapUsd,
                         liquidityUsd = liquidityUsd,
-                        confidence = confidence,
+                        confidence = adjustedConfidence6124,
                         isEstimatedLiquidity = liquidityUsd <= 0.0,
                         price = 0.0,
                         laneAffinity = laneAffinity,
@@ -11079,8 +11079,9 @@ class BotService : Service() {
                     }
                 } catch (_: Throwable) {}
             }
-            confidence = patternGateVerdict6123.adjustedConfidence
+            // V5.0.6124 — can't reassign val parameter, use mutable local
         }
+        val adjustedConfidence6124 = if (patternGateVerdict6123 != null) patternGateVerdict6123.adjustedConfidence else confidence
 
         val isProbationEligible = run {
             val isPaper = try { ConfigStore.load(applicationContext).paperMode } catch (_: Throwable) { true }
@@ -11118,7 +11119,7 @@ class BotService : Service() {
                     source = joinedSources,
                     initialMcap = marketCapUsd,
                     liquidityUsd = liquidityUsd,
-                    confidence = confidence,
+                    confidence = adjustedConfidence6124,
                     isMultiSource = allSources.size > 1,
                     laneAffinity = laneAffinity,
                     toolAffinity = toolAffinity,
@@ -11131,7 +11132,7 @@ class BotService : Service() {
                     source = joinedSources,
                     initialMcap = marketCapUsd,
                     initialLiquidityUsd = liquidityUsd,
-                    confidence = confidence,
+                    confidence = adjustedConfidence6124,
                     laneAffinity = laneAffinity,
                     toolAffinity = toolAffinity,
                 )
