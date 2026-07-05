@@ -7152,6 +7152,9 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6110: compounding governor must break death spiral when wallet<1 SOL and no open positions", compounding6110.contains("WALLET_COMPOUND_SMALL_WALLET_DEATH_SPIRAL_BREAK_6110") && compounding6110.contains("snap.walletSol < 1.0") && compounding6110.contains("trustedOpenRunnerCount == 0"))
         val bot6111 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.6111: circuit breaker pause must be telemetry-only, not block live entries", bot6111.contains("CIRCUIT_BREAKER_PAUSE_SOFT_ALLOW_6111") && bot6111.contains("val pauseBlocks = false"))
+        val executor6112 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6112: doBuy discipline veto must be soft 0.35x probe, not hard return", executor6112.contains("DISCIPLINE_RECOVERY_PROBE_DOBUY_6112") && executor6112.contains("disciplineRecoveryMult6112") && !executor6112.contains("DISCIPLINE_VETO_V4132"))
+        assertTrue("V5.0.6112: scanner bridge veto must be soft shape, not hard return", executor6112.contains("SCANNER_BRIDGE_SOFT_SHAPE_6112") && !executor6112.contains("SCANNER_BRIDGE_VETO_V4132"))
     }
 
 

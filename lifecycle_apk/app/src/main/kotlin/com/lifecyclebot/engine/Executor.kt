@@ -9795,6 +9795,7 @@ class Executor(
                               gooseVerdict4129 == com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER
         val pauseDefensive4132 = try { com.lifecyclebot.engine.LivePauseButton.isDefensive() } catch (_: Throwable) { false }
         val laneTimedOut4132 = try { com.lifecyclebot.engine.LaneTimeoutGate.isTimedOut(laneTag) } catch (_: Throwable) { false }
+        var disciplineRecoveryMult6112 = 1.0
         // V5.0.4132b — UNIVERSAL SCANNER-LANE BRAIN VETO. Applies to every trader
         // (STANDARD, BLUECHIP, SHITCOIN, QUALITY, SHITCOIN_EXPRESS, MOONSHOT,
         // MANIPULATED, DIP_HUNTER, PROJECT_SNIPER, CYCLIC, CASHGEN, TREASURY).
@@ -9805,10 +9806,12 @@ class Executor(
             !com.lifecyclebot.engine.ScannerLaneBridge.shouldRoute(ts.source ?: "UNKNOWN", laneTag)
         } catch (_: Throwable) { false }
         if (RuntimeModeAuthority.isLive() && bridgeToxic4132 && !isHighEdge4132) {
-            try { ForensicLogger.lifecycle("SCANNER_BRIDGE_VETO_V4132", "symbol=${ts.symbol} lane=$laneTag src=${ts.source} bridge=${runCatching { com.lifecyclebot.engine.ScannerLaneBridge.tag(ts.source ?: "UNKNOWN", laneTag) }.getOrDefault("?")}") } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("SCANNER_BRIDGE_VETO") } catch (_: Throwable) {}
-            onLog("🛑 Scanner-bridge veto: ${ts.symbol} src→lane proven toxic (lane=$laneTag)", "discipline")
-            return
+            // V5.0.6112 — SOFT-SHAPE NOT VETO. Scanner-bridge toxicity now
+            // reduces size to 0.35x recovery probe instead of hard return.
+            try { ForensicLogger.lifecycle("SCANNER_BRIDGE_SOFT_SHAPE_6112", "symbol=${ts.symbol} lane=$laneTag src=${ts.source} bridge=${runCatching { com.lifecyclebot.engine.ScannerLaneBridge.tag(ts.source ?: "UNKNOWN", laneTag) }.getOrDefault("?")} action=continue_size_0.35x") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("SCANNER_BRIDGE_SOFT_SHAPE_6112") } catch (_: Throwable) {}
+            disciplineRecoveryMult6112 = minOf(disciplineRecoveryMult6112, 0.35)
+            onLog("🛡 Scanner-bridge soft shape: ${ts.symbol} src→lane toxic (lane=$laneTag) size=0.35x", "discipline")
         }
         if (RuntimeModeAuthority.isLive() && !isHighEdge4132 && (pauseDefensive4132 || laneTimedOut4132)) {
             // V5.0.4148 — TOP-PERFORMING-LANE BYPASS for the GLOBAL pause button
@@ -9822,15 +9825,21 @@ class Executor(
                     try { PipelineHealthCollector.labelInc("TOP_LANE_BYPASS_DOBUY") } catch (_: Throwable) {}
                 }
             } else {
+                // V5.0.6112 — SOFT-SHAPE NOT VETO. The liveBuy() path already
+                // converts this to a 0.35x recovery probe (V5.0.4460), but doBuy()
+                // still had a hard return that fired FIRST, preventing liveBuy()
+                // from ever being called. With WR=19.1% and DEFENSIVE mode active,
+                // this hard return killed ALL live buys. Now matches liveBuy():
+                // 0.35x recovery probe size, continue to execution.
                 val reason4132 = when {
                     effectivePause4148 && laneTimedOut4132 -> "discipline_pause_and_lane_timeout"
                     effectivePause4148                     -> "discipline_pause_global"
                     else                                    -> "discipline_lane_timeout"
                 }
-                try { ForensicLogger.lifecycle("DISCIPLINE_VETO_V4132", "symbol=${ts.symbol} lane=$laneTag reason=$reason4132 goose=${gooseVerdict4129.name} topLane=${laneTopPerformer4148} pause=${runCatching { com.lifecyclebot.engine.LivePauseButton.tag() }.getOrDefault("?")} laneState=${runCatching { com.lifecyclebot.engine.LaneTimeoutGate.tag(laneTag) }.getOrDefault("?")}") } catch (_: Throwable) {}
-                try { PipelineHealthCollector.labelInc("DISCIPLINE_VETO_${reason4132.uppercase()}") } catch (_: Throwable) {}
-                onLog("🛑 Discipline veto: $reason4132 ${ts.symbol} (goose=${gooseVerdict4129.name})", "discipline")
-                return
+                try { ForensicLogger.lifecycle("DISCIPLINE_RECOVERY_PROBE_DOBUY_6112", "symbol=${ts.symbol} lane=$laneTag reason=$reason4132 goose=${gooseVerdict4129.name} topLane=${laneTopPerformer4148} pause=${runCatching { com.lifecyclebot.engine.LivePauseButton.tag() }.getOrDefault("?")} laneState=${runCatching { com.lifecyclebot.engine.LaneTimeoutGate.tag(laneTag) }.getOrDefault("?")} action=continue_size_0.35x") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("DISCIPLINE_RECOVERY_PROBE_DOBUY_6112") } catch (_: Throwable) {}
+                onLog("🛡 Discipline recovery probe: $reason4132 ${ts.symbol} (goose=${gooseVerdict4129.name}) size=0.35x", "discipline")
+                disciplineRecoveryMult6112 = 0.35
             }
         }
         // (c) PERFORMING-LANE TILT: in DEFENSIVE mode, scale entries up for top
@@ -9860,7 +9869,7 @@ class Executor(
         } else 0.0
         val relMinSol4129 = sol * liveFloorMult
         val upperCap4129 = sol * winnerMaxBoost * gooseUpperMult4129
-        val effSolRaw = (sol * multiplierProduct * laneTilt4132 * bridgeMult4132).coerceIn(maxOf(relMinSol4129, absMinSol4129), upperCap4129 * laneTilt4132)
+        val effSolRaw = (sol * multiplierProduct * laneTilt4132 * bridgeMult4132 * disciplineRecoveryMult6112).coerceIn(maxOf(relMinSol4129, absMinSol4129), upperCap4129 * laneTilt4132)
         if (absMinSol4129 > 0.0 && (sol * multiplierProduct) < absMinSol4129) {
             try { ForensicLogger.lifecycle("MONEY_MODE_ABS_FLOOR_LIFT_6082", "symbol=${ts.symbol} lane=$laneTag mode=${if (RuntimeModeAuthority.isPaper()) "paper" else "live"} goose=${gooseVerdict4129.name} raw=${(sol*multiplierProduct).fmt(4)} → lift=${absMinSol4129.fmt(4)} wallet=${walletSol.fmt(3)}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("MONEY_MODE_ABS_FLOOR_LIFT_6082_${gooseVerdict4129.name}") } catch (_: Throwable) {}
