@@ -227,6 +227,9 @@ object CollectiveLearning {
 
             uploadLocalPatternAggregates()
             downloadAll()
+            // V5.0.6121 — signal ready to HivemindReadyGate so live entries
+            // that were held during boot can now fire with swarm knowledge.
+            try { com.lifecyclebot.engine.HivemindReadyGate.ready("downloadAll_complete") } catch (_: Throwable) {}
 
             try {
                 Log.i(TAG, "Triggering CollectiveIntelligenceAI refresh...")

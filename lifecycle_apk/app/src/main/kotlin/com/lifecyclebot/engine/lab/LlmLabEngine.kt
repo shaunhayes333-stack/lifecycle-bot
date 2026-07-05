@@ -424,6 +424,7 @@ Your invented strategy MUST target this lane. Prefer tighter stops
 shorter hold (30-90 minutes), and only fire on the strongest score
 signals (entryScoreMin >= 70). This is the specific bleeder pattern
 the swarm needs solved. Name the strategy "recover/${recoveryTarget.lane}_gen_${System.currentTimeMillis().toString().takeLast(6)}".
+${recoveryTarget.autopsyConstraint}
 """
         } else ""
 

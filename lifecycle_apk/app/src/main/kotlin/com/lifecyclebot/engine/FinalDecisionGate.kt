@@ -3822,6 +3822,84 @@ object FinalDecisionGate {
         } catch (_: Throwable) { /* fail-open — governor/chart are advisory */ }
 
         // ═══════════════════════════════════════════════════════════════════
+        // V5.0.6121 — GREEN-EV COMPOUNDING STACK (Phase 2A)
+        //   • HivemindReadyGate: hold live entries until CollectiveLearning
+        //     completes downloadAll() (P2 race fix). 60s hard-timeout.
+        //   • CompounderMode: winning-streak size ladder 1.00→1.85× based on
+        //     rolling green closes. Cooldown damper 0.60× after -20% smoke.
+        //   • ConvictionStackBooster: 1.00→2.50× when 3-6 independent bullish
+        //     signals converge (hive+chart+whale+score+green_lane+insider).
+        //   • DailyCompoundTargeter: pace-adjusted size mult against 2x-5x
+        //     daily target. AHEAD tightens; BEHIND opens the aggression valve.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            if (mode == TradeMode.LIVE) {
+                // 5A. Hivemind readiness gate — hold live entries if the hive
+                //     download hasn't landed yet on this fast-startup boot.
+                if (!com.lifecyclebot.engine.HivemindReadyGate.isReady()) {
+                    checks.add(GateCheck("hivemind_ready_gate", false,
+                        "Hive download not landed yet — deferring live entry"))
+                    tags.add("hivemind_ready_gate_hold")
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HIVEMIND_GATE_HOLD_HIT_6121") } catch (_: Throwable) {}
+                    return FinalDecision(
+                        shouldTrade = false,
+                        mode = mode,
+                        approvalClass = ApprovalClass.BLOCKED,
+                        quality = "HIVEMIND_NOT_READY",
+                        confidence = 0.0,
+                        edge = EdgeVerdict.WEAK,
+                        blockReason = "HIVEMIND_NOT_READY",
+                        blockLevel = BlockLevel.SOFT,
+                        sizeSol = 0.0,
+                        tags = tags,
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        approvalReason = "Hivemind download still in progress — try again shortly",
+                        gateChecks = checks,
+                    )
+                }
+
+                // 5B. Fetch last 20 live sells once for compounder + targeter.
+                val recentLiveSells = try {
+                    com.lifecyclebot.engine.TradeHistoryStore
+                        .getRecentValidClosedTradesRaw(50)
+                        .filter { it.mode.equals("live", true) && it.side.equals("SELL", true) }
+                        .take(20)
+                } catch (_: Throwable) { emptyList() }
+
+                // 5C. Compounder — winning streak size ladder.
+                val compounderMult = try {
+                    com.lifecyclebot.engine.CompounderMode.sizeMultiplier(recentLiveSells)
+                } catch (_: Throwable) { 1.0 }
+
+                // 5D. Conviction stack — asymmetric multi-signal booster.
+                val convictionSnap = try {
+                    com.lifecyclebot.engine.ConvictionStackBooster.evaluate(ts)
+                } catch (_: Throwable) { com.lifecyclebot.engine.ConvictionStackBooster.ConvictionSnapshot(0, 1.0, "ERROR") }
+
+                // 5E. Daily compound targeter — pace-adjusted valve.
+                val currentSol = try {
+                    com.lifecyclebot.engine.WalletStateBridge.latestSolBalance()
+                } catch (_: Throwable) { 0.0 }
+                val targetVerdict = try {
+                    com.lifecyclebot.engine.DailyCompoundTargeter.evaluate(currentSol)
+                } catch (_: Throwable) { com.lifecyclebot.engine.DailyCompoundTargeter.CompoundVerdict(1.0, 0, 0.0, "ERROR") }
+
+                val stackMult = (compounderMult * convictionSnap.sizeMult * targetVerdict.sizeMult).coerceIn(0.30, 3.0)
+                if (stackMult != 1.0) {
+                    val originalSize = finalSize
+                    finalSize = (finalSize * stackMult).coerceIn(0.01, 1.0)
+                    tags.add("size_compounding_stack_6121")
+                    checks.add(GateCheck("compounding_stack", true,
+                        "Compounder×${"%.2f".format(compounderMult)} × Conviction×${"%.2f".format(convictionSnap.sizeMult)}(${convictionSnap.fingerprint}) × Target×${"%.2f".format(targetVerdict.sizeMult)}(${targetVerdict.state}) → " +
+                        "${originalSize.format(3)} → ${finalSize.format(3)}"))
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("COMPOUNDING_STACK_APPLIED_6121") } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) { /* fail-open — compounding stack is advisory */ }
+
+
+        // ═══════════════════════════════════════════════════════════════════
         // V5.9.934 — AI STARTUP COORDINATOR soft-shape (4th dormant subsystem).
         //
         // Operator V5.9.929 audit (audit_v5.9.928_dormant_intelligence.md):

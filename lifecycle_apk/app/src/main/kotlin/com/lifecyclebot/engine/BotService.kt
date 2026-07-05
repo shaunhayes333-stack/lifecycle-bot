@@ -588,7 +588,10 @@ class BotService : Service() {
         val cached = try {
             com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).state.value.solBalance
         } catch (_: Throwable) { 0.0 }
-        if (cached > 0.0) return cached
+        if (cached > 0.0) {
+            try { com.lifecyclebot.engine.WalletStateBridge.publishSolBalance(cached) } catch (_: Throwable) {}
+            return cached
+        }
         val onMain = android.os.Looper.myLooper() === android.os.Looper.getMainLooper()
         if (onMain) {
             // Do NOT trip the RPC guard on Main. Use whatever WalletManager
@@ -596,11 +599,17 @@ class BotService : Service() {
             // gets a safe, non-throwing value and a fresh async refresh will
             // populate it shortly).
             return try {
-                com.lifecyclebot.engine.WalletManager.getInstance(applicationContext)
+                val v = com.lifecyclebot.engine.WalletManager.getInstance(applicationContext)
                     .state.value.solBalance
+                try { com.lifecyclebot.engine.WalletStateBridge.publishSolBalance(v) } catch (_: Throwable) {}
+                v
             } catch (_: Throwable) { 0.0 }
         }
-        return try { w?.getSolBalance() ?: 0.0 } catch (_: Throwable) { 0.0 }
+        return try {
+            val v = w?.getSolBalance() ?: 0.0
+            try { com.lifecyclebot.engine.WalletStateBridge.publishSolBalance(v) } catch (_: Throwable) {}
+            v
+        } catch (_: Throwable) { 0.0 }
     }
 
     // V5.9.1557b — keep singleton monitor startup OUT of botLoop's coroutine
@@ -1455,6 +1464,12 @@ class BotService : Service() {
                 try { com.lifecyclebot.engine.lab.LlmLabEngine.start(applicationContext) } catch (_: Throwable) {}
             }
             ErrorLogger.info("BotService", "onCreate starting")
+
+            // V5.0.6121 — Arm HivemindReadyGate before anything else can trade.
+            // CollectiveLearning.init calls HivemindReadyGate.ready() when
+            // downloadAll() completes; the gate has a 60s hard-timeout so a
+            // wedged hive download can never permanently block trading.
+            try { com.lifecyclebot.engine.HivemindReadyGate.arm() } catch (_: Throwable) {}
 
 
             strategy        = LifecycleStrategy(

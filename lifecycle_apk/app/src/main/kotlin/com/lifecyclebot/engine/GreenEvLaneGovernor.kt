@@ -108,7 +108,8 @@ object GreenEvLaneGovernor {
             // guaranteed by caller (recentSells is descending by ts_exit).
             val byLane = LinkedHashMap<String, MutableList<Trade>>()
             for (t in recentSells) {
-                val lane = t.tradingMode.ifBlank { continue }
+                val lane = t.tradingMode
+                if (lane.isBlank()) continue
                 val bucket = byLane.getOrPut(lane) { mutableListOf() }
                 if (bucket.size < WINDOW_TRADES) bucket.add(t)
             }
@@ -164,7 +165,12 @@ object GreenEvLaneGovernor {
                         )
                         PipelineHealthCollector.labelInc("GREEN_EV_LANE_PAUSED_6120h")
                     } catch (_: Throwable) {}
-                    delegateToLab(lane, evPct, wr, trades.size)
+                    // V5.0.6121 — richer autopsy for the Lab hint. Extracts
+                    // the specific failure signature (RUG_HEAVY / SL_CHURN /
+                    // FAST_DEATH / SLOW_BLEED / CHOP_SCALP_MISS) so the Lab
+                    // can invent a targeted recovery strategy.
+                    val autopsy = try { BleedingLaneAutopsy.autopsy(lane, trades) } catch (_: Throwable) { null }
+                    delegateToLab(lane, evPct, wr, trades.size, autopsy?.constraintForLab ?: "")
                 }
                 if (newState == LaneState.LIVE && prior?.state == LaneState.PAUSED) {
                     try {
@@ -241,7 +247,7 @@ object GreenEvLaneGovernor {
      * this lane. LabEngine.consumeLaneRecoveryHints() reads this list on
      * every creation gap.
      */
-    private fun delegateToLab(lane: String, evPct: Double, wr: Double, n: Int) {
+    private fun delegateToLab(lane: String, evPct: Double, wr: Double, n: Int, autopsyConstraint: String = "") {
         val nowMs = System.currentTimeMillis()
         val last = labRecoveryRequests[lane] ?: 0L
         if (nowMs - last < 60_000L) return               // 1 min throttle per lane
@@ -254,6 +260,7 @@ object GreenEvLaneGovernor {
                 wr = wr,
                 n = n,
                 requestedAtMs = nowMs,
+                autopsyConstraint = autopsyConstraint,
             )
         )
     }
@@ -272,6 +279,7 @@ object LabRecoveryHintQueue {
         val wr: Double,
         val n: Int,
         val requestedAtMs: Long,
+        val autopsyConstraint: String = "",
     )
 
     private val q = java.util.concurrent.LinkedBlockingQueue<LabRecoveryHint>(16)
