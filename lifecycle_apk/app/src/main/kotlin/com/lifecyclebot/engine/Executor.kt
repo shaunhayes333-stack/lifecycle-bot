@@ -10499,24 +10499,60 @@ class Executor(
             // deliver 6-12 SOL directly into paperBuy(). Clamp at the last possible
             // point before wallet/journal mutation so no bypass can create outsized
             // paper losses during a cold WR regime.
+            //
+            // V5.0.6117 — DORMANT SIZING BRAIN FIX. Operator: "sizing logic brain is
+            // dormant. it should be consulting with the entire engine especially the
+            // probability engine, the agi/ssi brains and the compounding engine."
+            // Operator screenshot showed 7 concurrent open PAPER positions across
+            // different lanes ALL sized at the EXACT identical 0.5880 SOL — zero
+            // variance despite different tokens/lanes/entry scores. Root cause: this
+            // cap used ACCOUNT-WIDE stats.lossStreak/wr (ignores which lane), and
+            // HARD-OVERRODE finalSol = cap (a flat wallet-percent), discarding
+            // whatever the AGI/SSI/probability-engine/compounding-engine multiplier
+            // stack had already computed for THIS specific trade. Per the PERFORMANCE
+            // DOCTRINE, 20-35% WR is the EXPECTED bootstrap floor, at which a 4-loss
+            // streak is statistically routine (~24% chance per position at 30% WR) —
+            // so this "emergency" cap was firing almost continuously and flattening
+            // every paper buy to the same number, i.e. exactly the dormant-brain
+          // symptom reported.
+            // Fix: (1) consult LanePolicy.executionWeightForLane — a lane already
+            // vetted healthy/NORMAL_EXECUTION by the lane-local intelligence stack
+            // is exempted, so winning lanes get leaned into per doctrine instead of
+            // being punished by OTHER lanes' account-wide losses. (2) When the cap
+            // does apply, it now MULTIPLIES the AI-computed finalSol by a bounded
+            // dampener instead of replacing it with a flat wallet-percent, so
+            // relative confidence/probability-driven size variance survives the
+            // dampening instead of being erased.
             try {
                 val stats = TradeHistoryStore.getStatsCached()
                 val decisive = stats.totalWins + stats.totalLosses
                 val wr = if (decisive > 0) stats.totalWins.toDouble() / decisive * 100.0 else 100.0
                 val perf = SmartSizer.getPerformanceContext(walletSol.takeIf { it > 0.0 } ?: finalSol, decisive, isPaperMode = true)
+                val coldLane6117 = layerTag.ifBlank { ts.position.tradingMode.ifBlank { "STANDARD" } }
+                val laneExecWeight6117 = try { com.lifecyclebot.engine.learning.LanePolicy.executionWeightForLane(coldLane6117) } catch (_: Throwable) { 1.0 }
+                val laneHealthy6117 = laneExecWeight6117 >= 0.85
                 val coldCapPct = when {
-                    decisive >= 25 && (perf.lossStreak >= 10 || wr < 10.0) -> 0.02
-                    decisive >= 25 && (perf.lossStreak >= 6  || wr < 20.0) -> 0.035
-                    decisive >= 25 && (perf.lossStreak >= 4  || wr < 30.0) -> 0.05
+                    laneHealthy6117 -> 0.0  // V5.0.6117 — lane-local policy already vouches for this lane; do not flatten it
+                    decisive >= 25 && (perf.lossStreak >= 12 || wr < 10.0) -> 0.02
+                    decisive >= 25 && (perf.lossStreak >= 8  || wr < 20.0) -> 0.035
+                    decisive >= 25 && (perf.lossStreak >= 6  || wr < 30.0) -> 0.05
                     else -> 0.0
                 }
                 if (coldCapPct > 0.0) {
                     val baseWallet = walletSol.takeIf { it > 0.0 } ?: try { FluidLearning.getSimulatedBalance() } catch (_: Throwable) { finalSol }
                     val cap = maxOf(0.01, baseWallet * coldCapPct).coerceAtMost(1.0)
                     if (finalSol > cap) {
-                        ErrorLogger.warn("Executor", "🧯 PAPER_BUY_COLD_CAP: ${ts.symbol} ${finalSol.fmt(4)} → ${cap.fmt(4)} SOL | wr=${wr.toInt()}% lossStreak=${perf.lossStreak} trades=$decisive")
-                        try { ForensicLogger.lifecycle("PAPER_BUY_COLD_CAP", "symbol=${ts.symbol} mint=${ts.mint.take(10)} from=${finalSol.fmt(4)} to=${cap.fmt(4)} wr=${wr.toInt()} lossStreak=${perf.lossStreak} trades=$decisive") } catch (_: Throwable) {}
-                        finalSol = cap
+                        // V5.0.6117 — multiplicative dampener (preserves AI-driven
+                        // variance) instead of a flat override to `cap`. Never
+                        // dampens below the cap itself, never dampens above the
+                        // AI's original request.
+                        val dampMult6117 = (cap / finalSol).coerceIn(0.15, 1.0)
+                        val preDampFinal6117 = finalSol
+                        val dampedFinal6117 = preDampFinal6117 * dampMult6117
+                        ErrorLogger.warn("Executor", "🧯 PAPER_BUY_COLD_CAP: ${ts.symbol} ${preDampFinal6117.fmt(4)} × ${"%.2f".format(dampMult6117)} → ${dampedFinal6117.fmt(4)} SOL | wr=${wr.toInt()}% lossStreak=${perf.lossStreak} trades=$decisive lane=$coldLane6117 laneExecWeight=${"%.2f".format(laneExecWeight6117)}")
+                        try { PipelineHealthCollector.labelInc("PAPER_BUY_COLD_CAP_DAMPENED_6117") } catch (_: Throwable) {}
+                        finalSol = dampedFinal6117
+                        try { ForensicLogger.lifecycle("PAPER_BUY_COLD_CAP", "symbol=${ts.symbol} mint=${ts.mint.take(10)} from=${preDampFinal6117.fmt(4)} to=${dampedFinal6117.fmt(4)} cap=${cap.fmt(4)} wr=${wr.toInt()} lossStreak=${perf.lossStreak} trades=$decisive lane=$coldLane6117 laneExecWeight=${laneExecWeight6117.fmt(4)}") } catch (_: Throwable) {}
                     }
                 }
             } catch (_: Throwable) {}

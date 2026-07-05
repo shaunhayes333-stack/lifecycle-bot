@@ -7370,6 +7370,29 @@ class GoldenTapeRegressionTest {
     }
 
     @Test
+    fun aate6117CloudSyncSchemaVersionGateFixed() {
+        val sync = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CloudLearningSync.kt").readText()
+        // Root fix: the cached schemaReady flag must not short-circuit before the
+        // stored schema version is checked, or the V5.9.412 drift-recovery (drop
+        // legacy collective_* tables on a version bump) is permanently unreachable
+        // on any device that already ran once at an older version.
+        assertTrue("V5.0.6117: schemaReady early-return must also require version match", sync.contains("if (schemaReady && storedVerEarly == CURRENT_SCHEMA_VERSION) return@withContext true"))
+        assertTrue("V5.0.6117: CURRENT_SCHEMA_VERSION must be bumped to 3 to force one real recovery pass", sync.contains("CURRENT_SCHEMA_VERSION = 3"))
+    }
+
+    @Test
+    fun aate6117DormantSizingBrainColdCapFixed() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        // Root fix: the paper cold-streak cap must consult LanePolicy's per-lane
+        // execution weight (AGI/SSI/lane-local intelligence) before flattening a
+        // trade's size, and must dampen multiplicatively rather than hard-override
+        // to a flat wallet-percent -- preserving AI-driven size variance.
+        assertTrue("V5.0.6117: cold cap must consult LanePolicy.executionWeightForLane", exec.contains("com.lifecyclebot.engine.learning.LanePolicy.executionWeightForLane(coldLane6117)"))
+        assertTrue("V5.0.6117: healthy lanes must be exempted from the cold cap", exec.contains("laneHealthy6117 -> 0.0"))
+        assertTrue("V5.0.6117: cold cap must dampen multiplicatively, not hard-override finalSol = cap", exec.contains("val dampedFinal6117 = preDampFinal6117 * dampMult6117") && exec.contains("finalSol = dampedFinal6117"))
+    }
+
+    @Test
     fun aate6116bOpenPnlSanityPermanentBypassFixed() {
         val sanity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OpenPnlSanity.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()

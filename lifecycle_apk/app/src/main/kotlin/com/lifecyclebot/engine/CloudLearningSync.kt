@@ -26,7 +26,7 @@ object CloudLearningSync {
     // pipeline errors caused by a Turso schema that was created before
     // the V5.9.404-era columns existed.
     private const val KEY_SCHEMA_VERSION = "schema_version"
-    private const val CURRENT_SCHEMA_VERSION = 2
+    private const val CURRENT_SCHEMA_VERSION = 3  // V5.0.6117 — bump forces one real drop+recreate now that the gate is fixed
 
     // TURSO CONFIG
     // NOTE: You exposed this token in chat. Rotate it after using this file.
@@ -155,7 +155,20 @@ object CloudLearningSync {
     }
 
     private suspend fun ensureSchema(): Boolean = withContext(Dispatchers.IO) {
-        if (schemaReady) return@withContext true
+        // V5.0.6117 — the cached schemaReady flag was short-circuiting BEFORE
+        // the version check below ever ran, so the V5.9.412 drift-recovery
+        // logic (dropping stale collective_* tables on a version bump) was
+        // permanently unreachable on any device that had already run once at
+        // an older schema version. schemaReady persists in SharedPreferences
+        // across app updates; CURRENT_SCHEMA_VERSION bumps in new code do
+        // nothing if this early-return fires first. Root cause of the
+        // recurring "no such column: instance_id" pipeline errors (this is
+        // the SAME symptom V5.9.412 was written to fix — the fix never
+        // actually re-triggers on an already-provisioned device). Fix: only
+        // trust the cached ready flag when it was set at the CURRENT schema
+        // version; otherwise fall through to the version-mismatch recovery.
+        val storedVerEarly = prefs?.getInt(KEY_SCHEMA_VERSION, 0) ?: 0
+        if (schemaReady && storedVerEarly == CURRENT_SCHEMA_VERSION) return@withContext true
         if (!isConfigured()) return@withContext false
 
         try {
@@ -164,7 +177,7 @@ object CloudLearningSync {
             // tables so the CREATE IF NOT EXISTS below seeds them clean. This
             // unsticks instances whose Turso DB was created against an older
             // column layout (the "no such column: instance_id" pipeline error).
-            val storedVer = prefs?.getInt(KEY_SCHEMA_VERSION, 0) ?: 0
+            val storedVer = storedVerEarly
             if (storedVer != CURRENT_SCHEMA_VERSION) {
                 val dropRequests = JSONArray().apply {
                     put(exec("DROP TABLE IF EXISTS collective_feature_weights"))
