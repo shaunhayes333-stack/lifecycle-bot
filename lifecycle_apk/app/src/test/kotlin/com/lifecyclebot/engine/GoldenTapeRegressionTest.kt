@@ -1688,7 +1688,7 @@ class GoldenTapeRegressionTest {
         assertTrue(tuner.contains("low-WR/no-runner bleed fix"))
         assertTrue(tuner.contains("wr < 0.20 && avgReal < 0.0 && avgPeak < 15.0 -> sl -= STEP * 2.0"))
         assertTrue(tuner.contains("val stopLeakClamp = slHitRate >= 0.35 && avgLoss <= -20.0"))
-        assertTrue(tuner.contains("val slCap = if ((wr < 0.20 && avgReal < 0.0 && avgPeak < 15.0) || stopLeakClamp) 1.0 else SL_MAX"))
+        assertTrue(tuner.contains("val slCap = if ((wr < 0.20 && avgReal < 0.0 && avgPeak < 15.0) || stopLeakClamp || moderateBleed6120g) 1.0 else SL_MAX"))
         assertFalse("low-WR no-runner lanes must not widen stops", tuner.contains("slHitRate >= 0.50 && avgPeak < 8.0 -> sl += STEP"))
     }
 
