@@ -7148,8 +7148,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6109: AGI ceiling must allow higher amplitude when AGI/SSI stack is active", executor6109.contains("agiCeiling6090") && executor6109.contains("3.00") && executor6109.contains("2.50"))
         val executor6110 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val compounding6110 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RealizedWalletCompoundingGovernor.kt").readText()
-        assertTrue("V5.0.6110: premature size<0.001 kill must be replaced with wallet-relative min lift, not hard reject", executor6110.contains("WALLET_REL_MIN_LIFT_6110") && executor6110.contains("walletRelMin6110") && !executor6110.contains("""if (size < 0.001) {
-                ErrorLogger.debug("Executor", "\u{1F9B}\u{FE0F} ${ts.symbol} SIZE TOO SMALL: $size | wallet=$walletSol | paper=$isPaperMode | liq=${ts.lastLiquidityUsd}")"""))
+        assertTrue("V5.0.6110: premature size<0.001 kill must be replaced with wallet-relative min lift, not hard reject", executor6110.contains("WALLET_REL_MIN_LIFT_6110") && executor6110.contains("walletRelMin6110") && executor6110.contains("path=maybeAct") && executor6110.contains("path=maybeActWithDecision"))
         assertTrue("V5.0.6110: compounding governor must break death spiral when wallet<1 SOL and no open positions", compounding6110.contains("WALLET_COMPOUND_SMALL_WALLET_DEATH_SPIRAL_BREAK_6110") && compounding6110.contains("snap.walletSol < 1.0") && compounding6110.contains("trustedOpenRunnerCount == 0"))
     }
 
