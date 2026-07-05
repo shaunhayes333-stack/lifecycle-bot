@@ -132,24 +132,38 @@ works with zero user configuration on every fresh install.
 - `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt` (UI stickiness)
 - `app/src/main/AndroidManifest.xml` (configChanges)
 
-## Session 2026-07-06 — SpikeGuard + ANR kill + WR tuning (V5.0.6120→6120c)
+## Session 2026-07-06 — Compounding Machine Assembly (V5.0.6120 → 6120e)
 
-- **6120 ✅ CI GREEN**: `SpikeGuardExit.kt` — chunked wick-capture ladder. Operator report showed ansem/RUNNER +3358% mark peak collapsing to -87% while position stayed open. Root cause traced: `peakGainPct` ratchets off Jupiter-verified full-bag price (thin pool → lags wick by 10-100x), so parabolic tick never fires exits. Also `WS_TICK_FILTER` rejected any tick jumping >100x as feed glitch. Fix: (a) new SpikeGuardExit tracks per-mint mark peak from raw WS tick, arms at +500%, full-exit at +1000%, also fires on 30% give-back; (b) chunked 4-partial ladder (30/30/25/15) with 250ms spacing on a daemon thread so tick loop never blocks; each partial goes through executor's existing Jupiter Ultra → Metis → PumpPortal → PumpFunDirect escalation, so 25% chunk fills where 100% sell would price-impact-abort; (c) WS_TICK_FILTER now passes upward wicks 100x-100000x on OPEN positions through to SpikeGuardExit; (d) tick-loop hook fires guard on every fresh WS tick using RAW priceUsd. Forensic events: SPIKE_GUARD_FIRE_6120, SPIKE_GUARD_CHUNK_FIRE_6120, WS_TICK_UPWARD_WICK_PASS_6120.
+Operator directive: *"there's 0 reason why we cant compound the live wallet balance 2-5x per day and 0 reason why it cant turn \$40 into thousands... 8 instances means the bot should have its intelligence ×8... backtest is meant to run all the time... shadow trader meant to trade everything in shadow whether live or paper is running... all these must feed learning + brains + LLM Lab."*
 
-- **6120b 🟡 building**: `TradeHistoryStore.kt` main-thread cache guard on `getAllSells`, `getAllValidTradesSnapshot`, `getAllTradesFromDb` (worst — full SQLite cursor scan), and `getAssetBreakdown`. Operator report showed 3 ANR hints, max frame gap 49087ms, total stall 53362ms (3.9% of uptime) with sampler pinning the blame on `TradeHistoryStore.getAllSells` + `MainActivity.onCreate`. Applied same main-thread cache template already used by `getRecentValidClosedTradesRaw` / `rollingWinRatePct`: 3-5s TTL, async IO-dispatcher refresh, per-cache in-flight guard. Background callers still do full scan and update cache. Expected: ANR_HINTS → 0, MainActivity.onCreate < 200ms even with 5000+ trades.
+### 6120 ✅ SpikeGuardExit — chunked wick-capture ladder
+Root cause: `peakGainPct` ratchets off Jupiter-verified full-bag price (thin pool → lags DexScreener wick by 10-100×), so parabolic tick never fires exits. Also `WS_TICK_FILTER` rejected any tick jumping >100× as feed glitch. Fix: new `SpikeGuardExit.kt` tracks per-mint mark peak from raw WS tick, arms at +500%, full-exit at +1000%, also fires on 30% give-back. Chunked 4-partial ladder (30/30/25/15) with 250ms spacing on daemon thread. WS filter now passes upward wicks 100×-100000× on OPEN positions through to SpikeGuardExit.
 
-- **6120c 🟡 pushed**: `TokenWinMemory.patternEdgeForToken` + `LosingPatternMemory.isDangerZone` — WR/EV tuning based on operator July 2026 pattern data. TWO bugs fixed:
-  (1) **Goose thresholds too conservative on current 1500-trade dataset**: `theme_dog n=14 WR=0%` and `theme_pump n=14 WR=0%` were TOXIC-only (n<15 for CATA), so bot kept buying them. `theme_elon n=9 WR=22% avgWin=132%`, `theme_baby n=9 WR=22% avgWin=80%`, `theme_frog n=8 WR=37% avgWin=48%` were NEUTRAL (n<10 and WR<70%) despite +29% / +18% / +18% EV per attempt. Fix: lowered inclusion n>=10→n>=8; CATASTROPHIC to WR<=10%/n>=10; TOXIC to WR<=15%/n>=8; GOLD to WR>=60%/n>=8 OR EV>=20% (evGoldHit path with avgWin>=30% guard); WINNER to WR>=50%/n>=8.
-  (2) **False-positive danger buckets**: `LosingPatternMemory.isDangerous` is a pure loss-rate flag ignoring `meanPnl`. `recommendedSizeMult` already had the "positive-EV bucket is not a bleeder" guard at line 213 — but `isDangerZone()` (consumed by BrainConsensusGate/LaneToxicityGuard/MoonshotArbiter) skipped it. So `MOONSHOT|S41-60` (16L/6W meanPnl=+61.5%) and `QUALITY|S61+` (9L/3W meanPnl=+10.5%) were damped away despite being POSITIVE-EV moonshot bands. Fix: `isDangerZone()` now requires meanPnl <= 0. Positive-EV buckets keep firing.
+### 6120b ✅ ANR kill — TradeHistoryStore main-thread cache
+Operator ANR: MainActivity.onCreate + TradeHistoryStore.getAllSells on main thread → 49s frame gap. Fix: same 3-5s TTL cache template as `rollingWinRatePct` applied to `getAllSells`, `getAllValidTradesSnapshot`, `getAllTradesFromDb` (worst offender), `getAssetBreakdown`. Async IO refresh, per-cache in-flight guard.
+
+### 6120c ✅ WR tuning — sharpen goose + EV-aware danger + EV-based gold
+Bug A: goose thresholds too conservative on 1500-trade dataset. `theme_dog n=14 WR=0%` was TOXIC-only (n<15 for CATA), bot kept buying. `theme_elon n=9 WR=22% avgWin=132%` was NEUTRAL. Fix: n>=10→n>=8; CATA WR<=10%/n>=10; TOXIC WR<=15%/n>=8; GOLD WR>=60%/n>=8 OR EV>=20% (evGoldHit). Bug B: `isDangerZone()` used pure loss-rate, damping positive-EV MOONSHOT bands. Fix: also require meanPnl<=0.
+
+### 6120d 🟡 Hivemind 8× amplifier
+Bug A: `SYNC_INTERVAL_MS = 15min` + delay-before-first-sync. Fix: immediate first sync at loop start + two-tier cadence (HOT 90s pull, FULL 5min upload). Bug B: swarm sizing shape capped at ±20%. Fix: 6-tier ladder — swarm CATA ×0.20, TOXIC ×0.40, loser ×0.75, winner ×1.15, STRONG ×1.30, GOLD ×1.50.
+
+### 6120e 🟡 Backtest 10× faster + 5× deeper
+Old cadence: `loopCount % 300` (~5hrs) — PatternAutoTuner + CloudLearningSync only refreshed 4-5×/day. Fix: `loopCount % 30` (~5min) with AtomicBoolean re-entrancy guard. Old SQL: `LIMIT 1000`. Fix: `LIMIT 5000` covers full lifetime dataset. Combined with 6120d hive amplifier the swarm now feels backtest deltas within 5-6min end-to-end vs old 5-15hr lag.
+
+### Learning system audit (this session)
+- `ShadowLearningEngine.onTradeOpportunity` IS wired (3 sites in Executor) and runs a 60s analyze loop ✅
+- `LlmLabEngine.tick` fires every bot loop, gets full universe feed (memes + crypto alts + tokenized stocks) ✅
+- `LlmLabEngine.recordExternalOutcome6078` bridge exists but ONLY Executor pushes to it (~4200 sample cap) — backtest, shadow variants, and collective don't feed the Lab yet ⚠️
+- `PatternAutoTuner.updateFromBacktest` + `CloudLearningSync.uploadLearnings` DO feed backward loop ✅
 
 ### PENDING (still on the board)
-- P1: `MainActivity.onCreate` `AsyncLayoutInflater`/`ViewStub` for `activity_main.xml` inflation (6120b addresses the SQLite side; layout side still on main thread).
-- P1: Supervisor worker timeouts (138 in the 22-min report window). Cycle avg 17s / max 2m16s — well over the 30s "overload" threshold. Blocking hot-path API calls (Birdeye 67% success, CoinGecko 16% success) inside 9s worker budget.
-- P1: Collective blacklist auto-feed pipe — report shows 0 blacklisted despite 77 losing patterns in PatternMemory. Some sync between LosingPatternMemory and CollectiveLearning is broken.
-- P1: STANDARD lane: 47% WR but -8% EV (losses ~2x wins on average). Bleeder recovery pivot is applied (size ×0.51, tp ×1.16) but hasn't turned it profitable yet.
+- P1 (next session): wire PatternBacktester / ShadowLearningEngine / CollectiveLearning outcomes → LlmLabEngine.recordExternalOutcome6078 so Lab sees full ecosystem, not just live executor closes.
+- P1: MainActivity.onCreate `AsyncLayoutInflater`/`ViewStub` for layout inflation (6120b only addressed the SQLite side).
+- P1: Supervisor worker timeouts (138 in 22min report). Circuit-break degraded APIs (Birdeye 67%, CoinGecko 16%) inside 9s worker budget.
+- P1: STANDARD lane 47% WR but -8% EV. Losses ~2× wins → tighten SL or widen TP for that specific lane.
 - P2: SsiPilotCouncil `exitPatience` not yet consumed by exit layers.
-- P2: Ladder status pill / Strategy Leaderboard tile / Brain Health pill / positions backup export / Tune History tab / Hivemind startup gate.
-- P3: Wire 4 direct-DEX Jupiter-restricted parallel-race quotes for spike sells (currently the ladder uses sequential fallback).
+- P2: UI pills — Ladder / Strategy Leaderboard / Brain Health / Pilot Log ticker.
 
 ## Critical rules for next agent
 1. **BRACE/PAREN COUNT before every push.** Use `git diff | grep -o '(' | wc -l` deltas.
