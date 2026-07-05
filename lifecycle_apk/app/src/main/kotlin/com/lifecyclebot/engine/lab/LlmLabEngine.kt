@@ -44,9 +44,9 @@ object LlmLabEngine {
     private const val CULL_INTERVAL_MS             = 20L * 60L * 1000L          // 20min
     private const val HEARTBEAT_INTERVAL_MS        = 60_000L                    // 60s heartbeat
 
-    private const val MAX_LIVE_STRATEGIES   = 36       // 24 → 36 (more variety)
-    private const val MAX_OPEN_POSITIONS    = 24       // 16 → 24
-    private const val MAX_PER_STRATEGY_OPEN = 1
+    private const val MAX_LIVE_STRATEGIES   = 60       // V5.0.6124: 36 → 60 (constant generation for all lanes)
+    private const val MAX_OPEN_POSITIONS    = 40       // V5.0.6124: 24 → 40 (more concurrent proofs)
+    private const val MAX_PER_STRATEGY_OPEN = 2        // V5.0.6124: 1 → 2 (allow pyramiding on best strategies)
 
     // ── State ───────────────────────────────────────────────────────────────
     private val lastEvalMs       = AtomicLong(0)
@@ -54,6 +54,27 @@ object LlmLabEngine {
     private val lastHeartbeatMs  = AtomicLong(0)
     private val firstStartMs     = AtomicLong(0)
     private val autoPivotSeededAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    // V5.0.6124 — LANE ROTATION. The lab cycles through ALL lanes constantly,
+    // generating strategies for each one regardless of current winrate or EV.
+    // Even winning lanes get fresh strategies — the goal is continuous
+    // improvement, not just recovery. The lab uses its OWN paper balance
+    // (100 SOL) and NEVER touches the live wallet.
+    private val ALL_TARGET_LANES = listOf(
+        "MOONSHOT", "QUALITY", "SHITCOIN", "DIP_HUNTER", "BLUECHIP",
+        "MANIPULATED", "EXPRESS", "PROJECT_SNIPER", "INSIDER_SHARK",
+        "TREASURY", "CRYPTO_ALT",
+    )
+    @Volatile private var laneRotationIndex = 0
+    private val laneRotationLock = Any()
+    private fun nextLaneForCreation(): String {
+        synchronized(laneRotationLock) {
+            val lane = ALL_TARGET_LANES[laneRotationIndex % ALL_TARGET_LANES.size]
+            laneRotationIndex++
+            return lane
+        }
+    }
+    private val laneStrategyCount = java.util.concurrent.ConcurrentHashMap<String, Int>()
     @Volatile private var ctxRef: Context? = null
     private data class ExternalOutcome6078(
         val lane: String,
@@ -220,6 +241,9 @@ object LlmLabEngine {
         val mint: String,
         val asset: LabAssetClass,
         val price: Double,
+        val lane: String = "",
+        val liquidityUsd: Double = 0.0,
+        val mcapUsd: Double = 0.0,
         val score: Int,        // 0..100 — composite AATE score for the symbol
         val regime: String,    // "BULL" | "BEAR" | "CHOP" | "ANY"
     )
@@ -394,16 +418,27 @@ object LlmLabEngine {
             return
         }
 
-        // V5.0.6120h — LANE-RECOVERY BIAS. Drain any pending recovery hints
-        // from Green-EV Governor. If a lane is paused because its live EV
-        // has bled below -3%, focus the LLM prompt on inventing a strategy
-        // for THAT lane specifically. Once we successfully paper-promote a
-        // strategy for the paused lane, the Governor sees the recovery-win
-        // streak clear and re-enables live trading on the lane. Fully
-        // autonomous recovery loop. Non-blocking: if the queue is empty,
-        // fall through to the standard prompt.
+        // V5.0.6124 — CONSTANT LANE ROTATION. The lab generates strategies
+        // for ALL lanes constantly, not just when a lane is bleeding. Even
+        // winning lanes get fresh strategies — the goal is continuous
+        // improvement across the entire bot. The lab uses its OWN paper
+        // balance (100 SOL) and NEVER touches the live wallet.
+        //
+        // Priority: recovery hints first (bleeding lanes need urgent help),
+        // then lane rotation (all lanes get constant fresh strategies).
         val recoveryHints = try { com.lifecyclebot.engine.LabRecoveryHintQueue.drainAll() } catch (_: Throwable) { emptyList() }
         val recoveryTarget = recoveryHints.firstOrNull()
+
+        // V5.0.6124 — Pick the target lane: recovery first, then rotation
+        val targetLane = recoveryTarget?.lane ?: nextLaneForCreation()
+
+        // Count active strategies for this lane — don't let one lane hoard
+        val activeForLane = LlmLabStore.activeStrategies().count { it.targetLane == targetLane }
+        if (activeForLane >= 8) {
+            ErrorLogger.info(TAG, "🧪 Creation skipped for lane $targetLane — already has $activeForLane active strategies")
+            return
+        }
+
         val laneBias = if (recoveryTarget != null) {
             try {
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
@@ -426,7 +461,61 @@ signals (entryScoreMin >= 70). This is the specific bleeder pattern
 the swarm needs solved. Name the strategy "recover/${recoveryTarget.lane}_gen_${System.currentTimeMillis().toString().takeLast(6)}".
 ${recoveryTarget.autopsyConstraint}
 """
-        } else ""
+        } else """
+
+═══ LANE FOCUS: $targetLane ═══
+Invent a strategy specifically for the $targetLane lane. This lane is NOT
+currently in recovery — it may be winning, losing, or neutral. The goal is
+CONTINUOUS IMPROVEMENT, not just crisis management. Even a winning lane
+can benefit from a new approach, style, or tactic.
+
+Consider which trading style fits this lane best (see the style catalog
+below) and experiment with different entry/hold/exit logic. The lab uses
+its OWN paper balance — never the live wallet.
+"""
+
+        // V5.0.6124 — Build the full style catalog for the LLM prompt
+        val styleCatalog = """
+AVAILABLE TRADING STYLES (pick one that fits $targetLane):
+- diamond_hands_runner: long hold, big TP, for MOONSHOT/QUALITY/BLUECHIP
+- degen_micro_snipe: fast entry/exit, small size, for PROJECT_SNIPER/SHITCOIN/EXPRESS
+- pump_graduation_snipe: catch tokens graduating from PumpFun, for PROJECT_SNIPER/MOONSHOT
+- chart_breakout: pattern-based breakout entry, for MOONSHOT/PROJECT_SNIPER/QUALITY
+- chart_pullback_reclaim: buy the dip on confirmed patterns, for DIP_HUNTER/QUALITY/TREASURY
+- whale_accumulation_hold: follow whale wallets, long hold, for QUALITY/BLUECHIP/MOONSHOT
+- exhaustion_quick_flip: catch exhaustion bounces, fast exit, for EXPRESS/MANIPULATED
+- mainstream_crypto_swing: swing trade established tokens, for QUALITY/BLUECHIP
+- volume_ignition_scalp: catch volume spikes, fast exit, for EXPRESS/SHITCOIN/MANIPULATED
+- smart_wallet_copy_follow: copy successful wallets, for QUALITY/MOONSHOT/BLUECHIP
+- insider_shark_follow: follow insider wallets, for INSIDER_SHARK/MOONSHOT/QUALITY
+- narrative_social_ignition: catch social narrative spikes, for MANIPULATED/SHITCOIN/EXPRESS
+- liquidity_depth_quality: enter only on deep liquidity, for QUALITY/BLUECHIP/TREASURY
+- panic_reversion_bounce: catch panic dumps and revert, for DIP_HUNTER/TREASURY/QUALITY
+- arb_flow_imbalance: exploit venue price gaps, for EXPRESS/SHITCOIN/TREASURY
+- mev_protected_entry: defensive entry with MEV protection, for SHITCOIN/PROJECT_SNIPER
+- reentry_recovery: re-enter after failed first attempt, for DIP_HUNTER/TREASURY
+- defensive_probe: small probe on uncertain signals, for SHITCOIN/MOONSHOT
+- toxic_reclaim_tactic: reclaim toxic tokens after pullback, for SHITCOIN/EXPRESS
+- breakout_runner: catch and hold breakouts, for MOONSHOT/SHITCOIN
+- swing_hold: medium-term swing, for MOONSHOT/QUALITY/BLUECHIP
+- pullback_reclaim: buy pullbacks in trends, for DIP_HUNTER/QUALITY
+- whale_follow: follow whale accumulation, for BLUECHIP/QUALITY
+- reaccumulation: accumulate during consolidation, for QUALITY/TREASURY
+
+AVAILABLE TACTICS: MOMENTUM, PULLBACK, REACCUMULATION, BREAKOUT
+
+ENTRY LOGIC OPTIONS: breakout_above_resistance, pullback_to_support, volume_spike_confirmation,
+  whale_wallet_trigger, social_sentiment_spike, pattern_completion, ema_fan_alignment,
+  bonding_curve_stage_entry, liquidity_threshold_gate, multi_signal_confirmation
+
+HOLD LOGIC OPTIONS: trail_until_peak, fixed_time_hold, dynamic_profit_lock_sliding,
+  whale_still_accumulating, pattern_intact, ema_fan_aligned, time_decay_exit,
+  runner_bypass_extended, pyramiding_add_on_dip
+
+EXIT LOGIC OPTIONS: take_profit_at_target, trailing_stop_tighten, dynamic_profit_lock_at_peak,
+  partial_exit_at_threshold, hard_stop_loss, time_based_exit, signal_breakdown_exit,
+  whale_exit_detected, pattern_break_exit, scale_out_laddered
+"""
 
         val recent = LlmLabStore.allStrategies()
             .sortedByDescending { it.lastEvaluatedAt }
@@ -442,16 +531,34 @@ lab to try, distinct from the existing list below. Output STRICT JSON only.
 EXISTING STRATEGIES:
 $recent
 $laneBias
+$styleCatalog
+
 OUTPUT JSON FIELDS (all required):
-  name           short tag, <= 32 chars
-  rationale      one sentence, <= 120 chars
-  asset          one of: MEME, ALT, MARKETS, STOCK, FOREX, METAL, COMMODITY, ANY
-  entryScoreMin  integer 50..95
-  entryRegime    one of: ANY, BULL, BEAR, CHOP
-  takeProfitPct  number 3..50
-  stopLossPct    number -3..-30 (negative)
-  maxHoldMins    integer 15..480
-  sizingSol      number 1.0..20.0, preferably 5%-20% of the current lab bankroll; no micro/toy sizing
+  name              short tag, <= 32 chars
+  rationale         one sentence, <= 120 chars
+  asset             one of: MEME, ALT, MARKETS, STOCK, FOREX, METAL, COMMODITY, ANY
+  entryScoreMin     integer 50..95
+  entryRegime       one of: ANY, BULL, BEAR, CHOP
+  takeProfitPct     number 3..50
+  stopLossPct       number -3..-30 (negative)
+  maxHoldMins       integer 15..480
+  sizingSol         number 1.0..20.0, preferably 5%-20% of the current lab bankroll; no micro/toy sizing
+
+V5.0.6124 ADDITIONAL FIELDS (all required):
+  targetLane        the lane this strategy targets (e.g. "$targetLane")
+  tradingStyle      one of the trading styles from the catalog above
+  tactic            one of: MOMENTUM, PULLBACK, REACCUMULATION, BREAKOUT
+  entryLogic        short description of entry conditions, <= 80 chars
+  holdLogic         short description of hold conditions, <= 80 chars
+  exitLogic         short description of exit conditions, <= 80 chars
+  toolAffinity      comma-separated tools from the style catalog, <= 60 chars
+  minLiquidityUsd   minimum liquidity to enter (e.g. 5000, 0 for no gate)
+  maxMcapUsd        maximum market cap to enter (e.g. 500000, 0 for no cap)
+  pyramiding        true/false — add to winning positions?
+  partialExitPct    take partial exit at this % gain (0 = no partial)
+  trailStopPct      trailing stop distance % (0 = use fixed SL)
+  dynamicProfitLock true/false — use sliding profit lock?
+  confidence        your confidence in this strategy, 0.0 to 1.0
 
 Reply with just the JSON object, nothing else.
         """.trimIndent()
@@ -513,6 +620,21 @@ Reply with just the JSON object, nothing else.
                 sizingSol = o.optDouble("sizingSol", economicLabSizingSol(0.08)).coerceIn(economicLabSizingSol(0.05), economicLabSizingSol(0.20)),
                 generation = 1,
                 status = LabStrategyStatus.ACTIVE,
+                // V5.0.6124 — full strategy context
+                targetLane = o.optString("targetLane", "").uppercase().take(32),
+                tradingStyle = o.optString("tradingStyle", "").take(48),
+                tactic = o.optString("tactic", "MOMENTUM").uppercase().take(20),
+                entryLogic = o.optString("entryLogic", "").take(80),
+                holdLogic = o.optString("holdLogic", "").take(80),
+                exitLogic = o.optString("exitLogic", "").take(80),
+                toolAffinity = o.optString("toolAffinity", "").take(60),
+                minLiquidityUsd = o.optDouble("minLiquidityUsd", 0.0).coerceAtLeast(0.0),
+                maxMcapUsd = o.optDouble("maxMcapUsd", 0.0).coerceAtLeast(0.0),
+                pyramiding = o.optBoolean("pyramiding", false),
+                partialExitPct = o.optDouble("partialExitPct", 0.0).coerceIn(0.0, 80.0),
+                trailStopPct = o.optDouble("trailStopPct", 0.0).coerceIn(0.0, 30.0),
+                dynamicProfitLock = o.optBoolean("dynamicProfitLock", true),
+                confidenceInStrategy = o.optDouble("confidence", 0.5).coerceIn(0.0, 1.0),
             )
         } catch (e: Throwable) {
             ErrorLogger.warn(TAG, "JSON parse error: ${e.message}")
@@ -575,9 +697,16 @@ Reply with just the JSON object, nothing else.
             tick.score >= s.entryScoreMin &&
             (s.entryRegime == "ANY" || tick.regime == s.entryRegime) &&
             tick.price > 0.0 &&
+            // V5.0.6124 — lane-targeted filtering
+            (s.targetLane.isBlank() || tick.lane == s.targetLane) &&
+            // V5.0.6124 — liquidity and mcap gates
+            (s.minLiquidityUsd <= 0.0 || tick.liquidityUsd >= s.minLiquidityUsd) &&
+            (s.maxMcapUsd <= 0.0 || tick.mcapUsd <= s.maxMcapUsd) &&
             LlmLabStore.openPosition(s.id, tick.mint) == null
         }
         if (pool.isEmpty()) return null
+        // V5.0.6124 — if pyramiding is enabled, allow a second position
+        // on a strong candidate even if one is already open for this strategy
         return pool.maxByOrNull { it.score }
     }
 

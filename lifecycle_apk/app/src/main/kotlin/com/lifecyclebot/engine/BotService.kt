@@ -11673,6 +11673,11 @@ class BotService : Service() {
                     price = price,
                     score = score,
                     regime = regime,
+                    // V5.0.6124 — feed lane + liquidity + mcap so lab strategies
+                    // can target specific lanes and filter by liquidity/mcap gates
+                    lane = ts.laneAffinity.firstOrNull()?.uppercase() ?: ts.position.tradingMode.uppercase(),
+                    liquidityUsd = ts.lastLiquidityUsd,
+                    mcapUsd = ts.lastMcap,
                 ))
             }
             fun pushTick(symbol: String, mint: String, asset: com.lifecyclebot.engine.lab.LabAssetClass, price: Double, score: Int = 50) {

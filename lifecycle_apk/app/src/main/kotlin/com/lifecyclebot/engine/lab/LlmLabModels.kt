@@ -61,6 +61,22 @@ data class LabStrategy(
     val createdAt: Long = System.currentTimeMillis(),
     var lastTradeAt: Long = 0L,
     var lastEvaluatedAt: Long = 0L,
+    // V5.0.6124 — FULL STRATEGY CONTEXT (operator: "constantly build new strategies
+    // for all lanes and traders regardless of current winrate or EV")
+    val targetLane: String = "",       // MOONSHOT, QUALITY, SHITCOIN, DIP_HUNTER, etc.
+    val tradingStyle: String = "",     // one of AgenticStyleRouter.Style labels
+    val tactic: String = "",           // MOMENTUM, PULLBACK, REACCUMULATION, BREAKOUT
+    val entryLogic: String = "",       // description of entry conditions
+    val holdLogic: String = "",        // description of hold conditions (e.g. "trail until peak")
+    val exitLogic: String = "",        // description of exit conditions
+    val toolAffinity: String = "",     // comma-separated tools (e.g. "SMART_CHART,WHALE")
+    val minLiquidityUsd: Double = 0.0, // min liquidity to enter
+    val maxMcapUsd: Double = 0.0,      // max market cap to enter (0 = no cap)
+    val pyramiding: Boolean = false,   // add to winners?
+    val partialExitPct: Double = 0.0,  // partial exit at this % gain (0 = no partial)
+    val trailStopPct: Double = 0.0,    // trailing stop distance (0 = use fixed SL)
+    val dynamicProfitLock: Boolean = true, // use sliding profit lock?
+    val confidenceInStrategy: Double = 0.0, // LLM's own confidence 0..1
 ) {
     fun winRatePct(): Double =
         if (paperTrades > 0) paperWins * 100.0 / paperTrades else 0.0
@@ -76,6 +92,14 @@ data class LabStrategy(
         put("paperTrades", paperTrades); put("paperWins", paperWins); put("paperPnlSol", paperPnlSol)
         put("liveTrades", liveTrades); put("liveWins", liveWins); put("livePnlSol", livePnlSol)
         put("createdAt", createdAt); put("lastTradeAt", lastTradeAt); put("lastEvaluatedAt", lastEvaluatedAt)
+        // V5.0.6124
+        put("targetLane", targetLane); put("tradingStyle", tradingStyle); put("tactic", tactic)
+        put("entryLogic", entryLogic); put("holdLogic", holdLogic); put("exitLogic", exitLogic)
+        put("toolAffinity", toolAffinity)
+        put("minLiquidityUsd", minLiquidityUsd); put("maxMcapUsd", maxMcapUsd)
+        put("pyramiding", pyramiding); put("partialExitPct", partialExitPct)
+        put("trailStopPct", trailStopPct); put("dynamicProfitLock", dynamicProfitLock)
+        put("confidenceInStrategy", confidenceInStrategy)
     }
 
     companion object {
@@ -84,24 +108,39 @@ data class LabStrategy(
             name = o.optString("name"),
             rationale = o.optString("rationale"),
             asset = LabAssetClass.parse(o.optString("asset")),
-            entryScoreMin = o.optInt("entryScoreMin", 60),
+            entryScoreMin = o.optInt("entryScoreMin", 70),
             entryRegime = o.optString("entryRegime", "ANY"),
             takeProfitPct = o.optDouble("takeProfitPct", 10.0),
             stopLossPct = o.optDouble("stopLossPct", -8.0),
-            maxHoldMins = o.optInt("maxHoldMins", 120),
-            sizingSol = o.optDouble("sizingSol", 0.25),
+            maxHoldMins = o.optInt("maxHoldMins", 90),
+            sizingSol = o.optDouble("sizingSol", 5.0),
             parentId = o.optString("parentId").ifBlank { null },
             generation = o.optInt("generation", 1),
             status = try { LabStrategyStatus.valueOf(o.optString("status", "DRAFT")) } catch (_: Throwable) { LabStrategyStatus.DRAFT },
-            paperTrades = o.optInt("paperTrades"),
-            paperWins = o.optInt("paperWins"),
-            paperPnlSol = o.optDouble("paperPnlSol"),
-            liveTrades = o.optInt("liveTrades"),
-            liveWins = o.optInt("liveWins"),
-            livePnlSol = o.optDouble("livePnlSol"),
+            paperTrades = o.optInt("paperTrades", 0),
+            paperWins = o.optInt("paperWins", 0),
+            paperPnlSol = o.optDouble("paperPnlSol", 0.0),
+            liveTrades = o.optInt("liveTrades", 0),
+            liveWins = o.optInt("liveWins", 0),
+            livePnlSol = o.optDouble("livePnlSol", 0.0),
             createdAt = o.optLong("createdAt", System.currentTimeMillis()),
-            lastTradeAt = o.optLong("lastTradeAt"),
-            lastEvaluatedAt = o.optLong("lastEvaluatedAt"),
+            lastTradeAt = o.optLong("lastTradeAt", 0L),
+            lastEvaluatedAt = o.optLong("lastEvaluatedAt", 0L),
+            // V5.0.6124
+            targetLane = o.optString("targetLane", ""),
+            tradingStyle = o.optString("tradingStyle", ""),
+            tactic = o.optString("tactic", ""),
+            entryLogic = o.optString("entryLogic", ""),
+            holdLogic = o.optString("holdLogic", ""),
+            exitLogic = o.optString("exitLogic", ""),
+            toolAffinity = o.optString("toolAffinity", ""),
+            minLiquidityUsd = o.optDouble("minLiquidityUsd", 0.0),
+            maxMcapUsd = o.optDouble("maxMcapUsd", 0.0),
+            pyramiding = o.optBoolean("pyramiding", false),
+            partialExitPct = o.optDouble("partialExitPct", 0.0),
+            trailStopPct = o.optDouble("trailStopPct", 0.0),
+            dynamicProfitLock = o.optBoolean("dynamicProfitLock", true),
+            confidenceInStrategy = o.optDouble("confidenceInStrategy", 0.0),
         )
     }
 }
