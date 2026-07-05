@@ -9667,16 +9667,11 @@ class Executor(
         val highConvBoost = if (isHighConvictionWinner) 1.50 else 1.0
 
         val laneBiasMult = laneBiasMult6114  // V5.0.6114: moved into geomean cascade
-        // V5.0.6114 — POST-CASCADE GEOMEAN: discipline/tilt/bridge were multiplying
-        // as pure product OUTSIDE the geomean, recreating cascade collapse.
-        // Now: combine them as geomean so they can't collapse the stack.
-        val postCascadeDampers6114 = listOf(disciplineRecoveryMult6112, laneTilt4132, bridgeMult4132).filter { it < 1.0 && it > 0.0 }
-        val postCascadeGeomean6114 = if (postCascadeDampers6114.isNotEmpty()) {
-            kotlin.math.exp(postCascadeDampers6114.map { kotlin.math.ln(it) }.average())
-        } else 1.0
-        try { ForensicLogger.lifecycle("POST_CASCADE_GEOMEAN_6114", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag dampers=${postCascadeDampers6114.size} geomean=${postCascadeGeomean6114.fmt(3)} discipline=${disciplineRecoveryMult6112.fmt(2)} tilt=${laneTilt4132.fmt(2)} bridge=${bridgeMult4132.fmt(2)}") } catch (_: Throwable) {}
+        // V5.0.6114 — postCascadeGeomean6114 is computed AFTER discipline/tilt/bridge
+        // are defined (below). multiplierProduct is finalized there too.
         val multiplierProduct = run {
-            val product = multiplierProductRaw * postCascadeGeomean6114 * slipDownsizeMult * highConvBoost
+            // V5.0.6114: postCascadeGeomean6114 will be applied later (after discipline/tilt/bridge defined)
+            val product = multiplierProductRaw * slipDownsizeMult * highConvBoost
             // V5.0.6055 — P0.b: POSITIVE-EV LANE FLOOR.
             // Operator P0: "flick the memetrader green the right way!!!"
             // Runtime V5.0.6053 showed a proven positive-EV lane (MOONSHOT
@@ -9859,6 +9854,16 @@ class Executor(
         // (d) SCANNER-LANE BRIDGE: additive score-style bias from (source, lane) brain.
         val bridgeBias4132 = try { com.lifecyclebot.engine.ScannerLaneBridge.affinityBias(ts.source, laneTag) } catch (_: Throwable) { 0 }
         val bridgeMult4132 = (1.0 + bridgeBias4132 / 100.0).coerceIn(0.70, 1.30)
+        // V5.0.6114 — POST-CASCADE GEOMEAN: discipline/tilt/bridge were multiplying
+        // as pure product OUTSIDE the geomean, recreating cascade collapse.
+        // Now: combine them as geomean so they can't collapse the stack.
+        val postCascadeDampers6114 = listOf(disciplineRecoveryMult6112, laneTilt4132, bridgeMult4132).filter { it < 1.0 && it > 0.0 }
+        val postCascadeGeomean6114 = if (postCascadeDampers6114.isNotEmpty()) {
+            kotlin.math.exp(postCascadeDampers6114.map { kotlin.math.ln(it) }.average())
+        } else 1.0
+        try { ForensicLogger.lifecycle("POST_CASCADE_GEOMEAN_6114", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag dampers=${postCascadeDampers6114.size} geomean=${postCascadeGeomean6114.fmt(3)} discipline=${disciplineRecoveryMult6112.fmt(2)} tilt=${laneTilt4132.fmt(2)} bridge=${bridgeMult4132.fmt(2)}") } catch (_: Throwable) {}
+        // V5.0.6114: fold postCascadeGeomean6114 into multiplierProduct
+        val multiplierProduct6114 = multiplierProduct * postCascadeGeomean6114
         val absEntryFloor4129 = when (gooseVerdict4129) {
             com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD ->
                 com.lifecyclebot.engine.LiveSizingProfile.STRONG_ENTRY_SOL
@@ -9882,9 +9887,9 @@ class Executor(
         val upperCap4129 = sol * winnerMaxBoost * gooseUpperMult4129
         // V5.0.6114 — laneTilt/bridge/discipline are now in postCascadeGeomean6114
         // inside multiplierProduct. Don't multiply them again here.
-        val effSolRaw = (sol * multiplierProduct).coerceIn(maxOf(relMinSol4129, absMinSol4129), upperCap4129)
-        if (absMinSol4129 > 0.0 && (sol * multiplierProduct) < absMinSol4129) {
-            try { ForensicLogger.lifecycle("MONEY_MODE_ABS_FLOOR_LIFT_6082", "symbol=${ts.symbol} lane=$laneTag mode=${if (RuntimeModeAuthority.isPaper()) "paper" else "live"} goose=${gooseVerdict4129.name} raw=${(sol*multiplierProduct).fmt(4)} → lift=${absMinSol4129.fmt(4)} wallet=${walletSol.fmt(3)}") } catch (_: Throwable) {}
+        val effSolRaw = (sol * multiplierProduct6114).coerceIn(maxOf(relMinSol4129, absMinSol4129), upperCap4129)
+        if (absMinSol4129 > 0.0 && (sol * multiplierProduct6114) < absMinSol4129) {
+            try { ForensicLogger.lifecycle("MONEY_MODE_ABS_FLOOR_LIFT_6082", "symbol=${ts.symbol} lane=$laneTag mode=${if (RuntimeModeAuthority.isPaper()) "paper" else "live"} goose=${gooseVerdict4129.name} raw=${(sol*multiplierProduct6114).fmt(4)} → lift=${absMinSol4129.fmt(4)} wallet=${walletSol.fmt(3)}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("MONEY_MODE_ABS_FLOOR_LIFT_6082_${gooseVerdict4129.name}") } catch (_: Throwable) {}
         }
         if (dumpRegimeLive) {
@@ -9904,7 +9909,7 @@ class Executor(
                 symbol = ts.symbol,
                 baseSol = sol,
                 rawMultiplier = multiplierProductRaw,
-                clampedMultiplier = multiplierProduct,
+                clampedMultiplier = multiplierProduct6114,
                 finalSol = effSol,
                 walletSol = walletSol,
                 liquidityUsd = ts.lastLiquidityUsd,

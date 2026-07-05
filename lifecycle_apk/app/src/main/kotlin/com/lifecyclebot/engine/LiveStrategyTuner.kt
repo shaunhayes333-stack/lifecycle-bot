@@ -377,7 +377,7 @@ object LiveStrategyTuner {
         // applying the toxic label. If the lane is profitable in the full data,
         // it's NOT toxic regardless of the clean-live-only sample.
         val lifetimeMetric6114 = try {
-            StrategyTelemetry.computeLeaderboard(environment = "all", includePartials = false, limit = 2_500)
+            StrategyTelemetry.computeLeaderboard(environment = null, includePartials = false, limit = 2_500)
                 .firstOrNull { canonical(it.strategy) == laneKey }
         } catch (_: Throwable) { null }
         val lifetimeProfitable6114 = lifetimeMetric6114 != null &&
