@@ -664,6 +664,7 @@ object TokenWinMemory {
         var bestPattern: String? = null
         var bestWr = 0.0
         var bestN = 0
+        var bestAvgWin = 0.0 // V5.0.6120c — EV path
         var worstPattern: String? = null
         var worstWr = 1.0
         var worstN = 0
@@ -673,10 +674,16 @@ object TokenWinMemory {
                 val stats = typeMap[pat] ?: continue
                 if (!sanePatternStats(stats)) continue
                 val n = stats.wins + stats.losses
-                if (n < 10) continue
+                // V5.0.6120c — lowered inclusion floor from n>=10 to n>=8.
+                // Operator report showed strong patterns (theme_frog n=8,
+                // theme_elon n=9, theme_baby n=9) invisible to the goose.
+                // Small-n patterns still gated by strict verdict thresholds
+                // below, so a coin-flip at n=8 stays NEUTRAL — only tokens
+                // with sharp asymmetric WR/EV cross into GOLD or TOXIC.
+                if (n < 8) continue
                 val wr = stats.winRate
                 if (wr > bestWr || (wr == bestWr && n > bestN)) {
-                    bestWr = wr; bestN = n; bestPattern = "$type:$pat"
+                    bestWr = wr; bestN = n; bestPattern = "$type:$pat"; bestAvgWin = stats.avgWinPnl
                 }
                 if (wr < worstWr || (wr == worstWr && n > worstN)) {
                     worstWr = wr; worstN = n; worstPattern = "$type:$pat"
@@ -688,16 +695,37 @@ object TokenWinMemory {
             return PatternEdge(Verdict.NEUTRAL, 0, null, 0.0, 0, null, 0.0, 0)
         }
 
-        // Resolve verdict + bias. Toxic dominates gold (asymmetric tilt).
-        val goldHit  = bestPattern != null  && bestWr >= 0.70 && bestN  >= 10
-        val winHit   = bestPattern != null  && bestWr >= 0.55 && bestN  >= 10
-        val toxicHit = worstPattern != null && worstWr <= 0.10 && worstN >= 10
-        val cataHit  = worstPattern != null && worstWr <= 0.05 && worstN >= 15
+        // V5.0.6120c — SHARPENED VERDICTS based on operator July 2026 report:
+        //   theme_dog   n=14 WR=0%              — was TOXIC (n<15 for CATA),
+        //                                         now CATASTROPHIC → hard veto
+        //   theme_pump  n=14 WR=0%              — same
+        //   theme_elon  n=9  WR=22% avgWin=132% — was NEUTRAL (n<10, WR<70%),
+        //                                         now GOLD via EV path
+        //   theme_baby  n=9  WR=22% avgWin=80%  — same GOLD via EV path
+        //   theme_frog  n=8  WR=37% avgWin=48%  — now WINNER via EV path
+        //
+        // EV = winRate × avgWinPnl. A rare-but-huge winner beats a common
+        // small winner. theme_elon: 0.22 × 132% = +29% EV/attempt vs a
+        // 60% × 10% = +6% EV bucket.
+        //
+        // Tighter negative thresholds: 14 straight losses at 0% is more
+        // than enough evidence to hard-veto without waiting for the 15th
+        // loss. Doctrine #86 (bounded, fail-open) preserved — this is a
+        // score bias, not a policy override.
+
+        val goldHit  = bestPattern != null  && bestWr >= 0.60 && bestN  >= 8
+        val evGoldHit = bestPattern != null &&
+                        (bestWr * bestAvgWin) >= 20.0 &&      // ≥20% EV/attempt
+                        bestN >= 8 &&
+                        bestAvgWin >= 30.0                    // avoids tiny-win bias
+        val winHit   = bestPattern != null  && bestWr >= 0.50 && bestN  >= 8
+        val toxicHit = worstPattern != null && worstWr <= 0.15 && worstN >= 8
+        val cataHit  = worstPattern != null && worstWr <= 0.10 && worstN >= 10
 
         val verdict = when {
             cataHit  -> Verdict.CATASTROPHIC
             toxicHit -> Verdict.TOXIC
-            goldHit  -> Verdict.GOLD
+            goldHit || evGoldHit -> Verdict.GOLD
             winHit   -> Verdict.WINNER
             else     -> Verdict.NEUTRAL
         }
