@@ -233,7 +233,7 @@ object UnifiedPolicyHead {
             } catch (_: Throwable) { null }
             if (lifetimeMetric6115 != null && lifetimeMetric6115.trades >= 30 &&
                 (lifetimeMetric6115.totalSolPnl > 0.0 || lifetimeMetric6115.meanPnlPct >= 20.0)) {
-                // Online model can boost above 1.0 but floor is 1.0 — no cut to winning lanes
+                // lifetimeProfitable6115 — online model can boost above 1.0 but floor is 1.0 — no cut to winning lanes
                 val blended = onlineConviction.coerceAtLeast(1.0)
                 try { ForensicLogger.lifecycle("UPH_LIFETIME_BLEND_6115", "lane=$laneKey online=${"%.3f".format(onlineConviction)} lifetimeN=${lifetimeMetric6115.trades} lifetimeWR=${"%.1f".format(lifetimeMetric6115.winRatePct)}% lifetimeSol=${"%.4f".format(lifetimeMetric6115.totalSolPnl)} blended=${"%.3f".format(blended)}") } catch (_: Throwable) {}
                 blended
