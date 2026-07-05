@@ -7369,4 +7369,22 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6078: live positions must preserve AgenticStyleRouter style surface instead of collapsing to generic lane emoji", exec.contains("preserve the full AgenticStyleRouter style surface") && exec.contains("tradingModeEmoji = listOf") && exec.contains("routedStyleTag.ifBlank"))
     }
 
+    @Test
+    fun aate6116RugPreventionHardBlocks() {
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        val lpm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LosingPatternMemory.kt").readText()
+        // FIX 1: mint authority hard block in live mode
+        assertTrue("V5.0.6116: FDG must hard-block mint authority enabled in live mode", fdg.contains("HARD_BLOCK_MINT_AUTHORITY_6116"))
+        assertTrue("V5.0.6116: mint auth hard block must be unconditional live", fdg.contains("ts.safety.mintAuthorityDisabled == false"))
+        // FIX 2: rugcheck score 2-5 hard block in live mode
+        assertTrue("V5.0.6116: FDG must hard-block very low rugcheck scores (2-5) in live", fdg.contains("very_low_rc_live_hard_block_6116"))
+        assertTrue("V5.0.6116: very low RC block must check rugcheckScore <= 5", fdg.contains("rugcheckScore <= 5"))
+        // FIX 3: death bucket veto in LosingPatternMemory
+        assertTrue("V5.0.6116: LosingPatternMemory must have isConfirmedDeathBucket6116", lpm.contains("isConfirmedDeathBucket6116"))
+        assertTrue("V5.0.6116: death bucket must check 0 wins and >=10 losses", lpm.contains("s.wins == 0 && s.losses >= 10"))
+        // FIX 4: death bucket wired into FDG
+        assertTrue("V5.0.6116: FDG must hard-block confirmed death buckets", fdg.contains("HARD_BLOCK_DEATH_BUCKET_6116"))
+        assertTrue("V5.0.6116: FDG must call isConfirmedDeathBucket6116", fdg.contains("LosingPatternMemory.isConfirmedDeathBucket6116"))
+    }
+
 }

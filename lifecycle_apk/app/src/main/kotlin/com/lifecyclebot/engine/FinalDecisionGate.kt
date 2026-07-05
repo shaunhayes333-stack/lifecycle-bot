@@ -1913,8 +1913,18 @@ object FinalDecisionGate {
             }
             rugcheckStatus == "CONFIRMED" && rugcheckScore == 0 -> true
             rugcheckStatus == "CONFIRMED" && rugcheckScore in 2..rugcheckThreshold -> {
-                tags.add("low_rc_penalty_only")
-                false
+                // V5.0.6116 — very low rugcheck scores (2-5) are "very risky" per the
+                // rugcheck API convention. In live mode these are now HARD BLOCKS, not
+                // soft penalties. The bot was buying tokens with rugcheck score 2-5 that
+                // instantly rugged. Paper still allows for learning.
+                if (!config.paperMode && rugcheckScore <= 5) {
+                    tags.add("very_low_rc_live_hard_block_6116")
+                    try { PipelineHealthCollector.labelInc("FDG_VERY_LOW_RC_HARD_BLOCK_6116") } catch (_: Throwable) {}
+                    true
+                } else {
+                    tags.add("low_rc_penalty_only")
+                    false
+                }
             }
             rugcheckStatus == "CONFIRMED" && rugcheckScore > rugcheckThreshold -> false
             rugcheckStatus == "TIMEOUT" && config.paperMode -> {
@@ -2072,6 +2082,46 @@ object FinalDecisionGate {
             tags.add("freeze_auth")
         } else if (blockReason == null) {
             checks.add(GateCheck("freeze_auth", true, null))
+        }
+
+        // V5.0.6116 — SAFETY BLOCK: Mint authority enabled = dev can mint unlimited
+        // tokens and dump them. Same rug vector as freeze authority. The bot was buying
+        // tokens at -83%/-87%/-94% because mint authority was only a +10 soft penalty.
+        // Now: HARD BLOCK in live mode when mint authority is confirmed enabled.
+        // null = unknown (RPC race) = keep as soft penalty (do not hard-block on missing data).
+        if (blockReason == null && !config.paperMode && ts.safety.mintAuthorityDisabled == false) {
+            blockReason = "HARD_BLOCK_MINT_AUTHORITY_6116"
+            blockLevel = BlockLevel.HARD
+            checks.add(GateCheck("mint_auth", false, "mintAuth=enabled (live mode — dev can mint+dump)"))
+            tags.add("mint_auth_6116")
+            try { PipelineHealthCollector.labelInc("FDG_MINT_AUTHORITY_HARD_BLOCK_6116") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("MINT_AUTHORITY_HARD_BLOCK_6116", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName action=hard_block_live") } catch (_: Throwable) {}
+        } else if (blockReason == null) {
+            checks.add(GateCheck("mint_auth", true, null))
+        }
+
+        // V5.0.6116 — SAFETY BLOCK: Confirmed death bucket from LosingPatternMemory.
+        // If this lane+score band has 0% WR across >=10 trades, it is a confirmed
+        // rug-death zone. Hard block in live mode — do not buy tokens in this band.
+        // The bot was buying tokens in bands like BLUECHIP|S0-10 (0% WR, 12 losses)
+        // and watching them instantly rug. Paper still allows for learning.
+        if (blockReason == null && !config.paperMode) {
+            val isDeathBucket = try {
+                LosingPatternMemory.isConfirmedDeathBucket6116(laneName, laneScoreBanded)
+            } catch (_: Throwable) { false }
+            if (isDeathBucket) {
+                val bucketKey = try { LosingPatternMemory.bucketKey(laneName, laneScoreBanded) } catch (_: Throwable) "$laneName|?" }
+                blockReason = "HARD_BLOCK_DEATH_BUCKET_6116_$bucketKey"
+                blockLevel = BlockLevel.HARD
+                checks.add(GateCheck("death_bucket", false, "0% WR across >=10 trades in $bucketKey"))
+                tags.add("death_bucket_6116")
+                try { PipelineHealthCollector.labelInc("FDG_DEATH_BUCKET_HARD_BLOCK_6116") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("DEATH_BUCKET_HARD_BLOCK_6116", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName bucket=$bucketKey action=hard_block_live") } catch (_: Throwable) {}
+            } else {
+                checks.add(GateCheck("death_bucket", true, null))
+            }
+        } else if (blockReason == null) {
+            checks.add(GateCheck("death_bucket", true, null))
         }
 
         // ═══════════════════════════════════════════════════════════════════════════
