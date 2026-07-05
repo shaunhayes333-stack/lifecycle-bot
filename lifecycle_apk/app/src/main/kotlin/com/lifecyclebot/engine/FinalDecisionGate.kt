@@ -2110,7 +2110,7 @@ object FinalDecisionGate {
                 LosingPatternMemory.isConfirmedDeathBucket6116(laneName, laneScoreBanded)
             } catch (_: Throwable) { false }
             if (isDeathBucket) {
-                val bucketKey = try { LosingPatternMemory.bucketKey(laneName, laneScoreBanded) } catch (_: Throwable) "$laneName|?" }
+                val bucketKey = try { LosingPatternMemory.bucketKey(laneName, laneScoreBanded) } catch (_: Throwable) { "$laneName|?" }
                 blockReason = "HARD_BLOCK_DEATH_BUCKET_6116_$bucketKey"
                 blockLevel = BlockLevel.HARD
                 checks.add(GateCheck("death_bucket", false, "0% WR across >=10 trades in $bucketKey"))
