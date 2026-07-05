@@ -13030,6 +13030,11 @@ class BotService : Service() {
         }
 
         var loopCount = 0
+        // V5.0.6120e — Backtest re-entrancy guard. With backtest firing 10×
+        // more often (every 30 loops ≈ 5 min instead of every 300), the
+        // async launch can theoretically overlap the previous run's SQLite
+        // cursor pass on a slow device. AtomicBoolean gate prevents that.
+        val backtestInFlight6120e = java.util.concurrent.atomic.AtomicBoolean(false)
         // V5.9.660 — lastTickStartMs removed; emitBotLoopTick tracks its
         // own prev-cycle delta via class field lastBotLoopTickMs.
         while (status.running) {
@@ -14032,9 +14037,20 @@ class BotService : Service() {
                 }
             }
             
-            // Pattern Backtest - Run daily (every ~1440 loops at 1min intervals, or ~320 at 45s)
-            // This analyzes historical trades to find which patterns work best
-            if (loopCount % 300 == 0 && loopCount > 0) {
+            // V5.0.6120e — BACKTEST 10× FASTER + DEEPER. Operator directive:
+            // "the backtest module is meant to run against all of our previous
+            // trades. it learns patterns, movements, token metrics, winners
+            // and losers but on different buy and sell strategies! its
+            // literally meant to run all the time."
+            //
+            // Old cadence was loopCount % 300 (~5 hours at 1 min/loop, worse
+            // on high-load cycles) — meaning the pattern tuner + auto-tuner
+            // + cloud sync only fired 4-5x per day. Now every 30 loops (~5
+            // min bounded, but paced so we skip if a prior run is still in
+            // flight). The heavy lift is 500-1000ms of cursor + math which
+            // is cheap vs the compounding edge from faster feedback.
+            if (loopCount % 30 == 0 && loopCount > 0 && !backtestInFlight6120e.get()) {
+                backtestInFlight6120e.set(true)
                 scope.launch {
                     try {
                         tradeDb?.let { db ->
@@ -14086,6 +14102,8 @@ class BotService : Service() {
                         }
                     } catch (e: Exception) {
                         ErrorLogger.error("Backtest", "Pattern backtest error: ${e.message}")
+                    } finally {
+                        backtestInFlight6120e.set(false)
                     }
                 }
             }

@@ -372,7 +372,11 @@ fun TradeDatabase.getAllTrades(): List<TradeRecord> {
     val db = this.readableDatabase
 
     val cursor = db.rawQuery(
-        "SELECT * FROM trades ORDER BY ts_exit DESC LIMIT 1000",
+        // V5.0.6120e — 5× deeper history reach. 1000-row LIMIT was hiding
+        // patterns from earlier sessions that would still be predictive.
+        // On the operator's 500-1500 lifetime trade dataset this now
+        // reaches EVERY trade (5000 > total). Cost is milliseconds.
+        "SELECT * FROM trades ORDER BY ts_exit DESC LIMIT 5000",
         null
     )
 
