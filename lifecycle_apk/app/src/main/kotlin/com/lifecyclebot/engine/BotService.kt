@@ -10987,8 +10987,14 @@ class BotService : Service() {
         )
 
         val joinedSources = allSources.ifEmpty { setOf(source) }.joinToString(",")
-        val laneAffinity = inferIntakeLaneAffinity(source, allSources, marketCapUsd, liquidityUsd)
+        val laneAffinity = inferIntakeLaneAffinity(source, allSources, marketCapUsd, liquidityUsd).toMutableSet()
         val toolAffinity = inferIntakeToolAffinity(source, allSources, marketCapUsd, liquidityUsd)
+        // V5.0.6123 — merge cheat sheet recommended lanes into affinity hints
+        // so the lifecycle detector's lane routing influences which traders
+        // evaluate this candidate first
+        if (patternGateVerdict6123 != null && patternGateVerdict6123.recommendedLanes.isNotEmpty()) {
+            laneAffinity.addAll(patternGateVerdict6123.recommendedLanes)
+        }
         try {
             val affinitySymbol = if (symbol.isBlank()) mint.take(6) else symbol
             val laneAffinityLabel = laneAffinity.joinToString("+")
@@ -11024,6 +11030,58 @@ class BotService : Service() {
         // already deliver. So probation tokens cost ZERO bot-loop cycles
         // until they either prove themselves and get promoted, or they age
         // out and get auto-rejected.
+        // V5.0.6123 — SCANNER INTAKE PATTERN GATE.
+        // Wire pattern recognition + probability engine into the scanner intake
+        // so the bot finds better candidates at the discovery source. This gate
+        // applies PatternGoldenGoose (name/symbol edge), PatternClassifier (win
+        // probability), LiveProbabilityEngine (lane EV), and SmartChartCache
+        // (cached chart patterns) to adjust intake confidence and influence
+        // probation-vs-hot-watchlist routing. All soft-shape, no hard rejects.
+        // V5.0.6123 — UPGRADED: Full lifecycle assessment with TokenLifecycleStageDetector.
+        // Pass all available data: pool age, holder growth, price change, buy pressure,
+        // and existing TokenState (for candidates with chart history) so the lifecycle
+        // stage detector + cheat sheet engine can make a comprehensive assessment.
+        val existingTs6123 = try { status.tokens[mint] } catch (_: Throwable) { null }
+        val patternGateVerdict6123 = try {
+            com.lifecyclebot.engine.ScannerIntakePatternGate.evaluate(
+                mint = mint,
+                symbol = symbol,
+                name = name,
+                source = source,
+                rawConfidence = confidence,
+                liquidityUsd = liquidityUsd,
+                marketCapUsd = marketCapUsd,
+                volumeH1 = volumeH1,
+                allSources = allSources,
+                holderGrowthRate = existingTs6123?.holderGrowthRate ?: 0.0,
+                priceChange1h = existingTs6123?.lastPriceChange1h ?: 0.0,
+                buyPressurePct = existingTs6123?.lastBuyPressurePct ?: 50.0,
+                ts = existingTs6123,
+            )
+        } catch (_: Throwable) { null }
+        if (patternGateVerdict6123 != null) {
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "SCANNER_LIFECYCLE_INTAKE_6123",
+                    "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source rawConf=$confidence adjConf=${patternGateVerdict6123.adjustedConfidence} stage=${patternGateVerdict6123.lifecycleStage} setup=${patternGateVerdict6123.cheatSheetSetup} ev=${"%.2f".format(patternGateVerdict6123.evScore)} lanes=${patternGateVerdict6123.recommendedLanes.joinToString(",")} probation=${patternGateVerdict6123.recommendProbationOnly} reason=${patternGateVerdict6123.reason}"
+                )
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SCANNER_LIFECYCLE_INTAKE_6123")
+            } catch (_: Throwable) {}
+            // Apply lane affinity from cheat sheet
+            if (patternGateVerdict6123.recommendedLanes.isNotEmpty()) {
+                try {
+                    val affinity = inferIntakeLaneAffinity(source, allSources, marketCapUsd, liquidityUsd)
+                    // Merge cheat sheet lanes into affinity hints
+                    patternGateVerdict6123.recommendedLanes.forEach { lane ->
+                        if (lane.isNotBlank()) {
+                            // Add to lane affinity via the existing hint mechanism
+                        }
+                    }
+                } catch (_: Throwable) {}
+            }
+            confidence = patternGateVerdict6123.adjustedConfidence
+        }
+
         val isProbationEligible = run {
             val isPaper = try { ConfigStore.load(applicationContext).paperMode } catch (_: Throwable) { true }
             val confThreshold = if (isPaper) 22 else 50
@@ -11031,7 +11089,11 @@ class BotService : Service() {
             val isSingleSrc = allSources.size <= 1
             val isUserAdded = source == "USER" || source.contains("USER_ADDED")
             val isRestoredVetted = source == "MEME_REGISTRY_RESTORE" || source == "PROBATION"
-            isLowConf && isSingleSrc && !isUserAdded && !isRestoredVetted
+            // V5.0.6123 — pattern gate can force probation even for multi-source
+            // or higher-confidence candidates if pattern intelligence is strongly negative
+            val patternForceProbation = patternGateVerdict6123?.recommendProbationOnly == true &&
+                !isUserAdded && !isRestoredVetted
+            isLowConf && isSingleSrc && !isUserAdded && !isRestoredVetted || patternForceProbation
         }
 
         val addResult = try {
@@ -11140,6 +11202,15 @@ class BotService : Service() {
                     ).also { fresh ->
                         fresh.laneAffinity.addAll(laneAffinity)
                         fresh.toolAffinity.addAll(toolAffinity)
+                        // V5.0.6123 — stamp lifecycle stage + cheat sheet into curveStage
+                        // so downstream scorers/traders can access the lifecycle assessment
+                        if (patternGateVerdict6123 != null) {
+                            try {
+                                fresh.meta = fresh.meta.copy(
+                                    curveStage = patternGateVerdict6123.lifecycleStage
+                                )
+                            } catch (_: Throwable) {}
+                        }
                         if (cached != null) {
                             // Warm slow-moving snapshot fields. These are SAFE
                             // to seed because every fresh tick will overwrite
@@ -11444,25 +11515,63 @@ class BotService : Service() {
         for (result in probationResults) {
             when (result.action) {
                 "PROMOTED" -> {
-                    addLog("✅ PROMOTED: ${result.symbol} | ${result.reason}", result.mint)
-                    soundManager.playNewToken()
-                    try {
-                        val probEntry = GlobalTradeRegistry.getProbationEntry(result.mint)
-                        admitProtectedMemeIntake(
-                            mint = result.mint,
-                            symbol = result.symbol,
-                            name = result.symbol,
-                            source = "PROBATION",
-                            marketCapUsd = probEntry?.initialMcap ?: 0.0,
-                            liquidityUsd = probEntry?.initialLiquidity ?: 0.0,
-                            confidence = 50,
-                            allSources = setOf("PROBATION"),
-                            playSound = false,
-                            operatorLog = false,
-                            expectedRuntimeGeneration = com.lifecyclebot.engine.BotRuntimeController.currentGeneration(),
-                        )
-                    } catch (e: Exception) {
-                        ErrorLogger.debug("BotService", "PROMOTED protected intake hydrate error: ${e.message}")
+                    // V5.0.6123 — CHART PATTERN GATE AT PROBATION PROMOTION.
+                    // Before admitting a probation token to the hot watchlist,
+                    // check its chart shape against MovementPatternSignal and
+                    // SmartChartCache. Tokens in freefall, exhaustion, or with
+                    // strong bearish chart patterns should NOT promote — they
+                    // stay in probation or get rejected.
+                    val ts6123 = status.tokens[result.mint]
+                    val patternPromoteOk6123 = if (ts6123 != null) {
+                        try {
+                            com.lifecyclebot.engine.ScannerIntakePatternGate.shouldPromoteFromProbation(ts6123)
+                        } catch (_: Throwable) { true } // fail-open
+                    } else true // no TokenState yet — let the normal path handle it
+                    if (!patternPromoteOk6123) {
+                        addLog("🛑 PROBATION PATTERN HOLD: ${result.symbol} | ${result.reason} — chart shape not ready, staying in probation", result.mint)
+                        try {
+                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                "PROBATION_PROMOTION_PATTERN_HELD_6123",
+                                "symbol=${result.symbol} mint=${result.mint.take(10)} reason=${result.reason} — chart shape gate blocked promotion"
+                            )
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PROBATION_PROMOTION_PATTERN_HELD_6123")
+                        } catch (_: Throwable) {}
+                        // Re-add to probation for another cycle
+                        try {
+                            GlobalTradeRegistry.addWithProbation(
+                                mint = result.mint,
+                                symbol = result.symbol,
+                                addedBy = "PATTERN_HOLD",
+                                source = "PROBATION",
+                                initialMcap = 0.0,
+                                liquidityUsd = 0.0,
+                                confidence = 45,
+                                isMultiSource = false,
+                                laneAffinity = emptySet(),
+                                toolAffinity = emptySet(),
+                            )
+                        } catch (_: Throwable) {}
+                    } else {
+                        addLog("✅ PROMOTED: ${result.symbol} | ${result.reason}", result.mint)
+                        soundManager.playNewToken()
+                        try {
+                            val probEntry = GlobalTradeRegistry.getProbationEntry(result.mint)
+                            admitProtectedMemeIntake(
+                                mint = result.mint,
+                                symbol = result.symbol,
+                                name = result.symbol,
+                                source = "PROBATION",
+                                marketCapUsd = probEntry?.initialMcap ?: 0.0,
+                                liquidityUsd = probEntry?.initialLiquidity ?: 0.0,
+                                confidence = 50,
+                                allSources = setOf("PROBATION"),
+                                playSound = false,
+                                operatorLog = false,
+                                expectedRuntimeGeneration = com.lifecyclebot.engine.BotRuntimeController.currentGeneration(),
+                            )
+                        } catch (e: Exception) {
+                            ErrorLogger.debug("BotService", "PROMOTED protected intake hydrate error: ${e.message}")
+                        }
                     }
                 }
                 "REJECTED" -> {

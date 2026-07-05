@@ -238,9 +238,9 @@ object GlobalTradeRegistry {
     data class WatchlistEntry(
         val mint: String,
         val symbol: String,
-        var addedAt: Long,  // V5.9.1328 — mutable: refreshed on duplicate intake so WATCHLIST_RR fresh-window stays honest
-        val addedBy: String,  // "SCANNER", "USER", "DEX_BOOSTED", "PUMP_FUN", etc.
-        val source: String,   // More specific: "pump.fun", "raydium", "moonshot"
+        var addedAt: Long,
+        val addedBy: String,
+        val source: String,
         val initialMcap: Double,
         var initialLiquidityUsd: Double = 0.0,
         var initialConfidence: Int = 0,
@@ -248,7 +248,83 @@ object GlobalTradeRegistry {
         val toolAffinity: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>(),
         var lastProcessedAt: Long = 0,
         var processCount: Int = 0,
-    )
+        // V5.0.6123 — TokenWinMemory integration in the mint register.
+        // The bot's token register now carries the full trade history context
+        // for each mint, not just discovery metadata. This means every time the
+        // bot sees a token it's traded before, it knows: was it a winner? what
+        // lane? what route? what exit reason? what holder count? what EMA state?
+        // This is the "token mint register" expansion the operator requested.
+        var tradeHistoryWins: Int = 0,
+        var tradeHistoryLosses: Int = 0,
+        var tradeHistoryTotalPnlPct: Double = 0.0,
+        var tradeHistoryBestPnlPct: Double = 0.0,
+        var tradeHistoryLastPnlPct: Double = 0.0,
+        var tradeHistoryLastLane: String = "",
+        var tradeHistoryLastExitReason: String = "",
+        var tradeHistoryLastHoldMinutes: Int = 0,
+        var tradeHistoryLastEntryScore: Double = 0.0,
+        var tradeHistoryLastBuyRoute: String = "",
+        var tradeHistoryLastLaunchPlatform: String = "",
+        var tradeHistoryLastHolderCount: Int = 0,
+        var tradeHistoryLastMarketRegime: String = "",
+        var tradeHistoryLastTimestamp: Long = 0L,
+    ) {
+        val tradeHistoryCount: Int get() = tradeHistoryWins + tradeHistoryLosses
+        val tradeHistoryWinRate: Double get() =
+            if (tradeHistoryCount > 0) tradeHistoryWins.toDouble() / tradeHistoryCount.toDouble() else 0.5
+        val tradeHistoryAvgPnl: Double get() =
+            if (tradeHistoryCount > 0) tradeHistoryTotalPnlPct / tradeHistoryCount.toDouble() else 0.0
+        val isKnownWinner: Boolean get() = tradeHistoryWins > 0 && tradeHistoryTotalPnlPct > 0.0
+        val isKnownLoser: Boolean get() = tradeHistoryLosses > 0 && tradeHistoryTotalPnlPct < 0.0
+    }
+
+    /**
+     * V5.0.6123 — Stamp trade outcome into the mint register.
+     * Called from TokenWinMemory after recording a decisive trade outcome.
+     * This makes the token's full trade history part of its permanent
+     * registry identity, so every time the bot encounters this mint again
+     * (even after restart), it knows the complete context of prior trades.
+     */
+    fun stampTradeHistory(
+        mint: String,
+        isWin: Boolean,
+        pnlPct: Double,
+        lane: String = "",
+        exitReason: String = "",
+        holdMinutes: Int = 0,
+        entryScore: Double = 0.0,
+        buyRoute: String = "",
+        launchPlatform: String = "",
+        holderCount: Int = 0,
+        marketRegime: String = "",
+    ) {
+        val entry = watchlist[mint] ?: probationEntries[mint]?.let { p ->
+            // If token is in probation, stamp there and promote to watchlist
+            // so the trade history is visible on the main registry
+            null
+        }
+        val wlEntry = watchlist[mint]
+        if (wlEntry != null) {
+            if (isWin) wlEntry.tradeHistoryWins++ else wlEntry.tradeHistoryLosses++
+            wlEntry.tradeHistoryTotalPnlPct += pnlPct
+            wlEntry.tradeHistoryBestPnlPct = maxOf(wlEntry.tradeHistoryBestPnlPct, pnlPct)
+            wlEntry.tradeHistoryLastPnlPct = pnlPct
+            wlEntry.tradeHistoryLastLane = lane
+            wlEntry.tradeHistoryLastExitReason = exitReason
+            wlEntry.tradeHistoryLastHoldMinutes = holdMinutes
+            wlEntry.tradeHistoryLastEntryScore = entryScore
+            wlEntry.tradeHistoryLastBuyRoute = buyRoute
+            wlEntry.tradeHistoryLastLaunchPlatform = launchPlatform
+            wlEntry.tradeHistoryLastHolderCount = holderCount
+            wlEntry.tradeHistoryLastMarketRegime = marketRegime
+            wlEntry.tradeHistoryLastTimestamp = System.currentTimeMillis()
+        }
+    }
+
+    /**
+     * V5.0.6123 — Get the full trade history context for a mint from the register.
+     */
+    fun getTradeHistory(mint: String): WatchlistEntry? = watchlist[mint]
 
     data class RejectionEntry(
         val mint: String,

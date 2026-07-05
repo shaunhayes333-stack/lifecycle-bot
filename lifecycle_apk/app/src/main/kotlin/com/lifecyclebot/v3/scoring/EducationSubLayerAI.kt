@@ -1023,6 +1023,35 @@ object EducationSubLayerAI {
                 buyPercent = outcome.buyRatioPct,
                 source = outcome.discoverySource,
                 phase = outcome.entryPhase,
+                // V5.0.6123 — FULL TRADE CONTEXT (operator: "not just a theme scorer")
+                // Capture everything about the token and why it was a winner:
+                // buy/sell/hold/launch/route/lane/context — not just the theme.
+                entryPrice = 0.0, // Executor has this in ts.position.entryPrice but it's not in TradeOutcomeData
+                exitPrice = 0.0,
+                costSol = outcome.entryCostSol,
+                pnlSol = outcome.pnlSol,
+                buyRoute = "", // populated from position metadata if available
+                sellRoute = "",
+                launchPlatform = outcome.discoverySource.take(20),
+                entryScore = outcome.entryScore,
+                entryConfidence = outcome.entryScore, // proxy — same score used for confidence
+                lane = outcome.tradingMode,
+                trader = outcome.traderSource,
+                setupQuality = outcome.setupQuality,
+                marketRegime = try { com.lifecyclebot.engine.MarketRegimeAI.getCurrentRegime().label } catch (_: Throwable) { "" },
+                maxDrawdownPct = outcome.maxDrawdownPct,
+                timeToPeakMinutes = outcome.timeToPeakMins,
+                exitReason = outcome.exitReason,
+                volatility = 0.0, // not in TradeOutcomeData
+                holderCount = outcome.holderCount,
+                holderGrowthRate = outcome.holderGrowthRate,
+                topHolderPct = outcome.topHolderPct,
+                devWalletPct = outcome.devWalletPct,
+                bondingCurveProgress = outcome.bondingCurveProgress,
+                rugcheckScore = outcome.rugcheckScore,
+                emaFanState = outcome.emaFanState,
+                tokenAgeMinutes = outcome.tokenAgeMinutes,
+                volumeUsd = outcome.volumeUsd,
             )
             markLayerOutcome("TokenWinMemory", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++

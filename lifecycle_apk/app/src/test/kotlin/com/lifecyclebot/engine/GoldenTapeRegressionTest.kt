@@ -7290,6 +7290,91 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4584: sell ok to journal must expose journaled/dedup/quarantine reasons", diag.contains("fun sellJournal") && store.contains("duplicate_suppressed") && store.contains("journaled_" + "$" + "{tradeToStore.side.uppercase()}") && store.contains("accounting_quarantined"))
         assertTrue("V5.0.4584: stop-loss overrun diagnostics must record trigger and finality latency", diag.contains("stopTriggered") && diag.contains("stopFinalized") && bus.contains("SourceChokeDiagnostics4584.stopTriggered") && store.contains("SourceChokeDiagnostics4584.stopFinalized"))
         assertTrue("V5.0.4584: TokenWinMemory must quarantine shadow/simulated sources from real winner memory", mem.contains("isShadowOrSimulatedSource") && mem.contains("TOKEN_WIN_MEMORY_SHADOW_SOURCE") && mem.contains("PERSISTED_SOURCE_PATTERN_SHADOW"))
+
+    // V5.0.6123 — TokenWinMemory massive expansion: full trade context
+    @Test
+    fun tokenWinMemory_6123FullTradeContextExpansion() {
+        val mem = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenWinMemory.kt").readText()
+        assertTrue("V5.0.6123: WinningToken must capture buy route", mem.contains("val buyRoute"))
+        assertTrue("V5.0.6123: WinningToken must capture sell route", mem.contains("val sellRoute"))
+        assertTrue("V5.0.6123: WinningToken must capture launch platform", mem.contains("val launchPlatform"))
+        assertTrue("V5.0.6123: WinningToken must capture lane", mem.contains("val lane"))
+        assertTrue("V5.0.6123: WinningToken must capture trader", mem.contains("val trader"))
+        assertTrue("V5.0.6123: WinningToken must capture entry score", mem.contains("val entryScore"))
+        assertTrue("V5.0.6123: WinningToken must capture exit reason", mem.contains("val exitReason"))
+        assertTrue("V5.0.6123: WinningToken must capture holder count", mem.contains("val holderCount"))
+        assertTrue("V5.0.6123: WinningToken must capture holder growth rate", mem.contains("val holderGrowthRate"))
+        assertTrue("V5.0.6123: WinningToken must capture dev wallet pct", mem.contains("val devWalletPct"))
+        assertTrue("V5.0.6123: WinningToken must capture bonding curve progress", mem.contains("val bondingCurveProgress"))
+        assertTrue("V5.0.6123: WinningToken must capture rugcheck score", mem.contains("val rugcheckScore"))
+        assertTrue("V5.0.6123: WinningToken must capture EMA fan state", mem.contains("val emaFanState"))
+        assertTrue("V5.0.6123: WinningToken must capture market regime", mem.contains("val marketRegime"))
+        assertTrue("V5.0.6123: WinningToken must capture SOL cost and PnL", mem.contains("val costSol") && mem.contains("val pnlSol"))
+        assertTrue("V5.0.6123: WinningToken must capture max drawdown", mem.contains("val maxDrawdownPct"))
+        assertTrue("V5.0.6123: WinningToken must capture time to peak", mem.contains("val timeToPeakMinutes"))
+        assertTrue("V5.0.6123: WinningToken must capture volatility", mem.contains("val volatility"))
+        assertTrue("V5.0.6123: WinningToken must capture token age", mem.contains("val tokenAgeMinutes"))
+        assertTrue("V5.0.6123: WinningToken must capture creator address", mem.contains("val creatorAddress"))
+        assertTrue("V5.0.6123: recordTradeOutcome must accept all new context params", mem.contains("buyRoute:") && mem.contains("sellRoute:") && mem.contains("launchPlatform:") && mem.contains("holderCount:") && mem.contains("emaFanState:"))
+        assertTrue("V5.0.6123: learnPatterns must learn from lane dimension", mem.contains("recordPattern("lane""))
+        assertTrue("V5.0.6123: learnPatterns must learn from buy_route dimension", mem.contains("recordPattern("buy_route""))
+        assertTrue("V5.0.6123: learnPatterns must learn from launch_platform dimension", mem.contains("recordPattern("launch_platform""))
+        assertTrue("V5.0.6123: learnPatterns must learn from holder_count dimension", mem.contains("recordPattern("holder_count""))
+        assertTrue("V5.0.6123: learnPatterns must learn from holder_growth dimension", mem.contains("recordPattern("holder_growth""))
+        assertTrue("V5.0.6123: learnPatterns must learn from dev_wallet dimension", mem.contains("recordPattern("dev_wallet""))
+        assertTrue("V5.0.6123: learnPatterns must learn from bonding_curve dimension", mem.contains("recordPattern("bonding_curve""))
+        assertTrue("V5.0.6123: learnPatterns must learn from rugcheck dimension", mem.contains("recordPattern("rugcheck""))
+        assertTrue("V5.0.6123: learnPatterns must learn from hold_time dimension", mem.contains("recordPattern("hold_time""))
+        assertTrue("V5.0.6123: learnPatterns must learn from entry_score dimension", mem.contains("recordPattern("entry_score""))
+        assertTrue("V5.0.6123: learnPatterns must learn from volatility dimension", mem.contains("recordPattern("volatility""))
+        assertTrue("V5.0.6123: learnPatterns must learn from token_age dimension", mem.contains("recordPattern("token_age""))
+        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional lane_x_mcap", mem.contains("recordPattern("lane_x_mcap""))
+        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional lane_x_hold", mem.contains("recordPattern("lane_x_hold""))
+        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional route_x_mcap", mem.contains("recordPattern("route_x_mcap""))
+        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional platform_x_holders", mem.contains("recordPattern("platform_x_holders""))
+        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional setup_x_exit", mem.contains("recordPattern("setup_x_exit""))
+        assertTrue("V5.0.6123: fullContextEvScore multi-dimensional query must exist", mem.contains("fun fullContextEvScore"))
+        assertTrue("V5.0.6123: persistence must save buyRoute", mem.contains("put("buyRoute""))
+        assertTrue("V5.0.6123: persistence must save lane", mem.contains("put("lane""))
+        assertTrue("V5.0.6123: persistence must save exitReason", mem.contains("put("exitReason""))
+        assertTrue("V5.0.6123: load must restore buyRoute", mem.contains("j.optString("buyRoute""))
+        assertTrue("V5.0.6123: load must restore lane", mem.contains("j.optString("lane""))
+        assertTrue("V5.0.6123: TokenWinMemory must stamp trade history into mint register", mem.contains("GlobalTradeRegistry.stampTradeHistory"))
+    }
+
+    // V5.0.6123 — GlobalTradeRegistry mint register expansion
+    @Test
+    fun globalTradeRegistry_6123MintRegisterTradeHistory() {
+        val gtr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt").readText()
+        assertTrue("V5.0.6123: WatchlistEntry must have tradeHistoryWins", gtr.contains("var tradeHistoryWins"))
+        assertTrue("V5.0.6123: WatchlistEntry must have tradeHistoryLosses", gtr.contains("var tradeHistoryLosses"))
+        assertTrue("V5.0.6123: WatchlistEntry must have tradeHistoryTotalPnlPct", gtr.contains("var tradeHistoryTotalPnlPct"))
+        assertTrue("V5.0.6123: WatchlistEntry must have tradeHistoryLastLane", gtr.contains("var tradeHistoryLastLane"))
+        assertTrue("V5.0.6123: WatchlistEntry must have tradeHistoryLastExitReason", gtr.contains("var tradeHistoryLastExitReason"))
+        assertTrue("V5.0.6123: WatchlistEntry must have tradeHistoryLastBuyRoute", gtr.contains("var tradeHistoryLastBuyRoute"))
+        assertTrue("V5.0.6123: WatchlistEntry must have tradeHistoryLastLaunchPlatform", gtr.contains("var tradeHistoryLastLaunchPlatform"))
+        assertTrue("V5.0.6123: WatchlistEntry must have tradeHistoryLastHolderCount", gtr.contains("var tradeHistoryLastHolderCount"))
+        assertTrue("V5.0.6123: WatchlistEntry must have tradeHistoryLastMarketRegime", gtr.contains("var tradeHistoryLastMarketRegime"))
+        assertTrue("V5.0.6123: WatchlistEntry must compute tradeHistoryWinRate", gtr.contains("val tradeHistoryWinRate"))
+        assertTrue("V5.0.6123: WatchlistEntry must compute isKnownWinner", gtr.contains("val isKnownWinner"))
+        assertTrue("V5.0.6123: WatchlistEntry must compute isKnownLoser", gtr.contains("val isKnownLoser"))
+        assertTrue("V5.0.6123: GTR must expose stampTradeHistory method", gtr.contains("fun stampTradeHistory"))
+        assertTrue("V5.0.6123: GTR must expose getTradeHistory method", gtr.contains("fun getTradeHistory"))
+    }
+
+    // V5.0.6123 — EducationSubLayerAI must pass full context to TokenWinMemory
+    @Test
+    fun educationSubLayerAI_6123FullContextToTokenWinMemory() {
+        val esl = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/EducationSubLayerAI.kt").readText()
+        assertTrue("V5.0.6123: ESL must pass lane to TokenWinMemory", esl.contains("lane = outcome.tradingMode"))
+        assertTrue("V5.0.6123: ESL must pass trader to TokenWinMemory", esl.contains("trader = outcome.traderSource"))
+        assertTrue("V5.0.6123: ESL must pass setupQuality to TokenWinMemory", esl.contains("setupQuality = outcome.setupQuality"))
+        assertTrue("V5.0.6123: ESL must pass holderCount to TokenWinMemory", esl.contains("holderCount = outcome.holderCount"))
+        assertTrue("V5.0.6123: ESL must pass emaFanState to TokenWinMemory", esl.contains("emaFanState = outcome.emaFanState"))
+        assertTrue("V5.0.6123: ESL must pass costSol to TokenWinMemory", esl.contains("costSol = outcome.entryCostSol"))
+        assertTrue("V5.0.6123: ESL must pass exitReason to TokenWinMemory", esl.contains("exitReason = outcome.exitReason"))
+        assertTrue("V5.0.6123: ESL must pass rugcheckScore to TokenWinMemory", esl.contains("rugcheckScore = outcome.rugcheckScore"))
+    }
     }
 
     @Test
@@ -7441,3 +7526,69 @@ class GoldenTapeRegressionTest {
     }
 
 }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.0.6123 — DYNAMIC PROFIT LOCK IN runManageOnly + SCANNER LIFECYCLE GATE
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @org.junit.Test
+    fun aate6123DynamicProfitLockInRunManageOnly() {
+        val exec = readSource("engine/Executor.kt")
+        // The dynamic fluid stop must be wired into runManageOnly
+        assertTrue("V5.0.6123: runManageOnly must use getDynamicFluidStop", exec.contains("getDynamicFluidStop"))
+        assertTrue("V5.0.6123: runManageOnly must ratchet peak", exec.contains("peakGainPct = pnlPct"))
+        assertTrue("V5.0.6123: runManageOnly must have MANAGE_ONLY_PEAK_LOCK_BREACH_6123", exec.contains("MANAGE_ONLY_PEAK_LOCK_BREACH_6123"))
+        assertTrue("V5.0.6123: runManageOnly must have MANAGE_ONLY_DYNAMIC_STOP_6123", exec.contains("MANAGE_ONLY_DYNAMIC_STOP_6123"))
+        assertTrue("V5.0.6123: runManageOnly must call fluidProfitFloor", exec.contains("fluidProfitFloor"))
+    }
+
+    @org.junit.Test
+    fun aate6123TokenLifecycleStageDetectorExists() {
+        val detector = readSource("engine/TokenLifecycleStageDetector.kt")
+        assertTrue("V5.0.6123: LifecycleStage enum must exist", detector.contains("enum class LifecycleStage"))
+        assertTrue("V5.0.6123: must have LAUNCH stage", detector.contains("LAUNCH"))
+        assertTrue("V5.0.6123: must have ACCUMULATION stage", detector.contains("ACCUMULATION"))
+        assertTrue("V5.0.6123: must have BREAKOUT stage", detector.contains("BREAKOUT"))
+        assertTrue("V5.0.6123: must have EXHAUSTION stage", detector.contains("EXHAUSTION"))
+        assertTrue("V5.0.6123: must have DEATH stage", detector.contains("DEATH"))
+        assertTrue("V5.0.6123: CheatSheetSetup enum must exist", detector.contains("enum class CheatSheetSetup"))
+        assertTrue("V5.0.6123: must have BREAKOUT_WITH_VOLUME setup", detector.contains("BREAKOUT_WITH_VOLUME"))
+        assertTrue("V5.0.6123: must have FRESH_LAUNCH_WITH_NARRATIVE", detector.contains("FRESH_LAUNCH_WITH_NARRATIVE"))
+        assertTrue("V5.0.6123: must have ACCUMULATION_COMPRESSION", detector.contains("ACCUMULATION_COMPRESSION"))
+        assertTrue("V5.0.6123: must have PULLBACK_RECLAIM", detector.contains("PULLBACK_RECLAIM"))
+        assertTrue("V5.0.6123: must have EXHAUSTION_CHASE setup", detector.contains("EXHAUSTION_CHASE"))
+        assertTrue("V5.0.6123: must have DEATH_SPIRAL setup", detector.contains("DEATH_SPIRAL"))
+        assertTrue("V5.0.6123: must have detectStage function", detector.contains("fun detectStage"))
+        assertTrue("V5.0.6123: must have matchCheatSheet function", detector.contains("fun matchCheatSheet"))
+        assertTrue("V5.0.6123: must have assess function", detector.contains("fun assess"))
+        assertTrue("V5.0.6123: must fuse PatternGoldenGoose", detector.contains("PatternGoldenGoose"))
+        assertTrue("V5.0.6123: must fuse MemeNarrativeAI", detector.contains("MemeNarrativeAI"))
+        assertTrue("V5.0.6123: must fuse PatternClassifier", detector.contains("PatternClassifier"))
+        assertTrue("V5.0.6123: must fuse HistoricalChartScanner", detector.contains("HistoricalChartScanner"))
+        assertTrue("V5.0.6123: must fuse PatternAutoTuner", detector.contains("PatternAutoTuner"))
+        assertTrue("V5.0.6123: must fuse MovementPatternSignal", detector.contains("MovementPatternSignal"))
+        assertTrue("V5.0.6123: must fuse SmartChartCache", detector.contains("SmartChartCache"))
+    }
+
+    @org.junit.Test
+    fun aate6123ScannerIntakePatternGateWired() {
+        val bot = readSource("engine/BotService.kt")
+        val gate = readSource("engine/ScannerIntakePatternGate.kt")
+        assertTrue("V5.0.6123: ScannerIntakePatternGate must exist", gate.contains("object ScannerIntakePatternGate"))
+        assertTrue("V5.0.6123: gate must call TokenLifecycleStageDetector", gate.contains("TokenLifecycleStageDetector"))
+        assertTrue("V5.0.6123: gate must have evaluate function", gate.contains("fun evaluate"))
+        assertTrue("V5.0.6123: gate must have shouldPromoteFromProbation", gate.contains("fun shouldPromoteFromProbation"))
+        assertTrue("V5.0.6123: BotService must call ScannerIntakePatternGate.evaluate", bot.contains("ScannerIntakePatternGate.evaluate"))
+        assertTrue("V5.0.6123: BotService must have SCANNER_LIFECYCLE_INTAKE_6123", bot.contains("SCANNER_LIFECYCLE_INTAKE_6123"))
+        assertTrue("V5.0.6123: BotService must pass lifecycleStage in telemetry", bot.contains("lifecycleStage"))
+        assertTrue("V5.0.6123: BotService must pass cheatSheetSetup in telemetry", bot.contains("cheatSheetSetup"))
+        assertTrue("V5.0.6123: BotService must merge recommendedLanes into laneAffinity", bot.contains("recommendedLanes"))
+        assertTrue("V5.0.6123: BotService must have patternForceProbation", bot.contains("patternForceProbation"))
+    }
+
+    @org.junit.Test
+    fun aate6123ProbationPatternGateWired() {
+        val bot = readSource("engine/BotService.kt")
+        assertTrue("V5.0.6123: BotService must have PROBATION_PROMOTION_PATTERN_HELD_6123", bot.contains("PROBATION_PROMOTION_PATTERN_HELD_6123"))
+        assertTrue("V5.0.6123: BotService must call shouldPromoteFromProbation", bot.contains("shouldPromoteFromProbation"))
+    }

@@ -6625,13 +6625,92 @@ class Executor(
             // immediately instead of waiting for settle/min-hold.
             if (trySweepTakeProfitExit(ts, currentPrice, wallet, walletSol)) return
 
-            // Fluid stop floor — already wired but make the log more visible
-            val floor = try {
-                com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(-25.0)
-            } catch (_: Throwable) { -25.0 }
-            if (pnlPct <= floor && currentPrice > 0.0) {
-                onLog("🛑 SWEEP_FLUID_FLOOR: ${ts.symbol} pnl=${pnlPct.toInt()}% ≤ floor=${floor.toInt()}%", ts.mint)
-                doSell(ts, "SWEEP_FLUID_FLOOR_${floor.toInt()}", wallet, walletSol)
+            // ════════════════════════════════════════════════════════════════
+            // V5.0.6123 — DYNAMIC FLUID STOP + SLIDING PROFIT LOCK IN runManageOnly
+            // ════════════════════════════════════════════════════════════════
+            // ROOT CAUSE of "dynamic profit lock is OFF": runManageOnly is the
+            // primary 2s exit loop, but it used getFluidStopLoss (simple learning-
+            // adaptive stop) instead of getDynamicFluidStop (which has the sliding
+            // profit lock that ratchets up with the peak). The dynamic profit lock
+            // was ONLY active in the 500ms rapid monitor — which dies when the
+            // hot-exit manager goes stale, turning the profit lock OFF entirely.
+            //
+            // FIX: Wire getDynamicFluidStop + fluidProfitFloor into runManageOnly
+            // so the sliding lock is ALWAYS active on every 2s tick, independent
+            // of whether the 500ms monitor is alive. Also ratchet the peak here
+            // before evaluating (same fix as the 500ms monitor got in V5.9.1427).
+            run {
+                if (!ts.position.isOpen) return@run
+                val pos6123 = ts.position
+                // Ratchet peak — the 2s loop must update HWM too, not just 500ms
+                if (pnlPct > pos6123.peakGainPct) {
+                    ts.position.peakGainPct = pnlPct
+                }
+                val peakPnl6123 = ts.position.peakGainPct
+                val heldSecs6123 = if (pos6123.entryTime > 0L)
+                    (System.currentTimeMillis() - pos6123.entryTime) / 1000.0 else 0.0
+                val vol6123 = ts.volatility ?: 50.0
+
+                // DYNAMIC FLUID STOP — the sliding profit lock
+                val dynamicStop6123 = try {
+                    val modeDefault6123 = modeConf?.stopLossPct ?: cfg().stopLossPct
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
+                        modeDefaultStop = modeDefault6123,
+                        currentPnlPct = pnlPct,
+                        peakPnlPct = peakPnl6123,
+                        holdTimeSeconds = heldSecs6123,
+                        volatility = vol6123,
+                    )
+                } catch (_: Throwable) {
+                    try { -com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(-25.0) }
+                    catch (_: Throwable) { -25.0 }
+                }
+
+                // EXPLICIT PEAK-LOCK BREACH — same logic as BotService 4301
+                // Fires even if dynamic stop didn't engage
+                val peakLockFloor6123 = when {
+                    peakPnl6123 >= 100.0 -> peakPnl6123 - 12.0
+                    peakPnl6123 >= 20.0 -> try {
+                        com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(peakPnl6123, vol6123, heldSecs6123)
+                    } catch (_: Throwable) { peakPnl6123 - 8.0 }
+                    else -> Double.NEGATIVE_INFINITY
+                }
+                if (peakLockFloor6123.isFinite() && pnlPct <= peakLockFloor6123 && currentPrice > 0.0) {
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "MANAGE_ONLY_PEAK_LOCK_BREACH_6123",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} peak=${peakPnl6123.toInt()}% lock=${peakLockFloor6123.toInt()}% now=${pnlPct.toInt()}% — force sell via dynamic profit lock"
+                        )
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MANAGE_ONLY_PEAK_LOCK_BREACH_6123")
+                    } catch (_: Throwable) {}
+                    onLog("🛑 PEAK LOCK: ${ts.symbol} peak=${peakPnl6123.toInt()}% → now ${pnlPct.toInt()}% — sliding lock fired", ts.mint)
+                    doSell(ts, "MANAGE_ONLY_PEAK_LOCK_${peakPnl6123.toInt()}pct_now${pnlPct.toInt()}pct", wallet, walletSol)
+                    return
+                }
+
+                // DYNAMIC STOP — trailing/fluid stop from getDynamicFluidStop
+                if (pnlPct <= dynamicStop6123 && currentPrice > 0.0) {
+                    val stopType6123 = if (peakPnl6123 > 5.0) "TRAILING" else "FLUID"
+                    onLog("🛑 MANAGE_ONLY $stopType6123 STOP: ${ts.symbol} at ${pnlPct.toInt()}% (dynamic limit=${dynamicStop6123.toInt()}%)", ts.mint)
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "MANAGE_ONLY_DYNAMIC_STOP_6123",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} type=$stopType6123 pnl=${pnlPct.toInt()}% dynStop=${dynamicStop6123.toInt()}% peak=${peakPnl6123.toInt()}% heldSecs=${heldSecs6123.toInt()}"
+                        )
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MANAGE_ONLY_DYNAMIC_STOP_6123")
+                    } catch (_: Throwable) {}
+                    doSell(ts, "MANAGE_ONLY_${stopType6123}_STOP_6123", wallet, walletSol)
+                    return
+                }
+
+                // FALLBACK: Simple fluid floor (kept as last-line backstop)
+                val floor = try {
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(-25.0)
+                } catch (_: Throwable) { -25.0 }
+                if (pnlPct <= floor && currentPrice > 0.0) {
+                    onLog("🛑 SWEEP_FLUID_FLOOR: ${ts.symbol} pnl=${pnlPct.toInt()}% ≤ floor=${floor.toInt()}%", ts.mint)
+                    doSell(ts, "SWEEP_FLUID_FLOOR_${floor.toInt()}", wallet, walletSol)
+                }
             }
         }
     }
