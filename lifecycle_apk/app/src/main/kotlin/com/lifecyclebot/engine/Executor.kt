@@ -1213,6 +1213,11 @@ class Executor(
                                 lastTopUpPrice = if (pos.lastTopUpPrice > 0) pos.lastTopUpPrice * factor else 0.0,
                                 priceBasisRescaled = true,
                                 priceBasisRescaleFactor = factor,
+                                // V5.0.6116 — stamp entryPriceSource to the NEW source so
+                                // OpenPnlSanity's sameSource check passes cleanly on this and
+                                // future ticks, instead of relying on the removed permanent
+                                // priceBasisRescaled bypass (see OpenPnlSanity.kt V5.0.6116).
+                                entryPriceSource = ts.lastPriceSource,
                             )
                         }
                     }
@@ -1224,7 +1229,9 @@ class Executor(
                     ErrorLogger.warn("Executor",
                         "🔄 PRICE_BASIS_REBASE ${ts.symbol}: source ${pos.entryPriceSource}→${ts.lastPriceSource} " +
                         "| no mcap pivot available, accepting new-source price as-is (PnL may show one-time step)")
-                    ts.position = pos.copy(priceBasisRescaled = true)
+                    // V5.0.6116 — also stamp entryPriceSource here so sameSource
+                    // passes on subsequent ticks (see OpenPnlSanity.kt V5.0.6116).
+                    ts.position = pos.copy(priceBasisRescaled = true, entryPriceSource = ts.lastPriceSource)
                 }
             }
         }

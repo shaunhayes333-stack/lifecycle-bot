@@ -55,7 +55,26 @@ object OpenPnlSanity {
         val cSrc = currentSource.trim().uppercase()
         val sameSource = eSrc.isNotBlank() && cSrc.isNotBlank() && eSrc == cSrc
         val samePool = entryPool.isNotBlank() && currentPool.isNotBlank() && entryPool == currentPool
-        val explicitComparable = samePool || sameSource || priceBasisRescaled
+        // V5.0.6116 — REMOVED priceBasisRescaled from explicitComparable.
+        // Root bug: priceBasisRescaled is stamped true at ordinary live-buy proof
+        // confirmation (Executor LIVE_PROOF_COST_BASIS) and wallet-rehydration
+        // recovery (BotService HOST_WALLET_TRACKER_REHYDRATED) — NOT only at the
+        // genuine cross-source rebase event it was designed for. Because the flag
+        // never resets, once ANY of those routine events fires (virtually every
+        // live position, at buy time), explicitComparable became permanently true
+        // for that position's entire remaining life — waiving the extreme-ratio
+        // (51x) and extreme-pnl (5000%) numeric safety net forever. Any later
+        // entryPrice corruption (decimals bug, residual-cost-basis-after-partials
+        // shrink, stale mcap pivot) then displayed as a fictional giant "gain%"
+        // in Open Positions (operator report: ANSEM shown +1000% unrealized,
+        // then closed at real -3.7%/-0.11 SOL — the 1000% was never real).
+        // Fix: comparability now requires a genuine same-source or same-pool
+        // match against the CURRENT live tick. Real trustworthy live positions
+        // naturally regain sameSource once ROUTE_LOCK_SELF_HEAL upgrades
+        // entryPriceSource to match the live route (see Executor.kt), so this
+        // does not punish legitimate winners — it only removes the permanent
+        // bypass that let corrupted bases paint fake extreme gains as trusted.
+        val explicitComparable = samePool || sameSource
         val syntheticInvolved = eSrc.contains("SYNTH") || cSrc.contains("SYNTH") || eSrc.contains("PUMP_FUN_BC") || cSrc.contains("PUMP_FUN_BC")
 
         if (ratio > MAX_UNKNOWN_BASIS_RATIO && (!explicitComparable || syntheticInvolved)) {

@@ -7370,6 +7370,20 @@ class GoldenTapeRegressionTest {
     }
 
     @Test
+    fun aate6116bOpenPnlSanityPermanentBypassFixed() {
+        val sanity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OpenPnlSanity.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        // Root fix: priceBasisRescaled must NOT permanently waive the extreme-ratio/
+        // extreme-pnl numeric safety net. Only genuine same-source/same-pool comparison
+        // may mark a basis explicitly comparable.
+        assertTrue("V5.0.6116: explicitComparable must be samePool || sameSource only, not priceBasisRescaled", sanity.contains("val explicitComparable = samePool || sameSource") && !sanity.contains("val explicitComparable = samePool || sameSource || priceBasisRescaled"))
+        // Paper cross-source rebase must stamp entryPriceSource to the new source so
+        // sameSource passes cleanly on subsequent ticks without relying on a permanent bypass.
+        assertTrue("V5.0.6116: mcap-pivot rebase must stamp entryPriceSource = ts.lastPriceSource", exec.contains("entryPriceSource = ts.lastPriceSource,"))
+        assertTrue("V5.0.6116: no-mcap rebase must also stamp entryPriceSource", exec.contains("pos.copy(priceBasisRescaled = true, entryPriceSource = ts.lastPriceSource)"))
+    }
+
+    @Test
     fun aate6116RugPreventionHardBlocks() {
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         val lpm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LosingPatternMemory.kt").readText()
