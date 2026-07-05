@@ -380,13 +380,9 @@ object LiveStrategyTuner {
             StrategyTelemetry.computeLeaderboard(environment = null, includePartials = false, limit = 2_500)
                 .firstOrNull { canonical(it.strategy) == laneKey }
         } catch (_: Throwable) { null }
-        val lm6114 = lifetimeMetric6114
-        val lifetimeProfitable6114 = lm6114 != null &&
-            lm6114.trades >= 30 &&
-            (lm6114.totalSolPnl > 0.0 || lm6114.meanPnlPct >= 20.0)
-        if (lifetimeProfitable6114) {
-            // lm6114 is already non-null here (guaranteed by lifetimeProfitable6114 check)
-            try { ForensicLogger.lifecycle("LIFETIME_EV_GUARD_6114", "lane=$lane cleanLiveN=$n cleanLiveWR=${"%.1f".format(wr)}% cleanLiveSol=${"%.4f".format(sol)} lifetimeN=${lm6114.trades} lifetimeWR=${"%.1f".format(lm.winRatePct)}% lifetimeSol=${"%.4f".format(lm.totalSolPnl)} action=exempt_from_toxic") } catch (_: Throwable) {}
+        if (lifetimeMetric6114 != null && lifetimeMetric6114.trades >= 30 &&
+            (lifetimeMetric6114.totalSolPnl > 0.0 || lifetimeMetric6114.meanPnlPct >= 20.0)) {
+            try { ForensicLogger.lifecycle("LIFETIME_EV_GUARD_6114", "lane=$lane cleanLiveN=$n cleanLiveWR=${"%.1f".format(wr)}% cleanLiveSol=${"%.4f".format(sol)} lifetimeN=${lifetimeMetric6114.trades} lifetimeWR=${"%.1f".format(lifetimeMetric6114.winRatePct)}% lifetimeSol=${"%.4f".format(lifetimeMetric6114.totalSolPnl)} action=exempt_from_toxic") } catch (_: Throwable) {}
             return Adjustment(
                 lane = lane, trades = n, winRatePct = wr, totalSolPnl = sol,
                 pfExpectancyPp = pf, meanPnlPct = mean,

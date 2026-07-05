@@ -231,15 +231,11 @@ object UnifiedPolicyHead {
                 StrategyTelemetry.computeLeaderboard(environment = null, includePartials = false, limit = 2_500)
                     .firstOrNull { it.strategy.equals(laneKey, ignoreCase = true) }
             } catch (_: Throwable) { null }
-            val lm6115 = lifetimeMetric6115
-            val lifetimeProfitable6115 = lm6115 != null &&
-                lm6115.trades >= 30 &&
-                (lm6115.totalSolPnl > 0.0 || lm6115.meanPnlPct >= 20.0)
-            if (lifetimeProfitable6115) {
+            if (lifetimeMetric6115 != null && lifetimeMetric6115.trades >= 30 &&
+                (lifetimeMetric6115.totalSolPnl > 0.0 || lifetimeMetric6115.meanPnlPct >= 20.0)) {
                 // Online model can boost above 1.0 but floor is 1.0 — no cut to winning lanes
                 val blended = onlineConviction.coerceAtLeast(1.0)
-                // lm6115 is already non-null here (guaranteed by lifetimeProfitable6115 check)
-                try { ForensicLogger.lifecycle("UPH_LIFETIME_BLEND_6115", "lane=$laneKey online=${"%.3f".format(onlineConviction)} lifetimeN=${lm6115.trades} lifetimeWR=${"%.1f".format(lm6115.winRatePct)}% lifetimeSol=${"%.4f".format(lm6115.totalSolPnl)} blended=${"%.3f".format(blended)}") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("UPH_LIFETIME_BLEND_6115", "lane=$laneKey online=${"%.3f".format(onlineConviction)} lifetimeN=${lifetimeMetric6115.trades} lifetimeWR=${"%.1f".format(lifetimeMetric6115.winRatePct)}% lifetimeSol=${"%.4f".format(lifetimeMetric6115.totalSolPnl)} blended=${"%.3f".format(blended)}") } catch (_: Throwable) {}
                 blended
             } else {
                 onlineConviction
