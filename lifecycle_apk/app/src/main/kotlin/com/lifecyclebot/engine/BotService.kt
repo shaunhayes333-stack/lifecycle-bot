@@ -10784,6 +10784,37 @@ class BotService : Service() {
             val sourceBrainProbationOnly = !lenientIntake && !isUserAdded && !isRestoredVetted && !multiSourceConfirmed &&
                 sourceBrainMult < 0.65 && liquidityUsd < 7_500.0 && volumeH1 <= 0.0
             val sourceBrainHotRescue = sourceBrainMult >= 1.25 && (multiSourceConfirmed || liquidityUsd >= 10_000.0 || volumeH1 > 0.0)
+        // V5.0.6123/6124c — UPGRADED: Full lifecycle assessment moved BEFORE
+        // coldPump/intake so all downstream code can use adjustedConfidence6124.
+        val existingTs6123 = try { status.tokens[mint] } catch (_: Throwable) { null }
+        val patternGateVerdict6123 = try {
+            com.lifecyclebot.engine.ScannerIntakePatternGate.evaluate(
+                mint = mint,
+                symbol = symbol,
+                name = name,
+                source = source,
+                rawConfidence = confidence,
+                liquidityUsd = liquidityUsd,
+                marketCapUsd = marketCapUsd,
+                volumeH1 = volumeH1,
+                allSources = allSources,
+                holderGrowthRate = existingTs6123?.holderGrowthRate ?: 0.0,
+                priceChange1h = existingTs6123?.lastPriceChange1h ?: 0.0,
+                buyPressurePct = existingTs6123?.lastBuyPressurePct ?: 50.0,
+                ts = existingTs6123,
+            )
+        } catch (_: Throwable) { null }
+        val adjustedConfidence6124 = if (patternGateVerdict6123 != null) patternGateVerdict6123.adjustedConfidence else confidence
+        if (patternGateVerdict6123 != null) {
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "SCANNER_LIFECYCLE_INTAKE_6123",
+                    "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source rawConf=$confidence adjConf=${patternGateVerdict6123.adjustedConfidence} stage=${patternGateVerdict6123.lifecycleStage} setup=${patternGateVerdict6123.cheatSheetSetup} ev=${"%.2f".format(patternGateVerdict6123.evScore)} lanes=${patternGateVerdict6123.recommendedLanes.joinToString(",")} probation=${patternGateVerdict6123.recommendProbationOnly} reason=${patternGateVerdict6123.reason}"
+                )
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SCANNER_LIFECYCLE_INTAKE_6123")
+            } catch (_: Throwable) {}
+        }
+
             val coldPumpBase = !lenientIntake && isPumpPortalWs && !isUserAdded && !isRestoredVetted && volumeH1 <= 0.0 && liquidityUsd < 5_000.0
             val coldPump = coldPumpBase || sourceBrainProbationOnly || (pressureDecision.probationOnly && !sourceBrainHotRescue)
             if (sourceBrainProbationOnly || sourceBrainHotRescue) {
@@ -11037,51 +11068,6 @@ class BotService : Service() {
         // probability), LiveProbabilityEngine (lane EV), and SmartChartCache
         // (cached chart patterns) to adjust intake confidence and influence
         // probation-vs-hot-watchlist routing. All soft-shape, no hard rejects.
-        // V5.0.6123 — UPGRADED: Full lifecycle assessment with TokenLifecycleStageDetector.
-        // Pass all available data: pool age, holder growth, price change, buy pressure,
-        // and existing TokenState (for candidates with chart history) so the lifecycle
-        // stage detector + cheat sheet engine can make a comprehensive assessment.
-        val existingTs6123 = try { status.tokens[mint] } catch (_: Throwable) { null }
-        val patternGateVerdict6123 = try {
-            com.lifecyclebot.engine.ScannerIntakePatternGate.evaluate(
-                mint = mint,
-                symbol = symbol,
-                name = name,
-                source = source,
-                rawConfidence = confidence,
-                liquidityUsd = liquidityUsd,
-                marketCapUsd = marketCapUsd,
-                volumeH1 = volumeH1,
-                allSources = allSources,
-                holderGrowthRate = existingTs6123?.holderGrowthRate ?: 0.0,
-                priceChange1h = existingTs6123?.lastPriceChange1h ?: 0.0,
-                buyPressurePct = existingTs6123?.lastBuyPressurePct ?: 50.0,
-                ts = existingTs6123,
-            )
-        } catch (_: Throwable) { null }
-        if (patternGateVerdict6123 != null) {
-            try {
-                com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                    "SCANNER_LIFECYCLE_INTAKE_6123",
-                    "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source rawConf=$confidence adjConf=${patternGateVerdict6123.adjustedConfidence} stage=${patternGateVerdict6123.lifecycleStage} setup=${patternGateVerdict6123.cheatSheetSetup} ev=${"%.2f".format(patternGateVerdict6123.evScore)} lanes=${patternGateVerdict6123.recommendedLanes.joinToString(",")} probation=${patternGateVerdict6123.recommendProbationOnly} reason=${patternGateVerdict6123.reason}"
-                )
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SCANNER_LIFECYCLE_INTAKE_6123")
-            } catch (_: Throwable) {}
-            // Apply lane affinity from cheat sheet
-            if (patternGateVerdict6123.recommendedLanes.isNotEmpty()) {
-                try {
-                    val affinity = inferIntakeLaneAffinity(source, allSources, marketCapUsd, liquidityUsd)
-                    // Merge cheat sheet lanes into affinity hints
-                    patternGateVerdict6123.recommendedLanes.forEach { lane ->
-                        if (lane.isNotBlank()) {
-                            // Add to lane affinity via the existing hint mechanism
-                        }
-                    }
-                } catch (_: Throwable) {}
-            }
-            // V5.0.6124 — can't reassign val parameter, use mutable local
-        }
-        val adjustedConfidence6124 = if (patternGateVerdict6123 != null) patternGateVerdict6123.adjustedConfidence else confidence
 
         val isProbationEligible = run {
             val isPaper = try { ConfigStore.load(applicationContext).paperMode } catch (_: Throwable) { true }

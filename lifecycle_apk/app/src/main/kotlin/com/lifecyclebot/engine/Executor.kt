@@ -6653,7 +6653,7 @@ class Executor(
 
                 // DYNAMIC FLUID STOP — the sliding profit lock
                 val dynamicStop6123 = try {
-                    val modeDefault6123 = try { com.lifecyclebot.engine.AutoModeEngine.currentModeConfig.stopLossPct } catch (_: Throwable) { cfg().stopLossPct }
+                    val modeDefault6123 = cfg().stopLossPct  // V5.0.6124c — runManageOnly has no modeConf param
                     com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
                         modeDefaultStop = modeDefault6123,
                         currentPnlPct = pnlPct,
