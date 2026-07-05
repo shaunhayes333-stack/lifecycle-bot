@@ -3849,7 +3849,7 @@ object FinalDecisionGate {
                         confidence = 0.0,
                         edge = EdgeVerdict.WEAK,
                         blockReason = "HIVEMIND_NOT_READY",
-                        blockLevel = BlockLevel.SOFT,
+                        blockLevel = BlockLevel.HARD,
                         sizeSol = 0.0,
                         tags = tags,
                         mint = ts.mint,
