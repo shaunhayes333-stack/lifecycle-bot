@@ -150,7 +150,25 @@ object AsyncStrategyLab {
         // FDG/Executor sizing, so never synchronize or scan proposal history here.
         return try {
             val laneKey = lane.uppercase().take(24)
-            (reviewedBiasByLane[laneKey] ?: reviewedBiasByLane["ALL"] ?: 1.0).coerceIn(0.60, 1.55)
+            val baseBias = reviewedBiasByLane[laneKey] ?: reviewedBiasByLane["ALL"] ?: 1.0
+            // V5.0.6115 — LIFETIME-EV-AWARE LAB BOOST. The Lab's reviewed bias
+            // was capped at 1.55x for all lanes. But the LAB lane itself has
+            // 35.3% WR and +158% EV — it's the most profitable lane. Winning
+            // lanes should get a higher cap and a base boost so the Lab actually
+            // amplifies proven strategies instead of uniformly capping at 1.55.
+            val lifetimeMetric6115 = try {
+                StrategyTelemetry.computeLeaderboard(environment = null, includePartials = false, limit = 2_500)
+                    .firstOrNull { it.strategy.equals(laneKey, ignoreCase = true) }
+            } catch (_: Throwable) { null }
+            val isWinningLane6115 = lifetimeMetric6115 != null &&
+                lifetimeMetric6115!!.trades >= 20 &&
+                (lifetimeMetric6115.totalSolPnl > 0.0 || lifetimeMetric6115.meanPnlPct >= 15.0)
+            if (isWinningLane6115) {
+                // Winning lane: cap raised to 2.5x, base boost 1.2x on top of reviewed bias
+                (baseBias * 1.20).coerceIn(0.80, 2.50)
+            } else {
+                baseBias.coerceIn(0.60, 1.55)
+            }
         } catch (_: Throwable) { 1.0 }
     }
 

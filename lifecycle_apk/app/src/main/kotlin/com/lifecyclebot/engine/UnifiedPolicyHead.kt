@@ -219,7 +219,29 @@ object UnifiedPolicyHead {
             val trade1Ramp6077 = if (auth == AuthorityTier.BOOTSTRAP)
                 (trainedForRamp6077.toDouble() / AUTHORITY_ADVISORY.toDouble()).coerceIn(0.25, 1.0)
             else 1.0
-            (1.0 + (p - 0.5) * 1.6 * trade1Ramp6077).coerceIn(MULT_FLOOR, MULT_CAP)
+            val onlineConviction = (1.0 + (p - 0.5) * 1.6 * trade1Ramp6077).coerceIn(MULT_FLOOR, MULT_CAP)
+            // V5.0.6115 — LIFETIME EV BLEND. The online model only sees recent
+            // trades (31 for STANDARD, 1-4 for other lanes). It was cutting
+            // BLUECHIP (43.7% WR, +103% EV) and QUALITY (42% WR, +85% EV) by
+            // 30-40% based on a tiny recent sample. Now: check the full lifetime
+            // leaderboard. If the lane is profitable over >= 30 lifetime trades,
+            // the conviction floor is raised to 1.0 — the online model can boost
+            // profitable lanes higher but can NEVER cut them below neutral.
+            val lifetimeMetric6115 = try {
+                StrategyTelemetry.computeLeaderboard(environment = null, includePartials = false, limit = 2_500)
+                    .firstOrNull { it.strategy.equals(laneKey, ignoreCase = true) }
+            } catch (_: Throwable) { null }
+            val lifetimeProfitable6115 = lifetimeMetric6115 != null &&
+                lifetimeMetric6115!!.trades >= 30 &&
+                (lifetimeMetric6115.totalSolPnl > 0.0 || lifetimeMetric6115.meanPnlPct >= 20.0)
+            if (lifetimeProfitable6115) {
+                // Online model can boost above 1.0 but floor is 1.0 — no cut to winning lanes
+                val blended = onlineConviction.coerceAtLeast(1.0)
+                try { ForensicLogger.lifecycle("UPH_LIFETIME_BLEND_6115", "lane=$laneKey online=${"%.3f".format(onlineConviction)} lifetimeN=${lifetimeMetric6115.trades} lifetimeWR=${"%.1f".format(lifetimeMetric6115.winRatePct)}% lifetimeSol=${"%.4f".format(lifetimeMetric6115.totalSolPnl)} blended=${"%.3f".format(blended)}") } catch (_: Throwable) {}
+                blended
+            } else {
+                onlineConviction
+            }
         } catch (_: Throwable) { 1.0 }
     }
 

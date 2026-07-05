@@ -229,7 +229,20 @@ object StrategyHypothesisEngine {
     }
 
     private fun maybeResolve(ctx: String, h: Hypothesis) {
-        if (h.control.n < MIN_ARM || h.variant.n < MIN_ARM) return
+        // V5.0.6115 — DYNAMIC MIN_ARM. MIN_ARM=12 is too high for profitable
+        // lanes — by the time 24 trades accumulate (12 control + 12 variant),
+        // the bot has bled capital on a losing variant. For lanes with proven
+        // lifetime EV, lower the threshold to 6 so winning strategies promote
+        // 2x faster. The profitability guard (variantProfitable, variantNetPos)
+        // still prevents promoting losing strategies.
+        val laneForArm6115 = ctx.substringBefore("|").uppercase()
+        val isWinningLane6115 = try {
+            val lm = StrategyTelemetry.computeLeaderboard(environment = null, includePartials = false, limit = 2_500)
+                .firstOrNull { it.strategy.equals(laneForArm6115, ignoreCase = true) }
+            lm != null && lm.trades >= 20 && (lm.totalSolPnl > 0.0 || lm.meanPnlPct >= 15.0)
+        } catch (_: Throwable) { false }
+        val effectiveMinArm6115 = if (isWinningLane6115) (MIN_ARM / 2) else MIN_ARM
+        if (h.control.n < effectiveMinArm6115 || h.variant.n < effectiveMinArm6115) return
         // Welch t-stat: variant mean - control mean
         val vc = h.control; val vv = h.variant
         val se = sqrt(vv.variance / vv.n + vc.variance / vc.n).coerceAtLeast(1e-6)

@@ -384,7 +384,8 @@ object LiveStrategyTuner {
             lifetimeMetric6114!!.trades >= 30 &&
             (lifetimeMetric6114.totalSolPnl > 0.0 || lifetimeMetric6114.meanPnlPct >= 20.0)
         if (lifetimeProfitable6114) {
-            try { ForensicLogger.lifecycle("LIFETIME_EV_GUARD_6114", "lane=$lane cleanLiveN=$n cleanLiveWR=${wr.fmt(1)}% cleanLiveSol=${sol.fmt(4)} lifetimeN=${lifetimeMetric6114.trades} lifetimeWR=${lifetimeMetric6114.winRatePct.fmt(1)}% lifetimeSol=${lifetimeMetric6114.totalSolPnl.fmt(4)} action=exempt_from_toxic") } catch (_: Throwable) {}
+            val lm = lifetimeMetric6114!!
+            try { ForensicLogger.lifecycle("LIFETIME_EV_GUARD_6114", "lane=$lane cleanLiveN=$n cleanLiveWR=${wr.fmt(1)}% cleanLiveSol=${sol.fmt(4)} lifetimeN=${lm.trades} lifetimeWR=${lm.winRatePct.fmt(1)}% lifetimeSol=${lm.totalSolPnl.fmt(4)} action=exempt_from_toxic") } catch (_: Throwable) {}
             return Adjustment(
                 lane = lane, trades = n, winRatePct = wr, totalSolPnl = sol,
                 pfExpectancyPp = pf, meanPnlPct = mean,
