@@ -368,6 +368,32 @@ object LiveStrategyTuner {
         // toxic_runner_pivot (sizeFloor 0.12) at n=10 or even paused. Faster
         // toxic gate lets the bot abandon proven-bad lanes within 10 closes
         // instead of 20.
+        // V5.0.6114 — LIFETIME EV GUARD. The clean-live terminal leaderboard
+        // only has 87 trades (WR=21.8%, PnL=-0.143 SOL) because the bot recently
+        // switched to live mode. But the FULL lifetime data has 463 trades
+        // (WR=38.9%, PnL=+14.85 SOL). Making toxic decisions on the small live-only
+        // sample mislabels profitable lanes (BLUECHIP 43.7% WR, QUALITY 42% WR)
+        // as toxic. Fix: check the full leaderboard (including paper) before
+        // applying the toxic label. If the lane is profitable in the full data,
+        // it's NOT toxic regardless of the clean-live-only sample.
+        val lifetimeMetric6114 = try {
+            StrategyTelemetry.computeLeaderboard(environment = "all", includePartials = false, limit = 2_500)
+                .firstOrNull { canonical(it.strategy) == laneKey }
+        } catch (_: Throwable) { null }
+        val lifetimeProfitable6114 = lifetimeMetric6114 != null &&
+            lifetimeMetric6114!!.trades >= 30 &&
+            (lifetimeMetric6114.totalSolPnl > 0.0 || lifetimeMetric6114.meanPnlPct >= 20.0)
+        if (lifetimeProfitable6114) {
+            try { ForensicLogger.lifecycle("LIFETIME_EV_GUARD_6114", "lane=$lane cleanLiveN=$n cleanLiveWR=${wr.fmt(1)}% cleanLiveSol=${sol.fmt(4)} lifetimeN=${lifetimeMetric6114.trades} lifetimeWR=${lifetimeMetric6114.winRatePct.fmt(1)}% lifetimeSol=${lifetimeMetric6114.totalSolPnl.fmt(4)} action=exempt_from_toxic") } catch (_: Throwable) {}
+            return Adjustment(
+                lane = lane, trades = n, winRatePct = wr, totalSolPnl = sol,
+                pfExpectancyPp = pf, meanPnlPct = mean,
+                sizeMult = 1.0,
+                tpMult = 1.10, holdMult = 1.05, maxWalletMult = 1.0,
+                liquidityImpactMult = 1.0, partialTriggerMult = 1.15,
+                label = "lifetime_ev_exempt_6114",
+            )
+        }
         val pfBleed = n >= 8 && sol < 0.0 && pf <= 0.0
         val wrBleed = n >= 8 && wr < 35.0 && sol <= 0.0
         val meanBleed = n >= 8 && sol <= 0.0 && mean <= -8.0

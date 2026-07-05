@@ -49,7 +49,11 @@ object LiveSizingProfile {
     // compounding mathematically impossible even with great winners. Raise the
     // live absolute floors and wallet-percent caps; hard safety, liquidity caps,
     // wallet reserve and sell finality remain authoritative.
-    const val MIN_ENTRY_SOL: Double = 0.060     // was 0.040
+    // V5.0.6114 — lowered from 0.060 to 0.025. The 0.060 absolute floor was
+    // blocking 44/55 live buys because spendable (0.058) < min (0.060) by 0.002 SOL.
+    // With a 0.326 SOL wallet, 0.025 SOL is still 7.7% — a meaningful position, not
+    // a micro trade. The wallet-relative floor in Executor handles the real minimum.
+    const val MIN_ENTRY_SOL: Double = 0.025     // was 0.060 (was 0.040)
     const val DEFAULT_ENTRY_SOL: Double = 0.080 // was 0.060
     const val STRONG_ENTRY_SOL: Double = 0.130  // was 0.110
     const val ALPHA_ENTRY_SOL: Double = 0.200   // was 0.180

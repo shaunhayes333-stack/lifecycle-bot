@@ -335,7 +335,11 @@ object LiveProbabilityEngine {
             val scoreShape = try {
                 ScoreExpectancyTracker.liveSizeShape(lane, score.coerceIn(0, 100))
             } catch (_: Throwable) { ScoreExpectancyTracker.LiveSizeShape(1.0, 0, 0.0, "error") }
-            val finalMult = (postPivotMult * scoreShape.multiplier).coerceIn(0.10, 2.20)
+            // V5.0.6114 — COLD-START FLOOR: 0.10 was destroying cold-start lanes.
+            // QUALITY got size×=0.10 with n=0 — a 90% penalty based on ZERO data.
+            // When laneSamples=0, default to 0.80 (mild caution, not punishment).
+            val coldStartFloor6114 = if (laneSamples <= 0L) 0.80 else 0.10
+            val finalMult = (postPivotMult * scoreShape.multiplier).coerceIn(coldStartFloor6114, 2.20)
             try {
                 if (scoreShape.multiplier != 1.0 && scoreShape.samples >= 3) {
                     ForensicLogger.lifecycle(

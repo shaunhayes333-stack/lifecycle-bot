@@ -9526,6 +9526,14 @@ class Executor(
                 PipelineHealthCollector.labelInc("ROUTE_RELIABILITY_SIZE_SHAPED_4518")
             } catch (_: Throwable) {}
         }
+        // V5.0.6114 — move laneBiasMult into the geomean cascade. The old 0.50
+        // for non-MOONSHOT/STANDARD lanes was a 50% cut OUTSIDE the geomean,
+        // recreating the cascade collapse that 6109 was supposed to fix.
+        val laneBiasMult6114 = when (laneTag.uppercase()) {
+            "MOONSHOT", "STANDARD" -> 1.40
+            "BLUECHIP", "QUALITY" -> 1.10  // V5.0.6114: winning lanes shouldn't get 0.50
+            else -> 0.80  // V5.0.6114: raised from 0.50 to 0.80
+        }
         val sizingStackComponents4285 = linkedMapOf(
             "sizeMult" to sizeMult,
             "lab" to labMult,
@@ -9546,6 +9554,7 @@ class Executor(
             "scoreBandWR4510" to scoreBandWrSizeMult4510,
             "walletCompound4511" to realizedWalletCompoundMult4511,
             "routeReliability4518" to routeReliabilitySizeMult4518,
+            "laneBias6114" to laneBiasMult6114,
         )
         // V5.0.6109 — CASCADE COLLAPSE FIX. The old pure-product fold of 19+
         // multipliers is a DUST GENERATOR: 0.8^19 = 0.014 (98.6% reduction).
@@ -9657,15 +9666,17 @@ class Executor(
         } catch (_: Throwable) { false }
         val highConvBoost = if (isHighConvictionWinner) 1.50 else 1.0
 
-        // V5.0.4178 — L8 LANE PRIORITY BIAS (TIGHTENED): MOONSHOT (WR=22.7%)
-        // / STANDARD (WR=23.8%) get ×1.40, every other lane ×0.50. Capital
-        // concentrates on what works.
-        val laneBiasMult = when (laneTag.uppercase()) {
-            "MOONSHOT", "STANDARD" -> 1.40
-            else -> 0.50
-        }
+        val laneBiasMult = laneBiasMult6114  // V5.0.6114: moved into geomean cascade
+        // V5.0.6114 — POST-CASCADE GEOMEAN: discipline/tilt/bridge were multiplying
+        // as pure product OUTSIDE the geomean, recreating cascade collapse.
+        // Now: combine them as geomean so they can't collapse the stack.
+        val postCascadeDampers6114 = listOf(disciplineRecoveryMult6112, laneTilt4132, bridgeMult4132).filter { it < 1.0 && it > 0.0 }
+        val postCascadeGeomean6114 = if (postCascadeDampers6114.isNotEmpty()) {
+            kotlin.math.exp(postCascadeDampers6114.map { kotlin.math.ln(it) }.average())
+        } else 1.0
+        try { ForensicLogger.lifecycle("POST_CASCADE_GEOMEAN_6114", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag dampers=${postCascadeDampers6114.size} geomean=${postCascadeGeomean6114.fmt(3)} discipline=${disciplineRecoveryMult6112.fmt(2)} tilt=${laneTilt4132.fmt(2)} bridge=${bridgeMult4132.fmt(2)}") } catch (_: Throwable) {}
         val multiplierProduct = run {
-            val product = multiplierProductRaw * laneBiasMult * slipDownsizeMult * highConvBoost
+            val product = multiplierProductRaw * postCascadeGeomean6114 * slipDownsizeMult * highConvBoost
             // V5.0.6055 — P0.b: POSITIVE-EV LANE FLOOR.
             // Operator P0: "flick the memetrader green the right way!!!"
             // Runtime V5.0.6053 showed a proven positive-EV lane (MOONSHOT
@@ -9869,7 +9880,9 @@ class Executor(
         } else 0.0
         val relMinSol4129 = sol * liveFloorMult
         val upperCap4129 = sol * winnerMaxBoost * gooseUpperMult4129
-        val effSolRaw = (sol * multiplierProduct * laneTilt4132 * bridgeMult4132 * disciplineRecoveryMult6112).coerceIn(maxOf(relMinSol4129, absMinSol4129), upperCap4129 * laneTilt4132)
+        // V5.0.6114 — laneTilt/bridge/discipline are now in postCascadeGeomean6114
+        // inside multiplierProduct. Don't multiply them again here.
+        val effSolRaw = (sol * multiplierProduct).coerceIn(maxOf(relMinSol4129, absMinSol4129), upperCap4129)
         if (absMinSol4129 > 0.0 && (sol * multiplierProduct) < absMinSol4129) {
             try { ForensicLogger.lifecycle("MONEY_MODE_ABS_FLOOR_LIFT_6082", "symbol=${ts.symbol} lane=$laneTag mode=${if (RuntimeModeAuthority.isPaper()) "paper" else "live"} goose=${gooseVerdict4129.name} raw=${(sol*multiplierProduct).fmt(4)} → lift=${absMinSol4129.fmt(4)} wallet=${walletSol.fmt(3)}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("MONEY_MODE_ABS_FLOOR_LIFT_6082_${gooseVerdict4129.name}") } catch (_: Throwable) {}

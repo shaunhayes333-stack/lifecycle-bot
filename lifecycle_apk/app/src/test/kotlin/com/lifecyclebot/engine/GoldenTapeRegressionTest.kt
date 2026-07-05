@@ -7158,6 +7158,15 @@ class GoldenTapeRegressionTest {
         val bot6113 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.6113: live-mode lane quarantine must be soft allow", bot6113.contains("LANE_QUARANTINE_LIVE_SOFT_ALLOW_6112"))
         assertTrue("V5.0.6113: EXPRESS early-gate pause must be soft allow", bot6113.contains("EXPRESS_LANE_PAUSED_SOFT_ALLOW_6112"))
+        val exec6114 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6114: post-cascade geomean must be applied", exec6114.contains("postCascadeGeomean6114"))
+        assertTrue("V5.0.6114: laneBiasMult must be in geomean not outside", exec6114.contains("laneBiasMult6114") && !exec6114.contains("else -> 0.50\n        }\n        val multiplierProduct = run {"))
+        val lsp6114 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveSizingProfile.kt").readText()
+        assertTrue("V5.0.6114: MIN_ENTRY_SOL must be lowered", lsp6114.contains("0.025"))
+        val lpe6114 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt").readText()
+        assertTrue("V5.0.6114: cold-start floor must be raised", lpe6114.contains("coldStartFloor6114"))
+        val lst6114 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStrategyTuner.kt").readText()
+        assertTrue("V5.0.6114: lifetime EV guard must exist", lst6114.contains("lifetimeProfitable6114"))
     }
 
 
