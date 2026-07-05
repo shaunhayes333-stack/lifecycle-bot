@@ -7316,29 +7316,29 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6123: WinningToken must capture token age", mem.contains("val tokenAgeMinutes"))
         assertTrue("V5.0.6123: WinningToken must capture creator address", mem.contains("val creatorAddress"))
         assertTrue("V5.0.6123: recordTradeOutcome must accept all new context params", mem.contains("buyRoute:") && mem.contains("sellRoute:") && mem.contains("launchPlatform:") && mem.contains("holderCount:") && mem.contains("emaFanState:"))
-        assertTrue("V5.0.6123: learnPatterns must learn from lane dimension", mem.contains("""recordPattern("lane")""")
-        assertTrue("V5.0.6123: learnPatterns must learn from buy_route dimension", mem.contains("""recordPattern("buy_route")""")
-        assertTrue("V5.0.6123: learnPatterns must learn from launch_platform dimension", mem.contains("""recordPattern("launch_platform")""")
-        assertTrue("V5.0.6123: learnPatterns must learn from holder_count dimension", mem.contains("""recordPattern("holder_count")""")
-        assertTrue("V5.0.6123: learnPatterns must learn from holder_growth dimension", mem.contains("""recordPattern("holder_growth")""")
-        assertTrue("V5.0.6123: learnPatterns must learn from dev_wallet dimension", mem.contains("""recordPattern("dev_wallet")""")
-        assertTrue("V5.0.6123: learnPatterns must learn from bonding_curve dimension", mem.contains("""recordPattern("bonding_curve")""")
-        assertTrue("V5.0.6123: learnPatterns must learn from rugcheck dimension", mem.contains("""recordPattern("rugcheck")""")
-        assertTrue("V5.0.6123: learnPatterns must learn from hold_time dimension", mem.contains("""recordPattern("hold_time")""")
-        assertTrue("V5.0.6123: learnPatterns must learn from entry_score dimension", mem.contains("""recordPattern("entry_score")""")
-        assertTrue("V5.0.6123: learnPatterns must learn from volatility dimension", mem.contains("""recordPattern("volatility")""")
-        assertTrue("V5.0.6123: learnPatterns must learn from token_age dimension", mem.contains("""recordPattern("token_age")""")
-        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional lane_x_mcap", mem.contains("""recordPattern("lane_x_mcap")""")
-        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional lane_x_hold", mem.contains("""recordPattern("lane_x_hold")""")
-        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional route_x_mcap", mem.contains("""recordPattern("route_x_mcap")""")
-        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional platform_x_holders", mem.contains("""recordPattern("platform_x_holders")""")
-        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional setup_x_exit", mem.contains("""recordPattern("setup_x_exit")""")
+        assertTrue("V5.0.6123: learnPatterns must learn from lane dimension", mem.contains("""recordPattern("lane")"""))
+        assertTrue("V5.0.6123: learnPatterns must learn from buy_route dimension", mem.contains("""recordPattern("buy_route")"""))
+        assertTrue("V5.0.6123: learnPatterns must learn from launch_platform dimension", mem.contains("""recordPattern("launch_platform")"""))
+        assertTrue("V5.0.6123: learnPatterns must learn from holder_count dimension", mem.contains("""recordPattern("holder_count")"""))
+        assertTrue("V5.0.6123: learnPatterns must learn from holder_growth dimension", mem.contains("""recordPattern("holder_growth")"""))
+        assertTrue("V5.0.6123: learnPatterns must learn from dev_wallet dimension", mem.contains("""recordPattern("dev_wallet")"""))
+        assertTrue("V5.0.6123: learnPatterns must learn from bonding_curve dimension", mem.contains("""recordPattern("bonding_curve")"""))
+        assertTrue("V5.0.6123: learnPatterns must learn from rugcheck dimension", mem.contains("""recordPattern("rugcheck")"""))
+        assertTrue("V5.0.6123: learnPatterns must learn from hold_time dimension", mem.contains("""recordPattern("hold_time")"""))
+        assertTrue("V5.0.6123: learnPatterns must learn from entry_score dimension", mem.contains("""recordPattern("entry_score")"""))
+        assertTrue("V5.0.6123: learnPatterns must learn from volatility dimension", mem.contains("""recordPattern("volatility")"""))
+        assertTrue("V5.0.6123: learnPatterns must learn from token_age dimension", mem.contains("""recordPattern("token_age")"""))
+        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional lane_x_mcap", mem.contains("""recordPattern("lane_x_mcap")"""))
+        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional lane_x_hold", mem.contains("""recordPattern("lane_x_hold")"""))
+        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional route_x_mcap", mem.contains("""recordPattern("route_x_mcap")"""))
+        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional platform_x_holders", mem.contains("""recordPattern("platform_x_holders")"""))
+        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional setup_x_exit", mem.contains("""recordPattern("setup_x_exit")"""))
         assertTrue("V5.0.6123: fullContextEvScore multi-dimensional query must exist", mem.contains("fun fullContextEvScore"))
-        assertTrue("V5.0.6123: persistence must save buyRoute", mem.contains("""put("buyRoute")""")
-        assertTrue("V5.0.6123: persistence must save lane", mem.contains("""put("lane")""")
-        assertTrue("V5.0.6123: persistence must save exitReason", mem.contains("""put("exitReason")""")
-        assertTrue("V5.0.6123: load must restore buyRoute", mem.contains("""j.optString("buyRoute")""")
-        assertTrue("V5.0.6123: load must restore lane", mem.contains("""j.optString("lane")""")
+        assertTrue("V5.0.6123: persistence must save buyRoute", mem.contains("""put("buyRoute")"""))
+        assertTrue("V5.0.6123: persistence must save lane", mem.contains("""put("lane")"""))
+        assertTrue("V5.0.6123: persistence must save exitReason", mem.contains("""put("exitReason")"""))
+        assertTrue("V5.0.6123: load must restore buyRoute", mem.contains("""j.optString("buyRoute")"""))
+        assertTrue("V5.0.6123: load must restore lane", mem.contains("""j.optString("lane")"""))
         assertTrue("V5.0.6123: TokenWinMemory must stamp trade history into mint register", mem.contains("GlobalTradeRegistry.stampTradeHistory"))
     }
 
@@ -7593,7 +7593,7 @@ class GoldenTapeRegressionTest {
 
     @org.junit.Test
     fun aate6123DynamicProfitLockInRunManageOnly() {
-        val exec = readSource("engine/Executor.kt")
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         // The dynamic fluid stop must be wired into runManageOnly
         assertTrue("V5.0.6123: runManageOnly must use getDynamicFluidStop", exec.contains("getDynamicFluidStop"))
         assertTrue("V5.0.6123: runManageOnly must ratchet peak", exec.contains("peakGainPct = pnlPct"))
@@ -7604,7 +7604,7 @@ class GoldenTapeRegressionTest {
 
     @org.junit.Test
     fun aate6123TokenLifecycleStageDetectorExists() {
-        val detector = readSource("engine/TokenLifecycleStageDetector.kt")
+        val detector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenLifecycleStageDetector.kt").readText()
         assertTrue("V5.0.6123: LifecycleStage enum must exist", detector.contains("enum class LifecycleStage"))
         assertTrue("V5.0.6123: must have LAUNCH stage", detector.contains("LAUNCH"))
         assertTrue("V5.0.6123: must have ACCUMULATION stage", detector.contains("ACCUMULATION"))
@@ -7632,8 +7632,8 @@ class GoldenTapeRegressionTest {
 
     @org.junit.Test
     fun aate6123ScannerIntakePatternGateWired() {
-        val bot = readSource("engine/BotService.kt")
-        val gate = readSource("engine/ScannerIntakePatternGate.kt")
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ScannerIntakePatternGate.kt").readText()
         assertTrue("V5.0.6123: ScannerIntakePatternGate must exist", gate.contains("object ScannerIntakePatternGate"))
         assertTrue("V5.0.6123: gate must call TokenLifecycleStageDetector", gate.contains("TokenLifecycleStageDetector"))
         assertTrue("V5.0.6123: gate must have evaluate function", gate.contains("fun evaluate"))
@@ -7648,7 +7648,7 @@ class GoldenTapeRegressionTest {
 
     @org.junit.Test
     fun aate6123ProbationPatternGateWired() {
-        val bot = readSource("engine/BotService.kt")
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.6123: BotService must have PROBATION_PROMOTION_PATTERN_HELD_6123", bot.contains("PROBATION_PROMOTION_PATTERN_HELD_6123"))
         assertTrue("V5.0.6123: BotService must call shouldPromoteFromProbation", bot.contains("shouldPromoteFromProbation"))
     }
