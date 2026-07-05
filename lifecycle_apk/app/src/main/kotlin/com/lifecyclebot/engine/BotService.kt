@@ -20981,7 +20981,7 @@ if (hotExitHandledSweep) {
                     ErrorLogger.debug("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | ERROR | ${expEx.message}")
                 }
             }
-            } // V5.0.4594 — close EXPRESS lane-paused else{} early-gate
+            // V5.0.6112 — old else{} closing brace removed (else block was eliminated)
             // ═══════════════════════════════════════════════════════════════════
             // END ShitCoin Express evaluation
             // ═══════════════════════════════════════════════════════════════════
