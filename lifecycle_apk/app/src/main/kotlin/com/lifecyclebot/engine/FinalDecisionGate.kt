@@ -3697,6 +3697,57 @@ object FinalDecisionGate {
         } catch (_: Throwable) { /* fail-open — collective is soft-shape only */ }
 
         // ═══════════════════════════════════════════════════════════════════
+        // V5.0.6120f — SWARM INTELLIGENCE LAYER (real-time hive consumers)
+        //   • CO-FIRE BOOST: if 2+ other instances just opened this mint
+        //     inside the 5-min swarm window, boost sizing 1.25× (bounded).
+        //     Alpha propagation faster than any telegram alpha channel.
+        //   • DEDUP GUARD: if 6+ instances already hold this mint in the
+        //     1-hour window, size down 0.35× — concentration risk protection.
+        //     One rug can't take down 7/8 wallets simultaneously.
+        //   • RUG-CONSENSUS VETO: 2+ swarm instances reported catastrophic
+        //     rug in the last 10 min → size down to 0.15× (near-veto but
+        //     still fail-open per doctrine #86).
+        // All three are pooled through SwarmIntel's 15s in-memory cache so
+        // FDG hot path never blocks on Turso. Bounded, floor-clamped.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            if (mode == TradeMode.LIVE) {
+                val si = com.lifecyclebot.engine.SwarmIntel
+                val mintForSwarm = ts.mint
+                if (mintForSwarm.isNotBlank()) {
+                    val rugN = si.getSwarmRugCount(mintForSwarm)
+                    val openN = si.getSwarmOpenCount(mintForSwarm)
+                    val cofireN = si.getCoFireCount(mintForSwarm)
+
+                    val rugMult = if (rugN >= com.lifecyclebot.engine.SwarmIntel.RUG_QUORUM) 0.15 else 1.00
+                    val dedupMult = if (openN >= com.lifecyclebot.engine.SwarmIntel.DEDUP_MAX_INSTANCES) 0.35 else 1.00
+                    val cofireMult = if (cofireN >= com.lifecyclebot.engine.SwarmIntel.COFIRE_QUORUM) 1.25 else 1.00
+                    val swarmMult = rugMult * dedupMult * cofireMult
+                    if (swarmMult != 1.00) {
+                        val originalSize = finalSize
+                        finalSize = (finalSize * swarmMult).coerceIn(0.01, 1.0)
+                        val direction = if (swarmMult > 1.0) "cofire_boosted" else "hive_dampened"
+                        tags.add("size_${direction}_swarm")
+                        checks.add(
+                            GateCheck(
+                                "swarm_intel",
+                                true,
+                                "Swarm $direction ${originalSize.format(3)} → ${finalSize.format(3)} " +
+                                "(cofire=$cofireN dedup=$openN rug=$rugN → " +
+                                "rug×${rugMult.format(2)} dedup×${dedupMult.format(2)} cofire×${cofireMult.format(2)})"
+                            )
+                        )
+                        try {
+                            if (rugMult < 1.00)   com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SWARM_RUG_VETO_6120f")
+                            if (dedupMult < 1.00) com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SWARM_DEDUP_DAMP_6120f")
+                            if (cofireMult > 1.00) com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SWARM_COFIRE_BOOST_6120f")
+                        } catch (_: Throwable) {}
+                    }
+                }
+            }
+        } catch (_: Throwable) { /* fail-open — swarm is a bonus edge */ }
+
+        // ═══════════════════════════════════════════════════════════════════
         // V5.9.934 — AI STARTUP COORDINATOR soft-shape (4th dormant subsystem).
         //
         // Operator V5.9.929 audit (audit_v5.9.928_dormant_intelligence.md):

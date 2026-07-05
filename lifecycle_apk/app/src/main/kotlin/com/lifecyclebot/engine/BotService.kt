@@ -12719,6 +12719,15 @@ class BotService : Service() {
             addLog("🛑 RAPID CATASTROPHE STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
             executor.requestSell(ts, "RAPID_CATASTROPHE_STOP", wallet, effectiveBalance)
             TradeStateMachine.startCatastropheCooldown(ts.mint, pnlPct)
+            // V5.0.6120f — SWARM: broadcast rug so 2+ within 10min = hive veto
+            try {
+                com.lifecyclebot.engine.SwarmIntel.publishRug(
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    pnlPct = pnlPct,
+                    reason = "RAPID_CATASTROPHE_STOP",
+                )
+            } catch (_: Throwable) {}
             return true
         }
         if (pnlPct <= -HARD_FLOOR_STOP_PCT_CONST) {
@@ -12726,6 +12735,15 @@ class BotService : Service() {
             addLog("🛑 RAPID HARD_FLOOR STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
             executor.requestSell(ts, "RAPID_HARD_FLOOR_STOP", wallet, effectiveBalance)
             TradeStateMachine.startCooldown(ts.mint)
+            // V5.0.6120f — SWARM: rug broadcast
+            try {
+                com.lifecyclebot.engine.SwarmIntel.publishRug(
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    pnlPct = pnlPct,
+                    reason = "RAPID_HARD_FLOOR_STOP",
+                )
+            } catch (_: Throwable) {}
             return true
         }
 

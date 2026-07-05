@@ -143,6 +143,31 @@ object SpikeGuardExit {
                 if (giveBackTrigger)  PipelineHealthCollector.labelInc("SPIKE_GUARD_GIVEBACK_6120")
             } catch (_: Throwable) {}
 
+            // V5.0.6120f — SWARM PRICE-TRUTH ORACLE. Before firing the
+            // ladder on what looks like a mega-runner, ask the swarm what
+            // they see for this mint. If our tick is 30× above the swarm
+            // median (≥2 corroborating instances required), that is a
+            // phantom wick — the pool is a single-instance illusion. Skip
+            // the ladder entirely and let the natural exit path handle it
+            // once real price catches up. Also publish our own price sample
+            // so other instances can consult us next time.
+            try {
+                SwarmIntel.publishPriceSample(ts.mint, ts.symbol, priceUsdMark)
+                if (SwarmIntel.isPhantomWickAgainstSwarm(ts.mint, priceUsdMark)) {
+                    ForensicLogger.lifecycle(
+                        "SPIKE_GUARD_PHANTOM_WICK_SUPPRESSED_6120f",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol}" +
+                            " localPrice=$priceUsdMark swarmMedian=${SwarmIntel.getSwarmPriceMedian(ts.mint)}" +
+                            " markPeak=${"%.1f".format(markPeak)}% trigger=$trigger — hive disagrees, phantom wick",
+                    )
+                    PipelineHealthCollector.labelInc("SPIKE_GUARD_PHANTOM_WICK_SUPPRESSED_6120f")
+                    // Don't lockout — clear the cooldown so if a real spike
+                    // arrives later the ladder can still fire.
+                    lastFiredMs.remove(ts.mint)
+                    return
+                }
+            } catch (_: Throwable) { /* fail-open — swarm is a bonus edge */ }
+
             fireChunkedLadder(ts, executor, wallet, walletSol, markPeak, markPnlPct, trigger)
         } catch (_: Throwable) {
             // Never break the tick loop.

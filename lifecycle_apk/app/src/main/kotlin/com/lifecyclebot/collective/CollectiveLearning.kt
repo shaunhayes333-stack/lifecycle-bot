@@ -192,6 +192,35 @@ object CollectiveLearning {
                 return@withLock false
             }
 
+            // V5.0.6120f — Swarm Intelligence Layer schema. Unified table
+            // serves all 5 real-time swarm features (co-fire boost, rug
+            // consensus, price-truth oracle, portfolio dedup, Lab winner
+            // propagation). Guaranteed present via CREATE TABLE IF NOT
+            // EXISTS so old Turso instances auto-migrate on first sync.
+            try {
+                client?.execute(
+                    "CREATE TABLE IF NOT EXISTS swarm_signals (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                        "signal_type TEXT NOT NULL," +
+                        "mint TEXT NOT NULL," +
+                        "symbol TEXT," +
+                        "instance_id TEXT NOT NULL," +
+                        "score REAL," +
+                        "price REAL," +
+                        "extra TEXT," +
+                        "ts INTEGER NOT NULL" +
+                    ")",
+                    emptyList()
+                )
+                client?.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_swarm_type_mint_ts ON swarm_signals(signal_type, mint, ts)",
+                    emptyList()
+                )
+                Log.i(TAG, "✅ V5.0.6120f swarm_signals table + index ready")
+            } catch (e: Exception) {
+                Log.w(TAG, "swarm_signals init warning (non-fatal): ${e.message}")
+            }
+
             isInitialized = true
             Log.i(TAG, "COLLECTIVE LEARNING ONLINE - HIVE MIND ACTIVE")
 
@@ -303,6 +332,108 @@ object CollectiveLearning {
         client = null
         isInitialized = false
         Log.i(TAG, "Collective learning shutdown")
+    }
+
+    // ═════════════════════════════════════════════════════════════════════
+    //  V5.0.6120f — SWARM INTELLIGENCE LAYER (SwarmIntel bridge)
+    // ═════════════════════════════════════════════════════════════════════
+
+    /**
+     * V5.0.6120f — Insert one swarm signal row. Called from SwarmIntel's
+     * publish* helpers on a background coroutine. Always try/catch, always
+     * fail-open. The instance_id is captured at init and identifies this
+     * bot in the swarm so we can compute distinct-instance consensus
+     * without double-counting one instance's repeated publishes.
+     */
+    suspend fun publishSwarmSignal(
+        signalType: String,
+        mint: String,
+        symbol: String,
+        score: Double,
+        price: Double,
+        extra: String,
+    ) {
+        if (!isEnabled()) return
+        try {
+            val ts = System.currentTimeMillis()
+            val sql = "INSERT INTO swarm_signals (signal_type, mint, symbol, instance_id, score, price, extra, ts) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            client?.execute(
+                sql,
+                listOf(signalType, mint, symbol.take(64), instanceId, score, price, extra.take(256), ts)
+            )
+        } catch (e: Exception) {
+            Log.d(TAG, "publishSwarmSignal(${signalType}) warn: ${e.message}")
+        }
+    }
+
+    /**
+     * V5.0.6120f — Count DISTINCT INSTANCES that emitted a signal of the
+     * given type for the given mint since `windowMs` ago. Distinct-instance
+     * count is what matters — one bot spamming its own publish shouldn't
+     * inflate the consensus. Excludes our own instance from the count for
+     * co-fire so we don't count ourselves as a follower of ourselves.
+     */
+    fun getSwarmSignalCount(signalType: String, mint: String, windowMs: Long): Int {
+        if (!isEnabled()) return 0
+        return try {
+            val sinceTs = System.currentTimeMillis() - windowMs
+            val sql = "SELECT COUNT(DISTINCT instance_id) AS n FROM swarm_signals " +
+                "WHERE signal_type = ? AND mint = ? AND ts >= ? AND instance_id != ?"
+            val result = client?.query(sql, listOf(signalType, mint, sinceTs, instanceId))
+            if (result != null && result.rows.isNotEmpty()) {
+                (result.rows[0]["n"] as? Number)?.toInt() ?: 0
+            } else 0
+        } catch (e: Exception) {
+            Log.d(TAG, "getSwarmSignalCount(${signalType}, $mint) warn: ${e.message}")
+            0
+        }
+    }
+
+    /**
+     * V5.0.6120f — Fetch swarm price samples for a mint inside `windowMs`.
+     * Used by SwarmIntel.getSwarmPriceMedian for the phantom-wick oracle.
+     * Excludes our own instance so we don't self-corroborate a bad sample.
+     */
+    fun getSwarmPriceSamples(mint: String, windowMs: Long): List<Double> {
+        if (!isEnabled()) return emptyList()
+        return try {
+            val sinceTs = System.currentTimeMillis() - windowMs
+            val sql = "SELECT price FROM swarm_signals " +
+                "WHERE signal_type = ? AND mint = ? AND ts >= ? AND instance_id != ? AND price > 0"
+            val result = client?.query(sql, listOf(SwarmIntelSignalTypes.PRICE_SAMPLE, mint, sinceTs, instanceId))
+                ?: return emptyList()
+            result.rows.mapNotNull { (it["price"] as? Number)?.toDouble() }.filter { it > 0.0 }
+        } catch (e: Exception) {
+            Log.d(TAG, "getSwarmPriceSamples($mint) warn: ${e.message}")
+            emptyList()
+        }
+    }
+
+    /**
+     * V5.0.6120f — Fetch recent Lab winner strategies from the swarm so
+     * this instance's LLM Lab can pick them up and run them in parallel.
+     * Returns strategy name + WR + avgPnl + config hint.
+     */
+    fun getSwarmLabWinners(windowMs: Long = 24L * 60L * 60L * 1000L): List<Map<String, Any?>> {
+        if (!isEnabled()) return emptyList()
+        return try {
+            val sinceTs = System.currentTimeMillis() - windowMs
+            val sql = "SELECT symbol, score, price, extra, ts FROM swarm_signals " +
+                "WHERE signal_type = ? AND ts >= ? AND instance_id != ? ORDER BY ts DESC LIMIT 32"
+            val result = client?.query(sql, listOf(SwarmIntelSignalTypes.LAB_WINNER, sinceTs, instanceId))
+                ?: return emptyList()
+            result.rows
+        } catch (e: Exception) {
+            Log.d(TAG, "getSwarmLabWinners warn: ${e.message}")
+            emptyList()
+        }
+    }
+
+    /** V5.0.6120f — signal type constants mirrored inside CollectiveLearning */
+    private object SwarmIntelSignalTypes {
+        const val PRICE_SAMPLE = "PRICE_SAMPLE"
+        const val LAB_WINNER   = "LAB_STRATEGY_WINNER"
     }
 
     suspend fun getDiagnostics(): CollectiveDiagnostics {

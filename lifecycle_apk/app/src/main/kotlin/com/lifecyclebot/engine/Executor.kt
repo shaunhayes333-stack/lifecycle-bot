@@ -13502,6 +13502,16 @@ class Executor(
                 liveStage("FINALITY_CONFIRMED", "route=PUMPPORTAL signature=${sig.take(16)}")
                 try { ForensicLogger.lifecycle("LIVE_BUY_CONFIRMED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL signature=${sig.take(16)} finalSol=${effectiveSol.fmt(4)}") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("BUY_TX_SUBMITTED"); PipelineHealthCollector.labelInc("LIVE_BUY_CONFIRMED") } catch (_: Throwable) {}
+                // V5.0.6120f — SWARM: broadcast the live open so peers see us.
+                try {
+                    com.lifecyclebot.engine.SwarmIntel.publishLiveOpen(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        score = ts.entryScore.toInt(),
+                        sizeSol = effectiveSol,
+                        lane = ts.tradingMode.ifBlank { "UNKNOWN" },
+                    )
+                } catch (_: Throwable) {}
                 buyPhase("TX_SUBMITTED")
                 buyPhase("TX_CONFIRMED")
                 // V5.9.602 — Pump-first gets the same lifecycle ledger as
@@ -13544,6 +13554,16 @@ class Executor(
                 liveStage("FINALITY_CONFIRMED", "route=${q.router} signature=${sig.take(16)}")
                 try { ForensicLogger.lifecycle("LIVE_BUY_CONFIRMED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${q.router} signature=${sig.take(16)} finalSol=${sol.fmt(4)}") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("BUY_TX_SUBMITTED"); PipelineHealthCollector.labelInc("LIVE_BUY_CONFIRMED") } catch (_: Throwable) {}
+                // V5.0.6120f — SWARM: broadcast the live open so peers see us.
+                try {
+                    com.lifecyclebot.engine.SwarmIntel.publishLiveOpen(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        score = ts.entryScore.toInt(),
+                        sizeSol = sol,
+                        lane = ts.tradingMode.ifBlank { "UNKNOWN" },
+                    )
+                } catch (_: Throwable) {}
                 buyPhase("TX_SUBMITTED")
                 try { PipelineHealthCollector.labelInc("JUPITER_CONFIRM_OK") } catch (_: Throwable) {}
                 buyPhase("TX_CONFIRMED")
