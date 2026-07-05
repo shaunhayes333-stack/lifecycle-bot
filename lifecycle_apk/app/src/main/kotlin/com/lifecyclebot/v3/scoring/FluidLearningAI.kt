@@ -647,18 +647,40 @@ object FluidLearningAI {
         }
         
         // V5.9: 4-Phase learning curve scaling to 5000 trades
-        val baseProgress = when {
+        // V5.0.6118 — PAPER-MODE FAST-TRACK. Operator: "reduce bootstrap in
+        // paper. full agi/ssi control after 500 trades please." Paper mode
+        // is where the bot learns — it should graduate from bootstrap to
+        // full AGI/SSI intelligence control after 500 paper trades, not 5000.
+        // Live mode keeps the conservative 5000-trade doctrine curve.
+        val isPaper6118 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        val baseProgress = if (isPaper6118) {
+            // Paper fast-track: 0-500 trades = bootstrap (0.0 → 0.50),
+            // 500-800 = mature (0.50 → 0.80), 800-1200 = expert (0.80 → 1.0),
+            // 1200+ = master (1.0). AGI/SSI authority tiers (already low at
+            // 3/10/25 samples per lane) will naturally reach AUTHORITATIVE
+            // well within this window, so the intelligence stack takes real
+            // command instead of staying in BOOTSTRAP/ADVISORY for months.
+            when {
+                totalTrades <= 500 ->
+                    (totalTrades.toDouble() / 500.0) * 0.50
+                totalTrades <= 800 ->
+                    0.50 + ((totalTrades - 500).toDouble() / 300.0) * 0.30
+                totalTrades <= 1200 ->
+                    0.80 + ((totalTrades - 800).toDouble() / 400.0) * 0.20
+                else -> MAX_LEARNING_PROGRESS
+            }
+        } else when {
             totalTrades <= BOOTSTRAP_PHASE_END ->
-                // Phase 1 Bootstrap (0-1000 trades): 0.0 → 0.50
+                // Phase 1 Bootstrap (0-5000 trades): 0.0 → 0.50
                 (totalTrades.toDouble() / BOOTSTRAP_PHASE_END) * 0.50
             totalTrades <= MATURE_PHASE_END ->
-                // Phase 2 Mature (1000-3000 trades): 0.50 → 0.80
+                // Phase 2 Mature (5000-8000 trades): 0.50 → 0.80
                 0.50 + ((totalTrades - BOOTSTRAP_PHASE_END).toDouble() / (MATURE_PHASE_END - BOOTSTRAP_PHASE_END)) * 0.30
             totalTrades <= EXPERT_PHASE_END ->
-                // Phase 3 Expert (3000-5000 trades): 0.80 → 1.0
+                // Phase 3 Expert (8000-10000 trades): 0.80 → 1.0
                 0.80 + ((totalTrades - MATURE_PHASE_END).toDouble() / (EXPERT_PHASE_END - MATURE_PHASE_END)) * 0.20
             else ->
-                // Phase 4 Master (5000+ trades): Full 1.0 — maximum selectivity
+                // Phase 4 Master (10000+ trades): Full 1.0 — maximum selectivity
                 MAX_LEARNING_PROGRESS
         }
 

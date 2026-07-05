@@ -240,32 +240,53 @@ object FinalDecisionGate {
     // at 3000 lifetime trades — 2000 trades INSIDE the doctrine bootstrap
     // band. That activated steep choke points during the doctrine-permitted
     // learning phase, capping volume below the 500-1000/day target.
-    private const val FDG_BOOTSTRAP_END = 2000
-    private const val FDG_LEARNING_END = 5000
-    private const val FDG_EXPERT_END = 8000
+    // V5.0.6118 — PAPER-MODE FAST-TRACK. Operator: "reduce bootstrap in
+    // paper. full agi/ssi control after 500 trades." Paper mode uses a
+    // compressed bootstrap window (500 trades) so the FDG confidence floors
+    // ramp to mature levels faster, letting the AGI/SSI stack take command.
+    // Live mode keeps the conservative doctrine ladder.
+    private const val FDG_BOOTSTRAP_END_LIVE = 2000
+    private const val FDG_LEARNING_END_LIVE = 5000
+    private const val FDG_EXPERT_END_LIVE = 8000
+    private const val FDG_BOOTSTRAP_END_PAPER = 500
+    private const val FDG_LEARNING_END_PAPER = 800
+    private const val FDG_EXPERT_END_PAPER = 1200
+    // Backward-compat aliases for any external callers
+    private val FDG_BOOTSTRAP_END get() = FDG_BOOTSTRAP_END_LIVE
+    private val FDG_LEARNING_END get() = FDG_LEARNING_END_LIVE
+    private val FDG_EXPERT_END get() = FDG_EXPERT_END_LIVE
 
-    fun getLearningPhase(tradeCount: Int): LearningPhase = when {
-        tradeCount <= FDG_BOOTSTRAP_END -> LearningPhase.BOOTSTRAP
-        tradeCount <= FDG_LEARNING_END -> LearningPhase.LEARNING
-        else -> LearningPhase.MATURE
+    fun getLearningPhase(tradeCount: Int): LearningPhase {
+        // V5.0.6118 — paper fast-track
+        val isPaper6118 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        val bootEnd = if (isPaper6118) FDG_BOOTSTRAP_END_PAPER else FDG_BOOTSTRAP_END_LIVE
+        val learnEnd = if (isPaper6118) FDG_LEARNING_END_PAPER else FDG_LEARNING_END
+        return when {
+            tradeCount <= bootEnd -> LearningPhase.BOOTSTRAP
+            tradeCount <= learnEnd -> LearningPhase.LEARNING
+            else -> LearningPhase.MATURE
+        }
     }
 
     fun getLearningProgress(tradeCount: Int, winRate: Double): Double {
-        // V5.9.616 — 4-phase curve to 5000 trades.
-        // 0-1000:    0.0 → 0.50  (bootstrap)
-        // 1000-3000: 0.50 → 0.80 (learning)
-        // 3000-5000: 0.80 → 1.0  (expert)
-        // Win-rate bonus removed: a 27% WR bot doesn't deserve a +10% maturity
-        // gift just because it had a lucky streak. Maturity is purely volume.
+        // V5.0.6118 — paper fast-track
+        val isPaper6118 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        val bootEnd = if (isPaper6118) FDG_BOOTSTRAP_END_PAPER else FDG_BOOTSTRAP_END_LIVE
+        val learnEnd = if (isPaper6118) FDG_LEARNING_END_PAPER else FDG_LEARNING_END
+        val expertEnd = if (isPaper6118) FDG_EXPERT_END_PAPER else FDG_EXPERT_END
+        // V5.9.616 — 4-phase curve.
+        // 0-bootEnd:       0.0 → 0.50  (bootstrap)
+        // bootEnd-learnEnd: 0.50 → 0.80 (learning)
+        // learnEnd-expertEnd: 0.80 → 1.0  (expert)
         val baseProgress = when {
-            tradeCount <= FDG_BOOTSTRAP_END ->
-                (tradeCount.toDouble() / FDG_BOOTSTRAP_END) * 0.50
-            tradeCount <= FDG_LEARNING_END ->
-                0.50 + ((tradeCount - FDG_BOOTSTRAP_END).toDouble() /
-                        (FDG_LEARNING_END - FDG_BOOTSTRAP_END)) * 0.30
-            tradeCount <= FDG_EXPERT_END ->
-                0.80 + ((tradeCount - FDG_LEARNING_END).toDouble() /
-                        (FDG_EXPERT_END - FDG_LEARNING_END)) * 0.20
+            tradeCount <= bootEnd ->
+                (tradeCount.toDouble() / bootEnd) * 0.50
+            tradeCount <= learnEnd ->
+                0.50 + ((tradeCount - bootEnd).toDouble() /
+                        (learnEnd - bootEnd)) * 0.30
+            tradeCount <= expertEnd ->
+                0.80 + ((tradeCount - learnEnd).toDouble() /
+                        (expertEnd - learnEnd)) * 0.20
             else -> 1.0
         }
         return baseProgress.coerceIn(0.0, 1.0)

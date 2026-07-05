@@ -7370,6 +7370,22 @@ class GoldenTapeRegressionTest {
     }
 
     @Test
+    fun aate6118PaperBootstrapFastTrack500Trades() {
+        val fli = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/FluidLearningAI.kt").readText()
+        val frm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FreeRangeMode.kt").readText()
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        // FluidLearningAI: paper-mode fast-track curve (0-500 bootstrap, 500-800 mature, 800-1200 expert, 1200+ master)
+        assertTrue("V5.0.6118: FluidLearningAI must have paper fast-track", fli.contains("isPaper6118") && fli.contains("totalTrades <= 500"))
+        // FreeRangeMode: paper guard level accelerates past 500 trades
+        assertTrue("V5.0.6118: FreeRangeMode must have paper fast-track guard level", frm.contains("isPaper6118") && frm.contains("trades < 500"))
+        // FinalDecisionGate: paper thresholds (500/800/1200)
+        assertTrue("V5.0.6118: FDG must define paper bootstrap threshold", fdg.contains("FDG_BOOTSTRAP_END_PAPER = 500"))
+        assertTrue("V5.0.6118: FDG must define paper learning threshold", fdg.contains("FDG_LEARNING_END_PAPER = 800"))
+        assertTrue("V5.0.6118: FDG must define paper expert threshold", fdg.contains("FDG_EXPERT_END_PAPER = 1200"))
+        assertTrue("V5.0.6118: FDG getLearningPhase must use paper fast-track", fdg.contains("isPaper6118"))
+    }
+
+    @Test
     fun aate6117CloudSyncSchemaVersionGateFixed() {
         val sync = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CloudLearningSync.kt").readText()
         // Root fix: the cached schemaReady flag must not short-circuit before the
