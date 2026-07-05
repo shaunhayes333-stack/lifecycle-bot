@@ -14073,6 +14073,28 @@ class BotService : Service() {
                     try {
                         tradeDb?.let { db ->
                             val report = PatternBacktester.runBacktest(db)
+                            // V5.0.6120h — recompute Green-EV Lane Governor from
+                            // the same 30-loop cadence. Feeds the last 200 live
+                            // sells into the per-lane rolling EV computer and
+                            // publishes any newly-paused lanes to LabRecoveryHintQueue.
+                            try {
+                                val recentSells = com.lifecyclebot.engine.TradeHistoryStore
+                                    .getRecentValidClosedTradesRaw(200)
+                                    .filter { it.tradingMode.isNotBlank() && it.mode.equals("live", true) }
+                                val regime = try { RegimeDetector.currentRegime() } catch (_: Throwable) { RegimeDetector.Regime.NORMAL }
+                                val isChop = regime == RegimeDetector.Regime.CHOP
+                                // Blended WR fallback: compute directly off the sample rather than
+                                // depend on PerformanceAnalytics availability.
+                                val wrSample = recentSells.take(200)
+                                val blendedWr = if (wrSample.isNotEmpty()) {
+                                    wrSample.count { it.pnlPct > 5.0 }.toDouble() / wrSample.size.toDouble()
+                                } else 1.0
+                                com.lifecyclebot.engine.GreenEvLaneGovernor.recompute(
+                                    recentSells = recentSells,
+                                    regimeIsChop = isChop,
+                                    blendedWr = blendedWr,
+                                )
+                            } catch (_: Throwable) { /* governor is advisory */ }
                             if (report.totalTrades >= 10) {
                                 addLog("═══════════════════════════════════════════")
                                 addLog("📊 PATTERN BACKTEST (${report.totalTrades} trades)")

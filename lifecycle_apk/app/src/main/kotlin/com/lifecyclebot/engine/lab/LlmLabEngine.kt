@@ -394,6 +394,39 @@ object LlmLabEngine {
             return
         }
 
+        // V5.0.6120h — LANE-RECOVERY BIAS. Drain any pending recovery hints
+        // from Green-EV Governor. If a lane is paused because its live EV
+        // has bled below -3%, focus the LLM prompt on inventing a strategy
+        // for THAT lane specifically. Once we successfully paper-promote a
+        // strategy for the paused lane, the Governor sees the recovery-win
+        // streak clear and re-enables live trading on the lane. Fully
+        // autonomous recovery loop. Non-blocking: if the queue is empty,
+        // fall through to the standard prompt.
+        val recoveryHints = try { LabRecoveryHintQueue.drainAll() } catch (_: Throwable) { emptyList() }
+        val recoveryTarget = recoveryHints.firstOrNull()
+        val laneBias = if (recoveryTarget != null) {
+            try {
+                ForensicLogger.lifecycle(
+                    "LAB_LANE_RECOVERY_BIAS_6120h",
+                    "lane=${recoveryTarget.lane} ev=${"%.2f".format(recoveryTarget.evPct)}% wr=${"%.2f".format(recoveryTarget.wr * 100)}% — biasing next lab invention to recover this lane",
+                )
+                PipelineHealthCollector.labelInc("LAB_LANE_RECOVERY_BIAS_6120h")
+            } catch (_: Throwable) {}
+            """
+
+═══ URGENT LANE RECOVERY BIAS ═══
+The Green-EV Governor has PAUSED lane "${recoveryTarget.lane}" due to
+persistent negative EV (${"%.2f".format(recoveryTarget.evPct)}% over
+${recoveryTarget.n} live trades, WR ${"%.0f".format(recoveryTarget.wr * 100)}%).
+
+Your invented strategy MUST target this lane. Prefer tighter stops
+(SL between -6% and -10%), faster take-profit (TP between 12% and 25%),
+shorter hold (30-90 minutes), and only fire on the strongest score
+signals (entryScoreMin >= 70). This is the specific bleeder pattern
+the swarm needs solved. Name the strategy "recover/${recoveryTarget.lane}_gen_${System.currentTimeMillis().toString().takeLast(6)}".
+"""
+        } else ""
+
         val recent = LlmLabStore.allStrategies()
             .sortedByDescending { it.lastEvaluatedAt }
             .take(8)
@@ -407,7 +440,7 @@ lab to try, distinct from the existing list below. Output STRICT JSON only.
 
 EXISTING STRATEGIES:
 $recent
-
+$laneBias
 OUTPUT JSON FIELDS (all required):
   name           short tag, <= 32 chars
   rationale      one sentence, <= 120 chars

@@ -3748,6 +3748,80 @@ object FinalDecisionGate {
         } catch (_: Throwable) { /* fail-open — swarm is a bonus edge */ }
 
         // ═══════════════════════════════════════════════════════════════════
+        // V5.0.6120h — GREEN-EV LANE GOVERNOR + CHART PRE-BUY GATE
+        //   • GreenEvLaneGovernor pauses live entries on a lane whose live
+        //     rolling EV has been < -3% for 20+ trades. Recovery is
+        //     delegated to LlmLabEngine (see LabRecoveryHintQueue).
+        //   • Regime-CHOP damper × 0.6 all lanes when detector says CHOP
+        //     and blended WR < 30%.
+        //   • ChartPreBuyGate consults the chart brain — hard vetoes on
+        //     DEAD_CAT_BOUNCE / BREAKDOWN / DESCENDING_TRIANGLE / RISING_WEDGE
+        //     patterns; boosts on BREAKOUT / CUP_HANDLE / DOUBLE_BOTTOM.
+        //     Kills the "buying at wrong stage" bleed the operator flagged.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            if (mode == TradeMode.LIVE) {
+                val lane = ts.position.tradingMode.ifBlank { ts.tradingMode.ifBlank { "STANDARD" } }
+                val laneMult = com.lifecyclebot.engine.GreenEvLaneGovernor.laneSizeMultiplier(lane)
+                val chart = com.lifecyclebot.engine.ChartPreBuyGate.consult(ts)
+
+                if (laneMult == 0.0) {
+                    checks.add(GateCheck("green_ev_lane_veto", false,
+                        "Lane $lane paused (rolling EV bleed) — delegated to LLM Lab for recovery"))
+                    tags.add("green_ev_lane_paused")
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("GREEN_EV_LANE_VETO_HIT_6120h") } catch (_: Throwable) {}
+                    return FinalDecision(
+                        shouldTrade = false,
+                        mode = mode,
+                        approvalClass = ApprovalClass.BLOCKED,
+                        quality = "GREEN_EV_LANE_PAUSED",
+                        confidence = 0.0,
+                        edge = EdgeVerdict.WEAK,
+                        blockReason = "GREEN_EV_LANE_PAUSED",
+                        blockLevel = BlockLevel.HARD,
+                        sizeSol = 0.0,
+                        tags = tags,
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        approvalReason = "Lane $lane paused by Green-EV Governor — LLM Lab is inventing recovery strategies",
+                        gateChecks = checks,
+                    )
+                }
+                if (chart.hardVeto) {
+                    checks.add(GateCheck("chart_pre_buy_veto", false,
+                        "Chart brain hard-veto: ${chart.bias} conf=${chart.confidence.toInt()} — ${chart.reason}"))
+                    tags.add("chart_pre_buy_veto")
+                    return FinalDecision(
+                        shouldTrade = false,
+                        mode = mode,
+                        approvalClass = ApprovalClass.BLOCKED,
+                        quality = "CHART_PRE_BUY_${chart.bias}",
+                        confidence = 0.0,
+                        edge = EdgeVerdict.WEAK,
+                        blockReason = "CHART_PRE_BUY_${chart.bias}",
+                        blockLevel = BlockLevel.HARD,
+                        sizeSol = 0.0,
+                        tags = tags,
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        approvalReason = "Chart brain vetoed: ${chart.reason}",
+                        gateChecks = checks,
+                    )
+                }
+                val combinedMult = (laneMult * chart.sizeMult).coerceIn(0.01, 1.5)
+                if (combinedMult != 1.0) {
+                    val originalSize = finalSize
+                    finalSize = (finalSize * combinedMult).coerceIn(0.01, 1.0)
+                    val direction = if (combinedMult > 1.0) "chart_boosted" else "governor_damped"
+                    tags.add("size_${direction}_6120h")
+                    checks.add(GateCheck("lane_chart_shape", true,
+                        "Lane×${"%.2f".format(laneMult)} × chart×${"%.2f".format(chart.sizeMult)} (${chart.bias}) → " +
+                        "${originalSize.format(3)} → ${finalSize.format(3)}"))
+                }
+            }
+        } catch (_: Throwable) { /* fail-open — governor/chart are advisory */ }
+
+        // ═══════════════════════════════════════════════════════════════════
         // V5.9.934 — AI STARTUP COORDINATOR soft-shape (4th dormant subsystem).
         //
         // Operator V5.9.929 audit (audit_v5.9.928_dormant_intelligence.md):
