@@ -952,15 +952,59 @@ object TradeHistoryStore {
     /** V5.0.4497 — bounded full lifecycle valid-trade snapshot for Journal UI.
      * Includes BUY, SELL, and PARTIAL_SELL rows newest-first. Do not use closed-row
      * helpers for this screen or the operator loses entry visibility. */
+    // V5.0.6120 — Main-thread cache guard. getAllValidTradesSnapshot is
+    // called from MainActivity.renderJournal → causes ANRs at onCreate on
+    // devices with 500+ trade history (synchronized(lock) + full filter
+    // scan). Same template as getRecentValidClosedTradesRaw.
+    @Volatile private var validSnapshotCache: List<Trade> = emptyList()
+    @Volatile private var validSnapshotCacheMs: Long = 0L
+    @Volatile private var validSnapshotCacheLimit: Int = 0
+    @Volatile private var validSnapshotRefreshInFlight: Boolean = false
+    private val VALID_SNAPSHOT_CACHE_MS: Long = 3_000L
+
     fun getAllValidTradesSnapshot(limit: Int = 5_000): List<Trade> {
         ensureInitialized()
         val cap = limit.coerceAtLeast(1)
+        val onMain = try { Looper.myLooper() == Looper.getMainLooper() } catch (_: Throwable) { false }
+        if (onMain) {
+            val now = System.currentTimeMillis()
+            val cache = validSnapshotCache
+            val cacheOk = validSnapshotCacheLimit >= cap && cache.isNotEmpty() && now - validSnapshotCacheMs < VALID_SNAPSHOT_CACHE_MS
+            if (cacheOk) return cache.take(cap)
+            if (!validSnapshotRefreshInFlight) {
+                validSnapshotRefreshInFlight = true
+                try {
+                    kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        try {
+                            val fresh = synchronized(lock) {
+                                trades.asReversed().asSequence()
+                                    .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
+                                    .filter { isValidAccountingTrade(it) }
+                                    .take(cap)
+                                    .toList()
+                            }
+                            validSnapshotCache = fresh
+                            validSnapshotCacheLimit = cap
+                            validSnapshotCacheMs = System.currentTimeMillis()
+                        } catch (_: Throwable) {} finally {
+                            validSnapshotRefreshInFlight = false
+                        }
+                    }
+                } catch (_: Throwable) { validSnapshotRefreshInFlight = false }
+            }
+            try { PipelineHealthCollector.labelInc("VALID_SNAPSHOT_MAIN_CACHE_RETURN_6120") } catch (_: Throwable) {}
+            return if (cache.isNotEmpty()) cache.take(cap) else emptyList()
+        }
         return synchronized(lock) {
             trades.asReversed().asSequence()
                 .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
                 .filter { isValidAccountingTrade(it) }
                 .take(cap)
                 .toList()
+        }.also {
+            validSnapshotCache = it
+            validSnapshotCacheLimit = cap
+            validSnapshotCacheMs = System.currentTimeMillis()
         }
     }
 
@@ -1178,7 +1222,47 @@ object TradeHistoryStore {
      * in-memory list yet. Always returns the full persisted history (no in-memory cap).
      * Returns empty list and logs if db is null (init not yet called).
      */
+    // V5.0.6120 — Main-thread cache guard on getAllTradesFromDb. This is
+    // the WORST offender for the MainActivity.onCreate ANR — it runs a
+    // full SQLite cursor scan of every trade row (700+ rows on veteran
+    // devices), each row builds a Trade object with 20+ column reads,
+    // then enrichRowsBySequence() runs. ~500-1500ms hit on main thread.
+    // Same template as getRecentValidClosedTradesRaw.
+    @Volatile private var allTradesDbCache: List<Trade> = emptyList()
+    @Volatile private var allTradesDbCacheMs: Long = 0L
+    @Volatile private var allTradesDbRefreshInFlight: Boolean = false
+    private val ALL_TRADES_DB_CACHE_MS: Long = 5_000L
+
     fun getAllTradesFromDb(): List<Trade> {
+        val onMain = try { Looper.myLooper() == Looper.getMainLooper() } catch (_: Throwable) { false }
+        if (onMain) {
+            val now = System.currentTimeMillis()
+            val cache = allTradesDbCache
+            if (cache.isNotEmpty() && now - allTradesDbCacheMs < ALL_TRADES_DB_CACHE_MS) return cache
+            if (!allTradesDbRefreshInFlight) {
+                allTradesDbRefreshInFlight = true
+                try {
+                    kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        try {
+                            val fresh = getAllTradesFromDbInternal()
+                            allTradesDbCache = fresh
+                            allTradesDbCacheMs = System.currentTimeMillis()
+                        } catch (_: Throwable) {} finally {
+                            allTradesDbRefreshInFlight = false
+                        }
+                    }
+                } catch (_: Throwable) { allTradesDbRefreshInFlight = false }
+            }
+            try { PipelineHealthCollector.labelInc("ALL_TRADES_DB_MAIN_CACHE_RETURN_6120") } catch (_: Throwable) {}
+            return cache
+        }
+        return getAllTradesFromDbInternal().also {
+            allTradesDbCache = it
+            allTradesDbCacheMs = System.currentTimeMillis()
+        }
+    }
+
+    private fun getAllTradesFromDbInternal(): List<Trade> {
         val database = db
         if (database == null) {
             // DB not open yet — fall back to in-memory list (may be empty on first open)
@@ -1381,7 +1465,45 @@ object TradeHistoryStore {
     }
 
     /** Canonical per-asset breakdown derived from journal SELL rows. */
+    // V5.0.6120 — Main-thread cache guard on getAssetBreakdown. Called
+    // from MainActivity.renderMainUi at every UI refresh; iterates every
+    // trade row and infers asset class per row. On veteran devices with
+    // 700+ rows this is a ~100-300ms hit on main thread.
+    @Volatile private var assetBreakdownCache: Map<String, AssetCounts> = emptyMap()
+    @Volatile private var assetBreakdownCacheMs: Long = 0L
+    @Volatile private var assetBreakdownRefreshInFlight: Boolean = false
+    private val ASSET_BREAKDOWN_CACHE_MS: Long = 3_000L
+
     fun getAssetBreakdown(): Map<String, AssetCounts> {
+        val onMain = try { Looper.myLooper() == Looper.getMainLooper() } catch (_: Throwable) { false }
+        if (onMain) {
+            val now = System.currentTimeMillis()
+            val cache = assetBreakdownCache
+            if (cache.isNotEmpty() && now - assetBreakdownCacheMs < ASSET_BREAKDOWN_CACHE_MS) return cache
+            if (!assetBreakdownRefreshInFlight) {
+                assetBreakdownRefreshInFlight = true
+                try {
+                    kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        try {
+                            val fresh = computeAssetBreakdown()
+                            assetBreakdownCache = fresh
+                            assetBreakdownCacheMs = System.currentTimeMillis()
+                        } catch (_: Throwable) {} finally {
+                            assetBreakdownRefreshInFlight = false
+                        }
+                    }
+                } catch (_: Throwable) { assetBreakdownRefreshInFlight = false }
+            }
+            try { PipelineHealthCollector.labelInc("ASSET_BREAKDOWN_MAIN_CACHE_RETURN_6120") } catch (_: Throwable) {}
+            return cache
+        }
+        return computeAssetBreakdown().also {
+            assetBreakdownCache = it
+            assetBreakdownCacheMs = System.currentTimeMillis()
+        }
+    }
+
+    private fun computeAssetBreakdown(): Map<String, AssetCounts> {
         val out = LinkedHashMap<String, AssetCounts>()
         val snapshot = synchronized(lock) { trades.toList() }
         for (t in snapshot) {
@@ -1493,8 +1615,59 @@ object TradeHistoryStore {
         return synchronized(lock) { trades.filter { isJournalSellLike(it.side) && it.ts >= midnight && isValidAccountingTrade(it) } }
     }
 
-    fun getAllSells(): List<Trade> =
-        synchronized(lock) { trades.filter { isJournalSellLike(it.side) && isValidAccountingTrade(it) }.toList() }
+    // V5.0.6120 — Main-thread cache for getAllSells. ANR snapshot showed
+    // TradeHistoryStore.getAllSells() sampled on the main thread during
+    // MainActivity.onCreate causing 49-second frame gaps (total stall 53s).
+    // Same fix template as rollingWinRatePct: main-thread callers get the
+    // fresh-enough cached snapshot immediately; background scheduler keeps
+    // the cache warm. Cache TTL is 3s — trade closes are rare enough that
+    // UI never notices staleness. Full scan still runs on any background
+    // thread call so learning / accounting paths get exact data.
+    @Volatile private var getAllSellsCache: List<Trade> = emptyList()
+    @Volatile private var getAllSellsCacheMs: Long = 0L
+    private val GET_ALL_SELLS_CACHE_MS: Long = 3_000L
+    @Volatile private var getAllSellsRefreshInFlight: Boolean = false
+
+    fun getAllSells(): List<Trade> {
+        val onMain = try { android.os.Looper.myLooper() == android.os.Looper.getMainLooper() } catch (_: Throwable) { false }
+        if (onMain) {
+            val now = System.currentTimeMillis()
+            val cacheAge = now - getAllSellsCacheMs
+            if (getAllSellsCacheMs > 0L && cacheAge < GET_ALL_SELLS_CACHE_MS) {
+                return getAllSellsCache
+            }
+            // Cache stale or empty — kick off an async refresh (once at a time)
+            // and return whatever we have. UI never blocks on this.
+            if (!getAllSellsRefreshInFlight) {
+                getAllSellsRefreshInFlight = true
+                try {
+                    kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        try {
+                            val fresh = synchronized(lock) {
+                                trades.filter { isJournalSellLike(it.side) && isValidAccountingTrade(it) }.toList()
+                            }
+                            getAllSellsCache = fresh
+                            getAllSellsCacheMs = System.currentTimeMillis()
+                        } catch (_: Throwable) {
+                            // fail-safe: never crash the app on cache refresh
+                        } finally {
+                            getAllSellsRefreshInFlight = false
+                        }
+                    }
+                } catch (_: Throwable) {
+                    getAllSellsRefreshInFlight = false
+                }
+            }
+            return getAllSellsCache
+        }
+        // Background thread — do the full scan and refresh the cache.
+        val fresh = synchronized(lock) {
+            trades.filter { isJournalSellLike(it.side) && isValidAccountingTrade(it) }.toList()
+        }
+        getAllSellsCache = fresh
+        getAllSellsCacheMs = System.currentTimeMillis()
+        return fresh
+    }
 
     fun getRecentValidClosedForMode(mode: String, limit: Int = 50): List<Trade> {
         val norm = normalizeTradeModeName(mode)
