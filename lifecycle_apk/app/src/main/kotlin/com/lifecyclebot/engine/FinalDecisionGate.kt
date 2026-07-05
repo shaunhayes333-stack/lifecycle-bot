@@ -3761,7 +3761,7 @@ object FinalDecisionGate {
         // ═══════════════════════════════════════════════════════════════════
         try {
             if (mode == TradeMode.LIVE) {
-                val lane = ts.position.tradingMode.ifBlank { ts.tradingMode.ifBlank { "STANDARD" } }
+                val lane = ts.position.tradingMode.ifBlank { "STANDARD" }
                 val laneMult = com.lifecyclebot.engine.GreenEvLaneGovernor.laneSizeMultiplier(lane)
                 val chart = com.lifecyclebot.engine.ChartPreBuyGate.consult(ts)
 

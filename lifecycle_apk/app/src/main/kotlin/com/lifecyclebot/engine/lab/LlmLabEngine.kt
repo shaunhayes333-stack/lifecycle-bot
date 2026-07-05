@@ -204,7 +204,7 @@ object LlmLabEngine {
                 )
                 LlmLabStore.addStrategy(seed)
                 seeded += 1
-                try { PipelineHealthCollector.labelInc("SWARM_LAB_SEED_ACCEPTED_6120g") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SWARM_LAB_SEED_ACCEPTED_6120g") } catch (_: Throwable) {}
             } catch (_: Throwable) { /* skip malformed row */ }
         }
         if (seeded > 0) {
@@ -402,15 +402,15 @@ object LlmLabEngine {
         // streak clear and re-enables live trading on the lane. Fully
         // autonomous recovery loop. Non-blocking: if the queue is empty,
         // fall through to the standard prompt.
-        val recoveryHints = try { LabRecoveryHintQueue.drainAll() } catch (_: Throwable) { emptyList() }
+        val recoveryHints = try { com.lifecyclebot.engine.LabRecoveryHintQueue.drainAll() } catch (_: Throwable) { emptyList() }
         val recoveryTarget = recoveryHints.firstOrNull()
         val laneBias = if (recoveryTarget != null) {
             try {
-                ForensicLogger.lifecycle(
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
                     "LAB_LANE_RECOVERY_BIAS_6120h",
                     "lane=${recoveryTarget.lane} ev=${"%.2f".format(recoveryTarget.evPct)}% wr=${"%.2f".format(recoveryTarget.wr * 100)}% — biasing next lab invention to recover this lane",
                 )
-                PipelineHealthCollector.labelInc("LAB_LANE_RECOVERY_BIAS_6120h")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAB_LANE_RECOVERY_BIAS_6120h")
             } catch (_: Throwable) {}
             """
 

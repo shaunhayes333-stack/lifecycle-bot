@@ -13,6 +13,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -380,7 +381,7 @@ object CollectiveLearning {
             val sinceTs = System.currentTimeMillis() - windowMs
             val sql = "SELECT COUNT(DISTINCT instance_id) AS n FROM swarm_signals " +
                 "WHERE signal_type = ? AND mint = ? AND ts >= ? AND instance_id != ?"
-            val result = client?.query(sql, listOf(signalType, mint, sinceTs, instanceId))
+            val result = runBlocking { client?.query(sql, listOf(signalType, mint, sinceTs, instanceId)) }
             if (result != null && result.rows.isNotEmpty()) {
                 (result.rows[0]["n"] as? Number)?.toInt() ?: 0
             } else 0
@@ -401,7 +402,7 @@ object CollectiveLearning {
             val sinceTs = System.currentTimeMillis() - windowMs
             val sql = "SELECT price FROM swarm_signals " +
                 "WHERE signal_type = ? AND mint = ? AND ts >= ? AND instance_id != ? AND price > 0"
-            val result = client?.query(sql, listOf(SwarmIntelSignalTypes.PRICE_SAMPLE, mint, sinceTs, instanceId))
+            val result = runBlocking { client?.query(sql, listOf(SwarmIntelSignalTypes.PRICE_SAMPLE, mint, sinceTs, instanceId)) }
                 ?: return emptyList()
             result.rows.mapNotNull { (it["price"] as? Number)?.toDouble() }.filter { it > 0.0 }
         } catch (e: Exception) {
@@ -421,7 +422,7 @@ object CollectiveLearning {
             val sinceTs = System.currentTimeMillis() - windowMs
             val sql = "SELECT symbol, score, price, extra, ts FROM swarm_signals " +
                 "WHERE signal_type = ? AND ts >= ? AND instance_id != ? ORDER BY ts DESC LIMIT 32"
-            val result = client?.query(sql, listOf(SwarmIntelSignalTypes.LAB_WINNER, sinceTs, instanceId))
+            val result = runBlocking { client?.query(sql, listOf(SwarmIntelSignalTypes.LAB_WINNER, sinceTs, instanceId)) }
                 ?: return emptyList()
             result.rows
         } catch (e: Exception) {

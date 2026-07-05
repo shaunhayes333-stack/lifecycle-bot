@@ -13509,7 +13509,7 @@ class Executor(
                         symbol = ts.symbol,
                         score = ts.entryScore.toInt(),
                         sizeSol = effectiveSol,
-                        lane = ts.tradingMode.ifBlank { "UNKNOWN" },
+                        lane = ts.position.tradingMode.ifBlank { "UNKNOWN" },
                     )
                 } catch (_: Throwable) {}
                 buyPhase("TX_SUBMITTED")
@@ -13561,7 +13561,7 @@ class Executor(
                         symbol = ts.symbol,
                         score = ts.entryScore.toInt(),
                         sizeSol = sol,
-                        lane = ts.tradingMode.ifBlank { "UNKNOWN" },
+                        lane = ts.position.tradingMode.ifBlank { "UNKNOWN" },
                     )
                 } catch (_: Throwable) {}
                 buyPhase("TX_SUBMITTED")
