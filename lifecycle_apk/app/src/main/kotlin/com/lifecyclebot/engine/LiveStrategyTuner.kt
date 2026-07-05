@@ -380,6 +380,7 @@ object LiveStrategyTuner {
             StrategyTelemetry.computeLeaderboard(environment = null, includePartials = false, limit = 2_500)
                 .firstOrNull { canonical(it.strategy) == laneKey }
         } catch (_: Throwable) { null }
+        // lifetimeProfitable6114 — lifetime EV guard: no toxic label on profitable lanes
         if (lifetimeMetric6114 != null && lifetimeMetric6114.trades >= 30 &&
             (lifetimeMetric6114.totalSolPnl > 0.0 || lifetimeMetric6114.meanPnlPct >= 20.0)) {
             try { ForensicLogger.lifecycle("LIFETIME_EV_GUARD_6114", "lane=$lane cleanLiveN=$n cleanLiveWR=${"%.1f".format(wr)}% cleanLiveSol=${"%.4f".format(sol)} lifetimeN=${lifetimeMetric6114.trades} lifetimeWR=${"%.1f".format(lifetimeMetric6114.winRatePct)}% lifetimeSol=${"%.4f".format(lifetimeMetric6114.totalSolPnl)} action=exempt_from_toxic") } catch (_: Throwable) {}
