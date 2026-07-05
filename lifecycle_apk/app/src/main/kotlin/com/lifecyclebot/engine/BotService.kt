@@ -22588,7 +22588,18 @@ if (hotExitHandledSweep) {
             
             // V5.9.173 — paper mode bypasses the pause guard. Learning
             // must never stop in paper. Live stays gated for safety.
-            val pauseBlocks = !cfg.paperMode && cbState.isPaused
+            // V5.0.6111 — CIRCUIT BREAKER PAUSE IS TELEMETRY ONLY.
+            // The SecurityGuard comment says "telemetry only, live entries stay
+            // enabled" but the code was actually blocking ALL live entries when
+            // consecutive losses >= 5. With a 22-loss streak, the 30s pause kept
+            // renewing on every new loss, making the bot permanently unable to buy.
+            // This killed EXEC=0 for live mode. Now soft-shape only: log the pause
+            // but never block the executor call.
+            val pauseBlocks = false
+            if (cbState.isPaused && !cfg.paperMode) {
+                try { PipelineHealthCollector.labelInc("CIRCUIT_BREAKER_PAUSE_SOFT_ALLOW_6111") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("CIRCUIT_BREAKER_PAUSE_SOFT_ALLOW_6111", "consecutiveLosses=${cbState.consecutiveLosses} pauseRemainingMs=${cbState.pauseRemainingMs} — entries NOT blocked") } catch (_: Throwable) {}
+            }
             if (!cbState.isHalted && !pauseBlocks) {
                 ErrorLogger.info("BotService", "🧬 MEME_SPINE EXECUTOR_ROUTE ${identity.symbol} | paper=${cfg.paperMode} | v3=$useV3Decision | size=${actualInitialSize.fmt(4)} | wallet=${effectiveBalance.fmt(4)} | auto=${cfg.autoTrade}")
                 // V5.9.683 — wire EXEC forensic counter so PipelineHealth EXEC tile is non-zero.

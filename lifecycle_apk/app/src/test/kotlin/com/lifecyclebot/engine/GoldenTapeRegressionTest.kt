@@ -7150,6 +7150,8 @@ class GoldenTapeRegressionTest {
         val compounding6110 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RealizedWalletCompoundingGovernor.kt").readText()
         assertTrue("V5.0.6110: premature size<0.001 kill must be replaced with wallet-relative min lift, not hard reject", executor6110.contains("WALLET_REL_MIN_LIFT_6110") && executor6110.contains("walletRelMin6110") && executor6110.contains("path=maybeAct") && executor6110.contains("path=maybeActWithDecision"))
         assertTrue("V5.0.6110: compounding governor must break death spiral when wallet<1 SOL and no open positions", compounding6110.contains("WALLET_COMPOUND_SMALL_WALLET_DEATH_SPIRAL_BREAK_6110") && compounding6110.contains("snap.walletSol < 1.0") && compounding6110.contains("trustedOpenRunnerCount == 0"))
+        val bot6111 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.6111: circuit breaker pause must be telemetry-only, not block live entries", bot6111.contains("CIRCUIT_BREAKER_PAUSE_SOFT_ALLOW_6111") && bot6111.contains("val pauseBlocks = false"))
     }
 
 
