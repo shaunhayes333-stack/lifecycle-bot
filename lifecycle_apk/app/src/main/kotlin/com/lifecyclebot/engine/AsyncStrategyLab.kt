@@ -160,9 +160,10 @@ object AsyncStrategyLab {
                 StrategyTelemetry.computeLeaderboard(environment = null, includePartials = false, limit = 2_500)
                     .firstOrNull { it.strategy.equals(laneKey, ignoreCase = true) }
             } catch (_: Throwable) { null }
-            val isWinningLane6115 = lifetimeMetric6115 != null &&
-                lifetimeMetric6115!!.trades >= 20 &&
-                (lifetimeMetric6115.totalSolPnl > 0.0 || lifetimeMetric6115.meanPnlPct >= 15.0)
+            val isWinningLane6115 = try {
+                val lm = lifetimeMetric6115
+                lm != null && lm.trades >= 20 && (lm.totalSolPnl > 0.0 || lm.meanPnlPct >= 15.0)
+            } catch (_: Throwable) { false }
             if (isWinningLane6115) {
                 // Winning lane: cap raised to 2.5x, base boost 1.2x on top of reviewed bias
                 (baseBias * 1.20).coerceIn(0.80, 2.50)
