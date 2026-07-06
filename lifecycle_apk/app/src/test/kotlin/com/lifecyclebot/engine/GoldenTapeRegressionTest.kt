@@ -7944,4 +7944,16 @@ class GoldenTapeRegressionTest {
             bot.contains("ThroughputPressureBrain.current()") && bot.contains("throughputPressure6143.intakeMultiplier") && bot.contains("throughputPressure6143.underTarget") && bot.contains("compounding_target=true") && bot.contains("multi_exchange_universe=true"))
     }
 
+
+    @org.junit.Test fun V5_0_6144_runner_shadow_and_terminal_quality_control_money_path() {
+        val runner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RunnerExitShadowLedger.kt").readText()
+        assertTrue("V5.0.6144: runner shadow ledger must expose bounded hold bias while keeping no direct sell authority",
+            runner.contains("fun laneHoldBias") && runner.contains("coerceIn(1.0, 1.16)") && runner.contains("no sell authority") && runner.contains("avoid repeating early-runner giveback mistakes"))
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6144: Executor exit policy must combine UnifiedExitPolicyHead with runner-shadow hold bias before let-run/bank-soon decisions",
+            exec.contains("exitPolicyBiasBase6144") && exec.contains("RunnerExitShadowLedger.laneHoldBias") && exec.contains("RUNNER_SHADOW_HOLD_BIAS_6144") && exec.contains("exitPolicyLetRun = exitPolicyBias > 1.20"))
+        assertTrue("V5.0.6144: terminal outcome quality must gate core terminal learning fanout so dirty rows cannot unlock compounding evidence",
+            exec.contains("terminalQualityTrainable6144") && exec.contains("rowLearningAdmitted4349 && terminalQualityTrainable6144") && exec.contains("TerminalOutcomeQualityGate.report"))
+    }
+
 }

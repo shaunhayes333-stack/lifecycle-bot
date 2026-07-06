@@ -4,7 +4,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentLinkedDeque
 
-/** V5.0.4289 — offline runner-exit shadow ledger. Background/report only, no sell authority. */
+/** V5.0.4289 — offline runner-exit shadow ledger. Background/report only, no sell authority.
+ *  V5.0.6144 — now exposes a bounded lane hold-bias hint for UnifiedExitPolicyHead consumers.
+ *  Still no sell authority: it only helps avoid repeating early-runner giveback mistakes.
+ */
 object RunnerExitShadowLedger {
     data class Shadow(val lane: String, val exitReason: String, val realizedPnlPct: Double, val peakGainPct: Double, val givebackPct: Double, val holdSeconds: Long, val createdAtMs: Long = System.currentTimeMillis())
     private const val MAX_SHADOWS = 320
@@ -22,6 +25,25 @@ object RunnerExitShadowLedger {
             ForensicLogger.lifecycle("RUNNER_EXIT_SHADOW_LEDGER_4289", "lane=$lane reason=${exitReason.take(48)} realized=${realized.fmtLocal(2)} peak=${peak.fmtLocal(2)} giveback=${giveback.fmtLocal(2)} holdSec=$holdSeconds offline_only=true")
             PipelineHealthCollector.labelInc("RUNNER_EXIT_SHADOW_LEDGER_4289")
         } catch (_: Throwable) {}
+    }
+
+
+    fun laneHoldBias(lane: String, peakGainPct: Double, rawPnlPct: Double): Double {
+        val laneKey = lane.uppercase().take(32)
+        val peak = peakGainPct.takeIf { it.isFinite() } ?: return 1.0
+        val raw = rawPnlPct.takeIf { it.isFinite() } ?: return 1.0
+        if (peak < 35.0 || raw < -2.0) return 1.0
+        val snap = shadows.filter { it.lane == laneKey }.take(40)
+        if (snap.size < 2) return 1.0
+        val avgGiveback = snap.map { it.givebackPct }.average().takeIf { it.isFinite() } ?: return 1.0
+        val bias = when {
+            avgGiveback >= 85.0 -> 1.16
+            avgGiveback >= 55.0 -> 1.12
+            avgGiveback >= 32.0 -> 1.08
+            avgGiveback >= 18.0 -> 1.04
+            else -> 1.0
+        }
+        return bias.coerceIn(1.0, 1.16)
     }
 
     fun summary(): String {

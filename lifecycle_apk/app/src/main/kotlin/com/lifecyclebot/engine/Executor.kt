@@ -3054,6 +3054,7 @@ class Executor(
             try { TerminalOutcomeQualityGate.classify(tradeWithMint, ledgerAllowsClosedLearning, accountingTrainable) } catch (_: Throwable) { null }
         } else null
         try { terminalOutcomeQuality4286?.let { TerminalOutcomeQualityGate.report(tradeWithMint, ts.position.tradingMode ?: tradeWithMint.tradingMode, ts.source, it) } } catch (_: Throwable) {}
+        val terminalQualityTrainable6144 = terminalOutcomeQuality4286?.trainable ?: true
 
         // V5.9.1161 — premark all valid sell-like outcomes, including
         // PARTIAL_SELL, before the legacy TradeHistoryStore bridge runs.
@@ -3143,7 +3144,7 @@ class Executor(
         // valid terminal close exactly once. These recordOutcome APIs remove pending
         // mint state, so older downstream path calls become harmless no-ops.
         try {
-            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
+            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349 && terminalQualityTrainable6144) {
                 val terminalSnap4514 = tradeWithMint
                 val pnlForHeads4514 = terminalSnap4514.pnlPct
                 val mintForHeads4514 = terminalSnap4514.mint.ifBlank { ts.mint }
@@ -3182,7 +3183,7 @@ class Executor(
         } catch (_: Throwable) {}
 
         try {
-            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
+            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349 && terminalQualityTrainable6144) {
                 LivePaperDriftSentinel.onTerminalClose(tradeWithMint)
                 ExitCostMicrobrain.recordTerminalExit(
                     trade = tradeWithMint,
@@ -3202,7 +3203,7 @@ class Executor(
         // excursion proxy (peak for winners, low-water for losers) until a delayed +5m
         // labeler exists; this is advisory learning only and never blocks exit finality.
         try {
-            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
+            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349 && terminalQualityTrainable6144) {
                 val sellOptTrade = tradeWithMint
                 val posEntryPrice = ts.position.entryPrice
                 val posPeakPrice = ts.position.highestPrice
@@ -3252,7 +3253,7 @@ class Executor(
         // it never rewrites journal truth, never touches entry gates, and never
         // blocks sell finality.
         try {
-            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
+            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349 && terminalQualityTrainable6144) {
                 val graphTrade = tradeWithMint
                 val graphLane = graphTrade.tradingMode.ifBlank { "STANDARD" }
                 val graphSource = ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }
@@ -14987,10 +14988,18 @@ class Executor(
             advanced.exitReason == com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitReason.TIME_EXIT)
         val exitPolicyLane = unifiedExitLaneFor(ts)
         val exitPolicySignals = unifiedExitSignalsFor(ts, rawPnlPct, peakGainPct)
-        val exitPolicyBias = try {
+        val exitPolicyBiasBase6144 = try {
             UnifiedExitPolicyHead.stamp(ts.mint, exitPolicyLane, exitPolicySignals)
             UnifiedExitPolicyHead.exitBias(exitPolicyLane, exitPolicySignals)
         } catch (_: Throwable) { 1.0 }
+        val runnerShadowHoldBias6144 = try { RunnerExitShadowLedger.laneHoldBias(exitPolicyLane, peakGainPct, rawPnlPct) } catch (_: Throwable) { 1.0 }
+        val exitPolicyBias = (exitPolicyBiasBase6144 * runnerShadowHoldBias6144).coerceIn(0.55, 1.72)
+        if (runnerShadowHoldBias6144 > 1.01) {
+            try {
+                ForensicLogger.lifecycle("RUNNER_SHADOW_HOLD_BIAS_6144", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$exitPolicyLane base=${"%.2f".format(exitPolicyBiasBase6144)} shadow=${"%.2f".format(runnerShadowHoldBias6144)} final=${"%.2f".format(exitPolicyBias)} raw=${"%.1f".format(rawPnlPct)} peak=${"%.1f".format(peakGainPct)}")
+                PipelineHealthCollector.labelInc("RUNNER_SHADOW_HOLD_BIAS_6144")
+            } catch (_: Throwable) {}
+        }
         val exitPolicyBankSoon = exitPolicyBias < 0.85 && rawPnlPct > 0.5
         val exitPolicyLetRun = exitPolicyBias > 1.20 && rawPnlPct >= 0.0 && givebackFromPeak < 10.0
         if (exitPolicyBankSoon || exitPolicyLetRun) {
