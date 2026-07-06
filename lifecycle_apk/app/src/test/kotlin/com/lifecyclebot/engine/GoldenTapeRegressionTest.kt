@@ -7897,4 +7897,16 @@ class GoldenTapeRegressionTest {
             exec.contains("EntryArchetypeClassifier.classify(ts, ts.position.tradingMode)") && exec.contains("entryArchetypeCleanLiveBias6139") && exec.contains("StrategyTelemetry.liveStyleSizeMultiplier(ts.position.tradingMode, entryArchetype6139.label)") && exec.contains("archetype=${'$'}{entryArchetype6139.label}"))
     }
 
+
+    @org.junit.Test fun V5_0_6140_venue_universe_prevents_pump_jupiter_only_regression() {
+        val universe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/VenueUniverse.kt").readText()
+        assertTrue("V5.0.6140: AATE must not collapse into a pump.fun/Jupiter-only bot; venue universe must include Solana DEXs, launchpads, CEXs, BNB/Pancake and Chinese/regional trend surfaces",
+            universe.contains("AATE is not a Pump/Jupiter bot") && universe.contains("RAYDIUM") && universe.contains("ORCA") && universe.contains("METEORA") && universe.contains("PANCAKESWAP") && universe.contains("COINSPOT") && universe.contains("CHINESE_EXCHANGE") && universe.contains("CHINESE_SOCIAL"))
+        assertTrue("V5.0.6140: venue universe must model chain family, venue family, and route family for Meme Trader + Crypto Universe parity",
+            universe.contains("enum class ChainFamily") && universe.contains("enum class VenueFamily") && universe.contains("enum class RouteFamily") && universe.contains("CEX_SIGNAL_ONLY") && universe.contains("TREND_SIGNAL_ONLY") && universe.contains("CHAIN_SPECIFIC_DEX"))
+        val route = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RouteTournamentBrain.kt").readText()
+        assertTrue("V5.0.6140: RouteTournamentBrain must classify venue family instead of using Pump/Jupiter booleans",
+            route.contains("VenueUniverse.classify(source)") && route.contains("SOL_AMM_OR_AGGREGATOR_FIRST") && route.contains("CHAIN_SPECIFIC_VENUE") && route.contains("CEX_SIGNAL_ONLY") && route.contains("multi_exchange_universe=true") && !route.contains("pumpSource ="))
+    }
+
 }
