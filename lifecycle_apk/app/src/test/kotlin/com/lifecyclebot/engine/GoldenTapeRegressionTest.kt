@@ -7934,4 +7934,14 @@ class GoldenTapeRegressionTest {
             fdg.contains("LiveSizingProfile.MIN_ENTRY_SOL") && fdg.contains("coerceIn(0.06, 0.25)"))
     }
 
+
+    @org.junit.Test fun V5_0_6143_throughput_pressure_widens_qualified_intake_for_compounding() {
+        val brain = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ThroughputPressureBrain.kt").readText()
+        assertTrue("V5.0.6143: throughput pressure brain must be local-only, bounded, and target the 500-1000 trades/day doctrine",
+            brain.contains("object ThroughputPressureBrain") && brain.contains("TradeHistoryStore.getTradeCount24h") && brain.contains("target=500_1000") && brain.contains("coerceIn(1.0, 1.28)") && brain.contains("coerceIn(1.0, 1.07)"))
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.6143: protected intake must consume throughput pressure together with source and venue priors, without creating a hard block",
+            bot.contains("ThroughputPressureBrain.current()") && bot.contains("throughputPressure6143.intakeMultiplier") && bot.contains("throughputPressure6143.underTarget") && bot.contains("compounding_target=true") && bot.contains("multi_exchange_universe=true"))
+    }
+
 }
