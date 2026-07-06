@@ -7587,8 +7587,6 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6116: FDG must call isConfirmedDeathBucket6116", fdg.contains("LosingPatternMemory.isConfirmedDeathBucket6116"))
     }
 
-}
-
     // ═══════════════════════════════════════════════════════════════════════════
     // V5.0.6123 — DYNAMIC PROFIT LOCK IN runManageOnly + SCANNER LIFECYCLE GATE
     // ═══════════════════════════════════════════════════════════════════════════
@@ -7654,3 +7652,4 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6123: BotService must have PROBATION_PROMOTION_PATTERN_HELD_6123", bot.contains("PROBATION_PROMOTION_PATTERN_HELD_6123"))
         assertTrue("V5.0.6123: BotService must call shouldPromoteFromProbation", bot.contains("shouldPromoteFromProbation"))
     }
+}
