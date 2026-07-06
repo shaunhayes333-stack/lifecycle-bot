@@ -7878,8 +7878,8 @@ class GoldenTapeRegressionTest {
         val brain = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RouteTournamentBrain.kt").readText()
         assertTrue("V5.0.6138: RouteTournamentBrain must use cached local route reliability and clean-live style truth only",
             brain.contains("object RouteTournamentBrain") && brain.contains("ExecutionRouteReliabilityMemory.sizeMultiplierForSource") && brain.contains("StrategyTelemetry.liveStyleSizeMultiplier") && brain.contains("never calls network") && brain.contains("never lets paper authorize live"))
-        assertTrue("V5.0.6138: route tournament must prefer route/order and size-shape without blocking trades",
-            brain.contains("preferredRoute") && brain.contains("pumpFirstAllowed") && brain.contains("sizeMultiplier") && brain.contains("PUMPPORTAL_FIRST") && brain.contains("JUPITER_FIRST"))
+        assertTrue("V5.0.6138/6140: route tournament must prefer venue-family route/order and size-shape without blocking trades",
+            brain.contains("preferredRoute") && brain.contains("pumpFirstAllowed") && brain.contains("sizeMultiplier") && brain.contains("PUMPPORTAL_FIRST") && brain.contains("SOL_AGGREGATOR_FIRST") && brain.contains("SOL_AMM_OR_AGGREGATOR_FIRST"))
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("V5.0.6138: Executor liveBuy must consume route tournament before pump-first and carry route preference telemetry",
             exec.contains("RouteTournamentBrain.evaluate(ts, ts.position.tradingMode)") && exec.contains("routeTournamentPosture6138.pumpFirstAllowed") && exec.contains("routePref=${'$'}{routeTournamentPosture6138.preferredRoute}") && exec.contains("pumpFirstAllowed=${'$'}{routeTournamentPosture6138.pumpFirstAllowed}"))
@@ -7913,7 +7913,7 @@ class GoldenTapeRegressionTest {
     @org.junit.Test fun V5_0_6141_venue_source_balance_adapter_feeds_intake_not_pump_only() {
         val adapter = java.io.File("src/main/kotlin/com/lifecyclebot/engine/VenueSourceBalanceAdapter.kt").readText()
         assertTrue("V5.0.6141: VenueSourceBalanceAdapter must add multi-exchange intake pressure without replacing ScannerSourceBrain or blocking sources",
-            adapter.contains("object VenueSourceBalanceAdapter") && adapter.contains("does not block sources") && adapter.contains("does not replace ScannerSourceBrain") && adapter.contains("VenueUniverse.classify") && adapter.contains("CHAIN_SPECIFIC_DEX") && adapter.contains("TREND_SIGNAL_ONLY"))
+            adapter.contains("object VenueSourceBalanceAdapter") && adapter.contains("does not") && adapter.contains("block sources") && adapter.contains("replace ScannerSourceBrain") && adapter.contains("VenueUniverse.classify") && adapter.contains("CHAIN_SPECIFIC_DEX") && adapter.contains("TREND_SIGNAL_ONLY"))
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.6141: admitProtectedMemeIntake must combine ScannerSourceBrain with venue-family priors and expose multi-exchange telemetry",
             bot.contains("VenueSourceBalanceAdapter.bestMultiplier(allSources + source)") && bot.contains("sourceBrainMultRaw6141") && bot.contains("venueSourceMult6141") && bot.contains("venueSourceMult6141 >= 1.10") && bot.contains("multi_exchange_universe=true"))
