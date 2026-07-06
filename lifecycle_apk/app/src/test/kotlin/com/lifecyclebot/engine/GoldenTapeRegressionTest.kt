@@ -7769,4 +7769,16 @@ class GoldenTapeRegressionTest {
             main.contains("setOnLongClickListener") && main.contains("""implementAllProven6129("main_lab_tile_long_press")"""))
     }
 
+
+    @org.junit.Test fun V5_0_6130_clean_edge_paper_live_exit_parity() {
+        val telemetry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTelemetry.kt").readText()
+        assertTrue("V5.0.6130: clean paper StrategyTruth leaderboard must be cached like clean live",
+            telemetry.contains("cleanPaperLeaderboardCache") && telemetry.contains("CLEAN_PAPER_LEADERBOARD_TTL_MS") && telemetry.contains("computeCleanPaperTerminalLeaderboard"))
+        val executor6130 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6130: learnedExitRungs must use clean paper telemetry in paper and clean live telemetry in live",
+            executor6130.contains("board6130") && executor6130.contains("RuntimeModeAuthority.isPaper()") && executor6130.contains("StrategyTelemetry.computeCleanPaperTerminalLeaderboard") && executor6130.contains("StrategyTelemetry.computeCleanLiveTerminalLeaderboard") && executor6130.contains("LIVE uses clean LIVE StrategyTruth only"))
+        assertFalse("V5.0.6130: learnedExitRungs must not use legacy live-only terminal leaderboard",
+            executor6130.contains("StrategyTelemetry.computeLiveTerminalLeaderboard().firstOrNull"))
+    }
+
 }

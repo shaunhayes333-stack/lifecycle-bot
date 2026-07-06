@@ -176,6 +176,13 @@ object StrategyTelemetry {
     @Volatile private var cleanLiveLeaderboardCacheMs: Long = 0L
     @Volatile private var cleanLiveLeaderboardCacheLimit: Int = 0
     private const val CLEAN_LIVE_LEADERBOARD_TTL_MS = 10_000L
+    // V5.0.6130 — paper mode is not toy training. Mirror the clean-live cache so
+    // paper decision-facing edge can be used by tuners without rescanning the
+    // journal on every 7.5s LiveStrategyTuner refresh.
+    @Volatile private var cleanPaperLeaderboardCache: List<StrategyMetric> = emptyList()
+    @Volatile private var cleanPaperLeaderboardCacheMs: Long = 0L
+    @Volatile private var cleanPaperLeaderboardCacheLimit: Int = 0
+    private const val CLEAN_PAPER_LEADERBOARD_TTL_MS = 10_000L
 
     // V5.0.4513 — decision-facing clean live authority. The legacy live
     // leaderboard reads raw close snapshots and sanitizes obvious outliers, but
@@ -243,10 +250,17 @@ object StrategyTelemetry {
     // clean-live StrategyTruthLedger hygiene, but keeps the environment boundary
     // explicit so paper evidence never authorizes LIVE sizing.
     fun computeCleanPaperTerminalLeaderboard(limit: Int = 2_500): List<StrategyMetric> {
+        val now = System.currentTimeMillis()
+        val cached = cleanPaperLeaderboardCache
+        if (cached.isNotEmpty() &&
+            cleanPaperLeaderboardCacheLimit >= limit &&
+            (now - cleanPaperLeaderboardCacheMs) < CLEAN_PAPER_LEADERBOARD_TTL_MS) {
+            return cached
+        }
         val raw = try { TradeHistoryStore.getRecentValidClosedTradesRaw(limit = limit, includePartials = true) } catch (_: Throwable) { emptyList() }
         val cleanRows = try { StrategyTruthLedger.clean(raw, limit).rows } catch (_: Throwable) { raw }
             .filter { it.mode.equals("paper", true) && it.side.equals("SELL", true) }
-        return if (cleanRows.isEmpty()) emptyList() else cleanRows
+        val result = if (cleanRows.isEmpty()) emptyList() else cleanRows
             .groupBy {
                 val rawMode = it.tradingMode.ifBlank { "STANDARD" }
                 val norm = try { TradeHistoryStore.normalizeTradeModeName(rawMode) } catch (_: Throwable) { rawMode }
@@ -279,6 +293,10 @@ object StrategyTelemetry {
                     avgLossPct = if (lossPcts.isNotEmpty()) lossPcts.sum() / lossPcts.size else 0.0,
                 )
             }
+        cleanPaperLeaderboardCache = result
+        cleanPaperLeaderboardCacheMs = now
+        cleanPaperLeaderboardCacheLimit = limit
+        return result
     }
 
     /** Paper-only report/audit view. Paper may propose hypotheses, not live authority. */

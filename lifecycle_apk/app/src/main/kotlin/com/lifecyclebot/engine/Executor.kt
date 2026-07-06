@@ -324,7 +324,16 @@ object WrRecoveryPartial {
         val base = rungsFor(band)
         return try {
             val key = try { TradeHistoryStore.normalizeTradeModeName(lane).ifBlank { lane.uppercase() } } catch (_: Throwable) { lane.uppercase() }
-            val m = StrategyTelemetry.computeLiveTerminalLeaderboard().firstOrNull { it.strategy.equals(key, true) }
+            // V5.0.6130 — clean edge must be environment-local. Paper exits were
+            // still reading LIVE-only telemetry, so paper mode could not learn its
+            // own TP/partial rungs and live-only history could shape paper training.
+            // Live wallet compounding stays live-centric: paper evidence trains paper
+            // behavior, but never authorizes LIVE exits. LIVE uses clean LIVE StrategyTruth only.
+            val board6130 = if (RuntimeModeAuthority.isPaper())
+                StrategyTelemetry.computeCleanPaperTerminalLeaderboard(limit = 1_500)
+            else
+                StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
+            val m = board6130.firstOrNull { it.strategy.equals(key, true) }
             if (m == null || m.trades < 5) return base
             val pf = m.pfExpectancyPp
             val avgWin = m.avgWinPct.coerceAtLeast(0.0)
