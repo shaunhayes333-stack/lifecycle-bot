@@ -14993,7 +14993,33 @@ class Executor(
             UnifiedExitPolicyHead.exitBias(exitPolicyLane, exitPolicySignals)
         } catch (_: Throwable) { 1.0 }
         val runnerShadowHoldBias6144 = try { RunnerExitShadowLedger.laneHoldBias(exitPolicyLane, peakGainPct, rawPnlPct) } catch (_: Throwable) { 1.0 }
-        val exitPolicyBias = (exitPolicyBiasBase6144 * runnerShadowHoldBias6144).coerceIn(0.55, 1.72)
+        val v3SellPolicyBias6146 = try {
+            val entryTs6146 = ts.trades.asReversed().firstOrNull { it.side.equals("BUY", true) }?.ts ?: 0L
+            val holdMinutes6146 = if (entryTs6146 > 0L) ((System.currentTimeMillis() - entryTs6146) / 60_000L).toInt().coerceAtLeast(0) else 0
+            val sig6146 = com.lifecyclebot.v3.scoring.SellOptimizationAI.evaluate(
+                ts = ts,
+                currentPnlPct = rawPnlPct,
+                holdTimeMinutes = holdMinutes6146,
+                entryPrice = ts.position.entryPrice,
+                positionSizeSol = ts.position.costSol,
+            )
+            when {
+                sig6146.strategy == com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.HOLD -> 1.08
+                sig6146.urgency == com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitUrgency.CRITICAL -> 0.82
+                sig6146.urgency == com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitUrgency.HIGH -> 0.88
+                sig6146.urgency == com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitUrgency.MEDIUM -> 0.94
+                sig6146.urgency == com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitUrgency.LOW -> 0.98
+                else -> 1.0
+            }.coerceIn(0.82, 1.08).also { bias6146 ->
+                if (kotlin.math.abs(bias6146 - 1.0) > 0.01) {
+                    try {
+                        ForensicLogger.lifecycle("V3_SELL_POLICY_BIAS_6146", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$exitPolicyLane strategy=${sig6146.strategy.name} urgency=${sig6146.urgency.name} sellPct=${"%.1f".format(sig6146.sellPct)} bias=${"%.2f".format(bias6146)} no_direct_sell_finality=true")
+                        PipelineHealthCollector.labelInc("V3_SELL_POLICY_BIAS_6146")
+                    } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) { 1.0 }
+        val exitPolicyBias = (exitPolicyBiasBase6144 * runnerShadowHoldBias6144 * v3SellPolicyBias6146).coerceIn(0.55, 1.72)
         if (runnerShadowHoldBias6144 > 1.01) {
             try {
                 ForensicLogger.lifecycle("RUNNER_SHADOW_HOLD_BIAS_6144", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$exitPolicyLane base=${"%.2f".format(exitPolicyBiasBase6144)} shadow=${"%.2f".format(runnerShadowHoldBias6144)} final=${"%.2f".format(exitPolicyBias)} raw=${"%.1f".format(rawPnlPct)} peak=${"%.1f".format(peakGainPct)}")

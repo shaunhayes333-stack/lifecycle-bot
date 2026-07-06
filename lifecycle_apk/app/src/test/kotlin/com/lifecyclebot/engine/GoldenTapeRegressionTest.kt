@@ -7965,4 +7965,13 @@ class GoldenTapeRegressionTest {
             bot.contains("""contains("DRAIN", ignoreCase = true)""") && bot.contains("""contains("STOP_LOSS_COOLDOWN", ignoreCase = true)""") && bot.contains("if (distributionHardSafety6145)"))
     }
 
+
+    @org.junit.Test fun V5_0_6146_v3_sell_ai_shapes_unified_exit_policy_without_direct_finality() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6146: V3 SellOptimizationAI must feed Executor unified exit bias, not stay isolated in BotService-only sell logic",
+            exec.contains("v3SellPolicyBias6146") && exec.contains("SellOptimizationAI.evaluate") && exec.contains("V3_SELL_POLICY_BIAS_6146") && exec.contains("exitPolicyBiasBase6144 * runnerShadowHoldBias6144 * v3SellPolicyBias6146"))
+        assertTrue("V5.0.6146: V3 sell bridge must be bounded soft-shaping only with no direct sell-finality authority",
+            exec.contains("no_direct_sell_finality=true") && exec.contains("coerceIn(0.82, 1.08)") && exec.contains("coerceIn(0.55, 1.72)"))
+    }
+
 }
