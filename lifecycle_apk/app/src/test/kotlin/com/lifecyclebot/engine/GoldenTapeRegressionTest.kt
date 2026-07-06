@@ -7738,8 +7738,8 @@ class GoldenTapeRegressionTest {
             !fdg.contains("LANE_POLICY_RETRAINING_PAUSED_6107_${'$'}{lpState.name}") && fdg.contains("LANE_POLICY_RETRAINING_PAUSED_6128_${'$'}{lpState.name}"))
         assertTrue("V5.0.6128: lane auto pause must seed lab pivot instead of hard-blocking",
             fdg.contains("LANE_AUTO_PAUSED_PIVOT_SHAPE_6128") && fdg.contains("seedFromTacticFailure"))
-        val botService = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val botService6128 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.6128: huge runner lock breach bypasses BE before hard-floor decay",
-            botService.contains("RUNNER_GIVEBACK_LOCK_BE_BYPASS_6128") && botService.contains("runnerGivebackMustBank6128"))
+            botService6128.contains("RUNNER_GIVEBACK_LOCK_BE_BYPASS_6128") && botService6128.contains("runnerGivebackMustBank6128"))
     }
 }
