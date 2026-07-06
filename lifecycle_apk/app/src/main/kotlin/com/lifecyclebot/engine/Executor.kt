@@ -9674,6 +9674,14 @@ class Executor(
             "BLUECHIP", "QUALITY" -> 1.10  // V5.0.6114: winning lanes shouldn't get 0.50
             else -> 0.80  // V5.0.6114: raised from 0.50 to 0.80
         }
+        // V5.0.6126 — CorrelationGuard: portfolio-level correlated-holding damper.
+        // Damps new-entry SIZE when the portfolio is over-concentrated in the same
+        // correlation cluster (meme-root or mcap-band). Soft-shape only, never
+        // hard-blocks. Fail-open to 1.0.
+        val correlationGuardMult6126 = try {
+            CorrelationGuard.sizeMultiplier(ts.mint, ts.symbol ?: "", ts.lastMcap)
+        } catch (_: Throwable) { 1.0 }
+
         val sizingStackComponents4285 = linkedMapOf(
             "sizeMult" to sizeMult,
             "lab" to labMult,
@@ -9695,6 +9703,7 @@ class Executor(
             "walletCompound4511" to realizedWalletCompoundMult4511,
             "routeReliability4518" to routeReliabilitySizeMult4518,
             "laneBias6114" to laneBiasMult6114,
+            "correlationGuard6126" to correlationGuardMult6126,
         )
         // V5.0.6109 — CASCADE COLLAPSE FIX. The old pure-product fold of 19+
         // multipliers is a DUST GENERATOR: 0.8^19 = 0.014 (98.6% reduction).
@@ -17211,6 +17220,8 @@ class Executor(
             // close so restarts/re-entries on the same mint don't inherit a
             // stale activated/peak state from a previous position.
             try { MoonshotHoldMode.onPositionClosed(tradeId.mint) } catch (_: Throwable) {}
+            // V5.0.6126 — clear CorrelationGuard cache on terminal close
+            try { CorrelationGuard.clear(tradeId.mint) } catch (_: Throwable) {}
             // V5.9.137 — mirror the close to SellOptimizationAI so its
             // activePositions map can't rot with stale peak / chunksSold
             // between exits. Previously close was only called inside one

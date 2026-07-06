@@ -7684,4 +7684,30 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6125: catastrophic backstops must NOT consult moonshotHoldGate", !executor.contains("""moonshotHoldGate(ts, worstPnl, "CATASTROPHIC_HARD_BACKSTOP""""))
         assertTrue("V5.0.6125: terminal close must release MoonshotHoldMode registry entry", executor.contains("MoonshotHoldMode.onPositionClosed(tradeId.mint)"))
     }
+
+    // V5.0.6126 — CorrelationGuard portfolio-level correlated-holding damper
+    @org.junit.Test
+    fun aate6126CorrelationGuardWiredIntoSizingStack() {
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6126: Executor must compute correlationGuardMult6126", executor.contains("correlationGuardMult6126"))
+        assertTrue("V5.0.6126: Executor must call CorrelationGuard.sizeMultiplier", executor.contains("CorrelationGuard.sizeMultiplier"))
+        assertTrue("V5.0.6126: sizingStackComponents must include correlationGuard6126", executor.contains("correlationGuard6126"))
+        assertTrue("V5.0.6126: terminal close must clear CorrelationGuard cache", executor.contains("CorrelationGuard.clear(tradeId.mint)"))
+        val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CorrelationGuard.kt").readText()
+        assertTrue("V5.0.6126: CorrelationGuard must use CorrelationHedgeAI.classify", guard.contains("CorrelationHedgeAI.classify"))
+        assertTrue("V5.0.6126: CorrelationGuard must have DAMPING_BREAKPOINTS", guard.contains("DAMPING_BREAKPOINTS"))
+        assertTrue("V5.0.6126: CorrelationGuard min multiplier must be 0.20 (not hard-block)", guard.contains("0.20"))
+    }
+
+    // V5.0.6126 — Send to Vex button in PipelineHealthActivity
+    @org.junit.Test
+    fun aate6126SendToVexButtonWired() {
+        val activity = java.io.File("src/main/kotlin/com/lifecyclebot/ui/PipelineHealthActivity.kt").readText()
+        assertTrue("V5.0.6126: PipelineHealthActivity must have sendVexButton", activity.contains("sendVexButton"))
+        assertTrue("V5.0.6126: PipelineHealthActivity must have sendReportToVexAsync", activity.contains("sendReportToVexAsync"))
+        assertTrue("V5.0.6126: sendReportToVexAsync must POST to receiveRuntimeReport", activity.contains("receiveRuntimeReport"))
+        assertTrue("V5.0.6126: sendReportToVexAsync must use background thread", activity.contains("thread {"))
+        val layout = java.io.File("src/main/res/layout/activity_pipeline_health.xml").readText()
+        assertTrue("V5.0.6126: layout must have sendVexButton", layout.contains("sendVexButton"))
+    }
 }
