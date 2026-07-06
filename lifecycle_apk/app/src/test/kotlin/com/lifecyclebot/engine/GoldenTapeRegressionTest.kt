@@ -7872,4 +7872,16 @@ class GoldenTapeRegressionTest {
             exec.contains("AdversarialFlowBrain.evaluate(ts)") && exec.contains("EXECUTION_COST_FLOW_BUY_SIZE_APPLIED_6137") && exec.contains("adversarialFlowPosture6137.urgentMevTip") && exec.contains("soft_shape_only=true no_hot_path_provider=true"))
     }
 
+
+    @org.junit.Test fun V5_0_6138_route_tournament_brain_clean_live_route_preference() {
+        val brain = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RouteTournamentBrain.kt").readText()
+        assertTrue("V5.0.6138: RouteTournamentBrain must use cached local route reliability and clean-live style truth only",
+            brain.contains("object RouteTournamentBrain") && brain.contains("ExecutionRouteReliabilityMemory.sizeMultiplierForSource") && brain.contains("StrategyTelemetry.liveStyleSizeMultiplier") && brain.contains("never calls network") && brain.contains("never lets paper authorize live"))
+        assertTrue("V5.0.6138: route tournament must prefer route/order and size-shape without blocking trades",
+            brain.contains("preferredRoute") && brain.contains("pumpFirstAllowed") && brain.contains("sizeMultiplier") && brain.contains("PUMPPORTAL_FIRST") && brain.contains("JUPITER_FIRST"))
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6138: Executor liveBuy must consume route tournament before pump-first and carry route preference telemetry",
+            exec.contains("RouteTournamentBrain.evaluate(ts, ts.position.tradingMode)") && exec.contains("routeTournamentPosture6138.pumpFirstAllowed") && exec.contains("routePref=${'$'}{routeTournamentPosture6138.preferredRoute}") && exec.contains("pumpFirstAllowed=${'$'}{routeTournamentPosture6138.pumpFirstAllowed}"))
+    }
+
 }

@@ -13325,13 +13325,16 @@ class Executor(
         val adversarialFlowPosture6137 = try { AdversarialFlowBrain.evaluate(ts) } catch (_: Throwable) {
             AdversarialFlowBrain.Posture(0, 1.0, false, "brain_error_neutral")
         }
-        val executionCostAndFlowSizeMult6137 = (executionCostPosture6136.sizeMultiplier * adversarialFlowPosture6137.sizeMultiplier).coerceIn(0.35, 1.0)
-        val effectiveSol = if (executionCostAndFlowSizeMult6137 < 0.999) {
+        val routeTournamentPosture6138 = try { RouteTournamentBrain.evaluate(ts, ts.position.tradingMode) } catch (_: Throwable) {
+            RouteTournamentBrain.Posture("JUPITER_DEFAULT", pumpFirstAllowed = false, 1.0, "brain_error_neutral")
+        }
+        val executionCostAndFlowSizeMult6137 = (executionCostPosture6136.sizeMultiplier * adversarialFlowPosture6137.sizeMultiplier * routeTournamentPosture6138.sizeMultiplier).coerceIn(0.35, 1.12)
+        val effectiveSol = if (executionCostAndFlowSizeMult6137 < 0.999 || executionCostAndFlowSizeMult6137 > 1.001) {
             val costSized = (sol * executionCostAndFlowSizeMult6137).coerceAtLeast(0.0)
             try {
                 ForensicLogger.lifecycle(
                     "EXECUTION_COST_FLOW_BUY_SIZE_APPLIED_6137",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${sol.fmt(4)} to=${costSized.fmt(4)} mult=${executionCostAndFlowSizeMult6137.fmt(2)} expectedSlip=${executionCostPosture6136.expectedSlipPct.fmt(1)} flowRisk=${adversarialFlowPosture6137.riskScore} costReason=${executionCostPosture6136.reason} flowReason=${adversarialFlowPosture6137.reason} soft_shape_only=true no_hot_path_provider=true",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${sol.fmt(4)} to=${costSized.fmt(4)} mult=${executionCostAndFlowSizeMult6137.fmt(2)} expectedSlip=${executionCostPosture6136.expectedSlipPct.fmt(1)} flowRisk=${adversarialFlowPosture6137.riskScore} routePref=${routeTournamentPosture6138.preferredRoute} costReason=${executionCostPosture6136.reason} flowReason=${adversarialFlowPosture6137.reason} routeReason=${routeTournamentPosture6138.reason} soft_shape_only=true no_hot_path_provider=true",
                 )
                 PipelineHealthCollector.labelInc("EXECUTION_COST_FLOW_BUY_SIZE_APPLIED_6137")
             } catch (_: Throwable) {}
@@ -13425,7 +13428,7 @@ class Executor(
                     srcUpperForRoute.contains("RAYDIUM_NEW_POOL") ||
                     srcUpperForRoute.contains("SCANNER_DIRECT_RAYDIUM_NEW_POOL")
             )
-            val freshPumpRoute = pumpPortalAutoEligible4559
+            val freshPumpRoute = pumpPortalAutoEligible4559 && routeTournamentPosture6138.pumpFirstAllowed
             // V5.0.6134 — STANDARD QUOTE-RACE EDGE.
             // The legacy live-buy ladder is sequential and conservative: PumpPortal
             // first at normal priority/slippage, then Jupiter. That is safe, but it
@@ -13469,7 +13472,7 @@ class Executor(
                 tradeKey = tradeKey,
                 traderTag = "MEME",
             )
-            try { ForensicLogger.lifecycle("BUY_ROUTE_REQUESTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL_FIRST sol=${pumpBuyPlan?.solAmount ?: effectiveSol}") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("BUY_ROUTE_REQUESTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${routeTournamentPosture6138.preferredRoute} pumpFirstAllowed=${routeTournamentPosture6138.pumpFirstAllowed} sol=${pumpBuyPlan?.solAmount ?: effectiveSol} reason=${routeTournamentPosture6138.reason}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("BUY_ROUTE_REQUESTED") } catch (_: Throwable) {}
             if (pumpBuyPlan != null) {
                 try {
