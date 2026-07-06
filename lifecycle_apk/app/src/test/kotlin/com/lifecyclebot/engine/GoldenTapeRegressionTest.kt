@@ -7846,4 +7846,18 @@ class GoldenTapeRegressionTest {
             exec.contains("async { tryPumpPortalBuy") || exec.contains("async { wallet.signSendAndConfirm") || exec.contains("launch { wallet.signSendAndConfirm"))
     }
 
+
+    @org.junit.Test fun V5_0_6136_execution_cost_brain_dynamic_fee_slippage_soft_shape() {
+        val brain = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionCostBrain.kt").readText()
+        assertTrue("V5.0.6136: ExecutionCostBrain must bridge existing ExecutionCostPredictorAI into buy posture without network or hard veto",
+            brain.contains("object ExecutionCostBrain") && brain.contains("ExecutionCostPredictorAI.expectedExtraSlipPct") && brain.contains("No network calls") && brain.contains("no hard veto") && brain.contains("data class BuyPosture"))
+        assertTrue("V5.0.6136: execution cost posture must include size drag, dynamic fee, urgent tip, pump slip and slippage ladder bounds",
+            brain.contains("sizeMultiplier") && brain.contains("priorityFeeSol") && brain.contains("urgentTip") && brain.contains("pumpSlipPct") && brain.contains("minBuySlippageBps") && brain.contains("maxBuySlippageBps"))
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6136: liveBuy must apply ExecutionCostBrain before route planning and merge it with QuoteRaceBrain posture",
+            exec.contains("ExecutionCostBrain.buyPosture(ts, sol)") && exec.contains("EXECUTION_COST_BUY_SIZE_APPLIED_6136") && exec.contains("maxOf(quoteRacePosture6135.priorityFeeSol, executionCostPosture6136.priorityFeeSol)") && exec.contains("minBuySlipBps6136") && exec.contains("maxBuySlipBps6136"))
+        assertTrue("V5.0.6136: cost brain must remain soft-shape only, not introduce a new live-buy hard blocker",
+            exec.contains("soft_shape_only=true") && !brain.contains("return false") && !brain.contains("HARD_REJECT"))
+    }
+
 }
