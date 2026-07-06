@@ -7830,4 +7830,20 @@ class GoldenTapeRegressionTest {
             strat.contains("CLEAN-LIVE COMPOUNDING BRAIN") && strat.contains("pfEdge6134") && strat.contains("elite ->") && strat.contains("coerceIn(1.18, 1.45)") && strat.contains("coerceIn(0.52, 0.78)"))
     }
 
+
+    @org.junit.Test fun V5_0_6135_quote_race_brain_route_outcome_attribution() {
+        val brain = java.io.File("src/main/kotlin/com/lifecyclebot/engine/QuoteRaceBrain.kt").readText()
+        assertTrue("V5.0.6135: QuoteRaceBrain must be local-state only and must not call network/sign/broadcast",
+            brain.contains("object QuoteRaceBrain") && brain.contains("does NOT call network/LLM") && brain.contains("does NOT sign/broadcast") && brain.contains("evaluate(ts: TokenState"))
+        assertTrue("V5.0.6135: QuoteRaceBrain must output posture not a hard block",
+            brain.contains("data class Posture") && brain.contains("enabled: Boolean") && brain.contains("priorityFeeSol") && brain.contains("pumpSlipPct") && brain.contains("minBuySlippageBps") && brain.contains("maxBuySlippageBps"))
+        assertTrue("V5.0.6135: route outcome attribution must feed reliability memory and forensic telemetry",
+            brain.contains("recordBuyOutcome") && brain.contains("ExecutionRouteReliabilityMemory.recordFailure") && brain.contains("QUOTE_RACE_ROUTE_SUCCESS_6135") && brain.contains("QUOTE_RACE_ROUTE_FAIL_6135"))
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6135: Executor liveBuy must consume QuoteRaceBrain posture and record Pump/Jupiter outcomes",
+            exec.contains("QuoteRaceBrain.evaluate(ts, laneForQuoteRace6135)") && exec.contains("quoteRacePosture6135") && exec.contains("QuoteRaceBrain.recordBuyOutcome") && exec.contains("PUMPPORTAL_BUY") && exec.contains("JUPITER_ULTRA_METIS_BUY"))
+        assertFalse("V5.0.6135: quote race must not introduce parallel broadcast/double-buy primitives",
+            exec.contains("async { tryPumpPortalBuy") || exec.contains("async { wallet.signSendAndConfirm") || exec.contains("launch { wallet.signSendAndConfirm"))
+    }
+
 }

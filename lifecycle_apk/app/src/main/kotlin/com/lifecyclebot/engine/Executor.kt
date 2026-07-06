@@ -13418,31 +13418,23 @@ class Executor(
             // slip only when a STANDARD/CORE/V3 trunk candidate has fresh tick + green
             // candle/buy-pressure proof. Hard safety, wallet mutex, quote validation,
             // simulation, route finality, and real-price lock still run unchanged.
-            val nowQuoteRace6134 = System.currentTimeMillis()
-            val laneForQuoteRace6134 = layerTag.uppercase().ifBlank { ts.position.tradingMode.uppercase().ifBlank { "STANDARD" } }
-            val latestCandle6134 = try { ts.history.lastOrNull() } catch (_: Throwable) { null }
-            val greenCandlePct6134 = try {
-                val open = latestCandle6134?.openUsd ?: 0.0
-                val close = latestCandle6134?.priceUsd ?: ts.lastPrice
-                if (open > 0.0 && close > 0.0) ((close - open) / open) * 100.0 else 0.0
-            } catch (_: Throwable) { 0.0 }
-            val freshTick6134 = ts.lastPriceUpdate > 0L && nowQuoteRace6134 - ts.lastPriceUpdate <= 2_500L
-            val trunkLane6134 = laneForQuoteRace6134 == "STANDARD" || laneForQuoteRace6134 == "CORE" || laneForQuoteRace6134 == "V3"
-            val quoteRaceEdge6134 = trunkLane6134 && freshTick6134 && ts.entryScore >= 65.0 && (
-                greenCandlePct6134 >= 8.0 ||
-                    (ts.momentum ?: 0.0) >= 12.0 ||
-                    ts.lastBuyPressurePct >= 68.0
-            )
-            val buyPriorityFeeSol6134 = if (quoteRaceEdge6134) 0.0003 else 0.0001
-            val urgentBuyTip6134 = quoteRaceEdge6134
-            val pumpSlipPct6134 = if (quoteRaceEdge6134) 15 else 10
-            if (quoteRaceEdge6134) {
+            val buyRouteStartMs6135 = System.currentTimeMillis()
+            val laneForQuoteRace6135 = layerTag.uppercase().ifBlank { ts.position.tradingMode.uppercase().ifBlank { "STANDARD" } }
+            val quoteRacePosture6135 = try { QuoteRaceBrain.evaluate(ts, laneForQuoteRace6135) } catch (_: Throwable) {
+                QuoteRaceBrain.Posture(false, "brain_error_neutral", 0.0, Long.MAX_VALUE, 0.0001, false, 10, 200, 500)
+            }
+            val quoteRaceEdge6134 = quoteRacePosture6135.enabled
+            val buyPriorityFeeSol6134 = quoteRacePosture6135.priorityFeeSol
+            val urgentBuyTip6134 = quoteRacePosture6135.urgentTip
+            val pumpSlipPct6134 = quoteRacePosture6135.pumpSlipPct
+            if (quoteRacePosture6135.enabled) {
                 try {
                     ForensicLogger.lifecycle(
                         "STANDARD_QUOTE_RACE_EDGE_6134",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneForQuoteRace6134 score=${ts.entryScore.toInt()} green=${greenCandlePct6134.fmt(1)} buyPressure=${ts.lastBuyPressurePct.fmt(1)} momentum=${(ts.momentum ?: 0.0).fmt(1)} tickAgeMs=${nowQuoteRace6134 - ts.lastPriceUpdate} priorityFee=$buyPriorityFeeSol6134 pumpSlip=$pumpSlipPct6134",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneForQuoteRace6135 score=${ts.entryScore.toInt()} green=${quoteRacePosture6135.greenCandlePct.fmt(1)} buyPressure=${ts.lastBuyPressurePct.fmt(1)} momentum=${(ts.momentum ?: 0.0).fmt(1)} tickAgeMs=${quoteRacePosture6135.tickAgeMs} reason=${quoteRacePosture6135.reason} priorityFee=$buyPriorityFeeSol6134 pumpSlip=$pumpSlipPct6134 brain=QuoteRaceBrain6135",
                     )
                     PipelineHealthCollector.labelInc("STANDARD_QUOTE_RACE_EDGE_6134")
+                    PipelineHealthCollector.labelInc("QUOTE_RACE_BRAIN_ENABLED_6135")
                 } catch (_: Throwable) {}
             }
             val pumpBuyPlan = if (!freshPumpRoute) {
@@ -13470,13 +13462,16 @@ class Executor(
                 ts = ts,
                 wallet = wallet,
                 solAmount = pumpBuyPlan.solAmount,
-                slipPct = 10,
-                priorityFeeSol = 0.0001,
+                slipPct = pumpSlipPct6134,
+                priorityFeeSol = buyPriorityFeeSol6134,
                 useJito = c.jitoEnabled,
-                jitoTipLamports = effectiveJitoTipLamports(c, urgent = false),
+                jitoTipLamports = effectiveJitoTipLamports(c, urgent = urgentBuyTip6134),
                 tradeKey = tradeKey,
                 traderTag = "MEME",
             )
+            if (pumpBuyPlan != null && pumpFirstResult == null) {
+                try { QuoteRaceBrain.recordBuyOutcome("PUMPPORTAL_BUY", false, "PUMP_FIRST_NO_SIGNATURE", System.currentTimeMillis() - buyRouteStartMs6135, ts.mint, ts.symbol) } catch (_: Throwable) {}
+            }
 
             // V5.9.495 — Jupiter ladder runs ONLY if PUMP-FIRST failed.
             // V5.9.261 — slippage escalation for buys (was: single c.slippageBps call).
@@ -13484,8 +13479,8 @@ class Executor(
             // Jupiter swap reverts internally on price impact, SOL leaves the wallet
             // (TX fees), tokens never arrive. Now we escalate 200→350→500 bps just
             // like liveSell does, so memes actually fill instead of phantoming.
-            val buyBaseSlippage = if (quoteRaceEdge6134) c.slippageBps.coerceAtLeast(350) else c.slippageBps.coerceAtLeast(200)
-            val slippageLadder = if (quoteRaceEdge6134) listOf(buyBaseSlippage, 500, 750).distinct() else listOf(buyBaseSlippage, 350, 500).distinct()
+            val buyBaseSlippage = c.slippageBps.coerceAtLeast(quoteRacePosture6135.minBuySlippageBps)
+            val slippageLadder = if (quoteRaceEdge6134) listOf(buyBaseSlippage, 500, quoteRacePosture6135.maxBuySlippageBps).distinct() else listOf(buyBaseSlippage, 350, 500).distinct()
             var quote: com.lifecyclebot.network.SwapQuote? = null
             var lastQuoteError: Exception? = null
             var txResult: com.lifecyclebot.network.SwapTxResult? = null
@@ -13527,7 +13522,7 @@ class Executor(
                     ) ?: throw Exception("BUY_BALANCE_PLAN_UNAVAILABLE")
                     quote = getQuoteWithSlippageGuard(
                         JupiterApi.SOL_MINT, ts.mint, jupiterBuyPlan.lamports,
-                        slip.coerceAtMost(if (quoteRaceEdge6134) 750 else 500), jupiterBuyPlan.solAmount,
+                        slip.coerceAtMost(quoteRacePosture6135.maxBuySlippageBps), jupiterBuyPlan.solAmount,
                     )
                     if (quote != null) {
                         if (slip != buyBaseSlippage) onLog("BUY: quote OK at ${slip}bps slippage", ts.mint)
@@ -13569,6 +13564,7 @@ class Executor(
                     "mint=${ts.mint.take(10)} sol=$sol reason=QUOTE_EXHAUSTED",
                 ) } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("JUPITER_QUOTE_FAIL") } catch (_: Throwable) {}
+                try { QuoteRaceBrain.recordBuyOutcome("JUPITER_ULTRA_METIS_BUY", false, "QUOTE_EXHAUSTED", System.currentTimeMillis() - buyRouteStartMs6135, ts.mint, ts.symbol) } catch (_: Throwable) {}
                 val terminal = "NO_QUOTE:JUPITER_QUOTE_EXHAUSTED"
                 buyTerminalFail("BUY_TERMINAL_ROUTE_FAIL:$terminal")
                 return false
@@ -13589,6 +13585,7 @@ class Executor(
                     "mint=${ts.mint.take(10)} sol=$sol reason=QUOTE_REJECTED:${qGuard.reason.take(60)}",
                 ) } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("JUPITER_QUOTE_REJECTED") } catch (_: Throwable) {}
+                try { QuoteRaceBrain.recordBuyOutcome("JUPITER_ULTRA_METIS_BUY", false, "QUOTE_REJECTED:${qGuard.reason.take(60)}", System.currentTimeMillis() - buyRouteStartMs6135, ts.mint, ts.symbol) } catch (_: Throwable) {}
                 buyTerminalFail("BUY_TERMINAL_ROUTE_FAIL:QUOTE_REJECTED_${qGuard.reason.take(40)}")
                 return false
             }
@@ -13757,6 +13754,7 @@ class Executor(
                 liveStage("FINALITY_CONFIRMED", "route=PUMPPORTAL signature=${sig.take(16)}")
                 try { ForensicLogger.lifecycle("LIVE_BUY_CONFIRMED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL signature=${sig.take(16)} finalSol=${effectiveSol.fmt(4)}") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("BUY_TX_SUBMITTED"); PipelineHealthCollector.labelInc("LIVE_BUY_CONFIRMED") } catch (_: Throwable) {}
+                try { QuoteRaceBrain.recordBuyOutcome("PUMPPORTAL_BUY", true, "CONFIRMED", System.currentTimeMillis() - buyRouteStartMs6135, ts.mint, ts.symbol) } catch (_: Throwable) {}
                 // V5.0.6120f — SWARM: broadcast the live open so peers see us.
                 try {
                     com.lifecyclebot.engine.SwarmIntel.publishLiveOpen(
@@ -13809,6 +13807,7 @@ class Executor(
                 liveStage("FINALITY_CONFIRMED", "route=${q.router} signature=${sig.take(16)}")
                 try { ForensicLogger.lifecycle("LIVE_BUY_CONFIRMED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${q.router} signature=${sig.take(16)} finalSol=${sol.fmt(4)}") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("BUY_TX_SUBMITTED"); PipelineHealthCollector.labelInc("LIVE_BUY_CONFIRMED") } catch (_: Throwable) {}
+                try { QuoteRaceBrain.recordBuyOutcome("JUPITER_ULTRA_METIS_BUY", true, "CONFIRMED:${q.router.take(40)}", System.currentTimeMillis() - buyRouteStartMs6135, ts.mint, ts.symbol) } catch (_: Throwable) {}
                 // V5.0.6120f — SWARM: broadcast the live open so peers see us.
                 try {
                     com.lifecyclebot.engine.SwarmIntel.publishLiveOpen(
