@@ -1164,10 +1164,22 @@ class GoldenTapeRegressionTest {
         assertTrue("NO_PAIR probation rows must not timeout-promote back to hot loop without price/source proof", registry.contains("NO_PAIR_TIMEOUT_HELD") && registry.contains("PROBATION_TIMEOUT_HELD_NO_PAIR") && registry.contains("entry.source.contains(\"NO_PAIR_NO_FALLBACK\""))
         assertFalse(
             "Source-balance demotion must not hardcode liq=0 for real-liq intake",
-            service.contains("liquidityUsd = 0.0") &&
-                service.contains("confidence = 0") &&
-                service.contains("isEstimatedLiquidity = true") &&
-                service.contains("SOURCE_BALANCE_PUMP_DOMINANCE_")
+            // V5.0.6124i: refined check — inspect ONLY the ±30-line window around
+            // any SOURCE_BALANCE_PUMP_DOMINANCE_ reason label. Prior naive check
+            // false-fired because each substring appears independently in
+            // unrelated code paths (PROBATION intake, etc.).
+            run {
+                val marker = "SOURCE_BALANCE_PUMP_DOMINANCE_"
+                val idx = service.indexOf(marker)
+                if (idx < 0) false else {
+                    val start = (idx - 3_000).coerceAtLeast(0)
+                    val end = (idx + 3_000).coerceAtMost(service.length)
+                    val window = service.substring(start, end)
+                    window.contains("liquidityUsd = 0.0") &&
+                        window.contains("confidence = 0") &&
+                        window.contains("isEstimatedLiquidity = true")
+                }
+            }
         )
     }
 
@@ -7318,29 +7330,29 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6123: WinningToken must capture token age", mem.contains("val tokenAgeMinutes"))
         assertTrue("V5.0.6123: WinningToken must capture creator address", mem.contains("val creatorAddress"))
         assertTrue("V5.0.6123: recordTradeOutcome must accept all new context params", mem.contains("buyRoute:") && mem.contains("sellRoute:") && mem.contains("launchPlatform:") && mem.contains("holderCount:") && mem.contains("emaFanState:"))
-        assertTrue("V5.0.6123: learnPatterns must learn from lane dimension", mem.contains("""recordPattern("lane""""))
-        assertTrue("V5.0.6123: learnPatterns must learn from buy_route dimension", mem.contains("""recordPattern("buy_route""""))
-        assertTrue("V5.0.6123: learnPatterns must learn from launch_platform dimension", mem.contains("""recordPattern("launch_platform""""))
-        assertTrue("V5.0.6123: learnPatterns must learn from holder_count dimension", mem.contains("""recordPattern("holder_count""""))
-        assertTrue("V5.0.6123: learnPatterns must learn from holder_growth dimension", mem.contains("""recordPattern("holder_growth""""))
-        assertTrue("V5.0.6123: learnPatterns must learn from dev_wallet dimension", mem.contains("""recordPattern("dev_wallet""""))
-        assertTrue("V5.0.6123: learnPatterns must learn from bonding_curve dimension", mem.contains("""recordPattern("bonding_curve""""))
-        assertTrue("V5.0.6123: learnPatterns must learn from rugcheck dimension", mem.contains("""recordPattern("rugcheck""""))
-        assertTrue("V5.0.6123: learnPatterns must learn from hold_time dimension", mem.contains("""recordPattern("hold_time""""))
-        assertTrue("V5.0.6123: learnPatterns must learn from entry_score dimension", mem.contains("""recordPattern("entry_score""""))
-        assertTrue("V5.0.6123: learnPatterns must learn from volatility dimension", mem.contains("""recordPattern("volatility""""))
-        assertTrue("V5.0.6123: learnPatterns must learn from token_age dimension", mem.contains("""recordPattern("token_age""""))
-        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional lane_x_mcap", mem.contains("""recordPattern("lane_x_mcap""""))
-        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional lane_x_hold", mem.contains("""recordPattern("lane_x_hold""""))
-        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional route_x_mcap", mem.contains("""recordPattern("route_x_mcap""""))
-        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional platform_x_holders", mem.contains("""recordPattern("platform_x_holders""""))
-        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional setup_x_exit", mem.contains("""recordPattern("setup_x_exit""""))
+        assertTrue("V5.0.6123: learnPatterns must learn from lane dimension", mem.contains("recordPattern(\"lane\""))
+        assertTrue("V5.0.6123: learnPatterns must learn from buy_route dimension", mem.contains("recordPattern(\"buy_route\""))
+        assertTrue("V5.0.6123: learnPatterns must learn from launch_platform dimension", mem.contains("recordPattern(\"launch_platform\""))
+        assertTrue("V5.0.6123: learnPatterns must learn from holder_count dimension", mem.contains("recordPattern(\"holder_count\""))
+        assertTrue("V5.0.6123: learnPatterns must learn from holder_growth dimension", mem.contains("recordPattern(\"holder_growth\""))
+        assertTrue("V5.0.6123: learnPatterns must learn from dev_wallet dimension", mem.contains("recordPattern(\"dev_wallet\""))
+        assertTrue("V5.0.6123: learnPatterns must learn from bonding_curve dimension", mem.contains("recordPattern(\"bonding_curve\""))
+        assertTrue("V5.0.6123: learnPatterns must learn from rugcheck dimension", mem.contains("recordPattern(\"rugcheck\""))
+        assertTrue("V5.0.6123: learnPatterns must learn from hold_time dimension", mem.contains("recordPattern(\"hold_time\""))
+        assertTrue("V5.0.6123: learnPatterns must learn from entry_score dimension", mem.contains("recordPattern(\"entry_score\""))
+        assertTrue("V5.0.6123: learnPatterns must learn from volatility dimension", mem.contains("recordPattern(\"volatility\""))
+        assertTrue("V5.0.6123: learnPatterns must learn from token_age dimension", mem.contains("recordPattern(\"token_age\""))
+        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional lane_x_mcap", mem.contains("recordPattern(\"lane_x_mcap\""))
+        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional lane_x_hold", mem.contains("recordPattern(\"lane_x_hold\""))
+        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional route_x_mcap", mem.contains("recordPattern(\"route_x_mcap\""))
+        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional platform_x_holders", mem.contains("recordPattern(\"platform_x_holders\""))
+        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional setup_x_exit", mem.contains("recordPattern(\"setup_x_exit\""))
         assertTrue("V5.0.6123: fullContextEvScore multi-dimensional query must exist", mem.contains("fun fullContextEvScore"))
-        assertTrue("V5.0.6123: persistence must save buyRoute", mem.contains("""put("buyRoute")"""))
-        assertTrue("V5.0.6123: persistence must save lane", mem.contains("""put("lane")"""))
-        assertTrue("V5.0.6123: persistence must save exitReason", mem.contains("""put("exitReason")"""))
-        assertTrue("V5.0.6123: load must restore buyRoute", mem.contains("""j.optString("buyRoute")"""))
-        assertTrue("V5.0.6123: load must restore lane", mem.contains("""j.optString("lane")"""))
+        assertTrue("V5.0.6123: persistence must save buyRoute", mem.contains("put(\"buyRoute\""))
+        assertTrue("V5.0.6123: persistence must save lane", mem.contains("put(\"lane\""))
+        assertTrue("V5.0.6123: persistence must save exitReason", mem.contains("put(\"exitReason\""))
+        assertTrue("V5.0.6123: load must restore buyRoute", mem.contains("j.optString(\"buyRoute\""))
+        assertTrue("V5.0.6123: load must restore lane", mem.contains("j.optString(\"lane\""))
         assertTrue("V5.0.6123: TokenWinMemory must stamp trade history into mint register", mem.contains("GlobalTradeRegistry.stampTradeHistory"))
     }
 
