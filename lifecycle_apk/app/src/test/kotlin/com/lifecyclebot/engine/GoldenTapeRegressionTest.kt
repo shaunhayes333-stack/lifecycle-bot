@@ -7792,4 +7792,23 @@ class GoldenTapeRegressionTest {
             exec6131.contains("LIVE_STYLE_EDGE_SIZE_APPLIED_6131") && exec6131.contains("StrategyTelemetry.liveStyleSizeMultiplier(routedLaneTag, routedStyleTag)") && exec6131.contains("source=clean_live_strategy_truth") && exec6131.contains("liveStyleEdge="))
     }
 
+
+    @org.junit.Test fun V5_0_6132_paper_live_source_balance_not_pump_centric() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.6132: paper and live intake must treat pump.fun as one Solana spec feed, not the default hot-watchlist learner",
+            bot.contains("SOLANA-WIDE SOURCE DOCTRINE") && bot.contains("pump aliases do NOT count as multi-source") && bot.contains("pumpSpecOnly6132") && bot.contains("!pumpSpecOnly6132"))
+        assertTrue("V5.0.6132: cold single-source pump.fun must be probation-first unless non-pump confirmation/volume/liquidity earns hot flow",
+            bot.contains("nonPumpConfirmed6132") && bot.contains("val coldPumpBase = !lenientIntake && isPumpPortalWs") && bot.contains("probation-first in BOTH paper and") && bot.contains("Dex/Raydium/Meteora/Orca/Birdeye/aggregator"))
+    }
+
+
+    @org.junit.Test fun V5_0_6132_compounding_unlocks_require_strategy_clean_truth() {
+        val gov = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RealizedWalletCompoundingGovernor.kt").readText()
+        assertTrue("V5.0.6132: compounding unlocks must use the stricter StrategyTruth-clean side once mature, not partial-inclusive money rows",
+            gov.contains("decisionPnl6132") && gov.contains("decisionWr6132") && gov.contains("decisionPf6132") && gov.contains("cannot fake a green compounding regime") && gov.contains("defensive_clean_truth_negative_or_low_wr_6132"))
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6132: executor telemetry must distinguish harvested moneyRows from StrategyTruth clean edge",
+            exec.contains("moneyRows=") && exec.contains("strategyClean=") && !exec.contains(" clean=${'$'}{snap4511.cleanPnlSol"))
+    }
+
 }

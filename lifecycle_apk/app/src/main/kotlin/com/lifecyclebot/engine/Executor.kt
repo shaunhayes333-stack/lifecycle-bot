@@ -9678,7 +9678,7 @@ class Executor(
         if (RuntimeModeAuthority.isLive() && realizedWalletCompoundMult4511 != 1.0) {
             try {
                 val snap4511 = RealizedWalletCompoundingGovernor.snapshot()
-                ForensicLogger.lifecycle("REALIZED_WALLET_COMPOUNDING_SHAPED_4511", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${realizedWalletCompoundMult4511.fmt(2)} clean=${snap4511.cleanPnlSol.fmt(4)} wallet=${snap4511.walletSol.fmt(4)} wr=${snap4511.wrPct.fmt(1)} pf=${snap4511.profitFactor.fmt(2)} reason=${snap4511.reason}")
+                ForensicLogger.lifecycle("REALIZED_WALLET_COMPOUNDING_SHAPED_4511", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${realizedWalletCompoundMult4511.fmt(2)} moneyRows=${snap4511.cleanPnlSol.fmt(4)} strategyClean=${snap4511.strategyCleanPnlSol.fmt(4)} wallet=${snap4511.walletSol.fmt(4)} wr=${snap4511.wrPct.fmt(1)} pf=${snap4511.profitFactor.fmt(2)} reason=${snap4511.reason}")
                 PipelineHealthCollector.labelInc("REALIZED_WALLET_COMPOUNDING_SHAPED_4511")
             } catch (_: Throwable) {}
         }

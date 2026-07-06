@@ -10787,24 +10787,24 @@ class BotService : Service() {
             val isPumpPortalWs = tags.contains("PUMP_PORTAL_WS") || tags.contains("PUMPPORTAL")
             val isUserAdded = source == "USER" || source.contains("USER_ADDED")
             val isRestoredVetted = source == "MEME_REGISTRY_RESTORE" || source == "PROBATION"
-            // V5.9.1243 — PAPER MUST NOT COLD-QUARANTINE PUMP.FUN INTAKE.
-            // 1228 sent every cold Pump.fun WS graduate (vol1h=0, liq<$5k) to
-            // probation-only to protect LIVE supervisor/render bandwidth. But
-            // probation only promotes on price-up≥5% / multi-scanner / RC≥2 —
-            // none of which a fresh single-source graduate gets — so in PAPER
-            // they all aged out at PROBATION_MAX_TIME (5min) → "PROBATION
-            // REJECTED | TIMEOUT". Forensic 65525e7f: every intake (ORGY, Lilo,
-            // STINKEYE, zzz, UpCookie, pickle, GOONABLE...) hit SINGLE_SOURCE,
-            // WATCHLIST_RR fresh=0 EVERY cycle, positions pinned at 17 stale
-            // bags — total entry starvation. The registry's own contract
-            // (PROBATION ROUTING, line 400) is "paper mode is MUCH more lenient
-            // for maximum learning exposure". Restore it: the cold-quarantine
-            // applies in LIVE only (where bandwidth/risk justify it). In paper
-            // only, fresh graduates flow straight to the watchlist so
-            // the lanes can actually evaluate + trade them. Scanner pool stays
-            // protected; this UN-chokes intake, it does not prune it.
+            // V5.0.6132 — SOLANA-WIDE SOURCE DOCTRINE. The old V5.9.1243 paper
+            // leniency let cold single-source pump.fun flow hot-watchlist in PAPER,
+            // then paper learning fed live strategy pressure. That quietly rotated
+            // the bot back into a pump.fun-centric learner. Pump.fun is a Solana spec
+            // feed, not Solana itself: pump aliases do NOT count as multi-source.
+            // Pump must earn hot-watchlist status via non-pump confirmation, real
+            // liquidity/volume, or later probation promotion in both PAPER and LIVE.
+            val nonPumpConfirmed6132 = allSources.any { hasNonPumpConfirmationTag(it) } || hasNonPumpConfirmationTag(source)
+            val rawMultiSourceConfirmed6132 = (!isPumpPortalWs && allSources.size >= 2) || nonPumpConfirmed6132
+            val pumpSpecOnly6132 = isPumpPortalWs && !nonPumpConfirmed6132
             val lenientIntake = try {
-                com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+                // V5.0.6132 — SOLANA-WIDE SOURCE DOCTRINE. Paper should be lenient
+                // for learning, but not pump.fun-centric. Cold single-source pump.fun
+                // is a SPEC feed, not Solana itself; if it has no non-pump confirmation,
+                // volume, or liquidity proof, keep it probation-first in BOTH paper and
+                // live so Dex/Raydium/Meteora/Orca/Birdeye/aggregator candidates are not
+                // crowded out of the learning pool that later shapes live compounding.
+                com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && !pumpSpecOnly6132
             } catch (_: Throwable) { false }   // fail-closed in live: no safety/intake bypass on uncertainty
             val pressureDecision = try {
                 // V5.9.1548b — source-neutral pressure diversion. This is NOT
@@ -10829,7 +10829,7 @@ class BotService : Service() {
             val sourceBrainMult = try {
                 (allSources + source).map { ScannerSourceBrain.intakeMultiplier(it) }.maxOrNull() ?: 1.0
             } catch (_: Throwable) { 1.0 }
-            val multiSourceConfirmed = allSources.size >= 2 || allSources.any { hasNonPumpConfirmationTag(it) }
+            val multiSourceConfirmed = rawMultiSourceConfirmed6132
             val sourceBrainProbationOnly = !lenientIntake && !isUserAdded && !isRestoredVetted && !multiSourceConfirmed &&
                 sourceBrainMult < 0.65 && liquidityUsd < 7_500.0 && volumeH1 <= 0.0
             val sourceBrainHotRescue = sourceBrainMult >= 1.25 && (multiSourceConfirmed || liquidityUsd >= 10_000.0 || volumeH1 > 0.0)
@@ -10839,7 +10839,7 @@ class BotService : Service() {
                 try {
                     ForensicLogger.lifecycle(
                         "SCANNER_SOURCE_BRAIN_ADMISSION_SHAPED_4195",
-                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source mult=${"%.2f".format(sourceBrainMult)} probation=$sourceBrainProbationOnly hotRescue=$sourceBrainHotRescue multi=$multiSourceConfirmed liq=${liquidityUsd.toInt()} vol1h=${volumeH1.toInt()} pressure=${pressureDecision.probationOnly}:${pressureDecision.reason}"
+                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source mult=${"%.2f".format(sourceBrainMult)} probation=$sourceBrainProbationOnly hotRescue=$sourceBrainHotRescue multi=$multiSourceConfirmed pumpSpecOnly=$pumpSpecOnly6132 lenient=$lenientIntake liq=${liquidityUsd.toInt()} vol1h=${volumeH1.toInt()} pressure=${pressureDecision.probationOnly}:${pressureDecision.reason}"
                     )
                     PipelineHealthCollector.labelInc(if (sourceBrainProbationOnly) "SCANNER_SOURCE_BRAIN_PROBATION_4195" else "SCANNER_SOURCE_BRAIN_HOT_RESCUE_4195")
                 } catch (_: Throwable) {}

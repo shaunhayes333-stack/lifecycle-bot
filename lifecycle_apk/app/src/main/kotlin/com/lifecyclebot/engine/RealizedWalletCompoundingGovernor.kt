@@ -192,7 +192,18 @@ object RealizedWalletCompoundingGovernor {
             StrategyTruthLedger.clean(raw, 750).rows.filter { it.mode.equals(mode6081, true) }
         } catch (_: Throwable) { emptyList() }
         val strategyCleanPnl6128 = strategyCleanRows6128.sumOf { it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol }
-        val strategyTruthNegative6128 = strategyCleanRows6128.size >= 20 && strategyCleanPnl6128 <= 0.0
+        val strategyCleanWins6132 = strategyCleanRows6128.count { (it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol) > 0.0 }
+        val strategyCleanLosses6132 = strategyCleanRows6128.count { (it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol) < 0.0 }
+        val strategyCleanGrossWin6132 = strategyCleanRows6128.sumOf { maxOf(0.0, it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol) }
+        val strategyCleanGrossLoss6132 = abs(strategyCleanRows6128.sumOf { minOf(0.0, it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol) })
+        val strategyCleanPf6132 = when {
+            strategyCleanGrossWin6132 <= 0.0 && strategyCleanGrossLoss6132 <= 0.0 -> 0.0
+            strategyCleanGrossLoss6132 <= 0.0000001 -> 9.99
+            else -> strategyCleanGrossWin6132 / strategyCleanGrossLoss6132
+        }
+        val strategyCleanWr6132 = if (strategyCleanWins6132 + strategyCleanLosses6132 > 0) strategyCleanWins6132 * 100.0 / (strategyCleanWins6132 + strategyCleanLosses6132) else 0.0
+        val strategyTruthMature6132 = strategyCleanRows6128.size >= 20
+        val strategyTruthNegative6128 = strategyTruthMature6132 && (strategyCleanPnl6128 <= 0.0 || strategyCleanPf6132 < 0.95)
         val trades = terminal.size
         val wins = terminal.count { (it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol) > 0.0 }
         val losses = terminal.count { (it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol) < 0.0 }
@@ -205,6 +216,14 @@ object RealizedWalletCompoundingGovernor {
             else -> grossWin / grossLoss
         }
         val wr = if (wins + losses > 0) wins * 100.0 / (wins + losses) else 0.0
+        // V5.0.6132 — compounding unlocks must not trust partial-inclusive money
+        // rows when StrategyTruth clean terminal evidence is mature and worse. Keep
+        // money rows for actual harvested-wallet accounting, but use the stricter
+        // strategy-clean side for size unlock decisions so raw partial/audit rows
+        // cannot fake a green compounding regime.
+        val decisionPnl6132 = if (strategyTruthMature6132) minOf(pnl, strategyCleanPnl6128) else pnl
+        val decisionWr6132 = if (strategyTruthMature6132) minOf(wr, strategyCleanWr6132) else wr
+        val decisionPf6132 = if (strategyTruthMature6132) minOf(pf, strategyCleanPf6132) else pf
         val wallet = try {
             // V5.0.6072 — PAPER WALLET COMPOUNDING PARITY. In paper mode read
             // the simulated paper wallet, not the on-chain SOL balance. Paper
@@ -235,7 +254,7 @@ object RealizedWalletCompoundingGovernor {
         val dayProgressX = (wallet / dayBase).takeIf { it.isFinite() && it > 0.0 } ?: 1.0
         val drawdownFromHighPct = if (dayHighWalletSol > 0.0 && wallet > 0.0) ((wallet - dayHighWalletSol) / dayHighWalletSol) * 100.0 else 0.0
         val base = wallet.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
-        val gainRatio = pnl / base
+        val gainRatio = decisionPnl6132 / base
         val openRunnerPressure6028 = openEquity6028.runners > 0 && openEquity6028.pnlSol >= maxOf(0.02, wallet * 0.10) && equityPressureX6028 >= 1.10
         val multReason = when {
             drawdownFromHighPct <= -25.0 && todayPnl > 0.0 -> 0.55 to "intraday_high_water_profit_protect"
@@ -243,17 +262,17 @@ object RealizedWalletCompoundingGovernor {
             equityPressureX6028 >= 2.0 && openRunnerPressure6028 -> 1.65 to "trusted_open_equity_two_x_pressure_6028"
             equityPressureX6028 >= 1.5 && openRunnerPressure6028 -> 1.35 to "trusted_open_equity_compound_pressure_6028"
             equityPressureX6028 >= 1.15 && openRunnerPressure6028 -> 1.15 to "trusted_open_runner_pressure_6028"
-            dayProgressX >= 5.0 && wr >= 35.0 && pf >= 2.0 -> 1.45 to "five_x_day_protect_compound"
-            dayProgressX >= 3.0 && wr >= 35.0 && pf >= 1.8 -> 1.75 to "three_x_day_compound"
-            dayProgressX >= 2.0 && wr >= 32.0 && pf >= 1.5 -> 2.05 to "two_x_day_compound"
+            dayProgressX >= 5.0 && decisionWr6132 >= 35.0 && decisionPf6132 >= 2.0 && decisionPnl6132 > 0.0 -> 1.45 to "five_x_day_protect_compound"
+            dayProgressX >= 3.0 && decisionWr6132 >= 35.0 && decisionPf6132 >= 1.8 && decisionPnl6132 > 0.0 -> 1.75 to "three_x_day_compound"
+            dayProgressX >= 2.0 && decisionWr6132 >= 32.0 && decisionPf6132 >= 1.5 && decisionPnl6132 > 0.0 -> 2.05 to "two_x_day_compound"
             trades < 20 -> 1.00 to "bootstrap_under_20"
-            strategyTruthNegative6128 -> 0.55 to "defensive_strategy_truth_negative_6128"
-            pnl <= 0.0 || wr < 20.0 || pf < 0.95 -> 0.55 to "defensive_money_rows_negative_or_low_wr"
-            gainRatio >= 2.0 && wr >= 35.0 && pf >= 2.0 -> 2.25 to "two_x_plus_compound_unlock"
-            gainRatio >= 1.0 && wr >= 32.0 && pf >= 1.6 -> 1.85 to "one_x_compound_unlock"
-            gainRatio >= 0.75 && wr >= 30.0 && pf >= 1.4 -> 1.55 to "seventyfive_pct_growth_unlock"
-            gainRatio >= 0.30 && wr >= 28.0 && pf >= 1.25 -> 1.30 to "thirty_pct_growth_unlock"
-            pnl > 0.0 && wr >= 25.0 && pf >= 1.15 -> 1.12 to "positive_clean_edge"
+            strategyTruthNegative6128 -> 0.55 to "defensive_strategy_truth_negative_6132"
+            decisionPnl6132 <= 0.0 || decisionWr6132 < 20.0 || decisionPf6132 < 0.95 -> 0.55 to "defensive_clean_truth_negative_or_low_wr_6132"
+            gainRatio >= 2.0 && decisionWr6132 >= 35.0 && decisionPf6132 >= 2.0 -> 2.25 to "two_x_plus_compound_unlock"
+            gainRatio >= 1.0 && decisionWr6132 >= 32.0 && decisionPf6132 >= 1.6 -> 1.85 to "one_x_compound_unlock"
+            gainRatio >= 0.75 && decisionWr6132 >= 30.0 && decisionPf6132 >= 1.4 -> 1.55 to "seventyfive_pct_growth_unlock"
+            gainRatio >= 0.30 && decisionWr6132 >= 28.0 && decisionPf6132 >= 1.25 -> 1.30 to "thirty_pct_growth_unlock"
+            decisionPnl6132 > 0.0 && decisionWr6132 >= 25.0 && decisionPf6132 >= 1.15 -> 1.12 to "positive_clean_edge_6132"
             else -> 0.75 to "cautious_uncertain_edge"
         }
         return Snapshot(
