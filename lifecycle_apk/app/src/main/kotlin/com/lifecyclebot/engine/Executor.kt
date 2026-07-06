@@ -4516,6 +4516,35 @@ class Executor(
         return Pair(capitalRecoveryMultiple, profitLockMultiple)
     }
     
+    // ─────────────────────────────────────────────────────────────────
+    // V5.0.6125 — MoonshotHoldMode gate (ANSEM-style hold protection).
+    // Single choke point consumed by every non-catastrophic exit path:
+    // checkProfitLock, trySweepTakeProfitExit, checkPartialSell, plus the
+    // standalone quick-runner/settle/dynamic-stop branches in runManageOnly.
+    // Catastrophic safety (rug backstops, hard SL floors, stale-quote
+    // emergency exit) NEVER calls this — those remain hard and unconditional.
+    // Fail-open: any exception returns false (normal exit proceeds).
+    // ─────────────────────────────────────────────────────────────────
+    private fun moonshotHoldGate(ts: TokenState, pnlPct: Double, exitReasonTag: String): Boolean {
+        return try {
+            if (!ts.position.isOpen) return false
+            val peakFeed = maxOf(pnlPct, ts.position.peakGainPct)
+            MoonshotHoldMode.updatePeak(ts.mint, peakFeed)
+            val suppress = MoonshotHoldMode.shouldSuppressExit(ts.mint, pnlPct)
+            if (suppress) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "MOONSHOT_HOLD_EXIT_SUPPRESSED_6125",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} suppressedReason=$exitReasonTag pnl=${pnlPct.toInt()}% peak=${MoonshotHoldMode.peakPct(ts.mint).toInt()}%",
+                    )
+                    PipelineHealthCollector.labelInc("MOONSHOT_HOLD_EXIT_SUPPRESSED_6125")
+                } catch (_: Throwable) {}
+                onLog("\uD83C\uDF19 MOONSHOT HOLD: suppressing $exitReasonTag exit for ${ts.symbol} — riding ANSEM-style runner (peak=${MoonshotHoldMode.peakPct(ts.mint).toInt()}%)", ts.mint)
+            }
+            suppress
+        } catch (_: Throwable) { false }
+    }
+
     fun checkProfitLock(ts: TokenState, wallet: SolanaWallet?, walletSol: Double): Boolean {
         val c = cfg()
         normalizePositionScaleIfNeeded(ts)
@@ -4626,6 +4655,12 @@ class Executor(
                 }
             }
         }
+
+        // V5.0.6125 — MoonshotHoldMode: once a position is riding an
+        // ANSEM-style runner, capital-recovery/profit-lock/ultra-runner-bank
+        // scalp exits are suppressed. The PROTECTIVE_PEAK_PARTIAL infra-safety
+        // valve above still fires (route-stall protection is not a scalp).
+        if (moonshotHoldGate(ts, gainPct, "PROFIT_LOCK_CAPITAL_RECOVERY_OR_ULTRA_BANK")) return false
 
         val (capitalRecoveryThreshold, profitLockThreshold) = calculateProfitLockThresholds(ts)
 
@@ -5990,6 +6025,9 @@ class Executor(
         if (!ts.position.isOpen || currentPrice <= 0.0) return false
         val pnlVerdict6038 = OpenPnlSanity.inspectPosition(ts.position, currentPrice, "Executor.trySweepTakeProfitExit_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
         val pnlPct = if (pnlVerdict6038.ok) pnlVerdict6038.pnlPct else 0.0
+        // V5.0.6125 — MoonshotHoldMode suppresses take-profit sweeps while a
+        // runner is riding; ANSEM-style hold takes priority over TP ladders.
+        if (moonshotHoldGate(ts, pnlPct, "SWEEP_TAKE_PROFIT")) return false
         val tpPct = when {
             // V5.0.4125 — style-adjusted TP takes PRIORITY over lane-specific TPs.
             ts.position.entryTakeProfitPct > 0.0 ->
@@ -6254,9 +6292,11 @@ class Executor(
                         )
                         PipelineHealthCollector.labelInc("QUICK_RUNNER_EMERGENCY_FULL_EXIT")
                     } catch (_: Throwable) {}
-                    onLog("🚀🚀 QUICK RUNNER 10x EXIT: ${ts.symbol} +${bestPnl.toInt()}% — bypassing all holds, full exit NOW", ts.mint)
-                    doSell(ts, "QUICK_RUNNER_10X_FULL_EXIT", wallet, walletSol)
-                    return
+                    if (!moonshotHoldGate(ts, bestPnl, "QUICK_RUNNER_10X_FULL_EXIT")) {
+                        onLog("🚀🚀 QUICK RUNNER 10x EXIT: ${ts.symbol} +${bestPnl.toInt()}% — bypassing all holds, full exit NOW", ts.mint)
+                        doSell(ts, "QUICK_RUNNER_10X_FULL_EXIT", wallet, walletSol)
+                        return
+                    }
                 } else if (bestPnl >= 500.0) {
                     try {
                         ForensicLogger.lifecycle(
@@ -6265,13 +6305,15 @@ class Executor(
                         )
                         PipelineHealthCollector.labelInc("QUICK_RUNNER_EMERGENCY_BANK_95PCT")
                     } catch (_: Throwable) {}
-                    onLog("🚀 QUICK RUNNER 6x BANK: ${ts.symbol} +${bestPnl.toInt()}% — bypassing holds, banking 95%", ts.mint)
-                    // Use standard doSell (full path) — the sell size fraction is
-                    // applied inside the executor's normal sell handler based on
-                    // remaining position. This is treated as effectively-full
-                    // for the purposes of unlocking the runner.
-                    doSell(ts, "QUICK_RUNNER_6X_BANK_95PCT", wallet, walletSol)
-                    return
+                    if (!moonshotHoldGate(ts, bestPnl, "QUICK_RUNNER_6X_BANK_95PCT")) {
+                        onLog("🚀 QUICK RUNNER 6x BANK: ${ts.symbol} +${bestPnl.toInt()}% — bypassing holds, banking 95%", ts.mint)
+                        // Use standard doSell (full path) — the sell size fraction is
+                        // applied inside the executor's normal sell handler based on
+                        // remaining position. This is treated as effectively-full
+                        // for the purposes of unlocking the runner.
+                        doSell(ts, "QUICK_RUNNER_6X_BANK_95PCT", wallet, walletSol)
+                        return
+                    }
                 }
             }
 
@@ -6561,9 +6603,11 @@ class Executor(
                         "mint=${ts.mint.take(10)} symbol=${ts.symbol} peakPct=${peakPnlPct.toInt()} curPct=${curPnlPct.toInt()} ageMs=$posAgeMs reason=peak_gave_back_below_mfe_floor_inside_settle")
                     PipelineHealthCollector.labelInc("SETTLE_MFE_FLOOR_FIRED_6063")
                 } catch (_: Throwable) {}
-                onLog("🔒 SETTLE_MFE_FLOOR ${ts.symbol}: peak=${peakPnlPct.toInt()}% cur=${curPnlPct.toInt()}% — floor fired inside settle window", ts.mint)
-                requestSell(ts, "SETTLE_MFE_FLOOR_PEAK_${peakPnlPct.toInt()}pct", wallet, walletSol)
-                return
+                if (!moonshotHoldGate(ts, curPnlPct, "SETTLE_MFE_FLOOR")) {
+                    onLog("🔒 SETTLE_MFE_FLOOR ${ts.symbol}: peak=${peakPnlPct.toInt()}% cur=${curPnlPct.toInt()}% — floor fired inside settle window", ts.mint)
+                    requestSell(ts, "SETTLE_MFE_FLOOR_PEAK_${peakPnlPct.toInt()}pct", wallet, walletSol)
+                    return
+                }
             }
             if (PeakDrawdownLock.shouldLock(peakPnlPct, curPnlPct)) {
                 try {
@@ -6571,9 +6615,11 @@ class Executor(
                         "mint=${ts.mint.take(10)} symbol=${ts.symbol} peakPct=${peakPnlPct.toInt()} curPct=${curPnlPct.toInt()} ageMs=$posAgeMs reason=give_back_lock_fired_inside_settle")
                     PipelineHealthCollector.labelInc("SETTLE_PEAK_DRAWDOWN_FIRED_6063")
                 } catch (_: Throwable) {}
-                onLog("🔒 SETTLE_PEAK_DRAWDOWN ${ts.symbol}: peak=${peakPnlPct.toInt()}% cur=${curPnlPct.toInt()}% — give-back lock fired inside settle window", ts.mint)
-                requestSell(ts, "SETTLE_PEAK_DRAWDOWN_PEAK_${peakPnlPct.toInt()}pct", wallet, walletSol)
-                return
+                if (!moonshotHoldGate(ts, curPnlPct, "SETTLE_PEAK_DRAWDOWN")) {
+                    onLog("🔒 SETTLE_PEAK_DRAWDOWN ${ts.symbol}: peak=${peakPnlPct.toInt()}% cur=${curPnlPct.toInt()}% — give-back lock fired inside settle window", ts.mint)
+                    requestSell(ts, "SETTLE_PEAK_DRAWDOWN_PEAK_${peakPnlPct.toInt()}pct", wallet, walletSol)
+                    return
+                }
             }
             if (checkProfitLock(ts, wallet, walletSol)) return
             if (trySweepTakeProfitExit(ts, currentPrice, wallet, walletSol, settleBypass = true)) return
@@ -6683,9 +6729,11 @@ class Executor(
                         )
                         com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MANAGE_ONLY_PEAK_LOCK_BREACH_6123")
                     } catch (_: Throwable) {}
-                    onLog("🛑 PEAK LOCK: ${ts.symbol} peak=${peakPnl6123.toInt()}% → now ${pnlPct.toInt()}% — sliding lock fired", ts.mint)
-                    doSell(ts, "MANAGE_ONLY_PEAK_LOCK_${peakPnl6123.toInt()}pct_now${pnlPct.toInt()}pct", wallet, walletSol)
-                    return
+                    if (!moonshotHoldGate(ts, pnlPct, "MANAGE_ONLY_PEAK_LOCK")) {
+                        onLog("🛑 PEAK LOCK: ${ts.symbol} peak=${peakPnl6123.toInt()}% → now ${pnlPct.toInt()}% — sliding lock fired", ts.mint)
+                        doSell(ts, "MANAGE_ONLY_PEAK_LOCK_${peakPnl6123.toInt()}pct_now${pnlPct.toInt()}pct", wallet, walletSol)
+                        return
+                    }
                 }
 
                 // DYNAMIC STOP — trailing/fluid stop from getDynamicFluidStop
@@ -6699,15 +6747,17 @@ class Executor(
                         )
                         com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MANAGE_ONLY_DYNAMIC_STOP_6123")
                     } catch (_: Throwable) {}
-                    doSell(ts, "MANAGE_ONLY_${stopType6123}_STOP_6123", wallet, walletSol)
-                    return
+                    if (!moonshotHoldGate(ts, pnlPct, "MANAGE_ONLY_${stopType6123}_STOP_6123")) {
+                        doSell(ts, "MANAGE_ONLY_${stopType6123}_STOP_6123", wallet, walletSol)
+                        return
+                    }
                 }
 
                 // FALLBACK: Simple fluid floor (kept as last-line backstop)
                 val floor = try {
                     com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(-25.0)
                 } catch (_: Throwable) { -25.0 }
-                if (pnlPct <= floor && currentPrice > 0.0) {
+                if (pnlPct <= floor && currentPrice > 0.0 && !moonshotHoldGate(ts, pnlPct, "SWEEP_FLUID_FLOOR")) {
                     onLog("🛑 SWEEP_FLUID_FLOOR: ${ts.symbol} pnl=${pnlPct.toInt()}% ≤ floor=${floor.toInt()}%", ts.mint)
                     doSell(ts, "SWEEP_FLUID_FLOOR_${floor.toInt()}", wallet, walletSol)
                 }
@@ -6723,6 +6773,10 @@ class Executor(
 
         val actualPrice = getActualPrice(ts)
         val gainPct = pct(pos.entryPrice, actualPrice)
+        // V5.0.6125 — MoonshotHoldMode suppresses the partial-sell ladder
+        // while a runner is riding; taking chips off the table reduces the
+        // compounding on the eventual ANSEM-style multiple.
+        if (moonshotHoldGate(ts, gainPct, "PARTIAL_SELL_LADDER")) return false
         val soldPct = pos.partialSoldPct
 
         val partialLevel = (soldPct / (c.partialSellFraction * 100.0)).toInt()
@@ -17153,6 +17207,10 @@ class Executor(
                 emaTrend = marketSentiment
             )
             com.lifecyclebot.v3.V3EngineManager.onPositionClosed(tradeId.mint)
+            // V5.0.6125 — release MoonshotHoldMode registry entry on terminal
+            // close so restarts/re-entries on the same mint don't inherit a
+            // stale activated/peak state from a previous position.
+            try { MoonshotHoldMode.onPositionClosed(tradeId.mint) } catch (_: Throwable) {}
             // V5.9.137 — mirror the close to SellOptimizationAI so its
             // activePositions map can't rot with stale peak / chunksSold
             // between exits. Previously close was only called inside one

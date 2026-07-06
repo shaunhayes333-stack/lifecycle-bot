@@ -7663,4 +7663,25 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6123: BotService must have PROBATION_PROMOTION_PATTERN_HELD_6123", bot.contains("PROBATION_PROMOTION_PATTERN_HELD_6123"))
         assertTrue("V5.0.6123: BotService must call shouldPromoteFromProbation", bot.contains("shouldPromoteFromProbation"))
     }
+
+    // V5.0.6125 — MoonshotHoldMode wired end-to-end into Executor exit paths
+    @org.junit.Test
+    fun aate6125MoonshotHoldModeWiredIntoExecutorExitPaths() {
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6125: Executor must have moonshotHoldGate choke point", executor.contains("private fun moonshotHoldGate"))
+        assertTrue("V5.0.6125: moonshotHoldGate must call MoonshotHoldMode.updatePeak", executor.contains("MoonshotHoldMode.updatePeak"))
+        assertTrue("V5.0.6125: moonshotHoldGate must call MoonshotHoldMode.shouldSuppressExit", executor.contains("MoonshotHoldMode.shouldSuppressExit"))
+        assertTrue("V5.0.6125: checkProfitLock must consult moonshotHoldGate before capital-recovery/ultra-bank", executor.contains("""moonshotHoldGate(ts, gainPct, "PROFIT_LOCK_CAPITAL_RECOVERY_OR_ULTRA_BANK")"""))
+        assertTrue("V5.0.6125: trySweepTakeProfitExit must consult moonshotHoldGate", executor.contains("""moonshotHoldGate(ts, pnlPct, "SWEEP_TAKE_PROFIT")"""))
+        assertTrue("V5.0.6125: checkPartialSell must consult moonshotHoldGate", executor.contains("""moonshotHoldGate(ts, gainPct, "PARTIAL_SELL_LADDER")"""))
+        assertTrue("V5.0.6125: QUICK_RUNNER_10X_FULL_EXIT must be gated by moonshotHoldGate", executor.contains("""moonshotHoldGate(ts, bestPnl, "QUICK_RUNNER_10X_FULL_EXIT")"""))
+        assertTrue("V5.0.6125: QUICK_RUNNER_6X_BANK_95PCT must be gated by moonshotHoldGate", executor.contains("""moonshotHoldGate(ts, bestPnl, "QUICK_RUNNER_6X_BANK_95PCT")"""))
+        assertTrue("V5.0.6125: SETTLE_MFE_FLOOR must be gated by moonshotHoldGate", executor.contains("""moonshotHoldGate(ts, curPnlPct, "SETTLE_MFE_FLOOR")"""))
+        assertTrue("V5.0.6125: SETTLE_PEAK_DRAWDOWN must be gated by moonshotHoldGate", executor.contains("""moonshotHoldGate(ts, curPnlPct, "SETTLE_PEAK_DRAWDOWN")"""))
+        assertTrue("V5.0.6125: MANAGE_ONLY_PEAK_LOCK must be gated by moonshotHoldGate", executor.contains("""moonshotHoldGate(ts, pnlPct, "MANAGE_ONLY_PEAK_LOCK")"""))
+        assertTrue("V5.0.6125: MANAGE_ONLY dynamic stop must be gated by moonshotHoldGate", executor.contains("""moonshotHoldGate(ts, pnlPct, "MANAGE_ONLY_${'$'}{stopType6123}_STOP_6123")"""))
+        assertTrue("V5.0.6125: SWEEP_FLUID_FLOOR must be gated by moonshotHoldGate", executor.contains("""moonshotHoldGate(ts, pnlPct, "SWEEP_FLUID_FLOOR")"""))
+        assertTrue("V5.0.6125: catastrophic backstops must NOT consult moonshotHoldGate", !executor.contains("""moonshotHoldGate(ts, worstPnl, "CATASTROPHIC_HARD_BACKSTOP""""))
+        assertTrue("V5.0.6125: terminal close must release MoonshotHoldMode registry entry", executor.contains("MoonshotHoldMode.onPositionClosed(tradeId.mint)"))
+    }
 }
