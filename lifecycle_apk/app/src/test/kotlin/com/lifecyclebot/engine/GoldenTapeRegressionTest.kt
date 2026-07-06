@@ -7290,6 +7290,8 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4584: sell ok to journal must expose journaled/dedup/quarantine reasons", diag.contains("fun sellJournal") && store.contains("duplicate_suppressed") && store.contains("journaled_" + "$" + "{tradeToStore.side.uppercase()}") && store.contains("accounting_quarantined"))
         assertTrue("V5.0.4584: stop-loss overrun diagnostics must record trigger and finality latency", diag.contains("stopTriggered") && diag.contains("stopFinalized") && bus.contains("SourceChokeDiagnostics4584.stopTriggered") && store.contains("SourceChokeDiagnostics4584.stopFinalized"))
         assertTrue("V5.0.4584: TokenWinMemory must quarantine shadow/simulated sources from real winner memory", mem.contains("isShadowOrSimulatedSource") && mem.contains("TOKEN_WIN_MEMORY_SHADOW_SOURCE") && mem.contains("PERSISTED_SOURCE_PATTERN_SHADOW"))
+    }
+
 
     // V5.0.6123 — TokenWinMemory massive expansion: full trade context
     @Test
