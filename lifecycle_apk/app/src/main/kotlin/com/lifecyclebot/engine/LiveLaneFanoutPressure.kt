@@ -22,10 +22,17 @@ object LiveLaneFanoutPressure {
         // affinity/owner lanes while keeping trunk + primary + proven rescue alive.
         val maturePressure6101 = intake >= 20L && ratio > 8.0 && n >= 40 && wr < 30.0
         val bootstrapSeverePressure6101 = intake >= 20L && ratio > 18.0 && n >= 10 && wr < 25.0
-        val active = maturePressure6101 || bootstrapSeverePressure6101
+        // V5.0.6127 — extreme ratio pressure: when laneEval/intake > 50, activate
+        // regardless of live n/WR. The old catch-22 required n>=10 live closes with
+        // WR<25%, but with 0 live trades (paper mode), the pressure never engaged
+        // despite ratio=101.92. Extreme fanout wastes CPU and chokes the pipeline
+        // even without live bleed evidence.
+        val extremeRatioPressure6127 = intake >= 20L && ratio > 50.0
+        val active = maturePressure6101 || bootstrapSeverePressure6101 || extremeRatioPressure6127
         val reason6101 = when {
             maturePressure6101 -> "lane_fanout_pressure_low_wr"
             bootstrapSeverePressure6101 -> "bootstrap_severe_fanout_pressure_low_wr"
+            extremeRatioPressure6127 -> "extreme_ratio_fanout_pressure_6127"
             else -> "normal"
         }
         cached = Snapshot(active, ratio, wr, n, reason6101)

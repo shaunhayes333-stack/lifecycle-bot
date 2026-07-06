@@ -7710,4 +7710,26 @@ class GoldenTapeRegressionTest {
         val layout = java.io.File("src/main/res/layout/activity_pipeline_health.xml").readText()
         assertTrue("V5.0.6126: layout must have sendVexButton", layout.contains("sendVexButton"))
     }
+
+    @org.junit.Test fun V5_0_6127_probe_sizing_and_telemetry_fixes() {
+        val botService = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.6127: LANE_DUST_PROBE_SIZE_MULT must be 0.35",
+            botService.contains("LANE_DUST_PROBE_SIZE_MULT = 0.35"))
+        assertFalse("V5.0.6127: old 0.04 dust probe mult must be gone",
+            botService.contains("LANE_DUST_PROBE_SIZE_MULT = 0.04"))
+        assertTrue("V5.0.6127: PROBE_ONLY qualityPenalty floor must be 0.35",
+            botService.contains("coerceIn(0.35, 1.18)"))
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue("V5.0.6127: blockReasonFinal must overwrite PROBE_ONLY",
+            fdg.contains("blockReasonFinal == null || blockReasonFinal == "PROBE_ONLY""))
+        assertTrue("V5.0.6127: FDG_PROBE_ONLY_COUNTED_AS_ALLOW_6127 telemetry",
+            fdg.contains("FDG_PROBE_ONLY_COUNTED_AS_ALLOW_6127"))
+        assertTrue("V5.0.6127: rejectTaxonomy must exclude PROBE_ONLY",
+            fdg.contains("blockReason != null && blockReason != "PROBE_ONLY""))
+        val fanout = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveLaneFanoutPressure.kt").readText()
+        assertTrue("V5.0.6127: extreme ratio pressure must exist",
+            fanout.contains("extremeRatioPressure6127") && fanout.contains("ratio > 50.0"))
+        assertTrue("V5.0.6127: extreme ratio pressure reason",
+            fanout.contains("extreme_ratio_fanout_pressure_6127"))
+    }
 }

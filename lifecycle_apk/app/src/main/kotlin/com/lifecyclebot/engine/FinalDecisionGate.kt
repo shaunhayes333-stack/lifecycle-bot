@@ -43,7 +43,7 @@ object FinalDecisionGate {
         // upstream via qualityPenalty=LANE_DUST_PROBE_SIZE_MULT, so this respects the
         // P0.7 "no normal-size zero-signal buy" rule — it only frees the TINY probe.
         val rejectTaxonomy: RejectTaxonomy.Classification?
-            get() = if (!shouldTrade || approvalClass == ApprovalClass.BLOCKED || blockReason != null) {
+            get() = if (!shouldTrade || approvalClass == ApprovalClass.BLOCKED || (blockReason != null && blockReason != "PROBE_ONLY")) {
                 RejectTaxonomy.classify(blockReason ?: approvalReason, null)
             } else null
 
@@ -4572,6 +4572,14 @@ object FinalDecisionGate {
             recordBlock(blockReason)
         } else if (shouldTrade) {
             recordTradeExecuted()
+            // V5.0.6127 — PROBE_ONLY is an approved dust-buy (canExecute()=true),
+            // but it was being tallied as a FDG block because blockReason != null.
+            // This made the operator see "FDG block=511" when 436 were actually
+            // approved probes. Fix: don't count PROBE_ONLY as a block in the
+            // phase counter — it's an allow with a dust-size quality penalty.
+            if (blockReason == "PROBE_ONLY") {
+                try { PipelineHealthCollector.labelInc("FDG_PROBE_ONLY_COUNTED_AS_ALLOW_6127") } catch (_: Throwable) {}
+            }
         }
 
         if (adaptiveRelaxationActive) {
@@ -4932,7 +4940,13 @@ object FinalDecisionGate {
                 if (isRetrainingNoOpen6107 || isTrueUntradeable) {
                     finalSize = 0.0
                     shouldTradeFinal = false
-                    blockReasonFinal = blockReasonFinal ?: if (isTrueUntradeable) "LANE_POLICY_INVALID_UNTRADEABLE" else "LANE_POLICY_RETRAINING_PAUSED_6107_${lpState.name}"
+                    // V5.0.6127 — overwrite PROBE_ONLY with the real block reason.
+                    // The old ?: kept "PROBE_ONLY" as the blockReason when LanePolicy
+                    // set shouldTradeFinal=false, making the gate tally show
+                    // FDG/PROBE_ONLY as 436 blocks instead of the real reason.
+                    blockReasonFinal = if (blockReasonFinal == null || blockReasonFinal == "PROBE_ONLY") {
+                        if (isTrueUntradeable) "LANE_POLICY_INVALID_UNTRADEABLE" else "LANE_POLICY_RETRAINING_PAUSED_6107_${'$'}{lpState.name}"
+                    } else blockReasonFinal
                     blockLevelFinal = if (isTrueUntradeable) BlockLevel.HARD else BlockLevel.EDGE
                     tags.add(if (isTrueUntradeable) "lane_policy_invalid_untradeable" else "lane_policy_retraining_paused_6107")
                     checks.add(GateCheck("lane_policy_weight", false,

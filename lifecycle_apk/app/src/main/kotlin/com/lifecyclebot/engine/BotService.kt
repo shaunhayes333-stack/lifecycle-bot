@@ -64,7 +64,9 @@ class BotService : Service() {
         // Dust-probe size multiplier (applied via qualityPenalty) — tiny, so a
         // weak/blind context can still generate a labelled learning sample
         // without spraying full-size capital into it.
-        private const val LANE_DUST_PROBE_SIZE_MULT = 0.04
+        private const val LANE_DUST_PROBE_SIZE_MULT = 0.35  // V5.0.6127: was 0.04 — dust probes never executed at 4% quality penalty
+        // Combined with cascade dampers, 0.04 produced ~0.0002 SOL trades = zero learning.
+        // 0.35 aligns with the 6113 soft-probe doctrine and ensures probes actually execute.
         // V5.9.1466 — PROBE GRADUATION (spec item 8). A probe that shows a real
         // confirmation tick (liquidity materially rising vs first-seen baseline) is
         // no longer dead-end dust — it graduates to a larger (still capped) size so
@@ -9774,7 +9776,7 @@ class BotService : Service() {
                 edgeVeto = false,
                 edgeQuality = if (laneBase.edgeQuality == "SKIP") "C" else laneBase.edgeQuality,
                 finalQuality = "C",
-                qualityPenalty = (resolveProbeSizeMult(mintForProbe, liquidityUsd) * crossTalkSizeMult4262).coerceIn(0.05, 1.18),
+                qualityPenalty = (resolveProbeSizeMult(mintForProbe, liquidityUsd) * crossTalkSizeMult4262).coerceIn(0.35, 1.18),  // V5.0.6127: floor 0.05->0.35
                 aiConfidence = laneBase.aiConfidence.coerceAtLeast(entryScoreTightenedFloor4591),
             )
         }
