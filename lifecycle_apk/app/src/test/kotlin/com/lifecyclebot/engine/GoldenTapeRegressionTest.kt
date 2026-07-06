@@ -7909,4 +7909,14 @@ class GoldenTapeRegressionTest {
             route.contains("VenueUniverse.classify(source)") && route.contains("SOL_AMM_OR_AGGREGATOR_FIRST") && route.contains("CHAIN_SPECIFIC_VENUE") && route.contains("CEX_SIGNAL_ONLY") && route.contains("multi_exchange_universe=true") && !route.contains("pumpSource ="))
     }
 
+
+    @org.junit.Test fun V5_0_6141_venue_source_balance_adapter_feeds_intake_not_pump_only() {
+        val adapter = java.io.File("src/main/kotlin/com/lifecyclebot/engine/VenueSourceBalanceAdapter.kt").readText()
+        assertTrue("V5.0.6141: VenueSourceBalanceAdapter must add multi-exchange intake pressure without replacing ScannerSourceBrain or blocking sources",
+            adapter.contains("object VenueSourceBalanceAdapter") && adapter.contains("does not block sources") && adapter.contains("does not replace ScannerSourceBrain") && adapter.contains("VenueUniverse.classify") && adapter.contains("CHAIN_SPECIFIC_DEX") && adapter.contains("TREND_SIGNAL_ONLY"))
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.6141: admitProtectedMemeIntake must combine ScannerSourceBrain with venue-family priors and expose multi-exchange telemetry",
+            bot.contains("VenueSourceBalanceAdapter.bestMultiplier(allSources + source)") && bot.contains("sourceBrainMultRaw6141") && bot.contains("venueSourceMult6141") && bot.contains("venueSourceMult6141 >= 1.10") && bot.contains("multi_exchange_universe=true"))
+    }
+
 }

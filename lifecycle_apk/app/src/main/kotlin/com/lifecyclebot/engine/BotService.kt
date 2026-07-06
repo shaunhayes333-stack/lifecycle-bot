@@ -10826,20 +10826,23 @@ class BotService : Service() {
             // downstream size/reporting. This remains soft-shape only: weak learned
             // single-source feeds go probation; strong learned or multi-source feeds
             // can avoid generic pressure quarantine. No source is hard-blocked.
-            val sourceBrainMult = try {
+            val sourceBrainMultRaw6141 = try {
                 (allSources + source).map { ScannerSourceBrain.intakeMultiplier(it) }.maxOrNull() ?: 1.0
             } catch (_: Throwable) { 1.0 }
+            val venueSourceMult6141 = try { VenueSourceBalanceAdapter.bestMultiplier(allSources + source) } catch (_: Throwable) { 1.0 }
+            val sourceBrainMult = maxOf(sourceBrainMultRaw6141, venueSourceMult6141)
+            val venueSourceContext6141 = try { VenueSourceBalanceAdapter.compact(source) } catch (_: Throwable) { "venue=unknown" }
             val multiSourceConfirmed = rawMultiSourceConfirmed6132
             val sourceBrainProbationOnly = !lenientIntake && !isUserAdded && !isRestoredVetted && !multiSourceConfirmed &&
-                sourceBrainMult < 0.65 && liquidityUsd < 7_500.0 && volumeH1 <= 0.0
-            val sourceBrainHotRescue = sourceBrainMult >= 1.25 && (multiSourceConfirmed || liquidityUsd >= 10_000.0 || volumeH1 > 0.0)
+                sourceBrainMultRaw6141 < 0.65 && venueSourceMult6141 < 1.05 && liquidityUsd < 7_500.0 && volumeH1 <= 0.0
+            val sourceBrainHotRescue = (sourceBrainMultRaw6141 >= 1.25 || venueSourceMult6141 >= 1.10) && (multiSourceConfirmed || liquidityUsd >= 10_000.0 || volumeH1 > 0.0)
             val coldPumpBase = !lenientIntake && isPumpPortalWs && !isUserAdded && !isRestoredVetted && volumeH1 <= 0.0 && liquidityUsd < 5_000.0
             val coldPump = coldPumpBase || sourceBrainProbationOnly || (pressureDecision.probationOnly && !sourceBrainHotRescue)
             if (sourceBrainProbationOnly || sourceBrainHotRescue) {
                 try {
                     ForensicLogger.lifecycle(
                         "SCANNER_SOURCE_BRAIN_ADMISSION_SHAPED_4195",
-                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source mult=${"%.2f".format(sourceBrainMult)} probation=$sourceBrainProbationOnly hotRescue=$sourceBrainHotRescue multi=$multiSourceConfirmed pumpSpecOnly=$pumpSpecOnly6132 lenient=$lenientIntake liq=${liquidityUsd.toInt()} vol1h=${volumeH1.toInt()} pressure=${pressureDecision.probationOnly}:${pressureDecision.reason}"
+                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source mult=${"%.2f".format(sourceBrainMult)} rawSourceMult=${"%.2f".format(sourceBrainMultRaw6141)} venueMult=${"%.2f".format(venueSourceMult6141)} $venueSourceContext6141 probation=$sourceBrainProbationOnly hotRescue=$sourceBrainHotRescue multi=$multiSourceConfirmed pumpSpecOnly=$pumpSpecOnly6132 lenient=$lenientIntake liq=${liquidityUsd.toInt()} vol1h=${volumeH1.toInt()} pressure=${pressureDecision.probationOnly}:${pressureDecision.reason} multi_exchange_universe=true"
                     )
                     PipelineHealthCollector.labelInc(if (sourceBrainProbationOnly) "SCANNER_SOURCE_BRAIN_PROBATION_4195" else "SCANNER_SOURCE_BRAIN_HOT_RESCUE_4195")
                 } catch (_: Throwable) {}
