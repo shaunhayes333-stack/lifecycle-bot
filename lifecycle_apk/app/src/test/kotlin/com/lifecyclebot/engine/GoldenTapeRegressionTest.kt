@@ -7818,4 +7818,16 @@ class GoldenTapeRegressionTest {
             spike.contains("NEAR-10X BANK") && spike.contains("const val FULL_EXIT_PEAK_PCT = 900.0") && spike.contains("Runtime report showed LORA peak +996.7%") && spike.contains("near-10x threshold"))
     }
 
+
+    @org.junit.Test fun V5_0_6134_standard_quote_race_and_clean_live_compounding_brain() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6134: STANDARD/CORE/V3 fresh green candles must get urgent quote-race execution posture without double-broadcasting",
+            exec.contains("STANDARD_QUOTE_RACE_EDGE_6134") && exec.contains("quoteRaceEdge6134") && exec.contains("greenCandlePct6134 >= 8.0") && exec.contains("ts.lastBuyPressurePct >= 68.0") && exec.contains("pumpSlipPct6134") && exec.contains("urgentBuyTip6134"))
+        assertTrue("V5.0.6134: quote-race edge must widen live buy slippage ladder only under the edge condition",
+            exec.contains("if (quoteRaceEdge6134) listOf(buyBaseSlippage, 500, 750).distinct() else listOf(buyBaseSlippage, 350, 500).distinct()") && exec.contains("slip.coerceAtMost(if (quoteRaceEdge6134) 750 else 500)"))
+        val strat = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTelemetry.kt").readText()
+        assertTrue("V5.0.6134: live style compounding brain must press +EV clean-live lane|style cells harder and shrink toxic cells harder",
+            strat.contains("CLEAN-LIVE COMPOUNDING BRAIN") && strat.contains("pfEdge6134") && strat.contains("elite ->") && strat.contains("coerceIn(1.18, 1.45)") && strat.contains("coerceIn(0.52, 0.78)"))
+    }
+
 }

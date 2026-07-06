@@ -13409,6 +13409,42 @@ class Executor(
                     srcUpperForRoute.contains("SCANNER_DIRECT_RAYDIUM_NEW_POOL")
             )
             val freshPumpRoute = pumpPortalAutoEligible4559
+            // V5.0.6134 — STANDARD QUOTE-RACE EDGE.
+            // The legacy live-buy ladder is sequential and conservative: PumpPortal
+            // first at normal priority/slippage, then Jupiter. That is safe, but it
+            // misses the standard-bot edge on instant green candles where the route
+            // window is seconds wide. Do NOT race broadcasts (double-buy risk). Race
+            // the *execution posture*: urgent tip, wider first quote, and higher pump
+            // slip only when a STANDARD/CORE/V3 trunk candidate has fresh tick + green
+            // candle/buy-pressure proof. Hard safety, wallet mutex, quote validation,
+            // simulation, route finality, and real-price lock still run unchanged.
+            val nowQuoteRace6134 = System.currentTimeMillis()
+            val laneForQuoteRace6134 = layerTag.uppercase().ifBlank { ts.position.tradingMode.uppercase().ifBlank { "STANDARD" } }
+            val latestCandle6134 = try { ts.history.lastOrNull() } catch (_: Throwable) { null }
+            val greenCandlePct6134 = try {
+                val open = latestCandle6134?.openUsd ?: 0.0
+                val close = latestCandle6134?.priceUsd ?: ts.lastPrice
+                if (open > 0.0 && close > 0.0) ((close - open) / open) * 100.0 else 0.0
+            } catch (_: Throwable) { 0.0 }
+            val freshTick6134 = ts.lastPriceUpdate > 0L && nowQuoteRace6134 - ts.lastPriceUpdate <= 2_500L
+            val trunkLane6134 = laneForQuoteRace6134 == "STANDARD" || laneForQuoteRace6134 == "CORE" || laneForQuoteRace6134 == "V3"
+            val quoteRaceEdge6134 = trunkLane6134 && freshTick6134 && ts.entryScore >= 65.0 && (
+                greenCandlePct6134 >= 8.0 ||
+                    (ts.momentum ?: 0.0) >= 12.0 ||
+                    ts.lastBuyPressurePct >= 68.0
+            )
+            val buyPriorityFeeSol6134 = if (quoteRaceEdge6134) 0.0003 else 0.0001
+            val urgentBuyTip6134 = quoteRaceEdge6134
+            val pumpSlipPct6134 = if (quoteRaceEdge6134) 15 else 10
+            if (quoteRaceEdge6134) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "STANDARD_QUOTE_RACE_EDGE_6134",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneForQuoteRace6134 score=${ts.entryScore.toInt()} green=${greenCandlePct6134.fmt(1)} buyPressure=${ts.lastBuyPressurePct.fmt(1)} momentum=${(ts.momentum ?: 0.0).fmt(1)} tickAgeMs=${nowQuoteRace6134 - ts.lastPriceUpdate} priorityFee=$buyPriorityFeeSol6134 pumpSlip=$pumpSlipPct6134",
+                    )
+                    PipelineHealthCollector.labelInc("STANDARD_QUOTE_RACE_EDGE_6134")
+                } catch (_: Throwable) {}
+            }
             val pumpBuyPlan = if (!freshPumpRoute) {
                 try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_ROUTE_POLICY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} src=${ts.source.take(80)} reason=deep_amm_use_jupiter_first pumpPortalAutoEligible4559=false") } catch (_: Throwable) {}
                 null
@@ -13417,8 +13453,8 @@ class Executor(
                 wallet = wallet,
                 processor = "PUMPPORTAL_BUY",
                 requestedSol = effectiveSol,
-                priorityFeeSol = 0.0001,
-                jitoTipLamports = effectiveJitoTipLamports(c, urgent = false),
+                priorityFeeSol = buyPriorityFeeSol6134,
+                jitoTipLamports = effectiveJitoTipLamports(c, urgent = urgentBuyTip6134),
                 tradeKey = tradeKey,
                 traderTag = "MEME",
             )
@@ -13448,8 +13484,8 @@ class Executor(
             // Jupiter swap reverts internally on price impact, SOL leaves the wallet
             // (TX fees), tokens never arrive. Now we escalate 200→350→500 bps just
             // like liveSell does, so memes actually fill instead of phantoming.
-            val buyBaseSlippage = c.slippageBps.coerceAtLeast(200)
-            val slippageLadder = listOf(buyBaseSlippage, 350, 500).distinct()
+            val buyBaseSlippage = if (quoteRaceEdge6134) c.slippageBps.coerceAtLeast(350) else c.slippageBps.coerceAtLeast(200)
+            val slippageLadder = if (quoteRaceEdge6134) listOf(buyBaseSlippage, 500, 750).distinct() else listOf(buyBaseSlippage, 350, 500).distinct()
             var quote: com.lifecyclebot.network.SwapQuote? = null
             var lastQuoteError: Exception? = null
             var txResult: com.lifecyclebot.network.SwapTxResult? = null
@@ -13485,13 +13521,13 @@ class Executor(
                         processor = "JUPITER_ULTRA_METIS_BUY",
                         requestedSol = effectiveSol,
                         priorityFeeSol = 0.0,
-                        jitoTipLamports = effectiveJitoTipLamports(c, urgent = false),
+                        jitoTipLamports = effectiveJitoTipLamports(c, urgent = urgentBuyTip6134),
                         tradeKey = tradeKey,
                         traderTag = "MEME",
                     ) ?: throw Exception("BUY_BALANCE_PLAN_UNAVAILABLE")
                     quote = getQuoteWithSlippageGuard(
                         JupiterApi.SOL_MINT, ts.mint, jupiterBuyPlan.lamports,
-                        slip.coerceAtMost(500), jupiterBuyPlan.solAmount,
+                        slip.coerceAtMost(if (quoteRaceEdge6134) 750 else 500), jupiterBuyPlan.solAmount,
                     )
                     if (quote != null) {
                         if (slip != buyBaseSlippage) onLog("BUY: quote OK at ${slip}bps slippage", ts.mint)
@@ -13631,7 +13667,7 @@ class Executor(
 
             val txResultLocal = buildTxWithRetry(
                         quote, wallet.publicKeyB58,
-                        senderTipLamports = effectiveJitoTipLamports(c, urgent = false),
+                        senderTipLamports = effectiveJitoTipLamports(c, urgent = urgentBuyTip6134),
                     )
             txResult = txResultLocal
             buyPhase("SWAP_BUILT")
@@ -13688,7 +13724,7 @@ class Executor(
             security.enforceSignDelay()
 
             useJito = c.jitoEnabled && !quote.isUltra
-            jitoTip = effectiveJitoTipLamports(c, urgent = false)
+            jitoTip = effectiveJitoTipLamports(c, urgent = urgentBuyTip6134)
             
             if (quote.isUltra) {
                 onLog("🚀 Broadcasting via Jupiter Ultra (Beam MEV protection)…", ts.mint)

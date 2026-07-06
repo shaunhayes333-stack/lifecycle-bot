@@ -308,11 +308,21 @@ object StrategyTelemetry {
         val key = "${safeLane.uppercase()}|$safeStyle"
         val m = try { computeCleanLiveStyleTerminalLeaderboard(limit).firstOrNull { it.strategy.equals(key, true) } } catch (_: Throwable) { null } ?: return 1.0
         if (m.trades < 3) return 1.0
-        val green = m.totalSolPnl > 0.0 && (m.winRatePct >= 45.0 || m.meanPnlPct >= 10.0 || m.avgWinPct >= 30.0)
-        val toxic = m.trades >= 5 && m.totalSolPnl < 0.0 && (m.winRatePct < 30.0 || m.meanPnlPct <= -8.0)
+        // V5.0.6134 — CLEAN-LIVE COMPOUNDING BRAIN.
+        // The first 6131 style edge was intentionally timid (max 1.24x). That
+        // helped attribution but did not press live SOL hard enough for the 2x-5x
+        // daily wallet mandate. This is still LIVE-only, terminal-SELL-only,
+        // StrategyTruth-clean evidence. It does not let paper/shadow authorize live
+        // risk, but it lets proven +SOL lane|style cells compound materially while
+        // toxic cells shrink harder inside the lane instead of amputating the lane.
+        val pfEdge6134 = m.pfExpectancyPp
+        val green = m.totalSolPnl > 0.0 && pfEdge6134 > 0.0 && (m.winRatePct >= 40.0 || m.meanPnlPct >= 8.0 || m.avgWinPct >= 25.0)
+        val elite = green && m.trades >= 5 && (m.totalSolPnl >= 0.20 || m.meanPnlPct >= 25.0 || m.avgWinPct >= 60.0)
+        val toxic = m.trades >= 5 && (m.totalSolPnl < 0.0 || pfEdge6134 <= -4.0) && (m.winRatePct < 35.0 || m.meanPnlPct <= -7.0)
         return when {
-            green -> (1.06 + (m.totalSolPnl / 0.25).coerceIn(0.0, 0.18)).coerceIn(1.06, 1.24)
-            toxic -> (0.82 - ((-m.totalSolPnl) / 0.25).coerceIn(0.0, 0.22)).coerceIn(0.60, 0.82)
+            elite -> (1.18 + (m.totalSolPnl / 0.30).coerceIn(0.0, 0.27)).coerceIn(1.18, 1.45)
+            green -> (1.08 + (m.totalSolPnl / 0.25).coerceIn(0.0, 0.22)).coerceIn(1.08, 1.30)
+            toxic -> (0.78 - ((-m.totalSolPnl) / 0.25).coerceIn(0.0, 0.26)).coerceIn(0.52, 0.78)
             else -> 1.0
         }
     }
