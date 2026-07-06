@@ -3786,6 +3786,15 @@ object FinalDecisionGate {
                 val laneMult = com.lifecyclebot.engine.GreenEvLaneGovernor.laneSizeMultiplier(lane)
                 val chart = com.lifecyclebot.engine.ChartPreBuyGate.consult(ts)
 
+                // V5.0.6124h — MOONSHOT / FRESH-LAUNCH HUNTER
+                // Consulted BEFORE the chart-veto so an ANSEM-style token
+                // (< 12h old, < $75k mcap, insider+hive+whale converged) can
+                // punch through the chart-brain hard-veto that normally kills
+                // brand-new mints with zero candle history.
+                val moonshot = try {
+                    com.lifecyclebot.engine.FreshLaunchHunter.evaluate(ts)
+                } catch (_: Throwable) { null }
+
                 if (laneMult == 0.0) {
                     checks.add(GateCheck("green_ev_lane_veto", false,
                         "Lane $lane paused (rolling EV bleed) — delegated to LLM Lab for recovery"))
@@ -3808,7 +3817,7 @@ object FinalDecisionGate {
                         gateChecks = checks,
                     )
                 }
-                if (chart.hardVeto) {
+                if (chart.hardVeto && moonshot?.overrideChartVeto != true) {
                     checks.add(GateCheck("chart_pre_buy_veto", false,
                         "Chart brain hard-veto: ${chart.bias} conf=${chart.confidence.toInt()} — ${chart.reason}"))
                     tags.add("chart_pre_buy_veto")
@@ -3829,14 +3838,22 @@ object FinalDecisionGate {
                         gateChecks = checks,
                     )
                 }
-                val combinedMult = (laneMult * chart.sizeMult).coerceIn(0.01, 1.5)
+                if (chart.hardVeto && moonshot?.overrideChartVeto == true) {
+                    tags.add("moonshot_override_chart_6124h")
+                    checks.add(GateCheck("moonshot_launch_override", true,
+                        "FreshLaunchHunter override — chart veto bypassed for ${moonshot.fingerprint}"))
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MOONSHOT_CHART_VETO_OVERRIDDEN_6124h") } catch (_: Throwable) {}
+                }
+                val moonshotMult = moonshot?.sizeMult ?: 1.0
+                val combinedMult = (laneMult * chart.sizeMult * moonshotMult).coerceIn(0.01, 2.1)
                 if (combinedMult != 1.0) {
                     val originalSize = finalSize
                     finalSize = (finalSize * combinedMult).coerceIn(0.01, 1.0)
                     val direction = if (combinedMult > 1.0) "chart_boosted" else "governor_damped"
                     tags.add("size_${direction}_6120h")
+                    val moonshotTag = if (moonshotMult > 1.0) " × moonshot×${"%.2f".format(moonshotMult)}" else ""
                     checks.add(GateCheck("lane_chart_shape", true,
-                        "Lane×${"%.2f".format(laneMult)} × chart×${"%.2f".format(chart.sizeMult)} (${chart.bias}) → " +
+                        "Lane×${"%.2f".format(laneMult)} × chart×${"%.2f".format(chart.sizeMult)} (${chart.bias})$moonshotTag → " +
                         "${originalSize.format(3)} → ${finalSize.format(3)}"))
                 }
             }

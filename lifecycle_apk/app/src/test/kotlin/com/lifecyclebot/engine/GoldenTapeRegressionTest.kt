@@ -7437,7 +7437,6 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6124: BotService must feed liquidityUsd to LabUniverseTick", bs.contains("liquidityUsd = ts.lastLiquidityUsd"))
         assertTrue("V5.0.6124: BotService must feed mcapUsd to LabUniverseTick", bs.contains("mcapUsd = ts.lastMcap"))
     }
-    }
 
     @Test
     fun aate4584ToxicLanePivotIsStrategyFirstNotMicroProbeOnly() {
