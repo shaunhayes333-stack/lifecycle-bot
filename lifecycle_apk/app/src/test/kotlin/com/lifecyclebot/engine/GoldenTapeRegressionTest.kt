@@ -7721,11 +7721,11 @@ class GoldenTapeRegressionTest {
             botService.contains("coerceIn(0.35, 1.18)"))
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue("V5.0.6127: blockReasonFinal must overwrite PROBE_ONLY",
-            fdg.contains("""blockReasonFinal == null || blockReasonFinal == "PROBE_ONLY" """))
+            fdg.contains("""blockReasonFinal == null || blockReasonFinal == "PROBE_ONLY")"""))
         assertTrue("V5.0.6127: FDG_PROBE_ONLY_COUNTED_AS_ALLOW_6127 telemetry",
             fdg.contains("FDG_PROBE_ONLY_COUNTED_AS_ALLOW_6127"))
         assertTrue("V5.0.6127: rejectTaxonomy must exclude PROBE_ONLY",
-            fdg.contains("""blockReason != null && blockReason != "PROBE_ONLY" """))
+            fdg.contains("""blockReason != null && blockReason != "PROBE_ONLY")"""))
         val fanout = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveLaneFanoutPressure.kt").readText()
         assertTrue("V5.0.6127: extreme ratio pressure must exist",
             fanout.contains("extremeRatioPressure6127") && fanout.contains("ratio > 50.0"))
