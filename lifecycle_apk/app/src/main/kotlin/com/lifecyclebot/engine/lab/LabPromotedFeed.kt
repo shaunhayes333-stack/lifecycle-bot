@@ -41,6 +41,37 @@ object LabPromotedFeed {
 
     fun isLiveAuthorised(strategyId: String): Boolean = liveAuthorised.contains(strategyId)
 
+    /**
+     * V5.0.6129 — operator manual bridge: IMPLEMENT ALL PROVEN.
+     * Grants live authority to every PROMOTED strategy and marks its target lane
+     * as recovered in LanePolicy so proof actually changes future execution.
+     * Returns the number of newly-authorised strategies. Hard safety remains in FDG/executor.
+     */
+    fun implementAllProven6129(reason: String = "manual"): Int {
+        var implemented = 0
+        try {
+            val promoted = LlmLabStore.allStrategies().filter { it.status == LabStrategyStatus.PROMOTED }
+            for (s in promoted) {
+                val wasLocked = requireLiveApproval(s.id)
+                grantLiveAuthority(s.id)
+                if (wasLocked) implemented++
+                val lane = s.targetLane.takeIf { it.isNotBlank() }
+                    ?: s.name.removePrefix("AutoPivot ·").trim().split(" ").firstOrNull()?.uppercase().orEmpty()
+                val band = s.name.removePrefix("AutoPivot ·").trim().split(" ").firstOrNull { it.uppercase().startsWith("S") }?.uppercase() ?: "S41-60"
+                if (lane.isNotBlank()) {
+                    try { com.lifecyclebot.engine.learning.LanePolicy.noteImprovement(lane, band) } catch (_: Throwable) {}
+                }
+            }
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAB_MANUAL_IMPLEMENT_ALL_PROVEN_6129")
+                ErrorLogger.info(TAG, "🧪 LAB_MANUAL_IMPLEMENT_ALL_PROVEN_6129 reason=$reason promoted=${promoted.size} newlyAuthorised=$implemented")
+            } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            ErrorLogger.warn(TAG, "LAB_MANUAL_IMPLEMENT_ALL_PROVEN_6129 failed: ${t.message}")
+        }
+        return implemented
+    }
+
     // ────────────────────────────────────────────────────────────────────────
     // ENTRY NUDGE — applied by Executor.doBuy on top of legacy logic.
     // ────────────────────────────────────────────────────────────────────────

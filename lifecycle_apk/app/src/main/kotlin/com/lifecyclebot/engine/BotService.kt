@@ -1555,8 +1555,18 @@ class BotService : Service() {
         // Initialize TradeHistoryStore for persistent trade stats
         TradeHistoryStore.init(applicationContext)
 
-        // V5.9.438 — durable outcome-learning trackers across restarts.
-        try { LearningPersistence.init(applicationContext) } catch (_: Exception) {}
+        // V5.9.438 / V5.0.6129 — durable outcome-learning trackers across restarts.
+        // Runtime report 6128 showed ANR samples at LearningPersistence.init(SourceFile:16)
+        // during live trading. BotService.onCreate is a service/main-thread startup path;
+        // do not parse/write learning blobs synchronously here. Launch on IO; consumers
+        // tolerate warmup defaults until persistence completes, while live scanner/executor
+        // hard safety and wallet authority remain independent.
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                LearningPersistence.init(applicationContext)
+                PipelineHealthCollector.labelInc("LEARNING_PERSISTENCE_INIT_IO_6129")
+            } catch (_: Exception) {}
+        }
         // V5.0.4307 — report-only runtime proof for smart/dormant-system registry
         // and closeout sentinels. No scanner, FDG, sizing, routing, wallet, or
         // execution authority; this only makes theatre-vs-runtime visible.

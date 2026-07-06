@@ -173,6 +173,19 @@ object NoTradeObservationStore {
                 try {
                     PipelineHealthCollector.labelInc("NO_TRADE_FWD_SAMPLE_${w / 1000}s")
                 } catch (_: Throwable) {}
+                // V5.0.6129 — no-paid-probe reintroduction proof. If a blocked/retraining
+                // candidate later shows a clean +TP move without assumed stop/rug/untradable
+                // failure, feed that counterfactual proof back into LanePolicy. This lets
+                // lanes pivot/recover from shadow evidence instead of buying the same toxic
+                // setup smaller. It never opens the token retroactively and never bypasses
+                // FDG hard safety; it only changes the future lane-local policy state.
+                if (s.wouldHaveHitTP && !s.wouldHaveHitStop && !s.wouldHaveRugged && !s.wouldHaveBeenUntradable) {
+                    try {
+                        LanePolicy.noteImprovement(row.lane, row.scoreBand)
+                        PipelineHealthCollector.labelInc("NO_TRADE_COUNTERFACTUAL_REINTRO_6129")
+                        PipelineHealthCollector.labelInc("NO_TRADE_COUNTERFACTUAL_REINTRO_6129|${row.lane.uppercase().take(24)}")
+                    } catch (_: Throwable) {}
+                }
             }
         }
     }

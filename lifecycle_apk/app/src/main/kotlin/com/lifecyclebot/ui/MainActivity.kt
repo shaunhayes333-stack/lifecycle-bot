@@ -539,7 +539,7 @@ class MainActivity : AppCompatActivity() {
     // Panels beyond the budget skip their rebuild this tick and request another
     // render shortly after, spreading the work across frames. Cheap header/text
     // updates (setTextIfChanged) are never gated — only full row re-inflation.
-    private val HEAVY_RENDER_BUDGET_PER_TICK: Int = 2
+    private val HEAVY_RENDER_BUDGET_PER_TICK: Int = 1
     private var heavyRenderBudgetRemaining: Int = 2
     private var deferredHeavyRenderPending: Boolean = false
     // Returns true and consumes one unit if budget remains; else false (defer).
@@ -629,11 +629,11 @@ class MainActivity : AppCompatActivity() {
     // still showed 18.9s frame gaps with renderWatchlist/renderOpenPositions and
     // TextView highlight/layout work. While running, dashboard rows are observability
     // only; cap them harder and repaint heavy panels slower.
-    private val HEAVY_REPAINT_MIN_INTERVAL_MS: Long = 2_500L
+    private val HEAVY_REPAINT_MIN_INTERVAL_MS: Long = 8_000L
     // Row caps live here as single source of truth (was inline magic numbers).
-    private val WATCHLIST_ROW_CAP: Int = 6
-    private val IDLE_ROW_CAP: Int = 3
-    private val OPENPOS_ROW_CAP: Int = 10
+    private val WATCHLIST_ROW_CAP: Int = 4
+    private val IDLE_ROW_CAP: Int = 2
+    private val OPENPOS_ROW_CAP: Int = 4
     private var lastRuntimeBarForensicMs: Long = 0L
     @Volatile private var forceNextForegroundRender: Boolean = false
     @Volatile private var mainUiActive: Boolean = false
@@ -3851,8 +3851,11 @@ for legal compliance.
         // updateUi pass add another removeAllViews/TextView/layout storm.
         val anrHintsForRenderShed = try { com.lifecyclebot.engine.PipelineHealthCollector.anrHintCountNow() } catch (_: Throwable) { 0 }
         val nowForRenderShed = System.currentTimeMillis()
-        if (runtimeActiveForUi && anrHintsForRenderShed >= 100) {
-            anrHeavyRenderShedUntilMs = maxOf(anrHeavyRenderShedUntilMs, nowForRenderShed + 15_000L)
+        if (runtimeActiveForUi && anrHintsForRenderShed >= 5) {
+            // V5.0.6129 — runtime report showed ANR=10 with avg loop 12s/max 73s,
+            // but the old shed threshold was 100, so UI/reporting kept stealing cycles.
+            // Shed row-heavy cards early while live; money-path/header/open truth still paints.
+            anrHeavyRenderShedUntilMs = maxOf(anrHeavyRenderShedUntilMs, nowForRenderShed + 30_000L)
         }
         if (runtimeActiveForUi && nowForRenderShed < anrHeavyRenderShedUntilMs) {
             // V5.0.6040 — ANR shed may skip non-critical heavy panels, but it may
@@ -9736,6 +9739,16 @@ This cannot be undone!
         findViewById<View>(R.id.btnQuickLab)?.setOnClickListener {
             startActivity(Intent(this, com.lifecyclebot.ui.LabActivity::class.java))
             performHaptic()
+        }
+        // V5.0.6129 — manual implement button without adding more layout chrome:
+        // long-press Lab to authorise every PROMOTED/proven strategy and mark its
+        // LanePolicy bucket recovered. This is operator-only UI action; hard safety
+        // and FDG/executor final gates remain intact.
+        findViewById<View>(R.id.btnQuickLab)?.setOnLongClickListener {
+            val n = try { com.lifecyclebot.engine.lab.LabPromotedFeed.implementAllProven6129("main_lab_tile_long_press") } catch (_: Throwable) { 0 }
+            Toast.makeText(this, "Implemented $n newly proven Lab strategies", Toast.LENGTH_SHORT).show()
+            performHaptic()
+            true
         }
 
         // V1.0: "Open Full Crypto Alts Screen" button inside card → same

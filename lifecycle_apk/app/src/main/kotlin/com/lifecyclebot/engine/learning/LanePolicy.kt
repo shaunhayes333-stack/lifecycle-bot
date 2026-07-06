@@ -359,13 +359,38 @@ object LanePolicy {
 
     fun noteImprovement(lane: String, scoreBand: String) {
         val now = System.currentTimeMillis()
-        getOrCreateLaneCell(lane).also {
-            it.lastImprovedAt.set(now)
-            it.recoveryCandidate.set(1L)
+        recoverFromProof6129(getOrCreateLaneCell(lane), "lane", laneKey(lane), lane, scoreBand, now)
+        recoverFromProof6129(getOrCreateBucketCell(lane, scoreBand), "bucket", bucketKey(lane, scoreBand), lane, scoreBand, now)
+    }
+
+    private fun recoverFromProof6129(cell: Cell, kind: String, key: String, lane: String, scoreBand: String, now: Long) {
+        cell.lastImprovedAt.set(now)
+        cell.recoveryCandidate.set(1L)
+        val cur = State.values()[cell.policy.get()]
+        val next = when (cur) {
+            // V5.0.6129 — proof must have execution consequences. A Lab-promoted
+            // or counterfactual-proven pivot cannot sit forever in RETRAINING / TRAIN_ONLY.
+            // Reintroduce as REDUCED_SIZE_EXECUTION: lane-local strategy pivot first,
+            // still bounded; never bypasses hard safety or invalid-data blocks.
+            State.RETRAINING,
+            State.TRAIN_ONLY_NO_OPEN,
+            State.SHADOW_TRACK_ONLY,
+            State.PAPER_MICRO_EXECUTION -> State.REDUCED_SIZE_EXECUTION
+            State.DEMOTION_CANDIDATE -> State.REDUCED_SIZE_EXECUTION
+            else -> cur
         }
-        getOrCreateBucketCell(lane, scoreBand).also {
-            it.lastImprovedAt.set(now)
-            it.recoveryCandidate.set(1L)
+        if (next != cur) {
+            cell.policy.set(next.ordinal)
+            cell.executionWeight.set((defaultExecutionWeight(next) * WEIGHT_SCALE).toLong())
+            cell.learningWeight.set((defaultLearningWeight(next) * WEIGHT_SCALE).toLong())
+            persist(kind, key, cell)
+            try {
+                PipelineHealthCollector.labelInc("LANE_POLICY_PROOF_REINTRODUCED_6129")
+                PipelineHealthCollector.labelInc("LANE_POLICY_PROOF_REINTRODUCED_6129|${laneKey(lane)}")
+            } catch (_: Throwable) {}
+            ErrorLogger.info("LanePolicy", "🧭 LANE_POLICY_PROOF_REINTRODUCED_6129 $kind=$key $cur → $next lane=$lane band=$scoreBand")
+        } else {
+            persist(kind, key, cell)
         }
     }
 

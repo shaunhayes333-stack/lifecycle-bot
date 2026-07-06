@@ -7742,4 +7742,31 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6128: huge runner lock breach bypasses BE before hard-floor decay",
             botService6128.contains("RUNNER_GIVEBACK_LOCK_BE_BYPASS_6128") && botService6128.contains("runnerGivebackMustBank6128"))
     }
+
+    @org.junit.Test fun V5_0_6129_lab_implementation_reintro_and_runtime_anr_fixes() {
+        val labFeed = java.io.File("src/main/kotlin/com/lifecyclebot/engine/lab/LabPromotedFeed.kt").readText()
+        assertTrue("V5.0.6129: manual implement-all must grant authority to all promoted strategies",
+            labFeed.contains("implementAllProven6129") && labFeed.contains("grantLiveAuthority(s.id)") && labFeed.contains("LAB_MANUAL_IMPLEMENT_ALL_PROVEN_6129"))
+        val labEngine = java.io.File("src/main/kotlin/com/lifecyclebot/engine/lab/LlmLabEngine.kt").readText()
+        assertTrue("V5.0.6129: auto-promoted Lab strategies must be implemented/live-authorised",
+            labEngine.contains("AUTO-PROMOTED+IMPLEMENTED_6129") && labEngine.contains("LAB_PROMOTED_AUTO_IMPLEMENTED_6129") && labEngine.contains("LabPromotedFeed.grantLiveAuthority(s.id)"))
+        val lanePolicy = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/LanePolicy.kt").readText()
+        assertTrue("V5.0.6129: proof must reintroduce retraining buckets as reduced-size execution",
+            lanePolicy.contains("recoverFromProof6129") && lanePolicy.contains("LANE_POLICY_PROOF_REINTRODUCED_6129") && lanePolicy.contains("State.RETRAINING,") && lanePolicy.contains("State.REDUCED_SIZE_EXECUTION"))
+        val shadow = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneShadowProofLoop.kt").readText()
+        assertTrue("V5.0.6129: shadow-proof loop must implement proven Lab strategies, not only unpause lanes",
+            shadow.contains("lab_shadow_proof_implemented_6129") && shadow.contains("LANE_SHADOW_PROOF_IMPLEMENTED_6129") && shadow.contains("LabPromotedFeed.grantLiveAuthority(laneProven.id)"))
+        val noTrade = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/NoTradeObservationStore.kt").readText()
+        assertTrue("V5.0.6129: no-trade counterfactual TP proof must feed LanePolicy reintro without paid probes",
+            noTrade.contains("NO_TRADE_COUNTERFACTUAL_REINTRO_6129") && noTrade.contains("wouldHaveHitTP") && noTrade.contains("LanePolicy.noteImprovement(row.lane, row.scoreBand)"))
+        val botService6129 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.6129: LearningPersistence init must run on IO instead of service main-thread startup",
+            botService6129.contains("LEARNING_PERSISTENCE_INIT_IO_6129") && botService6129.contains("scope.launch(kotlinx.coroutines.Dispatchers.IO)"))
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue("V5.0.6129: runtime UI ANR shed must activate before 100 hints and use tighter row caps",
+            main.contains("anrHintsForRenderShed >= 5") && main.contains("HEAVY_REPAINT_MIN_INTERVAL_MS: Long = 8_000L") && main.contains("WATCHLIST_ROW_CAP: Int = 4") && main.contains("OPENPOS_ROW_CAP: Int = 4"))
+        assertTrue("V5.0.6129: Lab tile long press must manually implement proven strategies",
+            main.contains("setOnLongClickListener") && main.contains("""implementAllProven6129("main_lab_tile_long_press")"""))
+    }
+
 }

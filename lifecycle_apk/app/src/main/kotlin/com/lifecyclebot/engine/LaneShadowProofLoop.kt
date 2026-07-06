@@ -159,15 +159,21 @@ object LaneShadowProofLoop {
                 val laneProven = findProvenStrategy(allStrategies, targetAsset)
                 if (laneProven != null) {
                     try {
+                        // V5.0.6129 — shadow proof must implement the winning Lab strategy,
+                        // not merely unpause the lane. Grant live authority and recover
+                        // LanePolicy before resume; hard safety and route finality still gate buys.
+                        try { com.lifecyclebot.engine.lab.LabPromotedFeed.grantLiveAuthority(laneProven.id) } catch (_: Throwable) {}
+                        try { com.lifecyclebot.engine.learning.LanePolicy.noteImprovement(lane, "S41-60") } catch (_: Throwable) {}
                         LaneAutoPauseGuard.manualResume(
                             lane = lane,
-                            note = "lab_shadow_proof strat=${laneProven.id} name=${laneProven.name.take(40)} n=${laneProven.paperTrades} wr=${"%.1f".format(laneProven.winRatePct())}% pnl=${"%.4f".format(laneProven.paperPnlSol)}SOL",
+                            note = "lab_shadow_proof_implemented_6129 strat=${laneProven.id} name=${laneProven.name.take(40)} n=${laneProven.paperTrades} wr=${"%.1f".format(laneProven.winRatePct())}% pnl=${"%.4f".format(laneProven.paperPnlSol)}SOL",
                         )
                         ErrorLogger.info(
                             "LaneShadowProofLoop",
                             "✅ LANE_SHADOW_PROOF_RESUMED lane=$lane strat=${laneProven.id} name='${laneProven.name}' asset=$targetAsset n=${laneProven.paperTrades} wr=${"%.1f".format(laneProven.winRatePct())}% pnl=${"%.4f".format(laneProven.paperPnlSol)}SOL",
                         )
                         PipelineHealthCollector.labelInc("LANE_SHADOW_PROOF_RESUMED_$lane")
+                        PipelineHealthCollector.labelInc("LANE_SHADOW_PROOF_IMPLEMENTED_6129")
                     } catch (_: Throwable) {}
                 }
             }

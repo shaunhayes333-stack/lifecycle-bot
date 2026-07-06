@@ -736,7 +736,16 @@ Reply with just the JSON object, nothing else.
             ) {
                 LlmLabStore.updateStrategy(s.copy(status = LabStrategyStatus.PROMOTED))
                 try { markLanePolicyRecoveredByLab6107(s) } catch (_: Throwable) {}
-                ErrorLogger.info(TAG, "🧪 AUTO-PROMOTED ${s.name} → live influence " +
+                // V5.0.6129 — operator doctrine: proven Lab strategies must be implemented,
+                // not left as advisory/paper-only ideas. Promotion proof already requires
+                // economic paper sizing, WR floor, and +SOL edge; grant live authority so
+                // Executor/CryptoAlt consumers can actually apply the strategy. Hard safety,
+                // wallet authority, FDG invalid-data, and sell finality remain untouched.
+                try {
+                    LabPromotedFeed.grantLiveAuthority(s.id)
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAB_PROMOTED_AUTO_IMPLEMENTED_6129")
+                } catch (_: Throwable) {}
+                ErrorLogger.info(TAG, "🧪 AUTO-PROMOTED+IMPLEMENTED_6129 ${s.name} → live authority " +
                     "(${s.paperTrades} trades · WR ${"%.0f".format(s.winRatePct())}% · " +
                     "PnL ${"%+.3f".format(s.paperPnlSol)}◎)")
             }
