@@ -7885,4 +7885,16 @@ class GoldenTapeRegressionTest {
             exec.contains("RouteTournamentBrain.evaluate(ts, ts.position.tradingMode)") && exec.contains("routeTournamentPosture6138.pumpFirstAllowed") && exec.contains("routePref=${'$'}{routeTournamentPosture6138.preferredRoute}") && exec.contains("pumpFirstAllowed=${'$'}{routeTournamentPosture6138.pumpFirstAllowed}"))
     }
 
+
+    @org.junit.Test fun V5_0_6139_entry_archetype_classifier_shared_meme_crypto_style_truth() {
+        val brain = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EntryArchetypeClassifier.kt").readText()
+        assertTrue("V5.0.6139: EntryArchetypeClassifier must define shared deterministic entry labels for Meme now and Crypto Universe parity later",
+            brain.contains("object EntryArchetypeClassifier") && brain.contains("Shared entry-style taxonomy") && brain.contains("Crypto Universe parity later") && brain.contains("green_momentum_breakout") && brain.contains("liquidity_depth_quality") && brain.contains("pullback_reclaim") && brain.contains("pump_graduation"))
+        assertTrue("V5.0.6139: archetype classifier must be local-only and non-blocking",
+            brain.contains("no network/LLM") && brain.contains("no hard block") && brain.contains("sizeMultiplier") && brain.contains("confidence"))
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6139: liveBuy must apply entry archetype and clean-live style bias inside the existing live execution size stack",
+            exec.contains("EntryArchetypeClassifier.classify(ts, ts.position.tradingMode)") && exec.contains("entryArchetypeCleanLiveBias6139") && exec.contains("StrategyTelemetry.liveStyleSizeMultiplier(ts.position.tradingMode, entryArchetype6139.label)") && exec.contains("archetype=${'$'}{entryArchetype6139.label}"))
+    }
+
 }

@@ -13328,13 +13328,17 @@ class Executor(
         val routeTournamentPosture6138 = try { RouteTournamentBrain.evaluate(ts, ts.position.tradingMode) } catch (_: Throwable) {
             RouteTournamentBrain.Posture("JUPITER_DEFAULT", pumpFirstAllowed = false, 1.0, "brain_error_neutral")
         }
-        val executionCostAndFlowSizeMult6137 = (executionCostPosture6136.sizeMultiplier * adversarialFlowPosture6137.sizeMultiplier * routeTournamentPosture6138.sizeMultiplier).coerceIn(0.35, 1.12)
+        val entryArchetype6139 = try { EntryArchetypeClassifier.classify(ts, ts.position.tradingMode) } catch (_: Throwable) {
+            EntryArchetypeClassifier.Archetype("standard_flow", 50, 1.0, "brain_error_neutral")
+        }
+        val entryArchetypeCleanLiveBias6139 = try { StrategyTelemetry.liveStyleSizeMultiplier(ts.position.tradingMode, entryArchetype6139.label) } catch (_: Throwable) { 1.0 }
+        val executionCostAndFlowSizeMult6137 = (executionCostPosture6136.sizeMultiplier * adversarialFlowPosture6137.sizeMultiplier * routeTournamentPosture6138.sizeMultiplier * entryArchetype6139.sizeMultiplier * entryArchetypeCleanLiveBias6139).coerceIn(0.35, 1.25)
         val effectiveSol = if (executionCostAndFlowSizeMult6137 < 0.999 || executionCostAndFlowSizeMult6137 > 1.001) {
             val costSized = (sol * executionCostAndFlowSizeMult6137).coerceAtLeast(0.0)
             try {
                 ForensicLogger.lifecycle(
                     "EXECUTION_COST_FLOW_BUY_SIZE_APPLIED_6137",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${sol.fmt(4)} to=${costSized.fmt(4)} mult=${executionCostAndFlowSizeMult6137.fmt(2)} expectedSlip=${executionCostPosture6136.expectedSlipPct.fmt(1)} flowRisk=${adversarialFlowPosture6137.riskScore} routePref=${routeTournamentPosture6138.preferredRoute} costReason=${executionCostPosture6136.reason} flowReason=${adversarialFlowPosture6137.reason} routeReason=${routeTournamentPosture6138.reason} soft_shape_only=true no_hot_path_provider=true",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${sol.fmt(4)} to=${costSized.fmt(4)} mult=${executionCostAndFlowSizeMult6137.fmt(2)} expectedSlip=${executionCostPosture6136.expectedSlipPct.fmt(1)} flowRisk=${adversarialFlowPosture6137.riskScore} routePref=${routeTournamentPosture6138.preferredRoute} archetype=${entryArchetype6139.label} archetypeLiveBias=${entryArchetypeCleanLiveBias6139.fmt(2)} costReason=${executionCostPosture6136.reason} flowReason=${adversarialFlowPosture6137.reason} routeReason=${routeTournamentPosture6138.reason} archReason=${entryArchetype6139.reason} soft_shape_only=true no_hot_path_provider=true",
                 )
                 PipelineHealthCollector.labelInc("EXECUTION_COST_FLOW_BUY_SIZE_APPLIED_6137")
             } catch (_: Throwable) {}
@@ -13453,7 +13457,7 @@ class Executor(
                 try {
                     ForensicLogger.lifecycle(
                         "STANDARD_QUOTE_RACE_EDGE_6134",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneForQuoteRace6135 score=${ts.entryScore.toInt()} green=${quoteRacePosture6135.greenCandlePct.fmt(1)} buyPressure=${ts.lastBuyPressurePct.fmt(1)} momentum=${(ts.momentum ?: 0.0).fmt(1)} tickAgeMs=${quoteRacePosture6135.tickAgeMs} reason=${quoteRacePosture6135.reason} priorityFee=$buyPriorityFeeSol6134 pumpSlip=$pumpSlipPct6134 expectedSlip=${executionCostPosture6136.expectedSlipPct.fmt(1)} flowRisk=${adversarialFlowPosture6137.riskScore} brain=QuoteRaceBrain6135+ExecutionCostBrain6136+AdversarialFlowBrain6137",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneForQuoteRace6135 score=${ts.entryScore.toInt()} green=${quoteRacePosture6135.greenCandlePct.fmt(1)} buyPressure=${ts.lastBuyPressurePct.fmt(1)} momentum=${(ts.momentum ?: 0.0).fmt(1)} tickAgeMs=${quoteRacePosture6135.tickAgeMs} reason=${quoteRacePosture6135.reason} priorityFee=$buyPriorityFeeSol6134 pumpSlip=$pumpSlipPct6134 expectedSlip=${executionCostPosture6136.expectedSlipPct.fmt(1)} flowRisk=${adversarialFlowPosture6137.riskScore} archetype=${entryArchetype6139.label} brain=QuoteRaceBrain6135+ExecutionCostBrain6136+AdversarialFlowBrain6137+EntryArchetype6139",
                     )
                     PipelineHealthCollector.labelInc("STANDARD_QUOTE_RACE_EDGE_6134")
                     PipelineHealthCollector.labelInc("QUOTE_RACE_BRAIN_ENABLED_6135")
