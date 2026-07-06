@@ -7821,10 +7821,11 @@ class GoldenTapeRegressionTest {
 
     @org.junit.Test fun V5_0_6134_standard_quote_race_and_clean_live_compounding_brain() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6134: STANDARD/CORE/V3 fresh green candles must get urgent quote-race execution posture without double-broadcasting",
-            exec.contains("STANDARD_QUOTE_RACE_EDGE_6134") && exec.contains("quoteRaceEdge6134") && exec.contains("greenCandlePct6134 >= 8.0") && exec.contains("ts.lastBuyPressurePct >= 68.0") && exec.contains("pumpSlipPct6134") && exec.contains("urgentBuyTip6134"))
-        assertTrue("V5.0.6134: quote-race edge must widen live buy slippage ladder only under the edge condition",
-            exec.contains("if (quoteRaceEdge6134) listOf(buyBaseSlippage, 500, 750).distinct() else listOf(buyBaseSlippage, 350, 500).distinct()") && exec.contains("slip.coerceAtMost(if (quoteRaceEdge6134) 750 else 500)"))
+        val quoteBrain = java.io.File("src/main/kotlin/com/lifecyclebot/engine/QuoteRaceBrain.kt").readText()
+        assertTrue("V5.0.6134/6135: STANDARD/CORE/V3 fresh green candles must get urgent quote-race execution posture through QuoteRaceBrain without double-broadcasting",
+            exec.contains("STANDARD_QUOTE_RACE_EDGE_6134") && exec.contains("quoteRaceEdge6134") && exec.contains("QuoteRaceBrain.evaluate(ts, laneForQuoteRace6135)") && quoteBrain.contains("greenPct >= 8.0") && quoteBrain.contains("buyPressure >= 68.0") && exec.contains("pumpSlipPct6134") && exec.contains("urgentBuyTip6134"))
+        assertTrue("V5.0.6134/6136: quote-race/cost edge must widen live buy slippage ladder only through bounded posture",
+            exec.contains("val slippageLadder = if (quoteRaceEdge6134 || executionCostPosture6136.expectedSlipPct >= 6.0)") && exec.contains("maxBuySlipBps6136") && exec.contains("slip.coerceAtMost(maxBuySlipBps6136)"))
         val strat = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTelemetry.kt").readText()
         assertTrue("V5.0.6134: live style compounding brain must press +EV clean-live lane|style cells harder and shrink toxic cells harder",
             strat.contains("CLEAN-LIVE COMPOUNDING BRAIN") && strat.contains("pfEdge6134") && strat.contains("elite ->") && strat.contains("coerceIn(1.18, 1.45)") && strat.contains("coerceIn(0.52, 0.78)"))
