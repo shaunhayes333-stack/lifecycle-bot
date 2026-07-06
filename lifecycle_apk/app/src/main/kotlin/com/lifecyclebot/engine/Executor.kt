@@ -6157,9 +6157,14 @@ class Executor(
                     }
                     if (!runnerIntact && !settleIn) {
                         val feedAgeMin = (feedAgeMs ?: 0L) / 60_000L
-                        onLog("💀 STALE_FEED_EVICT: ${ts.symbol} feedAge=${feedAgeMin}min held=${heldMin.toInt()}min pnl=${"%+.0f".format(curPnl)}% — dead feed, recycling slot", ts.mint)
-                        doSell(ts, "stale_feed_evict_feedAge${feedAgeMin}m_held${heldMin.toInt()}m", wallet, walletSol)
-                        return
+                        // V5.0.6128 — MoonshotHoldMode: don't evict a moonshot runner
+                        // for stale feed. The trailing stop will handle exit when price
+                        // returns. Only evict if MoonshotHoldMode also says exit is OK.
+                        if (!moonshotHoldGate(ts, curPnl, "STALE_FEED_EVICT")) {
+                            onLog("💀 STALE_FEED_EVICT: ${ts.symbol} feedAge=${feedAgeMin}min held=${heldMin.toInt()}min pnl=${"%+.0f".format(curPnl)}% — dead feed, recycling slot", ts.mint)
+                            doSell(ts, "stale_feed_evict_feedAge${feedAgeMin}m_held${heldMin.toInt()}m", wallet, walletSol)
+                            return
+                        }
                     }
                 }
             } catch (_: Throwable) { /* fail-open: eviction must never break exit management */ }
@@ -8033,7 +8038,13 @@ class Executor(
                     "Executor",
                     "🚪 mode_maxhold${_zombie}: ${ts.symbol} mode=${modeConfig.mode.name} held=${_held.toInt()}min > ${_effectiveMaxHold.toInt()}min peak=+${_peakGain.toInt()}% pnl=${"%+.0f".format(_curPnl)}% (regime×${"%.2f".format(_regimeHoldMult)}) utc=${_utcHour}:00"
                 )
-                doSell(ts, _reason, wallet, walletSol); return
+                // V5.0.6128 — MoonshotHoldMode: don't let maxHold kill a runner
+                // that MoonshotHoldMode says to keep. The runner bypass above uses
+                // 70% of peak; MoonshotHoldMode uses 50% drop from peak — stricter
+                // hold policy for ANSEM-style runners.
+                if (!moonshotHoldGate(ts, _curPnl, "MODE_MAXHOLD")) {
+                    doSell(ts, _reason, wallet, walletSol); return
+                }
             }
         }
 
@@ -8596,8 +8607,11 @@ class Executor(
                         "Executor",
                         "🚪 mode_maxhold(v3)${_zombie2}: ${ts.symbol} mode=${modeConfig.mode.name} held=${held.toInt()}min > ${effectiveMaxHold2.toInt()}min peak=+${_peakGain2.toInt()}% pnl=${"%+.0f".format(_curPnl2)}% (regime×${"%.2f".format(regimeHoldMult2)}) utc=${_utcHour2}:00"
                     )
-                    doSell(ts, _reason2, wallet, walletSol, identity)
-                    return
+                    // V5.0.6128 — MoonshotHoldMode sibling: same gate as primary maxhold
+                    if (!moonshotHoldGate(ts, _curPnl2, "MODE_MAXHOLD_V3")) {
+                        doSell(ts, _reason2, wallet, walletSol, identity)
+                        return
+                    }
                 }
             }
             
