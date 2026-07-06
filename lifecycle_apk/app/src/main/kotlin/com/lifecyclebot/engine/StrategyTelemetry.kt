@@ -51,6 +51,44 @@ object StrategyTelemetry {
         }
     }
 
+    // V5.0.6131 — LIVE STYLE EDGE KEY. Lane-only StrategyTruth hides the
+    // actual tactic/style that reached capital. Live rows already persist routed
+    // style in tradingModeEmoji as `style|emoji`; group it as lane|style without
+    // mutating canonical lane tags used by legacy learners.
+    private fun cleanStyleToken(raw: String): String {
+        val first = raw.substringBefore("|").trim()
+        val u = first.uppercase().replace('-', '_').replace(' ', '_')
+        return u.takeIf { it.any { ch -> ch in 'A'..'Z' } && it.length >= 3 }?.take(48).orEmpty()
+    }
+
+    fun styleEdgeKey(t: Trade): String {
+        val laneRaw = t.tradingMode.ifBlank { "STANDARD" }
+        val lane = try { TradeHistoryStore.normalizeTradeModeName(laneRaw) } catch (_: Throwable) { laneRaw }
+        val style = cleanStyleToken(t.tradingModeEmoji)
+        return if (style.isNotBlank() && !style.equals(lane, true)) "${lane.uppercase()}|$style" else lane.uppercase()
+    }
+
+    private fun aggregateRows(rows: List<Trade>, keyFor: (Trade) -> String, pctCtx: String): List<StrategyMetric> {
+        if (rows.isEmpty()) return emptyList()
+        return rows.groupBy { keyFor(it).ifBlank { "STANDARD" } }.map { (strategy, trades) ->
+            fun rowPnlSol(t: Trade): Double = t.netPnlSol.takeIf { it != 0.0 } ?: t.pnlSol
+            fun sanePct(p: Double): Double = LearningPnlSanitizer.inspectPct(p, pctCtx, emit = false).takeIf { it.ok }?.pnlPct ?: 0.0
+            val wins = trades.count { rowPnlSol(it) > 0.0 }
+            val losses = trades.count { rowPnlSol(it) < 0.0 }
+            val scratches = trades.size - wins - losses
+            val sumPnlPct = trades.sumOf { sanePct(it.pnlPct) }
+            val meanPnlPct = if (trades.isNotEmpty()) sumPnlPct / trades.size else 0.0
+            val wlDenom = wins + losses
+            val wr = if (wlDenom > 0) wins * 100.0 / wlDenom else 0.0
+            val totalSol = trades.sumOf { rowPnlSol(it) }
+            val winPcts = trades.asSequence().map { sanePct(it.pnlPct) }.filter { it >= 0.5 }.toList()
+            val lossPcts = trades.asSequence().map { sanePct(it.pnlPct) }.filter { it <= -2.0 }.toList()
+            StrategyMetric(strategy, trades.size, wins, losses, scratches, sumPnlPct, meanPnlPct, wr, totalSol,
+                if (winPcts.isNotEmpty()) winPcts.sum() / winPcts.size else 0.0,
+                if (lossPcts.isNotEmpty()) lossPcts.sum() / lossPcts.size else 0.0)
+        }
+    }
+
     /**
      * Aggregate close trades by their `tradingMode` field. BUYs are excluded — they
      * have pnlPct=0.0 by definition and would skew EV.
@@ -183,6 +221,9 @@ object StrategyTelemetry {
     @Volatile private var cleanPaperLeaderboardCacheMs: Long = 0L
     @Volatile private var cleanPaperLeaderboardCacheLimit: Int = 0
     private const val CLEAN_PAPER_LEADERBOARD_TTL_MS = 10_000L
+    @Volatile private var cleanLiveStyleLeaderboardCache: List<StrategyMetric> = emptyList()
+    @Volatile private var cleanLiveStyleLeaderboardCacheMs: Long = 0L
+    @Volatile private var cleanLiveStyleLeaderboardCacheLimit: Int = 0
 
     // V5.0.4513 — decision-facing clean live authority. The legacy live
     // leaderboard reads raw close snapshots and sanitizes obvious outliers, but
@@ -239,6 +280,41 @@ object StrategyTelemetry {
         cleanLiveLeaderboardCacheMs = now
         cleanLiveLeaderboardCacheLimit = limit
         return result
+    }
+
+    /**
+     * V5.0.6131 — live-only style/tactic edge surface. Paper/shadow can propose
+     * strategies, but LIVE sizing consults only clean LIVE terminal SELL style truth.
+     */
+    fun computeCleanLiveStyleTerminalLeaderboard(limit: Int = 2_500): List<StrategyMetric> {
+        val now = System.currentTimeMillis()
+        val cached = cleanLiveStyleLeaderboardCache
+        if (cached.isNotEmpty() && cleanLiveStyleLeaderboardCacheLimit >= limit &&
+            (now - cleanLiveStyleLeaderboardCacheMs) < CLEAN_LIVE_LEADERBOARD_TTL_MS) return cached
+        val raw = try { TradeHistoryStore.getRecentValidClosedTradesRaw(limit = limit, includePartials = true) } catch (_: Throwable) { emptyList() }
+        val cleanRows = try { StrategyTruthLedger.clean(raw, limit).rows } catch (_: Throwable) { raw }
+            .filter { it.mode.equals("live", true) && it.side.equals("SELL", true) }
+            .filter { styleEdgeKey(it).contains("|") }
+        val result = aggregateRows(cleanRows, ::styleEdgeKey, "StrategyTelemetry.cleanLiveStyle.sanePct")
+        cleanLiveStyleLeaderboardCache = result
+        cleanLiveStyleLeaderboardCacheMs = now
+        cleanLiveStyleLeaderboardCacheLimit = limit
+        return result
+    }
+
+    fun liveStyleSizeMultiplier(lane: String, style: String, limit: Int = 1_500): Double {
+        val safeLane = try { TradeHistoryStore.normalizeTradeModeName(lane).ifBlank { lane.uppercase() } } catch (_: Throwable) { lane.uppercase() }
+        val safeStyle = cleanStyleToken(style).ifBlank { return 1.0 }
+        val key = "${safeLane.uppercase()}|$safeStyle"
+        val m = try { computeCleanLiveStyleTerminalLeaderboard(limit).firstOrNull { it.strategy.equals(key, true) } } catch (_: Throwable) { null } ?: return 1.0
+        if (m.trades < 3) return 1.0
+        val green = m.totalSolPnl > 0.0 && (m.winRatePct >= 45.0 || m.meanPnlPct >= 10.0 || m.avgWinPct >= 30.0)
+        val toxic = m.trades >= 5 && m.totalSolPnl < 0.0 && (m.winRatePct < 30.0 || m.meanPnlPct <= -8.0)
+        return when {
+            green -> (1.06 + (m.totalSolPnl / 0.25).coerceIn(0.0, 0.18)).coerceIn(1.06, 1.24)
+            toxic -> (0.82 - ((-m.totalSolPnl) / 0.25).coerceIn(0.0, 0.22)).coerceIn(0.60, 0.82)
+            else -> 1.0
+        }
     }
 
     /** Decision-facing live authority: LIVE terminal SELL rows only, no partials, no paper. */

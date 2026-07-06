@@ -2340,7 +2340,8 @@ class GoldenTapeRegressionTest {
         val maturity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveMaturityAuthority.kt").readText()
         assertTrue("Live maturity must be based on live terminal closes and adapt from trade 1, not mixed lifetime/paper bootstrap", maturity.contains("LIVE_ADAPTIVE_MIN_CLOSES = 1") && maturity.contains("LIVE_MATURE_MIN_CLOSES = 5_000") && maturity.contains("LIVE_ADAPTIVE_FROM_TRADE_1") && maturity.contains("There is no live bootstrap behavior") && !maturity.contains("LIVE_BOOTSTRAP") && maturity.contains("""mode.equals("live", true)"""))
         assertTrue("Reports must leave bootstrap once live terminal closes cross 500", java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText().contains("live terminal closes=") && java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText().contains("LiveMaturityAuthority.snapshot()"))
-        assertTrue("learned live exit rungs must not shape from mixed paper/live StrategyTelemetry", exec.contains("StrategyTelemetry.computeLiveTerminalLeaderboard().firstOrNull") && !exec.contains("StrategyTelemetry.computeLeaderboard().firstOrNull { it.strategy.equals(key, true) }"))
+        assertTrue("learned exit rungs must stay environment-local: clean paper in paper, clean live in live, never mixed leaderboard",
+            exec.contains("board6130") && exec.contains("RuntimeModeAuthority.isPaper()") && exec.contains("StrategyTelemetry.computeCleanPaperTerminalLeaderboard") && exec.contains("StrategyTelemetry.computeCleanLiveTerminalLeaderboard") && !exec.contains("StrategyTelemetry.computeLeaderboard().firstOrNull { it.strategy.equals(key, true) }"))
     }
 
     @Test
@@ -7779,6 +7780,16 @@ class GoldenTapeRegressionTest {
             executor6130.contains("board6130") && executor6130.contains("RuntimeModeAuthority.isPaper()") && executor6130.contains("StrategyTelemetry.computeCleanPaperTerminalLeaderboard") && executor6130.contains("StrategyTelemetry.computeCleanLiveTerminalLeaderboard") && executor6130.contains("LIVE uses clean LIVE StrategyTruth only"))
         assertFalse("V5.0.6130: learnedExitRungs must not use legacy live-only terminal leaderboard",
             executor6130.contains("StrategyTelemetry.computeLiveTerminalLeaderboard().firstOrNull"))
+    }
+
+
+    @org.junit.Test fun V5_0_6131_live_style_edge_compounds_by_clean_live_truth() {
+        val telemetry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTelemetry.kt").readText()
+        assertTrue("V5.0.6131: clean live style truth must group terminal rows by lane|style without changing canonical lane tags",
+            telemetry.contains("fun styleEdgeKey") && telemetry.contains("tradingModeEmoji") && telemetry.contains("computeCleanLiveStyleTerminalLeaderboard") && telemetry.contains("LIVE sizing consults only clean LIVE terminal SELL style truth"))
+        val exec6131 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6131: live final size must consume clean-live style edge after routing and before provider/lane caps",
+            exec6131.contains("LIVE_STYLE_EDGE_SIZE_APPLIED_6131") && exec6131.contains("StrategyTelemetry.liveStyleSizeMultiplier(routedLaneTag, routedStyleTag)") && exec6131.contains("source=clean_live_strategy_truth") && exec6131.contains("liveStyleEdge="))
     }
 
 }

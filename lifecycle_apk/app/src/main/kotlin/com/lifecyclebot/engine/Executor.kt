@@ -12867,6 +12867,24 @@ class Executor(
             sol = (sol * effectiveStyleSizeMultiplier).coerceAtLeast(0.0)
             try { ForensicLogger.lifecycle("LIVE_STYLE_PIVOT_SIZE_APPLIED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforePivotSol.fmt(4)} to=${sol.fmt(4)} mult=${effectiveStyleSizeMultiplier.fmt(2)} finalLane=$routedLaneTag finalStyle=$routedStyleTag reasons=${liveEntryDecision.reasons.joinToString("|")}") } catch (_: Throwable) {}
         }
+        // V5.0.6131 — live-centric style/tactic compounding. Paper/shadow can
+        // prove candidates, but live size pressure here comes only from clean LIVE
+        // terminal StrategyTruth grouped by lane|style. This lets +SOL styles press
+        // and toxic styles shrink inside the same lane instead of amputating the lane.
+        val cleanLiveStyleEdgeMult6131 = try {
+            StrategyTelemetry.liveStyleSizeMultiplier(routedLaneTag, routedStyleTag)
+        } catch (_: Throwable) { 1.0 }
+        if (cleanLiveStyleEdgeMult6131 < 0.999 || cleanLiveStyleEdgeMult6131 > 1.001) {
+            val beforeStyleEdgeSol6131 = sol
+            sol = (sol * cleanLiveStyleEdgeMult6131).coerceAtLeast(0.0)
+            try {
+                ForensicLogger.lifecycle(
+                    "LIVE_STYLE_EDGE_SIZE_APPLIED_6131",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeStyleEdgeSol6131.fmt(4)} to=${sol.fmt(4)} mult=${cleanLiveStyleEdgeMult6131.fmt(2)} lane=$routedLaneTag style=$routedStyleTag source=clean_live_strategy_truth",
+                )
+                PipelineHealthCollector.labelInc("LIVE_STYLE_EDGE_SIZE_APPLIED_6131")
+            } catch (_: Throwable) {}
+        }
         if (providerQuorumSizeMultiplier < 0.999) {
             val beforeProviderSol = sol
             sol = (sol * providerQuorumSizeMultiplier).coerceAtLeast(0.0)
@@ -13900,6 +13918,7 @@ class Executor(
                 reasons = liveEntryDecision.reasons + listOf(
                     "wr=${wrSizeMult.fmt(2)}",
                     "style=${effectiveStyleSizeMultiplier.fmt(2)}",
+                    "liveStyleEdge=${cleanLiveStyleEdgeMult6131.fmt(2)}",
                     "provider=${providerQuorumSizeMultiplier.fmt(2)}",
                     "laneCap=${laneCapitalSizeMultiplier.fmt(2)}",
                 ),
