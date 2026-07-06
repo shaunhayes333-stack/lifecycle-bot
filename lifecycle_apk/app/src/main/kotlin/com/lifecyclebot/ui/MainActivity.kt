@@ -4912,7 +4912,7 @@ for legal compliance.
 
         // V5.9.810 / V5.0.6078 — sort by current unrealized gain % descending
         // (best positive movers through deepest negative losers) so the main UI
-        // shows the top 10 held rows while footer preserves still-held remainder.
+        // shows the capped held rows while footer preserves still-held remainder.
         // Falls back to entryTime when entryPrice/ref aren't set yet
         // (a fresh open with no tick yet) so newly-opened positions
         // still appear before stale ones at 0%/0%.
@@ -5129,9 +5129,9 @@ for legal compliance.
         // V5.9.749 hash-+-2s-interval dedupe stopped most cardless
         // tick rebuilds but did NOT cap the per-rebuild card count.
         // V5.9.1234 / V5.0.6078 — operator requirement: Open Positions must
-        // show exactly the top ten currently held rows when ≥10 exist, ordered
-        // from strongest positive gain down toward negative gain. Rows beyond
-        // 10 stay held/managed and are surfaced in the footer instead of being
+        // show exactly the capped currently held rows when more than RENDER_CAP exist,
+        // ordered from strongest positive gain down toward negative gain. Rows beyond
+        // the cap stay held/managed and are surfaced in the footer instead of being
         // silently lost.
         val RENDER_CAP = OPENPOS_ROW_CAP
         // V5.9.810 — sort by current unrealized gain % descending. When
@@ -5530,8 +5530,8 @@ for legal compliance.
             val stale = openPosCardCache.keys.filter { it !in heldMints6039 }
             stale.forEach { openPosCardCache.remove(it) }
         }
-        // V5.0.6039 — hidden-held note when the cap is applied. The panel
-        // must show exactly the top 10 held rows by gain high→low, and must
+        // V5.0.6039 / V5.0.6129 — hidden-held note when the cap is applied.
+        // The panel must show the capped held rows by gain high→low, and must
         // explicitly list the rest as still held/managed in the same order.
         if (hiddenCount > 0) {
             val hiddenSummary6039 = hiddenHeld6039.take(12).joinToString(" · ") { h ->
