@@ -32,7 +32,7 @@ import java.util.concurrent.ConcurrentHashMap
  *      registers even when Jupiter disagrees.
  *
  *   B) SPIKE CAPTURE ARM. When mark peak crosses +500% we ARM the ladder.
- *      When mark peak >= +1000% we go straight to FULL EXIT via chunked
+ *      When mark peak reaches near-10x (V5.0.6133: +900%) we go straight to FULL EXIT via chunked
  *      partials, bypassing any beOk / style-hold / min-hold gate.
  *
  *   C) CHUNKED EXIT LADDER. Instead of one full-size sell that fails on
@@ -54,7 +54,12 @@ object SpikeGuardExit {
     const val ARM_PEAK_PCT = 500.0
 
     /** Full-exit override — mark peak here bypasses any hold. */
-    const val FULL_EXIT_PEAK_PCT = 1000.0
+    // V5.0.6133 — NEAR-10X BANK. Runtime report showed LORA peak +996.7%
+    // round-trip into TICK_HARD_FLOOR loss. A hard 1000% threshold missed the
+    // full-exit ladder by 3.3%. Bank near-10x runners earlier; 900% is still a
+    // massive realized-wallet win and serves live SOL compounding better than
+    // letting a wick chase the exact 1000% print.
+    const val FULL_EXIT_PEAK_PCT = 900.0
 
     /** Give-back from mark peak that triggers the ladder even before +1000%. */
     const val GIVE_BACK_TRIGGER_FRAC = 0.30
@@ -115,7 +120,7 @@ object SpikeGuardExit {
             val giveBackTrigger = giveBackFrac >= GIVE_BACK_TRIGGER_FRAC
 
             if (!fullExit && !giveBackTrigger) {
-                // Still ratcheting up under the +1000% threshold. Nothing
+                // Still ratcheting up under the near-10x threshold. Nothing
                 // to do this tick.
                 return
             }

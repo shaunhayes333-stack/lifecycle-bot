@@ -7733,8 +7733,8 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6127: extreme ratio pressure reason",
             fanout.contains("extreme_ratio_fanout_pressure_6127"))
         val compounding = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RealizedWalletCompoundingGovernor.kt").readText()
-        assertTrue("V5.0.6128: compounding report must split money rows from StrategyTruthLedger clean",
-            compounding.contains("moneyRows=") && compounding.contains("strategyClean=") && compounding.contains("defensive_strategy_truth_negative_6128"))
+        assertTrue("V5.0.6132: compounding report must split money rows from StrategyTruthLedger clean and use strict clean-truth defense",
+            compounding.contains("moneyRows=") && compounding.contains("strategyClean=") && compounding.contains("defensive_clean_truth_negative_or_low_wr_6132"))
         assertTrue("V5.0.6128: FDG must not leak literal LanePolicy interpolation",
             !fdg.contains("LANE_POLICY_RETRAINING_PAUSED_6107_${'$'}{lpState.name}") && fdg.contains("LANE_POLICY_RETRAINING_PAUSED_6128_${'$'}{lpState.name}"))
         assertTrue("V5.0.6128: lane auto pause must seed lab pivot instead of hard-blocking",
@@ -7809,6 +7809,13 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("V5.0.6132: executor telemetry must distinguish harvested moneyRows from StrategyTruth clean edge",
             exec.contains("moneyRows=") && exec.contains("strategyClean=") && !exec.contains(" clean=${'$'}{snap4511.cleanPnlSol"))
+    }
+
+
+    @org.junit.Test fun V5_0_6133_near_10x_spike_guard_banks_before_roundtrip() {
+        val spike = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SpikeGuardExit.kt").readText()
+        assertTrue("V5.0.6133: near-10x runners must not miss full-exit because the mark printed 996% instead of exactly 1000%",
+            spike.contains("NEAR-10X BANK") && spike.contains("const val FULL_EXIT_PEAK_PCT = 900.0") && spike.contains("Runtime report showed LORA peak +996.7%") && spike.contains("near-10x threshold"))
     }
 
 }
