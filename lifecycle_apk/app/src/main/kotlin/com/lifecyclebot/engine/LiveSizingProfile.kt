@@ -49,22 +49,24 @@ object LiveSizingProfile {
     // compounding mathematically impossible even with great winners. Raise the
     // live absolute floors and wallet-percent caps; hard safety, liquidity caps,
     // wallet reserve and sell finality remain authoritative.
-    // V5.0.6114 — lowered from 0.060 to 0.025. The 0.060 absolute floor was
-    // blocking 44/55 live buys because spendable (0.058) < min (0.060) by 0.002 SOL.
-    // With a 0.326 SOL wallet, 0.025 SOL is still 7.7% — a meaningful position, not
-    // a micro trade. The wallet-relative floor in Executor handles the real minimum.
-    const val MIN_ENTRY_SOL: Double = 0.025     // was 0.060 (was 0.040)
-    const val DEFAULT_ENTRY_SOL: Double = 0.080 // was 0.060
-    const val STRONG_ENTRY_SOL: Double = 0.130  // was 0.110
-    const val ALPHA_ENTRY_SOL: Double = 0.200   // was 0.180
+    // V5.0.6142 — economic live compounding floor.
+    // Runtime screenshot after two live hours showed 0.025–0.040 SOL buys on a
+    // ~0.3 SOL wallet: enough to generate activity, not enough to hit the
+    // operator's 2x–5x daily wallet-growth mandate. Live entries now target
+    // meaningful wallet-percent exposure while true wallet/route/safety caps
+    // remain authoritative.
+    const val MIN_ENTRY_SOL: Double = 0.060
+    const val DEFAULT_ENTRY_SOL: Double = 0.100
+    const val STRONG_ENTRY_SOL: Double = 0.150
+    const val ALPHA_ENTRY_SOL: Double = 0.220
 
     // ── Wallet-percent sizing tiers ──
-    const val BASE_WALLET_PCT: Double = 0.050      // was 0.030 (5.0%)
-    const val STRONG_WALLET_PCT: Double = 0.080    // was 0.060 (8.0%)
-    const val ALPHA_WALLET_PCT: Double = 0.120     // was 0.100 (12.0%)
-    const val MAX_INITIAL_WALLET_PCT: Double = 0.180 // was 0.120
-    const val MAX_TOTAL_TOKEN_WALLET_PCT: Double = 0.280 // was 0.220
-    const val MAX_DEPLOYED_WALLET_PCT: Double = 0.760 // was 0.700
+    const val BASE_WALLET_PCT: Double = 0.120
+    const val STRONG_WALLET_PCT: Double = 0.180
+    const val ALPHA_WALLET_PCT: Double = 0.260
+    const val MAX_INITIAL_WALLET_PCT: Double = 0.320
+    const val MAX_TOTAL_TOKEN_WALLET_PCT: Double = 0.440
+    const val MAX_DEPLOYED_WALLET_PCT: Double = 0.860
     const val GAS_RESERVE_SOL: Double = 0.025      // was 0.030 (small-wallet compounding without draining to zero)
 
     enum class Conviction { BASE, STRONG, ALPHA }
@@ -284,16 +286,16 @@ object LiveSizingProfile {
         // strongSol, alphaSol, maxInitialWalletPct)
         val (lP, dS) = when (L) {
             "MOONSHOT", "SHITCOIN" -> Triple(
-                listOf(0.050, 0.080, 0.120), listOf(0.060, 0.080, 0.130, 0.200), 0.180
+                listOf(0.120, 0.180, 0.260), listOf(0.060, 0.100, 0.150, 0.220), 0.320
             ) to "moonshot"
             "STANDARD" -> Triple(
-                listOf(0.045, 0.070, 0.110), listOf(0.060, 0.075, 0.120, 0.180), 0.160
+                listOf(0.110, 0.160, 0.240), listOf(0.060, 0.095, 0.140, 0.200), 0.300
             ) to "standard"
             "WALLET_RECOVERED" -> Triple(
-                listOf(0.060, 0.100, 0.150), listOf(0.080, 0.130, 0.200, 0.280), 0.200
+                listOf(0.140, 0.220, 0.300), listOf(0.070, 0.120, 0.180, 0.260), 0.340
             ) to "wallet_recovered"
             "BLUECHIP", "DIP_HUNTER", "QUALITY" -> Triple(
-                listOf(0.050, 0.080, 0.120), listOf(0.060, 0.080, 0.130, 0.200), 0.180
+                listOf(0.130, 0.200, 0.280), listOf(0.060, 0.110, 0.160, 0.240), 0.320
             ) to "established"
             else -> Triple(
                 listOf(BASE_WALLET_PCT, STRONG_WALLET_PCT, ALPHA_WALLET_PCT),

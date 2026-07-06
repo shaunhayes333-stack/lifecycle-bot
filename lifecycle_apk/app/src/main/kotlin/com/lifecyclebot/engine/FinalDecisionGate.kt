@@ -5091,7 +5091,8 @@ object FinalDecisionGate {
                 val coreFloor4526 = maxOf(
                     config.smallBuySol.takeIf { it.isFinite() && it > 0.0 } ?: 0.05,
                     com.lifecyclebot.data.BotConfig().smallBuySol,
-                ).coerceIn(0.03, 0.20)
+                    com.lifecyclebot.engine.LiveSizingProfile.MIN_ENTRY_SOL,
+                ).coerceIn(0.06, 0.25)
                 val dustTuitionTag4526 = tags.any { t ->
                     val u = t.uppercase()
                     u.contains("MICRO") || u.contains("PROBE") || u.contains("PROVEN_DEAD") || u.contains("TRAIN_FIRST")

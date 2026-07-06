@@ -7919,4 +7919,19 @@ class GoldenTapeRegressionTest {
             bot.contains("VenueSourceBalanceAdapter.bestMultiplier(allSources + source)") && bot.contains("sourceBrainMultRaw6141") && bot.contains("venueSourceMult6141") && bot.contains("venueSourceMult6141 >= 1.10") && bot.contains("multi_exchange_universe=true"))
     }
 
+
+    @org.junit.Test fun V5_0_6142_live_economic_entry_floor_matches_compounding_target() {
+        val profile = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveSizingProfile.kt").readText()
+        assertTrue("V5.0.6142: live entry floor must be economic wallet-percent sizing, not 0.025/0.040 dust tickets",
+            profile.contains("V5.0.6142 — economic live compounding floor") && profile.contains("const val MIN_ENTRY_SOL: Double = 0.060") && profile.contains("const val BASE_WALLET_PCT: Double = 0.120") && profile.contains("const val MAX_INITIAL_WALLET_PCT: Double = 0.320") && profile.contains("const val MAX_TOTAL_TOKEN_WALLET_PCT: Double = 0.440"))
+        assertTrue("V5.0.6142: lane-specific compound floors must lift QUALITY/BLUECHIP/DIP and STANDARD lanes out of dust mode",
+            profile.contains("listOf(0.130, 0.200, 0.280), listOf(0.060, 0.110, 0.160, 0.240), 0.320") && profile.contains("listOf(0.110, 0.160, 0.240), listOf(0.060, 0.095, 0.140, 0.200), 0.300"))
+        val doctrine = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveGrowthDoctrine.kt").readText()
+        assertTrue("V5.0.6142: LiveGrowthDoctrine min executable size must target 2x-5x compounding and avoid 0.025 SOL live dust",
+            doctrine.contains("V5.0.6142 — adaptive economic growth floor") && doctrine.contains("spendableSol >= 0.25 -> 0.060") && doctrine.contains("spendableSol >= 0.5 -> 0.100") && doctrine.contains("2x–5x daily compounding mandate"))
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue("V5.0.6142: FDG live core floor must consume LiveSizingProfile.MIN_ENTRY_SOL instead of allowing 0.03 dust",
+            fdg.contains("LiveSizingProfile.MIN_ENTRY_SOL") && fdg.contains("coerceIn(0.06, 0.25)"))
+    }
+
 }
