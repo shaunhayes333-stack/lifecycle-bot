@@ -7731,5 +7731,15 @@ class GoldenTapeRegressionTest {
             fanout.contains("extremeRatioPressure6127") && fanout.contains("ratio > 50.0"))
         assertTrue("V5.0.6127: extreme ratio pressure reason",
             fanout.contains("extreme_ratio_fanout_pressure_6127"))
+        val compounding = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RealizedWalletCompoundingGovernor.kt").readText()
+        assertTrue("V5.0.6128: compounding report must split money rows from StrategyTruthLedger clean",
+            compounding.contains("moneyRows=") && compounding.contains("strategyClean=") && compounding.contains("defensive_strategy_truth_negative_6128"))
+        assertTrue("V5.0.6128: FDG must not leak literal LanePolicy interpolation",
+            !fdg.contains("LANE_POLICY_RETRAINING_PAUSED_6107_${'$'}{lpState.name}") && fdg.contains("LANE_POLICY_RETRAINING_PAUSED_6128_${'$'}{lpState.name}"))
+        assertTrue("V5.0.6128: lane auto pause must seed lab pivot instead of hard-blocking",
+            fdg.contains("LANE_AUTO_PAUSED_PIVOT_SHAPE_6128") && fdg.contains("seedFromTacticFailure"))
+        val botService = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.6128: huge runner lock breach bypasses BE before hard-floor decay",
+            botService.contains("RUNNER_GIVEBACK_LOCK_BE_BYPASS_6128") && botService.contains("runnerGivebackMustBank6128"))
     }
 }

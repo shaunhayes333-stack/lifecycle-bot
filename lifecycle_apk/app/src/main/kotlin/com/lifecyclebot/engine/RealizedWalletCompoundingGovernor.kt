@@ -36,6 +36,8 @@ object RealizedWalletCompoundingGovernor {
         val trustedOpenRunnerCount: Int = 0,
         val equityPressureX: Double = 1.0,
         val refreshedAtMs: Long,
+        val strategyCleanPnlSol: Double = 0.0,
+        val moneyMode: String = "unknown",
     )
 
     private const val REFRESH_TTL_MS = 15_000L
@@ -84,7 +86,7 @@ object RealizedWalletCompoundingGovernor {
     fun statusLine(): String {
         refreshAsyncIfStale()
         val s = cached
-        return "RealizedWalletCompounding: mult=${s.multiplier.fmt2()} clean=${s.cleanPnlSol.fmt4()} SOL wallet=${s.walletSol.fmt4()} SOL openTrusted=${s.trustedOpenUnrealizedSol.fmt4()} SOL runners=${s.trustedOpenRunnerCount} equityPressure=${s.equityPressureX.fmt2()}x day=${s.dayPnlSol.fmt4()} SOL progress=${s.dayProgressX.fmt2()}x high=${s.dayHighWalletSol.fmt4()} ddHigh=${s.drawdownFromDayHighPct.fmt1()}% WR=${s.wrPct.fmt1()}% PF=${s.profitFactor.fmt2()} n=${s.trades} reason=${s.reason}"
+        return "RealizedWalletCompounding: mult=${s.multiplier.fmt2()} mode=${s.moneyMode} moneyRows=${s.cleanPnlSol.fmt4()} SOL strategyClean=${s.strategyCleanPnlSol.fmt4()} SOL wallet=${s.walletSol.fmt4()} SOL openTrusted=${s.trustedOpenUnrealizedSol.fmt4()} SOL runners=${s.trustedOpenRunnerCount} equityPressure=${s.equityPressureX.fmt2()}x day=${s.dayPnlSol.fmt4()} SOL progress=${s.dayProgressX.fmt2()}x high=${s.dayHighWalletSol.fmt4()} ddHigh=${s.drawdownFromDayHighPct.fmt1()}% WR=${s.wrPct.fmt1()}% PF=${s.profitFactor.fmt2()} n=${s.trades} reason=${s.reason}"
     }
 
     private fun Double.fmt1(): String = String.format(Locale.US, "%.1f", this)
@@ -186,6 +188,11 @@ object RealizedWalletCompoundingGovernor {
                 seenMoneyKeys6081.add(key)
             }
             .toList()
+        val strategyCleanRows6128 = try {
+            StrategyTruthLedger.clean(raw, 750).rows.filter { it.mode.equals(mode6081, true) }
+        } catch (_: Throwable) { emptyList() }
+        val strategyCleanPnl6128 = strategyCleanRows6128.sumOf { it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol }
+        val strategyTruthNegative6128 = strategyCleanRows6128.size >= 20 && strategyCleanPnl6128 <= 0.0
         val trades = terminal.size
         val wins = terminal.count { (it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol) > 0.0 }
         val losses = terminal.count { (it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol) < 0.0 }
@@ -240,7 +247,8 @@ object RealizedWalletCompoundingGovernor {
             dayProgressX >= 3.0 && wr >= 35.0 && pf >= 1.8 -> 1.75 to "three_x_day_compound"
             dayProgressX >= 2.0 && wr >= 32.0 && pf >= 1.5 -> 2.05 to "two_x_day_compound"
             trades < 20 -> 1.00 to "bootstrap_under_20"
-            pnl <= 0.0 || wr < 20.0 || pf < 0.95 -> 0.55 to "defensive_clean_negative_or_low_wr"
+            strategyTruthNegative6128 -> 0.55 to "defensive_strategy_truth_negative_6128"
+            pnl <= 0.0 || wr < 20.0 || pf < 0.95 -> 0.55 to "defensive_money_rows_negative_or_low_wr"
             gainRatio >= 2.0 && wr >= 35.0 && pf >= 2.0 -> 2.25 to "two_x_plus_compound_unlock"
             gainRatio >= 1.0 && wr >= 32.0 && pf >= 1.6 -> 1.85 to "one_x_compound_unlock"
             gainRatio >= 0.75 && wr >= 30.0 && pf >= 1.4 -> 1.55 to "seventyfive_pct_growth_unlock"
@@ -265,6 +273,8 @@ object RealizedWalletCompoundingGovernor {
             trustedOpenRunnerCount = openEquity6028.runners,
             equityPressureX = equityPressureX6028,
             refreshedAtMs = nowMs,
+            strategyCleanPnlSol = strategyCleanPnl6128,
+            moneyMode = mode6081,
         )
     }
 }

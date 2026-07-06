@@ -3365,18 +3365,28 @@ object FinalDecisionGate {
             try {
                 val pauseState = LaneAutoPauseGuard.statusFor(laneName)
                 if (pauseState != null) {
-                    blockReason = "LANE_AUTO_PAUSED_${pauseState.lane}_${pauseState.reason}"
-                    blockLevel = BlockLevel.HARD
-                    checks.add(GateCheck("lane_auto_paused", false, "${pauseState.lane} paused n=${pauseState.sample} wr=${pauseState.wrPct.format(1)}% ev=${pauseState.evPct.format(1)}% reason=${pauseState.reason} — awaiting LLM Lab proof"))
-                    tags.add("lane_auto_paused")
+                    val beforeAutoPause6128 = finalSize
+                    val pauseBand6128 = try { com.lifecyclebot.engine.LosingPatternMemory.scoreBand(effectiveGateScore6025.toInt()) } catch (_: Throwable) { "S41-60" }
+                    finalSize = (finalSize * 0.40).coerceAtLeast(0.01)
+                    checks.add(GateCheck("lane_auto_paused_pivot", true, "${pauseState.lane} toxic n=${pauseState.sample} wr=${pauseState.wrPct.format(1)}% ev=${pauseState.evPct.format(1)}% reason=${pauseState.reason}; lane-local LAB_PIVOT seeded and size-shaped ${beforeAutoPause6128.format(3)}→${finalSize.format(3)}"))
+                    tags.add("lane_auto_paused_pivot_6128")
                     tags.add("pause_reason:${pauseState.reason}")
+                    try {
+                        com.lifecyclebot.engine.lab.LlmLabEngine.seedFromTacticFailure(
+                            lane = pauseState.lane,
+                            scoreBand = pauseBand6128,
+                            failedTactic = "AUTO_PAUSED_${pauseState.reason}",
+                            nextTactic = "LAB_PIVOT",
+                            reason = "FDG lane auto-pause converted to lane-local strategy pivot 6128"
+                        )
+                    } catch (_: Throwable) {}
                     try {
                         ErrorLogger.info(
                             "FDG",
-                            "🛑 LANE_AUTO_PAUSED_HARD_BLOCK ${ts.symbol} lane=${pauseState.lane} n=${pauseState.sample} wr=${pauseState.wrPct.format(1)}% ev=${pauseState.evPct.format(1)}%",
+                            "🧪 LANE_AUTO_PAUSED_PIVOT_SHAPE_6128 ${ts.symbol} lane=${pauseState.lane} n=${pauseState.sample} wr=${pauseState.wrPct.format(1)}% ev=${pauseState.evPct.format(1)}% size ${beforeAutoPause6128.format(3)}→${finalSize.format(3)}",
                         )
                     } catch (_: Throwable) {}
-                    try { PipelineHealthCollector.labelInc("LANE_AUTO_PAUSED_FDG_BLOCK_${pauseState.lane}") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("LANE_AUTO_PAUSED_PIVOT_SHAPE_6128_${pauseState.lane}") } catch (_: Throwable) {}
                 }
             } catch (_: Throwable) {}
         }
@@ -4945,10 +4955,10 @@ object FinalDecisionGate {
                     // set shouldTradeFinal=false, making the gate tally show
                     // FDG/PROBE_ONLY as 436 blocks instead of the real reason.
                     blockReasonFinal = if (blockReasonFinal == null || blockReasonFinal == "PROBE_ONLY") {
-                        if (isTrueUntradeable) "LANE_POLICY_INVALID_UNTRADEABLE" else "LANE_POLICY_RETRAINING_PAUSED_6107_${'$'}{lpState.name}"
+                        if (isTrueUntradeable) "LANE_POLICY_INVALID_UNTRADEABLE" else "LANE_POLICY_RETRAINING_PAUSED_6128_${lpState.name}"
                     } else blockReasonFinal
                     blockLevelFinal = if (isTrueUntradeable) BlockLevel.HARD else BlockLevel.EDGE
-                    tags.add(if (isTrueUntradeable) "lane_policy_invalid_untradeable" else "lane_policy_retraining_paused_6107")
+                    tags.add(if (isTrueUntradeable) "lane_policy_invalid_untradeable" else "lane_policy_retraining_paused_6128")
                     checks.add(GateCheck("lane_policy_weight", false,
                         "lane=$laneName band=$lpScoreBand state=${lpState.name} no-open ${beforeLp.format(3)}→0.000 awaiting LLM Lab/LanePolicy reintroduction"))
                     try {
@@ -4968,7 +4978,17 @@ object FinalDecisionGate {
                         )
                     } catch (_: Throwable) {}
                     com.lifecyclebot.engine.learning.LanePolicy.noteRetrainingSample(laneName, lpScoreBand)
-                    ErrorLogger.info("FDG", "🧪 LANE_POLICY_RETRAINING_PAUSED_6107 ${ts.symbol} lane=$laneName band=$lpScoreBand state=${lpState.name} size ${beforeLp.format(3)}→0")
+                    try {
+                        com.lifecyclebot.engine.lab.LlmLabEngine.seedFromTacticFailure(
+                            lane = laneName,
+                            scoreBand = lpScoreBand,
+                            failedTactic = lpState.name,
+                            nextTactic = "LAB_PIVOT",
+                            reason = "FDG LanePolicy retraining no-open seeded lane-local pivot 6128"
+                        )
+                        PipelineHealthCollector.labelInc("LANE_POLICY_RETRAINING_LAB_PIVOT_SEEDED_6128")
+                    } catch (_: Throwable) {}
+                    ErrorLogger.info("FDG", "🧪 LANE_POLICY_RETRAINING_PAUSED_6128 ${ts.symbol} lane=$laneName band=$lpScoreBand state=${lpState.name} size ${beforeLp.format(3)}→0 lab_pivot_seeded=true")
                 } else {
                     val shapeW = lpWeight.coerceAtLeast(0.05)
                     finalSize = (finalSize * shapeW).coerceAtLeast(0.01)

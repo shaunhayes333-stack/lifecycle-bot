@@ -9187,7 +9187,12 @@ class BotService : Service() {
                                             // Stop-loss path is unaffected (this branch
                                             // only fires on positive pnl give-back).
                                             val isPaperRt = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
-                                            val beOk = com.lifecyclebot.engine.LiveRestoreExecutionPolicy.sellSideBreakEvenOk(ts, pnlPctNow, isPaperRt)
+                                            val runnerGivebackMustBank6128 = peakPct >= 200.0 && lockBreached
+                                            val beOk = runnerGivebackMustBank6128 || com.lifecyclebot.engine.LiveRestoreExecutionPolicy.sellSideBreakEvenOk(ts, pnlPctNow, isPaperRt)
+                                            if (runnerGivebackMustBank6128) {
+                                                try { PipelineHealthCollector.labelInc("RUNNER_GIVEBACK_LOCK_BE_BYPASS_6128") } catch (_: Throwable) {}
+                                                try { ForensicLogger.lifecycle("RUNNER_GIVEBACK_LOCK_BE_BYPASS_6128", "mint=${ts.mint.take(10)} symbol=${ts.symbol} peak=${"%.1f".format(peakPct)} now=${"%.1f".format(pnlPctNow)} floor=${"%.1f".format(lockedFloor)} action=bank_runner_before_hard_floor") } catch (_: Throwable) {}
+                                            }
                                             if (!beOk) {
                                                 // hold for more upside — high-lock will retry on next tick
                                             } else {
