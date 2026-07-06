@@ -17500,7 +17500,19 @@ if (hotExitHandledSweep) {
         DistributionFadeAvoider.FadeResult(false, null, 1.0, 0L)
     }
     
-    if (distributionCheck.shouldBlock && !ts.position.isOpen) {
+    val distributionHardSafety6145 = distributionCheck.shouldBlock && !ts.position.isOpen && (
+        distributionCheck.reason?.contains("DRAIN", ignoreCase = true) == true ||
+        distributionCheck.reason?.contains("STOP_LOSS_COOLDOWN", ignoreCase = true) == true
+    )
+    val distributionPivotOnly6145 = distributionCheck.shouldBlock && !distributionHardSafety6145 && !ts.position.isOpen
+    if (distributionPivotOnly6145) {
+        ts.phase = "distribution_pivot"
+        try {
+            ForensicLogger.lifecycle("DISTRIBUTION_FADE_LANE_PIVOT_6145", "symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=${distributionCheck.reason?.take(80)} scoreMult=${"%.2f".format(distributionCheck.scoreMultiplier)} hardSafety=false lane_local_pivot=true")
+            PipelineHealthCollector.labelInc("DISTRIBUTION_FADE_LANE_PIVOT_6145")
+        } catch (_: Throwable) {}
+    }
+    if (distributionHardSafety6145) {
         ErrorLogger.info("BotService", "🔻 ${ts.symbol} DISTRIBUTION_FADE: ${distributionCheck.reason}")
         ts.phase = "distributing"   // V5.9.407 — surface gate reason in UI
         // V5.9.495z50 — operator log 17:43 evidence:
@@ -17630,7 +17642,8 @@ if (hotExitHandledSweep) {
     } catch (_: Throwable) {}
 
     // Apply distribution penalty to mode classification confidence
-    val adjustedModeConfidence = modeClassification.confidence * distributionCheck.scoreMultiplier
+    val distributionScoreMultiplier6145 = if (distributionPivotOnly6145) distributionCheck.scoreMultiplier.coerceAtLeast(0.35) else distributionCheck.scoreMultiplier
+    val adjustedModeConfidence = modeClassification.confidence * distributionScoreMultiplier6145
     
     // Apply liquidity bucket size multiplier
     val liqSizeMultiplier = liquidityBucket?.maxSizeMultiplier ?: 1.0

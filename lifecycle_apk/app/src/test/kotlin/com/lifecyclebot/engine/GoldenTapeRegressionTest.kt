@@ -7956,4 +7956,13 @@ class GoldenTapeRegressionTest {
             exec.contains("terminalQualityTrainable6144") && exec.contains("rowLearningAdmitted4349 && terminalQualityTrainable6144") && exec.contains("TerminalOutcomeQualityGate.report"))
     }
 
+
+    @org.junit.Test fun V5_0_6145_distribution_fade_pivots_instead_of_killing_non_hard_setups() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.6145: distribution fade must preserve hard drain/stop-loss safety but pivot non-hard distribution into lane-local reduced conviction",
+            bot.contains("distributionHardSafety6145") && bot.contains("distributionPivotOnly6145") && bot.contains("DISTRIBUTION_FADE_LANE_PIVOT_6145") && bot.contains("distributionScoreMultiplier6145") && bot.contains("coerceAtLeast(0.35)"))
+        assertTrue("V5.0.6145: distribution pivot must not bypass true drain or stop-loss cooldown hard safety",
+            bot.contains("""contains("DRAIN", ignoreCase = true)""") && bot.contains("""contains("STOP_LOSS_COOLDOWN", ignoreCase = true)""") && bot.contains("if (distributionHardSafety6145)"))
+    }
+
 }
