@@ -7860,4 +7860,16 @@ class GoldenTapeRegressionTest {
             exec.contains("soft_shape_only=true") && !brain.contains("return false") && !brain.contains("HARD_REJECT"))
     }
 
+
+    @org.junit.Test fun V5_0_6137_adversarial_flow_brain_soft_mev_posture() {
+        val brain = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AdversarialFlowBrain.kt").readText()
+        assertTrue("V5.0.6137: AdversarialFlowBrain must be a mempool adapter shell with no provider dependency or hard block",
+            brain.contains("object AdversarialFlowBrain") && brain.contains("future pending-tx/mempool feed") && brain.contains("No network calls") && brain.contains("no hard blocks") && brain.contains("data class Posture"))
+        assertTrue("V5.0.6137: adversarial flow must use local microstructure proxies and degrade to soft size/MEV posture",
+            brain.contains("upperWick") && brain.contains("lastBuyPressurePct") && brain.contains("lastSellPressurePct") && brain.contains("topHolderPct") && brain.contains("ExecutionRouteReliabilityMemory.sizeMultiplierForSource") && brain.contains("sizeMultiplier"))
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6137: liveBuy must merge adversarial flow with execution cost and quote race, soft-shape only",
+            exec.contains("AdversarialFlowBrain.evaluate(ts)") && exec.contains("EXECUTION_COST_FLOW_BUY_SIZE_APPLIED_6137") && exec.contains("adversarialFlowPosture6137.urgentMevTip") && exec.contains("soft_shape_only=true no_hot_path_provider=true"))
+    }
+
 }

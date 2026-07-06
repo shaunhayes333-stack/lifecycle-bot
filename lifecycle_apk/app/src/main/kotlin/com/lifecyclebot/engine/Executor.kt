@@ -13322,14 +13322,18 @@ class Executor(
         val executionCostPosture6136 = try { ExecutionCostBrain.buyPosture(ts, sol) } catch (_: Throwable) {
             ExecutionCostBrain.BuyPosture(0.0, 1.0, 0.0001, false, 10, 200, 500, "brain_error_neutral")
         }
-        val effectiveSol = if (executionCostPosture6136.sizeMultiplier < 0.999) {
-            val costSized = (sol * executionCostPosture6136.sizeMultiplier).coerceAtLeast(0.0)
+        val adversarialFlowPosture6137 = try { AdversarialFlowBrain.evaluate(ts) } catch (_: Throwable) {
+            AdversarialFlowBrain.Posture(0, 1.0, false, "brain_error_neutral")
+        }
+        val executionCostAndFlowSizeMult6137 = (executionCostPosture6136.sizeMultiplier * adversarialFlowPosture6137.sizeMultiplier).coerceIn(0.35, 1.0)
+        val effectiveSol = if (executionCostAndFlowSizeMult6137 < 0.999) {
+            val costSized = (sol * executionCostAndFlowSizeMult6137).coerceAtLeast(0.0)
             try {
                 ForensicLogger.lifecycle(
-                    "EXECUTION_COST_BUY_SIZE_APPLIED_6136",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${sol.fmt(4)} to=${costSized.fmt(4)} mult=${executionCostPosture6136.sizeMultiplier.fmt(2)} expectedSlip=${executionCostPosture6136.expectedSlipPct.fmt(1)} reason=${executionCostPosture6136.reason} soft_shape_only=true",
+                    "EXECUTION_COST_FLOW_BUY_SIZE_APPLIED_6137",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${sol.fmt(4)} to=${costSized.fmt(4)} mult=${executionCostAndFlowSizeMult6137.fmt(2)} expectedSlip=${executionCostPosture6136.expectedSlipPct.fmt(1)} flowRisk=${adversarialFlowPosture6137.riskScore} costReason=${executionCostPosture6136.reason} flowReason=${adversarialFlowPosture6137.reason} soft_shape_only=true no_hot_path_provider=true",
                 )
-                PipelineHealthCollector.labelInc("EXECUTION_COST_BUY_SIZE_APPLIED_6136")
+                PipelineHealthCollector.labelInc("EXECUTION_COST_FLOW_BUY_SIZE_APPLIED_6137")
             } catch (_: Throwable) {}
             costSized
         } else sol
@@ -13438,7 +13442,7 @@ class Executor(
             }
             val quoteRaceEdge6134 = quoteRacePosture6135.enabled
             val buyPriorityFeeSol6134 = maxOf(quoteRacePosture6135.priorityFeeSol, executionCostPosture6136.priorityFeeSol)
-            val urgentBuyTip6134 = quoteRacePosture6135.urgentTip || executionCostPosture6136.urgentTip
+            val urgentBuyTip6134 = quoteRacePosture6135.urgentTip || executionCostPosture6136.urgentTip || adversarialFlowPosture6137.urgentMevTip
             val pumpSlipPct6134 = maxOf(quoteRacePosture6135.pumpSlipPct, executionCostPosture6136.pumpSlipPct)
             val minBuySlipBps6136 = maxOf(quoteRacePosture6135.minBuySlippageBps, executionCostPosture6136.minBuySlippageBps)
             val maxBuySlipBps6136 = maxOf(quoteRacePosture6135.maxBuySlippageBps, executionCostPosture6136.maxBuySlippageBps)
@@ -13446,7 +13450,7 @@ class Executor(
                 try {
                     ForensicLogger.lifecycle(
                         "STANDARD_QUOTE_RACE_EDGE_6134",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneForQuoteRace6135 score=${ts.entryScore.toInt()} green=${quoteRacePosture6135.greenCandlePct.fmt(1)} buyPressure=${ts.lastBuyPressurePct.fmt(1)} momentum=${(ts.momentum ?: 0.0).fmt(1)} tickAgeMs=${quoteRacePosture6135.tickAgeMs} reason=${quoteRacePosture6135.reason} priorityFee=$buyPriorityFeeSol6134 pumpSlip=$pumpSlipPct6134 expectedSlip=${executionCostPosture6136.expectedSlipPct.fmt(1)} brain=QuoteRaceBrain6135+ExecutionCostBrain6136",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneForQuoteRace6135 score=${ts.entryScore.toInt()} green=${quoteRacePosture6135.greenCandlePct.fmt(1)} buyPressure=${ts.lastBuyPressurePct.fmt(1)} momentum=${(ts.momentum ?: 0.0).fmt(1)} tickAgeMs=${quoteRacePosture6135.tickAgeMs} reason=${quoteRacePosture6135.reason} priorityFee=$buyPriorityFeeSol6134 pumpSlip=$pumpSlipPct6134 expectedSlip=${executionCostPosture6136.expectedSlipPct.fmt(1)} flowRisk=${adversarialFlowPosture6137.riskScore} brain=QuoteRaceBrain6135+ExecutionCostBrain6136+AdversarialFlowBrain6137",
                     )
                     PipelineHealthCollector.labelInc("STANDARD_QUOTE_RACE_EDGE_6134")
                     PipelineHealthCollector.labelInc("QUOTE_RACE_BRAIN_ENABLED_6135")
