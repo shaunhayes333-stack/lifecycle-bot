@@ -144,6 +144,10 @@ object PreTradeHardGate {
 
         val tokenMapMintAuthorityRetained6164 = retainedAuthorityFromTokenMap(ts.tokenMap.mintAuthority)
         val tokenMapFreezeAuthorityRetained6164 = retainedAuthorityFromTokenMap(ts.tokenMap.freezeAuthority)
+        val freezeUnknownRouteProof6185 = safety.freezeAuthorityDisabled == null &&
+            !tokenMapFreezeAuthorityRetained6164 &&
+            TokenMapAuthority.executableForLiveBuy(ts) &&
+            ((ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: ts.tokenMap.liquidityUsd ?: 0.0) >= 3_000.0)
         when {
             safety.mintAuthorityDisabled == false || tokenMapMintAuthorityRetained6164 -> return block(ts, "MINT_AUTHORITY_ACTIVE", "mint authority still active safety=${safety.mintAuthorityDisabled} tokenMap=${ts.tokenMap.mintAuthority ?: "?"}")
             safety.mintAuthorityDisabled == null -> pendingProofs.add("MINT_AUTHORITY_UNKNOWN")
@@ -151,7 +155,11 @@ object PreTradeHardGate {
         }
         when {
             safety.freezeAuthorityDisabled == false || tokenMapFreezeAuthorityRetained6164 -> return block(ts, "FREEZE_AUTHORITY_ACTIVE", "freeze authority still active safety=${safety.freezeAuthorityDisabled} tokenMap=${ts.tokenMap.freezeAuthority ?: "?"}")
-            safety.freezeAuthorityDisabled == null -> pendingProofs.add("FREEZE_AUTHORITY_UNKNOWN") // V5.0.6164: live defer, never penalty-allow
+            safety.freezeAuthorityDisabled == null && freezeUnknownRouteProof6185 -> try {
+                PipelineHealthCollector.labelInc("PRETRADE_FREEZE_UNKNOWN_ROUTE_PROOF_SOFT_ALLOW_6185")
+                ForensicLogger.lifecycle("PRETRADE_FREEZE_UNKNOWN_ROUTE_PROOF_6185", "mint=${ts.mint.take(10)} symbol=${ts.symbol} liq=${ts.lastLiquidityUsd} route=${ts.tokenMap.routeStatus} action=allow_live_route_proved_unknown_freeze")
+            } catch (_: Throwable) {}
+            safety.freezeAuthorityDisabled == null -> pendingProofs.add("FREEZE_AUTHORITY_UNKNOWN") // V5.0.6164/6185: live defer unless executable route+liquidity proof exists; retained/active still hard-block
             else -> Unit
         }
 

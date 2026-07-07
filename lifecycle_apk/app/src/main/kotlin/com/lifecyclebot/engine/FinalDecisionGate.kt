@@ -2103,15 +2103,34 @@ object FinalDecisionGate {
         }
         val fdgFreezeRetained6164 = fdgAuthorityRetained6164(ts.tokenMap.freezeAuthority)
         val fdgMintRetained6164 = fdgAuthorityRetained6164(ts.tokenMap.mintAuthority)
-        if (blockReason == null && !config.paperMode && (ts.safety.freezeAuthorityDisabled != true || fdgFreezeRetained6164)) {
-            blockReason = if (ts.safety.freezeAuthorityDisabled == false || fdgFreezeRetained6164) "HARD_BLOCK_FREEZE_AUTHORITY" else "HARD_BLOCK_FREEZE_AUTHORITY_UNKNOWN_6164"
+        val fdgFreezeUnknownRouteProof6185 = !config.paperMode &&
+            ts.safety.freezeAuthorityDisabled == null &&
+            !fdgFreezeRetained6164 &&
+            com.lifecyclebot.engine.TokenMapAuthority.executableForLiveBuy(ts) &&
+            ((ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: ts.tokenMap.liquidityUsd ?: 0.0) >= 3_000.0)
+        if (blockReason == null && !config.paperMode && (ts.safety.freezeAuthorityDisabled == false || fdgFreezeRetained6164)) {
+            blockReason = "HARD_BLOCK_FREEZE_AUTHORITY"
             blockLevel = BlockLevel.HARD
-            checks.add(GateCheck("freeze_auth", false, "freezeAuth=${ts.safety.freezeAuthorityDisabled} tokenMap=${ts.tokenMap.freezeAuthority ?: "?"} live fail-closed"))
+            checks.add(GateCheck("freeze_auth", false, "freezeAuth=${ts.safety.freezeAuthorityDisabled} tokenMap=${ts.tokenMap.freezeAuthority ?: "?"} live retained/active hard block"))
             tags.add("freeze_auth_6164")
             try { PipelineHealthCollector.labelInc("FDG_FREEZE_AUTHORITY_FAIL_CLOSED_6164") } catch (_: Throwable) {}
             try { ForensicLogger.lifecycle("FREEZE_AUTHORITY_FAIL_CLOSED_6164", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName freeze=${ts.safety.freezeAuthorityDisabled} tokenMap=${ts.tokenMap.freezeAuthority ?: "?"} action=hard_block_live") } catch (_: Throwable) {}
+        } else if (blockReason == null && !config.paperMode && ts.safety.freezeAuthorityDisabled != true && !fdgFreezeUnknownRouteProof6185) {
+            blockReason = "HARD_BLOCK_FREEZE_AUTHORITY_UNKNOWN_6164"
+            blockLevel = BlockLevel.HARD
+            checks.add(GateCheck("freeze_auth", false, "freezeAuth=${ts.safety.freezeAuthorityDisabled} tokenMap=${ts.tokenMap.freezeAuthority ?: "?"} live unknown without route proof"))
+            tags.add("freeze_auth_6164")
+            try { PipelineHealthCollector.labelInc("FDG_FREEZE_AUTHORITY_FAIL_CLOSED_6164") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("FREEZE_AUTHORITY_FAIL_CLOSED_6164", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName freeze=${ts.safety.freezeAuthorityDisabled} tokenMap=${ts.tokenMap.freezeAuthority ?: "?"} action=hard_block_live_unknown_no_route_proof") } catch (_: Throwable) {}
         } else if (blockReason == null) {
-            checks.add(GateCheck("freeze_auth", true, null))
+            if (fdgFreezeUnknownRouteProof6185) {
+                checks.add(GateCheck("freeze_auth", true, "UNKNOWN_ROUTE_PROOF_6185"))
+                tags.add("freeze_unknown_route_proof_6185")
+                try { PipelineHealthCollector.labelInc("FDG_FREEZE_UNKNOWN_ROUTE_PROOF_SOFT_ALLOW_6185") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("FREEZE_AUTHORITY_UNKNOWN_ROUTE_PROOF_6185", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName liq=${ts.lastLiquidityUsd} route=${ts.tokenMap.routeStatus} action=allow_to_pretrade") } catch (_: Throwable) {}
+            } else {
+                checks.add(GateCheck("freeze_auth", true, null))
+            }
         }
 
         // V5.0.6116 / V5.0.6164 — mint authority enabled/unknown is live fail-closed.

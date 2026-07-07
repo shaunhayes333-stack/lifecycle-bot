@@ -8143,15 +8143,15 @@ class GoldenTapeRegressionTest {
     }
 
 
-    @org.junit.Test fun V5_0_6164_live_freeze_authority_fail_closed_everywhere() {
+    @org.junit.Test fun V5_0_6164_6185_live_freeze_authority_blocks_retained_not_route_proved_unknown() {
         val pre = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        assertTrue("V5.0.6164: PreTradeHardGate must never penalty-allow unknown freeze/mint authority in live",
-            pre.contains("LIVE_TOKEN_AUTHORITY_PROOF_PENDING_6164") && pre.contains("authorityPending6164") && pre.contains("FREEZE_AUTHORITY_UNKNOWN") && pre.contains("retainedAuthorityFromTokenMap") && pre.contains("tokenMapFreezeAuthorityRetained6164"))
-        assertTrue("V5.0.6164: FDG must fail-closed live authority before executor, including token-map retained authority",
-            fdg.contains("fdgAuthorityRetained6164") && fdg.contains("HARD_BLOCK_FREEZE_AUTHORITY_UNKNOWN_6164") && fdg.contains("FDG_FREEZE_AUTHORITY_FAIL_CLOSED_6164") && fdg.contains("fdgFreezeRetained6164"))
-        assertFalse("V5.0.6164: source comments must not claim unknown mint/freeze proof soft-allows live",
-            pre.contains("Unknown holder/mint/freeze/rugcheck proof now") || fdg.contains("null = unknown (RPC race) = keep as soft penalty"))
+        assertTrue("V5.0.6164/6185: PreTradeHardGate must hard-block active/retained mint/freeze authority and only bypass unknown freeze with executable route/liquidity proof",
+            pre.contains("MINT_AUTHORITY_ACTIVE") && pre.contains("FREEZE_AUTHORITY_ACTIVE") && pre.contains("tokenMapFreezeAuthorityRetained6164") && pre.contains("freezeUnknownRouteProof6185") && pre.contains("TokenMapAuthority.executableForLiveBuy(ts)") && pre.contains("PRETRADE_FREEZE_UNKNOWN_ROUTE_PROOF_SOFT_ALLOW_6185"))
+        assertTrue("V5.0.6164/6185: FDG must keep retained/active freeze authority hard-blocked while removing the API-degraded unknown-freeze global choke when route proof exists",
+            fdg.contains("fdgAuthorityRetained6164") && fdg.contains("HARD_BLOCK_FREEZE_AUTHORITY") && fdg.contains("HARD_BLOCK_FREEZE_AUTHORITY_UNKNOWN_6164") && fdg.contains("fdgFreezeUnknownRouteProof6185") && fdg.contains("FDG_FREEZE_UNKNOWN_ROUTE_PROOF_SOFT_ALLOW_6185"))
+        assertFalse("V5.0.6185: source comments must not claim retained/active freeze authority can live-buy",
+            pre.contains("retained freeze authority can live-buy") || fdg.contains("retained freeze authority can live-buy"))
     }
 
 
