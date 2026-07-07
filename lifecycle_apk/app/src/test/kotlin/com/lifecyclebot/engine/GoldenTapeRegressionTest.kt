@@ -8273,4 +8273,15 @@ class GoldenTapeRegressionTest {
             tracker.contains("abandonUnsellableQuarantined") && tracker.contains("SellExecutionLocks.release(mint)") && tracker.contains("""CloseLease.release(mint, "UNSELLABLE_QUARANTINE_6175")""") && tracker.contains("TokenLifecycleTracker.purgeTerminalRecord(mint)"))
     }
 
+
+    @org.junit.Test fun V5_0_6176_money_path_open_pnl_has_route_and_sellability_truth() {
+        val hub = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        assertTrue("V5.0.6176: money-path summary must show live open route verification and unsellable counts",
+            hub.contains("routeVerifiedLiveOpen6176") && hub.contains("routePendingLiveOpen6176") && hub.contains("unsellableLiveOpen6176"))
+        assertTrue("V5.0.6176: top open PnL rows must tag route truth and sellability instead of presenting unrealized math as sellable equity",
+            hub.contains("sellability6176") && hub.contains("sellable_route_verified") && hub.contains("sellable_route_pending") && hub.contains("unsellable_quarantined"))
+        assertTrue("V5.0.6176: route/sellability tags must consult host tracker and quarantine/blacklist truth",
+            hub.contains("HostWalletTokenTracker.getEntry") && hub.contains("QuarantineStore.isQuarantined") && hub.contains("TokenBlacklist.isBlocked") && hub.contains("BannedTokens.isBanned"))
+    }
+
 }
