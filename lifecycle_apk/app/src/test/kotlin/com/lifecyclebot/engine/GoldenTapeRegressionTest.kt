@@ -8368,4 +8368,13 @@ class GoldenTapeRegressionTest {
             report.contains("KPI closeout 6182") && report.contains("throughputTarget=500-1000/day") && report.contains("moneyPath=wallet/open-route/sell-finality/journal"))
     }
 
+
+    @org.junit.Test fun V5_0_6187_wallet_recovered_zero_basis_no_route_is_ignored() {
+        val wr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/WalletReconciler.kt").readText()
+        assertTrue("V5.0.6187: wallet reconciler must skip mints already quarantined/blacklisted so poison tokens are not re-adopted",
+            wr.contains("isWalletMintIgnored6187") && wr.contains("QuarantineStore.isQuarantined(mint)") && wr.contains("TokenBlacklist.isBlocked(mint)") && wr.contains("WALLET_RECONCILE_IGNORED_QUARANTINED_6187"))
+        assertTrue("V5.0.6187: zero-basis recovered wallet orphans with no executable route must be quarantined/ignored instead of consuming live slots",
+            wr.contains("quarantineZeroBasisNoRouteRecovered6187") && wr.contains("WALLET_RECOVERED_ZERO_BASIS_NO_ROUTE_IGNORE_6187") && wr.contains("!TokenMapAuthority.executableForLiveBuy(ts)") && wr.contains("WALLET_RECOVERED_ZERO_BASIS_NO_ROUTE_IGNORED_6187"))
+    }
+
 }

@@ -78,6 +78,14 @@ object WalletReconciler {
             val (uiAmount, decimals) = pair
             val rawApprox = (uiAmount * Math.pow(10.0, decimals.toDouble())).toLong()
             if (rawApprox <= DUST_RAW) continue
+            if (isWalletMintIgnored6187(mint)) {
+                knownMints.remove(mint)
+                try { status.tokens[mint]?.let { it.position = it.position.copy(qtyToken = 0.0, pendingVerify = false) } } catch (_: Throwable) {}
+                try { HostWalletTokenTracker.abandonUnsellableQuarantined(mint, "WALLET_RECONCILE_IGNORED_QUARANTINED_6187") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("WALLET_RECONCILE_IGNORED_QUARANTINED_6187") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("WALLET_RECONCILE_IGNORED_QUARANTINED_6187", "mint=${mint.take(10)} ui=$uiAmount reason=quarantine_or_blacklist") } catch (_: Throwable) {}
+                continue
+            }
             val ts = status.tokens[mint]
             if (ts != null && ts.position.isOpen) {
                 // Already tracked — bring qty up to wallet truth if drifted.
@@ -148,6 +156,33 @@ object WalletReconciler {
             )
         }
         return changes
+    }
+
+
+    private fun isWalletMintIgnored6187(mint: String): Boolean {
+        if (mint.isBlank()) return true
+        return try { QuarantineStore.isQuarantined(mint) } catch (_: Throwable) { false } ||
+            try { TokenBlacklist.isBlocked(mint) } catch (_: Throwable) { false } ||
+            try { BannedTokens.isBanned(mint) } catch (_: Throwable) { false }
+    }
+
+    private fun quarantineZeroBasisNoRouteRecovered6187(status: BotStatus, mint: String, ts: TokenState, uiAmount: Double): Boolean {
+        val reason = "WALLET_RECOVERED_ZERO_BASIS_NO_ROUTE_IGNORE_6187"
+        return try {
+            TokenBlacklist.block(mint, reason)
+            QuarantineStore.quarantine(mint, ts.symbol, reason)
+            try { BannedTokens.ban(mint, reason) } catch (_: Throwable) {}
+            try { PendingSellQueue.remove(mint) } catch (_: Throwable) {}
+            try { HostWalletTokenTracker.abandonUnsellableQuarantined(mint, reason) } catch (_: Throwable) {}
+            try { TokenLifecycleTracker.purgeTerminalRecord(mint) } catch (_: Throwable) {}
+            try { PositionCloseLedger.markClosed(mint, "ABANDONED_ZERO_BASIS_NO_ROUTE_6187", 0) } catch (_: Throwable) {}
+            ts.position = ts.position.copy(qtyToken = 0.0, pendingVerify = false)
+            synchronized(status.tokens) { status.tokens.remove(mint) }
+            knownMints.remove(mint)
+            PipelineHealthCollector.labelInc("WALLET_RECOVERED_ZERO_BASIS_NO_ROUTE_IGNORED_6187")
+            ForensicLogger.lifecycle("WALLET_RECOVERED_ZERO_BASIS_NO_ROUTE_IGNORED_6187", "mint=${mint.take(10)} symbol=${ts.symbol} qty=$uiAmount action=quarantine_ignore_no_recovery_slot")
+            true
+        } catch (_: Throwable) { false }
     }
 
     /**
@@ -237,6 +272,9 @@ object WalletReconciler {
             tradingModeEmoji = "🔄",
             pendingVerify = false,
         )
+        if (recoveredEntry <= 0.0 && !TokenMapAuthority.executableForLiveBuy(ts) && quarantineZeroBasisNoRouteRecovered6187(status, mint, ts, uiAmount)) {
+            return
+        }
         }
         knownMints.add(mint)
         // V5.0.6102 — zero-basis recovered wallet bags are not strategy
