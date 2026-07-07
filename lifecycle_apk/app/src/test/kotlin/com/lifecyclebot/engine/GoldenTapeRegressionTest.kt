@@ -7988,4 +7988,14 @@ class GoldenTapeRegressionTest {
             profile.contains("const val MIN_ENTRY_SOL: Double = 0.035") && doctrine.contains("spendableSol >= 0.25 -> (spendableSol * 0.14).coerceIn(0.030, 0.060)") && doctrine.contains("wallet≈0.275 SOL with 258/261 live buys rejected"))
     }
 
+
+    @org.junit.Test fun V5_0_6148_crypto_universe_candidates_carry_normalized_money_path_truth() {
+        val candidate = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoFinalBuyCandidate.kt").readText()
+        val trader = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue("V5.0.6148: CryptoFinalBuyCandidate must carry source/venue/route/strategy truth keys for cross-universe parity",
+            candidate.contains("sourceFamily") && candidate.contains("venueFamily") && candidate.contains("routeTruthKey") && candidate.contains("strategyTruthKey") && candidate.contains("normalizedContext6148"))
+        assertTrue("V5.0.6148: CryptoAltTrader must populate normalized keys at the final buy candidate choke",
+            trader.contains("sourceFamily6148") && trader.contains("venueFamily6148") && trader.contains("routeTruthKey6148") && trader.contains("strategyTruthKey6148") && trader.contains("CRYPTO_NORMALIZED_6148"))
+    }
+
 }

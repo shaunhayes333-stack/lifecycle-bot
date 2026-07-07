@@ -26,6 +26,10 @@ data class CryptoFinalBuyCandidate(
     val safetyTier: String,
     val liquidityUsd: Double,
     val routeQuality: String,
+    val sourceFamily: String = "CRYPTO_UNIVERSE",
+    val venueFamily: String = "UNKNOWN",
+    val routeTruthKey: String = "UNKNOWN",
+    val strategyTruthKey: String = "UNKNOWN",
     val spread: Double,
     val slippageEstimate: Double,
     val hardNoReasons: List<String>,
@@ -40,4 +44,7 @@ data class CryptoFinalBuyCandidate(
 
     val canEnterFdg: Boolean
         get() = preFdgVerdict == PreFdgVerdict.BUY && hardNoReasons.isEmpty()
+
+    fun normalizedContext6148(): String =
+        "sourceFamily=$sourceFamily venueFamily=$venueFamily routeTruth=$routeTruthKey strategyTruth=$strategyTruthKey chain=$chain venue=$venue specialist=$selectedSpecialist"
 }

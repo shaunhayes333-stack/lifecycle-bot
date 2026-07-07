@@ -1711,11 +1711,24 @@ object CryptoAltTrader {
             route?.executable == true -> "CRYPTO_UNIVERSE_EXECUTOR"
             else -> "DEFERRED_ROUTE"
         }
+        val assetKey6148 = cryptoAssetKey(signal, isSpot)
+        val chain6148 = if (route?.mint != null) "SOLANA" else "MULTICHAIN"
+        val venue6148 = route?.route?.name ?: "UNKNOWN"
+        val venueFamily6148 = when {
+            venue6148.contains("JUPITER", true) -> "DEX_AGGREGATOR"
+            venue6148.contains("RAYDIUM", true) || venue6148.contains("ORCA", true) || venue6148.contains("METEORA", true) -> "SOLANA_DEX"
+            venue6148.contains("PAPER", true) -> "PAPER"
+            !isSpot -> "PERPS"
+            else -> "MULTICHAIN_CRYPTO"
+        }
+        val sourceFamily6148 = if (isSpot) "CRYPTO_SPOT_UNIVERSE" else "CRYPTO_PERPS_UNIVERSE"
+        val routeTruthKey6148 = "$chain6148|$venueFamily6148|$venue6148|${assetType.name}|${signal.direction.name}"
+        val strategyTruthKey6148 = "CRYPTO|$symbol|${assetType.name}|${cryptoSignalStyle(signal)}|$venueFamily6148|${signal.direction.name}"
         return CryptoFinalBuyCandidate(
-            assetKey = cryptoAssetKey(signal, isSpot),
+            assetKey = assetKey6148,
             symbol = symbol,
-            chain = if (route?.mint != null) "SOLANA" else "MULTICHAIN",
-            venue = route?.route?.name ?: "UNKNOWN",
+            chain = chain6148,
+            venue = venue6148,
             assetType = assetType,
             direction = signal.direction,
             marketCapLane = lane,
@@ -1726,7 +1739,11 @@ object CryptoAltTrader {
             confidence = signal.confidence,
             safetyTier = "SAFE",
             liquidityUsd = liq,
-            routeQuality = route?.route?.name ?: "UNKNOWN",
+            routeQuality = venue6148,
+            sourceFamily = sourceFamily6148,
+            venueFamily = venueFamily6148,
+            routeTruthKey = routeTruthKey6148,
+            strategyTruthKey = strategyTruthKey6148,
             spread = spread,
             slippageEstimate = slippage,
             hardNoReasons = hardNo.distinct(),
@@ -2050,7 +2067,7 @@ object CryptoAltTrader {
         val authResult = authorizeCryptoFinalCandidate(candidate)
         com.lifecyclebot.perps.crypto.brain.CryptoFunnel.execGate(authResult != null)
         if (authResult == null) {
-            ErrorLogger.info(TAG, "🪙 CRYPTO EXEC BLOCKED: ${mktSym} | preFdg=${candidate.preFdgVerdict} hardNo=${candidate.hardNoReasons} route=${candidate.routeQuality}")
+            ErrorLogger.info(TAG, "🪙 CRYPTO EXEC BLOCKED: ${mktSym} | preFdg=${candidate.preFdgVerdict} hardNo=${candidate.hardNoReasons} route=${candidate.routeQuality} ${candidate.normalizedContext6148()}")
             // V5.9.1317 (P0-5) — release the primary-lane lease on the CRYPTO book so a
             // blocked candidate does not suppress follow-up CRYPTO attempts for the same
             // asset until TTL. CRYPTO lane is isolated; this never touches Meme lanes.
@@ -2075,7 +2092,7 @@ object CryptoAltTrader {
             stopLossPrice  = sl,
             aiScore        = signal.score,
             aiConfidence   = signal.confidence,
-            reasons        = signal.reasons + "CRYPTO_CANDIDATE:${candidate.assetKey}"
+            reasons        = signal.reasons + "CRYPTO_CANDIDATE:${candidate.assetKey}" + "CRYPTO_NORMALIZED_6148:${candidate.normalizedContext6148()}"
         )
 
         // Note: totalTrades incremented at CLOSE, not open, for accurate win rate
