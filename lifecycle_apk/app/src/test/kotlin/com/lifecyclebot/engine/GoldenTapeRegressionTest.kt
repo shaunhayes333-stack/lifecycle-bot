@@ -1161,7 +1161,7 @@ class GoldenTapeRegressionTest {
         assertTrue(service.contains("do not fabricate zero-liquidity probation rows"))
         assertTrue(service.contains("val demoteLiq"))
         assertTrue("Fresh NO_PAIR rows must stay hot for hydration before aged demotion", service.contains("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION") && service.contains("NO_PAIR_NO_FALLBACK_AGED") && service.contains("processCount >= 4") && service.contains("ageMs > 120_000L"))
-        assertTrue("NO_PAIR/cold probation rows must not timeout-promote back to hot loop without maturity price/source proof", registry.contains("PROBATION_TIMEOUT_HELD_NO_MATURITY_6161") && registry.contains("noPairCold") && registry.contains("entry.source.contains(\"NO_PAIR_NO_FALLBACK\"") && registry.contains("maturedByLiq") && registry.contains("maturedBySource") && registry.contains("maturedByMove"))
+        assertTrue("NO_PAIR/cold probation rows must not timeout-promote back to hot loop without maturity price/source proof", registry.contains("PROBATION_TIMEOUT_HELD_NO_MATURITY_6161") && registry.contains("noPairCold") && registry.contains("entry.source.contains(\"NO_PAIR_NO_FALLBACK\"") && registry.contains("maturedByProof6161") && registry.contains("TIMEOUT_MATURED_6161") && registry.contains("priceChange6161"))
         assertFalse(
             "Source-balance demotion must not hardcode liq=0 for real-liq intake",
             // V5.0.6124i: refined check — inspect ONLY the ±30-line window around
@@ -7146,7 +7146,7 @@ class GoldenTapeRegressionTest {
         val labStore6107 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/lab/LlmLabStore.kt").readText()
         val bot6107 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.6107: LanePolicy demotes toxic lanes to RETRAINING, not PAPER_MICRO execution", lanePolicy6107.contains("State.DEMOTION_CANDIDATE     -> State.RETRAINING") && lanePolicy6107.contains("""key.contains("PRESALE")       -> State.RETRAINING""") && lanePolicy6107.contains("State.RETRAINING              -> 0.00"))
-        assertTrue("V5.0.6128: FDG late LanePolicy consumer must pause retraining states without 0.01 floor and seed lab pivot", fdg6106.contains("LANE_POLICY_RETRAINING_PAUSED_6128") && fdg6106.contains("finalSize = 0.0") && fdg6106.contains("NoTradeObservationStore.recordBlock") && fdg6106.contains("LANE_POLICY_RETRAINING_LAB_PIVOT_SEEDED_6128"))
+        assertTrue("V5.0.6165: FDG late LanePolicy consumer must pivot retraining states before purchase; only INVALID_UNTRADEABLE may zero", fdg6106.contains("LANE_POLICY_RETRAINING_PIVOT_6165") && fdg6106.contains("forcePivotForRetraining") && fdg6106.contains("shouldTradeFinal = true") && fdg6106.contains("LANE_POLICY_INVALID_UNTRADEABLE"))
         assertTrue("V5.0.6107: LLM Lab must use economic compounding-size strategies and lane reintroduction", lab6107.contains("economicLabSizingSol") && lab6107.contains("sizingSol") && lab6107.contains("number 1.0..20.0") && lab6107.contains("LAB_POLICY_REINTRODUCTION_6107") && labStore6107.contains("MIN_PAPER_PNL_SOL_FOR_PROMOTION = 1.0") && !lab6107.contains("sizingSol = 0.05"))
         assertTrue("V5.0.6107: FdgRouteVerdict must route retraining to train-only/no-open, not executable micro", route6107.contains("LanePolicy.State.RETRAINING             -> Verdict.ROUTE_TRAIN_ONLY") && route6107.contains("LanePolicy.State.PAPER_MICRO_EXECUTION  -> Verdict.ROUTE_TRAIN_ONLY") && !route6107.contains("LanePolicy.State.RETRAINING             -> Verdict.ALLOW_PAPER_MICRO"))
         assertTrue("V5.0.6107: paper treasury back-fund floor must match compounding-size paper entries", bot6107.contains("cfg.paperSimulatedBalance * 0.20") && bot6107.contains("compounding-size entries after 6106 economic sizing"))
@@ -7735,8 +7735,8 @@ class GoldenTapeRegressionTest {
         val compounding = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RealizedWalletCompoundingGovernor.kt").readText()
         assertTrue("V5.0.6132: compounding report must split money rows from StrategyTruthLedger clean and use strict clean-truth defense",
             compounding.contains("moneyRows=") && compounding.contains("strategyClean=") && compounding.contains("defensive_clean_truth_negative_or_low_wr_6132"))
-        assertTrue("V5.0.6128: FDG must not leak literal LanePolicy interpolation",
-            !fdg.contains("LANE_POLICY_RETRAINING_PAUSED_6107_${'$'}{lpState.name}") && fdg.contains("LANE_POLICY_RETRAINING_PAUSED_6128_${'$'}{lpState.name}"))
+        assertTrue("V5.0.6165: FDG must not leak stale LanePolicy pause literals after retraining pivot bridge",
+            !fdg.contains("LANE_POLICY_RETRAINING_PAUSED_6107_${'$'}{lpState.name}") && !fdg.contains("LANE_POLICY_RETRAINING_PAUSED_6128_${'$'}{lpState.name}") && fdg.contains("LANE_POLICY_RETRAINING_PIVOT_6165"))
         assertTrue("V5.0.6128: lane auto pause must seed lab pivot instead of hard-blocking",
             fdg.contains("LANE_AUTO_PAUSED_PIVOT_SHAPE_6128") && fdg.contains("seedFromTacticFailure"))
         val botService6128 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
