@@ -8357,7 +8357,7 @@ class GoldenTapeRegressionTest {
         val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
         assertTrue("V5.0.6183 bundle 1: stuck-token terminal unsellable flow must quarantine and purge without fake sell finality",
-            exec.contains("SELL_UNSELLABLE_QUARANTINE_PURGE_6175") && exec.contains("markAbandoned") && exec.contains("PURGE_ABANDONED_POSITION_6175"))
+            exec.contains("SELL_UNSELLABLE_QUARANTINED_6175") && exec.contains("abandonUnsellableQuarantined") && exec.contains("removeFromWatchlistForced") && exec.contains("UNSELLABLE_QUARANTINE_6175"))
         assertTrue("V5.0.6183 bundle 2: Crypto Universe must carry venue/regional pre-route parity into normalized route truth",
             crypto.contains("regionalPreRouteAlpha6178") && crypto.contains("CryptoUniverseRouteResolver") && crypto.contains("routeTruthKey6148"))
         assertTrue("V5.0.6183 bundles 3/4: causal EV must shape fresh buys and mid-hold scale-ins as soft authority only",
