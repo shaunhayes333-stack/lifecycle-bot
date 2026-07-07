@@ -12900,6 +12900,18 @@ class Executor(
         val cleanLiveStyleEdgeMult6131 = try {
             StrategyTelemetry.liveStyleSizeMultiplier(routedLaneTag, routedStyleTag)
         } catch (_: Throwable) { 1.0 }
+        val liveBleedLaneMetric6152 = try {
+            val lane6152 = TradeHistoryStore.normalizeTradeModeName(routedLaneTag.ifBlank { canonicalRoutedLane }).ifBlank { "STANDARD" }
+            StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500).firstOrNull { it.strategy.equals(lane6152, true) }
+        } catch (_: Throwable) { null }
+        val liveBleedSizeMultiplier6152 = try {
+            val m = liveBleedLaneMetric6152
+            when {
+                m != null && m.trades >= 8 && m.totalSolPnl < -0.10 && m.pfExpectancyPp <= 0.0 && m.winRatePct < 30.0 -> 0.35
+                m != null && m.trades >= 5 && m.totalSolPnl < 0.0 && m.pfExpectancyPp <= 0.0 -> 0.55
+                else -> 1.0
+            }
+        } catch (_: Throwable) { 1.0 }
         if (cleanLiveStyleEdgeMult6131 < 0.999 || cleanLiveStyleEdgeMult6131 > 1.001) {
             val beforeStyleEdgeSol6131 = sol
             sol = (sol * cleanLiveStyleEdgeMult6131).coerceAtLeast(0.0)
@@ -12909,6 +12921,18 @@ class Executor(
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeStyleEdgeSol6131.fmt(4)} to=${sol.fmt(4)} mult=${cleanLiveStyleEdgeMult6131.fmt(2)} lane=$routedLaneTag style=$routedStyleTag source=clean_live_strategy_truth",
                 )
                 PipelineHealthCollector.labelInc("LIVE_STYLE_EDGE_SIZE_APPLIED_6131")
+            } catch (_: Throwable) {}
+        }
+        if (liveBleedSizeMultiplier6152 < 0.999) {
+            val beforeBleedSol6152 = sol
+            sol = (sol * liveBleedSizeMultiplier6152).coerceAtLeast(0.0)
+            try {
+                val m = liveBleedLaneMetric6152
+                ForensicLogger.lifecycle(
+                    "LIVE_BLEED_BUCKET_SIZE_SHAPED_6152",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeBleedSol6152.fmt(4)} to=${sol.fmt(4)} mult=${liveBleedSizeMultiplier6152.fmt(2)} lane=$routedLaneTag trades=${m?.trades} wr=${m?.winRatePct} pnlSol=${m?.totalSolPnl} pf=${m?.pfExpectancyPp} action=lane_local_shrink_not_global_pause",
+                )
+                PipelineHealthCollector.labelInc("LIVE_BLEED_BUCKET_SIZE_SHAPED_6152")
             } catch (_: Throwable) {}
         }
         if (providerQuorumSizeMultiplier < 0.999) {
@@ -12947,6 +12971,17 @@ class Executor(
                 try { ForensicLogger.lifecycle(
                     "LIVE_LAST_MILE_FLOOR_LIFTED",
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeFloor.fmt(4)} to=${sol.fmt(4)} wallet=${walletSol.fmt(3)}",
+                ) } catch (_: Throwable) {}
+            }
+        }
+        if (liveBleedSizeMultiplier6152 < 0.999) {
+            val bleedCap6152 = maxOf(walletSol * 0.10, 0.020)
+            if (sol > bleedCap6152) {
+                val beforeBleedCap6152 = sol
+                sol = bleedCap6152.coerceAtLeast(0.0)
+                try { ForensicLogger.lifecycle(
+                    "LIVE_BLEED_BUCKET_POST_FLOOR_CAP_6152",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeBleedCap6152.fmt(4)} to=${sol.fmt(4)} cap=${bleedCap6152.fmt(4)} wallet=${walletSol.fmt(3)} lane=$routedLaneTag action=prevent_floor_reinflation",
                 ) } catch (_: Throwable) {}
             }
         }

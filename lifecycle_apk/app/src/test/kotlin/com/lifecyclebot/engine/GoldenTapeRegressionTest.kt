@@ -8029,4 +8029,13 @@ class GoldenTapeRegressionTest {
             exec.contains("evPyramid6151") && exec.contains("gainPct < 1.5") && exec.contains("evPyramidGate6151 && pos.topUpCount == 0 -> 1.5") && exec.contains("never average down") && exec.contains("no LLM/API/hot-path provider calls"))
     }
 
+
+    @org.junit.Test fun V5_0_6152_live_bleed_buckets_are_shrunk_not_globally_paused() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6152: live negative clean-StrategyTruth lanes must size-shape locally instead of continuing full-size losses",
+            exec.contains("liveBleedLaneMetric6152") && exec.contains("liveBleedSizeMultiplier6152") && exec.contains("m.totalSolPnl < -0.10") && exec.contains("m.pfExpectancyPp <= 0.0") && exec.contains("LIVE_BLEED_BUCKET_SIZE_SHAPED_6152"))
+        assertTrue("V5.0.6152: last-mile floor must not immediately re-inflate a proven bleeding lane back to full economic size",
+            exec.contains("LIVE_BLEED_BUCKET_POST_FLOOR_CAP_6152") && exec.contains("prevent_floor_reinflation") && exec.contains("walletSol * 0.10") && exec.contains("lane_local_shrink_not_global_pause"))
+    }
+
 }
