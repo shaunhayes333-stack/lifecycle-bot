@@ -257,9 +257,31 @@ object LaneAutoPauseGuard {
 
             var mutated = false
             for ((lane, agg) in byLane) {
-                if (paused.containsKey(lane)) continue
                 val wrPct = if (agg.sample > 0) agg.wins.toDouble() / agg.sample.toDouble() * 100.0 else 0.0
                 val evPct = if (agg.sample > 0) agg.pnlSum / agg.sample else 0.0
+                // V5.0.6172 — live-clean reproof must reopen old auto-pauses.
+                // Hard seeds were correct when they were created, but a lane can become
+                // +EV after tactic pivots, exit-policy changes, and StrategyTruth cleanup.
+                // Do not keep amputating lanes that have now proved clean positive edge;
+                // remove the pause and let FDG/compounding lean in using live-clean truth.
+                if (paused.containsKey(lane)) {
+                    val cleanReproved6172 = (agg.sample >= TOXIC_MIN_SAMPLE && wrPct >= 30.0 && evPct > 0.0) ||
+                        (agg.sample >= MIN_SAMPLE && evPct >= 25.0)
+                    if (cleanReproved6172) {
+                        val removed = paused.remove(lane)
+                        if (removed != null) {
+                            mutated = true
+                            try {
+                                ErrorLogger.info(
+                                    "LaneAutoPauseGuard",
+                                    "✅ LANE_AUTO_RESUMED_CLEAN_EDGE_6172 lane=$lane n=${agg.sample} wins=${agg.wins} wr=${"%.1f".format(wrPct)}% ev=${"%.1f".format(evPct)}% oldReason=${removed.reason}",
+                                )
+                                PipelineHealthCollector.labelInc("LANE_AUTO_RESUMED_CLEAN_EDGE_6172_$lane")
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                    continue
+                }
                 val zeroWin = agg.sample >= ZERO_WIN_MIN_SAMPLE && agg.wins == 0
                 val toxic = agg.sample >= TOXIC_MIN_SAMPLE &&
                     wrPct < TOXIC_WR_PCT &&

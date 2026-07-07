@@ -8230,4 +8230,15 @@ class GoldenTapeRegressionTest {
             bot.contains("laneIsPaused4598 && !ownerPausedPivot6171") && bot.contains("OWNER_LANE_PAUSED_DENIED_4598"))
     }
 
+
+    @org.junit.Test fun V5_0_6172_lane_auto_pause_reopens_clean_positive_edge() {
+        val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneAutoPauseGuard.kt").readText()
+        assertTrue("V5.0.6172: paused lanes with clean positive StrategyTruth must auto-resume instead of staying amputated",
+            guard.contains("LANE_AUTO_RESUMED_CLEAN_EDGE_6172") && guard.contains("cleanReproved6172") && guard.contains("paused.remove(lane)"))
+        assertTrue("V5.0.6172: reproof requires meaningful clean sample and positive EV/WR, not paper/shadow guesswork",
+            guard.contains("agg.sample >= TOXIC_MIN_SAMPLE && wrPct >= 30.0 && evPct > 0.0") && guard.contains("agg.sample >= MIN_SAMPLE && evPct >= 25.0"))
+        assertTrue("V5.0.6172: toxic zero-win/negative-EV pause logic remains intact after auto-resume check",
+            guard.contains("val zeroWin = agg.sample >= ZERO_WIN_MIN_SAMPLE && agg.wins == 0") && guard.contains("evPct <= TOXIC_EV_PCT"))
+    }
+
 }
