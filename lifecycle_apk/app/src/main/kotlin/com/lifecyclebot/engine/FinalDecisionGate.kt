@@ -2118,7 +2118,7 @@ object FinalDecisionGate {
         val fdgMintRetained6164 = fdgAuthorityRetained6164(ts.tokenMap.mintAuthority)
         val fdgAuthorityUnknownRouteProof6186 = !config.paperMode &&
             com.lifecyclebot.engine.TokenMapAuthority.executableForLiveBuy(ts) &&
-            ((ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: ts.tokenMap.liquidityUsd ?: 0.0) >= 3_000.0)
+            ((ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: ts.tokenMap.liquidityUsd ?: 0.0) >= 1_200.0)
         val fdgFreezeUnknownRouteProof6185 = ts.safety.freezeAuthorityDisabled == null &&
             !fdgFreezeRetained6164 &&
             fdgAuthorityUnknownRouteProof6186
