@@ -8416,4 +8416,15 @@ class GoldenTapeRegressionTest {
             report.contains("trustedLiveOpenCost6190") && report.contains("trustedLiveOpenCost=") && report.contains("trustedLiveOpenPnl=") && report.contains("trustedPaperOpenCost="))
     }
 
+
+    @org.junit.Test fun V5_0_6191_live_abandons_learned_toxic_contexts() {
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue("V5.0.6191: live must use combined paper+live learning only to reduce/abandon risk, never to increase risk",
+            fdg.contains("live context abandon from learned paper+live evidence") && fdg.contains("LosingPatternMemory.stats(laneName, laneScoreBanded)") && fdg.contains("LosingPatternMemory.liveStats(laneName, laneScoreBanded)"))
+        assertTrue("V5.0.6191: mature net-negative paper/live buckets must hard-block live entries unless live-clean positive proof exists",
+            fdg.contains("combinedToxic6191") && fdg.contains("liveToxic6191") && fdg.contains("livePositiveProof6191") && fdg.contains("LIVE_CONTEXT_ABANDONED_BY_LEARNING_6191") && fdg.contains("blockLevel = BlockLevel.HARD"))
+        assertTrue("V5.0.6191: live-clean positive proof must protect rare +EV buckets from paper/shadow down-only abandon",
+            fdg.contains("live6191.sample >= 5") && fdg.contains("live6191.wins >= 2") && fdg.contains("live6191.meanPnl > 0.0") && fdg.contains("!livePositiveProof6191"))
+    }
+
 }

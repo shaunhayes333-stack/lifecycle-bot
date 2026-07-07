@@ -2203,6 +2203,33 @@ object FinalDecisionGate {
             checks.add(GateCheck("death_bucket", true, null))
         }
 
+        // V5.0.6191 — live context abandon from learned paper+live evidence.
+        // Runtime 6189a/6190 screenshots showed live still buying QUALITY/SHITCOIN
+        // buckets that paper+live history already knows are net-negative. Paper/shadow
+        // data must not authorize live risk increases, but it absolutely may reduce
+        // or abandon live risk. Positive live-clean proof protects rare +EV buckets.
+        if (blockReason == null && !config.paperMode) {
+            try {
+                val combined6191 = LosingPatternMemory.stats(laneName, laneScoreBanded)
+                val live6191 = LosingPatternMemory.liveStats(laneName, laneScoreBanded)
+                val livePositiveProof6191 = live6191.sample >= 5 && live6191.wins >= 2 && live6191.meanPnl > 0.0
+                val combinedToxic6191 = combined6191.sample >= 10 && combined6191.lossRatePct >= 70.0 && combined6191.meanPnl <= -5.0
+                val liveToxic6191 = live6191.sample >= 5 && live6191.lossRatePct >= 70.0 && live6191.meanPnl <= 0.0
+                if ((combinedToxic6191 || liveToxic6191) && !livePositiveProof6191) {
+                    val bucketId6191 = try { LosingPatternMemory.bucketKey(laneName, laneScoreBanded) } catch (_: Throwable) { "$laneName|?" }
+                    blockReason = "LIVE_CONTEXT_ABANDONED_BY_LEARNING_6191_${bucketId6191.replace('|', '_')}"
+                    blockLevel = BlockLevel.HARD
+                    checks.add(GateCheck("learned_context_abandon_6191", false, "bucket=$bucketId6191 combined[n=${combined6191.sample} loss=${combined6191.lossRatePct.format(1)}% mean=${combined6191.meanPnl.format(1)}%] live[n=${live6191.sample} loss=${live6191.lossRatePct.format(1)}% mean=${live6191.meanPnl.format(1)}%] — paper/live learning may only reduce live risk"))
+                    tags.add("learned_context_abandon_6191")
+                    tags.add("bucket:$bucketId6191")
+                    try { PipelineHealthCollector.labelInc("FDG_LIVE_CONTEXT_ABANDONED_BY_LEARNING_6191") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("FDG_LIVE_CONTEXT_ABANDONED_BY_LEARNING_6191", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName bucket=$bucketId6191 combinedN=${combined6191.sample} combinedLoss=${combined6191.lossRatePct.format(1)} combinedMean=${combined6191.meanPnl.format(1)} liveN=${live6191.sample} liveLoss=${live6191.lossRatePct.format(1)} liveMean=${live6191.meanPnl.format(1)} action=hard_block_live_entry") } catch (_: Throwable) {}
+                } else {
+                    checks.add(GateCheck("learned_context_abandon_6191", true, "combinedN=${combined6191.sample} liveN=${live6191.sample} livePositive=$livePositiveProof6191"))
+                }
+            } catch (_: Throwable) {}
+        }
+
         // ═══════════════════════════════════════════════════════════════════════════
         // V5.0.4069 — LIVE RECOVERY ENTRY HARD BLOCKS (operator directive)
         // These are LIVE-only hard blocks that prevent execution when critical
