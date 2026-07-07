@@ -64,16 +64,29 @@ object PreTradeHardGate {
         return Verdict(false, "DEFER_SAFETY_PROOF", "$reason|$detail")
     }
 
+    private fun retainedAuthorityFromTokenMap(raw: String?): Boolean {
+        val u = raw?.trim()?.uppercase().orEmpty()
+        if (u.isBlank()) return false
+        return u !in setOf("NULL", "NONE", "RENOUNCED", "DISABLED", "FALSE", "0")
+    }
+
     private fun allowWithPendingProof(ts: TokenState, pending: List<String>, callSite: String): Verdict {
         // V5.0.4019 — taxonomy/source fix: pending proof is a penalty/telemetry
         // condition, not a live-buy terminal failure. 4018 runtime showed
         // BUY ok=0 / SAFETY_PROOF_INCOMPLETE=505 while confirmed hard-safety was
         // already protected above (SAFETY_HARD_BLOCK, active mint/freeze,
         // TRUE_ZERO_LIQUIDITY, fatal holder concentration, fatal wallet text).
-        // Keep only route/liquidity unknown as hydrate-defer because there may be
-        // no executable market. Unknown holder/mint/freeze/rugcheck proof now
-        // soft-allows with explicit telemetry so sizing/advisors can penalize
-        // without choking 500-1000/day live throughput.
+        // Keep route/liquidity unknown as hydrate-defer because there may be
+        // no executable market. V5.0.6164 tightens live token-authority proof:
+        // unknown mint/freeze authority is NOT penalty-only because a retained
+        // freeze authority can trap real SOL. Holder/rugcheck unknown may still
+        // soft-penalize if no fatal signal exists.
+        val authorityPending6164 = pending.firstOrNull {
+            it.contains("FREEZE_AUTHORITY_UNKNOWN", true) || it.contains("MINT_AUTHORITY_UNKNOWN", true)
+        }
+        if (authorityPending6164 != null) {
+            return deferSafetyProof(ts, "LIVE_TOKEN_AUTHORITY_PROOF_PENDING_6164", listOf(authorityPending6164), callSite)
+        }
         val routeOrLiquidityPending = pending.firstOrNull {
             it.contains("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", true) ||
             it.contains("TOKEN_MAP_PENDING", true)
@@ -129,15 +142,17 @@ object PreTradeHardGate {
         // confirmed fatal signal exists; score=0 remains a hard rug proof.
         if (safety.rugcheckScore == 0) return block(ts, "RUGCHECK_CONFIRMED_RUG", "score=0")
 
-        when (safety.mintAuthorityDisabled) {
-            false -> return block(ts, "MINT_AUTHORITY_ACTIVE", "mint authority still active")
-            null -> pendingProofs.add("MINT_AUTHORITY_UNKNOWN")
-            true -> Unit
+        val tokenMapMintAuthorityRetained6164 = retainedAuthorityFromTokenMap(ts.tokenMap.mintAuthority)
+        val tokenMapFreezeAuthorityRetained6164 = retainedAuthorityFromTokenMap(ts.tokenMap.freezeAuthority)
+        when {
+            safety.mintAuthorityDisabled == false || tokenMapMintAuthorityRetained6164 -> return block(ts, "MINT_AUTHORITY_ACTIVE", "mint authority still active safety=${safety.mintAuthorityDisabled} tokenMap=${ts.tokenMap.mintAuthority ?: "?"}")
+            safety.mintAuthorityDisabled == null -> pendingProofs.add("MINT_AUTHORITY_UNKNOWN")
+            else -> Unit
         }
-        when (safety.freezeAuthorityDisabled) {
-            false -> return block(ts, "FREEZE_AUTHORITY_ACTIVE", "freeze authority still active")
-            null -> pendingProofs.add("FREEZE_AUTHORITY_UNKNOWN")
-            true -> Unit
+        when {
+            safety.freezeAuthorityDisabled == false || tokenMapFreezeAuthorityRetained6164 -> return block(ts, "FREEZE_AUTHORITY_ACTIVE", "freeze authority still active safety=${safety.freezeAuthorityDisabled} tokenMap=${ts.tokenMap.freezeAuthority ?: "?"}")
+            safety.freezeAuthorityDisabled == null -> pendingProofs.add("FREEZE_AUTHORITY_UNKNOWN") // V5.0.6164: live defer, never penalty-allow
+            else -> Unit
         }
 
         val tokenMapLiquidity = TokenMapAuthority.liquidityVerdict(ts)

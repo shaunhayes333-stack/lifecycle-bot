@@ -2093,30 +2093,37 @@ object FinalDecisionGate {
             checks.add(GateCheck("safety_block", true, null))
         }
 
-        // SAFETY BLOCK: Freeze authority = dev can freeze your tokens and drain your position.
-        // This is a genuine rug vector. ALWAYS hard block in live mode regardless of edge.
-        // V5.9.291: restored to unconditional live hard block.
-        if (blockReason == null && !config.paperMode && ts.safety.freezeAuthorityDisabled == false) {
-            blockReason = "HARD_BLOCK_FREEZE_AUTHORITY"
+        // SAFETY BLOCK: Freeze authority = dev can freeze your tokens and trap the position.
+        // V5.0.6164: live must fail-closed. Only explicit revoked/renounced freeze
+        // authority can pass; active, token-map retained, or unknown authority blocks
+        // before execution. This mirrors PreTradeHardGate's final pre-broadcast choke.
+        fun fdgAuthorityRetained6164(raw: String?): Boolean {
+            val u = raw?.trim()?.uppercase().orEmpty()
+            return u.isNotBlank() && u !in setOf("NULL", "NONE", "RENOUNCED", "DISABLED", "FALSE", "0")
+        }
+        val fdgFreezeRetained6164 = fdgAuthorityRetained6164(ts.tokenMap.freezeAuthority)
+        val fdgMintRetained6164 = fdgAuthorityRetained6164(ts.tokenMap.mintAuthority)
+        if (blockReason == null && !config.paperMode && (ts.safety.freezeAuthorityDisabled != true || fdgFreezeRetained6164)) {
+            blockReason = if (ts.safety.freezeAuthorityDisabled == false || fdgFreezeRetained6164) "HARD_BLOCK_FREEZE_AUTHORITY" else "HARD_BLOCK_FREEZE_AUTHORITY_UNKNOWN_6164"
             blockLevel = BlockLevel.HARD
-            checks.add(GateCheck("freeze_auth", false, "freezeAuth=enabled (live mode — rug vector)"))
-            tags.add("freeze_auth")
+            checks.add(GateCheck("freeze_auth", false, "freezeAuth=${ts.safety.freezeAuthorityDisabled} tokenMap=${ts.tokenMap.freezeAuthority ?: "?"} live fail-closed"))
+            tags.add("freeze_auth_6164")
+            try { PipelineHealthCollector.labelInc("FDG_FREEZE_AUTHORITY_FAIL_CLOSED_6164") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("FREEZE_AUTHORITY_FAIL_CLOSED_6164", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName freeze=${ts.safety.freezeAuthorityDisabled} tokenMap=${ts.tokenMap.freezeAuthority ?: "?"} action=hard_block_live") } catch (_: Throwable) {}
         } else if (blockReason == null) {
             checks.add(GateCheck("freeze_auth", true, null))
         }
 
-        // V5.0.6116 — SAFETY BLOCK: Mint authority enabled = dev can mint unlimited
-        // tokens and dump them. Same rug vector as freeze authority. The bot was buying
-        // tokens at -83%/-87%/-94% because mint authority was only a +10 soft penalty.
-        // Now: HARD BLOCK in live mode when mint authority is confirmed enabled.
-        // null = unknown (RPC race) = keep as soft penalty (do not hard-block on missing data).
-        if (blockReason == null && !config.paperMode && ts.safety.mintAuthorityDisabled == false) {
-            blockReason = "HARD_BLOCK_MINT_AUTHORITY_6116"
+        // V5.0.6116 / V5.0.6164 — mint authority enabled/unknown is live fail-closed.
+        // Paper/shadow can observe; real SOL cannot buy tokens unless mint authority
+        // is explicitly revoked and token-map does not contradict it.
+        if (blockReason == null && !config.paperMode && (ts.safety.mintAuthorityDisabled != true || fdgMintRetained6164)) {
+            blockReason = if (ts.safety.mintAuthorityDisabled == false || fdgMintRetained6164) "HARD_BLOCK_MINT_AUTHORITY_6116" else "HARD_BLOCK_MINT_AUTHORITY_UNKNOWN_6164"
             blockLevel = BlockLevel.HARD
-            checks.add(GateCheck("mint_auth", false, "mintAuth=enabled (live mode — dev can mint+dump)"))
-            tags.add("mint_auth_6116")
-            try { PipelineHealthCollector.labelInc("FDG_MINT_AUTHORITY_HARD_BLOCK_6116") } catch (_: Throwable) {}
-            try { ForensicLogger.lifecycle("MINT_AUTHORITY_HARD_BLOCK_6116", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName action=hard_block_live") } catch (_: Throwable) {}
+            checks.add(GateCheck("mint_auth", false, "mintAuth=${ts.safety.mintAuthorityDisabled} tokenMap=${ts.tokenMap.mintAuthority ?: "?"} live fail-closed"))
+            tags.add("mint_auth_6164")
+            try { PipelineHealthCollector.labelInc("FDG_MINT_AUTHORITY_FAIL_CLOSED_6164") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("MINT_AUTHORITY_FAIL_CLOSED_6164", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName mintAuth=${ts.safety.mintAuthorityDisabled} tokenMap=${ts.tokenMap.mintAuthority ?: "?"} action=hard_block_live") } catch (_: Throwable) {}
         } else if (blockReason == null) {
             checks.add(GateCheck("mint_auth", true, null))
         }

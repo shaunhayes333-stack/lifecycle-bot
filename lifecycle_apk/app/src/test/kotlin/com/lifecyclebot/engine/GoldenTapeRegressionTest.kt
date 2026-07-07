@@ -8142,4 +8142,16 @@ class GoldenTapeRegressionTest {
             chart.contains("""bias = "BEARISH_HARD_PATTERN""") && chart.contains("hardVeto = true") && chart.contains("HARD_BEARISH_PATTERNS"))
     }
 
+
+    @org.junit.Test fun V5_0_6164_live_freeze_authority_fail_closed_everywhere() {
+        val pre = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue("V5.0.6164: PreTradeHardGate must never penalty-allow unknown freeze/mint authority in live",
+            pre.contains("LIVE_TOKEN_AUTHORITY_PROOF_PENDING_6164") && pre.contains("authorityPending6164") && pre.contains("FREEZE_AUTHORITY_UNKNOWN") && pre.contains("retainedAuthorityFromTokenMap") && pre.contains("tokenMapFreezeAuthorityRetained6164"))
+        assertTrue("V5.0.6164: FDG must fail-closed live authority before executor, including token-map retained authority",
+            fdg.contains("fdgAuthorityRetained6164") && fdg.contains("HARD_BLOCK_FREEZE_AUTHORITY_UNKNOWN_6164") && fdg.contains("FDG_FREEZE_AUTHORITY_FAIL_CLOSED_6164") && fdg.contains("fdgFreezeRetained6164"))
+        assertFalse("V5.0.6164: source comments must not claim unknown mint/freeze proof soft-allows live",
+            pre.contains("Unknown holder/mint/freeze/rugcheck proof now") || fdg.contains("null = unknown (RPC race) = keep as soft penalty"))
+    }
+
 }
