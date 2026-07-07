@@ -8199,4 +8199,15 @@ class GoldenTapeRegressionTest {
             !main.contains("executeBuy(") && !main.contains("requestSell("))
     }
 
+
+    @org.junit.Test fun V5_0_6169_currency_manager_selected_currency_is_memory_fast() {
+        val currency = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CurrencyManager.kt").readText()
+        assertTrue("V5.0.6169: selected currency must be cached in memory for UI format paths",
+            currency.contains("selectedCurrencyCache") && currency.contains("currency-pref-preload-6169") && currency.contains("get() = selectedCurrencyCache"))
+        assertTrue("V5.0.6169: format/formatPrice paths must use cached selected currency, not prefs.getString",
+            currency.contains("val selected = selectedCurrencyCache") && !currency.contains("get() = prefs.getString"))
+        assertTrue("V5.0.6169: SharedPreferences remains persistence-only via async apply",
+            currency.contains("prefs.edit().putString(PREF_SELECTED, safe).apply()"))
+    }
+
 }

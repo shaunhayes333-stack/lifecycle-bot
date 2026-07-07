@@ -80,6 +80,11 @@ class CurrencyManager(private val ctx: Context) {
     @Volatile private var btcUsd    = 0.0
     @Volatile private var ethUsd    = 0.0
     @Volatile private var lastFetch = 0L
+    // V5.0.6169 — selected currency must be memory-fast on UI paths. Runtime
+    // ANR stack still showed CurrencyManager.getSelectedCurrency / XML prefs on
+    // MainActivity. Keep SharedPreferences for persistence, but never require a
+    // prefs read from format()/formatPrice()/selectedInfo.
+    @Volatile private var selectedCurrencyCache: String = DEFAULT_CCY
 
     // V5.9.999b — SharedPreferences cold-load fix.
     //
@@ -99,14 +104,24 @@ class CurrencyManager(private val ctx: Context) {
         ctx.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
     }
 
+    init {
+        Thread({
+            try { selectedCurrencyCache = prefs.getString(PREF_SELECTED, DEFAULT_CCY) ?: DEFAULT_CCY } catch (_: Throwable) {}
+        }, "currency-pref-preload-6169").also { it.isDaemon = true }.start()
+    }
+
     // ── Selected currency ─────────────────────────────────────────────
 
     var selectedCurrency: String
-        get() = prefs.getString(PREF_SELECTED, DEFAULT_CCY) ?: DEFAULT_CCY
-        set(value) = prefs.edit().putString(PREF_SELECTED, value).apply()
+        get() = selectedCurrencyCache
+        set(value) {
+            val safe = ALL_CURRENCIES.firstOrNull { it.code == value }?.code ?: DEFAULT_CCY
+            selectedCurrencyCache = safe
+            try { prefs.edit().putString(PREF_SELECTED, safe).apply() } catch (_: Throwable) {}
+        }
 
     val selectedInfo: CurrencyInfo
-        get() = ALL_CURRENCIES.find { it.code == selectedCurrency }
+        get() = ALL_CURRENCIES.find { it.code == selectedCurrencyCache }
                 ?: ALL_CURRENCIES[1]
 
     // ── Conversion ────────────────────────────────────────────────────
@@ -130,13 +145,14 @@ class CurrencyManager(private val ctx: Context) {
             "DKK" to 6.87, "INR" to 83.0, "BRL" to 4.97, "MXN" to 17.2,
             "ZAR" to 18.6, "KRW" to 1325.0, "TRY" to 32.0
         )
-        return when (selectedCurrency) {
+        val selected = selectedCurrencyCache
+        return when (selected) {
             "SOL" -> sol
             "BTC" -> if (btcUsd > 0 && effectiveSolUsd > 0) sol * effectiveSolUsd / btcUsd else 0.0
             "ETH" -> if (ethUsd > 0 && effectiveSolUsd > 0) sol * effectiveSolUsd / ethUsd else 0.0
             else  -> {
-                val fiatPerUsd = rates[selectedCurrency]
-                    ?: fallbackRates[selectedCurrency]
+                val fiatPerUsd = rates[selected]
+                    ?: fallbackRates[selected]
                     ?: 1.0
                 sol * effectiveSolUsd * fiatPerUsd
             }
@@ -156,7 +172,8 @@ class CurrencyManager(private val ctx: Context) {
         val amount = solToDisplay(sol)
         val prefix = if (showPlus && amount > 0) "+" else ""
 
-        return when (selectedCurrency) {
+        val selected = selectedCurrencyCache
+        return when (selected) {
             "SOL" -> "${prefix}${info.symbol} ${formatSol(amount)}"
             "JPY", "KRW", "IDR" -> "${prefix}${info.symbol}${formatInt(amount)}"
             "BTC" -> "${prefix}${info.symbol} ${formatBtc(amount)}"
@@ -172,12 +189,13 @@ class CurrencyManager(private val ctx: Context) {
     fun formatPrice(priceUsd: Double): String {
         val info = selectedInfo
         val effectiveSolUsd = if (solUsd > 0) solUsd else WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 140.0
-        val converted = when (selectedCurrency) {
+        val selected = selectedCurrencyCache
+        val converted = when (selected) {
             "SOL" -> if (effectiveSolUsd > 0) priceUsd / effectiveSolUsd else 0.0
             "BTC" -> if (btcUsd > 0) priceUsd / btcUsd else 0.0
             "ETH" -> if (ethUsd > 0) priceUsd / ethUsd else 0.0
             else  -> {
-                val fiatPerUsd = rates[selectedCurrency] ?: 1.0
+                val fiatPerUsd = rates[selected] ?: 1.0
                 priceUsd * fiatPerUsd
             }
         }
