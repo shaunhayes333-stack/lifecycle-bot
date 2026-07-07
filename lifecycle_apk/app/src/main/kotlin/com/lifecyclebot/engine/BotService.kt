@@ -5101,7 +5101,18 @@ class BotService : Service() {
                             //   3. ScannerLaneBridge.shouldRoute — proven-toxic (src→lane) pair
                             // None of these veto unknown tokens — they only block KNOWN bad.
                             val v4132_rug = try { com.lifecyclebot.engine.RugMintBlacklist.isBlacklisted(identity.mint) } catch (_: Throwable) { false }
-                            val v4132_gooseCata = try { com.lifecyclebot.engine.PatternGoldenGoose.isCatastrophic(name.ifBlank { identity.symbol }, identity.symbol) } catch (_: Throwable) { false }
+                            // V5.0.6197 — FRESH-LAUNCH BYPASS. Report 2026-07-08 05:56 shows
+                            // goose_catastrophic vetoing every meme intake (>50/min).
+                            // PatternGoldenGoose learns name/theme patterns from HISTORICAL
+                            // trades but a brand-new pump.fun/raydium mint has no history
+                            // and shouldn't be pre-vetoed by name-pattern memory. Let
+                            // FreshLaunchHunter + FDG + pivot router handle these fresh
+                            // sources; blacklist and toxic-pair filters still apply.
+                            val v4132_isFreshLaunchSource = source.name.contains("PUMP_FUN_NEW", true) ||
+                                source.name.contains("RAYDIUM_NEW_POOL", true) ||
+                                source.name.contains("PUMP_PORTAL_WS", true)
+                            val v4132_gooseCata = if (v4132_isFreshLaunchSource) false
+                                else try { com.lifecyclebot.engine.PatternGoldenGoose.isCatastrophic(name.ifBlank { identity.symbol }, identity.symbol) } catch (_: Throwable) { false }
                             val v4132_toxicPair = try { !com.lifecyclebot.engine.ScannerLaneBridge.shouldRoute(source.name, "MEME") } catch (_: Throwable) { false }
                             val v4132_veto = v4132_rug || v4132_gooseCata || v4132_toxicPair
                             val v4132_vetoTag = when {

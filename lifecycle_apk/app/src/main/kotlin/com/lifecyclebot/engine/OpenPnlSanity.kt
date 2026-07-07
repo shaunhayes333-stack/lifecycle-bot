@@ -138,6 +138,18 @@ object OpenPnlSanity {
         } else if (currentPrice.isFinite() && currentPrice > 0.0) {
             try { PipelineHealthCollector.labelInc("ENTRY_PRICE_HEALED_FROM_CURRENT_6195") } catch (_: Throwable) {}
             currentPrice
+        } else if (pos.qtyToken > 1.0) {
+            // V5.0.6197 — LAST-RESORT SYNTHETIC BASIS. Report 2026-07-08 05:56
+            // shows RECOVERED_2xKQg4 has entryPrice=0 AND costSol=0 AND
+            // currentPrice=0 AND highestPrice=0 — every heal path above fails
+            // and the position spam-rejects OPEN_PNL_BASIS_REJECTED forever,
+            // permanently occupying a live-open slot. Synthetic 1e-9 basis
+            // lets PnL resolve (usually as ~0% or ~-100% depending on the
+            // eventual quote) so Executor's stale-position sweep can finally
+            // free the slot. This is safe because it only triggers when
+            // ALL price paths have failed.
+            try { PipelineHealthCollector.labelInc("ENTRY_PRICE_HEALED_SYNTHETIC_6197") } catch (_: Throwable) {}
+            1e-9
         } else pos.entryPrice
         return inspect(
             entryPrice = healedEntryPrice,

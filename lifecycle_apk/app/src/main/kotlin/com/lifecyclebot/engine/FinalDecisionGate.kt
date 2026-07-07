@@ -3862,29 +3862,43 @@ object FinalDecisionGate {
         try {
             if (mode == TradeMode.LIVE) {
                 val laneName = ts.position.tradingMode.ifBlank { "STANDARD" }
-                val routerVerdict = com.lifecyclebot.engine.DumpRegimeWinnerRouter.evaluate(laneName)
-                if (!routerVerdict.allow) {
-                    checks.add(GateCheck(
-                        "pivot_to_winners_6196", false,
-                        "Lane $laneName EV=${"%.2f".format(routerVerdict.laneEvPct)}% WR=${"%.1f".format(routerVerdict.laneWrPct)}% totalSol=${"%.4f".format(routerVerdict.laneTotalSol)} — pivot live capital to positive-EV lanes"
-                    ))
-                    tags.add("pivot_to_winners_6196")
-                    return FinalDecision(
-                        shouldTrade = false,
-                        mode = mode,
-                        approvalClass = ApprovalClass.BLOCKED,
-                        quality = "PIVOT_TO_WINNERS_ONLY",
-                        confidence = 0.0,
-                        edge = EdgeVerdict.WEAK,
-                        blockReason = routerVerdict.reason,
-                        blockLevel = BlockLevel.HARD,
-                        sizeSol = 0.0,
-                        tags = tags,
-                        mint = ts.mint,
-                        symbol = ts.symbol,
-                        approvalReason = "Lane $laneName is EV-negative (${"%.2f".format(routerVerdict.laneEvPct)}%) during ${com.lifecyclebot.engine.RegimeDetector.currentRegime()} — pivoting to proven winners",
-                        gateChecks = checks,
-                    )
+                // V5.0.6197 — FRESH-LAUNCH BYPASS for pivot router. When a
+                // token matches FreshLaunchHunter's ANSEM profile (< 12h old,
+                // < \$75k mcap, has confirmatory signals), do NOT block the
+                // live entry even if the lane is a historical bleeder. The
+                // whole point of FreshLaunchHunter is to catch the NEXT
+                // TREASURY/BLUECHIP winner while it's still cheap.
+                val moonshotMatch = try {
+                    com.lifecyclebot.engine.FreshLaunchHunter.evaluate(ts).isMatch
+                } catch (_: Throwable) { false }
+                if (!moonshotMatch) {
+                    val routerVerdict = com.lifecyclebot.engine.DumpRegimeWinnerRouter.evaluate(laneName)
+                    if (!routerVerdict.allow) {
+                        checks.add(GateCheck(
+                            "pivot_to_winners_6196", false,
+                            "Lane $laneName EV=${"%.2f".format(routerVerdict.laneEvPct)}% WR=${"%.1f".format(routerVerdict.laneWrPct)}% totalSol=${"%.4f".format(routerVerdict.laneTotalSol)} — pivot live capital to positive-EV lanes"
+                        ))
+                        tags.add("pivot_to_winners_6196")
+                        return FinalDecision(
+                            shouldTrade = false,
+                            mode = mode,
+                            approvalClass = ApprovalClass.BLOCKED,
+                            quality = "PIVOT_TO_WINNERS_ONLY",
+                            confidence = 0.0,
+                            edge = EdgeVerdict.WEAK,
+                            blockReason = routerVerdict.reason,
+                            blockLevel = BlockLevel.HARD,
+                            sizeSol = 0.0,
+                            tags = tags,
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            approvalReason = "Lane $laneName is EV-negative (${"%.2f".format(routerVerdict.laneEvPct)}%) during ${com.lifecyclebot.engine.RegimeDetector.currentRegime()} — pivoting to proven winners",
+                            gateChecks = checks,
+                        )
+                    }
+                } else {
+                    tags.add("pivot_bypass_fresh_launch_6197")
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PIVOT_BYPASS_FRESH_LAUNCH_6197") } catch (_: Throwable) {}
                 }
             }
         } catch (_: Throwable) { /* fail-open — router is advisory */ }
