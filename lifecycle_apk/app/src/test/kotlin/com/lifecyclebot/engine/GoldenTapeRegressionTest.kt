@@ -8188,4 +8188,15 @@ class GoldenTapeRegressionTest {
             main.contains("Full forensic logs remain internal") && main.contains("full engine logs remain internal"))
     }
 
+
+    @org.junit.Test fun V5_0_6168_watchlist_hash_is_stable_during_probation_churn() {
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue("V5.0.6168: watchlist structural hash must bucket noisy counts instead of rebuilding rows for every count twitch",
+            main.contains("activeCountBucket6168") && main.contains("idleCountBucket6168") && main.contains("probationCountBucket6168") && main.contains("probationAll.size / 10"))
+        assertTrue("V5.0.6168: probation visible rows must stay tiny on MainActivity while runtime is active",
+            main.contains("probationVisible4564") && main.contains(".take(2)") && main.contains("val maxProbationRows = if (columnCount >= 3) 2 else 3"))
+        assertTrue("V5.0.6168: patch is UI/render-only and must not touch executor authority",
+            !main.contains("executeBuy(") && !main.contains("requestSell("))
+    }
+
 }

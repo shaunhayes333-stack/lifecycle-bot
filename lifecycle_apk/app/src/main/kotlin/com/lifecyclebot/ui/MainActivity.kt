@@ -2543,7 +2543,7 @@ for legal compliance.
                     .asSequence()
                     .filter { it.expectancy.isFinite() }
                     .sortedByDescending { it.expectancy }
-                    .take(3)
+                    .take(2)
                     .joinToString(" · ") { r ->
                         val ev = kotlin.math.round(r.expectancy * 100.0) / 100.0
                         "${r.strategyName} ${if (ev >= 0.0) "+" else ""}${ev}R"
@@ -2731,7 +2731,7 @@ for legal compliance.
                         .thenByDescending { it.currentPrice > it.priceAtAdd && it.priceAtAdd > 0.0 }
                         .thenByDescending { it.initialLiquidity }
                         .thenByDescending { it.addedAt })
-                    .take(3)
+                    .take(2)
                 val activeVisible = activeTokens
                     .sortedWith(compareByDescending<com.lifecyclebot.data.TokenState> { it.mint == active }
                         .thenByDescending { it.position.isOpen }
@@ -2742,10 +2742,19 @@ for legal compliance.
                 val idleVisible = idleTokens
                     .sortedWith(compareByDescending<com.lifecyclebot.data.TokenState> { it.lastLiquidityUsd })
                     .take(IDLE_ROW_CAP)
+                // V5.0.6168 — ANR hash stability. Counts churn constantly during
+                // probation timeout/promote/reject waves and used to force full
+                // removeAllViews()+card rebuilds even when the visible rows were
+                // identical. Visible mints drive structure; counts are bucketed so
+                // headers can refresh occasionally without making every row-count
+                // twitch a Main-thread layout event.
+                val activeCountBucket6168 = activeTokens.size / 5
+                val idleCountBucket6168 = idleTokens.size / 10
+                val probationCountBucket6168 = probationAll.size / 10
                 val wlHash = (activeVisible.joinToString(",") { it.mint } + "|" +
                               idleVisible.joinToString(",") { it.mint } + "|" +
                               probationVisible4564.joinToString(",") { it.mint } + "|" +
-                              activeTokens.size + "|" + idleTokens.size + "|" + probationAll.size).hashCode()
+                              activeCountBucket6168 + "|" + idleCountBucket6168 + "|" + probationCountBucket6168).hashCode()
                 WatchlistModel(
                     updatedAtMs = System.currentTimeMillis(),
                     activeVisible = activeVisible, idleVisible = idleVisible,
@@ -8946,7 +8955,7 @@ This cannot be undone!
             tvProbationHeader.text = "Probation ($probationEntriesSize)"
             // V5.0.4564 — already sorted/capped off-thread; bind only. No
             // GlobalTradeRegistry read, sort, or wide probation iteration on Main.
-            val maxProbationRows = if (columnCount >= 3) 3 else 4
+            val maxProbationRows = if (columnCount >= 3) 2 else 3
             val probationVisible = probationVisibleModel.take(maxProbationRows)
             for (entry in probationVisible) {
                 val probationCard = buildProbationCard(entry, scaleFactor)
