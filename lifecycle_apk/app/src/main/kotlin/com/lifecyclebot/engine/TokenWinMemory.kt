@@ -1200,6 +1200,75 @@ object TokenWinMemory {
         return PatternEdge(verdict, bias, bestPattern, bestWr, bestN, worstPattern, worstWr, worstN)
     }
 
+
+
+    // V5.0.6192 — paper/live pattern edge for LIVE context transfer.
+    // Paper learning is not live PnL authority, but toxic source/setup/platform
+    // knowledge is directly relevant to live risk. This exposes combined pattern
+    // memory as a down-only live intelligence signal; callers must not use GOLD
+    // here to increase live size without live-clean proof.
+    fun patternEdgeForLiveContext6192(
+        source: String = "",
+        launchPlatform: String = "",
+        setupQuality: String = "",
+        lane: String = "",
+        buyRoute: String = "",
+    ): PatternEdge {
+        val candidates = mutableListOf<Pair<String, String>>()
+        if (source.isNotBlank()) candidates += "source" to source.take(80)
+        if (launchPlatform.isNotBlank()) candidates += "launch_platform" to launchPlatform.take(80)
+        if (setupQuality.isNotBlank()) candidates += "setup_quality" to setupQuality.take(80)
+        if (lane.isNotBlank()) candidates += "lane" to lane.take(80)
+        if (buyRoute.isNotBlank()) candidates += "buy_route" to buyRoute.take(80)
+
+        var bestPattern: String? = null
+        var bestWr = 0.0
+        var bestN = 0
+        var bestAvgWin = 0.0
+        var worstPattern: String? = null
+        var worstWr = 1.0
+        var worstN = 0
+
+        for ((type, value) in candidates) {
+            val stats = patterns[type]?.get(value) ?: continue
+            if (!sanePatternStats(stats)) continue
+            val n = stats.wins + stats.losses
+            if (n < 8) continue
+            val wr = stats.winRate
+            if (wr > bestWr || (wr == bestWr && n > bestN)) {
+                bestWr = wr; bestN = n; bestPattern = "$type:$value"; bestAvgWin = stats.avgWinPnl
+            }
+            if (wr < worstWr || (wr == worstWr && n > worstN)) {
+                worstWr = wr; worstN = n; worstPattern = "$type:$value"
+            }
+        }
+
+        if (bestPattern == null && worstPattern == null) {
+            return PatternEdge(Verdict.NEUTRAL, 0, null, 0.0, 0, null, 0.0, 0)
+        }
+
+        val goldHit = bestPattern != null && bestWr >= 0.60 && bestN >= 8
+        val evGoldHit = bestPattern != null && (bestWr * bestAvgWin) >= 20.0 && bestN >= 8 && bestAvgWin >= 30.0
+        val winHit = bestPattern != null && bestWr >= 0.50 && bestN >= 8
+        val toxicHit = worstPattern != null && worstWr <= 0.15 && worstN >= 8
+        val cataHit = worstPattern != null && worstWr <= 0.10 && worstN >= 10
+        val verdict = when {
+            cataHit -> Verdict.CATASTROPHIC
+            toxicHit -> Verdict.TOXIC
+            goldHit || evGoldHit -> Verdict.GOLD
+            winHit -> Verdict.WINNER
+            else -> Verdict.NEUTRAL
+        }
+        val bias = when (verdict) {
+            Verdict.CATASTROPHIC -> -35
+            Verdict.TOXIC -> -22
+            Verdict.GOLD -> +0      // down-only live bridge; no paper-authorized live size lift
+            Verdict.WINNER -> +0    // guidance tag only unless live-clean proof elsewhere permits risk
+            Verdict.NEUTRAL -> 0
+        }
+        return PatternEdge(verdict, bias, bestPattern, bestWr, bestN, worstPattern, worstWr, worstN)
+    }
+
     fun exportPatternAggregates(limit: Int = 250): List<ExportedPatternAggregate> {
         return patterns.flatMap { (type, typePatterns) ->
             typePatterns.map { (value, stats) ->

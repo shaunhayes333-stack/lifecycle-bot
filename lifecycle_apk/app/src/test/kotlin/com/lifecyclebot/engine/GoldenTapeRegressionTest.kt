@@ -8427,4 +8427,16 @@ class GoldenTapeRegressionTest {
             fdg.contains("live6191.sample >= 5") && fdg.contains("live6191.wins >= 2") && fdg.contains("live6191.meanPnl > 0.0") && fdg.contains("!livePositiveProof6191"))
     }
 
+
+    @org.junit.Test fun V5_0_6192_paper_pattern_memory_bridges_down_only_to_live() {
+        val token = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenWinMemory.kt").readText()
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue("V5.0.6192: TokenWinMemory must expose source/setup/platform/route/lane context edge for live transfer",
+            token.contains("patternEdgeForLiveContext6192") && token.contains("source") && token.contains("launch_platform") && token.contains("setup_quality") && token.contains("buy_route") && token.contains("lane"))
+        assertTrue("V5.0.6192: paper/live pattern bridge must be down-only for live, never a paper-authorized size boost",
+            token.contains("down-only live bridge") && token.contains("Verdict.GOLD -> +0") && token.contains("Verdict.WINNER -> +0"))
+        assertTrue("V5.0.6192: FDG must hard-block toxic/catastrophic pattern-memory contexts in live mode",
+            fdg.contains("TokenWinMemory.patternEdgeForLiveContext6192") && fdg.contains("LIVE_CONTEXT_TOXIC_PATTERN_MEMORY_6192") && fdg.contains("blockLevel = BlockLevel.HARD") && fdg.contains("guidance only, no live size increase"))
+    }
+
 }

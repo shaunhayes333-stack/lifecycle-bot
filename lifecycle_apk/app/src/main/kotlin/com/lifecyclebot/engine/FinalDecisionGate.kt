@@ -2203,6 +2203,33 @@ object FinalDecisionGate {
             checks.add(GateCheck("death_bucket", true, null))
         }
 
+        // V5.0.6192 — source/setup/platform pattern transfer from paper/live memory.
+        // This is intentionally down-only: paper-derived toxic knowledge can abandon
+        // live risk, but paper-derived winners cannot increase live size here.
+        if (blockReason == null && !config.paperMode) {
+            try {
+                val edge6192 = TokenWinMemory.patternEdgeForLiveContext6192(
+                    source = ts.source,
+                    launchPlatform = ts.source,
+                    setupQuality = candidate.setupQuality,
+                    lane = laneName,
+                    buyRoute = ts.position.entryPriceSource.ifBlank { ts.position.entryDex },
+                )
+                if (edge6192.verdict == TokenWinMemory.Verdict.CATASTROPHIC || edge6192.verdict == TokenWinMemory.Verdict.TOXIC) {
+                    blockReason = "LIVE_CONTEXT_TOXIC_PATTERN_MEMORY_6192_${edge6192.worstPattern?.replace(':', '_')?.replace('|', '_') ?: "unknown"}"
+                    blockLevel = BlockLevel.HARD
+                    checks.add(GateCheck("pattern_memory_context_6192", false, "${edge6192.verdict} ${edge6192.tag} — paper/live pattern memory is down-only live risk authority"))
+                    tags.add("pattern_memory_context_6192")
+                    edge6192.worstPattern?.let { tags.add("toxic_pattern:$it") }
+                    try { PipelineHealthCollector.labelInc("FDG_LIVE_CONTEXT_TOXIC_PATTERN_MEMORY_6192") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("FDG_LIVE_CONTEXT_TOXIC_PATTERN_MEMORY_6192", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName edge=${edge6192.tag} source=${ts.source.take(80)} setup=${candidate.setupQuality} action=hard_block_live_entry") } catch (_: Throwable) {}
+                } else if (edge6192.verdict == TokenWinMemory.Verdict.GOLD || edge6192.verdict == TokenWinMemory.Verdict.WINNER) {
+                    checks.add(GateCheck("pattern_memory_context_6192", true, "${edge6192.verdict} ${edge6192.tag} — guidance only, no live size increase"))
+                    tags.add("pattern_memory_context_guidance_6192")
+                }
+            } catch (_: Throwable) {}
+        }
+
         // V5.0.6191 — live context abandon from learned paper+live evidence.
         // Runtime 6189a/6190 screenshots showed live still buying QUALITY/SHITCOIN
         // buckets that paper+live history already knows are net-negative. Paper/shadow
