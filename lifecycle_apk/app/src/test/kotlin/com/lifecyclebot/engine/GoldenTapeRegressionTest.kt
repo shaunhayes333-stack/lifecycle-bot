@@ -1161,7 +1161,7 @@ class GoldenTapeRegressionTest {
         assertTrue(service.contains("do not fabricate zero-liquidity probation rows"))
         assertTrue(service.contains("val demoteLiq"))
         assertTrue("Fresh NO_PAIR rows must stay hot for hydration before aged demotion", service.contains("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION") && service.contains("NO_PAIR_NO_FALLBACK_AGED") && service.contains("processCount >= 4") && service.contains("ageMs > 120_000L"))
-        assertTrue("NO_PAIR probation rows must not timeout-promote back to hot loop without price/source proof", registry.contains("NO_PAIR_TIMEOUT_HELD") && registry.contains("PROBATION_TIMEOUT_HELD_NO_PAIR") && registry.contains("entry.source.contains(\"NO_PAIR_NO_FALLBACK\""))
+        assertTrue("NO_PAIR/cold probation rows must not timeout-promote back to hot loop without maturity price/source proof", registry.contains("PROBATION_TIMEOUT_HELD_NO_MATURITY_6161") && registry.contains("noPairCold") && registry.contains("entry.source.contains(\"NO_PAIR_NO_FALLBACK\"") && registry.contains("maturedByLiq") && registry.contains("maturedBySource") && registry.contains("maturedByMove"))
         assertFalse(
             "Source-balance demotion must not hardcode liq=0 for real-liq intake",
             // V5.0.6124i: refined check — inspect ONLY the ±30-line window around
@@ -8110,8 +8110,8 @@ class GoldenTapeRegressionTest {
         val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
         assertTrue("V5.0.6160: stale-unproven revive must suppress rows with fresh absent-zero wallet evidence to prevent slot/sell churn",
             tracker.contains("recentAbsentZero6160") && tracker.contains("STALE_REVIVE_SUPPRESSED_6160") && tracker.contains("recent_absent_zero_confirm") && tracker.contains("p.consecutiveZeroConfirms > 0") && tracker.contains("<= 180_000L"))
-        assertTrue("V5.0.6160: stale revive suppression must happen before OPEN_BALANCE_PROOF_PENDING promotion",
-            tracker.indexOf("recentAbsentZero6160") in 1 until tracker.indexOf("PositionStatus.OPEN_BALANCE_PROOF_PENDING"))
+        assertTrue("V5.0.6160: stale revive suppression must happen before the stale-unproven OPEN_BALANCE_PROOF_PENDING promotion",
+            tracker.indexOf("recentAbsentZero6160") in 1 until tracker.indexOf("p.status = PositionStatus.OPEN_BALANCE_PROOF_PENDING"))
     }
 
 
