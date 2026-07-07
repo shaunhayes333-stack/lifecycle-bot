@@ -8154,4 +8154,16 @@ class GoldenTapeRegressionTest {
             pre.contains("Unknown holder/mint/freeze/rugcheck proof now") || fdg.contains("null = unknown (RPC race) = keep as soft penalty"))
     }
 
+
+    @org.junit.Test fun V5_0_6165_lane_policy_retraining_pivots_before_purchase() {
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        val tactic = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt").readText()
+        assertTrue("V5.0.6165: retraining buckets must pivot lane-local tactic instead of no-opening forever",
+            fdg.contains("LANE_POLICY_RETRAINING_PIVOT_6165") && fdg.contains("forcePivotForRetraining") && fdg.contains("shouldTradeFinal = true") && fdg.contains("lane_policy_retraining_pivot_6165"))
+        assertTrue("V5.0.6165: only INVALID_UNTRADEABLE may still zero the LanePolicy branch",
+            fdg.contains("LANE_POLICY_INVALID_UNTRADEABLE") && fdg.contains("true-untradeable") && !fdg.contains("LANE_POLICY_RETRAINING_PAUSED_6128_\${lpState.name}"))
+        assertTrue("V5.0.6165: TacticSwitcher pivot must be throttled so hot loops do not spin tactics",
+            tactic.contains("forcePivotForRetraining") && tactic.contains("fdg-retraining-pivot-6165") && tactic.contains("last.startsWith"))
+    }
+
 }

@@ -4954,48 +4954,42 @@ object FinalDecisionGate {
                 // trainable but not executable. Do not floor it back into 0.01 SOL.
                 // It records NoTradeObservation and waits for LLM Lab / LanePolicy
                 // proof before reintroduction into paper/live execution.
-                if (isRetrainingNoOpen6107 || isTrueUntradeable) {
+                if (isTrueUntradeable) {
                     finalSize = 0.0
                     shouldTradeFinal = false
-                    // V5.0.6127 — overwrite PROBE_ONLY with the real block reason.
-                    // The old ?: kept "PROBE_ONLY" as the blockReason when LanePolicy
-                    // set shouldTradeFinal=false, making the gate tally show
-                    // FDG/PROBE_ONLY as 436 blocks instead of the real reason.
-                    blockReasonFinal = if (blockReasonFinal == null || blockReasonFinal == "PROBE_ONLY") {
-                        if (isTrueUntradeable) "LANE_POLICY_INVALID_UNTRADEABLE" else "LANE_POLICY_RETRAINING_PAUSED_6128_${lpState.name}"
-                    } else blockReasonFinal
-                    blockLevelFinal = if (isTrueUntradeable) BlockLevel.HARD else BlockLevel.EDGE
-                    tags.add(if (isTrueUntradeable) "lane_policy_invalid_untradeable" else "lane_policy_retraining_paused_6128")
+                    blockReasonFinal = if (blockReasonFinal == null || blockReasonFinal == "PROBE_ONLY") "LANE_POLICY_INVALID_UNTRADEABLE" else blockReasonFinal
+                    blockLevelFinal = BlockLevel.HARD
+                    tags.add("lane_policy_invalid_untradeable")
                     checks.add(GateCheck("lane_policy_weight", false,
-                        "lane=$laneName band=$lpScoreBand state=${lpState.name} no-open ${beforeLp.format(3)}→0.000 awaiting LLM Lab/LanePolicy reintroduction"))
-                    try {
-                        com.lifecyclebot.engine.learning.NoTradeObservationStore.recordBlock(
-                            mint = ts.mint,
-                            symbol = ts.symbol,
-                            lane = laneName,
-                            scoreBand = lpScoreBand,
-                            score = effectiveGateScore6025.toInt(),
-                            confidence = candidate.aiConfidence.toInt(),
-                            entryLiqUsd = ts.lastLiquidityUsd,
-                            entryMcapUsd = ts.lastMcap,
-                            entryPrice = ts.lastPrice,
-                            source = ts.source.ifEmpty { "UNKNOWN" },
-                            blockReason = blockReasonFinal ?: lpState.name,
-                            verdictTag = lpState.name,
-                        )
-                    } catch (_: Throwable) {}
+                        "lane=$laneName band=$lpScoreBand state=${lpState.name} true-untradeable ${beforeLp.format(3)}→0.000"))
+                    ErrorLogger.info("FDG", "⛔ LANE_POLICY_INVALID_UNTRADEABLE ${ts.symbol} lane=$laneName band=$lpScoreBand size ${beforeLp.format(3)}→0")
+                } else if (isRetrainingNoOpen6107) {
+                    // V5.0.6165 — strategy pivot before purchase, not blind micro-probe.
+                    // Retraining buckets rotate their lane-local tactic immediately through
+                    // TacticSwitcher, seed LLM Lab, and execute a controlled recovery entry
+                    // under the new tactic. Only INVALID_UNTRADEABLE can still zero the lane.
+                    val pivotTactic6165 = try {
+                        com.lifecyclebot.engine.learning.TacticSwitcher.forcePivotForRetraining(laneName, lpScoreBand, lpState.name)
+                    } catch (_: Throwable) { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(laneName, lpScoreBand) }
+                    val recoveryW6165 = lpWeight.coerceAtLeast(0.35)
+                    finalSize = (finalSize * recoveryW6165).coerceAtLeast(0.01)
+                    shouldTradeFinal = true
+                    if (blockReasonFinal == "PROBE_ONLY" || (blockReasonFinal?.startsWith("LANE_POLICY_RETRAINING_PAUSED_6128") == true)) blockReasonFinal = null
+                    tags.add("lane_policy_retraining_pivot_6165:${pivotTactic6165.name}×${"%.2f".format(recoveryW6165)}")
+                    checks.add(GateCheck("lane_policy_weight", true,
+                        "lane=$laneName band=$lpScoreBand state=${lpState.name} pivot=${pivotTactic6165.name} size ${beforeLp.format(3)}→${finalSize.format(3)}"))
                     com.lifecyclebot.engine.learning.LanePolicy.noteRetrainingSample(laneName, lpScoreBand)
                     try {
                         com.lifecyclebot.engine.lab.LlmLabEngine.seedFromTacticFailure(
                             lane = laneName,
                             scoreBand = lpScoreBand,
                             failedTactic = lpState.name,
-                            nextTactic = "LAB_PIVOT",
-                            reason = "FDG LanePolicy retraining no-open seeded lane-local pivot 6128"
+                            nextTactic = pivotTactic6165.name,
+                            reason = "FDG LanePolicy retraining pivoted lane-local tactic 6165"
                         )
-                        PipelineHealthCollector.labelInc("LANE_POLICY_RETRAINING_LAB_PIVOT_SEEDED_6128")
+                        PipelineHealthCollector.labelInc("LANE_POLICY_RETRAINING_TACTIC_PIVOT_6165")
                     } catch (_: Throwable) {}
-                    ErrorLogger.info("FDG", "🧪 LANE_POLICY_RETRAINING_PAUSED_6128 ${ts.symbol} lane=$laneName band=$lpScoreBand state=${lpState.name} size ${beforeLp.format(3)}→0 lab_pivot_seeded=true")
+                    ErrorLogger.info("FDG", "🧪 LANE_POLICY_RETRAINING_PIVOT_6165 ${ts.symbol} lane=$laneName band=$lpScoreBand state=${lpState.name} tactic=${pivotTactic6165.name} size ${beforeLp.format(3)}→${finalSize.format(3)}")
                 } else {
                     val shapeW = lpWeight.coerceAtLeast(0.05)
                     finalSize = (finalSize * shapeW).coerceAtLeast(0.01)

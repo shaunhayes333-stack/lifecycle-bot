@@ -243,6 +243,25 @@ object TacticSwitcher {
         }
     }
 
+
+
+    /**
+     * V5.0.6165 — FDG retraining pivot bridge.
+     * LanePolicy RETRAINING used to zero the buy and wait for lab proof, which
+     * choked live volume. This method performs the lane-local strategy pivot
+     * first (TacticSwitcher rotation), then FDG can allow a controlled recovery
+     * entry under the new tactic. It is throttled by lastRotationReason so one
+     * hot token loop cannot spin through the whole tactic ring.
+     */
+    fun forcePivotForRetraining(lane: String, scoreBand: String, state: String): Tactic {
+        val cell = getOrCreate(lane, scoreBand)
+        val last = cell.lastRotationReason.get()
+        if (!last.startsWith("fdg-retraining-pivot-6165", ignoreCase = true)) {
+            rotate(lane, scoreBand, cell, "fdg-retraining-pivot-6165 state=$state")
+        }
+        return currentTactic(lane, scoreBand)
+    }
+
     /**
      * External-driven rotation check — TacticSwitcher.maybeRotateFromMemory()
      * can be called periodically (e.g., from the bot loop) to pull stats from
