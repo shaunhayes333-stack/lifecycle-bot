@@ -941,31 +941,36 @@ object GlobalTradeRegistry {
         for ((mint, entry) in probation) {
             val elapsed = now - entry.addedAt
 
-            // V5.9.1328 — ROOT FIX E: TIMEOUT must not auto-reject.
-            // Under Train-First doctrine, cold mints with no oracle price
-            // action (vol1h=$0 for new pump-portal pools) hit
-            // PROBATION_MAX_TIME_MS=5min without firing any promotion
-            // signal (price-up needs >5%, multi-scanner needs a 2nd hit,
-            // RC needs a rugcheck >= 2 callback). Auto-rejecting them
-            // here removed their addedAt timestamp from the lifecycle
-            // and they re-arrive seconds later from PumpPortal as
-            // "duplicates", recursing forever in the "PROBATION REJECTED
-            // ... TIMEOUT" log spam. Operator: V3/FDG is final authority;
-            // tokens that timed out should be promoted to the watchlist
-            // so V3/FDG can re-evaluate with full pipeline data instead
-            // of being silently culled by an opaque 5-min cutoff.
+            // V5.9.1328 stopped timeout auto-reject recursion. V5.0.6161
+            // tightens the other side: timeout alone must not auto-promote cold
+            // zero-liq/no-pair candidates into the hot watchlist. Only matured
+            // probation entries with proof graduate on timeout.
             if (elapsed >= PROBATION_MAX_TIME_MS) {
-                val noPairCold = entry.source.contains("NO_PAIR_NO_FALLBACK", ignoreCase = true) &&
-                    entry.priceAtAdd <= 0.0 && entry.currentPrice <= 0.0 && entry.additionalScanners.isEmpty() && entry.rcScore < 2
-                if (noPairCold) {
-                    if (entry.promotionReason != "NO_PAIR_TIMEOUT_HELD") {
-                        entry.promotionReason = "NO_PAIR_TIMEOUT_HELD"
-                        try { ForensicLogger.lifecycle("PROBATION_TIMEOUT_HELD_NO_PAIR", "mint=${mint.take(10)} symbol=${entry.symbol} src=${entry.source} ageMs=$elapsed no_price_no_pair=true") } catch (_: Throwable) {}
+                // V5.0.6161 — timeout is not proof. Field report showed large
+                // TIMEOUT_AUTO_PROMOTE batches after ~110s, then immediate zero-liq
+                // hard rejects and FDG load. Promotion now requires actual maturity:
+                // another scanner, rugcheck OK, real liquidity + price, or positive
+                // price action. Otherwise hold in probation instead of polluting the
+                // hot watchlist/supervisor lane set.
+                val priceChange6161 = if (entry.priceAtAdd > 0.0 && entry.currentPrice > 0.0) {
+                    (entry.currentPrice - entry.priceAtAdd) / entry.priceAtAdd * 100.0
+                } else 0.0
+                val maturedByProof6161 = entry.additionalScanners.isNotEmpty() ||
+                    entry.rcScore >= 2 ||
+                    priceChange6161 >= 2.0 ||
+                    (!entry.isEstimatedLiquidity && entry.initialLiquidity >= 5_000.0 && entry.currentPrice > 0.0)
+                val noPairCold = entry.source.contains("NO_PAIR_NO_FALLBACK", ignoreCase = true) ||
+                    (entry.priceAtAdd <= 0.0 && entry.currentPrice <= 0.0 && entry.additionalScanners.isEmpty() && entry.rcScore < 2)
+                if (!maturedByProof6161 || noPairCold) {
+                    if (entry.promotionReason != "TIMEOUT_HELD_NO_MATURITY_6161") {
+                        entry.promotionReason = "TIMEOUT_HELD_NO_MATURITY_6161"
+                        try { ForensicLogger.lifecycle("PROBATION_TIMEOUT_HELD_NO_MATURITY_6161", "mint=${mint.take(10)} symbol=${entry.symbol} src=${entry.source} ageMs=$elapsed noPair=$noPairCold liq=${entry.initialLiquidity.toInt()} priceAdd=${entry.priceAtAdd} priceNow=${entry.currentPrice} scanners=${entry.additionalScanners.size} rc=${entry.rcScore} priceChg=${priceChange6161.toInt()}") } catch (_: Throwable) {}
+                        try { PipelineHealthCollector.labelInc("PROBATION_TIMEOUT_HELD_NO_MATURITY_6161") } catch (_: Throwable) {}
                     }
                     continue
                 }
-                promoteFromProbation(mint, "TIMEOUT_AUTO_PROMOTE")
-                results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "TIMEOUT_AUTO_PROMOTE"))
+                promoteFromProbation(mint, "TIMEOUT_MATURED_6161")
+                results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "TIMEOUT_MATURED_6161"))
                 continue
             }
 

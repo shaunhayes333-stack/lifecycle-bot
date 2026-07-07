@@ -8114,4 +8114,13 @@ class GoldenTapeRegressionTest {
             tracker.indexOf("recentAbsentZero6160") in 1 until tracker.indexOf("PositionStatus.OPEN_BALANCE_PROOF_PENDING"))
     }
 
+
+    @org.junit.Test fun V5_0_6161_probation_timeout_requires_maturity_proof() {
+        val reg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt").readText()
+        assertTrue("V5.0.6161: probation timeout must hold cold/no-pair/no-maturity candidates instead of auto-promoting time alone",
+            reg.contains("maturedByProof6161") && reg.contains("TIMEOUT_HELD_NO_MATURITY_6161") && reg.contains("PROBATION_TIMEOUT_HELD_NO_MATURITY_6161") && reg.contains("timeout alone must not auto-promote"))
+        assertTrue("V5.0.6161: timeout promotion must be renamed to matured proof promotion, not TIMEOUT_AUTO_PROMOTE",
+            reg.contains("TIMEOUT_MATURED_6161") && !reg.contains("""promoteFromProbation(mint, "TIMEOUT_AUTO_PROMOTE")"""))
+    }
+
 }
