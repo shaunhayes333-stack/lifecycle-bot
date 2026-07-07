@@ -8068,4 +8068,15 @@ class GoldenTapeRegressionTest {
             exec.contains("scannerSource6155") && exec.contains("venueSource6155") && exec.contains("VenueSourceBalanceAdapter.compact(ts.source)") && exec.contains("source+venue"))
     }
 
+
+    @org.junit.Test fun V5_0_6156_fast_live_drawdown_shapes_size_not_pause() {
+        val sizer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt").readText()
+        assertTrue("V5.0.6156: SmartSizer must track live wallet samples over a 5-hour window for fast intraday drawdown response",
+            sizer.contains("WalletSample6156") && sizer.contains("liveWalletSamples6156") && sizer.contains("fastLiveDrawdownMultiplier6156") && sizer.contains("5L * 60L * 60L * 1000L"))
+        assertTrue("V5.0.6156: fast live drawdown must shrink size rather than globally pause entries, preserving compounding recovery",
+            sizer.contains("LIVE_FAST_DRAWDOWN_SHAPE_6156") && sizer.contains("drawdownMult = minOf(sessionDrawdownMult6156, fiveHourLiveDrawdownMult6156)") && sizer.contains("recovery < 0.80 -> 0.45") && sizer.contains("shrinking, not pausing"))
+        assertTrue("V5.0.6156: mode switches/reset must clear stale live wallet samples",
+            sizer.contains("liveWalletSamples6156.clear()") && sizer.contains("recordLiveWalletSample6156(walletSol)"))
+    }
+
 }

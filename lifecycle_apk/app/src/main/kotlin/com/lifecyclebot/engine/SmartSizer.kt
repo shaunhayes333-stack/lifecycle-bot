@@ -498,7 +498,7 @@ object SmartSizer {
         // ── Drawdown protection ───────────────────────────────────────
         // FLUID PAPER: Learn drawdown protection using simulated balance
         // LIVE MODE: Uses mode-specific session peak to prevent paper stats affecting live
-        val drawdownMult = if (isPaperMode && !cfg.fluidLearningEnabled) {
+        val sessionDrawdownMult6156 = if (isPaperMode && !cfg.fluidLearningEnabled) {
             1.0  // No drawdown penalty in legacy paper mode
         } else if (isPaperMode && cfg.fluidLearningEnabled) {
             // Learn drawdown protection from simulated balance
@@ -519,6 +519,11 @@ object SmartSizer {
                 else            -> 1.0
             }
         } else 1.0
+        val fiveHourLiveDrawdownMult6156 = if (!isPaperMode) fastLiveDrawdownMultiplier6156(walletSol) else 1.0
+        val drawdownMult = minOf(sessionDrawdownMult6156, fiveHourLiveDrawdownMult6156)
+        if (!isPaperMode && fiveHourLiveDrawdownMult6156 < 0.999) {
+            ErrorLogger.warn("SmartSizer", "🧯 LIVE_FAST_DRAWDOWN_SHAPE_6156: wallet=$walletSol mult=${"%.2f".format(fiveHourLiveDrawdownMult6156)} sessionMult=${"%.2f".format(sessionDrawdownMult6156)} — shrinking, not pausing")
+        }
 
         if (drawdownMult <= 0.0) {
             ErrorLogger.warn("SmartSizer", "⚠ DRAWNDOWN_SHAPE_FAILSAFE: drawdownMult<=0 corrected to 0.30 | paper=$isPaperMode | wallet=$walletSol | peak=${perf.sessionPeakSol}")
@@ -834,6 +839,8 @@ object SmartSizer {
     @Volatile private var _sessionPeakPaper = 0.0
     @Volatile private var _sessionPeakLive = 0.0
     @Volatile private var _currentMode: Boolean = true  // true = paper, false = live
+    private data class WalletSample6156(val tsMs: Long, val walletSol: Double)
+    private val liveWalletSamples6156 = ArrayDeque<WalletSample6156>()
     
     fun updateSessionPeak(walletSol: Double, isPaperMode: Boolean = true) {
         // Track mode changes to reset stats when switching
@@ -848,6 +855,32 @@ object SmartSizer {
             if (walletSol > _sessionPeakPaper) _sessionPeakPaper = walletSol
         } else {
             if (walletSol > _sessionPeakLive) _sessionPeakLive = walletSol
+            recordLiveWalletSample6156(walletSol)
+        }
+    }
+
+    @Synchronized private fun recordLiveWalletSample6156(walletSol: Double) {
+        if (!walletSol.isFinite() || walletSol <= 0.0) return
+        val now = System.currentTimeMillis()
+        val cutoff = now - 5L * 60L * 60L * 1000L
+        liveWalletSamples6156.addLast(WalletSample6156(now, walletSol))
+        while (liveWalletSamples6156.isNotEmpty() && liveWalletSamples6156.first().tsMs < cutoff) liveWalletSamples6156.removeFirst()
+    }
+
+    @Synchronized private fun fastLiveDrawdownMultiplier6156(walletSol: Double): Double {
+        if (!walletSol.isFinite() || walletSol <= 0.0) return 1.0
+        val now = System.currentTimeMillis()
+        val cutoff = now - 5L * 60L * 60L * 1000L
+        while (liveWalletSamples6156.isNotEmpty() && liveWalletSamples6156.first().tsMs < cutoff) liveWalletSamples6156.removeFirst()
+        val baseline = liveWalletSamples6156.firstOrNull()?.walletSol ?: return 1.0
+        if (baseline <= 0.0) return 1.0
+        val recovery = (walletSol / baseline).coerceIn(0.0, 10.0)
+        return when {
+            recovery < 0.70 -> 0.35
+            recovery < 0.80 -> 0.45
+            recovery < 0.90 -> 0.60
+            recovery < 0.95 -> 0.78
+            else -> 1.0
         }
     }
     
@@ -902,6 +935,7 @@ object SmartSizer {
             // must be live-anchored). SEED win/streak trackers from paper so
             // the bot doesn't forget what it learned.
             _sessionPeakLive = 0.0
+            synchronized(this) { liveWalletSamples6156.clear() }
             if (recentTradesLive.isEmpty() && recentTradesPaper.isNotEmpty()) {
                 recentTradesLive.addAll(recentTradesPaper)
                 winStreakLive = winStreakPaper
@@ -915,7 +949,8 @@ object SmartSizer {
     
     fun resetSessionPeak() { 
         _sessionPeakPaper = 0.0
-        _sessionPeakLive = 0.0 
+        _sessionPeakLive = 0.0
+        synchronized(this) { liveWalletSamples6156.clear() }
     }
 
     // ── Recent performance tracker ────────────────────────────────────
