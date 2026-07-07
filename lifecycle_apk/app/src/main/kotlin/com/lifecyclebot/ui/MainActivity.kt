@@ -342,10 +342,14 @@ class MainActivity : AppCompatActivity() {
     // V5.9.317: Manual BUY/SELL buttons in active token panel
     private lateinit var btnManualBuy: android.widget.Button
     private lateinit var btnManualSell: android.widget.Button
-    private val logLines = ArrayDeque<String>(48)
+    // V5.0.6167 — runtime decision-log cap. ANR stacks keep pointing at
+    // TextView/MeasuredParagraph/LineBreaker; this on-screen log is purely
+    // observability. Full forensic logs remain internal, so runtime UI only
+    // keeps a compact tail.
+    private val logLines = ArrayDeque<String>(18)
     private var lastDecisionLogTextHash: Int = 0  // V5.9.1497 — skip no-op StaticLayout relayouts
     private val decisionLogTimeSdf4280 = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
-    private val DECISION_LOG_MAX_CHARS_4280 = 2600
+    private val DECISION_LOG_MAX_CHARS_4280 = 900
 
     // top-up settings
     private lateinit var switchTopUp: android.widget.Switch
@@ -8782,20 +8786,22 @@ This cannot be undone!
             signal
 
         logLines.addFirst(logLine)
-        // V5.9.1497 — SPEC §1: cap the on-screen decision log to 40 lines. The
-        // previous 200-line buffer was rebuilt into one big String on the main
-        // thread every update → StaticLayout.generate / LineBreaker was a named
-        // ANR blocking site (35s frame gaps). 40 lines is well inside the 30-50
-        // spec band and keeps the text-layout cost trivial.
-        while (logLines.size > 40) logLines.removeLast()
+        // V5.0.6167 — tighter runtime cap. The previous 40-line on-screen
+        // buffer still feeds TextView StaticLayout/LineBreaker stalls in the
+        // current runtime reports. Keep full logs internal; UI binds only a
+        // compact forensic tail.
+        while (logLines.size > 16) logLines.removeLast()
 
         // Only touch the TextView (which triggers a full StaticLayout relayout)
         // when the rendered text actually changed.
         val joined = logLines.joinToString("\n")
         setDecisionLogTextBounded4280(joined)
-        // Auto-scroll to top (newest entry)
+        // Auto-scroll to top (newest entry). V5.0.6167: smoothScroll posts
+        // animation work back onto the main looper and compounds layout stalls
+        // while the bot is active. Jump instantly only when inactive/manual.
         if (::scrollLog.isInitialized) {
-            scrollLog.post { scrollLog.smoothScrollTo(0, 0) }
+            val runtimeActiveForScroll6167 = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
+            if (runtimeActiveForScroll6167) scrollLog.scrollTo(0, 0) else scrollLog.post { scrollLog.smoothScrollTo(0, 0) }
         }
     }
 

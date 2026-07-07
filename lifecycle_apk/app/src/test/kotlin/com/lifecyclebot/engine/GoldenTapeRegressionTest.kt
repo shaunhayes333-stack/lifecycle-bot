@@ -8177,4 +8177,15 @@ class GoldenTapeRegressionTest {
             exec.contains("SIZE_TOO_THIN_FOR_NON_MICRO_TRADE") && exec.indexOf("SIZE_TOO_THIN_FOR_NON_MICRO_TRADE") < exec.indexOf("effectiveMaxPoolImpactPct6166"))
     }
 
+
+    @org.junit.Test fun V5_0_6167_runtime_decision_log_is_capped_for_anr() {
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue("V5.0.6167: decision log TextView must remain tiny during runtime to avoid MeasuredParagraph/LineBreaker stalls",
+            main.contains("DECISION_LOG_MAX_CHARS_4280 = 900") && main.contains("ArrayDeque<String>(18)") && main.contains("while (logLines.size > 16)"))
+        assertTrue("V5.0.6167: runtime decision log must not smooth-scroll animation work onto main looper",
+            main.contains("runtimeActiveForScroll6167") && main.contains("scrollLog.scrollTo(0, 0)") && main.contains("smoothScrollTo(0, 0)"))
+        assertTrue("V5.0.6167: this is UI-only and keeps full engine/forensic logs internal",
+            main.contains("Full forensic logs remain internal") && main.contains("full engine logs remain internal"))
+    }
+
 }
