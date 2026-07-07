@@ -1700,17 +1700,6 @@ object CryptoAltTrader {
             CryptoFinalBuyCandidate.MarketCapLane.MICRO_CAP -> 1.25
         }
         val slippage = spread * 2.0
-        if (spread > 1.0) hardNo += "SPREAD_TOO_HIGH"
-        val pre = when {
-            hardNo.isNotEmpty() -> CryptoFinalBuyCandidate.PreFdgVerdict.HARD_NO_BUY
-            signal.score >= 50 && signal.confidence >= 40 -> CryptoFinalBuyCandidate.PreFdgVerdict.BUY
-            else -> CryptoFinalBuyCandidate.PreFdgVerdict.WATCH
-        }
-        val adapter = when {
-            isPaperMode.get() -> "PAPER_EXECUTOR"
-            route?.executable == true -> "CRYPTO_UNIVERSE_EXECUTOR"
-            else -> "DEFERRED_ROUTE"
-        }
         val assetKey6148 = cryptoAssetKey(signal, isSpot)
         val chain6148 = if (route?.mint != null) "SOLANA" else "MULTICHAIN"
         val venue6148 = route?.route?.name ?: "UNKNOWN"
@@ -1720,6 +1709,25 @@ object CryptoAltTrader {
             venue6148.contains("PAPER", true) -> "PAPER"
             !isSpot -> "PERPS"
             else -> "MULTICHAIN_CRYPTO"
+        }
+        if (spread > 1.0) hardNo += "SPREAD_TOO_HIGH"
+        val routeCost6150 = com.lifecyclebot.perps.crypto.RouteCostExpectancy6150.evaluate(
+            spreadPct = spread,
+            slippagePct = slippage,
+            executable = route?.executable == true || isPaperMode.get(),
+            venueFamily = venueFamily6148,
+        )
+        if (routeCost6150.hardNo) hardNo += "ROUTE_COST_TOXIC_6150"
+        else if (routeCost6150.expectancyMultiplier < 0.90) soft += "ROUTE_COST_SHAPED_6150:${routeCost6150.quality}"
+        val pre = when {
+            hardNo.isNotEmpty() -> CryptoFinalBuyCandidate.PreFdgVerdict.HARD_NO_BUY
+            signal.score >= 50 && signal.confidence >= 40 -> CryptoFinalBuyCandidate.PreFdgVerdict.BUY
+            else -> CryptoFinalBuyCandidate.PreFdgVerdict.WATCH
+        }
+        val adapter = when {
+            isPaperMode.get() -> "PAPER_EXECUTOR"
+            route?.executable == true -> "CRYPTO_UNIVERSE_EXECUTOR"
+            else -> "DEFERRED_ROUTE"
         }
         val sourceFamily6148 = if (isSpot) "CRYPTO_SPOT_UNIVERSE" else "CRYPTO_PERPS_UNIVERSE"
         val routeTruthKey6148 = "$chain6148|$venueFamily6148|$venue6148|${assetType.name}|${signal.direction.name}"
@@ -1744,6 +1752,8 @@ object CryptoAltTrader {
             venueFamily = venueFamily6148,
             routeTruthKey = routeTruthKey6148,
             strategyTruthKey = strategyTruthKey6148,
+            routeCostBps = routeCost6150.routeCostBps,
+            routeExpectancyMultiplier = routeCost6150.expectancyMultiplier,
             spread = spread,
             slippageEstimate = slippage,
             hardNoReasons = hardNo.distinct(),

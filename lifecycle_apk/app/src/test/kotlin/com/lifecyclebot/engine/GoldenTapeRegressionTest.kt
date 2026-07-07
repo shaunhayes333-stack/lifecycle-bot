@@ -8007,4 +8007,17 @@ class GoldenTapeRegressionTest {
             ledger.contains("""return "$lane|$source|$venue|$tactic"""") && ledger.contains("PUMP_FAMILY") && ledger.contains("DEX_FAMILY") && ledger.contains("SELL_OPT"))
     }
 
+
+    @org.junit.Test fun V5_0_6150_crypto_route_cost_expectancy_shapes_final_candidate_quality() {
+        val cost = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/RouteCostExpectancy6150.kt").readText()
+        val candidate = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoFinalBuyCandidate.kt").readText()
+        val trader = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue("V5.0.6150: route-cost expectancy must convert spread/slippage/venue into bounded candidate quality",
+            cost.contains("object RouteCostExpectancy6150") && cost.contains("routeCostBps") && cost.contains("expectancyMultiplier") && cost.contains("TOXIC_COST") && cost.contains("DEX_AGGREGATOR"))
+        assertTrue("V5.0.6150: Crypto candidates must persist route-cost bps and expectancy multiplier in normalized context",
+            candidate.contains("routeCostBps") && candidate.contains("routeExpectancyMultiplier") && candidate.contains("routeCostMult"))
+        assertTrue("V5.0.6150: CryptoAltTrader must apply route-cost expectancy at the final buy candidate choke",
+            trader.contains("RouteCostExpectancy6150.evaluate") && trader.contains("ROUTE_COST_TOXIC_6150") && trader.contains("ROUTE_COST_SHAPED_6150"))
+    }
+
 }

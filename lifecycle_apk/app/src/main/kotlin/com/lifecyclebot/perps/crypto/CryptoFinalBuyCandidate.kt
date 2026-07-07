@@ -30,6 +30,8 @@ data class CryptoFinalBuyCandidate(
     val venueFamily: String = "UNKNOWN",
     val routeTruthKey: String = "UNKNOWN",
     val strategyTruthKey: String = "UNKNOWN",
+    val routeCostBps: Double = 0.0,
+    val routeExpectancyMultiplier: Double = 1.0,
     val spread: Double,
     val slippageEstimate: Double,
     val hardNoReasons: List<String>,
@@ -46,5 +48,5 @@ data class CryptoFinalBuyCandidate(
         get() = preFdgVerdict == PreFdgVerdict.BUY && hardNoReasons.isEmpty()
 
     fun normalizedContext6148(): String =
-        "sourceFamily=$sourceFamily venueFamily=$venueFamily routeTruth=$routeTruthKey strategyTruth=$strategyTruthKey chain=$chain venue=$venue specialist=$selectedSpecialist"
+        "sourceFamily=$sourceFamily venueFamily=$venueFamily routeTruth=$routeTruthKey strategyTruth=$strategyTruthKey routeCostBps=${"%.1f".format(routeCostBps)} routeCostMult=${"%.2f".format(routeExpectancyMultiplier)} chain=$chain venue=$venue specialist=$selectedSpecialist"
 }
