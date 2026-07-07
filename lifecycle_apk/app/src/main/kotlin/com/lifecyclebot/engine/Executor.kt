@@ -13410,13 +13410,32 @@ class Executor(
             buyTerminalFail("BUY_TERMINAL_MIN_NOTIONAL_AFTER_FEES:SIZE_TOO_THIN_FOR_NON_MICRO_TRADE")
             return false
         }
-        if (impactPct > liveCfg.maxPoolImpactPct) {
-            emitLiveBuyFail(ts, sol, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "finalSol=$sol impactPct=${impactPct.fmt(3)} maxPoolImpactPct=${liveCfg.maxPoolImpactPct} liquidityUsd=${ts.lastLiquidityUsd} liqForImpact=$liqForImpact cascadeUsed=${liqForImpact != ts.lastLiquidityUsd}")
+        // V5.0.6166 — don't count exitable pool-impact posture as size-too-thin.
+        // Runtime 6145 showed 258/261 BUY fails under the overloaded reason while
+        // wallet≈0.27 SOL and entries were being lifted to the compounding floor.
+        // A 0.035 SOL ticket at $800–$1.5k liquidity is slightly above the old
+        // 0.75% cap; that should be a bounded route/impact posture decision, not
+        // a terminal non-micro notional failure. Keep true unknown liquidity hard.
+        val laneImpactBoost6166 = when (layerTag.uppercase().ifBlank { ts.position.tradingMode.uppercase() }) {
+            "MOONSHOT", "SHITCOIN", "EXPRESS", "PROJECT_SNIPER" -> 1.55
+            "TREASURY", "QUALITY", "STANDARD" -> 1.35
+            else -> 1.20
+        }
+        val walletBootstrapBoost6166 = if (walletSol < 0.50) 1.35 else 1.0
+        val scoreBoost6166 = when {
+            score >= 80.0 -> 1.25
+            score >= 65.0 -> 1.10
+            else -> 1.0
+        }
+        val effectiveMaxPoolImpactPct6166 = (liveCfg.maxPoolImpactPct * laneImpactBoost6166 * walletBootstrapBoost6166 * scoreBoost6166).coerceIn(liveCfg.maxPoolImpactPct, 2.25)
+        if (impactPct > effectiveMaxPoolImpactPct6166) {
+            val failReason6166 = if (liqForImpact <= 0.0) "LIVE_ENTRY_REJECTED_LIQUIDITY_PROOF_MISSING" else "LIVE_ENTRY_REJECTED_POOL_IMPACT_TOO_HIGH"
+            emitLiveBuyFail(ts, sol, failReason6166, "finalSol=$sol impactPct=${impactPct.fmt(3)} maxPoolImpactPct=${effectiveMaxPoolImpactPct6166.fmt(3)} baseMax=${liveCfg.maxPoolImpactPct} liquidityUsd=${ts.lastLiquidityUsd} liqForImpact=$liqForImpact cascadeUsed=${liqForImpact != ts.lastLiquidityUsd}")
             buyTerminalFail("BUY_TERMINAL_MIN_NOTIONAL_AFTER_FEES:POOL_IMPACT_TOO_HIGH_FOR_NON_MICRO_TRADE")
             return false
         }
         try {
-            ForensicLogger.lifecycle("LIVE_ENTRY_SIZED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} finalSol=${sol.fmt(4)} minLiveBuySol=${minNonMicroLiveBuySol.fmt(4)} impactPct=${impactPct.fmt(3)} maxImpact=${liveCfg.maxPoolImpactPct.fmt(2)} capitalMode=${liveCfg.capitalMode}")
+            ForensicLogger.lifecycle("LIVE_ENTRY_SIZED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} finalSol=${sol.fmt(4)} minLiveBuySol=${minNonMicroLiveBuySol.fmt(4)} impactPct=${impactPct.fmt(3)} maxImpact=${effectiveMaxPoolImpactPct6166.fmt(2)} baseMaxImpact=${liveCfg.maxPoolImpactPct.fmt(2)} capitalMode=${liveCfg.capitalMode}")
             PipelineHealthCollector.labelInc("LIVE_ENTRY_SIZED")
         } catch (_: Throwable) {}
 

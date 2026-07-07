@@ -8166,4 +8166,15 @@ class GoldenTapeRegressionTest {
             tactic.contains("forcePivotForRetraining") && tactic.contains("fdg-retraining-pivot-6165") && tactic.contains("last.startsWith"))
     }
 
+
+    @org.junit.Test fun V5_0_6166_pool_impact_no_longer_counts_as_size_too_thin() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6166: final live pool impact cap must adapt for small-wallet compounding instead of using stale flat 0.75%",
+            exec.contains("effectiveMaxPoolImpactPct6166") && exec.contains("walletBootstrapBoost6166") && exec.contains("laneImpactBoost6166") && exec.contains("scoreBoost6166"))
+        assertTrue("V5.0.6166: pool-impact rejection must have its own telemetry reason, not SIZE_TOO_THIN",
+            exec.contains("LIVE_ENTRY_REJECTED_POOL_IMPACT_TOO_HIGH") && exec.contains("LIVE_ENTRY_REJECTED_LIQUIDITY_PROOF_MISSING") && exec.contains("baseMaxImpact"))
+        assertTrue("V5.0.6166: true below-min-notional rejection remains explicit",
+            exec.contains("SIZE_TOO_THIN_FOR_NON_MICRO_TRADE") && exec.indexOf("SIZE_TOO_THIN_FOR_NON_MICRO_TRADE") < exec.indexOf("effectiveMaxPoolImpactPct6166"))
+    }
+
 }
