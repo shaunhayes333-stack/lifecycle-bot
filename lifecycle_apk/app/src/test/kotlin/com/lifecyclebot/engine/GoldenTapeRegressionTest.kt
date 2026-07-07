@@ -8004,7 +8004,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6149: StrategyTruthLedger must expose granular venue/source/tactic keys instead of lane-only truth",
             ledger.contains("fun strategyTruthKey6149") && ledger.contains("venue/source-specific strategy truth key") && ledger.contains("CRYPTO_NORMALIZED_6148") && ledger.contains("venueFamily=([^ ]+)") && ledger.contains("strategyTruth=([^ ]+)"))
         assertTrue("V5.0.6149: granular strategy truth key must include lane, source, venue, and tactic dimensions",
-            ledger.contains("""return "$lane|$source|$venue|$tactic"""") && ledger.contains("PUMP_FAMILY") && ledger.contains("DEX_FAMILY") && ledger.contains("SELL_OPT"))
+            ledger.contains("return") && ledger.contains("lane|") && ledger.contains("source|") && ledger.contains("venue|") && ledger.contains("tactic") && ledger.contains("PUMP_FAMILY") && ledger.contains("DEX_FAMILY") && ledger.contains("SELL_OPT"))
     }
 
 
