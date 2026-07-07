@@ -8089,4 +8089,11 @@ class GoldenTapeRegressionTest {
             exec.contains("LIVE_DRAWDOWN_STOP_TIGHTENED_6157") && exec.contains("wallet_bleed_damage_cap") && exec.contains("VetoDecision.VETO && !bleedStopTightened6153 && !drawdownStopTightened6157") && exec.contains("fastLiveDrawdownMult6157 < 0.45) 5.0 else 7.0"))
     }
 
+
+    @org.junit.Test fun V5_0_6158_fast_drawdown_caps_post_floor_buy_size() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6158: fast live drawdown must cap post-floor live buy size so last-mile floor cannot re-inflate wallet bleed exposure",
+            exec.contains("fastDrawdownBuyMult6158") && exec.contains("LIVE_DRAWDOWN_POST_FLOOR_BUY_CAP_6158") && exec.contains("prevent_drawdown_floor_reinflation") && exec.contains("walletSol * (if (fastDrawdownBuyMult6158 < 0.50) 0.060 else 0.080)"))
+    }
+
 }

@@ -13025,6 +13025,18 @@ class Executor(
                 ) } catch (_: Throwable) {}
             }
         }
+        val fastDrawdownBuyMult6158 = try { SmartSizer.currentFastLiveDrawdownMultiplier6157(walletSol) } catch (_: Throwable) { 1.0 }
+        if (fastDrawdownBuyMult6158 < 0.80) {
+            val drawdownBuyCap6158 = maxOf(walletSol * (if (fastDrawdownBuyMult6158 < 0.50) 0.060 else 0.080), 0.015)
+            if (sol > drawdownBuyCap6158) {
+                val beforeDrawdownBuyCap6158 = sol
+                sol = drawdownBuyCap6158.coerceAtLeast(0.0)
+                try { ForensicLogger.lifecycle(
+                    "LIVE_DRAWDOWN_POST_FLOOR_BUY_CAP_6158",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeDrawdownBuyCap6158.fmt(4)} to=${sol.fmt(4)} cap=${drawdownBuyCap6158.fmt(4)} fastDrawdownMult=${fastDrawdownBuyMult6158.fmt(2)} wallet=${walletSol.fmt(3)} lane=$routedLaneTag action=prevent_drawdown_floor_reinflation",
+                ) } catch (_: Throwable) {}
+            }
+        }
 
         // V5.9.751 — Base44 ticket item #3: USDC / WSOL / USDT / mSOL / etc.
         // must NEVER be entered as a meme-target buy. Forensic report
