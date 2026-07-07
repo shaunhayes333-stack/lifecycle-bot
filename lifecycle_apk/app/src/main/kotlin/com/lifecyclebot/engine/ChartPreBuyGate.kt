@@ -17,9 +17,9 @@ import com.lifecyclebot.data.TokenState
  * DESCENDING_TRIANGLE, etc). This module wraps the scanner in a hot-path
  * consultation the FDG runs on every live entry:
  *
- *   1. If chart is confidently BEARISH (≥60) → veto (multiplier 0.0)
- *   2. If chart shows a hard bearish pattern (DEAD_CAT_BOUNCE, BREAKDOWN,
+ *   1. If chart shows a hard bearish pattern (DEAD_CAT_BOUNCE, BREAKDOWN,
  *      DESCENDING_TRIANGLE, RISING_WEDGE) → veto
+ *   2. If chart is confidently BEARISH (≥60) → defensive size ×0.35
  *   3. If chart is mildly BEARISH (40-59) → size ×0.5
  *   4. If chart is BULLISH ≥60 + BREAKOUT / CUP_HANDLE / DOUBLE_BOTTOM
  *      → size ×1.3 (chart tailwind)
@@ -106,11 +106,15 @@ object ChartPreBuyGate {
                     reason = "hard_bearish_pattern=${scan.chartPatterns.joinToString(",") { it.name }}",
                 )
                 scan.overallBias == "BEARISH" && scan.confidence >= BEARISH_HARD_VETO_CONF -> ChartVerdict(
-                    sizeMult = 0.0,
-                    bias = "BEARISH_HIGH_CONF",
+                    // V5.0.6163 — high-confidence bearish bias is not hard safety.
+                    // Report showed CHART_PRE_BUY_BEARISH_HIGH_CONF dominating FDG
+                    // blocks while DUMP/regime brains already size-shape. Convert to
+                    // a defensive entry/pivot signal; only hard bearish PATTERNS veto.
+                    sizeMult = 0.35,
+                    bias = "BEARISH_HIGH_CONF_SOFT_6163",
                     confidence = scan.confidence,
-                    hardVeto = true,
-                    reason = "chart_bearish_conf=${scan.confidence.toInt()}",
+                    hardVeto = false,
+                    reason = "chart_bearish_conf_soft=${scan.confidence.toInt()}",
                 )
                 scan.overallBias == "BEARISH" && scan.confidence >= BEARISH_SIZE_DAMP_CONF -> ChartVerdict(
                     sizeMult = 0.5,

@@ -8133,4 +8133,13 @@ class GoldenTapeRegressionTest {
             http.contains("RateLimiter.allowRequest(host)") && http.contains("RateLimiter throttle") && http.contains("RateLimiter.getRetryAfterMs(host)") && http.indexOf("RateLimiter.allowRequest(host)") < http.indexOf("client.newCall(finalRequest).execute()"))
     }
 
+
+    @org.junit.Test fun V5_0_6163_high_conf_bearish_chart_soft_shapes_not_veto() {
+        val chart = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ChartPreBuyGate.kt").readText()
+        assertTrue("V5.0.6163: high-confidence bearish chart bias must soft-shape entries, not hard-veto volume by itself",
+            chart.contains("BEARISH_HIGH_CONF_SOFT_6163") && chart.contains("sizeMult = 0.35") && chart.contains("hardVeto = false") && chart.contains("chart_bearish_conf_soft"))
+        assertTrue("V5.0.6163: hard bearish chart patterns must remain true vetoes",
+            chart.contains("""bias = "BEARISH_HARD_PATTERN""") && chart.contains("hardVeto = true") && chart.contains("HARD_BEARISH_PATTERNS"))
+    }
+
 }
