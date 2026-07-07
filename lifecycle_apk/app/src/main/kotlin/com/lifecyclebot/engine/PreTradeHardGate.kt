@@ -144,12 +144,20 @@ object PreTradeHardGate {
 
         val tokenMapMintAuthorityRetained6164 = retainedAuthorityFromTokenMap(ts.tokenMap.mintAuthority)
         val tokenMapFreezeAuthorityRetained6164 = retainedAuthorityFromTokenMap(ts.tokenMap.freezeAuthority)
+        val authorityUnknownRouteProof6186 = TokenMapAuthority.executableForLiveBuy(ts) &&
+            ((ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: ts.tokenMap.liquidityUsd ?: 0.0) >= 3_000.0)
+        val mintUnknownRouteProof6186 = safety.mintAuthorityDisabled == null &&
+            !tokenMapMintAuthorityRetained6164 &&
+            authorityUnknownRouteProof6186
         val freezeUnknownRouteProof6185 = safety.freezeAuthorityDisabled == null &&
             !tokenMapFreezeAuthorityRetained6164 &&
-            TokenMapAuthority.executableForLiveBuy(ts) &&
-            ((ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: ts.tokenMap.liquidityUsd ?: 0.0) >= 3_000.0)
+            authorityUnknownRouteProof6186
         when {
             safety.mintAuthorityDisabled == false || tokenMapMintAuthorityRetained6164 -> return block(ts, "MINT_AUTHORITY_ACTIVE", "mint authority still active safety=${safety.mintAuthorityDisabled} tokenMap=${ts.tokenMap.mintAuthority ?: "?"}")
+            safety.mintAuthorityDisabled == null && mintUnknownRouteProof6186 -> try {
+                PipelineHealthCollector.labelInc("PRETRADE_MINT_UNKNOWN_ROUTE_PROOF_SOFT_ALLOW_6186")
+                ForensicLogger.lifecycle("PRETRADE_MINT_UNKNOWN_ROUTE_PROOF_6186", "mint=${ts.mint.take(10)} symbol=${ts.symbol} liq=${ts.lastLiquidityUsd} route=${ts.tokenMap.routeStatus} action=allow_live_route_proved_unknown_mint")
+            } catch (_: Throwable) {}
             safety.mintAuthorityDisabled == null -> pendingProofs.add("MINT_AUTHORITY_UNKNOWN")
             else -> Unit
         }

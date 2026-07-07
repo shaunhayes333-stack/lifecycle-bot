@@ -8147,9 +8147,9 @@ class GoldenTapeRegressionTest {
         val pre = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue("V5.0.6164/6185: PreTradeHardGate must hard-block active/retained mint/freeze authority and only bypass unknown freeze with executable route/liquidity proof",
-            pre.contains("MINT_AUTHORITY_ACTIVE") && pre.contains("FREEZE_AUTHORITY_ACTIVE") && pre.contains("tokenMapFreezeAuthorityRetained6164") && pre.contains("freezeUnknownRouteProof6185") && pre.contains("TokenMapAuthority.executableForLiveBuy(ts)") && pre.contains("PRETRADE_FREEZE_UNKNOWN_ROUTE_PROOF_SOFT_ALLOW_6185"))
+            pre.contains("MINT_AUTHORITY_ACTIVE") && pre.contains("FREEZE_AUTHORITY_ACTIVE") && pre.contains("tokenMapFreezeAuthorityRetained6164") && pre.contains("freezeUnknownRouteProof6185") && pre.contains("mintUnknownRouteProof6186") && pre.contains("TokenMapAuthority.executableForLiveBuy(ts)") && pre.contains("PRETRADE_FREEZE_UNKNOWN_ROUTE_PROOF_SOFT_ALLOW_6185") && pre.contains("PRETRADE_MINT_UNKNOWN_ROUTE_PROOF_SOFT_ALLOW_6186"))
         assertTrue("V5.0.6164/6185: FDG must keep retained/active freeze authority hard-blocked while removing the API-degraded unknown-freeze global choke when route proof exists",
-            fdg.contains("fdgAuthorityRetained6164") && fdg.contains("HARD_BLOCK_FREEZE_AUTHORITY") && fdg.contains("HARD_BLOCK_FREEZE_AUTHORITY_UNKNOWN_6164") && fdg.contains("fdgFreezeUnknownRouteProof6185") && fdg.contains("FDG_FREEZE_UNKNOWN_ROUTE_PROOF_SOFT_ALLOW_6185"))
+            fdg.contains("fdgAuthorityRetained6164") && fdg.contains("HARD_BLOCK_FREEZE_AUTHORITY") && fdg.contains("HARD_BLOCK_FREEZE_AUTHORITY_UNKNOWN_6164") && fdg.contains("fdgFreezeUnknownRouteProof6185") && fdg.contains("fdgMintUnknownRouteProof6186") && fdg.contains("FDG_FREEZE_UNKNOWN_ROUTE_PROOF_SOFT_ALLOW_6185") && fdg.contains("FDG_MINT_UNKNOWN_ROUTE_PROOF_SOFT_ALLOW_6186"))
         assertFalse("V5.0.6185: source comments must not claim retained/active freeze authority can live-buy",
             pre.contains("retained freeze authority can live-buy") || fdg.contains("retained freeze authority can live-buy"))
     }

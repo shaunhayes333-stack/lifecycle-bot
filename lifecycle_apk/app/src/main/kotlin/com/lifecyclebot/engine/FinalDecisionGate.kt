@@ -2103,11 +2103,15 @@ object FinalDecisionGate {
         }
         val fdgFreezeRetained6164 = fdgAuthorityRetained6164(ts.tokenMap.freezeAuthority)
         val fdgMintRetained6164 = fdgAuthorityRetained6164(ts.tokenMap.mintAuthority)
-        val fdgFreezeUnknownRouteProof6185 = !config.paperMode &&
-            ts.safety.freezeAuthorityDisabled == null &&
-            !fdgFreezeRetained6164 &&
+        val fdgAuthorityUnknownRouteProof6186 = !config.paperMode &&
             com.lifecyclebot.engine.TokenMapAuthority.executableForLiveBuy(ts) &&
             ((ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: ts.tokenMap.liquidityUsd ?: 0.0) >= 3_000.0)
+        val fdgFreezeUnknownRouteProof6185 = ts.safety.freezeAuthorityDisabled == null &&
+            !fdgFreezeRetained6164 &&
+            fdgAuthorityUnknownRouteProof6186
+        val fdgMintUnknownRouteProof6186 = ts.safety.mintAuthorityDisabled == null &&
+            !fdgMintRetained6164 &&
+            fdgAuthorityUnknownRouteProof6186
         if (blockReason == null && !config.paperMode && (ts.safety.freezeAuthorityDisabled == false || fdgFreezeRetained6164)) {
             blockReason = "HARD_BLOCK_FREEZE_AUTHORITY"
             blockLevel = BlockLevel.HARD
@@ -2133,18 +2137,33 @@ object FinalDecisionGate {
             }
         }
 
-        // V5.0.6116 / V5.0.6164 — mint authority enabled/unknown is live fail-closed.
-        // Paper/shadow can observe; real SOL cannot buy tokens unless mint authority
-        // is explicitly revoked and token-map does not contradict it.
-        if (blockReason == null && !config.paperMode && (ts.safety.mintAuthorityDisabled != true || fdgMintRetained6164)) {
-            blockReason = if (ts.safety.mintAuthorityDisabled == false || fdgMintRetained6164) "HARD_BLOCK_MINT_AUTHORITY_6116" else "HARD_BLOCK_MINT_AUTHORITY_UNKNOWN_6164"
+        // V5.0.6116 / V5.0.6164 / V5.0.6186 — active/retained mint authority is
+        // still a hard live block. Unknown mint authority during scanner/API degradation
+        // may pass only when the token map has executable route + liquidity proof; the
+        // final PreTrade gate applies the same invariant before broadcast.
+        if (blockReason == null && !config.paperMode && (ts.safety.mintAuthorityDisabled == false || fdgMintRetained6164)) {
+            blockReason = "HARD_BLOCK_MINT_AUTHORITY_6116"
             blockLevel = BlockLevel.HARD
-            checks.add(GateCheck("mint_auth", false, "mintAuth=${ts.safety.mintAuthorityDisabled} tokenMap=${ts.tokenMap.mintAuthority ?: "?"} live fail-closed"))
+            checks.add(GateCheck("mint_auth", false, "mintAuth=${ts.safety.mintAuthorityDisabled} tokenMap=${ts.tokenMap.mintAuthority ?: "?"} live retained/active hard block"))
             tags.add("mint_auth_6164")
             try { PipelineHealthCollector.labelInc("FDG_MINT_AUTHORITY_FAIL_CLOSED_6164") } catch (_: Throwable) {}
             try { ForensicLogger.lifecycle("MINT_AUTHORITY_FAIL_CLOSED_6164", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName mintAuth=${ts.safety.mintAuthorityDisabled} tokenMap=${ts.tokenMap.mintAuthority ?: "?"} action=hard_block_live") } catch (_: Throwable) {}
+        } else if (blockReason == null && !config.paperMode && ts.safety.mintAuthorityDisabled != true && !fdgMintUnknownRouteProof6186) {
+            blockReason = "HARD_BLOCK_MINT_AUTHORITY_UNKNOWN_6164"
+            blockLevel = BlockLevel.HARD
+            checks.add(GateCheck("mint_auth", false, "mintAuth=${ts.safety.mintAuthorityDisabled} tokenMap=${ts.tokenMap.mintAuthority ?: "?"} live unknown without route proof"))
+            tags.add("mint_auth_6164")
+            try { PipelineHealthCollector.labelInc("FDG_MINT_AUTHORITY_FAIL_CLOSED_6164") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("MINT_AUTHORITY_FAIL_CLOSED_6164", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName mintAuth=${ts.safety.mintAuthorityDisabled} tokenMap=${ts.tokenMap.mintAuthority ?: "?"} action=hard_block_live_unknown_no_route_proof") } catch (_: Throwable) {}
         } else if (blockReason == null) {
-            checks.add(GateCheck("mint_auth", true, null))
+            if (fdgMintUnknownRouteProof6186) {
+                checks.add(GateCheck("mint_auth", true, "UNKNOWN_ROUTE_PROOF_6186"))
+                tags.add("mint_unknown_route_proof_6186")
+                try { PipelineHealthCollector.labelInc("FDG_MINT_UNKNOWN_ROUTE_PROOF_SOFT_ALLOW_6186") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("MINT_AUTHORITY_UNKNOWN_ROUTE_PROOF_6186", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName liq=${ts.lastLiquidityUsd} route=${ts.tokenMap.routeStatus} action=allow_to_pretrade") } catch (_: Throwable) {}
+            } else {
+                checks.add(GateCheck("mint_auth", true, null))
+            }
         }
 
         // V5.0.6116 — SAFETY BLOCK: Confirmed death bucket from LosingPatternMemory.
