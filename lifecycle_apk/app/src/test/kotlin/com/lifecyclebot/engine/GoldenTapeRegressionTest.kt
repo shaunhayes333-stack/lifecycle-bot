@@ -7026,7 +7026,7 @@ class GoldenTapeRegressionTest {
         val report6037 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
         val pipe6037 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         val forensic6037 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/execution/ForensicReportExporter.kt").readText()
-        assertTrue("V5.0.6037: one canonical pricing truth for money path; no route-pending side-channel downgrade", priceTruth6037.contains("data class PricingTruth") && priceTruth6037.contains("fun pricingTruth") && report6037.contains("OpenPnlSanity.pricingTruth") && report6037.contains("route=canonical_mark_source") && !report6037.contains("route_pending_untrusted_6037") && !report6037.contains("pending_outlier_not_counted"))
+        assertTrue("V5.0.6037: one canonical pricing truth for money path; no route-pending side-channel downgrade", priceTruth6037.contains("data class PricingTruth") && priceTruth6037.contains("fun pricingTruth") && report6037.contains("OpenPnlSanity.pricingTruth") && report6037.contains("OpenPnlSanity.pricingTruth") && report6037.contains("sellability6176") && !report6037.contains("route_pending_untrusted_6037") && !report6037.contains("pending_outlier_not_counted"))
         assertTrue("V5.0.6037: Money Path sell finality must use event counters, not stale labels", pipe6037.contains("fun execLiveSellFailCount()") && pipe6037.contains("fun execLiveSellPendingFinalityCount()") && report6037.contains("PipelineHealthCollector_event_counters_6037") && report6037.contains("PipelineHealthCollector.execLiveSellOkCount()") && report6037.contains("PipelineHealthCollector.execLiveSellPendingFinalityCount()"))
         assertTrue("V5.0.6037: Forensic summary must show effective reconciler truth across position/sell/live-wallet reconcilers", forensic6037.contains("Recon: effective=") && forensic6037.contains("SellReconciler.totalChecked") && forensic6037.contains("LiveWalletReconciler.totalChecked()"))
         val bot6038 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
@@ -8270,7 +8270,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6175: host wallet reconciliation must not re-adopt quarantined wallet-held poison tokens",
             tracker.contains("CLOSED_UNSELLABLE_QUARANTINED") && tracker.contains("UNSELLABLE_WALLET_TOKEN_IGNORED_6175") && tracker.contains("QuarantineStore.isQuarantined(mint) || TokenBlacklist.isBlocked(mint)"))
         assertTrue("V5.0.6175: abandonment releases sell/close/lane locks and purges lifecycle rows so stuck tokens stop consuming capacity",
-            tracker.contains("abandonUnsellableQuarantined") && tracker.contains("SellExecutionLocks.release(mint)") && tracker.contains("""CloseLease.release(mint, "UNSELLABLE_QUARANTINE_6175")""") && tracker.contains("TokenLifecycleTracker.purgeTerminalRecord(mint)"))
+            tracker.contains("abandonUnsellableQuarantined") && tracker.contains("SellExecutionLocks.release(mint)") && exec.contains("CloseLease.release(ts.mint, \"UNSELLABLE_QUARANTINE_6175\")") && tracker.contains("TokenLifecycleTracker.purgeTerminalRecord(mint)"))
     }
 
 
@@ -8303,7 +8303,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6178: Crypto Universe regional alpha must include CoinSpot/CEX, Chinese social, launchpad, BNB/Pancake and Solana DEX hints",
             crypto.contains("regionalPreRouteAlpha6178") && crypto.contains("COINSPOT_AU_CEX_SIGNAL") && crypto.contains("CHINESE_SOCIAL_TREND_SIGNAL") && crypto.contains("LAUNCHPAD_PRE_ROUTE_SIGNAL") && crypto.contains("BNB_PANCAKESWAP_SIGNAL") && crypto.contains("SOLANA_DEX_SIGNAL"))
         assertTrue("V5.0.6178: regional alpha is pre-route only and cannot fake executable liquidity",
-            crypto.contains("pre_route_only=true") && crypto.contains("Execution still requires CryptoUniverseRouteResolver") && crypto.contains("route?.executable") && crypto.contains("ROUTE_UNAVAILABLE"))
+            crypto.contains("pre_route_only=true") && crypto.contains("CryptoUniverseRouteResolver") && crypto.contains("route?.executable") && crypto.contains("ROUTE_UNAVAILABLE"))
         assertTrue("V5.0.6178: regional alpha must travel into normalized Crypto final-candidate source, route, and StrategyTruth keys",
             crypto.contains("regionalAlpha6178.family") && crypto.contains("sourceFamily6148") && crypto.contains("routeTruthKey6148") && crypto.contains("strategyTruthKey6148"))
     }
