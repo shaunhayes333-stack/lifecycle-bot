@@ -8250,4 +8250,13 @@ class GoldenTapeRegressionTest {
             guard.contains("paper/shadow ignored") && guard.contains("live-clean authority doctrine"))
     }
 
+
+    @org.junit.Test fun V5_0_6174_mainactivity_disclaimer_prefs_read_off_main() {
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue("V5.0.6174: first-time disclaimer SharedPreferences XML read must happen on IO, not on MainActivity onCreate",
+            main.contains("V5.0.6174") && main.contains("showFirstTimeDisclaimerDialog6174") && main.contains("lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO)") && main.contains("""applicationContext.getSharedPreferences("lifecycle_disclaimer", Context.MODE_PRIVATE)"""))
+        assertTrue("V5.0.6174: only the dialog display returns to Main after prefs are read",
+            main.contains("kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main)") && main.contains("showFirstTimeDisclaimerDialog6174(prefs, currentVersion)"))
+    }
+
 }

@@ -1369,16 +1369,25 @@ class MainActivity : AppCompatActivity() {
     // ── First Time Disclaimer ───────────────────────────────────────────
 
     private fun showFirstTimeDisclaimer() {
-        val prefs = getSharedPreferences("lifecycle_disclaimer", Context.MODE_PRIVATE)
-        val agreedAt = prefs.getLong("disclaimer_agreed_at", 0L)
+        // V5.0.6174 — MainActivity.onCreate prefs XML reads must not run on Main.
+        // The dialog itself is UI work, but the lifecycle_disclaimer SharedPreferences
+        // load can hit FastXmlSerializer/QueuedWork during cold-start. Read on IO and
+        // only switch to Main if the disclaimer actually needs to be shown.
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val currentVersion = com.lifecyclebot.collective.LegalAgreementManager.CURRENT_AGREEMENT_VERSION
+            val prefs = applicationContext.getSharedPreferences("lifecycle_disclaimer", Context.MODE_PRIVATE)
+            val agreedAt = prefs.getLong("disclaimer_agreed_at", 0L)
+            val agreedVersion = prefs.getString("disclaimer_version", null)
+            if (agreedAt > 0 && agreedVersion == currentVersion) return@launch
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                try { showFirstTimeDisclaimerDialog6174(prefs, currentVersion) } catch (e: Throwable) {
+                    com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "show disclaimer dialog failed: ${e.message}")
+                }
+            }
+        }
+    }
 
-        // Check if current version has been agreed to
-        val agreedVersion = prefs.getString("disclaimer_version", null)
-        val currentVersion = com.lifecyclebot.collective.LegalAgreementManager.CURRENT_AGREEMENT_VERSION
-
-        // If already agreed to current version, don't show again
-        if (agreedAt > 0 && agreedVersion == currentVersion) return
-
+    private fun showFirstTimeDisclaimerDialog6174(prefs: android.content.SharedPreferences, currentVersion: String) {
         val disclaimerText = com.lifecyclebot.collective.LegalAgreementManager.DISCLAIMER_TEXT + """
 
 
