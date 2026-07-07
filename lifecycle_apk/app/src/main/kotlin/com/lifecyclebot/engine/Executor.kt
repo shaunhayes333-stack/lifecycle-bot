@@ -13424,7 +13424,15 @@ class Executor(
         // capacity does not exist, reject once with a truthful low-capacity reason.
         val liveRentReserveSol = 0.012
         val liveCfg = cfg()
-        val minNonMicroLiveBuySol = liveCfg.minLiveBuySol.coerceAtLeast(com.lifecyclebot.engine.LiveSizingProfile.MIN_ENTRY_SOL)
+        // V5.0.6188 — small-wallet non-micro floor. Runtime 6187 showed BUY ok=30
+        // but BUY fail=31 under SIZE_TOO_THIN_FOR_NON_MICRO_TRADE on a ~0.216 SOL
+        // wallet: the fixed 0.035 SOL floor can exceed wallet-risk/spendable caps
+        // during active compounding. Keep this non-micro (never dust) but make it
+        // wallet-relative while the wallet is below 0.25 SOL.
+        val smallWalletNonMicroFloor6188 = if (walletSol < 0.25) {
+            (walletSol * 0.14).coerceIn(0.020, com.lifecyclebot.engine.LiveSizingProfile.MIN_ENTRY_SOL)
+        } else com.lifecyclebot.engine.LiveSizingProfile.MIN_ENTRY_SOL
+        val minNonMicroLiveBuySol = liveCfg.minLiveBuySol.coerceAtLeast(smallWalletNonMicroFloor6188)
         // V5.0.6104 — micro-probe mode must be explicit. The old config-level
         // allowLiveMicroProbe let ordinary QUALITY/MOONSHOT/TREASURY buys pass at
         // 0.003–0.007 SOL after pending-proof and learned-risk multipliers. That

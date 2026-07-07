@@ -8377,4 +8377,17 @@ class GoldenTapeRegressionTest {
             wr.contains("quarantineZeroBasisNoRouteRecovered6187") && wr.contains("WALLET_RECOVERED_ZERO_BASIS_NO_ROUTE_IGNORE_6187") && wr.contains("!TokenMapAuthority.executableForLiveBuy(ts)") && wr.contains("WALLET_RECOVERED_ZERO_BASIS_NO_ROUTE_IGNORED_6187"))
     }
 
+
+    @org.junit.Test fun V5_0_6188_live_stall_dechoke_keeps_safety_bounded() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val hive = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HivemindReadyGate.kt").readText()
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue("V5.0.6188: small-wallet live entries must use a wallet-relative non-micro floor, not fixed dust or a fixed 0.035 SOL choke",
+            exec.contains("smallWalletNonMicroFloor6188") && exec.contains("walletSol * 0.14") && exec.contains("coerceIn(0.020") && exec.contains("LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE"))
+        assertTrue("V5.0.6188: Hivemind startup gate must fail-open quickly and never hard-stall live entries for minutes",
+            hive.contains("HARD_TIMEOUT_MS = 15_000L") && hive.contains("""ready("timeout")""") && hive.contains("return true"))
+        assertTrue("V5.0.6188: stale safety may pass only with executable route proof and no hard safety reasons while refresh is still queued",
+            fdg.contains("safetyStaleRouteProof6188") && fdg.contains("ts.safety.hardBlockReasons.isEmpty()") && fdg.contains("TokenMapAuthority.executableForLiveBuy(ts)") && fdg.contains("FDG_SAFETY_STALE_ROUTE_PROOF_SOFT_ALLOW_6188") && fdg.contains("SafetyRefreshQueue.request(ts.mint)"))
+    }
+
 }

@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicLong
 object HivemindReadyGate {
 
     // ── Tunables ────────────────────────────────────────────────────────
-    private const val HARD_TIMEOUT_MS = 60_000L        // 60s max wait
+    private const val HARD_TIMEOUT_MS = 15_000L        // V5.0.6188: 15s max wait; never stall live entries for minutes
     private const val LOG_THROTTLE_MS = 10_000L        // log every 10s of waiting
 
     // ── State ───────────────────────────────────────────────────────────

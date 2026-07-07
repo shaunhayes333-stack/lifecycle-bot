@@ -971,39 +971,52 @@ object FinalDecisionGate {
             }
             if (safetyMissing || safetyStale) {
                 val reason = if (safetyMissing) "SAFETY_NOT_READY_MISSING" else "SAFETY_NOT_READY_STALE"
+                val safetyStaleRouteProof6188 = safetyStale && !safetyMissing &&
+                    ts.safety.hardBlockReasons.isEmpty() &&
+                    com.lifecyclebot.engine.TokenMapAuthority.executableForLiveBuy(ts)
                 // V5.0.3894 — data-capture defer must schedule data capture.
                 // FDG previously only logged SAFETY_NOT_READY_*; now it also queues
                 // a synchronous BotService safety hydration for the next token pass.
                 try { com.lifecyclebot.engine.SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_SAFETY_NOT_READY_REFRESH_REQUESTED") } catch (_: Throwable) {}
-                if (shouldEmitSafetyReadyBlock(ts.mint)) {
+                if (safetyStaleRouteProof6188) {
                     try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_SAFETY_STALE_ROUTE_PROOF_SOFT_ALLOW_6188")
                         ForensicLogger.lifecycle(
-                            "FDG_BLOCKED_SAFETY_NOT_READY",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason ageSec=${safetyAgeMs / 1000} mode=LIVE",
+                            "FDG_SAFETY_STALE_ROUTE_PROOF_SOFT_ALLOW_6188",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} ageSec=${safetyAgeMs / 1000} route=${ts.tokenMap.routeStatus} action=allow_to_pretrade_refresh_requested",
                         )
                     } catch (_: Throwable) {}
-                    ErrorLogger.info(
-                        "FDG",
-                        "🛡 UPSTREAM_SAFETY_GATE: ${ts.symbol} | $reason — candidate held back from executor",
+                } else {
+                    if (shouldEmitSafetyReadyBlock(ts.mint)) {
+                        try {
+                            ForensicLogger.lifecycle(
+                                "FDG_BLOCKED_SAFETY_NOT_READY",
+                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason ageSec=${safetyAgeMs / 1000} mode=LIVE",
+                            )
+                        } catch (_: Throwable) {}
+                        ErrorLogger.info(
+                            "FDG",
+                            "🛡 UPSTREAM_SAFETY_GATE: ${ts.symbol} | $reason — candidate held back from executor",
+                        )
+                    }
+                    return FinalDecision(
+                        shouldTrade = false,
+                        mode = mode,
+                        approvalClass = ApprovalClass.BLOCKED,
+                        quality = candidate.setupQuality,
+                        confidence = candidate.aiConfidence,
+                        edge = EdgeVerdict.SKIP,
+                        blockReason = reason,
+                        blockLevel = BlockLevel.HARD,
+                        sizeSol = 0.0,
+                        tags = listOf("upstream_safety_gate", reason.lowercase()),
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        approvalReason = "FDG upstream safety gate: $reason (live-mode hard block before executor)",
+                        gateChecks = listOf(GateCheck("safety_ready_upstream", false, reason)),
                     )
                 }
-                return FinalDecision(
-                    shouldTrade = false,
-                    mode = mode,
-                    approvalClass = ApprovalClass.BLOCKED,
-                    quality = candidate.setupQuality,
-                    confidence = candidate.aiConfidence,
-                    edge = EdgeVerdict.SKIP,
-                    blockReason = reason,
-                    blockLevel = BlockLevel.HARD,
-                    sizeSol = 0.0,
-                    tags = listOf("upstream_safety_gate", reason.lowercase()),
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    approvalReason = "FDG upstream safety gate: $reason (live-mode hard block before executor)",
-                    gateChecks = listOf(GateCheck("safety_ready_upstream", false, reason)),
-                )
             }
         }
 
