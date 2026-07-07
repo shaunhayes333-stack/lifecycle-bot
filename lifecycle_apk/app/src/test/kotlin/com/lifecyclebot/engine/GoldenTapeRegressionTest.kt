@@ -8321,4 +8321,15 @@ class GoldenTapeRegressionTest {
             exec.contains("causalEvSizeMult6179") && exec.contains("CAUSAL_EV_SIZE_SHAPED_6179") && exec.contains("\"causalEv6179\" to causalEvSizeMult6179") && causal.contains("coerceIn(0.70, 1.22)"))
     }
 
+
+    @org.junit.Test fun V5_0_6180_mid_hold_scale_in_uses_cached_causal_ev_only() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6180: top-up size must be shaped by cached causal EV from position source/route/tactic snapshots",
+            exec.contains("causalTopUpMult6180") && exec.contains("CAUSAL_EV_TOPUP_SIZE_SHAPED_6180") && exec.contains("pos.entryPriceSource") && exec.contains("pos.entryPoolAddress") && exec.contains("pos.entryPolicySnapshot"))
+        assertTrue("V5.0.6180: add-to-winner permission can use causalEvPyramidGate6180 but still never averages down",
+            exec.contains("causalEvPyramidGate6180") && exec.contains("gainPct >= 1.5") && exec.contains("if (gainPct <= 0) return false"))
+        assertTrue("V5.0.6180: HoldingLogic ADD_MORE path must expose causal EV telemetry while still routing through doTopUp/security",
+            exec.contains("causalEv6180=") && exec.contains("HOLDING_LOGIC_ADD_MORE_TOPUP_6091") && exec.contains("doTopUp(ts, walletSol, wallet, totalExposureSol)") && exec.contains("security.checkBuy"))
+    }
+
 }

@@ -4019,7 +4019,19 @@ class Executor(
         val diamondHands6091 = pos.tradingMode.equals("DIAMOND_HANDS", true) || pos.isLongHold
         val growthBonus = (peakGainPct / 50.0).coerceIn(0.0, if (diamondHands6091) 2.0 else 1.0)
         val growthMultiplier = (1.0 + growthBonus).coerceAtMost(if (diamondHands6091) 3.0 else 2.0)
-        var size       = initSize * growthMultiplier
+        val causalTopUpMult6180 = try {
+            CausalEvMemory6179.sizeMultiplier(
+                lane = pos.tradingMode.ifBlank { "STANDARD" },
+                source = pos.entryPriceSource,
+                routeHint = pos.entryPoolAddress.ifBlank { pos.entryDex },
+                tacticHint = pos.entryPolicySnapshot.ifBlank { pos.tradingMode },
+            )
+        } catch (_: Throwable) { 1.0 }
+        var size       = initSize * growthMultiplier * causalTopUpMult6180.coerceIn(0.80, 1.20)
+        if (causalTopUpMult6180 != 1.0) {
+            try { ForensicLogger.lifecycle("CAUSAL_EV_TOPUP_SIZE_SHAPED_6180", "lane=${pos.tradingMode} source=${pos.entryPriceSource.take(60)} route=${pos.entryPoolAddress.take(24)} mult=${causalTopUpMult6180.fmt(2)} topUp=${pos.topUpCount + 1}") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("CAUSAL_EV_TOPUP_SIZE_SHAPED_6180") } catch (_: Throwable) {}
+        }
 
         // Top-up cap from config. V5.0.6091: DIAMOND_HANDS/long-hold runners get
         // deeper pyramiding room while still obeying portfolio exposure and wallet caps.
@@ -4108,12 +4120,21 @@ class Executor(
                     .firstOrNull { it.strategy.equals(lane6151, true) }
                 m6151 != null && m6151.trades >= 5 && m6151.totalSolPnl > 0.0 && m6151.pfExpectancyPp > 0.0 && m6151.meanPnlPct > 10.0
             } catch (_: Throwable) { false }
+            val causalEvPyramidGate6180 = try {
+                CausalEvMemory6179.sizeMultiplier(
+                    lane = pos.tradingMode.ifBlank { ts.position.tradingMode },
+                    source = pos.entryPriceSource.ifBlank { ts.source },
+                    routeHint = pos.entryPoolAddress.ifBlank { ts.pairAddress },
+                    tacticHint = pos.entryPolicySnapshot.ifBlank { pos.tradingMode },
+                ) > 1.04
+            } catch (_: Throwable) { false }
             val dangerClear = ts.lastLiquidityUsd >= 2_500.0 && !ts.meta.breakdown && emafanAlignment != "BEAR_FAN"
             dangerClear && (
                 (whaleBid && gainPct >= 3.0) ||
                 (agiConviction && runnerConviction) ||
                 diamondConviction ||
-                (evPyramid6151 && gainPct >= 1.5 && entryScore >= 50.0 && exitScore < 55.0)
+                (evPyramid6151 && gainPct >= 1.5 && entryScore >= 50.0 && exitScore < 55.0) ||
+                (causalEvPyramidGate6180 && gainPct >= 1.5 && entryScore >= 48.0 && exitScore < 58.0)
             )
         } catch (_: Throwable) { false }
     }
@@ -4157,6 +4178,14 @@ class Executor(
             val m6151 = StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500).firstOrNull { it.strategy.equals(lane6151, true) }
             m6151 != null && m6151.trades >= 5 && m6151.totalSolPnl > 0.0 && m6151.pfExpectancyPp > 0.0 && m6151.meanPnlPct > 10.0
         } catch (_: Throwable) { false }
+        val causalEvPyramidGate6180 = try {
+            CausalEvMemory6179.sizeMultiplier(
+                lane = pos.tradingMode.ifBlank { "STANDARD" },
+                source = pos.entryPriceSource.ifBlank { ts.source },
+                routeHint = pos.entryPoolAddress.ifBlank { ts.pairAddress },
+                tacticHint = pos.entryPolicySnapshot.ifBlank { pos.tradingMode },
+            ) > 1.04
+        } catch (_: Throwable) { false }
 
         // Must be profitable — never average down
         if (gainPct <= 0) return false
@@ -4171,6 +4200,7 @@ class Executor(
             pos.tradingMode.equals("DIAMOND_HANDS", true) -> 12
             pos.isLongHold || pos.entryScore >= 75.0 -> 7
             evPyramidGate6151 -> 6
+            causalEvPyramidGate6180 -> 6
             autonomyTopUp6091 -> 6
             else -> c.topUpMaxCount
         }
@@ -4185,14 +4215,14 @@ class Executor(
         // and each subsequent rung needs +12% more (was +30%). Forces
         // the new bigger-on-winners behaviour onto existing operator
         // configs that still have the old 25/30 saved in prefs.
-        val earlyFirst = (pos.entryScore >= 75.0 || autonomyTopUp6091 || evPyramidGate6151) && pos.topUpCount == 0
+        val earlyFirst = (pos.entryScore >= 75.0 || autonomyTopUp6091 || evPyramidGate6151 || causalEvPyramidGate6180) && pos.topUpCount == 0
         val baseMin    = when {
-            evPyramidGate6151 && pos.topUpCount == 0 -> 1.5
+            (evPyramidGate6151 || causalEvPyramidGate6180) && pos.topUpCount == 0 -> 1.5
             autonomyTopUp6091 && pos.topUpCount == 0 -> 3.0
             earlyFirst -> 8.0
             else -> c.topUpMinGainPct.coerceAtMost(10.0)
         }
-        val stepGain   = if (evPyramidGate6151) c.topUpGainStepPct.coerceAtMost(6.0) else if (autonomyTopUp6091) c.topUpGainStepPct.coerceAtMost(8.0) else c.topUpGainStepPct.coerceAtMost(12.0)
+        val stepGain   = if (evPyramidGate6151 || causalEvPyramidGate6180) c.topUpGainStepPct.coerceAtMost(6.0) else if (autonomyTopUp6091) c.topUpGainStepPct.coerceAtMost(8.0) else c.topUpGainStepPct.coerceAtMost(12.0)
         val requiredGain = baseMin + (pos.topUpCount * stepGain)
         if (gainPct < requiredGain) return false
 
@@ -8603,7 +8633,7 @@ class Executor(
                     try {
                         ForensicLogger.lifecycle(
                             "HOLDING_LOGIC_ADD_MORE_TOPUP_6091",
-                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} mode=${ts.position.tradingMode} reason=${holdEval.reason.take(120)} confidence=${holdEval.confidence.fmt(1)} pnl=${currentPnlPct.fmt(1)}",
+                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} mode=${ts.position.tradingMode} reason=${holdEval.reason.take(120)} confidence=${holdEval.confidence.fmt(1)} pnl=${currentPnlPct.fmt(1)} causalEv6180=${CausalEvMemory6179.sizeMultiplier(ts.position.tradingMode, ts.position.entryPriceSource.ifBlank { ts.source }, ts.position.entryPoolAddress.ifBlank { ts.pairAddress }, ts.position.entryPolicySnapshot.ifBlank { ts.position.tradingMode }).fmt(2)}",
                         )
                         PipelineHealthCollector.labelInc("HOLDING_LOGIC_ADD_MORE_TOPUP_6091")
                     } catch (_: Throwable) {}
