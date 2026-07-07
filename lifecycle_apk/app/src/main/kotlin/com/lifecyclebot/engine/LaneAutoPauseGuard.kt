@@ -230,6 +230,15 @@ object LaneAutoPauseGuard {
                 try { ErrorLogger.debug("LaneAutoPauseGuard", "$VERSION evaluateLive: clean terminal trades empty (store cold)") } catch (_: Throwable) {}
                 return
             }
+            // V5.0.6173 — LIVE guard must read LIVE clean StrategyTruth only.
+            // Paper/shadow proof can propose lab strategies, but it must never pause
+            // or resume live risk. This keeps 6172 auto-resume aligned with the
+            // live-clean authority doctrine.
+            val cleanLive6173 = clean.filter { it.mode.equals("live", ignoreCase = true) }
+            if (cleanLive6173.isEmpty()) {
+                try { ErrorLogger.debug("LaneAutoPauseGuard", "$VERSION evaluateLive: no live clean terminal trades yet; paper/shadow ignored") } catch (_: Throwable) {}
+                return
+            }
 
             // Aggregate by tradingMode (lane) using the same win threshold
             // (V5.0.4102): pnlPct >= 5% counts as a win. V5.0.4593 — dropped
@@ -239,7 +248,7 @@ object LaneAutoPauseGuard {
             // used side="EXIT" or similar in some code paths.
             data class Agg(var sample: Int = 0, var wins: Int = 0, var pnlSum: Double = 0.0)
             val byLane = HashMap<String, Agg>()
-            for (t in clean) {
+            for (t in cleanLive6173) {
                 val lane = canonLane(t.tradingMode.trim())
                 if (lane.isBlank()) continue
                 val agg = byLane.getOrPut(lane) { Agg() }
@@ -250,7 +259,7 @@ object LaneAutoPauseGuard {
             try {
                 ErrorLogger.info(
                     "LaneAutoPauseGuard",
-                    "$VERSION evaluateLive: clean=${clean.size} lanes=${byLane.size} paused=${paused.size} snapshot=" +
+                    "$VERSION evaluateLive: cleanLive6173=${cleanLive6173.size} cleanAll=${clean.size} lanes=${byLane.size} paused=${paused.size} snapshot=" +
                         byLane.entries.joinToString(" ") { (l, a) -> "$l(n=${a.sample},w=${a.wins},ev=${"%.0f".format(if (a.sample > 0) a.pnlSum / a.sample else 0.0)}%)" },
                 )
             } catch (_: Throwable) {}

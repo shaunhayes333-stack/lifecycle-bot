@@ -8235,10 +8235,19 @@ class GoldenTapeRegressionTest {
         val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneAutoPauseGuard.kt").readText()
         assertTrue("V5.0.6172: paused lanes with clean positive StrategyTruth must auto-resume instead of staying amputated",
             guard.contains("LANE_AUTO_RESUMED_CLEAN_EDGE_6172") && guard.contains("cleanReproved6172") && guard.contains("paused.remove(lane)"))
-        assertTrue("V5.0.6172: reproof requires meaningful clean sample and positive EV/WR, not paper/shadow guesswork",
-            guard.contains("agg.sample >= TOXIC_MIN_SAMPLE && wrPct >= 30.0 && evPct > 0.0") && guard.contains("agg.sample >= MIN_SAMPLE && evPct >= 25.0"))
+        assertTrue("V5.0.6172/6173: reproof requires meaningful LIVE-clean sample and positive EV/WR, not paper/shadow guesswork",
+            guard.contains("cleanLive6173") && guard.contains("""it.mode.equals("live", ignoreCase = true)""") && guard.contains("agg.sample >= TOXIC_MIN_SAMPLE && wrPct >= 30.0 && evPct > 0.0") && guard.contains("agg.sample >= MIN_SAMPLE && evPct >= 25.0"))
         assertTrue("V5.0.6172: toxic zero-win/negative-EV pause logic remains intact after auto-resume check",
             guard.contains("val zeroWin = agg.sample >= ZERO_WIN_MIN_SAMPLE && agg.wins == 0") && guard.contains("evPct <= TOXIC_EV_PCT"))
+    }
+
+
+    @org.junit.Test fun V5_0_6173_lane_auto_pause_uses_live_clean_truth_only() {
+        val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneAutoPauseGuard.kt").readText()
+        assertTrue("V5.0.6173: LaneAutoPauseGuard is a live-risk guard and must filter clean terminal rows to mode=live",
+            guard.contains("cleanLive6173") && guard.contains("""clean.filter { it.mode.equals("live", ignoreCase = true) }""") && guard.contains("for (t in cleanLive6173)"))
+        assertTrue("V5.0.6173: paper/shadow clean rows cannot pause or auto-resume live lanes",
+            guard.contains("paper/shadow ignored") && guard.contains("live-clean authority doctrine"))
     }
 
 }
