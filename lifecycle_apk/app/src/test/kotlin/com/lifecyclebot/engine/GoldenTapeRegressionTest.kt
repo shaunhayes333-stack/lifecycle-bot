@@ -8297,4 +8297,15 @@ class GoldenTapeRegressionTest {
             crypto.contains("altPositionToJson") && crypto.contains("altPositionFromJson") && crypto.contains("CRYPTO_UNIVERSE_RESTORED") && crypto.contains("RESTORED_ROUTE_UNKNOWN"))
     }
 
+
+    @org.junit.Test fun V5_0_6178_crypto_regional_alpha_is_pre_route_only() {
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue("V5.0.6178: Crypto Universe regional alpha must include CoinSpot/CEX, Chinese social, launchpad, BNB/Pancake and Solana DEX hints",
+            crypto.contains("regionalPreRouteAlpha6178") && crypto.contains("COINSPOT_AU_CEX_SIGNAL") && crypto.contains("CHINESE_SOCIAL_TREND_SIGNAL") && crypto.contains("LAUNCHPAD_PRE_ROUTE_SIGNAL") && crypto.contains("BNB_PANCAKESWAP_SIGNAL") && crypto.contains("SOLANA_DEX_SIGNAL"))
+        assertTrue("V5.0.6178: regional alpha is pre-route only and cannot fake executable liquidity",
+            crypto.contains("pre_route_only=true") && crypto.contains("Execution still requires CryptoUniverseRouteResolver") && crypto.contains("route?.executable") && crypto.contains("ROUTE_UNAVAILABLE"))
+        assertTrue("V5.0.6178: regional alpha must travel into normalized Crypto final-candidate source, route, and StrategyTruth keys",
+            crypto.contains("regionalAlpha6178.family") && crypto.contains("sourceFamily6148") && crypto.contains("routeTruthKey6148") && crypto.contains("strategyTruthKey6148"))
+    }
+
 }

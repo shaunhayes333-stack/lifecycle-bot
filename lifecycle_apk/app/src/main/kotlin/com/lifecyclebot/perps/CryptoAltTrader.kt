@@ -1734,6 +1734,7 @@ object CryptoAltTrader {
         val assetType = if (isSpot) CryptoFinalBuyCandidate.AssetType.SPOT else CryptoFinalBuyCandidate.AssetType.PERP
         val walletSol = try { WalletManager.getWallet()?.getSolBalance() ?: getEffectiveBalance() } catch (_: Throwable) { getEffectiveBalance() }
         val route = try { CryptoUniverseRouteResolver.resolve(signal.market, walletSol, finalSize) } catch (_: Throwable) { null }
+        val regionalAlpha6178 = regionalPreRouteAlpha6178(signal)
         val hardNo = mutableListOf<String>()
         val soft = mutableListOf<String>()
         if (signal.price <= 0.0) hardNo += "PRICE_CONTEXT_MISSING"
@@ -1741,6 +1742,7 @@ object CryptoAltTrader {
         if (signal.confidence <= 0 || signal.score <= 0) hardNo += "SCORE_CONTEXT_MISSING"
         if (!isPaperMode.get() && route?.executable != true) hardNo += "ROUTE_UNAVAILABLE"
         if (route?.route == com.lifecyclebot.perps.crypto.CryptoExecutionRoute.PAPER_ONLY && isPaperMode.get()) soft += "PAPER_ONLY_ROUTE"
+        if (regionalAlpha6178.tags.isNotEmpty()) soft += regionalAlpha6178.reason
         if (signal.direction == PerpsDirection.SHORT && isSpot) hardNo += "SPOT_SHORT_UNSUPPORTED"
         val liq = altLiqMcapHint(symbol).first
         val spread = when (lane) {
@@ -1755,7 +1757,7 @@ object CryptoAltTrader {
         val assetKey6148 = cryptoAssetKey(signal, isSpot)
         val chain6148 = if (route?.mint != null) "SOLANA" else "MULTICHAIN"
         val venue6148 = route?.route?.name ?: "UNKNOWN"
-        val venueUniverse6154 = try { com.lifecyclebot.engine.VenueUniverse.classify("${signal.market} $venue6148 ${signal.reasons.joinToString(" ")}") } catch (_: Throwable) { com.lifecyclebot.engine.VenueUniverse.classify(venue6148) }
+        val venueUniverse6154 = try { com.lifecyclebot.engine.VenueUniverse.classify("${signal.market} $venue6148 ${signal.reasons.joinToString(" ")} ${regionalAlpha6178.tags.joinToString(" ")}") } catch (_: Throwable) { com.lifecyclebot.engine.VenueUniverse.classify(venue6148) }
         val venueFamily6148 = when {
             venueUniverse6154.route == com.lifecyclebot.engine.VenueUniverse.RouteFamily.SOL_AGGREGATOR -> "DEX_AGGREGATOR"
             venueUniverse6154.route == com.lifecyclebot.engine.VenueUniverse.RouteFamily.SOL_AMM_DIRECT -> "SOLANA_DEX"
@@ -1785,9 +1787,9 @@ object CryptoAltTrader {
             route?.executable == true -> "CRYPTO_UNIVERSE_EXECUTOR"
             else -> "DEFERRED_ROUTE"
         }
-        val sourceFamily6148 = if (isSpot) "CRYPTO_SPOT_UNIVERSE:${venueUniverse6154.canonical}" else "CRYPTO_PERPS_UNIVERSE:${venueUniverse6154.canonical}"
-        val routeTruthKey6148 = "${venueUniverse6154.chain}|$venueFamily6148|${venueUniverse6154.canonical}|$venue6148|${assetType.name}|${signal.direction.name}"
-        val strategyTruthKey6148 = "CRYPTO|$symbol|${assetType.name}|${cryptoSignalStyle(signal)}|$venueFamily6148|${signal.direction.name}"
+        val sourceFamily6148 = if (isSpot) "CRYPTO_SPOT_UNIVERSE:${venueUniverse6154.canonical}:${regionalAlpha6178.family}" else "CRYPTO_PERPS_UNIVERSE:${venueUniverse6154.canonical}:${regionalAlpha6178.family}"
+        val routeTruthKey6148 = "${venueUniverse6154.chain}|$venueFamily6148|${venueUniverse6154.canonical}|$venue6148|${assetType.name}|${signal.direction.name}|${regionalAlpha6178.family}"
+        val strategyTruthKey6148 = "CRYPTO|$symbol|${assetType.name}|${cryptoSignalStyle(signal)}|$venueFamily6148|${signal.direction.name}|${regionalAlpha6178.family}"
         return CryptoFinalBuyCandidate(
             assetKey = assetKey6148,
             symbol = symbol,
@@ -1799,7 +1801,7 @@ object CryptoAltTrader {
             selectedLane = "CRYPTO",
             selectedSpecialist = cryptoSignalStyle(signal),
             preFdgVerdict = pre,
-            score = signal.score,
+            score = (signal.score * regionalAlpha6178.scoreBias).toInt().coerceIn(0, 100),
             confidence = signal.confidence,
             safetyTier = "SAFE",
             liquidityUsd = liq,
@@ -1818,6 +1820,46 @@ object CryptoAltTrader {
             executionAdapter = adapter,
             candidateVersion = LaneExecutionCoordinator.candidateVersionFor(cryptoAssetKey(signal, isSpot)),
         )
+    }
+
+
+
+    private data class RegionalAlpha6178(
+        val family: String,
+        val reason: String,
+        val scoreBias: Double,
+        val tags: List<String>,
+    )
+
+    /** V5.0.6178 — regional/CEX/social alpha bridge for Crypto Universe.
+     * This is deliberately pre-route only: it can tag and soft-shape candidate
+     * context, but it cannot pretend there is executable liquidity. Execution
+     * still requires CryptoUniverseRouteResolver + route/sellability truth.
+     */
+    private fun regionalPreRouteAlpha6178(signal: AltSignal): RegionalAlpha6178 {
+        val text = (signal.marketSymbol + " " + signal.market.name + " " + signal.reasons.joinToString(" ")).lowercase()
+        val tags = mutableListOf<String>()
+        if (text.contains("coinspot") || text.contains("aud") || text.contains("australia")) tags += "COINSPOT_AU_CEX_SIGNAL"
+        if (text.contains("binance") || text.contains("htx") || text.contains("huobi") || text.contains("okx") || text.contains("bybit")) tags += "GLOBAL_CEX_SIGNAL"
+        if (text.contains("weibo") || text.contains("douyin") || text.contains("xiaohongshu") || text.contains("china") || text.contains("chinese")) tags += "CHINESE_SOCIAL_TREND_SIGNAL"
+        if (text.contains("launchpad") || text.contains("ido") || text.contains("presale") || text.contains("pumpfun") || text.contains("pump.fun")) tags += "LAUNCHPAD_PRE_ROUTE_SIGNAL"
+        if (text.contains("pancake") || text.contains("bnb") || text.contains("bsc")) tags += "BNB_PANCAKESWAP_SIGNAL"
+        if (text.contains("raydium") || text.contains("orca") || text.contains("meteora")) tags += "SOLANA_DEX_SIGNAL"
+        val family = when {
+            tags.any { it.contains("CHINESE") } -> "REGIONAL_SOCIAL_PRE_ROUTE"
+            tags.any { it.contains("COINSPOT") || it.contains("CEX") } -> "CEX_PRE_ROUTE"
+            tags.any { it.contains("LAUNCHPAD") } -> "LAUNCHPAD_PRE_ROUTE"
+            tags.any { it.contains("PANCAKESWAP") || it.contains("DEX") } -> "DEX_PRE_ROUTE"
+            else -> "CRYPTO_NATIVE_SIGNAL"
+        }
+        val scoreBias = when (family) {
+            "REGIONAL_SOCIAL_PRE_ROUTE" -> 1.06
+            "CEX_PRE_ROUTE" -> 1.04
+            "LAUNCHPAD_PRE_ROUTE" -> 1.03
+            "DEX_PRE_ROUTE" -> 1.02
+            else -> 1.0
+        }
+        return RegionalAlpha6178(family, "regionalAlpha6178=$family tags=${tags.joinToString("+").ifBlank { "none" }} pre_route_only=true", scoreBias, tags)
     }
 
     private fun authorizeCryptoFinalCandidate(candidate: CryptoFinalBuyCandidate): TradeAuthorizer.AuthorizationResult? {
