@@ -889,7 +889,7 @@ class SolanaMarketScanner(
     // streak (scanPumpFunDirect streak=27, four other sources streak=3-9) burning
     // ~30s of cycle time. Healthy sources finish in 300–1500ms; trimming 1s off the
     // per-source ceiling cuts ~5s off worst-case parallel cycles when 5 sources hang.
-    private val SOURCE_SCAN_TIMEOUT_MS = 5_000L
+    private val SOURCE_SCAN_TIMEOUT_MS = 3_500L // V5.0.6189: cut dead-source loop stalls; healthy scanner APIs are sub-1.5s
 
     // V5.9.1497 — SCANNER LOOP BUDGET (spec 5.0.3502 §2). Hard wall-clock
     // ceiling for the whole parallel deep-scan batch. Even if several sources
@@ -1696,17 +1696,19 @@ class SolanaMarketScanner(
         // exits arrive late. Prior order fetched created_timestamp first
         // and burned the intake budget on freshest-but-lowest-quality
         // spam. Cap chosen per operator directive (75, quality-first).
+        // V5.0.6189 — runtime 6187 showed scanPumpFunDirect timeout streak=27
+        // while PumpPortal/other pump scanners were already feeding candidates.
+        // Keep the two quality-first pump.fun endpoints, but stop burning cycles on
+        // three extra freshness endpoints when the same source family has parallel
+        // coverage. This preserves source breadth and cuts worst-case direct time.
         val urls = listOf(
             "https://frontend-api-v3.pump.fun/coins?offset=0&limit=50&sort=market_cap&order=DESC&includeNsfw=false",
             "https://frontend-api-v3.pump.fun/coins?offset=0&limit=50&sort=reply_count&order=DESC&includeNsfw=false",
-            "https://frontend-api-v3.pump.fun/coins?offset=0&limit=100&sort=last_trade_timestamp&order=DESC&includeNsfw=false",
-            "https://frontend-api-v3.pump.fun/coins?offset=0&limit=100&sort=created_timestamp&order=DESC&includeNsfw=false",
-            "https://frontend-api-v3.pump.fun/coins?offset=100&limit=100&sort=created_timestamp&order=DESC&includeNsfw=false",
         )
 
-        ErrorLogger.info("Scanner", "scanPumpFunDirect: fetching from ${urls.size} pump.fun endpoints (quality-first, cap=75)...")
+        ErrorLogger.info("Scanner", "scanPumpFunDirect: fetching from ${urls.size} pump.fun quality endpoints (cap=35)...")
         var totalFound = 0
-        val globalCap = 75  // V5.0.4594 — total tokens emitted per scan pass
+        val globalCap = 35  // V5.0.6189 — direct source cap; parallel pump scanners keep freshness breadth
 
         for (url in urls) {
             if (totalFound >= globalCap) {
@@ -1728,7 +1730,7 @@ class SolanaMarketScanner(
                 var found = 0
 
                 for (i in 0 until minOf(coins.length(), 100)) {
-                    if (found >= 30) break
+                    if (found >= 18) break
                     if (totalFound >= globalCap) break  // V5.0.4594 — global cap short-circuit
 
                     val coin = coins.optJSONObject(i) ?: continue
@@ -1826,7 +1828,7 @@ class SolanaMarketScanner(
             var checked = 0
 
             for (i in 0 until minOf(boosted.length(), 80)) {
-                if (found >= 30) break
+                if (found >= 18) break
 
                 val item = boosted.optJSONObject(i) ?: continue
                 val mint = item.optString("tokenAddress", "")
@@ -1899,7 +1901,7 @@ class SolanaMarketScanner(
             var found = 0
 
             for (i in 0 until minOf(profiles.length(), 60)) {
-                if (found >= 30) break
+                if (found >= 18) break
 
                 val profile = profiles.optJSONObject(i) ?: continue
                 if (profile.optString("chainId", "") != "solana") continue
@@ -2068,7 +2070,7 @@ class SolanaMarketScanner(
             var checked = 0
 
             for (i in 0 until minOf(profiles.length(), 60)) {
-                if (found >= 30) break
+                if (found >= 18) break
 
                 val profile = profiles.optJSONObject(i) ?: continue
                 if (profile.optString("chainId", "") != "solana") continue
@@ -2211,7 +2213,7 @@ class SolanaMarketScanner(
             var checked = 0
 
             for (i in 0 until minOf(boosted.length(), 80)) {
-                if (found >= 30) break
+                if (found >= 18) break
 
                 val item = boosted.optJSONObject(i) ?: continue
                 val mint = item.optString("tokenAddress", "")
@@ -2415,7 +2417,7 @@ class SolanaMarketScanner(
             val pools = JSONObject(body).optJSONArray("data") ?: return
             var found = 0
             for (i in 0 until minOf(pools.length(), 50)) {
-                if (found >= 30) break
+                if (found >= 18) break
                 val pool = pools.optJSONObject(i) ?: continue
                 val attrs = pool.optJSONObject("attributes") ?: continue
                 val relationships = pool.optJSONObject("relationships") ?: continue
@@ -2498,7 +2500,7 @@ class SolanaMarketScanner(
             // Limit to top 60 per cycle so we don't blow the watchlist with all 100
             // every scan; the cache rotates internally so coverage is broad anyway.
             for (t in tokens.take(60)) {
-                if (found >= 30) break
+                if (found >= 18) break
                 if (isSeen(t.mint)) continue
                 if (t.symbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "USDH")) continue
                 // Liquidity not directly available from CG markets endpoint.
@@ -3175,7 +3177,7 @@ class SolanaMarketScanner(
             val pools = JSONObject(body).optJSONArray("data") ?: return
             var found = 0
             for (i in 0 until minOf(pools.length(), 60)) {
-                if (found >= 30) break
+                if (found >= 18) break
                 val pool = pools.optJSONObject(i) ?: continue
                 val attrs = pool.optJSONObject("attributes") ?: continue
                 val relationships = pool.optJSONObject("relationships") ?: continue
@@ -3242,7 +3244,7 @@ class SolanaMarketScanner(
             val pools = JSONObject(body).optJSONArray("data") ?: return
             var found = 0
             for (i in 0 until minOf(pools.length(), 40)) {
-                if (found >= 30) break
+                if (found >= 18) break
                 val pool = pools.optJSONObject(i) ?: continue
                 val attrs = pool.optJSONObject("attributes") ?: continue
                 val relationships = pool.optJSONObject("relationships") ?: continue

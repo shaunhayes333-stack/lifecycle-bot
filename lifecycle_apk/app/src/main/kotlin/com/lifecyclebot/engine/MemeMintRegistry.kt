@@ -42,8 +42,8 @@ object MemeMintRegistry {
 
     private const val TAG = "MemeMintRegistry"
     private const val PERSIST_FILE = "meme_mint_registry.json"
-    private const val PERSIST_DEBOUNCE_MS = 5_000L
-    private const val MINT_RETENTION_MS = 14L * 24 * 60 * 60_000L  // 14 days for vetted mints
+    private const val PERSIST_DEBOUNCE_MS = 60_000L // V5.0.6189: avoid repeated 10MB+ runtime writes
+    private const val MINT_RETENTION_MS = 3L * 24 * 60 * 60_000L  // V5.0.6189: 3 days; prevent 50k+ mint/11MB registry stalls
 
     data class MemeMint(
         val mint: String,
@@ -145,7 +145,7 @@ object MemeMintRegistry {
         }
         if (removed > 0) {
             scheduleSave()
-            ErrorLogger.info(TAG, "evictStale: removed $removed (>14d unseen) | remaining ${registry.size}")
+            ErrorLogger.info(TAG, "evictStale: removed $removed (>3d unseen) | remaining ${registry.size}")
         }
         return removed
     }
@@ -154,7 +154,7 @@ object MemeMintRegistry {
     fun stats(): String {
         val now = System.currentTimeMillis()
         val today = registry.values.count { now - it.firstSeenMs < 24 * 60 * 60_000L }
-        return "Total: ${registry.size} · +$today today · 14d retention"
+        return "Total: ${registry.size} · +$today today · 3d retention"
     }
 
     // ─── persistence ─────────────────────────────────────────────────────────
@@ -222,7 +222,7 @@ object MemeMintRegistry {
                 )
                 loaded++
             }
-            // Clean up anything older than 14d on the way in.
+            // Clean up anything older than the retention window on the way in.
             evictStale()
             ErrorLogger.info(TAG, "📂 restored $loaded meme mints from disk")
         } catch (e: Exception) {
