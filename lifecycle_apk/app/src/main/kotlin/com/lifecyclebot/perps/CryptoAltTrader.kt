@@ -241,6 +241,26 @@ object CryptoAltTrader {
         val aiScore       : Int,
         val aiConfidence  : Int,
         val reasons       : List<String>,
+        // V5.0.6177 — Crypto Universe money-path parity metadata. These fields
+        // mirror the normalized final-candidate truth so terminal rows can feed
+        // StrategyTruth/Reporting with venue/source/route context instead of the
+        // old lane-only CryptoAlt bucket.
+        val sourceFamily6177: String = "CRYPTO_UNIVERSE_UNKNOWN",
+        val venueFamily6177: String = "UNKNOWN",
+        val routeTruthKey6177: String = "UNKNOWN",
+        val strategyTruthKey6177: String = "UNKNOWN",
+        val routeCostBps6177: Double = 0.0,
+        val routeExpectancyMult6177: Double = 1.0,
+        val executionAdapter6177: String = "UNKNOWN",
+        val proofState6177: String = "UNKNOWN",
+        val harvestStatus6177: String = "OPEN_UNREALIZED_NOT_WALLET",
+        val sellability6177: String = "ROUTE_PENDING",
+        val normalizedContext6177: String = "",
+        val openCandidateVersion6177: Long = 0L,
+        val openRouteVerified6177: Boolean = false,
+        val openSellable6177: Boolean = false,
+        val openWalletHarvested6177: Boolean = false,
+        val openProofState6177: String = "UNKNOWN",
         val openTime      : Long = System.currentTimeMillis(),
         var closeTime     : Long? = null,
         var closePrice    : Double? = null,
@@ -291,6 +311,22 @@ object CryptoAltTrader {
             .put("reasons",         org.json.JSONArray(p.reasons))
             .put("openTime",         p.openTime)
             .put("highestPnlPct",    p.highestPnlPct)
+            .put("sourceFamily6177", p.sourceFamily6177)
+            .put("venueFamily6177", p.venueFamily6177)
+            .put("routeTruthKey6177", p.routeTruthKey6177)
+            .put("strategyTruthKey6177", p.strategyTruthKey6177)
+            .put("routeCostBps6177", p.routeCostBps6177)
+            .put("routeExpectancyMult6177", p.routeExpectancyMult6177)
+            .put("executionAdapter6177", p.executionAdapter6177)
+            .put("proofState6177", p.proofState6177)
+            .put("harvestStatus6177", p.harvestStatus6177)
+            .put("sellability6177", p.sellability6177)
+            .put("normalizedContext6177", p.normalizedContext6177)
+            .put("openCandidateVersion6177", p.openCandidateVersion6177)
+            .put("openRouteVerified6177", p.openRouteVerified6177)
+            .put("openSellable6177", p.openSellable6177)
+            .put("openWalletHarvested6177", p.openWalletHarvested6177)
+            .put("openProofState6177", p.openProofState6177)
             // V5.9.1472 — persist dynamic-crypto identity so DYN positions
             // restore as the real coin, not the bare sentinel.
             .apply {
@@ -324,6 +360,22 @@ object CryptoAltTrader {
             aiScore         = j.optInt("aiScore", 50),
             aiConfidence    = j.optInt("aiConfidence", 50),
             reasons         = reasons,
+            sourceFamily6177 = j.optString("sourceFamily6177", reasons.firstOrNull { it.startsWith("sourceFamily=") }?.substringAfter("sourceFamily=")?.substringBefore(" ") ?: "CRYPTO_UNIVERSE_RESTORED"),
+            venueFamily6177 = j.optString("venueFamily6177", reasons.firstOrNull { it.startsWith("CRYPTO_NORMALIZED_6148:") }?.substringAfter("venueFamily=")?.substringBefore(" ") ?: "UNKNOWN"),
+            routeTruthKey6177 = j.optString("routeTruthKey6177", reasons.firstOrNull { it.startsWith("CRYPTO_NORMALIZED_6148:") }?.substringAfter("routeTruth=")?.substringBefore(" ") ?: "UNKNOWN"),
+            strategyTruthKey6177 = j.optString("strategyTruthKey6177", reasons.firstOrNull { it.startsWith("CRYPTO_NORMALIZED_6148:") }?.substringAfter("strategyTruth=")?.substringBefore(" ") ?: "UNKNOWN"),
+            routeCostBps6177 = j.optDouble("routeCostBps6177", 0.0),
+            routeExpectancyMult6177 = j.optDouble("routeExpectancyMult6177", 1.0),
+            executionAdapter6177 = j.optString("executionAdapter6177", "RESTORED"),
+            proofState6177 = j.optString("proofState6177", if (j.optBoolean("isSpot", true)) "CRYPTO_SPOT_RESTORED" else "CRYPTO_PERP_RESTORED"),
+            harvestStatus6177 = j.optString("harvestStatus6177", "OPEN_UNREALIZED_NOT_WALLET"),
+            sellability6177 = j.optString("sellability6177", "RESTORED_ROUTE_UNKNOWN"),
+            normalizedContext6177 = j.optString("normalizedContext6177", reasons.firstOrNull { it.startsWith("CRYPTO_NORMALIZED_6148:") }?.removePrefix("CRYPTO_NORMALIZED_6148:") ?: "RESTORED_NO_CONTEXT"),
+            openCandidateVersion6177 = j.optLong("openCandidateVersion6177", 0L),
+            openRouteVerified6177 = j.optBoolean("openRouteVerified6177", false),
+            openSellable6177 = j.optBoolean("openSellable6177", false),
+            openWalletHarvested6177 = j.optBoolean("openWalletHarvested6177", false),
+            openProofState6177 = j.optString("openProofState6177", "RESTORED"),
             openTime        = j.optLong("openTime", System.currentTimeMillis()),
         ).apply {
             highestPnlPct = j.optDouble("highestPnlPct", 0.0)
@@ -2106,7 +2158,23 @@ object CryptoAltTrader {
             stopLossPrice  = sl,
             aiScore        = signal.score,
             aiConfidence   = signal.confidence,
-            reasons        = signal.reasons + "CRYPTO_CANDIDATE:${candidate.assetKey}" + "CRYPTO_NORMALIZED_6148:${candidate.normalizedContext6148()}"
+            reasons        = signal.reasons + "CRYPTO_CANDIDATE:${candidate.assetKey}" + "CRYPTO_NORMALIZED_6148:${candidate.normalizedContext6148()}" + "CRYPTO_PARITY_6177",
+            sourceFamily6177 = candidate.sourceFamily,
+            venueFamily6177 = candidate.venueFamily,
+            routeTruthKey6177 = candidate.routeTruthKey,
+            strategyTruthKey6177 = candidate.strategyTruthKey,
+            routeCostBps6177 = candidate.routeCostBps,
+            routeExpectancyMult6177 = candidate.routeExpectancyMultiplier,
+            executionAdapter6177 = candidate.executionAdapter,
+            proofState6177 = if (isPaperMode.get()) "PAPER_SIMULATED_CRYPTO" else "LIVE_ROUTE_VERIFIED_CRYPTO",
+            harvestStatus6177 = "OPEN_UNREALIZED_NOT_WALLET",
+            sellability6177 = if (candidate.preFdgVerdict == CryptoFinalBuyCandidate.PreFdgVerdict.BUY && candidate.hardNoReasons.isEmpty()) "ENTRY_ROUTE_SELLABLE_ASSUMED" else "ENTRY_ROUTE_DEFERRED",
+            normalizedContext6177 = candidate.normalizedContext6148(),
+            openCandidateVersion6177 = candidate.candidateVersion,
+            openRouteVerified6177 = candidate.executionAdapter != "DEFERRED_ROUTE",
+            openSellable6177 = candidate.preFdgVerdict == CryptoFinalBuyCandidate.PreFdgVerdict.BUY && candidate.hardNoReasons.isEmpty(),
+            openWalletHarvested6177 = false,
+            openProofState6177 = if (isPaperMode.get()) "PAPER_SIMULATED_CRYPTO" else "LIVE_ROUTE_VERIFIED_CRYPTO",
         )
 
         // Note: totalTrades incremented at CLOSE, not open, for accurate win rate
@@ -3007,6 +3075,10 @@ object CryptoAltTrader {
             )
         } catch (_: Exception) {}
 
+        val cryptoParityReason6177 = "ALT:$reason sourceFamily=${pos.sourceFamily6177} venueFamily=${pos.venueFamily6177} routeTruth=${pos.routeTruthKey6177} strategyTruth=${pos.strategyTruthKey6177} routeCostBps=${"%.1f".format(pos.routeCostBps6177)} routeCostMult=${"%.2f".format(pos.routeExpectancyMult6177)} adapter=${pos.executionAdapter6177} harvest=TERMINAL_WALLET_${if (paper) "PAPER" else "LIVE"} sellability=${pos.sellability6177} proof=${if (paper) "PAPER_SIMULATED_CRYPTO" else "LIVE_TERMINAL_CRYPTO"}"
+        val cryptoProof6177 = if (paper) "PAPER_SIMULATED_CRYPTO" else "LIVE_TERMINAL_CRYPTO_ROUTE_${if (pos.openRouteVerified6177) "VERIFIED" else "PENDING"}"
+        val cryptoEntrySource6177 = "${pos.sourceFamily6177}|${pos.venueFamily6177}|${pos.executionAdapter6177}"
+        val cryptoEntryPool6177 = pos.routeTruthKey6177.take(180)
         // V5.9.852 — non-meme close → CanonicalOutcomeBus (Layer Readiness fix).
         com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(
             tradeIdSeed   = "${pos.id}_$timestamp",
@@ -3035,13 +3107,18 @@ object CryptoAltTrader {
             TradeHistoryStore.recordTrade(Trade(
                 side             = "SELL", mode = modeStr,
                 sol              = pos.sizeSol, price = pos.currentPrice,
-                ts               = timestamp, reason = "ALT:$reason",
+                ts               = timestamp, reason = cryptoParityReason6177,
                 pnlSol           = pnlSol, pnlPct = pnlPct,
                 score            = pos.aiScore.toDouble(),
-                tradingMode      = "CryptoAlt_${if (pos.isSpot) "SPOT" else "${pos.leverage.toInt()}x"}",
+                tradingMode      = "CryptoAlt_${if (pos.isSpot) "SPOT" else "${pos.leverage.toInt()}x"}_${pos.venueFamily6177}",
                 tradingModeEmoji = "🪙", mint = mktSym,
+                proofState       = cryptoProof6177,
+                positionId       = pos.id,
+                entryTsMs        = pos.openTime,
                 entryPriceSnapshot = pos.entryPrice,
-                entryCostSol      = pos.sizeSol
+                entryCostSol      = pos.sizeSol,
+                entryPriceSource = cryptoEntrySource6177,
+                entryPoolAddress = cryptoEntryPool6177
             ))
         } catch (_: Exception) {}
 

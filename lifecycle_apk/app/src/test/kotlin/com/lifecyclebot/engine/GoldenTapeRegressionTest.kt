@@ -8284,4 +8284,17 @@ class GoldenTapeRegressionTest {
             hub.contains("HostWalletTokenTracker.getEntry") && hub.contains("QuarantineStore.isQuarantined") && hub.contains("TokenBlacklist.isBlocked") && hub.contains("BannedTokens.isBanned"))
     }
 
+
+    @org.junit.Test fun V5_0_6177_crypto_universe_terminal_rows_carry_money_path_parity() {
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue("V5.0.6177: CryptoAlt positions must persist normalized source/venue/route/StrategyTruth metadata from final candidates",
+            crypto.contains("sourceFamily6177") && crypto.contains("venueFamily6177") && crypto.contains("routeTruthKey6177") && crypto.contains("strategyTruthKey6177") && crypto.contains("normalizedContext6177"))
+        assertTrue("V5.0.6177: CryptoAlt open positions must store route cost, proof, harvest, sellability, and route verification truth",
+            crypto.contains("routeCostBps6177") && crypto.contains("routeExpectancyMult6177") && crypto.contains("proofState6177") && crypto.contains("harvestStatus6177") && crypto.contains("sellability6177") && crypto.contains("openRouteVerified6177"))
+        assertTrue("V5.0.6177: CryptoAlt terminal Trade rows must carry parity tags through reason/proofState/positionId/entry route fields",
+            crypto.contains("cryptoParityReason6177") && crypto.contains("sourceFamily=") && crypto.contains("venueFamily=") && crypto.contains("routeTruth=") && crypto.contains("strategyTruth=") && crypto.contains("proofState       = cryptoProof6177") && crypto.contains("entryPriceSource = cryptoEntrySource6177") && crypto.contains("entryPoolAddress = cryptoEntryPool6177"))
+        assertTrue("V5.0.6177: restored CryptoAlt positions must not fall back to lane-only truth after restart",
+            crypto.contains("altPositionToJson") && crypto.contains("altPositionFromJson") && crypto.contains("CRYPTO_UNIVERSE_RESTORED") && crypto.contains("RESTORED_ROUTE_UNKNOWN"))
+    }
+
 }
