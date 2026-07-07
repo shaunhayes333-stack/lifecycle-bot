@@ -825,6 +825,7 @@ object TradeHistoryStore {
             )
         } catch (_: Throwable) { /* never let logging break the record path */ }
         try { uploadCollectiveJournalRow(tradeToStore) } catch (_: Throwable) {}
+        try { CausalEvMemory6179.recordTerminalOutcome(tradeToStore) } catch (_: Throwable) {}
         // V5.9.353: Per-mint loss-streak guard (block re-entry after 3 losses in a row).
         // Only emits on close events (SELL side). Buy events ignored.
         try {

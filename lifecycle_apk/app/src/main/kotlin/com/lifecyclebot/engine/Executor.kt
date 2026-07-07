@@ -9683,6 +9683,20 @@ class Executor(
         // Pump/Jupiter just because those have the most samples. Venue multiplier is
         // bounded and soft-shape only; hard safety/route/wallet gates remain above it.
         val sourceBrainSizeMult = maxOf(scannerSourceBrainSizeMult6155, venueSourceSizeMult6155).coerceIn(0.40, 1.80)
+        val causalEvSizeMult6179 = try {
+            CausalEvMemory6179.sizeMultiplier(
+                lane = laneKeyForAgi,
+                source = ts.source,
+                routeHint = VenueUniverse.classify(ts.source).canonical,
+                tacticHint = layerTag.ifBlank { laneKeyForAgi },
+            )
+        } catch (_: Throwable) { 1.0 }
+        if (causalEvSizeMult6179 != 1.0) {
+            try {
+                ForensicLogger.lifecycle("CAUSAL_EV_SIZE_SHAPED_6179", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi source=${ts.source.take(60)} mult=${causalEvSizeMult6179.fmt(2)} status=${CausalEvMemory6179.statusLine(3)}")
+                PipelineHealthCollector.labelInc("CAUSAL_EV_SIZE_SHAPED_6179")
+            } catch (_: Throwable) {}
+        }
         // Construct minimal Signals from available context for UPH conviction.
         // In BOOTSTRAP, conviction() returns 1.0 — no effect. Once the head
         // graduates to ADVISORY/LEARNED, it shapes size by learned pWin.
@@ -9867,6 +9881,7 @@ class Executor(
             "scoreBandWR4510" to scoreBandWrSizeMult4510,
             "walletCompound4511" to realizedWalletCompoundMult4511,
             "routeReliability4518" to routeReliabilitySizeMult4518,
+            "causalEv6179" to causalEvSizeMult6179,
             "laneBias6114" to laneBiasMult6114,
             "correlationGuard6126" to correlationGuardMult6126,
         )
@@ -9933,6 +9948,7 @@ class Executor(
                     "scoreBandWR4510" to scoreBandWrSizeMult4510,
                     "walletCompound4511" to realizedWalletCompoundMult4511,
                     "routeReliability4518" to routeReliabilitySizeMult4518,
+                    "causalEv6179" to causalEvSizeMult6179,
                 ),
             )
         } catch (_: Throwable) {}
@@ -10030,7 +10046,7 @@ class Executor(
             // Still bounded and still downstream of hard route/liquidity/wallet/rug
             // safety; no learned zero sizing, no synchronous LLM/API hot-path call.
             val agiAuthorityActive6090 = listOf(
-                strategyTunerSizeMult, sourceBrainSizeMult, venueSourceSizeMult6155, uphConvictionMult,
+                strategyTunerSizeMult, sourceBrainSizeMult, venueSourceSizeMult6155, causalEvSizeMult6179, uphConvictionMult,
                 hypothesisSizeMult, superBrainSizeMult, metaCognitionSizeMult,
                 ssiPilotSizeMult, regimeVolSizeMult, capitalEfficiencySizeMult,
             ).any { kotlin.math.abs(it - 1.0) >= 0.03 }
@@ -10066,7 +10082,7 @@ class Executor(
             pressedProduct6109.coerceIn(effectiveFloor6109, agiCeiling6090)
         }
         if (RuntimeModeAuthority.isLive() && (laneEvMult != 1.0 || laneSizeCap < 1.0 || strategyTunerSizeMult != 1.0 || uphConvictionMult != 1.0)) {
-            try { ForensicLogger.lifecycle("LIVE_WALLET_GROWTH_ALLOCATOR", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvMult=$laneEvMult laneCap=$laneSizeCap regimeMult=$regimeMult brainMult=$brainSizeMult stratTuner=$strategyTunerSizeMult sourceBrain=$sourceBrainSizeMult scannerSource6155=$scannerSourceBrainSizeMult6155 venueSource6155=$venueSourceSizeMult6155 venue=${VenueSourceBalanceAdapter.compact(ts.source)} uph=$uphConvictionMult product=$multiplierProduct floor=$liveFloorMult") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("LIVE_WALLET_GROWTH_ALLOCATOR", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvMult=$laneEvMult laneCap=$laneSizeCap regimeMult=$regimeMult brainMult=$brainSizeMult stratTuner=$strategyTunerSizeMult sourceBrain=$sourceBrainSizeMult scannerSource6155=$scannerSourceBrainSizeMult6155 venueSource6155=$venueSourceSizeMult6155 causalEv6179=$causalEvSizeMult6179 venue=${VenueSourceBalanceAdapter.compact(ts.source)} uph=$uphConvictionMult product=$multiplierProduct floor=$liveFloorMult") } catch (_: Throwable) {}
         }
         try { PipelineHealthCollector.labelInc("AGI_SIZE_STACK_APPLIED") } catch (_: Throwable) {}
         // V5.0.3958 — MEGA-PROFIT COMPOUNDING CAP. Once the live expectancy

@@ -8308,4 +8308,17 @@ class GoldenTapeRegressionTest {
             crypto.contains("regionalAlpha6178.family") && crypto.contains("sourceFamily6148") && crypto.contains("routeTruthKey6148") && crypto.contains("strategyTruthKey6148"))
     }
 
+
+    @org.junit.Test fun V5_0_6179_causal_ev_memory_shapes_cached_source_tactic_edges() {
+        val causal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CausalEvMemory6179.kt").readText()
+        val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6179: causal EV memory must key clean terminal outcomes by lane/source/venue/route/tactic",
+            causal.contains("object CausalEvMemory6179") && causal.contains("fun causalKey(t: Trade)") && causal.contains("sourceFamily=") && causal.contains("venueFamily=") && causal.contains("routeTruth=") && causal.contains("strategyTruth="))
+        assertTrue("V5.0.6179: causal EV updates happen at journal-record time, not by querying DB from executor hot path",
+            store.contains("CausalEvMemory6179.recordTerminalOutcome(tradeToStore)") && causal.contains("Updates happen at journal-record time") && !exec.contains("getRecentCleanStrategyTerminalTrades("))
+        assertTrue("V5.0.6179: executor buy sizing must use cached causalEv6179 as bounded soft-shape telemetry, not a hard block",
+            exec.contains("causalEvSizeMult6179") && exec.contains("CAUSAL_EV_SIZE_SHAPED_6179") && exec.contains("\"causalEv6179\" to causalEvSizeMult6179") && causal.contains("coerceIn(0.70, 1.22)"))
+    }
+
 }
