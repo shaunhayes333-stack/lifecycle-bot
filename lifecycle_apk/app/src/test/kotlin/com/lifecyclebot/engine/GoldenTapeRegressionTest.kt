@@ -8210,4 +8210,13 @@ class GoldenTapeRegressionTest {
             currency.contains("prefs.edit().putString(PREF_SELECTED, safe).apply()"))
     }
 
+
+    @org.junit.Test fun V5_0_6170_mainactivity_prefs_reads_are_off_main_render_path() {
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue("V5.0.6170: cold-open restart must read RUNTIME_PREFS on IO, not MainActivity main thread",
+            main.contains("V5.0.6170") && main.contains("lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO)") && main.contains("applicationContext.getSharedPreferences") && main.contains("withContext(kotlinx.coroutines.Dispatchers.Main) { vm.startBot() }"))
+        assertTrue("V5.0.6170: live-readiness render path must use in-memory UI config instead of bot_config SharedPreferences",
+            main.contains("isPaperMode6170") && main.contains("vm.ui.value.config.paperMode") && !main.contains("""val prefs = getSharedPreferences("bot_config", MODE_PRIVATE)"""))
+    }
+
 }

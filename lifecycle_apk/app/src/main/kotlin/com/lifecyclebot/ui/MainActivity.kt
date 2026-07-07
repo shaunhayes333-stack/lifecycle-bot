@@ -886,22 +886,25 @@ class MainActivity : AppCompatActivity() {
             // delayed check: if the user had the bot running before the kill
             // AND they haven't manually stopped it AND the bot still isn't up
             // after 4 seconds, we press START BOT on their behalf.
-            lifecycleScope.launch {
+            // V5.0.6170 — cold-open auto-restart prefs read must not run on Main.
+            // Runtime ANR stack showed SharedPreferences/QueuedWork XML work under
+            // MainActivity.onCreate. Read RUNTIME_PREFS on IO; return to Main only
+            // for the actual vm.startBot() UI/ViewModel call.
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
-                    val rp = getSharedPreferences(
+                    val rp = applicationContext.getSharedPreferences(
                         com.lifecyclebot.engine.BotService.RUNTIME_PREFS,
                         android.content.Context.MODE_PRIVATE
                     )
                     val wasRunning = rp.getBoolean(com.lifecyclebot.engine.BotService.KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
                     val manualStop = rp.getBoolean(com.lifecyclebot.engine.BotService.KEY_MANUAL_STOP_REQUESTED, false)
                     if (wasRunning && !manualStop) {
-                        // Grace period: give SecurityActivity's pre-kick time to take effect
                         kotlinx.coroutines.delay(4_000)
                         val isRunning = com.lifecyclebot.engine.BotService.isRuntimeActive()
                         if (!isRunning) {
                             com.lifecyclebot.engine.ErrorLogger.warn("MainActivity",
                                 "V5.9.713: bot still stopped 4s after cold-open (wasRunning=true, manualStop=false) — auto-restarting")
-                            vm.startBot()
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { vm.startBot() }
                         } else {
                             com.lifecyclebot.engine.ErrorLogger.info("MainActivity",
                                 "V5.9.713: cold-open check — bot already running, no action needed")
@@ -7819,14 +7822,10 @@ This cannot be undone!
                 else    -> renderMemeReadiness()
             }
 
-            // Hide card if in live mode (already trading live)
-            try {
-                val prefs = getSharedPreferences("bot_config", MODE_PRIVATE)
-                val isPaperMode = prefs.getBoolean("paper_mode", true)
-                cardLiveReadiness.visibility = if (isPaperMode) View.VISIBLE else View.GONE
-            } catch (_: Exception) {
-                cardLiveReadiness.visibility = View.VISIBLE
-            }
+            // V5.0.6170 — render path must not read bot_config SharedPreferences
+            // on Main. ui.value.config is already the in-memory source for paper/live.
+            val isPaperMode6170 = try { vm.ui.value.config.paperMode } catch (_: Throwable) { true }
+            cardLiveReadiness.visibility = if (isPaperMode6170) View.VISIBLE else View.GONE
         } catch (_: Exception) {
             // Silently fail — non-critical UI
         }
