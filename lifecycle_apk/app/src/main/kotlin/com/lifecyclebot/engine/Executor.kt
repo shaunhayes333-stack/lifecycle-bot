@@ -3997,7 +3997,12 @@ class Executor(
 
         // Minimum viable trade. V5.0.6091: diamond/long-hold runners may add more
         // per step, but still never exceed the 70% portfolio exposure ceiling above.
-        val perAddWalletPct6091 = if (diamondHands6091) 0.25 else 0.15
+        val cleanLiveEvPyramid6151 = try {
+            val lane6151 = TradeHistoryStore.normalizeTradeModeName(pos.tradingMode.ifBlank { "STANDARD" }).ifBlank { "STANDARD" }
+            val m6151 = StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500).firstOrNull { it.strategy.equals(lane6151, true) }
+            m6151 != null && m6151.trades >= 5 && m6151.totalSolPnl > 0.0 && m6151.pfExpectancyPp > 0.0
+        } catch (_: Throwable) { false }
+        val perAddWalletPct6091 = if (diamondHands6091) 0.25 else if (cleanLiveEvPyramid6151) 0.20 else 0.15
         return size.coerceAtMost(walletSol * perAddWalletPct6091)
                .coerceAtLeast(0.0)
     }
@@ -4023,7 +4028,7 @@ class Executor(
             if (exhaust || exitScore >= 65.0) return false
             val currentPrice = getActualPrice(ts)
             val gainPct = pct(pos.entryPrice, currentPrice)
-            if (gainPct < 2.0) return false // add to winners only — never average down
+            if (gainPct < 1.5) return false // V5.0.6151: add to winners only — never average down; EV-pyramid can start at +1.5%
             val whaleBid = ts.meta.whaleSummary.isNotBlank() || ts.meta.velocityScore >= 70.0
             val bullStructure = emafanAlignment in listOf("BULL_FAN", "BULL_FLAT") && volScore >= 45.0
             val holderConviction = ts.holderGrowthRate >= 10.0 && (ts.peakHolderCount >= 50 || ts.holderDataResolved)
@@ -4031,11 +4036,24 @@ class Executor(
                 (gainPct >= 25.0 && bullStructure && holderConviction && ts.lastLiquidityUsd >= 8_000.0)
             val agiConviction = entryScore >= 65.0 && bullStructure && ts.lastLiquidityUsd >= 4_000.0
             val runnerConviction = pos.peakGainPct >= 20.0 || gainPct >= 12.0
+            // V5.0.6151 — clean-live EV pyramiding. Runtime 6145 showed TREASURY,
+            // STANDARD and BLUECHIP carrying positive clean/raw EV while the bot was
+            // still starving buys/top-ups. Add-to-winner authority should lean into
+            // proven live +EV lanes, but only after the open position is already green
+            // and route/liquidity/structure are clean. StrategyTelemetry is TTL-cached;
+            // no LLM/API/hot-path provider calls are introduced here.
+            val evPyramid6151 = try {
+                val lane6151 = TradeHistoryStore.normalizeTradeModeName(pos.tradingMode.ifBlank { ts.position.tradingMode }).ifBlank { "STANDARD" }
+                val m6151 = StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
+                    .firstOrNull { it.strategy.equals(lane6151, true) }
+                m6151 != null && m6151.trades >= 5 && m6151.totalSolPnl > 0.0 && m6151.pfExpectancyPp > 0.0 && m6151.meanPnlPct > 10.0
+            } catch (_: Throwable) { false }
             val dangerClear = ts.lastLiquidityUsd >= 2_500.0 && !ts.meta.breakdown && emafanAlignment != "BEAR_FAN"
             dangerClear && (
                 (whaleBid && gainPct >= 3.0) ||
                 (agiConviction && runnerConviction) ||
-                diamondConviction
+                diamondConviction ||
+                (evPyramid6151 && gainPct >= 1.5 && entryScore >= 50.0 && exitScore < 55.0)
             )
         } catch (_: Throwable) { false }
     }
@@ -4074,6 +4092,11 @@ class Executor(
         val currentPrice = getActualPrice(ts)
         val gainPct   = pct(pos.entryPrice, currentPrice)
         val heldMins  = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
+        val evPyramidGate6151 = try {
+            val lane6151 = TradeHistoryStore.normalizeTradeModeName(pos.tradingMode.ifBlank { "STANDARD" }).ifBlank { "STANDARD" }
+            val m6151 = StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500).firstOrNull { it.strategy.equals(lane6151, true) }
+            m6151 != null && m6151.trades >= 5 && m6151.totalSolPnl > 0.0 && m6151.pfExpectancyPp > 0.0 && m6151.meanPnlPct > 10.0
+        } catch (_: Throwable) { false }
 
         // Must be profitable — never average down
         if (gainPct <= 0) return false
@@ -4087,6 +4110,7 @@ class Executor(
             gainPctNow >= 1000.0  -> 7     // 10x+ strong runner: up to 7 top-ups
             pos.tradingMode.equals("DIAMOND_HANDS", true) -> 12
             pos.isLongHold || pos.entryScore >= 75.0 -> 7
+            evPyramidGate6151 -> 6
             autonomyTopUp6091 -> 6
             else -> c.topUpMaxCount
         }
@@ -4101,13 +4125,14 @@ class Executor(
         // and each subsequent rung needs +12% more (was +30%). Forces
         // the new bigger-on-winners behaviour onto existing operator
         // configs that still have the old 25/30 saved in prefs.
-        val earlyFirst = (pos.entryScore >= 75.0 || autonomyTopUp6091) && pos.topUpCount == 0
+        val earlyFirst = (pos.entryScore >= 75.0 || autonomyTopUp6091 || evPyramidGate6151) && pos.topUpCount == 0
         val baseMin    = when {
+            evPyramidGate6151 && pos.topUpCount == 0 -> 1.5
             autonomyTopUp6091 && pos.topUpCount == 0 -> 3.0
             earlyFirst -> 8.0
             else -> c.topUpMinGainPct.coerceAtMost(10.0)
         }
-        val stepGain   = if (autonomyTopUp6091) c.topUpGainStepPct.coerceAtMost(8.0) else c.topUpGainStepPct.coerceAtMost(12.0)
+        val stepGain   = if (evPyramidGate6151) c.topUpGainStepPct.coerceAtMost(6.0) else if (autonomyTopUp6091) c.topUpGainStepPct.coerceAtMost(8.0) else c.topUpGainStepPct.coerceAtMost(12.0)
         val requiredGain = baseMin + (pos.topUpCount * stepGain)
         if (gainPct < requiredGain) return false
 
