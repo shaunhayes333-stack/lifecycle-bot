@@ -165,6 +165,43 @@ object StrategyTruthLedger {
         return if (lane != t.tradingMode) t.copy(tradingMode = lane) else t
     }
 
+
+    // V5.0.6149 — venue/source-specific strategy truth key. Lane-only truth was
+    // diluting winners and bleeders: TREASURY via DEX_TRENDING is not the same
+    // strategy as TREASURY via pump-only probation, and Crypto Universe candidates
+    // need chain/venue route truth. This helper is schema-safe: it does not mutate
+    // rows, but every consumer can now group by a granular money-path key.
+    fun strategyTruthKey6149(t: Trade): String {
+        val lane = strategyLaneFor(t)
+        val source = t.entryPriceSource.ifBlank {
+            when {
+                t.reason.contains("PUMP", true) -> "PUMP_FAMILY"
+                t.reason.contains("DEX", true) -> "DEX_FAMILY"
+                t.reason.contains("CRYPTO_NORMALIZED_6148", true) -> "CRYPTO_NORMALIZED"
+                else -> "UNKNOWN_SOURCE"
+            }
+        }.uppercase().replace('|', '_').take(48)
+        val venue = when {
+            t.reason.contains("CRYPTO_NORMALIZED_6148", true) ->
+                Regex("venueFamily=([^ ]+)").find(t.reason)?.groupValues?.getOrNull(1) ?: "CRYPTO_VENUE"
+            t.reason.contains("JUPITER", true) || t.proofState.contains("JUPITER", true) -> "JUPITER"
+            t.reason.contains("RAYDIUM", true) || t.entryPriceSource.contains("RAYDIUM", true) -> "RAYDIUM"
+            t.reason.contains("PUMP", true) || source.contains("PUMP") -> "PUMP_FAMILY"
+            t.reason.contains("DEX", true) || source.contains("DEX") -> "DEX_FAMILY"
+            else -> "UNKNOWN_VENUE"
+        }.uppercase().replace('|', '_').take(48)
+        val tactic = when {
+            t.reason.contains("CRYPTO_NORMALIZED_6148", true) ->
+                Regex("strategyTruth=([^ ]+)").find(t.reason)?.groupValues?.getOrNull(1) ?: "CRYPTO_STRATEGY"
+            t.reason.contains("RUNNER", true) || t.reason.contains("TRAIL", true) -> "RUNNER_EXIT"
+            t.reason.contains("SELL_OPT", true) -> "SELL_OPT"
+            t.reason.contains("PROFIT", true) || t.reason.contains("BANK", true) -> "PROFIT_BANK"
+            t.reason.contains("STOP", true) || t.reason.contains("LOSS", true) -> "STOP_LOSS"
+            else -> "TACTIC_UNKNOWN"
+        }.uppercase().replace('|', '_').take(72)
+        return "$lane|$source|$venue|$tactic"
+    }
+
     private fun terminalKey(t: Trade): String {
         val mode = t.mode.ifBlank { "unknown" }.uppercase()
         val mint = t.mint.ifBlank { "unknown" }

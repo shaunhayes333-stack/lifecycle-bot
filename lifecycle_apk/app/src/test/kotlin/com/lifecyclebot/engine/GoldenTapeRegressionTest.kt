@@ -7998,4 +7998,13 @@ class GoldenTapeRegressionTest {
             trader.contains("sourceFamily6148") && trader.contains("venueFamily6148") && trader.contains("routeTruthKey6148") && trader.contains("strategyTruthKey6148") && trader.contains("CRYPTO_NORMALIZED_6148"))
     }
 
+
+    @org.junit.Test fun V5_0_6149_strategy_truth_has_venue_source_tactic_keys() {
+        val ledger = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTruthLedger.kt").readText()
+        assertTrue("V5.0.6149: StrategyTruthLedger must expose granular venue/source/tactic keys instead of lane-only truth",
+            ledger.contains("fun strategyTruthKey6149") && ledger.contains("venue/source-specific strategy truth key") && ledger.contains("CRYPTO_NORMALIZED_6148") && ledger.contains("venueFamily=([^ ]+)") && ledger.contains("strategyTruth=([^ ]+)"))
+        assertTrue("V5.0.6149: granular strategy truth key must include lane, source, venue, and tactic dimensions",
+            ledger.contains("""return "$lane|$source|$venue|$tactic"""") && ledger.contains("PUMP_FAMILY") && ledger.contains("DEX_FAMILY") && ledger.contains("SELL_OPT"))
+    }
+
 }
