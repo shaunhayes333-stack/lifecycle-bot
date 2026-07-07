@@ -22827,6 +22827,15 @@ if (hotExitHandledSweep) {
         val shouldExecute = useV3Decision || fdgDecision.canExecute()
         
         if (shouldExecute) {
+            // V5.0.6190 — same-mint executable fanout guard. Runtime 6189a
+            // screenshots/report showed one mint flowing through QUALITY and
+            // BLUECHIP in the same second, creating duplicate EXEC_TICKET rows and
+            // downstream reentry-lockout churn. Claim before the executor handoff.
+            if (!FdgReEvalThrottle.tryClaimExecutable6190(identity.mint)) {
+                try { PipelineHealthCollector.labelInc("FDG_EXECUTABLE_FANOUT_SUPPRESSED_6190") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("FDG_EXECUTABLE_FANOUT_SUPPRESSED_6190", "mint=${identity.mint.take(10)} symbol=${identity.symbol} v3=$useV3Decision reason=same_mint_executable_claim_active") } catch (_: Throwable) {}
+                return
+            }
             // ═══════════════════════════════════════════════════════════════════
             // RECORD PROPOSAL: Track that we proposed (for dedupe)
             // Moved here from before FDG to prevent self-blocking

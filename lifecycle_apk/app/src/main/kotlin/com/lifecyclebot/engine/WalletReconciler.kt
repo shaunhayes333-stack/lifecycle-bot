@@ -272,7 +272,12 @@ object WalletReconciler {
             tradingModeEmoji = "🔄",
             pendingVerify = false,
         )
-        if (recoveredEntry <= 0.0 && !TokenMapAuthority.executableForLiveBuy(ts) && quarantineZeroBasisNoRouteRecovered6187(status, mint, ts, uiAmount)) {
+        // V5.0.6190 — fake-basis recovered orphan cleanup. Runtime 6189a UI showed
+        // HELD RECOVERED_* with costSol=0 and a tiny current-price-derived entry,
+        // so the old recoveredEntry<=0 test missed it. Unknown-cost recovered bags
+        // are not strategy positions; if there is no executable route proof, ignore
+        // them immediately instead of displaying basis-wait / consuming slots.
+        if (!TokenMapAuthority.executableForLiveBuy(ts) && quarantineZeroBasisNoRouteRecovered6187(status, mint, ts, uiAmount)) {
             return
         }
         }

@@ -56,7 +56,22 @@ object FdgReEvalThrottle {
         cache[mint] = Entry(verdict, score, System.currentTimeMillis())
     }
 
-    fun invalidate(mint: String) { cache.remove(mint) }
-    fun clear() { cache.clear() }
+    private val executableClaimUntilMs = ConcurrentHashMap<String, Long>()
+    private const val EXECUTABLE_CLAIM_TTL_MS = 2_500L
+
+    // V5.0.6190 — executable same-mint fanout guard. Non-executable FDG
+    // cache cannot catch FDG-green probe/executable verdicts across lanes.
+    fun tryClaimExecutable6190(mint: String): Boolean {
+        if (mint.isBlank()) return false
+        val now = System.currentTimeMillis()
+        val until = executableClaimUntilMs[mint] ?: 0L
+        if (until > now) return false
+        executableClaimUntilMs[mint] = now + EXECUTABLE_CLAIM_TTL_MS
+        return true
+    }
+
+    fun invalidate(mint: String) { cache.remove(mint); executableClaimUntilMs.remove(mint) }
+    fun clear() { cache.clear(); executableClaimUntilMs.clear() }
     fun size(): Int = cache.size
+    fun executableClaimSize6190(): Int = executableClaimUntilMs.size
 }

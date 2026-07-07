@@ -8402,4 +8402,18 @@ class GoldenTapeRegressionTest {
             registry.contains("PERSIST_DEBOUNCE_MS = 60_000L") && registry.contains("MINT_RETENTION_MS = 3L * 24") && registry.contains("3d retention"))
     }
 
+
+    @org.junit.Test fun V5_0_6190_fanout_recovered_and_money_path_truth() {
+        val throttle = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FdgReEvalThrottle.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val wallet = java.io.File("src/main/kotlin/com/lifecyclebot/engine/WalletReconciler.kt").readText()
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        assertTrue("V5.0.6190: executable same-mint FDG/V3 fanout must be claimed before executor handoff, not left to downstream reentry lockout",
+            throttle.contains("tryClaimExecutable6190") && throttle.contains("EXECUTABLE_CLAIM_TTL_MS = 2_500L") && bot.contains("FDG_EXECUTABLE_FANOUT_SUPPRESSED_6190") && bot.contains("FdgReEvalThrottle.tryClaimExecutable6190(identity.mint)"))
+        assertTrue("V5.0.6190: zero-cost recovered wallet orphans with fake current-price basis and no executable route must be quarantined/ignored",
+            wallet.contains("fake-basis recovered orphan cleanup") && wallet.contains("!TokenMapAuthority.executableForLiveBuy(ts)") && wallet.contains("quarantineZeroBasisNoRouteRecovered6187(status, mint, ts, uiAmount)") && !wallet.contains("recoveredEntry <= 0.0 && !TokenMapAuthority.executableForLiveBuy(ts)"))
+        assertTrue("V5.0.6190: money path report must separate trusted open capital at risk from unrealized PnL",
+            report.contains("trustedLiveOpenCost6190") && report.contains("trustedLiveOpenCost=") && report.contains("trustedLiveOpenPnl=") && report.contains("trustedPaperOpenCost="))
+    }
+
 }
