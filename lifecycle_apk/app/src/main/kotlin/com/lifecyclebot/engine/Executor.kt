@@ -9585,9 +9585,17 @@ class Executor(
         val strategyTunerSizeMult = try {
             LiveStrategyTuner.sizeMultiplier(laneKeyForAgi)
         } catch (_: Throwable) { 1.0 }
-        val sourceBrainSizeMult = try {
+        val scannerSourceBrainSizeMult6155 = try {
             ScannerSourceBrain.intakeMultiplier(ts.source)
         } catch (_: Throwable) { 1.0 }
+        val venueSourceSizeMult6155 = try {
+            VenueSourceBalanceAdapter.intakeMultiplier(ts.source)
+        } catch (_: Throwable) { 1.0 }
+        // V5.0.6155 — buy-size source authority is now source+venue, not only
+        // source-name memory. This prevents the money path from collapsing back to
+        // Pump/Jupiter just because those have the most samples. Venue multiplier is
+        // bounded and soft-shape only; hard safety/route/wallet gates remain above it.
+        val sourceBrainSizeMult = maxOf(scannerSourceBrainSizeMult6155, venueSourceSizeMult6155).coerceIn(0.40, 1.80)
         // Construct minimal Signals from available context for UPH conviction.
         // In BOOTSTRAP, conviction() returns 1.0 — no effect. Once the head
         // graduates to ADVISORY/LEARNED, it shapes size by learned pWin.
@@ -9759,6 +9767,8 @@ class Executor(
             "brain" to brainSizeMult,
             "strategyTuner" to strategyTunerSizeMult,
             "sourceBrain" to sourceBrainSizeMult,
+            "scannerSource6155" to scannerSourceBrainSizeMult6155,
+            "venueSource6155" to venueSourceSizeMult6155,
             "uph" to uphConvictionMult,
             "hypothesis" to hypothesisSizeMult,
             "paperLive" to paperLiveBridgeMult,
@@ -9823,6 +9833,8 @@ class Executor(
                     "brain" to brainSizeMult,
                     "strategyTuner" to strategyTunerSizeMult,
                     "sourceBrain" to sourceBrainSizeMult,
+            "scannerSource6155" to scannerSourceBrainSizeMult6155,
+            "venueSource6155" to venueSourceSizeMult6155,
                     "uph" to uphConvictionMult,
                     "hypothesis" to hypothesisSizeMult,
                     "paperLive" to paperLiveBridgeMult,
@@ -9931,7 +9943,7 @@ class Executor(
             // Still bounded and still downstream of hard route/liquidity/wallet/rug
             // safety; no learned zero sizing, no synchronous LLM/API hot-path call.
             val agiAuthorityActive6090 = listOf(
-                strategyTunerSizeMult, sourceBrainSizeMult, uphConvictionMult,
+                strategyTunerSizeMult, sourceBrainSizeMult, venueSourceSizeMult6155, uphConvictionMult,
                 hypothesisSizeMult, superBrainSizeMult, metaCognitionSizeMult,
                 ssiPilotSizeMult, regimeVolSizeMult, capitalEfficiencySizeMult,
             ).any { kotlin.math.abs(it - 1.0) >= 0.03 }
@@ -9967,7 +9979,7 @@ class Executor(
             pressedProduct6109.coerceIn(effectiveFloor6109, agiCeiling6090)
         }
         if (RuntimeModeAuthority.isLive() && (laneEvMult != 1.0 || laneSizeCap < 1.0 || strategyTunerSizeMult != 1.0 || uphConvictionMult != 1.0)) {
-            try { ForensicLogger.lifecycle("LIVE_WALLET_GROWTH_ALLOCATOR", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvMult=$laneEvMult laneCap=$laneSizeCap regimeMult=$regimeMult brainMult=$brainSizeMult stratTuner=$strategyTunerSizeMult sourceBrain=$sourceBrainSizeMult uph=$uphConvictionMult product=$multiplierProduct floor=$liveFloorMult") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("LIVE_WALLET_GROWTH_ALLOCATOR", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvMult=$laneEvMult laneCap=$laneSizeCap regimeMult=$regimeMult brainMult=$brainSizeMult stratTuner=$strategyTunerSizeMult sourceBrain=$sourceBrainSizeMult scannerSource6155=$scannerSourceBrainSizeMult6155 venueSource6155=$venueSourceSizeMult6155 venue=${VenueSourceBalanceAdapter.compact(ts.source)} uph=$uphConvictionMult product=$multiplierProduct floor=$liveFloorMult") } catch (_: Throwable) {}
         }
         try { PipelineHealthCollector.labelInc("AGI_SIZE_STACK_APPLIED") } catch (_: Throwable) {}
         // V5.0.3958 — MEGA-PROFIT COMPOUNDING CAP. Once the live expectancy

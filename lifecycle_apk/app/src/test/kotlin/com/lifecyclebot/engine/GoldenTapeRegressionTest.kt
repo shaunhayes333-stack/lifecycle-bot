@@ -8059,4 +8059,13 @@ class GoldenTapeRegressionTest {
             crypto.contains("venueUniverse6154") && crypto.contains("VenueUniverse.classify") && crypto.contains("CHAIN_SPECIFIC_DEX") && crypto.contains("CEX_SIGNAL") && crypto.contains("SOCIAL_TREND") && crypto.contains("CRYPTO_SPOT_UNIVERSE:"))
     }
 
+
+    @org.junit.Test fun V5_0_6155_executor_buy_sizing_uses_source_and_venue_authority() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6155: Executor buy sizing must combine ScannerSourceBrain and VenueSourceBalanceAdapter, not source-name samples only",
+            exec.contains("scannerSourceBrainSizeMult6155") && exec.contains("venueSourceSizeMult6155") && exec.contains("VenueSourceBalanceAdapter.intakeMultiplier(ts.source)") && exec.contains("maxOf(scannerSourceBrainSizeMult6155, venueSourceSizeMult6155)"))
+        assertTrue("V5.0.6155: forensic growth allocator must expose scanner and venue source multipliers for pump/jupiter collapse audits",
+            exec.contains("scannerSource6155") && exec.contains("venueSource6155") && exec.contains("VenueSourceBalanceAdapter.compact(ts.source)") && exec.contains("source+venue"))
+    }
+
 }
