@@ -8349,4 +8349,23 @@ class GoldenTapeRegressionTest {
             report.contains("KPI closeout 6182") && report.contains("throughputTarget=500-1000/day") && report.contains("cleanLivePnL=") && report.contains("compoundingGate=live-clean-only") && report.contains("routeVerified=") && report.contains("runnerRetention=") && report.contains("cryptoParity=") && report.contains("moneyPath=wallet/open-route/sell-finality/journal"))
     }
 
+
+    @org.junit.Test fun V5_0_6183_remaining_heavy_bundle_closeout_contract() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val causal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CausalEvMemory6179.kt").readText()
+        val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        assertTrue("V5.0.6183 bundle 1: stuck-token terminal unsellable flow must quarantine and purge without fake sell finality",
+            exec.contains("SELL_UNSELLABLE_QUARANTINE_PURGE_6175") && exec.contains("markAbandoned") && exec.contains("PURGE_ABANDONED_POSITION_6175"))
+        assertTrue("V5.0.6183 bundle 2: Crypto Universe must carry venue/regional pre-route parity into normalized route truth",
+            crypto.contains("regionalPreRouteAlpha6178") && crypto.contains("CryptoUniverseRouteResolver") && crypto.contains("routeTruthKey6148"))
+        assertTrue("V5.0.6183 bundles 3/4: causal EV must shape fresh buys and mid-hold scale-ins as soft authority only",
+            causal.contains("fun sizeMultiplier") && exec.contains("CAUSAL_EV_SIZE_SHAPED_6179") && exec.contains("CAUSAL_EV_TOPUP_SIZE_SHAPED_6180") && exec.contains("if (gainPct <= 0) return false"))
+        assertTrue("V5.0.6183 bundle 5: new causal learned state must persist through LearningPersistence",
+            causal.contains("fun exportState()") && causal.contains("fun importState(json: String)") && persistence.contains("CAUSAL_EV_MEMORY_6179"))
+        assertTrue("V5.0.6183 bundle 6: runtime report must expose the money-path KPI closeout line",
+            report.contains("KPI closeout 6182") && report.contains("throughputTarget=500-1000/day") && report.contains("moneyPath=wallet/open-route/sell-finality/journal"))
+    }
+
 }
