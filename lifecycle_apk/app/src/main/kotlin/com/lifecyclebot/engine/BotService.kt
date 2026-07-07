@@ -13924,8 +13924,27 @@ class BotService : Service() {
                     if (antiChoke != null && antiChoke.level != com.lifecyclebot.engine.AntiChokeManager.Level.CLEAR) {
                         addLog("🫁 AntiChoke ${antiChoke.level.name}: ghosts=${antiChoke.ghostsCleared} pruned=${antiChoke.dormantPruned} trades24h=${antiChoke.trades24h}/${antiChoke.target24h}")
                     }
+                    val relief6147 = com.lifecyclebot.engine.ThroughputSelfRelief6147.evaluate(
+                        tokens = status.tokens,
+                        effectiveCap = supervisorEffectiveCap(),
+                        activeLeases = supervisorLeases.size,
+                        trades24h = antiChoke?.trades24h ?: 0,
+                        target24h = antiChoke?.target24h ?: 500,
+                    )
+                    if (relief6147.shouldPruneExpiredLeases) {
+                        val expired6147 = supervisorPruneExpiredLeases("THROUGHPUT_SELF_RELIEF_6147")
+                        if (expired6147 > 0) {
+                            try { PipelineHealthCollector.labelInc("THROUGHPUT_SELF_RELIEF_LEASE_PRUNE_6147") } catch (_: Throwable) {}
+                        }
+                    }
+                    if (relief6147.pressure != "CLEAR") {
+                        try {
+                            ForensicLogger.lifecycle("THROUGHPUT_SELF_RELIEF_6147", "${relief6147.reason} pruneLeases=${relief6147.shouldPruneExpiredLeases} pruneGhosts=${relief6147.shouldPruneGhosts} hard_safety_untouched=true")
+                            PipelineHealthCollector.labelInc("THROUGHPUT_SELF_RELIEF_6147_${relief6147.pressure}")
+                        } catch (_: Throwable) {}
+                    }
                 } catch (e: Exception) {
-                    ErrorLogger.debug("BotService", "AntiChoke tick error: ${e.message}")
+                    ErrorLogger.debug("BotService", "AntiChoke/ThroughputSelfRelief tick error: ${e.message}")
                 }
 
                 // V5.9.439 — LEARNING TRANSPARENCY LOG (~every 5 min).

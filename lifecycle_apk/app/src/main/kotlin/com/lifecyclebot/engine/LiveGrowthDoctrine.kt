@@ -126,8 +126,13 @@ object LiveGrowthDoctrine {
         val minExec = when {
             spendableSol >= 1.0 -> 0.120
             spendableSol >= 0.5 -> 0.100
-            spendableSol >= 0.25 -> 0.060
-            else -> (spendableSol * 0.20).coerceIn(0.010, 0.055)
+            // V5.0.6147 — wallet-relative live floor. Runtime 6145 showed
+            // wallet≈0.275 SOL with 258/261 live buys rejected by the fixed
+            // 0.060 SOL non-micro wall. That is not compounding; it is zero
+            // execution. Keep tickets economic as wallet-percent exposure while
+            // allowing sub-0.5 SOL wallets to trade enough samples to grow.
+            spendableSol >= 0.25 -> (spendableSol * 0.14).coerceIn(0.030, 0.060)
+            else -> (spendableSol * 0.18).coerceIn(0.010, 0.040)
         }
         val moveSize = movement?.sizeMult ?: 1.0
         val moveHold = movement?.holdMult ?: 1.0

@@ -55,7 +55,7 @@ object LiveSizingProfile {
     // operator's 2x–5x daily wallet-growth mandate. Live entries now target
     // meaningful wallet-percent exposure while true wallet/route/safety caps
     // remain authoritative.
-    const val MIN_ENTRY_SOL: Double = 0.060
+    const val MIN_ENTRY_SOL: Double = 0.035
     const val DEFAULT_ENTRY_SOL: Double = 0.100
     const val STRONG_ENTRY_SOL: Double = 0.150
     const val ALPHA_ENTRY_SOL: Double = 0.220

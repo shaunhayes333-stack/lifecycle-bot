@@ -7923,12 +7923,12 @@ class GoldenTapeRegressionTest {
     @org.junit.Test fun V5_0_6142_live_economic_entry_floor_matches_compounding_target() {
         val profile = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveSizingProfile.kt").readText()
         assertTrue("V5.0.6142: live entry floor must be economic wallet-percent sizing, not 0.025/0.040 dust tickets",
-            profile.contains("V5.0.6142 — economic live compounding floor") && profile.contains("const val MIN_ENTRY_SOL: Double = 0.060") && profile.contains("const val BASE_WALLET_PCT: Double = 0.120") && profile.contains("const val MAX_INITIAL_WALLET_PCT: Double = 0.320") && profile.contains("const val MAX_TOTAL_TOKEN_WALLET_PCT: Double = 0.440"))
+            profile.contains("V5.0.6142 — economic live compounding floor") && profile.contains("const val MIN_ENTRY_SOL: Double = 0.035") && profile.contains("const val BASE_WALLET_PCT: Double = 0.120") && profile.contains("const val MAX_INITIAL_WALLET_PCT: Double = 0.320") && profile.contains("const val MAX_TOTAL_TOKEN_WALLET_PCT: Double = 0.440"))
         assertTrue("V5.0.6142: lane-specific compound floors must lift QUALITY/BLUECHIP/DIP and STANDARD lanes out of dust mode",
             profile.contains("listOf(0.130, 0.200, 0.280), listOf(0.060, 0.110, 0.160, 0.240), 0.320") && profile.contains("listOf(0.110, 0.160, 0.240), listOf(0.060, 0.095, 0.140, 0.200), 0.300"))
         val doctrine = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveGrowthDoctrine.kt").readText()
         assertTrue("V5.0.6142: LiveGrowthDoctrine min executable size must target 2x-5x compounding and avoid 0.025 SOL live dust",
-            doctrine.contains("V5.0.6142 — adaptive economic growth floor") && doctrine.contains("spendableSol >= 0.25 -> 0.060") && doctrine.contains("spendableSol >= 0.5 -> 0.100") && doctrine.contains("2x–5x daily compounding mandate"))
+            doctrine.contains("V5.0.6142 — adaptive economic growth floor") && doctrine.contains("V5.0.6147 — wallet-relative live floor") && doctrine.contains("spendableSol >= 0.25 -> (spendableSol * 0.14).coerceIn(0.030, 0.060)") && doctrine.contains("spendableSol >= 0.5 -> 0.100") && doctrine.contains("2x–5x daily compounding mandate"))
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue("V5.0.6142: FDG live core floor must consume LiveSizingProfile.MIN_ENTRY_SOL instead of allowing 0.03 dust",
             fdg.contains("LiveSizingProfile.MIN_ENTRY_SOL") && fdg.contains("coerceIn(0.06, 0.25)"))
@@ -7972,6 +7972,20 @@ class GoldenTapeRegressionTest {
             exec.contains("v3SellPolicyBias6146") && exec.contains("SellOptimizationAI.evaluate") && exec.contains("V3_SELL_POLICY_BIAS_6146") && exec.contains("exitPolicyBiasBase6144 * runnerShadowHoldBias6144 * v3SellPolicyBias6146"))
         assertTrue("V5.0.6146: V3 sell bridge must be bounded soft-shaping only with no direct sell-finality authority",
             exec.contains("no_direct_sell_finality=true") && exec.contains("coerceIn(0.82, 1.08)") && exec.contains("coerceIn(0.55, 1.72)"))
+    }
+
+
+    @org.junit.Test fun V5_0_6147_throughput_self_relief_and_wallet_relative_live_floor() {
+        val relief = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ThroughputSelfRelief6147.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val profile = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveSizingProfile.kt").readText()
+        val doctrine = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveGrowthDoctrine.kt").readText()
+        assertTrue("V5.0.6147: throughput self-relief must diagnose effective cap/lease/pending/ghost pressure without touching hard safety",
+            relief.contains("object ThroughputSelfRelief6147") && relief.contains("LEASE_CAP_SATURATED") && relief.contains("PENDING_VERIFY_PRESSURE") && relief.contains("STALE_GHOST_PRESSURE") && relief.contains("never clears open/held positions") && relief.contains("never changes hard safety"))
+        assertTrue("V5.0.6147: BotService must run self-relief next to AntiChoke and prune only expired leases",
+            bot.contains("ThroughputSelfRelief6147.evaluate") && bot.contains("""supervisorPruneExpiredLeases("THROUGHPUT_SELF_RELIEF_6147")""") && bot.contains("THROUGHPUT_SELF_RELIEF_LEASE_PRUNE_6147"))
+        assertTrue("V5.0.6147: sub-0.5 SOL live wallet must use wallet-relative economic tickets instead of rejecting everything at fixed 0.060 SOL",
+            profile.contains("const val MIN_ENTRY_SOL: Double = 0.035") && doctrine.contains("spendableSol >= 0.25 -> (spendableSol * 0.14).coerceIn(0.030, 0.060)") && doctrine.contains("wallet≈0.275 SOL with 258/261 live buys rejected"))
     }
 
 }
