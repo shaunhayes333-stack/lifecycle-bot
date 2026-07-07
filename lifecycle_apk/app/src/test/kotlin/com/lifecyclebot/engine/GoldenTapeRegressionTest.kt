@@ -8105,4 +8105,13 @@ class GoldenTapeRegressionTest {
             exec.contains("fastDrawdownHarvest6099_6159") && exec.contains("drawdownHarvest6099Active6159") && exec.contains("gainFloor6099_6159") && exec.contains("walletSol * 0.020") && exec.contains("routeProfitFloor6099_6159"))
     }
 
+
+    @org.junit.Test fun V5_0_6160_stale_revive_respects_recent_absent_zero() {
+        val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        assertTrue("V5.0.6160: stale-unproven revive must suppress rows with fresh absent-zero wallet evidence to prevent slot/sell churn",
+            tracker.contains("recentAbsentZero6160") && tracker.contains("STALE_REVIVE_SUPPRESSED_6160") && tracker.contains("recent_absent_zero_confirm") && tracker.contains("p.consecutiveZeroConfirms > 0") && tracker.contains("<= 180_000L"))
+        assertTrue("V5.0.6160: stale revive suppression must happen before OPEN_BALANCE_PROOF_PENDING promotion",
+            tracker.indexOf("recentAbsentZero6160") in 1 until tracker.indexOf("PositionStatus.OPEN_BALANCE_PROOF_PENDING"))
+    }
+
 }

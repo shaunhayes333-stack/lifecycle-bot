@@ -253,6 +253,27 @@ object HostWalletTokenTracker {
             val botSource = p.source == PositionSource.BOT_BUY || p.source == PositionSource.TX_PARSE
             if (!sigOk && !botSource) continue
             if (!hasLastPositiveRaw(p)) continue
+            // V5.0.6160 — do not revive a stale row in the same window where a
+            // non-empty wallet snapshot just proved the mint absent. Field report
+            // showed ABSENT_MINT_ZERO_CONFIRM immediately followed by
+            // STALE_UNPROVEN_REVIVED_TO_OPEN for the same mints, burning slots and
+            // spawning duplicate sell cycles. One fresh absent-zero confirm is not
+            // terminal close authority, but it is enough to suppress revive until a
+            // fresh positive wallet proof arrives.
+            val recentAbsentZero6160 = p.consecutiveZeroConfirms > 0 &&
+                p.lastWalletReconcileMs != null &&
+                (now - (p.lastWalletReconcileMs ?: 0L)) <= 180_000L
+            if (recentAbsentZero6160) {
+                p.notes.add("STALE_REVIVE_SUPPRESSED_6160 reason=recent_absent_zero_confirm")
+                try {
+                    ForensicLogger.lifecycle(
+                        "STALE_REVIVE_SUPPRESSED_6160",
+                        "mint=${p.mint.take(10)} symbol=${p.symbol ?: "?"} zeroConfirms=${p.consecutiveZeroConfirms} lastRecon=${p.lastWalletReconcileMs ?: 0L} reason=recent_absent_zero_confirm",
+                    )
+                    PipelineHealthCollector.labelInc("STALE_REVIVE_SUPPRESSED_6160")
+                } catch (_: Throwable) {}
+                continue
+            }
             // Sanity: don't revive ancient rows past the bot-bought 45-min
             // liability window — those are genuinely lost.
             val anchor = maxOf(p.balanceAuthorityObservedAtMs, p.buyTimeMs ?: 0L, p.firstSeenWalletMs, p.lastSeenWalletMs)
