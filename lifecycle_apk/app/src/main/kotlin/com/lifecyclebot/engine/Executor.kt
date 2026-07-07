@@ -6095,7 +6095,7 @@ class Executor(
                     traderTag = "MEME",
                 )
                 onLog("🧯 ${ts.symbol}: unsellable/locked/no-route after $broadcastRetries attempts — quarantined + ignored", ts.mint)
-                return false
+                return
             }
             if (routePolicy.releaseLock) {
                 try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
