@@ -8079,4 +8079,14 @@ class GoldenTapeRegressionTest {
             sizer.contains("liveWalletSamples6156.clear()") && sizer.contains("recordLiveWalletSample6156(walletSol)"))
     }
 
+
+    @org.junit.Test fun V5_0_6157_fast_live_drawdown_tightens_exit_damage_cap() {
+        val sizer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6157: Executor must be able to read the fast live drawdown multiplier for open-position damage control",
+            sizer.contains("currentFastLiveDrawdownMultiplier6157") && exec.contains("SmartSizer.currentFastLiveDrawdownMultiplier6157(walletSol)") && exec.contains("drawdownStopTightened6157"))
+        assertTrue("V5.0.6157: active wallet bleed must tighten strict stop and prevent AGI stop-loss veto from overriding damage control",
+            exec.contains("LIVE_DRAWDOWN_STOP_TIGHTENED_6157") && exec.contains("wallet_bleed_damage_cap") && exec.contains("VetoDecision.VETO && !bleedStopTightened6153 && !drawdownStopTightened6157") && exec.contains("fastLiveDrawdownMult6157 < 0.45) 5.0 else 7.0"))
+    }
+
 }

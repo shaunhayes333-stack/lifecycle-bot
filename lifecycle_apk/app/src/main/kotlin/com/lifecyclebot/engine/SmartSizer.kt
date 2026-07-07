@@ -867,6 +867,8 @@ object SmartSizer {
         while (liveWalletSamples6156.isNotEmpty() && liveWalletSamples6156.first().tsMs < cutoff) liveWalletSamples6156.removeFirst()
     }
 
+    @Synchronized fun currentFastLiveDrawdownMultiplier6157(walletSol: Double): Double = fastLiveDrawdownMultiplier6156(walletSol)
+
     @Synchronized private fun fastLiveDrawdownMultiplier6156(walletSol: Double): Double {
         if (!walletSol.isFinite() || walletSol <= 0.0) return 1.0
         val now = System.currentTimeMillis()

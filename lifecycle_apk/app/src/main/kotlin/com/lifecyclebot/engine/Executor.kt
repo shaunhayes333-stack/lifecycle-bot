@@ -6489,9 +6489,18 @@ class Executor(
                 StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500).firstOrNull { it.strategy.equals(lane6153, true) }
             } catch (_: Throwable) { null }
             val bleedStopTightened6153 = liveBleedStopMetric6153 != null && liveBleedStopMetric6153.trades >= 5 && liveBleedStopMetric6153.totalSolPnl < 0.0 && liveBleedStopMetric6153.pfExpectancyPp <= 0.0
-            val rawSL = if (bleedStopTightened6153) minOf(baseRawSL6153, if ((liveBleedStopMetric6153?.totalSolPnl ?: 0.0) < -0.10) 6.0 else 8.0) else baseRawSL6153
+            val fastLiveDrawdownMult6157 = try { SmartSizer.currentFastLiveDrawdownMultiplier6157(walletSol) } catch (_: Throwable) { 1.0 }
+            val drawdownStopTightened6157 = fastLiveDrawdownMult6157 < 0.60
+            val rawSL = when {
+                drawdownStopTightened6157 -> minOf(baseRawSL6153, if (fastLiveDrawdownMult6157 < 0.45) 5.0 else 7.0)
+                bleedStopTightened6153 -> minOf(baseRawSL6153, if ((liveBleedStopMetric6153?.totalSolPnl ?: 0.0) < -0.10) 6.0 else 8.0)
+                else -> baseRawSL6153
+            }
             if (bleedStopTightened6153) {
                 try { ForensicLogger.lifecycle("LIVE_BLEED_STOP_TIGHTENED_6153", "mint=${ts.mint.take(10)} symbol=${ts.symbol} base=${baseRawSL6153.fmt(1)} tight=${rawSL.fmt(1)} trades=${liveBleedStopMetric6153?.trades} wr=${liveBleedStopMetric6153?.winRatePct} pnlSol=${liveBleedStopMetric6153?.totalSolPnl} pf=${liveBleedStopMetric6153?.pfExpectancyPp} action=lane_local_damage_cap") } catch (_: Throwable) {}
+            }
+            if (drawdownStopTightened6157) {
+                try { ForensicLogger.lifecycle("LIVE_DRAWDOWN_STOP_TIGHTENED_6157", "mint=${ts.mint.take(10)} symbol=${ts.symbol} base=${baseRawSL6153.fmt(1)} tight=${rawSL.fmt(1)} fastDrawdownMult=${fastLiveDrawdownMult6157.fmt(2)} action=wallet_bleed_damage_cap") } catch (_: Throwable) {}
             }
             // V5.9.1028 — AI-FLUID STOP LOSS THRESHOLD.
             // Operator V5.9.1027b mandate: "the strict and rapid stops are
@@ -6544,7 +6553,7 @@ class Executor(
                     try { com.lifecyclebot.engine.UnifiedExitPolicyHead.shouldVetoStopLoss(agiLane, pnlPctNow, exitSignals) }
                     catch (_: Throwable) { com.lifecyclebot.engine.UnifiedExitPolicyHead.VetoDecision.HONOR }
                 } else com.lifecyclebot.engine.UnifiedExitPolicyHead.VetoDecision.HONOR
-                if (veto == com.lifecyclebot.engine.UnifiedExitPolicyHead.VetoDecision.VETO && !bleedStopTightened6153) {
+                if (veto == com.lifecyclebot.engine.UnifiedExitPolicyHead.VetoDecision.VETO && !bleedStopTightened6153 && !drawdownStopTightened6157) {
                     onLog("🧠 AGI VETO SL: ${ts.symbol} pnl=${pnlPctNow.toInt()}% floor=${hardFloor.toInt()}% lane=$agiLane — exit brain says hold", ts.mint)
                     // Skip the SL for this tick; runtime will re-evaluate on
                     // the next hot-exit pass. If the brain's confidence drops
