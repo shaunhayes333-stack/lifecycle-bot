@@ -7132,7 +7132,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6103: runtime scanner concurrency cap must actually lower semaphore permits instead of coercing back to source count", scanner6103.contains("make runtime scanner caps real") && scanner6103.contains("if (overlayCap > 0) requestedPermits6017.coerceIn(4, 24) else requestedPermits6017.coerceIn(12, 24)") && !scanner6103.contains("coerceAtLeast(scans.size.coerceAtMost(24))"))
         assertTrue("V5.0.6103: repeated-timeout optional scanner sources rotate-skip while Pump/Dex/Raydium core sources remain every cycle", scanner6103.contains("coreSource6103") && scanner6103.contains("SCANNER_OPTIONAL_SOURCE_ROTATED_SKIP_6103") && scanner6103.contains("optionalRotateSkip=true") && scanner6103.contains("scanPumpFunDirect") && scanner6103.contains("scanDexTrending") && scanner6103.contains("scanRaydiumNewPools"))
         val executor6104 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6104: normal live buys must honor non-micro compound floor even when config allows explicit micro probes", executor6104.contains("explicitLiveMicroProbe6104") && executor6104.contains("minNonMicroLiveBuySol = liveCfg.minLiveBuySol.coerceAtLeast(com.lifecyclebot.engine.LiveSizingProfile.MIN_ENTRY_SOL)") && executor6104.contains("liveCfg.allowLiveMicroProbe && explicitLiveMicroProbe6104"))
+        assertTrue("V5.0.6104: normal live buys must honor non-micro compound floor even when config allows explicit micro probes", executor6104.contains("explicitLiveMicroProbe6104") && executor6104.contains("smallWalletNonMicroFloor6188") && executor6104.contains("minNonMicroLiveBuySol = liveCfg.minLiveBuySol.coerceAtLeast(smallWalletNonMicroFloor6188)") && executor6104.contains("liveCfg.allowLiveMicroProbe && explicitLiveMicroProbe6104"))
         assertTrue("V5.0.6104: pending-proof risk must not double-shrink after realistic live size authority", executor6104.contains("LIVE_PENDING_PROOF_REALISTIC_SIZE_FLOOR_PRESERVED_6104") && executor6104.contains("pending-proof risk is already applied once") && !executor6104.contains("val realisticSolRaw = if (livePendingProofPenalty) baseRealisticSol * 0.35 else baseRealisticSol"))
         val paperSanity6106 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperLearningSanity.kt").readText()
         val fdg6106 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
@@ -8395,9 +8395,9 @@ class GoldenTapeRegressionTest {
         val scanner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SolanaMarketScanner.kt").readText()
         val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MemeMintRegistry.kt").readText()
         assertTrue("V5.0.6189: scanner source timeout must be below the old 5s stall ceiling",
-            scanner.contains("SOURCE_SCAN_TIMEOUT_MS = 3_500L") && scanner.contains("timed out after ${SOURCE_SCAN_TIMEOUT_MS}ms"))
+            scanner.contains("SOURCE_SCAN_TIMEOUT_MS = 3_500L") && scanner.contains("timed out after " + '$' + "{SOURCE_SCAN_TIMEOUT_MS}ms"))
         assertTrue("V5.0.6189: scanPumpFunDirect must cap direct pump.fun work to two quality endpoints and 35 total candidates",
-            scanner.contains("scanPumpFunDirect: fetching from ${urls.size} pump.fun quality endpoints (cap=35)") && scanner.contains("val globalCap = 35") && scanner.contains("if (found >= 18) break"))
+            scanner.contains("scanPumpFunDirect: fetching from " + '$' + "{urls.size} pump.fun quality endpoints (cap=35)") && scanner.contains("val globalCap = 35") && scanner.contains("if (found >= 18) break"))
         assertTrue("V5.0.6189: MemeMintRegistry must not persist 50k+/11MB registry every few seconds in runtime",
             registry.contains("PERSIST_DEBOUNCE_MS = 60_000L") && registry.contains("MINT_RETENTION_MS = 3L * 24") && registry.contains("3d retention"))
     }
