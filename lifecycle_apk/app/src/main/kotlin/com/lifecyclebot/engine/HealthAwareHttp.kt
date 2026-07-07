@@ -70,6 +70,22 @@ object HealthAwareHttp {
             }
         } catch (_: Throwable) { /* fail-open — never block on a bug here */ }
 
+        // V5.0.6162 — proactive rate slot before network. Report showed
+        // helius_rpc 429 while HealthAwareHttp was bypassing RateLimiter entirely;
+        // synthetic 503 lets callers naturally fallback/skip without burning quota.
+        try {
+            if (!RateLimiter.allowRequest(host)) {
+                try { ApiHealthMonitor.record(host, 503, 0L) } catch (_: Throwable) {}
+                return Response.Builder()
+                    .request(request)
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(503)
+                    .message("RateLimiter throttle (host=$host retryAfterMs=${RateLimiter.getRetryAfterMs(host)})")
+                    .body("{}".toResponseBody(emptyJsonMediaType))
+                    .build()
+            }
+        } catch (_: Throwable) { /* fail-open — never block on a bug here */ }
+
         // Apply auto-migration to the URL — rebuild request only if changed.
         val originalUrl = request.url.toString()
         val rewritten = try { AutoEndpointMigrator.rewrite(originalUrl) } catch (_: Throwable) { originalUrl }

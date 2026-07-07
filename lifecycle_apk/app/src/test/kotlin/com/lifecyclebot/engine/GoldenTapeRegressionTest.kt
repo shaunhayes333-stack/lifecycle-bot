@@ -8123,4 +8123,14 @@ class GoldenTapeRegressionTest {
             reg.contains("TIMEOUT_MATURED_6161") && !reg.contains("""promoteFromProbation(mint, "TIMEOUT_AUTO_PROMOTE")"""))
     }
 
+
+    @org.junit.Test fun V5_0_6162_health_http_uses_rate_limiter_and_helius_alias() {
+        val rl = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RateLimiter.kt").readText()
+        val http = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HealthAwareHttp.kt").readText()
+        assertTrue("V5.0.6162: Helius aliases must use the scarce helius bucket instead of default rate limits",
+            rl.contains("""raw.startsWith("helius_")""") && rl.contains("""raw.contains("helius-rpc")""") && rl.contains("maxRequestsPerMinute = 24") && rl.contains("minSpacingMs = 250L"))
+        assertTrue("V5.0.6162: HealthAwareHttp must enforce RateLimiter before network calls to prevent 429 hammering",
+            http.contains("RateLimiter.allowRequest(host)") && http.contains("RateLimiter throttle") && http.contains("RateLimiter.getRetryAfterMs(host)") && http.indexOf("RateLimiter.allowRequest(host)") < http.indexOf("client.newCall(finalRequest).execute()"))
+    }
+
 }
