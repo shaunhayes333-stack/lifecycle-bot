@@ -8047,4 +8047,16 @@ class GoldenTapeRegressionTest {
             exec.contains("VetoDecision.VETO && !bleedStopTightened6153") && exec.contains("morning-bleed pattern") && exec.contains("not a global"))
     }
 
+
+    @org.junit.Test fun V5_0_6154_venue_universe_is_not_pump_jupiter_only() {
+        val venue = java.io.File("src/main/kotlin/com/lifecyclebot/engine/VenueUniverse.kt").readText()
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue("V5.0.6154: Solana venue universe must include direct DEXs, launchpads, and multiple RPC families beyond Pump/Jupiter",
+            venue.contains("PHOENIX") && venue.contains("LIFINITY") && venue.contains("JUPITER_LFG") && venue.contains("BAGS") && venue.contains("BOOP") && venue.contains("CHAINSTACK") && venue.contains("TRITON") && venue.contains("QUICKNODE"))
+        assertTrue("V5.0.6154: Crypto Universe must carry chain-specific/regional venues like PancakeSwap, CoinSpot, Chinese exchanges and Chinese socials",
+            venue.contains("PANCAKESWAP") && venue.contains("FOUR_MEME") && venue.contains("COINSPOT") && venue.contains("CHINESE_EXCHANGE") && venue.contains("XIAOHONGSHU") && venue.contains("DOUYIN") && venue.contains("WEIBO"))
+        assertTrue("V5.0.6154: CryptoAlt final candidates must classify through VenueUniverse, not only route?.route names",
+            crypto.contains("venueUniverse6154") && crypto.contains("VenueUniverse.classify") && crypto.contains("CHAIN_SPECIFIC_DEX") && crypto.contains("CEX_SIGNAL") && crypto.contains("SOCIAL_TREND") && crypto.contains("CRYPTO_SPOT_UNIVERSE:"))
+    }
+
 }

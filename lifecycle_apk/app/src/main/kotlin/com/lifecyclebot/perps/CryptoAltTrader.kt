@@ -1703,9 +1703,13 @@ object CryptoAltTrader {
         val assetKey6148 = cryptoAssetKey(signal, isSpot)
         val chain6148 = if (route?.mint != null) "SOLANA" else "MULTICHAIN"
         val venue6148 = route?.route?.name ?: "UNKNOWN"
+        val venueUniverse6154 = try { com.lifecyclebot.engine.VenueUniverse.classify("${signal.market} $venue6148 ${signal.reasons.joinToString(" ")}") } catch (_: Throwable) { com.lifecyclebot.engine.VenueUniverse.classify(venue6148) }
         val venueFamily6148 = when {
-            venue6148.contains("JUPITER", true) -> "DEX_AGGREGATOR"
-            venue6148.contains("RAYDIUM", true) || venue6148.contains("ORCA", true) || venue6148.contains("METEORA", true) -> "SOLANA_DEX"
+            venueUniverse6154.route == com.lifecyclebot.engine.VenueUniverse.RouteFamily.SOL_AGGREGATOR -> "DEX_AGGREGATOR"
+            venueUniverse6154.route == com.lifecyclebot.engine.VenueUniverse.RouteFamily.SOL_AMM_DIRECT -> "SOLANA_DEX"
+            venueUniverse6154.route == com.lifecyclebot.engine.VenueUniverse.RouteFamily.CHAIN_SPECIFIC_DEX -> "CHAIN_SPECIFIC_DEX"
+            venueUniverse6154.route == com.lifecyclebot.engine.VenueUniverse.RouteFamily.CEX_SIGNAL_ONLY -> "CEX_SIGNAL"
+            venueUniverse6154.route == com.lifecyclebot.engine.VenueUniverse.RouteFamily.TREND_SIGNAL_ONLY -> "SOCIAL_TREND"
             venue6148.contains("PAPER", true) -> "PAPER"
             !isSpot -> "PERPS"
             else -> "MULTICHAIN_CRYPTO"
@@ -1729,8 +1733,8 @@ object CryptoAltTrader {
             route?.executable == true -> "CRYPTO_UNIVERSE_EXECUTOR"
             else -> "DEFERRED_ROUTE"
         }
-        val sourceFamily6148 = if (isSpot) "CRYPTO_SPOT_UNIVERSE" else "CRYPTO_PERPS_UNIVERSE"
-        val routeTruthKey6148 = "$chain6148|$venueFamily6148|$venue6148|${assetType.name}|${signal.direction.name}"
+        val sourceFamily6148 = if (isSpot) "CRYPTO_SPOT_UNIVERSE:${venueUniverse6154.canonical}" else "CRYPTO_PERPS_UNIVERSE:${venueUniverse6154.canonical}"
+        val routeTruthKey6148 = "${venueUniverse6154.chain}|$venueFamily6148|${venueUniverse6154.canonical}|$venue6148|${assetType.name}|${signal.direction.name}"
         val strategyTruthKey6148 = "CRYPTO|$symbol|${assetType.name}|${cryptoSignalStyle(signal)}|$venueFamily6148|${signal.direction.name}"
         return CryptoFinalBuyCandidate(
             assetKey = assetKey6148,
