@@ -115,6 +115,66 @@ private fun sellRoutePriorityFromBuyRoute6099(ts: TokenState): SellRoutePriority
     }
 }
 
+
+
+private fun isTerminalUnsellableSellFailure6175(
+    routeCls: com.lifecyclebot.engine.sell.SellRouteErrorClassifier.Class,
+    safeMessage: String,
+    attempts: Int,
+): Boolean {
+    if (attempts < 4) return false
+    val s = safeMessage.lowercase()
+    val factualUnsellable =
+        s.contains("no route") ||
+        s.contains("route not found") ||
+        s.contains("no executable route") ||
+        s.contains("sell quote impossible") ||
+        s.contains("cannot sell") ||
+        s.contains("not tradable") ||
+        s.contains("token is not tradable") ||
+        s.contains("market not found") ||
+        s.contains("pool not found") ||
+        s.contains("frozen") ||
+        s.contains("freeze") ||
+        s.contains("locked") ||
+        s.contains("honeypot") ||
+        ((s.contains("liquidity") || s.contains("liq")) &&
+            (s.contains("insufficient") || s.contains("zero") || s.contains("0") || s.contains("not enough") || s.contains("missing") || s.contains("unavailable")))
+    return factualUnsellable && routeCls in setOf(
+        com.lifecyclebot.engine.sell.SellRouteErrorClassifier.Class.ROUTE_BUILD_FAILED,
+        com.lifecyclebot.engine.sell.SellRouteErrorClassifier.Class.PUMPPORTAL_BAD_REQUEST,
+        com.lifecyclebot.engine.sell.SellRouteErrorClassifier.Class.UNKNOWN,
+        com.lifecyclebot.engine.sell.SellRouteErrorClassifier.Class.ULTRA_REJECTED,
+    )
+}
+
+private fun quarantineUnsellableSellMint6175(
+    ts: TokenState,
+    reason: String,
+    routeCls: com.lifecyclebot.engine.sell.SellRouteErrorClassifier.Class,
+    safeMessage: String,
+): Boolean {
+    val qReason = "CANNOT SELL: UNSELLABLE_LOCKED_OR_NO_ROUTE_6175 class=${routeCls.name} reason=${reason.take(80)}"
+    return try {
+        TokenBlacklist.block(ts.mint, qReason)
+        QuarantineStore.quarantine(ts.mint, ts.symbol, qReason)
+        try { GlobalTradeRegistry.registerRejection(ts.mint, ts.symbol, qReason, "SELL_UNSELLABLE_6175") } catch (_: Throwable) {}
+        try { GlobalTradeRegistry.removeFromWatchlistForced(ts.mint, "SELL_UNSELLABLE_QUARANTINE_6175") } catch (_: Throwable) {}
+        try { BannedTokens.ban(ts.mint, qReason) } catch (_: Throwable) {}
+        try { PendingSellQueue.remove(ts.mint) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "UNSELLABLE_QUARANTINE_6175") } catch (_: Throwable) {}
+        try { HostWalletTokenTracker.abandonUnsellableQuarantined(ts.mint, qReason) } catch (_: Throwable) {}
+        synchronized(ts) {
+            ts.position = ts.position.copy(qtyToken = 0.0, pendingVerify = false)
+        }
+        try { PipelineHealthCollector.labelInc("SELL_UNSELLABLE_QUARANTINED_6175") } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("SELL_UNSELLABLE_QUARANTINED_6175|${routeCls.name}") } catch (_: Throwable) {}
+        try { ForensicLogger.lifecycle("SELL_UNSELLABLE_QUARANTINED_6175", "mint=${ts.mint.take(10)} symbol=${ts.symbol} class=${routeCls.name} reason=${reason.take(120)} msg=${safeMessage.take(120)} action=blacklist_quarantine_abandon_ignore") } catch (_: Throwable) {}
+        true
+    } catch (_: Throwable) { false }
+}
+
 private fun shouldTryPumpDirectFirst6099(ts: TokenState, label: String): Boolean {
     val priority = sellRoutePriorityFromBuyRoute6099(ts)
     val pumpInvalid = try { com.lifecyclebot.engine.sell.MemeVenueRouter.isPumpRouteInvalid(ts.mint) } catch (_: Throwable) { false }
@@ -6027,6 +6087,16 @@ class Executor(
                     "mint=${ts.mint.take(10)} class=${routeCls.name} action=skip_pump_direct_reresolve") } catch (_: Throwable) {}
             }
             val failureClass = routeCls.name
+            if (isTerminalUnsellableSellFailure6175(routeCls, safe, broadcastRetries) && quarantineUnsellableSellMint6175(ts, reason, routeCls, safe)) {
+                LiveTradeLogStore.log(
+                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.SELL_FAILED,
+                    "UNSELLABLE_QUARANTINED_6175 — ${routeCls.name}: ${safe.take(120)} (profit-lock attempts=$broadcastRetries)",
+                    traderTag = "MEME",
+                )
+                onLog("🧯 ${ts.symbol}: unsellable/locked/no-route after $broadcastRetries attempts — quarantined + ignored", ts.mint)
+                return false
+            }
             if (routePolicy.releaseLock) {
                 try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "ROUTE_FAILED_" + routeCls.name) } catch (_: Throwable) {}
@@ -16052,6 +16122,16 @@ class Executor(
                     "mint=${ts.mint.take(10)} class=${routeCls.name} action=skip_pump_direct_reresolve") } catch (_: Throwable) {}
             }
             val failureClass = routeCls.name
+            if (isTerminalUnsellableSellFailure6175(routeCls, safe, broadcastRetries) && quarantineUnsellableSellMint6175(ts, "PARTIAL_SELL", routeCls, safe)) {
+                LiveTradeLogStore.log(
+                    sellTradeKey2, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.SELL_FAILED,
+                    "UNSELLABLE_QUARANTINED_6175 — ${routeCls.name}: ${safe.take(120)} (partial attempts=$broadcastRetries)",
+                    traderTag = "MEME",
+                )
+                onLog("🧯 ${ts.symbol}: partial sell unsellable/locked/no-route after $broadcastRetries attempts — quarantined + ignored", ts.mint)
+                return
+            }
             if (routePolicy.releaseLock) {
                 try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "ROUTE_FAILED_" + routeCls.name) } catch (_: Throwable) {}
@@ -19713,6 +19793,19 @@ class Executor(
                 try { com.lifecyclebot.engine.sell.MemeVenueRouter.markPumpRouteInvalid(ts.mint) } catch (_: Throwable) {}
             }
             val failureClass = routeCls.name
+            if (isTerminalUnsellableSellFailure6175(routeCls, safe, broadcastRetries) && quarantineUnsellableSellMint6175(ts, reason, routeCls, safe)) {
+                LiveTradeLogStore.log(
+                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.SELL_FAILED,
+                    "UNSELLABLE_QUARANTINED_6175 — ${routeCls.name}: ${safe.take(120)} (attempts=$broadcastRetries)",
+                    traderTag = "MEME",
+                )
+                onNotify("🧯 Token Quarantined",
+                    "${ts.symbol}: sell route/liquidity/freeze/lock failure after $broadcastRetries attempts. Token ignored; slots freed.",
+                    com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                onLog("🧯 ${ts.symbol}: unsellable/locked/no-route after $broadcastRetries attempts — quarantined + ignored", tradeId.mint)
+                return SellResult.FAILED_FATAL
+            }
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                 LiveTradeLogStore.Phase.SELL_FAILED,

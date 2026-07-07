@@ -8259,4 +8259,18 @@ class GoldenTapeRegressionTest {
             main.contains("kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main)") && main.contains("showFirstTimeDisclaimerDialog6174(prefs, currentVersion)"))
     }
 
+
+    @org.junit.Test fun V5_0_6175_unsellable_tokens_are_quarantined_and_ignored() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        assertTrue("V5.0.6175: terminal no-route/freeze/locked sell failures must classify as factual unsellable only after bounded attempts",
+            exec.contains("isTerminalUnsellableSellFailure6175") && exec.contains("attempts < 4") && exec.contains("no executable route") && exec.contains("frozen") && exec.contains("locked"))
+        assertTrue("V5.0.6175: unsellable sell failure must blacklist/quarantine/remove watchlist/pending sells and abandon host tracking without fake sell finality",
+            exec.contains("quarantineUnsellableSellMint6175") && exec.contains("CANNOT SELL: UNSELLABLE_LOCKED_OR_NO_ROUTE_6175") && exec.contains("GlobalTradeRegistry.removeFromWatchlistForced") && exec.contains("HostWalletTokenTracker.abandonUnsellableQuarantined"))
+        assertTrue("V5.0.6175: host wallet reconciliation must not re-adopt quarantined wallet-held poison tokens",
+            tracker.contains("CLOSED_UNSELLABLE_QUARANTINED") && tracker.contains("UNSELLABLE_WALLET_TOKEN_IGNORED_6175") && tracker.contains("QuarantineStore.isQuarantined(mint) || TokenBlacklist.isBlocked(mint)"))
+        assertTrue("V5.0.6175: abandonment releases sell/close/lane locks and purges lifecycle rows so stuck tokens stop consuming capacity",
+            tracker.contains("abandonUnsellableQuarantined") && tracker.contains("SellExecutionLocks.release(mint)") && tracker.contains("""CloseLease.release(mint, "UNSELLABLE_QUARANTINE_6175")""") && tracker.contains("TokenLifecycleTracker.purgeTerminalRecord(mint)"))
+    }
+
 }
