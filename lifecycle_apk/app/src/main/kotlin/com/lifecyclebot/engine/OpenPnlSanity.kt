@@ -121,6 +121,23 @@ object OpenPnlSanity {
                 try { PipelineHealthCollector.labelInc("ENTRY_PRICE_HEALED_FROM_COST_QTY_6050") } catch (_: Throwable) {}
                 reconstructed
             } else pos.entryPrice
+        }
+        // V5.0.6195 — RECOVERED-ZOMBIE HEAL. Report 2026-07-08 shows
+        // RECOVERED_2xKQg4 with entryPrice=0 AND costSol=0 AND current=0
+        // spamming OPEN_PNL_BASIS_REJECTED every tick forever. The position
+        // came from wallet reconciliation with no bot-side entry data. Rather
+        // than let it starve a slot, fall back to highestPrice (which the
+        // wallet reconciler may have populated from any recent quote) or to
+        // 1e-9 as a last-resort synthetic basis. Synthetic basis lets PnL
+        // resolve to a small neutral figure so downstream stale-position
+        // sweep logic (Executor.DEAD_TOKEN_NO_PRICE_EXIT at pos age >= 15min)
+        // can finally free the slot instead of forever rejecting.
+        else if (pos.highestPrice.isFinite() && pos.highestPrice > 0.0) {
+            try { PipelineHealthCollector.labelInc("ENTRY_PRICE_HEALED_FROM_HIGHEST_6195") } catch (_: Throwable) {}
+            pos.highestPrice
+        } else if (currentPrice.isFinite() && currentPrice > 0.0) {
+            try { PipelineHealthCollector.labelInc("ENTRY_PRICE_HEALED_FROM_CURRENT_6195") } catch (_: Throwable) {}
+            currentPrice
         } else pos.entryPrice
         return inspect(
             entryPrice = healedEntryPrice,
