@@ -8263,8 +8263,8 @@ class GoldenTapeRegressionTest {
     @org.junit.Test fun V5_0_6175_unsellable_tokens_are_quarantined_and_ignored() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
-        assertTrue("V5.0.6175: terminal no-route/freeze/locked sell failures must classify as factual unsellable only after bounded attempts",
-            exec.contains("isTerminalUnsellableSellFailure6175") && exec.contains("attempts < 4") && exec.contains("no executable route") && exec.contains("frozen") && exec.contains("locked"))
+        assertTrue("V5.0.6175b: terminal no-route/freeze/locked/no-signature-exhausted sell failures must quarantine only after bounded attempts",
+            exec.contains("isTerminalUnsellableSellFailure6175") && exec.contains("attempts < 4") && exec.contains("no executable route") && exec.contains("frozen") && exec.contains("locked") && exec.contains("exhaustedNoSignature6175b") && exec.contains("all providers exhausted") && exec.contains("without broadcast signature"))
         assertTrue("V5.0.6175: unsellable sell failure must blacklist/quarantine/remove watchlist/pending sells and abandon host tracking without fake sell finality",
             exec.contains("quarantineUnsellableSellMint6175") && exec.contains("CANNOT SELL: UNSELLABLE_LOCKED_OR_NO_ROUTE_6175") && exec.contains("GlobalTradeRegistry.removeFromWatchlistForced") && exec.contains("HostWalletTokenTracker.abandonUnsellableQuarantined"))
         assertTrue("V5.0.6175: host wallet reconciliation must not re-adopt quarantined wallet-held poison tokens",

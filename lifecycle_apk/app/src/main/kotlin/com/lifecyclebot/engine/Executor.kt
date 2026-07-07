@@ -124,6 +124,14 @@ private fun isTerminalUnsellableSellFailure6175(
 ): Boolean {
     if (attempts < 4) return false
     val s = safeMessage.lowercase()
+    val exhaustedNoSignature6175b =
+        routeCls == com.lifecyclebot.engine.sell.SellRouteErrorClassifier.Class.NO_SIGNATURE &&
+            attempts >= 4 &&
+            (s.contains("all providers exhausted") ||
+                s.contains("providers exhausted") ||
+                s.contains("without broadcast signature") ||
+                s.contains("broadcast attempts failed") ||
+                s.contains("no_signature"))
     val factualUnsellable =
         s.contains("no route") ||
         s.contains("route not found") ||
@@ -140,6 +148,7 @@ private fun isTerminalUnsellableSellFailure6175(
         s.contains("honeypot") ||
         ((s.contains("liquidity") || s.contains("liq")) &&
             (s.contains("insufficient") || s.contains("zero") || s.contains("0") || s.contains("not enough") || s.contains("missing") || s.contains("unavailable")))
+    if (exhaustedNoSignature6175b) return true
     return factualUnsellable && routeCls in setOf(
         com.lifecyclebot.engine.sell.SellRouteErrorClassifier.Class.ROUTE_BUILD_FAILED,
         com.lifecyclebot.engine.sell.SellRouteErrorClassifier.Class.PUMPPORTAL_BAD_REQUEST,
