@@ -9718,7 +9718,7 @@ class Executor(
                 lane = laneKeyForAgi,
                 source = ts.source,
                 routeHint = VenueUniverse.classify(ts.source).canonical,
-                tacticHint = layerTag.ifBlank { laneKeyForAgi },
+                tacticHint = laneKeyForAgi,
             )
         } catch (_: Throwable) { 1.0 }
         if (causalEvSizeMult6179 != 1.0) {
