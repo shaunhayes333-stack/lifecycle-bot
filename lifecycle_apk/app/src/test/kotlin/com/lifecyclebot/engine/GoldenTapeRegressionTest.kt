@@ -8026,7 +8026,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6151: top-up sizing must lean into clean-live +EV lanes while preserving exposure caps",
             exec.contains("cleanLiveEvPyramid6151") && exec.contains("computeCleanLiveTerminalLeaderboard(limit = 1_500)") && exec.contains("m6151.totalSolPnl > 0.0") && exec.contains("m6151.pfExpectancyPp > 0.0") && exec.contains("else if (cleanLiveEvPyramid6151) 0.20 else 0.15"))
         assertTrue("V5.0.6151: autonomous top-up must add to winners only and allow proven +EV lanes to pyramid earlier",
-            exec.contains("evPyramid6151") && exec.contains("gainPct < 1.5") && exec.contains("evPyramidGate6151 && pos.topUpCount == 0 -> 1.5") && exec.contains("never average down") && exec.contains("no LLM/API/hot-path provider calls"))
+            exec.contains("evPyramid6151") && exec.contains("causalEvPyramidGate6180") && exec.contains("gainPct < 1.5") && exec.contains("(evPyramidGate6151 || causalEvPyramidGate6180) && pos.topUpCount == 0 -> 1.5") && exec.contains("never average down") && exec.contains("no LLM/API/hot-path provider calls"))
     }
 
 
