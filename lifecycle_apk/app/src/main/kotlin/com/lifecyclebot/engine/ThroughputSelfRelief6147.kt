@@ -1,8 +1,6 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.TokenState
-import java.util.concurrent.ConcurrentHashMap
-
 /**
  * V5.0.6147 — effective throughput cap self-relief.
  *
@@ -25,7 +23,7 @@ object ThroughputSelfRelief6147 {
     )
 
     fun evaluate(
-        tokens: ConcurrentHashMap<String, TokenState>,
+        tokens: Map<String, TokenState>,
         effectiveCap: Int,
         activeLeases: Int,
         trades24h: Int,
