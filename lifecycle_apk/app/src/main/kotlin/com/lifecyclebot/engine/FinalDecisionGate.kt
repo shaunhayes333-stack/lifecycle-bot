@@ -3853,6 +3853,43 @@ object FinalDecisionGate {
         // All three are pooled through SwarmIntel's 15s in-memory cache so
         // FDG hot path never blocks on Turso. Bounded, floor-clamped.
         // ═══════════════════════════════════════════════════════════════════
+        // V5.0.6196 — PIVOT-TO-WINNERS ROUTER (DUMP/CHOP regime only)
+        //   Refuse to open a LIVE position on a proven negative-EV lane
+        //   while the market regime is DUMP or CHOP. Paper trades still
+        //   fire on the same tick so learning continues; leaderboard
+        //   stays fresh; live capital pivots to TREASURY/BLUECHIP/Metals.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            if (mode == TradeMode.LIVE) {
+                val laneName = ts.position.tradingMode.ifBlank { "STANDARD" }
+                val routerVerdict = com.lifecyclebot.engine.DumpRegimeWinnerRouter.evaluate(laneName)
+                if (!routerVerdict.allow) {
+                    checks.add(GateCheck(
+                        "pivot_to_winners_6196", false,
+                        "Lane $laneName EV=${"%.2f".format(routerVerdict.laneEvPct)}% WR=${"%.1f".format(routerVerdict.laneWrPct)}% totalSol=${"%.4f".format(routerVerdict.laneTotalSol)} — pivot live capital to positive-EV lanes"
+                    ))
+                    tags.add("pivot_to_winners_6196")
+                    return FinalDecision(
+                        shouldTrade = false,
+                        mode = mode,
+                        approvalClass = ApprovalClass.BLOCKED,
+                        quality = "PIVOT_TO_WINNERS_ONLY",
+                        confidence = 0.0,
+                        edge = EdgeVerdict.WEAK,
+                        blockReason = routerVerdict.reason,
+                        blockLevel = BlockLevel.HARD,
+                        sizeSol = 0.0,
+                        tags = tags,
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        approvalReason = "Lane $laneName is EV-negative (${"%.2f".format(routerVerdict.laneEvPct)}%) during ${com.lifecyclebot.engine.RegimeDetector.currentRegime()} — pivoting to proven winners",
+                        gateChecks = checks,
+                    )
+                }
+            }
+        } catch (_: Throwable) { /* fail-open — router is advisory */ }
+
+        // ═══════════════════════════════════════════════════════════════════
         try {
             if (mode == TradeMode.LIVE) {
                 val si = com.lifecyclebot.engine.SwarmIntel
