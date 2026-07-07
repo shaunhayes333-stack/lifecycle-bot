@@ -4719,8 +4719,12 @@ class Executor(
             val routeMultiple = try { RealPriceLock.routeImpliedGainMultiple(ts) } catch (_: Throwable) { null } ?: return false
             val routeValueSol = pos.costSol * routeMultiple
             val routeProfitSol = (routeValueSol - pos.costSol).coerceAtLeast(0.0)
-            if (routeMultiple < 3.0) return false
-            if (routeProfitSol < maxOf(0.02, walletSol * 0.08, pos.costSol * 1.5)) return false
+            val fastDrawdownHarvestMult6159 = try { SmartSizer.currentFastLiveDrawdownMultiplier6157(walletSol) } catch (_: Throwable) { 1.0 }
+            val drawdownHarvestActive6159 = fastDrawdownHarvestMult6159 < 0.80 && RuntimeModeAuthority.isLive()
+            val routeMultipleFloor6159 = if (drawdownHarvestActive6159) 1.45 else 3.0
+            val routeProfitFloor6159 = if (drawdownHarvestActive6159) maxOf(0.006, walletSol * 0.025, pos.costSol * 0.40) else maxOf(0.02, walletSol * 0.08, pos.costSol * 1.5)
+            if (routeMultiple < routeMultipleFloor6159) return false
+            if (routeProfitSol < routeProfitFloor6159) return false
             val remainingFraction6029 = (100.0 - pos.partialSoldPct).coerceAtLeast(0.0) / 100.0
             val sellFraction6029 = when {
                 routeProfitSol >= walletSol.coerceAtLeast(0.01) -> 0.60
@@ -4729,7 +4733,7 @@ class Executor(
             }.coerceAtMost(remainingFraction6029)
             if (sellFraction6029 <= 0.0) return false
             try {
-                ForensicLogger.lifecycle("ROUTE_REAL_CLAIM_MISMATCH_HARVEST_6029", "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=$label claimed=${gainMultiple.fmt(2)}x route=${routeMultiple.fmt(2)}x routeProfit=${routeProfitSol.fmt(4)} wallet=${walletSol.fmt(4)} sellPct=${(sellFraction6029*100).toInt()} reason=ui_claim_overstated_but_route_profit_real")
+                ForensicLogger.lifecycle("ROUTE_REAL_CLAIM_MISMATCH_HARVEST_6029", "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=$label claimed=${gainMultiple.fmt(2)}x route=${routeMultiple.fmt(2)}x routeProfit=${routeProfitSol.fmt(4)} wallet=${walletSol.fmt(4)} sellPct=${(sellFraction6029*100).toInt()} reason=ui_claim_overstated_but_route_profit_real drawdownHarvest6159=$drawdownHarvestActive6159 fastMult=${fastDrawdownHarvestMult6159.fmt(2)} floor=${routeProfitFloor6159.fmt(4)}")
                 PipelineHealthCollector.labelInc("ROUTE_REAL_CLAIM_MISMATCH_HARVEST_6029")
             } catch (_: Throwable) {}
             onLog("💰 ROUTE-REAL HARVEST: ${ts.symbol} UI=${gainMultiple.fmt(1)}x route=${routeMultiple.fmt(1)}x profit≈${routeProfitSol.fmt(4)} SOL — selling ${(sellFraction6029*100).toInt()}% NOW", ts.mint)
@@ -4744,8 +4748,12 @@ class Executor(
             val routeMetaPresent6099 = pos.entryPriceSource.isNotBlank() || pos.entryPoolAddress.isNotBlank() || ts.lastPricePoolAddr.isNotBlank() || ts.pairAddress.isNotBlank() || ts.tokenMap.poolAddress.isNotBlank() || ts.tokenMap.pairAddress.isNotBlank()
             if (!routeMetaPresent6099) return false
             val routeProfit6099 = (currentValue - pos.costSol).takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: return false
-            if (gainMultiple < 3.0) return false
-            if (routeProfit6099 < maxOf(0.02, walletSol * 0.05, pos.costSol * 1.5)) return false
+            val fastDrawdownHarvest6099_6159 = try { SmartSizer.currentFastLiveDrawdownMultiplier6157(walletSol) } catch (_: Throwable) { 1.0 }
+            val drawdownHarvest6099Active6159 = fastDrawdownHarvest6099_6159 < 0.80 && RuntimeModeAuthority.isLive()
+            val gainFloor6099_6159 = if (drawdownHarvest6099Active6159) 1.35 else 3.0
+            val routeProfitFloor6099_6159 = if (drawdownHarvest6099Active6159) maxOf(0.006, walletSol * 0.020, pos.costSol * 0.35) else maxOf(0.02, walletSol * 0.05, pos.costSol * 1.5)
+            if (gainMultiple < gainFloor6099_6159) return false
+            if (routeProfit6099 < routeProfitFloor6099_6159) return false
             val remainingFraction6099 = (100.0 - pos.partialSoldPct).coerceAtLeast(0.0) / 100.0
             val sellFraction6099 = when {
                 gainMultiple >= 50.0 || peakGainPct >= 5_000.0 -> 0.35
@@ -4754,7 +4762,7 @@ class Executor(
             }.coerceAtMost(remainingFraction6099)
             if (sellFraction6099 <= 0.0) return false
             try {
-                ForensicLogger.lifecycle("PERSISTED_ENTRY_ROUTE_HARVEST_6099", "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=$label gain=${gainMultiple.fmt(2)}x peakPct=${peakGainPct.toInt()} profit=${routeProfit6099.fmt(4)} wallet=${walletSol.fmt(4)} priority=$priority6099 entrySource=${pos.entryPriceSource} entryPool=${pos.entryPoolAddress.take(16)} sellPct=${(sellFraction6099*100).toInt()} reason=realpricelock_missing_or_disagrees_but_buy_route_known")
+                ForensicLogger.lifecycle("PERSISTED_ENTRY_ROUTE_HARVEST_6099", "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=$label gain=${gainMultiple.fmt(2)}x peakPct=${peakGainPct.toInt()} profit=${routeProfit6099.fmt(4)} wallet=${walletSol.fmt(4)} priority=$priority6099 entrySource=${pos.entryPriceSource} entryPool=${pos.entryPoolAddress.take(16)} sellPct=${(sellFraction6099*100).toInt()} reason=realpricelock_missing_or_disagrees_but_buy_route_known drawdownHarvest6159=$drawdownHarvest6099Active6159 fastMult=${fastDrawdownHarvest6099_6159.fmt(2)} floor=${routeProfitFloor6099_6159.fmt(4)}")
                 PipelineHealthCollector.labelInc("PERSISTED_ENTRY_ROUTE_HARVEST_6099")
             } catch (_: Throwable) {}
             onLog("💰🧭 ENTRY-ROUTE HARVEST: ${ts.symbol} @ ${gainMultiple.fmt(1)}x route=$priority6099 — selling ${(sellFraction6099*100).toInt()}% NOW via buy-route priority", ts.mint)

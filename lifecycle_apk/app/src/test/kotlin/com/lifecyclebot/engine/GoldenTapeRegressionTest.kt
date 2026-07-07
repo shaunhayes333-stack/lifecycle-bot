@@ -8096,4 +8096,13 @@ class GoldenTapeRegressionTest {
             exec.contains("fastDrawdownBuyMult6158") && exec.contains("LIVE_DRAWDOWN_POST_FLOOR_BUY_CAP_6158") && exec.contains("prevent_drawdown_floor_reinflation") && exec.contains("walletSol * (if (fastDrawdownBuyMult6158 < 0.50) 0.060 else 0.080)"))
     }
 
+
+    @org.junit.Test fun V5_0_6159_active_drawdown_harvests_smaller_real_route_profits() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6159: active fast live drawdown must lower route-real harvest floors to bank recoverable wallet money sooner",
+            exec.contains("fastDrawdownHarvestMult6159") && exec.contains("drawdownHarvestActive6159") && exec.contains("routeMultipleFloor6159") && exec.contains("walletSol * 0.025") && exec.contains("drawdownHarvest6159="))
+        assertTrue("V5.0.6159: persisted buy-route harvest must also lower gain/profit floors during live drawdown",
+            exec.contains("fastDrawdownHarvest6099_6159") && exec.contains("drawdownHarvest6099Active6159") && exec.contains("gainFloor6099_6159") && exec.contains("walletSol * 0.020") && exec.contains("routeProfitFloor6099_6159"))
+    }
+
 }
