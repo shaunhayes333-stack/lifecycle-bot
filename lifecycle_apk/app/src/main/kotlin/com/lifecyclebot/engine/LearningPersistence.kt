@@ -185,6 +185,7 @@ object LearningPersistence {
             try { putBlob("CAPITAL_EFFICIENCY", com.lifecyclebot.engine.CapitalEfficiencyBrain.exportState()) } catch (_: Throwable) {}  // V5.0.4281
             try { putBlob("SOURCE_FAMILY_SCORECARD", com.lifecyclebot.engine.SourceFamilyOpportunityScorecard.exportState()) } catch (_: Throwable) {}  // V5.0.4287
             try { putBlob("RUNNER_EXIT_SHADOW_LEDGER", com.lifecyclebot.engine.RunnerExitShadowLedger.exportState()) } catch (_: Throwable) {}  // V5.0.4289
+            try { putBlob("CAUSAL_EV_MEMORY_6179", com.lifecyclebot.engine.CausalEvMemory6179.exportState()) } catch (_: Throwable) {}  // V5.0.6181
             try { putBlob("LIVE_WALLET_GROWTH_GOVERNOR", com.lifecyclebot.engine.LiveWalletGrowthGovernorReport.exportState()) } catch (_: Throwable) {}  // V5.0.4290
             try { putBlob("ULTIMATE_EDGE_ENGINE", com.lifecyclebot.engine.UltimateEdgeEngine.exportState()) } catch (_: Throwable) {}  // V5.0.4331
             // V5.9.984 — persist CollectiveIntelligenceAI counters + thresholds.
@@ -273,6 +274,7 @@ object LearningPersistence {
         try { getBlob("CAPITAL_EFFICIENCY")?.let { com.lifecyclebot.engine.CapitalEfficiencyBrain.importState(it) } } catch (_: Throwable) {}  // V5.0.4281
         try { getBlob("SOURCE_FAMILY_SCORECARD")?.let { com.lifecyclebot.engine.SourceFamilyOpportunityScorecard.importState(it) } } catch (_: Throwable) {}  // V5.0.4287
         try { getBlob("RUNNER_EXIT_SHADOW_LEDGER")?.let { com.lifecyclebot.engine.RunnerExitShadowLedger.importState(it) } } catch (_: Throwable) {}  // V5.0.4289
+        try { getBlob("CAUSAL_EV_MEMORY_6179")?.let { com.lifecyclebot.engine.CausalEvMemory6179.importState(it) } } catch (_: Throwable) {}  // V5.0.6181
         try { getBlob("LIVE_WALLET_GROWTH_GOVERNOR")?.let { com.lifecyclebot.engine.LiveWalletGrowthGovernorReport.importState(it) } } catch (_: Throwable) {}  // V5.0.4290
         try { getBlob("ULTIMATE_EDGE_ENGINE")?.let { com.lifecyclebot.engine.UltimateEdgeEngine.importState(it) } } catch (_: Throwable) {}  // V5.0.4331
         // V5.9.949 — restore the rest of the brain.

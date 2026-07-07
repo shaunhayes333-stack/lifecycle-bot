@@ -8332,4 +8332,14 @@ class GoldenTapeRegressionTest {
             exec.contains("causalEv6180=") && exec.contains("HOLDING_LOGIC_ADD_MORE_TOPUP_6091") && exec.contains("doTopUp(ts, walletSol, wallet, totalExposureSol)") && exec.contains("security.checkBuy"))
     }
 
+
+    @org.junit.Test fun V5_0_6181_causal_ev_memory_persists_with_learning_state() {
+        val causal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CausalEvMemory6179.kt").readText()
+        val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        assertTrue("V5.0.6181: causal EV learnt edges must export/import JSON state so restart does not cause amnesia",
+            causal.contains("fun exportState()") && causal.contains("fun importState(json: String)") && causal.contains("JSONArray") && causal.contains("lastUpdatedMs"))
+        assertTrue("V5.0.6181: LearningPersistence must save and restore causal EV memory with the rest of the brain blobs",
+            persistence.contains("CAUSAL_EV_MEMORY_6179") && persistence.contains("CausalEvMemory6179.exportState()") && persistence.contains("CausalEvMemory6179.importState(it)"))
+    }
+
 }

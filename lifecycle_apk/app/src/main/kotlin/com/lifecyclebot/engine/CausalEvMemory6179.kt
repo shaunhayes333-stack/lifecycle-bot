@@ -2,6 +2,8 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.Trade
 import java.util.concurrent.ConcurrentHashMap
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * V5.0.6179 — causal EV memory graph.
@@ -73,6 +75,45 @@ object CausalEvMemory6179 {
         .take(limit)
         .joinToString(" | ") { (k, e) -> "$k n=${e.samples} wr=${"%.0f".format(e.winRate * 100)} ev=${"%.4f".format(e.avgPnlSol)}" }
         .ifBlank { "no causal edges" }
+
+    fun exportState(): String = try {
+        val arr = JSONArray()
+        edges.forEach { (k, e) ->
+            synchronized(e) {
+                arr.put(JSONObject()
+                    .put("key", k)
+                    .put("wins", e.wins)
+                    .put("losses", e.losses)
+                    .put("pnlSol", e.pnlSol)
+                    .put("pnlPct", e.pnlPct)
+                    .put("lastUpdatedMs", e.lastUpdatedMs))
+            }
+        }
+        JSONObject().put("version", "6181").put("edges", arr).toString()
+    } catch (_: Throwable) { "{}" }
+
+    fun importState(json: String) {
+        try {
+            if (json.isBlank()) return
+            val root = JSONObject(json)
+            val arr = root.optJSONArray("edges") ?: return
+            val restored = ConcurrentHashMap<String, Edge>()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val k = o.optString("key", "")
+                if (k.isBlank()) continue
+                restored[k] = Edge(
+                    wins = o.optLong("wins", 0L),
+                    losses = o.optLong("losses", 0L),
+                    pnlSol = o.optDouble("pnlSol", 0.0),
+                    pnlPct = o.optDouble("pnlPct", 0.0),
+                    lastUpdatedMs = o.optLong("lastUpdatedMs", 0L),
+                )
+            }
+            edges.clear()
+            edges.putAll(restored)
+        } catch (_: Throwable) {}
+    }
 
     fun causalKey(t: Trade): String {
         val lane = StrategyTruthLedger.strategyLaneFor(t)
