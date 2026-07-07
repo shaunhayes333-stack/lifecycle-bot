@@ -10225,8 +10225,30 @@ class BotService : Service() {
                 // any other path still slips through, but this closes the
                 // primary bypass channel.
                 val laneIsPaused4598 = try { LaneAutoPauseGuard.isPaused(l) } catch (_: Throwable) { false }
-                val allowed = (l == ownerLane || profitableRescue) && !laneIsPaused4598
-                if (laneIsPaused4598) {
+                // V5.0.6171 — pause must pivot, not amputate, at the pre-FDG owner
+                // rotation choke. FDG already converts paused/retraining lanes into a
+                // controlled lane-local LAB_PIVOT with reduced size; but this earlier
+                // owner-lane check denied paused lanes before FDG could see them. If a
+                // paused lane is the selected owner lane or a profitable rescue, force a
+                // TacticSwitcher pivot and allow it to reach FDG for bounded 0.40x handling.
+                val ownerPausedPivot6171 = laneIsPaused4598 && com.lifecyclebot.engine.RuntimeModeAuthority.isLive() && (l == ownerLane || profitableRescue)
+                if (ownerPausedPivot6171) {
+                    try {
+                        val band6171 = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(scoreForToxicity.toInt().coerceIn(0, 100))
+                        val tactic6171 = com.lifecyclebot.engine.learning.TacticSwitcher.forcePivotForRetraining(l, band6171, "AUTO_PAUSED_OWNER_ROTATION")
+                        com.lifecyclebot.engine.lab.LlmLabEngine.seedFromTacticFailure(
+                            lane = l,
+                            scoreBand = band6171,
+                            failedTactic = "OWNER_ROTATION_PAUSED",
+                            nextTactic = tactic6171.name,
+                            reason = "BotService owner rotation allowed paused lane through FDG pivot 6171"
+                        )
+                        PipelineHealthCollector.labelInc("OWNER_LANE_PAUSED_PIVOT_ALLOW_6171_$l")
+                        ForensicLogger.lifecycle("OWNER_LANE_PAUSED_PIVOT_ALLOW_6171", "lane=$l primary=$primaryLane owner=$ownerLane rescue=$profitableRescue tactic=${tactic6171.name} symbol=${ts.symbol} mint=${ts.mint.take(10)} action=allow_to_fdg_controlled_pivot")
+                    } catch (_: Throwable) {}
+                }
+                val allowed = (l == ownerLane || profitableRescue) && (!laneIsPaused4598 || ownerPausedPivot6171)
+                if (laneIsPaused4598 && !ownerPausedPivot6171) {
                     try {
                         ForensicLogger.lifecycle(
                             "OWNER_LANE_PAUSED_DENIED_4598",

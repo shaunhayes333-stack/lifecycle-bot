@@ -416,7 +416,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("MEME-only should rotate ownership across the full MemeTrader surface", bot.contains("MEMETRADER_CONTRIBUTION_ROTATION") && bot.contains("fullMemeTraderRing") && bot.contains("MEMETRADER_OWNER_LANE"))
         assertTrue("Rotation must include internal lanes that were previously idle (V5.0.4599: specialists no longer in ring)", listOf("MOONSHOT", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { bot.contains(it) })
-        assertTrue("V5.0.4478: live contribution considers all internal lanes but bounds FDG/executor to owner/rescue", bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("action=considered_bounded_owner_rotation") && bot.contains("val allowed = (l == ownerLane || profitableRescue) && !laneIsPaused4598") && bot.contains("return allowed"))
+        assertTrue("V5.0.6171: live contribution remains bounded but paused owner/rescue lanes must pivot into FDG, not amputate before FDG", bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("action=considered_bounded_owner_rotation") && bot.contains("ownerPausedPivot6171") && bot.contains("val allowed = (l == ownerLane || profitableRescue) && (!laneIsPaused4598 || ownerPausedPivot6171)") && bot.contains("return allowed"))
         assertTrue("V5.0.6014: successful lanes must get bounded entry feed instead of MANIPULATED/SHITCOIN/EXPRESS budget", bot.contains("SUCCESSFUL_LANE_FEED_RESTORED_6014") && bot.contains("successfulFeedLanes6014") && bot.contains("QUALITY") && bot.contains("MOONSHOT") && bot.contains("BLUECHIP") && bot.contains("CRYPTO") && !bot.contains("SPECIALIST_ENTRY_EVAL_RESTORED_6013"))
         assertFalse("3914 live full-ring fanout regression must stay dead", bot.contains("LIVE_FULL_RING_LANE_OBSERVE"))
     }
@@ -845,7 +845,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("MEMETRADER_CONTRIBUTION_ROTATION"))
         assertTrue(bot.contains("exactly ONE owner"))
-        assertTrue(bot.contains("val allowed = (l == ownerLane || profitableRescue) && !laneIsPaused4598"))
+        assertTrue(bot.contains("ownerPausedPivot6171") && bot.contains("val allowed = (l == ownerLane || profitableRescue) && (!laneIsPaused4598 || ownerPausedPivot6171)"))
         assertTrue(bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469"))
         assertTrue(bot.contains("val fullMemeTraderRing = listOf"))
         assertFalse("owner rotation must not require pre-existing affinity", bot.contains("nonMemeSpecialist && affinity.contains(l)"))
@@ -3470,8 +3470,8 @@ class GoldenTapeRegressionTest {
     fun live_meme_mode_must_collapse_to_one_owner_lane_not_full_ring_fanout() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
-        assertTrue("V5.0.4478: live MemeTrader must consider all internal trader lanes while preserving bounded owner telemetry", bot.contains("LIVE_RING_OWNER_COLLAPSE") && bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("MEMETRADER_OWNER_LANE") && bot.contains("val allowed = (l == ownerLane || profitableRescue) && !laneIsPaused4598"))
-        assertTrue("V5.0.4598: paused lanes cannot receive owner-lane election (closes MANIPULATED bypass)", bot.contains("OWNER_LANE_PAUSED_DENIED_4598") && bot.contains("LaneAutoPauseGuard.isPaused(l)"))
+        assertTrue("V5.0.6171: live MemeTrader must consider all internal lanes while preserving bounded owner telemetry and FDG pivot authority", bot.contains("LIVE_RING_OWNER_COLLAPSE") && bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("MEMETRADER_OWNER_LANE") && bot.contains("ownerPausedPivot6171"))
+        assertTrue("V5.0.6171: paused owner/rescue lanes pivot into FDG; non-owner paused lanes remain denied", bot.contains("OWNER_LANE_PAUSED_PIVOT_ALLOW_6171") && bot.contains("OWNER_LANE_PAUSED_DENIED_4598") && bot.contains("TacticSwitcher.forcePivotForRetraining"))
         assertTrue("V5.0.6014: successful-lane feed must respect pause/proof guards and not revive all-lane fanout", bot.contains("SUCCESSFUL_LANE_FEED_DENIED_6014") && bot.contains("qualityProofOk6014") && !bot.contains("LIVE_FULL_RING_LANE_OBSERVE"))
         assertFalse("live full-ring observe must not return true before owner rotation", bot.contains("LIVE_FULL_RING_LANE_OBSERVE") || bot.contains("fullRingObserve"))
         assertTrue("V5.0.4474: runtime report must expose live all-lane contribution policy and owner context", pipe.contains("MEME_RING=liveAllLaneContribution") && pipe.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && pipe.contains("LIVE_RING_OWNER_COLLAPSE") && pipe.contains("MEMETRADER_OWNER_LANE"))
@@ -8217,6 +8217,17 @@ class GoldenTapeRegressionTest {
             main.contains("V5.0.6170") && main.contains("lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO)") && main.contains("applicationContext.getSharedPreferences") && main.contains("withContext(kotlinx.coroutines.Dispatchers.Main) { vm.startBot() }"))
         assertTrue("V5.0.6170: live-readiness render path must use in-memory UI config instead of bot_config SharedPreferences",
             main.contains("isPaperMode6170") && main.contains("vm.ui.value.config.paperMode") && !main.contains("""val prefs = getSharedPreferences("bot_config", MODE_PRIVATE)"""))
+    }
+
+
+    @org.junit.Test fun V5_0_6171_owner_rotation_paused_lanes_pivot_before_fdg() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.6171: owner rotation must not amputate paused owner/rescue lanes before FDG pause-pivot logic",
+            bot.contains("ownerPausedPivot6171") && bot.contains("OWNER_LANE_PAUSED_PIVOT_ALLOW_6171") && bot.contains("allow_to_fdg_controlled_pivot"))
+        assertTrue("V5.0.6171: pause-pivot must seed lane-local TacticSwitcher/LLM Lab, not blindly micro-probe",
+            bot.contains("TacticSwitcher.forcePivotForRetraining") && bot.contains("LlmLabEngine.seedFromTacticFailure") && bot.contains("OWNER_ROTATION_PAUSED"))
+        assertTrue("V5.0.6171: non-owner paused lanes stay denied to preserve bounded one-owner fanout",
+            bot.contains("laneIsPaused4598 && !ownerPausedPivot6171") && bot.contains("OWNER_LANE_PAUSED_DENIED_4598"))
     }
 
 }
