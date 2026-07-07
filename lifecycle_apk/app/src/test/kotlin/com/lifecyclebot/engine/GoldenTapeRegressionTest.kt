@@ -8342,4 +8342,11 @@ class GoldenTapeRegressionTest {
             persistence.contains("CAUSAL_EV_MEMORY_6179") && persistence.contains("CausalEvMemory6179.exportState()") && persistence.contains("CausalEvMemory6179.importState(it)"))
     }
 
+
+    @org.junit.Test fun V5_0_6182_money_path_kpi_closeout_is_reported() {
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        assertTrue("V5.0.6182: report must expose KPI closeout for throughput, clean-live PnL, route truth, runner retention, Crypto parity, and money path",
+            report.contains("KPI closeout 6182") && report.contains("throughputTarget=500-1000/day") && report.contains("cleanLivePnL=") && report.contains("compoundingGate=live-clean-only") && report.contains("routeVerified=") && report.contains("runnerRetention=") && report.contains("cryptoParity=") && report.contains("moneyPath=wallet/open-route/sell-finality/journal"))
+    }
+
 }

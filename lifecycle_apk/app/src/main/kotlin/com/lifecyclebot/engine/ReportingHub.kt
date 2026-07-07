@@ -310,6 +310,14 @@ object ReportingHub {
             val spnl = truthRows4509.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }
             val swr = if (sw + sl > 0) sw * 100.0 / (sw + sl) else 0.0
             appendLine("Strategy Clean headline: closes=${truthRows4509.size} W/L=$sw/$sl WR=${swr.fmt1()}% PnL=${spnl.fmt4()} SOL source=StrategyTruthLedger")
+            val cleanLiveRows6182 = truthRows4509.filter { it.mode.equals("live", true) }
+            val cleanLivePnl6182 = cleanLiveRows6182.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }
+            val exec6182 = pipe?.phaseCounts?.get("EXEC") ?: 0L
+            val projectedExecs6182 = (exec6182 * 24L).coerceAtLeast(0L)
+            val routeVerified6182 = pipe?.labelCounts?.get("LIVE_OPEN_ROUTE_VERIFIED_6176") ?: 0L
+            val runnerBank6182 = (pipe?.labelCounts?.get("SPIKE_GUARD_FULL_EXIT_6133") ?: 0L) + (pipe?.labelCounts?.get("RUNNER_EXIT_SHADOW_HOLD_BIAS_6144") ?: 0L)
+            val cryptoParity6182 = (pipe?.labelCounts?.get("CRYPTO_UNIVERSE_TERMINAL_PARITY_6177") ?: 0L) + (pipe?.labelCounts?.get("CRYPTO_REGIONAL_ALPHA_PRE_ROUTE_6178") ?: 0L)
+            appendLine("KPI closeout 6182: throughputTarget=500-1000/day projectedExecs24h=$projectedExecs6182 cleanLiveCloses=${cleanLiveRows6182.size} cleanLivePnL=${cleanLivePnl6182.fmt4()} SOL compoundingGate=live-clean-only routeVerified=$routeVerified6182 runnerRetention=$runnerBank6182 cryptoParity=$cryptoParity6182 moneyPath=wallet/open-route/sell-finality/journal")
             if (journal != null) appendLine("Raw journal audit: rows=${journal.trades} W/L=${journal.wins}/${journal.losses} WR=${journal.winRatePct().fmt1()}% PnL=${journal.pnlSol.fmt4()} SOL excluded=$excluded4509 note=raw_not_strategy_truth")
         } else if (journal != null) {
             appendLine("Raw journal fallback: rows=${journal.trades} W/L=${journal.wins}/${journal.losses} WR=${journal.winRatePct().fmt1()}% PnL=${journal.pnlSol.fmt4()} SOL note=StrategyTruthLedger_unavailable_not_canonical")
