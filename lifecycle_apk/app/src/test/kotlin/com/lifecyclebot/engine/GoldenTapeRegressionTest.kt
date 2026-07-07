@@ -8038,4 +8038,13 @@ class GoldenTapeRegressionTest {
             exec.contains("LIVE_BLEED_BUCKET_POST_FLOOR_CAP_6152") && exec.contains("prevent_floor_reinflation") && exec.contains("walletSol * 0.10") && exec.contains("lane_local_shrink_not_global_pause"))
     }
 
+
+    @org.junit.Test fun V5_0_6153_live_bleed_lanes_get_tighter_damage_cap_and_no_agi_veto() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6153: clean-live bleeding lanes must tighten strict SL locally to stop morning bleed losses",
+            exec.contains("baseRawSL6153") && exec.contains("liveBleedStopMetric6153") && exec.contains("bleedStopTightened6153") && exec.contains("LIVE_BLEED_STOP_TIGHTENED_6153") && exec.contains("lane_local_damage_cap"))
+        assertTrue("V5.0.6153: AGI stop-loss veto must not override the bleed damage-cap stop",
+            exec.contains("VetoDecision.VETO && !bleedStopTightened6153") && exec.contains("morning-bleed pattern") && exec.contains("not a global"))
+    }
+
 }
