@@ -341,8 +341,8 @@ class WalletManager private constructor(private val ctx: Context) {
      */
     fun reconnectViaFallbacks(): Boolean {
         return try {
-            val config = try { com.lifecyclebot.engine.ConfigStore.getInstance(ctx).state.value } catch (_: Throwable) { null }
-            val savedKey = config?.privateKeyB58.orEmpty()
+            val cfg = try { com.lifecyclebot.data.ConfigStore.load(ctx) } catch (_: Throwable) { null }
+            val savedKey = cfg?.privateKeyB58.orEmpty()
             if (savedKey.isBlank()) return false
             val dead = currentRpcUrl
             val nextRpc = FALLBACK_RPCS.firstOrNull { candidate ->
