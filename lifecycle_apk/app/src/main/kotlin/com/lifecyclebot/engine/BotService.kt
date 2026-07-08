@@ -268,8 +268,6 @@ class BotService : Service() {
         const val STRATEGY_DISTRUST_PAUSE_MS = 2L * 60_000L  // V5.9.726 — was 10min, dropped to 2min: 10min lockouts on the only-active SHITCOIN lane were starving the executor (5132 LANE_EVAL, 0 EXEC_BUY in V5.9.725 dump)
         private val strategyPauseUntilMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
         private val rapidEntryWarmupHoldUntilMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
-        // V5.0.6205 — P0 stale-price SL guard: per-mint grace window while we requeue a fresh quote.
-        private val staleSlGraceUntilMs6205 = java.util.concurrent.ConcurrentHashMap<String, Long>()
         // V5.0.6205 — P0 stale-price stop-loss guard grace windows (mint → grace deadline)
         private val staleSlGraceUntilMs6205 = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
