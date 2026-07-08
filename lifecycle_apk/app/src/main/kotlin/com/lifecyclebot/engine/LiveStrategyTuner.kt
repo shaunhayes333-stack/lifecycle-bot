@@ -348,9 +348,18 @@ object LiveStrategyTuner {
         // BOTH sol<0 AND mean<=-8% AND wr<35% — i.e. genuine bleeder, not
         // asymmetric variance.
         val asymRunner6068 = n >= 8 && (mean >= 20.0 || m.avgWinPct >= 50.0 || pf >= 4.0)
-        if ((n >= 30 && wr >= 40.0 && sol >= 0.0) ||
+        // V5.0.6215 — LIVE-ONLY SANITY GUARD for the asymmetric-runner exemption.
+        // Operator: "why hasn't the bot self tuned the failing strategies and lanes?"
+        // STANDARD sat on asymmetric_runner_exempt_6068_net_sol_variance with n=19
+        // WR=16% PnL=-0.08 SOL live because a couple of big-tail paper winners
+        // pushed mean/avgWin above threshold. The exemption held size × 1.00 while
+        // the live cohort bled. Revoke exemption if live-only is objectively bad:
+        // WR<20% AND PnL<-0.05 SOL over n>=15 = proof the setup isn't landing
+        // right now, regardless of what lifetime says.
+        val liveOnlySafetyRevoke6215 = n >= 15 && wr < 20.0 && sol < -0.05
+        if (((n >= 30 && wr >= 40.0 && sol >= 0.0) ||
             (n >= 8 && mean >= 20.0 && sol >= 0.0) ||
-            asymRunner6068  // V5.0.6068 — mean>=20% or big-tail signature exempts regardless of net SOL
+            asymRunner6068) && !liveOnlySafetyRevoke6215
         ) {
             return Adjustment(
                 lane = lane, trades = n, winRatePct = wr, totalSolPnl = sol,
@@ -380,9 +389,15 @@ object LiveStrategyTuner {
             StrategyTelemetry.computeLeaderboard(environment = null, includePartials = false, limit = 2_500)
                 .firstOrNull { canonical(it.strategy) == laneKey }
         } catch (_: Throwable) { null }
-        // lifetimeProfitable6114 — lifetime EV guard: no toxic label on profitable lanes
+        // lifetimeProfitable6114 — lifetime EV guard: no toxic label on profitable lanes.
+        // V5.0.6215 — but live-only bleeder gate: if live-only cohort is objectively
+        // failing (n>=15 WR<20% PnL<-0.05 SOL), REVOKE the exemption and let the
+        // toxic-labeling path below damp the size normally. This is exactly the
+        // case operator called out on BLUECHIP: n=31 WR=8% PnL=-0.673 SOL live,
+        // exempted from damping because lifetime WR/PnL includes 100+ paper wins.
         if (lifetimeMetric6114 != null && lifetimeMetric6114.trades >= 30 &&
-            (lifetimeMetric6114.totalSolPnl > 0.0 || lifetimeMetric6114.meanPnlPct >= 20.0)) {
+            (lifetimeMetric6114.totalSolPnl > 0.0 || lifetimeMetric6114.meanPnlPct >= 20.0) &&
+            !liveOnlySafetyRevoke6215) {
             try { ForensicLogger.lifecycle("LIFETIME_EV_GUARD_6114", "lane=$lane cleanLiveN=$n cleanLiveWR=${"%.1f".format(wr)}% cleanLiveSol=${"%.4f".format(sol)} lifetimeN=${lifetimeMetric6114.trades} lifetimeWR=${"%.1f".format(lifetimeMetric6114.winRatePct)}% lifetimeSol=${"%.4f".format(lifetimeMetric6114.totalSolPnl)} action=exempt_from_toxic") } catch (_: Throwable) {}
             return Adjustment(
                 lane = lane, trades = n, winRatePct = wr, totalSolPnl = sol,
@@ -392,6 +407,18 @@ object LiveStrategyTuner {
                 liquidityImpactMult = 1.0, partialTriggerMult = 1.15,
                 label = "lifetime_ev_exempt_6114",
             )
+        }
+        // V5.0.6215 — if lifetime exemption was REVOKED by live-only guard, log
+        // it so the operator can see the tuner is finally allowed to work.
+        if (liveOnlySafetyRevoke6215 && lifetimeMetric6114 != null &&
+            (lifetimeMetric6114.totalSolPnl > 0.0 || lifetimeMetric6114.meanPnlPct >= 20.0)) {
+            try {
+                ForensicLogger.lifecycle(
+                    "LIFETIME_EV_EXEMPT_REVOKED_LIVE_BLEED_6215",
+                    "lane=$lane liveN=$n liveWR=${"%.1f".format(wr)}% liveSol=${"%.4f".format(sol)} lifetimeSol=${"%.4f".format(lifetimeMetric6114.totalSolPnl)} action=revoke_exemption_allow_damp",
+                )
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIFETIME_EV_EXEMPT_REVOKED_LIVE_BLEED_6215")
+            } catch (_: Throwable) {}
         }
         val pfBleed = n >= 8 && sol < 0.0 && pf <= 0.0
         val wrBleed = n >= 8 && wr < 35.0 && sol <= 0.0
