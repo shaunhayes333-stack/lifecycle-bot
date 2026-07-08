@@ -1,5 +1,31 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## Session (08 Jul 2026) — V5.0.6207 SHIPPED · CI FULLY GREEN ✅
+### Un-choke of TOXIC_PATTERN_MEMORY_6192 (killed 180 live trades in last op-report)
+
+**Root cause (forensic):** `TokenWinMemory.patternEdgeForLiveContext6192()`
+scanned 5 candidate dimensions for the worst-performing paper cohort — but
+two of those (`lane`, `buy_route`) are **structural**: the bot always trades
+through a lane and a DEX route. A single bad paper cohort in the MEME lane
+(e.g. n=8, WR=15%) auto-poisoned EVERY live meme entry regardless of setup
+quality. The FDG then converted that verdict to HARD_BLOCK live entries.
+
+**Fix shipped in V5.0.6207 (`5db51f014`):**
+1. **TokenWinMemory.patternEdgeForLiveContext6192** — exclude `lane` and
+   `buy_route` from worstPattern eligibility. Raise sample floor: TOXIC
+   n>=20 (was 8), CATASTROPHIC n>=30 (was 10). Paper-derived toxicity now
+   requires REAL evidence before abandoning live risk.
+2. **FinalDecisionGate.kt @ line 2236** — verdict routing split:
+   • CATASTROPHIC → remains HARD block (rare, high-evidence).
+   • TOXIC → SOFT-SHAPE probe (size × 0.35) via LiveSizingProfile.
+   Bot still learns from small entries instead of full abandonment.
+3. **LiveSizingProfile.gateSizeMult** — new mapping
+   `TOXIC_PATTERN_SOFT_6207 → 0.35`.
+
+**Files:** TokenWinMemory.kt · FinalDecisionGate.kt · LiveSizingProfile.kt
+**Brace/paren parity:** verified identical delta vs last GREEN commit.
+**CI:** Build ✅ + Runtime Smoke ✅ (run 28948687744).
+
 ## Original Problem Statement
 Upgrading a Native Kotlin Android Solana trading bot (AATE) to V5.7+.
 Building a super smart SOL Perps/Leverage trading system that reuses
