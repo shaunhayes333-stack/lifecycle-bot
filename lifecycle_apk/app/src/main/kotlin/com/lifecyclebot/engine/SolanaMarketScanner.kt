@@ -2721,6 +2721,15 @@ class SolanaMarketScanner(
         SolanaBlueChipWatchlist.Category.LSD_STAKING -> 500_000.0        // JitoSOL, mSOL, bSOL
         SolanaBlueChipWatchlist.Category.INFRASTRUCTURE -> 400_000.0     // PYTH, W, HNT, RENDER, KIN
         SolanaBlueChipWatchlist.Category.DEFI_YIELD -> 200_000.0         // MNGO, SBR
+        // V5.0.6204 — new expansion categories
+        SolanaBlueChipWatchlist.Category.AI_AGENT -> 300_000.0            // AI16Z, GRIFFAIN, ARC, ZEREBRO
+        SolanaBlueChipWatchlist.Category.GAMING -> 200_000.0              // ATLAS, POLIS, AURY, GENE
+        SolanaBlueChipWatchlist.Category.DEPIN -> 300_000.0               // MOBILE, IOT, HELIUM, NOS
+        SolanaBlueChipWatchlist.Category.NEW_L1_MEME -> 500_000.0         // FARTCOIN, PENGU, GOAT, TRUMP, MELANIA
+        SolanaBlueChipWatchlist.Category.RWA -> 400_000.0                 // tokenized T-bills
+        SolanaBlueChipWatchlist.Category.BRIDGED_MAJOR -> 800_000.0       // cbBTC, wBTC, wETH
+        SolanaBlueChipWatchlist.Category.LAUNCHPAD_GRADUATE -> 300_000.0  // SC, GRIFT, SPX6900, SIGMA
+        SolanaBlueChipWatchlist.Category.NFT_LIQUIDITY -> 200_000.0       // TNSR, MPLX, DGN
     }
 
     /**
