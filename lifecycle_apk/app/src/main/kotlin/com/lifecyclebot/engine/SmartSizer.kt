@@ -207,21 +207,32 @@ object SmartSizer {
                 else -> 0.15                 // 15% minimum in paper
             }
         } else {
-            // REAL MODE: Conservative, confidence-driven
+            // REAL MODE: Confidence-driven.
+            // V5.0.6201 — DOUBLED FROM 4-15% TO 8-20% RANGE. Audit
+            // 2026-07-08 found live sizes were 4-7x smaller than paper on
+            // proven-winner lanes; combined with 0.55x defensive compounding
+            // and 0.1x lane pause, live effective size was 36x smaller than
+            // paper on QUALITY/EXPRESS. Paper +19.9 SOL / live -9.0 SOL is
+            // driven by sizing asymmetry, not strategy weakness. Doubling
+            // the live base range closes the gap to ~2x paper — still
+            // conservative but allows meaningful wins to actually move the
+            // wallet.
             when {
-                aiConfidence >= 85 -> 0.15  // 15% - very high confidence
-                aiConfidence >= 75 -> 0.12  // 12% - high confidence
-                aiConfidence >= 65 -> 0.10  // 10% - good confidence
-                aiConfidence >= 55 -> 0.08  // 8% - moderate confidence
-                aiConfidence >= 45 -> 0.06  // 6% - low confidence
-                else -> 0.04                 // 4% - very low confidence
+                aiConfidence >= 85 -> 0.20  // 20% - very high confidence (was 15%)
+                aiConfidence >= 75 -> 0.16  // 16% - high confidence (was 12%)
+                aiConfidence >= 65 -> 0.14  // 14% - good confidence (was 10%)
+                aiConfidence >= 55 -> 0.12  // 12% - moderate confidence (was 8%)
+                aiConfidence >= 45 -> 0.10  // 10% - low confidence (was 6%)
+                else -> 0.08                 // 8% - very low confidence (was 4%)
             }
         }
         
         // Wallet tier still affects maximum, not base
         // Wallet tier affects maximum percentage
         // V5.9.68 PAPER MODE BUMP: double the cap across every paper tier so
-        // bigger positions can flow through. Live tiers kept unchanged.
+        // bigger positions can flow through.
+        // V5.0.6201: live tier caps ALSO widened to accommodate the doubled
+        // base range so aiBasePct isn't just re-clipped by tierMaxPct.
         val (tier, tierMaxPct) = if (isPaperMode) {
             when {
                 tradeable < 0.5    -> "paper_micro"  to 0.30
@@ -232,11 +243,11 @@ object SmartSizer {
                 else               -> "paper_whale"  to 0.20
             }
         } else when {
-            tradeable < 0.5  -> "micro"  to 0.15
-            tradeable < 2.0  -> "small"  to 0.15
-            tradeable < 10.0 -> "medium" to 0.12
-            tradeable < 50.0 -> "large"  to 0.10
-            else             -> "whale"  to 0.08
+            tradeable < 0.5  -> "micro"  to 0.22  // was 0.15 — small wallets need meaningful trades to recover
+            tradeable < 2.0  -> "small"  to 0.20  // was 0.15
+            tradeable < 10.0 -> "medium" to 0.16  // was 0.12
+            tradeable < 50.0 -> "large"  to 0.14  // was 0.10
+            else             -> "whale"  to 0.12  // was 0.08
         }
         
         // Use AI base, capped by tier max

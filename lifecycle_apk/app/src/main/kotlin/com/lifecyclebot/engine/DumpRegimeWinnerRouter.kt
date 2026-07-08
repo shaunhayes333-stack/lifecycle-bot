@@ -76,6 +76,25 @@ object DumpRegimeWinnerRouter {
             if (regime != RegimeDetector.Regime.DUMP && regime != RegimeDetector.Regime.CHOP) {
                 return RouterVerdict(true, "REGIME_ALLOW_6196", 0.0, 0.0, 0.0)
             }
+            // V5.0.6201 — SMALL-WALLET RECOVERY EXEMPTION. When wallet is
+            // below 1 SOL the bot needs to trade its way out. Blocking all
+            // negative-EV lanes in DUMP/CHOP creates a starvation loop —
+            // no trades means no learning means no recovery. Report
+            // 2026-07-08 19:54 showed wallet=0.4118 SOL with 28 pivot-blocks
+            // out of 45 total FDG blocks (62%). Recovery mode: allow the
+            // trade but let downstream sizing shapers (LivePolicyEngine
+            // lane-pause + LiveStrategyTuner) keep positions small.
+            val walletSol = try { RealizedWalletCompoundingGovernor.snapshot().walletSol } catch (_: Throwable) { 1.0 }
+            if (walletSol < 1.0) {
+                try {
+                    PipelineHealthCollector.labelInc("PIVOT_SMALL_WALLET_RECOVERY_EXEMPT_6201")
+                    ForensicLogger.lifecycle(
+                        "PIVOT_SMALL_WALLET_RECOVERY_EXEMPT_6201",
+                        "walletSol=${"%.4f".format(walletSol)} regime=$regime lane=${laneName ?: "?"} — allowing negative-EV lane so bot can trade its way to recovery",
+                    )
+                } catch (_: Throwable) {}
+                return RouterVerdict(true, "SMALL_WALLET_RECOVERY_EXEMPT_6201", 0.0, 0.0, 0.0)
+            }
             val lane = laneName?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
                 ?: return RouterVerdict(true, "LANE_UNKNOWN_ALLOW_6196", 0.0, 0.0, 0.0)
 

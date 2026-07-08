@@ -21387,11 +21387,21 @@ if (hotExitHandledSweep) {
                         //          toxic AND score<30 — sufficient samples exist,
                         //          more losses add zero information. Unproven
                         //          bands keep learning (6069 doctrine preserved).
+                        //
+                        // V5.0.6201 — RELAX LIVE ASYMMETRY. Old live rule
+                        // (score<30 OR isDanger) was too draconian. Report
+                        // 2026-07-08 shows live is bleeding partly because
+                        // score=30-39 danger bands (which may have RECOVERED
+                        // as regime shifted) are blocked on principle. New
+                        // live rule: block score<20 (still-garbage) OR
+                        // (isDanger AND score<40) (unrecovered danger).
+                        // Score>=40 danger bands are ALLOWED — the size shapers
+                        // + FDG + lane tuner handle sizing.
                         val _sniperIsPaper6072 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { cfg.paperMode }
                         val _sniperBlocked6072 = if (_sniperIsPaper6072) {
                             _sniperIsDanger && _sniperScore < 30
                         } else {
-                            _sniperScore < 30 || _sniperIsDanger
+                            _sniperScore < 20 || (_sniperIsDanger && _sniperScore < 40)
                         }
                         if (_sniperBlocked6072) {
                             ErrorLogger.info("BotService",

@@ -222,7 +222,14 @@ object StrategyTruthLedger {
         return "$mode|$mint|$pos"
     }
 
-    private const val SAME_MINT_TERMINAL_DEDUP_WINDOW_MS = 5L * 60_000L
+    // V5.0.6201 — narrowed from 5min → 60s. Audit 2026-07-08 showed
+    // 129 duplicateTerminal exclusions. The 5-min window was too wide:
+    // legitimate re-entries on popular mints (WIF/BONK/JUP) within 5 min
+    // of a prior close were being counted as duplicates and stripped from
+    // clean stats. 60s is enough to catch reconciler-driven double-writes
+    // of the same close (typical retry window is <30s) while allowing
+    // fast re-entries to be counted as independent positions.
+    private const val SAME_MINT_TERMINAL_DEDUP_WINDOW_MS = 60_000L
 
     private fun mintCloseWindowKey(t: Trade): String {
         val mode = t.mode.ifBlank { "unknown" }.uppercase()

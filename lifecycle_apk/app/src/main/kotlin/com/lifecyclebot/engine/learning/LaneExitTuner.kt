@@ -28,7 +28,13 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 object LaneExitTuner {
 
-    private const val TP_MIN = 0.60
+    // V5.0.6201 — TP_MIN raised 0.60 → 0.80 to stop clipping live winners.
+    // Report 2026-07-08 19:54 showed BLUECHIP tpMult=0.60 and QUALITY tpMult=0.60
+    // banking at ~+25% while raw journal proves BLUECHIP EV=+53% and MOONSHOT
+    // proven-winner tuner records n=12 WR=50% PnL=+0.042. The old 0.60 floor was
+    // an over-correction from a bear-cycle tuning session — live never captured
+    // the +50% wins paper is proving are possible.
+    private const val TP_MIN = 0.80
     private const val TP_MAX = 1.40
     private const val SL_MIN = 0.70
     private const val SL_MAX = 1.30

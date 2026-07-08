@@ -76,7 +76,15 @@ object RealizedWalletCompoundingGovernor {
         }
         return try {
             val adj = LiveStrategyTuner.adjustment(lane)
-            if (adj.trades >= 5 && adj.totalSolPnl > 0.0) {
+            // V5.0.6201 — relaxed positive-lane exemption threshold from
+            // totalSolPnl > 0.0 to > -0.05. Report 2026-07-08 19:54 showed
+            // MOONSHOT LiveStrategyTuner PnL=+0.042 (barely positive → exempt)
+            // but BLUECHIP=-0.053 and QUALITY=-0.123 stayed clamped to 0.55x
+            // despite BLUECHIP's raw journal EV=+53% and n=101 sample size.
+            // Widening the exemption band lets near-breakeven proven lanes
+            // trade at full compounded size so they can PROVE the +EV in live
+            // and pull themselves out of the defensive spiral.
+            if (adj.trades >= 5 && adj.totalSolPnl > -0.05) {
                 try { PipelineHealthCollector.labelInc("WALLET_COMPOUND_DEFENSIVE_LANE_EXEMPT_6075") } catch (_: Throwable) {}
                 1.0
             } else g
