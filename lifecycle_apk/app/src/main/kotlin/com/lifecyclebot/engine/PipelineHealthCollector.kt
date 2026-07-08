@@ -1121,6 +1121,47 @@ object PipelineHealthCollector {
         } catch (_: Throwable) {}
         sb.append("\n")
 
+        // V5.0.6208 — Bleeder Board (P4).
+        // Compact pill showing lanes currently in soft-block / size-dampen from
+        // the AI's own tuning + a redemption distance (# more wins needed to
+        // cross the 40% WR redemption floor). Complements the "Bottom bleeders"
+        // deep section by surfacing the actionable board near the top of the
+        // snapshot where the operator sees it first.
+        try {
+            val knownLanes = listOf(
+                "BLUECHIP", "QUALITY", "MOONSHOT", "SHITCOIN", "STANDARD",
+                "TREASURY", "CASHGEN", "EXPRESS", "MANIPULATED", "PROJECT_SNIPER",
+                "PRESALE_SNIPE", "DIP_HUNTER"
+            )
+            val tuned = knownLanes.mapNotNull { lane ->
+                try {
+                    val adj = com.lifecyclebot.engine.LiveStrategyTuner.adjustment(lane)
+                    if (adj.isNeutral || adj.sizeMult >= 1.0 || adj.trades <= 0) null else adj
+                } catch (_: Throwable) { null }
+            }.distinctBy { it.lane }.sortedBy { it.sizeMult }.take(5)
+            if (tuned.isNotEmpty()) {
+                sb.append("===== 🩸 Bleeder Board (V5.0.6208) — lanes AI is currently dampening =====\n")
+                for (a in tuned) {
+                    val distance = if (a.winRatePct >= 40.0) 0
+                    else {
+                        // wins needed such that (wins+extra) / (trades+extra) >= 0.40
+                        // solved: extra >= (0.40*trades - wins) / 0.60
+                        val currentWins = ((a.winRatePct / 100.0) * a.trades).toInt()
+                        val need = ((0.40 * a.trades - currentWins) / 0.60).let { kotlin.math.ceil(it).toInt() }
+                        maxOf(1, need)
+                    }
+                    val badge = when {
+                        a.sizeMult <= 0.45 -> "🔴"
+                        a.sizeMult <= 0.75 -> "🟠"
+                        else               -> "🟡"
+                    }
+                    val redemption = if (distance == 0) "cleared" else "+${distance}W to 40% WR floor"
+                    sb.append("  $badge ${a.lane.padEnd(14)} n=${a.trades.toString().padEnd(4)} WR=${"%5.1f".format(a.winRatePct)}%  size×${"%.2f".format(a.sizeMult)}  pnl=${"%+.3f".format(a.totalSolPnl)} SOL  → $redemption\n")
+                }
+                sb.append("  Read: 🔴 heavy damper (size≤0.45) · 🟠 moderate (≤0.75) · 🟡 mild · lane clears when live WR ≥ 40%.\n\n")
+            }
+        } catch (_: Throwable) {}
+
         // ── Funnel ──────────────────────────────────────────────────
         sb.append("===== Pipeline funnel (in-app mirror of CI funnel) =====\n")
         val phasesOfInterest = listOf(

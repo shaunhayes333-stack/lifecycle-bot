@@ -4330,8 +4330,8 @@ class SolanaMarketScanner(
         if (circuitOpen) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("API_CIRCUIT_BREAKER_SKIP_${host}_6208") } catch (_: Throwable) {}
             ErrorLogger.debug("Scanner", "[CIRCUIT_BREAKER] ${host} locked out — skipping ${url.take(50)}")
-            return null
-        }
+            null
+        } else run {
         val builder = Request.Builder().url(effectiveUrl)
             .header(
                 "User-Agent",
@@ -4374,6 +4374,7 @@ class SolanaMarketScanner(
                 else -> ErrorLogger.warn("Scanner", "[NETWORK] HTTP ${resp.code} from ${url.take(50)}")
             }
             null
+        }
         }
     } catch (e: java.net.SocketTimeoutException) {
         ErrorLogger.debug("Scanner", "[NETWORK/TIMEOUT] ${url.take(50)}")
