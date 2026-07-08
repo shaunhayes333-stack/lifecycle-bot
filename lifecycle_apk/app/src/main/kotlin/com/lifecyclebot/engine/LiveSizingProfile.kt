@@ -214,6 +214,7 @@ object LiveSizingProfile {
             r.contains("PROVIDER_PROOF_LIQUIDITY_CASCADE") -> 0.60
             r.contains("FLUID_EXECUTE_FLOOR")              -> 0.75
             r.contains("TOXIC_PATTERN_SOFT_6207")          -> 0.35
+            r.contains("BLEEDER_LANE_RECOVERY_PROBE_6210") -> 0.30
             else                                            -> 1.0
         }
     }

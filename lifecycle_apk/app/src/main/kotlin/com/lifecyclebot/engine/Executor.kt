@@ -12503,10 +12503,38 @@ class Executor(
                 com.lifecyclebot.engine.StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
                     .firstOrNull { it.strategy.equals(laneTag4134, ignoreCase = true) }
             } catch (_: Throwable) { null }
+            // V5.0.6210 — RECOVERY-MODE OVERRIDE for lanes with strong lifetime edge.
+            // Op-report shows BLUECHIP LIFETIME = +7.91 SOL / 29.9% WR / n=87 (green),
+            // but live-only cohort = E=-8.8% / n=20 (red). The hard gate abandoned
+            // 51 live entries because it only trusted the live-only slice, ignoring
+            // 87 lifetime trades of positive expectancy. If the LIFETIME leaderboard
+            // is strongly positive (SOL>=+1.0 AND WR>=25%), let the entry through
+            // at 0.30x soft-probe size instead of hard-blocking. This is the correct
+            // recovery path — the AI keeps learning on live at reduced exposure.
+            val lifetimeMetric6210 = try {
+                com.lifecyclebot.engine.StrategyTelemetry.computeLeaderboard(limit = 2_500)
+                    .firstOrNull { it.strategy.equals(laneTag4134, ignoreCase = true) }
+            } catch (_: Throwable) { null }
+            val recoveryOverride6210 = lifetimeMetric6210 != null &&
+                lifetimeMetric6210.totalSolPnl >= 1.0 &&
+                lifetimeMetric6210.winRatePct >= 25.0 &&
+                lifetimeMetric6210.trades >= 40
             if (bleederMetric6205 != null && bleederMetric6205.trades >= 15 &&
                 (bleederMetric6205.meanPnlPct <= -10.0 ||
                     (bleederMetric6205.winRatePct < 20.0 && bleederMetric6205.totalSolPnl < 0.0))
             ) {
+                if (recoveryOverride6210) {
+                    // Soft-probe: mark for size damper and continue through the pipeline.
+                    try {
+                        com.lifecyclebot.engine.LiveSizingProfile.markGateSoftShape(ts.mint, "BLEEDER_LANE_RECOVERY_PROBE_6210")
+                        ForensicLogger.lifecycle(
+                            "LIVE_BLEEDER_LANE_RECOVERY_PROBE_6210",
+                            "symbol=${ts.symbol} lane=$laneTag4134 liveEV=${"%.2f".format(bleederMetric6205.meanPnlPct)}%(n=${bleederMetric6205.trades}) lifetimeSOL=+${"%.3f".format(lifetimeMetric6210!!.totalSolPnl)} lifetimeWR=${"%.1f".format(lifetimeMetric6210.winRatePct)}%(n=${lifetimeMetric6210.trades}) action=allow_at_0.30x",
+                        )
+                        PipelineHealthCollector.labelInc("LIVE_BLEEDER_LANE_RECOVERY_PROBE_6210")
+                    } catch (_: Throwable) {}
+                    onLog("🔓 LIVE bleeder-lane RECOVERY: ${ts.symbol} lane=$laneTag4134 liveEV=${"%.1f".format(bleederMetric6205.meanPnlPct)}% but LIFETIME +${"%.2f".format(lifetimeMetric6210!!.totalSolPnl)} SOL @ ${"%.1f".format(lifetimeMetric6210.winRatePct)}% WR — allowing at 0.30x soft-probe", "discipline")
+                } else {
                 try {
                     ForensicLogger.lifecycle(
                         "LIVE_BLEEDER_LANE_HARD_GATE_6205",
@@ -12517,6 +12545,7 @@ class Executor(
                 try { emitLiveBuyFail(ts, sol, "BLEEDER_LANE_EV_GATE", "lane=$laneTag4134 ev=${"%.1f".format(bleederMetric6205.meanPnlPct)}% n=${bleederMetric6205.trades}") } catch (_: Throwable) {}
                 onLog("🛑 LIVE bleeder-lane gate: ${ts.symbol} lane=$laneTag4134 EV=${"%.1f".format(bleederMetric6205.meanPnlPct)}%/trade n=${bleederMetric6205.trades} — live blocked, paper learns", "discipline")
                 return false
+                }
             }
 
             // (b) DUMP-regime kill switch — pattern-verdict-immune.
