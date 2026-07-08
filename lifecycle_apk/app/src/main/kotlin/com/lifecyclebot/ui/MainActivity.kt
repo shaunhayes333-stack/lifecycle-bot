@@ -2036,6 +2036,7 @@ for legal compliance.
 
         // V5.1: Export/Import learning data buttons
         findViewById<View>(R.id.btnExportData)?.setOnClickListener { exportLearningData() }
+        findViewById<View>(R.id.btnExportPositions)?.setOnClickListener { exportPositionsBackup() }
         findViewById<View>(R.id.btnImportData)?.setOnClickListener { importLearningData() }
 
         tvAdvancedToggle.setOnClickListener {
@@ -3089,6 +3090,36 @@ for legal compliance.
                 "edge ${(sc.edgeStrength * 100).toInt()}%  " +
                 "risk ${(sc.overallRisk * 100).toInt()}%  " +
                 "health ${(sc.marketHealth * 100).toInt()}%"
+        } catch (_: Exception) {}
+
+        // V5.0.6205 — P2: Pivot-to-winners banner + Pilot Log ticker.
+        try {
+            val pivotBanner = findViewById<android.view.View>(R.id.pivotWinnersBanner)
+            val pivotText = findViewById<TextView>(R.id.tvPivotWinners)
+            if (pivotBanner != null && pivotText != null) {
+                val pivotSnap = com.lifecyclebot.engine.DumpRegimeWinnerRouter.uiSnapshot()
+                val pivotAgeMs = System.currentTimeMillis() - pivotSnap.lastBlockAtMs
+                if (pivotSnap.lastBlockAtMs > 0L && pivotAgeMs < 15L * 60_000L) {
+                    pivotText.setTextIfChanged("PIVOT→WINNERS: ${pivotSnap.lastBlockedLane} blocked ${pivotAgeMs / 60_000}m ago • ${pivotSnap.blocksLastHour} blocks/h — flow routed to winner lanes")
+                    pivotBanner.visibility = android.view.View.VISIBLE
+                } else {
+                    pivotBanner.visibility = android.view.View.GONE
+                }
+            }
+        } catch (_: Exception) {}
+        try {
+            val pilotTicker = findViewById<TextView>(R.id.tvPilotTicker)
+            if (pilotTicker != null) {
+                val refl = com.lifecyclebot.engine.SentienceOrchestrator.recentReflections(1).firstOrNull()
+                if (refl != null && refl.monologue.isNotBlank()) {
+                    val agoM = (System.currentTimeMillis() - refl.timestamp) / 60_000L
+                    pilotTicker.setTextIfChanged("🧠 PILOT [${agoM}m ago] ${refl.monologue}")
+                    pilotTicker.visibility = android.view.View.VISIBLE
+                    pilotTicker.isSelected = true  // required for marquee scroll
+                } else {
+                    pilotTicker.visibility = android.view.View.GONE
+                }
+            }
         } catch (_: Exception) {}
 
         // V5.9.453: Brain Health pill + Ladder pill + Guards strip + Leaderboard.
@@ -9431,6 +9462,44 @@ This cannot be undone!
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    // V5.0.6205 — P2: /positions backup export. Writes a human-readable
+    // snapshot of every persisted open position to Downloads/AATE_Backups/.
+    private fun exportPositionsBackup() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!android.os.Environment.isExternalStorageManager()) {
+                requestStoragePermission()
+                Toast.makeText(this, "Please grant storage permission, then try again", Toast.LENGTH_LONG).show()
+                return
+            }
+        }
+        try {
+            val positions = com.lifecyclebot.engine.PositionPersistence.loadPositions()
+            val dir = java.io.File(
+                android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                "AATE_Backups"
+            )
+            if (!dir.exists()) dir.mkdirs()
+            val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
+            val file = java.io.File(dir, "positions_backup_$stamp.txt")
+            val sb = StringBuilder()
+            sb.appendLine("AATE POSITIONS BACKUP — $stamp")
+            sb.appendLine("open positions: ${positions.size}")
+            sb.appendLine("────────────────────────────────────────")
+            for ((mint, p) in positions) {
+                sb.appendLine("${p.symbol} (${p.tradingMode}${if (p.isPaperPosition) "/PAPER" else "/LIVE"})")
+                sb.appendLine("  mint=$mint")
+                sb.appendLine("  qty=${p.qtyToken} entryPrice=${p.entryPrice} costSol=${p.costSol}")
+                sb.appendLine("  entryTime=${java.util.Date(p.entryTime)} peakGain=${p.peakGainPct}%")
+                sb.appendLine("  score=${p.entryScore} liq=\$${p.entryLiquidityUsd.toInt()} mcap=\$${p.entryMcap.toInt()}")
+                sb.appendLine("")
+            }
+            file.writeText(sb.toString())
+            Toast.makeText(this, "OK Positions exported to:\n${file.absolutePath}", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "FAIL Positions export: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun importLearningData() {

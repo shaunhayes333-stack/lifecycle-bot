@@ -2599,7 +2599,7 @@ class SolanaMarketScanner(
             var jupHits = 0
             var dexFallbacks = 0
             for (bc in eligible) {
-                if (found >= 24) break  // V5.0.6204 — raised 12→24 to cover 96-mint expanded watchlist in ~4 scanner cycles
+                if (found >= 40) break  // V5.0.6205 — raised 24→40 to cover the 250-mint expanded watchlist in ~6 scanner cycles
                 val jupPrice = prices[bc.mint] ?: 0.0
                 val token: ScannedToken = if (jupPrice > 0.0) {
                     jupHits++
@@ -4203,7 +4203,36 @@ class SolanaMarketScanner(
         emit(token)
     }
 
+    // V5.0.6205 — P1 LAST-GOOD-RESPONSE CACHE (operator: "we've lost the
+    // memetrader's full solana network feed"). DexScreener's 76% 5xx storm +
+    // HostCircuitInterceptor cool-downs made getWithRetry return null for the
+    // token-profiles / token-boosts list endpoints, so scanFreshLaunches,
+    // scanDexTrending, scanDexGainers, scanDexBoosted, scanTopVolumeTokens,
+    // scanPumpFunVolume and scanPumpGraduates ALL emitted zero in the same
+    // cycle — the "lost network feed". Discovery lists change slowly, so
+    // serving the last good body while it is younger than 10 min during an
+    // outage keeps every lane fed instead of starving the whole funnel.
+    // Bounded to 16 URL entries.
+    private val lastGoodBodyCache6205 = ConcurrentHashMap<String, Pair<Long, String>>()
+    private val LAST_GOOD_CACHE_TTL_MS_6205 = 10 * 60_000L
+
     private fun getWithRetry(url: String, apiKey: String = "", maxRetries: Int = 2, extraHeaders: Map<String, String> = emptyMap()): String? {
+        val fresh6205 = getWithRetryInner6205(url, apiKey, maxRetries, extraHeaders)
+        if (fresh6205 != null) {
+            if (lastGoodBodyCache6205.size < 16 || lastGoodBodyCache6205.containsKey(url)) {
+                lastGoodBodyCache6205[url] = System.currentTimeMillis() to fresh6205
+            }
+            return fresh6205
+        }
+        val cached6205 = lastGoodBodyCache6205[url] ?: return null
+        val ageMs6205 = System.currentTimeMillis() - cached6205.first
+        if (ageMs6205 > LAST_GOOD_CACHE_TTL_MS_6205) return null
+        ErrorLogger.warn("Scanner", "🛟 LAST_GOOD_CACHE_HIT_6205: serving ${ageMs6205 / 1000}s-old body for ${url.take(50)} while upstream is down")
+        try { PipelineHealthCollector.labelInc("SCANNER_LAST_GOOD_CACHE_HIT_6205") } catch (_: Throwable) {}
+        return cached6205.second
+    }
+
+    private fun getWithRetryInner6205(url: String, apiKey: String = "", maxRetries: Int = 2, extraHeaders: Map<String, String> = emptyMap()): String? {
         // V5.9.1469 — SCANNER BACKOFF SHORT-CIRCUIT. The scanner path never consulted
         // ApiBackoff, so a failing host (snapshot: geckoterminal sr=56%, helius/groq
         // sr=0%) kept getting hit + retried INSIDE supervisor workers — each dead call

@@ -10369,6 +10369,7 @@ class Executor(
                                 shapedSol6018,
                                 walletSol,
                                 isPaperMode = false,
+                                riskMult = laneCapPenalty.sizeMultiplier.coerceIn(0.0, 1.0),  // V5.0.6205 — floor respects the penalty
                             ).coerceAtMost(effSol)
                             try { ForensicLogger.lifecycle("LIVE_RESTORE_LANE_CAP_COMPOUND_FLOOR_6018", "symbol=${ts.symbol} mint=${ts.mint.take(10)} from=${effSol.fmt(4)} shaped=${shapedSol6018.fmt(4)} to=${liveSol.fmt(4)} penalty=${laneCapPenalty.reason}") } catch (_: Throwable) {}
                         } else {
@@ -12489,6 +12490,35 @@ class Executor(
                 return false
             }
 
+            // V5.0.6205 — ALL-REGIME BLEEDER-LANE HARD GATE (root-cause audit).
+            // MOONSHOT ran 117 live trades at EV=-24.44%/trade because every
+            // lane-EV gate was DUMP/CHOP-scoped and everything else only sized
+            // down (which the last-mile floor then re-inflated). A lane that is
+            // PROVEN toxic on live terminals (n>=15 with EV<=-10%, or WR<20%
+            // while net-negative SOL) must not spend live SOL in ANY regime.
+            // Paper/shadow keeps learning the lane; the gate auto-unblocks the
+            // moment rolling stats recover above the floor. Uses the same clean
+            // leaderboard as DumpRegimeWinnerRouter so all brains agree.
+            val bleederMetric6205 = try {
+                com.lifecyclebot.engine.StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
+                    .firstOrNull { it.strategy.equals(laneTag4134, ignoreCase = true) }
+            } catch (_: Throwable) { null }
+            if (bleederMetric6205 != null && bleederMetric6205.trades >= 15 &&
+                (bleederMetric6205.meanPnlPct <= -10.0 ||
+                    (bleederMetric6205.winRatePct < 20.0 && bleederMetric6205.totalSolPnl < 0.0))
+            ) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_BLEEDER_LANE_HARD_GATE_6205",
+                        "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 n=${bleederMetric6205.trades} wr=${"%.1f".format(bleederMetric6205.winRatePct)} ev=${"%.2f".format(bleederMetric6205.meanPnlPct)} pnlSol=${"%.4f".format(bleederMetric6205.totalSolPnl)} regime=ANY action=block_live_entry_paper_continues",
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_BLEEDER_LANE_HARD_GATE_6205")
+                } catch (_: Throwable) {}
+                try { emitLiveBuyFail(ts, sol, "BLEEDER_LANE_EV_GATE", "lane=$laneTag4134 ev=${"%.1f".format(bleederMetric6205.meanPnlPct)}% n=${bleederMetric6205.trades}") } catch (_: Throwable) {}
+                onLog("🛑 LIVE bleeder-lane gate: ${ts.symbol} lane=$laneTag4134 EV=${"%.1f".format(bleederMetric6205.meanPnlPct)}%/trade n=${bleederMetric6205.trades} — live blocked, paper learns", "discipline")
+                return false
+            }
+
             // (b) DUMP-regime kill switch — pattern-verdict-immune.
             // V5.0.4149 — Operator override: "its not meant to disable its meant
             // to pivot to the right strategy." During DUMP, defensive lanes
@@ -13135,9 +13165,18 @@ class Executor(
         // "if it catching huge wins it needs to make big wins".
         if (sol > 0.0) {
             val beforeFloor = sol
+            // V5.0.6205 — pass the composed damper product so the floor cannot
+            // re-inflate deliberately-shrunk probes (root-cause audit: the old
+            // unconditional floor erased bleeder/DUMP/discipline dampers and made
+            // live bet 12-32% wallet on lanes paper correctly probed small).
+            val composedRiskMult6205 = try {
+                (disciplineRecoverySizeMultiplier4460 * liveBleedSizeMultiplier6152 *
+                    providerQuorumSizeMultiplier * laneCapitalSizeMultiplier *
+                    commonSenseSizeMultiplier4573).coerceIn(0.0, 1.0)
+            } catch (_: Throwable) { 1.0 }
             sol = try {
                 com.lifecyclebot.engine.LiveSizingProfile.lastMileEntryFloor(
-                    baseSol = sol, walletSol = walletSol, isPaperMode = false,
+                    baseSol = sol, walletSol = walletSol, isPaperMode = false, riskMult = composedRiskMult6205,
                 )
             } catch (_: Throwable) { sol }
             if (sol > beforeFloor * 1.01) {
@@ -13846,6 +13885,47 @@ class Executor(
                         slippageBps = slip, traderTag = "MEME",
                     )
                     Thread.sleep(250)
+                }
+            }
+            if (quote == null) {
+                // V5.0.6205 — P1 QUOTE_EXHAUSTED SECOND-WIND RETRY. During meme
+                // bursts Jupiter transiently 429s/timeouts and the fast 3-step
+                // ladder (250ms gaps) exhausts inside the same congestion window,
+                // dropping ~32% of high-conviction buys. Give the route ONE more
+                // chance after a 1.2s cool-off at max slippage before declaring
+                // terminal. InterruptedException is preserved (thread re-flagged).
+                try { Thread.sleep(1_200) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
+                try {
+                    val swPlan6205 = recalcBuyPlanForProcessor(
+                        ts = ts,
+                        wallet = wallet,
+                        processor = "JUPITER_ULTRA_METIS_BUY",
+                        requestedSol = effectiveSol,
+                        priorityFeeSol = 0.0,
+                        jitoTipLamports = effectiveJitoTipLamports(c, urgent = urgentBuyTip6134),
+                        tradeKey = tradeKey,
+                        traderTag = "MEME",
+                    )
+                    if (swPlan6205 != null) {
+                        quote = getQuoteWithSlippageGuard(
+                            JupiterApi.SOL_MINT, ts.mint, swPlan6205.lamports,
+                            maxBuySlipBps6136, swPlan6205.solAmount,
+                        )
+                    }
+                } catch (e: Exception) {
+                    lastQuoteError = e
+                }
+                if (quote != null) {
+                    onLog("BUY: second-wind quote OK at ${maxBuySlipBps6136}bps after exhaustion", ts.mint)
+                    buyPhase("QUOTE_OK")
+                    LiveTradeLogStore.log(
+                        tradeKey, ts.mint, ts.symbol, "BUY",
+                        LiveTradeLogStore.Phase.BUY_QUOTE_OK,
+                        "Second-wind quote OK @ ${maxBuySlipBps6136}bps after ladder exhaustion (V5.0.6205)",
+                        slippageBps = maxBuySlipBps6136, traderTag = "MEME",
+                    )
+                    try { PipelineHealthCollector.labelInc("QUOTE_SECOND_WIND_OK_6205") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("QUOTE_SECOND_WIND_OK_6205", "mint=${ts.mint.take(10)} symbol=${ts.symbol} slip=${maxBuySlipBps6136}bps — recovered entry that QUOTE_EXHAUSTED would have dropped") } catch (_: Throwable) {}
                 }
             }
             if (quote == null) {

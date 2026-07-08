@@ -345,13 +345,25 @@ object LiveSizingProfile {
      * Operator mandate:
      * "if it catching huge wins it needs to make big wins".
      */
-    fun lastMileEntryFloor(baseSol: Double, walletSol: Double, isPaperMode: Boolean): Double {
+    fun lastMileEntryFloor(baseSol: Double, walletSol: Double, isPaperMode: Boolean, riskMult: Double = 1.0): Double {
         if (!enabled || isPaperMode) return baseSol
         if (!baseSol.isFinite() || baseSol <= 0.0) return baseSol
         if (!walletSol.isFinite() || walletSol <= GAS_RESERVE_SOL) return baseSol
-        val pctFloor = walletSol * BASE_WALLET_PCT
-        val targetFloor = max(MIN_ENTRY_SOL, pctFloor)
-        val hardCap = walletSol * MAX_INITIAL_WALLET_PCT
+        // V5.0.6205 — DAMPER-RESPECTING FLOOR (root-cause audit: THE live/paper killer).
+        // `max(baseSol, 12% wallet)` was ERASING every risk damper the AI stack applied
+        // (bleeder-lane 0.35x, DUMP 0.35x, CorrelationGuard 0.20x, discipline probes,
+        // BehaviorAI tilt). Live re-inflated proven-toxic probes to 12-32% of wallet
+        // while paper kept the damped size — paper +19.9 SOL, live -9.0 SOL. The floor
+        // now SCALES with the composed risk multiplier: undamped winners keep the full
+        // compounding floor; damped probes stay probes (dust-guarded at 0.015 SOL so
+        // fees don't eat them, but NEVER re-inflated), and damped entries are hard-
+        // capped at 8% of wallet.
+        val rm = if (riskMult.isFinite()) riskMult.coerceIn(0.0, 1.0) else 1.0
+        val damped = rm < 0.90
+        val dustFloor = if (damped) 0.015 else MIN_ENTRY_SOL
+        val pctFloor = walletSol * BASE_WALLET_PCT * rm
+        val targetFloor = max(dustFloor, pctFloor)
+        val hardCap = walletSol * (if (damped) 0.08 else MAX_INITIAL_WALLET_PCT)
         val maxSpendable = (walletSol - GAS_RESERVE_SOL).coerceAtLeast(0.0)
         val lifted = max(baseSol, targetFloor)
         val result = min(min(lifted, hardCap), maxSpendable)

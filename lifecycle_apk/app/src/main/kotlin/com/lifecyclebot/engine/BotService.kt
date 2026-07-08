@@ -268,6 +268,10 @@ class BotService : Service() {
         const val STRATEGY_DISTRUST_PAUSE_MS = 2L * 60_000L  // V5.9.726 — was 10min, dropped to 2min: 10min lockouts on the only-active SHITCOIN lane were starving the executor (5132 LANE_EVAL, 0 EXEC_BUY in V5.9.725 dump)
         private val strategyPauseUntilMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
         private val rapidEntryWarmupHoldUntilMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        // V5.0.6205 — P0 stale-price SL guard: per-mint grace window while we requeue a fresh quote.
+        private val staleSlGraceUntilMs6205 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        // V5.0.6205 — P0 stale-price stop-loss guard grace windows (mint → grace deadline)
+        private val staleSlGraceUntilMs6205 = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
         fun isStrategyPausedByTrust(strategy: String): Pair<Boolean, String> {
             // V5.9.1405 — autonomous agenic doctrine. Trust/distrust may shape
@@ -8171,6 +8175,49 @@ class BotService : Service() {
                         )
                         if (!pnlVerdict.ok) continue
                         val pnlPct = pnlVerdict.pnlPct
+
+                        // V5.0.6205 — P0 STALE-PRICE STOP-LOSS GUARD.
+                        // Operator report: fake -74%/-76% "drops" from 15s+ stale marks
+                        // (DexScreener/Birdeye timeouts) were firing REAL stop-losses on
+                        // healthy positions. If the mark is >15s old AND pnl looks like a
+                        // stop trigger, hold ALL downstream exits for one bounded 20s grace
+                        // window while we force a fresh quote. If the price is STILL stale
+                        // after grace (provider outage during a real rug), fail-safe: exits
+                        // proceed on the stale mark exactly like before — a real rug can
+                        // never be masked for more than 20s.
+                        val staleMarkAgeMs6205 = ts.lastPriceUpdate.takeIf { it > 0L }?.let { System.currentTimeMillis() - it } ?: 0L
+                        var staleSlVeto6205 = false
+                        if (pnlPct <= -8.0 && staleMarkAgeMs6205 > 15_000L) {
+                            val nowStale6205 = System.currentTimeMillis()
+                            val graceUntil6205 = staleSlGraceUntilMs6205[ts.mint] ?: 0L
+                            if (graceUntil6205 == 0L) {
+                                staleSlGraceUntilMs6205[ts.mint] = nowStale6205 + 20_000L
+                                staleSlVeto6205 = true
+                            } else if (nowStale6205 < graceUntil6205) {
+                                staleSlVeto6205 = true
+                            }
+                            // grace expired → fall through so real catastrophes still exit
+                        } else {
+                            staleSlGraceUntilMs6205.remove(ts.mint)
+                        }
+                        if (staleSlVeto6205) {
+                            try {
+                                ErrorLogger.warn("BotService", "⏸ STALE_PRICE_SL_VETO_6205: ${ts.symbol} pnl=${pnlPct.toInt()}% markAge=${staleMarkAgeMs6205 / 1000}s — holding stop-loss, requeuing fresh price")
+                                PipelineHealthCollector.labelInc("STALE_PRICE_SL_VETO_6205")
+                                ForensicLogger.lifecycle("STALE_PRICE_SL_VETO_6205", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${"%.1f".format(pnlPct)} markAgeMs=$staleMarkAgeMs6205 action=hold_exit_requeue_fresh_price")
+                            } catch (_: Throwable) {}
+                            // Requeue: attempt a fresh quote now so the next tick evaluates live data.
+                            try {
+                                val fresh6205 = resolveStaleFallbackPrice(ts.mint)
+                                if (fresh6205 != null && fresh6205 > 0.0) {
+                                    ts.lastPrice = fresh6205
+                                    ts.lastPriceUpdate = System.currentTimeMillis()
+                                    ts.lastPriceSource = "STALE_SL_GUARD_FRESH_6205"
+                                    staleSlGraceUntilMs6205.remove(ts.mint)
+                                }
+                            } catch (_: Throwable) {}
+                            continue
+                        }
 
                         // V5.9.922 — BELT-AND-BRACES HARD CATASTROPHE NET.
                         // Operator V5.9.921 dump: UNPC -90.8%, Thumas -75.8%, COMPASS -70.6%

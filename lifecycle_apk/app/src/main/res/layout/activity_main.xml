@@ -224,6 +224,68 @@
             </LinearLayout>
 
             <!-- ═══════════════════════════════
+                 V5.0.6205: PIVOT-TO-WINNERS BANNER
+                 Visible while DumpRegimeWinnerRouter is actively blocking
+                 bleeder lanes in DUMP/CHOP and routing flow to winner lanes.
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:id="@+id/pivotWinnersBanner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="@dimen/screen_padding"
+                android:paddingEnd="@dimen/screen_padding"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:background="#1A0F2E"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🎯"
+                    android:textSize="10sp"
+                    android:layout_marginEnd="6dp"/>
+
+                <TextView
+                    android:id="@+id/tvPivotWinners"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text=""
+                    android:textColor="#C084FC"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
+                 V5.0.6205: PILOT LOG TICKER
+                 The AI's newest inner monologue (SentienceOrchestrator
+                 reflection) as a one-line scrolling ticker.
+                 ═══════════════════════════════ -->
+            <TextView
+                android:id="@+id/tvPilotTicker"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="@dimen/screen_padding"
+                android:paddingEnd="@dimen/screen_padding"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:background="#0B1220"
+                android:text=""
+                android:textColor="#7DD3FC"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:singleLine="true"
+                android:ellipsize="marquee"
+                android:marqueeRepeatLimit="marquee_forever"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:visibility="gone"/>
+
+            <!-- ═══════════════════════════════
                  COMMAND CENTER HERO
                  V5.0.3875 — premium mobile hierarchy: one intentional money/status
                  card instead of scattered balance + telemetry debug rows.
@@ -6067,6 +6129,17 @@
                         android:textSize="@dimen/input_text_size"
                         android:backgroundTint="#1F2937"/>
                 </LinearLayout>
+
+                <!-- V5.0.6205: Positions backup export -->
+                <Button android:id="@+id/btnExportPositions"
+                    android:stateListAnimator="@null"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/input_height"
+                    android:layout_marginTop="8dp"
+                    android:text="EXPORT POSITIONS BACKUP"
+                    android:textColor="#F59E0B" android:textStyle="bold"
+                    android:textSize="@dimen/input_text_size"
+                    android:backgroundTint="#1F2937"/>
                 
                 <TextView
                     android:layout_width="match_parent"

@@ -57,6 +57,28 @@ object DumpRegimeWinnerRouter {
         val laneTotalSol: Double,
     )
 
+    // V5.0.6205 — pivot telemetry for the UI banner.
+    data class PivotUiSnapshot(
+        val lastBlockAtMs: Long,
+        val lastBlockedLane: String,
+        val blocksLastHour: Int,
+    )
+    private val recentBlockTimes6205 = java.util.concurrent.ConcurrentLinkedDeque<Long>()
+    @Volatile private var lastBlockedLane6205: String = ""
+
+    fun uiSnapshot(): PivotUiSnapshot {
+        return try {
+            val cutoff = System.currentTimeMillis() - 3_600_000L
+            while (true) {
+                val head = recentBlockTimes6205.peekFirst() ?: break
+                if (head < cutoff) recentBlockTimes6205.pollFirst() else break
+            }
+            PivotUiSnapshot(recentBlockTimes6205.peekLast() ?: 0L, lastBlockedLane6205, recentBlockTimes6205.size)
+        } catch (_: Throwable) {
+            PivotUiSnapshot(0L, "", 0)
+        }
+    }
+
     // ── Public API ──────────────────────────────────────────────────────
 
     /**
@@ -132,6 +154,10 @@ object DumpRegimeWinnerRouter {
             }
 
             // Deep-negative-EV bleeder during DUMP — HARD BLOCK the live entry.
+            try {
+                recentBlockTimes6205.addLast(System.currentTimeMillis())
+                lastBlockedLane6205 = lane
+            } catch (_: Throwable) {}
             try {
                 ForensicLogger.lifecycle(
                     "PIVOT_TO_WINNERS_ONLY_6196",
