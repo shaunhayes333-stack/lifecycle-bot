@@ -14003,7 +14003,7 @@ class Executor(
                             onLog("✅ EMERGENCY PUMPPORTAL BUY OK: ${ts.symbol} sig=${emergencyResult.first.take(10)}", ts.mint)
                             LiveTradeLogStore.log(
                                 tradeKey, ts.mint, ts.symbol, "BUY",
-                                LiveTradeLogStore.Phase.BUY_BROADCAST_OK,
+                                LiveTradeLogStore.Phase.BUY_CONFIRMED,
                                 "🆘 EMERGENCY PumpPortal universal-auto rescued Jupiter-dead buy: sig=${emergencyResult.first.take(16)}",
                                 solAmount = emergencyResult.second, traderTag = "MEME",
                             )
