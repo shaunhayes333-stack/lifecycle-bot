@@ -1617,6 +1617,22 @@ object FinalDecisionGate {
             rawExitCap
         }
         if (ts.lastLiquidityUsd < WATCHLIST_FLOOR) {
+            // V5.0.6211 — trusted-watchlist bypass. Op-report shows 17 blocks/cycle
+            // on LIQUIDITY_BELOW_WATCHLIST_FLOOR against tokens ALREADY on the curated
+            // SolanaBlueChipWatchlist. If the operator hand-picked the mint AND the
+            // scanner can't get a fresh liquidity read (dexscreener sr=19%, 5xx=336),
+            // the floor gate is chasing a stale price rather than a real rug. Skip
+            // the hard block for watchlist-native tokens; the executor's own
+            // pre-flight liquidity probe will still reject if actual on-chain
+            // depth is truly insufficient.
+            val isTrustedWatchlist = try {
+                com.lifecyclebot.engine.SolanaBlueChipWatchlist.infoFor(ts.mint) != null
+            } catch (_: Throwable) { false }
+            if (isTrustedWatchlist) {
+                try { PipelineHealthCollector.labelInc("LIQUIDITY_BELOW_WATCHLIST_FLOOR_BYPASSED_TRUSTED_6211") } catch (_: Throwable) {}
+                ErrorLogger.debug("FDG", "🔓 LIQ_FLOOR BYPASS (trusted watchlist): ${ts.symbol} | liq=\$${ts.lastLiquidityUsd.toInt()} | executor pre-flight will re-verify depth")
+                // fall through — do NOT return the hard-block
+            } else {
             ErrorLogger.debug("FDG", "🚫 LIQ_FLOOR: ${ts.symbol} | liq=\$${ts.lastLiquidityUsd.toInt()} < \$${WATCHLIST_FLOOR.toInt()} | TOO_LOW_FOR_WATCHLIST")
 
             return FinalDecision(
@@ -1635,6 +1651,7 @@ object FinalDecisionGate {
                 approvalReason = "Liquidity \$${ts.lastLiquidityUsd.toInt()} < \$${WATCHLIST_FLOOR.toInt()} watchlist floor",
                 gateChecks = listOf(GateCheck("liq_watch_floor", false, "liq < \$${WATCHLIST_FLOOR.toInt()} = not worth watching"))
             )
+            }
         }
 
         if (exitCapacityUsd < EXECUTION_FLOOR) {
