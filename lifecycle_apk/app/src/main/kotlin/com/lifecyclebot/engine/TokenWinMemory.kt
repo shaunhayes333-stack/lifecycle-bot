@@ -1229,6 +1229,12 @@ object TokenWinMemory {
         var worstWr = 1.0
         var worstN = 0
 
+        // V5.0.6207 — funnel un-choke: `lane` and `buy_route` are STRUCTURAL
+        // dimensions the bot always trades through. A single bad paper cohort
+        // in a lane (e.g. MEME @ 15% WR / n=8) would hard-block EVERY live meme
+        // entry regardless of setup — this killed 180 live trades in the last
+        // op-report. Only fine-grained dimensions may authorize live hard-block.
+        val worstEligibleTypes = setOf("launch_platform", "setup_quality", "source")
         for ((type, value) in candidates) {
             val stats = patterns[type]?.get(value) ?: continue
             if (!sanePatternStats(stats)) continue
@@ -1238,8 +1244,12 @@ object TokenWinMemory {
             if (wr > bestWr || (wr == bestWr && n > bestN)) {
                 bestWr = wr; bestN = n; bestPattern = "$type:$value"; bestAvgWin = stats.avgWinPnl
             }
-            if (wr < worstWr || (wr == worstWr && n > worstN)) {
-                worstWr = wr; worstN = n; worstPattern = "$type:$value"
+            // Structural dimensions (lane, buy_route) contribute to guidance but
+            // are NOT allowed to drive the worstPattern that hard-blocks live entry.
+            if (type in worstEligibleTypes) {
+                if (wr < worstWr || (wr == worstWr && n > worstN)) {
+                    worstWr = wr; worstN = n; worstPattern = "$type:$value"
+                }
             }
         }
 
@@ -1250,8 +1260,10 @@ object TokenWinMemory {
         val goldHit = bestPattern != null && bestWr >= 0.60 && bestN >= 8
         val evGoldHit = bestPattern != null && (bestWr * bestAvgWin) >= 20.0 && bestN >= 8 && bestAvgWin >= 30.0
         val winHit = bestPattern != null && bestWr >= 0.50 && bestN >= 8
-        val toxicHit = worstPattern != null && worstWr <= 0.15 && worstN >= 8
-        val cataHit = worstPattern != null && worstWr <= 0.10 && worstN >= 10
+        // V5.0.6207 — raise sample thresholds so paper-derived toxicity needs real
+        // evidence before abandoning live entries. Was 8 / 10 (trivially triggered).
+        val toxicHit = worstPattern != null && worstWr <= 0.15 && worstN >= 20
+        val cataHit = worstPattern != null && worstWr <= 0.10 && worstN >= 30
         val verdict = when {
             cataHit -> Verdict.CATASTROPHIC
             toxicHit -> Verdict.TOXIC

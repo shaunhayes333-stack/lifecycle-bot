@@ -213,6 +213,7 @@ object LiveSizingProfile {
             r.contains("PROVIDER_PROOF_HOLDER_CASCADE")    -> 0.70
             r.contains("PROVIDER_PROOF_LIQUIDITY_CASCADE") -> 0.60
             r.contains("FLUID_EXECUTE_FLOOR")              -> 0.75
+            r.contains("TOXIC_PATTERN_SOFT_6207")          -> 0.35
             else                                            -> 1.0
         }
     }

@@ -2233,7 +2233,8 @@ object FinalDecisionGate {
                     lane = laneName,
                     buyRoute = ts.position.entryPriceSource.ifBlank { ts.position.entryDex },
                 )
-                if (edge6192.verdict == TokenWinMemory.Verdict.CATASTROPHIC || edge6192.verdict == TokenWinMemory.Verdict.TOXIC) {
+                if (edge6192.verdict == TokenWinMemory.Verdict.CATASTROPHIC) {
+                    // V5.0.6207 — only CATASTROPHIC (n>=30, WR<=10%) still hard-blocks live.
                     blockReason = "LIVE_CONTEXT_TOXIC_PATTERN_MEMORY_6192_${edge6192.worstPattern?.replace(':', '_')?.replace('|', '_') ?: "unknown"}"
                     blockLevel = BlockLevel.HARD
                     checks.add(GateCheck("pattern_memory_context_6192", false, "${edge6192.verdict} ${edge6192.tag} — paper/live pattern memory is down-only live risk authority"))
@@ -2241,6 +2242,18 @@ object FinalDecisionGate {
                     edge6192.worstPattern?.let { tags.add("toxic_pattern:$it") }
                     try { PipelineHealthCollector.labelInc("FDG_LIVE_CONTEXT_TOXIC_PATTERN_MEMORY_6192") } catch (_: Throwable) {}
                     try { ForensicLogger.lifecycle("FDG_LIVE_CONTEXT_TOXIC_PATTERN_MEMORY_6192", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName edge=${edge6192.tag} source=${ts.source.take(80)} setup=${candidate.setupQuality} action=hard_block_live_entry") } catch (_: Throwable) {}
+                } else if (edge6192.verdict == TokenWinMemory.Verdict.TOXIC) {
+                    // V5.0.6207 — TOXIC (n>=20, WR<=15%) is now a soft-shape probe,
+                    // NOT a hard block. The bot still enters at 0.35x size to keep
+                    // learning; catastrophic evidence (n>=30, WR<=10%) is required
+                    // to fully abandon. This unblocks profitable setups that
+                    // happened to share a coarse dimension with paper losers.
+                    tags.add("pattern_memory_context_soft_6207")
+                    edge6192.worstPattern?.let { tags.add("toxic_pattern_soft:$it") }
+                    try { com.lifecyclebot.engine.LiveSizingProfile.markGateSoftShape(ts.mint, "TOXIC_PATTERN_SOFT_6207") } catch (_: Throwable) {}
+                    checks.add(GateCheck("pattern_memory_context_6192", true, "TOXIC ${edge6192.tag} → 0.35x soft-shape probe (no hard-block)"))
+                    try { PipelineHealthCollector.labelInc("FDG_LIVE_CONTEXT_TOXIC_PATTERN_SOFT_6207") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("FDG_LIVE_CONTEXT_TOXIC_PATTERN_SOFT_6207", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName edge=${edge6192.tag} source=${ts.source.take(80)} setup=${candidate.setupQuality} action=soft_shape_size_x0_35") } catch (_: Throwable) {}
                 } else if (edge6192.verdict == TokenWinMemory.Verdict.GOLD || edge6192.verdict == TokenWinMemory.Verdict.WINNER) {
                     checks.add(GateCheck("pattern_memory_context_6192", true, "${edge6192.verdict} ${edge6192.tag} — guidance only, no live size increase"))
                     tags.add("pattern_memory_context_guidance_6192")
