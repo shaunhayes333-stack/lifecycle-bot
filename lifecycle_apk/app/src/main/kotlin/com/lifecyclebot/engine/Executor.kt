@@ -14990,7 +14990,8 @@ class Executor(
             return true
 
         } catch (e: Exception) {
-            val safe = security.sanitiseForLog(e.message ?: "unknown")
+            val rawMsg = e.message?.takeIf { it.isNotBlank() }
+            val safe = security.sanitiseForLog(rawMsg ?: "${e.javaClass.simpleName}@${liveBuyLastStage}")
             // V5.0.3679 — TELEMETRY GAP FIX. Every live-buy throw used to log
             // to ErrorLogger / LiveTradeLogStore but NEVER increment
             // EXEC_LIVE_BUY_FAIL, so operator forensics showed

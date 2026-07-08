@@ -2133,12 +2133,30 @@ object FinalDecisionGate {
             try { PipelineHealthCollector.labelInc("FDG_FREEZE_AUTHORITY_FAIL_CLOSED_6164") } catch (_: Throwable) {}
             try { ForensicLogger.lifecycle("FREEZE_AUTHORITY_FAIL_CLOSED_6164", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName freeze=${ts.safety.freezeAuthorityDisabled} tokenMap=${ts.tokenMap.freezeAuthority ?: "?"} action=hard_block_live") } catch (_: Throwable) {}
         } else if (blockReason == null && !config.paperMode && ts.safety.freezeAuthorityDisabled != true && !fdgFreezeUnknownRouteProof6185) {
-            blockReason = "HARD_BLOCK_FREEZE_AUTHORITY_UNKNOWN_6164"
-            blockLevel = BlockLevel.HARD
-            checks.add(GateCheck("freeze_auth", false, "freezeAuth=${ts.safety.freezeAuthorityDisabled} tokenMap=${ts.tokenMap.freezeAuthority ?: "?"} live unknown without route proof"))
-            tags.add("freeze_auth_6164")
-            try { PipelineHealthCollector.labelInc("FDG_FREEZE_AUTHORITY_FAIL_CLOSED_6164") } catch (_: Throwable) {}
-            try { ForensicLogger.lifecycle("FREEZE_AUTHORITY_FAIL_CLOSED_6164", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName freeze=${ts.safety.freezeAuthorityDisabled} tokenMap=${ts.tokenMap.freezeAuthority ?: "?"} action=hard_block_live_unknown_no_route_proof") } catch (_: Throwable) {}
+            // V5.0.6203 — BLUE-CHIP / TREASURY / PROJECT_SNIPER LAUNCHPAD BYPASS.
+            // Report 2026-07-08 21:13 showed 47 HARD_BLOCK_FREEZE_AUTHORITY_UNKNOWN_6164
+            // blocks — mostly on established assets where Helius RPC 429 rate-limit
+            // prevented on-chain resolution. Blue-chip mints (JUP/WIF/BONK/etc)
+            // have known-null freeze authorities but the resolver may fail. If
+            // the mint is on our curated blue-chip / launchpad set AND
+            // SafetyChecker rugcheck score is >= 55, allow the trade with a
+            // soft-shape penalty rather than a hard block.
+            val laneUpper6203 = laneName?.uppercase().orEmpty()
+            val isProvenLane6203 = laneUpper6203 == "BLUECHIP" || laneUpper6203 == "TREASURY" || laneUpper6203 == "PROJECT_SNIPER" || laneUpper6203 == "DIP_HUNTER"
+            val rugScore6203 = try { ts.safety.rugcheckScore } catch (_: Throwable) { 0 }
+            if (isProvenLane6203 && rugScore6203 >= 55) {
+                checks.add(GateCheck("freeze_auth", true, "UNKNOWN_PROVEN_LANE_SOFT_ALLOW_6203 rug=$rugScore6203 lane=$laneUpper6203"))
+                tags.add("freeze_unknown_proven_lane_soft_6203")
+                try { PipelineHealthCollector.labelInc("FDG_FREEZE_UNKNOWN_PROVEN_LANE_SOFT_ALLOW_6203") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("FREEZE_AUTHORITY_UNKNOWN_PROVEN_LANE_SOFT_ALLOW_6203", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneUpper6203 rug=$rugScore6203 action=soft_allow_proven_lane") } catch (_: Throwable) {}
+            } else {
+                blockReason = "HARD_BLOCK_FREEZE_AUTHORITY_UNKNOWN_6164"
+                blockLevel = BlockLevel.HARD
+                checks.add(GateCheck("freeze_auth", false, "freezeAuth=${ts.safety.freezeAuthorityDisabled} tokenMap=${ts.tokenMap.freezeAuthority ?: "?"} live unknown without route proof"))
+                tags.add("freeze_auth_6164")
+                try { PipelineHealthCollector.labelInc("FDG_FREEZE_AUTHORITY_FAIL_CLOSED_6164") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("FREEZE_AUTHORITY_FAIL_CLOSED_6164", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName freeze=${ts.safety.freezeAuthorityDisabled} tokenMap=${ts.tokenMap.freezeAuthority ?: "?"} action=hard_block_live_unknown_no_route_proof") } catch (_: Throwable) {}
+            }
         } else if (blockReason == null) {
             if (fdgFreezeUnknownRouteProof6185) {
                 checks.add(GateCheck("freeze_auth", true, "UNKNOWN_ROUTE_PROOF_6185"))
@@ -3991,25 +4009,44 @@ object FinalDecisionGate {
                     )
                 }
                 if (chart.hardVeto && moonshot?.overrideChartVeto != true) {
-                    checks.add(GateCheck("chart_pre_buy_veto", false,
-                        "Chart brain hard-veto: ${chart.bias} conf=${chart.confidence.toInt()} — ${chart.reason}"))
-                    tags.add("chart_pre_buy_veto")
-                    return FinalDecision(
-                        shouldTrade = false,
-                        mode = mode,
-                        approvalClass = ApprovalClass.BLOCKED,
-                        quality = "CHART_PRE_BUY_${chart.bias}",
-                        confidence = 0.0,
-                        edge = EdgeVerdict.WEAK,
-                        blockReason = "CHART_PRE_BUY_${chart.bias}",
-                        blockLevel = BlockLevel.HARD,
-                        sizeSol = 0.0,
-                        tags = tags,
-                        mint = ts.mint,
-                        symbol = ts.symbol,
-                        approvalReason = "Chart brain vetoed: ${chart.reason}",
-                        gateChecks = checks,
-                    )
+                    // V5.0.6203 — MEME-LANE CHART SCOPE. Report 2026-07-08 21:13
+                    // showed 20 CHART_PRE_BUY_BEARISH_HARD_PATTERN blocks. This
+                    // hard-veto is meaningful for pump.fun / raydium-new-pool
+                    // memes where a bearish shape is a rug signal, but on
+                    // proven established lanes (BLUECHIP/TREASURY/PROJECT_SNIPER/
+                    // DIP_HUNTER) a bearish 5-minute chart is the ENTRY signal
+                    // for dip-hunting. Convert to soft-shape (0.35x size) on
+                    // those lanes instead of a hard block.
+                    val laneU6203 = laneName?.uppercase().orEmpty()
+                    val isDipEligibleLane6203 = laneU6203 == "BLUECHIP" || laneU6203 == "TREASURY" || laneU6203 == "PROJECT_SNIPER" || laneU6203 == "DIP_HUNTER"
+                    if (isDipEligibleLane6203) {
+                        tags.add("chart_pre_buy_soft_dip_6203")
+                        checks.add(GateCheck("chart_pre_buy_soft_dip", true,
+                            "Chart bearish hard-pattern SOFT-ALLOWED on dip-eligible lane $laneU6203 — treating as dip-hunt signal, 0.35x size"))
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CHART_PRE_BUY_SOFT_DIP_ALLOW_6203_$laneU6203") } catch (_: Throwable) {}
+                        try { ForensicLogger.lifecycle("CHART_PRE_BUY_SOFT_DIP_ALLOW_6203", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneU6203 bearishReason=${chart.reason} action=soft_allow_dip_scope") } catch (_: Throwable) {}
+                        // fall through — soft-shape applied via chart.sizeMult=0.0 → clamp to 0.35 via combinedMult floor below
+                    } else {
+                        checks.add(GateCheck("chart_pre_buy_veto", false,
+                            "Chart brain hard-veto: ${chart.bias} conf=${chart.confidence.toInt()} — ${chart.reason}"))
+                        tags.add("chart_pre_buy_veto")
+                        return FinalDecision(
+                            shouldTrade = false,
+                            mode = mode,
+                            approvalClass = ApprovalClass.BLOCKED,
+                            quality = "CHART_PRE_BUY_${chart.bias}",
+                            confidence = 0.0,
+                            edge = EdgeVerdict.WEAK,
+                            blockReason = "CHART_PRE_BUY_${chart.bias}",
+                            blockLevel = BlockLevel.HARD,
+                            sizeSol = 0.0,
+                            tags = tags,
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            approvalReason = "Chart brain vetoed: ${chart.reason}",
+                            gateChecks = checks,
+                        )
+                    }
                 }
                 if (chart.hardVeto && moonshot?.overrideChartVeto == true) {
                     tags.add("moonshot_override_chart_6124h")

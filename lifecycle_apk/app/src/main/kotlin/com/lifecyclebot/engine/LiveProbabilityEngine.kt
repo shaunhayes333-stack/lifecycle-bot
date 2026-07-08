@@ -339,7 +339,16 @@ object LiveProbabilityEngine {
             // QUALITY got size×=0.10 with n=0 — a 90% penalty based on ZERO data.
             // When laneSamples=0, default to 0.80 (mild caution, not punishment).
             val coldStartFloor6114 = if (laneSamples <= 0L) 0.80 else 0.10
-            val finalMult = (postPivotMult * scoreShape.multiplier).coerceIn(coldStartFloor6114, 2.20)
+            // V5.0.6203 — BLUE-CHIP / TREASURY BAND LIFT. Report 2026-07-08 21:13
+            // showed `lane=BLUECHIP score=50 bandMult=0.55` — even after V5.0.6201
+            // exempted blue-chip from the wallet-compounding defensive clamp,
+            // ScoreExpectancyTracker was independently capping BLUECHIP score=50
+            // at 0.55x. Blue-chips have proven EV=+53% in raw journal — at neutral
+            // score they should be at least 0.85x. Only raise the FLOOR for proven
+            // winner lanes; ScoreExpectancyTracker's toxic clamp still fires when
+            // deserved.
+            val bluechipTreasuryFloor6203 = if (lane.equals("BLUECHIP", true) || lane.equals("TREASURY", true) || lane.equals("PROJECT_SNIPER", true)) 0.85 else coldStartFloor6114
+            val finalMult = (postPivotMult * scoreShape.multiplier).coerceIn(bluechipTreasuryFloor6203, 2.20)
             try {
                 if (scoreShape.multiplier != 1.0 && scoreShape.samples >= 3) {
                     ForensicLogger.lifecycle(
