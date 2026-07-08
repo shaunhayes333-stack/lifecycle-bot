@@ -2019,10 +2019,10 @@ object PipelineHealthCollector {
             val pct = if (threshold > 0.0) (accruedSol / threshold * 100.0) else 0.0
             val readyToFlush = accruedSol >= threshold
             sb.append("\n===== Trading fee accumulator (V5.0.3920) =====\n")
-            sb.append("  accrued (on-device): ${"%.5f".format(accruedSol)} / ${"%.2f".format(threshold)} SOL (${"%.1f".format(pct)}%)\n")
+            sb.append("  accrued (on-device): ${"%.5f".format(accruedSol)} / ${"%.5f".format(threshold)} SOL (${"%.1f".format(pct)}%)\n")
             sb.append("  buckets:             $buckets\n")
             sb.append("  retry queue pending: $retryPending\n")
-            sb.append("  flush status:        ${if (readyToFlush) "🟢 READY — next bot-loop cycle will flush in live mode" else "🟡 accruing — flush when total ≥ ${"%.2f".format(threshold)} SOL"}\n")
+            sb.append("  flush status:        ${if (readyToFlush) "🟢 READY — next bot-loop cycle will flush in live mode" else "🟡 accruing — flush when total ≥ ${"%.5f".format(threshold)} SOL"}\n")
         } catch (_: Throwable) { /* best-effort telemetry */ }
 
         try {

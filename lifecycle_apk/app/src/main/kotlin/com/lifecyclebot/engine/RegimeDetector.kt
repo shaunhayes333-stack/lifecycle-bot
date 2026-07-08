@@ -170,14 +170,17 @@ object RegimeDetector {
             // V5.0.6075 — DUMP/CHOP dampening is PER-LANE: a lane that is
             // individually net-positive in SOL is not in drawdown and gets
             // the full 1.0 (global regime mult does not apply to it at all).
-            if (m.trades >= 5 && m.totalSolPnl > 0.0) return 1.0
+            // V5.0.6202 — lowered exemption sample threshold 5→3 so lanes
+            // can escape the self-confirming DUMP/CHOP death spiral faster.
+            // A lane with n=3 wins in a row deserves full sizing on trade #4.
+            if (m.trades >= 3 && m.totalSolPnl > 0.0) return 1.0
             // V5.0.6195 — WINNER PRESS: if a lane has a *high WR* even with
             // small negative aggregate (small sample noise) OR proven-strategy
             // signal from LiveStrategyTuner, treat as a winner and press
             // 1.10x instead of damping. This is the "pivot to winners"
             // operator directive — don't strangle a lane with 50%+ WR just
             // because n<10 aggregate SOL isn't positive yet.
-            if (m.trades >= 5 && m.winRatePct >= 50.0) return 1.10
+            if (m.trades >= 3 && m.winRatePct >= 50.0) return 1.10
             val provenWinner = m.trades >= 8 &&
                 (m.winRatePct >= 35.0 || m.meanPnlPct >= 20.0 ||
                     m.avgWinPct >= 50.0 || m.totalSolPnl > 0.0)

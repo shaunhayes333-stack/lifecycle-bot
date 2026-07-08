@@ -280,6 +280,13 @@ object RealizedWalletCompoundingGovernor {
             gainRatio >= 1.0 && decisionWr6132 >= 32.0 && decisionPf6132 >= 1.6 -> 1.85 to "one_x_compound_unlock"
             gainRatio >= 0.75 && decisionWr6132 >= 30.0 && decisionPf6132 >= 1.4 -> 1.55 to "seventyfive_pct_growth_unlock"
             gainRatio >= 0.30 && decisionWr6132 >= 28.0 && decisionPf6132 >= 1.25 -> 1.30 to "thirty_pct_growth_unlock"
+            // V5.0.6202 — EARLY GROWTH UNLOCK (operator: "money-printing
+            // meme trader must compound every win"). Old table had NO tier
+            // between "positive_clean_edge" (1.12x) and "thirty_pct" (1.30x)
+            // — small wins didn't accelerate. New 10% gain tier compounds
+            // early so a +0.05 SOL win on a 0.4 SOL wallet immediately
+            // starts sizing up.
+            gainRatio >= 0.10 && decisionWr6132 >= 22.0 && decisionPf6132 >= 1.05 -> 1.20 to "ten_pct_growth_unlock_6202"
             decisionPnl6132 > 0.0 && decisionWr6132 >= 25.0 && decisionPf6132 >= 1.15 -> 1.12 to "positive_clean_edge_6132"
             else -> 0.75 to "cautious_uncertain_edge"
         }

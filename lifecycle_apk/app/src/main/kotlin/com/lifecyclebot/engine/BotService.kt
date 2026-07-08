@@ -6491,6 +6491,15 @@ class BotService : Service() {
     // open position in the store so it gets an exit monitor. Cure for the operator
     // forensic: walletHeldMints>0 && liveOpenPositions==0 && orphanLivePositions=7.
     // Called from the SellReconciler live tick with the wallet-truth held set.
+    // V5.0.6202 — stablecoins are treasury/stuck-capital in-wallet, never
+    // trading positions. Skip them in POSITION_AUTO_HEAL to prevent the
+    // MOONSHOT-lane PYUSD trap seen in report 2026-07-08 19:54.
+    private val STABLECOIN_SYMBOL_SKIP_6202 = setOf(
+        "USDC", "USDT", "PYUSD", "DAI", "USDS", "USDE", "FDUSD", "TUSD",
+        "USDP", "GUSD", "BUSD", "FRAX", "LUSD", "USDD", "USDY", "PAXG",
+        "XAUT", "EURC", "USDG",
+    )
+
     @Volatile private var lastHealLogMs: Long = 0L
     private fun healWalletHeldIntoLiveStore(heldMints: Set<String>) {
         if (heldMints.isEmpty()) return
@@ -6511,6 +6520,15 @@ class BotService : Service() {
                 val tracked = HostWalletTokenTracker.getEntry(mint)
                 val sym = tracked?.symbol?.takeIf { it.isNotBlank() } ?: mint.take(6)
                 val bal = tracked?.uiAmount ?: 0.0
+                // V5.0.6202 — STABLECOIN SKIP. Report 2026-07-08 19:54
+                // showed PYUSD (PayPal USD stablecoin) rehydrated into
+                // MOONSHOT lane with sellability=non_sellable:STALE_RECOVERY_UNPROVEN.
+                // Stablecoins in the wallet are treasury / stuck-capital,
+                // NOT trading positions. Never rehydrate them as live opens.
+                if (sym.uppercase() in STABLECOIN_SYMBOL_SKIP_6202) {
+                    try { ForensicLogger.lifecycle("POSITION_AUTO_HEAL_SKIPPED_STABLECOIN_6202", "mint=${mint.take(12)} symbol=$sym qty=$bal") } catch (_: Throwable) {}
+                    continue
+                }
                 if (bal <= 1.0) {
                     try { ForensicLogger.lifecycle("POSITION_AUTO_HEAL_SKIPPED_TERMINAL_DUST", "mint=${mint.take(12)} qty=$bal") } catch (_: Throwable) {}
                     try { purgeGhostLivePosition(mint, "AUTO_HEAL_TERMINAL_TOKEN_DUST") } catch (_: Throwable) {}
