@@ -2672,6 +2672,20 @@ class SolanaMarketScanner(
      */
     private fun fetchJupiterPricesBatch(mints: List<String>): Map<String, Double> {
         if (mints.isEmpty()) return emptyMap()
+        // V5.0.6206 — CHUNKED BATCHES. The 251-mint watchlist built an
+        // 11,080-char ids URL that Jupiter 400'd on every call (ApiHealth:
+        // jupiter sr=1%, 4xx=107) — the entire blue-chip fallback lane
+        // silently died the moment the watchlist grew. lite-api /price/v3
+        // handles ~50 ids per request; chunk at 45 and merge.
+        val out = HashMap<String, Double>()
+        for (chunk in mints.chunked(45)) {
+            out.putAll(fetchJupiterPricesChunk(chunk))
+        }
+        return out
+    }
+
+    private fun fetchJupiterPricesChunk(mints: List<String>): Map<String, Double> {
+        if (mints.isEmpty()) return emptyMap()
         return try {
             val ids = mints.joinToString(",")
             val origUrl = "https://lite-api.jup.ag/price/v3?ids=$ids"

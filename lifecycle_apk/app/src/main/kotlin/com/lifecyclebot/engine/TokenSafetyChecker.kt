@@ -1067,34 +1067,54 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         return null
     }
 
+    // V5.0.6206 — resolved-authority cache. Mint/freeze authorities are
+    // immutable once disabled, so a confirmed resolution never needs a
+    // second RPC round-trip. Stops re-hammering the fleet for hot mints.
+    private val authorityCache6206 = java.util.concurrent.ConcurrentHashMap<String, Pair<Boolean?, Boolean?>>()
+
     private fun checkMintFreezeViaRpc(mint: String): Pair<Boolean?, Boolean?> {
-        val rpcUrl = cfg().rpcUrl
+        authorityCache6206[mint]?.let { return it }
         val payload = """
             {"jsonrpc":"2.0","id":1,"method":"getAccountInfo",
              "params":["$mint",{"encoding":"jsonParsed","commitment":"confirmed"}]}
         """.trimIndent()
 
-        val body = post(rpcUrl, payload) ?: return Pair(null, null)
+        // V5.0.6206 — RPC FAILOVER (root-cause: 433 HARD_BLOCK_FREEZE_
+        // AUTHORITY_UNKNOWN_6164 blocks in one report window). This resolver
+        // only used cfg().rpcUrl — the 429-dead Helius key — so EVERY fresh
+        // mint resolved UNKNOWN and FDG fail-closed 65% of all decisions.
+        // Walk the shared 17-layer wallet RPC fleet until one endpoint
+        // answers; a single dead provider must never blind the safety layer.
+        val endpoints6206 = buildList {
+            cfg().rpcUrl.takeIf { it.isNotBlank() }?.let { add(it) }
+            addAll(try { WalletManager.FALLBACK_RPCS.take(8) } catch (_: Throwable) { emptyList<String>() })
+        }.distinct()
 
-        return try {
-            val info = JSONObject(body)
-                .optJSONObject("result")
-                ?.optJSONObject("value")
-                ?.optJSONObject("data")
-                ?.optJSONObject("parsed")
-                ?.optJSONObject("info")
-                ?: return Pair(null, null)
+        for (rpcUrl in endpoints6206) {
+            val body = post(rpcUrl, payload) ?: continue
+            val parsed = try {
+                val info = JSONObject(body)
+                    .optJSONObject("result")
+                    ?.optJSONObject("value")
+                    ?.optJSONObject("data")
+                    ?.optJSONObject("parsed")
+                    ?.optJSONObject("info")
+                    ?: continue
 
-            val mintAuth = info.opt("mintAuthority")
-            val freezeAuth = info.opt("freezeAuthority")
+                val mintAuth = info.opt("mintAuthority")
+                val freezeAuth = info.opt("freezeAuthority")
 
-            val mintDisabled = mintAuth == null || mintAuth == JSONObject.NULL
-            val freezeDisabled = freezeAuth == null || freezeAuth == JSONObject.NULL
+                val mintDisabled = mintAuth == null || mintAuth == JSONObject.NULL
+                val freezeDisabled = freezeAuth == null || freezeAuth == JSONObject.NULL
 
-            Pair(mintDisabled, freezeDisabled)
-        } catch (_: Exception) {
-            Pair(null, null)
+                Pair<Boolean?, Boolean?>(mintDisabled, freezeDisabled)
+            } catch (_: Exception) {
+                continue
+            }
+            if (authorityCache6206.size < 4096) authorityCache6206[mint] = parsed
+            return parsed
         }
+        return Pair(null, null)
     }
 
     private fun checkNameDuplicate(symbol: String, name: String, mint: String = ""): String {
