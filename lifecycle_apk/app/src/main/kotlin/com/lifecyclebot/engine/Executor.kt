@@ -15464,6 +15464,59 @@ class Executor(
             }
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.0.6198 — MOONSHOT HOLD MODE runner-exit suppression.
+        // ANSEM directive: buy them at $10k mcap and hold to $3.4M+ (28,000x).
+        // Update rolling peak and, if the position is under moonshot hold
+        // protection AND the exit reason is NOT catastrophic, DEFER the sell
+        // so runners are actually held through the pump instead of banked at
+        // the first +20% fluid TP.
+        //
+        // CATASTROPHIC EXITS (must always fire regardless of hold mode):
+        //   • RUG / rugcheck / honeypot / manipulated
+        //   • CATASTROPHIC_STOP_LOSS_OVERRUN, UNIVERSAL_SL, HARD_SL
+        //   • ZOMBIE_SWEEP, DEAD_TOKEN, PROBATION_RUG
+        //   • SAFETY_ * / EMERGENCY_ * / FORCE_
+        //   • INSIDER_SHARK_COPY_EXIT (someone smarter is bailing)
+        //
+        // Everything else (fluid TP, chop-scalp, max-hold, momentum-down,
+        // liquidity_eroding_exit, time_pnl_stagnation) is subject to
+        // moonshot suppression.
+        try {
+            val currentPnl = edgeExitPnl4532
+            com.lifecyclebot.engine.MoonshotHoldMode.updatePeak(ts.mint, currentPnl)
+            val reasonUpper = requestReason.uppercase()
+            val isCatastrophic = reasonUpper.contains("RUG") ||
+                reasonUpper.contains("HONEYPOT") ||
+                reasonUpper.contains("MANIPULATED") ||
+                reasonUpper.contains("CATASTROPHIC") ||
+                reasonUpper.contains("UNIVERSAL_SL") ||
+                reasonUpper.contains("HARD_SL") ||
+                reasonUpper.contains("STOP_LOSS") ||
+                reasonUpper.contains("ZOMBIE") ||
+                reasonUpper.contains("DEAD_TOKEN") ||
+                reasonUpper.contains("PROBATION") ||
+                reasonUpper.contains("SAFETY_") ||
+                reasonUpper.contains("EMERGENCY") ||
+                reasonUpper.contains("FORCE_") ||
+                reasonUpper.contains("INSIDER_SHARK_COPY_EXIT") ||
+                reasonUpper.contains("SETTLE_") ||
+                reasonUpper.contains("MFE_FLOOR") ||
+                reasonUpper.contains("PEAK_DRAWDOWN")
+            if (!isCatastrophic && com.lifecyclebot.engine.MoonshotHoldMode.shouldSuppressExit(ts.mint, currentPnl)) {
+                try {
+                    val peakPct = com.lifecyclebot.engine.MoonshotHoldMode.peakPct(ts.mint)
+                    ForensicLogger.lifecycle(
+                        "MOONSHOT_HOLD_EXIT_SUPPRESSED_6198",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} reason=${requestReason.take(60)} pnl=${"%.1f".format(currentPnl)}% peak=${"%.1f".format(peakPct)}% — holding for runner-to-moonshot",
+                    )
+                    PipelineHealthCollector.labelInc("MOONSHOT_HOLD_EXIT_SUPPRESSED_6198")
+                } catch (_: Throwable) {}
+                try { LearningLifecycleBus.exitDecision("requestSell.defer", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "DEFER_MOONSHOT_HOLD_6198", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}
+                return SellResult.FAILED_RETRYABLE
+            }
+        } catch (_: Throwable) { /* fail-open — MoonshotHoldMode is advisory */ }
+
         // V5.9.1411 — Settle-in and duplicate-suppress guards moved into doSell()
         // so that direct doSell() calls from riskCheck/UltraFastRugDetector are caught too.
         val isLivePositionEarly = !ts.position.isPaperPosition
