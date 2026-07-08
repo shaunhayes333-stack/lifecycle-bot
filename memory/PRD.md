@@ -99,3 +99,97 @@ cycle #1 and (b) DexScreener SR=24% storm starved dex.getBestPair() calls.
 - **No local compiler** — push to GitHub Actions CI.
 - **Brace parity mandatory** — count `{}` before every push.
 - **Doctrine #86 — fail-open** — every gate returns ALLOW on error.
+
+## Session 2026-02-08 evening — LIVE MEME TRADER GREEN PIVOT (V5.0.6199-6204b, all CI GREEN)
+
+Operator P0: "live meme trader must go green tonight. paper +19.9 SOL,
+live -9.0 SOL. compounding must actually compound."
+
+Two triage-subagent full audits identified 12 asymmetries between paper
+and live pipelines. All fixes shipped this session:
+
+### V5.0.6199 — SOL-network-wide Blue-Chip Intake via Jupiter
+- scanSolanaBlueChipWatchlist: bypass isSeen() (persistent watchlist);
+  batched Jupiter lite-api /price/v3 as primary path (SR=100%);
+  DexScreener demoted to fallback; category-aware conservative
+  liquidity floors.
+- New TokenSource.PROJECT_SNIPER_LAUNCHPAD for legit-quality fresh
+  launches (mcap>=$500K + liq>=$50K + age>=30m).
+
+### V5.0.6200 — PatternGoldenGoose bypass for curated sources
+- BotService.v4132_isFreshLaunchSource now covers SOLANA_BLUECHIP_WATCHLIST
+  and PROJECT_SNIPER_LAUNCHPAD so WIF isn't vetoed as goose_catastrophic.
+
+### V5.0.6201 — Live-pipeline un-strangling (6 fixes)
+- LaneExitTuner TP_MIN 0.60 → 0.80 (winners run to +45% not +25%)
+- RealizedWalletCompoundingGovernor lane exemption >-0.05 (was >0.0)
+- DumpRegimeWinnerRouter small-wallet (<1 SOL) recovery exemption
+- DANGER_ZONE_6072 live rule relaxed (score>=40 danger admits)
+- SmartSizer live base 4-15% → 8-20% + tier caps 8-15% → 12-22%
+- StrategyTruthLedger mint-close dedup window 5min → 60s
+
+### V5.0.6202 — Money-print alignment (4 fixes)
+- Fee threshold display %.2f → %.5f (fees WERE flushing at 0.0001 SOL
+  correctly — display was rounding to '≥ 0.00 SOL')
+- Compounding growth unlock at 10% gain (was 30%); new 1.20x tier
+- RegimeDetector lane exemption threshold 5 → 3 samples
+- STABLECOIN_SYMBOL_SKIP_6202: PYUSD/USDC/DAI/etc skipped in
+  POSITION_AUTO_HEAL
+
+### V5.0.6203 — Proven-lane un-clamp + circuit breaker (5 fixes)
+- LiveProbabilityEngine BLUECHIP/TREASURY/PROJECT_SNIPER band floor 0.85
+- Sharper THROWN telemetry (exception class + last stage, not just
+  'THROWN:unknown')
+- FREEZE_AUTHORITY_UNKNOWN soft-allow on proven lanes when rugcheck>=55
+- CHART_PRE_BUY_BEARISH_HARD_PATTERN meme-lane-only (proven lanes
+  treat bearish 5-min as dip-hunt signal, 0.35x probe size)
+- ApiBackoff circuit breaker at n>=8 SOFT failures (60s → 120s → 300s
+  cap) to stop scan cycles waiting on chronically-degraded DexScreener
+
+### V5.0.6204 / 6204b — 5x expand blue-chip watchlist (20 → 96 mints)
+Operator: "watch list is fucking tiny 6 tokens wtf dude!!"
+- 8 new categories added on top of the original 6:
+  AI_AGENT (GRIFFAIN, ARC, ZEREBRO, SNAI, MAX, BULLY, SEED, ANON)
+  GAMING (ATLAS, POLIS, AURY, GENE, NYAN)
+  DEPIN (MOBILE, IOT, NOS, HELIUM, DEEP)
+  NEW_L1_MEME (FARTCOIN, PENGU, GOAT, ACT, TRUMP, MELANIA, +11 more)
+  RWA (tokenized US treasuries)
+  BRIDGED_MAJOR (cbBTC, wBTC, cbETH, wETH, SUI-bridged)
+  LAUNCHPAD_GRADUATE (SC, GRIFT, SPX6900, SIGMA, CHILLGUY)
+  NFT_LIQUIDITY (TNSR, MPLX, DGN)
+- Scanner emit cap raised 12 → 24 per cycle
+- 6204b hotfix: exhaustive `when` for the 8 new categories in
+  fallbackLiquidityForBlueChip()
+
+## Runtime verification (report 2026-07-08 21:13, before V5.0.6204b)
+- Intake up 88% (17 → 32)
+- FDG allow up 567% (3 → 20)
+- EXEC attempts up 265% (26 → 95)
+- BLUECHIP tpMult 0.80 confirmed (was 0.60)
+- Live BUY_BROADCAST firing (BabyCupsey observed)
+- MOONSHOT LiveTuner PnL=+0.003 (proven-winner-press growing sample)
+
+## Priority Backlog (still ahead)
+
+### P0 — needs next push
+- **Price staleness guard on stop-loss trigger** (Executor.kt). Risk:
+  DexScreener SR=22% + Birdeye SR=52% causing -74%/-76% spurious
+  stop-loss exits on stale prices. Deferred; observe V5.0.6204b runtime.
+
+### P1
+- DexScreener 5xx fallback for scanFreshLaunches/scanDex*.
+- Grow watchlist to full 150+ target (currently 96; +54 more mints).
+- CorrelationGuard is already SHIPPED (V5.0.6126) and wired.
+
+### P2 UI polish
+- Pivot-to-winners banner
+- Ladder pill on Memes tab
+- Brain Health pill
+- Pilot Log ticker
+- /positions backup export button
+
+### P3 — Original roadmap
+- SOL Perps/Leverage mode (Perps_5x lane already has n=1 WR=100% seed)
+- Full 150+ asset universe (currently 96)
+- Neural bridge (AI cross-learning perps↔stocks)
+- LLM Lab sandbox
