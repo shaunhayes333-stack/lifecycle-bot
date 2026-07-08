@@ -55,16 +55,40 @@ memory that shouldn't apply to brand-new mints).
 - OpenPnlSanity: synthetic 1e-9 basis when all other heals fail.
   Frees stuck RECOVERED_2xKQg4 slot.
 
+### V5.0.6198 — MOONSHOT_HOLD + RPC_FAILOVER + CONFIG_STORE_FIX (SHIPPED GREEN)
+- MoonshotHoldMode.shouldSuppressExit wired into Executor.requestSell
+  so parabolic runners are actually held to \$3.4M target.
+- WalletManager.reconnectViaFallbacks cycles 17 Solana RPC endpoints
+  on Helius 429 rate-limit errors.
+- ConfigStore.load(ctx) reference fix in the wallet-state bridge.
+
+### V5.0.6199 — SOL-NETWORK-WIDE BLUECHIP INTAKE + PROJECT_SNIPER_LAUNCHPAD (SHIPPED GREEN)
+Operator directive: "scan the entire sol network!!! its not a pumpfun bot".
+Report 2026-07-08 19:27 showed intake=40 total with 0 SOLANA_BLUECHIP_WATCHLIST
+emissions (raw=0 enq=0 durMs=2) because (a) isSeen() short-circuited after
+cycle #1 and (b) DexScreener SR=24% storm starved dex.getBestPair() calls.
+- scanSolanaBlueChipWatchlist: bypass isSeen() for blue-chip mints (persistent
+  watchlist, not one-shot memes); skip only on hard-reject or open position.
+- Primary path is now a batched Jupiter lite-api/price/v3 call
+  (SR=100%, no key, one call for all 20 mints). DexScreener is now the
+  fallback, not the primary.
+- Category-aware conservative liquidity floors (SOL_WRAPPED \$5M, DEX_HUB
+  \$1.5M, ESTABLISHED_MEME \$800K, LSD \$500K, INFRA \$400K, DeFi \$200K)
+  so TokenMetricStageRouter's established-token override fires and routes
+  into BLUECHIP/DIP_HUNTER/QUALITY.
+- New TokenSource.PROJECT_SNIPER_LAUNCHPAD: scanFreshLaunches tags fresh
+  launches passing legit-quality filter (mcap>=\$500K, liq>=\$50K, age>=30m)
+  with this source. ScannerSourceBrain now learns launchpad-quality WR
+  separately from pump.fun firehose.
+
 ## Priority Backlog
 
 ### P1 — Ship next
-- **Winner-lane INTAKE feed** — TREASURY/BLUECHIP/Metals have no live
-  scanner source. Wire SolanaBlueChipWatchlist + PROJECT_SNIPER
-  launchpad + Metals feed into live path so pivot router has actual
-  candidates to allow.
-- Wire MoonshotHoldMode.shouldSuppressExit into Executor's normal exit
-  branches so runners are actually held to \$3.4M.
 - CorrelationGuard — portfolio-level correlated-holding damper.
+- DexScreener 5xx storm mitigation for scanFreshLaunches / scanDex*.
+  Add Jupiter price fallback where feasible.
+- Wire additional Solana-ecosystem feeders (Jito airdrop tokens,
+  Backpack tokens, wSOL wrappers) into blue-chip watchlist as they mature.
 
 ### P2 — UI
 - Show live persona label (BotPersonalityLayer.label()) on main UI.
