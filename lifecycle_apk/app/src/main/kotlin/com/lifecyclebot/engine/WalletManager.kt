@@ -127,6 +127,12 @@ class WalletManager private constructor(private val ctx: Context) {
 
         // SINGLETON: One wallet manager for the entire app
         @Volatile private var INSTANCE: WalletManager? = null
+
+        /** V5.0.6198 — non-Context accessor for callers (KeyValidator, health
+         *  monitors) that can't obtain a Context but still want to nudge the
+         *  wallet after external failure signals. Returns null if not yet
+         *  initialized. */
+        fun peekInstance(): WalletManager? = INSTANCE
         
         fun getInstance(ctx: Context): WalletManager {
             return INSTANCE ?: synchronized(this) {
@@ -318,6 +324,68 @@ class WalletManager private constructor(private val ctx: Context) {
     fun getWallet(): SolanaWallet? = wallet
     
     fun getCurrentRpcUrl(): String = currentRpcUrl
+
+    /**
+     * V5.0.6198 — RPC FAILOVER (operator: "we have more than enough RPCs
+     * we should be able to cover this").
+     *
+     * When the current RPC hits a 429 rate-limit (Helius) or any transient
+     * network failure, this rotates to the NEXT healthy RPC from
+     * FALLBACK_RPCS without dropping the wallet. Re-uses the saved
+     * privateKey via ConfigStore. Skips the current dead RPC to avoid a
+     * pointless retry loop.
+     *
+     * Safe to call from any thread — connect() handles its own locking.
+     *
+     * @return true if a new RPC was successfully swapped in
+     */
+    fun reconnectViaFallbacks(): Boolean {
+        return try {
+            val config = try { com.lifecyclebot.engine.ConfigStore.getInstance(ctx).state.value } catch (_: Throwable) { null }
+            val savedKey = config?.privateKeyB58.orEmpty()
+            if (savedKey.isBlank()) return false
+            val dead = currentRpcUrl
+            val nextRpc = FALLBACK_RPCS.firstOrNull { candidate ->
+                candidate.isNotBlank() &&
+                candidate != dead &&
+                sanitizeWalletRpcUrl(candidate).isNotBlank() &&
+                !isRpcDeadRecently(candidate)
+            } ?: return false
+            try {
+                ErrorLogger.info("Wallet",
+                    "🔄 RPC FAILOVER 6198: current=${dead.take(30)}... dead → trying ${nextRpc.take(30)}...")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RPC_FAILOVER_ATTEMPT_6198")
+            } catch (_: Throwable) {}
+            val ok = connect(savedKey, nextRpc)
+            if (ok) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RPC_FAILOVER_SUCCESS_6198") } catch (_: Throwable) {}
+                markRpcDeadRecently(dead)
+            } else {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RPC_FAILOVER_FAILED_6198") } catch (_: Throwable) {}
+                markRpcDeadRecently(nextRpc)
+            }
+            ok
+        } catch (_: Throwable) { false }
+    }
+
+    // Track RPCs that failed recently so failover doesn't cycle back into them.
+    private val recentlyDead = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val DEAD_RPC_COOLDOWN_MS = 5L * 60L * 1000L      // 5 min cooldown per RPC
+
+    private fun markRpcDeadRecently(url: String) {
+        if (url.isBlank()) return
+        recentlyDead[url] = System.currentTimeMillis()
+    }
+
+    private fun isRpcDeadRecently(url: String): Boolean {
+        val t = recentlyDead[url] ?: return false
+        val stale = System.currentTimeMillis() - t
+        if (stale > DEAD_RPC_COOLDOWN_MS) {
+            recentlyDead.remove(url)
+            return false
+        }
+        return true
+    }
 
     // ── balance refresh ───────────────────────────────────────────────
 

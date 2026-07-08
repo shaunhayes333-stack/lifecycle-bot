@@ -175,7 +175,21 @@ object KeyValidator {
                 val body = resp.body?.string().orEmpty()
                 if (resp.code == 401) { markDead(service, 401, body.take(120), "HELIUS_AUTH_FAILED_401"); return resp.code to null }
                 if (resp.code == 403) { markDead(service, 403, body.take(120), "HELIUS_FORBIDDEN_403"); return resp.code to null }
-                if (resp.code == 429) { markDead(service, 429, body.take(120), "HELIUS_RATE_LIMIT_429"); return resp.code to null }
+                if (resp.code == 429) {
+                    markDead(service, 429, body.take(120), "HELIUS_RATE_LIMIT_429")
+                    // V5.0.6198 — auto-failover to next healthy RPC (Alchemy/Triton
+                    // /Ankr/mainnet-beta) when the primary is rate-limited. Operator:
+                    // "we have more than enough RPCs we should be able to cover this".
+                    // WalletManager INSTANCE is populated at boot; if a caller hasn't
+                    // yet initialized it we just skip failover (next 429 will retry).
+                    if (service == "helius") {
+                        try {
+                            val wm = com.lifecyclebot.engine.WalletManager.peekInstance()
+                            wm?.reconnectViaFallbacks()
+                        } catch (_: Throwable) {}
+                    }
+                    return resp.code to null
+                }
                 if (!resp.isSuccessful) { markDead(service, resp.code, body.take(120), "HELIUS_RPC_ERROR"); return resp.code to null }
                 val json = try { JSONObject(body) } catch (_: Throwable) { JSONObject() }
                 if (json.has("error")) { markDead(service, resp.code, json.opt("error").toString().take(160), "HELIUS_RPC_ERROR"); return resp.code to json }
