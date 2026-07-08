@@ -5108,9 +5108,20 @@ class BotService : Service() {
                             // and shouldn't be pre-vetoed by name-pattern memory. Let
                             // FreshLaunchHunter + FDG + pivot router handle these fresh
                             // sources; blacklist and toxic-pair filters still apply.
+                            //
+                            // V5.0.6200 — BLUE-CHIP + LAUNCHPAD BYPASS. Report 2026-07-08 19:54
+                            // shows WIF ($32M mcap, $800K liq, 30d age) vetoed as
+                            // goose_catastrophic on FIRST emission via SOLANA_BLUECHIP_WATCHLIST.
+                            // PatternGoldenGoose flagged the 'dogwifhat' theme from historical
+                            // meme rug patterns but WIF IS an established asset. Blue-chip
+                            // and PROJECT_SNIPER_LAUNCHPAD sources are curated (blue-chip is
+                            // hard-coded; launchpad requires mcap>=$500K + liq>=$50K + age>=30m)
+                            // — name-pattern memory cannot override those quality signals.
                             val v4132_isFreshLaunchSource = source.name.contains("PUMP_FUN_NEW", true) ||
                                 source.name.contains("RAYDIUM_NEW_POOL", true) ||
-                                source.name.contains("PUMP_PORTAL_WS", true)
+                                source.name.contains("PUMP_PORTAL_WS", true) ||
+                                source.name.contains("SOLANA_BLUECHIP_WATCHLIST", true) ||
+                                source.name.contains("PROJECT_SNIPER_LAUNCHPAD", true)
                             val v4132_gooseCata = if (v4132_isFreshLaunchSource) false
                                 else try { com.lifecyclebot.engine.PatternGoldenGoose.isCatastrophic(name.ifBlank { identity.symbol }, identity.symbol) } catch (_: Throwable) { false }
                             val v4132_toxicPair = try { !com.lifecyclebot.engine.ScannerLaneBridge.shouldRoute(source.name, "MEME") } catch (_: Throwable) { false }
