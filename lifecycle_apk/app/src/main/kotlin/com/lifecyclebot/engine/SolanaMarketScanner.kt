@@ -4316,22 +4316,17 @@ class SolanaMarketScanner(
         // hosts get swapped transparently (e.g. frontend-api.pump.fun → V3).
         val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(url) } catch (_: Throwable) { url }
         val host = hostLabel(effectiveUrl)
-        // V5.0.6208 — CIRCUIT-BREAKER SHORT-CIRCUIT.
-        // Op report showed dexscreener sr=15% with 383 5xx / 1248 lifetime,
-        // yet every scan cycle still fires a fresh HTTP request (each one
-        // waiting for a socket timeout) because get() ignored ApiBackoff's
-        // own lockout state. This burns cycle time (max=14.7s), floods logs,
-        // and inflates the 5xx count. Fast-fail when the host is in lockout;
-        // the half-open probe inside ApiBackoff still slips a probe through
-        // every ~30s so recovery is not blocked.
-        val circuitOpen = try {
-            com.lifecyclebot.engine.ApiBackoff.isLockedOut(host)
-        } catch (_: Throwable) { false }
-        if (circuitOpen) {
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("API_CIRCUIT_BREAKER_SKIP_${host}_6208") } catch (_: Throwable) {}
-            ErrorLogger.debug("Scanner", "[CIRCUIT_BREAKER] ${host} locked out — skipping ${url.take(50)}")
-            null
-        } else run {
+        // V5.0.6214 — CIRCUIT-BREAKER SHORT-CIRCUIT REVERTED.
+        // V5.0.6208 short-circuited scanner calls when ApiBackoff.isLockedOut
+        // returned true, but that starved the intake funnel to ZERO during any
+        // provider hiccup (Jupiter/DexScreener lockouts stack up to 300s and
+        // block the entire watchlist from being read). Operator hit exactly
+        // this failure mode: "0 tokens coming into the bot in paper or live,
+        // the watchlist is completely blank". The half-open probe is not
+        // aggressive enough to recover throughput.
+        // Revert: always fire the request. ApiBackoff still records the outcome
+        // via markFailure/markSuccess below; sizing/priority code elsewhere
+        // consults isLockedOut for advisory-only signals. Wire is never blocked.
         val builder = Request.Builder().url(effectiveUrl)
             .header(
                 "User-Agent",
@@ -4374,7 +4369,6 @@ class SolanaMarketScanner(
                 else -> ErrorLogger.warn("Scanner", "[NETWORK] HTTP ${resp.code} from ${url.take(50)}")
             }
             null
-        }
         }
     } catch (e: java.net.SocketTimeoutException) {
         ErrorLogger.debug("Scanner", "[NETWORK/TIMEOUT] ${url.take(50)}")
