@@ -6503,6 +6503,10 @@ class BotService : Service() {
     )
 
     @Volatile private var lastHealLogMs: Long = 0L
+    // V5.0.6213 — per-mint stuck-heal counter. Tokens that repeatedly return here
+    // with invalid entry basis + invalid live price are frozen/deleted and get
+    // quarantined after 3 attempts (see healWalletHeldIntoLiveStore).
+    private val stuckHealAttempts = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
     private fun healWalletHeldIntoLiveStore(heldMints: Set<String>) {
         if (heldMints.isEmpty()) return
         // Mints already represented as a LIVE open position in the store.
@@ -6530,6 +6534,60 @@ class BotService : Service() {
                 if (sym.uppercase() in STABLECOIN_SYMBOL_SKIP_6202) {
                     try { ForensicLogger.lifecycle("POSITION_AUTO_HEAL_SKIPPED_STABLECOIN_6202", "mint=${mint.take(12)} symbol=$sym qty=$bal") } catch (_: Throwable) {}
                     continue
+                }
+                // V5.0.6213 — QUARANTINE + PERSISTENT-STUCK GUARD.
+                // Operator: "the bot has two stuck tokens. one is frozen the other
+                // was deleted. the code is there to quarantine and ignore these
+                // tokens to unstick the bot. it's being ignored."
+                // Missing checks: this loop never consulted QuarantineStore /
+                // TokenBlacklist / BannedTokens (WalletReconciler already writes
+                // to those when zero-basis / no-route recoveries fail). So a mint
+                // that was correctly quarantined 30s ago gets AUTOHEALED right
+                // back into a live slot on the next tick — infinite un-stick loop.
+                // Also: track repeat PHANTOM_MULTIPLE_GUARD / ENTRY_PRICE_INVALID
+                // signals as a heuristic for frozen / decimals-broken tokens; after
+                // 3 consecutive autoheal cycles with no resolution, quarantine.
+                val alreadyQuarantined = try {
+                    com.lifecyclebot.engine.QuarantineStore.isQuarantined(mint) ||
+                    com.lifecyclebot.engine.TokenBlacklist.isBlocked(mint) ||
+                    com.lifecyclebot.engine.BannedTokens.isBanned(mint)
+                } catch (_: Throwable) { false }
+                if (alreadyQuarantined) {
+                    try { ForensicLogger.lifecycle("POSITION_AUTO_HEAL_SKIPPED_QUARANTINED_6213", "mint=${mint.take(12)} symbol=$sym qty=$bal reason=already_quarantined_or_blacklisted") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("POSITION_AUTO_HEAL_SKIPPED_QUARANTINED_6213") } catch (_: Throwable) {}
+                    // Also prune from HostWalletTokenTracker so we stop iterating over it.
+                    try { com.lifecyclebot.engine.HostWalletTokenTracker.abandonUnsellableQuarantined(mint, "AUTOHEAL_QUARANTINE_SKIP_6213") } catch (_: Throwable) {}
+                    continue
+                }
+                // Persistent-stuck heuristic: if this mint has been re-attempted 3+
+                // cycles and the tracker entry shows no usable price / basis, treat
+                // as frozen/deleted and quarantine. HostWalletTokenTracker.getEntry
+                // exposes price/costSol from the last known state — if both are
+                // zero across attempts, the token is unpriceable / frozen.
+                val stuckCount = stuckHealAttempts.getOrPut(mint) { java.util.concurrent.atomic.AtomicInteger(0) }
+                val stuckSignal = try {
+                    val badPrice = (tracked?.currentPriceUsd ?: 0.0) <= 0.0
+                    val badBasis = (tracked?.entrySol ?: 0.0) <= 0.0 && (tracked?.entryPriceUsd ?: 0.0) <= 0.0
+                    badPrice && badBasis
+                } catch (_: Throwable) { false }
+                if (stuckSignal) {
+                    val n = stuckCount.incrementAndGet()
+                    if (n >= 3) {
+                        try {
+                            com.lifecyclebot.engine.QuarantineStore.quarantine(mint, sym, "AUTOHEAL_STUCK_UNPRICEABLE_6213")
+                            com.lifecyclebot.engine.TokenBlacklist.block(mint, "AUTOHEAL_STUCK_UNPRICEABLE_6213")
+                            com.lifecyclebot.engine.HostWalletTokenTracker.abandonUnsellableQuarantined(mint, "AUTOHEAL_STUCK_UNPRICEABLE_6213")
+                            ForensicLogger.lifecycle("POSITION_AUTO_HEAL_QUARANTINED_STUCK_6213", "mint=${mint.take(12)} symbol=$sym qty=$bal attempts=$n reason=persistent_unpriceable_frozen_or_deleted")
+                            PipelineHealthCollector.labelInc("POSITION_AUTO_HEAL_QUARANTINED_STUCK_6213")
+                            try { purgeGhostLivePosition(mint, "AUTO_HEAL_STUCK_QUARANTINE_6213") } catch (_: Throwable) {}
+                        } catch (_: Throwable) {}
+                        stuckHealAttempts.remove(mint)
+                        continue
+                    }
+                    try { ForensicLogger.lifecycle("POSITION_AUTO_HEAL_STUCK_COUNTER_6213", "mint=${mint.take(12)} symbol=$sym attempts=$n threshold=3") } catch (_: Throwable) {}
+                } else {
+                    // Healthy this cycle — decay the stuck counter.
+                    stuckCount.set(0)
                 }
                 if (bal <= 1.0) {
                     try { ForensicLogger.lifecycle("POSITION_AUTO_HEAL_SKIPPED_TERMINAL_DUST", "mint=${mint.take(12)} qty=$bal") } catch (_: Throwable) {}

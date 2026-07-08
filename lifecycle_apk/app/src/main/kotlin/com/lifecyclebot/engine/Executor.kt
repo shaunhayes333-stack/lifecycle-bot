@@ -13958,7 +13958,63 @@ class Executor(
                 }
             }
             if (quote == null) {
-                onLog("🚫 BUY ABORTED: all slippage levels failed (${slippageLadder.joinToString()}bps): ${lastQuoteError?.message?.take(80)}", ts.mint)
+                onLog("🚫 BUY jupiter ladder exhausted (${slippageLadder.joinToString()}bps): ${lastQuoteError?.message?.take(80)}", ts.mint)
+                // V5.0.6212 — LAST-RESORT PUMPPORTAL UNIVERSAL-AUTO FALLBACK.
+                // Operator: "jupiter isn't our only sell point ffs. I have heaps.
+                // why the fuck aren't we using it?" — right. PumpPortal Lightning
+                // universal-auto routes pump.fun, PumpSwap AND Raydium pools with
+                // a single endpoint. When Jupiter's quote API is at 40% SR (op-
+                // report), the deep-AMM branch here dies without ever trying the
+                // multi-venue escape hatch. Only fires if pumpFirst was NEVER
+                // attempted earlier (pumpBuyPlan == null) so we can't double-buy.
+                if (pumpBuyPlan == null && pumpFirstResult == null) {
+                    val emergencyPlan = try {
+                        recalcBuyPlanForProcessor(
+                            ts = ts,
+                            wallet = wallet,
+                            processor = "PUMPPORTAL_BUY",
+                            requestedSol = effectiveSol,
+                            priorityFeeSol = buyPriorityFeeSol6134,
+                            jitoTipLamports = effectiveJitoTipLamports(c, urgent = urgentBuyTip6134),
+                            tradeKey = tradeKey,
+                            traderTag = "MEME",
+                        )
+                    } catch (_: Throwable) { null }
+                    if (emergencyPlan != null) {
+                        try { PipelineHealthCollector.labelInc("BUY_PUMPPORTAL_UNIVERSAL_EMERGENCY_6212") } catch (_: Throwable) {}
+                        try { ForensicLogger.lifecycle("BUY_PUMPPORTAL_UNIVERSAL_EMERGENCY_6212", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=jupiter_quote_exhausted_try_multi_venue sol=${emergencyPlan.solAmount} slipPct=$pumpSlipPct6134") } catch (_: Throwable) {}
+                        onLog("🆘 JUPITER DEAD → PumpPortal universal-auto: ${ts.symbol} @ ${"%.4f".format(emergencyPlan.solAmount)}◎ / ${pumpSlipPct6134}% slip", ts.mint)
+                        val emergencyResult = try {
+                            tryPumpPortalBuy(
+                                ts = ts,
+                                wallet = wallet,
+                                solAmount = emergencyPlan.solAmount,
+                                slipPct = pumpSlipPct6134,
+                                priorityFeeSol = buyPriorityFeeSol6134,
+                                useJito = c.jitoEnabled,
+                                jitoTipLamports = effectiveJitoTipLamports(c, urgent = urgentBuyTip6134),
+                                tradeKey = tradeKey,
+                                traderTag = "MEME",
+                            )
+                        } catch (_: Throwable) { null }
+                        if (emergencyResult != null) {
+                            try { PipelineHealthCollector.labelInc("BUY_PUMPPORTAL_UNIVERSAL_EMERGENCY_OK_6212") } catch (_: Throwable) {}
+                            try { ForensicLogger.lifecycle("BUY_PUMPPORTAL_UNIVERSAL_EMERGENCY_OK_6212", "mint=${ts.mint.take(10)} symbol=${ts.symbol} sig=${emergencyResult.first.take(16)} sol=${emergencyResult.second} — Jupiter was dead, PumpPortal saved the trade") } catch (_: Throwable) {}
+                            onLog("✅ EMERGENCY PUMPPORTAL BUY OK: ${ts.symbol} sig=${emergencyResult.first.take(10)}", ts.mint)
+                            LiveTradeLogStore.log(
+                                tradeKey, ts.mint, ts.symbol, "BUY",
+                                LiveTradeLogStore.Phase.BUY_BROADCAST_OK,
+                                "🆘 EMERGENCY PumpPortal universal-auto rescued Jupiter-dead buy: sig=${emergencyResult.first.take(16)}",
+                                solAmount = emergencyResult.second, traderTag = "MEME",
+                            )
+                            // Return true — the wallet reconciler (LIVE_POSITION_AUTOHEAL) will
+                            // hydrate the position basis from the on-chain fill next cycle.
+                            return true
+                        }
+                        try { PipelineHealthCollector.labelInc("BUY_PUMPPORTAL_UNIVERSAL_EMERGENCY_FAIL_6212") } catch (_: Throwable) {}
+                    }
+                }
+                onLog("🚫 BUY ABORTED: all slippage levels failed AND emergency PumpPortal path also unavailable", ts.mint)
                 LiveTradeLogStore.log(
                     tradeKey, ts.mint, ts.symbol, "BUY",
                     LiveTradeLogStore.Phase.BUY_FAILED,
