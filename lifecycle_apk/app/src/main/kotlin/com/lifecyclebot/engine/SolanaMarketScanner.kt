@@ -2599,7 +2599,7 @@ class SolanaMarketScanner(
             var jupHits = 0
             var dexFallbacks = 0
             for (bc in eligible) {
-                if (found >= 12) break  // cap emissions per cycle so we don't overload one intake tick
+                if (found >= 24) break  // V5.0.6204 — raised 12→24 to cover 96-mint expanded watchlist in ~4 scanner cycles
                 val jupPrice = prices[bc.mint] ?: 0.0
                 val token: ScannedToken = if (jupPrice > 0.0) {
                     jupHits++
