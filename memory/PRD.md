@@ -193,3 +193,58 @@ Operator: "watch list is fucking tiny 6 tokens wtf dude!!"
 - Full 150+ asset universe (currently 96)
 - Neural bridge (AI cross-learning perps↔stocks)
 - LLM Lab sandbox
+
+## 2026-02-08 22:20 — MID-SESSION STATE (V5.0.6204b installed, still bleeding)
+
+### What operator report 22:20 shows working:
+- Blue-chip lane_eval=22 (was 0)
+- SOLANA_BLUECHIP_WATCHLIST emitting 5+ intakes per cycle
+- BUY ok/fail: 30/5 (up from 13/6)
+- SELL ok: 14 (up from 1)
+- BLUECHIP bandMult=0.85 confirmed (V5.0.6203 fix live)
+- Live BUYs actively firing on real blue-chip candidates (FWOG etc)
+
+### Still bleeding (wallet 0.37 → 0.27 SOL):
+- HARD_BLOCK_REENTRY_GUARD: 8 (reentry lockouts blocking legit setups)
+- LIVE_CONTEXT_TOXIC_PATTERN_MEMORY_6192_s: 19 (still filtering)
+- HARD_BLOCK_FREEZE_AUTHORITY_UNKNOWN_6164: 13 (V5.0.6203 soft-allow
+  only fires on proven lanes with rugcheck>=55; many pump.fun mints
+  score below that)
+- THROWN:InterruptedException@TX_SUBMIT_START: 2 (Jupiter submit
+  interrupted by app cycle timeout — cycle max=59.7s)
+- Cycle max=59.7s (DexScreener SR=28%, still cycle-choking despite
+  V5.0.6203 circuit breaker)
+
+### PRIORITY QUEUE FOR NEXT SESSION (in order):
+
+#### P0 — Ship immediately
+1. **Grow watchlist 96 → 250 mints** (operator: "watch list is meant
+   to have 250 tokens"). Categories to fill:
+     - More AI_AGENT (add: PIPPIN, GRIM, DOLOS, ELIZA, VU, LUNA, TANK)
+     - More NEW_L1_MEME (add: SPX6900 variants, LOCKIN, TITCOIN,
+       DEEZ NUTS, WEN, MYRO, CHONKY, HUSKY, GORK, FATCOIN)
+     - More GAMING (add: KMNO+KMNO variants, GMT-solana, NYAN, WOOF)
+     - More LAUNCHPAD_GRADUATE from last 90 days pump.fun graduates
+     - More BRIDGED_MAJOR (add: WAVAX, WMATIC, WLTC on Solana)
+     - Fill DEPIN with GRASS, NEXT, FILECOIN, THETA-sol
+2. **Reduce HARD_BLOCK_REENTRY_GUARD cooldown for blue-chips** —
+   pump.fun rug cooldown = 24h is correct; blue-chip cooldown should
+   be 15m (they're re-buy candidates by design).
+3. **Price staleness guard on stop-loss** (deferred from V5.0.6202
+   audit — DexScreener 5xx storm still risks stale-price -74% exits).
+
+#### P1
+4. THROWN:InterruptedException@TX_SUBMIT_START — increase Jupiter TX
+   submit timeout OR relax cycle interrupt policy on live BUYs in
+   flight.
+5. Cycle time still spiking to 59s — needs deeper scanner rotation
+   audit. V5.0.6203 circuit breaker added but only trips at n>=8
+   consecutive.
+
+#### P2 UI
+6. Wallet Growth Ticker (streaming BUY/SELL delta)
+7. Pivot-to-winners banner
+8. Ladder pill
+
+### Last git head: `b89dc70c17` (V5.0.6204b, GREEN)
+### 7 commits shipped this session, all CI GREEN
