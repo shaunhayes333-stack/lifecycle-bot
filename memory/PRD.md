@@ -1,5 +1,53 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## Session (09 Jul 2026 · continued) — V5.0.6223 + V5.0.6224 SHIPPED · CI GREEN ✅
+
+### V5.0.6224 (`a7547a427`) — API layer stabilization (Jupiter/GeckoTerminal/Birdeye)
+Operator V5.0.6223b report: "jupiter is unstable didn't we just update to
+the latest api??? more in the data fix all". Jupiter dropped from 100% to
+58% SR with 5xx=52 in a single session; dexscreener sr=47% with 5xx=217;
+birdeye sr=0% with 4xx=41 (permanently 401'd key).
+
+**BotService.openPositionTickLoop** — three-part fix:
+1. **Jupiter retry-on-5xx**: single 200ms-backoff retry catches transient
+   upstream failures on lite-api.jup.ag/price/v3 without amplifying
+   rate-limit exposure.
+2. **GeckoTerminal batch fallback**: added
+   `api.geckoterminal.com/api/v2/networks/solana/tokens/multi/<csv>`
+   (up to 30 addrs, keyless) as a third fallback slot between Jupiter
+   and Birdeye. Per-mint 6s cooldown = ~10 batch calls/min per mint-set,
+   matches GT free-tier ceiling.
+3. **Birdeye dead-key gate**: skip the Birdeye budget block entirely if
+   `KeyValidator.isLive('birdeye')` returns false. Every call to the
+   dead key was wasted latency + polluting ApiHealthMonitor stats.
+
+Effective open-position price refresh chain now:
+DexScreener batch → Jupiter (retry-on-5xx) → GeckoTerminal → Birdeye (key-alive-only).
+
+### V5.0.6223 (`e7a0236c7`) — P0 FIX: paper-mode 0-sells (stale price marks)
+Operator: "p1 now. bigger issue. heaps of buys 0 sells" — 24 paper positions
+frozen at stale mark 0.008 across the board, no exits firing.
+
+**Root cause**: Fresh PUMP_FUN mints are not indexed by DexScreener, so
+`dex.batchPriceFetch` returned them in `missing`. The only fallback in
+`openPositionTickLoop` was Birdeye — per-tick-cap=1 AND key-dead.
+Result: `ts.lastPrice` never updated after intake seed → TP/SL/trailing
+exits had no fresh tick to fire against → paper buys piled up with 0 sells.
+
+**Two-part fix:**
+1. **openPositionTickLoop**: added Jupiter Price v3 batch fallback
+   (`lite-api.jup.ag/price/v3?ids=<csv>`, chunk=30) BEFORE the Birdeye
+   budget path. Per-mint 5s cooldown, worst-case ~12 batch calls/min.
+2. **tryFallbackPriceData**: split cache TTL by open-position status.
+   5s TTL when `ts.position.isOpen` (matches ~1Hz tick cadence), 60s
+   TTL for scanner-only lookups (unchanged, preserves rate-limit budget).
+
+**Verified in first V5.0.6223 op-report (uptime 146s)**: BUY ok=51, SELL
+ok=7 (was 0 in V5.0.6222). Recent closes include TICK_CATASTROPHIC,
+QUALITY_STOP_LOSS, REALIZED_LOSS, stale_feed_evict, MOMENTUM stop,
+QUALITY_STALE_PRICE, BLUECHIP_TIME_EXIT, REALIZED_SCRATCH — exit gates
+firing across lanes.
+
 ## Session (09 Jul 2026 · continued) — V5.0.6219 SHIPPED · CI GREEN ✅
 
 ### V5.0.6219 (`8e6ec4798`) — API health recovery + hotfixes
