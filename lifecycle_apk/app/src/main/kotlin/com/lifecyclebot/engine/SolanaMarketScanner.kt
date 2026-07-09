@@ -1065,7 +1065,7 @@ class SolanaMarketScanner(
         onLog("⚠️ Scanner error: ${throwable.javaClass.simpleName} - ${throwable.message?.take(50)}")
     }
 
-    private suspend fun runScan(name: String, block: suspend () -> Unit, timeoutMs: Long = SOURCE_SCAN_TIMEOUT_MS) {
+    private suspend fun runScan(name: String, timeoutMs: Long = SOURCE_SCAN_TIMEOUT_MS, block: suspend () -> Unit) {
         telemetrySourceAttempts++
         lastSourceAttemptMs = System.currentTimeMillis()
         val startedAt = System.currentTimeMillis()
@@ -1210,7 +1210,7 @@ class SolanaMarketScanner(
                         val streak = sourceTimeoutStreak[name] ?: 0
                         val effectiveTimeout = if (streak >= SOURCE_DEPRIORITIZE_AFTER)
                             SOURCE_FAST_FAIL_TIMEOUT_MS else SOURCE_SCAN_TIMEOUT_MS
-                        runScan(name, block, effectiveTimeout)
+                        runScan(name, effectiveTimeout, block)
                     } finally { gate.release() }
                 }
             }.awaitAll()
