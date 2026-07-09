@@ -12156,8 +12156,22 @@ class BotService : Service() {
     private val universalSlSweepPending = AtomicBoolean(false)
     private val exitCoordinatorLastFullMs = java.util.concurrent.atomic.AtomicLong(0L)
     private val exitCoordinatorLastUniversalMs = java.util.concurrent.atomic.AtomicLong(0L)
-    private val EXIT_COORDINATOR_FULL_MIN_MS: Long = 30_000L
-    private val EXIT_COORDINATOR_UNIVERSAL_MIN_MS: Long = 30_000L
+    // V5.0.6225 — REDUCE EXIT-COORDINATOR THROTTLE from 30s → 5s (full) / 15s (universal).
+    //
+    // Operator V5.0.6224b report: BUY ok=46 / SELL ok=4 in 175s uptime with
+    // EXIT allow=135. Exit gate was approving 135 exits but only 4 sells
+    // landed in the journal. Root cause: full sweep can only run once every
+    // 30s (Exit sweep start/done=6/6 confirms it hit the cap on every cycle).
+    // With 42 open paper positions, converting only ~0.7 sells per 30s-gated
+    // sweep starves the sell path.
+    //
+    // Cutting the full throttle to 5s lets the coordinator run ~6× more often
+    // (up to 12 sweeps/min). paperSell is cheap (no network) so back-to-back
+    // sweeps are safe. The sweep's own EXIT_SWEEP_HARD_MS=12s budget still
+    // prevents runaway. Universal SL kept at 15s (still a safety net that
+    // doesn't need every-5s cadence, but 2x faster than before).
+    private val EXIT_COORDINATOR_FULL_MIN_MS: Long = 5_000L
+    private val EXIT_COORDINATOR_UNIVERSAL_MIN_MS: Long = 15_000L
 
     // V5.9.1009 — Exit sweeps must never block botLoop. A slow paperSell
     // learning/closeout fanout previously parked the main cycle in
