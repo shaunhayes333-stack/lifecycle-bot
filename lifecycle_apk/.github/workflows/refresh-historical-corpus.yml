@@ -1,0 +1,64 @@
+name: Refresh Historical Corpus
+
+on:
+  # Weekly refresh — Sundays 03:00 UTC
+  schedule:
+    - cron: "0 3 * * 0"
+  # Manual trigger via GitHub UI or `gh workflow run refresh-historical-corpus.yml`
+  workflow_dispatch:
+    inputs:
+      max_tokens:
+        description: "Maximum tokens to fetch"
+        required: false
+        default: "500"
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    name: Fetch + label Solana historical corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install requirements
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Fetch historical corpus
+        env:
+          CORPUS_MAX_TOKENS: ${{ github.event.inputs.max_tokens || '500' }}
+        run: |
+          python scripts/fetch_solana_corpus.py
+
+      - name: Report corpus size
+        run: |
+          ls -la app/src/main/assets/historical_corpus.jsonl.gz || true
+          if [ -f app/src/main/assets/historical_corpus.jsonl.gz ]; then
+            echo "Row count:"
+            zcat app/src/main/assets/historical_corpus.jsonl.gz | wc -l
+            echo "Pattern tag distribution:"
+            zcat app/src/main/assets/historical_corpus.jsonl.gz \
+              | python -c "import json,sys;from collections import Counter;c=Counter();[c.update(json.loads(l).get('patterns',[])) for l in sys.stdin];print('\n'.join(f'  {k}: {v}' for k,v in c.most_common()))"
+          fi
+
+      - name: Commit updated corpus
+        run: |
+          git config user.name "AATE Corpus Refresh Bot"
+          git config user.email "aate-corpus@lifecycle.bot"
+          git add app/src/main/assets/historical_corpus.jsonl.gz
+          if git diff --cached --quiet; then
+            echo "No corpus changes — nothing to commit."
+          else
+            git commit -m "corpus: weekly refresh — top Solana tokens historical patterns"
+            git push origin main
+          fi

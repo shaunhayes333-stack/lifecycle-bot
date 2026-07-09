@@ -1392,6 +1392,12 @@ class BotService : Service() {
             FeeRetryQueue.init(applicationContext)  // V5.9.226: Bug #7 — fee retry queue
             FeeAccumulator.init(applicationContext)  // V5.0.3920 — fee accumulator (batched flush)
             ScannerHardRejectStore.init(applicationContext)  // V5.0.4036 — durable hard-reject scanner quarantine
+            // V5.0.6221 — warm the Historical Pattern Matcher on background IO.
+            // Loads assets/historical_corpus.jsonl.gz (built weekly by CI). Fail-open;
+            // any missing asset or parse error leaves the matcher inert without
+            // affecting the bot loop. Provides pattern priors so the AI stack has
+            // a labelled winner corpus to compare live candidates against.
+            try { HistoricalPatternMatcher.warm(applicationContext) } catch (_: Throwable) {}
             // V5.9.666 — install Choreographer-based ANR / long-frame
             // detector so the in-app Pipeline Health panel captures
             // every main-thread stutter with elapsed delta. onCreate
