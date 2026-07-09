@@ -13501,6 +13501,15 @@ class Executor(
             (walletSol * 0.14).coerceIn(0.020, com.lifecyclebot.engine.LiveSizingProfile.MIN_ENTRY_SOL)
         } else com.lifecyclebot.engine.LiveSizingProfile.MIN_ENTRY_SOL
         val minNonMicroLiveBuySol = liveCfg.minLiveBuySol.coerceAtLeast(smallWalletNonMicroFloor6188)
+        // V5.0.6216 — MICRO-WALLET EMERGENCY PROBE. Report showed the wallet at
+        // 0.10-0.13 SOL. With walletRiskCap ≈ 15% (0.015 SOL) and non-micro floor
+        // 0.020 SOL, EVERY live buy dies with SIZE_TOO_THIN_FOR_NON_MICRO_TRADE
+        // and the bot has no way to attempt a recovery probe. When the wallet is
+        // this thin, drop into micro-probe mode regardless of the layerTag — a
+        // small real trade beats no trade at all. Never larger than spendable,
+        // never below the on-chain executable minimum (0.005 SOL). Compound
+        // floors reactivate as soon as the wallet climbs back above 0.15 SOL.
+        val microWalletEmergency6216 = walletSol > 0.0 && walletSol < 0.15
         // V5.0.6104 — micro-probe mode must be explicit. The old config-level
         // allowLiveMicroProbe let ordinary QUALITY/MOONSHOT/TREASURY buys pass at
         // 0.003–0.007 SOL after pending-proof and learned-risk multipliers. That
@@ -13517,9 +13526,26 @@ class Executor(
             val r = raw.uppercase()
             r.contains("PROBE_ONLY") || r.contains("DUST_PROBE") || r.contains("MICRO_PROBE") || r.contains("LOW_LIQUIDITY_DUST_PROBE")
         }
-        val liveMinExecutableBuySol = if (liveCfg.allowLiveMicroProbe && explicitLiveMicroProbe6104) 0.005 else minNonMicroLiveBuySol
+        val allowMicroPath6216 = microWalletEmergency6216 || (liveCfg.allowLiveMicroProbe && explicitLiveMicroProbe6104)
+        val liveMinExecutableBuySol = if (allowMicroPath6216) 0.005 else minNonMicroLiveBuySol
+        if (microWalletEmergency6216) {
+            try {
+                ForensicLogger.lifecycle(
+                    "MICRO_WALLET_EMERGENCY_PROBE_6216",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} walletSol=$walletSol minPromoted=${liveMinExecutableBuySol} reason=wallet_below_0.15_probe_or_die"
+                )
+                PipelineHealthCollector.labelInc("MICRO_WALLET_EMERGENCY_PROBE_6216")
+            } catch (_: Throwable) {}
+        }
         val maxConfigLiveBuySol = liveCfg.maxLiveBuySol.takeIf { it > 0.0 } ?: Double.MAX_VALUE
-        val walletRiskCapSol = (walletSol * liveCfg.maxWalletRiskPerTradePct.coerceIn(0.0, 1.0)).takeIf { it > 0.0 } ?: Double.MAX_VALUE
+        // V5.0.6216 — in micro-wallet emergency, widen walletRiskCap from
+        // configured 10-15% to 30% so a 0.10 SOL wallet can still fire a
+        // 0.020-0.030 SOL probe (well above the 0.005 executable minimum).
+        // Config caps still apply outside emergency mode.
+        val effectiveRiskPct6216 = if (microWalletEmergency6216)
+            liveCfg.maxWalletRiskPerTradePct.coerceIn(0.0, 1.0).coerceAtLeast(0.30)
+        else liveCfg.maxWalletRiskPerTradePct.coerceIn(0.0, 1.0)
+        val walletRiskCapSol = (walletSol * effectiveRiskPct6216).takeIf { it > 0.0 } ?: Double.MAX_VALUE
         val maxSpendableSol = minOf(walletSol - liveRentReserveSol, maxConfigLiveBuySol, walletRiskCapSol)
         if (maxSpendableSol < liveMinExecutableBuySol) {
             onLog("⚠️ ${ts.symbol}: skipping buy — wallet too low for non-micro live ticket (${walletSol.fmt(4)}◎ spendable=${maxSpendableSol.fmt(4)}◎ min=${liveMinExecutableBuySol.fmt(4)}◎)", ts.mint)
@@ -13606,7 +13632,9 @@ class Executor(
             } catch (_: Throwable) { 0.0 }
         }
         val impactPct = if (liqForImpact > 0.0) ((sol * assumedSolUsd) / liqForImpact) * 100.0 else 999.0
-        if (!liveCfg.allowLiveMicroProbe && sol < minNonMicroLiveBuySol) {
+        // V5.0.6216 — micro-wallet emergency ALSO bypasses the second
+        // non-micro floor check (same wallet condition as above).
+        if (!allowMicroPath6216 && !liveCfg.allowLiveMicroProbe && sol < minNonMicroLiveBuySol) {
             emitLiveBuyFail(ts, sol, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "finalSol=$sol minLiveBuySol=$minNonMicroLiveBuySol allowMicro=false")
             buyTerminalFail("BUY_TERMINAL_MIN_NOTIONAL_AFTER_FEES:SIZE_TOO_THIN_FOR_NON_MICRO_TRADE")
             return false

@@ -911,6 +911,20 @@ class SolanaMarketScanner(
     private val sourceTimeoutStreak = java.util.concurrent.ConcurrentHashMap<String, Int>()
     private val SOURCE_DEPRIORITIZE_AFTER = 3   // consecutive timeouts before skipping
     private val SOURCE_SKIP_EVERY = 3           // when deprioritized, run 1 of every 3 cycles
+    // V5.0.6216 — SEVERE-STREAK ADAPTIVE CORE ROTATION. Report showed core
+    // Dex sources (scanDexTrending, scanDexGainers, scanFreshLaunches,
+    // scanRaydiumNewPools) with streak=9 still burning the full 3500ms
+    // per-source timeout every cycle because coreSource6103 bypassed the
+    // rotation skip. When DexScreener SR is at 42% with 382× 5xx errors,
+    // that's 4 core × 3.5s = 14s of dead time per batch, blowing past the
+    // 8s SCAN_BATCH_BUDGET_MS. At severe streaks even core sources rotate
+    // (run 1 in 3 cycles) and their per-source timeout is halved to fail
+    // fast. Never a permanent ban — sources re-enter on their cadence.
+    private val SOURCE_SEVERE_STREAK = 6        // core sources start rotating past this
+    private val SOURCE_SEVERE_SKIP_EVERY = 3    // even core sources: run 1 in every 3
+    private val SOURCE_CRITICAL_STREAK = 12     // deep-dead: back off harder
+    private val SOURCE_CRITICAL_SKIP_EVERY = 6  // run 1 in every 6
+    private val SOURCE_FAST_FAIL_TIMEOUT_MS = 1_500L  // half timeout for streak≥3 sources
 
     @Volatile private var memorySafeMode = false
     @Volatile private var oomCount = 0
@@ -1051,14 +1065,14 @@ class SolanaMarketScanner(
         onLog("⚠️ Scanner error: ${throwable.javaClass.simpleName} - ${throwable.message?.take(50)}")
     }
 
-    private suspend fun runScan(name: String, block: suspend () -> Unit) {
+    private suspend fun runScan(name: String, block: suspend () -> Unit, timeoutMs: Long = SOURCE_SCAN_TIMEOUT_MS) {
         telemetrySourceAttempts++
         lastSourceAttemptMs = System.currentTimeMillis()
         val startedAt = System.currentTimeMillis()
         val rawBefore = telemetryRawScanned
         val enqBefore = telemetryEnqueued
         try {
-            withTimeout(SOURCE_SCAN_TIMEOUT_MS) { block() }
+            withTimeout(timeoutMs) { block() }
             telemetrySourceSuccesses++
             sourceTimeoutStreak.remove(name)  // V5.9.1497 — healthy → reset deprioritization
             try {
@@ -1071,8 +1085,8 @@ class SolanaMarketScanner(
             telemetrySourceErrors++
             val streak = (sourceTimeoutStreak[name] ?: 0) + 1  // V5.9.1497
             sourceTimeoutStreak[name] = streak
-            ErrorLogger.warn("Scanner", "$name timed out after ${SOURCE_SCAN_TIMEOUT_MS}ms (streak=$streak)")
-            try { ForensicLogger.lifecycle("SCANNER_SOURCE_TIMEOUT", "name=$name raw=${telemetryRawScanned - rawBefore} enq=${telemetryEnqueued - enqBefore} durMs=${System.currentTimeMillis() - startedAt}") } catch (_: Throwable) {}
+            ErrorLogger.warn("Scanner", "$name timed out after ${timeoutMs}ms (streak=$streak)")
+            try { ForensicLogger.lifecycle("SCANNER_SOURCE_TIMEOUT", "name=$name raw=${telemetryRawScanned - rawBefore} enq=${telemetryEnqueued - enqBefore} durMs=${System.currentTimeMillis() - startedAt} timeoutMs=$timeoutMs") } catch (_: Throwable) {}
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -1131,14 +1145,26 @@ class SolanaMarketScanner(
         val active = scans.toList().filter { (name, _) ->
             val streak = sourceTimeoutStreak[name] ?: 0
             val core = name in coreSource6103
-            val shouldRotateSkip = !core && streak >= SOURCE_DEPRIORITIZE_AFTER && (rotation6103 % SOURCE_SKIP_EVERY) != 0
+            // V5.0.6216 — SEVERE-STREAK ADAPTIVE CORE ROTATION.
+            // Even "core" sources rotate once streak ≥ SOURCE_SEVERE_STREAK,
+            // and even harder past SOURCE_CRITICAL_STREAK. This stops a
+            // wedged DexScreener from burning ~14s of per-cycle timeout
+            // budget across 4 core Dex sources when it's returning 5xx.
+            // Non-core keeps its original schedule.
+            val shouldRotateSkip = when {
+                !core && streak >= SOURCE_DEPRIORITIZE_AFTER && (rotation6103 % SOURCE_SKIP_EVERY) != 0 -> true
+                core && streak >= SOURCE_CRITICAL_STREAK && (rotation6103 % SOURCE_CRITICAL_SKIP_EVERY) != 0 -> true
+                core && streak >= SOURCE_SEVERE_STREAK && (rotation6103 % SOURCE_SEVERE_SKIP_EVERY) != 0 -> true
+                else -> false
+            }
             if (shouldRotateSkip) {
                 try {
+                    val tag = if (core) "SCANNER_CORE_SOURCE_ROTATED_SKIP_6216" else "SCANNER_OPTIONAL_SOURCE_ROTATED_SKIP_6103"
                     ForensicLogger.lifecycle(
-                        "SCANNER_OPTIONAL_SOURCE_ROTATED_SKIP_6103",
-                        "name=$name streak=$streak rotation=$rotation6103 every=$SOURCE_SKIP_EVERY reason=preserve_live_loop_under_provider_degradation"
+                        tag,
+                        "name=$name core=$core streak=$streak rotation=$rotation6103 reason=preserve_live_loop_under_provider_degradation"
                     )
-                    PipelineHealthCollector.labelInc("SCANNER_OPTIONAL_SOURCE_ROTATED_SKIP_6103")
+                    PipelineHealthCollector.labelInc(tag)
                 } catch (_: Throwable) {}
             }
             !shouldRotateSkip
@@ -1173,7 +1199,19 @@ class SolanaMarketScanner(
             balancedActive6017.map { (name, block) ->
                 async(Dispatchers.IO) {
                     gate.acquire()
-                    try { runScan(name, block) } finally { gate.release() }
+                    try {
+                        // V5.0.6216 — HIGH-STREAK FAST-FAIL. When a source has
+                        // been timing out for ≥SOURCE_DEPRIORITIZE_AFTER cycles
+                        // we halve its per-source timeout so it stops burning
+                        // permits and lets healthy sources through faster. If
+                        // the API is genuinely up-again it'll return in <1s
+                        // anyway, so the halved ceiling is only tighter on
+                        // sources already known to be sick.
+                        val streak = sourceTimeoutStreak[name] ?: 0
+                        val effectiveTimeout = if (streak >= SOURCE_DEPRIORITIZE_AFTER)
+                            SOURCE_FAST_FAIL_TIMEOUT_MS else SOURCE_SCAN_TIMEOUT_MS
+                        runScan(name, block, effectiveTimeout)
+                    } finally { gate.release() }
                 }
             }.awaitAll()
             true
@@ -2670,16 +2708,39 @@ class SolanaMarketScanner(
      * Fails fast on any network/parse error — returns emptyMap so DexScreener
      * fallback path takes over per-mint.
      */
-    private fun fetchJupiterPricesBatch(mints: List<String>): Map<String, Double> {
+    private suspend fun fetchJupiterPricesBatch(mints: List<String>): Map<String, Double> {
         if (mints.isEmpty()) return emptyMap()
         // V5.0.6206 — CHUNKED BATCHES. The 251-mint watchlist built an
         // 11,080-char ids URL that Jupiter 400'd on every call (ApiHealth:
         // jupiter sr=1%, 4xx=107) — the entire blue-chip fallback lane
         // silently died the moment the watchlist grew. lite-api /price/v3
         // handles ~50 ids per request; chunk at 45 and merge.
+        //
+        // V5.0.6216 — PARALLEL CHUNK FETCH. Report showed
+        // scanSolanaBlueChipWatchlist timing out (streak=2) because the
+        // 305-mint watchlist expands to ~7 chunks × 1-2s serially = 7-14s,
+        // busting the 3500ms per-source withTimeout. Fire all chunks
+        // concurrently on Dispatchers.IO; wall time drops to slowest
+        // single chunk (~1-2s). Jupiter lite-api handles ~50 ids/req and
+        // has no batch-parallelism limit at this fanout size.
         val out = HashMap<String, Double>()
-        for (chunk in mints.chunked(45)) {
-            out.putAll(fetchJupiterPricesChunk(chunk))
+        val chunks = mints.chunked(45)
+        if (chunks.size == 1) {
+            out.putAll(fetchJupiterPricesChunk(chunks[0]))
+            return out
+        }
+        try {
+            kotlinx.coroutines.coroutineScope {
+                val deferred = chunks.map { chunk ->
+                    async(Dispatchers.IO) { fetchJupiterPricesChunk(chunk) }
+                }
+                val results = deferred.awaitAll()
+                for (m in results) out.putAll(m)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ErrorLogger.debug("Scanner", "fetchJupiterPricesBatch parallel error: ${e.message?.take(60)}")
         }
         return out
     }
