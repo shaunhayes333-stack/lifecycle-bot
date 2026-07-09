@@ -636,6 +636,12 @@ class ExecutionAuthorityInvariantTest {
         RuntimeModeAuthority.publishUiMode(paper)
         RuntimeModeAuthority.publishExecutorMode(paper)
         RuntimeModeAuthority.publishPipelineMode(paper)
+        // V5.0.6218 — HARD MODE PARTITION guard reads
+        // FinalExecutionPermit.isPaperMode directly. In prod BotService
+        // syncs it in the bot loop; in tests FinalExecutionPermit.resetForTests()
+        // leaves it at the default (true), which caused the mode-partition
+        // guard to drop LIVE tickets during live-mode tests. Sync it here.
+        FinalExecutionPermit.isPaperMode = paper
     }
 
     @Test
