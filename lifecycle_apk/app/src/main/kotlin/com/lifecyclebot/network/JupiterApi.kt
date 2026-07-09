@@ -66,8 +66,17 @@ class JupiterApi(private val apiKey: String = "") {
         // Google, Quad9, and system DNS — Jupiter is retiring that host before Jan 31 2026.
         // New free tier endpoint (no API key) is lite-api.jup.ag/swap/v1.
         // Paths /quote and /swap stay the same.
+        //
+        // V5.0.6219 — API HEALTH RECOVERY. Op-report shows jupiter_quote sr=23%
+        // (4xx=142, 5xx=5, avg=4100ms). Jupiter deprecated `quote-api.jup.ag/v6`
+        // Oct 1, 2025 and started migrating free-tier calls to `api.jup.ag/swap/v1`
+        // with an API key. Our old Ultra primary (`api.jup.ag/swap/v2/order`) is
+        // paid tier and 4xx's on free plans, which is what's driving the failure
+        // rate. Fix: primary quote path is now `api.jup.ag/swap/v1/quote` (free
+        // tier + optional key). Fallback stays on lite-api until fully retired.
         private const val BASE_V6 = "https://lite-api.jup.ag/swap/v1"
         private const val BASE_URL = "https://api.jup.ag"
+        private const val PRIMARY_QUOTE_BASE = "$BASE_URL/swap/v1"
         private const val ORDER_ENDPOINT = "$BASE_URL/swap/v2/order"
         private const val EXECUTE_ENDPOINT = "$BASE_URL/swap/v2/execute"
 
@@ -113,13 +122,14 @@ class JupiterApi(private val apiKey: String = "") {
         require(amountRaw > 0L) { "amountRaw must be > 0" }
 
         return try {
-            getUltraQuote(
+            getQuoteV1Free(
                 inputMint = inputMint,
                 outputMint = outputMint,
                 amountRaw = amountRaw,
+                slippageBps = slippageBps,
             )
         } catch (e: Exception) {
-            log("⚠️ v2 quote failed, falling back to v6: ${e.message}")
+            log("⚠️ V5.0.6219 primary api.jup.ag/swap/v1/quote failed, falling back to lite-api: ${e.message?.take(100)}")
             getQuoteV6(
                 inputMint = inputMint,
                 outputMint = outputMint,
@@ -127,6 +137,69 @@ class JupiterApi(private val apiKey: String = "") {
                 slippageBps = slippageBps,
             )
         }
+    }
+
+    /**
+     * V5.0.6219 — Jupiter FREE-TIER primary quote path.
+     * Endpoint: https://api.jup.ag/swap/v1/quote (post-Oct 2025 free tier).
+     * Ultra (paid) v2/order returned 4xx storms in the op-report; that path
+     * is only unlocked with a paid API key. This free-tier path works with
+     * or without an API key (header added when configured).
+     */
+    private fun getQuoteV1Free(
+        inputMint: String,
+        outputMint: String,
+        amountRaw: Long,
+        slippageBps: Int,
+    ): SwapQuote {
+        val startMs = System.currentTimeMillis()
+        val baseUrl = buildString {
+            append(PRIMARY_QUOTE_BASE)
+            append("/quote?inputMint=").append(inputMint)
+            append("&outputMint=").append(outputMint)
+            append("&amount=").append(amountRaw)
+        }
+        val attempts = listOf(
+            "slippageBps=${slippageBps.coerceIn(50, 2500)}&restrictIntermediateTokens=true",
+            "slippageBps=${maxOf(slippageBps, 1500).coerceIn(50, 5000)}&restrictIntermediateTokens=false",
+            "slippageBps=${maxOf(slippageBps, 2500).coerceIn(50, 8000)}&onlyDirectRoutes=true",
+        )
+        var lastErr: Exception? = null
+        var body: String? = null
+        var picked = ""
+        for (params in attempts) {
+            val url = "$baseUrl&$params"
+            try {
+                log("📊 V1 FREE QUOTE (V5.0.6219): ${shortMint(inputMint)} -> ${shortMint(outputMint)} | amountRaw=$amountRaw params=$params")
+                body = getOrThrow(url)
+                picked = params
+                break
+            } catch (e: Exception) {
+                lastErr = e
+                val msg = e.message.orEmpty()
+                log("⚠️ V1 free quote attempt failed params=$params err=${msg.take(100)}")
+            }
+        }
+        val elapsed = System.currentTimeMillis() - startMs
+        val json = JSONObject(body ?: throw RuntimeException("Jupiter v1 free quote exhausted fallbacks: ${lastErr?.message}"))
+        if (json.has("error")) {
+            throw RuntimeException("Jupiter v1 free quote error: ${json.optString("error", "unknown")}")
+        }
+        val outAmount = parseLongSafely(json.opt("outAmount"))
+        if (outAmount <= 0L) throw RuntimeException("Jupiter v1 free quote returned outAmount=0")
+        val priceImpactPct = parseDoubleSafely(json.opt("priceImpactPct"))
+        log("✅ V1 FREE QUOTE OK: out=$outAmount impact=${fmt2(priceImpactPct)}% params=$picked (${elapsed}ms)")
+        return SwapQuote(
+            raw = json,
+            outAmount = outAmount,
+            priceImpactPct = priceImpactPct,
+            isUltra = false,
+            inputMint = inputMint,
+            outputMint = outputMint,
+            inAmount = amountRaw,
+            router = "metis-v1",
+            isRfqRoute = false,
+        )
     }
 
     /**

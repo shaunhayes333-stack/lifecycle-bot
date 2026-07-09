@@ -1,5 +1,24 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## Session (09 Jul 2026 · continued) — V5.0.6218 SHIPPED · CI GREEN ✅
+
+### V5.0.6218 (`39e9e17af`) — LIVE-MODE AUTO-PAUSE GUARD
+**Operator directive:** "I still cant understand with the amount of
+intelligence data and tech we have how its even possible for the bot
+to be losing money at all trading live!!!!" Config: 1a + 2c + 3a —
+auto pause+resume, 10-cycle trigger, PAPER flip only.
+
+New `LiveModeAutoPauseGuard.kt`:
+- **PAUSE (LIVE→PAPER):** cleanLive rolling WR (last 30 closes) < 20%
+  AND sample >= 20, sustained for 10 consecutive 30s evaluation ticks.
+- **RESUME (PAPER→LIVE):** only if we own the flip. Post-flip paper WR
+  >= 25% AND sample >= 20, sustained for 10 ticks. Flips paperMode
+  back to false automatically.
+- Respects manual operator toggles — if the operator flips modes
+  themselves the guard defers and stops trying to resume.
+- Never touches lane config or authority. Only paperMode. Fail-open.
+- Hooked into BotService main loop right after LaneAutoPauseGuard.
+
 ## Session (09 Jul 2026) — V5.0.6216 + V5.0.6217 SHIPPED · CI GREEN ✅
 
 ### V5.0.6217 (`ed25ea359`) — Copy button responsiveness after long runtime

@@ -65,6 +65,14 @@ object StrategyTruthLedger {
                 inc("STRATEGY_RECOVERY_EXCLUDED")
                 continue
             }
+            // V5.0.6218 — EMERGENCY_PATCH item 2 exclusion filters.
+            val specExcl = specExcludedReason6218(row)
+            if (specExcl != null) {
+                forensic++
+                inc(specExcl)
+                inc("STRATEGY_SPEC_EXCLUDED_6218_TOTAL")
+                continue
+            }
             if (!hasValidEntryBasis(row)) {
                 badEntry++
                 inc("STRATEGY_BAD_ENTRY_EXCLUDED")
@@ -106,6 +114,42 @@ object StrategyTruthLedger {
             hay.contains("RECOVERED_") ||
             hay.contains("RESTORED_") ||
             hay.contains("INVENTORY_RECON")
+    }
+
+    // V5.0.6218 — EMERGENCY_PATCH item 2: StrategyTruthLedger gating.
+    // Exclude probe-only, unverified-map, unverified-route, invalid-entry
+    // and shadow-paper rows from clean strategy truth. Operator's report
+    // showed StrategyTruthLedger receiving TOKEN_MAP_PENDING rows and
+    // PROBE_ONLY rows that inflate/deflate WR/PnL falsely. Returns the
+    // exclusion tag (for forensic counter naming) or null if clean.
+    fun specExcludedReason6218(t: Trade): String? {
+        val hay = listOf(
+            t.tradingMode, t.reason, t.proofState,
+            t.entryPriceSource, t.positionId, t.side, t.symbol,
+        ).joinToString("|").uppercase()
+        return when {
+            // Probe-only rows: research telemetry, not strategy truth.
+            hay.contains("PROBE_ONLY") ||
+                hay.contains("DUST_PROBE") ||
+                hay.contains("MICRO_PROBE") ||
+                hay.contains("MICRO_WALLET_EMERGENCY_PROBE_6216") ||
+                hay.contains("LOW_LIQUIDITY_DUST_PROBE") -> "PROBE_ONLY_EXCLUDED_6218"
+            // Token map wasn't verified pre-entry: entry basis is untrusted.
+            hay.contains("TOKEN_MAP_PENDING") ||
+                hay.contains("TOKEN_MAP_UNKNOWN") ||
+                hay.contains("TOKEN_MAP_START") -> "TOKEN_MAP_UNVERIFIED_EXCLUDED_6218"
+            // Route unknown/pending at entry: cannot claim strategy truth.
+            hay.contains("ROUTE_UNKNOWN") ||
+                hay.contains("ROUTE_PENDING") ||
+                hay.contains("ROUTE_NOT_VERIFIED") -> "ROUTE_UNVERIFIED_EXCLUDED_6218"
+            // Entry price invalid: no trustworthy basis.
+            hay.contains("ENTRY_PRICE_INVALID") ||
+                hay.contains("ENTRY_BASIS_INVALID") -> "ENTRY_PRICE_INVALID_EXCLUDED_6218"
+            // Shadow-paper research surface: not clean paper truth either.
+            hay.contains("SHADOW_PAPER") ||
+                hay.contains("PAPER_SHADOW") -> "SHADOW_PAPER_EXCLUDED_6218"
+            else -> null
+        }
     }
 
     fun inventoryRecoveryRows(rawRows: List<Trade>): List<Trade> =

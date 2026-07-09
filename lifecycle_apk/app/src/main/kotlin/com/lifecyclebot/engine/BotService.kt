@@ -25044,7 +25044,44 @@ if (hotExitHandledSweep) {
     }
 
     private fun tryFallbackPriceData(mint: String, ts: TokenState): Boolean {
-        // Try Birdeye first
+        // V5.0.6219 — API HEALTH RECOVERY. Op-report showed birdeye sr=0%
+        // (401), dexscreener sr=31% (5xx storm), and geckoterminal sr=14%.
+        // Meanwhile jupiter sr=100%. Promote Jupiter Price v3 to the top
+        // of the fallback chain — it's currently the only provider that
+        // isn't degraded, and it's keyless. When it returns a price, we
+        // skip the failing chain entirely.
+        try {
+            val jupUrl = "https://lite-api.jup.ag/price/v3?ids=$mint"
+            val effective = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(jupUrl) } catch (_: Throwable) { jupUrl }
+            val jupClient = com.lifecyclebot.network.SharedHttpClient.builder()
+                .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            val jupReq = okhttp3.Request.Builder().url(effective).header("accept", "application/json").build()
+            val jupStart = System.currentTimeMillis()
+            val jupResp = jupClient.newCall(jupReq).execute()
+            try { com.lifecyclebot.engine.ApiHealthMonitor.record("jupiter", jupResp.code, System.currentTimeMillis() - jupStart) } catch (_: Throwable) {}
+            if (jupResp.isSuccessful) {
+                val body = jupResp.body?.string().orEmpty()
+                val json = try { org.json.JSONObject(body) } catch (_: Throwable) { null }
+                val entry = json?.optJSONObject(mint) ?: json?.optJSONObject("data")?.optJSONObject(mint)
+                val priceUsd = entry?.optDouble("usdPrice", entry.optDouble("price", 0.0)) ?: 0.0
+                if (priceUsd > 0.0) {
+                    synchronized(ts) {
+                        ts.lastPrice = priceUsd
+                        ts.lastPriceUpdate = System.currentTimeMillis()
+                        ts.lastPriceSource = "JUPITER_PRICE_V3_6219"
+                    }
+                    broadcastFallbackPrice(mint, priceUsd)
+                    addLog("🪐 Jupiter Price v3: ${ts.symbol} \$${priceUsd}", mint)
+                    return true
+                }
+            }
+        } catch (_: Throwable) {}
+
+        // Try Birdeye first (V5.9.744 — kept for schema-rich data when key
+        // is healthy; V5.0.6219 KeyValidator sticks 24h on 401 so we don't
+        // waste calls when the operator key is broken).
         try {
             val cfg2 = ConfigStore.load(applicationContext)
             val ov = com.lifecyclebot.network.BirdeyeApi(cfg2.birdeyeApiKey).getTokenOverview(mint)

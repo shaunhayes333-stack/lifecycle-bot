@@ -44,6 +44,14 @@ import java.util.concurrent.atomic.AtomicLong
 object KeyValidator {
     private const val TAG = "KeyValidator"
     private const val DEAD_TTL_MS = 30 * 60_000L   // 30 min — re-probe after
+    // V5.0.6219 — AUTH-FAILURE STICKY TTL. Op-report shows birdeye 4xx=1134
+    // in a single session because the DEAD_TTL_MS expiry every 30 min lets
+    // the invalid-key hammer resume. A 401 on Birdeye means the key is
+    // genuinely broken (missing/expired/revoked) — no amount of automatic
+    // retry can fix that. Auth failures now use a 24h re-probe window so
+    // the bot stops burning HTTP calls on a known-dead key until the
+    // operator rotates it or restarts the app.
+    private const val AUTH_DEAD_TTL_MS = 24 * 60 * 60_000L  // 24 hours
 
     private data class Verdict(
         val isLive: Boolean,
@@ -113,7 +121,10 @@ object KeyValidator {
     fun isLive(service: String): Boolean {
         val v = verdicts[service.lowercase()] ?: return true
         val age = System.currentTimeMillis() - v.timestampMs
-        if (!v.isLive && age < DEAD_TTL_MS) return false
+        // V5.0.6219 — auth failures (401/403) get 24h sticky TTL; other
+        // errors keep the 30min TTL.
+        val effectiveTtl = if (v.lastHttp == 401 || v.lastHttp == 403) AUTH_DEAD_TTL_MS else DEAD_TTL_MS
+        if (!v.isLive && age < effectiveTtl) return false
         // DEAD verdict expired — clear and treat as unknown
         if (!v.isLive) verdicts.remove(service.lowercase())
         return true

@@ -516,6 +516,28 @@ object PipelineHealthCollector {
         // "LIVE_BUY" doesn't shadow "LIVE_BUY_OK" / "LIVE_BUY_FAIL" once
         // those finer-grained actions are wired by callers.
         val eventMode = modeFromExec(action, fields)
+        // V5.0.6218 — HARD MODE PARTITION (EMERGENCY_PATCH item 1).
+        // If runtime is paper=true, LIVE_* counters MUST NOT increment
+        // from current-session exec events. Operator's report showed
+        // paper=true with LIVE BUY ok/fail/attempt counters populating —
+        // that pollutes StrategyTruthLedger downstream. Drop the LIVE
+        // classification silently (raw forensic label still records the
+        // event via bump above; only the LIVE-mode counters are gated).
+        val runtimePaperNow6218 = try { FinalExecutionPermit.isPaperMode } catch (_: Throwable) { false }
+        val isLiveClassifiedAction = action.startsWith("LIVE_") || eventMode == "LIVE"
+        if (runtimePaperNow6218 && isLiveClassifiedAction) {
+            try {
+                bump(labelCounts, "MODE_PARTITION_VIOLATION_ONEXEC_6218")
+                ForensicLogger.lifecycle(
+                    "MODE_PARTITION_LIVE_EXEC_LABEL_WHILE_PAPER_6218",
+                    "action=$action symbol=$symbol eventMode=$eventMode runtimePaper=true action_taken=live_counter_increment_suppressed"
+                )
+            } catch (_: Throwable) {}
+            // Preserve the raw forensic Event ring but do NOT feed the
+            // LIVE_* mode-scoped counters. Fall through to appendEvent.
+            appendEvent(Event(System.currentTimeMillis(), "EXEC/$action", symbol, fields.take(220)))
+            return
+        }
         when {
             action.startsWith("LIVE_BUY_OK")      -> execLiveBuyOk.incrementAndGet()
             action.startsWith("LIVE_BUY_FAIL")    -> {
@@ -548,6 +570,26 @@ object PipelineHealthCollector {
         // evidence is emitted as LIFECYCLE labels, not EXEC labels. Count those
         // from the event authority itself so a PAPER UI snapshot cannot hide live
         // execution in the per-mode block.
+        // V5.0.6218 — HARD MODE PARTITION (EMERGENCY_PATCH item 1).
+        // Same gate for LIFECYCLE-attributed live counters. Paper runtime
+        // must never see LIVE exec/finality counters increment.
+        val runtimePaperLc6218 = try { FinalExecutionPermit.isPaperMode } catch (_: Throwable) { false }
+        val liveLifecycleLabels = setOf(
+            "MEME_LIVE_EXEC_ENTRY", "LIVE_BUY_LANDED", "BUY_CONFIRMED",
+            "LIVE_POSITION_CONFIRMED_FROM_WALLET", "LIVE_POSITION_CONFIRMED_FROM_SIGNATURE",
+            "SELL_FINALIZED_ONCE", "SELL_FINALIZED", "EXEC_LIVE_SELL_ZERO_BALANCE_CONFIRMED",
+            "SELL_SIG_CONFIRMED", "SELL_FINALITY_PENDING_RETRY", "SELL_VERIFY_INCONCLUSIVE_PENDING",
+        )
+        if (runtimePaperLc6218 && event in liveLifecycleLabels) {
+            try {
+                bump(labelCounts, "MODE_PARTITION_VIOLATION_ONLIFECYCLE_6218")
+                ForensicLogger.lifecycle(
+                    "MODE_PARTITION_LIVE_LIFECYCLE_LABEL_WHILE_PAPER_6218",
+                    "event=$event runtimePaper=true action_taken=live_counter_increment_suppressed fields=${fields.take(120)}"
+                )
+            } catch (_: Throwable) {}
+            return
+        }
         when (event) {
             "MEME_LIVE_EXEC_ENTRY" -> execLiveAttempt.incrementAndGet()
             "LIVE_BUY_LANDED", "BUY_CONFIRMED", "LIVE_POSITION_CONFIRMED_FROM_WALLET", "LIVE_POSITION_CONFIRMED_FROM_SIGNATURE" -> execLiveBuyOk.incrementAndGet()

@@ -111,6 +111,30 @@ object ExecutableOpenGate {
 
     private fun publishTicket(ticket: ExecutionTicket) {
         val now = System.currentTimeMillis()
+        // V5.0.6218 — HARD MODE PARTITION construction guard.
+        // Operator EMERGENCY_PATCH item 1: paper=true runtime must not
+        // create LIVE attempt IDs / EXEC_TICKETs. Soft-fail (log + drop)
+        // rather than throw so a running bot doesn't crash on a leak; the
+        // forensic emits MODE_PARTITION_VIOLATION_6218 so we can hunt every
+        // upstream leak in the report and prove zero leaks over subsequent
+        // op-reports before flipping to strict throw.
+        val runtimePaper = try { FinalExecutionPermit.isPaperMode } catch (_: Throwable) { false }
+        val ticketIsLive = ticket.mode.equals("LIVE", ignoreCase = true)
+        if (runtimePaper && ticketIsLive) {
+            try {
+                ForensicLogger.lifecycle(
+                    "LIVE_ATTEMPT_CREATED_WHILE_RUNTIME_PAPER_6218",
+                    "attemptId=${ticket.attemptId} mint=${ticket.mint.take(10)} symbol=${ticket.symbol} lane=${ticket.lane} ticketMode=${ticket.mode} runtimePaper=true action=dropped_soft_fail"
+                )
+                PipelineHealthCollector.labelInc("MODE_PARTITION_VIOLATION_6218")
+                PipelineHealthCollector.labelInc("MODE_PARTITION_VIOLATION_LIVE_TICKET_WHILE_PAPER")
+                ErrorLogger.warn(
+                    "ExecutableOpenGate",
+                    "MODE_PARTITION_VIOLATION: dropped LIVE ticket while runtime paper=true (mint=${ticket.mint.take(10)} lane=${ticket.lane})"
+                )
+            } catch (_: Throwable) {}
+            return  // Do NOT publish. Do NOT increment EXEC_TICKET_CREATED. Do NOT register attempt.
+        }
         executionTickets.entries.removeIf { now - it.value.createdAtMs > EXECUTION_TICKET_TTL_MS }
         allowedAttempts.entries.removeIf { now - it.value.second > ALLOWED_ATTEMPT_TTL_MS }
         executionTickets[ticket.attemptId] = ticket
