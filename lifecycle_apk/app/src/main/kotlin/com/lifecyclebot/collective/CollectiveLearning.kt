@@ -1634,7 +1634,22 @@ object CollectiveLearning {
     }
 
     fun getHighWinPatterns(): List<CollectivePattern> {
-        return cachedPatterns.values.filter { it.isReliable && it.winRate > 60.0 }
+        // V5.0.6228 — asymmetric-power-law-aware winning-pattern filter.
+        // The old rule (winRate > 60.0) was too tight for meme-lane doctrine:
+        // a 45% WR pattern with +80% avg PnL is a stronger edge than a 65%
+        // WR pattern with +2% avg PnL. Result: report showed 0 winning
+        // patterns / 134 losing patterns, so the size-shaping stack lost
+        // its positive edge signal and only had bleed protection. Widen
+        // the filter to also accept clearly positive-EV patterns even at
+        // moderate WR — meme upside comes from asymmetric convexity, not
+        // from hit rate.
+        return cachedPatterns.values.filter { p ->
+            p.isReliable && (
+                p.winRate > 60.0 ||
+                (p.winRate >= 45.0 && p.avgPnlPct >= 15.0) ||
+                (p.winRate >= 35.0 && p.avgPnlPct >= 40.0)
+            )
+        }
     }
 
     fun getPatternEdgesForCandidate(

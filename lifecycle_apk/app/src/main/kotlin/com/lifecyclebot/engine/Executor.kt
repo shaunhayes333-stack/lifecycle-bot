@@ -10256,10 +10256,12 @@ class Executor(
         } catch (_: Throwable) { null }
         val winnerFloor6228 = when {
             laneEvPct6228 == null    -> 0.0     // no data yet → normal cascade
-            laneEvPct6228 >= 100.0   -> 1.20    // moonshot territory → +20% press
-            laneEvPct6228 >=  50.0   -> 1.00    // strong winner → floor at neutral
-            laneEvPct6228 >=  20.0   -> 0.85    // winner → light dampening OK
-            laneEvPct6228 >=   5.0   -> 0.70    // mild winner → moderate dampening OK
+            laneEvPct6228 >= 300.0   -> 1.50    // 6228 super-winner (MOONSHOT+463%) → +50% press
+            laneEvPct6228 >= 100.0   -> 1.35    // moonshot territory → +35% press
+            laneEvPct6228 >=  50.0   -> 1.20    // strong winner → +20% press
+            laneEvPct6228 >=  20.0   -> 1.00    // winner → floor at neutral
+            laneEvPct6228 >=  10.0   -> 0.90    // mild winner → light dampening OK
+            laneEvPct6228 >=   5.0   -> 0.75    // marginal winner → moderate dampening OK
             else                     -> 0.0     // negative/neutral EV → cascade authoritative
         }
         val multiplierProduct6114 = multiplierProduct6114Raw.coerceAtLeast(winnerFloor6228)

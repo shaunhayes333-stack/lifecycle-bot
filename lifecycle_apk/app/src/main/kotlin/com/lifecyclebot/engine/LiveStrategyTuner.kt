@@ -159,9 +159,24 @@ object LiveStrategyTuner {
         // the operator's doctrine: SSI/AGI tunes from trade 1 in paper/live,
         // without turning a single close into a hard choke.
         if (n in 1 until MIN_TUNE_TRADES) {
+            // V5.0.6228 — LIFETIME-EV OVERRIDE (compound-target defence).
+            // MOONSHOT report V5.0.6228: live n=4 W/L=0/4 sol=-0.079 → the
+            // old ramp classifies "red" and scales size to ~0.86x. But the
+            // LIFETIME strategy expectancy for MOONSHOT is n=6 W/L=2/4
+            // EV=+463.59%/trade PnL=+1.3802 SOL — an asymmetric power-law
+            // winner that the trade1 ramp was actively suppressing on the
+            // strength of the small live-only slice. If lifetime shows
+            // meanPnlPct >= 50% with n >= 5, treat as a proven asymmetric
+            // winner and apply the GREEN ramp regardless of live-slice.
+            val lifetimeAsymWinner6228 = try {
+                StrategyTelemetry.computeLeaderboard(limit = 1_500)
+                    .firstOrNull { it.strategy.equals(lane, true) }
+                    ?.let { lm -> lm.trades >= 5 && lm.meanPnlPct >= 50.0 }
+                    ?: false
+            } catch (_: Throwable) { false }
             val ramp6077 = (n.toDouble() / MIN_TUNE_TRADES.toDouble()).coerceIn(0.20, 0.80)
-            val green6077 = sol > 0.0 || mean > 0.0 || wr >= 50.0
-            val red6077 = sol < 0.0 || mean < 0.0 || wr <= 35.0
+            val green6077 = lifetimeAsymWinner6228 || sol > 0.0 || mean > 0.0 || wr >= 50.0
+            val red6077 = !lifetimeAsymWinner6228 && (sol < 0.0 || mean < 0.0 || wr <= 35.0)
             val size = when {
                 green6077 -> 1.0 + 0.18 * ramp6077
                 red6077 -> 1.0 - 0.18 * ramp6077
