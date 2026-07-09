@@ -1,23 +1,51 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
-## Session (09 Jul 2026 · continued) — V5.0.6218 SHIPPED · CI GREEN ✅
+## Session (09 Jul 2026 · continued) — V5.0.6219 SHIPPED · CI GREEN ✅
 
-### V5.0.6218 (`39e9e17af`) — LIVE-MODE AUTO-PAUSE GUARD
-**Operator directive:** "I still cant understand with the amount of
-intelligence data and tech we have how its even possible for the bot
-to be losing money at all trading live!!!!" Config: 1a + 2c + 3a —
-auto pause+resume, 10-cycle trigger, PAPER flip only.
+### V5.0.6219 (`8e6ec4798`) — API health recovery + hotfixes
+Operator: "we have to fix all of the data api failures! if needed be
+research the apis, see if they have changed is there a more stable option."
 
-New `LiveModeAutoPauseGuard.kt`:
-- **PAUSE (LIVE→PAPER):** cleanLive rolling WR (last 30 closes) < 20%
-  AND sample >= 20, sustained for 10 consecutive 30s evaluation ticks.
-- **RESUME (PAPER→LIVE):** only if we own the flip. Post-flip paper WR
-  >= 25% AND sample >= 20, sustained for 10 ticks. Flips paperMode
-  back to false automatically.
-- Respects manual operator toggles — if the operator flips modes
-  themselves the guard defers and stops trying to resume.
-- Never touches lane config or authority. Only paperMode. Fail-open.
-- Hooked into BotService main loop right after LaneAutoPauseGuard.
+**JupiterApi.kt** — Jupiter deprecated `quote-api.jup.ag/v6` on Oct 1
+2025 and moved free tier to `api.jup.ag/swap/v1/quote`. Old primary
+was `api.jup.ag/swap/v2/order` (paid Ultra tier) which 4xx's for free
+users — explaining jupiter_quote sr=23% with 4xx=142. Primary is now
+the free-tier v1 quote endpoint; lite-api fallback preserved.
+
+**KeyValidator.kt** — AUTH_DEAD_TTL_MS = 24h for 401/403. Op-report
+showed birdeye 4xx=1134 in one session because the 30min re-probe
+kept resuming against a broken key. Invalid keys can't self-heal by
+retry — 24h dead-window forces operator key rotation instead.
+
+**BotService.tryFallbackPriceData** — Jupiter Price v3 promoted to
+FIRST in the fallback chain (100% SR currently, keyless). Birdeye
++ DexScreener + GeckoTerminal still consulted after Jupiter misses.
+Cuts wall time and dodges degraded providers entirely.
+
+### V5.0.6218 (`39e9e17af` + `a9ec0c8a9`) — HARD MODE PARTITION (Push 1)
+Operator EMERGENCY_PATCH spec — data integrity core. Push 1 of 4.
+
+**ExecutableOpenGate.publishTicket** — HARD MODE PARTITION construction
+guard. When runtime paperMode=true and a LIVE ticket is attempted, drop
+it (soft-fail) and emit `LIVE_ATTEMPT_CREATED_WHILE_RUNTIME_PAPER_6218`
+forensic + `MODE_PARTITION_VIOLATION_6218` label. Ticket NOT published,
+attempt NOT registered, EXEC_TICKET_CREATED NOT incremented.
+
+**PipelineHealthCollector** — LIVE_* action counters + LIVE lifecycle
+labels suppressed when paperMode=true. Raw forensic Event ring still
+records events; only mode-scoped counters are gated.
+
+**StrategyTruthLedger** — new `specExcludedReason6218()` exclusion
+filter for probe-only, unverified-map, unverified-route, invalid-entry
+and shadow-paper rows. Never contaminate clean strategy WR/PnL.
+
+**LiveModeAutoPauseGuard** (V5.0.6218 wallet protector, shipped earlier
+in session) — auto-flips LIVE→PAPER when cleanLiveWR<20% for 10 ticks,
+auto-flips back when post-flip paper WR≥25% for 10 ticks.
+
+**Verified in op-report:** paper=true honored, `EXEC_GATE/LIVE_REQUEST_WHILE_RUNTIME_PAPER: 7`
+blocks proving the mode-partition guard is catching leaks, StrategyTruthLedger
+populating clean rows only, cleanLiveCloses=0 while in paper.
 
 ## Session (09 Jul 2026) — V5.0.6216 + V5.0.6217 SHIPPED · CI GREEN ✅
 
