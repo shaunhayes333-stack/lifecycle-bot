@@ -8849,6 +8849,10 @@ class BotService : Service() {
     // openPositionTickLoop. 5s cooldown keeps us at ~12 batch calls/min per
     // mint-set, well under Jupiter's 60/min free-tier IP cap.
     private val openPosJupFallbackLastAttempt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    // V5.0.6224 — per-mint cooldown for GeckoTerminal batch fallback in
+    // openPositionTickLoop. 6s cooldown keeps us at ~10 batch calls/min per
+    // mint-set — matches GT free-tier ceiling.
+    private val openPosGtFallbackLastAttempt = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
         private suspend fun openPositionTickLoop() {
         ErrorLogger.info("BotService", "📡 Open-Position Tick Loop STARTED (1Hz when positions open)")
@@ -8939,9 +8943,21 @@ class BotService : Service() {
                                     .header("accept", "application/json")
                                     .build()
                                 val jupStart = System.currentTimeMillis()
-                                val jupResp = try {
+                                var jupResp = try {
                                     jupClient.newCall(jupReq).execute()
                                 } catch (_: Throwable) { null }
+                                // V5.0.6224 — RETRY-ON-5xx: Jupiter lite-api hit
+                                // SR=58% with 5xx=52 in V5.0.6223 report. One
+                                // immediate retry (200ms backoff) recovers most
+                                // transient upstream failures without amplifying
+                                // rate-limit exposure.
+                                if (jupResp != null && jupResp.code in 500..599) {
+                                    try { jupResp.close() } catch (_: Throwable) {}
+                                    try { Thread.sleep(200L) } catch (_: InterruptedException) {}
+                                    jupResp = try {
+                                        jupClient.newCall(jupReq).execute()
+                                    } catch (_: Throwable) { null }
+                                }
                                 if (jupResp == null) {
                                     // Mark all chunked mints as attempted so we
                                     // don't retry in the same tick.
@@ -8983,6 +8999,91 @@ class BotService : Service() {
                     }
                     // Re-evaluate missing after Jupiter fallback so Birdeye only
                     // fires for what's STILL missing (usually 0).
+                    val stillMissingAfterJup = missing.filter { it !in priceMap }
+                    // ═══════════════════════════════════════════════════════════════
+                    // V5.0.6224 — GECKOTERMINAL BATCH FALLBACK.
+                    //
+                    // Operator report V5.0.6223: jupiter SR dipped to 58% with
+                    // 5xx=52 while dexscreener SR=47% with 5xx=217. Both primary
+                    // free feeds are wobbling simultaneously. GeckoTerminal
+                    // exposes /networks/solana/tokens/multi/<csv> which mirrors
+                    // DexScreener's batch shape (up to 30 addresses, keyless).
+                    // At SR=50% it's not a hero but adds independent coverage
+                    // when DS + Jupiter both blip on the same tick.
+                    //
+                    // Rate limit: GeckoTerminal free is ~10 calls/min per IP. We
+                    // fire at most one batch per 6s per mint via the same 5s-ish
+                    // cooldown map, so worst-case ~10/min — right at the ceiling.
+                    // ═══════════════════════════════════════════════════════════════
+                    if (stillMissingAfterJup.isNotEmpty()) {
+                        val gtNowMs = System.currentTimeMillis()
+                        val gtEligible = stillMissingAfterJup.filter { m ->
+                            val last = openPosGtFallbackLastAttempt[m] ?: 0L
+                            (gtNowMs - last) >= 6_000L
+                        }
+                        if (gtEligible.isNotEmpty()) {
+                            try {
+                                for (chunk in gtEligible.chunked(30)) {
+                                    val ids = chunk.joinToString(",")
+                                    val gtUrl = "https://api.geckoterminal.com/api/v2/networks/solana/tokens/multi/$ids"
+                                    val gtEff = try {
+                                        com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(gtUrl)
+                                    } catch (_: Throwable) { gtUrl }
+                                    val gtClient = com.lifecyclebot.network.SharedHttpClient.builder()
+                                        .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
+                                        .readTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
+                                        .build()
+                                    val gtReq = okhttp3.Request.Builder()
+                                        .url(gtEff)
+                                        .header("accept", "application/json")
+                                        .build()
+                                    val gtStart = System.currentTimeMillis()
+                                    val gtResp = try {
+                                        gtClient.newCall(gtReq).execute()
+                                    } catch (_: Throwable) { null }
+                                    if (gtResp == null) {
+                                        for (m in chunk) openPosGtFallbackLastAttempt[m] = gtNowMs
+                                        continue
+                                    }
+                                    try {
+                                        com.lifecyclebot.engine.ApiHealthMonitor.record(
+                                            "geckoterminal", gtResp.code, System.currentTimeMillis() - gtStart
+                                        )
+                                    } catch (_: Throwable) {}
+                                    val body = if (gtResp.isSuccessful) gtResp.body?.string().orEmpty() else null
+                                    try { gtResp.close() } catch (_: Throwable) {}
+                                    if (body.isNullOrBlank()) {
+                                        for (m in chunk) openPosGtFallbackLastAttempt[m] = gtNowMs
+                                        continue
+                                    }
+                                    val json = try { org.json.JSONObject(body) } catch (_: Throwable) { null }
+                                    val dataArr = json?.optJSONArray("data")
+                                    for (m in chunk) openPosGtFallbackLastAttempt[m] = gtNowMs
+                                    if (dataArr != null) {
+                                        for (i in 0 until dataArr.length()) {
+                                            val entry = dataArr.optJSONObject(i) ?: continue
+                                            val attrs = entry.optJSONObject("attributes") ?: continue
+                                            val addr = attrs.optString("address", "")
+                                            if (addr.isBlank()) continue
+                                            // Only consume mints we actually asked for (defensive).
+                                            if (addr !in chunk) continue
+                                            val priceUsd = attrs.optString("price_usd", "0").toDoubleOrNull() ?: 0.0
+                                            if (priceUsd > 0.0) {
+                                                priceMap[addr] = priceUsd
+                                                openPosFallbackFirstMiss.remove(addr)
+                                                val tsRef = status.tokens[addr]
+                                                if (tsRef != null) {
+                                                    synchronized(tsRef) {
+                                                        tsRef.lastPriceSource = "GECKOTERMINAL_OPEN_6224"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (_: Throwable) { /* fail-open — fall through to Birdeye */ }
+                        }
+                    }
                     val stillMissing = missing.filter { it !in priceMap }
                     if (stillMissing.isEmpty()) {
                         // Clean up tracking for mints no longer in our open set.
@@ -9017,7 +9118,14 @@ class BotService : Service() {
                     // ═══════════════════════════════════════════════════════════════
                     val cfg2 = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
                     val key = cfg2?.birdeyeApiKey
-                    if (!key.isNullOrBlank()) {
+                    // V5.0.6224 — skip Birdeye entirely if KeyValidator has marked
+                    // the key as dead (401). Report V5.0.6223 shows birdeye sr=0%
+                    // with 4xx=41 across every session; hammering a dead key just
+                    // burns latency budget and pollutes ApiHealthMonitor stats.
+                    val birdeyeAlive = try {
+                        com.lifecyclebot.engine.KeyValidator.isLive("birdeye")
+                    } catch (_: Throwable) { true }
+                    if (!key.isNullOrBlank() && birdeyeAlive) {
                         val birdeye = try { com.lifecyclebot.network.BirdeyeApi(key) } catch (_: Throwable) { null }
                         if (birdeye != null) {
                             val nowMs = System.currentTimeMillis()
