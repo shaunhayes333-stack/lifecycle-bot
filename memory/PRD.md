@@ -1,5 +1,64 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## Session (09-10 Jul 2026) — V5.0.6227 → V5.0.6228b SHIPPED · CI GREEN ✅
+
+### V5.0.6228b (`b175117ae`) — golden-tape tests updated for new invariants
+Three regression tests (`executor_4510LiveScoreBandWrSoftShapesEntrySize`,
+`live_micro_probe_entry_applies_expectancy_but_bypasses_break_even_sizing`,
+`V5_0_6172_lane_auto_pause_reopens_clean_positive_edge`) pinned the OLD
+band-based / soft-reject / strict-auto-resume behaviour that was
+intentionally rewritten in V5.0.6228. Updated them to pin the NEW
+monotone-on-EV invariants. Build + Runtime Smoke Test both green.
+
+### V5.0.6228 (`062d771e4`) — SCORER-INVERSION + LANE-DAMPENER + PAPER-RESTORE
+Operator P1/P2/P3 triage on top of the API-telemetry fixes in 6227.
+Four surfaces rewritten:
+
+**P1 — ScoreExpectancyTracker.kt (scorer inversion fix at the source)**
+- Killed the soft-reject mitigation: `shouldReject()` is now an
+  unconditional no-op. No more mid-band bleeders getting silently vetoed.
+- Rewrote `liveSizeShape` and `calibrationSizeMult` as a single strictly
+  monotone-on-bucket-mean-PnL piecewise-linear curve (μ=-60% → 0.10x,
+  μ=-35% → 0.25x, μ=-15% → 0.45x, μ=-8% → 0.60x, μ=0% → 0.85x, μ=+10% →
+  1.10x, μ=+25% → 1.35x, μ=+50% → 1.60x, μ>=+100% → 2.00x). No band
+  discontinuities — higher empirical EV always = larger position.
+- Added `calibratedScore(layer, rawScore)` — reads all mature buckets for
+  the lane, sorts by empirical mean, remaps rawScore → new score in [0,100]
+  such that higher calibrated score always corresponds to higher empirical
+  mean PnL. Consumers can use this to defeat scorer inversions at source.
+
+**P2 — LiveProbabilityEngine.kt + LaneAutoPauseGuard.kt (lane dampener)**
+- Paused-lane multipliers raised 0.10/0.35/0.55 → 0.70/0.85/1.00
+  (smaller haircut, keep the lane trading).
+- Preemptive rescue: if the lane's live-clean leaderboard shows
+  `meanPnlPct > 0` at n>=6, skip the paused dampener entirely.
+- LaneAutoPauseGuard auto-resume relaxed: any paused lane (including
+  hard-seeds) with n>=6 live samples and `evPct > 0` now auto-resumes.
+  Was: WR>=30% AND EV>0 at n>=12 (too strict).
+- Auto-pause criteria tightened: toxic branch now requires `evPct < 0`
+  in addition to WR<20% + EV<=-20%. Positive-EV lanes can never be
+  re-paused for low WR alone.
+
+**P3 — PositionPersistence.kt (APK-update position loss)**
+- `PAPER_RESTORE_WINDOW_MS`: 6h → 48h. Overnight/CI-cycle updates no
+  longer drop paper positions as PAPER_STALE_RESTORE_DROPPED.
+- Added `POSITION_RESTORE_SUMMARY_6228` forensic log + counter so the
+  operator can see persisted/restored/dropped deltas post-install.
+
+### V5.0.6227 (`602b42050`) — API telemetry TRUTH split
+Operator triage: 5xx counters were lying (local rate-limits were being
+counted as HTTP 503s), telegram RPC was mislabelled as network calls,
+Birdeye dead-key was leaking through backoff every 5-10s.
+Fixes:
+1. `HealthAwareHttp.kt` + `ApiHealthMonitor.kt` — split local throttle
+   counters from real wire 5xx (new `thr=` counter, no synthetic errors).
+2. `TelegramScraper.kt` — properly label RPC calls as `solana_rpc`, not
+   `telegram` (was flooding the telegram health line with false alarms).
+3. `ApiBackoff.kt` — hard 401 lockout for dead Birdeye key (was letting
+   calls slip through the fluid backoff every 5-10s).
+4. `SolanaMarketScanner.kt` + `BotService.kt` — prioritise Jupiter budget
+   toward exit-paths so open positions can always price.
+
 ## Session (09-10 Jul 2026) — V5.0.6223 → V5.0.6226 SHIPPED · CI GREEN ✅
 
 ### V5.0.6226 (`4d174f102`) — TRIAGE: gate GeckoTerminal on real Jupiter failures
