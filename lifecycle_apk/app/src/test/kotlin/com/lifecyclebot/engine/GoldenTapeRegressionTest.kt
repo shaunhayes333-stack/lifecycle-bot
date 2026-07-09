@@ -2457,10 +2457,14 @@ class GoldenTapeRegressionTest {
     fun meme_runtime_authority_activates_all_internal_layers_without_market_fanout() {
         val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EnabledTraderAuthority.kt").readText()
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("Authority enum must expose every internal meme layer except disabled CYCLIC sidecar", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "QUALITY", "TREASURY", "CASHGEN", "BLUECHIP", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER").all { auth.contains(it) })
-        assertTrue("Meme-only publish must include full internal specialist set except CYCLIC", listOf("Trader.QUALITY", "Trader.TREASURY", "Trader.CASHGEN", "Trader.BLUECHIP", "Trader.PROJECT_SNIPER", "Trader.DIP_HUNTER", "Trader.MANIPULATED").all { bot.contains(it) } && !bot.contains("add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC)"))
+        assertTrue("Authority enum must expose every internal meme layer including CYCLIC sidecar", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "QUALITY", "TREASURY", "CASHGEN", "BLUECHIP", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER").all { auth.contains(it) })
+        // V5.0.6228 — CYCLIC now re-enabled in PAPER mode (compound-target: needs a
+        // permanent SOL-forwarding rotator that never idles capital). Live-mode
+        // exclusion preserved via the RuntimeModeAuthority.isPaper() guard.
+        assertTrue("Meme-only publish must include full internal specialist set (CYCLIC is paper-only guarded)", listOf("Trader.QUALITY", "Trader.TREASURY", "Trader.CASHGEN", "Trader.BLUECHIP", "Trader.PROJECT_SNIPER", "Trader.DIP_HUNTER", "Trader.MANIPULATED").all { bot.contains(it) })
+        assertTrue("CYCLIC re-add in meme-only publish MUST be paper-guarded (V5.0.6228)", bot.contains("if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper())") && bot.contains("add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC)"))
         assertTrue("Internal specialists must be ignored by isMemeLiveOnly so markets/perps remain isolated; CYCLIC must not be an internal meme layer", auth.contains("internalMemeLayers") && auth.contains("Trader.PROJECT_SNIPER") && auth.contains("set - Trader.CRYPTO_ALT - internalMemeLayers") && !auth.substringAfter("val internalMemeLayers = setOf(").substringBefore(")").contains("Trader.CYCLIC"))
-        assertTrue("Runtime report should expose all active meme lanes while CYCLIC stays excluded", bot.contains("all internal MEME lanes stay active") && bot.contains("CYCLIC remains excluded"))
+        assertTrue("Runtime report should document the V5.0.6228 CYCLIC paper-only re-enable", bot.contains("CYCLIC IS BACK ON IN PAPER FOR COMPOUND TARGET"))
     }
 
 
