@@ -1,5 +1,51 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## Session (09 Jul 2026) — V5.0.6216 + V5.0.6217 SHIPPED · CI GREEN ✅
+
+### V5.0.6217 (`ed25ea359`) — Copy button responsiveness after long runtime
+**Operator:** "if I let the bot run for a while the pipeline report is
+unable to be copied!!! the button becomes unresponsive". Root cause:
+after 5+ hours the PipelineHealthCollector maps grow huge and the
+underlying dumpText/compactPipelineDump can take 8-20s per build. The
+old `buildTextAsync(forceFresh=true)` held the ReportingHub buildMutex
+the whole time, so stacked Copy taps queued behind the same mutex.
+
+- **PipelineHealthActivity** — Copy tap shows an immediate "Building…"
+  Toast so the tap visually registers; a `copyInFlight` guard blocks
+  repeat queueing; `forceFresh=false` uses the 2.5s cache.
+- **ReportingHub** — new `MUTEX_HANDOFF_STALE_MS = 30_000L`: if the
+  build mutex is already held and a ≤30s-old cached report exists,
+  return it immediately instead of waiting. Copy returns in <100ms
+  during long-runtime states, serving the last built report.
+
+### V5.0.6216 (`35ac226ec`) — Scanner parallelism + micro-wallet emergency probe
+**Operator report:** wallet 0.1277 SOL bleeding, scanner timing out on
+DexScreener 5xx storms (SR=42%, 382× 5xx), and every buy dying with
+SIZE_TOO_THIN_FOR_NON_MICRO_TRADE.
+
+- **SolanaMarketScanner.fetchJupiterPricesBatch** — 305-mint watchlist
+  chunks now fire in parallel via coroutineScope+async.awaitAll. Wall
+  time drops from serial 7-14s to ~1-2s, unblocking
+  scanSolanaBlueChipWatchlist which was timing out (streak=2) inside
+  the 3500ms per-source withTimeout.
+- **SolanaMarketScanner.runScanBatch** — added SEVERE-STREAK adaptive
+  core rotation: at streak >=6 even "core" Dex sources rotate 1-in-3
+  cycles; at streak >=12 rotate 1-in-6. Previously coreSource bypassed
+  rotation, so 4 core Dex sources at streak=9 burned ~14s of dead time
+  every cycle (past the 8s SCAN_BATCH_BUDGET_MS).
+- **SolanaMarketScanner.runScan** — high-streak fast-fail: sources
+  with streak >=3 get halved per-source timeout (1500ms not 3500ms)
+  so wedged APIs release permits faster.
+- **Executor.kt** — MICRO_WALLET_EMERGENCY_PROBE_6216 mode: when
+  walletSol < 0.15, drop into micro-probe floor (0.005 SOL) and widen
+  walletRiskCap to 30%, regardless of layerTag. Normal risk caps
+  restore as soon as wallet climbs back above 0.15 SOL.
+- **GoldenTapeRegressionTest** — updated V5_0_6189 assertion to reflect
+  the new adaptive per-source timeout log format.
+
+**Files:** SolanaMarketScanner.kt · Executor.kt · ReportingHub.kt ·
+PipelineHealthActivity.kt · GoldenTapeRegressionTest.kt
+
 ## Session (08 Jul 2026) — V5.0.6207 SHIPPED · CI FULLY GREEN ✅
 ### Un-choke of TOXIC_PATTERN_MEMORY_6192 (killed 180 live trades in last op-report)
 
