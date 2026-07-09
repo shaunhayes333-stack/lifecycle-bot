@@ -58,6 +58,19 @@ class PipelineHealthActivity : AppCompatActivity() {
     private var reportSections: List<String> = emptyList()
     private var currentSectionIndex: Int = 0
 
+    // V5.0.6217 — COPY BUTTON RESPONSIVENESS.
+    // Operator report: "if I let the bot run for a while the pipeline report
+    // is unable to be copied!!! the button becomes unresponsive". Root
+    // cause: buildTextAsync(forceFresh=true) forces a fresh build, which
+    // acquires the ReportingHub buildMutex and waits up to 6s for the
+    // synchronous unified report build. After 5+ hours the collector maps
+    // grow huge and dumpText/compactPipelineDump can take 8-20s per call,
+    // so the mutex gets held longer than the timeout allows and stacked
+    // taps queue behind it. Copy tap now: (a) shows an immediate Toast
+    // so the user sees the tap register, (b) uses the cached report path
+    // first, only rebuilding if the cache is genuinely stale.
+    @Volatile private var copyInFlight: Boolean = false
+
     // V5.9.1074 — lifecycle render gate. onResume() can fire before the
     // first-frame-posted findViewById block binds lateinit TextViews, and
     // background/recents transitions can deliver bg render results after
@@ -326,14 +339,32 @@ class PipelineHealthActivity : AppCompatActivity() {
      * then posts the clipboard write to main (ClipboardManager
      * requires main). Previously the 16KB dump built on main blocked
      * the UI thread for the copy tap as well.
+     *
+     * V5.0.6217 — COPY BUTTON RESPONSIVENESS after 5+ hours of runtime.
+     * Root cause: buildTextAsync(forceFresh=true) forces a synchronous
+     * unified rebuild through the ReportingHub buildMutex; once the
+     * collector maps have accumulated for hours the build can take
+     * 8-20s and stack subsequent taps behind the same mutex. Fixes:
+     *  1) Show an immediate Toast so the tap visually registers.
+     *  2) Reject the tap if a prior copy is still in flight (no queueing).
+     *  3) forceFresh=false lets ReportingHub serve the cached build if
+     *     it's within the 2.5s TTL — the operator taps repeatedly to
+     *     re-copy the latest snapshot, not to rebuild from scratch.
      */
     private fun copyToClipboardAsync() {
         if (destroyed || !viewsBound) return
+        if (copyInFlight) {
+            Toast.makeText(this, "Copy already in progress — building report…", Toast.LENGTH_SHORT).show()
+            return
+        }
+        copyInFlight = true
+        Toast.makeText(this, "Building unified report for clipboard…", Toast.LENGTH_SHORT).show()
         val generation = renderGeneration
         com.lifecyclebot.engine.ReportingHub.buildTextAsync(
             com.lifecyclebot.engine.ReportingHub.Kind.UNIFIED_HEALTH,
-            forceFresh = true,
+            forceFresh = false,
         ) { report, error ->
+            copyInFlight = false
             if (destroyed || generation != renderGeneration) return@buildTextAsync
             val text = report?.text ?: "(render error: ${error?.message ?: "unknown"})"
             val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager

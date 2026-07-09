@@ -43,6 +43,13 @@ object ReportingHub {
     private const val CACHE_TTL_MS = 2_500L
     private const val STALE_CACHE_TTL_MS = 120_000L
     private const val REPORT_BUILD_TIMEOUT_MS = 6_000L
+    // V5.0.6217 — MUTEX HAND-OFF WINDOW. If a build is already in flight
+    // and a second caller arrives with a fresh-enough cached report, we
+    // return the cached report immediately instead of stacking behind the
+    // build mutex. Operator's Copy tap after 5+ hours: dumpText() over
+    // huge accumulated collector state was taking 8-20s, so second/third
+    // taps were queueing behind the same mutex — button appeared frozen.
+    private const val MUTEX_HANDOFF_STALE_MS = 30_000L
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val buildMutex = Mutex()
     private val textCache = ConcurrentHashMap<Kind, CacheEntry>()
@@ -67,6 +74,15 @@ object ReportingHub {
         if (!forceFresh) {
             textCache[kind]?.let { cached ->
                 if (now - cached.atMs <= CACHE_TTL_MS) return@withContext cached.report
+            }
+        }
+        // V5.0.6217 — MUTEX HAND-OFF. If the mutex is already held by a
+        // slow builder and we have a recent-enough cached report, return
+        // the cached report instead of waiting. The Copy button stays
+        // responsive even when the collector maps have grown huge.
+        if (buildMutex.isLocked) {
+            textCache[kind]?.let { cached ->
+                if (now - cached.atMs <= MUTEX_HANDOFF_STALE_MS) return@withContext cached.report
             }
         }
         buildMutex.withLock {
