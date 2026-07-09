@@ -39,6 +39,9 @@ object RateLimiter {
         "coingecko" to RateConfig(maxRequestsPerMinute = 30, burstAllowance = 3, minSpacingMs = 75L),
         "groq" to RateConfig(maxRequestsPerMinute = 30, burstAllowance = 3, minSpacingMs = 75L),
         "pumpfun" to RateConfig(maxRequestsPerMinute = 60, burstAllowance = 5, minSpacingMs = 50L),
+        // V5.0.6227 — t.me/s/ channel scraping (web preview pages).
+        "telegram" to RateConfig(maxRequestsPerMinute = 20, burstAllowance = 3, minSpacingMs = 500L),
+        "solana_rpc" to RateConfig(maxRequestsPerMinute = 60, burstAllowance = 5, minSpacingMs = 100L),
         "default" to RateConfig(maxRequestsPerMinute = 60, burstAllowance = 3, minSpacingMs = DEFAULT_MIN_SPACING_MS),
     )
 

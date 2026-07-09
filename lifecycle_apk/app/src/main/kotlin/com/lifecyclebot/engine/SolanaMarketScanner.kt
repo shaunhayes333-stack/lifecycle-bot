@@ -4318,6 +4318,17 @@ class SolanaMarketScanner(
             val host = hostLabel(try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(url) } catch (_: Throwable) { url })
             if (com.lifecyclebot.engine.ApiBackoff.isLockedOut(host)) {
                 ErrorLogger.debug("Scanner", "[BACKOFF] skip $host (lockout ${com.lifecyclebot.engine.ApiBackoff.lockoutRemainingMs(host)}ms) ${url.take(40)}")
+                try { com.lifecyclebot.engine.ApiHealthMonitor.recordThrottled(host) } catch (_: Throwable) {}
+                return null
+            }
+            // V5.0.6227 — DEAD-KEY HARD GATE. Scanner birdeye endpoints
+            // (trending/meme-list/markets/new_listing) bypassed KeyValidator
+            // entirely — only BirdeyeApi.getRaw checked it — so a permanently
+            // 401'd key was still hit ~1/sec (op report: birdeye 4xx=361 in
+            // 359s). Zero wire while dead; KeyValidator's 24h sticky verdict
+            // auto-clears when the operator rotates the key.
+            if (host == "birdeye" && !com.lifecyclebot.engine.KeyValidator.isLive("birdeye")) {
+                try { com.lifecyclebot.engine.ApiHealthMonitor.recordThrottled("birdeye") } catch (_: Throwable) {}
                 return null
             }
         } catch (_: Throwable) { /* fail-open */ }

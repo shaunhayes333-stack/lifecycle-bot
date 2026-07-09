@@ -2114,25 +2114,28 @@ object PipelineHealthCollector {
                 sb.append("\n===== API health (V5.9.915 ApiHealthMonitor) =====\n")
                 val sorted = apiSnap.entries.sortedBy { it.key }
                 for ((host, st) in sorted) {
+                    val thr6227 = st.throttled.get()
                     val total = st.successes.get() + st.failures4xx.get() + st.failures5xx.get() + st.networkErrors.get()
-                    if (total == 0) continue
+                    if (total == 0 && thr6227 == 0) continue
                     val sr = (st.successRate() * 100).toInt()
                     val avg = st.avgLatencyMs().toInt()
                     val icon = when {
+                        total == 0 -> "⏸"
                         sr >= 90 -> "✅"
                         sr >= 60 -> "🟡"
                         else     -> "🔴"
                     }
                     sb.append(String.format(
-                        "  %s %-14s sr=%3d%%  avg=%4dms  s=%-5d  4xx=%-3d  5xx=%-3d  net=%-3d\n",
+                        "  %s %-14s sr=%3d%%  avg=%4dms  s=%-5d  4xx=%-3d  5xx=%-3d  net=%-3d  thr=%-4d\n",
                         icon, host, sr, avg,
-                        st.successes.get(), st.failures4xx.get(), st.failures5xx.get(), st.networkErrors.get()
+                        st.successes.get(), st.failures4xx.get(), st.failures5xx.get(), st.networkErrors.get(), thr6227
                     ))
                     val lastErr = st.lastErrorMessage.get()
                     if (lastErr != null && st.failures4xx.get() + st.failures5xx.get() + st.networkErrors.get() > 0) {
                         sb.append("       last_err: ").append(lastErr.take(120)).append('\n')
                     }
                 }
+                sb.append("  Read: sr/4xx/5xx = WIRE truth only. thr = local throttle/backoff skips, no wire call (V5.0.6227 — previously miscounted as 5xx).\n")
             }
         } catch (_: Throwable) { /* observability never fails dumpText */ }
 

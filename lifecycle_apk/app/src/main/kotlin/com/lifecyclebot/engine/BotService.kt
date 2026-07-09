@@ -8938,6 +8938,10 @@ class BotService : Service() {
                             // request length reasonable. 30 mints ≈ 1.4KB URL, safe.
                             for (chunk in jupEligible.chunked(30)) {
                                 val ids = chunk.joinToString(",")
+                                // V5.0.6227 — consume a shared Jupiter budget slot
+                                // so scanner-path callers yield to us; proceed
+                                // regardless — open-position marks have priority.
+                                try { com.lifecyclebot.engine.RateLimiter.allowRequest("jupiter") } catch (_: Throwable) {}
                                 val jupUrl = "https://lite-api.jup.ag/price/v3?ids=$ids"
                                 val effective = try {
                                     com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(jupUrl)
@@ -25322,7 +25326,14 @@ if (hotExitHandledSweep) {
         // Birdeye is REMOVED from the fallback chain — the 401 key is
         // permanently dead until operator rotates. Old Birdeye/BirdeyeOracle
         // calls stay compiled but no longer reached from this hot path.
-        try {
+        // V5.0.6227 — scanner-path lookups yield to the shared 60/min Jupiter
+        // budget (op report: ~85 calls/min → 5xx=261). Open-position marks
+        // keep unconditional priority so exit sweeps never starve.
+        val jupBudgetOk6227 = ts.position.isOpen ||
+            (try { com.lifecyclebot.engine.RateLimiter.allowRequest("jupiter") } catch (_: Throwable) { true })
+        if (!jupBudgetOk6227) {
+            try { com.lifecyclebot.engine.ApiHealthMonitor.recordThrottled("jupiter") } catch (_: Throwable) {}
+        } else try {
             val jupUrl = "https://lite-api.jup.ag/price/v3?ids=$mint"
             val effective = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(jupUrl) } catch (_: Throwable) { jupUrl }
             val jupClient = com.lifecyclebot.network.SharedHttpClient.builder()

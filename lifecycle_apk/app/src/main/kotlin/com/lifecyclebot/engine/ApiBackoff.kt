@@ -176,8 +176,12 @@ object ApiBackoff {
             if (now >= until) return false
             val remaining = until - now
             val lastCode = s.lastFailureCode.get()
-            // Hard signals (429/403) — honor full lockout.
-            if (lastCode == 429 || lastCode == 403) return true
+            // Hard signals (429/403) — honor full lockout. V5.0.6227 — 401
+            // joins the hard class: a dead auth key never "recovers" via a
+            // half-open probe, and the probe math (remaining+30s > 30s is
+            // always true) was leaking ~1 birdeye call/sec against a
+            // permanently-401 key (op report: birdeye 4xx=361 in 359s).
+            if (lastCode == 429 || lastCode == 403 || lastCode == 401) return true
             // Soft signals — once the lockout has been live > 30s AND
             // > 10s of remaining time, allow ONE probe by atomically
             // clearing the lockout marker. The caller will record
