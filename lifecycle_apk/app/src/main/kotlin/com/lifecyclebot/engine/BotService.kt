@@ -8845,6 +8845,10 @@ class BotService : Service() {
     private val openPosFallbackLastAttempt = java.util.concurrent.ConcurrentHashMap<String, Long>()
     // V5.9.946 — track first-miss timestamp per mint so chronic DS-misses (>60s) get a 60s backoff
     private val openPosFallbackFirstMiss = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    // V5.0.6223 — per-mint cooldown for Jupiter Price v3 batch fallback in
+    // openPositionTickLoop. 5s cooldown keeps us at ~12 batch calls/min per
+    // mint-set, well under Jupiter's 60/min free-tier IP cap.
+    private val openPosJupFallbackLastAttempt = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
         private suspend fun openPositionTickLoop() {
         ErrorLogger.info("BotService", "📡 Open-Position Tick Loop STARTED (1Hz when positions open)")
@@ -8892,6 +8896,98 @@ class BotService : Service() {
                 // hammer the API every tick.
                 val missing = openMints.filter { it !in priceMap }
                 if (missing.isNotEmpty()) {
+                    // ═══════════════════════════════════════════════════════════════
+                    // V5.0.6223 — JUPITER PRICE v3 FALLBACK for OPEN POSITIONS.
+                    //
+                    // Operator report V5.0.6222b: "heaps of buys 0 sells" — paper
+                    // positions frozen at stale marks (e.g. 0.008 across 24 opens)
+                    // because (a) DexScreener has NOT indexed fresh PUMP_FUN mints,
+                    // so batchPriceFetch returns them in `missing`, and (b) the
+                    // Birdeye fallback below is per-tick-cap=1 AND key-dead per
+                    // handoff, so it never actually serves. Result: ts.lastPrice
+                    // never updates → TP/SL/trailing exits never fire → paper
+                    // buys pile up forever with 0 sells.
+                    //
+                    // Jupiter Price v3 (lite-api.jup.ag/price/v3?ids=<csv>) is
+                    // keyless, comma-separated batch, and healthy at 100% SR in
+                    // recent reports. Free tier is 60 req/min per IP. We fire at
+                    // most one batch call per second per mint-set, so worst case
+                    // ~60/min — right at the cap. Per-mint 5s cooldown avoids
+                    // hammering the same batch on chronic-missing tokens.
+                    // ═══════════════════════════════════════════════════════════════
+                    val jupNowMs = System.currentTimeMillis()
+                    val jupEligible = missing.filter { m ->
+                        val last = openPosJupFallbackLastAttempt[m] ?: 0L
+                        (jupNowMs - last) >= 5_000L
+                    }
+                    if (jupEligible.isNotEmpty()) {
+                        try {
+                            // DS-style batch limit — Jupiter accepts many but keep
+                            // request length reasonable. 30 mints ≈ 1.4KB URL, safe.
+                            for (chunk in jupEligible.chunked(30)) {
+                                val ids = chunk.joinToString(",")
+                                val jupUrl = "https://lite-api.jup.ag/price/v3?ids=$ids"
+                                val effective = try {
+                                    com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(jupUrl)
+                                } catch (_: Throwable) { jupUrl }
+                                val jupClient = com.lifecyclebot.network.SharedHttpClient.builder()
+                                    .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
+                                    .readTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
+                                    .build()
+                                val jupReq = okhttp3.Request.Builder()
+                                    .url(effective)
+                                    .header("accept", "application/json")
+                                    .build()
+                                val jupStart = System.currentTimeMillis()
+                                val jupResp = try {
+                                    jupClient.newCall(jupReq).execute()
+                                } catch (_: Throwable) { null }
+                                if (jupResp == null) {
+                                    // Mark all chunked mints as attempted so we
+                                    // don't retry in the same tick.
+                                    for (m in chunk) openPosJupFallbackLastAttempt[m] = jupNowMs
+                                    continue
+                                }
+                                try {
+                                    com.lifecyclebot.engine.ApiHealthMonitor.record(
+                                        "jupiter", jupResp.code, System.currentTimeMillis() - jupStart
+                                    )
+                                } catch (_: Throwable) {}
+                                val body = if (jupResp.isSuccessful) jupResp.body?.string().orEmpty() else null
+                                try { jupResp.close() } catch (_: Throwable) {}
+                                if (body.isNullOrBlank()) {
+                                    for (m in chunk) openPosJupFallbackLastAttempt[m] = jupNowMs
+                                    continue
+                                }
+                                val json = try { org.json.JSONObject(body) } catch (_: Throwable) { null }
+                                for (m in chunk) {
+                                    openPosJupFallbackLastAttempt[m] = jupNowMs
+                                    if (json == null) continue
+                                    val entry = json.optJSONObject(m)
+                                        ?: json.optJSONObject("data")?.optJSONObject(m)
+                                        ?: continue
+                                    val priceUsd = entry.optDouble("usdPrice", entry.optDouble("price", 0.0))
+                                    if (priceUsd > 0.0) {
+                                        priceMap[m] = priceUsd
+                                        openPosFallbackFirstMiss.remove(m)
+                                        val tsRef = status.tokens[m]
+                                        if (tsRef != null) {
+                                            synchronized(tsRef) {
+                                                tsRef.lastPriceSource = "JUPITER_PRICE_V3_OPEN_6223"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (_: Throwable) { /* fail-open — fall through to Birdeye */ }
+                    }
+                    // Re-evaluate missing after Jupiter fallback so Birdeye only
+                    // fires for what's STILL missing (usually 0).
+                    val stillMissing = missing.filter { it !in priceMap }
+                    if (stillMissing.isEmpty()) {
+                        // Clean up tracking for mints no longer in our open set.
+                        openPosFallbackFirstMiss.keys.retainAll(openMints.toSet())
+                    } else {
                     // ═══════════════════════════════════════════════════════════════
                     // V5.9.946 — BIRDEYE FALLBACK BUDGET DISCIPLINE.
                     //
@@ -8966,6 +9062,7 @@ class BotService : Service() {
                     }
                     // Clean up tracking for mints no longer in our open set
                     openPosFallbackFirstMiss.keys.retainAll(openMints.toSet())
+                }
                 }
 
                 if (priceMap.isEmpty()) {
@@ -25054,13 +25151,25 @@ if (hotExitHandledSweep) {
     // both providers (jupiter dropped 100%→73%, DIA 0% with 4xx=11 likely
     // rate-limit). Cache last successful fallback price for 60s so a
     // scanner burst on the same mints doesn't burn the free-tier quota.
+    //
+    // V5.0.6223 — SPLIT TTL for OPEN vs SCANNER mints. Operator report showed
+    // "heaps of buys 0 sells" with all paper positions frozen at stale marks
+    // (e.g. 0.008). Root cause: the 60s TTL applied uniformly meant any mint
+    // with an open position (i.e. a mint whose exit gate is being polled)
+    // was served the SAME cached price for a full minute, so TP/SL never
+    // saw a fresh tick to fire against. Fix: 5s TTL when the mint has an
+    // open position (matches the ~1Hz open-position tick cadence and stays
+    // well within Jupiter's 60/min free-tier limit), 60s TTL otherwise for
+    // scanner-only lookups where freshness doesn't matter as much.
     private val fallbackPriceCache6222 = java.util.concurrent.ConcurrentHashMap<String, Pair<Double, Long>>()
     private val FALLBACK_CACHE_TTL_MS_6222 = 60_000L
+    private val FALLBACK_CACHE_TTL_MS_OPEN_6223 = 5_000L
 
     private fun tryFallbackPriceData(mint: String, ts: TokenState): Boolean {
         // Cache short-circuit — cheap wins for repeated lookups.
         val cached = fallbackPriceCache6222[mint]
-        if (cached != null && (System.currentTimeMillis() - cached.second) < FALLBACK_CACHE_TTL_MS_6222) {
+        val ttl6223 = if (ts.position.isOpen) FALLBACK_CACHE_TTL_MS_OPEN_6223 else FALLBACK_CACHE_TTL_MS_6222
+        if (cached != null && (System.currentTimeMillis() - cached.second) < ttl6223) {
             synchronized(ts) {
                 ts.lastPrice = cached.first
                 ts.lastPriceUpdate = System.currentTimeMillis()
