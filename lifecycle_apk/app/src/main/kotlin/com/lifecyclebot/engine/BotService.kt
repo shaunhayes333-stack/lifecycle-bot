@@ -25049,7 +25049,25 @@ if (hotExitHandledSweep) {
         )
     }
 
+    // V5.0.6222 — per-mint fallback price cache. V5.0.6220 promoted Jupiter
+    // Price v3 and DIA to top of the chain, but on hot loops this hammered
+    // both providers (jupiter dropped 100%→73%, DIA 0% with 4xx=11 likely
+    // rate-limit). Cache last successful fallback price for 60s so a
+    // scanner burst on the same mints doesn't burn the free-tier quota.
+    private val fallbackPriceCache6222 = java.util.concurrent.ConcurrentHashMap<String, Pair<Double, Long>>()
+    private val FALLBACK_CACHE_TTL_MS_6222 = 60_000L
+
     private fun tryFallbackPriceData(mint: String, ts: TokenState): Boolean {
+        // Cache short-circuit — cheap wins for repeated lookups.
+        val cached = fallbackPriceCache6222[mint]
+        if (cached != null && (System.currentTimeMillis() - cached.second) < FALLBACK_CACHE_TTL_MS_6222) {
+            synchronized(ts) {
+                ts.lastPrice = cached.first
+                ts.lastPriceUpdate = System.currentTimeMillis()
+                ts.lastPriceSource = "FALLBACK_CACHE_6222"
+            }
+            return true
+        }
         // V5.0.6220 — API REPLACEMENT (operator: "birdeye theres already
         // alternatives games as dex screener. you glazed over it!!! find
         // the right apis!!!"). Fallback order rewritten:
@@ -25083,43 +25101,18 @@ if (hotExitHandledSweep) {
                         ts.lastPriceSource = "JUPITER_PRICE_V3_6219"
                     }
                     broadcastFallbackPrice(mint, priceUsd)
+                    fallbackPriceCache6222[mint] = priceUsd to System.currentTimeMillis()
                     addLog("🪐 Jupiter Price v3: ${ts.symbol} \$${priceUsd}", mint)
                     return true
                 }
             }
         } catch (_: Throwable) {}
 
-        // V5.0.6220 — DIA keyless free Solana price feed.
-        // Endpoint: https://api.diadata.org/v1/assetQuotation/Solana/<mint>
-        // No API key, no registration. Returns {"Symbol":..., "Name":...,
-        // "Address":..., "Blockchain":"Solana", "Price": <usd>, "Time":...,
-        // "Source":...}. Replaces the dead Birdeye 401 path.
-        try {
-            val diaUrl = "https://api.diadata.org/v1/assetQuotation/Solana/$mint"
-            val diaClient = com.lifecyclebot.network.SharedHttpClient.builder()
-                .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
-                .build()
-            val diaReq = okhttp3.Request.Builder().url(diaUrl).header("accept", "application/json").build()
-            val diaStart = System.currentTimeMillis()
-            val diaResp = diaClient.newCall(diaReq).execute()
-            try { com.lifecyclebot.engine.ApiHealthMonitor.record("dia", diaResp.code, System.currentTimeMillis() - diaStart) } catch (_: Throwable) {}
-            if (diaResp.isSuccessful) {
-                val body = diaResp.body?.string().orEmpty()
-                val json = try { org.json.JSONObject(body) } catch (_: Throwable) { null }
-                val priceUsd = json?.optDouble("Price", 0.0) ?: 0.0
-                if (priceUsd > 0.0) {
-                    synchronized(ts) {
-                        ts.lastPrice = priceUsd
-                        ts.lastPriceUpdate = System.currentTimeMillis()
-                        ts.lastPriceSource = "DIA_KEYLESS_6220"
-                    }
-                    broadcastFallbackPrice(mint, priceUsd)
-                    addLog("🎯 DIA (keyless): ${ts.symbol} \$${priceUsd}", mint)
-                    return true
-                }
-            }
-        } catch (_: Throwable) {}
+        // V5.0.6222 — DIA REMOVED. Endpoint /v1/assetQuotation/Solana/<mint>
+        // returns 4xx for SPL token mints (DIA's Solana feed covers native
+        // assets like SOL/USDT, not arbitrary SPL mints). Op-report V5.0.6220
+        // showed dia sr=0% with 4xx=11. Falling through directly to
+        // DexScreener-with-SR-gate + BirdeyeOracle chain below.
 
         // Birdeye path REMOVED in V5.0.6220 — operator's Birdeye key is
         // permanently 401'd and there's no self-heal path. Left the
