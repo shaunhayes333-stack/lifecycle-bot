@@ -20,6 +20,9 @@ jobs:
     name: Fetch + label Solana historical corpus
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: lifecycle_apk
     steps:
       - name: Checkout
         uses: actions/checkout@v4
