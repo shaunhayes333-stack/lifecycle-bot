@@ -3198,8 +3198,8 @@ class GoldenTapeRegressionTest {
         assertTrue("HoldTimeOptimizerAI must stamp for outcome training", holdTime.contains("brain.stamp"))
         assertTrue("Live entry must bypass break-even economics and defer them to sell side", executor.contains("LIVE_ENTRY_BREAK_EVEN_BYPASSED_TO_SELL") && executor.contains("sellSideBreakEvenOk"))
         assertFalse("liveBuy entry must not call breakEvenCheck before route quote", executor.contains("val breakEven = LiveRestoreExecutionPolicy.breakEvenCheck(ts, sol, restorePenalty"))
-        assertTrue("Score expectancy reject must be neutral in live", scoreExpectancy.contains("LIVE_EXPECTANCY_REJECT_BYPASSED") && scoreExpectancy.contains("RuntimeModeAuthority.isLive()") && scoreExpectancy.contains("return false"))
-        assertTrue("Score expectancy reject remains neutral in live; lane allocator owns live sizing", scoreExpectancy.contains("do not dust-size live probes") && scoreExpectancy.contains("return 1.0"))
+        assertTrue("V5.0.6228: shouldReject is retired to an unconditional no-op — the soft-reject veto is gone, live sizing owns all shaping", scoreExpectancy.contains("fun shouldReject(layer: String, score: Int): Boolean = false"))
+        assertTrue("V5.0.6228: calibrationSizeMult is monotone on empirical bucket mean, not paper-only ad-hoc bands", scoreExpectancy.contains("fun calibrationSizeMult(layer: String, score: Int): Double") && scoreExpectancy.contains("monotoneMultForMean(mean)"))
         assertTrue("Break-even logic remains available for sell-side profit discipline", liveRestore.contains("sellSideBreakEvenOk") && liveRestore.contains("breakEvenCheck(ts, ts.position.costSol"))
     }
 
@@ -6436,9 +6436,16 @@ class GoldenTapeRegressionTest {
     fun executor_4510LiveScoreBandWrSoftShapesEntrySize() {
         val score = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ScoreExpectancyTracker.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.4510: live score-band expectancy must expose size-only shape, not a live reject", score.contains("fun liveSizeShape") && score.contains("catastrophic_score_band_probe") && score.contains("positive_score_band_press"))
+        // V5.0.6228 — scorer-inversion fix. The prior band-based buckets
+        // (catastrophic_score_band_probe / positive_score_band_press) were
+        // replaced with a single strictly monotone-on-mean curve so higher
+        // empirical EV always produces a larger multiplier. The paper-only
+        // soft-reject veto (LIVE_EXPECTANCY_REJECT_BYPASSED) was killed —
+        // shouldReject is now an unconditional no-op.
+        assertTrue("V5.0.6228: live score-band expectancy must expose monotone size-only shape, not a reject", score.contains("fun liveSizeShape") && score.contains("monotone_ev_6228") && score.contains("monotoneMultForMean"))
         assertTrue("V5.0.4510: Executor live sizing stack must consume score-band WR/PnL multiplier", exec.contains("LIVE_EXPECTANCY_SCORE_BAND_SOFT_SHAPED_4510") && exec.contains("scoreBandWR4510") && exec.contains("ScoreExpectancyTracker.liveSizeShape"))
-        assertTrue("V5.0.4510: legacy live reject bypass remains non-blocking", score.contains("LIVE_EXPECTANCY_REJECT_BYPASSED") && score.contains("return false"))
+        assertTrue("V5.0.6228: shouldReject soft-reject mitigation is retired (unconditional false), no lane starve", score.contains("fun shouldReject(layer: String, score: Int): Boolean = false"))
+        assertTrue("V5.0.6228: calibratedScore empirical remap must exist so consumers can compose monotone-in-EV scores", score.contains("fun calibratedScore(layer: String, rawScore: Int): Int") && score.contains("sortedBy { it.second }"))
     }
 
     @Test

@@ -279,11 +279,13 @@ object LaneAutoPauseGuard {
                     val cleanReproved6172 = (agg.sample >= TOXIC_MIN_SAMPLE && wrPct >= 30.0 && evPct > 0.0) ||
                         (agg.sample >= MIN_SAMPLE && evPct >= 25.0)
                     val positiveEv6228 = agg.sample >= 6 && evPct > 0.0
+                    // Log labels emitted: LANE_AUTO_RESUMED_CLEAN_EDGE_6172_<lane> (backward-compat)
+                    //                 or  LANE_AUTO_RESUMED_6228_EV_POSITIVE_<lane> (new relaxed gate)
                     if (cleanReproved6172 || positiveEv6228) {
                         val removed = paused.remove(lane)
                         if (removed != null) {
                             mutated = true
-                            val gate = if (cleanReproved6172) "6172_wr30_ev0" else "6228_ev_positive"
+                            val gate = if (cleanReproved6172) "CLEAN_EDGE_6172" else "6228_EV_POSITIVE"
                             try {
                                 ErrorLogger.info(
                                     "LaneAutoPauseGuard",
