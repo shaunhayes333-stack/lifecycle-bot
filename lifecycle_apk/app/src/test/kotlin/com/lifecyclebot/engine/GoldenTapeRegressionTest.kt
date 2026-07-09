@@ -8394,8 +8394,8 @@ class GoldenTapeRegressionTest {
     @org.junit.Test fun V5_0_6189_scanner_and_registry_stall_relief() {
         val scanner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SolanaMarketScanner.kt").readText()
         val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MemeMintRegistry.kt").readText()
-        assertTrue("V5.0.6189: scanner source timeout must be below the old 5s stall ceiling",
-            scanner.contains("SOURCE_SCAN_TIMEOUT_MS = 3_500L") && scanner.contains("timed out after " + '$' + "{SOURCE_SCAN_TIMEOUT_MS}ms"))
+        assertTrue("V5.0.6189: scanner source timeout must be below the old 5s stall ceiling (V5.0.6216 makes it adaptive per-source but keeps the 3_500L ceiling)",
+            scanner.contains("SOURCE_SCAN_TIMEOUT_MS = 3_500L") && scanner.contains("timed out after " + '$' + "{timeoutMs}ms"))
         assertTrue("V5.0.6189: scanPumpFunDirect must cap direct pump.fun work to two quality endpoints and 35 total candidates",
             scanner.contains("scanPumpFunDirect: fetching from " + '$' + "{urls.size} pump.fun quality endpoints (cap=35)") && scanner.contains("val globalCap = 35") && scanner.contains("if (found >= 18) break"))
         assertTrue("V5.0.6189: MemeMintRegistry must not persist 50k+/11MB registry every few seconds in runtime",
