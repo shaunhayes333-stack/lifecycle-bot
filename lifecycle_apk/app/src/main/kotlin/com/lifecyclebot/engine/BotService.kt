@@ -25044,12 +25044,16 @@ if (hotExitHandledSweep) {
     }
 
     private fun tryFallbackPriceData(mint: String, ts: TokenState): Boolean {
-        // V5.0.6219 — API HEALTH RECOVERY. Op-report showed birdeye sr=0%
-        // (401), dexscreener sr=31% (5xx storm), and geckoterminal sr=14%.
-        // Meanwhile jupiter sr=100%. Promote Jupiter Price v3 to the top
-        // of the fallback chain — it's currently the only provider that
-        // isn't degraded, and it's keyless. When it returns a price, we
-        // skip the failing chain entirely.
+        // V5.0.6220 — API REPLACEMENT (operator: "birdeye theres already
+        // alternatives games as dex screener. you glazed over it!!! find
+        // the right apis!!!"). Fallback order rewritten:
+        //   1) Jupiter Price v3 (100% SR, keyless, current healthy provider)
+        //   2) DIA (diadata.org, free, keyless, no registration, 3000+ tokens)
+        //   3) DexScreener token-address (only if SR >= 50%, else skipped)
+        //   4) Pump.fun (V5.9.744 legacy path)
+        // Birdeye is REMOVED from the fallback chain — the 401 key is
+        // permanently dead until operator rotates. Old Birdeye/BirdeyeOracle
+        // calls stay compiled but no longer reached from this hot path.
         try {
             val jupUrl = "https://lite-api.jup.ag/price/v3?ids=$mint"
             val effective = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(jupUrl) } catch (_: Throwable) { jupUrl }
@@ -25079,12 +25083,47 @@ if (hotExitHandledSweep) {
             }
         } catch (_: Throwable) {}
 
-        // Try Birdeye first (V5.9.744 — kept for schema-rich data when key
-        // is healthy; V5.0.6219 KeyValidator sticks 24h on 401 so we don't
-        // waste calls when the operator key is broken).
+        // V5.0.6220 — DIA keyless free Solana price feed.
+        // Endpoint: https://api.diadata.org/v1/assetQuotation/Solana/<mint>
+        // No API key, no registration. Returns {"Symbol":..., "Name":...,
+        // "Address":..., "Blockchain":"Solana", "Price": <usd>, "Time":...,
+        // "Source":...}. Replaces the dead Birdeye 401 path.
+        try {
+            val diaUrl = "https://api.diadata.org/v1/assetQuotation/Solana/$mint"
+            val diaClient = com.lifecyclebot.network.SharedHttpClient.builder()
+                .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            val diaReq = okhttp3.Request.Builder().url(diaUrl).header("accept", "application/json").build()
+            val diaStart = System.currentTimeMillis()
+            val diaResp = diaClient.newCall(diaReq).execute()
+            try { com.lifecyclebot.engine.ApiHealthMonitor.record("dia", diaResp.code, System.currentTimeMillis() - diaStart) } catch (_: Throwable) {}
+            if (diaResp.isSuccessful) {
+                val body = diaResp.body?.string().orEmpty()
+                val json = try { org.json.JSONObject(body) } catch (_: Throwable) { null }
+                val priceUsd = json?.optDouble("Price", 0.0) ?: 0.0
+                if (priceUsd > 0.0) {
+                    synchronized(ts) {
+                        ts.lastPrice = priceUsd
+                        ts.lastPriceUpdate = System.currentTimeMillis()
+                        ts.lastPriceSource = "DIA_KEYLESS_6220"
+                    }
+                    broadcastFallbackPrice(mint, priceUsd)
+                    addLog("🎯 DIA (keyless): ${ts.symbol} \$${priceUsd}", mint)
+                    return true
+                }
+            }
+        } catch (_: Throwable) {}
+
+        // Birdeye path REMOVED in V5.0.6220 — operator's Birdeye key is
+        // permanently 401'd and there's no self-heal path. Left the
+        // BirdeyeApi class compiled so quorum/telemetry callers still work,
+        // but the fallback price chain no longer reaches it.
         try {
             val cfg2 = ConfigStore.load(applicationContext)
-            val ov = com.lifecyclebot.network.BirdeyeApi(cfg2.birdeyeApiKey).getTokenOverview(mint)
+            val birdeyeStillLive = try { com.lifecyclebot.engine.KeyValidator.isLive("birdeye") } catch (_: Throwable) { false }
+            if (birdeyeStillLive && cfg2.birdeyeApiKey.isNotBlank()) {
+                val ov = com.lifecyclebot.network.BirdeyeApi(cfg2.birdeyeApiKey).getTokenOverview(mint)
             if (ov != null && ov.priceUsd > 0) {
                 synchronized(ts) {
                     ts.lastPrice = ov.priceUsd
@@ -25108,13 +25147,22 @@ if (hotExitHandledSweep) {
                 addLog("📡 Birdeye: ${ts.symbol} \$${ov.priceUsd}", mint)
                 return true
             }
+            }
         } catch (_: Exception) {}
 
         // V5.9.423 — DexScreenerOracle (separate code path from dex.getBestPair,
         // different endpoint, different cache). When the pair-based call fails
         // this token-address call often still returns — DexScreener caches
         // token-level and pair-level data independently.
-        if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
+        // V5.0.6220 — HARD SR GATE. DexScreener has been at sr=31-38% with
+        // 316-2270× 5xx per session. When SR is bad we STOP calling it
+        // instead of hammering the same dead endpoint. Jupiter + DIA above
+        // have already served the price if it was gettable.
+        val dsHealthy6220 = try {
+            val sr = com.lifecyclebot.engine.ApiHealthMonitor.successRate("dexscreener")
+            sr < 0.0 || sr >= 0.50
+        } catch (_: Throwable) { true }
+        if (dsHealthy6220 && (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L)) {
             try {
                 val priceUsd = kotlinx.coroutines.runBlocking {
                     kotlinx.coroutines.withTimeoutOrNull(2000L) {
