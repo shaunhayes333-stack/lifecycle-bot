@@ -97,65 +97,71 @@ object LiveProbabilityEngine {
         metaConviction: Double = 0.50,
     ): Edge {
         val lane = canonical(rawLane)
-        // V5.0.4596 — FLUID PAUSED-LANE DAMPENER (operator architectural
-        // principle: "all gates are meant to be in a fluid state eventually
-        // be removed once the SUPER AGI / SSI stack take over once they
-        // have enough learnt intelligence... these should not just be
-        // result-based decisions either").
-        //
-        // Rather than a rigid mult=0.0 block, this backstop applies a
-        // *fluid dampener* that the AGI stack can override. Purpose is to
-        // stop capital hemorrhage from bypass paths while still permitting
-        // learning probes AND respecting the AGI's forward-looking
-        // authority (not just backward-looking WR).
-        //
-        // Dampener tiers:
-        //   • Base (no AGI signal): mult=0.10 → tiny learning probe still
-        //     runs so the paused lane doesn't go completely dark for the
-        //     learning loop.
-        //   • Lab strategy proven for this lane: mult=0.35 → sandbox brain
-        //     has forward-looking evidence, upgrade to normal probe size.
-        //   • UnifiedPolicyHead AUTHORITATIVE + positive fwd prediction:
-        //     mult=0.55 → per-lane brain has trained authority.
-        //
-        // As the AGI matures, the dampener fades naturally because these
-        // AGI signals mature. Eventually the LaneAutoPauseGuard hard-seed
-        // itself gets released (via operator's LaneShadowProofLoop.
-        // allowLaneResume) and this backstop becomes a no-op.
+        // V5.0.6228 — RESCUE PROFITABLE PAUSED LANES + SMALLER HAIRCUT.
+        // Operator P2 directive: "Remove auto-pause entirely for lanes with
+        // net-positive EV" and "Replace the 0.1x multiplier with a smaller
+        // haircut (e.g. 0.7x) so the lane keeps trading". TREASURY and
+        // MOONSHOT at 44.4% WR were being suppressed to 0.1x because the
+        // hard-seed pause never cleared. Two changes:
+        //   (a) If the lane's own clean live leaderboard shows net-positive
+        //       EV (meanPnlPct > 0) at any meaningful sample size, bypass
+        //       the paused-dampener entirely — the guard's pause is stale
+        //       for this lane.
+        //   (b) When the dampener does apply, raise the multipliers so the
+        //       lane keeps trading:  0.10→0.70, 0.35→0.85, 0.55→1.00.
         try {
             if (LaneAutoPauseGuard.isPaused(lane)) {
                 val laneU = lane.uppercase()
-                // Consult AGI signals for override authority
-                val labProven = try {
-                    com.lifecyclebot.engine.lab.LlmLabStore.allStrategies()
-                        .any { s ->
-                            val target = s.asset.name.uppercase()
-                            (target == laneU || (target == "MEME" && laneU in setOf("SHITCOIN","MOONSHOT","EXPRESS","MANIPULATED"))) &&
-                                s.status == com.lifecyclebot.engine.lab.LabStrategyStatus.PROMOTED
-                        }
+                // (a) Preemptive rescue: if live-clean leaderboard shows the
+                // lane is net-positive, treat as if never paused.
+                val cleanPositive = try {
+                    StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
+                        .firstOrNull { canonical(it.strategy).equals(lane, ignoreCase = true) }
+                        ?.let { m -> (m.wins + m.losses) >= 6 && m.meanPnlPct > 0.0 }
+                        ?: false
                 } catch (_: Throwable) { false }
-                val policyAuthoritative = try {
-                    UnifiedPolicyHead.formatForPipelineDump()
-                        .let { dump -> dump.contains("$laneU") && dump.contains("AUTHORITATIVE") && !dump.contains("bootstrap") }
-                } catch (_: Throwable) { false }
-                val agiMult = when {
-                    policyAuthoritative -> 0.55  // per-lane brain trained + authoritative
-                    labProven          -> 0.35   // sandbox has forward-looking proof
-                    else               -> 0.10   // tiny learning probe (not zero — keeps loop fed)
+                if (cleanPositive) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "LIVE_PROBABILITY_PAUSED_BYPASSED_POSITIVE_EV_6228",
+                            "lane=$lane action=fall_through_normal_forecast reason=clean_live_ev_positive",
+                        )
+                        PipelineHealthCollector.labelInc("LIVE_PROBABILITY_PAUSED_BYPASSED_POSITIVE_EV_${laneU}")
+                    } catch (_: Throwable) {}
+                    // Fall through to normal forecast below.
+                } else {
+                    // Consult AGI signals for override authority
+                    val labProven = try {
+                        com.lifecyclebot.engine.lab.LlmLabStore.allStrategies()
+                            .any { s ->
+                                val target = s.asset.name.uppercase()
+                                (target == laneU || (target == "MEME" && laneU in setOf("SHITCOIN","MOONSHOT","EXPRESS","MANIPULATED"))) &&
+                                    s.status == com.lifecyclebot.engine.lab.LabStrategyStatus.PROMOTED
+                            }
+                    } catch (_: Throwable) { false }
+                    val policyAuthoritative = try {
+                        UnifiedPolicyHead.formatForPipelineDump()
+                            .let { dump -> dump.contains("$laneU") && dump.contains("AUTHORITATIVE") && !dump.contains("bootstrap") }
+                    } catch (_: Throwable) { false }
+                    val agiMult = when {
+                        policyAuthoritative -> 1.00  // per-lane brain trained + authoritative → full size
+                        labProven          -> 0.85   // sandbox has forward-looking proof
+                        else               -> 0.70   // 6228: smaller haircut, keep the lane trading
+                    }
+                    val agiSrc = when {
+                        policyAuthoritative -> "paused+policy_authoritative_6228"
+                        labProven          -> "paused+lab_proven_6228"
+                        else               -> "paused+learning_probe_6228"
+                    }
+                    try {
+                        ForensicLogger.lifecycle(
+                            "LIVE_PROBABILITY_LANE_PAUSED_FLUID_DAMPENED_6228",
+                            "lane=$lane mult=$agiMult src=$agiSrc labProven=$labProven policyAuthoritative=$policyAuthoritative note=6228_smaller_haircut",
+                        )
+                        PipelineHealthCollector.labelInc("LIVE_PROBABILITY_LANE_PAUSED_FLUID_${laneU}")
+                    } catch (_: Throwable) {}
+                    return Edge(lane, 0.35, 0.0, 0.0, 0.0, 0L, agiSrc, agiMult, "fluid_paused_dampener_6228=$agiMult")
                 }
-                val agiSrc = when {
-                    policyAuthoritative -> "paused+policy_authoritative"
-                    labProven          -> "paused+lab_proven"
-                    else               -> "paused+learning_probe"
-                }
-                try {
-                    ForensicLogger.lifecycle(
-                        "LIVE_PROBABILITY_LANE_PAUSED_FLUID_DAMPENED_4596",
-                        "lane=$lane mult=$agiMult src=$agiSrc labProven=$labProven policyAuthoritative=$policyAuthoritative note=fluid_not_binary_agi_can_override",
-                    )
-                    PipelineHealthCollector.labelInc("LIVE_PROBABILITY_LANE_PAUSED_FLUID_${laneU}")
-                } catch (_: Throwable) {}
-                return Edge(lane, 0.35, 0.0, 0.0, 0.0, 0L, agiSrc, agiMult, "fluid_paused_dampener_4596=$agiMult")
             }
         } catch (_: Throwable) {}
         return try {

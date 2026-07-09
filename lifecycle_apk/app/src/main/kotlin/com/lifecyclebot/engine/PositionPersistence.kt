@@ -49,10 +49,16 @@ object PositionPersistence {
     
     // Minimum interval between periodic saves (don't spam disk)
     private const val MIN_SAVE_INTERVAL_MS = 10_000L  // 10 seconds
-    // V5.0.3801 — paper restore must not resurrect stale simulator rows into
-    // forcedOpen/exit-managed churn. Recent active paper rows survive restarts;
-    // old rows are quarantined/dropped and must not consume slots or learning.
-    private const val PAPER_RESTORE_WINDOW_MS = 6L * 60L * 60L * 1000L
+    // V5.0.6228 — EXTEND PAPER RESTORE WINDOW.
+    // Operator P3 (bug: "positions dropping on APK install or update"): 6h was
+    // far too tight for the normal update cadence (CI build + install + first
+    // Operational Report can easily eat >6h between saves). If the app is
+    // updated overnight or the operator installs an APK after a workday, all
+    // paper positions were being marked PAPER_STALE_RESTORE_DROPPED and lost.
+    // Bump to 48h — still finite enough to keep truly stale simulator rows
+    // from resurrecting weeks later, generous enough to survive normal APK
+    // update cycles and typical operator install patterns.
+    private const val PAPER_RESTORE_WINDOW_MS = 48L * 60L * 60L * 1000L
     
     private var ctx: Context? = null
     private var prefs: SharedPreferences? = null
@@ -641,6 +647,16 @@ object PositionPersistence {
         if (restoredCount > 0) {
             ErrorLogger.info(TAG, "✅ Successfully restored $restoredCount positions")
         }
+        // V5.0.6228 — visibility for APK-update position loss debugging.
+        try {
+            val persistedCount = persisted.size
+            val droppedNonPaper = persistedCount - restoredCount - droppedPaper.size
+            PipelineHealthCollector.labelInc("POSITION_RESTORE_ATTEMPTED_${persistedCount}_RESTORED_${restoredCount}")
+            ForensicLogger.lifecycle(
+                "POSITION_RESTORE_SUMMARY_6228",
+                "persisted=$persistedCount restored=$restoredCount droppedPaper=${droppedPaper.size} droppedOther=${droppedNonPaper.coerceAtLeast(0)} paperWindowH=${PAPER_RESTORE_WINDOW_MS / 3600000L}",
+            )
+        } catch (_: Throwable) {}
         
         return restoredCount
     }

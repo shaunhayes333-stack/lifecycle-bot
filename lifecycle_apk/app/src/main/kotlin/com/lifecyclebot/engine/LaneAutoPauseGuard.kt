@@ -268,33 +268,41 @@ object LaneAutoPauseGuard {
             for ((lane, agg) in byLane) {
                 val wrPct = if (agg.sample > 0) agg.wins.toDouble() / agg.sample.toDouble() * 100.0 else 0.0
                 val evPct = if (agg.sample > 0) agg.pnlSum / agg.sample else 0.0
-                // V5.0.6172 — live-clean reproof must reopen old auto-pauses.
-                // Hard seeds were correct when they were created, but a lane can become
-                // +EV after tactic pivots, exit-policy changes, and StrategyTruth cleanup.
-                // Do not keep amputating lanes that have now proved clean positive edge;
-                // remove the pause and let FDG/compounding lean in using live-clean truth.
+                // V5.0.6228 — RESUME ANY LANE WITH NET-POSITIVE EV.
+                // Operator P2 directive: "Remove auto-pause entirely for lanes
+                // with net-positive EV". The prior 6172 rule required WR>=30%
+                // AND EV>0 (or EV>=25% at n>=8), which was too strict — TREASURY
+                // at n=13 WR=7.7% EV=+X could still be net-positive from a big
+                // winner but stay paused. Now: any live sample floor of 6 with
+                // meanEv > 0 auto-resumes. This applies to hard-seeded pauses too.
                 if (paused.containsKey(lane)) {
                     val cleanReproved6172 = (agg.sample >= TOXIC_MIN_SAMPLE && wrPct >= 30.0 && evPct > 0.0) ||
                         (agg.sample >= MIN_SAMPLE && evPct >= 25.0)
-                    if (cleanReproved6172) {
+                    val positiveEv6228 = agg.sample >= 6 && evPct > 0.0
+                    if (cleanReproved6172 || positiveEv6228) {
                         val removed = paused.remove(lane)
                         if (removed != null) {
                             mutated = true
+                            val gate = if (cleanReproved6172) "6172_wr30_ev0" else "6228_ev_positive"
                             try {
                                 ErrorLogger.info(
                                     "LaneAutoPauseGuard",
-                                    "✅ LANE_AUTO_RESUMED_CLEAN_EDGE_6172 lane=$lane n=${agg.sample} wins=${agg.wins} wr=${"%.1f".format(wrPct)}% ev=${"%.1f".format(evPct)}% oldReason=${removed.reason}",
+                                    "✅ LANE_AUTO_RESUMED_$gate lane=$lane n=${agg.sample} wins=${agg.wins} wr=${"%.1f".format(wrPct)}% ev=${"%.1f".format(evPct)}% oldReason=${removed.reason}",
                                 )
-                                PipelineHealthCollector.labelInc("LANE_AUTO_RESUMED_CLEAN_EDGE_6172_$lane")
+                                PipelineHealthCollector.labelInc("LANE_AUTO_RESUMED_${gate}_$lane")
                             } catch (_: Throwable) {}
                         }
                     }
                     continue
                 }
                 val zeroWin = agg.sample >= ZERO_WIN_MIN_SAMPLE && agg.wins == 0
+                // V5.0.6228 — Do NOT pause a lane whose EV is net-positive even
+                // if its win rate is low (one big winner can carry a lane).
+                // Operator directive: net-positive EV lanes stay open.
                 val toxic = agg.sample >= TOXIC_MIN_SAMPLE &&
                     wrPct < TOXIC_WR_PCT &&
-                    evPct <= TOXIC_EV_PCT
+                    evPct <= TOXIC_EV_PCT &&
+                    evPct < 0.0
                 if (zeroWin || toxic) {
                     val reason = if (zeroWin) "zero_win_n${agg.sample}_direct_journal" else "toxic_wr${"%.0f".format(wrPct)}_ev${"%.0f".format(evPct)}_direct_journal"
                     paused[lane] = PauseState(
