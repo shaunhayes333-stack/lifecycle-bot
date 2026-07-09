@@ -125,7 +125,7 @@ object StrategyTruthLedger {
     fun specExcludedReason6218(t: Trade): String? {
         val hay = listOf(
             t.tradingMode, t.reason, t.proofState,
-            t.entryPriceSource, t.positionId, t.side, t.symbol,
+            t.entryPriceSource, t.positionId, t.side,
         ).joinToString("|").uppercase()
         return when {
             // Probe-only rows: research telemetry, not strategy truth.
