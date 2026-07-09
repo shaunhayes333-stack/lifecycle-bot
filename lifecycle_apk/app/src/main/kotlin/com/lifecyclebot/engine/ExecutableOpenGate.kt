@@ -368,20 +368,32 @@ object ExecutableOpenGate {
             // out as STALE_CANDIDATE_VERSION even though the same mint still has an
             // FDG-approved BUY/PROBE, real liquidity, and no true hard safety kill.
             val verdictUpper = preFdgVerdict.uppercase()
-            val latestAllows = mode.equals("LIVE", true) && state.fdgCan == true &&
+            // V5.0.6228 — extend SOFT_ALLOW to PAPER mode. The compound target
+            // (2x-5x daily) requires the bot to never lose a lane-approved
+            // candidate to version churn — paper simulations feed the learning
+            // stack as directly as live does, and PAPER_BUY_BLOCKED_FINALITY
+            // via stale-candidate is currently drop-costing ~1 candidate per
+            // report window. Same guard conditions as live (fdgCan approved,
+            // safety intact, liq present, no true hard kill).
+            val modeAllows6228 = mode.equals("LIVE", true) || mode.equals("PAPER", true)
+            val latestAllows = modeAllows6228 && state.fdgCan == true &&
                 verdictUpper in setOf("BUY", "PROBE_ONLY", "WATCH", "PROBE")
             val safetyOk = currentSafetyTier.equals("SAFE", true) || currentSafetyTier.equals("CAUTION", true) ||
                 state.safetyTier.equals("SAFE", true) || state.safetyTier.equals("CAUTION", true) ||
-                (mode.equals("LIVE", true) && state.fdgCan == true && effectiveHardNoReasons.none { trueHardTicketKill(it) })
+                (modeAllows6228 && state.fdgCan == true && effectiveHardNoReasons.none { trueHardTicketKill(it) })
             val effectiveLiq = maxOf(currentLiquidityUsd, state.liquidityUsd)
             val liqOk = effectiveLiq > 0.0
             if (latestAllows && safetyOk && liqOk && effectiveHardNoReasons.none { trueHardTicketKill(it) }) {
+                val labelMode6228 = if (mode.equals("LIVE", true)) "LIVE" else "PAPER"
+                // Emitted labels (kept as literals for golden-tape regression scanners):
+                //   LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW  (mode==LIVE)
+                //   PAPER_RESTORE_STALE_CANDIDATE_SOFT_ALLOW (mode==PAPER, added in V5.0.6228)
                 try {
                     ForensicLogger.lifecycle(
-                        "LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW",
-                        "mint=${mint.take(10)} symbol=$symbol candidateVersion=$candidateVersion currentVersion=$currentVersion stateVersion=${state.candidateVersion} liq=${effectiveLiq.toInt()} safety=$currentSafetyTier stateSafety=${state.safetyTier} reason=approved_handoff_version_churn"
+                        "${labelMode6228}_RESTORE_STALE_CANDIDATE_SOFT_ALLOW",
+                        "mint=${mint.take(10)} symbol=$symbol candidateVersion=$candidateVersion currentVersion=$currentVersion stateVersion=${state.candidateVersion} liq=${effectiveLiq.toInt()} safety=$currentSafetyTier stateSafety=${state.safetyTier} reason=approved_handoff_version_churn_6228"
                     )
-                    PipelineHealthCollector.labelInc("LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW")
+                    PipelineHealthCollector.labelInc("${labelMode6228}_RESTORE_STALE_CANDIDATE_SOFT_ALLOW")
                 } catch (_: Throwable) {}
                 return null
             }

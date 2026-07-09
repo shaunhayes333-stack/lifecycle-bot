@@ -63,5 +63,19 @@ jobs:
             echo "No corpus changes — nothing to commit."
           else
             git commit -m "corpus: weekly refresh — top Solana tokens historical patterns"
-            git push origin main
+            # V5.0.6228 — rebase before push. Prior version failed with
+            # "! [rejected] main -> main (fetch first)" when any commit landed
+            # on main between checkout and push. Retry the pull+push loop so
+            # a burst of concurrent CI commits can't lose the corpus refresh.
+            for i in 1 2 3 4 5; do
+              git pull --rebase origin main || true
+              if git push origin main; then
+                echo "corpus push ok on attempt $i"
+                exit 0
+              fi
+              echo "corpus push attempt $i rejected — sleeping 20s and retrying"
+              sleep 20
+            done
+            echo "::error::corpus push failed after 5 rebase+retry attempts"
+            exit 1
           fi

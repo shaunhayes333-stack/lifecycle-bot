@@ -1983,10 +1983,20 @@ class BotService : Service() {
                     // constant learning tool"). Shadow paper runs behind BOTH
                     // paper and live modes, in meme-only mode too.
                     add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.SHADOW_PAPER)
-                    // V5.0.4155 — all internal MEME lanes stay active, but CYCLIC is
-                    // intentionally excluded from live authority per operator. It is a
-                    // sidecar compound ring, not part of the current all-lanes meme pass.
-                    // Do not add Trader.CYCLIC here even if a stale persisted toggle is true.
+                    // V5.0.6228 — CYCLIC IS BACK ON IN PAPER FOR COMPOUND TARGET.
+                    // Operator directive (post V5.0.4155 exclusion): "where's the
+                    // disabled cyclic trader? bring it back to paper mode give
+                    // it the tools for success". CYCLIC is the opportunistic
+                    // compounder ring — the only lane whose entire doctrine is
+                    // "buy something, ride to +X%, sell, immediately redeploy
+                    // into the next name, compound the SOL forward" without a
+                    // per-trade thesis. That's exactly what a $100→$1M/2x-5x
+                    // daily target needs: a permanent SOL-forwarding rotator
+                    // that never idles capital. Kept LIVE-excluded (V5.0.4155
+                    // sidecar-only doctrine) to preserve wallet safety.
+                    if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+                        add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC)
+                    }
                 }.toSet()
             } else {
                 // Markets-only mode: respect per-lane toggles, but exclude

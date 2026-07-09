@@ -10234,7 +10234,44 @@ class Executor(
         } else 1.0
         try { ForensicLogger.lifecycle("POST_CASCADE_GEOMEAN_6114", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag dampers=${postCascadeDampers6114.size} geomean=${postCascadeGeomean6114.fmt(3)} discipline=${disciplineRecoveryMult6112.fmt(2)} tilt=${laneTilt4132.fmt(2)} bridge=${bridgeMult4132.fmt(2)}") } catch (_: Throwable) {}
         // V5.0.6114: fold postCascadeGeomean6114 into multiplierProduct
-        val multiplierProduct6114 = multiplierProduct * postCascadeGeomean6114
+        val multiplierProduct6114Raw = multiplierProduct * postCascadeGeomean6114
+        // V5.0.6228 — WINNER-PROTECTION FLOOR (compound target defence).
+        // Operator constraint: bot must be able to compound $100 → $1M with
+        // 2x-5x daily minimum. The pre-6228 cascade could stack 9+ dampers
+        // even on empirically-winning lanes (MOONSHOT EV=+463%, QUALITY
+        // EV=+14.6%), producing dust-sized 0.010 SOL executions that make
+        // daily 2x compounding impossible.
+        //
+        // FIX: clamp the final cascade multiplier to a monotone-in-EV floor
+        // that scales with the lane's demonstrated edge. If the lane has no
+        // trades yet (null), no floor applies — normal cascade authority.
+        // If the lane has a proven bleeder (EV < 5%), no floor applies — the
+        // cascade correctly dampens. But once a lane demonstrates positive
+        // EV, defensive dampers can no longer crush it below floor.
+        val laneEvPct6228 = try {
+            StrategyTelemetry.computeLeaderboard(limit = 500)
+                .firstOrNull { it.strategy.equals(laneKeyForAgi, ignoreCase = true) || it.strategy.equals(laneTag, ignoreCase = true) }
+                ?.takeIf { it.trades >= 5 }
+                ?.meanPnlPct
+        } catch (_: Throwable) { null }
+        val winnerFloor6228 = when {
+            laneEvPct6228 == null    -> 0.0     // no data yet → normal cascade
+            laneEvPct6228 >= 100.0   -> 1.20    // moonshot territory → +20% press
+            laneEvPct6228 >=  50.0   -> 1.00    // strong winner → floor at neutral
+            laneEvPct6228 >=  20.0   -> 0.85    // winner → light dampening OK
+            laneEvPct6228 >=   5.0   -> 0.70    // mild winner → moderate dampening OK
+            else                     -> 0.0     // negative/neutral EV → cascade authoritative
+        }
+        val multiplierProduct6114 = multiplierProduct6114Raw.coerceAtLeast(winnerFloor6228)
+        if (winnerFloor6228 > 0.0 && multiplierProduct6114 > multiplierProduct6114Raw) {
+            try {
+                ForensicLogger.lifecycle(
+                    "WINNER_PROTECTION_FLOOR_6228",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvPct=${"%+.1f".format(laneEvPct6228!!)} rawProduct=${multiplierProduct6114Raw.fmt(3)} floor=${winnerFloor6228.fmt(2)} finalProduct=${multiplierProduct6114.fmt(3)} lift=${(multiplierProduct6114 - multiplierProduct6114Raw).fmt(3)}",
+                )
+                PipelineHealthCollector.labelInc("WINNER_PROTECTION_FLOOR_6228_${laneTag.uppercase()}")
+            } catch (_: Throwable) {}
+        }
         val absEntryFloor4129 = when (gooseVerdict4129) {
             com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD ->
                 com.lifecyclebot.engine.LiveSizingProfile.STRONG_ENTRY_SOL
