@@ -8924,6 +8924,14 @@ class BotService : Service() {
                         val last = openPosJupFallbackLastAttempt[m] ?: 0L
                         (jupNowMs - last) >= 5_000L
                     }
+                    // V5.0.6226 — track mints whose Jupiter batch CALL FAILED
+                    // (network error, 5xx after retry, or empty body). Only these
+                    // are worth trying via GeckoTerminal — if Jupiter succeeded
+                    // but a mint wasn't in the response, Jupiter doesn't have
+                    // that mint's price and GT won't either. Previous V5.0.6224
+                    // fired GT for every missing mint, which hammered GT to 11%
+                    // SR (was 50%) with 5xx=34 in the V5.0.6225 report.
+                    val jupFailedMints = mutableSetOf<String>()
                     if (jupEligible.isNotEmpty()) {
                         try {
                             // DS-style batch limit — Jupiter accepts many but keep
@@ -8960,8 +8968,13 @@ class BotService : Service() {
                                 }
                                 if (jupResp == null) {
                                     // Mark all chunked mints as attempted so we
-                                    // don't retry in the same tick.
-                                    for (m in chunk) openPosJupFallbackLastAttempt[m] = jupNowMs
+                                    // don't retry in the same tick. V5.0.6226 —
+                                    // network null == Jupiter call FAILED, GT is
+                                    // worth trying for these mints.
+                                    for (m in chunk) {
+                                        openPosJupFallbackLastAttempt[m] = jupNowMs
+                                        jupFailedMints.add(m)
+                                    }
                                     continue
                                 }
                                 try {
@@ -8972,7 +8985,12 @@ class BotService : Service() {
                                 val body = if (jupResp.isSuccessful) jupResp.body?.string().orEmpty() else null
                                 try { jupResp.close() } catch (_: Throwable) {}
                                 if (body.isNullOrBlank()) {
-                                    for (m in chunk) openPosJupFallbackLastAttempt[m] = jupNowMs
+                                    for (m in chunk) {
+                                        openPosJupFallbackLastAttempt[m] = jupNowMs
+                                        // V5.0.6226 — non-2xx or empty body ==
+                                        // Jupiter batch FAILED, GT is worth trying.
+                                        jupFailedMints.add(m)
+                                    }
                                     continue
                                 }
                                 val json = try { org.json.JSONObject(body) } catch (_: Throwable) { null }
@@ -9002,24 +9020,19 @@ class BotService : Service() {
                     val stillMissingAfterJup = missing.filter { it !in priceMap }
                     // ═══════════════════════════════════════════════════════════════
                     // V5.0.6224 — GECKOTERMINAL BATCH FALLBACK.
-                    //
-                    // Operator report V5.0.6223: jupiter SR dipped to 58% with
-                    // 5xx=52 while dexscreener SR=47% with 5xx=217. Both primary
-                    // free feeds are wobbling simultaneously. GeckoTerminal
-                    // exposes /networks/solana/tokens/multi/<csv> which mirrors
-                    // DexScreener's batch shape (up to 30 addresses, keyless).
-                    // At SR=50% it's not a hero but adds independent coverage
-                    // when DS + Jupiter both blip on the same tick.
-                    //
-                    // Rate limit: GeckoTerminal free is ~10 calls/min per IP. We
-                    // fire at most one batch per 6s per mint via the same 5s-ish
-                    // cooldown map, so worst-case ~10/min — right at the ceiling.
+                    // V5.0.6226 — GATED to only fire when Jupiter batch call
+                    // truly FAILED (jupFailedMints), not when a mint was simply
+                    // missing from Jupiter's response. Operator V5.0.6225 report
+                    // showed GT SR crashed to 11% (5xx=34) because we hammered
+                    // it for every missing mint. Now GT only fires when Jupiter
+                    // has HTTP-failed on that mint's batch. Per-mint cooldown
+                    // also lifted from 6s → 60s so we can't burst-fail GT again.
                     // ═══════════════════════════════════════════════════════════════
-                    if (stillMissingAfterJup.isNotEmpty()) {
+                    if (jupFailedMints.isNotEmpty()) {
                         val gtNowMs = System.currentTimeMillis()
-                        val gtEligible = stillMissingAfterJup.filter { m ->
+                        val gtEligible = jupFailedMints.filter { m ->
                             val last = openPosGtFallbackLastAttempt[m] ?: 0L
-                            (gtNowMs - last) >= 6_000L
+                            (gtNowMs - last) >= 60_000L
                         }
                         if (gtEligible.isNotEmpty()) {
                             try {
