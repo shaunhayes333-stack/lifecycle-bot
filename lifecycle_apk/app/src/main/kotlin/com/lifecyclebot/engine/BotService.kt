@@ -14490,6 +14490,14 @@ class BotService : Service() {
                     // (n>=15 && wins=0) OR (n>=20 && wr<20% && ev<=-40%).
                     try { LaneAutoPauseGuard.evaluateLive() } catch (_: Throwable) {}
 
+                    // V5.0.6218 — LIVE-MODE AUTO-PAUSE GUARD.
+                    // Operator directive: bot is losing money live despite the
+                    // AI stack. Flip LIVE→PAPER when cleanLive WR < 20% for
+                    // 10 consecutive 30s ticks, auto-resume when post-flip
+                    // paper WR >= 25% for 10 ticks. Only flips paperMode —
+                    // never touches lane config.
+                    try { LiveModeAutoPauseGuard.evaluate(this@BotService) } catch (_: Throwable) {}
+
                     // V5.0.4590 — LANE SHADOW-PROOF LOOP. Cheap; internally
                     // rate-limited to every 5min. Auto-resumes paused lanes
                     // when the LLM Lab has proven a strategy in that asset
