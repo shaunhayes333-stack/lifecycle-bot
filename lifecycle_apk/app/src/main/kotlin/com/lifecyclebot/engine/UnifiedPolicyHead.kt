@@ -397,7 +397,37 @@ object UnifiedPolicyHead {
                 lo.optJSONArray("w")?.let { for (i in 0 until minOf(NF, it.length())) h.w[i] = it.optDouble(i, 0.0) }
                 lo.optJSONArray("fm")?.let { for (i in 0 until minOf(NF, it.length())) h.featMean[i] = it.optDouble(i, 0.5) }
                 h.brierSum = lo.optDouble("brierSum", 0.0); h.brierN = lo.optLong("brierN", 0L)
-                laneHeads[key] = h
+                // V5.0.6228h — MERGE ON LOAD for canonical-lane collision.
+                // Persisted state may contain the pre-6228g uncanonicalized
+                // lane key (e.g. "BLUE_CHIP") alongside a fresh canonicalized
+                // head ("BLUECHIP"). Route load through normalizeLane so both
+                // heads collapse to a single canonical entry, summing their
+                // trained counts and Brier windows. Prior behaviour left
+                // duplicate heads polluting the per-lane weighting layer.
+                val canonicalKey = normalizeLane(key)
+                val existing = laneHeads[canonicalKey]
+                if (existing == null) {
+                    laneHeads[canonicalKey] = h
+                } else {
+                    // Weighted merge: proportional to trained sample counts.
+                    val totalN = (existing.trained + h.trained).coerceAtLeast(1L)
+                    val wA = existing.trained.toDouble() / totalN
+                    val wB = h.trained.toDouble() / totalN
+                    for (i in 0 until NF) {
+                        existing.w[i]        = existing.w[i]        * wA + h.w[i]        * wB
+                        existing.featMean[i] = existing.featMean[i] * wA + h.featMean[i] * wB
+                    }
+                    existing.bias    = existing.bias * wA + h.bias * wB
+                    existing.trained = existing.trained + h.trained
+                    existing.brierSum = existing.brierSum + h.brierSum
+                    existing.brierN   = existing.brierN + h.brierN
+                    try {
+                        ForensicLogger.lifecycle(
+                            "UNIFIED_POLICY_HEAD_LANE_MERGE_6228H",
+                            "from=$key into=$canonicalKey mergedTrained=${existing.trained}",
+                        )
+                    } catch (_: Throwable) {}
+                }
             }
         } catch (_: Throwable) {}
     }

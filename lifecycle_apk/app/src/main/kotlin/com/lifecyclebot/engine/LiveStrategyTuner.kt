@@ -481,8 +481,19 @@ object LiveStrategyTuner {
                 totalSolPnl = sol,
                 pfExpectancyPp = pf,
                 meanPnlPct = mean,
-                sizeMult = if (toxicInnerLanePivot)
-                    (0.62 - depth * 0.22).coerceIn(0.35, 0.62)
+                sizeMult = if (toxicInnerLanePivot) {
+                    // V5.0.6228h — CHRONIC-BLEEDER DEEP-DAMPEN.
+                    // Report showed BLUECHIP n=161 at size×0.40 still cost
+                    // -2.54 SOL (24% WR, EV=-4.19%). At n>=100 with sol<-1.0
+                    // SOL a lane is no longer "learning to recover", it's an
+                    // established chronic bleeder — starve it to a probe.
+                    val chronicBleeder = n >= 100 && sol <= -1.0
+                    if (chronicBleeder) {
+                        (0.22 - depth * 0.12).coerceIn(0.12, 0.28)
+                    } else {
+                        (0.62 - depth * 0.22).coerceIn(0.35, 0.62)
+                    }
+                }
                 else
                     (0.78 - depth * 0.43).coerceIn(0.35, 0.82),
                 tpMult = if (toxicInnerLanePivot)

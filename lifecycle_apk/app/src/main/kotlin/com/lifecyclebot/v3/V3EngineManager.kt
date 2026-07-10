@@ -175,10 +175,14 @@ object V3EngineManager {
                     // EXACT cap visible in operator's snapshot
                     // (🪪 caps: meme=1/100 + LANE_BUY_INTENT_OVERRIDES_BASE_WAIT
                     // hitting exactly 100 then silent stall for 22min).
-                    // Paper is free money for learning — uncap entirely;
-                    // wallet-% exposure (95%) is the only meaningful guard.
-                    // Live still bounded by user's configured cap.
-                    maxOpenPositions = if (botCfg.paperMode) Int.MAX_VALUE
+                    // V5.0.6228h — CAPPED PAPER TOO. Prior Int.MAX_VALUE let
+                    // 32 positions pile up in 45s during DUMP regime with
+                    // inverted-scorer legacy, blowing through 18.8 SOL of
+                    // paper exposure with 0 runners. Cap at 60 in paper —
+                    // still generous for learning fanout (V3 typically has
+                    // 20-40 active learning arms) but stops the runaway
+                    // pileup during bleed regimes.
+                    maxOpenPositions = if (botCfg.paperMode) 60
                                        else botCfg.maxConcurrentPositions.coerceAtMost(100),
                     maxExposurePct = if (botCfg.paperMode) 0.95
                                      else (botCfg.v3MaxExposurePct / 100.0).coerceIn(0.0, 1.0)
@@ -266,7 +270,8 @@ object V3EngineManager {
             exposureGuard = ExposureGuard(
                 // V5.9.1330 — same uncap as init path. Paper = unlimited
                 // slots; only wallet-% exposure caps the open book.
-                maxOpenPositions = if (newBotConfig.paperMode) Int.MAX_VALUE
+                // V5.0.6228h — capped paper at 60 (see init path comment).
+                maxOpenPositions = if (newBotConfig.paperMode) 60
                                    else newBotConfig.maxConcurrentPositions.coerceAtMost(100),
                 maxExposurePct = if (newBotConfig.paperMode) 0.95
                                  else (newBotConfig.v3MaxExposurePct / 100.0).coerceIn(0.0, 1.0)
