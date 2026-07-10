@@ -44,9 +44,9 @@ object LlmLabEngine {
     private const val CULL_INTERVAL_MS             = 20L * 60L * 1000L          // 20min
     private const val HEARTBEAT_INTERVAL_MS        = 60_000L                    // 60s heartbeat
 
-    private const val MAX_LIVE_STRATEGIES   = 60       // V5.0.6124: 36 → 60 (constant generation for all lanes)
-    private const val MAX_OPEN_POSITIONS    = 40       // V5.0.6124: 24 → 40 (more concurrent proofs)
-    private const val MAX_PER_STRATEGY_OPEN = 2        // V5.0.6124: 1 → 2 (allow pyramiding on best strategies)
+    private const val MAX_LIVE_STRATEGIES   = 36       // 24 → 36 (more variety)
+    private const val MAX_OPEN_POSITIONS    = 24       // 16 → 24
+    private const val MAX_PER_STRATEGY_OPEN = 1
 
     // ── State ───────────────────────────────────────────────────────────────
     private val lastEvalMs       = AtomicLong(0)
@@ -54,27 +54,6 @@ object LlmLabEngine {
     private val lastHeartbeatMs  = AtomicLong(0)
     private val firstStartMs     = AtomicLong(0)
     private val autoPivotSeededAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
-
-    // V5.0.6124 — LANE ROTATION. The lab cycles through ALL lanes constantly,
-    // generating strategies for each one regardless of current winrate or EV.
-    // Even winning lanes get fresh strategies — the goal is continuous
-    // improvement, not just recovery. The lab uses its OWN paper balance
-    // (100 SOL) and NEVER touches the live wallet.
-    private val ALL_TARGET_LANES = listOf(
-        "MOONSHOT", "QUALITY", "SHITCOIN", "DIP_HUNTER", "BLUECHIP",
-        "MANIPULATED", "EXPRESS", "PROJECT_SNIPER", "INSIDER_SHARK",
-        "TREASURY", "CRYPTO_ALT",
-    )
-    @Volatile private var laneRotationIndex = 0
-    private val laneRotationLock = Any()
-    private fun nextLaneForCreation(): String {
-        synchronized(laneRotationLock) {
-            val lane = ALL_TARGET_LANES[laneRotationIndex % ALL_TARGET_LANES.size]
-            laneRotationIndex++
-            return lane
-        }
-    }
-    private val laneStrategyCount = java.util.concurrent.ConcurrentHashMap<String, Int>()
     @Volatile private var ctxRef: Context? = null
     private data class ExternalOutcome6078(
         val lane: String,
@@ -129,12 +108,6 @@ object LlmLabEngine {
         seedDefaultsIfEmpty()
     }
 
-    /** V5.0.6107 — Lab paper must train live-compounding economics too. */
-    private fun economicLabSizingSol(fraction: Double = 0.08): Double {
-        val bankroll = try { LlmLabStore.getPaperBalance() } catch (_: Throwable) { LlmLabStore.DEFAULT_PAPER_BALANCE_SOL }
-        return (bankroll.coerceAtLeast(LlmLabStore.DEFAULT_PAPER_BALANCE_SOL) * fraction.coerceIn(0.03, 0.25)).coerceIn(1.0, 20.0)
-    }
-
     /** Called periodically from BotService.botLoop. Gated; cheap. */
     fun tick(universeFeed: () -> List<LabUniverseTick>) {
         if (!LlmLabStore.isEnabled()) return
@@ -167,70 +140,6 @@ object LlmLabEngine {
             lastCullMs.set(now)
             runCatching { runCullCycle() }
         }
-
-        // V5.0.6120g — SWARM LAB WINNER CONSUMER (Tier D). Every 30 min, pull
-        // the swarm's promoted lab strategies from other AATE instances via
-        // CollectiveLearning.getSwarmLabWinners and seed any we haven't seen
-        // before into our local strategy pool. 8× LLM invention throughput
-        // — while our Lab is inventing 1 strategy per creation gap, the 7
-        // other instances are inventing theirs and cross-pollinating.
-        // Bounded (max 4 seeds per pull), rate-limited (30 min between pulls),
-        // deduped by strategy name, fail-open on any Turso error.
-        if (now - lastSwarmSeedMs.get() >= SWARM_SEED_INTERVAL_MS) {
-            lastSwarmSeedMs.set(now)
-            GlobalScope.launch(Dispatchers.IO) {
-                runCatching { runSwarmSeedCycle() }
-            }
-        }
-    }
-
-    private val lastSwarmSeedMs = java.util.concurrent.atomic.AtomicLong(0L)
-    private val SWARM_SEED_INTERVAL_MS = 30L * 60L * 1000L
-    private val seenSwarmStrategyNames = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-
-    private suspend fun runSwarmSeedCycle() {
-        val winners = try {
-            com.lifecyclebot.collective.CollectiveLearning.getSwarmLabWinners(24L * 60L * 60L * 1000L)
-        } catch (_: Throwable) { emptyList() }
-        if (winners.isEmpty()) return
-
-        var seeded = 0
-        for (row in winners) {
-            if (seeded >= 4) break
-            try {
-                val name = (row["symbol"] as? String)?.trim().orEmpty()
-                if (name.isBlank()) continue
-                if (seenSwarmStrategyNames.contains(name)) continue
-                val wr = (row["score"] as? Number)?.toDouble() ?: 0.0
-                val avgPnl = (row["price"] as? Number)?.toDouble() ?: 0.0
-                // Only take clearly winning swarm strategies. Weak seeds
-                // just pollute our pool.
-                if (wr < 45.0 || avgPnl < 15.0) continue
-                seenSwarmStrategyNames.add(name)
-                // Build a synthetic seed strategy from the swarm hint. The
-                // Lab's own EVAL cycle will decide within days whether to
-                // promote or cull it — this just puts it in the arena.
-                val seed = LabStrategy(
-                    id = LlmLabStore.newStrategyId(),
-                    name = "swarm/$name".take(64),
-                    rationale = "seeded from hive swarm — wr=${wr.toInt()}% avgPnl=${avgPnl.toInt()}% n_swarm_verified",
-                    asset = LabAssetClass.MEME,
-                    entryScoreMin = 55,
-                    entryRegime = "ANY",
-                    takeProfitPct = 40.0,
-                    stopLossPct = -12.0,
-                    maxHoldMins = 45,
-                    sizingSol = economicLabSizingSol(0.08),
-                    status = LabStrategyStatus.DRAFT,
-                )
-                LlmLabStore.addStrategy(seed)
-                seeded += 1
-                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SWARM_LAB_SEED_ACCEPTED_6120g") } catch (_: Throwable) {}
-            } catch (_: Throwable) { /* skip malformed row */ }
-        }
-        if (seeded > 0) {
-            ErrorLogger.info(TAG, "🐝🧪 Swarm seeded $seeded new strategies from hive")
-        }
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -241,9 +150,6 @@ object LlmLabEngine {
         val mint: String,
         val asset: LabAssetClass,
         val price: Double,
-        val lane: String = "",
-        val liquidityUsd: Double = 0.0,
-        val mcapUsd: Double = 0.0,
         val score: Int,        // 0..100 — composite AATE score for the symbol
         val regime: String,    // "BULL" | "BEAR" | "CHOP" | "ANY"
     )
@@ -265,7 +171,7 @@ object LlmLabEngine {
                 asset = LabAssetClass.MEME,
                 entryScoreMin = 55,  entryRegime = "ANY",
                 takeProfitPct = 25.0, stopLossPct = -8.0, maxHoldMins = 60,
-                sizingSol = economicLabSizingSol(0.06),   generation = 1, status = LabStrategyStatus.ACTIVE,
+                sizingSol = 0.20,   generation = 1, status = LabStrategyStatus.ACTIVE,
             ),
             LabStrategy(
                 id = LlmLabStore.newStrategyId(),
@@ -274,7 +180,7 @@ object LlmLabEngine {
                 asset = LabAssetClass.ANY,
                 entryScoreMin = 70,  entryRegime = "ANY",
                 takeProfitPct = 50.0, stopLossPct = -10.0, maxHoldMins = 180,
-                sizingSol = economicLabSizingSol(0.08),   generation = 1, status = LabStrategyStatus.ACTIVE,
+                sizingSol = 0.30,   generation = 1, status = LabStrategyStatus.ACTIVE,
             ),
             LabStrategy(
                 id = LlmLabStore.newStrategyId(),
@@ -283,7 +189,7 @@ object LlmLabEngine {
                 asset = LabAssetClass.ANY,
                 entryScoreMin = 50,  entryRegime = "ANY",
                 takeProfitPct = 8.0, stopLossPct = -5.0, maxHoldMins = 30,
-                sizingSol = economicLabSizingSol(0.10),   generation = 1, status = LabStrategyStatus.ACTIVE,
+                sizingSol = 0.15,   generation = 1, status = LabStrategyStatus.ACTIVE,
             ),
         )
         seeds.forEach { LlmLabStore.addStrategy(it) }
@@ -324,7 +230,7 @@ object LlmLabEngine {
             takeProfitPct = jitter(parent.takeProfitPct).coerceIn(3.0, 100.0),
             stopLossPct = jitter(parent.stopLossPct).coerceIn(-50.0, -2.0),
             maxHoldMins = jitter(parent.maxHoldMins.toDouble()).toInt().coerceIn(15, 480),
-            sizingSol = jitter(maxOf(parent.sizingSol, economicLabSizingSol(0.05))).coerceIn(economicLabSizingSol(0.05), economicLabSizingSol(0.20)),
+            sizingSol = jitter(parent.sizingSol).coerceIn(0.05, 1.0),
             parentId = parent.id,
             generation = parent.generation + 1,
             status = LabStrategyStatus.ACTIVE,
@@ -379,7 +285,7 @@ object LlmLabEngine {
                 takeProfitPct = params.first,
                 stopLossPct = params.second,
                 maxHoldMins = params.third,
-                sizingSol = economicLabSizingSol(0.08),
+                sizingSol = 0.05,
                 parentId = null,
                 generation = 1,
                 status = LabStrategyStatus.ACTIVE,
@@ -418,105 +324,6 @@ object LlmLabEngine {
             return
         }
 
-        // V5.0.6124 — CONSTANT LANE ROTATION. The lab generates strategies
-        // for ALL lanes constantly, not just when a lane is bleeding. Even
-        // winning lanes get fresh strategies — the goal is continuous
-        // improvement across the entire bot. The lab uses its OWN paper
-        // balance (100 SOL) and NEVER touches the live wallet.
-        //
-        // Priority: recovery hints first (bleeding lanes need urgent help),
-        // then lane rotation (all lanes get constant fresh strategies).
-        val recoveryHints = try { com.lifecyclebot.engine.LabRecoveryHintQueue.drainAll() } catch (_: Throwable) { emptyList() }
-        val recoveryTarget = recoveryHints.firstOrNull()
-
-        // V5.0.6124 — Pick the target lane: recovery first, then rotation
-        val targetLane = recoveryTarget?.lane ?: nextLaneForCreation()
-
-        // Count active strategies for this lane — don't let one lane hoard
-        val activeForLane = LlmLabStore.activeStrategies().count { it.targetLane == targetLane }
-        if (activeForLane >= 8) {
-            ErrorLogger.info(TAG, "🧪 Creation skipped for lane $targetLane — already has $activeForLane active strategies")
-            return
-        }
-
-        val laneBias = if (recoveryTarget != null) {
-            try {
-                com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                    "LAB_LANE_RECOVERY_BIAS_6120h",
-                    "lane=${recoveryTarget.lane} ev=${"%.2f".format(recoveryTarget.evPct)}% wr=${"%.2f".format(recoveryTarget.wr * 100)}% — biasing next lab invention to recover this lane",
-                )
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAB_LANE_RECOVERY_BIAS_6120h")
-            } catch (_: Throwable) {}
-            """
-
-═══ URGENT LANE RECOVERY BIAS ═══
-The Green-EV Governor has PAUSED lane "${recoveryTarget.lane}" due to
-persistent negative EV (${"%.2f".format(recoveryTarget.evPct)}% over
-${recoveryTarget.n} live trades, WR ${"%.0f".format(recoveryTarget.wr * 100)}%).
-
-Your invented strategy MUST target this lane. Prefer tighter stops
-(SL between -6% and -10%), faster take-profit (TP between 12% and 25%),
-shorter hold (30-90 minutes), and only fire on the strongest score
-signals (entryScoreMin >= 70). This is the specific bleeder pattern
-the swarm needs solved. Name the strategy "recover/${recoveryTarget.lane}_gen_${System.currentTimeMillis().toString().takeLast(6)}".
-${recoveryTarget.autopsyConstraint}
-"""
-        } else """
-
-═══ LANE FOCUS: $targetLane ═══
-Invent a strategy specifically for the $targetLane lane. This lane is NOT
-currently in recovery — it may be winning, losing, or neutral. The goal is
-CONTINUOUS IMPROVEMENT, not just crisis management. Even a winning lane
-can benefit from a new approach, style, or tactic.
-
-Consider which trading style fits this lane best (see the style catalog
-below) and experiment with different entry/hold/exit logic. The lab uses
-its OWN paper balance — never the live wallet.
-"""
-
-        // V5.0.6124 — Build the full style catalog for the LLM prompt
-        val styleCatalog = """
-AVAILABLE TRADING STYLES (pick one that fits $targetLane):
-- diamond_hands_runner: long hold, big TP, for MOONSHOT/QUALITY/BLUECHIP
-- degen_micro_snipe: fast entry/exit, small size, for PROJECT_SNIPER/SHITCOIN/EXPRESS
-- pump_graduation_snipe: catch tokens graduating from PumpFun, for PROJECT_SNIPER/MOONSHOT
-- chart_breakout: pattern-based breakout entry, for MOONSHOT/PROJECT_SNIPER/QUALITY
-- chart_pullback_reclaim: buy the dip on confirmed patterns, for DIP_HUNTER/QUALITY/TREASURY
-- whale_accumulation_hold: follow whale wallets, long hold, for QUALITY/BLUECHIP/MOONSHOT
-- exhaustion_quick_flip: catch exhaustion bounces, fast exit, for EXPRESS/MANIPULATED
-- mainstream_crypto_swing: swing trade established tokens, for QUALITY/BLUECHIP
-- volume_ignition_scalp: catch volume spikes, fast exit, for EXPRESS/SHITCOIN/MANIPULATED
-- smart_wallet_copy_follow: copy successful wallets, for QUALITY/MOONSHOT/BLUECHIP
-- insider_shark_follow: follow insider wallets, for INSIDER_SHARK/MOONSHOT/QUALITY
-- narrative_social_ignition: catch social narrative spikes, for MANIPULATED/SHITCOIN/EXPRESS
-- liquidity_depth_quality: enter only on deep liquidity, for QUALITY/BLUECHIP/TREASURY
-- panic_reversion_bounce: catch panic dumps and revert, for DIP_HUNTER/TREASURY/QUALITY
-- arb_flow_imbalance: exploit venue price gaps, for EXPRESS/SHITCOIN/TREASURY
-- mev_protected_entry: defensive entry with MEV protection, for SHITCOIN/PROJECT_SNIPER
-- reentry_recovery: re-enter after failed first attempt, for DIP_HUNTER/TREASURY
-- defensive_probe: small probe on uncertain signals, for SHITCOIN/MOONSHOT
-- toxic_reclaim_tactic: reclaim toxic tokens after pullback, for SHITCOIN/EXPRESS
-- breakout_runner: catch and hold breakouts, for MOONSHOT/SHITCOIN
-- swing_hold: medium-term swing, for MOONSHOT/QUALITY/BLUECHIP
-- pullback_reclaim: buy pullbacks in trends, for DIP_HUNTER/QUALITY
-- whale_follow: follow whale accumulation, for BLUECHIP/QUALITY
-- reaccumulation: accumulate during consolidation, for QUALITY/TREASURY
-
-AVAILABLE TACTICS: MOMENTUM, PULLBACK, REACCUMULATION, BREAKOUT
-
-ENTRY LOGIC OPTIONS: breakout_above_resistance, pullback_to_support, volume_spike_confirmation,
-  whale_wallet_trigger, social_sentiment_spike, pattern_completion, ema_fan_alignment,
-  bonding_curve_stage_entry, liquidity_threshold_gate, multi_signal_confirmation
-
-HOLD LOGIC OPTIONS: trail_until_peak, fixed_time_hold, dynamic_profit_lock_sliding,
-  whale_still_accumulating, pattern_intact, ema_fan_aligned, time_decay_exit,
-  runner_bypass_extended, pyramiding_add_on_dip
-
-EXIT LOGIC OPTIONS: take_profit_at_target, trailing_stop_tighten, dynamic_profit_lock_at_peak,
-  partial_exit_at_threshold, hard_stop_loss, time_based_exit, signal_breakdown_exit,
-  whale_exit_detected, pattern_break_exit, scale_out_laddered
-"""
-
         val recent = LlmLabStore.allStrategies()
             .sortedByDescending { it.lastEvaluatedAt }
             .take(8)
@@ -530,35 +337,17 @@ lab to try, distinct from the existing list below. Output STRICT JSON only.
 
 EXISTING STRATEGIES:
 $recent
-$laneBias
-$styleCatalog
 
 OUTPUT JSON FIELDS (all required):
-  name              short tag, <= 32 chars
-  rationale         one sentence, <= 120 chars
-  asset             one of: MEME, ALT, MARKETS, STOCK, FOREX, METAL, COMMODITY, ANY
-  entryScoreMin     integer 50..95
-  entryRegime       one of: ANY, BULL, BEAR, CHOP
-  takeProfitPct     number 3..50
-  stopLossPct       number -3..-30 (negative)
-  maxHoldMins       integer 15..480
-  sizingSol         number 1.0..20.0, preferably 5%-20% of the current lab bankroll; no micro/toy sizing
-
-V5.0.6124 ADDITIONAL FIELDS (all required):
-  targetLane        the lane this strategy targets (e.g. "$targetLane")
-  tradingStyle      one of the trading styles from the catalog above
-  tactic            one of: MOMENTUM, PULLBACK, REACCUMULATION, BREAKOUT
-  entryLogic        short description of entry conditions, <= 80 chars
-  holdLogic         short description of hold conditions, <= 80 chars
-  exitLogic         short description of exit conditions, <= 80 chars
-  toolAffinity      comma-separated tools from the style catalog, <= 60 chars
-  minLiquidityUsd   minimum liquidity to enter (e.g. 5000, 0 for no gate)
-  maxMcapUsd        maximum market cap to enter (e.g. 500000, 0 for no cap)
-  pyramiding        true/false — add to winning positions?
-  partialExitPct    take partial exit at this % gain (0 = no partial)
-  trailStopPct      trailing stop distance % (0 = use fixed SL)
-  dynamicProfitLock true/false — use sliding profit lock?
-  confidence        your confidence in this strategy, 0.0 to 1.0
+  name           short tag, <= 32 chars
+  rationale      one sentence, <= 120 chars
+  asset          one of: MEME, ALT, MARKETS, STOCK, FOREX, METAL, COMMODITY, ANY
+  entryScoreMin  integer 50..95
+  entryRegime    one of: ANY, BULL, BEAR, CHOP
+  takeProfitPct  number 3..50
+  stopLossPct    number -3..-30 (negative)
+  maxHoldMins    integer 15..480
+  sizingSol      number 0.05..1.0
 
 Reply with just the JSON object, nothing else.
         """.trimIndent()
@@ -617,24 +406,9 @@ Reply with just the JSON object, nothing else.
                 takeProfitPct = o.optDouble("takeProfitPct", 10.0).coerceIn(2.0, 100.0),
                 stopLossPct = o.optDouble("stopLossPct", -8.0).coerceIn(-50.0, -2.0),
                 maxHoldMins = o.optInt("maxHoldMins", 90).coerceIn(10, 720),
-                sizingSol = o.optDouble("sizingSol", economicLabSizingSol(0.08)).coerceIn(economicLabSizingSol(0.05), economicLabSizingSol(0.20)),
+                sizingSol = o.optDouble("sizingSol", 0.25).coerceIn(0.05, 2.0),
                 generation = 1,
                 status = LabStrategyStatus.ACTIVE,
-                // V5.0.6124 — full strategy context
-                targetLane = o.optString("targetLane", "").uppercase().take(32),
-                tradingStyle = o.optString("tradingStyle", "").take(48),
-                tactic = o.optString("tactic", "MOMENTUM").uppercase().take(20),
-                entryLogic = o.optString("entryLogic", "").take(80),
-                holdLogic = o.optString("holdLogic", "").take(80),
-                exitLogic = o.optString("exitLogic", "").take(80),
-                toolAffinity = o.optString("toolAffinity", "").take(60),
-                minLiquidityUsd = o.optDouble("minLiquidityUsd", 0.0).coerceAtLeast(0.0),
-                maxMcapUsd = o.optDouble("maxMcapUsd", 0.0).coerceAtLeast(0.0),
-                pyramiding = o.optBoolean("pyramiding", false),
-                partialExitPct = o.optDouble("partialExitPct", 0.0).coerceIn(0.0, 80.0),
-                trailStopPct = o.optDouble("trailStopPct", 0.0).coerceIn(0.0, 30.0),
-                dynamicProfitLock = o.optBoolean("dynamicProfitLock", true),
-                confidenceInStrategy = o.optDouble("confidence", 0.5).coerceIn(0.0, 1.0),
             )
         } catch (e: Throwable) {
             ErrorLogger.warn(TAG, "JSON parse error: ${e.message}")
@@ -684,8 +458,7 @@ Reply with just the JSON object, nothing else.
                 })
             } catch (_: Throwable) { 1.0 }
 
-            val strategyEconomicSize6107 = maxOf(s.sizingSol, economicLabSizingSol(0.05))
-            val sized = (strategyEconomicSize6107 * biasMult).coerceIn(strategyEconomicSize6107 * 0.5, strategyEconomicSize6107 * 1.5)
+            val sized = (s.sizingSol * biasMult).coerceIn(s.sizingSol * 0.5, s.sizingSol * 1.5)
             if (sized > LlmLabStore.getPaperBalance()) continue
             LlmLabTrader.openPaper(s, candidate, sized)
         }
@@ -697,16 +470,9 @@ Reply with just the JSON object, nothing else.
             tick.score >= s.entryScoreMin &&
             (s.entryRegime == "ANY" || tick.regime == s.entryRegime) &&
             tick.price > 0.0 &&
-            // V5.0.6124 — lane-targeted filtering
-            (s.targetLane.isBlank() || tick.lane == s.targetLane) &&
-            // V5.0.6124 — liquidity and mcap gates
-            (s.minLiquidityUsd <= 0.0 || tick.liquidityUsd >= s.minLiquidityUsd) &&
-            (s.maxMcapUsd <= 0.0 || tick.mcapUsd <= s.maxMcapUsd) &&
             LlmLabStore.openPosition(s.id, tick.mint) == null
         }
         if (pool.isEmpty()) return null
-        // V5.0.6124 — if pyramiding is enabled, allow a second position
-        // on a strong candidate even if one is already open for this strategy
         return pool.maxByOrNull { it.score }
     }
 
@@ -735,35 +501,11 @@ Reply with just the JSON object, nothing else.
                 s.paperPnlSol >= LlmLabStore.MIN_PAPER_PNL_SOL_FOR_PROMOTION
             ) {
                 LlmLabStore.updateStrategy(s.copy(status = LabStrategyStatus.PROMOTED))
-                try { markLanePolicyRecoveredByLab6107(s) } catch (_: Throwable) {}
-                // V5.0.6129 — operator doctrine: proven Lab strategies must be implemented,
-                // not left as advisory/paper-only ideas. Promotion proof already requires
-                // economic paper sizing, WR floor, and +SOL edge; grant live authority so
-                // Executor/CryptoAlt consumers can actually apply the strategy. Hard safety,
-                // wallet authority, FDG invalid-data, and sell finality remain untouched.
-                try {
-                    LabPromotedFeed.grantLiveAuthority(s.id)
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAB_PROMOTED_AUTO_IMPLEMENTED_6129")
-                } catch (_: Throwable) {}
-                ErrorLogger.info(TAG, "🧪 AUTO-PROMOTED+IMPLEMENTED_6129 ${s.name} → live authority " +
+                ErrorLogger.info(TAG, "🧪 AUTO-PROMOTED ${s.name} → live influence " +
                     "(${s.paperTrades} trades · WR ${"%.0f".format(s.winRatePct())}% · " +
                     "PnL ${"%+.3f".format(s.paperPnlSol)}◎)")
             }
         }
-    }
-
-    private fun markLanePolicyRecoveredByLab6107(s: LabStrategy) {
-        // AutoPivot names are emitted as: "AutoPivot · LANE SCORE TACTIC".
-        // When one proves itself, mark the original lane/bucket as improved so
-        // LanePolicy can climb out of RETRAINING and reintroduce execution.
-        val raw = s.name.removePrefix("AutoPivot ·").trim()
-        if (raw.isBlank()) return
-        val parts = raw.split(" ").filter { it.isNotBlank() }
-        val lane = parts.getOrNull(0)?.trim()?.uppercase() ?: return
-        val scoreBand = parts.getOrNull(1)?.trim()?.uppercase()?.takeIf { it.startsWith("S") } ?: "S41-60"
-        com.lifecyclebot.engine.learning.LanePolicy.noteImprovement(lane, scoreBand)
-        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAB_POLICY_REINTRODUCTION_6107") } catch (_: Throwable) {}
-        ErrorLogger.info(TAG, "🧪 LAB_POLICY_REINTRODUCTION_6107 lane=$lane band=$scoreBand via ${s.name}")
     }
 
     // ────────────────────────────────────────────────────────────────────────

@@ -59,38 +59,6 @@ object TokenWinMemory {
         val phase: String,
         var timesTraded: Int = 1,
         var totalPnl: Double = pnlPercent,
-        // V5.0.6123 — FULL TRADE CONTEXT (operator: "not just a theme scorer")
-        // Buy details
-        val entryPrice: Double = 0.0,
-        val exitPrice: Double = 0.0,
-        val costSol: Double = 0.0,
-        val pnlSol: Double = 0.0,
-        val buyRoute: String = "",           // Jupiter, PumpPortal, Raydium, etc.
-        val sellRoute: String = "",          // same
-        val launchPlatform: String = "",     // PumpFun, Raydium, Bonk, etc.
-        val entryScore: Double = 0.0,
-        val entryConfidence: Double = 0.0,
-        val lane: String = "",               // MOONSHOT, QUALITY, SHITCOIN, etc.
-        val trader: String = "",             // traderSource
-        val setupQuality: String = "",       // HIGH, MEDIUM, LOW
-        val marketRegime: String = "",       // STRONG BULL, DUMP, NEUTRAL, etc.
-        // Hold characteristics
-        val maxDrawdownPct: Double = 0.0,
-        val timeToPeakMinutes: Double = 0.0,
-        val exitReason: String = "",
-        val volatility: Double = 0.0,
-        // Token launch context
-        val holderCount: Int = 0,
-        val holderGrowthRate: Double = 0.0,
-        val topHolderPct: Double = 0.0,
-        val devWalletPct: Double = 0.0,
-        val bondingCurveProgress: Double = 0.0,
-        val rugcheckScore: Double = 0.0,
-        val emaFanState: String = "",
-        val tokenAgeMinutes: Double = 0.0,
-        val volumeUsd: Double = 0.0,
-        // Creator
-        val creatorAddress: String = "",
     )
 
     data class PatternStats(
@@ -183,33 +151,6 @@ object TokenWinMemory {
         source: String,
         phase: String,
         creatorAddress: String? = null,
-        // V5.0.6123 — FULL TRADE CONTEXT
-        entryPrice: Double = 0.0,
-        exitPrice: Double = 0.0,
-        costSol: Double = 0.0,
-        pnlSol: Double = 0.0,
-        buyRoute: String = "",
-        sellRoute: String = "",
-        launchPlatform: String = "",
-        entryScore: Double = 0.0,
-        entryConfidence: Double = 0.0,
-        lane: String = "",
-        trader: String = "",
-        setupQuality: String = "",
-        marketRegime: String = "",
-        maxDrawdownPct: Double = 0.0,
-        timeToPeakMinutes: Double = 0.0,
-        exitReason: String = "",
-        volatility: Double = 0.0,
-        holderCount: Int = 0,
-        holderGrowthRate: Double = 0.0,
-        topHolderPct: Double = 0.0,
-        devWalletPct: Double = 0.0,
-        bondingCurveProgress: Double = 0.0,
-        rugcheckScore: Double = 0.0,
-        emaFanState: String = "",
-        tokenAgeMinutes: Double = 0.0,
-        volumeUsd: Double = 0.0,
     ) {
         if (isShadowOrSimulatedSource(source)) {
             try { SourceChokeDiagnostics4584.learningQuarantined("TOKEN_WIN_MEMORY_SHADOW_SOURCE", "mint=${mint.take(8)} symbol=$symbol source=${source.take(60)} phase=${phase.take(40)}") } catch (_: Throwable) {}
@@ -277,34 +218,6 @@ object TokenWinMemory {
                     timestamp = now,
                     source = source,
                     phase = phase,
-                    // V5.0.6123 — full trade context
-                    entryPrice = entryPrice,
-                    exitPrice = exitPrice,
-                    costSol = costSol,
-                    pnlSol = pnlSol,
-                    buyRoute = buyRoute,
-                    sellRoute = sellRoute,
-                    launchPlatform = launchPlatform,
-                    entryScore = entryScore,
-                    entryConfidence = entryConfidence,
-                    lane = lane,
-                    trader = trader,
-                    setupQuality = setupQuality,
-                    marketRegime = marketRegime,
-                    maxDrawdownPct = maxDrawdownPct,
-                    timeToPeakMinutes = timeToPeakMinutes,
-                    exitReason = exitReason,
-                    volatility = volatility,
-                    holderCount = holderCount,
-                    holderGrowthRate = holderGrowthRate,
-                    topHolderPct = topHolderPct,
-                    devWalletPct = devWalletPct,
-                    bondingCurveProgress = bondingCurveProgress,
-                    rugcheckScore = rugcheckScore,
-                    emaFanState = emaFanState,
-                    tokenAgeMinutes = tokenAgeMinutes,
-                    volumeUsd = volumeUsd,
-                    creatorAddress = creatorAddress ?: "",
                 )
                 ErrorLogger.info(
                     "TokenWinMemory",
@@ -332,26 +245,6 @@ object TokenWinMemory {
             source = source,
             isWin = isWin,
             pnl = trainablePnl,
-            // V5.0.6123 — full context
-            lane = lane,
-            trader = trader,
-            buyRoute = buyRoute,
-            sellRoute = sellRoute,
-            launchPlatform = launchPlatform,
-            setupQuality = setupQuality,
-            marketRegime = marketRegime,
-            exitReason = exitReason,
-            holderCount = holderCount,
-            holderGrowthRate = holderGrowthRate,
-            topHolderPct = topHolderPct,
-            devWalletPct = devWalletPct,
-            bondingCurveProgress = bondingCurveProgress,
-            rugcheckScore = rugcheckScore,
-            emaFanState = emaFanState,
-            holdTimeMinutes = holdTimeMinutes,
-            entryScore = entryScore,
-            volatility = volatility,
-            tokenAgeMinutes = tokenAgeMinutes,
         )
 
         // ── Track creator stats ───────────────────────────────────────────
@@ -365,26 +258,6 @@ object TokenWinMemory {
                 stats.losses++
             }
         }
-
-        // V5.0.6123 — STAMP INTO THE MINT REGISTER
-        // The token's full trade context is now part of its permanent registry
-        // identity, so every time the bot sees this mint again it knows the
-        // complete history: wins, losses, lane, route, exit reason, holders, etc.
-        try {
-            GlobalTradeRegistry.stampTradeHistory(
-                mint = mint,
-                isWin = isWin,
-                pnlPct = trainablePnl,
-                lane = lane,
-                exitReason = exitReason,
-                holdMinutes = holdTimeMinutes,
-                entryScore = entryScore,
-                buyRoute = buyRoute,
-                launchPlatform = launchPlatform,
-                holderCount = holderCount,
-                marketRegime = marketRegime,
-            )
-        } catch (_: Throwable) {}
 
         if (countPatterns() > MAX_PATTERNS + 50) {
             trimPatterns()
@@ -409,26 +282,6 @@ object TokenWinMemory {
         source: String,
         isWin: Boolean,
         pnl: Double,
-        // V5.0.6123 — full context patterns
-        lane: String = "",
-        trader: String = "",
-        buyRoute: String = "",
-        sellRoute: String = "",
-        launchPlatform: String = "",
-        setupQuality: String = "",
-        marketRegime: String = "",
-        exitReason: String = "",
-        holderCount: Int = 0,
-        holderGrowthRate: Double = 0.0,
-        topHolderPct: Double = 0.0,
-        devWalletPct: Double = 0.0,
-        bondingCurveProgress: Double = 0.0,
-        rugcheckScore: Double = 0.0,
-        emaFanState: String = "",
-        holdTimeMinutes: Int = 0,
-        entryScore: Double = 0.0,
-        volatility: Double = 0.0,
-        tokenAgeMinutes: Double = 0.0,
     ) {
         extractNamePatterns(name.lowercase()).forEach { pattern ->
             recordPattern("name_contains", pattern, isWin, pnl)
@@ -466,138 +319,6 @@ object TokenWinMemory {
 
         recordPattern("phase", phase, isWin, pnl)
         recordPattern("source", source, isWin, pnl)
-
-        // V5.0.6123 — FULL DIMENSIONAL PATTERN LEARNING
-        // Lane + trader + route + launch context patterns
-        if (lane.isNotBlank()) recordPattern("lane", lane, isWin, pnl)
-        if (trader.isNotBlank()) recordPattern("trader", trader, isWin, pnl)
-        if (buyRoute.isNotBlank()) recordPattern("buy_route", buyRoute, isWin, pnl)
-        if (sellRoute.isNotBlank()) recordPattern("sell_route", sellRoute, isWin, pnl)
-        if (launchPlatform.isNotBlank()) recordPattern("launch_platform", launchPlatform, isWin, pnl)
-        if (setupQuality.isNotBlank()) recordPattern("setup_quality", setupQuality, isWin, pnl)
-        if (marketRegime.isNotBlank()) recordPattern("market_regime", marketRegime, isWin, pnl)
-        if (exitReason.isNotBlank()) recordPattern("exit_reason", exitReason, isWin, pnl)
-        if (emaFanState.isNotBlank() && emaFanState != "UNKNOWN")
-            recordPattern("ema_fan", emaFanState, isWin, pnl)
-
-        // Holder context patterns
-        val holderBucket = when {
-            holderCount == 0 -> "holders_unknown"
-            holderCount < 50 -> "holders_tiny_<50"
-            holderCount < 200 -> "holders_small_50_200"
-            holderCount < 1000 -> "holders_mid_200_1000"
-            holderCount < 5000 -> "holders_large_1000_5000"
-            else -> "holders_mega_5000+"
-        }
-        recordPattern("holder_count", holderBucket, isWin, pnl)
-
-        val holderGrowthBucket = when {
-            holderGrowthRate <= 0.0 -> "holder_growth_negative"
-            holderGrowthRate < 0.05 -> "holder_growth_flat"
-            holderGrowthRate < 0.20 -> "holder_growth_slow"
-            holderGrowthRate < 0.50 -> "holder_growth_fast"
-            else -> "holder_growth_explosive"
-        }
-        recordPattern("holder_growth", holderGrowthBucket, isWin, pnl)
-
-        // Top holder concentration
-        val topHolderBucket = when {
-            topHolderPct <= 0.0 -> "topholder_unknown"
-            topHolderPct < 10.0 -> "topholder_decent_<10%"
-            topHolderPct < 25.0 -> "topholder_moderate_10_25%"
-            topHolderPct < 50.0 -> "topholder_concentrated_25_50%"
-            else -> "topholder_dangerous_50%+"
-        }
-        recordPattern("top_holder", topHolderBucket, isWin, pnl)
-
-        // Dev wallet
-        val devBucket = when {
-            devWalletPct <= 0.0 -> "dev_unknown"
-            devWalletPct < 5.0 -> "dev_small_<5%"
-            devWalletPct < 15.0 -> "dev_moderate_5_15%"
-            else -> "dev_large_15%+"
-        }
-        recordPattern("dev_wallet", devBucket, isWin, pnl)
-
-        // Bonding curve progress
-        val bcpBucket = when {
-            bondingCurveProgress <= 0.0 -> "bcp_unknown"
-            bondingCurveProgress < 30.0 -> "bcp_early_<30%"
-            bondingCurveProgress < 60.0 -> "bcp_mid_30_60%"
-            bondingCurveProgress < 90.0 -> "bcp_late_60_90%"
-            else -> "bcp_graduated_90%+"
-        }
-        recordPattern("bonding_curve", bcpBucket, isWin, pnl)
-
-        // Rugcheck score
-        val rcBucket = when {
-            rugcheckScore <= 0.0 -> "rc_unknown"
-            rugcheckScore < 30.0 -> "rc_safe_<30"
-            rugcheckScore < 60.0 -> "rc_moderate_30_60"
-            else -> "rc_risky_60+"
-        }
-        recordPattern("rugcheck", rcBucket, isWin, pnl)
-
-        // Hold time pattern
-        val holdBucket = when {
-            holdTimeMinutes == 0 -> "hold_unknown"
-            holdTimeMinutes < 2 -> "hold_scalp_<2m"
-            holdTimeMinutes < 10 -> "hold_fast_2_10m"
-            holdTimeMinutes < 60 -> "hold_mid_10_60m"
-            holdTimeMinutes < 240 -> "hold_long_60_240m"
-            else -> "hold_runner_240m+"
-        }
-        recordPattern("hold_time", holdBucket, isWin, pnl)
-
-        // Entry score bucket
-        val scoreBucket = when {
-            entryScore <= 0.0 -> "score_unknown"
-            entryScore < 40.0 -> "score_low_<40"
-            entryScore < 55.0 -> "score_mid_40_55"
-            entryScore < 70.0 -> "score_high_55_70"
-            else -> "score_elite_70+"
-        }
-        recordPattern("entry_score", scoreBucket, isWin, pnl)
-
-        // Volatility bucket
-        val volBucket = when {
-            volatility <= 0.0 -> "vol_unknown"
-            volatility < 30.0 -> "vol_low_<30"
-            volatility < 60.0 -> "vol_mid_30_60"
-            volatility < 100.0 -> "vol_high_60_100"
-            else -> "vol_extreme_100+"
-        }
-        recordPattern("volatility", volBucket, isWin, pnl)
-
-        // Token age at entry
-        val ageBucket = when {
-            tokenAgeMinutes <= 0.0 -> "age_unknown"
-            tokenAgeMinutes < 5.0 -> "age_fresh_<5m"
-            tokenAgeMinutes < 30.0 -> "age_young_5_30m"
-            tokenAgeMinutes < 120.0 -> "age_established_30_120m"
-            else -> "age_old_120m+"
-        }
-        recordPattern("token_age", ageBucket, isWin, pnl)
-
-        // CROSS-DIMENSIONAL patterns — lane × mcap, lane × hold_time, source × holder_count
-        // These capture interactions that single-dimension patterns miss
-        if (lane.isNotBlank()) {
-            recordPattern("lane_x_mcap", "${lane}_${mcapBucket}", isWin, pnl)
-            recordPattern("lane_x_hold", "${lane}_${holdBucket}", isWin, pnl)
-            recordPattern("lane_x_source", "${lane}_${source.take(20)}", isWin, pnl)
-        }
-        // Route × mcap — does buying via Jupiter work better at certain mcaps?
-        if (buyRoute.isNotBlank()) {
-            recordPattern("route_x_mcap", "${buyRoute}_${mcapBucket}", isWin, pnl)
-        }
-        // Launch platform × holder growth — PumpFun tokens with explosive holder growth
-        if (launchPlatform.isNotBlank()) {
-            recordPattern("platform_x_holders", "${launchPlatform}_${holderBucket}", isWin, pnl)
-        }
-        // Setup quality × exit reason — what exit reasons correlate with high-quality setups?
-        if (setupQuality.isNotBlank() && exitReason.isNotBlank()) {
-            recordPattern("setup_x_exit", "${setupQuality}_${exitReason.take(20)}", isWin, pnl)
-        }
     }
 
     private fun recordPattern(type: String, value: String, isWin: Boolean, pnl: Double) {
@@ -837,185 +558,6 @@ object TokenWinMemory {
 
     fun getWinnerStats(mint: String): WinningToken? = winningTokens[mint]?.takeIf { saneWinner(it) }
 
-    /**
-     * V5.0.6123 — Full trade context for a mint.
-     * Returns the complete WinningToken with all buy/sell/hold/launch details.
-     * This is what downstream consumers (scorers, traders, lifecycle detector)
-     * should use to understand WHY a token was a winner, not just that it was.
-     */
-    fun getFullTradeContext(mint: String): WinningToken? = winningTokens[mint]?.takeIf { saneWinner(it) }
-
-    /**
-     * V5.0.6123 — Multi-dimensional EV query.
-     * Instead of just name/symbol patterns, query EV across lane, source, mcap,
-     * holder count, hold time, route, launch platform, and their cross-products.
-     * Returns a composite score bias that captures the FULL context EV.
-     */
-    fun fullContextEvScore(
-        mint: String,
-        symbol: String,
-        name: String,
-        mcap: Double,
-        liquidity: Double,
-        buyPercent: Double,
-        phase: String,
-        source: String,
-        lane: String = "",
-        buyRoute: String = "",
-        launchPlatform: String = "",
-        holderCount: Int = 0,
-        holderGrowthRate: Double = 0.0,
-        emaFanState: String = "",
-        entryScore: Double = 0.0,
-        volatility: Double = 0.0,
-        tokenAgeMinutes: Double = 0.0,
-        setupQuality: String = "",
-        marketRegime: String = "",
-    ): Double {
-        var score = 0.0
-        var factors = 0
-
-        // Exact mint history (unchanged — still the strongest signal)
-        val exactStats = tokenStats[mint]
-        if (exactStats != null && exactStats.decisiveTrades > 0 && saneTokenStats(exactStats)) {
-            val exactScore = when {
-                exactStats.totalPnl >= 100.0 -> 50.0
-                exactStats.totalPnl >= 50.0 -> 35.0
-                exactStats.totalPnl >= 20.0 -> 25.0
-                exactStats.totalPnl >= 10.0 -> 15.0
-                exactStats.totalPnl >= 0.5 -> 8.0
-                exactStats.totalPnl <= -50.0 -> -25.0
-                exactStats.totalPnl <= -20.0 -> -15.0
-                exactStats.totalPnl <= -5.0 -> -8.0
-                else -> 0.0
-            }
-            score += exactScore
-            factors++
-        }
-
-        // Name/symbol patterns (existing)
-        extractNamePatterns(name.lowercase()).forEach { pattern ->
-            val stats = patterns["name_contains"]?.get(pattern)
-            if (stats != null && stats.isReliable) {
-                score += (stats.winRate - 0.5) * 20.0
-                factors++
-            }
-        }
-
-        // Mcap bucket (existing)
-        val mcapBucket = when {
-            mcap < 20_000.0 -> "micro_<20k"
-            mcap < 50_000.0 -> "small_20k_50k"
-            mcap < 100_000.0 -> "mid_50k_100k"
-            mcap < 500_000.0 -> "large_100k_500k"
-            else -> "mega_500k+"
-        }
-        patterns["mcap_bucket"]?.get(mcapBucket)?.let { stats ->
-            if (stats.isReliable) { score += (stats.winRate - 0.5) * 15.0; factors++ }
-        }
-
-        // V5.0.6123 — NEW dimensional patterns
-        if (lane.isNotBlank()) {
-            patterns["lane"]?.get(lane)?.let { stats ->
-                if (stats.isReliable) { score += (stats.winRate - 0.5) * 20.0; factors++ }
-            }
-            // Cross-dimensional: lane × mcap
-            patterns["lane_x_mcap"]?.get("${lane}_${mcapBucket}")?.let { stats ->
-                if (stats.isReliable) { score += (stats.winRate - 0.5) * 25.0; factors++ }
-            }
-        }
-
-        if (buyRoute.isNotBlank()) {
-            patterns["buy_route"]?.get(buyRoute)?.let { stats ->
-                if (stats.isReliable) { score += (stats.winRate - 0.5) * 12.0; factors++ }
-            }
-        }
-
-        if (launchPlatform.isNotBlank()) {
-            patterns["launch_platform"]?.get(launchPlatform)?.let { stats ->
-                if (stats.isReliable) { score += (stats.winRate - 0.5) * 15.0; factors++ }
-            }
-        }
-
-        if (setupQuality.isNotBlank()) {
-            patterns["setup_quality"]?.get(setupQuality)?.let { stats ->
-                if (stats.isReliable) { score += (stats.winRate - 0.5) * 10.0; factors++ }
-            }
-        }
-
-        if (marketRegime.isNotBlank()) {
-            patterns["market_regime"]?.get(marketRegime)?.let { stats ->
-                if (stats.isReliable) { score += (stats.winRate - 0.5) * 12.0; factors++ }
-            }
-        }
-
-        // Holder count
-        val holderBucket = when {
-            holderCount == 0 -> "holders_unknown"
-            holderCount < 50 -> "holders_tiny_<50"
-            holderCount < 200 -> "holders_small_50_200"
-            holderCount < 1000 -> "holders_mid_200_1000"
-            holderCount < 5000 -> "holders_large_1000_5000"
-            else -> "holders_mega_5000+"
-        }
-        patterns["holder_count"]?.get(holderBucket)?.let { stats ->
-            if (stats.isReliable) { score += (stats.winRate - 0.5) * 12.0; factors++ }
-        }
-
-        // Holder growth
-        val holderGrowthBucket = when {
-            holderGrowthRate <= 0.0 -> "holder_growth_negative"
-            holderGrowthRate < 0.05 -> "holder_growth_flat"
-            holderGrowthRate < 0.20 -> "holder_growth_slow"
-            holderGrowthRate < 0.50 -> "holder_growth_fast"
-            else -> "holder_growth_explosive"
-        }
-        patterns["holder_growth"]?.get(holderGrowthBucket)?.let { stats ->
-            if (stats.isReliable) { score += (stats.winRate - 0.5) * 15.0; factors++ }
-        }
-
-        // EMA fan state
-        if (emaFanState.isNotBlank() && emaFanState != "UNKNOWN") {
-            patterns["ema_fan"]?.get(emaFanState)?.let { stats ->
-                if (stats.isReliable) { score += (stats.winRate - 0.5) * 10.0; factors++ }
-            }
-        }
-
-        // Entry score bucket
-        val scoreBucket = when {
-            entryScore <= 0.0 -> "score_unknown"
-            entryScore < 40.0 -> "score_low_<40"
-            entryScore < 55.0 -> "score_mid_40_55"
-            entryScore < 70.0 -> "score_high_55_70"
-            else -> "score_elite_70+"
-        }
-        patterns["entry_score"]?.get(scoreBucket)?.let { stats ->
-            if (stats.isReliable) { score += (stats.winRate - 0.5) * 12.0; factors++ }
-        }
-
-        // Token age
-        val ageBucket = when {
-            tokenAgeMinutes <= 0.0 -> "age_unknown"
-            tokenAgeMinutes < 5.0 -> "age_fresh_<5m"
-            tokenAgeMinutes < 30.0 -> "age_young_5_30m"
-            tokenAgeMinutes < 120.0 -> "age_established_30_120m"
-            else -> "age_old_120m+"
-        }
-        patterns["token_age"]?.get(ageBucket)?.let { stats ->
-            if (stats.isReliable) { score += (stats.winRate - 0.5) * 10.0; factors++ }
-        }
-
-        // Phase + source (existing)
-        patterns["phase"]?.get(phase)?.let { stats ->
-            if (stats.isReliable) { score += (stats.winRate - 0.5) * 15.0; factors++ }
-        }
-        patterns["source"]?.get(source)?.let { stats ->
-            if (stats.isReliable) { score += (stats.winRate - 0.5) * 10.0; factors++ }
-        }
-
-        return if (factors > 0) score else 0.0
-    }
-
     fun getMemoryScoreForMint(mint: String): Int {
         val stats = tokenStats[mint] ?: return 0
         if (!saneTokenStats(stats)) return 0
@@ -1122,7 +664,6 @@ object TokenWinMemory {
         var bestPattern: String? = null
         var bestWr = 0.0
         var bestN = 0
-        var bestAvgWin = 0.0 // V5.0.6120c — EV path
         var worstPattern: String? = null
         var worstWr = 1.0
         var worstN = 0
@@ -1132,16 +673,10 @@ object TokenWinMemory {
                 val stats = typeMap[pat] ?: continue
                 if (!sanePatternStats(stats)) continue
                 val n = stats.wins + stats.losses
-                // V5.0.6120c — lowered inclusion floor from n>=10 to n>=8.
-                // Operator report showed strong patterns (theme_frog n=8,
-                // theme_elon n=9, theme_baby n=9) invisible to the goose.
-                // Small-n patterns still gated by strict verdict thresholds
-                // below, so a coin-flip at n=8 stays NEUTRAL — only tokens
-                // with sharp asymmetric WR/EV cross into GOLD or TOXIC.
-                if (n < 8) continue
+                if (n < 10) continue
                 val wr = stats.winRate
                 if (wr > bestWr || (wr == bestWr && n > bestN)) {
-                    bestWr = wr; bestN = n; bestPattern = "$type:$pat"; bestAvgWin = stats.avgWinPnl
+                    bestWr = wr; bestN = n; bestPattern = "$type:$pat"
                 }
                 if (wr < worstWr || (wr == worstWr && n > worstN)) {
                     worstWr = wr; worstN = n; worstPattern = "$type:$pat"
@@ -1153,37 +688,16 @@ object TokenWinMemory {
             return PatternEdge(Verdict.NEUTRAL, 0, null, 0.0, 0, null, 0.0, 0)
         }
 
-        // V5.0.6120c — SHARPENED VERDICTS based on operator July 2026 report:
-        //   theme_dog   n=14 WR=0%              — was TOXIC (n<15 for CATA),
-        //                                         now CATASTROPHIC → hard veto
-        //   theme_pump  n=14 WR=0%              — same
-        //   theme_elon  n=9  WR=22% avgWin=132% — was NEUTRAL (n<10, WR<70%),
-        //                                         now GOLD via EV path
-        //   theme_baby  n=9  WR=22% avgWin=80%  — same GOLD via EV path
-        //   theme_frog  n=8  WR=37% avgWin=48%  — now WINNER via EV path
-        //
-        // EV = winRate × avgWinPnl. A rare-but-huge winner beats a common
-        // small winner. theme_elon: 0.22 × 132% = +29% EV/attempt vs a
-        // 60% × 10% = +6% EV bucket.
-        //
-        // Tighter negative thresholds: 14 straight losses at 0% is more
-        // than enough evidence to hard-veto without waiting for the 15th
-        // loss. Doctrine #86 (bounded, fail-open) preserved — this is a
-        // score bias, not a policy override.
-
-        val goldHit  = bestPattern != null  && bestWr >= 0.60 && bestN  >= 8
-        val evGoldHit = bestPattern != null &&
-                        (bestWr * bestAvgWin) >= 20.0 &&      // ≥20% EV/attempt
-                        bestN >= 8 &&
-                        bestAvgWin >= 30.0                    // avoids tiny-win bias
-        val winHit   = bestPattern != null  && bestWr >= 0.50 && bestN  >= 8
-        val toxicHit = worstPattern != null && worstWr <= 0.15 && worstN >= 8
-        val cataHit  = worstPattern != null && worstWr <= 0.10 && worstN >= 10
+        // Resolve verdict + bias. Toxic dominates gold (asymmetric tilt).
+        val goldHit  = bestPattern != null  && bestWr >= 0.70 && bestN  >= 10
+        val winHit   = bestPattern != null  && bestWr >= 0.55 && bestN  >= 10
+        val toxicHit = worstPattern != null && worstWr <= 0.10 && worstN >= 10
+        val cataHit  = worstPattern != null && worstWr <= 0.05 && worstN >= 15
 
         val verdict = when {
             cataHit  -> Verdict.CATASTROPHIC
             toxicHit -> Verdict.TOXIC
-            goldHit || evGoldHit -> Verdict.GOLD
+            goldHit  -> Verdict.GOLD
             winHit   -> Verdict.WINNER
             else     -> Verdict.NEUTRAL
         }
@@ -1197,87 +711,6 @@ object TokenWinMemory {
             Verdict.NEUTRAL      -> 0
         }
 
-        return PatternEdge(verdict, bias, bestPattern, bestWr, bestN, worstPattern, worstWr, worstN)
-    }
-
-
-
-    // V5.0.6192 — paper/live pattern edge for LIVE context transfer.
-    // Paper learning is not live PnL authority, but toxic source/setup/platform
-    // knowledge is directly relevant to live risk. This exposes combined pattern
-    // memory as a down-only live intelligence signal; callers must not use GOLD
-    // here to increase live size without live-clean proof.
-    fun patternEdgeForLiveContext6192(
-        source: String = "",
-        launchPlatform: String = "",
-        setupQuality: String = "",
-        lane: String = "",
-        buyRoute: String = "",
-    ): PatternEdge {
-        val candidates = mutableListOf<Pair<String, String>>()
-        if (source.isNotBlank()) candidates += "source" to source.take(80)
-        if (launchPlatform.isNotBlank()) candidates += "launch_platform" to launchPlatform.take(80)
-        if (setupQuality.isNotBlank()) candidates += "setup_quality" to setupQuality.take(80)
-        if (lane.isNotBlank()) candidates += "lane" to lane.take(80)
-        if (buyRoute.isNotBlank()) candidates += "buy_route" to buyRoute.take(80)
-
-        var bestPattern: String? = null
-        var bestWr = 0.0
-        var bestN = 0
-        var bestAvgWin = 0.0
-        var worstPattern: String? = null
-        var worstWr = 1.0
-        var worstN = 0
-
-        // V5.0.6207 — funnel un-choke: `lane` and `buy_route` are STRUCTURAL
-        // dimensions the bot always trades through. A single bad paper cohort
-        // in a lane (e.g. MEME @ 15% WR / n=8) would hard-block EVERY live meme
-        // entry regardless of setup — this killed 180 live trades in the last
-        // op-report. Only fine-grained dimensions may authorize live hard-block.
-        val worstEligibleTypes = setOf("launch_platform", "setup_quality", "source")
-        for ((type, value) in candidates) {
-            val stats = patterns[type]?.get(value) ?: continue
-            if (!sanePatternStats(stats)) continue
-            val n = stats.wins + stats.losses
-            if (n < 8) continue
-            val wr = stats.winRate
-            if (wr > bestWr || (wr == bestWr && n > bestN)) {
-                bestWr = wr; bestN = n; bestPattern = "$type:$value"; bestAvgWin = stats.avgWinPnl
-            }
-            // Structural dimensions (lane, buy_route) contribute to guidance but
-            // are NOT allowed to drive the worstPattern that hard-blocks live entry.
-            if (type in worstEligibleTypes) {
-                if (wr < worstWr || (wr == worstWr && n > worstN)) {
-                    worstWr = wr; worstN = n; worstPattern = "$type:$value"
-                }
-            }
-        }
-
-        if (bestPattern == null && worstPattern == null) {
-            return PatternEdge(Verdict.NEUTRAL, 0, null, 0.0, 0, null, 0.0, 0)
-        }
-
-        val goldHit = bestPattern != null && bestWr >= 0.60 && bestN >= 8
-        val evGoldHit = bestPattern != null && (bestWr * bestAvgWin) >= 20.0 && bestN >= 8 && bestAvgWin >= 30.0
-        val winHit = bestPattern != null && bestWr >= 0.50 && bestN >= 8
-        // V5.0.6207 — raise sample thresholds so paper-derived toxicity needs real
-        // evidence before abandoning live entries. Was 8 / 10 (trivially triggered).
-        val toxicHit = worstPattern != null && worstWr <= 0.15 && worstN >= 20
-        val cataHit = worstPattern != null && worstWr <= 0.10 && worstN >= 30
-        val verdict = when {
-            cataHit -> Verdict.CATASTROPHIC
-            toxicHit -> Verdict.TOXIC
-            goldHit || evGoldHit -> Verdict.GOLD
-            winHit -> Verdict.WINNER
-            else -> Verdict.NEUTRAL
-        }
-        val bias = when (verdict) {
-            Verdict.CATASTROPHIC -> -35
-            Verdict.TOXIC -> -22
-            Verdict.GOLD -> +0      // down-only live bridge; no paper-authorized live size lift
-            Verdict.WINNER -> +0    // guidance tag only unless live-clean proof elsewhere permits risk
-            Verdict.NEUTRAL -> 0
-        }
         return PatternEdge(verdict, bias, bestPattern, bestWr, bestN, worstPattern, worstWr, worstN)
     }
 
@@ -1454,34 +887,6 @@ object TokenWinMemory {
                     put("phase", w.phase)
                     put("timesTraded", w.timesTraded)
                     put("totalPnl", w.totalPnl)
-                    // V5.0.6123 — full trade context
-                    put("entryPrice", w.entryPrice)
-                    put("exitPrice", w.exitPrice)
-                    put("costSol", w.costSol)
-                    put("pnlSol", w.pnlSol)
-                    put("buyRoute", w.buyRoute)
-                    put("sellRoute", w.sellRoute)
-                    put("launchPlatform", w.launchPlatform)
-                    put("entryScore", w.entryScore)
-                    put("entryConfidence", w.entryConfidence)
-                    put("lane", w.lane)
-                    put("trader", w.trader)
-                    put("setupQuality", w.setupQuality)
-                    put("marketRegime", w.marketRegime)
-                    put("maxDrawdownPct", w.maxDrawdownPct)
-                    put("timeToPeakMinutes", w.timeToPeakMinutes)
-                    put("exitReason", w.exitReason)
-                    put("volatility", w.volatility)
-                    put("holderCount", w.holderCount)
-                    put("holderGrowthRate", w.holderGrowthRate)
-                    put("topHolderPct", w.topHolderPct)
-                    put("devWalletPct", w.devWalletPct)
-                    put("bondingCurveProgress", w.bondingCurveProgress)
-                    put("rugcheckScore", w.rugcheckScore)
-                    put("emaFanState", w.emaFanState)
-                    put("tokenAgeMinutes", w.tokenAgeMinutes)
-                    put("volumeUsd", w.volumeUsd)
-                    put("creatorAddress", w.creatorAddress)
                 })
             }
 
@@ -1581,34 +986,6 @@ object TokenWinMemory {
                     phase = j.getString("phase"),
                     timesTraded = j.optInt("timesTraded", 1),
                     totalPnl = j.optDouble("totalPnl", j.getDouble("pnlPercent")),
-                    // V5.0.6123 — full trade context (backward-compatible optDouble/optString)
-                    entryPrice = j.optDouble("entryPrice", 0.0),
-                    exitPrice = j.optDouble("exitPrice", 0.0),
-                    costSol = j.optDouble("costSol", 0.0),
-                    pnlSol = j.optDouble("pnlSol", 0.0),
-                    buyRoute = j.optString("buyRoute", ""),
-                    sellRoute = j.optString("sellRoute", ""),
-                    launchPlatform = j.optString("launchPlatform", ""),
-                    entryScore = j.optDouble("entryScore", 0.0),
-                    entryConfidence = j.optDouble("entryConfidence", 0.0),
-                    lane = j.optString("lane", ""),
-                    trader = j.optString("trader", ""),
-                    setupQuality = j.optString("setupQuality", ""),
-                    marketRegime = j.optString("marketRegime", ""),
-                    maxDrawdownPct = j.optDouble("maxDrawdownPct", 0.0),
-                    timeToPeakMinutes = j.optDouble("timeToPeakMinutes", 0.0),
-                    exitReason = j.optString("exitReason", ""),
-                    volatility = j.optDouble("volatility", 0.0),
-                    holderCount = j.optInt("holderCount", 0),
-                    holderGrowthRate = j.optDouble("holderGrowthRate", 0.0),
-                    topHolderPct = j.optDouble("topHolderPct", 0.0),
-                    devWalletPct = j.optDouble("devWalletPct", 0.0),
-                    bondingCurveProgress = j.optDouble("bondingCurveProgress", 0.0),
-                    rugcheckScore = j.optDouble("rugcheckScore", 0.0),
-                    emaFanState = j.optString("emaFanState", ""),
-                    tokenAgeMinutes = j.optDouble("tokenAgeMinutes", 0.0),
-                    volumeUsd = j.optDouble("volumeUsd", 0.0),
-                    creatorAddress = j.optString("creatorAddress", ""),
                 )
                 if (sanePersistedWinner4508(w)) {
                     winningTokens[w.mint] = w

@@ -60,26 +60,13 @@ object ApiBackoff {
      *  hiccup (snapshot sr=0% with only 5-17 attempts). Per operator P0
      *  doctrine "use the whole api stack as its intended for", a single
      *  503 must not silence a non-rate-limited provider for 5 minutes.
-     *  Soft schedule caps at 30s.
-     *
-     *  V5.0.6203 — CIRCUIT BREAKER TIER for repeat-offender providers.
-     *  Report 2026-07-08 21:13 showed dexscreener SR=22% with 950 5xx
-     *  vs 273 successes — the SOFT schedule kept probing every 30s and
-     *  eating scanner cycle time (max=45.8s). New tier applied only after
-     *  n >= 8 consecutive failures: 60s lockout, then 120s, then 300s cap.
-     *  Fast-fail path so hot scan cycles don't wait on a dead upstream.
-     */
+     *  Soft schedule caps at 30s. */
     private val softBackoffSchedule = longArrayOf(
         2_000L,
         5_000L,
         10_000L,
         20_000L,
         30_000L,
-    )
-    private val softCircuitBreakerSchedule = longArrayOf(
-        60_000L,   // n=8  → 1 min
-        120_000L,  // n=9  → 2 min
-        300_000L,  // n=10+ → 5 min cap
     )
 
     /** Legacy alias for any code reading the old `backoffSchedule`. */
@@ -111,17 +98,8 @@ object ApiBackoff {
             //   5xx / 408 / 425      → SOFT schedule (2s..30s, never 5min)
             //   other 4xx            → SOFT to keep the provider in rotation
             val isHard = (code == 429 || code == 403)
-            // V5.0.6203 — CIRCUIT BREAKER: after 8 consecutive SOFT failures,
-            // upgrade to circuit-breaker schedule (60s → 5min cap). Prevents
-            // hot scan cycles from waiting on chronically-degraded providers
-            // (report showed dexscreener sr=22% s=273 5xx=950).
-            val useCircuitBreaker = !isHard && n >= 8
-            val schedule = when {
-                isHard -> hardBackoffSchedule
-                useCircuitBreaker -> softCircuitBreakerSchedule
-                else -> softBackoffSchedule
-            }
-            val idx = if (useCircuitBreaker) (n - 8).coerceIn(0, schedule.size - 1) else (n - 1).coerceIn(0, schedule.size - 1)
+            val schedule = if (isHard) hardBackoffSchedule else softBackoffSchedule
+            val idx = (n - 1).coerceIn(0, schedule.size - 1)
             val baseDelay = schedule[idx]
             val effectiveDelayMs = when (code) {
                 429, 403 -> maxOf(baseDelay, 30_000L)
@@ -135,7 +113,7 @@ object ApiBackoff {
                 try {
                     ForensicLogger.lifecycle(
                         "API_BACKOFF_ARMED",
-                        "host=${key(host)} code=$code n=$n untilSec=${effectiveDelayMs / 1000} mode=${if (isHard) "HARD" else if (useCircuitBreaker) "CIRCUIT_BREAKER_6203" else "SOFT"}"
+                        "host=${key(host)} code=$code n=$n untilSec=${effectiveDelayMs / 1000} mode=${if (isHard) "HARD" else "SOFT"}"
                     )
                 } catch (_: Throwable) {}
             }
@@ -176,12 +154,8 @@ object ApiBackoff {
             if (now >= until) return false
             val remaining = until - now
             val lastCode = s.lastFailureCode.get()
-            // Hard signals (429/403) — honor full lockout. V5.0.6227 — 401
-            // joins the hard class: a dead auth key never "recovers" via a
-            // half-open probe, and the probe math (remaining+30s > 30s is
-            // always true) was leaking ~1 birdeye call/sec against a
-            // permanently-401 key (op report: birdeye 4xx=361 in 359s).
-            if (lastCode == 429 || lastCode == 403 || lastCode == 401) return true
+            // Hard signals (429/403) — honor full lockout.
+            if (lastCode == 429 || lastCode == 403) return true
             // Soft signals — once the lockout has been live > 30s AND
             // > 10s of remaining time, allow ONE probe by atomically
             // clearing the lockout marker. The caller will record

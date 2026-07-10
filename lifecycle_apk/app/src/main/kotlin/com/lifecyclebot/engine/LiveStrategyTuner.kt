@@ -159,24 +159,9 @@ object LiveStrategyTuner {
         // the operator's doctrine: SSI/AGI tunes from trade 1 in paper/live,
         // without turning a single close into a hard choke.
         if (n in 1 until MIN_TUNE_TRADES) {
-            // V5.0.6228 — LIFETIME-EV OVERRIDE (compound-target defence).
-            // MOONSHOT report V5.0.6228: live n=4 W/L=0/4 sol=-0.079 → the
-            // old ramp classifies "red" and scales size to ~0.86x. But the
-            // LIFETIME strategy expectancy for MOONSHOT is n=6 W/L=2/4
-            // EV=+463.59%/trade PnL=+1.3802 SOL — an asymmetric power-law
-            // winner that the trade1 ramp was actively suppressing on the
-            // strength of the small live-only slice. If lifetime shows
-            // meanPnlPct >= 50% with n >= 5, treat as a proven asymmetric
-            // winner and apply the GREEN ramp regardless of live-slice.
-            val lifetimeAsymWinner6228 = try {
-                StrategyTelemetry.computeLeaderboard(limit = 1_500)
-                    .firstOrNull { it.strategy.equals(lane, true) }
-                    ?.let { lm -> lm.trades >= 5 && lm.meanPnlPct >= 50.0 }
-                    ?: false
-            } catch (_: Throwable) { false }
             val ramp6077 = (n.toDouble() / MIN_TUNE_TRADES.toDouble()).coerceIn(0.20, 0.80)
-            val green6077 = lifetimeAsymWinner6228 || sol > 0.0 || mean > 0.0 || wr >= 50.0
-            val red6077 = !lifetimeAsymWinner6228 && (sol < 0.0 || mean < 0.0 || wr <= 35.0)
+            val green6077 = sol > 0.0 || mean > 0.0 || wr >= 50.0
+            val red6077 = sol < 0.0 || mean < 0.0 || wr <= 35.0
             val size = when {
                 green6077 -> 1.0 + 0.18 * ramp6077
                 red6077 -> 1.0 - 0.18 * ramp6077
@@ -228,7 +213,7 @@ object LiveStrategyTuner {
             val sizeCeiling = (1.55 * behindPress * provenBoost4588).coerceIn(1.55, 2.60)
             val holdCeiling = (2.20 * behindPress * provenBoost4588).coerceIn(2.20, 3.20)
             val maxWalletCeiling = (1.50 * behindPress * provenBoost4588).coerceIn(1.50, 2.20)
-            val partialCeiling = (2.60 * behindPress * provenBoost4588).coerceIn(2.20, 2.80)  // V5.0.6228g: tightened 2.60..3.80 → 2.20..2.80. QUALITY partial×=3.20 caused 73% scratch rate (58/80) — banking partials so aggressively that terminal residual became a scratch. Lower ceiling still presses winners without over-partialling.
+            val partialCeiling = (2.60 * behindPress * provenBoost4588).coerceIn(2.60, 3.80)
             val baseSizeGain = if (provenWinner4588) 0.72 else 0.47
             val baseHoldGain = if (provenWinner4588) 1.35 else 0.95
             val basePartialGain = if (provenWinner4588) 1.85 else 1.25
@@ -363,18 +348,9 @@ object LiveStrategyTuner {
         // BOTH sol<0 AND mean<=-8% AND wr<35% — i.e. genuine bleeder, not
         // asymmetric variance.
         val asymRunner6068 = n >= 8 && (mean >= 20.0 || m.avgWinPct >= 50.0 || pf >= 4.0)
-        // V5.0.6215 — LIVE-ONLY SANITY GUARD for the asymmetric-runner exemption.
-        // Operator: "why hasn't the bot self tuned the failing strategies and lanes?"
-        // STANDARD sat on asymmetric_runner_exempt_6068_net_sol_variance with n=19
-        // WR=16% PnL=-0.08 SOL live because a couple of big-tail paper winners
-        // pushed mean/avgWin above threshold. The exemption held size × 1.00 while
-        // the live cohort bled. Revoke exemption if live-only is objectively bad:
-        // WR<20% AND PnL<-0.05 SOL over n>=15 = proof the setup isn't landing
-        // right now, regardless of what lifetime says.
-        val liveOnlySafetyRevoke6215 = n >= 15 && wr < 20.0 && sol < -0.05
-        if (((n >= 30 && wr >= 40.0 && sol >= 0.0) ||
+        if ((n >= 30 && wr >= 40.0 && sol >= 0.0) ||
             (n >= 8 && mean >= 20.0 && sol >= 0.0) ||
-            asymRunner6068) && !liveOnlySafetyRevoke6215
+            asymRunner6068  // V5.0.6068 — mean>=20% or big-tail signature exempts regardless of net SOL
         ) {
             return Adjustment(
                 lane = lane, trades = n, winRatePct = wr, totalSolPnl = sol,
@@ -392,81 +368,10 @@ object LiveStrategyTuner {
         // toxic_runner_pivot (sizeFloor 0.12) at n=10 or even paused. Faster
         // toxic gate lets the bot abandon proven-bad lanes within 10 closes
         // instead of 20.
-        // V5.0.6114 — LIFETIME EV GUARD. The clean-live terminal leaderboard
-        // only has 87 trades (WR=21.8%, PnL=-0.143 SOL) because the bot recently
-        // switched to live mode. But the FULL lifetime data has 463 trades
-        // (WR=38.9%, PnL=+14.85 SOL). Making toxic decisions on the small live-only
-        // sample mislabels profitable lanes (BLUECHIP 43.7% WR, QUALITY 42% WR)
-        // as toxic. Fix: check the full leaderboard (including paper) before
-        // applying the toxic label. If the lane is profitable in the full data,
-        // it's NOT toxic regardless of the clean-live-only sample.
-        val lifetimeMetric6114 = try {
-            StrategyTelemetry.computeLeaderboard(environment = null, includePartials = false, limit = 2_500)
-                .firstOrNull { canonical(it.strategy) == laneKey }
-        } catch (_: Throwable) { null }
-        // lifetimeProfitable6114 — lifetime EV guard: no toxic label on profitable lanes.
-        // V5.0.6215 — but live-only bleeder gate: if live-only cohort is objectively
-        // failing (n>=15 WR<20% PnL<-0.05 SOL), REVOKE the exemption and let the
-        // toxic-labeling path below damp the size normally. This is exactly the
-        // case operator called out on BLUECHIP: n=31 WR=8% PnL=-0.673 SOL live,
-        // exempted from damping because lifetime WR/PnL includes 100+ paper wins.
-        if (lifetimeMetric6114 != null && lifetimeMetric6114.trades >= 30 &&
-            (lifetimeMetric6114.totalSolPnl > 0.0 || lifetimeMetric6114.meanPnlPct >= 20.0) &&
-            !liveOnlySafetyRevoke6215) {
-            try { ForensicLogger.lifecycle("LIFETIME_EV_GUARD_6114", "lane=$lane cleanLiveN=$n cleanLiveWR=${"%.1f".format(wr)}% cleanLiveSol=${"%.4f".format(sol)} lifetimeN=${lifetimeMetric6114.trades} lifetimeWR=${"%.1f".format(lifetimeMetric6114.winRatePct)}% lifetimeSol=${"%.4f".format(lifetimeMetric6114.totalSolPnl)} action=exempt_from_toxic") } catch (_: Throwable) {}
-            return Adjustment(
-                lane = lane, trades = n, winRatePct = wr, totalSolPnl = sol,
-                pfExpectancyPp = pf, meanPnlPct = mean,
-                sizeMult = 1.0,
-                tpMult = 1.10, holdMult = 1.05, maxWalletMult = 1.0,
-                liquidityImpactMult = 1.0, partialTriggerMult = 1.15,
-                label = "lifetime_ev_exempt_6114",
-            )
-        }
-        // V5.0.6215 — if lifetime exemption was REVOKED by live-only guard, log
-        // it so the operator can see the tuner is finally allowed to work.
-        if (liveOnlySafetyRevoke6215 && lifetimeMetric6114 != null &&
-            (lifetimeMetric6114.totalSolPnl > 0.0 || lifetimeMetric6114.meanPnlPct >= 20.0)) {
-            try {
-                ForensicLogger.lifecycle(
-                    "LIFETIME_EV_EXEMPT_REVOKED_LIVE_BLEED_6215",
-                    "lane=$lane liveN=$n liveWR=${"%.1f".format(wr)}% liveSol=${"%.4f".format(sol)} lifetimeSol=${"%.4f".format(lifetimeMetric6114.totalSolPnl)} action=revoke_exemption_allow_damp",
-                )
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIFETIME_EV_EXEMPT_REVOKED_LIVE_BLEED_6215")
-            } catch (_: Throwable) {}
-        }
         val pfBleed = n >= 8 && sol < 0.0 && pf <= 0.0
         val wrBleed = n >= 8 && wr < 35.0 && sol <= 0.0
         val meanBleed = n >= 8 && sol <= 0.0 && mean <= -8.0
         val toxicBleed = (n >= 10 && wr <= 28.0 && sol < 0.0) || (n >= 8 && wr <= 15.0 && sol < 0.0)
-        // V5.0.6228f — LIFETIME ASYMMETRIC-WINNER ESCAPE (extend of 6228e).
-        // A live-slice bleeder classification (MOONSHOT n=10 WR=0% sol=-0.159)
-        // must NOT toxic-pivot a lane whose LIFETIME strategy expectancy shows
-        // clear asymmetric edge (MOONSHOT lifetime n=12 EV=+230.66% PnL=+1.30 SOL).
-        // Toxic_reclaim was clamping the lane to size×0.40 despite the +230%/trade
-        // asymmetric power-law — that's exactly the lane that must be pressed for
-        // the daily 2x-5x compound target. Escape triggers when lifetime n>=8 with
-        // meanPnlPct >= 50%. Applies a mild "asymmetric_learner" ramp instead of
-        // the toxic_reclaim crush so learning continues on real edge.
-        val lifetimeAsymWinner6228f = try {
-            StrategyTelemetry.computeLeaderboard(limit = 2_000)
-                .firstOrNull { it.strategy.equals(lane, true) }
-                ?.let { lm -> lm.trades >= 8 && lm.meanPnlPct >= 50.0 }
-                ?: false
-        } catch (_: Throwable) { false }
-        if (lifetimeAsymWinner6228f && (pfBleed || wrBleed || meanBleed || toxicBleed)) {
-            return Adjustment(
-                lane = lane, trades = n, winRatePct = wr, totalSolPnl = sol,
-                pfExpectancyPp = pf, meanPnlPct = mean,
-                sizeMult = 1.0,          // no crush — lifetime asymmetric edge preserved
-                tpMult = 1.20,           // let runners run further
-                holdMult = 1.30,         // patience — the +230% comes from the tail
-                maxWalletMult = 1.0,
-                liquidityImpactMult = 1.0,
-                partialTriggerMult = 1.20,
-                label = "asymmetric_lifetime_edge_6228f",
-            )
-        }
         if (pfBleed || wrBleed || meanBleed || toxicBleed) {
             val wrDepth = ((35.0 - wr) / 35.0).coerceIn(0.0, 1.0)
             val pfDepth = ((-pf) / 16.0).coerceIn(0.0, 1.0)
@@ -481,22 +386,8 @@ object LiveStrategyTuner {
                 totalSolPnl = sol,
                 pfExpectancyPp = pf,
                 meanPnlPct = mean,
-                sizeMult = if (toxicInnerLanePivot) {
-                    // V5.0.6230 — LOWER CHRONIC-BLEEDER GATE.
-                    // Report showed BLUECHIP n=17 EV=-7.07% PnL=-0.46 SOL
-                    // still sitting at 0.40x because the n>=100 threshold
-                    // hadn't fired yet. A lane with n>=15 samples and
-                    // sol<=-0.4 SOL has demonstrated enough bleed to earn
-                    // the deep-dampen probe treatment. Kept the harsher
-                    // 100/1.0 tier for truly established chronics.
-                    val chronicBleeder = (n >= 100 && sol <= -1.0) ||
-                                          (n >= 15 && sol <= -0.4)
-                    if (chronicBleeder) {
-                        (0.22 - depth * 0.12).coerceIn(0.12, 0.28)
-                    } else {
-                        (0.62 - depth * 0.22).coerceIn(0.35, 0.62)
-                    }
-                }
+                sizeMult = if (toxicInnerLanePivot)
+                    (0.62 - depth * 0.22).coerceIn(0.35, 0.62)
                 else
                     (0.78 - depth * 0.43).coerceIn(0.35, 0.82),
                 tpMult = if (toxicInnerLanePivot)

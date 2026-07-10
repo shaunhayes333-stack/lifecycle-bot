@@ -40,7 +40,6 @@ object ApiHealthMonitor {
         val failures4xx: AtomicInteger = AtomicInteger(0),
         val failures5xx: AtomicInteger = AtomicInteger(0),
         val networkErrors: AtomicInteger = AtomicInteger(0),
-        val throttled: AtomicInteger = AtomicInteger(0),
         val lastSuccessMs: AtomicLong = AtomicLong(0L),
         val lastFailureMs: AtomicLong = AtomicLong(0L),
         val lastErrorMessage: java.util.concurrent.atomic.AtomicReference<String?> =
@@ -102,13 +101,6 @@ object ApiHealthMonitor {
         st.lastErrorMessage.set(redactSecrets(errorMessage)?.take(140))
     }
 
-    /** V5.0.6227 — record a LOCAL throttle/backoff skip (no wire call made).
-     *  Counted separately so sr%/5xx reflect WIRE truth only. Previously
-     *  these were recorded as synthetic 503s, poisoning sr% and Doctor. */
-    fun recordThrottled(host: String) {
-        stats(host).throttled.incrementAndGet()
-    }
-
     // ── V5.9.1484 — SECRET REDACTION ───────────────────────────────────
     // Snapshot 5.0.3490 leaked a Groq API key into the health export: the
     // provider's 4xx error BODY embedded the key, and we stored it verbatim in
@@ -152,7 +144,7 @@ object ApiHealthMonitor {
         val s = hosts[host.lowercase()] ?: return "[$host] no samples"
         val sr = (s.successRate() * 100).toInt()
         val avg = s.avgLatencyMs().toInt()
-        return "[$host] sr=$sr%  avg=${avg}ms  s=${s.successes.get()}  4xx=${s.failures4xx.get()}  5xx=${s.failures5xx.get()}  net=${s.networkErrors.get()}  thr=${s.throttled.get()}"
+        return "[$host] sr=$sr%  avg=${avg}ms  s=${s.successes.get()}  4xx=${s.failures4xx.get()}  5xx=${s.failures5xx.get()}  net=${s.networkErrors.get()}"
     }
 
     /** Reset — exposed so QA can clear state between test runs. */

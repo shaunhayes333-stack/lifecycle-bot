@@ -43,7 +43,7 @@ object FinalDecisionGate {
         // upstream via qualityPenalty=LANE_DUST_PROBE_SIZE_MULT, so this respects the
         // P0.7 "no normal-size zero-signal buy" rule — it only frees the TINY probe.
         val rejectTaxonomy: RejectTaxonomy.Classification?
-            get() = if (!shouldTrade || approvalClass == ApprovalClass.BLOCKED || (blockReason != null && blockReason != "PROBE_ONLY")) {
+            get() = if (!shouldTrade || approvalClass == ApprovalClass.BLOCKED || blockReason != null) {
                 RejectTaxonomy.classify(blockReason ?: approvalReason, null)
             } else null
 
@@ -240,53 +240,32 @@ object FinalDecisionGate {
     // at 3000 lifetime trades — 2000 trades INSIDE the doctrine bootstrap
     // band. That activated steep choke points during the doctrine-permitted
     // learning phase, capping volume below the 500-1000/day target.
-    // V5.0.6118 — PAPER-MODE FAST-TRACK. Operator: "reduce bootstrap in
-    // paper. full agi/ssi control after 500 trades." Paper mode uses a
-    // compressed bootstrap window (500 trades) so the FDG confidence floors
-    // ramp to mature levels faster, letting the AGI/SSI stack take command.
-    // Live mode keeps the conservative doctrine ladder.
-    private const val FDG_BOOTSTRAP_END_LIVE = 2000
-    private const val FDG_LEARNING_END_LIVE = 5000
-    private const val FDG_EXPERT_END_LIVE = 8000
-    private const val FDG_BOOTSTRAP_END_PAPER = 500
-    private const val FDG_LEARNING_END_PAPER = 800
-    private const val FDG_EXPERT_END_PAPER = 1200
-    // Backward-compat aliases for any external callers
-    private val FDG_BOOTSTRAP_END get() = FDG_BOOTSTRAP_END_LIVE
-    private val FDG_LEARNING_END get() = FDG_LEARNING_END_LIVE
-    private val FDG_EXPERT_END get() = FDG_EXPERT_END_LIVE
+    private const val FDG_BOOTSTRAP_END = 2000
+    private const val FDG_LEARNING_END = 5000
+    private const val FDG_EXPERT_END = 8000
 
-    fun getLearningPhase(tradeCount: Int): LearningPhase {
-        // V5.0.6118 — paper fast-track
-        val isPaper6118 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
-        val bootEnd = if (isPaper6118) FDG_BOOTSTRAP_END_PAPER else FDG_BOOTSTRAP_END_LIVE
-        val learnEnd = if (isPaper6118) FDG_LEARNING_END_PAPER else FDG_LEARNING_END
-        return when {
-            tradeCount <= bootEnd -> LearningPhase.BOOTSTRAP
-            tradeCount <= learnEnd -> LearningPhase.LEARNING
-            else -> LearningPhase.MATURE
-        }
+    fun getLearningPhase(tradeCount: Int): LearningPhase = when {
+        tradeCount <= FDG_BOOTSTRAP_END -> LearningPhase.BOOTSTRAP
+        tradeCount <= FDG_LEARNING_END -> LearningPhase.LEARNING
+        else -> LearningPhase.MATURE
     }
 
     fun getLearningProgress(tradeCount: Int, winRate: Double): Double {
-        // V5.0.6118 — paper fast-track
-        val isPaper6118 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
-        val bootEnd = if (isPaper6118) FDG_BOOTSTRAP_END_PAPER else FDG_BOOTSTRAP_END_LIVE
-        val learnEnd = if (isPaper6118) FDG_LEARNING_END_PAPER else FDG_LEARNING_END
-        val expertEnd = if (isPaper6118) FDG_EXPERT_END_PAPER else FDG_EXPERT_END
-        // V5.9.616 — 4-phase curve.
-        // 0-bootEnd:       0.0 → 0.50  (bootstrap)
-        // bootEnd-learnEnd: 0.50 → 0.80 (learning)
-        // learnEnd-expertEnd: 0.80 → 1.0  (expert)
+        // V5.9.616 — 4-phase curve to 5000 trades.
+        // 0-1000:    0.0 → 0.50  (bootstrap)
+        // 1000-3000: 0.50 → 0.80 (learning)
+        // 3000-5000: 0.80 → 1.0  (expert)
+        // Win-rate bonus removed: a 27% WR bot doesn't deserve a +10% maturity
+        // gift just because it had a lucky streak. Maturity is purely volume.
         val baseProgress = when {
-            tradeCount <= bootEnd ->
-                (tradeCount.toDouble() / bootEnd) * 0.50
-            tradeCount <= learnEnd ->
-                0.50 + ((tradeCount - bootEnd).toDouble() /
-                        (learnEnd - bootEnd)) * 0.30
-            tradeCount <= expertEnd ->
-                0.80 + ((tradeCount - learnEnd).toDouble() /
-                        (expertEnd - learnEnd)) * 0.20
+            tradeCount <= FDG_BOOTSTRAP_END ->
+                (tradeCount.toDouble() / FDG_BOOTSTRAP_END) * 0.50
+            tradeCount <= FDG_LEARNING_END ->
+                0.50 + ((tradeCount - FDG_BOOTSTRAP_END).toDouble() /
+                        (FDG_LEARNING_END - FDG_BOOTSTRAP_END)) * 0.30
+            tradeCount <= FDG_EXPERT_END ->
+                0.80 + ((tradeCount - FDG_LEARNING_END).toDouble() /
+                        (FDG_EXPERT_END - FDG_LEARNING_END)) * 0.20
             else -> 1.0
         }
         return baseProgress.coerceIn(0.0, 1.0)
@@ -971,52 +950,39 @@ object FinalDecisionGate {
             }
             if (safetyMissing || safetyStale) {
                 val reason = if (safetyMissing) "SAFETY_NOT_READY_MISSING" else "SAFETY_NOT_READY_STALE"
-                val safetyStaleRouteProof6188 = safetyStale && !safetyMissing &&
-                    ts.safety.hardBlockReasons.isEmpty() &&
-                    com.lifecyclebot.engine.TokenMapAuthority.executableForLiveBuy(ts)
                 // V5.0.3894 — data-capture defer must schedule data capture.
                 // FDG previously only logged SAFETY_NOT_READY_*; now it also queues
                 // a synchronous BotService safety hydration for the next token pass.
                 try { com.lifecyclebot.engine.SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_SAFETY_NOT_READY_REFRESH_REQUESTED") } catch (_: Throwable) {}
-                if (safetyStaleRouteProof6188) {
+                if (shouldEmitSafetyReadyBlock(ts.mint)) {
                     try {
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_SAFETY_STALE_ROUTE_PROOF_SOFT_ALLOW_6188")
                         ForensicLogger.lifecycle(
-                            "FDG_SAFETY_STALE_ROUTE_PROOF_SOFT_ALLOW_6188",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} ageSec=${safetyAgeMs / 1000} route=${ts.tokenMap.routeStatus} action=allow_to_pretrade_refresh_requested",
+                            "FDG_BLOCKED_SAFETY_NOT_READY",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason ageSec=${safetyAgeMs / 1000} mode=LIVE",
                         )
                     } catch (_: Throwable) {}
-                } else {
-                    if (shouldEmitSafetyReadyBlock(ts.mint)) {
-                        try {
-                            ForensicLogger.lifecycle(
-                                "FDG_BLOCKED_SAFETY_NOT_READY",
-                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason ageSec=${safetyAgeMs / 1000} mode=LIVE",
-                            )
-                        } catch (_: Throwable) {}
-                        ErrorLogger.info(
-                            "FDG",
-                            "🛡 UPSTREAM_SAFETY_GATE: ${ts.symbol} | $reason — candidate held back from executor",
-                        )
-                    }
-                    return FinalDecision(
-                        shouldTrade = false,
-                        mode = mode,
-                        approvalClass = ApprovalClass.BLOCKED,
-                        quality = candidate.setupQuality,
-                        confidence = candidate.aiConfidence,
-                        edge = EdgeVerdict.SKIP,
-                        blockReason = reason,
-                        blockLevel = BlockLevel.HARD,
-                        sizeSol = 0.0,
-                        tags = listOf("upstream_safety_gate", reason.lowercase()),
-                        mint = ts.mint,
-                        symbol = ts.symbol,
-                        approvalReason = "FDG upstream safety gate: $reason (live-mode hard block before executor)",
-                        gateChecks = listOf(GateCheck("safety_ready_upstream", false, reason)),
+                    ErrorLogger.info(
+                        "FDG",
+                        "🛡 UPSTREAM_SAFETY_GATE: ${ts.symbol} | $reason — candidate held back from executor",
                     )
                 }
+                return FinalDecision(
+                    shouldTrade = false,
+                    mode = mode,
+                    approvalClass = ApprovalClass.BLOCKED,
+                    quality = candidate.setupQuality,
+                    confidence = candidate.aiConfidence,
+                    edge = EdgeVerdict.SKIP,
+                    blockReason = reason,
+                    blockLevel = BlockLevel.HARD,
+                    sizeSol = 0.0,
+                    tags = listOf("upstream_safety_gate", reason.lowercase()),
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    approvalReason = "FDG upstream safety gate: $reason (live-mode hard block before executor)",
+                    gateChecks = listOf(GateCheck("safety_ready_upstream", false, reason)),
+                )
             }
         }
 
@@ -1349,69 +1315,25 @@ object FinalDecisionGate {
                     "🛑 WR_ROLL50_COLLAPSE_PROBE: ${ts.symbol} | roll50=${"%.1f".format(wrState.rollingWr)}% target=${wrState.targetWr.toInt()}% quality=${candidate.setupQuality} size×${"%.2f".format(wrRecoveryQualityPenaltyMult)}"
                 )
             } else if (isHighRecovery && !isAGrade) {
-                // V5.0.6233 — SOFTEN "SOFT" PENALTY.
-                // Operator P0 directive: "remove what ever is shrinking the
-                // trade size or turn the penalty into a tiny soft penalty".
-                // The prior 0.65×0.85 = 0.55 (45% cut) was the largest single
-                // shrinker on every entry in the V5.0.6232 report. Bring it
-                // down to a REAL soft: max 15% cut, so lanes can still
-                // accumulate real learning volume during recovery.
-                val bandMult = if (wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.AGGRESSIVE) 0.90 else 0.95
+                // Soft penalty graduated by quality + band severity. Same
+                // shape as the old hard-block: more punishment in
+                // AGGRESSIVE band and for lower-grade setups.
+                val bandMult = if (wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.AGGRESSIVE) 0.65 else 0.80
                 val qualityMult = when (candidate.setupQuality) {
-                    "B"  -> 0.98
-                    "C"  -> 0.95
-                    "D"  -> 0.90
-                    else -> 0.95
+                    "B"  -> 0.95   // mild discount
+                    "C"  -> 0.85   // bigger discount
+                    "D"  -> 0.70   // largest discount
+                    else -> 0.85
                 }
                 wrRecoveryQualityPenaltyMult = bandMult * qualityMult
                 tags.add("wr_recovery_softened")
                 tags.add("band_${wrState.band.name.lowercase()}")
                 ErrorLogger.info(
                     "FDG",
-                    "🚑 WR_RECOVERY_SOFT_PENALTY: ${ts.symbol} | band=${wrState.band.name} wr=${"%.1f".format(wrState.currentWr)}% roll=${"%.1f".format(wrState.rollingWr)}% target=${wrState.targetWr.toInt()}% | quality=${candidate.setupQuality} | conf×size = ${"%.2f".format(wrRecoveryQualityPenaltyMult)} (V5.0.6233 tiny-soft)"
+                    "🚑 WR_RECOVERY_SOFT_PENALTY: ${ts.symbol} | band=${wrState.band.name} wr=${"%.1f".format(wrState.currentWr)}% roll=${"%.1f".format(wrState.rollingWr)}% target=${wrState.targetWr.toInt()}% | quality=${candidate.setupQuality} | conf×size = ${"%.2f".format(wrRecoveryQualityPenaltyMult)}"
                 )
             }
         } catch (_: Throwable) { /* recovery gate is best-effort; never block on internal error */ }
-
-        // V5.0.6233 — HISTORICAL CORPUS PRIOR (first real consumer).
-        // Operator: "use the historical data we added last night use the hive
-        // data use everything ffs". The V5.0.6221 corpus was warmed at boot
-        // but its matchLiveShape()/neighbourPatternPrior() had ZERO callers —
-        // the knowledge base influenced nothing. Now: compute the live
-        // token's shape from its 1m candle history and ask the corpus for a
-        // bounded soft prior (0.80..1.15) applied to confidence AND size.
-        // Advisory-only, fail-open, never a hard block.
-        var historicalPriorMult6233 = 1.0
-        try {
-            val closes6233 = ts.history.map { it.priceUsd }.filter { it > 0.0 && it.isFinite() }
-            if (HistoricalPatternMatcher.size() > 0 && closes6233.size >= 10) {
-                val first6233 = closes6233.first()
-                val last6233 = closes6233.last()
-                val hi6233 = closes6233.max()
-                val lo6233 = closes6233.min()
-                if (first6233 > 0.0 && lo6233 > 0.0) {
-                    var peakSoFar6233 = first6233
-                    var maxDd6233 = 0.0
-                    for (c in closes6233) {
-                        if (c > peakSoFar6233) peakSoFar6233 = c
-                        val dd = (peakSoFar6233 - c) / peakSoFar6233 * 100.0
-                        if (dd > maxDd6233) maxDd6233 = dd
-                    }
-                    val (histMult6233, histTag6233) = HistoricalPatternMatcher.entryPriorMult(
-                        peakGainPct = (hi6233 - first6233) / first6233 * 100.0,
-                        maxDrawdownPct = maxDd6233,
-                        netReturnPct = (last6233 - first6233) / first6233 * 100.0,
-                        recoveryFromLowPct = (last6233 - lo6233) / lo6233 * 100.0,
-                    )
-                    historicalPriorMult6233 = histMult6233
-                    if (histMult6233 != 1.0) {
-                        tags.add("historical_prior")
-                        checks.add(GateCheck("historical_corpus_prior", true, "×${"%.2f".format(histMult6233)} nn=[$histTag6233]"))
-                        ErrorLogger.info("FDG", "📜 HISTORICAL_CORPUS_PRIOR_6233: ${ts.symbol} ×${"%.2f".format(histMult6233)} nn=[$histTag6233]")
-                    }
-                }
-            }
-        } catch (_: Throwable) { /* historical prior is advisory; never block on internal error */ }
 
         // V5.9.343 — CLASSIC uses 1.0 floor (even lower than golden 3.0) so the
         // bot trades from first start per user directive. Modern keeps 8.0.
@@ -1661,22 +1583,6 @@ object FinalDecisionGate {
             rawExitCap
         }
         if (ts.lastLiquidityUsd < WATCHLIST_FLOOR) {
-            // V5.0.6211 — trusted-watchlist bypass. Op-report shows 17 blocks/cycle
-            // on LIQUIDITY_BELOW_WATCHLIST_FLOOR against tokens ALREADY on the curated
-            // SolanaBlueChipWatchlist. If the operator hand-picked the mint AND the
-            // scanner can't get a fresh liquidity read (dexscreener sr=19%, 5xx=336),
-            // the floor gate is chasing a stale price rather than a real rug. Skip
-            // the hard block for watchlist-native tokens; the executor's own
-            // pre-flight liquidity probe will still reject if actual on-chain
-            // depth is truly insufficient.
-            val isTrustedWatchlist = try {
-                com.lifecyclebot.engine.SolanaBlueChipWatchlist.infoFor(ts.mint) != null
-            } catch (_: Throwable) { false }
-            if (isTrustedWatchlist) {
-                try { PipelineHealthCollector.labelInc("LIQUIDITY_BELOW_WATCHLIST_FLOOR_BYPASSED_TRUSTED_6211") } catch (_: Throwable) {}
-                ErrorLogger.debug("FDG", "🔓 LIQ_FLOOR BYPASS (trusted watchlist): ${ts.symbol} | liq=\$${ts.lastLiquidityUsd.toInt()} | executor pre-flight will re-verify depth")
-                // fall through — do NOT return the hard-block
-            } else {
             ErrorLogger.debug("FDG", "🚫 LIQ_FLOOR: ${ts.symbol} | liq=\$${ts.lastLiquidityUsd.toInt()} < \$${WATCHLIST_FLOOR.toInt()} | TOO_LOW_FOR_WATCHLIST")
 
             return FinalDecision(
@@ -1695,7 +1601,6 @@ object FinalDecisionGate {
                 approvalReason = "Liquidity \$${ts.lastLiquidityUsd.toInt()} < \$${WATCHLIST_FLOOR.toInt()} watchlist floor",
                 gateChecks = listOf(GateCheck("liq_watch_floor", false, "liq < \$${WATCHLIST_FLOOR.toInt()} = not worth watching"))
             )
-            }
         }
 
         if (exitCapacityUsd < EXECUTION_FLOOR) {
@@ -1721,10 +1626,9 @@ object FinalDecisionGate {
                 // downstream confidence / narrative / momentum gates compute
                 // the right paper size naturally, and low-liq tokens typically
                 // also fail the LOW_CONFIDENCE threshold which already routes
-                // them into the V5.0.6106 paper economic-dampening path
-                // (paper_low_conf_economic_dampen_6106 tag). We add a forensic
-                // tag here so the operator can see WHY a particular paper buy
-                // is shaped without collapsing into a toy ticket.
+                // them into the V5.0.3676 paper dust-probe path
+                // (paper_low_conf_dust_probe tag). We add a forensic tag here
+                // so the operator can see WHY a particular paper buy is small.
                 checks.add(
                     GateCheck(
                         "liq_exec_floor",
@@ -2008,18 +1912,8 @@ object FinalDecisionGate {
             }
             rugcheckStatus == "CONFIRMED" && rugcheckScore == 0 -> true
             rugcheckStatus == "CONFIRMED" && rugcheckScore in 2..rugcheckThreshold -> {
-                // V5.0.6116 — very low rugcheck scores (2-5) are "very risky" per the
-                // rugcheck API convention. In live mode these are now HARD BLOCKS, not
-                // soft penalties. The bot was buying tokens with rugcheck score 2-5 that
-                // instantly rugged. Paper still allows for learning.
-                if (!config.paperMode && rugcheckScore <= 5) {
-                    tags.add("very_low_rc_live_hard_block_6116")
-                    try { PipelineHealthCollector.labelInc("FDG_VERY_LOW_RC_HARD_BLOCK_6116") } catch (_: Throwable) {}
-                    true
-                } else {
-                    tags.add("low_rc_penalty_only")
-                    false
-                }
+                tags.add("low_rc_penalty_only")
+                false
             }
             rugcheckStatus == "CONFIRMED" && rugcheckScore > rugcheckThreshold -> false
             rugcheckStatus == "TIMEOUT" && config.paperMode -> {
@@ -2167,186 +2061,16 @@ object FinalDecisionGate {
             checks.add(GateCheck("safety_block", true, null))
         }
 
-        // SAFETY BLOCK: Freeze authority = dev can freeze your tokens and trap the position.
-        // V5.0.6164: live must fail-closed. Only explicit revoked/renounced freeze
-        // authority can pass; active, token-map retained, or unknown authority blocks
-        // before execution. This mirrors PreTradeHardGate's final pre-broadcast choke.
-        fun fdgAuthorityRetained6164(raw: String?): Boolean {
-            val u = raw?.trim()?.uppercase().orEmpty()
-            return u.isNotBlank() && u !in setOf("NULL", "NONE", "RENOUNCED", "DISABLED", "FALSE", "0")
-        }
-        val fdgFreezeRetained6164 = fdgAuthorityRetained6164(ts.tokenMap.freezeAuthority)
-        val fdgMintRetained6164 = fdgAuthorityRetained6164(ts.tokenMap.mintAuthority)
-        val fdgAuthorityUnknownRouteProof6186 = !config.paperMode &&
-            com.lifecyclebot.engine.TokenMapAuthority.executableForLiveBuy(ts) &&
-            ((ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: ts.tokenMap.liquidityUsd ?: 0.0) >= 1_200.0)
-        val fdgFreezeUnknownRouteProof6185 = ts.safety.freezeAuthorityDisabled == null &&
-            !fdgFreezeRetained6164 &&
-            fdgAuthorityUnknownRouteProof6186
-        val fdgMintUnknownRouteProof6186 = ts.safety.mintAuthorityDisabled == null &&
-            !fdgMintRetained6164 &&
-            fdgAuthorityUnknownRouteProof6186
-        if (blockReason == null && !config.paperMode && (ts.safety.freezeAuthorityDisabled == false || fdgFreezeRetained6164)) {
+        // SAFETY BLOCK: Freeze authority = dev can freeze your tokens and drain your position.
+        // This is a genuine rug vector. ALWAYS hard block in live mode regardless of edge.
+        // V5.9.291: restored to unconditional live hard block.
+        if (blockReason == null && !config.paperMode && ts.safety.freezeAuthorityDisabled == false) {
             blockReason = "HARD_BLOCK_FREEZE_AUTHORITY"
             blockLevel = BlockLevel.HARD
-            checks.add(GateCheck("freeze_auth", false, "freezeAuth=${ts.safety.freezeAuthorityDisabled} tokenMap=${ts.tokenMap.freezeAuthority ?: "?"} live retained/active hard block"))
-            tags.add("freeze_auth_6164")
-            try { PipelineHealthCollector.labelInc("FDG_FREEZE_AUTHORITY_FAIL_CLOSED_6164") } catch (_: Throwable) {}
-            try { ForensicLogger.lifecycle("FREEZE_AUTHORITY_FAIL_CLOSED_6164", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName freeze=${ts.safety.freezeAuthorityDisabled} tokenMap=${ts.tokenMap.freezeAuthority ?: "?"} action=hard_block_live") } catch (_: Throwable) {}
-        } else if (blockReason == null && !config.paperMode && ts.safety.freezeAuthorityDisabled != true && !fdgFreezeUnknownRouteProof6185) {
-            // V5.0.6203 — BLUE-CHIP / TREASURY / PROJECT_SNIPER LAUNCHPAD BYPASS.
-            // Report 2026-07-08 21:13 showed 47 HARD_BLOCK_FREEZE_AUTHORITY_UNKNOWN_6164
-            // blocks — mostly on established assets where Helius RPC 429 rate-limit
-            // prevented on-chain resolution. Blue-chip mints (JUP/WIF/BONK/etc)
-            // have known-null freeze authorities but the resolver may fail. If
-            // the mint is on our curated blue-chip / launchpad set AND
-            // SafetyChecker rugcheck score is >= 55, allow the trade with a
-            // soft-shape penalty rather than a hard block.
-            val laneUpper6203 = laneName?.uppercase().orEmpty()
-            val isProvenLane6203 = laneUpper6203 == "BLUECHIP" || laneUpper6203 == "TREASURY" || laneUpper6203 == "PROJECT_SNIPER" || laneUpper6203 == "DIP_HUNTER"
-            val rugScore6203 = try { ts.safety.rugcheckScore } catch (_: Throwable) { 0 }
-            if (isProvenLane6203 && rugScore6203 >= 55) {
-                checks.add(GateCheck("freeze_auth", true, "UNKNOWN_PROVEN_LANE_SOFT_ALLOW_6203 rug=$rugScore6203 lane=$laneUpper6203"))
-                tags.add("freeze_unknown_proven_lane_soft_6203")
-                try { PipelineHealthCollector.labelInc("FDG_FREEZE_UNKNOWN_PROVEN_LANE_SOFT_ALLOW_6203") } catch (_: Throwable) {}
-                try { ForensicLogger.lifecycle("FREEZE_AUTHORITY_UNKNOWN_PROVEN_LANE_SOFT_ALLOW_6203", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneUpper6203 rug=$rugScore6203 action=soft_allow_proven_lane") } catch (_: Throwable) {}
-            } else {
-                blockReason = "HARD_BLOCK_FREEZE_AUTHORITY_UNKNOWN_6164"
-                blockLevel = BlockLevel.HARD
-                checks.add(GateCheck("freeze_auth", false, "freezeAuth=${ts.safety.freezeAuthorityDisabled} tokenMap=${ts.tokenMap.freezeAuthority ?: "?"} live unknown without route proof"))
-                tags.add("freeze_auth_6164")
-                try { PipelineHealthCollector.labelInc("FDG_FREEZE_AUTHORITY_FAIL_CLOSED_6164") } catch (_: Throwable) {}
-                try { ForensicLogger.lifecycle("FREEZE_AUTHORITY_FAIL_CLOSED_6164", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName freeze=${ts.safety.freezeAuthorityDisabled} tokenMap=${ts.tokenMap.freezeAuthority ?: "?"} action=hard_block_live_unknown_no_route_proof") } catch (_: Throwable) {}
-            }
+            checks.add(GateCheck("freeze_auth", false, "freezeAuth=enabled (live mode — rug vector)"))
+            tags.add("freeze_auth")
         } else if (blockReason == null) {
-            if (fdgFreezeUnknownRouteProof6185) {
-                checks.add(GateCheck("freeze_auth", true, "UNKNOWN_ROUTE_PROOF_6185"))
-                tags.add("freeze_unknown_route_proof_6185")
-                try { PipelineHealthCollector.labelInc("FDG_FREEZE_UNKNOWN_ROUTE_PROOF_SOFT_ALLOW_6185") } catch (_: Throwable) {}
-                try { ForensicLogger.lifecycle("FREEZE_AUTHORITY_UNKNOWN_ROUTE_PROOF_6185", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName liq=${ts.lastLiquidityUsd} route=${ts.tokenMap.routeStatus} action=allow_to_pretrade") } catch (_: Throwable) {}
-            } else {
-                checks.add(GateCheck("freeze_auth", true, null))
-            }
-        }
-
-        // V5.0.6116 / V5.0.6164 / V5.0.6186 — active/retained mint authority is
-        // still a hard live block. Unknown mint authority during scanner/API degradation
-        // may pass only when the token map has executable route + liquidity proof; the
-        // final PreTrade gate applies the same invariant before broadcast.
-        if (blockReason == null && !config.paperMode && (ts.safety.mintAuthorityDisabled == false || fdgMintRetained6164)) {
-            blockReason = "HARD_BLOCK_MINT_AUTHORITY_6116"
-            blockLevel = BlockLevel.HARD
-            checks.add(GateCheck("mint_auth", false, "mintAuth=${ts.safety.mintAuthorityDisabled} tokenMap=${ts.tokenMap.mintAuthority ?: "?"} live retained/active hard block"))
-            tags.add("mint_auth_6164")
-            try { PipelineHealthCollector.labelInc("FDG_MINT_AUTHORITY_FAIL_CLOSED_6164") } catch (_: Throwable) {}
-            try { ForensicLogger.lifecycle("MINT_AUTHORITY_FAIL_CLOSED_6164", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName mintAuth=${ts.safety.mintAuthorityDisabled} tokenMap=${ts.tokenMap.mintAuthority ?: "?"} action=hard_block_live") } catch (_: Throwable) {}
-        } else if (blockReason == null && !config.paperMode && ts.safety.mintAuthorityDisabled != true && !fdgMintUnknownRouteProof6186) {
-            blockReason = "HARD_BLOCK_MINT_AUTHORITY_UNKNOWN_6164"
-            blockLevel = BlockLevel.HARD
-            checks.add(GateCheck("mint_auth", false, "mintAuth=${ts.safety.mintAuthorityDisabled} tokenMap=${ts.tokenMap.mintAuthority ?: "?"} live unknown without route proof"))
-            tags.add("mint_auth_6164")
-            try { PipelineHealthCollector.labelInc("FDG_MINT_AUTHORITY_FAIL_CLOSED_6164") } catch (_: Throwable) {}
-            try { ForensicLogger.lifecycle("MINT_AUTHORITY_FAIL_CLOSED_6164", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName mintAuth=${ts.safety.mintAuthorityDisabled} tokenMap=${ts.tokenMap.mintAuthority ?: "?"} action=hard_block_live_unknown_no_route_proof") } catch (_: Throwable) {}
-        } else if (blockReason == null) {
-            if (fdgMintUnknownRouteProof6186) {
-                checks.add(GateCheck("mint_auth", true, "UNKNOWN_ROUTE_PROOF_6186"))
-                tags.add("mint_unknown_route_proof_6186")
-                try { PipelineHealthCollector.labelInc("FDG_MINT_UNKNOWN_ROUTE_PROOF_SOFT_ALLOW_6186") } catch (_: Throwable) {}
-                try { ForensicLogger.lifecycle("MINT_AUTHORITY_UNKNOWN_ROUTE_PROOF_6186", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName liq=${ts.lastLiquidityUsd} route=${ts.tokenMap.routeStatus} action=allow_to_pretrade") } catch (_: Throwable) {}
-            } else {
-                checks.add(GateCheck("mint_auth", true, null))
-            }
-        }
-
-        // V5.0.6116 — SAFETY BLOCK: Confirmed death bucket from LosingPatternMemory.
-        // If this lane+score band has 0% WR across >=10 trades, it is a confirmed
-        // rug-death zone. Hard block in live mode — do not buy tokens in this band.
-        // The bot was buying tokens in bands like BLUECHIP|S0-10 (0% WR, 12 losses)
-        // and watching them instantly rug. Paper still allows for learning.
-        if (blockReason == null && !config.paperMode) {
-            val isDeathBucket = try {
-                LosingPatternMemory.isConfirmedDeathBucket6116(laneName, laneScoreBanded)
-            } catch (_: Throwable) { false }
-            if (isDeathBucket) {
-                val bucketKey = try { LosingPatternMemory.bucketKey(laneName, laneScoreBanded) } catch (_: Throwable) { "$laneName|?" }
-                blockReason = "HARD_BLOCK_DEATH_BUCKET_6116_$bucketKey"
-                blockLevel = BlockLevel.HARD
-                checks.add(GateCheck("death_bucket", false, "0% WR across >=10 trades in $bucketKey"))
-                tags.add("death_bucket_6116")
-                try { PipelineHealthCollector.labelInc("FDG_DEATH_BUCKET_HARD_BLOCK_6116") } catch (_: Throwable) {}
-                try { ForensicLogger.lifecycle("DEATH_BUCKET_HARD_BLOCK_6116", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName bucket=$bucketKey action=hard_block_live") } catch (_: Throwable) {}
-            } else {
-                checks.add(GateCheck("death_bucket", true, null))
-            }
-        } else if (blockReason == null) {
-            checks.add(GateCheck("death_bucket", true, null))
-        }
-
-        // V5.0.6192 — source/setup/platform pattern transfer from paper/live memory.
-        // This is intentionally down-only: paper-derived toxic knowledge can abandon
-        // live risk, but paper-derived winners cannot increase live size here.
-        if (blockReason == null && !config.paperMode) {
-            try {
-                val edge6192 = TokenWinMemory.patternEdgeForLiveContext6192(
-                    source = ts.source,
-                    launchPlatform = ts.source,
-                    setupQuality = candidate.setupQuality,
-                    lane = laneName,
-                    buyRoute = ts.position.entryPriceSource.ifBlank { ts.position.entryDex },
-                )
-                if (edge6192.verdict == TokenWinMemory.Verdict.CATASTROPHIC) {
-                    // V5.0.6207 — only CATASTROPHIC (n>=30, WR<=10%) still hard-blocks live.
-                    blockReason = "LIVE_CONTEXT_TOXIC_PATTERN_MEMORY_6192_${edge6192.worstPattern?.replace(':', '_')?.replace('|', '_') ?: "unknown"}"
-                    blockLevel = BlockLevel.HARD
-                    checks.add(GateCheck("pattern_memory_context_6192", false, "${edge6192.verdict} ${edge6192.tag} — paper/live pattern memory is down-only live risk authority"))
-                    tags.add("pattern_memory_context_6192")
-                    edge6192.worstPattern?.let { tags.add("toxic_pattern:$it") }
-                    try { PipelineHealthCollector.labelInc("FDG_LIVE_CONTEXT_TOXIC_PATTERN_MEMORY_6192") } catch (_: Throwable) {}
-                    try { ForensicLogger.lifecycle("FDG_LIVE_CONTEXT_TOXIC_PATTERN_MEMORY_6192", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName edge=${edge6192.tag} source=${ts.source.take(80)} setup=${candidate.setupQuality} action=hard_block_live_entry") } catch (_: Throwable) {}
-                } else if (edge6192.verdict == TokenWinMemory.Verdict.TOXIC) {
-                    // V5.0.6207 — TOXIC (n>=20, WR<=15%) is now a soft-shape probe,
-                    // NOT a hard block. The bot still enters at 0.35x size to keep
-                    // learning; catastrophic evidence (n>=30, WR<=10%) is required
-                    // to fully abandon. This unblocks profitable setups that
-                    // happened to share a coarse dimension with paper losers.
-                    tags.add("pattern_memory_context_soft_6207")
-                    edge6192.worstPattern?.let { tags.add("toxic_pattern_soft:$it") }
-                    try { com.lifecyclebot.engine.LiveSizingProfile.markGateSoftShape(ts.mint, "TOXIC_PATTERN_SOFT_6207") } catch (_: Throwable) {}
-                    checks.add(GateCheck("pattern_memory_context_6192", true, "TOXIC ${edge6192.tag} → 0.35x soft-shape probe (no hard-block)"))
-                    try { PipelineHealthCollector.labelInc("FDG_LIVE_CONTEXT_TOXIC_PATTERN_SOFT_6207") } catch (_: Throwable) {}
-                    try { ForensicLogger.lifecycle("FDG_LIVE_CONTEXT_TOXIC_PATTERN_SOFT_6207", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName edge=${edge6192.tag} source=${ts.source.take(80)} setup=${candidate.setupQuality} action=soft_shape_size_x0_35") } catch (_: Throwable) {}
-                } else if (edge6192.verdict == TokenWinMemory.Verdict.GOLD || edge6192.verdict == TokenWinMemory.Verdict.WINNER) {
-                    checks.add(GateCheck("pattern_memory_context_6192", true, "${edge6192.verdict} ${edge6192.tag} — guidance only, no live size increase"))
-                    tags.add("pattern_memory_context_guidance_6192")
-                }
-            } catch (_: Throwable) {}
-        }
-
-        // V5.0.6191 — live context abandon from learned paper+live evidence.
-        // Runtime 6189a/6190 screenshots showed live still buying QUALITY/SHITCOIN
-        // buckets that paper+live history already knows are net-negative. Paper/shadow
-        // data must not authorize live risk increases, but it absolutely may reduce
-        // or abandon live risk. Positive live-clean proof protects rare +EV buckets.
-        if (blockReason == null && !config.paperMode) {
-            try {
-                val combined6191 = LosingPatternMemory.stats(laneName, laneScoreBanded)
-                val live6191 = LosingPatternMemory.liveStats(laneName, laneScoreBanded)
-                val livePositiveProof6191 = live6191.sample >= 5 && live6191.wins >= 2 && live6191.meanPnl > 0.0
-                val combinedToxic6191 = combined6191.sample >= 10 && combined6191.lossRatePct >= 70.0 && combined6191.meanPnl <= -5.0
-                val liveToxic6191 = live6191.sample >= 5 && live6191.lossRatePct >= 70.0 && live6191.meanPnl <= 0.0
-                if ((combinedToxic6191 || liveToxic6191) && !livePositiveProof6191) {
-                    val bucketId6191 = try { LosingPatternMemory.bucketKey(laneName, laneScoreBanded) } catch (_: Throwable) { "$laneName|?" }
-                    blockReason = "LIVE_CONTEXT_ABANDONED_BY_LEARNING_6191_${bucketId6191.replace('|', '_')}"
-                    blockLevel = BlockLevel.HARD
-                    checks.add(GateCheck("learned_context_abandon_6191", false, "bucket=$bucketId6191 combined[n=${combined6191.sample} loss=${combined6191.lossRatePct.format(1)}% mean=${combined6191.meanPnl.format(1)}%] live[n=${live6191.sample} loss=${live6191.lossRatePct.format(1)}% mean=${live6191.meanPnl.format(1)}%] — paper/live learning may only reduce live risk"))
-                    tags.add("learned_context_abandon_6191")
-                    tags.add("bucket:$bucketId6191")
-                    try { PipelineHealthCollector.labelInc("FDG_LIVE_CONTEXT_ABANDONED_BY_LEARNING_6191") } catch (_: Throwable) {}
-                    try { ForensicLogger.lifecycle("FDG_LIVE_CONTEXT_ABANDONED_BY_LEARNING_6191", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName bucket=$bucketId6191 combinedN=${combined6191.sample} combinedLoss=${combined6191.lossRatePct.format(1)} combinedMean=${combined6191.meanPnl.format(1)} liveN=${live6191.sample} liveLoss=${live6191.lossRatePct.format(1)} liveMean=${live6191.meanPnl.format(1)} action=hard_block_live_entry") } catch (_: Throwable) {}
-                } else {
-                    checks.add(GateCheck("learned_context_abandon_6191", true, "combinedN=${combined6191.sample} liveN=${live6191.sample} livePositive=$livePositiveProof6191"))
-                }
-            } catch (_: Throwable) {}
+            checks.add(GateCheck("freeze_auth", true, null))
         }
 
         // ═══════════════════════════════════════════════════════════════════════════
@@ -3347,7 +3071,7 @@ object FinalDecisionGate {
         val confidenceThreshold = getAdaptiveConfidence(fdgLenient, ts)
         val isBootstrap = isPaperMode && currentConditions.totalSessionTrades < 30
         val bootstrapTag = if (isBootstrap) " [PAPER_BOOTSTRAP]" else ""
-        val adjustedConfidence = ((confidence + narrativeAdjustment + orthogonalBonus) * wrRecoveryQualityPenaltyMult * historicalPriorMult6233).coerceIn(0.0, 100.0)
+        val adjustedConfidence = ((confidence + narrativeAdjustment + orthogonalBonus) * wrRecoveryQualityPenaltyMult).coerceIn(0.0, 100.0)
         val narrativeTag = if (narrativeAdjustment != 0) " [NAR:$narrativeAdjustment]" else ""
         val orthoTag = if (orthogonalBonus != 0) " [ORTHO:$orthogonalBonus]" else ""
 
@@ -3418,16 +3142,10 @@ object FinalDecisionGate {
                 // mechanical route/liquidity/safety block exists elsewhere. This is
                 // required for the live 2x–5x daily-wallet-growth doctrine: uncertainty
                 // should gather samples at tiny size, not starve the live edge.
-                // V5.0.6106 — paper is not a toy micro-probe sandbox. It is the
-                // economic training set for live sizing. Low confidence still
-                // dampens paper, but does not collapse it into dust tickets.
                 val dustMult = when {
-                    mode == TradeMode.PAPER && adjustedConfidence < 5  -> 0.65
-                    mode == TradeMode.PAPER && adjustedConfidence < 12 -> 0.75
-                    mode == TradeMode.PAPER                            -> 0.85
-                    adjustedConfidence < 5  -> 0.12
-                    adjustedConfidence < 12 -> 0.18
-                    else                    -> 0.30
+                    adjustedConfidence < 5  -> if (mode == TradeMode.PAPER) 0.20 else 0.12
+                    adjustedConfidence < 12 -> if (mode == TradeMode.PAPER) 0.30 else 0.18
+                    else                    -> if (mode == TradeMode.PAPER) 0.45 else 0.30
                 }
                 sizeMultiplier *= dustMult
                 checks.add(
@@ -3437,7 +3155,7 @@ object FinalDecisionGate {
                         "${if (mode == TradeMode.PAPER) "PAPER" else "LIVE"} LOW-CONF ADAPTIVE_SIZE: conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% → size×${dustMult.format(2)} (no hard block)"
                     )
                 )
-                tags.add(if (mode == TradeMode.PAPER) "paper_low_conf_economic_dampen_6106" else "live_low_conf_adaptive_size")
+                tags.add(if (mode == TradeMode.PAPER) "paper_low_conf_dust_probe" else "live_low_conf_adaptive_size")
                 tags.add("adaptive_conf:${confidenceThreshold.toInt()}")
                 if (isBootstrap) tags.add("paper_bootstrap_phase")
                 ErrorLogger.info("FDG", "🔬 ${if (mode == TradeMode.PAPER) "PAPER" else "LIVE"} LOW-CONF ADAPTIVE_SIZE: ${ts.symbol} | conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% → size×${dustMult.format(2)}")
@@ -3554,7 +3272,7 @@ object FinalDecisionGate {
             ErrorLogger.info("EV", "📊 ${ts.symbol}: ${evResult.summary()}")
         }
 
-        var finalSize = proposedSizeSol * wrRecoveryQualityPenaltyMult * historicalPriorMult6233  // V5.9.809/1223 soft WR-recovery penalty + V5.0.6233 historical corpus prior
+        var finalSize = proposedSizeSol * wrRecoveryQualityPenaltyMult  // V5.9.809/1223: soft WR-recovery/collapse probe size penalty
 
         // V5.0.4588 — LANE AUTO-PAUSE HARD-BLOCK (operator P0 tasks a + b).
         // Operator on 2026-02: 'EXPRESS needs to find the right strategy and
@@ -3569,28 +3287,18 @@ object FinalDecisionGate {
             try {
                 val pauseState = LaneAutoPauseGuard.statusFor(laneName)
                 if (pauseState != null) {
-                    val beforeAutoPause6128 = finalSize
-                    val pauseBand6128 = try { com.lifecyclebot.engine.LosingPatternMemory.scoreBand(effectiveGateScore6025.toInt()) } catch (_: Throwable) { "S41-60" }
-                    finalSize = (finalSize * 0.40).coerceAtLeast(0.01)
-                    checks.add(GateCheck("lane_auto_paused_pivot", true, "${pauseState.lane} toxic n=${pauseState.sample} wr=${pauseState.wrPct.format(1)}% ev=${pauseState.evPct.format(1)}% reason=${pauseState.reason}; lane-local LAB_PIVOT seeded and size-shaped ${beforeAutoPause6128.format(3)}→${finalSize.format(3)}"))
-                    tags.add("lane_auto_paused_pivot_6128")
+                    blockReason = "LANE_AUTO_PAUSED_${pauseState.lane}_${pauseState.reason}"
+                    blockLevel = BlockLevel.HARD
+                    checks.add(GateCheck("lane_auto_paused", false, "${pauseState.lane} paused n=${pauseState.sample} wr=${pauseState.wrPct.format(1)}% ev=${pauseState.evPct.format(1)}% reason=${pauseState.reason} — awaiting LLM Lab proof"))
+                    tags.add("lane_auto_paused")
                     tags.add("pause_reason:${pauseState.reason}")
-                    try {
-                        com.lifecyclebot.engine.lab.LlmLabEngine.seedFromTacticFailure(
-                            lane = pauseState.lane,
-                            scoreBand = pauseBand6128,
-                            failedTactic = "AUTO_PAUSED_${pauseState.reason}",
-                            nextTactic = "LAB_PIVOT",
-                            reason = "FDG lane auto-pause converted to lane-local strategy pivot 6128"
-                        )
-                    } catch (_: Throwable) {}
                     try {
                         ErrorLogger.info(
                             "FDG",
-                            "🧪 LANE_AUTO_PAUSED_PIVOT_SHAPE_6128 ${ts.symbol} lane=${pauseState.lane} n=${pauseState.sample} wr=${pauseState.wrPct.format(1)}% ev=${pauseState.evPct.format(1)}% size ${beforeAutoPause6128.format(3)}→${finalSize.format(3)}",
+                            "🛑 LANE_AUTO_PAUSED_HARD_BLOCK ${ts.symbol} lane=${pauseState.lane} n=${pauseState.sample} wr=${pauseState.wrPct.format(1)}% ev=${pauseState.evPct.format(1)}%",
                         )
                     } catch (_: Throwable) {}
-                    try { PipelineHealthCollector.labelInc("LANE_AUTO_PAUSED_PIVOT_SHAPE_6128_${pauseState.lane}") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("LANE_AUTO_PAUSED_FDG_BLOCK_${pauseState.lane}") } catch (_: Throwable) {}
                 }
             } catch (_: Throwable) {}
         }
@@ -3598,12 +3306,16 @@ object FinalDecisionGate {
         // V5.0.4586 — TOXIC-PATTERN HARD ADMISSION GATE (operator P0 "Rule 5").
         // Operator directive: "Hard block worst patterns, full size for ≥35% WR,
         // half size for no match". The existing LosingPatternMemory soft-shape
-        // V5.0.6106 update: learned-toxic buckets no longer pay for paper/live
-        // micro probes. They route to NoTradeObservation-backed retraining pause
-        // until LLM Lab / LanePolicy proves a reintroduction strategy. Existing
-        // high-WR winners still receive full/enlarged size via LiveStrategyTuner;
-        // bootstrap buckets preserve scanner volume through observation/evidence,
-        // not toxic toy-ticket execution.
+        // (lines below) covers the graceful-shrink path down to ×0.35, plus a
+        // train-first micro-probe at 0.01 SOL. What was missing is a definitive
+        // hard block for buckets that are proven-toxic beyond any reasonable
+        // doubt (sample ≥ 30 with loss rate ≥ 90% and negative mean PnL).
+        // These patterns have been consulted ≥30 times and lost 27+ of them —
+        // continuing to fire micro-probes there is capital vandalism. Existing
+        // ≥35% WR winners already receive full/enlarged size via
+        // LiveStrategyTuner. Bootstrap-era buckets (n<30) still route through
+        // the softer learning_recovery_shaped and train_first_micro_probe
+        // paths, so scanner volume is preserved.
         if (blockReason == null) {
             try {
                 val toxic = LosingPatternMemory.stats(laneName, laneScoreBanded)
@@ -3674,21 +3386,19 @@ object FinalDecisionGate {
                         tags.add("route:${routed.verdict.tag}")
                         checks.add(GateCheck("learned_bucket_evidence", true, "${routed.routeReasonForLog} | size ${originalSize2.format(3)}→${finalSize.format(3)}"))
                     } else {
-                        // V5.0.6106 — train-first must not mean pay-for-toxic paper
-                        // micro-buys. A bucket routed non-executable is paused from
-                        // paper/live execution until LLM Lab / LanePolicy proves a
-                        // reintroduction strategy. We still record NoTradeObservation
-                        // so the learner sees the candidate without poisoning journal
-                        // PnL or teaching tiny-ticket economics.
+                        // V5.9.1325 — TRAIN-FIRST INVARIANT.
+                        // Operator: "FDG is final authority. never stop trading.
+                        // 1000+ quality trades/day. learn the right way."
+                        // Even when the verdict says non-executable, demote to
+                        // a micro paper probe (size 0.01) instead of blocking.
+                        // Hard-safety failures are blocked by other gates above.
                         val originalSize2 = finalSize
-                        blockReason = "LANE_RETRAINING_PAUSED_${laneName}_${routed.verdict.tag}"
-                        blockLevel = BlockLevel.HARD
-                        finalSize = 0.0
+                        finalSize = 0.01
                         tags.add("learning_evidence_required")
                         tags.add("route:${routed.verdict.tag}")
-                        tags.add("lane_retraining_paused_6106")
-                        checks.add(GateCheck("learned_bucket_evidence", false, "${routed.routeReasonForLog} | LANE_RETRAINING_PAUSED ${originalSize2.format(3)}→0.000 awaiting_llm_lab_reintroduction"))
-                        // V5.9.1322 / V5.0.6106 — record this as a NoTradeObservation
+                        tags.add("train_first_micro_probe")
+                        checks.add(GateCheck("learned_bucket_evidence", true, "${routed.routeReasonForLog} | TRAIN_FIRST_MICRO ${originalSize2.format(3)}→${finalSize.format(3)}"))
+                        // V5.9.1322 — Build B: record this as a NoTradeObservation
                         // so SHADOW_TRACK / TRAIN_ONLY routes still feed the model.
                         try {
                             com.lifecyclebot.engine.learning.NoTradeObservationStore.recordBlock(
@@ -3884,34 +3594,12 @@ object FinalDecisionGate {
 
                 if (pattern != null && pattern.isReliable) {
                     val wr = pattern.winRate
-                    val n = pattern.totalTrades
-                    val avgPnl = pattern.avgPnlPct
-                    // V5.0.6120d — HIVEMIND 8× AMPLIFIER. Old shape topped
-                    // out at ±20% sizing on a matured swarm winner — which
-                    // wasted the swarm's core edge (n=8× more trade data
-                    // than any single instance). The tiers below give the
-                    // swarm real teeth: a >=+50% mean-PnL pattern with 30+
-                    // swarm trades gets a GOLD-tier ×1.5; a <=-30% mean-PnL
-                    // pattern with 30+ trades gets a CATASTROPHIC ×0.20
-                    // dampen (effective near-veto without breaking doctrine
-                    // #86 fail-open). Doctrine still soft-shape — bounded
-                    // and floor-clamped so nothing goes to zero.
-                    //
-                    //   swarm GOLD:  wr>=65 AND n>=30 AND avgPnl>=+50   →×1.50
-                    //   swarm STRONG: wr>=60 AND n>=20 AND avgPnl>=+20  →×1.30
-                    //   swarm winner: wr>=55                            →×1.15
-                    //   swarm loser:  wr<=35                            →×0.75
-                    //   swarm TOXIC:  wr<=25 AND n>=20                  →×0.40
-                    //   swarm CATA:   wr<=15 AND n>=30 AND avgPnl<=-30  →×0.20
-                    //   else                                            → 1.00
                     val collectiveMult = when {
-                        wr <= 15.0 && n >= 30 && avgPnl <= -30.0 -> 0.20
-                        wr <= 25.0 && n >= 20                    -> 0.40
-                        wr <= 35.0                               -> 0.75
-                        wr >= 65.0 && n >= 30 && avgPnl >= 50.0  -> 1.50
-                        wr >= 60.0 && n >= 20 && avgPnl >= 20.0  -> 1.30
-                        wr >= 55.0                               -> 1.15
-                        else                                     -> 1.00
+                        wr >= 65.0 -> 1.20
+                        wr >= 55.0 -> 1.10
+                        wr <= 25.0 -> 0.60
+                        wr <= 35.0 -> 0.80
+                        else        -> 1.00
                     }
                     if (collectiveMult != 1.00) {
                         val originalSize = finalSize
@@ -3923,303 +3611,13 @@ object FinalDecisionGate {
                                 "collective_brain",
                                 true,
                                 "Swarm $direction ${originalSize.format(3)} → ${finalSize.format(3)} " +
-                                "(wr=${wr.format(0)}% n=$n avgPnl=${avgPnl.format(0)}% mult=${collectiveMult.format(2)}× sig=$patternType/$discoverySource/$liquidityBucket/$emaTrend)"
+                                "(wr=${wr.format(0)}% n=${pattern.totalTrades} sig=$patternType/$discoverySource/$liquidityBucket/$emaTrend)"
                             )
                         )
                     }
                 }
             }
         } catch (_: Throwable) { /* fail-open — collective is soft-shape only */ }
-
-        // ═══════════════════════════════════════════════════════════════════
-        // V5.0.6120f — SWARM INTELLIGENCE LAYER (real-time hive consumers)
-        //   • CO-FIRE BOOST: if 2+ other instances just opened this mint
-        //     inside the 5-min swarm window, boost sizing 1.25× (bounded).
-        //     Alpha propagation faster than any telegram alpha channel.
-        //   • DEDUP GUARD: if 6+ instances already hold this mint in the
-        //     1-hour window, size down 0.35× — concentration risk protection.
-        //     One rug can't take down 7/8 wallets simultaneously.
-        //   • RUG-CONSENSUS VETO: 2+ swarm instances reported catastrophic
-        //     rug in the last 10 min → size down to 0.15× (near-veto but
-        //     still fail-open per doctrine #86).
-        // All three are pooled through SwarmIntel's 15s in-memory cache so
-        // FDG hot path never blocks on Turso. Bounded, floor-clamped.
-        // ═══════════════════════════════════════════════════════════════════
-        // V5.0.6196 — PIVOT-TO-WINNERS ROUTER (DUMP/CHOP regime only)
-        //   Refuse to open a LIVE position on a proven negative-EV lane
-        //   while the market regime is DUMP or CHOP. Paper trades still
-        //   fire on the same tick so learning continues; leaderboard
-        //   stays fresh; live capital pivots to TREASURY/BLUECHIP/Metals.
-        // ═══════════════════════════════════════════════════════════════════
-        try {
-            if (mode == TradeMode.LIVE) {
-                val laneName = ts.position.tradingMode.ifBlank { "STANDARD" }
-                // V5.0.6197 — FRESH-LAUNCH BYPASS for pivot router. When a
-                // token matches FreshLaunchHunter's ANSEM profile (< 12h old,
-                // < \$75k mcap, has confirmatory signals), do NOT block the
-                // live entry even if the lane is a historical bleeder. The
-                // whole point of FreshLaunchHunter is to catch the NEXT
-                // TREASURY/BLUECHIP winner while it's still cheap.
-                val moonshotMatch = try {
-                    com.lifecyclebot.engine.FreshLaunchHunter.evaluate(ts).isMatch
-                } catch (_: Throwable) { false }
-                if (!moonshotMatch) {
-                    val routerVerdict = com.lifecyclebot.engine.DumpRegimeWinnerRouter.evaluate(laneName)
-                    if (!routerVerdict.allow) {
-                        checks.add(GateCheck(
-                            "pivot_to_winners_6196", false,
-                            "Lane $laneName EV=${"%.2f".format(routerVerdict.laneEvPct)}% WR=${"%.1f".format(routerVerdict.laneWrPct)}% totalSol=${"%.4f".format(routerVerdict.laneTotalSol)} — pivot live capital to positive-EV lanes"
-                        ))
-                        tags.add("pivot_to_winners_6196")
-                        return FinalDecision(
-                            shouldTrade = false,
-                            mode = mode,
-                            approvalClass = ApprovalClass.BLOCKED,
-                            quality = "PIVOT_TO_WINNERS_ONLY",
-                            confidence = 0.0,
-                            edge = EdgeVerdict.WEAK,
-                            blockReason = routerVerdict.reason,
-                            blockLevel = BlockLevel.HARD,
-                            sizeSol = 0.0,
-                            tags = tags,
-                            mint = ts.mint,
-                            symbol = ts.symbol,
-                            approvalReason = "Lane $laneName is EV-negative (${"%.2f".format(routerVerdict.laneEvPct)}%) during ${com.lifecyclebot.engine.RegimeDetector.currentRegime()} — pivoting to proven winners",
-                            gateChecks = checks,
-                        )
-                    }
-                } else {
-                    tags.add("pivot_bypass_fresh_launch_6197")
-                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PIVOT_BYPASS_FRESH_LAUNCH_6197") } catch (_: Throwable) {}
-                }
-            }
-        } catch (_: Throwable) { /* fail-open — router is advisory */ }
-
-        // ═══════════════════════════════════════════════════════════════════
-        try {
-            if (mode == TradeMode.LIVE) {
-                val si = com.lifecyclebot.engine.SwarmIntel
-                val mintForSwarm = ts.mint
-                if (mintForSwarm.isNotBlank()) {
-                    val rugN = si.getSwarmRugCount(mintForSwarm)
-                    val openN = si.getSwarmOpenCount(mintForSwarm)
-                    val cofireN = si.getCoFireCount(mintForSwarm)
-
-                    val rugMult = if (rugN >= com.lifecyclebot.engine.SwarmIntel.RUG_QUORUM) 0.15 else 1.00
-                    val dedupMult = if (openN >= com.lifecyclebot.engine.SwarmIntel.DEDUP_MAX_INSTANCES) 0.35 else 1.00
-                    val cofireMult = if (cofireN >= com.lifecyclebot.engine.SwarmIntel.COFIRE_QUORUM) 1.25 else 1.00
-                    val swarmMult = rugMult * dedupMult * cofireMult
-                    if (swarmMult != 1.00) {
-                        val originalSize = finalSize
-                        finalSize = (finalSize * swarmMult).coerceIn(0.01, 1.0)
-                        val direction = if (swarmMult > 1.0) "cofire_boosted" else "hive_dampened"
-                        tags.add("size_${direction}_swarm")
-                        checks.add(
-                            GateCheck(
-                                "swarm_intel",
-                                true,
-                                "Swarm $direction ${originalSize.format(3)} → ${finalSize.format(3)} " +
-                                "(cofire=$cofireN dedup=$openN rug=$rugN → " +
-                                "rug×${rugMult.format(2)} dedup×${dedupMult.format(2)} cofire×${cofireMult.format(2)})"
-                            )
-                        )
-                        try {
-                            if (rugMult < 1.00)   com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SWARM_RUG_VETO_6120f")
-                            if (dedupMult < 1.00) com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SWARM_DEDUP_DAMP_6120f")
-                            if (cofireMult > 1.00) com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SWARM_COFIRE_BOOST_6120f")
-                        } catch (_: Throwable) {}
-                    }
-                }
-            }
-        } catch (_: Throwable) { /* fail-open — swarm is a bonus edge */ }
-
-        // ═══════════════════════════════════════════════════════════════════
-        // V5.0.6120h — GREEN-EV LANE GOVERNOR + CHART PRE-BUY GATE
-        //   • GreenEvLaneGovernor pauses live entries on a lane whose live
-        //     rolling EV has been < -3% for 20+ trades. Recovery is
-        //     delegated to LlmLabEngine (see LabRecoveryHintQueue).
-        //   • Regime-CHOP damper × 0.6 all lanes when detector says CHOP
-        //     and blended WR < 30%.
-        //   • ChartPreBuyGate consults the chart brain — hard vetoes on
-        //     DEAD_CAT_BOUNCE / BREAKDOWN / DESCENDING_TRIANGLE / RISING_WEDGE
-        //     patterns; boosts on BREAKOUT / CUP_HANDLE / DOUBLE_BOTTOM.
-        //     Kills the "buying at wrong stage" bleed the operator flagged.
-        // ═══════════════════════════════════════════════════════════════════
-        try {
-            if (mode == TradeMode.LIVE) {
-                val lane = ts.position.tradingMode.ifBlank { "STANDARD" }
-                val laneMult = com.lifecyclebot.engine.GreenEvLaneGovernor.laneSizeMultiplier(lane)
-                val chart = com.lifecyclebot.engine.ChartPreBuyGate.consult(ts)
-
-                // V5.0.6124h — MOONSHOT / FRESH-LAUNCH HUNTER
-                // Consulted BEFORE the chart-veto so an ANSEM-style token
-                // (< 12h old, < $75k mcap, insider+hive+whale converged) can
-                // punch through the chart-brain hard-veto that normally kills
-                // brand-new mints with zero candle history.
-                val moonshot = try {
-                    com.lifecyclebot.engine.FreshLaunchHunter.evaluate(ts)
-                } catch (_: Throwable) { null }
-
-                if (laneMult == 0.0) {
-                    checks.add(GateCheck("green_ev_lane_veto", false,
-                        "Lane $lane paused (rolling EV bleed) — delegated to LLM Lab for recovery"))
-                    tags.add("green_ev_lane_paused")
-                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("GREEN_EV_LANE_VETO_HIT_6120h") } catch (_: Throwable) {}
-                    return FinalDecision(
-                        shouldTrade = false,
-                        mode = mode,
-                        approvalClass = ApprovalClass.BLOCKED,
-                        quality = "GREEN_EV_LANE_PAUSED",
-                        confidence = 0.0,
-                        edge = EdgeVerdict.WEAK,
-                        blockReason = "GREEN_EV_LANE_PAUSED",
-                        blockLevel = BlockLevel.HARD,
-                        sizeSol = 0.0,
-                        tags = tags,
-                        mint = ts.mint,
-                        symbol = ts.symbol,
-                        approvalReason = "Lane $lane paused by Green-EV Governor — LLM Lab is inventing recovery strategies",
-                        gateChecks = checks,
-                    )
-                }
-                if (chart.hardVeto && moonshot?.overrideChartVeto != true) {
-                    // V5.0.6203 — MEME-LANE CHART SCOPE. Report 2026-07-08 21:13
-                    // showed 20 CHART_PRE_BUY_BEARISH_HARD_PATTERN blocks. This
-                    // hard-veto is meaningful for pump.fun / raydium-new-pool
-                    // memes where a bearish shape is a rug signal, but on
-                    // proven established lanes (BLUECHIP/TREASURY/PROJECT_SNIPER/
-                    // DIP_HUNTER) a bearish 5-minute chart is the ENTRY signal
-                    // for dip-hunting. Convert to soft-shape (0.35x size) on
-                    // those lanes instead of a hard block.
-                    val laneU6203 = laneName?.uppercase().orEmpty()
-                    val isDipEligibleLane6203 = laneU6203 == "BLUECHIP" || laneU6203 == "TREASURY" || laneU6203 == "PROJECT_SNIPER" || laneU6203 == "DIP_HUNTER"
-                    if (isDipEligibleLane6203) {
-                        tags.add("chart_pre_buy_soft_dip_6203")
-                        checks.add(GateCheck("chart_pre_buy_soft_dip", true,
-                            "Chart bearish hard-pattern SOFT-ALLOWED on dip-eligible lane $laneU6203 — treating as dip-hunt signal, 0.35x size"))
-                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CHART_PRE_BUY_SOFT_DIP_ALLOW_6203_$laneU6203") } catch (_: Throwable) {}
-                        try { ForensicLogger.lifecycle("CHART_PRE_BUY_SOFT_DIP_ALLOW_6203", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneU6203 bearishReason=${chart.reason} action=soft_allow_dip_scope") } catch (_: Throwable) {}
-                        // fall through — soft-shape applied via chart.sizeMult=0.0 → clamp to 0.35 via combinedMult floor below
-                    } else {
-                        checks.add(GateCheck("chart_pre_buy_veto", false,
-                            "Chart brain hard-veto: ${chart.bias} conf=${chart.confidence.toInt()} — ${chart.reason}"))
-                        tags.add("chart_pre_buy_veto")
-                        return FinalDecision(
-                            shouldTrade = false,
-                            mode = mode,
-                            approvalClass = ApprovalClass.BLOCKED,
-                            quality = "CHART_PRE_BUY_${chart.bias}",
-                            confidence = 0.0,
-                            edge = EdgeVerdict.WEAK,
-                            blockReason = "CHART_PRE_BUY_${chart.bias}",
-                            blockLevel = BlockLevel.HARD,
-                            sizeSol = 0.0,
-                            tags = tags,
-                            mint = ts.mint,
-                            symbol = ts.symbol,
-                            approvalReason = "Chart brain vetoed: ${chart.reason}",
-                            gateChecks = checks,
-                        )
-                    }
-                }
-                if (chart.hardVeto && moonshot?.overrideChartVeto == true) {
-                    tags.add("moonshot_override_chart_6124h")
-                    checks.add(GateCheck("moonshot_launch_override", true,
-                        "FreshLaunchHunter override — chart veto bypassed for ${moonshot.fingerprint}"))
-                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MOONSHOT_CHART_VETO_OVERRIDDEN_6124h") } catch (_: Throwable) {}
-                }
-                val moonshotMult = moonshot?.sizeMult ?: 1.0
-                val combinedMult = (laneMult * chart.sizeMult * moonshotMult).coerceIn(0.01, 2.1)
-                if (combinedMult != 1.0) {
-                    val originalSize = finalSize
-                    finalSize = (finalSize * combinedMult).coerceIn(0.01, 1.0)
-                    val direction = if (combinedMult > 1.0) "chart_boosted" else "governor_damped"
-                    tags.add("size_${direction}_6120h")
-                    val moonshotTag = if (moonshotMult > 1.0) " × moonshot×${"%.2f".format(moonshotMult)}" else ""
-                    checks.add(GateCheck("lane_chart_shape", true,
-                        "Lane×${"%.2f".format(laneMult)} × chart×${"%.2f".format(chart.sizeMult)} (${chart.bias})$moonshotTag → " +
-                        "${originalSize.format(3)} → ${finalSize.format(3)}"))
-                }
-            }
-        } catch (_: Throwable) { /* fail-open — governor/chart are advisory */ }
-
-        // ═══════════════════════════════════════════════════════════════════
-        // V5.0.6121 — GREEN-EV COMPOUNDING STACK (Phase 2A)
-        //   • HivemindReadyGate: hold live entries until CollectiveLearning
-        //     completes downloadAll() (P2 race fix). 60s hard-timeout.
-        //   • CompounderMode: winning-streak size ladder 1.00→1.85× based on
-        //     rolling green closes. Cooldown damper 0.60× after -20% smoke.
-        //   • ConvictionStackBooster: 1.00→2.50× when 3-6 independent bullish
-        //     signals converge (hive+chart+whale+score+green_lane+insider).
-        //   • DailyCompoundTargeter: pace-adjusted size mult against 2x-5x
-        //     daily target. AHEAD tightens; BEHIND opens the aggression valve.
-        // ═══════════════════════════════════════════════════════════════════
-        try {
-            if (mode == TradeMode.LIVE) {
-                // 5A. Hivemind readiness gate — hold live entries if the hive
-                //     download hasn't landed yet on this fast-startup boot.
-                if (!com.lifecyclebot.engine.HivemindReadyGate.isReady()) {
-                    checks.add(GateCheck("hivemind_ready_gate", false,
-                        "Hive download not landed yet — deferring live entry"))
-                    tags.add("hivemind_ready_gate_hold")
-                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HIVEMIND_GATE_HOLD_HIT_6121") } catch (_: Throwable) {}
-                    return FinalDecision(
-                        shouldTrade = false,
-                        mode = mode,
-                        approvalClass = ApprovalClass.BLOCKED,
-                        quality = "HIVEMIND_NOT_READY",
-                        confidence = 0.0,
-                        edge = EdgeVerdict.WEAK,
-                        blockReason = "HIVEMIND_NOT_READY",
-                        blockLevel = BlockLevel.HARD,
-                        sizeSol = 0.0,
-                        tags = tags,
-                        mint = ts.mint,
-                        symbol = ts.symbol,
-                        approvalReason = "Hivemind download still in progress — try again shortly",
-                        gateChecks = checks,
-                    )
-                }
-
-                // 5B. Fetch last 20 live sells once for compounder + targeter.
-                val recentLiveSells = try {
-                    com.lifecyclebot.engine.TradeHistoryStore
-                        .getRecentValidClosedTradesRaw(50)
-                        .filter { it.mode.equals("live", true) && it.side.equals("SELL", true) }
-                        .take(20)
-                } catch (_: Throwable) { emptyList() }
-
-                // 5C. Compounder — winning streak size ladder.
-                val compounderMult = try {
-                    com.lifecyclebot.engine.CompounderMode.sizeMultiplier(recentLiveSells)
-                } catch (_: Throwable) { 1.0 }
-
-                // 5D. Conviction stack — asymmetric multi-signal booster.
-                val convictionSnap = try {
-                    com.lifecyclebot.engine.ConvictionStackBooster.evaluate(ts)
-                } catch (_: Throwable) { com.lifecyclebot.engine.ConvictionStackBooster.ConvictionSnapshot(0, 1.0, "ERROR") }
-
-                // 5E. Daily compound targeter — pace-adjusted valve.
-                val currentSol = try {
-                    com.lifecyclebot.engine.WalletStateBridge.latestSolBalance()
-                } catch (_: Throwable) { 0.0 }
-                val targetVerdict = try {
-                    com.lifecyclebot.engine.DailyCompoundTargeter.evaluate(currentSol)
-                } catch (_: Throwable) { com.lifecyclebot.engine.DailyCompoundTargeter.CompoundVerdict(1.0, 0, 0.0, "ERROR") }
-
-                val stackMult = (compounderMult * convictionSnap.sizeMult * targetVerdict.sizeMult).coerceIn(0.30, 3.0)
-                if (stackMult != 1.0) {
-                    val originalSize = finalSize
-                    finalSize = (finalSize * stackMult).coerceIn(0.01, 1.0)
-                    tags.add("size_compounding_stack_6121")
-                    checks.add(GateCheck("compounding_stack", true,
-                        "Compounder×${"%.2f".format(compounderMult)} × Conviction×${"%.2f".format(convictionSnap.sizeMult)}(${convictionSnap.fingerprint}) × Target×${"%.2f".format(targetVerdict.sizeMult)}(${targetVerdict.state}) → " +
-                        "${originalSize.format(3)} → ${finalSize.format(3)}"))
-                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("COMPOUNDING_STACK_APPLIED_6121") } catch (_: Throwable) {}
-                }
-            }
-        } catch (_: Throwable) { /* fail-open — compounding stack is advisory */ }
-
 
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.934 — AI STARTUP COORDINATOR soft-shape (4th dormant subsystem).
@@ -4856,14 +4254,6 @@ object FinalDecisionGate {
             recordBlock(blockReason)
         } else if (shouldTrade) {
             recordTradeExecuted()
-            // V5.0.6127 — PROBE_ONLY is an approved dust-buy (canExecute()=true),
-            // but it was being tallied as a FDG block because blockReason != null.
-            // This made the operator see "FDG block=511" when 436 were actually
-            // approved probes. Fix: don't count PROBE_ONLY as a block in the
-            // phase counter — it's an allow with a dust-size quality penalty.
-            if (blockReason == "PROBE_ONLY") {
-                try { PipelineHealthCollector.labelInc("FDG_PROBE_ONLY_COUNTED_AS_ALLOW_6127") } catch (_: Throwable) {}
-            }
         }
 
         if (adaptiveRelaxationActive) {
@@ -5010,18 +4400,17 @@ object FinalDecisionGate {
                             )
                             com.lifecyclebot.engine.learning.LanePolicy.noteRetrainingSample(laneForRouting2, scoreBand2)
                             if (!routed2.proceedToOpen) {
-                                // V5.0.6106 — BCG sibling of learned-danger routing:
-                                // pause toxic paper/live execution instead of paying
-                                // for 0.01 micro probes; retain NoTradeObservation for
-                                // LLM Lab / LanePolicy reintroduction evidence.
+                                // V5.9.1325 — TRAIN-FIRST INVARIANT (BCG path).
+                                // Operator: V3/FDG is final authority; never stop
+                                // trading. BCG SOFT_BLOCK with learned danger is
+                                // statistical, not safety — demote to micro paper
+                                // probe (size 0.01) instead of vetoing the trade.
                                 val originalSize3 = finalSize
-                                blockReason = "LANE_RETRAINING_PAUSED_${laneForRouting2}_${routed2.verdict.tag}"
-                                blockLevel = BlockLevel.HARD
-                                finalSize = 0.0
-                                tags.add("bcg_lane_retraining_paused_6106")
+                                finalSize = 0.01
+                                tags.add("bcg_train_first_micro_probe")
                                 tags.add("route:${routed2.verdict.tag}")
-                                checks.add(GateCheck("brain_consensus_micro", false, "${routed2.routeReasonForLog} | LANE_RETRAINING_PAUSED ${originalSize3.format(3)}→0.000 awaiting_llm_lab_reintroduction"))
-                                // V5.9.1322 / V5.0.6106 — record as NoTradeObservation.
+                                checks.add(GateCheck("brain_consensus_micro", true, "${routed2.routeReasonForLog} | TRAIN_FIRST_MICRO ${originalSize3.format(3)}→${finalSize.format(3)}"))
+                                // V5.9.1322 — Build B: record as NoTradeObservation.
                                 try {
                                     com.lifecyclebot.engine.learning.NoTradeObservationStore.recordBlock(
                                         mint = ts.mint,
@@ -5213,58 +4602,30 @@ object FinalDecisionGate {
                 // and trade back through it. Only genuine INVALID_UNTRADEABLE (unsafe /
                 // unsellable data — already in the original veto whitelist) may zero out.
                 val isTrueUntradeable = lpState == com.lifecyclebot.engine.learning.LanePolicy.State.INVALID_UNTRADEABLE
-                val isRetrainingNoOpen6107 = lpState == com.lifecyclebot.engine.learning.LanePolicy.State.RETRAINING ||
-                    lpState == com.lifecyclebot.engine.learning.LanePolicy.State.TRAIN_ONLY_NO_OPEN ||
-                    lpState == com.lifecyclebot.engine.learning.LanePolicy.State.SHADOW_TRACK_ONLY ||
-                    lpState == com.lifecyclebot.engine.learning.LanePolicy.State.PAPER_MICRO_EXECUTION
-                // V5.0.6107 — strategy weakness that has reached retraining state is
-                // trainable but not executable. Do not floor it back into 0.01 SOL.
-                // It records NoTradeObservation and waits for LLM Lab / LanePolicy
-                // proof before reintroduction into paper/live execution.
-                if (isTrueUntradeable) {
-                    finalSize = 0.0
+                val liveRuntime = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { !config.paperMode }
+                val liveParityMicro = liveRuntime && lpState == com.lifecyclebot.engine.learning.LanePolicy.State.PAPER_MICRO_EXECUTION
+                // V5.9.1559 — PAPER_MICRO_EXECUTION is a paper/probe state name. In LIVE
+                // it must NOT choke real execution down to the 0.01 SOL floor forever.
+                // Treat it as reduced-size live execution: still cautious, but mirrors
+                // paper decision volume/win-rate shape instead of becoming a live no-op.
+                val shapeW = when {
+                    isTrueUntradeable -> lpWeight
+                    liveParityMicro   -> lpWeight.coerceAtLeast(0.35)
+                    else              -> lpWeight.coerceAtLeast(0.05)
+                }
+                finalSize = (finalSize * shapeW).coerceAtLeast(if (isTrueUntradeable) 0.0 else if (liveParityMicro) 0.025 else 0.01)
+                val lpLabel = if (liveParityMicro) "LIVE_REDUCED_FROM_${lpState.name}" else lpState.name
+                tags.add("lane_policy:${lpLabel}×${"%.2f".format(shapeW)}")
+                checks.add(GateCheck("lane_policy_weight", true,
+                    "lane=$laneName band=$lpScoreBand state=${lpLabel} execW=${"%.2f".format(shapeW)} size ${beforeLp.format(3)}→${finalSize.format(3)}"))
+                ErrorLogger.info("FDG", "🛞 LANE_POLICY_EXEC_WEIGHT ${ts.symbol} lane=$laneName band=$lpScoreBand ${lpLabel} ×${"%.2f".format(shapeW)} size ${beforeLp.format(3)}→${finalSize.format(3)}")
+                // Train-First telemetry note for weak buckets — but we DO open the trade.
+                com.lifecyclebot.engine.learning.LanePolicy.noteRetrainingSample(laneName, lpScoreBand)
+                // ONLY genuinely untradeable (unsafe data) is routed no-open. Strategy
+                // weakness NEVER stops the trade — the small size is the expression.
+                if (isTrueUntradeable && shapeW <= 0.0) {
+                    blockReasonFinal = blockReasonFinal ?: "LANE_POLICY_INVALID_UNTRADEABLE"
                     shouldTradeFinal = false
-                    blockReasonFinal = if (blockReasonFinal == null || blockReasonFinal == "PROBE_ONLY") "LANE_POLICY_INVALID_UNTRADEABLE" else blockReasonFinal
-                    blockLevelFinal = BlockLevel.HARD
-                    tags.add("lane_policy_invalid_untradeable")
-                    checks.add(GateCheck("lane_policy_weight", false,
-                        "lane=$laneName band=$lpScoreBand state=${lpState.name} true-untradeable ${beforeLp.format(3)}→0.000"))
-                    ErrorLogger.info("FDG", "⛔ LANE_POLICY_INVALID_UNTRADEABLE ${ts.symbol} lane=$laneName band=$lpScoreBand size ${beforeLp.format(3)}→0")
-                } else if (isRetrainingNoOpen6107) {
-                    // V5.0.6165 — strategy pivot before purchase, not blind micro-probe.
-                    // Retraining buckets rotate their lane-local tactic immediately through
-                    // TacticSwitcher, seed LLM Lab, and execute a controlled recovery entry
-                    // under the new tactic. Only INVALID_UNTRADEABLE can still zero the lane.
-                    val pivotTactic6165 = try {
-                        com.lifecyclebot.engine.learning.TacticSwitcher.forcePivotForRetraining(laneName, lpScoreBand, lpState.name)
-                    } catch (_: Throwable) { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(laneName, lpScoreBand) }
-                    val recoveryW6165 = lpWeight.coerceAtLeast(0.35)
-                    finalSize = (finalSize * recoveryW6165).coerceAtLeast(0.01)
-                    shouldTradeFinal = true
-                    if (blockReasonFinal == "PROBE_ONLY" || (blockReasonFinal?.startsWith("LANE_POLICY_RETRAINING_PAUSED_6128") == true)) blockReasonFinal = null
-                    tags.add("lane_policy_retraining_pivot_6165:${pivotTactic6165.name}×${"%.2f".format(recoveryW6165)}")
-                    checks.add(GateCheck("lane_policy_weight", true,
-                        "lane=$laneName band=$lpScoreBand state=${lpState.name} pivot=${pivotTactic6165.name} size ${beforeLp.format(3)}→${finalSize.format(3)}"))
-                    com.lifecyclebot.engine.learning.LanePolicy.noteRetrainingSample(laneName, lpScoreBand)
-                    try {
-                        com.lifecyclebot.engine.lab.LlmLabEngine.seedFromTacticFailure(
-                            lane = laneName,
-                            scoreBand = lpScoreBand,
-                            failedTactic = lpState.name,
-                            nextTactic = pivotTactic6165.name,
-                            reason = "FDG LanePolicy retraining pivoted lane-local tactic 6165"
-                        )
-                        PipelineHealthCollector.labelInc("LANE_POLICY_RETRAINING_TACTIC_PIVOT_6165")
-                    } catch (_: Throwable) {}
-                    ErrorLogger.info("FDG", "🧪 LANE_POLICY_RETRAINING_PIVOT_6165 ${ts.symbol} lane=$laneName band=$lpScoreBand state=${lpState.name} tactic=${pivotTactic6165.name} size ${beforeLp.format(3)}→${finalSize.format(3)}")
-                } else {
-                    val shapeW = lpWeight.coerceAtLeast(0.05)
-                    finalSize = (finalSize * shapeW).coerceAtLeast(0.01)
-                    tags.add("lane_policy:${lpState.name}×${"%.2f".format(shapeW)}")
-                    checks.add(GateCheck("lane_policy_weight", true,
-                        "lane=$laneName band=$lpScoreBand state=${lpState.name} execW=${"%.2f".format(shapeW)} size ${beforeLp.format(3)}→${finalSize.format(3)}"))
-                    ErrorLogger.info("FDG", "🛞 LANE_POLICY_EXEC_WEIGHT ${ts.symbol} lane=$laneName band=$lpScoreBand ${lpState.name} ×${"%.2f".format(shapeW)} size ${beforeLp.format(3)}→${finalSize.format(3)}")
-                    com.lifecyclebot.engine.learning.LanePolicy.noteRetrainingSample(laneName, lpScoreBand)
                 }
             }
         } catch (_: Throwable) { /* lane policy must never break the entry pipeline */ }
@@ -5359,8 +4720,7 @@ object FinalDecisionGate {
                 val coreFloor4526 = maxOf(
                     config.smallBuySol.takeIf { it.isFinite() && it > 0.0 } ?: 0.05,
                     com.lifecyclebot.data.BotConfig().smallBuySol,
-                    com.lifecyclebot.engine.LiveSizingProfile.MIN_ENTRY_SOL,
-                ).coerceIn(0.06, 0.25)
+                ).coerceIn(0.03, 0.20)
                 val dustTuitionTag4526 = tags.any { t ->
                     val u = t.uppercase()
                     u.contains("MICRO") || u.contains("PROBE") || u.contains("PROVEN_DEAD") || u.contains("TRAIN_FIRST")

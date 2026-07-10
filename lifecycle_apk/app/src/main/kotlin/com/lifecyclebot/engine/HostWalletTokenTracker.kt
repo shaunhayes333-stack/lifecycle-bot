@@ -92,11 +92,6 @@ object HostWalletTokenTracker {
         CLOSED(9),
         CLOSED_STALE_RECOVERY_UNHELD(10),
         CLOSED_DUST_UNROUTABLE(10),
-        // V5.0.6175 — factual terminal wallet poison: token is still in wallet
-        // but route/liquidity/freeze/lock state makes it unsellable. This is NOT
-        // sold finality; it is an abandonment/quarantine state so the mint stops
-        // consuming live slots or retry bandwidth.
-        CLOSED_UNSELLABLE_QUARANTINED(10),
 
         // V5.9.778 — EMERGENT MEME-ONLY: external-swap terminal states.
         // Operator forensics 5.0.2709: user manually swapped received
@@ -258,27 +253,6 @@ object HostWalletTokenTracker {
             val botSource = p.source == PositionSource.BOT_BUY || p.source == PositionSource.TX_PARSE
             if (!sigOk && !botSource) continue
             if (!hasLastPositiveRaw(p)) continue
-            // V5.0.6160 — do not revive a stale row in the same window where a
-            // non-empty wallet snapshot just proved the mint absent. Field report
-            // showed ABSENT_MINT_ZERO_CONFIRM immediately followed by
-            // STALE_UNPROVEN_REVIVED_TO_OPEN for the same mints, burning slots and
-            // spawning duplicate sell cycles. One fresh absent-zero confirm is not
-            // terminal close authority, but it is enough to suppress revive until a
-            // fresh positive wallet proof arrives.
-            val recentAbsentZero6160 = p.consecutiveZeroConfirms > 0 &&
-                p.lastWalletReconcileMs != null &&
-                (now - (p.lastWalletReconcileMs ?: 0L)) <= 180_000L
-            if (recentAbsentZero6160) {
-                p.notes.add("STALE_REVIVE_SUPPRESSED_6160 reason=recent_absent_zero_confirm")
-                try {
-                    ForensicLogger.lifecycle(
-                        "STALE_REVIVE_SUPPRESSED_6160",
-                        "mint=${p.mint.take(10)} symbol=${p.symbol ?: "?"} zeroConfirms=${p.consecutiveZeroConfirms} lastRecon=${p.lastWalletReconcileMs ?: 0L} reason=recent_absent_zero_confirm",
-                    )
-                    PipelineHealthCollector.labelInc("STALE_REVIVE_SUPPRESSED_6160")
-                } catch (_: Throwable) {}
-                continue
-            }
             // Sanity: don't revive ancient rows past the bot-bought 45-min
             // liability window — those are genuinely lost.
             val anchor = maxOf(p.balanceAuthorityObservedAtMs, p.buyTimeMs ?: 0L, p.firstSeenWalletMs, p.lastSeenWalletMs)
@@ -999,15 +973,6 @@ object HostWalletTokenTracker {
             val rawApprox = (uiAmount * Math.pow(10.0, decimals.toDouble())).toLong()
             val walletHasTradableUi = uiAmount.isFinite() && uiAmount > TERMINAL_DUST_UI
             val walletHasTradableRaw = rawApprox > DUST_RAW && walletHasTradableUi
-            // V5.0.6175 — if a mint has been classified as factually unsellable
-            // (no route / frozen / locked / zero executable liquidity), wallet
-            // reconciliation must NOT re-adopt it just because tokens remain in the
-            // host wallet. The token is visible in forensic/quarantine surfaces but
-            // ignored for open-slot and sell-loop purposes.
-            if (try { QuarantineStore.isQuarantined(mint) || TokenBlacklist.isBlocked(mint) } catch (_: Throwable) { false }) {
-                try { ForensicLogger.lifecycle("UNSELLABLE_WALLET_TOKEN_IGNORED_6175", "mint=${mint.take(10)} qty=$uiAmount decimals=$decimals reason=quarantined_or_blacklisted") } catch (_: Throwable) {}
-                continue
-            }
             val existing = positions[mint]
             if (existing != null) {
                 // V5.9.1496 — balance returned → cancel any pending zero-close debounce.
@@ -1919,31 +1884,6 @@ object HostWalletTokenTracker {
             ErrorLogger.warn(TAG, "♻️ [CLEAR_SELL_IN_FLIGHT] ${p.symbol ?: mint.take(6)} reason=$reason — lock cleared, stop can re-fire")
         } catch (_: Throwable) {}
         save()
-    }
-
-    /** V5.0.6175 — terminal unsellable quarantine. This deliberately does NOT
-     * stamp a successful sell. It abandons a token that cannot be sold because
-     * route/liquidity/freeze/lock state makes it factual wallet poison. The mint
-     * is removed from cap-countable tracking, all execution locks are released,
-     * and future wallet reconcile ignores it through QuarantineStore/TokenBlacklist. */
-    @Synchronized
-    fun abandonUnsellableQuarantined(mint: String, reason: String): Boolean {
-        if (mint.isBlank()) return false
-        val p = positions.remove(mint)
-        walletAuthority.remove(mint)
-        try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(mint) } catch (_: Throwable) {}
-        try { com.lifecyclebot.engine.sell.CloseLease.release(mint, "UNSELLABLE_QUARANTINE_6175:$reason") } catch (_: Throwable) {}
-        try {
-            for (ln in listOf("SHITCOIN","MOONSHOT","QUALITY","EXPRESS","CYCLIC","BLUE_CHIP","BLUECHIP","MANIPULATED","CORE","V3","DIP_HUNTER","PROJECT_SNIPER","STANDARD")) {
-                com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(mint, ln, "UNSELLABLE_QUARANTINE_6175:$reason")
-            }
-        } catch (_: Throwable) {}
-        try { com.lifecyclebot.engine.TokenLifecycleTracker.purgeTerminalRecord(mint) } catch (_: Throwable) {}
-        try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(mint, "ABANDONED_UNSELLABLE_QUARANTINED_6175:$reason", 0) } catch (_: Throwable) {}
-        try { ForensicLogger.lifecycle("UNSELLABLE_POSITION_ABANDONED_6175", "mint=${mint.take(10)} symbol=${p?.symbol ?: "?"} reason=${reason.take(120)} hadTracker=${p != null}") } catch (_: Throwable) {}
-        try { ErrorLogger.warn(TAG, "🧯 [UNSELLABLE_QUARANTINE_6175] ${p?.symbol ?: mint.take(6)} abandoned/ignored reason=${reason.take(120)}") } catch (_: Throwable) {}
-        save()
-        return p != null
     }
 
     fun getEntry(mint: String): TrackedTokenPosition? = positions[mint]

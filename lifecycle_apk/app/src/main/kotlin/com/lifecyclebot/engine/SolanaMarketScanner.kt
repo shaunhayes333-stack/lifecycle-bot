@@ -677,7 +677,6 @@ class SolanaMarketScanner(
         COINGECKO_TRENDING,
         COINGECKO_ESTABLISHED,  // V5.0.4097 — top-mcap Solana ecosystem feeder for BLUECHIP/DIP_HUNTER/QUALITY lanes
         SOLANA_BLUECHIP_WATCHLIST,  // V5.0.4589 — hard-coded canonical Solana blue-chip mints, resolved every deep-scan cycle (no API rate-limit dependency)
-        PROJECT_SNIPER_LAUNCHPAD,   // V5.0.6199 — legit-quality fresh launches (mcap>=$500K, liq>=$50K, age>=30m) that graduate out of pump.fun noise and belong in PROJECT_SNIPER lane. Distinct source so ScannerSourceBrain learns WR separately from raw RAYDIUM_NEW_POOL firehose.
         JUPITER_NEW,
         RAYDIUM_NEW_POOL,
         NARRATIVE_SCAN,
@@ -890,7 +889,7 @@ class SolanaMarketScanner(
     // streak (scanPumpFunDirect streak=27, four other sources streak=3-9) burning
     // ~30s of cycle time. Healthy sources finish in 300–1500ms; trimming 1s off the
     // per-source ceiling cuts ~5s off worst-case parallel cycles when 5 sources hang.
-    private val SOURCE_SCAN_TIMEOUT_MS = 3_500L // V5.0.6189: cut dead-source loop stalls; healthy scanner APIs are sub-1.5s
+    private val SOURCE_SCAN_TIMEOUT_MS = 5_000L
 
     // V5.9.1497 — SCANNER LOOP BUDGET (spec 5.0.3502 §2). Hard wall-clock
     // ceiling for the whole parallel deep-scan batch. Even if several sources
@@ -911,20 +910,6 @@ class SolanaMarketScanner(
     private val sourceTimeoutStreak = java.util.concurrent.ConcurrentHashMap<String, Int>()
     private val SOURCE_DEPRIORITIZE_AFTER = 3   // consecutive timeouts before skipping
     private val SOURCE_SKIP_EVERY = 3           // when deprioritized, run 1 of every 3 cycles
-    // V5.0.6216 — SEVERE-STREAK ADAPTIVE CORE ROTATION. Report showed core
-    // Dex sources (scanDexTrending, scanDexGainers, scanFreshLaunches,
-    // scanRaydiumNewPools) with streak=9 still burning the full 3500ms
-    // per-source timeout every cycle because coreSource6103 bypassed the
-    // rotation skip. When DexScreener SR is at 42% with 382× 5xx errors,
-    // that's 4 core × 3.5s = 14s of dead time per batch, blowing past the
-    // 8s SCAN_BATCH_BUDGET_MS. At severe streaks even core sources rotate
-    // (run 1 in 3 cycles) and their per-source timeout is halved to fail
-    // fast. Never a permanent ban — sources re-enter on their cadence.
-    private val SOURCE_SEVERE_STREAK = 6        // core sources start rotating past this
-    private val SOURCE_SEVERE_SKIP_EVERY = 3    // even core sources: run 1 in every 3
-    private val SOURCE_CRITICAL_STREAK = 12     // deep-dead: back off harder
-    private val SOURCE_CRITICAL_SKIP_EVERY = 6  // run 1 in every 6
-    private val SOURCE_FAST_FAIL_TIMEOUT_MS = 1_500L  // half timeout for streak≥3 sources
 
     @Volatile private var memorySafeMode = false
     @Volatile private var oomCount = 0
@@ -1065,14 +1050,14 @@ class SolanaMarketScanner(
         onLog("⚠️ Scanner error: ${throwable.javaClass.simpleName} - ${throwable.message?.take(50)}")
     }
 
-    private suspend fun runScan(name: String, timeoutMs: Long = SOURCE_SCAN_TIMEOUT_MS, block: suspend () -> Unit) {
+    private suspend fun runScan(name: String, block: suspend () -> Unit) {
         telemetrySourceAttempts++
         lastSourceAttemptMs = System.currentTimeMillis()
         val startedAt = System.currentTimeMillis()
         val rawBefore = telemetryRawScanned
         val enqBefore = telemetryEnqueued
         try {
-            withTimeout(timeoutMs) { block() }
+            withTimeout(SOURCE_SCAN_TIMEOUT_MS) { block() }
             telemetrySourceSuccesses++
             sourceTimeoutStreak.remove(name)  // V5.9.1497 — healthy → reset deprioritization
             try {
@@ -1085,8 +1070,8 @@ class SolanaMarketScanner(
             telemetrySourceErrors++
             val streak = (sourceTimeoutStreak[name] ?: 0) + 1  // V5.9.1497
             sourceTimeoutStreak[name] = streak
-            ErrorLogger.warn("Scanner", "$name timed out after ${timeoutMs}ms (streak=$streak)")
-            try { ForensicLogger.lifecycle("SCANNER_SOURCE_TIMEOUT", "name=$name raw=${telemetryRawScanned - rawBefore} enq=${telemetryEnqueued - enqBefore} durMs=${System.currentTimeMillis() - startedAt} timeoutMs=$timeoutMs") } catch (_: Throwable) {}
+            ErrorLogger.warn("Scanner", "$name timed out after ${SOURCE_SCAN_TIMEOUT_MS}ms (streak=$streak)")
+            try { ForensicLogger.lifecycle("SCANNER_SOURCE_TIMEOUT", "name=$name raw=${telemetryRawScanned - rawBefore} enq=${telemetryEnqueued - enqBefore} durMs=${System.currentTimeMillis() - startedAt}") } catch (_: Throwable) {}
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -1119,12 +1104,7 @@ class SolanaMarketScanner(
         // real chance every cycle. This fixes source collapse without hard-blocking
         // Pump/Raydium or adding hot-path LLM/API work.
         val requestedPermits6017 = if (overlayCap > 0) overlayCap else scans.size
-        // V5.0.6103 — make runtime scanner caps real. The old expression
-        // coerced permits back up to scans.size, so RuntimeDoctor/overlay caps
-        // could not actually relieve live-loop pressure. No source is disabled;
-        // excess sources queue behind the semaphore inside the existing 8s batch
-        // budget, while PumpPortal WS remains on its separate firehose path.
-        val permits = if (overlayCap > 0) requestedPermits6017.coerceIn(4, 24) else requestedPermits6017.coerceIn(12, 24)
+        val permits = requestedPermits6017.coerceIn(12, 24).coerceAtLeast(scans.size.coerceAtMost(24))
         val gate = kotlinx.coroutines.sync.Semaphore(permits)
         // V5.9.1497 — ADAPTIVE DEPRIORITIZATION (spec §2): a source that has timed
         // out SOURCE_DEPRIORITIZE_AFTER+ consecutive cycles is skipped on a rotating
@@ -1137,45 +1117,14 @@ class SolanaMarketScanner(
         // exactly like "Pump=0 / Dex=0" and let PumpPortal WS dominate by default.
         // Per source-balanced doctrine, timeout history may be telemetry, not an intake
         // veto. Run every source every cycle; per-source withTimeout still caps damage.
-        val coreSource6103 = setOf(
-            "scanPumpFunDirect", "scanPumpFunActive", "scanPumpGraduates", "scanFreshLaunches", "scanPumpFunVolume",
-            "scanDexBoosted", "scanDexTrending", "scanDexGainers", "scanRaydiumNewPools"
-        )
-        val rotation6103 = scanRotation.coerceAtLeast(0)
-        val active = scans.toList().filter { (name, _) ->
-            val streak = sourceTimeoutStreak[name] ?: 0
-            val core = name in coreSource6103
-            // V5.0.6216 — SEVERE-STREAK ADAPTIVE CORE ROTATION.
-            // Even "core" sources rotate once streak ≥ SOURCE_SEVERE_STREAK,
-            // and even harder past SOURCE_CRITICAL_STREAK. This stops a
-            // wedged DexScreener from burning ~14s of per-cycle timeout
-            // budget across 4 core Dex sources when it's returning 5xx.
-            // Non-core keeps its original schedule.
-            val shouldRotateSkip = when {
-                !core && streak >= SOURCE_DEPRIORITIZE_AFTER && (rotation6103 % SOURCE_SKIP_EVERY) != 0 -> true
-                core && streak >= SOURCE_CRITICAL_STREAK && (rotation6103 % SOURCE_CRITICAL_SKIP_EVERY) != 0 -> true
-                core && streak >= SOURCE_SEVERE_STREAK && (rotation6103 % SOURCE_SEVERE_SKIP_EVERY) != 0 -> true
-                else -> false
-            }
-            if (shouldRotateSkip) {
-                try {
-                    val tag = if (core) "SCANNER_CORE_SOURCE_ROTATED_SKIP_6216" else "SCANNER_OPTIONAL_SOURCE_ROTATED_SKIP_6103"
-                    ForensicLogger.lifecycle(
-                        tag,
-                        "name=$name core=$core streak=$streak rotation=$rotation6103 reason=preserve_live_loop_under_provider_degradation"
-                    )
-                    PipelineHealthCollector.labelInc(tag)
-                } catch (_: Throwable) {}
-            }
-            !shouldRotateSkip
-        }.also { activeList ->
+        val active = scans.toList().also { all ->
             try {
                 val bad = sourceTimeoutStreak.entries
                     .filter { it.value >= SOURCE_DEPRIORITIZE_AFTER }
                     .joinToString(",") { "${it.key}:${it.value}" }
                 if (bad.isNotBlank()) ForensicLogger.lifecycle(
                     "SCANNER_SOURCE_TIMEOUT_HISTORY",
-                    "optionalRotateSkip=true timedOut=$bad active=${activeList.size} total=${scans.size} coreAlways=${coreSource6103.size}"
+                    "attemptingAllSources=true timedOut=$bad total=${all.size}"
                 )
             } catch (_: Throwable) {}
         }
@@ -1199,19 +1148,7 @@ class SolanaMarketScanner(
             balancedActive6017.map { (name, block) ->
                 async(Dispatchers.IO) {
                     gate.acquire()
-                    try {
-                        // V5.0.6216 — HIGH-STREAK FAST-FAIL. When a source has
-                        // been timing out for ≥SOURCE_DEPRIORITIZE_AFTER cycles
-                        // we halve its per-source timeout so it stops burning
-                        // permits and lets healthy sources through faster. If
-                        // the API is genuinely up-again it'll return in <1s
-                        // anyway, so the halved ceiling is only tighter on
-                        // sources already known to be sick.
-                        val streak = sourceTimeoutStreak[name] ?: 0
-                        val effectiveTimeout = if (streak >= SOURCE_DEPRIORITIZE_AFTER)
-                            SOURCE_FAST_FAIL_TIMEOUT_MS else SOURCE_SCAN_TIMEOUT_MS
-                        runScan(name, effectiveTimeout, block)
-                    } finally { gate.release() }
+                    try { runScan(name, block) } finally { gate.release() }
                 }
             }.awaitAll()
             true
@@ -1735,19 +1672,17 @@ class SolanaMarketScanner(
         // exits arrive late. Prior order fetched created_timestamp first
         // and burned the intake budget on freshest-but-lowest-quality
         // spam. Cap chosen per operator directive (75, quality-first).
-        // V5.0.6189 — runtime 6187 showed scanPumpFunDirect timeout streak=27
-        // while PumpPortal/other pump scanners were already feeding candidates.
-        // Keep the two quality-first pump.fun endpoints, but stop burning cycles on
-        // three extra freshness endpoints when the same source family has parallel
-        // coverage. This preserves source breadth and cuts worst-case direct time.
         val urls = listOf(
             "https://frontend-api-v3.pump.fun/coins?offset=0&limit=50&sort=market_cap&order=DESC&includeNsfw=false",
             "https://frontend-api-v3.pump.fun/coins?offset=0&limit=50&sort=reply_count&order=DESC&includeNsfw=false",
+            "https://frontend-api-v3.pump.fun/coins?offset=0&limit=100&sort=last_trade_timestamp&order=DESC&includeNsfw=false",
+            "https://frontend-api-v3.pump.fun/coins?offset=0&limit=100&sort=created_timestamp&order=DESC&includeNsfw=false",
+            "https://frontend-api-v3.pump.fun/coins?offset=100&limit=100&sort=created_timestamp&order=DESC&includeNsfw=false",
         )
 
-        ErrorLogger.info("Scanner", "scanPumpFunDirect: fetching from ${urls.size} pump.fun quality endpoints (cap=35)...")
+        ErrorLogger.info("Scanner", "scanPumpFunDirect: fetching from ${urls.size} pump.fun endpoints (quality-first, cap=75)...")
         var totalFound = 0
-        val globalCap = 35  // V5.0.6189 — direct source cap; parallel pump scanners keep freshness breadth
+        val globalCap = 75  // V5.0.4594 — total tokens emitted per scan pass
 
         for (url in urls) {
             if (totalFound >= globalCap) {
@@ -1769,7 +1704,7 @@ class SolanaMarketScanner(
                 var found = 0
 
                 for (i in 0 until minOf(coins.length(), 100)) {
-                    if (found >= 18) break
+                    if (found >= 30) break
                     if (totalFound >= globalCap) break  // V5.0.4594 — global cap short-circuit
 
                     val coin = coins.optJSONObject(i) ?: continue
@@ -1867,7 +1802,7 @@ class SolanaMarketScanner(
             var checked = 0
 
             for (i in 0 until minOf(boosted.length(), 80)) {
-                if (found >= 18) break
+                if (found >= 30) break
 
                 val item = boosted.optJSONObject(i) ?: continue
                 val mint = item.optString("tokenAddress", "")
@@ -1940,7 +1875,7 @@ class SolanaMarketScanner(
             var found = 0
 
             for (i in 0 until minOf(profiles.length(), 60)) {
-                if (found >= 18) break
+                if (found >= 30) break
 
                 val profile = profiles.optJSONObject(i) ?: continue
                 if (profile.optString("chainId", "") != "solana") continue
@@ -1984,25 +1919,11 @@ class SolanaMarketScanner(
                     else -> 15.0
                 }
 
-                // V5.0.6199 — PROJECT_SNIPER_LAUNCHPAD source tag. Operator P0:
-                // pivot router needs healthy-lane candidates. Fresh launches that
-                // have already survived long enough to prove real liquidity + mcap
-                // are the graduation-tier candidates for the PROJECT_SNIPER lane
-                // (WR profile better than raw pump.fun firehose). Threshold matches
-                // operator spec: mcap >= $500K, liq >= $50K, age >= 30m. All others
-                // stay tagged RAYDIUM_NEW_POOL as before so scanner-source learning
-                // keeps its firehose/quality axes distinct.
-                val isLaunchpadQuality = mcap >= 500_000.0 && liq >= 50_000.0 && ageMinutes >= 30.0
-                val emitSource = if (isLaunchpadQuality)
-                    TokenSource.PROJECT_SNIPER_LAUNCHPAD
-                else
-                    TokenSource.RAYDIUM_NEW_POOL
-
                 val token = ScannedToken(
                     mint = mint,
                     symbol = sym,
                     name = pair?.baseName ?: sym,
-                    source = emitSource,
+                    source = TokenSource.RAYDIUM_NEW_POOL,
                     liquidityUsd = liq,
                     volumeH1 = vol,
                     mcapUsd = mcap,
@@ -2123,7 +2044,7 @@ class SolanaMarketScanner(
             var checked = 0
 
             for (i in 0 until minOf(profiles.length(), 60)) {
-                if (found >= 18) break
+                if (found >= 30) break
 
                 val profile = profiles.optJSONObject(i) ?: continue
                 if (profile.optString("chainId", "") != "solana") continue
@@ -2266,7 +2187,7 @@ class SolanaMarketScanner(
             var checked = 0
 
             for (i in 0 until minOf(boosted.length(), 80)) {
-                if (found >= 18) break
+                if (found >= 30) break
 
                 val item = boosted.optJSONObject(i) ?: continue
                 val mint = item.optString("tokenAddress", "")
@@ -2470,7 +2391,7 @@ class SolanaMarketScanner(
             val pools = JSONObject(body).optJSONArray("data") ?: return
             var found = 0
             for (i in 0 until minOf(pools.length(), 50)) {
-                if (found >= 18) break
+                if (found >= 30) break
                 val pool = pools.optJSONObject(i) ?: continue
                 val attrs = pool.optJSONObject("attributes") ?: continue
                 val relationships = pool.optJSONObject("relationships") ?: continue
@@ -2553,7 +2474,7 @@ class SolanaMarketScanner(
             // Limit to top 60 per cycle so we don't blow the watchlist with all 100
             // every scan; the cache rotates internally so coverage is broad anyway.
             for (t in tokens.take(60)) {
-                if (found >= 18) break
+                if (found >= 30) break
                 if (isSeen(t.mint)) continue
                 if (t.symbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "USDH")) continue
                 // Liquidity not directly available from CG markets endpoint.
@@ -2621,63 +2542,20 @@ class SolanaMarketScanner(
     private suspend fun scanSolanaBlueChipWatchlist() {
         try {
             var found = 0
-            // V5.0.6199 — SOL-NETWORK-WIDE INTAKE. Operator directive: "scan the
-            // entire sol network!!! its not a pumpfun bot". DexScreener SR=24%
-            // (5xx storm in report 2026-07-08) starves this lane if we depend on
-            // getBestPair() alone. Jupiter lite-api/price/v3 has SR=100% and
-            // supports batched comma-separated mints. Blue-chips have known
-            // persistent liquidity — one price fetch is enough to emit them
-            // into BLUECHIP/DIP_HUNTER/QUALITY.
-            val eligible = SolanaBlueChipWatchlist.WATCHLIST.filter { bc ->
-                !ScannerHardRejectStore.isRejected(bc.mint) &&
-                !GlobalTradeRegistry.hasOpenPosition(bc.mint)
-            }
-            if (eligible.isEmpty()) return
-            val prices = try { withContext(Dispatchers.IO) { fetchJupiterPricesBatch(eligible.map { it.mint }) } } catch (_: Throwable) { emptyMap<String, Double>() }
-            var jupHits = 0
-            var dexFallbacks = 0
-            for (bc in eligible) {
-                if (found >= 40) break  // V5.0.6205 — raised 24→40 to cover the 250-mint expanded watchlist in ~6 scanner cycles
-                val jupPrice = prices[bc.mint] ?: 0.0
-                val token: ScannedToken = if (jupPrice > 0.0) {
-                    jupHits++
-                    // Fast path: Jupiter price. Use conservative category-aware
-                    // liquidity floors + $10M mcap so TokenMetricStageRouter's
-                    // established-token override ($5M mcap + $50K liq + 60m age)
-                    // fires and routes into BLUECHIP/DIP_HUNTER lanes.
-                    val fallbackLiq = fallbackLiquidityForBlueChip(bc.category)
-                    val fallbackMcap = fallbackLiq * 40.0  // 40x liq is a conservative established-asset mcap ratio
-                    ScannedToken(
-                        mint = bc.mint,
-                        symbol = bc.symbol,
-                        name = bc.name,
-                        source = TokenSource.SOLANA_BLUECHIP_WATCHLIST,
-                        liquidityUsd = fallbackLiq,
-                        volumeH1 = 0.0,
-                        mcapUsd = fallbackMcap,
-                        pairCreatedHoursAgo = 720.0, // 30d — curated list is age-verified
-                        dexId = "solana",
-                        priceChangeH1 = 0.0,
-                        txCountH1 = 0,
-                        score = scoreToken(fallbackLiq, 0.0, 0, fallbackMcap, 0.0, 720.0),
-                    )
-                } else {
-                    // Fallback: try DexScreener if Jupiter returned no price
-                    val pair = try { withContext(Dispatchers.IO) { dex.getBestPair(bc.mint) } } catch (_: Throwable) { null }
-                    if (pair == null || pair.candle.priceUsd <= 0.0) null
-                    else {
-                        dexFallbacks++
-                        buildScannedToken(
-                            mint = bc.mint,
-                            pair = pair,
-                            source = TokenSource.SOLANA_BLUECHIP_WATCHLIST,
-                            fallbackLiquidity = 250_000.0,
-                        )
-                    }
-                } ?: continue
+            for (bc in SolanaBlueChipWatchlist.WATCHLIST) {
+                if (found >= 12) break  // cap emissions per cycle so we don't overload one intake tick
+                if (isSeen(bc.mint)) continue
+                val pair = try { withContext(Dispatchers.IO) { dex.getBestPair(bc.mint) } } catch (_: Throwable) { null } ?: continue
+                if (pair.candle.priceUsd <= 0.0) continue
+                val token = buildScannedToken(
+                    mint = bc.mint,
+                    pair = pair,
+                    source = TokenSource.SOLANA_BLUECHIP_WATCHLIST,
+                    fallbackLiquidity = 250_000.0,  // conservative floor: every mint on this list has real pools
+                ) ?: continue
                 // Blue chips override the ScoreToken minimum. If it's on the
-                // watchlist and has a valid price, it's admissible for
-                // BLUECHIP/DIP_HUNTER/QUALITY routing.
+                // watchlist and DexScreener has a live pair with positive price,
+                // it's admissible for BLUECHIP/DIP_HUNTER/QUALITY routing.
                 if (!passesFilter(token)) continue
                 emitWithRugcheck(token)
                 found++
@@ -2687,10 +2565,10 @@ class SolanaMarketScanner(
                 )
             }
             if (found > 0) {
-                onLog("🏦 BlueChip: $found Solana ecosystem assets fed to BLUECHIP/DIP_HUNTER/QUALITY (jup=$jupHits dex=$dexFallbacks)")
+                onLog("🏦 BlueChip: $found Solana ecosystem assets fed to BLUECHIP/DIP_HUNTER/QUALITY")
                 try {
                     PipelineHealthCollector.labelInc("SCAN_SOLANA_BLUECHIP_WATCHLIST_EMIT_${found}_4589")
-                    ForensicLogger.lifecycle("SCAN_SOLANA_BLUECHIP_WATCHLIST_4589", "found=$found jupHits=$jupHits dexFallbacks=$dexFallbacks watchlistSize=${SolanaBlueChipWatchlist.WATCHLIST.size}")
+                    ForensicLogger.lifecycle("SCAN_SOLANA_BLUECHIP_WATCHLIST_4589", "found=$found watchlistSize=${SolanaBlueChipWatchlist.WATCHLIST.size}")
                 } catch (_: Throwable) {}
             }
         } catch (e: CancellationException) {
@@ -2700,112 +2578,6 @@ class SolanaMarketScanner(
         }
     }
 
-    /**
-     * V5.0.6199 — Batched Jupiter price fetch for blue-chip watchlist.
-     * Endpoint: https://lite-api.jup.ag/price/v3?ids=<mint1>,<mint2>,...
-     * Response shape: {"<mint>": {"usdPrice": X, ...}, ...}
-     * No API key, no rate limits at this batch size. SR=100% in current health monitor.
-     * Fails fast on any network/parse error — returns emptyMap so DexScreener
-     * fallback path takes over per-mint.
-     */
-    private suspend fun fetchJupiterPricesBatch(mints: List<String>): Map<String, Double> {
-        if (mints.isEmpty()) return emptyMap()
-        // V5.0.6206 — CHUNKED BATCHES. The 251-mint watchlist built an
-        // 11,080-char ids URL that Jupiter 400'd on every call (ApiHealth:
-        // jupiter sr=1%, 4xx=107) — the entire blue-chip fallback lane
-        // silently died the moment the watchlist grew. lite-api /price/v3
-        // handles ~50 ids per request; chunk at 45 and merge.
-        //
-        // V5.0.6216 — PARALLEL CHUNK FETCH. Report showed
-        // scanSolanaBlueChipWatchlist timing out (streak=2) because the
-        // 305-mint watchlist expands to ~7 chunks × 1-2s serially = 7-14s,
-        // busting the 3500ms per-source withTimeout. Fire all chunks
-        // concurrently on Dispatchers.IO; wall time drops to slowest
-        // single chunk (~1-2s). Jupiter lite-api handles ~50 ids/req and
-        // has no batch-parallelism limit at this fanout size.
-        val out = HashMap<String, Double>()
-        val chunks = mints.chunked(45)
-        if (chunks.size == 1) {
-            out.putAll(fetchJupiterPricesChunk(chunks[0]))
-            return out
-        }
-        try {
-            kotlinx.coroutines.coroutineScope {
-                val deferred = chunks.map { chunk ->
-                    async(Dispatchers.IO) { fetchJupiterPricesChunk(chunk) }
-                }
-                val results = deferred.awaitAll()
-                for (m in results) out.putAll(m)
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            ErrorLogger.debug("Scanner", "fetchJupiterPricesBatch parallel error: ${e.message?.take(60)}")
-        }
-        return out
-    }
-
-    private fun fetchJupiterPricesChunk(mints: List<String>): Map<String, Double> {
-        if (mints.isEmpty()) return emptyMap()
-        return try {
-            val ids = mints.joinToString(",")
-            val origUrl = "https://lite-api.jup.ag/price/v3?ids=$ids"
-            val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(origUrl) } catch (_: Throwable) { origUrl }
-            val http = com.lifecyclebot.network.SharedHttpClient.builder()
-                .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
-                .build()
-            val req = okhttp3.Request.Builder()
-                .url(effectiveUrl)
-                .header("Accept", "application/json")
-                .build()
-            val start = System.currentTimeMillis()
-            val resp = http.newCall(req).execute()
-            try { com.lifecyclebot.engine.ApiHealthMonitor.record("jupiter", resp.code, System.currentTimeMillis() - start) } catch (_: Throwable) {}
-            val body = resp.body?.string() ?: return emptyMap()
-            val json = try { org.json.JSONObject(body) } catch (_: Throwable) { return emptyMap() }
-            val out = HashMap<String, Double>()
-            for (mint in mints) {
-                val obj = json.optJSONObject(mint) ?: continue
-                // v3 shape: usdPrice at top-level. Legacy v6 fallback: data.<mint>.price
-                var price = obj.optDouble("usdPrice", 0.0)
-                if (price <= 0.0) {
-                    price = json.optJSONObject("data")?.optJSONObject(mint)?.optDouble("price", 0.0) ?: 0.0
-                }
-                if (price > 0.0) out[mint] = price
-            }
-            out
-        } catch (e: Exception) {
-            ErrorLogger.debug("Scanner", "fetchJupiterPricesBatch error: ${e.message?.take(60)}")
-            emptyMap()
-        }
-    }
-
-    /**
-     * V5.0.6199 — Conservative liquidity floors per blue-chip category. These
-     * are minimums well below actual on-chain liquidity for each asset class.
-     * Used only when Jupiter price is available but DexScreener didn't provide
-     * a real liquidity number. TokenMetricStageRouter's established-token
-     * override needs liq>=$50K + mcap>=$5M + age>=60m to route to BLUECHIP —
-     * all our floors clear that bar with margin.
-     */
-    private fun fallbackLiquidityForBlueChip(category: SolanaBlueChipWatchlist.Category): Double = when (category) {
-        SolanaBlueChipWatchlist.Category.SOL_WRAPPED -> 5_000_000.0     // wSOL / JupSOL — deepest pools on Solana
-        SolanaBlueChipWatchlist.Category.DEX_LIQUIDITY_HUB -> 1_500_000.0  // JUP, RAY, ORCA
-        SolanaBlueChipWatchlist.Category.ESTABLISHED_MEME -> 800_000.0    // WIF, BONK, POPCAT
-        SolanaBlueChipWatchlist.Category.LSD_STAKING -> 500_000.0        // JitoSOL, mSOL, bSOL
-        SolanaBlueChipWatchlist.Category.INFRASTRUCTURE -> 400_000.0     // PYTH, W, HNT, RENDER, KIN
-        SolanaBlueChipWatchlist.Category.DEFI_YIELD -> 200_000.0         // MNGO, SBR
-        // V5.0.6204 — new expansion categories
-        SolanaBlueChipWatchlist.Category.AI_AGENT -> 300_000.0            // AI16Z, GRIFFAIN, ARC, ZEREBRO
-        SolanaBlueChipWatchlist.Category.GAMING -> 200_000.0              // ATLAS, POLIS, AURY, GENE
-        SolanaBlueChipWatchlist.Category.DEPIN -> 300_000.0               // MOBILE, IOT, HELIUM, NOS
-        SolanaBlueChipWatchlist.Category.NEW_L1_MEME -> 500_000.0         // FARTCOIN, PENGU, GOAT, TRUMP, MELANIA
-        SolanaBlueChipWatchlist.Category.RWA -> 400_000.0                 // tokenized T-bills
-        SolanaBlueChipWatchlist.Category.BRIDGED_MAJOR -> 800_000.0       // cbBTC, wBTC, wETH
-        SolanaBlueChipWatchlist.Category.LAUNCHPAD_GRADUATE -> 300_000.0  // SC, GRIFT, SPX6900, SIGMA
-        SolanaBlueChipWatchlist.Category.NFT_LIQUIDITY -> 200_000.0       // TNSR, MPLX, DGN
-    }
 
     /**
      * V5.9.906 — BIRDEYE v3 MEME LIST (no API key required).
@@ -3379,7 +3151,7 @@ class SolanaMarketScanner(
             val pools = JSONObject(body).optJSONArray("data") ?: return
             var found = 0
             for (i in 0 until minOf(pools.length(), 60)) {
-                if (found >= 18) break
+                if (found >= 30) break
                 val pool = pools.optJSONObject(i) ?: continue
                 val attrs = pool.optJSONObject("attributes") ?: continue
                 val relationships = pool.optJSONObject("relationships") ?: continue
@@ -3446,7 +3218,7 @@ class SolanaMarketScanner(
             val pools = JSONObject(body).optJSONArray("data") ?: return
             var found = 0
             for (i in 0 until minOf(pools.length(), 40)) {
-                if (found >= 18) break
+                if (found >= 30) break
                 val pool = pools.optJSONObject(i) ?: continue
                 val attrs = pool.optJSONObject("attributes") ?: continue
                 val relationships = pool.optJSONObject("relationships") ?: continue
@@ -3796,7 +3568,6 @@ class SolanaMarketScanner(
             TokenSource.RAYDIUM_NEW_POOL -> EfficiencyLayer.LiqSourceQuality.DIRECT_POOL
             TokenSource.DEX_BOOSTED, TokenSource.DEX_TRENDING -> EfficiencyLayer.LiqSourceQuality.DEX_AGGREGATOR
             TokenSource.PUMP_FUN_NEW, TokenSource.PUMP_FUN_GRADUATE -> EfficiencyLayer.LiqSourceQuality.VERIFIED_PAIR
-            TokenSource.SOLANA_BLUECHIP_WATCHLIST, TokenSource.PROJECT_SNIPER_LAUNCHPAD -> EfficiencyLayer.LiqSourceQuality.VERIFIED_PAIR
             else -> EfficiencyLayer.LiqSourceQuality.ESTIMATED_MCAP
         }
 
@@ -4278,36 +4049,7 @@ class SolanaMarketScanner(
         emit(token)
     }
 
-    // V5.0.6205 — P1 LAST-GOOD-RESPONSE CACHE (operator: "we've lost the
-    // memetrader's full solana network feed"). DexScreener's 76% 5xx storm +
-    // HostCircuitInterceptor cool-downs made getWithRetry return null for the
-    // token-profiles / token-boosts list endpoints, so scanFreshLaunches,
-    // scanDexTrending, scanDexGainers, scanDexBoosted, scanTopVolumeTokens,
-    // scanPumpFunVolume and scanPumpGraduates ALL emitted zero in the same
-    // cycle — the "lost network feed". Discovery lists change slowly, so
-    // serving the last good body while it is younger than 10 min during an
-    // outage keeps every lane fed instead of starving the whole funnel.
-    // Bounded to 16 URL entries.
-    private val lastGoodBodyCache6205 = ConcurrentHashMap<String, Pair<Long, String>>()
-    private val LAST_GOOD_CACHE_TTL_MS_6205 = 10 * 60_000L
-
     private fun getWithRetry(url: String, apiKey: String = "", maxRetries: Int = 2, extraHeaders: Map<String, String> = emptyMap()): String? {
-        val fresh6205 = getWithRetryInner6205(url, apiKey, maxRetries, extraHeaders)
-        if (fresh6205 != null) {
-            if (lastGoodBodyCache6205.size < 16 || lastGoodBodyCache6205.containsKey(url)) {
-                lastGoodBodyCache6205[url] = System.currentTimeMillis() to fresh6205
-            }
-            return fresh6205
-        }
-        val cached6205 = lastGoodBodyCache6205[url] ?: return null
-        val ageMs6205 = System.currentTimeMillis() - cached6205.first
-        if (ageMs6205 > LAST_GOOD_CACHE_TTL_MS_6205) return null
-        ErrorLogger.warn("Scanner", "🛟 LAST_GOOD_CACHE_HIT_6205: serving ${ageMs6205 / 1000}s-old body for ${url.take(50)} while upstream is down")
-        try { PipelineHealthCollector.labelInc("SCANNER_LAST_GOOD_CACHE_HIT_6205") } catch (_: Throwable) {}
-        return cached6205.second
-    }
-
-    private fun getWithRetryInner6205(url: String, apiKey: String = "", maxRetries: Int = 2, extraHeaders: Map<String, String> = emptyMap()): String? {
         // V5.9.1469 — SCANNER BACKOFF SHORT-CIRCUIT. The scanner path never consulted
         // ApiBackoff, so a failing host (snapshot: geckoterminal sr=56%, helius/groq
         // sr=0%) kept getting hit + retried INSIDE supervisor workers — each dead call
@@ -4318,17 +4060,6 @@ class SolanaMarketScanner(
             val host = hostLabel(try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(url) } catch (_: Throwable) { url })
             if (com.lifecyclebot.engine.ApiBackoff.isLockedOut(host)) {
                 ErrorLogger.debug("Scanner", "[BACKOFF] skip $host (lockout ${com.lifecyclebot.engine.ApiBackoff.lockoutRemainingMs(host)}ms) ${url.take(40)}")
-                try { com.lifecyclebot.engine.ApiHealthMonitor.recordThrottled(host) } catch (_: Throwable) {}
-                return null
-            }
-            // V5.0.6227 — DEAD-KEY HARD GATE. Scanner birdeye endpoints
-            // (trending/meme-list/markets/new_listing) bypassed KeyValidator
-            // entirely — only BirdeyeApi.getRaw checked it — so a permanently
-            // 401'd key was still hit ~1/sec (op report: birdeye 4xx=361 in
-            // 359s). Zero wire while dead; KeyValidator's 24h sticky verdict
-            // auto-clears when the operator rotates the key.
-            if (host == "birdeye" && !com.lifecyclebot.engine.KeyValidator.isLive("birdeye")) {
-                try { com.lifecyclebot.engine.ApiHealthMonitor.recordThrottled("birdeye") } catch (_: Throwable) {}
                 return null
             }
         } catch (_: Throwable) { /* fail-open */ }
@@ -4388,17 +4119,6 @@ class SolanaMarketScanner(
         // hosts get swapped transparently (e.g. frontend-api.pump.fun → V3).
         val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(url) } catch (_: Throwable) { url }
         val host = hostLabel(effectiveUrl)
-        // V5.0.6214 — CIRCUIT-BREAKER SHORT-CIRCUIT REVERTED.
-        // V5.0.6208 short-circuited scanner calls when ApiBackoff.isLockedOut
-        // returned true, but that starved the intake funnel to ZERO during any
-        // provider hiccup (Jupiter/DexScreener lockouts stack up to 300s and
-        // block the entire watchlist from being read). Operator hit exactly
-        // this failure mode: "0 tokens coming into the bot in paper or live,
-        // the watchlist is completely blank". The half-open probe is not
-        // aggressive enough to recover throughput.
-        // Revert: always fire the request. ApiBackoff still records the outcome
-        // via markFailure/markSuccess below; sizing/priority code elsewhere
-        // consults isLockedOut for advisory-only signals. Wire is never blocked.
         val builder = Request.Builder().url(effectiveUrl)
             .header(
                 "User-Agent",

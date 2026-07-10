@@ -26,7 +26,7 @@ object CloudLearningSync {
     // pipeline errors caused by a Turso schema that was created before
     // the V5.9.404-era columns existed.
     private const val KEY_SCHEMA_VERSION = "schema_version"
-    private const val CURRENT_SCHEMA_VERSION = 3  // V5.0.6117 — bump forces one real drop+recreate now that the gate is fixed
+    private const val CURRENT_SCHEMA_VERSION = 2
 
     // TURSO CONFIG
     // NOTE: You exposed this token in chat. Rotate it after using this file.
@@ -52,12 +52,6 @@ object CloudLearningSync {
     private var schemaReady: Boolean = false
 
     private var communityWeights: CommunityWeights? = null
-
-    // V5.0.6121 — surface last upload error so UI can show why the hive
-    // count is frozen. Empty string = last upload succeeded (or has never run).
-    @Volatile private var lastUploadErrorMsg: String = ""
-    fun getLastUploadErrorMsg(): String = lastUploadErrorMsg
-    fun getLastUploadTs(): Long = lastUploadTs
 
     data class ContributionPayload(
         val instanceId: String,
@@ -161,20 +155,7 @@ object CloudLearningSync {
     }
 
     private suspend fun ensureSchema(): Boolean = withContext(Dispatchers.IO) {
-        // V5.0.6117 — the cached schemaReady flag was short-circuiting BEFORE
-        // the version check below ever ran, so the V5.9.412 drift-recovery
-        // logic (dropping stale collective_* tables on a version bump) was
-        // permanently unreachable on any device that had already run once at
-        // an older schema version. schemaReady persists in SharedPreferences
-        // across app updates; CURRENT_SCHEMA_VERSION bumps in new code do
-        // nothing if this early-return fires first. Root cause of the
-        // recurring "no such column: instance_id" pipeline errors (this is
-        // the SAME symptom V5.9.412 was written to fix — the fix never
-        // actually re-triggers on an already-provisioned device). Fix: only
-        // trust the cached ready flag when it was set at the CURRENT schema
-        // version; otherwise fall through to the version-mismatch recovery.
-        val storedVerEarly = prefs?.getInt(KEY_SCHEMA_VERSION, 0) ?: 0
-        if (schemaReady && storedVerEarly == CURRENT_SCHEMA_VERSION) return@withContext true
+        if (schemaReady) return@withContext true
         if (!isConfigured()) return@withContext false
 
         try {
@@ -183,7 +164,7 @@ object CloudLearningSync {
             // tables so the CREATE IF NOT EXISTS below seeds them clean. This
             // unsticks instances whose Turso DB was created against an older
             // column layout (the "no such column: instance_id" pipeline error).
-            val storedVer = storedVerEarly
+            val storedVer = prefs?.getInt(KEY_SCHEMA_VERSION, 0) ?: 0
             if (storedVer != CURRENT_SCHEMA_VERSION) {
                 val dropRequests = JSONArray().apply {
                     put(exec("DROP TABLE IF EXISTS collective_feature_weights"))
@@ -327,42 +308,27 @@ object CloudLearningSync {
 
         return withContext(Dispatchers.IO) {
             try {
-                // V5.0.6121 — DEDUPE the pattern/feature lists before serializing.
-                // Turso pipeline errors silently roll back the ENTIRE batch (including
-                // the collective_instances trade_count row that dashboards read from).
-                // Duplicate pattern.name or feature keys in one payload → UNIQUE
-                // constraint violation → whole upload discarded → trade count frozen.
-                val localPatternStats = patternStats
-                    .map {
-                        PatternStat(
-                            name = it.patternName,
-                            winRate = sanitizeDouble(it.winRate),
-                            profitFactor = sanitizeDouble(it.profitFactor, 1.0),
-                            sampleCount = it.totalTrades
-                        )
-                    }
-                    .groupBy { it.name.trim().ifBlank { "UNNAMED" } }
-                    .map { (_, group) -> group.maxByOrNull { it.sampleCount } ?: group.first() }
+                val localPatternStats = patternStats.map {
+                    PatternStat(
+                        name = it.patternName,
+                        winRate = sanitizeDouble(it.winRate),
+                        profitFactor = sanitizeDouble(it.profitFactor, 1.0),
+                        sampleCount = it.totalTrades
+                    )
+                }
 
                 val payload = ContributionPayload(
                     instanceId = instanceId,
                     tradeCount = tradeCount,
                     winRate = sanitizeDouble(winRate),
-                    featureWeights = featureWeights
-                        .mapKeys { it.key.trim() }
-                        .filter { it.key.isNotBlank() }
-                        .mapValues { sanitizeDouble(it.value, 1.0) },
+                    featureWeights = featureWeights.mapValues { sanitizeDouble(it.value, 1.0) },
                     patternStats = localPatternStats,
                     appVersion = "1.0.0",
                     timestamp = now
                 )
 
                 val requests = JSONArray().apply {
-                    // V5.0.6121 — removed explicit BEGIN/COMMIT. Turso pipeline v2
-                    // auto-commits per-statement; an unbalanced BEGIN inside a
-                    // multi-request pipeline could leave the transaction hanging
-                    // and roll back trade_count updates. Each INSERT below is now
-                    // its own atomic write.
+                    put(exec("BEGIN"))
 
                     put(
                         exec(
@@ -401,7 +367,7 @@ object CloudLearningSync {
                         put(
                             exec(
                                 """
-                                INSERT OR REPLACE INTO collective_feature_weights
+                                INSERT INTO collective_feature_weights
                                     (instance_id, feature_name, weight, trade_count, updated_at)
                                 VALUES (?, ?, ?, ?, ?)
                                 """.trimIndent(),
@@ -418,7 +384,7 @@ object CloudLearningSync {
                         put(
                             exec(
                                 """
-                                INSERT OR REPLACE INTO collective_patterns
+                                INSERT INTO collective_patterns
                                     (instance_id, pattern_name, win_rate, profit_factor, sample_count, updated_at)
                                 VALUES (?, ?, ?, ?, ?, ?)
                                 """.trimIndent(),
@@ -455,6 +421,7 @@ object CloudLearningSync {
                         )
                     )
 
+                    put(exec("COMMIT"))
                     put(closeReq())
                 }
 
@@ -463,23 +430,18 @@ object CloudLearningSync {
 
                 if (success) {
                     lastUploadTs = now
-                    lastUploadErrorMsg = ""
                     saveState()
                     ErrorLogger.info(
                         "CloudSync",
                         "☁️ Turso upload OK: $tradeCount trades, ${winRate.toInt()}% win rate, " +
-                            "${payload.featureWeights.size} features, ${payload.patternStats.size} patterns (deduped from ${featureWeights.size}/${patternStats.size})"
+                            "${featureWeights.size} features, ${patternStats.size} patterns"
                     )
                 } else {
-                    // V5.0.6121 — surface which item failed & preserve so UI can display.
-                    val firstErr = extractFirstPipelineError(response)
-                    lastUploadErrorMsg = firstErr
-                    ErrorLogger.error("CloudSync", "Turso upload failed: pipeline returned errors — $firstErr")
+                    ErrorLogger.error("CloudSync", "Turso upload failed: pipeline returned errors")
                 }
 
                 success
             } catch (e: Exception) {
-                lastUploadErrorMsg = "exception: ${e.message ?: e.javaClass.simpleName}"
                 ErrorLogger.error("CloudSync", "Upload failed: ${e.message}")
                 false
             }
@@ -861,41 +823,6 @@ object CloudLearningSync {
         } finally {
             conn.disconnect()
         }
-    }
-
-    /**
-     * V5.0.6121 — Extract the first specific error from a pipeline response.
-     * Preserves the "which SQL failed" information so lastUploadErrorMsg can
-     * surface it to the UI/user. Fail-open: returns a generic string on any
-     * parse failure so the caller still gets something.
-     */
-    private fun extractFirstPipelineError(response: JSONObject?): String {
-        if (response == null) return "response=null (network failure)"
-        try {
-            if (response.has("error")) {
-                return "top-level: ${response.optString("error").take(180)}"
-            }
-            val results = response.optJSONArray("results") ?: return "no results array"
-            for (i in 0 until results.length()) {
-                val item = results.optJSONObject(i) ?: continue
-                if (item.optString("type") == "close") continue
-                if (item.has("error")) {
-                    val msg = item.optJSONObject("error")?.optString("message") ?: item.optString("error")
-                    return "item#$i: ${msg.take(180)}"
-                }
-                val resp = item.optJSONObject("response")
-                if (resp?.has("error") == true) {
-                    return "item#$i.response: ${resp.optString("error").take(180)}"
-                }
-                val res = resp?.optJSONObject("result")
-                if (res?.has("error") == true) {
-                    return "item#$i.result: ${res.optString("error").take(180)}"
-                }
-            }
-        } catch (e: Exception) {
-            return "parse_error: ${e.message ?: e.javaClass.simpleName}"
-        }
-        return "unknown pipeline error"
     }
 
     private fun pipelineHasErrors(response: JSONObject): Boolean {

@@ -177,10 +177,7 @@ object V3EngineManager {
                     // hitting exactly 100 then silent stall for 22min).
                     // Paper is free money for learning — uncap entirely;
                     // wallet-% exposure (95%) is the only meaningful guard.
-                    // V5.0.6231 — reverted 6228h cap of 60. Operator reported
-                    // 'not buying, watchlist and scanner empty' — the cap
-                    // was blocking all new intakes once restore replayed
-                    // enough mints. Back to Int.MAX_VALUE.
+                    // Live still bounded by user's configured cap.
                     maxOpenPositions = if (botCfg.paperMode) Int.MAX_VALUE
                                        else botCfg.maxConcurrentPositions.coerceAtMost(100),
                     maxExposurePct = if (botCfg.paperMode) 0.95
@@ -269,7 +266,6 @@ object V3EngineManager {
             exposureGuard = ExposureGuard(
                 // V5.9.1330 — same uncap as init path. Paper = unlimited
                 // slots; only wallet-% exposure caps the open book.
-                // V5.0.6231 — reverted 6228h cap of 60 (was blocking intake).
                 maxOpenPositions = if (newBotConfig.paperMode) Int.MAX_VALUE
                                    else newBotConfig.maxConcurrentPositions.coerceAtMost(100),
                 maxExposurePct = if (newBotConfig.paperMode) 0.95

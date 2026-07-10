@@ -60,32 +60,11 @@ object HealthAwareHttp {
         // a synthetic 503 so callers see `!resp.isSuccessful` and skip.
         try {
             if (ApiBackoff.isLockedOut(host)) {
-                try { ApiHealthMonitor.recordThrottled(host) } catch (_: Throwable) {}
                 return Response.Builder()
                     .request(request)
                     .protocol(Protocol.HTTP_1_1)
                     .code(503)
                     .message("ApiBackoff lockout (host=$host remainingMs=${ApiBackoff.lockoutRemainingMs(host)})")
-                    .body("{}".toResponseBody(emptyJsonMediaType))
-                    .build()
-            }
-        } catch (_: Throwable) { /* fail-open — never block on a bug here */ }
-
-        // V5.0.6162 — proactive rate slot before network. Report showed
-        // helius_rpc 429 while HealthAwareHttp was bypassing RateLimiter entirely;
-        // synthetic 503 lets callers naturally fallback/skip without burning quota.
-        try {
-            if (!RateLimiter.allowRequest(host)) {
-                // V5.0.6227 — a LOCAL throttle is NOT an upstream 5xx. Recording
-                // it as a synthetic 503 poisoned sr% (op report: dexscreener
-                // 5xx=710 with 4xx=0 — nearly all synthetic) and false-tripped
-                // the Doctor into API_LAYER_DEGRADED.
-                try { ApiHealthMonitor.recordThrottled(host) } catch (_: Throwable) {}
-                return Response.Builder()
-                    .request(request)
-                    .protocol(Protocol.HTTP_1_1)
-                    .code(503)
-                    .message("RateLimiter throttle (host=$host retryAfterMs=${RateLimiter.getRetryAfterMs(host)})")
                     .body("{}".toResponseBody(emptyJsonMediaType))
                     .build()
             }

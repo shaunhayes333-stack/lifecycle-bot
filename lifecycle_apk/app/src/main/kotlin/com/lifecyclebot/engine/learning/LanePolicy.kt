@@ -94,7 +94,7 @@ object LanePolicy {
     private fun defaultPolicyFor(lane: String): State {
         val key = lane.uppercase()
         return when {
-            key.startsWith("UNKNOWN")     -> State.RETRAINING  // V5.0.6107: observe/retrain, no paid micro execution
+            key.startsWith("UNKNOWN")     -> State.PAPER_MICRO_EXECUTION  // V5.9.1325: never stop trading — micro-probe unknown lanes
             // V5.0.4526 — restore AATE core execution semantics. These are LIVE
             // meme strategy lanes, not permanent paper-micro lanes. Toxic buckets
             // should be pivoted by AgenticStyleRouter/LaneToxicityGuard/LiveStylePivotRouter,
@@ -106,7 +106,7 @@ object LanePolicy {
             key.contains("QUALITY")       -> State.NORMAL_EXECUTION
             key.contains("BLUECHIP")      -> State.NORMAL_EXECUTION
             key.contains("WHALE")         -> State.REDUCED_SIZE_EXECUTION
-            key.contains("PRESALE")       -> State.RETRAINING
+            key.contains("PRESALE")       -> State.PAPER_MICRO_EXECUTION
             // V5.0.6094 — new lanes are first-class policy citizens, not anonymous
             // fall-throughs. Paper samples them normally; live authority is still
             // controlled by FDG route verdict/quarantine and lab-proof release.
@@ -134,20 +134,11 @@ object LanePolicy {
         State.INVALID_UNTRADEABLE     -> 0.00
         State.TRAIN_ONLY_NO_OPEN      -> 0.00
         State.SHADOW_TRACK_ONLY       -> 0.00
-        State.RETRAINING              -> 0.00
+        State.RETRAINING              -> 0.20
         State.DEMOTION_CANDIDATE      -> 0.40
-        State.PAPER_MICRO_EXECUTION   -> 0.00
-        // V5.0.6233 — RAISE REDUCED_SIZE base weight from 0.60 to 0.85.
-        // Operator P0 directive: "remove what ever is shrinking the trade
-        // size or turn the penalty into a tiny soft penalty". A 0.60x base
-        // multiplier on SHITCOIN/MOONSHOT/MANIPULATED/EXPRESS/etc. lanes
-        // stacked with 3 other cascade multipliers was producing 0.01 SOL
-        // entries. Reduced-size should mean "trade a bit smaller than a
-        // proven winner" (0.85x), not "trade at dust" (0.60x). Genuine
-        // toxicity is handled by DEMOTION_CANDIDATE (0.40x) and the
-        // auto-pause guard, not by this base.
-        State.REDUCED_SIZE_EXECUTION  -> 0.85
-        State.PROMOTION_CANDIDATE     -> 0.90
+        State.PAPER_MICRO_EXECUTION   -> 0.10
+        State.REDUCED_SIZE_EXECUTION  -> 0.60
+        State.PROMOTION_CANDIDATE     -> 0.80
         State.NORMAL_EXECUTION        -> 1.00
     }
 
@@ -257,9 +248,9 @@ object LanePolicy {
     // rolling win/loss window per lane AND per (lane,band) bucket, then moves the
     // policy State so the entry gate actually responds to results:
     //   • bleeding bucket  → step DOWN one executable rung (e.g. NORMAL →
-    //     REDUCED_SIZE → DEMOTION_CANDIDATE → RETRAINING). V5.0.6107:
-    //     train-first means observe + LLM Lab re-strategize, not paying for
-    //     paper/live micro execution of proven-toxic setups.
+    //     REDUCED_SIZE → DEMOTION_CANDIDATE → PAPER_MICRO). Never below
+    //     PAPER_MICRO_EXECUTION — Train-First doctrine: keep sampling, never
+    //     hard-block a valid lane, never zero a lane out.
     //   • recovering bucket → step UP one rung toward NORMAL_EXECUTION.
     // Window resets after each transition so the next regime is judged fresh.
     private const val OUTCOME_WINDOW_MIN_SAMPLES = 12   // need a real sample before moving
@@ -345,15 +336,15 @@ object LanePolicy {
         if (n >= OUTCOME_WINDOW_MIN_SAMPLES * 2) { cell.winWindow.set(0); cell.lossWindow.set(0) }
     }
 
-    // Step DOWN exactly one executable rung. FLOOR at RETRAINING so a valid lane
-    // remains trainable through NoTradeObservation + LLM Lab strategy search, but
-    // does not keep paying for toxic paper/live micro execution.
+    // Step DOWN exactly one executable rung. FLOOR at PAPER_MICRO_EXECUTION so a
+    // valid lane is never hard-blocked / zeroed (Train-First). INVALID_UNTRADEABLE
+    // is reserved for explicit invalid-data states, never reached by WR decay.
     private fun demoteOneRung(s: State): State = when (s) {
         State.NORMAL_EXECUTION       -> State.REDUCED_SIZE_EXECUTION
         State.PROMOTION_CANDIDATE    -> State.REDUCED_SIZE_EXECUTION
         State.REDUCED_SIZE_EXECUTION -> State.DEMOTION_CANDIDATE
-        State.DEMOTION_CANDIDATE     -> State.RETRAINING
-        else                         -> s   // already at/below retraining → hold (keep observing)
+        State.DEMOTION_CANDIDATE     -> State.PAPER_MICRO_EXECUTION
+        else                         -> s   // already at/below paper-micro → hold (keep sampling)
     }
 
     // Step UP exactly one rung toward NORMAL_EXECUTION.
@@ -368,38 +359,13 @@ object LanePolicy {
 
     fun noteImprovement(lane: String, scoreBand: String) {
         val now = System.currentTimeMillis()
-        recoverFromProof6129(getOrCreateLaneCell(lane), "lane", laneKey(lane), lane, scoreBand, now)
-        recoverFromProof6129(getOrCreateBucketCell(lane, scoreBand), "bucket", bucketKey(lane, scoreBand), lane, scoreBand, now)
-    }
-
-    private fun recoverFromProof6129(cell: Cell, kind: String, key: String, lane: String, scoreBand: String, now: Long) {
-        cell.lastImprovedAt.set(now)
-        cell.recoveryCandidate.set(1L)
-        val cur = State.values()[cell.policy.get()]
-        val next = when (cur) {
-            // V5.0.6129 — proof must have execution consequences. A Lab-promoted
-            // or counterfactual-proven pivot cannot sit forever in RETRAINING / TRAIN_ONLY.
-            // Reintroduce as REDUCED_SIZE_EXECUTION: lane-local strategy pivot first,
-            // still bounded; never bypasses hard safety or invalid-data blocks.
-            State.RETRAINING,
-            State.TRAIN_ONLY_NO_OPEN,
-            State.SHADOW_TRACK_ONLY,
-            State.PAPER_MICRO_EXECUTION -> State.REDUCED_SIZE_EXECUTION
-            State.DEMOTION_CANDIDATE -> State.REDUCED_SIZE_EXECUTION
-            else -> cur
+        getOrCreateLaneCell(lane).also {
+            it.lastImprovedAt.set(now)
+            it.recoveryCandidate.set(1L)
         }
-        if (next != cur) {
-            cell.policy.set(next.ordinal)
-            cell.executionWeight.set((defaultExecutionWeight(next) * WEIGHT_SCALE).toLong())
-            cell.learningWeight.set((defaultLearningWeight(next) * WEIGHT_SCALE).toLong())
-            persist(kind, key, cell)
-            try {
-                PipelineHealthCollector.labelInc("LANE_POLICY_PROOF_REINTRODUCED_6129")
-                PipelineHealthCollector.labelInc("LANE_POLICY_PROOF_REINTRODUCED_6129|${laneKey(lane)}")
-            } catch (_: Throwable) {}
-            ErrorLogger.info("LanePolicy", "🧭 LANE_POLICY_PROOF_REINTRODUCED_6129 $kind=$key $cur → $next lane=$lane band=$scoreBand")
-        } else {
-            persist(kind, key, cell)
+        getOrCreateBucketCell(lane, scoreBand).also {
+            it.lastImprovedAt.set(now)
+            it.recoveryCandidate.set(1L)
         }
     }
 

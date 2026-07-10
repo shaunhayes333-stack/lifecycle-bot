@@ -241,26 +241,6 @@ object CryptoAltTrader {
         val aiScore       : Int,
         val aiConfidence  : Int,
         val reasons       : List<String>,
-        // V5.0.6177 — Crypto Universe money-path parity metadata. These fields
-        // mirror the normalized final-candidate truth so terminal rows can feed
-        // StrategyTruth/Reporting with venue/source/route context instead of the
-        // old lane-only CryptoAlt bucket.
-        val sourceFamily6177: String = "CRYPTO_UNIVERSE_UNKNOWN",
-        val venueFamily6177: String = "UNKNOWN",
-        val routeTruthKey6177: String = "UNKNOWN",
-        val strategyTruthKey6177: String = "UNKNOWN",
-        val routeCostBps6177: Double = 0.0,
-        val routeExpectancyMult6177: Double = 1.0,
-        val executionAdapter6177: String = "UNKNOWN",
-        val proofState6177: String = "UNKNOWN",
-        val harvestStatus6177: String = "OPEN_UNREALIZED_NOT_WALLET",
-        val sellability6177: String = "ROUTE_PENDING",
-        val normalizedContext6177: String = "",
-        val openCandidateVersion6177: Long = 0L,
-        val openRouteVerified6177: Boolean = false,
-        val openSellable6177: Boolean = false,
-        val openWalletHarvested6177: Boolean = false,
-        val openProofState6177: String = "UNKNOWN",
         val openTime      : Long = System.currentTimeMillis(),
         var closeTime     : Long? = null,
         var closePrice    : Double? = null,
@@ -311,22 +291,6 @@ object CryptoAltTrader {
             .put("reasons",         org.json.JSONArray(p.reasons))
             .put("openTime",         p.openTime)
             .put("highestPnlPct",    p.highestPnlPct)
-            .put("sourceFamily6177", p.sourceFamily6177)
-            .put("venueFamily6177", p.venueFamily6177)
-            .put("routeTruthKey6177", p.routeTruthKey6177)
-            .put("strategyTruthKey6177", p.strategyTruthKey6177)
-            .put("routeCostBps6177", p.routeCostBps6177)
-            .put("routeExpectancyMult6177", p.routeExpectancyMult6177)
-            .put("executionAdapter6177", p.executionAdapter6177)
-            .put("proofState6177", p.proofState6177)
-            .put("harvestStatus6177", p.harvestStatus6177)
-            .put("sellability6177", p.sellability6177)
-            .put("normalizedContext6177", p.normalizedContext6177)
-            .put("openCandidateVersion6177", p.openCandidateVersion6177)
-            .put("openRouteVerified6177", p.openRouteVerified6177)
-            .put("openSellable6177", p.openSellable6177)
-            .put("openWalletHarvested6177", p.openWalletHarvested6177)
-            .put("openProofState6177", p.openProofState6177)
             // V5.9.1472 — persist dynamic-crypto identity so DYN positions
             // restore as the real coin, not the bare sentinel.
             .apply {
@@ -360,22 +324,6 @@ object CryptoAltTrader {
             aiScore         = j.optInt("aiScore", 50),
             aiConfidence    = j.optInt("aiConfidence", 50),
             reasons         = reasons,
-            sourceFamily6177 = j.optString("sourceFamily6177", reasons.firstOrNull { it.startsWith("sourceFamily=") }?.substringAfter("sourceFamily=")?.substringBefore(" ") ?: "CRYPTO_UNIVERSE_RESTORED"),
-            venueFamily6177 = j.optString("venueFamily6177", reasons.firstOrNull { it.startsWith("CRYPTO_NORMALIZED_6148:") }?.substringAfter("venueFamily=")?.substringBefore(" ") ?: "UNKNOWN"),
-            routeTruthKey6177 = j.optString("routeTruthKey6177", reasons.firstOrNull { it.startsWith("CRYPTO_NORMALIZED_6148:") }?.substringAfter("routeTruth=")?.substringBefore(" ") ?: "UNKNOWN"),
-            strategyTruthKey6177 = j.optString("strategyTruthKey6177", reasons.firstOrNull { it.startsWith("CRYPTO_NORMALIZED_6148:") }?.substringAfter("strategyTruth=")?.substringBefore(" ") ?: "UNKNOWN"),
-            routeCostBps6177 = j.optDouble("routeCostBps6177", 0.0),
-            routeExpectancyMult6177 = j.optDouble("routeExpectancyMult6177", 1.0),
-            executionAdapter6177 = j.optString("executionAdapter6177", "RESTORED"),
-            proofState6177 = j.optString("proofState6177", if (j.optBoolean("isSpot", true)) "CRYPTO_SPOT_RESTORED" else "CRYPTO_PERP_RESTORED"),
-            harvestStatus6177 = j.optString("harvestStatus6177", "OPEN_UNREALIZED_NOT_WALLET"),
-            sellability6177 = j.optString("sellability6177", "RESTORED_ROUTE_UNKNOWN"),
-            normalizedContext6177 = j.optString("normalizedContext6177", reasons.firstOrNull { it.startsWith("CRYPTO_NORMALIZED_6148:") }?.removePrefix("CRYPTO_NORMALIZED_6148:") ?: "RESTORED_NO_CONTEXT"),
-            openCandidateVersion6177 = j.optLong("openCandidateVersion6177", 0L),
-            openRouteVerified6177 = j.optBoolean("openRouteVerified6177", false),
-            openSellable6177 = j.optBoolean("openSellable6177", false),
-            openWalletHarvested6177 = j.optBoolean("openWalletHarvested6177", false),
-            openProofState6177 = j.optString("openProofState6177", "RESTORED"),
             openTime        = j.optLong("openTime", System.currentTimeMillis()),
         ).apply {
             highestPnlPct = j.optDouble("highestPnlPct", 0.0)
@@ -1734,7 +1682,6 @@ object CryptoAltTrader {
         val assetType = if (isSpot) CryptoFinalBuyCandidate.AssetType.SPOT else CryptoFinalBuyCandidate.AssetType.PERP
         val walletSol = try { WalletManager.getWallet()?.getSolBalance() ?: getEffectiveBalance() } catch (_: Throwable) { getEffectiveBalance() }
         val route = try { CryptoUniverseRouteResolver.resolve(signal.market, walletSol, finalSize) } catch (_: Throwable) { null }
-        val regionalAlpha6178 = regionalPreRouteAlpha6178(signal)
         val hardNo = mutableListOf<String>()
         val soft = mutableListOf<String>()
         if (signal.price <= 0.0) hardNo += "PRICE_CONTEXT_MISSING"
@@ -1742,7 +1689,6 @@ object CryptoAltTrader {
         if (signal.confidence <= 0 || signal.score <= 0) hardNo += "SCORE_CONTEXT_MISSING"
         if (!isPaperMode.get() && route?.executable != true) hardNo += "ROUTE_UNAVAILABLE"
         if (route?.route == com.lifecyclebot.perps.crypto.CryptoExecutionRoute.PAPER_ONLY && isPaperMode.get()) soft += "PAPER_ONLY_ROUTE"
-        if (regionalAlpha6178.tags.isNotEmpty()) soft += regionalAlpha6178.reason
         if (signal.direction == PerpsDirection.SHORT && isSpot) hardNo += "SPOT_SHORT_UNSUPPORTED"
         val liq = altLiqMcapHint(symbol).first
         val spread = when (lane) {
@@ -1754,29 +1700,7 @@ object CryptoAltTrader {
             CryptoFinalBuyCandidate.MarketCapLane.MICRO_CAP -> 1.25
         }
         val slippage = spread * 2.0
-        val assetKey6148 = cryptoAssetKey(signal, isSpot)
-        val chain6148 = if (route?.mint != null) "SOLANA" else "MULTICHAIN"
-        val venue6148 = route?.route?.name ?: "UNKNOWN"
-        val venueUniverse6154 = try { com.lifecyclebot.engine.VenueUniverse.classify("${signal.market} $venue6148 ${signal.reasons.joinToString(" ")} ${regionalAlpha6178.tags.joinToString(" ")}") } catch (_: Throwable) { com.lifecyclebot.engine.VenueUniverse.classify(venue6148) }
-        val venueFamily6148 = when {
-            venueUniverse6154.route == com.lifecyclebot.engine.VenueUniverse.RouteFamily.SOL_AGGREGATOR -> "DEX_AGGREGATOR"
-            venueUniverse6154.route == com.lifecyclebot.engine.VenueUniverse.RouteFamily.SOL_AMM_DIRECT -> "SOLANA_DEX"
-            venueUniverse6154.route == com.lifecyclebot.engine.VenueUniverse.RouteFamily.CHAIN_SPECIFIC_DEX -> "CHAIN_SPECIFIC_DEX"
-            venueUniverse6154.route == com.lifecyclebot.engine.VenueUniverse.RouteFamily.CEX_SIGNAL_ONLY -> "CEX_SIGNAL"
-            venueUniverse6154.route == com.lifecyclebot.engine.VenueUniverse.RouteFamily.TREND_SIGNAL_ONLY -> "SOCIAL_TREND"
-            venue6148.contains("PAPER", true) -> "PAPER"
-            !isSpot -> "PERPS"
-            else -> "MULTICHAIN_CRYPTO"
-        }
         if (spread > 1.0) hardNo += "SPREAD_TOO_HIGH"
-        val routeCost6150 = com.lifecyclebot.perps.crypto.RouteCostExpectancy6150.evaluate(
-            spreadPct = spread,
-            slippagePct = slippage,
-            executable = route?.executable == true || isPaperMode.get(),
-            venueFamily = venueFamily6148,
-        )
-        if (routeCost6150.hardNo) hardNo += "ROUTE_COST_TOXIC_6150"
-        else if (routeCost6150.expectancyMultiplier < 0.90) soft += "ROUTE_COST_SHAPED_6150:${routeCost6150.quality}"
         val pre = when {
             hardNo.isNotEmpty() -> CryptoFinalBuyCandidate.PreFdgVerdict.HARD_NO_BUY
             signal.score >= 50 && signal.confidence >= 40 -> CryptoFinalBuyCandidate.PreFdgVerdict.BUY
@@ -1787,31 +1711,22 @@ object CryptoAltTrader {
             route?.executable == true -> "CRYPTO_UNIVERSE_EXECUTOR"
             else -> "DEFERRED_ROUTE"
         }
-        val sourceFamily6148 = if (isSpot) "CRYPTO_SPOT_UNIVERSE:${venueUniverse6154.canonical}:${regionalAlpha6178.family}" else "CRYPTO_PERPS_UNIVERSE:${venueUniverse6154.canonical}:${regionalAlpha6178.family}"
-        val routeTruthKey6148 = "${venueUniverse6154.chain}|$venueFamily6148|${venueUniverse6154.canonical}|$venue6148|${assetType.name}|${signal.direction.name}|${regionalAlpha6178.family}"
-        val strategyTruthKey6148 = "CRYPTO|$symbol|${assetType.name}|${cryptoSignalStyle(signal)}|$venueFamily6148|${signal.direction.name}|${regionalAlpha6178.family}"
         return CryptoFinalBuyCandidate(
-            assetKey = assetKey6148,
+            assetKey = cryptoAssetKey(signal, isSpot),
             symbol = symbol,
-            chain = chain6148,
-            venue = venue6148,
+            chain = if (route?.mint != null) "SOLANA" else "MULTICHAIN",
+            venue = route?.route?.name ?: "UNKNOWN",
             assetType = assetType,
             direction = signal.direction,
             marketCapLane = lane,
             selectedLane = "CRYPTO",
             selectedSpecialist = cryptoSignalStyle(signal),
             preFdgVerdict = pre,
-            score = (signal.score * regionalAlpha6178.scoreBias).toInt().coerceIn(0, 100),
+            score = signal.score,
             confidence = signal.confidence,
             safetyTier = "SAFE",
             liquidityUsd = liq,
-            routeQuality = venue6148,
-            sourceFamily = sourceFamily6148,
-            venueFamily = venueFamily6148,
-            routeTruthKey = routeTruthKey6148,
-            strategyTruthKey = strategyTruthKey6148,
-            routeCostBps = routeCost6150.routeCostBps,
-            routeExpectancyMultiplier = routeCost6150.expectancyMultiplier,
+            routeQuality = route?.route?.name ?: "UNKNOWN",
             spread = spread,
             slippageEstimate = slippage,
             hardNoReasons = hardNo.distinct(),
@@ -1820,46 +1735,6 @@ object CryptoAltTrader {
             executionAdapter = adapter,
             candidateVersion = LaneExecutionCoordinator.candidateVersionFor(cryptoAssetKey(signal, isSpot)),
         )
-    }
-
-
-
-    private data class RegionalAlpha6178(
-        val family: String,
-        val reason: String,
-        val scoreBias: Double,
-        val tags: List<String>,
-    )
-
-    /** V5.0.6178 — regional/CEX/social alpha bridge for Crypto Universe.
-     * This is deliberately pre-route only: it can tag and soft-shape candidate
-     * context, but it cannot pretend there is executable liquidity. Execution
-     * still requires CryptoUniverseRouteResolver + route/sellability truth.
-     */
-    private fun regionalPreRouteAlpha6178(signal: AltSignal): RegionalAlpha6178 {
-        val text = (signal.marketSymbol + " " + signal.market.name + " " + signal.reasons.joinToString(" ")).lowercase()
-        val tags = mutableListOf<String>()
-        if (text.contains("coinspot") || text.contains("aud") || text.contains("australia")) tags += "COINSPOT_AU_CEX_SIGNAL"
-        if (text.contains("binance") || text.contains("htx") || text.contains("huobi") || text.contains("okx") || text.contains("bybit")) tags += "GLOBAL_CEX_SIGNAL"
-        if (text.contains("weibo") || text.contains("douyin") || text.contains("xiaohongshu") || text.contains("china") || text.contains("chinese")) tags += "CHINESE_SOCIAL_TREND_SIGNAL"
-        if (text.contains("launchpad") || text.contains("ido") || text.contains("presale") || text.contains("pumpfun") || text.contains("pump.fun")) tags += "LAUNCHPAD_PRE_ROUTE_SIGNAL"
-        if (text.contains("pancake") || text.contains("bnb") || text.contains("bsc")) tags += "BNB_PANCAKESWAP_SIGNAL"
-        if (text.contains("raydium") || text.contains("orca") || text.contains("meteora")) tags += "SOLANA_DEX_SIGNAL"
-        val family = when {
-            tags.any { it.contains("CHINESE") } -> "REGIONAL_SOCIAL_PRE_ROUTE"
-            tags.any { it.contains("COINSPOT") || it.contains("CEX") } -> "CEX_PRE_ROUTE"
-            tags.any { it.contains("LAUNCHPAD") } -> "LAUNCHPAD_PRE_ROUTE"
-            tags.any { it.contains("PANCAKESWAP") || it.contains("DEX") } -> "DEX_PRE_ROUTE"
-            else -> "CRYPTO_NATIVE_SIGNAL"
-        }
-        val scoreBias = when (family) {
-            "REGIONAL_SOCIAL_PRE_ROUTE" -> 1.06
-            "CEX_PRE_ROUTE" -> 1.04
-            "LAUNCHPAD_PRE_ROUTE" -> 1.03
-            "DEX_PRE_ROUTE" -> 1.02
-            else -> 1.0
-        }
-        return RegionalAlpha6178(family, "regionalAlpha6178=$family tags=${tags.joinToString("+").ifBlank { "none" }} pre_route_only=true", scoreBias, tags)
     }
 
     private fun authorizeCryptoFinalCandidate(candidate: CryptoFinalBuyCandidate): TradeAuthorizer.AuthorizationResult? {
@@ -2100,70 +1975,19 @@ object CryptoAltTrader {
         // compounding/winner pressure already included above to express up to
         // 45% of available mode-local balance. Total portfolio risk cap remains
         // 80%, wallet lock still applies live, and route proof still gates real buys.
-        val cryptoLane6108 = if (isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV"
-        val cryptoAssetKey6108 = cryptoAssetKey(signal, isSpot)
-        val cryptoScoreBand6108 = try { com.lifecyclebot.engine.LosingPatternMemory.scoreBand(signal.score) } catch (_: Throwable) { "S41-60" }
-        try {
-            val lpState6108 = com.lifecyclebot.engine.learning.LanePolicy.effectiveState(cryptoLane6108, cryptoScoreBand6108)
-            val retraining6108 = lpState6108 == com.lifecyclebot.engine.learning.LanePolicy.State.RETRAINING ||
-                lpState6108 == com.lifecyclebot.engine.learning.LanePolicy.State.TRAIN_ONLY_NO_OPEN ||
-                lpState6108 == com.lifecyclebot.engine.learning.LanePolicy.State.SHADOW_TRACK_ONLY ||
-                lpState6108 == com.lifecyclebot.engine.learning.LanePolicy.State.PAPER_MICRO_EXECUTION
-            if (retraining6108) {
-                try {
-                    com.lifecyclebot.engine.learning.NoTradeObservationStore.recordBlock(
-                        mint = cryptoAssetKey6108,
-                        symbol = mktSym,
-                        lane = cryptoLane6108,
-                        scoreBand = cryptoScoreBand6108,
-                        score = signal.score,
-                        confidence = signal.confidence,
-                        entryLiqUsd = altLiqMcapHint(mktSym).first,
-                        entryMcapUsd = altLiqMcapHint(mktSym).second,
-                        entryPrice = signal.price,
-                        source = "CRYPTO_UNIVERSE",
-                        blockReason = "CRYPTO_LANE_RETRAINING_PAUSED_6108_${lpState6108.name}",
-                        verdictTag = lpState6108.name,
-                    )
-                } catch (_: Throwable) {}
-                com.lifecyclebot.engine.learning.LanePolicy.noteRetrainingSample(cryptoLane6108, cryptoScoreBand6108)
-                ErrorLogger.info(TAG, "🧪 CRYPTO_LANE_RETRAINING_PAUSED_6108 $mktSym lane=$cryptoLane6108 band=$cryptoScoreBand6108 state=${lpState6108.name}")
-                return
-            }
-        } catch (_: Throwable) {}
-
-        val labNudge6108 = try { com.lifecyclebot.engine.lab.LabPromotedFeed.entryNudge(com.lifecyclebot.engine.lab.LabAssetClass.ALT, signal.score) } catch (_: Throwable) { null }
-        val labSizeMult6108 = labNudge6108?.sizeMultiplier ?: 1.0
-        val uphMult6108 = try {
-            val uphSignals6108 = com.lifecyclebot.engine.UnifiedPolicyHead.Signals(
-                mlEntryConf = signal.confidence / 100.0,
-                symGreenLight = if (signal.score >= 50) 1.0 else 0.35,
-                evRatio = ((signal.score - 40.0) / 60.0).coerceIn(0.0, 1.0),
-                metaConviction = ((signal.confidence - 40.0) / 60.0).coerceIn(0.0, 1.0),
-                fwdPWin = (signal.score / 100.0).coerceIn(0.0, 1.0),
-                candConf = (signal.confidence / 100.0).coerceIn(0.0, 1.0),
-            )
-            com.lifecyclebot.engine.UnifiedPolicyHead.stamp(cryptoAssetKey6108, cryptoLane6108, uphSignals6108)
-            com.lifecyclebot.engine.UnifiedPolicyHead.authoritativeConviction(cryptoLane6108, uphSignals6108)
-                ?: com.lifecyclebot.engine.UnifiedPolicyHead.conviction(cryptoLane6108, uphSignals6108)
-        } catch (_: Throwable) { 1.0 }
-        val hypoMult6108 = try { com.lifecyclebot.engine.StrategyHypothesisEngine.getSizeBias(cryptoLane6108, signal.score, "CRYPTO", cryptoAssetKey6108) } catch (_: Throwable) { 1.0 }
-        var finalSize = (sizeSol * hiveSizeMult * labSizeMult6108 * uphMult6108 * hypoMult6108).coerceIn(0.01, balance * 0.45)
+        val finalSize = (sizeSol * hiveSizeMult).coerceIn(0.01, balance * 0.45)
         try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_UNIVERSE_MEME_PARITY_SIZE_6095")
-            ErrorLogger.info(TAG, "🪙 CRYPTO_UNIVERSE_MEME_PARITY_SIZE_6095 ${mktSym} base=${"%.4f".format(sizeSol)} hive=${"%.2f".format(hiveSizeMult)} lab=${"%.2f".format(labSizeMult6108)} uph=${"%.2f".format(uphMult6108)} hypo=${"%.2f".format(hypoMult6108)} final=${"%.4f".format(finalSize)} bal=${"%.4f".format(balance)} toxic=${"%.2f".format(cryptoToxicSizeMult6095)}")
-            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_AGI_LAB_SIZE_SHAPED_6108")
+            ErrorLogger.info(TAG, "🪙 CRYPTO_UNIVERSE_MEME_PARITY_SIZE_6095 ${mktSym} base=${"%.4f".format(sizeSol)} hive=${"%.2f".format(hiveSizeMult)} final=${"%.4f".format(finalSize)} bal=${"%.4f".format(balance)} toxic=${"%.2f".format(cryptoToxicSizeMult6095)}")
         } catch (_: Throwable) {}
-        var finalTp   = ((tpPct * tpMult) + hiveTpAdj).coerceAtLeast(1.5)
-        if (labNudge6108 != null) finalTp = maxOf(finalTp, labNudge6108.takeProfitPct)
+        val finalTp   = ((tpPct * tpMult) + hiveTpAdj).coerceAtLeast(1.5)
         // V5.9.432 — SL floor raised from 1.5% → 4% for SPOT, 3% → 6% for
         // LEVERAGE (via DEFAULT_SL_SPOT/LEV below-clamp). Prior 1.5% floor
         // produced the "SL-2%" user screenshot where any normal alt wobble
         // tripped the stop before the trade had room to develop. 4% gives
         // breathing room, trail + partial ladder handle upside.
         val slFloor = if (isSpot) 4.0 else 6.0
-        var finalSl   = (slPctBase * slMult).coerceIn(slFloor, 15.0)
-        if (labNudge6108 != null) finalSl = minOf(finalSl, kotlin.math.abs(labNudge6108.stopLossPct).coerceIn(slFloor, 15.0))
+        val finalSl   = (slPctBase * slMult).coerceIn(slFloor, 15.0)
 
         val (tp, sl) = when (signal.direction) {
             PerpsDirection.LONG  -> signal.price * (1 + finalTp / 100) to signal.price * (1 - finalSl / 100)
@@ -2175,7 +1999,7 @@ object CryptoAltTrader {
         val authResult = authorizeCryptoFinalCandidate(candidate)
         com.lifecyclebot.perps.crypto.brain.CryptoFunnel.execGate(authResult != null)
         if (authResult == null) {
-            ErrorLogger.info(TAG, "🪙 CRYPTO EXEC BLOCKED: ${mktSym} | preFdg=${candidate.preFdgVerdict} hardNo=${candidate.hardNoReasons} route=${candidate.routeQuality} ${candidate.normalizedContext6148()}")
+            ErrorLogger.info(TAG, "🪙 CRYPTO EXEC BLOCKED: ${mktSym} | preFdg=${candidate.preFdgVerdict} hardNo=${candidate.hardNoReasons} route=${candidate.routeQuality}")
             // V5.9.1317 (P0-5) — release the primary-lane lease on the CRYPTO book so a
             // blocked candidate does not suppress follow-up CRYPTO attempts for the same
             // asset until TTL. CRYPTO lane is isolated; this never touches Meme lanes.
@@ -2200,23 +2024,7 @@ object CryptoAltTrader {
             stopLossPrice  = sl,
             aiScore        = signal.score,
             aiConfidence   = signal.confidence,
-            reasons        = signal.reasons + "CRYPTO_CANDIDATE:${candidate.assetKey}" + "CRYPTO_NORMALIZED_6148:${candidate.normalizedContext6148()}" + "CRYPTO_PARITY_6177",
-            sourceFamily6177 = candidate.sourceFamily,
-            venueFamily6177 = candidate.venueFamily,
-            routeTruthKey6177 = candidate.routeTruthKey,
-            strategyTruthKey6177 = candidate.strategyTruthKey,
-            routeCostBps6177 = candidate.routeCostBps,
-            routeExpectancyMult6177 = candidate.routeExpectancyMultiplier,
-            executionAdapter6177 = candidate.executionAdapter,
-            proofState6177 = if (isPaperMode.get()) "PAPER_SIMULATED_CRYPTO" else "LIVE_ROUTE_VERIFIED_CRYPTO",
-            harvestStatus6177 = "OPEN_UNREALIZED_NOT_WALLET",
-            sellability6177 = if (candidate.preFdgVerdict == CryptoFinalBuyCandidate.PreFdgVerdict.BUY && candidate.hardNoReasons.isEmpty()) "ENTRY_ROUTE_SELLABLE_ASSUMED" else "ENTRY_ROUTE_DEFERRED",
-            normalizedContext6177 = candidate.normalizedContext6148(),
-            openCandidateVersion6177 = candidate.candidateVersion,
-            openRouteVerified6177 = candidate.executionAdapter != "DEFERRED_ROUTE",
-            openSellable6177 = candidate.preFdgVerdict == CryptoFinalBuyCandidate.PreFdgVerdict.BUY && candidate.hardNoReasons.isEmpty(),
-            openWalletHarvested6177 = false,
-            openProofState6177 = if (isPaperMode.get()) "PAPER_SIMULATED_CRYPTO" else "LIVE_ROUTE_VERIFIED_CRYPTO",
+            reasons        = signal.reasons + "CRYPTO_CANDIDATE:${candidate.assetKey}"
         )
 
         // Note: totalTrades incremented at CLOSE, not open, for accurate win rate
@@ -3117,10 +2925,6 @@ object CryptoAltTrader {
             )
         } catch (_: Exception) {}
 
-        val cryptoParityReason6177 = "ALT:$reason sourceFamily=${pos.sourceFamily6177} venueFamily=${pos.venueFamily6177} routeTruth=${pos.routeTruthKey6177} strategyTruth=${pos.strategyTruthKey6177} routeCostBps=${"%.1f".format(pos.routeCostBps6177)} routeCostMult=${"%.2f".format(pos.routeExpectancyMult6177)} adapter=${pos.executionAdapter6177} harvest=TERMINAL_WALLET_${if (paper) "PAPER" else "LIVE"} sellability=${pos.sellability6177} proof=${if (paper) "PAPER_SIMULATED_CRYPTO" else "LIVE_TERMINAL_CRYPTO"}"
-        val cryptoProof6177 = if (paper) "PAPER_SIMULATED_CRYPTO" else "LIVE_TERMINAL_CRYPTO_ROUTE_${if (pos.openRouteVerified6177) "VERIFIED" else "PENDING"}"
-        val cryptoEntrySource6177 = "${pos.sourceFamily6177}|${pos.venueFamily6177}|${pos.executionAdapter6177}"
-        val cryptoEntryPool6177 = pos.routeTruthKey6177.take(180)
         // V5.9.852 — non-meme close → CanonicalOutcomeBus (Layer Readiness fix).
         com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(
             tradeIdSeed   = "${pos.id}_$timestamp",
@@ -3149,18 +2953,13 @@ object CryptoAltTrader {
             TradeHistoryStore.recordTrade(Trade(
                 side             = "SELL", mode = modeStr,
                 sol              = pos.sizeSol, price = pos.currentPrice,
-                ts               = timestamp, reason = cryptoParityReason6177,
+                ts               = timestamp, reason = "ALT:$reason",
                 pnlSol           = pnlSol, pnlPct = pnlPct,
                 score            = pos.aiScore.toDouble(),
-                tradingMode      = "CryptoAlt_${if (pos.isSpot) "SPOT" else "${pos.leverage.toInt()}x"}_${pos.venueFamily6177}",
+                tradingMode      = "CryptoAlt_${if (pos.isSpot) "SPOT" else "${pos.leverage.toInt()}x"}",
                 tradingModeEmoji = "🪙", mint = mktSym,
-                proofState       = cryptoProof6177,
-                positionId       = pos.id,
-                entryTsMs        = pos.openTime,
                 entryPriceSnapshot = pos.entryPrice,
-                entryCostSol      = pos.sizeSol,
-                entryPriceSource = cryptoEntrySource6177,
-                entryPoolAddress = cryptoEntryPool6177
+                entryCostSol      = pos.sizeSol
             ))
         } catch (_: Exception) {}
 

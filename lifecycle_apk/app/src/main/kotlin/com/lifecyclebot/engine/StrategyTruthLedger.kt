@@ -49,33 +49,13 @@ object StrategyTruthLedger {
             if (out.size >= limit.coerceAtLeast(1)) break
             val side = row.side.trim().uppercase()
             if (side == "PARTIAL_SELL") {
-                // V5.0.6228g — PARTIAL PnL ATTRIBUTION FIX.
-                // Prior rule: any partial with residual >0 was excluded from
-                // strategy truth as "not terminal". Effect: a QUALITY trade
-                // that partial-banks +100% and then rides the residual to a
-                // scratch had its +100% winner STRIPPED from strategy truth —
-                // only the residual scratch got counted. Operator report
-                // showed Strategy Clean PnL=-2.54 SOL vs Raw PnL=+4.01 SOL,
-                // a 6.55 SOL divergence driven by 17 partialNotTerminal
-                // exclusions. Corrupts every downstream learner (LiveStrategy-
-                // Tuner, UnifiedPolicyHead, ScoreExpectancyTracker) into
-                // thinking the bot loses money when it profits.
-                //
-                // New rule: include PARTIAL_SELL rows with realized SOL as
-                // strategy-truth events. Each partial represents a real
-                // closed portion — the residual close is separately counted
-                // via its own terminal SELL row (different terminalKey via
-                // execId/timestamp). The mint-close-window dedupe below
-                // still prevents true duplicates.
-                val realizedSol = row.netPnlSol.takeIf { it != 0.0 } ?: row.pnlSol
-                if (realizedSol == 0.0) {
-                    // Zero-realized partials are still non-terminal — no info.
+                // A partial can be terminal only when wallet amount is zero. In
+                // current schema remainingQtyToken is the best persisted proxy.
+                if (row.remainingQtyToken > 0.000000001) {
                     partial++
                     inc("STRATEGY_PARTIAL_NOT_TERMINAL")
                     continue
                 }
-                // Fall through: PARTIAL_SELL with realized SOL is counted
-                // as a truth event (attribution row for the closed portion).
             } else if (side != "SELL") {
                 continue
             }
@@ -83,14 +63,6 @@ object StrategyTruthLedger {
             if (isRecoveryInventory(row)) {
                 recovery++
                 inc("STRATEGY_RECOVERY_EXCLUDED")
-                continue
-            }
-            // V5.0.6218 — EMERGENCY_PATCH item 2 exclusion filters.
-            val specExcl = specExcludedReason6218(row)
-            if (specExcl != null) {
-                forensic++
-                inc(specExcl)
-                inc("STRATEGY_SPEC_EXCLUDED_6218_TOTAL")
                 continue
             }
             if (!hasValidEntryBasis(row)) {
@@ -134,42 +106,6 @@ object StrategyTruthLedger {
             hay.contains("RECOVERED_") ||
             hay.contains("RESTORED_") ||
             hay.contains("INVENTORY_RECON")
-    }
-
-    // V5.0.6218 — EMERGENCY_PATCH item 2: StrategyTruthLedger gating.
-    // Exclude probe-only, unverified-map, unverified-route, invalid-entry
-    // and shadow-paper rows from clean strategy truth. Operator's report
-    // showed StrategyTruthLedger receiving TOKEN_MAP_PENDING rows and
-    // PROBE_ONLY rows that inflate/deflate WR/PnL falsely. Returns the
-    // exclusion tag (for forensic counter naming) or null if clean.
-    fun specExcludedReason6218(t: Trade): String? {
-        val hay = listOf(
-            t.tradingMode, t.reason, t.proofState,
-            t.entryPriceSource, t.positionId, t.side,
-        ).joinToString("|").uppercase()
-        return when {
-            // Probe-only rows: research telemetry, not strategy truth.
-            hay.contains("PROBE_ONLY") ||
-                hay.contains("DUST_PROBE") ||
-                hay.contains("MICRO_PROBE") ||
-                hay.contains("MICRO_WALLET_EMERGENCY_PROBE_6216") ||
-                hay.contains("LOW_LIQUIDITY_DUST_PROBE") -> "PROBE_ONLY_EXCLUDED_6218"
-            // Token map wasn't verified pre-entry: entry basis is untrusted.
-            hay.contains("TOKEN_MAP_PENDING") ||
-                hay.contains("TOKEN_MAP_UNKNOWN") ||
-                hay.contains("TOKEN_MAP_START") -> "TOKEN_MAP_UNVERIFIED_EXCLUDED_6218"
-            // Route unknown/pending at entry: cannot claim strategy truth.
-            hay.contains("ROUTE_UNKNOWN") ||
-                hay.contains("ROUTE_PENDING") ||
-                hay.contains("ROUTE_NOT_VERIFIED") -> "ROUTE_UNVERIFIED_EXCLUDED_6218"
-            // Entry price invalid: no trustworthy basis.
-            hay.contains("ENTRY_PRICE_INVALID") ||
-                hay.contains("ENTRY_BASIS_INVALID") -> "ENTRY_PRICE_INVALID_EXCLUDED_6218"
-            // Shadow-paper research surface: not clean paper truth either.
-            hay.contains("SHADOW_PAPER") ||
-                hay.contains("PAPER_SHADOW") -> "SHADOW_PAPER_EXCLUDED_6218"
-            else -> null
-        }
     }
 
     fun inventoryRecoveryRows(rawRows: List<Trade>): List<Trade> =
@@ -229,43 +165,6 @@ object StrategyTruthLedger {
         return if (lane != t.tradingMode) t.copy(tradingMode = lane) else t
     }
 
-
-    // V5.0.6149 — venue/source-specific strategy truth key. Lane-only truth was
-    // diluting winners and bleeders: TREASURY via DEX_TRENDING is not the same
-    // strategy as TREASURY via pump-only probation, and Crypto Universe candidates
-    // need chain/venue route truth. This helper is schema-safe: it does not mutate
-    // rows, but every consumer can now group by a granular money-path key.
-    fun strategyTruthKey6149(t: Trade): String {
-        val lane = strategyLaneFor(t)
-        val source = t.entryPriceSource.ifBlank {
-            when {
-                t.reason.contains("PUMP", true) -> "PUMP_FAMILY"
-                t.reason.contains("DEX", true) -> "DEX_FAMILY"
-                t.reason.contains("CRYPTO_NORMALIZED_6148", true) -> "CRYPTO_NORMALIZED"
-                else -> "UNKNOWN_SOURCE"
-            }
-        }.uppercase().replace('|', '_').take(48)
-        val venue = when {
-            t.reason.contains("CRYPTO_NORMALIZED_6148", true) ->
-                Regex("venueFamily=([^ ]+)").find(t.reason)?.groupValues?.getOrNull(1) ?: "CRYPTO_VENUE"
-            t.reason.contains("JUPITER", true) || t.proofState.contains("JUPITER", true) -> "JUPITER"
-            t.reason.contains("RAYDIUM", true) || t.entryPriceSource.contains("RAYDIUM", true) -> "RAYDIUM"
-            t.reason.contains("PUMP", true) || source.contains("PUMP") -> "PUMP_FAMILY"
-            t.reason.contains("DEX", true) || source.contains("DEX") -> "DEX_FAMILY"
-            else -> "UNKNOWN_VENUE"
-        }.uppercase().replace('|', '_').take(48)
-        val tactic = when {
-            t.reason.contains("CRYPTO_NORMALIZED_6148", true) ->
-                Regex("strategyTruth=([^ ]+)").find(t.reason)?.groupValues?.getOrNull(1) ?: "CRYPTO_STRATEGY"
-            t.reason.contains("RUNNER", true) || t.reason.contains("TRAIL", true) -> "RUNNER_EXIT"
-            t.reason.contains("SELL_OPT", true) -> "SELL_OPT"
-            t.reason.contains("PROFIT", true) || t.reason.contains("BANK", true) -> "PROFIT_BANK"
-            t.reason.contains("STOP", true) || t.reason.contains("LOSS", true) -> "STOP_LOSS"
-            else -> "TACTIC_UNKNOWN"
-        }.uppercase().replace('|', '_').take(72)
-        return "$lane|$source|$venue|$tactic"
-    }
-
     private fun terminalKey(t: Trade): String {
         val mode = t.mode.ifBlank { "unknown" }.uppercase()
         val mint = t.mint.ifBlank { "unknown" }
@@ -286,14 +185,7 @@ object StrategyTruthLedger {
         return "$mode|$mint|$pos"
     }
 
-    // V5.0.6201 — narrowed from 5min → 60s. Audit 2026-07-08 showed
-    // 129 duplicateTerminal exclusions. The 5-min window was too wide:
-    // legitimate re-entries on popular mints (WIF/BONK/JUP) within 5 min
-    // of a prior close were being counted as duplicates and stripped from
-    // clean stats. 60s is enough to catch reconciler-driven double-writes
-    // of the same close (typical retry window is <30s) while allowing
-    // fast re-entries to be counted as independent positions.
-    private const val SAME_MINT_TERMINAL_DEDUP_WINDOW_MS = 60_000L
+    private const val SAME_MINT_TERMINAL_DEDUP_WINDOW_MS = 5L * 60_000L
 
     private fun mintCloseWindowKey(t: Trade): String {
         val mode = t.mode.ifBlank { "unknown" }.uppercase()

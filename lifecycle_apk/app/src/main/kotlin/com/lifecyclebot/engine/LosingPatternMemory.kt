@@ -138,34 +138,7 @@ object LosingPatternMemory {
         return liveCache[key] ?: BucketStats(0, 0, 0.0)
     }
 
-    // V5.0.6120c — EV-aware danger gate. isDangerous is a pure loss-rate flag
-    // that ignores meanPnl; recommendedSizeMult already respects the "let a
-    // positive-EV bucket run" doctrine at line 213. External callers of
-    // isDangerZone() (BrainConsensusGate, LaneToxicityGuard, MoonshotArbiter)
-    // were treating positive-EV buckets like MOONSHOT|S41-60 (16L/6W but
-    // +61.5% mean PnL) as dangerous, damping the very bands that produce
-    // moonshot capture. A bucket is only dangerous if it BOTH looks bad on
-    // loss rate AND is actually net-losing on mean PnL. Positive-EV buckets
-    // are RARE-BUT-HUGE-WIN patterns and must be left alone.
-    fun isDangerZone(tradingMode: String, v3Score: Int): Boolean {
-        val s = stats(tradingMode, v3Score)
-        if (!s.isDangerous) return false
-        return s.meanPnl <= 0.0
-    }
-
-    /**
-     * V5.0.6116 — Hard veto for confirmed 0% WR lane/score buckets.
-     * If a lane+score band has >=10 trades with 0 wins, it is a confirmed
-     * rug-death bucket. The bot should NOT buy tokens in this band in live mode.
-     * This is rug prevention, not cosmetic throughput shaping.
-     * Example: PRESALE_SNIPE|S0-10 has 34 losses, 3 wins — not 0% but very toxic.
-     *          BLUECHIP|S0-10 has 12 losses, 0 wins — 0% WR, hard veto.
-     */
-    fun isConfirmedDeathBucket6116(tradingMode: String, v3Score: Int): Boolean {
-        val s = stats(tradingMode, v3Score)
-        // 0% WR with >=10 losses = confirmed death bucket
-        return s.wins == 0 && s.losses >= 10
-    }
+    fun isDangerZone(tradingMode: String, v3Score: Int): Boolean = stats(tradingMode, v3Score).isDangerous
 
     /**
      * V5.9.1070 — Force-expire memoised cache so the next isDangerZone()

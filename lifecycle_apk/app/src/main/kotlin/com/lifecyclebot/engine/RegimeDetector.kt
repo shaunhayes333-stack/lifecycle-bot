@@ -164,37 +164,13 @@ object RegimeDetector {
         if (base >= 1.0) return base  // BULL/NORMAL/BOOTSTRAP: nothing to soften
         val lane = rawLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: return base
         return try {
-            // V5.0.6228 — PAPER-AWARE LANE LOOKUP. The prior code only queried
-            // computeCleanLiveTerminalLeaderboard, which is empty during the
-            // paper-mode compound-target training runs (all rows are paper).
-            // Result: paper QUALITY at +14.62% EV was still getting CHOP-slashed
-            // to 0.35x. Now: in paper mode use computeLeaderboard (all rows),
-            // in live mode keep clean-live-only. Same doctrine, mode-appropriate
-            // sample source.
-            val isPaper = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
-            val board = if (isPaper) StrategyTelemetry.computeLeaderboard(limit = 1_500)
-                        else          StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
+            val board = StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
             val m = board.firstOrNull { it.strategy.equals(lane, true) }
             if (m == null) return base
             // V5.0.6075 — DUMP/CHOP dampening is PER-LANE: a lane that is
             // individually net-positive in SOL is not in drawdown and gets
             // the full 1.0 (global regime mult does not apply to it at all).
-            // V5.0.6202 — lowered exemption sample threshold 5→3 so lanes
-            // can escape the self-confirming DUMP/CHOP death spiral faster.
-            // A lane with n=3 wins in a row deserves full sizing on trade #4.
-            if (m.trades >= 3 && m.totalSolPnl > 0.0) return 1.0
-            // V5.0.6228 — MEAN-PNL EXEMPTION: some lanes carry the whole book
-            // on 1-2 huge asymmetric wins (MOONSHOT +463% EV at n=6). Even if
-            // totalSolPnl currently reads negative on live-clean, mean PnL >0
-            // is a real edge that must not be regime-slashed.
-            if (m.trades >= 3 && m.meanPnlPct >= 20.0) return 1.05
-            // V5.0.6195 — WINNER PRESS: if a lane has a *high WR* even with
-            // small negative aggregate (small sample noise) OR proven-strategy
-            // signal from LiveStrategyTuner, treat as a winner and press
-            // 1.10x instead of damping. This is the "pivot to winners"
-            // operator directive — don't strangle a lane with 50%+ WR just
-            // because n<10 aggregate SOL isn't positive yet.
-            if (m.trades >= 3 && m.winRatePct >= 50.0) return 1.10
+            if (m.trades >= 5 && m.totalSolPnl > 0.0) return 1.0
             val provenWinner = m.trades >= 8 &&
                 (m.winRatePct >= 35.0 || m.meanPnlPct >= 20.0 ||
                     m.avgWinPct >= 50.0 || m.totalSolPnl > 0.0)
@@ -203,9 +179,7 @@ object RegimeDetector {
                 base.coerceAtLeast(0.80)
             } else if (lane in setOf("MOONSHOT", "STANDARD", "SHITCOIN") && m.trades >= 5) {
                 // Priority-lane floor even when unproven — enough to compound.
-                // V5.0.6195: lifted 0.70 -> 0.85 so priority lanes still
-                // compound during DUMP instead of hard-neutered scalp size.
-                base.coerceAtLeast(0.85)
+                base.coerceAtLeast(0.70)
             } else base
         } catch (_: Throwable) { base }
     }

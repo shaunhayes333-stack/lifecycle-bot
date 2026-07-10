@@ -162,8 +162,6 @@ object BirdeyeSecurityProvider {
     )
 
     private fun fetchAndScore(mint: String, apiKey: String): CachedSecurity? {
-        // V5.0.6227 — dead-key hard gate: key is 401'd, zero wire until rotated.
-        if (!com.lifecyclebot.engine.KeyValidator.isLive("birdeye")) return null
         // V5.9.952 — even safety calls bow to monthly LOCKDOWN (>80% burn)
         if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordSafety()) {
             return null

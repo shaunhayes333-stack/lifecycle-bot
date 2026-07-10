@@ -30,30 +30,20 @@ object RateLimiter {
     private val configs = mapOf(
         "dexscreener" to RateConfig(maxRequestsPerMinute = 300, burstAllowance = 10, minSpacingMs = 25L),
         "birdeye" to RateConfig(maxRequestsPerMinute = 60, burstAllowance = 3, minSpacingMs = 50L),
-        // V5.0.6162 — Helius was hitting 429 in live reports. Keep it as a
-        // scarce proof/sender resource; Dex/Jupiter/DAS fallbacks carry routine load.
-        "helius" to RateConfig(maxRequestsPerMinute = 24, burstAllowance = 2, minSpacingMs = 250L),
+        "helius" to RateConfig(maxRequestsPerMinute = 100, burstAllowance = 5, minSpacingMs = 40L),
         "quicknode" to RateConfig(maxRequestsPerMinute = 300, burstAllowance = 20, minSpacingMs = 15L),
         "jupiter" to RateConfig(maxRequestsPerMinute = 60, burstAllowance = 5, minSpacingMs = 50L),
         "solscan" to RateConfig(maxRequestsPerMinute = 30, burstAllowance = 3, minSpacingMs = 75L),
         "coingecko" to RateConfig(maxRequestsPerMinute = 30, burstAllowance = 3, minSpacingMs = 75L),
         "groq" to RateConfig(maxRequestsPerMinute = 30, burstAllowance = 3, minSpacingMs = 75L),
         "pumpfun" to RateConfig(maxRequestsPerMinute = 60, burstAllowance = 5, minSpacingMs = 50L),
-        // V5.0.6227 — t.me/s/ channel scraping (web preview pages).
-        "telegram" to RateConfig(maxRequestsPerMinute = 20, burstAllowance = 3, minSpacingMs = 500L),
-        "solana_rpc" to RateConfig(maxRequestsPerMinute = 60, burstAllowance = 5, minSpacingMs = 100L),
         "default" to RateConfig(maxRequestsPerMinute = 60, burstAllowance = 3, minSpacingMs = DEFAULT_MIN_SPACING_MS),
     )
 
     private val buckets = ConcurrentHashMap<String, Bucket>()
 
     private fun normalizeSource(source: String): String {
-        val raw = source.trim().lowercase().ifBlank { "default" }
-        return when {
-            raw == "helius" || raw.startsWith("helius_") || raw.contains("helius-rpc") -> "helius"
-            raw == "pumpportal" || raw == "pump_portal" -> "pumpfun"
-            else -> raw
-        }
+        return source.trim().lowercase().ifBlank { "default" }
     }
 
     private fun configFor(source: String): RateConfig {

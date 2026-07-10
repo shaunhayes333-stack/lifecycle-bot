@@ -13,7 +13,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -50,21 +49,7 @@ object CollectiveLearning {
     /** V5.7.3: Public getter for TursoClient (used by perps learning) */
     fun getClient(): TursoClient? = client
 
-    // V5.0.6120d — HIVEMIND AMPLIFICATION. Operator: "8 instances means the
-    // bot should have its intelligence ×8." The pipe was wired but running
-    // at a 15-minute sync interval — on install-over sessions shorter than
-    // that the swarm brain never propagates at all. Doctrine: pull often,
-    // push on every close, act on the pool the swarm has confirmed.
-    //
-    // Two-tier cadence:
-    //   HOT   — pull blacklist + patterns every 90s so a losing pattern
-    //           the swarm just proved lands before we run more entries on
-    //           it. Downloading is cheap (SELECT queries against Turso).
-    //   FULL  — full sync including mode_stats + whale_stats + local
-    //           pattern aggregate UPLOAD every 5 min (writes are heavier
-    //           and don't need HOT cadence to stay useful).
-    private const val SYNC_INTERVAL_MS = 90_000L        // was 15 min → now 90s
-    private const val FULL_SYNC_INTERVAL_MS = 300_000L  // 5 min for heavier writes
+    private const val SYNC_INTERVAL_MS = 15 * 60 * 1000L
 
     private var totalUploadAttemptsThisSession = 0
     private var totalUploadSuccessThisSession = 0
@@ -193,73 +178,11 @@ object CollectiveLearning {
                 return@withLock false
             }
 
-            // V5.0.6120f — Swarm Intelligence Layer schema. Unified table
-            // serves all 5 real-time swarm features (co-fire boost, rug
-            // consensus, price-truth oracle, portfolio dedup, Lab winner
-            // propagation). Guaranteed present via CREATE TABLE IF NOT
-            // EXISTS so old Turso instances auto-migrate on first sync.
-            try {
-                client?.execute(
-                    "CREATE TABLE IF NOT EXISTS swarm_signals (" +
-                        "id INTEGER PRIMARY KEY AUTOINCREMENT," +
-                        "signal_type TEXT NOT NULL," +
-                        "mint TEXT NOT NULL," +
-                        "symbol TEXT," +
-                        "instance_id TEXT NOT NULL DEFAULT ''," +
-                        "score REAL," +
-                        "price REAL," +
-                        "extra TEXT," +
-                        "ts INTEGER NOT NULL" +
-                    ")",
-                    emptyList()
-                )
-                // V5.0.6232 — SCHEMA MIGRATION SAFETY NET. Older Turso DBs were
-                // created before this inline block gained the instance_id column
-                // (or with a slightly different swarm_signals shape), so every
-                // publishSwarmSignal() INSERT was crashing with
-                //   "no such column: instance_id"
-                // and taking CloudSync down with it. CREATE TABLE IF NOT EXISTS
-                // never patches an existing table's schema, so we explicitly try
-                // the ADD COLUMN here and swallow "duplicate column name" /
-                // "already exists" errors so it stays idempotent on fresh DBs.
-                val swarmMigrations = listOf(
-                    "ALTER TABLE swarm_signals ADD COLUMN instance_id TEXT NOT NULL DEFAULT ''",
-                    "ALTER TABLE swarm_signals ADD COLUMN symbol TEXT",
-                    "ALTER TABLE swarm_signals ADD COLUMN score REAL",
-                    "ALTER TABLE swarm_signals ADD COLUMN price REAL",
-                    "ALTER TABLE swarm_signals ADD COLUMN extra TEXT"
-                )
-                for (mig in swarmMigrations) {
-                    try {
-                        client?.execute(mig, emptyList())
-                        Log.i(TAG, "✅ V5.0.6232 swarm_signals migration applied: $mig")
-                    } catch (me: Exception) {
-                        val msg = me.message.orEmpty()
-                        if (msg.contains("duplicate column", ignoreCase = true) ||
-                            msg.contains("already exists", ignoreCase = true)) {
-                            Log.d(TAG, "V5.0.6232 swarm_signals migration already applied: $mig")
-                        } else {
-                            Log.w(TAG, "V5.0.6232 swarm_signals migration warn (non-fatal): $mig | ${me.message}")
-                        }
-                    }
-                }
-                client?.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_swarm_type_mint_ts ON swarm_signals(signal_type, mint, ts)",
-                    emptyList()
-                )
-                Log.i(TAG, "✅ V5.0.6120f swarm_signals table + index ready (V5.0.6232 migrations applied)")
-            } catch (e: Exception) {
-                Log.w(TAG, "swarm_signals init warning (non-fatal): ${e.message}")
-            }
-
             isInitialized = true
             Log.i(TAG, "COLLECTIVE LEARNING ONLINE - HIVE MIND ACTIVE")
 
             uploadLocalPatternAggregates()
             downloadAll()
-            // V5.0.6121 — signal ready to HivemindReadyGate so live entries
-            // that were held during boot can now fire with swarm knowledge.
-            try { com.lifecyclebot.engine.HivemindReadyGate.ready("downloadAll_complete") } catch (_: Throwable) {}
 
             try {
                 Log.i(TAG, "Triggering CollectiveIntelligenceAI refresh...")
@@ -366,108 +289,6 @@ object CollectiveLearning {
         client = null
         isInitialized = false
         Log.i(TAG, "Collective learning shutdown")
-    }
-
-    // ═════════════════════════════════════════════════════════════════════
-    //  V5.0.6120f — SWARM INTELLIGENCE LAYER (SwarmIntel bridge)
-    // ═════════════════════════════════════════════════════════════════════
-
-    /**
-     * V5.0.6120f — Insert one swarm signal row. Called from SwarmIntel's
-     * publish* helpers on a background coroutine. Always try/catch, always
-     * fail-open. The instance_id is captured at init and identifies this
-     * bot in the swarm so we can compute distinct-instance consensus
-     * without double-counting one instance's repeated publishes.
-     */
-    suspend fun publishSwarmSignal(
-        signalType: String,
-        mint: String,
-        symbol: String,
-        score: Double,
-        price: Double,
-        extra: String,
-    ) {
-        if (!isEnabled()) return
-        try {
-            val ts = System.currentTimeMillis()
-            val sql = "INSERT INTO swarm_signals (signal_type, mint, symbol, instance_id, score, price, extra, ts) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-            client?.execute(
-                sql,
-                listOf(signalType, mint, symbol.take(64), instanceId, score, price, extra.take(256), ts)
-            )
-        } catch (e: Exception) {
-            Log.d(TAG, "publishSwarmSignal(${signalType}) warn: ${e.message}")
-        }
-    }
-
-    /**
-     * V5.0.6120f — Count DISTINCT INSTANCES that emitted a signal of the
-     * given type for the given mint since `windowMs` ago. Distinct-instance
-     * count is what matters — one bot spamming its own publish shouldn't
-     * inflate the consensus. Excludes our own instance from the count for
-     * co-fire so we don't count ourselves as a follower of ourselves.
-     */
-    fun getSwarmSignalCount(signalType: String, mint: String, windowMs: Long): Int {
-        if (!isEnabled()) return 0
-        return try {
-            val sinceTs = System.currentTimeMillis() - windowMs
-            val sql = "SELECT COUNT(DISTINCT instance_id) AS n FROM swarm_signals " +
-                "WHERE signal_type = ? AND mint = ? AND ts >= ? AND instance_id != ?"
-            val result = runBlocking { client?.query(sql, listOf(signalType, mint, sinceTs, instanceId)) }
-            if (result != null && result.rows.isNotEmpty()) {
-                (result.rows[0]["n"] as? Number)?.toInt() ?: 0
-            } else 0
-        } catch (e: Exception) {
-            Log.d(TAG, "getSwarmSignalCount(${signalType}, $mint) warn: ${e.message}")
-            0
-        }
-    }
-
-    /**
-     * V5.0.6120f — Fetch swarm price samples for a mint inside `windowMs`.
-     * Used by SwarmIntel.getSwarmPriceMedian for the phantom-wick oracle.
-     * Excludes our own instance so we don't self-corroborate a bad sample.
-     */
-    fun getSwarmPriceSamples(mint: String, windowMs: Long): List<Double> {
-        if (!isEnabled()) return emptyList()
-        return try {
-            val sinceTs = System.currentTimeMillis() - windowMs
-            val sql = "SELECT price FROM swarm_signals " +
-                "WHERE signal_type = ? AND mint = ? AND ts >= ? AND instance_id != ? AND price > 0"
-            val result = runBlocking { client?.query(sql, listOf(SwarmIntelSignalTypes.PRICE_SAMPLE, mint, sinceTs, instanceId)) }
-                ?: return emptyList()
-            result.rows.mapNotNull { (it["price"] as? Number)?.toDouble() }.filter { it > 0.0 }
-        } catch (e: Exception) {
-            Log.d(TAG, "getSwarmPriceSamples($mint) warn: ${e.message}")
-            emptyList()
-        }
-    }
-
-    /**
-     * V5.0.6120f — Fetch recent Lab winner strategies from the swarm so
-     * this instance's LLM Lab can pick them up and run them in parallel.
-     * Returns strategy name + WR + avgPnl + config hint.
-     */
-    fun getSwarmLabWinners(windowMs: Long = 24L * 60L * 60L * 1000L): List<Map<String, Any?>> {
-        if (!isEnabled()) return emptyList()
-        return try {
-            val sinceTs = System.currentTimeMillis() - windowMs
-            val sql = "SELECT symbol, score, price, extra, ts FROM swarm_signals " +
-                "WHERE signal_type = ? AND ts >= ? AND instance_id != ? ORDER BY ts DESC LIMIT 32"
-            val result = runBlocking { client?.query(sql, listOf(SwarmIntelSignalTypes.LAB_WINNER, sinceTs, instanceId)) }
-                ?: return emptyList()
-            result.rows
-        } catch (e: Exception) {
-            Log.d(TAG, "getSwarmLabWinners warn: ${e.message}")
-            emptyList()
-        }
-    }
-
-    /** V5.0.6120f — signal type constants mirrored inside CollectiveLearning */
-    private object SwarmIntelSignalTypes {
-        const val PRICE_SAMPLE = "PRICE_SAMPLE"
-        const val LAB_WINNER   = "LAB_STRATEGY_WINNER"
     }
 
     suspend fun getDiagnostics(): CollectiveDiagnostics {
@@ -1664,22 +1485,7 @@ object CollectiveLearning {
     }
 
     fun getHighWinPatterns(): List<CollectivePattern> {
-        // V5.0.6228 — asymmetric-power-law-aware winning-pattern filter.
-        // The old rule (winRate > 60.0) was too tight for meme-lane doctrine:
-        // a 45% WR pattern with +80% avg PnL is a stronger edge than a 65%
-        // WR pattern with +2% avg PnL. Result: report showed 0 winning
-        // patterns / 134 losing patterns, so the size-shaping stack lost
-        // its positive edge signal and only had bleed protection. Widen
-        // the filter to also accept clearly positive-EV patterns even at
-        // moderate WR — meme upside comes from asymmetric convexity, not
-        // from hit rate.
-        return cachedPatterns.values.filter { p ->
-            p.isReliable && (
-                p.winRate > 60.0 ||
-                (p.winRate >= 45.0 && p.avgPnlPct >= 15.0) ||
-                (p.winRate >= 35.0 && p.avgPnlPct >= 40.0)
-            )
-        }
+        return cachedPatterns.values.filter { it.isReliable && it.winRate > 60.0 }
     }
 
     fun getPatternEdgesForCandidate(
@@ -1776,44 +1582,12 @@ object CollectiveLearning {
     private fun startBackgroundSync() {
         syncJob?.cancel()
         syncJob = scope.launch {
-            // V5.0.6120d — IMMEDIATE FIRST SYNC. The old loop delayed 15 min
-            // BEFORE the first sync — on any bot session shorter than that
-            // (very common on the operator's install-over workflow), the
-            // swarm brain never propagated at all. Now: fire a full sync
-            // on the very next tick after startBackgroundSync launches.
-            var lastFullSyncMs = 0L
-            try {
-                if (isEnabled()) {
-                    uploadLocalPatternAggregates()
-                    downloadAll()
-                    lastFullSyncMs = System.currentTimeMillis()
-                    Log.i(TAG, "✅ HIVE FIRST-SYNC complete — swarm brain live from tick 0")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "First-sync error: ${e.message}")
-            }
             while (isActive) {
                 delay(SYNC_INTERVAL_MS)
                 if (isEnabled()) {
                     try {
-                        // HOT path — always pull latest patterns + blacklist
-                        // so swarm-confirmed losers land within 90s and
-                        // swarm-confirmed winners are ready to boost sizing.
-                        downloadPatterns()
-                        downloadBlacklist()
-                        // FULL path — heavier upload + mode/whale/mint stats
-                        // only every 5 min so we don't hammer Turso writes.
-                        val nowMs = System.currentTimeMillis()
-                        if (nowMs - lastFullSyncMs >= FULL_SYNC_INTERVAL_MS) {
-                            uploadLocalPatternAggregates()
-                            downloadModeStats()
-                            downloadWhaleStats()
-                            downloadTokenMints()
-                            lastFullSyncMs = nowMs
-                            lastSyncTime = nowMs
-                            totalDownloadsThisSession++
-                            saveCacheToPrefs()
-                        }
+                        uploadLocalPatternAggregates()
+                        downloadAll()
                     } catch (e: Exception) {
                         Log.e(TAG, "Background sync error: ${e.message}")
                     }

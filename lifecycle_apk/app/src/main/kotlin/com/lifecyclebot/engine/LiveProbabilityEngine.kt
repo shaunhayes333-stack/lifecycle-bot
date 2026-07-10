@@ -97,71 +97,65 @@ object LiveProbabilityEngine {
         metaConviction: Double = 0.50,
     ): Edge {
         val lane = canonical(rawLane)
-        // V5.0.6228 — RESCUE PROFITABLE PAUSED LANES + SMALLER HAIRCUT.
-        // Operator P2 directive: "Remove auto-pause entirely for lanes with
-        // net-positive EV" and "Replace the 0.1x multiplier with a smaller
-        // haircut (e.g. 0.7x) so the lane keeps trading". TREASURY and
-        // MOONSHOT at 44.4% WR were being suppressed to 0.1x because the
-        // hard-seed pause never cleared. Two changes:
-        //   (a) If the lane's own clean live leaderboard shows net-positive
-        //       EV (meanPnlPct > 0) at any meaningful sample size, bypass
-        //       the paused-dampener entirely — the guard's pause is stale
-        //       for this lane.
-        //   (b) When the dampener does apply, raise the multipliers so the
-        //       lane keeps trading:  0.10→0.70, 0.35→0.85, 0.55→1.00.
+        // V5.0.4596 — FLUID PAUSED-LANE DAMPENER (operator architectural
+        // principle: "all gates are meant to be in a fluid state eventually
+        // be removed once the SUPER AGI / SSI stack take over once they
+        // have enough learnt intelligence... these should not just be
+        // result-based decisions either").
+        //
+        // Rather than a rigid mult=0.0 block, this backstop applies a
+        // *fluid dampener* that the AGI stack can override. Purpose is to
+        // stop capital hemorrhage from bypass paths while still permitting
+        // learning probes AND respecting the AGI's forward-looking
+        // authority (not just backward-looking WR).
+        //
+        // Dampener tiers:
+        //   • Base (no AGI signal): mult=0.10 → tiny learning probe still
+        //     runs so the paused lane doesn't go completely dark for the
+        //     learning loop.
+        //   • Lab strategy proven for this lane: mult=0.35 → sandbox brain
+        //     has forward-looking evidence, upgrade to normal probe size.
+        //   • UnifiedPolicyHead AUTHORITATIVE + positive fwd prediction:
+        //     mult=0.55 → per-lane brain has trained authority.
+        //
+        // As the AGI matures, the dampener fades naturally because these
+        // AGI signals mature. Eventually the LaneAutoPauseGuard hard-seed
+        // itself gets released (via operator's LaneShadowProofLoop.
+        // allowLaneResume) and this backstop becomes a no-op.
         try {
             if (LaneAutoPauseGuard.isPaused(lane)) {
                 val laneU = lane.uppercase()
-                // (a) Preemptive rescue: if live-clean leaderboard shows the
-                // lane is net-positive, treat as if never paused.
-                val cleanPositive = try {
-                    StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
-                        .firstOrNull { canonical(it.strategy).equals(lane, ignoreCase = true) }
-                        ?.let { m -> (m.wins + m.losses) >= 6 && m.meanPnlPct > 0.0 }
-                        ?: false
+                // Consult AGI signals for override authority
+                val labProven = try {
+                    com.lifecyclebot.engine.lab.LlmLabStore.allStrategies()
+                        .any { s ->
+                            val target = s.asset.name.uppercase()
+                            (target == laneU || (target == "MEME" && laneU in setOf("SHITCOIN","MOONSHOT","EXPRESS","MANIPULATED"))) &&
+                                s.status == com.lifecyclebot.engine.lab.LabStrategyStatus.PROMOTED
+                        }
                 } catch (_: Throwable) { false }
-                if (cleanPositive) {
-                    try {
-                        ForensicLogger.lifecycle(
-                            "LIVE_PROBABILITY_PAUSED_BYPASSED_POSITIVE_EV_6228",
-                            "lane=$lane action=fall_through_normal_forecast reason=clean_live_ev_positive",
-                        )
-                        PipelineHealthCollector.labelInc("LIVE_PROBABILITY_PAUSED_BYPASSED_POSITIVE_EV_${laneU}")
-                    } catch (_: Throwable) {}
-                    // Fall through to normal forecast below.
-                } else {
-                    // Consult AGI signals for override authority
-                    val labProven = try {
-                        com.lifecyclebot.engine.lab.LlmLabStore.allStrategies()
-                            .any { s ->
-                                val target = s.asset.name.uppercase()
-                                (target == laneU || (target == "MEME" && laneU in setOf("SHITCOIN","MOONSHOT","EXPRESS","MANIPULATED"))) &&
-                                    s.status == com.lifecyclebot.engine.lab.LabStrategyStatus.PROMOTED
-                            }
-                    } catch (_: Throwable) { false }
-                    val policyAuthoritative = try {
-                        UnifiedPolicyHead.formatForPipelineDump()
-                            .let { dump -> dump.contains("$laneU") && dump.contains("AUTHORITATIVE") && !dump.contains("bootstrap") }
-                    } catch (_: Throwable) { false }
-                    val agiMult = when {
-                        policyAuthoritative -> 1.00  // per-lane brain trained + authoritative → full size
-                        labProven          -> 0.85   // sandbox has forward-looking proof
-                        else               -> 0.70   // 6228: smaller haircut, keep the lane trading
-                    }
-                    val agiSrc = when {
-                        policyAuthoritative -> "paused+policy_authoritative_6228"
-                        labProven          -> "paused+lab_proven_6228"
-                        else               -> "paused+learning_probe_6228"
-                    }
-                    try {
-                        ForensicLogger.lifecycle(
-                            "LIVE_PROBABILITY_LANE_PAUSED_FLUID_DAMPENED_6228",
-                            "lane=$lane mult=$agiMult src=$agiSrc labProven=$labProven policyAuthoritative=$policyAuthoritative note=6228_smaller_haircut",
-                        )
-                        PipelineHealthCollector.labelInc("LIVE_PROBABILITY_LANE_PAUSED_FLUID_${laneU}")
-                    } catch (_: Throwable) {}
-                    return Edge(lane, 0.35, 0.0, 0.0, 0.0, 0L, agiSrc, agiMult, "fluid_paused_dampener_6228=$agiMult")
+                val policyAuthoritative = try {
+                    UnifiedPolicyHead.formatForPipelineDump()
+                        .let { dump -> dump.contains("$laneU") && dump.contains("AUTHORITATIVE") && !dump.contains("bootstrap") }
+                } catch (_: Throwable) { false }
+                val agiMult = when {
+                    policyAuthoritative -> 0.55  // per-lane brain trained + authoritative
+                    labProven          -> 0.35   // sandbox has forward-looking proof
+                    else               -> 0.10   // tiny learning probe (not zero — keeps loop fed)
                 }
+                val agiSrc = when {
+                    policyAuthoritative -> "paused+policy_authoritative"
+                    labProven          -> "paused+lab_proven"
+                    else               -> "paused+learning_probe"
+                }
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_PROBABILITY_LANE_PAUSED_FLUID_DAMPENED_4596",
+                        "lane=$lane mult=$agiMult src=$agiSrc labProven=$labProven policyAuthoritative=$policyAuthoritative note=fluid_not_binary_agi_can_override",
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_PROBABILITY_LANE_PAUSED_FLUID_${laneU}")
+                } catch (_: Throwable) {}
+                return Edge(lane, 0.35, 0.0, 0.0, 0.0, 0L, agiSrc, agiMult, "fluid_paused_dampener_4596=$agiMult")
             }
         } catch (_: Throwable) {}
         return try {
@@ -341,20 +335,7 @@ object LiveProbabilityEngine {
             val scoreShape = try {
                 ScoreExpectancyTracker.liveSizeShape(lane, score.coerceIn(0, 100))
             } catch (_: Throwable) { ScoreExpectancyTracker.LiveSizeShape(1.0, 0, 0.0, "error") }
-            // V5.0.6114 — COLD-START FLOOR: 0.10 was destroying cold-start lanes.
-            // QUALITY got size×=0.10 with n=0 — a 90% penalty based on ZERO data.
-            // When laneSamples=0, default to 0.80 (mild caution, not punishment).
-            val coldStartFloor6114 = if (laneSamples <= 0L) 0.80 else 0.10
-            // V5.0.6203 — BLUE-CHIP / TREASURY BAND LIFT. Report 2026-07-08 21:13
-            // showed `lane=BLUECHIP score=50 bandMult=0.55` — even after V5.0.6201
-            // exempted blue-chip from the wallet-compounding defensive clamp,
-            // ScoreExpectancyTracker was independently capping BLUECHIP score=50
-            // at 0.55x. Blue-chips have proven EV=+53% in raw journal — at neutral
-            // score they should be at least 0.85x. Only raise the FLOOR for proven
-            // winner lanes; ScoreExpectancyTracker's toxic clamp still fires when
-            // deserved.
-            val bluechipTreasuryFloor6203 = if (lane.equals("BLUECHIP", true) || lane.equals("TREASURY", true) || lane.equals("PROJECT_SNIPER", true)) 0.85 else coldStartFloor6114
-            val finalMult = (postPivotMult * scoreShape.multiplier).coerceIn(bluechipTreasuryFloor6203, 2.20)
+            val finalMult = (postPivotMult * scoreShape.multiplier).coerceIn(0.10, 2.20)
             try {
                 if (scoreShape.multiplier != 1.0 && scoreShape.samples >= 3) {
                     ForensicLogger.lifecycle(

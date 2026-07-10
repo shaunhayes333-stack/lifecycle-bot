@@ -115,75 +115,6 @@ private fun sellRoutePriorityFromBuyRoute6099(ts: TokenState): SellRoutePriority
     }
 }
 
-
-
-private fun isTerminalUnsellableSellFailure6175(
-    routeCls: com.lifecyclebot.engine.sell.SellRouteErrorClassifier.Class,
-    safeMessage: String,
-    attempts: Int,
-): Boolean {
-    if (attempts < 4) return false
-    val s = safeMessage.lowercase()
-    val exhaustedNoSignature6175b =
-        routeCls == com.lifecyclebot.engine.sell.SellRouteErrorClassifier.Class.NO_SIGNATURE &&
-            attempts >= 4 &&
-            (s.contains("all providers exhausted") ||
-                s.contains("providers exhausted") ||
-                s.contains("without broadcast signature") ||
-                s.contains("broadcast attempts failed") ||
-                s.contains("no_signature"))
-    val factualUnsellable =
-        s.contains("no route") ||
-        s.contains("route not found") ||
-        s.contains("no executable route") ||
-        s.contains("sell quote impossible") ||
-        s.contains("cannot sell") ||
-        s.contains("not tradable") ||
-        s.contains("token is not tradable") ||
-        s.contains("market not found") ||
-        s.contains("pool not found") ||
-        s.contains("frozen") ||
-        s.contains("freeze") ||
-        s.contains("locked") ||
-        s.contains("honeypot") ||
-        ((s.contains("liquidity") || s.contains("liq")) &&
-            (s.contains("insufficient") || s.contains("zero") || s.contains("0") || s.contains("not enough") || s.contains("missing") || s.contains("unavailable")))
-    if (exhaustedNoSignature6175b) return true
-    return factualUnsellable && routeCls in setOf(
-        com.lifecyclebot.engine.sell.SellRouteErrorClassifier.Class.ROUTE_BUILD_FAILED,
-        com.lifecyclebot.engine.sell.SellRouteErrorClassifier.Class.PUMPPORTAL_BAD_REQUEST,
-        com.lifecyclebot.engine.sell.SellRouteErrorClassifier.Class.UNKNOWN,
-        com.lifecyclebot.engine.sell.SellRouteErrorClassifier.Class.ULTRA_REJECTED,
-    )
-}
-
-private fun quarantineUnsellableSellMint6175(
-    ts: TokenState,
-    reason: String,
-    routeCls: com.lifecyclebot.engine.sell.SellRouteErrorClassifier.Class,
-    safeMessage: String,
-): Boolean {
-    val qReason = "CANNOT SELL: UNSELLABLE_LOCKED_OR_NO_ROUTE_6175 class=${routeCls.name} reason=${reason.take(80)}"
-    return try {
-        TokenBlacklist.block(ts.mint, qReason)
-        QuarantineStore.quarantine(ts.mint, ts.symbol, qReason)
-        try { GlobalTradeRegistry.registerRejection(ts.mint, ts.symbol, qReason, "SELL_UNSELLABLE_6175") } catch (_: Throwable) {}
-        try { GlobalTradeRegistry.removeFromWatchlistForced(ts.mint, "SELL_UNSELLABLE_QUARANTINE_6175") } catch (_: Throwable) {}
-        try { BannedTokens.ban(ts.mint, qReason) } catch (_: Throwable) {}
-        try { PendingSellQueue.remove(ts.mint) } catch (_: Throwable) {}
-        try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
-        try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "UNSELLABLE_QUARANTINE_6175") } catch (_: Throwable) {}
-        try { HostWalletTokenTracker.abandonUnsellableQuarantined(ts.mint, qReason) } catch (_: Throwable) {}
-        synchronized(ts) {
-            ts.position = ts.position.copy(qtyToken = 0.0, pendingVerify = false)
-        }
-        try { PipelineHealthCollector.labelInc("SELL_UNSELLABLE_QUARANTINED_6175") } catch (_: Throwable) {}
-        try { PipelineHealthCollector.labelInc("SELL_UNSELLABLE_QUARANTINED_6175|${routeCls.name}") } catch (_: Throwable) {}
-        try { ForensicLogger.lifecycle("SELL_UNSELLABLE_QUARANTINED_6175", "mint=${ts.mint.take(10)} symbol=${ts.symbol} class=${routeCls.name} reason=${reason.take(120)} msg=${safeMessage.take(120)} action=blacklist_quarantine_abandon_ignore") } catch (_: Throwable) {}
-        true
-    } catch (_: Throwable) { false }
-}
-
 private fun shouldTryPumpDirectFirst6099(ts: TokenState, label: String): Boolean {
     val priority = sellRoutePriorityFromBuyRoute6099(ts)
     val pumpInvalid = try { com.lifecyclebot.engine.sell.MemeVenueRouter.isPumpRouteInvalid(ts.mint) } catch (_: Throwable) { false }
@@ -393,16 +324,7 @@ object WrRecoveryPartial {
         val base = rungsFor(band)
         return try {
             val key = try { TradeHistoryStore.normalizeTradeModeName(lane).ifBlank { lane.uppercase() } } catch (_: Throwable) { lane.uppercase() }
-            // V5.0.6130 — clean edge must be environment-local. Paper exits were
-            // still reading LIVE-only telemetry, so paper mode could not learn its
-            // own TP/partial rungs and live-only history could shape paper training.
-            // Live wallet compounding stays live-centric: paper evidence trains paper
-            // behavior, but never authorizes LIVE exits. LIVE uses clean LIVE StrategyTruth only.
-            val board6130 = if (RuntimeModeAuthority.isPaper())
-                StrategyTelemetry.computeCleanPaperTerminalLeaderboard(limit = 1_500)
-            else
-                StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
-            val m = board6130.firstOrNull { it.strategy.equals(key, true) }
+            val m = StrategyTelemetry.computeLiveTerminalLeaderboard().firstOrNull { it.strategy.equals(key, true) }
             if (m == null || m.trades < 5) return base
             val pf = m.pfExpectancyPp
             val avgWin = m.avgWinPct.coerceAtLeast(0.0)
@@ -1291,11 +1213,6 @@ class Executor(
                                 lastTopUpPrice = if (pos.lastTopUpPrice > 0) pos.lastTopUpPrice * factor else 0.0,
                                 priceBasisRescaled = true,
                                 priceBasisRescaleFactor = factor,
-                                // V5.0.6116 — stamp entryPriceSource to the NEW source so
-                                // OpenPnlSanity's sameSource check passes cleanly on this and
-                                // future ticks, instead of relying on the removed permanent
-                                // priceBasisRescaled bypass (see OpenPnlSanity.kt V5.0.6116).
-                                entryPriceSource = ts.lastPriceSource,
                             )
                         }
                     }
@@ -1307,9 +1224,7 @@ class Executor(
                     ErrorLogger.warn("Executor",
                         "🔄 PRICE_BASIS_REBASE ${ts.symbol}: source ${pos.entryPriceSource}→${ts.lastPriceSource} " +
                         "| no mcap pivot available, accepting new-source price as-is (PnL may show one-time step)")
-                    // V5.0.6116 — also stamp entryPriceSource here so sameSource
-                    // passes on subsequent ticks (see OpenPnlSanity.kt V5.0.6116).
-                    ts.position = pos.copy(priceBasisRescaled = true, entryPriceSource = ts.lastPriceSource)
+                    ts.position = pos.copy(priceBasisRescaled = true)
                 }
             }
         }
@@ -3123,7 +3038,6 @@ class Executor(
             try { TerminalOutcomeQualityGate.classify(tradeWithMint, ledgerAllowsClosedLearning, accountingTrainable) } catch (_: Throwable) { null }
         } else null
         try { terminalOutcomeQuality4286?.let { TerminalOutcomeQualityGate.report(tradeWithMint, ts.position.tradingMode ?: tradeWithMint.tradingMode, ts.source, it) } } catch (_: Throwable) {}
-        val terminalQualityTrainable6144 = terminalOutcomeQuality4286?.trainable ?: true
 
         // V5.9.1161 — premark all valid sell-like outcomes, including
         // PARTIAL_SELL, before the legacy TradeHistoryStore bridge runs.
@@ -3213,7 +3127,7 @@ class Executor(
         // valid terminal close exactly once. These recordOutcome APIs remove pending
         // mint state, so older downstream path calls become harmless no-ops.
         try {
-            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349 && terminalQualityTrainable6144) {
+            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
                 val terminalSnap4514 = tradeWithMint
                 val pnlForHeads4514 = terminalSnap4514.pnlPct
                 val mintForHeads4514 = terminalSnap4514.mint.ifBlank { ts.mint }
@@ -3252,7 +3166,7 @@ class Executor(
         } catch (_: Throwable) {}
 
         try {
-            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349 && terminalQualityTrainable6144) {
+            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
                 LivePaperDriftSentinel.onTerminalClose(tradeWithMint)
                 ExitCostMicrobrain.recordTerminalExit(
                     trade = tradeWithMint,
@@ -3272,7 +3186,7 @@ class Executor(
         // excursion proxy (peak for winners, low-water for losers) until a delayed +5m
         // labeler exists; this is advisory learning only and never blocks exit finality.
         try {
-            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349 && terminalQualityTrainable6144) {
+            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
                 val sellOptTrade = tradeWithMint
                 val posEntryPrice = ts.position.entryPrice
                 val posPeakPrice = ts.position.highestPrice
@@ -3322,7 +3236,7 @@ class Executor(
         // it never rewrites journal truth, never touches entry gates, and never
         // blocks sell finality.
         try {
-            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349 && terminalQualityTrainable6144) {
+            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
                 val graphTrade = tradeWithMint
                 val graphLane = graphTrade.tradingMode.ifBlank { "STANDARD" }
                 val graphSource = ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }
@@ -4028,19 +3942,7 @@ class Executor(
         val diamondHands6091 = pos.tradingMode.equals("DIAMOND_HANDS", true) || pos.isLongHold
         val growthBonus = (peakGainPct / 50.0).coerceIn(0.0, if (diamondHands6091) 2.0 else 1.0)
         val growthMultiplier = (1.0 + growthBonus).coerceAtMost(if (diamondHands6091) 3.0 else 2.0)
-        val causalTopUpMult6180 = try {
-            CausalEvMemory6179.sizeMultiplier(
-                lane = pos.tradingMode.ifBlank { "STANDARD" },
-                source = pos.entryPriceSource,
-                routeHint = pos.entryPoolAddress.ifBlank { pos.entryDex },
-                tacticHint = pos.entryPolicySnapshot.ifBlank { pos.tradingMode },
-            )
-        } catch (_: Throwable) { 1.0 }
-        var size       = initSize * growthMultiplier * causalTopUpMult6180.coerceIn(0.80, 1.20)
-        if (causalTopUpMult6180 != 1.0) {
-            try { ForensicLogger.lifecycle("CAUSAL_EV_TOPUP_SIZE_SHAPED_6180", "lane=${pos.tradingMode} source=${pos.entryPriceSource.take(60)} route=${pos.entryPoolAddress.take(24)} mult=${causalTopUpMult6180.fmt(2)} topUp=${pos.topUpCount + 1}") } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("CAUSAL_EV_TOPUP_SIZE_SHAPED_6180") } catch (_: Throwable) {}
-        }
+        var size       = initSize * growthMultiplier
 
         // Top-up cap from config. V5.0.6091: DIAMOND_HANDS/long-hold runners get
         // deeper pyramiding room while still obeying portfolio exposure and wallet caps.
@@ -4078,12 +3980,7 @@ class Executor(
 
         // Minimum viable trade. V5.0.6091: diamond/long-hold runners may add more
         // per step, but still never exceed the 70% portfolio exposure ceiling above.
-        val cleanLiveEvPyramid6151 = try {
-            val lane6151 = TradeHistoryStore.normalizeTradeModeName(pos.tradingMode.ifBlank { "STANDARD" }).ifBlank { "STANDARD" }
-            val m6151 = StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500).firstOrNull { it.strategy.equals(lane6151, true) }
-            m6151 != null && m6151.trades >= 5 && m6151.totalSolPnl > 0.0 && m6151.pfExpectancyPp > 0.0
-        } catch (_: Throwable) { false }
-        val perAddWalletPct6091 = if (diamondHands6091) 0.25 else if (cleanLiveEvPyramid6151) 0.20 else 0.15
+        val perAddWalletPct6091 = if (diamondHands6091) 0.25 else 0.15
         return size.coerceAtMost(walletSol * perAddWalletPct6091)
                .coerceAtLeast(0.0)
     }
@@ -4109,7 +4006,7 @@ class Executor(
             if (exhaust || exitScore >= 65.0) return false
             val currentPrice = getActualPrice(ts)
             val gainPct = pct(pos.entryPrice, currentPrice)
-            if (gainPct < 1.5) return false // V5.0.6151: add to winners only — never average down; EV-pyramid can start at +1.5%
+            if (gainPct < 2.0) return false // add to winners only — never average down
             val whaleBid = ts.meta.whaleSummary.isNotBlank() || ts.meta.velocityScore >= 70.0
             val bullStructure = emafanAlignment in listOf("BULL_FAN", "BULL_FLAT") && volScore >= 45.0
             val holderConviction = ts.holderGrowthRate >= 10.0 && (ts.peakHolderCount >= 50 || ts.holderDataResolved)
@@ -4117,33 +4014,11 @@ class Executor(
                 (gainPct >= 25.0 && bullStructure && holderConviction && ts.lastLiquidityUsd >= 8_000.0)
             val agiConviction = entryScore >= 65.0 && bullStructure && ts.lastLiquidityUsd >= 4_000.0
             val runnerConviction = pos.peakGainPct >= 20.0 || gainPct >= 12.0
-            // V5.0.6151 — clean-live EV pyramiding. Runtime 6145 showed TREASURY,
-            // STANDARD and BLUECHIP carrying positive clean/raw EV while the bot was
-            // still starving buys/top-ups. Add-to-winner authority should lean into
-            // proven live +EV lanes, but only after the open position is already green
-            // and route/liquidity/structure are clean. StrategyTelemetry is TTL-cached;
-            // no LLM/API/hot-path provider calls are introduced here.
-            val evPyramid6151 = try {
-                val lane6151 = TradeHistoryStore.normalizeTradeModeName(pos.tradingMode.ifBlank { ts.position.tradingMode }).ifBlank { "STANDARD" }
-                val m6151 = StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
-                    .firstOrNull { it.strategy.equals(lane6151, true) }
-                m6151 != null && m6151.trades >= 5 && m6151.totalSolPnl > 0.0 && m6151.pfExpectancyPp > 0.0 && m6151.meanPnlPct > 10.0
-            } catch (_: Throwable) { false }
-            val causalEvPyramidGate6180 = try {
-                CausalEvMemory6179.sizeMultiplier(
-                    lane = pos.tradingMode.ifBlank { ts.position.tradingMode },
-                    source = pos.entryPriceSource.ifBlank { ts.source },
-                    routeHint = pos.entryPoolAddress.ifBlank { ts.pairAddress },
-                    tacticHint = pos.entryPolicySnapshot.ifBlank { pos.tradingMode },
-                ) > 1.04
-            } catch (_: Throwable) { false }
             val dangerClear = ts.lastLiquidityUsd >= 2_500.0 && !ts.meta.breakdown && emafanAlignment != "BEAR_FAN"
             dangerClear && (
                 (whaleBid && gainPct >= 3.0) ||
                 (agiConviction && runnerConviction) ||
-                diamondConviction ||
-                (evPyramid6151 && gainPct >= 1.5 && entryScore >= 50.0 && exitScore < 55.0) ||
-                (causalEvPyramidGate6180 && gainPct >= 1.5 && entryScore >= 48.0 && exitScore < 58.0)
+                diamondConviction
             )
         } catch (_: Throwable) { false }
     }
@@ -4182,19 +4057,6 @@ class Executor(
         val currentPrice = getActualPrice(ts)
         val gainPct   = pct(pos.entryPrice, currentPrice)
         val heldMins  = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
-        val evPyramidGate6151 = try {
-            val lane6151 = TradeHistoryStore.normalizeTradeModeName(pos.tradingMode.ifBlank { "STANDARD" }).ifBlank { "STANDARD" }
-            val m6151 = StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500).firstOrNull { it.strategy.equals(lane6151, true) }
-            m6151 != null && m6151.trades >= 5 && m6151.totalSolPnl > 0.0 && m6151.pfExpectancyPp > 0.0 && m6151.meanPnlPct > 10.0
-        } catch (_: Throwable) { false }
-        val causalEvPyramidGate6180 = try {
-            CausalEvMemory6179.sizeMultiplier(
-                lane = pos.tradingMode.ifBlank { "STANDARD" },
-                source = pos.entryPriceSource.ifBlank { ts.source },
-                routeHint = pos.entryPoolAddress.ifBlank { ts.pairAddress },
-                tacticHint = pos.entryPolicySnapshot.ifBlank { pos.tradingMode },
-            ) > 1.04
-        } catch (_: Throwable) { false }
 
         // Must be profitable — never average down
         if (gainPct <= 0) return false
@@ -4208,8 +4070,6 @@ class Executor(
             gainPctNow >= 1000.0  -> 7     // 10x+ strong runner: up to 7 top-ups
             pos.tradingMode.equals("DIAMOND_HANDS", true) -> 12
             pos.isLongHold || pos.entryScore >= 75.0 -> 7
-            evPyramidGate6151 -> 6
-            causalEvPyramidGate6180 -> 6
             autonomyTopUp6091 -> 6
             else -> c.topUpMaxCount
         }
@@ -4224,14 +4084,13 @@ class Executor(
         // and each subsequent rung needs +12% more (was +30%). Forces
         // the new bigger-on-winners behaviour onto existing operator
         // configs that still have the old 25/30 saved in prefs.
-        val earlyFirst = (pos.entryScore >= 75.0 || autonomyTopUp6091 || evPyramidGate6151 || causalEvPyramidGate6180) && pos.topUpCount == 0
+        val earlyFirst = (pos.entryScore >= 75.0 || autonomyTopUp6091) && pos.topUpCount == 0
         val baseMin    = when {
-            (evPyramidGate6151 || causalEvPyramidGate6180) && pos.topUpCount == 0 -> 1.5
             autonomyTopUp6091 && pos.topUpCount == 0 -> 3.0
             earlyFirst -> 8.0
             else -> c.topUpMinGainPct.coerceAtMost(10.0)
         }
-        val stepGain   = if (evPyramidGate6151 || causalEvPyramidGate6180) c.topUpGainStepPct.coerceAtMost(6.0) else if (autonomyTopUp6091) c.topUpGainStepPct.coerceAtMost(8.0) else c.topUpGainStepPct.coerceAtMost(12.0)
+        val stepGain   = if (autonomyTopUp6091) c.topUpGainStepPct.coerceAtMost(8.0) else c.topUpGainStepPct.coerceAtMost(12.0)
         val requiredGain = baseMin + (pos.topUpCount * stepGain)
         if (gainPct < requiredGain) return false
 
@@ -4650,35 +4509,6 @@ class Executor(
         return Pair(capitalRecoveryMultiple, profitLockMultiple)
     }
     
-    // ─────────────────────────────────────────────────────────────────
-    // V5.0.6125 — MoonshotHoldMode gate (ANSEM-style hold protection).
-    // Single choke point consumed by every non-catastrophic exit path:
-    // checkProfitLock, trySweepTakeProfitExit, checkPartialSell, plus the
-    // standalone quick-runner/settle/dynamic-stop branches in runManageOnly.
-    // Catastrophic safety (rug backstops, hard SL floors, stale-quote
-    // emergency exit) NEVER calls this — those remain hard and unconditional.
-    // Fail-open: any exception returns false (normal exit proceeds).
-    // ─────────────────────────────────────────────────────────────────
-    private fun moonshotHoldGate(ts: TokenState, pnlPct: Double, exitReasonTag: String): Boolean {
-        return try {
-            if (!ts.position.isOpen) return false
-            val peakFeed = maxOf(pnlPct, ts.position.peakGainPct)
-            MoonshotHoldMode.updatePeak(ts.mint, peakFeed)
-            val suppress = MoonshotHoldMode.shouldSuppressExit(ts.mint, pnlPct)
-            if (suppress) {
-                try {
-                    ForensicLogger.lifecycle(
-                        "MOONSHOT_HOLD_EXIT_SUPPRESSED_6125",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} suppressedReason=$exitReasonTag pnl=${pnlPct.toInt()}% peak=${MoonshotHoldMode.peakPct(ts.mint).toInt()}%",
-                    )
-                    PipelineHealthCollector.labelInc("MOONSHOT_HOLD_EXIT_SUPPRESSED_6125")
-                } catch (_: Throwable) {}
-                onLog("\uD83C\uDF19 MOONSHOT HOLD: suppressing $exitReasonTag exit for ${ts.symbol} — riding ANSEM-style runner (peak=${MoonshotHoldMode.peakPct(ts.mint).toInt()}%)", ts.mint)
-            }
-            suppress
-        } catch (_: Throwable) { false }
-    }
-
     fun checkProfitLock(ts: TokenState, wallet: SolanaWallet?, walletSol: Double): Boolean {
         val c = cfg()
         normalizePositionScaleIfNeeded(ts)
@@ -4790,12 +4620,6 @@ class Executor(
             }
         }
 
-        // V5.0.6125 — MoonshotHoldMode: once a position is riding an
-        // ANSEM-style runner, capital-recovery/profit-lock/ultra-runner-bank
-        // scalp exits are suppressed. The PROTECTIVE_PEAK_PARTIAL infra-safety
-        // valve above still fires (route-stall protection is not a scalp).
-        if (moonshotHoldGate(ts, gainPct, "PROFIT_LOCK_CAPITAL_RECOVERY_OR_ULTRA_BANK")) return false
-
         val (capitalRecoveryThreshold, profitLockThreshold) = calculateProfitLockThresholds(ts)
 
         // V5.0.3896 — ULTRA-RUNNER PANIC BANK.
@@ -4818,12 +4642,8 @@ class Executor(
             val routeMultiple = try { RealPriceLock.routeImpliedGainMultiple(ts) } catch (_: Throwable) { null } ?: return false
             val routeValueSol = pos.costSol * routeMultiple
             val routeProfitSol = (routeValueSol - pos.costSol).coerceAtLeast(0.0)
-            val fastDrawdownHarvestMult6159 = try { SmartSizer.currentFastLiveDrawdownMultiplier6157(walletSol) } catch (_: Throwable) { 1.0 }
-            val drawdownHarvestActive6159 = fastDrawdownHarvestMult6159 < 0.80 && RuntimeModeAuthority.isLive()
-            val routeMultipleFloor6159 = if (drawdownHarvestActive6159) 1.45 else 3.0
-            val routeProfitFloor6159 = if (drawdownHarvestActive6159) maxOf(0.006, walletSol * 0.025, pos.costSol * 0.40) else maxOf(0.02, walletSol * 0.08, pos.costSol * 1.5)
-            if (routeMultiple < routeMultipleFloor6159) return false
-            if (routeProfitSol < routeProfitFloor6159) return false
+            if (routeMultiple < 3.0) return false
+            if (routeProfitSol < maxOf(0.02, walletSol * 0.08, pos.costSol * 1.5)) return false
             val remainingFraction6029 = (100.0 - pos.partialSoldPct).coerceAtLeast(0.0) / 100.0
             val sellFraction6029 = when {
                 routeProfitSol >= walletSol.coerceAtLeast(0.01) -> 0.60
@@ -4832,7 +4652,7 @@ class Executor(
             }.coerceAtMost(remainingFraction6029)
             if (sellFraction6029 <= 0.0) return false
             try {
-                ForensicLogger.lifecycle("ROUTE_REAL_CLAIM_MISMATCH_HARVEST_6029", "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=$label claimed=${gainMultiple.fmt(2)}x route=${routeMultiple.fmt(2)}x routeProfit=${routeProfitSol.fmt(4)} wallet=${walletSol.fmt(4)} sellPct=${(sellFraction6029*100).toInt()} reason=ui_claim_overstated_but_route_profit_real drawdownHarvest6159=$drawdownHarvestActive6159 fastMult=${fastDrawdownHarvestMult6159.fmt(2)} floor=${routeProfitFloor6159.fmt(4)}")
+                ForensicLogger.lifecycle("ROUTE_REAL_CLAIM_MISMATCH_HARVEST_6029", "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=$label claimed=${gainMultiple.fmt(2)}x route=${routeMultiple.fmt(2)}x routeProfit=${routeProfitSol.fmt(4)} wallet=${walletSol.fmt(4)} sellPct=${(sellFraction6029*100).toInt()} reason=ui_claim_overstated_but_route_profit_real")
                 PipelineHealthCollector.labelInc("ROUTE_REAL_CLAIM_MISMATCH_HARVEST_6029")
             } catch (_: Throwable) {}
             onLog("💰 ROUTE-REAL HARVEST: ${ts.symbol} UI=${gainMultiple.fmt(1)}x route=${routeMultiple.fmt(1)}x profit≈${routeProfitSol.fmt(4)} SOL — selling ${(sellFraction6029*100).toInt()}% NOW", ts.mint)
@@ -4847,12 +4667,8 @@ class Executor(
             val routeMetaPresent6099 = pos.entryPriceSource.isNotBlank() || pos.entryPoolAddress.isNotBlank() || ts.lastPricePoolAddr.isNotBlank() || ts.pairAddress.isNotBlank() || ts.tokenMap.poolAddress.isNotBlank() || ts.tokenMap.pairAddress.isNotBlank()
             if (!routeMetaPresent6099) return false
             val routeProfit6099 = (currentValue - pos.costSol).takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: return false
-            val fastDrawdownHarvest6099_6159 = try { SmartSizer.currentFastLiveDrawdownMultiplier6157(walletSol) } catch (_: Throwable) { 1.0 }
-            val drawdownHarvest6099Active6159 = fastDrawdownHarvest6099_6159 < 0.80 && RuntimeModeAuthority.isLive()
-            val gainFloor6099_6159 = if (drawdownHarvest6099Active6159) 1.35 else 3.0
-            val routeProfitFloor6099_6159 = if (drawdownHarvest6099Active6159) maxOf(0.006, walletSol * 0.020, pos.costSol * 0.35) else maxOf(0.02, walletSol * 0.05, pos.costSol * 1.5)
-            if (gainMultiple < gainFloor6099_6159) return false
-            if (routeProfit6099 < routeProfitFloor6099_6159) return false
+            if (gainMultiple < 3.0) return false
+            if (routeProfit6099 < maxOf(0.02, walletSol * 0.05, pos.costSol * 1.5)) return false
             val remainingFraction6099 = (100.0 - pos.partialSoldPct).coerceAtLeast(0.0) / 100.0
             val sellFraction6099 = when {
                 gainMultiple >= 50.0 || peakGainPct >= 5_000.0 -> 0.35
@@ -4861,7 +4677,7 @@ class Executor(
             }.coerceAtMost(remainingFraction6099)
             if (sellFraction6099 <= 0.0) return false
             try {
-                ForensicLogger.lifecycle("PERSISTED_ENTRY_ROUTE_HARVEST_6099", "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=$label gain=${gainMultiple.fmt(2)}x peakPct=${peakGainPct.toInt()} profit=${routeProfit6099.fmt(4)} wallet=${walletSol.fmt(4)} priority=$priority6099 entrySource=${pos.entryPriceSource} entryPool=${pos.entryPoolAddress.take(16)} sellPct=${(sellFraction6099*100).toInt()} reason=realpricelock_missing_or_disagrees_but_buy_route_known drawdownHarvest6159=$drawdownHarvest6099Active6159 fastMult=${fastDrawdownHarvest6099_6159.fmt(2)} floor=${routeProfitFloor6099_6159.fmt(4)}")
+                ForensicLogger.lifecycle("PERSISTED_ENTRY_ROUTE_HARVEST_6099", "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=$label gain=${gainMultiple.fmt(2)}x peakPct=${peakGainPct.toInt()} profit=${routeProfit6099.fmt(4)} wallet=${walletSol.fmt(4)} priority=$priority6099 entrySource=${pos.entryPriceSource} entryPool=${pos.entryPoolAddress.take(16)} sellPct=${(sellFraction6099*100).toInt()} reason=realpricelock_missing_or_disagrees_but_buy_route_known")
                 PipelineHealthCollector.labelInc("PERSISTED_ENTRY_ROUTE_HARVEST_6099")
             } catch (_: Throwable) {}
             onLog("💰🧭 ENTRY-ROUTE HARVEST: ${ts.symbol} @ ${gainMultiple.fmt(1)}x route=$priority6099 — selling ${(sellFraction6099*100).toInt()}% NOW via buy-route priority", ts.mint)
@@ -6126,16 +5942,6 @@ class Executor(
                     "mint=${ts.mint.take(10)} class=${routeCls.name} action=skip_pump_direct_reresolve") } catch (_: Throwable) {}
             }
             val failureClass = routeCls.name
-            if (isTerminalUnsellableSellFailure6175(routeCls, safe, broadcastRetries) && quarantineUnsellableSellMint6175(ts, reason, routeCls, safe)) {
-                LiveTradeLogStore.log(
-                    sellTradeKey, ts.mint, ts.symbol, "SELL",
-                    LiveTradeLogStore.Phase.SELL_FAILED,
-                    "UNSELLABLE_QUARANTINED_6175 — ${routeCls.name}: ${safe.take(120)} (profit-lock attempts=$broadcastRetries)",
-                    traderTag = "MEME",
-                )
-                onLog("🧯 ${ts.symbol}: unsellable/locked/no-route after $broadcastRetries attempts — quarantined + ignored", ts.mint)
-                return
-            }
             if (routePolicy.releaseLock) {
                 try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "ROUTE_FAILED_" + routeCls.name) } catch (_: Throwable) {}
@@ -6177,9 +5983,6 @@ class Executor(
         if (!ts.position.isOpen || currentPrice <= 0.0) return false
         val pnlVerdict6038 = OpenPnlSanity.inspectPosition(ts.position, currentPrice, "Executor.trySweepTakeProfitExit_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
         val pnlPct = if (pnlVerdict6038.ok) pnlVerdict6038.pnlPct else 0.0
-        // V5.0.6125 — MoonshotHoldMode suppresses take-profit sweeps while a
-        // runner is riding; ANSEM-style hold takes priority over TP ladders.
-        if (moonshotHoldGate(ts, pnlPct, "SWEEP_TAKE_PROFIT")) return false
         val tpPct = when {
             // V5.0.4125 — style-adjusted TP takes PRIORITY over lane-specific TPs.
             ts.position.entryTakeProfitPct > 0.0 ->
@@ -6286,46 +6089,11 @@ class Executor(
                 // gated, runner-bypass still applies. Directly serves volume.
                 val nowPnlFastVerdict6038 = OpenPnlSanity.inspectPosition(ts.position, currentPrice, "Executor.dead_feed_fast_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
                 val nowPnlFast = if (nowPnlFastVerdict6038.ok) nowPnlFastVerdict6038.pnlPct else 0.0
-                // V5.0.6235 — STALE_FEED_EVICT_FALSE_POSITIVE_FIX.
-                // Operator report 2026-07-11 02:02 (build 5.0.6234): every recent
-                // BLUECHIP close was `stale_feed_evict_feedAge4m_held4m` at
-                // -6.6% to -10.8% PnL, but the FAST-EVICT guard requires
-                // `abs(nowPnlFast) < 2.0` (truly flat, dead micro). It fired
-                // anyway because when the price feed is genuinely dead
-                // (helius sr=0%, birdeye sr=0%, geckoterminal sr=22%) the
-                // `currentPrice` fed into OpenPnlSanity.inspectPosition can be
-                // stale/0/invalid → verdict.ok=false → the fallback
-                // `nowPnlFast = 0.0` looked "flat" to the guard, tripping
-                // eviction on positions that had actually moved -10%.
-                // doSell() then closed at whatever stale price was still in
-                // ts.ref, banking a real -10% loss on a mystery-flat position.
-                // FIX: require verdict.ok=true before FAST-EVICT can fire.
-                // Without a TRUSTED flat reading we do not force-close;
-                // the SLOW tier (10min feed dead + 20min held, no PnL gate)
-                // remains the backstop and STRICT_SL still fires the moment
-                // a fresh tick arrives.
                 val fastDeadFeed = isPaperRT() &&
                     feedAgeMs != null && feedAgeMs >= 3L * 60_000L &&      // feed silent ≥3min
                     heldMin >= 4.0 &&                 // held ≥4min (well past 90s settle-in)
-                    nowPnlFastVerdict6038.ok &&        // V5.0.6235 — require TRUSTED flat reading
                     kotlin.math.abs(nowPnlFast) < 2.0 && // never moved off entry (dead, not a runner)
                     ts.position.peakGainPct < 20.0      // never ran
-                // V5.0.6235 — forensic when the guard would have false-fired
-                // pre-fix, so we can see how often the dead-feed bleed was
-                // silently trading itself into losses.
-                if (isPaperRT() &&
-                    feedAgeMs != null && feedAgeMs >= 3L * 60_000L &&
-                    heldMin >= 4.0 &&
-                    !nowPnlFastVerdict6038.ok &&
-                    ts.position.peakGainPct < 20.0
-                ) {
-                    try {
-                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                            "STALE_FEED_FAST_EVICT_SUPPRESSED_UNTRUSTED_6235",
-                            "mint=${ts.mint.take(8)} sym=${ts.symbol} feedAgeMin=${(feedAgeMs ?: 0L) / 60_000L} heldMin=${heldMin.toInt()} reason=${nowPnlFastVerdict6038.reason}"
-                        )
-                    } catch (_: Throwable) {}
-                }
                 val FEED_DEAD_MS = 10L * 60_000L
                 val MIN_HELD_MIN = 20.0
                 if (fastDeadFeed || (feedAgeMs != null && feedAgeMs >= FEED_DEAD_MS && heldMin >= MIN_HELD_MIN)) {
@@ -6344,14 +6112,9 @@ class Executor(
                     }
                     if (!runnerIntact && !settleIn) {
                         val feedAgeMin = (feedAgeMs ?: 0L) / 60_000L
-                        // V5.0.6128 — MoonshotHoldMode: don't evict a moonshot runner
-                        // for stale feed. The trailing stop will handle exit when price
-                        // returns. Only evict if MoonshotHoldMode also says exit is OK.
-                        if (!moonshotHoldGate(ts, curPnl, "STALE_FEED_EVICT")) {
-                            onLog("💀 STALE_FEED_EVICT: ${ts.symbol} feedAge=${feedAgeMin}min held=${heldMin.toInt()}min pnl=${"%+.0f".format(curPnl)}% — dead feed, recycling slot", ts.mint)
-                            doSell(ts, "stale_feed_evict_feedAge${feedAgeMin}m_held${heldMin.toInt()}m", wallet, walletSol)
-                            return
-                        }
+                        onLog("💀 STALE_FEED_EVICT: ${ts.symbol} feedAge=${feedAgeMin}min held=${heldMin.toInt()}min pnl=${"%+.0f".format(curPnl)}% — dead feed, recycling slot", ts.mint)
+                        doSell(ts, "stale_feed_evict_feedAge${feedAgeMin}m_held${heldMin.toInt()}m", wallet, walletSol)
+                        return
                     }
                 }
             } catch (_: Throwable) { /* fail-open: eviction must never break exit management */ }
@@ -6484,11 +6247,9 @@ class Executor(
                         )
                         PipelineHealthCollector.labelInc("QUICK_RUNNER_EMERGENCY_FULL_EXIT")
                     } catch (_: Throwable) {}
-                    if (!moonshotHoldGate(ts, bestPnl, "QUICK_RUNNER_10X_FULL_EXIT")) {
-                        onLog("🚀🚀 QUICK RUNNER 10x EXIT: ${ts.symbol} +${bestPnl.toInt()}% — bypassing all holds, full exit NOW", ts.mint)
-                        doSell(ts, "QUICK_RUNNER_10X_FULL_EXIT", wallet, walletSol)
-                        return
-                    }
+                    onLog("🚀🚀 QUICK RUNNER 10x EXIT: ${ts.symbol} +${bestPnl.toInt()}% — bypassing all holds, full exit NOW", ts.mint)
+                    doSell(ts, "QUICK_RUNNER_10X_FULL_EXIT", wallet, walletSol)
+                    return
                 } else if (bestPnl >= 500.0) {
                     try {
                         ForensicLogger.lifecycle(
@@ -6497,15 +6258,13 @@ class Executor(
                         )
                         PipelineHealthCollector.labelInc("QUICK_RUNNER_EMERGENCY_BANK_95PCT")
                     } catch (_: Throwable) {}
-                    if (!moonshotHoldGate(ts, bestPnl, "QUICK_RUNNER_6X_BANK_95PCT")) {
-                        onLog("🚀 QUICK RUNNER 6x BANK: ${ts.symbol} +${bestPnl.toInt()}% — bypassing holds, banking 95%", ts.mint)
-                        // Use standard doSell (full path) — the sell size fraction is
-                        // applied inside the executor's normal sell handler based on
-                        // remaining position. This is treated as effectively-full
-                        // for the purposes of unlocking the runner.
-                        doSell(ts, "QUICK_RUNNER_6X_BANK_95PCT", wallet, walletSol)
-                        return
-                    }
+                    onLog("🚀 QUICK RUNNER 6x BANK: ${ts.symbol} +${bestPnl.toInt()}% — bypassing holds, banking 95%", ts.mint)
+                    // Use standard doSell (full path) — the sell size fraction is
+                    // applied inside the executor's normal sell handler based on
+                    // remaining position. This is treated as effectively-full
+                    // for the purposes of unlocking the runner.
+                    doSell(ts, "QUICK_RUNNER_6X_BANK_95PCT", wallet, walletSol)
+                    return
                 }
             }
 
@@ -6620,49 +6379,23 @@ class Executor(
         run {
             if (paperSettleInActive) return@run
             val pos = ts.position
-            // V5.0.6236 — POLARITY FIX. shitCoin/blueChip/treasury stop-loss
-            // fields are all stored as NEGATIVE percentages (see BotService
-            // line 19505/20935: effectiveSlPct = -4.0/-8.0 or the caller's
-            // already-negative signal). The pre-6236 `> 0.0` check was a dead
-            // branch for all three lanes, silently falling through to the
-            // wide `cfg().stopLossPct ?: 20.0` default and neutering every
-            // lane-specific damage cap. Field report: TREASURY closes at
-            // -87% because the tight -4% stop was never actually consulted.
-            // Now use `!= 0.0` + `abs()` so a stored -4.0 resolves to a raw
-            // magnitude of 4.0 (later re-negated at line 6666).
-            val baseRawSL6153 = when {
+            // V5.0.6237 — SCORER POLARITY FIX (only score-inversion patch ported
+            // forward from 6236). The three lane stop-loss fields
+            // (shitCoinStopLoss / blueChipStopLoss / treasuryStopLoss) are
+            // stored NEGATIVE by the writers (BotService effectiveSlPct =
+            // -4.0/-8.0 or the caller's already-negative signal). The pre-6237
+            // `> 0.0` gate was a dead branch for ALL THREE lanes — silently
+            // fell through to `cfg().stopLossPct ?: 20.0`, neutering every
+            // lane-specific damage cap. Field report: TREASURY closes at -87%
+            // because the tight -4% stop was never actually consulted.
+            // Fix: `!= 0.0` + kotlin.math.abs() so a stored -4.0 resolves to
+            // a raw magnitude of 4.0 (later re-negated at the modeStopNegative
+            // computation as intended).
+            val rawSL = when {
                 pos.isShitCoinPosition && pos.shitCoinStopLoss != 0.0 -> kotlin.math.abs(pos.shitCoinStopLoss)
                 pos.isBlueChipPosition && pos.blueChipStopLoss != 0.0 -> kotlin.math.abs(pos.blueChipStopLoss)
                 pos.isTreasuryPosition && pos.treasuryStopLoss != 0.0 -> kotlin.math.abs(pos.treasuryStopLoss)
                 else -> cfg().stopLossPct.takeIf { it > 0.0 } ?: 20.0
-            }
-            // V5.0.6153 — live bleed damage cap. If clean LIVE terminal truth says
-            // this lane is currently donating money, new buys are size-shaped in 6152
-            // and existing positions get a tighter lane-local SL. This is not a global
-            // sell-only mode and does not weaken true hard floors; it just stops the
-            // morning-bleed pattern from repeatedly reaching the wide default SL.
-            val liveBleedStopMetric6153 = try {
-                val lane6153 = when {
-                    pos.isShitCoinPosition -> "SHITCOIN"
-                    pos.isBlueChipPosition -> "BLUECHIP"
-                    pos.isTreasuryPosition -> "TREASURY"
-                    else -> TradeHistoryStore.normalizeTradeModeName(pos.tradingMode.ifBlank { "STANDARD" }).ifBlank { "STANDARD" }
-                }
-                StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500).firstOrNull { it.strategy.equals(lane6153, true) }
-            } catch (_: Throwable) { null }
-            val bleedStopTightened6153 = liveBleedStopMetric6153 != null && liveBleedStopMetric6153.trades >= 5 && liveBleedStopMetric6153.totalSolPnl < 0.0 && liveBleedStopMetric6153.pfExpectancyPp <= 0.0
-            val fastLiveDrawdownMult6157 = try { SmartSizer.currentFastLiveDrawdownMultiplier6157(walletSol) } catch (_: Throwable) { 1.0 }
-            val drawdownStopTightened6157 = fastLiveDrawdownMult6157 < 0.60
-            val rawSL = when {
-                drawdownStopTightened6157 -> minOf(baseRawSL6153, if (fastLiveDrawdownMult6157 < 0.45) 5.0 else 7.0)
-                bleedStopTightened6153 -> minOf(baseRawSL6153, if ((liveBleedStopMetric6153?.totalSolPnl ?: 0.0) < -0.10) 6.0 else 8.0)
-                else -> baseRawSL6153
-            }
-            if (bleedStopTightened6153) {
-                try { ForensicLogger.lifecycle("LIVE_BLEED_STOP_TIGHTENED_6153", "mint=${ts.mint.take(10)} symbol=${ts.symbol} base=${baseRawSL6153.fmt(1)} tight=${rawSL.fmt(1)} trades=${liveBleedStopMetric6153?.trades} wr=${liveBleedStopMetric6153?.winRatePct} pnlSol=${liveBleedStopMetric6153?.totalSolPnl} pf=${liveBleedStopMetric6153?.pfExpectancyPp} action=lane_local_damage_cap") } catch (_: Throwable) {}
-            }
-            if (drawdownStopTightened6157) {
-                try { ForensicLogger.lifecycle("LIVE_DRAWDOWN_STOP_TIGHTENED_6157", "mint=${ts.mint.take(10)} symbol=${ts.symbol} base=${baseRawSL6153.fmt(1)} tight=${rawSL.fmt(1)} fastDrawdownMult=${fastLiveDrawdownMult6157.fmt(2)} action=wallet_bleed_damage_cap") } catch (_: Throwable) {}
             }
             // V5.9.1028 — AI-FLUID STOP LOSS THRESHOLD.
             // Operator V5.9.1027b mandate: "the strict and rapid stops are
@@ -6715,7 +6448,7 @@ class Executor(
                     try { com.lifecyclebot.engine.UnifiedExitPolicyHead.shouldVetoStopLoss(agiLane, pnlPctNow, exitSignals) }
                     catch (_: Throwable) { com.lifecyclebot.engine.UnifiedExitPolicyHead.VetoDecision.HONOR }
                 } else com.lifecyclebot.engine.UnifiedExitPolicyHead.VetoDecision.HONOR
-                if (veto == com.lifecyclebot.engine.UnifiedExitPolicyHead.VetoDecision.VETO && !bleedStopTightened6153 && !drawdownStopTightened6157) {
+                if (veto == com.lifecyclebot.engine.UnifiedExitPolicyHead.VetoDecision.VETO) {
                     onLog("🧠 AGI VETO SL: ${ts.symbol} pnl=${pnlPctNow.toInt()}% floor=${hardFloor.toInt()}% lane=$agiLane — exit brain says hold", ts.mint)
                     // Skip the SL for this tick; runtime will re-evaluate on
                     // the next hot-exit pass. If the brain's confidence drops
@@ -6833,11 +6566,9 @@ class Executor(
                         "mint=${ts.mint.take(10)} symbol=${ts.symbol} peakPct=${peakPnlPct.toInt()} curPct=${curPnlPct.toInt()} ageMs=$posAgeMs reason=peak_gave_back_below_mfe_floor_inside_settle")
                     PipelineHealthCollector.labelInc("SETTLE_MFE_FLOOR_FIRED_6063")
                 } catch (_: Throwable) {}
-                if (!moonshotHoldGate(ts, curPnlPct, "SETTLE_MFE_FLOOR")) {
-                    onLog("🔒 SETTLE_MFE_FLOOR ${ts.symbol}: peak=${peakPnlPct.toInt()}% cur=${curPnlPct.toInt()}% — floor fired inside settle window", ts.mint)
-                    requestSell(ts, "SETTLE_MFE_FLOOR_PEAK_${peakPnlPct.toInt()}pct", wallet, walletSol)
-                    return
-                }
+                onLog("🔒 SETTLE_MFE_FLOOR ${ts.symbol}: peak=${peakPnlPct.toInt()}% cur=${curPnlPct.toInt()}% — floor fired inside settle window", ts.mint)
+                requestSell(ts, "SETTLE_MFE_FLOOR_PEAK_${peakPnlPct.toInt()}pct", wallet, walletSol)
+                return
             }
             if (PeakDrawdownLock.shouldLock(peakPnlPct, curPnlPct)) {
                 try {
@@ -6845,11 +6576,9 @@ class Executor(
                         "mint=${ts.mint.take(10)} symbol=${ts.symbol} peakPct=${peakPnlPct.toInt()} curPct=${curPnlPct.toInt()} ageMs=$posAgeMs reason=give_back_lock_fired_inside_settle")
                     PipelineHealthCollector.labelInc("SETTLE_PEAK_DRAWDOWN_FIRED_6063")
                 } catch (_: Throwable) {}
-                if (!moonshotHoldGate(ts, curPnlPct, "SETTLE_PEAK_DRAWDOWN")) {
-                    onLog("🔒 SETTLE_PEAK_DRAWDOWN ${ts.symbol}: peak=${peakPnlPct.toInt()}% cur=${curPnlPct.toInt()}% — give-back lock fired inside settle window", ts.mint)
-                    requestSell(ts, "SETTLE_PEAK_DRAWDOWN_PEAK_${peakPnlPct.toInt()}pct", wallet, walletSol)
-                    return
-                }
+                onLog("🔒 SETTLE_PEAK_DRAWDOWN ${ts.symbol}: peak=${peakPnlPct.toInt()}% cur=${curPnlPct.toInt()}% — give-back lock fired inside settle window", ts.mint)
+                requestSell(ts, "SETTLE_PEAK_DRAWDOWN_PEAK_${peakPnlPct.toInt()}pct", wallet, walletSol)
+                return
             }
             if (checkProfitLock(ts, wallet, walletSol)) return
             if (trySweepTakeProfitExit(ts, currentPrice, wallet, walletSol, settleBypass = true)) return
@@ -6901,96 +6630,13 @@ class Executor(
             // immediately instead of waiting for settle/min-hold.
             if (trySweepTakeProfitExit(ts, currentPrice, wallet, walletSol)) return
 
-            // ════════════════════════════════════════════════════════════════
-            // V5.0.6123 — DYNAMIC FLUID STOP + SLIDING PROFIT LOCK IN runManageOnly
-            // ════════════════════════════════════════════════════════════════
-            // ROOT CAUSE of "dynamic profit lock is OFF": runManageOnly is the
-            // primary 2s exit loop, but it used getFluidStopLoss (simple learning-
-            // adaptive stop) instead of getDynamicFluidStop (which has the sliding
-            // profit lock that ratchets up with the peak). The dynamic profit lock
-            // was ONLY active in the 500ms rapid monitor — which dies when the
-            // hot-exit manager goes stale, turning the profit lock OFF entirely.
-            //
-            // FIX: Wire getDynamicFluidStop + fluidProfitFloor into runManageOnly
-            // so the sliding lock is ALWAYS active on every 2s tick, independent
-            // of whether the 500ms monitor is alive. Also ratchet the peak here
-            // before evaluating (same fix as the 500ms monitor got in V5.9.1427).
-            run {
-                if (!ts.position.isOpen) return@run
-                val pos6123 = ts.position
-                // Ratchet peak — the 2s loop must update HWM too, not just 500ms
-                if (pnlPct > pos6123.peakGainPct) {
-                    ts.position.peakGainPct = pnlPct
-                }
-                val peakPnl6123 = ts.position.peakGainPct
-                val heldSecs6123 = if (pos6123.entryTime > 0L)
-                    (System.currentTimeMillis() - pos6123.entryTime) / 1000.0 else 0.0
-                val vol6123 = ts.volatility ?: 50.0
-
-                // DYNAMIC FLUID STOP — the sliding profit lock
-                val dynamicStop6123 = try {
-                    val modeDefault6123 = cfg().stopLossPct  // V5.0.6124c — runManageOnly has no modeConf param
-                    com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
-                        modeDefaultStop = modeDefault6123,
-                        currentPnlPct = pnlPct,
-                        peakPnlPct = peakPnl6123,
-                        holdTimeSeconds = heldSecs6123,
-                        volatility = vol6123,
-                    )
-                } catch (_: Throwable) {
-                    try { -com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(-25.0) }
-                    catch (_: Throwable) { -25.0 }
-                }
-
-                // EXPLICIT PEAK-LOCK BREACH — same logic as BotService 4301
-                // Fires even if dynamic stop didn't engage
-                val peakLockFloor6123 = when {
-                    peakPnl6123 >= 100.0 -> peakPnl6123 - 12.0
-                    peakPnl6123 >= 20.0 -> try {
-                        com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(peakPnl6123, vol6123, heldSecs6123)
-                    } catch (_: Throwable) { peakPnl6123 - 8.0 }
-                    else -> Double.NEGATIVE_INFINITY
-                }
-                if (peakLockFloor6123.isFinite() && pnlPct <= peakLockFloor6123 && currentPrice > 0.0) {
-                    try {
-                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                            "MANAGE_ONLY_PEAK_LOCK_BREACH_6123",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} peak=${peakPnl6123.toInt()}% lock=${peakLockFloor6123.toInt()}% now=${pnlPct.toInt()}% — force sell via dynamic profit lock"
-                        )
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MANAGE_ONLY_PEAK_LOCK_BREACH_6123")
-                    } catch (_: Throwable) {}
-                    if (!moonshotHoldGate(ts, pnlPct, "MANAGE_ONLY_PEAK_LOCK")) {
-                        onLog("🛑 PEAK LOCK: ${ts.symbol} peak=${peakPnl6123.toInt()}% → now ${pnlPct.toInt()}% — sliding lock fired", ts.mint)
-                        doSell(ts, "MANAGE_ONLY_PEAK_LOCK_${peakPnl6123.toInt()}pct_now${pnlPct.toInt()}pct", wallet, walletSol)
-                        return
-                    }
-                }
-
-                // DYNAMIC STOP — trailing/fluid stop from getDynamicFluidStop
-                if (pnlPct <= dynamicStop6123 && currentPrice > 0.0) {
-                    val stopType6123 = if (peakPnl6123 > 5.0) "TRAILING" else "FLUID"
-                    onLog("🛑 MANAGE_ONLY $stopType6123 STOP: ${ts.symbol} at ${pnlPct.toInt()}% (dynamic limit=${dynamicStop6123.toInt()}%)", ts.mint)
-                    try {
-                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                            "MANAGE_ONLY_DYNAMIC_STOP_6123",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} type=$stopType6123 pnl=${pnlPct.toInt()}% dynStop=${dynamicStop6123.toInt()}% peak=${peakPnl6123.toInt()}% heldSecs=${heldSecs6123.toInt()}"
-                        )
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MANAGE_ONLY_DYNAMIC_STOP_6123")
-                    } catch (_: Throwable) {}
-                    if (!moonshotHoldGate(ts, pnlPct, "MANAGE_ONLY_${stopType6123}_STOP_6123")) {
-                        doSell(ts, "MANAGE_ONLY_${stopType6123}_STOP_6123", wallet, walletSol)
-                        return
-                    }
-                }
-
-                // FALLBACK: Simple fluid floor (kept as last-line backstop)
-                val floor = try {
-                    com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(-25.0)
-                } catch (_: Throwable) { -25.0 }
-                if (pnlPct <= floor && currentPrice > 0.0 && !moonshotHoldGate(ts, pnlPct, "SWEEP_FLUID_FLOOR")) {
-                    onLog("🛑 SWEEP_FLUID_FLOOR: ${ts.symbol} pnl=${pnlPct.toInt()}% ≤ floor=${floor.toInt()}%", ts.mint)
-                    doSell(ts, "SWEEP_FLUID_FLOOR_${floor.toInt()}", wallet, walletSol)
-                }
+            // Fluid stop floor — already wired but make the log more visible
+            val floor = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(-25.0)
+            } catch (_: Throwable) { -25.0 }
+            if (pnlPct <= floor && currentPrice > 0.0) {
+                onLog("🛑 SWEEP_FLUID_FLOOR: ${ts.symbol} pnl=${pnlPct.toInt()}% ≤ floor=${floor.toInt()}%", ts.mint)
+                doSell(ts, "SWEEP_FLUID_FLOOR_${floor.toInt()}", wallet, walletSol)
             }
         }
     }
@@ -7003,10 +6649,6 @@ class Executor(
 
         val actualPrice = getActualPrice(ts)
         val gainPct = pct(pos.entryPrice, actualPrice)
-        // V5.0.6125 — MoonshotHoldMode suppresses the partial-sell ladder
-        // while a runner is riding; taking chips off the table reduces the
-        // compounding on the eventual ANSEM-style multiple.
-        if (moonshotHoldGate(ts, gainPct, "PARTIAL_SELL_LADDER")) return false
         val soldPct = pos.partialSoldPct
 
         val partialLevel = (soldPct / (c.partialSellFraction * 100.0)).toInt()
@@ -8263,13 +7905,7 @@ class Executor(
                     "Executor",
                     "🚪 mode_maxhold${_zombie}: ${ts.symbol} mode=${modeConfig.mode.name} held=${_held.toInt()}min > ${_effectiveMaxHold.toInt()}min peak=+${_peakGain.toInt()}% pnl=${"%+.0f".format(_curPnl)}% (regime×${"%.2f".format(_regimeHoldMult)}) utc=${_utcHour}:00"
                 )
-                // V5.0.6128 — MoonshotHoldMode: don't let maxHold kill a runner
-                // that MoonshotHoldMode says to keep. The runner bypass above uses
-                // 70% of peak; MoonshotHoldMode uses 50% drop from peak — stricter
-                // hold policy for ANSEM-style runners.
-                if (!moonshotHoldGate(ts, _curPnl, "MODE_MAXHOLD")) {
-                    doSell(ts, _reason, wallet, walletSol); return
-                }
+                doSell(ts, _reason, wallet, walletSol); return
             }
         }
 
@@ -8566,26 +8202,11 @@ class Executor(
             // Removed entirely — the same brain already influences
             // entryScore / sizing earlier in the pipeline.
             
-            // V5.0.6110 — WALLET-RELATIVE MIN LIFT instead of premature kill.
-            // The old `size < 0.001 → return` was killing 48/51 live buy attempts
-            // because SmartSizer's internal cascade (confMult×probeMult×liqMult×
-            // ddMult = 0.11x) plus the Executor cascade produced ~0.001 SOL on a
-            // 0.47 SOL wallet. Instead of rejecting, lift to a wallet-relative
-            // minimum (2% of spendable) and let realisticLiveEntrySize handle
-            // the final floor. This breaks the "can't trade → can't recover →
-            // stay defensive → smaller sizes → can't trade" death spiral.
             if (size < 0.001) {
-                if (!isPaperMode && walletSol > 0.02) {
-                    val walletRelMin6110 = (walletSol * 0.02).coerceIn(0.005, 0.060)
-                    size = walletRelMin6110
-                    try { ForensicLogger.lifecycle("WALLET_REL_MIN_LIFT_6110", "mint=${ts.mint.take(10)} symbol=${ts.symbol} oldSize=0.001- lifted=$size walletSol=$walletSol path=maybeAct") } catch (_: Throwable) {}
-                    try { PipelineHealthCollector.labelInc("WALLET_REL_MIN_LIFT_6110") } catch (_: Throwable) {}
-                } else {
-                    ErrorLogger.debug("Executor", "🪫 ${ts.symbol} SIZE TOO SMALL: $size | wallet=$walletSol | paper=$isPaperMode | liq=${ts.lastLiquidityUsd}")
-                    onLog("Insufficient capacity for new position on ${ts.symbol} (size=$size)", ts.mint)
-                    if (!isPaperMode) livePreAttemptHardReject(ts, size, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "maybeAct.size=$size wallet=$walletSol liq=${ts.lastLiquidityUsd}")
-                    return
-                }
+                ErrorLogger.debug("Executor", "🪫 ${ts.symbol} SIZE TOO SMALL: $size | wallet=$walletSol | paper=$isPaperMode | liq=${ts.lastLiquidityUsd}")
+                onLog("Insufficient capacity for new position on ${ts.symbol} (size=$size)", ts.mint)
+                if (!isPaperMode) livePreAttemptHardReject(ts, size, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "maybeAct.size=$size wallet=$walletSol liq=${ts.lastLiquidityUsd}")
+                return
             }
             
             ErrorLogger.info("Executor", "✅ ${ts.symbol} SIZE OK: $size SOL - proceeding to doBuy()")
@@ -8687,7 +8308,7 @@ class Executor(
                     try {
                         ForensicLogger.lifecycle(
                             "HOLDING_LOGIC_ADD_MORE_TOPUP_6091",
-                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} mode=${ts.position.tradingMode} reason=${holdEval.reason.take(120)} confidence=${holdEval.confidence.fmt(1)} pnl=${currentPnlPct.fmt(1)} causalEv6180=${CausalEvMemory6179.sizeMultiplier(ts.position.tradingMode, ts.position.entryPriceSource.ifBlank { ts.source }, ts.position.entryPoolAddress.ifBlank { ts.pairAddress }, ts.position.entryPolicySnapshot.ifBlank { ts.position.tradingMode }).fmt(2)}",
+                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} mode=${ts.position.tradingMode} reason=${holdEval.reason.take(120)} confidence=${holdEval.confidence.fmt(1)} pnl=${currentPnlPct.fmt(1)}",
                         )
                         PipelineHealthCollector.labelInc("HOLDING_LOGIC_ADD_MORE_TOPUP_6091")
                     } catch (_: Throwable) {}
@@ -8832,11 +8453,8 @@ class Executor(
                         "Executor",
                         "🚪 mode_maxhold(v3)${_zombie2}: ${ts.symbol} mode=${modeConfig.mode.name} held=${held.toInt()}min > ${effectiveMaxHold2.toInt()}min peak=+${_peakGain2.toInt()}% pnl=${"%+.0f".format(_curPnl2)}% (regime×${"%.2f".format(regimeHoldMult2)}) utc=${_utcHour2}:00"
                     )
-                    // V5.0.6128 — MoonshotHoldMode sibling: same gate as primary maxhold
-                    if (!moonshotHoldGate(ts, _curPnl2, "MODE_MAXHOLD_V3")) {
-                        doSell(ts, _reason2, wallet, walletSol, identity)
-                        return
-                    }
+                    doSell(ts, _reason2, wallet, walletSol, identity)
+                    return
                 }
             }
             
@@ -9018,19 +8636,11 @@ class Executor(
             }
         }
         
-        // V5.0.6110 — WALLET-RELATIVE MIN LIFT (same fix as maybeAct path).
         if (size < 0.001) {
-            if (!isPaper && walletSol > 0.02) {
-                val walletRelMin6110b = (walletSol * 0.02).coerceIn(0.005, 0.060)
-                size = walletRelMin6110b
-                try { ForensicLogger.lifecycle("WALLET_REL_MIN_LIFT_6110", "mint=${ts.mint.take(10)} symbol=${ts.symbol} oldSize=0.001- lifted=$size walletSol=$walletSol path=maybeActWithDecision") } catch (_: Throwable) {}
-                try { PipelineHealthCollector.labelInc("WALLET_REL_MIN_LIFT_6110") } catch (_: Throwable) {}
-            } else {
-                ErrorLogger.debug("Executor", "🪫 ${ts.symbol} SIZE TOO SMALL: $size | quality=${decision.finalQuality}")
-                onLog("Insufficient capacity for ${ts.symbol} (size=$size)", ts.mint)
-                if (!isPaper) livePreAttemptHardReject(ts, size, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "maybeActWithDecision.size=$size")
-                return
-            }
+            ErrorLogger.debug("Executor", "🪫 ${ts.symbol} SIZE TOO SMALL: $size | quality=${decision.finalQuality}")
+            onLog("Insufficient capacity for ${ts.symbol} (size=$size)", ts.mint)
+            if (!isPaper) livePreAttemptHardReject(ts, size, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "maybeActWithDecision.size=$size")
+            return
         }
         
         if (isPaper) {
@@ -9756,31 +9366,9 @@ class Executor(
         val strategyTunerSizeMult = try {
             LiveStrategyTuner.sizeMultiplier(laneKeyForAgi)
         } catch (_: Throwable) { 1.0 }
-        val scannerSourceBrainSizeMult6155 = try {
+        val sourceBrainSizeMult = try {
             ScannerSourceBrain.intakeMultiplier(ts.source)
         } catch (_: Throwable) { 1.0 }
-        val venueSourceSizeMult6155 = try {
-            VenueSourceBalanceAdapter.intakeMultiplier(ts.source)
-        } catch (_: Throwable) { 1.0 }
-        // V5.0.6155 — buy-size source authority is now source+venue, not only
-        // source-name memory. This prevents the money path from collapsing back to
-        // Pump/Jupiter just because those have the most samples. Venue multiplier is
-        // bounded and soft-shape only; hard safety/route/wallet gates remain above it.
-        val sourceBrainSizeMult = maxOf(scannerSourceBrainSizeMult6155, venueSourceSizeMult6155).coerceIn(0.40, 1.80)
-        val causalEvSizeMult6179 = try {
-            CausalEvMemory6179.sizeMultiplier(
-                lane = laneKeyForAgi,
-                source = ts.source,
-                routeHint = VenueUniverse.classify(ts.source).canonical,
-                tacticHint = laneKeyForAgi,
-            )
-        } catch (_: Throwable) { 1.0 }
-        if (causalEvSizeMult6179 != 1.0) {
-            try {
-                ForensicLogger.lifecycle("CAUSAL_EV_SIZE_SHAPED_6179", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi source=${ts.source.take(60)} mult=${causalEvSizeMult6179.fmt(2)} status=${CausalEvMemory6179.statusLine(3)}")
-                PipelineHealthCollector.labelInc("CAUSAL_EV_SIZE_SHAPED_6179")
-            } catch (_: Throwable) {}
-        }
         // Construct minimal Signals from available context for UPH conviction.
         // In BOOTSTRAP, conviction() returns 1.0 — no effect. Once the head
         // graduates to ADVISORY/LEARNED, it shapes size by learned pWin.
@@ -9916,7 +9504,7 @@ class Executor(
         if (RuntimeModeAuthority.isLive() && realizedWalletCompoundMult4511 != 1.0) {
             try {
                 val snap4511 = RealizedWalletCompoundingGovernor.snapshot()
-                ForensicLogger.lifecycle("REALIZED_WALLET_COMPOUNDING_SHAPED_4511", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${realizedWalletCompoundMult4511.fmt(2)} moneyRows=${snap4511.cleanPnlSol.fmt(4)} strategyClean=${snap4511.strategyCleanPnlSol.fmt(4)} wallet=${snap4511.walletSol.fmt(4)} wr=${snap4511.wrPct.fmt(1)} pf=${snap4511.profitFactor.fmt(2)} reason=${snap4511.reason}")
+                ForensicLogger.lifecycle("REALIZED_WALLET_COMPOUNDING_SHAPED_4511", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${realizedWalletCompoundMult4511.fmt(2)} clean=${snap4511.cleanPnlSol.fmt(4)} wallet=${snap4511.walletSol.fmt(4)} wr=${snap4511.wrPct.fmt(1)} pf=${snap4511.profitFactor.fmt(2)} reason=${snap4511.reason}")
                 PipelineHealthCollector.labelInc("REALIZED_WALLET_COMPOUNDING_SHAPED_4511")
             } catch (_: Throwable) {}
         }
@@ -9927,22 +9515,6 @@ class Executor(
                 PipelineHealthCollector.labelInc("ROUTE_RELIABILITY_SIZE_SHAPED_4518")
             } catch (_: Throwable) {}
         }
-        // V5.0.6114 — move laneBiasMult into the geomean cascade. The old 0.50
-        // for non-MOONSHOT/STANDARD lanes was a 50% cut OUTSIDE the geomean,
-        // recreating the cascade collapse that 6109 was supposed to fix.
-        val laneBiasMult6114 = when (laneTag.uppercase()) {
-            "MOONSHOT", "STANDARD" -> 1.40
-            "BLUECHIP", "QUALITY" -> 1.10  // V5.0.6114: winning lanes shouldn't get 0.50
-            else -> 0.80  // V5.0.6114: raised from 0.50 to 0.80
-        }
-        // V5.0.6126 — CorrelationGuard: portfolio-level correlated-holding damper.
-        // Damps new-entry SIZE when the portfolio is over-concentrated in the same
-        // correlation cluster (meme-root or mcap-band). Soft-shape only, never
-        // hard-blocks. Fail-open to 1.0.
-        val correlationGuardMult6126 = try {
-            CorrelationGuard.sizeMultiplier(ts.mint, ts.symbol ?: "", ts.lastMcap)
-        } catch (_: Throwable) { 1.0 }
-
         val sizingStackComponents4285 = linkedMapOf(
             "sizeMult" to sizeMult,
             "lab" to labMult,
@@ -9952,8 +9524,6 @@ class Executor(
             "brain" to brainSizeMult,
             "strategyTuner" to strategyTunerSizeMult,
             "sourceBrain" to sourceBrainSizeMult,
-            "scannerSource6155" to scannerSourceBrainSizeMult6155,
-            "venueSource6155" to venueSourceSizeMult6155,
             "uph" to uphConvictionMult,
             "hypothesis" to hypothesisSizeMult,
             "paperLive" to paperLiveBridgeMult,
@@ -9965,31 +9535,8 @@ class Executor(
             "scoreBandWR4510" to scoreBandWrSizeMult4510,
             "walletCompound4511" to realizedWalletCompoundMult4511,
             "routeReliability4518" to routeReliabilitySizeMult4518,
-            "causalEv6179" to causalEvSizeMult6179,
-            "laneBias6114" to laneBiasMult6114,
-            "correlationGuard6126" to correlationGuardMult6126,
         )
-        // V5.0.6109 — CASCADE COLLAPSE FIX. The old pure-product fold of 19+
-        // multipliers is a DUST GENERATOR: 0.8^19 = 0.014 (98.6% reduction).
-        // Even with floors at 0.25-0.50, a 0.05 SOL base × 0.50 floor = 0.025 SOL
-        // per trade — you cannot compound $100 to $1M with $2 trades.
-        // FIX: split multipliers into DAMPERS (<1.0) and BOOSTERS (>=1.0).
-        // Dampers use GEOMETRIC MEAN so they can't collapse the stack.
-        // Boosters use PRODUCT so they stack aggressively.
-        // Result: 10 dampers at 0.8 → 0.8 (not 0.107); 9 boosters at 1.2 → 5.16.
-        // The AGI/SSI/Lab multipliers now actually move the needle.
-        val cascadeComponents6109 = sizingStackComponents4285.values.toList()
-        val dampers6109 = cascadeComponents6109.filter { it < 1.0 && it > 0.0 }
-        val boosters6109 = cascadeComponents6109.filter { it >= 1.0 }
-        val damperGeomean6109 = if (dampers6109.isNotEmpty()) {
-            kotlin.math.exp(dampers6109.map { kotlin.math.ln(it) }.average())
-        } else 1.0
-        val boosterProduct6109 = boosters6109.fold(1.0) { acc, v -> acc * v }
-        val multiplierProductRaw = (damperGeomean6109 * boosterProduct6109).also {
-            if (RuntimeModeAuthority.isLive() || RuntimeModeAuthority.isPaper()) {
-                try { ForensicLogger.lifecycle("CASCADE_GEOMEAN_6109", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi dampers=${dampers6109.size} geomean=${damperGeomean6109.fmt(3)} boosters=${boosters6109.size} product=${boosterProduct6109.fmt(3)} final=${it.fmt(3)} old_fold=${cascadeComponents6109.fold(1.0) { a, v -> a * v }.fmt(4)}") } catch (_: Throwable) {}
-            }
-        }
+        val multiplierProductRaw = sizingStackComponents4285.values.fold(1.0) { acc, v -> acc * v }
         try {
             SizingStackIntegritySentinel.inspect(
                 mode = if (RuntimeModeAuthority.isPaper()) "paper" else "live",
@@ -10019,8 +9566,6 @@ class Executor(
                     "brain" to brainSizeMult,
                     "strategyTuner" to strategyTunerSizeMult,
                     "sourceBrain" to sourceBrainSizeMult,
-            "scannerSource6155" to scannerSourceBrainSizeMult6155,
-            "venueSource6155" to venueSourceSizeMult6155,
                     "uph" to uphConvictionMult,
                     "hypothesis" to hypothesisSizeMult,
                     "paperLive" to paperLiveBridgeMult,
@@ -10032,7 +9577,6 @@ class Executor(
                     "scoreBandWR4510" to scoreBandWrSizeMult4510,
                     "walletCompound4511" to realizedWalletCompoundMult4511,
                     "routeReliability4518" to routeReliabilitySizeMult4518,
-                    "causalEv6179" to causalEvSizeMult6179,
                 ),
             )
         } catch (_: Throwable) {}
@@ -10082,12 +9626,15 @@ class Executor(
         } catch (_: Throwable) { false }
         val highConvBoost = if (isHighConvictionWinner) 1.50 else 1.0
 
-        val laneBiasMult = laneBiasMult6114  // V5.0.6114: moved into geomean cascade
-        // V5.0.6114 — postCascadeGeomean6114 is computed AFTER discipline/tilt/bridge
-        // are defined (below). multiplierProduct is finalized there too.
+        // V5.0.4178 — L8 LANE PRIORITY BIAS (TIGHTENED): MOONSHOT (WR=22.7%)
+        // / STANDARD (WR=23.8%) get ×1.40, every other lane ×0.50. Capital
+        // concentrates on what works.
+        val laneBiasMult = when (laneTag.uppercase()) {
+            "MOONSHOT", "STANDARD" -> 1.40
+            else -> 0.50
+        }
         val multiplierProduct = run {
-            // V5.0.6114: postCascadeGeomean6114 will be applied later (after discipline/tilt/bridge defined)
-            val product = multiplierProductRaw * slipDownsizeMult * highConvBoost
+            val product = multiplierProductRaw * laneBiasMult * slipDownsizeMult * highConvBoost
             // V5.0.6055 — P0.b: POSITIVE-EV LANE FLOOR.
             // Operator P0: "flick the memetrader green the right way!!!"
             // Runtime V5.0.6053 showed a proven positive-EV lane (MOONSHOT
@@ -10130,43 +9677,17 @@ class Executor(
             // Still bounded and still downstream of hard route/liquidity/wallet/rug
             // safety; no learned zero sizing, no synchronous LLM/API hot-path call.
             val agiAuthorityActive6090 = listOf(
-                strategyTunerSizeMult, sourceBrainSizeMult, venueSourceSizeMult6155, causalEvSizeMult6179, uphConvictionMult,
+                strategyTunerSizeMult, sourceBrainSizeMult, uphConvictionMult,
                 hypothesisSizeMult, superBrainSizeMult, metaCognitionSizeMult,
                 ssiPilotSizeMult, regimeVolSizeMult, capitalEfficiencySizeMult,
             ).any { kotlin.math.abs(it - 1.0) >= 0.03 }
             val agiCeiling6090 = if (agiAuthorityActive6090) {
-                if (RuntimeModeAuthority.isPaper()) 3.00 else 2.50
-            } else 1.80
-            // V5.0.6109 — WALLET-ANCHORED COMPOUND FLOOR.
-            // The multiplier cascade must not produce a size below 3% of
-            // spendable wallet for priority lanes, or 2% for others. This
-            // is the minimum viable compounding size — below this, wins
-            // are dust artifacts that can't grow the wallet 2x-5x/day.
-            val walletSpendable6109 = walletSol.takeIf { it > 0.0 } ?: try {
-                if (RuntimeModeAuthority.isPaper()) FluidLearning.getSimulatedBalance() else 0.0
-            } catch (_: Throwable) { 0.0 }
-            val isPriority6109 = laneTag.uppercase() in setOf("MOONSHOT", "STANDARD", "CRYPTO_SPOT", "CRYPTO_LEV")
-            val walletAnchorFloor6109 = if (walletSpendable6109 > 0.0 && sol > 0.0) {
-                val minWalletPct6109 = if (isPriority6109) 0.03 else 0.02
-                val anchoredMult6109 = (walletSpendable6109 * minWalletPct6109) / sol
-                anchoredMult6109.coerceAtMost(posEvFloor.coerceAtLeast(0.50))
-            } else posEvFloor
-            val effectiveFloor6109 = maxOf(posEvFloor, walletAnchorFloor6109)
-            // V5.0.6109 — WINNER PRESSING. If the day is already profitable
-            // or the lane is on a win streak, press harder. This is the
-            // compounding accelerator: wins → bigger size → bigger wins.
-            val compoundSnap6109 = try { RealizedWalletCompoundingGovernor.snapshot() } catch (_: Throwable) { null }
-            val winnerPress6109 = if (compoundSnap6109 != null && compoundSnap6109.dayPnlSol > 0.0) {
-                // Already profitable today → press harder (up to +50%)
-                val progressX = compoundSnap6109.dayProgressX.coerceIn(0.0, 5.0)
-                (1.0 + (progressX * 0.10)).coerceIn(1.0, 1.50)
-            } else 1.0
-            val pressedProduct6109 = product * winnerPress6109
-            try { PipelineHealthCollector.labelInc("WALLET_ANCHORED_COMPOUND_FLOOR_6109") } catch (_: Throwable) {}
-            pressedProduct6109.coerceIn(effectiveFloor6109, agiCeiling6090)
+                if (RuntimeModeAuthority.isPaper()) 2.50 else 2.00
+            } else 1.60
+            product.coerceIn(posEvFloor, agiCeiling6090)
         }
         if (RuntimeModeAuthority.isLive() && (laneEvMult != 1.0 || laneSizeCap < 1.0 || strategyTunerSizeMult != 1.0 || uphConvictionMult != 1.0)) {
-            try { ForensicLogger.lifecycle("LIVE_WALLET_GROWTH_ALLOCATOR", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvMult=$laneEvMult laneCap=$laneSizeCap regimeMult=$regimeMult brainMult=$brainSizeMult stratTuner=$strategyTunerSizeMult sourceBrain=$sourceBrainSizeMult scannerSource6155=$scannerSourceBrainSizeMult6155 venueSource6155=$venueSourceSizeMult6155 causalEv6179=$causalEvSizeMult6179 venue=${VenueSourceBalanceAdapter.compact(ts.source)} uph=$uphConvictionMult product=$multiplierProduct floor=$liveFloorMult") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("LIVE_WALLET_GROWTH_ALLOCATOR", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvMult=$laneEvMult laneCap=$laneSizeCap regimeMult=$regimeMult brainMult=$brainSizeMult stratTuner=$strategyTunerSizeMult sourceBrain=$sourceBrainSizeMult uph=$uphConvictionMult product=$multiplierProduct floor=$liveFloorMult") } catch (_: Throwable) {}
         }
         try { PipelineHealthCollector.labelInc("AGI_SIZE_STACK_APPLIED") } catch (_: Throwable) {}
         // V5.0.3958 — MEGA-PROFIT COMPOUNDING CAP. Once the live expectancy
@@ -10217,7 +9738,6 @@ class Executor(
                               gooseVerdict4129 == com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER
         val pauseDefensive4132 = try { com.lifecyclebot.engine.LivePauseButton.isDefensive() } catch (_: Throwable) { false }
         val laneTimedOut4132 = try { com.lifecyclebot.engine.LaneTimeoutGate.isTimedOut(laneTag) } catch (_: Throwable) { false }
-        var disciplineRecoveryMult6112 = 1.0
         // V5.0.4132b — UNIVERSAL SCANNER-LANE BRAIN VETO. Applies to every trader
         // (STANDARD, BLUECHIP, SHITCOIN, QUALITY, SHITCOIN_EXPRESS, MOONSHOT,
         // MANIPULATED, DIP_HUNTER, PROJECT_SNIPER, CYCLIC, CASHGEN, TREASURY).
@@ -10228,12 +9748,10 @@ class Executor(
             !com.lifecyclebot.engine.ScannerLaneBridge.shouldRoute(ts.source ?: "UNKNOWN", laneTag)
         } catch (_: Throwable) { false }
         if (RuntimeModeAuthority.isLive() && bridgeToxic4132 && !isHighEdge4132) {
-            // V5.0.6112 — SOFT-SHAPE NOT VETO. Scanner-bridge toxicity now
-            // reduces size to 0.35x recovery probe instead of hard return.
-            try { ForensicLogger.lifecycle("SCANNER_BRIDGE_SOFT_SHAPE_6112", "symbol=${ts.symbol} lane=$laneTag src=${ts.source} bridge=${runCatching { com.lifecyclebot.engine.ScannerLaneBridge.tag(ts.source ?: "UNKNOWN", laneTag) }.getOrDefault("?")} action=continue_size_0.35x") } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("SCANNER_BRIDGE_SOFT_SHAPE_6112") } catch (_: Throwable) {}
-            disciplineRecoveryMult6112 = minOf(disciplineRecoveryMult6112, 0.35)
-            onLog("🛡 Scanner-bridge soft shape: ${ts.symbol} src→lane toxic (lane=$laneTag) size=0.35x", "discipline")
+            try { ForensicLogger.lifecycle("SCANNER_BRIDGE_VETO_V4132", "symbol=${ts.symbol} lane=$laneTag src=${ts.source} bridge=${runCatching { com.lifecyclebot.engine.ScannerLaneBridge.tag(ts.source ?: "UNKNOWN", laneTag) }.getOrDefault("?")}") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("SCANNER_BRIDGE_VETO") } catch (_: Throwable) {}
+            onLog("🛑 Scanner-bridge veto: ${ts.symbol} src→lane proven toxic (lane=$laneTag)", "discipline")
+            return
         }
         if (RuntimeModeAuthority.isLive() && !isHighEdge4132 && (pauseDefensive4132 || laneTimedOut4132)) {
             // V5.0.4148 — TOP-PERFORMING-LANE BYPASS for the GLOBAL pause button
@@ -10247,21 +9765,15 @@ class Executor(
                     try { PipelineHealthCollector.labelInc("TOP_LANE_BYPASS_DOBUY") } catch (_: Throwable) {}
                 }
             } else {
-                // V5.0.6112 — SOFT-SHAPE NOT VETO. The liveBuy() path already
-                // converts this to a 0.35x recovery probe (V5.0.4460), but doBuy()
-                // still had a hard return that fired FIRST, preventing liveBuy()
-                // from ever being called. With WR=19.1% and DEFENSIVE mode active,
-                // this hard return killed ALL live buys. Now matches liveBuy():
-                // 0.35x recovery probe size, continue to execution.
                 val reason4132 = when {
                     effectivePause4148 && laneTimedOut4132 -> "discipline_pause_and_lane_timeout"
                     effectivePause4148                     -> "discipline_pause_global"
                     else                                    -> "discipline_lane_timeout"
                 }
-                try { ForensicLogger.lifecycle("DISCIPLINE_RECOVERY_PROBE_DOBUY_6112", "symbol=${ts.symbol} lane=$laneTag reason=$reason4132 goose=${gooseVerdict4129.name} topLane=${laneTopPerformer4148} pause=${runCatching { com.lifecyclebot.engine.LivePauseButton.tag() }.getOrDefault("?")} laneState=${runCatching { com.lifecyclebot.engine.LaneTimeoutGate.tag(laneTag) }.getOrDefault("?")} action=continue_size_0.35x") } catch (_: Throwable) {}
-                try { PipelineHealthCollector.labelInc("DISCIPLINE_RECOVERY_PROBE_DOBUY_6112") } catch (_: Throwable) {}
-                onLog("🛡 Discipline recovery probe: $reason4132 ${ts.symbol} (goose=${gooseVerdict4129.name}) size=0.35x", "discipline")
-                disciplineRecoveryMult6112 = 0.35
+                try { ForensicLogger.lifecycle("DISCIPLINE_VETO_V4132", "symbol=${ts.symbol} lane=$laneTag reason=$reason4132 goose=${gooseVerdict4129.name} topLane=${laneTopPerformer4148} pause=${runCatching { com.lifecyclebot.engine.LivePauseButton.tag() }.getOrDefault("?")} laneState=${runCatching { com.lifecyclebot.engine.LaneTimeoutGate.tag(laneTag) }.getOrDefault("?")}") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("DISCIPLINE_VETO_${reason4132.uppercase()}") } catch (_: Throwable) {}
+                onLog("🛑 Discipline veto: $reason4132 ${ts.symbol} (goose=${gooseVerdict4129.name})", "discipline")
+                return
             }
         }
         // (c) PERFORMING-LANE TILT: in DEFENSIVE mode, scale entries up for top
@@ -10270,55 +9782,6 @@ class Executor(
         // (d) SCANNER-LANE BRIDGE: additive score-style bias from (source, lane) brain.
         val bridgeBias4132 = try { com.lifecyclebot.engine.ScannerLaneBridge.affinityBias(ts.source, laneTag) } catch (_: Throwable) { 0 }
         val bridgeMult4132 = (1.0 + bridgeBias4132 / 100.0).coerceIn(0.70, 1.30)
-        // V5.0.6114 — POST-CASCADE GEOMEAN: discipline/tilt/bridge were multiplying
-        // as pure product OUTSIDE the geomean, recreating cascade collapse.
-        // Now: combine them as geomean so they can't collapse the stack.
-        val postCascadeDampers6114 = listOf(disciplineRecoveryMult6112, laneTilt4132, bridgeMult4132).filter { it < 1.0 && it > 0.0 }
-        val postCascadeGeomean6114 = if (postCascadeDampers6114.isNotEmpty()) {
-            kotlin.math.exp(postCascadeDampers6114.map { kotlin.math.ln(it) }.average())
-        } else 1.0
-        try { ForensicLogger.lifecycle("POST_CASCADE_GEOMEAN_6114", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag dampers=${postCascadeDampers6114.size} geomean=${postCascadeGeomean6114.fmt(3)} discipline=${disciplineRecoveryMult6112.fmt(2)} tilt=${laneTilt4132.fmt(2)} bridge=${bridgeMult4132.fmt(2)}") } catch (_: Throwable) {}
-        // V5.0.6114: fold postCascadeGeomean6114 into multiplierProduct
-        val multiplierProduct6114Raw = multiplierProduct * postCascadeGeomean6114
-        // V5.0.6228 — WINNER-PROTECTION FLOOR (compound target defence).
-        // Operator constraint: bot must be able to compound $100 → $1M with
-        // 2x-5x daily minimum. The pre-6228 cascade could stack 9+ dampers
-        // even on empirically-winning lanes (MOONSHOT EV=+463%, QUALITY
-        // EV=+14.6%), producing dust-sized 0.010 SOL executions that make
-        // daily 2x compounding impossible.
-        //
-        // FIX: clamp the final cascade multiplier to a monotone-in-EV floor
-        // that scales with the lane's demonstrated edge. If the lane has no
-        // trades yet (null), no floor applies — normal cascade authority.
-        // If the lane has a proven bleeder (EV < 5%), no floor applies — the
-        // cascade correctly dampens. But once a lane demonstrates positive
-        // EV, defensive dampers can no longer crush it below floor.
-        val laneEvPct6228 = try {
-            StrategyTelemetry.computeLeaderboard(limit = 500)
-                .firstOrNull { it.strategy.equals(laneKeyForAgi, ignoreCase = true) || it.strategy.equals(laneTag, ignoreCase = true) }
-                ?.takeIf { it.trades >= 5 }
-                ?.meanPnlPct
-        } catch (_: Throwable) { null }
-        val winnerFloor6228 = when {
-            laneEvPct6228 == null    -> 0.0     // no data yet → normal cascade
-            laneEvPct6228 >= 300.0   -> 1.50    // 6228 super-winner (MOONSHOT+463%) → +50% press
-            laneEvPct6228 >= 100.0   -> 1.35    // moonshot territory → +35% press
-            laneEvPct6228 >=  50.0   -> 1.20    // strong winner → +20% press
-            laneEvPct6228 >=  20.0   -> 1.00    // winner → floor at neutral
-            laneEvPct6228 >=  10.0   -> 0.90    // mild winner → light dampening OK
-            laneEvPct6228 >=   5.0   -> 0.75    // marginal winner → moderate dampening OK
-            else                     -> 0.0     // negative/neutral EV → cascade authoritative
-        }
-        val multiplierProduct6114 = multiplierProduct6114Raw.coerceAtLeast(winnerFloor6228)
-        if (winnerFloor6228 > 0.0 && multiplierProduct6114 > multiplierProduct6114Raw) {
-            try {
-                ForensicLogger.lifecycle(
-                    "WINNER_PROTECTION_FLOOR_6228",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvPct=${"%+.1f".format(laneEvPct6228!!)} rawProduct=${multiplierProduct6114Raw.fmt(3)} floor=${winnerFloor6228.fmt(2)} finalProduct=${multiplierProduct6114.fmt(3)} lift=${(multiplierProduct6114 - multiplierProduct6114Raw).fmt(3)}",
-                )
-                PipelineHealthCollector.labelInc("WINNER_PROTECTION_FLOOR_6228_${laneTag.uppercase()}")
-            } catch (_: Throwable) {}
-        }
         val absEntryFloor4129 = when (gooseVerdict4129) {
             com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD ->
                 com.lifecyclebot.engine.LiveSizingProfile.STRONG_ENTRY_SOL
@@ -10340,11 +9803,9 @@ class Executor(
         } else 0.0
         val relMinSol4129 = sol * liveFloorMult
         val upperCap4129 = sol * winnerMaxBoost * gooseUpperMult4129
-        // V5.0.6114 — laneTilt/bridge/discipline are now in postCascadeGeomean6114
-        // inside multiplierProduct. Don't multiply them again here.
-        val effSolRaw = (sol * multiplierProduct6114).coerceIn(maxOf(relMinSol4129, absMinSol4129), upperCap4129)
-        if (absMinSol4129 > 0.0 && (sol * multiplierProduct6114) < absMinSol4129) {
-            try { ForensicLogger.lifecycle("MONEY_MODE_ABS_FLOOR_LIFT_6082", "symbol=${ts.symbol} lane=$laneTag mode=${if (RuntimeModeAuthority.isPaper()) "paper" else "live"} goose=${gooseVerdict4129.name} raw=${(sol*multiplierProduct6114).fmt(4)} → lift=${absMinSol4129.fmt(4)} wallet=${walletSol.fmt(3)}") } catch (_: Throwable) {}
+        val effSolRaw = (sol * multiplierProduct * laneTilt4132 * bridgeMult4132).coerceIn(maxOf(relMinSol4129, absMinSol4129), upperCap4129 * laneTilt4132)
+        if (absMinSol4129 > 0.0 && (sol * multiplierProduct) < absMinSol4129) {
+            try { ForensicLogger.lifecycle("MONEY_MODE_ABS_FLOOR_LIFT_6082", "symbol=${ts.symbol} lane=$laneTag mode=${if (RuntimeModeAuthority.isPaper()) "paper" else "live"} goose=${gooseVerdict4129.name} raw=${(sol*multiplierProduct).fmt(4)} → lift=${absMinSol4129.fmt(4)} wallet=${walletSol.fmt(3)}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("MONEY_MODE_ABS_FLOOR_LIFT_6082_${gooseVerdict4129.name}") } catch (_: Throwable) {}
         }
         if (dumpRegimeLive) {
@@ -10364,7 +9825,7 @@ class Executor(
                 symbol = ts.symbol,
                 baseSol = sol,
                 rawMultiplier = multiplierProductRaw,
-                clampedMultiplier = multiplierProduct6114,
+                clampedMultiplier = multiplierProduct,
                 finalSol = effSol,
                 walletSol = walletSol,
                 liquidityUsd = ts.lastLiquidityUsd,
@@ -10453,7 +9914,6 @@ class Executor(
                                 shapedSol6018,
                                 walletSol,
                                 isPaperMode = false,
-                                riskMult = laneCapPenalty.sizeMultiplier.coerceIn(0.0, 1.0),  // V5.0.6205 — floor respects the penalty
                             ).coerceAtMost(effSol)
                             try { ForensicLogger.lifecycle("LIVE_RESTORE_LANE_CAP_COMPOUND_FLOOR_6018", "symbol=${ts.symbol} mint=${ts.mint.take(10)} from=${effSol.fmt(4)} shaped=${shapedSol6018.fmt(4)} to=${liveSol.fmt(4)} penalty=${laneCapPenalty.reason}") } catch (_: Throwable) {}
                         } else {
@@ -10666,22 +10126,9 @@ class Executor(
         val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() } ?: 0.0
         val dangerBucket = lane.contains("DANGER") || lane.contains("RUG") || lane.contains("HARD_FLOOR")
         val familyStopLoss = try { MemeLossStreakGuard.blockedUntilMs(ts.mint) > System.currentTimeMillis() } catch (_: Throwable) { false }
-        // V5.0.6233 — EXPRESS is a QUICK-FLIP lane by design (low score, low liq,
-        // fast in/out). When SHITCOIN executor is invoked FROM the EXPRESS ride
-        // path (layerTag=EXPRESS or position.tradingMode contains EXPRESS), the
-        // SHITCOIN quality gate (score>=66, liq>=$3k) must not apply — that gate
-        // is for the STANDALONE SHITCOIN lane. Operator P0 report showed
-        // repeated BUY_NOT_OPENED with "finality/route blocked" (misleading log)
-        // when the real cause was this suppression firing on an EXPRESS ride
-        // whose target score was 13/liq $3.7k. EXPRESS is meant to trade
-        // exactly those tokens.
-        val calledFromExpress6233 = lane.contains("EXPRESS") ||
-            ts.position.tradingMode.uppercase().contains("EXPRESS") ||
-            identity?.source?.uppercase()?.contains("EXPRESS") == true
         return when {
             lane.contains("BLUECHIP") && (score < 70.0 || liq < 25_000.0) -> "BLUECHIP score=${score.toInt()} liq=${liq.toInt()} minScore=70 minLiq=25000"
             lane.contains("EXPRESS") && !dangerBucket && score < 11.0 -> "EXPRESS_S0_10 score=${score.toInt()} danger=$dangerBucket"
-            calledFromExpress6233 -> null  // V5.0.6233: EXPRESS ride bypass
             lane.contains("SHITCOIN") && (score < 66.0 || liq < 3_000.0 || familyStopLoss) -> "SHITCOIN score=${score.toInt()} liq=${liq.toInt()} familyStopLoss=$familyStopLoss minScore=66 minLiq=3000"
             else -> null
         }
@@ -10947,21 +10394,12 @@ class Executor(
         // size shrinks each loss proportionally while still collecting
         // training samples, so the bot can climb out of the deficit
         // without compounding it. FLUID/OFF bands are not touched.
-        //
-        // V5.0.6233 — PAPER-MODE SOFT-ONLY. Operator P0 directive: "remove
-        // what ever is shrinking the trade size or turn the penalty into a
-        // tiny soft penalty". Paper mode is the learning simulator — cutting
-        // paper sizes in half during "recovery" produces tiny wins/losses that
-        // never let the WR climb out of AGGRESSIVE. In LIVE mode the damper
-        // still applies fully to protect real capital. In PAPER we cap the
-        // damp at max 15% cut so bootstrap volume stays intact.
-        val wrSizeMultRaw = try { WrRecoveryPartial.entrySizeMultiplier() } catch (_: Throwable) { 1.0 }
-        val wrSizeMult = if (RuntimeModeAuthority.isPaper()) wrSizeMultRaw.coerceAtLeast(0.85) else wrSizeMultRaw
+        val wrSizeMult = try { WrRecoveryPartial.entrySizeMultiplier() } catch (_: Throwable) { 1.0 }
         @Suppress("NAME_SHADOWING")
         val sol = run {
             var finalSol = if (wrSizeMult < 1.0) {
                 val damped = sol * wrSizeMult
-                ErrorLogger.info("Executor", "🩹 WR_RECOVERY_SIZE_DAMP (paper): ${ts.symbol} | sol=${sol.fmt(4)} × ${"%.2f".format(wrSizeMult)} → ${damped.fmt(4)} (band=${WrRecoveryPartial.stateNow().band.name}) V5.0.6233_paper_soft_cap")
+                ErrorLogger.info("Executor", "🩹 WR_RECOVERY_SIZE_DAMP (paper): ${ts.symbol} | sol=${sol.fmt(4)} × ${"%.2f".format(wrSizeMult)} → ${damped.fmt(4)} (band=${WrRecoveryPartial.stateNow().band.name})")
                 damped
             } else sol
 
@@ -10970,60 +10408,24 @@ class Executor(
             // deliver 6-12 SOL directly into paperBuy(). Clamp at the last possible
             // point before wallet/journal mutation so no bypass can create outsized
             // paper losses during a cold WR regime.
-            //
-            // V5.0.6117 — DORMANT SIZING BRAIN FIX. Operator: "sizing logic brain is
-            // dormant. it should be consulting with the entire engine especially the
-            // probability engine, the agi/ssi brains and the compounding engine."
-            // Operator screenshot showed 7 concurrent open PAPER positions across
-            // different lanes ALL sized at the EXACT identical 0.5880 SOL — zero
-            // variance despite different tokens/lanes/entry scores. Root cause: this
-            // cap used ACCOUNT-WIDE stats.lossStreak/wr (ignores which lane), and
-            // HARD-OVERRODE finalSol = cap (a flat wallet-percent), discarding
-            // whatever the AGI/SSI/probability-engine/compounding-engine multiplier
-            // stack had already computed for THIS specific trade. Per the PERFORMANCE
-            // DOCTRINE, 20-35% WR is the EXPECTED bootstrap floor, at which a 4-loss
-            // streak is statistically routine (~24% chance per position at 30% WR) —
-            // so this "emergency" cap was firing almost continuously and flattening
-            // every paper buy to the same number, i.e. exactly the dormant-brain
-          // symptom reported.
-            // Fix: (1) consult LanePolicy.executionWeightForLane — a lane already
-            // vetted healthy/NORMAL_EXECUTION by the lane-local intelligence stack
-            // is exempted, so winning lanes get leaned into per doctrine instead of
-            // being punished by OTHER lanes' account-wide losses. (2) When the cap
-            // does apply, it now MULTIPLIES the AI-computed finalSol by a bounded
-            // dampener instead of replacing it with a flat wallet-percent, so
-            // relative confidence/probability-driven size variance survives the
-            // dampening instead of being erased.
             try {
                 val stats = TradeHistoryStore.getStatsCached()
                 val decisive = stats.totalWins + stats.totalLosses
                 val wr = if (decisive > 0) stats.totalWins.toDouble() / decisive * 100.0 else 100.0
                 val perf = SmartSizer.getPerformanceContext(walletSol.takeIf { it > 0.0 } ?: finalSol, decisive, isPaperMode = true)
-                val coldLane6117 = layerTag.ifBlank { ts.position.tradingMode.ifBlank { "STANDARD" } }
-                val laneExecWeight6117 = try { com.lifecyclebot.engine.learning.LanePolicy.executionWeightForLane(coldLane6117) } catch (_: Throwable) { 1.0 }
-                val laneHealthy6117 = laneExecWeight6117 >= 0.85
                 val coldCapPct = when {
-                    laneHealthy6117 -> 0.0  // V5.0.6117 — lane-local policy already vouches for this lane; do not flatten it
-                    decisive >= 25 && (perf.lossStreak >= 12 || wr < 10.0) -> 0.02
-                    decisive >= 25 && (perf.lossStreak >= 8  || wr < 20.0) -> 0.035
-                    decisive >= 25 && (perf.lossStreak >= 6  || wr < 30.0) -> 0.05
+                    decisive >= 25 && (perf.lossStreak >= 10 || wr < 10.0) -> 0.02
+                    decisive >= 25 && (perf.lossStreak >= 6  || wr < 20.0) -> 0.035
+                    decisive >= 25 && (perf.lossStreak >= 4  || wr < 30.0) -> 0.05
                     else -> 0.0
                 }
                 if (coldCapPct > 0.0) {
                     val baseWallet = walletSol.takeIf { it > 0.0 } ?: try { FluidLearning.getSimulatedBalance() } catch (_: Throwable) { finalSol }
                     val cap = maxOf(0.01, baseWallet * coldCapPct).coerceAtMost(1.0)
                     if (finalSol > cap) {
-                        // V5.0.6117 — multiplicative dampener (preserves AI-driven
-                        // variance) instead of a flat override to `cap`. Never
-                        // dampens below the cap itself, never dampens above the
-                        // AI's original request.
-                        val dampMult6117 = (cap / finalSol).coerceIn(0.15, 1.0)
-                        val preDampFinal6117 = finalSol
-                        val dampedFinal6117 = preDampFinal6117 * dampMult6117
-                        ErrorLogger.warn("Executor", "🧯 PAPER_BUY_COLD_CAP: ${ts.symbol} ${preDampFinal6117.fmt(4)} × ${"%.2f".format(dampMult6117)} → ${dampedFinal6117.fmt(4)} SOL | wr=${wr.toInt()}% lossStreak=${perf.lossStreak} trades=$decisive lane=$coldLane6117 laneExecWeight=${"%.2f".format(laneExecWeight6117)}")
-                        try { PipelineHealthCollector.labelInc("PAPER_BUY_COLD_CAP_DAMPENED_6117") } catch (_: Throwable) {}
-                        finalSol = dampedFinal6117
-                        try { ForensicLogger.lifecycle("PAPER_BUY_COLD_CAP", "symbol=${ts.symbol} mint=${ts.mint.take(10)} from=${preDampFinal6117.fmt(4)} to=${dampedFinal6117.fmt(4)} cap=${cap.fmt(4)} wr=${wr.toInt()} lossStreak=${perf.lossStreak} trades=$decisive lane=$coldLane6117 laneExecWeight=${laneExecWeight6117.fmt(4)}") } catch (_: Throwable) {}
+                        ErrorLogger.warn("Executor", "🧯 PAPER_BUY_COLD_CAP: ${ts.symbol} ${finalSol.fmt(4)} → ${cap.fmt(4)} SOL | wr=${wr.toInt()}% lossStreak=${perf.lossStreak} trades=$decisive")
+                        try { ForensicLogger.lifecycle("PAPER_BUY_COLD_CAP", "symbol=${ts.symbol} mint=${ts.mint.take(10)} from=${finalSol.fmt(4)} to=${cap.fmt(4)} wr=${wr.toInt()} lossStreak=${perf.lossStreak} trades=$decisive") } catch (_: Throwable) {}
+                        finalSol = cap
                     }
                 }
             } catch (_: Throwable) {}
@@ -12596,64 +11998,6 @@ class Executor(
                 return false
             }
 
-            // V5.0.6205 — ALL-REGIME BLEEDER-LANE HARD GATE (root-cause audit).
-            // MOONSHOT ran 117 live trades at EV=-24.44%/trade because every
-            // lane-EV gate was DUMP/CHOP-scoped and everything else only sized
-            // down (which the last-mile floor then re-inflated). A lane that is
-            // PROVEN toxic on live terminals (n>=15 with EV<=-10%, or WR<20%
-            // while net-negative SOL) must not spend live SOL in ANY regime.
-            // Paper/shadow keeps learning the lane; the gate auto-unblocks the
-            // moment rolling stats recover above the floor. Uses the same clean
-            // leaderboard as DumpRegimeWinnerRouter so all brains agree.
-            val bleederMetric6205 = try {
-                com.lifecyclebot.engine.StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
-                    .firstOrNull { it.strategy.equals(laneTag4134, ignoreCase = true) }
-            } catch (_: Throwable) { null }
-            // V5.0.6210 — RECOVERY-MODE OVERRIDE for lanes with strong lifetime edge.
-            // Op-report shows BLUECHIP LIFETIME = +7.91 SOL / 29.9% WR / n=87 (green),
-            // but live-only cohort = E=-8.8% / n=20 (red). The hard gate abandoned
-            // 51 live entries because it only trusted the live-only slice, ignoring
-            // 87 lifetime trades of positive expectancy. If the LIFETIME leaderboard
-            // is strongly positive (SOL>=+1.0 AND WR>=25%), let the entry through
-            // at 0.30x soft-probe size instead of hard-blocking. This is the correct
-            // recovery path — the AI keeps learning on live at reduced exposure.
-            val lifetimeMetric6210 = try {
-                com.lifecyclebot.engine.StrategyTelemetry.computeLeaderboard(limit = 2_500)
-                    .firstOrNull { it.strategy.equals(laneTag4134, ignoreCase = true) }
-            } catch (_: Throwable) { null }
-            val recoveryOverride6210 = lifetimeMetric6210 != null &&
-                lifetimeMetric6210.totalSolPnl >= 1.0 &&
-                lifetimeMetric6210.winRatePct >= 25.0 &&
-                lifetimeMetric6210.trades >= 40
-            if (bleederMetric6205 != null && bleederMetric6205.trades >= 15 &&
-                (bleederMetric6205.meanPnlPct <= -10.0 ||
-                    (bleederMetric6205.winRatePct < 20.0 && bleederMetric6205.totalSolPnl < 0.0))
-            ) {
-                if (recoveryOverride6210) {
-                    // Soft-probe: mark for size damper and continue through the pipeline.
-                    try {
-                        com.lifecyclebot.engine.LiveSizingProfile.markGateSoftShape(ts.mint, "BLEEDER_LANE_RECOVERY_PROBE_6210")
-                        ForensicLogger.lifecycle(
-                            "LIVE_BLEEDER_LANE_RECOVERY_PROBE_6210",
-                            "symbol=${ts.symbol} lane=$laneTag4134 liveEV=${"%.2f".format(bleederMetric6205.meanPnlPct)}%(n=${bleederMetric6205.trades}) lifetimeSOL=+${"%.3f".format(lifetimeMetric6210!!.totalSolPnl)} lifetimeWR=${"%.1f".format(lifetimeMetric6210.winRatePct)}%(n=${lifetimeMetric6210.trades}) action=allow_at_0.30x",
-                        )
-                        PipelineHealthCollector.labelInc("LIVE_BLEEDER_LANE_RECOVERY_PROBE_6210")
-                    } catch (_: Throwable) {}
-                    onLog("🔓 LIVE bleeder-lane RECOVERY: ${ts.symbol} lane=$laneTag4134 liveEV=${"%.1f".format(bleederMetric6205.meanPnlPct)}% but LIFETIME +${"%.2f".format(lifetimeMetric6210!!.totalSolPnl)} SOL @ ${"%.1f".format(lifetimeMetric6210.winRatePct)}% WR — allowing at 0.30x soft-probe", "discipline")
-                } else {
-                try {
-                    ForensicLogger.lifecycle(
-                        "LIVE_BLEEDER_LANE_HARD_GATE_6205",
-                        "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 n=${bleederMetric6205.trades} wr=${"%.1f".format(bleederMetric6205.winRatePct)} ev=${"%.2f".format(bleederMetric6205.meanPnlPct)} pnlSol=${"%.4f".format(bleederMetric6205.totalSolPnl)} regime=ANY action=block_live_entry_paper_continues",
-                    )
-                    PipelineHealthCollector.labelInc("LIVE_BLEEDER_LANE_HARD_GATE_6205")
-                } catch (_: Throwable) {}
-                try { emitLiveBuyFail(ts, sol, "BLEEDER_LANE_EV_GATE", "lane=$laneTag4134 ev=${"%.1f".format(bleederMetric6205.meanPnlPct)}% n=${bleederMetric6205.trades}") } catch (_: Throwable) {}
-                onLog("🛑 LIVE bleeder-lane gate: ${ts.symbol} lane=$laneTag4134 EV=${"%.1f".format(bleederMetric6205.meanPnlPct)}%/trade n=${bleederMetric6205.trades} — live blocked, paper learns", "discipline")
-                return false
-                }
-            }
-
             // (b) DUMP-regime kill switch — pattern-verdict-immune.
             // V5.0.4149 — Operator override: "its not meant to disable its meant
             // to pivot to the right strategy." During DUMP, defensive lanes
@@ -13231,48 +12575,6 @@ class Executor(
             sol = (sol * effectiveStyleSizeMultiplier).coerceAtLeast(0.0)
             try { ForensicLogger.lifecycle("LIVE_STYLE_PIVOT_SIZE_APPLIED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforePivotSol.fmt(4)} to=${sol.fmt(4)} mult=${effectiveStyleSizeMultiplier.fmt(2)} finalLane=$routedLaneTag finalStyle=$routedStyleTag reasons=${liveEntryDecision.reasons.joinToString("|")}") } catch (_: Throwable) {}
         }
-        // V5.0.6131 — live-centric style/tactic compounding. Paper/shadow can
-        // prove candidates, but live size pressure here comes only from clean LIVE
-        // terminal StrategyTruth grouped by lane|style. This lets +SOL styles press
-        // and toxic styles shrink inside the same lane instead of amputating the lane.
-        val cleanLiveStyleEdgeMult6131 = try {
-            StrategyTelemetry.liveStyleSizeMultiplier(routedLaneTag, routedStyleTag)
-        } catch (_: Throwable) { 1.0 }
-        val liveBleedLaneMetric6152 = try {
-            val lane6152 = TradeHistoryStore.normalizeTradeModeName(routedLaneTag.ifBlank { canonicalRoutedLane }).ifBlank { "STANDARD" }
-            StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500).firstOrNull { it.strategy.equals(lane6152, true) }
-        } catch (_: Throwable) { null }
-        val liveBleedSizeMultiplier6152 = try {
-            val m = liveBleedLaneMetric6152
-            when {
-                m != null && m.trades >= 8 && m.totalSolPnl < -0.10 && m.pfExpectancyPp <= 0.0 && m.winRatePct < 30.0 -> 0.35
-                m != null && m.trades >= 5 && m.totalSolPnl < 0.0 && m.pfExpectancyPp <= 0.0 -> 0.55
-                else -> 1.0
-            }
-        } catch (_: Throwable) { 1.0 }
-        if (cleanLiveStyleEdgeMult6131 < 0.999 || cleanLiveStyleEdgeMult6131 > 1.001) {
-            val beforeStyleEdgeSol6131 = sol
-            sol = (sol * cleanLiveStyleEdgeMult6131).coerceAtLeast(0.0)
-            try {
-                ForensicLogger.lifecycle(
-                    "LIVE_STYLE_EDGE_SIZE_APPLIED_6131",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeStyleEdgeSol6131.fmt(4)} to=${sol.fmt(4)} mult=${cleanLiveStyleEdgeMult6131.fmt(2)} lane=$routedLaneTag style=$routedStyleTag source=clean_live_strategy_truth",
-                )
-                PipelineHealthCollector.labelInc("LIVE_STYLE_EDGE_SIZE_APPLIED_6131")
-            } catch (_: Throwable) {}
-        }
-        if (liveBleedSizeMultiplier6152 < 0.999) {
-            val beforeBleedSol6152 = sol
-            sol = (sol * liveBleedSizeMultiplier6152).coerceAtLeast(0.0)
-            try {
-                val m = liveBleedLaneMetric6152
-                ForensicLogger.lifecycle(
-                    "LIVE_BLEED_BUCKET_SIZE_SHAPED_6152",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeBleedSol6152.fmt(4)} to=${sol.fmt(4)} mult=${liveBleedSizeMultiplier6152.fmt(2)} lane=$routedLaneTag trades=${m?.trades} wr=${m?.winRatePct} pnlSol=${m?.totalSolPnl} pf=${m?.pfExpectancyPp} action=lane_local_shrink_not_global_pause",
-                )
-                PipelineHealthCollector.labelInc("LIVE_BLEED_BUCKET_SIZE_SHAPED_6152")
-            } catch (_: Throwable) {}
-        }
         if (providerQuorumSizeMultiplier < 0.999) {
             val beforeProviderSol = sol
             sol = (sol * providerQuorumSizeMultiplier).coerceAtLeast(0.0)
@@ -13300,47 +12602,15 @@ class Executor(
         // "if it catching huge wins it needs to make big wins".
         if (sol > 0.0) {
             val beforeFloor = sol
-            // V5.0.6205 — pass the composed damper product so the floor cannot
-            // re-inflate deliberately-shrunk probes (root-cause audit: the old
-            // unconditional floor erased bleeder/DUMP/discipline dampers and made
-            // live bet 12-32% wallet on lanes paper correctly probed small).
-            val composedRiskMult6205 = try {
-                (disciplineRecoverySizeMultiplier4460 * liveBleedSizeMultiplier6152 *
-                    providerQuorumSizeMultiplier * laneCapitalSizeMultiplier *
-                    commonSenseSizeMultiplier4573).coerceIn(0.0, 1.0)
-            } catch (_: Throwable) { 1.0 }
             sol = try {
                 com.lifecyclebot.engine.LiveSizingProfile.lastMileEntryFloor(
-                    baseSol = sol, walletSol = walletSol, isPaperMode = false, riskMult = composedRiskMult6205,
+                    baseSol = sol, walletSol = walletSol, isPaperMode = false,
                 )
             } catch (_: Throwable) { sol }
             if (sol > beforeFloor * 1.01) {
                 try { ForensicLogger.lifecycle(
                     "LIVE_LAST_MILE_FLOOR_LIFTED",
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeFloor.fmt(4)} to=${sol.fmt(4)} wallet=${walletSol.fmt(3)}",
-                ) } catch (_: Throwable) {}
-            }
-        }
-        if (liveBleedSizeMultiplier6152 < 0.999) {
-            val bleedCap6152 = maxOf(walletSol * 0.10, 0.020)
-            if (sol > bleedCap6152) {
-                val beforeBleedCap6152 = sol
-                sol = bleedCap6152.coerceAtLeast(0.0)
-                try { ForensicLogger.lifecycle(
-                    "LIVE_BLEED_BUCKET_POST_FLOOR_CAP_6152",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeBleedCap6152.fmt(4)} to=${sol.fmt(4)} cap=${bleedCap6152.fmt(4)} wallet=${walletSol.fmt(3)} lane=$routedLaneTag action=prevent_floor_reinflation",
-                ) } catch (_: Throwable) {}
-            }
-        }
-        val fastDrawdownBuyMult6158 = try { SmartSizer.currentFastLiveDrawdownMultiplier6157(walletSol) } catch (_: Throwable) { 1.0 }
-        if (fastDrawdownBuyMult6158 < 0.80) {
-            val drawdownBuyCap6158 = maxOf(walletSol * (if (fastDrawdownBuyMult6158 < 0.50) 0.060 else 0.080), 0.015)
-            if (sol > drawdownBuyCap6158) {
-                val beforeDrawdownBuyCap6158 = sol
-                sol = drawdownBuyCap6158.coerceAtLeast(0.0)
-                try { ForensicLogger.lifecycle(
-                    "LIVE_DRAWDOWN_POST_FLOOR_BUY_CAP_6158",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeDrawdownBuyCap6158.fmt(4)} to=${sol.fmt(4)} cap=${drawdownBuyCap6158.fmt(4)} fastDrawdownMult=${fastDrawdownBuyMult6158.fmt(2)} wallet=${walletSol.fmt(3)} lane=$routedLaneTag action=prevent_drawdown_floor_reinflation",
                 ) } catch (_: Throwable) {}
             }
         }
@@ -13598,60 +12868,10 @@ class Executor(
         // capacity does not exist, reject once with a truthful low-capacity reason.
         val liveRentReserveSol = 0.012
         val liveCfg = cfg()
-        // V5.0.6188 — small-wallet non-micro floor. Runtime 6187 showed BUY ok=30
-        // but BUY fail=31 under SIZE_TOO_THIN_FOR_NON_MICRO_TRADE on a ~0.216 SOL
-        // wallet: the fixed 0.035 SOL floor can exceed wallet-risk/spendable caps
-        // during active compounding. Keep this non-micro (never dust) but make it
-        // wallet-relative while the wallet is below 0.25 SOL.
-        val smallWalletNonMicroFloor6188 = if (walletSol < 0.25) {
-            (walletSol * 0.14).coerceIn(0.020, com.lifecyclebot.engine.LiveSizingProfile.MIN_ENTRY_SOL)
-        } else com.lifecyclebot.engine.LiveSizingProfile.MIN_ENTRY_SOL
-        val minNonMicroLiveBuySol = liveCfg.minLiveBuySol.coerceAtLeast(smallWalletNonMicroFloor6188)
-        // V5.0.6216 — MICRO-WALLET EMERGENCY PROBE. Report showed the wallet at
-        // 0.10-0.13 SOL. With walletRiskCap ≈ 15% (0.015 SOL) and non-micro floor
-        // 0.020 SOL, EVERY live buy dies with SIZE_TOO_THIN_FOR_NON_MICRO_TRADE
-        // and the bot has no way to attempt a recovery probe. When the wallet is
-        // this thin, drop into micro-probe mode regardless of the layerTag — a
-        // small real trade beats no trade at all. Never larger than spendable,
-        // never below the on-chain executable minimum (0.005 SOL). Compound
-        // floors reactivate as soon as the wallet climbs back above 0.15 SOL.
-        val microWalletEmergency6216 = walletSol > 0.0 && walletSol < 0.15
-        // V5.0.6104 — micro-probe mode must be explicit. The old config-level
-        // allowLiveMicroProbe let ordinary QUALITY/MOONSHOT/TREASURY buys pass at
-        // 0.003–0.007 SOL after pending-proof and learned-risk multipliers. That
-        // is unsustainable live trading. Only labelled probe/dust paths may use
-        // the 0.005 executable micro floor; normal live lane buys must honor the
-        // non-micro compound floor.
-        val explicitLiveMicroProbe6104 = listOf(
-            layerTag,
-            identity?.source ?: "",
-            ts.source,
-            ts.position.entryPhase,
-            ts.position.tradingMode,
-        ).any { raw ->
-            val r = raw.uppercase()
-            r.contains("PROBE_ONLY") || r.contains("DUST_PROBE") || r.contains("MICRO_PROBE") || r.contains("LOW_LIQUIDITY_DUST_PROBE")
-        }
-        val allowMicroPath6216 = microWalletEmergency6216 || (liveCfg.allowLiveMicroProbe && explicitLiveMicroProbe6104)
-        val liveMinExecutableBuySol = if (allowMicroPath6216) 0.005 else minNonMicroLiveBuySol
-        if (microWalletEmergency6216) {
-            try {
-                ForensicLogger.lifecycle(
-                    "MICRO_WALLET_EMERGENCY_PROBE_6216",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} walletSol=$walletSol minPromoted=${liveMinExecutableBuySol} reason=wallet_below_0.15_probe_or_die"
-                )
-                PipelineHealthCollector.labelInc("MICRO_WALLET_EMERGENCY_PROBE_6216")
-            } catch (_: Throwable) {}
-        }
+        val minNonMicroLiveBuySol = liveCfg.minLiveBuySol.coerceAtLeast(0.0)
+        val liveMinExecutableBuySol = if (liveCfg.allowLiveMicroProbe) 0.005 else minNonMicroLiveBuySol
         val maxConfigLiveBuySol = liveCfg.maxLiveBuySol.takeIf { it > 0.0 } ?: Double.MAX_VALUE
-        // V5.0.6216 — in micro-wallet emergency, widen walletRiskCap from
-        // configured 10-15% to 30% so a 0.10 SOL wallet can still fire a
-        // 0.020-0.030 SOL probe (well above the 0.005 executable minimum).
-        // Config caps still apply outside emergency mode.
-        val effectiveRiskPct6216 = if (microWalletEmergency6216)
-            liveCfg.maxWalletRiskPerTradePct.coerceIn(0.0, 1.0).coerceAtLeast(0.30)
-        else liveCfg.maxWalletRiskPerTradePct.coerceIn(0.0, 1.0)
-        val walletRiskCapSol = (walletSol * effectiveRiskPct6216).takeIf { it > 0.0 } ?: Double.MAX_VALUE
+        val walletRiskCapSol = (walletSol * liveCfg.maxWalletRiskPerTradePct.coerceIn(0.0, 1.0)).takeIf { it > 0.0 } ?: Double.MAX_VALUE
         val maxSpendableSol = minOf(walletSol - liveRentReserveSol, maxConfigLiveBuySol, walletRiskCapSol)
         if (maxSpendableSol < liveMinExecutableBuySol) {
             onLog("⚠️ ${ts.symbol}: skipping buy — wallet too low for non-micro live ticket (${walletSol.fmt(4)}◎ spendable=${maxSpendableSol.fmt(4)}◎ min=${liveMinExecutableBuySol.fmt(4)}◎)", ts.mint)
@@ -13674,7 +12894,7 @@ class Executor(
         if (livePendingProofPenalty) {
             val old = sol
             val shaped = (sol * 0.35).coerceAtMost(maxSpendableSol).coerceAtLeast(0.0)
-            sol = if (shaped < liveMinExecutableBuySol) liveMinExecutableBuySol else shaped
+            sol = if (!liveCfg.allowLiveMicroProbe && shaped < liveMinExecutableBuySol) liveMinExecutableBuySol else shaped
             try {
                 ForensicLogger.lifecycle(
                     "LIVE_PENDING_PROOF_LEARNED_RISK_CLAMP",
@@ -13684,17 +12904,15 @@ class Executor(
             } catch (_: Throwable) {}
         }
         val baseRealisticSol = realisticLiveEntrySize(ts, sol, walletSol, score, layerTag.ifBlank { identity?.source ?: ts.source }, "liveBuy.final")
-        // V5.0.6104 — pending-proof risk is already applied once before the
-        // realistic size authority. Do not multiply by 0.35 a second time after
-        // LiveSizingProfile/realisticLiveEntrySize lift the trade to a sustainable
-        // non-micro floor. Double-shaping was turning 0.060 SOL floors into
-        // 0.006–0.021 SOL dust buys across every lane.
-        val realisticSolRaw = baseRealisticSol
-        val realisticSol = if (realisticSolRaw < liveMinExecutableBuySol) liveMinExecutableBuySol else realisticSolRaw
-        if (livePendingProofPenalty && sol < baseRealisticSol) {
-            try { ForensicLogger.lifecycle("LIVE_PENDING_PROOF_REALISTIC_SIZE_FLOOR_PRESERVED_6104", "mint=${ts.mint.take(10)} symbol=${ts.symbol} preRealistic=$sol floor=${baseRealisticSol.fmt(4)} final=${realisticSol.fmt(4)} detail=${livePendingProofPenaltyDetail.take(120)}") } catch (_: Throwable) {}
-        }
-        if (realisticSol > maxSpendableSol) {
+        // Unknown proof lowers confidence and learned risk until proof arrives;
+        // it does not force every live buy into a fixed micro cap.
+        val realisticSolRaw = if (livePendingProofPenalty) baseRealisticSol * 0.35 else baseRealisticSol
+        val realisticSol = if (!liveCfg.allowLiveMicroProbe && realisticSolRaw < liveMinExecutableBuySol) liveMinExecutableBuySol else realisticSolRaw
+        if (livePendingProofPenalty && realisticSol < baseRealisticSol) {
+            val old = baseRealisticSol
+            sol = realisticSol.coerceAtMost(maxSpendableSol).coerceAtLeast(0.0)
+            try { ForensicLogger.lifecycle("LIVE_PENDING_PROOF_REALISTIC_SIZE_RISK_SHAPED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old shaped=$sol detail=${livePendingProofPenaltyDetail.take(120)}") } catch (_: Throwable) {}
+        } else if (realisticSol > maxSpendableSol) {
             val old = realisticSol
             sol = maxSpendableSol
             try { ForensicLogger.lifecycle("LIVE_REALISTIC_SIZE_CLAMPED_TO_SPENDABLE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old spendable=$maxSpendableSol walletSol=$walletSol") } catch (_: Throwable) {}
@@ -13738,39 +12956,18 @@ class Executor(
             } catch (_: Throwable) { 0.0 }
         }
         val impactPct = if (liqForImpact > 0.0) ((sol * assumedSolUsd) / liqForImpact) * 100.0 else 999.0
-        // V5.0.6216 — micro-wallet emergency ALSO bypasses the second
-        // non-micro floor check (same wallet condition as above).
-        if (!allowMicroPath6216 && !liveCfg.allowLiveMicroProbe && sol < minNonMicroLiveBuySol) {
+        if (!liveCfg.allowLiveMicroProbe && sol < minNonMicroLiveBuySol) {
             emitLiveBuyFail(ts, sol, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "finalSol=$sol minLiveBuySol=$minNonMicroLiveBuySol allowMicro=false")
             buyTerminalFail("BUY_TERMINAL_MIN_NOTIONAL_AFTER_FEES:SIZE_TOO_THIN_FOR_NON_MICRO_TRADE")
             return false
         }
-        // V5.0.6166 — don't count exitable pool-impact posture as size-too-thin.
-        // Runtime 6145 showed 258/261 BUY fails under the overloaded reason while
-        // wallet≈0.27 SOL and entries were being lifted to the compounding floor.
-        // A 0.035 SOL ticket at $800–$1.5k liquidity is slightly above the old
-        // 0.75% cap; that should be a bounded route/impact posture decision, not
-        // a terminal non-micro notional failure. Keep true unknown liquidity hard.
-        val laneImpactBoost6166 = when (layerTag.uppercase().ifBlank { ts.position.tradingMode.uppercase() }) {
-            "MOONSHOT", "SHITCOIN", "EXPRESS", "PROJECT_SNIPER" -> 1.55
-            "TREASURY", "QUALITY", "STANDARD" -> 1.35
-            else -> 1.20
-        }
-        val walletBootstrapBoost6166 = if (walletSol < 0.50) 1.35 else 1.0
-        val scoreBoost6166 = when {
-            score >= 80.0 -> 1.25
-            score >= 65.0 -> 1.10
-            else -> 1.0
-        }
-        val effectiveMaxPoolImpactPct6166 = (liveCfg.maxPoolImpactPct * laneImpactBoost6166 * walletBootstrapBoost6166 * scoreBoost6166).coerceIn(liveCfg.maxPoolImpactPct, 2.25)
-        if (impactPct > effectiveMaxPoolImpactPct6166) {
-            val failReason6166 = if (liqForImpact <= 0.0) "LIVE_ENTRY_REJECTED_LIQUIDITY_PROOF_MISSING" else "LIVE_ENTRY_REJECTED_POOL_IMPACT_TOO_HIGH"
-            emitLiveBuyFail(ts, sol, failReason6166, "finalSol=$sol impactPct=${impactPct.fmt(3)} maxPoolImpactPct=${effectiveMaxPoolImpactPct6166.fmt(3)} baseMax=${liveCfg.maxPoolImpactPct} liquidityUsd=${ts.lastLiquidityUsd} liqForImpact=$liqForImpact cascadeUsed=${liqForImpact != ts.lastLiquidityUsd}")
+        if (impactPct > liveCfg.maxPoolImpactPct) {
+            emitLiveBuyFail(ts, sol, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "finalSol=$sol impactPct=${impactPct.fmt(3)} maxPoolImpactPct=${liveCfg.maxPoolImpactPct} liquidityUsd=${ts.lastLiquidityUsd} liqForImpact=$liqForImpact cascadeUsed=${liqForImpact != ts.lastLiquidityUsd}")
             buyTerminalFail("BUY_TERMINAL_MIN_NOTIONAL_AFTER_FEES:POOL_IMPACT_TOO_HIGH_FOR_NON_MICRO_TRADE")
             return false
         }
         try {
-            ForensicLogger.lifecycle("LIVE_ENTRY_SIZED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} finalSol=${sol.fmt(4)} minLiveBuySol=${minNonMicroLiveBuySol.fmt(4)} impactPct=${impactPct.fmt(3)} maxImpact=${effectiveMaxPoolImpactPct6166.fmt(2)} baseMaxImpact=${liveCfg.maxPoolImpactPct.fmt(2)} capitalMode=${liveCfg.capitalMode}")
+            ForensicLogger.lifecycle("LIVE_ENTRY_SIZED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} finalSol=${sol.fmt(4)} minLiveBuySol=${minNonMicroLiveBuySol.fmt(4)} impactPct=${impactPct.fmt(3)} maxImpact=${liveCfg.maxPoolImpactPct.fmt(2)} capitalMode=${liveCfg.capitalMode}")
             PipelineHealthCollector.labelInc("LIVE_ENTRY_SIZED")
         } catch (_: Throwable) {}
 
@@ -13794,31 +12991,7 @@ class Executor(
             LiveExecutionGate.Decision.Allowed -> { /* proceed */ }
         }
 
-        val executionCostPosture6136 = try { ExecutionCostBrain.buyPosture(ts, sol) } catch (_: Throwable) {
-            ExecutionCostBrain.BuyPosture(0.0, 1.0, 0.0001, false, 10, 200, 500, "brain_error_neutral")
-        }
-        val adversarialFlowPosture6137 = try { AdversarialFlowBrain.evaluate(ts) } catch (_: Throwable) {
-            AdversarialFlowBrain.Posture(0, 1.0, false, "brain_error_neutral")
-        }
-        val routeTournamentPosture6138 = try { RouteTournamentBrain.evaluate(ts, ts.position.tradingMode) } catch (_: Throwable) {
-            RouteTournamentBrain.Posture("JUPITER_DEFAULT", pumpFirstAllowed = false, 1.0, "brain_error_neutral")
-        }
-        val entryArchetype6139 = try { EntryArchetypeClassifier.classify(ts, ts.position.tradingMode) } catch (_: Throwable) {
-            EntryArchetypeClassifier.Archetype("standard_flow", 50, 1.0, "brain_error_neutral")
-        }
-        val entryArchetypeCleanLiveBias6139 = try { StrategyTelemetry.liveStyleSizeMultiplier(ts.position.tradingMode, entryArchetype6139.label) } catch (_: Throwable) { 1.0 }
-        val executionCostAndFlowSizeMult6137 = (executionCostPosture6136.sizeMultiplier * adversarialFlowPosture6137.sizeMultiplier * routeTournamentPosture6138.sizeMultiplier * entryArchetype6139.sizeMultiplier * entryArchetypeCleanLiveBias6139).coerceIn(0.35, 1.25)
-        val effectiveSol = if (executionCostAndFlowSizeMult6137 < 0.999 || executionCostAndFlowSizeMult6137 > 1.001) {
-            val costSized = (sol * executionCostAndFlowSizeMult6137).coerceAtLeast(0.0)
-            try {
-                ForensicLogger.lifecycle(
-                    "EXECUTION_COST_FLOW_BUY_SIZE_APPLIED_6137",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${sol.fmt(4)} to=${costSized.fmt(4)} mult=${executionCostAndFlowSizeMult6137.fmt(2)} expectedSlip=${executionCostPosture6136.expectedSlipPct.fmt(1)} flowRisk=${adversarialFlowPosture6137.riskScore} routePref=${routeTournamentPosture6138.preferredRoute} archetype=${entryArchetype6139.label} archetypeLiveBias=${entryArchetypeCleanLiveBias6139.fmt(2)} costReason=${executionCostPosture6136.reason} flowReason=${adversarialFlowPosture6137.reason} routeReason=${routeTournamentPosture6138.reason} archReason=${entryArchetype6139.reason} soft_shape_only=true no_hot_path_provider=true",
-                )
-                PipelineHealthCollector.labelInc("EXECUTION_COST_FLOW_BUY_SIZE_APPLIED_6137")
-            } catch (_: Throwable) {}
-            costSized
-        } else sol
+        val effectiveSol = sol
 
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
 
@@ -13907,37 +13080,7 @@ class Executor(
                     srcUpperForRoute.contains("RAYDIUM_NEW_POOL") ||
                     srcUpperForRoute.contains("SCANNER_DIRECT_RAYDIUM_NEW_POOL")
             )
-            val freshPumpRoute = pumpPortalAutoEligible4559 && routeTournamentPosture6138.pumpFirstAllowed
-            // V5.0.6134 — STANDARD QUOTE-RACE EDGE.
-            // The legacy live-buy ladder is sequential and conservative: PumpPortal
-            // first at normal priority/slippage, then Jupiter. That is safe, but it
-            // misses the standard-bot edge on instant green candles where the route
-            // window is seconds wide. Do NOT race broadcasts (double-buy risk). Race
-            // the *execution posture*: urgent tip, wider first quote, and higher pump
-            // slip only when a STANDARD/CORE/V3 trunk candidate has fresh tick + green
-            // candle/buy-pressure proof. Hard safety, wallet mutex, quote validation,
-            // simulation, route finality, and real-price lock still run unchanged.
-            val buyRouteStartMs6135 = System.currentTimeMillis()
-            val laneForQuoteRace6135 = layerTag.uppercase().ifBlank { ts.position.tradingMode.uppercase().ifBlank { "STANDARD" } }
-            val quoteRacePosture6135 = try { QuoteRaceBrain.evaluate(ts, laneForQuoteRace6135) } catch (_: Throwable) {
-                QuoteRaceBrain.Posture(false, "brain_error_neutral", 0.0, Long.MAX_VALUE, 0.0001, false, 10, 200, 500)
-            }
-            val quoteRaceEdge6134 = quoteRacePosture6135.enabled
-            val buyPriorityFeeSol6134 = maxOf(quoteRacePosture6135.priorityFeeSol, executionCostPosture6136.priorityFeeSol)
-            val urgentBuyTip6134 = quoteRacePosture6135.urgentTip || executionCostPosture6136.urgentTip || adversarialFlowPosture6137.urgentMevTip
-            val pumpSlipPct6134 = maxOf(quoteRacePosture6135.pumpSlipPct, executionCostPosture6136.pumpSlipPct)
-            val minBuySlipBps6136 = maxOf(quoteRacePosture6135.minBuySlippageBps, executionCostPosture6136.minBuySlippageBps)
-            val maxBuySlipBps6136 = maxOf(quoteRacePosture6135.maxBuySlippageBps, executionCostPosture6136.maxBuySlippageBps)
-            if (quoteRacePosture6135.enabled) {
-                try {
-                    ForensicLogger.lifecycle(
-                        "STANDARD_QUOTE_RACE_EDGE_6134",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneForQuoteRace6135 score=${ts.entryScore.toInt()} green=${quoteRacePosture6135.greenCandlePct.fmt(1)} buyPressure=${ts.lastBuyPressurePct.fmt(1)} momentum=${(ts.momentum ?: 0.0).fmt(1)} tickAgeMs=${quoteRacePosture6135.tickAgeMs} reason=${quoteRacePosture6135.reason} priorityFee=$buyPriorityFeeSol6134 pumpSlip=$pumpSlipPct6134 expectedSlip=${executionCostPosture6136.expectedSlipPct.fmt(1)} flowRisk=${adversarialFlowPosture6137.riskScore} archetype=${entryArchetype6139.label} brain=QuoteRaceBrain6135+ExecutionCostBrain6136+AdversarialFlowBrain6137+EntryArchetype6139",
-                    )
-                    PipelineHealthCollector.labelInc("STANDARD_QUOTE_RACE_EDGE_6134")
-                    PipelineHealthCollector.labelInc("QUOTE_RACE_BRAIN_ENABLED_6135")
-                } catch (_: Throwable) {}
-            }
+            val freshPumpRoute = pumpPortalAutoEligible4559
             val pumpBuyPlan = if (!freshPumpRoute) {
                 try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_ROUTE_POLICY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} src=${ts.source.take(80)} reason=deep_amm_use_jupiter_first pumpPortalAutoEligible4559=false") } catch (_: Throwable) {}
                 null
@@ -13946,16 +13089,16 @@ class Executor(
                 wallet = wallet,
                 processor = "PUMPPORTAL_BUY",
                 requestedSol = effectiveSol,
-                priorityFeeSol = buyPriorityFeeSol6134,
-                jitoTipLamports = effectiveJitoTipLamports(c, urgent = urgentBuyTip6134),
+                priorityFeeSol = 0.0001,
+                jitoTipLamports = effectiveJitoTipLamports(c, urgent = false),
                 tradeKey = tradeKey,
                 traderTag = "MEME",
             )
-            try { ForensicLogger.lifecycle("BUY_ROUTE_REQUESTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${routeTournamentPosture6138.preferredRoute} pumpFirstAllowed=${routeTournamentPosture6138.pumpFirstAllowed} sol=${pumpBuyPlan?.solAmount ?: effectiveSol} reason=${routeTournamentPosture6138.reason}") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("BUY_ROUTE_REQUESTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL_FIRST sol=${pumpBuyPlan?.solAmount ?: effectiveSol}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("BUY_ROUTE_REQUESTED") } catch (_: Throwable) {}
             if (pumpBuyPlan != null) {
                 try {
-                    ForensicLogger.lifecycle("LIVE_BUY_SUBMITTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL requestedSol=${effectiveSol.fmt(4)} finalSol=${pumpBuyPlan.solAmount.fmt(4)} priorityFee=$buyPriorityFeeSol6134 expectedSlip=${executionCostPosture6136.expectedSlipPct.fmt(1)} quorumMult=${providerQuorumSizeMultiplier.fmt(2)}")
+                    ForensicLogger.lifecycle("LIVE_BUY_SUBMITTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL requestedSol=${effectiveSol.fmt(4)} finalSol=${pumpBuyPlan.solAmount.fmt(4)} priorityFee=0.0001 quorumMult=${providerQuorumSizeMultiplier.fmt(2)}")
                     PipelineHealthCollector.labelInc("LIVE_BUY_SUBMITTED")
                 } catch (_: Throwable) {}
             }
@@ -13963,16 +13106,13 @@ class Executor(
                 ts = ts,
                 wallet = wallet,
                 solAmount = pumpBuyPlan.solAmount,
-                slipPct = pumpSlipPct6134,
-                priorityFeeSol = buyPriorityFeeSol6134,
+                slipPct = 10,
+                priorityFeeSol = 0.0001,
                 useJito = c.jitoEnabled,
-                jitoTipLamports = effectiveJitoTipLamports(c, urgent = urgentBuyTip6134),
+                jitoTipLamports = effectiveJitoTipLamports(c, urgent = false),
                 tradeKey = tradeKey,
                 traderTag = "MEME",
             )
-            if (pumpBuyPlan != null && pumpFirstResult == null) {
-                try { QuoteRaceBrain.recordBuyOutcome("PUMPPORTAL_BUY", false, "PUMP_FIRST_NO_SIGNATURE", System.currentTimeMillis() - buyRouteStartMs6135, ts.mint, ts.symbol) } catch (_: Throwable) {}
-            }
 
             // V5.9.495 — Jupiter ladder runs ONLY if PUMP-FIRST failed.
             // V5.9.261 — slippage escalation for buys (was: single c.slippageBps call).
@@ -13980,8 +13120,8 @@ class Executor(
             // Jupiter swap reverts internally on price impact, SOL leaves the wallet
             // (TX fees), tokens never arrive. Now we escalate 200→350→500 bps just
             // like liveSell does, so memes actually fill instead of phantoming.
-            val buyBaseSlippage = c.slippageBps.coerceAtLeast(minBuySlipBps6136)
-            val slippageLadder = if (quoteRaceEdge6134 || executionCostPosture6136.expectedSlipPct >= 6.0) listOf(buyBaseSlippage, 500, maxBuySlipBps6136).distinct() else listOf(buyBaseSlippage, 350, 500).distinct()
+            val buyBaseSlippage = c.slippageBps.coerceAtLeast(200)
+            val slippageLadder = listOf(buyBaseSlippage, 350, 500).distinct()
             var quote: com.lifecyclebot.network.SwapQuote? = null
             var lastQuoteError: Exception? = null
             var txResult: com.lifecyclebot.network.SwapTxResult? = null
@@ -14017,13 +13157,13 @@ class Executor(
                         processor = "JUPITER_ULTRA_METIS_BUY",
                         requestedSol = effectiveSol,
                         priorityFeeSol = 0.0,
-                        jitoTipLamports = effectiveJitoTipLamports(c, urgent = urgentBuyTip6134),
+                        jitoTipLamports = effectiveJitoTipLamports(c, urgent = false),
                         tradeKey = tradeKey,
                         traderTag = "MEME",
                     ) ?: throw Exception("BUY_BALANCE_PLAN_UNAVAILABLE")
                     quote = getQuoteWithSlippageGuard(
                         JupiterApi.SOL_MINT, ts.mint, jupiterBuyPlan.lamports,
-                        slip.coerceAtMost(maxBuySlipBps6136), jupiterBuyPlan.solAmount,
+                        slip.coerceAtMost(500), jupiterBuyPlan.solAmount,
                     )
                     if (quote != null) {
                         if (slip != buyBaseSlippage) onLog("BUY: quote OK at ${slip}bps slippage", ts.mint)
@@ -14051,104 +13191,7 @@ class Executor(
                 }
             }
             if (quote == null) {
-                // V5.0.6205 — P1 QUOTE_EXHAUSTED SECOND-WIND RETRY. During meme
-                // bursts Jupiter transiently 429s/timeouts and the fast 3-step
-                // ladder (250ms gaps) exhausts inside the same congestion window,
-                // dropping ~32% of high-conviction buys. Give the route ONE more
-                // chance after a 1.2s cool-off at max slippage before declaring
-                // terminal. InterruptedException is preserved (thread re-flagged).
-                try { Thread.sleep(1_200) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
-                try {
-                    val swPlan6205 = recalcBuyPlanForProcessor(
-                        ts = ts,
-                        wallet = wallet,
-                        processor = "JUPITER_ULTRA_METIS_BUY",
-                        requestedSol = effectiveSol,
-                        priorityFeeSol = 0.0,
-                        jitoTipLamports = effectiveJitoTipLamports(c, urgent = urgentBuyTip6134),
-                        tradeKey = tradeKey,
-                        traderTag = "MEME",
-                    )
-                    if (swPlan6205 != null) {
-                        quote = getQuoteWithSlippageGuard(
-                            JupiterApi.SOL_MINT, ts.mint, swPlan6205.lamports,
-                            maxBuySlipBps6136, swPlan6205.solAmount,
-                        )
-                    }
-                } catch (e: Exception) {
-                    lastQuoteError = e
-                }
-                if (quote != null) {
-                    onLog("BUY: second-wind quote OK at ${maxBuySlipBps6136}bps after exhaustion", ts.mint)
-                    buyPhase("QUOTE_OK")
-                    LiveTradeLogStore.log(
-                        tradeKey, ts.mint, ts.symbol, "BUY",
-                        LiveTradeLogStore.Phase.BUY_QUOTE_OK,
-                        "Second-wind quote OK @ ${maxBuySlipBps6136}bps after ladder exhaustion (V5.0.6205)",
-                        slippageBps = maxBuySlipBps6136, traderTag = "MEME",
-                    )
-                    try { PipelineHealthCollector.labelInc("QUOTE_SECOND_WIND_OK_6205") } catch (_: Throwable) {}
-                    try { ForensicLogger.lifecycle("QUOTE_SECOND_WIND_OK_6205", "mint=${ts.mint.take(10)} symbol=${ts.symbol} slip=${maxBuySlipBps6136}bps — recovered entry that QUOTE_EXHAUSTED would have dropped") } catch (_: Throwable) {}
-                }
-            }
-            if (quote == null) {
-                onLog("🚫 BUY jupiter ladder exhausted (${slippageLadder.joinToString()}bps): ${lastQuoteError?.message?.take(80)}", ts.mint)
-                // V5.0.6212 — LAST-RESORT PUMPPORTAL UNIVERSAL-AUTO FALLBACK.
-                // Operator: "jupiter isn't our only sell point ffs. I have heaps.
-                // why the fuck aren't we using it?" — right. PumpPortal Lightning
-                // universal-auto routes pump.fun, PumpSwap AND Raydium pools with
-                // a single endpoint. When Jupiter's quote API is at 40% SR (op-
-                // report), the deep-AMM branch here dies without ever trying the
-                // multi-venue escape hatch. Only fires if pumpFirst was NEVER
-                // attempted earlier (pumpBuyPlan == null) so we can't double-buy.
-                if (pumpBuyPlan == null && pumpFirstResult == null) {
-                    val emergencyPlan = try {
-                        recalcBuyPlanForProcessor(
-                            ts = ts,
-                            wallet = wallet,
-                            processor = "PUMPPORTAL_BUY",
-                            requestedSol = effectiveSol,
-                            priorityFeeSol = buyPriorityFeeSol6134,
-                            jitoTipLamports = effectiveJitoTipLamports(c, urgent = urgentBuyTip6134),
-                            tradeKey = tradeKey,
-                            traderTag = "MEME",
-                        )
-                    } catch (_: Throwable) { null }
-                    if (emergencyPlan != null) {
-                        try { PipelineHealthCollector.labelInc("BUY_PUMPPORTAL_UNIVERSAL_EMERGENCY_6212") } catch (_: Throwable) {}
-                        try { ForensicLogger.lifecycle("BUY_PUMPPORTAL_UNIVERSAL_EMERGENCY_6212", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=jupiter_quote_exhausted_try_multi_venue sol=${emergencyPlan.solAmount} slipPct=$pumpSlipPct6134") } catch (_: Throwable) {}
-                        onLog("🆘 JUPITER DEAD → PumpPortal universal-auto: ${ts.symbol} @ ${"%.4f".format(emergencyPlan.solAmount)}◎ / ${pumpSlipPct6134}% slip", ts.mint)
-                        val emergencyResult = try {
-                            tryPumpPortalBuy(
-                                ts = ts,
-                                wallet = wallet,
-                                solAmount = emergencyPlan.solAmount,
-                                slipPct = pumpSlipPct6134,
-                                priorityFeeSol = buyPriorityFeeSol6134,
-                                useJito = c.jitoEnabled,
-                                jitoTipLamports = effectiveJitoTipLamports(c, urgent = urgentBuyTip6134),
-                                tradeKey = tradeKey,
-                                traderTag = "MEME",
-                            )
-                        } catch (_: Throwable) { null }
-                        if (emergencyResult != null) {
-                            try { PipelineHealthCollector.labelInc("BUY_PUMPPORTAL_UNIVERSAL_EMERGENCY_OK_6212") } catch (_: Throwable) {}
-                            try { ForensicLogger.lifecycle("BUY_PUMPPORTAL_UNIVERSAL_EMERGENCY_OK_6212", "mint=${ts.mint.take(10)} symbol=${ts.symbol} sig=${emergencyResult.first.take(16)} sol=${emergencyResult.second} — Jupiter was dead, PumpPortal saved the trade") } catch (_: Throwable) {}
-                            onLog("✅ EMERGENCY PUMPPORTAL BUY OK: ${ts.symbol} sig=${emergencyResult.first.take(10)}", ts.mint)
-                            LiveTradeLogStore.log(
-                                tradeKey, ts.mint, ts.symbol, "BUY",
-                                LiveTradeLogStore.Phase.BUY_CONFIRMED,
-                                "🆘 EMERGENCY PumpPortal universal-auto rescued Jupiter-dead buy: sig=${emergencyResult.first.take(16)}",
-                                solAmount = emergencyResult.second, traderTag = "MEME",
-                            )
-                            // Return true — the wallet reconciler (LIVE_POSITION_AUTOHEAL) will
-                            // hydrate the position basis from the on-chain fill next cycle.
-                            return true
-                        }
-                        try { PipelineHealthCollector.labelInc("BUY_PUMPPORTAL_UNIVERSAL_EMERGENCY_FAIL_6212") } catch (_: Throwable) {}
-                    }
-                }
-                onLog("🚫 BUY ABORTED: all slippage levels failed AND emergency PumpPortal path also unavailable", ts.mint)
+                onLog("🚫 BUY ABORTED: all slippage levels failed (${slippageLadder.joinToString()}bps): ${lastQuoteError?.message?.take(80)}", ts.mint)
                 LiveTradeLogStore.log(
                     tradeKey, ts.mint, ts.symbol, "BUY",
                     LiveTradeLogStore.Phase.BUY_FAILED,
@@ -14162,7 +13205,6 @@ class Executor(
                     "mint=${ts.mint.take(10)} sol=$sol reason=QUOTE_EXHAUSTED",
                 ) } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("JUPITER_QUOTE_FAIL") } catch (_: Throwable) {}
-                try { QuoteRaceBrain.recordBuyOutcome("JUPITER_ULTRA_METIS_BUY", false, "QUOTE_EXHAUSTED", System.currentTimeMillis() - buyRouteStartMs6135, ts.mint, ts.symbol) } catch (_: Throwable) {}
                 val terminal = "NO_QUOTE:JUPITER_QUOTE_EXHAUSTED"
                 buyTerminalFail("BUY_TERMINAL_ROUTE_FAIL:$terminal")
                 return false
@@ -14183,7 +13225,6 @@ class Executor(
                     "mint=${ts.mint.take(10)} sol=$sol reason=QUOTE_REJECTED:${qGuard.reason.take(60)}",
                 ) } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("JUPITER_QUOTE_REJECTED") } catch (_: Throwable) {}
-                try { QuoteRaceBrain.recordBuyOutcome("JUPITER_ULTRA_METIS_BUY", false, "QUOTE_REJECTED:${qGuard.reason.take(60)}", System.currentTimeMillis() - buyRouteStartMs6135, ts.mint, ts.symbol) } catch (_: Throwable) {}
                 buyTerminalFail("BUY_TERMINAL_ROUTE_FAIL:QUOTE_REJECTED_${qGuard.reason.take(40)}")
                 return false
             }
@@ -14262,7 +13303,7 @@ class Executor(
 
             val txResultLocal = buildTxWithRetry(
                         quote, wallet.publicKeyB58,
-                        senderTipLamports = effectiveJitoTipLamports(c, urgent = urgentBuyTip6134),
+                        senderTipLamports = effectiveJitoTipLamports(c, urgent = false),
                     )
             txResult = txResultLocal
             buyPhase("SWAP_BUILT")
@@ -14319,7 +13360,7 @@ class Executor(
             security.enforceSignDelay()
 
             useJito = c.jitoEnabled && !quote.isUltra
-            jitoTip = effectiveJitoTipLamports(c, urgent = urgentBuyTip6134)
+            jitoTip = effectiveJitoTipLamports(c, urgent = false)
             
             if (quote.isUltra) {
                 onLog("🚀 Broadcasting via Jupiter Ultra (Beam MEV protection)…", ts.mint)
@@ -14352,17 +13393,6 @@ class Executor(
                 liveStage("FINALITY_CONFIRMED", "route=PUMPPORTAL signature=${sig.take(16)}")
                 try { ForensicLogger.lifecycle("LIVE_BUY_CONFIRMED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL signature=${sig.take(16)} finalSol=${effectiveSol.fmt(4)}") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("BUY_TX_SUBMITTED"); PipelineHealthCollector.labelInc("LIVE_BUY_CONFIRMED") } catch (_: Throwable) {}
-                try { QuoteRaceBrain.recordBuyOutcome("PUMPPORTAL_BUY", true, "CONFIRMED", System.currentTimeMillis() - buyRouteStartMs6135, ts.mint, ts.symbol) } catch (_: Throwable) {}
-                // V5.0.6120f — SWARM: broadcast the live open so peers see us.
-                try {
-                    com.lifecyclebot.engine.SwarmIntel.publishLiveOpen(
-                        mint = ts.mint,
-                        symbol = ts.symbol,
-                        score = ts.entryScore.toInt(),
-                        sizeSol = effectiveSol,
-                        lane = ts.position.tradingMode.ifBlank { "UNKNOWN" },
-                    )
-                } catch (_: Throwable) {}
                 buyPhase("TX_SUBMITTED")
                 buyPhase("TX_CONFIRMED")
                 // V5.9.602 — Pump-first gets the same lifecycle ledger as
@@ -14394,7 +13424,7 @@ class Executor(
                 val ultraReqId = if (q.isUltra) tx.requestId else null
                 try { PipelineHealthCollector.labelInc("JUPITER_SWAP_BUILD_OK") } catch (_: Throwable) {}
                 try {
-                    ForensicLogger.lifecycle("LIVE_BUY_SUBMITTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${q.router} requestedSol=${effectiveSol.fmt(4)} finalSol=${sol.fmt(4)} slippageBps=$buyBaseSlippage priorityFee=$buyPriorityFeeSol6134 expectedSlip=${executionCostPosture6136.expectedSlipPct.fmt(1)} quorumMult=${providerQuorumSizeMultiplier.fmt(2)}")
+                    ForensicLogger.lifecycle("LIVE_BUY_SUBMITTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${q.router} requestedSol=${effectiveSol.fmt(4)} finalSol=${sol.fmt(4)} slippageBps=$buyBaseSlippage priorityFee=0 quorumMult=${providerQuorumSizeMultiplier.fmt(2)}")
                     PipelineHealthCollector.labelInc("LIVE_BUY_SUBMITTED")
                 } catch (_: Throwable) {}
                 liveStage("TX_SUBMIT_START", "route=${q.router}")
@@ -14405,17 +13435,6 @@ class Executor(
                 liveStage("FINALITY_CONFIRMED", "route=${q.router} signature=${sig.take(16)}")
                 try { ForensicLogger.lifecycle("LIVE_BUY_CONFIRMED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${q.router} signature=${sig.take(16)} finalSol=${sol.fmt(4)}") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("BUY_TX_SUBMITTED"); PipelineHealthCollector.labelInc("LIVE_BUY_CONFIRMED") } catch (_: Throwable) {}
-                try { QuoteRaceBrain.recordBuyOutcome("JUPITER_ULTRA_METIS_BUY", true, "CONFIRMED:${q.router.take(40)}", System.currentTimeMillis() - buyRouteStartMs6135, ts.mint, ts.symbol) } catch (_: Throwable) {}
-                // V5.0.6120f — SWARM: broadcast the live open so peers see us.
-                try {
-                    com.lifecyclebot.engine.SwarmIntel.publishLiveOpen(
-                        mint = ts.mint,
-                        symbol = ts.symbol,
-                        score = ts.entryScore.toInt(),
-                        sizeSol = sol,
-                        lane = ts.position.tradingMode.ifBlank { "UNKNOWN" },
-                    )
-                } catch (_: Throwable) {}
                 buyPhase("TX_SUBMITTED")
                 try { PipelineHealthCollector.labelInc("JUPITER_CONFIRM_OK") } catch (_: Throwable) {}
                 buyPhase("TX_CONFIRMED")
@@ -14551,7 +13570,6 @@ class Executor(
                 reasons = liveEntryDecision.reasons + listOf(
                     "wr=${wrSizeMult.fmt(2)}",
                     "style=${effectiveStyleSizeMultiplier.fmt(2)}",
-                    "liveStyleEdge=${cleanLiveStyleEdgeMult6131.fmt(2)}",
                     "provider=${providerQuorumSizeMultiplier.fmt(2)}",
                     "laneCap=${laneCapitalSizeMultiplier.fmt(2)}",
                 ),
@@ -15289,8 +14307,7 @@ class Executor(
             return true
 
         } catch (e: Exception) {
-            val rawMsg = e.message?.takeIf { it.isNotBlank() }
-            val safe = security.sanitiseForLog(rawMsg ?: "${e.javaClass.simpleName}@${liveBuyLastStage}")
+            val safe = security.sanitiseForLog(e.message ?: "unknown")
             // V5.0.3679 — TELEMETRY GAP FIX. Every live-buy throw used to log
             // to ErrorLogger / LiveTradeLogStore but NEVER increment
             // EXEC_LIVE_BUY_FAIL, so operator forensics showed
@@ -15560,44 +14577,10 @@ class Executor(
             advanced.exitReason == com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitReason.TIME_EXIT)
         val exitPolicyLane = unifiedExitLaneFor(ts)
         val exitPolicySignals = unifiedExitSignalsFor(ts, rawPnlPct, peakGainPct)
-        val exitPolicyBiasBase6144 = try {
+        val exitPolicyBias = try {
             UnifiedExitPolicyHead.stamp(ts.mint, exitPolicyLane, exitPolicySignals)
             UnifiedExitPolicyHead.exitBias(exitPolicyLane, exitPolicySignals)
         } catch (_: Throwable) { 1.0 }
-        val runnerShadowHoldBias6144 = try { RunnerExitShadowLedger.laneHoldBias(exitPolicyLane, peakGainPct, rawPnlPct) } catch (_: Throwable) { 1.0 }
-        val v3SellPolicyBias6146 = try {
-            val entryTs6146 = ts.trades.asReversed().firstOrNull { it.side.equals("BUY", true) }?.ts ?: 0L
-            val holdMinutes6146 = if (entryTs6146 > 0L) ((System.currentTimeMillis() - entryTs6146) / 60_000L).toInt().coerceAtLeast(0) else 0
-            val sig6146 = com.lifecyclebot.v3.scoring.SellOptimizationAI.evaluate(
-                ts = ts,
-                currentPnlPct = rawPnlPct,
-                holdTimeMinutes = holdMinutes6146,
-                entryPrice = ts.position.entryPrice,
-                positionSizeSol = ts.position.costSol,
-            )
-            when {
-                sig6146.strategy == com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.HOLD -> 1.08
-                sig6146.urgency == com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitUrgency.CRITICAL -> 0.82
-                sig6146.urgency == com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitUrgency.HIGH -> 0.88
-                sig6146.urgency == com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitUrgency.MEDIUM -> 0.94
-                sig6146.urgency == com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitUrgency.LOW -> 0.98
-                else -> 1.0
-            }.coerceIn(0.82, 1.08).also { bias6146 ->
-                if (kotlin.math.abs(bias6146 - 1.0) > 0.01) {
-                    try {
-                        ForensicLogger.lifecycle("V3_SELL_POLICY_BIAS_6146", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$exitPolicyLane strategy=${sig6146.strategy.name} urgency=${sig6146.urgency.name} sellPct=${"%.1f".format(sig6146.sellPct)} bias=${"%.2f".format(bias6146)} no_direct_sell_finality=true")
-                        PipelineHealthCollector.labelInc("V3_SELL_POLICY_BIAS_6146")
-                    } catch (_: Throwable) {}
-                }
-            }
-        } catch (_: Throwable) { 1.0 }
-        val exitPolicyBias = (exitPolicyBiasBase6144 * runnerShadowHoldBias6144 * v3SellPolicyBias6146).coerceIn(0.55, 1.72)
-        if (runnerShadowHoldBias6144 > 1.01) {
-            try {
-                ForensicLogger.lifecycle("RUNNER_SHADOW_HOLD_BIAS_6144", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$exitPolicyLane base=${"%.2f".format(exitPolicyBiasBase6144)} shadow=${"%.2f".format(runnerShadowHoldBias6144)} final=${"%.2f".format(exitPolicyBias)} raw=${"%.1f".format(rawPnlPct)} peak=${"%.1f".format(peakGainPct)}")
-                PipelineHealthCollector.labelInc("RUNNER_SHADOW_HOLD_BIAS_6144")
-            } catch (_: Throwable) {}
-        }
         val exitPolicyBankSoon = exitPolicyBias < 0.85 && rawPnlPct > 0.5
         val exitPolicyLetRun = exitPolicyBias > 1.20 && rawPnlPct >= 0.0 && givebackFromPeak < 10.0
         if (exitPolicyBankSoon || exitPolicyLetRun) {
@@ -15763,59 +14746,6 @@ class Executor(
                 return SellResult.ALREADY_CLOSED
             }
         }
-
-        // ═══════════════════════════════════════════════════════════════════
-        // V5.0.6198 — MOONSHOT HOLD MODE runner-exit suppression.
-        // ANSEM directive: buy them at $10k mcap and hold to $3.4M+ (28,000x).
-        // Update rolling peak and, if the position is under moonshot hold
-        // protection AND the exit reason is NOT catastrophic, DEFER the sell
-        // so runners are actually held through the pump instead of banked at
-        // the first +20% fluid TP.
-        //
-        // CATASTROPHIC EXITS (must always fire regardless of hold mode):
-        //   • RUG / rugcheck / honeypot / manipulated
-        //   • CATASTROPHIC_STOP_LOSS_OVERRUN, UNIVERSAL_SL, HARD_SL
-        //   • ZOMBIE_SWEEP, DEAD_TOKEN, PROBATION_RUG
-        //   • SAFETY_ * / EMERGENCY_ * / FORCE_
-        //   • INSIDER_SHARK_COPY_EXIT (someone smarter is bailing)
-        //
-        // Everything else (fluid TP, chop-scalp, max-hold, momentum-down,
-        // liquidity_eroding_exit, time_pnl_stagnation) is subject to
-        // moonshot suppression.
-        try {
-            val currentPnl = edgeExitPnl4532
-            com.lifecyclebot.engine.MoonshotHoldMode.updatePeak(ts.mint, currentPnl)
-            val reasonUpper = requestReason.uppercase()
-            val isCatastrophic = reasonUpper.contains("RUG") ||
-                reasonUpper.contains("HONEYPOT") ||
-                reasonUpper.contains("MANIPULATED") ||
-                reasonUpper.contains("CATASTROPHIC") ||
-                reasonUpper.contains("UNIVERSAL_SL") ||
-                reasonUpper.contains("HARD_SL") ||
-                reasonUpper.contains("STOP_LOSS") ||
-                reasonUpper.contains("ZOMBIE") ||
-                reasonUpper.contains("DEAD_TOKEN") ||
-                reasonUpper.contains("PROBATION") ||
-                reasonUpper.contains("SAFETY_") ||
-                reasonUpper.contains("EMERGENCY") ||
-                reasonUpper.contains("FORCE_") ||
-                reasonUpper.contains("INSIDER_SHARK_COPY_EXIT") ||
-                reasonUpper.contains("SETTLE_") ||
-                reasonUpper.contains("MFE_FLOOR") ||
-                reasonUpper.contains("PEAK_DRAWDOWN")
-            if (!isCatastrophic && com.lifecyclebot.engine.MoonshotHoldMode.shouldSuppressExit(ts.mint, currentPnl)) {
-                try {
-                    val peakPct = com.lifecyclebot.engine.MoonshotHoldMode.peakPct(ts.mint)
-                    ForensicLogger.lifecycle(
-                        "MOONSHOT_HOLD_EXIT_SUPPRESSED_6198",
-                        "mint=${ts.mint.take(10)} sym=${ts.symbol} reason=${requestReason.take(60)} pnl=${"%.1f".format(currentPnl)}% peak=${"%.1f".format(peakPct)}% — holding for runner-to-moonshot",
-                    )
-                    PipelineHealthCollector.labelInc("MOONSHOT_HOLD_EXIT_SUPPRESSED_6198")
-                } catch (_: Throwable) {}
-                try { LearningLifecycleBus.exitDecision("requestSell.defer", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "DEFER_MOONSHOT_HOLD_6198", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}
-                return SellResult.FAILED_RETRYABLE
-            }
-        } catch (_: Throwable) { /* fail-open — MoonshotHoldMode is advisory */ }
 
         // V5.9.1411 — Settle-in and duplicate-suppress guards moved into doSell()
         // so that direct doSell() calls from riskCheck/UltraFastRugDetector are caught too.
@@ -16538,16 +15468,6 @@ class Executor(
                     "mint=${ts.mint.take(10)} class=${routeCls.name} action=skip_pump_direct_reresolve") } catch (_: Throwable) {}
             }
             val failureClass = routeCls.name
-            if (isTerminalUnsellableSellFailure6175(routeCls, safe, broadcastRetries) && quarantineUnsellableSellMint6175(ts, "PARTIAL_SELL", routeCls, safe)) {
-                LiveTradeLogStore.log(
-                    sellTradeKey2, ts.mint, ts.symbol, "SELL",
-                    LiveTradeLogStore.Phase.SELL_FAILED,
-                    "UNSELLABLE_QUARANTINED_6175 — ${routeCls.name}: ${safe.take(120)} (partial attempts=$broadcastRetries)",
-                    traderTag = "MEME",
-                )
-                onLog("🧯 ${ts.symbol}: partial sell unsellable/locked/no-route after $broadcastRetries attempts — quarantined + ignored", ts.mint)
-                return
-            }
             if (routePolicy.releaseLock) {
                 try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "ROUTE_FAILED_" + routeCls.name) } catch (_: Throwable) {}
@@ -16863,10 +15783,13 @@ class Executor(
         return try {
             val c = cfg()
             val legacyMax = maxOf(c.smallBuySol, c.maxPositionSol).takeIf { it.isFinite() && it > 0.0 } ?: 0.15
-            // V5.0.6106 — ALL PAPER ENTRIES must train at economic transfer size,
-            // not toy size. Use 20% of configured paper bankroll as the universal
-            // paper-learning cap, bounded to prevent fantasy-wallet rows.
-            maxOf(legacyMax, (c.paperSimulatedBalance * 0.20).coerceIn(legacyMax, 3.0))
+            // V5.0.3873 — ALL PAPER ENTRIES must train at live-transfer size, not
+            // legacy micro-probe size. SmartSizer can compute realistic paper sizes,
+            // but this final executor clamp used to crush every normal paper lane
+            // back to maxPositionSol (default 0.15 SOL). That makes paper PnL/impact
+            // too small to teach live sizing. Use 10% of configured paper bankroll as
+            // the universal paper-learning cap, bounded to a sane 2 SOL ceiling.
+            maxOf(legacyMax, (c.paperSimulatedBalance * 0.10).coerceIn(legacyMax, 2.0))
         } catch (_: Throwable) { 1.0 }
     }
 
@@ -16874,10 +15797,10 @@ class Executor(
         return try {
             val c = cfg()
             val legacyMin = c.smallBuySol.takeIf { it.isFinite() && it > 0.0 } ?: 0.05
-            // V5.0.6106 — economic paper floor. Default paper bankroll 11.76 SOL
-            // now floors normal paper buys near 0.588 SOL instead of 0.1176, so
-            // wins/losses train meaningful compounding economics.
-            maxOf(legacyMin, (c.paperSimulatedBalance * 0.05).coerceIn(0.25, 1.0))
+            // V5.0.3873 — live-transfer floor. A 0.01/0.03 SOL paper row is useful
+            // for route smoke, but not for learned live sizing. Default paper bankroll
+            // 11.76 SOL => min ≈0.1176 SOL, still small enough for high throughput.
+            maxOf(legacyMin, (c.paperSimulatedBalance * 0.01).coerceIn(0.05, 0.15))
         } catch (_: Throwable) { 0.10 }
     }
 
@@ -17989,12 +16912,6 @@ class Executor(
                 emaTrend = marketSentiment
             )
             com.lifecyclebot.v3.V3EngineManager.onPositionClosed(tradeId.mint)
-            // V5.0.6125 — release MoonshotHoldMode registry entry on terminal
-            // close so restarts/re-entries on the same mint don't inherit a
-            // stale activated/peak state from a previous position.
-            try { MoonshotHoldMode.onPositionClosed(tradeId.mint) } catch (_: Throwable) {}
-            // V5.0.6126 — clear CorrelationGuard cache on terminal close
-            try { CorrelationGuard.clear(tradeId.mint) } catch (_: Throwable) {}
             // V5.9.137 — mirror the close to SellOptimizationAI so its
             // activePositions map can't rot with stale peak / chunksSold
             // between exits. Previously close was only called inside one
@@ -20209,19 +19126,6 @@ class Executor(
                 try { com.lifecyclebot.engine.sell.MemeVenueRouter.markPumpRouteInvalid(ts.mint) } catch (_: Throwable) {}
             }
             val failureClass = routeCls.name
-            if (isTerminalUnsellableSellFailure6175(routeCls, safe, broadcastRetries) && quarantineUnsellableSellMint6175(ts, reason, routeCls, safe)) {
-                LiveTradeLogStore.log(
-                    sellTradeKey, ts.mint, ts.symbol, "SELL",
-                    LiveTradeLogStore.Phase.SELL_FAILED,
-                    "UNSELLABLE_QUARANTINED_6175 — ${routeCls.name}: ${safe.take(120)} (attempts=$broadcastRetries)",
-                    traderTag = "MEME",
-                )
-                onNotify("🧯 Token Quarantined",
-                    "${ts.symbol}: sell route/liquidity/freeze/lock failure after $broadcastRetries attempts. Token ignored; slots freed.",
-                    com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-                onLog("🧯 ${ts.symbol}: unsellable/locked/no-route after $broadcastRetries attempts — quarantined + ignored", tradeId.mint)
-                return SellResult.FAILED_FATAL
-            }
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                 LiveTradeLogStore.Phase.SELL_FAILED,

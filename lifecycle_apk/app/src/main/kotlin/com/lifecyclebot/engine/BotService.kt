@@ -64,9 +64,7 @@ class BotService : Service() {
         // Dust-probe size multiplier (applied via qualityPenalty) — tiny, so a
         // weak/blind context can still generate a labelled learning sample
         // without spraying full-size capital into it.
-        private const val LANE_DUST_PROBE_SIZE_MULT = 0.35  // V5.0.6127: was 0.04 — dust probes never executed at 4% quality penalty
-        // Combined with cascade dampers, 0.04 produced ~0.0002 SOL trades = zero learning.
-        // 0.35 aligns with the 6113 soft-probe doctrine and ensures probes actually execute.
+        private const val LANE_DUST_PROBE_SIZE_MULT = 0.04
         // V5.9.1466 — PROBE GRADUATION (spec item 8). A probe that shows a real
         // confirmation tick (liquidity materially rising vs first-seen baseline) is
         // no longer dead-end dust — it graduates to a larger (still capped) size so
@@ -268,8 +266,6 @@ class BotService : Service() {
         const val STRATEGY_DISTRUST_PAUSE_MS = 2L * 60_000L  // V5.9.726 — was 10min, dropped to 2min: 10min lockouts on the only-active SHITCOIN lane were starving the executor (5132 LANE_EVAL, 0 EXEC_BUY in V5.9.725 dump)
         private val strategyPauseUntilMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
         private val rapidEntryWarmupHoldUntilMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
-        // V5.0.6205 — P0 stale-price stop-loss guard grace windows (mint → grace deadline)
-        private val staleSlGraceUntilMs6205 = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
         fun isStrategyPausedByTrust(strategy: String): Pair<Boolean, String> {
             // V5.9.1405 — autonomous agenic doctrine. Trust/distrust may shape
@@ -592,10 +588,7 @@ class BotService : Service() {
         val cached = try {
             com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).state.value.solBalance
         } catch (_: Throwable) { 0.0 }
-        if (cached > 0.0) {
-            try { com.lifecyclebot.engine.WalletStateBridge.publishSolBalance(cached) } catch (_: Throwable) {}
-            return cached
-        }
+        if (cached > 0.0) return cached
         val onMain = android.os.Looper.myLooper() === android.os.Looper.getMainLooper()
         if (onMain) {
             // Do NOT trip the RPC guard on Main. Use whatever WalletManager
@@ -603,17 +596,11 @@ class BotService : Service() {
             // gets a safe, non-throwing value and a fresh async refresh will
             // populate it shortly).
             return try {
-                val v = com.lifecyclebot.engine.WalletManager.getInstance(applicationContext)
+                com.lifecyclebot.engine.WalletManager.getInstance(applicationContext)
                     .state.value.solBalance
-                try { com.lifecyclebot.engine.WalletStateBridge.publishSolBalance(v) } catch (_: Throwable) {}
-                v
             } catch (_: Throwable) { 0.0 }
         }
-        return try {
-            val v = w?.getSolBalance() ?: 0.0
-            try { com.lifecyclebot.engine.WalletStateBridge.publishSolBalance(v) } catch (_: Throwable) {}
-            v
-        } catch (_: Throwable) { 0.0 }
+        return try { w?.getSolBalance() ?: 0.0 } catch (_: Throwable) { 0.0 }
     }
 
     // V5.9.1557b — keep singleton monitor startup OUT of botLoop's coroutine
@@ -1392,12 +1379,6 @@ class BotService : Service() {
             FeeRetryQueue.init(applicationContext)  // V5.9.226: Bug #7 — fee retry queue
             FeeAccumulator.init(applicationContext)  // V5.0.3920 — fee accumulator (batched flush)
             ScannerHardRejectStore.init(applicationContext)  // V5.0.4036 — durable hard-reject scanner quarantine
-            // V5.0.6221 — warm the Historical Pattern Matcher on background IO.
-            // Loads assets/historical_corpus.jsonl.gz (built weekly by CI). Fail-open;
-            // any missing asset or parse error leaves the matcher inert without
-            // affecting the bot loop. Provides pattern priors so the AI stack has
-            // a labelled winner corpus to compare live candidates against.
-            try { HistoricalPatternMatcher.warm(applicationContext) } catch (_: Throwable) {}
             // V5.9.666 — install Choreographer-based ANR / long-frame
             // detector so the in-app Pipeline Health panel captures
             // every main-thread stutter with elapsed delta. onCreate
@@ -1474,12 +1455,6 @@ class BotService : Service() {
                 try { com.lifecyclebot.engine.lab.LlmLabEngine.start(applicationContext) } catch (_: Throwable) {}
             }
             ErrorLogger.info("BotService", "onCreate starting")
-
-            // V5.0.6121 — Arm HivemindReadyGate before anything else can trade.
-            // CollectiveLearning.init calls HivemindReadyGate.ready() when
-            // downloadAll() completes; the gate has a 60s hard-timeout so a
-            // wedged hive download can never permanently block trading.
-            try { com.lifecyclebot.engine.HivemindReadyGate.arm() } catch (_: Throwable) {}
 
 
             strategy        = LifecycleStrategy(
@@ -1563,18 +1538,8 @@ class BotService : Service() {
         // Initialize TradeHistoryStore for persistent trade stats
         TradeHistoryStore.init(applicationContext)
 
-        // V5.9.438 / V5.0.6129 — durable outcome-learning trackers across restarts.
-        // Runtime report 6128 showed ANR samples at LearningPersistence.init(SourceFile:16)
-        // during live trading. BotService.onCreate is a service/main-thread startup path;
-        // do not parse/write learning blobs synchronously here. Launch on IO; consumers
-        // tolerate warmup defaults until persistence completes, while live scanner/executor
-        // hard safety and wallet authority remain independent.
-        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                LearningPersistence.init(applicationContext)
-                PipelineHealthCollector.labelInc("LEARNING_PERSISTENCE_INIT_IO_6129")
-            } catch (_: Exception) {}
-        }
+        // V5.9.438 — durable outcome-learning trackers across restarts.
+        try { LearningPersistence.init(applicationContext) } catch (_: Exception) {}
         // V5.0.4307 — report-only runtime proof for smart/dormant-system registry
         // and closeout sentinels. No scanner, FDG, sizing, routing, wallet, or
         // execution authority; this only makes theatre-vs-runtime visible.
@@ -1983,20 +1948,10 @@ class BotService : Service() {
                     // constant learning tool"). Shadow paper runs behind BOTH
                     // paper and live modes, in meme-only mode too.
                     add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.SHADOW_PAPER)
-                    // V5.0.6228 — CYCLIC IS BACK ON IN PAPER FOR COMPOUND TARGET.
-                    // Operator directive (post V5.0.4155 exclusion): "where's the
-                    // disabled cyclic trader? bring it back to paper mode give
-                    // it the tools for success". CYCLIC is the opportunistic
-                    // compounder ring — the only lane whose entire doctrine is
-                    // "buy something, ride to +X%, sell, immediately redeploy
-                    // into the next name, compound the SOL forward" without a
-                    // per-trade thesis. That's exactly what a $100→$1M/2x-5x
-                    // daily target needs: a permanent SOL-forwarding rotator
-                    // that never idles capital. Kept LIVE-excluded (V5.0.4155
-                    // sidecar-only doctrine) to preserve wallet safety.
-                    if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
-                        add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC)
-                    }
+                    // V5.0.4155 — all internal MEME lanes stay active, but CYCLIC is
+                    // intentionally excluded from live authority per operator. It is a
+                    // sidecar compound ring, not part of the current all-lanes meme pass.
+                    // Do not add Trader.CYCLIC here even if a stale persisted toggle is true.
                 }.toSet()
             } else {
                 // Markets-only mode: respect per-lane toggles, but exclude
@@ -5119,29 +5074,7 @@ class BotService : Service() {
                             //   3. ScannerLaneBridge.shouldRoute — proven-toxic (src→lane) pair
                             // None of these veto unknown tokens — they only block KNOWN bad.
                             val v4132_rug = try { com.lifecyclebot.engine.RugMintBlacklist.isBlacklisted(identity.mint) } catch (_: Throwable) { false }
-                            // V5.0.6197 — FRESH-LAUNCH BYPASS. Report 2026-07-08 05:56 shows
-                            // goose_catastrophic vetoing every meme intake (>50/min).
-                            // PatternGoldenGoose learns name/theme patterns from HISTORICAL
-                            // trades but a brand-new pump.fun/raydium mint has no history
-                            // and shouldn't be pre-vetoed by name-pattern memory. Let
-                            // FreshLaunchHunter + FDG + pivot router handle these fresh
-                            // sources; blacklist and toxic-pair filters still apply.
-                            //
-                            // V5.0.6200 — BLUE-CHIP + LAUNCHPAD BYPASS. Report 2026-07-08 19:54
-                            // shows WIF ($32M mcap, $800K liq, 30d age) vetoed as
-                            // goose_catastrophic on FIRST emission via SOLANA_BLUECHIP_WATCHLIST.
-                            // PatternGoldenGoose flagged the 'dogwifhat' theme from historical
-                            // meme rug patterns but WIF IS an established asset. Blue-chip
-                            // and PROJECT_SNIPER_LAUNCHPAD sources are curated (blue-chip is
-                            // hard-coded; launchpad requires mcap>=$500K + liq>=$50K + age>=30m)
-                            // — name-pattern memory cannot override those quality signals.
-                            val v4132_isFreshLaunchSource = source.name.contains("PUMP_FUN_NEW", true) ||
-                                source.name.contains("RAYDIUM_NEW_POOL", true) ||
-                                source.name.contains("PUMP_PORTAL_WS", true) ||
-                                source.name.contains("SOLANA_BLUECHIP_WATCHLIST", true) ||
-                                source.name.contains("PROJECT_SNIPER_LAUNCHPAD", true)
-                            val v4132_gooseCata = if (v4132_isFreshLaunchSource) false
-                                else try { com.lifecyclebot.engine.PatternGoldenGoose.isCatastrophic(name.ifBlank { identity.symbol }, identity.symbol) } catch (_: Throwable) { false }
+                            val v4132_gooseCata = try { com.lifecyclebot.engine.PatternGoldenGoose.isCatastrophic(name.ifBlank { identity.symbol }, identity.symbol) } catch (_: Throwable) { false }
                             val v4132_toxicPair = try { !com.lifecyclebot.engine.ScannerLaneBridge.shouldRoute(source.name, "MEME") } catch (_: Throwable) { false }
                             val v4132_veto = v4132_rug || v4132_gooseCata || v4132_toxicPair
                             val v4132_vetoTag = when {
@@ -6509,20 +6442,7 @@ class BotService : Service() {
     // open position in the store so it gets an exit monitor. Cure for the operator
     // forensic: walletHeldMints>0 && liveOpenPositions==0 && orphanLivePositions=7.
     // Called from the SellReconciler live tick with the wallet-truth held set.
-    // V5.0.6202 — stablecoins are treasury/stuck-capital in-wallet, never
-    // trading positions. Skip them in POSITION_AUTO_HEAL to prevent the
-    // MOONSHOT-lane PYUSD trap seen in report 2026-07-08 19:54.
-    private val STABLECOIN_SYMBOL_SKIP_6202 = setOf(
-        "USDC", "USDT", "PYUSD", "DAI", "USDS", "USDE", "FDUSD", "TUSD",
-        "USDP", "GUSD", "BUSD", "FRAX", "LUSD", "USDD", "USDY", "PAXG",
-        "XAUT", "EURC", "USDG",
-    )
-
     @Volatile private var lastHealLogMs: Long = 0L
-    // V5.0.6213 — per-mint stuck-heal counter. Tokens that repeatedly return here
-    // with invalid entry basis + invalid live price are frozen/deleted and get
-    // quarantined after 3 attempts (see healWalletHeldIntoLiveStore).
-    private val stuckHealAttempts = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
     private fun healWalletHeldIntoLiveStore(heldMints: Set<String>) {
         if (heldMints.isEmpty()) return
         // Mints already represented as a LIVE open position in the store.
@@ -6542,69 +6462,6 @@ class BotService : Service() {
                 val tracked = HostWalletTokenTracker.getEntry(mint)
                 val sym = tracked?.symbol?.takeIf { it.isNotBlank() } ?: mint.take(6)
                 val bal = tracked?.uiAmount ?: 0.0
-                // V5.0.6202 — STABLECOIN SKIP. Report 2026-07-08 19:54
-                // showed PYUSD (PayPal USD stablecoin) rehydrated into
-                // MOONSHOT lane with sellability=non_sellable:STALE_RECOVERY_UNPROVEN.
-                // Stablecoins in the wallet are treasury / stuck-capital,
-                // NOT trading positions. Never rehydrate them as live opens.
-                if (sym.uppercase() in STABLECOIN_SYMBOL_SKIP_6202) {
-                    try { ForensicLogger.lifecycle("POSITION_AUTO_HEAL_SKIPPED_STABLECOIN_6202", "mint=${mint.take(12)} symbol=$sym qty=$bal") } catch (_: Throwable) {}
-                    continue
-                }
-                // V5.0.6213 — QUARANTINE + PERSISTENT-STUCK GUARD.
-                // Operator: "the bot has two stuck tokens. one is frozen the other
-                // was deleted. the code is there to quarantine and ignore these
-                // tokens to unstick the bot. it's being ignored."
-                // Missing checks: this loop never consulted QuarantineStore /
-                // TokenBlacklist / BannedTokens (WalletReconciler already writes
-                // to those when zero-basis / no-route recoveries fail). So a mint
-                // that was correctly quarantined 30s ago gets AUTOHEALED right
-                // back into a live slot on the next tick — infinite un-stick loop.
-                // Also: track repeat PHANTOM_MULTIPLE_GUARD / ENTRY_PRICE_INVALID
-                // signals as a heuristic for frozen / decimals-broken tokens; after
-                // 3 consecutive autoheal cycles with no resolution, quarantine.
-                val alreadyQuarantined = try {
-                    com.lifecyclebot.engine.QuarantineStore.isQuarantined(mint) ||
-                    com.lifecyclebot.engine.TokenBlacklist.isBlocked(mint) ||
-                    com.lifecyclebot.engine.BannedTokens.isBanned(mint)
-                } catch (_: Throwable) { false }
-                if (alreadyQuarantined) {
-                    try { ForensicLogger.lifecycle("POSITION_AUTO_HEAL_SKIPPED_QUARANTINED_6213", "mint=${mint.take(12)} symbol=$sym qty=$bal reason=already_quarantined_or_blacklisted") } catch (_: Throwable) {}
-                    try { PipelineHealthCollector.labelInc("POSITION_AUTO_HEAL_SKIPPED_QUARANTINED_6213") } catch (_: Throwable) {}
-                    // Also prune from HostWalletTokenTracker so we stop iterating over it.
-                    try { com.lifecyclebot.engine.HostWalletTokenTracker.abandonUnsellableQuarantined(mint, "AUTOHEAL_QUARANTINE_SKIP_6213") } catch (_: Throwable) {}
-                    continue
-                }
-                // Persistent-stuck heuristic: if this mint has been re-attempted 3+
-                // cycles and the tracker entry shows no usable price / basis, treat
-                // as frozen/deleted and quarantine. HostWalletTokenTracker.getEntry
-                // exposes price/costSol from the last known state — if both are
-                // zero across attempts, the token is unpriceable / frozen.
-                val stuckCount = stuckHealAttempts.getOrPut(mint) { java.util.concurrent.atomic.AtomicInteger(0) }
-                val stuckSignal = try {
-                    val badPrice = (tracked?.currentPriceUsd ?: 0.0) <= 0.0
-                    val badBasis = (tracked?.entrySol ?: 0.0) <= 0.0 && (tracked?.entryPriceUsd ?: 0.0) <= 0.0
-                    badPrice && badBasis
-                } catch (_: Throwable) { false }
-                if (stuckSignal) {
-                    val n = stuckCount.incrementAndGet()
-                    if (n >= 3) {
-                        try {
-                            com.lifecyclebot.engine.QuarantineStore.quarantine(mint, sym, "AUTOHEAL_STUCK_UNPRICEABLE_6213")
-                            com.lifecyclebot.engine.TokenBlacklist.block(mint, "AUTOHEAL_STUCK_UNPRICEABLE_6213")
-                            com.lifecyclebot.engine.HostWalletTokenTracker.abandonUnsellableQuarantined(mint, "AUTOHEAL_STUCK_UNPRICEABLE_6213")
-                            ForensicLogger.lifecycle("POSITION_AUTO_HEAL_QUARANTINED_STUCK_6213", "mint=${mint.take(12)} symbol=$sym qty=$bal attempts=$n reason=persistent_unpriceable_frozen_or_deleted")
-                            PipelineHealthCollector.labelInc("POSITION_AUTO_HEAL_QUARANTINED_STUCK_6213")
-                            try { purgeGhostLivePosition(mint, "AUTO_HEAL_STUCK_QUARANTINE_6213") } catch (_: Throwable) {}
-                        } catch (_: Throwable) {}
-                        stuckHealAttempts.remove(mint)
-                        continue
-                    }
-                    try { ForensicLogger.lifecycle("POSITION_AUTO_HEAL_STUCK_COUNTER_6213", "mint=${mint.take(12)} symbol=$sym attempts=$n threshold=3") } catch (_: Throwable) {}
-                } else {
-                    // Healthy this cycle — decay the stuck counter.
-                    stuckCount.set(0)
-                }
                 if (bal <= 1.0) {
                     try { ForensicLogger.lifecycle("POSITION_AUTO_HEAL_SKIPPED_TERMINAL_DUST", "mint=${mint.take(12)} qty=$bal") } catch (_: Throwable) {}
                     try { purgeGhostLivePosition(mint, "AUTO_HEAL_TERMINAL_TOKEN_DUST") } catch (_: Throwable) {}
@@ -8248,49 +8105,6 @@ class BotService : Service() {
                         if (!pnlVerdict.ok) continue
                         val pnlPct = pnlVerdict.pnlPct
 
-                        // V5.0.6205 — P0 STALE-PRICE STOP-LOSS GUARD.
-                        // Operator report: fake -74%/-76% "drops" from 15s+ stale marks
-                        // (DexScreener/Birdeye timeouts) were firing REAL stop-losses on
-                        // healthy positions. If the mark is >15s old AND pnl looks like a
-                        // stop trigger, hold ALL downstream exits for one bounded 20s grace
-                        // window while we force a fresh quote. If the price is STILL stale
-                        // after grace (provider outage during a real rug), fail-safe: exits
-                        // proceed on the stale mark exactly like before — a real rug can
-                        // never be masked for more than 20s.
-                        val staleMarkAgeMs6205 = ts.lastPriceUpdate.takeIf { it > 0L }?.let { System.currentTimeMillis() - it } ?: 0L
-                        var staleSlVeto6205 = false
-                        if (pnlPct <= -8.0 && staleMarkAgeMs6205 > 15_000L) {
-                            val nowStale6205 = System.currentTimeMillis()
-                            val graceUntil6205 = staleSlGraceUntilMs6205[ts.mint] ?: 0L
-                            if (graceUntil6205 == 0L) {
-                                staleSlGraceUntilMs6205[ts.mint] = nowStale6205 + 20_000L
-                                staleSlVeto6205 = true
-                            } else if (nowStale6205 < graceUntil6205) {
-                                staleSlVeto6205 = true
-                            }
-                            // grace expired → fall through so real catastrophes still exit
-                        } else {
-                            staleSlGraceUntilMs6205.remove(ts.mint)
-                        }
-                        if (staleSlVeto6205) {
-                            try {
-                                ErrorLogger.warn("BotService", "⏸ STALE_PRICE_SL_VETO_6205: ${ts.symbol} pnl=${pnlPct.toInt()}% markAge=${staleMarkAgeMs6205 / 1000}s — holding stop-loss, requeuing fresh price")
-                                PipelineHealthCollector.labelInc("STALE_PRICE_SL_VETO_6205")
-                                ForensicLogger.lifecycle("STALE_PRICE_SL_VETO_6205", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${"%.1f".format(pnlPct)} markAgeMs=$staleMarkAgeMs6205 action=hold_exit_requeue_fresh_price")
-                            } catch (_: Throwable) {}
-                            // Requeue: attempt a fresh quote now so the next tick evaluates live data.
-                            try {
-                                val fresh6205 = resolveStaleFallbackPrice(ts.mint)
-                                if (fresh6205 != null && fresh6205 > 0.0) {
-                                    ts.lastPrice = fresh6205
-                                    ts.lastPriceUpdate = System.currentTimeMillis()
-                                    ts.lastPriceSource = "STALE_SL_GUARD_FRESH_6205"
-                                    staleSlGraceUntilMs6205.remove(ts.mint)
-                                }
-                            } catch (_: Throwable) {}
-                            continue
-                        }
-
                         // V5.9.922 — BELT-AND-BRACES HARD CATASTROPHE NET.
                         // Operator V5.9.921 dump: UNPC -90.8%, Thumas -75.8%, COMPASS -70.6%
                         // bled invisibly while normal catastrophe (-14%) never fired because
@@ -8855,14 +8669,6 @@ class BotService : Service() {
     private val openPosFallbackLastAttempt = java.util.concurrent.ConcurrentHashMap<String, Long>()
     // V5.9.946 — track first-miss timestamp per mint so chronic DS-misses (>60s) get a 60s backoff
     private val openPosFallbackFirstMiss = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    // V5.0.6223 — per-mint cooldown for Jupiter Price v3 batch fallback in
-    // openPositionTickLoop. 5s cooldown keeps us at ~12 batch calls/min per
-    // mint-set, well under Jupiter's 60/min free-tier IP cap.
-    private val openPosJupFallbackLastAttempt = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    // V5.0.6224 — per-mint cooldown for GeckoTerminal batch fallback in
-    // openPositionTickLoop. 6s cooldown keeps us at ~10 batch calls/min per
-    // mint-set — matches GT free-tier ceiling.
-    private val openPosGtFallbackLastAttempt = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
         private suspend fun openPositionTickLoop() {
         ErrorLogger.info("BotService", "📡 Open-Position Tick Loop STARTED (1Hz when positions open)")
@@ -8911,212 +8717,6 @@ class BotService : Service() {
                 val missing = openMints.filter { it !in priceMap }
                 if (missing.isNotEmpty()) {
                     // ═══════════════════════════════════════════════════════════════
-                    // V5.0.6223 — JUPITER PRICE v3 FALLBACK for OPEN POSITIONS.
-                    //
-                    // Operator report V5.0.6222b: "heaps of buys 0 sells" — paper
-                    // positions frozen at stale marks (e.g. 0.008 across 24 opens)
-                    // because (a) DexScreener has NOT indexed fresh PUMP_FUN mints,
-                    // so batchPriceFetch returns them in `missing`, and (b) the
-                    // Birdeye fallback below is per-tick-cap=1 AND key-dead per
-                    // handoff, so it never actually serves. Result: ts.lastPrice
-                    // never updates → TP/SL/trailing exits never fire → paper
-                    // buys pile up forever with 0 sells.
-                    //
-                    // Jupiter Price v3 (lite-api.jup.ag/price/v3?ids=<csv>) is
-                    // keyless, comma-separated batch, and healthy at 100% SR in
-                    // recent reports. Free tier is 60 req/min per IP. We fire at
-                    // most one batch call per second per mint-set, so worst case
-                    // ~60/min — right at the cap. Per-mint 5s cooldown avoids
-                    // hammering the same batch on chronic-missing tokens.
-                    // ═══════════════════════════════════════════════════════════════
-                    val jupNowMs = System.currentTimeMillis()
-                    val jupEligible = missing.filter { m ->
-                        val last = openPosJupFallbackLastAttempt[m] ?: 0L
-                        (jupNowMs - last) >= 5_000L
-                    }
-                    // V5.0.6226 — track mints whose Jupiter batch CALL FAILED
-                    // (network error, 5xx after retry, or empty body). Only these
-                    // are worth trying via GeckoTerminal — if Jupiter succeeded
-                    // but a mint wasn't in the response, Jupiter doesn't have
-                    // that mint's price and GT won't either. Previous V5.0.6224
-                    // fired GT for every missing mint, which hammered GT to 11%
-                    // SR (was 50%) with 5xx=34 in the V5.0.6225 report.
-                    val jupFailedMints = mutableSetOf<String>()
-                    if (jupEligible.isNotEmpty()) {
-                        try {
-                            // DS-style batch limit — Jupiter accepts many but keep
-                            // request length reasonable. 30 mints ≈ 1.4KB URL, safe.
-                            for (chunk in jupEligible.chunked(30)) {
-                                val ids = chunk.joinToString(",")
-                                // V5.0.6227 — consume a shared Jupiter budget slot
-                                // so scanner-path callers yield to us; proceed
-                                // regardless — open-position marks have priority.
-                                try { com.lifecyclebot.engine.RateLimiter.allowRequest("jupiter") } catch (_: Throwable) {}
-                                val jupUrl = "https://lite-api.jup.ag/price/v3?ids=$ids"
-                                val effective = try {
-                                    com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(jupUrl)
-                                } catch (_: Throwable) { jupUrl }
-                                val jupClient = com.lifecyclebot.network.SharedHttpClient.builder()
-                                    .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
-                                    .readTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
-                                    .build()
-                                val jupReq = okhttp3.Request.Builder()
-                                    .url(effective)
-                                    .header("accept", "application/json")
-                                    .build()
-                                val jupStart = System.currentTimeMillis()
-                                var jupResp = try {
-                                    jupClient.newCall(jupReq).execute()
-                                } catch (_: Throwable) { null }
-                                // V5.0.6224 — RETRY-ON-5xx: Jupiter lite-api hit
-                                // SR=58% with 5xx=52 in V5.0.6223 report. One
-                                // immediate retry (200ms backoff) recovers most
-                                // transient upstream failures without amplifying
-                                // rate-limit exposure.
-                                if (jupResp != null && jupResp.code in 500..599) {
-                                    try { jupResp.close() } catch (_: Throwable) {}
-                                    try { Thread.sleep(200L) } catch (_: InterruptedException) {}
-                                    jupResp = try {
-                                        jupClient.newCall(jupReq).execute()
-                                    } catch (_: Throwable) { null }
-                                }
-                                if (jupResp == null) {
-                                    // Mark all chunked mints as attempted so we
-                                    // don't retry in the same tick. V5.0.6226 —
-                                    // network null == Jupiter call FAILED, GT is
-                                    // worth trying for these mints.
-                                    for (m in chunk) {
-                                        openPosJupFallbackLastAttempt[m] = jupNowMs
-                                        jupFailedMints.add(m)
-                                    }
-                                    continue
-                                }
-                                try {
-                                    com.lifecyclebot.engine.ApiHealthMonitor.record(
-                                        "jupiter", jupResp.code, System.currentTimeMillis() - jupStart
-                                    )
-                                } catch (_: Throwable) {}
-                                val body = if (jupResp.isSuccessful) jupResp.body?.string().orEmpty() else null
-                                try { jupResp.close() } catch (_: Throwable) {}
-                                if (body.isNullOrBlank()) {
-                                    for (m in chunk) {
-                                        openPosJupFallbackLastAttempt[m] = jupNowMs
-                                        // V5.0.6226 — non-2xx or empty body ==
-                                        // Jupiter batch FAILED, GT is worth trying.
-                                        jupFailedMints.add(m)
-                                    }
-                                    continue
-                                }
-                                val json = try { org.json.JSONObject(body) } catch (_: Throwable) { null }
-                                for (m in chunk) {
-                                    openPosJupFallbackLastAttempt[m] = jupNowMs
-                                    if (json == null) continue
-                                    val entry = json.optJSONObject(m)
-                                        ?: json.optJSONObject("data")?.optJSONObject(m)
-                                        ?: continue
-                                    val priceUsd = entry.optDouble("usdPrice", entry.optDouble("price", 0.0))
-                                    if (priceUsd > 0.0) {
-                                        priceMap[m] = priceUsd
-                                        openPosFallbackFirstMiss.remove(m)
-                                        val tsRef = status.tokens[m]
-                                        if (tsRef != null) {
-                                            synchronized(tsRef) {
-                                                tsRef.lastPriceSource = "JUPITER_PRICE_V3_OPEN_6223"
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } catch (_: Throwable) { /* fail-open — fall through to Birdeye */ }
-                    }
-                    // Re-evaluate missing after Jupiter fallback so Birdeye only
-                    // fires for what's STILL missing (usually 0).
-                    val stillMissingAfterJup = missing.filter { it !in priceMap }
-                    // ═══════════════════════════════════════════════════════════════
-                    // V5.0.6224 — GECKOTERMINAL BATCH FALLBACK.
-                    // V5.0.6226 — GATED to only fire when Jupiter batch call
-                    // truly FAILED (jupFailedMints), not when a mint was simply
-                    // missing from Jupiter's response. Operator V5.0.6225 report
-                    // showed GT SR crashed to 11% (5xx=34) because we hammered
-                    // it for every missing mint. Now GT only fires when Jupiter
-                    // has HTTP-failed on that mint's batch. Per-mint cooldown
-                    // also lifted from 6s → 60s so we can't burst-fail GT again.
-                    // ═══════════════════════════════════════════════════════════════
-                    if (jupFailedMints.isNotEmpty()) {
-                        val gtNowMs = System.currentTimeMillis()
-                        val gtEligible = jupFailedMints.filter { m ->
-                            val last = openPosGtFallbackLastAttempt[m] ?: 0L
-                            (gtNowMs - last) >= 60_000L
-                        }
-                        if (gtEligible.isNotEmpty()) {
-                            try {
-                                for (chunk in gtEligible.chunked(30)) {
-                                    val ids = chunk.joinToString(",")
-                                    val gtUrl = "https://api.geckoterminal.com/api/v2/networks/solana/tokens/multi/$ids"
-                                    val gtEff = try {
-                                        com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(gtUrl)
-                                    } catch (_: Throwable) { gtUrl }
-                                    val gtClient = com.lifecyclebot.network.SharedHttpClient.builder()
-                                        .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
-                                        .readTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
-                                        .build()
-                                    val gtReq = okhttp3.Request.Builder()
-                                        .url(gtEff)
-                                        .header("accept", "application/json")
-                                        .build()
-                                    val gtStart = System.currentTimeMillis()
-                                    val gtResp = try {
-                                        gtClient.newCall(gtReq).execute()
-                                    } catch (_: Throwable) { null }
-                                    if (gtResp == null) {
-                                        for (m in chunk) openPosGtFallbackLastAttempt[m] = gtNowMs
-                                        continue
-                                    }
-                                    try {
-                                        com.lifecyclebot.engine.ApiHealthMonitor.record(
-                                            "geckoterminal", gtResp.code, System.currentTimeMillis() - gtStart
-                                        )
-                                    } catch (_: Throwable) {}
-                                    val body = if (gtResp.isSuccessful) gtResp.body?.string().orEmpty() else null
-                                    try { gtResp.close() } catch (_: Throwable) {}
-                                    if (body.isNullOrBlank()) {
-                                        for (m in chunk) openPosGtFallbackLastAttempt[m] = gtNowMs
-                                        continue
-                                    }
-                                    val json = try { org.json.JSONObject(body) } catch (_: Throwable) { null }
-                                    val dataArr = json?.optJSONArray("data")
-                                    for (m in chunk) openPosGtFallbackLastAttempt[m] = gtNowMs
-                                    if (dataArr != null) {
-                                        for (i in 0 until dataArr.length()) {
-                                            val entry = dataArr.optJSONObject(i) ?: continue
-                                            val attrs = entry.optJSONObject("attributes") ?: continue
-                                            val addr = attrs.optString("address", "")
-                                            if (addr.isBlank()) continue
-                                            // Only consume mints we actually asked for (defensive).
-                                            if (addr !in chunk) continue
-                                            val priceUsd = attrs.optString("price_usd", "0").toDoubleOrNull() ?: 0.0
-                                            if (priceUsd > 0.0) {
-                                                priceMap[addr] = priceUsd
-                                                openPosFallbackFirstMiss.remove(addr)
-                                                val tsRef = status.tokens[addr]
-                                                if (tsRef != null) {
-                                                    synchronized(tsRef) {
-                                                        tsRef.lastPriceSource = "GECKOTERMINAL_OPEN_6224"
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            } catch (_: Throwable) { /* fail-open — fall through to Birdeye */ }
-                        }
-                    }
-                    val stillMissing = missing.filter { it !in priceMap }
-                    if (stillMissing.isEmpty()) {
-                        // Clean up tracking for mints no longer in our open set.
-                        openPosFallbackFirstMiss.keys.retainAll(openMints.toSet())
-                    } else {
-                    // ═══════════════════════════════════════════════════════════════
                     // V5.9.946 — BIRDEYE FALLBACK BUDGET DISCIPLINE.
                     //
                     // Operator V5.9.945 dump revealed THIS loop was the dominant
@@ -9145,14 +8745,7 @@ class BotService : Service() {
                     // ═══════════════════════════════════════════════════════════════
                     val cfg2 = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
                     val key = cfg2?.birdeyeApiKey
-                    // V5.0.6224 — skip Birdeye entirely if KeyValidator has marked
-                    // the key as dead (401). Report V5.0.6223 shows birdeye sr=0%
-                    // with 4xx=41 across every session; hammering a dead key just
-                    // burns latency budget and pollutes ApiHealthMonitor stats.
-                    val birdeyeAlive = try {
-                        com.lifecyclebot.engine.KeyValidator.isLive("birdeye")
-                    } catch (_: Throwable) { true }
-                    if (!key.isNullOrBlank() && birdeyeAlive) {
+                    if (!key.isNullOrBlank()) {
                         val birdeye = try { com.lifecyclebot.network.BirdeyeApi(key) } catch (_: Throwable) { null }
                         if (birdeye != null) {
                             val nowMs = System.currentTimeMillis()
@@ -9197,7 +8790,6 @@ class BotService : Service() {
                     }
                     // Clean up tracking for mints no longer in our open set
                     openPosFallbackFirstMiss.keys.retainAll(openMints.toSet())
-                }
                 }
 
                 if (priceMap.isEmpty()) {
@@ -9249,28 +8841,7 @@ class BotService : Service() {
                     val prev = ts.lastPrice
                     if (prev > 0.0) {
                         val jumpMult = priceUsd / prev
-                        // V5.0.6120 — SPIKE PASS-THROUGH. A parabolic upward
-                        // wick on an OPEN position must reach SpikeGuardExit
-                        // so the chunked exit can fire. The original 100x
-                        // reject was there for phantom-win prevention on
-                        // CLOSED tokens ingested from scanners; on OPEN
-                        // positions with real capital at risk we would
-                        // rather act on a genuine wick than mis-tag it as
-                        // a glitch and hold through the reversal.
-                        val posOpen6120 = ts.position.isOpen
-                        val allowUpwardWick6120 = posOpen6120 && jumpMult > 100.0 && jumpMult < 100_000.0
-                        if (allowUpwardWick6120) {
-                            try {
-                                ForensicLogger.lifecycle(
-                                    "WS_TICK_UPWARD_WICK_PASS_6120",
-                                    "mint=${ts.mint.take(10)} sym=${ts.symbol} prev=$prev new=$priceUsd" +
-                                        " jump=${"%.1f".format(jumpMult)}x — parabolic tick on open position, forwarding to SpikeGuardExit",
-                                )
-                                PipelineHealthCollector.labelInc("WS_TICK_UPWARD_WICK_PASS_6120")
-                            } catch (_: Throwable) {}
-                            ts.wsTickRejectStreak = 0
-                            // Fall through and accept the tick.
-                        } else if (jumpMult > 100.0 || jumpMult < 0.01) {
+                        if (jumpMult > 100.0 || jumpMult < 0.01) {
                             ts.wsTickRejectStreak += 1
                             if (ts.wsTickRejectStreak >= 50) {
                                 ErrorLogger.warn("BotService",
@@ -9476,30 +9047,6 @@ class BotService : Service() {
                                 }
                                 val peakPct = pos.peakGainPct
 
-                                // V5.0.6120 — SPIKE GUARD (operator report: ansem "1000%
-                                // gain on panel but tiny realized"; RUNNER +3358% mark
-                                // peak collapsed to -87% with position still open). Fire
-                                // the wick-capture ladder using the RAW WS mark price
-                                // (priceUsd) — not the Jupiter-verified execPx — so a
-                                // parabolic tick is caught even when Jupiter disagrees
-                                // with the mark. SpikeGuardExit chunks the exit into 4
-                                // progressive partials that fill on thin pools where a
-                                // single full-size sell would price-impact-abort. Fully
-                                // isolated: never touches pos.peakGainPct, non-blocking
-                                // (chunks fire on a daemon thread), rate-limited per mint.
-                                try {
-                                    val cfgSpike = ConfigStore.load(applicationContext)
-                                    val walletSpike = walletManager.getWallet()
-                                    val balSpike = status.getEffectiveBalance(cfgSpike.paperMode)
-                                    com.lifecyclebot.engine.SpikeGuardExit.processTick(
-                                        ts = ts,
-                                        executor = executor,
-                                        wallet = walletSpike,
-                                        walletSol = balSpike,
-                                        priceUsdMark = priceUsd,
-                                    )
-                                } catch (_: Throwable) { /* never break the tick loop */ }
-
                                 // ─── Guard 1: TICK_HARD_FLOOR @ -10% ───
                                 // V5.9.1564 — SANITY: a single tick can read a stale entry
                                 // price right after a basis switch (PumpFun BC → Raydium)
@@ -9578,12 +9125,7 @@ class BotService : Service() {
                                             // Stop-loss path is unaffected (this branch
                                             // only fires on positive pnl give-back).
                                             val isPaperRt = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
-                                            val runnerGivebackMustBank6128 = peakPct >= 200.0 && lockBreached
-                                            val beOk = runnerGivebackMustBank6128 || com.lifecyclebot.engine.LiveRestoreExecutionPolicy.sellSideBreakEvenOk(ts, pnlPctNow, isPaperRt)
-                                            if (runnerGivebackMustBank6128) {
-                                                try { PipelineHealthCollector.labelInc("RUNNER_GIVEBACK_LOCK_BE_BYPASS_6128") } catch (_: Throwable) {}
-                                                try { ForensicLogger.lifecycle("RUNNER_GIVEBACK_LOCK_BE_BYPASS_6128", "mint=${ts.mint.take(10)} symbol=${ts.symbol} peak=${"%.1f".format(peakPct)} now=${"%.1f".format(pnlPctNow)} floor=${"%.1f".format(lockedFloor)} action=bank_runner_before_hard_floor") } catch (_: Throwable) {}
-                                            }
+                                            val beOk = com.lifecyclebot.engine.LiveRestoreExecutionPolicy.sellSideBreakEvenOk(ts, pnlPctNow, isPaperRt)
                                             if (!beOk) {
                                                 // hold for more upside — high-lock will retry on next tick
                                             } else {
@@ -10132,11 +9674,7 @@ class BotService : Service() {
                 } catch (_: Throwable) {}
                 return laneBase.copy(
                     signal = "BUY", finalSignal = "BUY", shouldTrade = true,
-                    // V5.0.6101 — this is a positive BUY pivot, not a block.
-                    // Keeping GOOD_LANE_VOLUME_PIVOT_6020 in blockReason made
-                    // FDG/EXEC telemetry count successful rescue volume as blocks,
-                    // confusing AGI/doctor intervention and operator triage.
-                    blockReason = "",
+                    blockReason = "GOOD_LANE_VOLUME_PIVOT_6020",
                     edgeVeto = false,
                     edgeQuality = if (laneBase.edgeQuality == "SKIP") "B" else laneBase.edgeQuality,
                     finalQuality = if (cleanQuality == "C") "B" else cleanQuality,
@@ -10172,7 +9710,7 @@ class BotService : Service() {
                 edgeVeto = false,
                 edgeQuality = if (laneBase.edgeQuality == "SKIP") "C" else laneBase.edgeQuality,
                 finalQuality = "C",
-                qualityPenalty = (resolveProbeSizeMult(mintForProbe, liquidityUsd) * crossTalkSizeMult4262).coerceIn(0.35, 1.18),  // V5.0.6127: floor 0.05->0.35
+                qualityPenalty = (resolveProbeSizeMult(mintForProbe, liquidityUsd) * crossTalkSizeMult4262).coerceIn(0.05, 1.18),
                 aiConfidence = laneBase.aiConfidence.coerceAtLeast(entryScoreTightenedFloor4591),
             )
         }
@@ -10300,19 +9838,8 @@ class BotService : Service() {
                         )
                     } catch (_: Throwable) {}
                 } else {
-                    // V5.0.6112 — SOFT-SHAPE NOT VETO. Live-mode quarantine was a
-                    // hard return false, permanently blocking 5 seed-quarantined lanes
-                    // (SHITCOIN, MANIPULATED, PROJECT_SNIPER, DIP_HUNTER, EXPRESS).
-                    // This creates a deadlock: the lane can't trade to generate data
-                    // for the LLM Lab to find a winning strategy, so it stays
-                    // quarantined forever. Now: log the block but let the candidate
-                    // flow through at 0.35x recovery probe size. The downstream
-                    // size cascade and discipline recovery probe will handle sizing.
                     LaneQuarantineController.logBlockedEntry(lane, ts.symbol, ts.mint, primaryLane)
-                    try { ForensicLogger.lifecycle("LANE_QUARANTINE_LIVE_SOFT_ALLOW_6112", "lane=$lane symbol=${ts.symbol} mint=${ts.mint.take(10)} primary=$primaryLane action=continue_0.35x_recovery_probe") } catch (_: Throwable) {}
-                    try { PipelineHealthCollector.labelInc("LANE_QUARANTINE_LIVE_SOFT_ALLOW_6112") } catch (_: Throwable) {}
-                    // Do NOT return false — let the candidate proceed.
-                    // The executor's discipline recovery probe (6112) will apply 0.35x.
+                    return false
                 }
             }
         } catch (_: Throwable) { /* quarantine must never break the gate */ }
@@ -10606,30 +10133,8 @@ class BotService : Service() {
                 // any other path still slips through, but this closes the
                 // primary bypass channel.
                 val laneIsPaused4598 = try { LaneAutoPauseGuard.isPaused(l) } catch (_: Throwable) { false }
-                // V5.0.6171 — pause must pivot, not amputate, at the pre-FDG owner
-                // rotation choke. FDG already converts paused/retraining lanes into a
-                // controlled lane-local LAB_PIVOT with reduced size; but this earlier
-                // owner-lane check denied paused lanes before FDG could see them. If a
-                // paused lane is the selected owner lane or a profitable rescue, force a
-                // TacticSwitcher pivot and allow it to reach FDG for bounded 0.40x handling.
-                val ownerPausedPivot6171 = laneIsPaused4598 && com.lifecyclebot.engine.RuntimeModeAuthority.isLive() && (l == ownerLane || profitableRescue)
-                if (ownerPausedPivot6171) {
-                    try {
-                        val band6171 = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(scoreForToxicity.toInt().coerceIn(0, 100))
-                        val tactic6171 = com.lifecyclebot.engine.learning.TacticSwitcher.forcePivotForRetraining(l, band6171, "AUTO_PAUSED_OWNER_ROTATION")
-                        com.lifecyclebot.engine.lab.LlmLabEngine.seedFromTacticFailure(
-                            lane = l,
-                            scoreBand = band6171,
-                            failedTactic = "OWNER_ROTATION_PAUSED",
-                            nextTactic = tactic6171.name,
-                            reason = "BotService owner rotation allowed paused lane through FDG pivot 6171"
-                        )
-                        PipelineHealthCollector.labelInc("OWNER_LANE_PAUSED_PIVOT_ALLOW_6171_$l")
-                        ForensicLogger.lifecycle("OWNER_LANE_PAUSED_PIVOT_ALLOW_6171", "lane=$l primary=$primaryLane owner=$ownerLane rescue=$profitableRescue tactic=${tactic6171.name} symbol=${ts.symbol} mint=${ts.mint.take(10)} action=allow_to_fdg_controlled_pivot")
-                    } catch (_: Throwable) {}
-                }
-                val allowed = (l == ownerLane || profitableRescue) && (!laneIsPaused4598 || ownerPausedPivot6171)
-                if (laneIsPaused4598 && !ownerPausedPivot6171) {
+                val allowed = (l == ownerLane || profitableRescue) && !laneIsPaused4598
+                if (laneIsPaused4598) {
                     try {
                         ForensicLogger.lifecycle(
                             "OWNER_LANE_PAUSED_DENIED_4598",
@@ -11147,38 +10652,6 @@ class BotService : Service() {
             }
         }
 
-        // V5.0.6123/6124d — Full lifecycle assessment at function-body scope
-        // so ALL downstream code (coldPump run block, lane affinity, watchlist,
-        // probation) can access adjustedConfidence6124 and patternGateVerdict6123.
-        val existingTs6123 = try { status.tokens[mint] } catch (_: Throwable) { null }
-        val patternGateVerdict6123 = try {
-            com.lifecyclebot.engine.ScannerIntakePatternGate.evaluate(
-                mint = mint,
-                symbol = symbol,
-                name = name,
-                source = source,
-                rawConfidence = confidence,
-                liquidityUsd = liquidityUsd,
-                marketCapUsd = marketCapUsd,
-                volumeH1 = volumeH1,
-                allSources = allSources,
-                holderGrowthRate = existingTs6123?.holderGrowthRate ?: 0.0,
-                priceChange1h = existingTs6123?.lastPriceChange1h ?: 0.0,
-                buyPressurePct = existingTs6123?.lastBuyPressurePct ?: 50.0,
-                ts = existingTs6123,
-            )
-        } catch (_: Throwable) { null }
-        val adjustedConfidence6124 = if (patternGateVerdict6123 != null) patternGateVerdict6123.adjustedConfidence else confidence
-        if (patternGateVerdict6123 != null) {
-            try {
-                com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                    "SCANNER_LIFECYCLE_INTAKE_6123",
-                    "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source rawConf=$confidence adjConf=${patternGateVerdict6123.adjustedConfidence} stage=${patternGateVerdict6123.lifecycleStage} setup=${patternGateVerdict6123.cheatSheetSetup} ev=${"%.2f".format(patternGateVerdict6123.evScore)} lanes=${patternGateVerdict6123.recommendedLanes.joinToString(",")} probation=${patternGateVerdict6123.recommendProbationOnly} reason=${patternGateVerdict6123.reason}"
-                )
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SCANNER_LIFECYCLE_INTAKE_6123")
-            } catch (_: Throwable) {}
-        }
-
         // V5.9.1228 — PumpPortal cold-flow goes to probation-only, not hot
         // watchlist. 3195 had PUMP_PORTAL_WS=7404 intake hits, vol1h=0 on the
         // repeated rows, WATCHLIST_PROBATION_DEMOTE=626, and projected execs
@@ -11190,24 +10663,24 @@ class BotService : Service() {
             val isPumpPortalWs = tags.contains("PUMP_PORTAL_WS") || tags.contains("PUMPPORTAL")
             val isUserAdded = source == "USER" || source.contains("USER_ADDED")
             val isRestoredVetted = source == "MEME_REGISTRY_RESTORE" || source == "PROBATION"
-            // V5.0.6132 — SOLANA-WIDE SOURCE DOCTRINE. The old V5.9.1243 paper
-            // leniency let cold single-source pump.fun flow hot-watchlist in PAPER,
-            // then paper learning fed live strategy pressure. That quietly rotated
-            // the bot back into a pump.fun-centric learner. Pump.fun is a Solana spec
-            // feed, not Solana itself: pump aliases do NOT count as multi-source.
-            // Pump must earn hot-watchlist status via non-pump confirmation, real
-            // liquidity/volume, or later probation promotion in both PAPER and LIVE.
-            val nonPumpConfirmed6132 = allSources.any { hasNonPumpConfirmationTag(it) } || hasNonPumpConfirmationTag(source)
-            val rawMultiSourceConfirmed6132 = (!isPumpPortalWs && allSources.size >= 2) || nonPumpConfirmed6132
-            val pumpSpecOnly6132 = isPumpPortalWs && !nonPumpConfirmed6132
+            // V5.9.1243 — PAPER MUST NOT COLD-QUARANTINE PUMP.FUN INTAKE.
+            // 1228 sent every cold Pump.fun WS graduate (vol1h=0, liq<$5k) to
+            // probation-only to protect LIVE supervisor/render bandwidth. But
+            // probation only promotes on price-up≥5% / multi-scanner / RC≥2 —
+            // none of which a fresh single-source graduate gets — so in PAPER
+            // they all aged out at PROBATION_MAX_TIME (5min) → "PROBATION
+            // REJECTED | TIMEOUT". Forensic 65525e7f: every intake (ORGY, Lilo,
+            // STINKEYE, zzz, UpCookie, pickle, GOONABLE...) hit SINGLE_SOURCE,
+            // WATCHLIST_RR fresh=0 EVERY cycle, positions pinned at 17 stale
+            // bags — total entry starvation. The registry's own contract
+            // (PROBATION ROUTING, line 400) is "paper mode is MUCH more lenient
+            // for maximum learning exposure". Restore it: the cold-quarantine
+            // applies in LIVE only (where bandwidth/risk justify it). In paper
+            // only, fresh graduates flow straight to the watchlist so
+            // the lanes can actually evaluate + trade them. Scanner pool stays
+            // protected; this UN-chokes intake, it does not prune it.
             val lenientIntake = try {
-                // V5.0.6132 — SOLANA-WIDE SOURCE DOCTRINE. Paper should be lenient
-                // for learning, but not pump.fun-centric. Cold single-source pump.fun
-                // is a SPEC feed, not Solana itself; if it has no non-pump confirmation,
-                // volume, or liquidity proof, keep it probation-first in BOTH paper and
-                // live so Dex/Raydium/Meteora/Orca/Birdeye/aggregator candidates are not
-                // crowded out of the learning pool that later shapes live compounding.
-                com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && !pumpSpecOnly6132
+                com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
             } catch (_: Throwable) { false }   // fail-closed in live: no safety/intake bypass on uncertainty
             val pressureDecision = try {
                 // V5.9.1548b — source-neutral pressure diversion. This is NOT
@@ -11229,24 +10702,20 @@ class BotService : Service() {
             // downstream size/reporting. This remains soft-shape only: weak learned
             // single-source feeds go probation; strong learned or multi-source feeds
             // can avoid generic pressure quarantine. No source is hard-blocked.
-            val sourceBrainMultRaw6141 = try {
+            val sourceBrainMult = try {
                 (allSources + source).map { ScannerSourceBrain.intakeMultiplier(it) }.maxOrNull() ?: 1.0
             } catch (_: Throwable) { 1.0 }
-            val venueSourceMult6141 = try { VenueSourceBalanceAdapter.bestMultiplier(allSources + source) } catch (_: Throwable) { 1.0 }
-            val throughputPressure6143 = try { ThroughputPressureBrain.current() } catch (_: Throwable) { ThroughputPressureBrain.Verdict(0, 1.0, 1.0, true, "throughput_error") }
-            val sourceBrainMult = maxOf(sourceBrainMultRaw6141, venueSourceMult6141) * throughputPressure6143.intakeMultiplier
-            val venueSourceContext6141 = try { VenueSourceBalanceAdapter.compact(source) } catch (_: Throwable) { "venue=unknown" }
-            val multiSourceConfirmed = rawMultiSourceConfirmed6132
+            val multiSourceConfirmed = allSources.size >= 2 || allSources.any { hasNonPumpConfirmationTag(it) }
             val sourceBrainProbationOnly = !lenientIntake && !isUserAdded && !isRestoredVetted && !multiSourceConfirmed &&
-                sourceBrainMultRaw6141 < 0.65 && venueSourceMult6141 < 1.05 && !throughputPressure6143.underTarget && liquidityUsd < 7_500.0 && volumeH1 <= 0.0
-            val sourceBrainHotRescue = (sourceBrainMultRaw6141 >= 1.25 || venueSourceMult6141 >= 1.10 || throughputPressure6143.intakeMultiplier >= 1.16) && (multiSourceConfirmed || liquidityUsd >= 10_000.0 || volumeH1 > 0.0)
+                sourceBrainMult < 0.65 && liquidityUsd < 7_500.0 && volumeH1 <= 0.0
+            val sourceBrainHotRescue = sourceBrainMult >= 1.25 && (multiSourceConfirmed || liquidityUsd >= 10_000.0 || volumeH1 > 0.0)
             val coldPumpBase = !lenientIntake && isPumpPortalWs && !isUserAdded && !isRestoredVetted && volumeH1 <= 0.0 && liquidityUsd < 5_000.0
             val coldPump = coldPumpBase || sourceBrainProbationOnly || (pressureDecision.probationOnly && !sourceBrainHotRescue)
             if (sourceBrainProbationOnly || sourceBrainHotRescue) {
                 try {
                     ForensicLogger.lifecycle(
                         "SCANNER_SOURCE_BRAIN_ADMISSION_SHAPED_4195",
-                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source mult=${"%.2f".format(sourceBrainMult)} rawSourceMult=${"%.2f".format(sourceBrainMultRaw6141)} venueMult=${"%.2f".format(venueSourceMult6141)} throughput=${throughputPressure6143.reason} $venueSourceContext6141 probation=$sourceBrainProbationOnly hotRescue=$sourceBrainHotRescue multi=$multiSourceConfirmed pumpSpecOnly=$pumpSpecOnly6132 lenient=$lenientIntake liq=${liquidityUsd.toInt()} vol1h=${volumeH1.toInt()} pressure=${pressureDecision.probationOnly}:${pressureDecision.reason} multi_exchange_universe=true compounding_target=true"
+                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source mult=${"%.2f".format(sourceBrainMult)} probation=$sourceBrainProbationOnly hotRescue=$sourceBrainHotRescue multi=$multiSourceConfirmed liq=${liquidityUsd.toInt()} vol1h=${volumeH1.toInt()} pressure=${pressureDecision.probationOnly}:${pressureDecision.reason}"
                     )
                     PipelineHealthCollector.labelInc(if (sourceBrainProbationOnly) "SCANNER_SOURCE_BRAIN_PROBATION_4195" else "SCANNER_SOURCE_BRAIN_HOT_RESCUE_4195")
                 } catch (_: Throwable) {}
@@ -11262,7 +10731,7 @@ class BotService : Service() {
                         source = allSources.joinToString("+").ifBlank { source },
                         initialMcap = marketCapUsd,
                         liquidityUsd = liquidityUsd,
-                        confidence = adjustedConfidence6124,
+                        confidence = confidence,
                         isEstimatedLiquidity = liquidityUsd <= 0.0,
                         price = 0.0,
                         laneAffinity = laneAffinity,
@@ -11443,14 +10912,8 @@ class BotService : Service() {
         )
 
         val joinedSources = allSources.ifEmpty { setOf(source) }.joinToString(",")
-        val laneAffinity = inferIntakeLaneAffinity(source, allSources, marketCapUsd, liquidityUsd).toMutableSet()
+        val laneAffinity = inferIntakeLaneAffinity(source, allSources, marketCapUsd, liquidityUsd)
         val toolAffinity = inferIntakeToolAffinity(source, allSources, marketCapUsd, liquidityUsd)
-        // V5.0.6123 — merge cheat sheet recommended lanes into affinity hints
-        // so the lifecycle detector's lane routing influences which traders
-        // evaluate this candidate first
-        if (patternGateVerdict6123 != null && patternGateVerdict6123.recommendedLanes.isNotEmpty()) {
-            laneAffinity.addAll(patternGateVerdict6123.recommendedLanes)
-        }
         try {
             val affinitySymbol = if (symbol.isBlank()) mint.take(6) else symbol
             val laneAffinityLabel = laneAffinity.joinToString("+")
@@ -11486,14 +10949,6 @@ class BotService : Service() {
         // already deliver. So probation tokens cost ZERO bot-loop cycles
         // until they either prove themselves and get promoted, or they age
         // out and get auto-rejected.
-        // V5.0.6123 — SCANNER INTAKE PATTERN GATE.
-        // Wire pattern recognition + probability engine into the scanner intake
-        // so the bot finds better candidates at the discovery source. This gate
-        // applies PatternGoldenGoose (name/symbol edge), PatternClassifier (win
-        // probability), LiveProbabilityEngine (lane EV), and SmartChartCache
-        // (cached chart patterns) to adjust intake confidence and influence
-        // probation-vs-hot-watchlist routing. All soft-shape, no hard rejects.
-
         val isProbationEligible = run {
             val isPaper = try { ConfigStore.load(applicationContext).paperMode } catch (_: Throwable) { true }
             val confThreshold = if (isPaper) 22 else 50
@@ -11501,11 +10956,7 @@ class BotService : Service() {
             val isSingleSrc = allSources.size <= 1
             val isUserAdded = source == "USER" || source.contains("USER_ADDED")
             val isRestoredVetted = source == "MEME_REGISTRY_RESTORE" || source == "PROBATION"
-            // V5.0.6123 — pattern gate can force probation even for multi-source
-            // or higher-confidence candidates if pattern intelligence is strongly negative
-            val patternForceProbation = patternGateVerdict6123?.recommendProbationOnly == true &&
-                !isUserAdded && !isRestoredVetted
-            isLowConf && isSingleSrc && !isUserAdded && !isRestoredVetted || patternForceProbation
+            isLowConf && isSingleSrc && !isUserAdded && !isRestoredVetted
         }
 
         val addResult = try {
@@ -11530,7 +10981,7 @@ class BotService : Service() {
                     source = joinedSources,
                     initialMcap = marketCapUsd,
                     liquidityUsd = liquidityUsd,
-                    confidence = adjustedConfidence6124,
+                    confidence = confidence,
                     isMultiSource = allSources.size > 1,
                     laneAffinity = laneAffinity,
                     toolAffinity = toolAffinity,
@@ -11543,7 +10994,7 @@ class BotService : Service() {
                     source = joinedSources,
                     initialMcap = marketCapUsd,
                     initialLiquidityUsd = liquidityUsd,
-                    confidence = adjustedConfidence6124,
+                    confidence = confidence,
                     laneAffinity = laneAffinity,
                     toolAffinity = toolAffinity,
                 )
@@ -11614,15 +11065,6 @@ class BotService : Service() {
                     ).also { fresh ->
                         fresh.laneAffinity.addAll(laneAffinity)
                         fresh.toolAffinity.addAll(toolAffinity)
-                        // V5.0.6123 — stamp lifecycle stage + cheat sheet into curveStage
-                        // so downstream scorers/traders can access the lifecycle assessment
-                        if (patternGateVerdict6123 != null) {
-                            try {
-                                fresh.meta = fresh.meta.copy(
-                                    curveStage = patternGateVerdict6123.lifecycleStage
-                                )
-                            } catch (_: Throwable) {}
-                        }
                         if (cached != null) {
                             // Warm slow-moving snapshot fields. These are SAFE
                             // to seed because every fresh tick will overwrite
@@ -11927,63 +11369,25 @@ class BotService : Service() {
         for (result in probationResults) {
             when (result.action) {
                 "PROMOTED" -> {
-                    // V5.0.6123 — CHART PATTERN GATE AT PROBATION PROMOTION.
-                    // Before admitting a probation token to the hot watchlist,
-                    // check its chart shape against MovementPatternSignal and
-                    // SmartChartCache. Tokens in freefall, exhaustion, or with
-                    // strong bearish chart patterns should NOT promote — they
-                    // stay in probation or get rejected.
-                    val ts6123 = status.tokens[result.mint]
-                    val patternPromoteOk6123 = if (ts6123 != null) {
-                        try {
-                            com.lifecyclebot.engine.ScannerIntakePatternGate.shouldPromoteFromProbation(ts6123)
-                        } catch (_: Throwable) { true } // fail-open
-                    } else true // no TokenState yet — let the normal path handle it
-                    if (!patternPromoteOk6123) {
-                        addLog("🛑 PROBATION PATTERN HOLD: ${result.symbol} | ${result.reason} — chart shape not ready, staying in probation", result.mint)
-                        try {
-                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                                "PROBATION_PROMOTION_PATTERN_HELD_6123",
-                                "symbol=${result.symbol} mint=${result.mint.take(10)} reason=${result.reason} — chart shape gate blocked promotion"
-                            )
-                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PROBATION_PROMOTION_PATTERN_HELD_6123")
-                        } catch (_: Throwable) {}
-                        // Re-add to probation for another cycle
-                        try {
-                            GlobalTradeRegistry.addWithProbation(
-                                mint = result.mint,
-                                symbol = result.symbol,
-                                addedBy = "PATTERN_HOLD",
-                                source = "PROBATION",
-                                initialMcap = 0.0,
-                                liquidityUsd = 0.0,
-                                confidence = 45,
-                                isMultiSource = false,
-                                laneAffinity = emptySet(),
-                                toolAffinity = emptySet(),
-                            )
-                        } catch (_: Throwable) {}
-                    } else {
-                        addLog("✅ PROMOTED: ${result.symbol} | ${result.reason}", result.mint)
-                        soundManager.playNewToken()
-                        try {
-                            val probEntry = GlobalTradeRegistry.getProbationEntry(result.mint)
-                            admitProtectedMemeIntake(
-                                mint = result.mint,
-                                symbol = result.symbol,
-                                name = result.symbol,
-                                source = "PROBATION",
-                                marketCapUsd = probEntry?.initialMcap ?: 0.0,
-                                liquidityUsd = probEntry?.initialLiquidity ?: 0.0,
-                                confidence = 50,
-                                allSources = setOf("PROBATION"),
-                                playSound = false,
-                                operatorLog = false,
-                                expectedRuntimeGeneration = com.lifecyclebot.engine.BotRuntimeController.currentGeneration(),
-                            )
-                        } catch (e: Exception) {
-                            ErrorLogger.debug("BotService", "PROMOTED protected intake hydrate error: ${e.message}")
-                        }
+                    addLog("✅ PROMOTED: ${result.symbol} | ${result.reason}", result.mint)
+                    soundManager.playNewToken()
+                    try {
+                        val probEntry = GlobalTradeRegistry.getProbationEntry(result.mint)
+                        admitProtectedMemeIntake(
+                            mint = result.mint,
+                            symbol = result.symbol,
+                            name = result.symbol,
+                            source = "PROBATION",
+                            marketCapUsd = probEntry?.initialMcap ?: 0.0,
+                            liquidityUsd = probEntry?.initialLiquidity ?: 0.0,
+                            confidence = 50,
+                            allSources = setOf("PROBATION"),
+                            playSound = false,
+                            operatorLog = false,
+                            expectedRuntimeGeneration = com.lifecyclebot.engine.BotRuntimeController.currentGeneration(),
+                        )
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "PROMOTED protected intake hydrate error: ${e.message}")
                     }
                 }
                 "REJECTED" -> {
@@ -12085,35 +11489,15 @@ class BotService : Service() {
                     price = price,
                     score = score,
                     regime = regime,
-                    // V5.0.6124 — feed lane + liquidity + mcap so lab strategies
-                    // can target specific lanes and filter by liquidity/mcap gates
-                    lane = ts.laneAffinity.firstOrNull()?.uppercase() ?: ts.position.tradingMode.uppercase(),
-                    liquidityUsd = ts.lastLiquidityUsd,
-                    mcapUsd = ts.lastMcap,
                 ))
             }
-            fun pushTick(symbol: String, mint: String, asset: com.lifecyclebot.engine.lab.LabAssetClass, price: Double, score: Int = 50) {
+            fun pushTick(symbol: String, mint: String, asset: com.lifecyclebot.engine.lab.LabAssetClass, price: Double) {
                 if (price <= 0.0 || symbol.isBlank()) return
                 list.add(com.lifecyclebot.engine.lab.LlmLabEngine.LabUniverseTick(
                     symbol = symbol, mint = mint, asset = asset,
-                    price = price, score = score.coerceIn(0, 100), regime = regime,
+                    price = price, score = 50, regime = regime,
                 ))
             }
-            try {
-                // V5.0.6108 — feed the LLM Lab the Crypto Universe candidate pool,
-                // not just already-open CryptoAlt positions. Otherwise Lab can only
-                // manage crypto after entry and cannot invent/reintroduce crypto entry
-                // strategies for the 2x-5x paper/live compounding loop.
-                com.lifecyclebot.perps.DynamicAltTokenRegistry
-                    .getAllTokens(com.lifecyclebot.perps.DynamicAltTokenRegistry.SortMode.QUALITY)
-                    .asSequence()
-                    .take(180)
-                    .forEach { tok ->
-                        val px = tok.price.takeIf { it > 0.0 } ?: return@forEach
-                        val score6108 = (50.0 + tok.priceChange24h.coerceIn(-20.0, 20.0) * 1.5 + kotlin.math.log10(tok.volume24h.coerceAtLeast(1.0)).coerceIn(0.0, 8.0) * 2.0).toInt().coerceIn(20, 95)
-                        pushTick(tok.symbol, tok.mint.ifBlank { tok.symbol }, com.lifecyclebot.engine.lab.LabAssetClass.ALT, px, score6108)
-                    }
-            } catch (_: Throwable) {}
             try {
                 com.lifecyclebot.perps.CryptoAltTrader.getOpenPositions().forEach { p ->
                     pushTick(p.marketSymbol, p.marketSymbol, com.lifecyclebot.engine.lab.LabAssetClass.ALT, p.currentPrice)
@@ -12183,22 +11567,8 @@ class BotService : Service() {
     private val universalSlSweepPending = AtomicBoolean(false)
     private val exitCoordinatorLastFullMs = java.util.concurrent.atomic.AtomicLong(0L)
     private val exitCoordinatorLastUniversalMs = java.util.concurrent.atomic.AtomicLong(0L)
-    // V5.0.6225 — REDUCE EXIT-COORDINATOR THROTTLE from 30s → 5s (full) / 15s (universal).
-    //
-    // Operator V5.0.6224b report: BUY ok=46 / SELL ok=4 in 175s uptime with
-    // EXIT allow=135. Exit gate was approving 135 exits but only 4 sells
-    // landed in the journal. Root cause: full sweep can only run once every
-    // 30s (Exit sweep start/done=6/6 confirms it hit the cap on every cycle).
-    // With 42 open paper positions, converting only ~0.7 sells per 30s-gated
-    // sweep starves the sell path.
-    //
-    // Cutting the full throttle to 5s lets the coordinator run ~6× more often
-    // (up to 12 sweeps/min). paperSell is cheap (no network) so back-to-back
-    // sweeps are safe. The sweep's own EXIT_SWEEP_HARD_MS=12s budget still
-    // prevents runaway. Universal SL kept at 15s (still a safety net that
-    // doesn't need every-5s cadence, but 2x faster than before).
-    private val EXIT_COORDINATOR_FULL_MIN_MS: Long = 5_000L
-    private val EXIT_COORDINATOR_UNIVERSAL_MIN_MS: Long = 15_000L
+    private val EXIT_COORDINATOR_FULL_MIN_MS: Long = 30_000L
+    private val EXIT_COORDINATOR_UNIVERSAL_MIN_MS: Long = 30_000L
 
     // V5.9.1009 — Exit sweeps must never block botLoop. A slow paperSell
     // learning/closeout fanout previously parked the main cycle in
@@ -13274,15 +12644,6 @@ class BotService : Service() {
             addLog("🛑 RAPID CATASTROPHE STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
             executor.requestSell(ts, "RAPID_CATASTROPHE_STOP", wallet, effectiveBalance)
             TradeStateMachine.startCatastropheCooldown(ts.mint, pnlPct)
-            // V5.0.6120f — SWARM: broadcast rug so 2+ within 10min = hive veto
-            try {
-                com.lifecyclebot.engine.SwarmIntel.publishRug(
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    pnlPct = pnlPct,
-                    reason = "RAPID_CATASTROPHE_STOP",
-                )
-            } catch (_: Throwable) {}
             return true
         }
         if (pnlPct <= -HARD_FLOOR_STOP_PCT_CONST) {
@@ -13290,15 +12651,6 @@ class BotService : Service() {
             addLog("🛑 RAPID HARD_FLOOR STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
             executor.requestSell(ts, "RAPID_HARD_FLOOR_STOP", wallet, effectiveBalance)
             TradeStateMachine.startCooldown(ts.mint)
-            // V5.0.6120f — SWARM: rug broadcast
-            try {
-                com.lifecyclebot.engine.SwarmIntel.publishRug(
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    pnlPct = pnlPct,
-                    reason = "RAPID_HARD_FLOOR_STOP",
-                )
-            } catch (_: Throwable) {}
             return true
         }
 
@@ -13603,11 +12955,6 @@ class BotService : Service() {
         }
 
         var loopCount = 0
-        // V5.0.6120e — Backtest re-entrancy guard. With backtest firing 10×
-        // more often (every 30 loops ≈ 5 min instead of every 300), the
-        // async launch can theoretically overlap the previous run's SQLite
-        // cursor pass on a slow device. AtomicBoolean gate prevents that.
-        val backtestInFlight6120e = java.util.concurrent.atomic.AtomicBoolean(false)
         // V5.9.660 — lastTickStartMs removed; emitBotLoopTick tracks its
         // own prev-cycle delta via class field lastBotLoopTickMs.
         while (status.running) {
@@ -14341,27 +13688,8 @@ class BotService : Service() {
                     if (antiChoke != null && antiChoke.level != com.lifecyclebot.engine.AntiChokeManager.Level.CLEAR) {
                         addLog("🫁 AntiChoke ${antiChoke.level.name}: ghosts=${antiChoke.ghostsCleared} pruned=${antiChoke.dormantPruned} trades24h=${antiChoke.trades24h}/${antiChoke.target24h}")
                     }
-                    val relief6147 = com.lifecyclebot.engine.ThroughputSelfRelief6147.evaluate(
-                        tokens = status.tokens,
-                        effectiveCap = supervisorEffectiveCap(),
-                        activeLeases = supervisorLeases.size,
-                        trades24h = antiChoke?.trades24h ?: 0,
-                        target24h = antiChoke?.target24h ?: 500,
-                    )
-                    if (relief6147.shouldPruneExpiredLeases) {
-                        val expired6147 = supervisorPruneExpiredLeases("THROUGHPUT_SELF_RELIEF_6147")
-                        if (expired6147 > 0) {
-                            try { PipelineHealthCollector.labelInc("THROUGHPUT_SELF_RELIEF_LEASE_PRUNE_6147") } catch (_: Throwable) {}
-                        }
-                    }
-                    if (relief6147.pressure != "CLEAR") {
-                        try {
-                            ForensicLogger.lifecycle("THROUGHPUT_SELF_RELIEF_6147", "${relief6147.reason} pruneLeases=${relief6147.shouldPruneExpiredLeases} pruneGhosts=${relief6147.shouldPruneGhosts} hard_safety_untouched=true")
-                            PipelineHealthCollector.labelInc("THROUGHPUT_SELF_RELIEF_6147_${relief6147.pressure}")
-                        } catch (_: Throwable) {}
-                    }
                 } catch (e: Exception) {
-                    ErrorLogger.debug("BotService", "AntiChoke/ThroughputSelfRelief tick error: ${e.message}")
+                    ErrorLogger.debug("BotService", "AntiChoke tick error: ${e.message}")
                 }
 
                 // V5.9.439 — LEARNING TRANSPARENCY LOG (~every 5 min).
@@ -14629,46 +13957,13 @@ class BotService : Service() {
                 }
             }
             
-            // V5.0.6120e — BACKTEST 10× FASTER + DEEPER. Operator directive:
-            // "the backtest module is meant to run against all of our previous
-            // trades. it learns patterns, movements, token metrics, winners
-            // and losers but on different buy and sell strategies! its
-            // literally meant to run all the time."
-            //
-            // Old cadence was loopCount % 300 (~5 hours at 1 min/loop, worse
-            // on high-load cycles) — meaning the pattern tuner + auto-tuner
-            // + cloud sync only fired 4-5x per day. Now every 30 loops (~5
-            // min bounded, but paced so we skip if a prior run is still in
-            // flight). The heavy lift is 500-1000ms of cursor + math which
-            // is cheap vs the compounding edge from faster feedback.
-            if (loopCount % 30 == 0 && loopCount > 0 && !backtestInFlight6120e.get()) {
-                backtestInFlight6120e.set(true)
+            // Pattern Backtest - Run daily (every ~1440 loops at 1min intervals, or ~320 at 45s)
+            // This analyzes historical trades to find which patterns work best
+            if (loopCount % 300 == 0 && loopCount > 0) {
                 scope.launch {
                     try {
                         tradeDb?.let { db ->
                             val report = PatternBacktester.runBacktest(db)
-                            // V5.0.6120h — recompute Green-EV Lane Governor from
-                            // the same 30-loop cadence. Feeds the last 200 live
-                            // sells into the per-lane rolling EV computer and
-                            // publishes any newly-paused lanes to LabRecoveryHintQueue.
-                            try {
-                                val recentSells = com.lifecyclebot.engine.TradeHistoryStore
-                                    .getRecentValidClosedTradesRaw(200)
-                                    .filter { it.tradingMode.isNotBlank() && it.mode.equals("live", true) }
-                                val regime = try { RegimeDetector.currentRegime() } catch (_: Throwable) { RegimeDetector.Regime.NORMAL }
-                                val isChop = regime == RegimeDetector.Regime.CHOP
-                                // Blended WR fallback: compute directly off the sample rather than
-                                // depend on PerformanceAnalytics availability.
-                                val wrSample = recentSells.take(200)
-                                val blendedWr = if (wrSample.isNotEmpty()) {
-                                    wrSample.count { it.pnlPct > 5.0 }.toDouble() / wrSample.size.toDouble()
-                                } else 1.0
-                                com.lifecyclebot.engine.GreenEvLaneGovernor.recompute(
-                                    recentSells = recentSells,
-                                    regimeIsChop = isChop,
-                                    blendedWr = blendedWr,
-                                )
-                            } catch (_: Throwable) { /* governor is advisory */ }
                             if (report.totalTrades >= 10) {
                                 addLog("═══════════════════════════════════════════")
                                 addLog("📊 PATTERN BACKTEST (${report.totalTrades} trades)")
@@ -14716,8 +14011,6 @@ class BotService : Service() {
                         }
                     } catch (e: Exception) {
                         ErrorLogger.error("Backtest", "Pattern backtest error: ${e.message}")
-                    } finally {
-                        backtestInFlight6120e.set(false)
                     }
                 }
             }
@@ -14741,14 +14034,6 @@ class BotService : Service() {
                     // rate-limited to every 30s. Auto-pauses proven-toxic lanes
                     // (n>=15 && wins=0) OR (n>=20 && wr<20% && ev<=-40%).
                     try { LaneAutoPauseGuard.evaluateLive() } catch (_: Throwable) {}
-
-                    // V5.0.6218 — LIVE-MODE AUTO-PAUSE GUARD.
-                    // Operator directive: bot is losing money live despite the
-                    // AI stack. Flip LIVE→PAPER when cleanLive WR < 20% for
-                    // 10 consecutive 30s ticks, auto-resume when post-flip
-                    // paper WR >= 25% for 10 ticks. Only flips paperMode —
-                    // never touches lane config.
-                    try { LiveModeAutoPauseGuard.evaluate(this@BotService) } catch (_: Throwable) {}
 
                     // V5.0.4590 — LANE SHADOW-PROOF LOOP. Cheap; internally
                     // rate-limited to every 5min. Auto-resumes paused lanes
@@ -14826,14 +14111,14 @@ class BotService : Service() {
                             RunTracker30D.syncBalance(balanceSol)
                         }
 
-                        // V5.9.399 / V5.0.6107 — back-fund the paper wallet from
-                        // treasury when it dries up. Only paper mode (live treasury
-                        // is on-chain locked, not auto-pullable). Floor = 20% of
-                        // configured starting capital so paper can keep training
-                        // compounding-size entries after 6106 economic sizing.
+                        // V5.9.399 — back-fund the paper wallet from treasury
+                        // when it dries up. Only paper mode (live treasury is
+                        // on-chain locked, not auto-pullable). Floor = 10% of
+                        // configured starting capital. Runs every 5 loops to
+                        // smooth out churn.
                         if (cfg.paperMode && loopCount % 5 == 0) {
                             try {
-                                val floor = (cfg.paperSimulatedBalance * 0.20).coerceAtLeast(1.0)
+                                val floor = (cfg.paperSimulatedBalance * 0.10).coerceAtLeast(1.0)
                                 val pulled = TreasuryManager.backFundPaperWalletIfLow(
                                     walletSol = balanceSol,
                                     floorSol  = floor,
@@ -16452,7 +15737,7 @@ if (hotExitHandledSweep) {
     // pumpfun 766ms) pushes per-token p95 past 5s. 8s lets real work complete while
     // still bounding stuck IO well inside the cycle cadence. workerTimeout=15 (real
     // timeouts) vs 668 force-releases proves most workers were NOT genuinely stuck.
-    private val SUPERVISOR_WORKER_TIMEOUT_MS: Long = 9_000L  // V5.0.6231: reverted 6228g change of 6s. Operator reported 'not buying, scanner empty' — the tighter 6s ceiling likely killed intake workers before they could complete during API-degraded periods (Jupiter 5xx storm, GT 3.3s avg). 9s original ceiling gives HTTP+parse enough breathing room.
+    private val SUPERVISOR_WORKER_TIMEOUT_MS: Long = 9_000L
     // V5.9.1180 — timeout quarantine is per-mint, not global scanner pruning.
     // 3145 showed workerTimeout=239 while WATCHLIST_RR kept reselecting the
     // same slow/no-pair/API-wedged mints. Re-spawning those mints every 5s burns
@@ -17944,19 +17229,7 @@ if (hotExitHandledSweep) {
         DistributionFadeAvoider.FadeResult(false, null, 1.0, 0L)
     }
     
-    val distributionHardSafety6145 = distributionCheck.shouldBlock && !ts.position.isOpen && (
-        distributionCheck.reason?.contains("DRAIN", ignoreCase = true) == true ||
-        distributionCheck.reason?.contains("STOP_LOSS_COOLDOWN", ignoreCase = true) == true
-    )
-    val distributionPivotOnly6145 = distributionCheck.shouldBlock && !distributionHardSafety6145 && !ts.position.isOpen
-    if (distributionPivotOnly6145) {
-        ts.phase = "distribution_pivot"
-        try {
-            ForensicLogger.lifecycle("DISTRIBUTION_FADE_LANE_PIVOT_6145", "symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=${distributionCheck.reason?.take(80)} scoreMult=${"%.2f".format(distributionCheck.scoreMultiplier)} hardSafety=false lane_local_pivot=true")
-            PipelineHealthCollector.labelInc("DISTRIBUTION_FADE_LANE_PIVOT_6145")
-        } catch (_: Throwable) {}
-    }
-    if (distributionHardSafety6145) {
+    if (distributionCheck.shouldBlock && !ts.position.isOpen) {
         ErrorLogger.info("BotService", "🔻 ${ts.symbol} DISTRIBUTION_FADE: ${distributionCheck.reason}")
         ts.phase = "distributing"   // V5.9.407 — surface gate reason in UI
         // V5.9.495z50 — operator log 17:43 evidence:
@@ -18086,8 +17359,7 @@ if (hotExitHandledSweep) {
     } catch (_: Throwable) {}
 
     // Apply distribution penalty to mode classification confidence
-    val distributionScoreMultiplier6145 = if (distributionPivotOnly6145) distributionCheck.scoreMultiplier.coerceAtLeast(0.35) else distributionCheck.scoreMultiplier
-    val adjustedModeConfidence = modeClassification.confidence * distributionScoreMultiplier6145
+    val adjustedModeConfidence = modeClassification.confidence * distributionCheck.scoreMultiplier
     
     // Apply liquidity bucket size multiplier
     val liqSizeMultiplier = liquidityBucket?.maxSizeMultiplier ?: 1.0
@@ -21415,19 +20687,15 @@ if (hotExitHandledSweep) {
             // the check to the top of the EXPRESS path so paused lanes cost
             // us nothing.
             if (LaneAutoPauseGuard.isPaused("EXPRESS")) {
-                // V5.0.6112 — SOFT-SHAPE: don't skip the EXPRESS block entirely.
-                // Log the pause but let the candidate flow through at reduced size.
                 try {
                     ForensicLogger.lifecycle(
-                        "EXPRESS_LANE_PAUSED_SOFT_ALLOW_6112",
-                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=lane_auto_paused action=continue_0.35x",
+                        "EXPRESS_LANE_PAUSED_EARLY_GATE_4594",
+                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=lane_auto_paused",
                     )
-                    PipelineHealthCollector.labelInc("EXPRESS_LANE_PAUSED_SOFT_ALLOW_6112")
+                    PipelineHealthCollector.labelInc("EXPRESS_LANE_PAUSED_EARLY_GATE_4594")
                 } catch (_: Throwable) {}
-                // Fall through to EXPRESS evaluation — discipline recovery probe
-                // in doBuy() will apply 0.35x sizing.
-            }
-            // V5.0.6112 — always evaluate EXPRESS (paused or not)
+                // skip the entire EXPRESS block for this token
+            } else {
             val expressLaneAllowedThisCycle = !ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "EXPRESS", cyclePrimaryLane)
             if (expressLaneAllowedThisCycle && com.lifecyclebot.v3.scoring.ShitCoinExpress.isEnabled()) {
                 try {
@@ -21679,7 +20947,7 @@ if (hotExitHandledSweep) {
                     ErrorLogger.debug("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | ERROR | ${expEx.message}")
                 }
             }
-            // V5.0.6112 — old else{} closing brace removed (else block was eliminated)
+            } // V5.0.4594 — close EXPRESS lane-paused else{} early-gate
             // ═══════════════════════════════════════════════════════════════════
             // END ShitCoin Express evaluation
             // ═══════════════════════════════════════════════════════════════════
@@ -21768,21 +21036,11 @@ if (hotExitHandledSweep) {
                         //          toxic AND score<30 — sufficient samples exist,
                         //          more losses add zero information. Unproven
                         //          bands keep learning (6069 doctrine preserved).
-                        //
-                        // V5.0.6201 — RELAX LIVE ASYMMETRY. Old live rule
-                        // (score<30 OR isDanger) was too draconian. Report
-                        // 2026-07-08 shows live is bleeding partly because
-                        // score=30-39 danger bands (which may have RECOVERED
-                        // as regime shifted) are blocked on principle. New
-                        // live rule: block score<20 (still-garbage) OR
-                        // (isDanger AND score<40) (unrecovered danger).
-                        // Score>=40 danger bands are ALLOWED — the size shapers
-                        // + FDG + lane tuner handle sizing.
                         val _sniperIsPaper6072 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { cfg.paperMode }
                         val _sniperBlocked6072 = if (_sniperIsPaper6072) {
                             _sniperIsDanger && _sniperScore < 30
                         } else {
-                            _sniperScore < 20 || (_sniperIsDanger && _sniperScore < 40)
+                            _sniperScore < 30 || _sniperIsDanger
                         }
                         if (_sniperBlocked6072) {
                             ErrorLogger.info("BotService",
@@ -23240,15 +22498,6 @@ if (hotExitHandledSweep) {
         val shouldExecute = useV3Decision || fdgDecision.canExecute()
         
         if (shouldExecute) {
-            // V5.0.6190 — same-mint executable fanout guard. Runtime 6189a
-            // screenshots/report showed one mint flowing through QUALITY and
-            // BLUECHIP in the same second, creating duplicate EXEC_TICKET rows and
-            // downstream reentry-lockout churn. Claim before the executor handoff.
-            if (!FdgReEvalThrottle.tryClaimExecutable6190(identity.mint)) {
-                try { PipelineHealthCollector.labelInc("FDG_EXECUTABLE_FANOUT_SUPPRESSED_6190") } catch (_: Throwable) {}
-                try { ForensicLogger.lifecycle("FDG_EXECUTABLE_FANOUT_SUPPRESSED_6190", "mint=${identity.mint.take(10)} symbol=${identity.symbol} v3=$useV3Decision reason=same_mint_executable_claim_active") } catch (_: Throwable) {}
-                return
-            }
             // ═══════════════════════════════════════════════════════════════════
             // RECORD PROPOSAL: Track that we proposed (for dedupe)
             // Moved here from before FDG to prevent self-blocking
@@ -23320,18 +22569,7 @@ if (hotExitHandledSweep) {
             
             // V5.9.173 — paper mode bypasses the pause guard. Learning
             // must never stop in paper. Live stays gated for safety.
-            // V5.0.6111 — CIRCUIT BREAKER PAUSE IS TELEMETRY ONLY.
-            // The SecurityGuard comment says "telemetry only, live entries stay
-            // enabled" but the code was actually blocking ALL live entries when
-            // consecutive losses >= 5. With a 22-loss streak, the 30s pause kept
-            // renewing on every new loss, making the bot permanently unable to buy.
-            // This killed EXEC=0 for live mode. Now soft-shape only: log the pause
-            // but never block the executor call.
-            val pauseBlocks = false
-            if (cbState.isPaused && !cfg.paperMode) {
-                try { PipelineHealthCollector.labelInc("CIRCUIT_BREAKER_PAUSE_SOFT_ALLOW_6111") } catch (_: Throwable) {}
-                try { ForensicLogger.lifecycle("CIRCUIT_BREAKER_PAUSE_SOFT_ALLOW_6111", "consecutiveLosses=${cbState.consecutiveLosses} pauseRemainingMs=${cbState.pauseRemainingMs} — entries NOT blocked") } catch (_: Throwable) {}
-            }
+            val pauseBlocks = !cfg.paperMode && cbState.isPaused
             if (!cbState.isHalted && !pauseBlocks) {
                 ErrorLogger.info("BotService", "🧬 MEME_SPINE EXECUTOR_ROUTE ${identity.symbol} | paper=${cfg.paperMode} | v3=$useV3Decision | size=${actualInitialSize.fmt(4)} | wallet=${effectiveBalance.fmt(4)} | auto=${cfg.autoTrade}")
                 // V5.9.683 — wire EXEC forensic counter so PipelineHealth EXEC tile is non-zero.
@@ -25295,99 +24533,11 @@ if (hotExitHandledSweep) {
         )
     }
 
-    // V5.0.6222 — per-mint fallback price cache. V5.0.6220 promoted Jupiter
-    // Price v3 and DIA to top of the chain, but on hot loops this hammered
-    // both providers (jupiter dropped 100%→73%, DIA 0% with 4xx=11 likely
-    // rate-limit). Cache last successful fallback price for 60s so a
-    // scanner burst on the same mints doesn't burn the free-tier quota.
-    //
-    // V5.0.6223 — SPLIT TTL for OPEN vs SCANNER mints. Operator report showed
-    // "heaps of buys 0 sells" with all paper positions frozen at stale marks
-    // (e.g. 0.008). Root cause: the 60s TTL applied uniformly meant any mint
-    // with an open position (i.e. a mint whose exit gate is being polled)
-    // was served the SAME cached price for a full minute, so TP/SL never
-    // saw a fresh tick to fire against. Fix: 5s TTL when the mint has an
-    // open position (matches the ~1Hz open-position tick cadence and stays
-    // well within Jupiter's 60/min free-tier limit), 60s TTL otherwise for
-    // scanner-only lookups where freshness doesn't matter as much.
-    private val fallbackPriceCache6222 = java.util.concurrent.ConcurrentHashMap<String, Pair<Double, Long>>()
-    private val FALLBACK_CACHE_TTL_MS_6222 = 60_000L
-    private val FALLBACK_CACHE_TTL_MS_OPEN_6223 = 5_000L
-
     private fun tryFallbackPriceData(mint: String, ts: TokenState): Boolean {
-        // Cache short-circuit — cheap wins for repeated lookups.
-        val cached = fallbackPriceCache6222[mint]
-        val ttl6223 = if (ts.position.isOpen) FALLBACK_CACHE_TTL_MS_OPEN_6223 else FALLBACK_CACHE_TTL_MS_6222
-        if (cached != null && (System.currentTimeMillis() - cached.second) < ttl6223) {
-            synchronized(ts) {
-                ts.lastPrice = cached.first
-                ts.lastPriceUpdate = System.currentTimeMillis()
-                ts.lastPriceSource = "FALLBACK_CACHE_6222"
-            }
-            return true
-        }
-        // V5.0.6220 — API REPLACEMENT (operator: "birdeye theres already
-        // alternatives games as dex screener. you glazed over it!!! find
-        // the right apis!!!"). Fallback order rewritten:
-        //   1) Jupiter Price v3 (100% SR, keyless, current healthy provider)
-        //   2) DIA (diadata.org, free, keyless, no registration, 3000+ tokens)
-        //   3) DexScreener token-address (only if SR >= 50%, else skipped)
-        //   4) Pump.fun (V5.9.744 legacy path)
-        // Birdeye is REMOVED from the fallback chain — the 401 key is
-        // permanently dead until operator rotates. Old Birdeye/BirdeyeOracle
-        // calls stay compiled but no longer reached from this hot path.
-        // V5.0.6227 — scanner-path lookups yield to the shared 60/min Jupiter
-        // budget (op report: ~85 calls/min → 5xx=261). Open-position marks
-        // keep unconditional priority so exit sweeps never starve.
-        val jupBudgetOk6227 = ts.position.isOpen ||
-            (try { com.lifecyclebot.engine.RateLimiter.allowRequest("jupiter") } catch (_: Throwable) { true })
-        if (!jupBudgetOk6227) {
-            try { com.lifecyclebot.engine.ApiHealthMonitor.recordThrottled("jupiter") } catch (_: Throwable) {}
-        } else try {
-            val jupUrl = "https://lite-api.jup.ag/price/v3?ids=$mint"
-            val effective = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(jupUrl) } catch (_: Throwable) { jupUrl }
-            val jupClient = com.lifecyclebot.network.SharedHttpClient.builder()
-                .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
-                .build()
-            val jupReq = okhttp3.Request.Builder().url(effective).header("accept", "application/json").build()
-            val jupStart = System.currentTimeMillis()
-            val jupResp = jupClient.newCall(jupReq).execute()
-            try { com.lifecyclebot.engine.ApiHealthMonitor.record("jupiter", jupResp.code, System.currentTimeMillis() - jupStart) } catch (_: Throwable) {}
-            if (jupResp.isSuccessful) {
-                val body = jupResp.body?.string().orEmpty()
-                val json = try { org.json.JSONObject(body) } catch (_: Throwable) { null }
-                val entry = json?.optJSONObject(mint) ?: json?.optJSONObject("data")?.optJSONObject(mint)
-                val priceUsd = entry?.optDouble("usdPrice", entry.optDouble("price", 0.0)) ?: 0.0
-                if (priceUsd > 0.0) {
-                    synchronized(ts) {
-                        ts.lastPrice = priceUsd
-                        ts.lastPriceUpdate = System.currentTimeMillis()
-                        ts.lastPriceSource = "JUPITER_PRICE_V3_6219"
-                    }
-                    broadcastFallbackPrice(mint, priceUsd)
-                    fallbackPriceCache6222[mint] = priceUsd to System.currentTimeMillis()
-                    addLog("🪐 Jupiter Price v3: ${ts.symbol} \$${priceUsd}", mint)
-                    return true
-                }
-            }
-        } catch (_: Throwable) {}
-
-        // V5.0.6222 — DIA REMOVED. Endpoint /v1/assetQuotation/Solana/<mint>
-        // returns 4xx for SPL token mints (DIA's Solana feed covers native
-        // assets like SOL/USDT, not arbitrary SPL mints). Op-report V5.0.6220
-        // showed dia sr=0% with 4xx=11. Falling through directly to
-        // DexScreener-with-SR-gate + BirdeyeOracle chain below.
-
-        // Birdeye path REMOVED in V5.0.6220 — operator's Birdeye key is
-        // permanently 401'd and there's no self-heal path. Left the
-        // BirdeyeApi class compiled so quorum/telemetry callers still work,
-        // but the fallback price chain no longer reaches it.
+        // Try Birdeye first
         try {
             val cfg2 = ConfigStore.load(applicationContext)
-            val birdeyeStillLive = try { com.lifecyclebot.engine.KeyValidator.isLive("birdeye") } catch (_: Throwable) { false }
-            if (birdeyeStillLive && cfg2.birdeyeApiKey.isNotBlank()) {
-                val ov = com.lifecyclebot.network.BirdeyeApi(cfg2.birdeyeApiKey).getTokenOverview(mint)
+            val ov = com.lifecyclebot.network.BirdeyeApi(cfg2.birdeyeApiKey).getTokenOverview(mint)
             if (ov != null && ov.priceUsd > 0) {
                 synchronized(ts) {
                     ts.lastPrice = ov.priceUsd
@@ -25411,22 +24561,13 @@ if (hotExitHandledSweep) {
                 addLog("📡 Birdeye: ${ts.symbol} \$${ov.priceUsd}", mint)
                 return true
             }
-            }
         } catch (_: Exception) {}
 
         // V5.9.423 — DexScreenerOracle (separate code path from dex.getBestPair,
         // different endpoint, different cache). When the pair-based call fails
         // this token-address call often still returns — DexScreener caches
         // token-level and pair-level data independently.
-        // V5.0.6220 — HARD SR GATE. DexScreener has been at sr=31-38% with
-        // 316-2270× 5xx per session. When SR is bad we STOP calling it
-        // instead of hammering the same dead endpoint. Jupiter + DIA above
-        // have already served the price if it was gettable.
-        val dsHealthy6220 = try {
-            val sr = com.lifecyclebot.engine.ApiHealthMonitor.successRate("dexscreener")
-            sr < 0.0 || sr >= 0.50
-        } catch (_: Throwable) { true }
-        if (dsHealthy6220 && (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L)) {
+        if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
             try {
                 val priceUsd = kotlinx.coroutines.runBlocking {
                     kotlinx.coroutines.withTimeoutOrNull(2000L) {

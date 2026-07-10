@@ -55,26 +55,7 @@ object OpenPnlSanity {
         val cSrc = currentSource.trim().uppercase()
         val sameSource = eSrc.isNotBlank() && cSrc.isNotBlank() && eSrc == cSrc
         val samePool = entryPool.isNotBlank() && currentPool.isNotBlank() && entryPool == currentPool
-        // V5.0.6116 — REMOVED priceBasisRescaled from explicitComparable.
-        // Root bug: priceBasisRescaled is stamped true at ordinary live-buy proof
-        // confirmation (Executor LIVE_PROOF_COST_BASIS) and wallet-rehydration
-        // recovery (BotService HOST_WALLET_TRACKER_REHYDRATED) — NOT only at the
-        // genuine cross-source rebase event it was designed for. Because the flag
-        // never resets, once ANY of those routine events fires (virtually every
-        // live position, at buy time), explicitComparable became permanently true
-        // for that position's entire remaining life — waiving the extreme-ratio
-        // (51x) and extreme-pnl (5000%) numeric safety net forever. Any later
-        // entryPrice corruption (decimals bug, residual-cost-basis-after-partials
-        // shrink, stale mcap pivot) then displayed as a fictional giant "gain%"
-        // in Open Positions (operator report: ANSEM shown +1000% unrealized,
-        // then closed at real -3.7%/-0.11 SOL — the 1000% was never real).
-        // Fix: comparability now requires a genuine same-source or same-pool
-        // match against the CURRENT live tick. Real trustworthy live positions
-        // naturally regain sameSource once ROUTE_LOCK_SELF_HEAL upgrades
-        // entryPriceSource to match the live route (see Executor.kt), so this
-        // does not punish legitimate winners — it only removes the permanent
-        // bypass that let corrupted bases paint fake extreme gains as trusted.
-        val explicitComparable = samePool || sameSource
+        val explicitComparable = samePool || sameSource || priceBasisRescaled
         val syntheticInvolved = eSrc.contains("SYNTH") || cSrc.contains("SYNTH") || eSrc.contains("PUMP_FUN_BC") || cSrc.contains("PUMP_FUN_BC")
 
         if (ratio > MAX_UNKNOWN_BASIS_RATIO && (!explicitComparable || syntheticInvolved)) {
@@ -121,35 +102,6 @@ object OpenPnlSanity {
                 try { PipelineHealthCollector.labelInc("ENTRY_PRICE_HEALED_FROM_COST_QTY_6050") } catch (_: Throwable) {}
                 reconstructed
             } else pos.entryPrice
-        }
-        // V5.0.6195 — RECOVERED-ZOMBIE HEAL. Report 2026-07-08 shows
-        // RECOVERED_2xKQg4 with entryPrice=0 AND costSol=0 AND current=0
-        // spamming OPEN_PNL_BASIS_REJECTED every tick forever. The position
-        // came from wallet reconciliation with no bot-side entry data. Rather
-        // than let it starve a slot, fall back to highestPrice (which the
-        // wallet reconciler may have populated from any recent quote) or to
-        // 1e-9 as a last-resort synthetic basis. Synthetic basis lets PnL
-        // resolve to a small neutral figure so downstream stale-position
-        // sweep logic (Executor.DEAD_TOKEN_NO_PRICE_EXIT at pos age >= 15min)
-        // can finally free the slot instead of forever rejecting.
-        else if (pos.highestPrice.isFinite() && pos.highestPrice > 0.0) {
-            try { PipelineHealthCollector.labelInc("ENTRY_PRICE_HEALED_FROM_HIGHEST_6195") } catch (_: Throwable) {}
-            pos.highestPrice
-        } else if (currentPrice.isFinite() && currentPrice > 0.0) {
-            try { PipelineHealthCollector.labelInc("ENTRY_PRICE_HEALED_FROM_CURRENT_6195") } catch (_: Throwable) {}
-            currentPrice
-        } else if (pos.qtyToken > 1.0) {
-            // V5.0.6197 — LAST-RESORT SYNTHETIC BASIS. Report 2026-07-08 05:56
-            // shows RECOVERED_2xKQg4 has entryPrice=0 AND costSol=0 AND
-            // currentPrice=0 AND highestPrice=0 — every heal path above fails
-            // and the position spam-rejects OPEN_PNL_BASIS_REJECTED forever,
-            // permanently occupying a live-open slot. Synthetic 1e-9 basis
-            // lets PnL resolve (usually as ~0% or ~-100% depending on the
-            // eventual quote) so Executor's stale-position sweep can finally
-            // free the slot. This is safe because it only triggers when
-            // ALL price paths have failed.
-            try { PipelineHealthCollector.labelInc("ENTRY_PRICE_HEALED_SYNTHETIC_6197") } catch (_: Throwable) {}
-            1e-9
         } else pos.entryPrice
         return inspect(
             entryPrice = healedEntryPrice,

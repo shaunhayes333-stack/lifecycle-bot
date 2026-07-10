@@ -78,14 +78,6 @@ object WalletReconciler {
             val (uiAmount, decimals) = pair
             val rawApprox = (uiAmount * Math.pow(10.0, decimals.toDouble())).toLong()
             if (rawApprox <= DUST_RAW) continue
-            if (isWalletMintIgnored6187(mint)) {
-                knownMints.remove(mint)
-                try { status.tokens[mint]?.let { it.position = it.position.copy(qtyToken = 0.0, pendingVerify = false) } } catch (_: Throwable) {}
-                try { HostWalletTokenTracker.abandonUnsellableQuarantined(mint, "WALLET_RECONCILE_IGNORED_QUARANTINED_6187") } catch (_: Throwable) {}
-                try { PipelineHealthCollector.labelInc("WALLET_RECONCILE_IGNORED_QUARANTINED_6187") } catch (_: Throwable) {}
-                try { ForensicLogger.lifecycle("WALLET_RECONCILE_IGNORED_QUARANTINED_6187", "mint=${mint.take(10)} ui=$uiAmount reason=quarantine_or_blacklist") } catch (_: Throwable) {}
-                continue
-            }
             val ts = status.tokens[mint]
             if (ts != null && ts.position.isOpen) {
                 // Already tracked — bring qty up to wallet truth if drifted.
@@ -158,33 +150,6 @@ object WalletReconciler {
         return changes
     }
 
-
-    private fun isWalletMintIgnored6187(mint: String): Boolean {
-        if (mint.isBlank()) return true
-        return try { QuarantineStore.isQuarantined(mint) } catch (_: Throwable) { false } ||
-            try { TokenBlacklist.isBlocked(mint) } catch (_: Throwable) { false } ||
-            try { BannedTokens.isBanned(mint) } catch (_: Throwable) { false }
-    }
-
-    private fun quarantineZeroBasisNoRouteRecovered6187(status: BotStatus, mint: String, ts: TokenState, uiAmount: Double): Boolean {
-        val reason = "WALLET_RECOVERED_ZERO_BASIS_NO_ROUTE_IGNORE_6187"
-        return try {
-            TokenBlacklist.block(mint, reason)
-            QuarantineStore.quarantine(mint, ts.symbol, reason)
-            try { BannedTokens.ban(mint, reason) } catch (_: Throwable) {}
-            try { PendingSellQueue.remove(mint) } catch (_: Throwable) {}
-            try { HostWalletTokenTracker.abandonUnsellableQuarantined(mint, reason) } catch (_: Throwable) {}
-            try { TokenLifecycleTracker.purgeTerminalRecord(mint) } catch (_: Throwable) {}
-            try { PositionCloseLedger.markClosed(mint, "ABANDONED_ZERO_BASIS_NO_ROUTE_6187", 0) } catch (_: Throwable) {}
-            ts.position = ts.position.copy(qtyToken = 0.0, pendingVerify = false)
-            synchronized(status.tokens) { status.tokens.remove(mint) }
-            knownMints.remove(mint)
-            PipelineHealthCollector.labelInc("WALLET_RECOVERED_ZERO_BASIS_NO_ROUTE_IGNORED_6187")
-            ForensicLogger.lifecycle("WALLET_RECOVERED_ZERO_BASIS_NO_ROUTE_IGNORED_6187", "mint=${mint.take(10)} symbol=${ts.symbol} qty=$uiAmount action=quarantine_ignore_no_recovery_slot")
-            true
-        } catch (_: Throwable) { false }
-    }
-
     /**
      * Public helper — true if this mint is currently held in the wallet OR
      * tracked as an open position. Used by V3 eligibility / ALREADY_OPEN
@@ -227,27 +192,25 @@ object WalletReconciler {
         // ORIGINAL entry price, cost basis, lane, score and timestamps.
         val saved6076 = try { PositionPersistence.loadPositions()[mint] } catch (_: Throwable) { null }
         val now = System.currentTimeMillis()
-        val savedKnownBasis6102 = saved6076?.takeIf { it.entryPrice > 0.0 && it.costSol > 0.0 && !it.isPaperPosition }
-        val recoveredKnownBasis6102 = savedKnownBasis6102 != null
-        if (savedKnownBasis6102 != null) {
+        if (saved6076 != null && saved6076.entryPrice > 0.0 && saved6076.costSol > 0.0 && !saved6076.isPaperPosition) {
             ts.position = Position(
                 qtyToken = uiAmount,
-                entryPrice = savedKnownBasis6102.entryPrice,
-                entryTime = savedKnownBasis6102.entryTime.takeIf { it > 0L } ?: now,
-                costSol = savedKnownBasis6102.costSol,
-                highestPrice = maxOf(savedKnownBasis6102.highestPrice, savedKnownBasis6102.entryPrice),
-                lowestPrice = savedKnownBasis6102.lowestPrice.takeIf { it > 0.0 } ?: savedKnownBasis6102.entryPrice,
-                entryPhase = savedKnownBasis6102.entryPhase.ifBlank { "RESTORED" },
-                entryScore = savedKnownBasis6102.entryScore,
+                entryPrice = saved6076.entryPrice,
+                entryTime = saved6076.entryTime.takeIf { it > 0L } ?: now,
+                costSol = saved6076.costSol,
+                highestPrice = maxOf(saved6076.highestPrice, saved6076.entryPrice),
+                lowestPrice = saved6076.lowestPrice.takeIf { it > 0.0 } ?: saved6076.entryPrice,
+                entryPhase = saved6076.entryPhase.ifBlank { "RESTORED" },
+                entryScore = saved6076.entryScore,
                 isPaperPosition = false,
-                tradingMode = savedKnownBasis6102.tradingMode.ifBlank { "STANDARD" },
-                tradingModeEmoji = savedKnownBasis6102.tradingModeEmoji.ifBlank { "💾" },
+                tradingMode = saved6076.tradingMode.ifBlank { "STANDARD" },
+                tradingModeEmoji = saved6076.tradingModeEmoji.ifBlank { "💾" },
                 pendingVerify = false,
             )
             try {
                 ForensicLogger.lifecycle(
                     "ORPHAN_RECOVERY_METADATA_REUNIFIED_6076",
-                    "mint=${mint.take(10)} symbol=${ts.symbol} lane=${savedKnownBasis6102.tradingMode} entry=${savedKnownBasis6102.entryPrice} cost=${savedKnownBasis6102.costSol} — original lane/basis restored, not WALLET_RECOVERED",
+                    "mint=${mint.take(10)} symbol=${ts.symbol} lane=${saved6076.tradingMode} entry=${saved6076.entryPrice} cost=${saved6076.costSol} — original lane/basis restored, not WALLET_RECOVERED",
                 )
                 PipelineHealthCollector.labelInc("ORPHAN_RECOVERY_METADATA_REUNIFIED_6076")
             } catch (_: Throwable) {}
@@ -272,31 +235,12 @@ object WalletReconciler {
             tradingModeEmoji = "🔄",
             pendingVerify = false,
         )
-        // V5.0.6190 — fake-basis recovered orphan cleanup. Runtime 6189a UI showed
-        // HELD RECOVERED_* with costSol=0 and a tiny current-price-derived entry,
-        // so the old recoveredEntry<=0 test missed it. Unknown-cost recovered bags
-        // are not strategy positions; if there is no executable route proof, ignore
-        // them immediately instead of displaying basis-wait / consuming slots.
-        if (!TokenMapAuthority.executableForLiveBuy(ts) && quarantineZeroBasisNoRouteRecovered6187(status, mint, ts, uiAmount)) {
-            return
-        }
         }
         knownMints.add(mint)
-        // V5.0.6102 — zero-basis recovered wallet bags are not strategy
-        // positions. Holding them for 15 minutes created ENTRY_PRICE_INVALID
-        // local opens with cost=0, consuming live slots while contributing no
-        // accountable PnL. Known-basis recoveries still get the cautious grace;
-        // unknown-cost orphans are queued for scratch cleanup so any sellable
-        // value returns to wallet without poisoning learning.
-        if (recoveredKnownBasis6102) {
-            try { RecoveredHoldGuard.markRecovered(mint) } catch (_: Throwable) { }
-        } else {
-            try {
-                PendingSellQueue.add(mint, ts.symbol, "WALLET_RECOVERED_ZERO_BASIS_CLEANUP_6102")
-                ForensicLogger.lifecycle("WALLET_RECOVERED_ZERO_BASIS_CLEANUP_QUEUED_6102", "mint=${mint.take(10)} symbol=${ts.symbol} qty=$uiAmount reason=zero_cost_basis_slot_cleanup")
-                PipelineHealthCollector.labelInc("WALLET_RECOVERED_ZERO_BASIS_CLEANUP_QUEUED_6102")
-            } catch (_: Throwable) { }
-        }
+        // V5.0.4104 — Wave D: 15-min recovered-hold-grace per operator spec.
+        // Suppresses non-emergency sells while the bot gathers price proof
+        // and decides whether to manage or exit the recovered inventory.
+        try { RecoveredHoldGuard.markRecovered(mint) } catch (_: Throwable) { }
         LiveTradeLogStore.log(
             tradeKey = "RECONCILE_${mint.take(16)}",
             mint = mint, symbol = ts.symbol, side = "BUY",

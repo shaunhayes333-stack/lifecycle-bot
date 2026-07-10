@@ -135,14 +135,7 @@ object UnifiedPolicyHead {
         return sigmoid(z)
     }
 
-    private fun normalizeLane(lane: String): String {
-        // V5.0.6228g — normalize through LiveGrowthDoctrine canonicalLane so
-        // BLUE_CHIP / BLUECHIP / BLUE-CHIP all collapse to one lane head.
-        // Prior code kept them separate, splitting samples across BLUE_CHIP
-        // n=2 BOOTSTRAP + BLUECHIP n=1 BOOTSTRAP instead of BLUECHIP n=3.
-        val raw = lane.trim().uppercase().ifBlank { return "STANDARD" }
-        return try { LiveGrowthDoctrine.canonicalLane(raw) } catch (_: Throwable) { raw }
-    }
+    private fun normalizeLane(lane: String): String = lane.trim().uppercase().ifBlank { "STANDARD" }
 
     /** Lazily create a per-lane head, warm-started from the GLOBAL head's weights. */
     private fun getOrCreateLaneHead(lane: String): LaneHead {
@@ -220,47 +213,13 @@ object UnifiedPolicyHead {
             val h = laneHeads[laneKey]
             val auth = currentAuthority(laneKey)
             val trainedForRamp6077 = h?.trained ?: trained
-            // V5.0.6233 — TRADE-1 GLOBAL INHERITANCE. Operator: "paper boot
-            // strap needs full agi,llm and ssi control ... learning and
-            // controlling from trade 1. its starting too dumb." A lane head
-            // in BOOTSTRAP used to return neutral (1.0) or 0.25-damped
-            // conviction even when the GLOBAL head was LEARNED/AUTHORITATIVE
-            // with dozens of trained closes. Now an immature lane inherits
-            // the global head's knowledge at FULL strength until its own
-            // head reaches ADVISORY — the AGI is never dumb at trade 1 when
-            // it has global (or hive-synced) experience to draw from.
-            val globalAuth6233 = globalAuthority()
-            val globalInherit6233 = auth == AuthorityTier.BOOTSTRAP &&
-                (globalAuth6233 == AuthorityTier.LEARNED || globalAuth6233 == AuthorityTier.AUTHORITATIVE)
-            if (trainedForRamp6077 <= 0L && auth == AuthorityTier.BOOTSTRAP && !globalInherit6233) return 1.0
-            val p = if (!globalInherit6233 && h != null && h.trained >= 1L) rawProbLane(h, s.toArray()) else rawProbGlobal(s.toArray())
+            if (trainedForRamp6077 <= 0L && auth == AuthorityTier.BOOTSTRAP) return 1.0
+            val p = if (h != null && h.trained >= 1L) rawProbLane(h, s.toArray()) else rawProbGlobal(s.toArray())
             advisoryUsageCount.incrementAndGet()
-            val trade1Ramp6077 = when {
-                auth != AuthorityTier.BOOTSTRAP -> 1.0
-                globalInherit6233 -> 1.0
-                else -> (trainedForRamp6077.toDouble() / AUTHORITY_ADVISORY.toDouble()).coerceIn(0.25, 1.0)
-            }
-            val onlineConviction = (1.0 + (p - 0.5) * 1.6 * trade1Ramp6077).coerceIn(MULT_FLOOR, MULT_CAP)
-            // V5.0.6115 — LIFETIME EV BLEND. The online model only sees recent
-            // trades (31 for STANDARD, 1-4 for other lanes). It was cutting
-            // BLUECHIP (43.7% WR, +103% EV) and QUALITY (42% WR, +85% EV) by
-            // 30-40% based on a tiny recent sample. Now: check the full lifetime
-            // leaderboard. If the lane is profitable over >= 30 lifetime trades,
-            // the conviction floor is raised to 1.0 — the online model can boost
-            // profitable lanes higher but can NEVER cut them below neutral.
-            val lifetimeMetric6115 = try {
-                StrategyTelemetry.computeLeaderboard(environment = null, includePartials = false, limit = 2_500)
-                    .firstOrNull { it.strategy.equals(laneKey, ignoreCase = true) }
-            } catch (_: Throwable) { null }
-            if (lifetimeMetric6115 != null && lifetimeMetric6115.trades >= 30 &&
-                (lifetimeMetric6115.totalSolPnl > 0.0 || lifetimeMetric6115.meanPnlPct >= 20.0)) {
-                // lifetimeProfitable6115 — online model can boost above 1.0 but floor is 1.0 — no cut to winning lanes
-                val blended = onlineConviction.coerceAtLeast(1.0)
-                try { ForensicLogger.lifecycle("UPH_LIFETIME_BLEND_6115", "lane=$laneKey online=${"%.3f".format(onlineConviction)} lifetimeN=${lifetimeMetric6115.trades} lifetimeWR=${"%.1f".format(lifetimeMetric6115.winRatePct)}% lifetimeSol=${"%.4f".format(lifetimeMetric6115.totalSolPnl)} blended=${"%.3f".format(blended)}") } catch (_: Throwable) {}
-                blended
-            } else {
-                onlineConviction
-            }
+            val trade1Ramp6077 = if (auth == AuthorityTier.BOOTSTRAP)
+                (trainedForRamp6077.toDouble() / AUTHORITY_ADVISORY.toDouble()).coerceIn(0.25, 1.0)
+            else 1.0
+            (1.0 + (p - 0.5) * 1.6 * trade1Ramp6077).coerceIn(MULT_FLOOR, MULT_CAP)
         } catch (_: Throwable) { 1.0 }
     }
 
@@ -411,37 +370,7 @@ object UnifiedPolicyHead {
                 lo.optJSONArray("w")?.let { for (i in 0 until minOf(NF, it.length())) h.w[i] = it.optDouble(i, 0.0) }
                 lo.optJSONArray("fm")?.let { for (i in 0 until minOf(NF, it.length())) h.featMean[i] = it.optDouble(i, 0.5) }
                 h.brierSum = lo.optDouble("brierSum", 0.0); h.brierN = lo.optLong("brierN", 0L)
-                // V5.0.6228h — MERGE ON LOAD for canonical-lane collision.
-                // Persisted state may contain the pre-6228g uncanonicalized
-                // lane key (e.g. "BLUE_CHIP") alongside a fresh canonicalized
-                // head ("BLUECHIP"). Route load through normalizeLane so both
-                // heads collapse to a single canonical entry, summing their
-                // trained counts and Brier windows. Prior behaviour left
-                // duplicate heads polluting the per-lane weighting layer.
-                val canonicalKey = normalizeLane(key)
-                val existing = laneHeads[canonicalKey]
-                if (existing == null) {
-                    laneHeads[canonicalKey] = h
-                } else {
-                    // Weighted merge: proportional to trained sample counts.
-                    val totalN = (existing.trained + h.trained).coerceAtLeast(1L)
-                    val wA = existing.trained.toDouble() / totalN
-                    val wB = h.trained.toDouble() / totalN
-                    for (i in 0 until NF) {
-                        existing.w[i]        = existing.w[i]        * wA + h.w[i]        * wB
-                        existing.featMean[i] = existing.featMean[i] * wA + h.featMean[i] * wB
-                    }
-                    existing.bias    = existing.bias * wA + h.bias * wB
-                    existing.trained = existing.trained + h.trained
-                    existing.brierSum = existing.brierSum + h.brierSum
-                    existing.brierN   = existing.brierN + h.brierN
-                    try {
-                        ForensicLogger.lifecycle(
-                            "UNIFIED_POLICY_HEAD_LANE_MERGE_6228H",
-                            "from=$key into=$canonicalKey mergedTrained=${existing.trained}",
-                        )
-                    } catch (_: Throwable) {}
-                }
+                laneHeads[key] = h
             }
         } catch (_: Throwable) {}
     }

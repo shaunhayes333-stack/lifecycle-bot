@@ -40,10 +40,7 @@ object SsiPilotCouncil {
     const val VERSION = "V5.0.6073_SSI_PILOT"
     private const val PERSIST_KEY = "SSI_PILOT_DIRECTIVE"
     private const val CYCLE_MS = 5 * 60_000L
-    // V5.0.6233 — warmup 3min → 30s. Operator: "needs to be learning and
-    // controlling from trade 1". The LLM pilot now has hands on the stick
-    // before the first entries fire instead of 3 minutes into the session.
-    private const val WARMUP_MS = 30_000L
+    private const val WARMUP_MS = 3 * 60_000L
     private const val DIRECTIVE_TTL_MS = 45 * 60_000L
     private const val KNOWN_LANES = "MOONSHOT,SHITCOIN,EXPRESS,QUALITY,BLUECHIP,TREASURY,CASHGEN,MANIPULATED,DIP_HUNTER,PRESALE_SNIPE,STANDARD"
 

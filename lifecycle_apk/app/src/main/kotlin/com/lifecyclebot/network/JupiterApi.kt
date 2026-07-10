@@ -66,17 +66,8 @@ class JupiterApi(private val apiKey: String = "") {
         // Google, Quad9, and system DNS — Jupiter is retiring that host before Jan 31 2026.
         // New free tier endpoint (no API key) is lite-api.jup.ag/swap/v1.
         // Paths /quote and /swap stay the same.
-        //
-        // V5.0.6219 — API HEALTH RECOVERY. Op-report shows jupiter_quote sr=23%
-        // (4xx=142, 5xx=5, avg=4100ms). Jupiter deprecated `quote-api.jup.ag/v6`
-        // Oct 1, 2025 and started migrating free-tier calls to `api.jup.ag/swap/v1`
-        // with an API key. Our old Ultra primary (`api.jup.ag/swap/v2/order`) is
-        // paid tier and 4xx's on free plans, which is what's driving the failure
-        // rate. Fix: primary quote path is now `api.jup.ag/swap/v1/quote` (free
-        // tier + optional key). Fallback stays on lite-api until fully retired.
         private const val BASE_V6 = "https://lite-api.jup.ag/swap/v1"
         private const val BASE_URL = "https://api.jup.ag"
-        private const val PRIMARY_QUOTE_BASE = "$BASE_URL/swap/v1"
         private const val ORDER_ENDPOINT = "$BASE_URL/swap/v2/order"
         private const val EXECUTE_ENDPOINT = "$BASE_URL/swap/v2/execute"
 
@@ -86,75 +77,6 @@ class JupiterApi(private val apiKey: String = "") {
 
         @Volatile
         private var dnsStatusLogged = false
-
-        // V5.0.6234 — JUPITER 5xx STORM FIX (op-report 2026-07-11: sr=59%
-        // 4xx=6 5xx=164 thr=28). Root cause: primary base `api.jup.ag/swap/v1`
-        // was returning 5xx storms; fallback `lite-api.jup.ag/swap/v1` was
-        // never reached because both shared the same `jupiter_quote` backoff
-        // key AND the fallback was invoked serially AFTER the primary
-        // finished its retry ladder (doubling latency + failure rate).
-        //
-        // Fix: per-base local cooloff tracker. When a base sees 3+ consecutive
-        // 5xx failures within the last minute, DEMOTE it for 45s so the ladder
-        // skips it entirely and goes straight to the healthy base. Independent
-        // ApiHealthMonitor / ApiBackoff hosts per base (`jupiter_quote_pro`,
-        // `jupiter_quote_lite`) so one host's storm does not lock the other.
-        // A tiny 2s in-memory quote cache absorbs burst-duplicates.
-        private data class BaseHealth(
-            val fail5xx: java.util.concurrent.atomic.AtomicInteger = java.util.concurrent.atomic.AtomicInteger(0),
-            val cooloffUntilMs: java.util.concurrent.atomic.AtomicLong = java.util.concurrent.atomic.AtomicLong(0L),
-            val lastFailAtMs: java.util.concurrent.atomic.AtomicLong = java.util.concurrent.atomic.AtomicLong(0L),
-        )
-        private val baseHealth = java.util.concurrent.ConcurrentHashMap<String, BaseHealth>()
-        private fun healthFor(base: String): BaseHealth =
-            baseHealth.getOrPut(base) { BaseHealth() }
-
-        /** JUPITER_BASE_5XX_COOLDOWN_6234 — pause a base for this long after
-         *  a 5xx streak so hot buys/sells don't wait on a flailing upstream.
-         *  V5.0.6235 — tightened after op-report 2026-07-11 02:02 showed
-         *  sr improved 59%→73% but 5xx=125 remained (paid host was storming
-         *  for longer windows than the 45s cooloff). Trip faster (2 in 30s)
-         *  and cool off longer (90s) so the ladder decisively pivots to the
-         *  healthy lite host during extended outages. */
-        private const val BASE_COOLDOWN_MS_6234 = 90_000L
-        private const val BASE_5XX_STREAK_TRIP_6234 = 2
-        private const val BASE_5XX_STREAK_WINDOW_MS_6235 = 30_000L
-
-        private fun baseHealthy(base: String): Boolean {
-            val h = healthFor(base)
-            val until = h.cooloffUntilMs.get()
-            if (until > System.currentTimeMillis()) return false
-            return true
-        }
-        private fun markBase5xx(base: String) {
-            val h = healthFor(base)
-            val now = System.currentTimeMillis()
-            // V5.0.6235 — reset streak if last failure was outside the trip window.
-            if (now - h.lastFailAtMs.get() > BASE_5XX_STREAK_WINDOW_MS_6235) h.fail5xx.set(0)
-            h.lastFailAtMs.set(now)
-            val n = h.fail5xx.incrementAndGet()
-            if (n >= BASE_5XX_STREAK_TRIP_6234) {
-                h.cooloffUntilMs.set(now + BASE_COOLDOWN_MS_6234)
-                try {
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                        "JUPITER_BASE_5XX_COOLDOWN_6234",
-                        "base=$base streak=$n cooloffSec=${BASE_COOLDOWN_MS_6234 / 1000}"
-                    )
-                } catch (_: Throwable) {}
-            }
-        }
-        private fun markBaseOk(base: String) {
-            val h = healthFor(base)
-            if (h.fail5xx.get() > 0) h.fail5xx.set(0)
-            if (h.cooloffUntilMs.get() != 0L) h.cooloffUntilMs.set(0L)
-        }
-
-        // ── quote cache (V5.0.6234) — 2s TTL, collapses burst duplicates.
-        private data class CachedQuote(val at: Long, val q: SwapQuote)
-        private val quoteCache = java.util.concurrent.ConcurrentHashMap<String, CachedQuote>()
-        private const val QUOTE_CACHE_TTL_MS_6234 = 2_000L
-        private fun cacheKey(inputMint: String, outputMint: String, amountRaw: Long, slippageBps: Int) =
-            "$inputMint|$outputMint|$amountRaw|$slippageBps"
     }
 
     init {
@@ -190,160 +112,22 @@ class JupiterApi(private val apiKey: String = "") {
         require(outputMint.isNotBlank()) { "outputMint blank" }
         require(amountRaw > 0L) { "amountRaw must be > 0" }
 
-        // V5.0.6234 — 2s quote cache to collapse burst-duplicate quotes
-        // (scanner + exit sweep + price lock all fire in the same tick).
-        val ck = cacheKey(inputMint, outputMint, amountRaw, slippageBps)
-        quoteCache[ck]?.let { c ->
-            if (System.currentTimeMillis() - c.at < QUOTE_CACHE_TTL_MS_6234) {
-                return c.q
-            }
+        return try {
+            getUltraQuote(
+                inputMint = inputMint,
+                outputMint = outputMint,
+                amountRaw = amountRaw,
+            )
+        } catch (e: Exception) {
+            log("⚠️ v2 quote failed, falling back to v6: ${e.message}")
+            getQuoteV6(
+                inputMint = inputMint,
+                outputMint = outputMint,
+                amountRaw = amountRaw,
+                slippageBps = slippageBps,
+            )
         }
-
-        // V5.0.6234 — HEALTHY-BASE LADDER. Prefer paid `api.jup.ag/swap/v1`
-        // when the key is configured AND the base is healthy; otherwise fall
-        // straight through to the public `lite-api.jup.ag/swap/v1` free tier.
-        // Op-report showed api.jup.ag returning 5xx=164 while lite-api was
-        // relatively healthy — with per-base cooloff we skip the storming
-        // host instead of waiting on it and doubling failure rate.
-        val proBase = PRIMARY_QUOTE_BASE           // api.jup.ag/swap/v1  → jupiter_quote_pro
-        val liteBase = BASE_V6                     // lite-api.jup.ag/swap/v1 → jupiter_quote_lite
-        val ladder = buildList {
-            val proHealthy = baseHealthy(proBase)
-            val liteHealthy = baseHealthy(liteBase)
-            // If the paid host is unhealthy but lite is healthy, invert order.
-            if (apiKey.isNotBlank() && proHealthy) {
-                add(proBase to "jupiter_quote_pro")
-                add(liteBase to "jupiter_quote_lite")
-            } else if (liteHealthy) {
-                add(liteBase to "jupiter_quote_lite")
-                if (apiKey.isNotBlank()) add(proBase to "jupiter_quote_pro")
-            } else {
-                // Both cold — try lite first (public tier is generally more
-                // stable under Jupiter-side load).
-                add(liteBase to "jupiter_quote_lite")
-                add(proBase to "jupiter_quote_pro")
-            }
-        }
-
-        var lastErr: Exception? = null
-        for ((base, host) in ladder) {
-            if (!baseHealthy(base)) {
-                log("↷ Jupiter base skipped (5xx cooloff): $base")
-                continue
-            }
-            try {
-                val q = getQuoteFromBase(base, host, inputMint, outputMint, amountRaw, slippageBps)
-                quoteCache[ck] = CachedQuote(System.currentTimeMillis(), q)
-                markBaseOk(base)
-                return q
-            } catch (e: Exception) {
-                lastErr = e
-                val msg = e.message.orEmpty()
-                // Detect 5xx to trigger per-base cooloff.
-                if (msg.contains(" 5", true) &&
-                    (msg.contains(" 500") || msg.contains(" 502") || msg.contains(" 503") ||
-                     msg.contains(" 504") || msg.contains(" 599"))) {
-                    markBase5xx(base)
-                }
-                log("⚠️ Jupiter base $base failed (host=$host): ${msg.take(120)} — trying next base")
-            }
-        }
-        throw RuntimeException("Jupiter quote exhausted all bases: ${lastErr?.message}")
     }
-
-    /**
-     * V5.0.6234 — shared quote implementation used by both the free-tier
-     * primary (api.jup.ag/swap/v1) and the public fallback (lite-api.jup.ag/swap/v1).
-     * The route params + adaptive fallbacks are identical; only the base URL
-     * and per-host backoff/health label differ.
-     */
-    private fun getQuoteFromBase(
-        base: String,
-        host: String,
-        inputMint: String,
-        outputMint: String,
-        amountRaw: Long,
-        slippageBps: Int,
-    ): SwapQuote {
-        val startMs = System.currentTimeMillis()
-        val baseUrl = buildString {
-            append(base)
-            append("/quote?inputMint=").append(inputMint)
-            append("&outputMint=").append(outputMint)
-            append("&amount=").append(amountRaw)
-        }
-        val attempts = listOf(
-            "slippageBps=${slippageBps.coerceIn(50, 2500)}&restrictIntermediateTokens=true",
-            "slippageBps=${maxOf(slippageBps, 1500).coerceIn(50, 5000)}&restrictIntermediateTokens=false",
-            "slippageBps=${maxOf(slippageBps, 2500).coerceIn(50, 8000)}&onlyDirectRoutes=true",
-        )
-        var lastErr: Exception? = null
-        var body: String? = null
-        var picked = ""
-        for (params in attempts) {
-            val url = "$baseUrl&$params"
-            try {
-                log("📊 QUOTE (V5.0.6234) base=${shortBase(base)} host=$host: ${shortMint(inputMint)} -> ${shortMint(outputMint)} | amountRaw=$amountRaw params=$params")
-                body = getOrThrow(url, host)
-                picked = params
-                break
-            } catch (e: Exception) {
-                lastErr = e
-                val msg = e.message.orEmpty()
-                log("⚠️ Quote attempt failed base=${shortBase(base)} params=$params err=${msg.take(100)}")
-                // If this attempt was a 5xx, mark base immediately — don't
-                // burn all three adaptive attempts on a flailing host.
-                if (msg.contains(" 5", true) &&
-                    (msg.contains(" 500") || msg.contains(" 502") || msg.contains(" 503") ||
-                     msg.contains(" 504") || msg.contains(" 599"))) {
-                    markBase5xx(base)
-                    throw e
-                }
-            }
-        }
-        val elapsed = System.currentTimeMillis() - startMs
-        val json = JSONObject(body ?: throw RuntimeException("Jupiter quote exhausted adaptive fallbacks base=$base: ${lastErr?.message}"))
-        if (json.has("error")) {
-            throw RuntimeException("Jupiter quote error base=$base: ${json.optString("error", "unknown")}")
-        }
-        val outAmount = parseLongSafely(json.opt("outAmount"))
-        if (outAmount <= 0L) throw RuntimeException("Jupiter quote returned outAmount=0 base=$base")
-        val priceImpactPct = parseDoubleSafely(json.opt("priceImpactPct"))
-        val router = if (base == PRIMARY_QUOTE_BASE) "metis-v1" else "metis"
-        log("✅ QUOTE OK base=${shortBase(base)}: out=$outAmount impact=${fmt2(priceImpactPct)}% params=$picked (${elapsed}ms)")
-        return SwapQuote(
-            raw = json,
-            outAmount = outAmount,
-            priceImpactPct = priceImpactPct,
-            isUltra = false,
-            inputMint = inputMint,
-            outputMint = outputMint,
-            inAmount = amountRaw,
-            router = router,
-            isRfqRoute = false,
-        )
-    }
-
-    /**
-     * V5.0.6219 — Jupiter FREE-TIER primary quote path.
-     * Endpoint: https://api.jup.ag/swap/v1/quote (post-Oct 2025 free tier).
-     * Retained as a thin wrapper for callsites that historically used this
-     * name; V5.0.6234 unified it under getQuoteFromBase so per-host health
-     * and 5xx cooloff apply automatically.
-     */
-    private fun getQuoteV1Free(
-        inputMint: String,
-        outputMint: String,
-        amountRaw: Long,
-        slippageBps: Int,
-    ): SwapQuote = getQuoteFromBase(
-        base = PRIMARY_QUOTE_BASE,
-        host = "jupiter_quote_pro",
-        inputMint = inputMint,
-        outputMint = outputMint,
-        amountRaw = amountRaw,
-        slippageBps = slippageBps,
-    )
 
     /**
      * V5.9.468 — TAKER-BOUND BINDING ORDER for execution.
@@ -562,24 +346,74 @@ class JupiterApi(private val apiKey: String = "") {
     }
 
     /**
-     * Legacy v6 fallback — V5.0.6234 thin wrapper delegating to the shared
-     * base implementation with the lite-api base URL and its own
-     * `jupiter_quote_lite` health host. Kept as a named symbol because
-     * getQuoteWithTaker (RFQ fallback path) references it directly.
+     * Legacy v6 fallback.
      */
     private fun getQuoteV6(
         inputMint: String,
         outputMint: String,
         amountRaw: Long,
         slippageBps: Int,
-    ): SwapQuote = getQuoteFromBase(
-        base = BASE_V6,
-        host = "jupiter_quote_lite",
-        inputMint = inputMint,
-        outputMint = outputMint,
-        amountRaw = amountRaw,
-        slippageBps = slippageBps,
-    )
+    ): SwapQuote {
+        val startMs = System.currentTimeMillis()
+
+        val baseUrl = buildString {
+            append(BASE_V6)
+            append("/quote?inputMint=").append(inputMint)
+            append("&outputMint=").append(outputMint)
+            append("&amount=").append(amountRaw)
+        }
+        val attempts = listOf(
+            "slippageBps=${slippageBps.coerceIn(50, 2500)}&restrictIntermediateTokens=true",
+            "slippageBps=${maxOf(slippageBps, 1500).coerceIn(50, 5000)}&restrictIntermediateTokens=false",
+            "slippageBps=${maxOf(slippageBps, 2500).coerceIn(50, 8000)}&onlyDirectRoutes=true",
+        )
+        var lastErr: Exception? = null
+        var body: String? = null
+        var picked = ""
+        for (params in attempts) {
+            val url = "$baseUrl&$params"
+            try {
+                log("📊 V6 QUOTE: ${shortMint(inputMint)} -> ${shortMint(outputMint)} | amountRaw=$amountRaw params=$params")
+                body = getOrThrow(url)
+                picked = params
+                break
+            } catch (e: Exception) {
+                lastErr = e
+                val msg = e.message.orEmpty()
+                log("⚠️ V6 quote attempt failed params=$params err=${msg.take(100)}")
+                // 4xx from route constraints is often recoverable by changing route params;
+                // keep trying the adaptive ladder. Network/5xx also gets the next attempt.
+            }
+        }
+        val elapsed = System.currentTimeMillis() - startMs
+        val json = JSONObject(body ?: throw RuntimeException("Jupiter v6 quote exhausted adaptive fallbacks: ${lastErr?.message}"))
+
+        if (json.has("error")) {
+            val error = json.optString("error", "unknown")
+            throw RuntimeException("Jupiter v6 quote error: $error")
+        }
+
+        val outAmount = parseLongSafely(json.opt("outAmount"))
+        if (outAmount <= 0L) {
+            throw RuntimeException("Jupiter v6 quote returned outAmount=0")
+        }
+
+        val priceImpactPct = parseDoubleSafely(json.opt("priceImpactPct"))
+
+        log("✅ V6 QUOTE OK: out=$outAmount impact=${fmt2(priceImpactPct)}% params=$picked (${elapsed}ms)")
+
+        return SwapQuote(
+            raw = json,
+            outAmount = outAmount,
+            priceImpactPct = priceImpactPct,
+            isUltra = false,
+            inputMint = inputMint,
+            outputMint = outputMint,
+            inAmount = amountRaw,
+            router = "metis",
+            isRfqRoute = false,
+        )
+    }
 
     /**
      * Always rebuild a fresh taker-bound order for execution.
@@ -988,7 +822,7 @@ class JupiterApi(private val apiKey: String = "") {
     // HTTP HELPERS
     // ─────────────────────────────────────────────────────────────────────────────
 
-    private fun getOrThrow(url: String, host: String = "jupiter_quote"): String {
+    private fun getOrThrow(url: String): String {
         val endpoint = "JUPITER_QUOTE"
         // V5.0.3959 — Jupiter quote is core Solana routing and must never be
         // endpoint-disabled. Transient 429/503s are retried/fail this candidate,
@@ -1013,30 +847,18 @@ class JupiterApi(private val apiKey: String = "") {
         // ApiBackoff has already locked jupiter_quote out. jupiter_send
         // and dexscreener_pair_poll remain fully available for exit price
         // routing while quote is silent.
-        //
-        // V5.0.6234 — check BOTH the specific per-base host AND the legacy
-        // `jupiter_quote` umbrella; legacy callsites (getUltraOrder,
-        // getUltraQuote) still use the umbrella and would otherwise bypass
-        // per-base cooloff. Also honour our LOCAL per-base 5xx cooloff.
         val quoteLockedOut: Boolean = try {
-            com.lifecyclebot.engine.ApiBackoff.isLockedOut(host) ||
-                com.lifecyclebot.engine.ApiBackoff.isLockedOut("jupiter_quote")
+            com.lifecyclebot.engine.ApiBackoff.isLockedOut("jupiter_quote")
         } catch (_: Throwable) { false }
         if (quoteLockedOut) {
-            throw RuntimeException("Jupiter GET skipped: $host in backoff lockout")
+            throw RuntimeException("Jupiter GET skipped: jupiter_quote in backoff lockout")
         }
 
         var lastErr: RuntimeException = RuntimeException("Jupiter GET failed")
         for (attempt in 0..1) {
-            if (attempt > 0) {
-                // V5.0.6234 — jittered backoff to avoid thundering-herd on
-                // 5xx storms (multiple parallel scanners hitting the same
-                // upstream in the exact same 300ms slot).
-                val jitter = (Math.random() * 200L).toLong()
-                Thread.sleep(300L * attempt.toLong() + jitter)
-            }
+            if (attempt > 0) Thread.sleep(300L * attempt.toLong())
             try {
-                com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = host).use { resp ->
+                com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "jupiter_quote").use { resp ->
                     val code = resp.code
                     val body = resp.body?.string()
                     if (code == 429) {
@@ -1047,10 +869,6 @@ class JupiterApi(private val apiKey: String = "") {
                     if (!resp.isSuccessful) {
                         if (code == 401) throw RuntimeException("Jupiter API 401: API key required")
                         val msg = "Jupiter GET $code: ${body?.take(300) ?: "no body"}"
-                        // 5xx: throw immediately so caller can demote this
-                        // base and pivot the ladder. Retrying inside the
-                        // same base wastes budget on a flailing upstream.
-                        if (code in 500..599) throw RuntimeException(msg)
                         throw RuntimeException(msg)
                     }
                     if (body.isNullOrBlank()) throw RuntimeException("Empty Jupiter GET response")
@@ -1157,12 +975,6 @@ class JupiterApi(private val apiKey: String = "") {
 
     private fun shortMint(mint: String): String {
         return if (mint.length <= 8) mint else mint.take(8)
-    }
-
-    private fun shortBase(base: String): String {
-        // "https://api.jup.ag/swap/v1" -> "api.jup.ag"
-        // "https://lite-api.jup.ag/swap/v1" -> "lite-api.jup.ag"
-        return base.removePrefix("https://").substringBefore("/")
     }
 
     private fun fmt2(value: Double): String = String.format("%.2f", value)

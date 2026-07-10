@@ -231,11 +231,7 @@ class TelegramScraper(private val botToken: String = "") {
     private fun post(url: String, json: String): String? = try {
         val body = json.toRequestBody("application/json".toMediaType())
         val req  = Request.Builder().url(url).post(body).build()
-        // V5.0.6227 — this posts to a SOLANA RPC url (wallet-concentration
-        // check), NOT Telegram. Mislabeling polluted the "telegram" health
-        // line (744 fake 5xx) and throttled RPC under the 60/min default.
-        val rpcHost6227 = if (url.contains("helius", ignoreCase = true)) "helius" else "solana_rpc"
-        val resp = com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = rpcHost6227)
+        val resp = com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "telegram")
         if (resp.isSuccessful) resp.body?.string() else null
     } catch (_: Exception) { null }
 }

@@ -113,26 +113,21 @@ object LiveGrowthDoctrine {
             else -> 0.10
         }
         val absoluteCap = when {
-            walletSol < 0.25 -> (walletSol * 0.28).coerceIn(0.025, 0.070)
-            walletSol < 1.0 -> 0.220
-            walletSol < 2.0 -> 0.420
-            walletSol < 10.0 -> 1.500
-            else -> 3.500
+            walletSol < 0.25 -> 0.050
+            walletSol < 1.0 -> 0.180
+            walletSol < 2.0 -> 0.360
+            walletSol < 10.0 -> 1.250
+            else -> 3.000
         }
-        // V5.0.6142 — adaptive economic growth floor. The bot must not answer a
-        // 2x–5x daily compounding mandate with 0.025 SOL live dust tickets when
-        // the wallet has enough spendable balance. This is still wallet-aware and
-        // cannot override route/safety/wallet caps.
+        // V5.0.4021 — adaptive learned growth dust floor. Previous hidden floors
+        // (0.012/0.026/0.040) fought BotConfig.minLiveBuySol=0.005 and kept
+        // forcing ≥0.10-ish tickets once growth sizing/wallet caps interacted.
+        // These floors are only executable dust bounds; primary fluid sizing authorities
+        // remain wallet %, lane feedback, movement, confidence, liquidity impact, and proof.
         val minExec = when {
-            spendableSol >= 1.0 -> 0.120
-            spendableSol >= 0.5 -> 0.100
-            // V5.0.6147 — wallet-relative live floor. Runtime 6145 showed
-            // wallet≈0.275 SOL with 258/261 live buys rejected by the fixed
-            // 0.060 SOL non-micro wall. That is not compounding; it is zero
-            // execution. Keep tickets economic as wallet-percent exposure while
-            // allowing sub-0.5 SOL wallets to trade enough samples to grow.
-            spendableSol >= 0.25 -> (spendableSol * 0.14).coerceIn(0.030, 0.060)
-            else -> (spendableSol * 0.18).coerceIn(0.010, 0.040)
+            spendableSol >= 1.0 -> 0.020
+            spendableSol >= 0.5 -> 0.010
+            else -> 0.005
         }
         val moveSize = movement?.sizeMult ?: 1.0
         val moveHold = movement?.holdMult ?: 1.0

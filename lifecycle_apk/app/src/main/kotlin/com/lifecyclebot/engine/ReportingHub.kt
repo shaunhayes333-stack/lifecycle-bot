@@ -43,13 +43,6 @@ object ReportingHub {
     private const val CACHE_TTL_MS = 2_500L
     private const val STALE_CACHE_TTL_MS = 120_000L
     private const val REPORT_BUILD_TIMEOUT_MS = 6_000L
-    // V5.0.6217 — MUTEX HAND-OFF WINDOW. If a build is already in flight
-    // and a second caller arrives with a fresh-enough cached report, we
-    // return the cached report immediately instead of stacking behind the
-    // build mutex. Operator's Copy tap after 5+ hours: dumpText() over
-    // huge accumulated collector state was taking 8-20s, so second/third
-    // taps were queueing behind the same mutex — button appeared frozen.
-    private const val MUTEX_HANDOFF_STALE_MS = 30_000L
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val buildMutex = Mutex()
     private val textCache = ConcurrentHashMap<Kind, CacheEntry>()
@@ -74,15 +67,6 @@ object ReportingHub {
         if (!forceFresh) {
             textCache[kind]?.let { cached ->
                 if (now - cached.atMs <= CACHE_TTL_MS) return@withContext cached.report
-            }
-        }
-        // V5.0.6217 — MUTEX HAND-OFF. If the mutex is already held by a
-        // slow builder and we have a recent-enough cached report, return
-        // the cached report instead of waiting. The Copy button stays
-        // responsive even when the collector maps have grown huge.
-        if (buildMutex.isLocked) {
-            textCache[kind]?.let { cached ->
-                if (now - cached.atMs <= MUTEX_HANDOFF_STALE_MS) return@withContext cached.report
             }
         }
         buildMutex.withLock {
@@ -223,15 +207,10 @@ object ReportingHub {
         val pipe = safeSnapshot { PipelineHealthCollector.snapshot() }
         val wallet = try { BotService.status.walletSol } catch (_: Throwable) { 0.0 }
         val open = try { BotService.status.openPositions.toList() } catch (_: Throwable) { emptyList() }
-        var trustedLiveOpenCost6190 = 0.0
         var trustedLiveOpenPnl = 0.0
         var trustedLiveOpenCount = 0
-        var trustedPaperOpenCost6190 = 0.0
         var trustedPaperOpenPnl = 0.0
         var trustedPaperOpenCount = 0
-        var routeVerifiedLiveOpen6176 = 0
-        var routePendingLiveOpen6176 = 0
-        var unsellableLiveOpen6176 = 0
         val localLiveOpen6098 = open.count { !it.position.isPaperPosition }
         val localPaperOpen6098 = open.count { it.position.isPaperPosition }
         val hostTrackerOpen6098 = safeSnapshot { HostWalletTokenTracker.getOpenCount() } ?: -1
@@ -242,33 +221,16 @@ object ReportingHub {
             val route = try { RealPriceLock.lastRouteTruth(ts.mint) } catch (_: Throwable) { null }
             val pnlPct = truth6037.pnlPct
             val pnlSol = truth6037.pnlSol
-            if (truth6037.trusted && !p.isPaperPosition) { trustedLiveOpenCost6190 += p.costSol.coerceAtLeast(0.0); trustedLiveOpenPnl += pnlSol; if (pnlSol > 0.0) trustedLiveOpenCount += 1 }
-            if (truth6037.trusted && p.isPaperPosition) { trustedPaperOpenCost6190 += p.costSol.coerceAtLeast(0.0); trustedPaperOpenPnl += pnlSol; if (pnlSol > 0.0) trustedPaperOpenCount += 1 }
-            val routeVerified6176 = route?.ok == true || p.entryPoolAddress.isNotBlank() || p.entryPriceSource.contains("JUPITER", ignoreCase = true) || p.entryPriceSource.contains("PUMP", ignoreCase = true) || p.entryPriceSource.contains("DEX", ignoreCase = true)
-            val quarantined6176 = try { QuarantineStore.isQuarantined(ts.mint) || TokenBlacklist.isBlocked(ts.mint) || BannedTokens.isBanned(ts.mint) } catch (_: Throwable) { false }
-            val host6176 = try { HostWalletTokenTracker.getEntry(ts.mint) } catch (_: Throwable) { null }
-            val hostStatus6176 = host6176?.status?.name ?: "NO_HOST_TRACK"
-            val sellability6176 = when {
-                p.isPaperPosition -> "paper_sim"
-                quarantined6176 -> "unsellable_quarantined"
-                hostStatus6176.contains("PENDING") -> "proof_pending:$hostStatus6176"
-                hostStatus6176.contains("OPEN") || hostStatus6176.contains("HELD") -> if (routeVerified6176) "sellable_route_verified" else "sellable_route_pending"
-                hostStatus6176 == "NO_HOST_TRACK" -> "untracked_no_live_sell_authority"
-                else -> "non_sellable:$hostStatus6176"
-            }
-            if (!p.isPaperPosition) {
-                if (quarantined6176 || sellability6176.startsWith("non_sellable") || sellability6176.startsWith("untracked")) unsellableLiveOpen6176++
-                if (routeVerified6176) routeVerifiedLiveOpen6176++ else routePendingLiveOpen6176++
-            }
+            if (truth6037.trusted && !p.isPaperPosition) { trustedLiveOpenPnl += pnlSol; if (pnlSol > 0.0) trustedLiveOpenCount += 1 }
+            if (truth6037.trusted && p.isPaperPosition) { trustedPaperOpenPnl += pnlSol; if (pnlSol > 0.0) trustedPaperOpenCount += 1 }
             val routeTxt = when {
                 route != null -> "route=${route.impliedRatio.fmt1()}x/${if (route.ok) "ok" else "claim_mismatch"}"
-                routeVerified6176 -> "route=verified_entry:${p.entryPriceSource.ifBlank { p.entryDex.ifBlank { "entry" } }}"
-                else -> "route=pending_mark_source:${truth6037.source}"
+                else -> "route=canonical_mark_source:${truth6037.source}"
             }
             val basisTxt = if (truth6037.trusted) "basis=trusted" else "basis=${truth6037.reason.ifBlank { "untrusted" }}"
-            Triple(pnlPct, pnlSol, "${ts.symbol.ifBlank { ts.mint.take(6) }} lane=${p.tradingMode.ifBlank { "?" }} ${basisTxt} ${routeTxt} sellability=${sellability6176} open=${p.costSol.fmt4()} mark=${truth6037.markPrice} pnl=${pnlPct.fmt1()}%/${pnlSol.fmt4()} SOL")
+            Triple(pnlPct, pnlSol, "${ts.symbol.ifBlank { ts.mint.take(6) }} lane=${p.tradingMode.ifBlank { "?" }} ${basisTxt} ${routeTxt} open=${p.costSol.fmt4()} mark=${truth6037.markPrice} pnl=${pnlPct.fmt1()}%/${pnlSol.fmt4()} SOL")
         }.sortedByDescending { it.first }.take(5).toList()
-        appendLine("wallet=${wallet.fmt4()} SOL localOpen=live:$localLiveOpen6098 paper:$localPaperOpen6098 hostTracker=$hostTrackerOpen6098 trustedLiveOpenCost=${trustedLiveOpenCost6190.fmt4()} SOL trustedLiveOpenPnl=${trustedLiveOpenPnl.fmt4()} SOL liveRunners=$trustedLiveOpenCount trustedPaperOpenCost=${trustedPaperOpenCost6190.fmt4()} SOL trustedPaperOpenPnl=${trustedPaperOpenPnl.fmt4()} SOL paperRunners=$trustedPaperOpenCount routeVerifiedLive=$routeVerifiedLiveOpen6176 routePendingLive=$routePendingLiveOpen6176 unsellableLive=$unsellableLiveOpen6176 note=open_unrealized_not_wallet_until_sell_finality")
+        appendLine("wallet=${wallet.fmt4()} SOL localOpen=live:$localLiveOpen6098 paper:$localPaperOpen6098 hostTracker=$hostTrackerOpen6098 trustedLiveOpen=${trustedLiveOpenPnl.fmt4()} SOL liveRunners=$trustedLiveOpenCount trustedPaperOpen=${trustedPaperOpenPnl.fmt4()} SOL paperRunners=$trustedPaperOpenCount note=open_unrealized_not_wallet_until_sell_finality")
         if (pipe != null) {
             fun label(k: String): Long = pipe.labelCounts[k] ?: 0L
             appendLine("harvest: walletGrowth=${label("WALLET_GROWTH_HARVEST_TRIGGERED_6028")} routeReal=${label("ROUTE_REAL_CLAIM_MISMATCH_HARVEST_6029")} priceUnreal=${label("WALLET_GROWTH_HARVEST_DEFERRED_PRICE_UNREAL_6028") + label("ULTRA_RUNNER_BANK_DEFERRED_PRICE_UNREAL")} walletNull=${label("WALLET_GROWTH_HARVEST_DEFERRED_WALLET_NULL_6028")}")
@@ -328,14 +290,6 @@ object ReportingHub {
             val spnl = truthRows4509.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }
             val swr = if (sw + sl > 0) sw * 100.0 / (sw + sl) else 0.0
             appendLine("Strategy Clean headline: closes=${truthRows4509.size} W/L=$sw/$sl WR=${swr.fmt1()}% PnL=${spnl.fmt4()} SOL source=StrategyTruthLedger")
-            val cleanLiveRows6182 = truthRows4509.filter { it.mode.equals("live", true) }
-            val cleanLivePnl6182 = cleanLiveRows6182.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }
-            val exec6182 = pipe?.phaseCounts?.get("EXEC") ?: 0L
-            val projectedExecs6182 = (exec6182 * 24L).coerceAtLeast(0L)
-            val routeVerified6182 = pipe?.labelCounts?.get("LIVE_OPEN_ROUTE_VERIFIED_6176") ?: 0L
-            val runnerBank6182 = (pipe?.labelCounts?.get("SPIKE_GUARD_FULL_EXIT_6133") ?: 0L) + (pipe?.labelCounts?.get("RUNNER_EXIT_SHADOW_HOLD_BIAS_6144") ?: 0L)
-            val cryptoParity6182 = (pipe?.labelCounts?.get("CRYPTO_UNIVERSE_TERMINAL_PARITY_6177") ?: 0L) + (pipe?.labelCounts?.get("CRYPTO_REGIONAL_ALPHA_PRE_ROUTE_6178") ?: 0L)
-            appendLine("KPI closeout 6182: throughputTarget=500-1000/day projectedExecs24h=$projectedExecs6182 cleanLiveCloses=${cleanLiveRows6182.size} cleanLivePnL=${cleanLivePnl6182.fmt4()} SOL compoundingGate=live-clean-only routeVerified=$routeVerified6182 runnerRetention=$runnerBank6182 cryptoParity=$cryptoParity6182 moneyPath=wallet/open-route/sell-finality/journal")
             if (journal != null) appendLine("Raw journal audit: rows=${journal.trades} W/L=${journal.wins}/${journal.losses} WR=${journal.winRatePct().fmt1()}% PnL=${journal.pnlSol.fmt4()} SOL excluded=$excluded4509 note=raw_not_strategy_truth")
         } else if (journal != null) {
             appendLine("Raw journal fallback: rows=${journal.trades} W/L=${journal.wins}/${journal.losses} WR=${journal.winRatePct().fmt1()}% PnL=${journal.pnlSol.fmt4()} SOL note=StrategyTruthLedger_unavailable_not_canonical")
@@ -387,7 +341,6 @@ object ReportingHub {
         appendLine(InternetEdgeDesk.summaryLine())
         appendLine("InternetEdge counters: ok=${labels["INTERNET_EDGE_REFRESHED"] ?: 0L} fail=${labels["INTERNET_EDGE_REFRESH_FAILED"] ?: 0L} parse=${labels["INTERNET_EDGE_PARSE_FAILED"] ?: 0L} skip=${labels["INTERNET_EDGE_SKIPPED_LLM_UNAVAILABLE"] ?: 0L}")
         appendLine("ResearchScout: ${safe("research_scout_free_status") { ResearchScout.freeSourceStatus() }} primed=${labels["RESEARCH_SCOUT_REPORT_PRIMED_4516"] ?: 0L} background_only=true")
-        appendLine("HistoricalCorpus: ${safe("historical_corpus_status") { HistoricalPatternMatcher.statusLine() }}")
         val setups = labels.entries
             .filter { it.key.startsWith("TOOLKIT_SETUP_") }
             .sortedByDescending { it.value }
@@ -454,8 +407,6 @@ object ReportingHub {
         appendLine(safe("unified_exit_policy_head") { UnifiedExitPolicyHead.formatForPipelineDump().trim() }.ifBlank { "" })
         // V5.0.4097 — ScannerSourceBrain (per-source intake AGI)
         appendLine(safe("scanner_source_brain") { ScannerSourceBrain.summary().trim() }.ifBlank { "ScannerSourceBrain: bootstrap" })
-        // V5.0.6228 — ScannerLaneRoutingMap (design-time source→lane affinity)
-        appendLine(safe("scanner_lane_routing_map") { ScannerLaneRoutingMap.formatForPipelineDump().trim() }.ifBlank { "ScannerLaneRoutingMap: empty" })
         // V5.0.4102 — ExitProviderHealth (Jupiter 503 + Pump 0x1788 circuit breakers)
         appendLine(safe("exit_provider_health") { com.lifecyclebot.engine.sell.ExitProviderHealth.summary().trim() }.ifBlank { "ExitProviderHealth: ok" })
         appendLine(safe("execution_route_reliability") { ExecutionRouteReliabilityMemory.statusLine() })

@@ -342,14 +342,10 @@ class MainActivity : AppCompatActivity() {
     // V5.9.317: Manual BUY/SELL buttons in active token panel
     private lateinit var btnManualBuy: android.widget.Button
     private lateinit var btnManualSell: android.widget.Button
-    // V5.0.6167 — runtime decision-log cap. ANR stacks keep pointing at
-    // TextView/MeasuredParagraph/LineBreaker; this on-screen log is purely
-    // observability. Full forensic logs remain internal, so runtime UI only
-    // keeps a compact tail.
-    private val logLines = ArrayDeque<String>(18)
+    private val logLines = ArrayDeque<String>(48)
     private var lastDecisionLogTextHash: Int = 0  // V5.9.1497 — skip no-op StaticLayout relayouts
     private val decisionLogTimeSdf4280 = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
-    private val DECISION_LOG_MAX_CHARS_4280 = 900
+    private val DECISION_LOG_MAX_CHARS_4280 = 2600
 
     // top-up settings
     private lateinit var switchTopUp: android.widget.Switch
@@ -543,7 +539,7 @@ class MainActivity : AppCompatActivity() {
     // Panels beyond the budget skip their rebuild this tick and request another
     // render shortly after, spreading the work across frames. Cheap header/text
     // updates (setTextIfChanged) are never gated — only full row re-inflation.
-    private val HEAVY_RENDER_BUDGET_PER_TICK: Int = 1
+    private val HEAVY_RENDER_BUDGET_PER_TICK: Int = 2
     private var heavyRenderBudgetRemaining: Int = 2
     private var deferredHeavyRenderPending: Boolean = false
     // Returns true and consumes one unit if budget remains; else false (defer).
@@ -633,11 +629,11 @@ class MainActivity : AppCompatActivity() {
     // still showed 18.9s frame gaps with renderWatchlist/renderOpenPositions and
     // TextView highlight/layout work. While running, dashboard rows are observability
     // only; cap them harder and repaint heavy panels slower.
-    private val HEAVY_REPAINT_MIN_INTERVAL_MS: Long = 8_000L
+    private val HEAVY_REPAINT_MIN_INTERVAL_MS: Long = 2_500L
     // Row caps live here as single source of truth (was inline magic numbers).
-    private val WATCHLIST_ROW_CAP: Int = 4
-    private val IDLE_ROW_CAP: Int = 2
-    private val OPENPOS_ROW_CAP: Int = 4
+    private val WATCHLIST_ROW_CAP: Int = 6
+    private val IDLE_ROW_CAP: Int = 3
+    private val OPENPOS_ROW_CAP: Int = 10
     private var lastRuntimeBarForensicMs: Long = 0L
     @Volatile private var forceNextForegroundRender: Boolean = false
     @Volatile private var mainUiActive: Boolean = false
@@ -886,25 +882,22 @@ class MainActivity : AppCompatActivity() {
             // delayed check: if the user had the bot running before the kill
             // AND they haven't manually stopped it AND the bot still isn't up
             // after 4 seconds, we press START BOT on their behalf.
-            // V5.0.6170 — cold-open auto-restart prefs read must not run on Main.
-            // Runtime ANR stack showed SharedPreferences/QueuedWork XML work under
-            // MainActivity.onCreate. Read RUNTIME_PREFS on IO; return to Main only
-            // for the actual vm.startBot() UI/ViewModel call.
-            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            lifecycleScope.launch {
                 try {
-                    val rp = applicationContext.getSharedPreferences(
+                    val rp = getSharedPreferences(
                         com.lifecyclebot.engine.BotService.RUNTIME_PREFS,
                         android.content.Context.MODE_PRIVATE
                     )
                     val wasRunning = rp.getBoolean(com.lifecyclebot.engine.BotService.KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
                     val manualStop = rp.getBoolean(com.lifecyclebot.engine.BotService.KEY_MANUAL_STOP_REQUESTED, false)
                     if (wasRunning && !manualStop) {
+                        // Grace period: give SecurityActivity's pre-kick time to take effect
                         kotlinx.coroutines.delay(4_000)
                         val isRunning = com.lifecyclebot.engine.BotService.isRuntimeActive()
                         if (!isRunning) {
                             com.lifecyclebot.engine.ErrorLogger.warn("MainActivity",
                                 "V5.9.713: bot still stopped 4s after cold-open (wasRunning=true, manualStop=false) — auto-restarting")
-                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { vm.startBot() }
+                            vm.startBot()
                         } else {
                             com.lifecyclebot.engine.ErrorLogger.info("MainActivity",
                                 "V5.9.713: cold-open check — bot already running, no action needed")
@@ -1369,25 +1362,16 @@ class MainActivity : AppCompatActivity() {
     // ── First Time Disclaimer ───────────────────────────────────────────
 
     private fun showFirstTimeDisclaimer() {
-        // V5.0.6174 — MainActivity.onCreate prefs XML reads must not run on Main.
-        // The dialog itself is UI work, but the lifecycle_disclaimer SharedPreferences
-        // load can hit FastXmlSerializer/QueuedWork during cold-start. Read on IO and
-        // only switch to Main if the disclaimer actually needs to be shown.
-        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val currentVersion = com.lifecyclebot.collective.LegalAgreementManager.CURRENT_AGREEMENT_VERSION
-            val prefs = applicationContext.getSharedPreferences("lifecycle_disclaimer", Context.MODE_PRIVATE)
-            val agreedAt = prefs.getLong("disclaimer_agreed_at", 0L)
-            val agreedVersion = prefs.getString("disclaimer_version", null)
-            if (agreedAt > 0 && agreedVersion == currentVersion) return@launch
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                try { showFirstTimeDisclaimerDialog6174(prefs, currentVersion) } catch (e: Throwable) {
-                    com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "show disclaimer dialog failed: ${e.message}")
-                }
-            }
-        }
-    }
+        val prefs = getSharedPreferences("lifecycle_disclaimer", Context.MODE_PRIVATE)
+        val agreedAt = prefs.getLong("disclaimer_agreed_at", 0L)
 
-    private fun showFirstTimeDisclaimerDialog6174(prefs: android.content.SharedPreferences, currentVersion: String) {
+        // Check if current version has been agreed to
+        val agreedVersion = prefs.getString("disclaimer_version", null)
+        val currentVersion = com.lifecyclebot.collective.LegalAgreementManager.CURRENT_AGREEMENT_VERSION
+
+        // If already agreed to current version, don't show again
+        if (agreedAt > 0 && agreedVersion == currentVersion) return
+
         val disclaimerText = com.lifecyclebot.collective.LegalAgreementManager.DISCLAIMER_TEXT + """
 
 
@@ -2036,7 +2020,6 @@ for legal compliance.
 
         // V5.1: Export/Import learning data buttons
         findViewById<View>(R.id.btnExportData)?.setOnClickListener { exportLearningData() }
-        findViewById<View>(R.id.btnExportPositions)?.setOnClickListener { exportPositionsBackup() }
         findViewById<View>(R.id.btnImportData)?.setOnClickListener { importLearningData() }
 
         tvAdvancedToggle.setOnClickListener {
@@ -2521,6 +2504,26 @@ for legal compliance.
         tvAutoMode.setTextIfChanged(mode.label)
         tvAutoMode.setTextColorIfChanged(mode.colour)
 
+        // V5.0.6237 — PILOT LOG TICKER (LLM insight scrolling chat bar).
+        // Ported forward from 6205 on top of the 6100 rollback base per
+        // operator directive ("I like the llm insight scrolling chat bar
+        // keep that"). Shows the newest SentienceOrchestrator reflection
+        // as a one-line marquee ticker at the top of the main screen.
+        try {
+            val pilotTicker = findViewById<android.widget.TextView>(R.id.tvPilotTicker)
+            if (pilotTicker != null) {
+                val refl = com.lifecyclebot.engine.SentienceOrchestrator.recentReflections(1).firstOrNull()
+                if (refl != null && refl.monologue.isNotBlank()) {
+                    val agoM = (System.currentTimeMillis() - refl.timestamp) / 60_000L
+                    pilotTicker.setTextIfChanged("🧠 PILOT [${agoM}m ago] ${refl.monologue}")
+                    pilotTicker.visibility = android.view.View.VISIBLE
+                    pilotTicker.isSelected = true  // required for marquee scroll
+                } else {
+                    pilotTicker.visibility = android.view.View.GONE
+                }
+            }
+        } catch (_: Exception) {}
+
         if (state.blacklistedCount > 0) {
             tvBotStatus.text = tvBotStatus.text.toString() + "  · BLK ${state.blacklistedCount}"
         }
@@ -2556,7 +2559,7 @@ for legal compliance.
                     .asSequence()
                     .filter { it.expectancy.isFinite() }
                     .sortedByDescending { it.expectancy }
-                    .take(2)
+                    .take(3)
                     .joinToString(" · ") { r ->
                         val ev = kotlin.math.round(r.expectancy * 100.0) / 100.0
                         "${r.strategyName} ${if (ev >= 0.0) "+" else ""}${ev}R"
@@ -2744,7 +2747,7 @@ for legal compliance.
                         .thenByDescending { it.currentPrice > it.priceAtAdd && it.priceAtAdd > 0.0 }
                         .thenByDescending { it.initialLiquidity }
                         .thenByDescending { it.addedAt })
-                    .take(2)
+                    .take(3)
                 val activeVisible = activeTokens
                     .sortedWith(compareByDescending<com.lifecyclebot.data.TokenState> { it.mint == active }
                         .thenByDescending { it.position.isOpen }
@@ -2755,19 +2758,10 @@ for legal compliance.
                 val idleVisible = idleTokens
                     .sortedWith(compareByDescending<com.lifecyclebot.data.TokenState> { it.lastLiquidityUsd })
                     .take(IDLE_ROW_CAP)
-                // V5.0.6168 — ANR hash stability. Counts churn constantly during
-                // probation timeout/promote/reject waves and used to force full
-                // removeAllViews()+card rebuilds even when the visible rows were
-                // identical. Visible mints drive structure; counts are bucketed so
-                // headers can refresh occasionally without making every row-count
-                // twitch a Main-thread layout event.
-                val activeCountBucket6168 = activeTokens.size / 5
-                val idleCountBucket6168 = idleTokens.size / 10
-                val probationCountBucket6168 = probationAll.size / 10
                 val wlHash = (activeVisible.joinToString(",") { it.mint } + "|" +
                               idleVisible.joinToString(",") { it.mint } + "|" +
                               probationVisible4564.joinToString(",") { it.mint } + "|" +
-                              activeCountBucket6168 + "|" + idleCountBucket6168 + "|" + probationCountBucket6168).hashCode()
+                              activeTokens.size + "|" + idleTokens.size + "|" + probationAll.size).hashCode()
                 WatchlistModel(
                     updatedAtMs = System.currentTimeMillis(),
                     activeVisible = activeVisible, idleVisible = idleVisible,
@@ -3090,36 +3084,6 @@ for legal compliance.
                 "edge ${(sc.edgeStrength * 100).toInt()}%  " +
                 "risk ${(sc.overallRisk * 100).toInt()}%  " +
                 "health ${(sc.marketHealth * 100).toInt()}%"
-        } catch (_: Exception) {}
-
-        // V5.0.6205 — P2: Pivot-to-winners banner + Pilot Log ticker.
-        try {
-            val pivotBanner = findViewById<android.view.View>(R.id.pivotWinnersBanner)
-            val pivotText = findViewById<TextView>(R.id.tvPivotWinners)
-            if (pivotBanner != null && pivotText != null) {
-                val pivotSnap = com.lifecyclebot.engine.DumpRegimeWinnerRouter.uiSnapshot()
-                val pivotAgeMs = System.currentTimeMillis() - pivotSnap.lastBlockAtMs
-                if (pivotSnap.lastBlockAtMs > 0L && pivotAgeMs < 15L * 60_000L) {
-                    pivotText.setTextIfChanged("PIVOT→WINNERS: ${pivotSnap.lastBlockedLane} blocked ${pivotAgeMs / 60_000}m ago • ${pivotSnap.blocksLastHour} blocks/h — flow routed to winner lanes")
-                    pivotBanner.visibility = android.view.View.VISIBLE
-                } else {
-                    pivotBanner.visibility = android.view.View.GONE
-                }
-            }
-        } catch (_: Exception) {}
-        try {
-            val pilotTicker = findViewById<TextView>(R.id.tvPilotTicker)
-            if (pilotTicker != null) {
-                val refl = com.lifecyclebot.engine.SentienceOrchestrator.recentReflections(1).firstOrNull()
-                if (refl != null && refl.monologue.isNotBlank()) {
-                    val agoM = (System.currentTimeMillis() - refl.timestamp) / 60_000L
-                    pilotTicker.setTextIfChanged("🧠 PILOT [${agoM}m ago] ${refl.monologue}")
-                    pilotTicker.visibility = android.view.View.VISIBLE
-                    pilotTicker.isSelected = true  // required for marquee scroll
-                } else {
-                    pilotTicker.visibility = android.view.View.GONE
-                }
-            }
         } catch (_: Exception) {}
 
         // V5.9.453: Brain Health pill + Ladder pill + Guards strip + Leaderboard.
@@ -3907,11 +3871,8 @@ for legal compliance.
         // updateUi pass add another removeAllViews/TextView/layout storm.
         val anrHintsForRenderShed = try { com.lifecyclebot.engine.PipelineHealthCollector.anrHintCountNow() } catch (_: Throwable) { 0 }
         val nowForRenderShed = System.currentTimeMillis()
-        if (runtimeActiveForUi && anrHintsForRenderShed >= 5) {
-            // V5.0.6129 — runtime report showed ANR=10 with avg loop 12s/max 73s,
-            // but the old shed threshold was 100, so UI/reporting kept stealing cycles.
-            // Shed row-heavy cards early while live; money-path/header/open truth still paints.
-            anrHeavyRenderShedUntilMs = maxOf(anrHeavyRenderShedUntilMs, nowForRenderShed + 30_000L)
+        if (runtimeActiveForUi && anrHintsForRenderShed >= 100) {
+            anrHeavyRenderShedUntilMs = maxOf(anrHeavyRenderShedUntilMs, nowForRenderShed + 15_000L)
         }
         if (runtimeActiveForUi && nowForRenderShed < anrHeavyRenderShedUntilMs) {
             // V5.0.6040 — ANR shed may skip non-critical heavy panels, but it may
@@ -4757,50 +4718,6 @@ for legal compliance.
         }
 
         try {
-            // V5.0.6106 — CryptoAlt / Crypto Universe open positions must be visible
-            // on the main Open Positions surface too, not only inside the separate
-            // CryptoAltActivity. These are non-meme markets, so do NOT use the
-            // meme upsert() helper that requires token mcap/liquidity/pool basis.
-            val cryptoPaper = try { !com.lifecyclebot.perps.CryptoAltTrader.isLiveMode() } catch (_: Throwable) { true }
-            if (cryptoPaper == isPaperMode) {
-                com.lifecyclebot.perps.CryptoAltTrader.getOpenPositions().forEach { cp ->
-                    val mint6106 = (cp.dynMint ?: cp.id).ifBlank { "CRYPTO_ALT_${cp.marketSymbol}" }
-                    if (!alreadyRendered.contains(mint6106)) {
-                        val synth = TokenState(mint = mint6106, symbol = cp.marketSymbol)
-                        val layer6106 = if (cp.isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV"
-                        val recoveredEntry = cp.entryPrice.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
-                        val recoveredCurrent = cp.currentPrice.takeIf { it.isFinite() && it > 0.0 } ?: recoveredEntry
-                        if (recoveredEntry > 0.0 && recoveredCurrent > 0.0 && cp.sizeSol > 0.0) {
-                            val qty6106 = cp.sizeSol / recoveredEntry
-                            synth.position = com.lifecyclebot.data.Position(
-                                qtyToken = qty6106,
-                                entryPrice = recoveredEntry,
-                                entryTime = cp.openTime,
-                                costSol = cp.sizeSol,
-                                highestPrice = if (cp.highestPnlPct > 0.0) recoveredEntry * (1.0 + cp.highestPnlPct / 100.0 / kotlin.math.max(1.0, cp.leverage)) else recoveredCurrent,
-                                entryPhase = "crypto_alt_trader_6106",
-                                entryScore = cp.aiScore.toDouble(),
-                                isPaperPosition = isPaperMode,
-                                tradingMode = layer6106,
-                                tradingModeEmoji = if (cp.isSpot) "CRYPTO" else "CRYPTOx${cp.leverage.toInt()}",
-                                peakGainPct = cp.highestPnlPct,
-                                entryLiquidityUsd = 1.0,
-                                entryMcap = 1.0,
-                                entryPriceSource = "CRYPTO_ALT_TRADER_6106",
-                                entryPoolAddress = cp.id,
-                                entryDex = if (cp.isSpot) "SPOT" else "LEVERAGE",
-                            )
-                            synth.lastPrice = recoveredCurrent
-                            synth.lastPriceUpdate = System.currentTimeMillis()
-                            merged += synth
-                            alreadyRendered += mint6106
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-
-        try {
             // V5.9.495z17 — operator: "open positions panel is supposed to
             // show all held positions on the meme trader in paper and live
             // mode". `getActivePositions()` only returns the *current* mode's
@@ -4968,7 +4885,7 @@ for legal compliance.
 
         // V5.9.810 / V5.0.6078 — sort by current unrealized gain % descending
         // (best positive movers through deepest negative losers) so the main UI
-        // shows the capped held rows while footer preserves still-held remainder.
+        // shows the top 10 held rows while footer preserves still-held remainder.
         // Falls back to entryTime when entryPrice/ref aren't set yet
         // (a fresh open with no tick yet) so newly-opened positions
         // still appear before stale ones at 0%/0%.
@@ -5185,9 +5102,9 @@ for legal compliance.
         // V5.9.749 hash-+-2s-interval dedupe stopped most cardless
         // tick rebuilds but did NOT cap the per-rebuild card count.
         // V5.9.1234 / V5.0.6078 — operator requirement: Open Positions must
-        // show exactly the capped currently held rows when more than RENDER_CAP exist,
-        // ordered from strongest positive gain down toward negative gain. Rows beyond
-        // the cap stay held/managed and are surfaced in the footer instead of being
+        // show exactly the top ten currently held rows when ≥10 exist, ordered
+        // from strongest positive gain down toward negative gain. Rows beyond
+        // 10 stay held/managed and are surfaced in the footer instead of being
         // silently lost.
         val RENDER_CAP = OPENPOS_ROW_CAP
         // V5.9.810 — sort by current unrealized gain % descending. When
@@ -5586,8 +5503,8 @@ for legal compliance.
             val stale = openPosCardCache.keys.filter { it !in heldMints6039 }
             stale.forEach { openPosCardCache.remove(it) }
         }
-        // V5.0.6039 / V5.0.6129 — hidden-held note when the cap is applied.
-        // The panel must show the capped held rows by gain high→low, and must
+        // V5.0.6039 — hidden-held note when the cap is applied. The panel
+        // must show exactly the top 10 held rows by gain high→low, and must
         // explicitly list the rest as still held/managed in the same order.
         if (hiddenCount > 0) {
             val hiddenSummary6039 = hiddenHeld6039.take(12).joinToString(" · ") { h ->
@@ -7862,10 +7779,14 @@ This cannot be undone!
                 else    -> renderMemeReadiness()
             }
 
-            // V5.0.6170 — render path must not read bot_config SharedPreferences
-            // on Main. ui.value.config is already the in-memory source for paper/live.
-            val isPaperMode6170 = try { vm.ui.value.config.paperMode } catch (_: Throwable) { true }
-            cardLiveReadiness.visibility = if (isPaperMode6170) View.VISIBLE else View.GONE
+            // Hide card if in live mode (already trading live)
+            try {
+                val prefs = getSharedPreferences("bot_config", MODE_PRIVATE)
+                val isPaperMode = prefs.getBoolean("paper_mode", true)
+                cardLiveReadiness.visibility = if (isPaperMode) View.VISIBLE else View.GONE
+            } catch (_: Exception) {
+                cardLiveReadiness.visibility = View.VISIBLE
+            }
         } catch (_: Exception) {
             // Silently fail — non-critical UI
         }
@@ -8834,22 +8755,20 @@ This cannot be undone!
             signal
 
         logLines.addFirst(logLine)
-        // V5.0.6167 — tighter runtime cap. The previous 40-line on-screen
-        // buffer still feeds TextView StaticLayout/LineBreaker stalls in the
-        // current runtime reports. Keep full logs internal; UI binds only a
-        // compact forensic tail.
-        while (logLines.size > 16) logLines.removeLast()
+        // V5.9.1497 — SPEC §1: cap the on-screen decision log to 40 lines. The
+        // previous 200-line buffer was rebuilt into one big String on the main
+        // thread every update → StaticLayout.generate / LineBreaker was a named
+        // ANR blocking site (35s frame gaps). 40 lines is well inside the 30-50
+        // spec band and keeps the text-layout cost trivial.
+        while (logLines.size > 40) logLines.removeLast()
 
         // Only touch the TextView (which triggers a full StaticLayout relayout)
         // when the rendered text actually changed.
         val joined = logLines.joinToString("\n")
         setDecisionLogTextBounded4280(joined)
-        // Auto-scroll to top (newest entry). V5.0.6167: smoothScroll posts
-        // animation work back onto the main looper and compounds layout stalls
-        // while the bot is active. Jump instantly only when inactive/manual.
+        // Auto-scroll to top (newest entry)
         if (::scrollLog.isInitialized) {
-            val runtimeActiveForScroll6167 = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
-            if (runtimeActiveForScroll6167) scrollLog.scrollTo(0, 0) else scrollLog.post { scrollLog.smoothScrollTo(0, 0) }
+            scrollLog.post { scrollLog.smoothScrollTo(0, 0) }
         }
     }
 
@@ -8994,7 +8913,7 @@ This cannot be undone!
             tvProbationHeader.text = "Probation ($probationEntriesSize)"
             // V5.0.4564 — already sorted/capped off-thread; bind only. No
             // GlobalTradeRegistry read, sort, or wide probation iteration on Main.
-            val maxProbationRows = if (columnCount >= 3) 2 else 3
+            val maxProbationRows = if (columnCount >= 3) 3 else 4
             val probationVisible = probationVisibleModel.take(maxProbationRows)
             for (entry in probationVisible) {
                 val probationCard = buildProbationCard(entry, scaleFactor)
@@ -9464,44 +9383,6 @@ This cannot be undone!
             .show()
     }
 
-    // V5.0.6205 — P2: /positions backup export. Writes a human-readable
-    // snapshot of every persisted open position to Downloads/AATE_Backups/.
-    private fun exportPositionsBackup() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!android.os.Environment.isExternalStorageManager()) {
-                requestStoragePermission()
-                Toast.makeText(this, "Please grant storage permission, then try again", Toast.LENGTH_LONG).show()
-                return
-            }
-        }
-        try {
-            val positions = com.lifecyclebot.engine.PositionPersistence.loadPositions()
-            val dir = java.io.File(
-                android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
-                "AATE_Backups"
-            )
-            if (!dir.exists()) dir.mkdirs()
-            val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
-            val file = java.io.File(dir, "positions_backup_$stamp.txt")
-            val sb = StringBuilder()
-            sb.appendLine("AATE POSITIONS BACKUP — $stamp")
-            sb.appendLine("open positions: ${positions.size}")
-            sb.appendLine("────────────────────────────────────────")
-            for ((mint, p) in positions) {
-                sb.appendLine("${p.symbol} (${p.tradingMode}${if (p.isPaperPosition) "/PAPER" else "/LIVE"})")
-                sb.appendLine("  mint=$mint")
-                sb.appendLine("  qty=${p.qtyToken} entryPrice=${p.entryPrice} costSol=${p.costSol}")
-                sb.appendLine("  entryTime=${java.util.Date(p.entryTime)} peakGain=${p.peakGainPct}%")
-                sb.appendLine("  score=${p.entryScore} liq=\$${p.entryLiquidityUsd.toInt()} mcap=\$${p.entryMcap.toInt()}")
-                sb.appendLine("")
-            }
-            file.writeText(sb.toString())
-            Toast.makeText(this, "OK Positions exported to:\n${file.absolutePath}", Toast.LENGTH_LONG).show()
-        } catch (e: Exception) {
-            Toast.makeText(this, "FAIL Positions export: ${e.message}", Toast.LENGTH_LONG).show()
-        }
-    }
-
     private fun importLearningData() {
         // Request storage permission if needed
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -9831,16 +9712,6 @@ This cannot be undone!
         findViewById<View>(R.id.btnQuickLab)?.setOnClickListener {
             startActivity(Intent(this, com.lifecyclebot.ui.LabActivity::class.java))
             performHaptic()
-        }
-        // V5.0.6129 — manual implement button without adding more layout chrome:
-        // long-press Lab to authorise every PROMOTED/proven strategy and mark its
-        // LanePolicy bucket recovered. This is operator-only UI action; hard safety
-        // and FDG/executor final gates remain intact.
-        findViewById<View>(R.id.btnQuickLab)?.setOnLongClickListener {
-            val n = try { com.lifecyclebot.engine.lab.LabPromotedFeed.implementAllProven6129("main_lab_tile_long_press") } catch (_: Throwable) { 0 }
-            Toast.makeText(this, "Implemented $n newly proven Lab strategies", Toast.LENGTH_SHORT).show()
-            performHaptic()
-            true
         }
 
         // V1.0: "Open Full Crypto Alts Screen" button inside card → same

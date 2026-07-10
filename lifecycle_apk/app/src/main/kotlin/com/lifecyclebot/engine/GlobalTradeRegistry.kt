@@ -238,9 +238,9 @@ object GlobalTradeRegistry {
     data class WatchlistEntry(
         val mint: String,
         val symbol: String,
-        var addedAt: Long,
-        val addedBy: String,
-        val source: String,
+        var addedAt: Long,  // V5.9.1328 — mutable: refreshed on duplicate intake so WATCHLIST_RR fresh-window stays honest
+        val addedBy: String,  // "SCANNER", "USER", "DEX_BOOSTED", "PUMP_FUN", etc.
+        val source: String,   // More specific: "pump.fun", "raydium", "moonshot"
         val initialMcap: Double,
         var initialLiquidityUsd: Double = 0.0,
         var initialConfidence: Int = 0,
@@ -248,83 +248,7 @@ object GlobalTradeRegistry {
         val toolAffinity: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>(),
         var lastProcessedAt: Long = 0,
         var processCount: Int = 0,
-        // V5.0.6123 — TokenWinMemory integration in the mint register.
-        // The bot's token register now carries the full trade history context
-        // for each mint, not just discovery metadata. This means every time the
-        // bot sees a token it's traded before, it knows: was it a winner? what
-        // lane? what route? what exit reason? what holder count? what EMA state?
-        // This is the "token mint register" expansion the operator requested.
-        var tradeHistoryWins: Int = 0,
-        var tradeHistoryLosses: Int = 0,
-        var tradeHistoryTotalPnlPct: Double = 0.0,
-        var tradeHistoryBestPnlPct: Double = 0.0,
-        var tradeHistoryLastPnlPct: Double = 0.0,
-        var tradeHistoryLastLane: String = "",
-        var tradeHistoryLastExitReason: String = "",
-        var tradeHistoryLastHoldMinutes: Int = 0,
-        var tradeHistoryLastEntryScore: Double = 0.0,
-        var tradeHistoryLastBuyRoute: String = "",
-        var tradeHistoryLastLaunchPlatform: String = "",
-        var tradeHistoryLastHolderCount: Int = 0,
-        var tradeHistoryLastMarketRegime: String = "",
-        var tradeHistoryLastTimestamp: Long = 0L,
-    ) {
-        val tradeHistoryCount: Int get() = tradeHistoryWins + tradeHistoryLosses
-        val tradeHistoryWinRate: Double get() =
-            if (tradeHistoryCount > 0) tradeHistoryWins.toDouble() / tradeHistoryCount.toDouble() else 0.5
-        val tradeHistoryAvgPnl: Double get() =
-            if (tradeHistoryCount > 0) tradeHistoryTotalPnlPct / tradeHistoryCount.toDouble() else 0.0
-        val isKnownWinner: Boolean get() = tradeHistoryWins > 0 && tradeHistoryTotalPnlPct > 0.0
-        val isKnownLoser: Boolean get() = tradeHistoryLosses > 0 && tradeHistoryTotalPnlPct < 0.0
-    }
-
-    /**
-     * V5.0.6123 — Stamp trade outcome into the mint register.
-     * Called from TokenWinMemory after recording a decisive trade outcome.
-     * This makes the token's full trade history part of its permanent
-     * registry identity, so every time the bot encounters this mint again
-     * (even after restart), it knows the complete context of prior trades.
-     */
-    fun stampTradeHistory(
-        mint: String,
-        isWin: Boolean,
-        pnlPct: Double,
-        lane: String = "",
-        exitReason: String = "",
-        holdMinutes: Int = 0,
-        entryScore: Double = 0.0,
-        buyRoute: String = "",
-        launchPlatform: String = "",
-        holderCount: Int = 0,
-        marketRegime: String = "",
-    ) {
-        val entry = watchlist[mint] ?: probation[mint]?.let { p ->
-            // If token is in probation, stamp there and promote to watchlist
-            // so the trade history is visible on the main registry
-            null
-        }
-        val wlEntry = watchlist[mint]
-        if (wlEntry != null) {
-            if (isWin) wlEntry.tradeHistoryWins++ else wlEntry.tradeHistoryLosses++
-            wlEntry.tradeHistoryTotalPnlPct += pnlPct
-            wlEntry.tradeHistoryBestPnlPct = maxOf(wlEntry.tradeHistoryBestPnlPct, pnlPct)
-            wlEntry.tradeHistoryLastPnlPct = pnlPct
-            wlEntry.tradeHistoryLastLane = lane
-            wlEntry.tradeHistoryLastExitReason = exitReason
-            wlEntry.tradeHistoryLastHoldMinutes = holdMinutes
-            wlEntry.tradeHistoryLastEntryScore = entryScore
-            wlEntry.tradeHistoryLastBuyRoute = buyRoute
-            wlEntry.tradeHistoryLastLaunchPlatform = launchPlatform
-            wlEntry.tradeHistoryLastHolderCount = holderCount
-            wlEntry.tradeHistoryLastMarketRegime = marketRegime
-            wlEntry.tradeHistoryLastTimestamp = System.currentTimeMillis()
-        }
-    }
-
-    /**
-     * V5.0.6123 — Get the full trade history context for a mint from the register.
-     */
-    fun getTradeHistory(mint: String): WatchlistEntry? = watchlist[mint]
+    )
 
     data class RejectionEntry(
         val mint: String,
@@ -941,36 +865,31 @@ object GlobalTradeRegistry {
         for ((mint, entry) in probation) {
             val elapsed = now - entry.addedAt
 
-            // V5.9.1328 stopped timeout auto-reject recursion. V5.0.6161
-            // tightens the other side: timeout alone must not auto-promote cold
-            // zero-liq/no-pair candidates into the hot watchlist. Only matured
-            // probation entries with proof graduate on timeout.
+            // V5.9.1328 — ROOT FIX E: TIMEOUT must not auto-reject.
+            // Under Train-First doctrine, cold mints with no oracle price
+            // action (vol1h=$0 for new pump-portal pools) hit
+            // PROBATION_MAX_TIME_MS=5min without firing any promotion
+            // signal (price-up needs >5%, multi-scanner needs a 2nd hit,
+            // RC needs a rugcheck >= 2 callback). Auto-rejecting them
+            // here removed their addedAt timestamp from the lifecycle
+            // and they re-arrive seconds later from PumpPortal as
+            // "duplicates", recursing forever in the "PROBATION REJECTED
+            // ... TIMEOUT" log spam. Operator: V3/FDG is final authority;
+            // tokens that timed out should be promoted to the watchlist
+            // so V3/FDG can re-evaluate with full pipeline data instead
+            // of being silently culled by an opaque 5-min cutoff.
             if (elapsed >= PROBATION_MAX_TIME_MS) {
-                // V5.0.6161 — timeout is not proof. Field report showed large
-                // TIMEOUT_AUTO_PROMOTE batches after ~110s, then immediate zero-liq
-                // hard rejects and FDG load. Promotion now requires actual maturity:
-                // another scanner, rugcheck OK, real liquidity + price, or positive
-                // price action. Otherwise hold in probation instead of polluting the
-                // hot watchlist/supervisor lane set.
-                val priceChange6161 = if (entry.priceAtAdd > 0.0 && entry.currentPrice > 0.0) {
-                    (entry.currentPrice - entry.priceAtAdd) / entry.priceAtAdd * 100.0
-                } else 0.0
-                val maturedByProof6161 = entry.additionalScanners.isNotEmpty() ||
-                    entry.rcScore >= 2 ||
-                    priceChange6161 >= 2.0 ||
-                    (!entry.isEstimatedLiquidity && entry.initialLiquidity >= 5_000.0 && entry.currentPrice > 0.0)
-                val noPairCold = entry.source.contains("NO_PAIR_NO_FALLBACK", ignoreCase = true) ||
-                    (entry.priceAtAdd <= 0.0 && entry.currentPrice <= 0.0 && entry.additionalScanners.isEmpty() && entry.rcScore < 2)
-                if (!maturedByProof6161 || noPairCold) {
-                    if (entry.promotionReason != "TIMEOUT_HELD_NO_MATURITY_6161") {
-                        entry.promotionReason = "TIMEOUT_HELD_NO_MATURITY_6161"
-                        try { ForensicLogger.lifecycle("PROBATION_TIMEOUT_HELD_NO_MATURITY_6161", "mint=${mint.take(10)} symbol=${entry.symbol} src=${entry.source} ageMs=$elapsed noPair=$noPairCold liq=${entry.initialLiquidity.toInt()} priceAdd=${entry.priceAtAdd} priceNow=${entry.currentPrice} scanners=${entry.additionalScanners.size} rc=${entry.rcScore} priceChg=${priceChange6161.toInt()}") } catch (_: Throwable) {}
-                        try { PipelineHealthCollector.labelInc("PROBATION_TIMEOUT_HELD_NO_MATURITY_6161") } catch (_: Throwable) {}
+                val noPairCold = entry.source.contains("NO_PAIR_NO_FALLBACK", ignoreCase = true) &&
+                    entry.priceAtAdd <= 0.0 && entry.currentPrice <= 0.0 && entry.additionalScanners.isEmpty() && entry.rcScore < 2
+                if (noPairCold) {
+                    if (entry.promotionReason != "NO_PAIR_TIMEOUT_HELD") {
+                        entry.promotionReason = "NO_PAIR_TIMEOUT_HELD"
+                        try { ForensicLogger.lifecycle("PROBATION_TIMEOUT_HELD_NO_PAIR", "mint=${mint.take(10)} symbol=${entry.symbol} src=${entry.source} ageMs=$elapsed no_price_no_pair=true") } catch (_: Throwable) {}
                     }
                     continue
                 }
-                promoteFromProbation(mint, "TIMEOUT_MATURED_6161")
-                results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "TIMEOUT_MATURED_6161"))
+                promoteFromProbation(mint, "TIMEOUT_AUTO_PROMOTE")
+                results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "TIMEOUT_AUTO_PROMOTE"))
                 continue
             }
 

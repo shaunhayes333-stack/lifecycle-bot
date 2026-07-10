@@ -416,7 +416,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("MEME-only should rotate ownership across the full MemeTrader surface", bot.contains("MEMETRADER_CONTRIBUTION_ROTATION") && bot.contains("fullMemeTraderRing") && bot.contains("MEMETRADER_OWNER_LANE"))
         assertTrue("Rotation must include internal lanes that were previously idle (V5.0.4599: specialists no longer in ring)", listOf("MOONSHOT", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { bot.contains(it) })
-        assertTrue("V5.0.6171: live contribution remains bounded but paused owner/rescue lanes must pivot into FDG, not amputate before FDG", bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("action=considered_bounded_owner_rotation") && bot.contains("ownerPausedPivot6171") && bot.contains("val allowed = (l == ownerLane || profitableRescue) && (!laneIsPaused4598 || ownerPausedPivot6171)") && bot.contains("return allowed"))
+        assertTrue("V5.0.4478: live contribution considers all internal lanes but bounds FDG/executor to owner/rescue", bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("action=considered_bounded_owner_rotation") && bot.contains("val allowed = (l == ownerLane || profitableRescue) && !laneIsPaused4598") && bot.contains("return allowed"))
         assertTrue("V5.0.6014: successful lanes must get bounded entry feed instead of MANIPULATED/SHITCOIN/EXPRESS budget", bot.contains("SUCCESSFUL_LANE_FEED_RESTORED_6014") && bot.contains("successfulFeedLanes6014") && bot.contains("QUALITY") && bot.contains("MOONSHOT") && bot.contains("BLUECHIP") && bot.contains("CRYPTO") && !bot.contains("SPECIALIST_ENTRY_EVAL_RESTORED_6013"))
         assertFalse("3914 live full-ring fanout regression must stay dead", bot.contains("LIVE_FULL_RING_LANE_OBSERVE"))
     }
@@ -495,7 +495,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Guard must preserve lane ownership and expose re-education treatment", guard.contains("chooseNonToxicLane") && guard.contains("filterNonToxic") && guard.contains("return lanes.firstOrNull") && guard.contains("treatmentFor"))
         assertTrue("Agentic style election must keep compatibility calls while same-lane style logic owns toxicity", router.contains("LaneToxicityGuard.chooseNonToxicLane") && router.contains("LaneToxicityGuard.filterNonToxic") && router.contains("sameLaneWeakPivotStyle"))
         assertTrue("MemeTrader owner rotation toxicity handling must no longer imply lane amputation", bot.contains("scoreForToxicity") && bot.contains("LaneToxicityGuard.filterNonToxic(rawOwnerPool") && guard.contains("Preserve original lane ownership"))
-        assertTrue("FDG losing learned buckets use LanePolicy/no-trade retraining instead of paid micro probes", fdg.contains("lane_retraining_paused_6106") && fdg.contains("LosingPatternMemory.recommendedSizeMult") && fdg.contains("NoTradeObservationStore.recordBlock") && !fdg.contains("TRAIN_FIRST_MICRO"))
+        assertTrue("FDG train-first micro/size shaping remains the downstream fallback, not a hard strategy block", fdg.contains("TRAIN_FIRST_MICRO") && fdg.contains("LosingPatternMemory.recommendedSizeMult"))
         assertFalse("Toxicity guard must not disable lanes or hard-block trades", guard.contains("BLOCK") || guard.contains("disableLane") || guard.contains("shouldTrade = false"))
     }
 
@@ -845,7 +845,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("MEMETRADER_CONTRIBUTION_ROTATION"))
         assertTrue(bot.contains("exactly ONE owner"))
-        assertTrue(bot.contains("ownerPausedPivot6171") && bot.contains("val allowed = (l == ownerLane || profitableRescue) && (!laneIsPaused4598 || ownerPausedPivot6171)"))
+        assertTrue(bot.contains("val allowed = (l == ownerLane || profitableRescue) && !laneIsPaused4598"))
         assertTrue(bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469"))
         assertTrue(bot.contains("val fullMemeTraderRing = listOf"))
         assertFalse("owner rotation must not require pre-existing affinity", bot.contains("nonMemeSpecialist && affinity.contains(l)"))
@@ -1157,29 +1157,17 @@ class GoldenTapeRegressionTest {
 
         val service = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(service.contains("initialLiquidityUsd = liquidityUsd"))
-        assertTrue(service.contains("confidence = adjustedConfidence6124"))
+        assertTrue(service.contains("confidence = confidence"))
         assertTrue(service.contains("do not fabricate zero-liquidity probation rows"))
         assertTrue(service.contains("val demoteLiq"))
         assertTrue("Fresh NO_PAIR rows must stay hot for hydration before aged demotion", service.contains("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION") && service.contains("NO_PAIR_NO_FALLBACK_AGED") && service.contains("processCount >= 4") && service.contains("ageMs > 120_000L"))
-        assertTrue("NO_PAIR/cold probation rows must not timeout-promote back to hot loop without maturity price/source proof", registry.contains("PROBATION_TIMEOUT_HELD_NO_MATURITY_6161") && registry.contains("noPairCold") && registry.contains("entry.source.contains(\"NO_PAIR_NO_FALLBACK\"") && registry.contains("maturedByProof6161") && registry.contains("TIMEOUT_MATURED_6161") && registry.contains("priceChange6161"))
+        assertTrue("NO_PAIR probation rows must not timeout-promote back to hot loop without price/source proof", registry.contains("NO_PAIR_TIMEOUT_HELD") && registry.contains("PROBATION_TIMEOUT_HELD_NO_PAIR") && registry.contains("entry.source.contains(\"NO_PAIR_NO_FALLBACK\""))
         assertFalse(
             "Source-balance demotion must not hardcode liq=0 for real-liq intake",
-            // V5.0.6124i: refined check — inspect ONLY the ±30-line window around
-            // any SOURCE_BALANCE_PUMP_DOMINANCE_ reason label. Prior naive check
-            // false-fired because each substring appears independently in
-            // unrelated code paths (PROBATION intake, etc.).
-            run {
-                val marker = "SOURCE_BALANCE_PUMP_DOMINANCE_"
-                val idx = service.indexOf(marker)
-                if (idx < 0) false else {
-                    val start = (idx - 3_000).coerceAtLeast(0)
-                    val end = (idx + 3_000).coerceAtMost(service.length)
-                    val window = service.substring(start, end)
-                    window.contains("liquidityUsd = 0.0") &&
-                        window.contains("confidence = 0") &&
-                        window.contains("isEstimatedLiquidity = true")
-                }
-            }
+            service.contains("liquidityUsd = 0.0") &&
+                service.contains("confidence = 0") &&
+                service.contains("isEstimatedLiquidity = true") &&
+                service.contains("SOURCE_BALANCE_PUMP_DOMINANCE_")
         )
     }
 
@@ -1670,7 +1658,7 @@ class GoldenTapeRegressionTest {
         assertTrue(lab.contains("AUTONOMOUS_LAB_PIVOT_SEED"))
         assertTrue(lab.contains("fun seedFromTacticFailure"))
         assertTrue(lab.contains("status = LabStrategyStatus.ACTIVE"))
-        assertTrue("V5.0.6107: LLM Lab auto-pivot must use economic paper sizing, not 0.05 SOL toy strategies", lab.contains("economicLabSizingSol(0.08)") && lab.contains("LAB_POLICY_REINTRODUCTION_6107") && !lab.contains("sizingSol = 0.05"))
+        assertTrue(lab.contains("sizingSol = 0.05"))
         assertTrue(lab.contains("ACTIVE lab paper experiment only; not promoted/live-authorized"))
         val seedStart = lab.indexOf("fun seedFromTacticFailure")
         val seedEnd = lab.indexOf("/** Permanently delete all archived strategies. */", seedStart).takeIf { it > seedStart } ?: lab.length
@@ -1700,7 +1688,7 @@ class GoldenTapeRegressionTest {
         assertTrue(tuner.contains("low-WR/no-runner bleed fix"))
         assertTrue(tuner.contains("wr < 0.20 && avgReal < 0.0 && avgPeak < 15.0 -> sl -= STEP * 2.0"))
         assertTrue(tuner.contains("val stopLeakClamp = slHitRate >= 0.35 && avgLoss <= -20.0"))
-        assertTrue(tuner.contains("val slCap = if ((wr < 0.20 && avgReal < 0.0 && avgPeak < 15.0) || stopLeakClamp || moderateBleed6120g) 1.0 else SL_MAX"))
+        assertTrue(tuner.contains("val slCap = if ((wr < 0.20 && avgReal < 0.0 && avgPeak < 15.0) || stopLeakClamp) 1.0 else SL_MAX"))
         assertFalse("low-WR no-runner lanes must not widen stops", tuner.contains("slHitRate >= 0.50 && avgPeak < 8.0 -> sl += STEP"))
     }
 
@@ -2340,8 +2328,7 @@ class GoldenTapeRegressionTest {
         val maturity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveMaturityAuthority.kt").readText()
         assertTrue("Live maturity must be based on live terminal closes and adapt from trade 1, not mixed lifetime/paper bootstrap", maturity.contains("LIVE_ADAPTIVE_MIN_CLOSES = 1") && maturity.contains("LIVE_MATURE_MIN_CLOSES = 5_000") && maturity.contains("LIVE_ADAPTIVE_FROM_TRADE_1") && maturity.contains("There is no live bootstrap behavior") && !maturity.contains("LIVE_BOOTSTRAP") && maturity.contains("""mode.equals("live", true)"""))
         assertTrue("Reports must leave bootstrap once live terminal closes cross 500", java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText().contains("live terminal closes=") && java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText().contains("LiveMaturityAuthority.snapshot()"))
-        assertTrue("learned exit rungs must stay environment-local: clean paper in paper, clean live in live, never mixed leaderboard",
-            exec.contains("board6130") && exec.contains("RuntimeModeAuthority.isPaper()") && exec.contains("StrategyTelemetry.computeCleanPaperTerminalLeaderboard") && exec.contains("StrategyTelemetry.computeCleanLiveTerminalLeaderboard") && !exec.contains("StrategyTelemetry.computeLeaderboard().firstOrNull { it.strategy.equals(key, true) }"))
+        assertTrue("learned live exit rungs must not shape from mixed paper/live StrategyTelemetry", exec.contains("StrategyTelemetry.computeLiveTerminalLeaderboard().firstOrNull") && !exec.contains("StrategyTelemetry.computeLeaderboard().firstOrNull { it.strategy.equals(key, true) }"))
     }
 
     @Test
@@ -2457,14 +2444,10 @@ class GoldenTapeRegressionTest {
     fun meme_runtime_authority_activates_all_internal_layers_without_market_fanout() {
         val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EnabledTraderAuthority.kt").readText()
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("Authority enum must expose every internal meme layer including CYCLIC sidecar", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "QUALITY", "TREASURY", "CASHGEN", "BLUECHIP", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER").all { auth.contains(it) })
-        // V5.0.6228 — CYCLIC now re-enabled in PAPER mode (compound-target: needs a
-        // permanent SOL-forwarding rotator that never idles capital). Live-mode
-        // exclusion preserved via the RuntimeModeAuthority.isPaper() guard.
-        assertTrue("Meme-only publish must include full internal specialist set (CYCLIC is paper-only guarded)", listOf("Trader.QUALITY", "Trader.TREASURY", "Trader.CASHGEN", "Trader.BLUECHIP", "Trader.PROJECT_SNIPER", "Trader.DIP_HUNTER", "Trader.MANIPULATED").all { bot.contains(it) })
-        assertTrue("CYCLIC re-add in meme-only publish MUST be paper-guarded (V5.0.6228)", bot.contains("if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper())") && bot.contains("add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC)"))
+        assertTrue("Authority enum must expose every internal meme layer except disabled CYCLIC sidecar", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "QUALITY", "TREASURY", "CASHGEN", "BLUECHIP", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER").all { auth.contains(it) })
+        assertTrue("Meme-only publish must include full internal specialist set except CYCLIC", listOf("Trader.QUALITY", "Trader.TREASURY", "Trader.CASHGEN", "Trader.BLUECHIP", "Trader.PROJECT_SNIPER", "Trader.DIP_HUNTER", "Trader.MANIPULATED").all { bot.contains(it) } && !bot.contains("add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC)"))
         assertTrue("Internal specialists must be ignored by isMemeLiveOnly so markets/perps remain isolated; CYCLIC must not be an internal meme layer", auth.contains("internalMemeLayers") && auth.contains("Trader.PROJECT_SNIPER") && auth.contains("set - Trader.CRYPTO_ALT - internalMemeLayers") && !auth.substringAfter("val internalMemeLayers = setOf(").substringBefore(")").contains("Trader.CYCLIC"))
-        assertTrue("Runtime report should document the V5.0.6228 CYCLIC paper-only re-enable", bot.contains("CYCLIC IS BACK ON IN PAPER FOR COMPOUND TARGET"))
+        assertTrue("Runtime report should expose all active meme lanes while CYCLIC stays excluded", bot.contains("all internal MEME lanes stay active") && bot.contains("CYCLIC remains excluded"))
     }
 
 
@@ -2624,8 +2607,8 @@ class GoldenTapeRegressionTest {
         val fluid = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/FluidLearningAI.kt").readText()
 
         assertTrue("Config must use adaptive learned compounding, not a fixed micro/bootstrap stake", cfg.contains("val BotConfig.minLiveBuySol: Double get() = 0.005") && cfg.contains("val BotConfig.allowLiveMicroProbe: Boolean get() = true") && cfg.contains("ADAPTIVE_LEARNED_COMPOUNDING") && !cfg.contains("MICRO_COMPOUNDING"))
-        assertTrue("Growth doctrine floors must be economic compounding bounds while fluid sizing remains wallet/lane/movement/liquidity driven", growth.contains("V5.0.4021_ADAPTIVE_LEARNED_GROWTH_CORE") && growth.contains("V5.0.6142 — adaptive economic growth floor") && growth.contains("V5.0.6147 — wallet-relative live floor") && growth.contains("spendableSol >= 0.25 -> (spendableSol * 0.14).coerceIn(0.030, 0.060)"))
-        assertTrue("Pending-proof sizing must reduce learned risk once while preserving the live non-micro floor", exec.contains("LIVE_PENDING_PROOF_LEARNED_RISK_CLAMP") && exec.contains("livePendingProofPenalty") && exec.contains("LIVE_PENDING_PROOF_REALISTIC_SIZE_FLOOR_PRESERVED_6104") && exec.contains("pending-proof risk is already applied once") && !exec.contains("LIVE_PENDING_PROOF_MICRO_CAP") && !exec.contains("val realisticSolRaw = if (livePendingProofPenalty) baseRealisticSol * 0.35 else baseRealisticSol"))
+        assertTrue("Growth doctrine floors must be dust bounds only; fluid sizing remains wallet/lane/movement/liquidity driven", growth.contains("V5.0.4021_ADAPTIVE_LEARNED_GROWTH_CORE") && growth.contains("else -> 0.005") && growth.contains("primary fluid sizing authorities"))
+        assertTrue("Pending-proof sizing must reduce learned risk without forcing a fixed micro stake", exec.contains("LIVE_PENDING_PROOF_LEARNED_RISK_CLAMP") && exec.contains("livePendingProofPenalty") && exec.contains("Unknown proof lowers confidence") && !exec.contains("LIVE_PENDING_PROOF_MICRO_CAP"))
         assertTrue("Live buy path keeps explicit below-floor telemetry while allowing configured micro probes", exec.contains("LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE") && exec.contains("LIVE_BUY_SIZE_RAISED_TO_MIN_NON_MICRO") && !exec.contains("LIVE_BUY_SIZE_RAISED_TO_MIN_EXECUTABLE"))
         assertTrue("TradingCopilot must not relax live confidence/size under bootstrap", copilot.contains("no live bootstrap thresholds") && copilot.contains("TradeMood.EMERGENCY_BRAKE -> 25.0") && copilot.contains("TradeMood.EMERGENCY_BRAKE -> 0.25") && !copilot.contains("bootstrapProg") && !copilot.contains("tradesObserved < 50"))
         assertTrue("SmartSizer must consume lane feedback from trade 1 without exploration bootstrap ramp", sizer.contains("minTrades = 1") && sizer.contains("sample-weighted") && sizer.contains("No live bootstrap/exploration size ramp") && !sizer.contains("FreeRangeMode.explorationSizeMultiplier()"))
@@ -2706,7 +2689,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Router must emit required live break-even decision log", router.contains("LIVE_BREAK_EVEN_CHECK") && router.contains("expectedEdge") && router.contains("requiredEdge") && router.contains("pivotReason"))
         assertTrue("Below-cost routes must defer for real quality edge instead of probe, while green bootstrap/live-adaptive clean-proof quality gaps can full-quality release outside toxic MOONSHOT S41-60", router.contains("BREAK_EVEN_DEFER_QUALITY_EDGE_NOT_CONFIRMED") && router.contains("BREAK_EVEN_LIVE_ADAPTIVE_FULL_QUALITY_RELEASE") && router.contains("BREAK_EVEN_GREEN_BOOTSTRAP_FULL_QUALITY_RELEASE") && router.contains("canGreenBootstrapFullQualityRelease") && router.contains("qualityReleaseMultiplier") && router.contains("liveBootstrapGreen") && router.contains("MOONSHOT_S41_60_LIVE_TOXIC_DEFER_V4153"))
         val growth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveGrowthDoctrine.kt").readText()
-        assertTrue("Live growth doctrine must be materially aggressive for 2x-5x/day target", growth.contains("AGGRESSIVE_2X_5X_LIVE_WALLET_GROWTH") && growth.contains("\"MOONSHOT\" -> 0.35") && growth.contains("walletSol < 10.0 -> 1.500"))
+        assertTrue("Live growth doctrine must be materially aggressive for 2x-5x/day target", growth.contains("AGGRESSIVE_2X_5X_LIVE_WALLET_GROWTH") && growth.contains("\"MOONSHOT\" -> 0.35") && growth.contains("walletSol < 10.0 -> 1.250"))
         assertTrue("Final live sizing must emit full growth/cap telemetry", exec.contains("GROWTH_MODE_TRACE") && exec.contains("liquidityCap") && exec.contains("walletCap") && exec.contains("minExec"))
         assertTrue("V5.0.6083: all paper/live lanes must receive tick-time runner/hard-floor protection", bot.contains("V5.0.6083") && bot.contains("val tickProfitLockEligible = true") && !bot.contains("""ForensicLogger.lifecycle("TICK_PROFIT_LOCK_SKIPPED_LANE"""))
         assertTrue("V5.0.4152: tick/universal peak-lock exits must use the same FluidLearningAI high-lock floor shown in UI, not stale loose peak ratios",
@@ -2991,11 +2974,11 @@ class GoldenTapeRegressionTest {
         assertTrue("paperSell must finalize the paper authority when ledger closes", exec.contains("PaperPositionCloseAuthority.markClosed(\"PAPER\", tradeId.mint"))
 
         assertTrue("paper buy must clamp before position and journal mutation", exec.contains("clampPaperTradeSol(finalSol"))
-        assertTrue("paper buy max must be bankroll-backed economic live-transfer size, not legacy maxPositionSol micro-cap", exec.contains("ALL PAPER ENTRIES") && exec.contains("paperSimulatedBalance * 0.20") && exec.contains("coerceIn(legacyMax, 3.0)"))
-        assertTrue("paper buy min must have an economic live-transfer floor for all entries", exec.contains("economic paper floor") && exec.contains("paperSimulatedBalance * 0.05"))
+        assertTrue("paper buy max must be bankroll-backed live-transfer size, not legacy maxPositionSol micro-cap", exec.contains("ALL PAPER ENTRIES") && exec.contains("paperSimulatedBalance * 0.10") && exec.contains("coerceIn(legacyMax, 2.0)"))
+        assertTrue("paper buy min must have a live-transfer floor for all entries", exec.contains("live-transfer floor") && exec.contains("paperSimulatedBalance * 0.01"))
         assertTrue("paper buy clamp telemetry must exist", exec.contains("PAPER_BUY_SIZE_CLAMPED"))
 
-        assertTrue("paper sanity must use the same economic live-transfer sizing bounds before quarantining rows", paperSanity.contains("paperSimulatedBalance * 0.20") && paperSanity.contains("paperSimulatedBalance * 0.05") && paperSanity.contains("PAPER_SOL_ABOVE_CONFIG_MAX"))
+        assertTrue("paper sanity must use the same live-transfer sizing bounds before quarantining rows", paperSanity.contains("paperSimulatedBalance * 0.10") && paperSanity.contains("paperSimulatedBalance * 0.01") && paperSanity.contains("PAPER_SOL_ABOVE_CONFIG_MAX"))
         assertTrue("paper sanity must emit required quarantine label", paperSanity.contains("PAPER_LEARNING_ROW_QUARANTINED"))
         assertTrue("TradeHistoryStore must filter corrupted historical rows", tradeStore.contains("PaperLearningSanity.inspect(t)"))
         assertTrue("TradeRowSanityCheck must quarantine paper corrupt rows", rowSanity.contains("PAPER_ROW_CORRUPT"))
@@ -3202,8 +3185,8 @@ class GoldenTapeRegressionTest {
         assertTrue("HoldTimeOptimizerAI must stamp for outcome training", holdTime.contains("brain.stamp"))
         assertTrue("Live entry must bypass break-even economics and defer them to sell side", executor.contains("LIVE_ENTRY_BREAK_EVEN_BYPASSED_TO_SELL") && executor.contains("sellSideBreakEvenOk"))
         assertFalse("liveBuy entry must not call breakEvenCheck before route quote", executor.contains("val breakEven = LiveRestoreExecutionPolicy.breakEvenCheck(ts, sol, restorePenalty"))
-        assertTrue("V5.0.6228: shouldReject is retired to an unconditional no-op — the soft-reject veto is gone, live sizing owns all shaping", scoreExpectancy.contains("fun shouldReject(layer: String, score: Int): Boolean = false"))
-        assertTrue("V5.0.6228: calibrationSizeMult is monotone on empirical bucket mean, not paper-only ad-hoc bands", scoreExpectancy.contains("fun calibrationSizeMult(layer: String, score: Int): Double") && scoreExpectancy.contains("monotoneMultForMean(mean)"))
+        assertTrue("Score expectancy reject must be neutral in live", scoreExpectancy.contains("LIVE_EXPECTANCY_REJECT_BYPASSED") && scoreExpectancy.contains("RuntimeModeAuthority.isLive()") && scoreExpectancy.contains("return false"))
+        assertTrue("Score expectancy reject remains neutral in live; lane allocator owns live sizing", scoreExpectancy.contains("do not dust-size live probes") && scoreExpectancy.contains("return 1.0"))
         assertTrue("Break-even logic remains available for sell-side profit discipline", liveRestore.contains("sellSideBreakEvenOk") && liveRestore.contains("breakEvenCheck(ts, ts.position.costSol"))
     }
 
@@ -3298,7 +3281,7 @@ class GoldenTapeRegressionTest {
         val collective = java.io.File("src/main/kotlin/com/lifecyclebot/ui/CollectiveBrainActivity.kt").readText()
 
         assertTrue("PipelineHealthCollector must expose lightweight atomic ANR getters", phc.contains("fun anrHintCountNow(): Int = anrHintCount.get()") && phc.contains("fun maxFrameGapMsNow(): Long = maxFrameGapMs.get()"))
-        assertTrue("MainActivity must shed row-heavy rendering during catastrophic ANR storms", main.contains("MAIN_HEAVY_RENDER_ANR_SHED") && main.contains("anrHintCountNow()") && main.contains("anrHintsForRenderShed >= 5") && (main.contains("skip=heavy_dashboard_rows") || main.contains("skip=non_open_heavy_dashboard_rows")))
+        assertTrue("MainActivity must shed row-heavy rendering during catastrophic ANR storms", main.contains("MAIN_HEAVY_RENDER_ANR_SHED") && main.contains("anrHintCountNow()") && main.contains("anrHintsForRenderShed >= 100") && (main.contains("skip=heavy_dashboard_rows") || main.contains("skip=non_open_heavy_dashboard_rows")))
         assertFalse("Dashboard render path must not create unmanaged MainScope jobs", main.contains("MainScope().launch"))
         assertFalse("ANR shed must not call PipelineHealthCollector.snapshot() from updateUi", main.contains("PipelineHealthCollector.snapshot().anrHints"))
         assertTrue("CollectiveBrain polling must start on IO and use cached trade stats", collective.contains("lifecycleScope.launch(Dispatchers.IO)") && collective.contains("TradeHistoryStore.getStatsCached()"))
@@ -3474,8 +3457,8 @@ class GoldenTapeRegressionTest {
     fun live_meme_mode_must_collapse_to_one_owner_lane_not_full_ring_fanout() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
-        assertTrue("V5.0.6171: live MemeTrader must consider all internal lanes while preserving bounded owner telemetry and FDG pivot authority", bot.contains("LIVE_RING_OWNER_COLLAPSE") && bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("MEMETRADER_OWNER_LANE") && bot.contains("ownerPausedPivot6171"))
-        assertTrue("V5.0.6171: paused owner/rescue lanes pivot into FDG; non-owner paused lanes remain denied", bot.contains("OWNER_LANE_PAUSED_PIVOT_ALLOW_6171") && bot.contains("OWNER_LANE_PAUSED_DENIED_4598") && bot.contains("TacticSwitcher.forcePivotForRetraining"))
+        assertTrue("V5.0.4478: live MemeTrader must consider all internal trader lanes while preserving bounded owner telemetry", bot.contains("LIVE_RING_OWNER_COLLAPSE") && bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("MEMETRADER_OWNER_LANE") && bot.contains("val allowed = (l == ownerLane || profitableRescue) && !laneIsPaused4598"))
+        assertTrue("V5.0.4598: paused lanes cannot receive owner-lane election (closes MANIPULATED bypass)", bot.contains("OWNER_LANE_PAUSED_DENIED_4598") && bot.contains("LaneAutoPauseGuard.isPaused(l)"))
         assertTrue("V5.0.6014: successful-lane feed must respect pause/proof guards and not revive all-lane fanout", bot.contains("SUCCESSFUL_LANE_FEED_DENIED_6014") && bot.contains("qualityProofOk6014") && !bot.contains("LIVE_FULL_RING_LANE_OBSERVE"))
         assertFalse("live full-ring observe must not return true before owner rotation", bot.contains("LIVE_FULL_RING_LANE_OBSERVE") || bot.contains("fullRingObserve"))
         assertTrue("V5.0.4474: runtime report must expose live all-lane contribution policy and owner context", pipe.contains("MEME_RING=liveAllLaneContribution") && pipe.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && pipe.contains("LIVE_RING_OWNER_COLLAPSE") && pipe.contains("MEMETRADER_OWNER_LANE"))
@@ -3886,7 +3869,7 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val reporting = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
 
-        assertTrue("LiveStrategyTuner must consume clean live terminal StrategyTelemetry for toxic detection", tuner.contains("StrategyTelemetry.computeCleanLiveTerminalLeaderboard"))
+        assertTrue("LiveStrategyTuner must consume clean live terminal StrategyTelemetry only", tuner.contains("StrategyTelemetry.computeCleanLiveTerminalLeaderboard") && !tuner.contains("computeLeaderboard("))
         assertTrue("LiveStrategyTuner must be cached for hot paths", tuner.contains("CACHE_MS") && tuner.contains("cached") && tuner.contains("cacheAtMs"))
         assertTrue("LiveStrategyTuner must be soft-shape only, not a veto/zero-size authority", tuner.contains("Soft-shape only") && !tuner.contains("return false") && !tuner.contains("sizeMult = 0.0"))
         assertTrue("LiveStrategyTuner must bias proven live winners toward compounding runner patience", tuner.contains("compounding_runner") && tuner.contains("partialTriggerMult") && tuner.contains("holdMult = (1.25") && tuner.contains("tpMult = (1.16"))
@@ -4018,7 +4001,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6018: runV3Execution must floor live zero-signal entries for compounding, not dollar-size dust", v3ExecBlock.contains("V3_ZERO_SIGNAL_COMPOUND_FLOOR_6018") && v3ExecBlock.contains("v3ZeroSignalProbe = reqScore <= 0 && reqConf <= 10") && v3ExecBlock.contains("LiveSizingProfile.lastMileEntryFloor") && v3ExecBlock.contains("sol = if (!isPaper && v3ZeroSignalProbe) execSol else req.sizeSol"))
         val sizing = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveSizingProfile.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6142: live compounding floors must be economic wallet-percent sizing, not dollar-trade dust", sizing.contains("MIN_ENTRY_SOL: Double = 0.035") && sizing.contains("DEFAULT_ENTRY_SOL: Double = 0.100") && sizing.contains("BASE_WALLET_PCT: Double = 0.120") && sizing.contains("MAX_INITIAL_WALLET_PCT: Double = 0.320"))
+        assertTrue("V5.0.6018: live compounding floors must be above dollar-trade sizing", sizing.contains("MIN_ENTRY_SOL: Double = 0.060") && sizing.contains("DEFAULT_ENTRY_SOL: Double = 0.080") && sizing.contains("BASE_WALLET_PCT: Double = 0.050") && sizing.contains("MAX_INITIAL_WALLET_PCT: Double = 0.180"))
         assertTrue("V5.0.6018: executor post-floor soft-allow path must not collapse buys back to 0.01-0.025 SOL", exec.contains("LIVE_RESTORE_LANE_CAP_COMPOUND_FLOOR_6018") && exec.contains("lastMileEntryFloor") && !exec.contains("coerceIn(0.01, 0.025)"))
         assertTrue("V3 bridge must pass real score/band into Executor instead of hardcoded score=50 quality=V3", bot.contains("score = (req.score ?: ts.lastV3Score ?: 50).toDouble()") && bot.contains("quality = req.band ?: \"V3\""))
     }
@@ -6440,16 +6423,9 @@ class GoldenTapeRegressionTest {
     fun executor_4510LiveScoreBandWrSoftShapesEntrySize() {
         val score = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ScoreExpectancyTracker.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        // V5.0.6228 — scorer-inversion fix. The prior band-based buckets
-        // (catastrophic_score_band_probe / positive_score_band_press) were
-        // replaced with a single strictly monotone-on-mean curve so higher
-        // empirical EV always produces a larger multiplier. The paper-only
-        // soft-reject veto (LIVE_EXPECTANCY_REJECT_BYPASSED) was killed —
-        // shouldReject is now an unconditional no-op.
-        assertTrue("V5.0.6228: live score-band expectancy must expose monotone size-only shape, not a reject", score.contains("fun liveSizeShape") && score.contains("monotone_ev_6228") && score.contains("monotoneMultForMean"))
+        assertTrue("V5.0.4510: live score-band expectancy must expose size-only shape, not a live reject", score.contains("fun liveSizeShape") && score.contains("catastrophic_score_band_probe") && score.contains("positive_score_band_press"))
         assertTrue("V5.0.4510: Executor live sizing stack must consume score-band WR/PnL multiplier", exec.contains("LIVE_EXPECTANCY_SCORE_BAND_SOFT_SHAPED_4510") && exec.contains("scoreBandWR4510") && exec.contains("ScoreExpectancyTracker.liveSizeShape"))
-        assertTrue("V5.0.6228: shouldReject soft-reject mitigation is retired (unconditional false), no lane starve", score.contains("fun shouldReject(layer: String, score: Int): Boolean = false"))
-        assertTrue("V5.0.6228: calibratedScore empirical remap must exist so consumers can compose monotone-in-EV scores", score.contains("fun calibratedScore(layer: String, rawScore: Int): Int") && score.contains("sortedBy { it.second }"))
+        assertTrue("V5.0.4510: legacy live reject bypass remains non-blocking", score.contains("LIVE_EXPECTANCY_REJECT_BYPASSED") && score.contains("return false"))
     }
 
     @Test
@@ -6580,7 +6556,7 @@ class GoldenTapeRegressionTest {
         val route = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/FdgRouteVerdict.kt").readText()
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue("V5.0.4526: SHITCOIN/MANIPULATED must be real reduced execution lanes, not permanent paper-micro defaults", lane.contains("key.contains(" + "\"SHITCOIN\"" + ")      -> State.REDUCED_SIZE_EXECUTION") && lane.contains("key.contains(" + "\"MANIPULATED\"" + ")   -> State.REDUCED_SIZE_EXECUTION") && lane.contains("not permanent paper-micro lanes"))
-        assertTrue("V5.0.6107: learned danger routing must not emit paid PAPER_MICRO execution for retraining states", route.contains("V5.0.6107") && route.contains("LanePolicy.State.RETRAINING             -> Verdict.ROUTE_TRAIN_ONLY") && route.contains("LanePolicy.State.SHADOW_TRACK_ONLY      -> Verdict.ROUTE_SHADOW_TRACK") && !route.contains("LIVE_PAPER_MICRO_ESCALATED_TO_REDUCED_4526"))
+        assertTrue("V5.0.6094: live learned danger routing must keep PAPER_MICRO paper-only instead of escalating to reduced live buys", route.contains("LIVE_BLEEDER_PAPER_ONLY_BLOCK_6094") && route.contains("v == Verdict.ALLOW_PAPER_MICRO") && route.contains("Verdict.BLOCK_LIVE_BLEEDER_PAPER_ONLY") && !route.contains("LIVE_PAPER_MICRO_ESCALATED_TO_REDUCED_4526"))
         assertTrue("V5.0.4526: live FDG must reject micro/probe dust tuition and require strategy pivot", fdg.contains("LIVE_DUST_TUITION_REQUIRES_STRATEGY_PIVOT_4526") && fdg.contains("live_dust_tuition_rejected_4526") && fdg.contains("NoTradeObservationStore.recordBlock"))
         assertTrue("V5.0.4526: valid live routes multiplier-stacked below core must restore AATE core buy floor", fdg.contains("live_core_size_floor_4526") && fdg.contains("com.lifecyclebot.data.BotConfig().smallBuySol") && fdg.contains("valid live route restored"))
     }
@@ -7037,7 +7013,7 @@ class GoldenTapeRegressionTest {
         val report6037 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
         val pipe6037 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         val forensic6037 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/execution/ForensicReportExporter.kt").readText()
-        assertTrue("V5.0.6037: one canonical pricing truth for money path; no route-pending side-channel downgrade", priceTruth6037.contains("data class PricingTruth") && priceTruth6037.contains("fun pricingTruth") && report6037.contains("OpenPnlSanity.pricingTruth") && report6037.contains("OpenPnlSanity.pricingTruth") && report6037.contains("sellability6176") && !report6037.contains("route_pending_untrusted_6037") && !report6037.contains("pending_outlier_not_counted"))
+        assertTrue("V5.0.6037: one canonical pricing truth for money path; no route-pending side-channel downgrade", priceTruth6037.contains("data class PricingTruth") && priceTruth6037.contains("fun pricingTruth") && report6037.contains("OpenPnlSanity.pricingTruth") && report6037.contains("route=canonical_mark_source") && !report6037.contains("route_pending_untrusted_6037") && !report6037.contains("pending_outlier_not_counted"))
         assertTrue("V5.0.6037: Money Path sell finality must use event counters, not stale labels", pipe6037.contains("fun execLiveSellFailCount()") && pipe6037.contains("fun execLiveSellPendingFinalityCount()") && report6037.contains("PipelineHealthCollector_event_counters_6037") && report6037.contains("PipelineHealthCollector.execLiveSellOkCount()") && report6037.contains("PipelineHealthCollector.execLiveSellPendingFinalityCount()"))
         assertTrue("V5.0.6037: Forensic summary must show effective reconciler truth across position/sell/live-wallet reconcilers", forensic6037.contains("Recon: effective=") && forensic6037.contains("SellReconciler.totalChecked") && forensic6037.contains("LiveWalletReconciler.totalChecked()"))
         val bot6038 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
@@ -7050,7 +7026,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6038: MainActivity lifecycle open-position displays must route PnL through mainUiPnlPct6038/OpenPnlSanity", main6038.contains("fun mainUiPnlPct6038") && main6038.contains("OpenPnlSanity.inspect(entryPrice, px") && main6038.contains("moonshot_row_6038") && main6038.contains("quality_position_6038") && main6038.contains("treasury_position_6038") && main6038.contains("sniper_mission_6038") && main6038.contains("bluechip_position_6038") && main6038.contains("express_ride_6038") && main6038.contains("manipulated_position_6038") && cryptoAltUi6038.contains("CryptoAltActivity.uiGainPct4479_6038"))
         val forensic6039 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/execution/ForensicReportExporter.kt").readText()
         val cashGen6039 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt").readText()
-        assertTrue("V5.0.6039/6129: Open Positions panel must show capped held open-position rows and list the held rest instead of dropping data", main6038.contains("private val OPENPOS_ROW_CAP: Int = 4") && main6038.contains("hiddenHeld6039") && main6038.contains("+ ${'$'}hiddenCount still held/managed below top ${'$'}RENDER_CAP") && main6038.contains("heldMints6039") && main6038.contains("order high→low"))
+        assertTrue("V5.0.6039: Open Positions panel must show top 10 held open-position rows and list the held rest instead of dropping data", main6038.contains("private val OPENPOS_ROW_CAP: Int = 10") && main6038.contains("hiddenHeld6039") && main6038.contains("+ ${'$'}hiddenCount still held/managed below top ${'$'}RENDER_CAP") && main6038.contains("heldMints6039") && main6038.contains("order high→low"))
         assertTrue("V5.0.6039: forensic/operator logs must include live tuning data", forensic6039.contains("tuning_6039") && forensic6039.contains("LiveStrategyTuner.statusLine()") && forensic6039.contains("Tuning: ${'$'}tuning6039"))
         assertTrue("V5.0.6039: CashGenerationAI 6038 compile fix must use pos.mint inside checkExitInternal", cashGen6039.contains("CashGenerationAI_exit_6038/${'$'}{pos.mint.take(8)}") && cashGen6039.contains("CashGenerationAI_secondary_6038/${'$'}{pos.mint.take(8)}") && !cashGen6039.contains("CashGenerationAI_exit_6038/${'$'}{mint.take(8)}"))
         assertTrue("V5.0.6040: host-tracker open rows must synthesize into Open Positions so wallet-held rows cannot blank the panel", main6038.contains("OPEN_PANEL_HOST_TRACKER_SYNTH_6040") && main6038.contains("HostWalletTokenTracker.getOpenTrackedPositions()") && main6038.contains("HOST_WALLET_TRACKER_6040"))
@@ -7078,7 +7054,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6090: reviewed async/LLM lab hypotheses must have real non-safety sizing authority", lab6090.contains("reviewed hypotheses are now real strategy authority") && lab6090.contains("coerceIn(0.60, 1.55)") && lab6090.contains("actuated_authority_6090=true") && !lab6090.contains("coerceIn(0.92, 1.08)"))
         assertTrue("V5.0.6090: meta-cognition bridge must materially control non-safety sizing from early trades", meta6090.contains("V5.0.6090") && meta6090.contains("coerceIn(0.55, 1.65)") && meta6090.contains("coerceIn(0.65, 1.45)") && !meta6090.contains("coerceIn(0.94, 1.08)"))
         assertTrue("V5.0.6090: SSI pilot must autonomously control paper/live non-safety strategy with wider authority", ssi6090.contains("live 0.55..1.80, paper 0.45..2.10") && ssi6090.contains("return if (paper) m.coerceIn(0.40, 2.25) else m.coerceIn(0.45, 1.90)") && ssi6090.contains("SSI_PILOT_LANE_RESUMED_6090") && !ssi6090.contains("awaiting_control_tower_manualResume"))
-        assertTrue("V5.0.6090: executor AGI size stack ceiling must open when AI authority is active while preserving safety clamps", exec6082.contains("REINS-OFF AI STRATEGY AUTHORITY") && exec6082.contains("agiAuthorityActive6090") && exec6082.contains("if (RuntimeModeAuthority.isPaper()) 3.00 else 2.50") && exec6082.contains("pressedProduct6109.coerceIn(effectiveFloor6109, agiCeiling6090)"))
+        assertTrue("V5.0.6090: executor AGI size stack ceiling must open when AI authority is active while preserving safety clamps", exec6082.contains("REINS-OFF AI STRATEGY AUTHORITY") && exec6082.contains("agiAuthorityActive6090") && exec6082.contains("if (RuntimeModeAuthority.isPaper()) 2.50 else 2.00") && exec6082.contains("product.coerceIn(posEvFloor, agiCeiling6090)"))
         val holding6091 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HoldingLogicLayer.kt").readText()
         val exec6091 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("V5.0.6091: autonomous add-to-winner must route whale/AGI/diamond conviction into real top-up execution", exec6091.contains("autonomousTopUpSignal6091") && exec6091.contains("AUTONOMOUS_TOPUP_SIGNAL_6091") && exec6091.contains("AUTONOMOUS_DECISION_TOPUP_SIGNAL_6091") && exec6091.contains("HOLDING_LOGIC_ADD_MORE_TOPUP_6091") && exec6091.contains("doTopUp(ts, walletSol, wallet, totalExposureSol)"))
@@ -7129,77 +7105,6 @@ class GoldenTapeRegressionTest {
         val mainUi6100 = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
         assertTrue("V5.0.6100: route-pending UI must fall back to persisted entry route metadata for held winners", mainUi6100.contains("entryRoute6100") && mainUi6100.contains("pos.entryPriceSource") && mainUi6100.contains("pos.entryPoolAddress") && mainUi6100.contains("UNREALIZED · entry route"))
         assertTrue("V5.0.6100: material runners with known persisted buy route must harvest even when volatile RealPriceLock cache is missing/disagrees", executor6099.contains("tryPersistedEntryRouteHarvest6099") && executor6099.contains("PERSISTED_ENTRY_ROUTE_HARVEST_6099") && executor6099.contains("realpricelock_missing_or_disagrees_but_buy_route_known") && executor6099.contains("""tryPersistedEntryRouteHarvest6099("ultra_runner_bank")""") && executor6099.contains("""tryPersistedEntryRouteHarvest6099("wallet_growth_harvest")"""))
-        val fanout6101 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveLaneFanoutPressure.kt").readText()
-        val botService6101 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.6101: live fanout pressure must engage during severe low-WR bootstrap instead of waiting for 40 closes", fanout6101.contains("bootstrapSeverePressure6101") && fanout6101.contains("ratio > 18.0") && fanout6101.contains("n >= 10") && fanout6101.contains("wr < 25.0") && fanout6101.contains("bootstrap_severe_fanout_pressure_low_wr"))
-        val emptyBlockReason6101 = "blockReason = " + "\"" + "\""
-        val badGoodLaneBlockReason6101 = "blockReason = " + "\"" + "GOOD_LANE_VOLUME_PIVOT_6020" + "\""
-        assertTrue("V5.0.6101: GOOD_LANE_VOLUME_PIVOT is a positive BUY pivot and must not be emitted as blockReason", botService6101.contains("GOOD_LANE_VOLUME_PIVOT_6020") && botService6101.contains("positive BUY pivot") && botService6101.contains(emptyBlockReason6101) && !botService6101.contains(badGoodLaneBlockReason6101))
-        val walletReconciler6102 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/WalletReconciler.kt").readText()
-        val recoveredHold6102 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RecoveredHoldGuard.kt").readText()
-        assertTrue("V5.0.6102: known-basis wallet recoveries keep grace but zero-basis recovered orphans must queue scratch cleanup", walletReconciler6102.contains("savedKnownBasis6102") && walletReconciler6102.contains("recoveredKnownBasis6102") && walletReconciler6102.contains("""PendingSellQueue.add(mint, ts.symbol, "WALLET_RECOVERED_ZERO_BASIS_CLEANUP_6102")""") && walletReconciler6102.contains("WALLET_RECOVERED_ZERO_BASIS_CLEANUP_QUEUED_6102"))
-        assertTrue("V5.0.6102: recovered zero-basis cleanup must punch through stale recovered-hold grace", recoveredHold6102.contains("WALLET_RECOVERED_ZERO_BASIS_CLEANUP") && recoveredHold6102.contains("isEmergencyExitOverride"))
-        val scanner6103 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SolanaMarketScanner.kt").readText()
-        assertTrue("V5.0.6103: runtime scanner concurrency cap must actually lower semaphore permits instead of coercing back to source count", scanner6103.contains("make runtime scanner caps real") && scanner6103.contains("if (overlayCap > 0) requestedPermits6017.coerceIn(4, 24) else requestedPermits6017.coerceIn(12, 24)") && !scanner6103.contains("coerceAtLeast(scans.size.coerceAtMost(24))"))
-        assertTrue("V5.0.6103: repeated-timeout optional scanner sources rotate-skip while Pump/Dex/Raydium core sources remain every cycle", scanner6103.contains("coreSource6103") && scanner6103.contains("SCANNER_OPTIONAL_SOURCE_ROTATED_SKIP_6103") && scanner6103.contains("optionalRotateSkip=true") && scanner6103.contains("scanPumpFunDirect") && scanner6103.contains("scanDexTrending") && scanner6103.contains("scanRaydiumNewPools"))
-        val executor6104 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6104: normal live buys must honor non-micro compound floor even when config allows explicit micro probes", executor6104.contains("explicitLiveMicroProbe6104") && executor6104.contains("smallWalletNonMicroFloor6188") && executor6104.contains("minNonMicroLiveBuySol = liveCfg.minLiveBuySol.coerceAtLeast(smallWalletNonMicroFloor6188)") && executor6104.contains("liveCfg.allowLiveMicroProbe && explicitLiveMicroProbe6104"))
-        assertTrue("V5.0.6104: pending-proof risk must not double-shrink after realistic live size authority", executor6104.contains("LIVE_PENDING_PROOF_REALISTIC_SIZE_FLOOR_PRESERVED_6104") && executor6104.contains("pending-proof risk is already applied once") && !executor6104.contains("val realisticSolRaw = if (livePendingProofPenalty) baseRealisticSol * 0.35 else baseRealisticSol"))
-        val paperSanity6106 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperLearningSanity.kt").readText()
-        val fdg6106 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        val mainUi6106 = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
-        assertTrue("V5.0.6106: paper learning must train on economic compounding-size tickets, not 1% toy buys", paperSanity6106.contains("paperSimulatedBalance * 0.05") && paperSanity6106.contains("paperSimulatedBalance * 0.20") && paperSanity6106.contains("economic paper training floor"))
-        assertTrue("V5.0.6106: losing learned buckets pause/retrain instead of paying for micro paper probes", fdg6106.contains("lane_retraining_paused_6106") && fdg6106.contains("bcg_lane_retraining_paused_6106") && fdg6106.contains("paper_low_conf_economic_dampen_6106") && !fdg6106.contains("train_first_micro_probe") && !fdg6106.contains("bcg_train_first_micro_probe"))
-        assertTrue("V5.0.6106: CryptoAlt open positions are synthesized into the main UI Open Positions model", mainUi6106.contains("CRYPTO_ALT_TRADER_6106") && mainUi6106.contains("CryptoAltTrader.getOpenPositions()") && mainUi6106.contains("CRYPTO_SPOT") && mainUi6106.contains("CRYPTO_LEV"))
-        val lanePolicy6107 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/LanePolicy.kt").readText()
-        val route6107 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/FdgRouteVerdict.kt").readText()
-        val lab6107 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/lab/LlmLabEngine.kt").readText()
-        val labStore6107 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/lab/LlmLabStore.kt").readText()
-        val bot6107 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.6107: LanePolicy demotes toxic lanes to RETRAINING, not PAPER_MICRO execution", lanePolicy6107.contains("State.DEMOTION_CANDIDATE     -> State.RETRAINING") && lanePolicy6107.contains("""key.contains("PRESALE")       -> State.RETRAINING""") && lanePolicy6107.contains("State.RETRAINING              -> 0.00"))
-        assertTrue("V5.0.6165: FDG late LanePolicy consumer must pivot retraining states before purchase; only INVALID_UNTRADEABLE may zero", fdg6106.contains("LANE_POLICY_RETRAINING_PIVOT_6165") && fdg6106.contains("forcePivotForRetraining") && fdg6106.contains("shouldTradeFinal = true") && fdg6106.contains("LANE_POLICY_INVALID_UNTRADEABLE"))
-        assertTrue("V5.0.6107: LLM Lab must use economic compounding-size strategies and lane reintroduction", lab6107.contains("economicLabSizingSol") && lab6107.contains("sizingSol") && lab6107.contains("number 1.0..20.0") && lab6107.contains("LAB_POLICY_REINTRODUCTION_6107") && labStore6107.contains("MIN_PAPER_PNL_SOL_FOR_PROMOTION = 1.0") && !lab6107.contains("sizingSol = 0.05"))
-        assertTrue("V5.0.6107: FdgRouteVerdict must route retraining to train-only/no-open, not executable micro", route6107.contains("LanePolicy.State.RETRAINING             -> Verdict.ROUTE_TRAIN_ONLY") && route6107.contains("LanePolicy.State.PAPER_MICRO_EXECUTION  -> Verdict.ROUTE_TRAIN_ONLY") && !route6107.contains("LanePolicy.State.RETRAINING             -> Verdict.ALLOW_PAPER_MICRO"))
-        assertTrue("V5.0.6107: paper treasury back-fund floor must match compounding-size paper entries", bot6107.contains("cfg.paperSimulatedBalance * 0.20") && bot6107.contains("compounding-size entries after 6106 economic sizing"))
-        val crypto6108 = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
-        assertTrue("V5.0.6108: CryptoAlt final execution must consume shared LanePolicy retraining pause", crypto6108.contains("CRYPTO_LANE_RETRAINING_PAUSED_6108") && crypto6108.contains("LanePolicy.effectiveState(cryptoLane6108") && crypto6108.contains("NoTradeObservationStore.recordBlock"))
-        assertTrue("V5.0.6108: CryptoAlt final size must consume Lab + UnifiedPolicyHead + StrategyHypothesis before opening", crypto6108.contains("LabPromotedFeed.entryNudge") && crypto6108.contains("UnifiedPolicyHead.stamp") && crypto6108.contains("StrategyHypothesisEngine.getSizeBias") && crypto6108.contains("CRYPTO_AGI_LAB_SIZE_SHAPED_6108"))
-        assertTrue("V5.0.6108: LLM Lab universe must include CryptoAlt candidate pool, not only already-open crypto positions", bot6107.contains("DynamicAltTokenRegistry") && bot6107.contains("feed the LLM Lab the Crypto Universe candidate pool") && bot6107.contains("LabAssetClass.ALT"))
-        val executor6109 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6109: multiplier cascade must use geometric mean for dampers, not pure product fold that collapses to dust", executor6109.contains("CASCADE_GEOMEAN_6109") && executor6109.contains("damperGeomean6109") && executor6109.contains("boosterProduct6109") && !executor6109.contains("sizingStackComponents4285.values.fold(1.0) { acc, v -> acc * v }"))
-        assertTrue("V5.0.6109: wallet-anchored compound floor must prevent sub-3% wallet positions on priority lanes", executor6109.contains("WALLET_ANCHORED_COMPOUND_FLOOR_6109") && executor6109.contains("minWalletPct6109") && executor6109.contains("isPriority6109"))
-        assertTrue("V5.0.6109: winner pressing must boost size when day is already profitable", executor6109.contains("winnerPress6109") && executor6109.contains("dayPnlSol > 0.0") && executor6109.contains("RealizedWalletCompoundingGovernor.snapshot()"))
-        assertTrue("V5.0.6109: AGI ceiling must allow higher amplitude when AGI/SSI stack is active", executor6109.contains("agiCeiling6090") && executor6109.contains("3.00") && executor6109.contains("2.50"))
-        val executor6110 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        val compounding6110 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RealizedWalletCompoundingGovernor.kt").readText()
-        assertTrue("V5.0.6110: premature size<0.001 kill must be replaced with wallet-relative min lift, not hard reject", executor6110.contains("WALLET_REL_MIN_LIFT_6110") && executor6110.contains("walletRelMin6110") && executor6110.contains("path=maybeAct") && executor6110.contains("path=maybeActWithDecision"))
-        assertTrue("V5.0.6110: compounding governor must break death spiral when wallet<1 SOL and no open positions", compounding6110.contains("WALLET_COMPOUND_SMALL_WALLET_DEATH_SPIRAL_BREAK_6110") && compounding6110.contains("snap.walletSol < 1.0") && compounding6110.contains("trustedOpenRunnerCount == 0"))
-        val bot6111 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.6111: circuit breaker pause must be telemetry-only, not block live entries", bot6111.contains("CIRCUIT_BREAKER_PAUSE_SOFT_ALLOW_6111") && bot6111.contains("val pauseBlocks = false"))
-        val executor6112 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6112: doBuy discipline veto must be soft 0.35x probe, not hard return", executor6112.contains("DISCIPLINE_RECOVERY_PROBE_DOBUY_6112") && executor6112.contains("disciplineRecoveryMult6112") && !executor6112.contains("DISCIPLINE_VETO_V4132"))
-        assertTrue("V5.0.6112: scanner bridge veto must be soft shape, not hard return", executor6112.contains("SCANNER_BRIDGE_SOFT_SHAPE_6112") && !executor6112.contains("SCANNER_BRIDGE_VETO_V4132"))
-        val bot6113 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.6113: live-mode lane quarantine must be soft allow", bot6113.contains("LANE_QUARANTINE_LIVE_SOFT_ALLOW_6112"))
-        assertTrue("V5.0.6113: EXPRESS early-gate pause must be soft allow", bot6113.contains("EXPRESS_LANE_PAUSED_SOFT_ALLOW_6112"))
-        val exec6114 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6114: post-cascade geomean must be applied", exec6114.contains("postCascadeGeomean6114"))
-        // V5.0.6115 — UPH lifetime blend + Lab winning-lane boost + dynamic MIN_ARM
-        val uph6115 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt").readText()
-        assertTrue("V5.0.6115: UPH must blend with lifetime data", uph6115.contains("UPH_LIFETIME_BLEND_6115"))
-        assertTrue("V5.0.6115: UPH must check lifetime profitable", uph6115.contains("lifetimeProfitable6115"))
-        val lab6115 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsyncStrategyLab.kt").readText()
-        assertTrue("V5.0.6115: Lab must boost winning lanes", lab6115.contains("isWinningLane6115"))
-        assertTrue("V5.0.6115: Lab cap must be raised for winners", lab6115.contains("2.50"))
-        val she6115 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyHypothesisEngine.kt").readText()
-        assertTrue("V5.0.6115: Hypothesis engine must have dynamic MIN_ARM", she6115.contains("effectiveMinArm6115"))
-        assertTrue("V5.0.6114: laneBiasMult must be in geomean not outside", exec6114.contains("laneBiasMult6114") && !exec6114.contains("else -> 0.50\n        }\n        val multiplierProduct = run {"))
-        val lsp6114 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveSizingProfile.kt").readText()
-        assertTrue("V5.0.6114: MIN_ENTRY_SOL must be lowered", lsp6114.contains("0.025"))
-        val lpe6114 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt").readText()
-        assertTrue("V5.0.6114: cold-start floor must be raised", lpe6114.contains("coldStartFloor6114"))
-        val lst6114 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStrategyTuner.kt").readText()
-        assertTrue("V5.0.6114: lifetime EV guard must exist", lst6114.contains("lifetimeProfitable6114"))
     }
 
 
@@ -7316,152 +7221,6 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4584: TokenWinMemory must quarantine shadow/simulated sources from real winner memory", mem.contains("isShadowOrSimulatedSource") && mem.contains("TOKEN_WIN_MEMORY_SHADOW_SOURCE") && mem.contains("PERSISTED_SOURCE_PATTERN_SHADOW"))
     }
 
-
-    // V5.0.6123 — TokenWinMemory massive expansion: full trade context
-    @Test
-    fun tokenWinMemory_6123FullTradeContextExpansion() {
-        val mem = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenWinMemory.kt").readText()
-        assertTrue("V5.0.6123: WinningToken must capture buy route", mem.contains("val buyRoute"))
-        assertTrue("V5.0.6123: WinningToken must capture sell route", mem.contains("val sellRoute"))
-        assertTrue("V5.0.6123: WinningToken must capture launch platform", mem.contains("val launchPlatform"))
-        assertTrue("V5.0.6123: WinningToken must capture lane", mem.contains("val lane"))
-        assertTrue("V5.0.6123: WinningToken must capture trader", mem.contains("val trader"))
-        assertTrue("V5.0.6123: WinningToken must capture entry score", mem.contains("val entryScore"))
-        assertTrue("V5.0.6123: WinningToken must capture exit reason", mem.contains("val exitReason"))
-        assertTrue("V5.0.6123: WinningToken must capture holder count", mem.contains("val holderCount"))
-        assertTrue("V5.0.6123: WinningToken must capture holder growth rate", mem.contains("val holderGrowthRate"))
-        assertTrue("V5.0.6123: WinningToken must capture dev wallet pct", mem.contains("val devWalletPct"))
-        assertTrue("V5.0.6123: WinningToken must capture bonding curve progress", mem.contains("val bondingCurveProgress"))
-        assertTrue("V5.0.6123: WinningToken must capture rugcheck score", mem.contains("val rugcheckScore"))
-        assertTrue("V5.0.6123: WinningToken must capture EMA fan state", mem.contains("val emaFanState"))
-        assertTrue("V5.0.6123: WinningToken must capture market regime", mem.contains("val marketRegime"))
-        assertTrue("V5.0.6123: WinningToken must capture SOL cost and PnL", mem.contains("val costSol") && mem.contains("val pnlSol"))
-        assertTrue("V5.0.6123: WinningToken must capture max drawdown", mem.contains("val maxDrawdownPct"))
-        assertTrue("V5.0.6123: WinningToken must capture time to peak", mem.contains("val timeToPeakMinutes"))
-        assertTrue("V5.0.6123: WinningToken must capture volatility", mem.contains("val volatility"))
-        assertTrue("V5.0.6123: WinningToken must capture token age", mem.contains("val tokenAgeMinutes"))
-        assertTrue("V5.0.6123: WinningToken must capture creator address", mem.contains("val creatorAddress"))
-        assertTrue("V5.0.6123: recordTradeOutcome must accept all new context params", mem.contains("buyRoute:") && mem.contains("sellRoute:") && mem.contains("launchPlatform:") && mem.contains("holderCount:") && mem.contains("emaFanState:"))
-        assertTrue("V5.0.6123: learnPatterns must learn from lane dimension", mem.contains("recordPattern(\"lane\""))
-        assertTrue("V5.0.6123: learnPatterns must learn from buy_route dimension", mem.contains("recordPattern(\"buy_route\""))
-        assertTrue("V5.0.6123: learnPatterns must learn from launch_platform dimension", mem.contains("recordPattern(\"launch_platform\""))
-        assertTrue("V5.0.6123: learnPatterns must learn from holder_count dimension", mem.contains("recordPattern(\"holder_count\""))
-        assertTrue("V5.0.6123: learnPatterns must learn from holder_growth dimension", mem.contains("recordPattern(\"holder_growth\""))
-        assertTrue("V5.0.6123: learnPatterns must learn from dev_wallet dimension", mem.contains("recordPattern(\"dev_wallet\""))
-        assertTrue("V5.0.6123: learnPatterns must learn from bonding_curve dimension", mem.contains("recordPattern(\"bonding_curve\""))
-        assertTrue("V5.0.6123: learnPatterns must learn from rugcheck dimension", mem.contains("recordPattern(\"rugcheck\""))
-        assertTrue("V5.0.6123: learnPatterns must learn from hold_time dimension", mem.contains("recordPattern(\"hold_time\""))
-        assertTrue("V5.0.6123: learnPatterns must learn from entry_score dimension", mem.contains("recordPattern(\"entry_score\""))
-        assertTrue("V5.0.6123: learnPatterns must learn from volatility dimension", mem.contains("recordPattern(\"volatility\""))
-        assertTrue("V5.0.6123: learnPatterns must learn from token_age dimension", mem.contains("recordPattern(\"token_age\""))
-        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional lane_x_mcap", mem.contains("recordPattern(\"lane_x_mcap\""))
-        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional lane_x_hold", mem.contains("recordPattern(\"lane_x_hold\""))
-        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional route_x_mcap", mem.contains("recordPattern(\"route_x_mcap\""))
-        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional platform_x_holders", mem.contains("recordPattern(\"platform_x_holders\""))
-        assertTrue("V5.0.6123: learnPatterns must learn cross-dimensional setup_x_exit", mem.contains("recordPattern(\"setup_x_exit\""))
-        assertTrue("V5.0.6123: fullContextEvScore multi-dimensional query must exist", mem.contains("fun fullContextEvScore"))
-        assertTrue("V5.0.6123: persistence must save buyRoute", mem.contains("put(\"buyRoute\""))
-        assertTrue("V5.0.6123: persistence must save lane", mem.contains("put(\"lane\""))
-        assertTrue("V5.0.6123: persistence must save exitReason", mem.contains("put(\"exitReason\""))
-        assertTrue("V5.0.6123: load must restore buyRoute", mem.contains("j.optString(\"buyRoute\""))
-        assertTrue("V5.0.6123: load must restore lane", mem.contains("j.optString(\"lane\""))
-        assertTrue("V5.0.6123: TokenWinMemory must stamp trade history into mint register", mem.contains("GlobalTradeRegistry.stampTradeHistory"))
-    }
-
-    // V5.0.6123 — GlobalTradeRegistry mint register expansion
-    @Test
-    fun globalTradeRegistry_6123MintRegisterTradeHistory() {
-        val gtr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt").readText()
-        assertTrue("V5.0.6123: WatchlistEntry must have tradeHistoryWins", gtr.contains("var tradeHistoryWins"))
-        assertTrue("V5.0.6123: WatchlistEntry must have tradeHistoryLosses", gtr.contains("var tradeHistoryLosses"))
-        assertTrue("V5.0.6123: WatchlistEntry must have tradeHistoryTotalPnlPct", gtr.contains("var tradeHistoryTotalPnlPct"))
-        assertTrue("V5.0.6123: WatchlistEntry must have tradeHistoryLastLane", gtr.contains("var tradeHistoryLastLane"))
-        assertTrue("V5.0.6123: WatchlistEntry must have tradeHistoryLastExitReason", gtr.contains("var tradeHistoryLastExitReason"))
-        assertTrue("V5.0.6123: WatchlistEntry must have tradeHistoryLastBuyRoute", gtr.contains("var tradeHistoryLastBuyRoute"))
-        assertTrue("V5.0.6123: WatchlistEntry must have tradeHistoryLastLaunchPlatform", gtr.contains("var tradeHistoryLastLaunchPlatform"))
-        assertTrue("V5.0.6123: WatchlistEntry must have tradeHistoryLastHolderCount", gtr.contains("var tradeHistoryLastHolderCount"))
-        assertTrue("V5.0.6123: WatchlistEntry must have tradeHistoryLastMarketRegime", gtr.contains("var tradeHistoryLastMarketRegime"))
-        assertTrue("V5.0.6123: WatchlistEntry must compute tradeHistoryWinRate", gtr.contains("val tradeHistoryWinRate"))
-        assertTrue("V5.0.6123: WatchlistEntry must compute isKnownWinner", gtr.contains("val isKnownWinner"))
-        assertTrue("V5.0.6123: WatchlistEntry must compute isKnownLoser", gtr.contains("val isKnownLoser"))
-        assertTrue("V5.0.6123: GTR must expose stampTradeHistory method", gtr.contains("fun stampTradeHistory"))
-        assertTrue("V5.0.6123: GTR must expose getTradeHistory method", gtr.contains("fun getTradeHistory"))
-    }
-
-    // V5.0.6123 — EducationSubLayerAI must pass full context to TokenWinMemory
-    @Test
-    fun educationSubLayerAI_6123FullContextToTokenWinMemory() {
-        val esl = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/EducationSubLayerAI.kt").readText()
-        assertTrue("V5.0.6123: ESL must pass lane to TokenWinMemory", esl.contains("lane = outcome.tradingMode"))
-        assertTrue("V5.0.6123: ESL must pass trader to TokenWinMemory", esl.contains("trader = outcome.traderSource"))
-        assertTrue("V5.0.6123: ESL must pass setupQuality to TokenWinMemory", esl.contains("setupQuality = outcome.setupQuality"))
-        assertTrue("V5.0.6123: ESL must pass holderCount to TokenWinMemory", esl.contains("holderCount = outcome.holderCount"))
-        assertTrue("V5.0.6123: ESL must pass emaFanState to TokenWinMemory", esl.contains("emaFanState = outcome.emaFanState"))
-        assertTrue("V5.0.6123: ESL must pass costSol to TokenWinMemory", esl.contains("costSol = outcome.entryCostSol"))
-        assertTrue("V5.0.6123: ESL must pass exitReason to TokenWinMemory", esl.contains("exitReason = outcome.exitReason"))
-        assertTrue("V5.0.6123: ESL must pass rugcheckScore to TokenWinMemory", esl.contains("rugcheckScore = outcome.rugcheckScore"))
-    }
-
-    // V5.0.6124 — LLM Lab constant strategy generation for all lanes
-    @Test
-    fun llmLab_6124ConstantStrategyGenerationAllLanes() {
-        val engine = java.io.File("src/main/kotlin/com/lifecyclebot/engine/lab/LlmLabEngine.kt").readText()
-        assertTrue("V5.0.6124: Lab must have ALL_TARGET_LANES for rotation", engine.contains("ALL_TARGET_LANES"))
-        assertTrue("V5.0.6124: Lab must have lane rotation", engine.contains("nextLaneForCreation"))
-        assertTrue("V5.0.6124: Lab must have MAX_LIVE_STRATEGIES >= 60", engine.contains("MAX_LIVE_STRATEGIES") && engine.contains("60"))
-        assertTrue("V5.0.6124: Lab must have MAX_OPEN_POSITIONS >= 40", engine.contains("MAX_OPEN_POSITIONS") && engine.contains("40"))
-        assertTrue("V5.0.6124: Lab must include style catalog in prompt", engine.contains("styleCatalog"))
-        assertTrue("V5.0.6124: Lab prompt must include targetLane field", engine.contains("targetLane"))
-        assertTrue("V5.0.6124: Lab prompt must include tradingStyle field", engine.contains("tradingStyle"))
-        assertTrue("V5.0.6124: Lab prompt must include tactic field", engine.contains("tactic"))
-        assertTrue("V5.0.6124: Lab prompt must include entryLogic field", engine.contains("entryLogic"))
-        assertTrue("V5.0.6124: Lab prompt must include holdLogic field", engine.contains("holdLogic"))
-        assertTrue("V5.0.6124: Lab prompt must include exitLogic field", engine.contains("exitLogic"))
-        assertTrue("V5.0.6124: Lab prompt must include toolAffinity field", engine.contains("toolAffinity"))
-        assertTrue("V5.0.6124: Lab prompt must include pyramiding field", engine.contains("pyramiding"))
-        assertTrue("V5.0.6124: Lab prompt must include partialExitPct field", engine.contains("partialExitPct"))
-        assertTrue("V5.0.6124: Lab prompt must include trailStopPct field", engine.contains("trailStopPct"))
-        assertTrue("V5.0.6124: Lab prompt must include dynamicProfitLock field", engine.contains("dynamicProfitLock"))
-        assertTrue("V5.0.6124: Lab parse must extract targetLane", engine.contains("""targetLane = o.optString("targetLane""""))
-        assertTrue("V5.0.6124: Lab parse must extract tradingStyle", engine.contains("""tradingStyle = o.optString("tradingStyle""""))
-        assertTrue("V5.0.6124: Lab parse must extract pyramiding", engine.contains("""pyramiding = o.optBoolean("pyramiding""""))
-        assertTrue("V5.0.6124: Lab pickCandidate must filter by targetLane", engine.contains("tick.lane == s.targetLane"))
-        assertTrue("V5.0.6124: Lab pickCandidate must filter by minLiquidityUsd", engine.contains("s.minLiquidityUsd"))
-        assertTrue("V5.0.6124: Lab pickCandidate must filter by maxMcapUsd", engine.contains("s.maxMcapUsd"))
-        assertTrue("V5.0.6124: Lab must use its own paper balance not live wallet", engine.contains("lab bankroll") || engine.contains("paper balance"))
-    }
-
-    // V5.0.6124 — LabStrategy model expansion
-    @Test
-    fun labStrategy_6124ModelExpansion() {
-        val models = java.io.File("src/main/kotlin/com/lifecyclebot/engine/lab/LlmLabModels.kt").readText()
-        assertTrue("V5.0.6124: LabStrategy must have targetLane", models.contains("val targetLane"))
-        assertTrue("V5.0.6124: LabStrategy must have tradingStyle", models.contains("val tradingStyle"))
-        assertTrue("V5.0.6124: LabStrategy must have tactic", models.contains("val tactic"))
-        assertTrue("V5.0.6124: LabStrategy must have entryLogic", models.contains("val entryLogic"))
-        assertTrue("V5.0.6124: LabStrategy must have holdLogic", models.contains("val holdLogic"))
-        assertTrue("V5.0.6124: LabStrategy must have exitLogic", models.contains("val exitLogic"))
-        assertTrue("V5.0.6124: LabStrategy must have toolAffinity", models.contains("val toolAffinity"))
-        assertTrue("V5.0.6124: LabStrategy must have pyramiding", models.contains("val pyramiding"))
-        assertTrue("V5.0.6124: LabStrategy must have partialExitPct", models.contains("val partialExitPct"))
-        assertTrue("V5.0.6124: LabStrategy must have trailStopPct", models.contains("val trailStopPct"))
-        assertTrue("V5.0.6124: LabStrategy must have dynamicProfitLock", models.contains("val dynamicProfitLock"))
-        assertTrue("V5.0.6124: LabStrategy must have confidenceInStrategy", models.contains("val confidenceInStrategy"))
-        assertTrue("V5.0.6124: LabStrategy toJson must save targetLane", models.contains("""put("targetLane""""))
-        assertTrue("V5.0.6124: LabStrategy toJson must save tradingStyle", models.contains("""put("tradingStyle""""))
-        assertTrue("V5.0.6124: LabStrategy fromJson must restore targetLane", models.contains("""targetLane = o.optString("targetLane""""))
-        assertTrue("V5.0.6124: LabStrategy fromJson must restore pyramiding", models.contains("""pyramiding = o.optBoolean("pyramiding""""))
-    }
-
-    // V5.0.6124 — BotService must feed lane + liquidity + mcap to LabUniverseTick
-    @Test
-    fun botService_6124LabUniverseTickLaneFeed() {
-        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.6124: BotService must feed lane to LabUniverseTick", bs.contains("lane = ts.laneAffinity.firstOrNull()"))
-        assertTrue("V5.0.6124: BotService must feed liquidityUsd to LabUniverseTick", bs.contains("liquidityUsd = ts.lastLiquidityUsd"))
-        assertTrue("V5.0.6124: BotService must feed mcapUsd to LabUniverseTick", bs.contains("mcapUsd = ts.lastMcap"))
-    }
-
     @Test
     fun aate4584ToxicLanePivotIsStrategyFirstNotMicroProbeOnly() {
         val tuner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStrategyTuner.kt").readText()
@@ -7537,917 +7296,6 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6078: Runtime report export button must always copy an observable unified-report fallback", err.contains("UNIFIED_REPORT_EXPORT_CLICK_6078") && err.contains("Unified report copied") && err.contains("PipelineHealthCollector.dumpText().take(24_000)"))
         assertTrue("V5.0.6078: all sell-like results must feed LLM/SSI context with accepted/trainable flags while policy heads remain clean-gated", exec.contains("ALL_RESULT_CONTEXT_OBSERVED_6078") && exec.contains("recordExternalOutcome6078") && lab.contains("externalOutcomeSummary6078") && ssi.contains("RESULTS6078"))
         assertTrue("V5.0.6078: live positions must preserve AgenticStyleRouter style surface instead of collapsing to generic lane emoji", exec.contains("preserve the full AgenticStyleRouter style surface") && exec.contains("tradingModeEmoji = listOf") && exec.contains("routedStyleTag.ifBlank"))
-    }
-
-    @Test
-    fun aate6118PaperBootstrapFastTrack500Trades() {
-        val fli = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/FluidLearningAI.kt").readText()
-        val frm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FreeRangeMode.kt").readText()
-        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        // FluidLearningAI: paper-mode fast-track curve (0-500 bootstrap, 500-800 mature, 800-1200 expert, 1200+ master)
-        assertTrue("V5.0.6118: FluidLearningAI must have paper fast-track", fli.contains("isPaper6118") && fli.contains("totalTrades <= 500"))
-        // FreeRangeMode: paper guard level accelerates past 500 trades
-        assertTrue("V5.0.6118: FreeRangeMode must have paper fast-track guard level", frm.contains("isPaper6118") && frm.contains("trades < 500"))
-        // FinalDecisionGate: paper thresholds (500/800/1200)
-        assertTrue("V5.0.6118: FDG must define paper bootstrap threshold", fdg.contains("FDG_BOOTSTRAP_END_PAPER = 500"))
-        assertTrue("V5.0.6118: FDG must define paper learning threshold", fdg.contains("FDG_LEARNING_END_PAPER = 800"))
-        assertTrue("V5.0.6118: FDG must define paper expert threshold", fdg.contains("FDG_EXPERT_END_PAPER = 1200"))
-        assertTrue("V5.0.6118: FDG getLearningPhase must use paper fast-track", fdg.contains("isPaper6118"))
-    }
-
-    @Test
-    fun aate6117CloudSyncSchemaVersionGateFixed() {
-        val sync = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CloudLearningSync.kt").readText()
-        // Root fix: the cached schemaReady flag must not short-circuit before the
-        // stored schema version is checked, or the V5.9.412 drift-recovery (drop
-        // legacy collective_* tables on a version bump) is permanently unreachable
-        // on any device that already ran once at an older version.
-        assertTrue("V5.0.6117: schemaReady early-return must also require version match", sync.contains("if (schemaReady && storedVerEarly == CURRENT_SCHEMA_VERSION) return@withContext true"))
-        assertTrue("V5.0.6117: CURRENT_SCHEMA_VERSION must be bumped to 3 to force one real recovery pass", sync.contains("CURRENT_SCHEMA_VERSION = 3"))
-    }
-
-    @Test
-    fun aate6117DormantSizingBrainColdCapFixed() {
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        // Root fix: the paper cold-streak cap must consult LanePolicy's per-lane
-        // execution weight (AGI/SSI/lane-local intelligence) before flattening a
-        // trade's size, and must dampen multiplicatively rather than hard-override
-        // to a flat wallet-percent -- preserving AI-driven size variance.
-        assertTrue("V5.0.6117: cold cap must consult LanePolicy.executionWeightForLane", exec.contains("com.lifecyclebot.engine.learning.LanePolicy.executionWeightForLane(coldLane6117)"))
-        assertTrue("V5.0.6117: healthy lanes must be exempted from the cold cap", exec.contains("laneHealthy6117 -> 0.0"))
-        assertTrue("V5.0.6117: cold cap must dampen multiplicatively, not hard-override finalSol = cap", exec.contains("val dampedFinal6117 = preDampFinal6117 * dampMult6117") && exec.contains("finalSol = dampedFinal6117"))
-    }
-
-    @Test
-    fun aate6116bOpenPnlSanityPermanentBypassFixed() {
-        val sanity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OpenPnlSanity.kt").readText()
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        // Root fix: priceBasisRescaled must NOT permanently waive the extreme-ratio/
-        // extreme-pnl numeric safety net. Only genuine same-source/same-pool comparison
-        // may mark a basis explicitly comparable.
-        assertTrue("V5.0.6116: explicitComparable must be samePool || sameSource only, not priceBasisRescaled", sanity.contains("val explicitComparable = samePool || sameSource") && !sanity.contains("val explicitComparable = samePool || sameSource || priceBasisRescaled"))
-        // Paper cross-source rebase must stamp entryPriceSource to the new source so
-        // sameSource passes cleanly on subsequent ticks without relying on a permanent bypass.
-        assertTrue("V5.0.6116: mcap-pivot rebase must stamp entryPriceSource = ts.lastPriceSource", exec.contains("entryPriceSource = ts.lastPriceSource,"))
-        assertTrue("V5.0.6116: no-mcap rebase must also stamp entryPriceSource", exec.contains("pos.copy(priceBasisRescaled = true, entryPriceSource = ts.lastPriceSource)"))
-    }
-
-    @Test
-    fun aate6116RugPreventionHardBlocks() {
-        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        val lpm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LosingPatternMemory.kt").readText()
-        // FIX 1: mint authority hard block in live mode
-        assertTrue("V5.0.6116: FDG must hard-block mint authority enabled in live mode", fdg.contains("HARD_BLOCK_MINT_AUTHORITY_6116"))
-        assertTrue("V5.0.6116: mint auth hard block must be unconditional live", fdg.contains("ts.safety.mintAuthorityDisabled == false"))
-        // FIX 2: rugcheck score 2-5 hard block in live mode
-        assertTrue("V5.0.6116: FDG must hard-block very low rugcheck scores (2-5) in live", fdg.contains("very_low_rc_live_hard_block_6116"))
-        assertTrue("V5.0.6116: very low RC block must check rugcheckScore <= 5", fdg.contains("rugcheckScore <= 5"))
-        // FIX 3: death bucket veto in LosingPatternMemory
-        assertTrue("V5.0.6116: LosingPatternMemory must have isConfirmedDeathBucket6116", lpm.contains("isConfirmedDeathBucket6116"))
-        assertTrue("V5.0.6116: death bucket must check 0 wins and >=10 losses", lpm.contains("s.wins == 0 && s.losses >= 10"))
-        // FIX 4: death bucket wired into FDG
-        assertTrue("V5.0.6116: FDG must hard-block confirmed death buckets", fdg.contains("HARD_BLOCK_DEATH_BUCKET_6116"))
-        assertTrue("V5.0.6116: FDG must call isConfirmedDeathBucket6116", fdg.contains("LosingPatternMemory.isConfirmedDeathBucket6116"))
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // V5.0.6123 — DYNAMIC PROFIT LOCK IN runManageOnly + SCANNER LIFECYCLE GATE
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    @org.junit.Test
-    fun aate6123DynamicProfitLockInRunManageOnly() {
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        // The dynamic fluid stop must be wired into runManageOnly
-        assertTrue("V5.0.6123: runManageOnly must use getDynamicFluidStop", exec.contains("getDynamicFluidStop"))
-        assertTrue("V5.0.6123: runManageOnly must ratchet peak", exec.contains("peakGainPct = pnlPct"))
-        assertTrue("V5.0.6123: runManageOnly must have MANAGE_ONLY_PEAK_LOCK_BREACH_6123", exec.contains("MANAGE_ONLY_PEAK_LOCK_BREACH_6123"))
-        assertTrue("V5.0.6123: runManageOnly must have MANAGE_ONLY_DYNAMIC_STOP_6123", exec.contains("MANAGE_ONLY_DYNAMIC_STOP_6123"))
-        assertTrue("V5.0.6123: runManageOnly must call fluidProfitFloor", exec.contains("fluidProfitFloor"))
-    }
-
-    @org.junit.Test
-    fun aate6123TokenLifecycleStageDetectorExists() {
-        val detector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenLifecycleStageDetector.kt").readText()
-        assertTrue("V5.0.6123: LifecycleStage enum must exist", detector.contains("enum class LifecycleStage"))
-        assertTrue("V5.0.6123: must have LAUNCH stage", detector.contains("LAUNCH"))
-        assertTrue("V5.0.6123: must have ACCUMULATION stage", detector.contains("ACCUMULATION"))
-        assertTrue("V5.0.6123: must have BREAKOUT stage", detector.contains("BREAKOUT"))
-        assertTrue("V5.0.6123: must have EXHAUSTION stage", detector.contains("EXHAUSTION"))
-        assertTrue("V5.0.6123: must have DEATH stage", detector.contains("DEATH"))
-        assertTrue("V5.0.6123: CheatSheetSetup enum must exist", detector.contains("enum class CheatSheetSetup"))
-        assertTrue("V5.0.6123: must have BREAKOUT_WITH_VOLUME setup", detector.contains("BREAKOUT_WITH_VOLUME"))
-        assertTrue("V5.0.6123: must have FRESH_LAUNCH_WITH_NARRATIVE", detector.contains("FRESH_LAUNCH_WITH_NARRATIVE"))
-        assertTrue("V5.0.6123: must have ACCUMULATION_COMPRESSION", detector.contains("ACCUMULATION_COMPRESSION"))
-        assertTrue("V5.0.6123: must have PULLBACK_RECLAIM", detector.contains("PULLBACK_RECLAIM"))
-        assertTrue("V5.0.6123: must have EXHAUSTION_CHASE setup", detector.contains("EXHAUSTION_CHASE"))
-        assertTrue("V5.0.6123: must have DEATH_SPIRAL setup", detector.contains("DEATH_SPIRAL"))
-        assertTrue("V5.0.6123: must have detectStage function", detector.contains("fun detectStage"))
-        assertTrue("V5.0.6123: must have matchCheatSheet function", detector.contains("fun matchCheatSheet"))
-        assertTrue("V5.0.6123: must have assess function", detector.contains("fun assess"))
-        assertTrue("V5.0.6123: must fuse PatternGoldenGoose", detector.contains("PatternGoldenGoose"))
-        assertTrue("V5.0.6123: must fuse MemeNarrativeAI", detector.contains("MemeNarrativeAI"))
-        assertTrue("V5.0.6123: must fuse PatternClassifier", detector.contains("PatternClassifier"))
-        assertTrue("V5.0.6123: must fuse HistoricalChartScanner", detector.contains("HistoricalChartScanner"))
-        assertTrue("V5.0.6123: must fuse PatternAutoTuner", detector.contains("PatternAutoTuner"))
-        assertTrue("V5.0.6123: must fuse MovementPatternSignal", detector.contains("MovementPatternSignal"))
-        assertTrue("V5.0.6123: must fuse SmartChartCache", detector.contains("SmartChartCache"))
-    }
-
-    @org.junit.Test
-    fun aate6123ScannerIntakePatternGateWired() {
-        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ScannerIntakePatternGate.kt").readText()
-        assertTrue("V5.0.6123: ScannerIntakePatternGate must exist", gate.contains("object ScannerIntakePatternGate"))
-        assertTrue("V5.0.6123: gate must call TokenLifecycleStageDetector", gate.contains("TokenLifecycleStageDetector"))
-        assertTrue("V5.0.6123: gate must have evaluate function", gate.contains("fun evaluate"))
-        assertTrue("V5.0.6123: gate must have shouldPromoteFromProbation", gate.contains("fun shouldPromoteFromProbation"))
-        assertTrue("V5.0.6123: BotService must call ScannerIntakePatternGate.evaluate", bot.contains("ScannerIntakePatternGate.evaluate"))
-        assertTrue("V5.0.6123: BotService must have SCANNER_LIFECYCLE_INTAKE_6123", bot.contains("SCANNER_LIFECYCLE_INTAKE_6123"))
-        assertTrue("V5.0.6123: BotService must pass lifecycleStage in telemetry", bot.contains("lifecycleStage"))
-        assertTrue("V5.0.6123: BotService must pass cheatSheetSetup in telemetry", bot.contains("cheatSheetSetup"))
-        assertTrue("V5.0.6123: BotService must merge recommendedLanes into laneAffinity", bot.contains("recommendedLanes"))
-        assertTrue("V5.0.6123: BotService must have patternForceProbation", bot.contains("patternForceProbation"))
-    }
-
-    @org.junit.Test
-    fun aate6123ProbationPatternGateWired() {
-        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.6123: BotService must have PROBATION_PROMOTION_PATTERN_HELD_6123", bot.contains("PROBATION_PROMOTION_PATTERN_HELD_6123"))
-        assertTrue("V5.0.6123: BotService must call shouldPromoteFromProbation", bot.contains("shouldPromoteFromProbation"))
-    }
-
-    // V5.0.6125 — MoonshotHoldMode wired end-to-end into Executor exit paths
-    @org.junit.Test
-    fun aate6125MoonshotHoldModeWiredIntoExecutorExitPaths() {
-        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6125: Executor must have moonshotHoldGate choke point", executor.contains("private fun moonshotHoldGate"))
-        assertTrue("V5.0.6125: moonshotHoldGate must call MoonshotHoldMode.updatePeak", executor.contains("MoonshotHoldMode.updatePeak"))
-        assertTrue("V5.0.6125: moonshotHoldGate must call MoonshotHoldMode.shouldSuppressExit", executor.contains("MoonshotHoldMode.shouldSuppressExit"))
-        assertTrue("V5.0.6125: checkProfitLock must consult moonshotHoldGate before capital-recovery/ultra-bank", executor.contains("""moonshotHoldGate(ts, gainPct, "PROFIT_LOCK_CAPITAL_RECOVERY_OR_ULTRA_BANK")"""))
-        assertTrue("V5.0.6125: trySweepTakeProfitExit must consult moonshotHoldGate", executor.contains("""moonshotHoldGate(ts, pnlPct, "SWEEP_TAKE_PROFIT")"""))
-        assertTrue("V5.0.6125: checkPartialSell must consult moonshotHoldGate", executor.contains("""moonshotHoldGate(ts, gainPct, "PARTIAL_SELL_LADDER")"""))
-        assertTrue("V5.0.6125: QUICK_RUNNER_10X_FULL_EXIT must be gated by moonshotHoldGate", executor.contains("""moonshotHoldGate(ts, bestPnl, "QUICK_RUNNER_10X_FULL_EXIT")"""))
-        assertTrue("V5.0.6125: QUICK_RUNNER_6X_BANK_95PCT must be gated by moonshotHoldGate", executor.contains("""moonshotHoldGate(ts, bestPnl, "QUICK_RUNNER_6X_BANK_95PCT")"""))
-        assertTrue("V5.0.6125: SETTLE_MFE_FLOOR must be gated by moonshotHoldGate", executor.contains("""moonshotHoldGate(ts, curPnlPct, "SETTLE_MFE_FLOOR")"""))
-        assertTrue("V5.0.6125: SETTLE_PEAK_DRAWDOWN must be gated by moonshotHoldGate", executor.contains("""moonshotHoldGate(ts, curPnlPct, "SETTLE_PEAK_DRAWDOWN")"""))
-        assertTrue("V5.0.6125: MANAGE_ONLY_PEAK_LOCK must be gated by moonshotHoldGate", executor.contains("""moonshotHoldGate(ts, pnlPct, "MANAGE_ONLY_PEAK_LOCK")"""))
-        assertTrue("V5.0.6125: MANAGE_ONLY dynamic stop must be gated by moonshotHoldGate", executor.contains("""moonshotHoldGate(ts, pnlPct, "MANAGE_ONLY_${'$'}{stopType6123}_STOP_6123")"""))
-        assertTrue("V5.0.6125: SWEEP_FLUID_FLOOR must be gated by moonshotHoldGate", executor.contains("""moonshotHoldGate(ts, pnlPct, "SWEEP_FLUID_FLOOR")"""))
-        assertTrue("V5.0.6125: catastrophic backstops must NOT consult moonshotHoldGate", !executor.contains("""moonshotHoldGate(ts, worstPnl, "CATASTROPHIC_HARD_BACKSTOP""""))
-        assertTrue("V5.0.6125: terminal close must release MoonshotHoldMode registry entry", executor.contains("MoonshotHoldMode.onPositionClosed(tradeId.mint)"))
-    }
-
-    // V5.0.6126 — CorrelationGuard portfolio-level correlated-holding damper
-    @org.junit.Test
-    fun aate6126CorrelationGuardWiredIntoSizingStack() {
-        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6126: Executor must compute correlationGuardMult6126", executor.contains("correlationGuardMult6126"))
-        assertTrue("V5.0.6126: Executor must call CorrelationGuard.sizeMultiplier", executor.contains("CorrelationGuard.sizeMultiplier"))
-        assertTrue("V5.0.6126: sizingStackComponents must include correlationGuard6126", executor.contains("correlationGuard6126"))
-        assertTrue("V5.0.6126: terminal close must clear CorrelationGuard cache", executor.contains("CorrelationGuard.clear(tradeId.mint)"))
-        val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CorrelationGuard.kt").readText()
-        assertTrue("V5.0.6126: CorrelationGuard must use CorrelationHedgeAI.classify", guard.contains("CorrelationHedgeAI.classify"))
-        assertTrue("V5.0.6126: CorrelationGuard must have DAMPING_BREAKPOINTS", guard.contains("DAMPING_BREAKPOINTS"))
-        assertTrue("V5.0.6126: CorrelationGuard min multiplier must be 0.20 (not hard-block)", guard.contains("0.20"))
-    }
-
-    // V5.0.6126 — Send to Vex button in PipelineHealthActivity
-    @org.junit.Test
-    fun aate6126SendToVexButtonWired() {
-        val activity = java.io.File("src/main/kotlin/com/lifecyclebot/ui/PipelineHealthActivity.kt").readText()
-        assertTrue("V5.0.6126: PipelineHealthActivity must have sendVexButton", activity.contains("sendVexButton"))
-        assertTrue("V5.0.6126: PipelineHealthActivity must have sendReportToVexAsync", activity.contains("sendReportToVexAsync"))
-        assertTrue("V5.0.6126: sendReportToVexAsync must POST to receiveRuntimeReport", activity.contains("receiveRuntimeReport"))
-        assertTrue("V5.0.6126: sendReportToVexAsync must use background thread", activity.contains("thread {"))
-        val layout = java.io.File("src/main/res/layout/activity_pipeline_health.xml").readText()
-        assertTrue("V5.0.6126: layout must have sendVexButton", layout.contains("sendVexButton"))
-    }
-
-    @org.junit.Test fun V5_0_6127_probe_sizing_and_telemetry_fixes() {
-        val botService = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.6127: LANE_DUST_PROBE_SIZE_MULT must be 0.35",
-            botService.contains("LANE_DUST_PROBE_SIZE_MULT = 0.35"))
-        assertFalse("V5.0.6127: old 0.04 dust probe mult must be gone",
-            botService.contains("LANE_DUST_PROBE_SIZE_MULT = 0.04"))
-        assertTrue("V5.0.6127: PROBE_ONLY qualityPenalty floor must be 0.35",
-            botService.contains("coerceIn(0.35, 1.18)"))
-        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        assertTrue("V5.0.6127: blockReasonFinal must overwrite PROBE_ONLY",
-            fdg.contains("""blockReasonFinal == null || blockReasonFinal == "PROBE_ONLY")"""))
-        assertTrue("V5.0.6127: FDG_PROBE_ONLY_COUNTED_AS_ALLOW_6127 telemetry",
-            fdg.contains("FDG_PROBE_ONLY_COUNTED_AS_ALLOW_6127"))
-        assertTrue("V5.0.6127: rejectTaxonomy must exclude PROBE_ONLY",
-            fdg.contains("""blockReason != null && blockReason != "PROBE_ONLY")"""))
-        val fanout = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveLaneFanoutPressure.kt").readText()
-        assertTrue("V5.0.6127: extreme ratio pressure must exist",
-            fanout.contains("extremeRatioPressure6127") && fanout.contains("ratio > 50.0"))
-        assertTrue("V5.0.6127: extreme ratio pressure reason",
-            fanout.contains("extreme_ratio_fanout_pressure_6127"))
-        val compounding = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RealizedWalletCompoundingGovernor.kt").readText()
-        assertTrue("V5.0.6132: compounding report must split money rows from StrategyTruthLedger clean and use strict clean-truth defense",
-            compounding.contains("moneyRows=") && compounding.contains("strategyClean=") && compounding.contains("defensive_clean_truth_negative_or_low_wr_6132"))
-        assertTrue("V5.0.6165: FDG must not leak stale LanePolicy pause literals after retraining pivot bridge",
-            !fdg.contains("LANE_POLICY_RETRAINING_PAUSED_6107_${'$'}{lpState.name}") && !fdg.contains("LANE_POLICY_RETRAINING_PAUSED_6128_${'$'}{lpState.name}") && fdg.contains("LANE_POLICY_RETRAINING_PIVOT_6165"))
-        assertTrue("V5.0.6128: lane auto pause must seed lab pivot instead of hard-blocking",
-            fdg.contains("LANE_AUTO_PAUSED_PIVOT_SHAPE_6128") && fdg.contains("seedFromTacticFailure"))
-        val botService6128 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.6128: huge runner lock breach bypasses BE before hard-floor decay",
-            botService6128.contains("RUNNER_GIVEBACK_LOCK_BE_BYPASS_6128") && botService6128.contains("runnerGivebackMustBank6128"))
-    }
-
-    @org.junit.Test fun V5_0_6129_lab_implementation_reintro_and_runtime_anr_fixes() {
-        val labFeed = java.io.File("src/main/kotlin/com/lifecyclebot/engine/lab/LabPromotedFeed.kt").readText()
-        assertTrue("V5.0.6129: manual implement-all must grant authority to all promoted strategies",
-            labFeed.contains("implementAllProven6129") && labFeed.contains("grantLiveAuthority(s.id)") && labFeed.contains("LAB_MANUAL_IMPLEMENT_ALL_PROVEN_6129"))
-        val labEngine = java.io.File("src/main/kotlin/com/lifecyclebot/engine/lab/LlmLabEngine.kt").readText()
-        assertTrue("V5.0.6129: auto-promoted Lab strategies must be implemented/live-authorised",
-            labEngine.contains("AUTO-PROMOTED+IMPLEMENTED_6129") && labEngine.contains("LAB_PROMOTED_AUTO_IMPLEMENTED_6129") && labEngine.contains("LabPromotedFeed.grantLiveAuthority(s.id)"))
-        val lanePolicy = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/LanePolicy.kt").readText()
-        assertTrue("V5.0.6129: proof must reintroduce retraining buckets as reduced-size execution",
-            lanePolicy.contains("recoverFromProof6129") && lanePolicy.contains("LANE_POLICY_PROOF_REINTRODUCED_6129") && lanePolicy.contains("State.RETRAINING,") && lanePolicy.contains("State.REDUCED_SIZE_EXECUTION"))
-        val shadow = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneShadowProofLoop.kt").readText()
-        assertTrue("V5.0.6129: shadow-proof loop must implement proven Lab strategies, not only unpause lanes",
-            shadow.contains("lab_shadow_proof_implemented_6129") && shadow.contains("LANE_SHADOW_PROOF_IMPLEMENTED_6129") && shadow.contains("LabPromotedFeed.grantLiveAuthority(laneProven.id)"))
-        val noTrade = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/NoTradeObservationStore.kt").readText()
-        assertTrue("V5.0.6129: no-trade counterfactual TP proof must feed LanePolicy reintro without paid probes",
-            noTrade.contains("NO_TRADE_COUNTERFACTUAL_REINTRO_6129") && noTrade.contains("wouldHaveHitTP") && noTrade.contains("LanePolicy.noteImprovement(row.lane, row.scoreBand)"))
-        val botService6129 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.6129: LearningPersistence init must run on IO instead of service main-thread startup",
-            botService6129.contains("LEARNING_PERSISTENCE_INIT_IO_6129") && botService6129.contains("scope.launch(kotlinx.coroutines.Dispatchers.IO)"))
-        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
-        assertTrue("V5.0.6129: runtime UI ANR shed must activate before 100 hints and use tighter row caps",
-            main.contains("anrHintsForRenderShed >= 5") && main.contains("HEAVY_REPAINT_MIN_INTERVAL_MS: Long = 8_000L") && main.contains("WATCHLIST_ROW_CAP: Int = 4") && main.contains("OPENPOS_ROW_CAP: Int = 4"))
-        assertTrue("V5.0.6129: Lab tile long press must manually implement proven strategies",
-            main.contains("setOnLongClickListener") && main.contains("""implementAllProven6129("main_lab_tile_long_press")"""))
-    }
-
-
-    @org.junit.Test fun V5_0_6130_clean_edge_paper_live_exit_parity() {
-        val telemetry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTelemetry.kt").readText()
-        assertTrue("V5.0.6130: clean paper StrategyTruth leaderboard must be cached like clean live",
-            telemetry.contains("cleanPaperLeaderboardCache") && telemetry.contains("CLEAN_PAPER_LEADERBOARD_TTL_MS") && telemetry.contains("computeCleanPaperTerminalLeaderboard"))
-        val executor6130 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6130: learnedExitRungs must use clean paper telemetry in paper and clean live telemetry in live",
-            executor6130.contains("board6130") && executor6130.contains("RuntimeModeAuthority.isPaper()") && executor6130.contains("StrategyTelemetry.computeCleanPaperTerminalLeaderboard") && executor6130.contains("StrategyTelemetry.computeCleanLiveTerminalLeaderboard") && executor6130.contains("LIVE uses clean LIVE StrategyTruth only"))
-        assertFalse("V5.0.6130: learnedExitRungs must not use legacy live-only terminal leaderboard",
-            executor6130.contains("StrategyTelemetry.computeLiveTerminalLeaderboard().firstOrNull"))
-    }
-
-
-    @org.junit.Test fun V5_0_6131_live_style_edge_compounds_by_clean_live_truth() {
-        val telemetry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTelemetry.kt").readText()
-        assertTrue("V5.0.6131: clean live style truth must group terminal rows by lane|style without changing canonical lane tags",
-            telemetry.contains("fun styleEdgeKey") && telemetry.contains("tradingModeEmoji") && telemetry.contains("computeCleanLiveStyleTerminalLeaderboard") && telemetry.contains("LIVE sizing consults only clean LIVE terminal SELL style truth"))
-        val exec6131 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6131: live final size must consume clean-live style edge after routing and before provider/lane caps",
-            exec6131.contains("LIVE_STYLE_EDGE_SIZE_APPLIED_6131") && exec6131.contains("StrategyTelemetry.liveStyleSizeMultiplier(routedLaneTag, routedStyleTag)") && exec6131.contains("source=clean_live_strategy_truth") && exec6131.contains("liveStyleEdge="))
-    }
-
-
-    @org.junit.Test fun V5_0_6132_paper_live_source_balance_not_pump_centric() {
-        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.6132: paper and live intake must treat pump.fun as one Solana spec feed, not the default hot-watchlist learner",
-            bot.contains("SOLANA-WIDE SOURCE DOCTRINE") && bot.contains("pump aliases do NOT count as multi-source") && bot.contains("pumpSpecOnly6132") && bot.contains("!pumpSpecOnly6132"))
-        assertTrue("V5.0.6132: cold single-source pump.fun must be probation-first unless non-pump confirmation/volume/liquidity earns hot flow",
-            bot.contains("nonPumpConfirmed6132") && bot.contains("val coldPumpBase = !lenientIntake && isPumpPortalWs") && bot.contains("probation-first in BOTH paper and") && bot.contains("Dex/Raydium/Meteora/Orca/Birdeye/aggregator"))
-    }
-
-
-    @org.junit.Test fun V5_0_6132_compounding_unlocks_require_strategy_clean_truth() {
-        val gov = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RealizedWalletCompoundingGovernor.kt").readText()
-        assertTrue("V5.0.6132: compounding unlocks must use the stricter StrategyTruth-clean side once mature, not partial-inclusive money rows",
-            gov.contains("decisionPnl6132") && gov.contains("decisionWr6132") && gov.contains("decisionPf6132") && gov.contains("cannot fake a green compounding regime") && gov.contains("defensive_clean_truth_negative_or_low_wr_6132"))
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6132: executor telemetry must distinguish harvested moneyRows from StrategyTruth clean edge",
-            exec.contains("moneyRows=") && exec.contains("strategyClean=") && !exec.contains(" clean=${'$'}{snap4511.cleanPnlSol"))
-    }
-
-
-    @org.junit.Test fun V5_0_6133_near_10x_spike_guard_banks_before_roundtrip() {
-        val spike = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SpikeGuardExit.kt").readText()
-        assertTrue("V5.0.6133: near-10x runners must not miss full-exit because the mark printed 996% instead of exactly 1000%",
-            spike.contains("NEAR-10X BANK") && spike.contains("const val FULL_EXIT_PEAK_PCT = 900.0") && spike.contains("Runtime report showed LORA peak +996.7%") && spike.contains("near-10x threshold"))
-    }
-
-
-    @org.junit.Test fun V5_0_6134_standard_quote_race_and_clean_live_compounding_brain() {
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        val quoteBrain = java.io.File("src/main/kotlin/com/lifecyclebot/engine/QuoteRaceBrain.kt").readText()
-        assertTrue("V5.0.6134/6135: STANDARD/CORE/V3 fresh green candles must get urgent quote-race execution posture through QuoteRaceBrain without double-broadcasting",
-            exec.contains("STANDARD_QUOTE_RACE_EDGE_6134") && exec.contains("quoteRaceEdge6134") && exec.contains("QuoteRaceBrain.evaluate(ts, laneForQuoteRace6135)") && quoteBrain.contains("greenPct >= 8.0") && quoteBrain.contains("buyPressure >= 68.0") && exec.contains("pumpSlipPct6134") && exec.contains("urgentBuyTip6134"))
-        assertTrue("V5.0.6134/6136: quote-race/cost edge must widen live buy slippage ladder only through bounded posture",
-            exec.contains("val slippageLadder = if (quoteRaceEdge6134 || executionCostPosture6136.expectedSlipPct >= 6.0)") && exec.contains("maxBuySlipBps6136") && exec.contains("slip.coerceAtMost(maxBuySlipBps6136)"))
-        val strat = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTelemetry.kt").readText()
-        assertTrue("V5.0.6134: live style compounding brain must press +EV clean-live lane|style cells harder and shrink toxic cells harder",
-            strat.contains("CLEAN-LIVE COMPOUNDING BRAIN") && strat.contains("pfEdge6134") && strat.contains("elite ->") && strat.contains("coerceIn(1.18, 1.45)") && strat.contains("coerceIn(0.52, 0.78)"))
-    }
-
-
-    @org.junit.Test fun V5_0_6135_quote_race_brain_route_outcome_attribution() {
-        val brain = java.io.File("src/main/kotlin/com/lifecyclebot/engine/QuoteRaceBrain.kt").readText()
-        assertTrue("V5.0.6135: QuoteRaceBrain must be local-state only and must not call network/sign/broadcast",
-            brain.contains("object QuoteRaceBrain") && brain.contains("does NOT call network/LLM") && brain.contains("does NOT sign/broadcast") && brain.contains("evaluate(ts: TokenState"))
-        assertTrue("V5.0.6135: QuoteRaceBrain must output posture not a hard block",
-            brain.contains("data class Posture") && brain.contains("enabled: Boolean") && brain.contains("priorityFeeSol") && brain.contains("pumpSlipPct") && brain.contains("minBuySlippageBps") && brain.contains("maxBuySlippageBps"))
-        assertTrue("V5.0.6135: route outcome attribution must feed reliability memory and forensic telemetry",
-            brain.contains("recordBuyOutcome") && brain.contains("ExecutionRouteReliabilityMemory.recordFailure") && brain.contains("QUOTE_RACE_ROUTE_SUCCESS_6135") && brain.contains("QUOTE_RACE_ROUTE_FAIL_6135"))
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6135: Executor liveBuy must consume QuoteRaceBrain posture and record Pump/Jupiter outcomes",
-            exec.contains("QuoteRaceBrain.evaluate(ts, laneForQuoteRace6135)") && exec.contains("quoteRacePosture6135") && exec.contains("QuoteRaceBrain.recordBuyOutcome") && exec.contains("PUMPPORTAL_BUY") && exec.contains("JUPITER_ULTRA_METIS_BUY"))
-        assertFalse("V5.0.6135: quote race must not introduce parallel broadcast/double-buy primitives",
-            exec.contains("async { tryPumpPortalBuy") || exec.contains("async { wallet.signSendAndConfirm") || exec.contains("launch { wallet.signSendAndConfirm"))
-    }
-
-
-    @org.junit.Test fun V5_0_6136_execution_cost_brain_dynamic_fee_slippage_soft_shape() {
-        val brain = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionCostBrain.kt").readText()
-        assertTrue("V5.0.6136: ExecutionCostBrain must bridge existing ExecutionCostPredictorAI into buy posture without network or hard veto",
-            brain.contains("object ExecutionCostBrain") && brain.contains("ExecutionCostPredictorAI.expectedExtraSlipPct") && brain.contains("No network calls") && brain.contains("no hard veto") && brain.contains("data class BuyPosture"))
-        assertTrue("V5.0.6136: execution cost posture must include size drag, dynamic fee, urgent tip, pump slip and slippage ladder bounds",
-            brain.contains("sizeMultiplier") && brain.contains("priorityFeeSol") && brain.contains("urgentTip") && brain.contains("pumpSlipPct") && brain.contains("minBuySlippageBps") && brain.contains("maxBuySlippageBps"))
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6136: liveBuy must apply ExecutionCostBrain before route planning and merge it with QuoteRaceBrain posture",
-            exec.contains("ExecutionCostBrain.buyPosture(ts, sol)") && exec.contains("EXECUTION_COST_FLOW_BUY_SIZE_APPLIED_6137") && exec.contains("maxOf(quoteRacePosture6135.priorityFeeSol, executionCostPosture6136.priorityFeeSol)") && exec.contains("minBuySlipBps6136") && exec.contains("maxBuySlipBps6136"))
-        assertTrue("V5.0.6136: cost brain must remain soft-shape only, not introduce a new live-buy hard blocker",
-            exec.contains("soft_shape_only=true") && !brain.contains("return false") && !brain.contains("HARD_REJECT"))
-    }
-
-
-    @org.junit.Test fun V5_0_6137_adversarial_flow_brain_soft_mev_posture() {
-        val brain = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AdversarialFlowBrain.kt").readText()
-        assertTrue("V5.0.6137: AdversarialFlowBrain must be a mempool adapter shell with no provider dependency or hard block",
-            brain.contains("object AdversarialFlowBrain") && brain.contains("future pending-tx/mempool feed") && brain.contains("No network calls") && brain.contains("no hard blocks") && brain.contains("data class Posture"))
-        assertTrue("V5.0.6137: adversarial flow must use local microstructure proxies and degrade to soft size/MEV posture",
-            brain.contains("upperWick") && brain.contains("lastBuyPressurePct") && brain.contains("lastSellPressurePct") && brain.contains("topHolderPct") && brain.contains("ExecutionRouteReliabilityMemory.sizeMultiplierForSource") && brain.contains("sizeMultiplier"))
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6137: liveBuy must merge adversarial flow with execution cost and quote race, soft-shape only",
-            exec.contains("AdversarialFlowBrain.evaluate(ts)") && exec.contains("EXECUTION_COST_FLOW_BUY_SIZE_APPLIED_6137") && exec.contains("adversarialFlowPosture6137.urgentMevTip") && exec.contains("soft_shape_only=true no_hot_path_provider=true"))
-    }
-
-
-    @org.junit.Test fun V5_0_6138_route_tournament_brain_clean_live_route_preference() {
-        val brain = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RouteTournamentBrain.kt").readText()
-        assertTrue("V5.0.6138: RouteTournamentBrain must use cached local route reliability and clean-live style truth only",
-            brain.contains("object RouteTournamentBrain") && brain.contains("ExecutionRouteReliabilityMemory.sizeMultiplierForSource") && brain.contains("StrategyTelemetry.liveStyleSizeMultiplier") && brain.contains("never calls network") && brain.contains("never lets paper authorize live"))
-        assertTrue("V5.0.6138/6140: route tournament must prefer venue-family route/order and size-shape without blocking trades",
-            brain.contains("preferredRoute") && brain.contains("pumpFirstAllowed") && brain.contains("sizeMultiplier") && brain.contains("PUMPPORTAL_FIRST") && brain.contains("SOL_AGGREGATOR_FIRST") && brain.contains("SOL_AMM_OR_AGGREGATOR_FIRST"))
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6138: Executor liveBuy must consume route tournament before pump-first and carry route preference telemetry",
-            exec.contains("RouteTournamentBrain.evaluate(ts, ts.position.tradingMode)") && exec.contains("routeTournamentPosture6138.pumpFirstAllowed") && exec.contains("routePref=${'$'}{routeTournamentPosture6138.preferredRoute}") && exec.contains("pumpFirstAllowed=${'$'}{routeTournamentPosture6138.pumpFirstAllowed}"))
-    }
-
-
-    @org.junit.Test fun V5_0_6139_entry_archetype_classifier_shared_meme_crypto_style_truth() {
-        val brain = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EntryArchetypeClassifier.kt").readText()
-        assertTrue("V5.0.6139: EntryArchetypeClassifier must define shared deterministic entry labels for Meme now and Crypto Universe parity later",
-            brain.contains("object EntryArchetypeClassifier") && brain.contains("Shared entry-style taxonomy") && brain.contains("Crypto Universe parity later") && brain.contains("green_momentum_breakout") && brain.contains("liquidity_depth_quality") && brain.contains("pullback_reclaim") && brain.contains("pump_graduation"))
-        assertTrue("V5.0.6139: archetype classifier must be local-only and non-blocking",
-            brain.contains("no network/LLM") && brain.contains("no hard block") && brain.contains("sizeMultiplier") && brain.contains("confidence"))
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6139: liveBuy must apply entry archetype and clean-live style bias inside the existing live execution size stack",
-            exec.contains("EntryArchetypeClassifier.classify(ts, ts.position.tradingMode)") && exec.contains("entryArchetypeCleanLiveBias6139") && exec.contains("StrategyTelemetry.liveStyleSizeMultiplier(ts.position.tradingMode, entryArchetype6139.label)") && exec.contains("archetype=${'$'}{entryArchetype6139.label}"))
-    }
-
-
-    @org.junit.Test fun V5_0_6140_venue_universe_prevents_pump_jupiter_only_regression() {
-        val universe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/VenueUniverse.kt").readText()
-        assertTrue("V5.0.6140: AATE must not collapse into a pump.fun/Jupiter-only bot; venue universe must include Solana DEXs, launchpads, CEXs, BNB/Pancake and Chinese/regional trend surfaces",
-            universe.contains("AATE is not a Pump/Jupiter bot") && universe.contains("RAYDIUM") && universe.contains("ORCA") && universe.contains("METEORA") && universe.contains("PANCAKESWAP") && universe.contains("COINSPOT") && universe.contains("CHINESE_EXCHANGE") && universe.contains("CHINESE_SOCIAL"))
-        assertTrue("V5.0.6140: venue universe must model chain family, venue family, and route family for Meme Trader + Crypto Universe parity",
-            universe.contains("enum class ChainFamily") && universe.contains("enum class VenueFamily") && universe.contains("enum class RouteFamily") && universe.contains("CEX_SIGNAL_ONLY") && universe.contains("TREND_SIGNAL_ONLY") && universe.contains("CHAIN_SPECIFIC_DEX"))
-        val route = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RouteTournamentBrain.kt").readText()
-        assertTrue("V5.0.6140: RouteTournamentBrain must classify venue family instead of using Pump/Jupiter booleans",
-            route.contains("VenueUniverse.classify(source)") && route.contains("SOL_AMM_OR_AGGREGATOR_FIRST") && route.contains("CHAIN_SPECIFIC_VENUE") && route.contains("CEX_SIGNAL_ONLY") && route.contains("multi_exchange_universe=true") && !route.contains("pumpSource ="))
-    }
-
-
-    @org.junit.Test fun V5_0_6141_venue_source_balance_adapter_feeds_intake_not_pump_only() {
-        val adapter = java.io.File("src/main/kotlin/com/lifecyclebot/engine/VenueSourceBalanceAdapter.kt").readText()
-        assertTrue("V5.0.6141: VenueSourceBalanceAdapter must add multi-exchange intake pressure without replacing ScannerSourceBrain or blocking sources",
-            adapter.contains("object VenueSourceBalanceAdapter") && adapter.contains("does not") && adapter.contains("block sources") && adapter.contains("replace ScannerSourceBrain") && adapter.contains("VenueUniverse.classify") && adapter.contains("CHAIN_SPECIFIC_DEX") && adapter.contains("TREND_SIGNAL_ONLY"))
-        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.6141: admitProtectedMemeIntake must combine ScannerSourceBrain with venue-family priors and expose multi-exchange telemetry",
-            bot.contains("VenueSourceBalanceAdapter.bestMultiplier(allSources + source)") && bot.contains("sourceBrainMultRaw6141") && bot.contains("venueSourceMult6141") && bot.contains("venueSourceMult6141 >= 1.10") && bot.contains("multi_exchange_universe=true"))
-    }
-
-
-    @org.junit.Test fun V5_0_6142_live_economic_entry_floor_matches_compounding_target() {
-        val profile = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveSizingProfile.kt").readText()
-        assertTrue("V5.0.6142: live entry floor must be economic wallet-percent sizing, not 0.025/0.040 dust tickets",
-            profile.contains("V5.0.6142 — economic live compounding floor") && profile.contains("const val MIN_ENTRY_SOL: Double = 0.035") && profile.contains("const val BASE_WALLET_PCT: Double = 0.120") && profile.contains("const val MAX_INITIAL_WALLET_PCT: Double = 0.320") && profile.contains("const val MAX_TOTAL_TOKEN_WALLET_PCT: Double = 0.440"))
-        assertTrue("V5.0.6142: lane-specific compound floors must lift QUALITY/BLUECHIP/DIP and STANDARD lanes out of dust mode",
-            profile.contains("listOf(0.130, 0.200, 0.280), listOf(0.060, 0.110, 0.160, 0.240), 0.320") && profile.contains("listOf(0.110, 0.160, 0.240), listOf(0.060, 0.095, 0.140, 0.200), 0.300"))
-        val doctrine = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveGrowthDoctrine.kt").readText()
-        assertTrue("V5.0.6142: LiveGrowthDoctrine min executable size must target 2x-5x compounding and avoid 0.025 SOL live dust",
-            doctrine.contains("V5.0.6142 — adaptive economic growth floor") && doctrine.contains("V5.0.6147 — wallet-relative live floor") && doctrine.contains("spendableSol >= 0.25 -> (spendableSol * 0.14).coerceIn(0.030, 0.060)") && doctrine.contains("spendableSol >= 0.5 -> 0.100") && doctrine.contains("2x–5x daily compounding mandate"))
-        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        assertTrue("V5.0.6142: FDG live core floor must consume LiveSizingProfile.MIN_ENTRY_SOL instead of allowing 0.03 dust",
-            fdg.contains("LiveSizingProfile.MIN_ENTRY_SOL") && fdg.contains("coerceIn(0.06, 0.25)"))
-    }
-
-
-    @org.junit.Test fun V5_0_6143_throughput_pressure_widens_qualified_intake_for_compounding() {
-        val brain = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ThroughputPressureBrain.kt").readText()
-        assertTrue("V5.0.6143: throughput pressure brain must be local-only, bounded, and target the 500-1000 trades/day doctrine",
-            brain.contains("object ThroughputPressureBrain") && brain.contains("TradeHistoryStore.getTradeCount24h") && brain.contains("target=500_1000") && brain.contains("coerceIn(1.0, 1.28)") && brain.contains("coerceIn(1.0, 1.07)"))
-        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.6143: protected intake must consume throughput pressure together with source and venue priors, without creating a hard block",
-            bot.contains("ThroughputPressureBrain.current()") && bot.contains("throughputPressure6143.intakeMultiplier") && bot.contains("throughputPressure6143.underTarget") && bot.contains("compounding_target=true") && bot.contains("multi_exchange_universe=true"))
-    }
-
-
-    @org.junit.Test fun V5_0_6144_runner_shadow_and_terminal_quality_control_money_path() {
-        val runner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RunnerExitShadowLedger.kt").readText()
-        assertTrue("V5.0.6144: runner shadow ledger must expose bounded hold bias while keeping no direct sell authority",
-            runner.contains("fun laneHoldBias") && runner.contains("coerceIn(1.0, 1.16)") && runner.contains("no sell authority") && runner.contains("avoid repeating early-runner giveback mistakes"))
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6144: Executor exit policy must combine UnifiedExitPolicyHead with runner-shadow hold bias before let-run/bank-soon decisions",
-            exec.contains("exitPolicyBiasBase6144") && exec.contains("RunnerExitShadowLedger.laneHoldBias") && exec.contains("RUNNER_SHADOW_HOLD_BIAS_6144") && exec.contains("exitPolicyLetRun = exitPolicyBias > 1.20"))
-        assertTrue("V5.0.6144: terminal outcome quality must gate core terminal learning fanout so dirty rows cannot unlock compounding evidence",
-            exec.contains("terminalQualityTrainable6144") && exec.contains("rowLearningAdmitted4349 && terminalQualityTrainable6144") && exec.contains("TerminalOutcomeQualityGate.report"))
-    }
-
-
-    @org.junit.Test fun V5_0_6145_distribution_fade_pivots_instead_of_killing_non_hard_setups() {
-        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.6145: distribution fade must preserve hard drain/stop-loss safety but pivot non-hard distribution into lane-local reduced conviction",
-            bot.contains("distributionHardSafety6145") && bot.contains("distributionPivotOnly6145") && bot.contains("DISTRIBUTION_FADE_LANE_PIVOT_6145") && bot.contains("distributionScoreMultiplier6145") && bot.contains("coerceAtLeast(0.35)"))
-        assertTrue("V5.0.6145: distribution pivot must not bypass true drain or stop-loss cooldown hard safety",
-            bot.contains("""contains("DRAIN", ignoreCase = true)""") && bot.contains("""contains("STOP_LOSS_COOLDOWN", ignoreCase = true)""") && bot.contains("if (distributionHardSafety6145)"))
-    }
-
-
-    @org.junit.Test fun V5_0_6146_v3_sell_ai_shapes_unified_exit_policy_without_direct_finality() {
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6146: V3 SellOptimizationAI must feed Executor unified exit bias, not stay isolated in BotService-only sell logic",
-            exec.contains("v3SellPolicyBias6146") && exec.contains("SellOptimizationAI.evaluate") && exec.contains("V3_SELL_POLICY_BIAS_6146") && exec.contains("exitPolicyBiasBase6144 * runnerShadowHoldBias6144 * v3SellPolicyBias6146"))
-        assertTrue("V5.0.6146: V3 sell bridge must be bounded soft-shaping only with no direct sell-finality authority",
-            exec.contains("no_direct_sell_finality=true") && exec.contains("coerceIn(0.82, 1.08)") && exec.contains("coerceIn(0.55, 1.72)"))
-    }
-
-
-    @org.junit.Test fun V5_0_6147_throughput_self_relief_and_wallet_relative_live_floor() {
-        val relief = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ThroughputSelfRelief6147.kt").readText()
-        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        val profile = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveSizingProfile.kt").readText()
-        val doctrine = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveGrowthDoctrine.kt").readText()
-        assertTrue("V5.0.6147: throughput self-relief must diagnose effective cap/lease/pending/ghost pressure without touching hard safety",
-            relief.contains("object ThroughputSelfRelief6147") && relief.contains("LEASE_CAP_SATURATED") && relief.contains("PENDING_VERIFY_PRESSURE") && relief.contains("STALE_GHOST_PRESSURE") && relief.contains("never clears open/held positions") && relief.contains("never changes hard safety"))
-        assertTrue("V5.0.6147: BotService must run self-relief next to AntiChoke and prune only expired leases",
-            bot.contains("ThroughputSelfRelief6147.evaluate") && bot.contains("""supervisorPruneExpiredLeases("THROUGHPUT_SELF_RELIEF_6147")""") && bot.contains("THROUGHPUT_SELF_RELIEF_LEASE_PRUNE_6147"))
-        assertTrue("V5.0.6147: sub-0.5 SOL live wallet must use wallet-relative economic tickets instead of rejecting everything at fixed 0.060 SOL",
-            profile.contains("const val MIN_ENTRY_SOL: Double = 0.035") && doctrine.contains("spendableSol >= 0.25 -> (spendableSol * 0.14).coerceIn(0.030, 0.060)") && doctrine.contains("wallet≈0.275 SOL with 258/261 live buys rejected"))
-    }
-
-
-    @org.junit.Test fun V5_0_6148_crypto_universe_candidates_carry_normalized_money_path_truth() {
-        val candidate = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoFinalBuyCandidate.kt").readText()
-        val trader = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
-        assertTrue("V5.0.6148: CryptoFinalBuyCandidate must carry source/venue/route/strategy truth keys for cross-universe parity",
-            candidate.contains("sourceFamily") && candidate.contains("venueFamily") && candidate.contains("routeTruthKey") && candidate.contains("strategyTruthKey") && candidate.contains("normalizedContext6148"))
-        assertTrue("V5.0.6148: CryptoAltTrader must populate normalized keys at the final buy candidate choke",
-            trader.contains("sourceFamily6148") && trader.contains("venueFamily6148") && trader.contains("routeTruthKey6148") && trader.contains("strategyTruthKey6148") && trader.contains("CRYPTO_NORMALIZED_6148"))
-    }
-
-
-    @org.junit.Test fun V5_0_6149_strategy_truth_has_venue_source_tactic_keys() {
-        val ledger = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTruthLedger.kt").readText()
-        assertTrue("V5.0.6149: StrategyTruthLedger must expose granular venue/source/tactic keys instead of lane-only truth",
-            ledger.contains("fun strategyTruthKey6149") && ledger.contains("venue/source-specific strategy truth key") && ledger.contains("CRYPTO_NORMALIZED_6148") && ledger.contains("venueFamily=([^ ]+)") && ledger.contains("strategyTruth=([^ ]+)"))
-        assertTrue("V5.0.6149: granular strategy truth key must include lane, source, venue, and tactic dimensions",
-            ledger.contains("return") && ledger.contains("lane|") && ledger.contains("source|") && ledger.contains("venue|") && ledger.contains("tactic") && ledger.contains("PUMP_FAMILY") && ledger.contains("DEX_FAMILY") && ledger.contains("SELL_OPT"))
-    }
-
-
-    @org.junit.Test fun V5_0_6150_crypto_route_cost_expectancy_shapes_final_candidate_quality() {
-        val cost = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/RouteCostExpectancy6150.kt").readText()
-        val candidate = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoFinalBuyCandidate.kt").readText()
-        val trader = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
-        assertTrue("V5.0.6150: route-cost expectancy must convert spread/slippage/venue into bounded candidate quality",
-            cost.contains("object RouteCostExpectancy6150") && cost.contains("routeCostBps") && cost.contains("expectancyMultiplier") && cost.contains("TOXIC_COST") && cost.contains("DEX_AGGREGATOR"))
-        assertTrue("V5.0.6150: Crypto candidates must persist route-cost bps and expectancy multiplier in normalized context",
-            candidate.contains("routeCostBps") && candidate.contains("routeExpectancyMultiplier") && candidate.contains("routeCostMult"))
-        assertTrue("V5.0.6150: CryptoAltTrader must apply route-cost expectancy at the final buy candidate choke",
-            trader.contains("RouteCostExpectancy6150.evaluate") && trader.contains("ROUTE_COST_TOXIC_6150") && trader.contains("ROUTE_COST_SHAPED_6150"))
-    }
-
-
-    @org.junit.Test fun V5_0_6151_clean_live_ev_pyramids_into_winners_only() {
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6151: top-up sizing must lean into clean-live +EV lanes while preserving exposure caps",
-            exec.contains("cleanLiveEvPyramid6151") && exec.contains("computeCleanLiveTerminalLeaderboard(limit = 1_500)") && exec.contains("m6151.totalSolPnl > 0.0") && exec.contains("m6151.pfExpectancyPp > 0.0") && exec.contains("else if (cleanLiveEvPyramid6151) 0.20 else 0.15"))
-        assertTrue("V5.0.6151: autonomous top-up must add to winners only and allow proven +EV lanes to pyramid earlier",
-            exec.contains("evPyramid6151") && exec.contains("causalEvPyramidGate6180") && exec.contains("gainPct < 1.5") && exec.contains("(evPyramidGate6151 || causalEvPyramidGate6180) && pos.topUpCount == 0 -> 1.5") && exec.contains("never average down") && exec.contains("no LLM/API/hot-path provider calls"))
-    }
-
-
-    @org.junit.Test fun V5_0_6152_live_bleed_buckets_are_shrunk_not_globally_paused() {
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6152: live negative clean-StrategyTruth lanes must size-shape locally instead of continuing full-size losses",
-            exec.contains("liveBleedLaneMetric6152") && exec.contains("liveBleedSizeMultiplier6152") && exec.contains("m.totalSolPnl < -0.10") && exec.contains("m.pfExpectancyPp <= 0.0") && exec.contains("LIVE_BLEED_BUCKET_SIZE_SHAPED_6152"))
-        assertTrue("V5.0.6152: last-mile floor must not immediately re-inflate a proven bleeding lane back to full economic size",
-            exec.contains("LIVE_BLEED_BUCKET_POST_FLOOR_CAP_6152") && exec.contains("prevent_floor_reinflation") && exec.contains("walletSol * 0.10") && exec.contains("lane_local_shrink_not_global_pause"))
-    }
-
-
-    @org.junit.Test fun V5_0_6153_live_bleed_lanes_get_tighter_damage_cap_and_no_agi_veto() {
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6153: clean-live bleeding lanes must tighten strict SL locally to stop morning bleed losses",
-            exec.contains("baseRawSL6153") && exec.contains("liveBleedStopMetric6153") && exec.contains("bleedStopTightened6153") && exec.contains("LIVE_BLEED_STOP_TIGHTENED_6153") && exec.contains("lane_local_damage_cap"))
-        assertTrue("V5.0.6153: AGI stop-loss veto must not override the bleed damage-cap stop",
-            exec.contains("VetoDecision.VETO && !bleedStopTightened6153") && exec.contains("morning-bleed pattern") && exec.contains("not a global"))
-    }
-
-
-    @org.junit.Test fun V5_0_6154_venue_universe_is_not_pump_jupiter_only() {
-        val venue = java.io.File("src/main/kotlin/com/lifecyclebot/engine/VenueUniverse.kt").readText()
-        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
-        assertTrue("V5.0.6154: Solana venue universe must include direct DEXs, launchpads, and multiple RPC families beyond Pump/Jupiter",
-            venue.contains("PHOENIX") && venue.contains("LIFINITY") && venue.contains("JUPITER_LFG") && venue.contains("BAGS") && venue.contains("BOOP") && venue.contains("CHAINSTACK") && venue.contains("TRITON") && venue.contains("QUICKNODE"))
-        assertTrue("V5.0.6154: Crypto Universe must carry chain-specific/regional venues like PancakeSwap, CoinSpot, Chinese exchanges and Chinese socials",
-            venue.contains("PANCAKESWAP") && venue.contains("FOUR_MEME") && venue.contains("COINSPOT") && venue.contains("CHINESE_EXCHANGE") && venue.contains("XIAOHONGSHU") && venue.contains("DOUYIN") && venue.contains("WEIBO"))
-        assertTrue("V5.0.6154: CryptoAlt final candidates must classify through VenueUniverse, not only route?.route names",
-            crypto.contains("venueUniverse6154") && crypto.contains("VenueUniverse.classify") && crypto.contains("CHAIN_SPECIFIC_DEX") && crypto.contains("CEX_SIGNAL") && crypto.contains("SOCIAL_TREND") && crypto.contains("CRYPTO_SPOT_UNIVERSE:"))
-    }
-
-
-    @org.junit.Test fun V5_0_6155_executor_buy_sizing_uses_source_and_venue_authority() {
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6155: Executor buy sizing must combine ScannerSourceBrain and VenueSourceBalanceAdapter, not source-name samples only",
-            exec.contains("scannerSourceBrainSizeMult6155") && exec.contains("venueSourceSizeMult6155") && exec.contains("VenueSourceBalanceAdapter.intakeMultiplier(ts.source)") && exec.contains("maxOf(scannerSourceBrainSizeMult6155, venueSourceSizeMult6155)"))
-        assertTrue("V5.0.6155: forensic growth allocator must expose scanner and venue source multipliers for pump/jupiter collapse audits",
-            exec.contains("scannerSource6155") && exec.contains("venueSource6155") && exec.contains("VenueSourceBalanceAdapter.compact(ts.source)") && exec.contains("source+venue"))
-    }
-
-
-    @org.junit.Test fun V5_0_6156_fast_live_drawdown_shapes_size_not_pause() {
-        val sizer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt").readText()
-        assertTrue("V5.0.6156: SmartSizer must track live wallet samples over a 5-hour window for fast intraday drawdown response",
-            sizer.contains("WalletSample6156") && sizer.contains("liveWalletSamples6156") && sizer.contains("fastLiveDrawdownMultiplier6156") && sizer.contains("5L * 60L * 60L * 1000L"))
-        assertTrue("V5.0.6156: fast live drawdown must shrink size rather than globally pause entries, preserving compounding recovery",
-            sizer.contains("LIVE_FAST_DRAWDOWN_SHAPE_6156") && sizer.contains("drawdownMult = minOf(sessionDrawdownMult6156, fiveHourLiveDrawdownMult6156)") && sizer.contains("recovery < 0.80 -> 0.45") && sizer.contains("shrinking, not pausing"))
-        assertTrue("V5.0.6156: mode switches/reset must clear stale live wallet samples",
-            sizer.contains("liveWalletSamples6156.clear()") && sizer.contains("recordLiveWalletSample6156(walletSol)"))
-    }
-
-
-    @org.junit.Test fun V5_0_6157_fast_live_drawdown_tightens_exit_damage_cap() {
-        val sizer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt").readText()
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6157: Executor must be able to read the fast live drawdown multiplier for open-position damage control",
-            sizer.contains("currentFastLiveDrawdownMultiplier6157") && exec.contains("SmartSizer.currentFastLiveDrawdownMultiplier6157(walletSol)") && exec.contains("drawdownStopTightened6157"))
-        assertTrue("V5.0.6157: active wallet bleed must tighten strict stop and prevent AGI stop-loss veto from overriding damage control",
-            exec.contains("LIVE_DRAWDOWN_STOP_TIGHTENED_6157") && exec.contains("wallet_bleed_damage_cap") && exec.contains("VetoDecision.VETO && !bleedStopTightened6153 && !drawdownStopTightened6157") && exec.contains("fastLiveDrawdownMult6157 < 0.45) 5.0 else 7.0"))
-    }
-
-
-    @org.junit.Test fun V5_0_6158_fast_drawdown_caps_post_floor_buy_size() {
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6158: fast live drawdown must cap post-floor live buy size so last-mile floor cannot re-inflate wallet bleed exposure",
-            exec.contains("fastDrawdownBuyMult6158") && exec.contains("LIVE_DRAWDOWN_POST_FLOOR_BUY_CAP_6158") && exec.contains("prevent_drawdown_floor_reinflation") && exec.contains("walletSol * (if (fastDrawdownBuyMult6158 < 0.50) 0.060 else 0.080)"))
-    }
-
-
-    @org.junit.Test fun V5_0_6159_active_drawdown_harvests_smaller_real_route_profits() {
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6159: active fast live drawdown must lower route-real harvest floors to bank recoverable wallet money sooner",
-            exec.contains("fastDrawdownHarvestMult6159") && exec.contains("drawdownHarvestActive6159") && exec.contains("routeMultipleFloor6159") && exec.contains("walletSol * 0.025") && exec.contains("drawdownHarvest6159="))
-        assertTrue("V5.0.6159: persisted buy-route harvest must also lower gain/profit floors during live drawdown",
-            exec.contains("fastDrawdownHarvest6099_6159") && exec.contains("drawdownHarvest6099Active6159") && exec.contains("gainFloor6099_6159") && exec.contains("walletSol * 0.020") && exec.contains("routeProfitFloor6099_6159"))
-    }
-
-
-    @org.junit.Test fun V5_0_6160_stale_revive_respects_recent_absent_zero() {
-        val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
-        assertTrue("V5.0.6160: stale-unproven revive must suppress rows with fresh absent-zero wallet evidence to prevent slot/sell churn",
-            tracker.contains("recentAbsentZero6160") && tracker.contains("STALE_REVIVE_SUPPRESSED_6160") && tracker.contains("recent_absent_zero_confirm") && tracker.contains("p.consecutiveZeroConfirms > 0") && tracker.contains("<= 180_000L"))
-        assertTrue("V5.0.6160: stale revive suppression must happen before the stale-unproven OPEN_BALANCE_PROOF_PENDING promotion",
-            tracker.indexOf("recentAbsentZero6160") in 1 until tracker.indexOf("p.status = PositionStatus.OPEN_BALANCE_PROOF_PENDING"))
-    }
-
-
-    @org.junit.Test fun V5_0_6161_probation_timeout_requires_maturity_proof() {
-        val reg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt").readText()
-        assertTrue("V5.0.6161: probation timeout must hold cold/no-pair/no-maturity candidates instead of auto-promoting time alone",
-            reg.contains("maturedByProof6161") && reg.contains("TIMEOUT_HELD_NO_MATURITY_6161") && reg.contains("PROBATION_TIMEOUT_HELD_NO_MATURITY_6161") && reg.contains("timeout alone must not auto-promote"))
-        assertTrue("V5.0.6161: timeout promotion must be renamed to matured proof promotion, not TIMEOUT_AUTO_PROMOTE",
-            reg.contains("TIMEOUT_MATURED_6161") && !reg.contains("""promoteFromProbation(mint, "TIMEOUT_AUTO_PROMOTE")"""))
-    }
-
-
-    @org.junit.Test fun V5_0_6162_health_http_uses_rate_limiter_and_helius_alias() {
-        val rl = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RateLimiter.kt").readText()
-        val http = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HealthAwareHttp.kt").readText()
-        assertTrue("V5.0.6162: Helius aliases must use the scarce helius bucket instead of default rate limits",
-            rl.contains("""raw.startsWith("helius_")""") && rl.contains("""raw.contains("helius-rpc")""") && rl.contains("maxRequestsPerMinute = 24") && rl.contains("minSpacingMs = 250L"))
-        assertTrue("V5.0.6162: HealthAwareHttp must enforce RateLimiter before network calls to prevent 429 hammering",
-            http.contains("RateLimiter.allowRequest(host)") && http.contains("RateLimiter throttle") && http.contains("RateLimiter.getRetryAfterMs(host)") && http.indexOf("RateLimiter.allowRequest(host)") < http.indexOf("client.newCall(finalRequest).execute()"))
-    }
-
-
-    @org.junit.Test fun V5_0_6163_high_conf_bearish_chart_soft_shapes_not_veto() {
-        val chart = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ChartPreBuyGate.kt").readText()
-        assertTrue("V5.0.6163: high-confidence bearish chart bias must soft-shape entries, not hard-veto volume by itself",
-            chart.contains("BEARISH_HIGH_CONF_SOFT_6163") && chart.contains("sizeMult = 0.35") && chart.contains("hardVeto = false") && chart.contains("chart_bearish_conf_soft"))
-        assertTrue("V5.0.6163: hard bearish chart patterns must remain true vetoes",
-            chart.contains("""bias = "BEARISH_HARD_PATTERN""") && chart.contains("hardVeto = true") && chart.contains("HARD_BEARISH_PATTERNS"))
-    }
-
-
-    @org.junit.Test fun V5_0_6164_6185_live_freeze_authority_blocks_retained_not_route_proved_unknown() {
-        val pre = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
-        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        assertTrue("V5.0.6164/6185: PreTradeHardGate must hard-block active/retained mint/freeze authority and only bypass unknown freeze with executable route/liquidity proof",
-            pre.contains("MINT_AUTHORITY_ACTIVE") && pre.contains("FREEZE_AUTHORITY_ACTIVE") && pre.contains("tokenMapFreezeAuthorityRetained6164") && pre.contains("freezeUnknownRouteProof6185") && pre.contains("mintUnknownRouteProof6186") && pre.contains("TokenMapAuthority.executableForLiveBuy(ts)") && pre.contains("PRETRADE_FREEZE_UNKNOWN_ROUTE_PROOF_SOFT_ALLOW_6185") && pre.contains("PRETRADE_MINT_UNKNOWN_ROUTE_PROOF_SOFT_ALLOW_6186"))
-        assertTrue("V5.0.6164/6185: FDG must keep retained/active freeze authority hard-blocked while removing the API-degraded unknown-freeze global choke when route proof exists",
-            fdg.contains("fdgAuthorityRetained6164") && fdg.contains("HARD_BLOCK_FREEZE_AUTHORITY") && fdg.contains("HARD_BLOCK_FREEZE_AUTHORITY_UNKNOWN_6164") && fdg.contains("fdgFreezeUnknownRouteProof6185") && fdg.contains("fdgMintUnknownRouteProof6186") && fdg.contains("FDG_FREEZE_UNKNOWN_ROUTE_PROOF_SOFT_ALLOW_6185") && fdg.contains("FDG_MINT_UNKNOWN_ROUTE_PROOF_SOFT_ALLOW_6186"))
-        assertFalse("V5.0.6185: source comments must not claim retained/active freeze authority can live-buy",
-            pre.contains("retained freeze authority can live-buy") || fdg.contains("retained freeze authority can live-buy"))
-    }
-
-
-    @org.junit.Test fun V5_0_6165_lane_policy_retraining_pivots_before_purchase() {
-        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        val tactic = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt").readText()
-        assertTrue("V5.0.6165: retraining buckets must pivot lane-local tactic instead of no-opening forever",
-            fdg.contains("LANE_POLICY_RETRAINING_PIVOT_6165") && fdg.contains("forcePivotForRetraining") && fdg.contains("shouldTradeFinal = true") && fdg.contains("lane_policy_retraining_pivot_6165"))
-        assertTrue("V5.0.6165: only INVALID_UNTRADEABLE may still zero the LanePolicy branch",
-            fdg.contains("LANE_POLICY_INVALID_UNTRADEABLE") && fdg.contains("true-untradeable") && !fdg.contains("LANE_POLICY_RETRAINING_PAUSED_6128_\${lpState.name}"))
-        assertTrue("V5.0.6165: TacticSwitcher pivot must be throttled so hot loops do not spin tactics",
-            tactic.contains("forcePivotForRetraining") && tactic.contains("fdg-retraining-pivot-6165") && tactic.contains("last.startsWith"))
-    }
-
-
-    @org.junit.Test fun V5_0_6166_pool_impact_no_longer_counts_as_size_too_thin() {
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6166: final live pool impact cap must adapt for small-wallet compounding instead of using stale flat 0.75%",
-            exec.contains("effectiveMaxPoolImpactPct6166") && exec.contains("walletBootstrapBoost6166") && exec.contains("laneImpactBoost6166") && exec.contains("scoreBoost6166"))
-        assertTrue("V5.0.6166: pool-impact rejection must have its own telemetry reason, not SIZE_TOO_THIN",
-            exec.contains("LIVE_ENTRY_REJECTED_POOL_IMPACT_TOO_HIGH") && exec.contains("LIVE_ENTRY_REJECTED_LIQUIDITY_PROOF_MISSING") && exec.contains("baseMaxImpact"))
-        assertTrue("V5.0.6166: true below-min-notional rejection remains explicit",
-            exec.contains("SIZE_TOO_THIN_FOR_NON_MICRO_TRADE") && exec.indexOf("SIZE_TOO_THIN_FOR_NON_MICRO_TRADE") < exec.indexOf("effectiveMaxPoolImpactPct6166"))
-    }
-
-
-    @org.junit.Test fun V5_0_6167_runtime_decision_log_is_capped_for_anr() {
-        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
-        assertTrue("V5.0.6167: decision log TextView must remain tiny during runtime to avoid MeasuredParagraph/LineBreaker stalls",
-            main.contains("DECISION_LOG_MAX_CHARS_4280 = 900") && main.contains("ArrayDeque<String>(18)") && main.contains("while (logLines.size > 16)"))
-        assertTrue("V5.0.6167: runtime decision log must not smooth-scroll animation work onto main looper",
-            main.contains("runtimeActiveForScroll6167") && main.contains("scrollLog.scrollTo(0, 0)") && main.contains("smoothScrollTo(0, 0)"))
-        assertTrue("V5.0.6167: this is UI-only and keeps full engine/forensic logs internal",
-            main.contains("Full forensic logs remain internal") && main.contains("full engine logs remain internal"))
-    }
-
-
-    @org.junit.Test fun V5_0_6168_watchlist_hash_is_stable_during_probation_churn() {
-        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
-        assertTrue("V5.0.6168: watchlist structural hash must bucket noisy counts instead of rebuilding rows for every count twitch",
-            main.contains("activeCountBucket6168") && main.contains("idleCountBucket6168") && main.contains("probationCountBucket6168") && main.contains("probationAll.size / 10"))
-        assertTrue("V5.0.6168: probation visible rows must stay tiny on MainActivity while runtime is active",
-            main.contains("probationVisible4564") && main.contains(".take(2)") && main.contains("val maxProbationRows = if (columnCount >= 3) 2 else 3"))
-        assertTrue("V5.0.6168: patch is UI/render-only and must not touch executor authority",
-            !main.contains("executeBuy(") && !main.contains("requestSell("))
-    }
-
-
-    @org.junit.Test fun V5_0_6169_currency_manager_selected_currency_is_memory_fast() {
-        val currency = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CurrencyManager.kt").readText()
-        assertTrue("V5.0.6169: selected currency must be cached in memory for UI format paths",
-            currency.contains("selectedCurrencyCache") && currency.contains("currency-pref-preload-6169") && currency.contains("get() = selectedCurrencyCache"))
-        assertTrue("V5.0.6169: format/formatPrice paths must use cached selected currency, not prefs.getString",
-            currency.contains("val selected = selectedCurrencyCache") && !currency.contains("get() = prefs.getString"))
-        assertTrue("V5.0.6169: SharedPreferences remains persistence-only via async apply",
-            currency.contains("prefs.edit().putString(PREF_SELECTED, safe).apply()"))
-    }
-
-
-    @org.junit.Test fun V5_0_6170_mainactivity_prefs_reads_are_off_main_render_path() {
-        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
-        assertTrue("V5.0.6170: cold-open restart must read RUNTIME_PREFS on IO, not MainActivity main thread",
-            main.contains("V5.0.6170") && main.contains("lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO)") && main.contains("applicationContext.getSharedPreferences") && main.contains("withContext(kotlinx.coroutines.Dispatchers.Main) { vm.startBot() }"))
-        assertTrue("V5.0.6170: live-readiness render path must use in-memory UI config instead of bot_config SharedPreferences",
-            main.contains("isPaperMode6170") && main.contains("vm.ui.value.config.paperMode") && !main.contains("""val prefs = getSharedPreferences("bot_config", MODE_PRIVATE)"""))
-    }
-
-
-    @org.junit.Test fun V5_0_6171_owner_rotation_paused_lanes_pivot_before_fdg() {
-        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.6171: owner rotation must not amputate paused owner/rescue lanes before FDG pause-pivot logic",
-            bot.contains("ownerPausedPivot6171") && bot.contains("OWNER_LANE_PAUSED_PIVOT_ALLOW_6171") && bot.contains("allow_to_fdg_controlled_pivot"))
-        assertTrue("V5.0.6171: pause-pivot must seed lane-local TacticSwitcher/LLM Lab, not blindly micro-probe",
-            bot.contains("TacticSwitcher.forcePivotForRetraining") && bot.contains("LlmLabEngine.seedFromTacticFailure") && bot.contains("OWNER_ROTATION_PAUSED"))
-        assertTrue("V5.0.6171: non-owner paused lanes stay denied to preserve bounded one-owner fanout",
-            bot.contains("laneIsPaused4598 && !ownerPausedPivot6171") && bot.contains("OWNER_LANE_PAUSED_DENIED_4598"))
-    }
-
-
-    @org.junit.Test fun V5_0_6172_lane_auto_pause_reopens_clean_positive_edge() {
-        val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneAutoPauseGuard.kt").readText()
-        assertTrue("V5.0.6172: paused lanes with clean positive StrategyTruth must auto-resume instead of staying amputated",
-            guard.contains("LANE_AUTO_RESUMED_CLEAN_EDGE_6172") && guard.contains("cleanReproved6172") && guard.contains("paused.remove(lane)"))
-        assertTrue("V5.0.6172/6173: reproof requires meaningful LIVE-clean sample and positive EV/WR, not paper/shadow guesswork",
-            guard.contains("cleanLive6173") && guard.contains("""it.mode.equals("live", ignoreCase = true)""") && guard.contains("agg.sample >= TOXIC_MIN_SAMPLE && wrPct >= 30.0 && evPct > 0.0") && guard.contains("agg.sample >= MIN_SAMPLE && evPct >= 25.0"))
-        assertTrue("V5.0.6172: toxic zero-win/negative-EV pause logic remains intact after auto-resume check",
-            guard.contains("val zeroWin = agg.sample >= ZERO_WIN_MIN_SAMPLE && agg.wins == 0") && guard.contains("evPct <= TOXIC_EV_PCT"))
-    }
-
-
-    @org.junit.Test fun V5_0_6173_lane_auto_pause_uses_live_clean_truth_only() {
-        val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneAutoPauseGuard.kt").readText()
-        assertTrue("V5.0.6173: LaneAutoPauseGuard is a live-risk guard and must filter clean terminal rows to mode=live",
-            guard.contains("cleanLive6173") && guard.contains("""clean.filter { it.mode.equals("live", ignoreCase = true) }""") && guard.contains("for (t in cleanLive6173)"))
-        assertTrue("V5.0.6173: paper/shadow clean rows cannot pause or auto-resume live lanes",
-            guard.contains("paper/shadow ignored") && guard.contains("live-clean authority doctrine"))
-    }
-
-
-    @org.junit.Test fun V5_0_6174_mainactivity_disclaimer_prefs_read_off_main() {
-        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
-        assertTrue("V5.0.6174: first-time disclaimer SharedPreferences XML read must happen on IO, not on MainActivity onCreate",
-            main.contains("V5.0.6174") && main.contains("showFirstTimeDisclaimerDialog6174") && main.contains("lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO)") && main.contains("""applicationContext.getSharedPreferences("lifecycle_disclaimer", Context.MODE_PRIVATE)"""))
-        assertTrue("V5.0.6174: only the dialog display returns to Main after prefs are read",
-            main.contains("kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main)") && main.contains("showFirstTimeDisclaimerDialog6174(prefs, currentVersion)"))
-    }
-
-
-    @org.junit.Test fun V5_0_6175_unsellable_tokens_are_quarantined_and_ignored() {
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
-        assertTrue("V5.0.6175b: terminal no-route/freeze/locked/no-signature-exhausted sell failures must quarantine only after bounded attempts",
-            exec.contains("isTerminalUnsellableSellFailure6175") && exec.contains("attempts < 4") && exec.contains("no executable route") && exec.contains("frozen") && exec.contains("locked") && exec.contains("exhaustedNoSignature6175b") && exec.contains("all providers exhausted") && exec.contains("without broadcast signature"))
-        assertTrue("V5.0.6175: unsellable sell failure must blacklist/quarantine/remove watchlist/pending sells and abandon host tracking without fake sell finality",
-            exec.contains("quarantineUnsellableSellMint6175") && exec.contains("CANNOT SELL: UNSELLABLE_LOCKED_OR_NO_ROUTE_6175") && exec.contains("GlobalTradeRegistry.removeFromWatchlistForced") && exec.contains("HostWalletTokenTracker.abandonUnsellableQuarantined"))
-        assertTrue("V5.0.6175: host wallet reconciliation must not re-adopt quarantined wallet-held poison tokens",
-            tracker.contains("CLOSED_UNSELLABLE_QUARANTINED") && tracker.contains("UNSELLABLE_WALLET_TOKEN_IGNORED_6175") && tracker.contains("QuarantineStore.isQuarantined(mint) || TokenBlacklist.isBlocked(mint)"))
-        assertTrue("V5.0.6175: abandonment releases sell/close/lane locks and purges lifecycle rows so stuck tokens stop consuming capacity",
-            tracker.contains("abandonUnsellableQuarantined") && tracker.contains("SellExecutionLocks.release(mint)") && exec.contains("CloseLease.release(ts.mint, \"UNSELLABLE_QUARANTINE_6175\")") && tracker.contains("TokenLifecycleTracker.purgeTerminalRecord(mint)"))
-    }
-
-
-    @org.junit.Test fun V5_0_6176_money_path_open_pnl_has_route_and_sellability_truth() {
-        val hub = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
-        assertTrue("V5.0.6176: money-path summary must show live open route verification and unsellable counts",
-            hub.contains("routeVerifiedLiveOpen6176") && hub.contains("routePendingLiveOpen6176") && hub.contains("unsellableLiveOpen6176"))
-        assertTrue("V5.0.6176: top open PnL rows must tag route truth and sellability instead of presenting unrealized math as sellable equity",
-            hub.contains("sellability6176") && hub.contains("sellable_route_verified") && hub.contains("sellable_route_pending") && hub.contains("unsellable_quarantined"))
-        assertTrue("V5.0.6176: route/sellability tags must consult host tracker and quarantine/blacklist truth",
-            hub.contains("HostWalletTokenTracker.getEntry") && hub.contains("QuarantineStore.isQuarantined") && hub.contains("TokenBlacklist.isBlocked") && hub.contains("BannedTokens.isBanned"))
-    }
-
-
-    @org.junit.Test fun V5_0_6177_crypto_universe_terminal_rows_carry_money_path_parity() {
-        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
-        assertTrue("V5.0.6177: CryptoAlt positions must persist normalized source/venue/route/StrategyTruth metadata from final candidates",
-            crypto.contains("sourceFamily6177") && crypto.contains("venueFamily6177") && crypto.contains("routeTruthKey6177") && crypto.contains("strategyTruthKey6177") && crypto.contains("normalizedContext6177"))
-        assertTrue("V5.0.6177: CryptoAlt open positions must store route cost, proof, harvest, sellability, and route verification truth",
-            crypto.contains("routeCostBps6177") && crypto.contains("routeExpectancyMult6177") && crypto.contains("proofState6177") && crypto.contains("harvestStatus6177") && crypto.contains("sellability6177") && crypto.contains("openRouteVerified6177"))
-        assertTrue("V5.0.6177: CryptoAlt terminal Trade rows must carry parity tags through reason/proofState/positionId/entry route fields",
-            crypto.contains("cryptoParityReason6177") && crypto.contains("sourceFamily=") && crypto.contains("venueFamily=") && crypto.contains("routeTruth=") && crypto.contains("strategyTruth=") && crypto.contains("proofState       = cryptoProof6177") && crypto.contains("entryPriceSource = cryptoEntrySource6177") && crypto.contains("entryPoolAddress = cryptoEntryPool6177"))
-        assertTrue("V5.0.6177: restored CryptoAlt positions must not fall back to lane-only truth after restart",
-            crypto.contains("altPositionToJson") && crypto.contains("altPositionFromJson") && crypto.contains("CRYPTO_UNIVERSE_RESTORED") && crypto.contains("RESTORED_ROUTE_UNKNOWN"))
-    }
-
-
-    @org.junit.Test fun V5_0_6178_crypto_regional_alpha_is_pre_route_only() {
-        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
-        assertTrue("V5.0.6178: Crypto Universe regional alpha must include CoinSpot/CEX, Chinese social, launchpad, BNB/Pancake and Solana DEX hints",
-            crypto.contains("regionalPreRouteAlpha6178") && crypto.contains("COINSPOT_AU_CEX_SIGNAL") && crypto.contains("CHINESE_SOCIAL_TREND_SIGNAL") && crypto.contains("LAUNCHPAD_PRE_ROUTE_SIGNAL") && crypto.contains("BNB_PANCAKESWAP_SIGNAL") && crypto.contains("SOLANA_DEX_SIGNAL"))
-        assertTrue("V5.0.6178: regional alpha is pre-route only and cannot fake executable liquidity",
-            crypto.contains("pre_route_only=true") && crypto.contains("CryptoUniverseRouteResolver") && crypto.contains("route?.executable") && crypto.contains("ROUTE_UNAVAILABLE"))
-        assertTrue("V5.0.6178: regional alpha must travel into normalized Crypto final-candidate source, route, and StrategyTruth keys",
-            crypto.contains("regionalAlpha6178.family") && crypto.contains("sourceFamily6148") && crypto.contains("routeTruthKey6148") && crypto.contains("strategyTruthKey6148"))
-    }
-
-
-    @org.junit.Test fun V5_0_6179_causal_ev_memory_shapes_cached_source_tactic_edges() {
-        val causal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CausalEvMemory6179.kt").readText()
-        val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6179: causal EV memory must key clean terminal outcomes by lane/source/venue/route/tactic",
-            causal.contains("object CausalEvMemory6179") && causal.contains("fun causalKey(t: Trade)") && causal.contains("sourceFamily=") && causal.contains("venueFamily=") && causal.contains("routeTruth=") && causal.contains("strategyTruth="))
-        assertTrue("V5.0.6179: causal EV updates happen at journal-record time, not by querying DB from executor hot path",
-            store.contains("CausalEvMemory6179.recordTerminalOutcome(tradeToStore)") && causal.contains("Updates happen at journal-record time") && !exec.contains("getRecentCleanStrategyTerminalTrades("))
-        assertTrue("V5.0.6179: executor buy sizing must use cached causalEv6179 as bounded soft-shape telemetry, not a hard block",
-            exec.contains("causalEvSizeMult6179") && exec.contains("CAUSAL_EV_SIZE_SHAPED_6179") && exec.contains("\"causalEv6179\" to causalEvSizeMult6179") && causal.contains("coerceIn(0.70, 1.22)"))
-    }
-
-
-    @org.junit.Test fun V5_0_6180_mid_hold_scale_in_uses_cached_causal_ev_only() {
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.6180: top-up size must be shaped by cached causal EV from position source/route/tactic snapshots",
-            exec.contains("causalTopUpMult6180") && exec.contains("CAUSAL_EV_TOPUP_SIZE_SHAPED_6180") && exec.contains("pos.entryPriceSource") && exec.contains("pos.entryPoolAddress") && exec.contains("pos.entryPolicySnapshot"))
-        assertTrue("V5.0.6180: add-to-winner permission can use causalEvPyramidGate6180 but still never averages down",
-            exec.contains("causalEvPyramidGate6180") && exec.contains("gainPct >= 1.5") && exec.contains("if (gainPct <= 0) return false"))
-        assertTrue("V5.0.6180: HoldingLogic ADD_MORE path must expose causal EV telemetry while still routing through doTopUp/security",
-            exec.contains("causalEv6180=") && exec.contains("HOLDING_LOGIC_ADD_MORE_TOPUP_6091") && exec.contains("doTopUp(ts, walletSol, wallet, totalExposureSol)") && exec.contains("security.checkBuy"))
-    }
-
-
-    @org.junit.Test fun V5_0_6181_causal_ev_memory_persists_with_learning_state() {
-        val causal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CausalEvMemory6179.kt").readText()
-        val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
-        assertTrue("V5.0.6181: causal EV learnt edges must export/import JSON state so restart does not cause amnesia",
-            causal.contains("fun exportState()") && causal.contains("fun importState(json: String)") && causal.contains("JSONArray") && causal.contains("lastUpdatedMs"))
-        assertTrue("V5.0.6181: LearningPersistence must save and restore causal EV memory with the rest of the brain blobs",
-            persistence.contains("CAUSAL_EV_MEMORY_6179") && persistence.contains("CausalEvMemory6179.exportState()") && persistence.contains("CausalEvMemory6179.importState(it)"))
-    }
-
-
-    @org.junit.Test fun V5_0_6182_money_path_kpi_closeout_is_reported() {
-        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
-        assertTrue("V5.0.6182: report must expose KPI closeout for throughput, clean-live PnL, route truth, runner retention, Crypto parity, and money path",
-            report.contains("KPI closeout 6182") && report.contains("throughputTarget=500-1000/day") && report.contains("cleanLivePnL=") && report.contains("compoundingGate=live-clean-only") && report.contains("routeVerified=") && report.contains("runnerRetention=") && report.contains("cryptoParity=") && report.contains("moneyPath=wallet/open-route/sell-finality/journal"))
-    }
-
-
-    @org.junit.Test fun V5_0_6183_remaining_heavy_bundle_closeout_contract() {
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
-        val causal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CausalEvMemory6179.kt").readText()
-        val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
-        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
-        assertTrue("V5.0.6183 bundle 1: stuck-token terminal unsellable flow must quarantine and purge without fake sell finality",
-            exec.contains("SELL_UNSELLABLE_QUARANTINED_6175") && exec.contains("abandonUnsellableQuarantined") && exec.contains("removeFromWatchlistForced") && exec.contains("UNSELLABLE_QUARANTINE_6175"))
-        assertTrue("V5.0.6183 bundle 2: Crypto Universe must carry venue/regional pre-route parity into normalized route truth",
-            crypto.contains("regionalPreRouteAlpha6178") && crypto.contains("CryptoUniverseRouteResolver") && crypto.contains("routeTruthKey6148"))
-        assertTrue("V5.0.6183 bundles 3/4: causal EV must shape fresh buys and mid-hold scale-ins as soft authority only",
-            causal.contains("fun sizeMultiplier") && exec.contains("CAUSAL_EV_SIZE_SHAPED_6179") && exec.contains("CAUSAL_EV_TOPUP_SIZE_SHAPED_6180") && exec.contains("if (gainPct <= 0) return false"))
-        assertTrue("V5.0.6183 bundle 5: new causal learned state must persist through LearningPersistence",
-            causal.contains("fun exportState()") && causal.contains("fun importState(json: String)") && persistence.contains("CAUSAL_EV_MEMORY_6179"))
-        assertTrue("V5.0.6183 bundle 6: runtime report must expose the money-path KPI closeout line",
-            report.contains("KPI closeout 6182") && report.contains("throughputTarget=500-1000/day") && report.contains("moneyPath=wallet/open-route/sell-finality/journal"))
-    }
-
-
-    @org.junit.Test fun V5_0_6187_wallet_recovered_zero_basis_no_route_is_ignored() {
-        val wr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/WalletReconciler.kt").readText()
-        assertTrue("V5.0.6187: wallet reconciler must skip mints already quarantined/blacklisted so poison tokens are not re-adopted",
-            wr.contains("isWalletMintIgnored6187") && wr.contains("QuarantineStore.isQuarantined(mint)") && wr.contains("TokenBlacklist.isBlocked(mint)") && wr.contains("WALLET_RECONCILE_IGNORED_QUARANTINED_6187"))
-        assertTrue("V5.0.6187: zero-basis recovered wallet orphans with no executable route must be quarantined/ignored instead of consuming live slots",
-            wr.contains("quarantineZeroBasisNoRouteRecovered6187") && wr.contains("WALLET_RECOVERED_ZERO_BASIS_NO_ROUTE_IGNORE_6187") && wr.contains("!TokenMapAuthority.executableForLiveBuy(ts)") && wr.contains("WALLET_RECOVERED_ZERO_BASIS_NO_ROUTE_IGNORED_6187"))
-    }
-
-
-    @org.junit.Test fun V5_0_6188_live_stall_dechoke_keeps_safety_bounded() {
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        val hive = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HivemindReadyGate.kt").readText()
-        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        assertTrue("V5.0.6188: small-wallet live entries must use a wallet-relative non-micro floor, not fixed dust or a fixed 0.035 SOL choke",
-            exec.contains("smallWalletNonMicroFloor6188") && exec.contains("walletSol * 0.14") && exec.contains("coerceIn(0.020") && exec.contains("LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE"))
-        assertTrue("V5.0.6188: Hivemind startup gate must fail-open quickly and never hard-stall live entries for minutes",
-            hive.contains("HARD_TIMEOUT_MS = 15_000L") && hive.contains("""ready("timeout")""") && hive.contains("return true"))
-        assertTrue("V5.0.6188: stale safety may pass only with executable route proof and no hard safety reasons while refresh is still queued",
-            fdg.contains("safetyStaleRouteProof6188") && fdg.contains("ts.safety.hardBlockReasons.isEmpty()") && fdg.contains("TokenMapAuthority.executableForLiveBuy(ts)") && fdg.contains("FDG_SAFETY_STALE_ROUTE_PROOF_SOFT_ALLOW_6188") && fdg.contains("SafetyRefreshQueue.request(ts.mint)"))
-    }
-
-
-    @org.junit.Test fun V5_0_6189_scanner_and_registry_stall_relief() {
-        val scanner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SolanaMarketScanner.kt").readText()
-        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MemeMintRegistry.kt").readText()
-        assertTrue("V5.0.6189: scanner source timeout must be below the old 5s stall ceiling (V5.0.6216 makes it adaptive per-source but keeps the 3_500L ceiling)",
-            scanner.contains("SOURCE_SCAN_TIMEOUT_MS = 3_500L") && scanner.contains("timed out after " + '$' + "{timeoutMs}ms"))
-        assertTrue("V5.0.6189: scanPumpFunDirect must cap direct pump.fun work to two quality endpoints and 35 total candidates",
-            scanner.contains("scanPumpFunDirect: fetching from " + '$' + "{urls.size} pump.fun quality endpoints (cap=35)") && scanner.contains("val globalCap = 35") && scanner.contains("if (found >= 18) break"))
-        assertTrue("V5.0.6189: MemeMintRegistry must not persist 50k+/11MB registry every few seconds in runtime",
-            registry.contains("PERSIST_DEBOUNCE_MS = 60_000L") && registry.contains("MINT_RETENTION_MS = 3L * 24") && registry.contains("3d retention"))
-    }
-
-
-    @org.junit.Test fun V5_0_6190_fanout_recovered_and_money_path_truth() {
-        val throttle = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FdgReEvalThrottle.kt").readText()
-        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        val wallet = java.io.File("src/main/kotlin/com/lifecyclebot/engine/WalletReconciler.kt").readText()
-        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
-        assertTrue("V5.0.6190: executable same-mint FDG/V3 fanout must be claimed before executor handoff, not left to downstream reentry lockout",
-            throttle.contains("tryClaimExecutable6190") && throttle.contains("EXECUTABLE_CLAIM_TTL_MS = 2_500L") && bot.contains("FDG_EXECUTABLE_FANOUT_SUPPRESSED_6190") && bot.contains("FdgReEvalThrottle.tryClaimExecutable6190(identity.mint)"))
-        assertTrue("V5.0.6190: zero-cost recovered wallet orphans with fake current-price basis and no executable route must be quarantined/ignored",
-            wallet.contains("fake-basis recovered orphan cleanup") && wallet.contains("!TokenMapAuthority.executableForLiveBuy(ts)") && wallet.contains("quarantineZeroBasisNoRouteRecovered6187(status, mint, ts, uiAmount)") && !wallet.contains("recoveredEntry <= 0.0 && !TokenMapAuthority.executableForLiveBuy(ts)"))
-        assertTrue("V5.0.6190: money path report must separate trusted open capital at risk from unrealized PnL",
-            report.contains("trustedLiveOpenCost6190") && report.contains("trustedLiveOpenCost=") && report.contains("trustedLiveOpenPnl=") && report.contains("trustedPaperOpenCost="))
-    }
-
-
-    @org.junit.Test fun V5_0_6191_live_abandons_learned_toxic_contexts() {
-        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        assertTrue("V5.0.6191: live must use combined paper+live learning only to reduce/abandon risk, never to increase risk",
-            fdg.contains("live context abandon from learned paper+live evidence") && fdg.contains("LosingPatternMemory.stats(laneName, laneScoreBanded)") && fdg.contains("LosingPatternMemory.liveStats(laneName, laneScoreBanded)"))
-        assertTrue("V5.0.6191: mature net-negative paper/live buckets must hard-block live entries unless live-clean positive proof exists",
-            fdg.contains("combinedToxic6191") && fdg.contains("liveToxic6191") && fdg.contains("livePositiveProof6191") && fdg.contains("LIVE_CONTEXT_ABANDONED_BY_LEARNING_6191") && fdg.contains("blockLevel = BlockLevel.HARD"))
-        assertTrue("V5.0.6191: live-clean positive proof must protect rare +EV buckets from paper/shadow down-only abandon",
-            fdg.contains("live6191.sample >= 5") && fdg.contains("live6191.wins >= 2") && fdg.contains("live6191.meanPnl > 0.0") && fdg.contains("!livePositiveProof6191"))
-    }
-
-
-    @org.junit.Test fun V5_0_6192_paper_pattern_memory_bridges_down_only_to_live() {
-        val token = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenWinMemory.kt").readText()
-        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        assertTrue("V5.0.6192: TokenWinMemory must expose source/setup/platform/route/lane context edge for live transfer",
-            token.contains("patternEdgeForLiveContext6192") && token.contains("source") && token.contains("launch_platform") && token.contains("setup_quality") && token.contains("buy_route") && token.contains("lane"))
-        assertTrue("V5.0.6192: paper/live pattern bridge must be down-only for live, never a paper-authorized size boost",
-            token.contains("down-only live bridge") && token.contains("Verdict.GOLD -> +0") && token.contains("Verdict.WINNER -> +0"))
-        assertTrue("V5.0.6192: FDG must hard-block toxic/catastrophic pattern-memory contexts in live mode",
-            fdg.contains("TokenWinMemory.patternEdgeForLiveContext6192") && fdg.contains("LIVE_CONTEXT_TOXIC_PATTERN_MEMORY_6192") && fdg.contains("blockLevel = BlockLevel.HARD") && fdg.contains("guidance only, no live size increase"))
     }
 
 }

@@ -100,25 +100,18 @@ object ScannerLaneBridge {
         b.n = n; b.wrPct = wr; b.meanPnlPct = mean
     }
 
-    /** Score bias [-15..+15] for an entry coming via `src` into `lane`.
-     *  V5.0.6228 — DESIGN-PRIOR PREBAKE. When we lack empirical samples the
-     *  ScannerLaneRoutingMap design-time affinity (±3) is used as a small
-     *  prior so intake fans out toward designed lanes on turn one. Once
-     *  enough empirical samples accrue (>= MIN_N_FOR_BIAS), the learned
-     *  curve dominates and the ±3 design prior is added as a light nudge. */
+    /** Score bias [-15..+15] for an entry coming via `src` into `lane`. */
     fun affinityBias(src: String, lane: String): Int {
-        val designPrior = try { ScannerLaneRoutingMap.designPriorBias(src, lane) } catch (_: Throwable) { 0 }
-        val b = buckets[key(src, lane)]
-        if (b == null || b.n < MIN_N_FOR_BIAS) return designPrior
+        val b = buckets[key(src, lane)] ?: return 0
+        if (b.n < MIN_N_FOR_BIAS) return 0
         // Asymmetric — toxic dominates gold. Bias on WR + mean PnL combined.
-        val empirical = when {
+        return when {
             b.wrPct >= 65.0 && b.meanPnlPct >= 20.0 -> +12
             b.wrPct >= 50.0 && b.meanPnlPct > 0.0    -> +6
             b.wrPct <= 10.0 && b.meanPnlPct <= -25.0 -> -15
             b.wrPct <= 20.0 && b.meanPnlPct < -10.0  -> -10
             else -> 0
         }
-        return (empirical + designPrior).coerceIn(-15, 15)
     }
 
     /** False iff (src, lane) pair is proven net-toxic. Catastrophic veto. */

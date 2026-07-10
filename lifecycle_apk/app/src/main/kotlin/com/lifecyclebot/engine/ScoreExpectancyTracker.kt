@@ -143,7 +143,10 @@ object ScoreExpectancyTracker {
     )
 
     /**
-     * V5.0.6228 — MONOTONE EMPIRICAL SIZE SHAPER (scorer-inversion fix).
+     * V5.0.6237 — MONOTONE EMPIRICAL SIZE SHAPER (scorer-inversion fix ported
+     * forward from 6228; this is the ONLY 6228 change carried over on top of
+     * the 6100 rollback base per operator directive: "keep scoring inversion
+     * fixes only where scores were flipped the correct way").
      *
      * OPERATOR DIRECTIVE: Fix the scorer inversion at the source — don't add
      * another soft mitigation. Higher expected-PnL bands must translate to a
@@ -197,11 +200,11 @@ object ScoreExpectancyTracker {
         val mean = bucketMean(layer, score) ?: return LiveSizeShape(1.0, samples, 0.0, "bootstrap")
         if (samples < MIN_SAMPLES_FOR_REJECT) return LiveSizeShape(1.0, samples, mean, "under_sampled")
         val mult = monotoneMultForMean(mean)
-        return LiveSizeShape(mult, samples, mean, "monotone_ev_6228_μ=${"%+.1f".format(mean)}%")
+        return LiveSizeShape(mult, samples, mean, "monotone_ev_6237_μ=${"%+.1f".format(mean)}%")
     }
 
     /**
-     * V5.0.6228 — kept as no-op for API compatibility. The prior paper-only
+     * V5.0.6237 — kept as no-op for API compatibility. The prior paper-only
      * soft-reject mitigation is REMOVED per operator directive: instead of
      * blocking mid-band bleeders after the fact, the size shaper (monotone
      * curve above) and the calibrated-score remap below carry all of the
@@ -212,7 +215,7 @@ object ScoreExpectancyTracker {
     fun shouldReject(layer: String, score: Int): Boolean = false
 
     /**
-     * V5.0.6228 — monotone empirical size mult (same curve as liveSizeShape).
+     * V5.0.6237 — monotone empirical size mult (same curve as liveSizeShape).
      * Higher bucket mean PnL always yields a higher multiplier; the raw score
      * value itself does not appear in the calculation, only the empirical
      * outcome of that bucket. This closes the scorer-inversion feedback loop
@@ -224,7 +227,7 @@ object ScoreExpectancyTracker {
     }
 
     /**
-     * V5.0.6228 — CALIBRATED SCORE REMAP.
+     * V5.0.6237 — CALIBRATED SCORE REMAP.
      *
      * The raw score coming out of each trader AI is empirically inverted in
      * several lanes (SHITCOIN[40-49] μ+126%, SHITCOIN[50-59] μ-77% etc.).

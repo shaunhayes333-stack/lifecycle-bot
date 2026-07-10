@@ -44,14 +44,6 @@ import java.util.concurrent.atomic.AtomicLong
 object KeyValidator {
     private const val TAG = "KeyValidator"
     private const val DEAD_TTL_MS = 30 * 60_000L   // 30 min — re-probe after
-    // V5.0.6219 — AUTH-FAILURE STICKY TTL. Op-report shows birdeye 4xx=1134
-    // in a single session because the DEAD_TTL_MS expiry every 30 min lets
-    // the invalid-key hammer resume. A 401 on Birdeye means the key is
-    // genuinely broken (missing/expired/revoked) — no amount of automatic
-    // retry can fix that. Auth failures now use a 24h re-probe window so
-    // the bot stops burning HTTP calls on a known-dead key until the
-    // operator rotates it or restarts the app.
-    private const val AUTH_DEAD_TTL_MS = 24 * 60 * 60_000L  // 24 hours
 
     private data class Verdict(
         val isLive: Boolean,
@@ -121,10 +113,7 @@ object KeyValidator {
     fun isLive(service: String): Boolean {
         val v = verdicts[service.lowercase()] ?: return true
         val age = System.currentTimeMillis() - v.timestampMs
-        // V5.0.6219 — auth failures (401/403) get 24h sticky TTL; other
-        // errors keep the 30min TTL.
-        val effectiveTtl = if (v.lastHttp == 401 || v.lastHttp == 403) AUTH_DEAD_TTL_MS else DEAD_TTL_MS
-        if (!v.isLive && age < effectiveTtl) return false
+        if (!v.isLive && age < DEAD_TTL_MS) return false
         // DEAD verdict expired — clear and treat as unknown
         if (!v.isLive) verdicts.remove(service.lowercase())
         return true
@@ -186,21 +175,7 @@ object KeyValidator {
                 val body = resp.body?.string().orEmpty()
                 if (resp.code == 401) { markDead(service, 401, body.take(120), "HELIUS_AUTH_FAILED_401"); return resp.code to null }
                 if (resp.code == 403) { markDead(service, 403, body.take(120), "HELIUS_FORBIDDEN_403"); return resp.code to null }
-                if (resp.code == 429) {
-                    markDead(service, 429, body.take(120), "HELIUS_RATE_LIMIT_429")
-                    // V5.0.6198 — auto-failover to next healthy RPC (Alchemy/Triton
-                    // /Ankr/mainnet-beta) when the primary is rate-limited. Operator:
-                    // "we have more than enough RPCs we should be able to cover this".
-                    // WalletManager INSTANCE is populated at boot; if a caller hasn't
-                    // yet initialized it we just skip failover (next 429 will retry).
-                    if (service == "helius") {
-                        try {
-                            val wm = com.lifecyclebot.engine.WalletManager.peekInstance()
-                            wm?.reconnectViaFallbacks()
-                        } catch (_: Throwable) {}
-                    }
-                    return resp.code to null
-                }
+                if (resp.code == 429) { markDead(service, 429, body.take(120), "HELIUS_RATE_LIMIT_429"); return resp.code to null }
                 if (!resp.isSuccessful) { markDead(service, resp.code, body.take(120), "HELIUS_RPC_ERROR"); return resp.code to null }
                 val json = try { JSONObject(body) } catch (_: Throwable) { JSONObject() }
                 if (json.has("error")) { markDead(service, resp.code, json.opt("error").toString().take(160), "HELIUS_RPC_ERROR"); return resp.code to json }

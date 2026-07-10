@@ -516,28 +516,6 @@ object PipelineHealthCollector {
         // "LIVE_BUY" doesn't shadow "LIVE_BUY_OK" / "LIVE_BUY_FAIL" once
         // those finer-grained actions are wired by callers.
         val eventMode = modeFromExec(action, fields)
-        // V5.0.6218 — HARD MODE PARTITION (EMERGENCY_PATCH item 1).
-        // If runtime is paper=true, LIVE_* counters MUST NOT increment
-        // from current-session exec events. Operator's report showed
-        // paper=true with LIVE BUY ok/fail/attempt counters populating —
-        // that pollutes StrategyTruthLedger downstream. Drop the LIVE
-        // classification silently (raw forensic label still records the
-        // event via bump above; only the LIVE-mode counters are gated).
-        val runtimePaperNow6218 = try { FinalExecutionPermit.isPaperMode } catch (_: Throwable) { false }
-        val isLiveClassifiedAction = action.startsWith("LIVE_") || eventMode == "LIVE"
-        if (runtimePaperNow6218 && isLiveClassifiedAction) {
-            try {
-                bump(labelCounts, "MODE_PARTITION_VIOLATION_ONEXEC_6218")
-                ForensicLogger.lifecycle(
-                    "MODE_PARTITION_LIVE_EXEC_LABEL_WHILE_PAPER_6218",
-                    "action=$action symbol=$symbol eventMode=$eventMode runtimePaper=true action_taken=live_counter_increment_suppressed"
-                )
-            } catch (_: Throwable) {}
-            // Preserve the raw forensic Event ring but do NOT feed the
-            // LIVE_* mode-scoped counters. Fall through to appendEvent.
-            appendEvent(Event(System.currentTimeMillis(), "EXEC/$action", symbol, fields.take(220)))
-            return
-        }
         when {
             action.startsWith("LIVE_BUY_OK")      -> execLiveBuyOk.incrementAndGet()
             action.startsWith("LIVE_BUY_FAIL")    -> {
@@ -570,26 +548,6 @@ object PipelineHealthCollector {
         // evidence is emitted as LIFECYCLE labels, not EXEC labels. Count those
         // from the event authority itself so a PAPER UI snapshot cannot hide live
         // execution in the per-mode block.
-        // V5.0.6218 — HARD MODE PARTITION (EMERGENCY_PATCH item 1).
-        // Same gate for LIFECYCLE-attributed live counters. Paper runtime
-        // must never see LIVE exec/finality counters increment.
-        val runtimePaperLc6218 = try { FinalExecutionPermit.isPaperMode } catch (_: Throwable) { false }
-        val liveLifecycleLabels = setOf(
-            "MEME_LIVE_EXEC_ENTRY", "LIVE_BUY_LANDED", "BUY_CONFIRMED",
-            "LIVE_POSITION_CONFIRMED_FROM_WALLET", "LIVE_POSITION_CONFIRMED_FROM_SIGNATURE",
-            "SELL_FINALIZED_ONCE", "SELL_FINALIZED", "EXEC_LIVE_SELL_ZERO_BALANCE_CONFIRMED",
-            "SELL_SIG_CONFIRMED", "SELL_FINALITY_PENDING_RETRY", "SELL_VERIFY_INCONCLUSIVE_PENDING",
-        )
-        if (runtimePaperLc6218 && event in liveLifecycleLabels) {
-            try {
-                bump(labelCounts, "MODE_PARTITION_VIOLATION_ONLIFECYCLE_6218")
-                ForensicLogger.lifecycle(
-                    "MODE_PARTITION_LIVE_LIFECYCLE_LABEL_WHILE_PAPER_6218",
-                    "event=$event runtimePaper=true action_taken=live_counter_increment_suppressed fields=${fields.take(120)}"
-                )
-            } catch (_: Throwable) {}
-            return
-        }
         when (event) {
             "MEME_LIVE_EXEC_ENTRY" -> execLiveAttempt.incrementAndGet()
             "LIVE_BUY_LANDED", "BUY_CONFIRMED", "LIVE_POSITION_CONFIRMED_FROM_WALLET", "LIVE_POSITION_CONFIRMED_FROM_SIGNATURE" -> execLiveBuyOk.incrementAndGet()
@@ -1162,47 +1120,6 @@ object PipelineHealthCollector {
             sb.append("  Root cause likely:    ${rootCauses.distinct().joinToString(" | ").take(220)}\n")
         } catch (_: Throwable) {}
         sb.append("\n")
-
-        // V5.0.6208 — Bleeder Board (P4).
-        // Compact pill showing lanes currently in soft-block / size-dampen from
-        // the AI's own tuning + a redemption distance (# more wins needed to
-        // cross the 40% WR redemption floor). Complements the "Bottom bleeders"
-        // deep section by surfacing the actionable board near the top of the
-        // snapshot where the operator sees it first.
-        try {
-            val knownLanes = listOf(
-                "BLUECHIP", "QUALITY", "MOONSHOT", "SHITCOIN", "STANDARD",
-                "TREASURY", "CASHGEN", "EXPRESS", "MANIPULATED", "PROJECT_SNIPER",
-                "PRESALE_SNIPE", "DIP_HUNTER"
-            )
-            val tuned = knownLanes.mapNotNull { lane ->
-                try {
-                    val adj = com.lifecyclebot.engine.LiveStrategyTuner.adjustment(lane)
-                    if (adj.isNeutral || adj.sizeMult >= 1.0 || adj.trades <= 0) null else adj
-                } catch (_: Throwable) { null }
-            }.distinctBy { it.lane }.sortedBy { it.sizeMult }.take(5)
-            if (tuned.isNotEmpty()) {
-                sb.append("===== 🩸 Bleeder Board (V5.0.6208) — lanes AI is currently dampening =====\n")
-                for (a in tuned) {
-                    val distance = if (a.winRatePct >= 40.0) 0
-                    else {
-                        // wins needed such that (wins+extra) / (trades+extra) >= 0.40
-                        // solved: extra >= (0.40*trades - wins) / 0.60
-                        val currentWins = ((a.winRatePct / 100.0) * a.trades).toInt()
-                        val need = ((0.40 * a.trades - currentWins) / 0.60).let { kotlin.math.ceil(it).toInt() }
-                        maxOf(1, need)
-                    }
-                    val badge = when {
-                        a.sizeMult <= 0.45 -> "🔴"
-                        a.sizeMult <= 0.75 -> "🟠"
-                        else               -> "🟡"
-                    }
-                    val redemption = if (distance == 0) "cleared" else "+${distance}W to 40% WR floor"
-                    sb.append("  $badge ${a.lane.padEnd(14)} n=${a.trades.toString().padEnd(4)} WR=${"%5.1f".format(a.winRatePct)}%  size×${"%.2f".format(a.sizeMult)}  pnl=${"%+.3f".format(a.totalSolPnl)} SOL  → $redemption\n")
-                }
-                sb.append("  Read: 🔴 heavy damper (size≤0.45) · 🟠 moderate (≤0.75) · 🟡 mild · lane clears when live WR ≥ 40%.\n\n")
-            }
-        } catch (_: Throwable) {}
 
         // ── Funnel ──────────────────────────────────────────────────
         sb.append("===== Pipeline funnel (in-app mirror of CI funnel) =====\n")
@@ -2102,10 +2019,10 @@ object PipelineHealthCollector {
             val pct = if (threshold > 0.0) (accruedSol / threshold * 100.0) else 0.0
             val readyToFlush = accruedSol >= threshold
             sb.append("\n===== Trading fee accumulator (V5.0.3920) =====\n")
-            sb.append("  accrued (on-device): ${"%.5f".format(accruedSol)} / ${"%.5f".format(threshold)} SOL (${"%.1f".format(pct)}%)\n")
+            sb.append("  accrued (on-device): ${"%.5f".format(accruedSol)} / ${"%.2f".format(threshold)} SOL (${"%.1f".format(pct)}%)\n")
             sb.append("  buckets:             $buckets\n")
             sb.append("  retry queue pending: $retryPending\n")
-            sb.append("  flush status:        ${if (readyToFlush) "🟢 READY — next bot-loop cycle will flush in live mode" else "🟡 accruing — flush when total ≥ ${"%.5f".format(threshold)} SOL"}\n")
+            sb.append("  flush status:        ${if (readyToFlush) "🟢 READY — next bot-loop cycle will flush in live mode" else "🟡 accruing — flush when total ≥ ${"%.2f".format(threshold)} SOL"}\n")
         } catch (_: Throwable) { /* best-effort telemetry */ }
 
         try {
@@ -2114,28 +2031,25 @@ object PipelineHealthCollector {
                 sb.append("\n===== API health (V5.9.915 ApiHealthMonitor) =====\n")
                 val sorted = apiSnap.entries.sortedBy { it.key }
                 for ((host, st) in sorted) {
-                    val thr6227 = st.throttled.get()
                     val total = st.successes.get() + st.failures4xx.get() + st.failures5xx.get() + st.networkErrors.get()
-                    if (total == 0 && thr6227 == 0) continue
+                    if (total == 0) continue
                     val sr = (st.successRate() * 100).toInt()
                     val avg = st.avgLatencyMs().toInt()
                     val icon = when {
-                        total == 0 -> "⏸"
                         sr >= 90 -> "✅"
                         sr >= 60 -> "🟡"
                         else     -> "🔴"
                     }
                     sb.append(String.format(
-                        "  %s %-14s sr=%3d%%  avg=%4dms  s=%-5d  4xx=%-3d  5xx=%-3d  net=%-3d  thr=%-4d\n",
+                        "  %s %-14s sr=%3d%%  avg=%4dms  s=%-5d  4xx=%-3d  5xx=%-3d  net=%-3d\n",
                         icon, host, sr, avg,
-                        st.successes.get(), st.failures4xx.get(), st.failures5xx.get(), st.networkErrors.get(), thr6227
+                        st.successes.get(), st.failures4xx.get(), st.failures5xx.get(), st.networkErrors.get()
                     ))
                     val lastErr = st.lastErrorMessage.get()
                     if (lastErr != null && st.failures4xx.get() + st.failures5xx.get() + st.networkErrors.get() > 0) {
                         sb.append("       last_err: ").append(lastErr.take(120)).append('\n')
                     }
                 }
-                sb.append("  Read: sr/4xx/5xx = WIRE truth only. thr = local throttle/backoff skips, no wire call (V5.0.6227 — previously miscounted as 5xx).\n")
             }
         } catch (_: Throwable) { /* observability never fails dumpText */ }
 

@@ -58,7 +58,7 @@ object AutonomousMetaPolicy {
     private const val PRIOR_ALPHA        = 1.0     // Beta(1,1) uniform prior
     private const val PRIOR_BETA         = 1.0
     // V5.9.1289 — catastrophic-context starve thresholds (separate from conviction floor)
-    private const val PROVEN_DEAD_N      = 12L      // V5.0.6228: lowered 20→12 — a context with 12 samples showing winP<12% & avgPnl<-10% has earned its starve. Compound target can't wait for n=20 to shut down obvious bleeders.
+    private const val PROVEN_DEAD_N      = 20L      // need real maturity before starving
     private const val PROVEN_DEAD_WINP   = 0.12     // posterior win-prob below this
     private const val PROVEN_DEAD_AVGPNL = -18.0    // AND average realized pnl below this
     private const val STARVE_FLOOR       = 0.08     // never fully zero (keeps a probe alive)

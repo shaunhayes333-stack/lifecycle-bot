@@ -14,12 +14,6 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.lifecyclebot.R
 import com.lifecyclebot.engine.PipelineHealthCollector
-import com.lifecyclebot.engine.ReportingHub
-import com.lifecyclebot.engine.ForensicLogger
-import java.net.HttpURLConnection
-import java.net.URL
-import org.json.JSONObject
-import kotlin.concurrent.thread
 
 /**
  * V5.9.666 — In-app Pipeline Health panel.
@@ -57,19 +51,6 @@ class PipelineHealthActivity : AppCompatActivity() {
     @Volatile private var fullDumpCache: String = ""
     private var reportSections: List<String> = emptyList()
     private var currentSectionIndex: Int = 0
-
-    // V5.0.6217 — COPY BUTTON RESPONSIVENESS.
-    // Operator report: "if I let the bot run for a while the pipeline report
-    // is unable to be copied!!! the button becomes unresponsive". Root
-    // cause: buildTextAsync(forceFresh=true) forces a fresh build, which
-    // acquires the ReportingHub buildMutex and waits up to 6s for the
-    // synchronous unified report build. After 5+ hours the collector maps
-    // grow huge and dumpText/compactPipelineDump can take 8-20s per call,
-    // so the mutex gets held longer than the timeout allows and stacked
-    // taps queue behind it. Copy tap now: (a) shows an immediate Toast
-    // so the user sees the tap register, (b) uses the cached report path
-    // first, only rebuilding if the cache is genuinely stale.
-    @Volatile private var copyInFlight: Boolean = false
 
     // V5.9.1074 — lifecycle render gate. onResume() can fire before the
     // first-frame-posted findViewById block binds lateinit TextViews, and
@@ -163,9 +144,6 @@ class PipelineHealthActivity : AppCompatActivity() {
             findViewById<ImageButton>(R.id.backButton).setOnClickListener { finish() }
 
             findViewById<Button>(R.id.copyButton).setOnClickListener { copyToClipboardAsync() }
-
-            // V5.0.6126 — Send to Vex: POST the full unified report to the agent backend
-            findViewById<Button>(R.id.sendVexButton)?.setOnClickListener { sendReportToVexAsync() }
 
             findViewById<Button>(R.id.refreshButton).setOnClickListener { renderSnapshotAsync(forceFull = false, manualRefresh = true) }
             prevSectionButton.setOnClickListener { moveSection(-1) }
@@ -339,32 +317,14 @@ class PipelineHealthActivity : AppCompatActivity() {
      * then posts the clipboard write to main (ClipboardManager
      * requires main). Previously the 16KB dump built on main blocked
      * the UI thread for the copy tap as well.
-     *
-     * V5.0.6217 — COPY BUTTON RESPONSIVENESS after 5+ hours of runtime.
-     * Root cause: buildTextAsync(forceFresh=true) forces a synchronous
-     * unified rebuild through the ReportingHub buildMutex; once the
-     * collector maps have accumulated for hours the build can take
-     * 8-20s and stack subsequent taps behind the same mutex. Fixes:
-     *  1) Show an immediate Toast so the tap visually registers.
-     *  2) Reject the tap if a prior copy is still in flight (no queueing).
-     *  3) forceFresh=false lets ReportingHub serve the cached build if
-     *     it's within the 2.5s TTL — the operator taps repeatedly to
-     *     re-copy the latest snapshot, not to rebuild from scratch.
      */
     private fun copyToClipboardAsync() {
         if (destroyed || !viewsBound) return
-        if (copyInFlight) {
-            Toast.makeText(this, "Copy already in progress — building report…", Toast.LENGTH_SHORT).show()
-            return
-        }
-        copyInFlight = true
-        Toast.makeText(this, "Building unified report for clipboard…", Toast.LENGTH_SHORT).show()
         val generation = renderGeneration
         com.lifecyclebot.engine.ReportingHub.buildTextAsync(
             com.lifecyclebot.engine.ReportingHub.Kind.UNIFIED_HEALTH,
-            forceFresh = false,
+            forceFresh = true,
         ) { report, error ->
-            copyInFlight = false
             if (destroyed || generation != renderGeneration) return@buildTextAsync
             val text = report?.text ?: "(render error: ${error?.message ?: "unknown"})"
             val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -382,64 +342,5 @@ class PipelineHealthActivity : AppCompatActivity() {
         v >= 1_000_000 -> "${v / 1_000_000}.${((v % 1_000_000) / 100_000)}M"
         v >= 10_000    -> "${v / 1_000}.${((v % 1_000) / 100)}k"
         else           -> v.toString()
-    }
-
-    /**
-     * V5.0.6126 — Send the full unified operational report to Vex (the agent)
-     * via HTTP POST to the Base44 backend endpoint. This lets the operator
-     * share the runtime report for debugging without copy-paste.
-     *
-     * Runs entirely on a background thread; shows a Toast on success/failure.
-     */
-    private fun sendReportToVexAsync() {
-        if (destroyed || !viewsBound) return
-        val generation = renderGeneration
-        Toast.makeText(this, "Building report for Vex...", Toast.LENGTH_SHORT).show()
-
-        ReportingHub.buildTextAsync(
-            ReportingHub.Kind.UNIFIED_HEALTH,
-            forceFresh = true,
-        ) { report, error ->
-            if (destroyed || generation != renderGeneration) return@buildTextAsync
-            val text = report?.text ?: "(render error: ${error?.message ?: "unknown"})"
-
-            thread {
-                var ok = false
-                var errMsg = ""
-                try {
-                    val url = URL("https://app.base44.com/api/apps/69de889928f0364d975c00cd/backend_functions/receiveRuntimeReport")
-                    val conn = (url.openConnection() as HttpURLConnection).apply {
-                        requestMethod = "POST"
-                        connectTimeout = 15_000
-                        readTimeout = 30_000
-                        setRequestProperty("Content-Type", "application/json")
-                        doOutput = true
-                    }
-                    val payload = JSONObject().apply {
-                        put("reportText", text)
-                        put("buildTag", try { com.lifecyclebot.BuildConfig.VERSION_NAME } catch (_: Throwable) { "unknown" })
-                        put("appVersion", try { com.lifecyclebot.BuildConfig.VERSION_NAME } catch (_: Throwable) { "unknown" })
-                    }
-                    conn.outputStream.use { it.write(payload.toString().toByteArray()) }
-                    val code = conn.responseCode
-                    if (code in 200..299) {
-                        ok = true
-                        try { ForensicLogger.lifecycle("REPORT_SENT_TO_VEX_6126", "chars=${text.length} code=$code") } catch (_: Throwable) {}
-                    } else {
-                        errMsg = "HTTP $code"
-                    }
-                    conn.disconnect()
-                } catch (e: Exception) {
-                    errMsg = e.message ?: "network error"
-                }
-                mainHandler.post {
-                    if (ok) {
-                        Toast.makeText(this, "Report sent to Vex (${text.length} chars)", Toast.LENGTH_LONG).show()
-                    } else {
-                        Toast.makeText(this, "Send failed: $errMsg", Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
-        }
     }
 }
