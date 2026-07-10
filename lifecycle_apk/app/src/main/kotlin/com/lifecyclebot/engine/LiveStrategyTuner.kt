@@ -439,6 +439,34 @@ object LiveStrategyTuner {
         val wrBleed = n >= 8 && wr < 35.0 && sol <= 0.0
         val meanBleed = n >= 8 && sol <= 0.0 && mean <= -8.0
         val toxicBleed = (n >= 10 && wr <= 28.0 && sol < 0.0) || (n >= 8 && wr <= 15.0 && sol < 0.0)
+        // V5.0.6228f — LIFETIME ASYMMETRIC-WINNER ESCAPE (extend of 6228e).
+        // A live-slice bleeder classification (MOONSHOT n=10 WR=0% sol=-0.159)
+        // must NOT toxic-pivot a lane whose LIFETIME strategy expectancy shows
+        // clear asymmetric edge (MOONSHOT lifetime n=12 EV=+230.66% PnL=+1.30 SOL).
+        // Toxic_reclaim was clamping the lane to size×0.40 despite the +230%/trade
+        // asymmetric power-law — that's exactly the lane that must be pressed for
+        // the daily 2x-5x compound target. Escape triggers when lifetime n>=8 with
+        // meanPnlPct >= 50%. Applies a mild "asymmetric_learner" ramp instead of
+        // the toxic_reclaim crush so learning continues on real edge.
+        val lifetimeAsymWinner6228f = try {
+            StrategyTelemetry.computeLeaderboard(limit = 2_000)
+                .firstOrNull { it.strategy.equals(lane, true) }
+                ?.let { lm -> lm.trades >= 8 && lm.meanPnlPct >= 50.0 }
+                ?: false
+        } catch (_: Throwable) { false }
+        if (lifetimeAsymWinner6228f && (pfBleed || wrBleed || meanBleed || toxicBleed)) {
+            return Adjustment(
+                lane = lane, trades = n, winRatePct = wr, totalSolPnl = sol,
+                pfExpectancyPp = pf, meanPnlPct = mean,
+                sizeMult = 1.0,          // no crush — lifetime asymmetric edge preserved
+                tpMult = 1.20,           // let runners run further
+                holdMult = 1.30,         // patience — the +230% comes from the tail
+                maxWalletMult = 1.0,
+                liquidityImpactMult = 1.0,
+                partialTriggerMult = 1.20,
+                label = "asymmetric_lifetime_edge_6228f",
+            )
+        }
         if (pfBleed || wrBleed || meanBleed || toxicBleed) {
             val wrDepth = ((35.0 - wr) / 35.0).coerceIn(0.0, 1.0)
             val pfDepth = ((-pf) / 16.0).coerceIn(0.0, 1.0)
