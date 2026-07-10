@@ -482,12 +482,15 @@ object LiveStrategyTuner {
                 pfExpectancyPp = pf,
                 meanPnlPct = mean,
                 sizeMult = if (toxicInnerLanePivot) {
-                    // V5.0.6228h — CHRONIC-BLEEDER DEEP-DAMPEN.
-                    // Report showed BLUECHIP n=161 at size×0.40 still cost
-                    // -2.54 SOL (24% WR, EV=-4.19%). At n>=100 with sol<-1.0
-                    // SOL a lane is no longer "learning to recover", it's an
-                    // established chronic bleeder — starve it to a probe.
-                    val chronicBleeder = n >= 100 && sol <= -1.0
+                    // V5.0.6230 — LOWER CHRONIC-BLEEDER GATE.
+                    // Report showed BLUECHIP n=17 EV=-7.07% PnL=-0.46 SOL
+                    // still sitting at 0.40x because the n>=100 threshold
+                    // hadn't fired yet. A lane with n>=15 samples and
+                    // sol<=-0.4 SOL has demonstrated enough bleed to earn
+                    // the deep-dampen probe treatment. Kept the harsher
+                    // 100/1.0 tier for truly established chronics.
+                    val chronicBleeder = (n >= 100 && sol <= -1.0) ||
+                                          (n >= 15 && sol <= -0.4)
                     if (chronicBleeder) {
                         (0.22 - depth * 0.12).coerceIn(0.12, 0.28)
                     } else {
