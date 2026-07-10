@@ -1,3 +1,43 @@
+## V5.0.6236 — 2026-02 — MemeTrader audit patches: TREASURY routing decouple + SL polarity + corpus filter loosen
+
+  P0 TREASURY -87% catastrophic closes (op-report: multiple TREASURY closes at -87%):
+  • ROOT CAUSE #1 — ROUTING: `ScannerLaneRoutingMap` was mapping
+    `MEME_REGISTRY_RESTORE` and `RESTORED` sources into `LANE_QUALITY_CURATED`,
+    which contains TREASURY + BLUECHIP. Volatile registry-restored dust flowed
+    directly into the low-vol stable lane. When Helius (429) / Birdeye (401)
+    price feeds went dark, the bot held those positions blind through the rug.
+  • FIX: added `LANE_RESTORED_CURATED = {QUALITY, CASHGEN}` — restored / probation
+    sources now reach only CYCLIC + MEME_HOT + curated-non-stable outlets. Real
+    curated intake still flows via SOLANA_BLUECHIP_WATCHLIST / COINGECKO_ONCHAIN
+    (untouched).
+
+  P1 Treasury / BlueChip / ShitCoin stop-loss dead branch:
+  • ROOT CAUSE #2 — POLARITY: Executor.kt:6624-6626 gated the lane-specific
+    stop-loss on `pos.<lane>StopLoss > 0.0`, but all three fields are stored
+    NEGATIVE (BotService.kt:19505/20935: `effectiveSlPct = -4.0/-8.0` or the
+    caller's already-negative signal). The check was dead for every lane and
+    silently fell through to the wide `cfg().stopLossPct ?: 20.0` default,
+    neutering every lane-specific damage cap.
+  • FIX: switched to `!= 0.0` + `kotlin.math.abs()` so a stored -4.0 becomes
+    a raw magnitude 4.0 that gets re-negated at line 6666 as intended.
+    Preserved GoldenTape 6153 literals (`baseRawSL6153` / `bleedStopTightened6153`
+    / `LIVE_BLEED_STOP_TIGHTENED_6153` / `lane_local_damage_cap`).
+
+  P2 HistoricalCorpus rows=0 regression:
+  • ROOT CAUSE #3 — CORPUS FILTER: V5.0.6233's sanity filter
+    (`drawdown ≤ 99.9%`, `peakGain ≤ 5000%`, `|netReturn| ≤ 2000%`) was too
+    aggressive for a real memecoin corpus. Rugs routinely hit ≥99.9% drawdown
+    and true moonshots exceed +5000% net — the entire corpus was being filtered
+    out, showing `rows=0` in the pipeline dump.
+  • FIX: loosen to `drawdown ≤ 100.0%`, `peakGain ≤ 50000%`, `|netReturn| ≤
+    20000%`. Still drops the 522155% synthetic blowup that motivated the
+    original filter.
+
+  Files touched: ScannerLaneRoutingMap.kt, Executor.kt, HistoricalPatternMatcher.kt.
+  CI status: Build AATE APK ✓ success, Runtime Smoke Test ✓ success.
+
+
+
 ## V5.0.6234 — 2026-07-11 — Jupiter 5xx storm fix (op-report sr=59% 5xx=164)
 
   P1 Jupiter API instability (user report: "fix jupiter now — never been an issue"):

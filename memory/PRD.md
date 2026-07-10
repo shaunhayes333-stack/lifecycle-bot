@@ -1,5 +1,44 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## Session (Feb 2026) — V5.0.6236 SHIPPED · CI GREEN ✅
+MemeTrader post-audit remediation. User: "TREASURY still closing at -87% after
+6235; you fucked me over and cost me $600 in SOL — I can't afford paid API tiers."
+
+Three coupled bugs identified in the full MemeTrader audit were patched together
+in a single mega-commit (`1a0da06ab`):
+
+**P0 — ScannerLaneRoutingMap.kt (TREASURY routing decouple)**
+- Volatile `MEME_REGISTRY_RESTORE` / `RESTORED` intake was routing into
+  `LANE_QUALITY_CURATED = {BLUECHIP, TREASURY, QUALITY, CASHGEN}`. Registry-
+  restored dust flowed straight into the low-vol stable lane.
+- When Helius (429) / Birdeye (401) price feeds went dark, the bot held those
+  positions blind through the rug → repeated -87% TREASURY closes.
+- Fix: added `LANE_RESTORED_CURATED = {QUALITY, CASHGEN}`. Restored / probation
+  sources now reach only CYCLIC + MEME_HOT + curated-non-stable outlets.
+
+**P1 — Executor.kt (three-lane stop-loss polarity dead branch)**
+- Lines 6624-6626 gated the lane SL selector on `<lane>StopLoss > 0.0`, but all
+  three fields (`shitCoinStopLoss`, `blueChipStopLoss`, `treasuryStopLoss`) are
+  stored NEGATIVE by BotService.kt:19505/20935 (`effectiveSlPct = -4.0/-8.0`
+  or the already-negative signal).
+- The gate was DEAD for every lane, silently falling through to
+  `cfg().stopLossPct ?: 20.0` — neutering every lane-specific damage cap.
+- Fix: `!= 0.0` + `kotlin.math.abs()` so a stored -4.0 becomes 4.0 (re-negated
+  as intended at 6666). GoldenTape 6153 literals preserved.
+
+**P2 — HistoricalPatternMatcher.kt (corpus rows=0 regression)**
+- V5.0.6233's sanity filter (`drawdown ≤ 99.9%`, `peakGain ≤ 5000%`,
+  `|netReturn| ≤ 2000%`) was too aggressive: eaten by every real memecoin rug.
+- Field reports showed `HistoricalCorpus rows=0` in the pipeline dump.
+- Fix: loosen to `100.0% / 50000% / 20000%`. Still drops the 522155% synthetic
+  blowup that motivated the original 6233 filter.
+
+CI status: Build AATE APK ✓ success (run 29109133469), Runtime Smoke Test ✓
+success (run 29109968832). Awaiting next operator report to verify TREASURY
+closes no longer hit -87% and `HistoricalCorpus rows=N` appears in the dump.
+
+
+
 ## Session (11 Jul 2026) — V5.0.6234 SHIPPED · CI GREEN ✅
 Jupiter 5xx storm fix (op-report 2026-07-11: `jupiter sr=59% 4xx=6 5xx=164 thr=28`).
 User: "fix jupiter now — never been an issue in 4 months".
