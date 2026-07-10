@@ -1,5 +1,14 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## Session (10-11 Jul 2026) — V5.0.6233 SHIPPED · CI GREEN ✅
+Bootstrap-AGI-from-trade-1 batch (see CHANGELOG V5.0.6233): historical corpus
+generated + committed + wired into FDG as bounded entry prior; UnifiedPolicyHead
+trade-1 global inheritance; SSI pilot warmup 30s; all paper size-shrinkers
+floored at 0.85 (WR-recovery damp, FDG soft penalty, RWCG defensive throttle,
+LanePolicy REDUCED_SIZE base); EXPRESS rides bypass SHITCOIN quality gate
+(BUY_NOT_OPENED fix). Awaiting next operational report to verify entry sizes
+recover and HISTORICAL_CORPUS_PRIOR_6233 / HistoricalCorpus lines appear.
+
 ## Session (09-10 Jul 2026) — V5.0.6227 → V5.0.6228b SHIPPED · CI GREEN ✅
 
 ### V5.0.6228b (`b175117ae`) — golden-tape tests updated for new invariants

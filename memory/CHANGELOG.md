@@ -2264,3 +2264,30 @@ V5.0.4105  P0 Wave E — TOKEN_MAP_INCOMPLETE unchoke
     pairAddress OR poolAddress OR (pumpFunBondingCurveAddress +
     pumpFunExecutable + !migratedOrGraduated).
 
+
+V5.0.6233 (029973eb6, 10 Jul 2026) — BOOTSTRAP AGI FROM TRADE 1 + SIZE-SHRINK FIXES · CI GREEN ✅
+  P0 "remove whatever is shrinking the trade size":
+  • Executor: WR-recovery size damp floored at 0.85 in paper mode.
+  • FDG: WR_RECOVERY_SOFT_PENALTY 0.65×0.85=0.55 → 0.90×0.95≈0.86 min (tiny-soft).
+  • RealizedWalletCompoundingGovernor: defensive 0.55x throttle → 0.85x in paper
+    (both strategy_truth_negative and low_wr branches); live keeps 0.55x.
+  • LanePolicy: REDUCED_SIZE_EXECUTION 0.60 → 0.85, PROMOTION_CANDIDATE 0.80 → 0.90.
+  P0 BUY_NOT_OPENED:
+  • Executor.shouldSuppressPaperLearningEntry: EXPRESS rides bypass the standalone
+    SHITCOIN quality gate (score>=66/liq>=$3k) — calledFromExpress6233.
+  P0 "paper bootstrap needs full AGI/LLM/SSI control from trade 1":
+  • ROOT CAUSE FOUND: historical_corpus.jsonl.gz (V5.0.6221) was NEVER in the APK
+    (asset never generated/committed) AND HistoricalPatternMatcher.matchLiveShape/
+    neighbourPatternPrior had ZERO callers. Corpus knowledge influenced nothing.
+  • Generated corpus in-pod via scripts/fetch_solana_corpus.py (155 tokens, 38KB gz,
+    152 sane rows) and committed to app/src/main/assets/.
+  • HistoricalPatternMatcher: load-time sanity filter (|net|<=2000%, peak<=5000%,
+    dd<=99.9%) + new entryPriorMult() (bounded 0.80..1.15 kNN pattern prior) +
+    statusLine().
+  • FinalDecisionGate: HISTORICAL_CORPUS_PRIOR_6233 — computes live shape from 1m
+    candles, multiplies BOTH adjustedConfidence and finalSize by the corpus prior.
+  • UnifiedPolicyHead: TRADE-1 GLOBAL INHERITANCE — BOOTSTRAP lane heads inherit
+    the LEARNED/AUTHORITATIVE global head at FULL strength (was: neutral 1.0 or
+    0.25-damped ramp). AGI never dumb at trade 1 when global experience exists.
+  • SsiPilotCouncil: warmup 3min → 30s — LLM pilot directive before first entries.
+  • ReportingHub: "HistoricalCorpus:" status line added to toolkit sheet.
