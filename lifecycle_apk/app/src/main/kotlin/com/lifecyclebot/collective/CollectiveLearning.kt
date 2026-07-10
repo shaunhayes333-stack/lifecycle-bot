@@ -205,7 +205,7 @@ object CollectiveLearning {
                         "signal_type TEXT NOT NULL," +
                         "mint TEXT NOT NULL," +
                         "symbol TEXT," +
-                        "instance_id TEXT NOT NULL," +
+                        "instance_id TEXT NOT NULL DEFAULT ''," +
                         "score REAL," +
                         "price REAL," +
                         "extra TEXT," +
@@ -213,11 +213,41 @@ object CollectiveLearning {
                     ")",
                     emptyList()
                 )
+                // V5.0.6232 — SCHEMA MIGRATION SAFETY NET. Older Turso DBs were
+                // created before this inline block gained the instance_id column
+                // (or with a slightly different swarm_signals shape), so every
+                // publishSwarmSignal() INSERT was crashing with
+                //   "no such column: instance_id"
+                // and taking CloudSync down with it. CREATE TABLE IF NOT EXISTS
+                // never patches an existing table's schema, so we explicitly try
+                // the ADD COLUMN here and swallow "duplicate column name" /
+                // "already exists" errors so it stays idempotent on fresh DBs.
+                val swarmMigrations = listOf(
+                    "ALTER TABLE swarm_signals ADD COLUMN instance_id TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE swarm_signals ADD COLUMN symbol TEXT",
+                    "ALTER TABLE swarm_signals ADD COLUMN score REAL",
+                    "ALTER TABLE swarm_signals ADD COLUMN price REAL",
+                    "ALTER TABLE swarm_signals ADD COLUMN extra TEXT"
+                )
+                for (mig in swarmMigrations) {
+                    try {
+                        client?.execute(mig, emptyList())
+                        Log.i(TAG, "✅ V5.0.6232 swarm_signals migration applied: $mig")
+                    } catch (me: Exception) {
+                        val msg = me.message.orEmpty()
+                        if (msg.contains("duplicate column", ignoreCase = true) ||
+                            msg.contains("already exists", ignoreCase = true)) {
+                            Log.d(TAG, "V5.0.6232 swarm_signals migration already applied: $mig")
+                        } else {
+                            Log.w(TAG, "V5.0.6232 swarm_signals migration warn (non-fatal): $mig | ${me.message}")
+                        }
+                    }
+                }
                 client?.execute(
                     "CREATE INDEX IF NOT EXISTS idx_swarm_type_mint_ts ON swarm_signals(signal_type, mint, ts)",
                     emptyList()
                 )
-                Log.i(TAG, "✅ V5.0.6120f swarm_signals table + index ready")
+                Log.i(TAG, "✅ V5.0.6120f swarm_signals table + index ready (V5.0.6232 migrations applied)")
             } catch (e: Exception) {
                 Log.w(TAG, "swarm_signals init warning (non-fatal): ${e.message}")
             }

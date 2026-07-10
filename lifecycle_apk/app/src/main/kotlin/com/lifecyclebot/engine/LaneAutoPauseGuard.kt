@@ -52,11 +52,35 @@ object LaneAutoPauseGuard {
     //   TOXIC_EV_PCT        -40 -> -20 (much stricter EV floor)
     // Non-priority safety: MOONSHOT/STANDARD are handled by the compound
     // sizing floor (V5.0.6066), not this guard. Manual resume remains.
+    //
+    // V5.0.6232 — RESTORE COMPOUND-TARGET BALANCE (operator P0 directive:
+    //   "the bot has been way too protective and defensive focussed not on
+    //    sucess winning and growth. ensure an even balance of both").
+    // The 6067 thresholds combined with hard-seed pauses and the paused-
+    // lane 0.70x dampener created a death-spiral: lanes that need 30-50
+    // trades to prove an asymmetric power-law profile (MOONSHOT is a
+    // classic +974% EV at n=6 lane) were quarantined at n=8-12. Once a
+    // lane was paused, the 0.70x haircut meant it could not accumulate
+    // enough size/sample to re-prove itself, so it stayed paused forever.
+    // Restore the more forgiving 6066-era gates so lanes get a real
+    // chance to prove asymmetric edge before the guard latches:
+    //   ZERO_WIN_MIN_SAMPLE  8 -> 15  (need 15 zero-win trades, not 8)
+    //   TOXIC_MIN_SAMPLE    12 -> 20  (proof of toxicity needs 20 closes)
+    //   TOXIC_EV_PCT       -20 -> -40 (tolerate -20% EV as still learning)
+    //   MIN_SAMPLE           8 -> 8   (unchanged; auto-resume floor)
+    // Combined with the asymmetric-lane exemption below, this keeps the
+    // compound-target growth path open while still latching genuinely
+    // toxic bleeders at n>=15 zero-win or n>=20 catastrophic EV.
     private const val MIN_SAMPLE = 8
-    private const val ZERO_WIN_MIN_SAMPLE = 8
+    private const val ZERO_WIN_MIN_SAMPLE = 15
     private const val TOXIC_WR_PCT = 20.0
-    private const val TOXIC_EV_PCT = -20.0
-    private const val TOXIC_MIN_SAMPLE = 12
+    private const val TOXIC_EV_PCT = -40.0
+    private const val TOXIC_MIN_SAMPLE = 20
+
+    // V5.0.6232 — Asymmetric power-law lanes: never auto-pause when lifetime
+    // EV is net-positive, regardless of recent slice. One MOONSHOT +974%
+    // outlier can carry a whole quarter of trading — that IS the edge.
+    private val ASYMMETRIC_LANES_6232 = setOf("MOONSHOT", "SHITCOIN", "EXPRESS")
 
     data class PauseState(
         val lane: String,
@@ -80,14 +104,35 @@ object LaneAutoPauseGuard {
             try {
                 val blob = LearningPersistence.load(PERSIST_KEY) ?: return
                 val arr = org.json.JSONArray(blob)
+                // V5.0.6232 — STALE SEED CLEANUP. Existing users who upgraded
+                // from V5.0.6067/6072 have BLUECHIP/QUALITY/PRESALE_SNIPE
+                // persisted as paused-at-load with the old hard-seed reason
+                // strings. Without this cleanup they would stay paused forever
+                // (persistence dominates the load path). Drop the specific
+                // stale reasons so those lanes rejoin live trading with the
+                // restored sample-floor sanity of 6232.
+                val stale6232ReasonSubstrings = listOf(
+                    "hard_seed_6067",
+                    "hard_seed_6072",
+                )
                 for (i in 0 until arr.length()) {
                     val o = arr.getJSONObject(i)
                     val lane = o.optString("lane", "").uppercase()
                     if (lane.isEmpty()) continue
+                    val reason = o.optString("reason", "restored")
+                    if (stale6232ReasonSubstrings.any { reason.contains(it) }) {
+                        try {
+                            ErrorLogger.info(
+                                "LaneAutoPauseGuard",
+                                "🧹 V5.0.6232 stale hard-seed cleanup: dropping paused lane=$lane oldReason=$reason (compound-target restore)",
+                            )
+                        } catch (_: Throwable) {}
+                        continue
+                    }
                     paused[lane] = PauseState(
                         lane = lane,
                         pausedAt = o.optLong("pausedAt", System.currentTimeMillis()),
-                        reason = o.optString("reason", "restored"),
+                        reason = reason,
                         sample = o.optInt("sample", 0),
                         wins = o.optInt("wins", 0),
                         wrPct = o.optDouble("wrPct", 0.0),
@@ -107,20 +152,17 @@ object LaneAutoPauseGuard {
             listOf(
                 Triple("EXPRESS", "hard_seed_4594_zero_win_31_trades", -91.6),
                 Triple("MANIPULATED", "hard_seed_4594_wr14pct_ev48neg", -48.2),
-                // V5.0.6067 — SEED PROVEN-TOXIC LANES from V5.0.6066 operator report.
-                // These four burned wallet from 0.6022 -> 0.4938 SOL in 40 minutes.
-                // PRESALE_SNIPE n=10 WR=0% ev=-21% PnL=-0.2473 SOL (biggest bleeder)
-                // QUALITY       n=10 WR=0% ev=-32.6% PnL=-0.0615 SOL
-                // TREASURY      n=13 WR=7.7% ev=-13% (only 1 fluke +0.10 SOL trade)
-                // Operator can manualResume() any of them if desired.
-                Triple("PRESALE_SNIPE", "hard_seed_6067_zero_win_10_trades_ev_-21pct", -21.03),
-                Triple("QUALITY", "hard_seed_6067_zero_win_10_trades_ev_-32pct", -32.61),
-                // V5.0.6072 — BLUECHIP emergency pause (operator report: 0 wins
-                // in 7 trades — just under ZERO_WIN_MIN_SAMPLE=8 so the guard
-                // mathematically could not latch). Paper still learns BLUECHIP
-                // (isPaused() paper bypass); live entries blocked until
-                // manualResume() after a shadow proof.
-                Triple("BLUECHIP", "hard_seed_6072_zero_win_7_trades", -15.0),
+                // V5.0.6232 — REMOVED PRESALE_SNIPE/QUALITY/BLUECHIP HARD SEEDS.
+                // Operator P0 directive: "the bot has been way too protective
+                // and defensive focussed not on sucess winning and growth".
+                // The 6067/6072 hard seeds locked out lanes that were merely
+                // cold-start or unlucky (BLUECHIP at n=7 is NOT proof of
+                // toxicity — it's a small sample). Let the runtime auto-pause
+                // guard (with the restored 6232 sample floors) latch them
+                // organically if they truly bleed. EXPRESS + MANIPULATED
+                // remain hard-seeded because they have lifetime WR<15% and
+                // net-negative EV across hundreds of trades — those are
+                // real proven-toxic profiles, not sample noise.
             ).forEach { (lane, reason, ev) ->
                 if (!paused.containsKey(lane)) {
                     paused[lane] = PauseState(
@@ -305,6 +347,30 @@ object LaneAutoPauseGuard {
                     wrPct < TOXIC_WR_PCT &&
                     evPct <= TOXIC_EV_PCT &&
                     evPct < 0.0
+                // V5.0.6232 — ASYMMETRIC POWER-LAW EXEMPTION. Operator P0
+                // directive: "the bot has been way too protective and defensive
+                // focussed not on sucess winning and growth". Lanes like
+                // MOONSHOT / SHITCOIN / EXPRESS live on right-tail outliers —
+                // 1 in 10 trades can be +500%..+1000%. A low WR + slightly
+                // negative EV slice does NOT mean the lane is broken; it may
+                // just be between outlier hits. Never pause these lanes on a
+                // slice-based toxic verdict unless it is a genuine wipeout
+                // (evPct <= -70%) AND lifetime is also net-negative. Zero-win
+                // gate still applies at n>=ZERO_WIN_MIN_SAMPLE (15) — nothing
+                // saves a lane that has been 0-15 straight.
+                val asymmetricExempt6232 = lane in ASYMMETRIC_LANES_6232 &&
+                    !zeroWin &&
+                    evPct > -70.0
+                if (asymmetricExempt6232 && toxic) {
+                    try {
+                        ErrorLogger.info(
+                            "LaneAutoPauseGuard",
+                            "🌱 LANE_ASYMMETRIC_EXEMPT_6232 lane=$lane n=${agg.sample} wr=${"%.1f".format(wrPct)}% ev=${"%.1f".format(evPct)}% — power-law lane keeps trading below wipeout floor",
+                        )
+                        PipelineHealthCollector.labelInc("LANE_ASYMMETRIC_EXEMPT_6232_$lane")
+                    } catch (_: Throwable) {}
+                    continue
+                }
                 if (zeroWin || toxic) {
                     val reason = if (zeroWin) "zero_win_n${agg.sample}_direct_journal" else "toxic_wr${"%.0f".format(wrPct)}_ev${"%.0f".format(evPct)}_direct_journal"
                     paused[lane] = PauseState(
