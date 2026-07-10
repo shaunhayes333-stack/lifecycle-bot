@@ -3,6 +3,54 @@
 Progressive change log. Newer entries on top. PRD.md holds the static problem
 statement + architecture; this file is the working log of fixes & decisions.
 
+## 2026-02-10 — V5.0.6232 🔴 P0: TURSO INSTANCE_ID CRASH + LANE OVER-PROTECTION UNWIND
+
+Operator report:
+- SQLite: `Turso upload failed... no such column: instance_id` (CloudSync down)
+- Trading win rate < 20% with negative PnL — "bot has been way too protective
+  and defensive focussed not on sucess winning and growth. ensure an even balance"
+- Scanner/watchlist emptying under Turso crash loop
+
+Root cause (from troubleshoot agent):
+1. `swarm_signals` was created inline in CollectiveLearning.kt with the
+   `instance_id` column but older Turso DBs still had a legacy shape.
+   `CREATE TABLE IF NOT EXISTS` never patches an existing table, so every
+   `publishSwarmSignal()` INSERT crashed.
+2. V5.0.6067 aggressive auto-pause gates + V5.0.6072 BLUECHIP hard-seed
+   created a death spiral: lanes that need 30-50 trades to prove asymmetric
+   power-law profiles were quarantined at n=8-12. The paused-lane 0.70x
+   haircut then prevented them from re-proving positive EV, so they stayed
+   paused indefinitely. Bot became 90% protection, 10% growth.
+
+Fixes:
+- **CollectiveLearning.kt**: Added idempotent ALTER TABLE migrations for
+  swarm_signals (instance_id, symbol, score, price, extra) directly after
+  the inline CREATE, wrapped in try/catch that swallows duplicate-column
+  errors. Older Turso DBs auto-migrate; fresh DBs no-op.
+- **LaneAutoPauseGuard.kt**:
+  - ZERO_WIN_MIN_SAMPLE 8 → 15 (need 15 zero-win, not 8)
+  - TOXIC_MIN_SAMPLE 12 → 20
+  - TOXIC_EV_PCT -20 → -40 (tolerate -20% EV as still learning)
+  - Removed PRESALE_SNIPE / QUALITY / BLUECHIP hard-seed pauses (cold-start
+    noise, not proven toxic). EXPRESS + MANIPULATED remain seeded (real
+    lifetime WR<15% net-negative EV).
+  - Added ASYMMETRIC_LANES_6232 exemption: MOONSHOT/SHITCOIN/EXPRESS never
+    auto-pause on slice-based toxic verdict unless slice is a genuine
+    wipeout (evPct <= -70%).
+  - Added STALE_6232 seed cleanup on load: existing users' persisted
+    `hard_seed_6067` / `hard_seed_6072` entries are dropped so those lanes
+    rejoin live trading immediately after upgrade.
+
+Verification:
+- Golden Tape literal static scan: PASSED
+- Gradle release build + tests: PASSED
+- APK published: https://github.com/shaunhayes333-stack/lifecycle-bot/releases/latest
+
+All V5.0.6172 / 6173 / 6228 invariants preserved (cleanLive6173,
+cleanReproved6172, zeroWin/TOXIC_EV_PCT patterns, paper/shadow ignored,
+live-clean authority doctrine strings intact).
+
+
 ## 2026-07-03 — V5.0.6063 → 6064 🔴 CRITICAL: SETTLE-EXIT + PROTECTIVE PARTIAL + PHANTOM HEAL
 
 Operator screenshots — two catastrophic profit-locker failures across two
