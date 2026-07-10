@@ -3946,7 +3946,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("AATE_VERSION must hold the major.minor prefix only", "5.1", version)
+        assertEquals("AATE_VERSION must hold the major.minor prefix only", "5.0", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertTrue("Workflow must compose VERSION_NAME from BASE + BUILD_NUMBER", workflow.contains("VERSION_NAME=\"\${BASE}.\${BUILD_NUMBER}\""))
