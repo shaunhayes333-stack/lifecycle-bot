@@ -1349,25 +1349,69 @@ object FinalDecisionGate {
                     "🛑 WR_ROLL50_COLLAPSE_PROBE: ${ts.symbol} | roll50=${"%.1f".format(wrState.rollingWr)}% target=${wrState.targetWr.toInt()}% quality=${candidate.setupQuality} size×${"%.2f".format(wrRecoveryQualityPenaltyMult)}"
                 )
             } else if (isHighRecovery && !isAGrade) {
-                // Soft penalty graduated by quality + band severity. Same
-                // shape as the old hard-block: more punishment in
-                // AGGRESSIVE band and for lower-grade setups.
-                val bandMult = if (wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.AGGRESSIVE) 0.65 else 0.80
+                // V5.0.6233 — SOFTEN "SOFT" PENALTY.
+                // Operator P0 directive: "remove what ever is shrinking the
+                // trade size or turn the penalty into a tiny soft penalty".
+                // The prior 0.65×0.85 = 0.55 (45% cut) was the largest single
+                // shrinker on every entry in the V5.0.6232 report. Bring it
+                // down to a REAL soft: max 15% cut, so lanes can still
+                // accumulate real learning volume during recovery.
+                val bandMult = if (wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.AGGRESSIVE) 0.90 else 0.95
                 val qualityMult = when (candidate.setupQuality) {
-                    "B"  -> 0.95   // mild discount
-                    "C"  -> 0.85   // bigger discount
-                    "D"  -> 0.70   // largest discount
-                    else -> 0.85
+                    "B"  -> 0.98
+                    "C"  -> 0.95
+                    "D"  -> 0.90
+                    else -> 0.95
                 }
                 wrRecoveryQualityPenaltyMult = bandMult * qualityMult
                 tags.add("wr_recovery_softened")
                 tags.add("band_${wrState.band.name.lowercase()}")
                 ErrorLogger.info(
                     "FDG",
-                    "🚑 WR_RECOVERY_SOFT_PENALTY: ${ts.symbol} | band=${wrState.band.name} wr=${"%.1f".format(wrState.currentWr)}% roll=${"%.1f".format(wrState.rollingWr)}% target=${wrState.targetWr.toInt()}% | quality=${candidate.setupQuality} | conf×size = ${"%.2f".format(wrRecoveryQualityPenaltyMult)}"
+                    "🚑 WR_RECOVERY_SOFT_PENALTY: ${ts.symbol} | band=${wrState.band.name} wr=${"%.1f".format(wrState.currentWr)}% roll=${"%.1f".format(wrState.rollingWr)}% target=${wrState.targetWr.toInt()}% | quality=${candidate.setupQuality} | conf×size = ${"%.2f".format(wrRecoveryQualityPenaltyMult)} (V5.0.6233 tiny-soft)"
                 )
             }
         } catch (_: Throwable) { /* recovery gate is best-effort; never block on internal error */ }
+
+        // V5.0.6233 — HISTORICAL CORPUS PRIOR (first real consumer).
+        // Operator: "use the historical data we added last night use the hive
+        // data use everything ffs". The V5.0.6221 corpus was warmed at boot
+        // but its matchLiveShape()/neighbourPatternPrior() had ZERO callers —
+        // the knowledge base influenced nothing. Now: compute the live
+        // token's shape from its 1m candle history and ask the corpus for a
+        // bounded soft prior (0.80..1.15) applied to confidence AND size.
+        // Advisory-only, fail-open, never a hard block.
+        var historicalPriorMult6233 = 1.0
+        try {
+            val closes6233 = ts.history.map { it.priceUsd }.filter { it > 0.0 && it.isFinite() }
+            if (HistoricalPatternMatcher.size() > 0 && closes6233.size >= 10) {
+                val first6233 = closes6233.first()
+                val last6233 = closes6233.last()
+                val hi6233 = closes6233.max()
+                val lo6233 = closes6233.min()
+                if (first6233 > 0.0 && lo6233 > 0.0) {
+                    var peakSoFar6233 = first6233
+                    var maxDd6233 = 0.0
+                    for (c in closes6233) {
+                        if (c > peakSoFar6233) peakSoFar6233 = c
+                        val dd = (peakSoFar6233 - c) / peakSoFar6233 * 100.0
+                        if (dd > maxDd6233) maxDd6233 = dd
+                    }
+                    val (histMult6233, histTag6233) = HistoricalPatternMatcher.entryPriorMult(
+                        peakGainPct = (hi6233 - first6233) / first6233 * 100.0,
+                        maxDrawdownPct = maxDd6233,
+                        netReturnPct = (last6233 - first6233) / first6233 * 100.0,
+                        recoveryFromLowPct = (last6233 - lo6233) / lo6233 * 100.0,
+                    )
+                    historicalPriorMult6233 = histMult6233
+                    if (histMult6233 != 1.0) {
+                        tags.add("historical_prior")
+                        checks.add(GateCheck("historical_corpus_prior", true, "×${"%.2f".format(histMult6233)} nn=[$histTag6233]"))
+                        ErrorLogger.info("FDG", "📜 HISTORICAL_CORPUS_PRIOR_6233: ${ts.symbol} ×${"%.2f".format(histMult6233)} nn=[$histTag6233]")
+                    }
+                }
+            }
+        } catch (_: Throwable) { /* historical prior is advisory; never block on internal error */ }
 
         // V5.9.343 — CLASSIC uses 1.0 floor (even lower than golden 3.0) so the
         // bot trades from first start per user directive. Modern keeps 8.0.
@@ -3303,7 +3347,7 @@ object FinalDecisionGate {
         val confidenceThreshold = getAdaptiveConfidence(fdgLenient, ts)
         val isBootstrap = isPaperMode && currentConditions.totalSessionTrades < 30
         val bootstrapTag = if (isBootstrap) " [PAPER_BOOTSTRAP]" else ""
-        val adjustedConfidence = ((confidence + narrativeAdjustment + orthogonalBonus) * wrRecoveryQualityPenaltyMult).coerceIn(0.0, 100.0)
+        val adjustedConfidence = ((confidence + narrativeAdjustment + orthogonalBonus) * wrRecoveryQualityPenaltyMult * historicalPriorMult6233).coerceIn(0.0, 100.0)
         val narrativeTag = if (narrativeAdjustment != 0) " [NAR:$narrativeAdjustment]" else ""
         val orthoTag = if (orthogonalBonus != 0) " [ORTHO:$orthogonalBonus]" else ""
 
@@ -3510,7 +3554,7 @@ object FinalDecisionGate {
             ErrorLogger.info("EV", "📊 ${ts.symbol}: ${evResult.summary()}")
         }
 
-        var finalSize = proposedSizeSol * wrRecoveryQualityPenaltyMult  // V5.9.809/1223: soft WR-recovery/collapse probe size penalty
+        var finalSize = proposedSizeSol * wrRecoveryQualityPenaltyMult * historicalPriorMult6233  // V5.9.809/1223 soft WR-recovery penalty + V5.0.6233 historical corpus prior
 
         // V5.0.4588 — LANE AUTO-PAUSE HARD-BLOCK (operator P0 tasks a + b).
         // Operator on 2026-02: 'EXPRESS needs to find the right strategy and

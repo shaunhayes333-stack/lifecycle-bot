@@ -220,12 +220,26 @@ object UnifiedPolicyHead {
             val h = laneHeads[laneKey]
             val auth = currentAuthority(laneKey)
             val trainedForRamp6077 = h?.trained ?: trained
-            if (trainedForRamp6077 <= 0L && auth == AuthorityTier.BOOTSTRAP) return 1.0
-            val p = if (h != null && h.trained >= 1L) rawProbLane(h, s.toArray()) else rawProbGlobal(s.toArray())
+            // V5.0.6233 — TRADE-1 GLOBAL INHERITANCE. Operator: "paper boot
+            // strap needs full agi,llm and ssi control ... learning and
+            // controlling from trade 1. its starting too dumb." A lane head
+            // in BOOTSTRAP used to return neutral (1.0) or 0.25-damped
+            // conviction even when the GLOBAL head was LEARNED/AUTHORITATIVE
+            // with dozens of trained closes. Now an immature lane inherits
+            // the global head's knowledge at FULL strength until its own
+            // head reaches ADVISORY — the AGI is never dumb at trade 1 when
+            // it has global (or hive-synced) experience to draw from.
+            val globalAuth6233 = globalAuthority()
+            val globalInherit6233 = auth == AuthorityTier.BOOTSTRAP &&
+                (globalAuth6233 == AuthorityTier.LEARNED || globalAuth6233 == AuthorityTier.AUTHORITATIVE)
+            if (trainedForRamp6077 <= 0L && auth == AuthorityTier.BOOTSTRAP && !globalInherit6233) return 1.0
+            val p = if (!globalInherit6233 && h != null && h.trained >= 1L) rawProbLane(h, s.toArray()) else rawProbGlobal(s.toArray())
             advisoryUsageCount.incrementAndGet()
-            val trade1Ramp6077 = if (auth == AuthorityTier.BOOTSTRAP)
-                (trainedForRamp6077.toDouble() / AUTHORITY_ADVISORY.toDouble()).coerceIn(0.25, 1.0)
-            else 1.0
+            val trade1Ramp6077 = when {
+                auth != AuthorityTier.BOOTSTRAP -> 1.0
+                globalInherit6233 -> 1.0
+                else -> (trainedForRamp6077.toDouble() / AUTHORITY_ADVISORY.toDouble()).coerceIn(0.25, 1.0)
+            }
             val onlineConviction = (1.0 + (p - 0.5) * 1.6 * trade1Ramp6077).coerceIn(MULT_FLOOR, MULT_CAP)
             // V5.0.6115 — LIFETIME EV BLEND. The online model only sees recent
             // trades (31 for STANDARD, 1-4 for other lanes). It was cutting

@@ -10621,9 +10621,22 @@ class Executor(
         val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() } ?: 0.0
         val dangerBucket = lane.contains("DANGER") || lane.contains("RUG") || lane.contains("HARD_FLOOR")
         val familyStopLoss = try { MemeLossStreakGuard.blockedUntilMs(ts.mint) > System.currentTimeMillis() } catch (_: Throwable) { false }
+        // V5.0.6233 — EXPRESS is a QUICK-FLIP lane by design (low score, low liq,
+        // fast in/out). When SHITCOIN executor is invoked FROM the EXPRESS ride
+        // path (layerTag=EXPRESS or position.tradingMode contains EXPRESS), the
+        // SHITCOIN quality gate (score>=66, liq>=$3k) must not apply — that gate
+        // is for the STANDALONE SHITCOIN lane. Operator P0 report showed
+        // repeated BUY_NOT_OPENED with "finality/route blocked" (misleading log)
+        // when the real cause was this suppression firing on an EXPRESS ride
+        // whose target score was 13/liq $3.7k. EXPRESS is meant to trade
+        // exactly those tokens.
+        val calledFromExpress6233 = lane.contains("EXPRESS") ||
+            ts.position.tradingMode.uppercase().contains("EXPRESS") ||
+            identity?.source?.uppercase()?.contains("EXPRESS") == true
         return when {
             lane.contains("BLUECHIP") && (score < 70.0 || liq < 25_000.0) -> "BLUECHIP score=${score.toInt()} liq=${liq.toInt()} minScore=70 minLiq=25000"
             lane.contains("EXPRESS") && !dangerBucket && score < 11.0 -> "EXPRESS_S0_10 score=${score.toInt()} danger=$dangerBucket"
+            calledFromExpress6233 -> null  // V5.0.6233: EXPRESS ride bypass
             lane.contains("SHITCOIN") && (score < 66.0 || liq < 3_000.0 || familyStopLoss) -> "SHITCOIN score=${score.toInt()} liq=${liq.toInt()} familyStopLoss=$familyStopLoss minScore=66 minLiq=3000"
             else -> null
         }
@@ -10889,12 +10902,21 @@ class Executor(
         // size shrinks each loss proportionally while still collecting
         // training samples, so the bot can climb out of the deficit
         // without compounding it. FLUID/OFF bands are not touched.
-        val wrSizeMult = try { WrRecoveryPartial.entrySizeMultiplier() } catch (_: Throwable) { 1.0 }
+        //
+        // V5.0.6233 — PAPER-MODE SOFT-ONLY. Operator P0 directive: "remove
+        // what ever is shrinking the trade size or turn the penalty into a
+        // tiny soft penalty". Paper mode is the learning simulator — cutting
+        // paper sizes in half during "recovery" produces tiny wins/losses that
+        // never let the WR climb out of AGGRESSIVE. In LIVE mode the damper
+        // still applies fully to protect real capital. In PAPER we cap the
+        // damp at max 15% cut so bootstrap volume stays intact.
+        val wrSizeMultRaw = try { WrRecoveryPartial.entrySizeMultiplier() } catch (_: Throwable) { 1.0 }
+        val wrSizeMult = if (RuntimeModeAuthority.isPaper()) wrSizeMultRaw.coerceAtLeast(0.85) else wrSizeMultRaw
         @Suppress("NAME_SHADOWING")
         val sol = run {
             var finalSol = if (wrSizeMult < 1.0) {
                 val damped = sol * wrSizeMult
-                ErrorLogger.info("Executor", "🩹 WR_RECOVERY_SIZE_DAMP (paper): ${ts.symbol} | sol=${sol.fmt(4)} × ${"%.2f".format(wrSizeMult)} → ${damped.fmt(4)} (band=${WrRecoveryPartial.stateNow().band.name})")
+                ErrorLogger.info("Executor", "🩹 WR_RECOVERY_SIZE_DAMP (paper): ${ts.symbol} | sol=${sol.fmt(4)} × ${"%.2f".format(wrSizeMult)} → ${damped.fmt(4)} (band=${WrRecoveryPartial.stateNow().band.name}) V5.0.6233_paper_soft_cap")
                 damped
             } else sol
 

@@ -387,6 +387,7 @@ object ReportingHub {
         appendLine(InternetEdgeDesk.summaryLine())
         appendLine("InternetEdge counters: ok=${labels["INTERNET_EDGE_REFRESHED"] ?: 0L} fail=${labels["INTERNET_EDGE_REFRESH_FAILED"] ?: 0L} parse=${labels["INTERNET_EDGE_PARSE_FAILED"] ?: 0L} skip=${labels["INTERNET_EDGE_SKIPPED_LLM_UNAVAILABLE"] ?: 0L}")
         appendLine("ResearchScout: ${safe("research_scout_free_status") { ResearchScout.freeSourceStatus() }} primed=${labels["RESEARCH_SCOUT_REPORT_PRIMED_4516"] ?: 0L} background_only=true")
+        appendLine("HistoricalCorpus: ${safe("historical_corpus_status") { HistoricalPatternMatcher.statusLine() }}")
         val setups = labels.entries
             .filter { it.key.startsWith("TOOLKIT_SETUP_") }
             .sortedByDescending { it.value }

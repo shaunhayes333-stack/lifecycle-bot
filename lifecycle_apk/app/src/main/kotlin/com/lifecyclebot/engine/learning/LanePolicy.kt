@@ -137,8 +137,17 @@ object LanePolicy {
         State.RETRAINING              -> 0.00
         State.DEMOTION_CANDIDATE      -> 0.40
         State.PAPER_MICRO_EXECUTION   -> 0.00
-        State.REDUCED_SIZE_EXECUTION  -> 0.60
-        State.PROMOTION_CANDIDATE     -> 0.80
+        // V5.0.6233 — RAISE REDUCED_SIZE base weight from 0.60 to 0.85.
+        // Operator P0 directive: "remove what ever is shrinking the trade
+        // size or turn the penalty into a tiny soft penalty". A 0.60x base
+        // multiplier on SHITCOIN/MOONSHOT/MANIPULATED/EXPRESS/etc. lanes
+        // stacked with 3 other cascade multipliers was producing 0.01 SOL
+        // entries. Reduced-size should mean "trade a bit smaller than a
+        // proven winner" (0.85x), not "trade at dust" (0.60x). Genuine
+        // toxicity is handled by DEMOTION_CANDIDATE (0.40x) and the
+        // auto-pause guard, not by this base.
+        State.REDUCED_SIZE_EXECUTION  -> 0.85
+        State.PROMOTION_CANDIDATE     -> 0.90
         State.NORMAL_EXECUTION        -> 1.00
     }
 

@@ -274,8 +274,25 @@ object RealizedWalletCompoundingGovernor {
             dayProgressX >= 3.0 && decisionWr6132 >= 35.0 && decisionPf6132 >= 1.8 && decisionPnl6132 > 0.0 -> 1.75 to "three_x_day_compound"
             dayProgressX >= 2.0 && decisionWr6132 >= 32.0 && decisionPf6132 >= 1.5 && decisionPnl6132 > 0.0 -> 2.05 to "two_x_day_compound"
             trades < 20 -> 1.00 to "bootstrap_under_20"
-            strategyTruthNegative6128 -> 0.55 to "defensive_strategy_truth_negative_6132"
-            decisionPnl6132 <= 0.0 || decisionWr6132 < 20.0 || decisionPf6132 < 0.95 -> 0.55 to "defensive_clean_truth_negative_or_low_wr_6132"
+            // V5.0.6233 — PAPER-MODE DEFENSIVE FLOOR RELAXATION.
+            // Operator P0: "remove what ever is shrinking the trade size or
+            // turn the penalty into a tiny soft penalty". The prior
+            // defensive_clean_truth_negative_or_low_wr_6132 branch fired at
+            // 0.55x (45% cut) on any paper session with WR<20% — which is
+            // literally every bootstrap session. Combined with the live
+            // sizing stack this was cutting paper entries to dust and
+            // preventing the bot from ever climbing out of the bootstrap
+            // WR band. In LIVE mode we still throttle 0.55x because real
+            // capital is at risk. In PAPER we soft-cap at 0.85x so the bot
+            // keeps meaningful learning volume during recovery.
+            strategyTruthNegative6128 -> {
+                val mult = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) 0.85 else 0.55
+                mult to "defensive_strategy_truth_negative_6132"
+            }
+            decisionPnl6132 <= 0.0 || decisionWr6132 < 20.0 || decisionPf6132 < 0.95 -> {
+                val mult = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) 0.85 else 0.55
+                mult to "defensive_clean_truth_negative_or_low_wr_6132"
+            }
             gainRatio >= 2.0 && decisionWr6132 >= 35.0 && decisionPf6132 >= 2.0 -> 2.25 to "two_x_plus_compound_unlock"
             gainRatio >= 1.0 && decisionWr6132 >= 32.0 && decisionPf6132 >= 1.6 -> 1.85 to "one_x_compound_unlock"
             gainRatio >= 0.75 && decisionWr6132 >= 30.0 && decisionPf6132 >= 1.4 -> 1.55 to "seventyfive_pct_growth_unlock"

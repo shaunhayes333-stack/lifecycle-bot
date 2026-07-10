@@ -89,7 +89,14 @@ object HistoricalPatternMatcher {
         if (loaded.get() || !loading.compareAndSet(false, true)) return
         scope.launch {
             try {
-                val rows = loadCorpus(ctx.applicationContext)
+                // V5.0.6233 — sanity filter: synthetic OHLCV reconstruction can
+                // produce absurd rows (e.g. 522155% peak gain from a basis
+                // mixup). Drop them so kNN priors only learn from sane shapes.
+                val rows = loadCorpus(ctx.applicationContext).filter {
+                    kotlin.math.abs(it.netReturnPct) <= 2_000.0 &&
+                        it.peakGainPct <= 5_000.0 &&
+                        it.maxDrawdownPct <= 99.9
+                }
                 corpus = rows
                 patternIndex = rows.flatMap { r -> r.patterns.map { it to r } }
                     .groupBy({ it.first }, { it.second })
@@ -216,4 +223,46 @@ object HistoricalPatternMatcher {
      */
     fun rowsWithPattern(tag: String): List<HistoricalRow> =
         patternIndex[tag].orEmpty()
+
+    // V5.0.6233 — HISTORICAL PRIOR → ENTRY MULTIPLIER.
+    // Operator directive: "use the historical data we added last night ...
+    // there is no reason the bot should be trading like this". The corpus
+    // was loaded but consumed by NOBODY. This is the single actuation
+    // surface: FDG feeds the live token's shape, gets back a bounded soft
+    // multiplier (0.80..1.15) from the K-nearest historical patterns.
+    private val BULL_TAGS_6233 = setOf(
+        "MEGA_PUMP", "STRONG_PUMP", "POST_LAUNCH_RECOVERY", "ACCUMULATION_BASE",
+        "STEADY_GRIND", "LONG_RUNNER_HIGH_VOLUME", "LARGE_CAP", "MEGA_LARGE_CAP",
+    )
+    private val BEAR_TAGS_6233 = setOf(
+        "HEAVY_DUMP", "BLEEDER", "DEAD_CAT_BOUNCE", "DEAD_LAUNCH",
+    )
+
+    /**
+     * Bounded entry prior from historical nearest-neighbour patterns.
+     * Returns (multiplier 0.80..1.15, human-readable tag summary).
+     * Neutral (1.0, "no_corpus") when the corpus isn't loaded.
+     */
+    fun entryPriorMult(
+        peakGainPct: Double,
+        maxDrawdownPct: Double,
+        netReturnPct: Double,
+        recoveryFromLowPct: Double,
+        k: Int = 7,
+    ): Pair<Double, String> {
+        val prior = neighbourPatternPrior(peakGainPct, maxDrawdownPct, netReturnPct, recoveryFromLowPct, k)
+        if (prior.isEmpty()) return 1.0 to "no_corpus"
+        val bull = prior.filterKeys { it in BULL_TAGS_6233 }.values.sum()
+        val bear = prior.filterKeys { it in BEAR_TAGS_6233 }.values.sum()
+        val net = (bull - bear).coerceIn(-1.0, 1.0)
+        val mult = (1.0 + net * 0.15).coerceIn(0.80, 1.15)
+        val top = prior.entries.sortedByDescending { it.value }.take(2)
+            .joinToString(",") { "${it.key}=${"%.2f".format(it.value)}" }
+        return mult to top
+    }
+
+    fun statusLine(): String {
+        val state = if (loaded.get()) loadStats else "not_loaded"
+        return "$VERSION rows=${corpus.size} patterns=${patternIndex.size} $state"
+    }
 }
