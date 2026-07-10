@@ -1,5 +1,28 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## Session (11 Jul 2026) — V5.0.6234 SHIPPED · CI GREEN ✅
+Jupiter 5xx storm fix (op-report 2026-07-11: `jupiter sr=59% 4xx=6 5xx=164 thr=28`).
+User: "fix jupiter now — never been an issue in 4 months".
+
+Root cause: primary base `api.jup.ag/swap/v1` was 5xx-storming but the lite-api
+fallback was never reached in a healthy state — both shared the same
+`jupiter_quote` backoff key AND fallback was invoked serially after primary
+already burned its 3-attempt adaptive-slippage ladder.
+
+Fixes in `JupiterApi.kt` (V5.0.6234 `ff94d0a01`):
+- Split hosts: `jupiter_quote_pro` (api.jup.ag) vs `jupiter_quote_lite` (lite-api.jup.ag).
+- Per-base local 5xx streak tracker: 3× 5xx in 60s → 45s cooloff (skip host entirely).
+- Adaptive ladder ordering: healthy paid host preferred when key present; when
+  paid host is in cooloff, ladder starts on lite.
+- 5xx aborts adaptive-params loop immediately and pivots to next base.
+- Jittered 300-500ms backoff between GET retries (was fixed 300ms).
+- 2s in-memory quote cache keyed on `(inputMint|outputMint|amount|slipBps)`.
+- Consolidated `getQuoteV1Free` + `getQuoteV6` into shared `getQuoteFromBase(base, host, ...)`.
+
+Forensic marker: `JUPITER_BASE_5XX_COOLDOWN_6234`.
+
+
+
 ## Session (10-11 Jul 2026) — V5.0.6233 SHIPPED · CI GREEN ✅
 Bootstrap-AGI-from-trade-1 batch (see CHANGELOG V5.0.6233): historical corpus
 generated + committed + wired into FDG as bounded entry prior; UnifiedPolicyHead

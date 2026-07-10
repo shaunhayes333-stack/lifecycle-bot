@@ -1,3 +1,31 @@
+## V5.0.6234 — 2026-07-11 — Jupiter 5xx storm fix (op-report sr=59% 5xx=164)
+
+  P1 Jupiter API instability (user report: "fix jupiter now — never been an issue"):
+  • ROOT CAUSE: primary base api.jup.ag/swap/v1 was 5xx-storming (164 5xx / 249 s)
+    but the lite-api.jup.ag fallback was never reached in a healthy state — both
+    shared the same `jupiter_quote` backoff key AND the fallback was invoked
+    serially AFTER the primary finished its 3-attempt adaptive-slippage ladder.
+    Effective behaviour: one 5xx on primary silenced the WHOLE Jupiter surface.
+  • JupiterApi.kt: split ApiHealthMonitor/ApiBackoff hosts per base
+    → `jupiter_quote_pro` (api.jup.ag) vs `jupiter_quote_lite` (lite-api.jup.ag).
+    Independent cooloff — one host's storm no longer freezes the other.
+  • Per-base LOCAL 5xx streak tracker (JupiterApi.baseHealth): after 3 consecutive
+    5xx within 60s, cool off that base for 45s so hot paths skip it entirely.
+    Forensic marker: JUPITER_BASE_5XX_COOLDOWN_6234.
+  • Adaptive ladder ordering in getQuote(): healthy paid host preferred when key
+    configured; when paid host is in cooloff, ladder starts on lite. Both cold →
+    lite first (public tier is more stable under Jupiter-side load).
+  • 5xx from any adaptive-params attempt now aborts immediately and pivots to the
+    next base — no burning 3 attempts on a flailing upstream.
+  • Jittered 300-500ms backoff between GET retries (was fixed 300ms) to avoid
+    thundering-herd on concurrent scanner+exit-sweep bursts.
+  • 2s in-memory quote cache keyed on (inputMint|outputMint|amount|slipBps)
+    collapses burst-duplicate quotes from scanner + exit sweep + price lock all
+    firing in the same tick.
+  • Consolidated getQuoteV1Free + getQuoteV6 into shared getQuoteFromBase(base,
+    host, ...) — wrappers retained for callsites that still reference the names.
+
+
 # CHANGELOG — AATE Bot
 
 Progressive change log. Newer entries on top. PRD.md holds the static problem
