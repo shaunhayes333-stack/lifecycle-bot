@@ -431,8 +431,13 @@ object ReportingHub {
         // so every AGI/LLM/SSI/meta-cog/sentience layer has a live snapshot to
         // read as an advisory bias signal. Never a gate. Always growth-tilted.
         safe("compound_growth_mentality") {
-            val cleanStats = try { TradeHistoryStore.getCleanStatsSnapshot4517() } catch (_: Throwable) { null }
-            val wr01 = (cleanStats?.winRate?.let { it / 100.0 } ?: 0.5).coerceIn(0.0, 1.0)
+            // V5.0.6239 — read RAW journal WR (matches the dashboard headline
+            // and Performance Analytics: 73.8% at time of first mentality
+            // ship), not the strategy-clean WR (which excludes partial-sells
+            // and shows 30.4% — misleading the mentality into DEFENSIVE_HOLD
+            // when the bot is actually crushing at 73.8%).
+            val rawTotals = try { TradeHistoryStore.getCanonicalTotals() } catch (_: Throwable) { null }
+            val wr01 = (rawTotals?.winRatePct()?.let { it / 100.0 } ?: 0.5).coerceIn(0.0, 1.0)
             // Drawdown from RWCG statusLine is parsed loosely; if unavailable fall back to 0.
             val ddPct = try {
                 val sl = RealizedWalletCompoundingGovernor.statusLine()

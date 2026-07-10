@@ -5623,6 +5623,33 @@ class BotService : Service() {
         // Initialize TokenWinMemory for remembering winning tokens and patterns
         TokenWinMemory.init(applicationContext)
         addLog("🏆 TokenWinMemory: ${TokenWinMemory.getStats()}")
+
+        // V5.0.6239 — backfill LiveWinDNAStore from TokenWinMemory so the
+        // AGI/LLM/SSI/meta-cog/sentience brains have a populated corpus at
+        // boot instead of waiting for the next win. Fails silent.
+        try {
+            val winners = TokenWinMemory.getAllSaneWinners()
+            var backfilled = 0
+            winners.forEach { w ->
+                try {
+                    com.lifecyclebot.engine.LiveWinDNAStore.capture(
+                        mint = w.mint, symbol = w.symbol, lane = w.phase,
+                        source = w.source, phase = w.phase,
+                        entrySetup = "backfill", chartPattern = "backfill",
+                        entryScore = 0,
+                        entryMcap = w.entryMcap, exitMcap = w.exitMcap,
+                        entryLiquidity = w.entryLiquidity,
+                        holdTimeMinutes = w.holdTimeMinutes,
+                        buyPercent = w.buyPercent,
+                        pnlPct = w.pnlPercent, peakPnl = w.peakPnl,
+                        exitReason = "BACKFILL_FROM_TOKEN_WIN_MEMORY",
+                        paperOrLive = "PAPER",
+                    )
+                    backfilled++
+                } catch (_: Throwable) {}
+            }
+            if (backfilled > 0) addLog("🧬 LiveWinDNAStore backfilled $backfilled winners from TokenWinMemory")
+        } catch (_: Throwable) {}
         
         // Initialize HoldingLogicLayer for dynamic position management
         HoldingLogicLayer.init(applicationContext)

@@ -588,6 +588,9 @@ object TokenWinMemory {
 
     fun getWinnerStats(mint: String): WinningToken? = winningTokens[mint]?.takeIf { saneWinner(it) }
 
+    /** V5.0.6239 — snapshot of all sane winners for LiveWinDNAStore backfill. */
+    fun getAllSaneWinners(): List<WinningToken> = winningTokens.values.filter { saneWinner(it) }.toList()
+
     fun getMemoryScoreForMint(mint: String): Int {
         val stats = tokenStats[mint] ?: return 0
         if (!saneTokenStats(stats)) return 0
