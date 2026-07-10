@@ -6620,10 +6620,20 @@ class Executor(
         run {
             if (paperSettleInActive) return@run
             val pos = ts.position
+            // V5.0.6236 — POLARITY FIX. shitCoin/blueChip/treasury stop-loss
+            // fields are all stored as NEGATIVE percentages (see BotService
+            // line 19505/20935: effectiveSlPct = -4.0/-8.0 or the caller's
+            // already-negative signal). The pre-6236 `> 0.0` check was a dead
+            // branch for all three lanes, silently falling through to the
+            // wide `cfg().stopLossPct ?: 20.0` default and neutering every
+            // lane-specific damage cap. Field report: TREASURY closes at
+            // -87% because the tight -4% stop was never actually consulted.
+            // Now use `!= 0.0` + `abs()` so a stored -4.0 resolves to a raw
+            // magnitude of 4.0 (later re-negated at line 6666).
             val baseRawSL6153 = when {
-                pos.isShitCoinPosition && pos.shitCoinStopLoss > 0.0 -> pos.shitCoinStopLoss
-                pos.isBlueChipPosition && pos.blueChipStopLoss > 0.0 -> pos.blueChipStopLoss
-                pos.isTreasuryPosition && pos.treasuryStopLoss > 0.0 -> pos.treasuryStopLoss
+                pos.isShitCoinPosition && pos.shitCoinStopLoss != 0.0 -> kotlin.math.abs(pos.shitCoinStopLoss)
+                pos.isBlueChipPosition && pos.blueChipStopLoss != 0.0 -> kotlin.math.abs(pos.blueChipStopLoss)
+                pos.isTreasuryPosition && pos.treasuryStopLoss != 0.0 -> kotlin.math.abs(pos.treasuryStopLoss)
                 else -> cfg().stopLossPct.takeIf { it > 0.0 } ?: 20.0
             }
             // V5.0.6153 — live bleed damage cap. If clean LIVE terminal truth says

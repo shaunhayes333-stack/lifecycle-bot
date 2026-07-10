@@ -89,13 +89,18 @@ object HistoricalPatternMatcher {
         if (loaded.get() || !loading.compareAndSet(false, true)) return
         scope.launch {
             try {
-                // V5.0.6233 — sanity filter: synthetic OHLCV reconstruction can
-                // produce absurd rows (e.g. 522155% peak gain from a basis
-                // mixup). Drop them so kNN priors only learn from sane shapes.
+                // V5.0.6236 — original 6233 filter was too aggressive for a
+                // real memecoin corpus. Rugs frequently hit ≥99.9% drawdown,
+                // and true moonshots exceed +5000% net. The 6235 field
+                // reports showed HistoricalCorpus rows=0 in the pipeline
+                // dump — the filter was eating the entire corpus. Loosen
+                // bounds so real-world tails survive; still drop the
+                // pathological synthetic blowups (e.g. 522155% peakGain)
+                // that motivated the original 6233 filter.
                 val rows = loadCorpus(ctx.applicationContext).filter {
-                    kotlin.math.abs(it.netReturnPct) <= 2_000.0 &&
-                        it.peakGainPct <= 5_000.0 &&
-                        it.maxDrawdownPct <= 99.9
+                    kotlin.math.abs(it.netReturnPct) <= 20_000.0 &&
+                        it.peakGainPct <= 50_000.0 &&
+                        it.maxDrawdownPct <= 100.0
                 }
                 corpus = rows
                 patternIndex = rows.flatMap { r -> r.patterns.map { it to r } }

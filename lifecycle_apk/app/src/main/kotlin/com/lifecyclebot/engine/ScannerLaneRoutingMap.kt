@@ -1,7 +1,7 @@
 package com.lifecyclebot.engine
 
 /**
- * V5.0.6228 — SCANNER → LANE DESIGN-TIME ROUTING MAP
+ * V5.0.6236 — SCANNER → LANE DESIGN-TIME ROUTING MAP
  * ════════════════════════════════════════════════════════════════════════════
  *
  * Operator directive: "all scanner lanes need matching lanes to on match to
@@ -30,7 +30,7 @@ package com.lifecyclebot.engine
  *   • DEX curation / boosted (DEX_BOOSTED, DEX_TRENDING)
  *     → QUALITY, EXPRESS, CASHGEN, DIP_HUNTER
  *   • Restored / cyclic ring inputs (MEME_REGISTRY_RESTORE, RESTORED)
- *     → CYCLIC, plus whatever lane the token originally traded in
+ *     → CYCLIC + MEME_HOT + QUALITY/CASHGEN (V5.0.6236: NEVER TREASURY/BLUECHIP)
  *   • Post-graduation / dex-listed (PUMP_FUN_GRADUATE, MIGRATION)
  *     → MOONSHOT, PROJECT_SNIPER, CYCLIC, QUALITY
  *   • Meteora / liquidity-quality pool sources
@@ -44,6 +44,15 @@ object ScannerLaneRoutingMap {
     private val LANE_POST_GRAD = setOf("MOONSHOT", "PROJECT_SNIPER", "CYCLIC", "QUALITY")
     private val LANE_LIQUIDITY_POOL = setOf("QUALITY", "CASHGEN", "TREASURY")
     private val LANE_CYCLIC_RING = setOf("CYCLIC")
+    // V5.0.6236 — RESTORED / PROBATION lanes MUST NOT include the low-vol
+    // stable buckets (TREASURY, BLUECHIP). Field report showed
+    // MEME_REGISTRY_RESTORE-sourced dust flowing into TREASURY, then taking
+    // catastrophic -87% closes when Helius/Birdeye price feeds went dark
+    // (bot held the position blind through the rug). Restored/probation
+    // volatiles now only reach curated non-stable outlets (QUALITY, CASHGEN)
+    // plus their native CYCLIC + MEME_HOT lanes. Real curated intake still
+    // flows via SOLANA_BLUECHIP_WATCHLIST / COINGECKO_ONCHAIN (untouched).
+    private val LANE_RESTORED_CURATED = setOf("QUALITY", "CASHGEN")
 
     /**
      * Fixed source → design-time lane set. Keys are UPPERCASED substrings that
@@ -80,8 +89,12 @@ object ScannerLaneRoutingMap {
         "GECKOTERMINAL"               to LANE_LIQUIDITY_POOL,
 
         // Restored / cyclic-ring inputs → CYCLIC always eligible
-        "MEME_REGISTRY_RESTORE"       to (LANE_CYCLIC_RING + LANE_MEME_HOT + LANE_QUALITY_CURATED),
-        "RESTORED"                    to (LANE_CYCLIC_RING + LANE_MEME_HOT + LANE_QUALITY_CURATED),
+        // V5.0.6236 — decoupled from LANE_QUALITY_CURATED (which contains
+        // TREASURY + BLUECHIP). Restored/probation volatile intake now uses
+        // LANE_RESTORED_CURATED (QUALITY + CASHGEN only) to keep the
+        // low-volatility stable lanes clear of registry-restored dust.
+        "MEME_REGISTRY_RESTORE"       to (LANE_CYCLIC_RING + LANE_MEME_HOT + LANE_RESTORED_CURATED),
+        "RESTORED"                    to (LANE_CYCLIC_RING + LANE_MEME_HOT + LANE_RESTORED_CURATED),
         "PROBATION"                   to (LANE_CYCLIC_RING + LANE_MEME_HOT),
     ).sortedByDescending { it.first.length }
 
@@ -142,7 +155,7 @@ object ScannerLaneRoutingMap {
      * been formally mapped and which are still on fail-open.
      */
     fun formatForPipelineDump(): String {
-        val sb = StringBuilder("ScannerLaneRoutingMap (V5.0.6228): ${DESIGN_MAP.size} mapped sources\n")
+        val sb = StringBuilder("ScannerLaneRoutingMap (V5.0.6236): ${DESIGN_MAP.size} mapped sources\n")
         for ((key, set) in DESIGN_MAP) {
             sb.append("  ").append(key).append(" → ").append(set.sorted().joinToString(",")).append('\n')
         }
