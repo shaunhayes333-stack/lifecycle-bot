@@ -427,6 +427,25 @@ object ReportingHub {
         appendLine(safe("lane_exit_tuner") { com.lifecyclebot.engine.learning.LaneExitTuner.formatForPipelineDump().trim() }.ifBlank { "Lane Exit Tuner: no lane tuning snapshot" })
         appendLine(safe("live_strategy_tuner") { LiveStrategyTuner.statusLine() })
         appendLine(safe("realized_wallet_compounding") { RealizedWalletCompoundingGovernor.statusLine() })
+        // V5.0.6238 — feed the shared Compound-Growth Mentality then surface it
+        // so every AGI/LLM/SSI/meta-cog/sentience layer has a live snapshot to
+        // read as an advisory bias signal. Never a gate. Always growth-tilted.
+        safe("compound_growth_mentality") {
+            val cleanStats = try { TradeHistoryStore.getCleanStatsSnapshot4517() } catch (_: Throwable) { null }
+            val wr01 = (cleanStats?.winRate?.let { it / 100.0 } ?: 0.5).coerceIn(0.0, 1.0)
+            // Drawdown from RWCG statusLine is parsed loosely; if unavailable fall back to 0.
+            val ddPct = try {
+                val sl = RealizedWalletCompoundingGovernor.statusLine()
+                val match = Regex("ddHigh=(-?[0-9]+\\.[0-9]+)%").find(sl)
+                kotlin.math.abs(match?.groupValues?.get(1)?.toDoubleOrNull() ?: 0.0)
+            } catch (_: Throwable) { 0.0 }
+            val streakL = 0 // consecutive-loss stream not directly exposed here; mentality is robust to defaulting
+            val corpus = try { com.lifecyclebot.engine.LiveWinDNAStore.size() } catch (_: Throwable) { 0 }
+            com.lifecyclebot.engine.CompoundGrowthMentality.updateTruth(wr01, ddPct, streakL, corpus)
+            com.lifecyclebot.engine.CompoundGrowthMentality.statusLine()
+        }.let { appendLine(it) }
+        appendLine(safe("live_win_dna") { com.lifecyclebot.engine.LiveWinDNAStore.statusLine() })
+
         appendLine("PatternAutoTuner: ${safe("pattern_auto_tuner") { PatternAutoTuner.getStatus() }}")
         safe("pattern_auto_tuner_details") {
             val adj = PatternAutoTuner.getDetailedAdjustments().entries

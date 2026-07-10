@@ -1655,6 +1655,16 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "Position Persistence init error: ${e.message}", e)
         }
 
+        // V5.0.6238 — Live Win DNA Store: transferable knowledge base of winning
+        // fingerprints (setup, chart pattern, source/lane/phase route, hold time,
+        // exit reason) that every AGI/LLM/SSI/meta-cog/sentience brain can read
+        // as a shared bias signal. Feeds compound-growth mentality.
+        try {
+            com.lifecyclebot.engine.LiveWinDNAStore.init(applicationContext)
+        } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "LiveWinDNAStore init error: ${e.message}")
+        }
+
         // V5.9.256: Initialize wallet token memory — persistent journal of all buys
         // Survives restarts/updates; used by StartupReconciler to recover positions
         // that the scanner hasn't re-discovered yet.

@@ -247,6 +247,36 @@ object TokenWinMemory {
             pnl = trainablePnl,
         )
 
+        // V5.0.6238 — LiveWinDNAStore capture on every WINNING close.
+        // Feeds the shared knowledge base that the LLM / super-AGI / SSI /
+        // meta-cog / sentience brains query for compound-growth bias. Fails
+        // silent — never blocks the trade-close path.
+        if (isWin) {
+            try {
+                com.lifecyclebot.engine.LiveWinDNAStore.capture(
+                    mint = mint,
+                    symbol = symbol,
+                    lane = phase, // best-available lane label from this call site
+                    source = source,
+                    phase = phase,
+                    entrySetup = "unknown",   // enriched by other call sites if available
+                    chartPattern = "unknown",
+                    entryScore = 0,
+                    entryMcap = entryMcap,
+                    exitMcap = exitMcap,
+                    entryLiquidity = entryLiquidity,
+                    holdTimeMinutes = holdTimeMinutes,
+                    buyPercent = buyPercent,
+                    pnlPct = trainablePnl,
+                    peakPnl = peakPnl,
+                    exitReason = "TERMINAL_WIN",
+                    paperOrLive = try {
+                        if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
+                    } catch (_: Throwable) { "PAPER" },
+                )
+            } catch (_: Throwable) {}
+        }
+
         // ── Track creator stats ───────────────────────────────────────────
         if (!creatorAddress.isNullOrBlank()) {
             val stats = creatorStats.getOrPut(creatorAddress) { PatternStats() }

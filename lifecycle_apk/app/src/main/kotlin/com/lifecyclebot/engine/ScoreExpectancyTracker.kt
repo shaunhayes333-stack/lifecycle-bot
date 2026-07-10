@@ -143,132 +143,85 @@ object ScoreExpectancyTracker {
     )
 
     /**
-     * V5.0.6237 — MONOTONE EMPIRICAL SIZE SHAPER (scorer-inversion fix ported
-     * forward from 6228; this is the ONLY 6228 change carried over on top of
-     * the 6100 rollback base per operator directive: "keep scoring inversion
-     * fixes only where scores were flipped the correct way").
-     *
-     * OPERATOR DIRECTIVE: Fix the scorer inversion at the source — don't add
-     * another soft mitigation. Higher expected-PnL bands must translate to a
-     * larger position. The prior band-based hacks (0.10/0.25/0.55/1.0/1.15/
-     * 1.35/1.60) had discontinuities that produced non-monotone behaviour
-     * across band boundaries — a bucket at μ=+9.9% got the same multiplier
-     * as a neutral bucket while μ=+10.1% jumped to 1.15.
-     *
-     * REWRITE: Multiplier is now a strictly monotone increasing function of
-     * the bucket's rolling mean PnL. Same input curve for both paper and live,
-     * same curve for both calibrationSizeMult() and liveSizeShape() — no
-     * separate ad-hoc bands to invert or leak. Bootstrap (n<MIN) returns 1.0.
-     *
-     * Curve (piecewise-linear, monotone):
-     *   mean <= -60%  →  0.10
-     *   mean = -35%   →  0.25
-     *   mean = -15%   →  0.45
-     *   mean =  -8%   →  0.60
-     *   mean =   0%   →  0.85
-     *   mean = +10%   →  1.10
-     *   mean = +25%   →  1.35
-     *   mean = +50%   →  1.60
-     *   mean >= +100% →  2.00
+     * V5.0.4510 — live score-band WR/PnL tuning is size-only, never a veto.
+     * shouldReject() remains paper/training-only; live uses this shaper to turn
+     * mature bleeding lane+score bands into cheap probes while preserving sample
+     * flow and hard-safety doctrine.
      */
-    private fun monotoneMultForMean(mean: Double): Double {
-        // Anchor points (mean%, mult). Strictly monotone.
-        val curve = doubleArrayOf(
-            -60.0, 0.10,
-            -35.0, 0.25,
-            -15.0, 0.45,
-             -8.0, 0.60,
-              0.0, 0.85,
-             10.0, 1.10,
-             25.0, 1.35,
-             50.0, 1.60,
-            100.0, 2.00,
-        )
-        // Clamp to endpoints
-        if (mean <= curve[0]) return curve[1]
-        if (mean >= curve[curve.size - 2]) return curve[curve.size - 1]
-        var i = 0
-        while (i + 3 < curve.size && mean > curve[i + 2]) i += 2
-        val x0 = curve[i]; val y0 = curve[i + 1]
-        val x1 = curve[i + 2]; val y1 = curve[i + 3]
-        val t = (mean - x0) / (x1 - x0)
-        return y0 + t * (y1 - y0)
-    }
-
     fun liveSizeShape(layer: String, score: Int): LiveSizeShape {
         val samples = bucketSamples(layer, score)
         val mean = bucketMean(layer, score) ?: return LiveSizeShape(1.0, samples, 0.0, "bootstrap")
         if (samples < MIN_SAMPLES_FOR_REJECT) return LiveSizeShape(1.0, samples, mean, "under_sampled")
-        val mult = monotoneMultForMean(mean)
-        return LiveSizeShape(mult, samples, mean, "monotone_ev_6237_μ=${"%+.1f".format(mean)}%")
+        // V5.0.4599 — EV AS EDGE, not obstruction (operator directive: "realign
+        // the logic so its an edge not an obstruction"). Prior shape was
+        // asymmetric — it shrunk toxic buckets but only pressed +EV with a
+        // timid 1.10x. Now both sides are learning multipliers, so backward
+        // expectancy actually PAYS OFF when a bucket is proving out.
+        // Toxic buckets shrink harder (0.25→0.10, 0.35→0.25, 0.55→0.55).
+        // Proven +EV buckets get pressed harder (1.10→1.35, +NEW 1.60x tier).
+        // This is the fluid-gates doctrine applied to expectancy: no rigid
+        // reject, no rigid press — dampen the losers, embolden the winners.
+        return when {
+            mean <= -60.0 -> LiveSizeShape(0.10, samples, mean, "catastrophic_score_band_probe_v2_4599")
+            mean <= -35.0 -> LiveSizeShape(0.25, samples, mean, "toxic_score_band_probe_v2_4599")
+            mean <= REJECT_MEAN_PNL_PCT -> LiveSizeShape(0.55, samples, mean, "negative_score_band_probe")
+            mean >= 50.0 && samples >= MIN_SAMPLES_FOR_REJECT -> LiveSizeShape(1.60, samples, mean, "premium_score_band_press_4599")
+            mean >= 25.0 && samples >= MIN_SAMPLES_FOR_REJECT -> LiveSizeShape(1.35, samples, mean, "positive_score_band_press_4599")
+            mean >= 10.0 && samples >= MIN_SAMPLES_FOR_REJECT -> LiveSizeShape(1.15, samples, mean, "mild_positive_score_band_press")
+            else -> LiveSizeShape(1.0, samples, mean, "neutral")
+        }
     }
 
     /**
-     * V5.0.6237 — kept as no-op for API compatibility. The prior paper-only
-     * soft-reject mitigation is REMOVED per operator directive: instead of
-     * blocking mid-band bleeders after the fact, the size shaper (monotone
-     * curve above) and the calibrated-score remap below carry all of the
-     * empirical adjustment. Live already bypassed this; paper now shares the
-     * same monotone shaping. Consumers can keep the shouldReject() call site
-     * — this method simply returns false so no lane is silently starved.
+     * Decide whether to reject a candidate entry for [layer]@[score].
+     * Allows trade through (returns false) when:
+     *   - fewer than MIN_SAMPLES_FOR_REJECT closes in the bucket
+     *   - rolling mean pnlPct >= REJECT_MEAN_PNL_PCT
      */
-    fun shouldReject(layer: String, score: Int): Boolean = false
+    fun shouldReject(layer: String, score: Int): Boolean {
+        // V5.0.3847 — live entry authority is common-sense safety + route quote,
+        // not learned expectancy veto. Keep this as paper/training shaping only;
+        // live still records outcomes and reports bucket expectancy.
+        if (try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }) {
+            try { ForensicLogger.lifecycle("LIVE_EXPECTANCY_REJECT_BYPASSED", "layer=$layer score=$score") } catch (_: Throwable) {}
+            return false
+        }
+        val mean = bucketMean(layer, score) ?: return false
+        return mean < REJECT_MEAN_PNL_PCT
+    }
 
     /**
-     * V5.0.6237 — monotone empirical size mult (same curve as liveSizeShape).
-     * Higher bucket mean PnL always yields a higher multiplier; the raw score
-     * value itself does not appear in the calculation, only the empirical
-     * outcome of that bucket. This closes the scorer-inversion feedback loop
-     * at every call site (paper AND live share one curve now).
+     * V5.9.1257 — CALIBRATION-AWARE SIZE MULTIPLIER.
+     * The Score-Band Calibration screen showed the scorer is INVERTED in several
+     * lanes: high "confidence" bands (S40-60+) were net-NEGATIVE while some low
+     * bands were net-positive. A high score therefore must NOT mean a big
+     * position in a band that has proven to lose. This returns a graduated
+     * soft-shape multiplier (NEVER a veto) based on this exact band's rolling
+     * mean PnL:
+     *   mean >= 0%            → 1.00  (healthy / positive band — untouched)
+     *   -8% <= mean < 0%      → 0.70  (mild negative — trim)
+     *   -15% <= mean < -8%    → 0.45  (clearly negative — already shouldReject territory)
+     *   mean < -15%           → 0.25  (deeply negative band — heavy trim)
+     * Returns 1.0 when the band has < MIN_SAMPLES_FOR_REJECT closes (don't shape
+     * on noise) — so young/bootstrap bands are never shrunk. Independent of the
+     * LosingPatternMemory danger path (that keys on loss COUNT; this keys on the
+     * band's mean RETURN), so the two compose: a band can be trimmed for being
+     * net-negative before it ever matures into a danger bucket.
      */
     fun calibrationSizeMult(layer: String, score: Int): Double {
+        // V5.0.3847 — do not dust-size live probes from score expectancy.
+        // Live uses tiny fixed executable entries; this multiplier remains active
+        // for paper/backtest shaping and telemetry only.
+        if (try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }) {
+            return 1.0
+        }
         val mean = bucketMean(layer, score) ?: return 1.0   // null = too few samples → no shaping
-        return monotoneMultForMean(mean)
-    }
-
-    /**
-     * V5.0.6237 — CALIBRATED SCORE REMAP.
-     *
-     * The raw score coming out of each trader AI is empirically inverted in
-     * several lanes (SHITCOIN[40-49] μ+126%, SHITCOIN[50-59] μ-77% etc.).
-     * Consumers that use score for sizing/probability must not trust the raw
-     * value in an inverted lane. This method returns a REMAPPED score in
-     * [0,100] such that higher calibrated score always corresponds to higher
-     * empirical mean PnL for [layer].
-     *
-     * Algorithm:
-     *   1. Enumerate every bucket for [layer] with samples >= MIN_SAMPLES.
-     *   2. Rank buckets ascending by empirical mean PnL.
-     *   3. The bucket containing rawScore keeps its raw score only if the lane
-     *      has no mature buckets (bootstrap) or is already monotone. Otherwise
-     *      it is mapped to (rank+0.5)/N * 100 → the empirically best bucket
-     *      returns ~100, the empirically worst returns ~0.
-     *   4. Fail-open: returns rawScore on any error or under-sampled lane.
-     */
-    fun calibratedScore(layer: String, rawScore: Int): Int {
-        return try {
-            val prefix = "${layer.uppercase()}:"
-            val myBucket = rawScore.coerceAtLeast(0) / BUCKET_WIDTH
-            // Collect (bucket, mean) for this layer where samples are mature.
-            val mature = mutableListOf<Pair<Int, Double>>()
-            windows.forEach { (k, w) ->
-                if (!k.startsWith(prefix)) return@forEach
-                synchronized(w) {
-                    if (w.size >= MIN_SAMPLES_FOR_REJECT) {
-                        val b = k.substringAfter(':').toIntOrNull() ?: return@synchronized
-                        val m = w.sum() / w.size
-                        mature.add(b to m)
-                    }
-                }
-            }
-            if (mature.size < 2) return rawScore   // not enough info to remap
-            val sorted = mature.sortedBy { it.second }
-            val idx = sorted.indexOfFirst { it.first == myBucket }
-            if (idx < 0) return rawScore           // caller's bucket is under-sampled → keep raw
-            val n = sorted.size
-            val calibrated = (((idx + 0.5) / n) * 100.0).toInt().coerceIn(0, 100)
-            calibrated
-        } catch (_: Throwable) { rawScore }
+        return when {
+            mean >= 0.0    -> 1.0
+            mean >= -8.0   -> 0.70
+            mean >= -15.0  -> 0.45
+            else           -> 0.25
+        }
     }
 
     /** One-line snapshot for [layer], or all layers if null. */
