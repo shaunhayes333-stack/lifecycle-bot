@@ -110,9 +110,15 @@ class JupiterApi(private val apiKey: String = "") {
             baseHealth.getOrPut(base) { BaseHealth() }
 
         /** JUPITER_BASE_5XX_COOLDOWN_6234 — pause a base for this long after
-         *  a 5xx streak so hot buys/sells don't wait on a flailing upstream. */
-        private const val BASE_COOLDOWN_MS_6234 = 45_000L
-        private const val BASE_5XX_STREAK_TRIP_6234 = 3
+         *  a 5xx streak so hot buys/sells don't wait on a flailing upstream.
+         *  V5.0.6235 — tightened after op-report 2026-07-11 02:02 showed
+         *  sr improved 59%→73% but 5xx=125 remained (paid host was storming
+         *  for longer windows than the 45s cooloff). Trip faster (2 in 30s)
+         *  and cool off longer (90s) so the ladder decisively pivots to the
+         *  healthy lite host during extended outages. */
+        private const val BASE_COOLDOWN_MS_6234 = 90_000L
+        private const val BASE_5XX_STREAK_TRIP_6234 = 2
+        private const val BASE_5XX_STREAK_WINDOW_MS_6235 = 30_000L
 
         private fun baseHealthy(base: String): Boolean {
             val h = healthFor(base)
@@ -123,8 +129,8 @@ class JupiterApi(private val apiKey: String = "") {
         private fun markBase5xx(base: String) {
             val h = healthFor(base)
             val now = System.currentTimeMillis()
-            // Reset streak if last failure was >60s ago (avoid stale-count trips).
-            if (now - h.lastFailAtMs.get() > 60_000L) h.fail5xx.set(0)
+            // V5.0.6235 — reset streak if last failure was outside the trip window.
+            if (now - h.lastFailAtMs.get() > BASE_5XX_STREAK_WINDOW_MS_6235) h.fail5xx.set(0)
             h.lastFailAtMs.set(now)
             val n = h.fail5xx.incrementAndGet()
             if (n >= BASE_5XX_STREAK_TRIP_6234) {

@@ -6286,11 +6286,46 @@ class Executor(
                 // gated, runner-bypass still applies. Directly serves volume.
                 val nowPnlFastVerdict6038 = OpenPnlSanity.inspectPosition(ts.position, currentPrice, "Executor.dead_feed_fast_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
                 val nowPnlFast = if (nowPnlFastVerdict6038.ok) nowPnlFastVerdict6038.pnlPct else 0.0
+                // V5.0.6235 — STALE_FEED_EVICT_FALSE_POSITIVE_FIX.
+                // Operator report 2026-07-11 02:02 (build 5.0.6234): every recent
+                // BLUECHIP close was `stale_feed_evict_feedAge4m_held4m` at
+                // -6.6% to -10.8% PnL, but the FAST-EVICT guard requires
+                // `abs(nowPnlFast) < 2.0` (truly flat, dead micro). It fired
+                // anyway because when the price feed is genuinely dead
+                // (helius sr=0%, birdeye sr=0%, geckoterminal sr=22%) the
+                // `currentPrice` fed into OpenPnlSanity.inspectPosition can be
+                // stale/0/invalid → verdict.ok=false → the fallback
+                // `nowPnlFast = 0.0` looked "flat" to the guard, tripping
+                // eviction on positions that had actually moved -10%.
+                // doSell() then closed at whatever stale price was still in
+                // ts.ref, banking a real -10% loss on a mystery-flat position.
+                // FIX: require verdict.ok=true before FAST-EVICT can fire.
+                // Without a TRUSTED flat reading we do not force-close;
+                // the SLOW tier (10min feed dead + 20min held, no PnL gate)
+                // remains the backstop and STRICT_SL still fires the moment
+                // a fresh tick arrives.
                 val fastDeadFeed = isPaperRT() &&
                     feedAgeMs != null && feedAgeMs >= 3L * 60_000L &&      // feed silent ≥3min
                     heldMin >= 4.0 &&                 // held ≥4min (well past 90s settle-in)
+                    nowPnlFastVerdict6038.ok &&        // V5.0.6235 — require TRUSTED flat reading
                     kotlin.math.abs(nowPnlFast) < 2.0 && // never moved off entry (dead, not a runner)
                     ts.position.peakGainPct < 20.0      // never ran
+                // V5.0.6235 — forensic when the guard would have false-fired
+                // pre-fix, so we can see how often the dead-feed bleed was
+                // silently trading itself into losses.
+                if (isPaperRT() &&
+                    feedAgeMs != null && feedAgeMs >= 3L * 60_000L &&
+                    heldMin >= 4.0 &&
+                    !nowPnlFastVerdict6038.ok &&
+                    ts.position.peakGainPct < 20.0
+                ) {
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "STALE_FEED_FAST_EVICT_SUPPRESSED_UNTRUSTED_6235",
+                            "mint=${ts.mint.take(8)} sym=${ts.symbol} feedAgeMin=${(feedAgeMs ?: 0L) / 60_000L} heldMin=${heldMin.toInt()} reason=${nowPnlFastVerdict6038.reason}"
+                        )
+                    } catch (_: Throwable) {}
+                }
                 val FEED_DEAD_MS = 10L * 60_000L
                 val MIN_HELD_MIN = 20.0
                 if (fastDeadFeed || (feedAgeMs != null && feedAgeMs >= FEED_DEAD_MS && heldMin >= MIN_HELD_MIN)) {
