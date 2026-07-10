@@ -228,7 +228,7 @@ object LiveStrategyTuner {
             val sizeCeiling = (1.55 * behindPress * provenBoost4588).coerceIn(1.55, 2.60)
             val holdCeiling = (2.20 * behindPress * provenBoost4588).coerceIn(2.20, 3.20)
             val maxWalletCeiling = (1.50 * behindPress * provenBoost4588).coerceIn(1.50, 2.20)
-            val partialCeiling = (2.60 * behindPress * provenBoost4588).coerceIn(2.60, 3.80)
+            val partialCeiling = (2.60 * behindPress * provenBoost4588).coerceIn(2.20, 2.80)  // V5.0.6228g: tightened 2.60..3.80 → 2.20..2.80. QUALITY partial×=3.20 caused 73% scratch rate (58/80) — banking partials so aggressively that terminal residual became a scratch. Lower ceiling still presses winners without over-partialling.
             val baseSizeGain = if (provenWinner4588) 0.72 else 0.47
             val baseHoldGain = if (provenWinner4588) 1.35 else 0.95
             val basePartialGain = if (provenWinner4588) 1.85 else 1.25

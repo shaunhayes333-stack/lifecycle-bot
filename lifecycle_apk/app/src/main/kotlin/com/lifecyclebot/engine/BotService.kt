@@ -16452,7 +16452,7 @@ if (hotExitHandledSweep) {
     // pumpfun 766ms) pushes per-token p95 past 5s. 8s lets real work complete while
     // still bounding stuck IO well inside the cycle cadence. workerTimeout=15 (real
     // timeouts) vs 668 force-releases proves most workers were NOT genuinely stuck.
-    private val SUPERVISOR_WORKER_TIMEOUT_MS: Long = 9_000L
+    private val SUPERVISOR_WORKER_TIMEOUT_MS: Long = 6_000L  // V5.0.6228g: 9s→6s so hung API calls release supervisor slots before pool saturates. Report showed workerTimeout=54 in 83s (~half pool). With API degradation (Jupiter 5xx storms, Helius 429), a 9s ceiling let stale HTTP requests occupy slots for 9s each. 6s still allows a healthy fanout to complete while shedding the chronically-stuck workers 33% faster.
     // V5.9.1180 — timeout quarantine is per-mint, not global scanner pruning.
     // 3145 showed workerTimeout=239 while WATCHLIST_RR kept reselecting the
     // same slow/no-pair/API-wedged mints. Re-spawning those mints every 5s burns

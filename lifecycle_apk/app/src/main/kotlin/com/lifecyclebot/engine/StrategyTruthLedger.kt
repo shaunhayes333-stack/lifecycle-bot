@@ -49,13 +49,33 @@ object StrategyTruthLedger {
             if (out.size >= limit.coerceAtLeast(1)) break
             val side = row.side.trim().uppercase()
             if (side == "PARTIAL_SELL") {
-                // A partial can be terminal only when wallet amount is zero. In
-                // current schema remainingQtyToken is the best persisted proxy.
-                if (row.remainingQtyToken > 0.000000001) {
+                // V5.0.6228g — PARTIAL PnL ATTRIBUTION FIX.
+                // Prior rule: any partial with residual >0 was excluded from
+                // strategy truth as "not terminal". Effect: a QUALITY trade
+                // that partial-banks +100% and then rides the residual to a
+                // scratch had its +100% winner STRIPPED from strategy truth —
+                // only the residual scratch got counted. Operator report
+                // showed Strategy Clean PnL=-2.54 SOL vs Raw PnL=+4.01 SOL,
+                // a 6.55 SOL divergence driven by 17 partialNotTerminal
+                // exclusions. Corrupts every downstream learner (LiveStrategy-
+                // Tuner, UnifiedPolicyHead, ScoreExpectancyTracker) into
+                // thinking the bot loses money when it profits.
+                //
+                // New rule: include PARTIAL_SELL rows with realized SOL as
+                // strategy-truth events. Each partial represents a real
+                // closed portion — the residual close is separately counted
+                // via its own terminal SELL row (different terminalKey via
+                // execId/timestamp). The mint-close-window dedupe below
+                // still prevents true duplicates.
+                val realizedSol = row.netPnlSol.takeIf { it != 0.0 } ?: row.pnlSol
+                if (realizedSol == 0.0) {
+                    // Zero-realized partials are still non-terminal — no info.
                     partial++
                     inc("STRATEGY_PARTIAL_NOT_TERMINAL")
                     continue
                 }
+                // Fall through: PARTIAL_SELL with realized SOL is counted
+                // as a truth event (attribution row for the closed portion).
             } else if (side != "SELL") {
                 continue
             }

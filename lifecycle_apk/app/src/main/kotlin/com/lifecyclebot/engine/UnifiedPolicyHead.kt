@@ -135,7 +135,14 @@ object UnifiedPolicyHead {
         return sigmoid(z)
     }
 
-    private fun normalizeLane(lane: String): String = lane.trim().uppercase().ifBlank { "STANDARD" }
+    private fun normalizeLane(lane: String): String {
+        // V5.0.6228g — normalize through LiveGrowthDoctrine canonicalLane so
+        // BLUE_CHIP / BLUECHIP / BLUE-CHIP all collapse to one lane head.
+        // Prior code kept them separate, splitting samples across BLUE_CHIP
+        // n=2 BOOTSTRAP + BLUECHIP n=1 BOOTSTRAP instead of BLUECHIP n=3.
+        val raw = lane.trim().uppercase().ifBlank { return "STANDARD" }
+        return try { LiveGrowthDoctrine.canonicalLane(raw) } catch (_: Throwable) { raw }
+    }
 
     /** Lazily create a per-lane head, warm-started from the GLOBAL head's weights. */
     private fun getOrCreateLaneHead(lane: String): LaneHead {
