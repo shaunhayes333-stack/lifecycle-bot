@@ -10496,15 +10496,46 @@ class Executor(
         val actualSol: Double
         val buildPhase: Int
         val targetBuild: Double
-        
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.0.6241 — FLUID CONFIDENCE-BASED SIZING (operator directive:
+        // "sizing is meant to be fluid based on confidence ... it cant
+        // compound and increase the balance into the hundreds of thousands
+        // making the same trades on low confidence lanes as the high ones.")
+        //
+        // Multiplies the FULL advisor stack (Lane×Bucket Pivot × Compound-
+        // Growth Mentality × Score-band tilt) into the REQUESTED sol before
+        // it hits clampPaperTradeSol. Result: low-confidence entries scale
+        // DOWN toward the min floor, high-confidence winner buckets scale UP
+        // toward the max ceiling (2.0 SOL). Fail-open on every read — if any
+        // advisor throws, we fall back to the raw sol.
+        // ═══════════════════════════════════════════════════════════════════
+        val fluidSol: Double = try {
+            val laneU = (layerTag.ifBlank { ts.position.tradingMode.ifBlank { "STANDARD" } }).uppercase()
+            val scoreInt = score.toInt().coerceIn(0, 100)
+            val pivotMult = try { com.lifecyclebot.engine.LaneBucketPivot.sizeMult(laneU, scoreInt) } catch (_: Throwable) { 1.0 }
+            val mentalityMult = try { com.lifecyclebot.engine.CompoundGrowthMentality.sizeAdvisory() } catch (_: Throwable) { 1.0 }
+            // Score-band tilt: S0 → 0.60x, S50 → 1.00x, S100 → 1.60x (linear).
+            val scoreTilt = (0.60 + (scoreInt.toDouble() / 100.0)).coerceIn(0.60, 1.60)
+            val combined = (pivotMult * mentalityMult * scoreTilt).coerceIn(0.25, 2.5)
+            val shaped = (sol * combined).coerceAtLeast(0.01)
+            try {
+                ForensicLogger.lifecycle(
+                    "FLUID_SIZE_SHAPE_6241",
+                    "sym=${ts.symbol} lane=$laneU score=$scoreInt pivot=${"%.2f".format(pivotMult)} mentality=${"%.2f".format(mentalityMult)} scoreTilt=${"%.2f".format(scoreTilt)} combined=${"%.2f".format(combined)} rawSol=${"%.4f".format(sol)} shapedSol=${"%.4f".format(shaped)}"
+                )
+            } catch (_: Throwable) {}
+            shaped
+        } catch (_: Throwable) { sol }
+
         if (skipGraduated || quality == "C") {
-            actualSol = clampPaperTradeSol(sol, ts.mint, ts.symbol, "paperBuy.actual", maxPaperTradeSolOverride)
+            actualSol = clampPaperTradeSol(fluidSol, ts.mint, ts.symbol, "paperBuy.actual", maxPaperTradeSolOverride)
             buildPhase = if (quality != "C") 1 else 3
-            targetBuild = if (quality != "C") sol / graduatedInitialPct(quality) else 0.0
+            targetBuild = if (quality != "C") fluidSol / graduatedInitialPct(quality) else 0.0
         } else {
-            actualSol = clampPaperTradeSol(graduatedInitialSize(sol, quality), ts.mint, ts.symbol, "paperBuy.graduated", maxPaperTradeSolOverride)
+            actualSol = clampPaperTradeSol(graduatedInitialSize(fluidSol, quality), ts.mint, ts.symbol, "paperBuy.graduated", maxPaperTradeSolOverride)
             buildPhase = 1
-            targetBuild = sol.coerceAtMost(maxConfiguredPaperTradeSol())
+            targetBuild = fluidSol.coerceAtMost(maxConfiguredPaperTradeSol())
         }
         
         // V5.9.780 — EMERGENT MEME PAPER REALISM (entry side).
@@ -15796,12 +15827,15 @@ class Executor(
     private fun minConfiguredPaperTradeSol(): Double {
         return try {
             val c = cfg()
-            val legacyMin = c.smallBuySol.takeIf { it.isFinite() && it > 0.0 } ?: 0.05
-            // V5.0.3873 — live-transfer floor. A 0.01/0.03 SOL paper row is useful
-            // for route smoke, but not for learned live sizing. Default paper bankroll
-            // 11.76 SOL => min ≈0.1176 SOL, still small enough for high throughput.
-            maxOf(legacyMin, (c.paperSimulatedBalance * 0.01).coerceIn(0.05, 0.15))
-        } catch (_: Throwable) { 0.10 }
+            val legacyMin = c.smallBuySol.takeIf { it.isFinite() && it > 0.0 } ?: 0.02
+            // V5.0.6241 — lower floor to 0.02 so fluid-sizing shape multipliers
+            // (LaneBucketPivot × CompoundGrowthMentality × score-tilt) can
+            // actually differentiate low-confidence probes from high-confidence
+            // presses. Prior floor of 0.05-0.15 was clamping ALL sizes up to
+            // ~0.1176 SOL regardless of confidence — the exact complaint in
+            // the 6240 report.
+            maxOf(legacyMin, (c.paperSimulatedBalance * 0.01).coerceIn(0.02, 0.15))
+        } catch (_: Throwable) { 0.03 }
     }
 
     private fun clampPaperTradeSol(requested: Double, mint: String = "", symbol: String = "", source: String = "paper", maxOverrideSol: Double? = null): Double {
