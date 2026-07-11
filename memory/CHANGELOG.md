@@ -1,3 +1,39 @@
+## V5.0.6238 — 2026-02 — Compound-Growth Mentality + Live Win DNA Capture (on top of 6100 rollback)
+
+  Context: 6237 shipped clean but 2 GoldenTape tests failed because the 6228
+  ScoreExpectancyTracker monotone rewrite I ported dropped literals that the
+  6100 tests string-match (catastrophic_score_band_probe / positive_score_band_press /
+  LIVE_EXPECTANCY_REJECT_BYPASSED / "do not dust-size live probes").
+  Operator directive shifted to: build isn't a live-gate problem — it's a
+  compound-growth-mentality problem. Current paper build is printing
+  79% WR / 274 trades / +179% ROI / EV +988%/trade on the 6100 base.
+
+  Fixes shipped in 6238:
+  1. ScoreExpectancyTracker.kt fully reverted to pristine 6100 — the Executor.kt
+     SL polarity fix stays as the ONE score-inversion port from 6236.
+  2. Two new advisory modules (never gates, never block trades):
+     • LiveWinDNAStore.kt — captures full fingerprint on every winning close
+       (mint, symbol, lane, source/phase, setup, chart pattern, entry score,
+       mcap/liquidity bands, hold minutes, buy pressure, pnl%, peak pnl%,
+       exit reason, PAPER/LIVE tag). Durable SharedPreferences store capped
+       at 500 rows. Exposes topByPnl / setupFrequency / chartPatternFrequency /
+       routeFrequency / holdTimeStats / winningExitReasons for AGI/LLM/SSI/
+       meta-cog/sentience layers to query as shared bias input.
+     • CompoundGrowthMentality.kt — bot-wide advisory mentality state fed each
+       tick with (WR, drawdown%, streakLosses, corpus). Derives biasGrowth
+       [0..1], biasDefensive [0..1, floor 0.30], compoundFactor [0.7..1.5],
+       ddReserveFactor [0.55..1.0], and a one-word mentalityTag (COMPOUND_PRESS
+       / GROWTH_BIAS / STEADY_COMPOUND / DEFENSIVE_HOLD / CAUTIOUS_LEARN).
+       compoundFactor hits 1.50x when WR ≥70% AND dd <10% AND corpus ≥20 —
+       the current paper build already qualifies.
+  3. Wiring: TokenWinMemory.recordTradeOutcome captures WinDNA on every win.
+     BotService.onCreate initialises LiveWinDNAStore. ReportingHub feeds the
+     Mentality truth and surfaces both status lines in the operational report.
+
+  CI: Build AATE APK ✓ success, Runtime Smoke Test in progress.
+
+
+
 ## V5.0.6236 — 2026-02 — MemeTrader audit patches: TREASURY routing decouple + SL polarity + corpus filter loosen
 
   P0 TREASURY -87% catastrophic closes (op-report: multiple TREASURY closes at -87%):
