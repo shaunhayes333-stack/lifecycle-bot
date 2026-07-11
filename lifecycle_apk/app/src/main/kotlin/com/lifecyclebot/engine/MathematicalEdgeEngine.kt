@@ -214,7 +214,7 @@ object MathematicalEdgeEngine {
                         ))
                         readback("ForwardOutcomeModel.stamp"); readback("UnifiedPolicyHead.stamp"); readback("LiveProbabilityEngine.sizing")
                     } catch (_: Throwable) {}
-                    try { LiveStrategyTuner.adjustment(e.lane); LaneExpectancyDamper.sizeMultiplier(e.lane); CapitalEfficiencyBrain.sizeMultiplier(e.lane, e.source); StrategyHypothesisEngine.getSizeBias(e.lane, scoreInt, regimeForEdge, e.mint); StrategyHypothesisEngine.getStopBias(e.lane, scoreInt, regimeForEdge, e.mint); readback("LiveStrategyTuner"); readback("LaneExpectancyDamper"); readback("CapitalEfficiencyBrain"); readback("StrategyHypothesisEngine.sizing") } catch (_: Throwable) {}
+                    try { LiveStrategyTuner.adjustment(e.lane); LaneExpectancyDamper.sizeMultiplier(e.lane); CapitalEfficiencyBrain.sizeMultiplier(e.lane, e.source); StrategyHypothesisEngine.getSizeBias(e.lane, scoreInt, regimeForEdge, e.mint); StrategyHypothesisEngine.getStopBias(e.lane, scoreInt, regimeForEdge, e.mint); com.lifecyclebot.engine.LaneBucketPivot.logPivotOnEntry(e.lane, scoreInt, e.mint, e.symbol); readback("LiveStrategyTuner"); readback("LaneExpectancyDamper"); readback("CapitalEfficiencyBrain"); readback("StrategyHypothesisEngine.sizing"); readback("LaneBucketPivot") } catch (_: Throwable) {}
                     if (e.score >= 75.0 && e.clampedMultiplier < 0.35) {
                         try {
                             ChokeReliefBus.launch("MEE_SIZING_ANOMALY_HYPOTHESIS_4530", e.mint) {

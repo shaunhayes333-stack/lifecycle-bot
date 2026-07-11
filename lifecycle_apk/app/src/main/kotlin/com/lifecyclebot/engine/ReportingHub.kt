@@ -450,6 +450,14 @@ object ReportingHub {
             com.lifecyclebot.engine.CompoundGrowthMentality.statusLine()
         }.let { appendLine(it) }
         appendLine(safe("live_win_dna") { com.lifecyclebot.engine.LiveWinDNAStore.statusLine() })
+        // V5.0.6240 — bucket-granular pivot advisor. Every trader/lane
+        // (BLUECHIP, STANDARD, QUALITY, MOONSHOT, CASHGEN, TREASURY, V3_CORE)
+        // can multiply LaneBucketPivot.sizeMult(lane, score) into its own
+        // sizing to trim toxic buckets and press proven winners WITHIN each
+        // lane. Never a gate. Advisory + observable in every report.
+        appendLine(safe("lane_bucket_pivot") { com.lifecyclebot.engine.LaneBucketPivot.statusLine() })
+        val pivotBlock = safe("lane_bucket_pivot_block") { com.lifecyclebot.engine.LaneBucketPivot.reportBlock() }
+        if (pivotBlock.isNotBlank()) appendLine(pivotBlock)
 
         appendLine("PatternAutoTuner: ${safe("pattern_auto_tuner") { PatternAutoTuner.getStatus() }}")
         safe("pattern_auto_tuner_details") {
