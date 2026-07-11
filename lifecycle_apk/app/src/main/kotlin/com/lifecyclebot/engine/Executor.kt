@@ -15828,12 +15828,13 @@ class Executor(
         return try {
             val c = cfg()
             val legacyMin = c.smallBuySol.takeIf { it.isFinite() && it > 0.0 } ?: 0.02
-            // V5.0.6241 — lower floor to 0.02 so fluid-sizing shape multipliers
-            // (LaneBucketPivot × CompoundGrowthMentality × score-tilt) can
-            // actually differentiate low-confidence probes from high-confidence
-            // presses. Prior floor of 0.05-0.15 was clamping ALL sizes up to
-            // ~0.1176 SOL regardless of confidence — the exact complaint in
-            // the 6240 report.
+            // V5.0.3873 — live-transfer floor. A 0.01/0.03 SOL paper row is useful
+            // for route smoke, but not for learned live sizing.
+            // V5.0.6241 — floor lowered to [0.02, 0.15] so fluid-sizing shape
+            // multipliers (LaneBucketPivot × CompoundGrowthMentality × score-tilt)
+            // can actually differentiate low-confidence probes from high-
+            // confidence presses. Prior floor of 0.05-0.15 was clamping ALL
+            // sizes up to ~0.1176 SOL regardless of confidence.
             maxOf(legacyMin, (c.paperSimulatedBalance * 0.01).coerceIn(0.02, 0.15))
         } catch (_: Throwable) { 0.03 }
     }
