@@ -458,6 +458,11 @@ object ReportingHub {
         appendLine(safe("lane_bucket_pivot") { com.lifecyclebot.engine.LaneBucketPivot.statusLine() })
         val pivotBlock = safe("lane_bucket_pivot_block") { com.lifecyclebot.engine.LaneBucketPivot.reportBlock() }
         if (pivotBlock.isNotBlank()) appendLine(pivotBlock)
+        // V5.0.6246 — DeadTokenQuarantine: permanent-quarantine set for
+        // unroutable/unsellable mints. Once a mint racks up N consecutive
+        // OPEN_PNL_BASIS_REJECTED strikes it is skipped by the reconciler
+        // price probe, the exit sweeps, and no longer occupies a slot cap.
+        appendLine(safe("dead_token_quarantine") { com.lifecyclebot.engine.DeadTokenQuarantine.statusLine() })
 
         appendLine("PatternAutoTuner: ${safe("pattern_auto_tuner") { PatternAutoTuner.getStatus() }}")
         safe("pattern_auto_tuner_details") {

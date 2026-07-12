@@ -42,14 +42,15 @@ object OpenPnlSanity {
         priceBasisRescaled: Boolean = false,
         context: String = "",
         emit: Boolean = true,
+        mint: String = "",
     ): Verdict {
-        if (!entryPrice.isFinite() || entryPrice <= 0.0) return reject("ENTRY_PRICE_INVALID", entryPrice, currentPrice, context, emit)
-        if (!currentPrice.isFinite() || currentPrice <= 0.0) return reject("CURRENT_PRICE_INVALID", entryPrice, currentPrice, context, emit)
+        if (!entryPrice.isFinite() || entryPrice <= 0.0) return reject("ENTRY_PRICE_INVALID", entryPrice, currentPrice, context, emit, mint)
+        if (!currentPrice.isFinite() || currentPrice <= 0.0) return reject("CURRENT_PRICE_INVALID", entryPrice, currentPrice, context, emit, mint)
         val ratio = currentPrice / entryPrice
-        if (!ratio.isFinite() || ratio <= 0.0) return reject("PRICE_RATIO_INVALID", entryPrice, currentPrice, context, emit)
+        if (!ratio.isFinite() || ratio <= 0.0) return reject("PRICE_RATIO_INVALID", entryPrice, currentPrice, context, emit, mint)
         val pnl = (ratio - 1.0) * 100.0
-        if (!pnl.isFinite()) return reject("OPEN_PNL_NOT_FINITE", entryPrice, currentPrice, context, emit)
-        if (pnl < MIN_PNL_PCT) return reject("OPEN_PNL_BELOW_TOTAL_LOSS", entryPrice, currentPrice, context, emit)
+        if (!pnl.isFinite()) return reject("OPEN_PNL_NOT_FINITE", entryPrice, currentPrice, context, emit, mint)
+        if (pnl < MIN_PNL_PCT) return reject("OPEN_PNL_BELOW_TOTAL_LOSS", entryPrice, currentPrice, context, emit, mint)
 
         val eSrc = entrySource.trim().uppercase()
         val cSrc = currentSource.trim().uppercase()
@@ -59,13 +60,13 @@ object OpenPnlSanity {
         val syntheticInvolved = eSrc.contains("SYNTH") || cSrc.contains("SYNTH") || eSrc.contains("PUMP_FUN_BC") || cSrc.contains("PUMP_FUN_BC")
 
         if (ratio > MAX_UNKNOWN_BASIS_RATIO && (!explicitComparable || syntheticInvolved)) {
-            return reject("PRICE_BASIS_UNTRUSTED_EXTREME_RATIO", entryPrice, currentPrice, context, emit)
+            return reject("PRICE_BASIS_UNTRUSTED_EXTREME_RATIO", entryPrice, currentPrice, context, emit, mint)
         }
         if (pnl > MAX_UNKNOWN_BASIS_PNL_PCT && !explicitComparable) {
-            return reject("UNKNOWN_PRICE_BASIS_EXTREME_PNL", entryPrice, currentPrice, context, emit)
+            return reject("UNKNOWN_PRICE_BASIS_EXTREME_PNL", entryPrice, currentPrice, context, emit, mint)
         }
         if (pnl > MAX_UNKNOWN_BASIS_PNL_PCT && syntheticInvolved && !priceBasisRescaled) {
-            return reject("SYNTHETIC_PRICE_BASIS_EXTREME_PNL", entryPrice, currentPrice, context, emit)
+            return reject("SYNTHETIC_PRICE_BASIS_EXTREME_PNL", entryPrice, currentPrice, context, emit, mint)
         }
         return Verdict(true, pnl)
     }
@@ -82,10 +83,11 @@ object OpenPnlSanity {
             priceBasisRescaled = p.priceBasisRescaled,
             context = context.ifBlank { "${ts.symbol}/${ts.mint.take(8)}" },
             emit = emit,
+            mint = ts.mint,
         )
     }
 
-    fun inspectPosition(pos: Position, currentPrice: Double, context: String = "", emit: Boolean = true): Verdict {
+    fun inspectPosition(pos: Position, currentPrice: Double, context: String = "", emit: Boolean = true, mint: String = ""): Verdict {
         // V5.0.6050 — ENTRY_PRICE_INVALID auto-heal (operator ask 2026-07-03).
         // Report V5.0.6049 showed repeating OPEN_PNL_BASIS_REJECTED reason=
         // ENTRY_PRICE_INVALID because some positions have entryPrice=0 despite
@@ -111,6 +113,7 @@ object OpenPnlSanity {
             priceBasisRescaled = pos.priceBasisRescaled || (healedEntryPrice != pos.entryPrice),
             context = context,
             emit = emit,
+            mint = mint,
         )
     }
 
@@ -126,11 +129,22 @@ object OpenPnlSanity {
         return PricingTruth(mark, pnlPct, pnlSol, verdict.ok, verdict.reason, src)
     }
 
-    private fun reject(reason: String, entry: Double, current: Double, context: String, emit: Boolean): Verdict {
-        if (emit) {
+    private fun reject(reason: String, entry: Double, current: Double, context: String, emit: Boolean, mint: String = ""): Verdict {
+        // V5.0.6246 — DeadTokenQuarantine strike + emit-suppression. Bumps the
+        // per-mint strike counter for blacklisted reasons; once STRIKE_THRESHOLD
+        // is reached the mint is permanently quarantined and future rejects
+        // stop emitting (kills the log flood from stuck RECOVERED_* ghosts).
+        val alreadyDead = mint.isNotBlank() && try { DeadTokenQuarantine.isDead(mint) } catch (_: Throwable) { false }
+        if (!alreadyDead && mint.isNotBlank()) {
+            try { DeadTokenQuarantine.recordStrike(mint, reason) } catch (_: Throwable) {}
+        }
+        val silentEmit = emit && !alreadyDead
+        if (silentEmit) {
             try { PipelineHealthCollector.labelInc("OPEN_PNL_BASIS_REJECTED") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("OPEN_PNL_BASIS_REJECTED_$reason") } catch (_: Throwable) {}
             try { ForensicLogger.lifecycle("OPEN_PNL_BASIS_REJECTED", "reason=$reason context=${context.take(96)} entry=$entry current=$current ratio=${if (entry > 0.0) current / entry else 0.0}") } catch (_: Throwable) {}
+        } else if (emit && alreadyDead) {
+            try { PipelineHealthCollector.labelInc("OPEN_PNL_BASIS_REJECTED_SUPPRESSED_DEAD_TOKEN") } catch (_: Throwable) {}
         }
         return Verdict(false, reason = reason)
     }

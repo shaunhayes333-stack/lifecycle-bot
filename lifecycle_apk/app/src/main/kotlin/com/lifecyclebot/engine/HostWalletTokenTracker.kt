@@ -345,13 +345,19 @@ object HostWalletTokenTracker {
         return (now - started) <= CAP_SELL_IN_FLIGHT_MS
     }
 
-    private fun isCapCountable(p: TrackedTokenPosition, now: Long = System.currentTimeMillis()): Boolean =
-        p.status in OPEN_STATUSES && (
+    private fun isCapCountable(p: TrackedTokenPosition, now: Long = System.currentTimeMillis()): Boolean {
+        // V5.0.6246 — DeadTokenQuarantine: permanently unroutable/unsellable
+        // mints (e.g. rug pools with no DEX route) free their slot so the bot
+        // can keep buying. The row is kept in `positions` for diagnostic
+        // visibility but is NOT counted as an active/held slot for cap math.
+        if (try { com.lifecyclebot.engine.DeadTokenQuarantine.isDead(p.mint) } catch (_: Throwable) { false }) return false
+        return p.status in OPEN_STATUSES && (
             hasCurrentWalletPositiveProof(p, now) ||
             hasFreshBuyLiability(p, now) ||
             hasBotBoughtPositiveLiability(p, now) ||
             hasLiveSellInFlightForCap(p, now)
         )
+    }
 
     private fun isOpenForAccounting(p: TrackedTokenPosition): Boolean = isCapCountable(p)
 

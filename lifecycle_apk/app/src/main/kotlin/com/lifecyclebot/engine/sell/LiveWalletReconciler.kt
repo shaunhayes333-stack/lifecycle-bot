@@ -317,6 +317,15 @@ object LiveWalletReconciler {
         var updated = 0
         for ((mint, pair) in balances) {
             totalChecked.incrementAndGet()
+            // V5.0.6246 — DeadTokenQuarantine: skip permanently quarantined mints
+            // so we stop re-probing PriceResolverFallback for tokens with no
+            // routable market. Prior behaviour spammed the log with
+            // "all price sources failed for X…" every cycle and burned main-
+            // thread time on dead RECOVERED_* rows.
+            if (try { com.lifecyclebot.engine.DeadTokenQuarantine.isDead(mint) } catch (_: Throwable) { false }) {
+                try { PipelineHealthCollector.labelInc("LIVE_WALLET_RECONCILER_SKIP_DEAD_TOKEN") } catch (_: Throwable) {}
+                continue
+            }
             val (uiAmount, decimals) = pair
             if (uiAmount <= 0.0) continue
             // V5.0.3791 — do not re-open / keep dust as a live held token; the

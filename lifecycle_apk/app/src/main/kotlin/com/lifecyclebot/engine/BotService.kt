@@ -1665,6 +1665,17 @@ class BotService : Service() {
             ErrorLogger.warn("BotService", "LiveWinDNAStore init error: ${e.message}")
         }
 
+        // V5.0.6246 — DeadTokenQuarantine: load the persistent set of mints
+        // the bot has permanently given up on (unroutable / unsellable).
+        // Operator directive: "just quarantine them permanently if the bot
+        // cant sell them." Loading here means the ghosts stay skipped
+        // across restarts instead of every boot re-attempting to price them.
+        try {
+            com.lifecyclebot.engine.DeadTokenQuarantine.init(applicationContext)
+        } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "DeadTokenQuarantine init error: ${e.message}")
+        }
+
         // V5.9.256: Initialize wallet token memory — persistent journal of all buys
         // Survives restarts/updates; used by StartupReconciler to recover positions
         // that the scanner hasn't re-discovered yet.
