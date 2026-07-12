@@ -1,5 +1,50 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## Session (Feb 2026) — V5.0.6244 SHIPPED · Build GREEN ✅
+
+Operator: "if I let it run for hours it ends up frozen out via hundreds of
+ANR errors. winrate has started to fall off as well!"
+
+Root cause of the ANR compounding + WR falloff traced to three interacting
+regressions in the recently-added learning stack (6238/6240/6243):
+
+**ANR leak — LiveWinDNAStore hot-path allocation**
+- `topByPnl(500)` sorted the full 500-row corpus on every call.
+  `LaneBucketPivot.sizeShape()` calls it per lane eval, `MathematicalEdgeEngine`
+  calls it per edge readback, `Executor` calls it per open. Over hours,
+  thousands of 500-item sorts + garbage compound until the main thread stalls.
+- `persist()` fired on every winning close (500-row JSON serialize on caller
+  thread). Boot backfill hammered it 500× in a tight loop.
+- Fix: `topByPnl` returns a memoised `AtomicReference` snapshot invalidated
+  only on `capture()`. `persist()` replaced with debounced coroutine-scheduled
+  `persistNow()`. New `beginBulk()/endBulk()` reference counter suppresses
+  the boot-backfill persist storm.
+
+**WR falloff — LaneBucketPivot PROVEN_WINNER branch was dead**
+- Backfilled rows have `entryScore=0`; the `s > 0` filter starved the
+  `PROVEN_WINNER` / `DEEP_WINNER` branch. Report showed `pressed=0` all
+  session — pivot was trim-only, one-sided pressure dragging WR.
+- Fix: `winnerMeanForBucket` now falls through to `laneRows` when `bandRows`
+  are empty, letting backfilled lanes still qualify for winner-press.
+
+**WR falloff — DEFENSIVE_HOLD over-brake on natural drawdown**
+- Bot slammed into `DEFENSIVE_HOLD` after a 26.7% pullback from the ATH
+  even though core WR was 49% and PF was 7.03. `compound×=0.70` /
+  `growth=0.06` crushed a healthy engine.
+- Fix: new `RECLAIM_MODE` — when `wr ≥ 45%` AND `ddPct ∈ [10,40]` AND
+  `corpus ≥ 20` AND `consecLosses ≤ 4`, DD penalty is halved, `biasGrowth`
+  gets a 0.30 floor, `biasDefensive` a 0.70 cap, `compoundFactor` a 0.85
+  floor. New `RECLAIM_MODE` tag surfaces in `statusLine`.
+
+Files touched: `LiveWinDNAStore.kt`, `LaneBucketPivot.kt`,
+`CompoundGrowthMentality.kt`, `BotService.kt`. Zero
+`GoldenTapeRegressionTest.kt` literal changes. CI Build GREEN.
+
+Next: verify V5.0.6244 report over multi-hour run — the ANR sampler
+should stay under 5 hints/hr and `RECLAIM_MODE` should appear when the
+wallet is in the [10%,40%] pullback band.
+
+
 ## Session (Feb 2026) — V5.0.6236 SHIPPED · CI GREEN ✅
 MemeTrader post-audit remediation. User: "TREASURY still closing at -87% after
 6235; you fucked me over and cost me $600 in SOL — I can't afford paid API tiers."

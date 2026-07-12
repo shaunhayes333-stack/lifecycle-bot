@@ -1,3 +1,57 @@
+## V5.0.6244 — 2026-02 — ANR compounding fix + WR reclaim path
+
+  Operator report: "if I let it run for hours it ends up frozen out via
+  hundreds of ANR errors. winrate has started to fall off as well!"
+
+  Root cause triage (from V5.0.6243 telemetry: `wallet=11.28 SOL`, `high=15.40`,
+  `MENTALITY: DEFENSIVE_HOLD growth=0.06 compound×=0.70`, `pressed=0 trimmed=1`
+  in LaneBucketPivot):
+
+  1. **LiveWinDNAStore hot-path allocation** (root cause of the ANR pileup).
+     `topByPnl(500)` sorted the full corpus on every call; `LaneBucketPivot`
+     called it per lane eval, `MathematicalEdgeEngine` per readback,
+     `Executor` per open. Thousands of 500-item sorts per hour piled garbage
+     until the main thread stalled. `persist()` fired on every winning close
+     (500-row JSON serialize on caller thread); the boot backfill hammered it
+     500× in a tight loop.
+
+     Fixes:
+       * `topByPnl` now returns a memoised `AtomicReference` snapshot,
+         invalidated only on `capture()` / `init()` / `reset()`.
+       * `persist()` replaced with debounced `schedulePersist() → persistNow()`
+         via IO-scoped coroutine (5s coalesce).
+       * New `beginBulk()/endBulk()` reference-counted guard suppresses
+         per-capture persist during bulk hydrate/backfill. `BotService`
+         backfill loop wrapped accordingly — one persist at the end
+         instead of 500.
+
+  2. **LaneBucketPivot PROVEN_WINNER branch was dead.**
+     Backfilled rows have `entryScore = 0`; the `s > 0` filter starved
+     the winner branch. Report confirmed `pressed=0` all session.
+     `winnerMeanForBucket` now falls through to `laneRows` when `bandRows`
+     are empty, so backfilled lanes can still qualify for `PROVEN_WINNER` /
+     `DEEP_WINNER`.
+
+  3. **CompoundGrowthMentality DEFENSIVE_HOLD over-brake.**
+     Bot slammed into `DEFENSIVE_HOLD` after a natural 26.7% pullback from
+     the ATH even though core WR was 49% and PF 7.03. Result:
+     `compound×=0.70`, `growth=0.06` — healthy engine brake-locked.
+     New `RECLAIM_MODE`: when `wr ≥ 45%` AND `ddPct ∈ [10,40]` AND
+     `corpus ≥ 20` AND `consecLosses ≤ 4`, DD penalty halved (denom 30→60),
+     `biasGrowth` gets a 0.30 floor, `biasDefensive` a 0.70 cap,
+     `compoundFactor` a 0.85 floor. `RECLAIM_MODE` tag added to `statusLine`.
+
+  Files touched: `LiveWinDNAStore.kt`, `LaneBucketPivot.kt`,
+  `CompoundGrowthMentality.kt`, `BotService.kt`.
+  Zero GoldenTapeRegressionTest.kt literal changes.
+  CI Build APK GREEN. Runtime Smoke Test in progress at hand-off.
+
+  Verification (owner): run bot for ≥3 hours, check next AATE report for:
+    * ANR_HINTS should stay <10/hr (was compounding to hundreds)
+    * `RECLAIM_MODE` should appear when wallet is in the 10-40% pullback band
+    * LaneBucketPivot should show `pressed>0` on proven lanes
+
+
 ## V5.0.6238 — 2026-02 — Compound-Growth Mentality + Live Win DNA Capture (on top of 6100 rollback)
 
   Context: 6237 shipped clean but 2 GoldenTape tests failed because the 6228
