@@ -6178,7 +6178,27 @@ class Executor(
             val livePnlVerdict6038 = if (currentPrice > 0.0) OpenPnlSanity.inspectPosition(pos, currentPrice, "Executor.quote_outage_live_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true) else OpenPnlSanity.Verdict(false, reason = "NO_LIVE_PRICE")
             val livePnl = if (livePnlVerdict6038.ok) livePnlVerdict6038.pnlPct else Double.NaN
             val cachedPx = ts.lastPrice
-            val cachedPnlVerdict6038 = if (cachedPx > 0.0) OpenPnlSanity.inspectPosition(pos, cachedPx, "Executor.quote_outage_cached_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true) else OpenPnlSanity.Verdict(false, reason = "NO_CACHED_PRICE")
+            // V5.0.6245 — DATA INTEGRITY: route-lock the cached price branch.
+            // Prior impl fed raw ts.lastPrice into cachedPnl. When a cross-
+            // source WS/scanner tick (wrong pool, wrong DEX) landed on
+            // ts.lastPrice, cachedPnl spiked to phantom +1000% while livePnl
+            // (route-locked) stayed at the real market. `bestPnl = max(...)`
+            // then fired QUICK_RUNNER_10X_FULL_EXIT and the sell filled at
+            // the true market — journal recorded the true PnL with the
+            // wrong tag ("10X FULL EXIT" -> -17.9%). Route-lock the cached
+            // branch the same way getActualPrice() does so phantom ticks
+            // never contribute to positive-exit triggers.
+            val cachedOnRoute = try {
+                val entrySrc = pos.entryPriceSource
+                val tickSrc = ts.lastPriceSource
+                when {
+                    pos.isPaperPosition -> true                              // paper: no route-lock
+                    entrySrc.isBlank() || tickSrc.isBlank() -> true          // unknown source: assume on-route (existing behaviour)
+                    !isRealPriceSource(entrySrc) -> true                    // entry stamp is symbolic/recovery: no lock possible
+                    else -> entrySrc == tickSrc                              // real route: exact match required
+                }
+            } catch (_: Throwable) { true }
+            val cachedPnlVerdict6038 = if (cachedPx > 0.0 && cachedOnRoute) OpenPnlSanity.inspectPosition(pos, cachedPx, "Executor.quote_outage_cached_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true) else OpenPnlSanity.Verdict(false, reason = if (!cachedOnRoute) "CACHED_OFF_ROUTE_6245" else "NO_CACHED_PRICE")
             val cachedPnl = if (cachedPnlVerdict6038.ok) cachedPnlVerdict6038.pnlPct else Double.NaN
             val candidates = listOf(livePnl, cachedPnl).filter { it.isFinite() }
 
@@ -6239,26 +6259,52 @@ class Executor(
             //   +1000%  → 100% exit (bank the 11x, no partials, no runner
             //             leftover — the pumps that go 10x reverse hard)
             run quickRunner@{
-                if (bestPnl >= 1000.0) {
+                // V5.0.6245 — DUAL-SOURCE CONFIRMATION for positive runner
+                // exits. The phantom-tick bug (see cachedOnRoute route-lock
+                // above) can still slip through if only one source has a
+                // valid on-route quote — a phantom on ts.lastPrice while
+                // Jupiter is temporarily silent. Real 10x moves show up on
+                // BOTH sources within the same tick window. Require the
+                // route-locked livePnl to independently confirm at least
+                // 70% of the trigger threshold so a lone spike never fires.
+                // If livePnl is unavailable (NaN) but cachedPnl is present
+                // AND on-route, cachedPnl alone still qualifies (the route-
+                // lock in the cached branch is the safety net).
+                val bothConfirm10x = bestPnl >= 1000.0 &&
+                    (livePnl.isFinite() && livePnl >= 700.0 || !livePnl.isFinite() && cachedPnl.isFinite() && cachedPnl >= 1000.0)
+                val bothConfirm6x = bestPnl >= 500.0 &&
+                    (livePnl.isFinite() && livePnl >= 350.0 || !livePnl.isFinite() && cachedPnl.isFinite() && cachedPnl >= 500.0)
+                val livePnlFmt = if (livePnl.isFinite()) livePnl.fmt(1) else "NaN"
+                val cachedPnlFmt = if (cachedPnl.isFinite()) cachedPnl.fmt(1) else "NaN"
+                if (bestPnl >= 500.0 && !bothConfirm10x && !bothConfirm6x) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "PRICE_DIVERGENCE_QUICK_RUNNER_BLOCK_6245",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} bestPnl=${bestPnl.fmt(1)}% livePnl=${livePnlFmt}% cachedPnl=${cachedPnlFmt}% entrySrc=${ts.position.entryPriceSource} tickSrc=${ts.lastPriceSource} — phantom-tick suppressed, not firing runner exit",
+                        )
+                        PipelineHealthCollector.labelInc("PRICE_DIVERGENCE_QUICK_RUNNER_BLOCK")
+                    } catch (_: Throwable) {}
+                    // fall through — regular exit logic runs on true livePnl
+                } else if (bothConfirm10x) {
                     try {
                         ForensicLogger.lifecycle(
                             "QUICK_RUNNER_EMERGENCY_FULL_EXIT",
-                            "mint=${ts.mint.take(10)} sym=${ts.symbol} bestPnl=${bestPnl.fmt(1)}% reason=operator_10x_bank_bypass_holds — 100% exit NOW",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} bestPnl=${bestPnl.fmt(1)}% livePnl=${livePnlFmt}% cachedPnl=${cachedPnlFmt}% reason=operator_10x_bank_bypass_holds_dual_confirmed_6245 — 100% exit NOW",
                         )
                         PipelineHealthCollector.labelInc("QUICK_RUNNER_EMERGENCY_FULL_EXIT")
                     } catch (_: Throwable) {}
-                    onLog("🚀🚀 QUICK RUNNER 10x EXIT: ${ts.symbol} +${bestPnl.toInt()}% — bypassing all holds, full exit NOW", ts.mint)
+                    onLog("🚀🚀 QUICK RUNNER 10x EXIT: ${ts.symbol} +${bestPnl.toInt()}% — dual-source confirmed, full exit NOW", ts.mint)
                     doSell(ts, "QUICK_RUNNER_10X_FULL_EXIT", wallet, walletSol)
                     return
-                } else if (bestPnl >= 500.0) {
+                } else if (bothConfirm6x) {
                     try {
                         ForensicLogger.lifecycle(
                             "QUICK_RUNNER_EMERGENCY_BANK_95PCT",
-                            "mint=${ts.mint.take(10)} sym=${ts.symbol} bestPnl=${bestPnl.fmt(1)}% reason=operator_6x_bank_bypass_holds — bank 95% NOW",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} bestPnl=${bestPnl.fmt(1)}% livePnl=${livePnlFmt}% cachedPnl=${cachedPnlFmt}% reason=operator_6x_bank_bypass_holds_dual_confirmed_6245 — bank 95% NOW",
                         )
                         PipelineHealthCollector.labelInc("QUICK_RUNNER_EMERGENCY_BANK_95PCT")
                     } catch (_: Throwable) {}
-                    onLog("🚀 QUICK RUNNER 6x BANK: ${ts.symbol} +${bestPnl.toInt()}% — bypassing holds, banking 95%", ts.mint)
+                    onLog("🚀 QUICK RUNNER 6x BANK: ${ts.symbol} +${bestPnl.toInt()}% — dual-source confirmed, banking 95%", ts.mint)
                     // Use standard doSell (full path) — the sell size fraction is
                     // applied inside the executor's normal sell handler based on
                     // remaining position. This is treated as effectively-full
