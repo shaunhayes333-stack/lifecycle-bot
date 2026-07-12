@@ -1,3 +1,62 @@
+## V5.0.6246 — 2026-02 — DEAD TOKEN QUARANTINE: permanent skip for unsellable ghosts
+
+  Operator directive (with V5.0.6245 AATE report): "its got stuck tokens.
+  dont fixate on that just quarantine them permanently if the bot cant
+  sell them."
+
+  V5.0.6245 report showed three RECOVERED_* ghosts (2xKQg4 / sMYyVK /
+  Gja5Ev) with basis=ENTRY_PRICE_INVALID and route=UNKNOWN blowing up
+  the runtime:
+    * avgCycle=18287ms max=165867ms (165s max) — reconciler re-probed
+      the dead mints every loop and PriceResolverFallback drained all
+      sources in the hot path.
+    * ANR_HINTS=7 stall=78s (5.8% of uptime) — main thread jammed.
+    * OPEN_PNL_BASIS_REJECTED reason=ENTRY_PRICE_INVALID fired ~6× per
+      cycle per ghost (log + forensic ring flood).
+    * 3 of 4 "open" slots occupied by ghosts (hostTracker=4).
+    * EXIT_COORDINATOR_UNIVERSAL_START ageMs=97397 — 97s lock.
+
+  Fix: DeadTokenQuarantine side-band gate. HostWalletTokenTracker state
+  is untouched (rows stay diagnostic) but every hot path now consults
+  isDead(mint) and skips:
+
+    NEW  DeadTokenQuarantine.kt — persistent set of permanently-dead
+         mints (SharedPreferences). recordStrike(mint, reason) increments
+         a per-mint counter; at STRIKE_THRESHOLD (30) blacklisted rejects
+         the mint is permanently added to the dead set. markDead() is a
+         manual quarantine hook. statusLine() surfaces in AATE report.
+
+    WIRED
+      * OpenPnlSanity.reject → threads mint through, calls recordStrike,
+        SUPPRESSES emit for already-dead mints (kills the log flood).
+      * LiveWalletReconciler.reconcile balance loop → skip dead mints
+        BEFORE PriceResolverFallback (kills the per-cycle price burn).
+      * HostWalletTokenTracker.isCapCountable → false for dead mints
+        (slot frees, bot can keep buying).
+      * BotService.onCreate → loads persistent dead set on boot.
+      * ReportingHub → V5.0.6246_DEAD_TOKEN_QUARANTINE report line.
+
+  Executor.kt: 9 inspect/inspectPosition callsites in the exit hot path
+  now pass mint = ts.mint so the strike counter can advance.
+
+  Ships in two commits:
+    28694df8f  V5.0.6246 — DEAD TOKEN QUARANTINE (initial)
+    43375463d  V5.0.6246 hotfix — fully qualify PipelineHealthCollector
+               in sell/LiveWalletReconciler (the sell subpackage did
+               not have the shorter reference in scope)
+
+  Zero GoldenTapeRegressionTest.kt literal changes.
+  CI Build APK GREEN on the hotfix.
+
+  Verification (owner): next AATE report should show
+    * V5.0.6246_DEAD_TOKEN_QUARANTINE line with dead>=3 after the three
+      RECOVERED_* ghosts collect enough strikes (~1-2 minutes of runtime).
+    * OPEN_PNL_BASIS_REJECTED_SUPPRESSED_DEAD_TOKEN counter climbing.
+    * LIVE_WALLET_RECONCILER_SKIP_DEAD_TOKEN counter climbing.
+    * hostTracker drops from 4 to ~1 (only Clove counted).
+    * avgCycle drops back under 10s, ANR_HINTS back under 5/hr.
+
+
 ## V5.0.6245 — 2026-02 — DATA INTEGRITY: kill phantom-tick QUICK_RUNNER exits
 
   Operator report + screenshot: journal showed
