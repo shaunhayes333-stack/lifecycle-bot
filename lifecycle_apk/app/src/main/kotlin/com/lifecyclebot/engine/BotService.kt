@@ -5627,7 +5627,11 @@ class BotService : Service() {
         // V5.0.6239 — backfill LiveWinDNAStore from TokenWinMemory so the
         // AGI/LLM/SSI/meta-cog/sentience brains have a populated corpus at
         // boot instead of waiting for the next win. Fails silent.
+        // V5.0.6244 — wrap the backfill in beginBulk()/endBulk() so we
+        // persist ONCE at the end instead of firing the full 500-row JSON
+        // write on every capture() (previously stalled boot).
         try {
+            com.lifecyclebot.engine.LiveWinDNAStore.beginBulk()
             val winners = TokenWinMemory.getAllSaneWinners()
             var backfilled = 0
             winners.forEach { w ->
@@ -5649,7 +5653,10 @@ class BotService : Service() {
                 } catch (_: Throwable) {}
             }
             if (backfilled > 0) addLog("🧬 LiveWinDNAStore backfilled $backfilled winners from TokenWinMemory")
-        } catch (_: Throwable) {}
+        } catch (_: Throwable) {
+        } finally {
+            try { com.lifecyclebot.engine.LiveWinDNAStore.endBulk() } catch (_: Throwable) {}
+        }
         
         // Initialize HoldingLogicLayer for dynamic position management
         HoldingLogicLayer.init(applicationContext)

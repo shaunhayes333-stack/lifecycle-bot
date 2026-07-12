@@ -162,18 +162,25 @@ object LaneBucketPivot {
     }
 
     private fun winnerMeanForBucket(laneU: String, score: Int): Pair<Double, Int> {
-        // LiveWinDNAStore doesn't currently store entry-score directly for all
-        // rows (backfill rows have score=0). Best-effort: aggregate by lane
-        // only when score matches an occupied band; otherwise fall through to
-        // lane-level average for the band.
+        // V5.0.6244 — allow backfilled rows (entryScore=0) to count for the
+        // lane-level average. Previously the score>0 filter starved the
+        // PROVEN_WINNER / DEEP_WINNER branch, so LaneBucketPivot was
+        // trim-only (report showed pressed=0 across the whole session).
+        // Now we prefer band-matched rows when present, fall back to
+        // score-tagged lane rows, and finally to any lane row (backfill
+        // included) so a proven lane can still press winners.
         return try {
-            val rows = LiveWinDNAStore.topByPnl(500)   // whole corpus
+            val rows = LiveWinDNAStore.topByPnl(500)   // memoised snapshot
             val laneRows = rows.filter { it.lane.uppercase() == laneU || it.phase.uppercase() == laneU }
             val bandRows = laneRows.filter { r ->
                 val s = r.entryScore
                 s > 0 && (s / BUCKET_WIDTH) * BUCKET_WIDTH == (score / BUCKET_WIDTH) * BUCKET_WIDTH
             }
-            val useRows = if (bandRows.size >= 2) bandRows else laneRows
+            val useRows = when {
+                bandRows.size >= 2 -> bandRows
+                laneRows.size >= 2 -> laneRows
+                else -> emptyList()
+            }
             if (useRows.size < 2) 0.0 to 0
             else useRows.map { it.pnlPct }.average() to useRows.size
         } catch (_: Throwable) { 0.0 to 0 }

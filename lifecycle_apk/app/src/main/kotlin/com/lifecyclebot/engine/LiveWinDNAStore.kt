@@ -2,14 +2,22 @@ package com.lifecyclebot.engine
 
 import android.content.Context
 import android.content.SharedPreferences
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * LIVE WIN DNA STORE — V5.0.6238
+ * LIVE WIN DNA STORE — V5.0.6238 (V5.0.6244 perf pass)
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  * Captures the FULL fingerprint of every winning close so the AGI / LLM /
@@ -23,8 +31,14 @@ import java.util.concurrent.atomic.AtomicLong
  *   • Persists across restarts (SharedPreferences JSON, capped at MAX_ROWS).
  *   • Fed automatically from TokenWinMemory.recordTradeOutcome on every win.
  *
- * The intent per operator directive: transfer good learning + good behaviour
- * so paper-mode wins compound into a live-mode advantage.
+ * V5.0.6244 — performance triage after "hundreds of ANRs over hours":
+ *   • topByPnl() now returns a memoised snapshot (invalidated on capture());
+ *     the previous impl sorted 500 rows on every call site, and LaneBucketPivot
+ *     was calling it on every lane eval.
+ *   • persist() is now debounced through an IO-scoped coroutine so a hot
+ *     streak of wins can no longer stall the caller thread.
+ *   • beginBulk()/endBulk() suppresses the 500× persist storm the BotService
+ *     backfill triggered at boot.
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 object LiveWinDNAStore {
@@ -33,6 +47,7 @@ object LiveWinDNAStore {
     private const val PREFS_NAME = "live_win_dna_v6238"
     private const val KEY_ROWS = "rows"
     private const val MAX_ROWS = 500   // cap the corpus so persistence stays cheap
+    private const val PERSIST_DEBOUNCE_MS = 5_000L
 
     data class WinDNA(
         val mint: String,
@@ -87,11 +102,38 @@ object LiveWinDNAStore {
     private val rows = ConcurrentHashMap<String, WinDNA>()    // key = "mint:ts"
     private val loaded = AtomicLong(0L)
 
+    // V5.0.6244 — bulk-load guard and debounced persist state
+    private val bulkLoadDepth = java.util.concurrent.atomic.AtomicInteger(0)
+    private val persistDirty = AtomicBoolean(false)
+    private val persistJob = AtomicReference<Job?>(null)
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    // V5.0.6244 — memoised top-by-pnl snapshot (invalidated on capture()).
+    // LaneBucketPivot/AGI layers query top-K on every lane eval; the prior
+    // impl sorted 500 rows per call.
+    private val topSortedSnapshot = AtomicReference<List<WinDNA>?>(null)
+
     fun init(context: Context) {
         ctx = context.applicationContext
         prefs = ctx?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         load()
+        invalidateSnapshots()
         try { ErrorLogger.info(TAG, "🧬 LiveWinDNAStore initialised — ${rows.size} winning fingerprints loaded") } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.6244 — suspend persist() during a bulk hydrate/backfill.
+     * BotService.onCreate backfills 500 winners in a tight loop; before this
+     * guard, each capture() persisted the entire 500-row JSON blob on the
+     * caller thread, stalling app start.
+     */
+    fun beginBulk() { bulkLoadDepth.incrementAndGet() }
+    fun endBulk() {
+        if (bulkLoadDepth.decrementAndGet() <= 0) {
+            bulkLoadDepth.set(0)
+            invalidateSnapshots()
+            schedulePersist()
+        }
     }
 
     /** Called from TokenWinMemory on every WINNING close. */
@@ -114,13 +156,26 @@ object LiveWinDNAStore {
         )
         rows["${mint}:${now}"] = dna
         trimIfOverCap()
-        persist()
+        invalidateSnapshots()
+        if (bulkLoadDepth.get() <= 0) schedulePersist()
         try { ForensicLogger.lifecycle("LIVE_WIN_DNA_CAPTURED_6238", "sym=$symbol lane=$lane setup=$entrySetup pnl=${"%.1f".format(pnlPct)}% mode=$paperOrLive") } catch (_: Throwable) {}
     }
 
-    /** Best K winning fingerprints by PnL — for AGI/LLM query. */
-    fun topByPnl(k: Int = 25): List<WinDNA> =
-        rows.values.sortedByDescending { it.pnlPct }.take(k)
+    /**
+     * Best K winning fingerprints by PnL — for AGI/LLM query.
+     * V5.0.6244 — returns a memoised sorted snapshot; only rebuilt on
+     * capture() / init(). LaneBucketPivot.sizeShape() is called per lane
+     * eval and used to sort 500 rows every time.
+     */
+    fun topByPnl(k: Int = 25): List<WinDNA> {
+        val cached = topSortedSnapshot.get()
+        val list = if (cached != null) cached else {
+            val fresh = rows.values.sortedByDescending { it.pnlPct }
+            topSortedSnapshot.compareAndSet(null, fresh)
+            fresh
+        }
+        return if (k >= list.size) list else list.take(k)
+    }
 
     /** Winning-setup histogram (setup name → count, avgPnl). AGI layers use this. */
     fun setupFrequency(minCount: Int = 2): List<Triple<String, Int, Double>> {
@@ -201,7 +256,30 @@ object LiveWinDNAStore {
     }
 
     // ─── persistence ─────────────────────────────────────────────────────────
-    private fun persist() {
+
+    /**
+     * V5.0.6244 — mark dirty and schedule ONE debounced write. Coalesces
+     * the previous "persist on every capture()" storm into a single IO
+     * write every PERSIST_DEBOUNCE_MS.
+     */
+    private fun schedulePersist() {
+        persistDirty.set(true)
+        val existing = persistJob.get()
+        if (existing != null && existing.isActive) return
+        val job = scope.launch {
+            try {
+                delay(PERSIST_DEBOUNCE_MS)
+                if (persistDirty.compareAndSet(true, false)) {
+                    persistNow()
+                }
+            } finally {
+                persistJob.compareAndSet(persistJob.get(), null)
+            }
+        }
+        persistJob.set(job)
+    }
+
+    private fun persistNow() {
         val p = prefs ?: return
         try {
             val arr = JSONArray()
@@ -231,6 +309,14 @@ object LiveWinDNAStore {
         oldest.forEach { rows.remove("${it.mint}:${it.ts}") }
     }
 
+    private fun invalidateSnapshots() {
+        topSortedSnapshot.set(null)
+    }
+
     fun size(): Int = rows.size
-    fun reset() { rows.clear(); persist() }
+    fun reset() {
+        rows.clear()
+        invalidateSnapshots()
+        schedulePersist()
+    }
 }

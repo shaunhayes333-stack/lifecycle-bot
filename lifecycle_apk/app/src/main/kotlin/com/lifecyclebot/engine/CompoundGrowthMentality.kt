@@ -94,34 +94,50 @@ object CompoundGrowthMentality {
         val consecLosses = t.consecLosses
         val corpus = t.corpus
 
+        // V5.0.6244 — RECLAIM_MODE. Prior logic slammed the bot into
+        // DEFENSIVE_HOLD after a natural 26.7% pullback from an all-time
+        // high even though the underlying engine WR was 49% and PF 7.0.
+        // Result: compound×=0.70, growth=0.06 — the healthy engine got
+        // brake-locked. Reclaim mode softens the defensive tilt when the
+        // engine's actually still winning through a normal drawdown so
+        // the pullback becomes a re-compound instead of a stall.
+        val isReclaimMode = wr >= 0.45 && ddPct >= 10.0 && ddPct <= 40.0 && corpus >= 20 && consecLosses <= 4
+
         // ── Bias axes ────────────────────────────────────────────────────────
         val growthFromWR = ((wr - 0.30) / 0.60).coerceIn(0.0, 1.0)    // WR 30% → 0.0 ; WR 90% → 1.0
         val growthFromCorpus = min(1.0, corpus / 50.0)                // 50 winning fingerprints → full corpus press
-        val growthPenaltyDD = 1.0 - min(1.0, ddPct / 30.0)             // 30% dd wipes growth press
+        val ddDenom = if (isReclaimMode) 60.0 else 30.0               // reclaim halves the DD penalty
+        val growthPenaltyDD = 1.0 - min(1.0, ddPct / ddDenom)
         val growthPenaltyStreak = 1.0 - min(1.0, consecLosses / 8.0)   // 8 consec losses wipes growth press
-        val biasGrowth = ((0.60 * growthFromWR) + (0.20 * growthFromCorpus) + 0.20)
+        val biasGrowthRaw = ((0.60 * growthFromWR) + (0.20 * growthFromCorpus) + 0.20)
             .coerceIn(0.0, 1.0) * growthPenaltyDD * growthPenaltyStreak
+        val biasGrowth = if (isReclaimMode) max(0.30, biasGrowthRaw) else biasGrowthRaw
 
         val defensiveFromDD = min(1.0, ddPct / 20.0)
         val defensiveFromStreak = min(1.0, consecLosses / 5.0)
         val defensiveFloor = 0.30                                     // always ≥30% defensive tilt
-        val biasDefensive = max(defensiveFloor, max(defensiveFromDD, defensiveFromStreak))
+        val biasDefensiveRaw = max(defensiveFloor, max(defensiveFromDD, defensiveFromStreak))
             .coerceIn(0.0, 1.0)
+        // In reclaim mode we cap defensive so it never crushes the growth press.
+        val biasDefensive = if (isReclaimMode) min(0.70, biasDefensiveRaw) else biasDefensiveRaw
 
         // ── Compound factor: press winners when the edge is proven ───────────
-        val compoundFactor = when {
+        val compoundFactorRaw = when {
             wr >= 0.70 && ddPct < 10.0 && corpus >= 20 -> 1.50
             wr >= 0.60 && ddPct < 15.0                 -> 1.25
             wr >= 0.50 && ddPct < 20.0                 -> 1.10
             wr >= 0.35 && ddPct < 25.0                 -> 1.00
             else                                       -> 0.70
         }
+        // Reclaim floor: healthy engine on a normal drawdown never drops below 0.85.
+        val compoundFactor = if (isReclaimMode) max(0.85, compoundFactorRaw) else compoundFactorRaw
 
         // ── Drawdown reserve: how much to trim while under water ─────────────
         val ddReserveFactor = (1.0 - (ddPct / 60.0)).coerceIn(0.55, 1.0)
 
         val mentalityTag = when {
             biasGrowth >= 0.75 && biasDefensive <= 0.40 -> "COMPOUND_PRESS"
+            isReclaimMode                               -> "RECLAIM_MODE"
             biasGrowth >= 0.55 && biasDefensive <= 0.55 -> "GROWTH_BIAS"
             biasGrowth >= 0.35                          -> "STEADY_COMPOUND"
             biasDefensive >= 0.70                       -> "DEFENSIVE_HOLD"
