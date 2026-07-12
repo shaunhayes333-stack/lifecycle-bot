@@ -1,5 +1,36 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## Session (Feb 2026) — V5.0.6245 SHIPPED · Build GREEN ✅ (Data Integrity Fix)
+
+Operator (with journal screenshot): "the red sell showed up 1000% and the
+green 6x. thats inexcusable. we need proper data integrity if the bot
+thinks its up 10x but then sells at an 11% loss thats a massive hole."
+
+Screenshot showed two LIVE closes stamped with QUICK_RUNNER tags but at
+actual PnL that couldn't possibly have triggered them:
+  QUICK_RUNNER_10X_FULL_ = -17.9%  /  QUICK_RUNNER_6X_BANK_9 = +11.0%
+
+Root cause: Executor.kt quote-outage block built candidates=[livePnl,
+cachedPnl] where livePnl was route-locked via getActualPrice() but
+cachedPnl was read from raw `ts.lastPrice` with no route-lock. A cross-
+source phantom WS tick spiked cachedPnl to +1000% while the real route
+was at +11%. `bestPnl = candidates.max()` picked the phantom and fired
+the runner-exit; real sell filled at real market → mislabeled journal
+row. **The bot never actually saw 10x on a real sellable route.**
+
+Fixes shipped (Executor.kt line 6175-6315):
+  1. cachedOnRoute guard: cachedPnl only contributes when the tick source
+     matches the entry route stamp for LIVE positions.
+  2. QUICK_RUNNER dual-source confirmation: 10x needs bestPnl≥1000% AND
+     livePnl≥700% (or livePnl NaN with on-route cachedPnl≥1000%). 6x
+     mirrors at 500/350. Divergent triggers get logged as
+     PRICE_DIVERGENCE_QUICK_RUNNER_BLOCK_6245 and fall through.
+
+Result: real 10x/6x runs still bank correctly (both sources agree during
+a genuine pump); phantom-tick fires can no longer produce mislabeled
+journal rows. Journal audit integrity restored.
+
+
 ## Session (Feb 2026) — V5.0.6244 SHIPPED · Build GREEN ✅
 
 Operator: "if I let it run for hours it ends up frozen out via hundreds of

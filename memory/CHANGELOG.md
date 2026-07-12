@@ -1,3 +1,49 @@
+## V5.0.6245 — 2026-02 — DATA INTEGRITY: kill phantom-tick QUICK_RUNNER exits
+
+  Operator report + screenshot: journal showed
+      Hoodtards · QUICK_RUNNER_10X_FULL_  =  -17.9%  /  -$0.10
+      rubenhood · QUICK_RUNNER_6X_BANK_9  =  +11.0%  /  +$0.06
+  "the red sell showed up 1000% and the green 6x. thats inexcusable.
+   we need proper data integrity if the bot thinks its up 10x but then
+   sells at an 11% loss thats a massive hole."
+
+  Root cause (Executor.kt line 6180-6183): the quote-outage backstop built
+  `candidates = [livePnl, cachedPnl]` where livePnl was route-locked via
+  `getActualPrice()` but cachedPnl was read from raw `ts.lastPrice` with
+  no route-lock. `bestPnl = candidates.max()` picked whichever was higher.
+  When a cross-source WS tick (wrong pool / DEX / phantom quote) landed
+  on `ts.lastPrice`, cachedPnl spiked to +1000% while the actual route
+  was still at +11%. QUICK_RUNNER_10X_FULL_EXIT fired, the real sell
+  filled at real market, journal correctly recorded the real PnL but
+  stamped with the phantom tag.
+
+  Fix (two-layer):
+    1. cachedOnRoute guard: cachedPnl only contributes when
+       `ts.lastPriceSource == pos.entryPriceSource` for LIVE positions
+       with a real entry stamp. Off-route ticks yield CACHED_OFF_ROUTE_6245
+       verdict, cachedPnl=NaN. Paper/blank/symbolic-recovery unchanged.
+    2. QUICK_RUNNER dual-source confirmation: 10x fires only when
+       bestPnl>=1000% AND (livePnl>=700% OR livePnl NaN with cachedPnl
+       on-route>=1000%). 6x mirrors at 500/350. Any bestPnl>=500 failing
+       both gates logs PRICE_DIVERGENCE_QUICK_RUNNER_BLOCK_6245 with
+       both PnLs + both source stamps, then falls through to normal
+       exit logic.
+
+  Real runners still trigger (both sources agree on a real pump);
+  phantom-tick fires are suppressed. Journal will no longer stamp
+  QUICK_RUNNER_10X_FULL_EXIT on positions that closed at loss/scratch.
+
+  Files touched: Executor.kt (single hot-path block, +53/-7).
+  Zero GoldenTapeRegressionTest.kt literal changes.
+  CI Build APK GREEN. Runtime Smoke Test in progress at hand-off.
+
+  Verification (owner): next AATE report should show
+    * PRICE_DIVERGENCE_QUICK_RUNNER_BLOCK counter reflecting suppressed
+      phantom triggers (any nonzero value confirms fix is firing)
+    * Any journal row with QUICK_RUNNER_*_EXIT tag should have a PnL
+      that matches the tag (>=500% for 6x, >=1000% for 10x)
+
+
 ## V5.0.6244 — 2026-02 — ANR compounding fix + WR reclaim path
 
   Operator report: "if I let it run for hours it ends up frozen out via
