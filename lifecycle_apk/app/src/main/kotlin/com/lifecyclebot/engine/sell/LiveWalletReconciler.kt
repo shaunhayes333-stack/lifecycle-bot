@@ -323,7 +323,7 @@ object LiveWalletReconciler {
             // "all price sources failed for X…" every cycle and burned main-
             // thread time on dead RECOVERED_* rows.
             if (try { com.lifecyclebot.engine.DeadTokenQuarantine.isDead(mint) } catch (_: Throwable) { false }) {
-                try { PipelineHealthCollector.labelInc("LIVE_WALLET_RECONCILER_SKIP_DEAD_TOKEN") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_WALLET_RECONCILER_SKIP_DEAD_TOKEN") } catch (_: Throwable) {}
                 continue
             }
             val (uiAmount, decimals) = pair
