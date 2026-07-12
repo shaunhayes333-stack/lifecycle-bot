@@ -15820,7 +15820,37 @@ class Executor(
             // back to maxPositionSol (default 0.15 SOL). That makes paper PnL/impact
             // too small to teach live sizing. Use 10% of configured paper bankroll as
             // the universal paper-learning cap, bounded to a sane 2 SOL ceiling.
-            maxOf(legacyMax, (c.paperSimulatedBalance * 0.10).coerceIn(legacyMax, 2.0))
+            //
+            // V5.0.6243 — WALLET COMPOUNDING FEEDBACK. Operator: "wallet balance
+            // isnt growing it just opens more positions". Root cause: sizing read
+            // a STATIC paperSimulatedBalance value, so realized wins never folded
+            // back into position sizing. Now we multiply by compoundGrowthFactor()
+            // which returns (baseBankroll + realizedCleanPnl)/baseBankroll clamped
+            // to [1.0, 20.0]. As paper PnL accumulates, the ceiling rises — so
+            // BLUECHIP compounding runners (which have printed +67 SOL at 69% WR)
+            // can actually size up into the compounding curve instead of being
+            // clamped at 2.0 SOL forever.
+            val baseCap = maxOf(legacyMax, (c.paperSimulatedBalance * 0.10).coerceIn(legacyMax, 2.0))
+            val growth = compoundGrowthFactor()
+            (baseCap * growth).coerceIn(baseCap, 40.0)
+        } catch (_: Throwable) { 1.0 }
+    }
+
+    /**
+     * V5.0.6243 — compound-growth wallet feedback for sizing.
+     * Returns (paperSimulatedBalance + realizedCleanPnl) / paperSimulatedBalance
+     * clamped to [1.0, 20.0]. Fail-open (returns 1.0) on any read failure so
+     * sizing never breaks.
+     */
+    private fun compoundGrowthFactor(): Double {
+        return try {
+            val c = cfg()
+            val base = c.paperSimulatedBalance.takeIf { it.isFinite() && it > 0.0 } ?: return 1.0
+            val realized = try {
+                TradeHistoryStore.getCleanStatsSnapshot4517().totalPnlSol
+            } catch (_: Throwable) { 0.0 }
+            val effective = (base + realized).coerceAtLeast(base)
+            (effective / base).coerceIn(1.0, 20.0)
         } catch (_: Throwable) { 1.0 }
     }
 
