@@ -468,6 +468,21 @@ object ReportingHub {
         // un-dampens proven-winner lanes so BLUECHIP no longer gets throttled
         // to 0.55× while it's the only profitable live lane.
         appendLine(safe("live_lane_governor") { com.lifecyclebot.engine.LiveLaneGovernor.statusLine() })
+        // V5.0.6248 — Learning Progress Truth Diagnostic.
+        // Operator reported the Fluid Dashboard displaying 13% BOOTSTRAP
+        // despite thousands of trades. Surface both the doctrine-canonical
+        // journal count (totalSells / 5000) and the FluidLearningAI
+        // internal progress so we can see if the two ever disagree, and
+        // by how much, in every report.
+        appendLine(safe("learning_progress_diagnostic") {
+            val sells = com.lifecyclebot.engine.TradeHistoryStore.getJournalClosedTradeCount()
+            val journalPct = com.lifecyclebot.engine.TradeHistoryStore.getJournalLearningProgress(5000) * 100.0
+            val flaPct = try { com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() * 100.0 } catch (_: Throwable) { -1.0 }
+            val life = try { com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats() } catch (_: Throwable) { null }
+            val lifeSells = life?.totalSells ?: 0
+            val lifeWr = life?.winRate ?: 0.0
+            "V5.0.6248_LEARNING_PROGRESS_TRUTH: journalSells=$sells journalPct=${"%.1f".format(journalPct)}%  flaPct=${"%.1f".format(flaPct)}%  lifetimeSells=$lifeSells lifetimeWR=${"%.1f".format(lifeWr)}%  (dashboard uses journalPct from 6248)"
+        })
 
         appendLine("PatternAutoTuner: ${safe("pattern_auto_tuner") { PatternAutoTuner.getStatus() }}")
         safe("pattern_auto_tuner_details") {

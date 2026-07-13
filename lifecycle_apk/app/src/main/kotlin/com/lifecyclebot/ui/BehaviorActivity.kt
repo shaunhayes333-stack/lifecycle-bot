@@ -868,7 +868,26 @@ class BehaviorActivity : AppCompatActivity() {
         val tvFooter = findViewById<TextView>(R.id.tvFluidFooter)
 
         val fla = com.lifecyclebot.v3.scoring.FluidLearningAI
-        val progress = safe { fla.getLearningProgress() } ?: 0.0
+        // V5.0.6248 — DASHBOARD PROGRESS TRUTH FIX.
+        // Operator (2026-07-13): "bot has over 4400 trades. fluid dashboard
+        // in the tuning tab says learning is at 13%. thats impossible!"
+        //
+        // Root cause: FluidLearningAI.getLearningProgress() blends a
+        // WR-earned ceiling and session-only WR dampener on top of the
+        // journal count. With low rolling WR (25.3% regime, 17% recent)
+        // the multi-stage clamp collapses the display to ~13% BOOTSTRAP
+        // even though the journal holds 1397 lifetime sells (Phase 2
+        // Mature per doctrine curve).
+        //
+        // Fix: display the doctrine-canonical journal progress
+        // (totalSells / 5000, no WR magic) as the primary value AND
+        // append the raw sell count so the operator can verify the
+        // number is truthful at a glance. FluidLearningAI's internal
+        // progress is still used by the ML gates — this only fixes the
+        // UI's meaning-of-life for the operator.
+        val journalProgress = safe { com.lifecyclebot.engine.TradeHistoryStore.getJournalLearningProgress(5000) } ?: 0.0
+        val journalSells = safe { com.lifecyclebot.engine.TradeHistoryStore.getJournalClosedTradeCount() } ?: 0
+        val progress = journalProgress
         val mktProgress = safe { fla.getMarketsLearningProgress() } ?: 0.0
         val phase = when {
             progress < 0.20 -> "BOOTSTRAP"
@@ -876,7 +895,7 @@ class BehaviorActivity : AppCompatActivity() {
             progress < 0.90 -> "MATURING"
             else -> "EXPERT"
         }
-        tvProgress.text = "$phase · ${(progress * 100).toInt()}%"
+        tvProgress.text = "$phase · ${(progress * 100).toInt()}% · $journalSells trades"
         tvProgress.setTextColor(when (phase) {
             "BOOTSTRAP" -> 0xFFFCD34D.toInt()
             "LEARNING" -> 0xFF60A5FA.toInt()
