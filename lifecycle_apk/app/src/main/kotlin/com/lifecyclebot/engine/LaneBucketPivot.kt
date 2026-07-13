@@ -98,6 +98,46 @@ object LaneBucketPivot {
         return "V5.0.6240_LANE_BUCKET_PIVOT: buckets=${recentShapes.size} pressed=$proven trimmed=$toxic cautious=$cautious"
     }
 
+    /**
+     * V5.0.6249 — HARD VETO for proven-toxic buckets.
+     *
+     * Operator (2026-07-13, V5.0.6247 report): "winrates dropped off badly
+     * in paper. under 50% and rolling at 17%".
+     *
+     * Report showed 7 LosingPatternMemory buckets with 14-72 losses each
+     * (MOONSHOT|S41-60 72L/99 72.7%, SHITCOIN|S0-10 25L/34 73%, TREASURY|
+     * S0-10 20L/21 95%, EXPRESS|S0-10 14L/14 100%, BLUECHIP|S0-10 17L/21
+     * 81%, PROJECT_SNIPER|S0-19 45L/53 85%). LaneBucketPivot trimmed
+     * exactly ONE (PRESALE_SNIPE) because everything else was covered by
+     * `asymmetric_runner_exempt_6068` in LiveStrategyTuner which held
+     * MOONSHOT/SHITCOIN at size×=1.00 despite 17-19% WR.
+     *
+     * Doctrine says LaneBucketPivot never blocks — but the trims are
+     * being ignored by exempt tactics. shouldVeto is a NEW harder gate
+     * the caller MUST honour: when a bucket has ≥15 losses AND
+     * ≥60% loss rate AND mean PnL ≤ -15%, we block new BUYs entirely.
+     * Not advisory. Real-money buckets keep bleeding otherwise.
+     */
+    fun shouldVeto(lane: String, score: Int): Pair<Boolean, String> {
+        val laneU = lane.uppercase()
+        val s = try { LosingPatternMemory.stats(laneU, score) } catch (_: Throwable) { return false to "" }
+        val sample = s.sample
+        val losses = s.losses
+        if (sample < 20) return false to ""
+        val lossRate = if (sample > 0) losses.toDouble() / sample else 0.0
+        val meanPnl = s.meanPnl
+        val catastrophic = losses >= 15 && lossRate >= 0.60 && meanPnl <= -15.0
+        if (!catastrophic) return false to ""
+        val band = bandFor(score)
+        val reason = "TOXIC_BUCKET_HARD_VETO_6249 bucket=${laneU}|$band losses=$losses sample=$sample lossRate=${"%.0f".format(lossRate * 100.0)}% meanPnl=${"%.0f".format(meanPnl)}%"
+        try {
+            ForensicLogger.lifecycle("TOXIC_BUCKET_HARD_VETO_6249", reason)
+            PipelineHealthCollector.labelInc("TOXIC_BUCKET_HARD_VETO_6249")
+            PipelineHealthCollector.labelInc("TOXIC_BUCKET_HARD_VETO_${laneU}_${band}")
+        } catch (_: Throwable) {}
+        return true to reason
+    }
+
     fun reportBlock(): String {
         if (recentShapes.isEmpty()) return "  (no lane×bucket pivots observed yet)"
         val sb = StringBuilder()

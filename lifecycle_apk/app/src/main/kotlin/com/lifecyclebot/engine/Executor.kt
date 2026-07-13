@@ -10493,6 +10493,24 @@ class Executor(
                 "mint=${ts.mint.take(10)} sol=${"%.4f".format(sol)} score=${"%.1f".format(score)} q=$quality src=paperBuy.entry",
             )
         } catch (_: Throwable) {}
+
+        // V5.0.6249 — HARD VETO on proven-toxic buckets (paper path).
+        // Operator report shows paper WR crashed to 25.3% rolling because
+        // LiveStrategyTuner's asymmetric_runner_exempt held MOONSHOT and
+        // SHITCOIN at size×=1.00 despite 17-19% live/paper WR. The
+        // advisory LaneBucketPivot trims were ignored. Hard-block new
+        // paper buys into buckets with ≥15 losses AND ≥60% loss rate AND
+        // meanPnl ≤ -15%. Same gate as the live path so the paper
+        // simulation trains against the same forward rules.
+        run {
+            val laneTag = try { ts.position.tradingMode.ifBlank { "STANDARD" } } catch (_: Throwable) { "STANDARD" }
+            val bucketVeto = try { com.lifecyclebot.engine.LaneBucketPivot.shouldVeto(laneTag, score.toInt()) } catch (_: Throwable) { false to "" }
+            if (bucketVeto.first) {
+                try { ForensicLogger.lifecycle("PAPER_BUY_TOXIC_BUCKET_HARD_VETO_6249", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag score=${score.toInt()} detail=${bucketVeto.second.take(160)}") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("PAPER_BUY_TOXIC_BUCKET_HARD_VETO_6249") } catch (_: Throwable) {}
+                return
+            }
+        }
         PipelineTracer.executorStart(ts.symbol, ts.mint, "PAPER", sol)
 
         // V5.9.771 — EMERGENT-MEME #4: hard guard against paper buys
@@ -12193,6 +12211,21 @@ class Executor(
             if (runtimePaper || paperFlag || shadowFlag) return liveAbortDesync("mode=LIVE runtimePaper=$runtimePaper alreadyOpen=$alreadyOpenPosition positionPaper=$paperFlag shadow=$shadowFlag")
         }
         liveStage("LIVE_BUY_ENTRY", "sol=${"%.4f".format(sol)} score=${"%.1f".format(score)} quality=$quality")
+
+        // V5.0.6249 — HARD VETO on proven-toxic buckets.
+        // LaneBucketPivot's advisory trims were ignored by
+        // asymmetric_runner_exempt_6068 in LiveStrategyTuner, letting
+        // MOONSHOT/SHITCOIN bleed at 17-19% WR full-size. shouldVeto
+        // is a mandatory block for any bucket with ≥15 losses AND
+        // ≥60% loss rate AND meanPnl ≤ -15%.
+        try {
+            val bucketVeto = com.lifecyclebot.engine.LaneBucketPivot.shouldVeto(layerTag, score.toInt())
+            if (bucketVeto.first) {
+                liveStage("LIVE_BUY_ABORTED", "reason=TOXIC_BUCKET_HARD_VETO_6249 detail=${bucketVeto.second.take(160)}")
+                try { emitLiveBuyFail(ts, sol, "TOXIC_BUCKET_HARD_VETO_6249", bucketVeto.second) } catch (_: Throwable) {}
+                return false
+            }
+        } catch (_: Throwable) {}
 
         // V5.0.6247 — LIVE LANE GOVERNOR: hard-pause new BUYS on bleeder lanes.
         // A lane with live n≥20 AND WR<35% AND PF<1.0 blocks buys for 60 min.
