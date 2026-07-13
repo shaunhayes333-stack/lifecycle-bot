@@ -125,6 +125,25 @@ object LiveProbabilityEngine {
         try {
             if (LaneAutoPauseGuard.isPaused(lane)) {
                 val laneU = lane.uppercase()
+                // V5.0.6247 — PROVEN-WINNER UN-DAMPEN. When a lane has earned
+                // live trust (n≥20 AND WR≥50% AND PF≥2.0 in the clean live
+                // terminal leaderboard) it bypasses the paused-lane dampener
+                // entirely and gets the normal forecast path below. Restores
+                // full sizing on lanes like BLUECHIP that were being throttled
+                // to mult=0.55 despite being the profitable live lane.
+                val provenWinner6247 = try {
+                    com.lifecyclebot.engine.LiveLaneGovernor.isProvenWinner(lane)
+                } catch (_: Throwable) { false }
+                if (provenWinner6247) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "LIVE_PROBABILITY_LANE_UNDAMPENED_PROVEN_WINNER_6247",
+                            "lane=$lane override=LiveLaneGovernor.isProvenWinner note=live_wr_and_pf_above_winner_floor_override_pause_guard",
+                        )
+                        PipelineHealthCollector.labelInc("LIVE_PROBABILITY_LANE_UNDAMPENED_PROVEN_WINNER_6247")
+                    } catch (_: Throwable) {}
+                    // Fall through to the normal forecast path below.
+                } else {
                 // Consult AGI signals for override authority
                 val labProven = try {
                     com.lifecyclebot.engine.lab.LlmLabStore.allStrategies()
@@ -156,6 +175,7 @@ object LiveProbabilityEngine {
                     PipelineHealthCollector.labelInc("LIVE_PROBABILITY_LANE_PAUSED_FLUID_${laneU}")
                 } catch (_: Throwable) {}
                 return Edge(lane, 0.35, 0.0, 0.0, 0.0, 0L, agiSrc, agiMult, "fluid_paused_dampener_4596=$agiMult")
+                }   // V5.0.6247 — close provenWinner6247 else-block
             }
         } catch (_: Throwable) {}
         return try {

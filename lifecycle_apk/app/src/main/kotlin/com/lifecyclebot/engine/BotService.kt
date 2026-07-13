@@ -1676,6 +1676,15 @@ class BotService : Service() {
             ErrorLogger.warn("BotService", "DeadTokenQuarantine init error: ${e.message}")
         }
 
+        // V5.0.6247 — LiveLaneGovernor: load persistent per-lane pause state
+        // so a hard-paused bleeder lane stays paused across restarts until
+        // its window expires or shadow-paper proves recovery.
+        try {
+            com.lifecyclebot.engine.LiveLaneGovernor.init(applicationContext)
+        } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "LiveLaneGovernor init error: ${e.message}")
+        }
+
         // V5.9.256: Initialize wallet token memory — persistent journal of all buys
         // Survives restarts/updates; used by StartupReconciler to recover positions
         // that the scanner hasn't re-discovered yet.

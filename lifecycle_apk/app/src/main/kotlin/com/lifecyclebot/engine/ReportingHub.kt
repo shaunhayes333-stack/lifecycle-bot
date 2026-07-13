@@ -463,6 +463,11 @@ object ReportingHub {
         // OPEN_PNL_BASIS_REJECTED strikes it is skipped by the reconciler
         // price probe, the exit sweeps, and no longer occupies a slot cap.
         appendLine(safe("dead_token_quarantine") { com.lifecyclebot.engine.DeadTokenQuarantine.statusLine() })
+        // V5.0.6247 — LiveLaneGovernor: per-lane live PnL/WR/PF gate. Hard-
+        // pauses new BUYS on bleeder lanes (n≥20 AND WR<35% AND PF<1.0) and
+        // un-dampens proven-winner lanes so BLUECHIP no longer gets throttled
+        // to 0.55× while it's the only profitable live lane.
+        appendLine(safe("live_lane_governor") { com.lifecyclebot.engine.LiveLaneGovernor.statusLine() })
 
         appendLine("PatternAutoTuner: ${safe("pattern_auto_tuner") { PatternAutoTuner.getStatus() }}")
         safe("pattern_auto_tuner_details") {

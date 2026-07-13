@@ -12194,6 +12194,33 @@ class Executor(
         }
         liveStage("LIVE_BUY_ENTRY", "sol=${"%.4f".format(sol)} score=${"%.1f".format(score)} quality=$quality")
 
+        // V5.0.6247 — LIVE LANE GOVERNOR: hard-pause new BUYS on bleeder lanes.
+        // A lane with live n≥20 AND WR<35% AND PF<1.0 blocks buys for 60 min.
+        // Existing positions are still managed for exit; this only stops
+        // capital hemorrhage into a proven-losing lane while the AGI stack
+        // and shadow-paper accumulate proof of recovery.
+        try {
+            val laneGov = com.lifecyclebot.engine.LiveLaneGovernor.preBuyBleederPause(layerTag)
+            if (laneGov.first) {
+                liveStage("LIVE_BUY_ABORTED", "reason=LIVE_LANE_HARD_PAUSED_6247 detail=${laneGov.second.take(140)}")
+                try { emitLiveBuyFail(ts, sol, "LIVE_LANE_HARD_PAUSED_6247", laneGov.second) } catch (_: Throwable) {}
+                return false
+            }
+        } catch (_: Throwable) {}
+
+        // V5.0.6247 — FEE-EATER GUARD: skip buys whose requested size cannot
+        // overcome the recent avg fee per trade. On a small wallet the
+        // LAST_MILE_FLOOR sometimes pins buys at a size that can't beat
+        // slippage+fee friction.
+        try {
+            val feeGate = com.lifecyclebot.engine.LiveLaneGovernor.feeEaterGuard(sol)
+            if (feeGate.first) {
+                liveStage("LIVE_BUY_ABORTED", "reason=SIZE_BELOW_FEE_ECONOMIC_FLOOR_6247 detail=${feeGate.second.take(140)}")
+                try { emitLiveBuyFail(ts, sol, "SIZE_BELOW_FEE_ECONOMIC_FLOOR_6247", feeGate.second) } catch (_: Throwable) {}
+                return false
+            }
+        } catch (_: Throwable) {}
+
         // V5.0.3923 — consult dormant entry-quality AIs before any execution
         // work begins. Must run BEFORE ExecutionAttemptLease.acquire below so
         // an advisor-block does not leak a lease. Permissive by design — see
