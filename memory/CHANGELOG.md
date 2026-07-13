@@ -1,3 +1,69 @@
+## V5.0.6247 — 2026-02 — LIVE LANE GOVERNOR: hard-pause bleeders + undampen winners
+
+  Operator directive (V5.0.6246 report): "live trading tuning!!! losing
+  money not making more"
+
+  V5.0.6246 telemetry showed live trading in a bleed spiral:
+    * CleanLiveStrategyTruth: n=66 W/L=20/35 WR=36.4% PnL=-0.0492 SOL
+    * Gate Relaxer liveWR=31.3% (well below 45% floor)
+    * RealizedWalletCompounding: PF=0.75, wallet 0.318 → 0.277 SOL
+    * STANDARD lane: WR=33% n=27 PF=0.75 E=-3.8% — 756 lane_evals though
+    * BLUECHIP lane: WR=65% lifetime +166 SOL — but DAMPENED to mult=0.55
+      via LIVE_PROBABILITY_LANE_PAUSED_FLUID_DAMPENED_4596 (only 151 evals)
+
+  Nothing hard-blocked new BUYS on the losing lane and the LaneAutoPauseGuard
+  was actively throttling the only profitable lane.
+
+  Fix — new LiveLaneGovernor with three levers:
+
+    1. Bleeder hard-pause (Executor.kt liveBuy): lane with live n≥20 AND
+       WR<35% AND PF<1.0 blocks new BUYs for 60 min. Existing positions
+       still managed for exit. Auto-release when window expires.
+       Emits LIVE_LANE_HARD_PAUSED_6247.
+
+    2. Proven-winner un-dampen (LiveProbabilityEngine): lane with live
+       n≥20 AND WR≥50% AND PF≥2.0 bypasses the paused-lane dampener
+       and hits the normal forecast path. Restores full sizing on
+       BLUECHIP.
+       Emits LIVE_PROBABILITY_LANE_UNDAMPENED_PROVEN_WINNER_6247.
+
+    3. Fee-eater guard (Executor.kt liveBuy): skip buys where
+       requestedSol < 3× recent avg fee per trade. LAST_MILE_FLOOR was
+       sometimes pinning buys at fractions that could not overcome
+       slippage+fee friction on a small wallet.
+       Emits SIZE_BELOW_FEE_ECONOMIC_FLOOR_6247.
+
+  Data source: StrategyTelemetry.computeCleanLiveTerminalLeaderboard
+  (canonical live-only PnL rollup) with 30s TTL cache. Pause state
+  persisted via SharedPreferences (live_lane_governor_v6247) so
+  quarantine survives restart. New V5.0.6247_LIVE_LANE_GOVERNOR line
+  surfaces active pauses + avg fee + proven winners in the AATE report.
+
+  Files touched:
+    + engine/LiveLaneGovernor.kt (new)
+    ~ engine/Executor.kt        (hook bleeder + fee guard at LIVE_BUY_ENTRY)
+    ~ engine/LiveProbabilityEngine.kt (bypass dampener for proven winners)
+    ~ engine/BotService.kt      (init at boot)
+    ~ engine/ReportingHub.kt    (append status line)
+
+  Commits:
+    480128644 V5.0.6247 — LIVE LANE GOVERNOR
+
+  Zero GoldenTapeRegressionTest.kt literal changes.
+  CI Build APK GREEN. Runtime Smoke Test in progress at hand-off.
+
+  Verification (owner): next AATE report should show
+    * V5.0.6247_LIVE_LANE_GOVERNOR line with STANDARD listed under
+      active pauses (given the 33% WR the report showed).
+    * BLUECHIP should be listed under winners=[…] if it meets the
+      50%/2.0 criteria on the live-only leaderboard.
+    * LIVE_LANE_HARD_PAUSED_6247 counter climbing for the paused lane.
+    * LIVE_PROBABILITY_LANE_UNDAMPENED_PROVEN_WINNER_6247 counter
+      climbing for BLUECHIP.
+    * Live WR + PF should recover as capital reroutes away from
+      bleeders toward proven winners.
+
+
 ## V5.0.6246 — 2026-02 — DEAD TOKEN QUARANTINE: permanent skip for unsellable ghosts
 
   Operator directive (with V5.0.6245 AATE report): "its got stuck tokens.
