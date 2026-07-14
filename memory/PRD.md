@@ -1,6 +1,95 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
-## Session (Feb 2026) — V5.0.6256 SHIPPED · Build QUEUED (Source-level UI fixes + MEME 2x-5x daily compound)
+## 🔴 P0 CARRIED OVER FOR NEXT SESSION — Paper→Live AGI/SSI training pipe broken
+
+**Operator directive (verbatim)**: "the agi ssi and full intelligence stack is
+meant to basically take everything its learnt training in paper to only make
+winning trades when switched to live"
+
+**Diagnosis from V5.0.6256 op-report (1876 total closes, mode LIVE):**
+
+Three pipes broken:
+
+1. **UnifiedPolicyHead training pipe starving**
+   ```
+   STANDARD       n=22  auth=LEARNED       ← only one that learned
+   AGGRESSIVE     n=5   auth=ADVISORY
+   MEME_GENERIC   n=4   auth=ADVISORY
+   BLUECHIP       n=3   auth=ADVISORY
+   SHITCOIN       n=2   auth=BOOTSTRAP
+   PRESALE_SNIPE  n=1   auth=BOOTSTRAP
+   MOONSHOT       n=1   auth=BOOTSTRAP
+   ```
+   After 1876 closes the per-lane heads should each have hundreds of
+   samples. Something filters paper closes out of UnifiedPolicyHead.update.
+   Also note the BLUECHIP/BLUE_CHIP duplication — the lane label pipe has
+   two spellings coexisting; canonicalise.
+
+2. **LiveWinDNAStore only captures WINS with entrySetup="unknown"**
+   TokenWinMemory line 250-278: capture runs only when isWin=true and
+   hardcodes entrySetup / chartPattern to "unknown". Paper losses never
+   get captured. Paper wins get captured but stripped of pattern signal.
+   That is why the report shows `real=1 topSetup=unknown` after thousands
+   of paper trades.
+
+3. **StrategyHypothesisEngine A/B arms n=0/0**
+   Trade-close → arm-update hook not firing for paper closes. Sell
+   finality lands but no matching h.control.update / h.variant.update.
+
+**What IS working (paper→live already flowing):**
+  - LosingPatternMemory combined cache reads paper+live → feeds Toxic
+    Bucket Veto (V5.0.6249) so paper losses DO block live buys in
+    the same score-band
+  - LiveStrategyTuner reads lifetime lane stats → paper WR/PnL shapes
+    lane sizing (size×=0.40 toxic pivot fires from paper history)
+  - PatternMemory in TokenWinMemory tracks 72 winners across modes
+  - TokenWinMemory tracks 72 winners with 12 repeats
+
+**Fix scope for next session:**
+  a. Trace UnifiedPolicyHead.update() call sites in Executor / BotService
+     sell path. Confirm paper closes reach it. Remove any mode filter.
+     Consider retroactive one-shot training from TradeHistoryStore
+     journal history at boot so the heads warm up to LEARNED authority.
+  b. Extend TokenWinMemory to also fire LiveWinDNAStore.capture for
+     losses (isWin=false), enriched with real entrySetup / chartPattern
+     from AgenticStyleRouter + ChartPatternDetector snapshots stored
+     at buy time.
+  c. StrategyHypothesisEngine: hook sell finality → arm resolve for
+     both paper and live. Match on ctxKey(lane, score, regime) recorded
+     at buy time.
+  d. Canonicalise BLUECHIP vs BLUE_CHIP throughout the codebase so the
+     policy heads don't split their sample base across two labels.
+
+**Do NOT rewire during limited-context sessions.** This needs a full
+context window and the fresh-boot journal-replay pattern.
+
+---
+
+## Session (Feb 2026) — V5.0.6257 SHIPPED · Build QUEUED (P0/P1/P2 batch)
+
+Operator: "all p0 p1 and p2 now"
+
+Four fixes shipped:
+1. SharedPreferences .commit() → .apply() in CollectiveLearning
+   (fixed the QueuedWork.processPendingWork ANR stack from 6256)
+2. runner_lane_exempt gate extension: n≥15 && wr<55% && sol<0
+   disqualifies runner_lane_exempt too (V5.0.6250 only caught the
+   asymmetric_runner_exempt variant)
+3. Birdeye circuit-breaker wired to scanBirdeyeMarkets +
+   scanBirdeyeTrending — dead-provider scans skip when
+   ApiHealthMonitor.isCircuitBroken (added V5.0.6251)
+4. MemeCompoundTarget6256 status line surfaced in ReportingHub
+
+Deferred to next session (need deeper trace):
+  P0 #2 BLUECHIP tuner windowing (n=456 → n=3 recent cache issue)
+  P1 #4 Recent-closes mode filter (still shows old paper trades in
+        LIVE mode)
+  P1 #5 RECOVERED_* leak into top-opens (3 ghost mints)
+  P2 #8 PatternAutoTuner cosmetic display (mults applied but summary
+        says 'need more trades')
+
+
+## Session (Feb 2026) — V5.0.6256 SHIPPED · Build GREEN ✅ (Source-level UI fixes + MEME 2x-5x)
 
 Operator: "thats paper and live balances mixing on the display!!! i asked
 you to fix the main ui repaint. no repainting. the real data all the
