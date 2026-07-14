@@ -1,3 +1,66 @@
+## V5.0.6249 — 2026-02 — TOXIC BUCKET HARD VETO (stop the WR bleed)
+
+  Operator: "you did nothing about the winrate dying!!!! your killing me!
+  stop ignoring requests. you have a full data set and you didnt look at
+  any of it"
+
+  V5.0.6247 report showed 7 open bleeder buckets with 14-72 losses each
+  (MOONSHOT|S41-60 72L/99 72.7% loss, MOONSHOT|S26-40 29L/30 96.7%,
+  SHITCOIN|S0-10 25L/34 73.5%, TREASURY|S0-10 20L/21 95.2%,
+  EXPRESS|S0-10 14L/14 100%, BLUECHIP|S0-10 17L/21 81%, PROJECT_SNIPER
+  n=64 WR=14%). LaneBucketPivot trimmed exactly ONE (PRESALE_SNIPE)
+  because LiveStrategyTuner's asymmetric_runner_exempt_6068 held
+  MOONSHOT/SHITCOIN at size×=1.00 despite 17-19% WR — the advisory
+  trims were ignored by exempt tactics.
+
+  Fix — LaneBucketPivot.shouldVeto (NEW hard gate):
+    Returns (true, TOXIC_BUCKET_HARD_VETO_6249) when a bucket has ≥15
+    losses AND ≥60% loss rate AND meanPnl ≤ -15% AND ≥20 samples. Not
+    advisory — a hard block that bypasses the exempt tactics because
+    it's an on/off gate, not a size multiplier they can override.
+
+  Wired into both Executor.liveBuy AND Executor.paperBuy (paper training
+  must match live rules or the simulation degrades against a stale
+  rule set).
+
+  Zero GoldenTapeRegressionTest.kt literal changes.
+  CI Build APK ✅ GREEN + Runtime Smoke Test ✅ GREEN.
+
+  Verification (owner): next AATE report should show
+    * TOXIC_BUCKET_HARD_VETO_6249 counter climbing in gate tallies
+    * PAPER_BUY_TOXIC_BUCKET_HARD_VETO_6249 climbing (paper path)
+    * MOONSHOT/SHITCOIN/TREASURY/EXPRESS lane_evals still accepted at
+      funnel but blocked at buy stage (paper AND live)
+    * Regime WR recovering toward ≥35% as new capital flows only into
+      non-bleeder buckets (BLUECHIP still passes with n=380 WR=38%)
+
+## V5.0.6248 — 2026-02 — LEARNING PROGRESS TRUTH (dashboard 13% fix)
+
+  Operator: "bot has over 4400 trades. fluid dash board in the tuning
+  tab says learning is at 13%. thats impossible!"
+
+  Root cause: FluidLearningAI.getLearningProgress() layers a 4-phase
+  curve + WR-earned ceiling + Phase-1-2 else×0.80 clamp on top of the
+  journal count. With rolling WR at 17-25%, the clamp collapsed the
+  display to 13% BOOTSTRAP even though the journal held 1397 trained
+  closes (Phase 2 Mature ~62% per doctrine curve).
+
+  Fix — decouple UI truth from ML gating:
+    * BehaviorActivity dashboard now reads TradeHistoryStore.
+      getJournalLearningProgress(5000) — doctrine-canonical
+      totalSells / 5000 with no WR magic — and displays the raw sell
+      count next to the percentage ('PHASE · NN% · N trades').
+    * FluidLearningAI's internal calc is untouched — the ML gates
+      keep using it exactly as before. Only the operator-facing
+      indicator switches sources.
+    * ReportingHub adds V5.0.6248_LEARNING_PROGRESS_TRUTH diagnostic
+      line dumping journalSells, journalPct, flaPct, lifetimeSells,
+      lifetimeWR — any future divergence is immediately visible.
+
+  Zero GoldenTapeRegressionTest.kt literal changes.
+  CI Build APK ✅ GREEN.
+
+
 ## V5.0.6247 — 2026-02 — LIVE LANE GOVERNOR: hard-pause bleeders + undampen winners
 
   Operator directive (V5.0.6246 report): "live trading tuning!!! losing
