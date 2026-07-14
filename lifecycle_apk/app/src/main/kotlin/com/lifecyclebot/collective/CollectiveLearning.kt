@@ -2758,7 +2758,11 @@ object CollectiveLearning {
             editor.putString(KEY_MODE_STATS, modeStatsJson.toString())
 
             editor.putLong(KEY_LAST_SYNC, lastSyncTime)
-            editor.commit()
+            // V5.0.6257 — .apply() not .commit(). V5.0.6256 report showed
+            // ANR top site at android.app.QueuedWork.processPendingWork
+            // (max frame gap 27639ms). This was the last sync commit()
+            // in the codebase blocking on disk IO.
+            editor.apply()
 
             Log.i(
                 TAG,

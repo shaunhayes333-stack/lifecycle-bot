@@ -136,7 +136,14 @@ object LiveStrategyTuner {
         // because it needs `wr >= 35 || sol > 0 || mean >= 20`. That gate is
         // fine — the toxic-bleed miscategorization is fixed in the deeper
         // exempt clause (V5.0.6068 asymRunner6068 above).
-        if (isRunnerLane && n >= 15 && (wr >= 35.0 || sol > 0.0 || mean >= 20.0)) {
+        // V5.0.6257 — PROVEN-BLEEDER extension to runner_lane_exempt.
+        // Report 6256 showed MOONSHOT runner_lane_exempt n=38 WR=46% PnL=-0.027
+        // SOL still at size×=1.00 — the V5.0.6250 proven-bleeder gate only
+        // caught the asymmetric_runner_exempt path. Now if sol<0 AND wr<55%
+        // AND n>=15 the runner-lane exemption is also disqualified so the
+        // lane falls through to the toxic/bleeder pivot below.
+        val provenBleeder6257runner = n >= 15 && wr < 55.0 && sol < 0.0
+        if (!provenBleeder6257runner && isRunnerLane && n >= 15 && (wr >= 35.0 || sol > 0.0 || mean >= 20.0)) {
             return Adjustment(
                 lane = lane, trades = n, winRatePct = wr, totalSolPnl = sol,
                 pfExpectancyPp = pf, meanPnlPct = mean, sizeMult = 1.0,

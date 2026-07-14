@@ -468,6 +468,10 @@ object ReportingHub {
         // un-dampens proven-winner lanes so BLUECHIP no longer gets throttled
         // to 0.55× while it's the only profitable live lane.
         appendLine(safe("live_lane_governor") { com.lifecyclebot.engine.LiveLaneGovernor.statusLine() })
+        // V5.0.6257 — surface MEME 2x-5x daily compound target status
+        // (added V5.0.6256) into the operational report so the operator can
+        // see the day-start anchor, current progress and the sizing mult.
+        appendLine(safe("meme_compound_target_6256") { com.lifecyclebot.engine.MemeCompoundTarget6256.statusLine() })
         // V5.0.6248 — Learning Progress Truth Diagnostic.
         // Operator reported the Fluid Dashboard displaying 13% BOOTSTRAP
         // despite thousands of trades. Surface both the doctrine-canonical

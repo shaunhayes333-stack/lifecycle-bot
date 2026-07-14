@@ -2266,6 +2266,8 @@ class SolanaMarketScanner(
     private suspend fun scanBirdeyeTrending() {
         val c = cfg()
         if (c.birdeyeApiKey.isBlank()) return
+        // V5.0.6257 — skip when birdeye has been circuit-broken by auth/rate failures.
+        if (com.lifecyclebot.engine.ApiHealthMonitor.isCircuitBroken("birdeye")) return
 
         val url = "https://public-api.birdeye.so/defi/token_trending?sort_by=rank&sort_type=asc&offset=0&limit=50"
         com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
@@ -2738,6 +2740,17 @@ class SolanaMarketScanner(
      * pool. Caps per cycle prevent queue overrun.
      */
     private suspend fun scanBirdeyeMarkets() {
+        // V5.0.6257 — CIRCUIT BREAKER for dead providers. Report 6256 showed
+        // birdeye 0% sr with 237 4xx (auth broken) hammering every cycle
+        // (avg cycle 15s+). Skip the call entirely when the host has proven
+        // itself dead so the scanner cycle stops paying its timeout cost.
+        if (com.lifecyclebot.engine.ApiHealthMonitor.isCircuitBroken("birdeye")) {
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "SCANNER_SOURCE_SKIPPED_CIRCUIT_BROKEN_6257",
+                "name=scanBirdeyeMarkets host=birdeye reason=isCircuitBroken"
+            ) } catch (_: Throwable) {}
+            return
+        }
         val SOL = "So11111111111111111111111111111111111111112"
         val USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
         val USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
