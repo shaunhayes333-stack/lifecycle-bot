@@ -162,15 +162,31 @@ object LiveWinDNAStore {
     }
 
     /**
+     * V5.0.6251 — BACKFILL FILTER. Report 6249 showed 490/500 rows were
+     * synthetic `backfill` entrySetup rows, poisoning topSetup, hold_p50/p75/p90
+     * and every aggregator that reads real DNA. Filter them out at every
+     * aggregator so percentiles and setup histograms only reflect REAL live/paper
+     * wins. Rows are retained on disk (may still count toward volume) but do
+     * not contribute to shape learning.
+     */
+    private fun realRows(): List<WinDNA> = rows.values.filter {
+        val setup = it.entrySetup.lowercase()
+        val pattern = it.chartPattern.lowercase()
+        val src = it.source.lowercase()
+        !(setup.contains("backfill") || pattern.contains("backfill") || src.contains("backfill"))
+    }
+
+    /**
      * Best K winning fingerprints by PnL — for AGI/LLM query.
      * V5.0.6244 — returns a memoised sorted snapshot; only rebuilt on
      * capture() / init(). LaneBucketPivot.sizeShape() is called per lane
      * eval and used to sort 500 rows every time.
+     * V5.0.6251 — skip backfill-synthetic rows.
      */
     fun topByPnl(k: Int = 25): List<WinDNA> {
         val cached = topSortedSnapshot.get()
         val list = if (cached != null) cached else {
-            val fresh = rows.values.sortedByDescending { it.pnlPct }
+            val fresh = realRows().sortedByDescending { it.pnlPct }
             topSortedSnapshot.compareAndSet(null, fresh)
             fresh
         }
@@ -180,7 +196,7 @@ object LiveWinDNAStore {
     /** Winning-setup histogram (setup name → count, avgPnl). AGI layers use this. */
     fun setupFrequency(minCount: Int = 2): List<Triple<String, Int, Double>> {
         val map = HashMap<String, MutableList<Double>>()
-        rows.values.forEach { map.getOrPut(it.entrySetup) { mutableListOf() }.add(it.pnlPct) }
+        realRows().forEach { map.getOrPut(it.entrySetup) { mutableListOf() }.add(it.pnlPct) }
         return map.filter { it.value.size >= minCount }
             .map { (k, v) -> Triple(k, v.size, v.average()) }
             .sortedByDescending { it.second }
@@ -189,7 +205,7 @@ object LiveWinDNAStore {
     /** Winning chart-pattern histogram. Chart brains use this. */
     fun chartPatternFrequency(minCount: Int = 2): List<Triple<String, Int, Double>> {
         val map = HashMap<String, MutableList<Double>>()
-        rows.values.forEach { map.getOrPut(it.chartPattern) { mutableListOf() }.add(it.pnlPct) }
+        realRows().forEach { map.getOrPut(it.chartPattern) { mutableListOf() }.add(it.pnlPct) }
         return map.filter { it.value.size >= minCount }
             .map { (k, v) -> Triple(k, v.size, v.average()) }
             .sortedByDescending { it.second }
@@ -198,7 +214,7 @@ object LiveWinDNAStore {
     /** Winning source × lane × phase route histogram. LLM/meta-cog use this. */
     fun routeFrequency(minCount: Int = 2): List<Triple<String, Int, Double>> {
         val map = HashMap<String, MutableList<Double>>()
-        rows.values.forEach {
+        realRows().forEach {
             val k = "${it.source}|${it.lane}|${it.phase}"
             map.getOrPut(k) { mutableListOf() }.add(it.pnlPct)
         }
@@ -209,8 +225,9 @@ object LiveWinDNAStore {
 
     /** Hold-time distribution of winners — exit optimisers use this. */
     fun holdTimeStats(): Triple<Int, Int, Int> {
-        if (rows.isEmpty()) return Triple(0, 0, 0)
-        val holds = rows.values.map { it.holdTimeMinutes }.sorted()
+        val real = realRows()
+        if (real.isEmpty()) return Triple(0, 0, 0)
+        val holds = real.map { it.holdTimeMinutes }.sorted()
         val p50 = holds[holds.size / 2]
         val p75 = holds[(holds.size * 3) / 4]
         val p90 = holds[(holds.size * 9) / 10]
@@ -220,19 +237,21 @@ object LiveWinDNAStore {
     /** Exit-reason distribution among winners — sell-brain uses this. */
     fun winningExitReasons(): List<Pair<String, Int>> {
         val map = HashMap<String, Int>()
-        rows.values.forEach { map[it.exitReason] = (map[it.exitReason] ?: 0) + 1 }
+        realRows().forEach { map[it.exitReason] = (map[it.exitReason] ?: 0) + 1 }
         return map.entries.sortedByDescending { it.value }.map { it.key to it.value }
     }
 
     /** One-line snapshot for the operational report. */
     fun statusLine(): String {
+        val real = realRows()
         if (rows.isEmpty()) return "V5.0.6238_LIVE_WIN_DNA: rows=0 (bootstrap — need one winning close)"
         val n = rows.size
-        val avgPnl = rows.values.map { it.pnlPct }.average()
+        val nReal = real.size
+        val avgPnl = if (real.isNotEmpty()) real.map { it.pnlPct }.average() else 0.0
         val topSetup = setupFrequency(1).firstOrNull()?.let { "${it.first}(n=${it.second}, μ=${"%.1f".format(it.third)}%)" } ?: "none"
         val topPattern = chartPatternFrequency(1).firstOrNull()?.let { "${it.first}(n=${it.second})" } ?: "none"
         val (p50, p75, p90) = holdTimeStats()
-        return "V5.0.6238_LIVE_WIN_DNA: rows=$n avgWin=${"%.1f".format(avgPnl)}% topSetup=$topSetup topPattern=$topPattern hold_p50/p75/p90=${p50}/${p75}/${p90}m"
+        return "V5.0.6238_LIVE_WIN_DNA: rows=$n real=$nReal avgWin=${"%.1f".format(avgPnl)}% topSetup=$topSetup topPattern=$topPattern hold_p50/p75/p90=${p50}/${p75}/${p90}m"
     }
 
     /** Multi-line detail block for the operational report. */

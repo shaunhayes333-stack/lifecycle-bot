@@ -101,7 +101,16 @@ object CompoundGrowthMentality {
         // brake-locked. Reclaim mode softens the defensive tilt when the
         // engine's actually still winning through a normal drawdown so
         // the pullback becomes a re-compound instead of a stall.
-        val isReclaimMode = wr >= 0.45 && ddPct >= 10.0 && ddPct <= 40.0 && corpus >= 20 && consecLosses <= 4
+        // V5.0.6251 — WR-TARGET RECLAIM TRIGGER (operator P0: "winrate recovery
+        // should be firing and driving winrate back up"). Prior gate required
+        // dd>=10% to fire. But when live dd=0% and wr is stuck below the 65%
+        // target the compound press stays neutral (compound×=1.00), which is
+        // exactly the "waiting for pain before pressing winners" behavior the
+        // operator called out. Second trigger fires when we have real corpus
+        // (>=50) and WR is materially below the 65% target — we press the
+        // BLUECHIP-class winners without needing a drawdown to permission it.
+        val isWrTargetReclaim6251 = wr in 0.42..0.62 && corpus >= 50 && consecLosses <= 4
+        val isReclaimMode = (wr >= 0.45 && ddPct >= 10.0 && ddPct <= 40.0 && corpus >= 20 && consecLosses <= 4) || isWrTargetReclaim6251
 
         // ── Bias axes ────────────────────────────────────────────────────────
         val growthFromWR = ((wr - 0.30) / 0.60).coerceIn(0.0, 1.0)    // WR 30% → 0.0 ; WR 90% → 1.0

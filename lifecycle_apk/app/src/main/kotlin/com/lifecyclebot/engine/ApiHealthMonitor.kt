@@ -139,12 +139,34 @@ object ApiHealthMonitor {
         return s.successRate()
     }
 
+    /**
+     * V5.0.6251 — CIRCUIT-BREAKER HELPER. Returns true when a provider has
+     * proven itself dead (sustained auth-fail or rate-limit) and callers
+     * should stop hammering it. Snapshot 6249 showed birdeye sr=0% (401)
+     * and helius rate-limited 429 — the bot kept round-tripping to them,
+     * paying cycle time for guaranteed-failed calls. Trip when either:
+     *   • 4xx failures >= 20 AND success rate < 10%  (bad key / auth)
+     *   • 5xx + net failures >= 30 AND success rate < 10%  (dead upstream)
+     * Fail-open on any error. Callers using this MUST fall back to a
+     * healthy alternative provider — the breaker itself is pure observation.
+     */
+    fun isCircuitBroken(host: String): Boolean {
+        val s = hosts[host.lowercase()] ?: return false
+        val total = s.successes.get() + s.failures4xx.get() + s.failures5xx.get() + s.networkErrors.get()
+        if (total < 10) return false
+        val sr = s.successRate()
+        val auth = s.failures4xx.get() >= 20 && sr < 0.10
+        val dead = (s.failures5xx.get() + s.networkErrors.get()) >= 30 && sr < 0.10
+        return auth || dead
+    }
+
     /** Convenience helper for one-line summary tile. */
     fun summary(host: String): String {
         val s = hosts[host.lowercase()] ?: return "[$host] no samples"
         val sr = (s.successRate() * 100).toInt()
         val avg = s.avgLatencyMs().toInt()
-        return "[$host] sr=$sr%  avg=${avg}ms  s=${s.successes.get()}  4xx=${s.failures4xx.get()}  5xx=${s.failures5xx.get()}  net=${s.networkErrors.get()}"
+        val brk = if (isCircuitBroken(host)) " CIRCUIT_BROKEN_6251" else ""
+        return "[$host] sr=$sr%  avg=${avg}ms  s=${s.successes.get()}  4xx=${s.failures4xx.get()}  5xx=${s.failures5xx.get()}  net=${s.networkErrors.get()}$brk"
     }
 
     /** Reset — exposed so QA can clear state between test runs. */

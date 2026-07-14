@@ -40,7 +40,7 @@ import kotlin.math.abs
  */
 object StrategyHypothesisEngine {
 
-    private const val MIN_ARM       = 12      // V5.9.1265: promote proven-better variants sooner (snapshot vars already beating control at n=10)
+    private const val MIN_ARM       = 8       // V5.0.6251: lowered from 12 — snapshot 6249 showed 4 hypotheses stuck at n=0/0 after 5000 trades; smaller arm gets the A/B loop moving without breaking the noise-safe promotion gate below
     private const val SIZE_BIAS_MIN = 0.85
     private const val SIZE_BIAS_MAX = 1.20
     private const val MUTATION_STEP = 0.10    // size-bias delta a hypothesis tests
@@ -290,28 +290,39 @@ object StrategyHypothesisEngine {
                 TradeHistoryStore.getRecentValidClosedTrades(limit = 200, includePartials = false)
             } catch (_: Throwable) { emptyList() }
             if (recent.isEmpty()) return
+            // V5.0.6251 — MULTI-REGIME SEED. Prior seed keyed every trade to
+            // regime="NORMAL", but snapshot 6249 showed active hypotheses under
+            // regime="ALL"/"CHOP"/"BULL" — the seed was populating orphan keys
+            // that no live decision was ever attributed to. Seed under every
+            // regime label the engine currently has active PLUS "NORMAL", so
+            // cold arms receive real historical outcomes regardless of which
+            // regime string the caller stamps.
+            val regimeLabels = HashSet<String>().apply {
+                add("NORMAL")
+                active.keys.forEach { k ->
+                    val parts = k.split('|')
+                    if (parts.size >= 3) add(parts[2])
+                }
+            }
             var seeded = 0
             for (t in recent) {
                 if (!t.side.equals("SELL", true)) continue
                 val lane = t.tradingMode.trim().uppercase().ifBlank { "STANDARD" }
                 val scoreInt = t.score.toInt().coerceIn(0, 100)
-                // Best-effort regime: historical trades don't carry regime,
-                // so bucket into NORMAL. When the same context sees a real
-                // live trade in a specific regime, that regime's ctx will
-                // spawn fresh — this seed only warms the mainline baseline.
-                val ctx = ctxKey(lane, scoreInt, "NORMAL")
-                if (suppressVariantForContext(lane, scoreInt, "NORMAL")) continue
-                val h = active.getOrPut(ctx) { spawn(ctx) }
-                // Only seed if this control arm is genuinely cold.
-                if (h.control.n >= MIN_ARM.toLong()) continue
-                h.control.update(t.pnlPct.coerceIn(-95.0, 1000.0))
-                seeded += 1
+                for (regime in regimeLabels) {
+                    val ctx = ctxKey(lane, scoreInt, regime)
+                    if (suppressVariantForContext(lane, scoreInt, regime)) continue
+                    val h = active.getOrPut(ctx) { spawn(ctx) }
+                    if (h.control.n >= MIN_ARM.toLong()) continue
+                    h.control.update(t.pnlPct.coerceIn(-95.0, 1000.0))
+                    seeded += 1
+                }
             }
             if (seeded > 0) {
                 try {
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(
                         "HYPOTHESIS_ENGINE_COLD_START_SEEDED_6057",
-                        "closes=$seeded contexts=${active.size} note=control_arms_warmed_from_trade_history"
+                        "closes=$seeded contexts=${active.size} regimes=${regimeLabels.joinToString(",")} note=control_arms_warmed_from_trade_history"
                     )
                     PipelineHealthCollector.labelInc("HYPOTHESIS_ENGINE_COLD_START_SEEDED_6057")
                 } catch (_: Throwable) {}

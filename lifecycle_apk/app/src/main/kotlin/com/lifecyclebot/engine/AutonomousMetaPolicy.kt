@@ -330,10 +330,17 @@ object AutonomousMetaPolicy {
     fun formatForPipelineDump(): String {
         return try {
             if (arms.isEmpty()) return ""
+            // V5.0.6251 — DISPLAY GATE LOWERED. Operator report showed
+            // "bootstrap — all contexts < 5 samples" after 5000+ trades. The
+            // actuator gate at samples=0 is preserved (see conviction()) but
+            // the dump gate was hiding the 1..4 sample arms that are already
+            // being tuned via the trade1Ramp6077 posterior. Show samples>=3
+            // so the operator can VERIFY the meta-policy is training.
+            val DISPLAY_MIN = 3
             val ranked = arms.entries
-                .filter { it.value.samples >= MIN_SAMPLES }
+                .filter { it.value.samples >= DISPLAY_MIN }
                 .sortedByDescending { it.value.mean }
-            if (ranked.isEmpty()) return "\n===== Autonomous Meta-Policy (V5.9.1260) =====\n  (bootstrap — all contexts < $MIN_SAMPLES samples)\n"
+            if (ranked.isEmpty()) return "\n===== Autonomous Meta-Policy (V5.9.1260) =====\n  (bootstrap — all contexts < $DISPLAY_MIN samples · total_arms=${arms.size} updates=$totalUpdates)\n"
             val sb = StringBuilder("\n===== Autonomous Meta-Policy (V5.9.1260) — learned edge surface =====\n")
             sb.append("  contexts=${arms.size}  updates=$totalUpdates\n")
             ranked.take(6).forEach { (k, arm) ->

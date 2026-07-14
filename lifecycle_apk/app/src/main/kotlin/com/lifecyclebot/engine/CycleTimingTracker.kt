@@ -35,7 +35,22 @@ object CycleTimingTracker {
         while (samples.size > ROLLING_WINDOW) samples.pollLast()
         totalCycles.incrementAndGet()
         if (durationMs > TARGET_MS) overTargetCycles.incrementAndGet()
-        if (durationMs > HARD_LIMIT_MS) overHardLimitCycles.incrementAndGet()
+        if (durationMs > HARD_LIMIT_MS) {
+            overHardLimitCycles.incrementAndGet()
+            // V5.0.6251 — surface hard-limit cycles into the operational
+            // report. Snapshot 6249 had avg=13.2s max=215.6s but the only
+            // clue was an aggregate counter buried in the timing panel.
+            // Emit a lifecycle event so ReportingHub / ForensicLogger dump
+            // shows WHICH cycles hemorrhaged time, letting the operator
+            // triage watchlist bloat vs API hangs vs pipeline stalls.
+            try {
+                ForensicLogger.lifecycle(
+                    "CYCLE_OVER_HARD_LIMIT_6251",
+                    "durationMs=$durationMs limitMs=$HARD_LIMIT_MS overCount=${overHardLimitCycles.get()} totalCycles=${totalCycles.get()}",
+                )
+                PipelineHealthCollector.labelInc("CYCLE_OVER_HARD_LIMIT_6251")
+            } catch (_: Throwable) {}
+        }
         lastCycleMs = durationMs
     }
 
