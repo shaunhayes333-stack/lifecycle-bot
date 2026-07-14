@@ -1,5 +1,120 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## Session (Feb 2026) — V5.0.6251 SHIPPED · Build GREEN ✅ (Six-Front Learning Stack Repair)
+
+Operator directive (verbatim): "fix all 6 now 0 excuses"
+
+Following the V5.0.6249 op-report holistic RCA, six independent leaks
+were surfaced across the learning/telemetry stack. All six repaired in
+a single patch; each independently observable in the next report.
+
+### Six fixes
+
+1. **CompoundGrowthMentality.kt — RECLAIM_MODE second trigger.** Prior
+   gate needed dd≥10% to fire. Live dd=0% so compound press stayed
+   neutral (compound×=1.00) even at wr=45.8% vs 65% target. New trigger
+   fires on wr ∈ [0.42, 0.62] with corpus≥50 and consecLosses≤4.
+
+2. **LiveWinDNAStore.kt — backfill filter.** Snapshot 6249 showed
+   490/500 rows were synthetic backfill entries poisoning topSetup,
+   hold_p50/p75/p90 and every aggregator. `realRows()` helper skips any
+   row whose entrySetup/chartPattern/source contains 'backfill'.
+   statusLine adds `real=N` counter.
+
+3. **AutonomousMetaPolicy.kt — dump gate DISPLAY_MIN 5 → 3.** Report
+   said "bootstrap — all contexts < 5 samples" after 5000+ trades,
+   hiding the samples 1..4 arms already tuning via trade1Ramp6077.
+   Actuator gate at samples≤0 preserved (GoldenTape V5.0.6077 intact).
+
+4. **StrategyHypothesisEngine.kt — MIN_ARM 12 → 8 + multi-regime seed.**
+   4 hypotheses stuck at n=0/0 after 5000 trades because
+   seedControlArmsFromHistory keyed every historical trade to
+   regime='NORMAL' while live decisions stamped 'ALL'/'CHOP'/'BULL'.
+   Seed now populates every regime label present in active hypotheses
+   PLUS NORMAL. Lower MIN_ARM resolves A/B in ~2/3 the time.
+
+5. **CycleTimingTracker.kt — over-hard-limit lifecycle warning.**
+   recordCycle now emits `FORENSIC:CYCLE_OVER_HARD_LIMIT_6251` with
+   duration + overCount when any cycle exceeds 30s so operator can
+   triage which cycles hemorrhage time.
+
+6. **ApiHealthMonitor.kt — isCircuitBroken helper + summary badge.**
+   Snapshot 6249 showed birdeye sr=0% (401) and helius rate-limited
+   (429) with the bot still round-tripping to them each cycle. Returns
+   true when host has ≥20 4xx with sr<10% (bad auth) or ≥30 5xx+net
+   with sr<10% (dead upstream). summary() appends
+   `CIRCUIT_BROKEN_6251` badge.
+
+### Golden Tape preserved
+All literal contracts intact:
+  - LiveStrategyTuner.kt: no `return false` / no `sizeMult = 0.0`
+  - StrategyHypothesisEngine.kt: suppressVariantForContext, MOONSHOT,
+    SHITCOIN, LaneToxicityGuard, AsyncStrategyLab.reviewedSizeBias,
+    reviewedLabBias * strategyVariantBias4342 retained
+  - AutonomousMetaPolicy.kt: `if (arm.samples <= 0) return 1.0` and
+    TRADE1_RAMP_FLOOR / trade1Ramp6077 retained
+  - CycleTimingTracker.snapshot / ApiHealthMonitor.record intact
+
+### Expected next-report deltas
+  - MENTALITY: compound×=1.10-1.25 (was 1.00), growth ≥ 0.60
+  - LIVE_WIN_DNA: rows=N real=M with real DNA distinct from backfill
+  - Meta-Policy: contexts + updates displayed even at max 3-4 samples
+  - HypothesisEngine: variant/control arms accruing n > 0
+  - Report shows CYCLE_OVER_HARD_LIMIT_6251 counter for triage
+  - API health tiles show CIRCUIT_BROKEN_6251 for birdeye/helius
+
+CI: Build AATE APK #4918 completed=success · Golden Tape green.
+
+
+## Session (Feb 2026) — V5.0.6250 SHIPPED · Build GREEN ✅ (WR Reclaim: Kill asymmetric_runner_exempt for proven bleeders)
+
+Operator: "b. but winrate recovery should be firing and driving winrate
+back up!!!! the bots at 5000 trades yet learning says 33% so its way
+behind as far as education goes."
+
+RCA of V5.0.6249 op-report identified two dominant leaks:
+
+1. LiveStrategyTuner's `asymRunner6068` exemption held MOONSHOT (n=261
+   wr=16% pnl=-0.187), QUALITY (n=148 wr=25% pnl=-0.185), SHITCOIN
+   (n=49 wr=13% pnl=-0.706) at size×=1.00 hold×=1.40 partial×=1.30
+   because a single big-tail winner kept avgWinPct≥50% or pf≥4.0.
+   Losing lanes were consuming budget the winning BLUECHIP lane
+   (n=596 wr=59.5% +75.46 SOL) needed to press.
+
+2. TOXIC_BUCKET_HARD_VETO_6249 was firing but invisible in the
+   report's block-reason panel because labelInc alone bypasses the
+   block histogram. Operator could not verify the fix was running.
+
+Fixes (Option A + Option C):
+  - LiveStrategyTuner.kt: `provenBleeder6250` gate (n≥40, wr<30%,
+    sol<0) disqualifies asymRunner6068 so toxic/bleeder pivot fires
+    (size×=0.35-0.62, tighter partials, shorter hold).
+  - Executor.kt (paper+live veto sites): register with
+    `PipelineHealthCollector.onGate` so veto lands in the phase
+    block-reason tally.
+
+WR-reclaim vector: shrink losers, not veto them, so blended WR
+converges upward as low-quality lane volume falls. Golden Tape line
+3874 constraints preserved (no return false / no sizeMult=0.0).
+
+CI: Build AATE APK #4917 completed=success · Golden Tape green.
+
+
+## Session (Feb 2026) — V5.0.6246–6249 SHIPPED · Build GREEN ✅
+
+V5.0.6246 · DeadTokenQuarantine — permanently skip stuck RECOVERED_*
+ghost tokens causing cycle bloat.
+V5.0.6247 · LiveLaneGovernor — hard-pause live bleeding lanes.
+V5.0.6248 · Learning Progress Truth — fixed dashboard 13% BOOTSTRAP
+display; reads StrategyTruthLedger.
+V5.0.6249 · LaneBucketPivot.shouldVeto — hard-block new BUYs into
+buckets with ≥15 losses AND ≥60% loss rate AND meanPnl ≤ -15%. Wired
+at both paper (Executor.paperBuy) and live (Executor.doBuy) sites.
+Post-ship RCA showed the block was invisible in the tally (labelInc
+does not aggregate into the block histogram) — fixed as part of
+V5.0.6250.
+
+
 ## Session (Feb 2026) — V5.0.6245 SHIPPED · Build GREEN ✅ (Data Integrity Fix)
 
 Operator (with journal screenshot): "the red sell showed up 1000% and the
