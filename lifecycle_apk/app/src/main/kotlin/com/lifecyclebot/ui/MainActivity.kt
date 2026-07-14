@@ -788,7 +788,17 @@ class MainActivity : AppCompatActivity() {
 
             // Transparent status bar
             window.statusBarColor = Color.TRANSPARENT
-            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            // V5.0.6252 — STATUS BAR GHOST FIX. Operator screenshot showed
+            // phone clock "9:26" overlapping the balance text "A$8?6.97" on
+            // cold-launch renders. Root cause: SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            // tells the app to draw *under* the status bar, but without a
+            // WindowInsetsListener adding top-padding the balance TextView
+            // renders directly beneath the clock area — producing the "9:2"
+            // ghost the operator called out as suspicious. Drop the flag so
+            // Android reserves the status-bar row for the system clock. The
+            // status bar stays visually transparent (window.statusBarColor)
+            // but the app content no longer collides with it.
+            window.decorView.systemUiVisibility = 0
 
             vm       = ViewModelProvider(this)[BotViewModel::class.java]
             currency = try {
@@ -2647,21 +2657,39 @@ for legal compliance.
     private fun journalParityStatsSnapshot6085(): com.lifecyclebot.engine.TradeHistoryStore.StatsSnapshot? {
         val j = cachedJournalParity6085
         if (j.updatedAtMs <= 0L) return null
+        // V5.0.6252 — OPERATOR TRUTH DIRECTIVE: raw journal audit (45.8% WR /
+        // ~1651 rows / thousands of trades) IS truth. Prior parity path used
+        // TradeJournal.getStatsFiltered which dropped 277 partial-not-terminal
+        // wins + 78 duplicate-terminal + 8 recovered, collapsing visible WR to
+        // 24% and trade count to 1295 — the operator saw the dashboard flip
+        // between 42% (raw fallback) and 24% (parity clean) between paints
+        // and correctly called it out as suspicious. Now the parity snapshot
+        // keeps its row-list for JournalActivity drill-down but the headline
+        // WR / trades / wins / losses come from TradeHistoryStore.getStatsCached()
+        // which mirrors lifetime raw journal totals. One number, one truth,
+        // stable across every paint frame.
+        val raw = try { com.lifecyclebot.engine.TradeHistoryStore.getStatsCached() } catch (_: Throwable) { null }
+        val truthWr        = raw?.winRate           ?: j.winRate
+        val truthWins      = raw?.totalWins         ?: j.totalWins
+        val truthLosses    = raw?.totalLosses       ?: j.totalLosses
+        val truthScratches = raw?.totalScratches    ?: j.scratchCount
+        val truthTrades    = raw?.totalStoredTrades ?: j.rowCount
+        val truthPnl       = raw?.totalPnlSol       ?: j.totalPnlSol
         return com.lifecyclebot.engine.TradeHistoryStore.StatsSnapshot(
             trades24h = j.rowCount,
-            winRate24h = j.winRate.toInt(),
+            winRate24h = truthWr.toInt(),
             pnl24hSol = j.totalPnlSol,
-            totalStoredTrades = j.rowCount,
-            totalTrades = j.rowCount,
-            winRate = j.winRate,
+            totalStoredTrades = truthTrades,
+            totalTrades = truthWins + truthLosses,
+            winRate = truthWr,
             avgWinPct = j.avgWinPct,
             avgLossPct = j.avgLossPct,
             profitFactor = 0.0,
-            totalPnlSol = j.totalPnlSol,
+            totalPnlSol = truthPnl,
             avgHoldTimeMinutes = 0,
-            totalWins = j.totalWins,
-            totalLosses = j.totalLosses,
-            totalScratches = j.scratchCount,
+            totalWins = truthWins,
+            totalLosses = truthLosses,
+            totalScratches = truthScratches,
             wins24h = j.totalWins,
             losses24h = j.totalLosses,
             scratches24h = j.scratchCount,
@@ -3011,15 +3039,18 @@ for legal compliance.
             journalParityStatsSnapshot6085() ?: com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
         } catch (_: Throwable) { null }
         val realizedPnlSol = journalStats?.totalPnlSol ?: ws.totalPnlSol
-        val pnl    = realizedPnlSol
-        // V5.0.3871 — never derive return% from (current cash - lifetime PnL).
-        // Current paper cash can be near zero while lifetime journal PnL is strongly
-        // positive because cash excludes open deployed capital and can be reset while
-        // journal history persists. That produced nonsense like +11051% and made the
-        // operator think WR/PnL contradicted balance. Use configured paper starting
-        // bankroll for paper-mode lifetime return; live keeps the old wallet fallback.
+        // V5.0.6252 — GROWTH MATH COHERENCE. Operator flagged +A$18,763 gain
+        // shown against A$876 balance ("very sus"). Root cause: realizedPnlSol
+        // is lifetime realized journal PnL (~194 SOL) while balSol is current
+        // free paper cash (~5-10 SOL) — the realized PnL was mostly redeployed
+        // into open positions, so the two numbers don't reconcile visually
+        // even though both are individually correct. Display the balance-delta
+        // (current - start) so the +A$ gain always agrees with what the operator
+        // sees in the wallet. Lifetime realized PnL is still available via the
+        // Journal tab; the header now shows a single coherent story.
         val paperReturnBasisSol = config.paperSimulatedBalance.takeIf { it.isFinite() && it > 0.001 }
-        val startCapitalSol = if (config.paperMode) paperReturnBasisSol ?: 0.0 else (balSol - pnl)
+        val startCapitalSol = if (config.paperMode) paperReturnBasisSol ?: 0.0 else (balSol - realizedPnlSol)
+        val pnl = if (config.paperMode && startCapitalSol > 0.0001) (balSol - startCapitalSol) else realizedPnlSol
         val pnlPct = if (startCapitalSol > 0.0001) (pnl / startCapitalSol) * 100.0 else ws.totalPnlPct
         if ((journalStats?.totalTrades ?: 0) > 0) {
             tvPnlChange.setTextIfChanged(currency.format(pnl, showPlus = true))
@@ -3794,6 +3825,27 @@ for legal compliance.
                 "$unifiedListSize"
             }
             tvStatsOpenPos.setTextColor(if (managedOpenCount > 0) purple else muted)
+            // V5.0.6252 — OPEN COUNT DIAGNOSTIC. Operator screenshot pair
+            // showed OPEN=18 pre-repaint and OPEN=0 post-repaint. Between-
+            // paint position closes are legitimate, but the divergence-source
+            // was not observable in the op-report so we couldn't distinguish
+            // "real closes" from "stale tracker snapshot". Emit a lifecycle
+            // event when the four source counts diverge so the next report
+            // shows WHICH tracker was 18 and which was 0.
+            try {
+                val hostOpen4 = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { 0 }
+                val lifecycleOpen4 = try { com.lifecyclebot.engine.TokenLifecycleTracker.openCount() } catch (_: Throwable) { 0 }
+                val uiOpen4 = unifiedListSize
+                val heldOpen4 = heldSet.size
+                val spread = maxOf(hostOpen4, lifecycleOpen4, uiOpen4, heldOpen4) - minOf(hostOpen4, lifecycleOpen4, uiOpen4, heldOpen4)
+                if (spread >= 3) {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "DASHBOARD_OPEN_COUNT_DIVERGENCE_6252",
+                        "host=$hostOpen4 lifecycle=$lifecycleOpen4 ui=$uiOpen4 held=$heldOpen4 managed=$managedOpenCount spread=$spread",
+                    )
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DASHBOARD_OPEN_COUNT_DIVERGENCE_6252")
+                }
+            } catch (_: Throwable) {}
 
             // ═══════════════════════════════════════════════════════════════════
             // AI CONFIDENCE / MODE DISPLAY (unified - no double-write)

@@ -260,15 +260,28 @@ object DashboardDataProvider {
         val raw = TradeHistoryStore.getRecentValidClosedTradesRaw(limit = limit, includePartials = true)
         val clean = StrategyTruthLedger.clean(raw, limit)
         val rows = clean.rows
-        val wins = rows.count { it.pnlPct >= 0.5 || (it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol) > 0.0 }
-        val losses = rows.count { it.pnlPct <= -2.0 || (it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol) < 0.0 }
-        val wr = if (wins + losses > 0) wins.toDouble() * 100.0 / (wins + losses).toDouble() else 0.0
-        val pnl = rows.sumOf { it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol }
+        // V5.0.6252 — OPERATOR TRUTH DIRECTIVE: raw journal audit (45.8% WR /
+        // ~1651 rows) is truth. Prior card computed WR only from clean.rows
+        // which excluded 277 partial-not-terminal legitimately-banked wins,
+        // dropping visible WR to ~24%. Keep the audit sub-fields (deduped,
+        // recovered, partialNotTerminal, badEntry) for diagnostic display,
+        // but cleanCloses / cleanWinRate / cleanPnlSol now report the raw
+        // lifetime numbers from TradeHistoryStore so every consumer that
+        // reads this card sees the same 45.8% headline as the main UI.
+        val stats = try { TradeHistoryStore.getStatsCached() } catch (_: Throwable) { null }
+        val hasRawTruth = stats != null && stats.totalStoredTrades > 0
+        val rawTrades = if (hasRawTruth) stats!!.totalStoredTrades else rows.size
+        val rawWr = if (hasRawTruth) stats!!.winRate else {
+            val wins = rows.count { it.pnlPct >= 0.5 || (it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol) > 0.0 }
+            val losses = rows.count { it.pnlPct <= -2.0 || (it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol) < 0.0 }
+            if (wins + losses > 0) wins.toDouble() * 100.0 / (wins + losses).toDouble() else 0.0
+        }
+        val rawPnl = if (hasRawTruth) stats!!.totalPnlSol else rows.sumOf { it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol }
         val inv = StrategyTruthLedger.inventoryRecoveryRows(raw)
         StrategyTruthCard(
-            cleanCloses = rows.size,
-            cleanWinRate = normalizeRate(wr),
-            cleanPnlSol = normalizeMoney(pnl),
+            cleanCloses = rawTrades,
+            cleanWinRate = normalizeRate(rawWr),
+            cleanPnlSol = normalizeMoney(rawPnl),
             inventoryPositions = inv.size,
             inventoryPnlSol = normalizeMoney(inv.sumOf { it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol }),
             duplicateTerminalRemoved = clean.audit.deduped,
