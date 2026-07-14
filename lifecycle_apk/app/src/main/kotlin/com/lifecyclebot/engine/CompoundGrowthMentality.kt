@@ -139,7 +139,24 @@ object CompoundGrowthMentality {
             else                                       -> 0.70
         }
         // Reclaim floor: healthy engine on a normal drawdown never drops below 0.85.
-        val compoundFactor = if (isReclaimMode) max(0.85, compoundFactorRaw) else compoundFactorRaw
+        // V5.0.6255 — RECLAIM_MODE PRESS ACTIVATION. Report 6254 showed
+        // RECLAIM_MODE firing at wr=44.6% but compound×=1.00 (neutral) so
+        // the mode detected the need to reclaim but never actually pressed
+        // the winner (BLUECHIP wr=57.6% carrying +75 SOL). Now in reclaim
+        // mode with a proven winning-lane WR ≥ 55% we press to 1.15× —
+        // moderate compounding on the proven winner while the proven
+        // bleeders (MOONSHOT/QUALITY/SHITCOIN) are already sized to 0.40×
+        // by LiveStrategyTuner's toxic_reclaim_tactic_pivot. Cap at 1.25×
+        // matching the wr≥0.60 tier so we never over-press vs the natural
+        // ladder above.
+        val hasProvenWinLane6255 = try {
+            com.lifecyclebot.engine.StrategyTelemetry.winners(10)
+                .any { it.trades >= 40 && it.winRatePct >= 55.0 && it.totalSolPnl > 0.0 }
+        } catch (_: Throwable) { false }
+        val reclaimPressBoost6255 = if (isReclaimMode && wr < 0.62 && hasProvenWinLane6255) 1.15 else 1.00
+        val compoundFactor = if (isReclaimMode)
+            max(0.85, compoundFactorRaw * reclaimPressBoost6255).coerceAtMost(1.25)
+        else compoundFactorRaw
 
         // ── Drawdown reserve: how much to trim while under water ─────────────
         val ddReserveFactor = (1.0 - (ddPct / 60.0)).coerceIn(0.55, 1.0)

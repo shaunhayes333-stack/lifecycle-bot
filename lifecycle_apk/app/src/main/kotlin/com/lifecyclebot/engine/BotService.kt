@@ -9182,7 +9182,22 @@ class BotService : Service() {
                                     } catch (_: Throwable) { Double.NaN }
                                     if (!lockedFloor.isNaN() && lockedFloor > 0.0) {
                                         val highLockImmediate = peakPct >= 200.0 && pnlPctNow >= lockedFloor
-                                        val lockBreached = pnlPctNow < lockedFloor && pnlPctNow > 0.0
+                                        // V5.0.6255 — BLUECHIP SMALL-LOSS BLEED FIX. Report 6254
+                                        // showed every recent BLUECHIP close labelled
+                                        // REALIZED_LOSS_AFTER_PROFIT_SIGNAL at -2% to -7%: TICK_PROFIT_LOCK
+                                        // fired at a fractionally-positive pnl (0..2%), price then fell past
+                                        // zero before sell finality, position closed at -2/-7%. These are
+                                        // otherwise winners round-tripping into small losses on the only
+                                        // profitable lane (BLUECHIP wr=57.6% carrying +75 SOL). Require a
+                                        // ≥2% profit buffer on BLUECHIP so sell finality has room to slip
+                                        // and still print green. Other lanes keep the original tight lock.
+                                        val laneUpper6255 = try { ts.position.tradingMode.uppercase() } catch (_: Throwable) { "" }
+                                        val bluechipBuffer6255 = laneUpper6255.contains("BLUECHIP") || laneUpper6255.contains("BLUE_CHIP")
+                                        val lockBreached = if (bluechipBuffer6255) {
+                                            pnlPctNow < lockedFloor && pnlPctNow >= 2.0
+                                        } else {
+                                            pnlPctNow < lockedFloor && pnlPctNow > 0.0
+                                        }
                                         if (highLockImmediate || lockBreached) {
                                             // V5.9.1566 — doctrine: never bank a positive
                                             // pnl that doesn't beat cost + treasury feed.
