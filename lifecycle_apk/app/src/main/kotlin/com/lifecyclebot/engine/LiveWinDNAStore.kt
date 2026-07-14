@@ -168,12 +168,26 @@ object LiveWinDNAStore {
      * aggregator so percentiles and setup histograms only reflect REAL live/paper
      * wins. Rows are retained on disk (may still count toward volume) but do
      * not contribute to shape learning.
+     * V5.0.6254 — ANR RE-TRIAGE. The initial impl reallocated a filtered list
+     * on every aggregator call (setupFrequency + chartPatternFrequency +
+     * routeFrequency + holdTimeStats + winningExitReasons + statusLine each
+     * ran a fresh `rows.values.filter { ... }` per paint). UI paints × 6
+     * aggregators × 500 rows = the ANR storm the operator flagged. Now
+     * memoised alongside topSortedSnapshot and invalidated on the same
+     * write paths (capture / init / clear / prune).
      */
-    private fun realRows(): List<WinDNA> = rows.values.filter {
-        val setup = it.entrySetup.lowercase()
-        val pattern = it.chartPattern.lowercase()
-        val src = it.source.lowercase()
-        !(setup.contains("backfill") || pattern.contains("backfill") || src.contains("backfill"))
+    private val realRowsSnapshot = AtomicReference<List<WinDNA>?>(null)
+
+    private fun realRows(): List<WinDNA> {
+        realRowsSnapshot.get()?.let { return it }
+        val fresh = rows.values.filter {
+            val setup = it.entrySetup.lowercase()
+            val pattern = it.chartPattern.lowercase()
+            val src = it.source.lowercase()
+            !(setup.contains("backfill") || pattern.contains("backfill") || src.contains("backfill"))
+        }
+        realRowsSnapshot.compareAndSet(null, fresh)
+        return fresh
     }
 
     /**
@@ -330,6 +344,7 @@ object LiveWinDNAStore {
 
     private fun invalidateSnapshots() {
         topSortedSnapshot.set(null)
+        realRowsSnapshot.set(null)
     }
 
     fun size(): Int = rows.size

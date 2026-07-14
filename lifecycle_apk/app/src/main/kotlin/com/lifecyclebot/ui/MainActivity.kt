@@ -614,6 +614,13 @@ class MainActivity : AppCompatActivity() {
         val avgLossPct: Double = 0.0,
     )
     @Volatile private var cachedJournalParity6085: JournalParityUiSnapshot6085 = JournalParityUiSnapshot6085()
+
+    // V5.0.6254 — rate-limit the OPEN count divergence diagnostic added in
+    // V5.0.6252 to at most one iteration per minute. Original impl ran per
+    // dashboard paint, iterating HostWalletTokenTracker.positions +
+    // TokenLifecycleTracker.records (both O(n) over up to 38k mints) and
+    // triggered an ANR storm.
+    @Volatile private var lastOpenDivergenceCheckMs6254: Long = 0L
     private val journalParityRefreshInFlight6085 = java.util.concurrent.atomic.AtomicBoolean(false)
     private val JOURNAL_PARITY_REFRESH_MS_6085: Long = 1_000L
 
@@ -3829,25 +3836,30 @@ for legal compliance.
                 "$unifiedListSize"
             }
             tvStatsOpenPos.setTextColor(if (managedOpenCount > 0) purple else muted)
-            // V5.0.6252 — OPEN COUNT DIAGNOSTIC. Operator screenshot pair
-            // showed OPEN=18 pre-repaint and OPEN=0 post-repaint. Between-
-            // paint position closes are legitimate, but the divergence-source
-            // was not observable in the op-report so we couldn't distinguish
-            // "real closes" from "stale tracker snapshot". Emit a lifecycle
-            // event when the four source counts diverge so the next report
-            // shows WHICH tracker was 18 and which was 0.
+            // V5.0.6252 — OPEN COUNT DIAGNOSTIC (rate-limited by V5.0.6254).
+            // Operator saw OPEN=18 pre-repaint and OPEN=0 post-repaint;
+            // between-paint closes are legitimate but the divergence-source
+            // wasn't observable. Original impl ran on every dashboard paint —
+            // each dashboard paint iterated HostWalletTokenTracker.positions
+            // AND TokenLifecycleTracker.records (both O(n) over up to 38k
+            // mints). ANR storm ensued. Rate-limited to 60s cadence to keep
+            // the diagnostic without paying paint-time cost.
             try {
-                val hostOpen4 = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { 0 }
-                val lifecycleOpen4 = try { com.lifecyclebot.engine.TokenLifecycleTracker.openCount() } catch (_: Throwable) { 0 }
-                val uiOpen4 = unifiedListSize
-                val heldOpen4 = heldSet.size
-                val spread = maxOf(hostOpen4, lifecycleOpen4, uiOpen4, heldOpen4) - minOf(hostOpen4, lifecycleOpen4, uiOpen4, heldOpen4)
-                if (spread >= 3) {
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                        "DASHBOARD_OPEN_COUNT_DIVERGENCE_6252",
-                        "host=$hostOpen4 lifecycle=$lifecycleOpen4 ui=$uiOpen4 held=$heldOpen4 managed=$managedOpenCount spread=$spread",
-                    )
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DASHBOARD_OPEN_COUNT_DIVERGENCE_6252")
+                val nowMs = System.currentTimeMillis()
+                if (nowMs - lastOpenDivergenceCheckMs6254 >= 60_000L) {
+                    lastOpenDivergenceCheckMs6254 = nowMs
+                    val hostOpen4 = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { 0 }
+                    val lifecycleOpen4 = try { com.lifecyclebot.engine.TokenLifecycleTracker.openCount() } catch (_: Throwable) { 0 }
+                    val uiOpen4 = unifiedListSize
+                    val heldOpen4 = heldSet.size
+                    val spread = maxOf(hostOpen4, lifecycleOpen4, uiOpen4, heldOpen4) - minOf(hostOpen4, lifecycleOpen4, uiOpen4, heldOpen4)
+                    if (spread >= 3) {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "DASHBOARD_OPEN_COUNT_DIVERGENCE_6252",
+                            "host=$hostOpen4 lifecycle=$lifecycleOpen4 ui=$uiOpen4 held=$heldOpen4 managed=$managedOpenCount spread=$spread",
+                        )
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DASHBOARD_OPEN_COUNT_DIVERGENCE_6252")
+                    }
                 }
             } catch (_: Throwable) {}
 
