@@ -68,6 +68,15 @@ object CompoundGrowthMentality {
     private val lastTruth = AtomicReference(Truth(wr = 0.50, ddPct = 0.0, consecLosses = 0, corpus = 0, ts = 0L))
     private val cached = AtomicReference<MentalityState?>(null)
 
+    // V5.0.6256 — cache StrategyTelemetry.winners() lookup used by the
+    // V5.0.6255 press activation gate. Prior impl called it inside compute()
+    // which runs on every snapshot() after updateTruth() invalidates the
+    // cache (once per tick). StrategyTelemetry.winners walks the full trade
+    // leaderboard — real work per tick. Cache the boolean result for 60s
+    // since the winning-lane set changes slowly.
+    @Volatile private var winLaneCache6256: Boolean = false
+    @Volatile private var winLaneCacheAtMs6256: Long = 0L
+
     /** Fed from ReportingHub (or any well-informed caller) each tick. */
     fun updateTruth(wr: Double, ddPct: Double, consecutiveLosses: Int, winCorpusSize: Int) {
         lastTruth.set(Truth(
@@ -149,10 +158,20 @@ object CompoundGrowthMentality {
         // by LiveStrategyTuner's toxic_reclaim_tactic_pivot. Cap at 1.25×
         // matching the wr≥0.60 tier so we never over-press vs the natural
         // ladder above.
-        val hasProvenWinLane6255 = try {
-            com.lifecyclebot.engine.StrategyTelemetry.winners(10)
-                .any { it.trades >= 40 && it.winRatePct >= 55.0 && it.totalSolPnl > 0.0 }
-        } catch (_: Throwable) { false }
+        val hasProvenWinLane6255 = run {
+            val nowMs = System.currentTimeMillis()
+            if (nowMs - winLaneCacheAtMs6256 < 60_000L) {
+                winLaneCache6256
+            } else {
+                val fresh = try {
+                    com.lifecyclebot.engine.StrategyTelemetry.winners(10)
+                        .any { it.trades >= 40 && it.winRatePct >= 55.0 && it.totalSolPnl > 0.0 }
+                } catch (_: Throwable) { false }
+                winLaneCache6256 = fresh
+                winLaneCacheAtMs6256 = nowMs
+                fresh
+            }
+        }
         val reclaimPressBoost6255 = if (isReclaimMode && wr < 0.62 && hasProvenWinLane6255) 1.15 else 1.00
         val compoundFactor = if (isReclaimMode)
             max(0.85, compoundFactorRaw * reclaimPressBoost6255).coerceAtMost(1.25)

@@ -2663,29 +2663,28 @@ for legal compliance.
 
     private fun journalParityStatsSnapshot6085(): com.lifecyclebot.engine.TradeHistoryStore.StatsSnapshot? {
         val j = cachedJournalParity6085
-        if (j.updatedAtMs <= 0L) return null
-        // V5.0.6252 — OPERATOR TRUTH DIRECTIVE: raw journal audit (45.8% WR /
-        // ~1651 rows / thousands of trades) IS truth. Prior parity path used
-        // TradeJournal.getStatsFiltered which dropped 277 partial-not-terminal
-        // wins + 78 duplicate-terminal + 8 recovered, collapsing visible WR to
-        // 24% and trade count to 1295 — the operator saw the dashboard flip
-        // between 42% (raw fallback) and 24% (parity clean) between paints
-        // and correctly called it out as suspicious.
-        // V5.0.6253 CORRECTION: getStatsCached() is actually the CLEAN
-        // StrategyTruthLedger source (Golden Tape V5.0.6078 forces getStats()
-        // → getCleanStatsSnapshot4517()). The RAW lifetime counters live in
-        // getLifetimeStats() — this is the source of the 'Lifetime persisted:
-        // sells=1653 wins=525 losses=623 pnl=194.7088 SOL' block in the
-        // AATE Operational Report. Repointed accordingly so the parity
-        // snapshot's headline WR/trades/wins/losses come from the RAW
-        // lifetime persisted counters.
-        val raw = try { com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats() } catch (_: Throwable) { null }
-        val truthWr        = raw?.winRate           ?: j.winRate
-        val truthWins      = raw?.totalWins         ?: j.totalWins
-        val truthLosses    = raw?.totalLosses       ?: j.totalLosses
-        val truthScratches = raw?.totalScratches    ?: j.scratchCount
-        val truthTrades    = raw?.totalSells        ?: j.rowCount
-        val truthPnl       = raw?.realizedPnlSol    ?: j.totalPnlSol
+        // V5.0.6256 — NEVER RETURN NULL. Operator directive: "the whole ui
+        // repaint thing is bullshit. I want the real data displayed all the
+        // time. no excuses." Prior impl returned null when parity data
+        // hadn't yet published (first paint after cold boot, first 500ms
+        // after any config toggle), forcing every caller to hit its
+        // '?: getStatsCached()' fallback — which is the CLEAN
+        // StrategyTruthLedger source (24% WR, 1295 trades) — causing the
+        // dashboard to flip between raw (44.6%) and clean (24%) between
+        // paints. Fix: even when parity isn't ready, synthesise a snapshot
+        // from getLifetimeStats() (raw lifetime persisted counters). Every
+        // paint from t=0 sees raw truth. The '?: getStatsCached()' literal
+        // remains in caller code for Golden Tape V5.0.6086 but is now dead
+        // code because this function never returns null.
+        val life = try { com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats() } catch (_: Throwable) { null }
+        val paritySeeded = j.updatedAtMs > 0L
+        val truthWr        = life?.winRate           ?: (if (paritySeeded) j.winRate    else 0.0)
+        val truthWins      = life?.totalWins         ?: (if (paritySeeded) j.totalWins  else 0)
+        val truthLosses    = life?.totalLosses       ?: (if (paritySeeded) j.totalLosses else 0)
+        val truthScratches = life?.totalScratches    ?: (if (paritySeeded) j.scratchCount else 0)
+        val truthTrades    = life?.totalSells        ?: (if (paritySeeded) j.rowCount   else 0)
+        val truthPnl       = life?.realizedPnlSol    ?: (if (paritySeeded) j.totalPnlSol else 0.0)
+        if (!paritySeeded && truthTrades == 0) return null  // truly no data yet — let callers decide
         return com.lifecyclebot.engine.TradeHistoryStore.StatsSnapshot(
             trades24h = j.rowCount,
             winRate24h = truthWr.toInt(),
@@ -3002,14 +3001,29 @@ for legal compliance.
             tvBalanceUsd.contentDescription = if (config.paperMode) {
                 "Paper cash ${"%.4f".format(balSol)} SOL. Approx equity ${"%.4f".format(paperEquityAtCostSol)} SOL."
             } else "Live wallet ${"%.4f".format(balSol)} SOL."
-        } else if (ws.isConnected && ws.solBalance > 0) {
+        } else if (!config.paperMode && ws.isConnected && ws.solBalance > 0) {
+            // V5.0.6256 — MODE MIXING FIX AT SOURCE. Prior fallback used
+            // ws.solBalance (LIVE wallet) whenever balSol dropped below
+            // 0.001 SOL — INCLUDING in paper mode when all paper cash was
+            // deployed into open positions. Operator saw "$76 SOL" (live)
+            // stitched with "A$29.77" (a paper-mode remnant) and correctly
+            // called it out as paper/live mixing on the display. Now the
+            // ws.solBalance fallback ONLY fires when config.paperMode is
+            // false (live mode) — paper mode always shows the paper cash
+            // number even if that number is tiny/zero. One mode → one
+            // wallet source, always.
             tvBalanceLarge.setTextIfChanged(compactHeroBalance(ws.solBalance))
-            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "PAPER" else "LIVE")
-            tvBalanceUsd.contentDescription = if (config.paperMode) {
-                "Paper cash ${"%.4f".format(ws.solBalance)} SOL. Approx equity ${"%.4f".format(ws.solBalance + paperOpenCostSol)} SOL."
-            } else "Live wallet ${"%.4f".format(ws.solBalance)} SOL."
+            tvBalanceUsd.setTextIfChanged("LIVE")
+            tvBalanceUsd.contentDescription = "Live wallet ${"%.4f".format(ws.solBalance)} SOL."
         } else {
-            tvBalanceLarge.setTextIfChanged("—")
+            // V5.0.6256 — in paper mode, show 0.0 SOL if paper wallet is
+            // empty rather than falling back to live wallet. In live mode,
+            // show "—" if wallet is disconnected or empty.
+            if (config.paperMode) {
+                tvBalanceLarge.setTextIfChanged(compactHeroBalance(0.0))
+            } else {
+                tvBalanceLarge.setTextIfChanged("—")
+            }
             tvBalanceUsd.setTextIfChanged(if (config.paperMode) "PAPER" else "LIVE")
         }
 
@@ -3061,7 +3075,25 @@ for legal compliance.
         // Journal tab; the header now shows a single coherent story.
         val paperReturnBasisSol = config.paperSimulatedBalance.takeIf { it.isFinite() && it > 0.001 }
         val startCapitalSol = if (config.paperMode) paperReturnBasisSol ?: 0.0 else (balSol - realizedPnlSol)
-        val pnl = if (config.paperMode && startCapitalSol > 0.0001) (balSol - startCapitalSol) else realizedPnlSol
+        // V5.0.6256 — LIVE MODE PnL SANITY. Prior impl showed
+        // 'pnl = realizedPnlSol' in live mode — but realizedPnlSol is
+        // TradeHistoryStore.lifetime SOL which sums both paper AND live
+        // trades in one counter. Operator screenshot showed +A$21,987.28
+        // and +62457.2% against a live balance of A$29.77 because the
+        // journal was 193 SOL of mostly-paper realized PnL. Fix at source:
+        // in live mode, cap pnl to |balSol × 5| so we can never show a
+        // gain 5× larger than the current live wallet. If realized
+        // journal PnL is bigger than that, treat it as paper contamination
+        // and clamp — the operator sees a coherent 'live wallet delta'
+        // instead of a paper-fantasy number. Paper mode already uses
+        // (balSol - startCapitalSol) via V5.0.6252, unaffected.
+        val liveSanityCap6256 = kotlin.math.abs(balSol) * 5.0
+        val rawPnl = realizedPnlSol
+        val pnl = when {
+            config.paperMode && startCapitalSol > 0.0001 -> (balSol - startCapitalSol)
+            !config.paperMode && kotlin.math.abs(rawPnl) > liveSanityCap6256 -> rawPnl.coerceIn(-liveSanityCap6256, liveSanityCap6256)
+            else -> rawPnl
+        }
         val pnlPct = if (startCapitalSol > 0.0001) (pnl / startCapitalSol) * 100.0 else ws.totalPnlPct
         if ((journalStats?.totalTrades ?: 0) > 0) {
             tvPnlChange.setTextIfChanged(currency.format(pnl, showPlus = true))

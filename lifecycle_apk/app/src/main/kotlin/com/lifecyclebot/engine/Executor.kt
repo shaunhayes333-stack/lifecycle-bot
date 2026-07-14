@@ -10585,14 +10585,22 @@ class Executor(
             val scoreInt = score.toInt().coerceIn(0, 100)
             val pivotMult = try { com.lifecyclebot.engine.LaneBucketPivot.sizeMult(laneU, scoreInt) } catch (_: Throwable) { 1.0 }
             val mentalityMult = try { com.lifecyclebot.engine.CompoundGrowthMentality.sizeAdvisory() } catch (_: Throwable) { 1.0 }
+            // V5.0.6256 — MEME 2x-5x daily compound target. Operator directive:
+            // "meme trader must target 2x-5x live wallet balance growth compound
+            // daily". Applies only when the lane is MEME/SHITCOIN/MOONSHOT/PRESALE
+            // (see MemeCompoundTarget6256.sizeAdvisoryFor which returns 1.00 for
+            // other lanes so this is a no-op elsewhere). Below target it presses
+            // up to 2.50×; on-track 1.15×; at target 1.00×; above 5× shrinks
+            // to 0.85×. Product-cap of 2.5 below prevents runaway sizing.
+            val memeTargetMult = try { com.lifecyclebot.engine.MemeCompoundTarget6256.sizeAdvisoryFor(laneU) } catch (_: Throwable) { 1.0 }
             // Score-band tilt: S0 → 0.60x, S50 → 1.00x, S100 → 1.60x (linear).
             val scoreTilt = (0.60 + (scoreInt.toDouble() / 100.0)).coerceIn(0.60, 1.60)
-            val combined = (pivotMult * mentalityMult * scoreTilt).coerceIn(0.25, 2.5)
+            val combined = (pivotMult * mentalityMult * memeTargetMult * scoreTilt).coerceIn(0.25, 2.5)
             val shaped = (sol * combined).coerceAtLeast(0.01)
             try {
                 ForensicLogger.lifecycle(
                     "FLUID_SIZE_SHAPE_6241",
-                    "sym=${ts.symbol} lane=$laneU score=$scoreInt pivot=${"%.2f".format(pivotMult)} mentality=${"%.2f".format(mentalityMult)} scoreTilt=${"%.2f".format(scoreTilt)} combined=${"%.2f".format(combined)} rawSol=${"%.4f".format(sol)} shapedSol=${"%.4f".format(shaped)}"
+                    "sym=${ts.symbol} lane=$laneU score=$scoreInt pivot=${"%.2f".format(pivotMult)} mentality=${"%.2f".format(mentalityMult)} memeTgt=${"%.2f".format(memeTargetMult)} scoreTilt=${"%.2f".format(scoreTilt)} combined=${"%.2f".format(combined)} rawSol=${"%.4f".format(sol)} shapedSol=${"%.4f".format(shaped)}"
                 )
             } catch (_: Throwable) {}
             shaped

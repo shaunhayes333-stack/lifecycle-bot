@@ -399,6 +399,10 @@ class WalletManager private constructor(private val ctx: Context) {
                     ?.thresholdUsd ?: 0.0,
             )
             ErrorLogger.info("Wallet", "Balance refresh complete: $solBal SOL ($${"%.2f".format(solBal * solPrice)})")
+            // V5.0.6256 — feed live wallet balance into the MEME compound
+            // target tracker. Operator directive: "meme trader must target
+            // 2x-5x live wallet balance growth compound daily".
+            try { com.lifecyclebot.engine.MemeCompoundTarget6256.observeLiveWallet(solBal) } catch (_: Throwable) {}
         } catch (e: kotlinx.coroutines.CancellationException) {
             // Silently ignore cancellation - this is expected during bot stop
             ErrorLogger.debug("Wallet", "refreshBalance cancelled (expected during shutdown)")
