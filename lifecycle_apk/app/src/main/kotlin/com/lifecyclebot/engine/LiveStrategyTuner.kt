@@ -347,11 +347,26 @@ object LiveStrategyTuner {
         // temporary net-SOL colour. Bleeder branch below still fires only when
         // BOTH sol<0 AND mean<=-8% AND wr<35% — i.e. genuine bleeder, not
         // asymmetric variance.
-        val asymRunner6068 = n >= 8 && (mean >= 20.0 || m.avgWinPct >= 50.0 || pf >= 4.0)
-        if ((n >= 30 && wr >= 40.0 && sol >= 0.0) ||
+        // V5.0.6250 — PROVEN-BLEEDER HARD FLOOR (operator directive:
+        // "winrate recovery should be firing and driving winrate back up").
+        // Report 6249 showed the exact bleed vector: MOONSHOT n=261 wr=16%
+        // pnl=-0.187, QUALITY n=148 wr=25% pnl=-0.185, SHITCOIN n=49 wr=13%
+        // pnl=-0.706 — ALL held at size×=1.00 hold×=1.40 partial×=1.30 by
+        // asymRunner6068 because a single big-tail winner kept avgWinPct>=50%
+        // or pf>=4.0. But n>=40 with wr<30% AND negative SOL is not variance;
+        // it is a proven bleeder consuming budget the winning lanes
+        // (BLUECHIP 59.5% wr) need to press. Disqualify the exemption so
+        // the toxic/bleeder pivot below fires (size×=0.35-0.62, tighter
+        // partials) and frees capital for the winners actually driving PnL.
+        // This is the WR-reclaim vector: shrink losers, not veto them, so
+        // the blended WR converges upward as the losing-lane volume falls.
+        val provenBleeder6250 = n >= 40 && wr < 30.0 && sol < 0.0
+        val asymRunner6068 = !provenBleeder6250 && n >= 8 && (mean >= 20.0 || m.avgWinPct >= 50.0 || pf >= 4.0)
+        if (!provenBleeder6250 && (
+            (n >= 30 && wr >= 40.0 && sol >= 0.0) ||
             (n >= 8 && mean >= 20.0 && sol >= 0.0) ||
             asymRunner6068  // V5.0.6068 — mean>=20% or big-tail signature exempts regardless of net SOL
-        ) {
+        )) {
             return Adjustment(
                 lane = lane, trades = n, winRatePct = wr, totalSolPnl = sol,
                 pfExpectancyPp = pf, meanPnlPct = mean, sizeMult = 1.0,

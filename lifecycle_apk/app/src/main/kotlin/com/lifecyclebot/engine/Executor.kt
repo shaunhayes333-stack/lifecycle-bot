@@ -10502,12 +10502,18 @@ class Executor(
         // paper buys into buckets with ≥15 losses AND ≥60% loss rate AND
         // meanPnl ≤ -15%. Same gate as the live path so the paper
         // simulation trains against the same forward rules.
+        // V5.0.6250 — TALLY FIX: register this veto with onGate() so it
+        // appears in the "Gate allow / block tally" and "Top block reasons"
+        // panels alongside FDG/LANE_AUTO_PAUSED_*. Prior 6249 report showed
+        // zero visible blocks for this veto because labelInc alone is not
+        // aggregated into the block-reason histogram.
         run {
             val laneTag = try { ts.position.tradingMode.ifBlank { "STANDARD" } } catch (_: Throwable) { "STANDARD" }
             val bucketVeto = try { com.lifecyclebot.engine.LaneBucketPivot.shouldVeto(laneTag, score.toInt()) } catch (_: Throwable) { false to "" }
             if (bucketVeto.first) {
                 try { ForensicLogger.lifecycle("PAPER_BUY_TOXIC_BUCKET_HARD_VETO_6249", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag score=${score.toInt()} detail=${bucketVeto.second.take(160)}") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("PAPER_BUY_TOXIC_BUCKET_HARD_VETO_6249") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "TOXIC_BUCKET_HARD_VETO_6249_${laneTag}_S${score.toInt()} mode=PAPER lane=$laneTag detail=${bucketVeto.second.take(120)}") } catch (_: Throwable) {}
                 return
             }
         }
@@ -12218,11 +12224,15 @@ class Executor(
         // MOONSHOT/SHITCOIN bleed at 17-19% WR full-size. shouldVeto
         // is a mandatory block for any bucket with ≥15 losses AND
         // ≥60% loss rate AND meanPnl ≤ -15%.
+        // V5.0.6250 — TALLY FIX: register with onGate() so it shows up
+        // in the block-reason histogram (was invisible under 6249 because
+        // labelInc alone bypasses the phase tally).
         try {
             val bucketVeto = com.lifecyclebot.engine.LaneBucketPivot.shouldVeto(layerTag, score.toInt())
             if (bucketVeto.first) {
                 liveStage("LIVE_BUY_ABORTED", "reason=TOXIC_BUCKET_HARD_VETO_6249 detail=${bucketVeto.second.take(160)}")
                 try { emitLiveBuyFail(ts, sol, "TOXIC_BUCKET_HARD_VETO_6249", bucketVeto.second) } catch (_: Throwable) {}
+                try { PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "TOXIC_BUCKET_HARD_VETO_6249_${layerTag}_S${score.toInt()} mode=LIVE lane=$layerTag detail=${bucketVeto.second.take(120)}") } catch (_: Throwable) {}
                 return false
             }
         } catch (_: Throwable) {}
