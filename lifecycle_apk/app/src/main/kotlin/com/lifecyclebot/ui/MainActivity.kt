@@ -2663,18 +2663,22 @@ for legal compliance.
         // wins + 78 duplicate-terminal + 8 recovered, collapsing visible WR to
         // 24% and trade count to 1295 — the operator saw the dashboard flip
         // between 42% (raw fallback) and 24% (parity clean) between paints
-        // and correctly called it out as suspicious. Now the parity snapshot
-        // keeps its row-list for JournalActivity drill-down but the headline
-        // WR / trades / wins / losses come from TradeHistoryStore.getStatsCached()
-        // which mirrors lifetime raw journal totals. One number, one truth,
-        // stable across every paint frame.
-        val raw = try { com.lifecyclebot.engine.TradeHistoryStore.getStatsCached() } catch (_: Throwable) { null }
+        // and correctly called it out as suspicious.
+        // V5.0.6253 CORRECTION: getStatsCached() is actually the CLEAN
+        // StrategyTruthLedger source (Golden Tape V5.0.6078 forces getStats()
+        // → getCleanStatsSnapshot4517()). The RAW lifetime counters live in
+        // getLifetimeStats() — this is the source of the 'Lifetime persisted:
+        // sells=1653 wins=525 losses=623 pnl=194.7088 SOL' block in the
+        // AATE Operational Report. Repointed accordingly so the parity
+        // snapshot's headline WR/trades/wins/losses come from the RAW
+        // lifetime persisted counters.
+        val raw = try { com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats() } catch (_: Throwable) { null }
         val truthWr        = raw?.winRate           ?: j.winRate
         val truthWins      = raw?.totalWins         ?: j.totalWins
         val truthLosses    = raw?.totalLosses       ?: j.totalLosses
         val truthScratches = raw?.totalScratches    ?: j.scratchCount
-        val truthTrades    = raw?.totalStoredTrades ?: j.rowCount
-        val truthPnl       = raw?.totalPnlSol       ?: j.totalPnlSol
+        val truthTrades    = raw?.totalSells        ?: j.rowCount
+        val truthPnl       = raw?.realizedPnlSol    ?: j.totalPnlSol
         return com.lifecyclebot.engine.TradeHistoryStore.StatsSnapshot(
             trades24h = j.rowCount,
             winRate24h = truthWr.toInt(),

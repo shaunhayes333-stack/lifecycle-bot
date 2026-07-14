@@ -266,17 +266,21 @@ object DashboardDataProvider {
         // dropping visible WR to ~24%. Keep the audit sub-fields (deduped,
         // recovered, partialNotTerminal, badEntry) for diagnostic display,
         // but cleanCloses / cleanWinRate / cleanPnlSol now report the raw
-        // lifetime numbers from TradeHistoryStore so every consumer that
-        // reads this card sees the same 45.8% headline as the main UI.
-        val stats = try { TradeHistoryStore.getStatsCached() } catch (_: Throwable) { null }
-        val hasRawTruth = stats != null && stats.totalStoredTrades > 0
-        val rawTrades = if (hasRawTruth) stats!!.totalStoredTrades else rows.size
-        val rawWr = if (hasRawTruth) stats!!.winRate else {
+        // lifetime numbers so every consumer that reads this card sees the
+        // same 45.8% headline as the main UI.
+        // V5.0.6253 CORRECTION: TradeHistoryStore.getStatsCached() is bound
+        // to getCleanStatsSnapshot4517() by Golden Tape V5.0.6078 so it
+        // returns clean-ledger truth. RAW lifetime counters live in
+        // TradeHistoryStore.getLifetimeStats() — repointed accordingly.
+        val life = try { TradeHistoryStore.getLifetimeStats() } catch (_: Throwable) { null }
+        val hasRawTruth = life != null && life.totalSells > 0
+        val rawTrades = if (hasRawTruth) life!!.totalSells else rows.size
+        val rawWr = if (hasRawTruth) life!!.winRate else {
             val wins = rows.count { it.pnlPct >= 0.5 || (it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol) > 0.0 }
             val losses = rows.count { it.pnlPct <= -2.0 || (it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol) < 0.0 }
             if (wins + losses > 0) wins.toDouble() * 100.0 / (wins + losses).toDouble() else 0.0
         }
-        val rawPnl = if (hasRawTruth) stats!!.totalPnlSol else rows.sumOf { it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol }
+        val rawPnl = if (hasRawTruth) life!!.realizedPnlSol else rows.sumOf { it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol }
         val inv = StrategyTruthLedger.inventoryRecoveryRows(raw)
         StrategyTruthCard(
             cleanCloses = rawTrades,
