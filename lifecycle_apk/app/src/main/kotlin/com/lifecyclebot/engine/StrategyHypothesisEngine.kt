@@ -112,7 +112,19 @@ object StrategyHypothesisEngine {
     }
 
     /** Deterministic arm assignment so a mint always lands in the same arm. */
-    private fun isVariant(mint: String): Boolean = (mint.hashCode() and 0x1) == 0
+    /**
+     * V5.0.6263 — better hash mixing. Prior impl used the low bit of
+     * mint.hashCode() which is skewed for similar-looking Solana mints
+     * (many mints share prefixes/suffixes → correlated low bit).
+     * Op-report V5.0.6262 showed 5 active hypotheses with ctrl[n=8]
+     * and var[n=0] — statistically improbable if the split were 50/50.
+     * Mix in higher-order bits so the split is actually uniform.
+     */
+    private fun isVariant(mint: String): Boolean {
+        val h = mint.hashCode()
+        val mixed = h xor (h ushr 16) xor (h ushr 8)
+        return (mixed and 0x1) == 0
+    }
 
     private fun spawn(context: String): Hypothesis {
         // propose a mutation around the current baseline: explore +/- one step
@@ -253,6 +265,31 @@ object StrategyHypothesisEngine {
     }
 
     private fun maybeResolve(ctx: String, h: Hypothesis) {
+        // V5.0.6263 — PROVEN-BASELINE AUTO-PROMOTION. Op-report V5.0.6262
+        // showed MOONSHOT|S40|NORMAL ctrl[n=8 μ=+131.3%] — a treasure the
+        // AGI was ignoring because the variant arm had n=0 samples (mint
+        // hash skew, now fixed). Waiting forever for a variant to catch up
+        // wastes the proven baseline win. When the control arm alone
+        // demonstrates a strong positive edge (n>=MIN_ARM AND μ>=30% AND
+        // sharpe-like ratio > 0.6), auto-promote its sizeBias by 10% and
+        // spawn a fresh variant. This is a size UP-shift only, so downside
+        // is capped by lane SL and stop-baseline still governs stop width.
+        val proveCtrlEdge = h.control.n >= MIN_ARM && h.control.mean >= 30.0 &&
+            (h.control.mean / (sqrt(h.control.variance) + 1e-6)) > 0.6
+        if (proveCtrlEdge && (baseline[ctx] ?: 1.0) < 1.15) {
+            val newBase = ((baseline[ctx] ?: 1.0) + 0.10).coerceAtMost(SIZE_BIAS_MAX)
+            baseline[ctx] = newBase
+            promotions += 1
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HYPOTHESIS_PROVEN_BASELINE_PROMOTED_6263")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "HYPOTHESIS_PROVEN_BASELINE_PROMOTED_6263",
+                    "ctx=$ctx ctrl_n=${h.control.n} ctrl_mean=${"%.1f".format(h.control.mean)}% newBase=${"%.2f".format(newBase)}",
+                )
+            } catch (_: Throwable) {}
+            active[ctx] = spawn(ctx)
+            return
+        }
         if (h.control.n < MIN_ARM || h.variant.n < MIN_ARM) return
         // Welch t-stat: variant mean - control mean
         val vc = h.control; val vv = h.variant

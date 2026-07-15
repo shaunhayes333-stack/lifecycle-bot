@@ -158,9 +158,9 @@ object LiveProbabilityEngine {
                         .let { dump -> dump.contains("$laneU") && dump.contains("AUTHORITATIVE") && !dump.contains("bootstrap") }
                 } catch (_: Throwable) { false }
                 val agiMult = when {
-                    policyAuthoritative -> 0.55  // per-lane brain trained + authoritative
-                    labProven          -> 0.35   // sandbox has forward-looking proof
-                    else               -> 0.10   // tiny learning probe (not zero — keeps loop fed)
+                    policyAuthoritative -> 0.70  // V5.0.6263 — up from 0.55: policy AGI has proven itself, don't hobble it
+                    labProven          -> 0.50   // V5.0.6263 — up from 0.35
+                    else               -> 0.30   // V5.0.6263 — up from 0.10: 10% was starving the learning-probe path (QUALITY size×=0.10 n=0 in V5.0.6262 report meant lanes could never accumulate samples). 30% gives a probe enough size to matter without breaking the safety intent.
                 }
                 val agiSrc = when {
                     policyAuthoritative -> "paused+policy_authoritative"

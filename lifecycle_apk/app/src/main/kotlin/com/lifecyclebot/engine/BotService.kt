@@ -9208,6 +9208,36 @@ class BotService : Service() {
                                             if (!beOk) {
                                                 // hold for more upside — high-lock will retry on next tick
                                             } else {
+                                            // V5.0.6263 — HARD BREAKEVEN GUARD. Op-report V5.0.6262
+                                            // showed 5-of-10 recent BLUECHIP closes labelled
+                                            // REALIZED_LOSS_AFTER_PROFIT_SIGNAL at -2% to -7%.
+                                            // TICK_PROFIT_LOCK fires at fractionally-positive pnl,
+                                            // price then slips into negative before sell finality
+                                            // lands, and the trade prints red. The label sanitizer
+                                            // catches it AFTER the fact (rewrites to
+                                            // REALIZED_LOSS_AFTER_PROFIT_SIGNAL) but the loss is
+                                            // already realized. Re-check pnl at dispatch time; if
+                                            // it went negative between decision and here, abort
+                                            // this lock attempt and let the next tick or the
+                                            // stop-loss path own the exit. Winners never bank as
+                                            // losses under this doctrine.
+                                            val pnlAtDispatch = try {
+                                                if (pos.entryPrice > 0.0 && ts.lastPrice > 0.0)
+                                                    (ts.lastPrice - pos.entryPrice) / pos.entryPrice * 100.0
+                                                else pnlPctNow
+                                            } catch (_: Throwable) { pnlPctNow }
+                                            if (pnlAtDispatch < 0.5) {
+                                                try {
+                                                    ForensicLogger.lifecycle(
+                                                        "TICK_PROFIT_LOCK_ABORTED_BREAKEVEN_6263",
+                                                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} " +
+                                                        "decisionPnl=${"%.1f".format(pnlPctNow)}% " +
+                                                        "dispatchPnl=${"%.1f".format(pnlAtDispatch)}% " +
+                                                        "peak=${"%.1f".format(peakPct)}%"
+                                                    )
+                                                    PipelineHealthCollector.labelInc("TICK_PROFIT_LOCK_ABORTED_BREAKEVEN_6263")
+                                                } catch (_: Throwable) {}
+                                            } else {
                                             ErrorLogger.warn("BotService",
                                                 "🔒 TICK_PROFIT_LOCK ${ts.symbol} " +
                                                 "peak=${"%.1f".format(peakPct)}% now=${"%.1f".format(pnlPctNow)}% " +
@@ -9220,6 +9250,7 @@ class BotService : Service() {
                                                     "TICK_PROFIT_LOCK_peak${peakPct.toInt()}_now${pnlPctNow.toInt()}",
                                                     walletTick, balTick)
                                             } catch (_: Throwable) {}
+                                            }
                                             }
                                         }
                                     }
@@ -10544,6 +10575,30 @@ class BotService : Service() {
                 PipelineHealthCollector.labelInc("INTAKE_HARD_REJECT_SKIPPED")
             } catch (_: Throwable) {}
             return false
+        }
+
+        // V5.0.6263 — PUMP_DOMINANCE INTAKE FILTER. Op-report V5.0.6262 showed
+        // hundreds of `WATCHLIST→PROBATION conf=0 liq=$0` events per second
+        // from PUMP_PORTAL / PUMP_FUN_NEW sources, saturating the 300-slot
+        // watchlist with worthless tokens and driving avg bot-loop cycle from
+        // 8s to 13s (max 52s). A conf=0 AND liq=$0 token from a pump source
+        // is zero-signal noise — reject at intake instead of admit-then-demote.
+        // Preserves USER/RESTORED paths (explicit intent).
+        run {
+            val isUserAdded = source == "USER" || source.contains("USER_ADDED", ignoreCase = true)
+            val isRestoredVetted = source == "MEME_REGISTRY_RESTORE" || source == "PROBATION"
+            val isPumpSource = source.contains("PUMP", ignoreCase = true) || source.contains("SCANNER_DIRECT", ignoreCase = true)
+            val zeroSignal = liquidityUsd <= 0.0 && confidence <= 0 && marketCapUsd <= 0.0 && volumeH1 <= 0.0
+            if (!isUserAdded && !isRestoredVetted && isPumpSource && zeroSignal) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "INTAKE_PUMP_DOMINANCE_ZERO_SIGNAL_REJECT_6263",
+                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source no_watchlist=true no_probation=true"
+                    )
+                    PipelineHealthCollector.labelInc("INTAKE_PUMP_DOMINANCE_ZERO_SIGNAL_REJECT_6263")
+                } catch (_: Throwable) {}
+                return false
+            }
         }
 
         // V5.9.1440 — P0 BASE/QUOTE/STABLE MINT QUARANTINE (data-integrity).

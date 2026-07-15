@@ -37,8 +37,16 @@ object BirdeyeBudgetGate {
     private const val MONTHLY_CAP = 6_000_000L
     private const val MONTHLY_LOCKDOWN_PCT = 0.80
     private const val MONTHLY_SCANNER_THROTTLE_PCT = 0.75
-    private const val DAILY_SCANNER_THROTTLE_PCT = 0.60
-    private const val DAILY_SCANNER_HARD_STOP_PCT = 0.90
+    // V5.0.6263 — tighter budget guards. Op-report V5.0.6262 caught daily CU
+    // at 95.7% with `entry lockdown: off` — the 90% hard-stop only blocked
+    // scanner lane while safety/emergency calls continued burning against
+    // the API's rate-limited-tail state (returning 401/5xx storms). Pull
+    // scanner hard-stop down to 85% so more headroom is preserved for
+    // exit-side price-verifier / emergency calls, and add a top-cap on
+    // safety calls at 96% so the last 4% is truly emergency-reserved.
+    private const val DAILY_SCANNER_THROTTLE_PCT = 0.55
+    private const val DAILY_SCANNER_HARD_STOP_PCT = 0.85
+    private const val DAILY_SAFETY_BROWNOUT_PCT_6263 = 0.96
 
     // V5.0.3977 — provider conservation is NOT a permanent compile-time state.
     // Operator's Birdeye dashboard (2026-06-20) shows ~3.97K / 6.00M CU used, so
@@ -169,9 +177,12 @@ object BirdeyeBudgetGate {
         if (isProviderBrownoutActive()) return false
         // V5.0.4175 — daily-cap brownout. Stops the 5xx storm once the
         // daily CU bucket is empty.
+        // V5.0.6263 — tightened to 96%. Prior 98% cutoff still let the last
+        // 3% burn through safety calls that all returned 401/5xx storms
+        // under the sr=0% state, wasting the tail on guaranteed failures.
         if (dailyCap > 0L) {
             val dailyPct = cuToday.get().toDouble() / dailyCap
-            if (dailyPct >= 0.98) return false
+            if (dailyPct >= DAILY_SAFETY_BROWNOUT_PCT_6263) return false
         }
         return true
     }
