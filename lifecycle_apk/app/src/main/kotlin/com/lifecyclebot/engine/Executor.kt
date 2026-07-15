@@ -1112,6 +1112,32 @@ class Executor(
                     }
                     return pos.lastRoutePrice
                 } else if (pos.entryPrice > 0.0) {
+                    // V5.0.6261 — ASYMMETRIC ROUTE-LOCK RELIEF. Prior behavior
+                    // returned entryPrice unconditionally when the on-route
+                    // cache was stale, silently masking real price movement.
+                    // Op-report V5.0.6260 caught VORF stuck at +62% profit
+                    // that the WS tick was reporting but the poll-source
+                    // route lock hid — RAPID_INSTANT_PROFIT_CAPTURE_4301 fired
+                    // 10+ times and PARTIAL_BLOCKED_BELOW_BREAKEVEN killed
+                    // every attempt because pnl computed as 0. The safety
+                    // intent of route-lock is preventing PHANTOM LOSSES
+                    // (spoofed downwards ticks from a bad feed) — a phantom
+                    // PROFIT is far less dangerous because the sell tx itself
+                    // proves it. So when the off-route tick shows a PROFIT
+                    // (livePrice > entryPrice) we pass it through; losses
+                    // still get entryPrice-locked. This unlocks the profit
+                    // capture path without opening the phantom-loss surface.
+                    if (livePrice > pos.entryPrice) {
+                        if (pos.routeLockRejects % 20L == 1L) {
+                            ErrorLogger.warn("Executor",
+                                "🔓 ROUTE_LOCK_PROFIT_PASSTHROUGH_6261 ${ts.symbol}: off-route tick " +
+                                "${ts.lastPriceSource} shows +${"%.1f".format((livePrice - pos.entryPrice) / pos.entryPrice * 100.0)}% " +
+                                "vs entry ${pos.entryPriceSource}=${pos.entryPrice}; letting profit tick through " +
+                                "(rejects=${pos.routeLockRejects})")
+                        }
+                        try { PipelineHealthCollector.labelInc("ROUTE_LOCK_PROFIT_PASSTHROUGH_6261") } catch (_: Throwable) {}
+                        return livePrice
+                    }
                     if (pos.routeLockRejects % 20L == 1L) {
                         ErrorLogger.warn("Executor",
                             "🔒 ROUTE_LOCK_STALE ${ts.symbol}: tick source ${ts.lastPriceSource} " +
@@ -15129,7 +15155,22 @@ class Executor(
         normalizePositionScaleIfNeeded(ts)
         val currentPrice = getActualPrice(ts)
         val pnlVerdict6038 = OpenPnlSanity.inspectPosition(ts.position, currentPrice, "Executor.partial_ladder_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
-        val pnlPct = if (pnlVerdict6038.ok) pnlVerdict6038.pnlPct else 0.0
+        // V5.0.6261 — PARTIAL_BLOCKED_BELOW_BREAKEVEN fix. Prior fallback was
+        // pnlPct=0.0 when OpenPnlSanity failed, which then trivially satisfied
+        // "pnl < floor" and killed every RAPID_INSTANT_PROFIT_CAPTURE_4301
+        // attempt on a token literally sitting at +62%. When sanity fails
+        // (route-lock stale, symbolic basis, etc) fall back to a computed
+        // (currentPrice - entryPrice) / entryPrice pnl so the guard is judging
+        // real numbers, not a zero placeholder. Guarded — if entryPrice is
+        // also invalid, we keep the 0.0 default and the reason-allowlist
+        // below is the last line of defense.
+        val pnlPct = if (pnlVerdict6038.ok) {
+            pnlVerdict6038.pnlPct
+        } else if (ts.position.entryPrice > 0.0 && currentPrice > 0.0) {
+            (currentPrice - ts.position.entryPrice) / ts.position.entryPrice * 100.0
+        } else {
+            0.0
+        }
 
         // V5.9.1515 — P0 FIX 3: NEVER partial-ladder a deeply red position.
         // Operator audit: snapshot showed partial_10/20/30pct sells firing at
@@ -15145,13 +15186,23 @@ class Executor(
             val isForcedRiskCut = r.contains("RISK") || r.contains("LIQUIDITY") ||
                 r.contains("STOP") || r.contains("RUG") || r.contains("RECOVERY") ||
                 r.contains("CATASTROPHE") || r.contains("DRAIN")
-            if (!isPaper && pnlPct < LiveStrategyTuner.livePartialProfitFloorPct() && !isForcedRiskCut) {
+            // V5.0.6261 — profit-capture bypass. RAPID_INSTANT_PROFIT_CAPTURE
+            // and other explicit UPSIDE ladder events must not be blocked by
+            // the below-breakeven guard. Prior op-report showed VORF at +62%
+            // hit this block 10+ times because the caller had already
+            // confirmed the profit but this guard used a fallback pnl=0.
+            // Reasons containing PROFIT/CAPTURE/RUNNER/RAPID are explicit
+            // profit-side actions — the caller has verified positive pnl.
+            val isForcedProfitCapture = r.contains("PROFIT") || r.contains("CAPTURE") ||
+                r.contains("RAPID") || r.contains("RUNNER") || r.contains("LOCK")
+            val isForcedCut = isForcedRiskCut || isForcedProfitCapture
+            if (!isPaper && pnlPct < LiveStrategyTuner.livePartialProfitFloorPct() && !isForcedCut) {
                 try { ForensicLogger.lifecycle("PARTIAL_BLOCKED_BELOW_BREAKEVEN",
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${"%.2f".format(pnlPct)} floor=${LiveStrategyTuner.livePartialProfitFloorPct()} reqPct=${(pct*100).toInt()} reason=$reason action=hold_runner") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("PARTIAL_BLOCKED_BELOW_BREAKEVEN") } catch (_: Throwable) {}
                 return
             }
-            if (pnlPct <= -15.0 && !isForcedRiskCut) {
+            if (pnlPct <= -15.0 && !isForcedCut) {
                 try { ForensicLogger.lifecycle("PARTIAL_COLLAPSED_TO_RISK_EXIT",
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${pnlPct.toInt()}% reqPct=${(pct*100).toInt()} reason=$reason") } catch (_: Throwable) {}
                 requestSell(ts, "PARTIAL_LADDER_COLLAPSED_RISK_EXIT_${pnlPct.toInt()}", wallet, walletBalance)
