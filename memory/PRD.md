@@ -1,40 +1,40 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
-## 🔴 P0 CARRIED OVER FOR NEXT SESSION — Paper→Live AGI/SSI training pipe broken
+## ✅ V5.0.6258 SHIPPED — Paper→Live AGI Rewire (2026-07-15, CI green)
 
 **Operator directive (verbatim)**: "the agi ssi and full intelligence stack is
 meant to basically take everything its learnt training in paper to only make
-winning trades when switched to live"
+winning trades when switched to live" — and "the bot must grow the live
+balance by 2x to 5x minimum daily".
 
-**Diagnosis from V5.0.6256 op-report (1876 total closes, mode LIVE):**
+**V5.0.6257 op-report diagnosis (1489 total closes, mode LIVE, wallet
+0.2510 → 0.2258 SOL — DOWN):**
 
-Three pipes broken:
+1. ✅ UnifiedPolicyHead training pipe (V5.0.6258 report showed `global
+   trained=33 bias=-0.35 authority=AUTHORITATIVE` and STANDARD n=27 —
+   already flowing, no fix needed).
 
-1. **UnifiedPolicyHead training pipe starving**
-   ```
-   STANDARD       n=22  auth=LEARNED       ← only one that learned
-   AGGRESSIVE     n=5   auth=ADVISORY
-   MEME_GENERIC   n=4   auth=ADVISORY
-   BLUECHIP       n=3   auth=ADVISORY
-   SHITCOIN       n=2   auth=BOOTSTRAP
-   PRESALE_SNIPE  n=1   auth=BOOTSTRAP
-   MOONSHOT       n=1   auth=BOOTSTRAP
-   ```
-   After 1876 closes the per-lane heads should each have hundreds of
-   samples. Something filters paper closes out of UnifiedPolicyHead.update.
-   Also note the BLUECHIP/BLUE_CHIP duplication — the lane label pipe has
-   two spellings coexisting; canonicalise.
+2. ✅ **LiveWinDNAStore rows=500 real=2 topSetup=unknown** — FIXED.
+   - LiveWinDNAStore.capture no longer bails on losses.
+   - New split aggregators: winning/losing setup + chart-pattern +
+     exit-reason histograms so the AGI learns the AVOID surface.
+   - New EntryContextRegistry stamps mint→(setup, chartPattern, lane,
+     score, regime) at FDG entry; TokenWinMemory consumes at close so
+     rows carry the REAL setup and pattern instead of "unknown".
 
-2. **LiveWinDNAStore only captures WINS with entrySetup="unknown"**
-   TokenWinMemory line 250-278: capture runs only when isWin=true and
-   hardcodes entrySetup / chartPattern to "unknown". Paper losses never
-   get captured. Paper wins get captured but stripped of pattern signal.
-   That is why the report shows `real=1 topSetup=unknown` after thousands
-   of paper trades.
-
-3. **StrategyHypothesisEngine A/B arms n=0/0**
-   Trade-close → arm-update hook not firing for paper closes. Sell
-   finality lands but no matching h.control.update / h.variant.update.
+3. ✅ **StrategyHypothesisEngine active=6 promotions=0 retirements=0
+   with ALL arms at ctrl=0 var=0** — FIXED.
+   - Root cause: MathematicalEdgeEngine.captureTerminal readback called
+     getSizeBias() at close time, RE-STAMPING pending[mint] with the
+     terminal ctx and wiping the entry-time stamp; recordOutcome then
+     credited the wrong arm (or none). Additional wipe path in
+     suppressVariantForContext erased unrelated stamps.
+   - New peekSizeBias() (read-only, no stamp/spawn) used by readback.
+   - Suppression wipe now only removes pending when it matches the
+     suppressed ctx.
+   - Executor.recordTrade central fanout now calls
+     StrategyHypothesisEngine.recordOutcome so ALL sell paths credit
+     arms (idempotent — bails when pending already consumed).
 
 **What IS working (paper→live already flowing):**
   - LosingPatternMemory combined cache reads paper+live → feeds Toxic
