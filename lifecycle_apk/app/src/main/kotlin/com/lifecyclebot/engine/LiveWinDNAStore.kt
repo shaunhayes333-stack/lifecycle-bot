@@ -136,7 +136,15 @@ object LiveWinDNAStore {
         }
     }
 
-    /** Called from TokenWinMemory on every WINNING close. */
+    /** Called from TokenWinMemory on EVERY decisive close (wins + losses).
+     *  V5.0.6258 — PAPER→LIVE AGI REWIRE. Prior impl bailed on losses
+     *  (`pnlPct <= 0.0`), so the DNA store only ever saw winners and could
+     *  never learn what SHAPE a losing trade takes vs a winner. Losing
+     *  patterns are 5x more valuable than winning ones because they tell
+     *  the bot what to AVOID. Op-report V5.0.6257 showed 500 rows but only
+     *  2 real wins captured — everything else was backfill garbage. Now
+     *  the store journals both classes; downstream aggregators split by
+     *  pnlPct sign. */
     fun capture(
         mint: String, symbol: String, lane: String, source: String, phase: String,
         entrySetup: String, chartPattern: String, entryScore: Int,
@@ -144,7 +152,7 @@ object LiveWinDNAStore {
         holdTimeMinutes: Int, buyPercent: Double,
         pnlPct: Double, peakPnl: Double, exitReason: String, paperOrLive: String,
     ) {
-        if (mint.isBlank() || pnlPct <= 0.0) return
+        if (mint.isBlank()) return
         val now = System.currentTimeMillis()
         val dna = WinDNA(
             mint = mint, symbol = symbol, lane = lane, source = source, phase = phase,
@@ -207,19 +215,41 @@ object LiveWinDNAStore {
         return if (k >= list.size) list else list.take(k)
     }
 
-    /** Winning-setup histogram (setup name → count, avgPnl). AGI layers use this. */
+    /** Winning-setup histogram (setup name → count, avgPnl). AGI layers use this.
+     *  V5.0.6258 — filters to WINNING rows only (pnlPct > 0). */
     fun setupFrequency(minCount: Int = 2): List<Triple<String, Int, Double>> {
         val map = HashMap<String, MutableList<Double>>()
-        realRows().forEach { map.getOrPut(it.entrySetup) { mutableListOf() }.add(it.pnlPct) }
+        realRows().filter { it.pnlPct > 0.0 }.forEach { map.getOrPut(it.entrySetup) { mutableListOf() }.add(it.pnlPct) }
         return map.filter { it.value.size >= minCount }
             .map { (k, v) -> Triple(k, v.size, v.average()) }
             .sortedByDescending { it.second }
     }
 
-    /** Winning chart-pattern histogram. Chart brains use this. */
+    /** V5.0.6258 — LOSING-setup histogram. The AGI must learn what NOT to trade,
+     *  not just what worked. Losing patterns are 5x more informative than winners
+     *  because they define the AVOID surface for live-trade shape. */
+    fun losingSetupFrequency(minCount: Int = 2): List<Triple<String, Int, Double>> {
+        val map = HashMap<String, MutableList<Double>>()
+        realRows().filter { it.pnlPct < 0.0 }.forEach { map.getOrPut(it.entrySetup) { mutableListOf() }.add(it.pnlPct) }
+        return map.filter { it.value.size >= minCount }
+            .map { (k, v) -> Triple(k, v.size, v.average()) }
+            .sortedByDescending { it.second }
+    }
+
+    /** Winning chart-pattern histogram. Chart brains use this.
+     *  V5.0.6258 — filters to WINNING rows only. */
     fun chartPatternFrequency(minCount: Int = 2): List<Triple<String, Int, Double>> {
         val map = HashMap<String, MutableList<Double>>()
-        realRows().forEach { map.getOrPut(it.chartPattern) { mutableListOf() }.add(it.pnlPct) }
+        realRows().filter { it.pnlPct > 0.0 }.forEach { map.getOrPut(it.chartPattern) { mutableListOf() }.add(it.pnlPct) }
+        return map.filter { it.value.size >= minCount }
+            .map { (k, v) -> Triple(k, v.size, v.average()) }
+            .sortedByDescending { it.second }
+    }
+
+    /** V5.0.6258 — LOSING chart-pattern histogram. */
+    fun losingChartPatternFrequency(minCount: Int = 2): List<Triple<String, Int, Double>> {
+        val map = HashMap<String, MutableList<Double>>()
+        realRows().filter { it.pnlPct < 0.0 }.forEach { map.getOrPut(it.chartPattern) { mutableListOf() }.add(it.pnlPct) }
         return map.filter { it.value.size >= minCount }
             .map { (k, v) -> Triple(k, v.size, v.average()) }
             .sortedByDescending { it.second }
@@ -248,36 +278,57 @@ object LiveWinDNAStore {
         return Triple(p50, p75, p90)
     }
 
-    /** Exit-reason distribution among winners — sell-brain uses this. */
+    /** Exit-reason distribution among winners — sell-brain uses this.
+     *  V5.0.6258 — winners only (pnlPct > 0). */
     fun winningExitReasons(): List<Pair<String, Int>> {
         val map = HashMap<String, Int>()
-        realRows().forEach { map[it.exitReason] = (map[it.exitReason] ?: 0) + 1 }
+        realRows().filter { it.pnlPct > 0.0 }.forEach { map[it.exitReason] = (map[it.exitReason] ?: 0) + 1 }
+        return map.entries.sortedByDescending { it.value }.map { it.key to it.value }
+    }
+
+    /** V5.0.6258 — LOSING exit-reasons. Tells the sell-brain which exit
+     *  reasons correlate with LOSSES so it can avoid or refactor them. */
+    fun losingExitReasons(): List<Pair<String, Int>> {
+        val map = HashMap<String, Int>()
+        realRows().filter { it.pnlPct < 0.0 }.forEach { map[it.exitReason] = (map[it.exitReason] ?: 0) + 1 }
         return map.entries.sortedByDescending { it.value }.map { it.key to it.value }
     }
 
     /** One-line snapshot for the operational report. */
     fun statusLine(): String {
         val real = realRows()
-        if (rows.isEmpty()) return "V5.0.6238_LIVE_WIN_DNA: rows=0 (bootstrap — need one winning close)"
+        if (rows.isEmpty()) return "V5.0.6258_LIVE_WIN_DNA: rows=0 (bootstrap — need one decisive close)"
         val n = rows.size
         val nReal = real.size
-        val avgPnl = if (real.isNotEmpty()) real.map { it.pnlPct }.average() else 0.0
-        val topSetup = setupFrequency(1).firstOrNull()?.let { "${it.first}(n=${it.second}, μ=${"%.1f".format(it.third)}%)" } ?: "none"
+        val winners = real.filter { it.pnlPct > 0.0 }
+        val losers  = real.filter { it.pnlPct < 0.0 }
+        val avgWin  = if (winners.isNotEmpty()) winners.map { it.pnlPct }.average() else 0.0
+        val avgLoss = if (losers.isNotEmpty())  losers.map { it.pnlPct }.average() else 0.0
+        val topWinSetup  = setupFrequency(1).firstOrNull()?.let { "${it.first}(n=${it.second}, μ=${"%.1f".format(it.third)}%)" } ?: "none"
+        val topLossSetup = losingSetupFrequency(1).firstOrNull()?.let { "${it.first}(n=${it.second}, μ=${"%.1f".format(it.third)}%)" } ?: "none"
         val topPattern = chartPatternFrequency(1).firstOrNull()?.let { "${it.first}(n=${it.second})" } ?: "none"
         val (p50, p75, p90) = holdTimeStats()
-        return "V5.0.6238_LIVE_WIN_DNA: rows=$n real=$nReal avgWin=${"%.1f".format(avgPnl)}% topSetup=$topSetup topPattern=$topPattern hold_p50/p75/p90=${p50}/${p75}/${p90}m"
+        return "V5.0.6258_LIVE_WIN_DNA: rows=$n real=$nReal W/L=${winners.size}/${losers.size} avgWin=${"%.1f".format(avgWin)}% avgLoss=${"%.1f".format(avgLoss)}% topWinSetup=$topWinSetup topLossSetup=$topLossSetup topPattern=$topPattern hold_p50/p75/p90=${p50}/${p75}/${p90}m"
     }
 
     /** Multi-line detail block for the operational report. */
     fun reportBlock(): String {
-        if (rows.isEmpty()) return "  (no winning fingerprints captured yet)"
+        if (rows.isEmpty()) return "  (no decisive fingerprints captured yet)"
         val sb = StringBuilder()
-        sb.appendLine("  Setups (top 5):")
+        sb.appendLine("  Winning setups (top 5):")
         setupFrequency(1).take(5).forEach { (k, n, avg) ->
             sb.appendLine("    ${k.padEnd(30)} n=$n μ=${"%+.1f".format(avg)}%")
         }
-        sb.appendLine("  Chart patterns (top 5):")
+        sb.appendLine("  Losing setups (top 5, AVOID):")
+        losingSetupFrequency(1).take(5).forEach { (k, n, avg) ->
+            sb.appendLine("    ${k.padEnd(30)} n=$n μ=${"%+.1f".format(avg)}%")
+        }
+        sb.appendLine("  Winning chart patterns (top 5):")
         chartPatternFrequency(1).take(5).forEach { (k, n, avg) ->
+            sb.appendLine("    ${k.padEnd(30)} n=$n μ=${"%+.1f".format(avg)}%")
+        }
+        sb.appendLine("  Losing chart patterns (top 5, AVOID):")
+        losingChartPatternFrequency(1).take(5).forEach { (k, n, avg) ->
             sb.appendLine("    ${k.padEnd(30)} n=$n μ=${"%+.1f".format(avg)}%")
         }
         sb.appendLine("  Routes (top 5):")
@@ -285,6 +336,7 @@ object LiveWinDNAStore {
             sb.appendLine("    ${k.take(60).padEnd(60)} n=$n μ=${"%+.1f".format(avg)}%")
         }
         sb.appendLine("  Winning exit reasons: " + winningExitReasons().take(4).joinToString(", ") { "${it.first}(${it.second})" })
+        sb.appendLine("  Losing exit reasons: " + losingExitReasons().take(4).joinToString(", ") { "${it.first}(${it.second})" })
         return sb.toString().trimEnd()
     }
 

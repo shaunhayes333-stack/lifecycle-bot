@@ -17415,6 +17415,21 @@ if (hotExitHandledSweep) {
             // Previously only MOONSHOT at line ~18180 used the style decision.
             ts.styleTpMult = styleDecision.tunedTpMult
             ts.styleHoldMult = styleDecision.tunedHoldMult
+            // V5.0.6258 — PAPER→LIVE AGI REWIRE. Stamp entry context so
+            // TokenWinMemory.recordTradeOutcome can enrich LiveWinDNAStore
+            // rows with the REAL setup + chart pattern instead of "unknown".
+            // Op-report V5.0.6257 showed topSetup=unknown(n=2) after 500
+            // captured rows — the store was blind to what actually made money.
+            try {
+                com.lifecyclebot.engine.EntryContextRegistry.stamp(
+                    mint = ts.mint,
+                    entrySetup = styleDecision.toolkit.setup.name,
+                    chartPattern = styleDecision.toolkit.chartPattern,
+                    lane = modeClassification.tradeType.name,
+                    entryScore = ts.entryScore.toInt().coerceIn(0, 100),
+                    regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
+                )
+            } catch (_: Throwable) {}
             val charLanes = AgenticStyleRouter.lanesFor(ts, modeClassification, baseCharLanes)
             val charTools = AgenticStyleRouter.toolsFor(ts, modeClassification, emptySet())
             if (charLanes.isNotEmpty() || charTools.isNotEmpty()) {

@@ -155,7 +155,12 @@ object StrategyHypothesisEngine {
             val ctx = ctxKey(lane, score, regime)
             if (suppressVariantForContext(lane, score, regime)) {
                 active.remove(ctx)
-                pending.remove(mint)
+                // V5.0.6258 — only wipe pending if it's for the ctx we're suppressing.
+                // Prior impl unconditionally wiped, so a downstream readback in a
+                // bleeder lane erased the entry-time stamp of a different ctx → arm
+                // credit lost → arms perpetually at n=0.
+                val existing = pending[mint]
+                if (existing != null && existing.first == ctx) pending.remove(mint)
                 try { PipelineHealthCollector.labelInc("HYPOTHESIS_HOSTILE_BLEEDER_VARIANT_SUPPRESSED") } catch (_: Throwable) {}
                 return 1.0
             }
@@ -180,6 +185,25 @@ object StrategyHypothesisEngine {
                 } else 1.0
             } catch (_: Throwable) { 1.0 }
             (bias * reviewedLabBias * strategyVariantBias4342).coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)
+        } catch (_: Throwable) { 1.0 }
+    }
+
+    /**
+     * V5.0.6258 — READ-ONLY peek. Does NOT stamp pending, does NOT spawn arms,
+     * does NOT wipe existing stamps on suppression. Used by readback fanouts
+     * (MathematicalEdgeEngine.captureTerminal etc) that were previously calling
+     * getSizeBias() at close time and OVERWRITING the entry-time stamp with a
+     * terminal-time ctx — which is why active hypotheses showed ctrl=0 var=0
+     * after 1500+ closes: every close was crediting a different context than
+     * the one stamped at entry, or the stamp got wiped by suppress.
+     */
+    fun peekSizeBias(lane: String, score: Int, regime: String, mint: String): Double {
+        return try {
+            val ctx = ctxKey(lane, score, regime)
+            val h = active[ctx] ?: return baseline[ctx] ?: 1.0
+            val variant = isVariant(mint)
+            val bias = if (variant) h.variantSizeBias else (baseline[ctx] ?: 1.0)
+            bias.coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)
         } catch (_: Throwable) { 1.0 }
     }
 
@@ -356,8 +380,8 @@ object StrategyHypothesisEngine {
     fun formatForPipelineDump(): String {
         return try {
             if (active.isEmpty() && baseline.isEmpty()) return ""
-            val sb = StringBuilder("\n===== Strategy Hypothesis Engine (V5.9.1263) — self-directed A/B =====\n")
-            sb.append("  active=${active.size}  promotions=$promotions  retirements=$retirements\n")
+            val sb = StringBuilder("\n===== Strategy Hypothesis Engine (V5.9.1263, V5.0.6258 arm-credit fix) — self-directed A/B =====\n")
+            sb.append("  active=${active.size}  promotions=$promotions  retirements=$retirements  pending=${pending.size}\n")
             active.entries.sortedByDescending { it.value.variant.n }.take(5).forEach { (k, h) ->
                 sb.append("  ⚗ $k  vBias=${"%.2f".format(h.variantSizeBias)} vStop×${"%.2f".format(h.variantStopMult)}  ctrl[n=${h.control.n} μ=${"%+.1f".format(h.control.mean)}%]  var[n=${h.variant.n} μ=${"%+.1f".format(h.variant.mean)}%]\n")
             }

@@ -242,7 +242,7 @@ object MathematicalEdgeEngine {
                         try { ScoreExpectancyTracker.record("MEE_SOURCE_${e.source.uppercase().take(48)}", scoreInt, e.pnlPct) } catch (_: Throwable) {}
                         if (e.regime.isNotBlank()) try { ScoreExpectancyTracker.record("MEE_REGIME_${e.regime.uppercase().take(24)}", scoreInt, e.pnlPct) } catch (_: Throwable) {}
                     }
-                    try { CounterfactualReplayEngine.policyHints(e.lane); ExitCostMicrobrain.exitUrgencyHint(e.lane, e.liquidityUsd, e.reason); CapitalEfficiencyBrain.sizeMultiplier(e.lane, e.source); StrategyHypothesisEngine.getSizeBias(e.lane, scoreInt, e.regime.ifBlank { "NORMAL" }, e.mint); readback("CounterfactualReplayEngine"); readback("ExitCostMicrobrain"); readback("CapitalEfficiencyBrain"); readback("StrategyHypothesisEngine") } catch (_: Throwable) {}
+                    try { CounterfactualReplayEngine.policyHints(e.lane); ExitCostMicrobrain.exitUrgencyHint(e.lane, e.liquidityUsd, e.reason); CapitalEfficiencyBrain.sizeMultiplier(e.lane, e.source); StrategyHypothesisEngine.peekSizeBias(e.lane, scoreInt, e.regime.ifBlank { "NORMAL" }, e.mint); readback("CounterfactualReplayEngine"); readback("ExitCostMicrobrain"); readback("CapitalEfficiencyBrain"); readback("StrategyHypothesisEngine") } catch (_: Throwable) {}
                     if ((e.peakGainPct - e.pnlPct) >= 80.0 || (e.pnlPct < -25.0 && e.score >= 70.0)) {
                         try {
                             ChokeReliefBus.launch("MEE_EXIT_ANOMALY_HYPOTHESIS_4530", e.mint) {

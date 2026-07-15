@@ -247,35 +247,46 @@ object TokenWinMemory {
             pnl = trainablePnl,
         )
 
-        // V5.0.6238 — LiveWinDNAStore capture on every WINNING close.
-        // Feeds the shared knowledge base that the LLM / super-AGI / SSI /
-        // meta-cog / sentience brains query for compound-growth bias. Fails
-        // silent — never blocks the trade-close path.
-        if (isWin) {
-            try {
-                com.lifecyclebot.engine.LiveWinDNAStore.capture(
-                    mint = mint,
-                    symbol = symbol,
-                    lane = phase, // best-available lane label from this call site
-                    source = source,
-                    phase = phase,
-                    entrySetup = "unknown",   // enriched by other call sites if available
-                    chartPattern = "unknown",
-                    entryScore = 0,
-                    entryMcap = entryMcap,
-                    exitMcap = exitMcap,
-                    entryLiquidity = entryLiquidity,
-                    holdTimeMinutes = holdTimeMinutes,
-                    buyPercent = buyPercent,
-                    pnlPct = trainablePnl,
-                    peakPnl = peakPnl,
-                    exitReason = "TERMINAL_WIN",
-                    paperOrLive = try {
-                        if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
-                    } catch (_: Throwable) { "PAPER" },
-                )
-            } catch (_: Throwable) {}
+        // V5.0.6258 — PAPER→LIVE AGI REWIRE. Fire LiveWinDNAStore capture on
+        // EVERY decisive close (wins AND losses). Prior V5.0.6238 impl only
+        // captured winners, so the DNA store had no read on the LOSS surface
+        // (equally critical for the AGI to learn what NOT to trade). Also
+        // enrich entrySetup/chartPattern via EntryContextRegistry populated at
+        // entry time — the previous "unknown" fallback made every real close
+        // undistinguishable in the aggregators.
+        val stampedCtx = try { com.lifecyclebot.engine.EntryContextRegistry.consume(mint) } catch (_: Throwable) { null }
+        val enrichedSetup   = stampedCtx?.entrySetup   ?: "unknown"
+        val enrichedPattern = stampedCtx?.chartPattern ?: "unknown"
+        val enrichedLane    = stampedCtx?.lane         ?: phase
+        val enrichedScore   = stampedCtx?.entryScore   ?: 0
+        val enrichedExitReason = when {
+            isWin  -> "TERMINAL_WIN"
+            isLoss -> "TERMINAL_LOSS"
+            else   -> "TERMINAL_SCRATCH"
         }
+        try {
+            com.lifecyclebot.engine.LiveWinDNAStore.capture(
+                mint = mint,
+                symbol = symbol,
+                lane = enrichedLane,
+                source = source,
+                phase = phase,
+                entrySetup = enrichedSetup,
+                chartPattern = enrichedPattern,
+                entryScore = enrichedScore,
+                entryMcap = entryMcap,
+                exitMcap = exitMcap,
+                entryLiquidity = entryLiquidity,
+                holdTimeMinutes = holdTimeMinutes,
+                buyPercent = buyPercent,
+                pnlPct = trainablePnl,
+                peakPnl = peakPnl,
+                exitReason = enrichedExitReason,
+                paperOrLive = try {
+                    if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
+                } catch (_: Throwable) { "PAPER" },
+            )
+        } catch (_: Throwable) {}
 
         // ── Track creator stats ───────────────────────────────────────────
         if (!creatorAddress.isNullOrBlank()) {

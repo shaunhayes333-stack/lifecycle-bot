@@ -3134,6 +3134,14 @@ class Executor(
                 GlobalScope.launch(AppDispatchers.sideEffect) {
                     try { com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(mintForHeads4514, pnlForHeads4514) } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.UnifiedPolicyHead.recordOutcome(mintForHeads4514, pnlForHeads4514) } catch (_: Throwable) {}
+                    // V5.0.6258 — PAPER→LIVE AGI REWIRE. Central-fanout StrategyHypothesisEngine
+                    // recordOutcome so BOTH paper and live closes credit the A/B arms. Prior
+                    // impl only fired inside paperSell/liveSell; any close arriving via a
+                    // different path (shadow, wallet-recovery, external route) left arms at
+                    // n=0 forever. Op-report V5.0.6257 showed 6 active hypotheses with
+                    // ctrl=0/var=0 after 1500+ closes. Idempotent: engine.recordOutcome
+                    // bails if pending[mint] is empty (already consumed by local fanout).
+                    try { com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(mintForHeads4514, pnlForHeads4514) } catch (_: Throwable) {}
                     // V5.0.6009 — CRITICAL BUG FIX: EXIT BRAIN TRAINED BACKWARDS.
                     // Prior label `pnlForHeads4514 > -5.0` marked ANY exit with pnl
                     // above -5% as "optimal" — INCLUDING -4%, -3%, -2%, -1% LOSSES.
