@@ -12254,12 +12254,17 @@ class Executor(
         } catch (_: Throwable) {}
 
         // V5.0.6247 — LIVE LANE GOVERNOR: hard-pause new BUYS on bleeder lanes.
-        // A lane with live n≥20 AND WR<35% AND PF<1.0 blocks buys for 60 min.
-        // Existing positions are still managed for exit; this only stops
-        // capital hemorrhage into a proven-losing lane while the AGI stack
-        // and shadow-paper accumulate proof of recovery.
+        // V5.0.6259 — thresholds tightened (n>=40, WR<30%, PF<0.85) AND pause
+        // shortened to 20min. Also passes the AGENTIC_STYLE_ROUTE-stamped
+        // setup+pattern (via EntryContextRegistry) so the governor can allow
+        // the buy through when the AGI has learned this exact shape wins.
         try {
-            val laneGov = com.lifecyclebot.engine.LiveLaneGovernor.preBuyBleederPause(layerTag)
+            val ec = try { com.lifecyclebot.engine.EntryContextRegistry.peek(ts.mint) } catch (_: Throwable) { null }
+            val laneGov = com.lifecyclebot.engine.LiveLaneGovernor.preBuyBleederPauseWithSetup(
+                layerTag,
+                entrySetup = ec?.entrySetup,
+                chartPattern = ec?.chartPattern,
+            )
             if (laneGov.first) {
                 liveStage("LIVE_BUY_ABORTED", "reason=LIVE_LANE_HARD_PAUSED_6247 detail=${laneGov.second.take(140)}")
                 try { emitLiveBuyFail(ts, sol, "LIVE_LANE_HARD_PAUSED_6247", laneGov.second) } catch (_: Throwable) {}

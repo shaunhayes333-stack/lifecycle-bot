@@ -58,16 +58,21 @@ object LiveLaneGovernor {
     private const val PREFS_NAME = "live_lane_governor_v6247"
 
     // Bleeder criteria (any active pause blocks new BUYS on that lane).
-    private const val MIN_SAMPLES_BLEEDER = 20
-    private const val BLEEDER_WR = 0.35            // <35% live WR
-    private const val BLEEDER_PF = 1.0             // <1.0 live PF
+    // V5.0.6259 — tightened AGAINST loosening the safety net (n=40 min instead
+    // of 20 stops sample-noise pauses on brand-new lanes) but SHORTENED the
+    // pause window so the AGI has room to earn back trust. Also added DNA-
+    // approved bypass and proven-variant bypass below so a specific setup
+    // that the AGI has learned to win with can still trade on a paused lane.
+    private const val MIN_SAMPLES_BLEEDER = 40
+    private const val BLEEDER_WR = 0.30            // <30% live WR (was 35% — too lenient in noise)
+    private const val BLEEDER_PF = 0.85            // <0.85 live PF (was 1.0 — same reason)
 
     // Winner criteria (bypasses LaneAutoPauseGuard dampener).
     private const val MIN_SAMPLES_WINNER = 20
     private const val WINNER_WR = 0.50             // ≥50% live WR
     private const val WINNER_PF = 2.0              // ≥2.0 live PF
 
-    private const val PAUSE_MS: Long = 60 * 60_000L         // 60 min hard-pause window
+    private const val PAUSE_MS: Long = 20 * 60_000L         // V5.0.6259 — 20 min (was 60 min)
     private const val CACHE_TTL_MS: Long = 30_000L          // stats refresh cache
 
     // Fee-eater guard.
@@ -119,16 +124,63 @@ object LiveLaneGovernor {
      * Returns (blocked, reason). reason is empty when not blocked.
      */
     fun preBuyBleederPause(lane: String): Pair<Boolean, String> {
+        return preBuyBleederPauseWithSetup(lane, entrySetup = null, chartPattern = null)
+    }
+
+    /**
+     * V5.0.6259 — AGI-informed pause override. If the incoming setup+pattern
+     * combo has a WINNING DNA in LiveWinDNAStore (≥2 real wins AND avgWin>0
+     * AND no losses for that setup), the buy is allowed through even if the
+     * lane is otherwise paused. The AGI has learned this exact shape works;
+     * blocking it would waste the training. Op-report V5.0.6258 showed 25/43
+     * buys blocked by pauses — the wallet cannot grow 2x-5x daily while 60%
+     * of intent is muted. This gives the AGI an escape valve tied to
+     * measured wins, not blanket loosening.
+     */
+    fun preBuyBleederPauseWithSetup(
+        lane: String,
+        entrySetup: String?,
+        chartPattern: String?,
+    ): Pair<Boolean, String> {
         val laneU = lane.uppercase()
         val now = System.currentTimeMillis()
         val until = pausedUntilMs[laneU] ?: 0L
-        if (until > now) {
+        val isPaused = until > now
+
+        // Compute bypass eligibility first — cheap and lets us skip stats refresh.
+        if (isPaused) {
+            val bypass = dnaProvenBypass(laneU, entrySetup, chartPattern)
+            if (bypass != null) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_LANE_DNA_BYPASS_6259",
+                        "lane=$laneU setup=${entrySetup ?: "?"} pattern=${chartPattern ?: "?"} evidence=$bypass",
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_LANE_DNA_BYPASS_6259")
+                } catch (_: Throwable) {}
+                return false to ""
+            }
             val remainMin = (until - now) / 60_000L
             return true to "LIVE_LANE_HARD_PAUSED_6247 lane=$laneU remainMin=$remainMin"
         }
+
         // Not currently paused — refresh stats and check if we should pause NOW.
         val s = laneStats(laneU) ?: return false to ""
         if (s.isBleeder) {
+            // V5.0.6259 — before hard-pausing, check DNA bypass one more time.
+            // If the AGI has already learned this specific setup wins, don't
+            // pause the lane at all — trust the sub-lane signal.
+            val bypass = dnaProvenBypass(laneU, entrySetup, chartPattern)
+            if (bypass != null) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_LANE_DNA_BYPASS_6259_PREPAUSE",
+                        "lane=$laneU setup=${entrySetup ?: "?"} pattern=${chartPattern ?: "?"} evidence=$bypass wr=${"%.1f".format(s.wrPct)}%",
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_LANE_DNA_BYPASS_6259")
+                } catch (_: Throwable) {}
+                return false to ""
+            }
             pausedUntilMs[laneU] = now + PAUSE_MS
             persistPauseState()
             try {
@@ -142,6 +194,36 @@ object LiveLaneGovernor {
             return true to "LIVE_LANE_HARD_PAUSED_6247 lane=$laneU n=${s.trades} wr=${"%.1f".format(s.wrPct)}%"
         }
         return false to ""
+    }
+
+    /**
+     * V5.0.6259 — Check LiveWinDNAStore for evidence that this specific
+     * (setup, chartPattern) combo has been PROVEN to win. Returns a short
+     * evidence string when the AGI has learned this shape wins, else null.
+     *
+     *   setup criteria: setup in winning-setup histogram with n≥2 AND
+     *                   avgPnl>0 AND setup NOT in losing-setup histogram
+     *                   with ≥2 samples.
+     */
+    private fun dnaProvenBypass(lane: String, entrySetup: String?, chartPattern: String?): String? {
+        if (entrySetup.isNullOrBlank() && chartPattern.isNullOrBlank()) return null
+        return try {
+            val setupKey = entrySetup?.trim().orEmpty()
+            val patternKey = chartPattern?.trim().orEmpty()
+            val winners = LiveWinDNAStore.setupFrequency(minCount = 2)
+            val losers = LiveWinDNAStore.losingSetupFrequency(minCount = 2)
+            val winPatterns = LiveWinDNAStore.chartPatternFrequency(minCount = 2)
+            val setupWinner = winners.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
+            val setupLoser = losers.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
+            val patternWinner = winPatterns.firstOrNull { it.first.equals(patternKey, ignoreCase = true) }
+            when {
+                setupWinner != null && setupWinner.third > 0.0 && setupLoser == null ->
+                    "setup=$setupKey n=${setupWinner.second} μ=${"%.1f".format(setupWinner.third)}%"
+                patternWinner != null && patternWinner.third > 0.0 && setupLoser == null ->
+                    "pattern=$patternKey n=${patternWinner.second} μ=${"%.1f".format(patternWinner.third)}%"
+                else -> null
+            }
+        } catch (_: Throwable) { null }
     }
 
     /** True if this lane's live stats have earned override authority against the dampener. */
@@ -192,7 +274,7 @@ object LiveLaneGovernor {
         val n = feeCount.get()
         val avgFeeSol = if (n > 0) feeSumSol.get().toDouble() / 1e9 / n.toDouble() else 0.0
         return buildString {
-            append("V5.0.6247_LIVE_LANE_GOVERNOR: paused=${active.size}")
+            append("V5.0.6259_LIVE_LANE_GOVERNOR: paused=${active.size}")
             if (active.isNotEmpty()) {
                 append(" active=[")
                 append(active.entries.joinToString(", ") { (k, v) -> "$k(${(v - now) / 60_000L}m)" })
