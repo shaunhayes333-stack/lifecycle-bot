@@ -345,7 +345,7 @@ class MainActivity : AppCompatActivity() {
     private val logLines = ArrayDeque<String>(48)
     private var lastDecisionLogTextHash: Int = 0  // V5.9.1497 — skip no-op StaticLayout relayouts
     private val decisionLogTimeSdf4280 = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
-    private val DECISION_LOG_MAX_CHARS_4280 = 2600
+    private val DECISION_LOG_MAX_CHARS_4280 = 1200
 
     // top-up settings
     private lateinit var switchTopUp: android.widget.Switch
@@ -2542,7 +2542,16 @@ for legal compliance.
         } catch (_: Exception) {}
 
         if (state.blacklistedCount > 0) {
-            tvBotStatus.text = tvBotStatus.text.toString() + "  · BLK ${state.blacklistedCount}"
+            // V5.0.6261 — ANR FIX. Prior impl appended "  · BLK N" to
+            // tvBotStatus EVERY UI tick, so the string grew unbounded:
+            // "Bot running · BLK 5  · BLK 5  · BLK 5 ..." After ~100 ticks
+            // the TextView held 2000+ chars and LineBreaker.nComputeLineBreaks
+            // choked the main thread (op-report V5.0.6260 showed 19813ms
+            // max frame gap, LineBreaker at the top of the ANR stack).
+            // Now: idempotent single-append via a stripped-then-set pattern.
+            val current = tvBotStatus.text?.toString().orEmpty()
+            val stripped = current.substringBefore("  · BLK")
+            tvBotStatus.setTextIfChanged("$stripped  · BLK ${state.blacklistedCount}")
         }
         // V5.9.1569 — this logger fired 111 times in 52m on the main thread.
         // Keep a low-rate heartbeat only; render truth is visible in UI/state anyway.
