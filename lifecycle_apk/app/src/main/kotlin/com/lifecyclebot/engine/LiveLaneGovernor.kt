@@ -108,6 +108,20 @@ object LiveLaneGovernor {
     private val statsCache = ConcurrentHashMap<String, LaneStats>() // lane → cached stats
     private val cacheExpiryMs = AtomicLong(0L)
 
+    // V5.0.6260 — bypass-win streak auto-promotion.
+    //   • bypassedMints: mint → lane, stamped when a DNA bypass fires so the
+    //     close path (Executor.recordTrade central fanout) can credit the
+    //     outcome to the right lane.
+    //   • bypassWinStreak: lane → current consecutive-wins-on-bypass count.
+    //   • BYPASS_STREAK_UNPAUSE = wins needed to un-pause the whole lane.
+    // Rationale: V5.0.6259 lets AGI-proven setups squeeze through paused
+    // lanes; if the AGI keeps winning on a paused lane, that IS proof the
+    // lane has recovered and the pause is now a drag on wallet growth.
+    private val bypassedMints = ConcurrentHashMap<String, String>()
+    private val bypassWinStreak = ConcurrentHashMap<String, Int>()
+    private const val BYPASS_STREAK_UNPAUSE = 3
+    private var bypassAutoUnpauses: Int = 0
+
     // Rolling fee estimate (SOL/trade) — updated by RecordLiveFee external hook.
     private val feeSumSol = java.util.concurrent.atomic.AtomicLong(0L)   // fee sol × 1e9
     private val feeCount = java.util.concurrent.atomic.AtomicLong(0L)
@@ -142,6 +156,20 @@ object LiveLaneGovernor {
         entrySetup: String?,
         chartPattern: String?,
     ): Pair<Boolean, String> {
+        return preBuyBleederPauseWithSetupAndMint(lane, entrySetup, chartPattern, mint = null)
+    }
+
+    /**
+     * V5.0.6260 — Full signature. Passes the mint through so we can stamp
+     * bypassedMints for later streak crediting. Executor.liveBuy calls this
+     * variant.
+     */
+    fun preBuyBleederPauseWithSetupAndMint(
+        lane: String,
+        entrySetup: String?,
+        chartPattern: String?,
+        mint: String?,
+    ): Pair<Boolean, String> {
         val laneU = lane.uppercase()
         val now = System.currentTimeMillis()
         val until = pausedUntilMs[laneU] ?: 0L
@@ -151,6 +179,7 @@ object LiveLaneGovernor {
         if (isPaused) {
             val bypass = dnaProvenBypass(laneU, entrySetup, chartPattern)
             if (bypass != null) {
+                if (!mint.isNullOrBlank()) bypassedMints[mint] = laneU
                 try {
                     ForensicLogger.lifecycle(
                         "LIVE_LANE_DNA_BYPASS_6259",
@@ -172,6 +201,7 @@ object LiveLaneGovernor {
             // pause the lane at all — trust the sub-lane signal.
             val bypass = dnaProvenBypass(laneU, entrySetup, chartPattern)
             if (bypass != null) {
+                if (!mint.isNullOrBlank()) bypassedMints[mint] = laneU
                 try {
                     ForensicLogger.lifecycle(
                         "LIVE_LANE_DNA_BYPASS_6259_PREPAUSE",
@@ -194,6 +224,60 @@ object LiveLaneGovernor {
             return true to "LIVE_LANE_HARD_PAUSED_6247 lane=$laneU n=${s.trades} wr=${"%.1f".format(s.wrPct)}%"
         }
         return false to ""
+    }
+
+    /**
+     * V5.0.6260 — BYPASS-WIN STREAK AUTO-PROMOTION.
+     * Called from the central-fanout recordTrade path on every decisive close.
+     * If this mint entered under a DNA bypass while its lane was paused, credit
+     * or reset the lane's win-streak; when the streak hits BYPASS_STREAK_UNPAUSE
+     * the lane is un-paused early. Idempotent (bails when mint wasn't a
+     * bypass entry).
+     */
+    fun recordBypassOutcome(mint: String, pnlPct: Double) {
+        if (mint.isBlank()) return
+        val lane = bypassedMints.remove(mint) ?: return
+        val laneU = lane.uppercase()
+        try {
+            if (pnlPct > 0.0) {
+                val next = (bypassWinStreak[laneU] ?: 0) + 1
+                bypassWinStreak[laneU] = next
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_LANE_BYPASS_WIN_STREAK_6260",
+                        "lane=$laneU streak=$next/$BYPASS_STREAK_UNPAUSE pnl=${"%.1f".format(pnlPct)}%",
+                    )
+                } catch (_: Throwable) {}
+                if (next >= BYPASS_STREAK_UNPAUSE) {
+                    val hadPause = (pausedUntilMs[laneU] ?: 0L) > System.currentTimeMillis()
+                    pausedUntilMs.remove(laneU)
+                    persistPauseState()
+                    bypassWinStreak[laneU] = 0
+                    if (hadPause) bypassAutoUnpauses++
+                    try {
+                        ForensicLogger.lifecycle(
+                            "LIVE_LANE_BYPASS_AUTO_UNPAUSE_6260",
+                            "lane=$laneU wins=$next total_auto_unpauses=$bypassAutoUnpauses",
+                        )
+                        PipelineHealthCollector.labelInc("LIVE_LANE_BYPASS_AUTO_UNPAUSE_6260")
+                    } catch (_: Throwable) {}
+                }
+            } else if (pnlPct < 0.0) {
+                // Streak broken. The AGI's confidence in this shape was
+                // misplaced for this lane — reset and let the pause window
+                // resume its natural decay.
+                if ((bypassWinStreak[laneU] ?: 0) > 0) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "LIVE_LANE_BYPASS_STREAK_RESET_6260",
+                            "lane=$laneU pnl=${"%.1f".format(pnlPct)}%",
+                        )
+                    } catch (_: Throwable) {}
+                }
+                bypassWinStreak[laneU] = 0
+            }
+            // pnlPct == 0 is a scratch — leave streak untouched.
+        } catch (_: Throwable) {}
     }
 
     /**
@@ -274,13 +358,21 @@ object LiveLaneGovernor {
         val n = feeCount.get()
         val avgFeeSol = if (n > 0) feeSumSol.get().toDouble() / 1e9 / n.toDouble() else 0.0
         return buildString {
-            append("V5.0.6259_LIVE_LANE_GOVERNOR: paused=${active.size}")
+            append("V5.0.6260_LIVE_LANE_GOVERNOR: paused=${active.size}")
             if (active.isNotEmpty()) {
                 append(" active=[")
                 append(active.entries.joinToString(", ") { (k, v) -> "$k(${(v - now) / 60_000L}m)" })
                 append("]")
             }
             append(" avgFeeSol=${"%.5f".format(avgFeeSol)} feeN=$n")
+            // V5.0.6260 — bypass-streak auto-promotion visibility.
+            append(" bypassWatched=${bypassedMints.size} autoUnpauses=$bypassAutoUnpauses")
+            val activeStreaks = bypassWinStreak.filterValues { it > 0 }
+            if (activeStreaks.isNotEmpty()) {
+                append(" streaks=[")
+                append(activeStreaks.entries.joinToString(", ") { (k, v) -> "$k:$v/$BYPASS_STREAK_UNPAUSE" })
+                append("]")
+            }
             // Also show which lanes are proven-winners so operators can see the un-dampen coverage.
             val winners = try {
                 StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)

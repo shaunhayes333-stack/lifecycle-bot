@@ -3142,6 +3142,11 @@ class Executor(
                     // ctrl=0/var=0 after 1500+ closes. Idempotent: engine.recordOutcome
                     // bails if pending[mint] is empty (already consumed by local fanout).
                     try { com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(mintForHeads4514, pnlForHeads4514) } catch (_: Throwable) {}
+                    // V5.0.6260 — BYPASS-WIN STREAK. Credit the outcome to
+                    // LiveLaneGovernor so a lane that keeps winning through
+                    // DNA-approved bypasses gets auto-unpaused early. Idempotent
+                    // (recordBypassOutcome bails when mint wasn't a bypass entry).
+                    try { com.lifecyclebot.engine.LiveLaneGovernor.recordBypassOutcome(mintForHeads4514, pnlForHeads4514) } catch (_: Throwable) {}
                     // V5.0.6009 — CRITICAL BUG FIX: EXIT BRAIN TRAINED BACKWARDS.
                     // Prior label `pnlForHeads4514 > -5.0` marked ANY exit with pnl
                     // above -5% as "optimal" — INCLUDING -4%, -3%, -2%, -1% LOSSES.
@@ -12258,12 +12263,15 @@ class Executor(
         // shortened to 20min. Also passes the AGENTIC_STYLE_ROUTE-stamped
         // setup+pattern (via EntryContextRegistry) so the governor can allow
         // the buy through when the AGI has learned this exact shape wins.
+        // V5.0.6260 — additionally passes the mint through so the governor can
+        // credit bypass wins toward auto-unpausing the whole lane.
         try {
             val ec = try { com.lifecyclebot.engine.EntryContextRegistry.peek(ts.mint) } catch (_: Throwable) { null }
-            val laneGov = com.lifecyclebot.engine.LiveLaneGovernor.preBuyBleederPauseWithSetup(
+            val laneGov = com.lifecyclebot.engine.LiveLaneGovernor.preBuyBleederPauseWithSetupAndMint(
                 layerTag,
                 entrySetup = ec?.entrySetup,
                 chartPattern = ec?.chartPattern,
+                mint = ts.mint,
             )
             if (laneGov.first) {
                 liveStage("LIVE_BUY_ABORTED", "reason=LIVE_LANE_HARD_PAUSED_6247 detail=${laneGov.second.take(140)}")
