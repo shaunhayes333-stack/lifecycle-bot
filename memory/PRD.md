@@ -1,5 +1,31 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## ✅ V5.0.6272 SHIPPED — CRITICAL: cache StrategyTelemetry.computeLeaderboard (kills ANR blast from V5.0.6267) (2026-02, CI green)
+
+Op-report screenshot: ANR=102, max_frame=5765ms, top ANR frame
+`HardwareRenderer.nSyncAndDrawFrame`. Root-caused to V5.0.6267 introducing TWO
+calls to `StrategyTelemetry.computeLeaderboard` inside `LiveProbabilityEngine.forecast()` —
+called per lane per candidate. That function is O(N) over up to 2500 trades with
+sanitize+group+sum, and had NO cache (only `computeCleanLiveTerminalLeaderboard`
+had the V5.0.6001 cache).
+
+Surgical fix: wrap `computeLeaderboard` with a 10-second TTL cache keyed on
+`(environment, includePartials, limit)`. Renamed private `computeLeaderboardUncached`
+holds the original logic; public entry point consults cache first. Decision-safe
+because lifetime-proven-winner status is a slow-moving lifetime edge, not a
+per-tick decision.
+
+**Sequential live-execution fix stack (V5.0.6266 → V5.0.6272):**
+1. Provider fail-open + DNA quorum bypass (V5.0.6266)
+2. BLUECHIP 1.25× boost + sample seeding + admission cap lift (V5.0.6267)
+3. LLM wallet-size hallucination lockout (V5.0.6268)
+4. Dust floor (V5.0.6269) → **corrected to PROMOTE-not-block** (V5.0.6271)
+5. Goose_catastrophic false-positive fix (V5.0.6270)
+6. **computeLeaderboard cache** (V5.0.6272) — kills the ANR blast that was locking
+   the app and choking live-mode responsiveness.
+
+
+
 ## ✅ V5.0.6271 SHIPPED — PROMOTE-don't-BLOCK below dust floor (2026-02, CI green)
 
 Op-report after V5.0.6270: only 2 trades in 30 min despite goose_catastrophic fix
