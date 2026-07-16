@@ -1,5 +1,37 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## ✅ V5.0.6268 SHIPPED — LLM wallet-size hallucination lockout in Sentient Mind persona (2026-02, CI green)
+
+Operator screenshot showed PHILO/ANALYTICAL/CAUTIOUS persona claiming "0.6 SOL is
+effectively empty / barely covers operational friction / deposit more SOL before
+trading" — a repeated hallucination while the engine was actually trading. Fixed:
+
+- **New WALLET-SIZE HALLUCINATION LOCKOUT block** in `buildSentientSystemPrompt` right
+  after "THE ONLY HARD RULE". Enumerates banned phrases, pins MIN_POSITION_SOL=0.05 as
+  the only relevant threshold, points at real idle causes.
+- **New WALLET GROUND TRUTH block** prepended to every INNER STATE user prompt with
+  live/paper SOL, open positions, sizing floor, and explicit FORBIDDEN CLAIMS list.
+- Engine untouched — pure prompt-layer fix.
+
+## ✅ V5.0.6267 SHIPPED — BLUECHIP 1.25x winner boost + faster bleeder pause + admission cap lift (2026-02, CI green)
+
+Operator report V5.0.6266: bot trading again (exec=11) but WR=33.5% n=192 PnL=-0.05 SOL —
+throughput bottleneck + top winner throttled + bleeders still firing. Four fixes:
+
+- **LiveProbabilityEngine.kt**: LIFETIME-PROVEN WINNER BOOST — BLUECHIP-class lanes
+  (n≥100, WR≥50%, positive pfExpectancy in FULL leaderboard) now bypass paused-lane
+  dampener AND get 1.25× on final Edge multiplier (coerced 0.10..1.80). Skipped when
+  raw-reality clamp fires. Also LIFETIME SAMPLE SEEDING when clean-live samples<20
+  so warming lanes have real evidence instead of collapsing to fwd-only.
+- **LiveLaneGovernor.kt**: `MIN_SAMPLES_BLEEDER 40 → 20`. EXPRESS(n=16 WR=0%) + LAB now
+  pause faster. DNA/proven-variant escape valves preserved.
+- **SupervisorAdmissionPlanner.kt**: PRESSURE-CAP LIFT — when `active < live` and
+  `target < maxCap`, doubles the effective per-cycle cap so healthy scheduler stops
+  manufacturing 9 deferrals per cycle at stale timeout-debt. GoldenTape line 934
+  literal preserved intact.
+
+
+
 ## ✅ V5.0.6266 SHIPPED — Unblock live execution: provider fail-open + DNA quorum bypass + fanout escape + TradeHistoryStore ANR fix (2026-02, CI green)
 
 **Operator report V5.0.6265**: 0 live executions despite funded wallet, bot paralyzed.
