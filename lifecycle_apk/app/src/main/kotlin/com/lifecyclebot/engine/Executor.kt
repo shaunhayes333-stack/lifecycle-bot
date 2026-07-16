@@ -12284,6 +12284,64 @@ class Executor(
             }
         } catch (_: Throwable) {}
 
+        // V5.0.6264 — DNA-BASED PRE-BUY VETO. Op-report V5.0.6263 showed
+        // topLossSetup=DEGEN_MICRO_SNIPE(n=7 μ=-50.8%) with only 3 wins @
+        // +20.3%. The AGI has proven this shape is a losing lottery ticket
+        // and the wallet lost 46% in one session because nothing was
+        // stopping re-entries into it. This veto converts LiveWinDNAStore
+        // loss-side learning from report-visibility into active wallet
+        // protection: HARD-BLOCK any buy whose (setup, chartPattern) has
+        // >=3 losses AND avgLoss <= -20% AND losses > wins in the DNA
+        // store. Same-setup wins are checked; if wins > losses it's not
+        // vetoed even with high loss count (still learning surface).
+        // V5.0.6264 — API PROVIDER-DEGRADATION GUARD. Also blocks the buy
+        // when execution providers are collapsing (dexscreener<70% OR
+        // jupiter_quote<60% success rate) — better to skip than trade blind.
+        try {
+            val ec = try { com.lifecyclebot.engine.EntryContextRegistry.peek(ts.mint) } catch (_: Throwable) { null }
+            val setupKey = ec?.entrySetup?.trim().orEmpty()
+            val patternKey = ec?.chartPattern?.trim().orEmpty()
+            if (setupKey.isNotBlank()) {
+                val losers = com.lifecyclebot.engine.LiveWinDNAStore.losingSetupFrequency(minCount = 3)
+                val winners = com.lifecyclebot.engine.LiveWinDNAStore.setupFrequency(minCount = 1)
+                val loserRow = losers.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
+                val winnerRow = winners.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
+                if (loserRow != null && loserRow.second >= 3 && loserRow.third <= -20.0 &&
+                    loserRow.second > (winnerRow?.second ?: 0)) {
+                    val detail = "setup=$setupKey losses=${loserRow.second} avgLoss=${"%.1f".format(loserRow.third)}% wins=${winnerRow?.second ?: 0}"
+                    liveStage("LIVE_BUY_ABORTED", "reason=DNA_PROVEN_LOSER_VETO_6264 detail=$detail")
+                    try { emitLiveBuyFail(ts, sol, "DNA_PROVEN_LOSER_VETO_6264", detail) } catch (_: Throwable) {}
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "DNA_PROVEN_LOSER_VETO_6264 mode=LIVE lane=$layerTag $detail")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle("DNA_PROVEN_LOSER_VETO_6264", "$detail lane=$layerTag mint=${ts.mint.take(10)} symbol=${ts.symbol}")
+                    } catch (_: Throwable) {}
+                    return false
+                }
+            }
+            // Provider-degradation guard: if the pipeline can't get real prices,
+            // skip the buy. Prevents entries against stale/wrong ticks that
+            // print as instant -15% losses when reality catches up.
+            val apiHealth = try { com.lifecyclebot.engine.ApiHealthMonitor.snapshot() } catch (_: Throwable) { emptyMap() }
+            val dexSr = apiHealth["dexscreener"]?.let { s ->
+                val total = s.successes.get() + s.failures4xx.get() + s.failures5xx.get() + s.networkErrors.get()
+                if (total > 5) s.successes.get().toDouble() / total else 1.0
+            } ?: 1.0
+            val jupQSr = apiHealth["jupiter_quote"]?.let { s ->
+                val total = s.successes.get() + s.failures4xx.get() + s.failures5xx.get() + s.networkErrors.get()
+                if (total > 3) s.successes.get().toDouble() / total else 1.0
+            } ?: 1.0
+            if (dexSr < 0.70 || jupQSr < 0.60) {
+                val detail = "dexscreener_sr=${"%.0f".format(dexSr * 100)}% jupiter_quote_sr=${"%.0f".format(jupQSr * 100)}% (thresholds 70/60)"
+                liveStage("LIVE_BUY_ABORTED", "reason=PROVIDER_DEGRADED_BUY_BLOCK_6264 detail=$detail")
+                try { emitLiveBuyFail(ts, sol, "PROVIDER_DEGRADED_BUY_BLOCK_6264", detail) } catch (_: Throwable) {}
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "PROVIDER_DEGRADED_BUY_BLOCK_6264 mode=LIVE lane=$layerTag $detail")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle("PROVIDER_DEGRADED_BUY_BLOCK_6264", "$detail lane=$layerTag mint=${ts.mint.take(10)}")
+                } catch (_: Throwable) {}
+                return false
+            }
+        } catch (_: Throwable) {}
+
         // V5.0.6247 — LIVE LANE GOVERNOR: hard-pause new BUYS on bleeder lanes.
         // V5.0.6259 — thresholds tightened (n>=40, WR<30%, PF<0.85) AND pause
         // shortened to 20min. Also passes the AGENTIC_STYLE_ROUTE-stamped

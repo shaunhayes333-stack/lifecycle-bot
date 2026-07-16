@@ -260,6 +260,15 @@ object StrategyHypothesisEngine {
                 }
             } catch (_: Throwable) {}
             maybeResolve(ctx, h)
+            // V5.0.6264 — persist active arms on every close. Prior impl only
+            // saved when promotions/retirements % 5 == 0, so most recordOutcome
+            // calls didn't touch disk and app-restart wiped all in-flight arms.
+            // Op-report V5.0.6263 caught this: 18 active arms with n=8 crashed
+            // back to 1 arm/n=0 after restart, throwing away the entire day's
+            // learning. Save on every close now; SharedPreferences.apply() is
+            // async so no main-thread cost. Skip if arm total ends in a hot
+            // multiple to reduce write pressure (every 3 closes).
+            if (((h.control.n + h.variant.n) % 3L) == 0L) appContext?.let { save(it) }
             if ((promotions + retirements) % 5L == 0L) appContext?.let { save(it) }
         } catch (_: Throwable) {}
     }
@@ -396,6 +405,20 @@ object StrategyHypothesisEngine {
             put("promotions", promotions); put("retirements", retirements)
             val b = JSONObject(); baseline.forEach { (k,v) -> b.put(k, v) }; put("baseline", b)
             val sb = JSONObject(); stopBaseline.forEach { (k,v) -> sb.put(k, v) }; put("stopBaseline", sb)
+            // V5.0.6264 — persist active arms so learned n/mean/variance
+            // survives app restarts. Op-report V5.0.6263 showed 18 arms with
+            // n=8 crash back to 1 arm/n=0 after restart, wiping the AGI
+            // learning every session and preventing MOONSHOT|S40 ctrl[n=8
+            // μ=+131%] from ever promoting.
+            val ac = JSONObject()
+            active.forEach { (ctx, h) ->
+                val o = JSONObject()
+                o.put("csN", h.control.n); o.put("csM", h.control.mean); o.put("csM2", h.control.M2)
+                o.put("vsN", h.variant.n); o.put("vsM", h.variant.mean); o.put("vsM2", h.variant.M2)
+                o.put("vSizeBias", h.variantSizeBias); o.put("vStopMult", h.variantStopMult)
+                ac.put(ctx, o)
+            }
+            put("active", ac)
         }.toString()
     } catch (_: Throwable) { "{}" }
 
@@ -406,6 +429,22 @@ object StrategyHypothesisEngine {
             promotions = o.optLong("promotions", 0L); retirements = o.optLong("retirements", 0L)
             o.optJSONObject("baseline")?.let { b -> val ks = b.keys(); while (ks.hasNext()) { val k = ks.next(); baseline[k] = b.optDouble(k, 1.0) } }
             o.optJSONObject("stopBaseline")?.let { b -> val ks = b.keys(); while (ks.hasNext()) { val k = ks.next(); stopBaseline[k] = b.optDouble(k, 1.0) } }
+            // V5.0.6264 — restore active arms.
+            o.optJSONObject("active")?.let { ac ->
+                val ks = ac.keys()
+                while (ks.hasNext()) {
+                    val ctx = ks.next()
+                    val a = ac.optJSONObject(ctx) ?: continue
+                    val h = spawn(ctx)
+                    h.control.n = a.optLong("csN", 0L)
+                    h.control.mean = a.optDouble("csM", 0.0)
+                    h.control.M2 = a.optDouble("csM2", 0.0)
+                    h.variant.n = a.optLong("vsN", 0L)
+                    h.variant.mean = a.optDouble("vsM", 0.0)
+                    h.variant.M2 = a.optDouble("vsM2", 0.0)
+                    active[ctx] = h
+                }
+            }
         } catch (_: Throwable) {}
     }
 
