@@ -1,5 +1,26 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## ✅ V5.0.6269 SHIPPED — HARD NO-DUST FLOOR (operator directive) (2026-02, CI green)
+
+Op-report V5.0.6268 showed `CHILLINU sized at 0.0062 SOL` sent to Jupiter which
+returned `ROUTE_FAILED_NO_OPEN_COMMITTED` — pump.fun tokens have no executable
+Jupiter route below ~0.03 SOL. `SmartSizerV3` was returning raw stacked-multiplier
+dust (basePct 0.05 × confMult 0.55 × probeMult 0.50 × liqMult 0.60 = 0.00495 SOL)
+with NO floor check. Every dust attempt = wasted EXEC + Jupiter quota for
+guaranteed zero fill.
+
+- **SmartSizerV3.kt** — HARD DUST BLOCK: if LIVE stacked size < 0.05 SOL, return
+  `sizeSol=0.0`. BotOrchestrator maps this to `ProcessResult.Rejected('SIZE_ZERO')`
+  → `V3Decision.rejected`, skipping executor entirely. New label:
+  `SMART_SIZER_V3_DUST_BLOCK_6269`. Paper untouched (learning surface).
+- **SmartSizer.kt** — LIVE dust floor raised 0.01 → 0.05 across all four
+  re-application sites (matches MIN_POSITION_SOL floor everywhere).
+
+Neutral for paper mode. GoldenTape untouched. Trades that Jupiter would refuse
+now skip cleanly; only trades that CAN round-trip proceed.
+
+
+
 ## ✅ V5.0.6268 SHIPPED — LLM wallet-size hallucination lockout in Sentient Mind persona (2026-02, CI green)
 
 Operator screenshot showed PHILO/ANALYTICAL/CAUTIOUS persona claiming "0.6 SOL is
