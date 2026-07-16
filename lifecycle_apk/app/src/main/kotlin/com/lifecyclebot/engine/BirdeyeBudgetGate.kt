@@ -91,6 +91,7 @@ object BirdeyeBudgetGate {
 
     fun canAfford(estimatedCalls: Int): Boolean {
         rolloverIfNeeded()
+        if (!birdeyeKeyIsUsable6275()) return false
         if (EMERGENCY_CONSERVATION_MODE) return false
         if (isLockedDown()) return false
         if (dailyCap == 0L) return true
@@ -98,9 +99,22 @@ object BirdeyeBudgetGate {
         return (cuToday.get() + estCu) <= dailyCap
     }
 
+    // V5.0.6275 — DEAD-KEY HARD OFF. Operator reports they can no longer afford
+    // Helius or Birdeye. Op-report shows birdeye sr=0% http=401 BIRDEYE_UNHEALTHY
+    // and helius sr=0% http=429/599 — every call is guaranteed to fail. Gate all
+    // three affordance checks (scanner lane, safety, emergency) on
+    // KeyValidator.isLive("birdeye") so a dead key hard-halts every Birdeye
+    // call site. Free providers (Dexscreener / GeckoTerminal / Jupiter / PumpFun /
+    // PumpPortal WS / RugCheck / CoinGecko On-chain) already cover 90%+ of
+    // scanner-side data per doctrine #87.23 (FREE-SOURCE-FIRST). This just makes
+    // the paid escalation legitimately free-only when the key is gone.
+    private fun birdeyeKeyIsUsable6275(): Boolean =
+        try { com.lifecyclebot.engine.KeyValidator.isLive("birdeye") } catch (_: Throwable) { true }
+
     /** Emergency-only allowance for open-position price fallback. */
     fun canAffordOpenPositionEmergency(estimatedCalls: Int = 1): Boolean {
         rolloverIfNeeded()
+        if (!birdeyeKeyIsUsable6275()) return false
         if (isProviderLockedDown()) return false
         if (isProviderBrownoutActive()) return false
         val estCu = estimatedCalls * 25L
@@ -123,6 +137,7 @@ object BirdeyeBudgetGate {
      */
     fun canAffordScannerLane(): Boolean {
         rolloverIfNeeded()
+        if (!birdeyeKeyIsUsable6275()) return false
         if (EMERGENCY_CONSERVATION_MODE) return false
         if (isLockedDown()) return false
         if (isProviderBrownoutActive()) return false
@@ -172,6 +187,7 @@ object BirdeyeBudgetGate {
      */
     fun canAffordSafety(): Boolean {
         rolloverIfNeeded()
+        if (!birdeyeKeyIsUsable6275()) return false
         if (EMERGENCY_CONSERVATION_MODE) return false
         if (isLockedDown()) return false
         if (isProviderBrownoutActive()) return false
