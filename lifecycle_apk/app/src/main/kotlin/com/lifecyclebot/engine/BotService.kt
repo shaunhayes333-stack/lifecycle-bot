@@ -13131,6 +13131,17 @@ class BotService : Service() {
                 emitLoopTopSnapshot(loopCount)
             }
 
+            // V5.0.6265 — CHRONIC BLEEDER LAB REPROVE. Every 12 loops (≈2 min
+            // at 10s cycles), scan for lanes with n>=15 AND wr<=20% AND
+            // avgPnl<=-10%; seed the LLM lab with a mutated tactic for each.
+            // LabPromotedFeed already auto-implements strategies that prove
+            // out — this closes the loop from chronic bleed → reprove →
+            // auto-reimplement when proven winner. Per-lane dedupe inside
+            // the scout (30-min TTL) prevents re-seeding.
+            if (loopCount % 12 == 0) {
+                try { com.lifecyclebot.engine.ChronicBleederScout.tick() } catch (_: Throwable) {}
+            }
+
             // V5.9.454 — WALLET RE-SYNC FIX.
             // BotService's local `wallet` var previously only updated
             // from inside launchWalletConnect's callback. When

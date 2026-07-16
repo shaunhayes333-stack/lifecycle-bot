@@ -12692,12 +12692,45 @@ class Executor(
         // rejects and converted contention into fake failed buys. The mutex is now
         // acquired only at the final wallet-spend boundary below.
         var liveBuyMutexAcquired = false
+        // V5.0.6265 — DNA-FAVORED SIZE BOOST. Mirror of the loser-veto: if the
+        // AGI has PROVEN this (setup) is a winner (>=3 real wins AND >=40% WR
+        // in the DNA store AND avgWin>20% AND no matching losing-setup with
+        // more samples), scale the buy up to 1.5×. This is asymmetric — we
+        // now actively lean INTO proven winners just as we hard-block proven
+        // losers. Capped by wallet balance so it never overflows.
+        val dnaSizeBoost = try {
+            val ec = try { com.lifecyclebot.engine.EntryContextRegistry.peek(ts.mint) } catch (_: Throwable) { null }
+            val setupKey = ec?.entrySetup?.trim().orEmpty()
+            if (setupKey.isBlank()) 1.0 else {
+                val winners = com.lifecyclebot.engine.LiveWinDNAStore.setupFrequency(minCount = 3)
+                val losers = com.lifecyclebot.engine.LiveWinDNAStore.losingSetupFrequency(minCount = 1)
+                val winnerRow = winners.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
+                val loserRow = losers.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
+                val winCount = winnerRow?.second ?: 0
+                val lossCount = loserRow?.second ?: 0
+                val avgWin = winnerRow?.third ?: 0.0
+                val totalN = winCount + lossCount
+                val wr = if (totalN > 0) winCount.toDouble() / totalN else 0.0
+                if (winCount >= 3 && wr >= 0.40 && avgWin > 20.0 && winCount > lossCount) {
+                    val boost = (1.0 + (wr - 0.40) * 1.5 + (avgWin - 20.0) / 100.0).coerceIn(1.10, 1.50)
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "DNA_PROVEN_WINNER_SIZE_BOOST_6265",
+                            "setup=$setupKey wins=$winCount losses=$lossCount wr=${"%.0f".format(wr * 100)}% avgWin=${"%.1f".format(avgWin)}% boost=${"%.2f".format(boost)}x lane=$layerTag mint=${ts.mint.take(10)}"
+                        )
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DNA_PROVEN_WINNER_SIZE_BOOST_6265")
+                    } catch (_: Throwable) {}
+                    boost
+                } else 1.0
+            }
+        } catch (_: Throwable) { 1.0 }
+        val boostedSol = (sol * dnaSizeBoost).coerceAtMost(walletSol.coerceAtLeast(0.0) * 0.95).coerceAtLeast(sol)
         try {
         beginMemeExecutionStack(
             side = com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Side.BUY,
             ts = ts,
-            amountIn = sol,
-            amountInRaw = ((sol * 1_000_000_000.0).toLong()).toString(),
+            amountIn = boostedSol,
+            amountInRaw = ((boostedSol * 1_000_000_000.0).toLong()).toString(),
             slippageBps = cfg().slippageBps,
             reason = "LIVE_BUY",
             urgency = com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Urgency.NORMAL,
