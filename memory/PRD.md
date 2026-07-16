@@ -1,5 +1,33 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## ✅ V5.0.6271 SHIPPED — PROMOTE-don't-BLOCK below dust floor (2026-02, CI green)
+
+Op-report after V5.0.6270: only 2 trades in 30 min despite goose_catastrophic fix
+opening candidate throughput. Root cause: V5.0.6269's 0.05 SOL hard-block was too
+aggressive. Math on a 0.6 SOL wallet for EXECUTE_SMALL (score<60 / conf<70%):
+0.60 * 0.05 * 0.55 * 0.5 * 0.6 = ~0.005 SOL → hard-blocked. That killed ~80% of
+the funnel while the upstream V3/FDG/safety gates had already vetted the candidate.
+
+Correction: **PROMOTE** sub-floor stacked sizes UP to 0.05 SOL when wallet has
+headroom (so Jupiter always receives a routable trade). Only hard-block when
+`tradeable` itself is below floor.
+
+Also confirmed via code review: **watchlist 300 → 93 was NOT eviction** — bot
+restarted (uptime=85s in the report). Watchlist rebuilds from empty on fresh boot.
+No eviction-tempo change needed.
+
+Two files:
+- `SmartSizerV3.kt`: `DUST_BLOCK_6269` → `DUST_PROMOTED_6271`. Labels
+  `SMART_SIZER_V3_DUST_PROMOTED_6271` + `_DUST_BLOCK_NO_HEADROOM_6271`.
+- `SmartSizer.kt`: main dust-floor block path promotes to floor when
+  `!isPaperMode && tradeable >= dustFloor`. Label `SMART_SIZER_LIVE_DUST_PROMOTED_6271`.
+
+Expected effect: every V3-approved candidate on a routable-liquidity token now
+lands as a real 0.05+ SOL trade. Trade rate should climb from 2/30min into the
+15-30/30min range on typical pump.fun intake volume.
+
+
+
 ## ✅ V5.0.6270 SHIPPED — Fixed goose_catastrophic false-positive that vetoed most candidates (2026-02, CI green)
 
 Op-report V5.0.6268 showed KEVIN, TRUTH, and other pump.fun launches getting
