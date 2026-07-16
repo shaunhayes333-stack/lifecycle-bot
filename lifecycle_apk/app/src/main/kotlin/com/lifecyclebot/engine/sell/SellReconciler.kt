@@ -79,6 +79,13 @@ object SellReconciler {
     /** V5.9.774 — true once a live-mode tick loop is active. Surfaced in forensics. */
     @Volatile var isStarted: Boolean = false
 
+    // V5.0.6265 — reconciler fail-open sentinel. Tracks consecutive wallet-read
+    // indeterminate ticks so a persistent helius/birdeye outage doesn't block
+    // the reconciler indefinitely (SENTIENT MIND: 'reconcilers flatlining').
+    @Volatile private var consecutiveIndeterminate: Int = 0
+    @Volatile private var zeroClosePassSuppressed: Boolean = false
+    private val FAIL_OPEN_AFTER: Int = 5
+
     // V5.9.1522 — LIVE-MODE START PENDING. When start() is called in live mode
     // before the wallet is ready, we no longer silently die: we record that a
     // live start is owed and the botLoop P0 watchdog (ensureSellReconcilerAlive)
@@ -240,6 +247,15 @@ object SellReconciler {
         // wallet, so sells stayed blind and buy-side guards saw dirty drift. Pull one
         // current wallet snapshot first, apply it to HostWalletTokenTracker, then run
         // the held auto-heal that boards missing mints into BotService.status/hotExit.
+        // V5.0.6265 — RECONCILER FAIL-OPEN. Prior impl returned early on
+        // wallet-read failure so a helius 429 / birdeye 401 storm blocked the
+        // ENTIRE sweep indefinitely — positions accumulated as orphans and the
+        // bot's SENTIENT MIND reported 'reconcilers flatlining, critical
+        // internal bleed'. Now track consecutive indeterminate reads; after N
+        // in a row, proceed with an EMPTY snapshot and SKIP ONLY the zero-close
+        // pass (the only truly destructive path). Tracker-open check and
+        // held-auto-heal can still run against last-known state so the bot
+        // isn't fully locked. Reset counter on any successful read.
         val tokensOrNull: Map<String, Pair<Double, Int>>? = withContext(Dispatchers.IO) {
             try { w.getTokenAccountsWithDecimalsBounded() } catch (e: Throwable) {
                 try { ForensicLogger.lifecycle("RECONCILER_WALLET_READ_INDETERMINATE_SKIP", "reason=${e.message?.take(140)}") } catch (_: Throwable) {}
@@ -248,9 +264,23 @@ object SellReconciler {
             }
         }
         val tokens: Map<String, Pair<Double, Int>> = tokensOrNull ?: run {
-            SellJobRegistry.pruneTerminal()
-            return
+            consecutiveIndeterminate++
+            if (consecutiveIndeterminate >= FAIL_OPEN_AFTER) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "RECONCILER_FAIL_OPEN_6265",
+                        "consecutive=$consecutiveIndeterminate — proceeding with empty snapshot, zero-close pass SKIPPED"
+                    )
+                    PipelineHealthCollector.labelInc("RECONCILER_FAIL_OPEN_6265")
+                } catch (_: Throwable) {}
+                zeroClosePassSuppressed = true
+                emptyMap()
+            } else {
+                SellJobRegistry.pruneTerminal()
+                return
+            }
         }
+        if (tokensOrNull != null) consecutiveIndeterminate = 0
         if (tokens.isNotEmpty()) {
             try {
                 HostWalletTokenTracker.applyWalletSnapshot(tokens)
