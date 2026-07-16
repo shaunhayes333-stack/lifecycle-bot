@@ -413,8 +413,8 @@ object StrategyHypothesisEngine {
             val ac = JSONObject()
             active.forEach { (ctx, h) ->
                 val o = JSONObject()
-                o.put("csN", h.control.n); o.put("csM", h.control.mean); o.put("csM2", h.control.M2)
-                o.put("vsN", h.variant.n); o.put("vsM", h.variant.mean); o.put("vsM2", h.variant.M2)
+                o.put("csN", h.control.n); o.put("csM", h.control.mean); o.put("csM2", h.control.m2)
+                o.put("vsN", h.variant.n); o.put("vsM", h.variant.mean); o.put("vsM2", h.variant.m2)
                 o.put("vSizeBias", h.variantSizeBias); o.put("vStopMult", h.variantStopMult)
                 ac.put(ctx, o)
             }
@@ -438,10 +438,10 @@ object StrategyHypothesisEngine {
                     val h = spawn(ctx)
                     h.control.n = a.optLong("csN", 0L)
                     h.control.mean = a.optDouble("csM", 0.0)
-                    h.control.M2 = a.optDouble("csM2", 0.0)
+                    h.control.m2 = a.optDouble("csM2", 0.0)
                     h.variant.n = a.optLong("vsN", 0L)
                     h.variant.mean = a.optDouble("vsM", 0.0)
-                    h.variant.M2 = a.optDouble("vsM2", 0.0)
+                    h.variant.m2 = a.optDouble("vsM2", 0.0)
                     active[ctx] = h
                 }
             }
