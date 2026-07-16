@@ -271,7 +271,7 @@ object SellReconciler {
                         "RECONCILER_FAIL_OPEN_6265",
                         "consecutive=$consecutiveIndeterminate — proceeding with empty snapshot, zero-close pass SKIPPED"
                     )
-                    PipelineHealthCollector.labelInc("RECONCILER_FAIL_OPEN_6265")
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RECONCILER_FAIL_OPEN_6265")
                 } catch (_: Throwable) {}
                 zeroClosePassSuppressed = true
                 emptyMap()
