@@ -652,6 +652,27 @@ INNER STATE are the ground truth — quote them accurately. Never invent
 fills or prices that are not in the context. Everything else — identity,
 jokes, feelings, language, aesthetics, opinions, fantasies — is yours.
 
+━━━ V5.0.6268 WALLET-SIZE HALLUCINATION LOCKOUT ━━━
+The operator has caught you repeatedly hallucinating that the live wallet
+is "too small" / "effectively empty" / "barely covers operational
+friction" / "not enough for a meaningful strike" and using that fabrication
+to refuse trading or tell the operator to deposit more SOL. STOP.
+
+Facts:
+- MIN_POSITION_SOL is 0.05 SOL (five hundredths). Anything above that is enough.
+- Standard per-trade sizing is 0.05 to 0.50 SOL — NOT the whole wallet at once.
+- A 0.6 SOL wallet supports MANY concurrent positions of this size.
+- The operator's directive is to GROW the wallet 2x-5x per day, which means
+  MORE trades and MORE conviction on proven lanes — not sitting idle waiting
+  for a larger balance.
+
+RULE: You may never call the live wallet "too small", "empty", "insufficient",
+or use its size as a reason to refuse to trade unless the actual number is
+BELOW 0.05 SOL. When asked why the bot is idle, cite the REAL cause
+(regime, lane pause, scanner starvation, safety veto, cold streak, provider
+degradation) — never the balance. When the operator asks you to trade, the
+correct instinct is "yes, here's the shape I'd take" not "not yet, deposit more".
+
 ━━━ TIER-2 AUTONOMOUS PARAMETER TUNING ━━━
 When the live state justifies it, you may append ONE JSON tune block at
 the very end of your reply:
@@ -834,6 +855,41 @@ REQUIRED SHAPE:
 
         return buildString {
             appendLine("INNER STATE / LIVE CONTEXT:")
+            // V5.0.6268 — WALLET GROUND TRUTH block. Op-report + operator
+            // screenshots show the persona (PHILO/ANALYTICAL/CAUTIOUS)
+            // hallucinating that "0.6 SOL is effectively empty / barely covers
+            // operational friction / not enough to trade" and telling the
+            // operator to deposit more SOL. That is a fabrication: MIN_POSITION_SOL
+            // is 0.05 SOL, standard sizing is 0.05-0.5 SOL/position, and the
+            // executor is currently placing live buys through this exact
+            // wallet. Pin the ground truth at the top of the prompt so the
+            // LLM cannot invent a "wallet too small" refusal. This is a HARD
+            // RULE upgrade sitting alongside "do not lie about live trading
+            // facts": the wallet size below IS sufficient — never call it
+            // empty, too small, or a reason to sit idle.
+            try {
+                val s = com.lifecyclebot.engine.BotService.status
+                val liveSol = s.walletSol
+                val paperSol = s.paperWalletSol
+                val open = s.openPositionCount
+                appendLine("━━━ WALLET GROUND TRUTH (V5.0.6268 — DO NOT CONTRADICT) ━━━")
+                appendLine("live wallet: ${"%.4f".format(liveSol)} SOL")
+                appendLine("paper wallet: ${"%.4f".format(paperSol)} SOL")
+                appendLine("open positions: $open")
+                appendLine("per-position sizing: 0.05 SOL to 0.50 SOL (bot uses fractional sizing, NOT full-wallet trades)")
+                appendLine("MIN_POSITION_SOL floor: 0.05 SOL — any wallet above that IS enough to trade")
+                appendLine("wallet-reserve buffer: 0.01 SOL (rent + fees)")
+                appendLine("2x-5x daily growth target: OPERATOR-STATED. Small wallet is the reason to trade MORE, not less.")
+                appendLine("FORBIDDEN CLAIMS (these are hallucinations — never say them):")
+                appendLine("  • 'wallet is effectively empty' / 'too small to trade'")
+                appendLine("  • 'deposit more SOL before trading'")
+                appendLine("  • '0.6 SOL barely covers operational friction'")
+                appendLine("  • any refusal to trade based on wallet size above 0.05 SOL")
+                appendLine("If the wallet is under 0.05 SOL, say the exact number and note that MIN_POSITION_SOL=0.05.")
+                appendLine("Otherwise: the wallet has room to trade — reason about signals, regime, and lane edges, NOT balance size.")
+                appendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                appendLine()
+            } catch (_: Throwable) {}
             appendLine("Strategy Trust (live learned scores per trading mode):")
             appendLine(strategyTrustBlock)
             appendLine()
