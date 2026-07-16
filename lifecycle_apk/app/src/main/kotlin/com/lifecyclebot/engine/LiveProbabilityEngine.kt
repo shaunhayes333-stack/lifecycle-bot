@@ -97,6 +97,20 @@ object LiveProbabilityEngine {
         metaConviction: Double = 0.50,
     ): Edge {
         val lane = canonical(rawLane)
+        // V5.0.6267 — LIFETIME-PROVEN WINNER FLAG. Computed once at the top so
+        // both the paused-lane bypass and the final Edge boost consult the
+        // same evidence. n>=100 AND WR>=50% AND positive pfExpectancy across
+        // the FULL leaderboard (paper+live combined) — this is the operator-
+        // directed paper→live AGI transfer: a lane the AGI has trained to win
+        // through hundreds of paper closes must not be throttled during its
+        // early live sample. Cached in LaneMetric memoization so this stays
+        // hot-path cheap.
+        val provenWinnerLifetime6267 = try {
+            val full = com.lifecyclebot.engine.StrategyTelemetry
+                .computeLeaderboard(environment = null, includePartials = false, limit = 2_500)
+                .firstOrNull { canonical(it.strategy).equals(lane, ignoreCase = true) }
+            full != null && full.trades >= 100 && full.winRatePct >= 50.0 && full.pfExpectancyPp > 0.0
+        } catch (_: Throwable) { false }
         // V5.0.4596 — FLUID PAUSED-LANE DAMPENER (operator architectural
         // principle: "all gates are meant to be in a fluid state eventually
         // be removed once the SUPER AGI / SSI stack take over once they
@@ -134,13 +148,24 @@ object LiveProbabilityEngine {
                 val provenWinner6247 = try {
                     com.lifecyclebot.engine.LiveLaneGovernor.isProvenWinner(lane)
                 } catch (_: Throwable) { false }
-                if (provenWinner6247) {
+                // V5.0.6267 — LIFETIME-PROVEN WINNER BYPASS reuses the
+                // hoisted provenWinnerLifetime6267 flag computed at the top of
+                // forecast() so paused-lane bypass and final-mult boost agree.
+                if (provenWinner6247 || provenWinnerLifetime6267) {
                     try {
+                        val src6267 = when {
+                            provenWinner6247 && provenWinnerLifetime6267 -> "live_and_lifetime"
+                            provenWinner6247 -> "live_only"
+                            else -> "lifetime_only"
+                        }
                         ForensicLogger.lifecycle(
                             "LIVE_PROBABILITY_LANE_UNDAMPENED_PROVEN_WINNER_6247",
-                            "lane=$lane override=LiveLaneGovernor.isProvenWinner note=live_wr_and_pf_above_winner_floor_override_pause_guard",
+                            "lane=$lane override=LiveLaneGovernor.isProvenWinner note=live_wr_and_pf_above_winner_floor_override_pause_guard proven6267=$src6267",
                         )
                         PipelineHealthCollector.labelInc("LIVE_PROBABILITY_LANE_UNDAMPENED_PROVEN_WINNER_6247")
+                        if (provenWinnerLifetime6267 && !provenWinner6247) {
+                            PipelineHealthCollector.labelInc("LIVE_PROBABILITY_LANE_UNDAMPENED_LIFETIME_6267_${laneU}")
+                        }
                     } catch (_: Throwable) {}
                     // Fall through to the normal forecast path below.
                 } else {
@@ -188,12 +213,30 @@ object LiveProbabilityEngine {
             )
             val laneMetric = StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
                 .firstOrNull { canonical(it.strategy).equals(lane, ignoreCase = true) }
+            // V5.0.6267 — LIFETIME SEEDING for warming live lanes. Op-report
+            // V5.0.6266 showed BLUECHIP/QUALITY/MOONSHOT with `n=0` in the
+            // LiveProbabilityEngine while StrategyExpectancy tracks n=700/178/544
+            // in the full journal. Zero lane samples means laneWeight=0, so the
+            // engine's pWin/E collapse to the forward model only, discarding
+            // hundreds of proven (paper+live) closes. Seed with a bounded
+            // lifetime snapshot when clean-live is warming so the engine's
+            // sizing math has real evidence to consult. Only used to seed the
+            // sample-weight and pWin/E fallbacks — clean-live still wins when it
+            // has authoritative rows.
+            val lifetimeMetric6267 = if ((laneMetric?.trades ?: 0) < 20) try {
+                com.lifecyclebot.engine.StrategyTelemetry
+                    .computeLeaderboard(environment = null, includePartials = false, limit = 2_500)
+                    .firstOrNull { canonical(it.strategy).equals(lane, ignoreCase = true) }
+            } catch (_: Throwable) { null } else null
 
-            val laneSamples = laneMetric?.trades?.toLong() ?: 0L
+            val laneSamples = (laneMetric?.trades?.toLong()
+                ?: 0L).coerceAtLeast(lifetimeMetric6267?.trades?.toLong()?.coerceAtMost(80L) ?: 0L)
             val lanePWin = if (laneMetric != null && (laneMetric.wins + laneMetric.losses) > 0) {
                 laneMetric.winRatePct.coerceIn(0.0, 100.0) / 100.0
+            } else if (lifetimeMetric6267 != null && (lifetimeMetric6267.wins + lifetimeMetric6267.losses) > 0) {
+                lifetimeMetric6267.winRatePct.coerceIn(0.0, 100.0) / 100.0
             } else 0.5
-            val laneE = laneMetric?.meanPnlPct ?: 0.0
+            val laneE = laneMetric?.meanPnlPct ?: lifetimeMetric6267?.meanPnlPct ?: 0.0
             val laneSol = laneMetric?.totalSolPnl ?: 0.0
 
             val fwdWeight = when {
@@ -378,7 +421,7 @@ object LiveProbabilityEngine {
             // from the fluid pause guard which reads the same sanitized
             // ledger.
             val raw = try { rawLaneReality(lane) } catch (_: Throwable) { null }
-            val clampedMult = if (raw != null && raw.n >= 5 && raw.wrPct <= 15.0 && raw.meanPnlPct <= -40.0) {
+            val clampedMultPre6267 = if (raw != null && raw.n >= 5 && raw.wrPct <= 15.0 && raw.meanPnlPct <= -40.0) {
                 try {
                     ForensicLogger.lifecycle(
                         "LIVE_PROBABILITY_RAW_REALITY_CLAMP_6000",
@@ -388,6 +431,26 @@ object LiveProbabilityEngine {
                 } catch (_: Throwable) {}
                 minOf(finalMult, 0.08)
             } else finalMult
+
+            // V5.0.6267 — LIFETIME-PROVEN WINNER BOOST (BLUECHIP-class 1.25×).
+            // Op-report V5.0.6266: BLUECHIP is the top profit-lane
+            // (n=700 WR=55.5% PF=4.26 +74.6 SOL) but sizing sat around 0.70x.
+            // When lifetime evidence proves the lane wins, upgrade the final
+            // Edge multiplier by 1.25× so the money-printer trades bigger.
+            // Skipped if raw-reality clamp is active (recent catastrophe overrides
+            // historical proof — reality first). Never re-boosts above the
+            // downstream 1.80x cap in the qualityAwareCap coerceIn.
+            val clampedMult = if (provenWinnerLifetime6267 && clampedMultPre6267 > 0.30) {
+                val boosted = (clampedMultPre6267 * 1.25).coerceIn(0.10, 1.80)
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_PROBABILITY_LIFETIME_WINNER_BOOST_6267",
+                        "lane=$lane preMult=${"%.2f".format(clampedMultPre6267)} boostedMult=${"%.2f".format(boosted)} boost=1.25x note=lifetime_proven_bluechip_class_boost",
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_PROBABILITY_LIFETIME_WINNER_BOOST_6267_${lane.uppercase()}")
+                } catch (_: Throwable) {}
+                boosted
+            } else clampedMultPre6267
 
             val src = listOfNotNull(
                 if (fwdWeight > 0.0) "fwd:${fwd.source}" else null,

@@ -63,7 +63,13 @@ object LiveLaneGovernor {
     // pause window so the AGI has room to earn back trust. Also added DNA-
     // approved bypass and proven-variant bypass below so a specific setup
     // that the AGI has learned to win with can still trade on a paused lane.
-    private const val MIN_SAMPLES_BLEEDER = 40
+    // V5.0.6267 — MIN_SAMPLES_BLEEDER dropped back to 20. Op-report V5.0.6266
+    // showed EXPRESS(n=16 WR=0%) and LAB-tagged bleeders piling up losses
+    // while the n>=40 threshold refused to pause them. 20 samples is enough
+    // signal to declare a bleeder when WR<30% AND PF<0.85 — three DNA-bypass
+    // and proven-variant escape valves stay in place so genuinely re-earning
+    // setups can still trade through a pause.
+    private const val MIN_SAMPLES_BLEEDER = 20
     private const val BLEEDER_WR = 0.30            // <30% live WR (was 35% — too lenient in noise)
     private const val BLEEDER_PF = 0.85            // <0.85 live PF (was 1.0 — same reason)
 
