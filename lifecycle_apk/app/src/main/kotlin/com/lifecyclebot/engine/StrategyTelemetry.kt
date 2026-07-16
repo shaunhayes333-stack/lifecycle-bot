@@ -61,7 +61,41 @@ object StrategyTelemetry {
      * hypothesis data only; it must never directly authorize live expectancy, live
      * size dampening, or live runner/exit shaping.
      */
+    // V5.0.6272 — LEADERBOARD CACHE for computeLeaderboard(). Op-report showed
+    // ANR=102 max_frame=5765ms after V5.0.6267 introduced two computeLeaderboard
+    // calls in LiveProbabilityEngine.forecast() (both for the lifetime-proven-
+    // winner check). forecast() runs per lane per candidate, and this function
+    // is O(N) over up to 2500 trades with sanitize+group+sum — the exact hot-
+    // path burn that V5.0.6001 already fixed for computeCleanLiveTerminalLeaderboard
+    // with a 10s TTL. Same fix here: bounded 10s snapshot, keyed on
+    // (environment, includePartials, limit). Decision-safe because lifetime
+    // proven-winner status is a slow-moving lifetime edge, not a per-tick
+    // decision. Cache key is coarse but sufficient — the two current callers
+    // both pass (null, false, 2_500) so it's effectively a single global slot
+    // in practice.
+    @Volatile private var leaderboardCache: List<StrategyMetric> = emptyList()
+    @Volatile private var leaderboardCacheMs: Long = 0L
+    @Volatile private var leaderboardCacheKey: String = ""
+    private const val LEADERBOARD_TTL_MS = 10_000L
+
     fun computeLeaderboard(
+        environment: String? = null,
+        includePartials: Boolean = true,
+        limit: Int = 2_500,
+    ): List<StrategyMetric> {
+        val now = System.currentTimeMillis()
+        val key = "${environment ?: ""}|$includePartials|$limit"
+        if (now - leaderboardCacheMs < LEADERBOARD_TTL_MS && leaderboardCacheKey == key) {
+            return leaderboardCache
+        }
+        val fresh = computeLeaderboardUncached(environment, includePartials, limit)
+        leaderboardCache = fresh
+        leaderboardCacheMs = now
+        leaderboardCacheKey = key
+        return fresh
+    }
+
+    private fun computeLeaderboardUncached(
         environment: String? = null,
         includePartials: Boolean = true,
         limit: Int = 2_500,
