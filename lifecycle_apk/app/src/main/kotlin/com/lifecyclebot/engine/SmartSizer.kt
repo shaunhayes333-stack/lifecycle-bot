@@ -722,9 +722,24 @@ object SmartSizer {
         }
         
         if (size < dustFloor) {
-            ErrorLogger.error("SmartSizer", "❌ BLOCKED: dust floor | size=$size < $dustFloor | paper=$isPaperMode | wallet=$walletSol")
-            return SizeResult(0.0, tier, basePct, aiScoreMult, perfMult, drawdownMult, concMult, treasuryMult, houseMoneyBonus,
-                "dust", "Calculated size below dust floor (wallet too small?)")
+            // V5.0.6271 — PROMOTE, DON'T BLOCK. Op-report V5.0.6270 showed
+            // 2 trades in 30 min because the 0.05 hard-block killed ~80% of
+            // the funnel (every EXECUTE_SMALL band under a 0.6 SOL wallet
+            // sizes at ~0.005 SOL through the stacked multipliers). The
+            // upstream V3/FDG gates already vetted these candidates; the
+            // sizer's job is to keep Jupiter safe from dust, NOT to re-veto
+            // low-conviction picks that already passed conviction gates.
+            // Snap up to dustFloor when the wallet has headroom; hard-block
+            // only when tradeable is itself below floor.
+            if (!isPaperMode && tradeable >= dustFloor) {
+                ErrorLogger.info("SmartSizer", "📏 LIVE MIN SIZE PROMOTED_6271: raw=${size.fmt(4)} → $dustFloor SOL (V3 gate already passed) | wallet=$walletSol")
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SMART_SIZER_LIVE_DUST_PROMOTED_6271") } catch (_: Throwable) {}
+                size = dustFloor
+            } else {
+                ErrorLogger.error("SmartSizer", "❌ BLOCKED: dust floor | size=$size < $dustFloor | paper=$isPaperMode | wallet=$walletSol | tradeable=$tradeable")
+                return SizeResult(0.0, tier, basePct, aiScoreMult, perfMult, drawdownMult, concMult, treasuryMult, houseMoneyBonus,
+                    "dust", "Calculated size below dust floor (wallet too small?)")
+            }
         }
 
         // Round to 4dp

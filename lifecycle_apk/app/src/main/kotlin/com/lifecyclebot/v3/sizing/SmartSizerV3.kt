@@ -151,18 +151,47 @@ class SmartSizerV3(
         // candidates that CAN actually round-trip instead of hemorrhaging
         // routing attempts on tiny probes. PAPER path still allowed to sub-cent
         // sizes because the mock engine can always fill (learning surface).
+        // V5.0.6269 → V5.0.6271 evolution.
+        //
+        // V5.0.6269 rationale: block sub-0.05 SOL live trades outright because
+        // Jupiter returned ROUTE_FAILED_NO_OPEN_COMMITTED on the CHILLINU
+        // 0.0062 SOL attempt.
+        //
+        // V5.0.6271 correction after op-report showed only 2 trades in 30 min:
+        // the block was TOO aggressive — with a 0.6 SOL wallet, the stacked-
+        // multiplier math produces sub-0.05 SOL for every EXECUTE_SMALL
+        // conviction band (score<60 / conf<70%), i.e. ~80% of the funnel got
+        // hard-blocked and the bot sat idle. The real issue was DUST sent to
+        // Jupiter — not the fact that low-conviction candidates were sized
+        // conservatively. So promote instead of block: if V3 already said
+        // EXECUTE (this candidate passed lane + safety + FDG + confidence
+        // gates upstream), snap the size UP to the 0.05 SOL floor so Jupiter
+        // gets a routable trade. Sub-dust (essentially zero) still blocks —
+        // that only happens on a zero-liq or zero-tradeable input. Confidence
+        // and score selectivity remain the operator's responsibility upstream.
         val liveNoDustFloor6269 = 0.05  // MIN_POSITION_SOL — mirrors CashGenerationAI floor
-        if (isLive && cappedSize > 0.0 && cappedSize < liveNoDustFloor6269) {
+        val effectiveSize = if (isLive && cappedSize > 0.0 && cappedSize < liveNoDustFloor6269) {
+            if (tradeable < liveNoDustFloor6269) {
+                // Not enough wallet headroom to send even a floor-sized trade — hard block.
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SMART_SIZER_V3_DUST_BLOCK_NO_HEADROOM_6271")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "SMART_SIZER_V3_DUST_BLOCK_NO_HEADROOM_6271",
+                        "band=$band conf=$confidence tradeable=${"%.4f".format(tradeable)} floor=$liveNoDustFloor6269 note=wallet_below_floor_cannot_promote"
+                    )
+                } catch (_: Throwable) {}
+                return SizeResult(sizeSol = 0.0)
+            }
             try {
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SMART_SIZER_V3_DUST_BLOCK_6269")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SMART_SIZER_V3_DUST_PROMOTED_6271")
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                    "SMART_SIZER_V3_DUST_BLOCK_6269",
-                    "band=$band conf=$confidence liq=${candidate.liquidityUsd.toInt()} basePct=${"%.3f".format(basePct)} confMult=${"%.2f".format(confMult)} probeMult=${"%.2f".format(probeMult)} liqMult=${"%.2f".format(liqMult)} raw=${"%.4f".format(cappedSize)} floor=${liveNoDustFloor6269} note=no_stupid_dust_size_trades_ffs_operator_directive"
+                    "SMART_SIZER_V3_DUST_PROMOTED_6271",
+                    "band=$band conf=$confidence liq=${candidate.liquidityUsd.toInt()} raw=${"%.4f".format(cappedSize)} promotedTo=$liveNoDustFloor6269 note=v3_execute_gate_passed_promote_to_min_position_sol"
                 )
             } catch (_: Throwable) {}
-            return SizeResult(sizeSol = 0.0)
-        }
+            liveNoDustFloor6269
+        } else cappedSize
 
-        return SizeResult(sizeSol = cappedSize)
+        return SizeResult(sizeSol = effectiveSize)
     }
 }
