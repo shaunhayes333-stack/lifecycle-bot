@@ -1,5 +1,61 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## ✅ V5.0.6273-6275 STACK VERIFIED WORKING (2026-02, op-report V5.0.6275)
+
+Operator op-report from live run of V5.0.6275 confirms the multi-push stack landed:
+- **Watchlist = 301** (was 0 → probation loop fix worked)
+- **INTAKE=84 · EXEC=84 · BUY ok=15 · SELL ok=6** — live trading is active
+- **liveSellOk=6** confirmed via journal (`SELL PAPER` rows from earlier paper cycles)
+- **wallet = 0.6084 SOL** (baseline 0.6198, minor -1.8% dip as expected while DNA store rebuilds from cold)
+- **ANR = 1, max_frame = 783ms** (down from 5765ms peak) — computeLeaderboard cache
+  from V5.0.6272 killed the main-thread burn
+- **Birdeye budget = 55 daily calls / 1375 CU** (down from ~416/10400) — dead-key
+  hard-off from V5.0.6275 slashed paid-provider spend by ~92%
+
+Remaining minor: `LIVE_BUY_REJECTED_HARD_BLOCK_SECURITY_GUARD=2` — 2 of 109 attempts,
+legitimate manipulation rejects (`singleHolder=true unverified=false` on t=0 launches).
+Not a choke, expected safety behavior.
+
+
+
+## ✅ V5.0.6273 / V5.0.6274 / V5.0.6275 SHIPPED — Live intake unblocked + copy fix + Birdeye hard-off (2026-02, all CI green)
+
+Three pushes on top of V5.0.6272 in the same session. Trouble-shoot agent
+diagnosed the operator's core complaint (`WL=0` despite 526 tokens enqueued).
+
+**V5.0.6273 — Probation→Watchlist infinite loop fix (CRITICAL)**
+Pre-existing bug (latent since V5.9.1560, exposed at scale after V5.0.6270
+loosened goose_catastrophic false-positives). Pump-source tokens got admitted
+to probation-only, auto-promoted after 5min via `promoteFromProbation` with
+`addedBy="${entry.addedBy}+PROBATION"`, then `shouldDivertPumpToProbation`
+matched again on the still-containing `PUMP_FUN` substring → diverted BACK
+to probation. Loop repeated forever, watchlist stayed at 0, zero live trades.
+Fix in `GlobalTradeRegistry.addToWatchlist`: bypass the divert check when
+`addedBy`/`source` contains `PROBATION` or `PROMOTED`. New forensic label:
+`SOURCE_BALANCE_PROBATION_LOOP_BYPASS_6273`.
+
+**V5.0.6274 — Pipeline Health copy-to-clipboard silent failure fix**
+Operator asked ten times why the report wouldn't copy. Root cause:
+`ClipboardManager.setPrimaryClip` and `Toast.show` MUST run on main thread
+(Android 12+), but `ReportingHub.buildTextAsync` fired its callback on the
+render worker thread — silent no-op. Wrapped the clipboard + toast block in
+`runOnUiThread` inside the async callback. New labels
+`UNIFIED_REPORT_COPY_OK_6273` and `UNIFIED_REPORT_COPY_FAIL_6273`. Copy button
+was and remains always-enabled — works while bot is running.
+
+**V5.0.6275 — Birdeye dead-key hard-off**
+Operator can no longer afford Birdeye. Op-report shows `birdeye sr=0%
+http=401 BIRDEYE_UNHEALTHY` but budget gate kept letting paid calls through
+because it only tracked CU accounting, not key liveness. Added
+`birdeyeKeyIsUsable6275()` helper consulting `KeyValidator.isLive("birdeye")`
+at the top of all four affordance gates (`canAfford`, `canAffordScannerLane`,
+`canAffordSafety`, `canAffordOpenPositionEmergency`). Bot cleanly falls back
+to free provider stack (Dexscreener / GeckoTerminal / Jupiter / PumpFun /
+PumpPortal WS / RugCheck / CoinGecko On-chain) per doctrine #87.23.
+Helius follow-up needed separately (multi-callsite, RPC fallback design).
+
+
+
 ## ✅ V5.0.6272 SHIPPED — CRITICAL: cache StrategyTelemetry.computeLeaderboard (kills ANR blast from V5.0.6267) (2026-02, CI green)
 
 Op-report screenshot: ANR=102, max_frame=5765ms, top ANR frame
