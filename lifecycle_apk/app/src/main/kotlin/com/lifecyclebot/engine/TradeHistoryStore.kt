@@ -1493,8 +1493,58 @@ object TradeHistoryStore {
         return synchronized(lock) { trades.filter { isJournalSellLike(it.side) && it.ts >= midnight && isValidAccountingTrade(it) } }
     }
 
-    fun getAllSells(): List<Trade> =
+    // V5.0.6266 — MAIN-THREAD ANR FIX for getAllSells().
+    // Op-report V5.0.6265 surfaced TradeHistoryStore.getAllSells in the top-4
+    // ANR frames. Callers (DrawdownCircuitAI, MemeEdgeAI, LivePaperDriftSentinel,
+    // ProfitabilityLayer, RunTracker30D) filter the entire in-memory list (up to
+    // 10k trades) under the store lock. Even after their own coroutine wrapping,
+    // some callers still hit this from the UI thread via cache-miss paths,
+    // producing 5-15s frame freezes. This mirrors the rollingWinRatePct pattern:
+    // on the main thread, serve a cached snapshot immediately and refresh
+    // off-thread. Non-main callers keep synchronous computation.
+    @Volatile private var allSellsCache: List<Trade> = emptyList()
+    @Volatile private var allSellsCacheMs: Long = 0L
+    @Volatile private var allSellsRefreshInFlight: Boolean = false
+    private const val ALL_SELLS_CACHE_MS: Long = 8_000L
+
+    fun getAllSells(): List<Trade> {
+        val now = System.currentTimeMillis()
+        val onMain = try { Looper.myLooper() == Looper.getMainLooper() } catch (_: Throwable) { false }
+        if (onMain) {
+            val cached = allSellsCache
+            if (cached.isNotEmpty() && now - allSellsCacheMs < ALL_SELLS_CACHE_MS) return cached
+            scheduleAllSellsRefresh()
+            try { PipelineHealthCollector.labelInc("ALL_SELLS_MAIN_CACHE_RETURN_6266") } catch (_: Throwable) {}
+            return cached
+        }
+        val fresh = computeAllSells()
+        allSellsCache = fresh
+        allSellsCacheMs = now
+        return fresh
+    }
+
+    private fun computeAllSells(): List<Trade> =
         synchronized(lock) { trades.filter { isJournalSellLike(it.side) && isValidAccountingTrade(it) }.toList() }
+
+    private fun scheduleAllSellsRefresh() {
+        if (allSellsRefreshInFlight) return
+        allSellsRefreshInFlight = true
+        val r = Runnable {
+            try {
+                val fresh = computeAllSells()
+                allSellsCache = fresh
+                allSellsCacheMs = System.currentTimeMillis()
+            } catch (_: Throwable) {
+            } finally {
+                allSellsRefreshInFlight = false
+            }
+        }
+        try {
+            ioHandler?.post(r) ?: Thread(r, "TradeAllSellsRefresh").start()
+        } catch (_: Throwable) {
+            try { Thread(r, "TradeAllSellsRefresh").start() } catch (_: Throwable) { allSellsRefreshInFlight = false }
+        }
+    }
 
     fun getRecentValidClosedForMode(mode: String, limit: Int = 50): List<Trade> {
         val norm = normalizeTradeModeName(mode)

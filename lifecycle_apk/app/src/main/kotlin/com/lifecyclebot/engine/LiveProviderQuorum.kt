@@ -54,12 +54,31 @@ object LiveProviderQuorum {
         if (hostDegraded("gemini", "groq")) degraded += "LLM_ADVISORY_ONLY"
 
         val marketCount = providers.distinct().size
-        val allowed = marketCount >= 2
+        // V5.0.6266 — PROVIDER FAIL-OPEN. Operator report V5.0.6265 showed
+        // 0 live executions during a whole-ecosystem outage (Helius 429,
+        // Birdeye 401, Dexscreener 5xx timeouts). The strict marketCount >= 2
+        // rule then hard-blocked every buy even when Jupiter route was up and
+        // TokenState carried a live price/pair from PumpPortal WS. That is a
+        // provider-outage self-DOS, not risk control: with an executable route
+        // and at least one live-price proof, the bot must trade instead of
+        // sitting on funds. Fail-open when providers collapse but route is
+        // live. Sizing multiplier drops to 0.60 as a defensive shape.
+        val livePriceProof = ts.lastPrice > 0.0
+        val failOpenEligible = marketCount < 2 && routeCriticalOk &&
+            (livePriceProof || providers.any { it == "PUMPFUN" || it == "DEXSCREENER" }) &&
+            degraded.size >= 2
+        val allowed = marketCount >= 2 || failOpenEligible
         val multiplier = when {
             !allowed -> 0.0
+            failOpenEligible -> 0.60
             degraded.size >= 2 -> 0.85
             degraded.isNotEmpty() -> 0.93
             else -> 1.0
+        }
+        val reason = when {
+            marketCount >= 2 -> "PROVIDER_QUORUM_OK"
+            failOpenEligible -> "PROVIDER_QUORUM_FAILOPEN_6266 marketCount=$marketCount degraded=${degraded.size} livePriceProof=$livePriceProof"
+            else -> "MARKET_PROOF_QUORUM_INSUFFICIENT"
         }
         return Verdict(
             allowed = allowed,
@@ -68,7 +87,7 @@ object LiveProviderQuorum {
             marketProofCount = marketCount,
             providers = providers.distinct(),
             degraded = degraded.distinct(),
-            reason = if (allowed) "PROVIDER_QUORUM_OK" else "MARKET_PROOF_QUORUM_INSUFFICIENT",
+            reason = reason,
             multiplier = multiplier,
         )
     }

@@ -12331,14 +12331,36 @@ class Executor(
                 if (total > 3) s.successes.get().toDouble() / total else 1.0
             } ?: 1.0
             if (dexSr < 0.70 || jupQSr < 0.60) {
-                val detail = "dexscreener_sr=${"%.0f".format(dexSr * 100)}% jupiter_quote_sr=${"%.0f".format(jupQSr * 100)}% (thresholds 70/60)"
-                liveStage("LIVE_BUY_ABORTED", "reason=PROVIDER_DEGRADED_BUY_BLOCK_6264 detail=$detail")
-                try { emitLiveBuyFail(ts, sol, "PROVIDER_DEGRADED_BUY_BLOCK_6264", detail) } catch (_: Throwable) {}
-                try {
-                    com.lifecyclebot.engine.PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "PROVIDER_DEGRADED_BUY_BLOCK_6264 mode=LIVE lane=$layerTag $detail")
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle("PROVIDER_DEGRADED_BUY_BLOCK_6264", "$detail lane=$layerTag mint=${ts.mint.take(10)}")
-                } catch (_: Throwable) {}
-                return false
+                // V5.0.6266 — DNA-APPROVED FULL BYPASS of provider-degraded
+                // block. Op-report V5.0.6265: 0 live executions during a
+                // whole-ecosystem outage (Helius 429, Birdeye 401, Dexscreener
+                // 5xx). When the AGI has already proven this exact
+                // (setup, chartPattern) shape wins on live, the wallet must
+                // trade through the outage — a paralyzed bot cannot grow.
+                // Route-critical still enforced downstream by
+                // ExecutionRouteGuard/LiveProviderQuorum failopen (V5.0.6266).
+                val dnaBypass6266a = try {
+                    com.lifecyclebot.engine.LiveLaneGovernor.dnaApprovedForLane(layerTag, ec?.entrySetup, ec?.chartPattern)
+                } catch (_: Throwable) { null }
+                if (dnaBypass6266a != null) {
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PROVIDER_DEGRADED_DNA_BYPASS_6266")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "PROVIDER_DEGRADED_DNA_BYPASS_6266",
+                            "lane=$layerTag mint=${ts.mint.take(10)} setup=${ec?.entrySetup ?: "?"} pattern=${ec?.chartPattern ?: "?"} evidence=$dnaBypass6266a dexSr=${"%.0f".format(dexSr * 100)}% jupQSr=${"%.0f".format(jupQSr * 100)}%",
+                        )
+                    } catch (_: Throwable) {}
+                    // Fall through — do NOT return; DNA-approved trades execute.
+                } else {
+                    val detail = "dexscreener_sr=${"%.0f".format(dexSr * 100)}% jupiter_quote_sr=${"%.0f".format(jupQSr * 100)}% (thresholds 70/60)"
+                    liveStage("LIVE_BUY_ABORTED", "reason=PROVIDER_DEGRADED_BUY_BLOCK_6264 detail=$detail")
+                    try { emitLiveBuyFail(ts, sol, "PROVIDER_DEGRADED_BUY_BLOCK_6264", detail) } catch (_: Throwable) {}
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "PROVIDER_DEGRADED_BUY_BLOCK_6264 mode=LIVE lane=$layerTag $detail")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle("PROVIDER_DEGRADED_BUY_BLOCK_6264", "$detail lane=$layerTag mint=${ts.mint.take(10)}")
+                    } catch (_: Throwable) {}
+                    return false
+                }
             }
         } catch (_: Throwable) {}
 
@@ -12762,11 +12784,32 @@ class Executor(
             PipelineHealthCollector.labelInc(if (providerQuorum.allowed) "LIVE_PROVIDER_QUORUM_OK" else "LIVE_PROVIDER_QUORUM_HARD_BLOCK")
         } catch (_: Throwable) {}
         if (!providerQuorum.allowed) {
-            emitLiveBuyFail(ts, sol, "LIVE_BUY_REJECTED_HARD_BLOCK_PROVIDER_QUORUM", providerQuorum.reason)
-            buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:${providerQuorum.reason.take(80)}")
-            return false
+            // V5.0.6266 — DNA-APPROVED FULL BYPASS of provider quorum hard block.
+            // When the AGI has proven this (setup, pattern) combo wins on live,
+            // ignore the marketCount<2 hard block (whole-ecosystem outage cannot
+            // paralyze a wallet with proven winners). Route authority upstream
+            // still enforces executable path via ExecutionRouteGuard.
+            val ecForQuorum6266 = try { com.lifecyclebot.engine.EntryContextRegistry.peek(ts.mint) } catch (_: Throwable) { null }
+            val dnaBypass6266b = try {
+                com.lifecyclebot.engine.LiveLaneGovernor.dnaApprovedForLane(layerTag, ecForQuorum6266?.entrySetup, ecForQuorum6266?.chartPattern)
+            } catch (_: Throwable) { null }
+            if (dnaBypass6266b != null) {
+                try {
+                    PipelineHealthCollector.labelInc("LIVE_PROVIDER_QUORUM_DNA_BYPASS_6266")
+                    ForensicLogger.lifecycle(
+                        "LIVE_PROVIDER_QUORUM_DNA_BYPASS_6266",
+                        "lane=$layerTag mint=${ts.mint.take(10)} setup=${ecForQuorum6266?.entrySetup ?: "?"} pattern=${ecForQuorum6266?.chartPattern ?: "?"} evidence=$dnaBypass6266b quorum=${providerQuorum.summary()}",
+                    )
+                } catch (_: Throwable) {}
+                providerQuorumSizeMultiplier = 0.60
+            } else {
+                emitLiveBuyFail(ts, sol, "LIVE_BUY_REJECTED_HARD_BLOCK_PROVIDER_QUORUM", providerQuorum.reason)
+                buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:${providerQuorum.reason.take(80)}")
+                return false
+            }
+        } else {
+            providerQuorumSizeMultiplier = providerQuorum.multiplier.coerceIn(0.50, 1.0)
         }
-        providerQuorumSizeMultiplier = providerQuorum.multiplier.coerceIn(0.50, 1.0)
         
         ExecutionRootCauseTrace.buy("LIVE_BUY_ENTRY", ts, "sol=$sol walletSol=$walletSol score=$score quality=$quality layer=$layerTag attemptId=$recoveredLiveAttemptId finalityPrechecked=$recoveredFinalityPrechecked autoTrade=${cfg().autoTrade}")
         if (sol <= 0 || sol.isNaN() || sol.isInfinite()) {

@@ -318,6 +318,17 @@ object LiveLaneGovernor {
     }
 
     /**
+     * V5.0.6266 — public wrapper for the DNA-approved bypass check.
+     * Executor.liveBuy queries this to bypass provider-degraded/quorum
+     * hard blocks when the AGI has proven this exact (setup, pattern)
+     * combo wins. Full DNA bypass per operator directive: DNA-approved
+     * trades ignore fanout/quorum locks entirely so the wallet can grow
+     * during whole-ecosystem provider outages.
+     */
+    fun dnaApprovedForLane(lane: String, entrySetup: String?, chartPattern: String?): String? =
+        dnaProvenBypass(lane.uppercase(), entrySetup, chartPattern)
+
+    /**
      * Fee-eater guard. Skip the buy if requestedSol < FEE_ECONOMIC_MULT × avg_fee_sol.
      * Returns (skip, reason).
      */
