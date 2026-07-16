@@ -317,6 +317,15 @@ class PipelineHealthActivity : AppCompatActivity() {
      * then posts the clipboard write to main (ClipboardManager
      * requires main). Previously the 16KB dump built on main blocked
      * the UI thread for the copy tap as well.
+     *
+     * V5.0.6273 — SILENT CLIPBOARD FAILURE FIX. Operator reported the
+     * pipeline report has "not copied" for the last ten asks. Root cause:
+     * ReportingHub.buildTextAsync fires its callback on the render worker
+     * thread, but ClipboardManager.setPrimaryClip AND Toast.show both
+     * require the main thread — on Android 12+ they silently no-op when
+     * called from a background thread. Wrap the clipboard + toast in
+     * runOnUiThread so the copy actually lands. Diagnostic label emitted
+     * both ways so we can see it firing next report.
      */
     private fun copyToClipboardAsync() {
         if (destroyed || !viewsBound) return
@@ -327,14 +336,24 @@ class PipelineHealthActivity : AppCompatActivity() {
         ) { report, error ->
             if (destroyed || generation != renderGeneration) return@buildTextAsync
             val text = report?.text ?: "(render error: ${error?.message ?: "unknown"})"
-            val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            cb.setPrimaryClip(ClipData.newPlainText("AATE Unified Report", text))
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_ONLY", "chars=${text.length} hub=true") } catch (_: Throwable) {}
-            Toast.makeText(
-                this,
-                "Unified report copied (${text.length} chars)",
-                Toast.LENGTH_SHORT,
-            ).show()
+            runOnUiThread {
+                if (destroyed || generation != renderGeneration) return@runOnUiThread
+                try {
+                    val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cb.setPrimaryClip(ClipData.newPlainText("AATE Unified Report", text))
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_ONLY", "chars=${text.length} hub=true thread=main6273") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_COPY_OK_6273") } catch (_: Throwable) {}
+                    Toast.makeText(
+                        this,
+                        "Unified report copied (${text.length} chars)",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                } catch (t: Throwable) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_COPY_FAIL_6273") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_FAIL_6273", "err=${t.javaClass.simpleName}:${t.message?.take(120)}") } catch (_: Throwable) {}
+                    Toast.makeText(this, "Copy failed: ${t.javaClass.simpleName}", Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 
