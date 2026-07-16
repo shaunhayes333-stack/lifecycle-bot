@@ -422,7 +422,20 @@ object GlobalTradeRegistry {
         // go to probation instead of occupying the visible/supervisor hot bench.
         // They are NOT deleted: later multi-source confirmation / RC / price action
         // can still promote them.
-        if (shouldDivertPumpToProbation(addedBy, source, initialMcap, laneAffinity, toolAffinity)) {
+        // V5.0.6273 — PROBATION→WATCHLIST LOOP FIX. Root-caused by troubleshoot
+        // agent: probation auto-promotion (V5.9.642, GlobalTradeRegistry.processProbation
+        // → promoteFromProbation) sets addedBy="${entry.addedBy}+PROBATION",
+        // which still contains "PUMP_FUN" so shouldDivertPumpToProbation
+        // matches again, sending the just-promoted token straight back to
+        // probation. Net effect: WL stays 0 forever, probation snapshot catches
+        // 0 during the tight loop. Operator screenshot showed ENQ 526 → MQ 0 →
+        // WL 0 with pump-source scanners producing all volume. Fix: bypass
+        // source-balance diversion for tokens already vetted through
+        // probation-promotion or explicitly tagged as promoted.
+        val alreadyProbationVetted6273 = addedBy.contains("PROBATION", ignoreCase = true) ||
+            addedBy.contains("PROMOTED", ignoreCase = true) ||
+            source.contains("PROBATION", ignoreCase = true)
+        if (!alreadyProbationVetted6273 && shouldDivertPumpToProbation(addedBy, source, initialMcap, laneAffinity, toolAffinity)) {
             pumpPortalProbationDiversions.incrementAndGet()
             val current = pumpPortalConcurrentCount()
             val cap = pumpHotCapFor(watchlist.size + 1)
@@ -443,6 +456,15 @@ object GlobalTradeRegistry {
                 )
             } catch (_: Throwable) {}
             return AddResult(false, "SOURCE_BALANCE_PUMP_PROBATION: pump=$current cap=$cap total=${watchlist.size}", probation = true)
+        }
+        if (alreadyProbationVetted6273) {
+            try {
+                ForensicLogger.lifecycle(
+                    "SOURCE_BALANCE_PROBATION_LOOP_BYPASS_6273",
+                    "symbol=$symbol mint=${mint.take(10)} addedBy=$addedBy source=$source note=probation_promoted_token_skips_pump_divert_check"
+                )
+                PipelineHealthCollector.labelInc("SOURCE_BALANCE_PROBATION_LOOP_BYPASS_6273")
+            } catch (_: Throwable) {}
         }
 
         // V5.2: No max size check - let watchlist grow as needed
