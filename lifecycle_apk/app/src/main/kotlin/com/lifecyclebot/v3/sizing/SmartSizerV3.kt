@@ -137,10 +137,32 @@ class SmartSizerV3(
         }
         
         // Final size calculation (includes probe multiplier)
-        val size = tradeable * basePct * confMult * probeMult * liqMult * ddMult * learningMult * v3ConfigMult
-        
-        return SizeResult(
-            sizeSol = size.coerceAtLeast(0.0).coerceAtMost(tradeable * config.maxAggressiveSizePct)
-        )
+        val rawSize = tradeable * basePct * confMult * probeMult * liqMult * ddMult * learningMult * v3ConfigMult
+        val cappedSize = rawSize.coerceAtLeast(0.0).coerceAtMost(tradeable * config.maxAggressiveSizePct)
+
+        // V5.0.6269 — HARD NO-DUST FLOOR (operator directive:
+        // "no stupid dust size trades ffs!"). Op-report V5.0.6268 showed
+        // CHILLINU sized at 0.0062 SOL sent to Jupiter which returned
+        // ROUTE_FAILED_NO_OPEN_COMMITTED — pump.fun tokens simply have no
+        // executable route below ~$5 (~0.03 SOL). Every one of these attempts
+        // burns compute, watchlist attention, and Jupiter quota for zero
+        // return. Refuse the trade entirely when the stacked size would be
+        // dust. This lets the bot wait for higher-conviction / better-liquidity
+        // candidates that CAN actually round-trip instead of hemorrhaging
+        // routing attempts on tiny probes. PAPER path still allowed to sub-cent
+        // sizes because the mock engine can always fill (learning surface).
+        val liveNoDustFloor6269 = 0.05  // MIN_POSITION_SOL — mirrors CashGenerationAI floor
+        if (isLive && cappedSize > 0.0 && cappedSize < liveNoDustFloor6269) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SMART_SIZER_V3_DUST_BLOCK_6269")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "SMART_SIZER_V3_DUST_BLOCK_6269",
+                    "band=$band conf=$confidence liq=${candidate.liquidityUsd.toInt()} basePct=${"%.3f".format(basePct)} confMult=${"%.2f".format(confMult)} probeMult=${"%.2f".format(probeMult)} liqMult=${"%.2f".format(liqMult)} raw=${"%.4f".format(cappedSize)} floor=${liveNoDustFloor6269} note=no_stupid_dust_size_trades_ffs_operator_directive"
+                )
+            } catch (_: Throwable) {}
+            return SizeResult(sizeSol = 0.0)
+        }
+
+        return SizeResult(sizeSol = cappedSize)
     }
 }

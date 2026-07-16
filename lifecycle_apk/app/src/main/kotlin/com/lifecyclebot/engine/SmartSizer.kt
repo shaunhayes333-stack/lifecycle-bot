@@ -703,7 +703,14 @@ object SmartSizer {
         size = size.coerceAtLeast(0.0)
         // V5.9.212: live dust 0.002 → 0.01 — Jito+Jupiter+platform fees ~0.004 SOL min
         // Sub-0.01 positions can NEVER be sold profitably. Paper stays 0.001.
-        val dustFloor = if (isPaperMode) 0.001 else 0.01
+        // V5.0.6269 — LIVE DUST FLOOR raised 0.01 → 0.05 (operator: "no stupid
+        // dust size trades ffs!"). Pump.fun tokens routinely reject Jupiter
+        // quotes below ~0.03 SOL (ROUTE_FAILED_NO_OPEN_COMMITTED), which burns
+        // an EXEC attempt for zero fill. Matching MIN_POSITION_SOL=0.05 across
+        // every live sizing path guarantees the wallet never spends compute on
+        // trades Jupiter will refuse. Paper stays at 0.001 (learning surface
+        // can always fill).
+        val dustFloor = if (isPaperMode) 0.001 else 0.05
         
         // PAPER MODE MINIMUM: Always trade at least 0.01 SOL (or 5% of wallet) to ensure learning
         if (isPaperMode && size < dustFloor) {
@@ -738,7 +745,7 @@ object SmartSizer {
         if (lanePhaseMult < 1.0) {
             size *= lanePhaseMult
             // Re-apply dust floor after reduction
-            val dustFloor2 = if (isPaperMode) 0.001 else 0.01
+            val dustFloor2 = if (isPaperMode) 0.001 else 0.05
             if (size < dustFloor2) size = dustFloor2
             ErrorLogger.info("SmartSizer", "📉 Lane phase mult: $laneMode → ${lanePhaseMult.fmt1}x (size now ${size.fmt(4)} SOL)")
         }
@@ -751,7 +758,7 @@ object SmartSizer {
         val exploreMult = 1.0
         if (exploreMult < 1.0) {
             size *= exploreMult
-            val dustFloor3 = if (isPaperMode) 0.001 else 0.01
+            val dustFloor3 = if (isPaperMode) 0.001 else 0.05
             if (size < dustFloor3) size = dustFloor3
             ErrorLogger.info("SmartSizer", "🔬 Paper exploration size ramp: ${exploreMult.fmt1}x (size now ${size.fmt(4)} SOL)")
         }
@@ -770,7 +777,7 @@ object SmartSizer {
         } catch (_: Throwable) { 1.0 }
         if (coldMult < 1.0) {
             size *= coldMult
-            val dustFloor4 = if (isPaperMode) 0.001 else 0.01
+            val dustFloor4 = if (isPaperMode) 0.001 else 0.05
             if (size < dustFloor4) size = dustFloor4
             ErrorLogger.info("SmartSizer", "🥶 Cold-streak damp: ${coldMult.fmt1}x [$laneMode] (size now ${size.fmt(4)} SOL)")
         }
