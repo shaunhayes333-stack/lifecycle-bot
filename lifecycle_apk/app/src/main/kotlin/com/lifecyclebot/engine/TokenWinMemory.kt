@@ -736,7 +736,26 @@ object TokenWinMemory {
         val goldHit  = bestPattern != null  && bestWr >= 0.70 && bestN  >= 10
         val winHit   = bestPattern != null  && bestWr >= 0.55 && bestN  >= 10
         val toxicHit = worstPattern != null && worstWr <= 0.10 && worstN >= 10
-        val cataHit  = worstPattern != null && worstWr <= 0.05 && worstN >= 15
+        // V5.0.6270 — CATASTROPHIC narrowing. Op-reports V5.0.6265..V5.0.6268
+        // showed KEVIN, TRUTH and other pump.fun launches getting
+        // MEME_DIRECT_INTAKE_VETO reason=goose_catastrophic before they
+        // could even be scored. Root cause: length-bucket patterns like
+        // `name_medium`, `name_long`, `sym_short`, `sym_standard` accumulate
+        // hundreds of samples across the entire meme universe and inevitably
+        // land at WR≤5% during cold-start streaks — which then hard-vetoes
+        // every future token with that shape (i.e. essentially every
+        // pump.fun launch since they're all short all-caps tickers). Length
+        // buckets are not a real edge signal, they're demographic noise.
+        // Only allow theme_* / mcap_bucket / phase / source style patterns
+        // — the ones that reflect actual signal — to trigger a hard
+        // catastrophic veto. Length buckets can still nudge the score bias
+        // via TOXIC verdict, they just cannot hard-kill intake.
+        val worstIsThematicSignal6270 = worstPattern?.let { p ->
+            !p.contains(":name_short") && !p.contains(":name_medium") && !p.contains(":name_long") &&
+            !p.contains(":sym_short") && !p.contains(":sym_medium") && !p.contains(":sym_long") &&
+            !p.contains(":sym_standard")
+        } ?: false
+        val cataHit  = worstPattern != null && worstWr <= 0.05 && worstN >= 15 && worstIsThematicSignal6270
 
         val verdict = when {
             cataHit  -> Verdict.CATASTROPHIC
