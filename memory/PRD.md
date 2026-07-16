@@ -1,5 +1,26 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## ✅ V5.0.6270 SHIPPED — Fixed goose_catastrophic false-positive that vetoed most candidates (2026-02, CI green)
+
+Op-report V5.0.6268 showed KEVIN, TRUTH, and other pump.fun launches getting
+`MEME_DIRECT_INTAKE_VETO reason=goose_catastrophic` at the fast-intake path
+before they could even be scored. Root cause: `PatternGoldenGoose.isCatastrophic`
+was matching on demographic length buckets like `name_medium` / `sym_standard`
+which cover the majority of pump.fun tokens (short all-caps tickers). During any
+cold-start streak those buckets drift to WR<=5% n>=15 and then hard-kill every
+future launch matching that demographic shape (i.e. essentially every ticker).
+
+Surgical fix in `TokenWinMemory.patternEdgeForToken()`: `worstIsThematicSignal6270`
+gate excludes length buckets from CATASTROPHIC verdict selection. Only true edge
+signals (`theme_*`, `mcap_bucket:*`, `source:*`, `phase:*`, `liq_ratio:*`,
+`buy_pressure:*`) can trigger a hard-veto. Length buckets still contribute to
+TOXIC verdict (score-bias nudge), they just can't hard-kill intake.
+
+Effect: candidate throughput unlocked. Combined with V5.0.6269 no-dust floor,
+live buys should now produce real non-dust fills at meaningful sizing.
+
+
+
 ## ✅ V5.0.6269 SHIPPED — HARD NO-DUST FLOOR (operator directive) (2026-02, CI green)
 
 Op-report V5.0.6268 showed `CHILLINU sized at 0.0062 SOL` sent to Jupiter which
