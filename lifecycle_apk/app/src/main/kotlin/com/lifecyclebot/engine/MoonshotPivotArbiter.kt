@@ -52,7 +52,15 @@ object MoonshotPivotArbiter {
         val scoreBand = try { LosingPatternMemory.scoreBand(score.toInt()) } catch (_: Throwable) { LiveStylePivotRouter.scoreBand(score) }
         val bucket = try { LosingPatternMemory.liveStats("MOONSHOT", score.toInt()) } catch (_: Throwable) { null }
         val lossRate = bucket?.lossRatePct ?: 0.0
-        val dangerBucket = scoreBand == "S41-60" && (bucket?.sample ?: 0) >= 8 && lossRate >= 75.0
+        // V5.0.6284 — NET-EV DANGER CHECK. A bucket like MOONSHOT|S41-60
+        // (104 losses / 44 wins / meanPnl=+63.87%) is high-loss-rate but
+        // AGGREGATE PROFITABLE thanks to memecoin outlier winners. Vetoing
+        // it was throwing away the profitable memecoin distribution. Now
+        // dangerBucket requires BOTH high loss rate AND negative mean PnL
+        // to actually trip — asymmetric distributions with big winners
+        // survive the check and route to normal Moonshot execution.
+        val bucketMeanPnl = bucket?.meanPnl ?: 0.0
+        val dangerBucket = scoreBand == "S41-60" && (bucket?.sample ?: 0) >= 8 && lossRate >= 75.0 && bucketMeanPnl <= -5.0
         val dump = regime.equals("DUMP", true)
         val p = try { LiveProbabilityEngine.forecast("MOONSHOT", score.toInt(), ts.meta.setupQuality, regime) } catch (_: Throwable) { null }
         val pWin = p?.pWin ?: 0.50

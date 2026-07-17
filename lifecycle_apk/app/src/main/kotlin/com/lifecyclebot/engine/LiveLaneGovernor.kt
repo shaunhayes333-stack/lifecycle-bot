@@ -306,9 +306,21 @@ object LiveLaneGovernor {
             val setupWinner = winners.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
             val setupLoser = losers.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
             val patternWinner = winPatterns.firstOrNull { it.first.equals(patternKey, ignoreCase = true) }
+            // V5.0.6284 — NET-EV proof, not "no loser at all". Previously the
+            // bypass demanded setupLoser==null which meant a single ≥2-loss
+            // stretch permanently denied bypass even when one winner covered
+            // all losses. Now: bypass allowed when (winCount * avgWin) +
+            // (lossCount * avgLoss) > 0 — the setup is aggregate-profitable.
+            val setupNetEv = if (setupWinner != null) {
+                val w = setupWinner.second * setupWinner.third
+                val l = if (setupLoser != null) setupLoser.second * setupLoser.third else 0.0
+                w + l
+            } else Double.NaN
             when {
                 setupWinner != null && setupWinner.third > 0.0 && setupLoser == null ->
                     "setup=$setupKey n=${setupWinner.second} μ=${"%.1f".format(setupWinner.third)}%"
+                setupWinner != null && !setupNetEv.isNaN() && setupNetEv > 0.0 ->
+                    "setup=$setupKey wins=${setupWinner.second}@μ${"%.1f".format(setupWinner.third)}% losses=${setupLoser?.second ?: 0}@μ${"%.1f".format(setupLoser?.third ?: 0.0)}% netEV=${"%.1f".format(setupNetEv)}%"
                 patternWinner != null && patternWinner.third > 0.0 && setupLoser == null ->
                     "pattern=$patternKey n=${patternWinner.second} μ=${"%.1f".format(patternWinner.third)}%"
                 else -> null

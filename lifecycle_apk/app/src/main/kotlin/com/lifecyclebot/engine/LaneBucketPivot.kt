@@ -169,15 +169,37 @@ object LaneBucketPivot {
             LosingPatternMemory.stats(laneU, score)
         } catch (_: Throwable) { null }
 
-        if (dangerStats != null && dangerStats.isDangerous) {
+        // V5.0.6284 — NET-EV COUNTERWEIGHT. Before honoring 'isDangerous',
+        // also read the WINNER histogram for this bucket. If the bucket has
+        // strong winners that outweigh the losses in aggregate PnL, treat
+        // it as a proven winner not a danger. Memecoin distributions have
+        // massive asymmetry — 1 winner covers 10-20 dust rugs — and the
+        // prior code discarded that entire pattern.
+        val (winnerAvg, winnerCount) = winnerMeanForBucket(laneU, score)
+        val bucketNetEv = if (dangerStats != null) {
+            (winnerCount * winnerAvg) + (dangerStats.losses * dangerStats.meanPnl)
+        } else Double.NaN
+
+        if (dangerStats != null && dangerStats.isDangerous && (bucketNetEv.isNaN() || bucketNetEv <= 0.0)) {
             val losses = dangerStats.losses
             val mult = if (losses >= 10) 0.25 else 0.50
             val tag = if (mult <= 0.30) "CONFIRMED_TOXIC" else "DANGER"
             return PivotShape(mult, "$tag losses=$losses wins=${dangerStats.wins} μ=${"%.0f".format(dangerStats.meanPnl)}%", bucket)
         }
+        if (dangerStats != null && dangerStats.isDangerous && bucketNetEv > 0.0) {
+            // Danger stats say bleeder but winner side proves net-positive.
+            // Log the override so operators can audit and keep at NEUTRAL 1.0.
+            try {
+                ForensicLogger.lifecycle(
+                    "LANE_BUCKET_PIVOT_NET_EV_POSITIVE_OVERRIDE_6284",
+                    "bucket=$bucket losses=${dangerStats.losses} wins=$winnerCount winnerAvg=${"%.1f".format(winnerAvg)}% loserMean=${"%.1f".format(dangerStats.meanPnl)}% netEV=${"%.1f".format(bucketNetEv)}% action=allow_neutral",
+                )
+                PipelineHealthCollector.labelInc("LANE_BUCKET_PIVOT_NET_EV_POSITIVE_OVERRIDE_6284")
+            } catch (_: Throwable) {}
+            return PivotShape(1.0, "NET_EV_POSITIVE_OVERRIDE wins=$winnerCount μ=${"%.0f".format(winnerAvg)}%", bucket)
+        }
 
         // ── Read winning buckets from LiveWinDNAStore ────────────────────────
-        val (winnerAvg, winnerCount) = winnerMeanForBucket(laneU, score)
         if (winnerCount >= 2 && winnerAvg >= 100.0) {
             return PivotShape(1.35, "DEEP_WINNER wins=$winnerCount μ=${"%.0f".format(winnerAvg)}%", bucket)
         }

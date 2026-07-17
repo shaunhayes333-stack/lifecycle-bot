@@ -103,6 +103,16 @@ object ScannerSourceBrain {
             val n = s.samples()
             if (n < 30) return false
             val wr = s.winRate()
+            // V5.0.6284 — NET-EV OVERRIDE. Previously blackout fired on WR
+            // alone, tossing 24/25 tokens from sources like PUMP_FUN_NEW
+            // (WR=14% n=309) even when the rare winners paid for the crowd
+            // of small losses. Now: if the source's avg PnL is net-positive,
+            // do NOT blackout — the memecoin distribution needs those wins.
+            val avgPnl = s.avgPnlPct()
+            if (avgPnl > 0.0) {
+                try { PipelineHealthCollector.labelInc("SCANNER_INTAKE_NET_EV_POSITIVE_ALLOW_6284_${key.take(30)}") } catch (_: Throwable) {}
+                return false
+            }
             val skipEvery = when {
                 n >= 100 && wr < 0.12 -> 25L  // extremely toxic: 24/25 tokens skipped
                 n >= 60  && wr < 0.15 -> 10L  // very mature toxic: 9/10 skipped

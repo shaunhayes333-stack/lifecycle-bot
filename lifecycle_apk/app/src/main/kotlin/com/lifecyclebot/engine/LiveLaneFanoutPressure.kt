@@ -16,17 +16,16 @@ object LiveLaneFanoutPressure {
         val ratio = if (intake > 0L) lane.toDouble() / intake.toDouble() else 0.0
         val wr = try { LiveLayerGateRelaxer.currentLiveWrPct() } catch (_: Throwable) { 0.0 }
         val n = try { LiveLayerGateRelaxer.currentLiveTerminalCount() } catch (_: Throwable) { 0 }
-        // V5.0.6266 — LANE FANOUT PRESSURE ESCAPE VALVE.
-        // Op-report V5.0.6265 showed exec=0 with laneEval/intake=14.00: the
-        // pressure detector was narrowing rescue eligibility while the bot
-        // wasn't even executing any trades — a self-DOS loop where "no exec"
-        // → "assume broken lanes" → "narrow rescue" → "still no exec". When
-        // exec=0 the pressure suppression is exactly the wrong signal:
-        // the pipeline needs MORE fanout breadth, not less. Only fire the
-        // pressure gate when the pipeline is actually executing trades and
-        // producing a measurably bad live WR — i.e. real bleed, not a
-        // paralyzed intake.
-        val active = intake >= 20L && ratio > 8.0 && n >= 40 && wr < 30.0 && exec > 0L
+        // V5.0.6284 — NET-PNL ESCAPE. If live WR is low but aggregate SOL
+        // PnL is net-positive across live terminal closes, the "toxic
+        // fanout" signal is a false alarm — the memecoin distribution
+        // is doing its job with rare big winners. Only pressure the
+        // fanout when BOTH WR is bad AND aggregate SOL PnL is negative.
+        val liveNetSol = try {
+            StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
+                .sumOf { it.totalSolPnl }
+        } catch (_: Throwable) { 0.0 }
+        val active = intake >= 20L && ratio > 8.0 && n >= 40 && wr < 30.0 && exec > 0L && liveNetSol < 0.0
         cached = Snapshot(active, ratio, wr, n, if (active) "lane_fanout_pressure_low_wr" else "normal")
         cachedAtMs = nowMs
         return cached
