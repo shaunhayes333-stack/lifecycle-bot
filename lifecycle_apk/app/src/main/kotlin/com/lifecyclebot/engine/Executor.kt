@@ -12302,30 +12302,49 @@ class Executor(
             val setupKey = ec?.entrySetup?.trim().orEmpty()
             val patternKey = ec?.chartPattern?.trim().orEmpty()
             if (setupKey.isNotBlank()) {
+                // V5.0.6285 — BOOTSTRAP-SAFE VETO. The DNA store filters out
+                // paper-trade backfill rows via realRows(); op-report showed
+                // real=7 while 493 paper rows sat in memory unusable. When
+                // the DNA snapshot is that small, setup-level statistics are
+                // noise. Skip the veto entirely under a bootstrap threshold
+                // so live buys aren't strangled by a 3-loss streak on a
+                // brand-new setup name.
+                val realDnaN = try { com.lifecyclebot.engine.LiveWinDNAStore.realCount() } catch (_: Throwable) { 0 }
+                if (realDnaN < 15) {
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DNA_PROVEN_LOSER_VETO_BOOTSTRAP_SKIP_6285")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle("DNA_PROVEN_LOSER_VETO_BOOTSTRAP_SKIP_6285", "realDnaN=$realDnaN threshold=15 setup=$setupKey lane=$layerTag mint=${ts.mint.take(10)} note=insufficient_dna_for_veto")
+                    } catch (_: Throwable) {}
+                    // fall through to remaining EXEC_GATE checks
+                } else {
                 val losers = com.lifecyclebot.engine.LiveWinDNAStore.losingSetupFrequency(minCount = 3)
                 val winners = com.lifecyclebot.engine.LiveWinDNAStore.setupFrequency(minCount = 1)
                 val loserRow = losers.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
                 val winnerRow = winners.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
                 // V5.0.6283 — NET-EV VETO (fix DNA_PROVEN_LOSER_VETO false-positive).
-                // Op-report V5.0.6276 showed 46/125 buys blocked here while the
-                // setup (DEGEN_MICRO_SNIPE) was net POSITIVE: 1 win at +172.4%
-                // vs 5 losses at -27.8% = net +33.4% expectancy. The prior check
-                // only counted loss frequency and vetoed profitable setups
-                // whenever the win/loss ratio looked bad, throttling the whole
-                // pump.fun lane (255 of 298 intakes stamped degen_micro_snipe).
-                // Fix: compute net expectancy across all real rows for the
-                // setup. Only veto when net EV is genuinely negative AND
-                // losses dominate. Positive-EV setups get through — even
-                // asymmetric ones where one winner covers many small losses.
                 val winCount = winnerRow?.second ?: 0
                 val winAvg = winnerRow?.third ?: 0.0
                 val lossCount = loserRow?.second ?: 0
                 val lossAvg = loserRow?.third ?: 0.0
                 val netEvPct = (winCount * winAvg) + (lossCount * lossAvg)
+                // V5.0.6285 — LANE JOURNAL AUTHORITY. If the LANE this trade
+                // routes to has proven itself net-profitable in the full
+                // journal (StrategyTelemetry lifetime), that trumps the tiny
+                // DNA-store setup slice. Report shows MOONSHOT n=448 WR=45%
+                // +17.8 SOL and BLUECHIP n=417 WR=55.9% +175 SOL — vetoing
+                // these lanes because a 3-row DNA slice looks bad throws
+                // away 800+ ground-truth outcomes. Journal expectancy wins.
+                val laneJournalProfitable = try {
+                    val laneStats = com.lifecyclebot.engine.StrategyTelemetry
+                        .computeLeaderboard(environment = null, includePartials = false, limit = 2_500)
+                        .firstOrNull { it.strategy.equals(layerTag, ignoreCase = true) }
+                    laneStats != null && laneStats.trades >= 40 &&
+                        laneStats.totalSolPnl > 0.0 && laneStats.meanPnlPct > 0.0
+                } catch (_: Throwable) { false }
                 val provenLoser = loserRow != null && lossCount >= 3 && lossAvg <= -20.0 &&
-                    lossCount > winCount && netEvPct <= -10.0
+                    lossCount > winCount && netEvPct <= -10.0 && !laneJournalProfitable
                 if (provenLoser) {
-                    val detail = "setup=$setupKey losses=$lossCount avgLoss=${"%.1f".format(lossAvg)}% wins=$winCount avgWin=${"%.1f".format(winAvg)}% netEV=${"%.1f".format(netEvPct)}%"
+                    val detail = "setup=$setupKey losses=$lossCount avgLoss=${"%.1f".format(lossAvg)}% wins=$winCount avgWin=${"%.1f".format(winAvg)}% netEV=${"%.1f".format(netEvPct)}% laneJournalProfitable=$laneJournalProfitable"
                     liveStage("LIVE_BUY_ABORTED", "reason=DNA_PROVEN_LOSER_VETO_6264 detail=$detail")
                     try { emitLiveBuyFail(ts, sol, "DNA_PROVEN_LOSER_VETO_6264", detail) } catch (_: Throwable) {}
                     try {
@@ -12333,13 +12352,21 @@ class Executor(
                         com.lifecyclebot.engine.ForensicLogger.lifecycle("DNA_PROVEN_LOSER_VETO_6264", "$detail lane=$layerTag mint=${ts.mint.take(10)} symbol=${ts.symbol}")
                     } catch (_: Throwable) {}
                     return false
-                } else if (loserRow != null && lossCount >= 3 && netEvPct > 0.0) {
-                    // V5.0.6283 — audit trail: log when we ALLOW despite loss
-                    // frequency, so we can see the veto working properly.
+                } else if (loserRow != null && lossCount >= 3) {
+                    // V5.0.6283/6285 — audit trail: log when we ALLOW despite
+                    // loss frequency (either positive net-EV or lane journal
+                    // authority override) so the operator can see how many
+                    // buys the counterweight preserved.
+                    val allowReason = when {
+                        laneJournalProfitable -> "lane_journal_authority_6285"
+                        netEvPct > 0.0 -> "net_ev_positive_6283"
+                        else -> "sub_veto_threshold"
+                    }
                     try {
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DNA_PROVEN_LOSER_VETO_NET_EV_POSITIVE_ALLOW_6283")
-                        com.lifecyclebot.engine.ForensicLogger.lifecycle("DNA_PROVEN_LOSER_VETO_NET_EV_POSITIVE_ALLOW_6283", "setup=$setupKey losses=$lossCount wins=$winCount netEV=${"%.1f".format(netEvPct)}% lane=$layerTag mint=${ts.mint.take(10)}")
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DNA_PROVEN_LOSER_VETO_OVERRIDE_${allowReason.uppercase()}")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle("DNA_PROVEN_LOSER_VETO_OVERRIDE_6285", "setup=$setupKey losses=$lossCount wins=$winCount netEV=${"%.1f".format(netEvPct)}% laneJournalProfitable=$laneJournalProfitable reason=$allowReason lane=$layerTag mint=${ts.mint.take(10)}")
                     } catch (_: Throwable) {}
+                }
                 }
             }
             // Provider-degradation guard: if the pipeline can't get real prices,

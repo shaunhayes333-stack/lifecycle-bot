@@ -5694,29 +5694,50 @@ class BotService : Service() {
         // V5.0.6244 — wrap the backfill in beginBulk()/endBulk() so we
         // persist ONCE at the end instead of firing the full 500-row JSON
         // write on every capture() (previously stalled boot).
+        // V5.0.6285 — PAPER TRADES ARE REAL DNA. Operator directive: the DNA
+        // store should draw from the paper trading knowledge base as well.
+        // Prior backfill stamped entrySetup="backfill" / chartPattern="backfill"
+        // which the realRows() filter deliberately excluded — 493 paper
+        // rows sitting in memory unusable to every net-EV veto. Now we
+        // preserve the LANE as the setup proxy (via w.phase) and use a
+        // stable synthetic pattern name based on the mcap bucket so setup
+        // matching in the veto works. Marked PAPER via paperOrLive so
+        // downstream aggregators can still split by mode if needed.
         try {
             com.lifecyclebot.engine.LiveWinDNAStore.beginBulk()
             val winners = TokenWinMemory.getAllSaneWinners()
             var backfilled = 0
             winners.forEach { w ->
                 try {
+                    // V5.0.6285 — derive a stable, non-"backfill" setup key
+                    // from the paper trade's phase (which maps to lane) and
+                    // a coarse mcap band. This makes paper winners count
+                    // toward setup-level net-EV lookups without polluting
+                    // shape learning with the literal "backfill" string.
+                    val setupProxy6285 = w.phase.ifBlank { w.source.ifBlank { "PAPER_HISTORY" } }
+                    val mcapBand6285 = when {
+                        w.entryMcap >= 500_000.0 -> "large_mcap"
+                        w.entryMcap >= 100_000.0 -> "mid_mcap"
+                        w.entryMcap >= 25_000.0 -> "small_mcap"
+                        else -> "micro_mcap"
+                    }
                     com.lifecyclebot.engine.LiveWinDNAStore.capture(
                         mint = w.mint, symbol = w.symbol, lane = w.phase,
-                        source = w.source, phase = w.phase,
-                        entrySetup = "backfill", chartPattern = "backfill",
+                        source = w.source.ifBlank { "PAPER_HISTORY" }, phase = w.phase,
+                        entrySetup = setupProxy6285, chartPattern = mcapBand6285,
                         entryScore = 0,
                         entryMcap = w.entryMcap, exitMcap = w.exitMcap,
                         entryLiquidity = w.entryLiquidity,
                         holdTimeMinutes = w.holdTimeMinutes,
                         buyPercent = w.buyPercent,
                         pnlPct = w.pnlPercent, peakPnl = w.peakPnl,
-                        exitReason = "BACKFILL_FROM_TOKEN_WIN_MEMORY",
+                        exitReason = "PAPER_HISTORY_BACKFILL_6285",
                         paperOrLive = "PAPER",
                     )
                     backfilled++
                 } catch (_: Throwable) {}
             }
-            if (backfilled > 0) addLog("🧬 LiveWinDNAStore backfilled $backfilled winners from TokenWinMemory")
+            if (backfilled > 0) addLog("🧬 LiveWinDNAStore backfilled $backfilled paper winners (V5.0.6285: setup preserved as lane)")
         } catch (_: Throwable) {
         } finally {
             try { com.lifecyclebot.engine.LiveWinDNAStore.endBulk() } catch (_: Throwable) {}

@@ -400,6 +400,12 @@ object LiveWinDNAStore {
     }
 
     fun size(): Int = rows.size
+
+    /** V5.0.6285 — public accessor for the *real* (non-backfill) row count.
+     *  Executor uses this to bootstrap-gate the DNA_PROVEN_LOSER_VETO so a
+     *  tiny 7-row DNA snapshot cannot lock the whole live pipeline out of
+     *  buys. Uses the cached realRowsSnapshot when available; O(1). */
+    fun realCount(): Int = realRows().size
     fun reset() {
         rows.clear()
         invalidateSnapshots()
