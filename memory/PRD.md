@@ -1,5 +1,44 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## ✅ V5.0.6283-6284 SHIPPED — Systemic net-EV symmetry fix across all vetos (2026-02, CI green)
+
+Operator directive: 'all vetos need to consider the good side of the lanes
+as well. check all vetos, scoring etc for inversions or missing opposites'
+
+Two commits landed: `2fe3c011` (V5.0.6283) and `2823826c` (V5.0.6284).
+
+### V5.0.6283 — Executor DNA_PROVEN_LOSER_VETO net-EV
+Op-report V5.0.6276 showed 46/125 buys blocked by DNA_PROVEN_LOSER_VETO_6264
+while the offending setup (DEGEN_MICRO_SNIPE) was net POSITIVE: 1 win at
++172.4% vs 5 losses at -27.8% = net +33.4% EV. Fix: veto now requires
+losses >= 3 AND avgLoss <= -20% AND losses > wins AND netEV <= -10%.
+
+### V5.0.6284 — Five more asymmetric vetos hardened
+1. **LiveLaneGovernor.dnaProvenBypass** — bypass now allowed when
+   netEV > 0 even if a loser row exists.
+2. **MoonshotPivotArbiter.dangerBucket** — added `bucket.meanPnl <= -5.0`
+   requirement. Field example: MOONSHOT|S41-60 had lossRate=70% but
+   meanPnl=+63.87% and was still being pivoted to DEFENSIVE_PROBE.
+3. **ScannerSourceBrain.shouldSkipIntake** — if avgPnlPct > 0, never
+   blackout regardless of WR. Recovers profitable low-WR memecoin
+   sources like PUMP_FUN_NEW.
+4. **LiveLaneFanoutPressure** — added liveNetSol < 0 check via
+   StrategyTelemetry, so low-WR-but-profitable meme lanes don't trip
+   the fanout suppression.
+5. **LaneBucketPivot.compute** — now reads winner side FIRST and
+   overrides `isDangerous` classification when bucketNetEv > 0.
+
+Verified already-symmetric (no changes needed): BrainConsensusGate,
+LaneToxicityGuard, LaneAutoPauseGuard, LaneExpectancyDamper,
+LiveStrategyTuner bleed classifiers.
+
+New forensic labels for audit:
+- DNA_PROVEN_LOSER_VETO_NET_EV_POSITIVE_ALLOW_6283
+- SCANNER_INTAKE_NET_EV_POSITIVE_ALLOW_6284_*
+- LANE_BUCKET_PIVOT_NET_EV_POSITIVE_OVERRIDE_6284
+
+
+
 ## ✅ V5.0.6276-6282 SHIPPED — Hotfix train + Advisor + Boot Warmup (2026-02, CI green)
 
 Seven versions shipped in one commit `1b849514`. Both Build AATE APK and
