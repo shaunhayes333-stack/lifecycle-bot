@@ -12322,29 +12322,44 @@ class Executor(
                 val loserRow = losers.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
                 val winnerRow = winners.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
                 // V5.0.6283 — NET-EV VETO (fix DNA_PROVEN_LOSER_VETO false-positive).
-                val winCount = winnerRow?.second ?: 0
-                val winAvg = winnerRow?.third ?: 0.0
-                val lossCount = loserRow?.second ?: 0
-                val lossAvg = loserRow?.third ?: 0.0
+                val setupWinCount = winnerRow?.second ?: 0
+                val setupWinAvg = winnerRow?.third ?: 0.0
+                val setupLossCount = loserRow?.second ?: 0
+                val setupLossAvg = loserRow?.third ?: 0.0
+
+                // V5.0.6286 — LANE-LEVEL DNA FALLBACK. Paper backfill stamps
+                // most winners with entrySetup="UNKNOWN" (phase field), while
+                // live trades stamp entrySetup like "degen_micro_snipe" from
+                // the AgenticStyleRouter. Result: setup-level winner lookup
+                // returns null even though 140+ backfilled winners exist for
+                // the SAME lane. Fall back to lane-level aggregation when
+                // setup-level winners are missing — this counterweights the
+                // loser row with the lane's proven winner distribution.
+                val laneWinners = com.lifecyclebot.engine.LiveWinDNAStore.laneFrequency(minCount = 1)
+                val laneWinRow = laneWinners.firstOrNull { it.first.equals(layerTag, ignoreCase = true) }
+                val useLaneFallback = winnerRow == null && laneWinRow != null && laneWinRow.second >= 3
+                val winCount = if (useLaneFallback) laneWinRow!!.second else setupWinCount
+                val winAvg = if (useLaneFallback) laneWinRow!!.third else setupWinAvg
+                val lossCount = setupLossCount
+                val lossAvg = setupLossAvg
                 val netEvPct = (winCount * winAvg) + (lossCount * lossAvg)
-                // V5.0.6285 — LANE JOURNAL AUTHORITY. If the LANE this trade
-                // routes to has proven itself net-profitable in the full
-                // journal (StrategyTelemetry lifetime), that trumps the tiny
-                // DNA-store setup slice. Report shows MOONSHOT n=448 WR=45%
-                // +17.8 SOL and BLUECHIP n=417 WR=55.9% +175 SOL — vetoing
-                // these lanes because a 3-row DNA slice looks bad throws
-                // away 800+ ground-truth outcomes. Journal expectancy wins.
+                // V5.0.6285 — LANE JOURNAL AUTHORITY.
+                // V5.0.6286 — Lowered trades floor 40 → 15 so newer lanes
+                //             (or those tagged with different names in the
+                //             layerTag vs journal strategy field) still
+                //             receive the escape hatch. Journal truth
+                //             outranks tiny DNA slices.
                 val laneJournalProfitable = try {
                     val laneStats = com.lifecyclebot.engine.StrategyTelemetry
                         .computeLeaderboard(environment = null, includePartials = false, limit = 2_500)
                         .firstOrNull { it.strategy.equals(layerTag, ignoreCase = true) }
-                    laneStats != null && laneStats.trades >= 40 &&
+                    laneStats != null && laneStats.trades >= 15 &&
                         laneStats.totalSolPnl > 0.0 && laneStats.meanPnlPct > 0.0
                 } catch (_: Throwable) { false }
                 val provenLoser = loserRow != null && lossCount >= 3 && lossAvg <= -20.0 &&
                     lossCount > winCount && netEvPct <= -10.0 && !laneJournalProfitable
                 if (provenLoser) {
-                    val detail = "setup=$setupKey losses=$lossCount avgLoss=${"%.1f".format(lossAvg)}% wins=$winCount avgWin=${"%.1f".format(winAvg)}% netEV=${"%.1f".format(netEvPct)}% laneJournalProfitable=$laneJournalProfitable"
+                    val detail = "setup=$setupKey losses=$lossCount avgLoss=${"%.1f".format(lossAvg)}% wins=$winCount avgWin=${"%.1f".format(winAvg)}% netEV=${"%.1f".format(netEvPct)}% laneFallback=$useLaneFallback laneJournalProfitable=$laneJournalProfitable"
                     liveStage("LIVE_BUY_ABORTED", "reason=DNA_PROVEN_LOSER_VETO_6264 detail=$detail")
                     try { emitLiveBuyFail(ts, sol, "DNA_PROVEN_LOSER_VETO_6264", detail) } catch (_: Throwable) {}
                     try {
@@ -12353,18 +12368,15 @@ class Executor(
                     } catch (_: Throwable) {}
                     return false
                 } else if (loserRow != null && lossCount >= 3) {
-                    // V5.0.6283/6285 — audit trail: log when we ALLOW despite
-                    // loss frequency (either positive net-EV or lane journal
-                    // authority override) so the operator can see how many
-                    // buys the counterweight preserved.
                     val allowReason = when {
                         laneJournalProfitable -> "lane_journal_authority_6285"
+                        useLaneFallback && netEvPct > 0.0 -> "lane_dna_fallback_6286"
                         netEvPct > 0.0 -> "net_ev_positive_6283"
                         else -> "sub_veto_threshold"
                     }
                     try {
                         com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DNA_PROVEN_LOSER_VETO_OVERRIDE_${allowReason.uppercase()}")
-                        com.lifecyclebot.engine.ForensicLogger.lifecycle("DNA_PROVEN_LOSER_VETO_OVERRIDE_6285", "setup=$setupKey losses=$lossCount wins=$winCount netEV=${"%.1f".format(netEvPct)}% laneJournalProfitable=$laneJournalProfitable reason=$allowReason lane=$layerTag mint=${ts.mint.take(10)}")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle("DNA_PROVEN_LOSER_VETO_OVERRIDE_6285", "setup=$setupKey losses=$lossCount wins=$winCount netEV=${"%.1f".format(netEvPct)}% laneFallback=$useLaneFallback laneJournalProfitable=$laneJournalProfitable reason=$allowReason lane=$layerTag mint=${ts.mint.take(10)}")
                     } catch (_: Throwable) {}
                 }
                 }

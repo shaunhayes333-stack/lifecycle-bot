@@ -255,6 +255,28 @@ object LiveWinDNAStore {
             .sortedByDescending { it.second }
     }
 
+    /** V5.0.6286 — Winning LANE histogram. Coarser than setup, but survives
+     *  the paper-backfill setup-namespace mismatch: even when backfilled
+     *  winners are stamped with entrySetup="UNKNOWN", their LANE field
+     *  (MOONSHOT/BLUECHIP/etc) is faithful. Executor DNA veto uses this
+     *  as a fallback when setup-level lookup finds no winners. */
+    fun laneFrequency(minCount: Int = 1): List<Triple<String, Int, Double>> {
+        val map = HashMap<String, MutableList<Double>>()
+        realRows().filter { it.pnlPct > 0.0 }.forEach { map.getOrPut(it.lane) { mutableListOf() }.add(it.pnlPct) }
+        return map.filter { it.value.size >= minCount }
+            .map { (k, v) -> Triple(k, v.size, v.average()) }
+            .sortedByDescending { it.second }
+    }
+
+    /** V5.0.6286 — LOSING lane histogram, mirror of laneFrequency. */
+    fun losingLaneFrequency(minCount: Int = 1): List<Triple<String, Int, Double>> {
+        val map = HashMap<String, MutableList<Double>>()
+        realRows().filter { it.pnlPct < 0.0 }.forEach { map.getOrPut(it.lane) { mutableListOf() }.add(it.pnlPct) }
+        return map.filter { it.value.size >= minCount }
+            .map { (k, v) -> Triple(k, v.size, v.average()) }
+            .sortedByDescending { it.second }
+    }
+
     /** Winning source × lane × phase route histogram. LLM/meta-cog use this. */
     fun routeFrequency(minCount: Int = 2): List<Triple<String, Int, Double>> {
         val map = HashMap<String, MutableList<Double>>()
