@@ -483,7 +483,28 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                     (if (highHolderConcentrationRisk) 1 else 0)
                 val manipulatedOnlyOverlay4553 = manipulationSignalCount >= 2 ||
                     (redFlagCount >= 3 && manipulationSignalCount >= 1)
-                if (manipulatedOnlyOverlay4553 && !isPaperMode) {
+                // V5.0.6280 — FRESH PUMP.FUN LAUNCH EXEMPTION. At t=0 the
+                // deployer is the only holder by definition and RugCheck
+                // often stamps `singleHolder + concentration` on a launch
+                // that has literally not had time to distribute. That
+                // false-positive was flagging brand-new pump.fun tokens
+                // out of every non-MANIP lane. Exempt tokens younger than
+                // 15 minutes when redFlagCount is at most 2 AND
+                // liquidity is real (>= $1500 — enough to filter
+                // dust-scam launches). Older tokens or high-redFlag
+                // tokens continue to trip the overlay unchanged.
+                val ageMs4553 = if (pairCreatedAtMs > 0L) System.currentTimeMillis() - pairCreatedAtMs else Long.MAX_VALUE
+                val freshLaunchExemption6280 = manipulatedOnlyOverlay4553 &&
+                    ageMs4553 in 0L..(15L * 60_000L) &&
+                    redFlagCount <= 2 &&
+                    currentLiquidityUsd >= 1_500.0
+                if (freshLaunchExemption6280) {
+                    try {
+                        ForensicLogger.lifecycle("MANIPULATED_ONLY_OVERLAY_FRESH_LAUNCH_EXEMPT_6280", "mint=${mint.take(10)} symbol=$symbol ageMs=$ageMs4553 redFlags=$redFlagCount singleHolder=$singleHolderOwnershipRisk liq=${currentLiquidityUsd.toInt()} action=allow_non_manip_lanes_fresh_launch")
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MANIPULATED_ONLY_OVERLAY_FRESH_LAUNCH_EXEMPT_6280")
+                    } catch (_: Throwable) {}
+                }
+                if (manipulatedOnlyOverlay4553 && !isPaperMode && !freshLaunchExemption6280) {
                     soft.add("MANIPULATED_ONLY_OVERLAY_4553 singleHolder=$singleHolderOwnershipRisk unverified=$unverifiedTokenRisk holderConcentration=$highHolderConcentrationRisk redFlags=$redFlagCount" to 55)
                     penalty += 55
                     ErrorLogger.error(TAG, "🚫 MANIPULATED_ONLY_OVERLAY_4553: $symbol singleHolder=$singleHolderOwnershipRisk unverified=$unverifiedTokenRisk holderConcentration=$highHolderConcentrationRisk redFlags=$redFlagCount — non-MANIPULATED lanes forbidden")

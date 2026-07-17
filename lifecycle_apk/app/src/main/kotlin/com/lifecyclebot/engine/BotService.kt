@@ -4985,6 +4985,50 @@ class BotService : Service() {
             ErrorLogger.warn("BotService", "Meme restore hydrate failed: ${e.message}")
         }
 
+        // V5.0.6282 — WATCHLIST BOOT WARMUP hydrate. After MemeMintRegistry
+        // restore, re-seed intake with the persisted top-conviction hot list
+        // (live-held mints + WinMemory winners + high-touch watchlist rows).
+        // This skips the ~90s cold-start starvation window shown in
+        // op-report V5.0.6275 where the watchlist was 0 while scanners
+        // spun up. Uses the same admitProtectedMemeIntake path so all
+        // downstream safety/lane/FDG gates apply unchanged.
+        try {
+            HotConvictionWarmup.init(applicationContext)
+            val hotList = HotConvictionWarmup.getAll()
+            var warmed = 0
+            for (h in hotList) {
+                if (h.mint.isBlank()) continue
+                if (status.tokens.containsKey(h.mint)) continue
+                val ok = admitProtectedMemeIntake(
+                    mint = h.mint,
+                    symbol = h.symbol.ifBlank { h.mint.take(6) },
+                    name = h.symbol.ifBlank { h.mint.take(6) },
+                    source = "HOT_CONVICTION_WARMUP_6282",
+                    marketCapUsd = Double.NaN,
+                    liquidityUsd = if (h.liquidityUsdEstimate > 0.0) h.liquidityUsdEstimate else Double.NaN,
+                    volumeH1 = 0.0,
+                    confidence = 55,
+                    allSources = setOf(h.source, "HOT_CONVICTION_WARMUP_6282"),
+                    playSound = false,
+                    operatorLog = false,
+                    expectedRuntimeGeneration = runtimeGeneration,
+                )
+                if (ok || status.tokens.containsKey(h.mint)) warmed++
+            }
+            if (hotList.isNotEmpty()) {
+                addLog("🩺 Hot conviction warmup: seeded $warmed/${hotList.size} top-conviction mints")
+                try {
+                    ForensicLogger.lifecycle(
+                        "HOT_CONVICTION_WARMUP_HYDRATE_6282",
+                        "warmed=$warmed total=${hotList.size} note=cold_boot_starvation_bypass"
+                    )
+                    PipelineHealthCollector.labelInc("HOT_CONVICTION_WARMUP_HYDRATE_6282")
+                } catch (_: Throwable) {}
+            }
+        } catch (e: Throwable) {
+            ErrorLogger.warn("BotService", "V5.0.6282 hot conviction warmup failed: ${e.message}")
+        }
+
         // Start protected Solana/Meme intake scanner.
         val scanCfg = ConfigStore.load(applicationContext)
         // V5.9.629 — SOLANA WIDE-FEED RULE:
@@ -11888,6 +11932,11 @@ class BotService : Service() {
                     )
                     com.lifecyclebot.engine.AutoEndpointMigrator.maybeAutoMigrate(fallbackMap)
                 } catch (_: Throwable) { /* observability never breaks loop */ }
+                // V5.0.6282 — Hot conviction warmup periodic snapshot.
+                // Refreshes the persisted top-N list so the next cold boot
+                // has fresh conviction data. Debounced internally; runs on
+                // IO dispatcher and never blocks the bot loop.
+                try { com.lifecyclebot.engine.HotConvictionWarmup.captureSnapshotAsync() } catch (_: Throwable) {}
             }
         } catch (_: Throwable) { /* never block the loop on a logging failure */ }
     }
@@ -16784,6 +16833,21 @@ if (hotExitHandledSweep) {
                         val ageMs = entry?.addedAt?.let { System.currentTimeMillis() - it } ?: 0L
                         val processCount = entry?.processCount ?: 0
                         val agedNoPair = processCount >= 4 && ageMs > 120_000L
+                        // V5.0.6277 — HIGH-LIQ NO-PAIR EXTENDED HYDRATION.
+                        // Op-report V5.0.6275 showed 100 INTAKE/NO_PAIR_NO_FALLBACK
+                        // blocks — most were fresh pump.fun / new Raydium pools
+                        // whose pair wasn't indexed yet but had real intake
+                        // liquidity. Keep those hot for one extended window
+                        // (pc<6 or age<180s) so hydration retries have room to
+                        // land before we demote. Truly stale/zero-liq tokens
+                        // still hit the aged-demote path unchanged.
+                        val hasIntakeLiq6277 = ts.lastLiquidityUsd >= 500.0
+                        val extendedHold6277 = agedNoPair && hasIntakeLiq6277 && processCount < 6 && ageMs < 180_000L
+                        if (extendedHold6277) {
+                            try { PipelineHealthCollector.labelInc("INTAKE_NO_PAIR_EXTENDED_HYDRATION_6277") } catch (_: Throwable) {}
+                            try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_EXTENDED_HYDRATION_6277", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} pc=$processCount ageMs=$ageMs liq=${ts.lastLiquidityUsd.toInt()} action=keep_hot_extended") } catch (_: Throwable) {}
+                            return
+                        }
                         if (!agedNoPair) {
                             try { PipelineHealthCollector.labelInc("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION") } catch (_: Throwable) {}
                             try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} pc=$processCount ageMs=$ageMs mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} action=keep_hot") } catch (_: Throwable) {}

@@ -160,6 +160,11 @@ class PipelineHealthActivity : AppCompatActivity() {
                 }
             }
 
+            // V5.0.6281 — Self-Healing LLM Advisor entry point.
+            findViewById<Button>(R.id.advisorButton).setOnClickListener {
+                onAdvisorButtonTapped()
+            }
+
             mainHandler.postDelayed({ renderSnapshotAsync(forceFull = false, manualRefresh = true) }, 750L)
         }
     }
@@ -361,5 +366,61 @@ class PipelineHealthActivity : AppCompatActivity() {
         v >= 1_000_000 -> "${v / 1_000_000}.${((v % 1_000_000) / 100_000)}M"
         v >= 10_000    -> "${v / 1_000}.${((v % 1_000) / 100)}k"
         else           -> v.toString()
+    }
+
+    // V5.0.6281 — Self-Healing LLM Advisor UI: tap → run → dialog → accept/dismiss.
+    private fun onAdvisorButtonTapped() {
+        if (com.lifecyclebot.engine.SelfHealingAdvisor.isRunning()) {
+            Toast.makeText(this, "Advisor is already running…", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val pending = com.lifecyclebot.engine.AdvisorInbox.pending()
+        if (pending.isNotEmpty()) {
+            showAdvisorDialog(pending)
+            return
+        }
+        Toast.makeText(this, "🩺 Advisor analysing pipeline…", Toast.LENGTH_SHORT).show()
+        com.lifecyclebot.engine.SelfHealingAdvisor.runNowAsync(applicationContext) { res ->
+            mainHandler.post {
+                if (!res.ok) {
+                    Toast.makeText(this, "Advisor: ${res.error ?: "unknown error"}", Toast.LENGTH_LONG).show()
+                    return@post
+                }
+                if (res.suggestions.isEmpty()) {
+                    Toast.makeText(this, "Advisor: nothing to tune right now — bot looks healthy.", Toast.LENGTH_LONG).show()
+                    return@post
+                }
+                showAdvisorDialog(res.suggestions)
+            }
+        }
+    }
+
+    private fun showAdvisorDialog(suggestions: List<com.lifecyclebot.engine.SelfHealingAdvisor.Suggestion>) {
+        val labels = suggestions.map { s ->
+            val severity = when (s.severity) {
+                "high" -> "🔴"
+                "med"  -> "🟠"
+                else   -> "🟡"
+            }
+            val delta = if (s.delta >= 0) "+${s.delta}" else s.delta.toString()
+            "$severity ${s.key} $delta\n  ${s.reason}\n  → ${s.expectedImpact}"
+        }.toTypedArray()
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🩺 Self-Healing Advisor (${suggestions.size})")
+            .setItems(labels) { _, which ->
+                val chosen = suggestions[which]
+                val (ok, msg) = com.lifecyclebot.engine.SelfHealingAdvisor.applySuggestion(applicationContext, chosen)
+                Toast.makeText(
+                    this,
+                    if (ok) "✅ Applied — $msg" else "⚠️ Not applied — $msg",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            .setNegativeButton("Dismiss all") { _, _ ->
+                for (s in suggestions) com.lifecyclebot.engine.AdvisorInbox.dismiss(s.id)
+                Toast.makeText(this, "Dismissed ${suggestions.size} suggestion(s)", Toast.LENGTH_SHORT).show()
+            }
+            .setNeutralButton("Later", null)
+            .show()
     }
 }

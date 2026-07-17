@@ -128,7 +128,12 @@ object GlobalTradeRegistry {
     // Maximum watchlist size to prevent memory issues
     // V5.2: Increased for paper mode learning - need more exposure
     // V5.9.369: 300→500 to give 100+ idle bench depth (user feedback)
-    private const val MAX_WATCHLIST_SIZE = 500  // V5.9.369: was 300; bumped for memetrader idle pool target ≥100
+    // V5.0.6278: 500→220. Op-report V5.0.6275 showed cycle avg=38s max=220s
+    // with watchlist at 230+ tokens. The 500 ceiling was allowing scanner
+    // fanout to saturate the bot loop, driving avg cycle above the 30s
+    // watchdog threshold and starving intake→FDG→EXEC throughput. 220 keeps
+    // ample bench for source-balance policies while restoring sub-15s cycles.
+    private const val MAX_WATCHLIST_SIZE = 220  // V5.0.6278: 500→220 to unstick bot loop cycles
     private const val MAX_PROBATION_SIZE = 500
 
     // V5.0.3708 — STRICT SOURCE-BALANCED HOT WATCHLIST CAP.

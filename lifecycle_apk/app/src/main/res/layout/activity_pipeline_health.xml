@@ -101,6 +101,26 @@
             android:background="@drawable/aate_universe_list_bg"/>
     </LinearLayout>
 
+    <!-- V5.0.6281 — Self-Healing LLM Advisor entry point -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="8dp">
+
+        <Button
+            android:id="@+id/advisorButton"
+            android:stateListAnimator="@null"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🩺 Ask Self-Healing Advisor"
+            android:textSize="13sp"
+            android:textColor="#A7F3D0"
+            android:background="@drawable/aate_universe_list_bg"/>
+    </LinearLayout>
+
     <!-- HEADLINE STATS GRID -->
     <LinearLayout
         android:layout_width="match_parent"

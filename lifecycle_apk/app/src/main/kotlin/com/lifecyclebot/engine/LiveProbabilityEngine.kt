@@ -452,14 +452,43 @@ object LiveProbabilityEngine {
                 boosted
             } else clampedMultPre6267
 
+            // V5.0.6279 — LIVE/PAPER DIVERGENCE DUST PROBE.
+            // Op-report V5.0.6275: BLUECHIP paper WR=55.9% n=714 EV=+355% but
+            // LIVE BLUECHIP WR=13% n=9 SOL=-0.009. QUALITY paper WR=20% but
+            // LIVE QUALITY WR=20% n=27 SOL=-0.031. Paper mult was boosting
+            // these bleeders live. When live diverges hard from paper —
+            // liveWR < paperWR × 0.5 with adequate live sample — clamp
+            // sizing to 0.30 dust so the lane keeps learning without
+            // draining the wallet.
+            val divergenceClampedMult = try {
+                val liveSnap = laneMetric
+                val paperFromLifetime = lifetimeMetric6267
+                if (liveSnap != null && paperFromLifetime != null &&
+                    liveSnap.trades >= 5 && paperFromLifetime.trades >= 20) {
+                    val liveWr = liveSnap.winRatePct
+                    val paperWr = paperFromLifetime.winRatePct
+                    if (paperWr >= 30.0 && liveWr < (paperWr * 0.5) && clampedMult > 0.30) {
+                        try {
+                            ForensicLogger.lifecycle(
+                                "LIVE_PAPER_DIVERGENCE_DUST_PROBE_6279",
+                                "lane=$lane liveWR=${"%.1f".format(liveWr)}%(n=${liveSnap.trades}) paperWR=${"%.1f".format(paperWr)}%(n=${paperFromLifetime.trades}) preMult=${"%.2f".format(clampedMult)} clampedTo=0.30 note=live_underperforms_paper_lane_bleed_probe_only",
+                            )
+                            PipelineHealthCollector.labelInc("LIVE_PAPER_DIVERGENCE_DUST_PROBE_6279_${lane.uppercase()}")
+                        } catch (_: Throwable) {}
+                        0.30
+                    } else clampedMult
+                } else clampedMult
+            } catch (_: Throwable) { clampedMult }
+
             val src = listOfNotNull(
                 if (fwdWeight > 0.0) "fwd:${fwd.source}" else null,
                 if (laneWeight > 0.0) "lane" else null,
                 if (policyW > 0.0) "policy" else null,
                 if (scoreShape.samples >= 3 && scoreShape.multiplier != 1.0) "band" else null,
                 if (clampedMult != finalMult) "raw_reality" else null,
+                if (divergenceClampedMult != clampedMult) "divergence_6279" else null,
             ).joinToString("+").ifBlank { "bootstrap" }
-            Edge(lane, pWin, fwd.pRug, eBase, fwd.dispersion, maxOf(fwd.samples, laneSamples), src, clampedMult, (if (laneSol > 0.0) "netSOL=${"%+.3f".format(laneSol)} " else "") + "hitCap=${"%.2f".format(lowHitRateCap)} bandShape=${"%.2f".format(scoreShape.multiplier)}" + (if (raw != null && clampedMult != finalMult) " rawClamp=n${raw.n}/WR${raw.wrPct.toInt()}/EV${raw.meanPnlPct.toInt()}%" else ""))
+            Edge(lane, pWin, fwd.pRug, eBase, fwd.dispersion, maxOf(fwd.samples, laneSamples), src, divergenceClampedMult, (if (laneSol > 0.0) "netSOL=${"%+.3f".format(laneSol)} " else "") + "hitCap=${"%.2f".format(lowHitRateCap)} bandShape=${"%.2f".format(scoreShape.multiplier)}" + (if (raw != null && clampedMult != finalMult) " rawClamp=n${raw.n}/WR${raw.wrPct.toInt()}/EV${raw.meanPnlPct.toInt()}%" else "") + (if (divergenceClampedMult != clampedMult) " divergence6279=0.30" else ""))
         } catch (_: Throwable) {
             Edge(lane, 0.5, 0.0, 0.0, 0.0, 0L, "failopen", 1.0, "")
         }

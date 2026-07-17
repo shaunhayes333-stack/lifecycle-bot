@@ -12330,7 +12330,16 @@ class Executor(
                 val total = s.successes.get() + s.failures4xx.get() + s.failures5xx.get() + s.networkErrors.get()
                 if (total > 3) s.successes.get().toDouble() / total else 1.0
             } ?: 1.0
-            if (dexSr < 0.70 || jupQSr < 0.60) {
+            // V5.0.6276 — SINGLE-PROVIDER SUFFICIENCY. Op-report V5.0.6275
+            // showed 52 blocks by PROVIDER_DEGRADED_BUY_BLOCK_6264 while
+            // Jupiter quote was 100% healthy and Dexscreener 95%. The OR
+            // meant EITHER being spotty blocked the buy — historically
+            // conservative but now backfiring: if Jupiter can route a
+            // priced quote, dex feed noise is irrelevant to execution.
+            // Only block when BOTH price surfaces are degraded — that's
+            // the true "trading blind" condition. Birdeye/Helius are
+            // hard-off (V5.0.6275) so they cannot re-enter this check.
+            if (dexSr < 0.70 && jupQSr < 0.60) {
                 // V5.0.6266 — DNA-APPROVED FULL BYPASS of provider-degraded
                 // block. Op-report V5.0.6265: 0 live executions during a
                 // whole-ecosystem outage (Helius 429, Birdeye 401, Dexscreener
