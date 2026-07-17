@@ -1,5 +1,25 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## ✅ V5.0.6286 SHIPPED — DNA veto lane-level fallback (setup namespace fix) (2026-02, CI green)
+
+Commit `73e7ec29`. Build passed CI.
+
+**Op-report V5.0.6285 showed the paper-backfill partial success**: DNA `real` count jumped 7 → 159 (fix landed ✅) but DNA_PROVEN_LOSER_VETO still blocked 127/158 buys. Troubleshoot agent RCA identified setup-key namespace collision:
+
+- Backfilled paper winners: `entrySetup="UNKNOWN"` (140 of 155, because `TokenWinMemory.WinningToken.phase` is mostly "UNKNOWN")
+- Live trades: `entrySetup="degen_micro_snipe"` / `"liquidity_depth_quality"` from AgenticStyleRouter
+- Result: `setupFrequency()` lookup returns null for live setups → only losers count → netEV = -103% → veto fires
+
+**Fix Part A — Lane-level DNA fallback**
+Added `LiveWinDNAStore.laneFrequency()` and `losingLaneFrequency()` that group by the `lane` field (which IS preserved faithfully during backfill). Executor DNA veto now uses lane aggregation as counterweight when setup-level winner lookup returns null but the lane has ≥3 wins.
+
+**Fix Part B — Lower journal authority threshold**
+`laneJournalProfitable` trades floor 40 → 15 so newer lanes and mismatched layerTag names still catch the escape hatch.
+
+New forensic label `DNA_PROVEN_LOSER_VETO_OVERRIDE_LANE_DNA_FALLBACK_6286` for audit.
+
+
+
 ## ✅ V5.0.6285 SHIPPED — DNA store draws from paper trades + bootstrap-safe veto (2026-02, CI green)
 
 Commit `40909984`. Build passed CI.
