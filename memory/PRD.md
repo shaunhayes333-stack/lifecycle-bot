@@ -1,5 +1,55 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## ✅ V5.0.6276-6282 SHIPPED — Hotfix train + Advisor + Boot Warmup (2026-02, CI green)
+
+Seven versions shipped in one commit `1b849514`. Both Build AATE APK and
+Runtime Smoke Test workflows passed.
+
+### Hotfix train (unblocks live throughput)
+- **V5.0.6276** — `PROVIDER_DEGRADED_BUY_BLOCK_6264` OR→AND gate.
+  Op-report V5.0.6275 showed 52 buys blocked while Jupiter was 100% healthy.
+  Now only blocks when BOTH dex+jupiter_quote are degraded.
+- **V5.0.6277** — `NO_PAIR_NO_FALLBACK` extended hydration.
+  100 pump.fun mints were dropping when pair indexes hadn't landed yet.
+  Adds an extended-hold window (pc<6 & age<180s) when liq ≥ $500.
+  Preserves golden-tape assertions on `processCount >= 4` / `ageMs > 120_000L`.
+- **V5.0.6278** — MAX_WATCHLIST_SIZE 500 → 220.
+  Cycle avg was 38s (max 220s) with watchlist at 230+ tokens saturating scanner fanout.
+- **V5.0.6279** — LIVE/PAPER divergence dust probe in LiveProbabilityEngine.
+  When live n≥5 AND liveWR < paperWR × 0.5 AND paperWR ≥ 30%, clamp mult to 0.30.
+  Stops BLUECHIP-style paper-hallucination bleeding real wallet.
+- **V5.0.6280** — `MANIPULATED_ONLY_OVERLAY_4553` fresh pump.fun exemption.
+  Pump.fun t=0 always has singleHolder=true; exempt when age<15min & redFlagCount≤2
+  & liq≥$1500. Preserves stamp and `action=manipulated_lane_only` for golden tape.
+
+### Feature builds
+- **V5.0.6281** — SELF-HEALING LLM ADVISOR.
+  New `SelfHealingAdvisor.kt` + `AdvisorInbox.kt`. Pipes Unified Health report →
+  Gemini/OpenAI/Groq (via GeminiCopilot) → advisory JSON → inbox. UI button
+  `🩺 Ask Self-Healing Advisor` on Pipeline Health screen. Suggestions include
+  key/delta/reason/expected_impact/severity. One-tap accept funnels the
+  chosen suggestion through the existing `LlmParameterTuner` allowlist/
+  step-cap/phase gates. Advisory-only — never auto-applies. 5-min cooldown.
+- **V5.0.6282** — WATCHLIST BOOT WARMUP.
+  New `HotConvictionWarmup.kt` persists top-50 conviction mints as JSON in
+  filesDir. Conviction ranking: (1) live-held wallet mints, (2) TokenWinMemory
+  sane winners, (3) high-touch watchlist entries. On boot, hydrates intake
+  via `admitProtectedMemeIntake(source=HOT_CONVICTION_WARMUP_6282)` right
+  after `MemeMintRegistry` restore. Snapshots refresh every 10 loop ticks
+  (~2-3 min cadence). 24h TTL. Skips the ~90s cold-start starvation window.
+
+### Files changed
+- Executor.kt (V5.0.6276 provider gate)
+- BotService.kt (V5.0.6277 extended NO_PAIR + V5.0.6282 warmup hydrate + loop snapshot)
+- GlobalTradeRegistry.kt (V5.0.6278 watchlist cap)
+- LiveProbabilityEngine.kt (V5.0.6279 divergence guard)
+- TokenSafetyChecker.kt (V5.0.6280 fresh-launch exemption)
+- PipelineHealthActivity.kt + activity_pipeline_health.xml (advisor button + dialog)
+- NEW SelfHealingAdvisor.kt (V5.0.6281)
+- NEW HotConvictionWarmup.kt (V5.0.6282)
+
+
+
 ## ✅ V5.0.6273-6275 STACK VERIFIED WORKING (2026-02, op-report V5.0.6275)
 
 Operator op-report from live run of V5.0.6275 confirms the multi-push stack landed:
