@@ -1,5 +1,37 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## ✅ V5.0.6287 SHIPPED — DNA veto matures + backfill lane canonical + watchlist cap enforced (2026-02, CI green)
+
+Commit `d9e2f149`. Build passed CI.
+
+Op-report V5.0.6286 diagnostics — three concurrent issues found:
+1. DNA_PROVEN_LOSER_VETO STILL blocked 163/180 buys despite the V5.0.6286 lane fallback
+2. Watchlist grew to 331 tokens (far past the 220 cap set in V5.0.6278)
+3. Backfill stamped `lane="UNKNOWN"` (from w.phase default) → lane fallback never matched live layerTag
+
+**Three surgical fixes:**
+
+1. **DNA veto minCount 3 → 8** (Executor.kt)
+   Reports show topLossSetup=DEGEN_MICRO_SNIPE with only 3 losses against a 315-row real DNA corpus — that's statistical noise, not a proven loser. Both `losingSetupFrequency(minCount=8)` and the `provenLoser` guard now require 8+ mature loss samples before the veto fires.
+
+2. **Canonical lane mapping in backfill** (BotService.kt)
+   Maps `w.source` into the live lane taxonomy:
+   - PUMP_FUN / PUMP_PORTAL → MOONSHOT
+   - RAYDIUM → STANDARD  
+   - GECKO / DEX_TRENDING / COINGECKO_ESTABLISHED → BLUECHIP
+   - DEX_BOOSTED → CASHGEN
+   - else → STANDARD
+   Now the V5.0.6286 lane fallback actually matches live layerTag values.
+
+3. **Enforced MAX_WATCHLIST_SIZE** (GlobalTradeRegistry.kt)
+   The V5.0.6278 constant was declared but never applied — a stale "no max size check" comment from V5.2 was allowing unlimited growth. Now on cap hit: evict oldest low-conviction entry (min processCount, oldest addedAt). Forensic: `WATCHLIST_LRU_EVICT_6287`.
+
+**Also investigated (report user flags):**
+- Fees NOT stuck: FeeAccumulator.tryFlush is called every loop tick in BotService line 13263, buckets were empty because they successfully flushed (V5.0.6284 report showed 0.00007 accrued → V5.0.6286 shows 0 buckets)
+- Treasury split: AutoCompoundEngine.processWin called at Executor.kt:16627 and 19514 on wins. Split is stateful/accounting only — no actual on-chain SOL transfer to a treasury wallet. Needs a follow-up if operator wants real transfers.
+
+
+
 ## ✅ V5.0.6286 SHIPPED — DNA veto lane-level fallback (setup namespace fix) (2026-02, CI green)
 
 Commit `73e7ec29`. Build passed CI.
