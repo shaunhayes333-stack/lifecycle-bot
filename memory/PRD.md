@@ -1,5 +1,28 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## ✅ V5.0.6285 SHIPPED — DNA store draws from paper trades + bootstrap-safe veto (2026-02, CI green)
+
+Commit `40909984`. Build passed CI.
+
+Operator directive: "shouldn't the DNA store draw from the paper trading knowledge base as well?"
+
+**Root cause found:** LiveWinDNAStore.realRows() explicitly filters out rows whose entrySetup/chartPattern/source contains "backfill". The boot backfill stamped every paper winner with `entrySetup="backfill"`. Result: 500 rows in store, only 7 counted as "real" — every net-EV veto was reasoning on tiny sparse data while 493 paper winners sat unused. Report V5.0.6284 showed 72/126 buys blocked by DNA veto against a lane journal (MOONSHOT +17.8 SOL, BLUECHIP +175 SOL) that clearly proved profitability.
+
+### Part A — Bootstrap-safe DNA veto (Executor.kt)
+- `realDnaN < 15` → skip veto (insufficient sample)
+- `laneJournalProfitable` → skip veto (StrategyTelemetry lifetime authority > sparse DNA)
+- New forensic labels: `DNA_PROVEN_LOSER_VETO_BOOTSTRAP_SKIP_6285` and `DNA_PROVEN_LOSER_VETO_OVERRIDE_LANE_JOURNAL_AUTHORITY_6285`
+
+### Part B — Paper trades become real DNA (BotService boot backfill)
+- Previously: entrySetup="backfill", chartPattern="backfill" → filtered out
+- Now: entrySetup = phase (MOONSHOT/BLUECHIP/etc), chartPattern = mcap band, source preserved
+- `paperOrLive="PAPER"` retained for optional mode filtering
+- `LiveWinDNAStore.realCount()` new public accessor
+
+Expected outcome: DNA `real` count jumps from ~7 to 400-500 rows on next cold boot; every net-EV counterweight (V5.0.6283/6284) now operates on the full paper+live corpus instead of a tiny sparse live-only slice.
+
+
+
 ## ✅ V5.0.6283-6284 SHIPPED — Systemic net-EV symmetry fix across all vetos (2026-02, CI green)
 
 Operator directive: 'all vetos need to consider the good side of the lanes
