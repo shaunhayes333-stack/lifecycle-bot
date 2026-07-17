@@ -480,6 +480,30 @@ object GlobalTradeRegistry {
             try { ForensicLogger.lifecycle("SOURCE_BALANCE_PUMP_STRONG_HOT_ADMIT", "symbol=$symbol mint=${mint.take(10)} mcap=${initialMcap.toInt()} lane=${laneAffinity.joinToString("+")} tools=${toolAffinity.joinToString("+")} source=$source") } catch (_: Throwable) {}
         }
 
+        // V5.0.6287 — ENFORCED WATCHLIST CAP. The V5.0.6278 constant
+        // MAX_WATCHLIST_SIZE=220 was declared but never applied. Op-report
+        // V5.0.6286 showed watchlist=331 tokens driving cycle avg=25s and
+        // max=185s (the "no max size check" comment above was left over
+        // from V5.2). When at cap, evict the oldest low-conviction entry
+        // (lowest processCount tied → oldest addedAt) so scanner-fanout
+        // stays bounded and the bot loop returns to sub-15s cycles.
+        if (watchlist.size >= MAX_WATCHLIST_SIZE) {
+            val victim = watchlist.values.asSequence()
+                .filter { it.mint != mint }
+                .sortedWith(compareBy<WatchlistEntry> { it.processCount }.thenBy { it.addedAt })
+                .firstOrNull()
+            if (victim != null) {
+                watchlist.remove(victim.mint)
+                try {
+                    ForensicLogger.lifecycle(
+                        "WATCHLIST_LRU_EVICT_6287",
+                        "victim=${victim.symbol} mint=${victim.mint.take(10)} pc=${victim.processCount} ageMs=${now - victim.addedAt} cap=$MAX_WATCHLIST_SIZE size=${watchlist.size} incoming=$symbol"
+                    )
+                    PipelineHealthCollector.labelInc("WATCHLIST_LRU_EVICT_6287")
+                } catch (_: Throwable) {}
+            }
+        }
+
         // Add to watchlist
         watchlist[mint] = WatchlistEntry(
             mint = mint,

@@ -5721,8 +5721,27 @@ class BotService : Service() {
                         w.entryMcap >= 25_000.0 -> "small_mcap"
                         else -> "micro_mcap"
                     }
+                    // V5.0.6287 — CANONICAL LANE MAPPING for backfill. Previously
+                    // stamped `lane = w.phase` which was mostly "UNKNOWN" so the
+                    // V5.0.6286 lane-level DNA fallback never matched live
+                    // layerTag values (MOONSHOT/STANDARD/CASHGEN). Now map from
+                    // scanner source into the canonical lane taxonomy the live
+                    // pipeline actually uses. Fallback preserves phase for
+                    // observability. Op-report V5.0.6286: DNA_PROVEN_LOSER_VETO
+                    // still fired 163 times despite 282 UNKNOWN winners sitting
+                    // in the same store.
+                    val srcU = w.source.uppercase()
+                    val canonicalLane6287 = when {
+                        srcU.contains("PUMP_FUN") || srcU.contains("PUMP_PORTAL") -> "MOONSHOT"
+                        srcU.contains("RAYDIUM") -> "STANDARD"
+                        srcU.contains("GECKO") || srcU.contains("DEX_TRENDING") -> "BLUECHIP"
+                        srcU.contains("DEX_BOOSTED") -> "CASHGEN"
+                        srcU.contains("COINGECKO_ESTABLISHED") -> "BLUECHIP"
+                        w.phase.isNotBlank() && !w.phase.equals("UNKNOWN", true) -> w.phase.uppercase()
+                        else -> "STANDARD"
+                    }
                     com.lifecyclebot.engine.LiveWinDNAStore.capture(
-                        mint = w.mint, symbol = w.symbol, lane = w.phase,
+                        mint = w.mint, symbol = w.symbol, lane = canonicalLane6287,
                         source = w.source.ifBlank { "PAPER_HISTORY" }, phase = w.phase,
                         entrySetup = setupProxy6285, chartPattern = mcapBand6285,
                         entryScore = 0,

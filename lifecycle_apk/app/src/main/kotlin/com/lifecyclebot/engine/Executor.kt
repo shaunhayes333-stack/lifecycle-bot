@@ -12317,7 +12317,7 @@ class Executor(
                     } catch (_: Throwable) {}
                     // fall through to remaining EXEC_GATE checks
                 } else {
-                val losers = com.lifecyclebot.engine.LiveWinDNAStore.losingSetupFrequency(minCount = 3)
+                val losers = com.lifecyclebot.engine.LiveWinDNAStore.losingSetupFrequency(minCount = 8)
                 val winners = com.lifecyclebot.engine.LiveWinDNAStore.setupFrequency(minCount = 1)
                 val loserRow = losers.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
                 val winnerRow = winners.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
@@ -12356,7 +12356,7 @@ class Executor(
                     laneStats != null && laneStats.trades >= 15 &&
                         laneStats.totalSolPnl > 0.0 && laneStats.meanPnlPct > 0.0
                 } catch (_: Throwable) { false }
-                val provenLoser = loserRow != null && lossCount >= 3 && lossAvg <= -20.0 &&
+                val provenLoser = loserRow != null && lossCount >= 8 && lossAvg <= -20.0 &&
                     lossCount > winCount && netEvPct <= -10.0 && !laneJournalProfitable
                 if (provenLoser) {
                     val detail = "setup=$setupKey losses=$lossCount avgLoss=${"%.1f".format(lossAvg)}% wins=$winCount avgWin=${"%.1f".format(winAvg)}% netEV=${"%.1f".format(netEvPct)}% laneFallback=$useLaneFallback laneJournalProfitable=$laneJournalProfitable"
