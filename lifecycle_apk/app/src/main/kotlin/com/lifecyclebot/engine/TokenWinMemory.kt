@@ -750,12 +750,22 @@ object TokenWinMemory {
         // — the ones that reflect actual signal — to trigger a hard
         // catastrophic veto. Length buckets can still nudge the score bias
         // via TOXIC verdict, they just cannot hard-kill intake.
-        val worstIsThematicSignal6270 = worstPattern?.let { p ->
-            !p.contains(":name_short") && !p.contains(":name_medium") && !p.contains(":name_long") &&
-            !p.contains(":sym_short") && !p.contains(":sym_medium") && !p.contains(":sym_long") &&
-            !p.contains(":sym_standard")
+        //
+        // V5.0.6289 — LIVE ORACLE MODE: CATASTROPHIC HARD-VETO SCOPE TIGHTENED.
+        // Op-report V5.0.6288 showed "Wheelchair" (a fresh pump.fun launch)
+        // getting goose_catastrophic vetoed because "wheelchAIr" contains "ai"
+        // → theme_ai pattern lookup triggered CATASTROPHIC. Themes are DEMO
+        // (a token name coincidentally containing 'ai' doesn't mean it will
+        // rug), not provenance. Real provenance signal is the SOURCE pipeline
+        // (which pump.fun endpoint, which scanner branch consistently
+        // produced rugs). Restrict CATASTROPHIC hard-veto to `source:*` and
+        // `phase:*` patterns only — the ones tied to the intake pipeline
+        // itself. Theme patterns still fire TOXIC (score bias -22, no veto).
+        // Sample threshold raised n>=15 → n>=30 to require stronger evidence.
+        val worstIsProvenanceSignal6289 = worstPattern?.let { p ->
+            p.startsWith("source:") || p.startsWith("phase:")
         } ?: false
-        val cataHit  = worstPattern != null && worstWr <= 0.05 && worstN >= 15 && worstIsThematicSignal6270
+        val cataHit  = worstPattern != null && worstWr <= 0.05 && worstN >= 30 && worstIsProvenanceSignal6289
 
         val verdict = when {
             cataHit  -> Verdict.CATASTROPHIC
