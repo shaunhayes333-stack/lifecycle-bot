@@ -1341,3 +1341,42 @@ Operator: "watch list is fucking tiny 6 tokens wtf dude!!"
 
 ### Last git head: `b89dc70c17` (V5.0.6204b, GREEN)
 ### 7 commits shipped this session, all CI GREEN
+
+---
+
+## V5.0.6288 — LIVE ORACLE MODE (2026-02, fork)
+
+### Root cause (V5.0.6287 op report)
+- LIVE wallet: 0.5491 → 0.5250 SOL (-4.4%) — bot actively bleeding
+- CleanLiveStrategyTruth: n=241 WR=34.7% PnL=**-0.076 SOL** (paper +76 SOL was misleading operator)
+- MOONSHOT n=70 pWin=45% **E=-4.9%** at sizeMult **1.32×** (oversized -EV bleeder)
+- STANDARD n=134 pWin=35% **E=+1.5%** at sizeMult **0.59×** (undersized +EV winner)
+- Cycle avg 34.8s, max 199.7s — pump.fun 30–90s windows all missed
+- topWinSetup=UNKNOWN(n=427/500) — AGI blind to what actually won
+- FeeAccumulator dead (accrued=0), `LiveLaneGovernor.recordLiveFee` had ZERO callers
+
+### Fixes shipped (V5.0.6288, CI GREEN)
+1. **Executor.kt TRUTH-LEDGER LANE ARBITRAGE** — query `LiveProbabilityEngine.laneSnapshots()`:
+   - Neg-E lanes (n≥20, E<-1%) → CLAMP 0.30×
+   - Bleeder lanes (WR<15%, E<-20%) → CLAMP 0.20×
+   - Pos-E lanes (n≥20, E>0, WR≥30%) → FLOOR 0.80×
+   - Golden-tape literal `product.coerceIn(posEvFloor, agiCeiling6090)` preserved (test passes)
+2. **HOLDER_CASCADE_BLIND** liq threshold `$5K → $1.5K` (pump.fun fresh pools $2-4K)
+3. **`LiveLaneGovernor.recordLiveFee(feeAmountSol)`** wired after every live-sell fee send
+4. **BotService.kt cycle throughput** — `maxBatchMillis` 25s→18s live, `perTokenTimeoutMs` 2.5s→1.8s live
+5. **TokenWinMemory.kt DNA labeling** — synthesize `${lane}_${mcapBand}` (e.g. `MOONSHOT_micro_mcap`) when EntryContextRegistry has no stamp
+6. **BotService.kt paper-backfill labeling** — same synthesis for phase=UNKNOWN rows
+
+### Status
+- CI: **PASSED** (run 29641436645)
+- Golden tape: **UNCHANGED**
+- Wallet impact: awaiting live op-report
+
+### Deferred to V5.0.6289+
+- `goose_catastrophic` false-positive in SmartSizer (P1)
+- ANR MainActivity.onCreate/LineBreaker (P2, low priority — 0.0% stall)
+- Perps/Leverage mode plumbing (Phase 1)
+- Neural bridge (Phase 2)
+- LLM Lab sandbox (Phase 3)
+
+### Last git head: `24d9899c6` (V5.0.6288, GREEN)
