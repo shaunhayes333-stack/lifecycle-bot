@@ -255,9 +255,33 @@ object TokenWinMemory {
         // entry time — the previous "unknown" fallback made every real close
         // undistinguishable in the aggregators.
         val stampedCtx = try { com.lifecyclebot.engine.EntryContextRegistry.consume(mint) } catch (_: Throwable) { null }
-        val enrichedSetup   = stampedCtx?.entrySetup   ?: "unknown"
-        val enrichedPattern = stampedCtx?.chartPattern ?: "unknown"
-        val enrichedLane    = stampedCtx?.lane         ?: phase
+        // V5.0.6288 — LIVE ORACLE MODE. When a buy path skips
+        // AgenticStyleRouter (direct BLUECHIP/TREASURY/EXPRESS/CASHGEN),
+        // stampedCtx is null and the DNA row lands as "unknown". Op-report
+        // V5.0.6287 showed topWinSetup=UNKNOWN(n=427/500) — the AGI could
+        // not press winners because it couldn't tell them apart. Synthesize
+        // a meaningful setup key from canonical lane + mcap band so every
+        // live capture is actionable. Existing stamped context is preferred.
+        val srcU6288 = source.uppercase()
+        val canonicalLane6288 = when {
+            srcU6288.contains("PUMP_FUN") || srcU6288.contains("PUMP_PORTAL") -> "MOONSHOT"
+            srcU6288.contains("RAYDIUM") -> "STANDARD"
+            srcU6288.contains("GECKO") || srcU6288.contains("DEX_TRENDING") -> "BLUECHIP"
+            srcU6288.contains("DEX_BOOSTED") -> "CASHGEN"
+            srcU6288.contains("COINGECKO_ESTABLISHED") -> "BLUECHIP"
+            phase.isNotBlank() && !phase.equals("UNKNOWN", true) -> phase.uppercase()
+            else -> "STANDARD"
+        }
+        val mcapBand6288 = when {
+            entryMcap >= 500_000.0 -> "large_mcap"
+            entryMcap >= 100_000.0 -> "mid_mcap"
+            entryMcap >= 25_000.0 -> "small_mcap"
+            else -> "micro_mcap"
+        }
+        val synthesizedSetup6288 = "${canonicalLane6288}_${mcapBand6288}"
+        val enrichedSetup   = stampedCtx?.entrySetup?.takeIf { it.isNotBlank() && !it.equals("unknown", true) } ?: synthesizedSetup6288
+        val enrichedPattern = stampedCtx?.chartPattern?.takeIf { it.isNotBlank() && !it.equals("unknown", true) } ?: mcapBand6288
+        val enrichedLane    = stampedCtx?.lane?.takeIf { it.isNotBlank() && !it.equals("UNKNOWN", true) } ?: canonicalLane6288
         val enrichedScore   = stampedCtx?.entryScore   ?: 0
         val enrichedExitReason = when {
             isWin  -> "TERMINAL_WIN"

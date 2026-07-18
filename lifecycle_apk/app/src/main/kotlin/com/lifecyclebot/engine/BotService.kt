@@ -5714,22 +5714,22 @@ class BotService : Service() {
                     // a coarse mcap band. This makes paper winners count
                     // toward setup-level net-EV lookups without polluting
                     // shape learning with the literal "backfill" string.
-                    val setupProxy6285 = w.phase.ifBlank { w.source.ifBlank { "PAPER_HISTORY" } }
+                    // V5.0.6288 — LIVE ORACLE MODE. Previous impl used raw
+                    // w.phase which was "UNKNOWN" for 85% of paper closes, so
+                    // topWinSetup=UNKNOWN(n=427) — the AGI could not identify
+                    // which setup made money to press it harder. Now: when
+                    // phase is UNKNOWN, synthesize a meaningful setup key
+                    // from canonical lane + mcap band (e.g. "MOONSHOT_micro"
+                    // instead of "UNKNOWN"). Losing setups stayed labeled
+                    // (topLossSetup=DEGEN_MICRO_SNIPE) because those came
+                    // from real trades via EntryContextRegistry.
                     val mcapBand6285 = when {
                         w.entryMcap >= 500_000.0 -> "large_mcap"
                         w.entryMcap >= 100_000.0 -> "mid_mcap"
                         w.entryMcap >= 25_000.0 -> "small_mcap"
                         else -> "micro_mcap"
                     }
-                    // V5.0.6287 — CANONICAL LANE MAPPING for backfill. Previously
-                    // stamped `lane = w.phase` which was mostly "UNKNOWN" so the
-                    // V5.0.6286 lane-level DNA fallback never matched live
-                    // layerTag values (MOONSHOT/STANDARD/CASHGEN). Now map from
-                    // scanner source into the canonical lane taxonomy the live
-                    // pipeline actually uses. Fallback preserves phase for
-                    // observability. Op-report V5.0.6286: DNA_PROVEN_LOSER_VETO
-                    // still fired 163 times despite 282 UNKNOWN winners sitting
-                    // in the same store.
+                    // V5.0.6287 — CANONICAL LANE MAPPING for backfill.
                     val srcU = w.source.uppercase()
                     val canonicalLane6287 = when {
                         srcU.contains("PUMP_FUN") || srcU.contains("PUMP_PORTAL") -> "MOONSHOT"
@@ -5739,6 +5739,13 @@ class BotService : Service() {
                         srcU.contains("COINGECKO_ESTABLISHED") -> "BLUECHIP"
                         w.phase.isNotBlank() && !w.phase.equals("UNKNOWN", true) -> w.phase.uppercase()
                         else -> "STANDARD"
+                    }
+                    // V5.0.6288 — SETUP proxy: prefer non-UNKNOWN phase; else
+                    // synthesize from canonical lane + mcap band. This gives
+                    // the AGI an actionable setup label to press winners.
+                    val setupProxy6285 = when {
+                        w.phase.isNotBlank() && !w.phase.equals("UNKNOWN", true) -> w.phase
+                        else -> "${canonicalLane6287}_${mcapBand6285}"
                     }
                     com.lifecyclebot.engine.LiveWinDNAStore.capture(
                         mint = w.mint, symbol = w.symbol, lane = canonicalLane6287,
@@ -14643,8 +14650,8 @@ val orderedMintsRaw = (forcedOpenMints + otherMintsDeduped).distinct()
 // watchlist covered every 2-3 ticks.
 val orderedMints: List<String> = selectOrderedMintsForCycle(forcedOpenMints, otherMintsDeduped, orderedMintsRaw)
 
-val maxBatchMillis = if (cfg.paperMode) 15_000L else 25_000L
-val perTokenTimeoutMs = if (cfg.paperMode) 1_200L else 2_500L
+val maxBatchMillis = if (cfg.paperMode) 15_000L else 18_000L  // V5.0.6288 25s→18s live: fresh pump.fun launches die in 30-90s, cycle must be tight
+val perTokenTimeoutMs = if (cfg.paperMode) 1_200L else 1_800L  // V5.0.6288 2.5s→1.8s live: skip laggy tokens, catch fresh ones
 // V5.9.106: widen concurrency for fat watchlists. User logs showed
 // processed=20 / total=64 (44 deferred per tick) — the existing caps
 // couldn't keep up with the user's 50–100 token universe, so trades
