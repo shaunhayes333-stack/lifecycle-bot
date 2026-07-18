@@ -55,9 +55,9 @@ object LiveSizingProfile {
     const val ALPHA_ENTRY_SOL: Double = 0.200   // was 0.180
 
     // ── Wallet-percent sizing tiers ──
-    const val BASE_WALLET_PCT: Double = 0.050      // was 0.030 (5.0%)
-    const val STRONG_WALLET_PCT: Double = 0.080    // was 0.060 (8.0%)
-    const val ALPHA_WALLET_PCT: Double = 0.120     // was 0.100 (12.0%)
+    const val BASE_WALLET_PCT: Double = 0.120      // V5.0.6290 5.0% → 12.0% (500%/day compound path)
+    const val STRONG_WALLET_PCT: Double = 0.180    // V5.0.6290 8.0% → 18.0%
+    const val ALPHA_WALLET_PCT: Double = 0.250     // V5.0.6290 12.0% → 25.0% (high-conviction +EV lanes)
     const val MAX_INITIAL_WALLET_PCT: Double = 0.180 // was 0.120
     const val MAX_TOTAL_TOKEN_WALLET_PCT: Double = 0.280 // was 0.220
     const val MAX_DEPLOYED_WALLET_PCT: Double = 0.760 // was 0.700

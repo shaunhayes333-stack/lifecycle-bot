@@ -9356,6 +9356,27 @@ class Executor(
             m != null && m.totalSolPnl > 0.0
         } catch (_: Throwable) { true }
         val regimeMult = if (isRunnerLaneForRegime && runnerLaneProfitable) 1.0 else try { com.lifecyclebot.engine.RegimeDetector.laneAwareSizeMultiplier(laneTagForRegime) } catch (_: Throwable) { 1.0 }
+        // V5.0.6290 — CHOP REGIME EXEMPTION FOR PROVEN +EV LIVE LANES.
+        // Op-report V5.0.6288 showed a "planned 0.05 SOL → actual 0.007 SOL"
+        // (86% size destruction). Root: CHOP regime × 0.35 applied globally
+        // even to lanes proven +EV on live truth (STANDARD n=143 E=+0.7%).
+        // If CleanLiveStrategyTruth shows a lane with n>=20 and E>0, the
+        // macro CHOP throttle is inappropriate — that lane has DEMONSTRATED
+        // it prints in this regime. Floor its regimeMult at 0.85 instead of
+        // taking the 0.35 crush. Downstream truth-ledger clamp still catches
+        // deteriorating lanes.
+        val regimeMultForLane = try {
+            val snap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
+                .firstOrNull { it.lane.equals(laneTagForRegime, ignoreCase = true) }
+            if (snap != null && snap.sample >= 20 && snap.evPct > 0.0) {
+                val lifted = maxOf(regimeMult, 0.85)
+                if (lifted > regimeMult) {
+                    try { ForensicLogger.lifecycle("REGIME_POS_EV_LANE_EXEMPTION_6290", "lane=${snap.lane} n=${snap.sample} E=${"%+.2f".format(snap.evPct)}% regimeMult ${"%.2f".format(regimeMult)}→${"%.2f".format(lifted)}") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("REGIME_POS_EV_LANE_EXEMPTION_6290") } catch (_: Throwable) {}
+                }
+                lifted
+            } else regimeMult
+        } catch (_: Throwable) { regimeMult }
         // V5.0.4130 — PATTERN GOLDEN GOOSE BYPASSES DUMP-REGIME BRAKE.
         // RegimeDetector.sizeMultiplier() returns 0.10 in DUMP regime, crushing
         // entries to 10% of base. Operator: "make winners get real size." GOLD
@@ -9367,9 +9388,9 @@ class Executor(
             com.lifecyclebot.engine.PatternGoldenGoose.edge(ts.name, ts.symbol).verdict
         } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
         val regimeMultGoosed = when (gooseRegimeVerdict4130) {
-            com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD    -> maxOf(regimeMult, 1.00)  // full bypass
-            com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER  -> maxOf(regimeMult, 0.60)  // partial bypass
-            else                                                    -> regimeMult
+            com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD    -> maxOf(regimeMultForLane, 1.00)  // full bypass
+            com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER  -> maxOf(regimeMultForLane, 0.60)  // partial bypass
+            else                                                    -> regimeMultForLane
         }
         if (regimeMultGoosed > regimeMult) {
             try { ForensicLogger.lifecycle("REGIME_GOOSE_BYPASS_V4130", "symbol=${ts.symbol} verdict=${gooseRegimeVerdict4130.name} regimeMult=$regimeMult → $regimeMultGoosed") } catch (_: Throwable) {}
@@ -9754,7 +9775,13 @@ class Executor(
                 val snap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
                     .firstOrNull { it.lane.equals(laneTag, ignoreCase = true) }
                 if (snap != null && snap.sample >= 20 && snap.evPct > 0.0 && snap.wrPct >= 30.0) {
-                    0.80  // proven live +EV winner — floor at 0.80× so it actually compounds
+                    // V5.0.6290 — 500%/DAY COMPOUND UNLOCK. Floor raised
+                    // 0.80 → 0.95 for proven live +EV lanes. Op-report
+                    // showed planned 0.05 SOL crushed to 0.007 SOL actual
+                    // — the 0.80 floor still allowed 20% size destruction
+                    // stacked on top of upstream multipliers. At 0.95 the
+                    // proven +EV lane keeps 95% of its intended size.
+                    0.95  // proven live +EV winner — compounds hard
                 } else null
             } catch (_: Throwable) { null }
             // V5.0.6055 — P0.b: POSITIVE-EV LANE FLOOR.
@@ -9765,10 +9792,15 @@ class Executor(
                     m != null && m.meanPnlPct >= 5.0 && m.trades >= 8
                 }
                 val isPriorityLane6066 = laneTag.uppercase() in setOf("MOONSHOT", "STANDARD")
+                // V5.0.6290 — 500%/DAY COMPOUND UNLOCK. Every lane needs
+                // a viable strategy floor — no lane should be crushed
+                // below 55% of intended size. Priority lanes float higher,
+                // healthy lanes higher still, but the FLOOR OF THE FLOOR
+                // is 0.55× to keep all lane brains and traders live.
                 val baseFloor = when {
-                    healthy -> 0.50
-                    isPriorityLane6066 -> 0.45  // V5.0.6066 priority-lane floor
-                    else -> 0.25
+                    healthy -> 0.75            // was 0.50 — proven lane presses
+                    isPriorityLane6066 -> 0.70  // was 0.45 — MOONSHOT/STANDARD floor
+                    else -> 0.55                // was 0.25 — every other lane stays live
                 }
                 // V5.0.6288 lifts the floor when live truth ledger says the lane is +EV.
                 maxOf(baseFloor, truthPosEvFloor6288 ?: 0.0)
