@@ -172,6 +172,65 @@ object ScannerSourceBrain {
         return checkStarvationBoost(key, raw.coerceIn(floor, cap))
     }
 
+    /**
+     * V5.0.6292 — SCANNER × LANE COHESION MULTIPLIER.
+     *
+     * Every scanner source has a natural lane affinity — PUMP_FUN_NEW ships
+     * fresh moonshots, COINGECKO_ESTABLISHED ships bluechips, DEX_TRENDING
+     * ships quality volume, MEME_REGISTRY_RESTORE ships recovered dust.
+     * When the source-picked lane matches the source's natural home, we
+     * amplify. When it's mismatched (e.g. a bluechip source being sold as
+     * a moonshot, or a fresh degen mint being routed to a treasury bag),
+     * we dampen. Fully bounded in [0.75, 1.30].
+     *
+     * Returns 1.0 (neutral) when either arg is blank or unknown mapping.
+     * Fail-open — no vetoes, purely size shape.
+     */
+    fun laneSourceCohesion(source: String, lane: String): Double {
+        if (source.isBlank() || lane.isBlank()) return 1.0
+        val src = source.uppercase()
+        val ln = lane.uppercase()
+        // Strong affinity — the source ships this lane's natural token
+        val strongMatch = when {
+            (src.contains("PUMP_FUN") || src.contains("PUMP_PORTAL")) && ln == "MOONSHOT" -> true
+            (src.contains("PUMP_FUN") || src.contains("PUMP_PORTAL")) && ln == "SHITCOIN" -> true
+            src.contains("RAYDIUM_NEW_POOL") && ln == "STANDARD" -> true
+            src.contains("RAYDIUM_NEW_POOL") && ln == "MOONSHOT" -> true
+            src.contains("DEX_TRENDING") && ln == "QUALITY" -> true
+            src.contains("DEX_TRENDING") && ln == "STANDARD" -> true
+            src.contains("DEX_BOOSTED") && ln == "CASHGEN" -> true
+            src.contains("DEX_BOOSTED") && ln == "EXPRESS" -> true
+            src.contains("COINGECKO_ESTABLISHED") && ln == "BLUECHIP" -> true
+            src.contains("COINGECKO_ESTABLISHED") && ln == "TREASURY" -> true
+            src.contains("BLUECHIP_WATCHLIST") && ln == "BLUECHIP" -> true
+            src.contains("DIP_HUNTER") && ln == "DIP_HUNTER" -> true
+            src.contains("PROJECT_SNIPER") && ln == "PROJECT_SNIPER" -> true
+            src.contains("SCANNER_DIRECT") && (ln == "STANDARD" || ln == "MOONSHOT") -> true
+            else -> false
+        }
+        // Hard mismatch — source ships the OPPOSITE risk profile
+        val mismatch = when {
+            src.contains("COINGECKO_ESTABLISHED") && (ln == "SHITCOIN" || ln == "MOONSHOT") -> true
+            (src.contains("PUMP_FUN") || src.contains("PUMP_PORTAL")) && (ln == "BLUECHIP" || ln == "TREASURY") -> true
+            src.contains("MEME_REGISTRY_RESTORE") && (ln == "BLUECHIP" || ln == "TREASURY") -> true
+            src.contains("BLUECHIP_WATCHLIST") && (ln == "SHITCOIN" || ln == "MOONSHOT") -> true
+            else -> false
+        }
+        // Weak affinity — source contains one word of the lane's family
+        val weakMatch = when {
+            !strongMatch && !mismatch && src.contains("MEME") && (ln == "MOONSHOT" || ln == "SHITCOIN") -> true
+            !strongMatch && !mismatch && src.contains("HOT_CONVICTION") && (ln == "STANDARD" || ln == "MOONSHOT") -> true
+            !strongMatch && !mismatch && src.contains("RESTORED") && (ln == "STANDARD" || ln == "SHITCOIN") -> true
+            else -> false
+        }
+        return when {
+            mismatch -> 0.75
+            strongMatch -> 1.30
+            weakMatch -> 1.10
+            else -> 1.00
+        }
+    }
+
     /** When BLUECHIP/DIP_HUNTER/QUALITY are starving, pin established-asset
      *  feeders at a 1.5x boost for the next 3 cycles regardless of brain tier. */
     fun signalStarvation(established: Boolean) {
