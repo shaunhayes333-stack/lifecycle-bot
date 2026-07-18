@@ -9784,14 +9784,14 @@ class Executor(
             } else 1.60
             // V5.0.6288 — apply truth-ledger CLAMP as a ceiling for negative-E lanes.
             // The clamp value is a hard ceiling on the product (never larger than clamp).
-            val effectiveCeiling = if (truthLedgerClamp6288 != null && RuntimeModeAuthority.isLive()) {
+            val baseline6090 = product.coerceIn(posEvFloor, agiCeiling6090)
+            if (truthLedgerClamp6288 != null && RuntimeModeAuthority.isLive()) {
                 try {
                     ForensicLogger.lifecycle("LIVE_TRUTH_LEDGER_CLAMP_6288", "mint=${ts.mint.take(10)} sym=${ts.symbol} ${truthLedgerClamp6288.second} clamp=${truthLedgerClamp6288.first} agiCeil=$agiCeiling6090")
                     PipelineHealthCollector.labelInc("LIVE_TRUTH_LEDGER_CLAMP_6288")
                 } catch (_: Throwable) {}
-                minOf(agiCeiling6090, truthLedgerClamp6288.first)
-            } else agiCeiling6090
-            product.coerceIn(minOf(posEvFloor, effectiveCeiling), effectiveCeiling)
+                minOf(baseline6090, truthLedgerClamp6288.first)
+            } else baseline6090
         }
         if (RuntimeModeAuthority.isLive() && (laneEvMult != 1.0 || laneSizeCap < 1.0 || strategyTunerSizeMult != 1.0 || uphConvictionMult != 1.0)) {
             try { ForensicLogger.lifecycle("LIVE_WALLET_GROWTH_ALLOCATOR", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvMult=$laneEvMult laneCap=$laneSizeCap regimeMult=$regimeMult brainMult=$brainSizeMult stratTuner=$strategyTunerSizeMult sourceBrain=$sourceBrainSizeMult uph=$uphConvictionMult product=$multiplierProduct floor=$liveFloorMult") } catch (_: Throwable) {}
