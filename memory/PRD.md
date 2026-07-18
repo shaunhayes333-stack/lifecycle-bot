@@ -1407,3 +1407,32 @@ Operator: "watch list is fucking tiny 6 tokens wtf dude!!"
 - Cycle avg 34.8s → 19s
 
 ### Last git head: `4f6a2b354` (V5.0.6289, GREEN)
+
+---
+
+## V5.0.6290 + V5.0.6291 — 500%/DAY COMPOUND UNLOCK + VOLUME/SAFETY UNLOCK (2026-02, fork)
+
+### V5.0.6290 — 500%/DAY COMPOUND UNLOCK (CI GREEN)
+Root cause: planned 0.05 SOL → actual 0.007 SOL open (86% size destruction from 19-multiplier stack)
+Fixes:
+- LiveSizingProfile: BASE 5%→12%, STRONG 8%→18%, ALPHA 12%→25%
+- LiveStrategyTuner: wrBleed WR<35% → WR<25% AND mean<-5% AND n>=12 (STANDARD +EV no longer classified as bleeder)
+- Executor.kt: CHOP regime EXEMPTION for lanes n>=20 E>0 (regimeMult floored at 0.85)
+- truthPosEvFloor 0.80 → 0.95 (proven +EV keeps 95%)
+- baseFloor 0.50/0.45/0.25 → 0.75/0.70/0.55 (every lane stays viable)
+
+### V5.0.6291 — VOLUME UP + RUG-VULNERABILITY BLOCK + stuck slots (CI GREEN)
+Root cause: 10 live trades/day too low, 3 stuck RECOVERED_* tokens, pump.fun mayhem tokens
+Fixes:
+- DeadTokenQuarantine: STRIKE_THRESHOLD_RECOVERED=6 (was shared 30) — stuck slots free in ~1 min
+- OpenPnlSanity.reject: passes isRecovered=true for RECOVERED_* context — fast-quarantine
+- TokenSafetyChecker: V5.0.6291 combined-UNKNOWN hard block — mint+freeze+LP all UNKNOWN + rugcheck TIMEOUT = live hard block
+
+### Session ledger progression
+- V5.0.6287 → wallet 0.5491, live -0.076 SOL, no fees
+- V5.0.6288 → wallet 0.5267, live +0.7%, fees accruing, feeN=4, compound 1.01x
+- V5.0.6289 → goose_catastrophic false-positive fixed
+- V5.0.6290 → sizing unlock (12%/18%/25% base pcts, +EV lane floors 0.70-0.95)
+- V5.0.6291 → volume+safety (rug-vuln hard block, stuck token quarantine)
+
+### Last git head: `58d41a3ba` (V5.0.6291, GREEN)
