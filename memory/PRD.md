@@ -1436,3 +1436,15 @@ Fixes:
 - V5.0.6291 → volume+safety (rug-vuln hard block, stuck token quarantine)
 
 ### Last git head: `58d41a3ba` (V5.0.6291, GREEN)
+
+## V5.0.6292 — SCANNER × LANE COHESION (2026-02, fork) ✅ CI GREEN
+
+Wired full scanner + AGI + memetrader stack cohesion:
+- ScannerSourceBrain.laneSourceCohesion(source, lane) → bounded [0.75, 1.30]
+- Strong affinity (1.30x): PUMP_FUN+MOONSHOT, RAYDIUM_NEW_POOL+STANDARD, DEX_TRENDING+QUALITY, DEX_BOOSTED+CASHGEN, COINGECKO_ESTABLISHED+BLUECHIP, etc.
+- Mismatch (0.75x): PUMP_FUN+BLUECHIP, COINGECKO_ESTABLISHED+SHITCOIN, BLUECHIP_WATCHLIST+MOONSHOT
+- Weak (1.10x): MEME_*+MOONSHOT, HOT_CONVICTION_*+STANDARD
+- Compounded into Executor sizingStackComponents4285 + MultiplierAttributionLedger
+- Fail-open on any exception, no vetoes
+
+### Last git head: `b1952a5a2` (V5.0.6292, GREEN)
