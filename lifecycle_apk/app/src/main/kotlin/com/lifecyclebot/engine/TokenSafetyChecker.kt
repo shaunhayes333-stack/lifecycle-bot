@@ -856,6 +856,24 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // Previously this was only a soft +20 penalty. WCOR had 80%+ concentration and
         // sailed through — one whale can rug at any moment with that ownership. No token
         // with >80% concentration has a legitimate use case for entry.
+        //
+        // V5.0.6291 — RUG-VULNERABILITY COMBINED HARD BLOCK (operator directive:
+        // "volume up but not tokens where liquidity can be deleted or pump.fun
+        // mayhem tokens in rug conditions"). Individual UNKNOWN statuses are
+        // soft +10/+10/+12 penalties. But when ALL THREE (mint auth, freeze
+        // auth, LP lock) are UNKNOWN AND rugcheck TIMEOUT/PENDING_REVIEW,
+        // the token is fundamentally unverified. That IS a pump.fun mayhem
+        // rug-condition token. Hard block in LIVE (paper still trains).
+        if (!isPaperMode) {
+            val allAuthUnknown6291 = (mintDisabled == null) && (freezeDisabled == null) && (lpLockPct < 0.0)
+            val rugcheckUnverified6291 = rugcheckStatus == "TIMEOUT" || rugcheckStatus == "PENDING_REVIEW"
+            if (allAuthUnknown6291 && rugcheckUnverified6291) {
+                hard.add("V5.0.6291 combined-UNKNOWN rug-vulnerability: mint/freeze/LP + rugcheck all unverified — cannot confirm token is not a rug candidate")
+                try { PipelineHealthCollector.labelInc("SAFETY_HARD_BLOCK_COMBINED_UNKNOWN_6291") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("SAFETY_HARD_BLOCK_COMBINED_UNKNOWN_6291", "symbol=$symbol mint=${mint.take(10)} mintDisabled=$mintDisabled freezeDisabled=$freezeDisabled lpLockPct=$lpLockPct rugcheck=$rugcheckStatus reason=rug_vulnerability_combined_unknown") } catch (_: Throwable) {}
+                ErrorLogger.error(TAG, "🚫 COMBINED_UNKNOWN HARD BLOCK (live): $symbol — mint/freeze/LP UNKNOWN + rugcheck $rugcheckStatus = rug-condition, blocking")
+            }
+        }
         when {
             topHolderPct < 0 -> Unit
             topHolderPct > 80.0 -> {

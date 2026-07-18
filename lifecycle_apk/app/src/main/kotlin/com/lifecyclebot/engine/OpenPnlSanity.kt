@@ -134,9 +134,16 @@ object OpenPnlSanity {
         // per-mint strike counter for blacklisted reasons; once STRIKE_THRESHOLD
         // is reached the mint is permanently quarantined and future rejects
         // stop emitting (kills the log flood from stuck RECOVERED_* ghosts).
+        //
+        // V5.0.6291 — recovered-position fast-quarantine. When the context
+        // symbol starts with "RECOVERED_" (wallet-reconciled stray dust),
+        // pass isRecovered=true so DeadTokenQuarantine uses the tighter
+        // STRIKE_THRESHOLD_RECOVERED (6) instead of the standard 30. Frees
+        // stuck slots in ~1 minute of running instead of 30 minutes.
+        val isRecovered6291 = context.contains("RECOVERED_", ignoreCase = false)
         val alreadyDead = mint.isNotBlank() && try { DeadTokenQuarantine.isDead(mint) } catch (_: Throwable) { false }
         if (!alreadyDead && mint.isNotBlank()) {
-            try { DeadTokenQuarantine.recordStrike(mint, reason) } catch (_: Throwable) {}
+            try { DeadTokenQuarantine.recordStrike(mint, reason, isRecovered = isRecovered6291) } catch (_: Throwable) {}
         }
         val silentEmit = emit && !alreadyDead
         if (silentEmit) {
