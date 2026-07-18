@@ -9475,6 +9475,18 @@ class Executor(
         val sourceBrainSizeMult = try {
             ScannerSourceBrain.intakeMultiplier(ts.source)
         } catch (_: Throwable) { 1.0 }
+        // V5.0.6292 — SCANNER × LANE COHESION MULT. Compounds source×lane
+        // affinity into the sizing stack so MOONSHOT + PUMP_FUN_NEW combos
+        // press harder (1.30×) while mismatched pairs (COINGECKO_ESTABLISHED
+        // routed to SHITCOIN) get dampened (0.75×). Full cohesion between
+        // scanner, AGI lane routing, and memetrader sizing.
+        val scannerLaneCohesionMult6292 = try {
+            ScannerSourceBrain.laneSourceCohesion(ts.source, laneTag)
+        } catch (_: Throwable) { 1.0 }
+        if (scannerLaneCohesionMult6292 != 1.0) {
+            try { ForensicLogger.lifecycle("SCANNER_LANE_COHESION_6292", "mint=${ts.mint.take(10)} sym=${ts.symbol} src=${ts.source} lane=$laneTag mult=${"%.2f".format(scannerLaneCohesionMult6292)}") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("SCANNER_LANE_COHESION_6292") } catch (_: Throwable) {}
+        }
         // Construct minimal Signals from available context for UPH conviction.
         // In BOOTSTRAP, conviction() returns 1.0 — no effect. Once the head
         // graduates to ADVISORY/LEARNED, it shapes size by learned pWin.
@@ -9630,6 +9642,7 @@ class Executor(
             "brain" to brainSizeMult,
             "strategyTuner" to strategyTunerSizeMult,
             "sourceBrain" to sourceBrainSizeMult,
+            "scannerLaneCohesion6292" to scannerLaneCohesionMult6292,
             "uph" to uphConvictionMult,
             "hypothesis" to hypothesisSizeMult,
             "paperLive" to paperLiveBridgeMult,
@@ -9672,6 +9685,7 @@ class Executor(
                     "brain" to brainSizeMult,
                     "strategyTuner" to strategyTunerSizeMult,
                     "sourceBrain" to sourceBrainSizeMult,
+                    "scannerLaneCohesion6292" to scannerLaneCohesionMult6292,
                     "uph" to uphConvictionMult,
                     "hypothesis" to hypothesisSizeMult,
                     "paperLive" to paperLiveBridgeMult,
