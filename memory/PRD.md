@@ -1380,3 +1380,30 @@ Operator: "watch list is fucking tiny 6 tokens wtf dude!!"
 - LLM Lab sandbox (Phase 3)
 
 ### Last git head: `24d9899c6` (V5.0.6288, GREEN)
+
+---
+
+## V5.0.6289 — goose_catastrophic false-positive fix (2026-02, fork)
+
+### Root cause (V5.0.6288 op report)
+- Wheelchair (fresh pump.fun launch, liq $1967) blocked by MEME_DIRECT_INTAKE_VETO reason=goose_catastrophic
+- "wheelchAIr" contains "ai" → theme_ai pattern → CATASTROPHIC verdict
+- V5.0.6270 exempted length buckets but theme_* patterns still triggered hard-veto
+- Themes are DEMOGRAPHIC (coincidental substring), not PROVENANCE
+
+### Fix shipped (V5.0.6289, CI GREEN)
+- CATASTROPHIC hard-veto now scoped to `worstPattern.startsWith("source:") || worstPattern.startsWith("phase:")`
+- Since patternEdgeForToken never iterates source/phase typemaps for name-derived patterns, this effectively lifts the intake-time hard veto
+- TOXIC verdict (bias=-22) still fires — theme_ai nudges score, doesn't hard-block
+- Sample threshold raised n>=15 → n>=30 for defence in depth
+- Downstream safety unchanged (HardRugPreFilter, LP-lock, RUGCHECK_FLOOR, DNA_PROVEN_LOSER_VETO, EXEC_GATE reentry-lockout still enforce live safety)
+
+### V5.0.6288 verification (from op report during this session)
+- Wallet: 0.5228 → 0.5267 SOL (**+0.7% turnaround** from -4.4% bleed)
+- Fee accumulator alive: `accrued=0.00011` `avgFeeSol=0.00004 feeN=4` ✅
+- MEME_COMPOUND_TARGET crossed 1.01× (was 0.96×)
+- RealizedWalletCompounding switched to `two_x_plus_compound_unlock` (was `one_x_compound_unlock`)
+- topWinSetup=UNKNOWN dropped 427 → 282 rows (labeling synthesis working)
+- Cycle avg 34.8s → 19s
+
+### Last git head: `4f6a2b354` (V5.0.6289, GREEN)
