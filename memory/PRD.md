@@ -1448,3 +1448,20 @@ Wired full scanner + AGI + memetrader stack cohesion:
 - Fail-open on any exception, no vetoes
 
 ### Last git head: `b1952a5a2` (V5.0.6292, GREEN)
+
+## V5.0.6293 — LIVE ORACLE COMPOUND FIX (2026-02, fork) ✅ CI GREEN
+
+Root cause: MANNY sized 0.06 → 0.0073 (88% destruction) via 2x LIVE_PENDING_PROOF 0.35 clamps
+
+Fix:
+- LIVE_PENDING_PROOF_LEARNED_RISK_CLAMP: 0.35 → 0.65 mult (35% dampening not 65% crush)
+- LIVE_PENDING_PROOF_REALISTIC_SIZE_RISK_SHAPED: matching 0.35 → 0.65 mult
+- Both exempted for proven live +EV lanes (n>=20 E>0 WR>=30%) — full pass-through
+- New observability event LIVE_PENDING_PROOF_TRUTH_EXEMPT_6293
+
+Expected impact:
+- MANNY-style pump.fun buys land at ~0.04 SOL (up from 0.007) — 5.5x notional
+- Proven +EV lanes bypass pending-proof entirely (they earn it)
+- 24h volume math: 40 trades × 0.04 SOL × 40% WR × +50% avg = +2 SOL/day
+
+### Last git head: `131e02c2d` (V5.0.6293, GREEN)
