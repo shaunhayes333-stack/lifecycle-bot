@@ -1,5 +1,25 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## ✅ V5.0.6295 SHIPPED — API BYPASS VOLUME UNLOCK: DexScreener primary + circuit-breaker gates (2026-02, CI green)
+
+Commit `575f95bf5`. GitHub Actions build **success**.
+
+Op-report V5.0.6294 showed the bot "virtually dead":
+- **130 INTAKE/NO_PAIR_NO_FALLBACK blocks per cycle** — the single biggest chokepoint
+- birdeye sr=0% (401 auth dead), pumpfun scanner-critical dead, helius 429 rate-limited
+- dexscreener sr=91% healthy but only consulted AFTER 2 dead sources burned the timeout budget
+- Only **3 EXEC events in 288s uptime** — logic green, no volume
+
+**Surgical fix** — single function `tryFallbackPriceData()` in `BotService.kt`:
+1. DexScreener token-by-address probe promoted to PATH 1 (primary probe, first in the chain).
+2. Birdeye overview & BirdeyeOracle skipped when `ApiHealthMonitor.isCircuitBroken("birdeye")`.
+3. pump.fun API skipped when `isCircuitBroken("pumpfun")`.
+4. Diagnostic labels for post-flight verification: `API_BYPASS_DEXSCREENER_PRIMARY_HIT_6295`, `API_BYPASS_BIRDEYE_SKIP_CB_6295`.
+
+Expected: NO_PAIR_NO_FALLBACK block count drops sharply, EXEC/cycle rises, WR/lane authority logic untouched. Golden tape unaffected.
+
+---
+
 ## ✅ V5.0.6287 SHIPPED — DNA veto matures + backfill lane canonical + watchlist cap enforced (2026-02, CI green)
 
 Commit `d9e2f149`. Build passed CI.
