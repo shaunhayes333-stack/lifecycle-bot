@@ -1465,3 +1465,19 @@ Expected impact:
 - 24h volume math: 40 trades × 0.04 SOL × 40% WR × +50% avg = +2 SOL/day
 
 ### Last git head: `131e02c2d` (V5.0.6293, GREEN)
+
+## V5.0.6294 — NO_PAIR VOLUME UNLOCK (2026-02, fork) ✅ CI GREEN
+
+Root cause: 103 NO_PAIR_NO_FALLBACK blocks in 55 min = 12% intake drop rate. V5.0.6277 window too tight.
+
+Fix (BotService.kt NO_PAIR path):
+- Extended hydration with tiered rug-safety gates
+- Standard tier: pc<12, age<360s, liq>=$800, not quarantined
+- Conviction tier (entryScore>=15): pc<20, age<600s, same safety gates
+- Liq threshold raised $500 → $800 (stricter than V5.0.6277)
+- DeadTokenQuarantine check integrated
+- V5.0.6277 window preserved as fallback
+- New forensic events INTAKE_NO_PAIR_EXTENDED_HYDRATION_6294 and INTAKE_NO_PAIR_EXTEND_REJECTED_6294 (structured reason)
+- Downstream TokenSafetyChecker still enforces LP-lock/mint-auth/rugcheck at hydration resolve
+
+### Last git head: `f06c03cea` (V5.0.6294, GREEN)
