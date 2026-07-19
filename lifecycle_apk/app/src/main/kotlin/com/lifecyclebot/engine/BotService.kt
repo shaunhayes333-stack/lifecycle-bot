@@ -24845,46 +24845,23 @@ if (hotExitHandledSweep) {
     }
 
     private fun tryFallbackPriceData(mint: String, ts: TokenState): Boolean {
-        // V5.0.6295 — API_BYPASS_VOLUME_UNLOCK.
-        // Op-report V5.0.6294 showed 130 NO_PAIR_NO_FALLBACK blocks / cycle
-        // while birdeye sr=0% (401), pumpfun scanner-critical dead, and
-        // dexscreener sr=91% healthy. This routine was burning ~3 sequential
-        // HTTP round-trips on dead providers before finally reaching a live
-        // source — the timeout budget expired and hydration returned false.
-        //
-        // Fix: (1) probe DexScreener token-by-address FIRST since it's the
-        // only reliably healthy source in this snapshot, and (2) gate every
-        // downstream call behind ApiHealthMonitor.isCircuitBroken so a dead
-        // provider stops eating our budget. Any healthy source that answers
-        // returns true immediately.
+        // V5.0.6297 — CRASH HOTFIX. V5.0.6295 added an unconditional
+        // runBlocking { withTimeoutOrNull { DexScreenerOracle.getPriceByAddress } }
+        // as PATH 1 that fired on EVERY token every cycle. processTokenCycle
+        // runs inside async(Dispatchers.IO) with ~200 concurrent workers per
+        // batch; each new runBlocking held an IO thread while awaiting an
+        // inner withContext(Dispatchers.IO) from getPriceByAddress. With the
+        // default 64-thread IO pool this exhausts the dispatcher and deadlocks
+        // — app appears frozen, force-closes on next resume, and gets
+        // progressively worse as more workers pile up. The pre-6295 path 3
+        // guarded the same call behind `lastPrice <= 0 || stale`, so the
+        // runBlocking rate was ~1-5% of tokens instead of 100%. Reverting to
+        // that footprint. Circuit-breaker gates on Birdeye/pumpfun (below)
+        // are preserved — those are pure boolean flags with no concurrency cost.
         val breakerBirdeye = try { com.lifecyclebot.engine.ApiHealthMonitor.isCircuitBroken("birdeye") } catch (_: Throwable) { false }
         val breakerPumpfun = try { com.lifecyclebot.engine.ApiHealthMonitor.isCircuitBroken("pumpfun") } catch (_: Throwable) { false }
 
-        // Path 1 (V5.0.6295): DexScreener token-address probe — cheapest healthy
-        // source in the current op-snapshot. Try this before anything else so
-        // a dead Birdeye/pumpfun can't burn our timeout window.
-        run {
-            try {
-                val priceUsd = kotlinx.coroutines.runBlocking {
-                    kotlinx.coroutines.withTimeoutOrNull(2000L) {
-                        com.lifecyclebot.perps.DexScreenerOracle.getPriceByAddress(mint)
-                    }
-                }
-                if (priceUsd != null && priceUsd > 0) {
-                    synchronized(ts) {
-                        ts.lastPrice = priceUsd
-                        ts.lastPriceUpdate = System.currentTimeMillis()
-                        ts.lastPriceSource = "DEXSCREENER_PRIMARY_6295"
-                    }
-                    broadcastFallbackPrice(mint, priceUsd)
-                    addLog("📊 DexScreener(primary): ${ts.symbol} \$${priceUsd}", mint)
-                    try { PipelineHealthCollector.labelInc("API_BYPASS_DEXSCREENER_PRIMARY_HIT_6295") } catch (_: Throwable) {}
-                    return true
-                }
-            } catch (_: Throwable) {}
-        }
-
-        // Path 2: Birdeye overview — skip when circuit-broken (401 / auth dead).
+        // Path 1: Birdeye overview — skip when circuit-broken (401 / auth dead).
         if (breakerBirdeye) {
             try { PipelineHealthCollector.labelInc("API_BYPASS_BIRDEYE_SKIP_CB_6295") } catch (_: Throwable) {}
         } else {
@@ -24921,9 +24898,10 @@ if (hotExitHandledSweep) {
         // different endpoint, different cache). When the pair-based call fails
         // this token-address call often still returns — DexScreener caches
         // token-level and pair-level data independently.
-        // V5.0.6295 — primary DexScreener probe already ran at the top of this
-        // routine; this staleness-guarded retry is a secondary chance in case
-        // the primary probe timed out but the source has since responded.
+        // V5.0.6297 — this runBlocking is bounded by the outer stale-guard so
+        // it fires only for a small fraction of tokens per cycle (fresh mints
+        // or holds with >120s-old prices). Removing this guard in V5.0.6295
+        // caused a Dispatchers.IO deadlock — do NOT unconditionally hoist.
         if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
             try {
                 val priceUsd = kotlinx.coroutines.runBlocking {
