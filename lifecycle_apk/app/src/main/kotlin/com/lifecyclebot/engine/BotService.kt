@@ -16890,10 +16890,50 @@ if (hotExitHandledSweep) {
                         // still hit the aged-demote path unchanged.
                         val hasIntakeLiq6277 = ts.lastLiquidityUsd >= 500.0
                         val extendedHold6277 = agedNoPair && hasIntakeLiq6277 && processCount < 6 && ageMs < 180_000L
-                        if (extendedHold6277) {
-                            try { PipelineHealthCollector.labelInc("INTAKE_NO_PAIR_EXTENDED_HYDRATION_6277") } catch (_: Throwable) {}
-                            try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_EXTENDED_HYDRATION_6277", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} pc=$processCount ageMs=$ageMs liq=${ts.lastLiquidityUsd.toInt()} action=keep_hot_extended") } catch (_: Throwable) {}
+                        //
+                        // V5.0.6294 — NO_PAIR VOLUME UNLOCK with RUG-SAFETY GATES.
+                        // Op-report V5.0.6292 showed 103 NO_PAIR_NO_FALLBACK blocks
+                        // in 55 min = 12% of intake dropped. Extending the
+                        // hydration window reclaims that volume BUT only for
+                        // rug-safe tokens. Gates:
+                        //   • liq >= $800 (stricter than V5.0.6277's $500)
+                        //   • not on DeadTokenQuarantine
+                        //   • not previously stamped SCANNER_HARD_REJECT
+                        // Extended windows:
+                        //   • Rug-safe standard tier: pc<12, age<360s
+                        //   • Rug-safe conviction tier (entryScore>=15): pc<20, age<600s
+                        // Truly stale/zero-liq/quarantined tokens still demote as before.
+                        // Downstream TokenSafetyChecker still enforces LP-lock/mint-auth
+                        // when the pair finally resolves and safety runs — we just give
+                        // hydration a longer runway to catch legitimate fresh pools.
+                        val hasIntakeLiq6294 = ts.lastLiquidityUsd >= 800.0
+                        val isQuarantined6294 = try { com.lifecyclebot.engine.DeadTokenQuarantine.isDead(mint) } catch (_: Throwable) { false }
+                        val rugSafeForExtended6294 = hasIntakeLiq6294 && !isQuarantined6294
+                        val convictionHigh6294 = ts.entryScore >= 15.0
+                        val extendedHold6294Standard = agedNoPair && rugSafeForExtended6294 && processCount < 12 && ageMs < 360_000L
+                        val extendedHold6294Conviction = agedNoPair && rugSafeForExtended6294 && convictionHigh6294 && processCount < 20 && ageMs < 600_000L
+                        val extendedHold6294 = extendedHold6294Standard || extendedHold6294Conviction
+                        if (extendedHold6277 || extendedHold6294) {
+                            val tier = when {
+                                extendedHold6294Conviction -> "CONVICTION_HIGH"
+                                extendedHold6294Standard -> "RUG_SAFE_STANDARD"
+                                else -> "V5.0.6277_HIGH_LIQ"
+                            }
+                            try { PipelineHealthCollector.labelInc("INTAKE_NO_PAIR_EXTENDED_HYDRATION_6294") } catch (_: Throwable) {}
+                            try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_EXTENDED_HYDRATION_6294", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} pc=$processCount ageMs=$ageMs liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} tier=$tier action=keep_hot_extended") } catch (_: Throwable) {}
                             return
+                        }
+                        // Volume unlock diagnostic: log why we couldn't extend so operator sees gates
+                        if (agedNoPair && !extendedHold6277 && !extendedHold6294) {
+                            val reason6294 = when {
+                                ts.lastLiquidityUsd < 800.0 -> "LIQ_BELOW_${ts.lastLiquidityUsd.toInt()}_LT_800"
+                                isQuarantined6294 -> "QUARANTINED"
+                                processCount >= 12 -> "PROCESS_COUNT_EXHAUSTED_${processCount}"
+                                ageMs >= 360_000L -> "AGE_EXHAUSTED_${ageMs / 1000}s"
+                                else -> "OTHER"
+                            }
+                            try { PipelineHealthCollector.labelInc("INTAKE_NO_PAIR_EXTEND_REJECTED_6294") } catch (_: Throwable) {}
+                            try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_EXTEND_REJECTED_6294", "mint=${mint.take(10)} symbol=${ts.symbol} reason=$reason6294 liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} pc=$processCount ageMs=$ageMs") } catch (_: Throwable) {}
                         }
                         if (!agedNoPair) {
                             try { PipelineHealthCollector.labelInc("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION") } catch (_: Throwable) {}
