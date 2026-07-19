@@ -24845,8 +24845,50 @@ if (hotExitHandledSweep) {
     }
 
     private fun tryFallbackPriceData(mint: String, ts: TokenState): Boolean {
-        // Try Birdeye first
-        try {
+        // V5.0.6295 — API_BYPASS_VOLUME_UNLOCK.
+        // Op-report V5.0.6294 showed 130 NO_PAIR_NO_FALLBACK blocks / cycle
+        // while birdeye sr=0% (401), pumpfun scanner-critical dead, and
+        // dexscreener sr=91% healthy. This routine was burning ~3 sequential
+        // HTTP round-trips on dead providers before finally reaching a live
+        // source — the timeout budget expired and hydration returned false.
+        //
+        // Fix: (1) probe DexScreener token-by-address FIRST since it's the
+        // only reliably healthy source in this snapshot, and (2) gate every
+        // downstream call behind ApiHealthMonitor.isCircuitBroken so a dead
+        // provider stops eating our budget. Any healthy source that answers
+        // returns true immediately.
+        val breakerBirdeye = try { com.lifecyclebot.engine.ApiHealthMonitor.isCircuitBroken("birdeye") } catch (_: Throwable) { false }
+        val breakerPumpfun = try { com.lifecyclebot.engine.ApiHealthMonitor.isCircuitBroken("pumpfun") } catch (_: Throwable) { false }
+
+        // Path 1 (V5.0.6295): DexScreener token-address probe — cheapest healthy
+        // source in the current op-snapshot. Try this before anything else so
+        // a dead Birdeye/pumpfun can't burn our timeout window.
+        run {
+            try {
+                val priceUsd = kotlinx.coroutines.runBlocking {
+                    kotlinx.coroutines.withTimeoutOrNull(2000L) {
+                        com.lifecyclebot.perps.DexScreenerOracle.getPriceByAddress(mint)
+                    }
+                }
+                if (priceUsd != null && priceUsd > 0) {
+                    synchronized(ts) {
+                        ts.lastPrice = priceUsd
+                        ts.lastPriceUpdate = System.currentTimeMillis()
+                        ts.lastPriceSource = "DEXSCREENER_PRIMARY_6295"
+                    }
+                    broadcastFallbackPrice(mint, priceUsd)
+                    addLog("📊 DexScreener(primary): ${ts.symbol} \$${priceUsd}", mint)
+                    try { PipelineHealthCollector.labelInc("API_BYPASS_DEXSCREENER_PRIMARY_HIT_6295") } catch (_: Throwable) {}
+                    return true
+                }
+            } catch (_: Throwable) {}
+        }
+
+        // Path 2: Birdeye overview — skip when circuit-broken (401 / auth dead).
+        if (breakerBirdeye) {
+            try { PipelineHealthCollector.labelInc("API_BYPASS_BIRDEYE_SKIP_CB_6295") } catch (_: Throwable) {}
+        } else {
+          try {
             val cfg2 = ConfigStore.load(applicationContext)
             val ov = com.lifecyclebot.network.BirdeyeApi(cfg2.birdeyeApiKey).getTokenOverview(mint)
             if (ov != null && ov.priceUsd > 0) {
@@ -24872,12 +24914,16 @@ if (hotExitHandledSweep) {
                 addLog("📡 Birdeye: ${ts.symbol} \$${ov.priceUsd}", mint)
                 return true
             }
-        } catch (_: Exception) {}
+          } catch (_: Exception) {}
+        }
 
         // V5.9.423 — DexScreenerOracle (separate code path from dex.getBestPair,
         // different endpoint, different cache). When the pair-based call fails
         // this token-address call often still returns — DexScreener caches
         // token-level and pair-level data independently.
+        // V5.0.6295 — primary DexScreener probe already ran at the top of this
+        // routine; this staleness-guarded retry is a secondary chance in case
+        // the primary probe timed out but the source has since responded.
         if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
             try {
                 val priceUsd = kotlinx.coroutines.runBlocking {
@@ -24901,7 +24947,10 @@ if (hotExitHandledSweep) {
         // V5.9.423 — BirdeyeOracle token-address API (different from BirdeyeApi
         // used above, which is overview-focused; this one is price-focused and
         // hits a separate rate-limit bucket).
-        if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
+        // V5.0.6295 — skip when Birdeye breaker is tripped; the token-price
+        // endpoint shares the same key/bucket as overview and will fail the
+        // same way, wasting cycle budget.
+        if (!breakerBirdeye && (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L)) {
             try {
                 val priceUsd = kotlinx.coroutines.runBlocking {
                     kotlinx.coroutines.withTimeoutOrNull(2000L) {
@@ -24925,7 +24974,9 @@ if (hotExitHandledSweep) {
         // V5.9.423 — also retry pump.fun if the last successful price is >120s
         // stale. Previously the `if (ts.lastPrice <= 0)` guard meant pump.fun
         // was only consulted on brand-new holds that had never been priced.
-        if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
+        // V5.0.6295 — skip when pumpfun breaker is tripped (op-report doctor
+        // flagged pumpfun as scanner-critical dead).
+        if (!breakerPumpfun && (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L)) {
             try {
                 val client = com.lifecyclebot.network.SharedHttpClient.builder()
                     .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
