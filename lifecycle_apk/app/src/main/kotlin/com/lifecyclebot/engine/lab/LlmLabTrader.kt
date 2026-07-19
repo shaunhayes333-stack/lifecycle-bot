@@ -114,18 +114,8 @@ object LlmLabTrader {
                 volatility = 50.0,
             )
         } catch (_: Throwable) { strategy.stopLossPct }
-        // V5.0.6296 — HARD LAB STOP CAP.
-        // Op-report 22:33:08 showed SELL EVHtwfyW lane=LAB pnl=-67.4%/-0.1348 SOL
-        // via LAB_FLUID_STOP_LOSS — the fluid stop was allowing catastrophic
-        // -67% craters on a single trade (~40% of the session bleed). Clamp
-        // the effective stop to at most -20% so one bad LAB experiment cannot
-        // eat the wallet even if the strategy's stopLossPct or the fluid
-        // engine's calculation drifts. -20% is generous relative to the -11%
-        // TICK_HARD_FLOOR used elsewhere; LAB gets extra rope for research
-        // but not enough to blow up.
-        val cappedStop = kotlin.math.max(fluidStop, -20.0)
         when {
-            pnlPct <= cappedStop                -> closePosition(pos, currentPrice, if (peak > 3.0) "LAB_FLUID_PROFIT_FLOOR" else "LAB_FLUID_STOP_LOSS_6296_CAPPED")
+            pnlPct <= fluidStop                 -> closePosition(pos, currentPrice, if (peak > 3.0) "LAB_FLUID_PROFIT_FLOOR" else "LAB_FLUID_STOP_LOSS")
             pnlPct >= strategy.takeProfitPct    -> closePosition(pos, currentPrice, "TAKE_PROFIT")
             holdMin >= strategy.maxHoldMins     -> closePosition(pos, currentPrice, "TIMEOUT")
         }

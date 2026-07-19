@@ -390,17 +390,8 @@ object LiveStrategyTuner {
         // toxic_runner_pivot (sizeFloor 0.12) at n=10 or even paused. Faster
         // toxic gate lets the bot abandon proven-bad lanes within 10 closes
         // instead of 20.
-        //
-        // V5.0.6290 — 500%/DAY COMPOUND UNLOCK. Op-report V5.0.6288 showed
-        // STANDARD n=143 WR=34.5% E=+0.7% getting classified as bleeder
-        // (wrBleed fires when wr < 35.0). This is wrong — a lane with
-        // POSITIVE expectancy is not a bleeder just because WR<35% on a
-        // high-variance meme launch strategy (MOONSHOTs win 20-40% of the
-        // time but +150% avg). Tighten wrBleed to require BOTH low WR AND
-        // meaningfully negative mean (not just sol<=0 which any -0.001 SOL
-        // trip triggers). Also require deeper WR shortfall.
         val pfBleed = n >= 8 && sol < 0.0 && pf <= 0.0
-        val wrBleed = n >= 12 && wr < 25.0 && sol <= 0.0 && mean < -5.0  // V5.0.6290 stricter
+        val wrBleed = n >= 8 && wr < 35.0 && sol <= 0.0
         val meanBleed = n >= 8 && sol <= 0.0 && mean <= -8.0
         val toxicBleed = (n >= 10 && wr <= 28.0 && sol < 0.0) || (n >= 8 && wr <= 15.0 && sol < 0.0)
         if (pfBleed || wrBleed || meanBleed || toxicBleed) {

@@ -5714,22 +5714,22 @@ class BotService : Service() {
                     // a coarse mcap band. This makes paper winners count
                     // toward setup-level net-EV lookups without polluting
                     // shape learning with the literal "backfill" string.
-                    // V5.0.6288 — LIVE ORACLE MODE. Previous impl used raw
-                    // w.phase which was "UNKNOWN" for 85% of paper closes, so
-                    // topWinSetup=UNKNOWN(n=427) — the AGI could not identify
-                    // which setup made money to press it harder. Now: when
-                    // phase is UNKNOWN, synthesize a meaningful setup key
-                    // from canonical lane + mcap band (e.g. "MOONSHOT_micro"
-                    // instead of "UNKNOWN"). Losing setups stayed labeled
-                    // (topLossSetup=DEGEN_MICRO_SNIPE) because those came
-                    // from real trades via EntryContextRegistry.
+                    val setupProxy6285 = w.phase.ifBlank { w.source.ifBlank { "PAPER_HISTORY" } }
                     val mcapBand6285 = when {
                         w.entryMcap >= 500_000.0 -> "large_mcap"
                         w.entryMcap >= 100_000.0 -> "mid_mcap"
                         w.entryMcap >= 25_000.0 -> "small_mcap"
                         else -> "micro_mcap"
                     }
-                    // V5.0.6287 — CANONICAL LANE MAPPING for backfill.
+                    // V5.0.6287 — CANONICAL LANE MAPPING for backfill. Previously
+                    // stamped `lane = w.phase` which was mostly "UNKNOWN" so the
+                    // V5.0.6286 lane-level DNA fallback never matched live
+                    // layerTag values (MOONSHOT/STANDARD/CASHGEN). Now map from
+                    // scanner source into the canonical lane taxonomy the live
+                    // pipeline actually uses. Fallback preserves phase for
+                    // observability. Op-report V5.0.6286: DNA_PROVEN_LOSER_VETO
+                    // still fired 163 times despite 282 UNKNOWN winners sitting
+                    // in the same store.
                     val srcU = w.source.uppercase()
                     val canonicalLane6287 = when {
                         srcU.contains("PUMP_FUN") || srcU.contains("PUMP_PORTAL") -> "MOONSHOT"
@@ -5739,13 +5739,6 @@ class BotService : Service() {
                         srcU.contains("COINGECKO_ESTABLISHED") -> "BLUECHIP"
                         w.phase.isNotBlank() && !w.phase.equals("UNKNOWN", true) -> w.phase.uppercase()
                         else -> "STANDARD"
-                    }
-                    // V5.0.6288 — SETUP proxy: prefer non-UNKNOWN phase; else
-                    // synthesize from canonical lane + mcap band. This gives
-                    // the AGI an actionable setup label to press winners.
-                    val setupProxy6285 = when {
-                        w.phase.isNotBlank() && !w.phase.equals("UNKNOWN", true) -> w.phase
-                        else -> "${canonicalLane6287}_${mcapBand6285}"
                     }
                     com.lifecyclebot.engine.LiveWinDNAStore.capture(
                         mint = w.mint, symbol = w.symbol, lane = canonicalLane6287,
@@ -14650,8 +14643,8 @@ val orderedMintsRaw = (forcedOpenMints + otherMintsDeduped).distinct()
 // watchlist covered every 2-3 ticks.
 val orderedMints: List<String> = selectOrderedMintsForCycle(forcedOpenMints, otherMintsDeduped, orderedMintsRaw)
 
-val maxBatchMillis = if (cfg.paperMode) 15_000L else 18_000L  // V5.0.6288 25s→18s live: fresh pump.fun launches die in 30-90s, cycle must be tight
-val perTokenTimeoutMs = if (cfg.paperMode) 1_200L else 1_800L  // V5.0.6288 2.5s→1.8s live: skip laggy tokens, catch fresh ones
+val maxBatchMillis = if (cfg.paperMode) 15_000L else 25_000L
+val perTokenTimeoutMs = if (cfg.paperMode) 1_200L else 2_500L
 // V5.9.106: widen concurrency for fat watchlists. User logs showed
 // processed=20 / total=64 (44 deferred per tick) — the existing caps
 // couldn't keep up with the user's 50–100 token universe, so trades
@@ -16890,50 +16883,10 @@ if (hotExitHandledSweep) {
                         // still hit the aged-demote path unchanged.
                         val hasIntakeLiq6277 = ts.lastLiquidityUsd >= 500.0
                         val extendedHold6277 = agedNoPair && hasIntakeLiq6277 && processCount < 6 && ageMs < 180_000L
-                        //
-                        // V5.0.6294 — NO_PAIR VOLUME UNLOCK with RUG-SAFETY GATES.
-                        // Op-report V5.0.6292 showed 103 NO_PAIR_NO_FALLBACK blocks
-                        // in 55 min = 12% of intake dropped. Extending the
-                        // hydration window reclaims that volume BUT only for
-                        // rug-safe tokens. Gates:
-                        //   • liq >= $800 (stricter than V5.0.6277's $500)
-                        //   • not on DeadTokenQuarantine
-                        //   • not previously stamped SCANNER_HARD_REJECT
-                        // Extended windows:
-                        //   • Rug-safe standard tier: pc<12, age<360s
-                        //   • Rug-safe conviction tier (entryScore>=15): pc<20, age<600s
-                        // Truly stale/zero-liq/quarantined tokens still demote as before.
-                        // Downstream TokenSafetyChecker still enforces LP-lock/mint-auth
-                        // when the pair finally resolves and safety runs — we just give
-                        // hydration a longer runway to catch legitimate fresh pools.
-                        val hasIntakeLiq6294 = ts.lastLiquidityUsd >= 800.0
-                        val isQuarantined6294 = try { com.lifecyclebot.engine.DeadTokenQuarantine.isDead(mint) } catch (_: Throwable) { false }
-                        val rugSafeForExtended6294 = hasIntakeLiq6294 && !isQuarantined6294
-                        val convictionHigh6294 = ts.entryScore >= 15.0
-                        val extendedHold6294Standard = agedNoPair && rugSafeForExtended6294 && processCount < 12 && ageMs < 360_000L
-                        val extendedHold6294Conviction = agedNoPair && rugSafeForExtended6294 && convictionHigh6294 && processCount < 20 && ageMs < 600_000L
-                        val extendedHold6294 = extendedHold6294Standard || extendedHold6294Conviction
-                        if (extendedHold6277 || extendedHold6294) {
-                            val tier = when {
-                                extendedHold6294Conviction -> "CONVICTION_HIGH"
-                                extendedHold6294Standard -> "RUG_SAFE_STANDARD"
-                                else -> "V5.0.6277_HIGH_LIQ"
-                            }
-                            try { PipelineHealthCollector.labelInc("INTAKE_NO_PAIR_EXTENDED_HYDRATION_6294") } catch (_: Throwable) {}
-                            try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_EXTENDED_HYDRATION_6294", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} pc=$processCount ageMs=$ageMs liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} tier=$tier action=keep_hot_extended") } catch (_: Throwable) {}
+                        if (extendedHold6277) {
+                            try { PipelineHealthCollector.labelInc("INTAKE_NO_PAIR_EXTENDED_HYDRATION_6277") } catch (_: Throwable) {}
+                            try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_EXTENDED_HYDRATION_6277", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} pc=$processCount ageMs=$ageMs liq=${ts.lastLiquidityUsd.toInt()} action=keep_hot_extended") } catch (_: Throwable) {}
                             return
-                        }
-                        // Volume unlock diagnostic: log why we couldn't extend so operator sees gates
-                        if (agedNoPair && !extendedHold6277 && !extendedHold6294) {
-                            val reason6294 = when {
-                                ts.lastLiquidityUsd < 800.0 -> "LIQ_BELOW_${ts.lastLiquidityUsd.toInt()}_LT_800"
-                                isQuarantined6294 -> "QUARANTINED"
-                                processCount >= 12 -> "PROCESS_COUNT_EXHAUSTED_${processCount}"
-                                ageMs >= 360_000L -> "AGE_EXHAUSTED_${ageMs / 1000}s"
-                                else -> "OTHER"
-                            }
-                            try { PipelineHealthCollector.labelInc("INTAKE_NO_PAIR_EXTEND_REJECTED_6294") } catch (_: Throwable) {}
-                            try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_EXTEND_REJECTED_6294", "mint=${mint.take(10)} symbol=${ts.symbol} reason=$reason6294 liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} pc=$processCount ageMs=$ageMs") } catch (_: Throwable) {}
                         }
                         if (!agedNoPair) {
                             try { PipelineHealthCollector.labelInc("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION") } catch (_: Throwable) {}
@@ -24845,27 +24798,8 @@ if (hotExitHandledSweep) {
     }
 
     private fun tryFallbackPriceData(mint: String, ts: TokenState): Boolean {
-        // V5.0.6297 — CRASH HOTFIX. V5.0.6295 added an unconditional
-        // runBlocking { withTimeoutOrNull { DexScreenerOracle.getPriceByAddress } }
-        // as PATH 1 that fired on EVERY token every cycle. processTokenCycle
-        // runs inside async(Dispatchers.IO) with ~200 concurrent workers per
-        // batch; each new runBlocking held an IO thread while awaiting an
-        // inner withContext(Dispatchers.IO) from getPriceByAddress. With the
-        // default 64-thread IO pool this exhausts the dispatcher and deadlocks
-        // — app appears frozen, force-closes on next resume, and gets
-        // progressively worse as more workers pile up. The pre-6295 path 3
-        // guarded the same call behind `lastPrice <= 0 || stale`, so the
-        // runBlocking rate was ~1-5% of tokens instead of 100%. Reverting to
-        // that footprint. Circuit-breaker gates on Birdeye/pumpfun (below)
-        // are preserved — those are pure boolean flags with no concurrency cost.
-        val breakerBirdeye = try { com.lifecyclebot.engine.ApiHealthMonitor.isCircuitBroken("birdeye") } catch (_: Throwable) { false }
-        val breakerPumpfun = try { com.lifecyclebot.engine.ApiHealthMonitor.isCircuitBroken("pumpfun") } catch (_: Throwable) { false }
-
-        // Path 1: Birdeye overview — skip when circuit-broken (401 / auth dead).
-        if (breakerBirdeye) {
-            try { PipelineHealthCollector.labelInc("API_BYPASS_BIRDEYE_SKIP_CB_6295") } catch (_: Throwable) {}
-        } else {
-          try {
+        // Try Birdeye first
+        try {
             val cfg2 = ConfigStore.load(applicationContext)
             val ov = com.lifecyclebot.network.BirdeyeApi(cfg2.birdeyeApiKey).getTokenOverview(mint)
             if (ov != null && ov.priceUsd > 0) {
@@ -24891,17 +24825,12 @@ if (hotExitHandledSweep) {
                 addLog("📡 Birdeye: ${ts.symbol} \$${ov.priceUsd}", mint)
                 return true
             }
-          } catch (_: Exception) {}
-        }
+        } catch (_: Exception) {}
 
         // V5.9.423 — DexScreenerOracle (separate code path from dex.getBestPair,
         // different endpoint, different cache). When the pair-based call fails
         // this token-address call often still returns — DexScreener caches
         // token-level and pair-level data independently.
-        // V5.0.6297 — this runBlocking is bounded by the outer stale-guard so
-        // it fires only for a small fraction of tokens per cycle (fresh mints
-        // or holds with >120s-old prices). Removing this guard in V5.0.6295
-        // caused a Dispatchers.IO deadlock — do NOT unconditionally hoist.
         if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
             try {
                 val priceUsd = kotlinx.coroutines.runBlocking {
@@ -24925,10 +24854,7 @@ if (hotExitHandledSweep) {
         // V5.9.423 — BirdeyeOracle token-address API (different from BirdeyeApi
         // used above, which is overview-focused; this one is price-focused and
         // hits a separate rate-limit bucket).
-        // V5.0.6295 — skip when Birdeye breaker is tripped; the token-price
-        // endpoint shares the same key/bucket as overview and will fail the
-        // same way, wasting cycle budget.
-        if (!breakerBirdeye && (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L)) {
+        if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
             try {
                 val priceUsd = kotlinx.coroutines.runBlocking {
                     kotlinx.coroutines.withTimeoutOrNull(2000L) {
@@ -24952,9 +24878,7 @@ if (hotExitHandledSweep) {
         // V5.9.423 — also retry pump.fun if the last successful price is >120s
         // stale. Previously the `if (ts.lastPrice <= 0)` guard meant pump.fun
         // was only consulted on brand-new holds that had never been priced.
-        // V5.0.6295 — skip when pumpfun breaker is tripped (op-report doctor
-        // flagged pumpfun as scanner-critical dead).
-        if (!breakerPumpfun && (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L)) {
+        if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
             try {
                 val client = com.lifecyclebot.network.SharedHttpClient.builder()
                     .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)

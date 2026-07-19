@@ -121,14 +121,6 @@ object LaneAutoPauseGuard {
                 // (isPaused() paper bypass); live entries blocked until
                 // manualResume() after a shadow proof.
                 Triple("BLUECHIP", "hard_seed_6072_zero_win_7_trades", -15.0),
-                // V5.0.6296 — LAB emergency pause (op-report 22:33:08 showed
-                // SELL EVHtwfyW lane=LAB pnl=-67.4%/-0.1348 SOL from a single
-                // FLUID_STOP_LOSS blowup — that's ~40% of the session bleed).
-                // Lifetime: n=35 WR=44.4% EV=-11.07% PnL=-0.7906 SOL. The lane
-                // is a net loser and its stop-loss regime tolerates -67% craters.
-                // Paper still learns (paper bypass); live entries locked out
-                // until manualResume() after LLM-Lab shadow proof.
-                Triple("LAB", "hard_seed_6296_lab_ev_neg11_pnl_neg0p79sol_blowup_neg67pct", -11.07),
             ).forEach { (lane, reason, ev) ->
                 if (!paused.containsKey(lane)) {
                     paused[lane] = PauseState(

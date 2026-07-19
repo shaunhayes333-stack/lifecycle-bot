@@ -58,18 +58,6 @@ object DeadTokenQuarantine {
     private const val STRIKE_THRESHOLD = 30
 
     /**
-     * V5.0.6291 — RECOVERED_* stuck-slot quick-quarantine.
-     * Op-report V5.0.6288 showed 3 RECOVERED_* tokens (2xKQg4, sMYyVK, Gja5Ev)
-     * stuck with ENTRY_PRICE_INVALID + route=UNKNOWN for many cycles, taking
-     * up slots the bot could use for real live trades. Recovered positions
-     * that never resolve basis are guaranteed-dead — they only survive as
-     * wallet dust from historical crash-recovered positions where price
-     * source vanished. Fast-track them out at 6 strikes so slots free
-     * within ~1 minute of running.
-     */
-    private const val STRIKE_THRESHOLD_RECOVERED = 6
-
-    /**
      * Reject reasons that indicate the mint is genuinely unroutable / dead —
      * price sources have collapsed and the bot cannot obtain a valid basis.
      * Transient market noise (extreme ratio, synth) is NOT quarantined here.
@@ -101,19 +89,14 @@ object DeadTokenQuarantine {
      * Called from OpenPnlSanity.reject() when a mint is known. Increments the
      * strike counter; at STRIKE_THRESHOLD, marks the mint dead + persists.
      * Returns true if the mint became newly dead as a result of this strike.
-     *
-     * V5.0.6291 — `isRecovered` short-circuits to STRIKE_THRESHOLD_RECOVERED (6)
-     * for wallet-reconciled RECOVERED_* positions that have already proven
-     * unroutable/priced. Frees slots faster for real live trades.
      */
-    fun recordStrike(mint: String, reason: String, isRecovered: Boolean = false): Boolean {
+    fun recordStrike(mint: String, reason: String): Boolean {
         if (mint.isBlank()) return false
         if (!BLACKLIST_REASONS.contains(reason)) return false
         if (dead.contains(mint)) return false
         val next = strikes.merge(mint, 1) { a, b -> a + b } ?: 1
-        val threshold = if (isRecovered) STRIKE_THRESHOLD_RECOVERED else STRIKE_THRESHOLD
-        if (next >= threshold) {
-            return markDead(mint, "strikes=$next reason=$reason recovered=$isRecovered")
+        if (next >= STRIKE_THRESHOLD) {
+            return markDead(mint, "strikes=$next reason=$reason")
         }
         return false
     }

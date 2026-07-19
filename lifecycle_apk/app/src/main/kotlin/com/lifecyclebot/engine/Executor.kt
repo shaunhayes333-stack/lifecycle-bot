@@ -9356,27 +9356,6 @@ class Executor(
             m != null && m.totalSolPnl > 0.0
         } catch (_: Throwable) { true }
         val regimeMult = if (isRunnerLaneForRegime && runnerLaneProfitable) 1.0 else try { com.lifecyclebot.engine.RegimeDetector.laneAwareSizeMultiplier(laneTagForRegime) } catch (_: Throwable) { 1.0 }
-        // V5.0.6290 — CHOP REGIME EXEMPTION FOR PROVEN +EV LIVE LANES.
-        // Op-report V5.0.6288 showed a "planned 0.05 SOL → actual 0.007 SOL"
-        // (86% size destruction). Root: CHOP regime × 0.35 applied globally
-        // even to lanes proven +EV on live truth (STANDARD n=143 E=+0.7%).
-        // If CleanLiveStrategyTruth shows a lane with n>=20 and E>0, the
-        // macro CHOP throttle is inappropriate — that lane has DEMONSTRATED
-        // it prints in this regime. Floor its regimeMult at 0.85 instead of
-        // taking the 0.35 crush. Downstream truth-ledger clamp still catches
-        // deteriorating lanes.
-        val regimeMultForLane = try {
-            val snap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
-                .firstOrNull { it.lane.equals(laneTagForRegime, ignoreCase = true) }
-            if (snap != null && snap.sample >= 20 && snap.evPct > 0.0) {
-                val lifted = maxOf(regimeMult, 0.85)
-                if (lifted > regimeMult) {
-                    try { ForensicLogger.lifecycle("REGIME_POS_EV_LANE_EXEMPTION_6290", "lane=${snap.lane} n=${snap.sample} E=${"%+.2f".format(snap.evPct)}% regimeMult ${"%.2f".format(regimeMult)}→${"%.2f".format(lifted)}") } catch (_: Throwable) {}
-                    try { PipelineHealthCollector.labelInc("REGIME_POS_EV_LANE_EXEMPTION_6290") } catch (_: Throwable) {}
-                }
-                lifted
-            } else regimeMult
-        } catch (_: Throwable) { regimeMult }
         // V5.0.4130 — PATTERN GOLDEN GOOSE BYPASSES DUMP-REGIME BRAKE.
         // RegimeDetector.sizeMultiplier() returns 0.10 in DUMP regime, crushing
         // entries to 10% of base. Operator: "make winners get real size." GOLD
@@ -9388,9 +9367,9 @@ class Executor(
             com.lifecyclebot.engine.PatternGoldenGoose.edge(ts.name, ts.symbol).verdict
         } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
         val regimeMultGoosed = when (gooseRegimeVerdict4130) {
-            com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD    -> maxOf(regimeMultForLane, 1.00)  // full bypass
-            com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER  -> maxOf(regimeMultForLane, 0.60)  // partial bypass
-            else                                                    -> regimeMultForLane
+            com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD    -> maxOf(regimeMult, 1.00)  // full bypass
+            com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER  -> maxOf(regimeMult, 0.60)  // partial bypass
+            else                                                    -> regimeMult
         }
         if (regimeMultGoosed > regimeMult) {
             try { ForensicLogger.lifecycle("REGIME_GOOSE_BYPASS_V4130", "symbol=${ts.symbol} verdict=${gooseRegimeVerdict4130.name} regimeMult=$regimeMult → $regimeMultGoosed") } catch (_: Throwable) {}
@@ -9475,18 +9454,6 @@ class Executor(
         val sourceBrainSizeMult = try {
             ScannerSourceBrain.intakeMultiplier(ts.source)
         } catch (_: Throwable) { 1.0 }
-        // V5.0.6292 — SCANNER × LANE COHESION MULT. Compounds source×lane
-        // affinity into the sizing stack so MOONSHOT + PUMP_FUN_NEW combos
-        // press harder (1.30×) while mismatched pairs (COINGECKO_ESTABLISHED
-        // routed to SHITCOIN) get dampened (0.75×). Full cohesion between
-        // scanner, AGI lane routing, and memetrader sizing.
-        val scannerLaneCohesionMult6292 = try {
-            ScannerSourceBrain.laneSourceCohesion(ts.source, laneTag)
-        } catch (_: Throwable) { 1.0 }
-        if (scannerLaneCohesionMult6292 != 1.0) {
-            try { ForensicLogger.lifecycle("SCANNER_LANE_COHESION_6292", "mint=${ts.mint.take(10)} sym=${ts.symbol} src=${ts.source} lane=$laneTag mult=${"%.2f".format(scannerLaneCohesionMult6292)}") } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("SCANNER_LANE_COHESION_6292") } catch (_: Throwable) {}
-        }
         // Construct minimal Signals from available context for UPH conviction.
         // In BOOTSTRAP, conviction() returns 1.0 — no effect. Once the head
         // graduates to ADVISORY/LEARNED, it shapes size by learned pWin.
@@ -9642,7 +9609,6 @@ class Executor(
             "brain" to brainSizeMult,
             "strategyTuner" to strategyTunerSizeMult,
             "sourceBrain" to sourceBrainSizeMult,
-            "scannerLaneCohesion6292" to scannerLaneCohesionMult6292,
             "uph" to uphConvictionMult,
             "hypothesis" to hypothesisSizeMult,
             "paperLive" to paperLiveBridgeMult,
@@ -9685,7 +9651,6 @@ class Executor(
                     "brain" to brainSizeMult,
                     "strategyTuner" to strategyTunerSizeMult,
                     "sourceBrain" to sourceBrainSizeMult,
-                    "scannerLaneCohesion6292" to scannerLaneCohesionMult6292,
                     "uph" to uphConvictionMult,
                     "hypothesis" to hypothesisSizeMult,
                     "paperLive" to paperLiveBridgeMult,
@@ -9755,50 +9720,29 @@ class Executor(
         }
         val multiplierProduct = run {
             val product = multiplierProductRaw * laneBiasMult * slipDownsizeMult * highConvBoost
-            // V5.0.6288 — LIVE ORACLE MODE: TRUTH-LEDGER LANE ARBITRAGE.
-            // Op report V5.0.6287: MOONSHOT live n=70 pWin=45% E=-4.9% sizeMult=1.32
-            //                      STANDARD live n=134 pWin=35% E=+1.5% sizeMult=0.59
-            // The bot is OVERSIZING the negative-E lane and UNDERSIZING the +E lane.
-            // Wallet went 0.5491 → 0.5250 SOL (-4.4%) as a direct result of this
-            // inverted allocation. This block queries the CleanLiveStrategyTruth
-            // via LiveProbabilityEngine snapshots and:
-            //   • lanes with live n ≥ 20 AND E < -1% → HARD CLAMP to 0.30 (stop the leak)
-            //   • lanes with live n ≥ 20 AND E > 0 AND WR ≥ 30% → LIFT floor to 0.80
-            //   • lanes with n ≥ 20 AND WR < 15% AND EV < -20% → CLAMP to 0.20
-            //     (EXPRESS 5.6% WR, LAB 44% WR EV -11%, TREASURY 14.3% WR)
-            // Every clamp is fail-open on any exception. No hard vetos. Fully bounded.
-            val truthLedgerClamp6288: Pair<Double, String>? = try {
-                val snap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
-                    .firstOrNull { it.lane.equals(laneTag, ignoreCase = true) }
-                if (snap != null && snap.sample >= 20) {
-                    val wr = snap.wrPct
-                    val eSol = snap.evPct
-                    when {
-                        // Bleeder auto-throttle: WR < 15% AND E < -20% AND n >= 15
-                        // Kills EXPRESS/LAB/TREASURY spend without needing the governor.
-                        wr < 15.0 && eSol < -20.0 -> 0.20 to "TRUTH_BLEEDER_HARD_THROTTLE_6288 lane=${snap.lane} wr=${"%.1f".format(wr)}% E=${"%+.1f".format(eSol)}% n=${snap.sample}"
-                        // Negative-E clamp: E < -1% on n >= 20 = live losing lane
-                        eSol < -1.0 -> 0.30 to "TRUTH_NEG_EV_CLAMP_6288 lane=${snap.lane} wr=${"%.1f".format(wr)}% E=${"%+.1f".format(eSol)}% n=${snap.sample}"
-                        // Positive-E lanes are handled via truthPosEvFloor6288 (floor lift),
-                        // not a clamp. Return null here so no ceiling is imposed.
-                        else -> null
-                    }
-                } else null
-            } catch (_: Throwable) { null }
-            val truthPosEvFloor6288 = try {
-                val snap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
-                    .firstOrNull { it.lane.equals(laneTag, ignoreCase = true) }
-                if (snap != null && snap.sample >= 20 && snap.evPct > 0.0 && snap.wrPct >= 30.0) {
-                    // V5.0.6290 — 500%/DAY COMPOUND UNLOCK. Floor raised
-                    // 0.80 → 0.95 for proven live +EV lanes. Op-report
-                    // showed planned 0.05 SOL crushed to 0.007 SOL actual
-                    // — the 0.80 floor still allowed 20% size destruction
-                    // stacked on top of upstream multipliers. At 0.95 the
-                    // proven +EV lane keeps 95% of its intended size.
-                    0.95  // proven live +EV winner — compounds hard
-                } else null
-            } catch (_: Throwable) { null }
             // V5.0.6055 — P0.b: POSITIVE-EV LANE FLOOR.
+            // Operator P0: "flick the memetrader green the right way!!!"
+            // Runtime V5.0.6053 showed a proven positive-EV lane (MOONSHOT
+            // meanPnl=+14.93%, WR=53.8%) collapsing to the 0.25 hard floor
+            // because 19 upstream multipliers stacked (LaneEv×0.18,
+            // Regime×0.35, LiveStrategyTuner×0.54, etc). A profitable
+            // lane sized at 25% cannot compound. Lift the floor to 0.50
+            // for lanes whose live-terminal leaderboard mean is healthy
+            // (>= +5% per trade) OR whose LaneExpectancyDamper mult is
+            // already >= 1.0 (proven-winner tier). Losing/unknown lanes
+            // keep the existing 0.25 floor; MAX cap unchanged.
+            // V5.0.6066 — PRIORITY-LANE COMPOUND FLOOR (operator directive:
+            // "flip it green and compounding"). Report 5.0.6065 confirms
+            // MOONSHOT/STANDARD are the ONLY positive-EV lanes:
+            //   MOONSHOT  n=33  WR=20.8%  EV=+974.82%/trade
+            //   STANDARD  n=9   WR=22.2%  EV=+10.36%/trade   PnL=+0.0024 SOL
+            // Yet the compound stack (LiveStrategyTuner×0.40, LiveProbability×0.64,
+            // Regime DUMP×0.35, LaneBias×1.40 = ~0.125 product) still let the
+            // best lane trade at the 0.25 dust floor. A +82% winner netted
+            // only 0.0023 SOL. Priority lanes now floor at 0.45 (still below
+            // healthy=0.50, but ~2× the old 0.25) so winners actually compound.
+            // Non-priority / bleeding lanes untouched. Hard risk backstops
+            // (-15% SL, FDG, rug blacklist, per-lane caps) all unaffected.
             val posEvFloor = try {
                 val healthy = if (laneEvMult >= 1.0) true else {
                     val board = StrategyTelemetry.computeLiveTerminalLeaderboard()
@@ -9806,20 +9750,17 @@ class Executor(
                     m != null && m.meanPnlPct >= 5.0 && m.trades >= 8
                 }
                 val isPriorityLane6066 = laneTag.uppercase() in setOf("MOONSHOT", "STANDARD")
-                // V5.0.6290 — 500%/DAY COMPOUND UNLOCK. Every lane needs
-                // a viable strategy floor — no lane should be crushed
-                // below 55% of intended size. Priority lanes float higher,
-                // healthy lanes higher still, but the FLOOR OF THE FLOOR
-                // is 0.55× to keep all lane brains and traders live.
-                val baseFloor = when {
-                    healthy -> 0.75            // was 0.50 — proven lane presses
-                    isPriorityLane6066 -> 0.70  // was 0.45 — MOONSHOT/STANDARD floor
-                    else -> 0.55                // was 0.25 — every other lane stays live
+                when {
+                    healthy -> 0.50
+                    isPriorityLane6066 -> 0.45  // V5.0.6066 priority-lane floor
+                    else -> 0.25
                 }
-                // V5.0.6288 lifts the floor when live truth ledger says the lane is +EV.
-                maxOf(baseFloor, truthPosEvFloor6288 ?: 0.0)
             } catch (_: Throwable) { 0.25 }
             // V5.0.6090 — REINS-OFF AI STRATEGY AUTHORITY.
+            // When the AGI/SSI/LLM/sentience stack is already expressed through
+            // cached multipliers, let it control strategy with real amplitude.
+            // Still bounded and still downstream of hard route/liquidity/wallet/rug
+            // safety; no learned zero sizing, no synchronous LLM/API hot-path call.
             val agiAuthorityActive6090 = listOf(
                 strategyTunerSizeMult, sourceBrainSizeMult, uphConvictionMult,
                 hypothesisSizeMult, superBrainSizeMult, metaCognitionSizeMult,
@@ -9828,16 +9769,7 @@ class Executor(
             val agiCeiling6090 = if (agiAuthorityActive6090) {
                 if (RuntimeModeAuthority.isPaper()) 2.50 else 2.00
             } else 1.60
-            // V5.0.6288 — apply truth-ledger CLAMP as a ceiling for negative-E lanes.
-            // The clamp value is a hard ceiling on the product (never larger than clamp).
-            val baseline6090 = product.coerceIn(posEvFloor, agiCeiling6090)
-            if (truthLedgerClamp6288 != null && RuntimeModeAuthority.isLive()) {
-                try {
-                    ForensicLogger.lifecycle("LIVE_TRUTH_LEDGER_CLAMP_6288", "mint=${ts.mint.take(10)} sym=${ts.symbol} ${truthLedgerClamp6288.second} clamp=${truthLedgerClamp6288.first} agiCeil=$agiCeiling6090")
-                    PipelineHealthCollector.labelInc("LIVE_TRUTH_LEDGER_CLAMP_6288")
-                } catch (_: Throwable) {}
-                minOf(baseline6090, truthLedgerClamp6288.first)
-            } else baseline6090
+            product.coerceIn(posEvFloor, agiCeiling6090)
         }
         if (RuntimeModeAuthority.isLive() && (laneEvMult != 1.0 || laneSizeCap < 1.0 || strategyTunerSizeMult != 1.0 || uphConvictionMult != 1.0)) {
             try { ForensicLogger.lifecycle("LIVE_WALLET_GROWTH_ALLOCATOR", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvMult=$laneEvMult laneCap=$laneSizeCap regimeMult=$regimeMult brainMult=$brainSizeMult stratTuner=$strategyTunerSizeMult sourceBrain=$sourceBrainSizeMult uph=$uphConvictionMult product=$multiplierProduct floor=$liveFloorMult") } catch (_: Throwable) {}
@@ -11982,17 +11914,9 @@ class Executor(
                         // Safety fallback: other gates (LP-lock hard block,
                         // RUGCHECK_FLOOR, PATTERN_SUPPRESSED, EXEC_GATE
                         // reentry-lockout) still enforce live-trade safety.
-                        // V5.0.6288 — LIVE ORACLE MODE: liq threshold $5K → $1.5K.
-                        // Fresh pump.fun / raydium launches typically seed at $2K-4K liq.
-                        // The $5K floor from V5.0.6042 was gating out ~75% of legitimate
-                        // fresh-pool intake when providers are DEGRADED (birdeye 0%,
-                        // helius 0%, coingecko 57%). Op report V5.0.6287:
-                        // PROVIDER_PROOF_HOLDER_CASCADE_BLIND=75 dominating the funnel.
-                        // Lowering to $1.5K unlocks the pump.fun oracle intake while
-                        // rug pre-filter + LP-lock + RUGCHECK_FLOOR still enforce safety.
                         val apiDegradedHolderBypass6042 = try {
                             if (isPaperMode) false
-                            else if (ts.lastLiquidityUsd < 1_500.0) false
+                            else if (ts.lastLiquidityUsd < 5_000.0) false
                             else {
                                 val diag = com.lifecyclebot.engine.RuntimeDoctor.currentDiagnosis()
                                 diag != null && diag.subsystem == "api/providers" &&
@@ -13375,44 +13299,22 @@ class Executor(
             sol = liveMinExecutableBuySol
             try { ForensicLogger.lifecycle("LIVE_BUY_SIZE_RAISED_TO_MIN_NON_MICRO", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old raised=$sol walletSol=$walletSol spendable=$maxSpendableSol allowMicro=${liveCfg.allowLiveMicroProbe}") } catch (_: Throwable) {}
         }
-        // V5.0.6293 — LIVE ORACLE COMPOUND FIX. The 0.35 pending-proof clamp
-        // was destroying 65% of intended size on every "unknown auth" token,
-        // effectively strangling wallet growth. Op-report V5.0.6292 showed
-        // MANNY sized 0.06 → 0.0073 (88% crush). Fix:
-        //   • Exempt proven live +EV lanes (n>=20 E>0 WR>=30%) — they earn
-        //     the size floor, pending-proof is RPC race noise not real risk
-        //   • Non-exempt clamp softened 0.35 → 0.65 so the token still buys
-        //     at a meaningful notional while proof resolves
-        val truthLivePosEvExempt6293 = try {
-            val laneKey6293 = layerTag.ifBlank { identity?.source ?: ts.source }
-            val snap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
-                .firstOrNull { it.lane.equals(laneKey6293, ignoreCase = true) }
-            snap != null && snap.sample >= 20 && snap.evPct > 0.0 && snap.wrPct >= 30.0
-        } catch (_: Throwable) { false }
-        if (livePendingProofPenalty && !truthLivePosEvExempt6293) {
+        if (livePendingProofPenalty) {
             val old = sol
-            val clampMult6293 = 0.65  // was 0.35 — 35% dampening instead of 65% crush
-            val shaped = (sol * clampMult6293).coerceAtMost(maxSpendableSol).coerceAtLeast(0.0)
+            val shaped = (sol * 0.35).coerceAtMost(maxSpendableSol).coerceAtLeast(0.0)
             sol = if (!liveCfg.allowLiveMicroProbe && shaped < liveMinExecutableBuySol) liveMinExecutableBuySol else shaped
             try {
                 ForensicLogger.lifecycle(
                     "LIVE_PENDING_PROOF_LEARNED_RISK_CLAMP",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old shaped=$sol clamp=${clampMult6293} detail=${livePendingProofPenaltyDetail.take(120)}"
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old shaped=$sol detail=${livePendingProofPenaltyDetail.take(120)}"
                 )
                 PipelineHealthCollector.labelInc("LIVE_PENDING_PROOF_LEARNED_RISK_CLAMP")
-            } catch (_: Throwable) {}
-        } else if (livePendingProofPenalty && truthLivePosEvExempt6293) {
-            try {
-                ForensicLogger.lifecycle("LIVE_PENDING_PROOF_TRUTH_EXEMPT_6293", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$layerTag reason=proven_pos_ev_lane sol=$sol")
-                PipelineHealthCollector.labelInc("LIVE_PENDING_PROOF_TRUTH_EXEMPT_6293")
             } catch (_: Throwable) {}
         }
         val baseRealisticSol = realisticLiveEntrySize(ts, sol, walletSol, score, layerTag.ifBlank { identity?.source ?: ts.source }, "liveBuy.final")
         // Unknown proof lowers confidence and learned risk until proof arrives;
         // it does not force every live buy into a fixed micro cap.
-        // V5.0.6293 — matching 0.35 → 0.65 dampening for the realistic size path.
-        val realisticClampMult6293 = if (truthLivePosEvExempt6293) 1.0 else 0.65
-        val realisticSolRaw = if (livePendingProofPenalty) baseRealisticSol * realisticClampMult6293 else baseRealisticSol
+        val realisticSolRaw = if (livePendingProofPenalty) baseRealisticSol * 0.35 else baseRealisticSol
         val realisticSol = if (!liveCfg.allowLiveMicroProbe && realisticSolRaw < liveMinExecutableBuySol) liveMinExecutableBuySol else realisticSolRaw
         if (livePendingProofPenalty && realisticSol < baseRealisticSol) {
             val old = baseRealisticSol
@@ -19015,13 +18917,6 @@ class Executor(
                     // V5.9.1504 — single resolver call handles BOTH shares,
                     // redirecting any self-addressed fee wallet to the other.
                     sendFeeSplit(wallet, feeWallet1, feeWallet2, "fee")
-                    
-                    // V5.0.6288 — LIVE ORACLE MODE: wire the recordLiveFee hook.
-                    // LiveLaneGovernor.recordLiveFee was defined but had ZERO callers
-                    // (feeSumSol=0, feeN=0 in every op report). Without this, the
-                    // fee-economic floor guard (SIZE_BELOW_FEE_ECONOMIC_FLOOR_6247) was
-                    // effectively disabled and dust-sized buys kept eating fees > profit.
-                    try { com.lifecyclebot.engine.LiveLaneGovernor.recordLiveFee(feeAmountSol) } catch (_: Throwable) {}
                     
                     onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.5% of entry) split 50/50", tradeId.mint)
                     ErrorLogger.info("Executor", "💸 LIVE SELL FEE: ${feeAmountSol} SOL split to both wallets (entry-basis, pnl-agnostic)")
