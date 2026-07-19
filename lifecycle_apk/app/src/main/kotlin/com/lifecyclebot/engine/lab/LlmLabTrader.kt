@@ -114,8 +114,15 @@ object LlmLabTrader {
                 volatility = 50.0,
             )
         } catch (_: Throwable) { strategy.stopLossPct }
+        // V5.0.6299 — HARD LAB STOP CAP (regreen).
+        // Paper report 01:20 showed SELL Fi6rZjXs lane=LAB pnl=-93.1%/-0.2792 SOL
+        // via LAB_FLUID_STOP_LOSS. Even if FluidLearningAI drifts to -60%,
+        // no single LAB experiment should crater more than -20%. Non-destructive
+        // clamp — fluidStop is negative, so max() picks the tighter (less negative)
+        // of the two, which forces earlier exit.
+        val cappedFluidStop = kotlin.math.max(fluidStop, -20.0)
         when {
-            pnlPct <= fluidStop                 -> closePosition(pos, currentPrice, if (peak > 3.0) "LAB_FLUID_PROFIT_FLOOR" else "LAB_FLUID_STOP_LOSS")
+            pnlPct <= cappedFluidStop            -> closePosition(pos, currentPrice, if (peak > 3.0) "LAB_FLUID_PROFIT_FLOOR" else "LAB_FLUID_STOP_LOSS_6299_CAPPED")
             pnlPct >= strategy.takeProfitPct    -> closePosition(pos, currentPrice, "TAKE_PROFIT")
             holdMin >= strategy.maxHoldMins     -> closePosition(pos, currentPrice, "TIMEOUT")
         }
