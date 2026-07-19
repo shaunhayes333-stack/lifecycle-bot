@@ -13384,8 +13384,9 @@ class Executor(
         //   • Non-exempt clamp softened 0.35 → 0.65 so the token still buys
         //     at a meaningful notional while proof resolves
         val truthLivePosEvExempt6293 = try {
+            val laneKey6293 = layerTag.ifBlank { identity?.source ?: ts.source }
             val snap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
-                .firstOrNull { it.lane.equals(laneTag.ifBlank { identity?.source ?: ts.source }, ignoreCase = true) }
+                .firstOrNull { it.lane.equals(laneKey6293, ignoreCase = true) }
             snap != null && snap.sample >= 20 && snap.evPct > 0.0 && snap.wrPct >= 30.0
         } catch (_: Throwable) { false }
         if (livePendingProofPenalty && !truthLivePosEvExempt6293) {
@@ -13402,7 +13403,7 @@ class Executor(
             } catch (_: Throwable) {}
         } else if (livePendingProofPenalty && truthLivePosEvExempt6293) {
             try {
-                ForensicLogger.lifecycle("LIVE_PENDING_PROOF_TRUTH_EXEMPT_6293", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag reason=proven_pos_ev_lane sol=$sol")
+                ForensicLogger.lifecycle("LIVE_PENDING_PROOF_TRUTH_EXEMPT_6293", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$layerTag reason=proven_pos_ev_lane sol=$sol")
                 PipelineHealthCollector.labelInc("LIVE_PENDING_PROOF_TRUTH_EXEMPT_6293")
             } catch (_: Throwable) {}
         }
