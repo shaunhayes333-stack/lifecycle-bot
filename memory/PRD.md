@@ -1,22 +1,34 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
-## ✅ V5.0.6295 SHIPPED — API BYPASS VOLUME UNLOCK: DexScreener primary + circuit-breaker gates (2026-02, CI green)
+## 🚨 V5.0.6297 SHIPPED — CRASH HOTFIX: revert V5.0.6295 unconditional runBlocking (2026-02, CI green)
 
-Commit `575f95bf5`. GitHub Actions build **success**.
+Commit `e9e0869f0`. GitHub Actions build **success**.
 
-Op-report V5.0.6294 showed the bot "virtually dead":
-- **130 INTAKE/NO_PAIR_NO_FALLBACK blocks per cycle** — the single biggest chokepoint
-- birdeye sr=0% (401 auth dead), pumpfun scanner-critical dead, helius 429 rate-limited
-- dexscreener sr=91% healthy but only consulted AFTER 2 dead sources burned the timeout budget
-- Only **3 EXEC events in 288s uptime** — logic green, no volume
+User reported "app completely broken, cant load, progressively worse since this morning."
 
-**Surgical fix** — single function `tryFallbackPriceData()` in `BotService.kt`:
-1. DexScreener token-by-address probe promoted to PATH 1 (primary probe, first in the chain).
-2. Birdeye overview & BirdeyeOracle skipped when `ApiHealthMonitor.isCircuitBroken("birdeye")`.
-3. pump.fun API skipped when `isCircuitBroken("pumpfun")`.
-4. Diagnostic labels for post-flight verification: `API_BYPASS_DEXSCREENER_PRIMARY_HIT_6295`, `API_BYPASS_BIRDEYE_SKIP_CB_6295`.
+**Root cause found in V5.0.6295**: added an unconditional `runBlocking { withTimeoutOrNull(2000L) { DexScreenerOracle.getPriceByAddress } }` as Path 1 of `tryFallbackPriceData`. Since `processTokenCycle` runs inside `async(Dispatchers.IO)` with ~200 concurrent workers per batch, the new probe held an IO thread on every worker while awaiting an inner `withContext(Dispatchers.IO)` from the suspend `getPriceByAddress`. Default IO pool has 64 threads → all blocked on `runBlocking` → inner `withContext` cannot acquire a worker → **classic dispatcher starvation deadlock**. App appears frozen, force-closes on next resume, and "gets progressively worse" as more workers pile up.
 
-Expected: NO_PAIR_NO_FALLBACK block count drops sharply, EXEC/cycle rises, WR/lane authority logic untouched. Golden tape unaffected.
+Pre-6295 the same `runBlocking` existed in Path 3 but guarded behind `lastPrice <= 0 || stale > 120s` — only ~1-5% of tokens ever hit it. Hoisting it as unconditional Path 1 pushed hit rate to 100%.
+
+**Surgical fix**: delete the V5.0.6295 Path 1 primary probe. Keep breaker gates on Birdeye/pumpfun (pure boolean flags, zero concurrency cost). Concurrency footprint after V5.0.6297 == V5.0.6294 exactly. LAB pause + stop-loss cap from V5.0.6296 preserved (unrelated to deadlock).
+
+---
+
+## ✅ V5.0.6296 SHIPPED — MONEY LEAK STAUNCH: pause LAB lane + hard-cap LAB stop-loss at -20% (2026-02, CI green)
+
+Commit `f15883f3a`. GitHub Actions build **success**.
+
+Op-report 22:33:08 showed **~40% of session bleed came from ONE trade**: `SELL EVHtwfyW lane=LAB pnl=-67.4%/-0.1348 SOL reason=LAB_LAB_FLUID_STOP_LOSS`. LAB lifetime: n=35 WR=44.4% EV=-11.07% PnL=-0.7906 SOL (clear net loser), yet was missing from `LaneAutoPauseGuard` hard-seed list.
+
+Two surgical fixes:
+1. `LaneAutoPauseGuard` hard-seed adds LAB (`hard_seed_6296_lab_ev_neg11_pnl_neg0p79sol_blowup_neg67pct`). Paper mode still learns via existing V5.0.6069 bypass.
+2. `LlmLabTrader.checkExit` clamps `fluidStop` to max -20%. Even if `FluidLearningAI` drifts to -60%, one bad LAB experiment cannot crater more than -20%. New label `LAB_FLUID_STOP_LOSS_6296_CAPPED` for verification.
+
+---
+
+## ✅ V5.0.6295 SHIPPED — API BYPASS VOLUME UNLOCK: DexScreener primary + circuit-breaker gates (2026-02, CI green — LATER REVERTED for deadlock)
+
+Commit `575f95bf5`. GitHub Actions build **success**. Op-report V5.0.6295 confirmed **12× improvement in EXEC/cycle (3→37), 6× more live positions, NO_PAIR blocks -59%**. However, the primary-probe implementation caused Dispatchers.IO deadlock at scale — reverted in V5.0.6297 while preserving the breaker-gate benefits.
 
 ---
 
