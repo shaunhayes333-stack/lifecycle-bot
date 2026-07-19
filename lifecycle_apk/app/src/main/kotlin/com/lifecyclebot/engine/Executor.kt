@@ -13375,22 +13375,43 @@ class Executor(
             sol = liveMinExecutableBuySol
             try { ForensicLogger.lifecycle("LIVE_BUY_SIZE_RAISED_TO_MIN_NON_MICRO", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old raised=$sol walletSol=$walletSol spendable=$maxSpendableSol allowMicro=${liveCfg.allowLiveMicroProbe}") } catch (_: Throwable) {}
         }
-        if (livePendingProofPenalty) {
+        // V5.0.6293 — LIVE ORACLE COMPOUND FIX. The 0.35 pending-proof clamp
+        // was destroying 65% of intended size on every "unknown auth" token,
+        // effectively strangling wallet growth. Op-report V5.0.6292 showed
+        // MANNY sized 0.06 → 0.0073 (88% crush). Fix:
+        //   • Exempt proven live +EV lanes (n>=20 E>0 WR>=30%) — they earn
+        //     the size floor, pending-proof is RPC race noise not real risk
+        //   • Non-exempt clamp softened 0.35 → 0.65 so the token still buys
+        //     at a meaningful notional while proof resolves
+        val truthLivePosEvExempt6293 = try {
+            val snap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
+                .firstOrNull { it.lane.equals(laneTag.ifBlank { identity?.source ?: ts.source }, ignoreCase = true) }
+            snap != null && snap.sample >= 20 && snap.evPct > 0.0 && snap.wrPct >= 30.0
+        } catch (_: Throwable) { false }
+        if (livePendingProofPenalty && !truthLivePosEvExempt6293) {
             val old = sol
-            val shaped = (sol * 0.35).coerceAtMost(maxSpendableSol).coerceAtLeast(0.0)
+            val clampMult6293 = 0.65  // was 0.35 — 35% dampening instead of 65% crush
+            val shaped = (sol * clampMult6293).coerceAtMost(maxSpendableSol).coerceAtLeast(0.0)
             sol = if (!liveCfg.allowLiveMicroProbe && shaped < liveMinExecutableBuySol) liveMinExecutableBuySol else shaped
             try {
                 ForensicLogger.lifecycle(
                     "LIVE_PENDING_PROOF_LEARNED_RISK_CLAMP",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old shaped=$sol detail=${livePendingProofPenaltyDetail.take(120)}"
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old shaped=$sol clamp=${clampMult6293} detail=${livePendingProofPenaltyDetail.take(120)}"
                 )
                 PipelineHealthCollector.labelInc("LIVE_PENDING_PROOF_LEARNED_RISK_CLAMP")
+            } catch (_: Throwable) {}
+        } else if (livePendingProofPenalty && truthLivePosEvExempt6293) {
+            try {
+                ForensicLogger.lifecycle("LIVE_PENDING_PROOF_TRUTH_EXEMPT_6293", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag reason=proven_pos_ev_lane sol=$sol")
+                PipelineHealthCollector.labelInc("LIVE_PENDING_PROOF_TRUTH_EXEMPT_6293")
             } catch (_: Throwable) {}
         }
         val baseRealisticSol = realisticLiveEntrySize(ts, sol, walletSol, score, layerTag.ifBlank { identity?.source ?: ts.source }, "liveBuy.final")
         // Unknown proof lowers confidence and learned risk until proof arrives;
         // it does not force every live buy into a fixed micro cap.
-        val realisticSolRaw = if (livePendingProofPenalty) baseRealisticSol * 0.35 else baseRealisticSol
+        // V5.0.6293 — matching 0.35 → 0.65 dampening for the realistic size path.
+        val realisticClampMult6293 = if (truthLivePosEvExempt6293) 1.0 else 0.65
+        val realisticSolRaw = if (livePendingProofPenalty) baseRealisticSol * realisticClampMult6293 else baseRealisticSol
         val realisticSol = if (!liveCfg.allowLiveMicroProbe && realisticSolRaw < liveMinExecutableBuySol) liveMinExecutableBuySol else realisticSolRaw
         if (livePendingProofPenalty && realisticSol < baseRealisticSol) {
             val old = baseRealisticSol
