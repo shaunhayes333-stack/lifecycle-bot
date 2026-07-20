@@ -54,8 +54,17 @@ object BlueChipTraderAI {
     private const val MIN_LIQUIDITY_USD = 50_000.0      // V5.2.12: $50K minimum for large caps
     
     // Position sizing
-    private const val BASE_POSITION_SOL = 0.15         // Larger than Treasury (0.05)
-    private const val MAX_POSITION_SOL = 0.5           // Up to 0.5 SOL per trade
+    // V5.0.6303 — Crypto trader reach expansion. Operator directive:
+    // "the crypto trader is meant to have the same level of intelligence
+    //  as the meme trader. and a reach just as big. its only 262 tokens
+    //  and dumb. all trade sizes are the tiny targets are tiny and it
+    //  barely trades". Bump base+max size and lift the hold ceiling so
+    //  BLUECHIP can actually breathe like MOONSHOT while keeping the
+    //  standard safety stack intact (still fluid-shaped by wallet %,
+    //  regime damp, calibration shrink, danger soft-shape, ExpectancyTracker,
+    //  BehaviorAI, UltimateEdgeEngine — all still active downstream).
+    private const val BASE_POSITION_SOL = 0.20         // was 0.15; larger than Treasury / Moonshot base
+    private const val MAX_POSITION_SOL = 1.00          // was 0.5 SOL; matches meme lane reach
     private const val MAX_CONCURRENT_POSITIONS = 80    // V5.9.613: remove hidden lane choke
     
     // Daily limits
@@ -64,11 +73,16 @@ object BlueChipTraderAI {
     // Take profit / Stop loss - FLUID (adapts as bot learns)
     // Bootstrap: Tighter exits (secure wins while learning)
     // Mature: Wider targets (let quality plays develop)
-    private const val TAKE_PROFIT_BOOTSTRAP = 10.0     // 10% at start
-    private const val TAKE_PROFIT_MATURE = 25.0        // 25% when experienced
+    // V5.0.6303 — bluechip TP ceiling raised so runners stop getting cut at
+    // +25% on assets that routinely double in a week.
+    private const val TAKE_PROFIT_BOOTSTRAP = 12.0     // was 10.0
+    private const val TAKE_PROFIT_MATURE = 80.0        // was 25.0 — bluechips can run
     private const val STOP_LOSS_BOOTSTRAP = -4.0       // 4% stop at start (tight)
     private const val STOP_LOSS_MATURE = -7.0          // 7% stop when mature (learned volatility)
-    private const val MAX_HOLD_MINUTES = 30            // Longer hold time
+    // V5.0.6303 — BLUECHIP is not a scalper. 30-minute cap forced the trader
+    // to close winners before the swing developed; raise to 8h so real
+    // established-token trends can play out.
+    private const val MAX_HOLD_MINUTES = 480           // was 30 — 8h swing window
     
     // Compounding
     private const val COMPOUNDING_ENABLED = true
@@ -415,6 +429,8 @@ object BlueChipTraderAI {
 
         // V5.9.434 — journal every V3 BlueChip close so it shows in Journal
         // V5.9.436 — recorder also feeds outcome-attribution trackers.
+        // V5.0.6303 — pass real peakGainPct so MFE give-back telemetry actually
+        // fires for BLUECHIP (previously defaulted to 0.0 → recordMfe skipped).
         try {
             com.lifecyclebot.engine.V3JournalRecorder.recordClose(
                 symbol = pos.symbol, mint = mint,
@@ -424,6 +440,7 @@ object BlueChipTraderAI {
                 exitReason = exitReason.name,
                 entryScore = pos.entryScore,
                 holdMinutes = holdMinutesLong,
+                peakGainPct = pos.peakPnlPct,
             )
         } catch (_: Exception) {}
 
@@ -1049,7 +1066,10 @@ object BlueChipTraderAI {
         // Cap at max
         positionSol *= expectancySoftSize4315
         positionSol *= dangerSoftSize  // V5.9.1348 danger soft-shape
-        positionSol = positionSol.coerceIn(0.02, MAX_POSITION_SOL)
+        // V5.0.6303 — lift floor with the bigger BASE so BLUECHIP doesn't
+        // get clamped down to 0.02 SOL by legacy floor when confScale/danger
+        // shape apply. 0.04 lets fluid shape still shrink but not evaporate.
+        positionSol = positionSol.coerceIn(0.04, MAX_POSITION_SOL)
         
         // Get fluid take profit
         val takeProfitPct = getFluidTakeProfit()

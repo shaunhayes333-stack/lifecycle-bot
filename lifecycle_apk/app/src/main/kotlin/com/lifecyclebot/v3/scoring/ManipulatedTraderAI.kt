@@ -601,6 +601,7 @@ object ManipulatedTraderAI {
         // V5.9.434 — journal every V3 sub-trader close so the persistent
         // Trade Journal reflects ALL trades across the universe.
         // V5.9.436 — recorder also feeds outcome-attribution trackers.
+        // V5.0.6303 — feed peakPnlPct so MFE give-back records for MANIPULATED.
         try {
             com.lifecyclebot.engine.V3JournalRecorder.recordClose(
                 symbol = pos.symbol, mint = pos.mint,
@@ -610,6 +611,7 @@ object ManipulatedTraderAI {
                 exitReason = reason.name,
                 entryScore = pos.manipScore,
                 holdMinutes = holdMinutesLong,
+                peakGainPct = pos.peakPnlPct,
             )
         } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("ManipulatedTraderAI", "trade_record skip: ${e.message}") }
         val _isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 win-threshold

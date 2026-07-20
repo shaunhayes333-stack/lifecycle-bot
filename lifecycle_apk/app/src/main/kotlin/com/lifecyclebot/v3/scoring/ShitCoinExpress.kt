@@ -847,6 +847,7 @@ object ShitCoinExpress {
         // PnL in the Journal. Was previously a silent lane.
         try {
             val holdMins = (System.currentTimeMillis() - ride.entryTime) / 60_000L
+            // V5.0.6303 — feed peakPnlPct so MFE give-back records for EXPRESS.
             com.lifecyclebot.engine.V3JournalRecorder.recordClose(
                 symbol = ride.symbol, mint = ride.mint,
                 entryPrice = ride.entryPrice, exitPrice = exitPrice,
@@ -854,6 +855,7 @@ object ShitCoinExpress {
                 isPaper = ride.isPaper, layer = "EXPRESS",
                 exitReason = exitSignal.name,
                 holdMinutes = holdMins,
+                peakGainPct = ride.peakPnlPct,
             )
         } catch (_: Exception) {}
 

@@ -575,6 +575,7 @@ object ShitCoinTraderAI {
         // showing ~300 of 4791 because V3 sub-traders bypassed Executor).
         // V5.9.436 — recorder now also feeds Score/HoldDuration/ExitReason
         // expectancy trackers for outcome-based learning.
+        // V5.0.6303 — feed peakPnlPct so MFE give-back records for SHITCOIN.
         try {
             com.lifecyclebot.engine.V3JournalRecorder.recordClose(
                 symbol = pos.symbol, mint = pos.mint,
@@ -584,6 +585,7 @@ object ShitCoinTraderAI {
                 exitReason = exitReason.name,
                 entryScore = pos.entryScore,
                 holdMinutes = holdMinutes,
+                peakGainPct = pos.peakPnlPct,
             )
         } catch (_: Exception) {}
 

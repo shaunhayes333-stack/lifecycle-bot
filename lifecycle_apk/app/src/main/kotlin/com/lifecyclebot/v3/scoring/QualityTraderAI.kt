@@ -755,6 +755,7 @@ object QualityTraderAI {
         // V5.9.434 — journal every V3 sub-trader close so the persistent
         // Trade Journal reflects ALL trades across the universe.
         // V5.9.436 — recorder also feeds outcome-attribution trackers.
+        // V5.0.6303 — feed peakPnlPct so MFE give-back records for QUALITY.
         try {
             com.lifecyclebot.engine.V3JournalRecorder.recordClose(
                 symbol = pos.symbol, mint = pos.mint,
@@ -764,6 +765,7 @@ object QualityTraderAI {
                 exitReason = exitSignal.name,
                 entryScore = pos.entryScore,
                 holdMinutes = holdMinutesLong,
+                peakGainPct = pos.peakPnlPct,
             )
         } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("QualityTraderAI", "trade_record skip: ${e.message}") }
 
