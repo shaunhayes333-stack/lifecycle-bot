@@ -30,7 +30,7 @@ object BandLossVetoGuard {
     private val engaged = ConcurrentHashMap<String, Long>()
 
     /**
-     * Returns [PROBE_FLOOR..1.0]. Never zero. Reads LosingPatternMemory
+     * Returns PROBE_FLOOR..1.0. Never zero. Reads LosingPatternMemory
      * for the current danger state and shrinks toward PROBE_FLOOR while
      * the band is dangerous. Recovers immediately once the band exits
      * danger — no timers, no persistence, no stale state.
