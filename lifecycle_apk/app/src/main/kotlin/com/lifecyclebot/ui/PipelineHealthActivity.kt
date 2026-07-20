@@ -340,19 +340,22 @@ class PipelineHealthActivity : AppCompatActivity() {
             forceFresh = true,
         ) { report, error ->
             if (destroyed || generation != renderGeneration) return@buildTextAsync
-            val text = report?.text ?: "(render error: ${error?.message ?: "unknown"})"
+            val fullText = report?.text ?: "(render error: ${error?.message ?: "unknown"})"
+            // V5.0.6302 — cap the clipboard payload so setPrimaryClip cannot
+            // stall the Main thread for >5s on a 100KB blob. Full report is
+            // still available via LiveTradeLogActivity → Export.
+            val text = com.lifecyclebot.engine.ReportingHub.clipboardSafeText(fullText)
             runOnUiThread {
                 if (destroyed || generation != renderGeneration) return@runOnUiThread
                 try {
                     val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     cb.setPrimaryClip(ClipData.newPlainText("AATE Unified Report", text))
-                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_ONLY", "chars=${text.length} hub=true thread=main6273") } catch (_: Throwable) {}
-                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_COPY_OK_6273") } catch (_: Throwable) {}
-                    Toast.makeText(
-                        this,
-                        "Unified report copied (${text.length} chars)",
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_ONLY", "chars=${text.length} full=${fullText.length} hub=true thread=main6302") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_COPY_OK_6302") } catch (_: Throwable) {}
+                    val msg = if (text.length < fullText.length) {
+                        "Copied ${text.length} of ${fullText.length} chars (paste-safe cap). Use Export for full."
+                    } else "Unified report copied (${text.length} chars)"
+                    Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
                 } catch (t: Throwable) {
                     try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_COPY_FAIL_6273") } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_FAIL_6273", "err=${t.javaClass.simpleName}:${t.message?.take(120)}") } catch (_: Throwable) {}

@@ -203,6 +203,28 @@ object ReportingHub {
 
     private const val MAX_UNIFIED_REPORT_CHARS = 100_000
 
+    // V5.0.6302 — CLIPBOARD ANR FIX. `ClipboardManager.setPrimaryClip` MUST run
+    // on the Main thread (per V5.0.6273 findings) and Android 12+ silently
+    // no-ops from bg. But a 100KB payload on `setPrimaryClip` on Main forces
+    // a large synchronous Binder IPC + system UI "Copied" chip that
+    // stalls the UI thread for 3-6 seconds and trips the 5s ANR watchdog.
+    // The full report stays intact in the returned TextReport (for share /
+    // forensic export via file), but the clipboard slice is capped so the
+    // paste path is snappy and can't ANR. Operators can also grab the full
+    // dump via LiveTradeLogActivity → Export (file-backed FileProvider share).
+    const val CLIPBOARD_SAFE_MAX_CHARS = 40_000
+
+    /**
+     * V5.0.6302 — bounded clipboard payload with a clear trailing tag so the
+     * operator immediately sees when the copy was truncated for anti-ANR
+     * reasons and knows to use the file Export path for the full dump.
+     */
+    fun clipboardSafeText(text: String): String {
+        if (text.length <= CLIPBOARD_SAFE_MAX_CHARS) return text
+        val tag = "\n\n[COPY_TRUNCATED_FOR_ANR_6302 shown=${CLIPBOARD_SAFE_MAX_CHARS} of=${text.length} — use Export/Share for full report]"
+        return text.take(CLIPBOARD_SAFE_MAX_CHARS - tag.length) + tag
+    }
+
     private fun buildMoneyPathTruthSummary6029(): String = buildString(2 * 1024) {
         val pipe = safeSnapshot { PipelineHealthCollector.snapshot() }
         val wallet = try { BotService.status.walletSol } catch (_: Throwable) { 0.0 }

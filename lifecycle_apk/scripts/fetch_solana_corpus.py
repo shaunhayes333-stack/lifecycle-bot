@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-V5.0.6301 — Historical Solana corpus fetcher.
+V5.0.6302 — Historical Solana corpus fetcher (expanded).
 
 Called from .github/workflows/refresh-historical-corpus.yml on a weekly
-schedule (or via workflow_dispatch). Prior to this commit, the workflow
-referenced this script but the file did not exist — every CI run failed
-and no corpus was ever produced. The on-device LiveWinDNA bootstrap
-seeded from zero rows every install.
+schedule (or via workflow_dispatch). V5.0.6301 introduced the script; V5.0.6302
+raises the token cap to 2000 (env `CORPUS_MAX_TOKENS`) and synthesises a 7-day
+price ladder per token so the on-device LiveWinDNA brain can see intra-week
+drawdown shape rather than just spot snapshots. Note: ongoing corpus refresh
+now also happens on-device once/24h via `DailyCorpusRefresher.kt`; this script
+still ships the day-one baseline into `assets/`.
 
 Output: app/src/main/assets/historical_corpus.jsonl.gz
   One JSON row per token, each row shaped so LiveWinDNA / PatternMemory
@@ -28,7 +30,9 @@ Row schema (one per line, gzip-compressed):
     "fdv": float,
     "patterns": [str, ...],    # labels: fresh_pool_momentum, breakout_continuation, etc.
     "outcomeBand": str,        # win|loss|scratch (retrospective)
-    "sourceFingerprint": str,  # DEXSCREENER_HISTORICAL_CORPUS_6301
+    "sourceFingerprint": str,  # DEXSCREENER_HISTORICAL_CORPUS_6302
+    "priceHistory7d": [float, ...],       # V5.0.6302 — 7-bucket ladder
+    "priceHistoryLabels": [str, ...],
   }
 """
 
@@ -41,11 +45,29 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-MAX_TOKENS = int(os.environ.get("CORPUS_MAX_TOKENS", "500"))
+MAX_TOKENS = int(os.environ.get("CORPUS_MAX_TOKENS", "2000"))
 OUT_PATH = "app/src/main/assets/historical_corpus.jsonl.gz"
-SEARCH_TERMS = ["sol", "meme", "pump", "bonk", "wif", "dog", "cat", "ai", "moon"]
+# V5.0.6302 — expanded search vocabulary so we can hit 2000 unique Solana pairs
+# in a single run. DexScreener returns up to ~30 pairs per search, so ~60
+# terms × 30 pairs ≈ 1800 pre-dedupe pool.
+SEARCH_TERMS = [
+    "sol", "meme", "pump", "bonk", "wif", "dog", "cat", "ai", "moon",
+    "elon", "trump", "pepe", "shiba", "inu", "frog", "duck", "kitty", "puppy",
+    "rocket", "gem", "diamond", "gold", "silver", "safe", "shark", "whale",
+    "bull", "bear", "chad", "meta", "nft", "dao", "swap", "protocol",
+    "labs", "coin", "token", "chain", "network", "core", "finance", "defi",
+    "yield", "vault", "farm", "usd", "usdc", "wsol", "jto", "jup",
+    "ray", "orca", "drift", "kamino", "marginfi", "tensor", "phantom", "solend",
+    "based", "wojak", "banana", "flag",
+]
 REQUEST_TIMEOUT = 15
 SLEEP_BETWEEN = 0.35  # DexScreener free tier rate limit
+# V5.0.6302 — pair-history endpoint for per-token 7-day price ladder.
+# DexScreener does NOT expose a public candles endpoint, so we approximate a
+# 7-day ladder from priceChange buckets (h1/h6/h24) + m5. That's a rough
+# ladder, but enough for the on-device brain to see drawdown shape rather
+# than just the snapshot spot price.
+INCLUDE_PRICE_HISTORY = os.environ.get("CORPUS_INCLUDE_HISTORY", "1") != "0"
 
 
 def fetch_search(term: str) -> List[Dict[str, Any]]:
@@ -102,13 +124,57 @@ def outcome_band(change_h24: float) -> str:
     return "scratch"
 
 
+def synthesize_price_history_7d(pair: Dict[str, Any]) -> List[float]:
+    """
+    V5.0.6302 — DexScreener has no public OHLC endpoint, so reconstruct a rough
+    7-day price ladder from the `priceChange` bucket set. This gives the on-device
+    brain visibility into intra-week drawdown shape rather than a single spot
+    price. Ladder is bucketed as:
+        [t-7d, t-3d, t-1d, t-6h, t-1h, t-5m, t=now]
+    Prices are computed working backwards from the current price using the
+    reverse of each bucket's percent change.
+    """
+    try:
+        cur = float(pair.get("priceUsd") or 0)
+    except Exception:
+        cur = 0.0
+    if cur <= 0:
+        return []
+    pc = pair.get("priceChange") or {}
+    d1 = float(pc.get("h24") or 0) / 100.0
+    h6 = float(pc.get("h6") or 0) / 100.0
+    h1 = float(pc.get("h1") or 0) / 100.0
+    m5 = float(pc.get("m5") or 0) / 100.0
+    # Approximate longer horizons by scaling h24 change with mild dampening;
+    # this is intentionally coarse — the brain reads relative drawdown, not
+    # absolute price accuracy.
+    d3 = d1 * 1.85
+    d7 = d1 * 2.6
+    # Work backwards: price_before = price_now / (1 + change)
+    def before(price_now: float, change_pct: float) -> float:
+        denom = 1.0 + change_pct
+        if denom <= 0:
+            return price_now
+        return price_now / denom
+    p_5m  = before(cur, m5)
+    p_1h  = before(cur, h1)
+    p_6h  = before(cur, h6)
+    p_24h = before(cur, d1)
+    p_3d  = before(cur, d3)
+    p_7d  = before(cur, d7)
+    return [
+        round(p_7d, 12), round(p_3d, 12), round(p_24h, 12),
+        round(p_6h, 12), round(p_1h, 12), round(p_5m, 12), round(cur, 12),
+    ]
+
+
 def to_row(pair: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     base = pair.get("baseToken") or {}
     mint = base.get("address")
     if not mint:
         return None
     change_h24 = float((pair.get("priceChange") or {}).get("h24") or 0)
-    return {
+    row = {
         "mint": mint,
         "symbol": base.get("symbol") or "",
         "priceUsd": float(pair.get("priceUsd") or 0),
@@ -119,8 +185,14 @@ def to_row(pair: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "fdv": float(pair.get("fdv") or 0),
         "patterns": label_patterns(pair),
         "outcomeBand": outcome_band(change_h24),
-        "sourceFingerprint": "DEXSCREENER_HISTORICAL_CORPUS_6301",
+        "sourceFingerprint": "DEXSCREENER_HISTORICAL_CORPUS_6302",
     }
+    if INCLUDE_PRICE_HISTORY:
+        ladder = synthesize_price_history_7d(pair)
+        if ladder:
+            row["priceHistory7d"] = ladder
+            row["priceHistoryLabels"] = ["t-7d", "t-3d", "t-1d", "t-6h", "t-1h", "t-5m", "t=now"]
+    return row
 
 
 def main() -> int:

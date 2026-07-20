@@ -421,6 +421,34 @@ object LiveWinDNAStore {
         realRowsSnapshot.set(null)
     }
 
+    /** V5.0.6302 — Idempotent seed capture with a caller-supplied `ts`. Used
+     *  by HistoricalCorpusSeeder so re-seeding on every boot upserts by the
+     *  same synthetic key (mint:ts) instead of creating new rows every start
+     *  and blowing past MAX_ROWS after a few days. Everything else matches
+     *  capture() semantics — trim, invalidate, schedulePersist. */
+    fun captureSeed(
+        mint: String, symbol: String, lane: String, source: String, phase: String,
+        entrySetup: String, chartPattern: String, entryScore: Int,
+        entryMcap: Double, exitMcap: Double, entryLiquidity: Double,
+        holdTimeMinutes: Int, buyPercent: Double,
+        pnlPct: Double, peakPnl: Double, exitReason: String, paperOrLive: String,
+        ts: Long,
+    ) {
+        if (mint.isBlank()) return
+        val dna = WinDNA(
+            mint = mint, symbol = symbol, lane = lane, source = source, phase = phase,
+            entrySetup = entrySetup, chartPattern = chartPattern, entryScore = entryScore,
+            entryMcap = entryMcap, exitMcap = exitMcap, entryLiquidity = entryLiquidity,
+            holdTimeMinutes = holdTimeMinutes, buyPercent = buyPercent,
+            pnlPct = pnlPct, peakPnl = peakPnl, exitReason = exitReason,
+            paperOrLive = paperOrLive, ts = ts,
+        )
+        rows["${mint}:${ts}"] = dna
+        trimIfOverCap()
+        invalidateSnapshots()
+        if (bulkLoadDepth.get() <= 0) schedulePersist()
+    }
+
     fun size(): Int = rows.size
 
     /** V5.0.6285 — public accessor for the *real* (non-backfill) row count.

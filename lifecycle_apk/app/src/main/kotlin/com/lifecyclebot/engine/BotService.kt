@@ -1665,6 +1665,26 @@ class BotService : Service() {
             ErrorLogger.warn("BotService", "LiveWinDNAStore init error: ${e.message}")
         }
 
+        // V5.0.6302 — HISTORICAL CORPUS SEED (asset) + DAILY REFRESH.
+        // Operator directive: on cold-start, upsert the packaged
+        // `assets/historical_corpus.jsonl.gz` into LiveWinDNAStore so fresh
+        // installs and post-reinstall wipes still have real Solana shape
+        // samples. Idempotent: rows are keyed by synthetic ts derived from
+        // row index, so re-seeding every boot upserts the same keys instead
+        // of duplicating. Then DailyCorpusRefresher pulls fresh DexScreener
+        // data on-device once/24h so the corpus evolves without depending
+        // on CI runs.
+        try {
+            com.lifecyclebot.engine.HistoricalCorpusSeeder.seedFromAssetsAsync(applicationContext)
+        } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "HistoricalCorpusSeeder start error: ${e.message}")
+        }
+        try {
+            com.lifecyclebot.engine.DailyCorpusRefresher.start(applicationContext)
+        } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "DailyCorpusRefresher start error: ${e.message}")
+        }
+
         // V5.0.6246 — DeadTokenQuarantine: load the persistent set of mints
         // the bot has permanently given up on (unroutable / unsellable).
         // Operator directive: "just quarantine them permanently if the bot
