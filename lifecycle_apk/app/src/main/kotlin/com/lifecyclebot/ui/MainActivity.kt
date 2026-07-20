@@ -1099,10 +1099,51 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // V5.0.6300 — screen-off broadcast receiver. When the phone screen turns
+    // off (user pressing power button), Android does NOT always fire onStop
+    // immediately — activity can stay in RESUMED state with the screen dark
+    // for many seconds while frames continue to be scheduled. Belt-and-
+    // suspenders: gate mainUiActive by screen state too so nothing paints
+    // to a screen the operator cannot see. onScreenOn re-primes rendering.
+    private val screenStateReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(ctx: android.content.Context?, intent: android.content.Intent?) {
+            val act = intent?.action ?: return
+            when (act) {
+                android.content.Intent.ACTION_SCREEN_OFF -> {
+                    mainUiActive = false
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_UI_SCREEN_OFF_INACTIVATED_6300", "action=SCREEN_OFF") } catch (_: Throwable) {}
+                    try { pipelineTileHandler.removeCallbacks(pipelineTileRefresh) } catch (_: Throwable) {}
+                    try { looseMainHandlers.zip(looseMainRunnables).forEach { (h, r) -> h.removeCallbacks(r) } } catch (_: Throwable) {}
+                }
+                android.content.Intent.ACTION_SCREEN_ON -> {
+                    // Screen came back on, but only re-enable if the Activity is
+                    // actually STARTED (visible to user). If user unlocked into a
+                    // different app, onStart wasn't called, so leave inactive.
+                    if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+                        mainUiActive = true
+                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_UI_SCREEN_ON_REACTIVATED_6300", "action=SCREEN_ON") } catch (_: Throwable) {}
+                    }
+                }
+            }
+        }
+    }
+    private var screenReceiverRegistered = false
+
     override fun onResume() {
         super.onResume()
         try { mainInactiveHandler.removeCallbacks(markMainInactiveRunnable) } catch (_: Throwable) {}
         mainUiActive = true
+        // V5.0.6300 — register screen-off/on receiver (idempotent).
+        if (!screenReceiverRegistered) {
+            try {
+                val filter = android.content.IntentFilter().apply {
+                    addAction(android.content.Intent.ACTION_SCREEN_OFF)
+                    addAction(android.content.Intent.ACTION_SCREEN_ON)
+                }
+                registerReceiver(screenStateReceiver, filter)
+                screenReceiverRegistered = true
+            } catch (_: Throwable) {}
+        }
         // V5.9.1085 — force one foreground render from the latest UiState.
         // StateFlow does not guarantee a new emission just because Activity resumed;
         // after V5.9.1074's mainUiActive guard, returning from another Activity could
@@ -1313,6 +1354,19 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         try { mainInactiveHandler.removeCallbacks(markMainInactiveRunnable) } catch (_: Throwable) {}
+        // V5.0.6300 — SCREEN-OFF / MINIMISED UI FREEZE.
+        // Operator ran V5.0.6299 overnight with app in foreground and
+        // accumulated 1783 ANR hints + 38375ms max frame gap. Root cause:
+        // onStop was NOT flipping mainUiActive=false, so pipelineTileHandler
+        // (5s repost), looseMainHandlers, updateUi posts, and StateFlow
+        // observers kept trying to render the invisible UI for hours.
+        //
+        // Fix: onStop() marks the UI inactive IMMEDIATELY (home button, screen
+        // off, other app on top all fire onStop). onStart() below restores it.
+        // BotService (foreground) is untouched — it keeps trading. Only the
+        // MainActivity render pipeline sleeps while nobody is looking.
+        mainUiActive = false
+        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_UI_STOP_INACTIVATED_6300", "source=onStop") } catch (_: Throwable) {}
         // V5.9.1164 — same as onPause: STOPPED means render collector paused,
         // not bot/UI truth stopped. Only final finish/destroy deactivates Main.
         if (isFinishing || isDestroyed) mainInactiveHandler.postDelayed(markMainInactiveRunnable, 2_000L)
@@ -1323,8 +1377,23 @@ class MainActivity : AppCompatActivity() {
         // not mutate runtime config or trigger any bot lifecycle side effect.
     }
 
+    override fun onStart() {
+        super.onStart()
+        // V5.0.6300 — companion to onStop's mainUiActive=false. onStart fires
+        // when the activity becomes visible again (home->app, screen wakes,
+        // returning from another activity). Re-enable UI render posts here so
+        // updateUi() / pipelineTileHandler / looseMainHandlers can resume.
+        mainUiActive = true
+        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_UI_START_REACTIVATED_6300", "source=onStart") } catch (_: Throwable) {}
+    }
+
     override fun onDestroy() {
         mainUiActive = false
+        // V5.0.6300 — unregister screen-state receiver to avoid leak.
+        if (screenReceiverRegistered) {
+            try { unregisterReceiver(screenStateReceiver) } catch (_: Throwable) {}
+            screenReceiverRegistered = false
+        }
         try { pipelineTileHandler.removeCallbacksAndMessages(null) } catch (_: Throwable) {}
         try { looseMainHandlers.forEach { it.removeCallbacksAndMessages(null) } } catch (_: Throwable) {}
         try { looseMainHandlers.clear(); looseMainRunnables.clear() } catch (_: Throwable) {}
