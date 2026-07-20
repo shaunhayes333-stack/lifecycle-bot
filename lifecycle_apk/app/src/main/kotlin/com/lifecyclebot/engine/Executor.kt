@@ -9487,6 +9487,17 @@ class Executor(
             try { ForensicLogger.lifecycle("SCANNER_LANE_COHESION_6292", "mint=${ts.mint.take(10)} sym=${ts.symbol} src=${ts.source} lane=$laneTag mult=${"%.2f".format(scannerLaneCohesionMult6292)}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("SCANNER_LANE_COHESION_6292") } catch (_: Throwable) {}
         }
+        // V5.0.6301 — Band-loss probe damper (never zeros — honors the
+        // "weak bucket trades SMALL, not never" mandate from FDG L4598).
+        // Auto-recovers over 16hrs OR instantly on any +30% win in the band.
+        val bandDamper6301 = try {
+            val band = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(score.toInt())
+            BandLossVetoGuard.sizeMultiplier(laneTag, band)
+        } catch (_: Throwable) { 1.0 }
+        if (bandDamper6301 < 1.0) {
+            try { ForensicLogger.lifecycle("BAND_DAMPER_APPLIED_6301", "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$laneTag mult=${"%.2f".format(bandDamper6301)}") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("BAND_DAMPER_APPLIED_6301") } catch (_: Throwable) {}
+        }
         // Construct minimal Signals from available context for UPH conviction.
         // In BOOTSTRAP, conviction() returns 1.0 — no effect. Once the head
         // graduates to ADVISORY/LEARNED, it shapes size by learned pWin.
@@ -9643,6 +9654,7 @@ class Executor(
             "strategyTuner" to strategyTunerSizeMult,
             "sourceBrain" to sourceBrainSizeMult,
             "scannerLaneCohesion6292" to scannerLaneCohesionMult6292,
+            "bandDamper6301" to bandDamper6301,
             "uph" to uphConvictionMult,
             "hypothesis" to hypothesisSizeMult,
             "paperLive" to paperLiveBridgeMult,
@@ -9686,6 +9698,7 @@ class Executor(
                     "strategyTuner" to strategyTunerSizeMult,
                     "sourceBrain" to sourceBrainSizeMult,
                     "scannerLaneCohesion6292" to scannerLaneCohesionMult6292,
+            "bandDamper6301" to bandDamper6301,
                     "uph" to uphConvictionMult,
                     "hypothesis" to hypothesisSizeMult,
                     "paperLive" to paperLiveBridgeMult,
