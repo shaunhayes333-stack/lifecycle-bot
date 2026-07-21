@@ -338,60 +338,73 @@ class PipelineHealthActivity : AppCompatActivity() {
      */
     private fun copyToClipboardAsync() {
         if (destroyed || !viewsBound) return
-        // V5.0.6305 — IMMEDIATE user feedback. RCA: prior versions were silent
-        // until the ReportingHub 1-6s build finished, and if the user tapped
-        // out to Telegram/Notes in that window, onPause bumped renderGeneration
-        // and the callback was silently discarded. Toast at tap time proves
-        // the button was heard AND gives the user a paste target even if the
-        // system clipboard write happens a second later.
+        // V5.0.6306 — HARD BYPASS OF REPORTINGHUB FOR COPY.
+        // RCA V5.0.6306 (5th attempt, user extremely frustrated):
+        //   V5.0.6305 removed the renderGeneration silent-return, but the copy
+        //   was STILL failing with 'toast says it starts then does nothing'.
+        //   Deep dive: ReportingHub.buildTextAsync uses
+        //     scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        //   and the bot loop absolutely THRASHES Dispatchers.IO — cycle times
+        //   in the op-report are 4-8s each with `ANR 22` on the Pipeline tile.
+        //   The Copy coroutine gets queued behind dozens of IO scanner/API
+        //   tasks and NEVER gets a thread. The withTimeout(6s) is inside the
+        //   Mutex lock; if the Mutex holder or the queue is stalled, timeout
+        //   never fires either. Callback never invoked → no clipboard, no
+        //   second toast.
+        //
+        // NEW PATH: dedicated java Thread that:
+        //   1. Reads the fast in-memory PipelineHealthCollector.dumpText()
+        //      (already a bounded StringBuilder walk — no coroutine, no IO)
+        //   2. Writes clipboard on the SAME background thread (setPrimaryClip
+        //      is thread-safe on API 26+, and this activity is only reached
+        //      on API 26+ devices).
+        //   3. Posts the confirm Toast to Main.
+        // Zero shared resources with the bot loop. This CANNOT hang because of
+        // IO backlog.
         try {
-            Toast.makeText(this, "Building report… paste target open, this may take a moment", Toast.LENGTH_SHORT).show()
-            com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_TAP_6305", "src=pipeline_health")
+            Toast.makeText(this, "Copying report…", Toast.LENGTH_SHORT).show()
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_TAP_6306", "src=pipeline_health path=direct_bypass")
         } catch (_: Throwable) {}
-        com.lifecyclebot.engine.ReportingHub.buildTextAsync(
-            com.lifecyclebot.engine.ReportingHub.Kind.UNIFIED_HEALTH,
-            forceFresh = true,
-        ) { report, error ->
-            // V5.0.6305 — REMOVED the renderGeneration check. RCA: the check
-            // was killing every Copy where the user tapped, immediately opened
-            // the paste target app (onPause fires → generation++), and the
-            // callback arrived 1-6s later to a bumped generation → silent
-            // return, no toast, no clipboard write. Clipboard write is a
-            // fire-and-forget operation that MUST complete regardless of
-            // whether the activity is currently visible. Only `destroyed`
-            // remains as a guard against use-after-destroy crashes.
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_CALLBACK_6305", "hasReport=${report != null} err=${error?.javaClass?.simpleName ?: "none"} destroyed=$destroyed") } catch (_: Throwable) {}
-            if (destroyed) return@buildTextAsync
-            val fullText = report?.text ?: "(render error: ${error?.message ?: "unknown"})"
-            val text = com.lifecyclebot.engine.ReportingHub.clipboardSafeText(fullText)
-            bgHandler.post {
+        val activityRef = this
+        Thread({
+            var text = ""
+            var buildErr = ""
+            try {
+                // Fast path — PipelineHealthCollector.dumpText() is a bounded
+                // StringBuilder over already-collected counters. No IO, no
+                // coroutines, no mutex. Returns in single-digit ms.
+                text = com.lifecyclebot.engine.PipelineHealthCollector.dumpText()
+            } catch (t: Throwable) {
+                buildErr = t.javaClass.simpleName + ":" + (t.message?.take(80) ?: "")
+                text = "AATE report build error: $buildErr\n\n(Direct-bypass path could not read PipelineHealthCollector.)"
+            }
+            // Cap to the safe budget so setPrimaryClip cannot stall.
+            val safeText = com.lifecyclebot.engine.ReportingHub.clipboardSafeText(text)
+            var ok = false
+            var writeErr = ""
+            try {
+                val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cb.setPrimaryClip(ClipData.newPlainText("AATE Unified Report", safeText))
+                ok = true
+            } catch (t: Throwable) {
+                writeErr = t.javaClass.simpleName + ":" + (t.message?.take(80) ?: "")
+            }
+            mainHandler.post {
                 if (destroyed) return@post
-                var ok = false
-                var errName = ""
-                try {
-                    val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    cb.setPrimaryClip(ClipData.newPlainText("AATE Unified Report", text))
-                    ok = true
-                } catch (t: Throwable) {
-                    errName = t.javaClass.simpleName + ":" + (t.message?.take(80) ?: "")
-                }
-                mainHandler.post {
-                    if (destroyed) return@post
-                    if (ok) {
-                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_ONLY", "chars=${text.length} full=${fullText.length} hub=true thread=bg6305") } catch (_: Throwable) {}
-                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_COPY_OK_6305") } catch (_: Throwable) {}
-                        val msg = if (text.length < fullText.length) {
-                            "Copied ${text.length} of ${fullText.length} chars (paste-safe cap). Use Export for full."
-                        } else "Unified report copied (${text.length} chars)"
-                        Toast.makeText(this@PipelineHealthActivity, msg, Toast.LENGTH_LONG).show()
-                    } else {
-                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_COPY_FAIL_6305") } catch (_: Throwable) {}
-                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_FAIL_6305", "err=$errName") } catch (_: Throwable) {}
-                        Toast.makeText(this@PipelineHealthActivity, "Copy failed: $errName", Toast.LENGTH_LONG).show()
-                    }
+                if (ok) {
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_ONLY", "chars=${safeText.length} full=${text.length} hub=false thread=direct6306") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_COPY_OK_6306") } catch (_: Throwable) {}
+                    val msg = if (safeText.length < text.length) {
+                        "Copied ${safeText.length} of ${text.length} chars (paste-safe cap)"
+                    } else "Copied ${safeText.length} chars"
+                    Toast.makeText(activityRef, msg, Toast.LENGTH_LONG).show()
+                } else {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_COPY_FAIL_6306") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_FAIL_6306", "buildErr=$buildErr writeErr=$writeErr") } catch (_: Throwable) {}
+                    Toast.makeText(activityRef, "Copy failed: $writeErr", Toast.LENGTH_LONG).show()
                 }
             }
-        }
+        }, "PipelineHealth-DirectCopy-6306").start()
     }
 
     private fun formatBig(v: Long): String = when {
