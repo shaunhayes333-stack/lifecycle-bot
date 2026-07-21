@@ -353,8 +353,8 @@ class PipelineHealthActivity : AppCompatActivity() {
         //   second toast.
         //
         // NEW PATH: dedicated java Thread that:
-        //   1. Reads the fast in-memory PipelineHealthCollector.dumpText()
-        //      (already a bounded StringBuilder walk — no coroutine, no IO)
+        //   1. Reads the fast in-memory PipelineHealthCollector snapshot
+        //      (bounded StringBuilder walk — no coroutine, no IO)
         //   2. Writes clipboard on the SAME background thread (setPrimaryClip
         //      is thread-safe on API 26+, and this activity is only reached
         //      on API 26+ devices).
