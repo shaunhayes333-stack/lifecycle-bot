@@ -403,6 +403,14 @@ class WalletManager private constructor(private val ctx: Context) {
             // target tracker. Operator directive: "meme trader must target
             // 2x-5x live wallet balance growth compound daily".
             try { com.lifecyclebot.engine.MemeCompoundTarget6256.observeLiveWallet(solBal) } catch (_: Throwable) {}
+            // V5.0.6304 — also feed the paper compound basis so the meme
+            // compound target actually engages in paper mode (operator report
+            // 2026-07 showed start=0/progress=0). Uses RealizedWalletCompounding's
+            // clean cumulative PnL — same source the executive snapshot trusts.
+            try {
+                val cleanPnl = com.lifecyclebot.engine.RealizedWalletCompoundingGovernor.snapshot().cleanPnlSol
+                com.lifecyclebot.engine.MemeCompoundTarget6256.observePaperBasis(cleanPnl)
+            } catch (_: Throwable) {}
         } catch (e: kotlinx.coroutines.CancellationException) {
             // Silently ignore cancellation - this is expected during bot stop
             ErrorLogger.debug("Wallet", "refreshBalance cancelled (expected during shutdown)")

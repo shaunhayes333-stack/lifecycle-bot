@@ -3285,7 +3285,14 @@ object FinalDecisionGate {
         // paths are unaffected. Fail-open on exception.
         if (blockReason == null) {
             try {
-                val pauseState = LaneAutoPauseGuard.statusFor(laneName)
+                // V5.0.6304 — respect paper-mode bypass. LaneAutoPauseGuard.isPaused()
+                // returns false in paper mode (V5.0.6069 doctrine: "paper mode = learn
+                // everything"), but statusFor() ignores that bypass. Operator report
+                // 2026-07 showed 7× FDG blocks on SHITCOIN with reason=toxic_wr8_ev-4
+                // while the bot was in paper mode — starving the meme lane of learning
+                // samples. Gate the LIVE-only hard-block explicitly here.
+                val paperNow6304 = try { com.lifecyclebot.engine.GlobalTradeRegistry.isPaperMode } catch (_: Throwable) { false }
+                val pauseState = if (paperNow6304) null else LaneAutoPauseGuard.statusFor(laneName)
                 if (pauseState != null) {
                     blockReason = "LANE_AUTO_PAUSED_${pauseState.lane}_${pauseState.reason}"
                     blockLevel = BlockLevel.HARD

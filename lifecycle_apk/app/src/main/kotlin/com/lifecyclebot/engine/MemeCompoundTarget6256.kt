@@ -18,9 +18,10 @@ import kotlin.math.max
  * scales up (capped) to give the compounding engine enough headroom to reach
  * the target on the remaining trades of the day.
  *
- * PAPER MODE: this tracker is a no-op. Paper sizing is governed by the
- * existing CompoundGrowthMentality / LiveStrategyTuner stack. Operator's
- * ask was explicit that this applies to LIVE wallet growth.
+ * PAPER MODE (V5.0.6304): also active. Uses a paper basis derived from
+ * RealizedWalletCompoundingGovernor's clean cumulative PnL so the AI's sizing
+ * brain still practises hitting the 2x-5x daily target even without a live
+ * wallet feed. Operator: "not aiming for 5x compound daily target".
  *
  * DOCTRINE:
  *   • Never a gate. Never blocks a trade. Purely advisory sizing bias.
@@ -61,20 +62,64 @@ object MemeCompoundTarget6256 {
     /**
      * Feed the current live wallet SOL balance in. Called by BotService /
      * WalletManager on every wallet refresh (cheap: AtomicReference CAS).
+     *
+     * V5.0.6304 — SELF-HEAL FROM ZERO ANCHOR. Operator report 2026-07 showed
+     * `start=0.0000 SOL current=0.0000 SOL progress=0.00x` because the wallet
+     * recon at midnight-UTC latched a start of 0.0 (P2 wallet=0 cold-start
+     * bug). Once locked, the anchor never rolled again until the next day.
+     * Fix: if the anchor's startWalletSol is effectively zero (<0.001) and a
+     * non-zero balance arrives, RE-ANCHOR to today's real starting balance.
+     * This is safe — a lane's actual daily target is still computed from a
+     * live positive baseline.
      */
     fun observeLiveWallet(currentLiveSol: Double, nowMs: Long = System.currentTimeMillis()) {
         if (!currentLiveSol.isFinite() || currentLiveSol < 0.0) return
         val today = utcDayEpoch(nowMs)
         val cur = anchor.get()
-        if (cur == null || cur.dayEpochMs != today) {
-            // Roll to a new UTC day — snapshot the starting balance.
+        val needsRoll = cur == null || cur.dayEpochMs != today
+        val needsHeal = cur != null && cur.dayEpochMs == today && cur.startWalletSol < 0.001 && currentLiveSol >= 0.001
+        if (needsRoll || needsHeal) {
             anchor.compareAndSet(cur, DayAnchor(today, currentLiveSol))
-            try { ForensicLogger.lifecycle(
-                "MEME_COMPOUND_TARGET_DAY_ROLL_6256",
-                "startWalletSol=${"%.4f".format(currentLiveSol)} dayEpochMs=$today"
-            ) } catch (_: Throwable) {}
+            try {
+                val tag = if (needsHeal) "MEME_COMPOUND_TARGET_ZERO_HEAL_6304" else "MEME_COMPOUND_TARGET_DAY_ROLL_6256"
+                ForensicLogger.lifecycle(tag, "startWalletSol=${"%.4f".format(currentLiveSol)} dayEpochMs=$today prev=${cur?.startWalletSol ?: -1.0}")
+            } catch (_: Throwable) {}
         }
         cachedCurrentSol = currentLiveSol
+    }
+
+    /**
+     * V5.0.6304 — PAPER MODE FEEDER. Operator directive 2026-07: bot must
+     * aim for 2x-5x compound daily target even in paper mode so the AI's
+     * sizing brain actually practises hitting the target. Previously the
+     * comment claimed "PAPER MODE: no-op" but the bot runs primarily in
+     * paper — meaning the whole compound target engine was inert.
+     *
+     * Paper feed uses the running clean journal PnL as the "current wallet"
+     * basis, anchored against whatever the paper balance was at UTC midnight.
+     * This lets sizeAdvisoryFor() actually press the meme lanes when paper
+     * is behind target, and normalise once the paper journal is 2x+ up.
+     */
+    fun observePaperBasis(cleanPnlSol: Double, nowMs: Long = System.currentTimeMillis()) {
+        if (!cleanPnlSol.isFinite()) return
+        val today = utcDayEpoch(nowMs)
+        val cur = anchor.get()
+        // In paper the "wallet balance" concept is emulated by cumulative clean
+        // PnL. Anchor to whatever cleanPnl was at day roll (typically 0 at UTC
+        // midnight) then track growth from there.
+        val basis = cleanPnlSol.coerceAtLeast(0.0) + 1.0  // +1 so start≠0 and progress math holds
+        val needsRoll = cur == null || cur.dayEpochMs != today
+        val needsHeal = cur != null && cur.dayEpochMs == today && cur.startWalletSol < 0.001 && basis >= 0.001
+        if (needsRoll || needsHeal) {
+            anchor.compareAndSet(cur, DayAnchor(today, basis))
+            try {
+                ForensicLogger.lifecycle(
+                    "MEME_COMPOUND_TARGET_PAPER_ROLL_6304",
+                    "startBasis=${"%.4f".format(basis)} pnl=${"%.4f".format(cleanPnlSol)} dayEpochMs=$today",
+                )
+            } catch (_: Throwable) {}
+        }
+        cachedCurrentSol = basis
     }
 
     /**

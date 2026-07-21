@@ -342,24 +342,42 @@ class PipelineHealthActivity : AppCompatActivity() {
             if (destroyed || generation != renderGeneration) return@buildTextAsync
             val fullText = report?.text ?: "(render error: ${error?.message ?: "unknown"})"
             // V5.0.6302 — cap the clipboard payload so setPrimaryClip cannot
-            // stall the Main thread for >5s on a 100KB blob. Full report is
-            // still available via LiveTradeLogActivity → Export.
+            // stall the Main thread for >5s on a 100KB blob.
             val text = com.lifecyclebot.engine.ReportingHub.clipboardSafeText(fullText)
-            runOnUiThread {
-                if (destroyed || generation != renderGeneration) return@runOnUiThread
+            // V5.0.6304 — MOVE setPrimaryClip OFF THE MAIN THREAD.
+            // Operator report 2026-07: "its still not allowing the report to be
+            // copied". The V5.0.6302 40k cap wasn't enough because a 35k blob
+            // ALSO stalls setPrimaryClip on Main (ClipboardService Binder IPC is
+            // synchronous and CPU-bound in the system_server). Post the write
+            // to the render worker's HandlerThread; Toast still fires on Main
+            // (Toast.show requires Main looper). setPrimaryClip is thread-safe
+            // on API 26+ (per AOSP ClipboardManager source — it just posts the
+            // ClipData across a Binder). Fail-open on any device that disagrees.
+            bgHandler.post {
+                if (destroyed || generation != renderGeneration) return@post
+                var ok = false
+                var errName = ""
                 try {
                     val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     cb.setPrimaryClip(ClipData.newPlainText("AATE Unified Report", text))
-                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_ONLY", "chars=${text.length} full=${fullText.length} hub=true thread=main6302") } catch (_: Throwable) {}
-                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_COPY_OK_6302") } catch (_: Throwable) {}
-                    val msg = if (text.length < fullText.length) {
-                        "Copied ${text.length} of ${fullText.length} chars (paste-safe cap). Use Export for full."
-                    } else "Unified report copied (${text.length} chars)"
-                    Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+                    ok = true
                 } catch (t: Throwable) {
-                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_COPY_FAIL_6273") } catch (_: Throwable) {}
-                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_FAIL_6273", "err=${t.javaClass.simpleName}:${t.message?.take(120)}") } catch (_: Throwable) {}
-                    Toast.makeText(this, "Copy failed: ${t.javaClass.simpleName}", Toast.LENGTH_LONG).show()
+                    errName = t.javaClass.simpleName + ":" + (t.message?.take(80) ?: "")
+                }
+                mainHandler.post {
+                    if (destroyed || generation != renderGeneration) return@post
+                    if (ok) {
+                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_ONLY", "chars=${text.length} full=${fullText.length} hub=true thread=bg6304") } catch (_: Throwable) {}
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_COPY_OK_6304") } catch (_: Throwable) {}
+                        val msg = if (text.length < fullText.length) {
+                            "Copied ${text.length} of ${fullText.length} chars (paste-safe cap). Use Export for full."
+                        } else "Unified report copied (${text.length} chars)"
+                        Toast.makeText(this@PipelineHealthActivity, msg, Toast.LENGTH_SHORT).show()
+                    } else {
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_COPY_FAIL_6304") } catch (_: Throwable) {}
+                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_FAIL_6304", "err=$errName") } catch (_: Throwable) {}
+                        Toast.makeText(this@PipelineHealthActivity, "Copy failed: $errName", Toast.LENGTH_LONG).show()
+                    }
                 }
             }
         }

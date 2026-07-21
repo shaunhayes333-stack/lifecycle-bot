@@ -1,5 +1,44 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## ✅ V5.0.6303 SHIPPED — MFE CAPTURE FIX + CRYPTO TRADER REACH EXPANSION (2026-02, CI green)
+
+Commit `3f0768e89`. GitHub Actions build **success** (run 29771356677).
+
+Two operator-reported bugs fixed together:
+
+**Bug 1 — MFE + lane strategy not capturing data.**
+Root cause: `V3JournalRecorder.recordClose(peakGainPct: Double = 0.0)` gates the `PipelineHealthCollector.recordMfe(...)` call and the `MFE_RUNNER_GIVEBACK` label behind `if (peakSane > 0.0)`. Only `MoonshotTraderAI` passed a real peak. BlueChip / Quality / Manipulated / ShitCoin / ShitCoinExpress all omitted it → default 0.0 → recordMfe silently suppressed for 5 of 6 lanes.
+Fix: passed `peakGainPct = pos.peakPnlPct` (or `ride.peakPnlPct` for Express) into all 5 missing callers. Field was already tracked and updated in each Position/Ride class; only the wire-up was missing.
+
+**Bug 2 — Crypto (BLUECHIP) trader tiny + dumb (262 tokens, tiny sizes, tiny targets, barely trades).**
+Root cause: BlueChipTraderAI constants + tiny hardcoded watchlist.
+Fix:
+- `BASE_POSITION_SOL` 0.15 → 0.20
+- `MAX_POSITION_SOL` 0.5 → 1.00 (matches meme reach)
+- `TAKE_PROFIT_MATURE` 25% → 80% (bluechips can run)
+- `TAKE_PROFIT_BOOTSTRAP` 10 → 12%
+- `MAX_HOLD_MINUTES` 30 → 480 (8h swing, not scalp cap)
+- Post-shape floor 0.02 → 0.04 SOL
+- `SolanaBlueChipWatchlist` expanded 21 → 91 mints (Jupiter TVL top ~400, DePIN infra, LSTs, established memes, Kamino/Drift/Tensor DeFi)
+
+Downstream fluid throttles (regime damp, BehaviorAI, calibration shrink, danger soft-shape, ExpectancyTracker, UltimateEdgeEngine, LaneExitTuner) remain unchanged — only the ceiling was lifted and the universe widened.
+
+**Testing verification** (testing_agent_v3_fork iteration_1): all 12 static code-review checks PASS. All 5 recordClose callers wire peakGainPct correctly, BlueChip constants match spec, watchlist has 91 entries, no compilation-risk syntax issues.
+
+---
+
+## ✅ V5.0.6302 SHIPPED — CORPUS SEED WIRE + DAILY IN-BOT REFRESH + REPORT-COPY ANR CAP (2026-02, CI green)
+
+Commit `cdfafdf32`. GitHub Actions build **success**.
+
+Three-in-one operator directive delivered:
+1. **HistoricalCorpusSeeder.kt** (NEW) — reads `assets/historical_corpus.jsonl.gz` on BotService.onCreate and upserts each decisive (win/loss) row into LiveWinDNAStore via new idempotent `captureSeed(ts=...)` API. Synthetic stable ts anchored to row index means re-seeding every boot upserts SAME row keys — no duplicates, no MAX_ROWS blow-past. Fresh install / post-reinstall now boots with 55+ shape samples day-one.
+2. **DailyCorpusRefresher.kt** (NEW) — runs once every 24h on Dispatchers.IO, hits the same DexScreener `/latest/dex/search` endpoint the python fetcher uses, folds fresh decisive rows into LiveWinDNAStore. Boot-delay 90s so we never race live trading. Day-anchored synthetic ts so within-day retries upsert rather than duplicate. Operator directive: "this historical corpus should be triggered by the bot daily not from here".
+3. **fetch_solana_corpus.py expanded** — `CORPUS_MAX_TOKENS` default 500 → 2000, search vocabulary 9 → ~60 terms, per-token 7-day price ladder reconstructed from priceChange buckets (t-7d..t=now). Row schema adds `priceHistory7d` + `priceHistoryLabels`.
+4. **REPORT-COPY ANR CAP** — `ReportingHub.clipboardSafeText()` caps `setPrimaryClip` payload at 40k chars with a clear `COPY_TRUNCATED_FOR_ANR_6302` tag. Full 100k report still built and cached; only the clipboard slice is trimmed so Main-thread setPrimaryClip + system "Copied" toast can no longer stall 5s+ on 100KB blobs and trip the ANR watchdog. `PipelineHealthActivity.copyToClipboardAsync` + `ErrorLogActivity.exportLogs` both use the safe slice. Share intent still ships FULL report (only if user taps Share).
+
+---
+
 ## 🚨 V5.0.6297 SHIPPED — CRASH HOTFIX: revert V5.0.6295 unconditional runBlocking (2026-02, CI green)
 
 Commit `e9e0869f0`. GitHub Actions build **success**.

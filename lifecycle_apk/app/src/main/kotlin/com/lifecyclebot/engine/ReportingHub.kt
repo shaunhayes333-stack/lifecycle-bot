@@ -212,7 +212,13 @@ object ReportingHub {
     // forensic export via file), but the clipboard slice is capped so the
     // paste path is snappy and can't ANR. Operators can also grab the full
     // dump via LiveTradeLogActivity → Export (file-backed FileProvider share).
-    const val CLIPBOARD_SAFE_MAX_CHARS = 40_000
+    //
+    // V5.0.6304 — lowered cap from 40k -> 20k after operator report showed
+    // 35k blob STILL freezing the app. Combined with the new bg-thread
+    // clipboard write (PipelineHealthActivity/ErrorLogActivity), the total
+    // budget is now ~20k on a background thread, which is well under any
+    // ClipboardService stall threshold.
+    const val CLIPBOARD_SAFE_MAX_CHARS = 20_000
 
     /**
      * V5.0.6302 — bounded clipboard payload with a clear trailing tag so the
