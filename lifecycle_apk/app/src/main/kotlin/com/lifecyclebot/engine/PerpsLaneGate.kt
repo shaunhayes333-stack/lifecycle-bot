@@ -32,8 +32,9 @@ object PerpsLaneGate {
     // in MainActivity settings once the shadow ingest pipeline lands.
     @Volatile private var enabled: Boolean = false
 
-    /** Called by MainActivity settings toggle. Persists to prefs so shadow
-     *  survives supervisor restarts. */
+    /** Called by MainActivity settings toggle. In-memory only for Phase 1;
+     *  Phase 2 will add SharedPreferences persistence once the ingest
+     *  pipeline lands and shadow survival across restarts matters. */
     fun setEnabled(on: Boolean) {
         enabled = on
         try {
