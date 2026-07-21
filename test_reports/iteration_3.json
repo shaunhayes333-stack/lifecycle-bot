@@ -1,0 +1,29 @@
+{
+  "summary": "V5.0.6305 read-only Kotlin diff verification across 5 modified files + 1 new file + golden-tape substring grep. All 8 verification items PASS. No compile/run performed (per instructions, CI is sole build path; run 29828820708 already green).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verification_results": {
+    "1_copyToClipboardAsync_no_renderGeneration": "PASS — PipelineHealthActivity.kt lines 339-395: copyToClipboardAsync body contains only `destroyed` guards (lines 340, 364, 368, 379). No `renderGeneration` reference in the callback, inner bgHandler.post, or inner mainHandler.post. Immediate Toast at tap-time (line 348) with text 'Building report… paste target open, this may take a moment' fires BEFORE ReportingHub.buildTextAsync (line 351).",
+    "2_bgHandler_eager": "PASS — PipelineHealthActivity.kt line 90: `private val bgHandler: Handler = Handler(bgThread.looper)` — eager, no `by lazy`.",
+    "3_forensic_labels": "PASS — UNIFIED_REPORT_COPY_TAP_6305 emitted at line 349 (tap, inside try/catch, outside destroyed guard so survives lifecycle transitions). UNIFIED_REPORT_COPY_CALLBACK_6305 emitted at line 363 BEFORE the `if (destroyed) return@buildTextAsync` check, so it fires regardless of destroyed state.",
+    "4_lane_auto_recovery": "PASS — LaneAutoPauseGuard.kt lines 62-64 define RECOVERY_MIN_SAMPLE=20, RECOVERY_WR_PCT=25.0, RECOVERY_EV_PCT=0.0. evaluateLive() lines 306-324 iterates `paused.toMap()`, checks all three thresholds, and calls PipelineHealthCollector.labelInc(\"LANE_AUTO_RECOVERED_$lane\") + LANE_AUTO_RECOVERED_6305.",
+    "5_paperBasis_moneypath": "PASS — ReportingHub.kt lines 267-273: cleanPnlSol6305 sourced from RealizedWalletCompoundingGovernor.snapshot().cleanPnlSol; paperMode6305 from GlobalTradeRegistry.isPaperMode. When paperMode6305 && wallet<0.001 && cleanPnlSol6305>0.0 → walletLine contains `paperBasis=<cleanPnl> SOL`. Both branches (paper-basis line 270 and default line 272) retain the substring `note=open_unrealized_not_wallet_until_sell_finality`.",
+    "6_supervisor_warn_tuning": "PASS — PipelineHealthCollector.kt line 1228: `if (supCap > 0 && supExpired == 0L && supTimeout >= 5L && supTimeoutRecent2m >= 3L)` — bare-cap check replaced with wedged signature. Variable names (supCap line 1195, supExpired line 1197, supTimeout line 1198, supTimeoutRecent2m line 1199) all match declared locals.",
+    "7_perps_lane_gate": "PASS — PerpsLaneGate.kt is a new `object` at package com.lifecyclebot.engine. Methods: setEnabled(on: Boolean) line 37, canAdmitPerpsTrade(): Boolean line 51 (returns false unconditionally — early-return false when !enabled, hard-return false when enabled), isShadowEnabled(): Boolean line 59, statusLine(): String line 62. Phase-1 hard-block confirmed.",
+    "8_golden_tape_substrings": "PASS — Grep of GoldenTapeRegressionTest.kt line 6998 identified 3 protected substrings; all still present in active source: `open_unrealized_not_wallet_until_sell_finality` (ReportingHub.kt lines 270 & 272, BOTH branches), `buildMoneyPathTruthSummary6029` (ReportingHub.kt lines 191 & 234), `truth contract: DISCOVERY ...` (ReportingHub.kt line 287)."
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Line 269 conditional adds an extra guard `cleanPnlSol6305 > 0.0` — if the paper cleanPnl is exactly 0 or negative it silently falls through to the default branch (no paperBasis label). This is intentionally conservative but worth noting: users in early paper mode with negative EV won't see paperBasis. Consider showing `paperBasis=<value>` even for 0/negative to give a truthful zero-state indicator.",
+    "In PipelineHealthActivity.kt copyToClipboardAsync, the outer body still checks `if (destroyed || !viewsBound) return` (line 340). This is fine, but note the Toast/tap-forensic on lines 348-349 sits INSIDE this guard, so a destroyed activity would still skip the tap-forensic. That is likely intended (no toast on destroyed activity), but the spec says 'both must fire regardless of destroyed state' for the CALLBACK label — verified only the CALLBACK label fires regardless (line 363 is before the destroyed return-guard). The TAP label at line 349 correctly fires as long as the activity is not already destroyed at tap time.",
+    "PerpsLaneGate.setEnabled writes `enabled` in memory only — the KDoc says 'Persists to prefs so shadow survives supervisor restarts' but no SharedPreferences write is present. Non-blocking for Phase 1 skeleton, but doc/impl mismatch."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "n/a"},
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "V5.0.6305 all 8 diff-verification checks pass. CI run 29828820708 green. Copy-lifecycle killer bug fix confirmed in source (renderGeneration removed from copyToClipboardAsync callback path; only `destroyed` guards remain). Minor doc/impl mismatch noted in PerpsLaneGate (no actual prefs persistence yet) — acceptable for Phase-1 skeleton. Next iteration should focus on runtime behaviour if/when device logs become available.",
+  "rca_of_the_issue": "Prior silent-copy failure RCA (per problem statement): renderGeneration was bumped by onPause when the user switched to the paste target app after tapping Copy; the 1-6s ReportingHub.buildTextAsync callback then found `generation != renderGeneration` and silently returned before writing clipboard. V5.0.6305 removes the renderGeneration check from the callback and its inner bg/main handler posts, retaining only `destroyed` as a use-after-destroy guard, plus adds an immediate tap-time Toast so the user gets instant feedback that the button was heard even while the report is still being built."
+}
