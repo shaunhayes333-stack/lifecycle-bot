@@ -633,7 +633,8 @@ class GoldenTapeRegressionTest {
         val pipelineCopy = pipelineUi.substring(pipelineUi.indexOf("private fun copyToClipboardAsync"))
         val errorExport = errorUi.substring(errorUi.indexOf("private fun exportLogs"), errorUi.indexOf("private fun confirmClear"))
         val forensicClick = forensicUi.substring(forensicUi.indexOf("setOnClickListener"), forensicUi.indexOf("header.addView"))
-        assertTrue(pipelineCopy.contains("ReportingHub.Kind.UNIFIED_HEALTH"))
+        assertTrue("Pipeline copy/generate must use the 6308 dedicated-thread + watchdog path, not starved ReportingHub IO", pipelineCopy.contains("UNIFIED_REPORT_COPY_TAP_6308") && pipelineCopy.contains("PipelineHealth-GenerateCopy-6308") && pipelineCopy.contains("buildEmergencyPipelineReport6308") && pipelineCopy.contains("postDelayed"))
+        assertTrue("Pipeline copy must deliver clipboard writes through mainHandler, with visible success/fail telemetry", pipelineCopy.contains("mainHandler.post") && pipelineCopy.contains("setPrimaryClip") && pipelineCopy.contains("UNIFIED_REPORT_COPY_OK_6308") && pipelineCopy.contains("UNIFIED_REPORT_COPY_FAIL_6308"))
         assertTrue(errorExport.contains("ReportingHub.Kind.UNIFIED_HEALTH"))
         assertTrue(forensicClick.contains("ReportingHub.exportForensicFileAsync"))
         assertFalse("Pipeline copy must not directly build the massive dump", pipelineCopy.contains("PipelineHealthCollector.dumpText()"))
@@ -7296,6 +7297,20 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6078: Runtime report export button must always copy an observable unified-report fallback", err.contains("UNIFIED_REPORT_EXPORT_CLICK_6078") && err.contains("Unified report copied") && err.contains("PipelineHealthCollector.dumpText().take(24_000)"))
         assertTrue("V5.0.6078: all sell-like results must feed LLM/SSI context with accepted/trainable flags while policy heads remain clean-gated", exec.contains("ALL_RESULT_CONTEXT_OBSERVED_6078") && exec.contains("recordExternalOutcome6078") && lab.contains("externalOutcomeSummary6078") && ssi.contains("RESULTS6078"))
         assertTrue("V5.0.6078: live positions must preserve AgenticStyleRouter style surface instead of collapsing to generic lane emoji", exec.contains("preserve the full AgenticStyleRouter style surface") && exec.contains("tradingModeEmoji = listOf") && exec.contains("routedStyleTag.ifBlank"))
+    }
+
+
+    @Test
+    fun V5_0_6308_pipeline_report_generation_has_watchdog_fallback_and_main_clipboard() {
+        val ui = java.io.File("src/main/kotlin/com/lifecyclebot/ui/PipelineHealthActivity.kt").readText()
+        assertTrue("V5.0.6308: pipeline report generation must never silently hang after first toast",
+            ui.contains("GUARANTEED PIPELINE REPORT GENERATION") && ui.contains("UNIFIED_REPORT_WATCHDOG_FALLBACK_6308") && ui.contains("full_builder_timeout_8s"))
+        assertTrue("V5.0.6308: clipboard writes must happen from mainHandler delivery, not the report builder thread",
+            ui.contains("fun deliverReport6308") && ui.contains("mainHandler.post") && ui.contains("cb.setPrimaryClip") && ui.contains("Report generated but clipboard failed"))
+        assertTrue("V5.0.6308: generated report must also render on-screen in bounded sections",
+            ui.contains("fullDumpCache = safeText") && ui.contains("reportSections = splitDumpIntoSections(safeText)") && ui.contains("renderCurrentSection()"))
+        assertTrue("V5.0.6308: fallback report must include the choke-critical pipeline surfaces",
+            ui.contains("AATE PIPELINE EMERGENCY REPORT V5.0.6308") && ui.contains("FDG BLOCK REASONS") && ui.contains("LIVE BUY FAIL REASONS") && ui.contains("INTAKE BY SOURCE") && ui.contains("RECENT EVENTS"))
     }
 
 }
