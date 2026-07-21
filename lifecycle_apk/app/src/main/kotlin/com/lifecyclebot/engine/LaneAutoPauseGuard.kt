@@ -55,6 +55,13 @@ object LaneAutoPauseGuard {
     private const val MIN_SAMPLE = 8
     private const val ZERO_WIN_MIN_SAMPLE = 8
     private const val TOXIC_WR_PCT = 20.0
+    // V5.0.6305 — LANE BLEED AUTO-RECOVERY thresholds. A paused lane can be
+    // auto-unpaused once its RECENT trainable sample climbs back to WR>=25%
+    // and EV>=0 — matches operator directive "recent-100 WR above 25%".
+    // RECOVERY_MIN_SAMPLE is higher than pause thresholds to avoid flapping.
+    private const val RECOVERY_MIN_SAMPLE = 20
+    private const val RECOVERY_WR_PCT = 25.0
+    private const val RECOVERY_EV_PCT = 0.0
     private const val TOXIC_EV_PCT = -20.0
     private const val TOXIC_MIN_SAMPLE = 12
 
@@ -283,6 +290,35 @@ object LaneAutoPauseGuard {
                         )
                         PipelineHealthCollector.labelInc("LANE_AUTO_PAUSED_$lane")
                         PipelineHealthCollector.labelInc("LANE_AUTO_PAUSED_DIRECT_JOURNAL_4592")
+                    } catch (_: Throwable) {}
+                }
+            }
+
+            // V5.0.6305 — LANE BLEED AUTO-RECOVERY. Operator directive 2026-07:
+            // "let a paused live lane auto-reset when its recent-100 WR climbs
+            // back above 25% so stale toxic_wr8 tags don't hold live capacity
+            // hostage forever". Previously only manualResume() (LLM-Lab shadow
+            // proof or human tap) could unpause a lane — but the paused lane
+            // still received shadow paper samples (V5.0.6304 paper-mode
+            // bypass), so its WR can legitimately climb back. If the RECENT
+            // window (same clean-truth journal read) shows n>=RECOVERY_MIN_SAMPLE
+            // and WR>=RECOVERY_WR_PCT and EV>=RECOVERY_EV_PCT, auto-unpause.
+            for ((lane, pauseState) in paused.toMap()) {
+                val agg = byLane[lane] ?: continue
+                if (agg.sample < RECOVERY_MIN_SAMPLE) continue
+                val wrPct = agg.wins.toDouble() / agg.sample.toDouble() * 100.0
+                val evPct = agg.pnlSum / agg.sample
+                if (wrPct >= RECOVERY_WR_PCT && evPct >= RECOVERY_EV_PCT) {
+                    val heldForMinutes = (now - pauseState.pausedAt) / 60_000L
+                    paused.remove(lane)
+                    mutated = true
+                    try {
+                        ErrorLogger.info(
+                            "LaneAutoPauseGuard",
+                            "✅ LANE_AUTO_RECOVERED lane=$lane n=${agg.sample} wr=${"%.1f".format(wrPct)}% ev=${"%.1f".format(evPct)}% heldForMin=$heldForMinutes originalReason=${pauseState.reason}",
+                        )
+                        PipelineHealthCollector.labelInc("LANE_AUTO_RECOVERED_$lane")
+                        PipelineHealthCollector.labelInc("LANE_AUTO_RECOVERED_6305")
                     } catch (_: Throwable) {}
                 }
             }

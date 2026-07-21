@@ -258,7 +258,20 @@ object ReportingHub {
             val basisTxt = if (truth6037.trusted) "basis=trusted" else "basis=${truth6037.reason.ifBlank { "untrusted" }}"
             Triple(pnlPct, pnlSol, "${ts.symbol.ifBlank { ts.mint.take(6) }} lane=${p.tradingMode.ifBlank { "?" }} ${basisTxt} ${routeTxt} open=${p.costSol.fmt4()} mark=${truth6037.markPrice} pnl=${pnlPct.fmt1()}%/${pnlSol.fmt4()} SOL")
         }.sortedByDescending { it.first }.take(5).toList()
-        appendLine("wallet=${wallet.fmt4()} SOL localOpen=live:$localLiveOpen6098 paper:$localPaperOpen6098 hostTracker=$hostTrackerOpen6098 trustedLiveOpen=${trustedLiveOpenPnl.fmt4()} SOL liveRunners=$trustedLiveOpenCount trustedPaperOpen=${trustedPaperOpenPnl.fmt4()} SOL paperRunners=$trustedPaperOpenCount note=open_unrealized_not_wallet_until_sell_finality")
+        // V5.0.6305 — MONEY PATH TRUTH now shows PAPER BASIS alongside the
+        // (typically zero in paper mode) live wallet. Operator saw wallet=0.0000
+        // SOL in the exec snapshot even though paper journal was +229 SOL —
+        // technically correct (no live wallet), but hid the real paper equity.
+        // Show cleanPnlSol from RealizedWalletCompoundingGovernor so the truth
+        // section reflects paper progress toward the 2x-5x daily target.
+        val cleanPnlSol6305 = try { com.lifecyclebot.engine.RealizedWalletCompoundingGovernor.snapshot().cleanPnlSol } catch (_: Throwable) { 0.0 }
+        val paperMode6305 = try { com.lifecyclebot.engine.GlobalTradeRegistry.isPaperMode } catch (_: Throwable) { true }
+        val walletLine = if (paperMode6305 && wallet < 0.001 && cleanPnlSol6305 > 0.0) {
+            "wallet=${wallet.fmt4()} SOL (paperBasis=${cleanPnlSol6305.fmt4()} SOL, live=$paperMode6305 mode) localOpen=live:$localLiveOpen6098 paper:$localPaperOpen6098 hostTracker=$hostTrackerOpen6098 trustedLiveOpen=${trustedLiveOpenPnl.fmt4()} SOL liveRunners=$trustedLiveOpenCount trustedPaperOpen=${trustedPaperOpenPnl.fmt4()} SOL paperRunners=$trustedPaperOpenCount note=open_unrealized_not_wallet_until_sell_finality"
+        } else {
+            "wallet=${wallet.fmt4()} SOL localOpen=live:$localLiveOpen6098 paper:$localPaperOpen6098 hostTracker=$hostTrackerOpen6098 trustedLiveOpen=${trustedLiveOpenPnl.fmt4()} SOL liveRunners=$trustedLiveOpenCount trustedPaperOpen=${trustedPaperOpenPnl.fmt4()} SOL paperRunners=$trustedPaperOpenCount note=open_unrealized_not_wallet_until_sell_finality"
+        }
+        appendLine(walletLine)
         if (pipe != null) {
             fun label(k: String): Long = pipe.labelCounts[k] ?: 0L
             appendLine("harvest: walletGrowth=${label("WALLET_GROWTH_HARVEST_TRIGGERED_6028")} routeReal=${label("ROUTE_REAL_CLAIM_MISMATCH_HARVEST_6029")} priceUnreal=${label("WALLET_GROWTH_HARVEST_DEFERRED_PRICE_UNREAL_6028") + label("ULTRA_RUNNER_BANK_DEFERRED_PRICE_UNREAL")} walletNull=${label("WALLET_GROWTH_HARVEST_DEFERRED_WALLET_NULL_6028")}")

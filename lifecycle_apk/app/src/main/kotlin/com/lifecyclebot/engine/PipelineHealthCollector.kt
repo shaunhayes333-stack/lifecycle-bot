@@ -1220,8 +1220,13 @@ object PipelineHealthCollector {
                 sb.append("  ⚠ EXIT sweep skip pressure exceeds done/timeout/reset — alreadyRunning still choking exits.\n")
             if (slSkip > slDone + slTimeout + slReset + 3)
                 sb.append("  ⚠ Universal SL skip pressure exceeds done/timeout/reset — hard-floor sweep may still be choked.\n")
-            if (supCap > 0 && supExpired == 0L)
-                sb.append("  ⚠ Supervisor cap hit but no lease expiry — lease pruning may not be freeing capacity.\n")
+            // V5.0.6305 — the old bare `supCap>0 && supExpired==0` warning
+            // false-fired on healthy pools whose workers all completed inside
+            // the 6s lease TTL (no prune needed because the finally block
+            // already released the slot). Only warn when the pool is TRULY
+            // wedged: cap-hit while workerTimeout is climbing AND no expiries.
+            if (supCap > 0 && supExpired == 0L && supTimeout >= 5L && supTimeoutRecent2m >= 3L)
+                sb.append("  ⚠ Supervisor cap hit + $supTimeout worker timeouts but no lease TTL expiry — force-release path may not be pruning the map. Investigate supervisorLeases.remove flow.\n")
             if (uiInactiveSkip > 0)
                 sb.append("  ⚠ Main update skipped while inactive — if visible, V5.9.1085 did not fully close the UI gate regression.\n")
             sb.append('\n')
