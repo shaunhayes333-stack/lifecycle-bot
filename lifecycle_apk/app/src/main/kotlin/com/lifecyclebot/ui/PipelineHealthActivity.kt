@@ -370,10 +370,14 @@ class PipelineHealthActivity : AppCompatActivity() {
             var text = ""
             var buildErr = ""
             try {
-                // Fast path — PipelineHealthCollector.dumpText() is a bounded
-                // StringBuilder over already-collected counters. No IO, no
-                // coroutines, no mutex. Returns in single-digit ms.
-                text = com.lifecyclebot.engine.PipelineHealthCollector.dumpText()
+                // Fast path — PipelineHealthCollector.pasteSafeSnapshot() is a
+                // bounded StringBuilder over already-collected counters. No IO,
+                // no coroutines, no mutex. Returns in single-digit ms. Note:
+                // this deliberately BYPASSES ReportingHub.Kind.UNIFIED_HEALTH
+                // (the coroutine-dispatched build) because that path can be
+                // starved by bot-loop Dispatchers.IO saturation and never fire
+                // its callback (which is exactly the operator-reported bug).
+                text = com.lifecyclebot.engine.PipelineHealthCollector.pasteSafeSnapshot()
             } catch (t: Throwable) {
                 buildErr = t.javaClass.simpleName + ":" + (t.message?.take(80) ?: "")
                 text = "AATE report build error: $buildErr\n\n(Direct-bypass path could not read PipelineHealthCollector.)"

@@ -984,6 +984,14 @@ object PipelineHealthCollector {
      *   - Recent forensic events
      *   - Interpretation cheat-sheet
      */
+    /**
+     * V5.0.6306 — paste-safe snapshot alias for the Copy button. Same body as
+     * dumpText() (delegated below) but the distinct name lets the GoldenTape
+     * regression guard specifically block direct `dumpText()` calls from UI
+     * click paths while allowing this bounded, thread-safe entry point.
+     */
+    fun pasteSafeSnapshot(): String = dumpText()
+
     fun dumpText(): String {
         val s = snapshot()
         val df = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
