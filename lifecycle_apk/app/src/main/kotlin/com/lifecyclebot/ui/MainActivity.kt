@@ -5309,6 +5309,15 @@ for legal compliance.
         val renderedMints = HashSet<String>(capped.size * 2)
         capped.forEach { ts ->
             val pos     = ts.position
+            // V5.0.6321 — CANONICAL FILL OVERRIDE (§8 continued). If the
+            // wallet has verified the fill for this mint, prefer the
+            // immutable on-chain entry snapshot over ts.position.entryPrice
+            // and ts.position.qtyToken. Closes the Pilly-style "position
+            // card shows Entry $0.00000587 while journal has $0.00009761"
+            // divergence at the display layer.
+            val fill6321 = try { com.lifecyclebot.engine.CanonicalBuyFillRegistry.get(ts.mint) } catch (_: Throwable) { null }
+            val entryPriceForCard6321: Double = fill6321?.entryPriceSol?.takeIf { it > 0.0 } ?: pos.entryPrice
+            val entryQtyForCard6321: Double = fill6321?.walletVerifiedQty?.takeIf { it > 0.0 } ?: pos.qtyToken
             val pnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "MainActivity.renderRow/${ts.symbol}/${ts.mint.take(8)}", emit = true)
             val basisTrusted = pnlVerdict.ok
             val gainPct = if (basisTrusted) pnlVerdict.pnlPct else 0.0
@@ -5316,7 +5325,8 @@ for legal compliance.
             val pnlSol  = if (basisTrusted) pos.costSol * gainPct / 100.0 else 0.0
 
             // V5.6.18: Use actual token quantity from position, not calculated value
-            val tokenAmount = pos.qtyToken
+            // V5.0.6321 — prefer canonical qty when available (wallet-verified).
+            val tokenAmount = entryQtyForCard6321
             val currentValue = pos.costSol + pnlSol  // Current value in SOL
             val valueUsd = currentValue * solPrice
             val routeTruth6030 = try { com.lifecyclebot.engine.RealPriceLock.lastRouteTruth(ts.mint) } catch (_: Throwable) { null }
@@ -5498,9 +5508,9 @@ for legal compliance.
                     })
                 }
             }
-            // Entry price per token and time — use pos.entryPrice directly
+            // Entry price per token and time — V5.0.6321 prefer canonical fill
             info.addView(TextView(this).apply {
-                text = "Entry: ${if (pos.entryPrice > 0.0) pos.entryPrice.fmtPrice() else "pricing wait"}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
+                text = "Entry: ${if (entryPriceForCard6321 > 0.0) entryPriceForCard6321.fmtPrice() else "pricing wait"}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE

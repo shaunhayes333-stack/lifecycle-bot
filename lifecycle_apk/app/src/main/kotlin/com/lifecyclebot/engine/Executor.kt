@@ -7383,7 +7383,29 @@ class Executor(
                     feeSol = partialAcct.feeSol
                 }
                 ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
-                val livePartialCostBasisSol = pos.costSol * sellFraction
+                // V5.0.6321 — CANONICAL PARTIAL COST BASIS (§8 continued).
+                // The partial-sell toast + journal previously used
+                // pos.costSol * sellFraction, but pos.costSol carries the
+                // pre-verify heuristic when the SELL fires before the
+                // wallet-verify backfill lands. Override with the on-chain-
+                // proven solSpentNet whenever the canonical registry has
+                // a fill for this mint. Closes the "sold 25% at −31%"
+                // toast contradicting a +1564% position display.
+                val fill6321 = try { com.lifecyclebot.engine.CanonicalBuyFillRegistry.get(ts.mint) } catch (_: Throwable) { null }
+                val canonicalCostBasis6321 = fill6321?.solSpentNet?.takeIf { it > 0.0 }
+                val livePartialCostBasisSol = (canonicalCostBasis6321 ?: pos.costSol) * sellFraction
+                if (fill6321 != null && canonicalCostBasis6321 != null && canonicalCostBasis6321 > 0.0 && pos.costSol > 0.0) {
+                    val ratio = maxOf(canonicalCostBasis6321, pos.costSol) / minOf(canonicalCostBasis6321, pos.costSol)
+                    if (ratio > 1.10) {
+                        try {
+                            ForensicLogger.lifecycle(
+                                "PARTIAL_SELL_CANONICAL_COST_OVERRIDE_6321",
+                                "mint=${ts.mint.take(10)} sym=${ts.symbol} staleCostSol=${pos.costSol} canonSolSpent=${canonicalCostBasis6321} ratio=${"%.2f".format(ratio)}× sellFrac=$sellFraction",
+                            )
+                            PipelineHealthCollector.labelInc("PARTIAL_SELL_CANONICAL_COST_OVERRIDE_6321")
+                        } catch (_: Throwable) {}
+                    }
+                }
                 val liveTrade = Trade("PARTIAL_SELL", "live", livePartialCostBasisSol, actualPrice,
                     System.currentTimeMillis(), livePartialReason,
                     livePnl, liveScore, sig = sig, feeSol = feeSol, netPnlSol = netPnl,
@@ -16374,7 +16396,18 @@ class Executor(
                     // Update position
                     ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
                     
-                    val livePartialCostBasisSol = pos.costSol * pct
+                    // V5.0.6321 — canonical partial cost basis (§8 continued).
+                    val fill6321b = try { com.lifecyclebot.engine.CanonicalBuyFillRegistry.get(ts.mint) } catch (_: Throwable) { null }
+                    val canonCost6321b = fill6321b?.solSpentNet?.takeIf { it > 0.0 }
+                    val livePartialCostBasisSol = (canonCost6321b ?: pos.costSol) * pct
+                    if (fill6321b != null && canonCost6321b != null && pos.costSol > 0.0) {
+                        val ratio = maxOf(canonCost6321b, pos.costSol) / minOf(canonCost6321b, pos.costSol)
+                        if (ratio > 1.10) {
+                            try {
+                                PipelineHealthCollector.labelInc("PARTIAL_SELL_CANONICAL_COST_OVERRIDE_6321")
+                            } catch (_: Throwable) {}
+                        }
+                    }
                     val liveTrade = Trade("PARTIAL_SELL", "live", livePartialCostBasisSol, currentPrice,
                         System.currentTimeMillis(), if (newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct",
                         livePnl, liveScore, sig = finalSig, feeSol = feeSol, netPnlSol = netPnl,
