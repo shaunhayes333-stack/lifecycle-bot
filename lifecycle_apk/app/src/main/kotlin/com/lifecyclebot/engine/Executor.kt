@@ -1460,7 +1460,41 @@ class Executor(
     private fun inferUiScaleFromTrade(rawAmount: Long, solAmount: Double, priceUsd: Double): Double {
         if (rawAmount <= 0L || solAmount <= 0.0 || priceUsd <= 0.0) return 1_000_000_000.0
 
-        val estimatedQty = solAmount / priceUsd
+        // V5.0.6310 — UNITS FIX (root cause of the "WADDLE" 1000× skew).
+        // Historical impl computed `estimatedQty = solAmount / priceUsd`, but
+        // `solAmount` is in SOL while `priceUsd` is USD per token. That left
+        // an implicit ~$150 SOL/USD factor missing, so `estimatedQty` was
+        // ~200× too small and the log10-nearest candidate scale landed
+        // 100×–1000× off the real mint decimals. BUY leg then journaled
+        // qty at the wrong scale; wallet-verify later promoted the correct
+        // qty into ts.position, so the SELL leg journaled the correct qty
+        // and the pipeline health audit saw a 10³× BUY↔SELL divergence,
+        // which the AI learning brain read as fake "10× runner" wins.
+        //
+        // Fix: multiply through by the last-known SOL price so the units
+        // resolve correctly:
+        //   estimatedQty = (solAmount_SOL * solPrice_USDperSOL) / priceUsd_USDperToken
+        //                = solNotionalUsd_USD / priceUsd_USDperToken
+        //                = qty_tokens          ✔
+        //
+        // Safety fallback: if SOL price is unknown (< 50 USD, dead feed),
+        // the old (buggy) formula is preserved to avoid a regression that
+        // could crash-loop on cold boot before WalletManager warms up.
+        // A canary log fires whenever the fallback is exercised so the
+        // operator can grep CI/logcat and see it never happens in flight.
+        val solPriceUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val estimatedQty = if (solPriceUsd >= 50.0) {
+            (solAmount * solPriceUsd) / priceUsd
+        } else {
+            try {
+                ErrorLogger.warn(
+                    "Executor",
+                    "⚠ INFER_UI_SCALE_SOLPRICE_FALLBACK_6310 solPx=$solPriceUsd raw=$rawAmount solAmt=$solAmount pxUsd=$priceUsd — using pre-6310 buggy formula until SOL price warms"
+                )
+                PipelineHealthCollector.labelInc("INFER_UI_SCALE_SOLPRICE_FALLBACK_6310")
+            } catch (_: Throwable) {}
+            solAmount / priceUsd
+        }
         if (!estimatedQty.isFinite() || estimatedQty <= 0.0) return 1_000_000_000.0
 
         val observedScale = rawAmount.toDouble() / estimatedQty
@@ -3040,11 +3074,45 @@ class Executor(
             }
         } catch (_: Throwable) { tradeWithMint.side.equals("SELL", ignoreCase = true) }
 
+        // V5.0.6310 — QTY_DECIMAL_SKEW LEARNING QUARANTINE.
+        // If the SELL row's entryQtyToken (post-wallet-verify, correct
+        // decimals) diverges by >10× from the last recorded BUY row for
+        // the same mint (pre-wallet-verify, possibly heuristic-inferred),
+        // we know the paired BUY leg was journaled at the wrong scale.
+        // The row's %PnL is still directionally correct (it's price-ratio-
+        // driven, not qty-driven), but sizing / PnLSol accounting for
+        // per-lane learning becomes untrustworthy. Quarantine from the
+        // learning fanout so the Bayesian brain doesn't ingest fake
+        // "10× winners" while the wallet actually took a loss.
+        val qtyDecimalSkew6310: Boolean = try {
+            if (!tradeWithMint.side.equals("SELL", true) && !tradeWithMint.side.equals("PARTIAL_SELL", true)) false
+            else {
+                val sellQty = tradeWithMint.entryQtyToken
+                val buyQty = TradeHistoryStore.getLatestBuyByMintSnapshot()[tradeWithMint.mint]?.entryQtyToken ?: 0.0
+                if (sellQty > 0.0 && buyQty > 0.0) {
+                    val ratio = maxOf(sellQty, buyQty) / minOf(sellQty, buyQty)
+                    if (ratio > 10.0) {
+                        try {
+                            ForensicLogger.lifecycle(
+                                "QTY_DECIMAL_SKEW_LEARNING_QUARANTINE_6310",
+                                "mint=${tradeWithMint.mint.take(10)} sym=${ts.symbol} side=${tradeWithMint.side} buyQty=${buyQty.fmt(6)} sellQty=${sellQty.fmt(6)} ratio=${ratio.fmt(1)}× reason=${tradeWithMint.reason} — decimals mismatch, excluded from learning fanout",
+                            )
+                            PipelineHealthCollector.labelInc("QTY_DECIMAL_SKEW_LEARNING_QUARANTINE_6310")
+                        } catch (_: Throwable) {}
+                        true
+                    } else false
+                } else false
+            }
+        } catch (_: Throwable) { false }
+
         val accountingTrainable: Boolean = try {
             if (!tradeWithMint.side.equals("SELL", true) && !tradeWithMint.side.equals("PARTIAL_SELL", true)) true
             // V5.0.4112 — recovered scratches are NEVER trainable. They have
             // no real cost basis and represent inventory cleanup, not edge.
             else if (isRecoveredScratch) false
+            // V5.0.6310 — decimal-skew quarantine (belt-and-suspenders on top
+            // of the inferUiScaleFromTrade units fix and explicitDecimals plumb).
+            else if (qtyDecimalSkew6310) false
             else {
                 val proceeds = tradeWithMint.sol + (tradeWithMint.netPnlSol.takeIf { it != 0.0 } ?: tradeWithMint.pnlSol)
                 tradeWithMint.price > 0.0 && tradeWithMint.sol > 0.0 && proceeds >= -0.0000001
@@ -6298,6 +6366,34 @@ class Executor(
             //   +1000%  → 100% exit (bank the 11x, no partials, no runner
             //             leftover — the pumps that go 10x reverse hard)
             run quickRunner@{
+                // V5.0.6310 — LIQUIDITY-HALVED MARK INVALIDATION (root fix
+                // for the "WADDLE" fake-10x label). When a rug drains the
+                // pool, the WebSocket / cached price may still print a
+                // phantom "up" tick for one or more windows before catching
+                // up. Dual-source route-lock catches most, but not all,
+                // because both sources can be reading the same drained pool.
+                // The definitive tell is LIQUIDITY: if entryLiquidityUsd was
+                // e.g. $60k and now the pool has $8k, no positive PnL read
+                // is trustworthy for a full/95% exit — the sell will punch
+                // straight through the remaining depth and fill catastrophic.
+                // Block the runner gate entirely; STRICT_SL / rug / stale-
+                // quote backstops still fire on their own paths.
+                val entryLiq6310 = pos.entryLiquidityUsd
+                val currentLiq6310 = ts.lastLiquidityUsd
+                val liqHalved6310 = entryLiq6310 > 0.0 &&
+                    currentLiq6310 > 0.0 &&
+                    currentLiq6310 < entryLiq6310 * 0.5
+                if (liqHalved6310 && bestPnl >= 500.0) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "LIQ_HALVED_MARK_INVALIDATED_6310",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} bestPnl=${bestPnl.fmt(1)}% entryLiq=\$${entryLiq6310.fmt(0)} nowLiq=\$${currentLiq6310.fmt(0)} halvedTo=${(currentLiq6310 / entryLiq6310 * 100.0).fmt(1)}% — runner gate blocked (rug in progress, positive mark is phantom)",
+                        )
+                        PipelineHealthCollector.labelInc("LIQ_HALVED_MARK_INVALIDATED_6310")
+                    } catch (_: Throwable) {}
+                    onLog("🛑 LIQ HALVED: ${ts.symbol} pool \$${entryLiq6310.fmt(0)}→\$${currentLiq6310.fmt(0)} — +${bestPnl.toInt()}% mark discarded, runner exit blocked", ts.mint)
+                    return@quickRunner
+                }
                 // V5.0.6245 — DUAL-SOURCE CONFIRMATION for positive runner
                 // exits. The phantom-tick bug (see cachedOnRoute route-lock
                 // above) can still slip through if only one source has a
@@ -9000,6 +9096,14 @@ class Executor(
             val price  = getActualPrice(ts)
             val sig: String
             val newQty: Double
+            // V5.0.6310 — plumb wallet-known mint decimals into the top-up
+            // qty conversion so rawTokenAmountToUiAmount never falls back to
+            // the inferUiScaleFromTrade heuristic on the top-up path. For a
+            // top-up the token account already exists (that's why we're
+            // topping up), so the wallet reliably knows the mint decimals.
+            val topUpExplicitDecimals: Int? = try {
+                wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.second?.takeIf { it >= 0 }
+            } catch (_: Throwable) { null }
             if (ppResult != null) {
                 sig = ppResult.first
                 newQty = ppResult.second
@@ -9037,7 +9141,7 @@ class Executor(
                     onLog("Broadcasting top-up tx…", ts.mint)
                 }
                 sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute, txResult.senderCompatible)
-                newQty = rawTokenAmountToUiAmount(ts, quote.outAmount, solAmount = jupiterTopUpPlan.solAmount, priceUsd = price)
+                newQty = rawTokenAmountToUiAmount(ts, quote.outAmount, solAmount = jupiterTopUpPlan.solAmount, priceUsd = price, explicitDecimals = topUpExplicitDecimals)
             }
 
             val verifiedDelta = try {
@@ -13990,7 +14094,20 @@ class Executor(
                 throw Exception("Invalid normalized price for ${ts.symbol}")
             }
             val finalQty: Double = if (pumpFirstResult != null) qty
-                else rawTokenAmountToUiAmount(ts, quote!!.outAmount, solAmount = sol, priceUsd = price)
+                else {
+                    // V5.0.6310 — plumb explicit mint decimals so BUY qty
+                    // never lands on the inferUiScaleFromTrade heuristic.
+                    // First-preference: any decimals already reflected on
+                    // ts / ts.meta / ts.position (populated by discovery /
+                    // Birdeye providers). Second-preference: the wallet.
+                    // Only mints where BOTH sources are silent fall to the
+                    // 6310-corrected inference (with SOL-price units).
+                    val buyExplicitDecimals: Int? = try {
+                        val fromMeta = getTokenDecimals(ts).takeIf { it >= 0 }
+                        fromMeta ?: wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.second?.takeIf { it >= 0 }
+                    } catch (_: Throwable) { null }
+                    rawTokenAmountToUiAmount(ts, quote!!.outAmount, solAmount = sol, priceUsd = price, explicitDecimals = buyExplicitDecimals)
+                }
 
             if (ts.position.isOpen) {
                 // V5.0.4576 — SOURCE FIX, not just telemetry. This idempotent
