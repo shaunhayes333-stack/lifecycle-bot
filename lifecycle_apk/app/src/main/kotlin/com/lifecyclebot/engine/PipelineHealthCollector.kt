@@ -1453,6 +1453,34 @@ object PipelineHealthCollector {
 
         // ── Recent executions ───────────────────────────────────────
         if (s.recentExecs.isNotEmpty()) {
+            // V5.0.6309 — QTY DECIMAL SANITY AUDIT. Operator report 2026-07 showed
+            // 4rsf6x BUY qty=797.2 but SELL qty=7.972e+05 (1000× jump) for the same
+            // mint, and open-position PnL not matching realized sell. Root: BUY vs
+            // SELL journal paths call rawTokenAmountToUiAmount() with different
+            // `explicitDecimals` (BUY often reflects the mint decimals; SELL falls
+            // back to inferUiScaleFromTrade heuristic when priceUsd shifts between
+            // buy and sell). Audit surfaces this drift so operators (and CI) can
+            // see the exact mint where the display divergence lives.
+            try {
+                val byMintQty: MutableMap<String, DoubleArray> = HashMap()
+                for (ex in s.recentExecs) {
+                    if (ex.entryQtyToken <= 0.0) continue
+                    val slot = byMintQty.getOrPut(ex.symbol) { DoubleArray(2) { 0.0 } }
+                    val idx = if (ex.side.equals("BUY", true)) 0 else 1
+                    slot[idx] = maxOf(slot[idx], ex.entryQtyToken)
+                }
+                val skewed = byMintQty.entries.filter { (_, v) ->
+                    v[0] > 0.0 && v[1] > 0.0 && (maxOf(v[0], v[1]) / minOf(v[0], v[1]) > 10.0)
+                }
+                if (skewed.isNotEmpty()) {
+                    sb.append("  ⚠ QTY_DECIMAL_SKEW_6309: ")
+                    skewed.take(4).forEach { (sym, v) ->
+                        sb.append(sym).append("(buyQty=").append(String.format("%.4g", v[0])).append(" sellQty=").append(String.format("%.4g", v[1])).append(") ")
+                    }
+                    sb.append("\n")
+                    bump(labelCounts, "QTY_DECIMAL_SKEW_DETECTED_6309")
+                }
+            } catch (_: Throwable) {}
             fun appendExecList(title: String, rows: List<ExecRecord>) {
                 sb.append("===== ").append(title).append(" (last ").append(rows.size).append(") =====\n")
                 if (rows.isEmpty()) {
