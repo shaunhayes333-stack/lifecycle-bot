@@ -76,6 +76,46 @@ object ExecutionAttemptLease {
         return states.values.count { maxOf(it.activeUntilMs, it.backoffUntilMs) - n < 0L }
     }
 
+    /**
+     * V5.0.6315 — SUPERVISOR ATOMIC FORCE-RELEASE (§15).
+     *
+     * Force-drop every lease/backoff for the given mint (both BUY and SELL,
+     * all processors, all generations). Called by supervisorForceReleaseLeaseAndCancel
+     * so a wedged worker cancel is atomically mirrored by the exec-lease
+     * map. Prevents the classic supervisor-timeout leak where the coroutine
+     * was cancelled but the mint's exec lease continued blocking retries
+     * for 5 minutes.
+     */
+    fun forceReleaseForMint(mint: String, reason: String): Int {
+        if (mint.isBlank()) return 0
+        var dropped = 0
+        states.entries.removeIf { e ->
+            if (e.value.mint == mint) {
+                dropped++
+                try {
+                    emit(
+                        "SUPERVISOR_FORCE_RELEASE_ATOMIC_OK",
+                        e.value.side,
+                        e.value.mint,
+                        e.value.symbol,
+                        "reason=$reason processor=${e.value.lastProcessor}",
+                    )
+                } catch (_: Throwable) {}
+                true
+            } else false
+        }
+        if (dropped == 0) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SUPERVISOR_FORCE_RELEASE_NO_LEASE_6315")
+            } catch (_: Throwable) {}
+        } else {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SUPERVISOR_FORCE_RELEASE_ATOMIC_OK")
+            } catch (_: Throwable) {}
+        }
+        return dropped
+    }
+
     private fun backoffFor(failures: Int, side: String): Long {
         if (side.equals("SELL", true)) return when {
             failures <= 1 -> 5_000L

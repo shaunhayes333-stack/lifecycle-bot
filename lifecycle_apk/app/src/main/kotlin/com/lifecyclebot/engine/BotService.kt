@@ -16199,6 +16199,15 @@ if (hotExitHandledSweep) {
         } catch (_: Throwable) {}
         if (cancelled > 0) {
             supervisorActive.set(supervisorLeases.size.coerceAtLeast(0))
+            // V5.0.6315 — ATOMIC FORCE-RELEASE (§15). Cancelling the
+            // supervisor lease alone left the ExecutionAttemptLease + sell
+            // execution locks dangling for 5+ minutes, so the retry that
+            // followed a WORKER_TIMEOUT was still blocked by the stale
+            // exec-lease → the operator saw 96 SUPERVISOR_LEASE_FORCE_RELEASED
+            // while the intake side kept flagging 'mint locked'. Mirror the
+            // cancel atomically across every downstream lock map we own.
+            try { com.lifecyclebot.engine.ExecutionAttemptLease.forceReleaseForMint(mint, reason) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(mint) } catch (_: Throwable) {}
             try {
                 ForensicLogger.lifecycle("SUPERVISOR_LEASE_FORCE_RELEASED", "mint=${mint.take(10)} reason=$reason cancelledJobs=$cancelled active=${supervisorLeases.size} cooled=true")
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SUPERVISOR_LEASE_FORCE_RELEASED")
