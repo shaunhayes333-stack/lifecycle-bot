@@ -2813,6 +2813,26 @@ class Executor(
      * Record a trade to both TokenState and persistent TradeHistoryStore
      */
     private fun recordTrade(ts: TokenState, trade: Trade) {
+        // V5.0.6324 — ACCOUNTING IDEMPOTENCY GATE (operator hotfix §13).
+        // A single confirmed transaction can arrive via websocket +
+        // polling + wallet reconciliation + retry sweep. Each callback
+        // used to write another journal row + governor mutation. Reject
+        // duplicates keyed on {signature|mint|side}. Blank signatures
+        // (early pre-broadcast estimates) always pass; those are
+        // superseded by the canonical position authority ladder once a
+        // real signature lands.
+        try {
+            val idempotencySig = trade.sig
+            if (idempotencySig.isNotBlank() && !idempotencySig.startsWith("PHANTOM_")) {
+                val mintForKey = if (trade.mint.isBlank()) ts.mint else trade.mint
+                val actionForKey = trade.side.uppercase()
+                val ok = com.lifecyclebot.engine.AccountingIdempotencyRegistry.claim(
+                    idempotencySig, mintForKey, actionForKey,
+                    reasonForLog = "recordTrade/${trade.reason.take(40)}",
+                )
+                if (!ok) return
+            }
+        } catch (_: Throwable) {}
         // V5.9.791 — operator audit Item 1 + 2: PositionExitArbiter chokepoint.
         // Without this, a cascade of exit reasons (CASHGEN_STOP_LOSS firing
         // simultaneously with STRICT_SL and RAPID_CATASTROPHE_STOP on the

@@ -84,6 +84,45 @@ object LiveEntrySafetyHold {
     private const val SEVERE_WR_PCT: Double = 25.0
     private const val SEVERE_PF: Double = 0.70
 
+    // ─── V5.0.6324 GOVERNOR FLUIDITY ────────────────────────────────
+    // Operator directive: N=5, WR=20%, PF=0.05, exp=-0.0027 SOL MUST
+    // materially shape live execution — not sit at BASELINE. The 6318
+    // auto-snooze grace (N>=20) blocked all response to real bleed.
+    // 6324 keeps the WADDLE-era exclusion in place (session window) but
+    // opens up CAUTION and SOFT_TIGHT as small-N-friendly states that
+    // reduce size / raise floor / require probe-first WITHOUT disabling
+    // any lane. HOLD is preserved but reserved for execution-integrity /
+    // wallet-safety failures (invariant-driven, not strategy bleed).
+
+    private const val CAUTION_MIN_N: Int = 4
+    private const val CAUTION_PF: Double = 0.80
+    private const val CAUTION_EXP_SOL: Double = 0.0
+    private const val CAUTION_WR_PCT: Double = 35.0
+
+    private const val SOFT_TIGHT_MIN_N: Int = 4
+    private const val SOFT_TIGHT_PF: Double = 0.35
+    private const val SOFT_TIGHT_EXP_SOL: Double = -0.0015
+    private const val SOFT_TIGHT_WR_PCT: Double = 25.0
+
+    /** Deterministic size / floor shaping per state (P5). Callers read
+     *  these via [currentSizeMultiplier] and [currentFloorAdjustment]. */
+    private const val SIZE_MULTIPLIER_BASELINE: Double = 1.00
+    private const val SIZE_MULTIPLIER_CAUTION: Double = 0.70
+    private const val SIZE_MULTIPLIER_SOFT_TIGHT: Double = 0.40
+    private const val SIZE_MULTIPLIER_RECOVERY: Double = 0.60
+    private const val FLOOR_ADJUSTMENT_BASELINE: Double = 0.0
+    private const val FLOOR_ADJUSTMENT_CAUTION: Double = 3.0
+    private const val FLOOR_ADJUSTMENT_SOFT_TIGHT: Double = 8.0
+    private const val FLOOR_ADJUSTMENT_RECOVERY: Double = 5.0
+
+    @Volatile private var lastGovernorState: GovernorState = GovernorState.BASELINE
+    @Volatile private var lastGovernorSizeMultiplier: Double = SIZE_MULTIPLIER_BASELINE
+    @Volatile private var lastGovernorFloorAdjustment: Double = FLOOR_ADJUSTMENT_BASELINE
+
+    fun currentSizeMultiplier(): Double = lastGovernorSizeMultiplier
+    fun currentFloorAdjustment(): Double = lastGovernorFloorAdjustment
+    fun currentGovernorState(): GovernorState = lastGovernorState
+
     // ----- Bypass ban denylist --------------------------------------
 
     private val LIVE_BYPASS_DENYLIST: Set<String> = setOf(
@@ -129,12 +168,26 @@ object LiveEntrySafetyHold {
         // 1) SAFETY_HOLD gate — hard block, do not even redirect.
         if (armed.get()) {
             val reasonSummary = armedReasons.keys.take(5).joinToString(",")
+            // V5.0.6324 — classify the block. Distinguish security /
+            // wallet-integrity blocks (hard) from policy redirects
+            // (intentional shadow route) so the health report no longer
+            // shows 411 "provider failures" that were really policy calls.
+            val securityBlocked = armedReasons.keys.any {
+                it.contains("WALLET", true) || it.contains("SECURITY", true) ||
+                it.contains("ACCOUNTING_QUARANTINE", true) || it.contains("SUPERVISOR", true) ||
+                it.contains("DUPLICATE_FINALITY", true) || it.contains("DECIMAL_SKEW", true)
+            }
             try {
                 ForensicLogger.lifecycle(
                     "LIVE_ENTRY_SAFETY_HOLD_BUY_BLOCKED",
-                    "mint=${mint.take(10)} sym=$symbol lane=$lane score=${candidateScore.toInt()} reasons=$reasonSummary",
+                    "mint=${mint.take(10)} sym=$symbol lane=$lane score=${candidateScore.toInt()} reasons=$reasonSummary securityBlocked=$securityBlocked",
                 )
                 PipelineHealthCollector.labelInc("LIVE_ENTRY_SAFETY_HOLD_BUY_BLOCKED")
+                if (securityBlocked) {
+                    PipelineHealthCollector.labelInc("BUY_SECURITY_BLOCKED_6324")
+                } else {
+                    PipelineHealthCollector.labelInc("BUY_POLICY_REDIRECTED_SHADOW_6324")
+                }
             } catch (_: Throwable) {}
             return LiveEntryAssessment(
                 allow = false,
@@ -155,9 +208,11 @@ object LiveEntrySafetyHold {
 
         // 3) Live floor — score below floor routes to shadow (never
         //    auto-relax on poor WR; that's the whole point of the
-        //    governor).
-        if (candidateScore < minLiveCandidateScore) {
-            failed += "SCORE_BELOW_LIVE_FLOOR:score=${candidateScore.toInt()}/min=${minLiveCandidateScore.toInt()}"
+        //    governor). V5.0.6324 — apply governor-state floor uplift so
+        //    CAUTION / SOFT_TIGHT genuinely raise the bar for live entry.
+        val effectiveFloor = minLiveCandidateScore + lastGovernorFloorAdjustment
+        if (candidateScore < effectiveFloor) {
+            failed += "SCORE_BELOW_LIVE_FLOOR:score=${candidateScore.toInt()}/min=${effectiveFloor.toInt()}"
         }
 
         // 4) Confidence Governor — degraded live performance downgrades
@@ -174,9 +229,10 @@ object LiveEntrySafetyHold {
             try {
                 ForensicLogger.lifecycle(
                     "LIVE_PROBE_REDIRECTED_TO_SHADOW",
-                    "mint=${mint.take(10)} sym=$symbol lane=$lane score=${candidateScore.toInt()} failed=${failed.joinToString(";").take(220)}",
+                    "mint=${mint.take(10)} sym=$symbol lane=$lane score=${candidateScore.toInt()} floor=${effectiveFloor.toInt()} state=$governorStatus failed=${failed.joinToString(";").take(220)}",
                 )
                 PipelineHealthCollector.labelInc("LIVE_PROBE_REDIRECTED_TO_SHADOW")
+                PipelineHealthCollector.labelInc("BUY_POLICY_REDIRECTED_SHADOW_6324")
             } catch (_: Throwable) {}
             return LiveEntryAssessment(
                 allow = false,
@@ -188,6 +244,7 @@ object LiveEntrySafetyHold {
 
         try {
             PipelineHealthCollector.labelInc("LIVE_ENTRY_AUTHORITY_ALLOWED_6312")
+            PipelineHealthCollector.labelInc("BUY_LIVE_AUTHORIZED_6324")
         } catch (_: Throwable) {}
         return LiveEntryAssessment(
             allow = true,
@@ -302,30 +359,33 @@ object LiveEntrySafetyHold {
 
     fun governorWindowStart(): Long = governorWindowStartMs
 
-    enum class GovernorState { BASELINE, TIGHTENED, HOLD }
+    enum class GovernorState { BASELINE, CAUTION, SOFT_TIGHT, TIGHTENED, RECOVERY, HOLD }
 
     /**
      * Reads canonical finalised live stats from TradeHistoryStore.
      * Never touches broadcast/pending rows.
+     *
+     * V5.0.6324 — small-N-friendly CAUTION / SOFT_TIGHT states. The
+     * governor now responds materially to real bleed at N>=4 without
+     * disabling any lane. HOLD remains reserved for invariant / wallet
+     * safety failures (armed via [runHealthCheck] or SEVERE bleed).
      */
     fun evaluateConfidenceGovernor(): GovernorState {
         val stats = try {
             LiveConfidenceStats.load()
-        } catch (_: Throwable) { return GovernorState.BASELINE }
+        } catch (_: Throwable) { return applyGovernorState(GovernorState.BASELINE) }
 
-        // V5.0.6318 — AUTO-SNOOZE GRACE (20 canonical fresh rows). Below
-        // grace, governor stays BASELINE regardless of stats so the fixed
-        // pipeline has room to demonstrate real edge without a bad opening
-        // 10-trade streak locking it into HOLD.
-        if (stats.canonicalN < AUTO_SNOOZE_GRACE) {
+        // Not enough data yet — behave normally so the fixed pipeline
+        // gets a chance to show real signal.
+        if (stats.canonicalN < CAUTION_MIN_N) {
             try { PipelineHealthCollector.labelInc("LIVE_CONFIDENCE_GOVERNOR_BASELINE") } catch (_: Throwable) {}
-            return GovernorState.BASELINE
+            return applyGovernorState(GovernorState.BASELINE)
         }
 
+        // ── HOLD (invariant/wallet-safety severe) ────────────────────
         val severe =
-            stats.winRatePct < SEVERE_WR_PCT ||
-            stats.profitFactor < SEVERE_PF
-
+            stats.canonicalN >= GOVERNOR_MIN_SAMPLE &&
+            (stats.winRatePct < SEVERE_WR_PCT || stats.profitFactor < SEVERE_PF)
         if (severe) {
             try {
                 ForensicLogger.lifecycle(
@@ -335,25 +395,88 @@ object LiveEntrySafetyHold {
                 PipelineHealthCollector.labelInc("LIVE_CONFIDENCE_GOVERNOR_HOLD")
             } catch (_: Throwable) {}
             armInternal(listOf("CONFIDENCE_GOVERNOR_SEVERE:wr=${stats.winRatePct.toInt()}/pf=${"%.2f".format(stats.profitFactor)}/n=${stats.canonicalN}"))
-            return GovernorState.HOLD
+            return applyGovernorState(GovernorState.HOLD)
         }
 
+        // ── SOFT_TIGHT (small-N decisive bleed) ──────────────────────
+        val softTight =
+            stats.canonicalN >= SOFT_TIGHT_MIN_N &&
+            (stats.profitFactor < SOFT_TIGHT_PF ||
+             stats.expectancySol <= SOFT_TIGHT_EXP_SOL ||
+             (stats.canonicalN >= 5 && stats.winRatePct <= SOFT_TIGHT_WR_PCT))
+        if (softTight) {
+            try {
+                ForensicLogger.lifecycle(
+                    "LIVE_CONFIDENCE_GOVERNOR_SOFT_TIGHT_6324",
+                    "n=${stats.canonicalN} wr=${"%.1f".format(stats.winRatePct)}% pf=${"%.2f".format(stats.profitFactor)} exp=${"%.4f".format(stats.expectancySol)}",
+                )
+                PipelineHealthCollector.labelInc("LIVE_CONFIDENCE_GOVERNOR_SOFT_TIGHT_6324")
+            } catch (_: Throwable) {}
+            return applyGovernorState(GovernorState.SOFT_TIGHT)
+        }
+
+        // ── CAUTION (early bleed) ────────────────────────────────────
+        val caution =
+            stats.canonicalN >= CAUTION_MIN_N &&
+            (stats.profitFactor < CAUTION_PF ||
+             stats.expectancySol < CAUTION_EXP_SOL ||
+             (stats.canonicalN >= 5 && stats.winRatePct < CAUTION_WR_PCT))
+        if (caution) {
+            try {
+                ForensicLogger.lifecycle(
+                    "LIVE_CONFIDENCE_GOVERNOR_CAUTION_6324",
+                    "n=${stats.canonicalN} wr=${"%.1f".format(stats.winRatePct)}% pf=${"%.2f".format(stats.profitFactor)} exp=${"%.4f".format(stats.expectancySol)}",
+                )
+                PipelineHealthCollector.labelInc("LIVE_CONFIDENCE_GOVERNOR_CAUTION_6324")
+            } catch (_: Throwable) {}
+            return applyGovernorState(GovernorState.CAUTION)
+        }
+
+        // ── Legacy TIGHTENED (retained for N>=GOVERNOR_MIN_SAMPLE) ────
         val tighten =
-            stats.winRatePct < TIGHTEN_WR_PCT ||
-            stats.profitFactor < TIGHTEN_PF ||
-            stats.expectancySol < TIGHTEN_EXPECTANCY_SOL
-
+            stats.canonicalN >= GOVERNOR_MIN_SAMPLE &&
+            (stats.winRatePct < TIGHTEN_WR_PCT ||
+             stats.profitFactor < TIGHTEN_PF ||
+             stats.expectancySol < TIGHTEN_EXPECTANCY_SOL)
         return if (tighten) {
-            try {
-                PipelineHealthCollector.labelInc("LIVE_CONFIDENCE_GOVERNOR_TIGHTENED")
-            } catch (_: Throwable) {}
-            GovernorState.TIGHTENED
+            try { PipelineHealthCollector.labelInc("LIVE_CONFIDENCE_GOVERNOR_TIGHTENED") } catch (_: Throwable) {}
+            applyGovernorState(GovernorState.TIGHTENED)
         } else {
-            try {
-                PipelineHealthCollector.labelInc("LIVE_CONFIDENCE_GOVERNOR_BASELINE")
-            } catch (_: Throwable) {}
-            GovernorState.BASELINE
+            try { PipelineHealthCollector.labelInc("LIVE_CONFIDENCE_GOVERNOR_BASELINE") } catch (_: Throwable) {}
+            applyGovernorState(GovernorState.BASELINE)
         }
+    }
+
+    /**
+     * V5.0.6324 — persist state + emit transition event whenever the
+     * governor materially changes. Callers read [currentSizeMultiplier]
+     * and [currentFloorAdjustment] to shape sizing / floors without
+     * needing to recompute the state.
+     */
+    private fun applyGovernorState(state: GovernorState): GovernorState {
+        val prev = lastGovernorState
+        val (mult, floorAdj) = when (state) {
+            GovernorState.BASELINE -> SIZE_MULTIPLIER_BASELINE to FLOOR_ADJUSTMENT_BASELINE
+            GovernorState.CAUTION -> SIZE_MULTIPLIER_CAUTION to FLOOR_ADJUSTMENT_CAUTION
+            GovernorState.SOFT_TIGHT -> SIZE_MULTIPLIER_SOFT_TIGHT to FLOOR_ADJUSTMENT_SOFT_TIGHT
+            GovernorState.TIGHTENED -> SIZE_MULTIPLIER_SOFT_TIGHT to FLOOR_ADJUSTMENT_SOFT_TIGHT
+            GovernorState.RECOVERY -> SIZE_MULTIPLIER_RECOVERY to FLOOR_ADJUSTMENT_RECOVERY
+            GovernorState.HOLD -> 0.0 to FLOOR_ADJUSTMENT_SOFT_TIGHT
+        }
+        lastGovernorSizeMultiplier = mult
+        lastGovernorFloorAdjustment = floorAdj
+        lastGovernorState = state
+        if (prev != state) {
+            try {
+                ForensicLogger.lifecycle(
+                    "LIVE_GOVERNOR_STATE_CHANGED_6324",
+                    "oldState=$prev newState=$state sizeMult=${"%.2f".format(mult)} floorAdj=${"%.1f".format(floorAdj)}",
+                )
+                PipelineHealthCollector.labelInc("LIVE_GOVERNOR_STATE_CHANGED_6324")
+                PipelineHealthCollector.labelInc("LIVE_GOVERNOR_STATE_${state.name}_6324")
+            } catch (_: Throwable) {}
+        }
+        return state
     }
 
     /**
@@ -406,7 +529,16 @@ object LiveEntrySafetyHold {
                     if (!t.side.equals("SELL", true) && !t.side.equals("PARTIAL_SELL", true)) continue
                     if (!t.mode.equals("live", true)) continue
                     val proof = t.proofState
-                    if (!(proof.equals("LIVE_FINALIZED", true) || proof.equals("LIVE_RECONCILED", true))) continue
+                    if (!(proof.equals("LIVE_FINALIZED", true) || proof.equals("LIVE_RECONCILED", true))) {
+                        // V5.0.6324 — surface broadcast-only rows that would
+                        // otherwise silently escape canonical governor stats.
+                        // The filter itself is unchanged (they were already
+                        // excluded); the label makes the operator visible.
+                        if (proof.equals("LIVE_BROADCAST", true)) {
+                            try { PipelineHealthCollector.labelInc("BROADCAST_ACCOUNTING_SUPPRESSED_6324") } catch (_: Throwable) {}
+                        }
+                        continue
+                    }
 
                     // Session-window cutoff: only fresh post-boot rows count.
                     if (t.ts > 0L && t.ts < windowStart) {
