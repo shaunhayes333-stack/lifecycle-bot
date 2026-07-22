@@ -1,0 +1,70 @@
+{
+  "summary": "V5.0.6308 (641c08d42) read-only Kotlin diff verification. All 3 primary fixes + 3 prior-version survival checks + static TTL/watchdog ordering risk verified. No compilation attempted per operator constraint.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verification_results": {
+    "fix_1_cycle_time_cooling": {
+      "status": "PASS",
+      "file": "BotService.kt:15963-15992",
+      "evidence": "supervisorNoteCycleElapsedForThrottle: cycleMs>90_000L -> supervisorCoolingUntilMs = now+120_000L + labelInc(SUPERVISOR_COOLING_ARMED_HEAVY_6308); cycleMs>30_000L -> now+60_000L + labelInc(SUPERVISOR_COOLING_ARMED_LIGHT_6308). Uses maxOf() so a light cooling never truncates an active heavy one. Backward-compat: still calls supervisorArmEmergencyThrottle at cycleMs>15_000L (line 15978)."
+    },
+    "fix_2_lease_ttl": {
+      "status": "PASS",
+      "file": "BotService.kt:15648",
+      "evidence": "SUPERVISOR_LEASE_TTL_MS = 12_000L. Doctrine comment (15632-15647) documents V5.0.6308 root cause + V5.9.1319 alignment. Acquire-time prune at 16094 uses this constant."
+    },
+    "fix_3_entry_price_heal": {
+      "status": "PASS",
+      "file": "OpenPnlSanity.kt:107-110",
+      "evidence": "Branch guard is `pos.costSol > 0.0 && pos.qtyToken > 1e-9 && currentPrice > 0.0`; labelInc(ENTRY_PRICE_HEALED_FROM_COST_QTY_6308) present."
+    },
+    "check_4_fdg_lane_unchoke_revert": {
+      "status": "PASS",
+      "file": "FinalDecisionGate.kt:3288-3312",
+      "evidence": "LANE_AUTO_PAUSED_FDG_BLOCK path calls LaneAutoPauseGuard.statusFor(laneName) directly (line 3299). Zero grep matches for `paperNow6304` anywhere in file."
+    },
+    "check_5_pipelinehealth_copy": {
+      "status": "PASS_WITH_NOTE",
+      "file": "PipelineHealthActivity.kt:339-417",
+      "evidence": "copyToClipboardAsync uses Thread(...,\"PipelineHealth-GenerateCopy-6308\").start() (renamed from -DirectCopy-6306), reads PipelineHealthCollector.pasteSafeSnapshot(); no ReportingHub.buildTextAsync call in copy path (only a comment reference at line 332 and clipboardSafeText sanitizer at 360). 8s Main-thread watchdog delivers emergency bounded snapshot on timeout. Behaviour of 6306b preserved and hardened.",
+      "note": "Thread name updated to *-GenerateCopy-6308 (spec expected -DirectCopy-6306). This is an evolution, not a regression."
+    },
+    "check_6_lane_auto_recovery": {
+      "status": "PASS",
+      "file": "LaneAutoPauseGuard.kt:62-64,304-311",
+      "evidence": "Constants RECOVERY_MIN_SAMPLE=20, RECOVERY_WR_PCT=25.0, RECOVERY_EV_PCT=0.0 present; recovery block guards `agg.sample >= RECOVERY_MIN_SAMPLE && wrPct >= RECOVERY_WR_PCT && evPct >= RECOVERY_EV_PCT`."
+    },
+    "check_7_ttl_vs_watchdog_ordering": {
+      "status": "PASS",
+      "evidence": "SUPERVISOR_WORKER_TIMEOUT_MS=9_000L, watchdog delay = 9_000+750 = 9_750ms (line 16382). TTL=12_000ms. Watchdog fires first (9.75s), TTL is second-line at 12s. Margin=2.25s. Real leaked worker (no releaseSlot + missed watchdog) still recovered by TTL. Pool cannot wedge indefinitely."
+    }
+  },
+  "residual_risks": [
+    "R1 [MED]: TTL/watchdog margin only 2.25s. A GC pause or Main-thread stall >2.25s between the 9.75s watchdog release and worker's own releaseSlot could still race — but risk is symmetric with pre-fix behaviour and no longer produces spurious FORCE_RELEASED double-emits.",
+    "R2 [MED]: Heavy cooling window (120s) may be too short vs observed maxCycleMs=232s. If underlying IO stall lasts the full 232s, cooling expires mid-stall and the cap re-opens to 48 while IO is still wedged. Consider dynamic cooling = max(120s, cycleMs*1.5) or piggy-back on supervisorTimeoutWindowCount>=150 branch (line 15917) to extend.",
+    "R3 [HIGH-VISIBILITY, NOT ADDRESSED BY 6308]: anrHints=37 and maxFrameGapMs=59811ms (60s Main-thread stall) are Main-thread ANRs. This commit is supervisor/pool-only. The Main-thread stall root cause (likely ReportingHub full builder blocking Main, ClipboardManager on background, or a synchronous PipelineHealthCollector read on UI) is NOT fixed here. The 8s watchdog in copyToClipboardAsync uses mainHandler.postDelayed — if the Main thread itself is stalled >8s (which the report shows happens at 59.8s), the watchdog callback is ALSO delayed and the operator remains blind. Consider a background Handler+HandlerThread for the watchdog leg.",
+    "R4 [LOW]: supervisorCoolingUntilMs is written from a coroutine ctx without volatile-write atomicity guarantees around the maxOf() read/write pair — a torn read is harmless (only cooling window duration briefly differs) but worth a note.",
+    "R5 [LOW]: OpenPnlSanity healing lowers qtyToken guard to 1e-9. For dust positions (qtyToken ~1e-8 with costSol from rounding) reconstructed = costSol/qtyToken could produce an astronomically inflated entryPrice. Recommend also bounding `reconstructed` to a sanity ceiling (e.g., reconstructed < 1e6 SOL/token) before adopting."
+  ],
+  "critical_code_review_comments": [
+    "BotService.kt is 25,390 lines — well over the 700-line guideline. This is a chronic maintenance liability that repeatedly forces bytecode-size workarounds (comments at 15678-15690 explicitly mention 'JVM 64KB per-method ceiling' extractions). Recommend a multi-iteration extraction plan into SupervisorPool.kt, BotLoop.kt, CycleThrottle.kt.",
+    "supervisorNoteCycleElapsedForThrottle uses System.currentTimeMillis() (wall clock) which is NTP-adjustable. If clock steps backward during cooling, coolingUntilMs never expires (or expires instantly on forward step). Use SystemClock.elapsedRealtime() for durations.",
+    "Fix 3: no upper bound on reconstructed entryPrice (see R5).",
+    "PipelineHealthActivity watchdog runs on mainHandler — vulnerable to the exact ANR condition it is trying to report on (R3)."
+  ],
+  "test_report_links": [],
+  "action_items": [
+    "OPTIONAL: extend heavy cooling window or make it dynamic vs cycleMs (R2).",
+    "OPTIONAL: move copy-report watchdog to a background HandlerThread so it survives Main-thread ANRs (R3).",
+    "OPTIONAL: bound reconstructed entryPrice in OpenPnlSanity to catch dust-qty edge case (R5).",
+    "STRATEGIC: split BotService.kt (25k lines).",
+    "OPTIONAL: switch supervisorCoolingUntilMs math to SystemClock.elapsedRealtime()."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (8/8 static checks)", "frontend": "n/a (skipped per request)"},
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "V5.0.6308 static diff verified against operator emergency report. All 3 fixes and 3 survival checks pass. Residual risks R2/R3 are the most likely to still produce >30s cycles in production — R3 (Main-thread ANR) is entirely unaddressed by this commit and remains the highest-leverage next fix. No compile attempted (repo has no local toolchain by design).",
+  "rca of the issue": "N/A — verification-only iteration. Original RCA is fully captured in the source comments at BotService.kt:15632-15647 (TTL bug), 15968-15977 (cooling re-arm), and OpenPnlSanity.kt:95-107 (heal threshold)."
+}
