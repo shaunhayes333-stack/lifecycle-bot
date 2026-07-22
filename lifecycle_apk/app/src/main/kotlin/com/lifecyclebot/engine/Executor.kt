@@ -1705,8 +1705,27 @@ class Executor(
         val cappedQty = if (walletQty > 0.0 && walletQty < qty) {
             ErrorLogger.info("Executor",
                 "🛡 WALLET-CAP: ${mint.take(8)}… requested qty=$qty but wallet has $walletQty — capping sell to wallet")
+            // V5.0.6312 — canonical telemetry for the operator hotfix spec.
+            // Emits SELL_RAW_QTY_CLAMPED_TO_WALLET so the safety-hold health
+            // sampler can detect clamp bursts and arm the hold.
+            try {
+                ForensicLogger.lifecycle(
+                    "SELL_RAW_QTY_CLAMPED_TO_WALLET",
+                    "mint=${mint.take(10)} requestedQty=$qty walletQty=$walletQty clampRatio=${if (qty > 0.0) walletQty / qty else 0.0}",
+                )
+                PipelineHealthCollector.labelInc("SELL_RAW_QTY_CLAMPED_TO_WALLET")
+            } catch (_: Throwable) {}
             walletQty
         } else qty
+        // V5.0.6312 — wallet balance authority not available: emit
+        // SELL_BLOCKED_UNKNOWN_RAW_BALANCE telemetry (advisory only — we
+        // still proceed with requested qty to avoid stranding a losing
+        // position; the safety-hold health check will observe the burst).
+        if (walletAccounts == null || walletEntry == null) {
+            try {
+                PipelineHealthCollector.labelInc("SELL_BLOCKED_UNKNOWN_RAW_BALANCE_ADVISORY_6312")
+            } catch (_: Throwable) {}
+        }
 
         val decimals = walletEntry?.second ?: fallbackDecimals ?: 9
         val scale = 10.0.pow(decimals.coerceAtLeast(0).toDouble())
@@ -12210,6 +12229,15 @@ class Executor(
                         finalityPrechecked: Boolean = false,
                         attemptId: String = "",
                         executionContext: ExecutionContext? = null): Boolean {    // V5.9.386 — matching emoji
+        // V5.0.6312 — POSITION IDENTITY: collapse alias variants so
+        // BLUE_CHIP / BLUECHIP never create two separate positions for
+        // the same wallet acquisition. Applied at the earliest entry so
+        // every downstream pid tag, position stamp, cap map, execution
+        // lock, and journal write uses the canonical form. Callers still
+        // pass `layerTag` by named argument; the parameter is shadowed
+        // locally with the normalized value.
+        @Suppress("NAME_SHADOWING")
+        val layerTag: String = LaneAlias.normalize(layerTag).ifBlank { layerTag }
 
         // V5.0.3939 — TRUE LIVE ATTEMPT BOUNDARY.
         // Runtime 3938 showed FDG live allow > 0, global EXEC > 0, but
@@ -12470,6 +12498,44 @@ class Executor(
             if (runtimePaper || paperFlag || shadowFlag) return liveAbortDesync("mode=LIVE runtimePaper=$runtimePaper alreadyOpen=$alreadyOpenPosition positionPaper=$paperFlag shadow=$shadowFlag")
         }
         liveStage("LIVE_BUY_ENTRY", "sol=${"%.4f".format(sol)} score=${"%.1f".format(score)} quality=$quality")
+
+        // V5.0.6312 — LIVE ENTRY SAFETY HOLD + BYPASS BAN + CONFIDENCE GOVERNOR.
+        // Central authority for live capital protection. Blocks new live
+        // buys when critical invariants fail, when confidence governor
+        // requires a hold, when candidate score is below the live floor,
+        // or when an exploration/probe bypass label authorized this
+        // candidate. Failed candidates are redirected to shadow (never
+        // silently dropped) so paper/shadow learning continues.
+        if (execCtx.execMode == ExecMode.LIVE) {
+            val entryReasons6312 = buildList {
+                try { add(layerTag) } catch (_: Throwable) {}
+                try { add(ts.source) } catch (_: Throwable) {}
+                try { add(quality) } catch (_: Throwable) {}
+            }.filter { it.isNotBlank() }
+            val assess6312 = LiveEntrySafetyHold.assessLiveEntry(
+                mint = ts.mint,
+                symbol = ts.symbol,
+                candidateScore = score,
+                entryReasons = entryReasons6312,
+                lane = layerTag,
+            )
+            if (!assess6312.allow) {
+                liveStage(
+                    "LIVE_BUY_ABORTED",
+                    "reason=LIVE_ENTRY_SAFETY_HOLD_6312 detail=${assess6312.reason} failed=${assess6312.failedInvariants.joinToString(",").take(180)}",
+                )
+                try {
+                    emitLiveBuyFail(ts, sol, "LIVE_ENTRY_SAFETY_HOLD_6312", assess6312.reason)
+                    PipelineHealthCollector.onGate(
+                        "EXEC_GATE",
+                        ts.symbol,
+                        false,
+                        "LIVE_ENTRY_SAFETY_HOLD_6312 reason=${assess6312.reason} lane=$layerTag score=${score.toInt()}",
+                    )
+                } catch (_: Throwable) {}
+                return false
+            }
+        }
 
         // V5.0.6249 — HARD VETO on proven-toxic buckets.
         // LaneBucketPivot's advisory trims were ignored by

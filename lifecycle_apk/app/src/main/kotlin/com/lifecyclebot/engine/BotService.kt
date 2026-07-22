@@ -11896,6 +11896,44 @@ class BotService : Service() {
             // V5.9.762 — also touch the progress timestamp for the heartbeat.
             markProgress("BOT_LOOP_TICK")
 
+            // V5.0.6312 — LIVE ENTRY SAFETY HOLD periodic health check.
+            // Runs every bot tick (every ~5-12s), samples the critical
+            // invariants that govern whether live buys are safe, and
+            // arms/clears the hold accordingly. All I/O-free (reads only
+            // in-memory counters + wallet handle status).
+            try {
+                val walletHealthy6312 = try {
+                    WalletManager.lastKnownSolPrice > 0.0
+                } catch (_: Throwable) { false }
+                val scannerDegraded6312 = try {
+                    // Scanner-critical degradation: rely on the API_LAYER_DEGRADED
+                    // fault frequency. If it fired repeatedly this run window,
+                    // the fallback isn't proven.
+                    PipelineHealthCollector.labelCountSnapshot("API_LAYER_DEGRADED") > 10L &&
+                        PipelineHealthCollector.labelCountSnapshot("API_DEGRADED_SUPPRESSED_ALT_INTAKE_6311") == 0L
+                } catch (_: Throwable) { false }
+                val supervisorSat6312 = try {
+                    PipelineHealthCollector.labelCountSnapshot("SUPERVISOR_INFLIGHT_CAP") > 100L
+                } catch (_: Throwable) { false }
+                val skewEvents6312 = try {
+                    PipelineHealthCollector.labelCountSnapshot("QTY_DECIMAL_SKEW_LEARNING_QUARANTINE_6310").toInt()
+                } catch (_: Throwable) { 0 }
+                val clampEvents6312 = try {
+                    PipelineHealthCollector.labelCountSnapshot("SELL_RAW_QTY_CLAMPED_TO_WALLET").toInt()
+                } catch (_: Throwable) { 0 }
+                LiveEntrySafetyHold.runHealthCheck(
+                    walletAuthorityHealthy = walletHealthy6312,
+                    scannerCriticalDegradedWithoutFallback = scannerDegraded6312,
+                    supervisorSaturated = supervisorSat6312,
+                    accountingQuarantineActive = false,
+                    pendingReconcileFailures = 0,
+                    recentDecimalSkewEvents = skewEvents6312,
+                    recentDuplicateFinalityEvents = 0,
+                    recentSellClampEvents = clampEvents6312,
+                )
+                try { LiveEntrySafetyHold.evaluateConfidenceGovernor() } catch (_: Throwable) {}
+            } catch (_: Throwable) {}
+
             // ═══════════════════════════════════════════════════════════════
             // V5.9.1311 — DOZE DORMANCY DETECTOR + SELF-HEAL.
             // OPERATOR: "it stalled all night." Forensic: last trade 05:12,

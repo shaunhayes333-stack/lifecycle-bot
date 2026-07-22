@@ -1079,6 +1079,23 @@ object PipelineHealthCollector {
         try {
             sb.append("  ${com.lifecyclebot.engine.LiveLayerGateRelaxer.summaryLine()}\n")
         } catch (_: Throwable) {}
+
+        // V5.0.6312 — LIVE ENTRY AUTHORITY. Central hotfix summary line so
+        // the operator sees whether new live buys are being gated by the
+        // safety hold / confidence governor at a glance (top of the report).
+        try {
+            val armed = com.lifecyclebot.engine.LiveEntrySafetyHold.isArmed()
+            val reasons = com.lifecyclebot.engine.LiveEntrySafetyHold.armedReasonsSnapshot()
+            val (hcMs, hcReasons) = com.lifecyclebot.engine.LiveEntrySafetyHold.lastHealthCheckSnapshot()
+            val hcAgeS = if (hcMs > 0L) ((System.currentTimeMillis() - hcMs) / 1000L) else -1L
+            val stats = try { com.lifecyclebot.engine.LiveEntrySafetyHold.LiveConfidenceStats.load() } catch (_: Throwable) { null }
+            val gov = try { com.lifecyclebot.engine.LiveEntrySafetyHold.evaluateConfidenceGovernor().name } catch (_: Throwable) { "?" }
+            val statLine = if (stats != null && stats.canonicalN > 0)
+                "canonN=${stats.canonicalN} wr=${"%.1f".format(stats.winRatePct)}% pf=${"%.2f".format(stats.profitFactor)} exp=${"%.4f".format(stats.expectancySol)}SOL"
+            else "canonN=0"
+            val armedStr = if (armed) "🔒 ARMED (${reasons.keys.take(3).joinToString(",").take(80)})" else "✅ open"
+            sb.append("  LIVE ENTRY AUTHORITY:  hold=$armedStr governor=$gov minScore=${com.lifecyclebot.engine.LiveEntrySafetyHold.minLiveCandidateScore.toInt()} $statLine hcAge=${hcAgeS}s hcFailed=${hcReasons.joinToString(",").take(60)}\n")
+        } catch (_: Throwable) {}
         // V5.9.1324 — P2-12 surgical: Root-cause-likely banner at the top.
         // Operator §12: one section says where to look first based on the
         // dominant counter pattern.
@@ -2220,6 +2237,11 @@ object PipelineHealthCollector {
     fun labelInc(key: String) {
         if (!attached) return
         bump(labelCounts, key)
+    }
+
+    /** V5.0.6312 — public read of a specific label counter for the live-entry safety-hold sampler. */
+    fun labelCountSnapshot(key: String): Long {
+        return try { labelCounts[key]?.get() ?: 0L } catch (_: Throwable) { 0L }
     }
 
     // V5.9.1378 (P0 #9) — record an MFE observation for [lane]: the peak gain reached
