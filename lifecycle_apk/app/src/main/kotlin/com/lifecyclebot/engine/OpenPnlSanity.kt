@@ -98,10 +98,16 @@ object OpenPnlSanity {
         // treat it as authoritative for the sanity check but not for banked-win
         // verification (RealPriceLock still gates real harvests).
         val healedEntryPrice = if (pos.entryPrice.isFinite() && pos.entryPrice > 0.0) pos.entryPrice
-        else if (pos.costSol > 0.0 && pos.qtyToken > 1.0 && currentPrice > 0.0) {
+        // V5.0.6308 — heal threshold widened from qty>1.0 to qty>1e-9. Operator
+        // emergency report showed 31,050 ENTRY_PRICE_INVALID rejects because
+        // most stuck positions have decimals-adjusted qty in fractional units
+        // (0.0001-0.5) — the >1.0 gate blocked the heal on those, so every
+        // tick loop re-rejected the same 5-6 positions. Any positive qty is
+        // valid input for costSol/qty; the resulting price is validated below.
+        else if (pos.costSol > 0.0 && pos.qtyToken > 1e-9 && currentPrice > 0.0) {
             val reconstructed = pos.costSol / pos.qtyToken
             if (reconstructed.isFinite() && reconstructed > 0.0) {
-                try { PipelineHealthCollector.labelInc("ENTRY_PRICE_HEALED_FROM_COST_QTY_6050") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("ENTRY_PRICE_HEALED_FROM_COST_QTY_6308") } catch (_: Throwable) {}
                 reconstructed
             } else pos.entryPrice
         } else pos.entryPrice

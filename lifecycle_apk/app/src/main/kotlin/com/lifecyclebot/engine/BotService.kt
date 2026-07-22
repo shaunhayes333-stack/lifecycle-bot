@@ -15629,7 +15629,23 @@ if (hotExitHandledSweep) {
     // cancelled it). Slots still free within ~5.75s worst case; the bot loop
     // (5s cadence) is never starved because admission is per-cycle and the cap
     // is 32 of a ~300 universe.
-    private val SUPERVISOR_LEASE_TTL_MS: Long = 6_000L
+    // V5.0.6308 — LEASE TTL BUG FIX. Operator emergency report showed 8035
+    // SUPERVISOR_LEASE_FORCE_RELEASED in 47 min (170/min). Root cause:
+    // TTL=6000ms < worker timeout 9000ms. The acquire-time TTL prune was
+    // stealing leases at t=6.001s while the worker was still legitimately
+    // running until t=9s. When the worker's own withTimeoutOrNull returned
+    // it called releaseSlot() on an already-emptied lease slot. Then the
+    // 9750ms watchdog fired FORCE_RELEASED on the same slot again. Cycle
+    // repeat = one worker generates up to 2 spurious "force release" log
+    // entries per timeout event.
+    //
+    // Fix: TTL must be strictly GREATER than the worker-timeout + watchdog
+    // grace (9s + 750ms + a small margin). 12s means TTL only fires for a
+    // worker that has TRULY leaked its lease (worker somehow exited without
+    // releaseSlot AND the watchdog also missed it — genuine bug case).
+    // Original V5.9.1319 comment already asserted this doctrine but the
+    // constant value shipped as 6000ms which contradicted it.
+    private val SUPERVISOR_LEASE_TTL_MS: Long = 12_000L
     // Back-pressure: if the underlying IO is wedged, don't launch another full
     // 100 workers every 5s forever. This still preserves throughput while avoiding
     // runaway thread/network pressure.
@@ -15948,7 +15964,31 @@ if (hotExitHandledSweep) {
         // V5.0.6072 — throttle arms at 15s (was 30s). Operator report showed
         // avgCycle=9552ms max=77422ms; waiting for 6× the 5s cycle budget
         // before cooling let wedged-IO bursts compound for multiple cycles.
+        //
+        // V5.0.6308 — RE-ARMED (V5.9.1332 disarm bug fix). Operator's emergency
+        // fallback report showed cycles at avg=36s / max=232s (nearly 4 minutes)
+        // with anrHints=37, maxFrameGapMs=59811 (60s stall), and this method
+        // firing SUPERVISOR_EMERGENCY_THROTTLE_OBSERVED_DISARMED for cycles
+        // over 77s WITHOUT actually clamping. The V5.9.1470 cooling latch
+        // exists (supervisorCoolingUntilMs, floor cap=8) but was only wired
+        // to worker-timeout counts, not cycle time. Now: any cycle over 30s
+        // trips a 60s cooling window; over 90s trips 120s. This never
+        // disables lanes/exits — it just trims concurrent worker cap to 8
+        // so wedged IO stops compounding. Exit dispatcher unaffected.
         if (cycleMs > 15_000L) supervisorArmEmergencyThrottle("max_cycle_ms", "cycleMs=$cycleMs")
+        val now = System.currentTimeMillis()
+        when {
+            cycleMs > 90_000L -> {
+                supervisorCoolingUntilMs = maxOf(supervisorCoolingUntilMs, now + 120_000L)
+                try { ForensicLogger.lifecycle("SUPERVISOR_COOLING_ARMED_6308", "reason=cycle_over_90s cycleMs=$cycleMs coolingForMs=120000") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("SUPERVISOR_COOLING_ARMED_HEAVY_6308") } catch (_: Throwable) {}
+            }
+            cycleMs > 30_000L -> {
+                supervisorCoolingUntilMs = maxOf(supervisorCoolingUntilMs, now + 60_000L)
+                try { ForensicLogger.lifecycle("SUPERVISOR_COOLING_ARMED_6308", "reason=cycle_over_30s cycleMs=$cycleMs coolingForMs=60000") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("SUPERVISOR_COOLING_ARMED_LIGHT_6308") } catch (_: Throwable) {}
+            }
+        }
     }
     @Suppress("unused") private val SUPERVISOR_MAX_LIVE_WORKERS: Int = 32
 
