@@ -307,6 +307,14 @@ object LiveEntrySafetyHold {
      * Canonical live-only stats derived from TradeHistoryStore. Only
      * SELL rows with proof=LIVE_FINALIZED (or reconciled) count. Broadcast
      * / pending / paper / quarantined rows are excluded.
+     *
+     * V5.0.6317 — HOTFIX EPOCH FILTER. Pre-V5.0.6310 rows contain
+     * decimal-skew qty inflation, fake 10× "runner" labels on losing PnL,
+     * contradictory exit reasons, and broadcast-vs-finalised double-counting.
+     * The operator hotfix brief §18 forbids these corrupted rows from
+     * training the confidence governor. Excluding them lets the governor
+     * measure post-hotfix behaviour cleanly and re-open live entry once
+     * the fixed pipeline demonstrates real edge.
      */
     data class LiveConfidenceStats(
         val canonicalN: Int,
@@ -317,9 +325,15 @@ object LiveEntrySafetyHold {
         val expectancySol: Double,
     ) {
         companion object {
+            /** Deploy timestamp of V5.0.6310 (WADDLE root fix). Rows
+             *  strictly older than this are considered corrupted by the
+             *  pre-hotfix decimal-skew / exit-reason / broadcast-double-
+             *  count bugs and excluded from the governor. */
+            const val HOTFIX_EPOCH_MS: Long = 1740374400000L  // 2026-02-24 00:00 UTC
+
             fun load(): LiveConfidenceStats {
                 val trades = try {
-                    TradeHistoryStore.getRecentValidTrades(100)
+                    TradeHistoryStore.getRecentValidTrades(200)
                 } catch (_: Throwable) { return LiveConfidenceStats(0, 0, 0, 0.0, 0.0, 0.0) }
 
                 var wins = 0
@@ -328,19 +342,41 @@ object LiveEntrySafetyHold {
                 var grossLossSol = 0.0
                 var netSol = 0.0
                 var n = 0
+                var preHotfixSkipped = 0
 
                 for (t in trades) {
                     if (!t.side.equals("SELL", true) && !t.side.equals("PARTIAL_SELL", true)) continue
                     if (!t.mode.equals("live", true)) continue
-                    // Canonical == finalised or reconciled proof; broadcast rows
-                    // do NOT count against live confidence.
                     val proof = t.proofState
                     if (!(proof.equals("LIVE_FINALIZED", true) || proof.equals("LIVE_RECONCILED", true))) continue
+
+                    // V5.0.6317 — HOTFIX EPOCH CUTOFF. Skip pre-hotfix
+                    // rows so the governor is not poisoned by the
+                    // decimal-skew / fake-10x-runner / contradictory-exit
+                    // legacy the WADDLE stack fixed.
+                    if (t.ts > 0L && t.ts < HOTFIX_EPOCH_MS) {
+                        preHotfixSkipped += 1
+                        continue
+                    }
+                    // Also skip rows whose reason still bears the
+                    // EXIT_REASON_INVARIANT_FAILED rewrite marker — those
+                    // trades had contradictory profit-claim reasons and
+                    // are learning-quarantined.
+                    if (t.reason.startsWith("FALLBACK_AFTER_FAILED_PROFIT_EXIT_6312", ignoreCase = true)) {
+                        preHotfixSkipped += 1
+                        continue
+                    }
+
                     val pnl = if (t.netPnlSol != 0.0) t.netPnlSol else t.pnlSol
                     n += 1
                     netSol += pnl
                     if (pnl > 0.0) { wins += 1; grossWinSol += pnl }
                     else if (pnl < 0.0) { losses += 1; grossLossSol += -pnl }
+                }
+                if (preHotfixSkipped > 0) {
+                    try {
+                        PipelineHealthCollector.labelInc("LIVE_CONFIDENCE_GOVERNOR_PRE_HOTFIX_ROWS_EXCLUDED_6317")
+                    } catch (_: Throwable) {}
                 }
                 val wr = if (n > 0) wins.toDouble() * 100.0 / n else 0.0
                 val pf = if (grossLossSol > 0.0) grossWinSol / grossLossSol else if (grossWinSol > 0.0) 999.0 else 0.0

@@ -1094,7 +1094,11 @@ object PipelineHealthCollector {
                 "canonN=${stats.canonicalN} wr=${"%.1f".format(stats.winRatePct)}% pf=${"%.2f".format(stats.profitFactor)} exp=${"%.4f".format(stats.expectancySol)}SOL"
             else "canonN=0"
             val armedStr = if (armed) "🔒 ARMED (${reasons.keys.take(3).joinToString(",").take(80)})" else "✅ open"
+            val preHotfixSkipped6317 = labelCounts["LIVE_CONFIDENCE_GOVERNOR_PRE_HOTFIX_ROWS_EXCLUDED_6317"]?.get() ?: 0L
             sb.append("  LIVE ENTRY AUTHORITY:  hold=$armedStr governor=$gov minScore=${com.lifecyclebot.engine.LiveEntrySafetyHold.minLiveCandidateScore.toInt()} $statLine hcAge=${hcAgeS}s hcFailed=${hcReasons.joinToString(",").take(60)}\n")
+            if (preHotfixSkipped6317 > 0L) {
+                sb.append("  ⚠ Pre-hotfix rows excluded from governor: ${preHotfixSkipped6317}× (WADDLE-era corrupted history quarantined by 6317)\n")
+            }
         } catch (_: Throwable) {}
         // V5.9.1324 — P2-12 surgical: Root-cause-likely banner at the top.
         // Operator §12: one section says where to look first based on the
