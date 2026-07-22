@@ -1546,6 +1546,50 @@ object PipelineHealthCollector {
             appendExecList("Recent PAPER executions", s.recentExecs.filter { it.mode.equals("PAPER", true) })
         }
 
+        // ── V5.0.6312 — LIVE QUALITY FUNNEL / CANONICAL PERFORMANCE / QTY INTEGRITY ─
+        // Operator hotfix brief §22: separate estimated / broadcast / confirmed
+        // / reconciled counters, expose the safety-hold health at a glance.
+        try {
+            val lc = s.labelCounts
+            fun c6312(k: String): Long = lc[k] ?: 0L
+            sb.append('\n')
+            sb.append("===== LIVE QUALITY FUNNEL (V5.0.6312) =====\n")
+            sb.append("  Redirected to shadow:       ${c6312("LIVE_PROBE_REDIRECTED_TO_SHADOW")}\n")
+            sb.append("  Bypass-denylist blocks:     ${c6312("LIVE_PROBE_REDIRECTED_TO_SHADOW")}  (denylisted labels never authorize live)\n")
+            sb.append("  Safety-hold buy blocks:     ${c6312("LIVE_ENTRY_SAFETY_HOLD_BUY_BLOCKED")}\n")
+            sb.append("  DNA early-veto (pre-lease): ${c6312("DNA_VETO_EARLY_APPLIED_6312")}\n")
+            sb.append("  DNA weak-sample advisory:   ${c6312("DNA_VETO_WEAK_SAMPLE_ADVISORY_6312")}\n")
+            sb.append("  Mint re-entry cooldown:     ${c6312("MINT_REENTRY_BLOCKED_6312")} (active mints=${try { com.lifecyclebot.engine.MintReEntryCooldown.activeCount() } catch (_: Throwable) { -1 }})\n")
+            sb.append("  Live entry allowed:         ${c6312("LIVE_ENTRY_AUTHORITY_ALLOWED_6312")}\n")
+            sb.append("  Governor: baseline / tight / hold: ${c6312("LIVE_CONFIDENCE_GOVERNOR_BASELINE")} / ${c6312("LIVE_CONFIDENCE_GOVERNOR_TIGHTENED")} / ${c6312("LIVE_CONFIDENCE_GOVERNOR_HOLD")}\n")
+
+            sb.append('\n')
+            sb.append("===== CANONICAL LIVE PERFORMANCE (finalised/reconciled only) =====\n")
+            val stats6312 = try { com.lifecyclebot.engine.LiveEntrySafetyHold.LiveConfidenceStats.load() } catch (_: Throwable) { null }
+            if (stats6312 != null) {
+                sb.append("  Canonical N:                ${stats6312.canonicalN}\n")
+                sb.append("  Wins / Losses:              ${stats6312.wins} / ${stats6312.losses}\n")
+                sb.append("  Win rate:                   ${"%.1f".format(stats6312.winRatePct)}%\n")
+                sb.append("  Profit factor:              ${"%.2f".format(stats6312.profitFactor)}\n")
+                sb.append("  Expectancy per trade:       ${"%.4f".format(stats6312.expectancySol)} SOL\n")
+            } else {
+                sb.append("  (canonical stats unavailable this snapshot)\n")
+            }
+            sb.append("  Excluded from canon: broadcast=${c6312("LIVE_PNL_BROADCAST_EXCLUDED")} duplicate=${c6312("LIVE_PNL_DUPLICATE_EXCLUDED")} quarantined=${c6312("QTY_DECIMAL_SKEW_LEARNING_QUARANTINE_6310")}\n")
+
+            sb.append('\n')
+            sb.append("===== QUANTITY / DECIMAL INTEGRITY =====\n")
+            sb.append("  Decimal skew audit:         ${c6312("QTY_DECIMAL_SKEW_DETECTED_6309")}\n")
+            sb.append("  Skew learning quarantine:   ${c6312("QTY_DECIMAL_SKEW_LEARNING_QUARANTINE_6310")}\n")
+            sb.append("  Buy qty wallet backfill:    ${c6312("BUY_QTY_BACKFILL_WALLET_VERIFIED_6311")}\n")
+            sb.append("  Sell wallet-clamp events:   ${c6312("SELL_RAW_QTY_CLAMPED_TO_WALLET")}\n")
+            sb.append("  Sell unknown-balance adv:   ${c6312("SELL_BLOCKED_UNKNOWN_RAW_BALANCE_ADVISORY_6312")}\n")
+            sb.append("  Liq-halved mark invalidated: ${c6312("LIQ_HALVED_MARK_INVALIDATED_6310")}\n")
+            sb.append("  Position alias merges:      ${c6312("POSITION_ALIAS_COLLISION_MERGED_6312")}\n")
+            sb.append("  Exit reason invariant fail: ${c6312("EXIT_REASON_INVARIANT_FAILED")}\n")
+            sb.append("  Phantom qty healed:         ${c6312("PHANTOM_QTY_HEALED_6064")}\n")
+        } catch (_: Throwable) {}
+
         // ── ANR health (watchdog) ───────────────────────────────────
         sb.append("===== ANR / main-thread health (watchdog sampler) =====\n")
         sb.append("  ANR_HINTS (>${LONG_FRAME_THRESHOLD_MS}ms):           ${s.anrHints}\n")

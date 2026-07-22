@@ -2976,6 +2976,24 @@ class Executor(
             proofState = proofStateForJournal4502,
         )
 
+        // V5.0.6314 — CANONICAL PnL SEPARATION (§12). Classify every SELL
+        // row into one of four buckets and increment the matching counter
+        // so operators can distinguish canonical live outcomes from
+        // provisional / duplicated / broadcast telemetry rows. Only
+        // LIVE_FINALIZED / LIVE_RECONCILED count toward canonical live
+        // performance (already enforced by LiveConfidenceStats.load).
+        if (tradeWithMint.side.equals("SELL", true) || tradeWithMint.side.equals("PARTIAL_SELL", true)) {
+            try {
+                when (proofStateForJournal4502.uppercase()) {
+                    "LIVE_FINALIZED" -> PipelineHealthCollector.labelInc("LIVE_PNL_CONFIRMED_ROWS")
+                    "LIVE_RECONCILED" -> PipelineHealthCollector.labelInc("LIVE_PNL_RECONCILED_ROWS")
+                    "LIVE_SIG_CONFIRMED" -> PipelineHealthCollector.labelInc("LIVE_PNL_ESTIMATED_ROWS")
+                    "LIVE_BROADCAST" -> PipelineHealthCollector.labelInc("LIVE_PNL_BROADCAST_EXCLUDED")
+                    else -> PipelineHealthCollector.labelInc("LIVE_PNL_ESTIMATED_ROWS")
+                }
+            } catch (_: Throwable) {}
+        }
+
 
         // V5.0.6312 — EXIT_REASON_INVARIANT (§13). If the SELL row's reason
         // claims TAKE_PROFIT / RUNNER / QUICK_RUNNER / +N% BANK but the
@@ -3195,6 +3213,14 @@ class Executor(
             // V5.0.6310 — decimal-skew quarantine (belt-and-suspenders on top
             // of the inferUiScaleFromTrade units fix and explicitDecimals plumb).
             else if (qtyDecimalSkew6310) false
+            // V5.0.6314 — broadcast-only rows are TELEMETRY, not finality.
+            // Never train the Bayesian brain / tactic switcher / lane
+            // expectancy from a row that hasn't been on-chain proven.
+            else if (tradeWithMint.proofState.equals("LIVE_BROADCAST", true) ||
+                     tradeWithMint.proofState.equals("LIVE_SIG_CONFIRMED", true)) {
+                try { PipelineHealthCollector.labelInc("LEARNING_ACCOUNTING_QUARANTINE_BROADCAST_6314") } catch (_: Throwable) {}
+                false
+            }
             else {
                 val proceeds = tradeWithMint.sol + (tradeWithMint.netPnlSol.takeIf { it != 0.0 } ?: tradeWithMint.pnlSol)
                 tradeWithMint.price > 0.0 && tradeWithMint.sol > 0.0 && proceeds >= -0.0000001
