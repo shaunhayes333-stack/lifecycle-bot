@@ -6717,7 +6717,7 @@ class Executor(
                         detectionSource = ts.lastPriceSource.ifBlank { "UI_TICK" },
                         confirmingSource = "PRE_EXIT_MARK",
                         detectedLossPct = worstPnl,
-                        priceAgeMs = (System.currentTimeMillis() - ts.lastPriceTs).coerceAtLeast(0L),
+                        priceAgeMs = (System.currentTimeMillis() - ts.lastPriceUpdate).coerceAtLeast(0L),
                     )
                 } catch (_: Throwable) {}
                 try {
@@ -12467,18 +12467,80 @@ class Executor(
         // real SOL sent. This is the wire-in the operator called out:
         // "governor at BASELINE with only size×0.96" — the multiplier
         // now flows from currentSizeMultiplier() at every buy.
+        //
+        // V5.0.6326 — IMMEDIATE COLLAPSE GUARD WIRE-IN. On top of the
+        // governor shrink, the pre-entry ImmediateCollapseGuard runs
+        // against the signals we already have on ts (mint / freeze
+        // authority, top holder concentration, price freshness, cross-
+        // provider deviation, advisor labels). Genuine security failures
+        // (mint or freeze authority still live) HARD-BLOCK by refusing
+        // the buy outright — this is the direct profitability lever:
+        // no more full-size buys into tokens the deployer can still
+        // rug. Ordinary uncertainty soft-shrinks size + raises floor,
+        // never disables a lane.
         @Suppress("NAME_SHADOWING")
         val sol: Double = run {
             val originalSol = sol
-            val mult = try { com.lifecyclebot.engine.LiveEntrySafetyHold.currentSizeMultiplier() } catch (_: Throwable) { 1.0 }
-            val shaped = (originalSol * mult).coerceAtLeast(0.0)
-            if (mult < 0.99 && originalSol > 0.0) {
+            val govMult = try { com.lifecyclebot.engine.LiveEntrySafetyHold.currentSizeMultiplier() } catch (_: Throwable) { 1.0 }
+            // Collapse-guard signal set. Uses defaults when a field is
+            // unavailable so we never fabricate a bad signal; the guard
+            // only tightens on evidence.
+            val guardVerdict: com.lifecyclebot.engine.ImmediateCollapseGuard.Verdict? = try {
+                val mintAuthLive = !ts.tokenMap.mintAuthority.isNullOrBlank()
+                val freezeAuthLive = !ts.tokenMap.freezeAuthority.isNullOrBlank()
+                val topHolderPct6326 = (ts.tokenMap.topHolderConcentrationPct ?: ts.topHolderPct ?: 0.0)
+                val priceAge6326 = (System.currentTimeMillis() - ts.lastPriceUpdate).coerceAtLeast(0L)
+                val advisorLabels6326: List<String> = try {
+                    val snap = ts.lastPolicySnapshot
+                    if (snap.isBlank()) emptyList()
+                    else snap.split(';', ',', ' ').map { it.trim() }.filter { it.isNotBlank() }
+                } catch (_: Throwable) { emptyList() }
+                com.lifecyclebot.engine.ImmediateCollapseGuard.evaluate(
+                    com.lifecyclebot.engine.ImmediateCollapseGuard.SignalSet(
+                        priceAgeMs = priceAge6326,
+                        sourceTimestampInconsistent = false,
+                        recentLiquidityChangePct = 0.0,
+                        recentVolumeQuality = 0.75,
+                        buySellImbalance = 0.0,
+                        rapidSellAcceleration = false,
+                        topHolderConcentrationPct = topHolderPct6326,
+                        topHolderMovingOut = false,
+                        deployerWalletMoving = false,
+                        mintOrFreezeAuthorityLive = mintAuthLive || freezeAuthLive,
+                        lpBurned = true,
+                        lpLocked = true,
+                        quoteRoutePriceImpactPct = 0.0,
+                        advertisedVsActualLiquidityRatio = 1.0,
+                        crossProviderPriceDeviationPct = 0.0,
+                        exhaustionSignature = false,
+                        staleScannerEvent = false,
+                        tokenMapComplete = ts.mint.isNotBlank(),
+                        advisorLabels = advisorLabels6326,
+                    )
+                )
+            } catch (_: Throwable) { null }
+            if (guardVerdict?.hardBlock == true) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_BUY_COLLAPSE_GUARD_HARD_BLOCK_6326",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} reasons=${guardVerdict.reasons.joinToString(",").take(160)}",
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_BUY_COLLAPSE_GUARD_HARD_BLOCK_6326")
+                    PipelineHealthCollector.labelInc("BUY_SECURITY_BLOCKED_6324")
+                } catch (_: Throwable) {}
+                return false
+            }
+            val guardMult = guardVerdict?.sizeMultiplier ?: 1.0
+            val combinedMult = (govMult * guardMult).coerceIn(0.0, 1.0)
+            val shaped = (originalSol * combinedMult).coerceAtLeast(0.0)
+            if (combinedMult < 0.99 && originalSol > 0.0) {
                 try {
                     ForensicLogger.lifecycle(
                         "LIVE_BUY_SIZE_GOVERNOR_APPLIED_6325",
-                        "mint=${ts.mint.take(10)} sym=${ts.symbol} originalSol=${"%.4f".format(originalSol)} shapedSol=${"%.4f".format(shaped)} multiplier=${"%.2f".format(mult)} state=${com.lifecyclebot.engine.LiveEntrySafetyHold.currentGovernorState()}",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} originalSol=${"%.4f".format(originalSol)} shapedSol=${"%.4f".format(shaped)} govMult=${"%.2f".format(govMult)} guardMult=${"%.2f".format(guardMult)} combined=${"%.2f".format(combinedMult)} state=${com.lifecyclebot.engine.LiveEntrySafetyHold.currentGovernorState()} guardReasons=${guardVerdict?.reasons?.take(4)?.joinToString(",") ?: "-"}",
                     )
                     PipelineHealthCollector.labelInc("LIVE_BUY_SIZE_GOVERNOR_APPLIED_6325")
+                    if (guardMult < 0.99) PipelineHealthCollector.labelInc("LIVE_BUY_COLLAPSE_GUARD_SOFT_SHAPED_6326")
                 } catch (_: Throwable) {}
             }
             shaped
