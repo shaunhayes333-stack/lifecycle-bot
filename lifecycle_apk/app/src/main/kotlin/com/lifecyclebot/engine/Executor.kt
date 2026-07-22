@@ -2976,6 +2976,48 @@ class Executor(
             proofState = proofStateForJournal4502,
         )
 
+        // V5.0.6320 — CANONICAL BUY FILL OVERRIDE (§8). If the wallet has
+        // verified the entry fill for this mint (via promoteVerifiedLiveBuy),
+        // the mint-keyed registry holds the immutable on-chain truth.
+        // Override the SELL row's entry snapshot with those values so the
+        // journal, learning brain, MFE tracker, and CSV export all read
+        // the same authoritative fill — closing the multi-source-of-truth
+        // divergence the operator saw on Pilly (journal e=$0.00009761 vs
+        // position card $0.00000587 vs sell toast −31%).
+        if (tradeWithMint.side.equals("SELL", true) || tradeWithMint.side.equals("PARTIAL_SELL", true)) {
+            try {
+                val fill6320 = com.lifecyclebot.engine.CanonicalBuyFillRegistry.get(tradeWithMint.mint)
+                if (fill6320 != null) {
+                    val canonicalEntryPx = fill6320.entryPriceSol.takeIf { it > 0.0 } ?: fill6320.entryPriceUsd
+                    val stalePx = tradeWithMint.entryPriceSnapshot
+                    val staleQty = tradeWithMint.entryQtyToken
+                    val entryPxMismatch = canonicalEntryPx > 0.0 && stalePx > 0.0 &&
+                        maxOf(canonicalEntryPx, stalePx) / minOf(canonicalEntryPx, stalePx) > 1.10
+                    val entryQtyMismatch = fill6320.walletVerifiedQty > 0.0 && staleQty > 0.0 &&
+                        maxOf(fill6320.walletVerifiedQty, staleQty) / minOf(fill6320.walletVerifiedQty, staleQty) > 1.10
+                    if (entryPxMismatch || entryQtyMismatch) {
+                        val correctedRemaining = (fill6320.walletVerifiedQty - tradeWithMint.soldQtyToken).coerceAtLeast(0.0)
+                        tradeWithMint = tradeWithMint.copy(
+                            entryPriceSnapshot = if (canonicalEntryPx > 0.0) canonicalEntryPx else tradeWithMint.entryPriceSnapshot,
+                            entryQtyToken = fill6320.walletVerifiedQty,
+                            entryCostSol = if (fill6320.solSpentNet > 0.0) fill6320.solSpentNet else tradeWithMint.entryCostSol,
+                            entryDecimals = if (fill6320.decimals >= 0) fill6320.decimals else tradeWithMint.entryDecimals,
+                            entryTsMs = fill6320.entryTsMs.takeIf { it > 0L } ?: tradeWithMint.entryTsMs,
+                            remainingQtyToken = correctedRemaining,
+                            entryPriceSource = "CANONICAL_BUY_FILL_6320",
+                        )
+                        try {
+                            ForensicLogger.lifecycle(
+                                "SELL_JOURNAL_CANONICAL_OVERRIDE_6320",
+                                "mint=${tradeWithMint.mint.take(10)} sym=${ts.symbol} stalePx=$stalePx→${canonicalEntryPx} staleQty=$staleQty→${fill6320.walletVerifiedQty} pxMismatch=$entryPxMismatch qtyMismatch=$entryQtyMismatch",
+                            )
+                            PipelineHealthCollector.labelInc("SELL_JOURNAL_CANONICAL_OVERRIDE_6320")
+                        } catch (_: Throwable) {}
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
+
         // V5.0.6314 — CANONICAL PnL SEPARATION (§12). Classify every SELL
         // row into one of four buckets and increment the matching counter
         // so operators can distinguish canonical live outcomes from
@@ -14808,14 +14850,38 @@ class Executor(
                     }
                 }
                 fun promoteVerifiedLiveBuy(qtyUi: Double, stage: String, decimals: Int = -1) {
-                    // V5.0.6311 — capture the wallet-authoritative mint decimals
-                    // into the executor-scope cache so every future qty↔raw
-                    // conversion (top-ups, partial sells, quote replays)
-                    // bypasses inferUiScaleFromTrade even when the token
-                    // metadata reflection layer loses the field.
+                    // V5.0.6311 → 6320 — WALLET-VERIFIED FILL LATCH.
                     if (decimals >= 0) {
                         try { walletDecimalsByMint6311[verifyMint] = decimals } catch (_: Throwable) {}
                     }
+
+                    // V5.0.6320 — CANONICAL BUY FILL LATCH (§8). Store the
+                    // on-chain-proven entry snapshot in the mint-keyed
+                    // registry. Downstream SELL journal / position card /
+                    // MFE tracker override their stale ts.position readings
+                    // with the canonical record so the multi-source-of-
+                    // truth divergence (Pilly journal e=$0.00009761 vs
+                    // position card $0.00000587 vs sell toast −31%) stops.
+                    try {
+                        val entryPxSol = if (qtyUi > 0.0 && sol > 0.0) sol / qtyUi else 0.0
+                        val entryPxUsd = try {
+                            if (WalletManager.lastKnownSolPrice > 0.0) entryPxSol * WalletManager.lastKnownSolPrice else 0.0
+                        } catch (_: Throwable) { 0.0 }
+                        com.lifecyclebot.engine.CanonicalBuyFillRegistry.record(
+                            com.lifecyclebot.engine.CanonicalBuyFillRegistry.CanonicalBuyFill(
+                                mint = verifyMint,
+                                walletVerifiedQty = qtyUi,
+                                decimals = decimals,
+                                entryPriceSol = entryPxSol,
+                                entryPriceUsd = entryPxUsd,
+                                solSpentNet = sol,
+                                entryTsMs = System.currentTimeMillis(),
+                                buySignature = try { verifySig } catch (_: Throwable) { "" },
+                                fillIndex = 0,
+                                lane = com.lifecyclebot.engine.LaneAlias.normalize(layerTag).ifBlank { layerTag },
+                            )
+                        )
+                    } catch (_: Throwable) {}
 
                     // V5.0.6311 — journaled-BUY qty backfill. The BUY row was
                     // recorded 15-45s ago with ts.position.qtyToken set from

@@ -1,6 +1,50 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
-## ✅ V5.0.6316 SHIPPED — HOTFIX REGRESSION TEST SUITE (2026-02, CI in progress)
+## 🔴 KNOWN OPEN ISSUE — DATA INTEGRITY (post-V5.0.6319, operator-confirmed)
+
+**Symptom (Pilly, 2026-02, V5.0.6318 dump + screenshots):**
+Journal BUY row shows entry=$0.00009761, size=0.0295 SOL, qty=391,262. Open Position card shows Entry $0.00000587, Size 0.0222 SOL, 293.45K tokens, +1564% unrealized. Live Partial Sell toast shows sold 25% at -31.05%. Every surface displays a DIFFERENT source of truth for the same fill.
+
+**Root cause:**
+The V5.0.6311 wallet-verify backfill (`promoteVerifiedLiveBuy` → `TradeHistoryStore.backfillLastBuyEntryQty6311`) only fires AFTER the wallet-decimals RPC round-trip completes. On fast stop-loss scenarios (15-30s hold time), the SELL journal writes BEFORE the backfill lands, so the SELL row uses the pre-verify heuristic-inferred qty while the position card reads `ts.position.entryPrice` (a different mutation path). There is no single canonical fill authority — five different codepaths each read a different snapshot: `Trade.entryPriceSnapshot`, `ts.position.entryPrice`, `LiveTradeLogStore.entryPrice`, WebSocket mark price, wallet-raw × decimals inference.
+
+**Only a foundational refactor closes this properly** (matches operator brief §7 / §8 / §9):
+* §7 BigInteger raw-amount model everywhere (executable qty never in Double/Float)
+* §8 Immutable BuyFill record locked at confirmed on-chain fill (rawTokensReceived, decimals, avgFillPriceSol, avgFillPriceUsd — cannot be mutated by lane change, reconciliation, WebSocket update, or partial exit)
+* §9 Canonical PositionId = wallet+mint+sig+fillIndex — one identity per acquisition, lane is a mutable attribute NOT an identity component
+
+Estimated scope: 400-700 LoC net change across Executor.kt, Position.kt, Trade.kt, ExecutionContext.kt, MainActivity.kt, PositionCard rendering, ReportingHub. Requires careful staged rollout because every existing consumer of `ts.position.entryPrice` must be routed to `positionId → BuyFill.avgFillPriceSol`.
+
+**What IS working post-6310→6319 (verified in dumps):**
+* Bot buying live again (33 buys ok)
+* Fresh canonical stats healthy (canonN=4 wr=50% pf=5.96 exp=+0.0041 SOL)
+* Pre-hotfix rows properly excluded from governor (339× quarantined)
+* Governor stays BASELINE
+* Session-scoped window + 20-trade grace + flip-flop guard
+* Delta-based skew burst detector (V5.0.6319)
+* Alias merge on journal write kills BLUE_CHIP leak
+
+**Recommendation:**
+Next session: dedicate the entire budget to §7/§8/§9 as a single foundational commit. Do not layer more workarounds on the current mutable position model. Refer to `Executor.kt:1441` (rawTokenAmountToUiAmount), `Position` data class in Models.kt, `Trade.entryPriceSnapshot` in Models.kt, `TradeHistoryStore.recordExec` in TradeHistoryStore.kt for the change surface.
+
+## ✅ Hotfix Stack V5.0.6310 → V5.0.6319 (all CI green, 10 commits)
+
+* V5.0.6310 — inferUiScaleFromTrade units fix + explicit decimals + liq-halved runner block + skew learning quarantine
+* V5.0.6311 — Journal BUY-qty backfill + wallet decimals cache + boot-warmup ANR exclusion + pumpfun alt-route suppression
+* V5.0.6312 — LiveEntrySafetyHold + Confidence Governor + Bypass Denylist + LaneAlias + sell-clamp telemetry + Pipeline Health section
+* V5.0.6313 — DNA early-veto + EXIT_REASON_INVARIANT + MintReEntryCooldown
+* V5.0.6314 — Canonical PnL bucket counters + Broadcast learning quarantine + Live Quality Funnel report sections
+* V5.0.6315 — Supervisor atomic force-release + exec-lease propagation
+* V5.0.6316 — 11-test HotfixInvariantsTest regression suite
+* V5.0.6317 — Governor pre-hotfix row filter (calendar-date cutoff, superseded)
+* V5.0.6318 — Session-scoped governor window + 20-trade auto-snooze grace + flip-flop guard
+* V5.0.6319 — Delta-based skew burst detector + alias merge on journal exec write
+
+---
+
+## Archived earlier changelog
+
+## ✅ V5.0.6303 SHIPPED — MFE CAPTURE FIX + CRYPTO TRADER REACH EXPANSION (2026-02, CI green)
 
 Commit `a2e6b22fe`. 11 unit tests covering the operator hotfix invariants (§4, §9, §21, §6).
 
