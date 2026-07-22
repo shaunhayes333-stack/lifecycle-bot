@@ -1655,6 +1655,21 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "Position Persistence init error: ${e.message}", e)
         }
 
+        // V5.0.6323 — Rehydrate the CanonicalBuyFillRegistry from disk so
+        // a process restart preserves the immutable on-chain entry basis
+        // for every open position. Without this, downstream code
+        // (position card, sell journal override, partial-sell toast)
+        // would fall back to pos.entryPrice which can drift after lane
+        // reclassification, producing the "weird shit with prices"
+        // divergence the operator flagged on Pilly.
+        try {
+            com.lifecyclebot.engine.CanonicalBuyFillRegistry.init(applicationContext)
+            val canonCount = com.lifecyclebot.engine.CanonicalBuyFillRegistry.activeCount()
+            ErrorLogger.info("BotService", "🔒 CanonicalBuyFillRegistry initialized | $canonCount fills restored")
+        } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "CanonicalBuyFillRegistry init error: ${e.message}")
+        }
+
         // V5.0.6238 — Live Win DNA Store: transferable knowledge base of winning
         // fingerprints (setup, chart pattern, source/lane/phase route, hold time,
         // exit reason) that every AGI/LLM/SSI/meta-cog/sentience brain can read

@@ -5309,18 +5309,48 @@ for legal compliance.
         val renderedMints = HashSet<String>(capped.size * 2)
         capped.forEach { ts ->
             val pos     = ts.position
-            // V5.0.6321 — CANONICAL FILL OVERRIDE (§8 continued). If the
-            // wallet has verified the fill for this mint, prefer the
+            // V5.0.6321 → 6323 — CANONICAL FILL OVERRIDE (§8 continued).
+            // If the wallet has verified the fill for this mint, prefer the
             // immutable on-chain entry snapshot over ts.position.entryPrice
             // and ts.position.qtyToken. Closes the Pilly-style "position
             // card shows Entry $0.00000587 while journal has $0.00009761"
             // divergence at the display layer.
+            //
+            // V5.0.6323 UNITS FIX. ts.position.entryPrice is USD/token
+            // (written from proofEntryUsd in completeVerifiedLiveBuyWithProof).
+            // The 6321 code preferred entryPriceSol which is SOL/token —
+            // that produced a ~1/solPrice (≈1/150) mismatch between the
+            // Entry: label on the card and every other USD-priced surface
+            // (journal, sell toast, dashboard). Always take USD first.
             val fill6321 = try { com.lifecyclebot.engine.CanonicalBuyFillRegistry.get(ts.mint) } catch (_: Throwable) { null }
-            val entryPriceForCard6321: Double = fill6321?.entryPriceSol?.takeIf { it > 0.0 } ?: pos.entryPrice
+            val entryPriceForCard6321: Double = fill6321?.entryPriceUsd?.takeIf { it > 0.0 } ?: pos.entryPrice
             val entryQtyForCard6321: Double = fill6321?.walletVerifiedQty?.takeIf { it > 0.0 } ?: pos.qtyToken
             val pnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "MainActivity.renderRow/${ts.symbol}/${ts.mint.take(8)}", emit = true)
-            val basisTrusted = pnlVerdict.ok
-            val gainPct = if (basisTrusted) pnlVerdict.pnlPct else 0.0
+            // V5.0.6323 — CANONICAL BASIS FOR PnL (operator directive: real
+            // price data, no clamps). When the canonical registry has a
+            // wallet-verified fill for this mint, ALWAYS compute PnL as
+            // (currentUsd / canonicalEntryUsd - 1) so the position card
+            // math matches the immutable on-chain entry and the journal.
+            // OpenPnlSanity.inspect is still used as the trust gate — if
+            // it rejects the basis (bad source, extreme ratio, etc.) we
+            // fall through to its untrusted verdict. Otherwise we prefer
+            // the canonical price over ts.position.entryPrice which can
+            // drift from lane reclassification / WebSocket healers.
+            var basisTrusted = pnlVerdict.ok
+            var gainPct = if (basisTrusted) pnlVerdict.pnlPct else 0.0
+            if (basisTrusted) {
+                val canonicalEntryUsd = fill6321?.entryPriceUsd?.takeIf { it > 0.0 } ?: 0.0
+                val currentUsd = ts.ref
+                if (canonicalEntryUsd > 0.0 && currentUsd.isFinite() && currentUsd > 0.0) {
+                    val recomputedPct = (currentUsd / canonicalEntryUsd - 1.0) * 100.0
+                    if (recomputedPct.isFinite()) {
+                        if (kotlin.math.abs(recomputedPct - gainPct) > 1.0) {
+                            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UI_PNL_RECOMPUTED_FROM_CANONICAL_6323") } catch (_: Throwable) {}
+                        }
+                        gainPct = recomputedPct
+                    }
+                }
+            }
             val gainCol = if (!basisTrusted) muted else if (gainPct >= 0) green else red
             val pnlSol  = if (basisTrusted) pos.costSol * gainPct / 100.0 else 0.0
 
@@ -6191,7 +6221,19 @@ for legal compliance.
                     com.lifecyclebot.engine.OpenPnlSanity.Verdict(false, reason = "PRICE_WAIT")
                 }
                 val basisTrusted = pnlVerdict.ok
-                val gainPct = if (basisTrusted) pnlVerdict.pnlPct else 0.0
+                var gainPct = if (basisTrusted) pnlVerdict.pnlPct else 0.0
+                if (basisTrusted) {
+                    // V5.0.6323 — prefer canonical registry USD entry as
+                    // the PnL basis so the ShitCoin mini-tile matches the
+                    // main position card and journal.
+                    val fill6323f = try { com.lifecyclebot.engine.CanonicalBuyFillRegistry.get(pos.mint) } catch (_: Throwable) { null }
+                    val canonUsd = fill6323f?.entryPriceUsd?.takeIf { it > 0.0 } ?: 0.0
+                    val curUsd = currentPrice ?: (tsState?.ref ?: 0.0)
+                    if (canonUsd > 0.0 && curUsd.isFinite() && curUsd > 0.0) {
+                        val rp = (curUsd / canonUsd - 1.0) * 100.0
+                        if (rp.isFinite()) gainPct = rp
+                    }
+                }
                 val pnlSol = if (basisTrusted) pos.entrySol * gainPct / 100.0 else 0.0
                 liveSum += pnlSol
                 val pctTv = llShitCoinPositions.findViewWithTag<android.widget.TextView>("scpct_${pos.mint}")
@@ -6221,7 +6263,20 @@ for legal compliance.
                 com.lifecyclebot.engine.OpenPnlSanity.Verdict(false, reason = "PRICE_WAIT")
             }
             val basisTrusted = pnlVerdict.ok
-            val gainPct = if (basisTrusted) pnlVerdict.pnlPct else 0.0
+            var gainPct = if (basisTrusted) pnlVerdict.pnlPct else 0.0
+            if (basisTrusted) {
+                // V5.0.6323 — prefer canonical registry USD entry as the PnL
+                // basis so the ShitCoin build path matches the main position
+                // card, journal, and partial-sell PnL. Falls through to
+                // pnlVerdict.pnlPct if no canonical fill is registered yet.
+                val fill6323s = try { com.lifecyclebot.engine.CanonicalBuyFillRegistry.get(pos.mint) } catch (_: Throwable) { null }
+                val canonUsd = fill6323s?.entryPriceUsd?.takeIf { it > 0.0 } ?: 0.0
+                val curUsd = currentPrice ?: (tsState?.ref ?: 0.0)
+                if (canonUsd > 0.0 && curUsd.isFinite() && curUsd > 0.0) {
+                    val rp = (curUsd / canonUsd - 1.0) * 100.0
+                    if (rp.isFinite()) gainPct = rp
+                }
+            }
             val gainCol = if (!basisTrusted) muted else if (gainPct >= 0) green else red
             val pnlSol = if (basisTrusted) pos.entrySol * gainPct / 100.0 else 0.0
             childrenUnrealizedSum += pnlSol

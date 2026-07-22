@@ -166,4 +166,103 @@ class HotfixInvariantsTest {
         MintReEntryCooldown.clear(mint, "MARKET_STRUCTURE_CHANGE_TEST")
         assertNull(MintReEntryCooldown.shouldBlockReEntry(mint))
     }
+
+    // ─── §8 canonical buy fill registry (V5.0.6320 / 6323) ──────
+
+    @Test
+    fun canonicalBuyFillRoundTripPreservesUsdAndSolPrices() {
+        // V5.0.6323 — a wallet-verified fill must expose BOTH USD and
+        // SOL entry prices without mutation. Position card + journal
+        // read USD; SOL is kept for downstream SOL-denominated math.
+        val mint = "CANON_ROUNDTRIP_" + System.nanoTime()
+        CanonicalBuyFillRegistry.clear(mint, "test-setup")
+        val fill = CanonicalBuyFillRegistry.CanonicalBuyFill(
+            mint = mint,
+            walletVerifiedQty = 12_345.6789,
+            decimals = 6,
+            entryPriceSol = 0.00000587,
+            entryPriceUsd = 0.00009761,
+            solSpentNet = 0.0725,
+            entryTsMs = 1_722_000_000_000L,
+            buySignature = "sig_" + System.nanoTime(),
+            fillIndex = 0,
+            lane = "SHITCOIN",
+        )
+        CanonicalBuyFillRegistry.record(fill)
+        val loaded = CanonicalBuyFillRegistry.get(mint)
+        assertNotNull("canonical fill must persist in-memory", loaded)
+        assertEquals(fill.entryPriceUsd, loaded!!.entryPriceUsd, 0.0)
+        assertEquals(fill.entryPriceSol, loaded.entryPriceSol, 0.0)
+        assertEquals(fill.walletVerifiedQty, loaded.walletVerifiedQty, 0.0)
+        // V5.0.6323 assert USD is ~150× the SOL price so downstream code
+        // can never mistake the two units. Regression-guards against the
+        // 6321 bug where the position card preferred entryPriceSol and
+        // showed $0.00000587 while the journal held $0.00009761.
+        val ratio = loaded.entryPriceUsd / loaded.entryPriceSol
+        assertTrue(
+            "USD entry must be materially larger than SOL entry (ratio=$ratio)",
+            ratio > 10.0
+        )
+        CanonicalBuyFillRegistry.clear(mint, "test-cleanup")
+    }
+
+    @Test
+    fun canonicalBuyFillIsImmutableAgainstFakePriceRewrite() {
+        // Simulate a WebSocket / lane-reclassifier trying to overwrite
+        // the canonical fill with a stale/bad price. The registry must
+        // ignore blank-mint / zero-qty writes so downstream PnL basis
+        // stays anchored to the on-chain-proven acquisition.
+        val mint = "CANON_IMMUTABLE_" + System.nanoTime()
+        CanonicalBuyFillRegistry.clear(mint, "test-setup")
+        val original = CanonicalBuyFillRegistry.CanonicalBuyFill(
+            mint = mint,
+            walletVerifiedQty = 5_000.0,
+            decimals = 6,
+            entryPriceSol = 0.00001,
+            entryPriceUsd = 0.0015,
+            solSpentNet = 0.05,
+            entryTsMs = System.currentTimeMillis(),
+            buySignature = "orig_sig",
+            fillIndex = 0,
+            lane = "STANDARD",
+        )
+        CanonicalBuyFillRegistry.record(original)
+        // Attempt a corrupt overwrite (zero qty — should be rejected).
+        CanonicalBuyFillRegistry.record(
+            original.copy(walletVerifiedQty = 0.0, entryPriceUsd = 999.99)
+        )
+        val after = CanonicalBuyFillRegistry.get(mint)
+        assertNotNull(after)
+        assertEquals(
+            "zero-qty write must NOT clobber the canonical entry USD price",
+            0.0015, after!!.entryPriceUsd, 0.0
+        )
+        assertEquals(5_000.0, after.walletVerifiedQty, 0.0)
+        CanonicalBuyFillRegistry.clear(mint, "test-cleanup")
+    }
+
+    @Test
+    fun canonicalBuyFillClearRemovesEntry() {
+        val mint = "CANON_CLEAR_" + System.nanoTime()
+        CanonicalBuyFillRegistry.record(
+            CanonicalBuyFillRegistry.CanonicalBuyFill(
+                mint = mint,
+                walletVerifiedQty = 100.0,
+                decimals = 6,
+                entryPriceSol = 0.00002,
+                entryPriceUsd = 0.003,
+                solSpentNet = 0.002,
+                entryTsMs = System.currentTimeMillis(),
+                buySignature = "clear_sig",
+                fillIndex = 0,
+                lane = "STANDARD",
+            )
+        )
+        assertNotNull(CanonicalBuyFillRegistry.get(mint))
+        CanonicalBuyFillRegistry.clear(mint, "test-position-close")
+        assertNull(
+            "cleared fill must not be returned on subsequent get()",
+            CanonicalBuyFillRegistry.get(mint)
+        )
+    }
 }
