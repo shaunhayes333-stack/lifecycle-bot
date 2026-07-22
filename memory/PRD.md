@@ -1,5 +1,80 @@
 # AATE Lifecycle Bot — Product Requirements Document
 
+## ✅ V5.0.6316 SHIPPED — HOTFIX REGRESSION TEST SUITE (2026-02, CI in progress)
+
+Commit `a2e6b22fe`. 11 unit tests covering the operator hotfix invariants (§4, §9, §21, §6).
+
+## ✅ V5.0.6315 SHIPPED — SUPERVISOR ATOMIC FORCE-RELEASE (2026-02, CI green)
+
+Commit `3f2890c87`. Force-release now atomically mirrors cancel across ExecutionAttemptLease + SellExecutionLocks so retries after WORKER_TIMEOUT are no longer blocked by dangling exec leases.
+
+## ✅ V5.0.6314 SHIPPED — CANONICAL PnL SEPARATION + BROADCAST LEARNING QUARANTINE + LIVE QUALITY FUNNEL REPORT (2026-02, CI green)
+
+Commit `0ff9ced92`. §12 canonical PnL bucket counters (CONFIRMED/RECONCILED/ESTIMATED/BROADCAST_EXCLUDED). §18 broadcast + sig-only rows excluded from Bayesian learning. §22 three new operator report sections.
+
+## ✅ V5.0.6313 SHIPPED — DNA EARLY-VETO + EXIT REASON INVARIANT + MINT RE-ENTRY COOLDOWN (2026-02, CI green)
+
+Commit `49fad5d61`. §17 DNA loser veto now fires BEFORE supervisor lease creation (kills 105-row wasted CPU). §13 QUICK_RUNNER_10X on a losing PnL is rewritten to FALLBACK_AFTER_FAILED_PROFIT_EXIT_6312. §21 catastrophic close arms 600s per-mint cooldown; loss 180s; scratch 45s; win 0s.
+
+## ✅ V5.0.6312 SHIPPED — LIVE CAPITAL PROTECTION KIT (2026-02, CI green)
+
+Commit `d9c356d7e`. **The core hotfix.** New `LiveEntrySafetyHold.kt` module — central authority for live capital protection. LIVE_ENTRY_SAFETY_HOLD state, Live Confidence Governor (baseline/tighten/hold based on canonical finalised WR / PF / expectancy), bypass denylist (12 exploration/probe labels never authorize a live buy), minimum candidate score floor = 55, `LaneAlias.normalize()` for BLUE_CHIP/SHIT_COIN/MOON_SHOT. Wired into Executor.liveBuy(); periodic health check on every bot tick. New Pipeline Health line "LIVE ENTRY AUTHORITY".
+
+## ✅ V5.0.6311 SHIPPED — WADDLE ROOT-CAUSE CLOSEOUT (2026-02, CI green)
+
+Commit `4d23570fa`. Journal-source BUY qty backfill (`TradeHistoryStore.backfillLastBuyEntryQty6311`) so the pre-verify heuristic qty is retroactively corrected once wallet-verify proves the true amount. Wallet decimals cache (`walletDecimalsByMint6311`) bypasses `inferUiScaleFromTrade` for all top-ups / partial sells. Boot-warmup ANR exclusion (first 15s of uptime don't pollute the sticky maxFrameGapMs). pumpfun alt-route degraded suppression (don't scream scanner-critical when SCANNER_DIRECT_PUMP_FUN_NEW is producing rows via PumpPortal WS).
+
+## ✅ V5.0.6310 SHIPPED — WADDLE ROOT FIX: units + explicit decimals + liq-halved + skew quarantine (2026-02, CI green)
+
+Commit `15f04daed`. `inferUiScaleFromTrade` units bug fixed (missing SOL/USD factor was making the log10-nearest candidate scale miss by 10×-1000×). explicit `walletDecimals` plumbed into BUY + top-up paths. Liquidity-halved mark invalidated for QUICK_RUNNER runner gate. Learning-brain quarantine for SELL rows with >10× BUY↔SELL qty divergence.
+
+## 📋 Hotfix Sections Delivered vs Remaining
+
+**Operator hotfix brief §1-§25 progress:**
+
+Fully delivered (V5.0.6310-6316):
+  * §3 LIVE_ENTRY_SAFETY_HOLD ✅
+  * §4 Bypass denylist prevents PROBE_ONLY / dust promotion in live ✅
+  * §5 Live Confidence Governor (replaces gate relaxer for live) ✅
+  * §6 Minimum live candidate score = 55 (no auto-relax) ✅
+  * §7 Sell wallet-cap telemetry (already existed; canonical events added) ✅ (partial — no BigInteger raw model yet)
+  * §9 BLUE_CHIP alias merge ✅ (partial — no canonical PositionId refactor yet)
+  * §12 Canonical PnL bucket counters ✅
+  * §13 EXIT_REASON_INVARIANT_FAILED (QUICK_RUNNER-on-loss rewrite) ✅
+  * §15 Supervisor atomic force-release ✅
+  * §16 API degradation alt-route suppression ✅ (V5.0.6311)
+  * §17 DNA loser veto early placement ✅
+  * §18 Learning quarantine (decimal skew + broadcast/sig-only) ✅
+  * §21 Mint re-entry cooldown after finalised loss ✅
+  * §22 LIVE ENTRY AUTHORITY + LIVE QUALITY FUNNEL + CANONICAL LIVE PERFORMANCE + QUANTITY INTEGRITY report sections ✅
+  * §23 Regression test subset (11 tests, alias + bypass + cooldown + hold) ✅
+
+Remaining (subsequent commits — requires deeper refactoring):
+  * §7 (full) BigInteger raw-amount model everywhere
+  * §8 Immutable BuyFill record (position stamp cannot mutate on reconciliation)
+  * §9 (full) Canonical PositionId = wallet+mint+sig+fillIndex
+  * §10-11 Buy / Sell state machines with CAS lease authority
+  * §14 Unified reconciliation authority (expected vs actual with 8 classifications)
+  * §19 One-time journal migration (broadcast/finalised split, decimal recovery)
+  * §23 (full) Remaining 4 tests (missing decimals, oversell clamp, duplicate finality, restart recovery)
+
+## Blockers / Known Risks
+
+* Existing live positions journaled before V5.0.6311 still show wrong entryQtyToken until wallet-verify runs on the next open/reconcile cycle.
+* pumpfun REST API remains degraded upstream; alt-route (PumpPortal WS) is proven and no longer flags as scanner-critical (V5.0.6311).
+
+## Critical Info for New Agent
+
+* NO LOCAL COMPILER: all builds via GitHub Actions on push. `curl -H "Authorization: token $GH_TOKEN" .../actions/runs?per_page=N` to monitor.
+* Next commit version: **V5.0.6317+**.
+* Golden Tape safe: never alter `ReportingHub` / `PipelineHealthCollector` literal strings without checking `GoldenTapeRegressionTest.kt` first.
+* Live Capital Protection Kit is now the authority for live buys. Any new live-buy gate must consult `LiveEntrySafetyHold.assessLiveEntry()` — the module already handles safety hold, bypass ban, score floor, confidence governor.
+* Ownership identity: always run `LaneAlias.normalize(lane)` before any lane-keyed lookup or position stamp.
+
+---
+
+## Archived earlier changelog
+
 ## ✅ V5.0.6303 SHIPPED — MFE CAPTURE FIX + CRYPTO TRADER REACH EXPANSION (2026-02, CI green)
 
 Commit `3f0768e89`. GitHub Actions build **success** (run 29771356677).
