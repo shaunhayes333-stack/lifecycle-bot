@@ -1,0 +1,66 @@
+{
+  "summary": "Static diff verification of V5.0.6308a (0adba2c38). All 4 residual fixes (R2 dynamic cooling, R3 bg-thread watchdog, R4/CR monotonic clock, R5 dust-qty ceiling) confirmed present in source. All 3 primary V5.0.6308 fixes and V5.0.6307/6306b baselines still intact. Read-only inspection — no compile attempted per operator instruction.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verification_matrix": {
+    "R2_dynamic_cooling": {
+      "status": "PASS",
+      "file": "BotService.kt:15987-16001",
+      "evidence": "now = android.os.SystemClock.elapsedRealtime(); cycleMs>90_000L branch: coolMs=maxOf(120_000L, cycleMs*3L/2L); cycleMs>30_000L branch: coolMs=maxOf(60_000L, cycleMs*3L/2L). Both write supervisorCoolingUntilMs = maxOf(supervisorCoolingUntilMs, now+coolMs) — preserves any heavier active cooling."
+    },
+    "R3_bghandler_watchdog": {
+      "status": "PASS",
+      "file": "PipelineHealthActivity.kt:406-411",
+      "evidence": "bgHandler.postDelayed({...}, 8_000L). Fallback buildEmergencyPipelineReport6308 executes inside bgHandler callback (off-Main); only deliverReport6308 → mainHandler.post for setPrimaryClip/Toast (required Main APIs)."
+    },
+    "R4_CR_monotonic_supervisorEffectiveCap": {
+      "status": "PASS",
+      "file": "BotService.kt:15920-15922",
+      "evidence": "val nowMono = android.os.SystemClock.elapsedRealtime(); if (timeouts>=150) supervisorCoolingUntilMs = nowMono + 90_000L; val cooling = nowMono < supervisorCoolingUntilMs. All 4 supervisorCoolingUntilMs touches in the file use monotonic clock (lines 15921, 15922, 15991, 15997). Wall-clock `now` at 15912 is only used for the timeout-window bookkeeping, NOT for cooling reads/writes."
+    },
+    "R5_dust_qty_ceiling": {
+      "status": "PASS",
+      "file": "OpenPnlSanity.kt:114",
+      "evidence": "if (reconstructed.isFinite() && reconstructed > 0.0 && reconstructed < 1.0) { labelInc(ENTRY_PRICE_HEALED_FROM_COST_QTY_6308); reconstructed } — ceiling <1.0 SOL-per-token blocks astronomical basis from dust qty."
+    },
+    "timebase_grep": {
+      "status": "PASS",
+      "evidence": "grep supervisorCoolingUntilMs shows 4 non-comment sites (15921, 15922, 15991, 15997). All use SystemClock.elapsedRealtime(). No System.currentTimeMillis() read/write against supervisorCoolingUntilMs remains."
+    },
+    "V5_0_6308_primary_fixes": {
+      "status": "PASS",
+      "evidence": "SUPERVISOR_LEASE_TTL_MS = 12_000L @ line 15648. supervisorArmEmergencyThrottle called at cycleMs>15_000L @ line 15982 (telemetry-only, disarmed per 5.9.1332 comment — matches request). ENTRY_PRICE_HEALED_FROM_COST_QTY_6308 label emitted @ OpenPnlSanity.kt:115."
+    },
+    "V5_0_6307_lane_unchoke_revert": {
+      "status": "PASS",
+      "file": "FinalDecisionGate.kt:3299-3313",
+      "evidence": "LaneAutoPauseGuard.statusFor(laneName) called directly; block applies unconditionally when pauseState != null. No isPaperMode bypass in the FDG admission path."
+    },
+    "V5_0_6306b_copy_thread": {
+      "status": "PASS",
+      "file": "PipelineHealthActivity.kt:413-424",
+      "evidence": "Thread({...}, \"PipelineHealth-GenerateCopy-6308\") calls PipelineHealthCollector.pasteSafeSnapshot(); no ReportingHub.buildTextAsync invocation in copyToClipboardAsync."
+    }
+  },
+  "static_risk_assessment": {
+    "operator_232s_scenario_recheck": "Under the current source, a 232s cycle would: (1) log SUPERVISOR_EMERGENCY_THROTTLE_OBSERVED_DISARMED (observation-only, harmless); (2) enter cycleMs>90_000L branch → coolMs = maxOf(120_000L, 348_000L) = 348_000L (5m48s cooling on monotonic clock); (3) supervisorCoolingUntilMs advanced with maxOf() so a subsequent shorter cycle cannot shrink it; (4) supervisorEffectiveCap() reads the same monotonic clock → cap clamped to maxOf(8, base/3) for the full 348s. Cooling window now EXCEEDS the pathological cycle duration, closing the operator's original re-open-mid-stall gap. No residual code path found where wall-clock skew, Main-thread ANR, dust qty basis, or lane bypass could reproduce the 232s stall untreated.",
+    "residual_concerns": [
+      "supervisorTimeoutWindowStartMs still uses System.currentTimeMillis() at line 15912/15950 — this is a SEPARATE 10-min timeout-count window (not cooling-related). NTP steps could reset the timeout counter, but the impact is bounded (worst case: one spurious 30/150 threshold cross) and does not affect the cooling latch which is now fully monotonic. Not urgent, but a future 'full monotonic timebase' pass could migrate this too.",
+      "The supervisorEffectiveCap timeout-count check `if (timeouts >= 150) supervisorCoolingUntilMs = nowMono + 90_000L` uses a fixed 90s — dynamic scaling was applied to cycle-based cooling only. If future ops report shows timeout-driven cooling too short, apply the same maxOf/dynamic pattern here. Not a blocker for the current fix."
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "BotService.kt is 25400 lines — extreme file-size violation. Recommend eventual split into SupervisorCoolingController, LeaseManager, CycleThrottle modules. Not blocking this release.",
+    "supervisorTimeoutWindowStartMs uses wall clock; consider migrating to monotonic in a follow-up pass for full timebase consistency (low priority, non-blocking)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "n/a (skipped per request)"},
+  "test_credentials": "n/a",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "V5.0.6308a static verification complete. All 4 residuals (R2 dynamic cooling, R3 bg-thread watchdog, R4+CR monotonic supervisorEffectiveCap, R5 dust-qty ceiling <1.0 SOL/token) verified present at BotService.kt:15910-16002, PipelineHealthActivity.kt:406-424, OpenPnlSanity.kt:108-116. supervisorCoolingUntilMs is now fully monotonic — 4 touch sites, 0 wall-clock. Only follow-up nit: supervisorTimeoutWindowStartMs (separate variable) still on wall clock, low impact.",
+  "rca of the issue": "n/a — verification pass only; no bugs discovered."
+}
