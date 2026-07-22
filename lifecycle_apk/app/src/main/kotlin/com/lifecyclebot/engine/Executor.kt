@@ -2977,6 +2977,56 @@ class Executor(
         )
 
 
+        // V5.0.6312 — EXIT_REASON_INVARIANT (§13). If the SELL row's reason
+        // claims TAKE_PROFIT / RUNNER / QUICK_RUNNER / +N% BANK but the
+        // realised PnL is ≤ 0, rewrite the reason to
+        // FALLBACK_AFTER_FAILED_PROFIT_EXIT and stamp the original label
+        // on a counter so the audit trail is preserved. This closes the
+        // "QUICK_RUNNER_10X_FULL_EXIT at a large loss" contradiction the
+        // operator flagged in the LIVE_20260722_2114 export.
+        if (tradeWithMint.side.equals("SELL", true) || tradeWithMint.side.equals("PARTIAL_SELL", true)) {
+            val rawReason6312 = tradeWithMint.reason.uppercase()
+            val claimsProfit6312 = rawReason6312.contains("QUICK_RUNNER") ||
+                rawReason6312.contains("TAKE_PROFIT") ||
+                rawReason6312.contains("BANK") ||
+                rawReason6312.contains("RUNNER") ||
+                rawReason6312.contains("PROFIT_TARGET") ||
+                rawReason6312.contains("10X") ||
+                rawReason6312.contains("6X")
+            val realisedPnl6312 = if (tradeWithMint.netPnlSol != 0.0) tradeWithMint.netPnlSol else tradeWithMint.pnlSol
+            if (claimsProfit6312 && realisedPnl6312 <= 0.0) {
+                val originalReason6312 = tradeWithMint.reason
+                tradeWithMint = tradeWithMint.copy(
+                    reason = "FALLBACK_AFTER_FAILED_PROFIT_EXIT_6312:${originalReason6312.take(60)}"
+                )
+                try {
+                    ForensicLogger.lifecycle(
+                        "EXIT_REASON_INVARIANT_FAILED",
+                        "originalReason=$originalReason6312 rewritten=FALLBACK_AFTER_FAILED_PROFIT_EXIT_6312 pnlSol=${realisedPnl6312.fmt(6)} mint=${tradeWithMint.mint.take(10)} sym=${ts.symbol}",
+                    )
+                    PipelineHealthCollector.labelInc("EXIT_REASON_INVARIANT_FAILED")
+                    PipelineHealthCollector.labelInc("EXIT_REASON_INVARIANT_ORIGINAL_${originalReason6312.uppercase().replace(Regex("[^A-Z0-9_]"), "_").take(60)}")
+                } catch (_: Throwable) {}
+            }
+
+            // V5.0.6312 — MINT RE-ENTRY COOLDOWN (§21). On every FINALIZED
+            // SELL row (proofStateForJournal4502 == LIVE_FINALIZED), arm a
+            // per-mint cooldown sized by the exit severity. Downstream
+            // liveBuy() consults MintReEntryCooldown.shouldBlockReEntry()
+            // before approving a fresh live buy on this mint. Paper/shadow
+            // paths are unaffected.
+            if (proofStateForJournal4502.equals("LIVE_FINALIZED", true) && tradeWithMint.mode.equals("live", true)) {
+                try {
+                    MintReEntryCooldown.onFinalisedClose(
+                        mint = tradeWithMint.mint,
+                        exitReason = tradeWithMint.reason,
+                        pnlPct = tradeWithMint.pnlPct,
+                    )
+                } catch (_: Throwable) {}
+            }
+        }
+
+
         // V5.0.3868 — paper→live transfer authority: every legacy/journal/learning
         // consumer must see executable NET edge, not gross displayed paper percent.
         // Canonical rich publish already used netPnlSol for realizedPnlSol, but
@@ -12535,6 +12585,84 @@ class Executor(
                 } catch (_: Throwable) {}
                 return false
             }
+
+            // V5.0.6312 — DNA_VETO_EARLY_APPLIED (§17). Operator report showed
+            // 105 candidates DNA-vetoed at EXEC_GATE AFTER all supervisor lease
+            // + advisor + provider quorum + route pre-work already executed.
+            // That work is wasted CPU + supervisor pressure (WORKER_TIMEOUT=85,
+            // FORCE_RELEASED=96, INFLIGHT_CAP=35 all trace to this).
+            //
+            // Deterministic loser gate BEFORE lease/ticket creation. The
+            // full veto path at ~line 12655 still fires as a safety-net for
+            // edge cases (lane-fallback / journal-authority overrides). This
+            // early gate ONLY blocks strict-veto candidates where the
+            // outcome is already decided.
+
+            // V5.0.6312 — MINT RE-ENTRY COOLDOWN (§21) — block fresh live
+            // buys on a mint that recently finalised a loss / catastrophic
+            // exit. Prevents the sub-30s in/out churn the operator flagged
+            // (10 of 17 matched sells closed within 30s). Applied only in
+            // LIVE mode; paper/shadow evaluation is unaffected.
+            try {
+                val cooldownReason6312 = MintReEntryCooldown.shouldBlockReEntry(ts.mint)
+                if (cooldownReason6312 != null) {
+                    liveStage("LIVE_BUY_ABORTED", "reason=MINT_REENTRY_COOLDOWN_6312 detail=$cooldownReason6312")
+                    try {
+                        emitLiveBuyFail(ts, sol, "MINT_REENTRY_COOLDOWN_6312", cooldownReason6312)
+                        PipelineHealthCollector.onGate(
+                            "EXEC_GATE",
+                            ts.symbol,
+                            false,
+                            "MINT_REENTRY_COOLDOWN_6312 mode=LIVE lane=$layerTag mint=${ts.mint.take(10)} $cooldownReason6312",
+                        )
+                        PipelineHealthCollector.labelInc("MINT_REENTRY_BLOCKED_6312")
+                    } catch (_: Throwable) {}
+                    return false
+                }
+            } catch (_: Throwable) {}
+
+            try {
+                val ec6312 = com.lifecyclebot.engine.EntryContextRegistry.peek(ts.mint)
+                val setupKey6312 = ec6312?.entrySetup?.trim().orEmpty()
+                if (setupKey6312.isNotBlank()) {
+                    val realDnaN6312 = com.lifecyclebot.engine.LiveWinDNAStore.realCount()
+                    if (realDnaN6312 >= 15) {
+                        val losers6312 = com.lifecyclebot.engine.LiveWinDNAStore.losingSetupFrequency(minCount = 8)
+                        val loserRow6312 = losers6312.firstOrNull { it.first.equals(setupKey6312, ignoreCase = true) }
+                        if (loserRow6312 != null && loserRow6312.second >= 8 && loserRow6312.third <= -20.0) {
+                            // Journal-authority escape: if the LANE itself is
+                            // journal-profitable, defer to the full veto (which
+                            // has the lane-authority override at line ~12648).
+                            val laneJournalProfitable6312 = try {
+                                val laneStats = com.lifecyclebot.engine.StrategyTelemetry
+                                    .computeLeaderboard(environment = null, includePartials = false, limit = 2_500)
+                                    .firstOrNull { it.strategy.equals(layerTag, ignoreCase = true) }
+                                laneStats != null && laneStats.trades >= 15 &&
+                                    laneStats.totalSolPnl > 0.0 && laneStats.meanPnlPct > 0.0
+                            } catch (_: Throwable) { false }
+                            if (!laneJournalProfitable6312) {
+                                val detail6312 = "setup=$setupKey6312 losses=${loserRow6312.second} avgLoss=${"%.1f".format(loserRow6312.third)}% lane=$layerTag stage=PRE_LEASE"
+                                liveStage("LIVE_BUY_ABORTED", "reason=DNA_VETO_EARLY_APPLIED_6312 detail=$detail6312")
+                                try {
+                                    emitLiveBuyFail(ts, sol, "DNA_VETO_EARLY_APPLIED_6312", detail6312)
+                                    PipelineHealthCollector.onGate(
+                                        "EXEC_GATE",
+                                        ts.symbol,
+                                        false,
+                                        "DNA_VETO_EARLY_APPLIED_6312 mode=LIVE lane=$layerTag $detail6312",
+                                    )
+                                    PipelineHealthCollector.labelInc("DNA_VETO_EARLY_APPLIED_6312")
+                                } catch (_: Throwable) {}
+                                return false
+                            }
+                        }
+                    } else {
+                        try {
+                            PipelineHealthCollector.labelInc("DNA_VETO_WEAK_SAMPLE_ADVISORY_6312")
+                        } catch (_: Throwable) {}
+                    }
+                }
+            } catch (_: Throwable) {}
         }
 
         // V5.0.6249 — HARD VETO on proven-toxic buckets.
