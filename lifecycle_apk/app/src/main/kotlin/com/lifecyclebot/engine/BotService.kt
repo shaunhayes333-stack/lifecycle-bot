@@ -11906,30 +11906,37 @@ class BotService : Service() {
                     WalletManager.lastKnownSolPrice > 0.0
                 } catch (_: Throwable) { false }
                 val scannerDegraded6312 = try {
-                    // Scanner-critical degradation: rely on the API_LAYER_DEGRADED
-                    // fault frequency. If it fired repeatedly this run window,
-                    // the fallback isn't proven.
                     PipelineHealthCollector.labelCountSnapshot("API_LAYER_DEGRADED") > 10L &&
                         PipelineHealthCollector.labelCountSnapshot("API_DEGRADED_SUPPRESSED_ALT_INTAKE_6311") == 0L
                 } catch (_: Throwable) { false }
                 val supervisorSat6312 = try {
                     PipelineHealthCollector.labelCountSnapshot("SUPERVISOR_INFLIGHT_CAP") > 100L
                 } catch (_: Throwable) { false }
-                val skewEvents6312 = try {
-                    PipelineHealthCollector.labelCountSnapshot("QTY_DECIMAL_SKEW_LEARNING_QUARANTINE_6310").toInt()
-                } catch (_: Throwable) { 0 }
-                val clampEvents6312 = try {
-                    PipelineHealthCollector.labelCountSnapshot("SELL_RAW_QTY_CLAMPED_TO_WALLET").toInt()
-                } catch (_: Throwable) { 0 }
+                // V5.0.6319 — DELTA-BASED BURST DETECTION. Previous impl used
+                // the raw cumulative label count which never decreases, so
+                // once 4+ skew events had ever happened the hold armed
+                // FOREVER even when no new events fired. Health-check now
+                // compares the current snapshot to the previous tick's
+                // snapshot and only counts NEW events per tick.
+                val curSkew6319 = try {
+                    PipelineHealthCollector.labelCountSnapshot("QTY_DECIMAL_SKEW_LEARNING_QUARANTINE_6310")
+                } catch (_: Throwable) { 0L }
+                val curClamp6319 = try {
+                    PipelineHealthCollector.labelCountSnapshot("SELL_RAW_QTY_CLAMPED_TO_WALLET")
+                } catch (_: Throwable) { 0L }
+                val deltaSkew6319 = (curSkew6319 - lastSkewCount6319).coerceAtLeast(0L).toInt()
+                val deltaClamp6319 = (curClamp6319 - lastClampCount6319).coerceAtLeast(0L).toInt()
+                lastSkewCount6319 = curSkew6319
+                lastClampCount6319 = curClamp6319
                 LiveEntrySafetyHold.runHealthCheck(
                     walletAuthorityHealthy = walletHealthy6312,
                     scannerCriticalDegradedWithoutFallback = scannerDegraded6312,
                     supervisorSaturated = supervisorSat6312,
                     accountingQuarantineActive = false,
                     pendingReconcileFailures = 0,
-                    recentDecimalSkewEvents = skewEvents6312,
+                    recentDecimalSkewEvents = deltaSkew6319,
                     recentDuplicateFinalityEvents = 0,
-                    recentSellClampEvents = clampEvents6312,
+                    recentSellClampEvents = deltaClamp6319,
                 )
                 try { LiveEntrySafetyHold.evaluateConfidenceGovernor() } catch (_: Throwable) {}
             } catch (_: Throwable) {}
@@ -15625,6 +15632,14 @@ if (hotExitHandledSweep) {
     // V5.9.1037 — SILENT SUPERVISOR concurrency state. Workers tally
     // themselves via these atomics; the bot loop no longer awaits.
     private val supervisorActive = java.util.concurrent.atomic.AtomicInteger(0)
+
+    // V5.0.6319 — snapshots of the cumulative decimal-skew / sell-clamp
+    // label counts as of the last health-check tick. runHealthCheck now
+    // passes only the DELTA (new events since last tick) to the safety-
+    // hold invariant sampler, so a burst that already ended can no
+    // longer keep the hold armed indefinitely.
+    @Volatile private var lastSkewCount6319: Long = 0L
+    @Volatile private var lastClampCount6319: Long = 0L
     private val supervisorLifetimeSpawned = java.util.concurrent.atomic.AtomicLong(0)
     private val supervisorLifetimeProcessed = java.util.concurrent.atomic.AtomicLong(0)
     private val supervisorLifetimeSkipped = java.util.concurrent.atomic.AtomicLong(0)

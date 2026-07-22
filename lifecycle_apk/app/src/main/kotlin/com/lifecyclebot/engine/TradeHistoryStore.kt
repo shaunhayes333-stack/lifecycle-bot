@@ -816,7 +816,11 @@ object TradeHistoryStore {
                 reason  = tradeToStore.reason,
                 proofState = tradeToStore.proofState,
                 positionId = tradeToStore.positionId,
-                lane = tradeToStore.tradingMode,
+                // V5.0.6319 — canonical lane alias. Journal / recentExec
+                // must never emit "BLUE_CHIP" when "BLUECHIP" is the
+                // canonical form (operator saw pid=21:BLUE_CHIP alongside
+                // pid=135:BLUECHIP in the same session).
+                lane = com.lifecyclebot.engine.LaneAlias.normalize(tradeToStore.tradingMode).ifBlank { tradeToStore.tradingMode },
                 entryPriceSnapshot = tradeToStore.entryPriceSnapshot,
                 entryMcapUsd = tradeToStore.entryMcapUsd,
                 entryQtyToken = tradeToStore.entryQtyToken,
