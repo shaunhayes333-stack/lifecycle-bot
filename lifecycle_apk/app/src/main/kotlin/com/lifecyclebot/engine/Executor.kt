@@ -1431,12 +1431,25 @@ class Executor(
     }
 
     private fun getTokenDecimals(ts: TokenState): Int {
+        // V5.0.6311 — wallet-verified decimals FIRST. Set by
+        // promoteVerifiedLiveBuy once the RPC returns the token account's
+        // authoritative decimals. This is the only source that is ever
+        // trustworthy on a fresh mint; every other path is heuristic.
+        walletDecimalsByMint6311[ts.mint]?.takeIf { it >= 0 }?.let { return it }
+
         val reflected = reflectInt(ts, "decimals", "tokenDecimals", "baseDecimals", "mintDecimals")
             ?: reflectInt(ts.meta, "decimals", "tokenDecimals", "baseDecimals")
             ?: reflectInt(ts.position, "decimals", "tokenDecimals")
 
         return reflected?.coerceAtLeast(0) ?: -1
     }
+
+    // V5.0.6311 — authoritative mint-decimals cache, populated by
+    // promoteVerifiedLiveBuy from the wallet's token account. Persists for
+    // the bot's lifetime so top-ups / partial sells / subsequent BUY
+    // reconciles never fall to the inferUiScaleFromTrade heuristic even
+    // when ts.meta / ts.position lose the reflection field.
+    private val walletDecimalsByMint6311 = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
     private fun rawTokenAmountToUiAmount(
         ts: TokenState,
@@ -14574,7 +14587,42 @@ class Executor(
                         )
                     }
                 }
-                fun promoteVerifiedLiveBuy(qtyUi: Double, stage: String) {
+                fun promoteVerifiedLiveBuy(qtyUi: Double, stage: String, decimals: Int = -1) {
+                    // V5.0.6311 — capture the wallet-authoritative mint decimals
+                    // into the executor-scope cache so every future qty↔raw
+                    // conversion (top-ups, partial sells, quote replays)
+                    // bypasses inferUiScaleFromTrade even when the token
+                    // metadata reflection layer loses the field.
+                    if (decimals >= 0) {
+                        try { walletDecimalsByMint6311[verifyMint] = decimals } catch (_: Throwable) {}
+                    }
+
+                    // V5.0.6311 — journaled-BUY qty backfill. The BUY row was
+                    // recorded 15-45s ago with ts.position.qtyToken set from
+                    // rawTokenAmountToUiAmount (heuristic if decimals unknown).
+                    // Wallet-verify has now proven the true qty. If the two
+                    // differ by >10% we retro-fix the last BUY row in
+                    // TradeHistoryStore so downstream MFE/PnL/learning read
+                    // the truth, not the pre-verify heuristic. This closes
+                    // the WADDLE loop at the journal source (P0-A of 6311).
+                    try {
+                        val stalePos = ts.position.qtyToken
+                        val stale = if (stalePos > 0.0) stalePos else -1.0
+                        if (qtyUi > 0.0 && stale > 0.0) {
+                            val ratio = maxOf(qtyUi, stale) / minOf(qtyUi, stale)
+                            if (ratio > 1.10) {
+                                val backfilled = TradeHistoryStore.backfillLastBuyEntryQty6311(verifyMint, qtyUi, decimals)
+                                try {
+                                    ForensicLogger.lifecycle(
+                                        "BUY_QTY_BACKFILL_WALLET_VERIFIED_6311",
+                                        "mint=${verifyMint.take(10)} sym=$verifySymbol stage=$stage staleQty=${stale.fmt(6)} walletQty=${qtyUi.fmt(6)} ratio=${ratio.fmt(2)}× backfilledRows=$backfilled decimals=$decimals",
+                                    )
+                                    PipelineHealthCollector.labelInc("BUY_QTY_BACKFILL_WALLET_VERIFIED_6311")
+                                } catch (_: Throwable) {}
+                            }
+                        }
+                    } catch (_: Throwable) {}
+
                     val promoted = ts.position.copy(
                         qtyToken = qtyUi,
                         pendingVerify = false,
@@ -14655,7 +14703,7 @@ class Executor(
                     } else {
                         try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_ENTRY_PRICE_PROOF_DEFERRED", "mint=${verifyMint.take(10)} symbol=$verifySymbol reason=missing_sol_usd_or_qty sol=$sol qty=$qtyUi solUsd=$solUsdForBasis") } catch (_: Throwable) {}
                     }
-                    promoteVerifiedLiveBuy(qtyUi, stage)
+                    promoteVerifiedLiveBuy(qtyUi, stage, proof.decimals)
                     val beforeOpen = try { HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { -1 }
                     try { HostWalletTokenTracker.recordBuyConfirmedWithProof(ts, proof, verifySig) } catch (e: Throwable) {
                         ErrorLogger.error("Executor", "🚨 HOST_TRACKER_RECORD_WITH_PROOF_FAILED: $verifySymbol — ${e.javaClass.simpleName}: ${e.message?.take(120)}", e)

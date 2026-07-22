@@ -1096,6 +1096,76 @@ object TradeHistoryStore {
     fun getRecentTradeFingerprints(limit: Int = 50): List<String> =
         getRecentValidTrades(limit).map { "${it.side}:${it.mode}:${it.mint}:${it.pnlPct}:${it.reason}" }
 
+    /**
+     * V5.0.6311 — WADDLE ROOT FIX: backfill the most recent BUY row's
+     * `entryQtyToken` for a given mint with the wallet-verified qty.
+     *
+     * Rationale: rawTokenAmountToUiAmount() may have landed on a wrong
+     * scale (heuristic) when the BUY row was first journaled. Wallet-verify
+     * (via promoteVerifiedLiveBuy) proves the true qty seconds/minutes
+     * later. Without a retroactive update, the BUY row's `entryQtyToken`
+     * stays wrong forever, poisoning MFE / peak / PnL displays and the
+     * QTY_DECIMAL_SKEW_6309 audit even though the position math itself
+     * has since been corrected.
+     *
+     * Scope: only the LAST (newest) BUY row for the mint that isn't
+     * already at the wallet-verified qty. In-memory update is authoritative
+     * for the current session; disk-persist is best-effort via the
+     * standard async writer path. Returns the number of rows touched.
+     */
+    fun backfillLastBuyEntryQty6311(mint: String, walletVerifiedQty: Double, walletDecimals: Int = -1): Int {
+        if (mint.isBlank() || walletVerifiedQty <= 0.0 || !walletVerifiedQty.isFinite()) return 0
+        var touched = 0
+        var updatedTradeTs = 0L
+        synchronized(lock) {
+            for (i in trades.indices.reversed()) {
+                val t = trades[i]
+                if (t.mint != mint) continue
+                if (!t.side.equals("BUY", true)) continue
+                if (t.entryQtyToken == walletVerifiedQty) return@synchronized
+                val entryDelta = if (t.entryQtyToken > 0.0) walletVerifiedQty / t.entryQtyToken else 0.0
+                val fixedRemaining = if (t.remainingQtyToken > 0.0 && entryDelta > 0.0)
+                    t.remainingQtyToken * entryDelta
+                else t.remainingQtyToken
+                val fixed = t.copy(
+                    entryQtyToken = walletVerifiedQty,
+                    remainingQtyToken = fixedRemaining,
+                    entryDecimals = if (walletDecimals >= 0) walletDecimals else t.entryDecimals,
+                )
+                trades[i] = fixed
+                updatedTradeTs = fixed.ts
+                touched = 1
+                // Bust the latest-buy cache so any getLatestBuyByMintSnapshot()
+                // consumer (including the QTY_DECIMAL_SKEW_6309 audit and the
+                // learning-quarantine gate) reads the corrected row.
+                latestBuyByMintCacheMs = 0L
+                break
+            }
+        }
+        // Best-effort disk persist via UPDATE (not INSERT — insertTradeAsync
+        // would duplicate the row under CONFLICT_IGNORE + fresh dedup_key).
+        if (touched > 0 && updatedTradeTs > 0L) {
+            val tsForUpdate = updatedTradeTs
+            ioHandler?.post {
+                try {
+                    val cv = ContentValues().apply {
+                        put("entry_qty_token", walletVerifiedQty)
+                        if (walletDecimals >= 0) put("entry_decimals", walletDecimals)
+                    }
+                    db?.update(
+                        TradeDbHelper.TABLE,
+                        cv,
+                        "ts=? AND mint=? AND side='BUY'",
+                        arrayOf(tsForUpdate.toString(), mint),
+                    )
+                } catch (e: Exception) {
+                    ErrorLogger.error("TradeHistoryStore", "backfill6311 SQLite update failed: ${e.message}")
+                }
+            }
+        }
+        return touched
+    }
+
 
     fun getAllTradesIncludingInvalidForensics(): List<Trade> {
         ensureInitialized()

@@ -738,13 +738,31 @@ object PipelineHealthCollector {
                     // UI freeze) caps at ~30s before ActivityManager kills
                     // the process — 60s is comfortably above the worst
                     // legitimate stall a foreground app can survive.
-                    if (deltaMs > LONG_FRAME_THRESHOLD_MS && deltaMs <= MAX_REAL_STALL_MS) {
+                    //
+                    // V5.0.6311 — BOOT-WARMUP EXCLUSION (P0-C). Cold-start
+                    // legitimately consumes 5-40s on the main thread doing
+                    // Application.onCreate + AndroidX inflation + all the
+                    // SharedPreferences reads + PositionPersistence load +
+                    // corpus-seed schedulers. Those aren't ANRs; they're
+                    // unavoidable one-time boot cost. Excluding them from
+                    // the sticky max keeps operators focused on real
+                    // steady-state stalls. The Choreographer's very first
+                    // real frame arrives once the Activity is drawn, so
+                    // uptime > 15s is a robust "past boot" gate.
+                    val uptimeMs = System.currentTimeMillis() - startedAtMs.get()
+                    val pastBootWarmup = uptimeMs > 15_000L
+                    if (deltaMs > LONG_FRAME_THRESHOLD_MS && deltaMs <= MAX_REAL_STALL_MS && pastBootWarmup) {
                         anrHintCount.incrementAndGet()
                         totalFrameStallMs.addAndGet(deltaMs)
                         var prevMax = maxFrameGapMs.get()
                         while (deltaMs > prevMax && !maxFrameGapMs.compareAndSet(prevMax, deltaMs)) {
                             prevMax = maxFrameGapMs.get()
                         }
+                    } else if (deltaMs > LONG_FRAME_THRESHOLD_MS && !pastBootWarmup) {
+                        // Boot-warmup stall — count it under a dedicated
+                        // label so it's still visible in the report, just
+                        // not conflated with steady-state ANRs.
+                        bump(labelCounts, "BOOT_WARMUP_FRAME_STALL_6311")
                     }
                 }
                 Choreographer.getInstance().postFrameCallback(this)

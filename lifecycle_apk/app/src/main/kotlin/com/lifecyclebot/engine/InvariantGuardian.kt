@@ -252,8 +252,28 @@ object InvariantGuardian {
         // not strangle it. Non-critical degradation is logged but does NOT throttle.
         val scannerCriticalApis = setOf("pumpfun", "pumpportal", "dexscreener")
         val criticalBad = badApis.filterKeys { it.lowercase() in scannerCriticalApis }
-        if (criticalBad.isNotEmpty()) {
-            out += Fault(FaultCode.API_LAYER_DEGRADED, "MEDIUM", "badApis=${criticalBad.keys.joinToString(",")} (scanner-critical)")
+        // V5.0.6311 — DEGRADED-API SUPPRESSION when alt route is producing rows.
+        // Operator report showed API_LAYER_DEGRADED / pumpfun (scanner-critical)
+        // even while SCANNER_DIRECT_PUMP_FUN_NEW=91 rows were streaming in via
+        // PumpPortal WS. The pump.fun REST endpoint can be dead while the
+        // pump.fun token flow arrives through the WS gateway — that is NOT a
+        // scanner outage. Cross-check the intake source counters and drop the
+        // fault if the equivalent source is producing tokens in this window.
+        val intakeByLabel6311 = pipe?.intakeBySource ?: emptyMap()
+        val hasPumpfunAltIntake6311 = (intakeByLabel6311["SCANNER_DIRECT_PUMP_FUN_NEW"] ?: 0L) > 0L ||
+            (intakeByLabel6311["PUMP_FUN_NEW"] ?: 0L) > 0L ||
+            (intakeByLabel6311["PUMP_PORTAL_WS"] ?: 0L) > 0L
+        val filteredCriticalBad = criticalBad.filterKeys { api ->
+            when (api.lowercase()) {
+                "pumpfun" -> !hasPumpfunAltIntake6311
+                else -> true
+            }
+        }
+        if (filteredCriticalBad.isNotEmpty()) {
+            out += Fault(FaultCode.API_LAYER_DEGRADED, "MEDIUM", "badApis=${filteredCriticalBad.keys.joinToString(",")} (scanner-critical)")
+        } else if (criticalBad.isNotEmpty()) {
+            // Alt route is carrying pump.fun intake — log for visibility only.
+            try { PipelineHealthCollector.labelInc("API_DEGRADED_SUPPRESSED_ALT_INTAKE_6311") } catch (_: Throwable) {}
         }
         return out
     }
