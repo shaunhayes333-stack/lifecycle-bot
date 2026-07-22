@@ -2962,7 +2962,7 @@ class Executor(
         }
         var tradeWithMint = trade.copy(
             mint = if (trade.mint.isBlank()) ts.mint else trade.mint,
-            tradingMode = resolvedTradingMode,
+            tradingMode = com.lifecyclebot.engine.LaneAlias.normalize(resolvedTradingMode).ifBlank { resolvedTradingMode },
             positionId = trade.positionId.ifBlank { ledgerPositionId },
             entryTsMs = trade.entryTsMs.takeIf { it > 0L } ?: entryTsForJournal,
             entryPriceSnapshot = trade.entryPriceSnapshot.takeIf { it > 0.0 } ?: ts.position.entryPrice.takeIf { it > 0.0 } ?: if (trade.side.equals("BUY", true)) trade.price else 0.0,
