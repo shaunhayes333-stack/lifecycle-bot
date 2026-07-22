@@ -106,7 +106,12 @@ object OpenPnlSanity {
         // valid input for costSol/qty; the resulting price is validated below.
         else if (pos.costSol > 0.0 && pos.qtyToken > 1e-9 && currentPrice > 0.0) {
             val reconstructed = pos.costSol / pos.qtyToken
-            if (reconstructed.isFinite() && reconstructed > 0.0) {
+            // V5.0.6308a — bound the reconstructed price to a sane SOL-per-token
+            // range (< 1.0 SOL/token; tokens above that would need 1B+ market cap
+            // at ~1B supply which is not a real memecoin scenario). Prevents dust
+            // qty (1e-8) + small costSol from producing an astronomically inflated
+            // basis that would then wildly distort every subsequent PnL calc.
+            if (reconstructed.isFinite() && reconstructed > 0.0 && reconstructed < 1.0) {
                 try { PipelineHealthCollector.labelInc("ENTRY_PRICE_HEALED_FROM_COST_QTY_6308") } catch (_: Throwable) {}
                 reconstructed
             } else pos.entryPrice

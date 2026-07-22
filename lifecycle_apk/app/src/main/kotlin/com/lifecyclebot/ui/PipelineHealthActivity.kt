@@ -395,9 +395,17 @@ class PipelineHealthActivity : AppCompatActivity() {
             }
         }
 
-        mainHandler.postDelayed({
+        // V5.0.6308a — R3 fix (testing agent iter_5). Watchdog runs on the
+        // shared background render thread (bgHandler), NOT Main, so a Main-thread
+        // ANR (observed 60s frame stalls in ops report) cannot delay the
+        // emergency fallback BUILD. Only the final setPrimaryClip + Toast
+        // hop back to Main (they require Main API). If Main is dead, that hop
+        // queues and executes when the ANR clears — same lower-bound as any
+        // other UI operation, but the fallback text is built and ready to
+        // deliver the moment Main frees up.
+        bgHandler.postDelayed({
             if (delivered.get() || destroyed) return@postDelayed
-            val fallback = buildEmergencyPipelineReport6308("full_builder_timeout_8s")
+            val fallback = try { buildEmergencyPipelineReport6308("full_builder_timeout_8s") } catch (_: Throwable) { "(emergency builder crashed — Main-thread ANR fallback)" }
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_WATCHDOG_FALLBACK_6308") } catch (_: Throwable) {}
             deliverReport6308(fallback, "watchdog_fallback", "full_builder_timeout_8s")
         }, 8_000L)

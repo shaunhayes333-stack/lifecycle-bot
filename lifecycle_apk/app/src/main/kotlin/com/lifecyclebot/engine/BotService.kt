@@ -15914,8 +15914,12 @@ if (hotExitHandledSweep) {
         val windowFresh = (now - supervisorTimeoutWindowStartMs) < 600_000L
         val timeouts = if (windowFresh) supervisorTimeoutWindowCount else 0
         // COOLING latch: >500/10min trips a 60s cooling window (concurrent cap halved, min 8).
-        if (timeouts >= 150) supervisorCoolingUntilMs = now + 90_000L
-        val cooling = now < supervisorCoolingUntilMs
+        // V5.0.6308a — supervisorCoolingUntilMs is now anchored to
+        // SystemClock.elapsedRealtime() (monotonic, immune to NTP steps).
+        // Convert the timeout-driven cooling write to the same timebase.
+        val nowMono = android.os.SystemClock.elapsedRealtime()
+        if (timeouts >= 150) supervisorCoolingUntilMs = nowMono + 90_000L
+        val cooling = nowMono < supervisorCoolingUntilMs
         val cap = when {
             cooling           -> maxOf(8, base / 3)   // 90s cooling floor
             timeouts >= 150   -> maxOf(8, base / 3)   // heavy: drain debt first
@@ -15976,16 +15980,22 @@ if (hotExitHandledSweep) {
         // disables lanes/exits — it just trims concurrent worker cap to 8
         // so wedged IO stops compounding. Exit dispatcher unaffected.
         if (cycleMs > 15_000L) supervisorArmEmergencyThrottle("max_cycle_ms", "cycleMs=$cycleMs")
-        val now = System.currentTimeMillis()
+        // V5.0.6308a — R2 fix (testing agent iter_5). Use SystemClock.elapsedRealtime
+        // instead of wall clock so NTP steps can't collapse or extend the cooling
+        // window arbitrarily. Cooling window is now DYNAMIC = max(base, cycleMs*1.5)
+        // so a 232s cycle gets ~348s cooling (was 120s → cap re-opened mid-stall).
+        val now = android.os.SystemClock.elapsedRealtime()
         when {
             cycleMs > 90_000L -> {
-                supervisorCoolingUntilMs = maxOf(supervisorCoolingUntilMs, now + 120_000L)
-                try { ForensicLogger.lifecycle("SUPERVISOR_COOLING_ARMED_6308", "reason=cycle_over_90s cycleMs=$cycleMs coolingForMs=120000") } catch (_: Throwable) {}
+                val coolMs = maxOf(120_000L, (cycleMs * 3L) / 2L)
+                supervisorCoolingUntilMs = maxOf(supervisorCoolingUntilMs, now + coolMs)
+                try { ForensicLogger.lifecycle("SUPERVISOR_COOLING_ARMED_6308", "reason=cycle_over_90s cycleMs=$cycleMs coolingForMs=$coolMs") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("SUPERVISOR_COOLING_ARMED_HEAVY_6308") } catch (_: Throwable) {}
             }
             cycleMs > 30_000L -> {
-                supervisorCoolingUntilMs = maxOf(supervisorCoolingUntilMs, now + 60_000L)
-                try { ForensicLogger.lifecycle("SUPERVISOR_COOLING_ARMED_6308", "reason=cycle_over_30s cycleMs=$cycleMs coolingForMs=60000") } catch (_: Throwable) {}
+                val coolMs = maxOf(60_000L, (cycleMs * 3L) / 2L)
+                supervisorCoolingUntilMs = maxOf(supervisorCoolingUntilMs, now + coolMs)
+                try { ForensicLogger.lifecycle("SUPERVISOR_COOLING_ARMED_6308", "reason=cycle_over_30s cycleMs=$cycleMs coolingForMs=$coolMs") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("SUPERVISOR_COOLING_ARMED_LIGHT_6308") } catch (_: Throwable) {}
             }
         }
