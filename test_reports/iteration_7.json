@@ -1,0 +1,35 @@
+{
+  "summary": "V5.0.6309 read-only static verification of QTY_DECIMAL_SKEW_6309 audit in PipelineHealthCollector.kt. All 7 requested checks PASS. Audit block located at lines 1454-1483 (immediately before appendExecList fn definition at 1484 and its two call sites at 1510/1511). No compilation was attempted per instructions.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "AUDIT ONLY — the true root-cause fix requires Executor.rawTokenAmountToUiAmount() refactor so BUY and SELL paths deterministically use the same explicitDecimals source (mint metadata) rather than falling back to inferUiScaleFromTrade() heuristic when priceUsd shifts. This audit only surfaces the skew in reports; it does NOT correct the journal qty/entry values driving the open-positions-vs-journal PnL divergence operator reported. Plan a follow-up commit to unify decimals resolution.",
+    "Operator's 2nd bug — 'live wallet disconnected after update' — is NOT addressed by 6309 and was not in scope of this iteration. Needs separate investigation of wallet-session persistence across app updates."
+  ],
+  "critical_code_review_comments": [
+    "Check 1 PASS: audit block iterates s.recentExecs, groups by ex.symbol into DoubleArray(2) buy/sell slots (BUY→idx 0, non-BUY→idx 1) at lines 1465-1471.",
+    "Check 2 PASS: filter predicate at line 1473 explicitly requires v[0] > 0.0 && v[1] > 0.0 AND (max/min > 10.0). Buy-only, sell-only, or partial-only symbols cannot false-fire.",
+    "Check 3 PASS: bump(labelCounts, \"QTY_DECIMAL_SKEW_DETECTED_6309\") at line 1481 is called exactly once inside the `if (skewed.isNotEmpty())` guard, outside the forEach — so it increments once per report emission regardless of how many symbols skewed.",
+    "Check 4 PASS: skewed.take(4) at line 1477 caps output to 4 symbols.",
+    "Check 5 PASS: appendExecList fn definition intact at line 1484; call sites at 1510 (LIVE) and 1511 (PAPER) unchanged. Audit inserted BEFORE the fn def within the same `if (s.recentExecs.isNotEmpty())` block, non-intrusive.",
+    "Check 6 PASS: audit only reads s.recentExecs (already used at lines 1406-1407, 1510-1511) and mutates labelCounts via existing bump() helper (used ~30× in this file). No new private-state access introduced.",
+    "Check 7 PASS: entire audit body wrapped in try { … } catch (_: Throwable) {} at lines 1464-1483. A defect in the audit cannot abort the surrounding report render.",
+    "Minor observation (non-blocking): the 'else' branch classifies PARTIAL_SELL into the sell slot (idx=1). Since partial-sells share the same decimals-conversion path as full sells, this is correct for surfacing the skew. Documented for clarity only.",
+    "Minor observation (non-blocking): uses maxOf(slot[idx], ex.entryQtyToken) rather than sum/avg — so a single outlier qty per side drives the ratio. Given the reported skew is ~1000× (well above 10× threshold) and origin is decimals-inference (deterministic per row), max-per-side is fine and avoids partial-fill dilution. No change recommended."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (7/7 static checks)", "frontend": "n/a"},
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "V5.0.6309 ships only an AUDIT for QTY_DECIMAL_SKEW; the underlying BUY/SELL decimals divergence in Executor.rawTokenAmountToUiAmount() is NOT fixed. When the true fix lands (unifying explicitDecimals across BUY and SELL journal writes, likely by threading mint decimals through both paths and eliminating the inferUiScaleFromTrade fallback for SELL), expect QTY_DECIMAL_SKEW_DETECTED_6309 label count to drop to 0 in reports and the ⚠ QTY_DECIMAL_SKEW_6309 line to disappear. Operator's 2nd bug (live wallet disconnect after update) remains open and untested in this iteration. No backend HTTP/API surface exists in this Android module — testing is static-diff review only.",
+  "rca of the issue": "BUY and SELL executions on the same mint end up calling Executor.rawTokenAmountToUiAmount() with different explicitDecimals sources. When explicitDecimals is unavailable, the code falls back to inferUiScaleFromTrade(priceUsd, …) — a heuristic whose output depends on the current priceUsd. Since priceUsd differs between the BUY moment and the SELL moment (often by orders of magnitude for micro-caps), the inferred UI scale differs, producing qty values that diverge by 10×/100×/1000× and entry prices that diverge inversely. Result: journal rows for the same mint disagree, and open-positions panel (which uses one path) disagrees with realized-sell (which uses the other). Mitigation shipped in 6309: audit-only surfacing via ⚠ QTY_DECIMAL_SKEW_6309 + QTY_DECIMAL_SKEW_DETECTED_6309 label. Full fix (out of scope for 6309): plumb mint decimals from token metadata into both BUY and SELL journal write paths so rawTokenAmountToUiAmount() never falls through to the inference heuristic."
+}
