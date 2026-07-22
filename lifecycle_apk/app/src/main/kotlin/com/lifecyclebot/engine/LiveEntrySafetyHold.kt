@@ -238,8 +238,18 @@ object LiveEntrySafetyHold {
         if (failed.isNotEmpty()) {
             armInternal(failed)
         } else if (armed.get()) {
-            // All invariants clear → tentatively clear the hold.
-            clearInternal("ALL_INVARIANTS_HEALTHY")
+            // V5.0.6318 — flip-flop guard. Do NOT auto-clear a hold that
+            // was armed by CONFIDENCE_GOVERNOR_SEVERE — that arming path
+            // has its own re-evaluation cycle. Health-check clears are
+            // limited to invariant-owned reasons; otherwise the operator
+            // saw ARMED=33 / CLEARED=32 flapping every bot tick.
+            val currentReasons = armedReasons.keys.toSet()
+            val invariantReasonsOnly = currentReasons.all { r ->
+                !r.startsWith("CONFIDENCE_GOVERNOR_")
+            }
+            if (invariantReasonsOnly) {
+                clearInternal("ALL_INVARIANTS_HEALTHY")
+            }
         }
     }
 
@@ -251,7 +261,46 @@ object LiveEntrySafetyHold {
     fun armedReasonsSnapshot(): Map<String, Long> = armedReasons.toMap()
     fun lastHealthCheckSnapshot(): Pair<Long, List<String>> = lastHealthCheckMs to lastHealthCheckReasons
 
-    // ----- Confidence Governor -------------------------------------
+    // ----- Governor session window ---------------------------------
+
+    /**
+     * V5.0.6318 — SESSION-SCOPED GOVERNOR WINDOW.
+     *
+     * Set once per process boot to the wall-clock at module load. Rows
+     * journaled BEFORE this timestamp represent historical outcomes and
+     * MUST NOT influence the live confidence governor's automatic HOLD
+     * arming. Only fresh post-boot canonical rows count.
+     *
+     * Rationale: the operator saw 19 pre-hotfix losing rows continue to
+     * hold the governor in SEVERE state after V5.0.6317's HOTFIX_EPOCH
+     * filter (calendar-date cutoff didn't fire because rows were dated
+     * after Feb 24 2026). A session-scoped window solves this without
+     * requiring persistence — each fresh boot gives the fixed pipeline
+     * a clean slate to prove itself on. Operator manual reset also
+     * available via [resetGovernorWindow].
+     *
+     * The AUTO SNOOZE GRACE: even after `canonicalN >= GOVERNOR_MIN_SAMPLE`,
+     * the governor stays BASELINE until `canonicalN >= AUTO_SNOOZE_GRACE`
+     * (20 canonical fresh trades). This prevents a bad opening streak
+     * of 10 trades from arming HOLD before the tactic switcher has had
+     * a chance to rotate through its playbook.
+     */
+    @Volatile private var governorWindowStartMs: Long = System.currentTimeMillis()
+
+    private const val AUTO_SNOOZE_GRACE: Int = 20
+
+    fun resetGovernorWindow(reason: String) {
+        governorWindowStartMs = System.currentTimeMillis()
+        try {
+            ForensicLogger.lifecycle(
+                "LIVE_CONFIDENCE_GOVERNOR_WINDOW_RESET_6318",
+                "reason=$reason startMs=$governorWindowStartMs",
+            )
+            PipelineHealthCollector.labelInc("LIVE_CONFIDENCE_GOVERNOR_WINDOW_RESET_6318")
+        } catch (_: Throwable) {}
+    }
+
+    fun governorWindowStart(): Long = governorWindowStartMs
 
     enum class GovernorState { BASELINE, TIGHTENED, HOLD }
 
@@ -264,7 +313,11 @@ object LiveEntrySafetyHold {
             LiveConfidenceStats.load()
         } catch (_: Throwable) { return GovernorState.BASELINE }
 
-        if (stats.canonicalN < GOVERNOR_MIN_SAMPLE) {
+        // V5.0.6318 — AUTO-SNOOZE GRACE (20 canonical fresh rows). Below
+        // grace, governor stays BASELINE regardless of stats so the fixed
+        // pipeline has room to demonstrate real edge without a bad opening
+        // 10-trade streak locking it into HOLD.
+        if (stats.canonicalN < AUTO_SNOOZE_GRACE) {
             try { PipelineHealthCollector.labelInc("LIVE_CONFIDENCE_GOVERNOR_BASELINE") } catch (_: Throwable) {}
             return GovernorState.BASELINE
         }
@@ -325,12 +378,16 @@ object LiveEntrySafetyHold {
         val expectancySol: Double,
     ) {
         companion object {
-            /** Deploy timestamp of V5.0.6310 (WADDLE root fix). Rows
-             *  strictly older than this are considered corrupted by the
-             *  pre-hotfix decimal-skew / exit-reason / broadcast-double-
-             *  count bugs and excluded from the governor. */
-            const val HOTFIX_EPOCH_MS: Long = 1740374400000L  // 2026-02-24 00:00 UTC
-
+            /**
+             * V5.0.6318 — session-scoped window replaces V5.0.6317's
+             * hard-coded HOTFIX_EPOCH_MS calendar cutoff, which failed
+             * to fire when trades were journaled after Feb 24 2026 but
+             * still represented pre-hotfix corrupted state. The session
+             * window is set at process boot in LiveEntrySafetyHold's
+             * companion init and can be reset by the operator via
+             * [resetGovernorWindow]. Only rows with ts >= window start
+             * count toward the canonical governor sample.
+             */
             fun load(): LiveConfidenceStats {
                 val trades = try {
                     TradeHistoryStore.getRecentValidTrades(200)
@@ -343,6 +400,7 @@ object LiveEntrySafetyHold {
                 var netSol = 0.0
                 var n = 0
                 var preHotfixSkipped = 0
+                val windowStart = governorWindowStart()
 
                 for (t in trades) {
                     if (!t.side.equals("SELL", true) && !t.side.equals("PARTIAL_SELL", true)) continue
@@ -350,18 +408,13 @@ object LiveEntrySafetyHold {
                     val proof = t.proofState
                     if (!(proof.equals("LIVE_FINALIZED", true) || proof.equals("LIVE_RECONCILED", true))) continue
 
-                    // V5.0.6317 — HOTFIX EPOCH CUTOFF. Skip pre-hotfix
-                    // rows so the governor is not poisoned by the
-                    // decimal-skew / fake-10x-runner / contradictory-exit
-                    // legacy the WADDLE stack fixed.
-                    if (t.ts > 0L && t.ts < HOTFIX_EPOCH_MS) {
+                    // Session-window cutoff: only fresh post-boot rows count.
+                    if (t.ts > 0L && t.ts < windowStart) {
                         preHotfixSkipped += 1
                         continue
                     }
-                    // Also skip rows whose reason still bears the
-                    // EXIT_REASON_INVARIANT_FAILED rewrite marker — those
-                    // trades had contradictory profit-claim reasons and
-                    // are learning-quarantined.
+                    // Skip rows still bearing the EXIT_REASON_INVARIANT
+                    // rewrite marker (contradictory-profit outcomes).
                     if (t.reason.startsWith("FALLBACK_AFTER_FAILED_PROFIT_EXIT_6312", ignoreCase = true)) {
                         preHotfixSkipped += 1
                         continue
