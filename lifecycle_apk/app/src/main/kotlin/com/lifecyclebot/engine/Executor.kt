@@ -6706,6 +6706,20 @@ class Executor(
             }
 
             if (worstPnl <= -25.0) {
+                // V5.0.6325 — CATASTROPHIC EXIT LATENCY TRACE onDetect.
+                // Records the fast-risk-price age + confirming source so
+                // the operator can see how quickly the exit reached each
+                // stage. Finalisation is stamped by the exit dispatcher
+                // when finality confirms. See CatastrophicExitLatency.kt.
+                try {
+                    com.lifecyclebot.engine.CatastrophicExitLatency.onDetect(
+                        mint = ts.mint,
+                        detectionSource = ts.lastPriceSource.ifBlank { "UI_TICK" },
+                        confirmingSource = "PRE_EXIT_MARK",
+                        detectedLossPct = worstPnl,
+                        priceAgeMs = (System.currentTimeMillis() - ts.lastPriceTs).coerceAtLeast(0L),
+                    )
+                } catch (_: Throwable) {}
                 try {
                     ForensicLogger.lifecycle(
                         "CATASTROPHIC_HARD_BACKSTOP_25",
@@ -7112,6 +7126,30 @@ class Executor(
                         expectedConsumedRawForAudit = sized.rawAmount
                         val ui = java.math.BigDecimal(sized.rawAmount)
                             .movePointLeft(confirmed.decimals).toDouble()
+                        // V5.0.6325 — SELL_QTY_CANONICAL_AUTHORITY_6324 (P4).
+                        // Emit the canonical vs wallet vs effective trace so
+                        // the operator sees exactly which authority sized this
+                        // partial sell. The PartialSellSizer already clamps to
+                        // the wallet-confirmed raw amount; this call records
+                        // the decision inputs into the forensic ring.
+                        try {
+                            val walletUi = java.math.BigDecimal(confirmed.rawAmount)
+                                .movePointLeft(confirmed.decimals).toDouble()
+                            val canonicalRemaining = try {
+                                com.lifecyclebot.engine.CanonicalPositionRegistry.get(ts.mint)?.canonicalRemainingQuantity
+                                    ?: pos.qtyToken
+                            } catch (_: Throwable) { pos.qtyToken }
+                            com.lifecyclebot.engine.SellQuantityAuthority.compute(
+                                mint = ts.mint,
+                                positionId = pos.tradingMode + ":" + ts.mint.take(6),
+                                requestedFraction = sellFraction,
+                                canonicalRemaining = canonicalRemaining,
+                                walletAvailable = walletUi,
+                                walletAgeMs = 0L, // resolved this tick
+                                exitReason = "PARTIAL_TAKE_PROFIT",
+                                executionId = LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis()),
+                            )
+                        } catch (_: Throwable) {}
                         onLog("📐 PartialSellSizer ${ts.symbol}: verifiedRaw=${confirmed.rawAmount} " +
                               "fraction=$sellFraction → rawAmount=${sized.rawAmount} (${"%.6f".format(ui)} ui) " +
                               "vs cached pos.qtyToken=${pos.qtyToken}", ts.mint)
@@ -7411,7 +7449,23 @@ class Executor(
                     feeSol = partialAcct.feeSol
                 }
                 ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
-                // V5.0.6321 — CANONICAL PARTIAL COST BASIS (§8 continued).
+                // V5.0.6325 — record the confirmed sold delta into the
+                // CanonicalPositionRegistry so canonicalRemainingQuantity
+                // decrements atomically with real on-chain proceeds. This
+                // feeds the LearningEligibility classifier + governor with
+                // authoritative wallet-delta data.
+                try {
+                    val decimalsFor6325 = decimalsForAudit.takeIf { it >= 0 } ?: 0
+                    val soldRaw6325 = expectedConsumedRawForAudit
+                    if (soldRaw6325.signum() > 0) {
+                        com.lifecyclebot.engine.CanonicalPositionRegistry.recordSold(
+                            mint = ts.mint,
+                            soldRawDelta = soldRaw6325,
+                            proceedsSol = solBack,
+                            signature = sig,
+                        )
+                    }
+                } catch (_: Throwable) {}
                 // The partial-sell toast + journal previously used
                 // pos.costSol * sellFraction, but pos.costSol carries the
                 // pre-verify heuristic when the SELL fires before the
@@ -12407,6 +12461,29 @@ class Executor(
         @Suppress("NAME_SHADOWING")
         val layerTag: String = LaneAlias.normalize(layerTag).ifBlank { layerTag }
 
+        // V5.0.6325 — GOVERNOR SIZE MULTIPLIER APPLIED AT LIVE ENTRY.
+        // Wires the 6324 governor state directly into the live buy
+        // dispatch so SOFT_TIGHT / CAUTION states materially reduce
+        // real SOL sent. This is the wire-in the operator called out:
+        // "governor at BASELINE with only size×0.96" — the multiplier
+        // now flows from currentSizeMultiplier() at every buy.
+        @Suppress("NAME_SHADOWING")
+        val sol: Double = run {
+            val originalSol = sol
+            val mult = try { com.lifecyclebot.engine.LiveEntrySafetyHold.currentSizeMultiplier() } catch (_: Throwable) { 1.0 }
+            val shaped = (originalSol * mult).coerceAtLeast(0.0)
+            if (mult < 0.99 && originalSol > 0.0) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_BUY_SIZE_GOVERNOR_APPLIED_6325",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} originalSol=${"%.4f".format(originalSol)} shapedSol=${"%.4f".format(shaped)} multiplier=${"%.2f".format(mult)} state=${com.lifecyclebot.engine.LiveEntrySafetyHold.currentGovernorState()}",
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_BUY_SIZE_GOVERNOR_APPLIED_6325")
+                } catch (_: Throwable) {}
+            }
+            shaped
+        }
+
         // V5.0.3939 — TRUE LIVE ATTEMPT BOUNDARY.
         // Runtime 3938 showed FDG live allow > 0, global EXEC > 0, but
         // LIVE EXEC attempt=0 because the attempt marker lived AFTER advisor,
@@ -15040,6 +15117,22 @@ class Executor(
                         try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_ENTRY_PRICE_PROOF_DEFERRED", "mint=${verifyMint.take(10)} symbol=$verifySymbol reason=missing_sol_usd_or_qty sol=$sol qty=$qtyUi solUsd=$solUsdForBasis") } catch (_: Throwable) {}
                     }
                     promoteVerifiedLiveBuy(qtyUi, stage, proof.decimals)
+                    // V5.0.6325 — CANONICAL POSITION AUTHORITY WIRE-IN. Upsert
+                    // the WALLET_TX_DELTA into CanonicalPositionRegistry so
+                    // downstream sell qty, learning eligibility, and health
+                    // report all read one authoritative record. Also emits
+                    // BUY_EXECUTED_6324 for the buy-telemetry split.
+                    try {
+                        com.lifecyclebot.engine.CanonicalPositionRegistry.upsertQuantity(
+                            mint = verifyMint,
+                            rawAmount = proof.amountRaw,
+                            decimals = proof.decimals,
+                            newAuthority = com.lifecyclebot.engine.CanonicalPositionRegistry.QuantityAuthority.WALLET_TX_DELTA,
+                            signature = verifySig,
+                            source = proof.source.name,
+                        )
+                        PipelineHealthCollector.labelInc("BUY_EXECUTED_6324")
+                    } catch (_: Throwable) {}
                     val beforeOpen = try { HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { -1 }
                     try { HostWalletTokenTracker.recordBuyConfirmedWithProof(ts, proof, verifySig) } catch (e: Throwable) {
                         ErrorLogger.error("Executor", "🚨 HOST_TRACKER_RECORD_WITH_PROOF_FAILED: $verifySymbol — ${e.javaClass.simpleName}: ${e.message?.take(120)}", e)
@@ -15328,6 +15421,11 @@ class Executor(
 
         } catch (e: Exception) {
             val safe = security.sanitiseForLog(e.message ?: "unknown")
+            // V5.0.6325 — CLASSIFY as BUY_PROVIDER_FAILED_6324 for the
+            // patch-11 telemetry split. Only genuine provider/tx throws
+            // reach this catch — policy redirects short-circuited long
+            // before via assessLiveEntry → BUY_POLICY_REDIRECTED_SHADOW_6324.
+            try { PipelineHealthCollector.labelInc("BUY_PROVIDER_FAILED_6324") } catch (_: Throwable) {}
             // V5.0.3679 — TELEMETRY GAP FIX. Every live-buy throw used to log
             // to ErrorLogger / LiveTradeLogStore but NEVER increment
             // EXEC_LIVE_BUY_FAIL, so operator forensics showed

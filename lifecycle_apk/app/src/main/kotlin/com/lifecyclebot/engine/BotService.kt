@@ -11954,6 +11954,29 @@ class BotService : Service() {
                     recentSellClampEvents = deltaClamp6319,
                 )
                 try { LiveEntrySafetyHold.evaluateConfidenceGovernor() } catch (_: Throwable) {}
+                // V5.0.6325 — DEXSCREENER DEGRADATION → PROVIDER AUTHORITY.
+                // When the scanner-critical scan reports Dexscreener degraded,
+                // strip EXECUTION / ACCOUNTING / EXIT_RISK roles so canonical
+                // quantity/cost/PnL/wallet balance can never be sourced from
+                // it while it's unhealthy. Cleared when scanner recovers.
+                try {
+                    if (scannerDegraded6312) {
+                        com.lifecyclebot.engine.ProviderAuthority.markDegraded("DEXSCREENER")
+                    } else {
+                        com.lifecyclebot.engine.ProviderAuthority.clearDegraded("DEXSCREENER")
+                    }
+                } catch (_: Throwable) {}
+                // V5.0.6325 — periodic HEALTH SNAPSHOT emission. Renders the
+                // six-section 6324 report to the forensic ring so operators
+                // can see governor / provider / exit coordinator / execution
+                // outcome / decimal integrity in real time.
+                try {
+                    val snap6325 = com.lifecyclebot.engine.HealthSnapshot6324.render()
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "HEALTH_SNAPSHOT_6325",
+                        snap6325.replace('\n', ';').take(800),
+                    )
+                } catch (_: Throwable) {}
             } catch (_: Throwable) {}
 
             // ═══════════════════════════════════════════════════════════════
