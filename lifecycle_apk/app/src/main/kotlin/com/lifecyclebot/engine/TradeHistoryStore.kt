@@ -1170,6 +1170,28 @@ object TradeHistoryStore {
         return touched
     }
 
+    /**
+     * V5.0.6337 — retrieve the most recent BUY row's entry qty for a given
+     * mint. Used by the sell-side retro-backfill so a fast RAPID_CATASTROPHE
+     * SELL (fired seconds after BUY, before promoteVerifiedLiveBuy landed)
+     * can compare the wallet-verified sell qty against the pre-verify BUY
+     * qty and correct the BUY row before it is trained on. Returns -1.0
+     * when the mint has no BUY row.
+     */
+    fun getLastBuyQtyForMint(mint: String): Double {
+        if (mint.isBlank()) return -1.0
+        ensureInitialized()
+        return synchronized(lock) {
+            for (i in trades.indices.reversed()) {
+                val t = trades[i]
+                if (t.mint == mint && t.side.equals("BUY", true) && t.entryQtyToken > 0.0) {
+                    return@synchronized t.entryQtyToken
+                }
+            }
+            -1.0
+        }
+    }
+
 
     fun getAllTradesIncludingInvalidForensics(): List<Trade> {
         ensureInitialized()

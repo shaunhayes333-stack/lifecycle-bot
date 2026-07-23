@@ -3366,6 +3366,55 @@ class Executor(
         } catch (_: Throwable) {}
 
         ts.trades.add(tradeWithMint)
+        // V5.0.6337 — DECIMAL SKEW RETRO-BACKFILL AT SELL WRITE.
+        //
+        // 6311's wallet-verified backfill only fires on promoteVerifiedLiveBuy,
+        // which requires the wallet to sync 15-45s after the BUY confirms. For
+        // fast RAPID_CATASTROPHE_STOP sells (see vTKXhk: BUY 02:08:34 → SELL
+        // 02:08:56, 22s later) the wallet verify hadn't landed yet, so the BUY
+        // row kept its pre-verify heuristic qty and the SELL row shipped with
+        // the true wallet qty — giving the operator's QTY_DECIMAL_SKEW_6309
+        // audit rows like BUY=8686 vs SELL=43.11 (200× ratio).
+        //
+        // Retro-fix at SELL time: when we now have both the buy row and the
+        // sell qty in front of us, if they disagree by >10× and we hold a
+        // wallet-verified decimals, run the same backfill retroactively so the
+        // trainer / dashboard / LearningEligibility never see the skewed row.
+        try {
+            val isSellSide =
+                tradeWithMint.side.equals("SELL", true) ||
+                tradeWithMint.side.equals("PARTIAL_SELL", true)
+            val sellQty = tradeWithMint.qtyToken
+            if (isSellSide && sellQty > 0.0) {
+                val mint = tradeWithMint.mint.ifBlank { ts.mint }
+                val walletDecimals = walletDecimalsByMint6311[mint]?.takeIf { it >= 0 }
+                    ?: ts.tokenMap.decimals?.takeIf { it >= 0 }
+                    ?: -1
+                if (walletDecimals >= 0) {
+                    // Ask the store what the last BUY qty was for this mint.
+                    val lastBuyQty = try {
+                        TradeHistoryStore.getLastBuyQtyForMint(mint)
+                    } catch (_: Throwable) { -1.0 }
+                    if (lastBuyQty > 0.0) {
+                        val ratio = maxOf(lastBuyQty, sellQty) / minOf(lastBuyQty, sellQty)
+                        if (ratio > 10.0) {
+                            val backfilled = TradeHistoryStore.backfillLastBuyEntryQty6311(
+                                mint = mint,
+                                walletVerifiedQty = sellQty,
+                                walletDecimals = walletDecimals,
+                            )
+                            try {
+                                PipelineHealthCollector.labelInc("BUY_QTY_BACKFILL_ON_SELL_WRITE_6337")
+                                ForensicLogger.lifecycle(
+                                    "BUY_QTY_BACKFILL_ON_SELL_WRITE_6337",
+                                    "mint=${mint.take(10)} sym=${tradeWithMint.symbol} buyQtyStale=${lastBuyQty.fmt(4)} sellQtyTruth=${sellQty.fmt(4)} ratio=${ratio.fmt(1)}× decimals=$walletDecimals backfilledRows=$backfilled reason=fast_sell_before_promote_verify",
+                                )
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
         TradeHistoryStore.recordTrade(tradeWithMint)
         val rowLearningAdmitted4349 = try {
             com.lifecyclebot.engine.learning.TradeRowSanityCheck.inspect(tradeWithMint) == com.lifecyclebot.engine.learning.TradeRowSanityCheck.QuarantineReason.OK
