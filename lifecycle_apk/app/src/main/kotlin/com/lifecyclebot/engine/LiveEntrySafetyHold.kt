@@ -273,7 +273,24 @@ object LiveEntrySafetyHold {
         lastHealthCheckMs = now
         val failed = mutableListOf<String>()
         if (!walletAuthorityHealthy) failed += "WALLET_AUTHORITY_DOWN"
-        if (scannerCriticalDegradedWithoutFallback) failed += "SCANNER_CRITICAL_DEGRADED_NO_FALLBACK"
+        // V5.0.6328 — SCANNER DEGRADATION MUST NOT ARM THE SAFETY HOLD.
+        // The operator specifically called this out: "scanner should
+        // never return no results". A dead scanner API layer is an
+        // external / advisory failure — it does not compromise wallet
+        // integrity or canonical accounting, so it must SOFT-SHAPE
+        // (via ProviderAuthority.markDegraded, which is already wired
+        // in BotService), not hard-arm the hold and block every buy.
+        // Only wallet, accounting, and invariant failures may arm the
+        // hold. Scanner health is surfaced separately for visibility.
+        if (scannerCriticalDegradedWithoutFallback) {
+            try {
+                ForensicLogger.lifecycle(
+                    "LIVE_ENTRY_SAFETY_HOLD_SCANNER_DEGRADED_SOFTSHAPE_6328",
+                    "action=soft_shape_no_hold armed_before=${armed.get()}",
+                )
+                PipelineHealthCollector.labelInc("LIVE_ENTRY_SAFETY_HOLD_SCANNER_DEGRADED_SOFTSHAPE_6328")
+            } catch (_: Throwable) {}
+        }
         if (supervisorSaturated) failed += "SUPERVISOR_SATURATED"
         if (accountingQuarantineActive) failed += "ACCOUNTING_QUARANTINE_ACTIVE"
         if (pendingReconcileFailures > 0) failed += "PENDING_RECONCILE_FAILURES=$pendingReconcileFailures"
@@ -343,11 +360,52 @@ object LiveEntrySafetyHold {
      * a chance to rotate through its playbook.
      */
     @Volatile private var governorWindowStartMs: Long = System.currentTimeMillis()
+    @Volatile private var governorWindowPrefs: android.content.SharedPreferences? = null
+    private const val GOVERNOR_WINDOW_PREFS = "live_entry_governor_window_6328"
+    private const val GOVERNOR_WINDOW_KEY = "windowStartMs"
 
     private const val AUTO_SNOOZE_GRACE: Int = 20
 
+    /**
+     * V5.0.6328 — CANONICAL GOVERNOR SAMPLE PERSISTS ACROSS RESTART.
+     * The previous behaviour reset governorWindowStartMs on every
+     * boot (object init default). Because LiveConfidenceStats.load
+     * filters trades by windowStart, that erased every finalised
+     * canonical row from the governor sample on each app restart —
+     * "governor should have seen more than enough trades" was blocked
+     * by this reset. Now the window timestamp is stored to
+     * SharedPreferences on first set and rehydrated on init, so the
+     * 6317 WADDLE-era cutoff survives restart and the canonical
+     * sample keeps compounding across sessions.
+     *
+     * Call from BotService.onCreate right after
+     * CanonicalBuyFillRegistry.init.
+     */
+    fun init(context: android.content.Context) {
+        try {
+            val prefs = context.applicationContext.getSharedPreferences(GOVERNOR_WINDOW_PREFS, android.content.Context.MODE_PRIVATE)
+            governorWindowPrefs = prefs
+            val persisted = prefs.getLong(GOVERNOR_WINDOW_KEY, 0L)
+            if (persisted > 0L) {
+                governorWindowStartMs = persisted
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_CONFIDENCE_GOVERNOR_WINDOW_RESTORED_6328",
+                        "windowStartMs=$persisted",
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_CONFIDENCE_GOVERNOR_WINDOW_RESTORED_6328")
+                } catch (_: Throwable) {}
+            } else {
+                // First run — persist the current session start as the
+                // canonical cutoff. Every future restart reads THIS.
+                prefs.edit().putLong(GOVERNOR_WINDOW_KEY, governorWindowStartMs).apply()
+            }
+        } catch (_: Throwable) {}
+    }
+
     fun resetGovernorWindow(reason: String) {
         governorWindowStartMs = System.currentTimeMillis()
+        try { governorWindowPrefs?.edit()?.putLong(GOVERNOR_WINDOW_KEY, governorWindowStartMs)?.apply() } catch (_: Throwable) {}
         try {
             ForensicLogger.lifecycle(
                 "LIVE_CONFIDENCE_GOVERNOR_WINDOW_RESET_6318",

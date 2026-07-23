@@ -1670,6 +1670,17 @@ class BotService : Service() {
             ErrorLogger.warn("BotService", "CanonicalBuyFillRegistry init error: ${e.message}")
         }
 
+        // V5.0.6328 — LiveEntrySafetyHold.init rehydrates the persisted
+        // governor window cutoff so canonical trade history from prior
+        // sessions still feeds the governor sample. Without this, every
+        // restart threw away the WADDLE-era cutoff and re-quarantined
+        // every earlier canonical row.
+        try {
+            com.lifecyclebot.engine.LiveEntrySafetyHold.init(applicationContext)
+        } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "LiveEntrySafetyHold init error: ${e.message}")
+        }
+
         // V5.0.6238 — Live Win DNA Store: transferable knowledge base of winning
         // fingerprints (setup, chart pattern, source/lane/phase route, hold time,
         // exit reason) that every AGI/LLM/SSI/meta-cog/sentience brain can read
