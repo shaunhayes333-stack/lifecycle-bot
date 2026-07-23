@@ -3384,7 +3384,10 @@ class Executor(
             val isSellSide =
                 tradeWithMint.side.equals("SELL", true) ||
                 tradeWithMint.side.equals("PARTIAL_SELL", true)
-            val sellQty = tradeWithMint.qtyToken
+            val sellQty = if (isSellSide) {
+                if (tradeWithMint.soldQtyToken > 0.0) tradeWithMint.soldQtyToken
+                else tradeWithMint.entryQtyToken
+            } else 0.0
             if (isSellSide && sellQty > 0.0) {
                 val mint = tradeWithMint.mint.ifBlank { ts.mint }
                 val walletDecimals = walletDecimalsByMint6311[mint]?.takeIf { it >= 0 }
@@ -3407,7 +3410,7 @@ class Executor(
                                 PipelineHealthCollector.labelInc("BUY_QTY_BACKFILL_ON_SELL_WRITE_6337")
                                 ForensicLogger.lifecycle(
                                     "BUY_QTY_BACKFILL_ON_SELL_WRITE_6337",
-                                    "mint=${mint.take(10)} sym=${tradeWithMint.symbol} buyQtyStale=${lastBuyQty.fmt(4)} sellQtyTruth=${sellQty.fmt(4)} ratio=${ratio.fmt(1)}× decimals=$walletDecimals backfilledRows=$backfilled reason=fast_sell_before_promote_verify",
+                                    "mint=${mint.take(10)} sym=${ts.symbol} buyQtyStale=${lastBuyQty.fmt(4)} sellQtyTruth=${sellQty.fmt(4)} ratio=${ratio.fmt(1)}× decimals=$walletDecimals backfilledRows=$backfilled reason=fast_sell_before_promote_verify",
                                 )
                             } catch (_: Throwable) {}
                         }
