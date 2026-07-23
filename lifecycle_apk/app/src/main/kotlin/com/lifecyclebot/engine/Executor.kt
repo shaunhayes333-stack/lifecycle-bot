@@ -1437,11 +1437,35 @@ class Executor(
         // trustworthy on a fresh mint; every other path is heuristic.
         walletDecimalsByMint6311[ts.mint]?.takeIf { it >= 0 }?.let { return it }
 
+        // V5.0.6330 — WADDLE root repair. Prefer the CanonicalTokenMap
+        // decimals field (populated from token metadata / RPC on
+        // hydration) over any reflection heuristic. This is what the
+        // Solana chain says the mint's decimals are, not an inference
+        // from a heuristic float division. Fixes the case where the
+        // wallet cache hasn't populated yet on the very first sell/mark
+        // and the executor otherwise silently fell into inferUiScaleFromTrade.
+        ts.tokenMap.decimals?.takeIf { it >= 0 }?.let {
+            // Warm the wallet cache too so downstream callers hit it
+            // immediately rather than repeating this lookup.
+            walletDecimalsByMint6311.putIfAbsent(ts.mint, it)
+            try { PipelineHealthCollector.labelInc("TOKEN_DECIMALS_FROM_TOKEN_MAP_6330") } catch (_: Throwable) {}
+            return it
+        }
+
         val reflected = reflectInt(ts, "decimals", "tokenDecimals", "baseDecimals", "mintDecimals")
             ?: reflectInt(ts.meta, "decimals", "tokenDecimals", "baseDecimals")
             ?: reflectInt(ts.position, "decimals", "tokenDecimals")
 
-        return reflected?.coerceAtLeast(0) ?: -1
+        val resolved = reflected?.coerceAtLeast(0) ?: -1
+        if (resolved < 0) {
+            // No authoritative source found. Flag it so the WIN/LOSS
+            // labeller downstream can classify this row as
+            // PENDING_RECONCILIATION rather than training the brain on
+            // a heuristic-derived qty. The heuristic still runs so the
+            // buy can proceed on estimate, but learning is suppressed.
+            try { PipelineHealthCollector.labelInc("TOKEN_DECIMALS_UNKNOWN_HEURISTIC_6330") } catch (_: Throwable) {}
+        }
+        return resolved
     }
 
     // V5.0.6311 — authoritative mint-decimals cache, populated by
@@ -3073,6 +3097,26 @@ class Executor(
         // "QUICK_RUNNER_10X_FULL_EXIT at a large loss" contradiction the
         // operator flagged in the LIVE_20260722_2114 export.
         if (tradeWithMint.side.equals("SELL", true) || tradeWithMint.side.equals("PARTIAL_SELL", true)) {
+            // V5.0.6330 — LEARNING ELIGIBILITY CLASSIFIER (WADDLE cascade
+            // defence). Every finalised SELL row is classified through
+            // LearningEligibility so QUARANTINED_DECIMAL / PENDING_RECONCILIATION
+            // rows are visible in telemetry and skipped by the governor
+            // sample. This is the direct fix for the operator report
+            // 'change WIN/LOSS label assignment across all strategies to
+            // use actual execution results, not stale mark prices' — a
+            // stale-mark-derived qty produces a decimal-skewed row that
+            // this classifier now flags before it can retrain the brain.
+            try {
+                val windowStart = try { LiveEntrySafetyHold.governorWindowStart() } catch (_: Throwable) { 0L }
+                val eligibility = LearningEligibility.classify(tradeWithMint, windowStart)
+                PipelineHealthCollector.labelInc("LEARNING_ELIGIBILITY_${eligibility.eligibility.name}_6330")
+                if (eligibility.eligibility != LearningEligibility.Eligibility.ELIGIBLE) {
+                    ForensicLogger.lifecycle(
+                        "LEARNING_ELIGIBILITY_QUARANTINED_6330",
+                        "mint=${tradeWithMint.mint.take(10)} sym=${tradeWithMint.symbol.take(12)} eligibility=${eligibility.eligibility} reason=${eligibility.reason} pnl=${"%.4f".format(tradeWithMint.pnlSol)} realized=${"%.4f".format(tradeWithMint.netPnlSol)}",
+                    )
+                }
+            } catch (_: Throwable) {}
             val rawReason6312 = tradeWithMint.reason.uppercase()
             val claimsProfit6312 = rawReason6312.contains("QUICK_RUNNER") ||
                 rawReason6312.contains("TAKE_PROFIT") ||
