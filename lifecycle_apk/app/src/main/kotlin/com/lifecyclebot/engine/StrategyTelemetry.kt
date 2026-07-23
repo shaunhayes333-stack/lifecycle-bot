@@ -73,6 +73,20 @@ object StrategyTelemetry {
     // decision. Cache key is coarse but sufficient — the two current callers
     // both pass (null, false, 2_500) so it's effectively a single global slot
     // in practice.
+    // V5.0.6327 — PER-KEY LEADERBOARD CACHE (choke fix). The previous
+    // single-slot cache thrashed hard because ≥20 hot-path callers
+    // (LiveLaneGovernor, LiveLayerGateRelaxer, LiveProbabilityEngine,
+    // MoonshotPivotArbiter, LiveBreakEvenGuard, LiveStylePivotRouter,
+    // LiveLaneFanoutPressure, RealizedWalletCompoundingGovernor,
+    // Executor.canonical-lane picker …) hit computeLeaderboard with
+    // DIFFERENT keys (limit=1500 vs 2500 vs default, partials on/off).
+    // Every alternating call missed the cache and triggered a fresh
+    // TradeHistoryStore read + StrategyTruthLedger.clean rebuild. In
+    // the emergency report that produced 24M STRATEGY_CLEAN_TERMINAL_ROWS
+    // ledger runs, ANR frame gaps up to 29s, and cycle times up to 257s.
+    // Per-key ConcurrentHashMap gives every distinct caller its own
+    // 10-second TTL so a hot per-tick loop can hit its own slot.
+    private val leaderboardCacheMap: java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<StrategyMetric>>> = java.util.concurrent.ConcurrentHashMap()
     @Volatile private var leaderboardCache: List<StrategyMetric> = emptyList()
     @Volatile private var leaderboardCacheMs: Long = 0L
     @Volatile private var leaderboardCacheKey: String = ""
@@ -85,13 +99,25 @@ object StrategyTelemetry {
     ): List<StrategyMetric> {
         val now = System.currentTimeMillis()
         val key = "${environment ?: ""}|$includePartials|$limit"
-        if (now - leaderboardCacheMs < LEADERBOARD_TTL_MS && leaderboardCacheKey == key) {
-            return leaderboardCache
+        val entry = leaderboardCacheMap[key]
+        if (entry != null && (now - entry.first) < LEADERBOARD_TTL_MS) {
+            try { PipelineHealthCollector.labelInc("STRATEGY_LEADERBOARD_CACHE_HIT_6327") } catch (_: Throwable) {}
+            return entry.second
         }
         val fresh = computeLeaderboardUncached(environment, includePartials, limit)
+        leaderboardCacheMap[key] = now to fresh
+        // Keep single-slot fields alive for any legacy inspector. Bound
+        // the map to prevent unbounded growth if callers ever explode.
         leaderboardCache = fresh
         leaderboardCacheMs = now
         leaderboardCacheKey = key
+        if (leaderboardCacheMap.size > 32) {
+            try {
+                val toDrop = leaderboardCacheMap.entries.sortedBy { it.value.first }.take(leaderboardCacheMap.size - 24)
+                for (e in toDrop) leaderboardCacheMap.remove(e.key, e.value)
+            } catch (_: Throwable) {}
+        }
+        try { PipelineHealthCollector.labelInc("STRATEGY_LEADERBOARD_CACHE_MISS_6327") } catch (_: Throwable) {}
         return fresh
     }
 
@@ -207,6 +233,10 @@ object StrategyTelemetry {
     // its own 15s cache in LiveProbabilityEngine so the two windows
     // stay aligned.
     @Volatile private var cleanLiveLeaderboardCache: List<StrategyMetric> = emptyList()
+    // V5.0.6327 — per-key cache mirror of computeLeaderboard so multi-
+    // limit callers (1_500 vs 2_500) don't thrash each other.
+    private val cleanLiveLeaderboardCacheMap: java.util.concurrent.ConcurrentHashMap<Int, Pair<Long, List<StrategyMetric>>> = java.util.concurrent.ConcurrentHashMap()
+    @Volatile private var cleanLiveLeaderboardCache: List<StrategyMetric> = emptyList()
     @Volatile private var cleanLiveLeaderboardCacheMs: Long = 0L
     @Volatile private var cleanLiveLeaderboardCacheLimit: Int = 0
     private const val CLEAN_LIVE_LEADERBOARD_TTL_MS = 10_000L
@@ -218,13 +248,20 @@ object StrategyTelemetry {
     // gate relaxer, live WR floors, and future tuner alignment.
     fun computeCleanLiveTerminalLeaderboard(limit: Int = 2_500): List<StrategyMetric> {
         val now = System.currentTimeMillis()
-        val cached = cleanLiveLeaderboardCache
-        // Cache hit: TTL fresh AND cached limit is >= current request (so a
-        // smaller subsequent request never triggers a rebuild).
-        if (cached.isNotEmpty() &&
-            cleanLiveLeaderboardCacheLimit >= limit &&
-            (now - cleanLiveLeaderboardCacheMs) < CLEAN_LIVE_LEADERBOARD_TTL_MS) {
-            return cached
+        // Per-limit cache hit — TTL fresh AND stored under the same limit.
+        val entry = cleanLiveLeaderboardCacheMap[limit]
+        if (entry != null && (now - entry.first) < CLEAN_LIVE_LEADERBOARD_TTL_MS) {
+            try { PipelineHealthCollector.labelInc("STRATEGY_CLEAN_LIVE_LEADERBOARD_CACHE_HIT_6327") } catch (_: Throwable) {}
+            return entry.second
+        }
+        // Cross-limit reuse: a fresh larger-limit entry can satisfy a smaller
+        // request without recomputing.
+        val larger = cleanLiveLeaderboardCacheMap.entries.firstOrNull {
+            it.key >= limit && (now - it.value.first) < CLEAN_LIVE_LEADERBOARD_TTL_MS
+        }?.value
+        if (larger != null) {
+            try { PipelineHealthCollector.labelInc("STRATEGY_CLEAN_LIVE_LEADERBOARD_CACHE_HIT_6327") } catch (_: Throwable) {}
+            return larger.second
         }
         val raw = try { TradeHistoryStore.getRecentValidClosedTradesRaw(limit = limit, includePartials = true) } catch (_: Throwable) { emptyList() }
         val cleanRows = try { StrategyTruthLedger.clean(raw, limit).rows } catch (_: Throwable) { raw }
@@ -265,6 +302,14 @@ object StrategyTelemetry {
         cleanLiveLeaderboardCache = result
         cleanLiveLeaderboardCacheMs = now
         cleanLiveLeaderboardCacheLimit = limit
+        cleanLiveLeaderboardCacheMap[limit] = now to result
+        if (cleanLiveLeaderboardCacheMap.size > 16) {
+            try {
+                val toDrop = cleanLiveLeaderboardCacheMap.entries.sortedBy { it.value.first }.take(cleanLiveLeaderboardCacheMap.size - 12)
+                for (e in toDrop) cleanLiveLeaderboardCacheMap.remove(e.key, e.value)
+            } catch (_: Throwable) {}
+        }
+        try { PipelineHealthCollector.labelInc("STRATEGY_CLEAN_LIVE_LEADERBOARD_CACHE_MISS_6327") } catch (_: Throwable) {}
         return result
     }
 
