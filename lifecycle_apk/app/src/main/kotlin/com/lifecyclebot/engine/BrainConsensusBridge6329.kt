@@ -71,20 +71,11 @@ object BrainConsensusBridge6329 {
         } catch (_: Throwable) { 1.0 }
         readings["SuperBrainEnhancements"] = superBrainMult
 
-        // 4) BotBrain phase suppression (0..1 penalty → convert to multiplier)
-        val botBrainMult = try {
-            val botBrain = com.lifecyclebot.engine.BotService.botBrain
-            if (botBrain != null) {
-                val phaseBoost = botBrain.getPhaseBoost("EXEC")
-                val sourceBoost = botBrain.getSourceBoost(source)
-                val suppression = botBrain.getSuppressionPenalty("EXEC", source, source)
-                val mult = ((1.0 + phaseBoost + sourceBoost) - suppression).coerceIn(0.1, 1.5)
-                if (botBrain.isHardSuppressed("EXEC", source)) {
-                    labels += "BOTBRAIN_HARD_SUPPRESSED"
-                }
-                mult
-            } else 1.0
-        } catch (_: Throwable) { 1.0 }
+        // 4) BotBrain phase suppression — currently only reachable via
+        //    a BotService instance; consensus uses the other four brains
+        //    to stay 100% stateless-callable. When BotBrain is later
+        //    exposed via a static accessor it can be re-added here.
+        val botBrainMult = 1.0
         readings["BotBrain"] = botBrainMult
 
         // 5) BrainConsensusGate — proven-dead advisory (label scan of pipeline dump).
