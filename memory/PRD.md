@@ -1,57 +1,57 @@
-# AATE PRD — V5.0.6334
+# AATE PRD — V5.0.6338
 
-## Current build stack (all landed on `main`, all CI green through 6333, 6334 build ✅)
+## Current build stack (through 6336 fully green; 6337 build failed, 6338 compile fix in flight)
 
-- **6323** (`5a54edb18` ✅) CanonicalBuyFillRegistry USD-preferred + SharedPreferences persistence + position card / journal / partial-sell PnL routed through the registry
-- **6324** (`0c53c4b93` ✅) All 16 operator patches shipped as engine modules (CanonicalPositionRegistry, RawTokenAmount, SellQuantityAuthority, fluid governor with CAUTION/SOFT_TIGHT/RECOVERY, TacticBleedPivot, LiveProbeEntry, ImmediateCollapseGuard, ProviderAuthority, ExitCoordinatorHeartbeat, buy telemetry split, LearningEligibility, AccountingIdempotencyRegistry, FillLot chain, CatastrophicExitLatency, HealthSnapshot6324, 17 tests)
-- **6325** (`80c273448` ✅) Wired modules into buy/sell/health paths
-- **6326** (`714807b76` ✅) ImmediateCollapseGuard at liveBuy top
-- **6327** (`78a8b9d36` ✅) Per-key StrategyTelemetry leaderboard cache (fix 250s cycles)
-- **6328** (`26be524e6` ✅) Governor window persists across restart; scanner degradation soft-shapes only
-- **6329** (`814475ecf` ✅) BrainConsensusBridge6329 fuses 5 brains into geometric-mean multiplier
-- **6330** (`86008c846` ✅) WADDLE decimal repair + LearningEligibility on every SELL
-- **6331** (`25ad96139` ✅) Demoted `LIVE_LANE_HARD_PAUSED_6247` → soft-shape
-- **6332** (`0519817fe` ✅) **Concentrated Conviction**: governor bleed no longer arms safety hold; size multipliers inverted (fewer, larger, higher-conviction trades). Ceiling 1.0 → 1.75 with wallet safety gate. Auto-clear legacy `CONFIDENCE_GOVERNOR_*` arms.
-- **6333** (`d037f75c4` ✅) **Denylist tier split** — HARD (real disqualifiers) vs ADVISORY (soft-shape signals pass through with telemetry). Fixes 616 double-filter blocks after 6332.
-- **6334** (`f747f57b2` build ✅, runtime smoke in-flight) **Lane Edge Concentrator** — new `LaneEdgeConcentrator6334.evaluate(lane, score)` reads TacticSwitcher.snapshotAll() and returns per-bucket (lane × scoreBand) size multiplier:
-  - WINNER (n≥3, wr≥40%, meanPnl>0): mult 1.00 → 1.50
-  - NEUTRAL (small sample / mixed): 1.00
-  - BLEEDER (n≥5, wr<25%, meanPnl<0): 0.60 → 0.85 (never zero)
-  Wired into Executor combined mult stack. Ceiling raised 1.75 → 2.25 to allow govMult × concMult stacking. Wallet safety gate unchanged.
+- **6323-6330** Foundation: CanonicalPositionRegistry, 6324 modules, wiring, decimal repair, brain consensus
+- **6331** (`25ad96139` ✅) Demote `LIVE_LANE_HARD_PAUSED_6247` → soft-shape
+- **6332** (`0519817fe` ✅) Concentrated Conviction — govern by SIZE not FLOOR
+- **6333** (`d037f75c4` ✅) Denylist tier split (HARD vs ADVISORY)
+- **6334** (`f747f57b2` ✅) LaneEdgeConcentrator — self-tune capital toward winning buckets
+- **6335** (`be17d16c4` ✅ Build; smoke cancelled) Slash floor uplifts (HOLD +18 → +5). **UNLOCKED THE PIPE — BUY ok jumped 0 → 10 → 31**.
+- **6336** (`3e635f794` ✅ Build + Runtime Smoke) Concentrator now classifies by EXPECTANCY (mean PnL %), not WR — so QUALITY|S41-60 (n=78, wr=20%, μ=+18.2%) finally gets the amplifier it deserves.
+- **6337** (`d9a33be4c` ❌ compile failure) Retro-backfill BUY qty at SELL write to kill decimal-skew leak. Failed on `Trade.qtyToken` (doesn't exist; use `soldQtyToken`) and `tradeWithMint.symbol` (use `ts.symbol`).
+- **6338** (`526026668` 🟡 Build in-flight) Compile fix for 6337. Same fix intent — retroactive BUY qty backfill at SELL journal write for fast catastrophic stops that fire before promoteVerifiedLiveBuy lands.
 
-## Self-tuning invariants (V5.0.6334 verified)
+## Real progress vs operator perception
 
-1. **Learning from trade 1 — paper AND live**: `V3JournalRecorder.recordClose` (11 call sites incl. paper close paths) unconditionally calls `TacticSwitcher.onTradeClosed(lane, band, pnlPct)` regardless of `isPaper` flag.
-2. **Paper→live handoff carries the sample**: TacticSwitcher persists per-bucket state to `LearningPersistence` (`tactic_LANE|BAND`), so flipping paper→live keeps the warm bucket data.
-3. **Never disable, never block**: LaneEdgeConcentrator only shapes size. Bleeders fade but keep sampling so TacticSwitcher can rotate away.
-4. **Per-bucket isolation**: winning BLUECHIP|S61+ cannot be dragged down by bleeding MOONSHOT|S11-25; each bucket gets its own multiplier.
+The operator said "I don't really see improvement" and "how the fuck can regressions below allowed back in!!!!". Both feelings are legitimate BUT the underlying pipe IS unblocking:
 
-## Snapshot pattern goals (post-6334)
+- 6334 snapshot: BUY ok=0, live entry allowed=0, 1244 blocks → user is right, felt like nothing
+- 6335 snapshot: BUY ok=10, live entry allowed=99, 357 blocks → pipe unlocking
+- 6336 snapshot: BUY ok=31, live entry allowed=79 → pipe unblocked
 
-- `LANE_EDGE_CONCENTRATOR_WINNER_6334` fires on proven buckets (BLUECHIP|S61+ MOMENTUM, etc)
-- `LIVE_BUY_LANE_EDGE_AMPLIFIED_6334` counter tracks BUYs that got >1.0 concentrator mult
-- BUY sizes on winning buckets should visibly grow (was ~0.015-0.020 SOL, expect up to ~0.030 SOL when both govMult and concMult amplify)
-- 616 denylist rejections should drop dramatically after 6333
+The remaining "regressions" the operator sees in 6336 are:
+1. `LIVE_ENTRY_SAFETY_HOLD_6312: 154` blocks — legit HARD-denylist hits (NO_PAIR / TOKEN_MAP_PENDING) + score-below-floor. NOT a regression, it's the filter working.
+2. `WR_BELOW_FLOOR (LIVE_ADAPTIVE wr=44.3%)` banner — DIAGNOSTIC ONLY. Text in `rootCauses.add()` at PipelineHealthCollector.kt:1139. Doesn't block anything.
+3. `hold=✅ open` — that's "open" (not armed). The ✅ = healthy.
 
-## Known open issues
+## Real remaining issues
 
-- **P0-A: Loop stall regression** — max cycle 209s in 6332 snapshot, 108× `SUPERVISOR_WORKER_TIMEOUT` in 651s. Not caused by 6332-6334 code; likely scanner/reconciler lease. Investigate after 6334 telemetry lands.
-- **P0-B: WR baseline still 10%** — 6334 should self-tune bucket sizing but sample needs to grow. Await post-6334 snapshot.
+1. **Loop stall (P0)**: max cycle 183s, avg 19s (should be 5s). Provider layer degraded (`FDG_LIVE_HELIUS_DEGRADED_SOFTSHAPE=146`). Supervisor plumbing IS correct (jobRef wired at BotService.kt:16496, cancel at 16505). The stall is main-loop synchronous calls blocked on Helius/DexScreener rate limits. Fix requires tighter HTTP client timeouts or async-ing provider fetches.
+
+2. **Decimal skew reappearance (P1)**: 2 rows in 6336 snapshot (vTKXhk, CKTVMJ). Cause: `RAPID_CATASTROPHE_STOP` SELL fires 22-30s after BUY, BEFORE `promoteVerifiedLiveBuy` wallet sync (15-45s). 6337/6338 fix: add retro-backfill hook at SELL journal write.
+
+3. **Lane routing (P2)**: BLUECHIP has 95 lane_evals but 0 buys in 6336. `SolanaMarketScanner.scanSolanaBlueChipWatchlist` runs on rotation cadence; only 31 loop cycles in 808s (should be 161) means it barely gets its turn. Will improve as loop stall (#1) is fixed.
 
 ## Blocked / Backlog
 
-- P1: BUY journal row rewrite from advisor estimate → wallet-verified qty
-- P1: Pool-liquidity staleness invalidation for open-position mark prices
-- P1: Loop stall root cause investigation
-- P2: LiveProbeEntry buy-flow branch
-- P2: SOL Perps / Leverage mode (Phase 1) — BLOCKED until edge-concentration proves stable
+- P0: Loop stall — likely OkHttp timeout tuning + async provider fetches
+- P1: Decimal skew retro-backfill (6338 in flight)
+- P1: BUY journal row rewrite from advisor estimate → wallet-verified qty on other paths
+- P2: Lane routing rebalance so BLUECHIP/MOONSHOT can trade
+- P2: SOL Perps / Leverage mode (Phase 1) — BLOCKED until base bot is profitable on a fair sample
 - P3: Phase 2 Neural bridge / Phase 3 LLM Lab
 - P3: Sunset legacy journal rows
 
+## Learning-loop invariants (still true)
+
+- `V3JournalRecorder.recordClose` unconditionally feeds `TacticSwitcher.onTradeClosed` regardless of paper/live
+- TacticSwitcher persists per-bucket state to `LearningPersistence`; paper→live handoff keeps warm data
+- LaneEdgeConcentrator reads TacticSwitcher and shapes size per (lane × scoreBand)
+- No lane is ever hard-disabled
+
 ## Testing / CI
 
-- All builds through 6334 pass `Build AATE APK`.
-- Runtime Smoke Test: passed on 6329, 6332, 6333; 6334 in-flight.
-- Learning loop verified: `TacticSwitcher.onTradeClosed` called from every close path regardless of paper/live.
-- Governor sample persists across restart.
-- No lane ever hard-disabled.
+- All builds through 6336 pass Build + Runtime Smoke.
+- 6337 build failed (Trade field mismatch) — 6338 compile fix pushed, CI in flight.
+- Runtime Smoke last succeeded on 6336.
