@@ -3369,13 +3369,14 @@ object FinalDecisionGate {
                 // generic ×0.35/0.55/0.70 pressure. Compose both and take the stricter
                 // soft-shape. No veto, no lane disable, no live/paper plumbing change.
                 val learnedBucketMult = try { LosingPatternMemory.recommendedSizeMult(laneName, laneScoreBanded) } catch (_: Throwable) { 1.0 }
-                // V5.0.6339 — PAPER↔LIVE DIVERGENCE PENALTY. Composed with the
-                // learned mult above so a bucket that wins big on paper but
-                // bleeds live gets shrunk EVEN WHEN combined stats are neutral.
-                // Directly answers the operator's directive to "back-test live
-                // failures against the paper learning."
+                // V5.0.6339 — PAPER↔LIVE DIVERGENCE PENALTY. Composed after
+                // the historical minOf so a bucket that wins big on paper
+                // but bleeds live gets shrunk EVEN WHEN combined stats are
+                // neutral. Directly answers the operator's directive to
+                // "back-test live failures against the paper learning."
                 val divergenceMult = try { LosingPatternMemory.paperLiveDivergenceMult(laneName, laneScoreBanded) } catch (_: Throwable) { 1.0 }
-                val learnedPressure = minOf(genericPressure, learnedBucketMult, divergenceMult)
+                val basePressure = minOf(genericPressure, learnedBucketMult)
+                val learnedPressure = minOf(basePressure, divergenceMult)
                 if (learnedPressure < 1.0) {
                     val originalSize = finalSize
                     finalSize = (finalSize * learnedPressure).coerceAtLeast(0.01)
