@@ -12590,6 +12590,18 @@ class Executor(
                 )
             } catch (_: Throwable) { null }
             val brainMult = brainVerdict?.multiplier ?: 1.0
+            // V5.0.6334 — LANE EDGE CONCENTRATOR. Per-bucket (lane × scoreBand)
+            // performance from TacticSwitcher shapes size so winning buckets
+            // attract capital and bleeders fade — self-tuning from trade 1.
+            // Never blocks; only amplifies (WINNER, up to 1.50×) or fades
+            // (BLEEDER, down to 0.60×). NEUTRAL / NO_DATA stays at 1.0.
+            val concentratorVerdict = try {
+                com.lifecyclebot.engine.LaneEdgeConcentrator6334.evaluate(
+                    lane = layerTag,
+                    score = ts.entryScore.toInt(),
+                )
+            } catch (_: Throwable) { null }
+            val concentratorMult = concentratorVerdict?.multiplier ?: 1.0
             // V5.0.6332 — CONCENTRATED CONVICTION SIZING. Governor
             // multiplier may exceed 1.0 (up to ~1.50 in HOLD state) so
             // that fewer, high-conviction trades carry more capital.
@@ -12604,8 +12616,11 @@ class Executor(
             // never overflows the wallet.
             val defensiveMult = (guardMult * brainMult).coerceIn(0.0, 1.0)
             val amplificationEligible = originalSol > 0.0 && originalSol < 0.10
-            val ceiling = if (amplificationEligible) 1.75 else 1.0
-            val combinedMult = (govMult * defensiveMult).coerceIn(0.0, ceiling)
+            val ceiling = if (amplificationEligible) 2.25 else 1.0
+            // V5.0.6334 — stack concentrator with governor. Both are
+            // permitted to amplify (govMult up to 1.50, concentratorMult
+            // up to 1.50) but the joint cap of 2.25× keeps wallet safe.
+            val combinedMult = (govMult * concentratorMult * defensiveMult).coerceIn(0.0, ceiling)
             val shaped = (originalSol * combinedMult).coerceAtLeast(0.0)
             val shapedChanged = kotlin.math.abs(combinedMult - 1.0) > 0.01
             if (shapedChanged && originalSol > 0.0) {
@@ -12613,10 +12628,12 @@ class Executor(
                     val direction = if (combinedMult > 1.0) "CONCENTRATE" else "DAMPEN"
                     ForensicLogger.lifecycle(
                         "LIVE_BUY_SIZE_GOVERNOR_APPLIED_6325",
-                        "mint=${ts.mint.take(10)} sym=${ts.symbol} dir=$direction originalSol=${"%.4f".format(originalSol)} shapedSol=${"%.4f".format(shaped)} govMult=${"%.2f".format(govMult)} guardMult=${"%.2f".format(guardMult)} brainMult=${"%.2f".format(brainMult)} defensive=${"%.2f".format(defensiveMult)} combined=${"%.2f".format(combinedMult)} ceiling=${"%.2f".format(ceiling)} state=${com.lifecyclebot.engine.LiveEntrySafetyHold.currentGovernorState()} guardReasons=${guardVerdict?.reasons?.take(4)?.joinToString(",") ?: "-"} brainLabels=${brainVerdict?.advisorLabels?.take(3)?.joinToString(",") ?: "-"}",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} dir=$direction originalSol=${"%.4f".format(originalSol)} shapedSol=${"%.4f".format(shaped)} govMult=${"%.2f".format(govMult)} concMult=${"%.2f".format(concentratorMult)} concClass=${concentratorVerdict?.classification ?: "NONE"} concBucket=${concentratorVerdict?.bucketKey ?: "-"} guardMult=${"%.2f".format(guardMult)} brainMult=${"%.2f".format(brainMult)} defensive=${"%.2f".format(defensiveMult)} combined=${"%.2f".format(combinedMult)} ceiling=${"%.2f".format(ceiling)} state=${com.lifecyclebot.engine.LiveEntrySafetyHold.currentGovernorState()} guardReasons=${guardVerdict?.reasons?.take(4)?.joinToString(",") ?: "-"} brainLabels=${brainVerdict?.advisorLabels?.take(3)?.joinToString(",") ?: "-"}",
                     )
                     PipelineHealthCollector.labelInc("LIVE_BUY_SIZE_GOVERNOR_APPLIED_6325")
                     if (combinedMult > 1.0) PipelineHealthCollector.labelInc("LIVE_BUY_CONCENTRATED_CONVICTION_6332")
+                    if (concentratorMult > 1.0) PipelineHealthCollector.labelInc("LIVE_BUY_LANE_EDGE_AMPLIFIED_6334")
+                    if (concentratorMult < 1.0) PipelineHealthCollector.labelInc("LIVE_BUY_LANE_EDGE_FADED_6334")
                     if (guardMult < 0.99) PipelineHealthCollector.labelInc("LIVE_BUY_COLLAPSE_GUARD_SOFT_SHAPED_6326")
                 } catch (_: Throwable) {}
             }
