@@ -12531,13 +12531,28 @@ class Executor(
                 return false
             }
             val guardMult = guardVerdict?.sizeMultiplier ?: 1.0
-            val combinedMult = (govMult * guardMult).coerceIn(0.0, 1.0)
+            // V5.0.6329 — BRAIN CONSENSUS STACK. The LLM / SuperAGI / SSI /
+            // BotBrain / MetaCognition / SentienceOrchestrator brains are
+            // fused here into one geometric-mean multiplier so every
+            // intelligence surface actually shapes the buy alongside the
+            // governor and collapse guard. Never hard-blocks — that
+            // authority stays with LiveEntrySafetyHold.
+            val brainVerdict = try {
+                com.lifecyclebot.engine.BrainConsensusBridge6329.consult(
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    lane = layerTag,
+                    source = ts.lastPriceSource.ifBlank { "UNKNOWN" },
+                )
+            } catch (_: Throwable) { null }
+            val brainMult = brainVerdict?.multiplier ?: 1.0
+            val combinedMult = (govMult * guardMult * brainMult).coerceIn(0.0, 1.0)
             val shaped = (originalSol * combinedMult).coerceAtLeast(0.0)
             if (combinedMult < 0.99 && originalSol > 0.0) {
                 try {
                     ForensicLogger.lifecycle(
                         "LIVE_BUY_SIZE_GOVERNOR_APPLIED_6325",
-                        "mint=${ts.mint.take(10)} sym=${ts.symbol} originalSol=${"%.4f".format(originalSol)} shapedSol=${"%.4f".format(shaped)} govMult=${"%.2f".format(govMult)} guardMult=${"%.2f".format(guardMult)} combined=${"%.2f".format(combinedMult)} state=${com.lifecyclebot.engine.LiveEntrySafetyHold.currentGovernorState()} guardReasons=${guardVerdict?.reasons?.take(4)?.joinToString(",") ?: "-"}",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} originalSol=${"%.4f".format(originalSol)} shapedSol=${"%.4f".format(shaped)} govMult=${"%.2f".format(govMult)} guardMult=${"%.2f".format(guardMult)} brainMult=${"%.2f".format(brainMult)} combined=${"%.2f".format(combinedMult)} state=${com.lifecyclebot.engine.LiveEntrySafetyHold.currentGovernorState()} guardReasons=${guardVerdict?.reasons?.take(4)?.joinToString(",") ?: "-"} brainLabels=${brainVerdict?.advisorLabels?.take(3)?.joinToString(",") ?: "-"}",
                     )
                     PipelineHealthCollector.labelInc("LIVE_BUY_SIZE_GOVERNOR_APPLIED_6325")
                     if (guardMult < 0.99) PipelineHealthCollector.labelInc("LIVE_BUY_COLLAPSE_GUARD_SOFT_SHAPED_6326")
