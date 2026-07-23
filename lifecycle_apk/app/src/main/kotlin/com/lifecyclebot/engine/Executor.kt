@@ -3113,7 +3113,7 @@ class Executor(
                 if (eligibility.eligibility != LearningEligibility.Eligibility.ELIGIBLE) {
                     ForensicLogger.lifecycle(
                         "LEARNING_ELIGIBILITY_QUARANTINED_6330",
-                        "mint=${tradeWithMint.mint.take(10)} sym=${tradeWithMint.symbol.take(12)} eligibility=${eligibility.eligibility} reason=${eligibility.reason} pnl=${"%.4f".format(tradeWithMint.pnlSol)} realized=${"%.4f".format(tradeWithMint.netPnlSol)}",
+                        "mint=${tradeWithMint.mint.take(10)} mode=${tradeWithMint.tradingMode} eligibility=${eligibility.eligibility} reason=${eligibility.reason} pnl=${"%.4f".format(tradeWithMint.pnlSol)} realized=${"%.4f".format(tradeWithMint.netPnlSol)}",
                     )
                 }
             } catch (_: Throwable) {}
