@@ -262,6 +262,63 @@ object LosingPatternMemory {
         }
     }
 
+    /**
+     * V5.0.6339 — PAPER↔LIVE DIVERGENCE SIZE PENALTY.
+     *
+     * Operator directive (verbatim):
+     *   "back-test live failures against the paper learning to find the
+     *    reasons for loses and modify how it learns."
+     *
+     * The problem: [recommendedSizeMult] reads the COMBINED (paper + live)
+     * cache. A bucket that wins big on paper but loses hard live shows
+     * neutral combined stats — nothing shrinks it — even though live is
+     * bleeding. This method compares the two caches and returns a shrink
+     * multiplier when the live-only distribution is MATERIALLY WORSE than
+     * the combined distribution (i.e. the paper model has lied about this
+     * bucket).
+     *
+     * Sample-gated: only fires once the live sample is ≥ 5 trades so a
+     * single unlucky live loss can't nuke a bucket that just hasn't run
+     * live yet.
+     *
+     * Returns 1.0 (no penalty) when there's no divergence or insufficient
+     * live sample. Never below 0.20 (still records outcomes so the sample
+     * grows and the divergence can heal).
+     */
+    fun paperLiveDivergenceMult(tradingMode: String, v3Score: Int): Double {
+        val combined = stats(tradingMode, v3Score)
+        val live = liveStats(tradingMode, v3Score)
+        val liveN = live.losses + live.wins
+        val combinedN = combined.losses + combined.wins
+        if (liveN < 5) return 1.0        // not enough live sample yet
+        if (combinedN < 5) return 1.0    // sanity — need combined too
+
+        val liveMean = live.meanPnl
+        val combinedMean = combined.meanPnl
+        val gap = combinedMean - liveMean
+
+        // Live must be both NET NEGATIVE and CLEARLY WORSE than combined
+        // for a divergence penalty. If live is fine, no shrink even if
+        // combined is even better.
+        if (liveMean >= -5.0) return 1.0
+        if (gap < 15.0) return 1.0       // paper and live agree closely
+
+        try {
+            PipelineHealthCollector.labelInc(
+                "PAPER_LIVE_DIVERGENCE_DETECTED_6339|${tradingMode.uppercase().take(24)}"
+            )
+        } catch (_: Throwable) {}
+
+        // Deeper divergence → deeper shrink, floored at 0.20 so the sample
+        // still grows and the divergence can heal if the market changes.
+        return when {
+            gap >= 60.0 -> 0.20
+            gap >= 40.0 -> 0.35
+            gap >= 25.0 -> 0.55
+            else        -> 0.75           // gap in [15, 25)
+        }
+    }
+
     /** Pipeline-health summary block. */
     fun formatForPipelineDump(): String {
         refreshIfStale()

@@ -3369,14 +3369,26 @@ object FinalDecisionGate {
                 // generic ×0.35/0.55/0.70 pressure. Compose both and take the stricter
                 // soft-shape. No veto, no lane disable, no live/paper plumbing change.
                 val learnedBucketMult = try { LosingPatternMemory.recommendedSizeMult(laneName, laneScoreBanded) } catch (_: Throwable) { 1.0 }
-                val learnedPressure = minOf(genericPressure, learnedBucketMult)
+                // V5.0.6339 — PAPER↔LIVE DIVERGENCE PENALTY. Composed with the
+                // learned mult above so a bucket that wins big on paper but
+                // bleeds live gets shrunk EVEN WHEN combined stats are neutral.
+                // Directly answers the operator's directive to "back-test live
+                // failures against the paper learning."
+                val divergenceMult = try { LosingPatternMemory.paperLiveDivergenceMult(laneName, laneScoreBanded) } catch (_: Throwable) { 1.0 }
+                val learnedPressure = minOf(genericPressure, learnedBucketMult, divergenceMult)
                 if (learnedPressure < 1.0) {
                     val originalSize = finalSize
                     finalSize = (finalSize * learnedPressure).coerceAtLeast(0.01)
                     tags.add("learning_recovery_shaped")
                     tags.add("danger_bucket:${LosingPatternMemory.bucketKey(laneName, laneScoreBanded)}")
-                    checks.add(GateCheck("learned_bucket", true, "bucket n=${bucket.sample} loss=${lossRate.toInt()}% mean=${bucket.meanPnl.format(1)}% wr=${canonicalWr.format(1)} target=${canonicalTargetWr.format(1)} mult=${learnedPressure.format(2)} size ${originalSize.format(3)}→${finalSize.format(3)}"))
-                    ErrorLogger.info("FDG", "🧠 LEARNING_RECOVERY_SHAPED ${ts.symbol} lane=$laneName bucket=${LosingPatternMemory.bucketKey(laneName, laneScoreBanded)} n=${bucket.sample} loss=${lossRate.toInt()}% mean=${bucket.meanPnl.format(1)}% wr=${canonicalWr.format(1)}/${canonicalTargetWr.format(1)} size×${learnedPressure.format(2)}")
+                    val divergenceTag = if (divergenceMult < 1.0) " · paperLiveDivMult=${divergenceMult.format(2)}" else ""
+                    checks.add(GateCheck("learned_bucket", true, "bucket n=${bucket.sample} loss=${lossRate.toInt()}% mean=${bucket.meanPnl.format(1)}% wr=${canonicalWr.format(1)} target=${canonicalTargetWr.format(1)} mult=${learnedPressure.format(2)}$divergenceTag size ${originalSize.format(3)}→${finalSize.format(3)}"))
+                    if (divergenceMult < 1.0) {
+                        try {
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_PAPER_LIVE_DIVERGENCE_SHRINK_6339")
+                        } catch (_: Throwable) {}
+                    }
+                    ErrorLogger.info("FDG", "🧠 LEARNING_RECOVERY_SHAPED ${ts.symbol} lane=$laneName bucket=${LosingPatternMemory.bucketKey(laneName, laneScoreBanded)} n=${bucket.sample} loss=${lossRate.toInt()}% mean=${bucket.meanPnl.format(1)}% wr=${canonicalWr.format(1)}/${canonicalTargetWr.format(1)} size×${learnedPressure.format(2)}$divergenceTag")
                 }
                 val weakEvidence = candidate.setupQuality !in listOf("A+", "A", "B") && candidate.aiConfidence < 35.0 && effectiveGateScore6025 < 25.0
                 if (blockReason == null && bucket.isDangerous && deepLearningDeficit && weakEvidence) {
