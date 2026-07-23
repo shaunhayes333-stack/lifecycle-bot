@@ -195,8 +195,19 @@ object LiveLaneGovernor {
                 } catch (_: Throwable) {}
                 return false to ""
             }
+            // V5.0.6331 — LANE FLUIDITY (6324 directive): NEVER hard-disable a
+            // lane for ordinary performance bleed. A prior pause is downgraded
+            // to a soft-shape signal so the lane keeps observing but the
+            // governor / brain consensus + collapse guard shrink size.
             val remainMin = (until - now) / 60_000L
-            return true to "LIVE_LANE_HARD_PAUSED_6247 lane=$laneU remainMin=$remainMin"
+            try {
+                ForensicLogger.lifecycle(
+                    "LIVE_LANE_HARD_PAUSE_DEMOTED_TO_SOFT_6331",
+                    "lane=$laneU remainMin=$remainMin action=soft_shape_no_disable",
+                )
+                PipelineHealthCollector.labelInc("LIVE_LANE_HARD_PAUSE_DEMOTED_TO_SOFT_6331")
+            } catch (_: Throwable) {}
+            return false to ""
         }
 
         // Not currently paused — refresh stats and check if we should pause NOW.
@@ -217,17 +228,27 @@ object LiveLaneGovernor {
                 } catch (_: Throwable) {}
                 return false to ""
             }
-            pausedUntilMs[laneU] = now + PAUSE_MS
-            persistPauseState()
+            // V5.0.6331 — LANE FLUIDITY (6324 directive). A bleeder lane no
+            // longer hard-pauses. Instead we register the bleed with
+            // TacticBleedPivot (rotate tactic + probe-first) and let the
+            // governor size shrink stack handle exposure. Lane stays active.
             try {
-                ForensicLogger.lifecycle(
-                    "LIVE_LANE_HARD_PAUSED_6247",
-                    "lane=$laneU n=${s.trades} wr=${"%.1f".format(s.wrPct)}% pf=${"%.2f".format(s.pf)} pnlSol=${"%.4f".format(s.totalSolPnl)} pauseMin=${PAUSE_MS / 60_000L}",
+                com.lifecyclebot.engine.TacticBleedPivot.evaluate(
+                    com.lifecyclebot.engine.TacticBleedPivot.BucketPerf(
+                        lane = laneU, scoreBand = "OVERALL", tactic = entrySetup ?: "MOMENTUM",
+                        n = s.trades, wins = ((s.wrPct / 100.0) * s.trades).toInt(),
+                        losses = s.trades - ((s.wrPct / 100.0) * s.trades).toInt(),
+                        meanReturnPct = s.wrPct - 50.0,
+                        lossSeverityPct = (s.totalSolPnl / s.trades.coerceAtLeast(1)) * 100.0,
+                    )
                 )
-                PipelineHealthCollector.labelInc("LIVE_LANE_HARD_PAUSED_6247")
-                PipelineHealthCollector.labelInc("LIVE_LANE_HARD_PAUSED_${laneU}")
+                ForensicLogger.lifecycle(
+                    "LIVE_LANE_BLEEDER_SOFT_PIVOT_6331",
+                    "lane=$laneU n=${s.trades} wr=${"%.1f".format(s.wrPct)}% pf=${"%.2f".format(s.pf)} action=soft_pivot_no_disable",
+                )
+                PipelineHealthCollector.labelInc("LIVE_LANE_BLEEDER_SOFT_PIVOT_6331")
             } catch (_: Throwable) {}
-            return true to "LIVE_LANE_HARD_PAUSED_6247 lane=$laneU n=${s.trades} wr=${"%.1f".format(s.wrPct)}%"
+            return false to ""
         }
         return false to ""
     }
