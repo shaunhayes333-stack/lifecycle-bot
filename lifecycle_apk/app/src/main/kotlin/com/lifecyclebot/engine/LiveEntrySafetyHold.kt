@@ -106,20 +106,21 @@ object LiveEntrySafetyHold {
 
     /** Deterministic size / floor shaping per state.
      *
-     *  V5.0.6332 — "CONCENTRATED CONVICTION" DIRECTIVE. Operator asked
-     *  for fewer, LARGER high-conviction trades — not "shrink to zero"
-     *  when performance dips. The old shape (0.70 / 0.40 / 0.60) starved
-     *  every trade of enough capital to move the needle, so the WR could
-     *  never recover from a fresh streak of small losses. New shaping:
-     *  under stress we RAISE the score floor (only the best candidates
-     *  qualify) AND we RAISE the size (the survivors carry more capital
-     *  each). HOLD keeps size positive too — we never freeze live buys
-     *  based on strategy bleed, only on wallet/accounting invariants
-     *  (which route through armInternal from runHealthCheck).
+     *  V5.0.6335 — FLOOR RE-TUNE. The 6332 floor uplifts (+12/+15/+18)
+     *  were far too aggressive: HOLD state pushed the live entry floor
+     *  from 55 → 73 and the 6334 snapshot showed 0 buys landing in
+     *  882s because virtually no candidate could score 73+. The bot
+     *  fell back into the exact death spiral (WR bleed → HOLD → floor
+     *  too high → no trades → no data → WR stays bad → HOLD forever)
+     *  the whole 6332 patch was meant to break.
      *
-     *  Rule of thumb: totalRisk ≈ mult * (1 - floorFilterRatio).
-     *  As floor rises, count of live entries falls; multiplier grows
-     *  to keep total risk directed at higher-conviction candidates.  */
+     *  Correction: concentrated conviction lives in SIZE, not FLOOR.
+     *  Size multipliers stay at 1.10..1.50 so the governor still
+     *  amplifies capital toward high-conviction candidates. Floors
+     *  drop to a very small buffer (max +5 in HOLD, effective 55→60)
+     *  so the LaneEdgeConcentrator can actually SEE candidates and
+     *  decide which lanes deserve size — the filtering job moves from
+     *  the score floor to the per-bucket edge concentrator.  */
     private const val SIZE_MULTIPLIER_BASELINE: Double = 1.00
     private const val SIZE_MULTIPLIER_CAUTION: Double = 1.10
     private const val SIZE_MULTIPLIER_SOFT_TIGHT: Double = 1.25
@@ -127,11 +128,11 @@ object LiveEntrySafetyHold {
     private const val SIZE_MULTIPLIER_TIGHTENED: Double = 1.35
     private const val SIZE_MULTIPLIER_HOLD: Double = 1.50
     private const val FLOOR_ADJUSTMENT_BASELINE: Double = 0.0
-    private const val FLOOR_ADJUSTMENT_CAUTION: Double = 5.0
-    private const val FLOOR_ADJUSTMENT_SOFT_TIGHT: Double = 12.0
-    private const val FLOOR_ADJUSTMENT_RECOVERY: Double = 8.0
-    private const val FLOOR_ADJUSTMENT_TIGHTENED: Double = 15.0
-    private const val FLOOR_ADJUSTMENT_HOLD: Double = 18.0
+    private const val FLOOR_ADJUSTMENT_CAUTION: Double = 1.0
+    private const val FLOOR_ADJUSTMENT_SOFT_TIGHT: Double = 2.0
+    private const val FLOOR_ADJUSTMENT_RECOVERY: Double = 2.0
+    private const val FLOOR_ADJUSTMENT_TIGHTENED: Double = 3.0
+    private const val FLOOR_ADJUSTMENT_HOLD: Double = 5.0
 
     @Volatile private var lastGovernorState: GovernorState = GovernorState.BASELINE
     @Volatile private var lastGovernorSizeMultiplier: Double = SIZE_MULTIPLIER_BASELINE
