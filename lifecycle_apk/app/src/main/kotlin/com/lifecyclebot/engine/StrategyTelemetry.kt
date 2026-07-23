@@ -236,7 +236,6 @@ object StrategyTelemetry {
     // V5.0.6327 — per-key cache mirror of computeLeaderboard so multi-
     // limit callers (1_500 vs 2_500) don't thrash each other.
     private val cleanLiveLeaderboardCacheMap: java.util.concurrent.ConcurrentHashMap<Int, Pair<Long, List<StrategyMetric>>> = java.util.concurrent.ConcurrentHashMap()
-    @Volatile private var cleanLiveLeaderboardCache: List<StrategyMetric> = emptyList()
     @Volatile private var cleanLiveLeaderboardCacheMs: Long = 0L
     @Volatile private var cleanLiveLeaderboardCacheLimit: Int = 0
     private const val CLEAN_LIVE_LEADERBOARD_TTL_MS = 10_000L
