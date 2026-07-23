@@ -142,8 +142,38 @@ object LiveEntrySafetyHold {
     fun currentGovernorState(): GovernorState = lastGovernorState
 
     // ----- Bypass ban denylist --------------------------------------
+    //
+    // V5.0.6333 — DENYLIST TIER SPLIT. The previous flat denylist
+    // treated every advisor-attached soft-shape label as a hard
+    // disqualifier, which produced 616 daily rejections after 6332
+    // cleared the sticky hold. Advisor labels like
+    // PROVIDER_PROOF_HOLDER_CASCADE_BLIND and BRAIN_RUGCHECK_FLOOR are
+    // MEANT to shrink size (they already do so via BrainConsensusBridge
+    // and the collapse guard); denylisting them a second time double-
+    // filtered and starved the bot of trades. Operator directive:
+    // "why not make larger single high-confidence trades instead of
+    // multiple low-confidence trades" — concentrate, don't block.
+    //
+    // TIER 1 — HARD: candidate has no data / no pair / is a synthetic
+    //   probe. These MUST NOT authorize a live buy under any circumstance.
+    //
+    // TIER 2 — ADVISORY: candidate is qualified but flagged with a
+    //   size-shaping signal. These are logged but PASS the hold; the
+    //   size/floor governor + collapse guard + brain consensus already
+    //   trim the trade to appropriate scale.
 
-    private val LIVE_BYPASS_DENYLIST: Set<String> = setOf(
+    private val LIVE_BYPASS_HARD_DENYLIST: Set<String> = setOf(
+        // Data-integrity disqualifiers — no live buy is safe here.
+        "NO_PAIR_NO_FALLBACK",
+        "TOKEN_MAP_PENDING",
+        "PROBE_ONLY",
+        "INTAKE_PROBATION_ONLY",
+    )
+
+    private val LIVE_BYPASS_ADVISORY_LABELS: Set<String> = setOf(
+        // Historically-denylisted advisor / soft-shape labels. The
+        // upstream sizing stack (brain consensus, collapse guard,
+        // realistic sizer) already shrinks trades that carry these.
         "LIVE_EXPECTANCY_REJECT_BYPASSED",
         "LIVE_LAST_MILE_FLOOR_LIFTED",
         "LANE_WAIT_OVERRIDE_DUST_PROBE",
@@ -152,11 +182,12 @@ object LiveEntrySafetyHold {
         "PRETRADE_PENDING_PROOF_PENALTY_ALLOW",
         "PROVIDER_PROOF_HOLDER_CASCADE_BLIND",
         "BRAIN_RUGCHECK_FLOOR",
-        "INTAKE_PROBATION_ONLY",
-        "NO_PAIR_NO_FALLBACK",
-        "TOKEN_MAP_PENDING",
-        "PROBE_ONLY",
     )
+
+    // Kept for backward compat with any external test that reads the
+    // union set — union of HARD + ADVISORY equals the pre-6333 list.
+    @Deprecated("Use LIVE_BYPASS_HARD_DENYLIST + LIVE_BYPASS_ADVISORY_LABELS")
+    private val LIVE_BYPASS_DENYLIST: Set<String> = LIVE_BYPASS_HARD_DENYLIST + LIVE_BYPASS_ADVISORY_LABELS
 
     // ----- Public API ----------------------------------------------
 
@@ -215,13 +246,30 @@ object LiveEntrySafetyHold {
             )
         }
 
-        // 2) Bypass ban — any denylisted label means the candidate isn't
-        //    genuinely qualified for live execution. Fail closed, redirect.
-        val bypassHit = entryReasons.firstOrNull { r ->
-            LIVE_BYPASS_DENYLIST.any { deny -> r.contains(deny, ignoreCase = true) }
+        // 2) Bypass ban — V5.0.6333 TIER SPLIT.
+        //    HARD tier: candidate lacks data / is a probe → redirect
+        //    to shadow, this trade is not qualified.
+        //    ADVISORY tier: soft-shape labels — log and pass through;
+        //    upstream sizing (brain consensus, collapse guard) already
+        //    shrinks these to appropriate scale so a second block-tier
+        //    filter starves the bot of live trades.
+        val hardHit = entryReasons.firstOrNull { r ->
+            LIVE_BYPASS_HARD_DENYLIST.any { deny -> r.contains(deny, ignoreCase = true) }
         }
-        if (bypassHit != null) {
-            failed += "LIVE_BYPASS_DENYLISTED:$bypassHit"
+        if (hardHit != null) {
+            failed += "LIVE_BYPASS_HARD_DENYLISTED:$hardHit"
+        }
+        val advisoryHit = entryReasons.firstOrNull { r ->
+            LIVE_BYPASS_ADVISORY_LABELS.any { adv -> r.contains(adv, ignoreCase = true) }
+        }
+        if (advisoryHit != null) {
+            try {
+                PipelineHealthCollector.labelInc("LIVE_BYPASS_ADVISORY_PASSTHROUGH_6333")
+                ForensicLogger.lifecycle(
+                    "LIVE_BYPASS_ADVISORY_PASSTHROUGH_6333",
+                    "mint=${mint.take(10)} sym=$symbol lane=$lane advisoryLabel=${advisoryHit.take(60)} note=size_already_shaped_upstream",
+                )
+            } catch (_: Throwable) {}
         }
 
         // 3) Live floor — score below floor routes to shadow (never

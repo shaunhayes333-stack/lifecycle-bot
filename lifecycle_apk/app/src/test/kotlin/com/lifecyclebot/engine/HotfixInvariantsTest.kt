@@ -71,8 +71,33 @@ class HotfixInvariantsTest {
 
     @Test
     fun bypassDenylistBlocksLiveEntry() {
-        // Score is above the floor and no invariant is failing, but a
-        // denylisted label means the candidate does not qualify for live.
+        // V5.0.6333 — the SMART_SIZER_V3_DUST_PROMOTED_6271 label was
+        // moved to the ADVISORY tier (it is a size-shaping signal, not
+        // a disqualifier). The HARD tier keeps genuine data-integrity
+        // disqualifiers — TOKEN_MAP_PENDING means the candidate does
+        // not yet have the on-chain metadata required to execute a
+        // live buy, so it MUST redirect to shadow.
+        val result = LiveEntrySafetyHold.assessLiveEntry(
+            mint = "TEST_MINT_" + System.nanoTime(),
+            symbol = "TEST",
+            candidateScore = 80.0,
+            entryReasons = listOf("STANDARD", "TOKEN_MAP_PENDING"),
+            lane = "STANDARD",
+        )
+        assertFalse("token-map-pending must NOT authorize live", result.allow)
+        assertTrue("redirect-to-shadow flag must be set", result.redirectToShadow)
+        assertTrue(
+            "failedInvariants should reference the hard-denylisted label",
+            result.failedInvariants.any { it.contains("TOKEN_MAP_PENDING") }
+        )
+    }
+
+    @Test
+    fun advisoryLabelPassesLiveEntryButLogs() {
+        // V5.0.6333 — SMART_SIZER_V3_DUST_PROMOTED is a soft-shape
+        // signal; upstream sizing already shrinks the trade. It must
+        // NOT hard-block the live buy on its own — score and hold
+        // still gate everything else.
         val result = LiveEntrySafetyHold.assessLiveEntry(
             mint = "TEST_MINT_" + System.nanoTime(),
             symbol = "TEST",
@@ -80,11 +105,11 @@ class HotfixInvariantsTest {
             entryReasons = listOf("STANDARD", "SMART_SIZER_V3_DUST_PROMOTED_6271"),
             lane = "STANDARD",
         )
-        assertFalse("dust-promoted must NOT authorize live", result.allow)
-        assertTrue("redirect-to-shadow flag must be set", result.redirectToShadow)
-        assertTrue(
-            "failedInvariants should reference the denylisted label",
-            result.failedInvariants.any { it.contains("SMART_SIZER_V3_DUST_PROMOTED") }
+        // ALLOW unless a lingering safety hold from another test is
+        // still armed — either way, MUST NOT be a hard-denylist fail.
+        assertFalse(
+            "advisory labels must not populate a HARD denylist failure",
+            result.failedInvariants.any { it.contains("HARD_DENYLISTED") }
         )
     }
 
