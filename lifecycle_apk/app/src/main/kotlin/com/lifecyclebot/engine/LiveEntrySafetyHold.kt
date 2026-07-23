@@ -104,16 +104,34 @@ object LiveEntrySafetyHold {
     private const val SOFT_TIGHT_EXP_SOL: Double = -0.0015
     private const val SOFT_TIGHT_WR_PCT: Double = 25.0
 
-    /** Deterministic size / floor shaping per state (P5). Callers read
-     *  these via [currentSizeMultiplier] and [currentFloorAdjustment]. */
+    /** Deterministic size / floor shaping per state.
+     *
+     *  V5.0.6332 — "CONCENTRATED CONVICTION" DIRECTIVE. Operator asked
+     *  for fewer, LARGER high-conviction trades — not "shrink to zero"
+     *  when performance dips. The old shape (0.70 / 0.40 / 0.60) starved
+     *  every trade of enough capital to move the needle, so the WR could
+     *  never recover from a fresh streak of small losses. New shaping:
+     *  under stress we RAISE the score floor (only the best candidates
+     *  qualify) AND we RAISE the size (the survivors carry more capital
+     *  each). HOLD keeps size positive too — we never freeze live buys
+     *  based on strategy bleed, only on wallet/accounting invariants
+     *  (which route through armInternal from runHealthCheck).
+     *
+     *  Rule of thumb: totalRisk ≈ mult * (1 - floorFilterRatio).
+     *  As floor rises, count of live entries falls; multiplier grows
+     *  to keep total risk directed at higher-conviction candidates.  */
     private const val SIZE_MULTIPLIER_BASELINE: Double = 1.00
-    private const val SIZE_MULTIPLIER_CAUTION: Double = 0.70
-    private const val SIZE_MULTIPLIER_SOFT_TIGHT: Double = 0.40
-    private const val SIZE_MULTIPLIER_RECOVERY: Double = 0.60
+    private const val SIZE_MULTIPLIER_CAUTION: Double = 1.10
+    private const val SIZE_MULTIPLIER_SOFT_TIGHT: Double = 1.25
+    private const val SIZE_MULTIPLIER_RECOVERY: Double = 1.15
+    private const val SIZE_MULTIPLIER_TIGHTENED: Double = 1.35
+    private const val SIZE_MULTIPLIER_HOLD: Double = 1.50
     private const val FLOOR_ADJUSTMENT_BASELINE: Double = 0.0
-    private const val FLOOR_ADJUSTMENT_CAUTION: Double = 3.0
-    private const val FLOOR_ADJUSTMENT_SOFT_TIGHT: Double = 8.0
-    private const val FLOOR_ADJUSTMENT_RECOVERY: Double = 5.0
+    private const val FLOOR_ADJUSTMENT_CAUTION: Double = 5.0
+    private const val FLOOR_ADJUSTMENT_SOFT_TIGHT: Double = 12.0
+    private const val FLOOR_ADJUSTMENT_RECOVERY: Double = 8.0
+    private const val FLOOR_ADJUSTMENT_TIGHTENED: Double = 15.0
+    private const val FLOOR_ADJUSTMENT_HOLD: Double = 18.0
 
     @Volatile private var lastGovernorState: GovernorState = GovernorState.BASELINE
     @Volatile private var lastGovernorSizeMultiplier: Double = SIZE_MULTIPLIER_BASELINE
@@ -215,14 +233,14 @@ object LiveEntrySafetyHold {
             failed += "SCORE_BELOW_LIVE_FLOOR:score=${candidateScore.toInt()}/min=${effectiveFloor.toInt()}"
         }
 
-        // 4) Confidence Governor — degraded live performance downgrades
-        //    fresh candidates to shadow so learning can continue on
-        //    paper without spending real SOL.
+        // 4) Confidence Governor — V5.0.6332 CONCENTRATED CONVICTION.
+        //    HOLD is now purely a shape signal (size↑, floor↑), never
+        //    a hard block. The floor bump above already filters out
+        //    low-conviction candidates; anything that clears the raised
+        //    floor is genuine high-conviction and gets larger size.
         val governorStatus = evaluateConfidenceGovernor()
         if (governorStatus == GovernorState.HOLD) {
-            // Governor severity arms the hold via evaluateConfidenceGovernor;
-            // reaching HOLD here means we should also block this candidate.
-            failed += "CONFIDENCE_GOVERNOR_HOLD"
+            try { PipelineHealthCollector.labelInc("LIVE_GOVERNOR_HOLD_SOFT_SHAPED_6332") } catch (_: Throwable) {}
         }
 
         if (failed.isNotEmpty()) {
@@ -312,18 +330,18 @@ object LiveEntrySafetyHold {
         if (failed.isNotEmpty()) {
             armInternal(failed)
         } else if (armed.get()) {
-            // V5.0.6318 — flip-flop guard. Do NOT auto-clear a hold that
-            // was armed by CONFIDENCE_GOVERNOR_SEVERE — that arming path
-            // has its own re-evaluation cycle. Health-check clears are
-            // limited to invariant-owned reasons; otherwise the operator
-            // saw ARMED=33 / CLEARED=32 flapping every bot tick.
-            val currentReasons = armedReasons.keys.toSet()
-            val invariantReasonsOnly = currentReasons.all { r ->
-                !r.startsWith("CONFIDENCE_GOVERNOR_")
-            }
-            if (invariantReasonsOnly) {
-                clearInternal("ALL_INVARIANTS_HEALTHY")
-            }
+            // V5.0.6332 — CLEAR STICKY GOVERNOR ARMS. Prior builds
+            // (<=6331) armed the hold from CONFIDENCE_GOVERNOR_SEVERE
+            // and refused to auto-clear it, so a fresh install would
+            // resume execution while an upgraded install stayed frozen
+            // forever. Governor bleed is now purely a soft-shape signal
+            // (size↑, floor↑ — see applyGovernorState), so any residual
+            // CONFIDENCE_GOVERNOR_* arms are considered stale and MUST
+            // clear as soon as invariants are healthy. Only wallet /
+            // accounting / decimal / duplicate-finality arms owned by
+            // runHealthCheck itself keep the hold sticky until they
+            // stop rolling in.
+            clearInternal("INVARIANTS_HEALTHY_GOVERNOR_ARMS_STALE_6332")
         }
     }
 
@@ -440,7 +458,15 @@ object LiveEntrySafetyHold {
             return applyGovernorState(GovernorState.BASELINE)
         }
 
-        // ── HOLD (invariant/wallet-safety severe) ────────────────────
+        // ── HOLD (governor state — informational only) ───────────────
+        // V5.0.6332 — CONCENTRATED CONVICTION. Governor SEVERE bleed
+        // MUST NOT arm the safety hold. That created a sticky lockout
+        // (LIVE_ENTRY_SAFETY_HOLD_6312 = 862 blocks/session) that
+        // starved the bot of the very live trades needed to recover WR.
+        // Instead, HOLD state now just raises the score floor and
+        // grows per-trade size — fewer, larger, higher-conviction
+        // trades. armInternal remains reserved for wallet / accounting
+        // / decimal-skew invariants triggered via runHealthCheck.
         val severe =
             stats.canonicalN >= GOVERNOR_MIN_SAMPLE &&
             (stats.winRatePct < SEVERE_WR_PCT || stats.profitFactor < SEVERE_PF)
@@ -448,11 +474,11 @@ object LiveEntrySafetyHold {
             try {
                 ForensicLogger.lifecycle(
                     "LIVE_CONFIDENCE_GOVERNOR_HOLD",
-                    "n=${stats.canonicalN} wr=${"%.1f".format(stats.winRatePct)}% pf=${"%.2f".format(stats.profitFactor)} exp=${"%.4f".format(stats.expectancySol)}",
+                    "n=${stats.canonicalN} wr=${"%.1f".format(stats.winRatePct)}% pf=${"%.2f".format(stats.profitFactor)} exp=${"%.4f".format(stats.expectancySol)} action=soft_shape_concentrate_6332",
                 )
                 PipelineHealthCollector.labelInc("LIVE_CONFIDENCE_GOVERNOR_HOLD")
+                PipelineHealthCollector.labelInc("LIVE_GOVERNOR_CONCENTRATED_CONVICTION_6332")
             } catch (_: Throwable) {}
-            armInternal(listOf("CONFIDENCE_GOVERNOR_SEVERE:wr=${stats.winRatePct.toInt()}/pf=${"%.2f".format(stats.profitFactor)}/n=${stats.canonicalN}"))
             return applyGovernorState(GovernorState.HOLD)
         }
 
@@ -517,9 +543,9 @@ object LiveEntrySafetyHold {
             GovernorState.BASELINE -> SIZE_MULTIPLIER_BASELINE to FLOOR_ADJUSTMENT_BASELINE
             GovernorState.CAUTION -> SIZE_MULTIPLIER_CAUTION to FLOOR_ADJUSTMENT_CAUTION
             GovernorState.SOFT_TIGHT -> SIZE_MULTIPLIER_SOFT_TIGHT to FLOOR_ADJUSTMENT_SOFT_TIGHT
-            GovernorState.TIGHTENED -> SIZE_MULTIPLIER_SOFT_TIGHT to FLOOR_ADJUSTMENT_SOFT_TIGHT
+            GovernorState.TIGHTENED -> SIZE_MULTIPLIER_TIGHTENED to FLOOR_ADJUSTMENT_TIGHTENED
             GovernorState.RECOVERY -> SIZE_MULTIPLIER_RECOVERY to FLOOR_ADJUSTMENT_RECOVERY
-            GovernorState.HOLD -> 0.0 to FLOOR_ADJUSTMENT_SOFT_TIGHT
+            GovernorState.HOLD -> SIZE_MULTIPLIER_HOLD to FLOOR_ADJUSTMENT_HOLD
         }
         lastGovernorSizeMultiplier = mult
         lastGovernorFloorAdjustment = floorAdj
