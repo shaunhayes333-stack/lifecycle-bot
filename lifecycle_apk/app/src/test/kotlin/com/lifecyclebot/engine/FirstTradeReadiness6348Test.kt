@@ -22,12 +22,33 @@ class FirstTradeReadiness6348Test {
     }
 
     @Test
-    fun scanner_live_ready_pillar_flips_ok_when_queue_has_a_row() {
+    fun scanner_live_ready_pillar_reports_queue_size_and_stays_advisory() {
+        // V5.0.6351 — pillar is advisory; adding a row DOES flip ok=true
+        // but the pillar never fails readiness even when empty.
         val before = FirstTradeReadiness6348.assess().pillars.first { it.name == "SCANNER_LIVE_READY_QUEUE" }
         assertFalse(before.ok)
+        assertTrue("SCANNER_LIVE_READY_QUEUE must be advisory until scanner wires the router", before.advisory)
         ScannerHydrationQueues6347.enqueue("X", ScannerHydrationQueues6347.Bucket.LIVE_READY)
         val after = FirstTradeReadiness6348.assess().pillars.first { it.name == "SCANNER_LIVE_READY_QUEUE" }
         assertTrue(after.ok)
+        assertTrue(after.advisory)
+    }
+
+    @Test
+    fun quarantine_pillar_is_advisory_during_shadow_mode() {
+        val quar = FirstTradeReadiness6348.assess().pillars.first { it.name == "NO_OUTSTANDING_QUARANTINES" }
+        assertTrue("NO_OUTSTANDING_QUARANTINES must be advisory during shadow enforcement", quar.advisory)
+    }
+
+    @Test
+    fun advisory_pillars_do_not_flip_ready_to_no() {
+        // Without a hard pillar failing, ready must be Y even when advisory
+        // pillars are red.
+        val a = FirstTradeReadiness6348.assess()
+        val hardMissing = a.pillars.filter { !it.ok && !it.advisory }
+        if (hardMissing.isEmpty()) {
+            assertTrue("ready must be Y when only advisory pillars are red", a.ready)
+        }
     }
 
     @Test

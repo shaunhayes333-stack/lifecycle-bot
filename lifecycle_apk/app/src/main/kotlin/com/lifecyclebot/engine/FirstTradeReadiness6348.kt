@@ -39,6 +39,13 @@ object FirstTradeReadiness6348 {
         val priority: Int,
         val ok: Boolean,
         val detail: String,
+        /** V5.0.6351 — advisory pillars log status but do NOT flip ready=N.
+         *  Used for pillars that report on library-only modules where the
+         *  scanner/exec paths haven't been wired to the new router yet
+         *  (SCANNER_LIVE_READY_QUEUE) and for pillars that surface a soft
+         *  data-integrity signal that shouldn't gate live trading
+         *  (NO_OUTSTANDING_QUARANTINES during shadow enforcement). */
+        val advisory: Boolean = false,
     )
 
     data class Assessment(
@@ -50,11 +57,18 @@ object FirstTradeReadiness6348 {
             append("FIRST_TRADE_READINESS_6348 ready=")
             append(if (ready) "Y" else "N")
             append(" pillars=[")
-            append(pillars.joinToString(",") { p -> "${p.name}:${if (p.ok) "✓" else "P${p.priority}"}" })
+            append(pillars.joinToString(",") { p ->
+                val tag = when {
+                    p.ok -> "✓"
+                    p.advisory -> "adv"      // V5.0.6351 advisory pillars do not fail readiness
+                    else -> "P${p.priority}"
+                }
+                "${p.name}:$tag"
+            })
             append("]")
             if (!ready) {
                 append(" nextRemediation=")
-                append(missingPillars.firstOrNull()?.let { "${it.name}(${it.detail})" } ?: "unknown")
+                append(missingPillars.firstOrNull { !it.advisory }?.let { "${it.name}(${it.detail})" } ?: "unknown")
             }
         }
     }
@@ -71,7 +85,12 @@ object FirstTradeReadiness6348 {
             detail = "state=$govName",
         )
 
-        // Pillar 2 — at least one LIVE_READY candidate.
+        // Pillar 2 (V5.0.6351: ADVISORY) — at least one LIVE_READY candidate.
+        // The scanner emit path has not yet been wired to route candidates
+        // through ScannerHydrationQueues6347, so this pillar reports the
+        // router state for observability but MUST NOT flip ready=N until
+        // V5.0.6354 wires the scanner. Otherwise the tile lies: 'ready=N'
+        // even when the legacy pipeline is trading normally.
         val liveReadyCount = try {
             ScannerHydrationQueues6347.sizesByBucket()[ScannerHydrationQueues6347.Bucket.LIVE_READY] ?: 0
         } catch (_: Throwable) { -1 }
@@ -80,6 +99,7 @@ object FirstTradeReadiness6348 {
             priority = 2,
             ok = liveReadyCount > 0,
             detail = "size=$liveReadyCount",
+            advisory = true,
         )
 
         // Pillar 3 — FillLotLedger6344 initialised (activeCount() reachable).
@@ -100,10 +120,12 @@ object FirstTradeReadiness6348 {
             detail = "fills=$buyFillCount",
         )
 
-        // Pillar 5 (lowest priority) — no data-integrity quarantines are
-        // outstanding. Any CANONICAL_PNL_QUARANTINED_6343 or
-        // CANONICAL_LEARNING_QUARANTINED_6346 count is a soft flag; the
-        // pipeline is still ready to trade but this pillar shows amber.
+        // Pillar 5 (V5.0.6351: ADVISORY) — no data-integrity quarantines
+        // outstanding. During SHADOW enforcement mode (V5.0.6344) some
+        // rows will legitimately land in the quarantined bucket for
+        // forensic replay while the operator validates the canonical
+        // path against historical trades. This is normal operating
+        // state — the tile MUST NOT report ready=N because of it.
         val quarantines = try {
             PipelineHealthCollector.labelCountSnapshot("CANONICAL_PNL_QUARANTINED_6343") +
                 PipelineHealthCollector.labelCountSnapshot("CANONICAL_LEARNING_QUARANTINED_6346")
@@ -113,9 +135,11 @@ object FirstTradeReadiness6348 {
             priority = 5,
             ok = quarantines == 0L,
             detail = "quarantines=$quarantines",
+            advisory = true,
         )
 
-        val ready = pillars.all { it.ok }
+        // V5.0.6351 — advisory pillars log but never fail readiness.
+        val ready = pillars.all { it.ok || it.advisory }
         return Assessment(ready = ready, pillars = pillars)
     }
 
@@ -130,8 +154,14 @@ object FirstTradeReadiness6348 {
         sb.append("║ ready=").append(if (a.ready) "Y" else "N").append('\n')
         for (p in a.pillars.sortedBy { it.priority }) {
             sb.append("║ [P").append(p.priority).append("] ")
-            sb.append(if (p.ok) "✓" else "✗").append(" ")
-            sb.append(p.name).append(" (").append(p.detail).append(")\n")
+            sb.append(when {
+                p.ok -> "✓"
+                p.advisory -> "adv"
+                else -> "✗"
+            }).append(" ")
+            sb.append(p.name)
+            if (p.advisory) sb.append(" (advisory)")
+            sb.append(" (").append(p.detail).append(")\n")
         }
         sb.append("╚═══════════════════════════════════════════╝")
         return sb.toString()
