@@ -228,9 +228,18 @@ object LaneBucketPivot {
         // lane-level average. Previously the score>0 filter starved the
         // PROVEN_WINNER / DEEP_WINNER branch, so LaneBucketPivot was
         // trim-only (report showed pressed=0 across the whole session).
-        // Now we prefer band-matched rows when present, fall back to
-        // score-tagged lane rows, and finally to any lane row (backfill
-        // included) so a proven lane can still press winners.
+        //
+        // V5.0.6357 — REMOVED whole-lane fallback for the PROVEN/DEEP branches.
+        //   Operator (V5.0.6308 emergency dump, WR -20%):
+        //     LIFECYCLE/PIVOT_DEEP_WINNER_6240  sym=MAY lane=STANDARD
+        //     band=S0-19 score=0 mult=1.35 reason=DEEP_WINNER wins=121 μ=244%
+        //   Every score=0 pump.fun token was getting 1.35× upsizing because
+        //   the whole-lane fallback pooled STANDARD lane's 121 wins @ 244%
+        //   (mostly from S40-60 band tokens) into the S0-19 bucket. That
+        //   upsized garbage entries and drove the WR drop.
+        //   Fix: require ≥2 winner-DNA rows IN THE SAME BAND. Whole-lane rows
+        //   remain as CONTEXT for the score>0 case (via the >0 filter inside
+        //   bandRows), never as a substitute for band-specific evidence.
         return try {
             val rows = LiveWinDNAStore.topByPnl(500)   // memoised snapshot
             val laneRows = rows.filter { it.lane.uppercase() == laneU || it.phase.uppercase() == laneU }
@@ -238,13 +247,8 @@ object LaneBucketPivot {
                 val s = r.entryScore
                 s > 0 && (s / BUCKET_WIDTH) * BUCKET_WIDTH == (score / BUCKET_WIDTH) * BUCKET_WIDTH
             }
-            val useRows = when {
-                bandRows.size >= 2 -> bandRows
-                laneRows.size >= 2 -> laneRows
-                else -> emptyList()
-            }
-            if (useRows.size < 2) 0.0 to 0
-            else useRows.map { it.pnlPct }.average() to useRows.size
+            if (bandRows.size < 2) 0.0 to 0
+            else bandRows.map { it.pnlPct }.average() to bandRows.size
         } catch (_: Throwable) { 0.0 to 0 }
     }
 }
