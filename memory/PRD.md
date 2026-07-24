@@ -1,17 +1,8 @@
-# AATE PRD — V5.0.6349
+# AATE PRD — V5.0.6356
 
-## Current build stack (V5.0.6344 → V5.0.6349 all ✅ SUCCESS on GitHub Actions CI)
+## Current build stack (V5.0.6350 → V5.0.6356 all ✅ SUCCESS on GitHub Actions CI, except 6354 which was compile-fixed by 6355)
 
-- **6323-6330** Foundation: canonical registry, 6324 modules, wiring, WADDLE decimal repair, brain consensus fusion
-- **6331** (`25ad96139` ✅) Demote `LIVE_LANE_HARD_PAUSED_6247` → soft-shape
-- **6332** (`0519817fe` ✅) Concentrated Conviction — governor bleeds via SIZE not FLOOR
-- **6333** (`d037f75c4` ✅) Denylist tier split (HARD vs ADVISORY)
-- **6334** (`f747f57b2` ✅) LaneEdgeConcentrator — self-tune capital toward winning buckets
-- **6335** (`be17d16c4` ✅) Slash governor floor uplifts — unlocked the live pipe
-- **6336** (`3e635f794` ✅) Concentrator classifies by expectancy, not WR
-- **6337-6338** (`526026668` ✅) Retro-backfill BUY qty at SELL write
-- **6339-6340** (`977c0ee31` ✅) Paper↔Live divergence detector
-- **6341** (`567e11b7c` ✅) Demote SAFETY_NOT_READY_STALE from hard-block to soft-shape
+- **6323-6341** Foundation: canonical registry, WADDLE decimal repair, brain consensus, safety-hold demotion, loop stall fixes
 - **6342** (`7a6e23639` ✅) **Lane Entry Contract** — governor HOLD veto + BLUECHIP/QUALITY identity
 - **6343** (`dd4f2d0a2` ✅) **Canonical PnL Authority** — single source of realized-SOL truth (Cupsey partial-lot correction)
 - **6344** (`1f85cb2f9` ✅) **Immutable FillLotLedger + strong unit types + Canonical PnL Conduit** — P0-1/2/3 wired
@@ -20,47 +11,28 @@
 - **6347** (`4907b225c` ✅) **Scanner/Hydration Queue Separation** — P1-1 LIVE_READY / HYDRATING / PROBATION / SHADOW / REJECTED_WITH_TTL
 - **6348** (`61585afef` ✅) **FIRST-TRADE READINESS health block + priority ranking** — P1-2, five pillars surfaced in AATE Pipeline Health Snapshot
 - **6349** (`dfc1faa2a` ✅) **Golden-tape guard for 6344→6348** — file-shape + wire-up assertions
+- **6350** (`49daf75f9` ✅) **Paper close retry-loop drain** — 779 stuck retries/15min → hard-cap 3 retries + force-terminal
+- **6351** (`9dd292ecd` ✅) **FIRST_TRADE_READINESS false-alarm fix** — SCANNER + QUARANTINE pillars advisory
+- **6352** (`7ac752277` ✅) **Loop-cycle emergency evict** — sheds HYDRATING backlog when cycle >20s
+- **6353** (`d69ad98e5` ✅) **Rebalance held-block log aggregation** — 5855 events/15min → 1 per pass
+- **6354** (`04dd83524` ❌ compile fail) Wire scanner emit + executor lane contract into router (compile bug: `laneAffinity` is `Set<String>` not `String`)
+- **6355** (`7f7ea7ed3` ✅) **Compile fix for 6354** — `laneAffinity.firstOrNull() ?: "STANDARD"`. Scanner router now fully wired.
+- **6356** (`f9c3abdf8` ✅) **Rate-limit LiveProbabilityEngine ForensicLogger spam** — RAPID_PIVOT_SHAPED_4572 / SIZE_SHAPE_5999 / RAW_REALITY_CLAMP_6000 firing 30-50 events per ms → gated by ForensicEmitRateLimiter6356 (30s cooldown per lane per label). Root cause of the max-cycle 123435ms ANR spike.
 
-## What each new module owns
+## Emergency triage delivered from V5.0.6349 pipeline snapshot symptoms
 
-| Module | Owns | Emits |
+| Symptom | Fix | Version |
 |---|---|---|
-| CanonicalPnLAuthority6343 | Sole legal realized-SOL calculator | CANONICAL_PNL_{OK,QUARANTINED}_6343 |
-| UnitTypes6344 | SolAmount / UsdAmount / TokenQuantity / PriceSolPerToken / PriceUsdPerToken | UNIT_*_NON_FINITE_6344 |
-| FillLotLedger6344 | Append-only lot ledger PK = wallet+mint+buyTxSig | FILL_LOT_LEDGER_{APPEND,RESTORED,SELL_LOT_NOT_FOUND}_6344 |
-| RealizedPnlConduit6344 | Single funnel into 6343 for every writer | CANONICAL_PNL_DIVERGENCE_6344 (shadow) |
-| PreEntryDecisionRecord6345 | Pre-entry evidence receipt (PASS/WARN/VETO) | PRE_ENTRY_DECISION_{PASS,WARN,VETO}_6345 |
-| ExecutablePriceStopPreflight6345 | Clamp stops to executable-quote reality | STOP_PREFLIGHT_{OK,ABOVE_BID_CLAMPED,UNREACHABLE_CLAMPED,QUOTE_MISSING}_6345 |
-| CanonicalLearningContract6346 | Exact-decimal + parity + cost-basis eligibility | CANONICAL_LEARNING_{ADMITTED,QUARANTINED}_6346 |
-| ScannerHydrationQueues6347 | Labelled bucket router (5 buckets) | SCANNER_QUEUE_*_6347 |
-| FirstTradeReadiness6348 | Five-pillar Y/N verdict + remediation hints | FIRST_TRADE_READINESS_6348 (health-tile line) |
-
-## What is live-wired vs library-only
-
-| Wire-up | Status |
-|---|---|
-| Executor buy-verify → FillLotLedger6344.appendBuy | LIVE (V5.0.6344) |
-| Executor sell-finalize → RealizedPnlConduit6344.finalize (shadow) | LIVE (V5.0.6344) |
-| BotService.onCreate → FillLotLedger6344.init | LIVE (V5.0.6344) |
-| PipelineHealthCollector snapshot → FirstTradeReadiness6348 line | LIVE (V5.0.6348) |
-| Scanner path → ScannerHydrationQueues6347 | LIBRARY ONLY (next push) |
-| Every learning aggregator → CanonicalLearningContract6346 | LIBRARY ONLY (next push) |
-| Pre-entry ticket → PreEntryDecisionRecord6345.emit | LIBRARY ONLY (next push) |
-| Every stop placer → ExecutablePriceStopPreflight6345 | LIBRARY ONLY (next push) |
-
-## Real progress across the session (BUY-ok trajectory)
-
-- 6334 snapshot: BUY ok = **0** (safety hold sticky-armed) → 6335: **10** → 6336: **31**
-- 6341: SAFETY_STALE hard-block demoted (was 539 blocks in one session — pipe now flows through)
-- 6342: no Pump.fun mint can be labeled BLUECHIP; no MINT_ROUTE can be QUALITY
-- 6343: PnL computation now has a single authoritative path with real invariants
-- 6344: cost basis is now immutable and keyed on (wallet, mint, buyTxSig); Cupsey 76×-off rows are quarantined automatically
-- 6348: operator can now read FIRST_TRADE_READINESS_6348 verdict directly in the health snapshot
+| 779 PAPER_CLOSE_STUCK_TTL_RETRY events / 15min → 100+ open paper positions | 30s TTL + 3-retry hard cap + force-terminal | V5.0.6350 |
+| FIRST_TRADE_READINESS false ready=N because SCANNER_LIVE_READY_QUEUE never wired | Advisory pillars don't fail readiness | V5.0.6351 |
+| Loop cycles avg 8.4s / max 33.9s / max 123s regressed | Emergency evict HYDRATING when cycle >20s | V5.0.6352 |
+| LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED 5855 events/15min | Aggregate to 1 per rebalance pass | V5.0.6353 |
+| SCANNER_LIVE_READY_QUEUE:P2 forever because no wire-up | Wired scanner emit + executor lane contract into router | V5.0.6354→6355 |
+| LIVE_PROBABILITY_*_4572/5999/6000 spamming 30-50/ms per lane | 30s cooldown rate limiter around ForensicLogger.lifecycle | V5.0.6356 |
 
 ## Backlog (priority-ordered)
 
-### 🔴 P0 — Wire the library-only modules into live paths
-- **Scanner path → ScannerHydrationQueues6347**: retrofit the scanner emit path to route candidates into buckets; retrofit the executor live loop to drain LIVE_READY only.
+### 🔴 P0 — Wire remaining library-only modules into live paths
 - **Pre-entry ticket → PreEntryDecisionRecord6345.emit**: call from the live-buy ticket assembler right before the buy lease is acquired.
 - **Learning aggregators → CanonicalLearningContract6346.assess**: retrofit AdaptiveLearningEngine, LaneEdgeConcentrator sample, expectancy classifier, tactic switcher.
 - **Every stop placer → ExecutablePriceStopPreflight6345.preflight**: call before stop persistence in Executor and V3JournalRecorder.
@@ -68,9 +40,10 @@
 ### 🟠 P1 — Hard-enforcement flip
 - Turn `RealizedPnlConduit6344` from SHADOW to HARD (block sell path when authority quarantines).
 - Turn `PreEntryDecisionRecord6345.Verdict.VETO` into a hard block on the buy ticket.
+- Extend `ForensicEmitRateLimiter6356` to other high-frequency emitters if the next snapshot still shows disk churn.
 
 ### 🟢 P2 — Phase 1 SOL Perps/Leverage mode
-- Resume `PerpsLaneGate.kt` now that the core accounting/learning contracts are landed.
+- Resume `PerpsLaneGate.kt` now that the core accounting/learning contracts + pipeline health are landed.
 
 ### 🟢 P3+ — Off-thread rendering, neural bridge, LLM Lab
 
@@ -79,20 +52,16 @@
 - V3JournalRecorder.recordClose feeds TacticSwitcher.onTradeClosed regardless of paper/live
 - TacticSwitcher persists per-bucket state to LearningPersistence
 - LaneEdgeConcentrator amplifies per-bucket (lane × scoreBand) by expectancy
-- LosingPatternMemory cross-checks live vs paper distribution (6339)
 - LaneEntryContract6342 hard-vetoes on governor HOLD + enforces lane identity
 - CanonicalPnLAuthority6343 is the sole legal realized-SOL calculator
 - FillLotLedger6344 is the sole legal cost-basis source (immutable, first-write-wins)
 - CanonicalLearningContract6346 is the sole legal canonical-eligibility gate
+- ScannerHydrationQueues6347 is now the router of record; drained on cycle overrun via LoopCycleEmergencyEvict6352
+- FirstTradeReadiness6348 has advisory-vs-hard pillar distinction so the tile does not lie
+- PaperPositionCloseAuthority force-terminals after 3 stuck retries via V5.0.6350
 - Never blocks a trade for strategy bleed, never hard-disables a lane
 
 ## Testing / CI
 
-- 6344 ✅ SUCCESS  (FillLotLedger + UnitTypes + RealizedPnlConduit inline test suites)
-- 6345 ✅ SUCCESS  (PreEntryDecisionRecord + ExecutablePriceStopPreflight inline test suites)
-- 6346 ✅ SUCCESS  (CanonicalLearningContract inline test suite — 6 cases)
-- 6347 ✅ SUCCESS  (ScannerHydrationQueues inline test suite — 6 cases)
-- 6348 ✅ SUCCESS  (FirstTradeReadiness inline test suite — 5 cases)
-- 6349 ✅ SUCCESS  (Directive6344Through6348GoldenTapeTest — 13 file-shape + wire-up assertions)
-
-No golden-tape regressions across the six-commit stack.
+All V5.0.6344 → V5.0.6353, V5.0.6355, V5.0.6356 ✅ SUCCESS on GH Actions.
+V5.0.6354 red (compile) → V5.0.6355 fix ✅ SUCCESS.
