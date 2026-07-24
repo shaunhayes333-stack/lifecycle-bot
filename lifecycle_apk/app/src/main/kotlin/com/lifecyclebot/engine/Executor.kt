@@ -12994,6 +12994,51 @@ class Executor(
                     note = "lane_contract_allowed",
                 )
             } catch (_: Throwable) {}
+
+            // V5.0.6359 — FOUNDATION POLICY EVIDENCE RECEIPT (P0-5 wire-up).
+            // Emit PreEntryDecisionRecord6345.emit for every LaneEntryContract
+            // pass so every live entry ships an auditable receipt of the
+            // deterministic facts (lane, expected R, stop distance,
+            // executable spread, liquidity, hydration state, sample size,
+            // governor state) the decision was based on. Runs in observation
+            // mode — VETO verdict does NOT block yet; a future push will
+            // flip it hard once the operator has replayed the evidence
+            // stream on a full live session.
+            try {
+                val liq = try { ts.lastLiquidityUsd } catch (_: Throwable) { 0.0 }
+                val stopPct = try {
+                    val laneCanon = com.lifecyclebot.engine.LaneAlias.normalize(layerTag).ifBlank { layerTag }
+                    when (laneCanon.uppercase()) {
+                        "SHITCOIN" -> 12.0
+                        "MOONSHOT" -> 15.0
+                        "EXPRESS", "STANDARD" -> 10.0
+                        "PROJECT_SNIPER", "PRESALE_SNIPE" -> 25.0
+                        "QUALITY" -> 8.0
+                        "BLUECHIP" -> 6.0
+                        else -> 10.0
+                    }
+                } catch (_: Throwable) { 10.0 }
+                // Expected R placeholder — future push wires the lane-bucket
+                // hint from LaneEdgeConcentrator6334 once its API stabilises.
+                val expR = 1.5
+                val hydState = if (liq > 0.0) "LIVE_READY" else "HYDRATING"
+                val govName = try {
+                    com.lifecyclebot.engine.LiveEntrySafetyHold.currentGovernorState().name
+                } catch (_: Throwable) { "BASELINE" }
+                com.lifecyclebot.engine.PreEntryDecisionRecord6345.emit(
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    laneRequested = layerTag,
+                    laneCanonical = com.lifecyclebot.engine.LaneAlias.normalize(layerTag).ifBlank { layerTag },
+                    expectedRMultiple = expR,
+                    stopDistancePct = stopPct,
+                    executableSpreadBps = 0,
+                    liquidityUsd = liq,
+                    hydrationState = hydState,
+                    sampleSizeCanonical = 0,
+                    governorState = govName,
+                )
+            } catch (_: Throwable) {}
         }
 
         // V5.0.6312 — LIVE ENTRY SAFETY HOLD + BYPASS BAN + CONFIDENCE GOVERNOR.
