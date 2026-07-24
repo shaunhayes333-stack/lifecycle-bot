@@ -11310,6 +11310,27 @@ class BotService : Service() {
 
         rebalanceHotWatchlistSources("post_intake")
 
+        // V5.0.6354 — route the intaked mint into the scanner/hydration
+        // queue router. A newly-intaked candidate is HYDRATING until the
+        // TokenState hydration completes and the executor promotes it to
+        // LIVE_READY. Probation-only rows go to PROBATION. This flips the
+        // SCANNER_LIVE_READY_QUEUE readiness pillar to healthy once the
+        // hydration → live-ready path fires below.
+        try {
+            val queueBucket = when {
+                addResult?.probation == true ->
+                    com.lifecyclebot.engine.ScannerHydrationQueues6347.Bucket.PROBATION
+                else ->
+                    com.lifecyclebot.engine.ScannerHydrationQueues6347.Bucket.HYDRATING
+            }
+            com.lifecyclebot.engine.ScannerHydrationQueues6347.enqueue(
+                mint = mint,
+                bucket = queueBucket,
+                laneRequested = laneAffinity.ifBlank { "STANDARD" },
+                note = "intake_src=$source",
+            )
+        } catch (_: Throwable) {}
+
         // V5.9.1560 — HOT WATCHLIST MEANS status.tokens too.
         // Previous code claimed probation costs zero bot-loop cycles, then hydrated
         // every probation-only mint into status.tokens anyway. The screenshot showed

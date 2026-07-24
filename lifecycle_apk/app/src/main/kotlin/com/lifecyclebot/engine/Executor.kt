@@ -12970,8 +12970,30 @@ class Executor(
                         "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$layerTag verdict=${contract6342.verdict} reasons=${contract6342.reasons.joinToString(",")}",
                     )
                 } catch (_: Throwable) {}
+                // V5.0.6354 — contract routed to SHADOW; reflect that in the
+                // scanner/hydration router so FIRST_TRADE_READINESS pillar
+                // sees the correct bucket.
+                try {
+                    com.lifecyclebot.engine.ScannerHydrationQueues6347.enqueue(
+                        mint = ts.mint,
+                        bucket = com.lifecyclebot.engine.ScannerHydrationQueues6347.Bucket.SHADOW,
+                        laneRequested = layerTag,
+                        note = "lane_contract_${contract6342.verdict}",
+                    )
+                } catch (_: Throwable) {}
                 return liveAbortDesync("lane_contract_6342 verdict=${contract6342.verdict} reasons=${contract6342.reasons.joinToString(",")}")
             }
+            // V5.0.6354 — LaneEntryContract passed; the candidate is live-
+            // ready. Promote to LIVE_READY in the scanner/hydration router so
+            // FIRST_TRADE_READINESS.SCANNER_LIVE_READY_QUEUE pillar flips ✓.
+            try {
+                com.lifecyclebot.engine.ScannerHydrationQueues6347.enqueue(
+                    mint = ts.mint,
+                    bucket = com.lifecyclebot.engine.ScannerHydrationQueues6347.Bucket.LIVE_READY,
+                    laneRequested = layerTag,
+                    note = "lane_contract_allowed",
+                )
+            } catch (_: Throwable) {}
         }
 
         // V5.0.6312 — LIVE ENTRY SAFETY HOLD + BYPASS BAN + CONFIDENCE GOVERNOR.
