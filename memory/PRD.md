@@ -1,19 +1,52 @@
-# AATE PRD — V5.0.6343
+# AATE PRD — V5.0.6349
 
-## Current build stack (all green through 6341; 6342 build green + runtime smoke in-flight; 6343 build in-flight)
+## Current build stack (V5.0.6344 → V5.0.6349 all ✅ SUCCESS on GitHub Actions CI)
 
 - **6323-6330** Foundation: canonical registry, 6324 modules, wiring, WADDLE decimal repair, brain consensus fusion
 - **6331** (`25ad96139` ✅) Demote `LIVE_LANE_HARD_PAUSED_6247` → soft-shape
 - **6332** (`0519817fe` ✅) Concentrated Conviction — governor bleeds via SIZE not FLOOR
 - **6333** (`d037f75c4` ✅) Denylist tier split (HARD vs ADVISORY)
 - **6334** (`f747f57b2` ✅) LaneEdgeConcentrator — self-tune capital toward winning buckets
-- **6335** (`be17d16c4` ✅) Slash governor floor uplifts (HOLD +18 → +5) — unlocked the pipe
-- **6336** (`3e635f794` ✅) Concentrator classifies by expectancy (mean PnL%), not WR
-- **6337-6338** (`526026668` ✅) Retro-backfill BUY qty at SELL write for fast catastrophic stops
-- **6339-6340** (`977c0ee31` ✅) Paper↔Live divergence detector shrinks size when paper model has lied about a bucket
-- **6341** (`567e11b7c` ✅ Build + Runtime Smoke) Demote SAFETY_NOT_READY_STALE from hard-block to soft-shape (was choking loop 52-204s)
-- **6342** (`7a6e23639` ✅ Build; runtime smoke running) **Lane Entry Contract** — single authoritative choke: (a) Governor HOLD hard-vetoes live BUY tickets (b) BLUECHIP rejects Pump.fun mints (c) QUALITY rejects MINT_ROUTE placeholders — first slice of operator's full V5.0.6342 architectural directive
-- **6343** (`dd4f2d0a2` 🟡 build in-flight) **Canonical PnL Authority** — single source of realized-SOL truth per operator's Cupsey partial-lot correction: partial allocation = originalCost × soldQty / originalQty; LIVE_BROADCAST never canonical; 76×-off price/cost/qty invariant rejects Cupsey-style corrupt rows; 6 dedicated unit tests
+- **6335** (`be17d16c4` ✅) Slash governor floor uplifts — unlocked the live pipe
+- **6336** (`3e635f794` ✅) Concentrator classifies by expectancy, not WR
+- **6337-6338** (`526026668` ✅) Retro-backfill BUY qty at SELL write
+- **6339-6340** (`977c0ee31` ✅) Paper↔Live divergence detector
+- **6341** (`567e11b7c` ✅) Demote SAFETY_NOT_READY_STALE from hard-block to soft-shape
+- **6342** (`7a6e23639` ✅) **Lane Entry Contract** — governor HOLD veto + BLUECHIP/QUALITY identity
+- **6343** (`dd4f2d0a2` ✅) **Canonical PnL Authority** — single source of realized-SOL truth (Cupsey partial-lot correction)
+- **6344** (`1f85cb2f9` ✅) **Immutable FillLotLedger + strong unit types + Canonical PnL Conduit** — P0-1/2/3 wired
+- **6345** (`45f6665bf` ✅) **Foundation Policy (PRE_ENTRY_DECISION_RECORD) + Executable-Price Stop Preflight** — P0-5 + P0-8
+- **6346** (`9ac9ec6bb` ✅) **Canonical Learning Contract** — P0-4 exact-decimal + parity + cost-basis + LIVE_BROADCAST rejection
+- **6347** (`4907b225c` ✅) **Scanner/Hydration Queue Separation** — P1-1 LIVE_READY / HYDRATING / PROBATION / SHADOW / REJECTED_WITH_TTL
+- **6348** (`61585afef` ✅) **FIRST-TRADE READINESS health block + priority ranking** — P1-2, five pillars surfaced in AATE Pipeline Health Snapshot
+- **6349** (`dfc1faa2a` ✅) **Golden-tape guard for 6344→6348** — file-shape + wire-up assertions
+
+## What each new module owns
+
+| Module | Owns | Emits |
+|---|---|---|
+| CanonicalPnLAuthority6343 | Sole legal realized-SOL calculator | CANONICAL_PNL_{OK,QUARANTINED}_6343 |
+| UnitTypes6344 | SolAmount / UsdAmount / TokenQuantity / PriceSolPerToken / PriceUsdPerToken | UNIT_*_NON_FINITE_6344 |
+| FillLotLedger6344 | Append-only lot ledger PK = wallet+mint+buyTxSig | FILL_LOT_LEDGER_{APPEND,RESTORED,SELL_LOT_NOT_FOUND}_6344 |
+| RealizedPnlConduit6344 | Single funnel into 6343 for every writer | CANONICAL_PNL_DIVERGENCE_6344 (shadow) |
+| PreEntryDecisionRecord6345 | Pre-entry evidence receipt (PASS/WARN/VETO) | PRE_ENTRY_DECISION_{PASS,WARN,VETO}_6345 |
+| ExecutablePriceStopPreflight6345 | Clamp stops to executable-quote reality | STOP_PREFLIGHT_{OK,ABOVE_BID_CLAMPED,UNREACHABLE_CLAMPED,QUOTE_MISSING}_6345 |
+| CanonicalLearningContract6346 | Exact-decimal + parity + cost-basis eligibility | CANONICAL_LEARNING_{ADMITTED,QUARANTINED}_6346 |
+| ScannerHydrationQueues6347 | Labelled bucket router (5 buckets) | SCANNER_QUEUE_*_6347 |
+| FirstTradeReadiness6348 | Five-pillar Y/N verdict + remediation hints | FIRST_TRADE_READINESS_6348 (health-tile line) |
+
+## What is live-wired vs library-only
+
+| Wire-up | Status |
+|---|---|
+| Executor buy-verify → FillLotLedger6344.appendBuy | LIVE (V5.0.6344) |
+| Executor sell-finalize → RealizedPnlConduit6344.finalize (shadow) | LIVE (V5.0.6344) |
+| BotService.onCreate → FillLotLedger6344.init | LIVE (V5.0.6344) |
+| PipelineHealthCollector snapshot → FirstTradeReadiness6348 line | LIVE (V5.0.6348) |
+| Scanner path → ScannerHydrationQueues6347 | LIBRARY ONLY (next push) |
+| Every learning aggregator → CanonicalLearningContract6346 | LIBRARY ONLY (next push) |
+| Pre-entry ticket → PreEntryDecisionRecord6345.emit | LIBRARY ONLY (next push) |
+| Every stop placer → ExecutablePriceStopPreflight6345 | LIBRARY ONLY (next push) |
 
 ## Real progress across the session (BUY-ok trajectory)
 
@@ -21,23 +54,25 @@
 - 6341: SAFETY_STALE hard-block demoted (was 539 blocks in one session — pipe now flows through)
 - 6342: no Pump.fun mint can be labeled BLUECHIP; no MINT_ROUTE can be QUALITY
 - 6343: PnL computation now has a single authoritative path with real invariants
+- 6344: cost basis is now immutable and keyed on (wallet, mint, buyTxSig); Cupsey 76×-off rows are quarantined automatically
+- 6348: operator can now read FIRST_TRADE_READINESS_6348 verdict directly in the health snapshot
 
-## Staged for V5.0.6344-6350 (from operator's full V5.0.6342 spec)
+## Backlog (priority-ordered)
 
-- P0-2 Immutable FillLotLedger keyed by wallet+mint+buyTxSig; LEGACY_INVENTORY quarantine; FIFO lot allocation
-- P0-3 Strong unit types (SolAmount / UsdAmount / TokenQuantity / PriceSolPerToken / PriceUsdPerToken / RawTokenAmount / TokenDecimals)
-- P0-4 Canonical learning contract counters (CANON_FINALIZED_ROWS / CANON_BROADCAST_ROWS_REJECTED etc)
-- P0-5 Foundation policy with PRE_ENTRY_DECISION_RECORD (≥3 snapshots, real pool, executable-price stop preflight)
-- P0-8 Executable-price stop preflight before every BUY
-- P1-1 Scanner/hydration queue separation (LIVE_READY / HYDRATING / PROBATION / SHADOW / REJECTED_WITH_TTL)
-- New FIRST-TRADE READINESS block in the health snapshot
-- Cupsey Clauses 2/8: explicit price fields on Trade model + route all journal writers + notification builders through CanonicalPnLAuthority6343
+### 🔴 P0 — Wire the library-only modules into live paths
+- **Scanner path → ScannerHydrationQueues6347**: retrofit the scanner emit path to route candidates into buckets; retrofit the executor live loop to drain LIVE_READY only.
+- **Pre-entry ticket → PreEntryDecisionRecord6345.emit**: call from the live-buy ticket assembler right before the buy lease is acquired.
+- **Learning aggregators → CanonicalLearningContract6346.assess**: retrofit AdaptiveLearningEngine, LaneEdgeConcentrator sample, expectancy classifier, tactic switcher.
+- **Every stop placer → ExecutablePriceStopPreflight6345.preflight**: call before stop persistence in Executor and V3JournalRecorder.
 
-## Real remaining issues
+### 🟠 P1 — Hard-enforcement flip
+- Turn `RealizedPnlConduit6344` from SHADOW to HARD (block sell path when authority quarantines).
+- Turn `PreEntryDecisionRecord6345.Verdict.VETO` into a hard block on the buy ticket.
 
-- **P0 Loop stall** — provider degradation (Helius, Birdeye rate limits) causing 52-204s cycles. Needs OkHttp timeout tightening + async provider fetches.
-- **P1 Decimal skew reappearance** — 6337/6338 fix in place; verify with next snapshot
-- **P2 BLUECHIP still not trading much** — 6342 rejects Pump.fun→BLUECHIP; correct routing will let the real bluechip scanner cadence fire
+### 🟢 P2 — Phase 1 SOL Perps/Leverage mode
+- Resume `PerpsLaneGate.kt` now that the core accounting/learning contracts are landed.
+
+### 🟢 P3+ — Off-thread rendering, neural bridge, LLM Lab
 
 ## Learning-loop invariants (all still true)
 
@@ -47,32 +82,17 @@
 - LosingPatternMemory cross-checks live vs paper distribution (6339)
 - LaneEntryContract6342 hard-vetoes on governor HOLD + enforces lane identity
 - CanonicalPnLAuthority6343 is the sole legal realized-SOL calculator
+- FillLotLedger6344 is the sole legal cost-basis source (immutable, first-write-wins)
+- CanonicalLearningContract6346 is the sole legal canonical-eligibility gate
 - Never blocks a trade for strategy bleed, never hard-disables a lane
 
 ## Testing / CI
 
-- 6341 fully green (Build + Runtime Smoke)
-- 6342 Build green; Runtime Smoke in-flight
-- 6343 Build in-flight; 6 unit tests inline (clauses 3/4/5/6/7/9/10)
-- Runtime Smoke last passed on 6341
+- 6344 ✅ SUCCESS  (FillLotLedger + UnitTypes + RealizedPnlConduit inline test suites)
+- 6345 ✅ SUCCESS  (PreEntryDecisionRecord + ExecutablePriceStopPreflight inline test suites)
+- 6346 ✅ SUCCESS  (CanonicalLearningContract inline test suite — 6 cases)
+- 6347 ✅ SUCCESS  (ScannerHydrationQueues inline test suite — 6 cases)
+- 6348 ✅ SUCCESS  (FirstTradeReadiness inline test suite — 5 cases)
+- 6349 ✅ SUCCESS  (Directive6344Through6348GoldenTapeTest — 13 file-shape + wire-up assertions)
 
-
-## Current build stack (all landed on `main`, all green through 6338; 6339 broke a golden-tape test; 6340 fix in flight)
-
-- **6323-6330** Foundation: canonical registry, 6324 modules, wiring, WADDLE decimal repair, brain consensus fusion
-- **6331** (`25ad96139` ✅) Demote `LIVE_LANE_HARD_PAUSED_6247` → soft-shape
-- **6332** (`0519817fe` ✅) Concentrated Conviction — governor bleeds via SIZE not FLOOR; no more sticky safety-hold arm
-- **6333** (`d037f75c4` ✅) Denylist tier split (HARD disqualifiers vs ADVISORY soft-shape labels)
-- **6334** (`f747f57b2` ✅) LaneEdgeConcentrator — self-tune capital toward winning buckets from trade 1
-- **6335** (`be17d16c4` ✅) Slash governor floor uplifts (HOLD +18 → +5). **UNLOCKED THE LIVE PIPE — BUY ok 0→10→31 across snapshots.**
-- **6336** (`3e635f794` ✅) Concentrator classifies by EXPECTANCY (meanPnl%), not WR — so low-WR/high-mean buckets get the amplifier
-- **6337** (`d9a33be4c` ❌) Retro-backfill BUY qty at SELL write (fast catastrophe stops before promoteVerify). Failed on Trade.qtyToken typo.
-- **6338** (`526026668` ✅ Build + Runtime Smoke) Compile fix for 6337 using correct Trade.soldQtyToken + ts.symbol
-- **6339** (`191de3782` ❌) **Paper↔Live divergence detector.** Uses live-only cache to shrink size when paper-model has lied about a bucket. Failed on GoldenTapeRegressionTest which asserts exact string `minOf(genericPressure, learnedBucketMult)`.
-- **6340** (`977c0ee31` 🟡 in-flight) Golden-tape fix: split into two-step `minOf` so the exact literal string is preserved. Same runtime behaviour.
-
-## The learning cross-check loop the operator asked for (V5.0.6339)
-
-Operator directive verbatim:
-> "back-test live failures against the paper learning to find the reasons for loses and modify how it learns. everything is there, there is 0 excuse as to why its not making money"
-
+No golden-tape regressions across the six-commit stack.
