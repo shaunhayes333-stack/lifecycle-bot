@@ -12952,6 +12952,28 @@ class Executor(
         }
         liveStage("LIVE_BUY_ENTRY", "sol=${"%.4f".format(sol)} score=${"%.1f".format(score)} quality=$quality")
 
+        // V5.0.6342 — LANE ENTRY CONTRACT (single authoritative choke).
+        //   1. Governor HOLD → no live BUY ticket may issue.
+        //   2. BLUECHIP lane rejects Pump.fun mints.
+        //   3. QUALITY lane rejects MINT_ROUTE placeholders.
+        // Failed candidates redirect to SHADOW (never silently dropped)
+        // so paper / shadow learning continues.
+        if (execCtx.execMode == ExecMode.LIVE) {
+            val contract6342 = try {
+                com.lifecyclebot.engine.LaneEntryContract6342.assessEntry(ts, layerTag)
+            } catch (_: Throwable) { null }
+            if (contract6342 != null && !contract6342.allowsLive) {
+                try {
+                    PipelineHealthCollector.labelInc("LIVE_BUY_ABORTED_LANE_CONTRACT_6342")
+                    ForensicLogger.lifecycle(
+                        "LIVE_BUY_ABORTED_LANE_CONTRACT_6342",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$layerTag verdict=${contract6342.verdict} reasons=${contract6342.reasons.joinToString(",")}",
+                    )
+                } catch (_: Throwable) {}
+                return liveAbortDesync("lane_contract_6342 verdict=${contract6342.verdict} reasons=${contract6342.reasons.joinToString(",")}")
+            }
+        }
+
         // V5.0.6312 — LIVE ENTRY SAFETY HOLD + BYPASS BAN + CONFIDENCE GOVERNOR.
         // Central authority for live capital protection. Blocks new live
         // buys when critical invariants fail, when confidence governor
