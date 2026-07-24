@@ -1,11 +1,12 @@
-# AATE PRD — V5.0.6357
+# AATE PRD — V5.0.6359
 
 ## Current build stack
 
-Continuing from V5.0.6356 emergency triage:
-- **6357** (`4039664ba` — CI running) **LaneBucketPivot whole-lane fallback removed** — WR -20% root cause. Every pump.fun score=0 mint was catching DEEP_WINNER (×1.35 upsize) because `winnerMeanForBucket` fell back to pooled-lane winners when the S0-19 band had <2 samples. That upsized garbage entries and drove the WR regression. Fix: require ≥2 winner-DNA rows IN THE SAME BAND. Whole-lane rows remain as context via the score>0 filter but never substitute for band evidence.
+Continuing from V5.0.6357 WR-drop fix:
+- **6358** (`46d5a037a` ✅) **StrategyTruthLedger TTL cache** — 3s TTL keyed by (rawRows.size | newest ts | limit); short-circuits repeat readers. Plus extended `ForensicEmitRateLimiter6356` to `LIVE_PROBABILITY_QUALITY_BOOST_4596` and `MULTIPLIER_ATTRIBUTION_DUST_STACK_4272`. Kills the 624k STRATEGY_CLEAN_TERMINAL_ROWS/session and the two remaining log-spammers.
+- **6359** (`cebc20c9d` ✅) **Foundation Policy live-wire** — every LaneEntryContract PASS now emits a `PreEntryDecisionRecord6345` evidence receipt with lane, expected R, stop distance %, executable spread bps, liquidity USD, hydration state, canonical sample size, governor state → PASS/WARN/VETO verdict + compact-line forensic. Observation mode until operator reviews the evidence stream.
 
-## Full V5.0.6350 → V5.0.6357 emergency triage stack
+## Full V5.0.6350 → V5.0.6359 emergency triage stack
 
 - **6323-6341** Foundation: canonical registry, WADDLE decimal repair, brain consensus, safety-hold demotion, loop stall fixes
 - **6342** (`7a6e23639` ✅) **Lane Entry Contract** — governor HOLD veto + BLUECHIP/QUALITY identity
