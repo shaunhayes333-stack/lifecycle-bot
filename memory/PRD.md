@@ -1,6 +1,11 @@
-# AATE PRD — V5.0.6356
+# AATE PRD — V5.0.6357
 
-## Current build stack (V5.0.6350 → V5.0.6356 all ✅ SUCCESS on GitHub Actions CI, except 6354 which was compile-fixed by 6355)
+## Current build stack
+
+Continuing from V5.0.6356 emergency triage:
+- **6357** (`4039664ba` — CI running) **LaneBucketPivot whole-lane fallback removed** — WR -20% root cause. Every pump.fun score=0 mint was catching DEEP_WINNER (×1.35 upsize) because `winnerMeanForBucket` fell back to pooled-lane winners when the S0-19 band had <2 samples. That upsized garbage entries and drove the WR regression. Fix: require ≥2 winner-DNA rows IN THE SAME BAND. Whole-lane rows remain as context via the score>0 filter but never substitute for band evidence.
+
+## Full V5.0.6350 → V5.0.6357 emergency triage stack
 
 - **6323-6341** Foundation: canonical registry, WADDLE decimal repair, brain consensus, safety-hold demotion, loop stall fixes
 - **6342** (`7a6e23639` ✅) **Lane Entry Contract** — governor HOLD veto + BLUECHIP/QUALITY identity
