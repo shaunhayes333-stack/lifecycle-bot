@@ -90,17 +90,32 @@ object PaperPositionCloseAuthority {
                 // 779-events-in-15min PAPER_CLOSE_STUCK_TTL_RETRY_6071 spam operator saw.
                 st.stuckRetryCount += 1
                 if (st.stuckRetryCount >= STUCK_RETRY_HARD_CAP) {
+                    // V5.0.6360 — CORRECTION of V5.0.6350 semantics.
+                    //   Old behaviour stamped state=CLOSED via markClosed()
+                    //   after 3 stuck retries. That killed paper round-trips:
+                    //   the actual TokenState.position was still OPEN with
+                    //   tokens (no recordSell had fired), but every future
+                    //   sell attempt hit Guard(blocked=true, State.CLOSED)
+                    //   so no round-trip could ever complete. Operator saw
+                    //   "heaps of buys nothing round tripping".
+                    //   New behaviour: RESET the stuck state — clear the
+                    //   retry counter and drop back to OPEN so the next
+                    //   sell attempt starts from a fresh mark. This still
+                    //   drains the retry-log spam (the loop is broken) but
+                    //   never blocks a legitimate future sell.
                     try {
                         com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                            "PAPER_CLOSE_FORCE_TERMINAL_6350",
-                            "mint=${mint.take(10)} symbol=$symbol prior=${st.state} retries=${st.stuckRetryCount} ageMs=${now - st.updatedAtMs} reason=$reason action=force_terminal_close",
+                            "PAPER_CLOSE_FORCE_RESET_6360",
+                            "mint=${mint.take(10)} symbol=$symbol prior=${st.state} retries=${st.stuckRetryCount} ageMs=${now - st.updatedAtMs} reason=$reason action=reset_to_open_not_terminal_v6360",
                         )
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_CLOSE_FORCE_TERMINAL_6350")
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_CLOSE_FORCE_RESET_6360")
                     } catch (_: Throwable) {}
-                    // Force-stamp CLOSED so this mint drops out of the pending set entirely.
-                    markClosed(mode = mode, mint = mint, symbol = symbol,
-                        reason = "PAPER_CLOSE_FORCE_TERMINAL_6350_after_${st.stuckRetryCount}_retries")
-                    return Guard(true, State.CLOSED, "force_terminal_closed_6350", st.closeId)
+                    st.state = State.OPEN
+                    st.stuckRetryCount = 0
+                    st.reason = ""
+                    st.closeId = ""
+                    st.updatedAtMs = now
+                    return Guard(false, State.OPEN, "force_reset_open_6360")
                 }
                 try {
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(

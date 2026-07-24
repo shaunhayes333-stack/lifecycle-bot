@@ -25,15 +25,15 @@ class PaperCloseRetryDrain6350Test {
     }
 
     @Test
-    fun retry_hard_cap_forces_terminal_close_after_three_retries() {
+    fun retry_hard_cap_replaced_by_v6360_force_reset() {
         val txt = File("src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").readText()
-        assertTrue("STUCK_RETRY_HARD_CAP must be defined at 3",
+        assertTrue("STUCK_RETRY_HARD_CAP must remain defined at 3",
             txt.contains("STUCK_RETRY_HARD_CAP = 3"))
-        assertTrue("must emit PAPER_CLOSE_FORCE_TERMINAL_6350 telemetry",
-            txt.contains("PAPER_CLOSE_FORCE_TERMINAL_6350"))
-        assertTrue("hard-cap branch must call markClosed for the force-terminal",
-            txt.contains("markClosed(mode = mode, mint = mint"))
-        assertTrue("retry counter must be tracked on CloseState",
+        // V5.0.6360 replaced the terminal-close on hard cap with a state reset
+        // to OPEN. Verify the new label + branch exist.
+        assertTrue("V5.0.6360 must introduce PAPER_CLOSE_FORCE_RESET_6360 label",
+            txt.contains("PAPER_CLOSE_FORCE_RESET_6360"))
+        assertTrue("retry counter must still be tracked on CloseState",
             txt.contains("stuckRetryCount: Int = 0") ||
             txt.contains("stuckRetryCount = 0"))
     }
