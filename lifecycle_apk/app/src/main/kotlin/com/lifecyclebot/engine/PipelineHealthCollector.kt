@@ -1075,6 +1075,11 @@ object PipelineHealthCollector {
         } catch (_: Throwable) {
             sb.append("  Execution state:       UNKNOWN (snapshot read error)\n")
         }
+        // V5.0.6348 — FIRST-TRADE READINESS pillar surface. Operator can
+        // now see ready=Y/N + which pillar is missing without reading src.
+        try {
+            sb.append("  ${com.lifecyclebot.engine.FirstTradeReadiness6348.snapshotLine()}\n")
+        } catch (_: Throwable) {}
         // V5.9.997 — surface LiveLayerGateRelaxer (z38) state to operator.
         try {
             sb.append("  ${com.lifecyclebot.engine.LiveLayerGateRelaxer.summaryLine()}\n")
