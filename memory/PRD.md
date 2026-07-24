@@ -1,10 +1,10 @@
-# AATE PRD — V5.0.6359
+# AATE PRD — V5.0.6360
 
 ## Current build stack
 
-Continuing from V5.0.6357 WR-drop fix:
-- **6358** (`46d5a037a` ✅) **StrategyTruthLedger TTL cache** — 3s TTL keyed by (rawRows.size | newest ts | limit); short-circuits repeat readers. Plus extended `ForensicEmitRateLimiter6356` to `LIVE_PROBABILITY_QUALITY_BOOST_4596` and `MULTIPLIER_ATTRIBUTION_DUST_STACK_4272`. Kills the 624k STRATEGY_CLEAN_TERMINAL_ROWS/session and the two remaining log-spammers.
-- **6359** (`cebc20c9d` ✅) **Foundation Policy live-wire** — every LaneEntryContract PASS now emits a `PreEntryDecisionRecord6345` evidence receipt with lane, expected R, stop distance %, executable spread bps, liquidity USD, hydration state, canonical sample size, governor state → PASS/WARN/VETO verdict + compact-line forensic. Observation mode until operator reviews the evidence stream.
+- **6360** (`029d677b4` ✅) **CORRECTION of V5.0.6350** — force-RESET (not terminal) so paper positions round-trip. V5.0.6350's `markClosed()` after 3 stuck retries stamped state=CLOSED at the paper close authority even though TokenState.position was still OPEN with tokens (no recordSell had fired). Every subsequent sell was then blocked with `Guard(true, CLOSED)`. Symptom: operator's "heaps of buys nothing round tripping" + cycles=4 in 950s. Fix: on 3rd stuck retry, reset `st.state=OPEN` + `stuckRetryCount=0` and return unblocked Guard so next sell attempt starts fresh. Still drains the log-spam loop; never blocks a legitimate future sell.
+
+- **6359** (`cebc20c9d` ✅) Foundation Policy live-wire
 
 ## Full V5.0.6350 → V5.0.6359 emergency triage stack
 
