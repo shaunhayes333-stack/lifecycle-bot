@@ -15,6 +15,23 @@ import kotlin.math.abs
 object StrategyTruthLedger {
     const val VERSION = "V5.0.4151_STRATEGY_TRUTH_LEDGER"
 
+    // V5.0.6358 — TTL cache in front of clean(). Operator's V5.0.6308
+    // emergency dump showed STRATEGY_CLEAN_TERMINAL_ROWS = 624,180 in
+    // 3243s uptime (~192/sec). Each call sorts/iterates all raw rows
+    // and dedup-tests every one. Two callers (LiveProbabilityEngine,
+    // leaderboard) hit this per lane_eval; a third-party learning
+    // aggregator loops through it too. Adding a 3s TTL cache keyed by
+    // (rawRows.size | newest ts | limit) makes the second and third
+    // reader in a short window return the same Result instance instead
+    // of redoing 200-row terminal-dedup work, without breaking
+    // correctness — the cache invalidates as soon as a new SELL row
+    // lands in the journal.
+    private const val CLEAN_CACHE_TTL_MS: Long = 3_000L
+    private val cleanCacheLock = Any()
+    @Volatile private var cleanCacheKey: String = ""
+    @Volatile private var cleanCacheValue: Result? = null
+    @Volatile private var cleanCacheStampMs: Long = 0L
+
     data class Audit(
         val cleaned: Int,
         val deduped: Int,
@@ -34,6 +51,25 @@ object StrategyTruthLedger {
 
     fun clean(rawRows: List<Trade>, limit: Int = rawRows.size): Result {
         if (rawRows.isEmpty()) return Result(emptyList(), Audit(0, 0, 0, 0, 0, 0))
+
+        // V5.0.6358 — TTL cache check. Fingerprint the input by size, newest
+        // row timestamp and the requested limit; if the fingerprint matches
+        // a fresh cache stamp, return the cached Result. Never blocks or
+        // fails hot path — synchronized block is O(1) and the fallback
+        // (cache miss) is identical to the pre-6358 behaviour.
+        val now = System.currentTimeMillis()
+        val newestTs = rawRows.firstOrNull()?.ts ?: 0L
+        val key = "${rawRows.size}|$newestTs|$limit"
+        val cached = synchronized(cleanCacheLock) {
+            val v = cleanCacheValue
+            if (v != null && cleanCacheKey == key && now - cleanCacheStampMs < CLEAN_CACHE_TTL_MS) v else null
+        }
+        if (cached != null) {
+            try { PipelineHealthCollector.labelInc("STRATEGY_CLEAN_CACHE_HIT_6358") } catch (_: Throwable) {}
+            return cached
+        }
+        try { PipelineHealthCollector.labelInc("STRATEGY_CLEAN_CACHE_MISS_6358") } catch (_: Throwable) {}
+
         val newestFirst = rawRows.sortedByDescending { it.ts }
         val seenTerminalKeys = LinkedHashSet<String>()
         val seenGenerationKeys = LinkedHashSet<String>()
@@ -93,7 +129,15 @@ object StrategyTruthLedger {
             inc("STRATEGY_CLEAN_TERMINAL_ROWS")
             out += normalizedStrategyRow(row)
         }
-        return Result(out, Audit(out.size, deduped, recovery, partial, badEntry, forensic))
+        val result = Result(out, Audit(out.size, deduped, recovery, partial, badEntry, forensic))
+        // V5.0.6358 — publish to cache. Overwrite is unconditional under lock
+        // so races produce identical Result contents for the same key.
+        synchronized(cleanCacheLock) {
+            cleanCacheKey = key
+            cleanCacheValue = result
+            cleanCacheStampMs = System.currentTimeMillis()
+        }
+        return result
     }
 
     fun isRecoveryInventory(t: Trade): Boolean {

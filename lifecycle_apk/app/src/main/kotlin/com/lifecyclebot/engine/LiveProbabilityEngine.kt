@@ -327,10 +327,13 @@ object LiveProbabilityEngine {
             val qualityAwareCap = (lowHitRateCap * qualityBoost).coerceIn(0.35, 2.00)
             try {
                 if (qualityBoost >= 1.20 || qualityBoost <= 0.75) {
-                    ForensicLogger.lifecycle(
-                        "LIVE_PROBABILITY_QUALITY_BOOST_4596",
-                        "lane=$lane score=$score qualityBoost=${"%.2f".format(qualityBoost)} lowHitCap=${"%.2f".format(lowHitRateCap)} qualityAwareCap=${"%.2f".format(qualityAwareCap)} fwdPWin=${"%.2f".format(fwd.pWin)} fwdPRug=${"%.2f".format(fwd.pRug)}",
-                    )
+                    // V5.0.6358 — rate-limit the disk emit per (lane, score band).
+                    if (ForensicEmitRateLimiter6356.shouldEmit("LIVE_PROBABILITY_QUALITY_BOOST_4596", "$lane|${score/10}")) {
+                        ForensicLogger.lifecycle(
+                            "LIVE_PROBABILITY_QUALITY_BOOST_4596",
+                            "lane=$lane score=$score qualityBoost=${"%.2f".format(qualityBoost)} lowHitCap=${"%.2f".format(lowHitRateCap)} qualityAwareCap=${"%.2f".format(qualityAwareCap)} fwdPWin=${"%.2f".format(fwd.pWin)} fwdPRug=${"%.2f".format(fwd.pRug)}",
+                        )
+                    }
                     PipelineHealthCollector.labelInc("LIVE_PROBABILITY_QUALITY_BOOST_4596_${lane.uppercase()}")
                 }
             } catch (_: Throwable) {}

@@ -52,7 +52,13 @@ object MultiplierAttributionLedger {
                 try {
                     val componentText = components.entries.joinToString(",") { it.key + "=" + it.value.fmt(3) }
                     PipelineHealthCollector.labelInc("MULTIPLIER_ATTRIBUTION_DUST_STACK_4272")
-                    ForensicLogger.lifecycle("MULTIPLIER_ATTRIBUTION_DUST_STACK_4272", "mode=$mode lane=$lane source=$source mint=${mint.take(10)} product=${rawProduct.fmt(3)} components=$componentText action=report_only_no_size_change")
+                    // V5.0.6358 — 30s per-(lane, mint) cooldown on the disk emit.
+                    // Operator's V5.0.6308 dump showed this label firing 3-5 events
+                    // per ms per lane during hot intake bursts. Label counter still
+                    // fires every call so frequency data is preserved.
+                    if (ForensicEmitRateLimiter6356.shouldEmit("MULTIPLIER_ATTRIBUTION_DUST_STACK_4272", "$lane|${mint.take(10)}")) {
+                        ForensicLogger.lifecycle("MULTIPLIER_ATTRIBUTION_DUST_STACK_4272", "mode=$mode lane=$lane source=$source mint=${mint.take(10)} product=${rawProduct.fmt(3)} components=$componentText action=report_only_no_size_change")
+                    }
                 } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}
