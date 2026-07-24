@@ -10633,6 +10633,15 @@ class BotService : Service() {
             val excess = (pumpEntries.size - cap).coerceAtLeast(0)
             if (excess <= 0) return
             var demoted = 0
+            // V5.0.6353 — collect the held-block count for a SINGLE aggregated
+            // health line per rebalance pass instead of one label bump + one
+            // forensic row per iteration. Operator's V5.0.6349 snapshot had
+            // 5855 LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550 events in
+            // 15 minutes (~6/sec) — pure log churn on defensive behaviour
+            // that was already doing its job. Same protection preserved,
+            // 100× less log volume.
+            var heldBlockedThisPass = 0
+            var heldBlockedFirstMint = ""
             for (entry in pumpEntries.take(excess)) {
                 // V5.0.3685 — guard: never evict a mint that is in-flight (pendingVerify)
                 // or already open. mid-buy verification sets pendingVerify=true BEFORE
@@ -10642,8 +10651,8 @@ class BotService : Service() {
                     pos?.isOpen == true || pos?.pendingVerify == true || (pos?.qtyToken ?: 0.0) > 0.0
                 } } catch (_: Throwable) { false }
                 if (open || liveHeldOrManagedMint(entry.mint)) {
-                    try { PipelineHealthCollector.labelInc("LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550") } catch (_: Throwable) {}
-                    try { ForensicLogger.lifecycle("LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550", "mint=${entry.mint.take(10)} reason=$reason action=keep_watchlist") } catch (_: Throwable) {}
+                    if (heldBlockedThisPass == 0) heldBlockedFirstMint = entry.mint
+                    heldBlockedThisPass++
                     continue
                 }
                 // V5.0.3732 — do not fabricate zero-liquidity probation rows.
@@ -10675,6 +10684,18 @@ class BotService : Service() {
                     ForensicLogger.lifecycle(
                         "HOT_WATCHLIST_SOURCE_REBALANCED",
                         "reason=$reason demoted=$demoted pump=${pumpEntries.size} cap=$cap total=$total"
+                    )
+                } catch (_: Throwable) {}
+            }
+            // V5.0.6353 — SINGLE aggregated held-block line per pass. Preserves the
+            // original telemetry label so downstream dashboards still light up but
+            // collapses 5855 events/15min → one event per rebalance pass.
+            if (heldBlockedThisPass > 0) {
+                try {
+                    PipelineHealthCollector.labelInc("LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550")
+                    ForensicLogger.lifecycle(
+                        "LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550",
+                        "reason=$reason heldBlocked=$heldBlockedThisPass firstMint=${heldBlockedFirstMint.take(10)} pump=${pumpEntries.size} cap=$cap total=$total action=keep_watchlist_aggregated_6353",
                     )
                 } catch (_: Throwable) {}
             }
