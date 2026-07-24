@@ -24,6 +24,11 @@ object PaperPositionCloseAuthority {
         @Volatile var reason: String = "",
         @Volatile var updatedAtMs: Long = System.currentTimeMillis(),
         @Volatile var lastAlreadyPendingLogMs: Long = 0L,
+        // V5.0.6350 — count how many times the stuck-state TTL has allowed
+        // a retry for this mint. After [STUCK_RETRY_HARD_CAP] retries we
+        // force-terminal-close the mint so paper cannot accumulate 100+
+        // silent-fail positions.
+        @Volatile var stuckRetryCount: Int = 0,
     )
 
     data class Guard(val blocked: Boolean, val state: State?, val reason: String, val closeId: String = "")
@@ -31,11 +36,16 @@ object PaperPositionCloseAuthority {
     private val states = ConcurrentHashMap<String, CloseState>()
     private const val ALREADY_PENDING_LOG_MS = 30_000L
     private const val FAILED_RETRY_TTL_MS = 20_000L
-    // V5.0.6071 — TTL for stuck CLOSE_REQUESTED / CLOSING states. If a paper
-    // sell stamps these but never reaches CLOSED (crash, exception, dead
-    // price feed, orphaned lock), the mint was blocked forever. 2 min = long
-    // enough to let normal sells finish; short enough to unstick fast.
-    private const val STUCK_CLOSE_TTL_MS = 120_000L
+    // V5.0.6350 — tightened from 120s → 30s. Operator: paper accumulation of
+    // 100+ silent-stuck positions in a 15-minute window was blocking learning
+    // (134 BUY vs 27 SELL = 107 open paper). The prior 2-minute TTL was too
+    // slow to drain a dead-oracle stall in real time.
+    private const val STUCK_CLOSE_TTL_MS = 30_000L
+    // V5.0.6350 — after this many stuck-state retries on the same mint we
+    // force-terminal the close via [markClosed] with a synthetic reason so
+    // the mint drops out of the pending set entirely and paper trading
+    // recovers cadence.
+    private const val STUCK_RETRY_HARD_CAP = 3
 
     private fun normMode(mode: String): String = mode.trim().uppercase().ifBlank { "PAPER" }
     private fun key(mode: String, mint: String): String = "${normMode(mode)}|$mint"
@@ -74,10 +84,28 @@ object PaperPositionCloseAuthority {
             if ((st.state == State.CLOSE_REQUESTED || st.state == State.CLOSING) &&
                 now - st.updatedAtMs >= STUCK_CLOSE_TTL_MS
             ) {
+                // V5.0.6350 — hard-cap the stuck-retry loop. On the [STUCK_RETRY_HARD_CAP]-th
+                // retry we force-terminal the mint via markClosed() with a synthetic reason.
+                // Prevents paper accumulation of 100+ silent-fail positions and the resulting
+                // 779-events-in-15min PAPER_CLOSE_STUCK_TTL_RETRY_6071 spam operator saw.
+                st.stuckRetryCount += 1
+                if (st.stuckRetryCount >= STUCK_RETRY_HARD_CAP) {
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "PAPER_CLOSE_FORCE_TERMINAL_6350",
+                            "mint=${mint.take(10)} symbol=$symbol prior=${st.state} retries=${st.stuckRetryCount} ageMs=${now - st.updatedAtMs} reason=$reason action=force_terminal_close",
+                        )
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_CLOSE_FORCE_TERMINAL_6350")
+                    } catch (_: Throwable) {}
+                    // Force-stamp CLOSED so this mint drops out of the pending set entirely.
+                    markClosed(mode = mode, mint = mint, symbol = symbol,
+                        reason = "PAPER_CLOSE_FORCE_TERMINAL_6350_after_${st.stuckRetryCount}_retries")
+                    return Guard(true, State.CLOSED, "force_terminal_closed_6350", st.closeId)
+                }
                 try {
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(
                         "PAPER_CLOSE_STUCK_TTL_RETRY_6071",
-                        "mint=${mint.take(10)} symbol=$symbol prior=${st.state} ageMs=${now - st.updatedAtMs} reason=$reason action=allow_retry"
+                        "mint=${mint.take(10)} symbol=$symbol prior=${st.state} ageMs=${now - st.updatedAtMs} retryCount=${st.stuckRetryCount} reason=$reason action=allow_retry"
                     )
                 } catch (_: Throwable) {}
                 return Guard(false, st.state, "retryable_after_stuck_${st.state.name.lowercase()}", st.closeId)
@@ -137,6 +165,7 @@ object PaperPositionCloseAuthority {
             s.reason = reason.ifBlank { s.reason }
             s.closeId = cid
             s.updatedAtMs = now
+            s.stuckRetryCount = 0   // V5.0.6350 — reset on true terminal close
             s
         }
         emit("PAPER_CLOSE_CLOSED", mint, symbol, "closeId=$cid reason=$reason")
