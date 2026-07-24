@@ -12075,6 +12075,12 @@ class BotService : Service() {
                     }
                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BOT_LOOP_CYCLE_OVERRUN_$bucket")
                 } catch (_: Throwable) {}
+                // V5.0.6352 — soft-shape: shed HYDRATING + expired REJECTED_WITH_TTL
+                // rows from the router so the next cycle starts with a smaller
+                // backlog. Never pauses the loop, never disables a lane.
+                try {
+                    com.lifecyclebot.engine.LoopCycleEmergencyEvict6352.onCycleOverrun(prevCycleMs)
+                } catch (_: Throwable) {}
             }
             // V5.9.1310 — surface BOTH watchlist counters so the operator can see
             // they measure different things (was read as a "counters disagree" bug):
