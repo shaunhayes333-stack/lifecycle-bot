@@ -17531,6 +17531,20 @@ class Executor(
             netPnlSol = pnl,
             tradingMode = pos.tradingMode,
             tradingModeEmoji = pos.tradingModeEmoji,
+            // V5.0.6361 — PAPER FULL-EXIT QTY PRESERVATION.
+            //   Operator F9XEfX snapshot: BUY qty=739, SELL qty=48.95 on a
+            //   SHITCOIN_STOP_LOSS full-exit. The SELL Trade row was never
+            //   populated with soldQtyToken / entryQtyToken / entryCostSol /
+            //   entryPriceSnapshot so downstream display + learning path
+            //   back-computed qty from `sol / price` which produces a
+            //   heuristic slice, not the true position size. Full-exit
+            //   paper sells must journal the full position qty and cost
+            //   basis so CanonicalLearningContract6346 parity checks pass
+            //   and the round-trip qty shows correctly in the tile.
+            entryQtyToken = pos.qtyToken,
+            soldQtyToken = pos.qtyToken,
+            entryCostSol = pos.costSol,
+            entryPriceSnapshot = pos.entryPrice,
         )
         // V5.9.1011 — PAPER SELL FAST PATH.
         // Snapshot before closing the real position, then move canonical journal

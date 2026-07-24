@@ -255,6 +255,52 @@ object V3JournalRecorder {
         //    journal write actually landed so trackers don't diverge from
         //    the on-disk truth.
         if (wrote) {
+            // V5.0.6361 — CANONICAL LEARNING CONTRACT ENFORCEMENT (P0-4 wire-up).
+            //   Before folding this closed row into ANY canonical learning
+            //   aggregator (ScoreExpectancyTracker, HoldDurationTracker,
+            //   ExitReasonTracker, LaneExitTuner, TacticSwitcher,
+            //   ColdStreakDamper, DamageControlGate), run it through
+            //   CanonicalLearningContract6346.assess. Quarantined rows are
+            //   allowed to reach the journal (already written above via
+            //   TradeHistoryStore.recordTrade) but MUST NOT feed the tuners.
+            //   Cupsey-style parity failures and broadcast-only attributions
+            //   would otherwise poison every downstream sizing / tactic /
+            //   damper decision.
+            val canonicalContract6361 = try {
+                val proof = if (isPaper) "PAPER" else "LIVE_FINALIZED"
+                val shimTrade = com.lifecyclebot.data.Trade(
+                    side = "SELL",
+                    mode = if (isPaper) "paper" else "live",
+                    sol = pnlSol.coerceAtLeast(0.0),
+                    price = exitPrice,
+                    ts = System.currentTimeMillis(),
+                    reason = exitReason,
+                    pnlSol = pnlSol,
+                    pnlPct = pnlPct,
+                    entryPriceSnapshot = entryPrice,
+                    entryCostSol = sizeSol,
+                    entryQtyToken = 0.0,
+                    soldQtyToken = 0.0,
+                    mint = mint,
+                )
+                com.lifecyclebot.engine.CanonicalLearningContract6346.assess(
+                    trade = shimTrade,
+                    proofSource = proof,
+                    tokenDecimals = 6,  // pump.fun default; contract skips decimal check when qty=0
+                )
+            } catch (_: Throwable) { null }
+            val canonicalAdmitted6361 = canonicalContract6361?.isCanonical ?: true
+            if (!canonicalAdmitted6361) {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_LEARNING_AGGREGATOR_SKIPPED_6361")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "CANONICAL_LEARNING_AGGREGATOR_SKIPPED_6361",
+                        "mint=${mint.take(10)} symbol=$symbol lane=$layer paper=$isPaper " +
+                            "reasons=${canonicalContract6361?.reasons?.joinToString("|")} action=skip_all_tuners"
+                    )
+                } catch (_: Throwable) {}
+            }
+            if (canonicalAdmitted6361) {
             try { ScoreExpectancyTracker.record(layer, entryScore, pnlPctLearn) } catch (_: Exception) {}
             try { HoldDurationTracker.record(layer, holdMinutes, pnlPctLearn) } catch (_: Exception) {}
             try { ExitReasonTracker.record(layer, exitReason, pnlPctLearn) } catch (_: Exception) {}
@@ -316,6 +362,7 @@ object V3JournalRecorder {
                 // (b) smooth per-loss execution-weight decay / per-win recovery
                 com.lifecyclebot.engine.learning.RetrainingDecay.noteOutcome(layer, bandL, isWinL, isLossL)
             } catch (_: Exception) {}
+            }   // end V5.0.6361 canonicalAdmitted6361 block
         }
     }
 }
