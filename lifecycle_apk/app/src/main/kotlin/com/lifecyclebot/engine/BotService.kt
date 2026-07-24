@@ -11326,7 +11326,7 @@ class BotService : Service() {
             com.lifecyclebot.engine.ScannerHydrationQueues6347.enqueue(
                 mint = mint,
                 bucket = queueBucket,
-                laneRequested = laneAffinity.ifBlank { "STANDARD" },
+                laneRequested = laneAffinity.firstOrNull() ?: "STANDARD",
                 note = "intake_src=$source",
             )
         } catch (_: Throwable) {}
