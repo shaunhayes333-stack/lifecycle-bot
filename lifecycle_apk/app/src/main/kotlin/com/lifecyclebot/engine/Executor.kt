@@ -15240,6 +15240,31 @@ class Executor(
                         )
                     } catch (_: Throwable) {}
 
+                    // V5.0.6344 — APPEND to immutable FillLotLedger6344.
+                    // Primary key = walletAddress + mintAddress + confirmedBuyTxSig.
+                    // First write wins; reconciliation and top-ups create new
+                    // rows via new signatures. This is the authoritative cost-
+                    // basis feed for [CanonicalPnLAuthority6343] via
+                    // [RealizedPnlConduit6344].
+                    try {
+                        val entryPxSol6344 = if (qtyUi > 0.0 && sol > 0.0) sol / qtyUi else 0.0
+                        val entryPxUsd6344 = try {
+                            if (WalletManager.lastKnownSolPrice > 0.0) entryPxSol6344 * WalletManager.lastKnownSolPrice else 0.0
+                        } catch (_: Throwable) { 0.0 }
+                        com.lifecyclebot.engine.FillLotLedger6344.appendBuy(
+                            walletAddress = verifyWallet.publicKeyB58,
+                            mintAddress = verifyMint,
+                            buyTxSig = verifySig,
+                            entryCostSol = SolAmount.of(sol),
+                            entryQty = TokenQuantity.of(qtyUi),
+                            entryPriceSolPerToken = PriceSolPerToken.of(entryPxSol6344),
+                            entryPriceUsdPerToken = PriceUsdPerToken.of(entryPxUsd6344),
+                            decimals = decimals,
+                            laneCanonical = com.lifecyclebot.engine.LaneAlias.normalize(layerTag).ifBlank { layerTag },
+                            entryTsMs = System.currentTimeMillis(),
+                        )
+                    } catch (_: Throwable) {}
+
                     // V5.0.6311 — journaled-BUY qty backfill. The BUY row was
                     // recorded 15-45s ago with ts.position.qtyToken set from
                     // rawTokenAmountToUiAmount (heuristic if decimals unknown).
@@ -20265,6 +20290,45 @@ class Executor(
                     try { ForensicLogger.lifecycle("STOP_LOSS_OVERRUN_CATASTROPHIC", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalReason=$reason pnl=${pnlP.fmt(2)} configuredStop=${configuredStop.fmt(1)} action=journal_catastrophic_not_normal_sl") } catch (_: Throwable) {}
                     "CATASTROPHIC_STOP_LOSS_OVERRUN_${pnlP.toInt()}pct_FROM_${reason}"
                 } else reason
+            }
+
+            // V5.0.6344 — CANONICAL PnL CONDUIT (shadow enforcement).
+            // Route the finalized sell through [RealizedPnlConduit6344]
+            // which looks up the immutable buy lot from [FillLotLedger6344]
+            // and delegates to [CanonicalPnLAuthority6343]. In this push
+            // the conduit is authoritative for its own return value but
+            // does NOT block the sell path if the classic inline pnl
+            // disagrees. Divergences are logged via
+            // CANONICAL_PNL_DIVERGENCE_6344 for forensic replay.
+            try {
+                val buyFill6344 = com.lifecyclebot.engine.CanonicalBuyFillRegistry.get(ts.mint)
+                val conduitResult6344 = com.lifecyclebot.engine.RealizedPnlConduit6344.finalize(
+                    walletAddress = wallet.publicKeyB58,
+                    mintAddress = ts.mint,
+                    buyTxSig = buyFill6344?.buySignature ?: "",
+                    sellTxSig = sig,
+                    soldQty = TokenQuantity.of(pos.qtyToken),
+                    proceedsSol = SolAmount.of(solBack),
+                    feeSol = SolAmount.of(feeSol),
+                    proofSource = "LIVE_FINALIZED",
+                    fallbackEntryCostSol = SolAmount.of(pos.costSol),
+                    fallbackEntryQty = TokenQuantity.of(pos.qtyToken),
+                    fallbackEntryPriceSol = PriceSolPerToken.of(buyFill6344?.entryPriceSol ?: 0.0),
+                    fallbackTokenDecimals = buyFill6344?.decimals ?: 9,
+                )
+                if (!conduitResult6344.canonical) {
+                    ForensicLogger.lifecycle(
+                        "CANONICAL_PNL_QUARANTINED_6344",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} " +
+                            "reasons=${conduitResult6344.quarantineReasons.joinToString("|")} " +
+                            "classicPnl=${"%.6f".format(pnl)} action=shadow_no_block",
+                    )
+                }
+            } catch (e: Throwable) {
+                try {
+                    PipelineHealthCollector.labelInc("CANONICAL_PNL_CONDUIT_EXCEPTION_6344")
+                    ErrorLogger.warn("Executor", "RealizedPnlConduit6344 threw (non-fatal): ${e.message}")
+                } catch (_: Throwable) {}
             }
 
             // V5.9.357 — feed real Jupiter quote-vs-realized slip into

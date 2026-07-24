@@ -1670,6 +1670,17 @@ class BotService : Service() {
             ErrorLogger.warn("BotService", "CanonicalBuyFillRegistry init error: ${e.message}")
         }
 
+        // V5.0.6344 — immutable FillLotLedger init/rehydrate. Restores the
+        // append-only lot ledger keyed by (wallet, mint, buyTxSig) so cost
+        // basis survives process restart. Feeds [RealizedPnlConduit6344].
+        try {
+            com.lifecyclebot.engine.FillLotLedger6344.init(applicationContext)
+            val lotCount = com.lifecyclebot.engine.FillLotLedger6344.activeCount()
+            ErrorLogger.info("BotService", "🔒 FillLotLedger6344 initialized | $lotCount lots restored")
+        } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "FillLotLedger6344 init error: ${e.message}")
+        }
+
         // V5.0.6328 — LiveEntrySafetyHold.init rehydrates the persisted
         // governor window cutoff so canonical trade history from prior
         // sessions still feeds the governor sample. Without this, every
