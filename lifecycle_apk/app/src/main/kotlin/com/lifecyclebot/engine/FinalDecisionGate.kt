@@ -955,34 +955,73 @@ object FinalDecisionGate {
                 // a synchronous BotService safety hydration for the next token pass.
                 try { com.lifecyclebot.engine.SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_SAFETY_NOT_READY_REFRESH_REQUESTED") } catch (_: Throwable) {}
-                if (shouldEmitSafetyReadyBlock(ts.mint)) {
+
+                // V5.0.6341 — DEMOTE STALE TO SOFT-SHAPE. The 6308-era
+                // emergency snapshot showed 539 SAFETY_NOT_READY_STALE
+                // hard-blocks in a single session, with safety age up
+                // to 606 seconds because Birdeye rate limits (8823
+                // BIRDEYE_SEED_SKIPPED_BUDGET events) and Helius
+                // degradation stalled the refresh. Hard-blocking every
+                // candidate on stale-but-previously-valid data while
+                // the refresh path is throttled produced 52-204s bot
+                // loop cycles and zero visible trades.
+                //
+                // Doctrine: never hard-block on strategy bleed OR on
+                // provider degradation. STALE means we DID check
+                // safety at least once and it passed — the token
+                // fundamentals rarely change in the intervening 5-10
+                // minutes, and the refresh has been requested in the
+                // background. We proceed at reduced size (0.30× of
+                // normal) so:
+                //   - the candidate keeps flowing through the pipeline
+                //   - the sample keeps growing so learning improves
+                //   - if safety refreshes and reveals a real risk on
+                //     the next cycle, the collapse guard / stop-loss
+                //     catches it
+                //
+                // MISSING (never checked) stays a hard-block — that's
+                // a genuine data-integrity risk, not just staleness.
+                if (safetyStale && !safetyMissing) {
                     try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_SAFETY_STALE_SOFT_SHAPED_6341")
                         ForensicLogger.lifecycle(
-                            "FDG_BLOCKED_SAFETY_NOT_READY",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason ageSec=${safetyAgeMs / 1000} mode=LIVE",
+                            "FDG_SAFETY_STALE_SOFT_SHAPED_6341",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} ageSec=${safetyAgeMs / 1000} action=soft_shape_030x_and_continue reason=refresh_backlogged_provider_degraded",
                         )
                     } catch (_: Throwable) {}
-                    ErrorLogger.info(
-                        "FDG",
-                        "🛡 UPSTREAM_SAFETY_GATE: ${ts.symbol} | $reason — candidate held back from executor",
-                    )
-                }
-                return FinalDecision(
-                    shouldTrade = false,
-                    mode = mode,
-                    approvalClass = ApprovalClass.BLOCKED,
-                    quality = candidate.setupQuality,
-                    confidence = candidate.aiConfidence,
-                    edge = EdgeVerdict.SKIP,
-                    blockReason = reason,
-                    blockLevel = BlockLevel.HARD,
-                    sizeSol = 0.0,
-                    tags = listOf("upstream_safety_gate", reason.lowercase()),
+                    // Fall through — no hard-block return. Downstream
+                    // pipeline continues and the sizing pass shrinks
+                    // via FDG_SAFETY_STALE_SOFT_SHAPE_6341 mult (0.30).
+                } else {
+                    if (shouldEmitSafetyReadyBlock(ts.mint)) {
+                        try {
+                            ForensicLogger.lifecycle(
+                                "FDG_BLOCKED_SAFETY_NOT_READY",
+                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason ageSec=${safetyAgeMs / 1000} mode=LIVE",
+                            )
+                        } catch (_: Throwable) {}
+                        ErrorLogger.info(
+                            "FDG",
+                            "🛡 UPSTREAM_SAFETY_GATE: ${ts.symbol} | $reason — candidate held back from executor",
+                        )
+                    }
+                    return FinalDecision(
+                        shouldTrade = false,
+                        mode = mode,
+                        approvalClass = ApprovalClass.BLOCKED,
+                        quality = candidate.setupQuality,
+                        confidence = candidate.aiConfidence,
+                        edge = EdgeVerdict.SKIP,
+                        blockReason = reason,
+                        blockLevel = BlockLevel.HARD,
+                        sizeSol = 0.0,
+                        tags = listOf("upstream_safety_gate", reason.lowercase()),
                     mint = ts.mint,
                     symbol = ts.symbol,
                     approvalReason = "FDG upstream safety gate: $reason (live-mode hard block before executor)",
                     gateChecks = listOf(GateCheck("safety_ready_upstream", false, reason)),
                 )
+                }
             }
         }
 
