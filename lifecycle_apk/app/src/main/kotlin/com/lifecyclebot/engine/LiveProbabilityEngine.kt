@@ -379,10 +379,12 @@ object LiveProbabilityEngine {
             }
             val postPivotMult = if (rapidPivotToxicBucket4572) {
                 try {
-                    ForensicLogger.lifecycle(
-                        "LIVE_PROBABILITY_RAPID_PIVOT_SHAPED_4572",
-                        "lane=$lane n=$laneSamples pWin=${"%.0f".format(lanePWin*100)}% E=${"%+.1f".format(eBase)}% action=lane_local_tactic_pivot sizeFloor=0.35 no_live_bootstrap_tuition=true",
-                    )
+                    if (ForensicEmitRateLimiter6356.shouldEmit("LIVE_PROBABILITY_RAPID_PIVOT_SHAPED_4572", lane)) {
+                        ForensicLogger.lifecycle(
+                            "LIVE_PROBABILITY_RAPID_PIVOT_SHAPED_4572",
+                            "lane=$lane n=$laneSamples pWin=${"%.0f".format(lanePWin*100)}% E=${"%+.1f".format(eBase)}% action=lane_local_tactic_pivot sizeFloor=0.35 no_live_bootstrap_tuition=true",
+                        )
+                    }
                     PipelineHealthCollector.labelInc("LIVE_PROBABILITY_RAPID_PIVOT_SHAPED_4572_${lane.uppercase()}")
                 } catch (_: Throwable) {}
                 minOf(mult, 0.35).coerceAtLeast(0.35)
@@ -401,10 +403,12 @@ object LiveProbabilityEngine {
             val finalMult = (postPivotMult * scoreShape.multiplier).coerceIn(0.10, 2.20)
             try {
                 if (scoreShape.multiplier != 1.0 && scoreShape.samples >= 3) {
-                    ForensicLogger.lifecycle(
-                        "LIVE_PROBABILITY_SIZE_SHAPE_5999",
-                        "lane=$lane score=$score bandMult=${"%.2f".format(scoreShape.multiplier)} bandN=${scoreShape.samples} bandMean=${"%+.1f".format(scoreShape.meanPnlPct)}% reason=${scoreShape.reason} finalMult=${"%.2f".format(finalMult)}",
-                    )
+                    if (ForensicEmitRateLimiter6356.shouldEmit("LIVE_PROBABILITY_SIZE_SHAPE_5999", "$lane|$score")) {
+                        ForensicLogger.lifecycle(
+                            "LIVE_PROBABILITY_SIZE_SHAPE_5999",
+                            "lane=$lane score=$score bandMult=${"%.2f".format(scoreShape.multiplier)} bandN=${scoreShape.samples} bandMean=${"%+.1f".format(scoreShape.meanPnlPct)}% reason=${scoreShape.reason} finalMult=${"%.2f".format(finalMult)}",
+                        )
+                    }
                     PipelineHealthCollector.labelInc("LIVE_PROBABILITY_SIZE_SHAPE_5999_${lane.uppercase()}")
                 }
             } catch (_: Throwable) {}
@@ -423,10 +427,12 @@ object LiveProbabilityEngine {
             val raw = try { rawLaneReality(lane) } catch (_: Throwable) { null }
             val clampedMultPre6267 = if (raw != null && raw.n >= 5 && raw.wrPct <= 15.0 && raw.meanPnlPct <= -40.0) {
                 try {
-                    ForensicLogger.lifecycle(
-                        "LIVE_PROBABILITY_RAW_REALITY_CLAMP_6000",
-                        "lane=$lane rawN=${raw.n} rawWR=${"%.1f".format(raw.wrPct)}% rawEV=${"%+.1f".format(raw.meanPnlPct)}% rawSOL=${"%+.4f".format(raw.totalSolPnl)} preClampMult=${"%.2f".format(finalMult)} clampedTo=0.08 note=sanitizer_masked_bleed_raw_journal_truth",
-                    )
+                    if (ForensicEmitRateLimiter6356.shouldEmit("LIVE_PROBABILITY_RAW_REALITY_CLAMP_6000", lane)) {
+                        ForensicLogger.lifecycle(
+                            "LIVE_PROBABILITY_RAW_REALITY_CLAMP_6000",
+                            "lane=$lane rawN=${raw.n} rawWR=${"%.1f".format(raw.wrPct)}% rawEV=${"%+.1f".format(raw.meanPnlPct)}% rawSOL=${"%+.4f".format(raw.totalSolPnl)} preClampMult=${"%.2f".format(finalMult)} clampedTo=0.08 note=sanitizer_masked_bleed_raw_journal_truth",
+                        )
+                    }
                     PipelineHealthCollector.labelInc("LIVE_PROBABILITY_RAW_REALITY_CLAMP_6000_${lane.uppercase()}")
                 } catch (_: Throwable) {}
                 minOf(finalMult, 0.08)
