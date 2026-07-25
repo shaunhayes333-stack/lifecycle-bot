@@ -254,6 +254,11 @@ object LanePolicy {
     //   • recovering bucket → step UP one rung toward NORMAL_EXECUTION.
     // Window resets after each transition so the next regime is judged fresh.
     private const val OUTCOME_WINDOW_MIN_SAMPLES = 12   // need a real sample before moving
+
+    // V5.0.6367 — EARLY_DEMOTE_STREAK. Break the "must see 12 before adjusting"
+    // paralysis so LanePolicy can react to a clear loss streak from trade 1.
+    // Only triggers demotion (never promotion); floor is preserved by demoteOneRung.
+    private const val EARLY_DEMOTE_STREAK = 5
     private const val DEMOTE_WR = 0.18                  // < 18% WR over the window = bleeding
     private const val PROMOTE_WR = 0.42                 // > 42% WR over the window = recovering
 
@@ -315,6 +320,30 @@ object LanePolicy {
     private fun evalCellOutcome(cell: Cell, isWin: Boolean, kind: String, key: String, lane: String, scoreBand: String) {
         if (isWin) cell.winWindow.incrementAndGet() else cell.lossWindow.incrementAndGet()
         val w = cell.winWindow.get(); val l = cell.lossWindow.get(); val n = w + l
+        // V5.0.6367 — EARLY DEMOTE on clear loss streak (source-of-creation
+        // self-learning fix). Operator directive: "the bots meant to be self
+        // adjusting in real time... learn adjustments pivot strategize in
+        // real time from trade 1." OUTCOME_WINDOW_MIN_SAMPLES=12 gate meant
+        // a 100% loss streak of 5-8 closes stayed at NORMAL_EXECUTION with
+        // no policy demotion. Now: if we've seen >=EARLY_DEMOTE_STREAK
+        // consecutive losses with zero wins in the current window, demote
+        // one rung immediately. Never bypasses the FLOOR (PAPER_MICRO_EXECUTION)
+        // and never triggers PROMOTE — that still requires the full window.
+        if (w == 0 && l >= EARLY_DEMOTE_STREAK) {
+            val curEarly = State.values()[cell.policy.get()]
+            val nextEarly = demoteOneRung(curEarly)
+            if (nextEarly != curEarly) {
+                cell.policy.set(nextEarly.ordinal)
+                cell.executionWeight.set((defaultExecutionWeight(nextEarly) * WEIGHT_SCALE).toLong())
+                cell.learningWeight.set((defaultLearningWeight(nextEarly) * WEIGHT_SCALE).toLong())
+                persist(kind, key, cell)
+                ErrorLogger.info("LanePolicy",
+                    "🧭 ${kind.uppercase()} $key $curEarly → $nextEarly (EARLY_DEMOTE loss-streak=$l, w=0) [V5.0.6367]")
+                // Reset the streak so we re-observe after the demotion takes effect.
+                cell.lossWindow.set(0)
+                return
+            }
+        }
         if (n < OUTCOME_WINDOW_MIN_SAMPLES) return
         val wr = w.toDouble() / n
         val cur = State.values()[cell.policy.get()]

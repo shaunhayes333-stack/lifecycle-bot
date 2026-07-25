@@ -4,6 +4,57 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.6367] - 2026-02 — Self-learning "from trade 1" (TacticSwitcher magnitude + LanePolicy early demote)
+
+**Operator directive (verbatim):**
+> the bots meant to be self adjusting in real time. we aren't meant to have to
+> touch trading or tuning ever. its meant to learn adjustments pivot strategize
+> in real time from trade 1.
+>
+> fix the self learning bugs! do it across siblings upstream and downstream
+
+Snapshot showed the self-learning system STALLED even when signal was
+obviously catastrophic:
+```
+MOONSHOT|S61+ MOMENTUM n=7 W/L=1/6              (no rotate — under sample gate)
+SHITCOIN|S0-10 MOMENTUM n=3 W/L=0/3 μ=-57.9%    (catastrophic, still MOMENTUM)
+```
+
+Root cause: all rotation / demotion gates counted TRADES not MAGNITUDE of
+evidence. A single -95% close was worth 20× the evidence of a -3% loss but
+took the same 1 unit of sample credit. Fix the two sibling learners:
+
+**F1 — TacticSwitcher magnitude trigger.**
+Adds `MAGNITUDE_MIN_SAMPLES = 2`, `MAGNITUDE_MEAN_PNL = -25.0`,
+`MAGNITUDE_LOSS_RATE = 0.80`. When `tradesIn >= 2 && meanPnl <= -25% &&
+lossRate >= 80%`, rotate immediately with reason=`magnitude`. Sits BEFORE the
+existing count-based gates so it fires from trade 2 in catastrophic buckets.
+Cannot false-trigger on a single unlucky rug (n>=2 gate). Preserves all
+existing rotation paths.
+
+**F2 — LanePolicy early demote on loss streak.**
+Adds `EARLY_DEMOTE_STREAK = 5`. When `winWindow == 0 && lossWindow >= 5`,
+demote one rung immediately (respecting the PAPER_MICRO_EXECUTION floor) and
+reset the streak. Fires BEFORE the `n < OUTCOME_WINDOW_MIN_SAMPLES` early
+return so a lane doesn't sit on NORMAL_EXECUTION for 12 outcomes while
+bleeding 100% loss rate. Never promotes early — only demotes.
+
+**Neither fix touches trader thresholds or thresholds anyone tunes. Both
+change the learners' *reaction time*** — the whole point per the operator's
+philosophy that the bot should self-adjust from trade 1.
+
+**Files:**
+  * `app/src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt` (magnitude trigger)
+  * `app/src/main/kotlin/com/lifecyclebot/engine/learning/LanePolicy.kt` (early demote)
+  * `app/src/test/kotlin/com/lifecyclebot/engine/learning/SelfLearningFromTradeOne6367InvariantsTest.kt` (new — 3 tests)
+
+**Deferred:** ExplorationBudget/RetrainingDecay use the same signature
+(`isWin`, `isLoss`) without pnl magnitude. Widening those requires a
+signature change with call-site ripple; left for a focused follow-up.
+
+---
+
+
 ## [5.0.6366b] - 2026-02 — STALE_FLAT_CULL_6366 (F5 — completing the V5.0.6366 bundle)
 
 **Operator directive (verbatim):**

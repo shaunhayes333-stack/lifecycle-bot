@@ -90,6 +90,22 @@ object TacticSwitcher {
     private const val POST_PIVOT_FAST_LOSS_RATE = 1.00
     private const val POST_PIVOT_FAST_MEAN_PNL = -8.0
 
+    // V5.0.6367 — MAGNITUDE-TRIGGERED ROTATION (source-of-creation self-learning fix).
+    // Operator directive (verbatim): "the bots meant to be self adjusting in real time.
+    //   we aren't meant to have to touch trading or tuning ever. its meant to learn
+    //   adjustments pivot strategize in real time from trade 1."
+    //
+    // Snapshot showed SHITCOIN|S0-10 MOMENTUM n=3 W/L=0/3 μ=-57.9% still sitting
+    // on MOMENTUM because all previous gates (POST_PIVOT n>=4, BAYES n>=8, FAST n>=10,
+    // PERSIST n>=40, TRIAL_WINDOW n>=25) count TRADES rather than LOSS MAGNITUDE.
+    // A single -95% catastrophic close is 20× the evidence of one -3% loss but
+    // takes the same 1 unit of sample-count credit. Fix: rotate immediately when
+    // even a small handful of trades show catastrophic mean pnl. Gated at
+    // MAGNITUDE_MIN_SAMPLES=2 so a single unlucky rug can't false-trigger.
+    private const val MAGNITUDE_MIN_SAMPLES = 2
+    private const val MAGNITUDE_MEAN_PNL    = -25.0
+    private const val MAGNITUDE_LOSS_RATE   = 0.80
+
     private data class Cell(
         val tactic: AtomicInteger,
         val trialStartedAt: AtomicLong,          // ms
@@ -176,6 +192,17 @@ object TacticSwitcher {
         if (alreadyPivoted && tradesIn >= POST_PIVOT_FAST_MIN_SAMPLES && tradesIn < TRIAL_WINDOW &&
             lossRate >= POST_PIVOT_FAST_LOSS_RATE && meanPnl <= POST_PIVOT_FAST_MEAN_PNL) {
             rotate(lane, scoreBand, cell, "post-pivot-fast lossRate=${"%.0f".format(lossRate * 100)}% mean=${"%+.1f".format(meanPnl)}% n=$tradesIn")
+            return
+        }
+
+        // V5.0.6367 — MAGNITUDE-TRIGGERED ROTATION. Rotate before waiting for
+        // sample-count gates when observed loss magnitude is catastrophic. See
+        // the constant block above for rationale — operator asked for self-
+        // learning "from trade 1", so magnitude of evidence trumps count of
+        // evidence. n>=2 gate prevents a single unlucky rug from tripping it.
+        if (tradesIn >= MAGNITUDE_MIN_SAMPLES && tradesIn < TRIAL_WINDOW &&
+            lossRate >= MAGNITUDE_LOSS_RATE && meanPnl <= MAGNITUDE_MEAN_PNL) {
+            rotate(lane, scoreBand, cell, "magnitude lossRate=${"%.0f".format(lossRate * 100)}% mean=${"%+.1f".format(meanPnl)}% n=$tradesIn")
             return
         }
 
