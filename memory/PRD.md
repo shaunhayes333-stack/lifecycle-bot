@@ -1,12 +1,55 @@
-# AATE PRD — V5.0.6364
+# AATE PRD — V5.0.6365
 
 ## Current build stack
 
-- **6364** (`fd8331cf0` ✅) **SOURCE-OF-CREATION PASS** — Operator directive: "the fixes need to be at the source of creation not a bandaid patch."
-  - **R1 Probation zero-liq loop removed**: `GlobalTradeRegistry.processProbation()` widened the `noPairCold` HELD guard from `source contains NO_PAIR_NO_FALLBACK` to ANY entry with no executable signal (price=0 && liq=0 && no additional scanners && rc<2). The V5.0.6363 snapshot showed 1278 PROBATION intake events on zero-liq tokens burning ~6 000 ForensicLogger emits per cycle — this cured the actual 180s cycle time source.
-  - **R2 Cycle-time throttle-arm removed**: V5.0.6362's `if (cycleMs > 15_000L) supervisorArmEmergencyThrottle` was a positive-feedback loop (2099 arms in 96min → permanent clamp → exits starve → slower cycles → more arms). Worker-timeout arm path is UNCHANGED. Cooling latch preserved.
+- **6365** (`362ecd6a4` ✅) **REVERT V5.0.6361 canonical learning shim** — Operator said V5.0.6360 was growing the wallet at >80% WR, current build is bleeding with 100+ open positions. Diff'd V5.0.6360→V5.0.6361 and found `V3JournalRecorder.recordClose` was wrapped in a `CanonicalLearningContract6346.assess` gate using a synthetic Trade shim with hardcoded `entryQtyToken=0.0, soldQtyToken=0.0` (recordClose has no qty parameter). Any close reaching this recorder with `sizeSol<=0` OR `entryPrice<=0` (stale positions, partial refunds, price-glitched exits) hit the contract's SELL missing-basis branch and was QUARANTINED — silently starving `ScoreExpectancyTracker / HoldDurationTracker / ExitReasonTracker / LaneExitTuner / TacticSwitcher / ColdStreakDamper / DamageControlGate / LanePolicy / RetrainingDecay`. Over hours the learning drifted and the bot could no longer reject its own losers. Wrap reverted; V5.0.6361's Executor paper full-exit qty preservation is unchanged.
 
-- **6363** (`523ab4ed8` ✅) Scanner circuit breaker + brain-mult floor + throttle observability (superseded by V5.0.6364 for the root-cause pass)
+- **6364** (`fd8331cf0` ✅) SOURCE-OF-CREATION: probation zero-liq HELD + cycle-time throttle-arm removed
+- **6363** (`523ab4ed8` ✅) Scanner circuit breaker + brain-mult floor + throttle observability
+- **6362** (`b52f383dc` ✅) Locale-free formatter (ANR cure) + Supervisor emergency throttle RE-ARM
+- **6361** (`0749a6404` ✅) Paper full-exit qty preservation (KEPT) + CanonicalLearningContract E2E wire-up (REVERTED in V5.0.6365)
+- **6360** (`029d677b4` ✅) LAST KNOWN-GOOD baseline before regression
+
+## V5.0.6360 → V5.0.6365 regression hunt
+
+| Version | Change | Verdict at V5.0.6365 |
+|---|---|---|
+| 6361 (executor) | Paper full-exit qty preservation | KEEP — legit fix at correct layer |
+| **6361 (V3 recorder)** | **Canonical contract shim wrap** | **REVERTED — root cause of WR/wallet regression** |
+| 6362 | Locale-free formatter | KEEP — cures ANR |
+| 6362 | Supervisor throttle re-arm (worker-timeout path) | KEEP |
+| 6362 | Supervisor throttle re-arm (cycle-time path) | REVERTED in V5.0.6364 (self-reinforcing loop) |
+| 6363 | Scanner circuit breaker | KEEP |
+| 6363 | Brain multiplier floor at 0.50 | KEEP — safety floor on dust-crush from small-sample tuples |
+| 6363 | Quarantine log rate-limit | KEEP |
+| 6363 | Throttle heartbeat | REMOVED in V5.0.6364 (behavior no longer applies) |
+| 6364 | Probation zero-liq HELD | KEEP |
+| 6364 | Cycle-time throttle-arm removal | KEEP |
+
+## What operator should see after V5.0.6365 lands
+
+1. **Learning aggregators receive every close again** — same behaviour as V5.0.6360. No `CANONICAL_LEARNING_AGGREGATOR_SKIPPED_6361` events (that label is gone).
+2. **`TacticSwitcher / ColdStreakDamper / LanePolicy / RetrainingDecay` should quickly re-learn from the recent close waves** — expected effect: bleeding lanes get demoted, tactics rotate, sizing adjusts within the first ~50 closes post-deploy.
+3. **Open-position count should shrink** as sells/exits process normally, learning kicks in, and the bot stops opening losers.
+
+## Backlog
+
+### 🟠 P0 — Still deferred
+- Move locale-free formatting inside `ForensicLogger` (fix once, all callers safe).
+- Verify sell dispatcher isolation.
+- Enforce canonical eligibility at the CORRECT layer (Executor sell path / FillLotLedger6344, both have real qty).
+
+### 🟠 P1 — Hard-enforcement flip
+- Turn `RealizedPnlConduit6344` from SHADOW to HARD.
+- Turn `PreEntryDecisionRecord6345.Verdict.VETO` into a hard block.
+
+### 🟢 P2 — Phase 1 SOL Perps/Leverage mode (`PerpsLaneGate.kt`)
+
+### 🟢 P3+ — Off-thread rendering, neural bridge, LLM Lab
+
+## Testing / CI
+
+V5.0.6344 → V5.0.6365 all ✅ SUCCESS on GH Actions. V5.0.6365 restores the V5.0.6360 learning fanout exactly.
 
 - **6362** (`b52f383dc` ✅) Locale-free formatter (ANR cure) + Supervisor emergency throttle RE-ARM
 
