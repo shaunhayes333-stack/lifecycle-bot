@@ -317,6 +317,52 @@ object HoldingLogicLayer {
                     urgency = Urgency.HIGH,
                 )
             }
+
+            // V5.0.6366 — STALE FLAT CULL. Operator directive (verbatim):
+            //   "if they aren't either good hold potential or green tokens they
+            //    should be sold."
+            // Bot had 68 open paper positions with wallet flat/shrinking. Many
+            // were in the ±3% flat-line band with no momentum, no whale bid, no
+            // holder growth — i.e. capital tied up going nowhere while new
+            // green candidates couldn't enter (slot budget full). Cull rule:
+            //   age > 15 min                           (given the trade time)
+            //   AND pnlPct in [-3, +3]                 (not clearly winning/losing)
+            //   AND meta.momScore < 20                 (no momentum)
+            //   AND meta.volScore < 15                 (no volume)
+            //   AND meta.whaleSummary is blank         (no whale bid)
+            //   AND ts.holderGrowthRate < 5.0          (no holder growth)
+            //   AND currentPnlPct < targetProfit6091 * 0.5  (not near target — never cull a runner)
+            // Skips DIAMOND_HANDS / LONG_HOLD / SLEEPER modes (their whole point
+            // is to sit flat waiting for a catalyst). Also skips diamond6091 /
+            // whale6091 flags used elsewhere in this method.
+            run {
+                val stalledMode = position.tradingMode.uppercase()
+                val isPatientMode = stalledMode.contains("DIAMOND_HANDS") ||
+                    stalledMode.contains("LONG_HOLD") ||
+                    stalledMode.contains("SLEEPER") ||
+                    position.isLongHold
+                val flatBand = currentPnlPct in -3.0..3.0
+                val aged = holdTimeMinutes >= 15L
+                val nearTarget = currentPnlPct >= (targetProfit6091 * 0.5)
+                val weakMomentum = ts.meta.momScore < 20 && ts.meta.volScore < 15
+                val noWhale = ts.meta.whaleSummary.isBlank() && ts.meta.velocityScore < 70.0
+                val noHolderGrowth = ts.holderGrowthRate < 5.0
+                if (!isPatientMode && aged && flatBand && !nearTarget && weakMomentum && noWhale && noHolderGrowth) {
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("STALE_FLAT_CULL_6366")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "STALE_FLAT_CULL_6366",
+                            "mint=${ts.mint.take(10)} lane=$layer ageMin=$holdTimeMinutes pnl=${currentPnlPct.toInt()}% mom=${ts.meta.momScore.toInt()} vol=${ts.meta.volScore.toInt()} holdersGrowth=${ts.holderGrowthRate.toInt()}%",
+                        )
+                    } catch (_: Throwable) {}
+                    return HoldEvaluation(
+                        action = HoldAction.EXIT_NOW,
+                        reason = "STALE_FLAT_CULL_6366: ${holdTimeMinutes}min flat @${currentPnlPct.toInt()}% pnl, no momentum/whale/holder growth — free the slot",
+                        confidence = 55.0,
+                        urgency = Urgency.NORMAL,
+                    )
+                }
+            }
             
             // V5.2: Check for premature exit (hold too short unless in good profit)
             val isTooEarly = FluidLearningAI.isHoldTimeTooShort(layer, holdTimeMinutes.toDouble(), currentPnlPct)

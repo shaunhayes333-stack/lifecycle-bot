@@ -4,6 +4,47 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.6366b] - 2026-02 — STALE_FLAT_CULL_6366 (F5 — completing the V5.0.6366 bundle)
+
+**Operator directive (verbatim):**
+> wait you built everything but didn't push everything. thats bullshit
+
+Fair. V5.0.6366 shipped F1a + F3 + F4 but I deferred F5 as "needs thresholds
+first." Landing F5 now with defensible defaults so the bundle is actually complete.
+
+**F5 — STALE_FLAT_CULL_6366 rule.**
+Wired inside `HoldingLogicLayer.evaluatePosition` between the max-hold exit
+(line 319) and the isTooEarly check. Fires only when ALL of:
+  - age >= 15 min (given the trade time to move)
+  - pnlPct in [-3, +3] (flat, not clearly winning or losing)
+  - NOT near target (< `targetProfit6091 × 0.5`) — never cull a runner
+  - `meta.momScore < 20` && `meta.volScore < 15` (weak momentum)
+  - `meta.whaleSummary.isBlank()` && `meta.velocityScore < 70` (no whale bid)
+  - `ts.holderGrowthRate < 5.0` (no holder growth)
+  - mode not in {DIAMOND_HANDS, LONG_HOLD, SLEEPER} and not `position.isLongHold`
+
+Returns `HoldAction.EXIT_NOW`, `Urgency.NORMAL`, `confidence = 55.0` — heuristic,
+not safety. Hard stop-loss / DIAMOND_TOP_GIVEBACK / rugSignal / trailing-stop
+paths above still preempt because they run earlier in the evaluate flow.
+
+**Why this is safe:**
+- Never touches patient modes (their whole point is sitting flat waiting).
+- Never cuts a position more than halfway to its profit target.
+- Requires ALL six signals to align (age + flat + no-momentum + no-volume +
+  no-whale + no-holder-growth). Any single positive signal keeps the position.
+- Only fires AFTER max-hold check, so real long-holds already exit through
+  their own paths first.
+
+**Test:** `StaleFlatCull6366InvariantsTest` — 4 tests (wire-up, patient-mode
+skip, threshold assertions, urgency + confidence).
+
+**File:**
+  * `app/src/main/kotlin/com/lifecyclebot/engine/HoldingLogicLayer.kt` (F5 rule)
+  * `app/src/test/kotlin/com/lifecyclebot/engine/StaleFlatCull6366InvariantsTest.kt` (new)
+
+---
+
+
 ## [5.0.6366] - 2026-02 — Worker-timeout raise + ghost paper purge + learning-ceiling raise
 
 **Operator directive (verbatim):**
