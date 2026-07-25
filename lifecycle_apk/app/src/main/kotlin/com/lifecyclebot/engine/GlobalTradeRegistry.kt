@@ -930,6 +930,48 @@ object GlobalTradeRegistry {
             // so V3/FDG can re-evaluate with full pipeline data instead
             // of being silently culled by an opaque 5-min cutoff.
             if (elapsed >= PROBATION_MAX_TIME_MS) {
+                // V5.9.1328 — cold NO_PAIR mints are HELD (not auto-rejected) so
+                // they don't re-arrive as duplicates. See V5.9.1328 comment above.
+                //
+                // V5.0.6364 — SOURCE-OF-CREATION FIX (operator directive: "fixes
+                // need to be at the source of creation not a bandaid patch").
+                // The old `noPairCold` guard was scoped to `source contains
+                // NO_PAIR_NO_FALLBACK`, so PumpPortal WS zero-liq tokens (source
+                // = "SOURCE_BALANCE_DIVERT:PUMP_PORTAL_WS") fell through to
+                // TIMEOUT_AUTO_PROMOTE. Each promotion re-runs the full intake
+                // pipeline just to be rejected by INTAKE_PROBATION_LIQ_ZERO_REJECT_4507
+                // downstream — burning 5-6 ForensicLogger events per dead token
+                // per cycle. The V5.0.6363 emergency snapshot showed 1278 PROBATION
+                // intakes on tokens that could never trade, driving cycle times
+                // to 180s and starving the sell path.
+                //
+                // Correct root-cause behaviour: ANY probation entry with no
+                // executable signal (no price data, no liquidity, no scanner
+                // confirmation, no rugcheck signal) is HELD until it develops
+                // one. It occupies a probation slot but does not force-promote
+                // through the intake pipeline. LRU pruning in addToProbation
+                // still evicts the oldest when MAX_PROBATION_SIZE is reached,
+                // so the store stays bounded.
+                val noExecutableSignal6364 =
+                    entry.priceAtAdd <= 0.0 &&
+                    entry.currentPrice <= 0.0 &&
+                    entry.initialLiquidity <= 0.0 &&
+                    entry.additionalScanners.isEmpty() &&
+                    entry.rcScore < 2
+                if (noExecutableSignal6364) {
+                    if (entry.promotionReason != "NO_EXECUTABLE_SIGNAL_TIMEOUT_HELD_6364") {
+                        entry.promotionReason = "NO_EXECUTABLE_SIGNAL_TIMEOUT_HELD_6364"
+                        try {
+                            ForensicLogger.lifecycle(
+                                "PROBATION_TIMEOUT_HELD_NO_EXECUTABLE_SIGNAL_6364",
+                                "mint=${mint.take(10)} symbol=${entry.symbol} src=${entry.source} ageMs=$elapsed liq=0 price=0 scanners=1 rc=${entry.rcScore}",
+                            )
+                            PipelineHealthCollector.labelInc("PROBATION_TIMEOUT_HELD_NO_EXECUTABLE_SIGNAL_6364")
+                        } catch (_: Throwable) {}
+                    }
+                    continue
+                }
+                // Legacy narrow guard kept for source parity with V5.9.1328.
                 val noPairCold = entry.source.contains("NO_PAIR_NO_FALLBACK", ignoreCase = true) &&
                     entry.priceAtAdd <= 0.0 && entry.currentPrice <= 0.0 && entry.additionalScanners.isEmpty() && entry.rcScore < 2
                 if (noPairCold) {

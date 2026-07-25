@@ -4,6 +4,80 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.6364] - 2026-02 — SOURCE-OF-CREATION PASS (probation zero-liq loop + cycle-time arm removal)
+
+**Operator directive (verbatim):**
+```
+"the fixes need to be at the source of creation not a bandaid patch"
+```
+
+V5.0.6363 emergency snapshot showed the REAL root causes were upstream —
+V5.0.6362/6363 patches were treating symptoms of two deeper regressions:
+
+**R1 — PROBATION zero-liquidity churn loop (source of loop sticking)**
+
+  Snapshot showed `INTAKE BY SOURCE: PROBATION = 1278` — 1278 intake events
+  on tokens with `liq=$0.0`, each emitting ~6 ForensicLogger lifecycle events
+  (FAMILY_DEDUPE, PHASE/INTAKE, WATCHLIST_AFFINITY, SOURCE_BALANCE_PROBATION_LOOP_BYPASS_6273,
+  TOKEN_MAP_PENDING, INTAKE_HARD_REJECT_SKIPPED). That's ~6 000 wasted
+  events/cycle on tokens that can never trade. Cycles ballooned to 180s
+  and sells starved.
+
+  **Source:** `GlobalTradeRegistry.processProbation()` line 932. The
+  V5.9.1328 `noPairCold` HELD guard was scoped to
+  `source contains "NO_PAIR_NO_FALLBACK"` — but PumpPortal WS zero-liq
+  tokens land with `source="SOURCE_BALANCE_DIVERT:PUMP_PORTAL_WS"`, so
+  they slipped through into `TIMEOUT_AUTO_PROMOTE` after 5min → intake →
+  rejected downstream by `INTAKE_PROBATION_LIQ_ZERO_REJECT_4507` → 6
+  emits fired for nothing.
+
+  **Fix:** widen the HELD guard to any probation entry with
+  `priceAtAdd <= 0.0 && currentPrice <= 0.0 && initialLiquidity <= 0.0 &&
+  additionalScanners.isEmpty() && rcScore < 2`. Emits
+  `PROBATION_TIMEOUT_HELD_NO_EXECUTABLE_SIGNAL_6364` once per entry (not
+  per cycle) then continues. LRU pruning in `addToProbation`
+  (MAX_PROBATION_SIZE) still bounds the store. Legacy `NO_PAIR_NO_FALLBACK`
+  guard is preserved for source parity.
+
+**R2 — Supervisor emergency-throttle cycle-time arm REMOVED**
+
+  Snapshot showed 2099 emergency-throttle arms in 96min (~one per 3s) with
+  cycles at 87s-171s. Positive-feedback loop:
+    slow cycle → arm 5min clamp → workers drop to 16 → exits starve inside
+    the tiny pool → next cycle even slower → another arm → permanent
+    clamp.
+
+  **Source:** V5.0.6362's `if (cycleMs > 15_000L) supervisorArmEmergencyThrottle(...)`
+  in `supervisorNoteCycleElapsedForThrottle`. Cycle time is a main-thread
+  symptom; the emergency throttle is a worker-pool cap. Clamping workers
+  can never help a main-thread bottleneck — it only starves exits.
+
+  **Fix:** removed the cycle-time arm line. Worker-timeout arm path
+  (`supervisorNoteWorkerTimeoutForThrottle`, arms on 30+ timeouts/10min)
+  is UNCHANGED — that's the throttle's original correct purpose. Cooling
+  latch (V5.9.1470/V5.0.6308) still arms on cycle overrun with its narrower
+  cap floor (base/3, not the emergency clamp).
+
+  Also removed the V5.0.6363 heartbeat label (was diagnostic for a
+  behaviour that no longer applies).
+
+**Tests:**
+  * `ProbationTimeoutHeldSourceOfCreation6364Test` — 3 tests. Guard covers
+    all dead-signal fields, HELD label observable, legacy narrow guard
+    preserved, healthy timeout auto-promote still works.
+  * `SupervisorEmergencyThrottleCycleArmRemoved6364Test` — 4 tests.
+    Cycle-time trigger gone, worker-timeout path preserved, V5.0.6362 helper
+    still wired, cooling latch preserved.
+
+**Files:**
+  * `app/src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt` (widened noExecutableSignal6364 HELD guard)
+  * `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt` (removed cycle-time arm + V5.0.6363 heartbeat)
+  * `app/src/test/kotlin/com/lifecyclebot/engine/ProbationTimeoutHeldSourceOfCreation6364Test.kt` (new)
+  * `app/src/test/kotlin/com/lifecyclebot/engine/SupervisorEmergencyThrottleCycleArmRemoved6364Test.kt` (new)
+
+---
+
+
 ## [5.0.6363] - 2026-02 — SCANNER CIRCUIT BREAKER + BRAIN FLOOR + THROTTLE OBSERVABILITY
 
 **Operator directive (V5.0.6362 emergency snapshot):**

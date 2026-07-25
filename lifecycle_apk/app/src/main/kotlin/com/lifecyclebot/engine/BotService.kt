@@ -16163,34 +16163,25 @@ if (hotExitHandledSweep) {
         // before cooling let wedged-IO bursts compound for multiple cycles.
         //
         // V5.0.6308 — RE-ARMED (V5.9.1332 disarm bug fix). Operator's emergency
-        // fallback report showed cycles at avg=36s / max=232s (nearly 4 minutes)
-        // with anrHints=37, maxFrameGapMs=59811 (60s stall), and this method
-        // firing SUPERVISOR_EMERGENCY_THROTTLE_OBSERVED_DISARMED for cycles
-        // over 77s WITHOUT actually clamping. The V5.9.1470 cooling latch
-        // exists (supervisorCoolingUntilMs, floor cap=8) but was only wired
-        // to worker-timeout counts, not cycle time. Now: any cycle over 30s
-        // trips a 60s cooling window; over 90s trips 120s. This never
-        // disables lanes/exits — it just trims concurrent worker cap to 8
-        // so wedged IO stops compounding. Exit dispatcher unaffected.
-        if (cycleMs > 15_000L) supervisorArmEmergencyThrottle("max_cycle_ms", "cycleMs=$cycleMs")
-        // V5.0.6363 — periodic "still-armed" telemetry pulse. Emits at most once
-        // per SUPERVISOR_ACTIVE_HEARTBEAT_MS while emergency throttle is armed
-        // so the next operator snapshot can PROVE the clamp is engaging. If this
-        // label is missing from a snapshot while cycle times are elevated, the
-        // arm path is silently no-op'd.
-        try {
-            val nowMono = android.os.SystemClock.elapsedRealtime()
-            if (nowMono < supervisorEmergencyThrottleUntilMs &&
-                nowMono - supervisorEmergencyActiveLastEmitMs > SUPERVISOR_ACTIVE_HEARTBEAT_MS) {
-                supervisorEmergencyActiveLastEmitMs = nowMono
-                val remainingMs = supervisorEmergencyThrottleUntilMs - nowMono
-                ForensicLogger.lifecycle(
-                    "SUPERVISOR_EMERGENCY_THROTTLE_ACTIVE_6363",
-                    "cap=$SUPERVISOR_EMERGENCY_MAX_WORKERS remainingMs=$remainingMs cycleMs=$cycleMs",
-                )
-                PipelineHealthCollector.labelInc("SUPERVISOR_EMERGENCY_THROTTLE_ACTIVE_6363")
-            }
-        } catch (_: Throwable) {}
+        // fallback report showed cycles at avg=36s / max=232s with cycles
+        // over 77s WITHOUT actually clamping.
+        //
+        // V5.0.6364 — REMOVED cycle-time arm trigger (SOURCE OF THE
+        // SELF-REINFORCING LOOP).
+        // Operator directive: "the fixes need to be at the source of creation not
+        // a bandaid patch." V5.0.6363 emergency snapshot showed 2099 arms in
+        // 96min (one every ~3s) with rolling 50 WR crashing 80% → 32%.
+        // The cycle-time arm was a positive-feedback governor:
+        //   slow main-loop cycle -> arm 5min clamp -> workers drop to 16
+        //     -> exits starve waiting on the tiny pool -> next cycle even
+        //     slower -> another arm -> permanent clamp.
+        // The clamp itself was correct for its ORIGINAL trigger (worker
+        // timeouts = pool saturation). Cycle time is a main-thread symptom,
+        // NOT a worker-pool symptom; clamping workers can never help. The
+        // cooling latch below is retained because it applies its own tighter
+        // window, not the emergency clamp.
+        // Worker-timeout arm path (supervisorNoteWorkerTimeoutForThrottle)
+        // is UNCHANGED — it still arms on 30+ real worker timeouts / 10min.
         // V5.0.6308a — R2 fix (testing agent iter_5). Use SystemClock.elapsedRealtime
         // instead of wall clock so NTP steps can't collapse or extend the cooling
         // window arbitrarily. Cooling window is now DYNAMIC = max(base, cycleMs*1.5)
