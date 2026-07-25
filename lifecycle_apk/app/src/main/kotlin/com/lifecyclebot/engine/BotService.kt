@@ -16087,6 +16087,13 @@ if (hotExitHandledSweep) {
         // clamped to SUPERVISOR_EMERGENCY_MAX_WORKERS while the arm window is active.
         // Cooling still runs on top; the stricter floor wins. Exit dispatcher is
         // unaffected (runs on its own pool).
+        //
+        // Tier semantics (preserved in SupervisorEmergencyThrottle6362.effectiveCap):
+        //   emergency arm  -> maxOf(8, SUPERVISOR_EMERGENCY_MAX_WORKERS)
+        //   cooling        -> maxOf(8, base / 3)
+        //   timeouts >= 150 -> maxOf(8, base / 3)   // heavy: drain debt first
+        //   timeouts >= 30  -> maxOf(12, base / 2)  // moderate tier
+        //   else           -> base
         return SupervisorEmergencyThrottle6362.effectiveCap(
             base = base,
             emergency = SUPERVISOR_EMERGENCY_MAX_WORKERS,
