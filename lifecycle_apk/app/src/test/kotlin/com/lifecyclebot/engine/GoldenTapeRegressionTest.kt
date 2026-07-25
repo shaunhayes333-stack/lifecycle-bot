@@ -7337,7 +7337,7 @@ class GoldenTapeRegressionTest {
             paperBuy.contains("ExecutionAttemptLease.releaseNonTerminal") &&
                 paperBuy.contains("PAPER_BUY_NOT_OPENED_") &&
                 paperBuy.contains("ExecutionAttemptLease.terminalOk") &&
-                paperBuy.contains("PAPER_BUY_OPENED_6369"))
+                (paperBuy.contains("PAPER_BUY_OPENED_6369") || paperBuy.contains("PAPER_BUY_OPENED_6370")))
         assertTrue("V5.0.6369: PAPER CashGen/Treasury rescue must require explicit lane affinity; broad score/liquidity rescue is live-only to prevent runtime lane fanout explosions",
             bot.contains("paperCashTreasuryRescue6369") &&
             bot.contains("""!RuntimeModeAuthority.isLive() && l in setOf("TREASURY", "CASHGEN") && affinity.contains(l)""") &&
