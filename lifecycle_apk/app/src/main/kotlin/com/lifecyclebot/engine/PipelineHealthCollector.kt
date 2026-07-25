@@ -1012,7 +1012,12 @@ object PipelineHealthCollector {
 
     fun dumpText(): String {
         val s = snapshot()
-        val df = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+        // V5.0.6368 — Locale.ROOT for date formatting so we never touch the
+        // default-locale clone lock during dump (source-of-creation ANR cure
+        // for the full builder timeout observed in the operator's fresh
+        // emergency report). HH:mm:ss.SSS output is identical between US
+        // and ROOT.
+        val df = SimpleDateFormat("HH:mm:ss.SSS", Locale.ROOT)
         val uptimeSec = if (s.startedAtMs > 0) ((s.nowMs - s.startedAtMs) / 1000L) else 0L
 
         fun line(label: String, value: Any?, hint: String = ""): String {

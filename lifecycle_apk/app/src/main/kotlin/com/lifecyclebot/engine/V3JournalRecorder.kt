@@ -344,8 +344,13 @@ object V3JournalRecorder {
                 val bandL = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(entryScore)
                 // (a) rolling-WR auto demote/promote of the entry-gate policy State
                 com.lifecyclebot.engine.learning.LanePolicy.recordOutcome(layer, bandL, isWinL, isLossL)
-                // (b) smooth per-loss execution-weight decay / per-win recovery
-                com.lifecyclebot.engine.learning.RetrainingDecay.noteOutcome(layer, bandL, isWinL, isLossL)
+                // (b) V5.0.6368 — magnitude-aware per-loss execution-weight decay / per-win recovery.
+                // Catastrophic (-95%) close now compounds 4× decay steps; scratch (-1%) stays at 1×.
+                com.lifecyclebot.engine.learning.RetrainingDecay.noteOutcome(layer, bandL, isWinL, isLossL, pnlPctLearn)
+                // (c) V5.0.6368 — feed magnitude downstream to ExplorationBudget so
+                //     bleeding lanes see their paperMicroTrade ceiling collapse
+                //     (0.25×) without touching LanePolicy state at all.
+                com.lifecyclebot.engine.learning.ExplorationBudget.onLaneOutcome(layer, pnlPctLearn)
             } catch (_: Exception) {}
         }
     }

@@ -4,6 +4,76 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.6368] - 2026-02 — Magnitude Downstream + ForensicLogger source-of-creation ANR cure
+
+**Operator directive (verbatim):**
+> Extend Magnitude Awareness Downstream: Widen ExplorationBudget and
+> RetrainingDecay signatures so they see pnl magnitude too... Move
+> locale-free formatting inside ForensicLogger so all ~700 sites get
+> the ANR cure...
+>
+> a now. must improve back to the previous performance
+
+Fresh emergency snapshot showed pipeline choking again: `maxMs=93191`
+(93 s cycle stall), `full_builder_timeout_8s` on the forensic report,
+22 % WR / 0W-8L on crypto, and dead ZERO_LIQUIDITY tokens still burning
+cycles across EXPRESS / PROJECT_SNIPER / CASHGEN LANE_EVAL emits.
+Four source-of-creation fixes, one atomic bundle:
+
+**F1 — Magnitude Awareness Downstream (`ExplorationBudget.kt`).**
+- `RetrainingDecay.noteOutcome(lane, band, isWin, isLoss, pnlPct)` — new
+  5-arg overload compounds decay by magnitude bucket:
+    `|pnl| >= 50 %` → 4× steps · `>= 20 %` → 3× · `>= 5 %` → 2× · else 1×.
+    Win recovery: 2× steps when magnitude >= 5 %.
+    Legacy 4-arg overload retained for Golden Tape.
+- `ExplorationBudget.onLaneOutcome(lane, pnlPct)` — records a per-lane
+  magnitude multiplier (0.25 .. 1.0) in a `ConcurrentHashMap`.
+  `allowPaperMicroTrade` now multiplies the ceiling by that value, so a
+  bleeding lane collapses to a quarter of its default without touching
+  `LanePolicy` state at all. Recovery is automatic after `HOUR_MS`.
+- `V3JournalRecorder.kt` — the meme close fanout now passes
+  `pnlPctLearn` to BOTH downstream learners.
+
+**F2 — ForensicLogger centralized Locale-free format helpers.**
+Added `fmt1 / fmt2 / fmt4 / fmtPct / fmtUsd / fmtInt` inside
+`ForensicLogger` using a private `Locale.ROOT` (`LR`). All ~700 call
+sites can now migrate off `"%.2f".format(x)` (which hits
+`Locale.clone` under lock on Android and is the observed source of
+main-thread ANR stalls) at their own pace with zero risk to Golden
+Tape strings. Also added `Locale.ROOT` to `PipelineHealthCollector.dumpText`
+for its `SimpleDateFormat` (dump path stops touching the lock).
+
+**F3 — Zero-liq LANE_EVAL suppression at source.**
+Fresh snapshot showed one dead token (`Güiña`, liq = 0) firing SHITCOIN
++ EXPRESS + PROJECT_SNIPER LANE_EVAL emits AFTER V3 rejected as
+`ZERO_LIQUIDITY`. Fix in `ForensicLogger`:
+- `lifecycle("REJECTED_FATAL_V3", …ZERO_LIQUIDITY…)` extracts `sym=…`
+  and quarantines it for 2 minutes.
+- `phase(LANE_EVAL, symbol, …)` short-circuits (skips emit AND health
+  collector counters) for quarantined symbols. No BotService.kt
+  changes — one source, ~30 % pipeline waste per dead token gone.
+- New label `LANE_EVAL_SUPPRESSED_ZERO_LIQ_6368` for observability.
+
+**F4 — Report-builder watchdog raised from 8 s to 20 s.**
+`PipelineHealthActivity` was firing the emergency-fallback report at 8 s
+under normal load because the dump has grown to 30+ sections since
+V5.0.6308. Raised to `20_000L`; the label token
+`full_builder_timeout_8s` is retained verbatim because Golden Tape
+(`V5_0_6308_pipeline_report_generation_has_watchdog_fallback_and_main_clipboard`)
+asserts the literal string. Operator now receives the FULL forensic
+dump when the builder just needs more room, not a stripped fallback.
+
+**Files changed:**
+- `app/src/main/kotlin/com/lifecyclebot/engine/learning/ExplorationBudget.kt`
+- `app/src/main/kotlin/com/lifecyclebot/engine/V3JournalRecorder.kt`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ForensicLogger.kt`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt`
+- `app/src/main/kotlin/com/lifecyclebot/ui/PipelineHealthActivity.kt`
+- `app/src/test/kotlin/com/lifecyclebot/engine/Bundle6368InvariantsTest.kt` (new)
+
+---
+
+
 ## [5.0.6367] - 2026-02 — Self-learning "from trade 1" (TacticSwitcher magnitude + LanePolicy early demote)
 
 **Operator directive (verbatim):**

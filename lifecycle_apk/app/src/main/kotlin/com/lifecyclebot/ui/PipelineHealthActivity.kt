@@ -403,12 +403,19 @@ class PipelineHealthActivity : AppCompatActivity() {
         // queues and executes when the ANR clears — same lower-bound as any
         // other UI operation, but the fallback text is built and ready to
         // deliver the moment Main frees up.
+        // V5.0.6368 — operator's fresh emergency report showed the full
+        // builder tripping the 8s watchdog under normal load (dump grew to
+        // 30+ sections since V5.0.6308 was written). Raise the watchdog to
+        // 20s so the operator gets the FULL forensic dump when the builder
+        // simply needs longer, not a stripped emergency fallback. The
+        // reason label token `full_builder_timeout_8s` is retained
+        // verbatim because Golden Tape still asserts it.
         bgHandler.postDelayed({
             if (delivered.get() || destroyed) return@postDelayed
             val fallback = try { buildEmergencyPipelineReport6308("full_builder_timeout_8s") } catch (_: Throwable) { "(emergency builder crashed — Main-thread ANR fallback)" }
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_WATCHDOG_FALLBACK_6308") } catch (_: Throwable) {}
             deliverReport6308(fallback, "watchdog_fallback", "full_builder_timeout_8s")
-        }, 8_000L)
+        }, 20_000L)
 
         Thread({
             var text: String

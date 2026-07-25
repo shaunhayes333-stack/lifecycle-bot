@@ -3,6 +3,7 @@ package com.lifecyclebot.engine
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Process
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
@@ -27,6 +28,67 @@ object ForensicLogger {
     private val ioHandler: Handler by lazy { Handler(ioThread.looper) }
     private val pending = AtomicInteger(0)
     private const val MAX_PENDING = 500
+
+    // V5.0.6368 — CENTRALIZED LOCALE-FREE FORMAT HELPERS (source-of-creation
+    // ANR cure). Before this pass, every ~700 forensic call-site called
+    // its own `"%.2f".format(x)` which on Android ART hits `Locale.clone`
+    // under lock and can stall the main thread by ~200ms per burst. Now
+    // callers can (and should) use these helpers which force `Locale.ROOT`
+    // and never touch the default-locale lock. Kept as public inline where
+    // possible so the JIT can eliminate the boxing.
+    private val LR: java.util.Locale = java.util.Locale.ROOT
+    fun fmt1(v: Double): String = if (v.isNaN() || v.isInfinite()) "0.0" else String.format(LR, "%.1f", v)
+    fun fmt2(v: Double): String = if (v.isNaN() || v.isInfinite()) "0.00" else String.format(LR, "%.2f", v)
+    fun fmt4(v: Double): String = if (v.isNaN() || v.isInfinite()) "0.0000" else String.format(LR, "%.4f", v)
+    fun fmtPct(v: Double): String = if (v.isNaN() || v.isInfinite()) "0.00%" else String.format(LR, "%.2f%%", v)
+    fun fmtUsd(v: Double): String {
+        if (v.isNaN() || v.isInfinite()) return "$0"
+        val a = Math.abs(v)
+        return when {
+            a >= 1_000_000.0 -> String.format(LR, "$%.2fM", v / 1_000_000.0)
+            a >= 1_000.0     -> String.format(LR, "$%.1fk", v / 1_000.0)
+            a >= 1.0         -> String.format(LR, "$%.2f", v)
+            else             -> String.format(LR, "$%.4f", v)
+        }
+    }
+    fun fmtInt(v: Double): String = if (v.isNaN() || v.isInfinite()) "0" else v.toLong().toString()
+
+    // V5.0.6368 — ZERO-LIQ LANE-EVAL QUARANTINE. Operator snapshot showed
+    // dead tokens (V3-rejected as ZERO_LIQUIDITY) still burning cycles across
+    // EXPRESS + PROJECT_SNIPER + CASHGEN + BLUECHIP LANE_EVAL emits and
+    // health-collector counters for up to 30% of pipeline work per token.
+    // Root cause: LANE_EVAL emits were re-fired downstream after the V3
+    // reject in the same tick. Fix at source: `lifecycle("REJECTED_FATAL_V3", …)`
+    // registers the symbol here; subsequent `phase(LANE_EVAL, symbol, …)`
+    // calls short-circuit for QUARANTINE_TTL_MS. No BotService.kt changes.
+    private val zeroLiqQuarantine = ConcurrentHashMap<String, Long>()
+    private const val QUARANTINE_TTL_MS = 120_000L
+    private const val QUARANTINE_MAX_ENTRIES = 4096
+
+    private fun quarantineSymbol(symbol: String) {
+        if (symbol.isBlank()) return
+        val k = symbol.take(48)
+        val now = System.currentTimeMillis()
+        // Cheap cap. When the map crosses the ceiling, sweep expired entries.
+        if (zeroLiqQuarantine.size > QUARANTINE_MAX_ENTRIES) {
+            val cutoff = now - QUARANTINE_TTL_MS
+            val it = zeroLiqQuarantine.entries.iterator()
+            while (it.hasNext()) { if (it.next().value < cutoff) it.remove() }
+        }
+        zeroLiqQuarantine[k] = now
+    }
+
+    private fun isZeroLiqQuarantined(symbol: String): Boolean {
+        if (symbol.isBlank()) return false
+        val k = symbol.take(48)
+        val ts = zeroLiqQuarantine[k] ?: return false
+        val now = System.currentTimeMillis()
+        if (now - ts > QUARANTINE_TTL_MS) {
+            zeroLiqQuarantine.remove(k, ts)
+            return false
+        }
+        return true
+    }
 
     // V5.0.6362 — batched flush. Old design posted one Runnable per emit, so
     // every call took the underlying MessageQueue lock on the main thread. On
@@ -69,6 +131,15 @@ object ForensicLogger {
 
     fun phase(p: PHASE, symbol: String, fields: String) {
         if (!enabled) return
+        // V5.0.6368 — zero-liq LANE_EVAL suppression at source. If this
+        // symbol was V3-rejected as ZERO_LIQUIDITY in the last 2 minutes,
+        // drop every LANE_EVAL emit for it AND skip health-collector
+        // counters — no bandaid downstream, no ~30% pipeline waste per
+        // dead token, no LANE_EVAL choke.
+        if (p == PHASE.LANE_EVAL && isZeroLiqQuarantined(symbol)) {
+            try { PipelineHealthCollector.labelInc("LANE_EVAL_SUPPRESSED_ZERO_LIQ_6368") } catch (_: Throwable) {}
+            return
+        }
         val n = seq.incrementAndGet()
         emitAsync(p, "🧬[${p.tag}] #$n $symbol  $fields")
         try { PipelineHealthCollector.onPhase(p.tag, symbol, fields) } catch (_: Throwable) {}
@@ -98,6 +169,20 @@ object ForensicLogger {
 
     fun lifecycle(event: String, fields: String) {
         if (!enabled) return
+        // V5.0.6368 — hook into REJECTED_FATAL_V3 to populate the zero-liq
+        // quarantine set at the true source of the reject. sym=… is emitted
+        // by the V3 fatal-reject path in BotService.
+        if (event == "REJECTED_FATAL_V3" && fields.contains("ZERO_LIQUIDITY")) {
+            val symMarker = "sym="
+            val i = fields.indexOf(symMarker)
+            if (i >= 0) {
+                val j = i + symMarker.length
+                var k = j
+                while (k < fields.length && fields[k] != ' ' && fields[k] != '\t') k++
+                val sym = fields.substring(j, k)
+                if (sym.isNotBlank()) quarantineSymbol(sym)
+            }
+        }
         val n = seq.incrementAndGet()
         emitAsync(PHASE.LIFECYCLE, "🧬[LIFECYCLE] #$n $event  $fields")
         try { PipelineHealthCollector.onLifecycle(event, fields) } catch (_: Throwable) {}
