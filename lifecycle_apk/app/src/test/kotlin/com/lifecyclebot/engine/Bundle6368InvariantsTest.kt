@@ -1,8 +1,8 @@
 package com.lifecyclebot.engine
 
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
-import kotlin.test.assertTrue
 
 /**
  * V5.0.6368 — Bundle invariants.
