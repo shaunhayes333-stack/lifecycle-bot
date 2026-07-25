@@ -4,6 +4,75 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.6366] - 2026-02 — Worker-timeout raise + ghost paper purge + learning-ceiling raise
+
+**Operator directive (verbatim):**
+> workers shouldn't time out thats costing wallet growth and stalling the bot.
+> tokens are stuck they aren't clearing. if they aren't either good hold
+> potential or green tokens they should be sold.
+
+Bundle scoped for easy rollback (`a b c d all now one push`).
+
+**F1a — Worker-timeout raise 9s → 15s.**
+Emergency snapshot showed `SUPERVISOR_EMERGENCY_THROTTLE_ARMED_6362 count=246/10min`
++ 7-batch `SUPERVISOR_LEASE_FORCE_RELEASED afterMs=9750` events. Current external
+API p95 (Jupiter, Birdeye, DexScreener, Groq under rate-limit) pushes past 9 s,
+tripping the correct worker-timeout arm and starving intake to 5 execs in 15 min.
+Raising to 15 s lets slow-but-completing calls finish instead of being
+force-released. Cooling latch cap-drop still applies if the raise isn't enough.
+
+**F2 — Report builder scope check.**
+Investigated. `PipelineHealthActivity` full builder already runs on
+`Thread("PipelineHealth-GenerateCopy-6308")` (line 413) and the watchdog on
+`bgHandler` (line 406) — both off-main. The 58 s frame gap is NOT from the
+report builder. Real source is still Locale.clone in un-migrated
+`String.format` sites (deferred to the "log-format-at-source" workstream).
+No code change in this bundle.
+
+**F3 — Ghost paper position purge (source-of-creation).**
+Operator snapshot: `rawForced=68 rawOpen=68 canonicalPaperOpen=29`. 39 paper
+positions in `status.tokens` with `position.isOpen=true` but no V3 sub-trader
+(Shitcoin/Moonshot/BlueChip/Quality/CashGen) owning them. No exit-evaluator
+ever fires on them → operator saw "tokens stuck they aren't clearing".
+`currentPaperOpenMintsFromLedger` now builds the canonical-owned-mint union
+from all five sub-traders; any raw-ledger paper position not in that union is
+force-closed via `PositionCloseLedger.markClosed` + `PaperPositionCloseAuthority.markClosed`
+with reason `PAPER_GHOST_PURGED_6366`. Sub-trader-owned positions untouched —
+their own hold/exit logic still governs them.
+
+**F4 — Paper learning-eligibility ceiling raised.**
+Investigation: `PaperLearningSanity.configuredMaxTradeSol()` returned
+`max(legacyMax, paperBalance × 0.10).coerceIn(legacyMax, 2.0)` — hard ceiling
+**2.0 SOL**. With a $2237 paper wallet (~30 SOL simulated balance), the 10%
+tried to give ~3 SOL but was clamped to 2.0. Any paper close where
+`t.sol > 2.0` was silently quarantined from the learning aggregators —
+`PAPER_LEARNING_ROW_QUARANTINED_PAPER_SOL_ABOVE_CONFIG_MAX = 2939` in ~90 min.
+Same shape as the V5.0.6361 shim bug: silent learning starvation → tuners
+drift → wallet bleed. Fix: scale to `paperBalance × 0.25` with a bounded
+`[2.0, 20.0]` window. This is a LEARNING-ELIGIBILITY ceiling only, NOT a
+trade-sizing cap. Paper sizing is unaffected (still comes from `Executor.paperBuy()`).
+
+**F5 — Deferred, not implemented in this bundle.**
+Operator's "sell if not green and no hold potential" is a genuine
+trading-behaviour change and needs explicit thresholds: what pnl band counts
+as "not green" (-3% to +3%? -5% to +5%?), what age triggers the cull (10 min?
+15 min?), and what momentum/whale/holder signals define "no hold potential".
+`HoldingLogicLayer.EXIT_NOW` already fires on `fluidMaxHold` (~line 302) and
+legacy `maxHoldTimeMs6091` (~line 312). Cannot land a stagnant-cull rule
+without concrete numbers — will risk cutting real runners. Awaiting operator's
+threshold numbers.
+
+**Tests:** `Bundle6366InvariantsTest` — 4 tests (timeout constant, ghost purge
+wire-up, learning ceiling formula, ceiling math bounds).
+
+**Files:**
+  * `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt` (F1a, F3)
+  * `app/src/main/kotlin/com/lifecyclebot/engine/PaperLearningSanity.kt` (F4)
+  * `app/src/test/kotlin/com/lifecyclebot/engine/Bundle6366InvariantsTest.kt` (new)
+
+---
+
+
 ## [5.0.6365] - 2026-02 — REVERT V5.0.6361 CANONICAL LEARNING SHIM
 
 **Operator directive (verbatim):**

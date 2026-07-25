@@ -15923,6 +15923,29 @@ if (hotExitHandledSweep) {
     private fun currentPaperOpenMintsFromLedger(): Set<String> {
         return try {
             val out = HashSet<String>()
+            // V5.0.6366 — GHOST PAPER PURGE. Operator emergency snapshot:
+            // "rawForced=68 rawOpen=68 canonicalPaperOpen=29". 39 paper
+            // positions were in status.tokens with position.isOpen=true but
+            // NO V3 sub-trader (Shitcoin/Moonshot/BlueChip/Quality/CashGen)
+            // owned them — so no exit-evaluator would ever fire on them.
+            // These "ghosts" occupied slots and blocked new entries while
+            // the operator complained "tokens are stuck they aren't clearing".
+            // Root cause: sub-trader active-position lists drift from the
+            // raw ledger when a close is late-persisted or the sub-trader
+            // restarts. Fix at the source: for every paper position in the
+            // raw ledger that is NOT tracked by ANY V3 sub-trader, force-
+            // close it here so slot health can accept new positions and
+            // the UI stops showing zombies. Sub-trader-owned positions are
+            // left alone — their own hold/exit logic still governs them.
+            val canonicalOwnedMints = try {
+                val set = HashSet<String>()
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositionsForMode(true).forEach { p -> p.mint?.let { set.add(it) } }
+                com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositionsForMode(true).forEach { p -> p.mint?.let { set.add(it) } }
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositionsForMode(true).forEach { p -> p.mint?.let { set.add(it) } }
+                com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositionsForMode(true).forEach { p -> p.mint?.let { set.add(it) } }
+                com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsForMode(true).forEach { p -> p.mint?.let { set.add(it) } }
+                set
+            } catch (_: Throwable) { null }
             synchronized(status.tokens) {
                 status.tokens.values.forEach { ts ->
                     val p = ts.position
@@ -15936,7 +15959,21 @@ if (hotExitHandledSweep) {
                             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_FORCED_ROW_CLEARED_DUST") } catch (_: Throwable) {}
                             try { ForensicLogger.lifecycle("PAPER_FORCED_ROW_CLEARED_DUST", "mint=${ts.mint.take(10)} symbol=${ts.symbol} qty=${p.qtyToken} cost=${p.costSol}") } catch (_: Throwable) {}
                         } else if (p.qtyToken > 1e-12 && p.costSol > 0.0 && p.isOpen && !com.lifecyclebot.engine.PositionCloseLedger.isClosed(ts.mint)) {
-                            out.add(ts.mint)
+                            // V5.0.6366 — ghost purge (paper). If canonical sub-trader ownership
+                            // set is known AND this mint is NOT owned by any of the five V3
+                            // sub-traders, force-close it. The ledger has drifted; keeping it
+                            // open only blocks new entries and stalls the wallet.
+                            val ghost = canonicalOwnedMints != null && ts.mint !in canonicalOwnedMints
+                            if (ghost) {
+                                try { ts.position = com.lifecyclebot.data.Position() } catch (_: Throwable) {}
+                                try { com.lifecyclebot.engine.PositionPersistence.removePosition(ts.mint) } catch (_: Throwable) {}
+                                try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(ts.mint, "PAPER_GHOST_PURGED_6366", 0) } catch (_: Throwable) {}
+                                try { com.lifecyclebot.engine.PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "PAPER_GHOST_PURGED_6366") } catch (_: Throwable) {}
+                                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_GHOST_PURGED_6366") } catch (_: Throwable) {}
+                                try { ForensicLogger.lifecycle("PAPER_GHOST_PURGED_6366", "mint=${ts.mint.take(10)} symbol=${ts.symbol} qty=${p.qtyToken} cost=${p.costSol} reason=not_owned_by_any_v3_subtrader") } catch (_: Throwable) {}
+                            } else {
+                                out.add(ts.mint)
+                            }
                         }
                     }
                 }
@@ -16250,7 +16287,16 @@ if (hotExitHandledSweep) {
     // pumpfun 766ms) pushes per-token p95 past 5s. 8s lets real work complete while
     // still bounding stuck IO well inside the cycle cadence. workerTimeout=15 (real
     // timeouts) vs 668 force-releases proves most workers were NOT genuinely stuck.
-    private val SUPERVISOR_WORKER_TIMEOUT_MS: Long = 9_000L
+    // V5.0.6366 — 9s -> 15s. Operator emergency snapshot showed 246
+    // worker timeouts / 10 min at afterMs=9750, triggering the correct
+    // emergency-throttle worker-timeout arm (cap=16) and starving intake
+    // to 5 execs in 15 min. Root cause: current external API p95 (Jupiter,
+    // Birdeye, DexScreener, Groq under rate-limit) frequently pushes past
+    // 9 s. Raising to 15 s lets those calls complete instead of being
+    // force-released and re-queued 90s later via supervisorTimeoutCooldown,
+    // which was the main drag on wallet growth per operator directive.
+    // Cooling latch cap-drop still applies if the raise itself isn't enough.
+    private val SUPERVISOR_WORKER_TIMEOUT_MS: Long = 15_000L
     // V5.9.1180 — timeout quarantine is per-mint, not global scanner pruning.
     // 3145 showed workerTimeout=239 while WATCHLIST_RR kept reselecting the
     // same slow/no-pair/API-wedged mints. Re-spawning those mints every 5s burns

@@ -19,9 +19,22 @@ object PaperLearningSanity {
         val cfg = loadCfg()
         val min = configuredMinTradeSol()
         val legacyMax = maxOf(min, cfg.maxPositionSol.takeIf { it.isFinite() && it > 0.0 } ?: BotConfig().maxPositionSol)
-        // V5.0.3873 — same live-transfer cap as Executor.paperBuy(). Do not
-        // quarantine valid larger paper rows just because legacy maxPositionSol is 0.15.
-        return maxOf(legacyMax, (cfg.paperSimulatedBalance * 0.10).coerceIn(legacyMax, 2.0))
+        // V5.0.6366 — raise the learning-eligibility ceiling so paper positions
+        // that trade LARGER than the legacy 2.0 SOL cap can still feed the
+        // learning aggregators. Operator emergency snapshot showed
+        // PAPER_LEARNING_ROW_QUARANTINED_PAPER_SOL_ABOVE_CONFIG_MAX = 2939 in
+        // ~90 min with a $2237 paper wallet (~30 SOL simulated balance), i.e.
+        // positions sized ~3 SOL were being silently starved from learning
+        // (same shape as the V5.0.6361 shim bug — different mechanism,
+        // identical outcome: tuners never see those closes → drift → wallet
+        // bleed). The upper coerceIn bound is now proportional to the paper
+        // balance (25% of paper simulated balance) with a floor at 2.0 SOL to
+        // preserve the legacy cap for small paper wallets and a hard ceiling
+        // at 20.0 SOL so a mis-configured huge paper balance can't admit
+        // fantasy rows. NOTE: this is a LEARNING-ELIGIBILITY ceiling only,
+        // NOT a trade-sizing cap. Paper sizing still comes from Executor.paperBuy().
+        val paperCeiling6366 = (cfg.paperSimulatedBalance * 0.25).coerceIn(2.0, 20.0)
+        return maxOf(legacyMax, paperCeiling6366)
     }
 
     fun inspect(t: Trade): Verdict {
