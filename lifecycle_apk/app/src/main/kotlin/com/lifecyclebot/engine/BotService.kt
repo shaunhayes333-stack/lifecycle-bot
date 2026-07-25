@@ -16080,14 +16080,21 @@ if (hotExitHandledSweep) {
         // Convert the timeout-driven cooling write to the same timebase.
         val nowMono = android.os.SystemClock.elapsedRealtime()
         if (timeouts >= 150) supervisorCoolingUntilMs = nowMono + 90_000L
-        val cooling = nowMono < supervisorCoolingUntilMs
-        val cap = when {
-            cooling           -> maxOf(8, base / 3)   // 90s cooling floor
-            timeouts >= 150   -> maxOf(8, base / 3)   // heavy: drain debt first
-            timeouts >= 30    -> maxOf(12, base / 2)  // moderate: report 3717 had 50 and was parked
-            else              -> base                 // healthy: full pool
-        }
-        return cap
+        // V5.0.6362 — RE-ARMED emergency throttle. Was `V5.9.1332: clamp removed;
+        // observation-only`. Operator's V5.0.6361 snapshot showed 300+ worker timeouts
+        // per 10min while the throttle was still just logging. Now
+        // supervisorEmergencyThrottleUntilMs is consulted and the effective cap is
+        // clamped to SUPERVISOR_EMERGENCY_MAX_WORKERS while the arm window is active.
+        // Cooling still runs on top; the stricter floor wins. Exit dispatcher is
+        // unaffected (runs on its own pool).
+        return SupervisorEmergencyThrottle6362.effectiveCap(
+            base = base,
+            emergency = SUPERVISOR_EMERGENCY_MAX_WORKERS,
+            nowMonoMs = nowMono,
+            coolingUntilMs = supervisorCoolingUntilMs,
+            emergencyThrottleUntilMs = supervisorEmergencyThrottleUntilMs,
+            timeouts = timeouts,
+        )
     }
     // V5.9.1319 (Item 3) — emergency-throttle arming. When sustained overload is detected
     // (a cycle exceeding 30s, OR >20 worker timeouts inside a 10-minute window) we clamp the
@@ -16096,15 +16103,23 @@ if (hotExitHandledSweep) {
     @Volatile private var supervisorTimeoutWindowStartMs: Long = 0L
     @Volatile private var supervisorTimeoutWindowCount: Int = 0
     private fun supervisorArmEmergencyThrottle(reason: String, detail: String) {
-        // V5.9.1332 — disarmed. supervisorEffectiveCap() no longer reads
-        // supervisorEmergencyThrottleUntilMs; keeping the function as a no-op
-        // observation log so we can still see when the OLD trip would have
-        // fired (useful telemetry without the destructive cap clamp).
+        // V5.0.6362 — RE-ARMED. Was V5.9.1332 no-op observation. Operator's
+        // V5.0.6361 snapshot: 300+ worker timeouts per 10min while the throttle
+        // was still just logging → cycles ballooned past 200s under heavy intake.
+        // Now the arm writes a 5-minute clamp window; supervisorEffectiveCap
+        // consults it via SupervisorEmergencyThrottle6362.effectiveCap and drops
+        // the worker cap to SUPERVISOR_EMERGENCY_MAX_WORKERS while active.
         try {
-            ForensicLogger.lifecycle(
-                "SUPERVISOR_EMERGENCY_THROTTLE_OBSERVED_DISARMED",
-                "reason=$reason $detail (V5.9.1332: clamp removed; observation-only)",
+            val nowMono = android.os.SystemClock.elapsedRealtime()
+            supervisorEmergencyThrottleUntilMs = SupervisorEmergencyThrottle6362.armUntil(
+                nowMonoMs = nowMono,
+                existingUntilMs = supervisorEmergencyThrottleUntilMs,
             )
+            ForensicLogger.lifecycle(
+                "SUPERVISOR_EMERGENCY_THROTTLE_ARMED_6362",
+                "reason=$reason $detail cap=$SUPERVISOR_EMERGENCY_MAX_WORKERS windowMs=300000",
+            )
+            try { PipelineHealthCollector.labelInc("SUPERVISOR_EMERGENCY_THROTTLE_ARMED_6362") } catch (_: Throwable) {}
         } catch (_: Throwable) {}
     }
     private fun supervisorNoteWorkerTimeoutForThrottle() {

@@ -142,13 +142,15 @@ object RealizedPnlConduit6344 {
                 PipelineHealthCollector.labelInc("CANONICAL_PNL_DIVERGENCE_6344")
                 ForensicLogger.lifecycle(
                     "CANONICAL_PNL_DIVERGENCE_6344",
-                    "mint=${mintAddress.take(10)} classic=${"%.6f".format(classicRealizedSol)} " +
-                        "canonical=${"%.6f".format(verdict.realizedSol)} " +
-                        "allocated=${"%.6f".format(verdict.allocatedEntryCostSol)} " +
-                        "origCost=${"%.6f".format(originalEntryCostSol)} " +
-                        "soldQty=${"%.4f".format(soldQty.unwrap())} " +
-                        "origQty=${"%.4f".format(originalEntryQty)} " +
-                        "cumSold=${"%.4f".format(cumulativeSoldQty)}",
+                    // V5.0.6362 — locale-free formatting to eliminate the Locale.clone
+                    // ANR path on the main thread. See [LocaleFreeFormat6362].
+                    "mint=${mintAddress.take(10)} classic=${LocaleFreeFormat6362.f6(classicRealizedSol)} " +
+                        "canonical=${LocaleFreeFormat6362.f6(verdict.realizedSol)} " +
+                        "allocated=${LocaleFreeFormat6362.f6(verdict.allocatedEntryCostSol)} " +
+                        "origCost=${LocaleFreeFormat6362.f6(originalEntryCostSol)} " +
+                        "soldQty=${LocaleFreeFormat6362.f4(soldQty.unwrap())} " +
+                        "origQty=${LocaleFreeFormat6362.f4(originalEntryQty)} " +
+                        "cumSold=${LocaleFreeFormat6362.f4(cumulativeSoldQty)}",
                 )
             } catch (_: Throwable) {}
         }

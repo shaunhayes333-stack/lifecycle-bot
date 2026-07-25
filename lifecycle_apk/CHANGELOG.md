@@ -4,6 +4,64 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.6362] - 2026-02 — MAIN-THREAD ANR CURE + SUPERVISOR RE-ARM
+
+**Operator directive (verbatim):** "fix all now" — V5.0.6361 snapshot showed
+paper round-tripping cleanly but max frame gap = 25 610 ms (25 s ANR stall)
+and cycles ballooning past 200 s under heavy intake because
+`SUPERVISOR_EMERGENCY_THROTTLE_OBSERVED_DISARMED` was observation-only since
+V5.9.1332.
+
+**F1 — Locale-free formatter kills the `Locale.clone` main-thread stall.**
+`"%.Nf".format(x)` under the hood routes through `java.util.Formatter`,
+which calls `Locale.getDefault().clone()` on every invocation. Under
+30-50 emits/ms on the main thread that clone lock queued and produced
+25 s frame gaps. New `LocaleFreeFormat6362` renders decimals directly
+with integer arithmetic + StringBuilder. Zero locale lookup, zero clone,
+zero `%` interpretation. Wired into the two hot ledgers on the intake
+hot path: `MultiplierAttributionLedger.fmt()` and the six divergence-log
+formatters in `RealizedPnlConduit6344`. Full 702-site migration deferred
+so the golden tape corpus doesn't require re-baselining in this push.
+
+**F2 — ForensicLogger batched drain.** The old design posted one Runnable
+per emit, taking the underlying MessageQueue lock on every call. Now
+emits enqueue into a lock-free `ConcurrentLinkedDeque` and only ONE
+drain Runnable is scheduled at a time; the drain sweeps up to 128 events
+per pass then self-reschedules if more arrived. Main thread now pays
+one MessageQueue op per ~128 events instead of one per event.
+
+**F3 — Supervisor emergency throttle RE-ARMED.** V5.9.1332 disarmed
+`supervisorArmEmergencyThrottle` to a no-op observation logger, so
+300+ worker timeouts per 10min just logged. Now the arm writes a 5-min
+clamp window (`supervisorEmergencyThrottleUntilMs`); `supervisorEffectiveCap`
+consults it via the new pure `SupervisorEmergencyThrottle6362` helper and
+clamps the worker pool to `SUPERVISOR_EMERGENCY_MAX_WORKERS` (=16) while
+active. Cooling still runs on top; the stricter floor wins. Exit
+dispatcher (its own pool) is unaffected — this only trims the intake
+worker pool so wedged IO stops compounding cycles.
+
+**Tests:**
+  * `LocaleFreeFormat6362Test` — 5 tests. Matches printf on standard
+    doubles across f6/f4/f3, invariant across `Locale.FRANCE/GERMANY/pt_BR`
+    default locales, NaN/Inf handled, decimals=0 rendered correctly.
+  * `SupervisorEmergencyThrottleReArm6362Test` — 10 tests. Healthy path
+    returns base cap; armed path clamps to emergency floor; expiry
+    releases cap; `armUntil` never shortens; cooling + emergency floor
+    interaction; moderate + heavy timeout tiers still respected.
+
+**Files:**
+  * `app/src/main/kotlin/com/lifecyclebot/engine/LocaleFreeFormat6362.kt` (new)
+  * `app/src/main/kotlin/com/lifecyclebot/engine/SupervisorEmergencyThrottle6362.kt` (new)
+  * `app/src/main/kotlin/com/lifecyclebot/engine/MultiplierAttributionLedger.kt` (fmt extension)
+  * `app/src/main/kotlin/com/lifecyclebot/engine/RealizedPnlConduit6344.kt` (divergence log)
+  * `app/src/main/kotlin/com/lifecyclebot/engine/ForensicLogger.kt` (batched drain)
+  * `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt` (throttle wire-up)
+  * `app/src/test/kotlin/com/lifecyclebot/engine/LocaleFreeFormat6362Test.kt` (new)
+  * `app/src/test/kotlin/com/lifecyclebot/engine/SupervisorEmergencyThrottleReArm6362Test.kt` (new)
+
+---
+
+
 ## [5.0.4180] - 2026-06 — PHANTOM-WIN GUARD (root cause of bleed)
 
 **Smoking gun in field notifications:**

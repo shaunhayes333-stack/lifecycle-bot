@@ -113,5 +113,9 @@ object MultiplierAttributionLedger {
 
     fun reset() { rows.clear() }
 
-    private fun Double.fmt(d: Int): String = try { "% .${d}f".replace(" ", "").format(this) } catch (_: Throwable) { this.toString() }
+    // V5.0.6362 — locale-free formatter. Old `"% .${d}f".replace(" ","").format(this)`
+    // routed through java.util.Formatter which clones Locale.getDefault() on every
+    // call. Under 30-50 emits/ms on the main thread that clone lock produced 25s
+    // frame gaps in the operator snapshot. See [LocaleFreeFormat6362].
+    private fun Double.fmt(d: Int): String = try { LocaleFreeFormat6362.fmt(this, d) } catch (_: Throwable) { this.toString() }
 }

@@ -28,6 +28,18 @@ object ForensicLogger {
     private val pending = AtomicInteger(0)
     private const val MAX_PENDING = 500
 
+    // V5.0.6362 — batched flush. Old design posted one Runnable per emit, so
+    // every call took the underlying MessageQueue lock on the main thread. On
+    // hot bursts (30-50 emits/ms) that lock queued and stalled the main
+    // thread. Now emits enqueue into a lock-free deque and only ONE drain
+    // Runnable is scheduled at a time; the drain sweeps up to BATCH_MAX_DRAIN
+    // events per pass, then re-schedules itself if the deque still has items.
+    // Effect: one main-thread MessageQueue op per ~128 events instead of one
+    // per event. Never blocks on disk — writes happen on ioThread.
+    private val eventQueue = java.util.concurrent.ConcurrentLinkedDeque<String>()
+    private val drainScheduled = java.util.concurrent.atomic.AtomicBoolean(false)
+    private const val BATCH_MAX_DRAIN = 128
+
     /** Master switch. Default: ON. Operator requested maximum visibility. */
     @Volatile var enabled: Boolean = true
 
@@ -114,6 +126,13 @@ object ForensicLogger {
         // Two-part fix: (1) drop more aggressively when pending backlog is
         // material — raise the dropped phase set so any high-volume non-
         // critical phase falls through fast; (2) cheaper queue probe.
+        //
+        // V5.0.6362 — batched drain. The `ioHandler.post` per-event pattern
+        // still took the MessageQueue lock on every call. Now we enqueue
+        // into a lock-free deque and schedule at most one drain Runnable
+        // at a time; the drain sweeps up to BATCH_MAX_DRAIN events per
+        // pass. Main thread pays one MessageQueue op per burst, not per
+        // event.
         if (!enabled) return
         val p = pending.get()
         if (p > MAX_PENDING) {
@@ -130,13 +149,36 @@ object ForensicLogger {
         // V5.0.3680 — hard ceiling so we never queue beyond 2× MAX_PENDING.
         if (p > MAX_PENDING * 2) return
         pending.incrementAndGet()
-        try {
-            ioHandler.post {
-                try { ErrorLogger.info("FORENSIC", line) } finally { pending.decrementAndGet() }
+        eventQueue.addLast(line)
+        scheduleDrain()
+    }
+
+    private fun scheduleDrain() {
+        if (drainScheduled.compareAndSet(false, true)) {
+            try {
+                ioHandler.post(drainRunnable)
+            } catch (_: Throwable) {
+                // Post failed (looper shutting down etc.); reset the guard so a
+                // future emit can try again.
+                drainScheduled.set(false)
             }
-        } catch (_: Throwable) {
-            // Post failed (looper shutting down etc.); decrement so we don't leak the counter.
-            pending.decrementAndGet()
+        }
+    }
+
+    private val drainRunnable: Runnable = Runnable {
+        try {
+            var drained = 0
+            while (drained < BATCH_MAX_DRAIN) {
+                val next = eventQueue.pollFirst() ?: break
+                try { ErrorLogger.info("FORENSIC", next) } catch (_: Throwable) {}
+                pending.decrementAndGet()
+                drained += 1
+            }
+        } finally {
+            drainScheduled.set(false)
+            // If new events arrived during the drain, re-schedule once so
+            // they don't stall waiting for the next emit.
+            if (!eventQueue.isEmpty()) scheduleDrain()
         }
     }
 }
