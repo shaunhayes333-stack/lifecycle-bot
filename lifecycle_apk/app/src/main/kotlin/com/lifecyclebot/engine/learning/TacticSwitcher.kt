@@ -200,7 +200,10 @@ object TacticSwitcher {
         // the constant block above for rationale — operator asked for self-
         // learning "from trade 1", so magnitude of evidence trumps count of
         // evidence. n>=2 gate prevents a single unlucky rug from tripping it.
-        if (tradesIn >= MAGNITUDE_MIN_SAMPLES && tradesIn < TRIAL_WINDOW &&
+        // Only fires when NOT alreadyPivoted so a bucket that just rotated
+        // to PULLBACK isn't immediately rotated again by the same loss window
+        // (post-pivot-fast handles subsequent rotations).
+        if (!alreadyPivoted && tradesIn >= MAGNITUDE_MIN_SAMPLES && tradesIn < TRIAL_WINDOW &&
             lossRate >= MAGNITUDE_LOSS_RATE && meanPnl <= MAGNITUDE_MEAN_PNL) {
             rotate(lane, scoreBand, cell, "magnitude lossRate=${"%.0f".format(lossRate * 100)}% mean=${"%+.1f".format(meanPnl)}% n=$tradesIn")
             return
