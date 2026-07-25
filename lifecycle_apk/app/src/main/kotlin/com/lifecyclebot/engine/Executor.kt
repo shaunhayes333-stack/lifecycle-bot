@@ -10913,10 +10913,24 @@ class Executor(
                  debitPaperWallet: Boolean = true,
                  maxPaperTradeSolOverride: Double? = null) {
         try { PipelineHealthCollector.labelInc("PAPER_BUY_ATTEMPT") } catch (_: Throwable) {}
+        // V5.0.6369 — PAPER BUY FANOUT RACE CLAIM.
+        // Runtime 6368 showed the same BLUECHIP paper mint opening twice within
+        // milliseconds while lane fanout was active. The old guard checked only
+        // ts.position.isOpen after advisor/route/finality work; concurrent lane
+        // passes could all observe closed before recordTrade() mutated the shared
+        // position. Reuse ExecutionAttemptLease as an early per-mint BUY claim for
+        // PAPER/SHADOW too, so lane fanout can observe but only one path opens.
+        var paperBuyLeaseKey6369 = ""
+        var paperBuyLeaseMode6369 = "PAPER"
+        var paperBuyLeaseProcessor6369 = "PAPER_BUY"
 
         fun markPaperBuyNotOpened(reason: String) {
             try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_$reason") } catch (_: Throwable) {}
+            if (paperBuyLeaseKey6369.isNotBlank()) {
+                try { ExecutionAttemptLease.releaseNonTerminal(paperBuyLeaseKey6369, "BUY", ts.mint, ts.symbol, "PAPER_BUY_NOT_OPENED_$reason") } catch (_: Throwable) {}
+                paperBuyLeaseKey6369 = ""
+            }
             try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
             try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, layerTag.ifBlank { ts.position.tradingMode.ifBlank { "PAPER" } }, "BUY_NOT_OPENED_$reason") } catch (_: Throwable) {}
             try { ForensicLogger.lifecycle("PAPER_BUY_NOT_OPENED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$reason attemptId=$attemptId") } catch (_: Throwable) {}
@@ -10994,11 +11008,36 @@ class Executor(
             return
         }
         val routeIsShadow = routeVerdict.route == ExecutionRouteGuard.Route.SHADOW
+        paperBuyLeaseMode6369 = if (routeIsShadow) "SHADOW" else "PAPER"
+        val finalityLane = layerTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source?.takeIf { it.isNotBlank() } ?: "STANDARD" } }
+        paperBuyLeaseProcessor6369 = "PAPER_BUY_${finalityLane.uppercase()}"
+        val paperBuyLease6369 = try {
+            ExecutionAttemptLease.acquire(
+                side = "BUY",
+                mint = ts.mint,
+                symbol = ts.symbol,
+                processor = paperBuyLeaseProcessor6369,
+                mode = paperBuyLeaseMode6369,
+                generation = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L },
+                leaseMs = 20_000L,
+            )
+        } catch (t: Throwable) { ExecutionAttemptLease.Verdict(true, "", "lease_error:${t.javaClass.simpleName}") }
+        if (!paperBuyLease6369.allowed) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_BUY_DUPLICATE_SUPPRESSED_6369")
+                ForensicLogger.lifecycle(
+                    "PAPER_BUY_DUPLICATE_SUPPRESSED_6369",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$finalityLane mode=$paperBuyLeaseMode6369 reason=${paperBuyLease6369.reason} backoffMs=${paperBuyLease6369.backoffMs}",
+                )
+            } catch (_: Throwable) {}
+            markPaperBuyNotOpened("DUPLICATE_LEASE_ACTIVE_6369")
+            return
+        }
+        paperBuyLeaseKey6369 = paperBuyLease6369.key
 
         if (!finalityPrechecked) {
             // V5.9.1331 — prefer the real lane (layerTag → position.tradingMode) and fall
             // back to "STANDARD" not "UNKNOWN" so finality/journal lane attribution is correct.
-            val finalityLane = layerTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source?.takeIf { it.isNotBlank() } ?: "STANDARD" } }
             val executableOpen = ExecutableOpenGate.canOpenExecutablePosition(
                 ts = ts,
                 mode = if (routeIsShadow) "SHADOW" else "PAPER",
@@ -11402,6 +11441,10 @@ class Executor(
         recordTrade(ts, trade)
         security.recordTrade(trade)
         try { PipelineHealthCollector.labelInc("PAPER_BUY_OPENED") } catch (_: Throwable) {}
+        if (paperBuyLeaseKey6369.isNotBlank()) {
+            try { ExecutionAttemptLease.terminalOk(paperBuyLeaseKey6369, "BUY", tradeId.mint, tradeId.symbol, "PAPER_BUY_OPENED_6369") } catch (_: Throwable) {}
+            paperBuyLeaseKey6369 = ""
+        }
 
         EmergentGuardrails.registerPosition(tradeId.mint, tradeId.symbol, currentLayer, actualSol)
         // V5.9.385 — the GHOST POSITION fix. V5.9.369 added a guard in

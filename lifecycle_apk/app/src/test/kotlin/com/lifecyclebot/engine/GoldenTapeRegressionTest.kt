@@ -7322,4 +7322,26 @@ class GoldenTapeRegressionTest {
             ui.contains("AATE PIPELINE EMERGENCY REPORT V5.0.6308") && ui.contains("FDG BLOCK REASONS") && ui.contains("LIVE BUY FAIL REASONS") && ui.contains("INTAKE BY SOURCE") && ui.contains("RECENT EVENTS"))
     }
 
+
+    @Test
+    fun V5_0_6369_paper_lane_fanout_cannot_duplicate_open_or_broad_cashgen_rescue() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val paperBuy = exec.substring(exec.indexOf("fun paperBuy("), exec.indexOf("// This runs before wrapper PAPER_BUY", exec.indexOf("fun paperBuy(")))
+        assertTrue("V5.0.6369: paperBuy must acquire an early per-mint BUY lease before tradeId/open mutation so lane fanout cannot double-open the same paper mint",
+            paperBuy.contains("PAPER BUY FANOUT RACE CLAIM") &&
+                paperBuy.contains("ExecutionAttemptLease.acquire") &&
+                paperBuy.indexOf("ExecutionAttemptLease.acquire") < paperBuy.indexOf("val tradeId =") &&
+                paperBuy.contains("PAPER_BUY_DUPLICATE_SUPPRESSED_6369"))
+        assertTrue("V5.0.6369: paperBuy must release the early lease on not-opened paths and clear it on successful open",
+            paperBuy.contains("ExecutionAttemptLease.releaseNonTerminal") &&
+                paperBuy.contains("PAPER_BUY_NOT_OPENED_") &&
+                paperBuy.contains("ExecutionAttemptLease.terminalOk") &&
+                paperBuy.contains("PAPER_BUY_OPENED_6369"))
+        assertTrue("V5.0.6369: PAPER CashGen/Treasury rescue must require explicit lane affinity; broad score/liquidity rescue is live-only to prevent runtime lane fanout explosions",
+            bot.contains("paperCashTreasuryRescue6369") &&
+            bot.contains("""!RuntimeModeAuthority.isLive() && l in setOf("TREASURY", "CASHGEN") && affinity.contains(l)""") &&
+                bot.contains("val rescueModeAllowed6072 = RuntimeModeAuthority.isLive() || paperCashTreasuryRescue6369"))
+    }
+
 }

@@ -10360,7 +10360,16 @@ class BotService : Service() {
             // learning surface. Quality-family rescue stays live-only (paper WR
             // dilution guard); TREASURY/CASHGEN rescue is bounded by
             // cashGenEligible + affinity/score/liq conditions below.
-            val rescueModeAllowed6072 = RuntimeModeAuthority.isLive() || l in setOf("TREASURY", "CASHGEN")
+            // V5.0.6369 — PAPER FANOUT BACKSTOP.
+            // 6072 extended CASHGEN/TREASURY rescue to PAPER, but the non-pressure
+            // branch below admits them on broad score/liquidity even when the token
+            // has no explicit CASHGEN/TREASURY affinity. Runtime 6368 showed this
+            // back as lane-fanout pressure + duplicate paper BUYs. Live keeps the
+            // profitable rescue logic; paper only gets CASHGEN/TREASURY rescue when
+            // the classifier/source explicitly tagged that lane. Owner rotation still
+            // samples every ring lane over time, so learning breadth is preserved.
+            val paperCashTreasuryRescue6369 = !RuntimeModeAuthority.isLive() && l in setOf("TREASURY", "CASHGEN") && affinity.contains(l)
+            val rescueModeAllowed6072 = RuntimeModeAuthority.isLive() || paperCashTreasuryRescue6369
             val profitableRescue = rescueModeAllowed6072 && l in setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP", "MOONSHOT", "PROJECT_SNIPER") && (
                 if (fanoutPressure4522.active) {
                     // V5.0.4522 — pressure mode: keep owner rotation + explicit affinity,
