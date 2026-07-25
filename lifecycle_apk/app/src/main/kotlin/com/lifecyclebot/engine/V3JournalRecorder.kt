@@ -255,52 +255,37 @@ object V3JournalRecorder {
         //    journal write actually landed so trackers don't diverge from
         //    the on-disk truth.
         if (wrote) {
-            // V5.0.6361 — CANONICAL LEARNING CONTRACT ENFORCEMENT (P0-4 wire-up).
-            //   Before folding this closed row into ANY canonical learning
-            //   aggregator (ScoreExpectancyTracker, HoldDurationTracker,
-            //   ExitReasonTracker, LaneExitTuner, TacticSwitcher,
-            //   ColdStreakDamper, DamageControlGate), run it through
-            //   CanonicalLearningContract6346.assess. Quarantined rows are
-            //   allowed to reach the journal (already written above via
-            //   TradeHistoryStore.recordTrade) but MUST NOT feed the tuners.
-            //   Cupsey-style parity failures and broadcast-only attributions
-            //   would otherwise poison every downstream sizing / tactic /
-            //   damper decision.
-            val canonicalContract6361 = try {
-                val proof = if (isPaper) "PAPER" else "LIVE_FINALIZED"
-                val shimTrade = com.lifecyclebot.data.Trade(
-                    side = "SELL",
-                    mode = if (isPaper) "paper" else "live",
-                    sol = pnlSol.coerceAtLeast(0.0),
-                    price = exitPrice,
-                    ts = System.currentTimeMillis(),
-                    reason = exitReason,
-                    pnlSol = pnlSol,
-                    pnlPct = pnlPct,
-                    entryPriceSnapshot = entryPrice,
-                    entryCostSol = sizeSol,
-                    entryQtyToken = 0.0,
-                    soldQtyToken = 0.0,
-                    mint = mint,
-                )
-                com.lifecyclebot.engine.CanonicalLearningContract6346.assess(
-                    trade = shimTrade,
-                    proofSource = proof,
-                    tokenDecimals = 6,  // pump.fun default; contract skips decimal check when qty=0
-                )
-            } catch (_: Throwable) { null }
-            val canonicalAdmitted6361 = canonicalContract6361?.isCanonical ?: true
-            if (!canonicalAdmitted6361) {
-                try {
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_LEARNING_AGGREGATOR_SKIPPED_6361")
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                        "CANONICAL_LEARNING_AGGREGATOR_SKIPPED_6361",
-                        "mint=${mint.take(10)} symbol=$symbol lane=$layer paper=$isPaper " +
-                            "reasons=${canonicalContract6361?.reasons?.joinToString("|")} action=skip_all_tuners"
-                    )
-                } catch (_: Throwable) {}
-            }
-            if (canonicalAdmitted6361) {
+            // V5.0.6365 — REVERTED V5.0.6361 CANONICAL LEARNING CONTRACT SHIM.
+            //   Operator (verbatim): "was over 80% winrate 3 updates ago /
+            //   wallet was growing / now 100 tokens open, wallet shrinking."
+            //   V5.0.6360 was the last known-good state; V5.0.6361 wrapped
+            //   every learning aggregator behind a shim call to
+            //   CanonicalLearningContract6346.assess. The shim built a
+            //   synthetic Trade with `entryQtyToken=0.0, soldQtyToken=0.0,
+            //   tokenDecimals=6` (hardcoded pump.fun default) because
+            //   recordClose has NO qty parameter — literally no way to
+            //   supply real values.
+            //
+            //   The shim mostly returns CANONICAL because qty=0 skips the
+            //   parity checks, BUT any close reaching this method with
+            //   sizeSol<=0 or entryPrice<=0 (stale positions, partial
+            //   refunds, price-glitched exits) hits the SELL missing-basis
+            //   branch (lines 115-122 of the contract) and gets QUARANTINED.
+            //   Every quarantined close silently skipped
+            //   ScoreExpectancyTracker / HoldDurationTracker /
+            //   ExitReasonTracker / LaneExitTuner / TacticSwitcher /
+            //   ColdStreakDamper / DamageControlGate / LanePolicy /
+            //   RetrainingDecay — the exact levers that decide sizing +
+            //   entry tactic + exit rule. Over hours the tuners drifted
+            //   and the bot could no longer reject its own losers.
+            //
+            //   Correct source-of-creation posture: canonical eligibility
+            //   MUST be enforced at the layer that HAS qty (Executor sell
+            //   path, or FillLotLedger6344 — both live upstream of this
+            //   recorder). Doing it here with a shim that hardcodes 0.0
+            //   is worse than not doing it at all. The Executor V5.0.6361
+            //   full-exit qty preservation is unaffected and remains in
+            //   place — that write happens at the correct layer.
             try { ScoreExpectancyTracker.record(layer, entryScore, pnlPctLearn) } catch (_: Exception) {}
             try { HoldDurationTracker.record(layer, holdMinutes, pnlPctLearn) } catch (_: Exception) {}
             try { ExitReasonTracker.record(layer, exitReason, pnlPctLearn) } catch (_: Exception) {}
@@ -362,7 +347,6 @@ object V3JournalRecorder {
                 // (b) smooth per-loss execution-weight decay / per-win recovery
                 com.lifecyclebot.engine.learning.RetrainingDecay.noteOutcome(layer, bandL, isWinL, isLossL)
             } catch (_: Exception) {}
-            }   // end V5.0.6361 canonicalAdmitted6361 block
         }
     }
 }

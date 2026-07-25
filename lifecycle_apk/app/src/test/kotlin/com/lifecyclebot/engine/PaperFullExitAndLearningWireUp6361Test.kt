@@ -29,16 +29,30 @@ class PaperFullExitAndLearningWireUp6361Test {
     }
 
     @Test
-    fun v3_journal_recorder_gates_learning_aggregators_on_canonical_contract() {
+    fun v3_journal_recorder_no_longer_gates_learning_on_broken_shim_contract() {
+        // V5.0.6365 — the V5.0.6361 shim was reverted after operator report
+        // showed WR dropped 80% → 32% and wallet started shrinking on hourly
+        // scale. Root cause: recordClose has NO qty parameter, so the shim
+        // hardcoded `entryQtyToken=0.0, soldQtyToken=0.0, tokenDecimals=6`.
+        // The contract's SELL missing-basis branch (lines 115-122) then
+        // QUARANTINED any close reaching this recorder with sizeSol<=0 or
+        // entryPrice<=0 — starving every learning aggregator that decides
+        // sizing, tactic, exit rule. Canonical eligibility must be enforced
+        // at the layer that HAS qty (Executor / FillLotLedger6344), not
+        // via a shim.
         val txt = File("src/main/kotlin/com/lifecyclebot/engine/V3JournalRecorder.kt").readText()
-        assertTrue("V3JournalRecorder must call CanonicalLearningContract6346.assess",
-            txt.contains("CanonicalLearningContract6346.assess("))
-        assertTrue("aggregator fanout must be gated on canonicalAdmitted6361",
-            txt.contains("if (canonicalAdmitted6361)"))
-        assertTrue("quarantine skip must emit CANONICAL_LEARNING_AGGREGATOR_SKIPPED_6361",
-            txt.contains("CANONICAL_LEARNING_AGGREGATOR_SKIPPED_6361"))
-        assertTrue("V5.0.6361 rationale must be documented inline",
-            txt.contains("V5.0.6361"))
+        assertFalse(
+            "V5.0.6365: the recordClose canonical shim gate must be removed.",
+            txt.contains("if (canonicalAdmitted6361)"),
+        )
+        assertFalse(
+            "V5.0.6365: the recordClose canonical shim label must be removed.",
+            txt.contains("CANONICAL_LEARNING_AGGREGATOR_SKIPPED_6361"),
+        )
+        assertTrue(
+            "V5.0.6365: the revert reason must be documented inline.",
+            txt.contains("V5.0.6365"),
+        )
     }
 
     @Test

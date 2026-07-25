@@ -4,6 +4,68 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.6365] - 2026-02 — REVERT V5.0.6361 CANONICAL LEARNING SHIM
+
+**Operator directive (verbatim):**
+> earlier today I said performance was amazing. the wallet balance was
+> actually increasing winrate was above 80%. this would be around build 6360.
+> now it has 100 tokens open, balance isn't growing, wallet is shrinking.
+
+V5.0.6360 was the last known-good state. Regression window is V5.0.6361 →
+now. Diff'd `029d677b4..0749a6404` and found the offending change.
+
+**Regression source:** `V3JournalRecorder.recordClose()` was wrapped in a
+canonical-eligibility gate:
+
+```kotlin
+val shimTrade = Trade(
+    side = "SELL",
+    entryQtyToken = 0.0,        // <-- HARDCODED
+    soldQtyToken = 0.0,         // <-- HARDCODED
+    entryCostSol = sizeSol,
+    entryPriceSnapshot = entryPrice,
+    ...
+)
+val canonicalAdmitted6361 =
+    CanonicalLearningContract6346.assess(shimTrade, proof, tokenDecimals = 6).isCanonical
+if (canonicalAdmitted6361) {
+    // ScoreExpectancyTracker, HoldDurationTracker, ExitReasonTracker,
+    // LaneExitTuner, TacticSwitcher, ColdStreakDamper, DamageControlGate,
+    // LanePolicy, RetrainingDecay — ALL gated here.
+}
+```
+
+`recordClose` has NO qty parameter — literally no way to fill in real values.
+The shim mostly returns CANONICAL because qty=0 skips the parity checks, BUT
+the contract's SELL missing-basis branch (contract lines 115-122) quarantines
+any close reaching this method with `sizeSol <= 0` OR `entryPrice <= 0`
+(stale positions, partial refunds, price-glitched exits).
+
+Every quarantined close SILENTLY skipped nine learning aggregators — the
+exact levers that decide sizing / entry tactic / exit rule / rolling-WR lane
+policy. Over hours the tuners drifted and the bot could no longer reject its
+own losers.
+
+**Fix:** revert the wrap. Restore V5.0.6360's direct learning aggregator
+calls. Canonical eligibility MUST be enforced at the layer that HAS qty
+(Executor sell path, FillLotLedger6344) — both live upstream of this
+recorder. Shim-gating with hardcoded 0.0 is worse than not gating at all.
+
+**Preserved from V5.0.6361:** the Executor paper full-exit qty preservation
+is UNCHANGED. That write happens at the correct layer (Executor.kt line
+~17531) with real `pos.qtyToken / pos.costSol / pos.entryPrice`.
+
+**Test:**
+  * Updated `PaperFullExitAndLearningWireUp6361Test.v3_journal_recorder_no_longer_gates_learning_on_broken_shim_contract`
+    — golden-tape guard flipped: shim gate must be ABSENT.
+
+**Files:**
+  * `app/src/main/kotlin/com/lifecyclebot/engine/V3JournalRecorder.kt` (revert shim wrap)
+  * `app/src/test/kotlin/com/lifecyclebot/engine/PaperFullExitAndLearningWireUp6361Test.kt` (updated guard)
+
+---
+
+
 ## [5.0.6364] - 2026-02 — SOURCE-OF-CREATION PASS (probation zero-liq loop + cycle-time arm removal)
 
 **Operator directive (verbatim):**
