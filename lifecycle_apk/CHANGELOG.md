@@ -4,6 +4,66 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.6363] - 2026-02 — SCANNER CIRCUIT BREAKER + BRAIN FLOOR + THROTTLE OBSERVABILITY
+
+**Operator directive (V5.0.6362 emergency snapshot):**
+```
+cycles avgMs=9643 maxMs=136047 recent=...87679,31073,25558,12810,62979,26811,114153,136047,132481
+scanPumpFunDirect:169 timeouts total=12
+brain=0.262 → product=0.144 (14.4% of base) — MULTIPLIER_ATTRIBUTION_DUST_STACK_4272
+rolling 50 WR: 80% → 32%
+PAPER_LANE_QUARANTINE_STILL_SAMPLING_6094 = 4073 events/55min
+```
+
+**Read on the V5.0.6362 fix:** ANR path cured (`maxFrameGapMs=5359`, was 25 610).
+Two new bottlenecks emerged:
+
+**F1 — Scanner source circuit breaker.** `scanPumpFunDirect` burned 169 × 5s
+of scan-batch time returning nothing. New `ScannerSourceCircuitBreaker6363`
+trips a source after 3 consecutive timeouts and cools it for 60s. Auto-heals
+on first successful scan. Non-timeout errors don't count toward the streak
+(source is reachable, just noisy). Fully bounded — never a permanent ban.
+Wired at `SolanaMarketScanner.runScan()`.
+
+**F2 — Brain multiplier floor.** `BotBrain.getRiskAdjustedSizeMultiplier`
+returned 0.262 on STANDARD-lane phase/emaFan/source tuples with weak evidence,
+crushing product to 0.144. Winning trades netted pennies while losses bled at
+full slippage — asymmetric bleed that collapsed rolling-50 WR from 80% to 32%.
+New `BrainMultiplierFloor6363` floors the brain component at 0.50 in the sizing
+stack (Executor.kt ~line 9916). Hard-veto callers (TOXIC/CATASTROPHIC verdicts)
+bypass the floor to preserve safety semantics.
+
+**F3 — Rate-limit `PAPER_LANE_QUARANTINE_STILL_SAMPLING_6094`.** Was firing
+74/min = 4073 events per 55min window. Same 30s per-lane cooldown pattern
+as the V5.0.6358 DUST_STACK rate-limit. Label counter still increments every
+call so operator dashboards keep the frequency signal.
+
+**F4 — Emergency-throttle diagnostic heartbeat.** New label
+`SUPERVISOR_EMERGENCY_THROTTLE_ACTIVE_6363` emits at most once per 30s while
+the V5.0.6362 emergency clamp is engaged. If this label is absent from a
+snapshot while cycle times are elevated, the arm path is silently no-op'd.
+Emits from `supervisorNoteCycleElapsedForThrottle` on the same critical path
+that arms the clamp.
+
+**Tests:**
+  * `ScannerSourceCircuitBreaker6363Test` — 7 tests. Trips after 3 timeouts,
+    respects cooldown, self-heals on success, ignores non-timeout errors,
+    trip-counter increments only on trip, bounded constants.
+  * `BrainMultiplierFloor6363Test` — 7 tests. Lifts sub-floor, passes
+    healthy through, hard-veto bypass, lift-counter only on actual lift.
+
+**Files:**
+  * `app/src/main/kotlin/com/lifecyclebot/engine/ScannerSourceCircuitBreaker6363.kt` (new)
+  * `app/src/main/kotlin/com/lifecyclebot/engine/BrainMultiplierFloor6363.kt` (new)
+  * `app/src/main/kotlin/com/lifecyclebot/engine/SolanaMarketScanner.kt` (wire breaker)
+  * `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt` (wire floor)
+  * `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt` (F3 + F4)
+  * `app/src/test/kotlin/com/lifecyclebot/engine/ScannerSourceCircuitBreaker6363Test.kt` (new)
+  * `app/src/test/kotlin/com/lifecyclebot/engine/BrainMultiplierFloor6363Test.kt` (new)
+
+---
+
+
 ## [5.0.6362] - 2026-02 — MAIN-THREAD ANR CURE + SUPERVISOR RE-ARM
 
 **Operator directive (verbatim):** "fix all now" — V5.0.6361 snapshot showed

@@ -9914,7 +9914,13 @@ class Executor(
         // shrinks size accordingly. Defaults to 1.0 when brain is null or
         // context has no history — bootstrap-safe.
         val brainSizeMult = try {
-            brain?.getRiskAdjustedSizeMultiplier(ts.phase, ts.meta.emafanAlignment, ts.source) ?: 1.0
+            val raw = brain?.getRiskAdjustedSizeMultiplier(ts.phase, ts.meta.emafanAlignment, ts.source) ?: 1.0
+            // V5.0.6363 — brain floor. V5.0.6362 snapshot showed brain=0.262 crushing STANDARD
+            // lane entries to product=0.144 (14.4% of base). Rolling 50 WR dropped 80% → 32%
+            // because winning trades netted pennies while losses bled at full slippage. Floor
+            // at 0.50 so no per-context tuple can dust-crush size below half base. Hard vetoes
+            // (TOXIC/CATASTROPHIC verdicts) still bypass elsewhere in the stack.
+            BrainMultiplierFloor6363.apply(raw, hardVeto = false)
         } catch (_: Throwable) { 1.0 }
         // V5.0.4117 — WIRE AGI STACK INTO BUY SIZING.
         // LiveStrategyTuner.sizeMult was computed per-lane but never applied

@@ -10090,10 +10090,15 @@ class BotService : Service() {
                 if (paperRuntime6094) {
                     try {
                         PipelineHealthCollector.labelInc("PAPER_LANE_QUARANTINE_STILL_SAMPLING_6094_${lane.uppercase()}")
-                        ForensicLogger.lifecycle(
-                            "PAPER_LANE_QUARANTINE_STILL_SAMPLING_6094",
-                            "lane=$lane symbol=${ts.symbol} mint=${ts.mint.take(10)} primary=$primaryLane reason=paper_enabled_live_quarantined",
-                        )
+                        // V5.0.6363 — 30s per-lane cooldown on the disk emit. V5.0.6362 snapshot
+                        // showed this label firing 4073 times in 55min (74/min). Label counter
+                        // still increments every call so frequency data is preserved.
+                        if (ForensicEmitRateLimiter6356.shouldEmit("PAPER_LANE_QUARANTINE_STILL_SAMPLING_6094", lane)) {
+                            ForensicLogger.lifecycle(
+                                "PAPER_LANE_QUARANTINE_STILL_SAMPLING_6094",
+                                "lane=$lane symbol=${ts.symbol} mint=${ts.mint.take(10)} primary=$primaryLane reason=paper_enabled_live_quarantined",
+                            )
+                        }
                     } catch (_: Throwable) {}
                 } else {
                     LaneQuarantineController.logBlockedEntry(lane, ts.symbol, ts.mint, primaryLane)
@@ -15827,6 +15832,11 @@ if (hotExitHandledSweep) {
     // Emergency throttle target — effective cap drops to this on sustained overload.
     private val SUPERVISOR_EMERGENCY_MAX_WORKERS: Int = 16
     @Volatile private var supervisorEmergencyThrottleUntilMs: Long = 0L
+    // V5.0.6363 — periodic "still-armed" telemetry so ops snapshots can prove the
+    // clamp is engaging. Emits at most once per SUPERVISOR_ACTIVE_HEARTBEAT_MS
+    // while supervisorEmergencyThrottleUntilMs is in the future.
+    @Volatile private var supervisorEmergencyActiveLastEmitMs: Long = 0L
+    private val SUPERVISOR_ACTIVE_HEARTBEAT_MS: Long = 30_000L
     // V5.9.1470 (spec item 5) — BOUNDED BACKPRESSURE + COOLING (replaces observation-only).
     // The operator snapshot shows worker_timeout >2000/10min while the throttle was pure
     // observation, so a lease-storm could run unbounded (FORCE_RELEASED=5620). The 1332
@@ -16163,6 +16173,24 @@ if (hotExitHandledSweep) {
         // disables lanes/exits — it just trims concurrent worker cap to 8
         // so wedged IO stops compounding. Exit dispatcher unaffected.
         if (cycleMs > 15_000L) supervisorArmEmergencyThrottle("max_cycle_ms", "cycleMs=$cycleMs")
+        // V5.0.6363 — periodic "still-armed" telemetry pulse. Emits at most once
+        // per SUPERVISOR_ACTIVE_HEARTBEAT_MS while emergency throttle is armed
+        // so the next operator snapshot can PROVE the clamp is engaging. If this
+        // label is missing from a snapshot while cycle times are elevated, the
+        // arm path is silently no-op'd.
+        try {
+            val nowMono = android.os.SystemClock.elapsedRealtime()
+            if (nowMono < supervisorEmergencyThrottleUntilMs &&
+                nowMono - supervisorEmergencyActiveLastEmitMs > SUPERVISOR_ACTIVE_HEARTBEAT_MS) {
+                supervisorEmergencyActiveLastEmitMs = nowMono
+                val remainingMs = supervisorEmergencyThrottleUntilMs - nowMono
+                ForensicLogger.lifecycle(
+                    "SUPERVISOR_EMERGENCY_THROTTLE_ACTIVE_6363",
+                    "cap=$SUPERVISOR_EMERGENCY_MAX_WORKERS remainingMs=$remainingMs cycleMs=$cycleMs",
+                )
+                PipelineHealthCollector.labelInc("SUPERVISOR_EMERGENCY_THROTTLE_ACTIVE_6363")
+            }
+        } catch (_: Throwable) {}
         // V5.0.6308a — R2 fix (testing agent iter_5). Use SystemClock.elapsedRealtime
         // instead of wall clock so NTP steps can't collapse or extend the cooling
         // window arbitrarily. Cooling window is now DYNAMIC = max(base, cycleMs*1.5)

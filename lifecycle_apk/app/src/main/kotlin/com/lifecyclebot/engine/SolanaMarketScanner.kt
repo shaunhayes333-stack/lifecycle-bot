@@ -1051,6 +1051,13 @@ class SolanaMarketScanner(
     }
 
     private suspend fun runScan(name: String, block: suspend () -> Unit) {
+        // V5.0.6363 — Scanner source circuit breaker. If the source has hit
+        // TRIP_THRESHOLD consecutive timeouts, skip it for COOLDOWN_MS ms
+        // so it stops burning the batch budget. Auto-heals on first success.
+        if (!ScannerSourceCircuitBreaker6363.shouldRun(name)) {
+            try { PipelineHealthCollector.labelInc("SCANNER_SOURCE_CIRCUIT_BREAKER_SKIP_6363") } catch (_: Throwable) {}
+            return
+        }
         telemetrySourceAttempts++
         lastSourceAttemptMs = System.currentTimeMillis()
         val startedAt = System.currentTimeMillis()
@@ -1060,6 +1067,7 @@ class SolanaMarketScanner(
             withTimeout(SOURCE_SCAN_TIMEOUT_MS) { block() }
             telemetrySourceSuccesses++
             sourceTimeoutStreak.remove(name)  // V5.9.1497 — healthy → reset deprioritization
+            ScannerSourceCircuitBreaker6363.onSuccess(name)  // V5.0.6363 — clear breaker on success
             try {
                 ForensicLogger.lifecycle(
                     "SCANNER_SOURCE_DONE",
@@ -1070,12 +1078,21 @@ class SolanaMarketScanner(
             telemetrySourceErrors++
             val streak = (sourceTimeoutStreak[name] ?: 0) + 1  // V5.9.1497
             sourceTimeoutStreak[name] = streak
+            // V5.0.6363 — feed the breaker; may trip after TRIP_THRESHOLD consecutive.
+            val tripped = ScannerSourceCircuitBreaker6363.onTimeout(name)
             ErrorLogger.warn("Scanner", "$name timed out after ${SOURCE_SCAN_TIMEOUT_MS}ms (streak=$streak)")
             try { ForensicLogger.lifecycle("SCANNER_SOURCE_TIMEOUT", "name=$name raw=${telemetryRawScanned - rawBefore} enq=${telemetryEnqueued - enqBefore} durMs=${System.currentTimeMillis() - startedAt}") } catch (_: Throwable) {}
+            if (tripped) {
+                try { ForensicLogger.lifecycle("SCANNER_SOURCE_CIRCUIT_BREAKER_TRIPPED_6363", "name=$name streak=$streak cooldownMs=${ScannerSourceCircuitBreaker6363.COOLDOWN_MS}") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("SCANNER_SOURCE_CIRCUIT_BREAKER_TRIPPED_6363") } catch (_: Throwable) {}
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             telemetrySourceErrors++
+            // V5.0.6363 — non-timeout errors don't count toward the trip streak
+            // (the request completed with a definitive answer).
+            ScannerSourceCircuitBreaker6363.onError(name)
             ErrorLogger.warn("Scanner", "$name error: ${e.message}")
             try { ForensicLogger.lifecycle("SCANNER_SOURCE_ERROR", "name=$name err=${e.javaClass.simpleName}:${e.message?.take(80)}") } catch (_: Throwable) {}
         } finally {
