@@ -11164,6 +11164,26 @@ class Executor(
 
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
 
+        // V5.0.6370 — GLOBAL SAME-MINT PAPER OPEN GUARD.
+        // 6369 fixed millisecond duplicate paper BUY races with a short lease, but
+        // runtime 6369 still showed the same mint opening under COPYTRADE then
+        // MOONSHOT ~21s later from a separate TokenState alias. ts.position.isOpen
+        // is local to the token object, and shouldBlockMultiLayerEntry() only blocks
+        // different layers. Before spending price/size/executor work, consult the
+        // process-wide position registry and block ANY existing paper/layer owner
+        // for this mint until the sell path unregisters it.
+        val existingLayer6370 = try { EmergentGuardrails.getPositionLayer(tradeId.mint) } catch (_: Throwable) { null }
+        if (!existingLayer6370.isNullOrBlank()) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_BUY_SAME_MINT_OPEN_SUPPRESSED_6370")
+                PipelineHealthCollector.onGate("EXEC_GATE", tradeId.symbol, false, "PAPER_SAME_MINT_ALREADY_OPEN_6370 existing=$existingLayer6370 requested=${layerTag.ifBlank { "PAPER" }}")
+                ForensicLogger.lifecycle("PAPER_BUY_SAME_MINT_OPEN_SUPPRESSED_6370", "mint=${tradeId.mint.take(10)} symbol=${tradeId.symbol} existing=$existingLayer6370 requested=${layerTag.ifBlank { "PAPER" }} reason=global_open_registry")
+            } catch (_: Throwable) {}
+            onLog("⚠ Buy skipped: ${tradeId.symbol} already open in $existingLayer6370", tradeId.mint)
+            markPaperBuyNotOpened("SAME_MINT_ALREADY_OPEN_6370")
+            return
+        }
+
         normalizePositionScaleIfNeeded(ts)
         val price = getActualPrice(ts)
         if (price <= 0) {
@@ -11441,10 +11461,6 @@ class Executor(
         recordTrade(ts, trade)
         security.recordTrade(trade)
         try { PipelineHealthCollector.labelInc("PAPER_BUY_OPENED") } catch (_: Throwable) {}
-        if (paperBuyLeaseKey6369.isNotBlank()) {
-            try { ExecutionAttemptLease.terminalOk(paperBuyLeaseKey6369, "BUY", tradeId.mint, tradeId.symbol, "PAPER_BUY_OPENED_6369") } catch (_: Throwable) {}
-            paperBuyLeaseKey6369 = ""
-        }
 
         EmergentGuardrails.registerPosition(tradeId.mint, tradeId.symbol, currentLayer, actualSol)
         // V5.9.385 — the GHOST POSITION fix. V5.9.369 added a guard in
@@ -11463,6 +11479,14 @@ class Executor(
                 sizeSol = actualSol,
             )
         } catch (_: Exception) { /* non-critical */ }
+        // V5.0.6370 — clear the short duplicate-buy lease only AFTER both global
+        // open registries have been written. Clearing it before registerPosition()
+        // left a tiny same-tick window where another lane alias could pass the
+        // lease and still not see a global open owner.
+        if (paperBuyLeaseKey6369.isNotBlank()) {
+            try { ExecutionAttemptLease.terminalOk(paperBuyLeaseKey6369, "BUY", tradeId.mint, tradeId.symbol, "PAPER_BUY_OPENED_6370") } catch (_: Throwable) {}
+            paperBuyLeaseKey6369 = ""
+        }
         // V5.9.1470 (spec item 2 corollary) — REOPEN clears any prior close stamp so a
         // legitimately re-bought mint trades again cleanly (the duplicate-suppress guard
         // in paperSell only blocks a SELL while a live close stamp exists; a real new BUY

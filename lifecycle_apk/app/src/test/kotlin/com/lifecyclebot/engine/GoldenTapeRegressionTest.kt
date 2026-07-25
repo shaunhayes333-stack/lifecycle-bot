@@ -7344,4 +7344,20 @@ class GoldenTapeRegressionTest {
                 bot.contains("val rescueModeAllowed6072 = RuntimeModeAuthority.isLive() || paperCashTreasuryRescue6369"))
     }
 
+
+    @Test
+    fun V5_0_6370_paper_buy_blocks_same_mint_alias_before_price_work() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val paperBuy = exec.substring(exec.indexOf("fun paperBuy("), exec.indexOf("// This runs before wrapper PAPER_BUY", exec.indexOf("fun paperBuy(")))
+        assertTrue("V5.0.6370: paperBuy must consult global EmergentGuardrails owner before price/size work so separate TokenState aliases cannot reopen the same mint after the short lease expires",
+            paperBuy.contains("GLOBAL SAME-MINT PAPER OPEN GUARD") &&
+                paperBuy.contains("EmergentGuardrails.getPositionLayer(tradeId.mint)") &&
+                paperBuy.indexOf("EmergentGuardrails.getPositionLayer(tradeId.mint)") < paperBuy.indexOf("val price = getActualPrice(ts)") &&
+                paperBuy.contains("PAPER_BUY_SAME_MINT_OPEN_SUPPRESSED_6370"))
+        assertTrue("V5.0.6370: 6369 short paper BUY lease must be cleared only after EmergentGuardrails and GlobalTradeRegistry open registries are written",
+            paperBuy.indexOf("EmergentGuardrails.registerPosition") < paperBuy.indexOf("ExecutionAttemptLease.terminalOk") &&
+                paperBuy.indexOf("GlobalTradeRegistry.registerPosition") < paperBuy.indexOf("ExecutionAttemptLease.terminalOk") &&
+                paperBuy.contains("PAPER_BUY_OPENED_6370"))
+    }
+
 }
