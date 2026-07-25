@@ -2979,7 +2979,16 @@ class GoldenTapeRegressionTest {
         assertTrue("paper buy min must have a live-transfer floor for all entries", exec.contains("live-transfer floor") && exec.contains("paperSimulatedBalance * 0.01"))
         assertTrue("paper buy clamp telemetry must exist", exec.contains("PAPER_BUY_SIZE_CLAMPED"))
 
-        assertTrue("paper sanity must use the same live-transfer sizing bounds before quarantining rows", paperSanity.contains("paperSimulatedBalance * 0.10") && paperSanity.contains("paperSimulatedBalance * 0.01") && paperSanity.contains("PAPER_SOL_ABOVE_CONFIG_MAX"))
+        // V5.0.6366 — F4 raised the paper learning-eligibility ceiling from
+        // paperSimulatedBalance * 0.10 (clamped to 2.0) to paperSimulatedBalance * 0.25
+        // (clamped to [2.0, 20.0]) so paper closes larger than 2.0 SOL stop being
+        // silently starved from the learning aggregators. Golden tape now enforces
+        // the new bounds instead of the old fixed 2.0 hard cap.
+        assertTrue("paper sanity must use proportional live-transfer sizing bounds before quarantining rows",
+            paperSanity.contains("paperSimulatedBalance * 0.25") &&
+                paperSanity.contains("paperSimulatedBalance * 0.01") &&
+                paperSanity.contains("coerceIn(2.0, 20.0)") &&
+                paperSanity.contains("PAPER_SOL_ABOVE_CONFIG_MAX"))
         assertTrue("paper sanity must emit required quarantine label", paperSanity.contains("PAPER_LEARNING_ROW_QUARANTINED"))
         assertTrue("TradeHistoryStore must filter corrupted historical rows", tradeStore.contains("PaperLearningSanity.inspect(t)"))
         assertTrue("TradeRowSanityCheck must quarantine paper corrupt rows", rowSanity.contains("PAPER_ROW_CORRUPT"))
