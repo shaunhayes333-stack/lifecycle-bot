@@ -11172,12 +11172,13 @@ class Executor(
         // different layers. Before spending price/size/executor work, consult the
         // process-wide position registry and block ANY existing paper/layer owner
         // for this mint until the sell path unregisters it.
+        val requestedLayer6370 = layerTag.ifBlank { "PAPER" }
         val existingLayer6370 = try { EmergentGuardrails.getPositionLayer(tradeId.mint) } catch (_: Throwable) { null }
         if (!existingLayer6370.isNullOrBlank()) {
             try {
                 PipelineHealthCollector.labelInc("PAPER_BUY_SAME_MINT_OPEN_SUPPRESSED_6370")
-                PipelineHealthCollector.onGate("EXEC_GATE", tradeId.symbol, false, "PAPER_SAME_MINT_ALREADY_OPEN_6370 existing=$existingLayer6370 requested=${layerTag.ifBlank { "PAPER" }}")
-                ForensicLogger.lifecycle("PAPER_BUY_SAME_MINT_OPEN_SUPPRESSED_6370", "mint=${tradeId.mint.take(10)} symbol=${tradeId.symbol} existing=$existingLayer6370 requested=${layerTag.ifBlank { "PAPER" }} reason=global_open_registry")
+                PipelineHealthCollector.onGate("EXEC_GATE", tradeId.symbol, false, "PAPER_SAME_MINT_ALREADY_OPEN_6370 existing=$existingLayer6370 requested=$requestedLayer6370")
+                ForensicLogger.lifecycle("PAPER_BUY_SAME_MINT_OPEN_SUPPRESSED_6370", "mint=${tradeId.mint.take(10)} symbol=${tradeId.symbol} existing=$existingLayer6370 requested=$requestedLayer6370 reason=global_open_registry")
             } catch (_: Throwable) {}
             onLog("⚠ Buy skipped: ${tradeId.symbol} already open in $existingLayer6370", tradeId.mint)
             markPaperBuyNotOpened("SAME_MINT_ALREADY_OPEN_6370")
