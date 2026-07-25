@@ -1,19 +1,68 @@
-# AATE PRD — V5.0.6362
+# AATE PRD — V5.0.6364
 
 ## Current build stack
 
-- **6362a** (`b52f383dc` ✅) **Golden-tape literal restore** — preserved `timeouts >= 30` in BotService.kt after tier semantics moved into the pure `SupervisorEmergencyThrottle6362` helper. No behaviour change.
+- **6364** (`fd8331cf0` ✅) **SOURCE-OF-CREATION PASS** — Operator directive: "the fixes need to be at the source of creation not a bandaid patch."
+  - **R1 Probation zero-liq loop removed**: `GlobalTradeRegistry.processProbation()` widened the `noPairCold` HELD guard from `source contains NO_PAIR_NO_FALLBACK` to ANY entry with no executable signal (price=0 && liq=0 && no additional scanners && rc<2). The V5.0.6363 snapshot showed 1278 PROBATION intake events on zero-liq tokens burning ~6 000 ForensicLogger emits per cycle — this cured the actual 180s cycle time source.
+  - **R2 Cycle-time throttle-arm removed**: V5.0.6362's `if (cycleMs > 15_000L) supervisorArmEmergencyThrottle` was a positive-feedback loop (2099 arms in 96min → permanent clamp → exits starve → slower cycles → more arms). Worker-timeout arm path is UNCHANGED. Cooling latch preserved.
 
-- **6362** (`4967ca28f`, `b52f383dc` ✅) **MAIN-THREAD ANR CURE + SUPERVISOR RE-ARM** — three-part pipeline stabilization bundle.
-  - `LocaleFreeFormat6362`: integer-arithmetic StringBuilder formatter eliminates the `Locale.clone` main-thread stall (25s frame gaps under 30-50 emits/ms). Wired into `MultiplierAttributionLedger.fmt()` and the six `RealizedPnlConduit6344` divergence-log sites.
-  - `ForensicLogger` batched drain — one MessageQueue op per ~128 events instead of one per event; lock-free deque + single-scheduled drain Runnable.
-  - `SupervisorEmergencyThrottle6362`: RE-ARMS the V5.9.1332 disarmed emergency throttle. `supervisorArmEmergencyThrottle` now writes a 5-min clamp window; `supervisorEffectiveCap` consults it and clamps to `SUPERVISOR_EMERGENCY_MAX_WORKERS=16` while active. Cooling still runs on top; stricter floor wins. Exit dispatcher unaffected.
-  - +15 tests (`LocaleFreeFormat6362Test`, `SupervisorEmergencyThrottleReArm6362Test`).
+- **6363** (`523ab4ed8` ✅) Scanner circuit breaker + brain-mult floor + throttle observability (superseded by V5.0.6364 for the root-cause pass)
+
+- **6362** (`b52f383dc` ✅) Locale-free formatter (ANR cure) + Supervisor emergency throttle RE-ARM
 
 - **6361** (`0749a6404` ✅) Paper full-exit qty preservation + CanonicalLearningContract end-to-end wire-up
-- **6360** (`029d677b4` ✅) Paper close force-RESET (not terminal) so paper positions round-trip
 
-## Full V5.0.6350 → V5.0.6362 emergency triage stack
+## Full V5.0.6350 → V5.0.6364 stack
+
+- **6350-6353** Paper close retry-loop drain, readiness fix, cycle evict, log aggregation
+- **6354→6355** Scanner router wire-up (compile red → fix)
+- **6356** LiveProbabilityEngine forensic rate-limit
+- **6357** LaneBucketPivot whole-lane fallback removal (WR -20% root cause)
+- **6358** StrategyTruthLedger TTL cache + rate-limit
+- **6359** Foundation Policy live-wire
+- **6360** Paper close force-RESET (not terminal)
+- **6361** Paper full-exit qty preservation + Learning Contract E2E
+- **6362** Locale-free formatter + Supervisor throttle RE-ARM
+- **6363** Scanner circuit breaker + brain-mult floor + throttle observability
+- **6364** SOURCE-OF-CREATION: probation zero-liq HELD + cycle-time arm removed
+
+## V5.0.6363 → V5.0.6364 root causes fixed
+
+| Symptom | Real source | Fix |
+|---|---|---|
+| Cycles 87s-171s, sells starving | PROBATION zero-liq churn: 1278 dead tokens force-promoted through intake every 5min | Widen noPairCold HELD guard to cover all dead-signal entries |
+| 2099 emergency-throttle arms/96min → permanent clamp | Cycle-time arm was self-reinforcing (arm→clamp→starve exits→slower cycle→arm) | Remove cycle-time trigger; keep worker-timeout arm |
+| ANR maxFrameGapMs=22245 back | Locale.clone from remaining ~700 String.format sites | (Deferred — extended locale-free migration is separate P0 workstream) |
+| WR 80% → 32% | V5.0.6363 brain floor is band-aid; underlying is dust-crush from small-sample tuples | (Deferred — brain-floor kept for now, needs deeper audit) |
+
+## Backlog (priority-ordered)
+
+### 🔴 P0 — Deferred from V5.0.6364 (still needed but at the RIGHT layer)
+- **Locale-free logging at the source** (not per-callsite): move formatting INSIDE `ForensicLogger.lifecycle/exec/etc` so all 700 sites are safe by default. One fix, not 700 migrations.
+- **CanonicalLearningContract close-hook audit**: V5.0.6361 wired assess() into every close; verify it's on Dispatchers.IO not the main loop.
+- **Sell-path dispatcher isolation**: verify sells actually run on their own dispatcher (V5.0.6362 comment claims this but the code path isn't visibly enforced).
+
+### 🟠 P1 — Hard-enforcement flip
+- Turn `RealizedPnlConduit6344` from SHADOW to HARD.
+- Turn `PreEntryDecisionRecord6345.Verdict.VETO` into a hard block.
+
+### 🟢 P2 — Phase 1 SOL Perps/Leverage mode (`PerpsLaneGate.kt`)
+
+### 🟢 P3+ — Off-thread rendering, neural bridge, LLM Lab
+
+## Learning-loop invariants (all still true)
+
+- V3JournalRecorder.recordClose feeds TacticSwitcher.onTradeClosed regardless of paper/live
+- CanonicalPnLAuthority6343 sole legal realized-SOL calculator
+- FillLotLedger6344 sole legal cost-basis source
+- ScannerHydrationQueues6347 router of record
+- **V5.0.6364: processProbation HOLDS any zero-signal entry; never force-promotes dead tokens through intake**
+- **V5.0.6364: supervisor emergency throttle arms ONLY on real worker timeouts, never on cycle time**
+- Never blocks a trade for strategy bleed, never hard-disables a lane
+
+## Testing / CI
+
+V5.0.6344 → V5.0.6364 all ✅ SUCCESS on GH Actions.
 
 - **6323-6341** Foundation: canonical registry, WADDLE decimal repair, brain consensus, safety-hold demotion, loop stall fixes
 - **6342** (`7a6e23639` ✅) **Lane Entry Contract** — governor HOLD veto + BLUECHIP/QUALITY identity
