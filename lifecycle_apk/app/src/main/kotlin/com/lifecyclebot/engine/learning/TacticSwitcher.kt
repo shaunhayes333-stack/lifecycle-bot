@@ -102,6 +102,20 @@ object TacticSwitcher {
     // takes the same 1 unit of sample-count credit. Fix: rotate immediately when
     // even a small handful of trades show catastrophic mean pnl. Gated at
     // MAGNITUDE_MIN_SAMPLES=2 so a single unlucky rug can't false-trigger.
+    // V5.0.6373 — TRADE-ONE CATASTROPHIC ROTATION. Operator: "self-learning
+    // from trade 1... investigate full data set". V5.0.6367a restricted the
+    // magnitude trigger to initial MOMENTUM only + n>=2, so operator snapshot
+    // showed lanes stuck at:
+    //   SHITCOIN|S26-40 PULLBACK n=1 W/L=0/1 μ=-97.4%
+    //   MOONSHOT|S61+ REACCUMULATION n=1 W/L=0/1 μ=-95.8%
+    // These are catastrophic single-close losses that never rotated because
+    // the tactic had already pivoted from MOMENTUM and n<MAGNITUDE_MIN_SAMPLES.
+    // TRADE_ONE_CATASTROPHIC bypasses BOTH restrictions: any tactic that takes
+    // a single close with |pnl| >= 90% rotates immediately. This is only a
+    // rotation (never a disable), and 90% is deliberately tight so real market
+    // rugs (which are usually >=95% wipe) still trigger while day-to-day
+    // volatility (typically <30%) does not.
+    private const val TRADE_ONE_CATASTROPHIC_PNL = -90.0
     private const val MAGNITUDE_MIN_SAMPLES = 2
     private const val MAGNITUDE_MEAN_PNL    = -25.0
     private const val MAGNITUDE_LOSS_RATE   = 0.80
@@ -189,6 +203,17 @@ object TacticSwitcher {
         // gates because once a non-initial tactic instantly goes 0/4, waiting for
         // 8 or 25 closes is needless bleed. This is a tactic rotation only.
         val alreadyPivoted = cell.tactic.get() != Tactic.MOMENTUM.ordinal || cell.lastRotationReason.get() != "initial"
+
+        // V5.0.6373 — TRADE-ONE CATASTROPHIC. Fires BEFORE every other gate,
+        // regardless of alreadyPivoted. A single n=1 close with pnlPct <= -90%
+        // is a rug/critical-loss signal — the operator's snapshot showed n=1
+        // μ=-97% lanes sitting on their pivoted tactic for 5+ hours before the
+        // magnitude gate could arm at n=2. Any tactic rotates NOW.
+        if (tradesIn == 1 && pnlPct <= TRADE_ONE_CATASTROPHIC_PNL) {
+            rotate(lane, scoreBand, cell, "trade1-catastrophic pnl=${"%+.1f".format(pnlPct)}% n=1")
+            return
+        }
+
         if (alreadyPivoted && tradesIn >= POST_PIVOT_FAST_MIN_SAMPLES && tradesIn < TRIAL_WINDOW &&
             lossRate >= POST_PIVOT_FAST_LOSS_RATE && meanPnl <= POST_PIVOT_FAST_MEAN_PNL) {
             rotate(lane, scoreBand, cell, "post-pivot-fast lossRate=${"%.0f".format(lossRate * 100)}% mean=${"%+.1f".format(meanPnl)}% n=$tradesIn")

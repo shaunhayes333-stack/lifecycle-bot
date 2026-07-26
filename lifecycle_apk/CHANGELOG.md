@@ -4,6 +4,84 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.6373] - 2026-02 — Fanout Same-Mint Cut + Trade-1 Catastrophic Rotation + Skew-Taint Quarantine + CryptoAlt Content-Diff Skip
+
+**Operator directive (verbatim):**
+> winrate/ev is dropping. trade volume seems very slow
+> investigate full data set
+> yup all 4 now at source
+
+Fresh V5.0.6372 snapshot showed:
+- `EXEC_GATE/PAPER_SAME_MINT_ALREADY_OPEN_6371 = 523` blocks in 15 min
+  (fanout re-emitting BUY signals on already-open mints ~35×/min)
+- `SHITCOIN|S26-40 PULLBACK n=1 W/L=0/1 μ=-97.4%`,
+  `MOONSHOT|S61+ REACCUMULATION n=1 W/L=0/1 μ=-95.8%` — stuck on their
+  pivoted tactic because V5.0.6367a restricted magnitude rotation to
+  initial MOMENTUM + n≥2
+- `⚠ QTY_DECIMAL_SKEW_6309` audit surfaced 4 mints with 17×–55× buy/sell
+  qty ratios, but `Skew learning quarantine: 0` — the V5.0.6310 gate
+  can't see the divergence because it compares V3JournalRecorder's own
+  sizeSol/entryPrice values, which are internally self-consistent
+- `CryptoAltActivity.buildDynTokenRow` at lines 542 / 621 / 1322 in the
+  top main-thread ANR blocking sites, causing 1.1 % of uptime stalls
+  even after V5.9.1323 UiRefreshGate throttling
+
+Four source-of-creation fixes in one bundle:
+
+**F1 — V3 execute route same-mint pre-empt (`BotService.runV3Execution`).**
+Consult `EmergentGuardrails.getPositionLayer(mint)` BEFORE
+`executor.doBuy()`. When the mint already has an open layer, return
+`SAME_MINT_ALREADY_OPEN_6373_V3_PREEMPT` immediately — no tradeId /
+normalize / price / size work spent on a doomed doBuy. New labels
+`V3_EXEC_SAME_MINT_PREEMPT_6373` + `EXEC_GATE/V3_SAME_MINT_ALREADY_OPEN_6373`
+give observability of the source-level cut. The existing
+V5.0.6370 paperBuy guard remains as belt-and-suspenders for other
+callers.
+
+**F2 — Trade-1 catastrophic rotation (`TacticSwitcher.onTradeClosed`).**
+New constant `TRADE_ONE_CATASTROPHIC_PNL = -90.0`. Fires BEFORE
+every other gate, regardless of `alreadyPivoted` state and
+`MAGNITUDE_MIN_SAMPLES = 2` gate. A single n=1 close with `pnlPct <= -90 %`
+rotates immediately with reason `trade1-catastrophic`. Restores the
+operator's original "self-learning from trade 1" spec that V5.0.6367a
+narrowed to initial MOMENTUM only. Threshold is deliberately tight so
+real rugs (>=95 % wipe) trigger while everyday volatility (<30 %) does
+not.
+
+**F3 — Skew-taint learning quarantine (`V3JournalRecorder.recordClose`).**
+BEFORE any learner ingest (ScoreExpectancyTracker, HoldDurationTracker,
+ExitReasonTracker, LaneExitTuner, TacticSwitcher, ColdStreakDamper,
+DamageControlGate, LanePolicy, RetrainingDecay, ExplorationBudget),
+cross-check `TradeHistoryStore.getLatestBuyByMintSnapshot()[mint]`'s
+`entryQtyToken` (Executor-computed, wallet-verified/heuristic-inferred)
+against this SELL row's derived qty (`sizeSol / entryPrice`). When the
+ratio exceeds 10× AND resulting `pnlPctLearn <= -80 %`, the "loss" is a
+decimal-scale artifact — the wallet actually took a near-scratch. Skip
+every downstream learner and emit
+`SKEW_TAINT_LEARNING_QUARANTINE_6373|lane=<layer>` for the operator
+snapshot. This is the source-of-creation sibling of the V5.0.6310
+Executor quarantine that misses this variant.
+
+**F4 — CryptoAltActivity content-diff render skip.**
+`renderTokenList` now computes a `pageHash6373` covering
+tab + sortMode + sector + search + page + total + per-token symbol /
+price / priceChange24h / mcap. When identical to the last render, the
+entire remove-and-rebuild pass short-circuits. Preserves the 1 Hz
+refresh cadence for genuine updates while eliminating steady-state
+main-thread churn on the `buildDynTokenRow` hot path (3 top ANR
+sites observed). New label
+`CRYPTO_ALT_TOKEN_LIST_RENDER_SKIPPED_6373`.
+
+**Files changed:**
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt`
+- `app/src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt`
+- `app/src/main/kotlin/com/lifecyclebot/engine/V3JournalRecorder.kt`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt`
+- `app/src/test/kotlin/com/lifecyclebot/engine/Bundle6373InvariantsTest.kt` (new)
+
+---
+
+
 ## [5.0.6368] - 2026-02 — Magnitude Downstream + ForensicLogger source-of-creation ANR cure
 
 **Operator directive (verbatim):**

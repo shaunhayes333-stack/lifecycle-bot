@@ -3575,6 +3575,29 @@ class BotService : Service() {
         return try {
             ErrorLogger.info("BotService",
                 "⚡ V3_EXEC ${ts.symbol} | ${"%.4f".format(if (!isPaper && v3ZeroSignalProbe) execSol else req.sizeSol)} SOL | mode=${if (isPaper) "PAPER" else "LIVE"}${if (!isPaper && v3ZeroSignalProbe) " | PROBE_ONLY_ZERO_SIGNAL" else ""}")
+            // V5.0.6373 — SOURCE-OF-CREATION same-mint suppression. Operator
+            // snapshot showed 523 EXEC_GATE PAPER_SAME_MINT_ALREADY_OPEN blocks in
+            // 15 minutes: the V3 execute path is invoking executor.doBuy() again
+            // for a mint already tracked in EmergentGuardrails, and the block
+            // fires deep inside paperBuy() after tradeId/normalize work. Cut it
+            // here so the fanout stops burning executor cycles + labels + logs
+            // on already-open mints. The existing paperBuy guard remains as
+            // belt-and-suspenders for other doBuy callers.
+            val existingLayer6373 = try { com.lifecyclebot.engine.EmergentGuardrails.getPositionLayer(ts.mint) } catch (_: Throwable) { null }
+            if (!existingLayer6373.isNullOrBlank()) {
+                try {
+                    PipelineHealthCollector.labelInc("V3_EXEC_SAME_MINT_PREEMPT_6373")
+                    PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "V3_SAME_MINT_ALREADY_OPEN_6373 existing=$existingLayer6373")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "V3_EXEC_SAME_MINT_PREEMPT_6373",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} existing=$existingLayer6373 mode=${if (isPaper) "PAPER" else "LIVE"}"
+                    )
+                } catch (_: Throwable) {}
+                return@try com.lifecyclebot.v3.ExecuteResult(
+                    success = false,
+                    error = "SAME_MINT_ALREADY_OPEN_6373_V3_PREEMPT",
+                )
+            }
             // V5.9.1475 (spec item 1/2) — capture open-state BEFORE the buy so we
             // can detect whether doBuy actually committed an open or bailed at a
             // finality/veto gate. doBuy returns Unit and bails silently on

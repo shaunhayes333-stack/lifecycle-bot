@@ -127,6 +127,18 @@ class CryptoAltActivity : AppCompatActivity() {
     private var scannerPage      = 0
     private val PAGE_SIZE        = 75
 
+    // V5.0.6373 — CONTENT-DIFF SKIP for renderTokenList (source-of-creation
+    // ANR cure). Operator snapshot ranked CryptoAltActivity.buildDynTokenRow
+    // at lines 542 / 621 / 1322 as top main-thread blockers. UiRefreshGate
+    // already 1 Hz-throttles the invocation, but the full rebuild fires
+    // every tick even when the underlying token page/sort/filter did not
+    // change (e.g. the scanner is idle between ticks). Skip when the hash
+    // of the current page snapshot equals the previously rendered hash so
+    // steady-state scanning stops rebuilding LinearLayouts on Main. Cache
+    // key includes tab + sort + sector + search + page so any operator
+    // interaction still forces a fresh render.
+    private var lastRenderedTokenListHash: Long = Long.MIN_VALUE
+
     // ═══════════════════════════════════════════════════════════════════════════
     // LIFECYCLE
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1785,6 +1797,52 @@ class CryptoAltActivity : AppCompatActivity() {
         if (!com.lifecyclebot.engine.runtime.UiRefreshGate.shouldRender("CryptoAlt.tokenList")) {
             return
         }
+
+        // V5.0.6373 — SOURCE-OF-CREATION content-diff early-out. Operator snapshot
+        // ranked buildDynTokenRow (lines 542/621/1322) at the top of ANR blocking
+        // sites. Compute the page signature FIRST (cheap: hashCode of the page's
+        // token symbol + price + priceChange + mcap + tab/sort/sector/search/page)
+        // and skip the entire remove-and-rebuild pass if identical to the last
+        // rendered state. This preserves the 1 Hz refresh cadence for genuine
+        // updates while eliminating steady-state Main-thread churn.
+        val tokensAll6373 = DynamicAltTokenRegistry.getAllTokens(scannerSortMode)
+        val tokensFiltered6373 = tokensAll6373.let { list ->
+            var out = list
+            if (scannerSector != "All") out = out.filter { it.sector.equals(scannerSector, ignoreCase = true) }
+            if (scannerSearch.isNotBlank()) {
+                val q = scannerSearch.uppercase()
+                out = out.filter { it.symbol.contains(q) || it.name.uppercase().contains(q) || it.sector.uppercase().contains(q) }
+            }
+            out
+        }
+        val total6373    = tokensFiltered6373.size
+        val fromIdx6373  = scannerPage * PAGE_SIZE
+        val toIdx6373    = minOf(fromIdx6373 + PAGE_SIZE, total6373)
+        val page6373     = tokensFiltered6373.subList(fromIdx6373.coerceAtMost(total6373), toIdx6373)
+        val pageHash6373: Long = run {
+            var h = 1125899906842597L // large prime seed
+            h = h * 31 + currentTab.toLong()
+            h = h * 31 + scannerSortMode.ordinal.toLong()
+            h = h * 31 + scannerSector.hashCode().toLong()
+            h = h * 31 + scannerSearch.hashCode().toLong()
+            h = h * 31 + scannerPage.toLong()
+            h = h * 31 + total6373.toLong()
+            for (t in page6373) {
+                h = h * 31 + t.symbol.hashCode().toLong()
+                h = h * 31 + java.lang.Double.doubleToLongBits(t.price)
+                h = h * 31 + java.lang.Double.doubleToLongBits(t.priceChange24h)
+                h = h * 31 + java.lang.Double.doubleToLongBits(t.mcap)
+            }
+            h
+        }
+        // Only skip when we already have views laid out for this state (avoids
+        // skipping the very first render before the anchor is even set).
+        if (pageHash6373 == lastRenderedTokenListHash && tokenListStartIdx >= 0 && llContent.childCount > tokenListStartIdx) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_ALT_TOKEN_LIST_RENDER_SKIPPED_6373") } catch (_: Throwable) {}
+            return
+        }
+        lastRenderedTokenListHash = pageHash6373
+
         // Remove everything after the controls (search+sort+sector = 4 views added by buildScannerTab)
         // Find the anchor and remove from there
         if (tokenListStartIdx >= 0) {
@@ -1795,22 +1853,12 @@ class CryptoAltActivity : AppCompatActivity() {
             tokenListStartIdx = llContent.childCount
         }
 
-        var tokens = DynamicAltTokenRegistry.getAllTokens(scannerSortMode)
+        val tokens = tokensFiltered6373
 
-        // Sector filter
-        if (scannerSector != "All") {
-            tokens = tokens.filter { it.sector.equals(scannerSector, ignoreCase = true) }
-        }
-        // Search filter
-        if (scannerSearch.isNotBlank()) {
-            val q = scannerSearch.uppercase()
-            tokens = tokens.filter { it.symbol.contains(q) || it.name.uppercase().contains(q) || it.sector.uppercase().contains(q) }
-        }
-
-        val total    = tokens.size
-        val fromIdx  = scannerPage * PAGE_SIZE
-        val toIdx    = minOf(fromIdx + PAGE_SIZE, total)
-        val page     = tokens.subList(fromIdx.coerceAtMost(total), toIdx)
+        val total    = total6373
+        val fromIdx  = fromIdx6373
+        val toIdx    = toIdx6373
+        val page     = page6373
 
         // Result count
         llContent.addView(tv("$total results  (page ${scannerPage + 1} of ${(total + PAGE_SIZE - 1) / PAGE_SIZE})", 10f, muted).apply {

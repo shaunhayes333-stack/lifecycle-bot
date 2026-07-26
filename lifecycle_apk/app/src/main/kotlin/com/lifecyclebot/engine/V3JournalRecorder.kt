@@ -255,6 +255,42 @@ object V3JournalRecorder {
         //    journal write actually landed so trackers don't diverge from
         //    the on-disk truth.
         if (wrote) {
+            // V5.0.6373 — SKEW-TAINT LEARNING QUARANTINE (source-of-creation).
+            // Operator snapshot showed 4 mints with QTY_DECIMAL_SKEW_6309 audits
+            // (buyQty=3185/sellQty=184.9 ratio=17.2×, buyQty=33650/sellQty=603.8
+            // ratio=55.7× etc.) but `Skew learning quarantine: 0` — the V5.0.6310
+            // check inside Executor compares this SELL's derived qty to
+            // TradeHistoryStore's latest-buy-by-mint entryQtyToken, both of which
+            // are computed as sizeSol/entryPrice in V3JournalRecorder, so they
+            // never diverge at THAT layer. The real skew lives between the
+            // Executor.paperBuy exec record (wallet-verified/heuristic-inferred
+            // qty via inferUiScaleFromTrade) and this SELL row. When that ratio
+            // exceeds 10× AND the resulting pnl%<=-80%, the loss is a scaling
+            // artifact — the wallet actually took a near-scratch. Skip every
+            // downstream learner so μ (TacticSwitcher / RetrainingDecay /
+            // ExplorationBudget / ScoreExpectancyTracker / LaneExitTuner) isn't
+            // taught catastrophic edge from a decimal mismatch.
+            val skewTainted6373: Boolean = try {
+                val buySnap = try {
+                    com.lifecyclebot.engine.TradeHistoryStore.getLatestBuyByMintSnapshot()[mint]
+                } catch (_: Throwable) { null }
+                val buyQty  = buySnap?.entryQtyToken ?: 0.0
+                val sellQty = if (entryPrice > 0.0 && sizeSol > 0.0) sizeSol / entryPrice else 0.0
+                if (buyQty > 0.0 && sellQty > 0.0) {
+                    val ratio = maxOf(buyQty, sellQty) / minOf(buyQty, sellQty)
+                    if (ratio > 10.0 && pnlPctLearn <= -80.0) {
+                        try {
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SKEW_TAINT_LEARNING_QUARANTINE_6373|lane=$layer")
+                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                "SKEW_TAINT_LEARNING_QUARANTINE_6373",
+                                "mint=${mint.take(10)} sym=$symbol layer=$layer buyQty=${"%.2f".format(buyQty)} sellQty=${"%.2f".format(sellQty)} ratio=${"%.1f".format(ratio)}× pnl=${"%.1f".format(pnlPctLearn)}% — decimal mismatch, learners skipped"
+                            )
+                        } catch (_: Throwable) {}
+                        true
+                    } else false
+                } else false
+            } catch (_: Throwable) { false }
+            if (skewTainted6373) return
             // V5.0.6365 — REVERTED V5.0.6361 CANONICAL LEARNING CONTRACT SHIM.
             //   Operator (verbatim): "was over 80% winrate 3 updates ago /
             //   wallet was growing / now 100 tokens open, wallet shrinking."
