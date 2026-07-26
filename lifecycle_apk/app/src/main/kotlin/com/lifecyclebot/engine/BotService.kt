@@ -3593,11 +3593,11 @@ class BotService : Service() {
                         "mint=${ts.mint.take(10)} symbol=${ts.symbol} existing=$existingLayer6373 mode=${if (isPaper) "PAPER" else "LIVE"}"
                     )
                 } catch (_: Throwable) {}
-                return@try com.lifecyclebot.v3.ExecuteResult(
+                com.lifecyclebot.v3.ExecuteResult(
                     success = false,
                     error = "SAME_MINT_ALREADY_OPEN_6373_V3_PREEMPT",
                 )
-            }
+            } else {
             // V5.9.1475 (spec item 1/2) — capture open-state BEFORE the buy so we
             // can detect whether doBuy actually committed an open or bailed at a
             // finality/veto gate. doBuy returns Unit and bails silently on
@@ -3641,6 +3641,7 @@ class BotService : Service() {
                     executedPrice = if (lastPrice > 0.0) lastPrice else null,
                 )
             }
+            } // V5.0.6373 — close pre-empt-vs-normal-path else block
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "runV3Execution error for ${ts.symbol}", e)
             com.lifecyclebot.v3.ExecuteResult(success = false, error = "exec exception: ${e.message ?: e.javaClass.simpleName}")
