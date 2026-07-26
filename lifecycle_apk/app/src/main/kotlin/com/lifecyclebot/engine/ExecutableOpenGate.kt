@@ -850,6 +850,26 @@ object ExecutableOpenGate {
             return blocked("EXEC_OPEN_BLOCKED_MODE_AUTHORITY", "PAPER_REQUEST_WHILE_RUNTIME_LIVE")
         }
 
+        // V5.0.6371 — OPEN-GATE SAME-MINT PAPER COOLDOWN.
+        // 6370 correctly blocked cross-TokenState same-mint paper reopens inside
+        // paperBuy(), but the runtime still showed 112
+        // PAPER_SAME_MINT_ALREADY_OPEN_6370 blocks after candidates had already
+        // burned executor/buy-path work. Check the global open registry here so
+        // blocked() installs the normal per-(mint,lane) cooldown and stops churn.
+        if (modeUpper == "PAPER") {
+            val existingLayer6371 = try { EmergentGuardrails.getPositionLayer(mint) } catch (_: Throwable) { null }
+            if (!existingLayer6371.isNullOrBlank()) {
+                try {
+                    PipelineHealthCollector.labelInc("EXEC_OPEN_SAME_MINT_ALREADY_OPEN_COOLDOWN_6371")
+                    ForensicLogger.lifecycle(
+                        "EXEC_OPEN_SAME_MINT_ALREADY_OPEN_COOLDOWN_6371",
+                        "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol existing=$existingLayer6371 requestedLane=$lane action=blocked_before_paper_buy",
+                    )
+                } catch (_: Throwable) {}
+                return blocked("EXEC_OPEN_BLOCKED_SAME_MINT_ALREADY_OPEN_6371", "PAPER_SAME_MINT_ALREADY_OPEN_6371 existing=$existingLayer6371")
+            }
+        }
+
         // ──────────────────────────────────────────────────────────────────
         // V5.9.1549 — SHADOW_TRAIN_ONLY is NOT an execution veto.
         // Operator hard rule: the bot has to trade to learn, and LIVE should mirror

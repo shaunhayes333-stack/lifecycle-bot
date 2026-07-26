@@ -72,12 +72,16 @@ object ReEntryLockout {
             if (pnlPct > 0.0 && !isCleanupClose) return
             val now = System.currentTimeMillis()
             val lock = Lock(now + LOCKOUT_MS, exitReason.take(40), now)
+            val ghostZeroCleanup6371 = r.contains("GHOST_REAP_ZERO_BALANCE")
             if (mint.isNotBlank()) byMint[mint.trim()] = lock
-            if (symbolFamily.isNotBlank()) byFamily[symbolFamily.trim().uppercase()] = lock
+            // V5.0.6371 — ghost-zero cleanup is a slot/ledger cleanup, not a
+            // strategy stop-loss sample. Keep the SAME mint lock to prevent an
+            // instant re-buy loop, but do not family-lock the whole symbol bucket.
+            if (symbolFamily.isNotBlank() && !ghostZeroCleanup6371) byFamily[symbolFamily.trim().uppercase()] = lock
             try {
                 ForensicLogger.lifecycle(
-                    "REENTRY_LOCKOUT_ARMED",
-                    "mint=${mint.take(10)} family=${symbolFamily.take(16)} reason=${exitReason.take(40)} pnl=${"%.1f".format(pnlPct)}% ttlMs=$LOCKOUT_MS"
+                    if (ghostZeroCleanup6371) "REENTRY_LOCKOUT_ARMED_MINT_ONLY_GHOST_ZERO_6371" else "REENTRY_LOCKOUT_ARMED",
+                    "mint=${mint.take(10)} family=${symbolFamily.take(16)} reason=${exitReason.take(40)} pnl=${"%.1f".format(pnlPct)}% ttlMs=$LOCKOUT_MS familyLocked=${!ghostZeroCleanup6371}"
                 )
             } catch (_: Throwable) {}
         } catch (_: Throwable) { /* fail-open */ }

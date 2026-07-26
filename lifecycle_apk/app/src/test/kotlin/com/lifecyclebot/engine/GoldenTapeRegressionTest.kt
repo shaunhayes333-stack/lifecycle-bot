@@ -7360,4 +7360,22 @@ class GoldenTapeRegressionTest {
                 paperBuy.contains("PAPER_BUY_OPENED_6370"))
     }
 
+
+    @Test
+    fun V5_0_6371_open_gate_same_mint_paper_cooldown_and_ghost_zero_mint_only_lockout() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val reentry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReEntryLockout.kt").readText()
+        assertTrue("V5.0.6371: same-mint PAPER duplicates must be blocked in ExecutableOpenGate before paperBuy so blocked() installs a cooldown and repeated aliases stop burning buy-path work",
+            gate.contains("OPEN-GATE SAME-MINT PAPER COOLDOWN") &&
+                gate.contains("EmergentGuardrails.getPositionLayer(mint)") &&
+                gate.contains("EXEC_OPEN_SAME_MINT_ALREADY_OPEN_COOLDOWN_6371") &&
+                gate.contains("EXEC_OPEN_BLOCKED_SAME_MINT_ALREADY_OPEN_6371") &&
+                gate.indexOf("EXEC_OPEN_BLOCKED_SAME_MINT_ALREADY_OPEN_6371") < gate.indexOf("val pause = LiveCircuitBreaker.current()"))
+        assertTrue("V5.0.6371: GHOST_REAP_ZERO_BALANCE must mint-lock only, not family-lock, so ghost cleanup does not choke fresh family candidates",
+            reentry.contains("ghostZeroCleanup6371") &&
+                reentry.contains("REENTRY_LOCKOUT_ARMED_MINT_ONLY_GHOST_ZERO_6371") &&
+                reentry.contains("if (symbolFamily.isNotBlank() && !ghostZeroCleanup6371) byFamily") &&
+                reentry.contains("""familyLocked=${!ghostZeroCleanup6371}"""))
+    }
+
 }
