@@ -1,14 +1,75 @@
-# AATE PRD — V5.0.6365
+# AATE PRD — V5.0.6373c
 
 ## Current build stack
 
-- **6365** (`362ecd6a4` ✅) **REVERT V5.0.6361 canonical learning shim** — Operator said V5.0.6360 was growing the wallet at >80% WR, current build is bleeding with 100+ open positions. Diff'd V5.0.6360→V5.0.6361 and found `V3JournalRecorder.recordClose` was wrapped in a `CanonicalLearningContract6346.assess` gate using a synthetic Trade shim with hardcoded `entryQtyToken=0.0, soldQtyToken=0.0` (recordClose has no qty parameter). Any close reaching this recorder with `sizeSol<=0` OR `entryPrice<=0` (stale positions, partial refunds, price-glitched exits) hit the contract's SELL missing-basis branch and was QUARANTINED — silently starving `ScoreExpectancyTracker / HoldDurationTracker / ExitReasonTracker / LaneExitTuner / TacticSwitcher / ColdStreakDamper / DamageControlGate / LanePolicy / RetrainingDecay`. Over hours the learning drifted and the bot could no longer reject its own losers. Wrap reverted; V5.0.6361's Executor paper full-exit qty preservation is unchanged.
+- **6373c** (`71c768be4` ✅) **Ghost Paper Purge NEUTRALIZED — primary regression fix.** Operator's V5.0.6364 baseline showed everything working (display, volume, WR/EV). V5.0.6366 F3 ghost purge whitelisted only 5 V3 sub-traders (ShitCoin/Moonshot/BlueChip/Quality/CashGen) → paper buys under WHALE_FOLLOW / COPYTRADE / PRESALE_SNIPE / MICRO_CAP / TREASURY / CYCLIC / MOMENTUM_SWING / LAB got mis-classified as ghosts and got `ts.position = Position()` reset every reconcile tick. Root cause of "held tokens invisible" + "money disappearing" + phantom `cost=0.0100 qty=4750` sell rows. Ghost predicate replaced with positive-existence: `mint in TradeHistoryStore.getLatestBuyByMintSnapshot().keys` means REAL, regardless of lane. Only truly orphaned rows still cleaned under `PAPER_GHOST_PURGED_6373C_NO_BUY_ROW`. V5.0.6372 universal 2×–5× daily wallet-growth compound target KEPT per operator ("thats aate policy!"). Guard test forbids future reversion.
 
-- **6364** (`fd8331cf0` ✅) SOURCE-OF-CREATION: probation zero-liq HELD + cycle-time throttle-arm removed
-- **6363** (`523ab4ed8` ✅) Scanner circuit breaker + brain-mult floor + throttle observability
-- **6362** (`b52f383dc` ✅) Locale-free formatter (ANR cure) + Supervisor emergency throttle RE-ARM
-- **6361** (`0749a6404` ✅) Paper full-exit qty preservation (KEPT) + CanonicalLearningContract E2E wire-up (REVERTED in V5.0.6365)
-- **6360** (`029d677b4` ✅) LAST KNOWN-GOOD baseline before regression
+- **6373b** (`81788486d` ✅) Canonical Position Sentinel at paperSell entry (source-of-creation P0-1+P0-2+P0-3 minimum). Blocks phantom sells when `ts.position` disagrees with `TradeHistoryStore` latest-buy by >2× cost/qty or `pos.costSol < 0.05 && buy.entryCostSol >= 0.05`. Emits `SELL_BLOCKED_NO_CANONICAL_POSITION_6373` and returns `FAILED_RETRYABLE` without touching real position or journaling.
+- **6373a** (`f93efe655` ✅) Compile fix for V5.0.6373's V3 pre-empt if/else structure.
+- **6373** (`94a84c8b1` ✅) V3 execute route same-mint pre-empt + trade-1 catastrophic rotation (≥90%) + skew-taint learning quarantine + CryptoAlt content-diff render skip.
+- **6372a** (`596d9054f` ✅) Fix stale 6371 Golden Tape order assertion
+- **6372** (`0a1eb8cfc` ✅) UNIVERSAL 2×–5× daily compound target (AATE core doctrine — KEPT)
+- **6371** (`af01b13c4` ✅) OpenGate same-mint cooldown + ghost-zero family unlock
+- **6370b** (`48c730a68` ✅) Golden Tape 6369 accepts renamed PAPER_BUY_OPENED_6370 label
+- **6370a** (`199080580` ✅) Fix paper alias guard telemetry compile
+- **6370** (`a5cfae95d` ✅) Global same-mint paper open guard
+- **6369** (`e0a485ccb` ✅) ExecutionAttemptLease race-claim on paperBuy
+- **6368a** (`dde34de6d` ✅) Fix Bundle6368 test imports
+- **6368** (`7cd19c16f` ✅) Magnitude Downstream + ForensicLogger locale-free/zero-liq quarantine + 20s report watchdog
+- **6367a** (`825f9d460` ✅) Restrict magnitude trigger to initial MOMENTUM only (later overridden by V5.0.6373 trade-1 catastrophic path)
+- **6367** (`da24c9694` ✅) Self-learning from trade 1
+- **6366c** (`84adffdf5` ✅) Golden-tape refresh for 6366 F4
+- **6366b** (`f721b8113` ✅) STALE_FLAT_CULL_6366
+- **6366** (`d17e05e55` ⚠️ *F3 neutralized in 6373c*) Worker-timeout raise + ghost paper purge (F3 replaced) + learning-ceiling raise
+- **6365** (`362ecd6a4` ✅) REVERT V5.0.6361 canonical learning shim
+- **6364** (`fd8331cf0` ✅) Operator's known-good baseline before regression
+
+## V5.0.6364 → V5.0.6373c regression audit
+
+| Version | Change | Verdict at V5.0.6373c |
+|---|---|---|
+| **6366 F3** | **Ghost paper purge whitelist** | **NEUTRALIZED in 6373c — root cause of held-tokens-invisible + phantom sells** |
+| 6366 F1a | Worker timeout 9s → 15s | KEEP — external-API tolerance |
+| 6366 F4 | Learning-eligibility ceiling → 20 SOL | KEEP — learning-only ceiling |
+| 6366b F5 | STALE_FLAT_CULL_6366 | KEEP — real exit path, not corruption |
+| 6367 | Trade-1 magnitude + LanePolicy early demote | KEEP |
+| 6367a | Restricted magnitude to MOMENTUM only | KEEP but superseded by 6373 trade-1 catastrophic (any tactic ≥90%) |
+| 6368 | Locale-free helpers + zero-liq quarantine + magnitude downstream | KEEP |
+| 6369 | ExecutionAttemptLease race-claim | KEEP |
+| 6370 | GLOBAL SAME_MINT paper open guard | KEEP |
+| 6371 | OpenGate same-mint cooldown | KEEP |
+| **6372** | **UNIVERSAL 2×–5× compound target** | **KEEP — AATE core doctrine, not a regression** |
+| 6373 | V3 pre-empt + trade-1 catastrophic + skew-taint + content-diff skip | KEEP (my push) |
+| 6373b | Canonical Position Sentinel at paperSell | KEEP (my push) |
+| 6373c | Ghost purge positive-existence predicate | KEEP (my push) |
+
+## What operator should see after V5.0.6373c lands
+
+1. **Held tokens visible again**: paper positions under WHALE_FOLLOW / COPYTRADE / PRESALE_SNIPE / MICRO_CAP / TREASURY / CYCLIC / MOMENTUM_SWING / LAB no longer vanish between reconcile ticks.
+2. **Phantom sells STOP**: any sell path that would read a default `ts.position` gets blocked by V5.0.6373b canonical sentinel; the ghost-purge that CREATED those defaults is neutralized in 6373c.
+3. **Volume returns**: EmergentGuardrails position registry stays populated, so `V3_EXEC_SAME_MINT_PREEMPT_6373` fires only for genuine duplicates instead of ghost-purged holes.
+4. **Universal 2×–5× compound target intact**: sizing still pushes all lanes to hit the daily growth doctrine.
+
+## Backlog
+
+### 🟠 P0 — Deferred forensic-repair spec items
+- P0-4: Immutable price identity hash + PRICE_IDENTITY_CONFLICT
+- P0-5: tokenDecimals nullable + decimalsKnown boolean
+- P0-6: performanceDomain enum (LIVE_CANONICAL / PAPER_PARITY / SHADOW_RESEARCH)
+- P0-7: PAPER_PARITY score-floor parity with LIVE governor
+- P0-8: LaneEligibilityContract
+- P0-10: Quarantine corrupted history + rebuild tactic stats
+- P0-11: Full forensic journal fields + CANONICAL_INTEGRITY_STATUS section
+- **Empty UI panels**: ALL TRADERS, 30-DAY PROOF RUN, lane cards show 0 when top card shows 181 trades. Investigate `journalParityStatsSnapshot6085()` null bailout at MainActivity:2765.
+
+### 🔵 P1 — After stabilization
+- Phase 1: SOL Perps/Leverage mode → `PerpsLaneGate.kt`
+- Move chart rendering + trade-list diffing off main thread
+
+### 🟣 P2/P3
+- Phase 2: Neural bridge (perps↔stocks cross-learning)
+- Phase 3: LLM Lab sandbox
+
 
 ## V5.0.6360 → V5.0.6365 regression hunt
 
