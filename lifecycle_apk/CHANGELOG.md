@@ -4,6 +4,68 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.6373b] - 2026-02 — Canonical Position Sentinel at paperSell entry (P0-1 + P0-2 + P0-3 minimum)
+
+**Operator directive (verbatim):**
+> its not even displaying the tokens its buying. money is just disappearing
+> good catch but its not even displaying held tokens
+> im pretty much broken cant afford 10 builds
+
+Operator snapshot of build 5.0.6372 proved the phantom-sell bug: four
+different mints (`BhmJPx`, `2MwxyM`, `39q9ks`, `b7vYe1`) all "sold"
+within a 0.5 s window at identical `cost=0.0100 qty=4750
+entry=2.1052162e-06` while their real BUYs were `qty≈8.15e+04 cost=0.1811`.
+The sell path was reading a shared / reset `TokenState.position`
+object instead of the real mint's buy record — hence "money
+disappearing" (fake losses journaled against real positions that
+remain untouched) and "held tokens invisible" (position ledger
+orphaned from the actual buys).
+
+Single atomic bundle covering the highest-leverage minimums of the
+operator's forensic-repair spec:
+
+**F1 — Canonical Position Sentinel (`Executor.paperSell`, P0-1 + P0-2 + P0-3).**
+At the very top of `paperSell` (right after `PAPER_SELL_START`,
+before ANY price / clamp / journal work) cross-check `ts.position`
+against the authoritative latest BUY row from
+`TradeHistoryStore.getLatestBuyByMintSnapshot()[mint]`. Block the sell
+(do NOT journal · do NOT unregister · do NOT release close ledger · do
+NOT feed learners) when any of the following invariants fail:
+  - `canonicalBuy == null` → `NO_CANONICAL_BUY_RECORD`
+  - `canonicalBuy.entryCostSol <= 0 || canonicalBuy.entryQtyToken <= 0`
+    → `CANONICAL_BUY_MALFORMED`
+  - `pos.costSol <= 0 || pos.entryPrice <= 0 || pos.qtyToken <= 0`
+    → `POS_UNPOPULATED`
+  - `pos.costSol < 0.05 SOL && canonicalBuy.entryCostSol >= 0.05 SOL`
+    → `COST_BASIS_PHANTOM_FALLBACK` — kills the 0.01 SOL fallback that
+    is behind every phantom sell observed
+  - `max(pos.costSol, buy.entryCostSol) / min(...) > 2.0`
+    → `COST_BASIS_DIVERGES_FROM_CANONICAL`
+  - `max(pos.qtyToken, buy.entryQtyToken) / min(...) > 2.0`
+    → `QTY_DIVERGES_FROM_CANONICAL`
+
+On block, emit
+`SELL_BLOCKED_NO_CANONICAL_POSITION_6373[|code=<code>]` and
+`ForensicLogger.lifecycle("SELL_BLOCKED_NO_CANONICAL_POSITION_6373",
+…)`, release the paper sell lock, and short-circuit with
+`SellResult.FAILED_RETRYABLE` so the real position remains untouched
+and a subsequent well-formed sell can process it.
+
+This is the source-of-creation minimum of P0-1 (Canonical Position
+Resolution), P0-2 (Quantity Invariants Before Mutation), and P0-3
+(Kill Legacy 1 SOL / 0.01 SOL Cost-Basis Fallback) from the operator's
+forensic-repair spec. Full P0-4..P0-11 items (immutable price identity,
+decimals semantics, performance-domain separation, LaneEligibilityContract,
+history quarantine, etc.) intentionally deferred to subsequent bundles
+under CI-budget pressure.
+
+**Files changed:**
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt` — sentinel block at paperSell entry
+- `app/src/test/kotlin/com/lifecyclebot/engine/Bundle6373bInvariantsTest.kt` (new) — 5 assertions
+
+---
+
+
 ## [5.0.6373] - 2026-02 — Fanout Same-Mint Cut + Trade-1 Catastrophic Rotation + Skew-Taint Quarantine + CryptoAlt Content-Diff Skip
 
 **Operator directive (verbatim):**

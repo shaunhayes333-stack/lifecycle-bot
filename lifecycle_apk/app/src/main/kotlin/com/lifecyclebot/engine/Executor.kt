@@ -17442,6 +17442,65 @@ class Executor(
         // bot-stop closeAllPositions() to see ALREADY_CLOSED and skip the position.
         try {
         try { ForensicLogger.lifecycle("PAPER_SELL_START", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}
+
+        // V5.0.6373b — CANONICAL POSITION SENTINEL (P0-1 + P0-2 + P0-3 source-of-creation).
+        // Operator snapshot proved the phantom-sell bug: 4 different mints
+        // (BhmJPx, 2MwxyM, 39q9ks, b7vYe1) all "sold" within a 0.5s window
+        // reporting identical cost=0.0100 qty=4750 entry=2.1052162e-06 while
+        // their real BUYs were qty=8.15e+04 cost=0.1811. The sell path was
+        // reading a shared/reset TokenState.position instead of the mint's
+        // real buy record. Cross-check ts.position against TradeHistoryStore's
+        // authoritative latest BUY record for this mint. Block the sell (do NOT
+        // journal, do NOT unregister, do NOT train) when:
+        //   • no BUY row exists for this mint (P0-1)
+        //   • pos.costSol diverges from BUY.entryCostSol by >2× (P0-3 phantom cost)
+        //   • pos.qtyToken diverges from BUY.entryQtyToken by >2× (P0-2 oversell/undersell)
+        //   • pos.costSol < 0.05 SOL AND the BUY was >= 0.05 SOL (kills the 0.01 fallback)
+        // Emits SELL_BLOCKED_NO_CANONICAL_POSITION_6373 + counter so the operator
+        // sees the block instead of the phantom row.
+        run {
+            val canonicalBuy = try {
+                com.lifecyclebot.engine.TradeHistoryStore.getLatestBuyByMintSnapshot()[ts.mint]
+            } catch (_: Throwable) { null }
+            val block: Pair<String, String>? = when {
+                canonicalBuy == null ->
+                    "NO_CANONICAL_BUY_RECORD" to "no BUY row for mint in TradeHistoryStore"
+                canonicalBuy.entryCostSol <= 0.0 || canonicalBuy.entryQtyToken <= 0.0 ->
+                    "CANONICAL_BUY_MALFORMED" to "buy.entryCostSol=${canonicalBuy.entryCostSol} buy.entryQtyToken=${canonicalBuy.entryQtyToken}"
+                pos.costSol <= 0.0 || pos.entryPrice <= 0.0 || pos.qtyToken <= 0.0 ->
+                    "POS_UNPOPULATED" to "pos.costSol=${pos.costSol} pos.entryPrice=${pos.entryPrice} pos.qtyToken=${pos.qtyToken}"
+                pos.costSol < 0.05 && canonicalBuy.entryCostSol >= 0.05 ->
+                    "COST_BASIS_PHANTOM_FALLBACK" to "pos.costSol=${pos.costSol} buy.entryCostSol=${canonicalBuy.entryCostSol} — phantom 0.01-SOL fallback detected"
+                run {
+                    val ratio = maxOf(pos.costSol, canonicalBuy.entryCostSol) / minOf(pos.costSol, canonicalBuy.entryCostSol)
+                    ratio > 2.0
+                } ->
+                    "COST_BASIS_DIVERGES_FROM_CANONICAL" to "pos.costSol=${pos.costSol} buy.entryCostSol=${canonicalBuy.entryCostSol}"
+                run {
+                    val ratio = maxOf(pos.qtyToken, canonicalBuy.entryQtyToken) / minOf(pos.qtyToken, canonicalBuy.entryQtyToken)
+                    ratio > 2.0
+                } ->
+                    "QTY_DIVERGES_FROM_CANONICAL" to "pos.qtyToken=${pos.qtyToken} buy.entryQtyToken=${canonicalBuy.entryQtyToken}"
+                else -> null
+            }
+            if (block != null) {
+                val (code, detail) = block
+                try {
+                    PipelineHealthCollector.labelInc("SELL_BLOCKED_NO_CANONICAL_POSITION_6373")
+                    PipelineHealthCollector.labelInc("SELL_BLOCKED_NO_CANONICAL_POSITION_6373|$code")
+                    ForensicLogger.lifecycle(
+                        "SELL_BLOCKED_NO_CANONICAL_POSITION_6373",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason code=$code detail=$detail"
+                    )
+                } catch (_: Throwable) {}
+                // IMPORTANT: do not markClosed/unregister — the real position
+                // (if any) must remain untouched so a subsequent well-formed sell
+                // can process it. Release the sell lock and short-circuit.
+                try { releasePaperSellLock(ts.mint) } catch (_: Throwable) {}
+                return SellResult.FAILED_RETRYABLE
+            }
+        }
+
         // FIX: these were missing and caused your compile failure
         // V5.9.83: guard against unset entryTime (would make holdTime = now-epoch = 56 yrs).
         val entryTimeSafe = if (pos.entryTime > 1_000_000_000_000L) pos.entryTime else System.currentTimeMillis()
