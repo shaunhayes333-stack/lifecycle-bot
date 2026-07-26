@@ -7370,7 +7370,7 @@ class GoldenTapeRegressionTest {
                 gate.contains("EmergentGuardrails.getPositionLayer(mint)") &&
                 gate.contains("EXEC_OPEN_SAME_MINT_ALREADY_OPEN_COOLDOWN_6371") &&
                 gate.contains("EXEC_OPEN_BLOCKED_SAME_MINT_ALREADY_OPEN_6371") &&
-                gate.indexOf("EXEC_OPEN_BLOCKED_SAME_MINT_ALREADY_OPEN_6371") < gate.indexOf("val pause = LiveCircuitBreaker.current()"))
+                gate.indexOf("OPEN-GATE SAME-MINT PAPER COOLDOWN") < gate.indexOf("SHADOW_TRAIN_ONLY is NOT an execution veto"))
         assertTrue("V5.0.6371: GHOST_REAP_ZERO_BALANCE must mint-lock only, not family-lock, so ghost cleanup does not choke fresh family candidates",
             reentry.contains("ghostZeroCleanup6371") &&
                 reentry.contains("REENTRY_LOCKOUT_ARMED_MINT_ONLY_GHOST_ZERO_6371") &&
