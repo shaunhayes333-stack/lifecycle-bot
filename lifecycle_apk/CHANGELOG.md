@@ -4,6 +4,31 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.6373d] - 2026-02 — Wide bundle: phantom pnl% recompute + phantom-retry dedupe + Trade.pnlPct mutable
+
+**Operator (verbatim):**
+> ffs see the difference
+> d. [all three bugs in one wide bundle]
+
+Trade Journal screenshot showed **+$7,819.45 · 1,207 trades · 50 % WR · +1,003.5 % AVG WIN**, ALL TRADERS panel showed **323 trades · +104.86 SOL**, and AATE Command wallet showed **$308.04 · -$571.73 · -65 % start**. Three counters, three disagreements, wallet losing REAL capital while journal displayed phantom +1,003 % wins.
+
+**Bug A — Phantom pnl % at journal write (`TradeHistoryStore.recordTrade`).**
+Before persisting a SELL / PARTIAL row, cross-check `entryQtyToken × entryPrice` against `entryCostSol`. If the basis ratio falls outside 0.95..1.05, the stored `pnlPct` is fabricated against a phantom cost basis. Overwrite it with the wallet-truthful `((soldSol - cost) / cost) × 100`. Label each recompute as `TRADE_JOURNAL_PHANTOM_PNL_RECOMPUTED_6373D|lane=<lane>`.
+
+**Bug B — Phantom-retry dedupe (`TradeHistoryStore.recordTrade`).**
+Adds a second dedupe key `${mint}_SELL_${sizeBucketRoundedTo4dp}` on a wider 30 s window. Same-mint SELL retries that fire the exact same `sizeSol` (typical of phantom cross-path duplication) collapse to a single row; legitimate partial ladders (`partial_20pct`, `partial_40pct`, etc.) still flow because each bracket has a DIFFERENT `sizeSol`. Emits `TRADE_JOURNAL_DEDUP_6373D_PHANTOM_SIZE_MATCH` when a collision fires.
+
+**Bug C — `Trade.pnlPct` made mutable (`data/Models.kt`).**
+`val pnlPct` → `var pnlPct` so the Bug-A recompute at recordTrade can actually overwrite phantom values without a full data-class copy dance. Every other consumer still reads the same field — no downstream API breakage.
+
+**Files changed:**
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt`
+- `app/src/test/kotlin/com/lifecyclebot/engine/Bundle6373dInvariantsTest.kt` (new)
+
+---
+
+
 ## [5.0.6373c] - 2026-02 — Ghost Paper Purge NEUTRALIZED (regression fix vs V5.0.6366 F3)
 
 **Operator directives (verbatim):**

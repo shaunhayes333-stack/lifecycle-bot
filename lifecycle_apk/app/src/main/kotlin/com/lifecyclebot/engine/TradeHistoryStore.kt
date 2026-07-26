@@ -431,6 +431,14 @@ object TradeHistoryStore {
         }
     )
     private val RECORD_TRADE_DEDUPE_WINDOW_MS: Long = 1_500L
+    // V5.0.6373d — wider bracket for full-exit / phantom-retry storms. Operator
+    // saw 1,207 journal rows vs 323 Command trades (≈880 dupes). The 1500ms
+    // window catches ms-apart cross-path fires but not the slower phantom
+    // retries. Full-exit rows (partial_85pct, partial_100pct, FULL_EXIT_100PCT)
+    // are legitimately 3+ seconds apart, so the base window stays 1500ms and
+    // the wider 30_000ms window is applied only when the incoming SELL has a
+    // near-identical netSolDelta signature to the prior one for the same mint.
+    private val RECORD_TRADE_DEDUPE_PHANTOM_WINDOW_MS: Long = 30_000L
 
     private fun isJournalSellLike(side: String): Boolean =
         side.equals("SELL", ignoreCase = true) || side.equals("PARTIAL_SELL", ignoreCase = true)
@@ -689,6 +697,49 @@ object TradeHistoryStore {
 
     fun recordTrade(trade: Trade) {
         ensureInitialized()
+        // V5.0.6373d — PHANTOM PNL% RECOMPUTE (Bug A of the wide bundle).
+        // Operator saw journal display +$7,819.45 with +1003.5% AVG WIN while
+        // the ACTUAL wallet was -65% from start. Root cause: stored pnlPct on
+        // some SELL rows was fabricated against a phantom cost basis
+        // (qty × entryPrice diverges from cost). Recompute pnlPct against
+        // wallet-truthful SOL flow whenever the row's stored basis is
+        // inconsistent by more than 5%. Labels the recomputed rows so the
+        // operator can see how many rows were corrected.
+        run {
+            val side = trade.side.orEmpty().uppercase()
+            if (side == "SELL" || side.startsWith("PARTIAL")) {
+                val cost = trade.entryCostSol
+                val qty  = trade.entryQtyToken
+                val price = trade.entryPrice
+                val soldSol = trade.sizeSol
+                if (cost > 0.0 && qty > 0.0 && price > 0.0 && soldSol >= 0.0) {
+                    val impliedFromBasis = qty * price
+                    val basisRatio = if (impliedFromBasis > 0) impliedFromBasis / cost else 1.0
+                    val basisConsistent = basisRatio in 0.95..1.05
+                    if (!basisConsistent) {
+                        val realPnlPct = ((soldSol - cost) / cost) * 100.0
+                        val storedPnlPct = trade.pnlPct
+                        val delta = kotlin.math.abs(realPnlPct - storedPnlPct)
+                        if (delta > 5.0) {
+                            try {
+                                PipelineHealthCollector.labelInc("TRADE_JOURNAL_PHANTOM_PNL_RECOMPUTED_6373D")
+                                PipelineHealthCollector.labelInc("TRADE_JOURNAL_PHANTOM_PNL_RECOMPUTED_6373D|lane=${trade.tradingMode.uppercase().take(24)}")
+                            } catch (_: Throwable) {}
+                            try {
+                                trade.pnlPct = realPnlPct
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                }
+            }
+        }
+        // V5.0.6373d — WIDER PHANTOM-RETRY DEDUPE (Bug B). Extends the
+        // V5.9.1038 SELL choke gate: if a recent prior SELL for this mint
+        // is within 30 s AND has a near-identical `sizeSol` (rounded to
+        // 4 dp, within 0.5 %), treat the incoming row as a phantom retry
+        // and drop it. Legitimate partial ladder sells (partial_20pct,
+        // partial_40pct, ...) have DIFFERENT sizeSol per bracket, so this
+        // does not eat real partials.
         // V5.9.1038 — choke-point dedupe gate. SELL-only (BUY tradeIds are
         // not double-fired — only SELL exits go through both paths).
         if (trade.side.equals("SELL", ignoreCase = true)) {
@@ -696,6 +747,36 @@ object TradeHistoryStore {
             // fire ms apart with different Trade.ts values; the 1500ms window
             // catches them while letting legitimate partial sells (which are
             // 3+ seconds apart) flow through.
+            // V5.0.6373d — sizeSol-signature phantom retry key. Adds a
+            // second key with rounded sizeSol so identical-proceeds phantom
+            // retries fire only once even if the mint has legitimate SELL
+            // ladders in flight. The bucket key rounds to 4 decimals AND
+            // takes the top-4-sig-figs bucket so 0.010001 and 0.010049 both
+            // collide (real ladders differ by >0.5 %).
+            val sizeBucket6373d = try {
+                val s = kotlin.math.abs(trade.sizeSol)
+                if (s <= 0.0) "0" else String.format(java.util.Locale.ROOT, "%.4f", s)
+            } catch (_: Throwable) { "0" }
+            val phantomKey6373d = "${trade.mint}_SELL_${sizeBucket6373d}"
+            val phantomPrior6373d = synchronized(recordTradeRecentLru) {
+                val p = recordTradeRecentLru[phantomKey6373d]
+                if (p == null || (now - p) > RECORD_TRADE_DEDUPE_PHANTOM_WINDOW_MS) {
+                    recordTradeRecentLru[phantomKey6373d] = now
+                    null
+                } else {
+                    p
+                }
+            }
+            if (phantomPrior6373d != null) {
+                try { PipelineHealthCollector.labelInc("TRADE_JOURNAL_DEDUP_6373D_PHANTOM_SIZE_MATCH") } catch (_: Throwable) {}
+                try {
+                    ErrorLogger.info(
+                        "TradeHistoryStore",
+                        "📓 TRADEJRNL_DEDUP_6373D_PHANTOM mint=${trade.mint.take(8)} side=SELL sizeSol=$sizeBucket6373d priorAgeMs=${now - phantomPrior6373d}",
+                    )
+                } catch (_: Throwable) {}
+                return
+            }
             val key = "${trade.mint}_SELL"
             val now = System.currentTimeMillis()
             val prior = synchronized(recordTradeRecentLru) {

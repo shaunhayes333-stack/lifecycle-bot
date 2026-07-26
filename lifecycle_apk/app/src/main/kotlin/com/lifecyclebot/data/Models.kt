@@ -209,7 +209,7 @@ data class Trade(
     val ts: Long,
     val reason: String = "",
     val pnlSol: Double = 0.0,
-    val pnlPct: Double = 0.0,
+    var pnlPct: Double = 0.0,  // V5.0.6373d — var so recordTrade can overwrite phantom pnl% against wallet-truth
     val score: Double = 0.0,
     val sig: String = "",
     val feeSol: Double = 0.0,         // estimated network + protocol fees
