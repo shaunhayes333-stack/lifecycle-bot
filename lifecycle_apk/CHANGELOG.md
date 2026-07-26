@@ -4,6 +4,76 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.6373c] - 2026-02 — Ghost Paper Purge NEUTRALIZED (regression fix vs V5.0.6366 F3)
+
+**Operator directives (verbatim):**
+> I went back and installed 6364. thats displaying everything fine,
+> volume is there and winrate and ev is good. address every build
+> between there and now identify the regressions.
+>
+> the bot seems to be losing track of held tokens? trade volume has
+> slowed dramatically
+>
+> no thats aate policy! daily wallet growth of 2x - 5x minimum
+
+Root cause identified in the V5.0.6364 → V5.0.6373b delta audit:
+**V5.0.6366 F3 ghost purge whitelist covered only 5 V3 sub-traders**
+(ShitCoin, Moonshot, BlueChip, Quality, CashGen). Paper buys routed
+under **WHALE_FOLLOW / COPYTRADE / PRESALE_SNIPE / MICRO_CAP / TREASURY /
+CYCLIC / MOMENTUM_SWING / LAB** were mis-classified as ghosts every
+reconcile tick and got:
+
+```
+ts.position = Position()          // reset to defaults
+PositionPersistence.removePosition(mint)
+PositionCloseLedger.markClosed(mint, "PAPER_GHOST_PURGED_6366", 0)
+PaperPositionCloseAuthority.markClosed(...)
+```
+
+Downstream: held tokens vanish from the UI, and any subsequent sell
+reads the default `ts.position` and journals a phantom
+`cost=0.0100 qty=4750` row against a real position — "money
+disappearing". Confirmed in operator's 22:46 snapshot with `Nhr8g2`
+(bought 5,366 tokens for 0.1203 SOL, 3 s later "sold" 4,755 tokens
+for 0.010 SOL).
+
+**F1 — Ghost-purge predicate replaced (source of creation).**
+`currentPaperOpenMintsFromLedger()` now uses a **positive-existence**
+check:
+```kotlin
+val recentBuyMintsForGhost6373c = TradeHistoryStore.getLatestBuyByMintSnapshot().keys
+val ghost6373c = recentBuyMintsForGhost6373c.isNotEmpty()
+                 && ts.mint !in recentBuyMintsForGhost6373c
+```
+If the mint has ANY valid recent BUY row across the whole
+TradeHistoryStore, the position is REAL — no matter which lane fired
+the buy. Only genuinely orphaned rows (crashed session with no journal
+entry / PositionPersistence-only) still get cleaned, now under a new
+label `PAPER_GHOST_PURGED_6373C_NO_BUY_ROW`. Empty snapshot fails
+safe (keeps the position).
+
+Bundle6366InvariantsTest updated to assert the new predicate and
+forbid the old whitelist string from returning.
+
+**F2 REJECTED per operator.** The V5.0.6372 universal 2×–5× compound
+target scope is **kept** — "no thats aate policy! daily wallet growth
+of 2x - 5x minimum". Universal wallet-growth doctrine, not a meme
+optimization. New Bundle6373cInvariantsTest#universal_compound_target_scope_preserved
+guards against accidental future reversion.
+
+**My earlier V5.0.6373 / 6373a / 6373b bundles remain intact** (V3
+same-mint pre-empt, trade-1 catastrophic rotation, skew-taint learning
+quarantine, canonical-position sentinel at paperSell). They are
+additive guards, not regressions.
+
+**Files changed:**
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt` — replaced whitelist ghost predicate with positive-existence
+- `app/src/test/kotlin/com/lifecyclebot/engine/Bundle6366InvariantsTest.kt` — updated ghost purge test to reflect neutralization
+- `app/src/test/kotlin/com/lifecyclebot/engine/Bundle6373cInvariantsTest.kt` (new) — 3 assertions covering the F1 fix and the F2 policy-preservation
+
+---
+
+
 ## [5.0.6373b] - 2026-02 — Canonical Position Sentinel at paperSell entry (P0-1 + P0-2 + P0-3 minimum)
 
 **Operator directive (verbatim):**

@@ -15970,15 +15970,22 @@ if (hotExitHandledSweep) {
             // close it here so slot health can accept new positions and
             // the UI stops showing zombies. Sub-trader-owned positions are
             // left alone — their own hold/exit logic still governs them.
-            val canonicalOwnedMints = try {
-                val set = HashSet<String>()
-                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositionsForMode(true).forEach { p -> p.mint?.let { set.add(it) } }
-                com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositionsForMode(true).forEach { p -> p.mint?.let { set.add(it) } }
-                com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositionsForMode(true).forEach { p -> p.mint?.let { set.add(it) } }
-                com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositionsForMode(true).forEach { p -> p.mint?.let { set.add(it) } }
-                com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsForMode(true).forEach { p -> p.mint?.let { set.add(it) } }
-                set
-            } catch (_: Throwable) { null }
+            // V5.0.6373c — GHOST PURGE NEUTRALIZED (regression fix).
+            // V5.0.6366 F3 whitelisted only 5 V3 sub-traders (ShitCoin, Moonshot,
+            // BlueChip, Quality, CashGen), so paper buys in WHALE_FOLLOW /
+            // COPYTRADE / PRESALE_SNIPE / MICRO_CAP / TREASURY / CYCLIC /
+            // BLUE_CHIP / MOMENTUM_SWING / LAB got mis-classified as ghosts and
+            // force-closed (ts.position = Position() reset + PositionPersistence
+            // remove + PositionCloseLedger.markClosed). Result: "money is
+            // disappearing" + held-tokens invisible + phantom cost=0.01 sells.
+            // Positive-existence check now: if TradeHistoryStore has a valid
+            // recent BUY row for this mint AND the ledger has not marked it
+            // closed, it is NOT a ghost. Real orphaned rows (crashed session
+            // with no journal entry, PositionPersistence-only) still get
+            // cleaned via the CANONICAL_GHOST predicate at their normal paths.
+            val recentBuyMintsForGhost6373c = try {
+                com.lifecyclebot.engine.TradeHistoryStore.getLatestBuyByMintSnapshot().keys
+            } catch (_: Throwable) { emptySet<String>() }
             synchronized(status.tokens) {
                 status.tokens.values.forEach { ts ->
                     val p = ts.position
@@ -15992,18 +15999,23 @@ if (hotExitHandledSweep) {
                             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_FORCED_ROW_CLEARED_DUST") } catch (_: Throwable) {}
                             try { ForensicLogger.lifecycle("PAPER_FORCED_ROW_CLEARED_DUST", "mint=${ts.mint.take(10)} symbol=${ts.symbol} qty=${p.qtyToken} cost=${p.costSol}") } catch (_: Throwable) {}
                         } else if (p.qtyToken > 1e-12 && p.costSol > 0.0 && p.isOpen && !com.lifecyclebot.engine.PositionCloseLedger.isClosed(ts.mint)) {
-                            // V5.0.6366 — ghost purge (paper). If canonical sub-trader ownership
-                            // set is known AND this mint is NOT owned by any of the five V3
-                            // sub-traders, force-close it. The ledger has drifted; keeping it
-                            // open only blocks new entries and stalls the wallet.
-                            val ghost = canonicalOwnedMints != null && ts.mint !in canonicalOwnedMints
-                            if (ghost) {
+                            // V5.0.6373c — POSITIVE-EXISTENCE ghost predicate (replaces
+                            // the V5.0.6366 whitelist that only covered 5 V3 sub-traders
+                            // and mis-classified WHALE_FOLLOW / COPYTRADE / PRESALE_SNIPE /
+                            // MICRO_CAP / TREASURY / CYCLIC / MOMENTUM_SWING / LAB positions
+                            // as ghosts). A paper position with a valid recent BUY row in
+                            // TradeHistoryStore is REAL — do not purge, do not reset,
+                            // do not close-mark. Only rows with NO BUY row anywhere are
+                            // truly orphaned (crashed session / persistence-only). Empty
+                            // recentBuyMintsForGhost6373c fails safe: keep the position.
+                            val ghost6373c = recentBuyMintsForGhost6373c.isNotEmpty() && ts.mint !in recentBuyMintsForGhost6373c
+                            if (ghost6373c) {
                                 try { ts.position = com.lifecyclebot.data.Position() } catch (_: Throwable) {}
                                 try { com.lifecyclebot.engine.PositionPersistence.removePosition(ts.mint) } catch (_: Throwable) {}
-                                try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(ts.mint, "PAPER_GHOST_PURGED_6366", 0) } catch (_: Throwable) {}
-                                try { com.lifecyclebot.engine.PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "PAPER_GHOST_PURGED_6366") } catch (_: Throwable) {}
-                                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_GHOST_PURGED_6366") } catch (_: Throwable) {}
-                                try { ForensicLogger.lifecycle("PAPER_GHOST_PURGED_6366", "mint=${ts.mint.take(10)} symbol=${ts.symbol} qty=${p.qtyToken} cost=${p.costSol} reason=not_owned_by_any_v3_subtrader") } catch (_: Throwable) {}
+                                try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(ts.mint, "PAPER_GHOST_PURGED_6373C_NO_BUY_ROW", 0) } catch (_: Throwable) {}
+                                try { com.lifecyclebot.engine.PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "PAPER_GHOST_PURGED_6373C_NO_BUY_ROW") } catch (_: Throwable) {}
+                                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_GHOST_PURGED_6373C_NO_BUY_ROW") } catch (_: Throwable) {}
+                                try { ForensicLogger.lifecycle("PAPER_GHOST_PURGED_6373C_NO_BUY_ROW", "mint=${ts.mint.take(10)} symbol=${ts.symbol} qty=${p.qtyToken} cost=${p.costSol} reason=no_recent_buy_row_in_TradeHistoryStore") } catch (_: Throwable) {}
                             } else {
                                 out.add(ts.mint)
                             }

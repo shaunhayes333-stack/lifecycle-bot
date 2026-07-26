@@ -32,17 +32,22 @@ class Bundle6366InvariantsTest {
 
     @Test
     fun ghost_paper_purge_wired_into_current_paper_open_mints() {
+        // V5.0.6373c — the V5.0.6366 whitelist-of-5-sub-traders ghost predicate
+        // was mis-classifying every non-{ShitCoin,Moonshot,BlueChip,Quality,CashGen}
+        // paper position (WHALE_FOLLOW / COPYTRADE / PRESALE_SNIPE / MICRO_CAP /
+        // TREASURY / CYCLIC / MOMENTUM_SWING / LAB) as a ghost and resetting
+        // ts.position, which is what produced the "held tokens invisible" +
+        // "money disappearing" symptoms in the operator snapshot. The check has
+        // been neutralized and replaced with a positive-existence predicate
+        // (recent BUY row in TradeHistoryStore == real position). Assert on
+        // the new label + predicate so nobody re-introduces the old whitelist.
         val txt = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        // Purge fires when a raw-ledger open paper position isn't owned by any V3 sub-trader.
-        assertTrue("Must build canonical-owned mint set from all five V3 sub-traders",
-            txt.contains("ShitCoinTraderAI.getActivePositionsForMode(true)") &&
-                txt.contains("MoonshotTraderAI.getActivePositionsForMode(true)") &&
-                txt.contains("BlueChipTraderAI.getActivePositionsForMode(true)") &&
-                txt.contains("QualityTraderAI.getActivePositionsForMode(true)") &&
-                txt.contains("CashGenerationAI.getActivePositionsForMode(true)"))
-        assertTrue("Must emit PAPER_GHOST_PURGED_6366 when force-closing a ghost",
-            txt.contains("PAPER_GHOST_PURGED_6366"))
-        assertTrue("Must fall back gracefully when canonicalOwnedMints is null",
+        assertTrue("V5.0.6373c: ghost purge must use TradeHistoryStore latest-buy positive-existence",
+            txt.contains("recentBuyMintsForGhost6373c") &&
+                txt.contains("getLatestBuyByMintSnapshot().keys"))
+        assertTrue("V5.0.6373c: new ghost-purge label + reason emitted on true orphaned rows",
+            txt.contains("PAPER_GHOST_PURGED_6373C_NO_BUY_ROW"))
+        assertFalse("V5.0.6373c: old V5.0.6366 whitelist predicate must be removed",
             txt.contains("canonicalOwnedMints != null && ts.mint !in canonicalOwnedMints"))
     }
 
