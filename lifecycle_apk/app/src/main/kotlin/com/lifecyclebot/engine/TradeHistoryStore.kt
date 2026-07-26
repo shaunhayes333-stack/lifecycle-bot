@@ -710,8 +710,8 @@ object TradeHistoryStore {
             if (side == "SELL" || side.startsWith("PARTIAL")) {
                 val cost = trade.entryCostSol
                 val qty  = trade.entryQtyToken
-                val price = trade.entryPrice
-                val soldSol = trade.sizeSol
+                val price = trade.entryPriceSnapshot
+                val soldSol = trade.sol
                 if (cost > 0.0 && qty > 0.0 && price > 0.0 && soldSol >= 0.0) {
                     val impliedFromBasis = qty * price
                     val basisRatio = if (impliedFromBasis > 0) impliedFromBasis / cost else 1.0
@@ -753,8 +753,9 @@ object TradeHistoryStore {
             // ladders in flight. The bucket key rounds to 4 decimals AND
             // takes the top-4-sig-figs bucket so 0.010001 and 0.010049 both
             // collide (real ladders differ by >0.5 %).
+            val now = System.currentTimeMillis()
             val sizeBucket6373d = try {
-                val s = kotlin.math.abs(trade.sizeSol)
+                val s = kotlin.math.abs(trade.sol)
                 if (s <= 0.0) "0" else String.format(java.util.Locale.ROOT, "%.4f", s)
             } catch (_: Throwable) { "0" }
             val phantomKey6373d = "${trade.mint}_SELL_${sizeBucket6373d}"
@@ -778,7 +779,6 @@ object TradeHistoryStore {
                 return
             }
             val key = "${trade.mint}_SELL"
-            val now = System.currentTimeMillis()
             val prior = synchronized(recordTradeRecentLru) {
                 val p = recordTradeRecentLru[key]
                 if (p == null || (now - p) > RECORD_TRADE_DEDUPE_WINDOW_MS) {
