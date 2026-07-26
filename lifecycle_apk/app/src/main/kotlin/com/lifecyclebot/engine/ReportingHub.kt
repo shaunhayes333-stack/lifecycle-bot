@@ -512,7 +512,7 @@ object ReportingHub {
         // V5.0.6257 — surface MEME 2x-5x daily compound target status
         // (added V5.0.6256) into the operational report so the operator can
         // see the day-start anchor, current progress and the sizing mult.
-        appendLine(safe("meme_compound_target_6256") { com.lifecyclebot.engine.MemeCompoundTarget6256.statusLine() })
+        appendLine(safe("universal_compound_target_6372") { com.lifecyclebot.engine.MemeCompoundTarget6256.statusLine() })
         // V5.0.6248 — Learning Progress Truth Diagnostic.
         // Operator reported the Fluid Dashboard displaying 13% BOOTSTRAP
         // despite thousands of trades. Surface both the doctrine-canonical

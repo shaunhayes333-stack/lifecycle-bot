@@ -5,18 +5,19 @@ import kotlin.math.max
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * MEME COMPOUND TARGET — V5.0.6256
+ * UNIVERSAL COMPOUND TARGET — V5.0.6372
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * Operator directive: "meme trader must target 2x -5x live wallet balance
- *                     growth compound daily!!!!"
+ * Operator directive, reaffirmed V5.0.6372: AATE must target 2x–5x minimum
+ * wallet growth daily in ANY mode — LIVE or PAPER — and across the whole
+ * trader universe, not only meme lanes.
  *
  * Tracks the LIVE wallet's SOL balance at the start of each rolling UTC day
- * and provides a per-lane size multiplier that pushes MEME-family lanes
- * (MEME / SHITCOIN / MOONSHOT / PRESALE_SNIPE) toward 2x–5x growth by end of
- * day. When the daily target is hit, sizing normalises. When behind, sizing
- * scales up (capped) to give the compounding engine enough headroom to reach
- * the target on the remaining trades of the day.
+ * and provides a universal per-lane size multiplier that pushes every real
+ * lane toward 2x–5x growth by end of day. When the daily target is hit,
+ * sizing normalises. When behind, sizing scales up (capped) to give the
+ * compounding engine enough headroom to reach the target on the remaining
+ * trades of the day.
  *
  * PAPER MODE (V5.0.6304): also active. Uses a paper basis derived from
  * RealizedWalletCompoundingGovernor's clean cumulative PnL so the AI's sizing
@@ -97,8 +98,8 @@ object MemeCompoundTarget6256 {
      *
      * Paper feed uses the running clean journal PnL as the "current wallet"
      * basis, anchored against whatever the paper balance was at UTC midnight.
-     * This lets sizeAdvisoryFor() actually press the meme lanes when paper
-     * is behind target, and normalise once the paper journal is 2x+ up.
+     * This lets sizeAdvisoryFor() press ALL lanes when paper is behind target,
+     * and normalise once the paper journal is 2x+ up.
      */
     fun observePaperBasis(cleanPnlSol: Double, nowMs: Long = System.currentTimeMillis()) {
         if (!cleanPnlSol.isFinite()) return
@@ -123,14 +124,18 @@ object MemeCompoundTarget6256 {
     }
 
     /**
-     * Advisory size multiplier for a lane. Non-MEME lanes get 1.00×
-     * unchanged. MEME-family lanes get the target-based ladder.
+     * Advisory size multiplier for every real lane.
+     *
+     * V5.0.6372 — UNIVERSAL 2x–5x DAILY COMPOUND POLICY. The old 6256 policy
+     * returned 1.00× outside MEME/SHITCOIN/MOONSHOT/PRESALE, which violated the
+     * operator's explicit doctrine: 2x–5x minimum wallet growth daily in ANY mode
+     * (live or paper). This remains sizing-only advice: it never blocks, never
+     * bypasses rugs/route truth/wallet finality, and existing lane/EV/toxicity
+     * dampers can still reduce bad setups.
      */
     fun sizeAdvisoryFor(lane: String?): Double {
-        val laneUp = (lane ?: "").uppercase()
-        if (!laneUp.contains("MEME") && !laneUp.contains("SHITCOIN") &&
-            !laneUp.contains("MOONSHOT") && !laneUp.contains("PRESALE"))
-            return 1.0
+        val laneUp = (lane ?: "").uppercase().trim()
+        if (laneUp.isBlank() || laneUp == "UNKNOWN") return 1.0
         maybeRecompute()
         return cachedMult
     }
@@ -138,7 +143,7 @@ object MemeCompoundTarget6256 {
     /** For the operational report / dashboard visibility. */
     fun statusLine(): String {
         maybeRecompute()
-        return "V5.0.6256_MEME_COMPOUND_TARGET: start=${"%.4f".format(cachedStartSol)} SOL " +
+        return "V5.0.6372_UNIVERSAL_COMPOUND_TARGET: start=${"%.4f".format(cachedStartSol)} SOL " +
             "current=${"%.4f".format(cachedCurrentSol)} SOL " +
             "progress=${"%.2f".format(cachedProgress)}x " +
             "target=${TARGET_LOW_MULT}x-${TARGET_HIGH_MULT}x " +

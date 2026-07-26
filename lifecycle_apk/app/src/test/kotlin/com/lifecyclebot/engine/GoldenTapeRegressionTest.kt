@@ -7375,7 +7375,30 @@ class GoldenTapeRegressionTest {
             reentry.contains("ghostZeroCleanup6371") &&
                 reentry.contains("REENTRY_LOCKOUT_ARMED_MINT_ONLY_GHOST_ZERO_6371") &&
                 reentry.contains("if (symbolFamily.isNotBlank() && !ghostZeroCleanup6371) byFamily") &&
-                reentry.contains("""familyLocked=${!ghostZeroCleanup6371}"""))
+                reentry.contains("familyLocked=" + "${'$'}" + "{!ghostZeroCleanup6371}"))
+    }
+
+
+    @Test
+    fun V5_0_6372_universal_compound_target_applies_all_real_lanes_live_and_paper() {
+        val target = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MemeCompoundTarget6256.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        assertTrue("V5.0.6372: 2x-5x compound policy must be universal across live/paper and all real lanes, not meme-only",
+            target.contains("UNIVERSAL 2x–5x DAILY COMPOUND POLICY") &&
+                target.contains("ANY mode") &&
+                target.contains("live or paper") &&
+                target.contains("""if (laneUp.isBlank() || laneUp == "UNKNOWN") return 1.0""") &&
+                !target.contains("""!laneUp.contains("MEME")""") &&
+                !target.contains("Non-MEME lanes get 1.00×"))
+        assertTrue("V5.0.6372: Executor sizing must multiply the universal target through paperBuy fluid sizing telemetry",
+            exec.contains("UNIVERSAL 2x-5x daily compound target") &&
+                exec.contains("universalTargetMult6372") &&
+                exec.contains("universalTgt6372") &&
+                !exec.contains("memeTgt="))
+        assertTrue("V5.0.6372: reports must expose the universal target label instead of meme-only language",
+            report.contains("universal_compound_target_6372") &&
+                target.contains("V5.0.6372_UNIVERSAL_COMPOUND_TARGET"))
     }
 
 }
