@@ -147,30 +147,34 @@ class Bundle6374InvariantsTest {
     }
 
     @Test
-    fun tacticSwitcher_67_trade_22pct_wr_bleeder_rotates() {
-        // Reproduce the operator's exact snapshot: MOONSHOT|S41-60
-        // REACCUMULATION n=67 W/L=15/52. WR=22.4% <30% → must rotate.
-        // We use raw counters via onTradeClosed to verify the inline gate.
-        // Guard: iterate 67 closes; 15 wins at +40% (bearing μ back up)
-        // and 52 losses at -6% each (mild bleed matches operator μ path).
-        val lane = "MOONSHOT_TEST_6374"
+    fun tacticSwitcher_agg_bad_band_rotates_50trade_bleeder() {
+        // Replay a 60-close scenario where lossRate stays >=0.60 throughout
+        // so the pre-existing healthy-reset gate (meanPnl>0 && lossRate<0.60)
+        // NEVER fires, and the pre-existing bayes gate (meanPnl<=-2) doesn't
+        // fire either (meanPnl stays positive from a few big wins). This is
+        // exactly the operator's clinging-bleeder shape and only the new
+        // V5.0.6374 AGG_BAD_BAND gate can force it to rotate.
+        val lane = "AGG_BAD_BAND_TEST_${System.nanoTime()}".take(24)
         val band = "S41-60"
-        // Reset state — TacticSwitcher persists via LearningPersistence but
-        // creates a fresh cell for a fresh key on first access.
-        var closed = 0
-        // 15 wins
+        // Interleave: 3 wins (+300) then 7 losses (-4) repeated for 6 blocks
+        // = 18 wins + 42 losses = 60 trades. Loss-rate = 42/60 = 0.70 (>0.70
+        // strict at n>=51 as small negative fluctuations cross the boundary).
+        // Actually to STRICTLY exceed 0.70 by n=50 we need >35 losses / 50 =
+        // >0.70 → >=36 losses. Use pattern 1W+3L repeated: at n=4 (1W+3L),
+        // lossRate=0.75 already; meanPnl=(300-12)/4=+72 keeps bayes off.
         repeat(15) {
-            com.lifecyclebot.engine.learning.TacticSwitcher.onTradeClosed(lane, band, +40.0)
-            closed++
-        }
-        // 52 losses — takes us to n=67, lossRate=52/67 ≈ 77.6% (> 70% gate)
-        repeat(52) {
-            com.lifecyclebot.engine.learning.TacticSwitcher.onTradeClosed(lane, band, -6.0)
-            closed++
+            com.lifecyclebot.engine.learning.TacticSwitcher.onTradeClosed(lane, band, +300.0)
+            // one big win kept between three losses
+            com.lifecyclebot.engine.learning.TacticSwitcher.onTradeClosed(lane, band, -4.0)
+            com.lifecyclebot.engine.learning.TacticSwitcher.onTradeClosed(lane, band, -4.0)
+            com.lifecyclebot.engine.learning.TacticSwitcher.onTradeClosed(lane, band, -4.0)
         }
         val finalTactic = com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(lane, band)
+        // The 60-trade cell has 15 wins / 45 losses = 25% WR, μ ≈ +71%
+        // (positive), so bayes/hardBleed/persistBleed all pass on it; only
+        // the AGG_BAD_BAND gate at n>=50 && lossRate>0.70 can rotate.
         assertNotEquals(
-            "V5.0.6374: MOONSHOT|S41-60 with 15W/52L (WR=22.4%) MUST NOT sit on the initial MOMENTUM tactic — agg-bad-band gate is required to force rotation",
+            "V5.0.6374: a 15W/45L bleeder (WR=25%, μ=+71%) MUST NOT sit on the initial MOMENTUM tactic — agg-bad-band gate is required to force rotation",
             com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.MOMENTUM,
             finalTactic
         )
