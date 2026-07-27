@@ -10930,7 +10930,7 @@ class Executor(
                     PipelineHealthCollector.labelInc("PAPER_BUY_BLOCKED_PRESALE_SNIPE_6373F")
                     ForensicLogger.lifecycle(
                         "PAPER_BUY_BLOCKED_PRESALE_SNIPE_6373F",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} layerTag=$layerTag mcap=${ts.mcap} " +
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} layerTag=$layerTag " +
                             "reason=resale_snipe_51k_rug_pattern_operator_snapshot",
                     )
                 } catch (_: Throwable) {}
