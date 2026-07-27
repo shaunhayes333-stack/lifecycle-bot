@@ -231,12 +231,12 @@ class Bundle6374InvariantsTest {
 
     @Test
     fun heatmapRenderCache_min_refresh_is_clamped() {
-        HeatmapRenderCache6374.resetForTest()
-        HeatmapRenderCache6374.setMinRefreshMs(1L)
-        assertEquals(2_000L, HeatmapRenderCache6374.currentMinRefreshMs())
-        HeatmapRenderCache6374.setMinRefreshMs(9_999_999L)
-        assertEquals(300_000L, HeatmapRenderCache6374.currentMinRefreshMs())
-        HeatmapRenderCache6374.setMinRefreshMs(15_000L)
-        assertEquals(15_000L, HeatmapRenderCache6374.currentMinRefreshMs())
+        com.lifecyclebot.ui.HeatmapRenderCache6374.resetForTest()
+        com.lifecyclebot.ui.HeatmapRenderCache6374.setMinRefreshMs(1L)
+        assertEquals(2_000L, com.lifecyclebot.ui.HeatmapRenderCache6374.currentMinRefreshMs())
+        com.lifecyclebot.ui.HeatmapRenderCache6374.setMinRefreshMs(9_999_999L)
+        assertEquals(300_000L, com.lifecyclebot.ui.HeatmapRenderCache6374.currentMinRefreshMs())
+        com.lifecyclebot.ui.HeatmapRenderCache6374.setMinRefreshMs(15_000L)
+        assertEquals(15_000L, com.lifecyclebot.ui.HeatmapRenderCache6374.currentMinRefreshMs())
     }
 }
