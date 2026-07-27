@@ -1,8 +1,18 @@
-# AATE PRD — V5.0.6373c
+# AATE PRD — V5.0.6374
 
 ## Current build stack
 
-- **6373c** (`71c768be4` ✅) **Ghost Paper Purge NEUTRALIZED — primary regression fix.** Operator's V5.0.6364 baseline showed everything working (display, volume, WR/EV). V5.0.6366 F3 ghost purge whitelisted only 5 V3 sub-traders (ShitCoin/Moonshot/BlueChip/Quality/CashGen) → paper buys under WHALE_FOLLOW / COPYTRADE / PRESALE_SNIPE / MICRO_CAP / TREASURY / CYCLIC / MOMENTUM_SWING / LAB got mis-classified as ghosts and got `ts.position = Position()` reset every reconcile tick. Root cause of "held tokens invisible" + "money disappearing" + phantom `cost=0.0100 qty=4750` sell rows. Ghost predicate replaced with positive-existence: `mint in TradeHistoryStore.getLatestBuyByMintSnapshot().keys` means REAL, regardless of lane. Only truly orphaned rows still cleaned under `PAPER_GHOST_PURGED_6373C_NO_BUY_ROW`. V5.0.6372 universal 2×–5× daily wallet-growth compound target KEPT per operator ("thats aate policy!"). Guard test forbids future reversion.
+- **6374** (pending push) **Scanner Fanout Throttle + Aggregate-Bad-Band Rotation + Heatmap ANR Fix** — single atomic P0 bundle addressing the three operator directives from the final V5.0.6373g snapshot:
+  1. `ScannerFanoutDedupe6374` — per-(source, mint) 60s TTL dedupe upstream of `admitProtectedMemeIntake` in `BotService.wireExternalStreams`. Collapses PUMP_PORTAL_WS re-emit burst (snapshot: 788 intake events → 184s cycles). Fluid/tunable via `setTtlMs()`, bounded 4096 entries.
+  2. `TacticSwitcher` aggregate-bad-band gate — `AGG_BAD_BAND_MIN_SAMPLES=50`, `AGG_BAD_BAND_MIN_LOSS_RATE=0.70` (WR<30%). Fires in `onTradeClosed` (since-rotation) AND `maybeRotateFromMemory` (lifetime). Kills MOONSHOT|S41-60 REACCUMULATION n=67 W/L=15/52 bleeder. Rotation only, never disable.
+  3. `HeatmapRenderCache6374` + `MainActivity.renderWrRecoveryHeatmap` — heatmap SpannableString compute moved to `Dispatchers.Default` with a 15s coalesced background refresh. Eliminates the top blocking main-thread call site captured immediately before the 5-hour ANR lockup.
+  - Bundle6374InvariantsTest.kt (11 assertions) covers all three fixes.
+
+- **6373g** (`406bd6809` ✅) Fix compile: TokenState.mcap field removal from log line.
+- **6373f** (`b93130fc6` ✅) Hard-block PRESALE_SNIPE/RESALE_SNIPE/FRESH_LAUNCH at paperBuy source.
+- **6373e** (`aa94bb744` ✅) Fix V5.0.6373d compile (Trade field name reconciliation).
+- **6373d** (`0b2f7d5e0` ✅) Wide bundle A+B+C: phantom pnl% recompute + phantom-retry dedupe + Trade.pnlPct mutable.
+- **6373c** (`71c768be4` ✅) **Ghost Paper Purge NEUTRALIZED — primary regression fix.** Operator's V5.0.6364 baseline showed everything working (display, volume, WR/EV). V5.0.6366 F3 ghost purge whitelisted only 5 V3 sub-traders (ShitCoin/Moonshot/BlueChip/Quality/CashGen) → paper buys under WHALE_FOLLOW / COPYTRADE / PRESALE_SNIPE / MICRO_CAP / TREASURY / CYCLIC / MOMENTUM_SWING / LAB got mis-classified as ghosts and got `ts.position = Position()` reset every reconcile tick. Ghost predicate replaced with positive-existence check against TradeHistoryStore latest-buy. V5.0.6372 universal 2×–5× daily wallet-growth compound target KEPT per operator ("thats aate policy!").
 
 - **6373b** (`81788486d` ✅) Canonical Position Sentinel at paperSell entry (source-of-creation P0-1+P0-2+P0-3 minimum). Blocks phantom sells when `ts.position` disagrees with `TradeHistoryStore` latest-buy by >2× cost/qty or `pos.costSol < 0.05 && buy.entryCostSol >= 0.05`. Emits `SELL_BLOCKED_NO_CANONICAL_POSITION_6373` and returns `FAILED_RETRYABLE` without touching real position or journaling.
 - **6373a** (`f93efe655` ✅) Compile fix for V5.0.6373's V3 pre-empt if/else structure.

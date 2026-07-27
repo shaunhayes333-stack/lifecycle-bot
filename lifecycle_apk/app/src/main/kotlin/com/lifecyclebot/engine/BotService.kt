@@ -7777,6 +7777,18 @@ class BotService : Service() {
                             liveCfg.autoTrade ||
                             status.running
                         if (shouldAdmit) {
+                            // V5.0.6374 — SCANNER FANOUT THROTTLE. Collapse the
+                            // PUMP_PORTAL_WS re-emit burst (operator snapshot: 788
+                            // intake events → 184s bot-loop cycles) with a per-mint
+                            // 60s dedupe upstream of every downstream call. First
+                            // arrival admits; subsequent duplicates within TTL are
+                            // silently dropped BEFORE admitProtectedMemeIntake so
+                            // the registry duplicate refresh, probation writes, and
+                            // scanner-active marker never run for the same mint 40×
+                            // in one second. TTL is fluid/tunable at runtime.
+                            if (!com.lifecyclebot.engine.ScannerFanoutDedupe6374.admit("PUMP_PORTAL_WS", mint)) {
+                                return@onNewToken
+                            }
                             lastScannerDiscoveryMs = System.currentTimeMillis()
                             try { marketScanner?.recordNewTokenFound() } catch (_: Throwable) {}
                             // V5.0.3730 — scanner-active source truth (PumpPortal WS sibling).

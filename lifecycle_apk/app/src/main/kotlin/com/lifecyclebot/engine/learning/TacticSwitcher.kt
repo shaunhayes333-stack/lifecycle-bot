@@ -120,6 +120,28 @@ object TacticSwitcher {
     private const val MAGNITUDE_MEAN_PNL    = -25.0
     private const val MAGNITUDE_LOSS_RATE   = 0.80
 
+    // V5.0.6374 — AGGREGATE-BAD-BAND ROTATION (operator directive):
+    //   "Moonshot Tactic Rotation: force MOONSHOT|S41-60 to rotate."
+    //
+    // Snapshot showed MOONSHOT|S41-60 REACCUMULATION at n=67 W/L=15/52
+    // (WR=22.4%) sitting for 1014m because:
+    //   - LOSS_RATE_TRIGGER (0.75) requires 75% losses; 52/67=77.6% barely
+    //     clears, but the PERSIST_WINDOW / hardBleed math measures
+    //     tradesSinceRotation, and REACCUMULATION had been pivoted-into.
+    //   - meanPnl was +59.5% (a few big wins masked catastrophic base rate),
+    //     so MEAN_PNL_TRIGGER (-5%) never fired.
+    //
+    // The correct signal is BAND HEALTH: over any long-tail sample the WR
+    // itself must clear 30%. Regardless of mean-pnl / pivot state, if a
+    // (lane, band) tactic has settled >= 50 decisive closes and win-rate is
+    // still under 30% (i.e. loss-rate >= 70%), rotate — this is the
+    // "clinging bleeder" gate. Rotation, never disable.
+    private const val AGG_BAD_BAND_MIN_SAMPLES = 50
+    private const val AGG_BAD_BAND_MAX_WR      = 0.30
+    // WR<30% <=> lossRate>0.70; we require STRICTLY greater to exclude the
+    // borderline WR=30.0% case from tripping the gate.
+    private const val AGG_BAD_BAND_MIN_LOSS_RATE = 0.70
+
     private data class Cell(
         val tactic: AtomicInteger,
         val trialStartedAt: AtomicLong,          // ms
@@ -211,6 +233,16 @@ object TacticSwitcher {
         // magnitude gate could arm at n=2. Any tactic rotates NOW.
         if (tradesIn == 1 && pnlPct <= TRADE_ONE_CATASTROPHIC_PNL) {
             rotate(lane, scoreBand, cell, "trade1-catastrophic pnl=${"%+.1f".format(pnlPct)}% n=1")
+            return
+        }
+
+        // V5.0.6374 — AGGREGATE-BAD-BAND. Fires regardless of alreadyPivoted so
+        // long-tail bleeders (e.g. MOONSHOT|S41-60 REACCUMULATION 15W/52L on
+        // 67 trades) cannot cling. Evaluated at the since-rotation window;
+        // sweepAllBuckets / maybeRotateFromMemory covers lifetime memory.
+        if (tradesIn >= AGG_BAD_BAND_MIN_SAMPLES && lossRate > AGG_BAD_BAND_MIN_LOSS_RATE) {
+            val wrPct = (1.0 - lossRate) * 100.0
+            rotate(lane, scoreBand, cell, "agg-bad-band wr=${"%.0f".format(wrPct)}% lossRate=${"%.0f".format(lossRate * 100)}% n=$tradesIn")
             return
         }
 
@@ -325,8 +357,13 @@ object TacticSwitcher {
         val hardBleed = lossRate >= LOSS_RATE_TRIGGER && st.meanPnl <= MEAN_PNL_TRIGGER
         val persistBleed = totalSamples >= PERSIST_WINDOW &&
             lossRate >= PERSIST_LOSS_RATE && st.meanPnl <= PERSIST_MEAN_PNL
-        if (hardBleed || persistBleed || memBayesBleed) {
+        // V5.0.6374 — aggregate-bad-band on lifetime memory. Same threshold as
+        // the inline gate but evaluated against LosingPatternMemory so quiet
+        // buckets carrying a poison history rotate even without a fresh close.
+        val aggBadBand = totalSamples >= AGG_BAD_BAND_MIN_SAMPLES && lossRate > AGG_BAD_BAND_MIN_LOSS_RATE
+        if (hardBleed || persistBleed || memBayesBleed || aggBadBand) {
             val tag = when {
+                aggBadBand -> "mem-agg-bad-band"
                 hardBleed -> "mem-hard"
                 persistBleed -> "mem-persist"
                 else -> {

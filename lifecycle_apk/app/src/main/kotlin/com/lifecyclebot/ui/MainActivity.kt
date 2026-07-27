@@ -12997,48 +12997,21 @@ TARGET TRACKED CATEGORIES:
      */
     private fun renderWrRecoveryHeatmap(target: TextView) {
         try {
-            val store = com.lifecyclebot.engine.TradeHistoryStore
-            val stats = store.getLifetimeStats()
-            val totalSettled = (stats.totalWins + stats.totalLosses).toInt()
-            // Phase target — same source the recovery state uses.
-            val phaseTarget = try {
-                com.lifecyclebot.engine.FreeRangeMode.phaseTargetWr(totalSettled)
-            } catch (_: Throwable) { 30.0 }
-
-            val sliceWidth = 50
-            val sliceCount = 5
-            val builder = android.text.SpannableStringBuilder("WR SLICES: ")
-            val rolling = store.rollingWinRatePct(sliceWidth)
-            for (i in 0 until sliceCount) {
-                val pct = store.rollingWinRatePctSlice(offset = i * sliceWidth, width = sliceWidth)
-                val color = when {
-                    pct < 0 -> 0xFF4B5563.toInt()                   // DIM — sparse sample
-                    phaseTarget <= 0 -> 0xFF4B5563.toInt()
-                    pct >= phaseTarget -> 0xFF10B981.toInt()        // GREEN
-                    pct >= phaseTarget * 0.85 -> 0xFFF59E0B.toInt() // AMBER
-                    else -> 0xFFEF4444.toInt()                      // RED
-                }
-                val start = builder.length
-                builder.append("▰")
-                builder.setSpan(
-                    android.text.style.ForegroundColorSpan(color),
-                    start, builder.length,
-                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
-                )
+            // V5.0.6374 — ANR fix. The full compute path (6× SQLite reads +
+            // phaseTargetWr) now runs on Dispatchers.Default via
+            // HeatmapRenderCache6374; main thread reads the cached
+            // CharSequence and does a single setText. See file docstring for
+            // rationale — this is the top blocking call site the operator
+            // captured before the 5-hour ANR lockup.
+            val cached = com.lifecyclebot.ui.HeatmapRenderCache6374.get()
+            if (cached == null) {
+                // First call before background compute finished — hide until
+                // the cache warms rather than firing a synchronous SQLite pass
+                // on main just to render one frame.
+                target.visibility = android.view.View.GONE
+                return
             }
-            // Append a short text summary so the operator knows what the
-            // blocks mean without hovering.
-            val rollLabel = if (rolling >= 0) "%.0f%%".format(rolling) else "—"
-            val targetLabel = if (phaseTarget > 0) "${phaseTarget.toInt()}%" else "—"
-            builder.append("  roll50=$rollLabel / target=$targetLabel")
-
-            target.text = builder
-            // V5.9.799 — operator audit: visible from trade 1. The first
-            // few slices will render DIM until they have ≥25 decisive
-            // sells, but the operator wanted 'working from trade 1' so
-            // the tile no longer hides during the bootstrap window. Once
-            // the first 50 trades settle the leftmost block lights up
-            // green/amber/red automatically.
+            target.text = cached
             target.visibility = android.view.View.VISIBLE
         } catch (_: Throwable) {
             target.visibility = android.view.View.GONE

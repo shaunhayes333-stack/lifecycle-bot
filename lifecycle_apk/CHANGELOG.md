@@ -4,6 +4,53 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.6374] - 2026-02 — Scanner Fanout Throttle + Aggregate-Bad-Band Rotation + Heatmap ANR Fix (single wide bundle)
+
+**Operator directive (verbatim):**
+> Scanner Fanout Throttle: cycle 184 s → collapse the PUMP_PORTAL_WS = 788 intake burst with a per-mint 60 s dedupe upstream of PHASE/INTAKE.
+> Moonshot Tactic Rotation: force MOONSHOT|S41-60 to rotate.
+> investigate the anr issues as well. after running for 5 hours there was thousands and the bot was stuck.
+> single push all items done now my budget is low. do not skip items.
+
+Three P0 defects bundled into one atomic build (V5.0.6374). All helpers were built AND wired in the same push — no half builds.
+
+### (1) Scanner Fanout Throttle — `ScannerFanoutDedupe6374`
+
+New object with a per-(source, mint) 60s TTL dedupe. The PumpPortal WS callback in `BotService.wireExternalStreams` calls `ScannerFanoutDedupe6374.admit("PUMP_PORTAL_WS", mint)` BEFORE `admitProtectedMemeIntake`; duplicate re-emissions within TTL are silently skipped with a `SCANNER_FANOUT_DEDUPE_SKIP_6374|<source>` PipelineHealthCollector counter. TTL is fluid/tunable at runtime by the on-board learning layer via `setTtlMs()` (clamped 5s..600s).
+
+Bounded to 4096 entries with lazy pruning; never chokes real fresh mints. NEVER a permanent block — a mint is only muted for TTL ms.
+
+Expected effect: 788-emit bursts → ~1 admit / mint / 60s. Bot-loop max cycle target ≤ 30s (was 184s under fanout pressure).
+
+### (2) Aggregate-Bad-Band Tactic Rotation — `TacticSwitcher`
+
+New rotation gate covering long-tail bleeders that clung under existing thresholds. Constants:
+```
+AGG_BAD_BAND_MIN_SAMPLES   = 50
+AGG_BAD_BAND_MIN_LOSS_RATE = 0.70   // <=> WR < 30%
+```
+Fires in TWO places:
+- `onTradeClosed` (since-rotation counter): rotates when `tradesIn >= 50 && lossRate > 0.70`, regardless of `alreadyPivoted`.
+- `maybeRotateFromMemory` (lifetime `LosingPatternMemory`): rotates via the periodic `sweepAllBuckets` when lifetime `totalSamples >= 50 && lossRate > 0.70`.
+
+Directly kills the snapshot's `MOONSHOT|S41-60 REACCUMULATION n=67 W/L=15/52 age=1014m` bleeder. Rotation only — the lane never disables. Emits `agg-bad-band` / `mem-agg-bad-band` labels so telemetry surfaces the trigger.
+
+### (3) Heatmap Render Cache (ANR) — `HeatmapRenderCache6374`
+
+New object that owns the heatmap SpannableStringBuilder compute on `Dispatchers.Default`. Cached CharSequence + last-computed timestamp + coalesced background refresh (default 15s cadence, fluid via `setMinRefreshMs()`).
+
+`MainActivity.renderWrRecoveryHeatmap` now does ONE cache read + ONE setText on Main; the 6 synchronous SQLite reads (5× `rollingWinRatePctSlice` + `rollingWinRatePct` + `getLifetimeStats`) are gone from the UI thread. The operator's pre-freeze main-thread sample captured `MainActivity.renderWrRecoveryHeatmap(SourceFile:193)` as the top blocking site immediately before the 5-hour ANR lockup — this is that fix.
+
+### Files changed
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerFanoutDedupe6374.kt` (new)
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt` (wire dedupe into PumpFunWS onNewToken)
+- `app/src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt` (agg-bad-band constants + inline + memory-sweep gates)
+- `app/src/main/kotlin/com/lifecyclebot/ui/HeatmapRenderCache6374.kt` (new)
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt` (renderWrRecoveryHeatmap → cache read)
+- `app/src/test/kotlin/com/lifecyclebot/engine/Bundle6374InvariantsTest.kt` (new — 11 invariants)
+
+---
+
 ## [5.0.6373d] - 2026-02 — Wide bundle: phantom pnl% recompute + phantom-retry dedupe + Trade.pnlPct mutable
 
 **Operator (verbatim):**
