@@ -10913,6 +10913,32 @@ class Executor(
                  debitPaperWallet: Boolean = true,
                  maxPaperTradeSolOverride: Double? = null) {
         try { PipelineHealthCollector.labelInc("PAPER_BUY_ATTEMPT") } catch (_: Throwable) {}
+        // V5.0.6373f — PRESALE/RESALE SNIPE HARD BLOCK (source of the -96 % bleed).
+        // Operator's V5.0.6373 snapshot: 11 of the last 30 SELLs were
+        // `pid=RESALE_SNIPE lane=MOONSHOT entry=5.25e-05 cost=0.1176 mcap=$51000`
+        // each producing pnl=-0.113 SOL (-96 % wipe). LaneAutoPauseGuard already
+        // seeded PRESALE_SNIPE pause since V5.0.6067 but the check misses when
+        // the fresh-launch route re-labels the lane to MOONSHOT before executor
+        // reaches the guard. Block the buy at source using the identity/layerTag.
+        run {
+            val layerU6373f = layerTag.uppercase()
+            val hit6373f = layerU6373f.contains("RESALE_SNIPE") ||
+                layerU6373f.contains("PRESALE_SNIPE") ||
+                layerU6373f.contains("FRESH_LAUNCH")
+            if (hit6373f) {
+                try {
+                    PipelineHealthCollector.labelInc("PAPER_BUY_BLOCKED_PRESALE_SNIPE_6373F")
+                    ForensicLogger.lifecycle(
+                        "PAPER_BUY_BLOCKED_PRESALE_SNIPE_6373F",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} layerTag=$layerTag mcap=${ts.mcap} " +
+                            "reason=resale_snipe_51k_rug_pattern_operator_snapshot",
+                    )
+                } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_PRESALE_SNIPE_51K_RUG_6373F") } catch (_: Throwable) {}
+                return
+            }
+        }
         // V5.0.6369 — PAPER BUY FANOUT RACE CLAIM.
         // Runtime 6368 showed the same BLUECHIP paper mint opening twice within
         // milliseconds while lane fanout was active. The old guard checked only
