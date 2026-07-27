@@ -6290,7 +6290,7 @@ class GoldenTapeRegressionTest {
         val numericLaneRegex4492 = "Regex(" + '"' + "lane=([A-Z0-9_]+)" + '"' + ")"
         val staleLaneRegex4492 = "Regex(" + '"' + "lane=([A-Z_]+)" + '"' + ")"
         assertTrue("V5.0.4492: lane parser must preserve numeric lanes like V3_CORE instead of reporting V", src.contains(numericLaneRegex4492) && !src.contains(staleLaneRegex4492))
-        assertTrue("V5.0.4492: shadow/read-only lane visibility must not increment executable LANE_EVAL fanout counters", src.contains("shadowLaneEval4482") && src.contains("LANE_EVAL_SHADOW_READ_ONLY_4492") && src.contains("no_extra_fdg=true") && src.contains("no_fdg=true") && src.contains("bump(phaseCounts, phaseTag)"))
+        assertTrue("V5.0.6375: shadow/read-only lane visibility must not increment active LANE_EVAL fanout counters", src.contains("shadowLaneEval4482") && src.contains("LANE_EVAL_SHADOW_READ_ONLY_4492") && src.contains("no_extra_fdg=true") && src.contains("no_fdg=true") && src.contains("laneEvalShadowReadOnlyCounts") && src.contains("Shadow/read-only non-QUALITY eval") && src.contains("LANE_EVAL shadow/read-only by lane") && src.contains("if (shadowLaneEval4482) bump(laneEvalShadowReadOnlyCounts, lane)") && src.contains("else bump(laneEvalCounts, lane)"))
     }
 
 

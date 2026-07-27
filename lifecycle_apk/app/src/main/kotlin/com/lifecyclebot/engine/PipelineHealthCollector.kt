@@ -77,8 +77,12 @@ object PipelineHealthCollector {
     /** V5.9.915 — per-source intake counters (PUMP_PORTAL_WS / RAYDIUM_NEW_POOL / etc.). */
     private val intakeBySource = ConcurrentHashMap<String, AtomicLong>()
 
-    /** V5.9.915 — per-lane LANE_EVAL counters (SHITCOIN / MOONSHOT / QUALITY / BLUECHIP). */
+    /** V5.9.915 — per-lane active/executable LANE_EVAL counters (SHITCOIN / MOONSHOT / QUALITY / BLUECHIP). */
     private val laneEvalCounts = ConcurrentHashMap<String, AtomicLong>()
+    // V5.0.6375 — shadow/read-floor rows are visibility only; counting them as
+    // active lane evals made the runtime report scream MULTI_LANE_ACTIVE even
+    // when owner rotation correctly suppressed FDG/executor work.
+    private val laneEvalShadowReadOnlyCounts = ConcurrentHashMap<String, AtomicLong>()
     private val laneEvalSuppressedCounts = ConcurrentHashMap<String, AtomicLong>()
     private val fdgPathCounts = ConcurrentHashMap<String, AtomicLong>()
     private val fdgSuppressedPathCounts = ConcurrentHashMap<String, AtomicLong>()
@@ -397,9 +401,15 @@ object PipelineHealthCollector {
             bump(symbolIntakeCounts, symbol.take(20))
         }
         // V5.9.915 — per-lane eval bump for LANE_EVAL phase events.
+        // V5.0.6375 — keep shadow/read-floor visibility out of active lane-eval
+        // counters. These rows have no FDG/executor work and should not trigger
+        // the fanout/leak audit or inflate LANE_EVAL by lane.
         if (phaseTag == "LANE_EVAL") {
             val laneMatch = Regex("lane=([A-Z0-9_]+)").find(fields)
-            laneMatch?.groupValues?.get(1)?.let { bump(laneEvalCounts, it) }
+            laneMatch?.groupValues?.get(1)?.let { lane ->
+                if (shadowLaneEval4482) bump(laneEvalShadowReadOnlyCounts, lane)
+                else bump(laneEvalCounts, lane)
+            }
         }
         appendEvent(Event(System.currentTimeMillis(), "PHASE/$phaseTag", symbol, fields.take(220)))
     }
@@ -438,8 +448,12 @@ object PipelineHealthCollector {
         // actually evaluating, but only SHITCOIN emitted via phase() while
         // the others emitted via gate() and slipped past the parser.
         if (phaseTag == "LANE_EVAL") {
+            val shadowGateLaneEval6375 = reason.contains("no_fdg=true") || reason.contains("no_extra_fdg=true") || reason.contains("shadow=")
             val laneMatch = Regex("lane=([A-Z0-9_]+)").find(reason)
-            laneMatch?.groupValues?.get(1)?.let { bump(laneEvalCounts, it) }
+            laneMatch?.groupValues?.get(1)?.let { lane ->
+                if (shadowGateLaneEval6375) bump(laneEvalShadowReadOnlyCounts, lane)
+                else bump(laneEvalCounts, lane)
+            }
         }
         if (!allow) {
             // V5.9.915 — block-reason histogram. Truncate to the first token of
@@ -913,6 +927,7 @@ object PipelineHealthCollector {
         val labelCounts: Map<String, Long>,
         val intakeBySource: Map<String, Long>,
         val laneEvalCounts: Map<String, Long>,
+        val laneEvalShadowReadOnlyCounts: Map<String, Long>,
         val laneEvalSuppressedCounts: Map<String, Long>,
         val fdgPathCounts: Map<String, Long>,
         val fdgSuppressedPathCounts: Map<String, Long>,
@@ -961,6 +976,7 @@ object PipelineHealthCollector {
             labelCounts            = labelCounts.mapValues { it.value.get() },
             intakeBySource         = intakeBySource.mapValues { it.value.get() },
             laneEvalCounts         = laneEvalCounts.mapValues { it.value.get() },
+            laneEvalShadowReadOnlyCounts = laneEvalShadowReadOnlyCounts.mapValues { it.value.get() },
             laneEvalSuppressedCounts = laneEvalSuppressedCounts.mapValues { it.value.get() },
             fdgPathCounts          = fdgPathCounts.mapValues { it.value.get() },
             fdgSuppressedPathCounts = fdgSuppressedPathCounts.mapValues { it.value.get() },
@@ -1385,6 +1401,12 @@ object PipelineHealthCollector {
                 .forEach { sb.append(line("${it.key}:", it.value)).append('\n') }
             sb.append('\n')
         }
+        if (s.laneEvalShadowReadOnlyCounts.isNotEmpty()) {
+            sb.append("===== LANE_EVAL shadow/read-only by lane =====\n")
+            s.laneEvalShadowReadOnlyCounts.entries.sortedByDescending { it.value }.take(20)
+                .forEach { sb.append(line("${it.key}:", it.value)).append("  (read-floor; no FDG/exec)\n") }
+            sb.append('\n')
+        }
 
         sb.append("===== QUALITY-only runtime leak audit =====\n")
         val activeMitigationText = RuntimeConfigOverlay.activeCommands()
@@ -1395,6 +1417,7 @@ object PipelineHealthCollector {
         val activeQualityEval = s.laneEvalCounts["QUALITY"] ?: 0L
         val activeNonQualityEval = s.laneEvalCounts.filterKeys { RuntimeConfigOverlay.normalizeLane(it) != "QUALITY" }.values.sum()
         val suppressedNonQualityEval = s.laneEvalSuppressedCounts.values.sum()
+        val shadowNonQualityEval = s.laneEvalShadowReadOnlyCounts.filterKeys { RuntimeConfigOverlay.normalizeLane(it) != "QUALITY" }.values.sum()
         val activeQualityFdg = s.fdgPathCounts["QUALITY"] ?: 0L
         val activeNonQualityFdg = s.fdgPathCounts.filterKeys { RuntimeConfigOverlay.normalizeLane(it) != "QUALITY" }.values.sum()
         val suppressedNonQualityFdg = s.fdgSuppressedPathCounts.values.sum()
@@ -1409,6 +1432,7 @@ object PipelineHealthCollector {
         sb.append("  Active QUALITY eval:      $activeQualityEval\n")
         sb.append("  Active non-QUALITY eval:  $activeNonQualityEval $evalLeakLabel\n")
         sb.append("  Suppressed non-QUALITY eval: $suppressedNonQualityEval\n")
+        sb.append("  Shadow/read-only non-QUALITY eval: $shadowNonQualityEval\n")
         sb.append("  Active QUALITY FDG:       $activeQualityFdg\n")
         sb.append("  Active non-QUALITY FDG:   $activeNonQualityFdg $fdgLeakLabel\n")
         sb.append("  Suppressed non-QUALITY FDG: $suppressedNonQualityFdg\n")
@@ -1943,7 +1967,7 @@ object PipelineHealthCollector {
         // ── Lane coverage ───────────────────────────────────────────────
         sb.append("\n  [LANE COVERAGE]\n")
         if (s.laneEvalCounts.isEmpty())
-            sb.append("  No lane evaluations yet.\n")
+            sb.append("  No active lane evaluations yet.\n")
         else {
             val totalLaneEvals = s.laneEvalCounts.values.sumOf { it }
             s.laneEvalCounts.entries.sortedByDescending { it.value }.forEach { (lane, cnt) ->
@@ -2034,7 +2058,7 @@ object PipelineHealthCollector {
         val recentExecCount = s.recentExecs.size.toLong()
         val acceptedJournalRows = (s.phaseCounts["TRADEJRNL_REC"] ?: s.labelCounts["TRADEJRNL_REC"] ?: 0L)
         sb.append("  intake total:         $totalIntake (sum of all scanner sources)\n")
-        sb.append("  lane evaluations:     $totalLaneEval active (${s.laneEvalSuppressedCounts.values.sum()} suppressed by QUALITY-only policy)\n")
+        sb.append("  lane evaluations:     $totalLaneEval active (${s.laneEvalSuppressedCounts.values.sum()} suppressed by QUALITY-only policy, ${s.laneEvalShadowReadOnlyCounts.values.sum()} shadow/read-only)\n")
         sb.append("  V3 evaluations:       ${v3Allow + v3Skipped}\n")
         sb.append("  FDG active/suppressed:$throughputFdgDecisions / ${s.fdgSuppressedPathCounts.values.sum()}\n")
         if (throughputFdgRawRows > throughputFdgDecisions) sb.append("    └─ raw FDG forensic rows: $throughputFdgRawRows\n")
@@ -2258,6 +2282,10 @@ object PipelineHealthCollector {
         labelCounts.clear()
         intakeBySource.clear()
         laneEvalCounts.clear()
+        laneEvalShadowReadOnlyCounts.clear()
+        laneEvalSuppressedCounts.clear()
+        fdgPathCounts.clear()
+        fdgSuppressedPathCounts.clear()
         blockReasonCounts.clear()
         v3RejectReasonCounts.clear()
         symbolIntakeCounts.clear()
