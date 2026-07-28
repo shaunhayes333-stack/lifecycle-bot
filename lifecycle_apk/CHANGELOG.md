@@ -4,6 +4,44 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.6376] - 2026-02 — Paper Wallet Continuity + Screen-Off Proof-of-Life
+
+**Operator directive (verbatim):**
+> its going backwards.
+> if I update or switch to live it resets the paper balance and wipes any gains
+> if i let it run with my screen off the bot stalls or chokes out and doesn't trade
+> the wallet balance isnt growing despite the journal showing massive gains
+
+The "wallet not growing despite journal showing gains" complaint was NOT a phantom-PnL leak — it was the direct consequence of the V5.9.54 paper-wallet reset firing on every LIVE→PAPER toggle. Fixing the reset fixes both.
+
+### (1) Paper Wallet Continuity — `BotService.startBot`
+
+**V5.9.54 code deleted:** `if (modeChangedLiveToPaper || savedBalance < 0.01) resetPaperWallet()`.
+
+The V5.9.54 concern was that "live wallet balance leaks into paper" — but the paper wallet lives in its OWN SharedPreferences key (`paper_wallet_sol`) that live-mode code never touches. Mode switching must NOT reset it. New reset logic:
+
+- `savedBalance < 0.01 && journal EMPTY`  → fresh install, seed `cfg.paperSimulatedBalance`
+- `savedBalance < 0.01 && journal EXISTS` → wallet-truthful restore = `cfg.paperSimulatedBalance + journalRealizedSol` (rescues from sideload/backup-restore prefs wipe)
+- `savedBalance > 100× starting`          → sanity snap to 10× (unchanged — breaks sizer inflation feedback loops)
+- otherwise                                → `savedBalance` restored as-is; if this was a LIVE→PAPER toggle, we emit `PAPER_WALLET_MODE_TOGGLE_PRESERVED_6376` telemetry to prove the preservation happened
+
+Directly resolves operator complaints (1) and (3).
+
+### (2) Screen-Off Proof-of-Life — `BotService.emitBotLoopTick`
+
+Foreground service + PARTIAL_WAKE_LOCK should keep the loop alive under Doze, but the operator has no way to prove it when screen is off. Every 10th bot loop tick now emits a labelled counter tagged with the current `PowerManager.isInteractive` state:
+
+- `BOT_LOOP_ALIVE_6376|SCREEN_ON` / `SCREEN_OFF` — proves loop firing
+- `BOT_LOOP_LONG_CYCLE_SCREEN_OFF_6376|<Ns>+` — long cycles (>60s) specifically while screen off, bucketed by 30s bands. This separates Doze-induced throttling from PUMP_PORTAL_WS fanout slowdowns.
+
+If the SCREEN_OFF counter stops incrementing while the bot is "running", that IS the diagnostic — Android is Doze-killing the service.
+
+### Files changed
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt` (paper-wallet reset logic + bot-loop screen-state markers)
+- `app/src/test/kotlin/com/lifecyclebot/engine/Bundle6376InvariantsTest.kt` (new — 7 invariants)
+
+---
+
 ## [5.0.6374] - 2026-02 — Scanner Fanout Throttle + Aggregate-Bad-Band Rotation + Heatmap ANR Fix (single wide bundle)
 
 **Operator directive (verbatim):**

@@ -4112,38 +4112,63 @@ class BotService : Service() {
             val modeChangedLiveToPaper = cfg.paperMode && !lastModeWasPaper
 
             if (cfg.paperMode) {
-                // V5.9.54: If we just switched FROM live TO paper, reset wallet to configured
-                // starting balance — live wallet balance (often near-empty) must not leak in.
-                // Also clear live-session reentry lockouts and edge vetoes so they don't
-                // throttle paper trades on restart.
-                // V5.9.731 — PAPER WALLET SANITY CEILING.
-                // Operator dump showed paperWalletSol compounded to ~230k SOL
-                // ($46M) due to oversized trades feeding fantasy PnL back into
-                // the sizer. Even with the new SmartSizer caps in place, any
-                // session that already inflated the balance will keep sizing
-                // off that inflated number until reset. So: on every boot,
-                // if the persisted balance exceeds 100x the starting balance
-                // it's pathological — snap it back to a sane 10x cap. Below
-                // 100x is treated as legitimate growth and preserved.
+                // V5.0.6376 — PAPER WALLET CONTINUITY (operator directive):
+                //   "if I update or switch to live it resets the paper balance
+                //    and wipes any gains... the wallet balance isn't growing
+                //    despite the journal showing massive gains."
+                //
+                // Historical V5.9.54 code reset paperWalletSol to cfg.paperSimulatedBalance
+                // whenever `modeChangedLiveToPaper == true`. This was the direct cause of
+                // paper gains being wiped on every LIVE→PAPER toggle. The paper wallet
+                // has its own dedicated SharedPreferences key (`paper_wallet_sol`) that
+                // never gets polluted by live-mode data, so a mode toggle MUST NOT
+                // touch it. The concern V5.9.54 was worried about ("live balance
+                // leaking in") never applied — those are two separate values.
+                //
+                // Reset logic now:
+                //   • savedBalance < 0.01 with EMPTY journal   → fresh install, seed cfg.paperSimulatedBalance
+                //   • savedBalance < 0.01 with journal history → wallet-truthful restore from journal
+                //   • Otherwise                                → restore savedBalance as-is
+                //   • Sanity ceiling (100× starting) still snaps to 10× to break inflation loops
                 val SANITY_CEILING_MULT = 100.0
                 val sanityCeiling = cfg.paperSimulatedBalance * SANITY_CEILING_MULT
                 val sanityResetTarget = cfg.paperSimulatedBalance * 10.0  // 10x = realistic "good run" cap
-                if (modeChangedLiveToPaper || savedBalance < 0.01) {
-                    status.paperWalletSol = cfg.paperSimulatedBalance
-                    addLog("🔄 ${if (modeChangedLiveToPaper) "LIVE→PAPER switch" else "Fresh start"}: paper wallet reset to ${cfg.paperSimulatedBalance} SOL")
-                    botPrefs.edit().putFloat("paper_wallet_sol", cfg.paperSimulatedBalance.toFloat()).apply()
-                } else if (savedBalance > sanityCeiling) {
-                    ErrorLogger.warn("BotService",
-                        "🚨 PAPER_SANITY_RESET: persisted=${savedBalance.fmt(2)} SOL > ${sanityCeiling.fmt(0)} SOL ceiling " +
-                        "(${(savedBalance/cfg.paperSimulatedBalance).toInt()}x starting). Sizer fantasy-feedback loop detected. " +
-                        "Snapping to ${sanityResetTarget.fmt(2)} SOL to break the loop.")
-                    status.paperWalletSol = sanityResetTarget
-                    addLog("🚨 Paper sanity reset: ${savedBalance.fmt(0)} SOL → ${sanityResetTarget.fmt(2)} SOL (inflated feedback loop broken)")
-                    botPrefs.edit().putFloat("paper_wallet_sol", sanityResetTarget.toFloat()).apply()
-                    try { FluidLearning.reset(sanityResetTarget) } catch (_: Throwable) {}
-                } else {
-                    status.paperWalletSol = savedBalance
-                    addLog("💰 Paper wallet restored: ${"%.4f".format(savedBalance)} SOL")
+                val journalRealizedSol = try { TradeHistoryStore.getLifetimeStats().realizedPnlSol } catch (_: Throwable) { 0.0 }
+                val journalHasHistory = try { TradeHistoryStore.getLifetimeStats().totalSells > 0 } catch (_: Throwable) { false }
+                when {
+                    savedBalance < 0.01 && !journalHasHistory -> {
+                        status.paperWalletSol = cfg.paperSimulatedBalance
+                        addLog("🔄 Fresh install: paper wallet seeded to ${cfg.paperSimulatedBalance} SOL (no journal history)")
+                        botPrefs.edit().putFloat("paper_wallet_sol", cfg.paperSimulatedBalance.toFloat()).apply()
+                    }
+                    savedBalance < 0.01 && journalHasHistory -> {
+                        // Wallet-truthful restore: paperWallet = starting capital + realized journal PnL.
+                        // Prefs got wiped (rare: sideload/backup restore) but the journal is intact,
+                        // so we can rebuild the paper wallet without wiping gains.
+                        val restored = (cfg.paperSimulatedBalance + journalRealizedSol).coerceAtLeast(0.01)
+                        status.paperWalletSol = restored
+                        addLog("💰 V5.0.6376 wallet-truthful restore: prefs missing but journal has ${TradeHistoryStore.getLifetimeStats().totalSells} sells → wallet=${"%.4f".format(restored)} SOL (start ${cfg.paperSimulatedBalance} + realized ${"%.4f".format(journalRealizedSol)})")
+                        try { PipelineHealthCollector.labelInc("PAPER_WALLET_JOURNAL_RESTORE_6376") } catch (_: Throwable) {}
+                        botPrefs.edit().putFloat("paper_wallet_sol", restored.toFloat()).apply()
+                    }
+                    savedBalance > sanityCeiling -> {
+                        ErrorLogger.warn("BotService",
+                            "🚨 PAPER_SANITY_RESET: persisted=${savedBalance.fmt(2)} SOL > ${sanityCeiling.fmt(0)} SOL ceiling " +
+                            "(${(savedBalance/cfg.paperSimulatedBalance).toInt()}x starting). Sizer fantasy-feedback loop detected. " +
+                            "Snapping to ${sanityResetTarget.fmt(2)} SOL to break the loop.")
+                        status.paperWalletSol = sanityResetTarget
+                        addLog("🚨 Paper sanity reset: ${savedBalance.fmt(0)} SOL → ${sanityResetTarget.fmt(2)} SOL (inflated feedback loop broken)")
+                        botPrefs.edit().putFloat("paper_wallet_sol", sanityResetTarget.toFloat()).apply()
+                        try { FluidLearning.reset(sanityResetTarget) } catch (_: Throwable) {}
+                    }
+                    else -> {
+                        status.paperWalletSol = savedBalance
+                        val modeTag = if (modeChangedLiveToPaper) " (V5.0.6376 preserved across LIVE→PAPER switch)" else ""
+                        addLog("💰 Paper wallet restored: ${"%.4f".format(savedBalance)} SOL$modeTag")
+                        if (modeChangedLiveToPaper) {
+                            try { PipelineHealthCollector.labelInc("PAPER_WALLET_MODE_TOGGLE_PRESERVED_6376") } catch (_: Throwable) {}
+                        }
+                    }
                 }
                 repairUnifiedPaperWalletIfImpossible("startBot.restore")
                 // Clear state that accumulates during live sessions and blocks paper trades
@@ -12024,6 +12049,34 @@ class BotService : Service() {
             lastBotLoopTickMs = now
             // V5.9.762 — also touch the progress timestamp for the heartbeat.
             markProgress("BOT_LOOP_TICK")
+
+            // V5.0.6376 — SCREEN-OFF PROOF-OF-LIFE (operator directive):
+            //   "if I let it run with my screen off the bot stalls or chokes
+            //    out and doesn't trade despite the bot being left to run".
+            //
+            // Foreground-service + PARTIAL_WAKE_LOCK should keep the loop
+            // alive under Doze, but the operator has no way to prove it
+            // when they can't see the screen. Every ~10th tick, emit a
+            // labelled counter tagged with the current screen state so
+            // the pipeline dump / post-hoc log-scrape can prove the loop
+            // was firing while screen was off. On a genuinely stalled
+            // loop, this counter simply stops incrementing — which is
+            // itself the diagnostic.
+            try {
+                val screenOn6376 = try {
+                    (getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isInteractive ?: true
+                } catch (_: Throwable) { true }
+                if ((loopCount % 10) == 0) {
+                    val tag = if (screenOn6376) "SCREEN_ON" else "SCREEN_OFF"
+                    PipelineHealthCollector.labelInc("BOT_LOOP_ALIVE_6376|$tag")
+                }
+                // Also count long-cycle events specifically while screen is off
+                // — this exposes Doze-induced throttling separately from
+                // regular fanout slowdowns.
+                if (!screenOn6376 && prevCycleMs > 60_000L) {
+                    PipelineHealthCollector.labelInc("BOT_LOOP_LONG_CYCLE_SCREEN_OFF_6376|${(prevCycleMs / 30_000L) * 30}s+")
+                }
+            } catch (_: Throwable) {}
 
             // V5.0.6312 — LIVE ENTRY SAFETY HOLD periodic health check.
             // Runs every bot tick (every ~5-12s), samples the critical
