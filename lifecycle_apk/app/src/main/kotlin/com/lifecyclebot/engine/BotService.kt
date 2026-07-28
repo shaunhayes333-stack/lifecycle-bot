@@ -12092,8 +12092,10 @@ class BotService : Service() {
             // in the pipeline dump under FORENSIC_MISMATCH_6377|<CHECK>.
             try {
                 if (loopCount > 0 && (loopCount % 50) == 0) {
+                    val cfg6377 = try { com.lifecyclebot.data.ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
                     val trades = try { TradeHistoryStore.getAllValidTradesSnapshot(5_000) } catch (_: Throwable) { emptyList() }
-                    val startCap = try { cfg.paperSimulatedBalance } catch (_: Throwable) { 11.76 }
+                    val startCap = cfg6377?.paperSimulatedBalance ?: 11.76
+                    val paperModeNow = cfg6377?.paperMode ?: true
                     val canonicalOpen = try {
                         status.openPositions.size
                     } catch (_: Throwable) { 0 }
@@ -12102,7 +12104,7 @@ class BotService : Service() {
                     } catch (_: Throwable) { 0 }
                     ForensicReconciler6377.runAll(
                         allTrades = trades,
-                        paperMode = cfg.paperMode,
+                        paperMode = paperModeNow,
                         paperWalletSol = status.paperWalletSol,
                         startCapitalSol = startCap,
                         canonicalLiveOpenCount = canonicalOpen,
