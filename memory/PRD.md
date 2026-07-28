@@ -1,13 +1,12 @@
-# AATE PRD — V5.0.6376
+# AATE PRD — V5.0.6377
 
 ## Current build stack
 
-- **6376** (pending push) **Paper Wallet Continuity + Screen-Off Proof-of-Life** — resolves operator's "wipes gains on switch to live" + "wallet not growing despite journal" + "bot stalls with screen off" complaints from V5.0.6375 pipeline snapshot.
-  1. Removed V5.9.54 `modeChangedLiveToPaper` reset branch in `BotService.startBot`. Paper wallet now preserves across every LIVE→PAPER toggle (uses independent SharedPreferences key `paper_wallet_sol`).
-  2. Added wallet-truthful restore fallback: when prefs are empty but journal has history, wallet = `cfg.paperSimulatedBalance + journalRealizedSol` (rescues from prefs-wipe / sideload / backup restore).
-  3. Sanity ceiling (100× starting → snap to 10×) preserved to break sizer inflation feedback loops.
-  4. `emitBotLoopTick` now emits `BOT_LOOP_ALIVE_6376|SCREEN_ON/SCREEN_OFF` + `BOT_LOOP_LONG_CYCLE_SCREEN_OFF_6376|<Ns>+` counters every 10th tick — operator can prove loop-alive while screen off (or observe stall directly if counter stops).
-  - `Bundle6376InvariantsTest.kt` (7 assertions) pins both fixes.
+- **6377** (pending push) **Forensic Reconciler (11-item correctness spec)** — additive read-only module runs 11 named cross-domain reconciliation checks against the trade journal on every ~50th bot loop tick. Emits `FORENSIC_OK_6377|<CHECK>` / `FORENSIC_MISMATCH_6377|<CHECK>|<summary>` counters. Pipeline dump gains a dedicated FORENSIC RECONCILER section listing pass/fail + per-check summaries. TacticSwitcher exposes new read-only `dumpForensicSnapshot6377()` so persisted μ can be cross-checked against journal μ per lane.
+  Checks: WALLET_VS_JOURNAL, JOURNAL_ROW_PARITY, BUY_SELL_QTY_SKEW, COST_BASIS, PNL_PCT_VS_SOL, SELL_REASON_PRESENCE, PRICE_IMMUTABILITY, TACTIC_MU_VS_JOURNAL, DUPLICATE_JOURNAL_ROWS, ORPHAN_SELL, CANONICAL_VS_REGISTRY.
+  `Bundle6377ForensicReconcilerTest.kt` (14 assertions).
+
+- **6376** (`94ab099ef` ✅) Paper Wallet Continuity + Screen-Off Proof-of-Life.
 
 - **6375** (`e4bfc98f9` ✅) Shadow lane-read telemetry split from active fanout.
 - **6374b** (`5e4dea126` ✅) Runtime test scenario reshaped to bypass healthy-window reset (agg-bad-band gate).

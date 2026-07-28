@@ -12083,6 +12083,34 @@ class BotService : Service() {
             // invariants that govern whether live buys are safe, and
             // arms/clears the hold accordingly. All I/O-free (reads only
             // in-memory counters + wallet handle status).
+            // V5.0.6377 — FORENSIC RECONCILER (operator directive: "all data,
+            // pricing, wins and losses must reconcile forensically. same as
+            // the journal and reports"). Every ~50 cycles (~5-10 min at
+            // typical cycle cadence), run the 11-check reconciler over the
+            // full journal snapshot. Read-only, additive telemetry — never
+            // mutates state, never rewrites the journal. Failure surfaces
+            // in the pipeline dump under FORENSIC_MISMATCH_6377|<CHECK>.
+            try {
+                if (loopCount > 0 && (loopCount % 50) == 0) {
+                    val trades = try { TradeHistoryStore.getAllValidTradesSnapshot(5_000) } catch (_: Throwable) { emptyList() }
+                    val startCap = try { cfg.paperSimulatedBalance } catch (_: Throwable) { 11.76 }
+                    val canonicalOpen = try {
+                        status.openPositions.size
+                    } catch (_: Throwable) { 0 }
+                    val registryOpen = try {
+                        TradeHistoryStore.openMintSetFromJournal().size
+                    } catch (_: Throwable) { 0 }
+                    ForensicReconciler6377.runAll(
+                        allTrades = trades,
+                        paperMode = cfg.paperMode,
+                        paperWalletSol = status.paperWalletSol,
+                        startCapitalSol = startCap,
+                        canonicalLiveOpenCount = canonicalOpen,
+                        registryLiveOpenCount = registryOpen,
+                    )
+                }
+            } catch (_: Throwable) {}
+
             try {
                 val walletHealthy6312 = try {
                     WalletManager.lastKnownSolPrice > 0.0

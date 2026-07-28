@@ -179,6 +179,27 @@ object TacticSwitcher {
     fun currentTactic(lane: String, scoreBand: String): Tactic =
         Tactic.values()[getOrCreate(lane, scoreBand).tactic.get()]
 
+    /**
+     * V5.0.6377 — FORENSIC SNAPSHOT (read-only). Emits a flat list of
+     * (key, meanPnlPct, tradesInWindow) triples for every cell currently
+     * loaded, so ForensicReconciler6377 can cross-check the persisted
+     * μ against the journal μ per lane. Returns empty list if TacticSwitcher
+     * has not initialised yet.
+     *
+     * The meanPnl is derived from `pnlSumSinceRotation / (tradesSinceRotation
+     * × 100)` — matching the units the switcher itself uses internally.
+     */
+    fun dumpForensicSnapshot6377(): List<Triple<String, Double, Int>> {
+        return try {
+            cells.entries.mapNotNull { (k, cell) ->
+                val n = cell.tradesSinceRotation.get()
+                if (n <= 0) return@mapNotNull null
+                val meanPnl = cell.pnlSumSinceRotation.get() / 100.0 / n
+                Triple(k, meanPnl, n)
+            }
+        } catch (_: Throwable) { emptyList() }
+    }
+
     /** Convenience overload accepting raw score. */
     fun currentTactic(lane: String, score: Int): Tactic {
         val band = try { LosingPatternMemory.scoreBand(score) } catch (_: Throwable) { "" }

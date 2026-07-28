@@ -1626,6 +1626,28 @@ object PipelineHealthCollector {
             sb.append("  Position alias merges:      ${c6312("POSITION_ALIAS_COLLISION_MERGED_6312")}\n")
             sb.append("  Exit reason invariant fail: ${c6312("EXIT_REASON_INVARIANT_FAILED")}\n")
             sb.append("  Phantom qty healed:         ${c6312("PHANTOM_QTY_HEALED_6064")}\n")
+
+            // V5.0.6377 — FORENSIC RECONCILER surface. Displays the last
+            // pass's OK/mismatch count and any failing check summaries so
+            // an operator can spot cross-domain drift (wallet ↔ journal ↔
+            // TacticSwitcher ↔ reports) at a glance.
+            try {
+                val report = ForensicReconciler6377.lastReport()
+                if (report.runAtMs > 0L) {
+                    val ageSec = (System.currentTimeMillis() - report.runAtMs) / 1000L
+                    sb.append('\n')
+                    sb.append("===== FORENSIC RECONCILER (V5.0.6377) =====\n")
+                    sb.append("  Last pass:                  ${ageSec}s ago · ok=${report.okCount}/${report.checks.size} mismatch=${report.mismatchCount}\n")
+                    sb.append("  Lifetime pass/mismatch:     ${ForensicReconciler6377.lifetimePassCount()} / ${ForensicReconciler6377.lifetimeMismatchCount()}\n")
+                    if (report.mismatches.isNotEmpty()) {
+                        for (m in report.mismatches) {
+                            sb.append("  🛑 ${m.name.padEnd(28)}${m.summary.take(80)}\n")
+                        }
+                    } else {
+                        sb.append("  ✅ ALL RECONCILED — wallet ↔ journal ↔ reports tie out\n")
+                    }
+                }
+            } catch (_: Throwable) {}
         } catch (_: Throwable) {}
 
         // ── ANR health (watchdog) ───────────────────────────────────

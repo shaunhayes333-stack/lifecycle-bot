@@ -4,6 +4,57 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.6377] - 2026-02 — Forensic Reconciler (11-item correctness spec)
+
+**Operator directive (verbatim):**
+> the 11 item forensic correction. do as much as you can now. bundle where you can. all data, pricing, wins and losses must reconcile forensically. same as the journal and reports.
+
+Delivered as a single additive read-only module — never mutates state, never rewrites the journal. Runs periodically from `BotService.emitBotLoopTick` (every ~50 cycles) and its report is surfaced in the pipeline dump.
+
+### `ForensicReconciler6377` — 11 named cross-domain checks
+
+| # | Check                     | What it proves                                                             |
+|---|---------------------------|----------------------------------------------------------------------------|
+| 1 | `WALLET_VS_JOURNAL`       | `paperWalletSol ≤ startCapital + Σsell.pnlSol + tolerance` (no phantom SOL)|
+| 2 | `JOURNAL_ROW_PARITY`      | `count(BUY) ≥ count(SELL)` — no orphan sells slipped past                  |
+| 3 | `BUY_SELL_QTY_SKEW`       | per-mint `Σsold ≤ Σbought` (never over-sold — decimals-skew guard)         |
+| 4 | `COST_BASIS`              | every BUY row has positive cost (`sol > 0`)                                |
+| 5 | `PNL_PCT_VS_SOL`          | `sign(pnlPct) == sign(pnlSol)` on every SELL (no phantom sign flip)        |
+| 6 | `SELL_REASON_PRESENCE`    | every SELL row has a non-blank `reason`                                    |
+| 7 | `PRICE_IMMUTABILITY`      | every BUY row has `price > 0` (proxy — no zero-price sneak-throughs)       |
+| 8 | `TACTIC_MU_VS_JOURNAL`    | TacticSwitcher persisted μ per lane vs journal μ per mode (drift ≤ 100pp)  |
+| 9 | `DUPLICATE_JOURNAL_ROWS`  | no exact `(mint, side, ts)` duplicates                                     |
+| 10| `ORPHAN_SELL`             | every SELL(mint) has ≥1 prior BUY(mint)                                    |
+| 11| `CANONICAL_VS_REGISTRY`   | `status.openPositions.size == TradeHistoryStore.openMintSetFromJournal().size` |
+
+Each check emits exactly ONE labelled counter:
+- `FORENSIC_OK_6377|<CHECK_NAME>`
+- `FORENSIC_MISMATCH_6377|<CHECK_NAME>|<summary>`
+
+### Pipeline dump surface
+
+New section under QUANTITY / DECIMAL INTEGRITY:
+```
+===== FORENSIC RECONCILER (V5.0.6377) =====
+  Last pass:                  <N>s ago · ok=11/11 mismatch=0
+  Lifetime pass/mismatch:     <NN> / <NN>
+  ✅ ALL RECONCILED — wallet ↔ journal ↔ reports tie out
+```
+Failed checks list per-check summary strings so the operator can see WHY a domain drifted (e.g. `wallet=20.500 expected≤11.000+tol=0.055 over=9.500`).
+
+### `TacticSwitcher.dumpForensicSnapshot6377()` — new read-only surface
+
+Emits `List<Triple<key, meanPnlPct, tradesInWindow>>` for every persisted cell so the reconciler can cross-check the switcher's on-disk μ against the trade journal's μ per lane. This is what catches the "μ=+159% while WR=15%" persistence drift observed in the V5.0.6375 snapshot.
+
+### Files changed
+- `app/src/main/kotlin/com/lifecyclebot/engine/ForensicReconciler6377.kt` (new)
+- `app/src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt` (add `dumpForensicSnapshot6377()`)
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt` (periodic invocation in `emitBotLoopTick`)
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt` (dump section)
+- `app/src/test/kotlin/com/lifecyclebot/engine/Bundle6377ForensicReconcilerTest.kt` (new — 14 invariants)
+
+---
+
 ## [5.0.6376] - 2026-02 — Paper Wallet Continuity + Screen-Off Proof-of-Life
 
 **Operator directive (verbatim):**
