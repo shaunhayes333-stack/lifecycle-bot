@@ -1,33 +1,44 @@
-# AATE PRD — V5.0.6382
+# AATE PRD — V5.0.6383
 
 ## Current build stack
 
-- **6382** (`20c7fb7ec` ✅ CI green) **Win-Rate Integrity + Wave Entry Quality Gate**.
-  Four surgical fixes that together stop metric-poisoning and top-tick chases suppressing the live WR.
-  1. `TradeHistoryStore.isValidAccountingTrade` whitelists `EXTERNAL_RUG_CLOSE` rows (price=0 + pnl=-100% is genuine for a rug) — stops startup spam of `TRADE_ACCOUNTING_QUARANTINED|STANDARD|EXTERNAL_RUG_CLOSE` poisoning WR metrics.
-  2. `StartupReconciler` synthetic rugSell inherits `buyRow.tradingMode` so external-close rows bin under originating lane (MOONSHOT/SHITCOIN/etc), not the "STANDARD" default.
-  3. `TacticSwitcher.rederiveFromRawJournal6382()` — one-shot cold-boot repair reads raw SQLite journal and overwrites phantom μ drift (μ=+159% at 15% WR from pre-V5.0.6373d basis-point math) with lifetime reality. Wired into `BotService.onCreate` after `LearningPersistence.init`.
-  4. `WaveEntryQualityGate6382` (NEW module) rejects three entry patterns: parabolic top-tick (1h ≥ score-band ceiling AND 3× 1m cumulative ≥ +45%), ejection candle (any 1m ≥ +25% on hot 1h), extended stall. Score-band aware ceilings (low <40 → 80%, mid → 140%, high ≥60 → 220%). Fail-open on missing data, self-clearing when the wave cools, never disables a lane. Wired into `ExecutableOpenGate.canOpenExecutablePosition(ts, ...)` for PAPER + LIVE.
-  Testing: `Bundle6382WinRateIntegrityTest.kt` (10 invariants).
+- **6383** (`a4c2a3229` ✅ CI build green) **Live Volume Recovery + Live-Winner FLAT_EXIT Protection**.
+  Directly addresses operator's V5.0.6382 question: "why does paper find huge runners live cannot?"
+  1. **Stale paper/shadow flag auto-clear** in Executor.kt live path — the V5.0.6381 auto-promote fixed `execMode==PAPER` desync but a SECOND branch was killing 92% of live buys (`LIVE_MODE_DESYNC=795` from stale `position.isPaperPosition=true` / `tradingMode="SHADOW"` relics). Now clears the stale flag when runtime is LIVE and proceeds. `runtimePaper=true` still hard-aborts (real desync). Emits `LIVE_MODE_STALE_FLAG_AUTO_CLEARED_6383`.
+  2. **Lane-contract counter split** — `lane_contract_6342` aborts no longer inflate `LIVE_MODE_DESYNC`. New `LIVE_LANE_CONTRACT_6383` counter separates telemetry so Fix 1's real impact is visible.
+  3. **Live-winner FLAT_EXIT protection** in MoonshotTraderAI — the V5.0.6382 live journal showed the same mint (7GCihg) getting 3× MOONSHOT_FLAT_EXIT at pnl=+0 within 20 min because `holdMinutes >= maxHold/2 && pnl in [-2%, +5%]` hair-triggered. Now LIVE positions with `peakPnlPct >= 3%` OR `holdMinutes < 15` are protected. Paper unchanged (paper's job is to explore). Emits `LIVE_WINNER_PROTECT_FLAT_EXIT_SUPPRESSED_6383`.
+  Testing: `Bundle6383LiveVolumeAndWinnersTest.kt` (3 invariants) + `Bundle6381LiveModePromoteTest.kt` updated for new semantics.
 
-- **6381c** (`bfca89e0e` ✅) Golden Tape assertions updated for V5.0.6381 refactors.
-- **6381b** (`a6651c305` ✅) Paper size floor lowered so learning shrink survives clamp.
-- **6381** (`556d3fa29` ✅) **LIVE TRADER UNBLOCK** — LIVE_MODE_DESYNC auto-promote + Rugcheck tier recalibration.
+- **6382** (`20c7fb7ec` ✅ CI green) Win-Rate Integrity + Wave Entry Quality Gate.
+  1. `TradeHistoryStore.isValidAccountingTrade` whitelists `EXTERNAL_RUG_CLOSE` rows.
+  2. `StartupReconciler` synth rugSell inherits `buyRow.tradingMode`.
+  3. `TacticSwitcher.rederiveFromRawJournal6382()` cold-boot repair of phantom μ drift.
+  4. `WaveEntryQualityGate6382` rejects parabolic top-tick / ejection / extended chases.
+
+- **6381** (`556d3fa29…bfca89e0e` ✅) LIVE_MODE_DESYNC auto-promote + Rugcheck tier recalibration + Paper size floor fix + Golden Tape refresh.
+
 - **6380** (`09906d856` ✅) Paper wallet continuity hole #2 + Learning Trajectory Governor.
-- **6379x** (`2f504c4f7…5c9d19554` ✅) Learned Toxic Lane Hard Veto + cache-bucketing.
+
+- **6379x** (`5c9d19554…2f504c4f7` ✅) Learned Toxic Lane Hard Veto + cache-bucketing.
+
 - **6377** (`1575a03f1` ✅) Forensic Reconciler (11-item correctness spec).
+
 - **6376** (`94ab099ef` ✅) Paper Wallet Continuity + Screen-Off Proof-of-Life.
+
 - **6374-6375** (✅) Scanner Fanout Throttle + Heatmap ANR fix.
+
 - **6373x** (✅) Trade-1 catastrophic rotation + phantom pnl% recompute + ghost purge neutralization.
+
 - **6372** (`0a1eb8cfc` ✅) UNIVERSAL 2×–5× daily compound target (AATE core doctrine).
-- **6364** (`fd8331cf0` ✅) Operator's known-good baseline before regression.
 
-## What operator should see after V5.0.6382 lands
+## What operator should see on V5.0.6383
 
-1. **`TRADE_ACCOUNTING_QUARANTINED|STANDARD|EXTERNAL_RUG_CLOSE` spam gone** — every rug-close row now passes accounting validation and bins under its originating lane. WR metric stops getting poisoned at every startup.
-2. **`TACTIC_REDERIVE_6382_CELLS_N` / `_REPAIRED_N` counters** — a one-time repair on this boot; μ per (lane, band) now matches lifetime journal reality. Bayesian + post-pivot + persistent-bleed gates finally see correct math.
-3. **`EXEC_OPEN_BLOCKED_WAVE_TOO_LATE_6382|<LANE>` counters** — telemetry proving the bot is now rejecting parabolic top-tick chases. Expected on hot memecoin runs (SHITCOIN/MOONSHOT). If this counter stays at 0 across a 30m active window, the gate is safely allowing all real entries; if it fires, look for the accompanying `WAVE_TOO_LATE_PARABOLIC` / `_EJECTION` / `_EXTENDED` tag.
-4. **Live WR improvement** — the compound effect: clean μ math + correct lane bins + wave-quality entries should lift WR above the 15-25% floor observed on V5.0.6381.
+1. **`LIVE_MODE_DESYNC` counter drops dramatically** — the 795 count from V5.0.6382 was almost entirely stale-flag garbage. Now only real desync (`runtimePaper=true` requesting a LIVE buy) fires this counter.
+2. **`LIVE_MODE_STALE_FLAG_AUTO_CLEARED_6383` counter appears** — this is the recovered volume. Expect it to be similar in magnitude to the prior `LIVE_MODE_DESYNC` number.
+3. **`LIVE_LANE_CONTRACT_6383` counter appears** — routing hygiene (BLUECHIP rejecting Pump.fun mints, etc.), working as intended.
+4. **`LIVE_WINNER_PROTECT_FLAT_EXIT_SUPPRESSED_6383` counter appears** — every time a live moonshot position was saved from a hair-trigger flat exit.
+5. **Live BUY ok/fail ratio significantly improved** — no longer 31/862 (3.5%).
+6. **Live SELLs no longer showing pnl=+0 sol=0 patterns** repeated on the same mint.
 
 ## Backlog
 
@@ -39,7 +50,7 @@
 - P0-8: LaneEligibilityContract
 - P0-10: Quarantine corrupted history + rebuild tactic stats
 - P0-11: Full forensic journal fields + CANONICAL_INTEGRITY_STATUS section
-- **Empty UI panels**: ALL TRADERS, 30-DAY PROOF RUN, lane cards show 0 when top card shows 181 trades. Investigate `journalParityStatsSnapshot6085()` null bailout at MainActivity:2765.
+- **Empty UI panels**: ALL TRADERS, 30-DAY PROOF RUN, lane cards show 0.
 
 ### 🔵 P1 — After live WR stabilization + 2x–5x growth benchmark hit
 - Phase 1: SOL Perps / Leverage mode (`PerpsLaneGate.kt`)
