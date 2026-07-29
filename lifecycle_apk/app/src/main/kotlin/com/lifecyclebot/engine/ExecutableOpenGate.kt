@@ -644,6 +644,27 @@ object ExecutableOpenGate {
         source: String,
         attemptId: String = nextAttemptId(ts.mint, lane),
     ): OpenVerdict {
+        // V5.0.6385 — LIVE ACCOUNTING REPAIR MODE (operator directive Section 1).
+        // Hard-reject every new LIVE BUY signature until Bundles 6386-6390 land
+        // the finalized-proof BUY/SELL rails. Paper + shadow evaluation, existing
+        // live monitoring, and verified exits (SELL path) are unaffected — we only
+        // block NEW live openings. Once the canary gate criteria pass, Bundle 6390
+        // will call `LiveAccountingRepairMode6385.disable()`.
+        if (mode.equals("LIVE", ignoreCase = true) && LiveAccountingRepairMode6385.isActive()) {
+            try {
+                val canonLane = canonicalLane(lane)
+                LiveAccountingRepairMode6385.recordLiveBuyBlocked(
+                    "attemptId=$attemptId mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$canonLane source=$source action=blocked_sell_only_repair",
+                )
+            } catch (_: Throwable) {}
+            return OpenVerdict(
+                allowed = false,
+                reason = LiveAccountingRepairMode6385.BLOCK_REASON,
+                shadowOnly = true,
+                logName = LiveAccountingRepairMode6385.BLOCK_REASON,
+                attemptId = attemptId,
+            )
+        }
         // V5.0.6382 — WAVE ENTRY QUALITY GATE (operator directive: "buys in the
         // wrong waves of the chart"). Reject candidates already blown off the top
         // of their own recent wave before any lane finality logic runs. Fail-open

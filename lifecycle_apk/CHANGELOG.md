@@ -4,6 +4,54 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.6385] - 2026-02 — LIVE ACCOUNTING TRUTH REPAIR (Bundle 1/6)
+
+**Operator directive — "AATE BUILD DIRECTIVE — LIVE EXECUTION TRUTH AND COMPOUNDING FOUNDATION" (verbatim):**
+
+> Repair the live trading path so every position, fill, exit and learning result is based exclusively on finalized on-chain wallet deltas. Do not tune strategies, score floors, lane personalities, take-profit levels or risk sizing until these invariants pass.
+
+This is a full scope shift from tuning to a foundational truth-model rebuild. The prior six sessions patched *symptoms* (governor HOLD, LIVE_MODE_DESYNC, phantom flat exits) but the operator diagnosed the *root*: the live accounting stack is producing false PnL because CanonicalBuyFillRegistry replaces lots by mint, BUY quantity is post-buy-total-ATA, SELL proceeds come from Jupiter quotes (not lamport deltas), broadcast rows leak into realized PnL, decimals are silently coerced to zero, and alias merges corrupt lot identity. Every strategy fix on top of this substrate has been fighting phantoms.
+
+Bundle 6385 ships Sections **1, 3, and 11** of the 13-section directive:
+
+### Section 1 — SELL_ONLY_ACCOUNTING_REPAIR mode
+
+New module `LiveAccountingRepairMode6385` — a static volatile flag defaulted to ACTIVE. `ExecutableOpenGate.canOpenExecutablePosition` hard-rejects every new LIVE BUY signature with `LIVE_BUY_BLOCKED_ACCOUNTING_REPAIR_MODE_6385`. Paper + shadow evaluation, existing live monitoring, and verified exits (SELL path) are unaffected — only NEW live openings are blocked. `disable()` is `internal` and only Bundle 6390's canary gate may flip it after 20 consecutive clean finalized round trips.
+
+### Section 3 — Lane contract repair (QUALITY MINT_ROUTE)
+
+Removed the `QUALITY_REJECTS_MINT_ROUTE_6342` hard-reject. MINT_ROUTE is a **valid** candidate-evaluation state; concrete route proof (real pair address, executable Jupiter quote, successful transaction build, slippage/impact within policy, safety contract passed) is now required immediately before **signing**, not before routing. This unblocks the QUALITY lane's eval funnel. Placeholder pool is now telemetry-only (`LANE_ENTRY_QUALITY_MINT_ROUTE_ADVISORY_6385`).
+
+### Section 11 — Route-stack telemetry hygiene
+
+`MemeExecutionRouteStack.logStackCoverage` no longer emits `EXEC_PROVIDER_TRY` for unwired or unsupported providers (which was firing 2000+ times per session, inflating the counter and hiding real attempt volume). Wired + supported providers still emit `EXEC_PROVIDER_TRY`; unwired/unsupported providers now emit `EXEC_PROVIDER_SKIPPED_6385` (distinct, non-inflating audit event). Unwired-adapter coverage is emitted once per stack call as a gauge via `EXEC_STACK_COVERAGE`, as directed.
+
+### What operator will see on V5.0.6385 boot
+
+- `LIVE_BUY_BLOCKED_ACCOUNTING_REPAIR_MODE_6385` counter increases on every attempted live BUY.
+- Existing live positions still monitored + still exit via their normal proof paths.
+- Paper + shadow candidate evaluation unaffected.
+- `EXEC_PROVIDER_TRY = 2000+` from V5.0.6383 drops sharply (only wired+supported providers now).
+- `EXEC_PROVIDER_SKIPPED_6385` appears (unwired providers audited without inflation).
+- `LANE_ENTRY_QUALITY_MINT_ROUTE_ADVISORY_6385` appears in place of the old REJECTED counter.
+
+### What comes next (Bundles 6386-6390)
+
+- **6386**: Strong amount types (Lamports/RawTokenAmount/MintDecimals value classes) + strict ProofState sealed class (Section 4 + 9).
+- **6387**: Finalized BUY proof (pre/post wallet delta only) + Immutable FillLotLedger6344 keyed by wallet+mint+buySig (Section 5 + 6).
+- **6388**: Finalized SELL proof (lamport delta only, no Jupiter-quote proceeds) + Partial sells (Section 7 + 8).
+- **6389**: Historical quarantine + reset PF/expectancy/tactic-stats (Section 10).
+- **6390**: Regression tests (property-based decimals 0/1/5/6/8/9, replay fixtures) + Canary release gate (Section 12 + 13).
+
+### Files changed
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveAccountingRepairMode6385.kt` (NEW)
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt` (repair-mode block wired)
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneEntryContract6342.kt` (MINT_ROUTE hard-reject removed, advisory-only)
+- `app/src/main/kotlin/com/lifecyclebot/engine/execution/MemeExecutionRouteStack.kt` (EXEC_PROVIDER_TRY hygiene)
+- `app/src/test/kotlin/com/lifecyclebot/engine/Bundle6385AccountingRepairModeTest.kt` (NEW — 7 invariants)
+
+---
+
 ## [5.0.6384] - 2026-02 — Governor "Profitable Low-WR" Escape Hatch
 
 **Operator directive (V5.0.6383 snapshot, verbatim):**

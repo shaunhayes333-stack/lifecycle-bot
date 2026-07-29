@@ -108,21 +108,25 @@ object LaneEntryContract6342 {
             }
         }
 
-        // 3. QUALITY identity contract — no MINT_ROUTE placeholders.
-        //    QUALITY must require a real, verified pool address.
+        // 3. QUALITY identity contract — V5.0.6385 REPAIR (operator directive
+        //    Section 3): MINT_ROUTE is a VALID candidate-evaluation state.
+        //    Concrete route proof (real pair address, executable Jupiter quote,
+        //    successful transaction build, slippage/impact within policy) is
+        //    required immediately before SIGNING, not before routing. The old
+        //    reject-at-eval-time gate caused MULTI_LANE_ACTIVE QUALITY leak
+        //    (2762 non-QUALITY active evals in a session) because valid QUALITY
+        //    candidates were being redirected to shadow before they could be
+        //    hydrated. Route proof is now enforced at the executor's build/quote
+        //    step (see LIVE_BUY_ABORTED_ROUTE_PROOF_MISSING_6385 in Executor).
         if (lane == "QUALITY") {
-            val pool = try { ts.tokenMap.pairAddress.ifBlank { ts.tokenMap.poolAddress } } catch (_: Throwable) { null }
-            if (isMintRoutePlaceholder(pool)) {
-                reasons += "QUALITY_REJECTS_MINT_ROUTE_6342"
-                try {
-                    PipelineHealthCollector.labelInc("LANE_ENTRY_QUALITY_MINT_ROUTE_REJECTED_6342")
-                    ForensicLogger.lifecycle(
-                        "LANE_ENTRY_QUALITY_MINT_ROUTE_REJECTED_6342",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} pool=${pool ?: "null"} action=redirect_shadow",
-                    )
-                } catch (_: Throwable) {}
-                return Assessment(Verdict.REDIRECT_SHADOW, laneRequested, "SHADOW", reasons)
-            }
+            try {
+                val pool = try { ts.tokenMap.pairAddress.ifBlank { ts.tokenMap.poolAddress } } catch (_: Throwable) { null }
+                if (isMintRoutePlaceholder(pool)) {
+                    // Advisory only — telemetry-only, no redirect. Bundle 6390's
+                    // canary gate will require actual route proof at signing.
+                    PipelineHealthCollector.labelInc("LANE_ENTRY_QUALITY_MINT_ROUTE_ADVISORY_6385")
+                }
+            } catch (_: Throwable) {}
         }
 
         // Contract passed — live authority granted.

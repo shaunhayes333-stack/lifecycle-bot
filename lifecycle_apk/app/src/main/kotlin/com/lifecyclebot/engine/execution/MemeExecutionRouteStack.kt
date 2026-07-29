@@ -259,7 +259,21 @@ object MemeExecutionRouteStack {
         lifecycle("EXEC_ROUTE_INTELLIGENCE_USED", "providers=${context.routeIntelligence.providersUsedForIntel()} liq=${context.routeIntelligence.liquidityDepthUsd} priceConf=${context.routeIntelligence.priceConfidence} recommended=${context.routeIntelligence.recommendedVenues} blocked=${context.routeIntelligence.blockedVenues} unsupported=${context.routeIntelligence.unsupportedVenues}")
         providers.forEach { p ->
             val s = support.getValue(p)
-            lifecycle("EXEC_PROVIDER_TRY", "provider=${p.providerName} side=${context.side.name} supported=${s.supported} adapterWired=${p.adapterWired} reason=${s.reason}")
+            // V5.0.6385 — ROUTE-STACK TELEMETRY HYGIENE (operator directive
+            // Section 11). EXEC_PROVIDER_TRY must ONLY fire when the adapter
+            // is actually wired AND supports the trade AND the quote/build
+            // path is genuinely entered. Prior versions logged every provider
+            // in the stack including unwired/unsupported ones, inflating the
+            // counter to 2000+ per session and hiding real attempt volume.
+            // Unwired-adapter coverage is now emitted once at startup as a
+            // gauge (EXEC_STACK_COVERAGE below) instead of per-cycle spam.
+            if (p.adapterWired && s.supported) {
+                lifecycle("EXEC_PROVIDER_TRY", "provider=${p.providerName} side=${context.side.name} supported=true adapterWired=true reason=${s.reason}")
+            } else {
+                // Unwired/unsupported providers get a distinct, non-inflating
+                // audit event so the operator can still see what was skipped.
+                lifecycle("EXEC_PROVIDER_SKIPPED_6385", "provider=${p.providerName} side=${context.side.name} supported=${s.supported} adapterWired=${p.adapterWired} reason=${s.reason}")
+            }
             if (!p.adapterWired) lifecycle("EXEC_PROVIDER_ADAPTER_GAP_4310", "provider=${p.providerName} supported=${s.supported} reason=provider_adapter_not_yet_wired")
             if (!context.sideEffectLight && !s.supported) lifecycle("EXEC_PROVIDER_FAIL", "provider=${p.providerName} reason=UNSUPPORTED:${s.reason}")
         }
