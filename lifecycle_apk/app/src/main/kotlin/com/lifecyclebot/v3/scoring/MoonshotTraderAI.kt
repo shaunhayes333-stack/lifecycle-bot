@@ -1679,7 +1679,7 @@ object MoonshotTraderAI {
             // (<15 min), suppress the flat exit and let the price action play
             // out. Trailing stop, laddered partials, and stop-loss still fire
             // as normal. Paper positions unchanged — paper's job is to explore.
-            val isLive = !pos.isPaperPosition
+            val isLive = !pos.isPaperMode
             val hadUpsideBlink = pos.peakPnlPct >= 3.0
             val stillFresh = holdMinutes < 15L
             if (isLive && (hadUpsideBlink || stillFresh)) {

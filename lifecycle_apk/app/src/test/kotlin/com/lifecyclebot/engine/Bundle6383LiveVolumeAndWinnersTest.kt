@@ -73,7 +73,7 @@ class Bundle6383LiveVolumeAndWinnersTest {
         )
         assertTrue(
             "V5.0.6383: paper positions must be UNAFFECTED (paper's job is to explore)",
-            ms.contains("!pos.isPaperPosition"),
+            ms.contains("!pos.isPaperMode"),
         )
         assertTrue(
             "V5.0.6383: telemetry counter for suppressed flat exits must exist",
