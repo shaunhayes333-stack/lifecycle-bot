@@ -2976,7 +2976,10 @@ class GoldenTapeRegressionTest {
 
         assertTrue("paper buy must clamp before position and journal mutation", exec.contains("clampPaperTradeSol(finalSol"))
         assertTrue("paper buy max must be bankroll-backed live-transfer size, not legacy maxPositionSol micro-cap", exec.contains("ALL PAPER ENTRIES") && exec.contains("paperSimulatedBalance * 0.10") && exec.contains("coerceIn(legacyMax, 2.0)"))
-        assertTrue("paper buy min must have a live-transfer floor for all entries", exec.contains("live-transfer floor") && exec.contains("paperSimulatedBalance * 0.01"))
+        // V5.0.6381 — floor lowered from paperSimulatedBalance * 0.01 to * 0.001
+        // per operator directive: learning-shrunk sizes (e.g. 0.021 SOL) were being
+        // clamped UP to 0.1176 which nullified the LiveProbabilityEngine shape signal.
+        assertTrue("paper buy min must have a live-transfer floor for all entries", exec.contains("live-transfer floor") && exec.contains("paperSimulatedBalance * 0.001"))
         assertTrue("paper buy clamp telemetry must exist", exec.contains("PAPER_BUY_SIZE_CLAMPED"))
 
         // V5.0.6366 — F4 raised the paper learning-eligibility ceiling from
@@ -3849,7 +3852,7 @@ class GoldenTapeRegressionTest {
         val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("ExecMode enum must be the immutable attempt authority", execMode.contains("enum class ExecMode") && execMode.contains("PAPER") && execMode.contains("LIVE") && execMode.contains("SHADOW") && execMode.contains("data class ExecutionContext"))
         assertTrue("liveBuy must carry ExecutionContext, not paper Boolean flags", executor.contains("executionContext: ExecutionContext?") && !executor.contains("private fun liveBuy(ts: TokenState, sol: Double, score: Double, paper"))
-        assertTrue("LIVE mode desync must abort/fail explicitly without treating fresh placeholders as paper", executor.contains("LIVE_MODE_DESYNC") && executor.contains("execCtx.execMode != ExecMode.LIVE") && executor.contains("alreadyOpenPosition") && executor.contains("pre-open TokenState.position is a placeholder"))
+        assertTrue("LIVE mode desync must abort/fail explicitly without treating fresh placeholders as paper", executor.contains("LIVE_MODE_DESYNC") && (executor.contains("execCtx.execMode != ExecMode.LIVE") || executor.contains("execModeResolved != ExecMode.LIVE")) && executor.contains("alreadyOpenPosition") && executor.contains("pre-open TokenState.position is a placeholder"))
         assertFalse("fresh live entry candidates must not be blocked solely by Position.isPaperPosition default=true", executor.contains("val paperFlag = try { ts.position.isPaperPosition }"))
         assertFalse("No live EXEC_TRACE_BUY telemetry may hardcode paper=true", executor.contains("EXEC_TRACE_BUY") && executor.contains("paper=true"))
         val liveBuyBodyStart = executor.indexOf("private fun liveBuy")
