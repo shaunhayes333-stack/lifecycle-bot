@@ -1,6 +1,52 @@
-# AATE PRD — V5.0.6377
+# AATE PRD — V5.0.6382
 
 ## Current build stack
+
+- **6382** (`20c7fb7ec` ✅ CI green) **Win-Rate Integrity + Wave Entry Quality Gate**.
+  Four surgical fixes that together stop metric-poisoning and top-tick chases suppressing the live WR.
+  1. `TradeHistoryStore.isValidAccountingTrade` whitelists `EXTERNAL_RUG_CLOSE` rows (price=0 + pnl=-100% is genuine for a rug) — stops startup spam of `TRADE_ACCOUNTING_QUARANTINED|STANDARD|EXTERNAL_RUG_CLOSE` poisoning WR metrics.
+  2. `StartupReconciler` synthetic rugSell inherits `buyRow.tradingMode` so external-close rows bin under originating lane (MOONSHOT/SHITCOIN/etc), not the "STANDARD" default.
+  3. `TacticSwitcher.rederiveFromRawJournal6382()` — one-shot cold-boot repair reads raw SQLite journal and overwrites phantom μ drift (μ=+159% at 15% WR from pre-V5.0.6373d basis-point math) with lifetime reality. Wired into `BotService.onCreate` after `LearningPersistence.init`.
+  4. `WaveEntryQualityGate6382` (NEW module) rejects three entry patterns: parabolic top-tick (1h ≥ score-band ceiling AND 3× 1m cumulative ≥ +45%), ejection candle (any 1m ≥ +25% on hot 1h), extended stall. Score-band aware ceilings (low <40 → 80%, mid → 140%, high ≥60 → 220%). Fail-open on missing data, self-clearing when the wave cools, never disables a lane. Wired into `ExecutableOpenGate.canOpenExecutablePosition(ts, ...)` for PAPER + LIVE.
+  Testing: `Bundle6382WinRateIntegrityTest.kt` (10 invariants).
+
+- **6381c** (`bfca89e0e` ✅) Golden Tape assertions updated for V5.0.6381 refactors.
+- **6381b** (`a6651c305` ✅) Paper size floor lowered so learning shrink survives clamp.
+- **6381** (`556d3fa29` ✅) **LIVE TRADER UNBLOCK** — LIVE_MODE_DESYNC auto-promote + Rugcheck tier recalibration.
+- **6380** (`09906d856` ✅) Paper wallet continuity hole #2 + Learning Trajectory Governor.
+- **6379x** (`2f504c4f7…5c9d19554` ✅) Learned Toxic Lane Hard Veto + cache-bucketing.
+- **6377** (`1575a03f1` ✅) Forensic Reconciler (11-item correctness spec).
+- **6376** (`94ab099ef` ✅) Paper Wallet Continuity + Screen-Off Proof-of-Life.
+- **6374-6375** (✅) Scanner Fanout Throttle + Heatmap ANR fix.
+- **6373x** (✅) Trade-1 catastrophic rotation + phantom pnl% recompute + ghost purge neutralization.
+- **6372** (`0a1eb8cfc` ✅) UNIVERSAL 2×–5× daily compound target (AATE core doctrine).
+- **6364** (`fd8331cf0` ✅) Operator's known-good baseline before regression.
+
+## What operator should see after V5.0.6382 lands
+
+1. **`TRADE_ACCOUNTING_QUARANTINED|STANDARD|EXTERNAL_RUG_CLOSE` spam gone** — every rug-close row now passes accounting validation and bins under its originating lane. WR metric stops getting poisoned at every startup.
+2. **`TACTIC_REDERIVE_6382_CELLS_N` / `_REPAIRED_N` counters** — a one-time repair on this boot; μ per (lane, band) now matches lifetime journal reality. Bayesian + post-pivot + persistent-bleed gates finally see correct math.
+3. **`EXEC_OPEN_BLOCKED_WAVE_TOO_LATE_6382|<LANE>` counters** — telemetry proving the bot is now rejecting parabolic top-tick chases. Expected on hot memecoin runs (SHITCOIN/MOONSHOT). If this counter stays at 0 across a 30m active window, the gate is safely allowing all real entries; if it fires, look for the accompanying `WAVE_TOO_LATE_PARABOLIC` / `_EJECTION` / `_EXTENDED` tag.
+4. **Live WR improvement** — the compound effect: clean μ math + correct lane bins + wave-quality entries should lift WR above the 15-25% floor observed on V5.0.6381.
+
+## Backlog
+
+### 🟠 P0 — Deferred forensic-repair spec items
+- P0-4: Immutable price identity hash + PRICE_IDENTITY_CONFLICT
+- P0-5: tokenDecimals nullable + decimalsKnown boolean
+- P0-6: performanceDomain enum (LIVE_CANONICAL / PAPER_PARITY / SHADOW_RESEARCH)
+- P0-7: PAPER_PARITY score-floor parity with LIVE governor
+- P0-8: LaneEligibilityContract
+- P0-10: Quarantine corrupted history + rebuild tactic stats
+- P0-11: Full forensic journal fields + CANONICAL_INTEGRITY_STATUS section
+- **Empty UI panels**: ALL TRADERS, 30-DAY PROOF RUN, lane cards show 0 when top card shows 181 trades. Investigate `journalParityStatsSnapshot6085()` null bailout at MainActivity:2765.
+
+### 🔵 P1 — After live WR stabilization + 2x–5x growth benchmark hit
+- Phase 1: SOL Perps / Leverage mode (`PerpsLaneGate.kt`)
+- Phase 2: Neural bridge (AI cross-learning perps↔stocks)
+- Phase 3: LLM Lab sandbox
+
+## Current build stack (old)
 
 - **6377** (pending push) **Forensic Reconciler (11-item correctness spec)** — additive read-only module runs 11 named cross-domain reconciliation checks against the trade journal on every ~50th bot loop tick. Emits `FORENSIC_OK_6377|<CHECK>` / `FORENSIC_MISMATCH_6377|<CHECK>|<summary>` counters. Pipeline dump gains a dedicated FORENSIC RECONCILER section listing pass/fail + per-check summaries. TacticSwitcher exposes new read-only `dumpForensicSnapshot6377()` so persisted μ can be cross-checked against journal μ per lane.
   Checks: WALLET_VS_JOURNAL, JOURNAL_ROW_PARITY, BUY_SELL_QTY_SKEW, COST_BASIS, PNL_PCT_VS_SOL, SELL_REASON_PRESENCE, PRICE_IMMUTABILITY, TACTIC_MU_VS_JOURNAL, DUPLICATE_JOURNAL_ROWS, ORPHAN_SELL, CANONICAL_VS_REGISTRY.

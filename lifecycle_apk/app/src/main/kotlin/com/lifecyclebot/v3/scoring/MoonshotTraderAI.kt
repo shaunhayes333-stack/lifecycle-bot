@@ -1670,8 +1670,26 @@ object MoonshotTraderAI {
             flatExitMinsRaw
         }
         if (holdMinutes >= flatExitMins && pnlPct > -2.0 && pnlPct < 5.0) {
-            ErrorLogger.info(TAG, "😐 FLAT EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (truly flat, half-maxHold, scratchStreak=$scratchStreak4159)")
-            return ExitSignal.FLAT_EXIT
+            // V5.0.6383 — LIVE WINNER PROTECTION (operator directive: "paper
+            // finds huge runners live cannot"). V5.0.6382 live journal showed
+            // repeated MOONSHOT_FLAT_EXIT closes at pnl=+0 on the same mint
+            // (7GCihg × 3 flat exits, EKpQGS scratch after ~2min) — the bot was
+            // exiting positions that had NEVER been given room to develop.
+            // For LIVE positions with ANY positive peak (>+3%) OR too fresh
+            // (<15 min), suppress the flat exit and let the price action play
+            // out. Trailing stop, laddered partials, and stop-loss still fire
+            // as normal. Paper positions unchanged — paper's job is to explore.
+            val isLive = !pos.isPaperPosition
+            val hadUpsideBlink = pos.peakPnlPct >= 3.0
+            val stillFresh = holdMinutes < 15L
+            if (isLive && (hadUpsideBlink || stillFresh)) {
+                ErrorLogger.info(TAG, "🛡️ LIVE_WINNER_PROTECT_6383: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min | peak=+${pos.peakPnlPct.toInt()}% (suppressing FLAT_EXIT — let it develop)")
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_WINNER_PROTECT_FLAT_EXIT_SUPPRESSED_6383") } catch (_: Throwable) {}
+                // fall through to timeout/other paths
+            } else {
+                ErrorLogger.info(TAG, "😐 FLAT EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (truly flat, half-maxHold, scratchStreak=$scratchStreak4159)")
+                return ExitSignal.FLAT_EXIT
+            }
         }
         
         // 6. TIMEOUT - only if not significantly profitable

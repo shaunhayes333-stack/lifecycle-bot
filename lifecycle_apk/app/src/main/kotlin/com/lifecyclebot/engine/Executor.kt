@@ -13033,6 +13033,17 @@ class Executor(
             try { PipelineHealthCollector.labelInc("LIVE_MODE_DESYNC") } catch (_: Throwable) {}
             return false
         }
+        // V5.0.6383 — separate telemetry channel for lane-contract aborts so
+        // the LIVE_MODE_DESYNC counter reflects ONLY actual runtime desync (a
+        // real fixable bug), not lane-contract violations (working-as-intended
+        // routing). Both still emit LIVE_BUY_ABORTED and fail the buy — this
+        // is purely a telemetry hygiene split.
+        fun liveAbortLaneContract(reason: String): Boolean {
+            liveStage("LIVE_BUY_ABORTED", "reason=LIVE_LANE_CONTRACT_6383 detail=$reason")
+            try { emitLiveBuyFail(ts, sol, "LIVE_LANE_CONTRACT_6383", reason) } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("LIVE_LANE_CONTRACT_6383") } catch (_: Throwable) {}
+            return false
+        }
         val runtimePaper = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { cfg().paperMode }
         // V5.0.6381 — MODE DESYNC AUTO-PROMOTE (operator directive: "paper
         // has no issue finding winners live shouldn't either... FIX THE
@@ -13070,7 +13081,31 @@ class Executor(
             val alreadyOpenPosition = try { ts.position.isOpen && (ts.position.qtyToken > 0.0 || ts.position.costSol > 0.0 || ts.position.entryTime > 0L) } catch (_: Throwable) { false }
             val paperFlag = try { alreadyOpenPosition && ts.position.isPaperPosition } catch (_: Throwable) { false }
             val shadowFlag = try { (alreadyOpenPosition && ts.position.tradingMode.equals("SHADOW", true)) || layerTag.equals("SHADOW", true) } catch (_: Throwable) { false }
-            if (runtimePaper || paperFlag || shadowFlag) return liveAbortDesync("mode=LIVE runtimePaper=$runtimePaper alreadyOpen=$alreadyOpenPosition positionPaper=$paperFlag shadow=$shadowFlag")
+            // V5.0.6383 — STALE PAPER/SHADOW FLAG AUTO-CLEAR (operator directive:
+            // "paper finds huge runners live cannot"). LIVE_MODE_DESYNC=795 in the
+            // V5.0.6382 snapshot was killing 92% of live BUY attempts because a
+            // mint's TokenState.position still carried a stale isPaperPosition=true
+            // (or tradingMode=SHADOW) from an earlier paper/shadow run OR a stale
+            // reconciler-adopt row that never got upgraded. When runtime authority
+            // is LIVE, a stale open PAPER/SHADOW position on the same mint is not
+            // a safety issue — it's a stale flag that must be cleared so the live
+            // buy can proceed. runtimePaper=true still hard-aborts (the real desync).
+            if (runtimePaper) return liveAbortDesync("mode=LIVE runtimePaper=true alreadyOpen=$alreadyOpenPosition positionPaper=$paperFlag shadow=$shadowFlag")
+            if (paperFlag || shadowFlag) {
+                try {
+                    synchronized(ts) {
+                        ts.position = ts.position.copy(
+                            isPaperPosition = false,
+                            tradingMode = if (ts.position.tradingMode.equals("SHADOW", true)) "" else ts.position.tradingMode,
+                        )
+                    }
+                    PipelineHealthCollector.labelInc("LIVE_MODE_STALE_FLAG_AUTO_CLEARED_6383")
+                    ForensicLogger.lifecycle(
+                        "LIVE_MODE_STALE_FLAG_AUTO_CLEARED_6383",
+                        "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} sym=${ts.symbol} priorPaperFlag=$paperFlag priorShadowFlag=$shadowFlag runtimePaper=false action=cleared_and_proceed",
+                    )
+                } catch (_: Throwable) {}
+            }
         }
         liveStage("LIVE_BUY_ENTRY", "sol=${"%.4f".format(sol)} score=${"%.1f".format(score)} quality=$quality")
 
@@ -13103,7 +13138,7 @@ class Executor(
                         note = "lane_contract_${contract6342.verdict}",
                     )
                 } catch (_: Throwable) {}
-                return liveAbortDesync("lane_contract_6342 verdict=${contract6342.verdict} reasons=${contract6342.reasons.joinToString(",")}")
+                return liveAbortLaneContract("lane_contract_6342 verdict=${contract6342.verdict} reasons=${contract6342.reasons.joinToString(",")}")
             }
             // V5.0.6354 — LaneEntryContract passed; the candidate is live-
             // ready. Promote to LIVE_READY in the scanner/hydration router so

@@ -4,6 +4,63 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.6383] - 2026-02 — Live Volume Recovery + Live-Winner Protection
+
+**Operator directive (V5.0.6382 snapshot, verbatim):**
+> why does paper consistently find huge runners, and consistent winners and live cannot??
+
+The V5.0.6382 pipeline snapshot exposed two smoking guns:
+
+```
+  Live BUY ok/fail:  31 / 862       ← 3.5% success rate
+  Top BUY fail reason: LIVE_MODE_DESYNC = 795
+  ─── 92% of live entries never happen ───
+
+  7GCihg  BUY  cost=0.0276 mcap=$40.6M
+  7GCihg  BUY  cost=0.0254 mcap=$40.6M   (14 seconds later)
+  7GCihg  SELL pnl=+0.000 MOONSHOT_FLAT_EXIT   ← flat close #1 (5 min in)
+  7GCihg  SELL pnl=+0.000 MOONSHOT_FLAT_EXIT   ← flat close #2 (11 min in)
+  7GCihg  SELL pnl=+0.000 MOONSHOT_FLAT_EXIT   ← flat close #3 (20 min in)
+```
+
+### Fix 1 — Stale paper/shadow flag auto-clear
+
+The V5.0.6381 `LIVE_MODE_DESYNC` auto-promote patched the `execMode == PAPER && runtime == LIVE` branch, but a SECOND desync path at `Executor.kt:13073` was still killing live buys: `TokenState.position.isPaperPosition = true` OR `position.tradingMode == "SHADOW"` (stale flags carried over from earlier paper/shadow runs on the same mint).
+
+**Fix**: when runtime authority is LIVE, treat the stale flag as history and CLEAR it (`ts.position = ts.position.copy(isPaperPosition = false, tradingMode = "")`), then proceed. `runtimePaper = true` still hard-aborts — that is the real desync. Emits `LIVE_MODE_STALE_FLAG_AUTO_CLEARED_6383` telemetry so operator can see how much live volume was recovered.
+
+### Fix 2 — Lane-contract counter split (telemetry hygiene)
+
+`Executor.kt:13106` was routing lane-contract violations through `liveAbortDesync()`, inflating the `LIVE_MODE_DESYNC` counter with events that are working-as-intended (BLUECHIP lane rejecting a Pump.fun mint is a routing feature, not a runtime desync).
+
+**Fix**: new `liveAbortLaneContract()` helper emits `LIVE_LANE_CONTRACT_6383` instead. Now `LIVE_MODE_DESYNC` only counts real runtime desync — operators can tell whether Fix 1 actually recovered volume.
+
+### Fix 3 — Live-winner protection on Moonshot FLAT_EXIT
+
+The V5.0.6382 live journal showed the same mint (7GCihg) getting `MOONSHOT_FLAT_EXIT` three times back-to-back, each at pnl=+0 sol=0. Root cause: `MoonshotTraderAI.checkExit()` fired FLAT_EXIT at `holdMinutes >= maxHold/2 && pnlPct in [-2%, +5%]` — but on real live memecoin runs, minute-15-to-30 with pnl at breakeven is often the CONSOLIDATION BEFORE the runner. Paper doesn't feel this because paper's exit isn't gate-conflict-firing; live gets flat-exited off before the wave develops.
+
+**Fix**: LIVE positions with `peakPnlPct >= 3.0` OR `holdMinutes < 15` are protected from FLAT_EXIT. Trailing stop, laddered partials, and stop-loss still fire as normal — this only lifts the SPECIFIC hair-trigger that closes fresh winners at scratch. Paper positions untouched (paper's job is to explore). Emits `LIVE_WINNER_PROTECT_FLAT_EXIT_SUPPRESSED_6383`.
+
+### Why paper finds runners live can't — the answer
+
+1. **Live buys don't happen** — 92% of live BUY intents were dying at DESYNC. Paper had no such filter. Recovered by Fix 1.
+2. **Live winners close before they run** — the FLAT_EXIT gate is a HARD close at maxHold/2 with pnl-neutral, and even a +3% blip that pulls back is treated as "flat". Paper's peak-to-flat sequence hits the same gate but paper is a numerical simulation with different reconciler behavior. Fixed by Fix 3.
+3. **Telemetry hid Fix 1's real impact** — LIVE_LANE_CONTRACT events were counted as DESYNC. Now they're split so improvement is visible.
+
+Expected V5.0.6383 signature:
+- `LIVE_MODE_STALE_FLAG_AUTO_CLEARED_6383` counter > 0 (recovered live buys)
+- `LIVE_MODE_DESYNC` counter significantly reduced (only real desync now)
+- `LIVE_LANE_CONTRACT_6383` counter appears (lane-contract routing, working as intended)
+- `LIVE_WINNER_PROTECT_FLAT_EXIT_SUPPRESSED_6383` counter > 0 (winners given room)
+- Live BUY ok/fail ratio significantly improved
+
+### Files changed
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt` (stale flag clear + lane contract split)
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt` (live winner FLAT_EXIT protection)
+- `app/src/test/kotlin/com/lifecyclebot/engine/Bundle6383LiveVolumeAndWinnersTest.kt` (NEW — 3 invariants)
+
+---
+
 ## [5.0.6382] - 2026-02 — Win-Rate Integrity + Wave Entry Quality
 
 **Operator directive (verbatim, V5.0.6381 snapshot follow-up):**
