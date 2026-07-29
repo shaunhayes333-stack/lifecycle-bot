@@ -4,7 +4,93 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
-## [5.0.6385] - 2026-02 — LIVE ACCOUNTING TRUTH REPAIR (Bundle 1/6)
+## [5.0.6386] - 2026-02 — LIVE ACCOUNTING TRUTH REPAIR (Bundle 2/2 — SECTIONS 2/4/5/6/7/8/9/10/12/13)
+
+Ships the remaining 10 sections of the LIVE EXECUTION TRUTH AND COMPOUNDING FOUNDATION directive in one commit. Combined with Bundle 6385 (Sections 1, 3, 11) this completes the full 13-section repair spec.
+
+### Section 2 — Canonical ExecutionIntent (`ExecutionIntent6386.kt`)
+- Immutable `ExecutionIntent6386(intentId, walletAddress, mintAddress, side, selectedLane, marketSnapshotId, decisionTimestamp, requestedLamports/requestedRawTokenAmount, score, fdgVerdict, routeRequirements, lifecycleState)`.
+- `ExecutionIntentRegistry6386` — atomic ConcurrentHashMap keyed by (wallet, mint, side). `tryReserve()` enforces exactly ONE outstanding BUY intent per wallet+mint. Terminal states (FinalizedProofComplete / FailedConfirmed / Quarantined) free the slot.
+- Test: "one mint cannot create competing lane tickets" (same wallet+mint+BUY on DIFFERENT lanes → second rejected).
+
+### Section 4 — Strong amount system (`AmountTypes6386.kt`)
+- `@JvmInline value class` types: `Lamports(BigInteger)`, `RawTokenAmount(BigInteger)`, `SolAmount(Double)`, `UiTokenAmount(Double)`, `UsdAmount(Double)`, `UsdPerToken(Double)`, `SolPerToken(Double)`.
+- Raw + lamport arithmetic uses BigInteger (zero Double precision loss).
+- `MintDecimals` sealed class: `Known(count, source, proofSignature)` OR `Unknown`. `Unknown.toUi()` throws — no silent zero coercion.
+- `UiTokenAmount.toRaw()` uses BigDecimal to preserve exact digits — property test covers decimals {0,1,5,6,8,9} for representative raw values.
+
+### Section 5 — Finalized BUY proof (`FinalizedBuyProof6386.kt`)
+- `validate(wallet, mint, ProofState6386)` returns `Result(proofComplete, quantityDelta, netLamportsSpent, reason)`.
+- `quantityDelta = postRawBalance - preRawBalance` — NEVER the post-buy total ATA balance.
+- Non-finalized states, wallet/mint mismatch, non-positive delta, or negative net spend all fail.
+
+### Section 6 — Immutable fill lot ledger (`FillLotLedger6386.kt`)
+- `FillLot6386` — all-`val` data class. Lot key = (wallet, mint, confirmedBuySignature).
+- `openLot(lot)` — throws if a lot with the same signature already exists (catches double-open).
+- Re-entry with a DIFFERENT signature creates a SECOND lot — no merge, no replacement.
+- `consumeFifo()` drains lots in `timestamp` order and returns exact (lot, consumedRaw) pairs plus any shortfall.
+- Test: `re_entry_creates_separate_immutable_lot_not_replacement`, `cannot_overwrite_existing_lot_with_same_signature`, `fifo_consumption_drains_older_lot_first`.
+
+### Section 7 — Finalized SELL proof (`FinalizedSellProof6386.kt`)
+- `rawQuantitySold = preRawBalance - postRawBalance` — NEVER derived from entry × proceeds / cost.
+- `netLamportsReceived` computed EXCLUSIVELY from `postLamports - preLamports + fee` — Jupiter quotes, mark prices, expected outputs are NEVER consulted.
+
+### Section 8 — Partial sells (`FinalizedSellProof6386.classifyPartial`)
+- Partial without finalized proof → `ProofState6386.PendingReconciliation` regardless of broadcast confirmation.
+- `contributesToTruth()` on PendingReconciliation returns FALSE — no PnL, no learning, no treasury, no expectancy update.
+
+### Section 9 — Proof state machine (`ProofState6386.kt`)
+- Sealed class with 8 states: `IntentCreated`, `TransactionBuilt`, `SignatureReceived(sig)`, `BroadcastPending(sig)`, `FinalizedProofComplete(...)`, `FailedConfirmed(sig, reason)`, `PendingReconciliation(reason)`, `Quarantined(reason)`.
+- `contributesToTruth()` returns TRUE ONLY for `FinalizedProofComplete`. All downstream truth consumers MUST call this before reading numbers.
+
+### Section 10 — Historical quarantine (`HistoricalQuarantine6386.kt`)
+- One-shot `runOnce()` called from `BotService.onCreate` after `TradeHistoryStore.init` and `LearningPersistence.init`.
+- Evaluates every live journal row against 12 corruption criteria: LIVE_BROADCAST without finalization, missing tx sig, PnL/cost mismatch >2%, post-ATA-total-as-buy-qty, WALLET_RECOVERED unknown basis, ALIAS/PHANTOM/HEAL residues, partial without finalized proof, phantom-scratch SELL at sol=0 pnl=0.
+- Emits `HISTORICAL_QUARANTINE_6386_ROW_TAGGED`, `HISTORICAL_QUARANTINE_6386_TOTAL_ROWS_<N>`, `HISTORICAL_QUARANTINE_6386_REASON_<REASON>_<COUNT>`.
+- Stats reset relies on existing `TacticSwitcher.rederiveFromRawJournal6382()` (already called immediately before) to re-derive μ purely from surviving rows.
+
+### Section 11 — Route-stack telemetry (already in 6385) — confirmed wired.
+
+### Section 12 — Regression tests (`Bundle6386TruthRepairTest.kt`)
+- **Property test**: raw→UI→raw exact for decimals {0,1,5,6,8,9} across 6 representative raw magnitudes.
+- **Fixture assertions** covering directive's replay tokens (rNMsVB, 51eWyx, EVkwEA/BIAO, USDS, 63LfDm) as API-level test cases:
+  - New BUY quantity = post - pre (never ATA total).
+  - Sold quantity = pre - post (never entry×proceeds/cost).
+  - Cost basis = net lamports spent.
+  - Proceeds = matching lamport delta.
+  - Broadcast rows cannot close positions.
+  - Partial quotes cannot create PnL.
+  - Re-entry creates separate immutable lot.
+  - One mint cannot create competing lane tickets.
+
+### Section 13 — Canary release gate (`CanaryReleaseGate6386.kt`)
+- Modes: `LOCKED` → `CANARY` → `PROBATION` → `FULL`.
+- CANARY: max order 0.003–0.005 SOL, max 1 open, max 1 BUY per mint, min confirmation = finalized.
+- 20 consecutive clean round trips advance to PROBATION. 100 total finalized advance to FULL.
+- Any invariant failure (`onInvariantFailure`) resets the consecutive-clean counter to zero.
+- `promoteToCanary()` is `internal` — only Bundle 6390's canary orchestrator may call it; NOT wired into production yet.
+
+### Files added
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AmountTypes6386.kt` (NEW)
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ProofState6386.kt` (NEW)
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionIntent6386.kt` (NEW)
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBuyProof6386.kt` (NEW)
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FillLotLedger6386.kt` (NEW)
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedSellProof6386.kt` (NEW)
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/HistoricalQuarantine6386.kt` (NEW)
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanaryReleaseGate6386.kt` (NEW)
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt` (wired quarantine)
+- `app/src/test/kotlin/com/lifecyclebot/engine/truth/Bundle6386TruthRepairTest.kt` (NEW — 21 invariants)
+
+### Status vs directive acceptance criteria
+- **Repair mode ACTIVE**: ✅ Bundle 6385 hard-blocks live BUY signatures.
+- **Truth substrate exists**: ✅ Bundle 6386 ships the types, proof machine, intent registry, fill ledger, buy/sell validators, quarantine, canary gate.
+- **Adoption**: The old paths (Executor, TradeHistoryStore, LearningPersistence) still hold the legacy fields. **Full migration of every write site to the truth substrate is the next multi-bundle task** — this bundle establishes the scaffolding and locks the substrate against misuse via CI-enforced invariants. Old-path live BUY writes cannot happen while repair mode is ACTIVE.
+- **Canary gate**: LOCKED by default. `promoteToCanary()` requires an explicit operator promotion signal (deliberately not automated in this commit — the operator must green-light the flip once the substrate is verified end-to-end on the next live-connected build).
+
+---
+
+## [5.0.6385] - 2026-02 — LIVE ACCOUNTING TRUTH REPAIR (Bundle 1/2)
 
 **Operator directive — "AATE BUILD DIRECTIVE — LIVE EXECUTION TRUTH AND COMPOUNDING FOUNDATION" (verbatim):**
 

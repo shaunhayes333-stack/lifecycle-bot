@@ -1545,6 +1545,12 @@ class BotService : Service() {
         // pre-V5.0.6373d expectancy math (μ=+159% at 15% WR was blocking
         // rotation of broken tactics). Runs once per boot; fail-soft.
         try { com.lifecyclebot.engine.learning.TacticSwitcher.rederiveFromRawJournal6382() } catch (_: Throwable) {}
+
+        // V5.0.6386 — HISTORICAL QUARANTINE (Section 10 of directive).
+        // Reads the raw journal, tags every live row matching any of the 12
+        // corruption criteria, and emits HISTORICAL_QUARANTINE_6386_* counters.
+        // Downstream truth-model consumers must ignore quarantined rows.
+        try { com.lifecyclebot.engine.truth.HistoricalQuarantine6386.runOnce() } catch (_: Throwable) {}
         // V5.0.4307 — report-only runtime proof for smart/dormant-system registry
         // and closeout sentinels. No scanner, FDG, sizing, routing, wallet, or
         // execution authority; this only makes theatre-vs-runtime visible.
