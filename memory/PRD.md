@@ -1,13 +1,50 @@
-# AATE PRD — V5.0.6383
+# AATE PRD — V5.0.6384
 
 ## Current build stack
 
-- **6383** (`a4c2a3229` ✅ CI build green) **Live Volume Recovery + Live-Winner FLAT_EXIT Protection**.
-  Directly addresses operator's V5.0.6382 question: "why does paper find huge runners live cannot?"
-  1. **Stale paper/shadow flag auto-clear** in Executor.kt live path — the V5.0.6381 auto-promote fixed `execMode==PAPER` desync but a SECOND branch was killing 92% of live buys (`LIVE_MODE_DESYNC=795` from stale `position.isPaperPosition=true` / `tradingMode="SHADOW"` relics). Now clears the stale flag when runtime is LIVE and proceeds. `runtimePaper=true` still hard-aborts (real desync). Emits `LIVE_MODE_STALE_FLAG_AUTO_CLEARED_6383`.
-  2. **Lane-contract counter split** — `lane_contract_6342` aborts no longer inflate `LIVE_MODE_DESYNC`. New `LIVE_LANE_CONTRACT_6383` counter separates telemetry so Fix 1's real impact is visible.
-  3. **Live-winner FLAT_EXIT protection** in MoonshotTraderAI — the V5.0.6382 live journal showed the same mint (7GCihg) getting 3× MOONSHOT_FLAT_EXIT at pnl=+0 within 20 min because `holdMinutes >= maxHold/2 && pnl in [-2%, +5%]` hair-triggered. Now LIVE positions with `peakPnlPct >= 3%` OR `holdMinutes < 15` are protected. Paper unchanged (paper's job is to explore). Emits `LIVE_WINNER_PROTECT_FLAT_EXIT_SUPPRESSED_6383`.
-  Testing: `Bundle6383LiveVolumeAndWinnersTest.kt` (3 invariants) + `Bundle6381LiveModePromoteTest.kt` updated for new semantics.
+- **6384** (`3b5ddbd6e` ✅ Build AATE APK green) **Governor "Profitable Low-WR" Escape Hatch**.
+  V5.0.6383 recovered live volume (LIVE_MODE_DESYNC 795→0) but exposed the next dominant blocker: 202 buys vetoed as `GOVERNOR_HOLD_VETO_6342`. Root cause: the confidence governor was in HOLD despite n=10 WR=20% **PF=7.58** expectancy=+0.0024 SOL — a strongly-profitable strategy where wins are 7.5× losses. `LiveEntrySafetyHold.evaluateConfidenceGovernor()` now bypasses HOLD when `profitFactor >= 2.0 AND expectancySol > 0.0`. SOFT_TIGHT / CAUTION / RECOVERY paths unchanged. Doctrine: "we make money, not high WR."
+  Testing: `Bundle6384GovernorProfitableLowWRTest.kt` (2 invariants).
+
+- **6383** (`a4c2a3229` ✅ CI green) **Live Volume Recovery + Live-Winner Protection**.
+  Stale paper/shadow flag auto-clear in `Executor.kt` (recovers 92% of dying buys), lane-contract counter split onto `LIVE_LANE_CONTRACT_6383`, MoonshotTraderAI FLAT_EXIT protection for live positions with `peakPnlPct≥3%` OR `holdMinutes<15`.
+
+- **6382** (`20c7fb7ec` ✅ CI green) Win-Rate Integrity + Wave Entry Quality Gate.
+
+- **6381** (`556d3fa29…bfca89e0e` ✅) LIVE TRADER UNBLOCK — LIVE_MODE_DESYNC auto-promote + Rugcheck tier recalibration.
+
+- **6380** (`09906d856` ✅) Paper wallet continuity hole #2 + Learning Trajectory Governor.
+
+- **6377-6379x** (✅) Forensic Reconciler + Learned Toxic Lane Hard Veto + cache-bucketing.
+
+- **6376** (`94ab099ef` ✅) Paper Wallet Continuity + Screen-Off Proof-of-Life.
+
+- **6372** (`0a1eb8cfc` ✅) UNIVERSAL 2×–5× daily compound target (AATE core doctrine).
+
+## Expected V5.0.6384 signature
+
+1. **`LIVE_BUY_REDIRECTED_GOVERNOR_HOLD_6342` drops sharply** when live PF≥2.0 and expectancy is positive (which is what the current live journal shows: PF=7.58, exp=+0.0024).
+2. **`LIVE_CONFIDENCE_GOVERNOR_BASELINE` counter increases** — governor stays in baseline for profitable strategies.
+3. **`LANE_ENTRY_CONTRACT_ALLOWED_6342` counter increases** — more live buys reach FDG allow.
+4. **`FIRST_TRADE_READINESS_6348.GOVERNOR_NOT_HOLD` pillar flips ✓** (was `P1` in V5.0.6383 dump).
+
+## Backlog
+
+### 🟠 P0 — Deferred forensic-repair spec items
+- P0-4: Immutable price identity hash + PRICE_IDENTITY_CONFLICT
+- P0-5: tokenDecimals nullable + decimalsKnown boolean
+- P0-6: performanceDomain enum (LIVE_CANONICAL / PAPER_PARITY / SHADOW_RESEARCH)
+- P0-7: PAPER_PARITY score-floor parity with LIVE governor
+- P0-8: LaneEligibilityContract
+- P0-10: Quarantine corrupted history + rebuild tactic stats
+- P0-11: Full forensic journal fields + CANONICAL_INTEGRITY_STATUS section
+- **Phantom REALIZED_SCRATCH_AFTER_RISK_EXIT_SIGNAL at sol=0 cost>0**: same-mint alias collision fires SELL rows that never actually broadcast realized SOL. Distorts WR.
+- **Empty UI panels**: ALL TRADERS, 30-DAY PROOF RUN, lane cards show 0.
+
+### 🔵 P1 — After live WR stabilization + 2x–5x growth benchmark hit
+- Phase 1: SOL Perps / Leverage mode (`PerpsLaneGate.kt`)
+- Phase 2: Neural bridge (AI cross-learning perps↔stocks)
+- Phase 3: LLM Lab sandbox
 
 - **6382** (`20c7fb7ec` ✅ CI green) Win-Rate Integrity + Wave Entry Quality Gate.
   1. `TradeHistoryStore.isValidAccountingTrade` whitelists `EXTERNAL_RUG_CLOSE` rows.
