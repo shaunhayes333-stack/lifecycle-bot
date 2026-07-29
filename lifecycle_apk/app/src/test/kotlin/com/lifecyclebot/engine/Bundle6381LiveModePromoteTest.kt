@@ -44,12 +44,19 @@ class Bundle6381LiveModePromoteTest {
     @Test
     fun executor_still_blocks_true_safety_mismatches() {
         val txt = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        // The V5.0.4017 block at line 13049 must remain intact — it guards
-        // against a live buy against a mint that already has an OPEN paper
-        // or shadow position (real safety concern, not routing).
+        // V5.0.6381: runtimePaper=true (real desync — bot is running paper mode
+        //   but this call is trying to open a live position) must still hard-abort.
+        // V5.0.6383: paperFlag/shadowFlag on an already-open position no longer
+        //   hard-aborts — those are stale relics from prior paper/shadow runs on
+        //   the same mint and are now auto-cleared so live volume can recover.
+        //   See LIVE_MODE_STALE_FLAG_AUTO_CLEARED_6383 counter.
         assertTrue(
-            "V5.0.6381: alreadyOpenPosition + paperFlag/shadowFlag safety block must remain — that is a REAL mode mismatch, not a routing bug",
-            txt.contains("if (runtimePaper || paperFlag || shadowFlag) return liveAbortDesync")
+            "V5.0.6381: runtimePaper=true must still hard-abort (real desync)",
+            txt.contains("if (runtimePaper) return liveAbortDesync"),
+        )
+        assertTrue(
+            "V5.0.6383: stale paperFlag/shadowFlag on already-open position must auto-clear (not hard-abort)",
+            txt.contains("LIVE_MODE_STALE_FLAG_AUTO_CLEARED_6383"),
         )
     }
 
