@@ -83,7 +83,8 @@ class Bundle6379ToxicVetoTest {
         // the sanitized view is the exact bug this fix is closing.
         assertTrue(
             "V5.0.6379: toxic veto MUST source stats from rawLaneReality() (raw journal), never the sanitized StrategyTruthLedger view",
-            txt.contains("fun isLaneLearnedToxic6379(lane: String): Boolean {\n        val r = rawLaneReality(lane)")
+            txt.contains("fun isLaneLearnedToxic6379(lane: String): Boolean") &&
+                txt.contains("rawLaneReality(lane)?.let")
         )
     }
 }

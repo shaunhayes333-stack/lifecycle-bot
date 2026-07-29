@@ -100,18 +100,21 @@ object LiveProbabilityEngine {
     private const val TOXIC_VETO_MAX_WR_PCT   = 10.0
     private const val TOXIC_VETO_MAX_MEAN_PCT = -25.0
 
-    fun isLaneLearnedToxic6379(lane: String): Boolean {
-        val r = rawLaneReality(lane) ?: return false
-        return r.n >= TOXIC_VETO_MIN_SAMPLES &&
-            r.wrPct <= TOXIC_VETO_MAX_WR_PCT &&
-            r.meanPnlPct <= TOXIC_VETO_MAX_MEAN_PCT
-    }
+    fun isLaneLearnedToxic6379(lane: String): Boolean =
+        rawLaneReality(lane)?.let { r ->
+            r.n >= TOXIC_VETO_MIN_SAMPLES &&
+                r.wrPct <= TOXIC_VETO_MAX_WR_PCT &&
+                r.meanPnlPct <= TOXIC_VETO_MAX_MEAN_PCT
+        } ?: false
 
-    fun toxicVetoReason6379(lane: String): String? {
-        val r = rawLaneReality(lane) ?: return null
-        if (!isLaneLearnedToxic6379(lane)) return null
-        return "LEARNED_TOXIC_LANE_HARD_VETO_6379|lane=$lane n=${r.n} wr=${"%.0f".format(r.wrPct)}% mean=${"%+.1f".format(r.meanPnlPct)}%"
-    }
+    fun toxicVetoReason6379(lane: String): String? =
+        rawLaneReality(lane)?.let { r ->
+            if (r.n >= TOXIC_VETO_MIN_SAMPLES &&
+                r.wrPct <= TOXIC_VETO_MAX_WR_PCT &&
+                r.meanPnlPct <= TOXIC_VETO_MAX_MEAN_PCT) {
+                "LEARNED_TOXIC_LANE_HARD_VETO_6379|lane=$lane n=${r.n} wr=${"%.0f".format(r.wrPct)}% mean=${"%+.1f".format(r.meanPnlPct)}%"
+            } else null
+        }
 
     data class Edge(
         val lane: String,
