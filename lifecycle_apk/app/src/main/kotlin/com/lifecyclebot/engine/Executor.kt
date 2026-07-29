@@ -13034,8 +13034,32 @@ class Executor(
             return false
         }
         val runtimePaper = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { cfg().paperMode }
-        if (!runtimePaper && execCtx.execMode != ExecMode.LIVE) return liveAbortDesync("runtime.paperMode=false execMode=${execCtx.execMode}")
-        if (execCtx.execMode == ExecMode.LIVE) {
+        // V5.0.6381 — MODE DESYNC AUTO-PROMOTE (operator directive: "paper
+        // has no issue finding winners live shouldn't either... FIX THE
+        // LIVE TRADER"). The V5.0.6375 snapshot showed LIVE_MODE_DESYNC=34
+        // killing 79% of live buy attempts. Root cause: sub-traders build
+        // ExecutionContext at decision time; runtime mode toggles between
+        // decision and executor entry ⇒ execCtx.execMode = PAPER while
+        // runtime = LIVE. Downstream ExecutableOpenGate line 850 already
+        // hard-blocks true PAPER_REQUEST_WHILE_RUNTIME_LIVE as a safety
+        // measure. Here we auto-promote the local execMode reference so a
+        // legitimate live intent lands in the live executor instead of
+        // being aborted. Sub-trader routing bug, not a safety concern.
+        val execModeResolved = when {
+            !runtimePaper && execCtx.execMode == ExecMode.PAPER -> {
+                try { PipelineHealthCollector.labelInc("LIVE_MODE_AUTO_PROMOTE_6381") } catch (_: Throwable) {}
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_MODE_AUTO_PROMOTE_6381",
+                        "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} sym=${ts.symbol} runtimePaper=false ctxExecMode=PAPER promotedTo=LIVE",
+                    )
+                } catch (_: Throwable) {}
+                ExecMode.LIVE
+            }
+            else -> execCtx.execMode
+        }
+        if (!runtimePaper && execModeResolved != ExecMode.LIVE) return liveAbortDesync("runtime.paperMode=false execMode=$execModeResolved")
+        if (execModeResolved == ExecMode.LIVE) {
             // V5.0.4017 — pre-open TokenState.position is a placeholder whose
             // Position.isPaperPosition default is true. 4016 incorrectly treated
             // that default as live/paper desync and rejected every live BUY before

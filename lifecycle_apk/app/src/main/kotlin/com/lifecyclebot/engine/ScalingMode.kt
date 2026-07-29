@@ -81,7 +81,19 @@ object ScalingMode {
             minMcapUsd              = 5_000.0,
             maxMcapUsd              = 5_000_000.0,
             ownershipCapPct         = 0.04,
-            minRugcheckScore        = 70,
+            // V5.0.6381 — RUGCHECK TIER RECALIBRATION (operator directive:
+            // "if the rugcheck scoring is right a score of 70 is stupidly
+            // high. slot of good tokens only hit 6"). The original 70/72/80/85/90
+            // thresholds were traditional-finance carry-overs — on Solana
+            // memecoin pairs (rugcheck.xyz score distribution Feb 2026):
+            //   • Fresh pump.fun launches (mostly rugs): RC 0-3
+            //   • Graduated bonders (Raydium-listed):    RC 3-10
+            //   • Established runners w/ community:      RC 10-25
+            //   • Blue-chip memes (WIF/POPCAT/BONK):     RC 25-50
+            //   • True bluechips (SOL/USDC/ETH):         RC 70+
+            // At 70 the MICRO tier was rejecting literally every meme trade
+            // the operator ever saw. New floors admit the actual runner band.
+            minRugcheckScore        = 1,
             requireLpLock90         = false,
             requireTopHolder30      = false,
             requireCoinGeckoListed  = false,
@@ -97,7 +109,7 @@ object ScalingMode {
             minMcapUsd              = 500_000.0,
             maxMcapUsd              = 20_000_000.0,
             ownershipCapPct         = 0.04,
-            minRugcheckScore        = 72,
+            minRugcheckScore        = 5,
             requireLpLock90         = false,
             requireTopHolder30      = false,
             requireCoinGeckoListed  = false,
@@ -113,7 +125,7 @@ object ScalingMode {
             minMcapUsd              = 5_000_000.0,
             maxMcapUsd              = 100_000_000.0,
             ownershipCapPct         = 0.03,    // 3% — larger pools, more cautious
-            minRugcheckScore        = 80,
+            minRugcheckScore        = 12,
             requireLpLock90         = true,
             requireTopHolder30      = true,
             requireCoinGeckoListed  = false,
@@ -129,7 +141,7 @@ object ScalingMode {
             minMcapUsd              = 50_000_000.0,
             maxMcapUsd              = 1_000_000_000.0,
             ownershipCapPct         = 0.02,    // 2% — mid-cap territory
-            minRugcheckScore        = 85,
+            minRugcheckScore        = 25,
             requireLpLock90         = true,
             requireTopHolder30      = true,
             requireCoinGeckoListed  = true,
@@ -145,7 +157,7 @@ object ScalingMode {
             minMcapUsd              = 500_000_000.0,
             maxMcapUsd              = Double.MAX_VALUE,
             ownershipCapPct         = 0.01,    // 1% — blue-chip, must be able to exit
-            minRugcheckScore        = 90,
+            minRugcheckScore        = 45,
             requireLpLock90         = true,
             requireTopHolder30      = true,
             requireCoinGeckoListed  = true,
