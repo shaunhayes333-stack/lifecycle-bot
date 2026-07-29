@@ -4,6 +4,46 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.6384] - 2026-02 — Governor "Profitable Low-WR" Escape Hatch
+
+**Operator directive (V5.0.6383 snapshot, verbatim):**
+> why does paper find runners live cannot??
+
+V5.0.6383 successfully recovered live volume (LIVE_MODE_DESYNC dropped from 795 to zero) but exposed the NEXT dominant blocker: 202 live BUYs vetoed as `GOVERNOR_HOLD_VETO_6342`. Root cause: the confidence governor was in HOLD despite a strongly-profitable trade profile:
+
+```
+canonicalN   = 10
+winRatePct   = 20.0     ← below SEVERE_WR_PCT (25%) → triggers HOLD
+profitFactor = 7.58     ← STRONG (way above 0.70 SEVERE floor)
+expectancy   = +0.0024 SOL/trade
+```
+
+This is a PROFITABLE strategy — winning trades are 7.5× the losing trades. AATE core doctrine (V5.0.6372): **we make money, not high WR**. A moonshot-style low-WR-high-PF profile is *exactly* what live memecoin trading looks like and must not trigger a safety HOLD.
+
+### Fix
+
+`LiveEntrySafetyHold.evaluateConfidenceGovernor()` now bypasses HOLD when:
+
+```kotlin
+profitableLowWr6384 = stats.profitFactor >= 2.0 && stats.expectancySol > 0.0
+severe = n >= 10 && (WR<25 || PF<0.7) && !profitableLowWr6384
+```
+
+- SOFT_TIGHT / CAUTION / RECOVERY branches unchanged (mild penalties still apply for genuinely borderline profiles).
+- `profitableLowWr6384` requires BOTH PF≥2.0 AND positive expectancy — a strong signal that the strategy is money-positive despite low WR.
+- HOLD state remains reserved for genuinely money-losing profiles (PF<2.0 OR negative expectancy).
+
+### Files changed
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveEntrySafetyHold.kt` (severe bypass)
+- `app/src/test/kotlin/com/lifecyclebot/engine/Bundle6384GovernorProfitableLowWRTest.kt` (NEW — 2 invariants)
+
+Expected V5.0.6384 signature:
+- `LIVE_BUY_REDIRECTED_GOVERNOR_HOLD_6342` counter significantly reduced when live PF is strong.
+- `LIVE_CONFIDENCE_GOVERNOR_BASELINE` counter increases (governor stays in baseline for profitable strategies).
+- `LANE_ENTRY_CONTRACT_ALLOWED_6342` counter increases — more live buys reach FDG allow.
+
+---
+
 ## [5.0.6383] - 2026-02 — Live Volume Recovery + Live-Winner Protection
 
 **Operator directive (V5.0.6382 snapshot, verbatim):**

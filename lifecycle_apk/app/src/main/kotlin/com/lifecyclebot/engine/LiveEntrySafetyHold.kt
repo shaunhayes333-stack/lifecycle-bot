@@ -516,9 +516,23 @@ object LiveEntrySafetyHold {
         // grows per-trade size — fewer, larger, higher-conviction
         // trades. armInternal remains reserved for wallet / accounting
         // / decimal-skew invariants triggered via runHealthCheck.
+        //
+        // V5.0.6384 — "PROFITABLE-LOW-WR" ESCAPE HATCH. Operator's
+        // V5.0.6383 snapshot showed n=10 wr=20% pf=7.58 exp=+0.0024
+        // triggering HOLD (LaneEntryContract6342 then vetoed 202 live
+        // buys as GOVERNOR_HOLD_VETO_6342). But pf=7.58 with positive
+        // expectancy is a *profitable* strategy — the wins are 7.5×
+        // the losses. Doctrine: "we make money, not high WR." A low
+        // WR with strong PF is a moonshot-style profile, not bleed.
+        // Fix: bypass HOLD when profitFactor >= 2.0 AND expectancy > 0.
+        // The BASELINE state's normal size/floor rules then apply.
+        val profitableLowWr6384 =
+            stats.profitFactor >= 2.0 &&
+            stats.expectancySol > 0.0
         val severe =
             stats.canonicalN >= GOVERNOR_MIN_SAMPLE &&
-            (stats.winRatePct < SEVERE_WR_PCT || stats.profitFactor < SEVERE_PF)
+            (stats.winRatePct < SEVERE_WR_PCT || stats.profitFactor < SEVERE_PF) &&
+            !profitableLowWr6384
         if (severe) {
             try {
                 ForensicLogger.lifecycle(
