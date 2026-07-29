@@ -1,10 +1,62 @@
-# AATE PRD — V5.0.6384
+# AATE PRD — V5.0.6386
+
+## CURRENT MAJOR PROGRAM
+
+**LIVE EXECUTION TRUTH AND COMPOUNDING FOUNDATION** — 13-section repair directive shipped in Bundles 6385 + 6386. Full text preserved in the operator message log; core acceptance criterion:
+```
+SUM(finalized sell lamport deltas) − SUM(finalized buy lamport deltas) == observed wallet change adjusted for deposits, withdrawals, fees.
+```
 
 ## Current build stack
 
-- **6384** (`3b5ddbd6e` ✅ Build AATE APK green) **Governor "Profitable Low-WR" Escape Hatch**.
-  V5.0.6383 recovered live volume (LIVE_MODE_DESYNC 795→0) but exposed the next dominant blocker: 202 buys vetoed as `GOVERNOR_HOLD_VETO_6342`. Root cause: the confidence governor was in HOLD despite n=10 WR=20% **PF=7.58** expectancy=+0.0024 SOL — a strongly-profitable strategy where wins are 7.5× losses. `LiveEntrySafetyHold.evaluateConfidenceGovernor()` now bypasses HOLD when `profitFactor >= 2.0 AND expectancySol > 0.0`. SOFT_TIGHT / CAUTION / RECOVERY paths unchanged. Doctrine: "we make money, not high WR."
-  Testing: `Bundle6384GovernorProfitableLowWRTest.kt` (2 invariants).
+- **6386** (`38b3de778` ✅ Build AATE APK green) **TRUTH REPAIR Bundle 2/2 — Sections 2/4/5/6/7/8/9/10/12/13**
+  - **Section 2** ExecutionIntent6386: immutable intent + atomic registry (one outstanding BUY/mint/side; one mint cannot create competing lane tickets).
+  - **Section 4** AmountTypes6386: `Lamports`/`RawTokenAmount` value classes on BigInteger; `MintDecimals` sealed (Known/Unknown) — never coerced to zero; `SolAmount`/`UiTokenAmount`/`UsdAmount`/`UsdPerToken`/`SolPerToken`.
+  - **Section 5** FinalizedBuyProof6386.validate — quantity = post − pre (never ATA total).
+  - **Section 6** FillLotLedger6386 — immutable lots keyed by (wallet, mint, buySig); re-entry = new lot; FIFO consumption.
+  - **Section 7** FinalizedSellProof6386.validate — sold = pre − post; proceeds = lamport delta (no Jupiter/mark).
+  - **Section 8** classifyPartial — no finalized proof ⇒ PendingReconciliation ⇒ no truth contribution.
+  - **Section 9** ProofState6386 sealed with 8 states. `contributesToTruth()` true ONLY for FinalizedProofComplete.
+  - **Section 10** HistoricalQuarantine6386.runOnce wired into BotService.onCreate (12 corruption criteria; emits _ROW_TAGGED / _TOTAL_ROWS / _REASON counters).
+  - **Section 12** Bundle6386TruthRepairTest.kt — 21 invariants incl. decimals property tests (0/1/5/6/8/9) and 9 fixture assertions from the directive.
+  - **Section 13** CanaryReleaseGate6386: LOCKED→CANARY→PROBATION→FULL, size 0.003–0.005 SOL, 20 clean RT to advance, invariant-failure reset. `promoteToCanary()` internal — awaiting operator green-light.
+
+- **6385** (`7e3a2b7b8` ✅ CI green) **TRUTH REPAIR Bundle 1/2 — Sections 1, 3, 11**
+  - **Section 1** LiveAccountingRepairMode6385 — hard-blocks all new live BUY signatures (LIVE_BUY_BLOCKED_ACCOUNTING_REPAIR_MODE_6385). Paper, shadow, monitoring, exits unaffected.
+  - **Section 3** QUALITY_REJECTS_MINT_ROUTE_6342 removed; MINT_ROUTE now advisory (`LANE_ENTRY_QUALITY_MINT_ROUTE_ADVISORY_6385`).
+  - **Section 11** EXEC_PROVIDER_TRY only fires for adapterWired && supported providers; unwired emit EXEC_PROVIDER_SKIPPED_6385.
+
+- **6384** (`3b5ddbd6e` ✅) Governor "profitable low-WR" escape hatch (deprecated with substrate replacement in 6386).
+- **6383** (`a4c2a3229` ✅) Live volume recovery (LIVE_MODE_DESYNC 795→0) + FLAT_EXIT winner protection.
+- **6382** (`20c7fb7ec` ✅) Win-rate integrity + Wave Entry Quality Gate.
+- **6381** (`556d3fa29…bfca89e0e` ✅) LIVE TRADER UNBLOCK — LIVE_MODE_DESYNC auto-promote.
+
+## What operator will see on the V5.0.6386 build
+
+- `LIVE_BUY_BLOCKED_ACCOUNTING_REPAIR_MODE_6385` — every live BUY attempt hard-blocked.
+- `HISTORICAL_QUARANTINE_6386_TOTAL_ROWS_<N>` — count of legacy live rows tagged as excluded from truth stats on first boot.
+- `HISTORICAL_QUARANTINE_6386_REASON_*` — per-criterion breakdown (LIVE_BROADCAST_WITHOUT_FINALIZATION, MISSING_TX_SIGNATURE, PNL_MISMATCH_GT_2PCT, POST_ATA_TOTAL_USED_AS_BUY_QUANTITY, RECOVERED_WALLET_UNKNOWN_BASIS, ALIAS_MERGE_OR_PHANTOM_HEAL, PARTIAL_WITHOUT_FINALIZED_PROOF, PHANTOM_SCRATCH_SELL_NO_DELTA).
+- `EXEC_PROVIDER_TRY` counter drops sharply (only real, wired attempts now).
+- `EXEC_PROVIDER_SKIPPED_6385` appears (unwired provider audit event, non-inflating).
+- `LANE_ENTRY_QUALITY_MINT_ROUTE_ADVISORY_6385` replaces the old REJECTED counter.
+- CanaryReleaseGate6386.snapshot(): `mode=LOCKED …` — awaits operator promote.
+
+## Next steps
+
+### 🟠 P0 — Awaits operator green-light
+- **Promote to canary**: On the next live-connected build, once the operator verifies the substrate (`Bundle6386TruthRepairTest.kt` passing + HISTORICAL_QUARANTINE counters look reasonable + no false quarantines), we can flip `CanaryReleaseGate6386.promoteToCanary()`. Then LiveAccountingRepairMode6385.disable() ONLY through the canary orchestrator after 20 clean round trips.
+
+### 🔵 P1 — Truth-substrate adoption (multi-bundle work behind the CI shield)
+- Migrate Executor's live BUY path to open a FillLot6386 keyed by (wallet, mint, buySig) instead of writing via CanonicalBuyFillRegistry.
+- Migrate live SELL path to compute realised proceeds from `FinalizedSellProof6386.validate()` only.
+- Migrate partials to `FinalizedSellProof6386.classifyPartial` — no more phantom +50% sanitization.
+- Route `EXEC_PROVIDER_TRY` gauge to a startup-once dump instead of every stack call.
+- Replace `Double`-backed cost basis / proceeds in TradeHistoryStore with `Lamports` fields (schema migration).
+
+### 🟢 P2 — Only after 100 clean finalized trades
+- Phase 1: SOL Perps / Leverage mode (`PerpsLaneGate.kt`).
+- Phase 2: Neural bridge (perps ↔ stocks cross-learning).
+- Phase 3: LLM Lab sandbox.
 
 - **6383** (`a4c2a3229` ✅ CI green) **Live Volume Recovery + Live-Winner Protection**.
   Stale paper/shadow flag auto-clear in `Executor.kt` (recovers 92% of dying buys), lane-contract counter split onto `LIVE_LANE_CONTRACT_6383`, MoonshotTraderAI FLAT_EXIT protection for live positions with `peakPnlPct≥3%` OR `holdMinutes<15`.
