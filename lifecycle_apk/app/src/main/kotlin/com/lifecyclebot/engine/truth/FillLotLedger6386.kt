@@ -124,6 +124,37 @@ object FillLotLedger6386 {
             .filter { it.key.wallet == walletAddress && it.key.mint == mintAddress }
             .fold(RawTokenAmount.ZERO) { acc, e -> acc + e.value }
 
+    /**
+     * V5.0.6386 — LEGACY COMPATIBILITY LOOKUP for callers being migrated off
+     * `CanonicalBuyFillRegistry.get(mint)`. Returns the aggregated view of ALL
+     * open lots on this mint under the primary wallet: total remaining raw
+     * quantity, total net lamports spent across still-open lots, and the
+     * volume-weighted entry SOL/token. Prefer `openLotsFor(wallet, mint)` +
+     * `consumeFifo` when the caller has real wallet context and can drain
+     * lots explicitly. This method exists ONLY to enable an incremental
+     * migration of pre-existing `CanonicalBuyFillRegistry` callers.
+     */
+    data class AggregatedFill(
+        val totalRemainingRaw: RawTokenAmount,
+        val totalNetLamports: Lamports,
+        val vwEntrySolPerToken: Double,
+        val lotCount: Int,
+    )
+    fun aggregatedFillForMint(mintAddress: String, walletAddress: String = "AATE_PRIMARY_WALLET"): AggregatedFill? {
+        val open = openLotsFor(walletAddress, mintAddress).filter {
+            (remaining[LotIndex(walletAddress, mintAddress, it.confirmedBuySignature)]?.isPositive() ?: false)
+        }
+        if (open.isEmpty()) return null
+        val totalRaw = open.fold(RawTokenAmount.ZERO) { acc, lot ->
+            acc + (remaining[LotIndex(walletAddress, mintAddress, lot.confirmedBuySignature)] ?: RawTokenAmount.ZERO)
+        }
+        val totalLamports = open.fold(Lamports.ZERO) { acc, lot -> acc + lot.netLamportsSpent }
+        val vwSum = open.sumOf { it.entrySolPerToken.value * it.entryRawQuantity.value.toDouble() }
+        val vwDenom = open.sumOf { it.entryRawQuantity.value.toDouble() }
+        val vw = if (vwDenom > 0.0) vwSum / vwDenom else 0.0
+        return AggregatedFill(totalRaw, totalLamports, vw, open.size)
+    }
+
     internal fun clearAllForTest() {
         lots.clear()
         remaining.clear()

@@ -20604,11 +20604,33 @@ class Executor(
             // disagrees. Divergences are logged via
             // CANONICAL_PNL_DIVERGENCE_6344 for forensic replay.
             try {
+                // V5.0.6386 — SUBSTRATE-FIRST READ (directive Section 6: "Remove
+                // CanonicalBuyFillRegistry from realised PnL"). Prefer the new
+                // immutable FillLotLedger6386 for cost-basis attribution; fall
+                // back to the legacy registry only if no substrate lot exists
+                // yet (e.g. old open positions that pre-date the migration).
+                val substrateAgg = try {
+                    com.lifecyclebot.engine.truth.FillLotLedger6386.aggregatedFillForMint(ts.mint)
+                } catch (_: Throwable) { null }
                 val buyFill6344 = com.lifecyclebot.engine.CanonicalBuyFillRegistry.get(ts.mint)
+                val entryPriceSolResolved: Double
+                val decimalsResolved: Int
+                val buyTxSigResolved: String
+                if (substrateAgg != null && substrateAgg.lotCount > 0) {
+                    entryPriceSolResolved = substrateAgg.vwEntrySolPerToken
+                    decimalsResolved = buyFill6344?.decimals ?: 9  // decimals travel with the legacy record for now
+                    buyTxSigResolved = buyFill6344?.buySignature ?: ""
+                    try { PipelineHealthCollector.labelInc("REALIZED_PNL_COST_BASIS_SOURCE_6386_SUBSTRATE") } catch (_: Throwable) {}
+                } else {
+                    entryPriceSolResolved = buyFill6344?.entryPriceSol ?: 0.0
+                    decimalsResolved = buyFill6344?.decimals ?: 9
+                    buyTxSigResolved = buyFill6344?.buySignature ?: ""
+                    try { PipelineHealthCollector.labelInc("REALIZED_PNL_COST_BASIS_SOURCE_6386_LEGACY_FALLBACK") } catch (_: Throwable) {}
+                }
                 val conduitResult6344 = com.lifecyclebot.engine.RealizedPnlConduit6344.finalize(
                     walletAddress = wallet.publicKeyB58,
                     mintAddress = ts.mint,
-                    buyTxSig = buyFill6344?.buySignature ?: "",
+                    buyTxSig = buyTxSigResolved,
                     sellTxSig = sig,
                     soldQty = TokenQuantity.of(pos.qtyToken),
                     proceedsSol = SolAmount.of(solBack),
@@ -20616,8 +20638,8 @@ class Executor(
                     proofSource = "LIVE_FINALIZED",
                     fallbackEntryCostSol = SolAmount.of(pos.costSol),
                     fallbackEntryQty = TokenQuantity.of(pos.qtyToken),
-                    fallbackEntryPriceSol = PriceSolPerToken.of(buyFill6344?.entryPriceSol ?: 0.0),
-                    fallbackTokenDecimals = buyFill6344?.decimals ?: 9,
+                    fallbackEntryPriceSol = PriceSolPerToken.of(entryPriceSolResolved),
+                    fallbackTokenDecimals = decimalsResolved,
                 )
                 if (!conduitResult6344.canonical) {
                     ForensicLogger.lifecycle(

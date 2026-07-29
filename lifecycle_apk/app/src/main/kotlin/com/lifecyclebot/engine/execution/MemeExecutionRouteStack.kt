@@ -308,6 +308,56 @@ object MemeExecutionRouteStack {
     fun stackExhausted(context: ExecutionRouteContext, failureClass: FailureClass, reason: String) =
         lifecycle("EXEC_STACK_EXHAUSTED", "side=${context.side.name} mint=${context.mint.take(12)} failure=${failureClass.name} reason=${reason.take(160)}")
 
+    /**
+     * V5.0.6386 — STARTUP UNWIRED-ADAPTER COVERAGE GAUGE (directive Section 11).
+     *
+     * Emitted ONCE per process at the completion of executor init. Reports
+     * the fixed set of wired vs unwired providers/senders as a coverage gauge
+     * so operators can see the coverage delta without the every-cycle spam.
+     *
+     * Idempotent: called from BotService.onCreate; multiple calls set the
+     * `emitted` flag on first entry and no-op thereafter.
+     */
+    @Volatile private var startupCoverageEmitted: Boolean = false
+    fun emitStartupCoverageGauge6386(
+        providers: List<Any>,          // Provider references (name + adapterWired)
+        senders: List<Any>,            // Sender references (name + adapterWired)
+    ) {
+        if (startupCoverageEmitted) return
+        startupCoverageEmitted = true
+        try {
+            // Introspect via reflection to stay flexible with the caller's
+            // provider/sender types (they aren't referenced by name in this file).
+            fun namesOf(list: List<Any>, wired: Boolean): List<String> = list.mapNotNull {
+                try {
+                    val cls = it.javaClass
+                    val nameField = cls.methods.firstOrNull { m -> m.name == "getProviderName" || m.name == "getSenderName" }
+                    val wiredField = cls.methods.firstOrNull { m -> m.name == "getAdapterWired" }
+                    val n = nameField?.invoke(it) as? String
+                    val w = wiredField?.invoke(it) as? Boolean ?: true
+                    if (n != null && w == wired) n else null
+                } catch (_: Throwable) { null }
+            }
+            val providerWired = namesOf(providers, wired = true)
+            val providerUnwired = namesOf(providers, wired = false)
+            val senderWired = namesOf(senders, wired = true)
+            val senderUnwired = namesOf(senders, wired = false)
+            lifecycle(
+                "EXEC_STACK_STARTUP_COVERAGE_6386",
+                "providersWired=${providerWired.size}(${providerWired.joinToString(",")}) " +
+                    "providersUnwired=${providerUnwired.size}(${providerUnwired.joinToString(",")}) " +
+                    "sendersWired=${senderWired.size}(${senderWired.joinToString(",")}) " +
+                    "sendersUnwired=${senderUnwired.size}(${senderUnwired.joinToString(",")})",
+            )
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXEC_STACK_STARTUP_COVERAGE_6386_PROVIDERS_WIRED_${providerWired.size}")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXEC_STACK_STARTUP_COVERAGE_6386_PROVIDERS_UNWIRED_${providerUnwired.size}")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXEC_STACK_STARTUP_COVERAGE_6386_SENDERS_WIRED_${senderWired.size}")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXEC_STACK_STARTUP_COVERAGE_6386_SENDERS_UNWIRED_${senderUnwired.size}")
+            } catch (_: Throwable) {}
+        } catch (_: Throwable) {}
+    }
+
     private fun lifecycle(event: String, fields: String) {
         try { ForensicLogger.lifecycle(event, fields) } catch (_: Throwable) {}
     }

@@ -128,10 +128,66 @@ object CanonicalBuyFillRegistry {
             )
             PipelineHealthCollector.labelInc("CANONICAL_BUY_FILL_RECORDED_6320")
         } catch (_: Throwable) {}
+        // V5.0.6386 — DUAL-WRITE MIGRATION (directive Section 6).
+        // Also open an IMMUTABLE FillLot6386 keyed by (wallet, mint, buySig).
+        // Top-ups on the same signature are forbidden (openLot throws); this
+        // catches double-open bugs. If decimals are unknown (-1) or the buy sig
+        // is blank, we skip the new-substrate write and log — the row is not
+        // truth-substrate eligible until proof is complete.
+        try {
+            if (fill.buySignature.isNotBlank() && fill.decimals >= 0 && fill.walletVerifiedQty > 0.0) {
+                val decimals = com.lifecyclebot.engine.truth.MintDecimals.Known(
+                    count = fill.decimals,
+                    source = "CANONICAL_BUY_FILL_LEGACY_BRIDGE_6386",
+                    proofSignature = fill.buySignature,
+                )
+                // Convert Double UI qty → raw via decimals (BigDecimal for exact digits).
+                val rawScaled = java.math.BigDecimal(fill.walletVerifiedQty.toString())
+                    .movePointRight(fill.decimals)
+                    .setScale(0, java.math.RoundingMode.DOWN)
+                val rawQty = com.lifecyclebot.engine.truth.RawTokenAmount(rawScaled.toBigInteger())
+                val netLamports = com.lifecyclebot.engine.truth.SolAmount(fill.solSpentNet).toLamports()
+                val lot = com.lifecyclebot.engine.truth.FillLot6386(
+                    walletAddress = "AATE_PRIMARY_WALLET",  // single-wallet app; upgrade to real pubkey when available
+                    mintAddress = fill.mint,
+                    confirmedBuySignature = fill.buySignature,
+                    entryRawQuantity = rawQty,
+                    decimals = decimals,
+                    netLamportsSpent = netLamports,
+                    entrySolPerToken = com.lifecyclebot.engine.truth.SolPerToken(fill.entryPriceSol),
+                    entryUsdPerToken = com.lifecyclebot.engine.truth.UsdPerToken(fill.entryPriceUsd),
+                    feeLamports = com.lifecyclebot.engine.truth.Lamports.ZERO,
+                    lane = fill.lane,
+                    timestamp = fill.entryTsMs,
+                )
+                try {
+                    com.lifecyclebot.engine.truth.FillLotLedger6386.openLot(lot)
+                    PipelineHealthCollector.labelInc("FILL_LOT_LEDGER_6386_LOT_OPENED")
+                } catch (e: IllegalArgumentException) {
+                    // Duplicate signature — Section 6 explicitly forbids this;
+                    // this means the same buy sig was recorded twice.
+                    PipelineHealthCollector.labelInc("FILL_LOT_LEDGER_6386_DUPLICATE_SIG_REJECTED")
+                    ForensicLogger.lifecycle("FILL_LOT_LEDGER_6386_DUPLICATE_SIG_REJECTED", "mint=${fill.mint.take(10)} sig=${fill.buySignature.take(12)} reason=${e.message}")
+                }
+            } else {
+                PipelineHealthCollector.labelInc("FILL_LOT_LEDGER_6386_SKIPPED_INCOMPLETE_PROOF")
+            }
+        } catch (t: Throwable) {
+            try { ErrorLogger.warn(TAG, "FillLotLedger6386 dual-write failed: ${t.message}") } catch (_: Throwable) {}
+        }
         persistToDisk()
     }
 
-    fun get(mint: String): CanonicalBuyFill? = fills[mint]
+    fun get(mint: String): CanonicalBuyFill? {
+        // V5.0.6386 — LEGACY READ AUDIT (directive Section 6:
+        // "Remove CanonicalBuyFillRegistry from realised PnL, sold-quantity
+        //  attribution, stop basis and learning authority.")
+        // Every legacy read is now counted so the operator can see remaining
+        // migration debt in the pipeline dump. When the counter reaches zero,
+        // the entire object can be deleted.
+        try { PipelineHealthCollector.labelInc("LEGACY_CANONICAL_BUY_FILL_READ_6386") } catch (_: Throwable) {}
+        return fills[mint]
+    }
 
     /** Called from position close paths so a fresh acquisition on the
      *  same mint starts a clean canonical record. */
