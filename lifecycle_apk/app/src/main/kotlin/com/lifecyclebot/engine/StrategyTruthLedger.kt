@@ -26,7 +26,15 @@ object StrategyTruthLedger {
     // of redoing 200-row terminal-dedup work, without breaking
     // correctness — the cache invalidates as soon as a new SELL row
     // lands in the journal.
-    private const val CLEAN_CACHE_TTL_MS: Long = 3_000L
+    // V5.0.6378 — bump TTL 3s→10s. Operator's V5.0.6308-format emergency dump
+    // showed STRATEGY_CLEAN_TERMINAL_ROWS = 433,607 in 40 min with cache
+    // hits=1326 / misses=1104 (only ~55% hit rate). The cache fingerprint
+    // (rawRows.size | newestTs | limit) already invalidates on every new SELL
+    // row landing, so extending the TTL to 10s cannot serve stale data — it
+    // only prevents the second-and-third readers in the SAME 10-second window
+    // (LiveProbabilityEngine + leaderboard + strategy aggregator) from
+    // redoing the O(N log N) sort + dedupe pass 3× per journal state.
+    private const val CLEAN_CACHE_TTL_MS: Long = 10_000L
     private val cleanCacheLock = Any()
     @Volatile private var cleanCacheKey: String = ""
     @Volatile private var cleanCacheValue: Result? = null
@@ -52,14 +60,28 @@ object StrategyTruthLedger {
     fun clean(rawRows: List<Trade>, limit: Int = rawRows.size): Result {
         if (rawRows.isEmpty()) return Result(emptyList(), Audit(0, 0, 0, 0, 0, 0))
 
-        // V5.0.6358 — TTL cache check. Fingerprint the input by size, newest
+        // V5.0.6378 — TTL cache check. Fingerprint the input by size, newest
         // row timestamp and the requested limit; if the fingerprint matches
         // a fresh cache stamp, return the cached Result. Never blocks or
         // fails hot path — synchronized block is O(1) and the fallback
         // (cache miss) is identical to the pre-6358 behaviour.
+        //
+        // V5.0.6379 — CACHE BUCKETING to survive rapid-fire new-row churn.
+        // Operator's second V5.0.6308-format emergency dump showed the
+        // fingerprint invalidating on EVERY new SELL row landing:
+        //   STRATEGY_CLEAN_TERMINAL_ROWS = 2,099,412 in 3.5h uptime
+        //   MISS=4015 / HIT=3216  (55% miss rate)
+        // With ~2M output-row emissions and only 55% hit rate the cache
+        // was doing nothing because `newestTs` bumps on every incoming row.
+        // Bucket the fingerprint to `size / 10` and `newestTs / 30_000`
+        // (30-second buckets) so back-to-back callers within the SAME
+        // 10-row batch and 30-second window all hit the same cache slot.
+        // Correctness envelope: outputs may lag a real journal by at most
+        // 10 rows OR 30s (whichever comes first) — well inside the tolerances
+        // strategy learning already runs at (TRIAL_WINDOW=25, PERSIST=40).
         val now = System.currentTimeMillis()
         val newestTs = rawRows.firstOrNull()?.ts ?: 0L
-        val key = "${rawRows.size}|$newestTs|$limit"
+        val key = "${rawRows.size / 10}|${newestTs / 30_000}|$limit"
         val cached = synchronized(cleanCacheLock) {
             val v = cleanCacheValue
             if (v != null && cleanCacheKey == key && now - cleanCacheStampMs < CLEAN_CACHE_TTL_MS) v else null
@@ -243,7 +265,13 @@ object StrategyTruthLedger {
         try { PipelineHealthCollector.labelInc(label) } catch (_: Throwable) {}
     }
 
-    fun auditLine(limit: Int = 2_500): String = try {
+    fun auditLine(limit: Int = 500): String = try {
+        // V5.0.6378 — cap default 2500 → 500. auditLine is called from the
+        // pipeline dump builder; at 2500 rows each call does a synchronized
+        // journal read + O(N log N) sort + dedupe pass which pushed the full
+        // report builder past the 20s watchdog (operator's 6308-format
+        // emergency report). 500 rows still covers the strategy learning
+        // window and lets the cache hit rate climb further.
         val raw = TradeHistoryStore.getRecentValidClosedTradesRaw(limit = limit, includePartials = true)
         val result = clean(raw, limit)
         val inv = inventoryRecoveryRows(raw)

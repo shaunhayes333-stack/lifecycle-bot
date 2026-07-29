@@ -12090,10 +12090,18 @@ class BotService : Service() {
             // full journal snapshot. Read-only, additive telemetry — never
             // mutates state, never rewrites the journal. Failure surfaces
             // in the pipeline dump under FORENSIC_MISMATCH_6377|<CHECK>.
+            // V5.0.6378 — bump cadence 50→200 and cap snapshot 5000→1000.
+            // Operator's V5.0.6308-format emergency dump showed
+            // `full_builder_timeout_8s` firing again with cycles at 156s and
+            // SCANNER_BATCH_BUDGET_EXCEEDED at 37s. Every reconciler pass
+            // pulls `getAllValidTradesSnapshot(5000)` which is a synchronized
+            // O(N log N) sort under the journal lock. Cutting cadence 4× and
+            // snapshot depth 5× removes ~20× I/O pressure while still
+            // guaranteeing a reconciliation pass every ~30-45 min of uptime.
             try {
-                if (loopCount > 0 && (loopCount % 50) == 0) {
+                if (loopCount > 0 && (loopCount % 200) == 0) {
                     val cfg6377 = try { com.lifecyclebot.data.ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
-                    val trades = try { TradeHistoryStore.getAllValidTradesSnapshot(5_000) } catch (_: Throwable) { emptyList() }
+                    val trades = try { TradeHistoryStore.getAllValidTradesSnapshot(1_000) } catch (_: Throwable) { emptyList() }
                     val startCap = cfg6377?.paperSimulatedBalance ?: 11.76
                     val paperModeNow = cfg6377?.paperMode ?: true
                     val canonicalOpen = try {

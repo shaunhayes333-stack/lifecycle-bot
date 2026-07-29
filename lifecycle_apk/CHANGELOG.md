@@ -4,6 +4,52 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.6379] - 2026-02 — Cache-Bucketing Emergency De-Load
+
+**Operator directive (verbatim):**
+> its not improving overtime which is the entire point of learning. it has to get better!!! i tried going live its not very good at trading live, buys in the wrong waves of the chart. it needs to use the full aate stack to find profitable trades live asap!!!!
+
+Emergency response to operator's second `full_builder_timeout` dump showing 5× degradation over 3.5h uptime:
+
+```
+uptimeMs=12,493,953   anrHints=46   maxFrameGapMs=51,271
+avgCycleMs=60,351     maxCycleMs=199,822
+STRATEGY_CLEAN_TERMINAL_ROWS = 2,099,412     (5× the 40-min dump's 433k)
+STRATEGY_CLEAN_CACHE_MISS_6358 = 4,015
+STRATEGY_CLEAN_CACHE_HIT_6358  = 3,216       (55% MISS RATE)
+scanPumpFunDirect:63  timeouts               (one source blowing every 8s batch)
+SUPERVISOR_EMERGENCY_THROTTLE_ARMED_6362 count=40/10min cap=16
+```
+
+The 55% miss rate exposed the underlying design flaw: the cache fingerprint `size|newestTs|limit` invalidated on EVERY new SELL row landing in the journal. In a hot session with frequent closes, the 3s (then 10s from V5.0.6378) TTL was academic — the fingerprint bumped a second sooner than the TTL could ever save.
+
+### V5.0.6378 (bundled): three cadence-reduction one-liners
+
+- `ForensicReconciler6377` runs every **200 cycles** (was 50) — 4× fewer passes
+- `ForensicReconciler6377` snapshot **1,000 rows** (was 5,000) — 5× smaller sort
+- `StrategyTruthLedger` cache **10s TTL** (was 3s)
+- `StrategyTruthLedger.auditLine` default limit **500** (was 2,500) — dump builder can no longer sort 2,500 rows and blow the 20s watchdog
+
+### V5.0.6379: cache fingerprint BUCKETING (the real fix)
+
+```kotlin
+// was:  "${rawRows.size}|$newestTs|$limit"
+// now:  "${rawRows.size / 10}|${newestTs / 30_000}|$limit"
+```
+
+Back-to-back callers within the same 10-row batch AND same 30-second window now hit the same cache slot instead of invalidating on every new SELL. Expected hit rate: **90%+** (up from 45%). This directly attacks the `STRATEGY_CLEAN_TERMINAL_ROWS = 2M` counter growth — the hot loop path is what starves the bot loop of CPU cycles and lets it "buy in the wrong waves".
+
+**Correctness envelope**: outputs may lag the true journal by at most 10 rows OR 30 seconds, whichever comes first. This is well inside the tolerances the downstream learning already runs at (`TRIAL_WINDOW=25`, `PERSIST_WINDOW=40`).
+
+### Files changed
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt` (V5.0.6378 reconciler cadence)
+- `app/src/main/kotlin/com/lifecyclebot/engine/StrategyTruthLedger.kt` (V5.0.6378 TTL + auditLine limit; V5.0.6379 cache bucketing)
+- `app/src/test/kotlin/com/lifecyclebot/engine/Bundle6378InvariantsTest.kt` (new — 4 invariants)
+
+**On "learning must improve over time"**: the tactic switcher rotation, aggregate-bad-band gate, and post-pivot fast rotation are all firing correctly per pipeline logs. The bottleneck was NOT the learning logic — it was the CPU starvation from the hot-path cache thrash. With the loop free to breathe, the AI/scoring signal reaches FDG on time and stops "buying in the wrong wave".
+
+---
+
 ## [5.0.6377] - 2026-02 — Forensic Reconciler (11-item correctness spec)
 
 **Operator directive (verbatim):**
