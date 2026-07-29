@@ -12118,6 +12118,16 @@ class BotService : Service() {
                         canonicalLiveOpenCount = canonicalOpen,
                         registryLiveOpenCount = registryOpen,
                     )
+                    // V5.0.6380 — feed the trajectory governor with the same
+                    // wallet + start-capital snapshot so the 2x-5x daily target
+                    // benchmark and UP/DOWN/FLAT direction are visible in
+                    // every pipeline dump.
+                    try {
+                        LearningTrajectoryGovernor6380.observe(
+                            walletSol = status.paperWalletSol,
+                            startCapitalSol = startCap,
+                        )
+                    } catch (_: Throwable) {}
                 }
             } catch (_: Throwable) {}
 

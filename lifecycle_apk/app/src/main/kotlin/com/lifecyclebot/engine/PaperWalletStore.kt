@@ -29,7 +29,18 @@ object PaperWalletStore {
         val lastModeWasPaper = prefs.getBoolean(KEY_LAST_MODE_WAS_PAPER, true)
         val modeChangedLiveToPaper = cfg.paperMode && !lastModeWasPaper
 
-        val result = if (cfg.paperMode && (modeChangedLiveToPaper || savedBalance < 0.01)) {
+        // V5.0.6380 — SECOND wallet-continuity hole. V5.0.6376 patched
+        // BotService.startBot only, but MainActivity.hydratePaperWalletForColdOpen
+        // calls THIS helper on every cold open / configuration change. The old
+        // condition `modeChangedLiveToPaper || savedBalance < 0.01` here was
+        // wiping the prefs blob to `cfg.paperSimulatedBalance` and persisting
+        // the reset — so a single LIVE→PAPER toggle nuked accumulated gains
+        // even for operators who never re-entered BotService.startBot.
+        //
+        // Now: reset ONLY on truly-fresh install (savedBalance < 0.01). Mode
+        // toggles never touch the paper wallet — it lives in its own
+        // SharedPreferences key that live-mode code never writes.
+        val result = if (cfg.paperMode && savedBalance < 0.01) {
             val fresh = cfg.paperSimulatedBalance.coerceAtLeast(0.01)
             prefs.edit().putFloat(KEY_BALANCE, fresh.toFloat()).apply()
             RestoreResult(fresh, reset = true, modeChangedLiveToPaper = modeChangedLiveToPaper)
