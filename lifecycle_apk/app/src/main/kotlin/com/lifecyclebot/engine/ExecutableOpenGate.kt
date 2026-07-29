@@ -644,6 +644,40 @@ object ExecutableOpenGate {
         source: String,
         attemptId: String = nextAttemptId(ts.mint, lane),
     ): OpenVerdict {
+        // V5.0.6382 — WAVE ENTRY QUALITY GATE (operator directive: "buys in the
+        // wrong waves of the chart"). Reject candidates already blown off the top
+        // of their own recent wave before any lane finality logic runs. Fail-open
+        // (null = allow). Score-band aware; self-clearing when the wave cools.
+        // Applies to PAPER + LIVE — paper trades train the model too, so buying
+        // top-ticks in paper poisons the learning signal exactly the same way.
+        run {
+            val modeUpper = mode.uppercase()
+            if (modeUpper == "LIVE" || modeUpper == "PAPER") {
+                val entryScore = try {
+                    ts.lastV3Score ?: states[ts.mint]?.entryScore ?: -1
+                } catch (_: Throwable) { -1 }
+                if (entryScore >= 0) {
+                    val waveVeto = try { WaveEntryQualityGate6382.evaluate(ts, entryScore) } catch (_: Throwable) { null }
+                    if (waveVeto != null) {
+                        try {
+                            val canonLane = canonicalLane(lane)
+                            PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_WAVE_TOO_LATE_6382|${canonLane}")
+                            ForensicLogger.lifecycle(
+                                "EXEC_OPEN_BLOCKED_WAVE_TOO_LATE_6382",
+                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} mode=$modeUpper lane=$canonLane $waveVeto attemptId=$attemptId action=blocked_wrong_wave",
+                            )
+                        } catch (_: Throwable) {}
+                        return OpenVerdict(
+                            allowed = false,
+                            reason = waveVeto,
+                            shadowOnly = modeUpper == "PAPER",
+                            logName = "EXEC_OPEN_BLOCKED_WAVE_TOO_LATE_6382",
+                            attemptId = attemptId,
+                        )
+                    }
+                }
+            }
+        }
         return canOpenExecutablePositionInternal(
             mint = ts.mint,
             symbol = ts.symbol,

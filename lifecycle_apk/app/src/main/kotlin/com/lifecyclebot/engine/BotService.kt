@@ -1540,6 +1540,11 @@ class BotService : Service() {
 
         // V5.9.438 — durable outcome-learning trackers across restarts.
         try { LearningPersistence.init(applicationContext) } catch (_: Exception) {}
+
+        // V5.0.6382 — COLD-BOOT TACTIC RE-DERIVE. Purges phantom μ drift from
+        // pre-V5.0.6373d expectancy math (μ=+159% at 15% WR was blocking
+        // rotation of broken tactics). Runs once per boot; fail-soft.
+        try { com.lifecyclebot.engine.learning.TacticSwitcher.rederiveFromRawJournal6382() } catch (_: Throwable) {}
         // V5.0.4307 — report-only runtime proof for smart/dormant-system registry
         // and closeout sentinels. No scanner, FDG, sizing, routing, wallet, or
         // execution authority; this only makes theatre-vs-runtime visible.

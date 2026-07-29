@@ -495,6 +495,80 @@ object TacticSwitcher {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.6382 — COLD-BOOT RAW-JOURNAL RE-DERIVE (operator directive: purge phantom
+     * mu drift). Prior versions retained `pnlSumSinceRotation` / `wins` / `losses`
+     * from pre-V5.0.6373d builds whose expectancy math was off by 100× (basis-points
+     * inflation), producing snapshots like MOONSHOT|S41-60 REACCUMULATION μ=+159%
+     * at 15% WR — mathematically impossible. Bayesian and post-pivot gates were
+     * reading these phantom values and refusing to rotate broken tactics.
+     *
+     * This function is called ONCE from BotService.onCreate (after TradeHistoryStore.init
+     * and LearningPersistence.init). It reads the raw SQLite journal, groups closed
+     * trades by (canon-lane | scoreBand) matching the persisted cell keys, and
+     * OVERWRITES each cell's window counters so the switcher's internal μ matches
+     * lifetime journal reality. `tactic` and `trialStartedAt` are preserved so an
+     * in-flight rotation trial isn't wiped mid-window. If the persisted μ was
+     * already correct, the overwrite is a no-op numerically.
+     *
+     * Fail-safe: any exception is swallowed. This is a repair, not a hard init.
+     */
+    fun rederiveFromRawJournal6382() {
+        try {
+            val rawSells = try {
+                // V5.0.6382 — read straight from SQLite so we get the FULL lifetime
+                // persisted history (in-memory list may still be loading at boot).
+                com.lifecyclebot.engine.TradeHistoryStore.getAllTradesFromDb()
+                    .asSequence()
+                    .filter { it.side.equals("SELL", true) || it.side.equals("PARTIAL_SELL", true) }
+                    .toList()
+            } catch (_: Throwable) { emptyList() }
+            if (rawSells.isEmpty()) return
+            // Group by (lane, band). Lane uses the persisted mode name (uppercased,
+            // truncated to 24 chars) to match `key()`. Band uses LosingPatternMemory.scoreBand.
+            data class Acc(var n: Int = 0, var pnlSumBp: Long = 0L, var wins: Int = 0, var losses: Int = 0)
+            val agg = HashMap<String, Acc>(64)
+            for (t in rawSells) {
+                if (!t.pnlPct.isFinite()) continue
+                val laneNorm = try {
+                    com.lifecyclebot.engine.TradeHistoryStore.normalizeTradeModeName(t.tradingMode)
+                } catch (_: Throwable) { t.tradingMode }
+                if (laneNorm.isBlank()) continue
+                val band = try { LosingPatternMemory.scoreBand(t.score.toInt()) } catch (_: Throwable) { "" }
+                if (band.isBlank()) continue
+                val k = key(laneNorm, band)
+                val a = agg.getOrPut(k) { Acc() }
+                a.n++
+                a.pnlSumBp += (t.pnlPct * 100.0).toLong()
+                if (t.pnlPct > 0.0) a.wins++ else a.losses++
+            }
+            if (agg.isEmpty()) return
+            // Ensure every persisted cell exists (so its counters are overwritten),
+            // then overwrite. New cells are created for buckets that had journal
+            // history but no cell yet (fresh boot after V5.0.6373d expectancy fix).
+            var repaired = 0
+            for ((k, a) in agg) {
+                val parts = k.split("|")
+                if (parts.size != 2) continue
+                val cell = getOrCreate(parts[0], parts[1])
+                val priorN = cell.tradesSinceRotation.get()
+                val priorSum = cell.pnlSumSinceRotation.get()
+                cell.tradesSinceRotation.set(a.n)
+                cell.pnlSumSinceRotation.set(a.pnlSumBp)
+                cell.winsSinceRotation.set(a.wins)
+                cell.lossesSinceRotation.set(a.losses)
+                // Preserve tactic + trialStartedAt (rotation state).
+                if (priorN != a.n || priorSum != a.pnlSumBp) repaired++
+                persist(k, cell)
+            }
+            try {
+                ErrorLogger.info(TAG, "🔧 TACTIC_REDERIVE_6382 cells=${agg.size} repaired=$repaired rawSells=${rawSells.size}")
+                PipelineHealthCollector.labelInc("TACTIC_REDERIVE_6382_CELLS_${agg.size}")
+                PipelineHealthCollector.labelInc("TACTIC_REDERIVE_6382_REPAIRED_${repaired}")
+            } catch (_: Throwable) {}
+        } catch (_: Throwable) { /* fail-soft */ }
+    }
+
     private fun scoreBandToMidScore(band: String): Int = when (band.uppercase()) {
         "S0-10" -> 5
         "S11-25" -> 18

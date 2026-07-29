@@ -4,6 +4,53 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.6382] - 2026-02 — Win-Rate Integrity + Wave Entry Quality
+
+**Operator directive (verbatim, V5.0.6381 snapshot follow-up):**
+> the bot buys in the wrong waves of the chart... it needs to use the full aate stack to find profitable trades live asap
+
+Live trader was finally executing after V5.0.6381's `LIVE_MODE_DESYNC` auto-promote, but Win Rate stayed suppressed at 15-25% because two data-integrity gaps kept poisoning learning metrics, and one strategy gap kept feeding retail top-tick entries into the executor.
+
+### Fix 1 — Alias / Quarantine Spam Elimination
+
+Root cause: `StartupReconciler.reconcile()` synthesizes a `EXTERNAL_RUG_CLOSE` SELL row whenever an open-journal position is found with a zero on-chain balance (the standard "wallet drained while app was dead" repair). That synthetic row was:
+1. Missing an explicit `tradingMode` → defaulted to `"STANDARD"`, spamming the WR counter under the wrong lane.
+2. Setting `price = 0.0` while `pnlSol = -entryCost` — legitimate for a rug, but `TradeHistoryStore.isValidAccountingTrade()` treated any `price<=0 && pnl!=0` as impossible and quarantined every startup with `TRADE_ACCOUNTING_QUARANTINED|STANDARD|EXTERNAL_RUG_CLOSE` spam.
+
+**Fixes**:
+- `TradeHistoryStore.isValidAccountingTrade` now whitelists `reason.contains("EXTERNAL_RUG_CLOSE") && pnlPct <= -99.9 && entryCostSol > 0` — a real rug IS price=0 with -100%.
+- `StartupReconciler` synthetic rugSell now carries `tradingMode = buyRow.tradingMode` so the SELL bins under its ORIGINATING lane (MOONSHOT / SHITCOIN / TREASURY / etc.), not "STANDARD".
+
+### Fix 2 — TacticSwitcher Cold-Boot Raw-Journal Re-Derive
+
+Root cause: Pre-V5.0.6373d builds had a basis-point math bug in `pnlSumSinceRotation` (100× inflation). The V5.0.6373d fix repaired the math going forward but did NOT purge already-persisted phantom values, so snapshots kept showing physically-impossible cells like `MOONSHOT|S41-60 REACCUMULATION μ=+159%` at 15% WR — and the Bayesian / post-pivot / persistent-bleed gates were reading these phantom values and refusing to rotate broken tactics.
+
+**Fix**: `TacticSwitcher.rederiveFromRawJournal6382()` — a one-time cold-boot method wired into `BotService.onCreate()` immediately after `LearningPersistence.init()`. Reads the raw SQLite journal via `TradeHistoryStore.getAllTradesFromDb()`, groups closed rows by `(canon-lane | scoreBand)`, and OVERWRITES `tradesSinceRotation` / `pnlSumSinceRotation` / `wins` / `losses` per cell. `tactic` and `trialStartedAt` are preserved so an in-flight rotation trial isn't wiped. Fail-soft.
+
+### Fix 3 — Wave Entry Quality Gate
+
+Root cause: FDG / EXEC finality gates validated SAFETY / ROUTE / RUG / LIQ / lane authority — but none of them checked the token's PRICE POSITION within its own recent wave. Candidates that had already spiked +200% in the last hour with parabolic 1m acceleration were passing every gate and getting bought at retail top-tick.
+
+**Fix**: `WaveEntryQualityGate6382.evaluate(ts, entryScore)` — new module wired into `ExecutableOpenGate.canOpenExecutablePosition(ts, ...)` for both PAPER and LIVE. Rejects three specific patterns:
+- **Parabolic top-tick**: 1h ≥ score-band-adjusted ceiling AND 3× 1m cumulative ≥ +45%.
+- **Ejection candle**: any single 1m ≥ +25% while 1h is already ≥ half the ceiling.
+- **Extended stall**: 1h ≥ ceiling AND 3× 1m cumulative ≥ +27%.
+
+Score-band aware ceilings (low <40 → 80%, mid 40-59 → 140%, high ≥60 → 220%) — because high-conviction AATE-scored entries have already been validated by the full stack and deserve headroom, while low-conviction chases get the tightest veto. Self-clearing: as soon as the wave cools, entry re-qualifies naturally. Fail-open on missing history (never block on data outage).
+
+Emits `EXEC_OPEN_BLOCKED_WAVE_TOO_LATE_6382` with one of `WAVE_TOO_LATE_PARABOLIC` / `_EJECTION` / `_EXTENDED` / `_1H_SEVERE` in the reason. Doctrine-compliant: rejects a single candidate, never disables a lane.
+
+### Files changed
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt` (rug-close whitelist in isValidAccountingTrade)
+- `app/src/main/kotlin/com/lifecyclebot/engine/StartupReconciler.kt` (synth rugSell tradingMode inheritance)
+- `app/src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt` (rederiveFromRawJournal6382)
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt` (wire re-derive into onCreate)
+- `app/src/main/kotlin/com/lifecyclebot/engine/WaveEntryQualityGate6382.kt` (NEW)
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt` (invoke wave gate)
+- `app/src/test/kotlin/com/lifecyclebot/engine/Bundle6382WinRateIntegrityTest.kt` (NEW — 10 invariants)
+
+---
+
 ## [5.0.6379] - 2026-02 — Cache-Bucketing Emergency De-Load
 
 **Operator directive (verbatim):**

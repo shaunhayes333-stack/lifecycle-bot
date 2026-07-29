@@ -458,7 +458,15 @@ object TradeHistoryStore {
         if (!isJournalSellLike(t.side)) return true
         if (t.entryCostSol <= 0.0 || !t.entryCostSol.isFinite()) return false
         if (t.entryPriceSnapshot <= 0.0 || !t.entryPriceSnapshot.isFinite()) return false
-        if (t.price <= 0.0 && kotlin.math.abs(t.pnlSol) > 0.0000001) return false
+        // V5.0.6382 — RUG CLOSE ALLOWANCE. A synthetic EXTERNAL_RUG_CLOSE row
+        // (StartupReconciler.jx path) legitimately encodes price=0 + pnlSol=-cost
+        // + pnlPct=-100 because the token IS worthless. Previously this row was
+        // quarantined and spammed TRADE_ACCOUNTING_QUARANTINED|STANDARD|EXTERNAL_
+        // RUG_CLOSE at every startup, poisoning WR metrics and learning gates.
+        // The row is genuine forensic history — accept it.
+        val isRugClose6382 = t.reason.contains("EXTERNAL_RUG_CLOSE", ignoreCase = true) &&
+            t.pnlPct <= -99.9 && t.entryCostSol > 0.0
+        if (t.price <= 0.0 && kotlin.math.abs(t.pnlSol) > 0.0000001 && !isRugClose6382) return false
         val proceeds = t.sol + (t.netPnlSol.takeIf { it != 0.0 } ?: t.pnlSol)
         if (proceeds < -0.0000001) return false
         // V5.9.1440 / V5.0.3724 — JOURNAL SANITY GUARD (P0). This predicate is

@@ -455,6 +455,11 @@ class StartupReconciler(
                                     val rugSell = com.lifecyclebot.data.Trade(
                                         side = "SELL",
                                         mode = "live",
+                                        // V5.0.6382 — carry lane from BUY so the SELL bins under
+                                        // the ORIGINATING lane (not "STANDARD"). Prevents the
+                                        // ACCOUNTING_QUARANTINED|STANDARD|EXTERNAL_RUG_CLOSE
+                                        // metric-poisoning that plagued V5.0.6381c startup.
+                                        tradingMode = buyRow.tradingMode,
                                         sol = lostSol,
                                         price = 0.0,
                                         entryPriceSnapshot = buyRow.price.takeIf { it > 0.0 } ?: 0.0,
