@@ -1551,6 +1551,12 @@ class BotService : Service() {
         // corruption criteria, and emits HISTORICAL_QUARANTINE_6386_* counters.
         // Downstream truth-model consumers must ignore quarantined rows.
         try { com.lifecyclebot.engine.truth.HistoricalQuarantine6386.runOnce() } catch (_: Throwable) {}
+
+        // V5.0.6387 — FALSE-PROFIT HISTORICAL QUARANTINE + LEGACY_PRE_CANONICAL
+        // tagging (Directive B P0 + Directive A P0 "Journal migration without
+        // deleting forensics"). Tags every existing row LEGACY_PRE_CANONICAL_6387
+        // and flags rows whose profit exit reasons contradict realised PnL.
+        try { com.lifecyclebot.engine.truth.FalseProfitHistoricalQuarantine6387.runOnce() } catch (_: Throwable) {}
         // V5.0.4307 — report-only runtime proof for smart/dormant-system registry
         // and closeout sentinels. No scanner, FDG, sizing, routing, wallet, or
         // execution authority; this only makes theatre-vs-runtime visible.

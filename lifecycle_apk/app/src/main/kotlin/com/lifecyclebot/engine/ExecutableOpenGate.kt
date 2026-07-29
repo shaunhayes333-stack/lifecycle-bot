@@ -644,6 +644,30 @@ object ExecutableOpenGate {
         source: String,
         attemptId: String = nextAttemptId(ts.mint, lane),
     ): OpenVerdict {
+        // V5.0.6387 — CANONICAL_LEDGER_PARITY_HOLD_6387 (Directive A P0) +
+        // FALSE_PROFIT_TRIGGER_HOLD_6387 (Directive B P0). Either hold blocks
+        // ALL new live BUYs until parity + price-identity are validated for
+        // 5 consecutive clean cycles.
+        if (mode.equals("LIVE", ignoreCase = true)) {
+            val ledgerHold = com.lifecyclebot.engine.truth.CanonicalLedgerParityHold6387.isActive()
+            val priceHold = com.lifecyclebot.engine.truth.FalseProfitTriggerHold6387.isActive()
+            if (ledgerHold || priceHold) {
+                val holdReason = when {
+                    ledgerHold && priceHold -> "CANONICAL_LEDGER_PARITY_HOLD_6387+FALSE_PROFIT_TRIGGER_HOLD_6387"
+                    ledgerHold -> com.lifecyclebot.engine.truth.CanonicalLedgerParityHold6387.BLOCK_REASON
+                    else -> com.lifecyclebot.engine.truth.FalseProfitTriggerHold6387.BLOCK_REASON
+                }
+                try {
+                    PipelineHealthCollector.labelInc(holdReason)
+                    ForensicLogger.lifecycle(holdReason,
+                        "attemptId=$attemptId mint=${ts.mint.take(10)} sym=${ts.symbol} lane=${canonicalLane(lane)} source=$source action=blocked_6387_safety_hold cleanCycles=${com.lifecyclebot.engine.truth.CanonicalLedgerParityHold6387.cleanCycleCount()}")
+                } catch (_: Throwable) {}
+                return OpenVerdict(
+                    allowed = false, reason = holdReason, shadowOnly = true,
+                    logName = holdReason, attemptId = attemptId,
+                )
+            }
+        }
         // V5.0.6385 — LIVE ACCOUNTING REPAIR MODE (operator directive Section 1).
         // Hard-reject every new LIVE BUY signature until Bundles 6386-6390 land
         // the finalized-proof BUY/SELL rails. Paper + shadow evaluation, existing
