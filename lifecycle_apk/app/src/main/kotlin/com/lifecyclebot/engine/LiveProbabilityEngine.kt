@@ -70,6 +70,49 @@ object LiveProbabilityEngine {
         return rawLaneRealityCache[lane.uppercase()]
     }
 
+    /**
+     * V5.0.6379 — LEARNED TOXIC LANE VETO (operator directive: "its not
+     * improving overtime... buys in the wrong waves of the chart. it needs
+     * to use the full aate stack to find profitable trades live asap").
+     *
+     * The V5.9.1549 doctrine deliberately removed hard EXEC vetoes because
+     * they choked live trading at ~3 trades/session. But the pendulum swung
+     * too far — LiveProbabilityEngine now sees pWin=0% E=-28.7% at n=8 and
+     * only SHAPES SIZE (min 0.35), which the paperBuy floor then clamps
+     * back UP to 0.1176 SOL. Learning has NO teeth on entry.
+     *
+     * This narrow hard-veto ONLY fires for genuinely catastrophic buckets
+     * — measured off the RAW journal (bypasses StrategyTruthLedger sanitizer
+     * which was hiding losses) with a large enough sample that the signal
+     * is statistically real:
+     *
+     *   n >= 15  AND  wr <= 10%  AND  meanPnlPct <= -25%
+     *
+     * At those thresholds a bucket has proven 15+ times to lose money > 90%
+     * of the time with an average loss > 25% per trade. Continuing to buy
+     * it is literally the opposite of learning.
+     *
+     * Fluid: thresholds are private consts, adjustable by the on-board
+     * learning layer in a future push. Never permanent — the same bucket
+     * can un-veto itself the moment its rolling stats improve.
+     */
+    private const val TOXIC_VETO_MIN_SAMPLES  = 15
+    private const val TOXIC_VETO_MAX_WR_PCT   = 10.0
+    private const val TOXIC_VETO_MAX_MEAN_PCT = -25.0
+
+    fun isLaneLearnedToxic6379(lane: String): Boolean {
+        val r = rawLaneReality(lane) ?: return false
+        return r.n >= TOXIC_VETO_MIN_SAMPLES &&
+            r.wrPct <= TOXIC_VETO_MAX_WR_PCT &&
+            r.meanPnlPct <= TOXIC_VETO_MAX_MEAN_PCT
+    }
+
+    fun toxicVetoReason6379(lane: String): String? {
+        val r = rawLaneReality(lane) ?: return null
+        if (!isLaneLearnedToxic6379(lane)) return null
+        return "LEARNED_TOXIC_LANE_HARD_VETO_6379|lane=$lane n=${r.n} wr=${"%.0f".format(r.wrPct)}% mean=${"%+.1f".format(r.meanPnlPct)}%"
+    }
+
     data class Edge(
         val lane: String,
         val pWin: Double,

@@ -892,6 +892,33 @@ object ExecutableOpenGate {
             }
         }
 
+        // V5.0.6379 — LEARNED TOXIC LANE HARD VETO (operator directive: "buys
+        // in the wrong waves of the chart. it needs to use the full aate stack
+        // to find profitable trades live asap"). This is the narrow-band hard
+        // veto that V5.9.1549 previously softened to a shadow-train telemetry.
+        // Fires ONLY for buckets whose RAW journal reality (bypassing the
+        // sanitizer) shows a genuinely catastrophic record over n>=15 trades:
+        //   wr <= 10%  AND  meanPnlPct <= -25%
+        // Enough evidence, low enough WR, deep enough per-trade loss that
+        // continuing to buy the bucket is literally the opposite of learning.
+        // Self-clearing: the same lane un-vetoes itself the moment its rolling
+        // stats improve past any of the three thresholds.
+        run {
+            val vetoReason6379 = try {
+                com.lifecyclebot.engine.LiveProbabilityEngine.toxicVetoReason6379(canonicalSelectedLane)
+            } catch (_: Throwable) { null }
+            if (vetoReason6379 != null) {
+                try {
+                    PipelineHealthCollector.labelInc("LEARNED_TOXIC_LANE_HARD_VETO_6379|${canonicalSelectedLane.uppercase()}")
+                    ForensicLogger.lifecycle(
+                        "LEARNED_TOXIC_LANE_HARD_VETO_6379",
+                        "$vetoReason6379 symbol=$symbol mint=${mint.take(10)} mode=$modeUpper attemptId=$attemptId action=blocked_before_buy",
+                    )
+                } catch (_: Throwable) {}
+                return blocked("EXEC_OPEN_BLOCKED_LEARNED_TOXIC_LANE_6379", vetoReason6379)
+            }
+        }
+
         // V5.9.1375 — RE-ENTRY LOCKOUT (P0 #6). After a stop-loss on this mint /
         // symbol-family, refuse to re-open for >=10 min (or until cleared by a new
         // ATH). Kills the BUY->STOP_LOSS->BUY bleed loop. Fail-open. Learning paths
