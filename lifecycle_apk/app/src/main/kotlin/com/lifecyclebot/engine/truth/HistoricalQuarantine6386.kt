@@ -104,7 +104,7 @@ object HistoricalQuarantine6386 {
         // 2. Missing signatures — a SELL/BUY without any proof of an on-chain
         //    tx cannot be truth.  txSig is the current field.
         if (t.side.equals("BUY", true) || t.side.equals("SELL", true) || t.side.equals("PARTIAL_SELL", true)) {
-            if (t.txSig.isBlank() && !isFinalized) {
+            if (t.sig.isBlank() && !isFinalized) {
                 reasons += "MISSING_TX_SIGNATURE"
             }
         }
