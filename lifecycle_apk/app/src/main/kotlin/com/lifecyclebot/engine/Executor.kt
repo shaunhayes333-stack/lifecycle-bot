@@ -17424,16 +17424,22 @@ class Executor(
     private fun minConfiguredPaperTradeSol(): Double {
         return try {
             val c = cfg()
-            val legacyMin = c.smallBuySol.takeIf { it.isFinite() && it > 0.0 } ?: 0.02
+            val legacyMin = c.smallBuySol.takeIf { it.isFinite() && it > 0.0 } ?: 0.005
             // V5.0.3873 — live-transfer floor. A 0.01/0.03 SOL paper row is useful
             // for route smoke, but not for learned live sizing.
             // V5.0.6241 — floor lowered to [0.02, 0.15] so fluid-sizing shape
             // multipliers (LaneBucketPivot × CompoundGrowthMentality × score-tilt)
             // can actually differentiate low-confidence probes from high-
-            // confidence presses. Prior floor of 0.05-0.15 was clamping ALL
-            // sizes up to ~0.1176 SOL regardless of confidence.
-            maxOf(legacyMin, (c.paperSimulatedBalance * 0.01).coerceIn(0.02, 0.15))
-        } catch (_: Throwable) { 0.03 }
+            // confidence presses.
+            // V5.0.6381 — floor lowered FURTHER to [0.005, 0.15]. The 0.02 floor
+            // was clamping learning-shrunk sizes (e.g. shape=0.021 for a low-
+            // confidence bucket) back UP to 0.1176 SOL — directly nullifying
+            // the shape signal the LiveProbabilityEngine and TacticSwitcher
+            // spent 100s of trades learning. Operator snapshot showed
+            // `requested=0.021340 clamped=0.117600` — a 5.5× override of
+            // learning. New floor lets any shape ≥ 0.005 SOL survive.
+            maxOf(legacyMin, (c.paperSimulatedBalance * 0.001).coerceIn(0.005, 0.15))
+        } catch (_: Throwable) { 0.005 }
     }
 
     private fun clampPaperTradeSol(requested: Double, mint: String = "", symbol: String = "", source: String = "paper", maxOverrideSol: Double? = null): Double {
