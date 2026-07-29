@@ -216,9 +216,9 @@ class Bundle6377ForensicReconcilerTest {
     fun botservice_invokes_reconciler_periodically() {
         val txt = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(
-            "V5.0.6377: BotService.emitBotLoopTick must call ForensicReconciler6377.runAll every ~50 cycles",
+            "V5.0.6377/6378: BotService.emitBotLoopTick must call ForensicReconciler6377.runAll on a periodic loopCount modulo gate (cadence tuned in V5.0.6378 to every 200 cycles)",
             txt.contains("ForensicReconciler6377.runAll(") &&
-                txt.contains("(loopCount % 50) == 0")
+                (txt.contains("(loopCount % 50) == 0") || txt.contains("(loopCount % 200) == 0"))
         )
     }
 
