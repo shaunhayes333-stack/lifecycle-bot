@@ -1,51 +1,66 @@
-# AATE PRD — V5.0.6394c
+# AATE PRD — V5.0.6397 (Adaptive Floor Brain)
 
-## Session shipping stack (6388 → 6394c, all CI GREEN)
+## Session shipping stack (6388 → 6397, all CI GREEN)
 
-- **6394c** (`b3efddd20` ✅ Build) WIRE EarlyLaunchBypass6394 into live buy path.
-  FinalDecisionGate.evaluate() live edge-veto block injection:
-  when score is in 40..54 probe zone AND SmartMoneyFeed6394 has
-  observed ≥2 whale buys on the mint in the last 60s, the trade
-  enters as a 0.30× micro-probe instead of being hard-blocked.
-  New helper: `EarlyLaunchBypass6394.evaluateForLiveBuy(mint,
-  liveScore, liquidityUsd, sameMintAlreadyOpen, reentryLockout)`
-  derives scout tier from SmartMoneyFeed6394. Score-only bypass —
-  hard safety (mint/freeze auth, LP, rug, holders) still enforced
-  upstream. Emits EARLY_LAUNCH_MICRO_PROBE_AUTHORIZED_6394 counter
-  + ForensicLogger lifecycle event. +3 new invariants in
-  Bundle6394CanonicalExecutionTruthTest.
-- **6394b** (`358316d9a` ✅ Build) FIX estimate_vs_actual_25pct_divergence_quarantines.
-  Test's makeReceipt returned postTokenRaw=1000 matching
-  estimated=1000 (zero divergence) but asserted quarantineDivergent
-  =true. Override postTokenRaw + actualReceivedRawAmount to 3000
-  via .copy() so the 200% divergence case actually exercises the
-  25% quarantine floor. Production BuySettlementInvariants6394
-  logic untouched.
-- **6394/6394a** (❌ superseded by 6394b) CANONICAL EXECUTION TRUTH + FEE SETTLEMENT +
-  EARLY LAUNCH BYPASS. Modules landed: CanonicalReceiptStore6394,
-  BuySettlementInvariants6394, PositionLotLedger6394,
-  SingleSellStateMachine6394, LiveFeeLedger6394,
-  ExecutionTicketAuthority6394, AccountingQuarantine6394,
-  WeeklyGrowthDashboard6394, SmartMoneyFeed6394,
-  EarlyLaunchBypass6394.
+- **6397a/b** (`61d1d2c85` ✅ Build) ADAPTIVE FLOOR BRAIN — the [12, 22]
+  envelope is now FLUID inside itself. Signals blended into ONE
+  bounded floor per candidate:
+    * scanner heat (very hot +2 / hot +1 / cool -1)
+    * score distribution p50 nudge (±2 pts, gated by 40+ samples)
+    * per-lane learning (pos EV+WR≥55% → -2 relax; neg EV+WR<40% → +2)
+    * governor tier (BASELINE=15 / CAUTION=17 / TIGHTENED=20 / ...)
+    * SuperAGI / SSI / LLM signed advisories (each ±3, combined ±5,
+      auto-expire after 5min)
+  Legacy 55/56 remain mechanically unreachable via 6396.clampFloor.
+  Wired into LiveEntrySafetyHold — brain recommendation dominates
+  when signals are available; static path remains as fallback.
+- **6396** (`b43f74167` ✅) LIVE SCORE-SCALE REALIGNMENT — replaced
+  55/56 anchor with canonical 0..30 scale (BASELINE=15, CAUTION=17,
+  TIGHTENED=20, POSITIVE_LANE=13, ABSOLUTE_MIN=12, ABSOLUTE_MAX=22).
+  ENTRY_REJECTED_SCORE_FLOOR replaces BUY_FAILED for score-only
+  policy rejections. Dedupe cache (mint+lane+epoch+floor+hsVersion)
+  suppresses repeated identical rejections. FdgFanoutControl6396
+  enforces one FDG decision per (mint, epoch, primaryLane, class).
+  ScoreDistributionHistogram6396 gives p10..p90 per bucket.
+- **6395a** (`9fc222307` ✅) EXECUTABLE RUNNER CAPTURE + POSITION
+  IDENTITY REPAIR. PositionIdentity6395, ExecutableProfitAuthority
+  6395, MarkExecutableDivergence6395 (20% / 100% thresholds),
+  RunnerQuoteProbe6395 (25/50/100% probes, TTL dedup),
+  QuantityIntegrityGuard6395 (QTY_DECIMAL_SKEW quarantine),
+  PairPriceIdentity6395, CanonicalPerformanceFilter6395,
+  PositionViewModelStore6395. V3JournalRecorder now uses canonical
+  positionId (wallet+network+mint) — Treasury + Moonshot advising
+  the same mint resolve to ONE lifecycle. WalletManager gains a
+  context-free currentPubkey().
+- **6394c** (`b3efddd20` ✅) EarlyLaunchBypass6394 wired into
+  FinalDecisionGate live edge-veto (probe-zone 40..54 on 0..100
+  scale). Superseded by 6396's rescaled EarlyLaunchBypass6396
+  (probe-zone 12..14 on 0..30 scale).
+- **6394b** (`358316d9a` ✅) Fixed
+  estimate_vs_actual_25pct_divergence_quarantines test.
 
 ## Next backlog
 
-- **P1 SmartMoneyFeed6394 populators**: `SmartMoneyFeed6394.onWhaleBuy(...)`
-  is currently only exercised by tests. Wire real inputs from
-  DexScreener / Helius / bird-eye whale-tx observers so the
-  6394c bypass activates in live sessions.
-- **P1 Live Session Validation**: Run V5.0.6394c APK; confirm
-  Trade1AdaptiveTuner picks up first clean canonical close,
-  EARLY_LAUNCH_MICRO_PROBE_AUTHORIZED_6394 counter fires on real
-  whale-clustered mints.
-- **P2 ANR Killer**: Move TradeHistoryStore + MainActivity.onCreate
+- **P1 SmartMoneyFeed6394 populators** — wire real whale-tx
+  observers (DexScreener, Helius, bird-eye) into
+  SmartMoneyFeed6394.onWhaleBuy so the 6396 bypass activates.
+- **P1 Advisory populators** — connect the real SuperAGI / SSI /
+  LLM output surfaces into AdaptiveFloorBrain6397.postAdvisory.
+- **P1 Scanner heat populator** — feed hydrated-candidates-per-second
+  percentile into AdaptiveFloorBrain6397.postScannerHeat.
+- **P1 Lane-EV populator** — feed CanonicalPerformanceFilter6395's
+  clean rows into AdaptiveFloorBrain6397.postLaneStat.
+- **P1 Live Session Validation** — run V5.0.6397 APK and confirm
+  the floor moves fluidly, EARLY_LAUNCH_MICRO_PROBE_AUTHORIZED_6394
+  fires, EntryRejectionTelemetry6396 populates and NO buy-failure
+  counters increment on score-floor rejects.
+- **P2 ANR Killer** — move TradeHistoryStore + MainActivity.onCreate
   DB reads to Dispatchers.IO.
-- **P2 Fill Ledger Wire-Up**: BuyFillLedger6388 + SellFillLedger6388
-  persistence at every finalized fill on live BUY/SELL executor
-  paths.
-- **P3 Phase 1 SOL Perps/Leverage** (PerpsLaneGate.kt) — after
-  live WR stabilises + 2×–5× daily growth benchmark hit.
+- **P2 Fill Ledger Wire-Up** — persist BuyFillLedger6388 +
+  SellFillLedger6388 records at every finalized fill (partial done
+  in V3JournalRecorder; expand to LiveExecutor sell paths).
+- **P3 Phase 1 SOL Perps/Leverage** — after live WR stabilises +
+  2×–5× daily growth benchmark hit.
 
 # (Legacy) AATE PRD — V5.0.6393
 
