@@ -13145,25 +13145,38 @@ class Executor(
         // Failed candidates redirect to SHADOW (never silently dropped)
         // so paper / shadow learning continues.
         if (execCtx.execMode == ExecMode.LIVE) {
-            // V5.0.6389 (S10 / P0) — SELL_ONLY_FORENSIC_HOLD. When engaged
-            // (canonical settlement integrity degraded, cohort acceptance not
-            // yet reached), block new live BUYs entirely. Exits remain active
-            // via SellReconciler / HotExit paths — this only stops entries.
-            // Records as PRE_EXEC_POLICY_REDIRECT so it does NOT count as a
-            // BUY failure or provider failure.
-            if (com.lifecyclebot.engine.truth.SellOnlyForensicHold6389.isActive()) {
-                val reason = com.lifecyclebot.engine.truth.SellOnlyForensicHold6389.currentReason() ?: "SELL_ONLY_FORENSIC_HOLD"
+            // V5.0.6391 (S2/S8) — release-first sell-only hold. The 6391
+            // hold is armed ONLY when OwnershipClassification6391 shows an
+            // UNRESOLVED PROVEN bot-owned mint. Arbitrary wallet SPL tokens
+            // (dust / airdrops / external) MUST NOT arm a global hold.
+            //
+            // The legacy V5.0.6389 SellOnlyForensicHold6389 is ALSO consulted
+            // for continuity, but its default is now null (unblocked) so it
+            // does not silently disable trading.
+            val hold6391 = try {
+                com.lifecyclebot.engine.truth.SellOnlyHold6391.isActive()
+            } catch (_: Throwable) { false }
+            val hold6389 = try {
+                com.lifecyclebot.engine.truth.SellOnlyForensicHold6389.isActive()
+            } catch (_: Throwable) { false }
+            if (hold6391 || hold6389) {
+                val reason = if (hold6391) {
+                    val snap = com.lifecyclebot.engine.truth.SellOnlyHold6391.snapshot()
+                    "SELL_ONLY_HOLD_6391 blockingMints=${snap.blockingMints.size} req=${snap.releaseRequirement}"
+                } else {
+                    com.lifecyclebot.engine.truth.SellOnlyForensicHold6389.currentReason() ?: "SELL_ONLY_FORENSIC_HOLD"
+                }
                 try {
                     com.lifecyclebot.engine.truth.PreExecPolicyRedirectTaxonomy6389.record(
-                        "SELL_ONLY_FORENSIC_HOLD_6389:$reason", ts.mint,
+                        "SELL_ONLY_HOLD:$reason", ts.mint,
                     )
-                    PipelineHealthCollector.labelInc("LIVE_BUY_BLOCKED_SELL_ONLY_FORENSIC_HOLD_6389")
+                    PipelineHealthCollector.labelInc("LIVE_BUY_BLOCKED_SELL_ONLY_HOLD_6391")
                     ForensicLogger.lifecycle(
-                        "LIVE_BUY_BLOCKED_SELL_ONLY_FORENSIC_HOLD_6389",
+                        "LIVE_BUY_BLOCKED_SELL_ONLY_HOLD_6391",
                         "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$layerTag reason=$reason executionFailure=false",
                     )
                 } catch (_: Throwable) {}
-                liveStage("LIVE_BUY_ABORTED", "reason=SELL_ONLY_FORENSIC_HOLD_6389 detail=$reason")
+                liveStage("LIVE_BUY_ABORTED", "reason=SELL_ONLY_HOLD_6391 detail=$reason")
                 return false
             }
             val contract6342 = try {

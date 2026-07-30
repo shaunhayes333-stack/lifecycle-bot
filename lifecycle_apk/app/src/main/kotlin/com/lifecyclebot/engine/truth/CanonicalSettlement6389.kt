@@ -516,9 +516,9 @@ object SellOnlyForensicHold6389 {
             mainThreadStallsAbove700ms == 0L
     }
 
-    private val active = AtomicReference<String?>("STARTUP_DEFAULT")
+    private val active = AtomicReference<String?>(null)
 
-    /** Directive P0: engage SELL_ONLY_FORENSIC_HOLD; exits stay active. */
+    /** Directive V5.0.6391 P0: engage requires proven bot exposure. */
     fun engage(reason: String) { active.set(reason) }
 
     /** Only release if acceptance criteria are met. */
