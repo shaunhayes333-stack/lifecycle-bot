@@ -1444,6 +1444,22 @@ object TradeHistoryStore {
         synchronized(lock) { trades.clear() }
         latestBuyByMintCache = emptyMap()
         latestBuyByMintCacheMs = 0L
+        // V5.0.6389 (S5) — journal reset must generate a fresh cohort so all
+        // subsequent positions are classified against a known-clean baseline.
+        // Positions opened before this instant become INHERITED_POSITION and
+        // are excluded from FRESH COHORT PERFORMANCE / lane tuning / tactic
+        // rotation / personality tuning.
+        try {
+            val gen = try {
+                com.lifecyclebot.engine.BotRuntimeController.currentGeneration()
+            } catch (_: Throwable) { System.currentTimeMillis() }
+            val cohortId = com.lifecyclebot.engine.truth.JournalCohort6389.beginNewCohort(gen)
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("JOURNAL_COHORT_STARTED_6389")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "JOURNAL_COHORT_STARTED_6389",
+                "cohortRunId=$cohortId startMs=${com.lifecyclebot.engine.truth.JournalCohort6389.currentStartMs()}",
+            )
+        } catch (_: Throwable) {}
         ioHandler?.post {
             try {
                 db?.delete(TradeDbHelper.TABLE, null, null)

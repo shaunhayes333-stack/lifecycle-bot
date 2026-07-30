@@ -1,15 +1,70 @@
-# AATE PRD — V5.0.6386
+# AATE PRD — V5.0.6388
 
 ## CURRENT MAJOR PROGRAM
 
-**LIVE EXECUTION TRUTH AND COMPOUNDING FOUNDATION** — 13-section repair directive shipped in Bundles 6385 + 6386. Full text preserved in the operator message log; core acceptance criterion:
+**LIVE EXECUTION TRUTH AND COMPOUNDING FOUNDATION** — 13-section repair directive shipped in Bundles 6385 + 6386 + 6387 + 6388. Full text preserved in the operator message log; core acceptance criterion:
 ```
 SUM(finalized sell lamport deltas) − SUM(finalized buy lamport deltas) == observed wallet change adjusted for deposits, withdrawals, fees.
 ```
 
 ## Current build stack
 
-- **6386** (`38b3de778` ✅ Build AATE APK green) **TRUTH REPAIR Bundle 2/2 — Sections 2/4/5/6/7/8/9/10/12/13**
+- **6388** (`104743a7b` ✅ CI green) **GOVERNOR RECOVERY STATE MACHINE + FULL 27-SECTION DIRECTIVE**
+  - Substrate: `GovernorRecovery6388` (state machine) + `GovernorRecoverySubstrate6388.kt` (12 modules covering S12-S26).
+  - States: BLOCKED_INFRASTRUCTURE → EXIT_ONLY → HOLD_PROBATION → SOFT_TIGHT → BASELINE → EXPANSION.
+  - Auto promotion driven by `PostFixEvidenceCollector6388` (5/10/20 rolling windows, evidence-epoch=6388).
+  - Auto demotion on infra faults (SellReconciler stopped/stale) or performance floor breach.
+  - **S5** ProbationEntryLimiter6388: 1 open, 3/hr, 180s spacing, size clamp 0.005–0.010 SOL / 10% normal.
+  - **S13** PolicyBlockDedup6388: governor HOLD emits `LIVE_ENTRY_POLICY_BLOCKED_6388` with 60s TTL — no more BUY_FAIL inflation.
+  - **S14** ReconcilerLivenessAuthority6388: mandatory `isStarted && totalTicks>0 && tickAge<=configured`.
+  - **S15** WalletPositionAuthority6388: 6-way (CANONICAL_OPEN, RESTORED_KNOWN_BASIS, RESTORED_UNKNOWN_BASIS, EXTERNAL, DUST, QUARANTINED) with balance-equation invariant.
+  - **S16/17** BuyFillLedger6388 + SellFillLedger6388: immutable records keyed by signature, dedup rejected.
+  - **S18** CanonicalTradeAggregator6388: many partial fills → one canonical lifecycle.
+  - **S19** PartialExitStateMachineFull6388: 14-state ladder + 30s partial cooldown.
+  - **S20** HardStopFullExit6388: HARD_STOP / RUG_CONFIRMED / etc → 100% liquidation (ROUTE_CHUNKED_FULL_EXIT preserves single exitIntentId).
+  - **S21** SellLeaseIntegrity6388: one lease per (gen, positionId, exitIntentId); overlap rejected; premature release rejected.
+  - **S22** ForensicExportMode6388: PRIMARY vs FALLBACK; fallback cannot pass forensic regression guard.
+  - **S23** JournalEpoch6388: archive-not-delete; new epoch references previous checksum.
+  - **S24** RecoveryHealthSnapshot6388: single dump authority (entry-authority, governor, probation, reconciler, position-authority, journal, export).
+  - Wire-sites: LaneEntryContract6342 (ALLOW_LIVE_PROBATION verdict); Executor (probation size clamp inside sol-resolution + no-BUY_FAIL policy-block path); SellReconciler.tickOnce (onReconcilerTick every pass); V3JournalRecorder.recordClose (evidence collector + evaluatePromotion/Demotion inline).
+  - Tests: Bundle6388GovernorRecoveryTest.kt (30+ invariants, every Section 25 named test + end-to-end HOLD→BASELINE→EXIT_ONLY→SOFT_TIGHT acceptance from Section 26).
+
+- **6387b** (`3573a0490` ✅) **LIVE TRUTH, HOT EXIT AND NET-EDGE AUTHORITY (P0-P12 directive)** — LiveExitOnlyMode6387, ReconcilerZeroProof6387, PriceIntegrityAuthority6387, HotExitSupervisorContract6387, FeeAwareExecution6387, PartialExitStateMachine6387.
+- **6387** (`2b8daf0a3` ✅) Canonical Trade Ledger + Price Identity.
+- **6386b** (`e7a2809c0` ✅) Migrate legacy write/read sites onto truth substrate.
+- **6386** (`ae60e6598` ✅) TRUTH REPAIR Bundle 2/2 (Sections 2/4/5/6/7/8/9/10/12/13).
+- **6385** (`7e3a2b7b8` ✅) LIVE ACCOUNTING TRUTH REPAIR (Bundle 1/2).
+- **6384** (`3b5ddbd6e` ✅) Governor "profitable low-WR" escape hatch.
+- **6383** (`3f917e217` ✅) Live volume recovery + FLAT_EXIT protection.
+
+## What operator will see on V5.0.6388 build
+
+- `LIVE_LANE_CONTRACT_6383` counter DROPS SHARPLY — governor-HOLD rejections no longer inflate BUY_FAIL taxonomy.
+- `LIVE_ENTRY_POLICY_BLOCKED_6388` NEW counter — policy blocks routed via dedup channel.
+- `LANE_ENTRY_CONTRACT_ALLOW_PROBATION_6388` — first probation entries authorised while governor is HOLD.
+- `LIVE_BUY_PROBATION_AUTHORIZED_6388` + `LIVE_BUY_PROBATION_SIZE_CLAMPED_6388` — probation trades executing at 0.005-0.010 SOL.
+- `GOVERNOR_AUTO_PROMOTED_6388_HOLD_PROBATION_TO_SOFT_TIGHT` when 5 clean canonical closes prove healthy trading.
+- `GOVERNOR_AUTO_PROMOTED_6388_SOFT_TIGHT_TO_BASELINE` when 10 clean closes maintain PF≥1.20 and expectancy>0.
+- On reconciler stall: `GOVERNOR_AUTO_DEMOTED_6388_BASELINE_TO_EXIT_ONLY` — automatic capital protection.
+
+## Next steps
+
+### 🟠 P0 — Awaits live-run validation
+- Live-run the V5.0.6388 APK. Verify the HOLD deadlock breaks and probation lifecycles begin.
+- Confirm auto-promotion HOLD_PROBATION → SOFT_TIGHT → BASELINE within a live session.
+
+### 🔵 P1 — Truth-substrate adoption (multi-bundle work behind the CI shield)
+- Complete Executor's live BUY path to write `BuyFillLedger6388` records at each finalized fill.
+- Complete Executor's live SELL path to write `SellFillLedger6388` records + call `CanonicalTradeAggregator6388.aggregate` at position close.
+- Move `TradeHistoryStore.clearAllTrades/getTotalTradeCount` + `MainActivity.onCreate` DB reads to `Dispatchers.IO` (kills 50s ANR).
+- Promote `CanaryReleaseGate6386` from LOCKED → CANARY once operator validates.
+
+### 🟢 P2 — After 100 clean finalized trades
+- Phase 1: SOL Perps / Leverage mode (`PerpsLaneGate.kt`).
+- Phase 2: Neural bridge (perps ↔ stocks cross-learning).
+- Phase 3: LLM Lab sandbox.
+
+
   - **Section 2** ExecutionIntent6386: immutable intent + atomic registry (one outstanding BUY/mint/side; one mint cannot create competing lane tickets).
   - **Section 4** AmountTypes6386: `Lamports`/`RawTokenAmount` value classes on BigInteger; `MintDecimals` sealed (Known/Unknown) — never coerced to zero; `SolAmount`/`UiTokenAmount`/`UsdAmount`/`UsdPerToken`/`SolPerToken`.
   - **Section 5** FinalizedBuyProof6386.validate — quantity = post − pre (never ATA total).

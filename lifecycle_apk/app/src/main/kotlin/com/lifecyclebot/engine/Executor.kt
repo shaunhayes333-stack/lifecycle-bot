@@ -13059,12 +13059,18 @@ class Executor(
         // V5.0.6383 — separate telemetry channel for lane-contract aborts so
         // the LIVE_MODE_DESYNC counter reflects ONLY actual runtime desync (a
         // real fixable bug), not lane-contract violations (working-as-intended
-        // routing). Both still emit LIVE_BUY_ABORTED and fail the buy — this
-        // is purely a telemetry hygiene split.
+        // routing).
+        //
+        // V5.0.6389 (S7) — LIVE_LANE_CONTRACT_6383 redirects occur BEFORE any
+        // execution ticket / provider call. They are PRE-EXEC policy decisions,
+        // not execution failures. Route through PreExecPolicyRedirectTaxonomy6389
+        // so they are excluded from executorAttempts, providerFailureRate,
+        // buyFailureRate, transactionReliability. DO NOT call emitLiveBuyFail.
         fun liveAbortLaneContract(reason: String): Boolean {
-            liveStage("LIVE_BUY_ABORTED", "reason=LIVE_LANE_CONTRACT_6383 detail=$reason")
-            try { emitLiveBuyFail(ts, sol, "LIVE_LANE_CONTRACT_6383", reason) } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("LIVE_LANE_CONTRACT_6383") } catch (_: Throwable) {}
+            liveStage("LIVE_BUY_ABORTED", "reason=PRE_EXEC_POLICY_REDIRECT_6389 detail=$reason")
+            try {
+                com.lifecyclebot.engine.truth.PreExecPolicyRedirectTaxonomy6389.record(reason, ts.mint)
+            } catch (_: Throwable) {}
             return false
         }
         val runtimePaper = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { cfg().paperMode }
@@ -13139,6 +13145,27 @@ class Executor(
         // Failed candidates redirect to SHADOW (never silently dropped)
         // so paper / shadow learning continues.
         if (execCtx.execMode == ExecMode.LIVE) {
+            // V5.0.6389 (S10 / P0) — SELL_ONLY_FORENSIC_HOLD. When engaged
+            // (canonical settlement integrity degraded, cohort acceptance not
+            // yet reached), block new live BUYs entirely. Exits remain active
+            // via SellReconciler / HotExit paths — this only stops entries.
+            // Records as PRE_EXEC_POLICY_REDIRECT so it does NOT count as a
+            // BUY failure or provider failure.
+            if (com.lifecyclebot.engine.truth.SellOnlyForensicHold6389.isActive()) {
+                val reason = com.lifecyclebot.engine.truth.SellOnlyForensicHold6389.currentReason() ?: "SELL_ONLY_FORENSIC_HOLD"
+                try {
+                    com.lifecyclebot.engine.truth.PreExecPolicyRedirectTaxonomy6389.record(
+                        "SELL_ONLY_FORENSIC_HOLD_6389:$reason", ts.mint,
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_BUY_BLOCKED_SELL_ONLY_FORENSIC_HOLD_6389")
+                    ForensicLogger.lifecycle(
+                        "LIVE_BUY_BLOCKED_SELL_ONLY_FORENSIC_HOLD_6389",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$layerTag reason=$reason executionFailure=false",
+                    )
+                } catch (_: Throwable) {}
+                liveStage("LIVE_BUY_ABORTED", "reason=SELL_ONLY_FORENSIC_HOLD_6389 detail=$reason")
+                return false
+            }
             val contract6342 = try {
                 com.lifecyclebot.engine.LaneEntryContract6342.assessEntry(ts, layerTag)
             } catch (_: Throwable) { null }
