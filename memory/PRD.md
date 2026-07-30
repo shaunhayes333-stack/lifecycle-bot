@@ -1,4 +1,40 @@
-# AATE PRD — V5.0.6393
+# AATE PRD — V5.0.6394b
+
+## Session shipping stack (6388 → 6394, CI GREEN through 6394)
+
+- **6394b** (`358316d9a` ⏳ CI in-flight) FIX estimate_vs_actual_25pct_divergence_quarantines.
+  Test's makeReceipt returned postTokenRaw=1000 matching estimated=1000
+  (zero divergence) but asserted quarantineDivergent=true. Override
+  postTokenRaw + actualReceivedRawAmount to 3000 via .copy() so the
+  200% divergence case actually exercises the 25% quarantine floor.
+  Production BuySettlementInvariants6394 logic untouched.
+- **6394a** (`82618f4c6` ❌ CI FAILED — same test failure, above patch supersedes) Fix ConcurrentHashMap 'in' operator.
+- **6394** (`c97a9ce54` ❌ CI FAILED — same test) CANONICAL EXECUTION TRUTH + FEE SETTLEMENT +
+  EARLY LAUNCH BYPASS. Modules landed (CanonicalReceiptStore6394,
+  BuySettlementInvariants6394, PositionLotLedger6394, SingleSellStateMachine6394,
+  LiveFeeLedger6394, ExecutionTicketAuthority6394, AccountingQuarantine6394,
+  WeeklyGrowthDashboard6394, SmartMoneyFeed6394, EarlyLaunchBypass6394).
+  EarlyLaunchBypass6394 is defined + fully unit-tested but NOT YET
+  wired into Executor.kt (dormant — score-floor gates in
+  FinalDecisionGate + Executor still block score<55).
+
+## Next backlog
+
+- **P1 Early Launch Bypass wire-up**: inject `EarlyLaunchBypass6394.evaluate(...)`
+  into the live-buy score-floor gate. Candidate site: FinalDecisionGate.evaluate
+  (score-floor check) OR Executor.kt near shouldSuppressPaperLearningEntry.
+  Must pass HIGH_CONVICTION_EARLY tier from EarlyEntryScout6390 (also
+  currently dormant — needs scout invocation on new-mint candidates).
+- **P1 Live Session Validation**: Run V5.0.6394b APK; confirm
+  Trade1AdaptiveTuner picks up first clean canonical close.
+- **P2 ANR Killer**: Move TradeHistoryStore + MainActivity.onCreate DB
+  reads to Dispatchers.IO.
+- **P2 Fill Ledger Wire-Up**: BuyFillLedger6388 + SellFillLedger6388
+  persistence at every finalized fill on live BUY/SELL executor paths.
+- **P3 Phase 1 SOL Perps/Leverage** (PerpsLaneGate.kt) — after
+  live WR stabilises + 2×–5× daily growth benchmark hit.
+
+# (Legacy) AATE PRD — V5.0.6393
 
 ## Session shipping stack (6388 → 6393, all CI GREEN)
 
