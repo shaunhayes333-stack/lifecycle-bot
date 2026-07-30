@@ -1,4 +1,56 @@
-# AATE PRD — V5.0.6388
+# AATE PRD — V5.0.6393
+
+## Session shipping stack (6388 → 6393, all CI GREEN)
+
+- **6393** (`d49a61d20` ✅) FORENSIC FINALITY + TRADE-1 TUNER + WEEKLY GROWTH.
+  Trade1AdaptiveTuner6393 (real n=1 shaping), CanonicalFill6393 (BigDecimal
+  round-trip), PositionStateMachine6393 (exactly-once CLOSED_SETTLED),
+  WalletBalanceProof6393 (HELD/ZERO/UNKNOWN + zero-close policy),
+  ManagedVsRecoveredCounters6393 (21/21 regression), ExecutionTelemetrySemantics6393
+  (SCORE_FLOOR ≠ BUY_FAIL), AsymmetricExitStructure6393, WeeklyGrowthMode6393,
+  PositionSizing6393, GovernorEpoch6393 (STRATEGY_EPOCH_6393).
+- **6392** (`a8ab1a76` ✅) LIVE CONTINUITY: CONTINUE_CLEAN_TRADING + PER_MINT_QUARANTINE.
+  CanonicalWalletPosition6392 (one per wallet+mint), MintDecimalsAuthority6392,
+  SafeSellCalculator6392, ExitMutex6392, BroadcastLiability6392, CanonicalWalletParity6392,
+  VerifiedBluechipIdentity6392, ExternalRugClassification6392, EntrySizingProgression6392.
+- **6391** (`028a46b0` ✅) UNBLOCK sell-only hold. OwnershipClassification6391 (6-class),
+  SellOnlyHold6391 (release-first), EffectiveLiveAuthority6391, ExecutionCircuitBreakers6391
+  (8-namespace), ExitRoutePlan6391, PumpRescueUnifiedBuilder6391.
+- **6390** (`eaf4d492` ✅) EARLY-ENTRY + PEAK CAPTURE. EarlyEntryScout6390 (CHEEMS-class
+  46.5K MC detector), PeakAdaptiveTrail6390, PeakSlipExit6390, WinnerLadderExit6390
+  (25/25/25/25), PeakCaptureAuthority6390.
+- **6389** (`104743a7` ✅) CANONICAL SETTLEMENT + COHORT + ANR HARDENING.
+  CanonicalCloseFinality6389 (3 legal sources + unique key), AuthoritativePnl6389,
+  HardSettlementInvariants6389 (8-clause quarantine), KnownMintHistoricalRepair6389
+  (BELKA/MICHI/Cygnets), JournalCohort6389, CanonicalUnitTypes6389,
+  PreExecPolicyRedirectTaxonomy6389, UnknownBroadcastPolling6389,
+  MainThreadHardening6389, SellOnlyForensicHold6389 (default null).
+- **6388** (`af4595a1` + `104743a7` ✅) GOVERNOR RECOVERY STATE MACHINE.
+  BLOCKED_INFRASTRUCTURE → HOLD_PROBATION → SOFT_TIGHT → BASELINE → EXPANSION.
+  Auto promotion/demotion driven by PostFixEvidenceCollector6388.
+
+## Wire-sites live in production paths
+
+- `LaneEntryContract6342`: ALLOW_LIVE_PROBATION verdict; PolicyBlockDedup6388 on HOLD.
+- `Executor.kt`: SellOnlyHold6391 gate; probation size clamp; PRE_EXEC_POLICY_REDIRECT
+  taxonomy replaces LIVE_LANE_CONTRACT_6383 BUY_FAIL inflation.
+- `sell/SellReconciler.tickOnce()`: GovernorRecovery6388.onReconcilerTick per pass.
+- `V3JournalRecorder.recordClose()`: PostFixEvidenceCollector6388 + auto
+  promote/demote inline on every canonical close.
+- `TradeHistoryStore.clearAllTrades()`: JournalCohort6389.beginNewCohort().
+
+## Next backlog (post-CI validation)
+
+- **Live Session Validation**: Run V5.0.6393 APK; confirm Trade1AdaptiveTuner picks up
+  first clean canonical close (Pigeooon-class) and tuner leaves neutral n=0 state.
+- **Fill Ledger Wire-Up**: Persist BuyFillLedger6388 + SellFillLedger6388 records at
+  every finalized fill on the live BUY / SELL executor paths.
+- **Peak Capture Wire-Up**: Have every open position poll PeakCaptureAuthority6390.decide
+  each hot-exit tick so the CHEEMS 26x scenario banks 75% via ladder + trailing 25%.
+- **ANR Killer**: Move TradeHistoryStore + MainActivity.onCreate DB reads to
+  Dispatchers.IO to kill the 50-second UI freeze.
+
+# (Legacy) AATE PRD — V5.0.6388
 
 ## CURRENT MAJOR PROGRAM
 
