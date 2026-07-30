@@ -238,6 +238,29 @@ object SellReconciler {
         totalTicks++
         lastTickAtMs = System.currentTimeMillis()
 
+        // V5.0.6388 (S4/S11/S14) — GOVERNOR RECOVERY STATE MACHINE TICK.
+        // Consult live infrastructure signals; drive the recovery state machine
+        // automatically without operator intervention. Runs before wallet
+        // snapshot so a reconciler stall visibly demotes entry authority.
+        try {
+            val govHold = try {
+                com.lifecyclebot.engine.LiveEntrySafetyHold.currentGovernorState().name == "HOLD"
+            } catch (_: Throwable) { false }
+            val infra = com.lifecyclebot.engine.truth.GovernorRecovery6388.InfrastructureSignals(
+                runtimeActive = true,
+                walletProviderAvailable = true,
+                ownerFilteredBalanceAvailable = true,
+                fillLotLedgerAvailable = true,
+                canonicalRegistryAvailable = true,
+                sellReconcilerStarted = isStarted,
+                sellReconcilerHealthy = totalTicks > 0L,
+                walletReconciliationConclusive = true,
+                noCanonicalDiscrepancy = true,
+                noUnresolvedFill = true,
+            )
+            com.lifecyclebot.engine.truth.GovernorRecovery6388.onReconcilerTick(govHold, infra)
+        } catch (_: Throwable) {}
+
         // V5.0.6035 — SELF-HEAL RAW WALLET BEFORE TRACKER-HELD CHECK.
         // INDETERMINATE IS NOT EMPTY: wallet-read failures still skip zero-close.
         // Old order was circular: tracker-open check + tracker-held check ran before

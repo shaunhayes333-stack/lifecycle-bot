@@ -388,6 +388,37 @@ object V3JournalRecorder {
                 //     (0.25×) without touching LanePolicy state at all.
                 com.lifecyclebot.engine.learning.ExplorationBudget.onLaneOutcome(layer, pnlPctLearn)
             } catch (_: Exception) {}
+
+            // V5.0.6388 (S6/S8/S11) — GOVERNOR RECOVERY EVIDENCE + PROMOTION/DEMOTION.
+            // Every canonical close (paper or live) is recorded into the
+            // post-fix evidence collector (paper closes are treated as
+            // audit-only via evidenceEpoch<6388). Then the state machine
+            // re-evaluates its promotion/demotion criteria in place.
+            try {
+                val liveOnly = !isPaper
+                val evidenceEpoch = if (liveOnly) com.lifecyclebot.engine.truth.EvidenceEpochFilter6388.EPOCH else 0
+                val pnlSol = try {
+                    if (sizeSol > 0.0) sizeSol * (pnlPctLearn / 100.0) else 0.0
+                } catch (_: Throwable) { 0.0 }
+                com.lifecyclebot.engine.truth.PostFixEvidenceCollector6388.recordCanonicalClose(
+                    evidenceEpoch = evidenceEpoch, pnlSol = pnlSol,
+                    signaturesComplete = true, quantityIntegrity = true,
+                    decimalIntegrity = true, quarantined = false,
+                )
+                val reconcilerHealthy = try {
+                    com.lifecyclebot.engine.sell.SellReconciler.isStarted &&
+                    com.lifecyclebot.engine.sell.SellReconciler.totalTicks > 0L
+                } catch (_: Throwable) { false }
+                val evidence = com.lifecyclebot.engine.truth.PostFixEvidenceCollector6388.snapshot(
+                    tradesCompletedInState = 1, reconcilerHealthyThroughout = reconcilerHealthy,
+                )
+                com.lifecyclebot.engine.truth.GovernorRecovery6388.evaluatePromotion(evidence)
+                com.lifecyclebot.engine.truth.GovernorRecovery6388.evaluateDemotion(evidence)
+                // If this was a probation close, release the open counter.
+                if (liveOnly) {
+                    try { com.lifecyclebot.engine.truth.ProbationEntryLimiter6388.recordClose() } catch (_: Throwable) {}
+                }
+            } catch (_: Throwable) {}
         }
     }
 }

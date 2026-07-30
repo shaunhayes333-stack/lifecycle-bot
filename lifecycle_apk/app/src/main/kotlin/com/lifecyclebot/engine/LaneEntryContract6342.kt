@@ -40,10 +40,17 @@ object LaneEntryContract6342 {
     enum class Verdict {
         /** Live authority granted — proceed to execution. */
         ALLOW_LIVE,
+        /** V5.0.6388 — Governor HOLD active but recovery state machine permits
+         *  a probation-sized evidence-generating trade. Executor MUST clamp
+         *  size to `GovernorRecovery6388.probationSize(...)`. */
+        ALLOW_LIVE_PROBATION,
         /** Contract failed — candidate must be routed to SHADOW / PROBE. */
         REDIRECT_SHADOW,
         /** Governor HOLD in effect — no live BUY may issue. */
         GOVERNOR_HOLD_VETO,
+        /** V5.0.6388 (S13) — policy-block dedup elided this candidate to
+         *  prevent BUY_FAIL inflation. Executor MUST NOT emit BUY_FAIL. */
+        POLICY_BLOCK_DEDUPED,
     }
 
     data class Assessment(
@@ -52,7 +59,10 @@ object LaneEntryContract6342 {
         val laneCanonical: String,
         val reasons: List<String>,
     ) {
-        val allowsLive: Boolean get() = verdict == Verdict.ALLOW_LIVE
+        val allowsLive: Boolean get() =
+            verdict == Verdict.ALLOW_LIVE || verdict == Verdict.ALLOW_LIVE_PROBATION
+        val isPolicyBlock: Boolean get() =
+            verdict == Verdict.GOVERNOR_HOLD_VETO || verdict == Verdict.POLICY_BLOCK_DEDUPED
     }
 
     /** Pump.fun mints always end with "pump" (canonical Pump.fun suffix). */
@@ -82,14 +92,76 @@ object LaneEntryContract6342 {
         val govState = try { LiveEntrySafetyHold.currentGovernorState().name } catch (_: Throwable) { "BASELINE" }
         if (govState == "HOLD") {
             reasons += "GOVERNOR_HOLD_VETO_6342"
-            try {
-                PipelineHealthCollector.labelInc("LIVE_BUY_REDIRECTED_GOVERNOR_HOLD_6342")
-                ForensicLogger.lifecycle(
-                    "LANE_ENTRY_CONTRACT_GOVERNOR_HOLD_6342",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$lane govState=$govState action=redirect_shadow",
+            // V5.0.6388 (S4/S5/S13) — consult recovery state machine. If the
+            // machine has automatically promoted the runtime to HOLD_PROBATION
+            // and probation rate-limits allow one more entry, return a new
+            // ALLOW_LIVE_PROBATION verdict so the executor can issue a
+            // strictly-sized evidence-generating trade. Otherwise, emit
+            // LIVE_ENTRY_POLICY_BLOCKED_6388 through the dedup channel instead
+            // of the legacy BUY_FAIL-inflating GOVERNOR_HOLD_VETO_6342 path.
+            val recovAuth = try {
+                com.lifecyclebot.engine.truth.GovernorRecovery6388.entryAuthority()
+            } catch (_: Throwable) { null }
+            if (recovAuth != null && recovAuth.allowBuys && recovAuth.probationSized) {
+                val (canOpen, limitReason) = try {
+                    com.lifecyclebot.engine.truth.ProbationEntryLimiter6388.canOpen()
+                } catch (_: Throwable) { true to "OK" }
+                if (canOpen) {
+                    try {
+                        PipelineHealthCollector.labelInc("LANE_ENTRY_CONTRACT_ALLOW_PROBATION_6388")
+                        ForensicLogger.lifecycle(
+                            "LANE_ENTRY_CONTRACT_ALLOW_PROBATION_6388",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$lane recoveryState=${recovAuth.reason} action=allow_probation_sized",
+                        )
+                    } catch (_: Throwable) {}
+                    reasons += "GOVERNOR_HOLD_PROBATION_6388_ALLOWED"
+                    return Assessment(Verdict.ALLOW_LIVE_PROBATION, laneRequested, lane, reasons)
+                }
+                // Probation limit hit → dedup policy block (no BUY_FAIL).
+                val runtimeGen = try {
+                    com.lifecyclebot.engine.BotRuntimeController.currentGeneration()
+                } catch (_: Throwable) { 0L }
+                val shouldEmit = try {
+                    com.lifecyclebot.engine.truth.PolicyBlockDedup6388.shouldEmit(
+                        runtimeGen, ts.mint, "lane_entry_${lane}", govState, recovAuth.reason
+                    )
+                } catch (_: Throwable) { true }
+                if (shouldEmit) {
+                    try {
+                        com.lifecyclebot.engine.truth.PolicyBlockDedup6388.recordPolicyBlock(
+                            ts.mint, govState, recovAuth.reason, limitReason
+                        )
+                    } catch (_: Throwable) {}
+                    return Assessment(Verdict.GOVERNOR_HOLD_VETO, laneRequested, "SHADOW", reasons + limitReason)
+                }
+                return Assessment(Verdict.POLICY_BLOCK_DEDUPED, laneRequested, "SHADOW", reasons + limitReason)
+            }
+            // Recovery state has NOT elevated to probation → emit dedup policy block.
+            val runtimeGen = try {
+                com.lifecyclebot.engine.BotRuntimeController.currentGeneration()
+            } catch (_: Throwable) { 0L }
+            val recovStateName = try {
+                com.lifecyclebot.engine.truth.GovernorRecovery6388.state().name
+            } catch (_: Throwable) { "UNKNOWN" }
+            val shouldEmit = try {
+                com.lifecyclebot.engine.truth.PolicyBlockDedup6388.shouldEmit(
+                    runtimeGen, ts.mint, "lane_entry_${lane}", govState, recovStateName
                 )
-            } catch (_: Throwable) {}
-            return Assessment(Verdict.GOVERNOR_HOLD_VETO, laneRequested, "SHADOW", reasons)
+            } catch (_: Throwable) { true }
+            if (shouldEmit) {
+                try {
+                    com.lifecyclebot.engine.truth.PolicyBlockDedup6388.recordPolicyBlock(
+                        ts.mint, govState, recovStateName, "GOVERNOR_HOLD"
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_BUY_REDIRECTED_GOVERNOR_HOLD_6342")
+                    ForensicLogger.lifecycle(
+                        "LANE_ENTRY_CONTRACT_GOVERNOR_HOLD_6342",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$lane govState=$govState recovState=$recovStateName action=policy_block",
+                    )
+                } catch (_: Throwable) {}
+                return Assessment(Verdict.GOVERNOR_HOLD_VETO, laneRequested, "SHADOW", reasons)
+            }
+            return Assessment(Verdict.POLICY_BLOCK_DEDUPED, laneRequested, "SHADOW", reasons)
         }
 
         // 2. BLUECHIP identity contract — no Pump.fun mints allowed.

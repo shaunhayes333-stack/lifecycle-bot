@@ -12787,7 +12787,30 @@ class Executor(
                     if (guardMult < 0.99) PipelineHealthCollector.labelInc("LIVE_BUY_COLLAPSE_GUARD_SOFT_SHAPED_6326")
                 } catch (_: Throwable) {}
             }
-            shaped
+            // V5.0.6388 (S5) — probation size clamp. When the recovery state
+            // machine has authorised HOLD_PROBATION entries, ALL live buys
+            // must be strictly size-capped to 0.005–0.010 SOL (10% of normal,
+            // clamped). Runs INSIDE the size-resolution block so every
+            // downstream sizing consumer reads the clamped value.
+            val probationSized6388 = try {
+                com.lifecyclebot.engine.truth.GovernorRecovery6388.entryAuthority().probationSized
+            } catch (_: Throwable) { false }
+            val finalShaped6388 = if (probationSized6388) {
+                val clamped = try {
+                    com.lifecyclebot.engine.truth.GovernorRecovery6388.probationSize(shaped)
+                } catch (_: Throwable) { shaped.coerceIn(0.005, 0.010) }
+                if (clamped < shaped) {
+                    try {
+                        PipelineHealthCollector.labelInc("LIVE_BUY_PROBATION_SIZE_CLAMPED_6388")
+                        ForensicLogger.lifecycle(
+                            "LIVE_BUY_PROBATION_SIZE_CLAMPED_6388",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} shaped=${"%.4f".format(shaped)} clamped=${"%.4f".format(clamped)}",
+                        )
+                    } catch (_: Throwable) {}
+                }
+                clamped
+            } else shaped
+            finalShaped6388
         }
 
         // V5.0.3939 — TRUE LIVE ATTEMPT BOUNDARY.
@@ -13119,12 +13142,38 @@ class Executor(
             val contract6342 = try {
                 com.lifecyclebot.engine.LaneEntryContract6342.assessEntry(ts, layerTag)
             } catch (_: Throwable) { null }
-            if (contract6342 != null && !contract6342.allowsLive) {
+            // V5.0.6388 (S5/S13) — ALLOW_LIVE_PROBATION: clamp size to the
+            // probation window (0.005–0.010 SOL, 10% of configured normal)
+            // and record the entry with the rate-limiter. Directive: this is
+            // strict, no-compounding, no-averaging-down, one-open-per-runtime.
+            if (contract6342 != null &&
+                contract6342.verdict == com.lifecyclebot.engine.LaneEntryContract6342.Verdict.ALLOW_LIVE_PROBATION) {
+                // NOTE: size clamp itself is applied INSIDE the `val sol = run {...}`
+                // resolution block above (checks GovernorRecovery6388.entryAuthority()
+                // .probationSized). Here we only record the entry with the rate limiter
+                // now that the lane-contract has authorized a probation entry.
                 try {
-                    PipelineHealthCollector.labelInc("LIVE_BUY_ABORTED_LANE_CONTRACT_6342")
+                    PipelineHealthCollector.labelInc("LIVE_BUY_PROBATION_AUTHORIZED_6388")
                     ForensicLogger.lifecycle(
-                        "LIVE_BUY_ABORTED_LANE_CONTRACT_6342",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$layerTag verdict=${contract6342.verdict} reasons=${contract6342.reasons.joinToString(",")}",
+                        "LIVE_BUY_PROBATION_AUTHORIZED_6388",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} sizeSol=$sol lane=$layerTag",
+                    )
+                } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.truth.ProbationEntryLimiter6388.recordOpen() } catch (_: Throwable) {}
+            }
+            if (contract6342 != null && !contract6342.allowsLive) {
+                // V5.0.6388 (S13) — policy-block dedup already emitted (or was
+                // suppressed via TTL). Do NOT increment BUY_FAIL / LIVE_LANE_CONTRACT
+                // counters when the abort is a governor-HOLD policy block — that
+                // taxonomy is reserved for real execution failures.
+                val isPolicyBlock = contract6342.isPolicyBlock
+                try {
+                    if (!isPolicyBlock) {
+                        PipelineHealthCollector.labelInc("LIVE_BUY_ABORTED_LANE_CONTRACT_6342")
+                    }
+                    ForensicLogger.lifecycle(
+                        if (isPolicyBlock) "LIVE_ENTRY_POLICY_BLOCK_6388" else "LIVE_BUY_ABORTED_LANE_CONTRACT_6342",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$layerTag verdict=${contract6342.verdict} reasons=${contract6342.reasons.joinToString(",")} executionFailure=${!isPolicyBlock}",
                     )
                 } catch (_: Throwable) {}
                 // V5.0.6354 — contract routed to SHADOW; reflect that in the
@@ -13138,6 +13187,12 @@ class Executor(
                         note = "lane_contract_${contract6342.verdict}",
                     )
                 } catch (_: Throwable) {}
+                if (isPolicyBlock) {
+                    // Policy block — emit LIVE_BUY_ABORTED without BUY_FAIL / LANE_CONTRACT
+                    // taxonomies. The dedup module has already recorded the event.
+                    liveStage("LIVE_BUY_ABORTED", "reason=LIVE_ENTRY_POLICY_BLOCKED_6388 detail=verdict=${contract6342.verdict}")
+                    return false
+                }
                 return liveAbortLaneContract("lane_contract_6342 verdict=${contract6342.verdict} reasons=${contract6342.reasons.joinToString(",")}")
             }
             // V5.0.6354 — LaneEntryContract passed; the candidate is live-
