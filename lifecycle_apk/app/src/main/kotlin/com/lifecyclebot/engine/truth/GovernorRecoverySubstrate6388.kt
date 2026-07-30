@@ -525,8 +525,12 @@ object PostFixEvidenceCollector6388 {
         val (w5, l5, pf5) = windowStats(5)
         val (w10, l10, pf10) = windowStats(10)
         val (_, _, pf20) = windowStats(20)
+        // V5.0.6388 (S12): integrity flags MUST only reflect the post-fix
+        // recovery-eligible slice. Legacy mixed rows may still be present in
+        // the collector (audit visibility) but they must NOT block promotion.
+        val cleanAll = entries.toList().filter { clean(it) }
         return GovernorRecovery6388.RollingEvidence(
-            postEpochCanonicalN = entries.toList().count { clean(it) },
+            postEpochCanonicalN = cleanAll.size,
             rollingLast5Wins = w5, rollingLast5Losses = l5,
             rollingLast10Wins = w10, rollingLast10Losses = l10,
             rollingLast5ProfitFactor = pf5, rollingLast10ProfitFactor = pf10, rollingLast20ProfitFactor = pf20,
@@ -535,10 +539,10 @@ object PostFixEvidenceCollector6388 {
             consecutiveLosses = consecutiveLosses.get().toInt(),
             tradesCompletedInState = tradesCompletedInState,
             reconcilerHealthyThroughout = reconcilerHealthyThroughout,
-            allSignaturesComplete = entries.toList().all { it.signaturesComplete },
-            noDecimalSkew = entries.toList().all { it.decimalIntegrity },
-            noQtyIntegrityFault = entries.toList().all { it.quantityIntegrity },
-            noAccountingQuarantineOfConfirmedFill = entries.toList().none { it.quarantined },
+            allSignaturesComplete = cleanAll.all { it.signaturesComplete },
+            noDecimalSkew = cleanAll.all { it.decimalIntegrity },
+            noQtyIntegrityFault = cleanAll.all { it.quantityIntegrity },
+            noAccountingQuarantineOfConfirmedFill = cleanAll.none { it.quarantined },
         )
     }
     internal fun clearAllForTest() { entries.clear(); consecutiveLosses.set(0) }
