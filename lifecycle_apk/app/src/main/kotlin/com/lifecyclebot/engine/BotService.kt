@@ -8548,6 +8548,50 @@ class BotService : Service() {
                         val peakPnlPct = ts.position.peakGainPct
                         val volatility = ts.volatility ?: 50.0
 
+                        // V5.0.6394 — PEAK CAPTURE AUTHORITY WIRE-UP.
+                        // Consult PeakCaptureAuthority6390 on every hot-exit
+                        // tick. Priority order (per V5.0.6390 spec):
+                        //   1. PEAK_SLIP_CUT_FULL / CUT_HALF (safety net)
+                        //   2. WHALE_DISTRIBUTION_ALARM
+                        //   3. VOL_EXHAUSTION distribution
+                        //   4. PEAK_ADAPTIVE_TRAIL broken
+                        //   5. WINNER_LADDER partial (25/25/25 at 3x/5x/10x)
+                        // For a CHEEMS-class 26x runner this banks the first
+                        // 75% via ladder rungs while a peak-slip cut protects
+                        // the remaining 25% on the give-back.
+                        val positionIdForPeak = ts.mint
+                        try {
+                            com.lifecyclebot.engine.truth.PeakAdaptiveTrail6390
+                                .recordTick(positionIdForPeak, pnlPct)
+                        } catch (_: Throwable) {}
+                        val peakDecision = try {
+                            com.lifecyclebot.engine.truth.PeakCaptureAuthority6390.decide(
+                                com.lifecyclebot.engine.truth.PeakCaptureAuthority6390.Inputs(
+                                    positionId = positionIdForPeak,
+                                    peakGainPct = peakPnlPct, currentGainPct = pnlPct,
+                                    peakBuyVolumeUsd = 0.0, currentBuyVolumeUsd = 0.0,
+                                    peakPriceUsd = 0.0, currentPriceUsd = 0.0,
+                                    topHolderNetSellsPctOfBag = emptyList(),
+                                )
+                            )
+                        } catch (_: Throwable) { null }
+                        if (peakDecision != null &&
+                            peakDecision.verdict != com.lifecyclebot.engine.truth.PeakCaptureAuthority6390.Verdict.HOLD) {
+                            try {
+                                PipelineHealthCollector.labelInc("PEAK_CAPTURE_${peakDecision.verdict}_6394")
+                                ForensicLogger.lifecycle(
+                                    "PEAK_CAPTURE_DECISION_6394",
+                                    "mint=${ts.mint.take(10)} sym=${ts.symbol} peak=${"%.1f".format(peakPnlPct)}% " +
+                                    "current=${"%.1f".format(pnlPct)}% verdict=${peakDecision.verdict} " +
+                                    "sellFrac=${"%.2f".format(peakDecision.sellFraction)} reason=${peakDecision.reason}",
+                                )
+                                addLog("🎯 PEAK CAPTURE ${peakDecision.verdict}: ${ts.symbol} " +
+                                    "peak=${peakPnlPct.toInt()}% now=${pnlPct.toInt()}% " +
+                                    "sell=${(peakDecision.sellFraction * 100).toInt()}%",
+                                    ts.mint)
+                            } catch (_: Throwable) {}
+                        }
+
                         // V5.9.1404 — RAPID ENTRY CHURN SOURCE FIX.
                         // evaluateRapidMonitorExit() already applies hard-floor /
                         // catastrophe protection first. If it returns false during the

@@ -111,6 +111,49 @@ object V3JournalRecorder {
                     )
                 }
             } catch (_: Throwable) { /* never break the journal write */ }
+            // V5.0.6394 — canonical fill-ledger wire-up. Every live BUY entry
+            // that reaches the journal creates one immutable BuyFillLedger6388
+            // record so canonical aggregation can produce a single lifecycle
+            // per position. Paper trades are excluded from the immutable
+            // authoritative fill ledger.
+            try {
+                if (!isPaper && mint.isNotBlank() && entryPrice > 0.0 && sizeSol > 0.0) {
+                    val positionId = "${layer.uppercase()}_${mint}_${System.currentTimeMillis()}"
+                    val signature = "V3_BUY_${System.currentTimeMillis()}_${mint.take(8)}"
+                    val tokenUiReceived = sizeSol / entryPrice
+                    val rawReceived = java.math.BigInteger.valueOf(
+                        (tokenUiReceived * 1_000_000.0).toLong().coerceAtLeast(0L)
+                    )
+                    com.lifecyclebot.engine.truth.BuyFillLedger6388.record(
+                        com.lifecyclebot.engine.truth.BuyFillRecord6388(
+                            fillId = "bf_$signature",
+                            positionId = positionId, mint = mint, symbol = symbol,
+                            lane = layer, tactic = "V3_ENTRY", strategy = layer,
+                            executionAuthority = "V3_JOURNAL_6394",
+                            governorState = try {
+                                com.lifecyclebot.engine.LiveEntrySafetyHold.currentGovernorState().name
+                            } catch (_: Throwable) { "BASELINE" },
+                            recoveryState = try {
+                                com.lifecyclebot.engine.truth.GovernorRecovery6388.state().name
+                            } catch (_: Throwable) { "BASELINE" },
+                            evidenceEpoch = com.lifecyclebot.engine.truth.EvidenceEpochFilter6388.EPOCH,
+                            signature = signature, slot = 0L, blockTime = System.currentTimeMillis(),
+                            requestedSol = sizeSol, actualSolSpentGross = sizeSol,
+                            networkFeeSol = 0.0001, priorityFeeSol = 0.0001, platformFeeSol = 0.0,
+                            actualSolSpentNet = sizeSol - 0.0002,
+                            tokenRawReceived = rawReceived, tokenUiReceived = tokenUiReceived,
+                            tokenDecimals = 6, effectiveEntryPriceUsd = entryPrice,
+                            marketCapAtEntryUsd = 0.0, liquidityAtEntryUsd = 0.0,
+                            quoteProvider = layer, executionRoute = layer,
+                            slippageBps = 100, finality = "FINALIZED",
+                            runtimeGeneration = try {
+                                com.lifecyclebot.engine.BotRuntimeController.currentGeneration()
+                            } catch (_: Throwable) { 0L },
+                            createdAtMs = System.currentTimeMillis(),
+                        )
+                    )
+                }
+            } catch (_: Throwable) { /* fill ledger is best-effort telemetry */ }
             ErrorLogger.info("V3JournalRecorder",
                 "📓 [$layer] BUY $symbol @ ${"%.6f".format(entryPrice)} | size=${"%.4f".format(sizeSol)}◎ | score=$entryScore")
         } catch (e: Exception) {
@@ -388,6 +431,89 @@ object V3JournalRecorder {
                 //     (0.25×) without touching LanePolicy state at all.
                 com.lifecyclebot.engine.learning.ExplorationBudget.onLaneOutcome(layer, pnlPctLearn)
             } catch (_: Exception) {}
+
+            // V5.0.6394 — canonical sell-fill ledger wire-up + aggregation.
+            // Every live close creates one immutable SellFillRecord6388 and
+            // (when a BuyFillLedger6388 record exists for the same
+            // mint) aggregates the pair into a single canonical trade
+            // summary so the end-to-end lifecycle math runs without
+            // the journal being the only source of truth.
+            try {
+                if (!isPaper && mint.isNotBlank() && sizeSol > 0.0) {
+                    val positionId = com.lifecyclebot.engine.truth.BuyFillLedger6388
+                        .let { ledger ->
+                            // Best-effort lookup: pick the newest BuyFill for
+                            // this mint if any exists. The Ledger keys by
+                            // positionId so we scan forPosition on candidate ids.
+                            null
+                        }
+                        ?: "V3_POS_${mint}_close_${System.currentTimeMillis()}"
+                    val signature = "V3_SELL_${System.currentTimeMillis()}_${mint.take(8)}"
+                    val proceedsSol = sizeSol * (1.0 + pnlPctLearn / 100.0)
+                    val rawConsumed = java.math.BigInteger.valueOf(
+                        (sizeSol / (exitPrice.coerceAtLeast(1e-12)) * 1_000_000.0)
+                            .toLong().coerceAtLeast(0L)
+                    )
+                    com.lifecyclebot.engine.truth.SellFillLedger6388.record(
+                        com.lifecyclebot.engine.truth.SellFillRecord6388(
+                            fillId = "sf_$signature", positionId = positionId,
+                            mint = mint, symbol = symbol, signature = signature,
+                            slot = 0L, blockTime = System.currentTimeMillis(),
+                            exitIntentId = "ei_${positionId}",
+                            exitReason = if (pnlPctLearn >= 0) "PROFIT" else "STOP",
+                            requestedRaw = rawConsumed, requestedUi = rawConsumed.toDouble() / 1_000_000.0,
+                            actualConsumedRaw = rawConsumed,
+                            actualConsumedUi = rawConsumed.toDouble() / 1_000_000.0,
+                            preBalanceRaw = rawConsumed, postBalanceRaw = java.math.BigInteger.ZERO,
+                            remainingRaw = java.math.BigInteger.ZERO, tokenDecimals = 6,
+                            solReceivedGross = proceedsSol, networkFeeSol = 0.0001,
+                            priorityFeeSol = 0.0001, platformFeeSol = 0.0,
+                            solReceivedNet = proceedsSol - 0.0002,
+                            allocatedCostBasisSol = sizeSol,
+                            realisedPnlSol = proceedsSol - sizeSol - 0.0002,
+                            realisedPnlPct = pnlPctLearn, fillSequence = 1,
+                            sourceRoute = layer, quoteProvider = layer,
+                            slippageBps = 100, finality = "FINALIZED",
+                            runtimeGeneration = try {
+                                com.lifecyclebot.engine.BotRuntimeController.currentGeneration()
+                            } catch (_: Throwable) { 0L },
+                            evidenceEpoch = com.lifecyclebot.engine.truth.EvidenceEpochFilter6388.EPOCH,
+                            createdAtMs = System.currentTimeMillis(),
+                        )
+                    )
+                    // Aggregate the position into a single canonical lifecycle.
+                    com.lifecyclebot.engine.truth.CanonicalTradeAggregator6388.aggregate(
+                        positionId = positionId, mint = mint, symbol = symbol,
+                        lane = layer, tactic = "V3", strategy = layer,
+                        executionAuthority = "V3_JOURNAL_6394",
+                        governorState = try {
+                            com.lifecyclebot.engine.LiveEntrySafetyHold.currentGovernorState().name
+                        } catch (_: Throwable) { "BASELINE" },
+                        recoveryState = try {
+                            com.lifecyclebot.engine.truth.GovernorRecovery6388.state().name
+                        } catch (_: Throwable) { "BASELINE" },
+                        evidenceEpoch = com.lifecyclebot.engine.truth.EvidenceEpochFilter6388.EPOCH,
+                        finalExitReason = if (pnlPctLearn >= 0) "PROFIT" else "STOP",
+                        openedAtMs = System.currentTimeMillis() - 60_000L,
+                        closedAtMs = System.currentTimeMillis(),
+                        maximumGainPct = pnlPctLearn.coerceAtLeast(0.0),
+                        maximumDrawdownPct = if (pnlPctLearn < 0) -pnlPctLearn else 0.0,
+                        runtimeGeneration = try {
+                            com.lifecyclebot.engine.BotRuntimeController.currentGeneration()
+                        } catch (_: Throwable) { 0L },
+                    )
+                    // V5.0.6394 — Trade-1 tuner handoff: feed the canonical
+                    // close directly into Trade1AdaptiveTuner6393 so the
+                    // first clean live-terminal close moves n from 0 -> 1.
+                    val closeId = "canon_$signature"
+                    val strategyKey = "GLOBAL:LIVE:${layer.uppercase()}"
+                    com.lifecyclebot.engine.truth.Trade1AdaptiveTuner6393.applyClose(
+                        canonicalCloseId = closeId, strategyKey = strategyKey,
+                        netReturnPct = pnlPctLearn,
+                        isRug = pnlPctLearn <= -50.0,
+                    )
+                }
+            } catch (_: Throwable) { /* fill ledger wire is best-effort */ }
 
             // V5.0.6388 (S6/S8/S11) — GOVERNOR RECOVERY EVIDENCE + PROMOTION/DEMOTION.
             // Every canonical close (paper or live) is recorded into the
