@@ -133,6 +133,14 @@ class WalletManager private constructor(private val ctx: Context) {
                 INSTANCE ?: WalletManager(ctx.applicationContext).also { INSTANCE = it }
             }
         }
+
+        /**
+         * V5.0.6395 — context-free accessor for the current wallet pubkey.
+         * Returns "" when no wallet is initialised. Safe from any thread.
+         * Callers that need Position identity (canonicalId = wallet+network+mint)
+         * use this so the fill ledger positionId matches across BUY and SELL.
+         */
+        fun currentPubkey(): String = INSTANCE?._state?.value?.publicKey.orEmpty()
         
         /**
          * V5.7.3: Get wallet from singleton instance (no context required)

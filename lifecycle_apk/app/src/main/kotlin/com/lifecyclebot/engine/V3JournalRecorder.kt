@@ -116,9 +116,17 @@ object V3JournalRecorder {
             // record so canonical aggregation can produce a single lifecycle
             // per position. Paper trades are excluded from the immutable
             // authoritative fill ledger.
+            // V5.0.6395 — POSITION IDENTITY REPAIR: positionId is now the
+            // canonical (wallet+network+mint) id from PositionIdentity6395
+            // so Treasury/Moonshot/Bluechip advising the same mint resolve
+            // to ONE canonical lifecycle (P0 §"ONE MINT, ONE CANONICAL POSITION").
             try {
                 if (!isPaper && mint.isNotBlank() && entryPrice > 0.0 && sizeSol > 0.0) {
-                    val positionId = "${layer.uppercase()}_${mint}_${System.currentTimeMillis()}"
+                    val wallet = try {
+                        com.lifecyclebot.engine.WalletManager.currentPubkey()
+                    } catch (_: Throwable) { "" }
+                    val positionId = com.lifecyclebot.engine.truth.PositionIdentity6395
+                        .register(wallet = wallet, mint = mint, lane = layer)
                     val signature = "V3_BUY_${System.currentTimeMillis()}_${mint.take(8)}"
                     val tokenUiReceived = sizeSol / entryPrice
                     val rawReceived = java.math.BigInteger.valueOf(
@@ -129,7 +137,7 @@ object V3JournalRecorder {
                             fillId = "bf_$signature",
                             positionId = positionId, mint = mint, symbol = symbol,
                             lane = layer, tactic = "V3_ENTRY", strategy = layer,
-                            executionAuthority = "V3_JOURNAL_6394",
+                            executionAuthority = "V3_JOURNAL_6395",
                             governorState = try {
                                 com.lifecyclebot.engine.LiveEntrySafetyHold.currentGovernorState().name
                             } catch (_: Throwable) { "BASELINE" },
@@ -438,28 +446,51 @@ object V3JournalRecorder {
             // mint) aggregates the pair into a single canonical trade
             // summary so the end-to-end lifecycle math runs without
             // the journal being the only source of truth.
+            // V5.0.6395 — POSITION IDENTITY REPAIR: positionId now matches
+            // the BUY-side canonical id (wallet+network+mint) so buy and
+            // sell fills share one lifecycle. QuantityIntegrityGuard6395
+            // is called to quarantine QTY_DECIMAL_SKEW immediately.
             try {
                 if (!isPaper && mint.isNotBlank() && sizeSol > 0.0) {
-                    val positionId = com.lifecyclebot.engine.truth.BuyFillLedger6388
-                        .let { ledger ->
-                            // Best-effort lookup: pick the newest BuyFill for
-                            // this mint if any exists. The Ledger keys by
-                            // positionId so we scan forPosition on candidate ids.
-                            null
-                        }
-                        ?: "V3_POS_${mint}_close_${System.currentTimeMillis()}"
+                    val wallet = try {
+                        com.lifecyclebot.engine.WalletManager.currentPubkey()
+                    } catch (_: Throwable) { "" }
+                    val positionId = com.lifecyclebot.engine.truth.PositionIdentity6395
+                        .register(wallet = wallet, mint = mint, lane = layer)
                     val signature = "V3_SELL_${System.currentTimeMillis()}_${mint.take(8)}"
                     val proceedsSol = sizeSol * (1.0 + pnlPctLearn / 100.0)
                     val rawConsumed = java.math.BigInteger.valueOf(
                         (sizeSol / (exitPrice.coerceAtLeast(1e-12)) * 1_000_000.0)
                             .toLong().coerceAtLeast(0L)
                     )
+                    // V5.0.6395 — quantity integrity check across the paired
+                    // BuyFillLedger6388 entries. Feeds the canonical
+                    // performance filter to gate learning surfaces.
+                    val buys = com.lifecyclebot.engine.truth.BuyFillLedger6388.forPosition(positionId)
+                    if (buys.isNotEmpty()) {
+                        val totalBuyRaw = buys.fold(java.math.BigInteger.ZERO) { acc, b ->
+                            acc.add(b.tokenRawReceived)
+                        }
+                        val v = com.lifecyclebot.engine.truth.QuantityIntegrityGuard6395.check(
+                            totalBuyRaw = totalBuyRaw,
+                            cumulativeSellRaw = rawConsumed,
+                            remainingRaw = java.math.BigInteger.ZERO,
+                            hasVerifiedPartialHistory = false,
+                        )
+                        if (!v.ok) {
+                            com.lifecyclebot.engine.truth.CanonicalPerformanceFilter6395.quarantine(
+                                positionId,
+                                com.lifecyclebot.engine.truth.CanonicalPerformanceFilter6395.QuarantineReason.QTY_DECIMAL_SKEW,
+                            )
+                        }
+                    }
                     com.lifecyclebot.engine.truth.SellFillLedger6388.record(
                         com.lifecyclebot.engine.truth.SellFillRecord6388(
                             fillId = "sf_$signature", positionId = positionId,
                             mint = mint, symbol = symbol, signature = signature,
                             slot = 0L, blockTime = System.currentTimeMillis(),
-                            exitIntentId = "ei_${positionId}",
+                            exitIntentId = com.lifecyclebot.engine.truth.PositionIdentity6395
+                                .openOrGetExitIntent(positionId, layer),
                             exitReason = if (pnlPctLearn >= 0) "PROFIT" else "STOP",
                             requestedRaw = rawConsumed, requestedUi = rawConsumed.toDouble() / 1_000_000.0,
                             actualConsumedRaw = rawConsumed,
@@ -481,6 +512,8 @@ object V3JournalRecorder {
                             createdAtMs = System.currentTimeMillis(),
                         )
                     )
+                    // Close the exit intent — the position is done.
+                    com.lifecyclebot.engine.truth.PositionIdentity6395.closeExitIntent(positionId)
                     // Aggregate the position into a single canonical lifecycle.
                     com.lifecyclebot.engine.truth.CanonicalTradeAggregator6388.aggregate(
                         positionId = positionId, mint = mint, symbol = symbol,
