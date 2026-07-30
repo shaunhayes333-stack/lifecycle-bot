@@ -1,36 +1,49 @@
-# AATE PRD — V5.0.6394b
+# AATE PRD — V5.0.6394c
 
-## Session shipping stack (6388 → 6394, CI GREEN through 6394)
+## Session shipping stack (6388 → 6394c, all CI GREEN)
 
-- **6394b** (`358316d9a` ⏳ CI in-flight) FIX estimate_vs_actual_25pct_divergence_quarantines.
-  Test's makeReceipt returned postTokenRaw=1000 matching estimated=1000
-  (zero divergence) but asserted quarantineDivergent=true. Override
-  postTokenRaw + actualReceivedRawAmount to 3000 via .copy() so the
-  200% divergence case actually exercises the 25% quarantine floor.
-  Production BuySettlementInvariants6394 logic untouched.
-- **6394a** (`82618f4c6` ❌ CI FAILED — same test failure, above patch supersedes) Fix ConcurrentHashMap 'in' operator.
-- **6394** (`c97a9ce54` ❌ CI FAILED — same test) CANONICAL EXECUTION TRUTH + FEE SETTLEMENT +
-  EARLY LAUNCH BYPASS. Modules landed (CanonicalReceiptStore6394,
-  BuySettlementInvariants6394, PositionLotLedger6394, SingleSellStateMachine6394,
-  LiveFeeLedger6394, ExecutionTicketAuthority6394, AccountingQuarantine6394,
-  WeeklyGrowthDashboard6394, SmartMoneyFeed6394, EarlyLaunchBypass6394).
-  EarlyLaunchBypass6394 is defined + fully unit-tested but NOT YET
-  wired into Executor.kt (dormant — score-floor gates in
-  FinalDecisionGate + Executor still block score<55).
+- **6394c** (`b3efddd20` ✅ Build) WIRE EarlyLaunchBypass6394 into live buy path.
+  FinalDecisionGate.evaluate() live edge-veto block injection:
+  when score is in 40..54 probe zone AND SmartMoneyFeed6394 has
+  observed ≥2 whale buys on the mint in the last 60s, the trade
+  enters as a 0.30× micro-probe instead of being hard-blocked.
+  New helper: `EarlyLaunchBypass6394.evaluateForLiveBuy(mint,
+  liveScore, liquidityUsd, sameMintAlreadyOpen, reentryLockout)`
+  derives scout tier from SmartMoneyFeed6394. Score-only bypass —
+  hard safety (mint/freeze auth, LP, rug, holders) still enforced
+  upstream. Emits EARLY_LAUNCH_MICRO_PROBE_AUTHORIZED_6394 counter
+  + ForensicLogger lifecycle event. +3 new invariants in
+  Bundle6394CanonicalExecutionTruthTest.
+- **6394b** (`358316d9a` ✅ Build) FIX estimate_vs_actual_25pct_divergence_quarantines.
+  Test's makeReceipt returned postTokenRaw=1000 matching
+  estimated=1000 (zero divergence) but asserted quarantineDivergent
+  =true. Override postTokenRaw + actualReceivedRawAmount to 3000
+  via .copy() so the 200% divergence case actually exercises the
+  25% quarantine floor. Production BuySettlementInvariants6394
+  logic untouched.
+- **6394/6394a** (❌ superseded by 6394b) CANONICAL EXECUTION TRUTH + FEE SETTLEMENT +
+  EARLY LAUNCH BYPASS. Modules landed: CanonicalReceiptStore6394,
+  BuySettlementInvariants6394, PositionLotLedger6394,
+  SingleSellStateMachine6394, LiveFeeLedger6394,
+  ExecutionTicketAuthority6394, AccountingQuarantine6394,
+  WeeklyGrowthDashboard6394, SmartMoneyFeed6394,
+  EarlyLaunchBypass6394.
 
 ## Next backlog
 
-- **P1 Early Launch Bypass wire-up**: inject `EarlyLaunchBypass6394.evaluate(...)`
-  into the live-buy score-floor gate. Candidate site: FinalDecisionGate.evaluate
-  (score-floor check) OR Executor.kt near shouldSuppressPaperLearningEntry.
-  Must pass HIGH_CONVICTION_EARLY tier from EarlyEntryScout6390 (also
-  currently dormant — needs scout invocation on new-mint candidates).
-- **P1 Live Session Validation**: Run V5.0.6394b APK; confirm
-  Trade1AdaptiveTuner picks up first clean canonical close.
-- **P2 ANR Killer**: Move TradeHistoryStore + MainActivity.onCreate DB
-  reads to Dispatchers.IO.
+- **P1 SmartMoneyFeed6394 populators**: `SmartMoneyFeed6394.onWhaleBuy(...)`
+  is currently only exercised by tests. Wire real inputs from
+  DexScreener / Helius / bird-eye whale-tx observers so the
+  6394c bypass activates in live sessions.
+- **P1 Live Session Validation**: Run V5.0.6394c APK; confirm
+  Trade1AdaptiveTuner picks up first clean canonical close,
+  EARLY_LAUNCH_MICRO_PROBE_AUTHORIZED_6394 counter fires on real
+  whale-clustered mints.
+- **P2 ANR Killer**: Move TradeHistoryStore + MainActivity.onCreate
+  DB reads to Dispatchers.IO.
 - **P2 Fill Ledger Wire-Up**: BuyFillLedger6388 + SellFillLedger6388
-  persistence at every finalized fill on live BUY/SELL executor paths.
+  persistence at every finalized fill on live BUY/SELL executor
+  paths.
 - **P3 Phase 1 SOL Perps/Leverage** (PerpsLaneGate.kt) — after
   live WR stabilises + 2×–5× daily growth benchmark hit.
 
