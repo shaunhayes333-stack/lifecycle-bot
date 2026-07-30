@@ -56,8 +56,11 @@ class Bundle6394CanonicalExecutionTruthTest {
     }
 
     @Test fun estimate_vs_actual_25pct_divergence_quarantines() {
-        val r = makeReceipt("SIG_DIV", "posD", "mintD")
-        // Estimated 1000, actual 3000 → 200% divergence
+        // Estimated 1000, actual 3000 → 200% divergence (well above 25% quarantine floor).
+        val r = makeReceipt("SIG_DIV", "posD", "mintD").copy(
+            postTokenRaw = BigInteger.valueOf(3_000L),
+            actualReceivedRawAmount = BigInteger.valueOf(3_000L),
+        )
         val v = BuySettlementInvariants6394.check(r,
             requestedMaxDebitLamports = BigInteger.valueOf(10_000_000L),
             estimatedTokenRaw = BigInteger.valueOf(1_000L), requestedMint = "mintD")
