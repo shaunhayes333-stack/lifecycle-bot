@@ -2888,13 +2888,15 @@ object FinalDecisionGate {
                 val hasGoodLiquidity = ts.lastLiquidityUsd >= liveMinLiquidity
                 val hasDecentScore = effectiveGateScore6025 >= liveMinEntryScore
 
-                // V5.0.6394c — EARLY LAUNCH BYPASS. When score is in the 40..54
-                // probe zone AND SmartMoneyFeed6394 has seen ≥2 whale buys on
-                // this mint in the last 60s, allow entry as a 0.30× micro-probe.
-                // Hard safety (mint/freeze auth, rug, LP, holders) is already
-                // enforced upstream — this is score-only.
+                // V5.0.6396 — EARLY LAUNCH BYPASS (rescaled). The 6394
+                // bypass targeted the obsolete 0..100 anchor band 40..54.
+                // On the canonical 0..30 scale the probe zone is
+                // [ABSOLUTE_MIN=12, BASELINE=15). When SmartMoneyFeed6394
+                // has seen ≥2 whale buys in 60s the trade enters as a
+                // 0.30× micro-probe. Hard safety remains upstream — this
+                // is score-only.
                 val earlyLaunchDecision = try {
-                    com.lifecyclebot.engine.truth.EarlyLaunchBypass6394.evaluateForLiveBuy(
+                    com.lifecyclebot.engine.truth.EarlyLaunchBypass6396.evaluateForLiveBuy(
                         mint = ts.mint,
                         liveScore = effectiveGateScore6025,
                         liquidityUsd = ts.lastLiquidityUsd,
@@ -2902,7 +2904,7 @@ object FinalDecisionGate {
                         reentryLockout = false,
                     )
                 } catch (_: Throwable) {
-                    com.lifecyclebot.engine.truth.EarlyLaunchBypass6394.Decision(false, 0.0, "BYPASS_EVAL_FAILED")
+                    com.lifecyclebot.engine.truth.EarlyLaunchBypass6396.Decision(false, 0.0, "BYPASS_EVAL_FAILED")
                 }
                 val earlyLaunchAllow = earlyLaunchDecision.allow &&
                     earlyLaunchDecision.reason.contains("EARLY_LAUNCH_MICRO_PROBE")

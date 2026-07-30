@@ -67,8 +67,14 @@ object LiveEntrySafetyHold {
     // ----- Configurable thresholds ----------------------------------
 
     /** Minimum candidate score to execute a LIVE buy. Below this the
-     *  candidate is redirected to shadow. Does NOT auto-relax on low WR. */
-    @Volatile var minLiveCandidateScore: Double = 55.0
+     *  candidate is redirected to shadow. Does NOT auto-relax on low WR.
+     *  V5.0.6396 — LIVE SCORE-SCALE REALIGNMENT. The obsolete 55/56 raw
+     *  anchor mechanically blocked all live entries because current V3/FDG
+     *  effective scores sit on the practical ~0..30 scale. Aligned to
+     *  LiveEntryThresholdAuthority6396.BASELINE (15). All governor uplift
+     *  results are clamped to ABSOLUTE_MIN..ABSOLUTE_MAX (12..22). */
+    @Volatile var minLiveCandidateScore: Double =
+        com.lifecyclebot.engine.truth.LiveEntryThresholdAuthority6396.BASELINE.toDouble()
         private set
 
     /** Minimum finalised sample before ANY performance-based relaxation
@@ -277,9 +283,33 @@ object LiveEntrySafetyHold {
         //    auto-relax on poor WR; that's the whole point of the
         //    governor). V5.0.6324 — apply governor-state floor uplift so
         //    CAUTION / SOFT_TIGHT genuinely raise the bar for live entry.
-        val effectiveFloor = minLiveCandidateScore + lastGovernorFloorAdjustment
+        //    V5.0.6396 — LIVE SCORE-SCALE REALIGNMENT. Clamp effective
+        //    floor to ABSOLUTE_MIN..ABSOLUTE_MAX (12..22) so no runtime
+        //    path can restore the legacy 55/56 anchor. Emits
+        //    ENTRY_REJECTED_SCORE_FLOOR (via EntryRejectionTelemetry6396)
+        //    instead of BUY_FAILED — a policy rejection is not an
+        //    execution failure.
+        val effectiveFloor = com.lifecyclebot.engine.truth.LiveEntryThresholdAuthority6396
+            .clampFloor((minLiveCandidateScore + lastGovernorFloorAdjustment).toInt())
+            .toDouble()
         if (candidateScore < effectiveFloor) {
             failed += "SCORE_BELOW_LIVE_FLOOR:score=${candidateScore.toInt()}/min=${effectiveFloor.toInt()}"
+            try {
+                com.lifecyclebot.engine.truth.EntryRejectionTelemetry6396.emitScoreFloorReject(
+                    com.lifecyclebot.engine.truth.EntryRejectionTelemetry6396.ScoreFloorRejectRecord(
+                        mint = mint, symbol = symbol, lane = lane,
+                        rawScore = candidateScore, effectiveScore = candidateScore,
+                        finalFloor = effectiveFloor.toInt(),
+                        scoreScaleVersion = com.lifecyclebot.engine.truth.LiveEntryThresholdAuthority6396.SCORE_SCALE_VERSION,
+                        metricEpoch = System.currentTimeMillis() / 60_000L,
+                        decisionId = "hold_${mint.take(8)}_${System.currentTimeMillis()}",
+                        governorState = lastGovernorState.name,
+                        hardSafetyPassed = failed.none { it.startsWith("LIVE_BYPASS_HARD_") },
+                        recheckEligibleAt = System.currentTimeMillis() +
+                            com.lifecyclebot.engine.truth.EntryRejectionDedupeCache6396.COOLDOWN_MS,
+                    )
+                )
+            } catch (_: Throwable) { /* telemetry is best-effort */ }
         }
 
         // 4) Confidence Governor — V5.0.6332 CONCENTRATED CONVICTION.
