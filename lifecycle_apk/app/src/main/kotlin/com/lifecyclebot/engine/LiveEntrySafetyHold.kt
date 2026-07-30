@@ -289,9 +289,28 @@ object LiveEntrySafetyHold {
         //    ENTRY_REJECTED_SCORE_FLOOR (via EntryRejectionTelemetry6396)
         //    instead of BUY_FAILED — a policy rejection is not an
         //    execution failure.
-        val effectiveFloor = com.lifecyclebot.engine.truth.LiveEntryThresholdAuthority6396
-            .clampFloor((minLiveCandidateScore + lastGovernorFloorAdjustment).toInt())
-            .toDouble()
+        //    V5.0.6397 — ADAPTIVE FLOOR BRAIN. The floor is now FLUID
+        //    within [12, 22], driven by scanner heat, score
+        //    distribution, per-lane learning (WR/EV), governor tier
+        //    and SuperAGI/SSI/LLM advisory channels. The static
+        //    minLiveCandidateScore + lastGovernorFloorAdjustment
+        //    remains a fallback when the brain has insufficient data,
+        //    but the brain's recommendation dominates when available.
+        val brainTier = try {
+            com.lifecyclebot.engine.truth.LiveEntryThresholdAuthority6396.GovernorTier.valueOf(
+                lastGovernorState.name)
+        } catch (_: Throwable) {
+            com.lifecyclebot.engine.truth.LiveEntryThresholdAuthority6396.GovernorTier.BASELINE
+        }
+        val brainRec = try {
+            com.lifecyclebot.engine.truth.AdaptiveFloorBrain6397.recommend(
+                com.lifecyclebot.engine.truth.AdaptiveFloorBrain6397.BrainInputs(
+                    governorTier = brainTier, lane = lane))
+        } catch (_: Throwable) { null }
+        val effectiveFloor = (brainRec?.finalFloor
+            ?: com.lifecyclebot.engine.truth.LiveEntryThresholdAuthority6396
+                .clampFloor((minLiveCandidateScore + lastGovernorFloorAdjustment).toInt())
+        ).toDouble()
         if (candidateScore < effectiveFloor) {
             failed += "SCORE_BELOW_LIVE_FLOOR:score=${candidateScore.toInt()}/min=${effectiveFloor.toInt()}"
             try {
