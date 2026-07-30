@@ -70,8 +70,8 @@ object RunnerQuoteProbe6395 {
     fun evaluate(mint: String, displayMarkPnlPct: Double, nowMs: Long = System.currentTimeMillis()): ProbeDecision {
         if (displayMarkPnlPct < PROBE_TRIGGER_PCT)
             return ProbeDecision(false, ProbeDecision.Priority.NONE, "BELOW_PROBE_TRIGGER", emptyList())
-        val last = lastProbeAt[mint] ?: 0L
-        if (nowMs - last < PROBE_DEDUP_TTL_MS) {
+        val last = lastProbeAt[mint]
+        if (last != null && nowMs - last < PROBE_DEDUP_TTL_MS) {
             probesDeduplicated.incrementAndGet()
             return ProbeDecision(false, ProbeDecision.Priority.NONE, "DEDUP_TTL_ACTIVE", emptyList())
         }
