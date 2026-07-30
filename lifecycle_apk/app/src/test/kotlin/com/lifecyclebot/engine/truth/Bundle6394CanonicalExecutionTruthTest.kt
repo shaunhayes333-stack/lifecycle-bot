@@ -351,4 +351,45 @@ class Bundle6394EarlyLaunchBypassTest {
         org.junit.Assert.assertTrue(d.allow)
         org.junit.Assert.assertEquals(1.0, d.sizeMultiplier, 1e-9)
     }
+
+    /* -------- V5.0.6394c live-buy wire helper ---------------------------- */
+
+    @org.junit.Test fun evaluateForLiveBuy_fires_when_two_whale_buys_present() {
+        SmartMoneyFeed6394.clearForTest()
+        val now = System.currentTimeMillis()
+        SmartMoneyFeed6394.onWhaleBuy("mintELB1", "whaleA", now)
+        SmartMoneyFeed6394.onWhaleBuy("mintELB1", "whaleB", now - 10_000L)
+        val d = EarlyLaunchBypass6394.evaluateForLiveBuy(
+            mint = "mintELB1", liveScore = 48.0,
+            liquidityUsd = 6_000.0,
+            sameMintAlreadyOpen = false, reentryLockout = false,
+        )
+        org.junit.Assert.assertTrue(d.allow)
+        org.junit.Assert.assertEquals(0.30, d.sizeMultiplier, 1e-9)
+        org.junit.Assert.assertTrue(d.reason.contains("EARLY_LAUNCH_MICRO_PROBE"))
+        SmartMoneyFeed6394.clearForTest()
+    }
+
+    @org.junit.Test fun evaluateForLiveBuy_does_not_fire_without_whale_activity() {
+        SmartMoneyFeed6394.clearForTest()
+        val d = EarlyLaunchBypass6394.evaluateForLiveBuy(
+            mint = "mintELB2", liveScore = 48.0,
+            liquidityUsd = 6_000.0,
+            sameMintAlreadyOpen = false, reentryLockout = false,
+        )
+        org.junit.Assert.assertFalse(d.allow)
+        org.junit.Assert.assertTrue(d.reason.contains("INSUFFICIENT_FOR_BYPASS"))
+    }
+
+    @org.junit.Test fun evaluateForLiveBuy_returns_normal_full_size_when_above_floor() {
+        val d = EarlyLaunchBypass6394.evaluateForLiveBuy(
+            mint = "mintELB3", liveScore = 70.0,
+            liquidityUsd = 6_000.0,
+            sameMintAlreadyOpen = false, reentryLockout = false,
+        )
+        // above floor → no bypass needed, allow=false so caller uses normal path
+        org.junit.Assert.assertFalse(d.allow)
+        org.junit.Assert.assertEquals(1.0, d.sizeMultiplier, 1e-9)
+        org.junit.Assert.assertEquals("SCORE_AT_OR_ABOVE_FLOOR", d.reason)
+    }
 }

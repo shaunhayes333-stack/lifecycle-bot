@@ -2888,14 +2888,42 @@ object FinalDecisionGate {
                 val hasGoodLiquidity = ts.lastLiquidityUsd >= liveMinLiquidity
                 val hasDecentScore = effectiveGateScore6025 >= liveMinEntryScore
 
-                if (hasStrongBuyers || hasGoodLiquidity || hasDecentScore) {
+                // V5.0.6394c — EARLY LAUNCH BYPASS. When score is in the 40..54
+                // probe zone AND SmartMoneyFeed6394 has seen ≥2 whale buys on
+                // this mint in the last 60s, allow entry as a 0.30× micro-probe.
+                // Hard safety (mint/freeze auth, rug, LP, holders) is already
+                // enforced upstream — this is score-only.
+                val earlyLaunchDecision = try {
+                    com.lifecyclebot.engine.truth.EarlyLaunchBypass6394.evaluateForLiveBuy(
+                        mint = ts.mint,
+                        liveScore = effectiveGateScore6025,
+                        liquidityUsd = ts.lastLiquidityUsd,
+                        sameMintAlreadyOpen = false,
+                        reentryLockout = false,
+                    )
+                } catch (_: Throwable) {
+                    com.lifecyclebot.engine.truth.EarlyLaunchBypass6394.Decision(false, 0.0, "BYPASS_EVAL_FAILED")
+                }
+                val earlyLaunchAllow = earlyLaunchDecision.allow &&
+                    earlyLaunchDecision.reason.contains("EARLY_LAUNCH_MICRO_PROBE")
+
+                if (hasStrongBuyers || hasGoodLiquidity || hasDecentScore || earlyLaunchAllow) {
                     val reason = when {
+                        earlyLaunchAllow -> "early_launch score=${effectiveGateScore6025.toInt()} probe×${"%.2f".format(earlyLaunchDecision.sizeMultiplier)}"
                         hasStrongBuyers -> "buy%=${ts.meta.pressScore.toInt()}>=${liveMinBuyPressure.toInt()}"
                         hasDecentScore -> "score=${effectiveGateScore6025.toInt()}>=${liveMinEntryScore.toInt()} raw=${candidate.entryScore.toInt()} lane=${laneConsensusScore6025.toInt()}"
                         else -> "liq=$${ts.lastLiquidityUsd.toInt()}>=${liveMinLiquidity.toInt()}"
                     }
-                    checks.add(GateCheck("edge", true, "LIVE: edge override ($reason) [${currentAdjusted.learningPhase}]"))
-                    tags.add("live_edge_override")
+                    if (earlyLaunchAllow) {
+                        sizeMultiplier *= earlyLaunchDecision.sizeMultiplier
+                        checks.add(GateCheck("edge", true, "LIVE EARLY LAUNCH MICRO-PROBE: $reason [${currentAdjusted.learningPhase}]"))
+                        tags.add("early_launch_micro_probe_6394")
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EARLY_LAUNCH_MICRO_PROBE_AUTHORIZED_6394") } catch (_: Throwable) {}
+                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EARLY_LAUNCH_MICRO_PROBE_AUTHORIZED_6394", "mint=${ts.mint.take(10)} symbol=${ts.symbol} score=${effectiveGateScore6025.toInt()} mult=${earlyLaunchDecision.sizeMultiplier} reason=${earlyLaunchDecision.reason}") } catch (_: Throwable) {}
+                    } else {
+                        checks.add(GateCheck("edge", true, "LIVE: edge override ($reason) [${currentAdjusted.learningPhase}]"))
+                        tags.add("live_edge_override")
+                    }
                 } else {
                     val missingReasons = mutableListOf<String>()
                     if (!hasStrongBuyers) missingReasons.add("buy%=${ts.meta.pressScore.toInt()}<${liveMinBuyPressure.toInt()}")

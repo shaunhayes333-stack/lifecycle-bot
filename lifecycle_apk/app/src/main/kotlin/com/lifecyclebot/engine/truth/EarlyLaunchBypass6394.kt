@@ -84,4 +84,49 @@ object EarlyLaunchBypass6394 {
 
     val earlyLaunchProbesAuthorized = AtomicLong(0L)
     internal fun clearForTest() { earlyLaunchProbesAuthorized.set(0L) }
+
+    /**
+     * V5.0.6394c — production entry-point for the live buy path.
+     *
+     * The score-floor gate (FinalDecisionGate live edge-veto path) blocks
+     * candidates with score in the 40..54 band. When SmartMoneyFeed6394
+     * has observed 2+ whale buys on this mint in the last 60s, we treat
+     * that as a HIGH_CONVICTION_EARLY scout tier and let the trade enter
+     * as a 0.30× micro-probe.
+     *
+     * All hard safety gates (mint/freeze authority, LP, rug, holders)
+     * MUST have already passed upstream — this is score-only bypass.
+     * @return Decision.allow=false when the bypass does not fire (caller
+     *         should keep whatever block it was going to apply).
+     */
+    fun evaluateForLiveBuy(
+        mint: String,
+        liveScore: Double,
+        liquidityUsd: Double,
+        sameMintAlreadyOpen: Boolean,
+        reentryLockout: Boolean,
+    ): Decision {
+        // Absolute floor — don't touch tokens below the probe zone.
+        if (liveScore < ABSOLUTE_MIN_SCORE) return Decision(false, 0.0, "BELOW_ABSOLUTE_MIN")
+        if (liveScore >= STANDARD_LIVE_SCORE_FLOOR)
+            return Decision(false, 1.0, "SCORE_AT_OR_ABOVE_FLOOR")  // normal path handles it
+
+        // Derive scout tier from smart-money activity (2+ whale buys in 60s).
+        val whaleBuys = try { SmartMoneyFeed6394.smartMoneyBuysLast60s(mint) } catch (_: Throwable) { 0 }
+        val tier = if (whaleBuys >= 2) EarlyEntryScout6390.Tier.HIGH_CONVICTION_EARLY
+                   else EarlyEntryScout6390.Tier.NOT_QUALIFIED
+
+        // Safety booleans — the FDG upstream already validated mint/freeze
+        // authority, rug, LP, holders. Pass-through with LP freshness check.
+        return evaluate(
+            liveScore = liveScore,
+            scoutTier = tier,
+            hardSafetyPassed = true,
+            mintPairResolved = liquidityUsd > 0.0,
+            freshLiquidityProof = liquidityUsd >= 3_000.0,
+            sellQuoteable = true,
+            sameMintOpen = sameMintAlreadyOpen,
+            reentryLockout = reentryLockout,
+        )
+    }
 }
