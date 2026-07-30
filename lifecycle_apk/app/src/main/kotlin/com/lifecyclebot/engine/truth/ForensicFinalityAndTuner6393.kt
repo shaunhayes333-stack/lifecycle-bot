@@ -156,7 +156,11 @@ object WalletBalanceProof6393 {
         @Synchronized
         fun addProof(snapshotId: String, capturedAtMs: Long, proof: Proof) {
             if (proof == Proof.HELD) {
-                proofs.clear()                          // Directive E: HELD resets counter
+                // Directive E: HELD resets zero counter, but MUST itself be recorded.
+                val hadZeros = proofs.any { it.third == Proof.ZERO }
+                proofs.clear()
+                proofs += Triple(snapshotId, capturedAtMs, proof)
+                if (hadZeros) WalletBalanceProof6393.zeroProofResetByHeld.incrementAndGet()
                 return
             }
             if (proof == Proof.UNKNOWN) return         // UNKNOWN NEVER increments counter
