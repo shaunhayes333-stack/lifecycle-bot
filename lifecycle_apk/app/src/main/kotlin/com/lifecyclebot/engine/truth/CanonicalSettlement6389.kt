@@ -250,7 +250,7 @@ object KnownMintHistoricalRepair6389 {
     )
 
     /** Directive S4: check whether a specific journal outcome should be invalidated. */
-    fun shouldInvalidate(symbolOrMint: String, journalPnlSol: Double, tolerance: Double = 0.0005): Boolean {
+    fun shouldInvalidate(symbolOrMint: String, journalPnlSol: Double, tolerance: Double = 0.0001): Boolean {
         val hit = repairs.firstOrNull {
             symbolOrMint.equals(it.symbol, ignoreCase = true) ||
             symbolOrMint.contains(it.mintKey, ignoreCase = true)
