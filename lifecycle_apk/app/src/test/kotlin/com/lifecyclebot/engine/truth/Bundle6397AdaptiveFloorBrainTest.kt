@@ -98,7 +98,7 @@ class Bundle6397AdaptiveFloorBrainTest {
         val rec = AdaptiveFloorBrain6397.recommend(
             AdaptiveFloorBrain6397.BrainInputs(
                 governorTier = LiveEntryThresholdAuthority6396.GovernorTier.BASELINE,
-                lane = "SHITCOIN"))
+                lane = "SHITCOIN", scannerHeatPct01 = 0.5))
         // 3+2+3 = 8, capped at ADVISORY_COMBINED_CAP=5.
         assertEquals(5, rec.advisoryDelta)
         // 15 base + 5 advisory (no other signals) = 20, in-range.
