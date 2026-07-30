@@ -393,7 +393,8 @@ class Bundle6387CanonicalAndPriceTest {
     @Test
     fun false_profit_quarantine_flags_10x_with_negative_pnl() {
         val t = com.lifecyclebot.data.Trade(
-            side = "SELL", mode = "live", pnlSol = -0.05, pnlPct = -2.9,
+            side = "SELL", mode = "live", price = 0.0, ts = 0L,
+            pnlSol = -0.05, pnlPct = -2.9,
             reason = "QUICK_RUNNER_10X_FULL_EXIT",
             entryCostSol = 0.025, sol = 0.024,
         )

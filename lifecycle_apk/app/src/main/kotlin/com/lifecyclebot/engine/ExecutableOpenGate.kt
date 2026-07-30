@@ -649,6 +649,23 @@ object ExecutableOpenGate {
         // ALL new live BUYs until parity + price-identity are validated for
         // 5 consecutive clean cycles.
         if (mode.equals("LIVE", ignoreCase = true)) {
+            // V5.0.6387 P0 — LIVE_EXIT_ONLY umbrella. Blocks all new live BUYs
+            // whenever any of the 9 startup invariants is false. Stops, emergency,
+            // operator + reconciler sells continue via their own paths.
+            val exitOnly = com.lifecyclebot.engine.truth.LiveExitOnlyMode6387.isActive()
+            if (exitOnly) {
+                val reason = com.lifecyclebot.engine.truth.LiveExitOnlyMode6387.activeReason() ?: "LIVE_EXIT_ONLY_ACTIVE"
+                try {
+                    PipelineHealthCollector.labelInc("LIVE_EXIT_ONLY_BUY_BLOCKED_6387")
+                    ForensicLogger.lifecycle("LIVE_EXIT_ONLY_BUY_BLOCKED_6387",
+                        "attemptId=$attemptId mint=${ts.mint.take(10)} sym=${ts.symbol} lane=${canonicalLane(lane)} source=$source reason=$reason")
+                } catch (_: Throwable) {}
+                return OpenVerdict(allowed = false,
+                    reason = "LIVE_EXIT_ONLY_ACTIVE:$reason",
+                    shadowOnly = true,
+                    logName = "LIVE_EXIT_ONLY_BUY_BLOCKED_6387",
+                    attemptId = attemptId)
+            }
             val ledgerHold = com.lifecyclebot.engine.truth.CanonicalLedgerParityHold6387.isActive()
             val priceHold = com.lifecyclebot.engine.truth.FalseProfitTriggerHold6387.isActive()
             if (ledgerHold || priceHold) {
