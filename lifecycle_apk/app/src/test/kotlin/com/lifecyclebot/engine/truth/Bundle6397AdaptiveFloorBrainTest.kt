@@ -126,7 +126,7 @@ class Bundle6397AdaptiveFloorBrainTest {
     }
 
     // -------- score distribution nudges floor toward its median -----------
-    @Test fun distribution_median_nudges_floor_within_+_or_minus_2() {
+    @Test fun distribution_median_nudges_floor_within_plus_or_minus_2() {
         for (i in 1..80) ScoreDistributionHistogram6396.record(
             ScoreDistributionHistogram6396.Bucket.HARD_SAFETY_PASSED, 18.0)
         val rec = AdaptiveFloorBrain6397.recommend(
