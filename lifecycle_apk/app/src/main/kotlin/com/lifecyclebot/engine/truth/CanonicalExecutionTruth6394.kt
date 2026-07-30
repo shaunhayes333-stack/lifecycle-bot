@@ -306,7 +306,7 @@ object AccountingQuarantine6394 {
         require(t.quarantineReason in validReasons) { "UNKNOWN_QUARANTINE_REASON:${t.quarantineReason}" }
         tagged[t.rowId] = t; return true
     }
-    fun isTagged(rowId: String): Boolean = rowId in tagged
+    fun isTagged(rowId: String): Boolean = tagged.containsKey(rowId)
     fun count(): Int = tagged.size
     internal fun clearForTest() { tagged.clear() }
 }
