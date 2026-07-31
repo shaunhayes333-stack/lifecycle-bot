@@ -152,7 +152,7 @@ class Bundle6399EntryAuthorityOrderingTest {
         val f3 = floorEnvelope(s3.evaluationId, TraderLane.SHITCOIN, base = 15.0)
         CanonicalEntryPipeline6398.decide(s3, f3)                  // BLOCK_SCORE
         val s4 = scoreEnvelope("F4", TraderLane.SHITCOIN, effective = 20.0,
-            evidenceCompleteness = 0.1)
+            evidence = 0.1)
         val f4 = floorEnvelope(s4.evaluationId, TraderLane.SHITCOIN, base = 15.0)
         CanonicalEntryPipeline6398.decide(s4, f4)                  // DEFER_HYDRATION
         assertEquals(4L, CounterParityLedger6399.fdgTotal())
