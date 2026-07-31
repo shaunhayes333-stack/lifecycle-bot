@@ -9,8 +9,14 @@ import org.junit.Test
 
 class Bundle6401StartupExitOnlyLatchTest {
 
-    @Before fun setUp() { StartupExitOnlyLatch6401.clearAllForTest() }
-    @After fun tearDown() { StartupExitOnlyLatch6401.clearAllForTest() }
+    @Before fun setUp() {
+        StartupExitOnlyLatch6401.clearAllForTest()
+        LiveExitOnlyMode6387.setTestOverride("STARTUP_DEFAULT")
+    }
+    @After fun tearDown() {
+        StartupExitOnlyLatch6401.clearAllForTest()
+        LiveExitOnlyMode6387.setTestOverride("STARTUP_DEFAULT")
+    }
 
     private fun allMet() = StartupExitOnlyLatch6401.Pillars(
         governorNotHold = true, scannerQueueInit = true,
@@ -67,6 +73,30 @@ class Bundle6401StartupExitOnlyLatchTest {
         StartupExitOnlyLatch6401.evaluateAndMaybeClear(blocking())
         assertFalse("latch cannot reactivate after live buy this generation",
             StartupExitOnlyLatch6401.isActive())
+    }
+
+    @Test fun check_and_clear_no_op_when_reason_is_not_startup_default() {
+        // Real runtime exit-only reason must be preserved by the auto-clear.
+        LiveExitOnlyMode6387.setTestOverride("HOT_EXIT_MISSED_3_HEARTBEATS")
+        try {
+            val cleared = StartupExitOnlyLatch6401.checkAndClearStartupDefault()
+            // Latch clears locally (reason isn't STARTUP_DEFAULT so latch is n/a),
+            // but the runtime authority must remain engaged.
+            assertTrue(cleared)
+            assertEquals("HOT_EXIT_MISSED_3_HEARTBEATS", LiveExitOnlyMode6387.activeReason())
+        } finally {
+            LiveExitOnlyMode6387.setTestOverride("STARTUP_DEFAULT")
+        }
+    }
+
+    @Test fun check_and_clear_disengages_startup_default_after_repair_ms() {
+        LiveExitOnlyMode6387.setTestOverride("STARTUP_DEFAULT")
+        val cleared = StartupExitOnlyLatch6401.checkAndClearStartupDefault(
+            nowMs = System.currentTimeMillis() + StartupExitOnlyLatch6401.REPAIR_MS + 1_000L)
+        assertTrue(cleared)
+        // LiveExitOnlyMode6387 must be disengaged so downstream buy checks
+        // no longer report STARTUP_DEFAULT.
+        assertEquals(null, LiveExitOnlyMode6387.activeReason())
     }
 
     @Test fun blocking_pillars_are_named() {

@@ -14079,6 +14079,21 @@ class Executor(
                 ExecutionRootCauseTrace.finality("BUY", "LIVE_BUY_FINALITY_BLOCK", ts, "attemptId=${executableOpen.attemptId} reason=${executableOpen.reason}")
                 ErrorLogger.warn("Executor", "🚫 LIVE_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${executableOpen.attemptId} | ${executableOpen.reason}")
                 val reasonUpper = executableOpen.reason.uppercase()
+                // V5.0.6401 §4 — startup exit-only deferral is NEVER a
+                // terminal BUY_FAIL. Increment a deferral counter, do NOT
+                // emit LIVE_BUY_FAIL_TELEMETRY, do NOT inflate the buy_failed
+                // funnel. Candidate is naturally requeued next cycle.
+                if (reasonUpper.contains("BUY_DEFERRED_STARTUP") ||
+                    reasonUpper.contains("LIVE_EXIT_ONLY_ACTIVE:STARTUP_DEFAULT")) {
+                    try {
+                        PipelineHealthCollector.labelInc("BUY_DEFERRED_STARTUP_6401")
+                        ForensicLogger.lifecycle("BUY_DEFERRED_STARTUP_6401",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$canonicalRoutedLane attemptId=${executableOpen.attemptId} reason=${executableOpen.reason.take(120)} no_buy_failed=true requeue=true")
+                    } catch (_: Throwable) {}
+                    liveStage("LIVE_BUY_DEFERRED", "reason=STARTUP_EXIT_ONLY_LATCH detail=${executableOpen.reason.take(120)}")
+                    buyTerminalFail("BUY_DEFERRED_STARTUP_6401")
+                    return false
+                }
                 if (reasonUpper.contains("WATCH") || reasonUpper.contains("UNKNOWN") || reasonUpper.contains("CANON_LANE_UNRESOLVED")) {
                     liveStage("LIVE_BUY_ABORTED", "reason=OBSERVE_ONLY_NOT_LIVE_EXECUTABLE detail=${executableOpen.reason.take(120)}")
                     emitLiveBuyFail(ts, sol, "LIVE_BUY_ABORTED", executableOpen.reason)
@@ -14967,6 +14982,10 @@ class Executor(
                 liveStage("FINALITY_CONFIRMED", "route=PUMPPORTAL signature=${sig.take(16)}")
                 try { ForensicLogger.lifecycle("LIVE_BUY_CONFIRMED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL signature=${sig.take(16)} finalSol=${effectiveSol.fmt(4)}") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("BUY_TX_SUBMITTED"); PipelineHealthCollector.labelInc("LIVE_BUY_CONFIRMED") } catch (_: Throwable) {}
+                // V5.0.6401 §4 — first confirmed live buy this generation
+                // locks the startup exit-only latch cleared, so no subsequent
+                // candidate ever hits BUY_DEFERRED_STARTUP again.
+                try { com.lifecyclebot.engine.truth.StartupExitOnlyLatch6401.onLiveBuySuccess() } catch (_: Throwable) {}
                 buyPhase("TX_SUBMITTED")
                 buyPhase("TX_CONFIRMED")
                 // V5.9.602 — Pump-first gets the same lifecycle ledger as
@@ -15009,6 +15028,10 @@ class Executor(
                 liveStage("FINALITY_CONFIRMED", "route=${q.router} signature=${sig.take(16)}")
                 try { ForensicLogger.lifecycle("LIVE_BUY_CONFIRMED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${q.router} signature=${sig.take(16)} finalSol=${sol.fmt(4)}") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("BUY_TX_SUBMITTED"); PipelineHealthCollector.labelInc("LIVE_BUY_CONFIRMED") } catch (_: Throwable) {}
+                // V5.0.6401 §4 — clear startup exit-only latch on the first
+                // confirmed Jupiter-route live buy (mirrors the PumpPortal
+                // branch clear above).
+                try { com.lifecyclebot.engine.truth.StartupExitOnlyLatch6401.onLiveBuySuccess() } catch (_: Throwable) {}
                 buyPhase("TX_SUBMITTED")
                 try { PipelineHealthCollector.labelInc("JUPITER_CONFIRM_OK") } catch (_: Throwable) {}
                 buyPhase("TX_CONFIRMED")

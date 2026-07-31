@@ -101,6 +101,51 @@ object StartupExitOnlyLatch6401 {
     fun onLiveBuySuccess() {
         liveBuyThisGeneration.set(true)
         latchActive.set(false)
+        // The startup exit-only umbrella cannot possibly still apply if a
+        // live buy already broadcast this generation — force disengage.
+        try {
+            if (LiveExitOnlyMode6387.activeReason() == "STARTUP_DEFAULT") {
+                LiveExitOnlyMode6387.disengage()
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                    "LIVE_EXIT_ONLY_STARTUP_DEFAULT_CLEARED_ON_BUY_6401")
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.6401 §4 — invoked at every live BUY canOpen check. Attempts to
+     * clear the *startup-time* umbrella so that transient startup deferral
+     * cannot produce terminal BUY_FAILs. Only acts when the current
+     * `LiveExitOnlyMode6387.activeReason() == "STARTUP_DEFAULT"` (the
+     * construction default). Real runtime exit-only reasons emitted by
+     * safety authorities (HOT_EXIT_MISSED_*, CANONICAL_EXCEEDS_WALLET,
+     * etc.) are untouched. Returns true iff the latch is (now) cleared.
+     */
+    fun checkAndClearStartupDefault(nowMs: Long = System.currentTimeMillis()): Boolean {
+        val reason = try { LiveExitOnlyMode6387.activeReason() } catch (_: Throwable) { null }
+        if (reason != "STARTUP_DEFAULT") {
+            latchActive.set(false)
+            return true
+        }
+        // Age-based auto-repair only (safe: any real live buy this generation
+        // already lands via onLiveBuySuccess, and startup has clearly
+        // completed by the time we reach the executor).
+        val age = nowMs - startedAtMs.get()
+        if (age >= REPAIR_MS) {
+            latchActive.set(false)
+            try {
+                LiveExitOnlyMode6387.disengage()
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                    "STARTUP_EXIT_ONLY_LATCH_REPAIRED_6401")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "STARTUP_EXIT_ONLY_LATCH_REPAIRED_6401", "ageMs=$age")
+            } catch (_: Throwable) {}
+            return true
+        }
+        if (age >= WARN_MS) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("STARTUP_EXIT_ONLY_LATCH_WARN_6401") } catch (_: Throwable) {}
+        }
+        return false
     }
 
     /** New runtime generation — reset latch (called by BotRuntimeController). */

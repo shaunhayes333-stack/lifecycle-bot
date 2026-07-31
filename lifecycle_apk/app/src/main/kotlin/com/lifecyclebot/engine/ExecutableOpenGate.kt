@@ -649,12 +649,35 @@ object ExecutableOpenGate {
         // ALL new live BUYs until parity + price-identity are validated for
         // 5 consecutive clean cycles.
         if (mode.equals("LIVE", ignoreCase = true)) {
+            // V5.0.6401 §4 — attempt to auto-clear the startup exit-only
+            // umbrella BEFORE evaluating it. This prevents transient
+            // startup deferral (activeReason == "STARTUP_DEFAULT") from
+            // producing terminal BUY_FAILs like the 19-row snapshot showed
+            // in V5.0.6400. Real runtime exit-only reasons are preserved.
+            try { com.lifecyclebot.engine.truth.StartupExitOnlyLatch6401.checkAndClearStartupDefault() } catch (_: Throwable) {}
             // V5.0.6387 P0 — LIVE_EXIT_ONLY umbrella. Blocks all new live BUYs
             // whenever any of the 9 startup invariants is false. Stops, emergency,
             // operator + reconciler sells continue via their own paths.
             val exitOnly = com.lifecyclebot.engine.truth.LiveExitOnlyMode6387.isActive()
             if (exitOnly) {
                 val reason = com.lifecyclebot.engine.truth.LiveExitOnlyMode6387.activeReason() ?: "LIVE_EXIT_ONLY_ACTIVE"
+                // V5.0.6401 §4 — STARTUP_DEFAULT never becomes a terminal
+                // failure. Emit a DEFERRAL signal that Executor routes to
+                // BUY_DEFERRED_STARTUP (requeue, no BUY_FAIL, no counter
+                // inflation).
+                if (reason == "STARTUP_DEFAULT") {
+                    try {
+                        com.lifecyclebot.engine.truth.StartupExitOnlyLatch6401.classifyDeferral()
+                        PipelineHealthCollector.labelInc("BUY_DEFERRED_STARTUP_6401")
+                        ForensicLogger.lifecycle("BUY_DEFERRED_STARTUP_6401",
+                            "attemptId=$attemptId mint=${ts.mint.take(10)} sym=${ts.symbol} lane=${canonicalLane(lane)} source=$source reason=$reason")
+                    } catch (_: Throwable) {}
+                    return OpenVerdict(allowed = false,
+                        reason = "BUY_DEFERRED_STARTUP_6401",
+                        shadowOnly = true,
+                        logName = "BUY_DEFERRED_STARTUP_6401",
+                        attemptId = attemptId)
+                }
                 try {
                     PipelineHealthCollector.labelInc("LIVE_EXIT_ONLY_BUY_BLOCKED_6387")
                     ForensicLogger.lifecycle("LIVE_EXIT_ONLY_BUY_BLOCKED_6387",
