@@ -15706,10 +15706,22 @@ if (hotExitHandledSweep) {
                                 val snap = buildExitSweepSnapshot()
                                 if (snap.cfg != null) {
                                     didWork = true
-                                    try { ForensicLogger.lifecycle("EXIT_COORDINATOR_FULL_START", "ageMs=$age") } catch (_: Throwable) {}
-                                    try { sweepUniversalExits(snap.cfg, snap.wallet, snap.balance) }
-                                    catch (t: Throwable) { ErrorLogger.warn("BotService", "exit coordinator full sweep error: ${t.message}") }
-                                    try { ForensicLogger.lifecycle("EXIT_COORDINATOR_FULL_DONE", "ageMs=$age") } catch (_: Throwable) {}
+                                    // V5.0.6403 §C — start/done invariant for
+                                    // the FULL exit sweep (Universal SL already
+                                    // fixed in 6402). 6402 snapshot showed
+                                    // exStart=12 exDone=11: one orphan. Same
+                                    // try/finally + lease pattern used by the
+                                    // universal branch below makes the gap
+                                    // structurally impossible.
+                                    val fullSweepId = com.lifecyclebot.engine.truth.UniversalSlLeaseRegistry6402.acquire()
+                                    try {
+                                        try { ForensicLogger.lifecycle("EXIT_COORDINATOR_FULL_START", "ageMs=$age sweepId=$fullSweepId") } catch (_: Throwable) {}
+                                        try { sweepUniversalExits(snap.cfg, snap.wallet, snap.balance) }
+                                        catch (t: Throwable) { ErrorLogger.warn("BotService", "exit coordinator full sweep error: ${t.message}") }
+                                    } finally {
+                                        try { ForensicLogger.lifecycle("EXIT_COORDINATOR_FULL_DONE", "ageMs=$age sweepId=$fullSweepId") } catch (_: Throwable) {}
+                                        try { com.lifecyclebot.engine.truth.UniversalSlLeaseRegistry6402.release(fullSweepId) } catch (_: Throwable) {}
+                                    }
                                     // V5.9.1470 (spec item 4) — a successful coordinator sweep
                                     // IS exit protection running. Advance the hot-exit heartbeat
                                     // so maybeHealHotExit stops re-firing STALE_RESET when the
@@ -16988,7 +17000,31 @@ if (hotExitHandledSweep) {
                 status.tokens.values.filter { it.position.isOpen }.toList()
             }
             val nowMs = System.currentTimeMillis()
+            // V5.0.6402 §C — hard deadline for the full exit sweep too.
+            // 6402 snapshot cycles hit 94-173s despite Universal SL being
+            // 5s-capped, because this OTHER sweep (part 0 hard floor +
+            // peak backstop) also runs per-position with unbounded network
+            // I/O on every open token. Cap the total wall-clock at 5s so
+            // the bot loop cannot see either sweep suspend it for a minute.
+            val fullSweepStartedAt = nowMs
+            val FULL_SWEEP_HARD_DEADLINE_MS = 5_000L
+            var floorPositionsProcessed = 0
+            var floorPositionsDeferred = 0
             openTokensForFloor.forEach { ts ->
+                if (System.currentTimeMillis() - fullSweepStartedAt >= FULL_SWEEP_HARD_DEADLINE_MS) {
+                    floorPositionsDeferred++
+                    if (floorPositionsDeferred == 1) {
+                        try {
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FULL_EXIT_SWEEP_HARD_DEADLINE_6402")
+                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                "FULL_EXIT_SWEEP_HARD_DEADLINE_6402",
+                                "elapsedMs=${System.currentTimeMillis() - fullSweepStartedAt} positionsSeen=${openTokensForFloor.size} processed=$floorPositionsProcessed budgetMs=$FULL_SWEEP_HARD_DEADLINE_MS",
+                            )
+                        } catch (_: Throwable) {}
+                    }
+                    return@forEach
+                }
+                floorPositionsProcessed++
                 try {
                     val posAgeMs = nowMs - ts.position.entryTime
                     if (posAgeMs < 45_000L) return@forEach
