@@ -17406,21 +17406,68 @@ if (hotExitHandledSweep) {
                         return@run fastSynth
                     }
                 }
+                // V5.0.6401 §9 — PUMP.FUN SOURCE-NATIVE FAST SEED.
+                // Snapshot showed 70/70 INTAKE events blocked by
+                // NO_PAIR_NO_FALLBACK while DexScreener was degraded.
+                // Root cause: source-native pump.fun mints entered
+                // this branch WITHOUT a seeded lastPrice, so the
+                // synthesize step never fires and we spend 15-20s
+                // hammering oracles that also can't help. Every
+                // pump.fun mint has a KNOWN fixed supply of 1e9
+                // tokens on the bonding curve — if intake preserved
+                // the market cap we can seed the price directly
+                // and hydrate the synth pair BEFORE the expensive
+                // oracle fallbacks. Operator directive: "Pump.fun
+                // and Raydium source-native routes must not fail
+                // when DexScreener is down."
+                val isPumpSource = ts.source.contains("PUMP", ignoreCase = true) ||
+                        ts.source.contains("PUMPPORTAL", ignoreCase = true)
+                if (isPumpSource && ts.lastPrice <= 0.0 && ts.lastMcap > 0.0) {
+                    val seededPrice = ts.lastMcap / 1_000_000_000.0
+                    synchronized(ts) {
+                        ts.lastPrice = seededPrice
+                        ts.lastPriceUpdate = System.currentTimeMillis()
+                        ts.lastPriceSource = "PUMP_FUN_SOURCE_NATIVE_MCAP_SEED_6401"
+                    }
+                    val fastSynth6401 = synthesizeFallbackPair(ts)
+                    if (fastSynth6401 != null) {
+                        try { PipelineHealthCollector.labelInc("INTAKE_PUMPFUN_SOURCE_NATIVE_SEED_6401") } catch (_: Throwable) {}
+                        try { ForensicLogger.lifecycle("INTAKE_PUMPFUN_SOURCE_NATIVE_SEED_6401", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} mcap=${ts.lastMcap.toInt()} seededPrice=$seededPrice") } catch (_: Throwable) {}
+                        return@run fastSynth6401
+                    }
+                }
                 val refreshed = tryFallbackPriceData(mint, ts)
                 val synth = if (ts.lastPrice > 0.0) synthesizeFallbackPair(ts) else null
                 if (synth == null) {
-                    // V5.9.655 — operator triage: this silent return was the
-                    // root cause of "0 trades from 392 watchlist tokens". The
-                    // mcap/1B intake-time price seed (admitProtectedMemeIntake)
-                    // should make ts.lastPrice > 0.0 before we ever reach this
-                    // branch for PumpPortal mints, but if we still land here
-                    // something is genuinely off — log loudly so the operator
-                    // doesn't have to wait another debug cycle to see it.
+                    // V5.0.6401 §9 — record hydration state so
+                    // PairHydrationState6398.checkParity can observe
+                    // whether we are truly hard-unavailable or still
+                    // in the 45s hydration window. Loud
+                    // NO_PAIR_NO_FALLBACK log stays for backward
+                    // compatibility, but the demote decision below
+                    // is guided by the canonical state machine.
+                    val hydrationStartedAt = try { com.lifecyclebot.engine.GlobalTradeRegistry.getEntry(mint)?.addedAt ?: System.currentTimeMillis() } catch (_: Throwable) { System.currentTimeMillis() }
+                    val pumpBondingCurve = if (isPumpSource) mint else null   // pump.fun bonding curve IS the mint
+                    val hydrationState = try {
+                        com.lifecyclebot.engine.truth.PairHydrationState6398.resolve(
+                            mint = mint,
+                            dexscreenerPair = null,
+                            raydiumPoolFromScanner = null,
+                            pumpFunBondingCurve = pumpBondingCurve,
+                            heliusPair = null,
+                            jupiterRouteOk = false,
+                            birdeyePair = null,
+                            watchlistLastKnownPair = null,
+                            providersAttempted = listOf("DEXSCREENER", "BIRDEYE", "ORACLE"),
+                            hydrationStartedAtMs = hydrationStartedAt,
+                        )
+                    } catch (_: Throwable) { null }
+                    val stateLabel = hydrationState?.state?.name ?: "UNKNOWN"
                     ForensicLogger.gate(
                         ForensicLogger.PHASE.INTAKE,
                         ts.symbol,
                         allow = false,
-                        reason = "NO_PAIR_NO_FALLBACK src=${ts.source} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} lastPrice=${ts.lastPrice} oracleHit=$refreshed",
+                        reason = "NO_PAIR_NO_FALLBACK src=${ts.source} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} lastPrice=${ts.lastPrice} oracleHit=$refreshed hydrationState=$stateLabel",
                     )
                     // No usable price — last-resort exit safety net.
                     if (ts.position.qtyToken > 0.0 && ts.position.entryPrice > 0.0) {

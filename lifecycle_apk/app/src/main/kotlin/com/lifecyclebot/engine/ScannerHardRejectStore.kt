@@ -21,7 +21,18 @@ object ScannerHardRejectStore {
 
     fun init(context: Context) {
         ctx = context.applicationContext
-        load()
+        // V5.0.6401 ANR-KILLER — SharedPreferences read + JSON parse of
+        // this store showed up 3× in the pipeline health snapshot as a
+        // main-thread blocker (SourceFile:30 stall attribution). Move
+        // the disk read off the caller thread so `isRejected()` returns
+        // fast (false, since nothing loaded yet) instead of stalling
+        // Main on cold start. The scanner path tolerates a brief empty
+        // window: worst case, a previously rejected mint is re-scanned
+        // once before hydration completes.
+        Thread({ load() }, "ScannerHardRejectStore-Load-6401").apply {
+            isDaemon = true
+            priority = Thread.NORM_PRIORITY - 1
+        }.start()
     }
 
     fun isRejected(mint: String): Boolean = mint.isNotBlank() && hardRejects.containsKey(mint)

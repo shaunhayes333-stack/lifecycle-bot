@@ -270,8 +270,24 @@ object DynamicAltTokenRegistry {
     fun init(context: android.content.Context) {
         appCtx = context.applicationContext
         seedStaticTokens()
-        restoreFromDisk()
-        ErrorLogger.info(TAG, "Init complete | total=${registry.size} | static=${getStaticCount()} | dynamic=${getDynamicCount()}")
+        // V5.0.6401 ANR-KILLER — restoreFromDisk showed up in the
+        // pipeline health snapshot as a main-thread ANR contributor
+        // (SourceFile:237 stall). The registry API guards missing
+        // entries by returning null / empty defaults, so restoring
+        // asynchronously is safe: worst case, a caller hits the
+        // registry during the ~50ms restore window and gets an
+        // empty result once (recovered on the next tick).
+        Thread({
+            try {
+                restoreFromDisk()
+                ErrorLogger.info(TAG, "Init complete | total=${registry.size} | static=${getStaticCount()} | dynamic=${getDynamicCount()}")
+            } catch (t: Throwable) {
+                ErrorLogger.warn(TAG, "async restoreFromDisk failed: ${t.message}")
+            }
+        }, "DynamicAltTokenRegistry-Restore-6401").apply {
+            isDaemon = true
+            priority = Thread.NORM_PRIORITY - 1
+        }.start()
     }
 
     /** Schedule a debounced save on background thread. Coalesces bursts. */
