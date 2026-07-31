@@ -1,49 +1,103 @@
-# AATE PRD — V5.0.6400 (Hard Score Floor Eradicated)
+# AATE PRD — V5.0.6401 (Startup Latch + FDG Parity Wired)
 
-## Session shipping stack (6388 → 6400a, all CI GREEN)
+## Session shipping stack (6388 → 6401b, all CI GREEN)
 
-- **6400a** (`158c364fb` ✅ Build) ERADICATE THE LIVE BUY HARD SCORE FLOOR.
-  The `if (candidateScore < effectiveFloor) { failed += ... }` branch
-  in LiveEntrySafetyHold is GONE. Score cannot independently return
-  BLOCK / HOLD / DENY / REJECT / BUY_FAILED / SCORE_BELOW_LIVE_FLOOR.
-  * `SoftScoreShaping6400.publish(mint, symbol, lane, rawScore,
-    referenceFloor)` → sizeMultiplier ∈ {0.35, 0.45, 0.60, 0.80, 1.00}
-    by band, softConfidence ∈ [0.10, 1.00], softSignals. Missing /
-    NaN score → neutral 0.55 mult. Never zero, never reject.
-  * `NoHardScoreEntryGateGuard6400.check()` → hardScoreGateActive=false,
-    scoreOnlyHardRejects=0, scorePolicy=SOFT_SHAPING_ONLY. Startup
-    invariant fails loudly if a regression re-introduces a hard gate.
-  * Every low-score candidate emits `LIVE_ENTRY_DECISION_SHAPED_6400`
-    with full provenance so operators can prove low scores are shaped
-    (never silently discarded).
-  * Bundle6400 covers all bands (-10, 0, 1, 3, 7, 9, 15, null) →
-    always positive size mult, never rejection. HotfixInvariantsTest.
-    scoreBelowLiveFloorRedirectsToShadow rewritten to protect the
-    INVERSE invariant (score-below-reference must NOT appear in
-    failedInvariants).
+- **6401b** (`ade11f566` ✅ Build) — compile fix for Bundle6399 testF
+  (param name `evidence`, not `evidenceCompleteness`).
+- **6401a §4** (`2c1e66d9f` ✅ Build) STARTUP EXIT-ONLY LATCH.
+  Wires `StartupExitOnlyLatch6401` into `ExecutableOpenGate` +
+  `Executor`. The 6400 snapshot's 19 BUY_FAILs labelled
+  `FINALITY_BLOCK:LIVE_EXIT_ONLY_ACTIVE:STARTUP_DEFAULT` are now
+  routed to `BUY_DEFERRED_STARTUP_6401` (requeue, no BUY_FAIL, no
+  counter inflation, no telemetry row).
+  * `checkAndClearStartupDefault()` self-repairs the umbrella at
+    15s; `onLiveBuySuccess()` locks it cleared for the generation
+    and calls `LiveExitOnlyMode6387.disengage()` iff activeReason
+    is still the boot `STARTUP_DEFAULT`.
+  * Both PumpPortal and Jupiter live-buy confirm paths clear the
+    latch on the first confirmed BUY.
+  * Bundle6401StartupExitOnlyLatchTest — 8 invariants; distinct
+    coverage of the disengage-on-repair and no-op-for-real-runtime
+    reason cases.
 
-- **6399** (`9ce60f077` ✅) ENTRY AUTHORITY ORDERING + SPLIT-BRAIN REMOVAL.
+- **6401 P1** (`755075b2d` ✅) COUNTER PARITY TERMINAL WIRE.
+  `CanonicalEntryPipeline6398.decide()` now calls
+  `CounterParityLedger6399.recordTerminal(outcome)` on every
+  canonical terminal (ALLOW / BLOCK_SCORE / BLOCK_HARD_SAFETY /
+  DEFER_HYDRATION). Executor.liveBuy entry point calls
+  `recordLiveExecutorInvocation() + recordBuyAttempt()`; every
+  `emitLiveBuyFail()` calls `recordBuyFailure()`. Parity
+  invariants EXEC<=TICKETS, BUY_ATTEMPT<=EXEC, BUY_FAILED<=BUY_ATTEMPT
+  now hold end-to-end.
+  * Bundle6401CounterParityTerminalWireTest — 7 invariants.
+  * Bundle6399EntryAuthorityOrderingTest updated: redundant manual
+    `recordTerminal` removed (decide is sole emission surface).
+
+- **6400a** (`158c364fb` ✅ Build) ERADICATE THE LIVE BUY HARD SCORE
+  FLOOR. Score cannot independently return BUY_FAILED /
+  SCORE_BELOW_LIVE_FLOOR; low-score candidates get shaped size
+  multipliers instead of terminal rejection.
+- **6399** (`9ce60f077` ✅) ENTRY AUTHORITY ORDERING + SPLIT-BRAIN
+  REMOVAL.
 - **6398a** (`1576f1153` ✅) CANONICAL FLUID ENTRY AUTHORITY REPAIR.
 - **6397a/b** (`61d1d2c85` ✅) ADAPTIVE FLOOR BRAIN — fluid [12, 22].
-- **6396** (`b43f74167` ✅) LIVE SCORE-SCALE REALIGNMENT (55/56 → 15/17/20).
-- **6395a** (`9fc222307` ✅) EXECUTABLE RUNNER + POSITION IDENTITY REPAIR.
+- **6396** (`b43f74167` ✅) LIVE SCORE-SCALE REALIGNMENT.
+- **6395a** (`9fc222307` ✅) EXECUTABLE RUNNER + POSITION IDENTITY.
 - **6394c** (`b3efddd20` ✅) EarlyLaunchBypass wired into FDG.
+
+## Snapshot expectations for the V5.0.6401b APK
+
+1. `LIVE_EXIT_ONLY_BUY_BLOCKED_6387` counter DROPS to zero for
+   reason=STARTUP_DEFAULT (the 19-row row cluster from the
+   V5.0.6400 snapshot).
+2. `BUY_DEFERRED_STARTUP_6401` NEW counter appears — captures the
+   deferred candidates that used to be terminal BUY_FAIL rows.
+3. `STARTUP_EXIT_ONLY_LATCH_REPAIRED_6401` fires once per generation
+   at ~15s (or earlier on first successful live buy).
+4. `LIVE_EXIT_ONLY_STARTUP_DEFAULT_CLEARED_ON_BUY_6401` fires on
+   the first confirmed live BUY of the generation.
+5. `FDG_ALLOW_LIVE_6399` / `FDG_BLOCK_SCORE_6399` /
+   `FDG_BLOCK_HARD_SAFETY_6399` / `FDG_DEFER_HYDRATION_6399`
+   counters populate — previously only tickets landed in the
+   parity ledger.
 
 ## Next backlog
 
-- **P1 FDG Terminal Wire** — call `CounterParityLedger6399.recordTerminal`
-  at every FinalDecisionGate terminal outcome so parity is auditable
-  end-to-end in production (still open from previous cycle).
-- **P1 Governor Soft-Only Verification** — audit every governor state
-  mapping and confirm none reconstructs a hard score threshold.
-- **P1 Live Session Validation** — run V5.0.6400 APK and confirm:
-  - zero `SCORE_BELOW_LIVE_FLOOR` in logs
-  - `forbiddenScoreFloorRejectCount == 0`
-  - low-score candidates reach quote/execution
-- **P2 Journal Correction Pass** — reclassify historical
-  LIVE_BUY_FAIL_TELEMETRY rows.
-- **P2 ANR Killer**, **P2 Fill Ledger LiveExecutor extension**,
-  **P3 SOL Perps/Leverage (Phase 1)**.
+### 🔴 P0 — V5.0.6401 remaining sections
+- **§3 Legacy bypass authorities** — `LANE_QUARANTINED_BLOCKED_ENTRY_6002`
+  (LaneQuarantineController.logBlockedEntry), `EXPRESS_LANE_PAUSED_EARLY_GATE_4594`
+  (BotService:21519), `TOP_LANE_BYPASS_V4148` (Executor:13052 —
+  actually a positive bypass, not a hard block). Migrate the two
+  hard-blocks to record via `CounterParityLedger6399` so parity
+  ledger tracks them; keep the block semantics.
+- **§7/§8 QTY_DECIMAL_SKEW** — sell path still uses 100× inflated
+  quantities (UI 1409 → sell 1.409e5). Requires BigInteger/lamport
+  math end-to-end on sell intent quantity replacement. Multi-file
+  refactor, needs its own session.
+- **§9 INTAKE / NO_PAIR_NO_FALLBACK choke** — wire
+  `PairHydrationState6398` into intake so Pump.fun / Raydium
+  source-native routes survive DexScreener degradation.
+
+### 🟠 P1 — verification + monitoring
+- **Live Session Validation** — run V5.0.6401b APK; confirm:
+  * `BUY_DEFERRED_STARTUP_6401 > 0` (or 0 if the latch cleared
+    before any candidate arrived — either is healthy).
+  * `LIVE_EXIT_ONLY_ACTIVE:STARTUP_DEFAULT` == 0 in BUY fail
+    telemetry.
+  * `CounterParityLedger6399.checkParity().ok == true` in the
+    RuntimeDoctor dump.
+- **Governor Soft-Only Verification** — audit every governor
+  state mapping and confirm none reconstructs a hard score
+  threshold outside the V5.0.6398/6399 canonical pipeline.
+
+### 🟢 P2 — ANR killer
+- Move `MainActivity.onCreate` + full-report export off the main
+  thread. Kills 1225ms frame stalls; report truncation resolves.
+
+### 🟣 P3 — Phase 1 SOL Perps/Leverage
+- Gated on live WR + 2×–5× daily benchmark hit.
+
+
 
 # (Legacy) AATE PRD — V5.0.6393
 
