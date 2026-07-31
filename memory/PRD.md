@@ -1,93 +1,116 @@
-# AATE PRD — V5.0.6401d (Intake Fallback + Async Cold-Start Loads)
+# AATE PRD — V5.0.6402 (Universal SL Invariant + Provider Breakers)
 
-## Session shipping stack (6388 → 6401d, all CI GREEN)
+## Session shipping stack (6388 → 6402b, all CI GREEN)
 
-- **6401d** (`6f052a763` ✅ Build) INTAKE NO-PAIR FALLBACK + ASYNC
-  ANR-LOAD.
-  * 6401c snapshot showed 70/70 INTAKE events blocked by
-    `NO_PAIR_NO_FALLBACK` while DexScreener was degraded, plus
-    12.8% main-thread stall time with `ScannerHardRejectStore.load
-    × 3` and `DynamicAltTokenRegistry.restoreFromDisk × 1` in the
-    top ANR sites.
-  * `BotService.processTokenCycle` no-pair branch now:
-    - Fast-seeds `ts.lastPrice = ts.lastMcap / 1_000_000_000` for
-      pump.fun-native sources (bonding curve has KNOWN 1e9 supply)
-      so `synthesizeFallbackPair` fires BEFORE the 15-20s oracle
-      chain. Emits `INTAKE_PUMPFUN_SOURCE_NATIVE_SEED_6401`.
-    - Records canonical `PairHydrationState6398` snapshot (PENDING
-      / SOURCE_NATIVE / HARD_UNAVAILABLE) into the
-      `NO_PAIR_NO_FALLBACK` forensic row so operators can see
-      whether it's still hot or actually exhausted.
-  * `ScannerHardRejectStore.init` and
-    `DynamicAltTokenRegistry.init` dispatch the disk load to a
-    daemon background thread — no more synchronous
-    SharedPreferences / JSON parse on the caller thread.
-  * Bundle6401IntakeHydrationWireTest — 5 invariants covering
-    pump.fun bonding curve as SOURCE_NATIVE, fresh intake as
-    PENDING, aged as HARD_UNAVAILABLE, Raydium scanner pool
-    survival, and DexScreener-degraded → non-erasure of
-    source-native.
-- **6401c** (`4ca7c6bcf` ✅) ANR-safe full-report share +
+- **6402b** (`e698e09d8d` ✅ Build) SAME-MINT CANDIDATE EPOCH WIRE.
+  * ExecutableOpenGate PAPER same-mint gate now routes through
+    `SameMintCandidateEpoch6402.shouldSuppress` before emitting a
+    full lifecycle row. First hit gets the loud row; subsequent
+    hits within the 2s cooldown are silently deduped into a single
+    counter. Kills the 68 PAPER_SAME_MINT + 11 V3_SAME_MINT
+    lifecycle duplicates the 6401 snapshot showed.
+  * `EmergentGuardrails.unregisterPosition` bumps the mint's epoch
+    via `SameMintCandidateEpoch6402.onStateChange` so the next
+    candidate is admitted right after position close.
+
+- **6402a** (`07668c202a`) V5.0.6402 SUBSTRATE + surgical wires.
+  * `UniversalSlLeaseRegistry6402` — acquire()/release()/
+    reapStaleLeases() with 10s TTL. `BotService.exit-coordinator`
+    now wraps the universal sweep in try/finally around acquire/
+    release so the 6401 snapshot's slStart=7 slDone=6 gap becomes
+    structurally impossible.
+  * `ProviderCircuitBreaker6402` — Birdeye 401/403 → permanent
+    auth-terminal circuit; Helius 429 → exponential shared backoff
+    honouring Retry-After; 5xx → 2s transient cool-down; success
+    → clears transient state (auth-terminal untouched). Wired at
+    BirdeyeApi.getRaw + HeliusCreatorHistory.postRaw — every
+    caller pre-checks `shouldSkip`, response codes route to
+    onAuthTerminal/onRateLimited/onServerError/onSuccess.
+  * `BotLoopStageTiming6402` — substrate ready for wire-in around
+    every top-level loop stage. Stage enum + `time(cid, stage) { }`
+    that emits START/DONE (or EXCEPTION) with elapsedMs.
+  * `SameMintCandidateEpoch6402` — substrate for §H.
+  * `ExitPendingOrphanGuard6402` — pure verdict surface for §G
+    (NotPending / HealthyPending / Orphaned / StaleIntent).
+  * Bundle6402SubstrateTest — 22 invariants covering acquire/release
+    cycles, stale-lease reap after 10s, Birdeye 401 auth-terminal
+    persistence, Helius 429 exponential backoff + Retry-After,
+    stage timing exception rethrow, same-mint suppression + cooldown
+    + epoch bump, all four exit-pending verdicts.
+
+- **6401d** (`6f052a763` ✅) INTAKE NO-PAIR FALLBACK + async cold-start.
+- **6401c** (`4ca7c6bcf` ✅) ANR-safe report share +
   `SellIntentQuantityAuthority6401`.
-- **6401b** (`ade11f566` ✅) — compile fix for Bundle6399 testF.
+- **6401b** (`ade11f566` ✅) compile fix.
 - **6401a §4** (`2c1e66d9f` ✅) STARTUP EXIT-ONLY LATCH wired.
 - **6401 P1** (`755075b2d` ✅) FDG parity terminal wire.
 - **6400a** (`158c364fb` ✅) HARD SCORE FLOOR ERADICATED.
 - **6399** (`9ce60f077` ✅) ENTRY AUTHORITY ORDERING + SPLIT-BRAIN.
 - **6398a** (`1576f1153` ✅) CANONICAL FLUID ENTRY AUTHORITY REPAIR.
-- **6397a/b** (`61d1d2c85` ✅) ADAPTIVE FLOOR BRAIN — fluid [12, 22].
+- **6397a/b** (`61d1d2c85` ✅) ADAPTIVE FLOOR BRAIN.
 - **6396** (`b43f74167` ✅) LIVE SCORE-SCALE REALIGNMENT.
 - **6395a** (`9fc222307` ✅) EXECUTABLE RUNNER + POSITION IDENTITY.
 - **6394c** (`b3efddd20` ✅) EarlyLaunchBypass wired into FDG.
 
-## Snapshot expectations for the V5.0.6401d APK
+## Snapshot expectations for the V5.0.6402b APK
 
-1. `INTAKE/NO_PAIR_NO_FALLBACK` counter drops sharply for
-   pump.fun-native sources (7 sources in the last snapshot).
-2. `INTAKE_PUMPFUN_SOURCE_NATIVE_SEED_6401` counter fires for
-   every pump.fun mint that used to blow through to the oracle
-   chain.
-3. `NO_PAIR_NO_FALLBACK` forensic rows now carry
-   `hydrationState=PAIR_PENDING_HYDRATION | PAIR_SOURCE_NATIVE |
-   PAIR_HARD_UNAVAILABLE`.
-4. `ScannerHardRejectStore.load` and
-   `DynamicAltTokenRegistry.restoreFromDisk` no longer appear in
-   top ANR blocking sites.
-5. All V5.0.6401a-c counters (BUY_DEFERRED_STARTUP_6401,
-   PIPELINE_REPORT_FILE_WRITTEN_6401,
-   QTY_DECIMAL_SKEW_6401_LIKELY_10X_DECIMALS,
-   FDG_* terminals) continue as prior.
+1. `Universal SL start/done` reads N/N (never N/N-1). Any
+   orphaned lease is auto-reaped at 10s with
+   `UNIVERSAL_SL_STALE_LEASE_RESET_6402`.
+2. Birdeye 401 fires once → circuit opens →
+   `PROVIDER_CIRCUIT_OPENED_BIRDEYE_AUTH_TERMINAL_6402` in the
+   forensic log; every subsequent request short-circuits with
+   `PROVIDER_CIRCUIT_SKIP_BIRDEYE_AUTH_TERMINAL_6402`.
+3. Helius 429 activates one shared backoff (base 5s → cap 60s)
+   instead of per-mint retries;
+   `PROVIDER_CIRCUIT_RATE_LIMITED_HELIUS_6402` counter reflects
+   real 429 events.
+4. `EXEC_OPEN_SAME_MINT_ALREADY_OPEN_COOLDOWN_6371` lifecycle row
+   count drops sharply; excess dedup is captured by
+   `SAME_MINT_CANDIDATE_SUPPRESSED_6402`.
+5. `SAME_MINT_EPOCH_BUMPED_6402` fires each time a position
+   closes, admitting the next candidate.
 
-## Next backlog
+## Next backlog (from V5.0.6402 directive)
 
-### 🔴 P0 — V5.0.6401 remaining sections
-- **Bot cycle max 148s / avg 11.4s** — 6401c snapshot showed
-  extreme cycle latency; primary suspect is the 15-20s oracle
-  fallback chain that we bypass for pump.fun in 6401d but still
-  fires for other sources. Consider moving the whole
-  `tryFallbackPriceData` chain off the per-token synchronous
-  path.
-- **§7/§8 Sell path migration** — wire
-  `SellIntentQuantityAuthority6401.validateSellIntent` into every
-  Executor sell callsite (substrate is landed).
-- **§3 Legacy bypass authorities** — record
-  `LANE_QUARANTINED_BLOCKED_ENTRY_6002` +
-  `EXPRESS_LANE_PAUSED_EARLY_GATE_4594` via
-  `CounterParityLedger6399.recordTerminal` so parity ledger
-  tracks them.
+### 🔴 P0 remaining directive sections
+- **§A wire** — instrument every top-level bot-loop stage with
+  `BotLoopStageTiming6402.time(cid, Stage.X) { … }`. Substrate is
+  ready; the wire pass covers scannerDrain, intakeNormalization,
+  canonicalMintDedupe, laneEvaluation, v3Evaluation,
+  finalDecisionGate, executionDrain, exitSweep,
+  universalStopLoss, positionReconciliation, journalFlush,
+  telemetrySnapshot.
+- **§B PriceSnapshotRepository** — continuous background refresh
+  publishing immutable price marks so the bot loop reads
+  synchronously without awaiting provider I/O.
+- **§C parallel Universal SL** — copy positions under a short
+  lock then evaluate 6-8 in parallel with per-position 250ms
+  deadline; whole-sweep hard deadline 5000ms.
+- **§E CanonicalOpenPositionRegistry** — one source of truth for
+  localOpen / paperRunners / slotHealth.open / per-lane counts.
+  Directive requires 43/10/4 to reconcile or be scope-labelled.
+- **§F Position Reconciliation** — GHOST_OPEN, CLOSED_SLOT_STILL_HELD,
+  EXIT_PENDING_WITHOUT_INTENT, INTENT_WITHOUT_POSITION,
+  PARTIAL_REMAINDER_MISMATCH, DUPLICATE_OPEN_SAME_POSITION_ID,
+  DUPLICATE_MINT_DISTINCT_VALID_POSITION,
+  PAPER_POSITION_WITHOUT_OPEN_FINALITY,
+  OPEN_POSITION_WITH_CLOSE_FINALITY classifications.
+- **§G ExitPendingOrphanGuard wire** — substrate is landed; wire
+  it at every exitPending read site.
+- **§I Scanner backpressure** — bounded conflated mint queue
+  keyed by mint; max 25 unique/cycle, callback max synchronous
+  work 5ms.
+- **§J Token meta cache** — normalise keys, stale-while-revalidate,
+  target hit rate > 80%.
+- **§K Dispatcher** — move CryptoAltTrader.loadFromSharedPrefs,
+  PatternClassifier.load, large report construction off Main.
+- **§L Doctor** — classify Birdeye 401 AUTH_TERMINAL,
+  Helius 429 RATE_LIMITED, DexScreener 5xx DEGRADED.
 
-### 🟠 P1 — verification + monitoring
-- **Live Session Validation** — run V5.0.6401d APK. Confirm:
-  * INTAKE allow > 0 (was 0/70 in the last snapshot).
-  * Max cycle ms drops from 148s to < 30s.
-  * ANR stall % drops well below 12.8%.
-  * `PIPELINE_REPORT_FILE_WRITTEN_6401` fires on every operator
-    Copy tap; Share dialog exposes the full 60k+ line file.
-- **Governor Soft-Only Verification** — audit every governor
-  state mapping.
-
-### 🟢 P2 — Phase 1 SOL Perps/Leverage
-- Gated on live WR + 2×–5× daily benchmark hit.
+### 🟠 P1 verification
+- **Live Session Validation** on V5.0.6402b APK against
+  acceptance tests N.1–N.22.
 
 
 
