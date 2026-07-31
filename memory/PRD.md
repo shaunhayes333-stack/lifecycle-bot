@@ -1,66 +1,64 @@
-# AATE PRD — V5.0.6397 (Adaptive Floor Brain)
+# AATE PRD — V5.0.6398 (Canonical Fluid Entry Authority)
 
-## Session shipping stack (6388 → 6397, all CI GREEN)
+## Session shipping stack (6388 → 6398a, all CI GREEN)
 
-- **6397a/b** (`61d1d2c85` ✅ Build) ADAPTIVE FLOOR BRAIN — the [12, 22]
-  envelope is now FLUID inside itself. Signals blended into ONE
-  bounded floor per candidate:
-    * scanner heat (very hot +2 / hot +1 / cool -1)
-    * score distribution p50 nudge (±2 pts, gated by 40+ samples)
-    * per-lane learning (pos EV+WR≥55% → -2 relax; neg EV+WR<40% → +2)
-    * governor tier (BASELINE=15 / CAUTION=17 / TIGHTENED=20 / ...)
-    * SuperAGI / SSI / LLM signed advisories (each ±3, combined ±5,
-      auto-expire after 5min)
-  Legacy 55/56 remain mechanically unreachable via 6396.clampFloor.
-  Wired into LiveEntrySafetyHold — brain recommendation dominates
-  when signals are available; static path remains as fallback.
-- **6396** (`b43f74167` ✅) LIVE SCORE-SCALE REALIGNMENT — replaced
-  55/56 anchor with canonical 0..30 scale (BASELINE=15, CAUTION=17,
-  TIGHTENED=20, POSITIVE_LANE=13, ABSOLUTE_MIN=12, ABSOLUTE_MAX=22).
-  ENTRY_REJECTED_SCORE_FLOOR replaces BUY_FAILED for score-only
-  policy rejections. Dedupe cache (mint+lane+epoch+floor+hsVersion)
-  suppresses repeated identical rejections. FdgFanoutControl6396
-  enforces one FDG decision per (mint, epoch, primaryLane, class).
-  ScoreDistributionHistogram6396 gives p10..p90 per bucket.
-- **6395a** (`9fc222307` ✅) EXECUTABLE RUNNER CAPTURE + POSITION
-  IDENTITY REPAIR. PositionIdentity6395, ExecutableProfitAuthority
-  6395, MarkExecutableDivergence6395 (20% / 100% thresholds),
-  RunnerQuoteProbe6395 (25/50/100% probes, TTL dedup),
-  QuantityIntegrityGuard6395 (QTY_DECIMAL_SKEW quarantine),
-  PairPriceIdentity6395, CanonicalPerformanceFilter6395,
-  PositionViewModelStore6395. V3JournalRecorder now uses canonical
-  positionId (wallet+network+mint) — Treasury + Moonshot advising
-  the same mint resolve to ONE lifecycle. WalletManager gains a
-  context-free currentPubkey().
-- **6394c** (`b3efddd20` ✅) EarlyLaunchBypass6394 wired into
-  FinalDecisionGate live edge-veto (probe-zone 40..54 on 0..100
-  scale). Superseded by 6396's rescaled EarlyLaunchBypass6396
-  (probe-zone 12..14 on 0..30 scale).
-- **6394b** (`358316d9a` ✅) Fixed
-  estimate_vs_actual_25pct_divergence_quarantines test.
+- **6398a** (`1576f1153` ✅ Build) CANONICAL FLUID ENTRY AUTHORITY REPAIR.
+  Single live-entry pipeline (SCANNER → INTAKE → HYDRATION →
+  LANE_EVAL → SCORE_ENVELOPE → FLOOR_ENVELOPE → FDG → TICKET →
+  LEASE → EXECUTOR). Every stage carries the SAME evaluationId.
+  Legacy 55/56 mechanically unreachable at every layer.
+  * `EntryAuthorityModels6398` — 4 immutable data classes
+    (EntryScoreEnvelope, DynamicFloorEnvelope, EntryAuthorityDecision,
+    EntryAuthorityTicket) + enums (TraderLane, TraderId, EntryTactic,
+    LifecycleStage, DiscoverySource, EntryOutcome).
+  * `CanonicalEntryPipeline6398` — buildScoreEnvelope,
+    buildFloorEnvelope, decide, mintTicket, issueAndRegister,
+    validateTicket. Bayesian shrinkage caps: <8=±2, 8..24=±5, >=25=±8.
+  * `EntryGateBlockCache6398` — fingerprint dedupe
+    (mint+lane+trader+tactic+modelVers+roundedFloor+dataVersion).
+    Reeval TTL 30s or +2pt material score change. Duplicates emit
+    only ENTRY_GATE_BLOCK_DUPLICATE_SUPPRESSED — never BUY_FAILED
+    and never an executor call.
+  * `PairHydrationState6398` — replaces NO_PAIR_NO_FALLBACK with
+    PAIR_CONFIRMED / PAIR_SOURCE_NATIVE / ROUTE_CONFIRMED_WITHOUT_PAIR
+    / PAIR_PENDING_HYDRATION / PAIR_HARD_UNAVAILABLE. Preferred order:
+    Helius > DexScreener > Birdeye > PumpFun > Raydium scanner
+    pool > watchlist > Jupiter route. DexScreener degradation never
+    erases source-native pairs.
+  * `ScannerHeatPublisher6398` — rolling 30s hydrated candidates/sec
+    → 0..1 percentile → AdaptiveFloorBrain6397.postScannerHeat.
+  * `CognitiveAdvisoryBridge6398` — postSuperAgi/postSsi/postLlm
+    accept conviction in [-1, +1] → signed advisory delta (±3 per
+    channel, combined cap ±5).
+  * `LanePerformancePublisher6398` — ingest(rowId, lane, wasWin,
+    pnlSol) guards through CanonicalPerformanceFilter6395 (rejects
+    all 6395 quarantine reasons) → AdaptiveFloorBrain6397.postLaneStat.
+  Tests: Bundle6398 covers A..J regression suite + all 3 wire-ups
+  + legacy-anchor unreachability + Bayesian shrinkage caps.
+
+- **6397a/b** (`61d1d2c85` ✅) ADAPTIVE FLOOR BRAIN — [12, 22] envelope
+  is fluid inside itself. Scanner heat / dist p50 nudge / lane
+  learning / advisory stack.
+- **6396** (`b43f74167` ✅) LIVE SCORE-SCALE REALIGNMENT (55/56 → 15/17/20).
+- **6395a** (`9fc222307` ✅) EXECUTABLE RUNNER + POSITION IDENTITY REPAIR.
+- **6394c** (`b3efddd20` ✅) EarlyLaunchBypass wired into FDG.
+- **6394b** (`358316d9a` ✅) 25%-divergence quarantine test fix.
 
 ## Next backlog
 
-- **P1 SmartMoneyFeed6394 populators** — wire real whale-tx
-  observers (DexScreener, Helius, bird-eye) into
-  SmartMoneyFeed6394.onWhaleBuy so the 6396 bypass activates.
-- **P1 Advisory populators** — connect the real SuperAGI / SSI /
-  LLM output surfaces into AdaptiveFloorBrain6397.postAdvisory.
-- **P1 Scanner heat populator** — feed hydrated-candidates-per-second
-  percentile into AdaptiveFloorBrain6397.postScannerHeat.
-- **P1 Lane-EV populator** — feed CanonicalPerformanceFilter6395's
-  clean rows into AdaptiveFloorBrain6397.postLaneStat.
-- **P1 Live Session Validation** — run V5.0.6397 APK and confirm
-  the floor moves fluidly, EARLY_LAUNCH_MICRO_PROBE_AUTHORIZED_6394
-  fires, EntryRejectionTelemetry6396 populates and NO buy-failure
-  counters increment on score-floor rejects.
-- **P2 ANR Killer** — move TradeHistoryStore + MainActivity.onCreate
-  DB reads to Dispatchers.IO.
-- **P2 Fill Ledger Wire-Up** — persist BuyFillLedger6388 +
-  SellFillLedger6388 records at every finalized fill (partial done
-  in V3JournalRecorder; expand to LiveExecutor sell paths).
-- **P3 Phase 1 SOL Perps/Leverage** — after live WR stabilises +
-  2×–5× daily growth benchmark hit.
+- **P1 Executor migration** — remove residual score/floor calculations
+  inside LiveEntrySafetyHold_6312 and the buy-lease path; make
+  them ticket-validation only (CanonicalEntryPipeline6398.validateTicket).
+- **P1 Scanner intake hook** — call ScannerHeatPublisher6398.onHydratedCandidate
+  from Scanner intake.
+- **P1 Journal correction pass** — historical LIVE_BUY_FAIL_TELEMETRY rows
+  with reason=SCORE_BELOW_LIVE_FLOOR reclassified as
+  ENTRY_REJECTED_SCORE_FLOOR via EntryRejectionTelemetry6396.
+  recordForensicCorrection.
+- **P2 ANR Killer** — TradeHistoryStore + MainActivity.onCreate → IO.
+- **P2 Fill Ledger** — extend BuyFillLedger6388 / SellFillLedger6388
+  persistence to LiveExecutor paths (V3JournalRecorder already covered).
+- **P3 SOL Perps/Leverage (Phase 1)** — gated on live WR + 2..5× daily.
 
 # (Legacy) AATE PRD — V5.0.6393
 
