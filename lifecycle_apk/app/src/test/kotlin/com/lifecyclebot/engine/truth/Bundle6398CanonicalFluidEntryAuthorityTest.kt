@@ -32,7 +32,7 @@ class Bundle6398CanonicalFluidEntryAuthorityTest {
                               hardSafetyPassed: Boolean = true, evidence: Double = 0.9,
                               dataVersion: Long = 1L): EntryScoreEnvelope6398 =
         CanonicalEntryPipeline6398.buildScoreEnvelope(
-            evaluationId = "ev_${mint}_$dataVersion",
+            evaluationId = "ev_${mint}_${lane.name}_$dataVersion",
             inp = CanonicalEntryPipeline6398.ScoreInputs(
                 mint = mint, symbol = "SYM_$mint", lane = lane,
                 trader = TraderId.MEME, tactic = EntryTactic.STANDARD,

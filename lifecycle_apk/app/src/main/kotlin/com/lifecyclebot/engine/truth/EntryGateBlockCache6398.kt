@@ -32,7 +32,7 @@ object EntryGateBlockCache6398 {
     data class Fingerprint(
         val mint: String, val lane: TraderLane, val trader: TraderId,
         val tactic: EntryTactic, val scoreModelVersion: String,
-        val floorModelVersion: String, val roundedScore: Int,
+        val floorModelVersion: String,
         val roundedFloor: Int, val dataVersion: Long,
     )
 
@@ -57,7 +57,6 @@ object EntryGateBlockCache6398 {
             tactic = decision.score.tactic,
             scoreModelVersion = decision.score.scoreModelVersion,
             floorModelVersion = decision.floor.floorModelVersion,
-            roundedScore = decision.score.effectiveScore.roundToInt(),
             roundedFloor = decision.floor.effectiveFloor.roundToInt(),
             dataVersion = decision.score.dataVersion,
         )
