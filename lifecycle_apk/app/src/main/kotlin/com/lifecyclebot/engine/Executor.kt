@@ -1752,8 +1752,62 @@ class Executor(
         }
 
         val decimals = walletEntry?.second ?: fallbackDecimals ?: 9
-        val scale = 10.0.pow(decimals.coerceAtLeast(0).toDouble())
-        return (cappedQty * scale).toLong().coerceAtLeast(1L)
+        // V5.0.6402 §7/§8 SELL-PATH INTEGER MATH — was: (cappedQty * scale).toLong().
+        // The 6402 snapshot's ForensicReconciler flagged 19 over-sold mints
+        // including CQwK3d=(buy686/sell17513). Double-precision rounding on
+        // the multiplication silently inflated the raw units on
+        // large-qty positions. Route through SellIntentQuantityAuthority6401
+        // → BigDecimal.movePointRight for byte-exact conversion. If we have a
+        // wallet raw balance, validate against it and clamp to the authority's
+        // Accept.rawQty (post-authority clamp) so a decimal-skew 100× overshoot
+        // is rejected BEFORE reaching Jupiter/PumpPortal builders.
+        val rawFromAuthority: java.math.BigInteger = try {
+            val decimalsAuthority = if (decimals >= 0)
+                com.lifecyclebot.engine.truth.MintDecimals.Known(count = decimals,
+                    source = if (walletEntry != null) "WALLET_TOKEN_ACCOUNTS" else "EXECUTOR_FALLBACK",
+                    proofSignature = "resolveSellUnitsForMint")
+            else com.lifecyclebot.engine.truth.MintDecimals.Unknown
+            val rawUi = com.lifecyclebot.engine.truth.SellIntentQuantityAuthority6401
+                .convertUiToRaw(cappedQty, decimalsAuthority)
+            if (walletEntry != null) {
+                // Wallet raw balance is authoritative → validate.
+                val walletRaw = try {
+                    com.lifecyclebot.engine.truth.SellIntentQuantityAuthority6401
+                        .convertUiToRaw(walletEntry.first, decimalsAuthority)
+                } catch (_: Throwable) { java.math.BigInteger.ZERO }
+                if (walletRaw.signum() > 0) {
+                    when (val v = com.lifecyclebot.engine.truth.SellIntentQuantityAuthority6401
+                        .validateSellIntent(mint, rawUi, walletRaw, decimalsAuthority)) {
+                        is com.lifecyclebot.engine.truth.SellIntentQuantityAuthority6401.Verdict.Accept -> v.rawQty
+                        is com.lifecyclebot.engine.truth.SellIntentQuantityAuthority6401.Verdict.Reject -> {
+                            // Authority rejected the request as a decimal-skew
+                            // signature — clamp to wallet raw (never over-sell).
+                            try {
+                                PipelineHealthCollector.labelInc("SELL_INTENT_AUTHORITY_CLAMPED_6402")
+                                ForensicLogger.lifecycle(
+                                    "SELL_INTENT_AUTHORITY_CLAMPED_6402",
+                                    "mint=${mint.take(10)} reason=${v.reason} rawReq=${v.rawRequested} rawAvail=${v.rawAvailable} overshootPct=${"%.2f".format(v.overshootPct)}",
+                                )
+                            } catch (_: Throwable) {}
+                            walletRaw
+                        }
+                    }
+                } else rawUi
+            } else rawUi
+        } catch (_: Throwable) {
+            // Fallback to legacy math on any authority failure. Preserves the
+            // 'get the bag out' safety net when decimals are truly unknown.
+            java.math.BigInteger.valueOf(
+                (cappedQty * 10.0.pow(decimals.coerceAtLeast(0).toDouble())).toLong()
+            )
+        }
+        // Long range guard — Jupiter/PumpPortal builders take Long. Anything
+        // that exceeds Long.MAX_VALUE was a decimal-skew catastrophe; clamp
+        // to Long.MAX_VALUE (upstream will still fail sanity but at least
+        // won't overflow into a negative).
+        val maxLong = java.math.BigInteger.valueOf(Long.MAX_VALUE)
+        return if (rawFromAuthority > maxLong) Long.MAX_VALUE
+        else rawFromAuthority.toLong().coerceAtLeast(1L)
     }
 
     /** V5.0.3801 — amount proof/clamp/formatting lives in ProcessorAmountPlanner; Executor remains route orchestration. */
