@@ -1,4 +1,51 @@
-# AATE PRD — V5.0.6399 (Entry Authority Ordering)
+# AATE PRD — V5.0.6400 (Hard Score Floor Eradicated)
+
+## Session shipping stack (6388 → 6400a, all CI GREEN)
+
+- **6400a** (`158c364fb` ✅ Build) ERADICATE THE LIVE BUY HARD SCORE FLOOR.
+  The `if (candidateScore < effectiveFloor) { failed += ... }` branch
+  in LiveEntrySafetyHold is GONE. Score cannot independently return
+  BLOCK / HOLD / DENY / REJECT / BUY_FAILED / SCORE_BELOW_LIVE_FLOOR.
+  * `SoftScoreShaping6400.publish(mint, symbol, lane, rawScore,
+    referenceFloor)` → sizeMultiplier ∈ {0.35, 0.45, 0.60, 0.80, 1.00}
+    by band, softConfidence ∈ [0.10, 1.00], softSignals. Missing /
+    NaN score → neutral 0.55 mult. Never zero, never reject.
+  * `NoHardScoreEntryGateGuard6400.check()` → hardScoreGateActive=false,
+    scoreOnlyHardRejects=0, scorePolicy=SOFT_SHAPING_ONLY. Startup
+    invariant fails loudly if a regression re-introduces a hard gate.
+  * Every low-score candidate emits `LIVE_ENTRY_DECISION_SHAPED_6400`
+    with full provenance so operators can prove low scores are shaped
+    (never silently discarded).
+  * Bundle6400 covers all bands (-10, 0, 1, 3, 7, 9, 15, null) →
+    always positive size mult, never rejection. HotfixInvariantsTest.
+    scoreBelowLiveFloorRedirectsToShadow rewritten to protect the
+    INVERSE invariant (score-below-reference must NOT appear in
+    failedInvariants).
+
+- **6399** (`9ce60f077` ✅) ENTRY AUTHORITY ORDERING + SPLIT-BRAIN REMOVAL.
+- **6398a** (`1576f1153` ✅) CANONICAL FLUID ENTRY AUTHORITY REPAIR.
+- **6397a/b** (`61d1d2c85` ✅) ADAPTIVE FLOOR BRAIN — fluid [12, 22].
+- **6396** (`b43f74167` ✅) LIVE SCORE-SCALE REALIGNMENT (55/56 → 15/17/20).
+- **6395a** (`9fc222307` ✅) EXECUTABLE RUNNER + POSITION IDENTITY REPAIR.
+- **6394c** (`b3efddd20` ✅) EarlyLaunchBypass wired into FDG.
+
+## Next backlog
+
+- **P1 FDG Terminal Wire** — call `CounterParityLedger6399.recordTerminal`
+  at every FinalDecisionGate terminal outcome so parity is auditable
+  end-to-end in production (still open from previous cycle).
+- **P1 Governor Soft-Only Verification** — audit every governor state
+  mapping and confirm none reconstructs a hard score threshold.
+- **P1 Live Session Validation** — run V5.0.6400 APK and confirm:
+  - zero `SCORE_BELOW_LIVE_FLOOR` in logs
+  - `forbiddenScoreFloorRejectCount == 0`
+  - low-score candidates reach quote/execution
+- **P2 Journal Correction Pass** — reclassify historical
+  LIVE_BUY_FAIL_TELEMETRY rows.
+- **P2 ANR Killer**, **P2 Fill Ledger LiveExecutor extension**,
+  **P3 SOL Perps/Leverage (Phase 1)**.
+
+# (Legacy) AATE PRD — V5.0.6393
 
 ## Session shipping stack (6388 → 6399, all CI GREEN)
 
