@@ -55,7 +55,8 @@ class Bundle6399EntryAuthorityOrderingTest {
         val f = floorEnvelope(s.evaluationId, TraderLane.MOONSHOT, base = 19.0)
         val d = CanonicalEntryPipeline6398.decide(s, f)
         assertEquals(EntryOutcome.ENTRY_GATE_BLOCK, d.outcome)
-        CounterParityLedger6399.recordTerminal(FdgTerminalOutcome6399.FDG_BLOCK_SCORE)
+        // V5.0.6401 P1: decide() auto-records the terminal — no manual
+        // recordTerminal needed here.
         // No ticket may be issued.
         val t = CanonicalEntryPipeline6398.issueAndRegister(d)
         assertNull(t)
@@ -73,7 +74,7 @@ class Bundle6399EntryAuthorityOrderingTest {
         val f = floorEnvelope(s.evaluationId, TraderLane.MOONSHOT, base = 16.0)
         val d = CanonicalEntryPipeline6398.decide(s, f)
         assertEquals(EntryOutcome.ALLOW, d.outcome)
-        CounterParityLedger6399.recordTerminal(FdgTerminalOutcome6399.FDG_ALLOW_LIVE)
+        // V5.0.6401 P1: decide() already recorded FDG_ALLOW_LIVE.
         val t = CanonicalEntryPipeline6398.issueAndRegister(d,
             routeMode = RouteMode6399.LIVE, isDenylisted = false, isShadowOnly = false)
         assertNotNull(t)
@@ -107,8 +108,8 @@ class Bundle6399EntryAuthorityOrderingTest {
         val s = scoreEnvelope("D_MINT", TraderLane.SHITCOIN, effective = 21.0)
         val f = floorEnvelope(s.evaluationId, TraderLane.SHITCOIN, base = 15.0)
         val d = CanonicalEntryPipeline6398.decide(s, f)
-        // Record terminal first.
-        CounterParityLedger6399.recordTerminal(FdgTerminalOutcome6399.FDG_ALLOW_LIVE)
+        // V5.0.6401 P1: decide() has already recorded FDG_ALLOW_LIVE=1
+        // BEFORE any ticket is minted (that's the ordering under test).
         val fdgCountBeforeTicket = CounterParityLedger6399.fdgCount(FdgTerminalOutcome6399.FDG_ALLOW_LIVE)
         val ticketsBeforeTicket = CounterParityLedger6399.liveAuthorityTicketsIssued.get()
         assertEquals(1L, fdgCountBeforeTicket)
@@ -137,18 +138,23 @@ class Bundle6399EntryAuthorityOrderingTest {
     // Test F — Counter parity: reconcile from canonical events only
     // ================================================================
     @Test fun testF_counter_parity_from_canonical_events() {
-        CounterParityLedger6399.recordTerminal(FdgTerminalOutcome6399.FDG_ALLOW_LIVE)
-        CounterParityLedger6399.recordTerminal(FdgTerminalOutcome6399.FDG_ALLOW_LIVE)
-        CounterParityLedger6399.recordTerminal(FdgTerminalOutcome6399.FDG_BLOCK_SCORE)
-        CounterParityLedger6399.recordTerminal(FdgTerminalOutcome6399.FDG_DEFER_HYDRATION)
+        // V5.0.6401 P1: decide() is the sole terminal-emission surface now,
+        // so this test drives real decisions and verifies the ledger.
         val s1 = scoreEnvelope("F1", TraderLane.SHITCOIN, effective = 20.0)
         val f1 = floorEnvelope(s1.evaluationId, TraderLane.SHITCOIN, base = 15.0)
-        val d1 = CanonicalEntryPipeline6398.decide(s1, f1)
+        val d1 = CanonicalEntryPipeline6398.decide(s1, f1)         // ALLOW_LIVE
         CanonicalEntryPipeline6398.issueAndRegister(d1)
         val s2 = scoreEnvelope("F2", TraderLane.SHITCOIN, effective = 20.0)
         val f2 = floorEnvelope(s2.evaluationId, TraderLane.SHITCOIN, base = 15.0)
-        val d2 = CanonicalEntryPipeline6398.decide(s2, f2)
+        val d2 = CanonicalEntryPipeline6398.decide(s2, f2)         // ALLOW_LIVE
         CanonicalEntryPipeline6398.issueAndRegister(d2)
+        val s3 = scoreEnvelope("F3", TraderLane.SHITCOIN, effective = 5.0)
+        val f3 = floorEnvelope(s3.evaluationId, TraderLane.SHITCOIN, base = 15.0)
+        CanonicalEntryPipeline6398.decide(s3, f3)                  // BLOCK_SCORE
+        val s4 = scoreEnvelope("F4", TraderLane.SHITCOIN, effective = 20.0,
+            evidenceCompleteness = 0.1)
+        val f4 = floorEnvelope(s4.evaluationId, TraderLane.SHITCOIN, base = 15.0)
+        CanonicalEntryPipeline6398.decide(s4, f4)                  // DEFER_HYDRATION
         assertEquals(4L, CounterParityLedger6399.fdgTotal())
         assertEquals(2L, CounterParityLedger6399.fdgCount(FdgTerminalOutcome6399.FDG_ALLOW_LIVE))
         assertEquals(2L, CounterParityLedger6399.liveAuthorityTicketsIssued.get())
@@ -258,10 +264,9 @@ class Bundle6399EntryAuthorityOrderingTest {
     // Additional: healthy diagnosis when everything reconciles
     // ================================================================
     @Test fun runtime_doctor_healthy_when_no_faults() {
-        CounterParityLedger6399.recordTerminal(FdgTerminalOutcome6399.FDG_ALLOW_LIVE)
         val s = scoreEnvelope("H_MINT_OK", TraderLane.QUALITY, effective = 24.0)
         val f = floorEnvelope(s.evaluationId, TraderLane.QUALITY, base = 20.0)
-        val d = CanonicalEntryPipeline6398.decide(s, f)
+        val d = CanonicalEntryPipeline6398.decide(s, f)   // auto FDG_ALLOW_LIVE
         CanonicalEntryPipeline6398.issueAndRegister(d)
         val v = RuntimeDoctor6399.diagnose(liveMode = true, sellReconcilerActive = true)
         assertEquals(RuntimeDoctor6399.Diagnosis.HEALTHY, v.diagnosis)

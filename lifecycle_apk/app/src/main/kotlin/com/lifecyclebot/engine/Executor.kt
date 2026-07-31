@@ -9628,6 +9628,13 @@ class Executor(
                 "mint=${ts.mint.take(10)} sol=${"%.4f".format(sol)} reason=$reason ${detail.take(140)}".trim(),
             )
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_BUY_FAIL_$reason")
+            // V5.0.6401 P1 — canonical BUY_FAILED counter feeds
+            // CounterParityLedger6399 so BUY_FAILED<=BUY_ATTEMPT parity
+            // guard sees every failure exactly once. Only inflate on real
+            // terminal failures — never for BUY_DEFERRED_STARTUP or other
+            // requeue signals (those never reach this method because they
+            // exit before emitLiveBuyFail).
+            com.lifecyclebot.engine.truth.CounterParityLedger6399.recordBuyFailure()
         } catch (_: Throwable) {}
         try {
             LiveTradeLogStore.log(
@@ -12830,6 +12837,11 @@ class Executor(
                 "mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=${"%.4f".format(sol)} layer=$layerTag callSite=liveBuy.enter",
             )
             PipelineHealthCollector.labelInc("LIVE_BUY_ENTERED")
+            // V5.0.6401 P1 — canonical live-executor invocation ping. Feeds
+            // CounterParityLedger6399 so exec<=tickets and BUY_ATTEMPT<=exec
+            // parity guards can enforce end-to-end.
+            com.lifecyclebot.engine.truth.CounterParityLedger6399.recordLiveExecutorInvocation()
+            com.lifecyclebot.engine.truth.CounterParityLedger6399.recordBuyAttempt()
         } catch (_: Throwable) {}
 
         // V5.0.4578 — same source fix at the final live executor choke. A few

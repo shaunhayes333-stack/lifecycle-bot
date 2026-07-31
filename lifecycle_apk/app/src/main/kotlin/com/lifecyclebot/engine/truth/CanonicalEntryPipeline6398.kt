@@ -155,6 +155,22 @@ object CanonicalEntryPipeline6398 {
             )
             else -> Triple(EntryOutcome.ALLOW, "ADMITTED", null)
         }
+        // V5.0.6401 P1 — Every canonical decision is a canonical FDG terminal
+        // outcome. Route to CounterParityLedger6399 so parity guards see
+        // real traffic (previous builds only recorded live tickets, leaving
+        // the ledger silent on BLOCK / DEFER / SHADOW terminals).
+        try {
+            val terminal = when (outcome) {
+                EntryOutcome.ALLOW -> FdgTerminalOutcome6399.FDG_ALLOW_LIVE
+                EntryOutcome.HARD_SAFETY_VETO -> FdgTerminalOutcome6399.FDG_BLOCK_HARD_SAFETY
+                EntryOutcome.ENTRY_GATE_BLOCK -> FdgTerminalOutcome6399.FDG_BLOCK_SCORE
+                EntryOutcome.HYDRATION_DEFERRED,
+                EntryOutcome.INTAKE_BLOCK -> FdgTerminalOutcome6399.FDG_DEFER_HYDRATION
+                EntryOutcome.LANE_EVAL_BLOCK,
+                EntryOutcome.FDG_BLOCK -> FdgTerminalOutcome6399.FDG_BLOCK_HARD_SAFETY
+            }
+            com.lifecyclebot.engine.truth.CounterParityLedger6399.recordTerminal(terminal)
+        } catch (_: Throwable) {}
         return EntryAuthorityDecision6398(
             evaluationId = score.evaluationId, score = score, floor = floor,
             outcome = outcome, reason = reason, reevaluateAfterMs = ttl,
