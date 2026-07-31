@@ -978,13 +978,25 @@ object ExecutableOpenGate {
         if (modeUpper == "PAPER") {
             val existingLayer6371 = try { EmergentGuardrails.getPositionLayer(mint) } catch (_: Throwable) { null }
             if (!existingLayer6371.isNullOrBlank()) {
-                try {
-                    PipelineHealthCollector.labelInc("EXEC_OPEN_SAME_MINT_ALREADY_OPEN_COOLDOWN_6371")
-                    ForensicLogger.lifecycle(
-                        "EXEC_OPEN_SAME_MINT_ALREADY_OPEN_COOLDOWN_6371",
-                        "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol existing=$existingLayer6371 requestedLane=$lane action=blocked_before_paper_buy",
-                    )
-                } catch (_: Throwable) {}
+                // V5.0.6402 §H — same-mint already open. Route through
+                // SameMintCandidateEpoch6402 so the second, third … Nth
+                // attempt on the same mint doesn't produce a full
+                // lifecycle row on every gate. First hit gets the loud
+                // block row; subsequent hits within the cooldown are
+                // silently deduped into a single counter.
+                val alreadyDeduped = try {
+                    com.lifecyclebot.engine.truth.SameMintCandidateEpoch6402
+                        .shouldSuppress(mint, sameMintAlreadyOpen = true)
+                } catch (_: Throwable) { false }
+                if (!alreadyDeduped) {
+                    try {
+                        PipelineHealthCollector.labelInc("EXEC_OPEN_SAME_MINT_ALREADY_OPEN_COOLDOWN_6371")
+                        ForensicLogger.lifecycle(
+                            "EXEC_OPEN_SAME_MINT_ALREADY_OPEN_COOLDOWN_6371",
+                            "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol existing=$existingLayer6371 requestedLane=$lane action=blocked_before_paper_buy",
+                        )
+                    } catch (_: Throwable) {}
+                }
                 return blocked("EXEC_OPEN_BLOCKED_SAME_MINT_ALREADY_OPEN_6371", "PAPER_SAME_MINT_ALREADY_OPEN_6371 existing=$existingLayer6371")
             }
         }

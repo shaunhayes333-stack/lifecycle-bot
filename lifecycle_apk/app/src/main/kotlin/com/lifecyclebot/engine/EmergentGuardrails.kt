@@ -245,6 +245,14 @@ object EmergentGuardrails {
         val removed = openPositions.remove(mint)
         if (removed != null) {
             ErrorLogger.debug(TAG, "📍 Position unregistered: ${removed.symbol}")
+            // V5.0.6402 §H — position closed IS the meaningful state
+            // change that admits the next candidate for this mint.
+            // Bumps the epoch so subsequent shouldSuppress checks pass
+            // through instead of being deduped in the cooldown window.
+            try {
+                com.lifecyclebot.engine.truth.SameMintCandidateEpoch6402
+                    .onStateChange(mint, reason = "position_unregistered")
+            } catch (_: Throwable) {}
         }
     }
     
