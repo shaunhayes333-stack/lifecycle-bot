@@ -17287,6 +17287,16 @@ if (hotExitHandledSweep) {
      * V4.1: Extracted from botLoop to reduce compiler complexity (was causing StackOverflow).
      */
     private fun processTokenCycle(mint: String, cfg: BotConfig, wallet: SolanaWallet?, lastSuccessfulPollMs: Long) {
+        // V5.0.6399 — SCANNER HEAT WIRE-UP. Every hydrated token that
+        // enters the process cycle counts as one live scanner-heat
+        // sample. The publisher normalises hydrated-per-second against
+        // REFERENCE_MAX_PER_SEC and publishes to
+        // AdaptiveFloorBrain6397.postScannerHeat so the fluid floor
+        // sees the current market temperature in real time. Best-effort
+        // — never allowed to break the process cycle.
+        try {
+            com.lifecyclebot.engine.truth.ScannerHeatPublisher6398.onHydratedCandidate()
+        } catch (_: Throwable) { /* telemetry is best-effort */ }
         // V5.9.657 — operator triage round 3: the outer try-catch at the
         // bottom of this 5000-line function does ONLY:
         //     ts.lastError = e.message

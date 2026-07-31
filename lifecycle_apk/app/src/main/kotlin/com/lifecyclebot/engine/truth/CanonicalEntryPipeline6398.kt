@@ -211,11 +211,38 @@ object CanonicalEntryPipeline6398 {
 
     private val activeTickets = ConcurrentHashMap<String, EntryAuthorityTicket6398>()
 
-    fun issueAndRegister(decision: EntryAuthorityDecision6398, sizingMultiplier: Double = 1.0): EntryAuthorityTicket6398? {
+    fun issueAndRegister(
+        decision: EntryAuthorityDecision6398,
+        sizingMultiplier: Double = 1.0,
+        routeMode: RouteMode6399 = RouteMode6399.LIVE,
+        isDenylisted: Boolean = false,
+        isShadowOnly: Boolean = false,
+    ): EntryAuthorityTicket6398? {
+        // V5.0.6399 — HARD INVARIANT: ticket may only exist for
+        // outcome=ALLOW && routeMode=LIVE && !denylisted && !shadowOnly &&
+        // effectiveScore >= effectiveFloor. Any violation throws
+        // AUTHORITY_INVARIANT_FAILURE_6399 and no ticket is minted.
+        if (decision.outcome != EntryOutcome.ALLOW) return null
+        try {
+            AuthorityInvariants6399.assertAllowLiveBeforeTicket(
+                outcome = FdgTerminalOutcome6399.FDG_ALLOW_LIVE,
+                effectiveScore = decision.score.effectiveScore,
+                effectiveFloor = decision.floor.effectiveFloor,
+                routeMode = routeMode,
+                isDenylisted = isDenylisted,
+                isShadowOnly = isShadowOnly,
+                mint = decision.score.mint,
+            )
+        } catch (_: IllegalStateException) {
+            return null
+        }
         val t = mintTicket(decision, sizingMultiplier) ?: return null
         activeTickets[t.mint] = t
         ticketsCreated.incrementAndGet()
-        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ENTRY_AUTHORITY_TICKET_CREATED_6398") } catch (_: Throwable) {}
+        try {
+            com.lifecyclebot.engine.truth.CounterParityLedger6399.recordLiveTicketIssued()
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ENTRY_AUTHORITY_TICKET_CREATED_6398")
+        } catch (_: Throwable) {}
         return t
     }
 
