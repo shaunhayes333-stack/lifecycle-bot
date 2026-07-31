@@ -3,6 +3,7 @@ package com.lifecyclebot.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
@@ -11,6 +12,7 @@ import android.widget.Button
 import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.lifecyclebot.R
 import com.lifecyclebot.engine.PipelineHealthCollector
@@ -358,6 +360,13 @@ class PipelineHealthActivity : AppCompatActivity() {
 
         fun deliverReport6308(rawText: String, source: String, buildErr: String = "") {
             val safeText = try { com.lifecyclebot.engine.ReportingHub.clipboardSafeText(rawText) } catch (_: Throwable) { rawText.take(60_000) }
+            // V5.0.6401 ANR-KILLER — persist the FULL uncapped report to a
+            // cache file on this background thread so the operator can share
+            // it via file-URI (no clipboard truncation, no Binder freeze).
+            val fullReportFile = try {
+                com.lifecyclebot.engine.execution.PipelineReportFileExporter6401
+                    .writeReportSync(activityRef, rawText, prefix = "aate_pipeline")
+            } catch (_: Throwable) { null }
             mainHandler.post {
                 if (destroyed || !delivered.compareAndSet(false, true)) return@post
                 var ok = false
@@ -379,14 +388,30 @@ class PipelineHealthActivity : AppCompatActivity() {
                 } catch (_: Throwable) {}
 
                 if (ok) {
-                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_OK_6308", "chars=${safeText.length} raw=${rawText.length} source=$source buildErr=$buildErr") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_OK_6308", "chars=${safeText.length} raw=${rawText.length} source=$source buildErr=$buildErr fileBytes=${fullReportFile?.length() ?: -1L}") } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_COPY_OK_6308") } catch (_: Throwable) {}
                     val msg = if (source == "watchdog_fallback") {
                         "Fallback report copied (${safeText.length} chars) — full builder stalled"
                     } else if (safeText.length < rawText.length) {
-                        "Report copied ${safeText.length}/${rawText.length} chars"
+                        "Report copied ${safeText.length}/${rawText.length} chars — tap SHARE for full ${rawText.length}-char file"
                     } else "Report copied ${safeText.length} chars"
                     Toast.makeText(activityRef, msg, Toast.LENGTH_LONG).show()
+                    // Offer the full file via SHARE — no truncation, uses
+                    // FileProvider URI so the payload is streamed not marshaled.
+                    if (fullReportFile != null && safeText.length < rawText.length) {
+                        val shareIntent = com.lifecyclebot.engine.execution
+                            .PipelineReportFileExporter6401.shareIntent(activityRef, fullReportFile)
+                        if (shareIntent != null) {
+                            AlertDialog.Builder(activityRef)
+                                .setTitle("Full Report Available")
+                                .setMessage("Clipboard has ${safeText.length} of ${rawText.length} chars. Share the complete file?")
+                                .setPositiveButton("Share Full File") { _, _ ->
+                                    try { startActivity(Intent.createChooser(shareIntent, "Share AATE report")) } catch (_: Throwable) {}
+                                }
+                                .setNegativeButton("Done", null)
+                                .show()
+                        }
+                    }
                 } else {
                     try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_COPY_FAIL_6308") } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_FAIL_6308", "source=$source buildErr=$buildErr writeErr=$writeErr") } catch (_: Throwable) {}

@@ -210,6 +210,16 @@ class ErrorLogActivity : AppCompatActivity() {
                 } catch (t: Throwable) {
                     errName = t.javaClass.simpleName
                 }
+                // V5.0.6401 ANR-KILLER — persist the FULL uncapped report to
+                // a cache file on this same background thread so the share
+                // dialog can hand out a FileProvider URI instead of stuffing
+                // multi-megabytes into Intent.EXTRA_TEXT (which triggers the
+                // exact Binder-IPC freeze this whole path was written to
+                // avoid).
+                val fullReportFile = try {
+                    com.lifecyclebot.engine.execution.PipelineReportFileExporter6401
+                        .writeReportSync(this, fullText, prefix = "aate_unified")
+                } catch (_: Throwable) { null }
                 Handler(Looper.getMainLooper()).post {
                     if (isFinishing || isDestroyed) return@post
                     if (ok) {
@@ -220,11 +230,19 @@ class ErrorLogActivity : AppCompatActivity() {
                     } else {
                         Toast.makeText(this, "Copy failed: $errName", Toast.LENGTH_LONG).show()
                     }
-                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_EXPORT_COPIED_6304", "chars=${exportText.length} full=${fullText.length} ok=$ok hub=${report != null} err=${error?.javaClass?.simpleName ?: "none"} source=error_log") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_EXPORT_COPIED_6304", "chars=${exportText.length} full=${fullText.length} ok=$ok hub=${report != null} err=${error?.javaClass?.simpleName ?: "none"} source=error_log fileBytes=${fullReportFile?.length() ?: -1L}") } catch (_: Throwable) {}
 
-                    // Also offer to share. Share intent gets the FULL report
-                    // (only if user taps Share — not on the copy path).
-                    val shareIntent = Intent().apply {
+                    // V5.0.6401 — Prefer the file-URI share intent when the
+                    // full report was persisted successfully (streaming
+                    // avoids the Binder-IPC ANR that plain EXTRA_TEXT hit
+                    // on the 60k-line dump). Fall back to EXTRA_TEXT only
+                    // if the cache write failed.
+                    val shareIntent = if (fullReportFile != null) {
+                        com.lifecyclebot.engine.execution.PipelineReportFileExporter6401
+                            .shareIntent(this, fullReportFile,
+                                subject = "AATE Unified Operational Report")
+                    } else null
+                    val fallbackShareIntent = Intent().apply {
                         action = Intent.ACTION_SEND
                         type = "text/plain"
                         putExtra(Intent.EXTRA_TEXT, fullText)
@@ -233,9 +251,10 @@ class ErrorLogActivity : AppCompatActivity() {
 
                     AlertDialog.Builder(this)
                         .setTitle("Unified Report Ready")
-                        .setMessage("Unified report copied to clipboard. Would you like to share it?")
+                        .setMessage("Unified report copied to clipboard. Would you like to share the full report?")
                         .setPositiveButton("Share") { _, _ ->
-                            startActivity(Intent.createChooser(shareIntent, "Share logs"))
+                            val toShare = shareIntent ?: fallbackShareIntent
+                            startActivity(Intent.createChooser(toShare, "Share AATE report"))
                         }
                         .setNegativeButton("Done", null)
                         .show()
