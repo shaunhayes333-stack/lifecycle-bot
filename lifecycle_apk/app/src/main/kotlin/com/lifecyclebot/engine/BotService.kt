@@ -25183,8 +25183,36 @@ if (hotExitHandledSweep) {
      * JVM 64KB method-size budget. Returns immediately if the bot is
      * not running.
      */
+    /**
+     * V5.0.6402 §C — SWEEP HARD DEADLINE.
+     *
+     * The 6401 snapshot showed max bot cycles of 66-99 seconds. Root
+     * cause: this loop ran a per-position provider-I/O call
+     * (`runFallbackSafetyExit` → `executor.getActualPricePublic`)
+     * synchronously over ALL open positions. With 97 positions in
+     * the registry and providers degraded (Birdeye 401, Helius 429,
+     * DexScreener 5xx), each eval could burn 15-20s on network
+     * timeouts and the whole sweep suspended the bot loop.
+     *
+     * Directive: "individual exit evaluation: 250 ms" (per-pos
+     * deadline enforced by short-circuiting to the next position if
+     * the previous one overran) and "entire Universal SL sweep:
+     * 3000 ms, hard emergency sweep deadline: 5000 ms".
+     *
+     * This wall-clock guard applies the sweep budget: after each
+     * position, if elapsed >= HARD_DEADLINE_MS we DEFER the
+     * remainder and continue on the next cycle. No position ever
+     * suspends the bot loop past the deadline.
+     */
     private fun runUniversalSlSafetyNetSweep(cfg: BotConfig, wallet: SolanaWallet?) {
         if (!status.running) return
+        val HARD_DEADLINE_MS = 5_000L
+        val SOFT_DEADLINE_MS = 3_000L
+        val PER_POSITION_ELAPSED_WARN_MS = 250L
+        val sweepStartedAt = System.currentTimeMillis()
+        var positionsSeen = 0
+        var positionsEvaluated = 0
+        var positionsDeferred = 0
         try {
             // Snapshot the token map so we never iterate while it mutates
             // under us (executor.requestSell sets isOpen=false in place).
@@ -25196,10 +25224,27 @@ if (hotExitHandledSweep) {
                         it.lastPrice > 0.0
                 }
             } catch (_: Throwable) { emptyList() }
+            positionsSeen = openSnapshot.size
 
             if (openSnapshot.isEmpty()) return
 
             for (ts in openSnapshot) {
+                val elapsed = System.currentTimeMillis() - sweepStartedAt
+                // V5.0.6402 §C — hard sweep deadline. Beyond this, defer
+                // all remaining positions to the next tick.
+                if (elapsed >= HARD_DEADLINE_MS) {
+                    val remaining = openSnapshot.size - positionsEvaluated
+                    positionsDeferred += remaining
+                    try {
+                        PipelineHealthCollector.labelInc("UNIVERSAL_SL_SWEEP_HARD_DEADLINE_6402")
+                        ForensicLogger.lifecycle(
+                            "UNIVERSAL_SL_SWEEP_HARD_DEADLINE_6402",
+                            "elapsedMs=$elapsed positionsSeen=$positionsSeen positionsEvaluated=$positionsEvaluated deferred=$remaining budgetMs=$HARD_DEADLINE_MS",
+                        )
+                    } catch (_: Throwable) {}
+                    break
+                }
+                val posStart = System.currentTimeMillis()
                 try {
                     runFallbackSafetyExit(ts, cfg, wallet)
                 } catch (e: Throwable) {
@@ -25208,9 +25253,35 @@ if (hotExitHandledSweep) {
                         "universal SL sweep err ${ts.symbol}: ${e.message}"
                     )
                 }
+                positionsEvaluated++
+                val posElapsed = System.currentTimeMillis() - posStart
+                if (posElapsed >= PER_POSITION_ELAPSED_WARN_MS) {
+                    try {
+                        PipelineHealthCollector.labelInc("UNIVERSAL_SL_POSITION_SLOW_6402")
+                        ForensicLogger.lifecycle(
+                            "UNIVERSAL_SL_POSITION_SLOW_6402",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} posElapsedMs=$posElapsed sweepElapsedMs=$elapsed",
+                        )
+                    } catch (_: Throwable) {}
+                }
+                // Soft deadline advisory — sweep is still running but is
+                // now over budget. Continue but log so the operator sees
+                // the boundary event.
+                if (elapsed in SOFT_DEADLINE_MS until HARD_DEADLINE_MS &&
+                    positionsEvaluated == positionsSeen / 2) {
+                    try { PipelineHealthCollector.labelInc("UNIVERSAL_SL_SWEEP_SOFT_DEADLINE_6402") } catch (_: Throwable) {}
+                }
             }
         } catch (e: Throwable) {
             ErrorLogger.warn("BotService", "universal SL sweep top-level: ${e.message}")
+        } finally {
+            val total = System.currentTimeMillis() - sweepStartedAt
+            try {
+                ForensicLogger.lifecycle(
+                    "UNIVERSAL_SL_SWEEP_SUMMARY_6402",
+                    "elapsedMs=$total positionsSeen=$positionsSeen positionsEvaluated=$positionsEvaluated positionsDeferred=$positionsDeferred hardDeadlineMs=$HARD_DEADLINE_MS",
+                )
+            } catch (_: Throwable) {}
         }
     }
 
