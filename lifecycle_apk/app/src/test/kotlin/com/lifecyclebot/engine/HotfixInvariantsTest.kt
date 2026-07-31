@@ -128,6 +128,18 @@ class HotfixInvariantsTest {
 
     @Test
     fun scoreBelowLiveFloorRedirectsToShadow() {
+        // V5.0.6400 CRITICAL FIX: the hard SCORE_BELOW_LIVE_FLOOR gate
+        // has been ERADICATED. A low score is now a SOFT signal only —
+        // it may reduce size / confidence / priority but must NEVER
+        // return BLOCK / HOLD / DENY / REJECT / BUY_FAILED /
+        // SCORE_BELOW_LIVE_FLOOR / redirect-to-shadow purely on score.
+        //
+        // This test protects the invariant: a candidate with a low
+        // score but no other hard-safety violation must not carry
+        // SCORE_BELOW_LIVE_FLOOR in its failedInvariants and must not
+        // increment SoftScoreShaping6400.forbiddenScoreFloorRejectCount.
+        val startForbidden = com.lifecyclebot.engine.truth.SoftScoreShaping6400
+            .forbiddenScoreFloorRejectCount.get()
         val result = LiveEntrySafetyHold.assessLiveEntry(
             mint = "TEST_MINT_" + System.nanoTime(),
             symbol = "TEST",
@@ -135,9 +147,16 @@ class HotfixInvariantsTest {
             entryReasons = listOf("STANDARD"),
             lane = "STANDARD",
         )
-        assertFalse("score=10 must not authorize a live buy", result.allow)
-        assertTrue(result.redirectToShadow)
-        assertTrue(result.failedInvariants.any { it.contains("SCORE_BELOW_LIVE_FLOOR") })
+        assertFalse(
+            "score-only rejection must NEVER appear in failedInvariants (V5.0.6400)",
+            result.failedInvariants.any { it.contains("SCORE_BELOW_LIVE_FLOOR") }
+        )
+        assertEquals(
+            "forbiddenScoreFloorRejectCount must remain zero (V5.0.6400)",
+            startForbidden,
+            com.lifecyclebot.engine.truth.SoftScoreShaping6400
+                .forbiddenScoreFloorRejectCount.get()
+        )
     }
 
     @Test
