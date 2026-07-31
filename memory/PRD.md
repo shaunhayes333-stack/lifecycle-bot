@@ -1,92 +1,92 @@
-# AATE PRD — V5.0.6401c (ANR-safe Report Export + Sell Qty Guard)
+# AATE PRD — V5.0.6401d (Intake Fallback + Async Cold-Start Loads)
 
-## Session shipping stack (6388 → 6401c, all CI GREEN)
+## Session shipping stack (6388 → 6401d, all CI GREEN)
 
-- **6401c** (`4ca7c6bcf` ✅ Build) ANR-KILLER (full report share) +
-  SELL INTENT QUANTITY AUTHORITY (QTY_DECIMAL_SKEW substrate).
-  * `PipelineReportFileExporter6401` — writes the FULL uncapped
-    pipeline report to `<cacheDir>/pipeline_reports/aate_*.txt`
-    on the caller's background thread; share intent uses
-    `FileProvider EXTRA_STREAM` so the multi-megabyte payload
-    streams via URI grant instead of getting stuffed into
-    `Intent.EXTRA_TEXT` (the exact Binder-IPC freeze that forced
-    the 20k-of-60k clipboard cap). Wired into
-    PipelineHealthActivity + ErrorLogActivity share paths.
-    Retention: 5 newest files, older pruned each write.
-  * `SellIntentQuantityAuthority6401` — pure validation surface
-    that runs BEFORE any sell transaction is built. Two entry
-    points: `convertUiToRaw` + `validateSellIntent` (raw-only),
-    and `validateSellIntentFromUi` (does UI→raw via
-    `BigDecimal.movePointRight` so no Double drift enters the
-    ledger). Rejects when raw request exceeds wallet raw balance
-    × (1 + 0.5%). Overshoots ≥ 50× wallet are labelled
-    `QTY_DECIMAL_SKEW_6401_LIKELY_10X_DECIMALS` — the exact
-    signature of the 6400 snapshot bug (UI 1409 → 1.409e5).
-    `MintDecimals.Unknown` is a hard reject; never coerced to
-    zero (operator directive).
-  * Bundle6401PipelineReportFileExporterTest (3) +
-    Bundle6401SellIntentQuantityAuthorityTest (13) — includes a
-    reproduction test for the 6400-snapshot 100× skew.
-- **6401b** (`ade11f566` ✅ Build) — compile fix for Bundle6399
-  testF (param name `evidence`).
-- **6401a §4** (`2c1e66d9f` ✅ Build) STARTUP EXIT-ONLY LATCH wired.
+- **6401d** (`6f052a763` ✅ Build) INTAKE NO-PAIR FALLBACK + ASYNC
+  ANR-LOAD.
+  * 6401c snapshot showed 70/70 INTAKE events blocked by
+    `NO_PAIR_NO_FALLBACK` while DexScreener was degraded, plus
+    12.8% main-thread stall time with `ScannerHardRejectStore.load
+    × 3` and `DynamicAltTokenRegistry.restoreFromDisk × 1` in the
+    top ANR sites.
+  * `BotService.processTokenCycle` no-pair branch now:
+    - Fast-seeds `ts.lastPrice = ts.lastMcap / 1_000_000_000` for
+      pump.fun-native sources (bonding curve has KNOWN 1e9 supply)
+      so `synthesizeFallbackPair` fires BEFORE the 15-20s oracle
+      chain. Emits `INTAKE_PUMPFUN_SOURCE_NATIVE_SEED_6401`.
+    - Records canonical `PairHydrationState6398` snapshot (PENDING
+      / SOURCE_NATIVE / HARD_UNAVAILABLE) into the
+      `NO_PAIR_NO_FALLBACK` forensic row so operators can see
+      whether it's still hot or actually exhausted.
+  * `ScannerHardRejectStore.init` and
+    `DynamicAltTokenRegistry.init` dispatch the disk load to a
+    daemon background thread — no more synchronous
+    SharedPreferences / JSON parse on the caller thread.
+  * Bundle6401IntakeHydrationWireTest — 5 invariants covering
+    pump.fun bonding curve as SOURCE_NATIVE, fresh intake as
+    PENDING, aged as HARD_UNAVAILABLE, Raydium scanner pool
+    survival, and DexScreener-degraded → non-erasure of
+    source-native.
+- **6401c** (`4ca7c6bcf` ✅) ANR-safe full-report share +
+  `SellIntentQuantityAuthority6401`.
+- **6401b** (`ade11f566` ✅) — compile fix for Bundle6399 testF.
+- **6401a §4** (`2c1e66d9f` ✅) STARTUP EXIT-ONLY LATCH wired.
 - **6401 P1** (`755075b2d` ✅) FDG parity terminal wire.
-- **6400a** (`158c364fb` ✅) ERADICATE THE LIVE BUY HARD SCORE FLOOR.
-- **6399** (`9ce60f077` ✅) ENTRY AUTHORITY ORDERING + SPLIT-BRAIN REMOVAL.
+- **6400a** (`158c364fb` ✅) HARD SCORE FLOOR ERADICATED.
+- **6399** (`9ce60f077` ✅) ENTRY AUTHORITY ORDERING + SPLIT-BRAIN.
 - **6398a** (`1576f1153` ✅) CANONICAL FLUID ENTRY AUTHORITY REPAIR.
 - **6397a/b** (`61d1d2c85` ✅) ADAPTIVE FLOOR BRAIN — fluid [12, 22].
 - **6396** (`b43f74167` ✅) LIVE SCORE-SCALE REALIGNMENT.
 - **6395a** (`9fc222307` ✅) EXECUTABLE RUNNER + POSITION IDENTITY.
 - **6394c** (`b3efddd20` ✅) EarlyLaunchBypass wired into FDG.
 
-## Snapshot expectations for the V5.0.6401c APK
+## Snapshot expectations for the V5.0.6401d APK
 
-1. `LIVE_EXIT_ONLY_BUY_BLOCKED_6387` reason=STARTUP_DEFAULT drops
-   to zero (previous 19-row cluster).
-2. `BUY_DEFERRED_STARTUP_6401` captures deferred candidates (was
-   terminal BUY_FAIL rows).
-3. `PIPELINE_REPORT_FILE_WRITTEN_6401` fires each time an operator
-   taps Copy in PipelineHealthActivity or ErrorLogActivity — the
-   companion Share dialog offers the full uncapped file.
-4. `QTY_DECIMAL_SKEW_6401_LIKELY_10X_DECIMALS` fires and blocks
-   any sell that mis-scales UI qty vs raw (previously would have
-   broadcast 100× to chain).
-5. `FDG_ALLOW_LIVE_6399` / `FDG_BLOCK_*_6399` / `FDG_DEFER_*_6399`
-   counters populate the parity ledger end-to-end.
+1. `INTAKE/NO_PAIR_NO_FALLBACK` counter drops sharply for
+   pump.fun-native sources (7 sources in the last snapshot).
+2. `INTAKE_PUMPFUN_SOURCE_NATIVE_SEED_6401` counter fires for
+   every pump.fun mint that used to blow through to the oracle
+   chain.
+3. `NO_PAIR_NO_FALLBACK` forensic rows now carry
+   `hydrationState=PAIR_PENDING_HYDRATION | PAIR_SOURCE_NATIVE |
+   PAIR_HARD_UNAVAILABLE`.
+4. `ScannerHardRejectStore.load` and
+   `DynamicAltTokenRegistry.restoreFromDisk` no longer appear in
+   top ANR blocking sites.
+5. All V5.0.6401a-c counters (BUY_DEFERRED_STARTUP_6401,
+   PIPELINE_REPORT_FILE_WRITTEN_6401,
+   QTY_DECIMAL_SKEW_6401_LIKELY_10X_DECIMALS,
+   FDG_* terminals) continue as prior.
 
 ## Next backlog
 
 ### 🔴 P0 — V5.0.6401 remaining sections
+- **Bot cycle max 148s / avg 11.4s** — 6401c snapshot showed
+  extreme cycle latency; primary suspect is the 15-20s oracle
+  fallback chain that we bypass for pump.fun in 6401d but still
+  fires for other sources. Consider moving the whole
+  `tryFallbackPriceData` chain off the per-token synchronous
+  path.
 - **§7/§8 Sell path migration** — wire
   `SellIntentQuantityAuthority6401.validateSellIntent` into every
-  Executor sell callsite (~hundreds of hits across `Executor.kt`).
-  Substrate is landed; call-by-call migration is the next session.
+  Executor sell callsite (substrate is landed).
 - **§3 Legacy bypass authorities** — record
   `LANE_QUARANTINED_BLOCKED_ENTRY_6002` +
   `EXPRESS_LANE_PAUSED_EARLY_GATE_4594` via
-  `CounterParityLedger6399.recordTerminal(FDG_BLOCK_HARD_SAFETY)`
-  so parity ledger tracks them.
-- **§9 INTAKE / NO_PAIR_NO_FALLBACK choke** — wire
-  `PairHydrationState6398` into intake so Pump.fun / Raydium
-  survive DexScreener degradation.
+  `CounterParityLedger6399.recordTerminal` so parity ledger
+  tracks them.
 
 ### 🟠 P1 — verification + monitoring
-- **Live Session Validation** — run V5.0.6401c APK, verify:
-  * `BUY_DEFERRED_STARTUP_6401 > 0` or `== 0` cleanly.
-  * `PIPELINE_REPORT_FILE_WRITTEN_6401 > 0` after any Copy tap;
-    Share Full File dialog appears when text was truncated.
-  * `QTY_DECIMAL_SKEW_6401_LIKELY_10X_DECIMALS == 0` in the sell
-    path (once §7/§8 migration lands).
-  * `CounterParityLedger6399.checkParity().ok == true`.
+- **Live Session Validation** — run V5.0.6401d APK. Confirm:
+  * INTAKE allow > 0 (was 0/70 in the last snapshot).
+  * Max cycle ms drops from 148s to < 30s.
+  * ANR stall % drops well below 12.8%.
+  * `PIPELINE_REPORT_FILE_WRITTEN_6401` fires on every operator
+    Copy tap; Share dialog exposes the full 60k+ line file.
 - **Governor Soft-Only Verification** — audit every governor
   state mapping.
 
-### 🟢 P2 — remaining ANR polish
-- Investigate `MainActivity.onCreate` 1225ms frame stalls beyond
-  the existing `queuePostFirstFrameWarmups` deferral (bindViews +
-  inflate cost).
-
-### 🟣 P3 — Phase 1 SOL Perps/Leverage
+### 🟢 P2 — Phase 1 SOL Perps/Leverage
 - Gated on live WR + 2×–5× daily benchmark hit.
 
 
