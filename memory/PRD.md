@@ -1,4 +1,62 @@
-# AATE PRD — V5.0.6398 (Canonical Fluid Entry Authority)
+# AATE PRD — V5.0.6399 (Entry Authority Ordering)
+
+## Session shipping stack (6388 → 6399, all CI GREEN)
+
+- **6399** (`9ce60f077` ✅ Build) ENTRY AUTHORITY ORDERING + SPLIT-BRAIN
+  REMOVAL. Root-cause repair for 6398 signature (blocked/shadow
+  candidates still reaching MEME_LIVE_EXEC_ENTRY / EXEC_TICKET_CREATED
+  alongside BUY_FAILED + ENTRY_REJECTED_SCORE_FLOOR).
+  * RouteMode6399 (LIVE / SHADOW_READ_ONLY / DEFERRED / BLOCKED)
+    resolved BEFORE ticket creation.
+  * FdgTerminalOutcome6399 — 6 canonical terminals; exactly one per evalId.
+  * AuthorityInvariants6399 — hard-check assertAllowLiveBeforeTicket
+    (outcome=ALLOW_LIVE && score>=floor && route=LIVE && !denylist &&
+    !shadow). Violations throw + emit AUTHORITY_INVARIANT_FAILURE_6399
+    / SHADOW_ENTERED_LIVE_PATH_6399 / DENYLISTED_ENTERED_LIVE_PATH_6399.
+  * CounterParityLedger6399 — funnel counters DERIVED from canonical
+    terminals; parity guards enforce live_tickets==FDG_ALLOW_LIVE,
+    exec<=tickets, BUY_ATTEMPT<=exec, BUY_FAILED<=BUY_ATTEMPT.
+  * RuntimeDoctor6399 — authority-aware diagnosis; SPLIT_BRAIN /
+    TICKET_BEFORE_ALLOW / PARITY / POLICY_MISFILE / LANE_DISABLED /
+    RECONCILER_NOT_RUNNING all OVERRIDE HEALTHY.
+  * CanonicalEntryPipeline6398.issueAndRegister now enforces the
+    invariants before minting; shadow / denylisted / non-live-route
+    callers return null. Every live ticket increments the parity
+    ledger so drift is auditable in real time.
+  * BotService.processTokenCycle calls
+    ScannerHeatPublisher6398.onHydratedCandidate at cycle entry —
+    fluid floor now sees real-time market temperature.
+  * Bundle6399EntryAuthorityOrderingTest covers all 12 regression
+    tests A..L + parity fail-loud + healthy diagnosis.
+
+- **6398a** (`1576f1153` ✅) CANONICAL FLUID ENTRY AUTHORITY REPAIR —
+  immutable envelopes, pipeline, gate-block cache, pair hydration
+  states, scanner-heat + cognitive-advisory + lane-performance
+  publishers.
+- **6397a/b** (`61d1d2c85` ✅) ADAPTIVE FLOOR BRAIN — fluid [12, 22].
+- **6396** (`b43f74167` ✅) LIVE SCORE-SCALE REALIGNMENT (55/56 → 15/17/20).
+- **6395a** (`9fc222307` ✅) EXECUTABLE RUNNER + POSITION IDENTITY REPAIR.
+- **6394c** (`b3efddd20` ✅) EarlyLaunchBypass wired into FDG.
+- **6394b** (`358316d9a` ✅) 25%-divergence quarantine test fix.
+
+## Next backlog
+
+- **P1 LiveEntrySafetyHold_6312 migration** — remove residual score-
+  floor logic and switch to
+  CanonicalEntryPipeline6398.validateTicket() only. The substrate is
+  fully in place; the callsite refactor lands next.
+- **P1 Buy-lease acquisition migration** — same treatment: ticket-in,
+  ticket-validate-out, no independent score/floor recompute.
+- **P1 FDG terminal-outcome emission** — wire real FDG to
+  CounterParityLedger6399.recordTerminal so parity is auditable
+  end-to-end.
+- **P1 Journal correction pass** — historical LIVE_BUY_FAIL_TELEMETRY
+  rows reclassified as ENTRY_REJECTED_SCORE_FLOOR (write-only, never
+  mutate original evidence).
+- **P2 ANR Killer**, **P2 Fill Ledger LiveExecutor extension**,
+  **P3 SOL Perps/Leverage (Phase 1)**.
+
+# (Legacy) AATE PRD — V5.0.6393
 
 ## Session shipping stack (6388 → 6398a, all CI GREEN)
 
