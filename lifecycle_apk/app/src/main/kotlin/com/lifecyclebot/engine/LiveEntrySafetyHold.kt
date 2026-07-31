@@ -279,23 +279,16 @@ object LiveEntrySafetyHold {
             } catch (_: Throwable) {}
         }
 
-        // 3) Live floor — score below floor routes to shadow (never
-        //    auto-relax on poor WR; that's the whole point of the
-        //    governor). V5.0.6324 — apply governor-state floor uplift so
-        //    CAUTION / SOFT_TIGHT genuinely raise the bar for live entry.
-        //    V5.0.6396 — LIVE SCORE-SCALE REALIGNMENT. Clamp effective
-        //    floor to ABSOLUTE_MIN..ABSOLUTE_MAX (12..22) so no runtime
-        //    path can restore the legacy 55/56 anchor. Emits
-        //    ENTRY_REJECTED_SCORE_FLOOR (via EntryRejectionTelemetry6396)
-        //    instead of BUY_FAILED — a policy rejection is not an
-        //    execution failure.
-        //    V5.0.6397 — ADAPTIVE FLOOR BRAIN. The floor is now FLUID
-        //    within [12, 22], driven by scanner heat, score
-        //    distribution, per-lane learning (WR/EV), governor tier
-        //    and SuperAGI/SSI/LLM advisory channels. The static
-        //    minLiveCandidateScore + lastGovernorFloorAdjustment
-        //    remains a fallback when the brain has insufficient data,
-        //    but the brain's recommendation dominates when available.
+        // 3) Live floor — V5.0.6400 CRITICAL FIX: the hard score-floor
+        //    entry gate has been ERADICATED.  Score is a soft signal
+        //    only.  A low score may reduce size, priority, concurrency
+        //    or select a more conservative exit profile, but it must
+        //    NEVER independently return BLOCK / HOLD / DENY / REJECT
+        //    / BUY_FAILED / SCORE_BELOW_LIVE_FLOOR.
+        //
+        //    The AdaptiveFloorBrain6397 recommendation is preserved
+        //    for TELEMETRY and soft-shaping (size multiplier), never
+        //    as a rejection gate.  See SoftScoreShaping6400.
         val brainTier = try {
             com.lifecyclebot.engine.truth.LiveEntryThresholdAuthority6396.GovernorTier.valueOf(
                 lastGovernorState.name)
@@ -311,25 +304,16 @@ object LiveEntrySafetyHold {
             ?: com.lifecyclebot.engine.truth.LiveEntryThresholdAuthority6396
                 .clampFloor((minLiveCandidateScore + lastGovernorFloorAdjustment).toInt())
         ).toDouble()
-        if (candidateScore < effectiveFloor) {
-            failed += "SCORE_BELOW_LIVE_FLOOR:score=${candidateScore.toInt()}/min=${effectiveFloor.toInt()}"
-            try {
-                com.lifecyclebot.engine.truth.EntryRejectionTelemetry6396.emitScoreFloorReject(
-                    com.lifecyclebot.engine.truth.EntryRejectionTelemetry6396.ScoreFloorRejectRecord(
-                        mint = mint, symbol = symbol, lane = lane,
-                        rawScore = candidateScore, effectiveScore = candidateScore,
-                        finalFloor = effectiveFloor.toInt(),
-                        scoreScaleVersion = com.lifecyclebot.engine.truth.LiveEntryThresholdAuthority6396.SCORE_SCALE_VERSION,
-                        metricEpoch = System.currentTimeMillis() / 60_000L,
-                        decisionId = "hold_${mint.take(8)}_${System.currentTimeMillis()}",
-                        governorState = lastGovernorState.name,
-                        hardSafetyPassed = failed.none { it.startsWith("LIVE_BYPASS_HARD_") },
-                        recheckEligibleAt = System.currentTimeMillis() +
-                            com.lifecyclebot.engine.truth.EntryRejectionDedupeCache6396.COOLDOWN_MS,
-                    )
-                )
-            } catch (_: Throwable) { /* telemetry is best-effort */ }
-        }
+        // Publish the soft shaping decision (size mult, confidence)
+        // for downstream sizing / exit-profile consumers.  ZERO impact
+        // on eligibility.
+        try {
+            com.lifecyclebot.engine.truth.SoftScoreShaping6400.publish(
+                mint = mint, symbol = symbol, lane = lane,
+                rawScore = candidateScore,
+                referenceFloor = effectiveFloor,
+            )
+        } catch (_: Throwable) { /* soft-signal only */ }
 
         // 4) Confidence Governor — V5.0.6332 CONCENTRATED CONVICTION.
         //    HOLD is now purely a shape signal (size↑, floor↑), never
