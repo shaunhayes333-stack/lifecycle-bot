@@ -1,101 +1,94 @@
-# AATE PRD — V5.0.6401 (Startup Latch + FDG Parity Wired)
+# AATE PRD — V5.0.6401c (ANR-safe Report Export + Sell Qty Guard)
 
-## Session shipping stack (6388 → 6401b, all CI GREEN)
+## Session shipping stack (6388 → 6401c, all CI GREEN)
 
-- **6401b** (`ade11f566` ✅ Build) — compile fix for Bundle6399 testF
-  (param name `evidence`, not `evidenceCompleteness`).
-- **6401a §4** (`2c1e66d9f` ✅ Build) STARTUP EXIT-ONLY LATCH.
-  Wires `StartupExitOnlyLatch6401` into `ExecutableOpenGate` +
-  `Executor`. The 6400 snapshot's 19 BUY_FAILs labelled
-  `FINALITY_BLOCK:LIVE_EXIT_ONLY_ACTIVE:STARTUP_DEFAULT` are now
-  routed to `BUY_DEFERRED_STARTUP_6401` (requeue, no BUY_FAIL, no
-  counter inflation, no telemetry row).
-  * `checkAndClearStartupDefault()` self-repairs the umbrella at
-    15s; `onLiveBuySuccess()` locks it cleared for the generation
-    and calls `LiveExitOnlyMode6387.disengage()` iff activeReason
-    is still the boot `STARTUP_DEFAULT`.
-  * Both PumpPortal and Jupiter live-buy confirm paths clear the
-    latch on the first confirmed BUY.
-  * Bundle6401StartupExitOnlyLatchTest — 8 invariants; distinct
-    coverage of the disengage-on-repair and no-op-for-real-runtime
-    reason cases.
-
-- **6401 P1** (`755075b2d` ✅) COUNTER PARITY TERMINAL WIRE.
-  `CanonicalEntryPipeline6398.decide()` now calls
-  `CounterParityLedger6399.recordTerminal(outcome)` on every
-  canonical terminal (ALLOW / BLOCK_SCORE / BLOCK_HARD_SAFETY /
-  DEFER_HYDRATION). Executor.liveBuy entry point calls
-  `recordLiveExecutorInvocation() + recordBuyAttempt()`; every
-  `emitLiveBuyFail()` calls `recordBuyFailure()`. Parity
-  invariants EXEC<=TICKETS, BUY_ATTEMPT<=EXEC, BUY_FAILED<=BUY_ATTEMPT
-  now hold end-to-end.
-  * Bundle6401CounterParityTerminalWireTest — 7 invariants.
-  * Bundle6399EntryAuthorityOrderingTest updated: redundant manual
-    `recordTerminal` removed (decide is sole emission surface).
-
-- **6400a** (`158c364fb` ✅ Build) ERADICATE THE LIVE BUY HARD SCORE
-  FLOOR. Score cannot independently return BUY_FAILED /
-  SCORE_BELOW_LIVE_FLOOR; low-score candidates get shaped size
-  multipliers instead of terminal rejection.
-- **6399** (`9ce60f077` ✅) ENTRY AUTHORITY ORDERING + SPLIT-BRAIN
-  REMOVAL.
+- **6401c** (`4ca7c6bcf` ✅ Build) ANR-KILLER (full report share) +
+  SELL INTENT QUANTITY AUTHORITY (QTY_DECIMAL_SKEW substrate).
+  * `PipelineReportFileExporter6401` — writes the FULL uncapped
+    pipeline report to `<cacheDir>/pipeline_reports/aate_*.txt`
+    on the caller's background thread; share intent uses
+    `FileProvider EXTRA_STREAM` so the multi-megabyte payload
+    streams via URI grant instead of getting stuffed into
+    `Intent.EXTRA_TEXT` (the exact Binder-IPC freeze that forced
+    the 20k-of-60k clipboard cap). Wired into
+    PipelineHealthActivity + ErrorLogActivity share paths.
+    Retention: 5 newest files, older pruned each write.
+  * `SellIntentQuantityAuthority6401` — pure validation surface
+    that runs BEFORE any sell transaction is built. Two entry
+    points: `convertUiToRaw` + `validateSellIntent` (raw-only),
+    and `validateSellIntentFromUi` (does UI→raw via
+    `BigDecimal.movePointRight` so no Double drift enters the
+    ledger). Rejects when raw request exceeds wallet raw balance
+    × (1 + 0.5%). Overshoots ≥ 50× wallet are labelled
+    `QTY_DECIMAL_SKEW_6401_LIKELY_10X_DECIMALS` — the exact
+    signature of the 6400 snapshot bug (UI 1409 → 1.409e5).
+    `MintDecimals.Unknown` is a hard reject; never coerced to
+    zero (operator directive).
+  * Bundle6401PipelineReportFileExporterTest (3) +
+    Bundle6401SellIntentQuantityAuthorityTest (13) — includes a
+    reproduction test for the 6400-snapshot 100× skew.
+- **6401b** (`ade11f566` ✅ Build) — compile fix for Bundle6399
+  testF (param name `evidence`).
+- **6401a §4** (`2c1e66d9f` ✅ Build) STARTUP EXIT-ONLY LATCH wired.
+- **6401 P1** (`755075b2d` ✅) FDG parity terminal wire.
+- **6400a** (`158c364fb` ✅) ERADICATE THE LIVE BUY HARD SCORE FLOOR.
+- **6399** (`9ce60f077` ✅) ENTRY AUTHORITY ORDERING + SPLIT-BRAIN REMOVAL.
 - **6398a** (`1576f1153` ✅) CANONICAL FLUID ENTRY AUTHORITY REPAIR.
 - **6397a/b** (`61d1d2c85` ✅) ADAPTIVE FLOOR BRAIN — fluid [12, 22].
 - **6396** (`b43f74167` ✅) LIVE SCORE-SCALE REALIGNMENT.
 - **6395a** (`9fc222307` ✅) EXECUTABLE RUNNER + POSITION IDENTITY.
 - **6394c** (`b3efddd20` ✅) EarlyLaunchBypass wired into FDG.
 
-## Snapshot expectations for the V5.0.6401b APK
+## Snapshot expectations for the V5.0.6401c APK
 
-1. `LIVE_EXIT_ONLY_BUY_BLOCKED_6387` counter DROPS to zero for
-   reason=STARTUP_DEFAULT (the 19-row row cluster from the
-   V5.0.6400 snapshot).
-2. `BUY_DEFERRED_STARTUP_6401` NEW counter appears — captures the
-   deferred candidates that used to be terminal BUY_FAIL rows.
-3. `STARTUP_EXIT_ONLY_LATCH_REPAIRED_6401` fires once per generation
-   at ~15s (or earlier on first successful live buy).
-4. `LIVE_EXIT_ONLY_STARTUP_DEFAULT_CLEARED_ON_BUY_6401` fires on
-   the first confirmed live BUY of the generation.
-5. `FDG_ALLOW_LIVE_6399` / `FDG_BLOCK_SCORE_6399` /
-   `FDG_BLOCK_HARD_SAFETY_6399` / `FDG_DEFER_HYDRATION_6399`
-   counters populate — previously only tickets landed in the
-   parity ledger.
+1. `LIVE_EXIT_ONLY_BUY_BLOCKED_6387` reason=STARTUP_DEFAULT drops
+   to zero (previous 19-row cluster).
+2. `BUY_DEFERRED_STARTUP_6401` captures deferred candidates (was
+   terminal BUY_FAIL rows).
+3. `PIPELINE_REPORT_FILE_WRITTEN_6401` fires each time an operator
+   taps Copy in PipelineHealthActivity or ErrorLogActivity — the
+   companion Share dialog offers the full uncapped file.
+4. `QTY_DECIMAL_SKEW_6401_LIKELY_10X_DECIMALS` fires and blocks
+   any sell that mis-scales UI qty vs raw (previously would have
+   broadcast 100× to chain).
+5. `FDG_ALLOW_LIVE_6399` / `FDG_BLOCK_*_6399` / `FDG_DEFER_*_6399`
+   counters populate the parity ledger end-to-end.
 
 ## Next backlog
 
 ### 🔴 P0 — V5.0.6401 remaining sections
-- **§3 Legacy bypass authorities** — `LANE_QUARANTINED_BLOCKED_ENTRY_6002`
-  (LaneQuarantineController.logBlockedEntry), `EXPRESS_LANE_PAUSED_EARLY_GATE_4594`
-  (BotService:21519), `TOP_LANE_BYPASS_V4148` (Executor:13052 —
-  actually a positive bypass, not a hard block). Migrate the two
-  hard-blocks to record via `CounterParityLedger6399` so parity
-  ledger tracks them; keep the block semantics.
-- **§7/§8 QTY_DECIMAL_SKEW** — sell path still uses 100× inflated
-  quantities (UI 1409 → sell 1.409e5). Requires BigInteger/lamport
-  math end-to-end on sell intent quantity replacement. Multi-file
-  refactor, needs its own session.
+- **§7/§8 Sell path migration** — wire
+  `SellIntentQuantityAuthority6401.validateSellIntent` into every
+  Executor sell callsite (~hundreds of hits across `Executor.kt`).
+  Substrate is landed; call-by-call migration is the next session.
+- **§3 Legacy bypass authorities** — record
+  `LANE_QUARANTINED_BLOCKED_ENTRY_6002` +
+  `EXPRESS_LANE_PAUSED_EARLY_GATE_4594` via
+  `CounterParityLedger6399.recordTerminal(FDG_BLOCK_HARD_SAFETY)`
+  so parity ledger tracks them.
 - **§9 INTAKE / NO_PAIR_NO_FALLBACK choke** — wire
   `PairHydrationState6398` into intake so Pump.fun / Raydium
-  source-native routes survive DexScreener degradation.
+  survive DexScreener degradation.
 
 ### 🟠 P1 — verification + monitoring
-- **Live Session Validation** — run V5.0.6401b APK; confirm:
-  * `BUY_DEFERRED_STARTUP_6401 > 0` (or 0 if the latch cleared
-    before any candidate arrived — either is healthy).
-  * `LIVE_EXIT_ONLY_ACTIVE:STARTUP_DEFAULT` == 0 in BUY fail
-    telemetry.
-  * `CounterParityLedger6399.checkParity().ok == true` in the
-    RuntimeDoctor dump.
+- **Live Session Validation** — run V5.0.6401c APK, verify:
+  * `BUY_DEFERRED_STARTUP_6401 > 0` or `== 0` cleanly.
+  * `PIPELINE_REPORT_FILE_WRITTEN_6401 > 0` after any Copy tap;
+    Share Full File dialog appears when text was truncated.
+  * `QTY_DECIMAL_SKEW_6401_LIKELY_10X_DECIMALS == 0` in the sell
+    path (once §7/§8 migration lands).
+  * `CounterParityLedger6399.checkParity().ok == true`.
 - **Governor Soft-Only Verification** — audit every governor
-  state mapping and confirm none reconstructs a hard score
-  threshold outside the V5.0.6398/6399 canonical pipeline.
+  state mapping.
 
-### 🟢 P2 — ANR killer
-- Move `MainActivity.onCreate` + full-report export off the main
-  thread. Kills 1225ms frame stalls; report truncation resolves.
+### 🟢 P2 — remaining ANR polish
+- Investigate `MainActivity.onCreate` 1225ms frame stalls beyond
+  the existing `queuePostFirstFrameWarmups` deferral (bindViews +
+  inflate cost).
 
 ### 🟣 P3 — Phase 1 SOL Perps/Leverage
 - Gated on live WR + 2×–5× daily benchmark hit.
+
 
 
 
