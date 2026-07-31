@@ -592,6 +592,15 @@ class BirdeyeApi(private val apiKey: String = "") {
         // response code through ApiBackoff.markFailure / markSuccess so
         // consecutive 429s engage exponential backoff (5s → 5min cap).
         if (com.lifecyclebot.engine.ApiBackoff.isLockedOut("birdeye")) return null
+        // V5.0.6402 §D — Birdeye 401 is terminal (auth). One `shouldSkip`
+        // check here kills the entire per-token retry storm the moment
+        // the circuit opens; every getRaw call short-circuits until the
+        // operator resets the circuit via
+        // ProviderCircuitBreaker6402.resetAuthTerminal(BIRDEYE).
+        if (com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
+                .shouldSkip(com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE)) {
+            return null
+        }
 
         return try {
             val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(url) } catch (_: Throwable) { url }
@@ -617,10 +626,40 @@ class BirdeyeApi(private val apiKey: String = "") {
             when {
                 resp.code in listOf(401, 403) -> {
                     try { com.lifecyclebot.engine.KeyValidator.recordResult("birdeye", success = false, httpStatus = resp.code) } catch (_: Throwable) {}
+                    // V5.0.6402 §D — Birdeye 401/403 is a TERMINAL auth
+                    // failure. Open the circuit permanently until the
+                    // operator rotates credentials. Every future request
+                    // short-circuits via ProviderCircuitBreaker6402.shouldSkip,
+                    // eliminating the per-token retry storm that produced
+                    // "birdeye sr=0% http=401" in every recent snapshot.
+                    try {
+                        com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
+                            .onAuthTerminal(com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE)
+                    } catch (_: Throwable) {}
+                    null
+                }
+                resp.code == 429 -> {
+                    // V5.0.6402 §D — 429 activates shared exponential backoff.
+                    try {
+                        val retryAfter = resp.header("Retry-After")?.toLongOrNull()?.let { it * 1000L }
+                        com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
+                            .onRateLimited(com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE, retryAfterMs = retryAfter)
+                    } catch (_: Throwable) {}
+                    null
+                }
+                resp.code in 500..599 -> {
+                    try {
+                        com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
+                            .onServerError(com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE)
+                    } catch (_: Throwable) {}
                     null
                 }
                 resp.isSuccessful -> {
                     try { com.lifecyclebot.engine.KeyValidator.recordResult("birdeye", success = true, httpStatus = resp.code) } catch (_: Throwable) {}
+                    try {
+                        com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
+                            .onSuccess(com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE)
+                    } catch (_: Throwable) {}
                     resp.body?.string()
                 }
                 else -> null

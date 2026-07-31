@@ -181,6 +181,13 @@ class HeliusCreatorHistory(private val apiKey: String) {
         // released before any trade decision ("parked at 140"). Fail fast while
         // locked out; ApiBackoff escalates 5s→120s and auto-recovers on success.
         if (com.lifecyclebot.engine.ApiBackoff.isLockedOut("helius")) return null
+        // V5.0.6402 §D — one shared circuit skip for Helius: prevents
+        // per-mint retry storms during a 429/401 upstream event. Every
+        // caller short-circuits here without a socket open.
+        if (com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
+                .shouldSkip(com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.HELIUS)) {
+            return null
+        }
 
         return try {
             val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(url) } catch (_: Throwable) { url }
@@ -201,10 +208,36 @@ class HeliusCreatorHistory(private val apiKey: String) {
             when {
                 resp.code in listOf(401, 403) -> {
                     try { com.lifecyclebot.engine.KeyValidator.recordResult("helius", success = false, httpStatus = resp.code) } catch (_: Throwable) {}
+                    // V5.0.6402 §D — helius 401/403 → terminal auth.
+                    try {
+                        com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
+                            .onAuthTerminal(com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.HELIUS)
+                    } catch (_: Throwable) {}
+                    null
+                }
+                resp.code == 429 -> {
+                    // V5.0.6402 §D — helius 429 → single shared backoff,
+                    // not a per-mint retry storm. Respects Retry-After.
+                    try {
+                        val retryAfter = resp.header("Retry-After")?.toLongOrNull()?.let { it * 1000L }
+                        com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
+                            .onRateLimited(com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.HELIUS, retryAfterMs = retryAfter)
+                    } catch (_: Throwable) {}
+                    null
+                }
+                resp.code in 500..599 -> {
+                    try {
+                        com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
+                            .onServerError(com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.HELIUS)
+                    } catch (_: Throwable) {}
                     null
                 }
                 resp.isSuccessful -> {
                     try { com.lifecyclebot.engine.KeyValidator.recordResult("helius", success = true, httpStatus = resp.code) } catch (_: Throwable) {}
+                    try {
+                        com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
+                            .onSuccess(com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.HELIUS)
+                    } catch (_: Throwable) {}
                     resp.body?.string()
                 }
                 else -> null

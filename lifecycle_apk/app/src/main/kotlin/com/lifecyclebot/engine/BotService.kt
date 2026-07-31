@@ -15736,10 +15736,23 @@ if (hotExitHandledSweep) {
                                 val snap = buildExitSweepSnapshot()
                                 if (snap.cfg != null) {
                                     didWork = true
-                                    try { ForensicLogger.lifecycle("EXIT_COORDINATOR_UNIVERSAL_START", "ageMs=$age") } catch (_: Throwable) {}
-                                    try { runUniversalSlSafetyNetSweep(snap.cfg, snap.wallet) }
-                                    catch (t: Throwable) { ErrorLogger.warn("BotService", "exit coordinator universal sweep error: ${t.message}") }
-                                    try { ForensicLogger.lifecycle("EXIT_COORDINATOR_UNIVERSAL_DONE", "ageMs=$age") } catch (_: Throwable) {}
+                                    // V5.0.6402 §C — start/done invariant. Register
+                                    // the sweep lease BEFORE emitting START and
+                                    // release it in FINALLY so a mid-sweep
+                                    // CancellationException, provider hang or
+                                    // runFallbackSafetyExit crash cannot orphan
+                                    // the START event. The 6401 snapshot showed
+                                    // slStart=7 slDone=6, exactly one orphan; this
+                                    // guarantees start==done from here on.
+                                    val sweepId = com.lifecyclebot.engine.truth.UniversalSlLeaseRegistry6402.acquire()
+                                    try {
+                                        try { ForensicLogger.lifecycle("EXIT_COORDINATOR_UNIVERSAL_START", "ageMs=$age sweepId=$sweepId") } catch (_: Throwable) {}
+                                        try { runUniversalSlSafetyNetSweep(snap.cfg, snap.wallet) }
+                                        catch (t: Throwable) { ErrorLogger.warn("BotService", "exit coordinator universal sweep error: ${t.message}") }
+                                    } finally {
+                                        try { ForensicLogger.lifecycle("EXIT_COORDINATOR_UNIVERSAL_DONE", "ageMs=$age sweepId=$sweepId") } catch (_: Throwable) {}
+                                        try { com.lifecyclebot.engine.truth.UniversalSlLeaseRegistry6402.release(sweepId) } catch (_: Throwable) {}
+                                    }
                                     // V5.9.1470 (spec item 4) — universal SL sweep also counts as
                                     // exit protection; advance the heartbeat (see FULL_DONE note).
                                     lastTickExitSweepMs = System.currentTimeMillis()
@@ -15749,6 +15762,10 @@ if (hotExitHandledSweep) {
                             } else {
                                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_COORD_SKIP_REASON_UNIVERSAL_RATE_LIMITED") } catch (_: Throwable) {}
                             }
+                            // V5.0.6402 §C acceptance #2 — any lease older than
+                            // 10s is orphaned. Force-release it here so the
+                            // start/done gap can never persist across cycles.
+                            try { com.lifecyclebot.engine.truth.UniversalSlLeaseRegistry6402.reapStaleLeases(nowMs = now) } catch (_: Throwable) {}
                         }
 
                         kotlinx.coroutines.delay(if (didWork) 250L else 750L)
