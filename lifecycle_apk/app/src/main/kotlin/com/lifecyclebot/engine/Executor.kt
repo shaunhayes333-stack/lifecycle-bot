@@ -15958,7 +15958,7 @@ class Executor(
                             positionGeneration = positionGen,
                             entryRaw = proof.amountRaw,
                         )
-                        val walletAddr = try { wallet.publicKeyB58 } catch (_: Throwable) { "" }
+                        val walletAddr = try { verifyWallet.publicKeyB58 } catch (_: Throwable) { "" }
                         val entryLamports = java.math.BigInteger.valueOf(
                             (ts.position.costSol.coerceAtLeast(0.0) * 1_000_000_000.0).toLong(),
                         )
