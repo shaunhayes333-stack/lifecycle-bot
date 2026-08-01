@@ -41,7 +41,7 @@ object PaperLiveParityKernel6405 {
     }
 
     fun compute(key: PositionKey): PnLReport {
-        val fold = CanonicalEventStream6405.fold(key.mint, key.positionGeneration)
+        val fold = CanonicalEventStream6405.fold(key.mint, key.positionGeneration, key.wallet)
         val isPaper = laneFlag["${key.wallet}|${key.mint}|${key.positionGeneration}"] ?: false
         val realised = fold.lamportsRecovered.subtract(fold.lamportsSpent)
         val report = PnLReport(

@@ -114,13 +114,19 @@ object CanonicalEventStream6405 {
         val terminal: TerminalFinalityAuthority6405.Terminal?,
     )
 
-    fun fold(mint: String, positionGeneration: Long): PositionFold {
+    /**
+     * Fold events for (mint, positionGeneration). Optionally filter by
+     * [wallet] — required for paper/live parity where two lanes hold
+     * the same mint on separate wallets and must NOT sum together.
+     */
+    fun fold(mint: String, positionGeneration: Long, wallet: String? = null): PositionFold {
         var bought = BigInteger.ZERO
         var sold = BigInteger.ZERO
         var spent = BigInteger.ZERO
         var recovered = BigInteger.ZERO
         for (e in events) {
             if (e.mint != mint || e.positionGeneration != positionGeneration) continue
+            if (wallet != null && e.wallet != wallet) continue
             when (e.type) {
                 Type.BUY_VERIFIED -> {
                     bought = bought.add(e.rawQty)
