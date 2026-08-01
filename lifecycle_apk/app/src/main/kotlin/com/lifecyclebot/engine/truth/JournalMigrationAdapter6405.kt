@@ -43,11 +43,17 @@ object JournalMigrationAdapter6405 {
             t.contains("DUPLICATE_EXIT_BLOCKED") ->
                 CanonicalEventStream6405.Type.DUPLICATE_EXIT_BLOCKED
             else -> {
+                // V5.0.6405 §7 — SILENT COUNTER ONLY.
+                // Operator 6405 snapshot at t=192s showed
+                // JOURNAL_UNMAPPED_TAG_6405 at 24 286 emits (127/s),
+                // doubling every legacy lifecycle event and starving
+                // the async forensic queue. Emitting a lifecycle event
+                // for an unmapped tag from INSIDE the lifecycle emitter
+                // is a self-amplifying feedback loop. Increment the
+                // counter silently and leave the log stream alone —
+                // operators can watch the counter, no per-tag record
+                // is necessary.
                 try {
-                    ForensicLogger.lifecycle(
-                        "JOURNAL_UNMAPPED_TAG_6405",
-                        "tag=${legacyTag.take(80)}",
-                    )
                     PipelineHealthCollector.labelInc("JOURNAL_UNMAPPED_TAG_6405")
                 } catch (_: Throwable) {}
                 null
