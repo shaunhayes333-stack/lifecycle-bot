@@ -10550,9 +10550,19 @@ class Executor(
             val agiCeiling6090 = if (agiAuthorityActive6090) {
                 if (RuntimeModeAuthority.isPaper()) 2.50 else 2.00
             } else 1.60
+            // V5.0.6406 §1 — STACKED WINNER CEILING BUMP.
+            // When PaperEvBucketGate6405 flagged the bucket as a proven
+            // winner (runnerBoost6405 == 1.5), raise the LIVE ceiling from
+            // 2.00 → 2.50 so a runner combined with any other tail-wind
+            // (highConvBoost 1.5, laneBias 1.4, capitalEfficiency,
+            // superBrain) can go up to 2.5× rather than being clamped at
+            // 2.0×. Paper unchanged (already at 2.50).
+            val agiCeiling6406 = if (runnerBoost6405 > 1.0 && RuntimeModeAuthority.isLive()) {
+                maxOf(agiCeiling6090, 2.50)
+            } else agiCeiling6090
             // V5.0.6288 — apply truth-ledger CLAMP as a ceiling for negative-E lanes.
             // The clamp value is a hard ceiling on the product (never larger than clamp).
-            var baseline6090 = product.coerceIn(posEvFloor, agiCeiling6090)
+            var baseline6090 = product.coerceIn(posEvFloor, agiCeiling6406)
             // V5.0.6405 §19b — RUNNER BOOST FLOOR BYPASS.
             // When PaperEvBucketGate6405.sizeMultiplier() returned 1.5×
             // for a proven-winner bucket, other cutters (lane-bias 0.50 for
@@ -10570,7 +10580,7 @@ class Executor(
                     )
                     PipelineHealthCollector.labelInc("RUNNER_BOOST_FLOOR_APPLIED_6405")
                 } catch (_: Throwable) {}
-                baseline6090 = runnerBoost6405.coerceAtMost(agiCeiling6090)
+                baseline6090 = runnerBoost6405.coerceAtMost(agiCeiling6406)
             }
             if (truthLedgerClamp6288 != null && RuntimeModeAuthority.isLive()) {
                 try {
