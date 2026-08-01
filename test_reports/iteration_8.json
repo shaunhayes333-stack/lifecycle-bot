@@ -1,0 +1,44 @@
+{
+  "summary": "V5.0.6404 §A code-review-only static verification (Native Kotlin Android; no backend/frontend/JVM available in container). Verified 4 claims across StrategyTruthLedger.kt, Bundle6404StrategyCleanCounterDedupeTest.kt, and Models.kt. All 4 pass. No runtime tests executed (gradlew not runnable here; CI already reported success for run 30687890634, artifact AATE_v5.0.6404 present).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verification_findings": {
+    "1_counter_gating_behind_lifetime_set": {
+      "status": "PASS",
+      "evidence": {
+        "STRATEGY_CLEAN_TERMINAL_ROWS": "StrategyTruthLedger.kt:199-201 — inc() only fires when seenTerminalKeysLifetime.add(terminalKey) returns true (first-ever emission of that canonical terminal key).",
+        "STRATEGY_PARTIAL_NOT_TERMINAL": "Lines 146-149 — gated behind 'PARTIAL:' + terminalKey(row); prefix prevents collision with terminal keys.",
+        "STRATEGY_TERMINAL_DEDUPED + STRATEGY_MINT_CLOSE_WINDOW_DEDUPED_4494": "Lines 185-189 — both counters gated behind single 'DEDUP:$terminalKey|<0|1>' key add. mint-close variant only fires inside the same gate when sameMintCloseDuplicate is true. Correct — a duplicate seen twice will only bump these counters once per lifetime, matching the directive."
+      }
+    },
+    "2_bounded_LRU_eviction": {
+      "status": "PASS",
+      "evidence": "Lines 53-68 — MAX_SEEN_TERMINAL_KEYS = 8_192. seenTerminalKeysLifetime = Collections.synchronizedSet(anonymous LinkedHashSet subclass) with overridden add(): after a successful super.add(), if size > MAX, iterator().next() + remove() drops the oldest (insertion-order) entry. This is textbook LRU-by-insertion eviction. Memory is O(MAX_SEEN_TERMINAL_KEYS * avg key length) — bounded. Thread-safe via Collections.synchronizedSet wrapper; add() is called from the mutating override so the synchronization contract holds.",
+      "minor_note": "The wrapper synchronizes on the outer Collections.synchronizedSet monitor, while the overridden add() calls super.add() (which is not synchronized on the same monitor when invoked directly). However, since all external callers go through the wrapper (seenTerminalKeysLifetime.add(...)), the wrapper's synchronized(mutex) block enters BEFORE dispatching to the overridden add(), so the whole add+evict is atomic. Correct."
+    },
+    "3_audit_result_unchanged": {
+      "status": "PASS",
+      "evidence": "Local counters deduped/partial/recovery/badEntry/forensic (lines 127-131) are incremented unconditionally on every call. Result.rows list `out` and Result.audit fields are built identically to pre-6404 behaviour. The dedupe set gating touches ONLY the three PipelineHealthCollector.labelInc call sites — the returned Result is byte-identical for the same input. Cache stamp/publish (lines 207-211) is unchanged."
+    },
+    "4_test_uses_correct_Trade_constructor": {
+      "status": "PASS",
+      "evidence": "Bundle6404StrategyCleanCounterDedupeTest.kt:19-35 uses NAMED args: side, mode, sol, price, ts, reason, pnlSol, sig, mint, positionId, entryPriceSnapshot, entryCostSol, entryQtyToken, soldQtyToken, remainingQtyToken. All 15 fields exist in Models.kt Trade data class (line 204-241) with matching types (String/Double/Long). No positional-order issue since args are named. PipelineHealthCollector.labelCountSnapshot(key) confirmed at PipelineHealthCollector.kt:2351."
+    }
+  },
+  "code_review_comments": [
+    "Correctness of dedupe keys: terminalKey() falls back to a minute-bucketed key ($mode|$mint|$buySig|reason.take(48)|$bucket) when sig is blank. Under high-frequency SELL emissions without on-chain sig, two distinct sells within the same minute for same (mode,mint,positionId) would collapse to one counter bump — acceptable since 6404 goal is per-terminal dedupe, and audit `deduped` still captures the collision separately.",
+    "seenTerminalKeysLifetime shares one set for three prefix namespaces (raw terminalKey, 'PARTIAL:', 'DEDUP:'). The 8,192 bound is global across all three. Under sustained storm this could evict a raw-terminal key while its 'DEDUP:' variant still lives (or vice versa), causing a stray extra counter tick — the comment on line 59-61 explicitly acknowledges this is intended tradeoff ('one extra counter tick, not a runaway'). Acceptable.",
+    "Concurrency: clean() is not synchronized externally; two threads calling clean() concurrently may both observe seenTerminalKeysLifetime.add(key) == true for the same key only if they race, but Collections.synchronizedSet serializes add(), so at most ONE succeeds. Safe.",
+    "Test isolation risk (minor): Bundle6404StrategyCleanCounterDedupeTest relies on lifetime set state. Because it uses labelCountSnapshot delta (before/after) rather than absolute counts, and because the sigs/mints are unique-per-test-method, the tests are robust to prior state contamination — no @Before reset needed. The `delta in 1L..4L` upper bound would only be violated if a prior test in the SAME JVM had emitted these exact 4 sigs, which cannot happen given the unique 'SIGdistinct{n}{n}{n}...' pattern.",
+    "No unbounded growth found. No sync/async issues. No hardcoded values. No Mongo _id concerns (no DB). No API endpoints affected."
+  ],
+  "test_report_links": [],
+  "action_items": [],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (no runtime)", "frontend": "N/A (Android app)"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "This repo is /app/lifecycle_apk — Native Kotlin Android trading bot. NO Python backend, NO React frontend, NO curl-able endpoints. Do not attempt supervisor/pytest/playwright. Verification is pure static code review against Kotlin sources. CI (GitHub Actions build.yml) is the only executable path; run 30687890634 succeeded with artifact AATE_v5.0.6404. Next-session backlog: §B–§L of the V5.0.6404 directive.",
+  "rca_of_the_issue": "Pre-6404 STRATEGY_CLEAN_TERMINAL_ROWS incremented inside the per-row emission loop on every clean() call. With clean() called ~1–3×/lane_eval and each call emitting ~200 rows across the 10s TTL cache misses, this produced ~111 events/sec (2,464,929 events / 6.16h). ForensicReconciler treated these as distinct-terminal events, generating downstream storms that stalled the 210s bot-loop. Fix (commit 644b4a727e): gate all three labelInc call sites behind a Collections.synchronizedSet(LinkedHashSet) 'seenTerminalKeysLifetime' with MAX 8,192 LRU eviction, keyed by canonical terminalKey with 'PARTIAL:'/'DEDUP:' prefixes to prevent cross-namespace collisions. Verified: counter fires at most once per unique canonical terminal per JVM lifetime; audit result (row list + Audit dataclass) is unchanged; memory bounded."
+}
