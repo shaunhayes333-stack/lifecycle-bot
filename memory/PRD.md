@@ -1,31 +1,26 @@
-# AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Executor Wire-Up
+# AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 ## Session shipping stack (V5.0.6405, 16-section directive)
 
-- **6405 wire-up** (`9e4b7145e` + `620842ff9` + `e96bdf177`) EXECUTOR WIRED
-  - AATEApp.onCreate → PortfolioStore6405.attach(this)
-  - Executor buy-verify (LIVE_BUY_LANDED) writes to
-    PositionGenerationBridge6405, DecimalIntegrityAuthority6405,
-    CanonicalEventStream6405, PortfolioStore6405, and
-    CheckpointRecoveryAuthority6405 in one atomic hop
-  - Executor sell-verify (SELL_TX_PARSE_OK) writes soldRaw to
-    the raw ledger, canonical stream and portfolio store; on full
-    exit marks position terminal and retires checkpoint
-  - ForensicLogger.lifecycle → JournalMigrationAdapter6405 →
-    CanonicalEventStream6405 (global journal migration bridge)
-  - Recursion guard on JOURNAL_UNMAPPED_TAG_6405 and
-    CANONICAL_EVENT_* to prevent bridge→adapter→bridge loops
-  - PaperLiveParityKernel6405.compute uses new wallet-aware
-    fold overload so paper + live never sum each other's events
+- **6405 sell coverage + replay + invariant runner** (`f5b48e367`)
+  - Sell-verify wired to all THREE SELL_TX_PARSE_OK sites:
+    executeProfitLockSell full (`~6178`), executeProfitLockSell
+    partial (`~17333`), and liveSell full-exit (`~20655`).
+  - AATEApp.onCreate loads `PortfolioStore6405.openPositions()` on a
+    background thread, rehydrates `CheckpointRecoveryAuthority6405`,
+    seeds `PositionGenerationBridge6405` + raw-qty ledger, and runs
+    `replay()`. Restarts now recover from the ACID store, not
+    SharedPreferences.
+  - New daemon thread runs `PortfolioInvariants6405.verify()` every
+    30s so I3 (over-sold) violations surface within one tick.
 
-- **6405 §1+§2** (`c32b35da1` ✅) CRASH-SAFE PORTFOLIO
-  STORE. Android platform SQLite with `enableWriteAheadLogging=true`,
-  ACID `beginTransactionNonExclusive` for upserts. Schema v1.
+- **6405 wire-up** (`9e4b7145e` + `620842ff9` + `e96bdf177`)
+  Executor buy-verify + sell-verify + attach + ForensicLogger bridge.
+
+- **6405 §1+§2** (`c32b35da1` ✅) CRASH-SAFE PORTFOLIO STORE (SQLite
+  WAL + ACID transactions).
 
 - **6405 §5** (`0e57103db` ✅) DECIMAL INTEGRITY HARD BLOCK.
-  Strict decimals resolver (wallet → chain cache → local cache →
-  on-chain getAccountInfo → caller fallback → REFUSE). Lifetime
-  raw-qty invariant sum(sold) ≤ entry.
 
 - **6405 §3/§4/§6/§7** (`01bc607e5`, superseded — code shipped)
   Checkpoint recovery, terminal finality, price/pair integrity,
