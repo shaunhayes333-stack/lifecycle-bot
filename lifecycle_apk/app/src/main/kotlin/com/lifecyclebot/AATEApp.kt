@@ -79,6 +79,76 @@ class AATEApp : Application() {
             ErrorLogger.error("App", "PortfolioStore6405 attach failed: ${e.message}", e)
         }
 
+        // V5.0.6405 §3 — RESTART REPLAY. Rehydrate the in-memory
+        // CheckpointRecoveryAuthority6405 from the ACID portfolio
+        // store so restarts pick up open positions from the durable
+        // ledger (not SharedPreferences). Then run replay() which
+        // retires terminal-with-zero-remaining rows and surfaces
+        // TERMINAL_WITH_NONZERO_REMAINING integrity violations.
+        // Runs on a background thread — SQLite IO must not block main.
+        Thread({
+            try {
+                val open = com.lifecyclebot.engine.truth.PortfolioStore6405.openPositions()
+                open.forEach { p ->
+                    com.lifecyclebot.engine.truth.CheckpointRecoveryAuthority6405.upsert(
+                        com.lifecyclebot.engine.truth.CheckpointRecoveryAuthority6405.OpenPosition(
+                            wallet = p.wallet,
+                            mint = p.mint,
+                            positionGeneration = p.positionGeneration,
+                            entryRaw = p.entryRaw,
+                            soldRaw = p.soldRaw,
+                            entryLamports = p.entryLamports,
+                            isPaper = p.isPaper,
+                        ),
+                    )
+                    if (p.positionGeneration > 0L) {
+                        com.lifecyclebot.engine.truth.PositionGenerationBridge6405
+                            .set(p.mint, p.positionGeneration)
+                        com.lifecyclebot.engine.truth.DecimalIntegrityAuthority6405
+                            .recordEntryRaw(p.mint, p.positionGeneration, p.entryRaw)
+                        if (p.soldRaw.signum() > 0) {
+                            com.lifecyclebot.engine.truth.DecimalIntegrityAuthority6405
+                                .recordSoldRaw(p.mint, p.positionGeneration, p.soldRaw)
+                        }
+                    }
+                }
+                val report = com.lifecyclebot.engine.truth.CheckpointRecoveryAuthority6405.replay()
+                ErrorLogger.info(
+                    "App",
+                    "CheckpointRecoveryAuthority6405 replay complete: " +
+                        "restored=${open.size} kept=${report.kept} retired=${report.retired} " +
+                        "violations=${report.integrityViolations.size}",
+                )
+                report.integrityViolations.take(5).forEach { v ->
+                    ErrorLogger.warn("App", "6405 replay integrity violation: $v")
+                }
+            } catch (e: Throwable) {
+                ErrorLogger.warn("App", "PortfolioStore6405 restart replay failed: ${e.message}")
+            }
+        }, "6405-restart-replay").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }.start()
+
+        // V5.0.6405 §15 — PORTFOLIO INVARIANT RUNNER.
+        // Every 30s, verify open positions against I1..I4 so I3
+        // (over-sold) violations surface in the operator dashboard
+        // immediately rather than at end-of-tick reconciliation.
+        Thread({
+            try { Thread.sleep(30_000L) } catch (_: InterruptedException) { return@Thread }
+            while (!Thread.currentThread().isInterrupted) {
+                try {
+                    val open = com.lifecyclebot.engine.truth.CheckpointRecoveryAuthority6405
+                        .openPositions()
+                    val report = com.lifecyclebot.engine.truth.PortfolioInvariants6405
+                        .verify(open)
+                    if (!report.allPass) {
+                        report.violations.take(3).forEach { v ->
+                            ErrorLogger.warn("App", "6405 invariant violation: $v")
+                        }
+                    }
+                } catch (_: Throwable) {}
+                try { Thread.sleep(30_000L) } catch (_: InterruptedException) { break }
+            }
+        }, "6405-invariant-runner").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }.start()
+
         // V5.9.14: Initialize SymbolicContext — loads persisted mood/edge state
         try {
             com.lifecyclebot.engine.SymbolicContext.init(this)

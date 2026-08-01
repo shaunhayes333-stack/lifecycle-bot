@@ -17334,6 +17334,41 @@ class Executor(
                                     "✅ PARTIAL LANDED: rawConsumed=${vsr.rawTokenConsumed} ui=${vsr.uiTokenConsumed.fmt(4)} solReceived=${vsr.solReceivedLamports} lamports",
                                     sig = finalSig, tokenAmount = vsr.uiTokenConsumed, traderTag = "MEME",
                                 )
+                                // V5.0.6405 §5/§7/§1+§2 — canonical partial sell wire.
+                                // Partial sells never close the position; we record
+                                // sold-raw and stream the event but leave the terminal
+                                // finality decision to the full-exit sell path.
+                                try {
+                                    val positionGen = ts.position.entryTime.takeIf { it > 0L } ?: 0L
+                                    val soldRaw = vsr.rawTokenConsumed
+                                    val recovered = java.math.BigInteger.valueOf(vsr.solReceivedLamports)
+                                    val walletAddr = try { activeWallet.publicKeyB58 } catch (_: Throwable) { "" }
+                                    if (soldRaw.signum() > 0 && positionGen > 0L) {
+                                        com.lifecyclebot.engine.truth.DecimalIntegrityAuthority6405
+                                            .recordSoldRaw(ts.mint, positionGen, soldRaw)
+                                    }
+                                    com.lifecyclebot.engine.truth.CanonicalEventStream6405.append(
+                                        wallet = walletAddr,
+                                        mint = ts.mint,
+                                        positionGeneration = positionGen,
+                                        type = com.lifecyclebot.engine.truth
+                                            .CanonicalEventStream6405.Type.SELL_VERIFIED,
+                                        rawQty = soldRaw,
+                                        lamports = recovered,
+                                        source = "PARTIAL_SELL_TX_PARSE_OK",
+                                        note = "sig=${finalSig.take(16)}",
+                                    )
+                                    com.lifecyclebot.engine.truth.PortfolioStore6405.appendEvent(
+                                        wallet = walletAddr,
+                                        mint = ts.mint,
+                                        positionGeneration = positionGen,
+                                        kind = "SELL_VERIFIED",
+                                        rawQty = soldRaw,
+                                        lamports = recovered,
+                                        source = "PARTIAL_SELL_TX_PARSE_OK",
+                                        note = "sig=${finalSig.take(16)} partial=true",
+                                    )
+                                } catch (_: Throwable) {}
                             }
                             TradeVerifier.Outcome.FAILED_CONFIRMED -> {
                                 LiveTradeLogStore.log(
@@ -20637,6 +20672,51 @@ class Executor(
                         // V5.9.767 — terminal LANDED state. Idempotent; reconciler
                         // also calls markLanded when on-chain balance reaches zero.
                         try { com.lifecyclebot.engine.sell.SellJobRegistry.markLanded(ts.mint, sig) } catch (_: Throwable) {}
+                        // V5.0.6405 §5/§7/§4/§1+§2 — full-exit canonical wire.
+                        try {
+                            val positionGen = ts.position.entryTime.takeIf { it > 0L } ?: 0L
+                            val soldRaw = vsr.rawTokenConsumed
+                            val recovered = java.math.BigInteger.valueOf(vsr.solReceivedLamports)
+                            val walletAddr = try { wallet.publicKeyB58 } catch (_: Throwable) { "" }
+                            if (soldRaw.signum() > 0 && positionGen > 0L) {
+                                com.lifecyclebot.engine.truth.DecimalIntegrityAuthority6405
+                                    .recordSoldRaw(ts.mint, positionGen, soldRaw)
+                            }
+                            com.lifecyclebot.engine.truth.CanonicalEventStream6405.append(
+                                wallet = walletAddr,
+                                mint = ts.mint,
+                                positionGeneration = positionGen,
+                                type = com.lifecyclebot.engine.truth
+                                    .CanonicalEventStream6405.Type.SELL_VERIFIED,
+                                rawQty = soldRaw,
+                                lamports = recovered,
+                                source = "FULL_SELL_TX_PARSE_OK",
+                                note = "sig=${sig.take(16)} fullExit=${vsr.tokenAccountClosedFullExit}",
+                            )
+                            com.lifecyclebot.engine.truth.PortfolioStore6405.appendEvent(
+                                wallet = walletAddr,
+                                mint = ts.mint,
+                                positionGeneration = positionGen,
+                                kind = "SELL_VERIFIED",
+                                rawQty = soldRaw,
+                                lamports = recovered,
+                                source = "FULL_SELL_TX_PARSE_OK",
+                                note = "sig=${sig.take(16)}",
+                            )
+                            if (vsr.tokenAccountClosedFullExit) {
+                                com.lifecyclebot.engine.truth.TerminalFinalityAuthority6405
+                                    .markTerminal(
+                                        ts.mint, positionGen,
+                                        com.lifecyclebot.engine.truth
+                                            .TerminalFinalityAuthority6405.Terminal.CLOSED_FULL_EXIT,
+                                        "FULL_SELL_ATA_CLOSED",
+                                    )
+                                com.lifecyclebot.engine.truth.PositionGenerationBridge6405
+                                    .clear(ts.mint)
+                                com.lifecyclebot.engine.truth.CheckpointRecoveryAuthority6405
+                                    .retire(walletAddr, ts.mint, positionGen)
+                            }
+                        } catch (_: Throwable) {}
                     }
                     TradeVerifier.Outcome.FAILED_CONFIRMED -> {
                         LiveTradeLogStore.log(
