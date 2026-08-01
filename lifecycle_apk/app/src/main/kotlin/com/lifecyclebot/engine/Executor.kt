@@ -6257,6 +6257,25 @@ class Executor(
                                         terminalAtMs = System.currentTimeMillis(),
                                     ),
                                 )
+                                // V5.0.6405 §19c — EV GATE LEARNING LOOP.
+                                // Feed the outcome straight back into
+                                // TacticSwitcher so the (lane, scoreBand) bucket
+                                // stats update within the tick instead of waiting
+                                // for the daily V3JournalRecorder reconciler. Keys
+                                // off the sell-side lane/entry-score already
+                                // stamped on the position.
+                                try {
+                                    val cost = ts.position.costSol
+                                    val recoveredSol = vsr.solReceivedLamports.toDouble() / 1_000_000_000.0
+                                    val pnlPct = if (cost > 0.0) ((recoveredSol - cost) / cost) * 100.0 else 0.0
+                                    val laneForLearn = ts.source.uppercase().take(24).ifBlank { "STANDARD" }
+                                    val band = com.lifecyclebot.engine.LosingPatternMemory
+                                        .scoreBand(ts.entryScore.toInt())
+                                    com.lifecyclebot.engine.learning.TacticSwitcher
+                                        .onTradeClosed(laneForLearn, band, pnlPct)
+                                    com.lifecyclebot.engine.PipelineHealthCollector
+                                        .labelInc("EV_GATE_LEARNING_LOOP_6405")
+                                } catch (_: Throwable) {}
                             }
                         } catch (_: Throwable) {}
                         // Fall through to position mutation + journal write.
@@ -10177,6 +10196,16 @@ class Executor(
             try { ForensicLogger.lifecycle("BAND_DAMPER_APPLIED_6301", "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$laneTag mult=${"%.2f".format(bandDamper6301)}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("BAND_DAMPER_APPLIED_6301") } catch (_: Throwable) {}
         }
+        // V5.0.6405 §19b — RUNNER FLOW BOOST.
+        // Proven-winner buckets (n>=5 AND (WR>=60% OR mean>=+50%)) get 1.5×
+        // size so real capital finally reaches the runners the paper lane
+        // has already discovered. Paper returns 1.0 (no effect).
+        val runnerBoost6405 = try {
+            com.lifecyclebot.engine.truth.PaperEvBucketGate6405.sizeMultiplier(
+                mint = ts.mint, symbol = ts.symbol, lane = laneTag,
+                scoreInt = score.toInt(), isPaper = ts.position.isPaperPosition,
+            )
+        } catch (_: Throwable) { 1.0 }
         // Construct minimal Signals from available context for UPH conviction.
         // In BOOTSTRAP, conviction() returns 1.0 — no effect. Once the head
         // graduates to ADVISORY/LEARNED, it shapes size by learned pWin.
@@ -10334,6 +10363,7 @@ class Executor(
             "sourceBrain" to sourceBrainSizeMult,
             "scannerLaneCohesion6292" to scannerLaneCohesionMult6292,
             "bandDamper6301" to bandDamper6301,
+            "runnerBoost6405" to runnerBoost6405,
             "uph" to uphConvictionMult,
             "hypothesis" to hypothesisSizeMult,
             "paperLive" to paperLiveBridgeMult,
@@ -12953,8 +12983,14 @@ class Executor(
                 if (!ts.position.isPaperPosition) {
                     val advisorLabels6405: List<String> = try {
                         val snap = ts.lastPolicySnapshot
-                        if (snap.isBlank()) emptyList()
+                        val fromSnap = if (snap.isBlank()) emptyList<String>()
                         else snap.split(';', ',', ' ').map { it.trim() }.filter { it.isNotBlank() }
+                        // V5.0.6405 §17 (Rugcheck Coverage Sweep) — merge in
+                        // brain-consensus objections stamped by FDG so we see
+                        // the same red flags even when lastPolicySnapshot is
+                        // sparse (e.g. fresh scanner hits with no policy tag).
+                        val fromConsensus = try { ts.lastConsensusObjections } catch (_: Throwable) { emptyList() }
+                        (fromSnap + fromConsensus).distinct()
                     } catch (_: Throwable) { emptyList() }
                     val rugVerdict = com.lifecyclebot.engine.truth.LiveRugRiskGate6405.evaluate(
                         mint = ts.mint,

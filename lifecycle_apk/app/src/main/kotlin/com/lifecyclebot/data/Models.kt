@@ -433,6 +433,10 @@ data class TokenState(
     var styleTpMult: Double = 1.0,
     var styleHoldMult: Double = 1.0,
     var lastPolicySnapshot: String = "",
+    // V5.0.6405 §17 — brain-consensus objections stamped by FinalDecisionGate
+    // so LiveRugRiskGate6405 can see the same red flags without re-running
+    // consensus evaluation. Populated post-BrainConsensusGate.evaluate.
+    var lastConsensusObjections: List<String> = emptyList(),
 ) {
     init {
         if (tokenMap.canonicalTargetMint.isBlank()) {

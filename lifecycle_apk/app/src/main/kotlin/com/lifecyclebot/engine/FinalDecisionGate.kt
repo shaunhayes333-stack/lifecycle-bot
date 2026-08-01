@@ -4402,6 +4402,10 @@ object FinalDecisionGate {
                 val modeTag = tradingModeTag?.name ?: "STANDARD"
                 val report = BrainConsensusGate.evaluate(ts, fdgGateCandidate6025, modeTag)
                 BrainConsensusGate.recordOutcome(report.verdict)
+                // V5.0.6405 §17 — expose consensus objections to downstream
+                // gates (LiveRugRiskGate6405 reads this to complete its
+                // advisor-label coverage when lastPolicySnapshot is empty).
+                try { ts.lastConsensusObjections = report.objections.toList() } catch (_: Throwable) {}
                 tags.add("bcg:${report.verdict.name}")
                 when (report.verdict) {
                     BrainConsensusGate.Verdict.HARD_BLOCK -> {

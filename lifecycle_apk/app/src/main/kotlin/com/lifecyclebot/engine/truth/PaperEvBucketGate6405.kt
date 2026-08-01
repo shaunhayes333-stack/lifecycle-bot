@@ -99,4 +99,43 @@ object PaperEvBucketGate6405 {
         }
         return Verdict(block, key, trades, winRate, meanPnl, reason)
     }
+
+    /**
+     * V5.0.6405 §19b — RUNNER FLOW BOOST.
+     * Proven-winner buckets get a 1.5× size multiplier so real capital
+     * finally reaches the runners the paper lane has already discovered.
+     * Criteria (require ≥5 samples so the multiplier tracks real edge,
+     * not just a lucky first trade):
+     *
+     *   • trades ≥ 5  AND (winRate ≥ 0.60 OR meanPnlPct ≥ +50)
+     *
+     * Returns 1.0 for everything else (baseline sizing preserved) and
+     * for paper (paper sizing is governed separately by lab/lane logic).
+     */
+    fun sizeMultiplier(mint: String, symbol: String, lane: String, scoreInt: Int, isPaper: Boolean): Double {
+        if (isPaper) return 1.0
+        val band = try { LosingPatternMemory.scoreBand(scoreInt) } catch (_: Throwable) { "" }
+        val key = "${lane.uppercase().take(24)}|${band.uppercase().take(8)}"
+        val snap = try {
+            TacticSwitcher.snapshotAll().firstOrNull { it.key == key }
+        } catch (_: Throwable) { null } ?: return 1.0
+        if (snap.tradesSinceRotation < 5) return 1.0
+        val wins = snap.winsSinceRotation
+        val trades = snap.tradesSinceRotation
+        val winRate = if (trades > 0) wins.toDouble() / trades else 0.0
+        val meanPnl = snap.meanPnlPct
+        val boost = winRate >= 0.60 || meanPnl >= 50.0
+        return if (boost) {
+            try {
+                ForensicLogger.lifecycle(
+                    "RUNNER_FLOW_BOOST_6405",
+                    "mint=${mint.take(10)} sym=$symbol bucket=$key trades=$trades " +
+                        "wr=${"%.2f".format(winRate)} meanPnlPct=${"%.1f".format(meanPnl)} " +
+                        "multiplier=1.5",
+                )
+                PipelineHealthCollector.labelInc("RUNNER_FLOW_BOOST_6405")
+            } catch (_: Throwable) {}
+            1.5
+        } else 1.0
+    }
 }
