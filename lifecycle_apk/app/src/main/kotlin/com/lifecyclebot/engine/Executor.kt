@@ -6874,6 +6874,39 @@ class Executor(
                     } catch (_: Throwable) {}
                     // fall through — regular exit logic runs on true livePnl
                 } else if (bothConfirm10x) {
+                    // V5.0.6405 §18 — ENTRY BASIS TRUST GATE.
+                    // Screenshot showed a QUICK_RUNNER_10X_FULL_EXIT firing on
+                    // NUCWAR at +22 944.5 % phantom PnL then selling at +15.2%
+                    // real — the entry basis was 2 500× off (priceNative
+                    // mistaken for priceUsd). Refuse to fire the runner exit
+                    // when the entry basis is untrustworthy so the position
+                    // gets a chance to reconcile before we crystallise the
+                    // loss.
+                    val basisTrust6405 = try {
+                        val knownSolUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+                        com.lifecyclebot.engine.truth.EntryPriceIntegrityAuthority6405
+                            .isTrustworthyForRunnerExit(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                stampedEntryUsd = ts.position.entryPrice,
+                                entrySource = ts.position.entryPriceSource,
+                                costSol = ts.position.costSol,
+                                qtyUi = ts.position.qtyToken,
+                                knownSolUsd = knownSolUsd,
+                            )
+                    } catch (_: Throwable) { true }
+                    if (!basisTrust6405) {
+                        try {
+                            ForensicLogger.lifecycle(
+                                "QUICK_RUNNER_10X_BLOCKED_BASIS_UNTRUSTED_6405",
+                                "mint=${ts.mint.take(10)} sym=${ts.symbol} bestPnl=${bestPnl.fmt(1)}% entrySrc=${ts.position.entryPriceSource} stampedEntry=${ts.position.entryPrice} — refusing runner exit until basis reconciles",
+                            )
+                            PipelineHealthCollector.labelInc("QUICK_RUNNER_10X_BLOCKED_BASIS_UNTRUSTED_6405")
+                        } catch (_: Throwable) {}
+                        // Fall through to regular exit gating instead of firing
+                        // the profit-lock branch on a lie.
+                        return
+                    }
                     try {
                         ForensicLogger.lifecycle(
                             "QUICK_RUNNER_EMERGENCY_FULL_EXIT",
@@ -15922,24 +15955,52 @@ class Executor(
                     // replace that guide basis with the actual economic entry:
                     // (SOL spent / verified UI tokens) × SOL/USD. This prevents false thesis,
                     // bogus stop-loss/TP, and corrupted learning labels from guide prices.
+                    // V5.0.6405 §18 — ENTRY PRICE INTEGRITY.
+                    // Old code deferred when solUsdForBasis <= 0, leaving the
+                    // WRONG provisional entry price in place (typically
+                    // DexScreener priceNative in SOL, off by ~2500× vs true
+                    // USD basis — the NUCWAR +22 944.5 % phantom-PnL row).
+                    // The new authority ALWAYS derives a trusted entry when
+                    // costSol and qtyUi are known, falling back to a
+                    // conservative SOL/USD floor if the wallet feed is cold.
                     val solUsdForBasis = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-                    val proofEntryUsd = if (qtyUi > 0.0 && sol > 0.0 && solUsdForBasis > 0.0)
-                        (sol / qtyUi) * solUsdForBasis else 0.0
+                    val trustedEntry6405 = com.lifecyclebot.engine.truth
+                        .EntryPriceIntegrityAuthority6405.deriveTrustedEntryUsd(
+                            costSol = sol, qtyUi = qtyUi, knownSolUsd = solUsdForBasis,
+                        )
+                    val proofEntryUsd = trustedEntry6405?.usdPerToken ?: 0.0
                     if (proofEntryUsd > 0.0 && proofEntryUsd.isFinite()) {
                         val oldEntry = ts.position.entryPrice
+                        val divergent = com.lifecyclebot.engine.truth
+                            .EntryPriceIntegrityAuthority6405.detectBasisDivergence(
+                                stampedEntryUsd = oldEntry,
+                                trustedEntryUsd = proofEntryUsd,
+                            )
                         ts.position = ts.position.copy(
                             entryPrice = proofEntryUsd,
                             highestPrice = proofEntryUsd,
                             lowestPrice = if (ts.position.lowestPrice > 0.0) minOf(ts.position.lowestPrice, proofEntryUsd) else proofEntryUsd,
                             costSol = sol,
-                            entryPriceSource = "LIVE_PROOF_COST_BASIS",
+                            entryPriceSource = trustedEntry6405.source,
                             entrySupplyAssumed = 0.0,
                             priceBasisRescaled = true,
                             priceBasisRescaleFactor = if (oldEntry > 0.0) proofEntryUsd / oldEntry else 1.0,
                         )
-                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_ENTRY_PRICE_FROM_PROOF", "mint=${verifyMint.take(10)} symbol=$verifySymbol oldEntry=$oldEntry proofEntryUsd=$proofEntryUsd sol=$sol qty=$qtyUi solUsd=$solUsdForBasis source=${proof.source}") } catch (_: Throwable) {}
+                        try {
+                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                "LIVE_ENTRY_PRICE_FROM_PROOF",
+                                "mint=${verifyMint.take(10)} symbol=$verifySymbol oldEntry=$oldEntry proofEntryUsd=$proofEntryUsd sol=$sol qty=$qtyUi solUsd=${trustedEntry6405.solUsdUsed} source=${proof.source} authoritySource=${trustedEntry6405.source} divergent=$divergent",
+                            )
+                            if (divergent) {
+                                PipelineHealthCollector.labelInc("ENTRY_PRICE_BASIS_DIVERGENCE_6405")
+                                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                    "ENTRY_PRICE_BASIS_DIVERGENCE_6405",
+                                    "mint=${verifyMint.take(10)} sym=$verifySymbol oldEntry=$oldEntry trusted=$proofEntryUsd ratio=${if (oldEntry > 0.0) proofEntryUsd / oldEntry else 0.0} — stale provisional entry OVERWRITTEN with tx-derived truth",
+                                )
+                            }
+                        } catch (_: Throwable) {}
                     } else {
-                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_ENTRY_PRICE_PROOF_DEFERRED", "mint=${verifyMint.take(10)} symbol=$verifySymbol reason=missing_sol_usd_or_qty sol=$sol qty=$qtyUi solUsd=$solUsdForBasis") } catch (_: Throwable) {}
+                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_ENTRY_PRICE_PROOF_DEFERRED", "mint=${verifyMint.take(10)} symbol=$verifySymbol reason=missing_sol_or_qty sol=$sol qty=$qtyUi solUsd=$solUsdForBasis") } catch (_: Throwable) {}
                     }
                     promoteVerifiedLiveBuy(qtyUi, stage, proof.decimals)
                     // V5.0.6325 — CANONICAL POSITION AUTHORITY WIRE-IN. Upsert
