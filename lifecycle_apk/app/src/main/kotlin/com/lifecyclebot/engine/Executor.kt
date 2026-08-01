@@ -1751,37 +1751,63 @@ class Executor(
             } catch (_: Throwable) {}
         }
 
-        val decimals = walletEntry?.second ?: fallbackDecimals ?: 9
-        // V5.0.6402 §7/§8 SELL-PATH INTEGER MATH — was: (cappedQty * scale).toLong().
-        // The 6402 snapshot's ForensicReconciler flagged 19 over-sold mints
-        // including CQwK3d=(buy686/sell17513). Double-precision rounding on
-        // the multiplication silently inflated the raw units on
-        // large-qty positions. Route through SellIntentQuantityAuthority6401
-        // → BigDecimal.movePointRight for byte-exact conversion. If we have a
-        // wallet raw balance, validate against it and clamp to the authority's
-        // Accept.rawQty (post-authority clamp) so a decimal-skew 100× overshoot
-        // is rejected BEFORE reaching Jupiter/PumpPortal builders.
+        // V5.0.6405 §5 — DECIMAL INTEGRITY HARD BLOCK (no bandaid).
+        // Was: `walletEntry?.second ?: fallbackDecimals ?: 9` — this
+        // fabricated `9` decimals whenever the wallet had not yet indexed
+        // the mint AND no caller-supplied fallback existed. Operator
+        // directive: "false or unknown data is inexcusable — fix the
+        // issue instead of bandaiding". We now walk a strict ladder:
+        //   wallet → MintDecimalsAuthority6392 cache → local cache
+        //   → getAccountInfo(mint, jsonParsed) → caller fallback → REFUSE.
+        // A refusal returns 0L so the caller's downstream `<=0` guard
+        // aborts the sell cleanly with a forensic marker — no phantom
+        // scale factor, no Double fallback, no over-sell.
+        val decimals: Int = try {
+            com.lifecyclebot.engine.truth.DecimalIntegrityAuthority6405
+                .resolveDecimalsStrict(
+                    mint = mint,
+                    wallet = wallet,
+                    walletCachedDecimals = walletEntry?.second,
+                    fallbackDecimals = fallbackDecimals,
+                )
+        } catch (e: com.lifecyclebot.engine.truth.DecimalIntegrityAuthority6405.UnresolvableDecimalsException) {
+            ErrorLogger.warn(
+                "Executor",
+                "🚫 SELL_ABORTED_DECIMAL_INTEGRITY_6405 mint=${mint.take(10)} reason=${e.reason} — refusing to guess decimals",
+            )
+            try {
+                ForensicLogger.lifecycle(
+                    "SELL_ABORTED_DECIMAL_INTEGRITY_6405",
+                    "mint=${mint.take(10)} reason=${e.reason}",
+                )
+                PipelineHealthCollector.labelInc("SELL_ABORTED_DECIMAL_INTEGRITY_6405")
+            } catch (_: Throwable) {}
+            return 0L
+        }
+        // V5.0.6402 §7/§8 SELL-PATH INTEGER MATH — BigDecimal.movePointRight
+        // via SellIntentQuantityAuthority6401. Any conversion failure at
+        // this stage is ALSO a hard refusal (was: silent Double.pow
+        // fallback). Decimals are now proven, so the only remaining
+        // failure modes are non-finite qty or arithmetic overflow — both
+        // of which are integrity events, not "keep trying" cases.
         val rawFromAuthority: java.math.BigInteger = try {
-            val decimalsAuthority = if (decimals >= 0)
-                com.lifecyclebot.engine.truth.MintDecimals.Known(count = decimals,
-                    source = if (walletEntry != null) "WALLET_TOKEN_ACCOUNTS" else "EXECUTOR_FALLBACK",
-                    proofSignature = "resolveSellUnitsForMint")
-            else com.lifecyclebot.engine.truth.MintDecimals.Unknown
+            val decimalsAuthority = com.lifecyclebot.engine.truth.MintDecimals.Known(
+                count = decimals,
+                source = if (walletEntry != null) "WALLET_TOKEN_ACCOUNTS"
+                    else "MINT_DECIMALS_AUTHORITY_6405",
+                proofSignature = "resolveSellUnitsForMint",
+            )
             val rawUi = com.lifecyclebot.engine.truth.SellIntentQuantityAuthority6401
                 .convertUiToRaw(cappedQty, decimalsAuthority)
             if (walletEntry != null) {
                 // Wallet raw balance is authoritative → validate.
-                val walletRaw = try {
-                    com.lifecyclebot.engine.truth.SellIntentQuantityAuthority6401
-                        .convertUiToRaw(walletEntry.first, decimalsAuthority)
-                } catch (_: Throwable) { java.math.BigInteger.ZERO }
+                val walletRaw = com.lifecyclebot.engine.truth.SellIntentQuantityAuthority6401
+                    .convertUiToRaw(walletEntry.first, decimalsAuthority)
                 if (walletRaw.signum() > 0) {
                     when (val v = com.lifecyclebot.engine.truth.SellIntentQuantityAuthority6401
                         .validateSellIntent(mint, rawUi, walletRaw, decimalsAuthority)) {
                         is com.lifecyclebot.engine.truth.SellIntentQuantityAuthority6401.Verdict.Accept -> v.rawQty
                         is com.lifecyclebot.engine.truth.SellIntentQuantityAuthority6401.Verdict.Reject -> {
-                            // Authority rejected the request as a decimal-skew
-                            // signature — clamp to wallet raw (never over-sell).
                             try {
                                 PipelineHealthCollector.labelInc("SELL_INTENT_AUTHORITY_CLAMPED_6402")
                                 ForensicLogger.lifecycle(
@@ -1794,20 +1820,47 @@ class Executor(
                     }
                 } else rawUi
             } else rawUi
-        } catch (_: Throwable) {
-            // Fallback to legacy math on any authority failure. Preserves the
-            // 'get the bag out' safety net when decimals are truly unknown.
-            java.math.BigInteger.valueOf(
-                (cappedQty * 10.0.pow(decimals.coerceAtLeast(0).toDouble())).toLong()
+        } catch (t: Throwable) {
+            // V5.0.6405 §5 — NO LEGACY DOUBLE FALLBACK. Decimals are proven,
+            // so any conversion failure here is an integrity event.
+            ErrorLogger.warn(
+                "Executor",
+                "🚫 SELL_ABORTED_QTY_CONVERSION_6405 mint=${mint.take(10)} err=${t.message?.take(120)} — refusing Double fallback",
             )
+            try {
+                ForensicLogger.lifecycle(
+                    "SELL_ABORTED_QTY_CONVERSION_6405",
+                    "mint=${mint.take(10)} decimals=$decimals cappedQty=$cappedQty err=${t.message?.take(120)}",
+                )
+                PipelineHealthCollector.labelInc("SELL_ABORTED_QTY_CONVERSION_6405")
+            } catch (_: Throwable) {}
+            return 0L
         }
+
+        // V5.0.6405 §5 — Lifetime raw-qty invariant: sum(raw sold) <= raw
+        // entry. Executor records entry raw on buy confirmation; this
+        // clamps mid-flight over-sells before they leave the app.
+        val positionGeneration = try {
+            // Callers pass ts through resolveSellUnits(); this path lacks
+            // ts context so we use the position's entryTime via the
+            // shared runtime bridge. Keying by (mint, entryTime) matches
+            // the executor's existing per-lifetime scheme.
+            com.lifecyclebot.engine.truth.PositionGenerationBridge6405.get(mint)
+        } catch (_: Throwable) { 0L }
+        val invariantClamped = com.lifecyclebot.engine.truth.DecimalIntegrityAuthority6405
+            .clampSoldRawToEntry(mint, positionGeneration, rawFromAuthority)
+
         // Long range guard — Jupiter/PumpPortal builders take Long. Anything
         // that exceeds Long.MAX_VALUE was a decimal-skew catastrophe; clamp
         // to Long.MAX_VALUE (upstream will still fail sanity but at least
         // won't overflow into a negative).
         val maxLong = java.math.BigInteger.valueOf(Long.MAX_VALUE)
-        return if (rawFromAuthority > maxLong) Long.MAX_VALUE
-        else rawFromAuthority.toLong().coerceAtLeast(1L)
+        return if (invariantClamped > maxLong) Long.MAX_VALUE
+        // V5.0.6405 §5 — no .coerceAtLeast(1L). Returning 0L is a
+        // legitimate refusal signal for callers; the previous minimum
+        // guaranteed a broadcast even when the invariant said "nothing
+        // more to sell".
+        else invariantClamped.toLong().coerceAtLeast(0L)
     }
 
     /** V5.0.3801 — amount proof/clamp/formatting lives in ProcessorAmountPlanner; Executor remains route orchestration. */
