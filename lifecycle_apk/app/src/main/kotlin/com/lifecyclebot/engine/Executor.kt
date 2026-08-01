@@ -12978,6 +12978,26 @@ class Executor(
                         } catch (_: Throwable) {}
                         return false
                     }
+                    // V5.0.6405 §19 — PAPER→LIVE BUCKET-EV GATE.
+                    // Refuse LIVE entries into (lane, scoreBand) buckets whose
+                    // TacticSwitcher trade history has proven negative EV
+                    // (meanPnlPct < -15 or winrate < 20% with n >= 6).
+                    // Paper stays unaffected so exploratory samples continue
+                    // to accumulate.
+                    val evVerdict = com.lifecyclebot.engine.truth.PaperEvBucketGate6405
+                        .evaluate(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            lane = layerTag,
+                            scoreInt = ts.entryScore.toInt(),
+                            isPaper = false,
+                        )
+                    if (evVerdict.block) {
+                        try {
+                            PipelineHealthCollector.labelInc("BUY_SECURITY_BLOCKED_6324")
+                        } catch (_: Throwable) {}
+                        return false
+                    }
                 }
             } catch (_: Throwable) {}
             val guardMult = guardVerdict?.sizeMultiplier ?: 1.0

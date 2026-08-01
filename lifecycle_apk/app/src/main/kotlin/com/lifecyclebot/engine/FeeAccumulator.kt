@@ -46,7 +46,14 @@ object FeeAccumulator {
      */
     private const val DEFAULT_FLUSH_THRESHOLD_SOL = 0.0001
     /** Wallet must keep this much SOL after a flush (rent + gas headroom). */
-    private const val MIN_WALLET_RESERVE_SOL = 0.005
+    // V5.0.6405 — trimmed from 0.005 to 0.002. Operator reported fees
+    // "not being sent to the two coded wallets" while the wallet was
+    // shrinking — under the old reserve, once balance dropped below
+    // (bucket + 0.005) the flush deferred every cycle and accrued fees
+    // were stranded. 0.002 SOL is still enough for ~10 base-fee txs.
+    private const val MIN_WALLET_RESERVE_SOL = 0.002
+    /** Smallest transfer we'll attempt (below this it's ~pure network overhead). */
+    private const val MIN_SENDABLE_SOL = 0.0002
 
     @Volatile private var flushThresholdSol: Double = DEFAULT_FLUSH_THRESHOLD_SOL
     private var prefs: SharedPreferences? = null
@@ -119,8 +126,31 @@ object FeeAccumulator {
                 continue
             }
             if (balance < accrued + MIN_WALLET_RESERVE_SOL) {
-                ErrorLogger.warn("FeeAccumulator",
-                    "⏸ Flush deferred: wallet=${balance.fmt(5)} SOL < accrued=${accrued.fmt(5)} SOL + reserve=${MIN_WALLET_RESERVE_SOL}. Retry next cycle.")
+                // V5.0.6405 — SPLIT FLUSH: send whatever fits above the
+                // reserve, keep the remainder in the bucket. Prior behaviour
+                // deferred the entire bucket when wallet was small, so fees
+                // piled up indefinitely and never reached the two coded
+                // wallets while the wallet balance was shrinking.
+                val sendable = (balance - MIN_WALLET_RESERVE_SOL).coerceAtLeast(0.0)
+                if (sendable < MIN_SENDABLE_SOL) {
+                    ErrorLogger.warn("FeeAccumulator",
+                        "⏸ Flush deferred: wallet=${balance.fmt(5)} SOL < accrued=${accrued.fmt(5)} SOL + reserve=${MIN_WALLET_RESERVE_SOL}. Retry next cycle.")
+                    continue
+                }
+                try {
+                    wallet.sendSol(dest, sendable)
+                    ErrorLogger.warn("FeeAccumulator",
+                        "✅ Split-flushed ${sendable.fmt(5)} SOL → $dest (bucket remainder=${(accrued - sendable).fmt(5)} SOL)")
+                    buckets.put(dest, accrued - sendable)
+                    balance -= sendable
+                    totalSent += sendable
+                    changed = true
+                    PipelineHealthCollector.labelInc("FEE_SPLIT_FLUSH_6405")
+                } catch (e: Exception) {
+                    ErrorLogger.warn("FeeAccumulator",
+                        "❌ Split-flush failed ${sendable.fmt(5)} SOL → $dest: ${e.message} — handing off to FeeRetryQueue")
+                    try { FeeRetryQueue.enqueue(dest, sendable, "accumulator_split_retry") } catch (_: Throwable) {}
+                }
                 continue
             }
             try {
