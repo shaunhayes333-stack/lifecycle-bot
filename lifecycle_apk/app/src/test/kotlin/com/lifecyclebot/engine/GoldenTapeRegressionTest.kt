@@ -1873,8 +1873,18 @@ class GoldenTapeRegressionTest {
     fun live_entry_price_uses_proof_cost_basis_not_guide_price() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(exec.contains("LIVE_ENTRY_PRICE_FROM_PROOF"))
-        assertTrue(exec.contains("(sol / qtyUi) * solUsdForBasis"))
-        assertTrue(exec.contains("entryPriceSource = \"LIVE_PROOF_COST_BASIS\""))
+        // V5.0.6405 §18 — the (sol/qty)×solUsd formula was refactored into
+        // EntryPriceIntegrityAuthority6405.deriveTrustedEntryUsd which
+        // ALWAYS returns a non-zero basis (never defers) and falls back
+        // to SOL_USD_COLD_FALLBACK when the wallet feed is cold. Verify
+        // the authority is called at the buy-verify site instead of the
+        // literal inline formula.
+        assertTrue(exec.contains("EntryPriceIntegrityAuthority6405"))
+        assertTrue(exec.contains("deriveTrustedEntryUsd"))
+        // entryPriceSource may now be either LIVE_PROOF_COST_BASIS (feed
+        // warm) or LIVE_PROOF_COST_BASIS_SOL_USD_FALLBACK (feed cold);
+        // both are trusted labels — reject the pre-6405 hard-coded literal.
+        assertTrue(exec.contains("trustedEntry6405?.source ?: \"LIVE_PROOF_COST_BASIS\""))
         assertTrue(exec.contains("entrySupplyAssumed = 0.0"))
         assertTrue(exec.contains("priceBasisRescaled = true"))
         assertTrue(exec.contains("entryPrice = ts.position.entryPrice.takeIf { it > 0.0 && it.isFinite() } ?: price"))

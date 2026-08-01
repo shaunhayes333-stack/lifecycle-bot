@@ -10552,7 +10552,26 @@ class Executor(
             } else 1.60
             // V5.0.6288 — apply truth-ledger CLAMP as a ceiling for negative-E lanes.
             // The clamp value is a hard ceiling on the product (never larger than clamp).
-            val baseline6090 = product.coerceIn(posEvFloor, agiCeiling6090)
+            var baseline6090 = product.coerceIn(posEvFloor, agiCeiling6090)
+            // V5.0.6405 §19b — RUNNER BOOST FLOOR BYPASS.
+            // When PaperEvBucketGate6405.sizeMultiplier() returned 1.5×
+            // for a proven-winner bucket, other cutters (lane-bias 0.50 for
+            // non-priority lanes, band-damper, slip-downsize) can drag the
+            // combined product BELOW the boost. Enforce the boost as a
+            // hard lower floor so real capital reaches the runners the
+            // paper lane discovered. Ceiling still applies.
+            if (runnerBoost6405 > 1.0 && baseline6090 < runnerBoost6405) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "RUNNER_BOOST_FLOOR_APPLIED_6405",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$laneTag " +
+                            "clampedBaseline=${"%.3f".format(baseline6090)} " +
+                            "runnerBoost=$runnerBoost6405 flooredTo=$runnerBoost6405",
+                    )
+                    PipelineHealthCollector.labelInc("RUNNER_BOOST_FLOOR_APPLIED_6405")
+                } catch (_: Throwable) {}
+                baseline6090 = runnerBoost6405.coerceAtMost(agiCeiling6090)
+            }
             if (truthLedgerClamp6288 != null && RuntimeModeAuthority.isLive()) {
                 try {
                     ForensicLogger.lifecycle("LIVE_TRUTH_LEDGER_CLAMP_6288", "mint=${ts.mint.take(10)} sym=${ts.symbol} ${truthLedgerClamp6288.second} clamp=${truthLedgerClamp6288.first} agiCeil=$agiCeiling6090")
@@ -13031,6 +13050,22 @@ class Executor(
                     if (evVerdict.block) {
                         try {
                             PipelineHealthCollector.labelInc("BUY_SECURITY_BLOCKED_6324")
+                        } catch (_: Throwable) {}
+                        // V5.0.6405 §19d — LOSER BUCKET COOLDOWN.
+                        // Extend the block to a per-mint cooldown so we stop
+                        // hammering the same rug family within seconds.
+                        // Cooldown scales with the severity of the bucket
+                        // (5 min for chronic negative EV, 15 min for the
+                        // -100 % all-loss bucket).
+                        try {
+                            val cooldownMs = when {
+                                evVerdict.meanPnlPct <= -80.0 -> 15L * 60_000L
+                                evVerdict.meanPnlPct <= -30.0 -> 10L * 60_000L
+                                else -> 5L * 60_000L
+                            }
+                            com.lifecyclebot.engine.truth.GlobalEntryPolicy6405
+                                .setCooldownMs(ts.mint, cooldownMs)
+                            PipelineHealthCollector.labelInc("LOSER_BUCKET_COOLDOWN_APPLIED_6405")
                         } catch (_: Throwable) {}
                         return false
                     }
