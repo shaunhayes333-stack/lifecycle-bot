@@ -10551,15 +10551,16 @@ class Executor(
                 if (RuntimeModeAuthority.isPaper()) 2.50 else 2.00
             } else 1.60
             // V5.0.6406 §1 — STACKED WINNER CEILING BUMP.
-            // When PaperEvBucketGate6405 flagged the bucket as a proven
-            // winner (runnerBoost6405 == 1.5), raise the LIVE ceiling from
-            // 2.00 → 2.50 so a runner combined with any other tail-wind
-            // (highConvBoost 1.5, laneBias 1.4, capitalEfficiency,
-            // superBrain) can go up to 2.5× rather than being clamped at
-            // 2.0×. Paper unchanged (already at 2.50).
-            val agiCeiling6406 = if (runnerBoost6405 > 1.0 && RuntimeModeAuthority.isLive()) {
-                maxOf(agiCeiling6090, 2.50)
-            } else agiCeiling6090
+            // V5.0.6407 §2 — extended for elite (2.0×) buckets: allow
+            // the runner + 1 tail-wind to stack up to 3.0× rather than
+            // being clamped. Baseline paper=2.50 keeps its behaviour.
+            val agiCeiling6406 = when {
+                runnerBoost6405 >= 2.0 && RuntimeModeAuthority.isLive() ->
+                    maxOf(agiCeiling6090, 3.00)
+                runnerBoost6405 > 1.0 && RuntimeModeAuthority.isLive() ->
+                    maxOf(agiCeiling6090, 2.50)
+                else -> agiCeiling6090
+            }
             // V5.0.6288 — apply truth-ledger CLAMP as a ceiling for negative-E lanes.
             // The clamp value is a hard ceiling on the product (never larger than clamp).
             var baseline6090 = product.coerceIn(posEvFloor, agiCeiling6406)

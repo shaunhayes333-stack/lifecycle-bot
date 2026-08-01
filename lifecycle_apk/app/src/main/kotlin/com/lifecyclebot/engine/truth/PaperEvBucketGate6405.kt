@@ -96,6 +96,22 @@ object PaperEvBucketGate6405 {
                 )
                 PipelineHealthCollector.labelInc("PAPER_EV_BUCKET_HARD_BLOCK_6405")
             } catch (_: Throwable) {}
+            // V5.0.6407 §3 — LIVE-TO-PAPER COPY-BACK.
+            // Signal the tactic switcher to re-explore in paper when
+            // a bucket confirms >= 5 live losses. Idempotent within a
+            // 5-min cooldown to avoid spamming every tick.
+            if (trades >= 5) {
+                try {
+                    LiveToPaperCopyBack6407.trigger(
+                        bucketKey = key,
+                        lane = lane.uppercase(),
+                        scoreBand = band,
+                        trades = trades,
+                        winRate = winRate,
+                        meanPnlPct = meanPnl,
+                    )
+                } catch (_: Throwable) {}
+            }
         }
         return Verdict(block, key, trades, winRate, meanPnl, reason)
     }
@@ -124,18 +140,28 @@ object PaperEvBucketGate6405 {
         val trades = snap.tradesSinceRotation
         val winRate = if (trades > 0) wins.toDouble() / trades else 0.0
         val meanPnl = snap.meanPnlPct
-        val boost = winRate >= 0.60 || meanPnl >= 50.0
-        return if (boost) {
+        // V5.0.6407 — RUNNER BOOST AGGRESSION LADDER.
+        //   tier 2: n >= 10 AND WR >= 70%       → 2.0× (elite bucket)
+        //   tier 1: n >=  5 AND (WR >= 60% OR μ >= +50%) → 1.5× (winner)
+        //   else                                → 1.0× baseline
+        val boostMult: Double = when {
+            trades >= 10 && winRate >= 0.70 -> 2.0
+            winRate >= 0.60 || meanPnl >= 50.0 -> 1.5
+            else -> 1.0
+        }
+        if (boostMult > 1.0) {
             try {
                 ForensicLogger.lifecycle(
                     "RUNNER_FLOW_BOOST_6405",
                     "mint=${mint.take(10)} sym=$symbol bucket=$key trades=$trades " +
                         "wr=${"%.2f".format(winRate)} meanPnlPct=${"%.1f".format(meanPnl)} " +
-                        "multiplier=1.5",
+                        "multiplier=$boostMult",
                 )
-                PipelineHealthCollector.labelInc("RUNNER_FLOW_BOOST_6405")
+                PipelineHealthCollector.labelInc(
+                    if (boostMult >= 2.0) "RUNNER_FLOW_BOOST_ELITE_6407" else "RUNNER_FLOW_BOOST_6405",
+                )
             } catch (_: Throwable) {}
-            1.5
-        } else 1.0
+        }
+        return boostMult
     }
 }
