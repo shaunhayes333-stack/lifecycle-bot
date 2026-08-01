@@ -2772,7 +2772,35 @@ class Executor(
             spendable * (growthPolicy.maxWalletPct * 0.65)
         }
         val walletCapSol = (spendable * growthPolicy.maxWalletPct).coerceAtMost(growthPolicy.absoluteCapSol)
-        val cap = minOf(liquidityCapSol, walletCapSol, spendable)
+        // V5.0.6408 — GROWTH-CENTRIC RUNNER COMPOUNDING.
+        // Operator directive: '$50 to $1M mindset — maintain growth-centric
+        // trading, defend the wallet but target overall growth'. When
+        // PaperEvBucketGate6405 flags a proven-winner bucket, relax the
+        // wallet cap: 1.5× base for a 'winner' (1.5x multiplier) or 2.0×
+        // base for an 'elite' (2.0x multiplier) — with the liquidityCapSol
+        // and spendable still being hard ceilings. This lets a healthy
+        // wallet actually deploy real capital into what works, while
+        // untested / losing buckets remain on the conservative growthPolicy
+        // maxWalletPct.
+        val runnerBoost6408 = try {
+            com.lifecyclebot.engine.truth.PaperEvBucketGate6405.sizeMultiplier(
+                mint = ts.mint, symbol = ts.symbol, lane = laneKey,
+                scoreInt = score.toInt(), isPaper = false,
+            )
+        } catch (_: Throwable) { 1.0 }
+        val walletCapSol6408 = if (runnerBoost6408 > 1.0) {
+            val relaxed = walletCapSol * runnerBoost6408
+            try {
+                ForensicLogger.lifecycle(
+                    "GROWTH_RUNNER_CAP_RELAX_6408",
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$laneKey boost=$runnerBoost6408 " +
+                        "walletCap=${walletCapSol.fmt(4)} relaxed=${relaxed.fmt(4)} spendable=${spendable.fmt(4)}",
+                )
+                PipelineHealthCollector.labelInc("GROWTH_RUNNER_CAP_RELAX_6408")
+            } catch (_: Throwable) {}
+            relaxed.coerceAtMost(spendable)
+        } else walletCapSol
+        val cap = minOf(liquidityCapSol, walletCapSol6408, spendable)
         val minRealistic = growthPolicy.minExecutableSol.coerceAtMost(cap)
         val desired = maxOf(requestedSol, walletTarget, minRealistic).coerceAtMost(cap)
         val out = desired.coerceAtLeast(minOf(requestedSol, cap)).coerceAtMost(spendable)
