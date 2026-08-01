@@ -62,9 +62,46 @@ object LiveExecutionGate {
      * TokenLifecycleTracker on each call rather than maintained as
      * separate atomics. This keeps the source of truth single and avoids
      * cleanup-hook scattering across every Executor exit path.
+     *
+     * V5.0.6405 §5 — STALE PENDING BUY REAP.
+     * Root cause of the 1,082 LIVE_EXECUTION_GATE_PENDING_BUYS rejects
+     * in the 6405 snapshot: BUY_PENDING rows whose verification hook
+     * never fired stayed on the tracker forever, latching the pending
+     * count ≥ maxPendingBuyVerifications (16) and blocking every new
+     * live buy. Operator directive: fix the issue, don't bandaid.
+     *
+     * Fix: only count BUY_PENDING rows that are YOUNGER than the
+     * combined settlement window (hotPath + reconcile timeouts, plus a
+     * 2× safety margin). Older rows are treated as failed-in-flight and
+     * are not allowed to gate fresh entries. A STALE_BUY_PENDING_
+     * IGNORED_6405 counter is emitted so operators can see the reap.
      */
+    private fun stalePendingBuyMaxAgeMs(): Long =
+        (cfg.hotPathTimeoutMs + cfg.walletReconcileTimeoutMs) * 2L + 30_000L
+
     private fun pendingBuyVerifications(): Int = try {
-        TokenLifecycleTracker.all().count { it.status == TokenLifecycleTracker.Status.BUY_PENDING }
+        val now = System.currentTimeMillis()
+        val cutoff = now - stalePendingBuyMaxAgeMs()
+        var stale = 0
+        val active = TokenLifecycleTracker.all().count {
+            if (it.status != TokenLifecycleTracker.Status.BUY_PENDING) return@count false
+            if (it.openedAtMs <= cutoff) {
+                stale++
+                false
+            } else true
+        }
+        if (stale > 0) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("STALE_BUY_PENDING_IGNORED_6405")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "STALE_BUY_PENDING_IGNORED_6405",
+                    "count=$stale maxAgeMs=${stalePendingBuyMaxAgeMs()} " +
+                        "reason=verification_hook_never_fired action=not_counted_toward_gate",
+                )
+            } catch (_: Throwable) {}
+        }
+        active
     } catch (_: Throwable) { 0 }
 
     private fun pendingSellVerifications(): Int = try {
