@@ -15981,7 +15981,7 @@ class Executor(
                             highestPrice = proofEntryUsd,
                             lowestPrice = if (ts.position.lowestPrice > 0.0) minOf(ts.position.lowestPrice, proofEntryUsd) else proofEntryUsd,
                             costSol = sol,
-                            entryPriceSource = trustedEntry6405.source,
+                            entryPriceSource = trustedEntry6405?.source ?: "LIVE_PROOF_COST_BASIS",
                             entrySupplyAssumed = 0.0,
                             priceBasisRescaled = true,
                             priceBasisRescaleFactor = if (oldEntry > 0.0) proofEntryUsd / oldEntry else 1.0,
@@ -15989,7 +15989,7 @@ class Executor(
                         try {
                             com.lifecyclebot.engine.ForensicLogger.lifecycle(
                                 "LIVE_ENTRY_PRICE_FROM_PROOF",
-                                "mint=${verifyMint.take(10)} symbol=$verifySymbol oldEntry=$oldEntry proofEntryUsd=$proofEntryUsd sol=$sol qty=$qtyUi solUsd=${trustedEntry6405.solUsdUsed} source=${proof.source} authoritySource=${trustedEntry6405.source} divergent=$divergent",
+                                "mint=${verifyMint.take(10)} symbol=$verifySymbol oldEntry=$oldEntry proofEntryUsd=$proofEntryUsd sol=$sol qty=$qtyUi solUsd=${trustedEntry6405?.solUsdUsed ?: "-"} source=${proof.source} authoritySource=${trustedEntry6405?.source ?: "-"} divergent=$divergent",
                             )
                             if (divergent) {
                                 PipelineHealthCollector.labelInc("ENTRY_PRICE_BASIS_DIVERGENCE_6405")
