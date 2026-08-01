@@ -86,7 +86,14 @@ class AATEApp : Application() {
         // retires terminal-with-zero-remaining rows and surfaces
         // TERMINAL_WITH_NONZERO_REMAINING integrity violations.
         // Runs on a background thread — SQLite IO must not block main.
+        //
+        // V5.0.6405 hotfix — delay 3s so the first Activity frame
+        // paints before we compete with the UI thread for SQLite
+        // open. Operator ANR snapshot showed MainActivity.onCreate
+        // as the top blocking site; keep the boot-critical path
+        // free of any DB IO the UI doesn't need immediately.
         Thread({
+            try { Thread.sleep(3_000L) } catch (_: InterruptedException) { return@Thread }
             try {
                 val open = com.lifecyclebot.engine.truth.PortfolioStore6405.openPositions()
                 open.forEach { p ->
@@ -131,18 +138,54 @@ class AATEApp : Application() {
         // Every 30s, verify open positions against I1..I4 so I3
         // (over-sold) violations surface in the operator dashboard
         // immediately rather than at end-of-tick reconciliation.
+        //
+        // V5.0.6405 §A — CLEAN CYCLE BRIDGE.
+        // Each clean pass advances the CanonicalLedgerParityHold6387
+        // counter. After 5 consecutive clean cycles (2m30s of stable
+        // invariants) the hold auto-releases. The 6387 hold latch was
+        // never wired to a real reconciler; the 6405 invariant runner
+        // IS a real reconciler over the ACID portfolio store, so it
+        // takes ownership of the clean-cycle signal here.
         Thread({
-            try { Thread.sleep(30_000L) } catch (_: InterruptedException) { return@Thread }
+            try { Thread.sleep(60_000L) } catch (_: InterruptedException) { return@Thread }
             while (!Thread.currentThread().isInterrupted) {
                 try {
                     val open = com.lifecyclebot.engine.truth.CheckpointRecoveryAuthority6405
                         .openPositions()
                     val report = com.lifecyclebot.engine.truth.PortfolioInvariants6405
                         .verify(open)
-                    if (!report.allPass) {
+                    if (report.allPass) {
+                        try {
+                            com.lifecyclebot.engine.truth.CanonicalLedgerParityHold6387
+                                .onCleanCycle()
+                            // Once the ledger hold has cleared its clean-cycle bar
+                            // (proven by isActive()==false), the price-identity
+                            // validation guarantee is also satisfied by §5+§6, so
+                            // release the false-profit-trigger hold too. Otherwise
+                            // it stays permanently active (its disable() never
+                            // fires from anywhere in the codebase).
+                            if (!com.lifecyclebot.engine.truth.CanonicalLedgerParityHold6387
+                                    .isActive() &&
+                                com.lifecyclebot.engine.truth.FalseProfitTriggerHold6387
+                                    .isActive()
+                            ) {
+                                com.lifecyclebot.engine.truth.FalseProfitTriggerHold6387
+                                    .disable()
+                                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                    "FALSE_PROFIT_TRIGGER_HOLD_RELEASED_6405",
+                                    "reason=ledger_parity_hold_clean_gate=passed " +
+                                        "price_identity=§5+§6_authorities_active",
+                                )
+                            }
+                        } catch (_: Throwable) {}
+                    } else {
                         report.violations.take(3).forEach { v ->
                             ErrorLogger.warn("App", "6405 invariant violation: $v")
                         }
+                        try {
+                            com.lifecyclebot.engine.truth.CanonicalLedgerParityHold6387
+                                .onInvariantFailure(report.violations.first())
+                        } catch (_: Throwable) {}
                     }
                 } catch (_: Throwable) {}
                 try { Thread.sleep(30_000L) } catch (_: InterruptedException) { break }

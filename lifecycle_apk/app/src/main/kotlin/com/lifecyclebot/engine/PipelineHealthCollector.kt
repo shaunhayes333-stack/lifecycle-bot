@@ -1552,6 +1552,40 @@ object PipelineHealthCollector {
                     }
                     sb.append("\n")
                     bump(labelCounts, "QTY_DECIMAL_SKEW_DETECTED_6309")
+                    // V5.0.6405 §5 — SKEW ALERT WITH SUGGESTED ACTION.
+                    // Operator saw 3mzYJd bought 7906 tokens but only sold
+                    // 244.1 (32× under-sell). Surface an actionable
+                    // recommendation: retry the sell for the remaining raw
+                    // qty tracked by DecimalIntegrityAuthority6405. Emitted
+                    // as a forensic lifecycle event so it shows up in the
+                    // operator alert log alongside the counter.
+                    skewed.take(4).forEach { (sym, v) ->
+                        try {
+                            val mintForSym = try {
+                                TokenLifecycleTracker.all()
+                                    .firstOrNull { it.symbol == sym }?.mint
+                            } catch (_: Throwable) { null }
+                            val positionGen = if (!mintForSym.isNullOrBlank())
+                                com.lifecyclebot.engine.truth.PositionGenerationBridge6405
+                                    .get(mintForSym)
+                            else 0L
+                            val remainingRaw = if (!mintForSym.isNullOrBlank() && positionGen > 0L)
+                                com.lifecyclebot.engine.truth.DecimalIntegrityAuthority6405
+                                    .remainingRaw(mintForSym, positionGen)
+                            else null
+                            val ratio = maxOf(v[0], v[1]) / maxOf(minOf(v[0], v[1]), 1e-12)
+                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                "QTY_DECIMAL_SKEW_ALERT_6405",
+                                "symbol=$sym mint=${mintForSym?.take(10) ?: "-"} " +
+                                    "buyQty=${String.format("%.4g", v[0])} " +
+                                    "sellQty=${String.format("%.4g", v[1])} " +
+                                    "skewX=${String.format("%.1f", ratio)} " +
+                                    "remainingRaw=${remainingRaw ?: "unknown"} " +
+                                    "action=RETRY_SELL_FOR_REMAINING_RAW",
+                            )
+                            bump(labelCounts, "QTY_DECIMAL_SKEW_ALERT_6405")
+                        } catch (_: Throwable) {}
+                    }
                 }
             } catch (_: Throwable) {}
             fun appendExecList(title: String, rows: List<ExecRecord>) {
