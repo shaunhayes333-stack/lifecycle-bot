@@ -1,4 +1,23 @@
-# AATE PRD — V5.0.6402 (Universal SL Invariant + Provider Breakers)
+# AATE PRD — V5.0.6404 §A (Counter Dedupe) + 6403 + 6402
+
+## Session shipping stack (6402 → 6404 §A, all CI GREEN)
+
+- **6404 §A** (`644b4a727e` + `09206065e5` ✅ Build) STRATEGY_CLEAN
+  COUNTER DEDUPE. Gates STRATEGY_CLEAN_TERMINAL_ROWS,
+  STRATEGY_PARTIAL_NOT_TERMINAL, STRATEGY_TERMINAL_DEDUPED and
+  STRATEGY_MINT_CLOSE_WINDOW_DEDUPED_4494 behind a bounded
+  (8,192-entry LRU) lifetime seenTerminalKeysLifetime set. Kills
+  the 2,464,929 event / 6.16h storm (~111/sec) that drove the
+  210s bot-loop stalls. Testing agent iteration_8 verified all 4
+  claims PASS; zero critical/minor issues.
+
+- **6403** (`629c294e7` ✅) FULL EXIT SWEEP start/done +
+  hard-deadline 5000ms.
+- **6402b** (`e698e09d8` ✅) SAME-MINT CANDIDATE EPOCH WIRE.
+- **6402a** (`07668c202` ✅) V5.0.6402 SUBSTRATE (Universal SL
+  lease registry + provider circuit breakers + stage timing +
+  same-mint epoch + exit-pending orphan guard). 22 invariants.
+
 
 ## Session shipping stack (6388 → 6402b, all CI GREEN)
 
