@@ -12910,6 +12910,43 @@ class Executor(
                 } catch (_: Throwable) {}
                 return false
             }
+            // V5.0.6405 §17 — LIVE RUG RISK HARD GATE.
+            // Operator: paper hits 90% WR while live is at 36.7%; live
+            // must stop buying rugs. Multi-signal red-flag scoring on
+            // REAL TokenState values (not the guard's optimistic
+            // defaults) hard-blocks live-only when score >= 3. Paper
+            // stays unaffected so tactic-switcher learning continues.
+            try {
+                if (!ts.position.isPaperPosition) {
+                    val advisorLabels6405: List<String> = try {
+                        val snap = ts.lastPolicySnapshot
+                        if (snap.isBlank()) emptyList()
+                        else snap.split(';', ',', ' ').map { it.trim() }.filter { it.isNotBlank() }
+                    } catch (_: Throwable) { emptyList() }
+                    val rugVerdict = com.lifecyclebot.engine.truth.LiveRugRiskGate6405.evaluate(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        lane = layerTag,
+                        s = com.lifecyclebot.engine.truth.LiveRugRiskGate6405.Signals(
+                            advisorLabels = advisorLabels6405,
+                            topHolderConcentrationPct = ts.tokenMap.topHolderConcentrationPct
+                                ?: ts.topHolderPct,
+                            liquidityUsd = ts.tokenMap.liquidityUsd
+                                ?: ts.lastLiquidityUsd.takeIf { it > 0.0 },
+                            lastSellPressurePct = ts.lastSellPressurePct,
+                            mintAuthorityLive = !ts.tokenMap.mintAuthority.isNullOrBlank(),
+                            freezeAuthorityLive = !ts.tokenMap.freezeAuthority.isNullOrBlank(),
+                            isPaper = false,
+                        ),
+                    )
+                    if (rugVerdict.block) {
+                        try {
+                            PipelineHealthCollector.labelInc("BUY_SECURITY_BLOCKED_6324")
+                        } catch (_: Throwable) {}
+                        return false
+                    }
+                }
+            } catch (_: Throwable) {}
             val guardMult = guardVerdict?.sizeMultiplier ?: 1.0
             // V5.0.6329 — BRAIN CONSENSUS STACK. The LLM / SuperAGI / SSI /
             // BotBrain / MetaCognition / SentienceOrchestrator brains are
