@@ -1,71 +1,41 @@
-# AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + 6404 §A
+# AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Executor Wire-Up
 
 ## Session shipping stack (V5.0.6405, 16-section directive)
 
-- **6405 §1+§2** (`c32b35da1` in-progress) CRASH-SAFE PORTFOLIO
+- **6405 wire-up** (`9e4b7145e` + `620842ff9` + `e96bdf177`) EXECUTOR WIRED
+  - AATEApp.onCreate → PortfolioStore6405.attach(this)
+  - Executor buy-verify (LIVE_BUY_LANDED) writes to
+    PositionGenerationBridge6405, DecimalIntegrityAuthority6405,
+    CanonicalEventStream6405, PortfolioStore6405, and
+    CheckpointRecoveryAuthority6405 in one atomic hop
+  - Executor sell-verify (SELL_TX_PARSE_OK) writes soldRaw to
+    the raw ledger, canonical stream and portfolio store; on full
+    exit marks position terminal and retires checkpoint
+  - ForensicLogger.lifecycle → JournalMigrationAdapter6405 →
+    CanonicalEventStream6405 (global journal migration bridge)
+  - Recursion guard on JOURNAL_UNMAPPED_TAG_6405 and
+    CANONICAL_EVENT_* to prevent bridge→adapter→bridge loops
+  - PaperLiveParityKernel6405.compute uses new wallet-aware
+    fold overload so paper + live never sum each other's events
+
+- **6405 §1+§2** (`c32b35da1` ✅) CRASH-SAFE PORTFOLIO
   STORE. Android platform SQLite with `enableWriteAheadLogging=true`,
-  ACID `beginTransactionNonExclusive` for upserts. Schema v1:
-  `paper_trade_event` (immutable append-only) + `paper_position`
-  (durable checkpoint). BigInteger stored as TEXT so raw quantities
-  never overflow Long or drift via Double.
+  ACID `beginTransactionNonExclusive` for upserts. Schema v1.
 
-- **6405 §3** (`01bc607e5`, superseded — code shipped in later
-  commits) CHECKPOINT RECOVERY. In-memory validated open-position
-  set; `replay()` retires terminal + zero-remaining rows and
-  surfaces `TERMINAL_WITH_NONZERO_REMAINING` integrity violations.
+- **6405 §5** (`0e57103db` ✅) DECIMAL INTEGRITY HARD BLOCK.
+  Strict decimals resolver (wallet → chain cache → local cache →
+  on-chain getAccountInfo → caller fallback → REFUSE). Lifetime
+  raw-qty invariant sum(sold) ≤ entry.
 
-- **6405 §4** (as above) TERMINAL FINALITY. Idempotent per-(mint,
-  gen) terminal marker. Duplicate exit intents refused with
-  `DUPLICATE_EXIT_BLOCKED_6405` counter.
+- **6405 §3/§4/§6/§7** (`01bc607e5`, superseded — code shipped)
+  Checkpoint recovery, terminal finality, price/pair integrity,
+  canonical event stream.
 
-- **6405 §5** (`0e57103db` ✅ Build) DECIMAL INTEGRITY HARD BLOCK.
-  Executor.resolveSellUnitsForMint no longer coerces unknown
-  decimals to 9 or falls back to Double math. Strict ladder: wallet
-  → MintDecimalsAuthority6392 cache → local cache → on-chain
-  `getAccountInfo(mint, jsonParsed)` → caller fallback → REFUSE.
-  Lifetime raw-qty invariant sum(sold) ≤ entry with a
-  per-generation ledger.
+- **6405 §8/§9/§10/§11** (`ac0922108`, retried) Paper/live parity,
+  compounding, global entry policy, multi-horizon holding.
 
-- **6405 §6** (as §3/§4) PRICE & PAIR INTEGRITY. Whitelisted-
-  provider price gate with hard-reject verdict. No "pre-6310 buggy
-  formula until SOL price warms" bandaid.
-
-- **6405 §7** (as above) CANONICAL EVENT STREAM. Single append-only
-  event bus that both journal + UI subscribe to. Consumers derive
-  view state ONLY from folded events.
-
-- **6405 §8** (`ac0922108` in-progress) PAPER/LIVE PARITY KERNEL.
-  Both lanes compute identical realised PnL from the canonical
-  event stream.
-
-- **6405 §9** (as §8) COMPOUNDING ENGINE. Deterministic
-  BigDecimal-based nextBase(). No revenge sizing after losses; cap
-  at maxLamports; out-of-range fraction clamped.
-
-- **6405 §10** (as §8) GLOBAL ENTRY POLICY. Single pre-buy gate:
-  price + pair + terminal-generation dedupe + per-mint cooldown +
-  global pause. Deterministic REASON codes.
-
-- **6405 §11** (as §8) MULTI-HORIZON HOLDING. Deterministic exit-
-  action decision across SHORT/MID/LONG horizons. Universal strict
-  stop protects every horizon.
-
-- **6405 §12-§16** (`d4ae9f0a5` in-progress)
-  - §12 LaneProfileRegistry6405 — data-driven exit profiles per lane
-  - §13 EntryTimingGate6405 — EARLY/WAIT/REJECTED classifier
-  - §14 JournalMigrationAdapter6405 — legacy tag → canonical Type
-  - §15 PortfolioInvariants6405 — I1..I4 self-checks + wallet parity
-  - §16 CapitalRecyclingOrchestrator6405 — closes the loop
-
-## What's shipped vs pending wire-up
-
-All 16 authorities compile as sealed additive substrate with unit
-tests. Executor call-site wire-up is per-section follow-up work:
-
-- §5 already wired inside `resolveSellUnitsForMint`
-- §1+§2 store attaches lazily; call-sites can migrate incrementally
-- §3-§16 authorities are pure/side-effect free until executor calls
-  in on them (planned in a follow-up commit series)
+- **6405 §12-§16** (`d4ae9f0a5`, retried) Lane profiles, entry
+  timing, journal migration, invariants, capital recycling.
 
 ## Session shipping stack (6402 → 6404 §A, all CI GREEN)
 
