@@ -40,6 +40,33 @@ object StrategyTruthLedger {
     @Volatile private var cleanCacheValue: Result? = null
     @Volatile private var cleanCacheStampMs: Long = 0L
 
+    // V5.0.6404 §A — LIFETIME TERMINAL COUNTER DEDUPER.
+    // Operator's V5.0.6404 emergency dump showed STRATEGY_CLEAN_TERMINAL_ROWS
+    // = 1,531,885 (≈10,811/cycle, ≈111/sec) — the counter fired for every
+    // emitted row on every clean() call, not per unique terminal. The
+    // ForensicReconciler consumes this counter as "distinct terminals",
+    // producing catastrophic overcounts and thousands of derived events
+    // per second. Fix: gate the counter increment behind a lifetime
+    // seen-once set keyed by canonical terminal identity. Bounded at
+    // MAX_SEEN_TERMINAL_KEYS via LRU so the set cannot grow unbounded
+    // over long uptimes.
+    private const val MAX_SEEN_TERMINAL_KEYS = 8_192
+    private val seenTerminalKeysLifetime = java.util.Collections.synchronizedSet(
+        object : java.util.LinkedHashSet<String>() {
+            override fun add(element: String): Boolean {
+                val added = super.add(element)
+                if (added && size > MAX_SEEN_TERMINAL_KEYS) {
+                    // Drop oldest to keep memory bounded — a rediscovered
+                    // very-old terminal costs one extra counter tick, not
+                    // a runaway.
+                    val it = iterator()
+                    if (it.hasNext()) { it.next(); it.remove() }
+                }
+                return added
+            }
+        }
+    )
+
     data class Audit(
         val cleaned: Int,
         val deduped: Int,
@@ -111,7 +138,15 @@ object StrategyTruthLedger {
                 // current schema remainingQtyToken is the best persisted proxy.
                 if (row.remainingQtyToken > 0.000000001) {
                     partial++
-                    inc("STRATEGY_PARTIAL_NOT_TERMINAL")
+                    // V5.0.6404 §A — gate STRATEGY_PARTIAL_NOT_TERMINAL by
+                    // lifetime dedupe (was: fired every call for every
+                    // unchanged partial). Reuses the same seen-set with a
+                    // "PARTIAL:" prefix so partial and terminal keys never
+                    // collide.
+                    val partialKey = "PARTIAL:" + terminalKey(row)
+                    if (seenTerminalKeysLifetime.add(partialKey)) {
+                        inc("STRATEGY_PARTIAL_NOT_TERMINAL")
+                    }
                     continue
                 }
             } else if (side != "SELL") {
@@ -142,13 +177,28 @@ object StrategyTruthLedger {
             val sameMintCloseDuplicate = priorCloseTs != null && row.ts > 0L && kotlin.math.abs(priorCloseTs - row.ts) <= SAME_MINT_TERMINAL_DEDUP_WINDOW_MS
             if (!seenTerminalKeys.add(terminalKey) || !seenGenerationKeys.add(generationKey) || sameMintCloseDuplicate) {
                 deduped++
-                inc("STRATEGY_TERMINAL_DEDUPED")
-                if (sameMintCloseDuplicate) inc("STRATEGY_MINT_CLOSE_WINDOW_DEDUPED_4494")
+                // V5.0.6404 §A — gate STRATEGY_TERMINAL_DEDUPED +
+                // STRATEGY_MINT_CLOSE_WINDOW_DEDUPED_4494 by lifetime
+                // dedupe. Reuses seenTerminalKeysLifetime with a "DEDUP:"
+                // prefix. Prior code fired both counters on EVERY call for
+                // every duplicate — 160k + 82k of the 2.4M storm.
+                val dedupKey = "DEDUP:$terminalKey|${if (sameMintCloseDuplicate) 1 else 0}"
+                if (seenTerminalKeysLifetime.add(dedupKey)) {
+                    inc("STRATEGY_TERMINAL_DEDUPED")
+                    if (sameMintCloseDuplicate) inc("STRATEGY_MINT_CLOSE_WINDOW_DEDUPED_4494")
+                }
                 continue
             }
             if (row.ts > 0L) seenMintCloseWindows[mintWindowKey] = row.ts
 
-            inc("STRATEGY_CLEAN_TERMINAL_ROWS")
+            // V5.0.6404 §A — increment STRATEGY_CLEAN_TERMINAL_ROWS ONLY
+            // the first time we ever see this canonical terminal (per
+            // process lifetime). Prior code incremented for every emission,
+            // producing the 2.4M/6h storm. STRATEGY_PARTIAL_NOT_TERMINAL
+            // and STRATEGY_TERMINAL_DEDUPED are similarly gated below.
+            if (seenTerminalKeysLifetime.add(terminalKey)) {
+                inc("STRATEGY_CLEAN_TERMINAL_ROWS")
+            }
             out += normalizedStrategyRow(row)
         }
         val result = Result(out, Audit(out.size, deduped, recovery, partial, badEntry, forensic))
