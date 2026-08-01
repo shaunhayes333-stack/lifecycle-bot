@@ -144,8 +144,37 @@ object PaperEvBucketGate6405 {
         //   tier 2: n >= 10 AND WR >= 70%       → 2.0× (elite bucket)
         //   tier 1: n >=  5 AND (WR >= 60% OR μ >= +50%) → 1.5× (winner)
         //   else                                → 1.0× baseline
+        // V5.0.6409 §2 — KELLY-AWARE ELITE.
+        // Operator directive: "For elite buckets, replace the fixed 2.0×
+        // cap with a Kelly-fractional sizing bounded by the same walletCap
+        // so growth scales with actual edge instead of a hard multiplier."
+        //
+        // Kelly proxy (half-Kelly, safety-bounded):
+        //   evProxy = winRate × (meanPnlPct/100)
+        //   kellyFrac = evProxy.coerceIn(0.0, 0.25)   (half-Kelly ceiling)
+        //   eliteMult = (1.5 + kellyFrac × 4.0).coerceIn(1.5, 2.5)
+        //
+        // For a WR=0.70 / μ=+50% bucket → evProxy=0.35 → clamped=0.25 →
+        // eliteMult=2.5. For a WR=0.70 / μ=+10% bucket → evProxy=0.07 →
+        // eliteMult=1.78. Growth now scales with realised edge instead
+        // of snapping to a hard 2.0× regardless of how strong the bucket is.
         val boostMult: Double = when {
-            trades >= 10 && winRate >= 0.70 -> 2.0
+            trades >= 10 && winRate >= 0.70 -> {
+                val evProxy = winRate * (meanPnl / 100.0)
+                val kellyFrac = evProxy.coerceIn(0.0, 0.25)
+                val eliteMult = (1.5 + kellyFrac * 4.0).coerceIn(1.5, 2.5)
+                try {
+                    ForensicLogger.lifecycle(
+                        "KELLY_ELITE_SIZING_6409",
+                        "mint=${mint.take(10)} sym=$symbol bucket=$key trades=$trades " +
+                            "wr=${"%.2f".format(winRate)} meanPnlPct=${"%.1f".format(meanPnl)} " +
+                            "evProxy=${"%.3f".format(evProxy)} kellyFrac=${"%.3f".format(kellyFrac)} " +
+                            "eliteMult=${"%.2f".format(eliteMult)}",
+                    )
+                    PipelineHealthCollector.labelInc("KELLY_ELITE_SIZING_6409")
+                } catch (_: Throwable) {}
+                eliteMult
+            }
             winRate >= 0.60 || meanPnl >= 50.0 -> 1.5
             else -> 1.0
         }

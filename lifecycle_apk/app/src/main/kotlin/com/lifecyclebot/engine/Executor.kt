@@ -2800,7 +2800,28 @@ class Executor(
             } catch (_: Throwable) {}
             relaxed.coerceAtMost(spendable)
         } else walletCapSol
-        val cap = minOf(liquidityCapSol, walletCapSol6408, spendable)
+        // V5.0.6409 §3 — SMALL-WALLET TURBO.
+        // Operator directive: "When wallet < 0.2 SOL AND runnerBoost active,
+        // allow the entire liquidity-safe amount (skip the doctrine cap
+        // entirely) so early growth compounds faster from a tiny bankroll."
+        // Bounded by liquidityCapSol and spendable, so this never overspends
+        // beyond what the pool can absorb or the wallet actually holds.
+        val smallWalletTurbo6409 = spendable < 0.20 && runnerBoost6408 > 1.0
+        val cap = if (smallWalletTurbo6409) {
+            val turboCap = minOf(liquidityCapSol, spendable)
+            try {
+                ForensicLogger.lifecycle(
+                    "SMALL_WALLET_TURBO_6409",
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$laneKey wallet=${walletSol.fmt(4)} " +
+                        "spendable=${spendable.fmt(4)} runnerBoost=$runnerBoost6408 " +
+                        "walletCapBypassed=${walletCapSol6408.fmt(4)} turboCap=${turboCap.fmt(4)}",
+                )
+                PipelineHealthCollector.labelInc("SMALL_WALLET_TURBO_6409")
+            } catch (_: Throwable) {}
+            turboCap
+        } else {
+            minOf(liquidityCapSol, walletCapSol6408, spendable)
+        }
         val minRealistic = growthPolicy.minExecutableSol.coerceAtMost(cap)
         val desired = maxOf(requestedSol, walletTarget, minRealistic).coerceAtMost(cap)
         val out = desired.coerceAtLeast(minOf(requestedSol, cap)).coerceAtMost(spendable)
@@ -6303,6 +6324,17 @@ class Executor(
                                         .onTradeClosed(laneForLearn, band, pnlPct)
                                     com.lifecyclebot.engine.PipelineHealthCollector
                                         .labelInc("EV_GATE_LEARNING_LOOP_6405")
+                                    // V5.0.6409 §4 — REALISED-EV ROLL-UP.
+                                    // Feed the current wallet SOL into the
+                                    // roll-up counter so every 10th closed
+                                    // trade emits the $50→$1M trajectory
+                                    // delta line for the operator.
+                                    try {
+                                        val walletNow = com.lifecyclebot.engine.BotService
+                                            .walletManager.state.value.solBalance
+                                        com.lifecyclebot.engine.truth.RealisedEvRollUp6409
+                                            .onTradeClosed(walletNow)
+                                    } catch (_: Throwable) {}
                                 } catch (_: Throwable) {}
                             }
                         } catch (_: Throwable) {}
