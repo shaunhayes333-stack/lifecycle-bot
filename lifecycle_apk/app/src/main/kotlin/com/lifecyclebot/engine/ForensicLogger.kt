@@ -186,6 +186,51 @@ object ForensicLogger {
         val n = seq.incrementAndGet()
         emitAsync(PHASE.LIFECYCLE, "🧬[LIFECYCLE] #$n $event  $fields")
         try { PipelineHealthCollector.onLifecycle(event, fields) } catch (_: Throwable) {}
+        // V5.0.6405 §7/§14 — CANONICAL EVENT STREAM BRIDGE.
+        // Every legacy lifecycle tag is routed through the journal
+        // migration adapter. Mapped tags append to the canonical event
+        // stream so the operator dashboard and journal read from a
+        // single source; unmapped tags are counted (never silently
+        // dropped) by JournalMigrationAdapter6405.
+        //
+        // Recursion guard: skip tags that are themselves emitted by
+        // the bridge (JOURNAL_UNMAPPED_TAG_6405 emits from map(); the
+        // CANONICAL_EVENT_* family emits from CanonicalEventStream6405
+        // .append). Without this, map() would recurse forever on any
+        // unmapped tag.
+        if (event != "JOURNAL_UNMAPPED_TAG_6405" &&
+            !event.startsWith("CANONICAL_EVENT_")
+        ) {
+            try {
+                val canonicalType = com.lifecyclebot.engine.truth
+                    .JournalMigrationAdapter6405.map(event)
+                if (canonicalType != null) {
+                    com.lifecyclebot.engine.truth.CanonicalEventStream6405.append(
+                        wallet = "",
+                        mint = extractField(fields, "mint"),
+                        positionGeneration = 0L,
+                        type = canonicalType,
+                        source = "FORENSIC_LOGGER_BRIDGE",
+                        note = fields.take(200),
+                    )
+                }
+            } catch (_: Throwable) {}
+        }
+    }
+
+    /**
+     * Tiny helper: extract `key=value` fragment (whitespace-terminated)
+     * from a forensic fields string. Used by the canonical-stream
+     * bridge to lift `mint=…` out of legacy log lines.
+     */
+    private fun extractField(fields: String, key: String): String {
+        val marker = "$key="
+        val i = fields.indexOf(marker)
+        if (i < 0) return ""
+        val j = i + marker.length
+        var k = j
+        while (k < fields.length && fields[k] != ' ' && fields[k] != '\t') k++
+        return fields.substring(j, k)
     }
 
     fun tick(symbol: String, stage: String, ms: Long, extra: String = "") {

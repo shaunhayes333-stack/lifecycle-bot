@@ -6187,6 +6187,78 @@ class Executor(
                                 )
                             } catch (_: Throwable) {}
                         }
+                        // V5.0.6405 §5/§7/§4/§1+§2 — canonical sell-verified wire.
+                        // Stamps sold-raw ledger, canonical event stream and
+                        // portfolio store; when the ATA is closed / full exit
+                        // detected, marks the position terminal so duplicate
+                        // exits are refused by TerminalFinalityAuthority6405.
+                        try {
+                            val positionGen = ts.position.entryTime.takeIf { it > 0L } ?: 0L
+                            val soldRaw = try {
+                                vsr.rawTokenConsumed
+                            } catch (_: Throwable) { java.math.BigInteger.ZERO }
+                            val recovered = try {
+                                java.math.BigInteger.valueOf(vsr.solReceivedLamports)
+                            } catch (_: Throwable) { java.math.BigInteger.ZERO }
+                            val walletAddr = try { wallet.publicKeyB58 } catch (_: Throwable) { "" }
+                            if (soldRaw.signum() > 0 && positionGen > 0L) {
+                                com.lifecyclebot.engine.truth.DecimalIntegrityAuthority6405
+                                    .recordSoldRaw(ts.mint, positionGen, soldRaw)
+                            }
+                            com.lifecyclebot.engine.truth.CanonicalEventStream6405.append(
+                                wallet = walletAddr,
+                                mint = ts.mint,
+                                positionGeneration = positionGen,
+                                type = com.lifecyclebot.engine.truth
+                                    .CanonicalEventStream6405.Type.SELL_VERIFIED,
+                                rawQty = soldRaw,
+                                lamports = recovered,
+                                source = "SELL_TX_PARSE_OK",
+                                note = "sig=${finalSig?.take(16) ?: ""} reason=$reason fullExit=${vsr.tokenAccountClosedFullExit}",
+                            )
+                            com.lifecyclebot.engine.truth.PortfolioStore6405.appendEvent(
+                                wallet = walletAddr,
+                                mint = ts.mint,
+                                positionGeneration = positionGen,
+                                kind = "SELL_VERIFIED",
+                                rawQty = soldRaw,
+                                lamports = recovered,
+                                source = "SELL_TX_PARSE_OK",
+                                note = "sig=${finalSig?.take(16) ?: ""} reason=$reason",
+                            )
+                            if (vsr.tokenAccountClosedFullExit) {
+                                com.lifecyclebot.engine.truth.TerminalFinalityAuthority6405
+                                    .markTerminal(
+                                        ts.mint, positionGen,
+                                        com.lifecyclebot.engine.truth
+                                            .TerminalFinalityAuthority6405.Terminal.CLOSED_FULL_EXIT,
+                                        reason,
+                                    )
+                                com.lifecyclebot.engine.truth.PositionGenerationBridge6405
+                                    .clear(ts.mint)
+                                com.lifecyclebot.engine.truth.CheckpointRecoveryAuthority6405
+                                    .retire(walletAddr, ts.mint, positionGen)
+                                com.lifecyclebot.engine.truth.PortfolioStore6405.upsertPosition(
+                                    com.lifecyclebot.engine.truth.PortfolioStore6405.PositionRow(
+                                        wallet = walletAddr,
+                                        mint = ts.mint,
+                                        positionGeneration = positionGen,
+                                        entryRaw = com.lifecyclebot.engine.truth
+                                            .DecimalIntegrityAuthority6405.snapshot(ts.mint, positionGen)
+                                            ?.first ?: soldRaw,
+                                        soldRaw = com.lifecyclebot.engine.truth
+                                            .DecimalIntegrityAuthority6405.snapshot(ts.mint, positionGen)
+                                            ?.second ?: soldRaw,
+                                        entryLamports = java.math.BigInteger.valueOf(
+                                            (ts.position.costSol.coerceAtLeast(0.0) * 1_000_000_000.0).toLong(),
+                                        ),
+                                        isPaper = ts.position.isPaperPosition,
+                                        terminal = "CLOSED_FULL_EXIT",
+                                        terminalAtMs = System.currentTimeMillis(),
+                                    ),
+                                )
+                            }
+                        } catch (_: Throwable) {}
                         // Fall through to position mutation + journal write.
                     }
                     TradeVerifier.Outcome.FAILED_CONFIRMED -> {
@@ -15869,6 +15941,73 @@ class Executor(
                         tokenAmount = ts.position.qtyToken, sig = verifySig, traderTag = "MEME",
                     )
                     try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_BUY_LANDED", "mint=${verifyMint.take(10)} symbol=$verifySymbol source=${proof.source} rawAmount=${proof.amountRaw} decimals=${proof.decimals} sig=${verifySig.take(16)}") } catch (_: Throwable) {}
+                    // V5.0.6405 §5/§7/§1+§2 — canonical buy-verified wire.
+                    // Stamps the raw-qty entry ledger, the position-generation
+                    // bridge, the canonical event stream, and the durable
+                    // portfolio store in one atomic hop. All calls are
+                    // best-effort — the authorities own their own no-op paths
+                    // when unattached.
+                    try {
+                        val positionGen = ts.position.entryTime.takeIf { it > 0L }
+                            ?: System.currentTimeMillis()
+                        com.lifecyclebot.engine.truth.PositionGenerationBridge6405.set(
+                            verifyMint, positionGen,
+                        )
+                        com.lifecyclebot.engine.truth.DecimalIntegrityAuthority6405.recordEntryRaw(
+                            mint = verifyMint,
+                            positionGeneration = positionGen,
+                            entryRaw = proof.amountRaw,
+                        )
+                        val walletAddr = try { wallet.publicKeyB58 } catch (_: Throwable) { "" }
+                        val entryLamports = java.math.BigInteger.valueOf(
+                            (ts.position.costSol.coerceAtLeast(0.0) * 1_000_000_000.0).toLong(),
+                        )
+                        com.lifecyclebot.engine.truth.CanonicalEventStream6405.append(
+                            wallet = walletAddr,
+                            mint = verifyMint,
+                            positionGeneration = positionGen,
+                            type = com.lifecyclebot.engine.truth
+                                .CanonicalEventStream6405.Type.BUY_VERIFIED,
+                            rawQty = proof.amountRaw,
+                            lamports = entryLamports,
+                            source = "LIVE_BUY_LANDED",
+                            note = "sig=${verifySig.take(16)} decimals=${proof.decimals}",
+                        )
+                        com.lifecyclebot.engine.truth.PortfolioStore6405.appendEvent(
+                            wallet = walletAddr,
+                            mint = verifyMint,
+                            positionGeneration = positionGen,
+                            kind = "BUY_VERIFIED",
+                            rawQty = proof.amountRaw,
+                            lamports = entryLamports,
+                            source = "LIVE_BUY_LANDED",
+                            note = "sig=${verifySig.take(16)}",
+                        )
+                        com.lifecyclebot.engine.truth.PortfolioStore6405.upsertPosition(
+                            com.lifecyclebot.engine.truth.PortfolioStore6405.PositionRow(
+                                wallet = walletAddr,
+                                mint = verifyMint,
+                                positionGeneration = positionGen,
+                                entryRaw = proof.amountRaw,
+                                soldRaw = java.math.BigInteger.ZERO,
+                                entryLamports = entryLamports,
+                                isPaper = ts.position.isPaperPosition,
+                                terminal = null,
+                                terminalAtMs = null,
+                            ),
+                        )
+                        com.lifecyclebot.engine.truth.CheckpointRecoveryAuthority6405.upsert(
+                            com.lifecyclebot.engine.truth.CheckpointRecoveryAuthority6405.OpenPosition(
+                                wallet = walletAddr,
+                                mint = verifyMint,
+                                positionGeneration = positionGen,
+                                entryRaw = proof.amountRaw,
+                                soldRaw = java.math.BigInteger.ZERO,
+                                entryLamports = entryLamports,
+                                isPaper = ts.position.isPaperPosition,
+                            ),
+                        )
+                    } catch (_: Throwable) {}
                     buyAttemptTrace4576("WALLET_PROOF_OK", "stage=$stage proof=${proof.source} qty=$qtyUi sig=${verifySig.take(16)}")
                     return true
                 }

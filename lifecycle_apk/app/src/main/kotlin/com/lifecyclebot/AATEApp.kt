@@ -67,6 +67,18 @@ class AATEApp : Application() {
             ErrorLogger.error("App", "TreasuryManager restore failed: ${e.message}", e)
         }
 
+        // V5.0.6405 §1+§2 — CRASH-SAFE PORTFOLIO STORE.
+        // Attach the SQLite WAL-backed portfolio store early so every
+        // buy/sell verify event and canonical position upsert lands in
+        // an ACID transaction from the very first tick. Attach is
+        // idempotent — subsequent starts are no-ops.
+        try {
+            com.lifecyclebot.engine.truth.PortfolioStore6405.attach(this)
+            ErrorLogger.info("App", "PortfolioStore6405 attached — SQLite WAL portfolio persistence active")
+        } catch (e: Exception) {
+            ErrorLogger.error("App", "PortfolioStore6405 attach failed: ${e.message}", e)
+        }
+
         // V5.9.14: Initialize SymbolicContext — loads persisted mood/edge state
         try {
             com.lifecyclebot.engine.SymbolicContext.init(this)
