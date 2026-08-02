@@ -1,5 +1,44 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
+
+## V5.0.6410 (Feb 2026) — LOOP CHOKE HOTFIX ✅ CI GREEN
+
+Operator emergency dump (V5.0.6308 fmt) showed the bot loop stalled at 65-226s per cycle:
+`reason=full_builder_timeout_8s anrHints=656 JOURNAL_UNMAPPED_TAG_6405=143 766 (~82/sec)`
+`LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550=15 815 (~9/sec)`.
+
+- **§A ForensicLogger bridge fast-exit**: skip `JournalMigrationAdapter6405.map()`
+  entirely unless the tag contains one of the six canonical prefixes
+  (BUY_/SELL_/POSITION_TERMINAL/CLOSED_/DECIMAL_INTEGRITY_HARD_BLOCK/
+  PRICE_INTEGRITY_HARD_BLOCK/DUPLICATE_EXIT_BLOCKED). Killed the 82/sec
+  10-branch scan + atomic labelInc churn on every lifecycle emit.
+- **§B held-block emit throttle**: rate-limit LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550
+  to at most one emit per 5s. Protection still runs on every pass; only
+  the log line is throttled. Companion counter
+  LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_THROTTLED_6410 shows suppressed volume.
+
+## V5.0.6409 (Feb 2026) — Growth Dashboard + Kelly + Small-Wallet Turbo + EV Roll-Up ✅ CI GREEN
+
+- **§1 Growth Dashboard** (`GrowthDashboardSnapshot6409`): compact tile in
+  OperatorAuxiliaryStatusDigest showing capRelax + eliteBoost + flowBoost +
+  loserCooldown + evGate + rollup counters at a glance.
+- **§2 Kelly-Aware Elite** (`PaperEvBucketGate6405.sizeMultiplier`): elite
+  bucket (trades>=10 AND WR>=70%) now scales with actual edge via a half-Kelly
+  proxy `eliteMult = (1.5 + evProxy.coerceIn(0,0.25)*4.0).coerceIn(1.5, 2.5)`
+  instead of a fixed 2.0×.
+- **§3 Small-Wallet Turbo** (`Executor.determineRealisticLiveSize`):
+  when `spendable < 0.20 SOL AND runnerBoost > 1.0` the doctrine walletCap is
+  bypassed; cap becomes `minOf(liquidityCapSol, spendable)` so early growth
+  compounds from a tiny bankroll while still respecting pool depth.
+- **§4 Realised-EV Roll-Up** (`RealisedEvRollUp6409`): every 10 closed trades
+  logs baseline SOL / current SOL / deltaSol / deltaPct for the $50→$1M
+  trajectory visibility. Wired into the sell terminal path right after
+  EV_GATE_LEARNING_LOOP_6405.
+- **CI fix**: GoldenTapeRegressionTest.aate4573CommonSensePlaybookIsWired... at
+  line 7080 now accepts `agiCeiling6090|6406|6409` after V5.0.6406/6407/6408
+  legitimately extended the ceiling variable name.
+
+
 ## Session shipping stack (V5.0.6405, 16-section directive)
 
 - **6405 sell coverage + replay + invariant runner** (`f5b48e367`)
