@@ -201,20 +201,49 @@ object ForensicLogger {
         if (event != "JOURNAL_UNMAPPED_TAG_6405" &&
             !event.startsWith("CANONICAL_EVENT_")
         ) {
-            try {
-                val canonicalType = com.lifecyclebot.engine.truth
-                    .JournalMigrationAdapter6405.map(event)
-                if (canonicalType != null) {
-                    com.lifecyclebot.engine.truth.CanonicalEventStream6405.append(
-                        wallet = "",
-                        mint = extractField(fields, "mint"),
-                        positionGeneration = 0L,
-                        type = canonicalType,
-                        source = "FORENSIC_LOGGER_BRIDGE",
-                        note = fields.take(200),
-                    )
-                }
-            } catch (_: Throwable) {}
+            // V5.0.6410 §A — HOT-PATH BRIDGE FAST-EXIT.
+            // Operator emergency dump: JOURNAL_UNMAPPED_TAG_6405 = 143 766
+            // (~82/sec) with the report builder timing out at 8s and cycles
+            // at 65-226s. Every lifecycle emit was doing a 10-branch string
+            // scan inside JournalMigrationAdapter6405.map() + an atomic
+            // labelInc on the unmapped counter. 99% of lifecycle events do
+            // NOT match any canonical prefix, so the cost was pure churn on
+            // the emit thread. Short-circuit here: only invoke the adapter
+            // when the tag actually contains one of the six canonical
+            // prefixes. Skipped tags no longer bump the meaningless
+            // JOURNAL_UNMAPPED_TAG_6405 counter — its 143k reading was
+            // just "every unmapped lifecycle tag once" which is useless
+            // signal.
+            val bridgeCandidate6410 = event.contains("BUY_INTENT") ||
+                event.contains("BUY_LANDED") ||
+                event.contains("BUY_VERIFIED") ||
+                event.contains("SELL_INTENT") ||
+                event.contains("SELL_LANDED") ||
+                event.contains("SELL_VERIFIED") ||
+                event.contains("POSITION_TERMINAL") ||
+                event.contains("CLOSED_FULL_EXIT") ||
+                event.contains("CLOSED_STOP") ||
+                event.contains("CLOSED_LIQUIDATED") ||
+                event.contains("DECIMAL_INTEGRITY_HARD_BLOCK") ||
+                event.contains("SELL_ABORTED_DECIMAL_INTEGRITY") ||
+                event.contains("PRICE_INTEGRITY_HARD_BLOCK") ||
+                event.contains("DUPLICATE_EXIT_BLOCKED")
+            if (bridgeCandidate6410) {
+                try {
+                    val canonicalType = com.lifecyclebot.engine.truth
+                        .JournalMigrationAdapter6405.map(event)
+                    if (canonicalType != null) {
+                        com.lifecyclebot.engine.truth.CanonicalEventStream6405.append(
+                            wallet = "",
+                            mint = extractField(fields, "mint"),
+                            positionGeneration = 0L,
+                            type = canonicalType,
+                            source = "FORENSIC_LOGGER_BRIDGE",
+                            note = fields.take(200),
+                        )
+                    }
+                } catch (_: Throwable) {}
+            }
         }
     }
 

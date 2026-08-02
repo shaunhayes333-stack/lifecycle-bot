@@ -10827,13 +10827,31 @@ class BotService : Service() {
             // original telemetry label so downstream dashboards still light up but
             // collapses 5855 events/15min → one event per rebalance pass.
             if (heldBlockedThisPass > 0) {
-                try {
-                    PipelineHealthCollector.labelInc("LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550")
-                    ForensicLogger.lifecycle(
-                        "LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550",
-                        "reason=$reason heldBlocked=$heldBlockedThisPass firstMint=${heldBlockedFirstMint.take(10)} pump=${pumpEntries.size} cap=$cap total=$total action=keep_watchlist_aggregated_6353",
-                    )
-                } catch (_: Throwable) {}
+                // V5.0.6410 §B — HELD-BLOCK EMIT THROTTLE.
+                // Operator emergency dump: LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550
+                // = 15 815 (~9/sec) with the SAME 3 held mints repeated on every
+                // intake. The 6353 aggregation already collapsed per-iteration
+                // rows to per-pass, but the pass itself still fires on every
+                // intake. Same held mints emitting 9 times per second is pure
+                // noise. Rate-limit to at most one emit per 5 seconds — the
+                // held-block protection still runs on every pass (behaviour
+                // unchanged), only the telemetry line is throttled.
+                val nowMs6410 = System.currentTimeMillis()
+                val priorMs6410 = heldBlockLastEmitMs6410.get()
+                if (nowMs6410 - priorMs6410 >= 5_000L &&
+                    heldBlockLastEmitMs6410.compareAndSet(priorMs6410, nowMs6410)) {
+                    try {
+                        PipelineHealthCollector.labelInc("LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550")
+                        ForensicLogger.lifecycle(
+                            "LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550",
+                            "reason=$reason heldBlocked=$heldBlockedThisPass firstMint=${heldBlockedFirstMint.take(10)} pump=${pumpEntries.size} cap=$cap total=$total action=keep_watchlist_aggregated_6353 throttled6410=5s",
+                        )
+                    } catch (_: Throwable) {}
+                } else {
+                    // Still bump a companion counter so the operator sees
+                    // that the pass ran but the emit was throttled.
+                    try { PipelineHealthCollector.labelInc("LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_THROTTLED_6410") } catch (_: Throwable) {}
+                }
             }
         } catch (_: Throwable) {}
     }
@@ -15989,6 +16007,8 @@ if (hotExitHandledSweep) {
     // longer keep the hold armed indefinitely.
     @Volatile private var lastSkewCount6319: Long = 0L
     @Volatile private var lastClampCount6319: Long = 0L
+    // V5.0.6410 §B — HELD-BLOCK EMIT THROTTLE STATE.
+    private val heldBlockLastEmitMs6410 = java.util.concurrent.atomic.AtomicLong(0L)
     private val supervisorLifetimeSpawned = java.util.concurrent.atomic.AtomicLong(0)
     private val supervisorLifetimeProcessed = java.util.concurrent.atomic.AtomicLong(0)
     private val supervisorLifetimeSkipped = java.util.concurrent.atomic.AtomicLong(0)
