@@ -5325,6 +5325,24 @@ for legal compliance.
             val fill6321 = try { com.lifecyclebot.engine.CanonicalBuyFillRegistry.get(ts.mint) } catch (_: Throwable) { null }
             val entryPriceForCard6321: Double = fill6321?.entryPriceUsd?.takeIf { it > 0.0 } ?: pos.entryPrice
             val entryQtyForCard6321: Double = fill6321?.walletVerifiedQty?.takeIf { it > 0.0 } ?: pos.qtyToken
+            // V5.0.6412 — COST-BASIS REPAIR AUTHORITY.
+            // Screenshot showed ANTHROPIC "-100.0% Size 0.0000◎" while the
+            // wallet held 4667 tokens at $0.000148 — an actual +277%
+            // winner. pos.costSol had gone to zero while qtyToken and
+            // entryPrice were intact, so PnL blew up. Reconstruct the
+            // trustworthy cost basis from qty × entryPrice / solPrice
+            // whenever the ledger value is missing. Read-only; the
+            // position record isn't mutated here (SQLite portfolio store
+            // repair lands in a follow-up commit).
+            val repairedCostSol6412 = try {
+                com.lifecyclebot.engine.truth.PositionCostBasisRepair6412.repairedCostSol(
+                    mint = ts.mint, symbol = ts.symbol,
+                    qtyToken = entryQtyForCard6321,
+                    entryPriceUsd = entryPriceForCard6321,
+                    priorCostSol = pos.costSol,
+                    solPriceUsd = solPrice,
+                )
+            } catch (_: Throwable) { pos.costSol }
             val pnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "MainActivity.renderRow/${ts.symbol}/${ts.mint.take(8)}", emit = true)
             // V5.0.6323 — CANONICAL BASIS FOR PnL (operator directive: real
             // price data, no clamps). When the canonical registry has a
@@ -5351,13 +5369,37 @@ for legal compliance.
                     }
                 }
             }
+            // V5.0.6412 — PHANTOM -100% GUARD.
+            // Screenshot showed ANTHROPIC "-100.0%" while the token was at
+            // $0.000148 (up +130.94% on the wallet chart). Root cause is
+            // a stale/zero ts.ref mark: (0 - entryPrice) / entryPrice = -100%.
+            // Refuse to display an extreme -100% loss when we have a real
+            // token balance in the position and the mark is either zero or
+            // absurdly below the entry (>= -95%). Show "basis wait" so the
+            // exit coordinator and learning loop don't act on the phantom.
+            if (basisTrusted && gainPct <= -95.0 && entryQtyForCard6321 > 0.0) {
+                val currentUsd = ts.ref
+                val phantomMark = !currentUsd.isFinite() || currentUsd <= 0.0 ||
+                    (entryPriceForCard6321 > 0.0 && currentUsd < entryPriceForCard6321 * 0.01)
+                if (phantomMark) {
+                    basisTrusted = false
+                    gainPct = 0.0
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "UI_PHANTOM_LOSS_SUPPRESSED_6412",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} entryUsd=$entryPriceForCard6321 markUsd=$currentUsd qty=$entryQtyForCard6321 reason=stale_or_zero_mark",
+                        )
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UI_PHANTOM_LOSS_SUPPRESSED_6412")
+                    } catch (_: Throwable) {}
+                }
+            }
             val gainCol = if (!basisTrusted) muted else if (gainPct >= 0) green else red
-            val pnlSol  = if (basisTrusted) pos.costSol * gainPct / 100.0 else 0.0
+            val pnlSol  = if (basisTrusted) repairedCostSol6412 * gainPct / 100.0 else 0.0
 
             // V5.6.18: Use actual token quantity from position, not calculated value
             // V5.0.6321 — prefer canonical qty when available (wallet-verified).
             val tokenAmount = entryQtyForCard6321
-            val currentValue = pos.costSol + pnlSol  // Current value in SOL
+            val currentValue = repairedCostSol6412 + pnlSol  // Current value in SOL (V5.0.6412 uses repaired basis)
             val valueUsd = currentValue * solPrice
             val routeTruth6030 = try { com.lifecyclebot.engine.RealPriceLock.lastRouteTruth(ts.mint) } catch (_: Throwable) { null }
             val entryRoute6100 = listOf(pos.entryPriceSource, pos.entryPoolAddress, ts.lastPricePoolAddr, ts.pairAddress, ts.source, ts.tokenMap.routeStatus)
@@ -5552,7 +5594,7 @@ for legal compliance.
                     tokenAmount >= 1_000     -> "%.2fK".format(tokenAmount / 1_000)
                     else                     -> "%.2f".format(tokenAmount)
                 }
-                text = "Size: %.4f◎  ·  %s tokens".format(pos.costSol, tokenAmtStr)
+                text = "Size: %.4f◎  ·  %s tokens".format(repairedCostSol6412, tokenAmtStr)
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
