@@ -13309,31 +13309,97 @@ class Executor(
             }
         }
 
-        // V5.0.4161 — EXECUTION-HEALTH BUY GATE.
+        // V5.0.6411 §3 — SPLIT-DOMAIN ROUTE RESOLVER REPLACES §4161 GLOBAL DEFER.
         // ═════════════════════════════════════════════════════════════════
-        // Operator dump 2026-06-26 showed Jupiter sr=0% with DNS-fail
-        // (`Unable to resolve host "tokens.jup.ag"`) while two trades bled
-        // to -71% / -58% on the sell side. The detect-side STRICT_SL /
-        // CATASTROPHIC_HARD_BACKSTOP_-25 (V5.0.4160) fired correctly but
-        // the SAME doSell pipeline can't broadcast at a clean price when
-        // Jupiter is dead — direct route fills at catastrophic loss.
+        // Build V5.0.6410 authorised 501 live buys and SUBMITTED ZERO
+        // because the §4161 gate below (`ExecutionHealthGuard.shouldDeferBuy()`)
+        // returned true for EVERY live buy while Jupiter was unhealthy —
+        // including pump.fun mints that have a direct adapter and never
+        // needed Jupiter. `BUY_DEFERRED_JUPITER_DEAD` fired 512× while
+        // PumpFunDirect / PumpPortalAuto stood idle.
         //
-        // Rule: do NOT acquire new bags we cannot safely unwind. If the
-        // execution layer is currently dead, defer the buy. This is
-        // VOLUME-PRESERVING — `isJupiterHealthy` flips back to true on
-        // the FIRST Jupiter success (sr threshold OR fresh-success window),
-        // so the meme trader resumes immediately when execution recovers.
-        // Self-correcting, no permanent throttle.
-        if (com.lifecyclebot.engine.ExecutionHealthGuard.shouldDeferBuy()) {
-            try { PipelineHealthCollector.labelInc("BUY_DEFERRED_JUPITER_DEAD_4161") } catch (_: Throwable) {}
+        // The new resolver classifies the mint into an ExecutableVenue6411,
+        // consults the per-adapter circuit registry, and returns the
+        // highest-preference healthy adapter. Jupiter being open no
+        // longer blocks a pump.fun route.
+        //
+        // If NO adapter is available (all circuits open + Jupiter dead)
+        // we still defer, but with a typed terminal and a forensic
+        // execution-attempt row so operators can measure the exact
+        // bottleneck (AUTHORISED_NOT_ROUTED vs ROUTE_ALL_ADAPTERS_UNAVAILABLE).
+        val routeVerdict6411 = try {
+            com.lifecyclebot.engine.truth.RouteResolver6411.resolve(
+                mint = ts.mint, symbol = ts.symbol, source = ts.source,
+            )
+        } catch (_: Throwable) { null }
+        if (routeVerdict6411 != null && !routeVerdict6411.proceed) {
             try {
-                ForensicLogger.lifecycle(
-                    "BUY_DEFERRED_JUPITER_DEAD",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$layerTag sol=${"%.4f".format(sol)} reason=jupiter_unhealthy_no_safe_unwind"
+                com.lifecyclebot.engine.truth.ExecutionAttemptJournal6411.append(
+                    com.lifecyclebot.engine.truth.ExecutionAttemptJournal6411.Row(
+                        createdAtMs = System.currentTimeMillis(),
+                        decisionId = try { ts.mint.take(8) + "-" + ts.entryScore.toInt() } catch (_: Throwable) { "-" },
+                        executionIntentId = try { ts.mint + "|BUY|" + System.currentTimeMillis() / 1000L } catch (_: Throwable) { "-" },
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        lane = layerTag,
+                        wallet = try { wallet.publicKeyB58 } catch (_: Throwable) { "" },
+                        venue = routeVerdict6411.venue,
+                        adapterSelected = null,
+                        adapterCandidates = routeVerdict6411.candidates,
+                        requestedSol = sol,
+                        ticketState = "AUTHORISED_NOT_ROUTED",
+                        terminalReason = when (routeVerdict6411.outcome) {
+                            com.lifecyclebot.engine.truth.RouteResolver6411.Outcome.ALL_ADAPTERS_UNAVAILABLE ->
+                                com.lifecyclebot.engine.truth.ExecutionAttemptJournal6411.TerminalReason.NO_HEALTHY_ADAPTER
+                            com.lifecyclebot.engine.truth.RouteResolver6411.Outcome.UNSUPPORTED_VENUE ->
+                                com.lifecyclebot.engine.truth.ExecutionAttemptJournal6411.TerminalReason.VENUE_UNSUPPORTED
+                            else -> com.lifecyclebot.engine.truth.ExecutionAttemptJournal6411.TerminalReason.ROUTE_UNAVAILABLE_TERMINAL
+                        },
+                        reasonDetail = routeVerdict6411.reason,
+                    ),
                 )
             } catch (_: Throwable) {}
-            liveBuyDeferred(ts, sol, "JUPITER_EXECUTION_LAYER_DEAD", "lane=$layerTag — defer until jupiter recovers (self-clears on next success)")
+            try {
+                ForensicLogger.lifecycle(
+                    "BUY_DEFERRED_NO_HEALTHY_ADAPTER_6411",
+                    routeVerdict6411.toLogFields(ts.mint, ts.symbol, ts.source) + " sol=${"%.4f".format(sol)} lane=$layerTag",
+                )
+                PipelineHealthCollector.labelInc("BUY_DEFERRED_NO_HEALTHY_ADAPTER_6411")
+            } catch (_: Throwable) {}
+            liveBuyDeferred(ts, sol, "ROUTE_UNAVAILABLE_TERMINAL_6411", "venue=${routeVerdict6411.venue} candidates=[${routeVerdict6411.candidates.joinToString(",") { it.name }}] skipped=[${routeVerdict6411.skipped.joinToString(",") { "${it.first.name}:${it.second}" }}]")
             return false
+        }
+        // V5.0.6411 §5.2 — record the AUTHORISED-ROUTED forensic row.
+        // This gives operators visibility that the ticket resolved past
+        // the route gate even before quote/simulate/send occur.
+        if (routeVerdict6411 != null) {
+            try {
+                com.lifecyclebot.engine.truth.ExecutionAttemptJournal6411.append(
+                    com.lifecyclebot.engine.truth.ExecutionAttemptJournal6411.Row(
+                        createdAtMs = System.currentTimeMillis(),
+                        decisionId = try { ts.mint.take(8) + "-" + ts.entryScore.toInt() } catch (_: Throwable) { "-" },
+                        executionIntentId = try { ts.mint + "|BUY|" + System.currentTimeMillis() / 1000L } catch (_: Throwable) { "-" },
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        lane = layerTag,
+                        wallet = try { wallet.publicKeyB58 } catch (_: Throwable) { "" },
+                        venue = routeVerdict6411.venue,
+                        adapterSelected = routeVerdict6411.adapter,
+                        adapterCandidates = routeVerdict6411.candidates,
+                        requestedSol = sol,
+                        ticketState = "ROUTE_RESOLVED",
+                        terminalReason = com.lifecyclebot.engine.truth.ExecutionAttemptJournal6411.TerminalReason.ROUTE_ADAPTER_SELECTED,
+                        reasonDetail = routeVerdict6411.reason,
+                    ),
+                )
+            } catch (_: Throwable) {}
+        }
+        // V5.0.4161 legacy guard is retained ONLY as a canary so operators
+        // can still see the raw Jupiter-health signal in the counter stream,
+        // but it no longer aborts the buy — RouteResolver6411 above owns
+        // the authoritative decision.
+        if (com.lifecyclebot.engine.ExecutionHealthGuard.shouldDeferBuy()) {
+            try { PipelineHealthCollector.labelInc("BUY_DEFERRED_JUPITER_DEAD_4161_LEGACY_ADVISORY_6411") } catch (_: Throwable) {}
         }
 
         // V5.0.4134 — UNIVERSAL LIVE-BUY DISCIPLINE VETO + DUMP REGIME KILL SWITCH.
