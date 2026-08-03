@@ -1,6 +1,98 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6411 (Feb 2026) — LIVE_EXECUTION_RECOVERY_AND_PIPELINE_HARDENING
+
+Build 6410 authorised 501 live buys and SUBMITTED ZERO. This build's
+sole objective was to resume trading while preserving safety controls,
+lane diversity, and forensic auditability. Shipped as 5 landable
+commits (§A-§E), each independently green in CI.
+
+### §A — LIVE EXECUTION RECOVERY (P0) ✅ Build+Smoke green
+- **ExecutableVenue6411 + AdapterCapability6411**: venue enum
+  (PUMP_FUN_BONDING_CURVE, PUMPSWAP, RAYDIUM_CPMM/CLMM, ORCA_WHIRLPOOL,
+  JUPITER_ONLY, MULTI_VENUE, UNKNOWN_PENDING, UNSUPPORTED) with an
+  explicit capability matrix per adapter.
+- **ProviderDomainCircuits6411**: per-adapter circuit breakers
+  (CLOSED/HALF_OPEN/OPEN, 3-fail streak / 2-ratelimit streak / 5-in-60s
+  rolling, 20s min open, 5min max backoff). Jupiter open no longer
+  blocks PUMP_FUN_DIRECT.
+- **RouteResolver6411**: classifies mint→venue, selects highest-
+  preference healthy adapter. Emits typed terminals
+  EXEC_VENUE_RESOLVED_6411, EXEC_ROUTE_RESOLVED_6411,
+  EXEC_ADAPTER_SELECTED_6411, EXEC_ADAPTER_SKIPPED_CIRCUIT_6411,
+  EXEC_ROUTE_TERMINAL_6411, ROUTE_JUPITER_SKIPPED_CIRCUIT_OPEN_6411.
+- **Executor.liveBuy**: replaced the §4161 global
+  `shouldDeferBuy()` with `RouteResolver6411.resolve(ts)`. When no
+  adapter is available a typed BUY_DEFERRED_NO_HEALTHY_ADAPTER_6411
+  fires with venue + candidates + skipped. Legacy §4161 signal
+  retained as advisory counter only.
+- **ExecutionAttemptJournal6411**: forensic row per intent even when
+  no chain tx is sent. Bounded ring (cap=512). Emits
+  EXEC_ATTEMPT_JOURNAL_WRITTEN_6411.
+- **LiveExecutionReadiness6411**: split readiness tile (policy /
+  route / rpc / wallet / journal / reconcile) + deterministic
+  bottleneck inference per §19 precedence. Build 6410 now surfaces
+  AUTHORISED_NOT_ROUTED instead of masking as "LIVE ENTRY AUTHORITY open".
+
+### §B — TICKET STATE MACHINE + CANARY MODE ✅ Build green
+- **ExecutionTicketMachine6411**: full ticket state enum
+  (CREATED..OPEN_CONFIRMED..TICKET_EXPIRED), CAS-guarded transitions,
+  idempotency key (wallet|mint|side|decisionId|5sBucket), bounded
+  age budgets (meme=25s, standard=60s), sweepExpired() to force
+  terminals. Terminal states cannot revive.
+- **LiveCanaryMode6411**: post-install canary
+  (maxConcurrentLiveBuys=1, forceMinSize=true), ramp
+  CANARY_ACTIVE→RAMP_2→NORMAL after 2+2 clean confirms; any
+  invariant failure forces back to CANARY_ACTIVE.
+
+### §C — SCANNER DEDUPE + TOKEN-MAP VERSIONS + CYCLE PROFILER ✅ Build green
+- **ScannerCanonicalDedupe6411**: pre-enrichment dedupe by
+  mint|pool|source-family|5s-epoch (TTL 5min, cap 4096). Source-
+  family normalisation collapses ~18x per-callback fan-out.
+- **TokenMapVersionGuard6411**: monotonic mappingVersion +
+  laneRoutingVersion; stale metric writes drop with
+  TOKEN_MAP_VERSION_STALE_DROP_6411 /
+  LANE_ROUTING_VERSION_STALE_DROP_6411.
+- **CycleProfiler6411**: per-phase timing with dominant-phase
+  attribution on slow cycles (>12s). Emits
+  CYCLE_SLOW_PHASE_ATTRIBUTION_6411.
+
+### §D — WORKER-POOL DOMAINS + SAFETY-PROOF DEGRADATION ✅ Build green
+- **WorkerPoolDomainRegistry6411**: priority-ordered domain pools
+  (EXIT_RECONCILE p1 through UI_REPORT p8). canDegradedEntry()
+  guarantees exits + reconciliation stay operational when entry
+  pools are disabled (§22 containment).
+- **SafetyProofDegradation6411**: CONFIRMED_SAFE / CONFIRMED_UNSAFE /
+  UNKNOWN_PROVIDER_DEGRADED / CACHED_WITHIN_TTL taxonomy; unknown
+  proof yields 0.40x size + 12 floor + short TTL (60s meme /
+  5min established).
+
+### §E — LANE QUARANTINE SCOPING + EXIT INVARIANT + POSITION IDENTITY ✅ Build+Smoke pending
+- **LaneQuarantineRegistry6411**: scoped
+  (TOKEN/POOL/LANE/PROVIDER/EXECUTION_ADAPTER) with explicit
+  expiry + owner + evidence + releaseCondition. Rejects
+  no-expiry records unless permanentOverride=true.
+- **ExitPipelineInvariant6411**: EXIT_PIPELINE_CRITICAL_6411 fires
+  when openLivePositions>0 AND no successful sweep in 60s.
+  Auto-recovers on next sweep.
+- **PositionIdentity6411**: canonicalKey = wallet|mint|paper/live
+  (pool/symbol excluded). guardMerge() enforces 5 preconditions
+  (wallet/mint/mode/tokenProgram/history).
+
+### Deferred to V5.0.6412+
+- Concrete wiring of ScannerCanonicalDedupe/TokenMapVersionGuard
+  into scanner + TOKEN_MAP_START call sites
+- Concrete wiring of ExecutionTicketMachine + LiveCanaryMode into
+  Executor.liveBuy (size clamp + concurrency gate)
+- Alias-merge migration to PositionIdentity6411.guardMerge
+- Bot loop hooks for CycleProfiler6411 (phase brackets) and
+  ExitPipelineInvariant6411 (sweep hooks)
+- §7.3 per-phase time budgets, §13 no-pair bounded recovery,
+  §17 UI throttling, §25 automated acceptance tests
+
+
+
 ## V5.0.6410 (Feb 2026) — LOOP CHOKE HOTFIX ✅ CI GREEN
 
 Operator emergency dump (V5.0.6308 fmt) showed the bot loop stalled at 65-226s per cycle:
