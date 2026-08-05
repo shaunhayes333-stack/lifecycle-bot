@@ -4125,6 +4125,17 @@ class BotService : Service() {
             // ── Paper wallet: restore from SharedPrefs (survives app updates) ──
             val botPrefs = getSharedPreferences("bot_paper_wallet", android.content.Context.MODE_PRIVATE)
             val savedBalance = botPrefs.getFloat("paper_wallet_sol", 0f).toDouble()
+            // V5.0.6413 — PAPER-BALANCE WIPE GUARD.
+            // Operator report: "randomly wiped the paper balance back to nothing.
+            // it was matching the journal records increasing as wins banked etc.
+            // same as the treasury." Root cause: savedBalance reads 0 either when
+            // (a) the prefs key is truly absent (fresh install) OR (b) a corrupted/
+            // racy read returns the default. The old logic treated both cases
+            // identically — path (a) legitimately seeds cfg.paperSimulatedBalance,
+            // but path (b) wipes gains. Distinguish them by presence of the key
+            // AND by trusting the journal when it has ANY history at all.
+            val paperKeyPresent6413 = try { botPrefs.contains("paper_wallet_sol") } catch (_: Throwable) { false }
+            val savedBalanceTrusted6413 = paperKeyPresent6413 && savedBalance.isFinite()
             val lastModeWasPaper = botPrefs.getBoolean("last_mode_was_paper", true)
             val modeChangedLiveToPaper = cfg.paperMode && !lastModeWasPaper
 
@@ -4153,9 +4164,11 @@ class BotService : Service() {
                 val journalRealizedSol = try { TradeHistoryStore.getLifetimeStats().realizedPnlSol } catch (_: Throwable) { 0.0 }
                 val journalHasHistory = try { TradeHistoryStore.getLifetimeStats().totalSells > 0 } catch (_: Throwable) { false }
                 when {
-                    savedBalance < 0.01 && !journalHasHistory -> {
+                    savedBalance < 0.01 && !journalHasHistory && !paperKeyPresent6413 -> {
+                        // V5.0.6413 — only seed when the key was NEVER written.
+                        // Prevents a racy 0-read from wiping a real balance.
                         status.paperWalletSol = cfg.paperSimulatedBalance
-                        addLog("🔄 Fresh install: paper wallet seeded to ${cfg.paperSimulatedBalance} SOL (no journal history)")
+                        addLog("🔄 Fresh install: paper wallet seeded to ${cfg.paperSimulatedBalance} SOL (no prefs key, no journal history)")
                         botPrefs.edit().putFloat("paper_wallet_sol", cfg.paperSimulatedBalance.toFloat()).apply()
                     }
                     savedBalance < 0.01 && journalHasHistory -> {
@@ -4179,9 +4192,30 @@ class BotService : Service() {
                         try { FluidLearning.reset(sanityResetTarget) } catch (_: Throwable) {}
                     }
                     else -> {
-                        status.paperWalletSol = savedBalance
+                        // V5.0.6413 — if we hit the else branch with a corrupted-read
+                        // (savedBalance < 0.01 AND key WAS present AND no journal
+                        // history to restore from), REFUSE to blow away the balance.
+                        // Log the anomaly and hold at previous status.paperWalletSol
+                        // (which is 0.0 on first startup but preserved on hot restart).
+                        val incomingBalance6413 = savedBalance
+                        val holdIncoming6413 = savedBalance < 0.01 && paperKeyPresent6413 && !journalHasHistory
+                        if (holdIncoming6413) {
+                            try {
+                                PipelineHealthCollector.labelInc("PAPER_WALLET_WIPE_GUARD_HELD_6413")
+                                ForensicLogger.lifecycle(
+                                    "PAPER_WALLET_WIPE_GUARD_HELD_6413",
+                                    "savedBalance=$incomingBalance6413 keyPresent=$paperKeyPresent6413 journalSells=0 " +
+                                        "priorStatusBalance=${status.paperWalletSol} action=refuse_zero_restore",
+                                )
+                            } catch (_: Throwable) {}
+                            // Keep whatever status.paperWalletSol currently holds (typically 0
+                            // on fresh process, or the last in-memory value). Do NOT overwrite
+                            // prefs with 0 — force a self-heal on next successful buy/sell.
+                        } else {
+                            status.paperWalletSol = savedBalance
+                        }
                         val modeTag = if (modeChangedLiveToPaper) " (V5.0.6376 preserved across LIVE→PAPER switch)" else ""
-                        addLog("💰 Paper wallet restored: ${"%.4f".format(savedBalance)} SOL$modeTag")
+                        addLog("💰 Paper wallet restored: ${"%.4f".format(savedBalance)} SOL$modeTag" + if (holdIncoming6413) " ⚠️ 6413_WIPE_GUARD_HELD" else "")
                         if (modeChangedLiveToPaper) {
                             try { PipelineHealthCollector.labelInc("PAPER_WALLET_MODE_TOGGLE_PRESERVED_6376") } catch (_: Throwable) {}
                         }

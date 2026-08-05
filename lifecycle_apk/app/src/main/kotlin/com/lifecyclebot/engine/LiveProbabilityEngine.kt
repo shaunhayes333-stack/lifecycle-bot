@@ -523,11 +523,21 @@ object LiveProbabilityEngine {
                     val liveWr = liveSnap.winRatePct
                     val paperWr = paperFromLifetime.winRatePct
                     if (paperWr >= 30.0 && liveWr < (paperWr * 0.5) && clampedMult > 0.30) {
+                        // V5.0.6413 — HOT-PATH EMIT THROTTLE.
+                        // Report showed 8 back-to-back LIVE_PAPER_DIVERGENCE_DUST_PROBE_6279
+                        // emissions for BLUECHIP in a single tick (all with identical
+                        // WR/paperWR values) — pure log spam adding load to the emit
+                        // thread and choking the bot loop (42s avg / 257s max cycle).
+                        // Rate-limit via ForensicEmitRateLimiter6356 per lane. Clamp
+                        // math still runs on every candidate — only the log line is
+                        // throttled.
                         try {
-                            ForensicLogger.lifecycle(
-                                "LIVE_PAPER_DIVERGENCE_DUST_PROBE_6279",
-                                "lane=$lane liveWR=${"%.1f".format(liveWr)}%(n=${liveSnap.trades}) paperWR=${"%.1f".format(paperWr)}%(n=${paperFromLifetime.trades}) preMult=${"%.2f".format(clampedMult)} clampedTo=0.30 note=live_underperforms_paper_lane_bleed_probe_only",
-                            )
+                            if (ForensicEmitRateLimiter6356.shouldEmit("LIVE_PAPER_DIVERGENCE_DUST_PROBE_6279", lane)) {
+                                ForensicLogger.lifecycle(
+                                    "LIVE_PAPER_DIVERGENCE_DUST_PROBE_6279",
+                                    "lane=$lane liveWR=${"%.1f".format(liveWr)}%(n=${liveSnap.trades}) paperWR=${"%.1f".format(paperWr)}%(n=${paperFromLifetime.trades}) preMult=${"%.2f".format(clampedMult)} clampedTo=0.30 note=live_underperforms_paper_lane_bleed_probe_only",
+                                )
+                            }
                             PipelineHealthCollector.labelInc("LIVE_PAPER_DIVERGENCE_DUST_PROBE_6279_${lane.uppercase()}")
                         } catch (_: Throwable) {}
                         0.30
