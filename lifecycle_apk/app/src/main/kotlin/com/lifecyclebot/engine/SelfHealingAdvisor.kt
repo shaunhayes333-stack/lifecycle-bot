@@ -140,9 +140,27 @@ object SelfHealingAdvisor {
     }
 
     private suspend fun buildReport(): String {
+        // V5.0.6417 — REPORT-BUILDER TIMEOUT GUARD.
+        // Operator report: self-healing advisor "currently won't generate
+        // the report." Root cause: full_builder_timeout_8s in the shared
+        // ReportingHub keeps the advisor waiting on the same choked builder.
+        // Wrap with a 5s timeout and fall back to the cheap labels dump so
+        // the advisor always has SOMETHING to score against.
         return try {
-            val txt = ReportingHub.buildText(ReportingHub.Kind.UNIFIED_HEALTH).text
-            if (txt.length > MAX_REPORT_CHARS) txt.take(MAX_REPORT_CHARS) + "\n[TRUNCATED]" else txt
+            kotlinx.coroutines.withTimeoutOrNull(5_000L) {
+                ReportingHub.buildText(ReportingHub.Kind.UNIFIED_HEALTH).text
+            }?.let { txt ->
+                if (txt.length > MAX_REPORT_CHARS) txt.take(MAX_REPORT_CHARS) + "\n[TRUNCATED]" else txt
+            } ?: run {
+                try {
+                    PipelineHealthCollector.labelInc("SELF_HEALING_REPORT_TIMEOUT_FALLBACK_6417")
+                    ForensicLogger.lifecycle(
+                        "SELF_HEALING_REPORT_TIMEOUT_FALLBACK_6417",
+                        "reportingHub_timeout_5s falling_back_to_labels_dump",
+                    )
+                } catch (_: Throwable) {}
+                try { PipelineHealthCollector.dumpText().take(MAX_REPORT_CHARS) } catch (_: Throwable) { "" }
+            }
         } catch (_: Throwable) {
             try { PipelineHealthCollector.dumpText().take(MAX_REPORT_CHARS) } catch (_: Throwable) { "" }
         }
@@ -247,10 +265,31 @@ If nothing needs tuning, return {"suggestions": []}.
         } catch (_: Throwable) {}
         return if (res.changes.isNotEmpty()) {
             val c = res.changes.first()
+            try {
+                ForensicLogger.lifecycle(
+                    "SELF_HEALING_ADVISOR_APPLIED_OK_6417",
+                    "id=${suggestion.id} key=${c.key} oldValue=${c.oldValue} newValue=${c.newValue} totalChanges=${res.changes.size}",
+                )
+                PipelineHealthCollector.labelInc("SELF_HEALING_ADVISOR_APPLIED_OK_6417")
+            } catch (_: Throwable) {}
             true to "${c.key}: ${c.oldValue} → ${c.newValue}"
         } else if (res.rejected.isNotEmpty()) {
+            try {
+                ForensicLogger.lifecycle(
+                    "SELF_HEALING_ADVISOR_APPLY_REJECTED_6417",
+                    "id=${suggestion.id} key=${suggestion.key} rejected=${res.rejected.joinToString(",")}",
+                )
+                PipelineHealthCollector.labelInc("SELF_HEALING_ADVISOR_APPLY_REJECTED_6417")
+            } catch (_: Throwable) {}
             false to "rejected: ${res.rejected.joinToString(", ")}"
         } else {
+            try {
+                ForensicLogger.lifecycle(
+                    "SELF_HEALING_ADVISOR_APPLY_NO_EFFECT_6417",
+                    "id=${suggestion.id} key=${suggestion.key} delta=${suggestion.delta} note=no_change_no_reject",
+                )
+                PipelineHealthCollector.labelInc("SELF_HEALING_ADVISOR_APPLY_NO_EFFECT_6417")
+            } catch (_: Throwable) {}
             false to "no effective change"
         }
     }

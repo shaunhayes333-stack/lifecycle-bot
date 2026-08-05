@@ -90,7 +90,7 @@ object StrategyTelemetry {
     @Volatile private var leaderboardCache: List<StrategyMetric> = emptyList()
     @Volatile private var leaderboardCacheMs: Long = 0L
     @Volatile private var leaderboardCacheKey: String = ""
-    private const val LEADERBOARD_TTL_MS = 10_000L
+    private const val LEADERBOARD_TTL_MS = 30_000L // V5.0.6417 — 10s→30s: cut cache-miss recompute rate 3× to relieve loop choke
 
     fun computeLeaderboard(
         environment: String? = null,
@@ -238,7 +238,7 @@ object StrategyTelemetry {
     private val cleanLiveLeaderboardCacheMap: java.util.concurrent.ConcurrentHashMap<Int, Pair<Long, List<StrategyMetric>>> = java.util.concurrent.ConcurrentHashMap()
     @Volatile private var cleanLiveLeaderboardCacheMs: Long = 0L
     @Volatile private var cleanLiveLeaderboardCacheLimit: Int = 0
-    private const val CLEAN_LIVE_LEADERBOARD_TTL_MS = 10_000L
+    private const val CLEAN_LIVE_LEADERBOARD_TTL_MS = 30_000L // V5.0.6417 — 10s→30s: cut cache-miss recompute rate 3× to relieve loop choke
 
     // V5.0.4513 — decision-facing clean live authority. The legacy live
     // leaderboard reads raw close snapshots and sanitizes obvious outliers, but
