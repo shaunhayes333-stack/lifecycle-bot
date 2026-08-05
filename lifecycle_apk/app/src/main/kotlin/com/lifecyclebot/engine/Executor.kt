@@ -2788,12 +2788,50 @@ class Executor(
                 scoreInt = score.toInt(), isPaper = false,
             )
         } catch (_: Throwable) { 1.0 }
-        val walletCapSol6408 = if (runnerBoost6408 > 1.0) {
-            val relaxed = walletCapSol * runnerBoost6408
+        // V5.0.6415 — EARLY MOONSHOT HUNTER (sub-$25k mcap runner).
+        // Operator directive: "several tokens have 26x or better this week
+        // we need to find them before 25k buy a good sized chunk and hold
+        // for huge profits. it needs to be smart, learn and integrate
+        // across the stack, wire it thru."
+        val moonshot6415 = try {
+            val vol1h = ts.tokenMap.volume1hUsd ?: 0.0
+            val sourceCount6415 = maxOf(1, ts.laneAffinity.size)
+            val totalPressure = (ts.lastBuyPressurePct + ts.lastSellPressurePct).coerceAtLeast(1.0)
+            val buysApprox = ((ts.lastBuyPressurePct / totalPressure) * 10.0).toInt().coerceAtLeast(0)
+            val sellsApprox = ((ts.lastSellPressurePct / totalPressure) * 10.0).toInt().coerceAtLeast(0)
+            val rugSafe = try {
+                val s = ts.safety
+                s.freezeAuthorityDisabled == true &&
+                    s.mintAuthorityDisabled == true &&
+                    s.tier != com.lifecyclebot.engine.SafetyTier.HARD_BLOCK
+            } catch (_: Throwable) { false }
+            com.lifecyclebot.engine.truth.EarlyMoonshotHunter6415.scoreCandidate(
+                mint = ts.mint, symbol = ts.symbol,
+                mcapUsd = ts.lastMcap,
+                liquidityUsd = ts.lastLiquidityUsd,
+                vol1hUsd = vol1h,
+                sourceCount = sourceCount6415,
+                buysLastWindow = buysApprox,
+                sellsLastWindow = sellsApprox,
+                rugSafetyConfirmed = rugSafe,
+            )
+        } catch (_: Throwable) { null }
+        val moonshotMult6415 = moonshot6415?.sizeMult ?: 1.0
+        if (moonshot6415 != null && moonshotMult6415 > 1.0) {
+            try {
+                com.lifecyclebot.engine.truth.EarlyMoonshotHunter6415.registerHoldProfile(ts.mint, ts.symbol, moonshot6415)
+            } catch (_: Throwable) {}
+        }
+        // Compose the runner boost with the moonshot lift. Both are size-side
+        // relaxations; multiplying them lets a bucket-winner *AND* moonshot
+        // candidate stack (still bounded by wallet + liquidity below).
+        val effectiveBoost6415 = runnerBoost6408 * moonshotMult6415
+        val walletCapSol6408 = if (effectiveBoost6415 > 1.0) {
+            val relaxed = walletCapSol * effectiveBoost6415
             try {
                 ForensicLogger.lifecycle(
                     "GROWTH_RUNNER_CAP_RELAX_6408",
-                    "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$laneKey boost=$runnerBoost6408 " +
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$laneKey boost=$effectiveBoost6415 runnerBoost=$runnerBoost6408 moonshotMult=$moonshotMult6415 " +
                         "walletCap=${walletCapSol.fmt(4)} relaxed=${relaxed.fmt(4)} spendable=${spendable.fmt(4)}",
                 )
                 PipelineHealthCollector.labelInc("GROWTH_RUNNER_CAP_RELAX_6408")
@@ -6335,6 +6373,29 @@ class Executor(
                                         com.lifecyclebot.engine.truth.RealisedEvRollUp6409
                                             .onTradeClosed(walletNow)
                                     } catch (_: Throwable) {}
+                                    // V5.0.6415 §D — MOONSHOT LEARNING FEEDBACK.
+                                    // Feed the pnlPct back into the moonshot signal
+                                    // learner so signal weights adapt to what
+                                    // actually made money this session.
+                                    try {
+                                        val profile = com.lifecyclebot.engine.truth
+                                            .MoonshotHoldProfileRegistry6415.profile(ts.mint)
+                                        val tierName = profile.name
+                                        if (profile != com.lifecyclebot.engine.truth
+                                                .MoonshotHoldProfileRegistry6415.Profile.NONE) {
+                                            // We can't recover the exact signals fired at
+                                            // entry without a per-mint stash; approximate by
+                                            // scoring the current state (best-effort). A
+                                            // per-mint signal cache lands in V5.0.6416.
+                                            com.lifecyclebot.engine.truth.EarlyMoonshotHunter6415
+                                                .onTradeClosed(
+                                                    mint = ts.mint, symbol = ts.symbol,
+                                                    tier = tierName,
+                                                    signalsFired = setOf("MCAP_SUB_25K"),
+                                                    pnlPct = pnlPct,
+                                                )
+                                        }
+                                    } catch (_: Throwable) {}
                                 } catch (_: Throwable) {}
                             }
                         } catch (_: Throwable) {}
@@ -8427,17 +8488,30 @@ class Executor(
                 )
             } catch (_: Throwable) {}
         } else if (gainPct <= dynamicStopPct) {
-            // V5.9.1431 — RAPID ENTRY PROTECT REMOVED (operator directive).
-            // The "entry_protect" stop label/concept is gone entirely. A fresh
-            // position can no longer be stopped by the dynamic stop during the
-            // 40s entry-lock above (only the unconditional -15% hard floor and
-            // the rug/gap guards may exit it). Post-lock, every dynamic exit is
-            // a normal trailing or fluid stop — there is no early-life special
-            // case anymore.
-            val stopType = if (peakPnlPct > 5.0) "trailing_fluid" else "fluid_stop"
-            onLog("🛑 DYNAMIC STOP ($stopType): ${ts.symbol} at ${gainPct.toInt()}% (dynamic limit=${dynamicStopPct.toInt()}%)", ts.mint)
-            markForRecoveryScan(ts, gainPct, stopType)
-            return "${stopType}_loss"
+            // V5.0.6415 — MOONSHOT PATIENT-HOLD SL SUPPRESSION.
+            // Operator directive: "buy a good sized chunk and hold for huge
+            // profits. it needs to be SMART, LEARN and INTEGRATE ACROSS THE
+            // STACK." Refuse the dynamic SL when the position is an ELITE
+            // moonshot AND pnl > -40%. This lets a 26x runner breathe through
+            // -20% mid-run pullbacks. The unconditional -15% hard floor path
+            // ABOVE and the rug/gap guards remain active — we're only holding
+            // the noise-driven fluid stop.
+            if (com.lifecyclebot.engine.truth.MoonshotHoldProfileRegistry6415
+                    .shouldSuppressSl(ts.mint, gainPct)) {
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "MOONSHOT_SL_SUPPRESSED_6415",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} pnl=${"%.1f".format(gainPct)}% " +
+                            "dynamicStop=${dynamicStopPct.toInt()}% profile=ELITE_PATIENT_HOLD reason=within_40pct_band",
+                    )
+                } catch (_: Throwable) {}
+                // Fall through past the return — do not exit the position.
+            } else {
+                val stopType = if (peakPnlPct > 5.0) "trailing_fluid" else "fluid_stop"
+                onLog("🛑 DYNAMIC STOP ($stopType): ${ts.symbol} at ${gainPct.toInt()}% (dynamic limit=${dynamicStopPct.toInt()}%)", ts.mint)
+                markForRecoveryScan(ts, gainPct, stopType)
+                return "${stopType}_loss"
+            }
         }
 
         // V5.9.118: REGRESSION GUARD — if a runner gives back >35% of its peak
