@@ -2826,8 +2826,26 @@ class Executor(
         // relaxations; multiplying them lets a bucket-winner *AND* moonshot
         // candidate stack (still bounded by wallet + liquidity below).
         val effectiveBoost6415 = runnerBoost6408 * moonshotMult6415
-        val walletCapSol6408 = if (effectiveBoost6415 > 1.0) {
-            val relaxed = walletCapSol * effectiveBoost6415
+        // V5.0.6416 — LIVE GROWTH COMPOUNDER (lane-win-primed bump + wallet-tier lift).
+        // Operator directive: "wallet balance isnt increasing again on live or paper
+        // trading. it needs to be more growth centric especially live trading."
+        // Compose two additive lifts on top of the runner/moonshot boost:
+        //   §A next-buy bump from a recent lane win (1.0..2.0×, 5min TTL, one-shot)
+        //   §B wallet growth tier lift (1.0/1.10/1.20/1.35 based on currentSol/baseline)
+        // Both bounded by liquidityCapSol + spendable in the cap calculation below.
+        val laneWinBump6416 = try {
+            com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.consumeNextBuyBump(
+                lane = laneKey, mint = ts.mint, symbol = ts.symbol,
+            )
+        } catch (_: Throwable) { 1.0 }
+        val walletTierLift6416 = try {
+            com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.captureBaseline(walletSol)
+            com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.walletGrowthLift(walletSol)
+        } catch (_: Throwable) { 1.0 }
+        val growthLift6416 = laneWinBump6416 * walletTierLift6416
+        val totalBoost6416 = effectiveBoost6415 * growthLift6416
+        val walletCapSol6408 = if (totalBoost6416 > 1.0) {
+            val relaxed = walletCapSol * totalBoost6416
             try {
                 ForensicLogger.lifecycle(
                     "GROWTH_RUNNER_CAP_RELAX_6408",
@@ -6377,6 +6395,19 @@ class Executor(
                                     // Feed the pnlPct back into the moonshot signal
                                     // learner so signal weights adapt to what
                                     // actually made money this session.
+                                    // V5.0.6416 §A — LIVE-WIN COMPOUNDING PRIME.
+                                    // Feed lane-win outcome into the compounder so
+                                    // the NEXT live buy in this lane gets a size
+                                    // bump directly funded by this win. Growth-
+                                    // centric compounding: wins → bigger next trade.
+                                    try {
+                                        com.lifecyclebot.engine.truth.LiveGrowthCompounder6416
+                                            .onLiveWin(
+                                                lane = laneForLearn,
+                                                mint = ts.mint, symbol = ts.symbol,
+                                                pnlPct = pnlPct,
+                                            )
+                                    } catch (_: Throwable) {}
                                     try {
                                         val profile = com.lifecyclebot.engine.truth
                                             .MoonshotHoldProfileRegistry6415.profile(ts.mint)
