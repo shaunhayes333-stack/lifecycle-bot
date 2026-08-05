@@ -1,6 +1,51 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6414 (Feb 2026) — GOVERNOR RECOVERY AUTO-UNSTICK
+
+Operator report showed V5.0.6411/6412 authorising 176 buys but submitting
+0 (LIVE_BUY_ABORTED=176). Route resolver worked (EXEC_ADAPTER_SELECTED_6411=176)
+but every trade died at LaneEntryContract6342 because GovernorRecovery6388
+was stuck in BLOCKED_INFRASTRUCTURE for the entire uptime. Root cause:
+SELL_RECONCILER_LIVE_STARTUP_HARD_FAIL kept `sellReconcilerStarted=false`
+forever, so `infra.healthy()=false` forever, so HOLD_PROBATION never
+activated, so probation-sized escape trades could not run.
+
+- `GOVERNOR_RECOVERY_AUTO_UNSTICK_6414`: after 120s in BLOCKED_INFRASTRUCTURE
+  with governor HOLD AND every infra signal HEALTHY EXCEPT sell-reconciler,
+  force-promote to HOLD_PROBATION. Bounded — ProbationEntryLimiter6388
+  still caps to 1 min-size buy per throttle window. Real infra faults
+  (wallet unavailable, canonical discrepancy, unresolved fill) still
+  block via their own signals.
+
+## V5.0.6413 (Feb 2026) — PAPER-BALANCE WIPE GUARD + DIVERGENCE EMIT THROTTLE
+
+- `PAPER_WALLET_WIPE_GUARD_HELD_6413`: `botPrefs.contains("paper_wallet_sol")`
+  distinguishes "key never written" from "racy read returned default 0".
+  Fresh-install seed now REQUIRES key absence; a corrupted 0-read HOLDS
+  the incoming zero rather than overwriting the balance.
+- `LIVE_PAPER_DIVERGENCE_DUST_PROBE_6279` now routes through
+  `ForensicEmitRateLimiter6356` per-lane. Kills the 8-in-a-tick BLUECHIP
+  spam that choked the loop back to 42s avg / 257s max.
+
+## V5.0.6412 (Feb 2026) — POSITION COST-BASIS REPAIR + PHANTOM -100% GUARD
+
+Operator screenshot: ANTHROPIC "-100.0% Size 0.0000◎" while the wallet
+held 4667 tokens at $0.000148 — a +277% winner. Chud showed similar
+"Size 0.0000◎" corruption. Root cause: pos.costSol had gone to zero
+while qtyToken and entryPrice remained intact, so gainPct blew up to
+-100% and Size = 0.
+
+- `PositionCostBasisRepair6412`: read-side authority reconstructs
+  costSol from qtyToken × entryPriceUsd ÷ solPriceUsd when the ledger
+  value is missing. Emits POSITION_COST_BASIS_REPAIRED_6412 with the delta.
+- `UI_PHANTOM_LOSS_SUPPRESSED_6412`: MainActivity render refuses -100%
+  when the wallet holds real token balance and the mark is zero/stale;
+  downgrades to "basis wait" so exit coordinator + learning don't act
+  on the phantom.
+
+
+
 ## V5.0.6411 (Feb 2026) — LIVE_EXECUTION_RECOVERY_AND_PIPELINE_HARDENING
 
 Build 6410 authorised 501 live buys and SUBMITTED ZERO. This build's
