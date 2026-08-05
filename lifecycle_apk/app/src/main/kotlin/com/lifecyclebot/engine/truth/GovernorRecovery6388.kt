@@ -69,6 +69,43 @@ object GovernorRecovery6388 {
     fun onReconcilerTick(governorHold: Boolean, infra: InfrastructureSignals) {
         val s = currentState.get()
         val healthy = infra.healthy()
+        // V5.0.6414 — INFRA-DEGRADED AUTO-UNSTICK ESCAPE HATCH.
+        // Operator report V5.0.6411: governor stuck in HOLD, recovery machine
+        // stuck in BLOCKED_INFRASTRUCTURE for the full uptime, LaneEntryContract6342
+        // blocked 176/176 authorised buys with LIVE_ENTRY_POLICY_BLOCK_6388.
+        // Root cause: SELL_RECONCILER_LIVE_STARTUP_HARD_FAIL kept `sellReconcilerStarted`
+        // false in the InfrastructureSignals, so infra.healthy()=false forever, so
+        // HOLD_PROBATION promotion never fired, so no probation-sized trades could
+        // escape the HOLD. This left the newly-working route resolver with nothing
+        // to prove itself on.
+        //
+        // Auto-unstick: after 120s in BLOCKED_INFRASTRUCTURE with governor HOLD AND
+        // the ONLY failed signal being sellReconcilerStarted / sellReconcilerHealthy,
+        // force-promote to HOLD_PROBATION. This is bounded — probation-sized 1-buy
+        // trades only via ProbationEntryLimiter6388; a real infra fault (canonical
+        // discrepancy, wallet unavailable, unresolved fill) will keep infra.healthy()
+        // false via those signals and NOT trigger the escape.
+        val autoUnstickEligible6414 = !healthy && governorHold &&
+            s == State.BLOCKED_INFRASTRUCTURE &&
+            (System.currentTimeMillis() - stateEnteredAtMs.get()) > 120_000L &&
+            infra.runtimeActive && infra.walletProviderAvailable &&
+            infra.ownerFilteredBalanceAvailable && infra.fillLotLedgerAvailable &&
+            infra.canonicalRegistryAvailable &&
+            infra.walletReconciliationConclusive && infra.noCanonicalDiscrepancy &&
+            infra.noUnresolvedFill
+        if (autoUnstickEligible6414) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("GOVERNOR_RECOVERY_AUTO_UNSTICK_6414")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "GOVERNOR_RECOVERY_AUTO_UNSTICK_6414",
+                    "priorState=$s ageMs=${System.currentTimeMillis() - stateEnteredAtMs.get()} " +
+                        "reason=only_sell_reconciler_failed action=force_hold_probation " +
+                        "reconcilerStarted=${infra.sellReconcilerStarted} reconcilerHealthy=${infra.sellReconcilerHealthy}",
+                )
+            } catch (_: Throwable) {}
+            promote(State.HOLD_PROBATION, "AUTO_UNSTICK_INFRA_SELL_RECON_ONLY_6414")
+            return
+        }
         // Infrastructure fault → immediate demotion (Section 11).
         if (!healthy) {
             if (s != State.BLOCKED_INFRASTRUCTURE && s != State.EXIT_ONLY) {
