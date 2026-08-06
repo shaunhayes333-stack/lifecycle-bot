@@ -11629,24 +11629,18 @@ class Executor(
                     finalSol = boosted
                 }
                 val paperBaseline6422 = try {
-                    com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.statusLine()
-                } catch (_: Throwable) { "" }
-                // Extended tier lift needs the wallet-vs-baseline ratio.
-                // We approximate it from the current paper wallet vs the
-                // baseline printed in statusLine: `baselineSol=X.XXXX`.
+                    com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.paperBaselineSolOrNull()
+                } catch (_: Throwable) { null }
+                // Extended tier lift needs the wallet-vs-baseline ratio,
+                // read directly (V5.0.6424) rather than parsed from a
+                // human-readable statusLine string as in V5.0.6422 —
+                // that path was also picking up the LIVE baseline, not
+                // the PAPER one.
                 val currentPaperSol6422 = try {
                     com.lifecyclebot.engine.BotService.status.paperWalletSol
                 } catch (_: Throwable) { 0.0 }
-                val baseline6422 = try {
-                    val ix = paperBaseline6422.indexOf("baselineSol=")
-                    if (ix >= 0) {
-                        paperBaseline6422.substring(ix + "baselineSol=".length)
-                            .takeWhile { it == '.' || it == '-' || it.isDigit() }
-                            .toDoubleOrNull() ?: 0.0
-                    } else 0.0
-                } catch (_: Throwable) { 0.0 }
-                if (baseline6422 > 0.0 && currentPaperSol6422 > 0.0) {
-                    val ratio6422 = currentPaperSol6422 / baseline6422
+                if (paperBaseline6422 != null && paperBaseline6422 > 0.0 && currentPaperSol6422 > 0.0) {
+                    val ratio6422 = currentPaperSol6422 / paperBaseline6422
                     val extLift = com.lifecyclebot.engine.truth.RunnerAutoCompound6422
                         .paperExtendedTierLift(ratio6422)
                     if (extLift > 1.0) {

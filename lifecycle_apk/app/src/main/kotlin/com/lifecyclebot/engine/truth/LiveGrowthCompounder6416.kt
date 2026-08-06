@@ -161,6 +161,13 @@ object LiveGrowthCompounder6416 {
         return "primes=[${primeSummary.take(80)}] baselineSol=${base?.let { "%.4f".format(it) } ?: "-"} tier=${currentTier.get()}"
     }
 
+    // V5.0.6424 — direct getters so callers don't have to string-parse
+    // statusLine() to extract the baseline (which is fragile and, worse,
+    // was returning the LIVE baseline for a PAPER-side extended-tier
+    // calculation in Executor.kt — a real bug shipped in V5.0.6422).
+    fun liveBaselineSolOrNull(): Double? = baselineSol.get()
+    fun paperBaselineSolOrNull(): Double? = paperBaselineSol.get()
+
     /**
      * V5.0.6417 — PAPER PARITY.
      * Same shape as onLiveWin/consumeNextBuyBump but scoped to paper mode.
