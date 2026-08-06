@@ -12228,7 +12228,7 @@ class BotService : Service() {
                     val registryOpen = try {
                         TradeHistoryStore.openMintSetFromJournal().size
                     } catch (_: Throwable) { 0 }
-                    ForensicReconciler6377.runAll(
+                    val recReport6423 = ForensicReconciler6377.runAll(
                         allTrades = trades,
                         paperMode = paperModeNow,
                         paperWalletSol = status.paperWalletSol,
@@ -12236,6 +12236,82 @@ class BotService : Service() {
                         canonicalLiveOpenCount = canonicalOpen,
                         registryLiveOpenCount = registryOpen,
                     )
+                    // V5.0.6423 — SOURCE-OF-TRUTH AUTO-HEAL.
+                    // Operator: "the journal, main ui balances, 30day etc
+                    // should all match! the journal must record all buys and
+                    // sells and the sells must reconcile back to the buy data
+                    // for true calculations. its still firing off 5x and 10x
+                    // win alerts and journal flags on tokens/trades that
+                    // dont match those metrics."
+                    //
+                    // The reconciler is read-only by design (line 18 comment).
+                    // That was correct as a diagnostic layer, but the operator
+                    // is now seeing 8× phantom wallet inflation (wallet=67.8
+                    // vs journal-expected=8.6) which is directly driving the
+                    // false Runner 5x/10x tier alerts via
+                    // paperExtendedTierLift(currentPaperSol/baseline). The
+                    // Runner compounds off wallet, wallet drifts, tier lifts
+                    // fire on phantom money.
+                    //
+                    // Fix at source: the journal IS the source of truth. If
+                    // WALLET_VS_JOURNAL fails with material drift, snap the
+                    // wallet back to journal-truth in one shot, persist it,
+                    // and freeze RunnerAutoCompound6422 tier lifts until the
+                    // next reconciler pass reports healthy. BUY_SELL_QTY_SKEW
+                    // and ORPHAN_SELL also freeze the runner (both indicate
+                    // ledger corruption that would let phantom qty leak into
+                    // future tier calculations).
+                    try {
+                        if (paperModeNow) {
+                            val walletCheck = recReport6423.checks.firstOrNull { it.name == "WALLET_VS_JOURNAL" }
+                            val skewCheck = recReport6423.checks.firstOrNull { it.name == "BUY_SELL_QTY_SKEW" }
+                            val orphanCheck = recReport6423.checks.firstOrNull { it.name == "ORPHAN_SELL" }
+                            val walletBad = walletCheck?.ok == false
+                            val skewBad = skewCheck?.ok == false
+                            val orphanBad = orphanCheck?.ok == false
+                            val ledgerHealthy = !walletBad && !skewBad && !orphanBad
+                            com.lifecyclebot.engine.truth.RunnerAutoCompound6422
+                                .setLedgerHealthy(ledgerHealthy)
+                            if (walletBad) {
+                                val paperBuys = trades.filter { it.side.equals("BUY", true) && it.mode.equals("PAPER", true) }
+                                val paperSells = trades.filter { it.side.equals("SELL", true) && it.mode.equals("PAPER", true) }
+                                val realizedPnl = paperSells.sumOf { it.pnlSol }
+                                // Estimate open buy cost as buys - matched sells per mint.
+                                val buyQtyByMint = paperBuys.groupBy { it.mint }
+                                    .mapValues { e -> e.value.sumOf { it.entryQtyToken.coerceAtLeast(0.0) } }
+                                val sellQtyByMint = paperSells.groupBy { it.mint }
+                                    .mapValues { e -> e.value.sumOf { it.soldQtyToken.coerceAtLeast(0.0) } }
+                                val openCostSol = paperBuys.groupBy { it.mint }.entries.sumOf { (mint, buys) ->
+                                    val bought = buyQtyByMint[mint] ?: 0.0
+                                    val sold = sellQtyByMint[mint] ?: 0.0
+                                    val remainingPct = if (bought > 0.0) ((bought - sold) / bought).coerceIn(0.0, 1.0) else 0.0
+                                    buys.sumOf { it.sol.coerceAtLeast(0.0) } * remainingPct
+                                }
+                                val truth = (startCap + realizedPnl - openCostSol).coerceAtLeast(0.0)
+                                val drift = status.paperWalletSol - truth
+                                if (kotlin.math.abs(drift) >= 5.0) {
+                                    val prior = status.paperWalletSol
+                                    status.paperWalletSol = truth
+                                    try {
+                                        com.lifecyclebot.engine.PaperWalletStore.persist(applicationContext, truth)
+                                    } catch (_: Throwable) {}
+                                    try {
+                                        ForensicLogger.lifecycle(
+                                            "PAPER_WALLET_JOURNAL_HEAL_6423",
+                                            "prior=${"%.4f".format(prior)} truth=${"%.4f".format(truth)} drift=${"%.4f".format(drift)} " +
+                                                "startCap=${"%.4f".format(startCap)} realizedPnl=${"%.4f".format(realizedPnl)} openCost=${"%.4f".format(openCostSol)} " +
+                                                "buys=${paperBuys.size} sells=${paperSells.size}",
+                                        )
+                                        PipelineHealthCollector.labelInc("PAPER_WALLET_JOURNAL_HEAL_6423")
+                                    } catch (_: Throwable) {}
+                                    ErrorLogger.warn(
+                                        "PaperWallet",
+                                        "🩹 PAPER_WALLET_JOURNAL_HEAL_6423 prior=${"%.4f".format(prior)} → truth=${"%.4f".format(truth)} drift=${"%+.4f".format(drift)}",
+                                    )
+                                }
+                            }
+                        }
+                    } catch (_: Throwable) {}
                     // V5.0.6380 — feed the trajectory governor with the same
                     // wallet + start-capital snapshot so the 2x-5x daily target
                     // benchmark and UP/DOWN/FLAT direction are visible in

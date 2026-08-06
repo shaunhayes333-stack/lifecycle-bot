@@ -106,6 +106,43 @@ object RunnerAutoCompound6422 {
     private val paperAppliedCount = AtomicLong(0L)
     private val liveAppliedCount = AtomicLong(0L)
 
+    // V5.0.6423 — LEDGER-HEALTHY GATE.
+    // Operator: "its still firing off 5x and 10x win alerts and journal
+    // flags on tokens/trades that dont match those metrics."
+    //
+    // Root cause: RunnerAutoCompound tier lifts use
+    // (paperWalletSol / baseline) as the ratio. When the paper wallet
+    // is drifting from the journal (WALLET_VS_JOURNAL fail, phantom SOL
+    // creation, over-sold qty), the ratio is falsely inflated and the
+    // extended-tier ladder fires 5x / 10x alerts on tokens whose real
+    // journaled PnL never came close.
+    //
+    // Fix at source: BotService.emitBotLoopTick.runAll pass now feeds
+    // this flag. When ANY of WALLET_VS_JOURNAL, BUY_SELL_QTY_SKEW,
+    // ORPHAN_SELL is unhealthy the runner freezes: streak multipliers
+    // and extended-tier lifts return 1.0. Streak tracking still runs
+    // in the background so the next healthy reconcile pass immediately
+    // re-arms the correct tier without a warm-up delay.
+    @Volatile private var ledgerHealthy = true
+
+    fun setLedgerHealthy(healthy: Boolean) {
+        val was = ledgerHealthy
+        ledgerHealthy = healthy
+        if (was != healthy) {
+            try {
+                if (healthy) {
+                    PipelineHealthCollector.labelInc("RUNNER_LEDGER_HEALED_6423")
+                    ForensicLogger.lifecycle("RUNNER_LEDGER_HEALED_6423", "runner tier lifts re-enabled")
+                } else {
+                    PipelineHealthCollector.labelInc("RUNNER_LEDGER_FROZEN_6423")
+                    ForensicLogger.lifecycle("RUNNER_LEDGER_FROZEN_6423", "runner tier lifts frozen — journal drift detected")
+                }
+            } catch (_: Throwable) {}
+        }
+    }
+
+    fun isLedgerHealthy(): Boolean = ledgerHealthy
+
     /**
      * Feed every paper close (win OR loss) here. Wins with pnlPct >=
      * +5 % grow the streak; losses <= -10 % reset it; scratches do
@@ -184,12 +221,14 @@ object RunnerAutoCompound6422 {
      * only on a decisive loss (pnlPct ≤ -10 %).
      */
     fun paperStreakMultiplier(): Double {
+        if (!ledgerHealthy) return 1.0
         val m = multForTier(paperStreakTier.get())
         if (m > 1.0) paperAppliedCount.incrementAndGet()
         return m
     }
 
     fun liveStreakMultiplier(): Double {
+        if (!ledgerHealthy) return 1.0
         val m = multForTier(liveStreakTier.get())
         if (m > 1.0) liveAppliedCount.incrementAndGet()
         return m
@@ -206,6 +245,7 @@ object RunnerAutoCompound6422 {
     fun liveExtendedTierLift(ratio: Double): Double = extendedTierLift(ratio, liveExtendedTier, "LIVE")
 
     private fun extendedTierLift(ratio: Double, tierRef: AtomicInteger, mode: String): Double {
+        if (!ledgerHealthy) return 1.0
         if (!ratio.isFinite() || ratio <= 0.0) return 1.0
         val (tier, lift) = when {
             ratio >= TIER_6_RATIO -> 6 to TIER_6_LIFT
