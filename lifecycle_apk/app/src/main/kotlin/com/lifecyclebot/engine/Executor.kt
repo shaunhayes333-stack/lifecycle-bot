@@ -6412,8 +6412,9 @@ class Executor(
                                                     mint = ts.mint, symbol = ts.symbol,
                                                     pnlPct = pnlPct,
                                                 )
-                                            val paperWalletNow = com.lifecyclebot.engine.BotService
-                                                .instance?.status?.paperWalletSol ?: 0.0
+                                            val paperWalletNow = try {
+                                                com.lifecyclebot.engine.BotService.status.paperWalletSol
+                                            } catch (_: Throwable) { 0.0 }
                                             com.lifecyclebot.engine.truth.LiveGrowthCompounder6416
                                                 .capturePaperBaseline(paperWalletNow)
                                             com.lifecyclebot.engine.truth.LiveGrowthCompounder6416
@@ -11392,7 +11393,7 @@ class Executor(
             val laneKey6418 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "STANDARD" }
             val paperBump6418 = com.lifecyclebot.engine.truth.LiveGrowthCompounder6416
                 .consumeNextPaperBuyBump(laneKey6418, ts.mint, ts.symbol)
-            val currentPaperSol6418 = com.lifecyclebot.engine.BotService.instance?.status?.paperWalletSol ?: 0.0
+            val currentPaperSol6418 = try { com.lifecyclebot.engine.BotService.status.paperWalletSol } catch (_: Throwable) { 0.0 }
             com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.capturePaperBaseline(currentPaperSol6418)
             val paperTierLift6418 = com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.paperWalletGrowthLift(currentPaperSol6418)
             if (paperBump6418 > 1.0 || paperTierLift6418 > 1.0) {
