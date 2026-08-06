@@ -531,6 +531,21 @@ class PipelineHealthActivity : AppCompatActivity() {
     }
 
     private fun showAdvisorDialog(suggestions: List<com.lifecyclebot.engine.SelfHealingAdvisor.Suggestion>) {
+        // V5.0.6420 — WIRE ADVISOR BUTTONS. Operator feedback: "clicking
+        // suggestions in the advisor UI does not seem to execute the actions."
+        // Root cause: setItems fires ONCE then dismisses; the Toast can be
+        // missed; there was no visible confirmation that the tune was applied
+        // or that the config was persisted. Fix: (a) after each tap-to-apply,
+        // show an AlertDialog with the concrete before→after config value so
+        // the operator can SEE the change, (b) auto-reopen the advisor list
+        // with the remaining pending suggestions so multiple can be applied
+        // without re-tapping the advisor button, (c) add an "Apply ALL"
+        // button that iterates through every pending suggestion and shows a
+        // rollup summary.
+        if (suggestions.isEmpty()) {
+            Toast.makeText(this, "Advisor: no pending suggestions.", Toast.LENGTH_SHORT).show()
+            return
+        }
         val labels = suggestions.map { s ->
             val severity = when (s.severity) {
                 "high" -> "🔴"
@@ -545,17 +560,83 @@ class PipelineHealthActivity : AppCompatActivity() {
             .setItems(labels) { _, which ->
                 val chosen = suggestions[which]
                 val (ok, msg) = com.lifecyclebot.engine.SelfHealingAdvisor.applySuggestion(applicationContext, chosen)
-                Toast.makeText(
-                    this,
-                    if (ok) "✅ Applied — $msg" else "⚠️ Not applied — $msg",
-                    Toast.LENGTH_LONG,
-                ).show()
+                showAdvisorApplyResult(chosen, ok, msg, remainingReopen = true)
+            }
+            .setPositiveButton("Apply ALL") { _, _ ->
+                applyAllAdvisorSuggestions(suggestions)
             }
             .setNegativeButton("Dismiss all") { _, _ ->
                 for (s in suggestions) com.lifecyclebot.engine.AdvisorInbox.dismiss(s.id)
                 Toast.makeText(this, "Dismissed ${suggestions.size} suggestion(s)", Toast.LENGTH_SHORT).show()
             }
             .setNeutralButton("Later", null)
+            .show()
+    }
+
+    // V5.0.6420 — Persistent apply-result dialog so the operator sees the
+    // concrete before→after tune value (Toast is too easy to miss on
+    // low-end devices under memory pressure).
+    private fun showAdvisorApplyResult(
+        chosen: com.lifecyclebot.engine.SelfHealingAdvisor.Suggestion,
+        ok: Boolean,
+        msg: String,
+        remainingReopen: Boolean,
+    ) {
+        val title = if (ok) "✅ Advisor: applied" else "⚠️ Advisor: not applied"
+        val body = buildString {
+            append("Key: ").append(chosen.key).append('\n')
+            append("Delta requested: ").append(chosen.delta).append('\n')
+            append("Result: ").append(msg).append('\n')
+            append('\n')
+            append("Reason: ").append(chosen.reason).append('\n')
+            append("Expected impact: ").append(chosen.expectedImpact)
+        }
+        val builder = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(body)
+        val remaining = com.lifecyclebot.engine.AdvisorInbox.pending()
+        if (remainingReopen && remaining.isNotEmpty()) {
+            builder.setPositiveButton("Next (${remaining.size} left)") { _, _ ->
+                showAdvisorDialog(remaining)
+            }
+            builder.setNegativeButton("Done", null)
+        } else {
+            builder.setPositiveButton("OK", null)
+        }
+        builder.show()
+    }
+
+    // V5.0.6420 — Apply every pending suggestion in one tap and show a
+    // rollup dialog with the concrete before→after values and any rejects.
+    private fun applyAllAdvisorSuggestions(
+        suggestions: List<com.lifecyclebot.engine.SelfHealingAdvisor.Suggestion>,
+    ) {
+        val okLines = mutableListOf<String>()
+        val failLines = mutableListOf<String>()
+        for (s in suggestions) {
+            val (ok, msg) = try {
+                com.lifecyclebot.engine.SelfHealingAdvisor.applySuggestion(applicationContext, s)
+            } catch (t: Throwable) {
+                false to ("apply failed: " + (t.message ?: t.javaClass.simpleName))
+            }
+            if (ok) okLines.add("✅ ${s.key}: $msg") else failLines.add("⚠️ ${s.key}: $msg")
+        }
+        val body = buildString {
+            if (okLines.isNotEmpty()) {
+                append("APPLIED (${okLines.size}):\n")
+                for (l in okLines) append("  ").append(l).append('\n')
+            }
+            if (failLines.isNotEmpty()) {
+                if (okLines.isNotEmpty()) append('\n')
+                append("NOT APPLIED (${failLines.size}):\n")
+                for (l in failLines) append("  ").append(l).append('\n')
+            }
+            if (okLines.isEmpty() && failLines.isEmpty()) append("No suggestions processed.")
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🩺 Advisor: Apply ALL result")
+            .setMessage(body)
+            .setPositiveButton("OK", null)
             .show()
     }
 }
