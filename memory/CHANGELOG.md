@@ -1,3 +1,61 @@
+## V5.0.6421 — 2026-08-06 — BACKGROUND TRADING FIX (adaptive learning skip + earlier Doze prompt)
+
+  Operator: "I want it actually fixed not fucking reports" — not
+  trading in the background / with screen off. V5.0.6420 dump: cycles
+  avg=19s max=123s (supervisor budget=20s). Fresh pump.fun mints die
+  in 30-90s so a 100s+ cycle misses every entry window.
+
+  Two real behaviour changes, no diagnostics-only additions:
+
+  1. ADAPTIVE PRE-SUPERVISOR THROTTLE. New @Volatile field
+     `lastPrevCycleMs6421` mirrors the prev-cycle delta from
+     emitBotLoopTick. Botloop reads it at cycle top; if > 30s the
+     next tick skips ChronicBleederScout.tick(),
+     runSentienceAutoTune(), and runLabUniverseTick(). These are
+     OFFLINE learning fanout — none affects the current tick's
+     entry/exit decisions and all three rate-limit themselves, so a
+     skipped tick just pushes the next run one cycle later. Counted
+     as PRE_SUPERVISOR_LEARNING_SKIPPED_6421.
+
+  2. LOWER DOZE THRESHOLD 90s→45s. The device battery-optimisation
+     whitelist is the only real cure for overnight Doze dormancy.
+     Prompt now fires after the first 45s stall instead of waiting
+     for a full 90s freeze — operator sees the whitelist dialog on
+     the first real symptom.
+
+  Note: paperMode=true is the config default; live=0 in the operator
+  snapshot is expected until the operator toggles paperMode off in
+  the app. Not a bug.
+
+  CI: GitHub Actions run 31100383762 — status=completed, conclusion=success.
+
+## V5.0.6420 — 2026-08-06 — WIRE ADVISOR BUTTONS
+
+  Operator: "Wire Advisor Buttons: Make the Self-Healing Advisor
+  suggestion buttons actually execute their recommended actions when
+  tapped." The apply-path was wired (applySuggestion →
+  LlmParameterTuner.extractAndApply → ConfigStore.save) but operator
+  feedback was invisible: a single fleeting Toast, the dialog closed
+  after one tap so the operator had to re-tap the advisor button
+  between every suggestion, and no confirmation of the concrete
+  before→after config value.
+
+  PipelineHealthActivity.showAdvisorDialog now:
+  - Shows a persistent Apply-result AlertDialog with key + delta +
+    result + reason + expected impact after every tap.
+  - Auto-reopens the advisor list with the remaining pending items
+    ('Next (N left)') so multiple suggestions can be applied without
+    re-tapping the advisor button.
+  - New 'Apply ALL' positive button iterates every pending
+    suggestion and shows a rollup summary of applied vs rejected.
+  - Empty-list guard added.
+
+  Purely UI/UX change. Underlying applySuggestion + LlmParameterTuner
+  persistence unchanged.
+
+  CI: GitHub Actions run 31097151370 — status=completed, conclusion=success.
+
+
 ## V5.0.6419 — 2026-08-06 — CI FIX: BotService.status companion access
 
   V5.0.6418 introduced two unresolved-reference compile errors in
