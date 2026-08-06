@@ -6412,6 +6412,17 @@ class Executor(
                                                     mint = ts.mint, symbol = ts.symbol,
                                                     pnlPct = pnlPct,
                                                 )
+                                            // V5.0.6422 — RUNNER AUTO-COMPOUND feed.
+                                            // Cross-lane, small-win-friendly streak so a
+                                            // run of +5-25% closes still auto-shovels into
+                                            // the next entry size (LiveGrowthCompounder6416
+                                            // requires ≥30% to arm anything).
+                                            com.lifecyclebot.engine.truth.RunnerAutoCompound6422
+                                                .onPaperClose(
+                                                    pnlPct = pnlPct,
+                                                    lane = laneForLearn,
+                                                    mint = ts.mint, symbol = ts.symbol,
+                                                )
                                             val paperWalletNow = try {
                                                 com.lifecyclebot.engine.BotService.status.paperWalletSol
                                             } catch (_: Throwable) { 0.0 }
@@ -6425,6 +6436,13 @@ class Executor(
                                                     lane = laneForLearn,
                                                     mint = ts.mint, symbol = ts.symbol,
                                                     pnlPct = pnlPct,
+                                                )
+                                            // V5.0.6422 — RUNNER AUTO-COMPOUND feed (live).
+                                            com.lifecyclebot.engine.truth.RunnerAutoCompound6422
+                                                .onLiveClose(
+                                                    pnlPct = pnlPct,
+                                                    lane = laneForLearn,
+                                                    mint = ts.mint, symbol = ts.symbol,
                                                 )
                                         }
                                     } catch (_: Throwable) {}
@@ -11586,6 +11604,61 @@ class Executor(
                 ErrorLogger.info("Executor", "🩹 WR_RECOVERY_SIZE_DAMP (paper): ${ts.symbol} | sol=${sol.fmt(4)} × ${"%.2f".format(wrSizeMult)} → ${damped.fmt(4)} (band=${WrRecoveryPartial.stateNow().band.name})")
                 damped
             } else sol
+
+            // V5.0.6422 — RUNNER AUTO-COMPOUND. Auto-shovel the current
+            // paper win-streak straight into this buy's size. Cross-lane,
+            // non-consuming — as long as consecutive wins keep landing the
+            // multiplier stays on and every buy grows automatically.
+            // Extended wallet-growth tier lift stacks on top for 3× / 5×
+            // / 10× ratios so the $50 → $1M ladder keeps climbing past
+            // the LiveGrowthCompounder6416 cap (1.35× at 2× ratio).
+            try {
+                val runnerMult6422 = com.lifecyclebot.engine.truth.RunnerAutoCompound6422
+                    .paperStreakMultiplier()
+                if (runnerMult6422 > 1.0) {
+                    val boosted = finalSol * runnerMult6422
+                    ErrorLogger.info(
+                        "Executor",
+                        "🚀 RUNNER_AUTO_COMPOUND_6422 (paper): ${ts.symbol} | sol=${finalSol.fmt(4)} × ${"%.2f".format(runnerMult6422)} → ${boosted.fmt(4)}",
+                    )
+                    ForensicLogger.lifecycle(
+                        "RUNNER_STREAK_APPLIED_6422",
+                        "mode=PAPER mint=${ts.mint.take(10)} sym=${ts.symbol} from=${finalSol.fmt(4)} mult=${"%.2f".format(runnerMult6422)} to=${boosted.fmt(4)}",
+                    )
+                    PipelineHealthCollector.labelInc("RUNNER_STREAK_APPLIED_6422")
+                    finalSol = boosted
+                }
+                val paperBaseline6422 = try {
+                    com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.statusLine()
+                } catch (_: Throwable) { "" }
+                // Extended tier lift needs the wallet-vs-baseline ratio.
+                // We approximate it from the current paper wallet vs the
+                // baseline printed in statusLine: `baselineSol=X.XXXX`.
+                val currentPaperSol6422 = try {
+                    com.lifecyclebot.engine.BotService.status.paperWalletSol
+                } catch (_: Throwable) { 0.0 }
+                val baseline6422 = try {
+                    val ix = paperBaseline6422.indexOf("baselineSol=")
+                    if (ix >= 0) {
+                        paperBaseline6422.substring(ix + "baselineSol=".length)
+                            .takeWhile { it == '.' || it == '-' || it.isDigit() }
+                            .toDoubleOrNull() ?: 0.0
+                    } else 0.0
+                } catch (_: Throwable) { 0.0 }
+                if (baseline6422 > 0.0 && currentPaperSol6422 > 0.0) {
+                    val ratio6422 = currentPaperSol6422 / baseline6422
+                    val extLift = com.lifecyclebot.engine.truth.RunnerAutoCompound6422
+                        .paperExtendedTierLift(ratio6422)
+                    if (extLift > 1.0) {
+                        val lifted = finalSol * extLift
+                        ErrorLogger.info(
+                            "Executor",
+                            "📈 RUNNER_EXTENDED_TIER_6422 (paper): ${ts.symbol} | ratio=${"%.2f".format(ratio6422)} × ${"%.2f".format(extLift)} → ${lifted.fmt(4)}",
+                        )
+                        finalSol = lifted
+                    }
+                }
+            } catch (_: Throwable) {}
 
             // V5.9.1131 — side-effect boundary paper cold-streak cap.
             // SmartSizer has its own cap, but 3098 proved several lane paths can
