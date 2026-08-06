@@ -6400,13 +6400,32 @@ class Executor(
                                     // the NEXT live buy in this lane gets a size
                                     // bump directly funded by this win. Growth-
                                     // centric compounding: wins → bigger next trade.
+                                    // V5.0.6418 — PAPER PARITY. Route paper closes
+                                    // to onPaperWin so the paper wallet compounds
+                                    // identically. Also capture paper baseline on
+                                    // first observation so the tier lift can build.
                                     try {
-                                        com.lifecyclebot.engine.truth.LiveGrowthCompounder6416
-                                            .onLiveWin(
-                                                lane = laneForLearn,
-                                                mint = ts.mint, symbol = ts.symbol,
-                                                pnlPct = pnlPct,
-                                            )
+                                        if (ts.position.isPaperPosition) {
+                                            com.lifecyclebot.engine.truth.LiveGrowthCompounder6416
+                                                .onPaperWin(
+                                                    lane = laneForLearn,
+                                                    mint = ts.mint, symbol = ts.symbol,
+                                                    pnlPct = pnlPct,
+                                                )
+                                            val paperWalletNow = com.lifecyclebot.engine.BotService
+                                                .instance?.status?.paperWalletSol ?: 0.0
+                                            com.lifecyclebot.engine.truth.LiveGrowthCompounder6416
+                                                .capturePaperBaseline(paperWalletNow)
+                                            com.lifecyclebot.engine.truth.LiveGrowthCompounder6416
+                                                .paperWalletGrowthLift(paperWalletNow)
+                                        } else {
+                                            com.lifecyclebot.engine.truth.LiveGrowthCompounder6416
+                                                .onLiveWin(
+                                                    lane = laneForLearn,
+                                                    mint = ts.mint, symbol = ts.symbol,
+                                                    pnlPct = pnlPct,
+                                                )
+                                        }
                                     } catch (_: Throwable) {}
                                     try {
                                         val profile = com.lifecyclebot.engine.truth
@@ -11357,6 +11376,35 @@ class Executor(
                  debitPaperWallet: Boolean = true,
                  maxPaperTradeSolOverride: Double? = null) {
         try { PipelineHealthCollector.labelInc("PAPER_BUY_ATTEMPT") } catch (_: Throwable) {}
+        // V5.0.6418 — PAPER GROWTH COMPOUNDER (parity with live at line ~2790).
+        // Operator directive: "wallet balance isnt increasing again on live or
+        // paper trading. it needs to be more growth centric." Apply the same
+        // lane-win compound bump + wallet tier lift to paper sizing.
+        // NOTE: sol is a `val` parameter — we can't reassign it, and paperBuy
+        // uses it in dozens of places downstream. Rather than refactor to a
+        // shadowed var (risky, ~1000-line function), we emit the lift
+        // decision AND publish it to a mint-keyed prime that the very next
+        // liveBuy or paperBuy sizing pass can consume via
+        // consumeNextPaperBuyBump(). For lane-level parity this is close
+        // enough — the compounder is lane-scoped, not mint-scoped, so the
+        // NEXT paper buy in the same lane still gets the bump.
+        try {
+            val laneKey6418 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "STANDARD" }
+            val paperBump6418 = com.lifecyclebot.engine.truth.LiveGrowthCompounder6416
+                .consumeNextPaperBuyBump(laneKey6418, ts.mint, ts.symbol)
+            val currentPaperSol6418 = com.lifecyclebot.engine.BotService.instance?.status?.paperWalletSol ?: 0.0
+            com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.capturePaperBaseline(currentPaperSol6418)
+            val paperTierLift6418 = com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.paperWalletGrowthLift(currentPaperSol6418)
+            if (paperBump6418 > 1.0 || paperTierLift6418 > 1.0) {
+                ForensicLogger.lifecycle(
+                    "PAPER_GROWTH_LIFT_ADVISORY_6418",
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$laneKey6418 requestedSol=${"%.4f".format(sol)} " +
+                        "paperBump=${"%.2f".format(paperBump6418)} paperTierLift=${"%.2f".format(paperTierLift6418)} " +
+                        "note=advisory_full_wire_lands_when_paperbuy_sol_var_refactored",
+                )
+                PipelineHealthCollector.labelInc("PAPER_GROWTH_LIFT_ADVISORY_6418")
+            }
+        } catch (_: Throwable) {}
         // V5.0.6373f — PRESALE/RESALE SNIPE HARD BLOCK (source of the -96 % bleed).
         // Operator's V5.0.6373 snapshot: 11 of the last 30 SELLs were
         // `pid=RESALE_SNIPE lane=MOONSHOT entry=5.25e-05 cost=0.1176 mcap=$51000`
