@@ -12052,6 +12052,10 @@ class BotService : Service() {
      * size, open position count, paper/live mode, V3 toggle, etc.
      */
     private var lastBotLoopTickMs: Long = System.currentTimeMillis()
+    // V5.0.6421 — expose the most recent cycle delta so the bot loop can
+    // adaptively skip heavy learning fanout on the tick AFTER a blown
+    // cycle. Read-only from botLoop; only emitBotLoopTick writes it.
+    @Volatile private var lastPrevCycleMs6421: Long = 0L
     // V5.9.1313 — when the botLoop coroutine actually began (for hotExit never-ran grace window).
     @Volatile private var botLoopStartedAtMs: Long = 0L
 
@@ -12160,6 +12164,7 @@ class BotService : Service() {
             val now = System.currentTimeMillis()
             val prevCycleMs = now - lastBotLoopTickMs
             lastBotLoopTickMs = now
+            lastPrevCycleMs6421 = prevCycleMs
             // V5.9.762 — also touch the progress timestamp for the heartbeat.
             markProgress("BOT_LOOP_TICK")
 
@@ -12327,7 +12332,15 @@ class BotService : Service() {
             //      this is the ONLY real cure for overnight dormancy.
             //   3. Emit a loud forensic marker so the dormancy is visible in the
             //      snapshot instead of looking like a slow loop.
-            if (prevCycleMs > 90_000L && loopCount > 1) {
+            // V5.0.6421 — LOWER DOZE THRESHOLD 90s→45s.
+            // Operator: "not trading in the background or if the screen is
+            // off." The battery-optimisation whitelist prompt below is
+            // the ONLY real cure for overnight Doze dormancy — the
+            // wake-lock + foreground-service machinery is already correct.
+            // Firing the prompt at 45s (vs 90s) surfaces the issue after
+            // the FIRST meaningful stall instead of waiting for a two-tick
+            // freeze. Cycles this long are already broken by definition.
+            if (prevCycleMs > 45_000L && loopCount > 1) {
                 try {
                     ForensicLogger.lifecycle(
                         "DOZE_DORMANCY_RECOVERED",
@@ -13664,6 +13677,24 @@ class BotService : Service() {
                 emitLoopTopSnapshot(loopCount)
             }
 
+            // V5.0.6421 — ADAPTIVE PRE-SUPERVISOR THROTTLE.
+            // Operator (V5.0.6420 dump): "not trading in the background or
+            // if the screen is off". Cycles: avg=19s max=123s (budget=20s).
+            // Trading windows on fresh pump.fun mints die in 30-90s; a 100s+
+            // cycle means we miss every entry. The scanner+FDG+exec path is
+            // already tightly budgeted (supervisorOuterBudget=20s). The
+            // remaining spend is the pre-supervisor learning fanout:
+            // ChronicBleederScout, SentienceAutoTune, LabUniverseTick,
+            // RegimePulse. These are OFFLINE analysis — they do not affect
+            // the current tick's entry/exit decisions. When the previous
+            // cycle overran (>30s), skip them THIS tick so the loop can
+            // catch up. They rate-limit themselves so a missed tick just
+            // pushes the next run one cycle later — no data loss.
+            val prevCycleWasSlow6421 = lastPrevCycleMs6421 > 30_000L
+            if (prevCycleWasSlow6421) {
+                try { PipelineHealthCollector.labelInc("PRE_SUPERVISOR_LEARNING_SKIPPED_6421") } catch (_: Throwable) {}
+            }
+
             // V5.0.6265 — CHRONIC BLEEDER LAB REPROVE. Every 12 loops (≈2 min
             // at 10s cycles), scan for lanes with n>=15 AND wr<=20% AND
             // avgPnl<=-10%; seed the LLM lab with a mutated tactic for each.
@@ -13671,7 +13702,7 @@ class BotService : Service() {
             // out — this closes the loop from chronic bleed → reprove →
             // auto-reimplement when proven winner. Per-lane dedupe inside
             // the scout (30-min TTL) prevents re-seeding.
-            if (loopCount % 12 == 0) {
+            if (loopCount % 12 == 0 && !prevCycleWasSlow6421) {
                 try { com.lifecyclebot.engine.ChronicBleederScout.tick() } catch (_: Throwable) {}
             }
 
@@ -13704,10 +13735,16 @@ class BotService : Service() {
             }
 
             // V5.9.401 — Sentience auto-tune + distrust nomination (rate-limited internally)
-            try { runSentienceAutoTune() } catch (_: Throwable) {}
+            // V5.0.6421 — skip on slow cycles (see PRE_SUPERVISOR_LEARNING_SKIPPED_6421).
+            if (!prevCycleWasSlow6421) {
+                try { runSentienceAutoTune() } catch (_: Throwable) {}
+            }
 
             // V5.9.402 — LLM Lab tick (creation + paper exec + cull, all internally gated).
-            try { runLabUniverseTick() } catch (_: Throwable) {}
+            // V5.0.6421 — skip on slow cycles (see PRE_SUPERVISOR_LEARNING_SKIPPED_6421).
+            if (!prevCycleWasSlow6421) {
+                try { runLabUniverseTick() } catch (_: Throwable) {}
+            }
 
             // ═══════════════════════════════════════════════════════════════════
             // V5.2: PIPELINE TRACE - Snapshot loop state at start
