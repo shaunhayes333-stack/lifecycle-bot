@@ -1,3 +1,25 @@
+## V5.0.6419 — 2026-08-06 — CI FIX: BotService.status companion access
+
+  V5.0.6418 introduced two unresolved-reference compile errors in
+  Executor.kt at lines 6416 and 11395. Both attempted to read the
+  paper wallet balance via `BotService.instance?.status?.paperWalletSol`,
+  but `status` is declared inside `BotService`'s companion object
+  (line 400 in BotService.kt), not as an instance property. Kotlin
+  therefore rejected the chained access.
+
+  Fix: read via `BotService.status.paperWalletSol` directly (companion
+  object property), wrapped in a defensive try/catch that returns 0.0
+  on any lookup failure. Both occurrences (paper-close win branch at
+  6416, paperBuy sizing advisory at 11395) updated identically.
+
+  Paper Compounder wiring from V5.0.6418 is preserved intact:
+  `onPaperWin`, `capturePaperBaseline`, `paperWalletGrowthLift`,
+  `consumeNextPaperBuyBump` all still routed on paper closes and
+  paperBuy sizing passes.
+
+  CI: GitHub Actions run 31089896899 — status=completed, conclusion=success.
+
+
 ## V5.0.6249 — 2026-02 — TOXIC BUCKET HARD VETO (stop the WR bleed)
 
   Operator: "you did nothing about the winrate dying!!!! your killing me!
