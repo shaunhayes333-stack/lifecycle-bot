@@ -11395,6 +11395,21 @@ class Executor(
                  debitPaperWallet: Boolean = true,
                  maxPaperTradeSolOverride: Double? = null) {
         try { PipelineHealthCollector.labelInc("PAPER_BUY_ATTEMPT") } catch (_: Throwable) {}
+        // V5.0.6427 §K + §L — register the entry lane IMMUTABLY the
+        // instant a paper buy is attempted. First write wins so a
+        // later exit run by MOONSHOT_STOP_LOSS on a COPYTRADE entry
+        // cannot rewrite history. Uses mint as the positionId proxy
+        // because full positionId propagation is a separate patch.
+        try {
+            val entryLane6427 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "STANDARD" }
+            com.lifecyclebot.engine.truth.LaneAttributionLedger6427
+                .recordEntry(
+                    positionId = ts.mint,
+                    lane = entryLane6427,
+                    strategy = ts.source,
+                    profile = layerTag,
+                )
+        } catch (_: Throwable) {}
         // V5.0.6418 — PAPER GROWTH COMPOUNDER (parity with live at line ~2790).
         // Operator directive: "wallet balance isnt increasing again on live or
         // paper trading. it needs to be more growth centric." Apply the same
