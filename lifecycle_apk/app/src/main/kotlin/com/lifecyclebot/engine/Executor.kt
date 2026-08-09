@@ -6424,6 +6424,27 @@ class Executor(
                                                 trigger = laneForLearn,
                                                 executor = if (ts.position.isPaperPosition) "PAPER" else "LIVE",
                                             )
+                                        // V5.0.6432 — confirm the terminal sell in the
+                                        // position state ledger AND credit the paper
+                                        // account ledger by the realised PnL. The
+                                        // account ledger crediting is a best-effort
+                                        // approximation from pnlPct + a nominal cost
+                                        // (Executor doesn't expose exact gross/cost at
+                                        // this depth in one field). onSell semantics:
+                                        // gross = cost + pnl. Cost basis proportional
+                                        // to sold slice. For this wiring we treat every
+                                        // onPaperWin call as a terminal close of the
+                                        // slice; partials that don't reach this branch
+                                        // are handled elsewhere.
+                                        if (ts.position.isPaperPosition) {
+                                            com.lifecyclebot.engine.truth.PositionStateLedger6427
+                                                .confirmTerminalSell(ts.mint)
+                                            val approxCost = ts.position.costSol.coerceAtLeast(0.0)
+                                            val pnlSol = approxCost * (pnlPct / 100.0)
+                                            val gross = (approxCost + pnlSol).coerceAtLeast(0.0)
+                                            com.lifecyclebot.engine.truth.PaperAccountLedger6430
+                                                .onSell(grossProceedsSol = gross, costBasisSoldSol = approxCost)
+                                        }
                                         if (ts.position.isPaperPosition) {
                                             com.lifecyclebot.engine.truth.LiveGrowthCompounder6416
                                                 .onPaperWin(
@@ -11428,6 +11449,17 @@ class Executor(
                     strategy = ts.source,
                     profile = layerTag,
                 )
+            // V5.0.6432 — register position OPEN in the state ledger and
+            // debit cash in the paper account ledger. Wiring at the
+            // paperBuy entry (attempt) is intentional: even if the buy
+            // ultimately clamps or rejects downstream, the state ledger
+            // tolerates duplicate registerOpen (idempotent), and the
+            // account ledger sees the same cost the debitPaperWallet
+            // path applies below.
+            com.lifecyclebot.engine.truth.PositionStateLedger6427.registerOpen(ts.mint)
+            if (debitPaperWallet && sol.isFinite() && sol > 0.0) {
+                com.lifecyclebot.engine.truth.PaperAccountLedger6430.onBuy(sol)
+            }
         } catch (_: Throwable) {}
         // V5.0.6418 — PAPER GROWTH COMPOUNDER (parity with live at line ~2790).
         // Operator directive: "wallet balance isnt increasing again on live or

@@ -1387,6 +1387,15 @@ class BotService : Service() {
             // callback body). Quick invariant-check ticker runs every
             // 5s regardless.
             try {
+                // V5.0.6432 — initialise the paper account ledger with
+                // the operator's starting capital BEFORE any paper buy
+                // can debit the ledger; the quick reconciler ticker
+                // starts asserting the capital-conservation invariant
+                // 5s later.
+                val startCap6432 = try {
+                    com.lifecyclebot.data.ConfigStore.load(applicationContext).paperSimulatedBalance
+                } catch (_: Throwable) { 11.76 }
+                com.lifecyclebot.engine.truth.PaperAccountLedger6430.initialize(startCap6432)
                 com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431
                     .start { /* full reconcile callback: wired in Phase 2 */ }
             } catch (_: Throwable) {}
