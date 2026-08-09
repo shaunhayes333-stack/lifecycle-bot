@@ -100,8 +100,26 @@ object ReEntryLockout {
             val f = byFamily[symbolFamily.trim().uppercase()]?.takeIf { it.untilMs > now }
             val hit = m ?: f ?: return null
             val remSec = ((hit.untilMs - now) / 1000L).coerceAtLeast(0)
-            "REENTRY_LOCKOUT_${hit.reason}_${remSec}s"
+            // V5.0.6428 §AB — low-cardinality reason code. remSec used to
+            // be encoded into the string ("REENTRY_LOCKOUT_STOP_LOSS_202s")
+            // which produced hundreds of unique reason codes per session
+            // and destroyed aggregation in the "Top block reasons" table.
+            // Structured remaining_sec_${bucket} tail keeps the diagnostic
+            // signal without exploding cardinality: 0-10s, 10-30s, 30-60s,
+            // 60-120s, 120-300s, 300s+ buckets.
+            val bucket = remSecBucket6428(remSec)
+            "REENTRY_LOCKOUT_${hit.reason}|remSec=$bucket"
         } catch (_: Throwable) { null }  // fail-open
+    }
+
+    // V5.0.6428 §AB — bucket helper (module-private).
+    private fun remSecBucket6428(remSec: Long): String = when {
+        remSec <= 10L -> "0-10s"
+        remSec <= 30L -> "10-30s"
+        remSec <= 60L -> "30-60s"
+        remSec <= 120L -> "60-120s"
+        remSec <= 300L -> "120-300s"
+        else -> "300s+"
     }
 
     // V5.9.1466 — ADAPTIVE FAMILY LOCKOUT (spec item 9). The flat 10-min family
@@ -138,7 +156,7 @@ object ReEntryLockout {
             // Same mint that stopped out → ALWAYS the full lock (no fast re-buy loop).
             if (m != null) {
                 val remSec = ((m.untilMs - now) / 1000L).coerceAtLeast(0)
-                return LockDecision("REENTRY_LOCKOUT_${m.reason}_${remSec}s", sameMint = true, familyOnly = false, adaptiveFamily = false, remainingSec = remSec)
+                return LockDecision("REENTRY_LOCKOUT_${m.reason}|remSec=${remSecBucket6428(remSec)}", sameMint = true, familyOnly = false, adaptiveFamily = false, remainingSec = remSec)
             }
             val f = byFamily[symbolFamily.trim().uppercase()]?.takeIf { it.untilMs > now } ?: return null
             // Different mint of a locked family. If it shows materially stronger
@@ -151,10 +169,10 @@ object ReEntryLockout {
                     return null
                 }
                 val remSec = ((adaptiveUntil - now) / 1000L).coerceAtLeast(0)
-                return LockDecision("REENTRY_LOCKOUT_${f.reason}_ADAPTIVE_${remSec}s", sameMint = false, familyOnly = true, adaptiveFamily = true, remainingSec = remSec)
+                return LockDecision("REENTRY_LOCKOUT_${f.reason}_ADAPTIVE|remSec=${remSecBucket6428(remSec)}", sameMint = false, familyOnly = true, adaptiveFamily = true, remainingSec = remSec)
             }
             val remSec = ((f.untilMs - now) / 1000L).coerceAtLeast(0)
-            LockDecision("REENTRY_LOCKOUT_${f.reason}_${remSec}s", sameMint = false, familyOnly = true, adaptiveFamily = false, remainingSec = remSec)
+            LockDecision("REENTRY_LOCKOUT_${f.reason}|remSec=${remSecBucket6428(remSec)}", sameMint = false, familyOnly = true, adaptiveFamily = false, remainingSec = remSec)
         } catch (_: Throwable) { null }
     }
 
