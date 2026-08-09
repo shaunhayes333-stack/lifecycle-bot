@@ -1703,6 +1703,25 @@ object PipelineHealthCollector {
             sb.append("  Runner ledger healthy:        ").append(
                 com.lifecyclebot.engine.truth.RunnerAutoCompound6422.isLedgerHealthy()
             ).append("\n")
+            // V5.0.6430 — additional guards.
+            sb.append("  Scanner dedup (§F):           ").append(
+                com.lifecyclebot.engine.truth.CandidateAccumulator6430.statusLine()
+            ).append("\n")
+            sb.append("  Paper account ledger (§N):    ").append(
+                com.lifecyclebot.engine.truth.PaperAccountLedger6430.statusLine()
+            ).append("\n")
+            val paperLedgerErr = com.lifecyclebot.engine.truth.PaperAccountLedger6430.assertInvariant()
+            sb.append("  Paper capital conservation:   ").append(
+                if (paperLedgerErr == null) "✅ OK" else "🛑 $paperLedgerErr"
+            ).append("\n")
+            sb.append("  Reconciler watchdog (§Q):     ").append(
+                com.lifecyclebot.engine.truth.ReconcilerWatchdog6430.statusLine()
+            ).append("\n")
+            sb.append("  Forensic envelope (§AJ):      runId=").append(
+                com.lifecyclebot.engine.truth.ForensicEventEnvelope6430.runId()
+            ).append(" epoch=").append(
+                com.lifecyclebot.engine.truth.ForensicEventEnvelope6430.ledgerEpoch()
+            ).append("\n")
         } catch (_: Throwable) {}
 
         // ── ANR health (watchdog) ───────────────────────────────────

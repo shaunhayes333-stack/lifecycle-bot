@@ -12228,14 +12228,33 @@ class BotService : Service() {
                     val registryOpen = try {
                         TradeHistoryStore.openMintSetFromJournal().size
                     } catch (_: Throwable) { 0 }
-                    val recReport6423 = ForensicReconciler6377.runAll(
-                        allTrades = trades,
-                        paperMode = paperModeNow,
-                        paperWalletSol = status.paperWalletSol,
-                        startCapitalSol = startCap,
-                        canonicalLiveOpenCount = canonicalOpen,
-                        registryLiveOpenCount = registryOpen,
-                    )
+                    // V5.0.6430 §Q — instrument the reconciler with a
+                    // watchdog so operator can see liveness in the pipeline
+                    // dump. If the reconciler ever silently stops (as
+                    // observed in the V5.0.6424 spec dump: last pass 12957s
+                    // ago), healthStatus() flips to STALE / FAILED.
+                    com.lifecyclebot.engine.truth.ReconcilerWatchdog6430.beforeAttempt()
+                    val watchdogStart = System.currentTimeMillis()
+                    val recReport6423: com.lifecyclebot.engine.ForensicReconciler6377.Report? = try {
+                        val r = ForensicReconciler6377.runAll(
+                            allTrades = trades,
+                            paperMode = paperModeNow,
+                            paperWalletSol = status.paperWalletSol,
+                            startCapitalSol = startCap,
+                            canonicalLiveOpenCount = canonicalOpen,
+                            registryLiveOpenCount = registryOpen,
+                        )
+                        com.lifecyclebot.engine.truth.ReconcilerWatchdog6430
+                            .afterAttempt(true, System.currentTimeMillis() - watchdogStart)
+                        r
+                    } catch (t: Throwable) {
+                        com.lifecyclebot.engine.truth.ReconcilerWatchdog6430.afterAttempt(
+                            false,
+                            System.currentTimeMillis() - watchdogStart,
+                            t.message ?: t.javaClass.simpleName,
+                        )
+                        null
+                    }
                     // V5.0.6423 — SOURCE-OF-TRUTH AUTO-HEAL.
                     // Operator: "the journal, main ui balances, 30day etc
                     // should all match! the journal must record all buys and
@@ -12262,7 +12281,7 @@ class BotService : Service() {
                     // ledger corruption that would let phantom qty leak into
                     // future tier calculations).
                     try {
-                        if (paperModeNow) {
+                        if (paperModeNow && recReport6423 != null) {
                             val walletCheck = recReport6423.checks.firstOrNull { it.name == "WALLET_VS_JOURNAL" }
                             val skewCheck = recReport6423.checks.firstOrNull { it.name == "BUY_SELL_QTY_SKEW" }
                             val orphanCheck = recReport6423.checks.firstOrNull { it.name == "ORPHAN_SELL" }
