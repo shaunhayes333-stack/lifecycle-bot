@@ -6405,6 +6405,25 @@ class Executor(
                                     // identically. Also capture paper baseline on
                                     // first observation so the tier lift can build.
                                     try {
+                                        // V5.0.6428 §K + §L — record the exit policy
+                                        // separately from the immutable entry lane so
+                                        // learning can attribute exit quality to the
+                                        // policy that closed the trade without ever
+                                        // mutating the entry lane. entryLane stays put
+                                        // (recorded on paperBuy); exitPolicyLane +
+                                        // trigger + executor land here.
+                                        // exitTrigger uses laneForLearn as a stable
+                                        // low-cardinality proxy — safer than probing
+                                        // ts.position.reason which lives on a
+                                        // different class in some overloads.
+                                        com.lifecyclebot.engine.truth.LaneAttributionLedger6427
+                                            .recordExitPolicy(
+                                                positionId = ts.mint,
+                                                lane = laneForLearn,
+                                                policy = laneForLearn,
+                                                trigger = laneForLearn,
+                                                executor = if (ts.position.isPaperPosition) "PAPER" else "LIVE",
+                                            )
                                         if (ts.position.isPaperPosition) {
                                             com.lifecyclebot.engine.truth.LiveGrowthCompounder6416
                                                 .onPaperWin(

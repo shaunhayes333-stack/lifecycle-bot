@@ -262,8 +262,12 @@ object LiveLayerGateRelaxer {
             .joinToString(" · ") { (tag, m) ->
                 "$tag ×${"%.2f".format(m)}(n=${liveCountForLane(tag)})"
             }
-        return if (parts.isEmpty()) "🔓 GATE RELAXER: all lanes matured → 1.00× (earned floors) liveWR=${"%.1f".format(liveWr)}% n=$liveTerminalN"
-        else                        "🔓 GATE RELAXER (soft-start/fade): $parts liveWR=${"%.1f".format(liveWr)}% n=$liveTerminalN"
+        // V5.0.6428 §P — WR with n=0 is UNKNOWN, not 100%. Render N/A
+        // instead of a mathematically-invalid rate so operators (and
+        // the LLM advisor) don't consume a fake perfect-win signal.
+        val wrRendered6428 = if (liveTerminalN <= 0) "N/A" else "${"%.1f".format(liveWr)}%"
+        return if (parts.isEmpty()) "🔓 GATE RELAXER: all lanes matured → 1.00× (earned floors) liveWR=$wrRendered6428 n=$liveTerminalN"
+        else                        "🔓 GATE RELAXER (soft-start/fade): $parts liveWR=$wrRendered6428 n=$liveTerminalN"
     }
 
     // V5.0.4081 — FLAT QUALITY-BASED FLOORS (no bootstrap in live). The

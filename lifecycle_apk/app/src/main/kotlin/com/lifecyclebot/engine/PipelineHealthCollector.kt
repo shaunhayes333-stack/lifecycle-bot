@@ -1684,6 +1684,27 @@ object PipelineHealthCollector {
             } catch (_: Throwable) {}
         } catch (_: Throwable) {}
 
+        // ── V5.0.6428 §AP — CORRECTNESS GUARDS status ───────────────
+        // Operator (V5.0.6424 spec §AI/§AP): background runtime,
+        // ledger invariants, paper/live isolation must be surfaced in
+        // every pipeline dump. This is a partial answer — surfaces the
+        // by-construction correctness guards that landed in V5.0.6427.
+        try {
+            sb.append("===== CORRECTNESS GUARDS (V5.0.6427+) =====\n")
+            sb.append("  Position state ledger (§H):   ").append(
+                com.lifecyclebot.engine.truth.PositionStateLedger6427.statusLine()
+            ).append("\n")
+            sb.append("  Sell qty boundary (§I):       ").append(
+                com.lifecyclebot.engine.truth.SellQtyBoundaryClamp6427.statusLine()
+            ).append("\n")
+            sb.append("  Lane attribution (§K,§L):     ").append(
+                com.lifecyclebot.engine.truth.LaneAttributionLedger6427.statusLine()
+            ).append("\n")
+            sb.append("  Runner ledger healthy:        ").append(
+                com.lifecyclebot.engine.truth.RunnerAutoCompound6422.isLedgerHealthy()
+            ).append("\n")
+        } catch (_: Throwable) {}
+
         // ── ANR health (watchdog) ───────────────────────────────────
         sb.append("===== ANR / main-thread health (watchdog sampler) =====\n")
         sb.append("  ANR_HINTS (>${LONG_FRAME_THRESHOLD_MS}ms):           ${s.anrHints}\n")
