@@ -1722,6 +1722,11 @@ object PipelineHealthCollector {
             ).append(" epoch=").append(
                 com.lifecyclebot.engine.truth.ForensicEventEnvelope6430.ledgerEpoch()
             ).append("\n")
+            // V5.0.6431 — independent reconciler scheduler + live pipeline trace.
+            sb.append("  Independent reconciler (§K):  ").append(
+                com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431.statusLine()
+            ).append("\n")
+            sb.append(com.lifecyclebot.engine.truth.LivePipelineTrace6431.render())
         } catch (_: Throwable) {}
 
         // ── ANR health (watchdog) ───────────────────────────────────

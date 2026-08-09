@@ -1379,6 +1379,17 @@ class BotService : Service() {
             FeeRetryQueue.init(applicationContext)  // V5.9.226: Bug #7 — fee retry queue
             FeeAccumulator.init(applicationContext)  // V5.0.3920 — fee accumulator (batched flush)
             ScannerHardRejectStore.init(applicationContext)  // V5.0.4036 — durable hard-reject scanner quarantine
+            // V5.0.6431 §K — start the INDEPENDENT reconciler scheduler
+            // on its own SupervisorJob + Dispatchers.IO scope so it
+            // cannot be starved by main-loop congestion. Callback is a
+            // no-op stub; the actual runAll continues to fire from
+            // emitBotLoopTick every 200 loops (Phase 2 will migrate the
+            // callback body). Quick invariant-check ticker runs every
+            // 5s regardless.
+            try {
+                com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431
+                    .start { /* full reconcile callback: wired in Phase 2 */ }
+            } catch (_: Throwable) {}
             // V5.9.666 — install Choreographer-based ANR / long-frame
             // detector so the in-app Pipeline Health panel captures
             // every main-thread stutter with elapsed delta. onCreate
@@ -2964,6 +2975,8 @@ class BotService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // V5.0.6431 §K — stop the independent reconciler scheduler.
+        try { com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431.stop() } catch (_: Throwable) {}
         ErrorLogger.warn("BotService", "onDestroy() called - service being destroyed")
 
         // V5.9.438 — flush outcome-learning trackers so nothing is lost on shutdown.
