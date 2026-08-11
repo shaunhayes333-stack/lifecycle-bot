@@ -1,3 +1,53 @@
+## V5.0.6427-V5.0.6435 — 2026-08-06 to 2026-08-11 — CORRECTNESS PATCH SERIES
+
+Response to two operator specs (V5.0.6424 spec + PIPELINE CHOKE spec).
+9 commits, every one CI-green:
+
+  6427  §H PositionStateLedger6427 + §I SellQtyBoundaryClamp6427 +
+        §M StalePriceFillGate6427 + §K/§L LaneAttributionLedger6427.
+        LaneAttribution.recordEntry wired at Executor.paperBuy entry.
+  6428  Exit-policy recording wired at onPaperWin. §P liveWR N/A for
+        n=0. New CORRECTNESS GUARDS section in the pipeline dump.
+  6429  §AB low-cardinality REENTRY_LOCKOUT_STOP_LOSS reason codes
+        (bucketed remSec tail replaces per-second cardinality
+        explosion).
+  6430  §F CandidateAccumulator6430 + §G CheapLiquidityGate6430 +
+        §N PaperAccountLedger6430 (capital-conservation invariant) +
+        §Q ReconcilerWatchdog6430 + §AJ ForensicEventEnvelope6430
+        (+ §P full N/A helpers) + §AN InvariantSelfCheck6430 with
+        10 hermetic tests. Watchdog wired at reconciler call site.
+  6431  §K IndependentReconcilerScheduler6431 (own SupervisorJob +
+        Dispatchers.IO, 5s quick / 30s full tickers). §I
+        LiveAuthorityRenderer6431 explicit state block. §H
+        LivePipelineTrace6431 stage counters + CHOKE detection.
+        Scheduler started/stopped from BotService onCreate/onDestroy.
+  6432  Executor.paperBuy wires PositionStateLedger6427.registerOpen
+        + PaperAccountLedger6430.onBuy. onPaperWin close wires
+        confirmTerminalSell + PaperAccountLedger.onSell. Startup
+        seeds PaperAccountLedger with configured paper capital.
+  6433  §PIPELINE-CHOKE WatchlistRebalanceThrottle6433 (750ms
+        coalescer with materialChange bypass) +
+        TokenMapSingleFlight6433 (per-mint CompletableDeferred
+        registry). LIVE_HELD_* → ENTRY_AUTHORITY_HELD_* rename
+        across BotService.kt (8 sites).
+  6434  CI fix: dropped illegal `inline` from
+        WatchlistRebalanceThrottle6433.maybeRun.
+  6435  Test fix: propagated LIVE_HELD_→ENTRY_AUTHORITY_HELD_ rename
+        into GoldenTapeRegressionTest.kt +
+        RebalanceHeldBlockAggregation6353Test.kt.
+
+  Honest scope statement: the V5.0.6424 emergency spec was a full
+  architectural rewrite (position repository consolidation, atomic
+  version-checked mutations across every subsystem, execution
+  idempotency-key persistence layer, execution-sourced append-only
+  journal, priority scheduler, startup recovery sequence). This
+  patch series ships the SAFE, additive, CI-green subset that could
+  land without touching the 24k-line Executor monolith. Full
+  wiring at every sell boundary in Executor.kt, TradingRuntimeService
+  extraction, and 6-tier priority scheduler remain deferred to a
+  fresh session with more context runway.
+
+
 ## V5.0.6421 — 2026-08-06 — BACKGROUND TRADING FIX (adaptive learning skip + earlier Doze prompt)
 
   Operator: "I want it actually fixed not fucking reports" — not
