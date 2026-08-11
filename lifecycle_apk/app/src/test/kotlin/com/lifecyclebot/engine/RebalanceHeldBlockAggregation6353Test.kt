@@ -7,7 +7,7 @@ import java.io.File
 /**
  * V5.0.6353 — hot-watchlist rebalance held-block log aggregation golden-tape test.
  *
- * Operator symptom: LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550 fired 5855
+ * Operator symptom: ENTRY_AUTHORITY_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550 fired 5855
  * times in 15 minutes (~6.3/sec) — pure observability spam because the guard
  * was already doing the right thing (never evict a held/open position).
  *
@@ -21,13 +21,13 @@ class RebalanceHeldBlockAggregation6353Test {
     fun held_block_label_still_exists_but_is_emitted_once_per_pass() {
         val txt = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         // Label preserved for dashboards.
-        assertTrue(txt.contains("LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550"))
+        assertTrue(txt.contains("ENTRY_AUTHORITY_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550"))
         // Aggregated tag present.
         assertTrue("aggregated held-block emit must be tagged 6353",
             txt.contains("keep_watchlist_aggregated_6353"))
         // Per-iteration continue no longer bumps the label.
         assertFalse("per-iteration labelInc must be removed",
-            txt.contains("try { PipelineHealthCollector.labelInc(\"LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550\") } catch (_: Throwable) {}\n                    try { ForensicLogger.lifecycle(\"LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550\""))
+            txt.contains("try { PipelineHealthCollector.labelInc(\"ENTRY_AUTHORITY_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550\") } catch (_: Throwable) {}\n                    try { ForensicLogger.lifecycle(\"ENTRY_AUTHORITY_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550\""))
     }
 
     @Test
