@@ -37,7 +37,7 @@ object WatchlistRebalanceThrottle6433 {
      * Run the block if enough time has passed OR a material change is
      * pending. Otherwise increment coalesceSkipped and return false.
      */
-    inline fun maybeRun(materialChange: Boolean = false, block: () -> Unit): Boolean {
+    fun maybeRun(materialChange: Boolean = false, block: () -> Unit): Boolean {
         if (materialChange) markMaterialChange()
         return maybeRunInternal(block)
     }
