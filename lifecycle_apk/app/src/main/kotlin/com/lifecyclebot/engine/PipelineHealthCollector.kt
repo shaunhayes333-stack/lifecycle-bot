@@ -1726,6 +1726,13 @@ object PipelineHealthCollector {
             sb.append("  Independent reconciler (§K):  ").append(
                 com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431.statusLine()
             ).append("\n")
+            // V5.0.6433 — pipeline-choke throttles.
+            sb.append("  Watchlist rebalance (§6433):  ").append(
+                com.lifecyclebot.engine.truth.WatchlistRebalanceThrottle6433.statusLine()
+            ).append("\n")
+            sb.append("  Token map single-flight:      ").append(
+                com.lifecyclebot.engine.truth.TokenMapSingleFlight6433.statusLine()
+            ).append("\n")
             sb.append(com.lifecyclebot.engine.truth.LivePipelineTrace6431.render())
         } catch (_: Throwable) {}
 

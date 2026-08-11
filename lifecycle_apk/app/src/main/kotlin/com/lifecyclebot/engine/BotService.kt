@@ -413,7 +413,7 @@ class BotService : Service() {
          * clears a LIVE (non-paper) position so a paper sim book is never touched.
          */
         /**
-         * V5.0.4550 — LIVE_HELD_STICKY_STATUS_GUARD.
+         * V5.0.4550 — ENTRY_AUTHORITY_HELD_STICKY_STATUS_GUARD.
          * A wallet-held / bot-managed LIVE mint must never be evicted from
          * status.tokens/watchlist by source-balance, no-pair, basis-wait, or
          * ghost cleanup paths. Only explicit terminal close/zero-balance finality
@@ -439,8 +439,8 @@ class BotService : Service() {
         fun purgeGhostLivePosition(mint: String, reason: String) {
             if (mint.isBlank()) return
             if (liveHeldOrManagedMint(mint)) {
-                try { PipelineHealthCollector.labelInc("LIVE_HELD_GHOST_PURGE_BLOCKED_4550") } catch (_: Throwable) {}
-                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_HELD_GHOST_PURGE_BLOCKED_4550", "mint=${mint.take(10)} reason=$reason action=preserve_status_watchlist") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("ENTRY_AUTHORITY_HELD_GHOST_PURGE_BLOCKED_4550") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("ENTRY_AUTHORITY_HELD_GHOST_PURGE_BLOCKED_4550", "mint=${mint.take(10)} reason=$reason action=preserve_status_watchlist") } catch (_: Throwable) {}
                 return
             }
             try {
@@ -10828,7 +10828,7 @@ class BotService : Service() {
             // V5.0.6353 — collect the held-block count for a SINGLE aggregated
             // health line per rebalance pass instead of one label bump + one
             // forensic row per iteration. Operator's V5.0.6349 snapshot had
-            // 5855 LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550 events in
+            // 5855 ENTRY_AUTHORITY_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550 events in
             // 15 minutes (~6/sec) — pure log churn on defensive behaviour
             // that was already doing its job. Same protection preserved,
             // 100× less log volume.
@@ -10884,7 +10884,7 @@ class BotService : Service() {
             // collapses 5855 events/15min → one event per rebalance pass.
             if (heldBlockedThisPass > 0) {
                 // V5.0.6410 §B — HELD-BLOCK EMIT THROTTLE.
-                // Operator emergency dump: LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550
+                // Operator emergency dump: ENTRY_AUTHORITY_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550
                 // = 15 815 (~9/sec) with the SAME 3 held mints repeated on every
                 // intake. The 6353 aggregation already collapsed per-iteration
                 // rows to per-pass, but the pass itself still fires on every
@@ -10897,16 +10897,16 @@ class BotService : Service() {
                 if (nowMs6410 - priorMs6410 >= 5_000L &&
                     heldBlockLastEmitMs6410.compareAndSet(priorMs6410, nowMs6410)) {
                     try {
-                        PipelineHealthCollector.labelInc("LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550")
+                        PipelineHealthCollector.labelInc("ENTRY_AUTHORITY_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550")
                         ForensicLogger.lifecycle(
-                            "LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550",
+                            "ENTRY_AUTHORITY_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550",
                             "reason=$reason heldBlocked=$heldBlockedThisPass firstMint=${heldBlockedFirstMint.take(10)} pump=${pumpEntries.size} cap=$cap total=$total action=keep_watchlist_aggregated_6353 throttled6410=5s",
                         )
                     } catch (_: Throwable) {}
                 } else {
                     // Still bump a companion counter so the operator sees
                     // that the pass ran but the emit was throttled.
-                    try { PipelineHealthCollector.labelInc("LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_THROTTLED_6410") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("ENTRY_AUTHORITY_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_THROTTLED_6410") } catch (_: Throwable) {}
                 }
             }
         } catch (_: Throwable) {}
@@ -17764,8 +17764,8 @@ if (hotExitHandledSweep) {
                             try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} pc=$processCount ageMs=$ageMs mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} action=keep_hot") } catch (_: Throwable) {}
                         } else {
                             if (liveHeldOrManagedMint(mint)) {
-                                try { PipelineHealthCollector.labelInc("LIVE_HELD_NO_PAIR_DEMOTE_REMOVE_BLOCKED_4550") } catch (_: Throwable) {}
-                                try { ForensicLogger.lifecycle("LIVE_HELD_NO_PAIR_DEMOTE_REMOVE_BLOCKED_4550", "mint=${mint.take(10)} symbol=${ts.symbol} pc=$processCount ageMs=$ageMs action=keep_watchlist_and_registry") } catch (_: Throwable) {}
+                                try { PipelineHealthCollector.labelInc("ENTRY_AUTHORITY_HELD_NO_PAIR_DEMOTE_REMOVE_BLOCKED_4550") } catch (_: Throwable) {}
+                                try { ForensicLogger.lifecycle("ENTRY_AUTHORITY_HELD_NO_PAIR_DEMOTE_REMOVE_BLOCKED_4550", "mint=${mint.take(10)} symbol=${ts.symbol} pc=$processCount ageMs=$ageMs action=keep_watchlist_and_registry") } catch (_: Throwable) {}
                                 return
                             }
                             val demoted = try {
