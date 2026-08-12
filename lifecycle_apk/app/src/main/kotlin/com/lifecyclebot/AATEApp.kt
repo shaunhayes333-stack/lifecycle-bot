@@ -79,6 +79,17 @@ class AATEApp : Application() {
             ErrorLogger.error("App", "PortfolioStore6405 attach failed: ${e.message}", e)
         }
 
+        // V5.0.6437 P1 — IDEMPOTENCY KEY STORE (SQLite WAL, ACID).
+        // Persists BUY:runId:positionId and SELL:runId:positionId:generation
+        // keys so a mid-transaction process restart cannot resubmit a live
+        // order. Attach is idempotent.
+        try {
+            com.lifecyclebot.engine.truth.IdempotencyKeyStore6437.attach(this)
+            ErrorLogger.info("App", "IdempotencyKeyStore6437 attached — idempotency-key persistence active")
+        } catch (e: Exception) {
+            ErrorLogger.error("App", "IdempotencyKeyStore6437 attach failed: ${e.message}", e)
+        }
+
         // V5.0.6405 §3 — RESTART REPLAY. Rehydrate the in-memory
         // CheckpointRecoveryAuthority6405 from the ACID portfolio
         // store so restarts pick up open positions from the durable

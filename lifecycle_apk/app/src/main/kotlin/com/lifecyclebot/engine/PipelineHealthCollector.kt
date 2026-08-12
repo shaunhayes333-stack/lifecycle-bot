@@ -1733,6 +1733,16 @@ object PipelineHealthCollector {
             sb.append("  Token map single-flight:      ").append(
                 com.lifecyclebot.engine.truth.TokenMapSingleFlight6433.statusLine()
             ).append("\n")
+            // V5.0.6437 — slow cycle diagnostic + pre-supervisor learning budget guard + idempotency store.
+            sb.append("  Slow cycle diag (§6437):      ").append(
+                com.lifecyclebot.engine.truth.SlowCycleDiagnostic6437.statusLine()
+            ).append("\n")
+            sb.append("  Pre-supervisor budget (§6437):").append(
+                com.lifecyclebot.engine.truth.PreSupervisorBudgetGuard6437.statusLine()
+            ).append("\n")
+            sb.append("  Idempotency store (§6437):    ").append(
+                com.lifecyclebot.engine.truth.IdempotencyKeyStore6437.statusLine()
+            ).append("\n")
             sb.append(com.lifecyclebot.engine.truth.LivePipelineTrace6431.render())
         } catch (_: Throwable) {}
 

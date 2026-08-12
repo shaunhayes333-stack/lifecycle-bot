@@ -12567,6 +12567,10 @@ class BotService : Service() {
     private fun markProgress(phase: String) {
         lastProgressAtMs = System.currentTimeMillis()
         currentPhase = phase
+        // V5.0.6437 — slow-cycle diagnostic. Passive telemetry that
+        // attributes wall-clock time to phases so slow cycles show
+        // exactly which block wedged. Zero happy-path cost.
+        try { com.lifecyclebot.engine.truth.SlowCycleDiagnostic6437.notePhase(phase) } catch (_: Throwable) {}
     }
 
     /** V5.9.762 — service-scope rescue with CAS guard.
@@ -13781,6 +13785,9 @@ class BotService : Service() {
             val _cycleStartMs = System.currentTimeMillis()
             try {
               markProgress("ENTER")
+              // V5.0.6437 — begin cycle diagnostic + reset per-cycle learning budget.
+              try { com.lifecyclebot.engine.truth.SlowCycleDiagnostic6437.beginCycle(loopCount) } catch (_: Throwable) {}
+              try { com.lifecyclebot.engine.truth.PreSupervisorBudgetGuard6437.beginCycle() } catch (_: Throwable) {}
               ForensicLogger.lifecycle(
                 "CYCLE_PHASE",
                 "loop=$loopCount phase=ENTER"
@@ -13820,7 +13827,11 @@ class BotService : Service() {
             // auto-reimplement when proven winner. Per-lane dedupe inside
             // the scout (30-min TTL) prevents re-seeding.
             if (loopCount % 12 == 0 && !prevCycleWasSlow6421) {
-                try { com.lifecyclebot.engine.ChronicBleederScout.tick() } catch (_: Throwable) {}
+                try {
+                    com.lifecyclebot.engine.truth.PreSupervisorBudgetGuard6437.runBudgeted("ChronicBleederScout") {
+                        com.lifecyclebot.engine.ChronicBleederScout.tick()
+                    }
+                } catch (_: Throwable) {}
             }
 
             // V5.9.454 — WALLET RE-SYNC FIX.
@@ -13854,14 +13865,28 @@ class BotService : Service() {
             // V5.9.401 — Sentience auto-tune + distrust nomination (rate-limited internally)
             // V5.0.6421 — skip on slow cycles (see PRE_SUPERVISOR_LEARNING_SKIPPED_6421).
             if (!prevCycleWasSlow6421) {
-                try { runSentienceAutoTune() } catch (_: Throwable) {}
+                try {
+                    com.lifecyclebot.engine.truth.PreSupervisorBudgetGuard6437.runBudgeted("SentienceAutoTune") {
+                        runSentienceAutoTune()
+                    }
+                } catch (_: Throwable) {}
             }
 
             // V5.9.402 — LLM Lab tick (creation + paper exec + cull, all internally gated).
             // V5.0.6421 — skip on slow cycles (see PRE_SUPERVISOR_LEARNING_SKIPPED_6421).
             if (!prevCycleWasSlow6421) {
-                try { runLabUniverseTick() } catch (_: Throwable) {}
+                try {
+                    com.lifecyclebot.engine.truth.PreSupervisorBudgetGuard6437.runBudgeted("LabUniverseTick") {
+                        runLabUniverseTick()
+                    }
+                } catch (_: Throwable) {}
             }
+
+            // V5.0.6437 — pre-supervisor learning fanout phase marker so
+            // SlowCycleDiagnostic6437 can attribute wedges past this line
+            // (reconcile, watchdogs, watchlist rebuild) separately from
+            // the ChronicBleeder/Sentience/Lab learners above.
+            try { markProgress("LEARNING_DONE") } catch (_: Throwable) {}
 
             // ═══════════════════════════════════════════════════════════════════
             // V5.2: PIPELINE TRACE - Snapshot loop state at start
@@ -15601,6 +15626,10 @@ if (hotExitHandledSweep) {
             try {
               val _cycleElapsedMs = System.currentTimeMillis() - _cycleStartMs
               try { supervisorNoteCycleElapsedForThrottle(_cycleElapsedMs) } catch (_: Throwable) {}
+              // V5.0.6437 — noteCycleEnd emits SLOW_CYCLE_DIAGNOSTIC_6437 with
+              // the top-3 phase spend when the cycle exceeds 30s, so the
+              // operator can see EXACTLY which block wedged.
+              try { com.lifecyclebot.engine.truth.SlowCycleDiagnostic6437.noteCycleEnd(loopCount, _cycleElapsedMs) } catch (_: Throwable) {}
               markProgress("CYCLE_EXIT")
               ForensicLogger.lifecycle(
                 "CYCLE_PHASE",
