@@ -37,21 +37,21 @@ class LiveProbabilityEngineForensicRateLimit6356Test {
     fun rapid_pivot_forensic_uses_rate_limiter() {
         val txt = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt").readText()
         assertTrue("RAPID_PIVOT_SHAPED_4572 emit must be behind ForensicEmitRateLimiter6356.shouldEmit",
-            txt.contains("ForensicEmitRateLimiter6356.shouldEmit(\"LIVE_PROBABILITY_RAPID_PIVOT_SHAPED_4572\""))
+            txt.contains("ForensicEmitRateLimiter6356.shouldEmit(\"ENTRY_PROBABILITY_RAPID_PIVOT_SHAPED_4572\""))
     }
 
     @Test
     fun size_shape_forensic_uses_rate_limiter() {
         val txt = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt").readText()
         assertTrue("SIZE_SHAPE_5999 emit must be behind ForensicEmitRateLimiter6356.shouldEmit",
-            txt.contains("ForensicEmitRateLimiter6356.shouldEmit(\"LIVE_PROBABILITY_SIZE_SHAPE_5999\""))
+            txt.contains("ForensicEmitRateLimiter6356.shouldEmit(\"ENTRY_PROBABILITY_SIZE_SHAPE_5999\""))
     }
 
     @Test
     fun raw_reality_clamp_forensic_uses_rate_limiter() {
         val txt = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt").readText()
         assertTrue("RAW_REALITY_CLAMP_6000 emit must be behind ForensicEmitRateLimiter6356.shouldEmit",
-            txt.contains("ForensicEmitRateLimiter6356.shouldEmit(\"LIVE_PROBABILITY_RAW_REALITY_CLAMP_6000\""))
+            txt.contains("ForensicEmitRateLimiter6356.shouldEmit(\"ENTRY_PROBABILITY_RAW_REALITY_CLAMP_6000\""))
     }
 
     @Test
@@ -59,8 +59,8 @@ class LiveProbabilityEngineForensicRateLimit6356Test {
         val txt = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt").readText()
         // labelInc must NOT be gated by the rate limiter — cheap in-memory counters
         // are the only accurate frequency signal after the fix.
-        assertTrue(txt.contains("PipelineHealthCollector.labelInc(\"LIVE_PROBABILITY_RAPID_PIVOT_SHAPED_4572_"))
-        assertTrue(txt.contains("PipelineHealthCollector.labelInc(\"LIVE_PROBABILITY_SIZE_SHAPE_5999_"))
-        assertTrue(txt.contains("PipelineHealthCollector.labelInc(\"LIVE_PROBABILITY_RAW_REALITY_CLAMP_6000_"))
+        assertTrue(txt.contains("PipelineHealthCollector.labelInc(\"ENTRY_PROBABILITY_RAPID_PIVOT_SHAPED_4572_"))
+        assertTrue(txt.contains("PipelineHealthCollector.labelInc(\"ENTRY_PROBABILITY_SIZE_SHAPE_5999_"))
+        assertTrue(txt.contains("PipelineHealthCollector.labelInc(\"ENTRY_PROBABILITY_RAW_REALITY_CLAMP_6000_"))
     }
 }

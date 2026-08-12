@@ -16621,15 +16621,29 @@ if (hotExitHandledSweep) {
         // the worker cap to SUPERVISOR_EMERGENCY_MAX_WORKERS while active.
         try {
             val nowMono = android.os.SystemClock.elapsedRealtime()
+            // V5.0.6436 §1 — STATE-TRANSITION emission. Operator: "arming
+            // must be state-transition based: UNARMED → ARMED = one event.
+            // Do not re-emit ARMED once per expired worker." Capture the
+            // pre-call throttle window state so we only fire the ARMED
+            // forensic event when we actually transition from unarmed
+            // (no active window OR expired) to armed (future window).
+            val wasArmed6436 = supervisorEmergencyThrottleUntilMs > nowMono
             supervisorEmergencyThrottleUntilMs = SupervisorEmergencyThrottle6362.armUntil(
                 nowMonoMs = nowMono,
                 existingUntilMs = supervisorEmergencyThrottleUntilMs,
             )
-            ForensicLogger.lifecycle(
-                "SUPERVISOR_EMERGENCY_THROTTLE_ARMED_6362",
-                "reason=$reason $detail cap=$SUPERVISOR_EMERGENCY_MAX_WORKERS windowMs=300000",
-            )
-            try { PipelineHealthCollector.labelInc("SUPERVISOR_EMERGENCY_THROTTLE_ARMED_6362") } catch (_: Throwable) {}
+            val nowArmed6436 = supervisorEmergencyThrottleUntilMs > nowMono
+            if (!wasArmed6436 && nowArmed6436) {
+                ForensicLogger.lifecycle(
+                    "SUPERVISOR_EMERGENCY_THROTTLE_ARMED_6362",
+                    "reason=$reason $detail cap=$SUPERVISOR_EMERGENCY_MAX_WORKERS windowMs=300000",
+                )
+                try { PipelineHealthCollector.labelInc("SUPERVISOR_EMERGENCY_THROTTLE_ARMED_6362") } catch (_: Throwable) {}
+            } else if (wasArmed6436 && nowArmed6436) {
+                // Already armed — count the extend but do not spam the
+                // ARMED transition event.
+                try { PipelineHealthCollector.labelInc("SUPERVISOR_EMERGENCY_THROTTLE_EXTENDED_6436") } catch (_: Throwable) {}
+            }
         } catch (_: Throwable) {}
     }
     private fun supervisorNoteWorkerTimeoutForThrottle() {

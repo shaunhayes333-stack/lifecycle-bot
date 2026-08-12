@@ -17,7 +17,7 @@ package com.lifecyclebot.engine
  *  - Bootstrap-safe: neutral until evidence exists.
  */
 object LiveProbabilityEngine {
-    const val VERSION = "V5.0.4030_LIVE_PROBABILITY_ENGINE"
+    const val VERSION = "V5.0.4030_ENTRY_PROBABILITY_ENGINE"
 
     // V5.0.6000 — RAW-JOURNAL REALITY CHECK (operator directive: "flip the
     // bot green"). The sanitized StrategyTruthLedger was hiding MANIPULATED's
@@ -205,12 +205,12 @@ object LiveProbabilityEngine {
                             else -> "lifetime_only"
                         }
                         ForensicLogger.lifecycle(
-                            "LIVE_PROBABILITY_LANE_UNDAMPENED_PROVEN_WINNER_6247",
+                            "ENTRY_PROBABILITY_LANE_UNDAMPENED_PROVEN_WINNER_6247",
                             "lane=$lane override=LiveLaneGovernor.isProvenWinner note=live_wr_and_pf_above_winner_floor_override_pause_guard proven6267=$src6267",
                         )
-                        PipelineHealthCollector.labelInc("LIVE_PROBABILITY_LANE_UNDAMPENED_PROVEN_WINNER_6247")
+                        PipelineHealthCollector.labelInc("ENTRY_PROBABILITY_LANE_UNDAMPENED_PROVEN_WINNER_6247")
                         if (provenWinnerLifetime6267 && !provenWinner6247) {
-                            PipelineHealthCollector.labelInc("LIVE_PROBABILITY_LANE_UNDAMPENED_LIFETIME_6267_${laneU}")
+                            PipelineHealthCollector.labelInc("ENTRY_PROBABILITY_LANE_UNDAMPENED_LIFETIME_6267_${laneU}")
                         }
                     } catch (_: Throwable) {}
                     // Fall through to the normal forecast path below.
@@ -240,10 +240,10 @@ object LiveProbabilityEngine {
                 }
                 try {
                     ForensicLogger.lifecycle(
-                        "LIVE_PROBABILITY_LANE_PAUSED_FLUID_DAMPENED_4596",
+                        "ENTRY_PROBABILITY_LANE_PAUSED_FLUID_DAMPENED_4596",
                         "lane=$lane mult=$agiMult src=$agiSrc labProven=$labProven policyAuthoritative=$policyAuthoritative note=fluid_not_binary_agi_can_override",
                     )
-                    PipelineHealthCollector.labelInc("LIVE_PROBABILITY_LANE_PAUSED_FLUID_${laneU}")
+                    PipelineHealthCollector.labelInc("ENTRY_PROBABILITY_LANE_PAUSED_FLUID_${laneU}")
                 } catch (_: Throwable) {}
                 return Edge(lane, 0.35, 0.0, 0.0, 0.0, 0L, agiSrc, agiMult, "fluid_paused_dampener_4596=$agiMult")
                 }   // V5.0.6247 — close provenWinner6247 else-block
@@ -374,13 +374,13 @@ object LiveProbabilityEngine {
             try {
                 if (qualityBoost >= 1.20 || qualityBoost <= 0.75) {
                     // V5.0.6358 — rate-limit the disk emit per (lane, score band).
-                    if (ForensicEmitRateLimiter6356.shouldEmit("LIVE_PROBABILITY_QUALITY_BOOST_4596", "$lane|${score/10}")) {
+                    if (ForensicEmitRateLimiter6356.shouldEmit("ENTRY_PROBABILITY_QUALITY_BOOST_4596", "$lane|${score/10}")) {
                         ForensicLogger.lifecycle(
-                            "LIVE_PROBABILITY_QUALITY_BOOST_4596",
+                            "ENTRY_PROBABILITY_QUALITY_BOOST_4596",
                             "lane=$lane score=$score qualityBoost=${"%.2f".format(qualityBoost)} lowHitCap=${"%.2f".format(lowHitRateCap)} qualityAwareCap=${"%.2f".format(qualityAwareCap)} fwdPWin=${"%.2f".format(fwd.pWin)} fwdPRug=${"%.2f".format(fwd.pRug)}",
                         )
                     }
-                    PipelineHealthCollector.labelInc("LIVE_PROBABILITY_QUALITY_BOOST_4596_${lane.uppercase()}")
+                    PipelineHealthCollector.labelInc("ENTRY_PROBABILITY_QUALITY_BOOST_4596_${lane.uppercase()}")
                 }
             } catch (_: Throwable) {}
             val pnlEdge = if (maxOf(pWin, lanePWin) >= 0.35) (eBase / 140.0).coerceIn(-0.35, 0.35) else (eBase / 220.0).coerceIn(-0.25, 0.10)
@@ -428,13 +428,13 @@ object LiveProbabilityEngine {
             }
             val postPivotMult = if (rapidPivotToxicBucket4572) {
                 try {
-                    if (ForensicEmitRateLimiter6356.shouldEmit("LIVE_PROBABILITY_RAPID_PIVOT_SHAPED_4572", lane)) {
+                    if (ForensicEmitRateLimiter6356.shouldEmit("ENTRY_PROBABILITY_RAPID_PIVOT_SHAPED_4572", lane)) {
                         ForensicLogger.lifecycle(
-                            "LIVE_PROBABILITY_RAPID_PIVOT_SHAPED_4572",
+                            "ENTRY_PROBABILITY_RAPID_PIVOT_SHAPED_4572",
                             "lane=$lane n=$laneSamples pWin=${"%.0f".format(lanePWin*100)}% E=${"%+.1f".format(eBase)}% action=lane_local_tactic_pivot sizeFloor=0.35 no_live_bootstrap_tuition=true",
                         )
                     }
-                    PipelineHealthCollector.labelInc("LIVE_PROBABILITY_RAPID_PIVOT_SHAPED_4572_${lane.uppercase()}")
+                    PipelineHealthCollector.labelInc("ENTRY_PROBABILITY_RAPID_PIVOT_SHAPED_4572_${lane.uppercase()}")
                 } catch (_: Throwable) {}
                 minOf(mult, 0.35).coerceAtLeast(0.35)
             } else mult
@@ -452,13 +452,13 @@ object LiveProbabilityEngine {
             val finalMult = (postPivotMult * scoreShape.multiplier).coerceIn(0.10, 2.20)
             try {
                 if (scoreShape.multiplier != 1.0 && scoreShape.samples >= 3) {
-                    if (ForensicEmitRateLimiter6356.shouldEmit("LIVE_PROBABILITY_SIZE_SHAPE_5999", "$lane|$score")) {
+                    if (ForensicEmitRateLimiter6356.shouldEmit("ENTRY_PROBABILITY_SIZE_SHAPE_5999", "$lane|$score")) {
                         ForensicLogger.lifecycle(
-                            "LIVE_PROBABILITY_SIZE_SHAPE_5999",
+                            "ENTRY_PROBABILITY_SIZE_SHAPE_5999",
                             "lane=$lane score=$score bandMult=${"%.2f".format(scoreShape.multiplier)} bandN=${scoreShape.samples} bandMean=${"%+.1f".format(scoreShape.meanPnlPct)}% reason=${scoreShape.reason} finalMult=${"%.2f".format(finalMult)}",
                         )
                     }
-                    PipelineHealthCollector.labelInc("LIVE_PROBABILITY_SIZE_SHAPE_5999_${lane.uppercase()}")
+                    PipelineHealthCollector.labelInc("ENTRY_PROBABILITY_SIZE_SHAPE_5999_${lane.uppercase()}")
                 }
             } catch (_: Throwable) {}
 
@@ -476,13 +476,13 @@ object LiveProbabilityEngine {
             val raw = try { rawLaneReality(lane) } catch (_: Throwable) { null }
             val clampedMultPre6267 = if (raw != null && raw.n >= 5 && raw.wrPct <= 15.0 && raw.meanPnlPct <= -40.0) {
                 try {
-                    if (ForensicEmitRateLimiter6356.shouldEmit("LIVE_PROBABILITY_RAW_REALITY_CLAMP_6000", lane)) {
+                    if (ForensicEmitRateLimiter6356.shouldEmit("ENTRY_PROBABILITY_RAW_REALITY_CLAMP_6000", lane)) {
                         ForensicLogger.lifecycle(
-                            "LIVE_PROBABILITY_RAW_REALITY_CLAMP_6000",
+                            "ENTRY_PROBABILITY_RAW_REALITY_CLAMP_6000",
                             "lane=$lane rawN=${raw.n} rawWR=${"%.1f".format(raw.wrPct)}% rawEV=${"%+.1f".format(raw.meanPnlPct)}% rawSOL=${"%+.4f".format(raw.totalSolPnl)} preClampMult=${"%.2f".format(finalMult)} clampedTo=0.08 note=sanitizer_masked_bleed_raw_journal_truth",
                         )
                     }
-                    PipelineHealthCollector.labelInc("LIVE_PROBABILITY_RAW_REALITY_CLAMP_6000_${lane.uppercase()}")
+                    PipelineHealthCollector.labelInc("ENTRY_PROBABILITY_RAW_REALITY_CLAMP_6000_${lane.uppercase()}")
                 } catch (_: Throwable) {}
                 minOf(finalMult, 0.08)
             } else finalMult
@@ -499,10 +499,10 @@ object LiveProbabilityEngine {
                 val boosted = (clampedMultPre6267 * 1.25).coerceIn(0.10, 1.80)
                 try {
                     ForensicLogger.lifecycle(
-                        "LIVE_PROBABILITY_LIFETIME_WINNER_BOOST_6267",
+                        "ENTRY_PROBABILITY_LIFETIME_WINNER_BOOST_6267",
                         "lane=$lane preMult=${"%.2f".format(clampedMultPre6267)} boostedMult=${"%.2f".format(boosted)} boost=1.25x note=lifetime_proven_bluechip_class_boost",
                     )
-                    PipelineHealthCollector.labelInc("LIVE_PROBABILITY_LIFETIME_WINNER_BOOST_6267_${lane.uppercase()}")
+                    PipelineHealthCollector.labelInc("ENTRY_PROBABILITY_LIFETIME_WINNER_BOOST_6267_${lane.uppercase()}")
                 } catch (_: Throwable) {}
                 boosted
             } else clampedMultPre6267

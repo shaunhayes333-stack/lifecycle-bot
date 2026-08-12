@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicLong
  *   * STANDARD lane bleeding on live: WR=33% n=27 PF=0.75 E=-3.8% but the bot
  *     kept routing new buys to it (756 lane-evals vs BLUECHIP's 151).
  *   * BLUECHIP (65% WR lifetime, +166 SOL) was being DAMPENED to mult=0.55
- *     via LIVE_PROBABILITY_LANE_PAUSED_FLUID_DAMPENED_4596 despite being
+ *     via ENTRY_PROBABILITY_LANE_PAUSED_FLUID_DAMPENED_4596 despite being
  *     the profitable lane.
  *   * RealizedWalletCompounding correctly detected the negative-EV state
  *     (mult=0.55 reason=defensive_clean_negative_or_low_wr) but that only

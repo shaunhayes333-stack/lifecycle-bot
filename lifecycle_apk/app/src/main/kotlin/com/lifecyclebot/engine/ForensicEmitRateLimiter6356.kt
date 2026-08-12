@@ -6,8 +6,8 @@ import java.util.concurrent.ConcurrentHashMap
  * V5.0.6356 — FORENSIC EMIT RATE LIMITER.
  *
  * OPERATOR SYMPTOM
- *   The V5.0.6308-era emergency report showed LIVE_PROBABILITY_RAPID_PIVOT_SHAPED_4572
- *   / LIVE_PROBABILITY_SIZE_SHAPE_5999 / LIVE_PROBABILITY_RAW_REALITY_CLAMP_6000
+ *   The V5.0.6308-era emergency report showed ENTRY_PROBABILITY_RAPID_PIVOT_SHAPED_4572
+ *   / ENTRY_PROBABILITY_SIZE_SHAPE_5999 / ENTRY_PROBABILITY_RAW_REALITY_CLAMP_6000
  *   firing 30-50 times per single ms tick. Each call writes a
  *   ForensicLogger.lifecycle row to disk, so the events bombing at
  *   30/ms is a direct ANR source (max frame gap 46723ms in the same
