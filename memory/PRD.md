@@ -1,6 +1,45 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6437 (Feb 2026) — ANR DIAGNOSTIC + IDEMPOTENCY-KEY PERSISTENCE
+
+Operator V5.0.6436 dump: cycles spiking to 75,029ms with workerTimeout=62
+despite supervisor being hard-bounded to 20s. The overshoot lives OUTSIDE
+runSupervisorPhase — either the pre-supervisor learning fanout or one of
+the 1500-line ENTER→PRE_SUPERVISOR unchecked blocks that had zero
+markProgress markers, making the wedge invisible.
+
+### P0 — Slow cycle diagnostic + pre-supervisor learning budget guard
+- `SlowCycleDiagnostic6437` — passive telemetry that attributes wall-clock
+  time to each markProgress phase. Emits `SLOW_CYCLE_DIAGNOSTIC_6437`
+  with top-3 phase spend whenever a cycle >30s so the operator sees
+  EXACTLY which block wedged.
+- `PreSupervisorBudgetGuard6437.runBudgeted(name, block)` — wraps
+  ChronicBleederScout / SentienceAutoTune / LabUniverseTick with
+  per-learner wall-clock measurement + a 5s cycle-level fanout budget.
+  `LEARNING_FANOUT_SLOW_6437` fires when a learner exceeds 2s;
+  subsequent learners in the same cycle are skipped when the budget is
+  exhausted. Belt on top of prevCycleWasSlow6421.
+- `LEARNING_DONE` markProgress marker inserted after the learner
+  fanout so the diagnostic can distinguish learner wedges from
+  reconcile / watchdog / watchlist-rebuild wedges.
+
+### P1 — Idempotency-key SQLite persistence
+- `IdempotencyKeyStore6437` — SQLite WAL-backed store (same pattern as
+  PortfolioStore6405). `checkAndReserve(key)` returns NEW or DUPLICATE
+  atomically via `INSERT OR IGNORE`. Key formats:
+  ```
+  BUY:runId:positionId
+  SELL:runId:positionId:generation
+  ```
+  Attached in `AATEApp.onCreate()` alongside PortfolioStore6405 so the
+  in-memory ExecutionTicketMachine6411 gate has a durable belt beneath
+  it — a mid-transaction process restart can no longer resubmit a
+  live order.
+
+CI: Build AATE APK green (run 31621971780). Awaiting operator runtime
+telemetry to confirm cycle-time recovery.
+
 ## V5.0.6414 (Feb 2026) — GOVERNOR RECOVERY AUTO-UNSTICK
 
 Operator report showed V5.0.6411/6412 authorising 176 buys but submitting

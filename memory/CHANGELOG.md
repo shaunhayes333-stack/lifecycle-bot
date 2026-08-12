@@ -1,3 +1,30 @@
+## V5.0.6437 — 2026-08-12 — ANR DIAGNOSTIC + IDEMPOTENCY-KEY PERSISTENCE
+
+Response to operator V5.0.6436 dump showing 75s cycles + workerTimeout=62
+despite supervisor bounded to 20s. Attribution gap: 1500-line block
+between ENTER and PRE_SUPERVISOR had zero markProgress markers so the
+wedge was invisible in forensic logs.
+
+P0 — Slow cycle diagnostic:
+- `SlowCycleDiagnostic6437`: attributes wall-clock time to markProgress
+  phases; emits SLOW_CYCLE_DIAGNOSTIC_6437 with top-3 phase spend when
+  a cycle >30s.
+- `PreSupervisorBudgetGuard6437`: wraps ChronicBleederScout,
+  SentienceAutoTune, LabUniverseTick with wall-clock measurement + 5s
+  cycle fanout budget. LEARNING_FANOUT_SLOW_6437 fires >2s per learner.
+- `LEARNING_DONE` markProgress marker after learner fanout.
+
+P1 — Idempotency-key SQLite persistence:
+- `IdempotencyKeyStore6437`: SQLite WAL store (`idempotency6437.db`)
+  with `checkAndReserve(key)` returning NEW/DUPLICATE atomically. Key
+  formats `BUY:runId:positionId` / `SELL:runId:positionId:generation`.
+  Attached in AATEApp.onCreate alongside PortfolioStore6405.
+
+Pipeline health dump lines added for all three modules.
+
+CI: Build AATE APK green (run 31621971780). Runtime smoke pending.
+
+
 ## V5.0.6427-V5.0.6435 — 2026-08-06 to 2026-08-11 — CORRECTNESS PATCH SERIES
 
 Response to two operator specs (V5.0.6424 spec + PIPELINE CHOKE spec).
