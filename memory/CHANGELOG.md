@@ -1,3 +1,46 @@
+## V5.0.6442-6443 — 2026-08-13 — CONSUMER MIGRATION + JVM METHOD-SIZE HOTFIX
+
+Operator (V5.0.6441 next actions): "do all next items now. no skipping."
+All 5 consumer migrations wired via additive-mirror pattern; legacy
+writers keep writing while canonical mirrors sit next to them for one
+trading window of parity validation before deletion (V5.0.6444+).
+
+V5.0.6442 additions:
+- `CanonicalPositionAuthority6441.openPosition` accepts qtyRaw=0 to
+  create `PENDING_ENTRY`; new `promotePendingToOpen()` upgrades to OPEN
+  when the fill arrives with actual qty/cost.
+- `ExecutorCanonicalMirror6442` — shared helper next to legacy Executor
+  writer sites. positionIdOf(mint), mirrorBuyAttempt (reserves
+  IdempotencyKeyStore6437 first), mirrorBuyFill, mirrorSell.
+- `Executor.paperBuy` wired: mirrorBuyAttempt runs alongside legacy
+  PositionStateLedger6427.registerOpen.
+- `EdgeOptimizer.calculatePositionSize` result routed through
+  OrderSizeResolver6441.resolve for ORDER_SIZE_RESOLVED_6441 telemetry
+  (parity-preserving: returns MIN(resolver, preResolver)).
+- `ScannerFanoutDedupe6374.admit` consults SameMintDedupAuthority6441
+  after passing the TTL dedupe — mints already OPEN or in
+  REENTRY_LOCKOUT are blocked at source.
+- `PositionCloseLedger.markClosedFull` now (a) mirrors the sell into
+  canonical authority, (b) calls RewardPurityGate6441.acceptFinalizedClose,
+  (c) emits ForensicRowMirror6442 canonical schema row.
+- `ForensicRowMirror6442` — verifies realizedPnlSol invariant, buffers
+  last 512 rows for CanonicalReconciler6441.fullReconstruct.
+- BotService cycle end: FULL reconciliation every 60 loops using
+  ForensicRowMirror snapshot.
+
+V5.0.6443 hotfix:
+- V5.0.6442 build failed with Kotlin back-end "Couldn't transform
+  method node" — botLoop suspend method exceeded JVM 64KB bytecode
+  limit due to the accumulated V5.0.6441 + V5.0.6442 cycle hooks
+  inline in botLoop.
+- Fix: extracted the hooks into two private non-suspend helpers on
+  BotService (runCanonicalCycleBeginHooks6443 + runCanonicalCycleEndHooks6443).
+  botLoop now calls the helpers instead of 30+ lines of inline try/catch.
+  Behaviour preserved 1:1.
+
+CI: Build AATE APK green (run 31676111762).
+
+
 ## V5.0.6441 — 2026-08-12 — SOURCE-FIRST PIPELINE CORRECTION / AUTHORITIES ESTABLISHED
 
 Operator: 12-domain source-first correctness mandate. No lane disabling,

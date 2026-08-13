@@ -1,6 +1,39 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6442-6443 (Feb 2026) — CONSUMER MIGRATION + JVM METHOD-SIZE HOTFIX
+
+Operator: V5.0.6441 next actions completed. All 5 consumer migrations
+shipped via additive-mirror pattern.
+
+### §1 Executor writer migration
+- `CanonicalPositionAuthority6441` gained PENDING_ENTRY lifecycle +
+  `promotePendingToOpen` for fills.
+- `ExecutorCanonicalMirror6442` — mirrorBuyAttempt / mirrorBuyFill /
+  mirrorSell shared helpers. Wired in Executor.paperBuy.
+
+### §1 Sizing migration
+- `EdgeOptimizer.calculatePositionSize` output routed through
+  `OrderSizeResolver6441.resolve` for canonical audit trail.
+
+### §4 Scanner intake gate
+- `ScannerFanoutDedupe6374.admit` consults `SameMintDedupAuthority6441`
+  after TTL dedupe — blocks entry work on already-open mints.
+
+### §6 Reward bus migration
+- `PositionCloseLedger.markClosedFull` mirrors sell → canonical, then
+  fires `RewardPurityGate6441.acceptFinalizedClose`.
+
+### §5 Journal schema migration
+- `ForensicRowMirror6442` emits canonical rows at every close, verifies
+  invariant, buffers 512 for FULL reconciler diffs.
+
+### V5.0.6443 hotfix
+- V5.0.6442 pushed botLoop past JVM 64KB method limit; extracted the
+  cycle hooks into private helpers (behaviour preserved 1:1).
+
+CI: Build AATE APK green (run 31676111762).
+
 ## V5.0.6441 (Feb 2026) — SOURCE-FIRST PIPELINE CORRECTION (AUTHORITIES ESTABLISHED)
 
 Operator: 12-domain source-first mandate. Fix defects at their originating
