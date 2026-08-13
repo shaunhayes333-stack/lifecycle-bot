@@ -1,3 +1,54 @@
+## V5.0.6441 — 2026-08-12 — SOURCE-FIRST PIPELINE CORRECTION / AUTHORITIES ESTABLISHED
+
+Operator: 12-domain source-first correctness mandate. No lane disabling,
+no throughput reduction, PAPER stays execution-faithful to LIVE, no
+background trading. This ship establishes every mandated authority as
+canonical services + wires the mandatory entry points. V5.0.6442+
+phases will migrate remaining consumers off duplicates.
+
+Authority modules (all under `engine/truth/`):
+- `CanonicalPositionAuthority6441` (§1/§2/§3) — single source of truth
+  for position state (BigInteger raw qty, cost basis, cash). Every
+  mutation gated on idempotency key under ReentrantLock. Cash-negative
+  writes rejected. Auto-transition to CLOSED when remaining hits zero.
+- `OrderSizeResolver6441` (§1) — mandatory sizing pipeline
+  requested→risk→ladder→cashCap→laneCap→minExecutable→FINAL. Compatible
+  with V5.0.6440 RunnerCompoundingLadder6440.
+- `SameMintDedupAuthority6441` (§4) — ACCEPT/COALESCE/BLOCK/
+  REENTRY_LOCKOUT gate. Per-cycle reset.
+- `ForensicExecutionRow6441` (§5) — immutable 17-field schema with
+  invariant `realizedPnlSol = proceedsSol - soldCostBasisSol - feesSol`.
+- `RewardPurityGate6441` (§6) — canonical W/L/BE bus; shadow signals
+  in separate namespace.
+- `LearnerRuntimeBudgetGuard6441` (§7) — bounded work-slice budgets
+  with resumption tracking.
+- `CanonicalReconciler6441` (§8) — QUICK cash+qty invariant check +
+  FULL event-replay reconstruction. Wired at loopCount % 9.
+- `RootCauseTelemetry6441` (§10) — subsystem-attributed cycle time.
+  Wired at cycle end.
+- `StartupInvariantGate6441` (§11) — reconstruction gate before scanner
+  ingestion. Wired in AATEApp.onCreate.
+- `AcceptanceInvariantAudit6441` (§12) — on-demand audit runner. Wired
+  at loopCount % 6.
+
+Wiring:
+- BotService.botLoop begin: reset dedup + root-cause per-cycle state.
+- BotService.botLoop cycle end: root-cause classify + quick reconcile
+  every 9 loops + acceptance audit every 6 loops.
+- AATEApp.onCreate: startup gate opens after PortfolioStore6405 +
+  IdempotencyKeyStore6437 attach.
+- PipelineHealthCollector: 9 new status lines exposed.
+
+Migration explicitly deferred to V5.0.6442+:
+- Executor paper/live BUY/SELL paths → CanonicalPositionAuthority6441.
+- Executor sizing sites → OrderSizeResolver6441.
+- Learner subscribers → RewardPurityGate6441.
+- Scanner intake → SameMintDedupAuthority6441.
+- Journal writers → ForensicExecutionRow6441.
+
+CI: Build AATE APK green (run 31672054299).
+
+
 ## V5.0.6440 — 2026-08-12 — SHAPER→LEARNERS + RUNNER LADDER + RUNTIME HEALTH
 
 Operator (V5.0.6439 follow-up next actions).

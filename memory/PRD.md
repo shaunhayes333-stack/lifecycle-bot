@@ -1,6 +1,39 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6441 (Feb 2026) — SOURCE-FIRST PIPELINE CORRECTION (AUTHORITIES ESTABLISHED)
+
+Operator: 12-domain source-first mandate. Fix defects at their originating
+state/authority boundary. No lane disabling, PAPER execution-faithful to
+LIVE, no background trading.
+
+### Modules created (all engine/truth/)
+- `CanonicalPositionAuthority6441` — §1/§2/§3 single mutable truth.
+- `OrderSizeResolver6441` — §1 mandatory sizing pipeline.
+- `SameMintDedupAuthority6441` — §4 source-first mint dedup.
+- `ForensicExecutionRow6441` — §5 immutable 17-field schema.
+- `RewardPurityGate6441` — §6 canonical W/L/BE bus.
+- `LearnerRuntimeBudgetGuard6441` — §7 bounded slices.
+- `CanonicalReconciler6441` — §8 QUICK + FULL modes.
+- `RootCauseTelemetry6441` — §10 subsystem attribution.
+- `StartupInvariantGate6441` — §11 reconstruction gate.
+- `AcceptanceInvariantAudit6441` — §12 acceptance runner.
+
+### Wiring
+- Cycle begin: dedup + root-cause reset.
+- Cycle end: root-cause classify, QUICK reconcile @loop%9, audit @loop%6.
+- AATEApp: startup gate opens after storage attach.
+- Pipeline dump: 9 new status lines.
+
+### Deferred to V5.0.6442+ (migration phases)
+- Executor paper/live BUY/SELL paths → `CanonicalPositionAuthority6441`.
+- Executor sizing sites → `OrderSizeResolver6441`.
+- Learner subscribers → `RewardPurityGate6441`.
+- Scanner intake → `SameMintDedupAuthority6441`.
+- Journal writers → `ForensicExecutionRow6441`.
+
+CI: Build AATE APK green (run 31672054299).
+
 ## V5.0.6440 (Feb 2026) — SHAPER→LEARNERS + RUNNER LADDER + RUNTIME HEALTH
 
 Operator V5.0.6439 follow-up: (1) wire shaper into SentienceAutoTune /
