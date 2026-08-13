@@ -13298,6 +13298,22 @@ class Executor(
         // locally with the normalized value.
         @Suppress("NAME_SHADOWING")
         val layerTag: String = LaneAlias.normalize(layerTag).ifBlank { layerTag }
+        // V5.0.6444 §1 LIVE EXECUTOR MIGRATION — mirror the live buy
+        // attempt into CanonicalPositionAuthority6441 via
+        // ExecutorCanonicalMirror6442. Runs at the earliest point so
+        // even a downstream reject leaves a canonical PENDING_ENTRY
+        // trace with the SQLite idempotency key reserved. The mirror is
+        // no-op on failure so a bug never breaks the live path.
+        try {
+            com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyAttempt(
+                mint = ts.mint,
+                symbol = ts.symbol.ifBlank { ts.mint.take(6) },
+                lane = layerTag.uppercase().take(24).ifBlank { "LIVE_STANDARD" },
+                estimatedCostSol = sol,
+                estimatedFeesSol = 0.0,
+                paperMode = false,
+            )
+        } catch (_: Throwable) {}
 
         // V5.0.6325 — GOVERNOR SIZE MULTIPLIER APPLIED AT LIVE ENTRY.
         // Wires the 6324 governor state directly into the live buy
@@ -18540,6 +18556,29 @@ class Executor(
 
     fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null): SellResult {
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+        // V5.0.6444 §1 EXECUTOR SELL MIGRATION — mirror the sell attempt
+        // into CanonicalPositionAuthority6441 via ExecutorCanonicalMirror6442.
+        // Mirror runs BEFORE the legacy sell path so any invariant reject
+        // is visible in canonical telemetry. The mirror is best-effort:
+        // if the canonical position doesn't exist (legacy-only sell), the
+        // mirror no-ops and the legacy path continues untouched.
+        try {
+            val pos0 = ts.position
+            if (pos0.isOpen) {
+                val soldQtyRaw = try { java.math.BigInteger.valueOf(pos0.tokenAmount.toLong()) } catch (_: Throwable) { java.math.BigInteger.ZERO }
+                if (soldQtyRaw > java.math.BigInteger.ZERO) {
+                    com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
+                        mint = ts.mint,
+                        generation = System.currentTimeMillis() / 1000L,
+                        soldQtyRaw = soldQtyRaw,
+                        proceedsSol = 0.0,
+                        soldCostBasisSol = 0.0,
+                        feesSol = 0.0,
+                        paperMode = true,
+                    )
+                }
+            }
+        } catch (_: Throwable) {}
         
         val pos   = ts.position
         val price = getActualPrice(ts)
@@ -19958,6 +19997,29 @@ class Executor(
                          wallet: SolanaWallet, walletSol: Double,
                          identity: TradeIdentity? = null): SellResult {
         ExecutionRootCauseTrace.sell("LIVE_SELL_ENTRY", ts, "reason=$reason walletSol=$walletSol posQty=${ts.position.qtyToken} entry=${ts.position.entryPrice} high=${ts.position.highestPrice}")
+        // V5.0.6444 §1 LIVE EXECUTOR SELL MIGRATION — mirror the live
+        // sell attempt into CanonicalPositionAuthority6441. Runs at the
+        // earliest point so the canonical authority tracks live trades
+        // exactly like paper. Best-effort no-op if the canonical
+        // position is unknown (legacy sell not paired with a canonical
+        // open — will resolve once liveBuy path is fully migrated).
+        try {
+            val pos0 = ts.position
+            if (pos0.isOpen) {
+                val soldQtyRaw = try { java.math.BigInteger.valueOf(pos0.tokenAmount.toLong()) } catch (_: Throwable) { java.math.BigInteger.ZERO }
+                if (soldQtyRaw > java.math.BigInteger.ZERO) {
+                    com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
+                        mint = ts.mint,
+                        generation = System.currentTimeMillis() / 1000L,
+                        soldQtyRaw = soldQtyRaw,
+                        proceedsSol = 0.0,
+                        soldCostBasisSol = 0.0,
+                        feesSol = 0.0,
+                        paperMode = false,
+                    )
+                }
+            }
+        } catch (_: Throwable) {}
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         var closeAuthoritySig: String? = null
         

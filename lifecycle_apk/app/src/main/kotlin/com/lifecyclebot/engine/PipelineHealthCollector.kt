@@ -1807,6 +1807,13 @@ object PipelineHealthCollector {
             sb.append("  Forensic row mirror (§6442):  ").append(
                 com.lifecyclebot.engine.truth.ForensicRowMirror6442.statusLine()
             ).append("\n")
+            // V5.0.6444 — Sentience/Lab reward bridge + trader sizing bridge.
+            sb.append("  Sentience reward bridge(§6444)").append(
+                com.lifecyclebot.engine.truth.SentienceLabRewardBridge6444.statusLine()
+            ).append("\n")
+            sb.append("  Trader sizing bridge (§6444): ").append(
+                com.lifecyclebot.engine.truth.TraderSizingBridge6444.statusLine()
+            ).append("\n")
             sb.append(com.lifecyclebot.engine.truth.LivePipelineTrace6431.render())
         } catch (_: Throwable) {}
 

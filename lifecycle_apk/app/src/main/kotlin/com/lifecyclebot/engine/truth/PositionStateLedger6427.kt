@@ -55,6 +55,22 @@ object PositionStateLedger6427 {
         val slot = ledger.computeIfAbsent(positionId) { Slot() }
         slot.state.compareAndSet(State.CLOSED, State.OPEN)  // recycle if reopened
         slot.lastTransitionMs.set(System.currentTimeMillis())
+        // V5.0.6444 — LEGACY WRITER ROUTE. Mirror every registerOpen
+        // into the canonical CanonicalPositionAuthority6441 via
+        // ExecutorCanonicalMirror6442.mirrorBuyAttempt so ANY caller
+        // that still writes through this legacy ledger also lands in
+        // the canonical authority. This is the safety net for callers
+        // that haven't been individually migrated yet.
+        try {
+            com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyAttempt(
+                mint = positionId,
+                symbol = positionId.take(8),
+                lane = "LEGACY_LEDGER_ROUTE",
+                estimatedCostSol = 0.0,
+                estimatedFeesSol = 0.0,
+                paperMode = true,   // conservative default; live paths already mirror explicitly
+            )
+        } catch (_: Throwable) {}
     }
 
     /** After a partial sell that leaves qty > 0. */
