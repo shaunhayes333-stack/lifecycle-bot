@@ -12573,6 +12573,40 @@ class BotService : Service() {
         try { com.lifecyclebot.engine.truth.SlowCycleDiagnostic6437.notePhase(phase) } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.6443 — canonical cycle BEGIN hooks. Extracted from botLoop to
+     * keep the suspend method under the JVM 64KB size limit. Called
+     * exactly once per cycle right after markProgress("ENTER").
+     */
+    private fun runCanonicalCycleBeginHooks6443(loopCount: Int) {
+        try { com.lifecyclebot.engine.truth.SlowCycleDiagnostic6437.beginCycle(loopCount) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.PreSupervisorBudgetGuard6437.beginCycle() } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.SameMintDedupAuthority6441.beginCycle() } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.RootCauseTelemetry6441.beginCycle() } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.6443 — canonical cycle END hooks. Extracted from botLoop to
+     * keep the suspend method under the JVM 64KB size limit. Runs all
+     * per-cycle diagnostic + reconciler + audit passes.
+     */
+    private fun runCanonicalCycleEndHooks6443(loopCount: Int, cycleElapsedMs: Long) {
+        try { com.lifecyclebot.engine.truth.SlowCycleDiagnostic6437.noteCycleEnd(loopCount, cycleElapsedMs) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.RootCauseTelemetry6441.classifyCycle(cycleElapsedMs) } catch (_: Throwable) {}
+        if (loopCount % 9 == 0) {
+            try { com.lifecyclebot.engine.truth.CanonicalReconciler6441.quickCheck() } catch (_: Throwable) {}
+        }
+        if (loopCount % 60 == 0 && loopCount > 0) {
+            try {
+                val rows = com.lifecyclebot.engine.truth.ForensicRowMirror6442.snapshot()
+                com.lifecyclebot.engine.truth.CanonicalReconciler6441.fullReconstruct(rows)
+            } catch (_: Throwable) {}
+        }
+        if (loopCount % 6 == 0) {
+            try { com.lifecyclebot.engine.truth.AcceptanceInvariantAudit6441.runAudit() } catch (_: Throwable) {}
+        }
+    }
+
     /** V5.9.762 — service-scope rescue with CAS guard.
      *  Called from the heartbeat handler ONLY when the active loop Job
      *  is genuinely dead (null / cancelled / completed). Uses the
@@ -13785,14 +13819,9 @@ class BotService : Service() {
             val _cycleStartMs = System.currentTimeMillis()
             try {
               markProgress("ENTER")
-              // V5.0.6437 — begin cycle diagnostic + reset per-cycle learning budget.
-              try { com.lifecyclebot.engine.truth.SlowCycleDiagnostic6437.beginCycle(loopCount) } catch (_: Throwable) {}
-              try { com.lifecyclebot.engine.truth.PreSupervisorBudgetGuard6437.beginCycle() } catch (_: Throwable) {}
-              // V5.0.6441 §4 + §10 — reset per-cycle same-mint dedup state +
-              // root-cause telemetry so every cycle starts with a clean
-              // subsystem attribution ledger.
-              try { com.lifecyclebot.engine.truth.SameMintDedupAuthority6441.beginCycle() } catch (_: Throwable) {}
-              try { com.lifecyclebot.engine.truth.RootCauseTelemetry6441.beginCycle() } catch (_: Throwable) {}
+              // V5.0.6443 — canonical cycle hooks moved to helper to keep
+              // the botLoop suspend method under the JVM 64KB size limit.
+              runCanonicalCycleBeginHooks6443(loopCount)
               ForensicLogger.lifecycle(
                 "CYCLE_PHASE",
                 "loop=$loopCount phase=ENTER"
@@ -15716,32 +15745,13 @@ if (hotExitHandledSweep) {
             try {
               val _cycleElapsedMs = System.currentTimeMillis() - _cycleStartMs
               try { supervisorNoteCycleElapsedForThrottle(_cycleElapsedMs) } catch (_: Throwable) {}
-              // V5.0.6437 — noteCycleEnd emits SLOW_CYCLE_DIAGNOSTIC_6437 with
-              // the top-3 phase spend when the cycle exceeds 30s, so the
-              // operator can see EXACTLY which block wedged.
-              try { com.lifecyclebot.engine.truth.SlowCycleDiagnostic6437.noteCycleEnd(loopCount, _cycleElapsedMs) } catch (_: Throwable) {}
-              // V5.0.6441 §10 — subsystem-attributed root cause classify.
-              try { com.lifecyclebot.engine.truth.RootCauseTelemetry6441.classifyCycle(_cycleElapsedMs) } catch (_: Throwable) {}
-              // V5.0.6441 §8 — quick reconcile every 90s; the module gates
-              // internally on cadence so calling per-cycle is safe/cheap.
-              if (loopCount % 9 == 0) {
-                  try { com.lifecyclebot.engine.truth.CanonicalReconciler6441.quickCheck() } catch (_: Throwable) {}
-              }
-              // V5.0.6442 §8 — FULL reconciliation every ~10 minutes using
-              // the ForensicRowMirror6442 buffered rows. The reconciler
-              // diffs the reconstructed state against the canonical
-              // authority and emits RECONCILER_FULL_BROKEN_6441 on any
-              // mismatch without silently rewriting history.
-              if (loopCount % 60 == 0 && loopCount > 0) {
-                  try {
-                      val rows = com.lifecyclebot.engine.truth.ForensicRowMirror6442.snapshot()
-                      com.lifecyclebot.engine.truth.CanonicalReconciler6441.fullReconstruct(rows)
-                  } catch (_: Throwable) {}
-              }
-              // V5.0.6441 §12 — acceptance invariant audit every 60s.
-              if (loopCount % 6 == 0) {
-                  try { com.lifecyclebot.engine.truth.AcceptanceInvariantAudit6441.runAudit() } catch (_: Throwable) {}
-              }
+              // V5.0.6443 — all cycle-end canonical hooks moved to helper
+              // so the botLoop suspend method stays under the JVM 64KB
+              // method size limit. Includes: SlowCycleDiagnostic
+              // noteCycleEnd, RootCauseTelemetry classifyCycle, QUICK
+              // reconcile (loop%9), FULL reconstruct (loop%60), and
+              // acceptance invariant audit (loop%6).
+              runCanonicalCycleEndHooks6443(loopCount, _cycleElapsedMs)
               markProgress("CYCLE_EXIT")
               ForensicLogger.lifecycle(
                 "CYCLE_PHASE",
