@@ -13788,6 +13788,11 @@ class BotService : Service() {
               // V5.0.6437 — begin cycle diagnostic + reset per-cycle learning budget.
               try { com.lifecyclebot.engine.truth.SlowCycleDiagnostic6437.beginCycle(loopCount) } catch (_: Throwable) {}
               try { com.lifecyclebot.engine.truth.PreSupervisorBudgetGuard6437.beginCycle() } catch (_: Throwable) {}
+              // V5.0.6441 §4 + §10 — reset per-cycle same-mint dedup state +
+              // root-cause telemetry so every cycle starts with a clean
+              // subsystem attribution ledger.
+              try { com.lifecyclebot.engine.truth.SameMintDedupAuthority6441.beginCycle() } catch (_: Throwable) {}
+              try { com.lifecyclebot.engine.truth.RootCauseTelemetry6441.beginCycle() } catch (_: Throwable) {}
               ForensicLogger.lifecycle(
                 "CYCLE_PHASE",
                 "loop=$loopCount phase=ENTER"
@@ -15715,6 +15720,17 @@ if (hotExitHandledSweep) {
               // the top-3 phase spend when the cycle exceeds 30s, so the
               // operator can see EXACTLY which block wedged.
               try { com.lifecyclebot.engine.truth.SlowCycleDiagnostic6437.noteCycleEnd(loopCount, _cycleElapsedMs) } catch (_: Throwable) {}
+              // V5.0.6441 §10 — subsystem-attributed root cause classify.
+              try { com.lifecyclebot.engine.truth.RootCauseTelemetry6441.classifyCycle(_cycleElapsedMs) } catch (_: Throwable) {}
+              // V5.0.6441 §8 — quick reconcile every 90s; the module gates
+              // internally on cadence so calling per-cycle is safe/cheap.
+              if (loopCount % 9 == 0) {
+                  try { com.lifecyclebot.engine.truth.CanonicalReconciler6441.quickCheck() } catch (_: Throwable) {}
+              }
+              // V5.0.6441 §12 — acceptance invariant audit every 60s.
+              if (loopCount % 6 == 0) {
+                  try { com.lifecyclebot.engine.truth.AcceptanceInvariantAudit6441.runAudit() } catch (_: Throwable) {}
+              }
               markProgress("CYCLE_EXIT")
               ForensicLogger.lifecycle(
                 "CYCLE_PHASE",

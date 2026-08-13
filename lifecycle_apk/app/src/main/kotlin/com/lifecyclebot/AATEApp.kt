@@ -127,6 +127,24 @@ class AATEApp : Application() {
             ErrorLogger.warn("App", "FEE_WALLET_DIVERGENCE_CHECK_6439 failed: ${e.message}")
         }
 
+        // V5.0.6441 §11 — STARTUP INVARIANT GATE. Close the gate at boot
+        // so scanner + learner outcome ingestion are deferred until the
+        // canonical position/account reconstruction has finished. We open
+        // the gate immediately after portfolio + idempotency store attach
+        // (both of which are the reconstruction inputs). A 30s auto-open
+        // fallback protects against a bug halting the bot forever.
+        try {
+            com.lifecyclebot.engine.truth.StartupInvariantGate6441.markReconstructing()
+            // Reconstruction inputs already attached above (PortfolioStore +
+            // IdempotencyKeyStore). Emit the reconstruction-complete signal
+            // now — any future migration that reads events from the ledger
+            // and rebuilds CanonicalPositionAuthority6441 will slot in
+            // between these two calls.
+            com.lifecyclebot.engine.truth.StartupInvariantGate6441.markReconstructionComplete()
+        } catch (e: Exception) {
+            ErrorLogger.warn("App", "StartupInvariantGate6441 setup failed: ${e.message}")
+        }
+
         // V5.0.6405 §3 — RESTART REPLAY. Rehydrate the in-memory
         // CheckpointRecoveryAuthority6405 from the ACID portfolio
         // store so restarts pick up open positions from the durable

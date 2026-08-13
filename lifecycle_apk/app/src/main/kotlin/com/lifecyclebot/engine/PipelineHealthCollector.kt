@@ -1772,6 +1772,34 @@ object PipelineHealthCollector {
             sb.append("  Trading runtime (§6440):      ").append(
                 com.lifecyclebot.engine.truth.TradingRuntimeHealthWatchdog6440.statusLine()
             ).append("\n")
+            // V5.0.6441 §1-§12 source-first correctness authorities.
+            sb.append("  Canonical positions (§6441):  ").append(
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.statusLine()
+            ).append("\n")
+            sb.append("  Order size resolver (§6441):  ").append(
+                com.lifecyclebot.engine.truth.OrderSizeResolver6441.statusLine()
+            ).append("\n")
+            sb.append("  Same-mint dedup (§6441):      ").append(
+                com.lifecyclebot.engine.truth.SameMintDedupAuthority6441.statusLine()
+            ).append("\n")
+            sb.append("  Reward purity gate (§6441):   ").append(
+                com.lifecyclebot.engine.truth.RewardPurityGate6441.statusLine()
+            ).append("\n")
+            sb.append("  Learner budget (§6441):       ").append(
+                com.lifecyclebot.engine.truth.LearnerRuntimeBudgetGuard6441.statusLine()
+            ).append("\n")
+            sb.append("  Canonical reconciler (§6441): ").append(
+                com.lifecyclebot.engine.truth.CanonicalReconciler6441.statusLine()
+            ).append("\n")
+            sb.append("  Root cause telemetry (§6441): ").append(
+                com.lifecyclebot.engine.truth.RootCauseTelemetry6441.statusLine()
+            ).append("\n")
+            sb.append("  Startup invariant (§6441):    ").append(
+                com.lifecyclebot.engine.truth.StartupInvariantGate6441.statusLine()
+            ).append("\n")
+            sb.append("  Acceptance audit (§6441):     ").append(
+                com.lifecyclebot.engine.truth.AcceptanceInvariantAudit6441.statusLine()
+            ).append("\n")
             sb.append(com.lifecyclebot.engine.truth.LivePipelineTrace6431.render())
         } catch (_: Throwable) {}
 

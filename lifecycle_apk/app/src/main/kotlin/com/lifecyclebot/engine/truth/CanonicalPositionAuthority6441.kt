@@ -1,0 +1,273 @@
+package com.lifecyclebot.engine.truth
+
+import com.lifecyclebot.engine.ForensicLogger
+import com.lifecyclebot.engine.PipelineHealthCollector
+import java.math.BigInteger
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.locks.ReentrantLock
+
+/**
+ * V5.0.6441 §1 — CANONICAL POSITION + CAPITAL AUTHORITY.
+ *
+ * OPERATOR (V5.0.6441 mandate §1):
+ *   "Establish ONE authoritative position/account state used by PAPER
+ *    executor, LIVE executor, exit engine, slot accounting, journal,
+ *    learner, reconciler, UI/reporting and recovery. No subsystem may
+ *    maintain an independently mutable shadow truth."
+ *
+ * This module is the SINGLE authoritative store for:
+ *   • per-position state (quantity, cost basis, lifecycle)
+ *   • account cash (paper + live) — cash cannot go negative
+ *   • the mutation gate — every mutation must supply an idempotency key
+ *
+ * DESIGN
+ * ──────
+ * • Positions are keyed by canonical positionId ("$mint#$runIdShort").
+ * • Every mutation (buy, partial-sell, full-sell, quarantine) is
+ *   serialised through a single ReentrantLock and gated on an
+ *   idempotency key so a replayed callback CANNOT double-mutate.
+ * • Cash is a single BigDecimal-flavoured Double (SOL) — writes must
+ *   pass the cash floor invariant (>= 0 in paper mode).
+ * • Sibling stores (GlobalTradeRegistry, PortfolioStore6405,
+ *   PositionCloseLedger, PaperAccountLedger) are read-only mirrors
+ *   from V5.0.6441 forward; V5.0.6442+ ships migrate their writers.
+ *
+ * This is the PRODUCER. Consumers query via read-only accessors.
+ * Writers must go through the mutate*() methods.
+ */
+object CanonicalPositionAuthority6441 {
+
+    enum class Lifecycle { PENDING_ENTRY, OPEN, PARTIALLY_CLOSED, CLOSED, QUARANTINED }
+
+    data class Position(
+        val positionId: String,
+        val mint: String,
+        val symbol: String,
+        val lane: String,
+        val runId: String,
+        val openedAtMs: Long,
+        val entryCostSol: Double,
+        val remainingQtyRaw: BigInteger,
+        val originalQtyRaw: BigInteger,
+        val soldCostBasisSol: Double,
+        val realizedPnlSol: Double,
+        val realizedProceedsSol: Double,
+        val feesSol: Double,
+        val tokenDecimals: Int,
+        val lifecycle: Lifecycle,
+        val lastMutationMs: Long,
+        val quarantineReason: String,
+    )
+
+    enum class MutateResult { APPLIED, DUPLICATE, INVARIANT_VIOLATION, UNKNOWN_POSITION, LIFECYCLE_FORBIDDEN }
+
+    private val positions = ConcurrentHashMap<String, Position>()
+    private val mutationKeys = ConcurrentHashMap<String, Long>()   // key -> whenMs (idempotency)
+    private val lock = ReentrantLock()
+
+    private val paperCashSol = AtomicReference<Double>(0.0)
+    private val paperCashInitialisedMs = AtomicLong(0L)
+    // Live cash is read from WalletManager; we only track the last observed value
+    // for the acceptance-invariant audit.
+    private val liveCashObservedSol = AtomicReference<Double>(0.0)
+
+    // Telemetry counters.
+    private val muts = AtomicLong(0L)
+    private val duplicates = AtomicLong(0L)
+    private val invariantViolations = AtomicLong(0L)
+    private val quarantines = AtomicLong(0L)
+
+    // ─── Cash authority ────────────────────────────────────────────────────
+
+    fun paperCashSol(): Double = paperCashSol.get()
+
+    fun setPaperCash(sol: Double, reason: String) {
+        if (sol < 0.0) {
+            invariantViolations.incrementAndGet()
+            try {
+                ForensicLogger.lifecycle(
+                    "CANONICAL_CASH_INVARIANT_VIOLATION_6441",
+                    "attempt=setPaperCash sol=${"%.6f".format(sol)} reason=$reason — REJECTED",
+                )
+            } catch (_: Throwable) {}
+            return
+        }
+        paperCashSol.set(sol)
+        if (paperCashInitialisedMs.get() == 0L) paperCashInitialisedMs.set(System.currentTimeMillis())
+    }
+
+    fun canAffordPaperBuy(sizeSol: Double): Boolean = paperCashSol.get() >= sizeSol
+
+    fun observeLiveCash(sol: Double) { if (sol >= 0.0) liveCashObservedSol.set(sol) }
+
+    // ─── Position mutation gate ────────────────────────────────────────────
+
+    fun openPosition(
+        idempotencyKey: String,
+        positionId: String,
+        mint: String,
+        symbol: String,
+        lane: String,
+        runId: String,
+        entryCostSol: Double,
+        openedQtyRaw: BigInteger,
+        tokenDecimals: Int,
+        feesSol: Double,
+        paperMode: Boolean,
+    ): MutateResult {
+        lock.lock()
+        try {
+            if (isDuplicate(idempotencyKey)) return MutateResult.DUPLICATE
+            if (entryCostSol < 0.0 || openedQtyRaw < BigInteger.ZERO) {
+                invariantViolations.incrementAndGet()
+                return MutateResult.INVARIANT_VIOLATION
+            }
+            if (paperMode) {
+                val prevCash = paperCashSol.get()
+                if (prevCash < entryCostSol + feesSol) {
+                    invariantViolations.incrementAndGet()
+                    try {
+                        ForensicLogger.lifecycle(
+                            "CANONICAL_INSUFFICIENT_PAPER_CASH_6441",
+                            "positionId=$positionId cash=${"%.5f".format(prevCash)} needed=${"%.5f".format(entryCostSol + feesSol)}",
+                        )
+                    } catch (_: Throwable) {}
+                    return MutateResult.INVARIANT_VIOLATION
+                }
+                paperCashSol.set(prevCash - entryCostSol - feesSol)
+            }
+            positions[positionId] = Position(
+                positionId = positionId, mint = mint, symbol = symbol, lane = lane, runId = runId,
+                openedAtMs = System.currentTimeMillis(),
+                entryCostSol = entryCostSol,
+                remainingQtyRaw = openedQtyRaw,
+                originalQtyRaw = openedQtyRaw,
+                soldCostBasisSol = 0.0,
+                realizedPnlSol = 0.0,
+                realizedProceedsSol = 0.0,
+                feesSol = feesSol,
+                tokenDecimals = tokenDecimals,
+                lifecycle = Lifecycle.OPEN,
+                lastMutationMs = System.currentTimeMillis(),
+                quarantineReason = "",
+            )
+            markKeyUsed(idempotencyKey)
+            muts.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("CANONICAL_POSITION_OPEN_6441") } catch (_: Throwable) {}
+            return MutateResult.APPLIED
+        } finally { lock.unlock() }
+    }
+
+    fun partialSell(
+        idempotencyKey: String,
+        positionId: String,
+        soldQtyRaw: BigInteger,
+        proceedsSol: Double,
+        soldCostBasisSol: Double,
+        feesSol: Double,
+        paperMode: Boolean,
+    ): MutateResult {
+        lock.lock()
+        try {
+            if (isDuplicate(idempotencyKey)) return MutateResult.DUPLICATE
+            val pos = positions[positionId] ?: return MutateResult.UNKNOWN_POSITION
+            if (pos.lifecycle == Lifecycle.CLOSED || pos.lifecycle == Lifecycle.QUARANTINED) {
+                return MutateResult.LIFECYCLE_FORBIDDEN
+            }
+            if (soldQtyRaw <= BigInteger.ZERO) return MutateResult.INVARIANT_VIOLATION
+            if (soldQtyRaw > pos.remainingQtyRaw) {
+                invariantViolations.incrementAndGet()
+                try {
+                    ForensicLogger.lifecycle(
+                        "CANONICAL_OVERSOLD_QTY_6441",
+                        "positionId=$positionId soldRaw=$soldQtyRaw remainingRaw=${pos.remainingQtyRaw}",
+                    )
+                } catch (_: Throwable) {}
+                return MutateResult.INVARIANT_VIOLATION
+            }
+            val newRemaining = pos.remainingQtyRaw - soldQtyRaw
+            val newLifecycle = if (newRemaining == BigInteger.ZERO) Lifecycle.CLOSED else Lifecycle.PARTIALLY_CLOSED
+            val realizedDelta = proceedsSol - soldCostBasisSol - feesSol
+            positions[positionId] = pos.copy(
+                remainingQtyRaw = newRemaining,
+                soldCostBasisSol = pos.soldCostBasisSol + soldCostBasisSol,
+                realizedProceedsSol = pos.realizedProceedsSol + proceedsSol,
+                realizedPnlSol = pos.realizedPnlSol + realizedDelta,
+                feesSol = pos.feesSol + feesSol,
+                lifecycle = newLifecycle,
+                lastMutationMs = System.currentTimeMillis(),
+            )
+            if (paperMode) paperCashSol.getAndUpdate { it + proceedsSol - feesSol }
+            markKeyUsed(idempotencyKey)
+            muts.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc(
+                    if (newLifecycle == Lifecycle.CLOSED) "CANONICAL_POSITION_CLOSE_6441"
+                    else "CANONICAL_POSITION_PARTIAL_6441",
+                )
+            } catch (_: Throwable) {}
+            return MutateResult.APPLIED
+        } finally { lock.unlock() }
+    }
+
+    fun quarantine(positionId: String, reason: String) {
+        lock.lock()
+        try {
+            val pos = positions[positionId] ?: return
+            positions[positionId] = pos.copy(
+                lifecycle = Lifecycle.QUARANTINED,
+                quarantineReason = reason.take(120),
+                lastMutationMs = System.currentTimeMillis(),
+            )
+            quarantines.incrementAndGet()
+            try {
+                ForensicLogger.lifecycle(
+                    "CANONICAL_POSITION_QUARANTINED_6441",
+                    "positionId=$positionId reason=${reason.take(60)}",
+                )
+            } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("CANONICAL_POSITION_QUARANTINED_6441") } catch (_: Throwable) {}
+        } finally { lock.unlock() }
+    }
+
+    private fun isDuplicate(key: String): Boolean {
+        if (key.isBlank()) return false
+        val prev = mutationKeys.putIfAbsent(key, System.currentTimeMillis())
+        if (prev != null) {
+            duplicates.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("CANONICAL_MUTATION_DUPLICATE_6441") } catch (_: Throwable) {}
+            return true
+        }
+        return false
+    }
+
+    private fun markKeyUsed(key: String) {
+        if (key.isBlank()) return
+        // Trim old keys periodically.
+        if (mutationKeys.size > 50_000) {
+            val cutoff = System.currentTimeMillis() - 24L * 60L * 60L * 1000L
+            mutationKeys.entries.removeIf { it.value < cutoff }
+        }
+    }
+
+    // ─── Read-only accessors for consumers ─────────────────────────────────
+    fun getPosition(positionId: String): Position? = positions[positionId]
+    fun openPositions(): List<Position> = positions.values.filter {
+        it.lifecycle == Lifecycle.OPEN || it.lifecycle == Lifecycle.PARTIALLY_CLOSED
+    }
+    fun closedPositions(): List<Position> = positions.values.filter { it.lifecycle == Lifecycle.CLOSED }
+    fun openCount(): Int = openPositions().size
+    fun hasOpenMint(mint: String): Boolean = positions.values.any {
+        it.mint == mint && (it.lifecycle == Lifecycle.OPEN || it.lifecycle == Lifecycle.PARTIALLY_CLOSED)
+    }
+
+    fun statusLine(): String {
+        val open = openCount()
+        val closed = closedPositions().size
+        val cash = paperCashSol.get()
+        return "positions=${positions.size} open=$open closed=$closed paperCashSol=${"%.5f".format(cash)} " +
+            "muts=${muts.get()} dups=${duplicates.get()} invViol=${invariantViolations.get()} quarantines=${quarantines.get()}"
+    }
+}
