@@ -1,6 +1,30 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6440 (Feb 2026) — SHAPER→LEARNERS + RUNNER LADDER + RUNTIME HEALTH
+
+Operator V5.0.6439 follow-up: (1) wire shaper into SentienceAutoTune /
+AdaptiveLearning / LabUniverse, (2) runner compounding ladder so
+\$50→\$500 trades 10x bigger than \$50→\$100, (3) foreground service
+so trading survives Doze.
+
+### Wire shaper into learners
+- `LearnerRewardBridge6440`: side-effect free doctrine derivation.
+- `AdaptiveLearningEngine.adjustWeights` uses `adjustmentFactorShaped`
+  = classic factor × bridge multiplier.
+
+### Runner compounding ladder
+- `RunnerCompoundingLadder6440`: 11-tier ladder doubling every rung.
+- `EdgeOptimizer.calculatePositionSize` blends confidence size with
+  ladder floor, clamps to maxPositionPct.
+
+### Trading runtime health
+- BotService is already a foreground service with WakeLock + WifiLock +
+  AlarmManager keepalive. `TradingRuntimeHealthWatchdog6440` emits
+  60s heartbeat + Doze enter/exit lifecycle events.
+
+CI: Build AATE APK green (run 31660294508).
+
 ## V5.0.6439 (Feb 2026) — FEE OBSERVABILITY + CAPITAL PRESERVATION CREED + REWARD SHAPING
 
 Operator: (1) live fees not landing at the two coded wallets, (2) full

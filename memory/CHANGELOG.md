@@ -1,3 +1,40 @@
+## V5.0.6440 — 2026-08-12 — SHAPER→LEARNERS + RUNNER LADDER + RUNTIME HEALTH
+
+Operator (V5.0.6439 follow-up next actions).
+
+Wire Shaper Into Learners:
+- `LearnerRewardBridge6440`: side-effect-free shaper doctrine derivation.
+  losses amplify to 3x, break-even flips to a negative multiplier,
+  wins scale down as hold-time grows.
+- `AdaptiveLearningEngine.adjustWeights` multiplies its outcome-derived
+  `adjustmentFactor` by the bridge multiplier via `adjustmentFactorShaped`.
+  Bag-holding losses now learn 3x faster; break-evens push weights
+  AWAY from the pattern instead of nudging toward it.
+
+Runner Compounding Ladder:
+- `RunnerCompoundingLadder6440`: canonical size-vs-wallet ladder.
+  Doubles every rung from 0.02 SOL @ 0.3 SOL wallet to 40 SOL @ 300+.
+  \$50→\$500 leg trades 10x bigger than \$50→\$100 leg.
+- `EdgeOptimizer.calculatePositionSize` blends confidence-derived size
+  with `RunnerCompoundingLadder6440.recommendedSizeSol(wallet)` via
+  MAX(), then clamps by maxPositionPct.
+- `noteLadderStep` emits `RUNNER_LADDER_STEP_6440` on rung crossings.
+
+Trading Runtime Health Watchdog:
+- Audit finding: `BotService` is already a foreground service
+  (dataSync|specialUse, stopWithTask=false, PARTIAL_WAKE_LOCK,
+  WifiLock, 60s AlarmManager keepalive via setExactAndAllowWhileIdle).
+  No UI-lifecycle coupling. The "extract" was architecturally done.
+- `TradingRuntimeHealthWatchdog6440`: passive telemetry emitting
+  `TRADING_RUNTIME_ALIVE_6440` heartbeat every 60s +
+  `TRADING_RUNTIME_DOZE_ENTER_6440` / `_EXIT_6440` so the operator's
+  next dump proves the service survived Doze.
+
+Pipeline dump exposes bridge, ladder, runtime watchdog status lines.
+
+CI: Build AATE APK green (run 31660294508).
+
+
 ## V5.0.6439 — 2026-08-12 — FEE OBSERVABILITY + CAPITAL PRESERVATION CREED + REWARD SHAPING
 
 Operator directive: fees not landing at the two coded wallets, full
