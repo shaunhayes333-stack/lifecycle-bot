@@ -13888,6 +13888,13 @@ class BotService : Service() {
             // the ChronicBleeder/Sentience/Lab learners above.
             try { markProgress("LEARNING_DONE") } catch (_: Throwable) {}
 
+            // V5.0.6438 — granular bisection markers between LEARNING_DONE
+            // and PRE_SUPERVISOR. Operator V5.0.6437 dump showed the
+            // heartbeat catching a 36s stall at phase=LEARNING_DONE, i.e.
+            // the wedge lives in the ~1400 lines between here and
+            // PRE_SUPERVISOR. These markers narrow that window so the
+            // next dump identifies the exact section.
+
             // ═══════════════════════════════════════════════════════════════════
             // V5.2: PIPELINE TRACE - Snapshot loop state at start
             // Freeze aggression for this loop cycle to prevent mid-loop mutations
@@ -14102,6 +14109,12 @@ class BotService : Service() {
             // Clean stale shadow tracking entries
             // ═══════════════════════════════════════════════════════════════════
             TradeAuthorizer.cleanup()
+
+            // V5.0.6438 — bisection marker A. Everything before this line
+            // is sync sanitize (FinalExecutionPermit.clearCycleState,
+            // GlobalTradeRegistry.cleanup, EfficiencyLayer.cleanup,
+            // TradeAuthorizer.cleanup, WatchlistTtlPolicy.sweepStale).
+            try { markProgress("POST_LEARNING_SANITIZE") } catch (_: Throwable) {}
             
             val watchlist = cfg.watchlist.toMutableList()
             if (cfg.activeToken.isNotBlank() && cfg.activeToken !in watchlist)
@@ -14174,6 +14187,12 @@ class BotService : Service() {
             
             // V5.0: Advance TradeAuthorizer epoch for decision tracking
             TradeAuthorizer.advanceEpoch()
+
+            // V5.0.6438 — bisection marker B. Everything between marker A
+            // and here is trader-mode sync + treasury/wallet reads
+            // (setTradingMode ×10+, CashGenerationAI.updateWalletBalance,
+            // SolanaArbAI.syncTreasuryUsd, TradeAuthorizer.advanceEpoch).
+            try { markProgress("POST_LEARNING_TRADER_SYNC") } catch (_: Throwable) {}
             
             // ═══════════════════════════════════════════════════════════════════
             // V4.0 CRITICAL FIX: ONLY INITIALIZE TRADING MODES ONCE
@@ -14369,6 +14388,15 @@ class BotService : Service() {
             if (loopCount % 10 == 0) {
                 runMarketsEngineWatchdog(loopCount, cfg)
             }
+
+            // V5.0.6438 — bisection marker C. Everything between marker B
+            // and here is watchdogs: freeze detector, watchlist cleanup
+            // (async), GlobalTradeRegistry sync, scanner staleness, scanner
+            // heartbeat, sniper sweep, inert-loop watchdog, orphan scan
+            // (live only, async), markets engine watchdog. A stall between
+            // B and C is one of these (most are `loopCount % N == 0` gated;
+            // check runFreezeDetectorTick / runMarketsEngineWatchdog).
+            try { markProgress("POST_LEARNING_WATCHDOGS") } catch (_: Throwable) {}
 
             // ═══════════════════════════════════════════════════════════════════
             // PENDING SELL QUEUE PROCESSING — every loop tick (~5s) in live mode
@@ -15027,6 +15055,13 @@ class BotService : Service() {
 
             var lastSuccessfulPollMs = System.currentTimeMillis()
 
+            // V5.0.6438 — bisection marker D. Everything between marker C
+            // and here is behaviour/decay/telemetry maintenance +
+            // adaptive-confidence market-conditions block (mostly async
+            // scope.launch{}, but a synchronous walletManager/state read
+            // and DrawdownCircuitAI.recordBalance runs on the loop).
+            try { markProgress("POST_LEARNING_MAINTENANCE") } catch (_: Throwable) {}
+
             // V5.2: Prioritization moved AFTER TokenMergeQueue.processQueue()
             // See the prioritizedWatchlist definition after MergeQueue processing
 
@@ -15054,6 +15089,13 @@ class BotService : Service() {
             // ═══════════════════════════════════════════════════════════════════
             try { processTokenMergeQueue(loopCount) }
             catch (e: Exception) { ErrorLogger.debug("BotService", "MergeQueue error: ${e.message}") }
+
+            // V5.0.6438 — bisection marker E. processTokenMergeQueue is
+            // called SYNCHRONOUSLY every loop; it iterates the merge queue
+            // and can be heavy if intake flooded (operator dump showed
+            // 16K+ intake events + 10K+ rebalances). A stall at
+            // MERGE_QUEUE_DONE pins the wedge to the merge processor.
+            try { markProgress("MERGE_QUEUE_DONE") } catch (_: Throwable) {}
             
             // ═══════════════════════════════════════════════════════════════════
             // V5.2 FIX: GET EFFECTIVE WATCHLIST FROM GLOBALTRADEREGISTRY
@@ -15178,6 +15220,12 @@ val prioritizedWatchlist = if (cfg.v3EngineEnabled) {
 } else {
     effectiveWatchlist
 }
+
+// V5.0.6438 — bisection marker F. prioritizedWatchlist is a full sortedByDescending
+// over the entire effectiveWatchlist with per-mint scoring that reads status.tokens,
+// GlobalTradeRegistry, safety timestamps and LiquidityClassifier. This can be
+// heavy under intake flood (op dump: 10K+ rebalances, 16K+ hydration ops).
+try { markProgress("WATCHLIST_PRIORITIZED") } catch (_: Throwable) {}
 
 // ───────────────────────────────────────────────────────────────
 // PATCH: chunked watchlist processing with per-token timeout
