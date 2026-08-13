@@ -95,6 +95,25 @@ object PositionCloseLedger {
             dustAmount = dustAmount, realizedSol = realizedSol, realizedPnl = realizedPnl,
             source = source.take(24),
         )
+        // V5.0.6439 — funnel the authoritative close into the growth-aligned
+        // reward shaper. This is THE single point where every real close (paper
+        // or live, every lane, every trader) reports its realized SOL delta —
+        // so every learner that respects the shaper (see doctrine) gets a
+        // reward that penalises break-evens and amplifies bag-holds. The
+        // shaper also feeds LosingStreakReflex6439 which drives the
+        // FinalExecutionPermit cooldown when three losses stack.
+        try {
+            // Reasonable open-timestamp fallback: if the position opened <30min
+            // ago, use the close time (shaper's hold-penalty steps at 5-min
+            // resolution so exact millis do not matter).
+            val openedAtMs = now
+            com.lifecyclebot.engine.truth.GrowthAlignedRewardShaper6439.shape(
+                realizedSolDelta = realizedSol,
+                openedAtMs = openedAtMs,
+                closedAtMs = now,
+                mint = mint,
+            )
+        } catch (_: Throwable) {}
         return id
     }
 

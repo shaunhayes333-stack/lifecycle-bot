@@ -1743,6 +1743,25 @@ object PipelineHealthCollector {
             sb.append("  Idempotency store (§6437):    ").append(
                 com.lifecyclebot.engine.truth.IdempotencyKeyStore6437.statusLine()
             ).append("\n")
+            // V5.0.6439 — capital preservation + reward alignment + fee observability.
+            sb.append("  Capital creed (§6439):        ").append(
+                com.lifecyclebot.engine.truth.CapitalPreservationCreed6439.statusLine()
+            ).append("\n")
+            sb.append("  Losing streak reflex (§6439): ").append(
+                com.lifecyclebot.engine.truth.LosingStreakReflex6439.statusLine()
+            ).append("\n")
+            sb.append("  Growth reward shaper (§6439): ").append(
+                com.lifecyclebot.engine.truth.GrowthAlignedRewardShaper6439.statusLine()
+            ).append("\n")
+            sb.append("  Anti-reward-hack (§6439):     ").append(
+                com.lifecyclebot.engine.truth.AntiRewardHackingGuard6439.statusLine()
+            ).append("\n")
+            sb.append("  Fee accrual (§6439):          ").append(
+                com.lifecyclebot.engine.truth.FeeAccrualObservability6439.statusLine()
+            ).append("\n")
+            sb.append("  Paper↔live parity (§6439):    ").append(
+                com.lifecyclebot.engine.truth.PaperLiveParityCreed6439.statusLine()
+            ).append("\n")
             sb.append(com.lifecyclebot.engine.truth.LivePipelineTrace6431.render())
         } catch (_: Throwable) {}
 

@@ -90,6 +90,43 @@ class AATEApp : Application() {
             ErrorLogger.error("App", "IdempotencyKeyStore6437 attach failed: ${e.message}", e)
         }
 
+        // V5.0.6439 — CAPITAL PRESERVATION CREED + PAPER↔LIVE PARITY.
+        // Log the creed constants and the mandatory-parity artefact list at
+        // boot so the operator's next dump shows what the bot is aiming for
+        // and which learners MUST survive a paper→live flip.
+        try {
+            ErrorLogger.info(
+                "App",
+                "CapitalPreservationCreed6439: ${com.lifecyclebot.engine.truth.CapitalPreservationCreed6439.statusLine()}",
+            )
+            com.lifecyclebot.engine.truth.PaperLiveParityCreed6439.logCreed()
+        } catch (e: Exception) {
+            ErrorLogger.warn("App", "Creed emit failed: ${e.message}")
+        }
+
+        // V5.0.6439 — FEE WALLET DIVERGENCE CHECK.
+        // Operator complaint: "live trading transaction fees still aren't
+        // being sent to the two coded wallets. They should send on every
+        // transaction. They don't send EVER!" Log the current live wallet
+        // self-address vs the two hard-coded fee wallets so a self-loop
+        // (fee wallet == self, which V5.9.1504 silently redirects) is
+        // visible at boot.
+        try {
+            val selfPk = try {
+                com.lifecyclebot.engine.WalletManager.getWallet()?.publicKeyB58 ?: "no_wallet"
+            } catch (_: Throwable) { "wallet_error" }
+            ErrorLogger.info(
+                "App",
+                "FEE_WALLET_DIVERGENCE_CHECK_6439 self=$selfPk fw1=A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd fw2=82CAPB9HxXKZK97C12pqkWcjvnkbpMLCg2Ex2hPrhygA",
+            )
+            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "FEE_WALLET_DIVERGENCE_CHECK_6439",
+                "self=$selfPk selfEqualsFw1=${selfPk.equals("A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd", false)} selfEqualsFw2=${selfPk.equals("82CAPB9HxXKZK97C12pqkWcjvnkbpMLCg2Ex2hPrhygA", false)}",
+            )
+        } catch (e: Exception) {
+            ErrorLogger.warn("App", "FEE_WALLET_DIVERGENCE_CHECK_6439 failed: ${e.message}")
+        }
+
         // V5.0.6405 §3 — RESTART REPLAY. Rehydrate the in-memory
         // CheckpointRecoveryAuthority6405 from the ACID portfolio
         // store so restarts pick up open positions from the durable

@@ -13904,13 +13904,29 @@ class BotService : Service() {
 
             // V5.9.226: Bug #7 — Drain failed fee retry queue at cycle start (live mode only)
             // V5.0.3920 — also flush the FeeAccumulator (batched per-destination fees).
-            if (!cfg.paperMode) {
-                val liveWallet = wallet
+            // V5.0.6439 — FORCE FLUSH regardless of cfg.paperMode. Operator complaint:
+            // "live trading transaction fees still aren't being sent to the two coded
+            // wallets ... they don't send EVER." If the operator has flipped between
+            // paper and live during a session, or if the config field lags the runtime
+            // authority, the live wallet may still hold accrued fees. Prefer the
+            // WalletManager singleton over the cfg-driven local `wallet`, so a flip
+            // to paper doesn't strand fees. This is safe: FeeAccumulator only holds
+            // amounts that were accrued during genuine live execution paths, and
+            // sendSol is only called for buckets that exist.
+            run {
+                val liveWallet = try {
+                    // Prefer WalletManager singleton so a paper flip cannot strand fees.
+                    com.lifecyclebot.engine.WalletManager.getWallet() ?: wallet
+                } catch (_: Throwable) { wallet }
                 if (liveWallet != null) {
                     try { FeeRetryQueue.drainFeeQueue(liveWallet) }
                     catch (e: Exception) { ErrorLogger.warn("BotService", "FeeRetryQueue drain error: ${e.message}") }
-                    try { FeeAccumulator.tryFlush(liveWallet) }
-                    catch (e: Exception) { ErrorLogger.warn("BotService", "FeeAccumulator flush error: ${e.message}") }
+                    try {
+                        val flushed = FeeAccumulator.tryFlush(liveWallet)
+                        if (flushed > 0.0) {
+                            try { com.lifecyclebot.engine.truth.FeeAccrualObservability6439.noteFlush(flushed) } catch (_: Throwable) {}
+                        }
+                    } catch (e: Exception) { ErrorLogger.warn("BotService", "FeeAccumulator flush error: ${e.message}") }
                 }
             }
 
@@ -15030,6 +15046,12 @@ class BotService : Service() {
                             // only at higher DD because paper losses are expected in proof runs.
                             com.lifecyclebot.v3.scoring.DrawdownCircuitAI.recordBalance(balanceSol)
                         }
+                        // V5.0.6439 — feed the anti-reward-hacking guard the current
+                        // wallet balance so the rolling 24h high is always fresh.
+                        // The guard vetoes any risk-expansion tune while the wallet
+                        // is below its 24h high — this rewires learners so they
+                        // cannot rationalise expanding risk after a losing streak.
+                        try { com.lifecyclebot.engine.truth.AntiRewardHackingGuard6439.observeWalletBalance(balanceSol) } catch (_: Throwable) {}
                     }
                     // Gather all trades across all tokens for P&L - use synchronized copy
                     val allTrades = synchronized(status.tokens) {

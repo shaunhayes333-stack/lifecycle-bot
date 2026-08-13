@@ -255,6 +255,28 @@ object FinalExecutionPermit {
     ): PermitResult {
         val now = System.currentTimeMillis()
 
+        // V5.0.6439 — LOSING-STREAK REFLEX (capital preservation creed).
+        // If the reflex is currently blocking new buys (N consecutive
+        // realized losses within CONSECUTIVE_LOSS_COOLDOWN_MS), veto
+        // EVERY new BUY regardless of lane, paper/live, or open position
+        // state. This is the "bad behaviour must never be rewarded"
+        // guarantee — the bot cannot keep buying while it is proving to
+        // itself that its current model is losing.
+        if (com.lifecyclebot.engine.truth.LosingStreakReflex6439.shouldBlockNewBuys()) {
+            val remSec = com.lifecyclebot.engine.truth.LosingStreakReflex6439.cooldownRemainingSec()
+            try {
+                ForensicLogger.lifecycle(
+                    "LOSING_STREAK_BLOCK_6439",
+                    "layer=$requestingLayer symbol=$symbol mint=${mint.take(10)} cooldownRemSec=$remSec",
+                )
+            } catch (_: Throwable) {}
+            return PermitResult(
+                allowed = false,
+                reason = "LOSING_STREAK_6439: ${com.lifecyclebot.engine.truth.LosingStreakReflex6439.consecutiveLossesNow()} consec losses cooldownRemSec=$remSec",
+                blockingLayer = "CAPITAL_PRESERVATION",
+            )
+        }
+
         if (RuntimeConfigOverlay.isLaneDisabled(requestingLayer)) {
             try { ForensicLogger.lifecycle("QUALITY_ONLY_LAYER_BLOCKED", "layer=$requestingLayer symbol=$symbol mint=${mint.take(10)} stage=canExecute") } catch (_: Throwable) {}
             return PermitResult(

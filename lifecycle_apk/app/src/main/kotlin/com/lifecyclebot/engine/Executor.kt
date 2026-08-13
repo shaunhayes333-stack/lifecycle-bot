@@ -830,6 +830,8 @@ class Executor(
             if (amount1 >= FEE_SEND_MIN_SOL) {
                 val d = dest(TRADING_FEE_WALLET_1, TRADING_FEE_WALLET_2)
                 if (d != null) {
+                    // V5.0.6439 — observability. Prove the fee actually reached the pipe.
+                    try { com.lifecyclebot.engine.truth.FeeAccrualObservability6439.noteAccrue(d, amount1, "${tag}_w1", false) } catch (_: Throwable) {}
                     try { FeeAccumulator.accrue(d, amount1, "${tag}_w1"); accrued = true }
                     catch (e: Exception) {
                         // Accumulator persistence failed — fall back to immediate retry queue
@@ -845,6 +847,8 @@ class Executor(
             if (amount2 >= FEE_SEND_MIN_SOL) {
                 val d = dest(TRADING_FEE_WALLET_2, TRADING_FEE_WALLET_1)
                 if (d != null) {
+                    // V5.0.6439 — observability.
+                    try { com.lifecyclebot.engine.truth.FeeAccrualObservability6439.noteAccrue(d, amount2, "${tag}_w2", false) } catch (_: Throwable) {}
                     try { FeeAccumulator.accrue(d, amount2, "${tag}_w2"); accrued = true }
                     catch (e: Exception) {
                         FeeRetryQueue.enqueue(d, amount2, "${tag}_w2_acc_fail")
