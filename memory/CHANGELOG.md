@@ -1,3 +1,42 @@
+## V5.0.6439 — 2026-08-12 — FEE OBSERVABILITY + CAPITAL PRESERVATION CREED + REWARD SHAPING
+
+Operator directive: fees not landing at the two coded wallets, full
+live-trading correctness sweep, meta-cognition/AGI must prioritise
+wallet growth + capital protection ($50→$1M), paper↔live learning
+parity.
+
+Fee flow (P0):
+- `FeeAccrualObservability6439`: telemetry on every accrue + flush.
+- `Executor.sendFeeSplit` wired to noteAccrue.
+- `BotService` cycle drain no longer gated on `!cfg.paperMode` —
+  runs whenever `WalletManager.getWallet()` returns a live wallet.
+- Boot-time `FEE_WALLET_DIVERGENCE_CHECK_6439` logs self vs both fees.
+
+Capital preservation creed (P0):
+- `CapitalPreservationCreed6439`: doctrine constants (5% daily, 30%
+  weekly, 8%/18% DD ceilings, 3 max consec losses, 1.15x min EV).
+- `LosingStreakReflex6439.shouldBlockNewBuys()` inserted at the top of
+  `FinalExecutionPermit.canExecute` — every buy gate now respects it.
+
+Meta-cognition / AGI alignment (P0):
+- `GrowthAlignedRewardShaper6439.shape()`: single reward function —
+  break-even is NEGATIVE, held losses amplify to 3x, slow wins scale
+  down. Wired at `PositionCloseLedger.markClosedFull`.
+- `AntiRewardHackingGuard6439.canExpandRisk()`: veto risk expansion
+  while wallet below 24h high; fed every cycle from the drawdown path.
+
+Paper↔live parity (P0):
+- `PaperLiveParityCreed6439`: enumerates 10 mandatory-parity artefacts.
+  Boot emits `PAPER_LIVE_PARITY_6439` per artefact so a mode-gated
+  store is loud + visible.
+
+Pipeline health dump exposes losing streak, reward shaper stats,
+anti-hack vetoes/allows, fee accrual and paper↔live parity status
+lines.
+
+CI: Build AATE APK green (run 31658938759).
+
+
 ## V5.0.6437 — 2026-08-12 — ANR DIAGNOSTIC + IDEMPOTENCY-KEY PERSISTENCE
 
 Response to operator V5.0.6436 dump showing 75s cycles + workerTimeout=62

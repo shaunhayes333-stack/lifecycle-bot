@@ -1,6 +1,46 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6439 (Feb 2026) — FEE OBSERVABILITY + CAPITAL PRESERVATION CREED + REWARD SHAPING
+
+Operator: (1) live fees not landing at the two coded wallets, (2) full
+live-trading correctness sweep, (3) meta-cognition/AGI must prioritise
+wallet growth + capital protection aligned with $50→$1M mindset, bad
+behaviour must NEVER be reinforced as good, (4) paper→live learning
+must transfer at trade ~1000 with zero retraining.
+
+### P0 — Fee flow observability + force-flush
+- `FeeAccrualObservability6439`: emits `FEE_ACCRUE_6439` + `FEE_FLUSH_6439`
+  so we can prove exactly where the pipe leaks.
+- `Executor.sendFeeSplit` wired to noteAccrue BEFORE FeeAccumulator.accrue.
+- `BotService` cycle drain now runs whenever `WalletManager.getWallet()`
+  returns a live wallet (no more `!cfg.paperMode` gate).
+- Boot-time `FEE_WALLET_DIVERGENCE_CHECK_6439` prints self vs both fee
+  wallets so a self-loop is loud at startup.
+
+### P0 — Capital preservation creed
+- `CapitalPreservationCreed6439`: 5% daily / 30% weekly compounding
+  targets, 8%/18% DD ceilings, 3 max consec losses, 1.15x min EV.
+- `LosingStreakReflex6439.shouldBlockNewBuys()` inserted at the TOP of
+  `FinalExecutionPermit.canExecute` — every buy gate consults it.
+
+### P0 — Meta-cognition / AGI alignment
+- `GrowthAlignedRewardShaper6439.shape()`: single reward function.
+  Break-even = negative reward; losses amplify up to 3x by hold time.
+  Wired at `PositionCloseLedger.markClosedFull` so every real close
+  funnels through it.
+- `AntiRewardHackingGuard6439.canExpandRisk()`: vetoes any risk
+  expansion while wallet below its 24h high.
+
+### P0 — Paper↔live parity
+- `PaperLiveParityCreed6439`: enumerates 10 mandatory-parity learning
+  artefacts. Boot emits `PAPER_LIVE_PARITY_6439` per artefact.
+
+CI: Build AATE APK green (run 31658938759). Awaiting operator dump.
+
+
+## V5.0.6438 (Feb 2026) — POST_LEARNING BISECTION MARKERS
+
 ## V5.0.6437 (Feb 2026) — ANR DIAGNOSTIC + IDEMPOTENCY-KEY PERSISTENCE
 
 Operator V5.0.6436 dump: cycles spiking to 75,029ms with workerTimeout=62
