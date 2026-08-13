@@ -18565,7 +18565,7 @@ class Executor(
         try {
             val pos0 = ts.position
             if (pos0.isOpen) {
-                val soldQtyRaw = try { java.math.BigInteger.valueOf(pos0.tokenAmount.toLong()) } catch (_: Throwable) { java.math.BigInteger.ZERO }
+                val soldQtyRaw = try { java.math.BigInteger.valueOf((pos0.qtyToken * 1_000_000_000.0).toLong()) } catch (_: Throwable) { java.math.BigInteger.ZERO }
                 if (soldQtyRaw > java.math.BigInteger.ZERO) {
                     com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
                         mint = ts.mint,
@@ -20006,7 +20006,7 @@ class Executor(
         try {
             val pos0 = ts.position
             if (pos0.isOpen) {
-                val soldQtyRaw = try { java.math.BigInteger.valueOf(pos0.tokenAmount.toLong()) } catch (_: Throwable) { java.math.BigInteger.ZERO }
+                val soldQtyRaw = try { java.math.BigInteger.valueOf((pos0.qtyToken * 1_000_000_000.0).toLong()) } catch (_: Throwable) { java.math.BigInteger.ZERO }
                 if (soldQtyRaw > java.math.BigInteger.ZERO) {
                     com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
                         mint = ts.mint,
