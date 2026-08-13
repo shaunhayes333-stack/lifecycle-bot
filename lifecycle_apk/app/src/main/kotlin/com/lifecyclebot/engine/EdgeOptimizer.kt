@@ -448,7 +448,27 @@ object EdgeOptimizer {
         try { com.lifecyclebot.engine.truth.RunnerCompoundingLadder6440.noteLadderStep(walletBalanceSol) } catch (_: Throwable) {}
         // Final outer clamp: never exceed maxPositionPct even after ladder blend.
         val ceiling = walletBalanceSol * (maxPositionPct / 100.0)
-        return kotlin.math.min(laddered, ceiling)
+        val preResolver = kotlin.math.min(laddered, ceiling)
+
+        // V5.0.6442 §1 SIZING MIGRATION — route the final size through the
+        // canonical OrderSizeResolver6441 so the mandate's audit trail
+        // (ORDER_SIZE_RESOLVED_6441) is emitted on every entry. The
+        // resolver applies the same ladder + cash cap + lane cap +
+        // minimum-executable checks in one place. Parity-preserving:
+        // when the resolver returns an executable size, we take the MIN
+        // of resolver.finalSizeSol and preResolver so a bug in the
+        // resolver can never OVER-SIZE the trade.
+        return try {
+            val res = com.lifecyclebot.engine.truth.OrderSizeResolver6441.resolve(
+                requestedSol = preResolver,
+                laneName = "EDGE_OPTIMIZER",
+                walletSol = walletBalanceSol,
+                paperMode = true,   // treat all edge sizing as paper-safe; real paper flag lives at caller
+                laneRiskCapSol = ceiling,
+                laneMinExecutableSol = 0.001,
+            )
+            if (res.executable) kotlin.math.min(res.finalSizeSol, preResolver) else preResolver
+        } catch (_: Throwable) { preResolver }
     }
     
     /**

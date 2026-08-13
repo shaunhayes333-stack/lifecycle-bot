@@ -15727,6 +15727,17 @@ if (hotExitHandledSweep) {
               if (loopCount % 9 == 0) {
                   try { com.lifecyclebot.engine.truth.CanonicalReconciler6441.quickCheck() } catch (_: Throwable) {}
               }
+              // V5.0.6442 §8 — FULL reconciliation every ~10 minutes using
+              // the ForensicRowMirror6442 buffered rows. The reconciler
+              // diffs the reconstructed state against the canonical
+              // authority and emits RECONCILER_FULL_BROKEN_6441 on any
+              // mismatch without silently rewriting history.
+              if (loopCount % 60 == 0 && loopCount > 0) {
+                  try {
+                      val rows = com.lifecyclebot.engine.truth.ForensicRowMirror6442.snapshot()
+                      com.lifecyclebot.engine.truth.CanonicalReconciler6441.fullReconstruct(rows)
+                  } catch (_: Throwable) {}
+              }
               // V5.0.6441 §12 — acceptance invariant audit every 60s.
               if (loopCount % 6 == 0) {
                   try { com.lifecyclebot.engine.truth.AcceptanceInvariantAudit6441.runAudit() } catch (_: Throwable) {}

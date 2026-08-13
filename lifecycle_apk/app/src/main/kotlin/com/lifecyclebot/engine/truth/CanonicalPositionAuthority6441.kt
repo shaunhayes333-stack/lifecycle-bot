@@ -138,6 +138,8 @@ object CanonicalPositionAuthority6441 {
                 }
                 paperCashSol.set(prevCash - entryCostSol - feesSol)
             }
+            val lifecycle = if (openedQtyRaw == BigInteger.ZERO)
+                Lifecycle.PENDING_ENTRY else Lifecycle.OPEN
             positions[positionId] = Position(
                 positionId = positionId, mint = mint, symbol = symbol, lane = lane, runId = runId,
                 openedAtMs = System.currentTimeMillis(),
@@ -149,13 +151,72 @@ object CanonicalPositionAuthority6441 {
                 realizedProceedsSol = 0.0,
                 feesSol = feesSol,
                 tokenDecimals = tokenDecimals,
-                lifecycle = Lifecycle.OPEN,
+                lifecycle = lifecycle,
                 lastMutationMs = System.currentTimeMillis(),
                 quarantineReason = "",
             )
             markKeyUsed(idempotencyKey)
             muts.incrementAndGet()
-            try { PipelineHealthCollector.labelInc("CANONICAL_POSITION_OPEN_6441") } catch (_: Throwable) {}
+            try {
+                PipelineHealthCollector.labelInc(
+                    if (lifecycle == Lifecycle.PENDING_ENTRY) "CANONICAL_POSITION_PENDING_6441"
+                    else "CANONICAL_POSITION_OPEN_6441",
+                )
+            } catch (_: Throwable) {}
+            return MutateResult.APPLIED
+        } finally { lock.unlock() }
+    }
+
+    /**
+     * V5.0.6442 — promote a PENDING_ENTRY to OPEN once the fill is known.
+     * Idempotent: subsequent calls overwrite qty/cost with the observed fill.
+     * Callers that never went through openPosition first are auto-upgraded.
+     */
+    fun promotePendingToOpen(
+        positionId: String,
+        actualQtyRaw: BigInteger,
+        actualEntryCostSol: Double,
+        actualFeesSol: Double,
+        tokenDecimals: Int,
+        paperMode: Boolean,
+    ): MutateResult {
+        lock.lock()
+        try {
+            val prev = positions[positionId]
+            if (prev == null) {
+                // Never saw an open; caller should have used openPosition — refuse.
+                invariantViolations.incrementAndGet()
+                return MutateResult.UNKNOWN_POSITION
+            }
+            if (prev.lifecycle == Lifecycle.CLOSED || prev.lifecycle == Lifecycle.QUARANTINED) {
+                return MutateResult.LIFECYCLE_FORBIDDEN
+            }
+            if (actualQtyRaw <= BigInteger.ZERO || actualEntryCostSol < 0.0) {
+                invariantViolations.incrementAndGet()
+                return MutateResult.INVARIANT_VIOLATION
+            }
+            // Cash adjustment — refund the placeholder debit and re-debit actual.
+            if (paperMode) {
+                val cash = paperCashSol.get()
+                val netDelta = (prev.entryCostSol + prev.feesSol) - (actualEntryCostSol + actualFeesSol)
+                val newCash = cash + netDelta
+                if (newCash < 0.0) {
+                    invariantViolations.incrementAndGet()
+                    return MutateResult.INVARIANT_VIOLATION
+                }
+                paperCashSol.set(newCash)
+            }
+            positions[positionId] = prev.copy(
+                entryCostSol = actualEntryCostSol,
+                remainingQtyRaw = actualQtyRaw,
+                originalQtyRaw = actualQtyRaw,
+                feesSol = actualFeesSol,
+                tokenDecimals = tokenDecimals,
+                lifecycle = Lifecycle.OPEN,
+                lastMutationMs = System.currentTimeMillis(),
+            )
+            muts.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("CANONICAL_POSITION_PROMOTED_6441") } catch (_: Throwable) {}
             return MutateResult.APPLIED
         } finally { lock.unlock() }
     }

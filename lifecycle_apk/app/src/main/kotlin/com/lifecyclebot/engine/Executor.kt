@@ -11461,6 +11461,20 @@ class Executor(
             // account ledger sees the same cost the debitPaperWallet
             // path applies below.
             com.lifecyclebot.engine.truth.PositionStateLedger6427.registerOpen(ts.mint)
+            // V5.0.6442 §1 EXECUTOR WRITER MIGRATION — mirror the buy
+            // attempt into CanonicalPositionAuthority6441 alongside the
+            // legacy PositionStateLedger6427. On fill the mirror is
+            // promoted PENDING_ENTRY -> OPEN via mirrorBuyFill.
+            try {
+                com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyAttempt(
+                    mint = ts.mint,
+                    symbol = ts.symbol.ifBlank { ts.mint.take(6) },
+                    lane = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "STANDARD" },
+                    estimatedCostSol = sol,
+                    estimatedFeesSol = 0.0,
+                    paperMode = true,
+                )
+            } catch (_: Throwable) {}
             if (debitPaperWallet && sol.isFinite() && sol > 0.0) {
                 com.lifecyclebot.engine.truth.PaperAccountLedger6430.onBuy(sol)
             }

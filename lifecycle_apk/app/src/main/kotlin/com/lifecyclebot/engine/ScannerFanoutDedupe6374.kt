@@ -74,6 +74,22 @@ object ScannerFanoutDedupe6374 {
         }
         entries[key] = now
         admits.incrementAndGet()
+        // V5.0.6442 §4 SCANNER INTAKE GATE — consult the canonical
+        // SameMintDedupAuthority6441 at the source. If the mint is
+        // already OPEN (canonical) we BLOCK entry work entirely; the
+        // scanner should route to exit/mark-update rather than emit a
+        // new candidate. REENTRY_LOCKOUT respects the canonical
+        // cooldown after a recent close.
+        try {
+            val decision = com.lifecyclebot.engine.truth.SameMintDedupAuthority6441
+                .shouldCreateEntryCandidate(mint, source)
+            if (decision == com.lifecyclebot.engine.truth.SameMintDedupAuthority6441.Decision.BLOCK ||
+                decision == com.lifecyclebot.engine.truth.SameMintDedupAuthority6441.Decision.REENTRY_LOCKOUT) {
+                skips.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("SCANNER_FANOUT_CANONICAL_$decision".take(60)) } catch (_: Throwable) {}
+                return false
+            }
+        } catch (_: Throwable) {}
         return true
     }
 

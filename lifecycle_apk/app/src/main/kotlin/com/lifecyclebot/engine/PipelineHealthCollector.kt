@@ -1800,6 +1800,13 @@ object PipelineHealthCollector {
             sb.append("  Acceptance audit (§6441):     ").append(
                 com.lifecyclebot.engine.truth.AcceptanceInvariantAudit6441.statusLine()
             ).append("\n")
+            // V5.0.6442 — Executor writer mirror + journal schema mirror.
+            sb.append("  Executor mirror (§6442):      ").append(
+                com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.statusLine()
+            ).append("\n")
+            sb.append("  Forensic row mirror (§6442):  ").append(
+                com.lifecyclebot.engine.truth.ForensicRowMirror6442.statusLine()
+            ).append("\n")
             sb.append(com.lifecyclebot.engine.truth.LivePipelineTrace6431.render())
         } catch (_: Throwable) {}
 
