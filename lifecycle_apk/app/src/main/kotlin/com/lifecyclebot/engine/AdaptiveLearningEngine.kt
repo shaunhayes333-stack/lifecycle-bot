@@ -686,10 +686,27 @@ object AdaptiveLearningEngine {
             -2 -> learningRate * 3.0   // decisive loss — learn fast (was the inverted one)
             else -> 0.0
         }
+        // V5.0.6440 — LEARNER REWARD BRIDGE. Multiply the classic
+        // outcomeScore-derived learning rate by the shaper-aligned
+        // multiplier so bag-holding losses (creed: cut fast) learn even
+        // faster and break-evens (creed: NEVER positive) still nudge
+        // weights away from the offending pattern. Backwards-compatible:
+        // the bridge is derivation-only, side-effect free beyond telemetry.
+        val shapedMult = try {
+            val m = com.lifecyclebot.engine.truth.LearnerRewardBridge6440.derivedMultiplier(
+                features.pnlPct, features.holdTimeMins,
+            )
+            // Convert negative multiplier (break-even inversion) into an
+            // absolute-value magnitude here — the sign-mgmt of adjustWeights
+            // already lives on the per-feature *Signal below. We just want
+            // "how big should the weight step be for THIS trade" here.
+            kotlin.math.abs(m).coerceIn(0.3, 3.5)
+        } catch (_: Throwable) { 1.0 }
+        val adjustmentFactorShaped = adjustmentFactor * shapedMult
 
         val mcapSignal = if (features.entryMcapUsd < 50_000.0) 1.0 else -0.5
         featureWeights.mcapWeight =
-            (featureWeights.mcapWeight + mcapSignal * adjustmentFactor).coerceIn(0.3, 2.5)
+            (featureWeights.mcapWeight + mcapSignal * adjustmentFactorShaped).coerceIn(0.3, 2.5)
 
         val ageSignal = when {
             features.tokenAgeMinutes < 30.0 && features.outcomeScore >= 1 -> 1.0
@@ -697,23 +714,23 @@ object AdaptiveLearningEngine {
             else -> 0.0
         }
         featureWeights.ageWeight =
-            (featureWeights.ageWeight + ageSignal * adjustmentFactor).coerceIn(0.3, 2.5)
+            (featureWeights.ageWeight + ageSignal * adjustmentFactorShaped).coerceIn(0.3, 2.5)
 
         val buySignal = if (features.buyRatioPct > 55.0) 1.0 else -0.5
         featureWeights.buyRatioWeight =
-            (featureWeights.buyRatioWeight + buySignal * adjustmentFactor).coerceIn(0.5, 3.0)
+            (featureWeights.buyRatioWeight + buySignal * adjustmentFactorShaped).coerceIn(0.5, 3.0)
 
         val concSignal = if (features.topHolderPct < 25.0) 1.0 else -1.0
         featureWeights.holderConcWeight =
-            (featureWeights.holderConcWeight + concSignal * adjustmentFactor).coerceIn(0.5, 3.0)
+            (featureWeights.holderConcWeight + concSignal * adjustmentFactorShaped).coerceIn(0.5, 3.0)
 
         val growthSignal = if (features.holderGrowthRate > 0.0) 1.0 else -0.5
         featureWeights.holderGrowthWeight =
-            (featureWeights.holderGrowthWeight + growthSignal * adjustmentFactor).coerceIn(0.5, 2.5)
+            (featureWeights.holderGrowthWeight + growthSignal * adjustmentFactorShaped).coerceIn(0.5, 2.5)
 
         val emaSignal = if (features.emaFanState.uppercase(Locale.US).contains("BULL")) 1.0 else -0.3
         featureWeights.emaFanWeight =
-            (featureWeights.emaFanWeight + emaSignal * adjustmentFactor).coerceIn(0.5, 3.0)
+            (featureWeights.emaFanWeight + emaSignal * adjustmentFactorShaped).coerceIn(0.5, 3.0)
 
         val volLiqSignal = when {
             features.volumeLiquidityRatio > 0.5 && features.outcomeScore >= 0 -> 0.8
@@ -721,7 +738,7 @@ object AdaptiveLearningEngine {
             else -> 0.0
         }
         featureWeights.volLiqRatioWeight =
-            (featureWeights.volLiqRatioWeight + volLiqSignal * adjustmentFactor).coerceIn(0.3, 2.5)
+            (featureWeights.volLiqRatioWeight + volLiqSignal * adjustmentFactorShaped).coerceIn(0.3, 2.5)
 
         // V5.9.301: HOLD-TIME LEARNING — distinguish profitable runners from chopped quick-stops.
         // Long winning hold = trust trend continuation. Short losing hold = bad entry. Long losing hold = should have cut.
@@ -733,7 +750,7 @@ object AdaptiveLearningEngine {
             else -> 0.0
         }
         featureWeights.holdTimeWeight =
-            (featureWeights.holdTimeWeight + holdSignal * adjustmentFactor).coerceIn(0.4, 2.5)
+            (featureWeights.holdTimeWeight + holdSignal * adjustmentFactorShaped).coerceIn(0.4, 2.5)
 
         // V5.9.301: MAX-GAIN FOLLOW-THROUGH — captured PnL vs peak. Tells us about exit timing & scratch traps.
         val captureRatio = if (features.maxGainPct > 0.0) features.pnlPct / features.maxGainPct else 0.0
@@ -744,7 +761,7 @@ object AdaptiveLearningEngine {
             else -> 0.0
         }
         featureWeights.maxGainFollowWeight =
-            (featureWeights.maxGainFollowWeight + followSignal * adjustmentFactor).coerceIn(0.4, 2.5)
+            (featureWeights.maxGainFollowWeight + followSignal * adjustmentFactorShaped).coerceIn(0.4, 2.5)
 
         // V5.9.301: EXIT-REASON QUALITY — TP/runner/trail > stop > rug/dump.
         val exitLower = features.exitReason.lowercase(Locale.US)
@@ -757,7 +774,7 @@ object AdaptiveLearningEngine {
             else -> 0.0
         }
         featureWeights.exitQualityWeight =
-            (featureWeights.exitQualityWeight + exitSignal * adjustmentFactor).coerceIn(0.4, 2.5)
+            (featureWeights.exitQualityWeight + exitSignal * adjustmentFactorShaped).coerceIn(0.4, 2.5)
 
         if (abs(adjustmentFactor) > 0.15) {
             ErrorLogger.debug(

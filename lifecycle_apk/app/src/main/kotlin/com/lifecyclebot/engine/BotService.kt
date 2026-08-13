@@ -14414,6 +14414,21 @@ class BotService : Service() {
             // check runFreezeDetectorTick / runMarketsEngineWatchdog).
             try { markProgress("POST_LEARNING_WATCHDOGS") } catch (_: Throwable) {}
 
+            // V5.0.6440 — TRADING RUNTIME HEALTH WATCHDOG. Emits
+            // TRADING_RUNTIME_ALIVE_6440 every 60s + doze enter/exit
+            // events so the operator can PROVE the service survived a
+            // Doze window (BotService is already a foreground service
+            // with WakeLock + WifiLock + AlarmManager keepalive; this
+            // module is the operator-facing proof-of-life stream).
+            try {
+                val wakeHeld = try { wakeLock?.isHeld == true } catch (_: Throwable) { false }
+                com.lifecyclebot.engine.truth.TradingRuntimeHealthWatchdog6440.onCycleTick(
+                    context = applicationContext,
+                    isServiceForeground = true, // BotService is a foreground service by manifest
+                    isWakeHeld = wakeHeld,
+                )
+            } catch (_: Throwable) {}
+
             // ═══════════════════════════════════════════════════════════════════
             // PENDING SELL QUEUE PROCESSING — every loop tick (~5s) in live mode
             // V5.9.478: bumped from `% 10` (50-80s) → `% 1` (every tick).

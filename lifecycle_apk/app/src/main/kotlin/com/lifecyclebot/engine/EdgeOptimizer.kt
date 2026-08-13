@@ -430,7 +430,25 @@ object EdgeOptimizer {
         }
         
         val effectivePct = minOf(sizePct, maxPositionPct)
-        return walletBalanceSol * (effectivePct / 100.0)
+        val confidenceDerived = walletBalanceSol * (effectivePct / 100.0)
+
+        // V5.0.6440 — RUNNER COMPOUNDING LADDER. On tiny wallets (~$50)
+        // the confidence-derived size can be dust (0.003 SOL). At $500 it
+        // can undershoot the ladder recommendation. Blend: take the MAX
+        // of the confidence-derived size and the ladder floor. The ladder
+        // never OVER-sizes because it's tied to wallet SOL directly, and
+        // the maxPositionPct still applies as an outer ceiling. Result:
+        // $50→$500 legs actually deploy the incremental capital instead
+        // of trading dust when confidence temporarily dips.
+        val ladderFloor = try {
+            com.lifecyclebot.engine.truth.RunnerCompoundingLadder6440.recommendedSizeSol(walletBalanceSol)
+        } catch (_: Throwable) { 0.0 }
+        val laddered = kotlin.math.max(confidenceDerived, ladderFloor)
+        // Emit a ladder-step lifecycle event when the wallet crosses a rung.
+        try { com.lifecyclebot.engine.truth.RunnerCompoundingLadder6440.noteLadderStep(walletBalanceSol) } catch (_: Throwable) {}
+        // Final outer clamp: never exceed maxPositionPct even after ladder blend.
+        val ceiling = walletBalanceSol * (maxPositionPct / 100.0)
+        return kotlin.math.min(laddered, ceiling)
     }
     
     /**
