@@ -450,6 +450,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun paper_to_live_transfer_uses_executable_net_edge_not_gross_paper_pct() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val openGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         assertTrue("Terminal paper sells must charge live-like round-trip friction plus learned route slip", exec.contains("executable-live paper friction") && exec.contains("expectedExtraSlipPct(ts.lastLiquidityUsd)") && exec.contains("val simulatedFeePct = (1.6 + expectedRouteSlipPct"))
         assertTrue("Paper terminal SELL rows must carry feeSol/netPnlSol into journal and learning", exec.contains("val simulatedFeeSol") && exec.contains("feeSol = simulatedFeeSol") && exec.contains("netPnlSol = pnl"))
         assertTrue("Legacy journal consumers must receive net-normalized pnlPct before TradeHistoryStore", exec.contains("paper→live transfer authority") && exec.contains("PAPER_LIVE_TRANSFER_NET_PCT_NORMALIZED") && exec.indexOf("paper→live transfer authority") < exec.indexOf("TradeHistoryStore.recordTrade(tradeWithMint)"))
@@ -7437,6 +7438,33 @@ class GoldenTapeRegressionTest {
                 bot.contains("lastPrevCycleMs6421 > 30_000L") &&
                 bot.contains("val labBudgetedTokenCap6446 = if (lastPrevCycleMs6421 > 30_000L) 40 else 120") &&
                 bot.contains(".take(labBudgetedTokenCap6446)"))
+    }
+
+
+    @Test
+    fun V5_0_6447_post_learning_and_same_mint_repeat_chokes_are_off_hot_path() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val openGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue("V5.0.6447: AI status/cleanup maintenance must run off the bot loop and skip cleanup during slow cycles so POST_LEARNING_MAINTENANCE cannot stall money-path throughput",
+            bot.contains("POST_LEARNING_MAINTENANCE source fix") &&
+                bot.contains("scope.launch(kotlinx.coroutines.Dispatchers.Default)") &&
+                bot.contains("AI_STATUS_MAINT_ASYNC_6447") &&
+                bot.contains("AI_STATUS_CLEANUP_SKIPPED_SLOW_CYCLE_6447") &&
+                bot.contains("lastPrevCycleMs6421 <= 30_000L"))
+        assertTrue("V5.0.6447: canonical paper cash must import the displayed paper wallet so OrderSizeResolver does not skip every entry while UI cash is healthy",
+            bot.contains("CANONICAL PAPER CASH BRIDGE") &&
+                bot.contains("syncCanonicalPaperCashFromDisplayedWallet6447") &&
+                bot.contains("CanonicalPositionAuthority6441.setPaperCash(displayedCash") &&
+                bot.contains("CANONICAL_PAPER_CASH_SYNCED_6447") &&
+                bot.contains("""syncCanonicalPaperCashFromDisplayedWallet6447("bot_loop_top")""") &&
+                bot.contains("""syncCanonicalPaperCashFromDisplayedWallet6447("paper_delta")"""))
+        assertTrue("V5.0.6447: repeated PAPER same-mint aliases must be coalesced before ExecutableOpenGate/price/size work, while the 6371 finality guard remains as safety belt",
+            exec.contains("paperSameMintOpenCooldownUntil6447") &&
+                exec.contains("PAPER_SAME_MINT_OPEN_COALESCED_6447") &&
+                exec.contains("PAPER_SAME_MINT_OPEN_SOURCE_SUPPRESSED_6447") &&
+                exec.indexOf("PAPER_SAME_MINT_OPEN_SOURCE_SUPPRESSED_6447") < exec.indexOf("ExecutableOpenGate.canOpenExecutablePosition") &&
+                openGate.contains("PAPER_SAME_MINT_ALREADY_OPEN_6371"))
     }
 
 }

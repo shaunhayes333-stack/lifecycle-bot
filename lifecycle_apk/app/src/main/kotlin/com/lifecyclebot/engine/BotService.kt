@@ -1396,6 +1396,7 @@ class BotService : Service() {
                     com.lifecyclebot.data.ConfigStore.load(applicationContext).paperSimulatedBalance
                 } catch (_: Throwable) { 11.76 }
                 com.lifecyclebot.engine.truth.PaperAccountLedger6430.initialize(startCap6432)
+                try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(startCap6432, "startup_paper_balance_6447") } catch (_: Throwable) {}
                 com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431
                     .start { /* full reconcile callback: wired in Phase 2 */ }
             } catch (_: Throwable) {}
@@ -3477,6 +3478,30 @@ class BotService : Service() {
         } catch (e: Throwable) {
             try { ErrorLogger.warn("PaperWallet", "repairUnifiedPaperWalletIfImpossible failed: ${e.message}") } catch (_: Throwable) {}
         }
+    }
+
+
+    /**
+     * V5.0.6447 — CANONICAL PAPER CASH BRIDGE.
+     * OrderSizeResolver6441 reads CanonicalPositionAuthority6441.paperCashSol(),
+     * but 6441-6446 never imported the actual displayed paper wallet balance.
+     * Runtime 6446 showed UI ≈75 SOL while canonical cash was 0/negative, causing
+     * PAPER_CASH_INSUFFICIENT on every entry. This mirrors the existing paper
+     * wallet authority into canonical cash without bypassing capital conservation.
+     */
+    private fun syncCanonicalPaperCashFromDisplayedWallet6447(source: String) {
+        try {
+            val cfgNow = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+            if (!cfgNow.paperMode) return
+            val displayedCash = status.paperWalletSol.takeIf { it.isFinite() && it >= 0.0 }
+                ?: try { FluidLearning.getPaperBalance() } catch (_: Throwable) { 0.0 }
+            if (displayedCash <= 0.0) return
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(displayedCash, "displayed_paper_wallet_bridge_6447:$source")
+            try {
+                PipelineHealthCollector.labelInc("CANONICAL_PAPER_CASH_SYNCED_6447")
+                ForensicLogger.lifecycle("CANONICAL_PAPER_CASH_SYNCED_6447", "source=$source displayedCash=${"%.5f".format(displayedCash)}")
+            } catch (_: Throwable) {}
+        } catch (_: Throwable) {}
     }
 
     // ── start / stop ───────────────────────────────────────
@@ -6223,6 +6248,7 @@ class BotService : Service() {
 
             status.paperWalletSol = (status.paperWalletSol + applied).coerceAtLeast(0.0)
             repairUnifiedPaperWalletIfImpossible("paper_delta")
+            syncCanonicalPaperCashFromDisplayedWallet6447("paper_delta")
             ErrorLogger.info("PaperWallet",
                 "Δ=${"%.4f".format(applied)} SOL → balance=${"%.4f".format(status.paperWalletSol)}" +
                 if (isInsane) " [CLAMPED from ${"%.4f".format(delta)}]" else "")
@@ -14152,6 +14178,7 @@ class BotService : Service() {
                 watchlistSize = GlobalTradeRegistry.size()
             )
             val frozenAggression = loopSnapshot.aggression
+            syncCanonicalPaperCashFromDisplayedWallet6447("bot_loop_top")
 
             // V5.9.495z32 — sweep stale watchlist candidates per loop.
             // Snipe-mode TTL = 5min, normal = 30min. Operator z32 directive:
@@ -14885,57 +14912,60 @@ class BotService : Service() {
             
             // Periodic AI stats logging (every ~5 minutes = 6-7 loops at 45s intervals)
             if (loopCount % 7 == 0) {
-                addLog("🤖 AI STATUS: ${TradingMemory.getStats()}")
-                // Also log BotBrain learning state
-                val brainStatus = botBrain?.let { b ->
-                    "🧠 Brain: entry_adj=${String.format("%+.0f", b.entryThresholdDelta)} " +
-                    "regime=${b.currentRegime} " +
-                    "size_mult=${String.format("%.0f%%", b.regimeBullMult * 100)} " +
-                    "suppressed=${b.totalSuppressedPatterns}"
-                } ?: "🧠 Brain not initialized"
-                addLog(brainStatus)
-                
-                // Log adaptive learning status
-                addLog("🧬 ${AdaptiveLearningEngine.getStatus()}")
-                
-                // ═══════════════════════════════════════════════════════════════════
-                // LOG NEW AI LAYERS STATUS
-                // ═══════════════════════════════════════════════════════════════════
-                addLog("🐋 ${WhaleTrackerAI.getStats()}")
-                addLog("📊 ${MarketRegimeAI.getStats()}")
-                addLog("🚀 ${MomentumPredictorAI.getStats()}")
-                addLog("📖 ${NarrativeDetectorAI.getStats()}")
-                addLog("⏰ ${TimeOptimizationAI.getStats()}")
-                addLog("💧 ${LiquidityDepthAI.getStats()}")
-                addLog("🔗 ${AICrossTalk.getStats()}")
-                
-                // Clean up old momentum data
-                MomentumPredictorAI.cleanup()
-                WhaleTrackerAI.cleanup()
-                NarrativeDetectorAI.cleanup()
-                TimeOptimizationAI.cleanup()
-                LiquidityDepthAI.cleanup()
-                AICrossTalk.cleanup()
-                
-                // Refresh time-based stats
-                TimeOptimizationAI.refreshStats()
-                NarrativeDetectorAI.refreshHeat()
-                
-                // Log cloud sync status (every ~35 mins = 5x7 loops)
-                if (loopCount % 35 == 0) {
-                    addLog("☁️ ${CloudLearningSync.getStatus()}")
-                    
-                    // Auto-discover top whale wallets
-                    scope.launch {
-                        try {
-                            val added = copyTradeEngine.autoDiscoverTopWallets(maxWallets = 3, minPnlSol = 20.0)
-                            if (added > 0) {
-                                val stats = copyTradeEngine.getStats()
-                                addLog("🐋 Whale discovery: +$added | tracking ${stats.activeWallets}")
-                            }
-                        } catch (_: Exception) {}
+                // V5.0.6447 — POST_LEARNING_MAINTENANCE source fix.
+                // 6446 runtime moved the worst slow-cycle phase here after
+                // LabUniverseTick was capped. The old block synchronously ran
+                // getStats(), cleanup(), refreshHeat() and cloud-status calls on
+                // the bot loop. These are reporting/maintenance only — never
+                // entry/exit authority — so run them off-loop and skip cleanups on
+                // already-slow cycles. Preserves telemetry while protecting the
+                // money path and 2x–5x compounding throughput.
+                val aiStatusLoop6447 = loopCount
+                scope.launch(kotlinx.coroutines.Dispatchers.Default) {
+                    try {
+                        addLog("🤖 AI STATUS: ${TradingMemory.getStats()}")
+                        val brainStatus = botBrain?.let { b ->
+                            "🧠 Brain: entry_adj=${String.format("%+.0f", b.entryThresholdDelta)} " +
+                            "regime=${b.currentRegime} " +
+                            "size_mult=${String.format("%.0f%%", b.regimeBullMult * 100)} " +
+                            "suppressed=${b.totalSuppressedPatterns}"
+                        } ?: "🧠 Brain not initialized"
+                        addLog(brainStatus)
+                        addLog("🧬 ${AdaptiveLearningEngine.getStatus()}")
+                        addLog("🐋 ${WhaleTrackerAI.getStats()}")
+                        addLog("📊 ${MarketRegimeAI.getStats()}")
+                        addLog("🚀 ${MomentumPredictorAI.getStats()}")
+                        addLog("📖 ${NarrativeDetectorAI.getStats()}")
+                        addLog("⏰ ${TimeOptimizationAI.getStats()}")
+                        addLog("💧 ${LiquidityDepthAI.getStats()}")
+                        addLog("🔗 ${AICrossTalk.getStats()}")
+                        if (lastPrevCycleMs6421 <= 30_000L) {
+                            MomentumPredictorAI.cleanup()
+                            WhaleTrackerAI.cleanup()
+                            NarrativeDetectorAI.cleanup()
+                            TimeOptimizationAI.cleanup()
+                            LiquidityDepthAI.cleanup()
+                            AICrossTalk.cleanup()
+                            TimeOptimizationAI.refreshStats()
+                            NarrativeDetectorAI.refreshHeat()
+                        } else {
+                            try { PipelineHealthCollector.labelInc("AI_STATUS_CLEANUP_SKIPPED_SLOW_CYCLE_6447") } catch (_: Throwable) {}
+                        }
+                        if (aiStatusLoop6447 % 35 == 0) {
+                            addLog("☁️ ${CloudLearningSync.getStatus()}")
+                            try {
+                                val added = copyTradeEngine.autoDiscoverTopWallets(maxWallets = 3, minPnlSol = 20.0)
+                                if (added > 0) {
+                                    val stats = copyTradeEngine.getStats()
+                                    addLog("🐋 Whale discovery: +$added | tracking ${stats.activeWallets}")
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    } catch (e: Throwable) {
+                        ErrorLogger.debug("BotService", "AI status maintenance async error: ${e.message}")
                     }
                 }
+                try { PipelineHealthCollector.labelInc("AI_STATUS_MAINT_ASYNC_6447") } catch (_: Throwable) {}
             }
             
             // Pattern Backtest - Run daily (every ~1440 loops at 1min intervals, or ~320 at 45s)

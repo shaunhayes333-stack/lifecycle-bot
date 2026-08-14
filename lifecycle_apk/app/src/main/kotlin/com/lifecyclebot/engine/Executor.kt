@@ -719,6 +719,26 @@ class Executor(
         // CASHGEN_STOP_LOSS and STALE_LIVE_PRICE_RUG_ESCAPE fire simultaneously
         // for the same paper position. Both see isOpen=true before either closes it.
         private val paperSellLocks = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicBoolean>()
+        // V5.0.6447 — source-level same-mint open cooldown for paper buy aliases.
+        // ExecutableOpenGate still protects finality, but repeated lane/source
+        // aliases were hitting PAPER_SAME_MINT_ALREADY_OPEN_6371 ~100 times per
+        // snapshot. This short mint-wide cooldown suppresses repeat work before
+        // price/finality/size paths while preserving re-entry after close.
+        private val paperSameMintOpenCooldownUntil6447 = ConcurrentHashMap<String, Long>()
+        private const val PAPER_SAME_MINT_OPEN_COOLDOWN_MS_6447: Long = 45_000L
+
+        private fun paperSameMintOpenCooldownActive6447(mint: String): Boolean {
+            val now = System.currentTimeMillis()
+            val until = paperSameMintOpenCooldownUntil6447[mint] ?: return false
+            return if (now < until) true else {
+                paperSameMintOpenCooldownUntil6447.remove(mint, until)
+                false
+            }
+        }
+
+        private fun armPaperSameMintOpenCooldown6447(mint: String) {
+            paperSameMintOpenCooldownUntil6447[mint] = System.currentTimeMillis() + PAPER_SAME_MINT_OPEN_COOLDOWN_MS_6447
+        }
         // V5.0.6071 — paperSellLock TTL. If a sell path crashes/exceptions
         // between acquire and release (e.g. dead price oracle throws inside
         // paperSell), the AtomicBoolean stays `true` forever and every future
@@ -11655,6 +11675,27 @@ class Executor(
             return
         }
         paperBuyLeaseKey6369 = paperBuyLease6369.key
+
+        // V5.0.6447 — source-level alias suppression before ExecutableOpenGate.
+        // 6446 runtime still showed ~100 PAPER_SAME_MINT_ALREADY_OPEN_6371
+        // blocks: aliases made it through lease/finality work and died only in
+        // ExecutableOpenGate. Cut the repeat at paperBuy entry and coalesce
+        // subsequent hits for 45s per mint.
+        val existingLayer6447 = try { EmergentGuardrails.getPositionLayer(ts.mint).orEmpty() } catch (_: Throwable) { "" }
+        if (existingLayer6447.isNotBlank()) {
+            if (paperSameMintOpenCooldownActive6447(ts.mint)) {
+                try { PipelineHealthCollector.labelInc("PAPER_SAME_MINT_OPEN_COALESCED_6447") } catch (_: Throwable) {}
+            } else {
+                armPaperSameMintOpenCooldown6447(ts.mint)
+                try {
+                    PipelineHealthCollector.labelInc("PAPER_SAME_MINT_OPEN_SOURCE_SUPPRESSED_6447")
+                    PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "PAPER_SAME_MINT_ALREADY_OPEN_SOURCE_6447 existing=$existingLayer6447 requested=$finalityLane")
+                    ForensicLogger.lifecycle("PAPER_SAME_MINT_OPEN_SOURCE_SUPPRESSED_6447", "mint=${ts.mint.take(10)} symbol=${ts.symbol} existing=$existingLayer6447 requested=$finalityLane action=blocked_before_executable_open_gate")
+                } catch (_: Throwable) {}
+            }
+            markPaperBuyNotOpened("SAME_MINT_ALREADY_OPEN_SOURCE_6447")
+            return
+        }
 
         if (!finalityPrechecked) {
             // V5.9.1331 — prefer the real lane (layerTag → position.tradingMode) and fall
