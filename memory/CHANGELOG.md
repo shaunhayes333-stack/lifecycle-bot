@@ -1,3 +1,34 @@
+## V5.0.6445 — 2026-08-14 — LANE TRADER WIRE-THROUGH + SENTIENCE/LAB DIVERGENCE + LADDER FEEDBACK
+
+Operator (V5.0.6444 next actions): do all remaining items.
+
+1. Lane Trader Wire-Through — 5 traders retrofitted to route sizing
+   through TraderSizingBridge6444.sizeForLane:
+   - BlueChipTraderAI → BLUECHIP cap 2.0 SOL
+   - QualityTraderAI  → QUALITY  cap 1.0 SOL
+   - MoonshotTraderAI → MOONSHOT cap 0.05 SOL
+   - ShitCoinTraderAI → SHITCOIN cap 0.05 SOL
+   - SolanaArbAI.executeArb → TREASURY cap 0.5 SOL
+   All parity-preserving via MIN(bridge, trader). Wallet SOL sourced
+   from CanonicalPositionAuthority6441.paperCashSol() where the
+   trader's scoring surface has no wallet param.
+
+2. Sentience / Lab Divergence Guard — every 15 loops (~150s)
+   BotService.runCanonicalCycleEndHooks6443 calls
+   SentienceLabRewardBridge6444.alignWithCanonicalIfDivergent for
+   both SentienceOrchestrator and LlmLabEngine.
+
+3. Runner Ladder Auto-Feedback — RunnerCompoundingLadder6440.noteLadderStep
+   emits shadow reinforcement via RewardPurityGate6441.acceptShadowSignal
+   on UP-crossings only, so the AGI stack literally learns
+   "compounding IS the goal" without penalising temporary rung drops.
+
+4. Legacy Writer Deletion — intentionally deferred until operator
+   validates canonical == legacy parity for one trading window.
+
+CI: Build AATE APK green (run 31766816167).
+
+
 ## V5.0.6444 — 2026-08-13 — LEGACY WRITER ROUTE + SELL MIRRORS + SENTIENCE/LAB + TRADER SIZING
 
 Operator (V5.0.6443 next actions): do all 4 items.
