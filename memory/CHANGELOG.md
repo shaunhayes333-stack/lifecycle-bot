@@ -1,3 +1,40 @@
+## V5.0.6444 — 2026-08-13 — LEGACY WRITER ROUTE + SELL MIRRORS + SENTIENCE/LAB + TRADER SIZING
+
+Operator (V5.0.6443 next actions): do all 4 items.
+
+1. Legacy Writer Route (PositionStateLedger6427 → Canonical):
+   - `PositionStateLedger6427.registerOpen` mirrors every legacy open
+     into CanonicalPositionAuthority6441 via ExecutorCanonicalMirror6442.
+     Safety net for un-migrated callers.
+
+2. paperSell + liveBuy + liveSell Mirrors:
+   - `Executor.paperSell` mirrors sell attempt before legacy path.
+   - `Executor.liveBuy` mirrors buy attempt at earliest entry.
+   - `Executor.liveSell` mirrors sell attempt at earliest entry.
+   - Best-effort no-op on failure.
+
+3. Sentience + Lab Reward Wire:
+   - `SentienceLabRewardBridge6444`: read-only bridge exposing
+     canonical (W, L, BE) counts. alignWithCanonicalIfDivergent
+     emits SENTIENCE_LAB_REWARD_ALIGN_6444 when learners diverge >25%.
+
+4. Trader Sizing Sites:
+   - `TraderSizingBridge6444`: per-lane risk cap map. resolveForLane
+     routes through OrderSizeResolver6441 with the declared cap.
+     Fail-open with BRIDGE_FALLBACK so a bug never halts trading.
+
+Hotfix inside V5.0.6444:
+- Kotlin compile error 'Unresolved reference: tokenAmount' fixed —
+  correct field on TokenPosition is qtyToken; converted to BigInteger
+  raw via *1e9 scale as best-effort estimate.
+
+Operator UI: current dump ANR: 20 + MAX FRAME 52.7s. Separate main-
+thread stall to be hunted in a follow-up ship using SlowCycleDiagnostic6437
++ RootCauseTelemetry6441 telemetry from a fresh post-V5.0.6444 dump.
+
+CI: Build AATE APK green (run 31755741598).
+
+
 ## V5.0.6442-6443 — 2026-08-13 — CONSUMER MIGRATION + JVM METHOD-SIZE HOTFIX
 
 Operator (V5.0.6441 next actions): "do all next items now. no skipping."
