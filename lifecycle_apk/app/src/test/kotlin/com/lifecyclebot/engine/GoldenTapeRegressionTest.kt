@@ -7414,4 +7414,29 @@ class GoldenTapeRegressionTest {
                 target.contains("V5.0.6372_UNIVERSAL_COMPOUND_TARGET"))
     }
 
+
+    @Test
+    fun V5_0_6446_slow_cycle_source_chokes_are_budgeted_before_supervisor() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val sameMint = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/SameMintDedupAuthority6441.kt").readText()
+        val scanner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ScannerFanoutDedupe6374.kt").readText()
+        assertTrue("V5.0.6446: slow-cycle WATCHLIST_PRIORITIZED must be budgeted before supervisor instead of full-scoring every mint every tick",
+            bot.contains("WATCHLIST_PRIORITY_BUDGET_BYPASS_6446") &&
+                bot.contains("lastPrevCycleMs6421 > 30_000L") &&
+                bot.contains("loopCount % 3 != 0") &&
+                bot.contains("skip_full_sort_this_tick") &&
+                bot.contains("val prioritizedWatchlist = if (cfg.v3EngineEnabled && !watchlistPriorityBudgetBypass6446)"))
+        assertTrue("V5.0.6446: same-mint dedup must use canonical + emergent + registry open truth and COALESCE must not create a new scanner candidate",
+            sameMint.contains("EmergentGuardrails.getPositionLayer(mint)") &&
+                sameMint.contains("GlobalTradeRegistry.hasOpenPosition(mint)") &&
+                sameMint.contains("SAME_MINT_BLOCK_OPEN_EMERGENT_6446") &&
+                scanner.contains("Decision.COALESCE") &&
+                scanner.substring(scanner.indexOf("val decision ="), scanner.indexOf("return true", scanner.indexOf("val decision ="))).contains("return false"))
+        assertTrue("V5.0.6446: LabUniverseTick must snapshot a bounded representative slice on slow cycles instead of traversing the full token map before supervisor",
+            bot.contains("LAB_UNIVERSE_TICK_BUDGETED_6446") &&
+                bot.contains("lastPrevCycleMs6421 > 30_000L") &&
+                bot.contains("val labBudgetedTokenCap6446 = if (lastPrevCycleMs6421 > 30_000L) 40 else 120") &&
+                bot.contains(".take(labBudgetedTokenCap6446)"))
+    }
+
 }

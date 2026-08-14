@@ -12000,9 +12000,14 @@ class BotService : Service() {
     // "Couldn't transform method node: botLoop"). No behavior change.
     private fun runLabUniverseTick() {
         com.lifecyclebot.engine.lab.LlmLabEngine.tick {
-            val list = ArrayList<com.lifecyclebot.engine.lab.LlmLabEngine.LabUniverseTick>(
-                status.tokens.size
-            )
+            val labBudgetedTokenCap6446 = if (lastPrevCycleMs6421 > 30_000L) 40 else 120
+            val list = ArrayList<com.lifecyclebot.engine.lab.LlmLabEngine.LabUniverseTick>(labBudgetedTokenCap6446 + 16)
+            if (lastPrevCycleMs6421 > 30_000L) {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAB_UNIVERSE_TICK_BUDGETED_6446")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle("LAB_UNIVERSE_TICK_BUDGETED_6446", "prevCycleMs=$lastPrevCycleMs6421 cap=$labBudgetedTokenCap6446 tokenMapSize=${status.tokens.size}")
+                } catch (_: Throwable) {}
+            }
             val regime = try {
                 val m = com.lifecyclebot.v4.meta.CrossMarketRegimeAI.assessRegime().mode
                 when (m) {
@@ -12012,7 +12017,12 @@ class BotService : Service() {
                     else -> "CHOP"
                 }
             } catch (_: Throwable) { "ANY" }
-            status.tokens.values.forEach { ts ->
+            status.tokens.values.asSequence()
+                .sortedByDescending { ts ->
+                    (if (ts.position.isOpen) 10_000.0 else 0.0) + ts.entryScore + (ts.lastLiquidityUsd / 2_000.0).coerceAtMost(50.0)
+                }
+                .take(labBudgetedTokenCap6446)
+                .forEach { ts ->
                 val price = ts.lastPrice.takeIf { it > 0 } ?: ts.history.lastOrNull()?.priceUsd ?: 0.0
                 if (price <= 0) return@forEach
                 val score = (ts.entryScore.toInt()).coerceIn(0, 100)
@@ -12530,7 +12540,7 @@ class BotService : Service() {
             ForensicLogger.phase(
                 ForensicLogger.PHASE.SCAN_CB,
                 "_loop",
-                "🧬[BOT_LOOP_TICK] n=$loopCount watch=$regSize localTokens=$watchSize prevCycleMs=$prevCycleMs",
+                "🧬[BOT_LOOP_TICK] n=$loopCount watch=$regSize localTokens=$watchSize prevCycleMs=$lastPrevCycleMs6421",
             )
 
             // V5.9.864 — every 10 loop ticks, run AutoEndpointMigrator
@@ -15205,7 +15215,23 @@ class BotService : Service() {
     
 
             // V5.2: Prioritize tokens for processing
-val prioritizedWatchlist = if (cfg.v3EngineEnabled) {
+// V5.0.6446 — WATCHLIST PRIORITY BUDGET BYPASS.
+// 6445 runtime pinned worst slow-cycle phase at WATCHLIST_PRIORITIZED.
+// The full priority sorter reads TokenState, registry metadata, safety age,
+// LiquidityClassifier and source reliability for every mint. When the prior
+// loop already exceeded 30s, doing that full scan every tick compounds the
+// choke before supervisor even gets a chance to work. This is lane-neutral:
+// every third slow tick still refreshes the full score order, while intervening
+// slow ticks reuse the raw registry order and downstream forced-open + family
+// dedupe + selectOrderedMintsForCycle still protect exits and fair coverage.
+val watchlistPriorityBudgetBypass6446 = cfg.v3EngineEnabled && lastPrevCycleMs6421 > 30_000L && (loopCount % 3 != 0)
+if (watchlistPriorityBudgetBypass6446) {
+    try {
+        ForensicLogger.lifecycle("WATCHLIST_PRIORITY_BUDGET_BYPASS_6446", "prevCycleMs=$lastPrevCycleMs6421 loop=$loopCount size=${effectiveWatchlist.size} action=skip_full_sort_this_tick")
+        PipelineHealthCollector.labelInc("WATCHLIST_PRIORITY_BUDGET_BYPASS_6446")
+    } catch (_: Throwable) {}
+}
+val prioritizedWatchlist = if (cfg.v3EngineEnabled && !watchlistPriorityBudgetBypass6446) {
     val nowMs = System.currentTimeMillis()
     effectiveWatchlist.sortedByDescending { mint ->
         val ts = status.tokens[mint]

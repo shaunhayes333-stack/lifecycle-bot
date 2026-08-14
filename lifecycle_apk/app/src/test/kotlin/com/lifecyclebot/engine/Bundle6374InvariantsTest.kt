@@ -46,12 +46,12 @@ class Bundle6374InvariantsTest {
     }
 
     @Test
-    fun scannerFanoutDedupe_isolates_by_source() {
+    fun scannerFanoutDedupe_merges_cross_source_same_mint_without_new_candidate() {
         ScannerFanoutDedupe6374.resetForTest()
         val mint = "8y".padEnd(44, 'B')
         assertTrue(ScannerFanoutDedupe6374.admit("PUMP_PORTAL_WS", mint))
-        assertTrue(
-            "V5.0.6374: different SOURCE for same mint must still admit (per-(source,mint) key)",
+        assertFalse(
+            "V5.0.6446: different SOURCE for same mint must merge provenance/coalesce, not create a second entry candidate",
             ScannerFanoutDedupe6374.admit("DEXSCREENER_PAIR", mint)
         )
         // Same source, same mint again → skip.

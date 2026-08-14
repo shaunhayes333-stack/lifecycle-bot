@@ -2,6 +2,8 @@ package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.engine.EmergentGuardrails
+import com.lifecyclebot.engine.GlobalTradeRegistry
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -60,9 +62,15 @@ object SameMintDedupAuthority6441 {
 
     fun shouldCreateEntryCandidate(mint: String, source: String, nowMs: Long = System.currentTimeMillis()): Decision {
         rawCandidates.incrementAndGet()
-        if (CanonicalPositionAuthority6441.hasOpenMint(mint)) {
+        val openLayer6446 = try { EmergentGuardrails.getPositionLayer(mint).orEmpty() } catch (_: Throwable) { "" }
+        val registryOpen6446 = try { GlobalTradeRegistry.hasOpenPosition(mint) } catch (_: Throwable) { false }
+        if (CanonicalPositionAuthority6441.hasOpenMint(mint) || openLayer6446.isNotBlank() || registryOpen6446) {
             blocks.incrementAndGet()
-            try { PipelineHealthCollector.labelInc("SAME_MINT_BLOCK_OPEN_6441") } catch (_: Throwable) {}
+            try {
+                PipelineHealthCollector.labelInc("SAME_MINT_BLOCK_OPEN_6441")
+                if (openLayer6446.isNotBlank()) PipelineHealthCollector.labelInc("SAME_MINT_BLOCK_OPEN_EMERGENT_6446")
+                if (registryOpen6446) PipelineHealthCollector.labelInc("SAME_MINT_BLOCK_OPEN_REGISTRY_6446")
+            } catch (_: Throwable) {}
             return Decision.BLOCK
         }
         // Re-entry lockout: recently closed positions (canonical) can't
@@ -86,6 +94,17 @@ object SameMintDedupAuthority6441 {
         accepts.incrementAndGet()
         try { PipelineHealthCollector.labelInc("SAME_MINT_ACCEPTED_6441") } catch (_: Throwable) {}
         return Decision.ACCEPT
+    }
+
+
+
+    internal fun resetForTest() {
+        inFlight.clear()
+        accepts.set(0L)
+        coalesces.set(0L)
+        blocks.set(0L)
+        lockouts.set(0L)
+        rawCandidates.set(0L)
     }
 
     fun envelopeOf(mint: String): CandidateEnvelope? = inFlight[mint]

@@ -84,6 +84,7 @@ object ScannerFanoutDedupe6374 {
             val decision = com.lifecyclebot.engine.truth.SameMintDedupAuthority6441
                 .shouldCreateEntryCandidate(mint, source)
             if (decision == com.lifecyclebot.engine.truth.SameMintDedupAuthority6441.Decision.BLOCK ||
+                decision == com.lifecyclebot.engine.truth.SameMintDedupAuthority6441.Decision.COALESCE ||
                 decision == com.lifecyclebot.engine.truth.SameMintDedupAuthority6441.Decision.REENTRY_LOCKOUT) {
                 skips.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("SCANNER_FANOUT_CANONICAL_$decision".take(60)) } catch (_: Throwable) {}
@@ -124,6 +125,7 @@ object ScannerFanoutDedupe6374 {
         skips.set(0L)
         callsSinceLastPrune.set(0L)
         ttlMs.set(DEFAULT_TTL_MS)
+        try { com.lifecyclebot.engine.truth.SameMintDedupAuthority6441.resetForTest() } catch (_: Throwable) {}
     }
 
     private fun keyOf(source: String, mint: String): String =
