@@ -125,6 +125,21 @@ object RunnerCompoundingLadder6440 {
                 )
             } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("RUNNER_LADDER_STEP_6440") } catch (_: Throwable) {}
+            // V5.0.6445 RUNNER LADDER AUTO-FEEDBACK — when the wallet
+            // crosses UP to a higher rung, feed a positive shadow
+            // reinforcement signal into the reward bus so the AGI stack
+            // literally learns "compounding IS the goal". Down-crossings
+            // are NOT reinforced (protects the model from learning to
+            // shrink when a loss temporarily drops us a rung).
+            if (newSize > prev) {
+                try {
+                    com.lifecyclebot.engine.truth.RewardPurityGate6441.acceptShadowSignal(
+                        namespace = "RUNNER_LADDER_STEP_UP",
+                        tag = "prev=${"%.3f".format(prev)}_new=${"%.3f".format(newSize)}_wallet=${"%.3f".format(walletSol)}",
+                    )
+                } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("RUNNER_LADDER_STEP_UP_REINFORCE_6445") } catch (_: Throwable) {}
+            }
         }
     }
 

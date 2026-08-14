@@ -539,9 +539,24 @@ object QualityTraderAI {
         ErrorLogger.info(TAG, "✅ QUALITY ENTRY: $symbol | mcap=$${marketCapUsd.toInt()} | " +
             "liq=$${liquidityUsd.toInt()} | score=$qualityScore | size=${positionSize} SOL | TP=$tp% SL=$sl%")
         
+        val _qualitySizedSol = positionSize * qualityExpectancySoftSize4317 * dangerSoftSize * qualityUltimateEdgeSizeMult4328
+        // V5.0.6445 LANE TRADER WIRE-THROUGH — route the trader's own
+        // sizing through the canonical TraderSizingBridge6444 so every
+        // lane respects the same risk-cap + ladder + cash-cap + min-
+        // executable pipeline. Parity-preserving: MIN(bridge, trader).
+        val _qualityFinalSol = try {
+            val walletSolProxy = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.paperCashSol().coerceAtLeast(0.1)
+            val bridged = com.lifecyclebot.engine.truth.TraderSizingBridge6444.sizeForLane(
+                laneName = "QUALITY",
+                requestedSol = _qualitySizedSol,
+                walletSol = walletSolProxy,
+                paperMode = true,
+            )
+            kotlin.math.min(bridged, _qualitySizedSol)
+        } catch (_: Throwable) { _qualitySizedSol }
         return QualitySignal(
             shouldEnter = true,
-            positionSizeSol = positionSize * qualityExpectancySoftSize4317 * dangerSoftSize * qualityUltimateEdgeSizeMult4328,  // V5.9.1348 danger soft-shape
+            positionSizeSol = _qualityFinalSol,
             takeProfitPct = tp,
             stopLossPct = sl,
             reason = "Quality setup: score=$qualityScore",

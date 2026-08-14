@@ -1091,9 +1091,21 @@ object BlueChipTraderAI {
             "size=${positionSol.fmt(4)} SOL | " +
             "TP=${takeProfitPct.fmt(0)}% SL=${stopLossPct.toInt()}%")
         
+        // V5.0.6445 LANE TRADER WIRE-THROUGH — BlueChip sizing routed
+        // through the canonical TraderSizingBridge6444 for lane-cap parity.
+        val _blueChipFinalSol = try {
+            val walletSolProxy = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.paperCashSol().coerceAtLeast(0.1)
+            val bridged = com.lifecyclebot.engine.truth.TraderSizingBridge6444.sizeForLane(
+                laneName = "BLUECHIP",
+                requestedSol = positionSol,
+                walletSol = walletSolProxy,
+                paperMode = isPaperMode,
+            )
+            kotlin.math.min(bridged, positionSol)
+        } catch (_: Throwable) { positionSol }
         return BlueChipSignal(
             shouldEnter = true,
-            positionSizeSol = positionSol,
+            positionSizeSol = _blueChipFinalSol,
             takeProfitPct = takeProfitPct,
             stopLossPct = stopLossPct,
             confidence = blueChipConfidence,

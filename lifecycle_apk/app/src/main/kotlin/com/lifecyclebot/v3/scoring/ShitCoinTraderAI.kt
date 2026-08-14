@@ -1699,9 +1699,21 @@ object ShitCoinTraderAI {
             "TP=${takeProfitPct.fmt(0)}% SL=${effectiveStopLoss.toInt()}%")
         try { ShitCoinDecisionMatrixReport.recordAccepted(scoreReasons.joinToString(","), shitScore, shitConfidence, mode.name, launchPlatform.name, isPaperMode, positionSol) } catch (_: Throwable) {}
         
+        // V5.0.6445 LANE TRADER WIRE-THROUGH — ShitCoin sizing routed
+        // through the canonical TraderSizingBridge6444 for lane-cap parity.
+        val _shitCoinFinalSol = try {
+            val walletSolProxy = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.paperCashSol().coerceAtLeast(0.1)
+            val bridged = com.lifecyclebot.engine.truth.TraderSizingBridge6444.sizeForLane(
+                laneName = "SHITCOIN",
+                requestedSol = positionSol,
+                walletSol = walletSolProxy,
+                paperMode = isPaperMode,
+            )
+            kotlin.math.min(bridged, positionSol)
+        } catch (_: Throwable) { positionSol }
         return ShitCoinSignal(
             shouldEnter = true,
-            positionSizeSol = positionSol,
+            positionSizeSol = _shitCoinFinalSol,
             takeProfitPct = takeProfitPct,
             stopLossPct = effectiveStopLoss,
             confidence = shitConfidence,

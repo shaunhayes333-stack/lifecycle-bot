@@ -831,11 +831,25 @@ object MoonshotTraderAI {
         // cap at HARD_FLOOR_STOP so a thin ORBITAL token can't bleed to -20%+
         val clampedSl = maxOf(-fluidSl, HARD_FLOOR_STOP)  // e.g. max(-4, -15) = -4; max(-22, -15) = -15
 
+        // V5.0.6445 LANE TRADER WIRE-THROUGH — route Moonshot sizing
+        // through the canonical bridge for lane-cap parity. MIN preserves
+        // the trader's own reductions. Wallet SOL sourced from canonical
+        // paper cash (Moonshot's scoreToken has no wallet param).
+        val _moonshotFinalSol = try {
+            val walletSolProxy = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.paperCashSol().coerceAtLeast(0.1)
+            val bridged = com.lifecyclebot.engine.truth.TraderSizingBridge6444.sizeForLane(
+                laneName = "MOONSHOT",
+                requestedSol = sizeSol,
+                walletSol = walletSolProxy,
+                paperMode = isPaper,
+            )
+            kotlin.math.min(bridged, sizeSol)
+        } catch (_: Throwable) { sizeSol }
         return MoonshotScore(
             eligible = true,
             score = score,
             confidence = confidence,
-            suggestedSizeSol = sizeSol,
+            suggestedSizeSol = _moonshotFinalSol,
             takeProfitPct = fluidTp,
             stopLossPct = clampedSl,  // V5.9.235: hard floor applied
             spaceMode = mode,

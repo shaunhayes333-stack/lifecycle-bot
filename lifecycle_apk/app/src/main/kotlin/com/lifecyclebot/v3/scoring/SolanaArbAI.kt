@@ -427,6 +427,19 @@ object SolanaArbAI {
     
     fun executeArb(opp: ArbOpportunity, actualSizeSol: Double, isPaper: Boolean): String {
         val id = "ARB_${System.currentTimeMillis()}"
+        // V5.0.6445 LANE TRADER WIRE-THROUGH — route the arb size
+        // through TraderSizingBridge6444 (lane=TREASURY) for canonical
+        // cap parity. MIN preserves the trader's own reduction.
+        val bridgedSizeSol = try {
+            val walletSolProxy = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.paperCashSol().coerceAtLeast(0.1)
+            val bridged = com.lifecyclebot.engine.truth.TraderSizingBridge6444.sizeForLane(
+                laneName = "TREASURY",
+                requestedSol = actualSizeSol,
+                walletSol = walletSolProxy,
+                paperMode = isPaper,
+            )
+            kotlin.math.min(bridged, actualSizeSol)
+        } catch (_: Throwable) { actualSizeSol }
         
         val position = ArbPosition(
             id = id,
@@ -434,7 +447,7 @@ object SolanaArbAI {
             sellExchange = opp.sellExchange,
             entryBuyPrice = opp.buyPrice,
             entrySellPrice = opp.sellPrice,
-            sizeSol = actualSizeSol,
+            sizeSol = bridgedSizeSol,
             entryTime = System.currentTimeMillis(),
             isPaper = isPaper,
         )
