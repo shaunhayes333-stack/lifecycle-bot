@@ -7452,19 +7452,72 @@ class GoldenTapeRegressionTest {
                 bot.contains("AI_STATUS_MAINT_ASYNC_6447") &&
                 bot.contains("AI_STATUS_CLEANUP_SKIPPED_SLOW_CYCLE_6447") &&
                 bot.contains("lastPrevCycleMs6421 <= 30_000L"))
-        assertTrue("V5.0.6447: canonical paper cash must import the displayed paper wallet so OrderSizeResolver does not skip every entry while UI cash is healthy",
-            bot.contains("CANONICAL PAPER CASH BRIDGE") &&
-                bot.contains("syncCanonicalPaperCashFromDisplayedWallet6447") &&
-                bot.contains("CanonicalPositionAuthority6441.setPaperCash(displayedCash") &&
-                bot.contains("CANONICAL_PAPER_CASH_SYNCED_6447") &&
-                bot.contains("""syncCanonicalPaperCashFromDisplayedWallet6447("bot_loop_top")""") &&
-                bot.contains("""syncCanonicalPaperCashFromDisplayedWallet6447("paper_delta")"""))
+        assertTrue("V5.0.6448: PaperAccountLedger must be the paper-cash authority; canonical cash is only a synced facade so paper affordability cannot split-brain",
+            bot.contains("SINGLE PAPER CAPITAL AUTHORITY BRIDGE") &&
+                bot.contains("syncPaperCapitalAuthority6448") &&
+                bot.contains("PAPER_CAPITAL_AUTHORITY_SYNCED_6448") &&
+                bot.contains("paper_account_ledger_facade_6448") &&
+                bot.contains("""syncPaperCapitalAuthority6448("bot_loop_top")""") &&
+                bot.contains("""syncPaperCapitalAuthority6448("paper_delta")"""))
         assertTrue("V5.0.6447: repeated PAPER same-mint aliases must be coalesced before ExecutableOpenGate/price/size work, while the 6371 finality guard remains as safety belt",
             exec.contains("paperSameMintOpenCooldownUntil6447") &&
                 exec.contains("PAPER_SAME_MINT_OPEN_COALESCED_6447") &&
                 exec.contains("PAPER_SAME_MINT_OPEN_SOURCE_SUPPRESSED_6447") &&
                 exec.indexOf("PAPER_SAME_MINT_OPEN_SOURCE_SUPPRESSED_6447") < exec.indexOf("ExecutableOpenGate.canOpenExecutablePosition") &&
                 openGate.contains("PAPER_SAME_MINT_ALREADY_OPEN_6371"))
+    }
+
+
+
+    @Test
+    fun V5_0_6448_remaining_choke_source_contracts() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val mirror = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt").readText()
+        val state = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PositionStateLedger6427.kt").readText()
+        val closeLedger = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionCloseLedger.kt").readText()
+        val tokenMap = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenMapAuthority.kt").readText()
+        val paperLedger = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PaperAccountLedger6430.kt").readText()
+        val sizeResolver = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OrderSizeResolver6441.kt").readText()
+        val mult = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MultiplierAttributionLedger.kt").readText()
+        assertTrue("V5.0.6448: supervisor timeout must identify exact lease/task/callsite/progress and force-release only after cancel acknowledgement telemetry",
+            bot.contains("SupervisorLease(") &&
+                bot.contains("leaseId: Long") &&
+                bot.contains("supervisorTimeoutDetail6448") &&
+                bot.contains("SUPERVISOR_WORKER_TIMEOUT_TASK_PROCESS_TOKEN_CYCLE_6448") &&
+                bot.contains("SUPERVISOR_CANCEL_ACK_OK_6448") &&
+                bot.contains("SUPERVISOR_CANCEL_ACK_MISSING_6448"))
+        assertTrue("V5.0.6448: TokenMapAuthority must suppress concurrent duplicate TOKEN_MAP_START with mint-keyed active hydration and JOIN_EXISTING counters",
+            tokenMap.contains("activeHydrationByMint") &&
+                tokenMap.contains("TOKEN_MAP_START_UNIQUE") &&
+                tokenMap.contains("TOKEN_MAP_JOIN_EXISTING") &&
+                tokenMap.contains("TOKEN_MAP_COMPLETE") &&
+                tokenMap.contains("TOKEN_MAP_FAILED") &&
+                tokenMap.contains("TOKEN_MAP_RETRY") &&
+                tokenMap.contains("TOKEN_MAP_ACTIVE_PEAK"))
+        assertTrue("V5.0.6448: canonical lifecycle must be written by confirmed executor events, not zero-cost legacy registerOpen or close-ledger inference",
+            state.contains("Do NOT mirror registerOpen() into canonical here") &&
+                exec.contains("mirrorBuyFill") &&
+                exec.contains("SELL mirror moved to confirmed paper fill") &&
+                closeLedger.contains("PositionCloseLedger is a close metadata ledger only") &&
+                mirror.contains("lastClosedPositionIdByMint") &&
+                mirror.contains("RewardPurityGate6441.acceptFinalizedClose"))
+        assertTrue("V5.0.6448: paper account ledger must credit confirmed sells/partials and resolver must read it as paper authority",
+            paperLedger.contains("canAffordBuy") &&
+                paperLedger.contains("repairCashFromDisplayed6448") &&
+                exec.contains("PaperAccountLedger6430.onSell") &&
+                sizeResolver.contains("PaperAccountLedger6430.cashSol") &&
+                sizeResolver.contains("PaperAccountLedger6430.canAffordBuy"))
+        assertTrue("V5.0.6448: learner fanout must be blocked for partial or non-RewardPurity-finalized SELL rows",
+            exec.contains("REWARD_PURITY_PARTIAL_LEARNING_BLOCKED_6448") &&
+                exec.contains("REWARD_PURITY_LEARNING_BLOCKED_6448") &&
+                exec.contains("RewardPurityGate6441.outcomeOf"))
+        assertTrue("V5.0.6448: multiplier attribution must report selected/scoring/sizing lanes and emit missing attribution instead of silent STANDARD fallback",
+            mult.contains("selectedLane") &&
+                mult.contains("scoringLane") &&
+                mult.contains("sizingLane") &&
+                mult.contains("LANE_ATTRIBUTION_MISSING") &&
+                mult.contains("action=preserve_candidate_no_standard_fallback"))
     }
 
 }

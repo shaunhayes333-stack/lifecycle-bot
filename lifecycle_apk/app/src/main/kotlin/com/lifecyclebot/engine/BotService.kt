@@ -3482,27 +3482,30 @@ class BotService : Service() {
 
 
     /**
-     * V5.0.6447 — CANONICAL PAPER CASH BRIDGE.
-     * OrderSizeResolver6441 reads CanonicalPositionAuthority6441.paperCashSol(),
-     * but 6441-6446 never imported the actual displayed paper wallet balance.
-     * Runtime 6446 showed UI ≈75 SOL while canonical cash was 0/negative, causing
-     * PAPER_CASH_INSUFFICIENT on every entry. This mirrors the existing paper
-     * wallet authority into canonical cash without bypassing capital conservation.
+     * V5.0.6448 — SINGLE PAPER CAPITAL AUTHORITY BRIDGE.
+     * PaperAccountLedger6430 is the transactional paper-cash authority. The
+     * UI/status wallet and CanonicalPositionAuthority.paperCashSol are facades
+     * over the same ledger snapshot. If a pre-6448 runtime left the ledger cash
+     * negative while the displayed paper wallet was healthy, repair cash once
+     * from the displayed wallet, then publish ledger cash back to all facades.
      */
-    private fun syncCanonicalPaperCashFromDisplayedWallet6447(source: String) {
+    private fun syncPaperCapitalAuthority6448(source: String) {
         try {
             val cfgNow = com.lifecyclebot.data.ConfigStore.load(applicationContext)
             if (!cfgNow.paperMode) return
             val displayedCash = status.paperWalletSol.takeIf { it.isFinite() && it >= 0.0 }
                 ?: try { FluidLearning.getPaperBalance() } catch (_: Throwable) { 0.0 }
-            if (displayedCash <= 0.0) return
-            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(displayedCash, "displayed_paper_wallet_bridge_6447:$source")
+            try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.repairCashFromDisplayed6448(displayedCash, source) } catch (_: Throwable) {}
+            val ledgerCash = try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol().coerceAtLeast(0.0) } catch (_: Throwable) { displayedCash.coerceAtLeast(0.0) }
+            status.paperWalletSol = ledgerCash
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(ledgerCash, "paper_account_ledger_facade_6448:$source")
             try {
-                PipelineHealthCollector.labelInc("CANONICAL_PAPER_CASH_SYNCED_6447")
-                ForensicLogger.lifecycle("CANONICAL_PAPER_CASH_SYNCED_6447", "source=$source displayedCash=${"%.5f".format(displayedCash)}")
+                PipelineHealthCollector.labelInc("PAPER_CAPITAL_AUTHORITY_SYNCED_6448")
+                ForensicLogger.lifecycle("PAPER_CAPITAL_AUTHORITY_SYNCED_6448", "source=$source ledgerCash=${"%.5f".format(ledgerCash)} displayedWas=${"%.5f".format(displayedCash)}")
             } catch (_: Throwable) {}
         } catch (_: Throwable) {}
     }
+
 
     // ── start / stop ───────────────────────────────────────
 
@@ -6248,7 +6251,7 @@ class BotService : Service() {
 
             status.paperWalletSol = (status.paperWalletSol + applied).coerceAtLeast(0.0)
             repairUnifiedPaperWalletIfImpossible("paper_delta")
-            syncCanonicalPaperCashFromDisplayedWallet6447("paper_delta")
+            syncPaperCapitalAuthority6448("paper_delta")
             ErrorLogger.info("PaperWallet",
                 "Δ=${"%.4f".format(applied)} SOL → balance=${"%.4f".format(status.paperWalletSol)}" +
                 if (isInsane) " [CLAMPED from ${"%.4f".format(delta)}]" else "")
@@ -14178,7 +14181,7 @@ class BotService : Service() {
                 watchlistSize = GlobalTradeRegistry.size()
             )
             val frozenAggression = loopSnapshot.aggression
-            syncCanonicalPaperCashFromDisplayedWallet6447("bot_loop_top")
+            syncPaperCapitalAuthority6448("bot_loop_top")
 
             // V5.9.495z32 — sweep stale watchlist candidates per loop.
             // Snipe-mode TTL = 5min, normal = 30min. Operator z32 directive:
@@ -16449,6 +16452,14 @@ if (hotExitHandledSweep) {
     private data class SupervisorLease(
         val mint: String,
         val startedMs: Long,
+        val leaseId: Long,
+        val task: String = "processTokenCycle",
+        val phase: String = "SUPERVISOR",
+        val acquisitionCallsite: String = "fireSupervisorWorkers",
+        val dispatcher: String = "Dispatchers.IO",
+        val threadName: java.util.concurrent.atomic.AtomicReference<String> = java.util.concurrent.atomic.AtomicReference(""),
+        val lastProgressMs: java.util.concurrent.atomic.AtomicLong = java.util.concurrent.atomic.AtomicLong(startedMs),
+        val completionState: java.util.concurrent.atomic.AtomicReference<String> = java.util.concurrent.atomic.AtomicReference("ACQUIRED"),
         val jobRef: java.util.concurrent.atomic.AtomicReference<kotlinx.coroutines.Job?> =
             java.util.concurrent.atomic.AtomicReference(null),
     )
@@ -17074,7 +17085,7 @@ if (hotExitHandledSweep) {
         // during an emergency-throttle window). Replaces the old fixed 140 firehose.
         if (live >= supervisorEffectiveCap()) return -1L
         val id = supervisorLeaseSeq.incrementAndGet()
-        supervisorLeases[id] = SupervisorLease(mint = mint, startedMs = System.currentTimeMillis())
+        supervisorLeases[id] = SupervisorLease(mint = mint, startedMs = System.currentTimeMillis(), leaseId = id)
         supervisorActive.set(supervisorLeases.size)
         return id
     }
@@ -17084,6 +17095,24 @@ if (hotExitHandledSweep) {
         val active = supervisorLeases.size.coerceAtLeast(0)
         supervisorActive.set(active)
         return active
+    }
+
+    private fun supervisorLeaseProgress6448(leaseId: Long, state: String) {
+        try {
+            val l = supervisorLeases[leaseId] ?: return
+            l.lastProgressMs.set(System.currentTimeMillis())
+            l.completionState.set(state.take(40))
+            if (l.threadName.get().isBlank()) l.threadName.set(Thread.currentThread().name.take(80))
+        } catch (_: Throwable) {}
+    }
+
+    private fun supervisorTimeoutDetail6448(leaseId: Long, mint: String): String {
+        val now = System.currentTimeMillis()
+        val l = supervisorLeases[leaseId]
+        val job = try { l?.jobRef?.get() } catch (_: Throwable) { null }
+        val started = l?.startedMs ?: now
+        val last = l?.lastProgressMs?.get() ?: started
+        return "leaseId=${l?.leaseId ?: leaseId} mint=${mint.take(10)} task=${l?.task ?: "processTokenCycle"} phase=${l?.phase ?: "SUPERVISOR"} callsite=${l?.acquisitionCallsite ?: "fireSupervisorWorkers"} startedMs=$started elapsedMs=${(now-started).coerceAtLeast(0L)} lastProgressMs=$last sinceProgressMs=${(now-last).coerceAtLeast(0L)} dispatcher=${l?.dispatcher ?: "Dispatchers.IO"} thread=${l?.threadName?.get().orEmpty()} job=${job?.toString()?.take(80).orEmpty()} cancelling=${job?.isCancelled ?: false} completed=${job?.isCompleted ?: false} state=${l?.completionState?.get().orEmpty()}"
     }
 
     /**
@@ -17250,6 +17279,7 @@ if (hotExitHandledSweep) {
             val workerJob = kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     if (!status.running) return@launch
+                    supervisorLeaseProgress6448(leaseId, "WORKER_STARTED")
                     // V5.9.1180 — orchestrator.shouldPoll was moved before lease
                     // acquisition so non-pollable mints do not consume supervisor
                     // slots/watchdog coroutines.
@@ -17282,12 +17312,15 @@ if (hotExitHandledSweep) {
                     // worker actually dies and the finally block fires.
                     val ok = kotlinx.coroutines.withTimeoutOrNull(SUPERVISOR_WORKER_TIMEOUT_MS) {
                         kotlinx.coroutines.runInterruptible(kotlinx.coroutines.Dispatchers.IO) {
+                            supervisorLeaseProgress6448(leaseId, "PROCESS_TOKEN_START")
                             val cycleCfg = cfg.copy(paperMode = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { cfg.paperMode })
                             processTokenCycle(mint, cycleCfg, wallet, lastSuccessfulPollMs)
+                            supervisorLeaseProgress6448(leaseId, "PROCESS_TOKEN_DONE")
                             try { GlobalTradeRegistry.markProcessed(mint) } catch (_: Throwable) {}
                         }
                     }
                     if (ok != null) {
+                        supervisorLeaseProgress6448(leaseId, "COMPLETED")
                         supervisorLifetimeProcessed.incrementAndGet()
                     } else {
                         supervisorLifetimeWorkerTimeouts.incrementAndGet()
@@ -17296,13 +17329,15 @@ if (hotExitHandledSweep) {
                         try {
                             ForensicLogger.lifecycle(
                                 "SUPERVISOR_WORKER_TIMEOUT",
-                                "mint=${mint.take(10)} budgetMs=$SUPERVISOR_WORKER_TIMEOUT_MS cooldownMs=$SUPERVISOR_TIMEOUT_COOLDOWN_MS open=${supervisorMintIsOpen(mint)}",
+                                supervisorTimeoutDetail6448(leaseId, mint) + " budgetMs=$SUPERVISOR_WORKER_TIMEOUT_MS cooldownMs=$SUPERVISOR_TIMEOUT_COOLDOWN_MS open=${supervisorMintIsOpen(mint)}",
                             )
                         } catch (_: Throwable) {}
                         // V5.9.1324 — P1-6 surgical: structured timeout reason +
                         // NoTradeObservation row so timed-out candidates remain trainable.
                         try {
                             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SUPERVISOR_WORKER_TIMEOUT_REASON_BUDGET_EXCEEDED")
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SUPERVISOR_WORKER_TIMEOUT_TASK_PROCESS_TOKEN_CYCLE_6448")
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SUPERVISOR_WORKER_TIMEOUT_CALLSITE_FIRE_SUPERVISOR_WORKERS_6448")
                             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SUPERVISOR_TIMEOUT_PER_MINT|${mint.take(10)}")
                             val ts2 = synchronized(status.tokens) { status.tokens[mint] }
                             if (ts2 != null && ts2.lastPrice > 0.0) {
@@ -17331,6 +17366,7 @@ if (hotExitHandledSweep) {
                         "Silent supervisor worker failed ${mint.take(8)}: ${t.message}",
                     )
                 } finally {
+                    supervisorLeaseProgress6448(leaseId, "FINALLY_RELEASE")
                     releaseSlot()
                 }
             }
@@ -17346,7 +17382,10 @@ if (hotExitHandledSweep) {
                 try {
                     kotlinx.coroutines.delay(SUPERVISOR_WORKER_TIMEOUT_MS + 750L)
                     if (!released.get()) {
-                        try { workerJobRef.get()?.cancel() } catch (_: Throwable) {}
+                        val wj6448 = try { workerJobRef.get() } catch (_: Throwable) { null }
+                        try { wj6448?.cancel() } catch (_: Throwable) {}
+                        val cancelAck6448 = try { kotlinx.coroutines.withTimeoutOrNull(250L) { wj6448?.join(); true } == true } catch (_: Throwable) { false }
+                        try { if (cancelAck6448) PipelineHealthCollector.labelInc("SUPERVISOR_CANCEL_ACK_OK_6448") else PipelineHealthCollector.labelInc("SUPERVISOR_CANCEL_ACK_MISSING_6448") } catch (_: Throwable) {}
                         // V5.9.1453 — THE LEASE-CHURN LEAK. A worker that had to be
                         // FORCE-released here was wedged in non-interruptible blocking
                         // IO (slow/429'd provider — Helius/Birdeye/pumpfun). The clean
@@ -17368,7 +17407,7 @@ if (hotExitHandledSweep) {
                         try {
                             ForensicLogger.lifecycle(
                                 "SUPERVISOR_LEASE_FORCE_RELEASED",
-                                "mint=${mint.take(10)} afterMs=${SUPERVISOR_WORKER_TIMEOUT_MS + 750L} active=${supervisorLeases.size} cooled=true",
+                                supervisorTimeoutDetail6448(leaseId, mint) + " afterMs=${SUPERVISOR_WORKER_TIMEOUT_MS + 750L} active=${supervisorLeases.size} cooled=true cancelAck=$cancelAck6448",
                             )
                         } catch (_: Throwable) {}
                         releaseSlot()

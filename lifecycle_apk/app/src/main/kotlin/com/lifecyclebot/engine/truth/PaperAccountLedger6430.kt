@@ -56,13 +56,39 @@ object PaperAccountLedger6430 {
         opCount.set(0L)
     }
 
-    /** Paper BUY: debit cash, add to open cost basis. */
-    fun onBuy(costSol: Double, feeSol: Double = 0.0) {
-        if (!costSol.isFinite() || costSol <= 0.0) return
-        cashPico.addAndGet(-toPico(costSol))
+    fun canAffordBuy(costSol: Double, feeSol: Double = 0.0): Boolean {
+        if (!costSol.isFinite() || costSol <= 0.0) return false
+        return cashSol() >= (costSol + feeSol.coerceAtLeast(0.0))
+    }
+
+    /** Paper BUY: debit cash, add to open cost basis. Default=no leverage. */
+    fun onBuy(costSol: Double, feeSol: Double = 0.0): Boolean {
+        if (!costSol.isFinite() || costSol <= 0.0) return false
+        val total = costSol + feeSol.coerceAtLeast(0.0)
+        if (!canAffordBuy(costSol, feeSol)) {
+            try {
+                ForensicLogger.lifecycle("PAPER_LEDGER_BUY_REJECTED_NO_CASH_6448", "cash=${"%.6f".format(cashSol())} needed=${"%.6f".format(total)}")
+                PipelineHealthCollector.labelInc("PAPER_LEDGER_BUY_REJECTED_NO_CASH_6448")
+            } catch (_: Throwable) {}
+            return false
+        }
+        cashPico.addAndGet(-toPico(total))
         openCostBasisPico.addAndGet(toPico(costSol))
         feesPico.addAndGet(toPico(feeSol.coerceAtLeast(0.0)))
         opCount.incrementAndGet()
+        return true
+    }
+
+    fun repairCashFromDisplayed6448(displayedCashSol: Double, source: String): Boolean {
+        if (!displayedCashSol.isFinite() || displayedCashSol < 0.0) return false
+        val before = cashSol()
+        if (before >= 0.0) return false
+        cashPico.set(toPico(displayedCashSol))
+        try {
+            ForensicLogger.lifecycle("PAPER_LEDGER_CASH_REPAIRED_FROM_DISPLAYED_6448", "source=$source before=${"%.6f".format(before)} after=${"%.6f".format(displayedCashSol)} openCost=${"%.6f".format(openCostBasisSol())}")
+            PipelineHealthCollector.labelInc("PAPER_LEDGER_CASH_REPAIRED_FROM_DISPLAYED_6448")
+        } catch (_: Throwable) {}
+        return true
     }
 
     /**

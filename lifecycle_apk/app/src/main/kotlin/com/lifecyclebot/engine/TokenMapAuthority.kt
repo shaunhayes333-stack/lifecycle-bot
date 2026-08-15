@@ -4,6 +4,8 @@ import com.lifecyclebot.data.CanonicalTokenMap
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.execution.MintIntegrityGate
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * V5.0.4012 — discovery-time token identity + route authority.
@@ -15,6 +17,23 @@ import java.util.UUID
  */
 object TokenMapAuthority {
     private const val ROUTE_TTL_MS = 90_000L
+    private const val ACTIVE_HYDRATION_STALE_MS = 20_000L
+    private val activeHydrationByMint = ConcurrentHashMap<String, Long>()
+    private val tokenMapStartUnique = AtomicLong(0L)
+    private val tokenMapJoinExisting = AtomicLong(0L)
+    private val tokenMapComplete = AtomicLong(0L)
+    private val tokenMapFailed = AtomicLong(0L)
+    private val tokenMapRetry = AtomicLong(0L)
+    private val tokenMapActivePeak = AtomicLong(0L)
+
+    private fun updateActivePeak() {
+        val live = activeHydrationByMint.size.toLong()
+        while (true) {
+            val cur = tokenMapActivePeak.get()
+            if (live <= cur || tokenMapActivePeak.compareAndSet(cur, live)) break
+        }
+        try { PipelineHealthCollector.labelInc("TOKEN_MAP_ACTIVE_PEAK") } catch (_: Throwable) {}
+    }
     private val SOURCE_LABELS = setOf(
         "DEX_BOOSTED", "DEX_TRENDING", "DEX_TREND", "RAYDIUM_NEW_POOL", "RAYDIUM_NEW",
         "PUMP_FUN_NEW", "PUMP_FUN_GRADUATE", "PUMP_PORTAL", "PUMP_PORTAL_WS", "SCANNER_DIRECT",
@@ -65,6 +84,29 @@ object TokenMapAuthority {
 
         val target = resolveCanonicalTarget(ts, tm)
         tm.canonicalTargetMint = target
+        if (tm.hydrationComplete && (now - tm.updatedAtMs).coerceAtLeast(0L) < ROUTE_TTL_MS) {
+            try {
+                tokenMapComplete.incrementAndGet()
+                PipelineHealthCollector.labelInc("TOKEN_MAP_COMPLETE")
+            } catch (_: Throwable) {}
+            return tm
+        }
+        val activePrev = activeHydrationByMint.putIfAbsent(target, now)
+        if (activePrev != null && (now - activePrev).coerceAtLeast(0L) < ACTIVE_HYDRATION_STALE_MS) {
+            tokenMapJoinExisting.incrementAndGet()
+            try {
+                ForensicLogger.lifecycle("TOKEN_MAP_JOIN_EXISTING", "attemptId=${tm.buyAttemptId} mint=${target.take(10)} symbol=${tm.symbol} activeAgeMs=${(now-activePrev).coerceAtLeast(0L)}")
+                PipelineHealthCollector.labelInc("TOKEN_MAP_JOIN_EXISTING")
+            } catch (_: Throwable) {}
+            return tm
+        } else if (activePrev != null) {
+            activeHydrationByMint[target] = now
+            tokenMapRetry.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("TOKEN_MAP_RETRY") } catch (_: Throwable) {}
+        }
+        updateActivePeak()
+        tokenMapStartUnique.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("TOKEN_MAP_START_UNIQUE") } catch (_: Throwable) {}
         if (MintIntegrityGate.isSystemOrStablecoinMint(target)) {
             tm.routeStatus = "SOURCE_IDENTITY_BAD"
             tm.hydrationComplete = true
@@ -94,7 +136,12 @@ object TokenMapAuthority {
                 "attemptId=${tm.buyAttemptId} mint=${target.take(10)} symbol=${tm.symbol} routeStatus=${tm.routeStatus} expectedOut=${tm.expectedOutAmount} liqUsd=${tm.liquidityUsd} providers=${tm.providerAttempts} confidence=${tm.hydrationConfidence.fmt2()} failures=${tm.hydrationFailureReasons.joinToString("|").take(160)}"
             )
             PipelineHealthCollector.labelInc(event)
-        } catch (_: Throwable) {}
+        } catch (_: Throwable) {
+            try { tokenMapFailed.incrementAndGet(); PipelineHealthCollector.labelInc("TOKEN_MAP_FAILED") } catch (_: Throwable) {}
+        } finally {
+            activeHydrationByMint.remove(target, now)
+        }
+        try { tokenMapComplete.incrementAndGet(); PipelineHealthCollector.labelInc("TOKEN_MAP_COMPLETE") } catch (_: Throwable) {}
         return tm
     }
 

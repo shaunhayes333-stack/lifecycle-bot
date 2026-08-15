@@ -114,49 +114,11 @@ object PositionCloseLedger {
                 mint = mint,
             )
         } catch (_: Throwable) {}
-        // V5.0.6442 §6 REWARD BUS MIGRATION — also route through the
-        // canonical RewardPurityGate6441 so learners consuming the
-        // canonical W/L/BE bus see this final close exactly once. The
-        // gate rejects if the mint's canonical position isn't CLOSED
-        // (i.e. legacy-only closes that never went through the mirror
-        // are filtered out to prevent contamination).
-        try {
-            val positionId = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(mint)
-            // Mirror the sell into the canonical authority first — this
-            // transitions PARTIALLY_CLOSED->CLOSED when remaining==0. Only
-            // after that does the reward gate see the CLOSED lifecycle.
-            try {
-                com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
-                    mint = mint,
-                    generation = 1L,
-                    soldQtyRaw = java.math.BigInteger.valueOf(soldQtyRaw),
-                    proceedsSol = realizedSol.coerceAtLeast(0.0),  // best-effort proceeds proxy
-                    soldCostBasisSol = 0.0,                          // cost basis not tracked at ledger; canonical fills in
-                    feesSol = 0.0,
-                    paperMode = source.startsWith("PAPER", ignoreCase = true),
-                )
-            } catch (_: Throwable) {}
-            com.lifecyclebot.engine.truth.RewardPurityGate6441.acceptFinalizedClose(positionId, realizedSol)
-            // V5.0.6442 §5 JOURNAL SCHEMA MIRROR — emit canonical
-            // ForensicExecutionRow6441 alongside the legacy row.
-            com.lifecyclebot.engine.truth.ForensicRowMirror6442.emitClose(
-                positionId = positionId,
-                mint = mint,
-                lane = source,
-                sellSig = sellSig,
-                soldQtyRaw = java.math.BigInteger.valueOf(soldQtyRaw),
-                remainingQtyRaw = java.math.BigInteger.valueOf(remainingQtyRaw),
-                soldCostBasisSol = 0.0,
-                proceedsSol = realizedSol.coerceAtLeast(0.0),
-                feesSol = 0.0,
-                realizedPnlSol = realizedPnl,
-                tokenDecimals = 9,
-                markPrice = 0.0,
-                markSource = source,
-                markAgeMs = 0L,
-                paperMode = source.startsWith("PAPER", ignoreCase = true),
-            )
-        } catch (_: Throwable) {}
+        // V5.0.6448 — PositionCloseLedger is a close metadata ledger only.
+        // Canonical lifecycle/reward transitions are now performed at executor
+        // confirmation sites with full qty/proceeds/cost data. Do not infer or
+        // replay canonical SELL/RewardPurity here from a journal/close row.
+        try { PipelineHealthCollector.labelInc("POSITION_CLOSE_LEDGER_METADATA_ONLY_6448") } catch (_: Throwable) {}
         return id
     }
 

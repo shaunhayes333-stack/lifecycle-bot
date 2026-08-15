@@ -3656,7 +3656,28 @@ class Executor(
         } catch (_: Throwable) {}
         TradeHistoryStore.recordTrade(tradeWithMint)
         val rowLearningAdmitted4349 = try {
-            com.lifecyclebot.engine.learning.TradeRowSanityCheck.inspect(tradeWithMint) == com.lifecyclebot.engine.learning.TradeRowSanityCheck.QuarantineReason.OK
+            val rowSane4349 = com.lifecyclebot.engine.learning.TradeRowSanityCheck.inspect(tradeWithMint) == com.lifecyclebot.engine.learning.TradeRowSanityCheck.QuarantineReason.OK
+            val sideU6448 = tradeWithMint.side.uppercase()
+            val rewardPure6448 = when (sideU6448) {
+                "BUY" -> true
+                "PARTIAL_SELL" -> {
+                    try { PipelineHealthCollector.labelInc("REWARD_PURITY_PARTIAL_LEARNING_BLOCKED_6448") } catch (_: Throwable) {}
+                    false
+                }
+                "SELL" -> {
+                    val pid6448 = try { com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(tradeWithMint.mint.ifBlank { ts.mint }) } catch (_: Throwable) { "" }
+                    val accepted6448 = pid6448.isNotBlank() && try { com.lifecyclebot.engine.truth.RewardPurityGate6441.outcomeOf(pid6448) != null } catch (_: Throwable) { false }
+                    if (!accepted6448) {
+                        try {
+                            PipelineHealthCollector.labelInc("REWARD_PURITY_LEARNING_BLOCKED_6448")
+                            ForensicLogger.lifecycle("REWARD_PURITY_LEARNING_BLOCKED_6448", "mint=${tradeWithMint.mint.take(10)} side=${tradeWithMint.side} pid=$pid6448 reason=${tradeWithMint.reason.take(80)}")
+                        } catch (_: Throwable) {}
+                    }
+                    accepted6448
+                }
+                else -> true
+            }
+            rowSane4349 && rewardPure6448
         } catch (_: Throwable) { true }
         try {
             if (tradeWithMint.side.equals("SELL", true) || tradeWithMint.side.equals("PARTIAL_SELL", true)) {
@@ -7852,6 +7873,27 @@ class Executor(
             // PARTIAL_SELL but never credited the paper wallet, unlike manual
             // partials/full sells/profit locks. Credit principal+P&L less any
             // treasury share so balance, trade count, and journal move together.
+            try {
+                val grossPartial6448 = ((sellQty * actualPrice) - paperPartialTreasuryShare6041).coerceAtLeast(0.0)
+                val soldRaw6448 = java.math.BigInteger.valueOf((sellQty * 1_000_000_000.0).toLong().coerceAtLeast(0L))
+                com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
+                    mint = ts.mint,
+                    generation = System.currentTimeMillis(),
+                    soldQtyRaw = soldRaw6448,
+                    proceedsSol = grossPartial6448,
+                    soldCostBasisSol = partialCostBasisSol.coerceAtLeast(0.0),
+                    feesSol = paperPartialFee.coerceAtLeast(0.0),
+                    paperMode = true,
+                    terminal = paperDustClosed,
+                    lane = pos.tradingMode,
+                    reason = trade.reason,
+                )
+                com.lifecyclebot.engine.truth.PaperAccountLedger6430.onSell(
+                    grossProceedsSol = grossPartial6448,
+                    costBasisSoldSol = partialCostBasisSol.coerceAtLeast(0.0),
+                    feeSol = paperPartialFee.coerceAtLeast(0.0),
+                )
+            } catch (_: Throwable) {}
             onPaperBalanceChange?.invoke((sellQty * actualPrice) - paperPartialTreasuryShare6041)
             try { ForensicLogger.lifecycle("PARTIAL_SELL_WALLET_CREDITED_6041", "mode=paper mint=${ts.mint.take(10)} symbol=${ts.symbol} gross=${(sellQty * actualPrice).fmtSol()} treasury=${paperPartialTreasuryShare6041.fmtSol()} delta=${((sellQty * actualPrice) - paperPartialTreasuryShare6041).fmtSol()} reason=${trade.reason}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("PARTIAL_SELL_WALLET_CREDITED_6041") } catch (_: Throwable) {}
@@ -10661,6 +10703,9 @@ class Executor(
                 lane = laneKeyForAgi,
                 source = ts.source,
                 mint = ts.mint,
+                selectedLane = laneKeyForAgi,
+                scoringLane = laneKeyForAgi,
+                sizingLane = laneKeyForAgi,
                 symbol = ts.symbol,
                 baseSol = sol,
                 rawProduct = multiplierProductRaw,
@@ -12127,6 +12172,19 @@ class Executor(
                 (baseFluidTp * ts.styleTpMult).coerceIn(5.0, 500.0)
             } catch (_: Throwable) { 0.0 },
         )
+        try {
+            val buyQtyRaw6448 = java.math.BigInteger.valueOf((ts.position.qtyToken * 1_000_000_000.0).toLong().coerceAtLeast(0L))
+            if (buyQtyRaw6448 > java.math.BigInteger.ZERO) {
+                com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyFill(
+                    mint = tradeId.mint,
+                    actualQtyRaw = buyQtyRaw6448,
+                    actualCostSol = actualSol,
+                    actualFeesSol = actualSol * 0.005,
+                    tokenDecimals = 9,
+                    paperMode = true,
+                )
+            }
+        } catch (_: Throwable) {}
         // V5.9.123 — register in CorrelationHedgeAI so other new-entry scoring
         // sees this position as cluster peer pressure.
         try {
@@ -16084,6 +16142,19 @@ class Executor(
                     (baseFluidTp * ts.styleTpMult).coerceIn(5.0, 500.0)
                 } catch (_: Throwable) { 0.0 },
             )
+            try {
+                val liveBuyQtyRaw6448 = java.math.BigInteger.valueOf((finalQty * 1_000_000_000.0).toLong().coerceAtLeast(0L))
+                if (liveBuyQtyRaw6448 > java.math.BigInteger.ZERO) {
+                    com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyFill(
+                        mint = tradeId.mint,
+                        actualQtyRaw = liveBuyQtyRaw6448,
+                        actualCostSol = sol,
+                        actualFeesSol = (sol * MEME_TRADING_FEE_PERCENT).coerceAtLeast(0.0),
+                        tokenDecimals = 9,
+                        paperMode = false,
+                    )
+                }
+            } catch (_: Throwable) {}
             val trade = Trade(
                 side = "BUY", 
                 mode = "live", 
@@ -17759,6 +17830,27 @@ class Executor(
                     0.0
                 }
             } else 0.0
+            try {
+                val grossManualPartial6448 = ((soldValueSol + profitSol) - partialTreasuryShare).coerceAtLeast(0.0)
+                val soldQtyManual6448 = java.math.BigInteger.valueOf(((pos.qtyToken * pct) * 1_000_000_000.0).toLong().coerceAtLeast(0L))
+                com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
+                    mint = ts.mint,
+                    generation = System.currentTimeMillis(),
+                    soldQtyRaw = soldQtyManual6448,
+                    proceedsSol = grossManualPartial6448,
+                    soldCostBasisSol = soldValueSol.coerceAtLeast(0.0),
+                    feesSol = partialSellFee.coerceAtLeast(0.0),
+                    paperMode = true,
+                    terminal = fullyExited,
+                    lane = pos.tradingMode,
+                    reason = trade.reason,
+                )
+                com.lifecyclebot.engine.truth.PaperAccountLedger6430.onSell(
+                    grossProceedsSol = grossManualPartial6448,
+                    costBasisSoldSol = soldValueSol.coerceAtLeast(0.0),
+                    feeSol = partialSellFee.coerceAtLeast(0.0),
+                )
+            } catch (_: Throwable) {}
             onPaperBalanceChange?.invoke((soldValueSol + profitSol) - partialTreasuryShare)
 
             try { ForensicLogger.lifecycle("PARTIAL_SELL_ACCOUNTING",
@@ -18597,30 +18689,9 @@ class Executor(
 
     fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null): SellResult {
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
-        // V5.0.6444 §1 EXECUTOR SELL MIGRATION — mirror the sell attempt
-        // into CanonicalPositionAuthority6441 via ExecutorCanonicalMirror6442.
-        // Mirror runs BEFORE the legacy sell path so any invariant reject
-        // is visible in canonical telemetry. The mirror is best-effort:
-        // if the canonical position doesn't exist (legacy-only sell), the
-        // mirror no-ops and the legacy path continues untouched.
-        try {
-            val pos0 = ts.position
-            if (pos0.isOpen) {
-                val soldQtyRaw = try { java.math.BigInteger.valueOf((pos0.qtyToken * 1_000_000_000.0).toLong()) } catch (_: Throwable) { java.math.BigInteger.ZERO }
-                if (soldQtyRaw > java.math.BigInteger.ZERO) {
-                    com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
-                        mint = ts.mint,
-                        generation = System.currentTimeMillis() / 1000L,
-                        soldQtyRaw = soldQtyRaw,
-                        proceedsSol = 0.0,
-                        soldCostBasisSol = 0.0,
-                        feesSol = 0.0,
-                        paperMode = true,
-                    )
-                }
-            }
-        } catch (_: Throwable) {}
-        
+        // V5.0.6448 — SELL mirror moved to confirmed paper fill below.
+        // Do not mutate canonical lifecycle at sell-attempt time with zero
+        // proceeds/cost; that was the direct source of SELL invariant violations.
         val pos   = ts.position
         val price = getActualPrice(ts)
         if (!pos.isOpen) {
@@ -18975,6 +19046,27 @@ class Executor(
                 0.0
             }
         } else 0.0
+
+        try {
+            val soldQtyRaw6448 = java.math.BigInteger.valueOf((pos.qtyToken * 1_000_000_000.0).toLong().coerceAtLeast(0L))
+            com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
+                mint = tradeId.mint,
+                generation = System.currentTimeMillis(),
+                soldQtyRaw = soldQtyRaw6448,
+                proceedsSol = (value - treasuryShare).coerceAtLeast(0.0),
+                soldCostBasisSol = pos.costSol.coerceAtLeast(0.0),
+                feesSol = simulatedFeeSol.coerceAtLeast(0.0),
+                paperMode = true,
+                terminal = true,
+                lane = pos.tradingMode.ifBlank { tradeId.symbol },
+                reason = reason,
+            )
+            com.lifecyclebot.engine.truth.PaperAccountLedger6430.onSell(
+                grossProceedsSol = (value - treasuryShare).coerceAtLeast(0.0),
+                costBasisSoldSol = pos.costSol.coerceAtLeast(0.0),
+                feeSol = simulatedFeeSol.coerceAtLeast(0.0),
+            )
+        } catch (_: Throwable) {}
 
         val cyclicVirtualPaperClose = pos.tradingMode.equals("CYCLIC", true) || reason.startsWith("CYCLIC_", true)
         if (cyclicVirtualPaperClose) {
@@ -21971,6 +22063,20 @@ class Executor(
                         val postRaw = try { java.math.BigDecimal(postUi).movePointRight(postDec).toLong() } catch (_: Throwable) { 0L }
                         ForensicLogger.lifecycle("SELL_FINALIZE_BALANCE", "mint=${ts.mint.take(12)} pre=$tokenUnits post=$postRaw dust=$postUi")
                         val pnlPctInt = try { pnlP.toInt() } catch (_: Throwable) { 0 }
+                        try {
+                            com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
+                                mint = ts.mint,
+                                generation = System.currentTimeMillis(),
+                                soldQtyRaw = java.math.BigInteger.valueOf(tokenUnits.coerceAtLeast(0L)),
+                                proceedsSol = solBack.coerceAtLeast(0.0),
+                                soldCostBasisSol = pos.costSol.coerceAtLeast(0.0),
+                                feesSol = feeSol.coerceAtLeast(0.0),
+                                paperMode = false,
+                                terminal = true,
+                                lane = pos.tradingMode.ifBlank { ts.source },
+                                reason = finalSellReason,
+                            )
+                        } catch (_: Throwable) {}
                         val cid = com.lifecyclebot.engine.PositionCloseLedger.markClosedFull(
                             mint = ts.mint, reason = finalSellReason, pnlPct = pnlPctInt, sellSig = fSig,
                             soldQtyRaw = tokenUnits, remainingQtyRaw = postRaw, dustAmount = postUi,

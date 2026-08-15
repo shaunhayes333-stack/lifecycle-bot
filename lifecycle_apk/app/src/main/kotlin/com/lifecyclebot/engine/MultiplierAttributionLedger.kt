@@ -20,6 +20,9 @@ object MultiplierAttributionLedger {
         val baseSol: Double,
         val rawProduct: Double,
         val components: Map<String, Double>,
+        val selectedLane: String = lane,
+        val scoringLane: String = lane,
+        val sizingLane: String = lane,
     )
 
     fun recordEntry(
@@ -31,6 +34,9 @@ object MultiplierAttributionLedger {
         baseSol: Double,
         rawProduct: Double,
         components: Map<String, Double>,
+        selectedLane: String = lane,
+        scoringLane: String = lane,
+        sizingLane: String = lane,
     ) {
         try {
             val row = Row(
@@ -40,6 +46,9 @@ object MultiplierAttributionLedger {
                 lane = lane,
                 source = source,
                 mint = mint,
+                selectedLane = selectedLane,
+                scoringLane = scoringLane,
+                sizingLane = sizingLane,
                 symbol = symbol,
                 baseSol = baseSol,
                 rawProduct = rawProduct,
@@ -47,6 +56,13 @@ object MultiplierAttributionLedger {
             )
             rows.addLast(row)
             while (rows.size > MAX_ROWS) rows.pollFirst()
+            val laneMissing = selectedLane.isBlank() || selectedLane.equals("UNKNOWN", true) || sizingLane.isBlank() || sizingLane.equals("UNKNOWN", true)
+            if (laneMissing) {
+                try {
+                    PipelineHealthCollector.labelInc("LANE_ATTRIBUTION_MISSING")
+                    ForensicLogger.lifecycle("LANE_ATTRIBUTION_MISSING", "mode=$mode selectedLane=$selectedLane scoringLane=$scoringLane sizingLane=$sizingLane lane=$lane source=$source mint=${mint.take(10)} action=preserve_candidate_no_standard_fallback")
+                } catch (_: Throwable) {}
+            }
             val hiddenDustStack = rawProduct < 0.20 && components.values.count { it < 0.80 } >= 2
             if (hiddenDustStack) {
                 try {
@@ -57,7 +73,7 @@ object MultiplierAttributionLedger {
                     // per ms per lane during hot intake bursts. Label counter still
                     // fires every call so frequency data is preserved.
                     if (ForensicEmitRateLimiter6356.shouldEmit("MULTIPLIER_ATTRIBUTION_DUST_STACK_4272", "$lane|${mint.take(10)}")) {
-                        ForensicLogger.lifecycle("MULTIPLIER_ATTRIBUTION_DUST_STACK_4272", "mode=$mode lane=$lane source=$source mint=${mint.take(10)} product=${rawProduct.fmt(3)} components=$componentText action=report_only_no_size_change")
+                        ForensicLogger.lifecycle("MULTIPLIER_ATTRIBUTION_DUST_STACK_4272", "mode=$mode lane=$lane selectedLane=$selectedLane scoringLane=$scoringLane sizingLane=$sizingLane source=$source mint=${mint.take(10)} product=${rawProduct.fmt(3)} components=$componentText action=report_only_no_size_change")
                     }
                 } catch (_: Throwable) {}
             }
@@ -74,6 +90,9 @@ object MultiplierAttributionLedger {
                 put("buildTag", r.buildTag)
                 put("mode", r.mode)
                 put("lane", r.lane)
+                put("selectedLane", r.selectedLane)
+                put("scoringLane", r.scoringLane)
+                put("sizingLane", r.sizingLane)
                 put("source", r.source)
                 put("mint", r.mint)
                 put("symbol", r.symbol)
@@ -101,6 +120,9 @@ object MultiplierAttributionLedger {
                     lane = o.optString("lane", "UNKNOWN"),
                     source = o.optString("source", ""),
                     mint = o.optString("mint", ""),
+                    selectedLane = o.optString("selectedLane", o.optString("lane", "UNKNOWN")),
+                    scoringLane = o.optString("scoringLane", o.optString("lane", "UNKNOWN")),
+                    sizingLane = o.optString("sizingLane", o.optString("lane", "UNKNOWN")),
                     symbol = o.optString("symbol", ""),
                     baseSol = o.optDouble("baseSol", 0.0),
                     rawProduct = o.optDouble("rawProduct", 1.0),

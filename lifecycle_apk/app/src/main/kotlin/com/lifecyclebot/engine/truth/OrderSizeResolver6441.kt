@@ -92,9 +92,12 @@ object OrderSizeResolver6441 {
         } catch (_: Throwable) { 0.0 }
         val laddered = kotlin.math.max(risk, ladderFloor)
 
-        // 3. wallet / cash cap — never risk more than 25% of wallet in one trade
-        //    (defense-in-depth even beyond lane cap).
-        val cashCap = walletSol * 0.25
+        // 3. wallet / cash cap — never risk more than 25% of authoritative cash.
+        // V5.0.6448: PAPER affordability reads PaperAccountLedger6430, not the
+        // canonical-position mirror cash facade, so all executor/runner/UI/report
+        // balance consumers can converge on one transactional paper account.
+        val authoritativeCash = if (paperMode) PaperAccountLedger6430.cashSol().coerceAtLeast(0.0) else walletSol
+        val cashCap = authoritativeCash * 0.25
         val cashClamped = laddered.coerceAtMost(cashCap)
 
         // 4. lane cap
@@ -105,9 +108,9 @@ object OrderSizeResolver6441 {
         val executable = laneClamped >= minExec
         val finalSize = if (executable) laneClamped else 0.0
         val reason = when {
-            !executable && walletSol <= 0.0 -> "NO_WALLET"
+            !executable && authoritativeCash <= 0.0 -> "NO_WALLET"
             !executable                       -> "BELOW_MIN_EXECUTABLE"
-            paperMode && !CanonicalPositionAuthority6441.canAffordPaperBuy(finalSize) -> "PAPER_CASH_INSUFFICIENT"
+            paperMode && !PaperAccountLedger6430.canAffordBuy(finalSize) -> "PAPER_CASH_INSUFFICIENT"
             else                              -> "OK"
         }
         val actuallyExec = executable && (reason == "OK")

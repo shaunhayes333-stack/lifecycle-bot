@@ -3,6 +3,7 @@ package com.lifecyclebot.engine.truth
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
 import java.math.BigInteger
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -35,13 +36,30 @@ object ExecutorCanonicalMirror6442 {
     private val buysMirrored = AtomicLong(0L)
     private val sellsMirrored = AtomicLong(0L)
     private val mirrorFailures = AtomicLong(0L)
+    private val positionSeq = AtomicLong(0L)
+    private val activePositionIdByMint = ConcurrentHashMap<String, String>()
+    private val lastClosedPositionIdByMint = ConcurrentHashMap<String, String>()
+
+    fun canonicalMint(mint: String): String = mint.trim()
 
     /**
      * Canonical positionId derivation: "$mint#$runIdShort". Stable per
      * run — matches the operator's mandate §3 "runId + positionId +
      * side" idempotency-key structure.
      */
-    fun positionIdOf(mint: String): String = "${mint.take(24)}#$runIdHash"
+    fun positionIdOf(mint: String): String {
+        val cm = canonicalMint(mint)
+        return activePositionIdByMint[cm] ?: lastClosedPositionIdByMint[cm] ?: "PAPER:$cm:$runIdHash"
+    }
+
+    private fun allocatePositionId(mint: String, paperMode: Boolean): String {
+        val cm = canonicalMint(mint)
+        val existing = activePositionIdByMint[cm]
+        if (!existing.isNullOrBlank()) return existing
+        val id = "${if (paperMode) "PAPER" else "LIVE"}:$cm:$runIdHash:${positionSeq.incrementAndGet()}"
+        activePositionIdByMint[cm] = id
+        return id
+    }
 
     fun buyIdempotencyKey(positionId: String): String = "BUY:$runIdHash:$positionId"
     fun sellIdempotencyKey(positionId: String, generation: Long): String =
@@ -61,7 +79,7 @@ object ExecutorCanonicalMirror6442 {
         paperMode: Boolean,
     ) {
         try {
-            val positionId = positionIdOf(mint)
+            val positionId = allocatePositionId(mint, paperMode)
             val idem = buyIdempotencyKey(positionId)
             // Reserve in the SQLite idempotency store first so a mid-tx restart
             // cannot resubmit; if the reserve returns DUPLICATE, skip the mirror.
@@ -86,6 +104,10 @@ object ExecutorCanonicalMirror6442 {
                 paperMode = paperMode,
             )
             buysMirrored.incrementAndGet()
+            if (result == CanonicalPositionAuthority6441.MutateResult.APPLIED || result == CanonicalPositionAuthority6441.MutateResult.DUPLICATE) {
+                try { LaneAttributionLedger6427.recordEntry(positionId, lane, strategy = lane, profile = lane) } catch (_: Throwable) {}
+                try { PositionStateLedger6427.registerOpen(canonicalMint(mint)) } catch (_: Throwable) {}
+            }
             try { PipelineHealthCollector.labelInc("EXECUTOR_MIRROR_BUY_$result".take(60)) } catch (_: Throwable) {}
         } catch (t: Throwable) {
             mirrorFailures.incrementAndGet()
@@ -109,7 +131,7 @@ object ExecutorCanonicalMirror6442 {
     ) {
         try {
             val positionId = positionIdOf(mint)
-            CanonicalPositionAuthority6441.promotePendingToOpen(
+            val result = CanonicalPositionAuthority6441.promotePendingToOpen(
                 positionId = positionId,
                 actualQtyRaw = actualQtyRaw,
                 actualEntryCostSol = actualCostSol,
@@ -117,6 +139,10 @@ object ExecutorCanonicalMirror6442 {
                 tokenDecimals = tokenDecimals,
                 paperMode = paperMode,
             )
+            if (result == CanonicalPositionAuthority6441.MutateResult.APPLIED) {
+                try { IdempotencyKeyStore6437.markTerminal(buyIdempotencyKey(positionId), "BUY_CONFIRMED") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("CANONICAL_BUY_CONFIRMED_OPEN_6448") } catch (_: Throwable) {}
+            }
         } catch (t: Throwable) {
             mirrorFailures.incrementAndGet()
         }
@@ -135,6 +161,9 @@ object ExecutorCanonicalMirror6442 {
         soldCostBasisSol: Double,
         feesSol: Double,
         paperMode: Boolean,
+        terminal: Boolean = true,
+        lane: String = "",
+        reason: String = "SELL_CONFIRMED",
     ) {
         try {
             val positionId = positionIdOf(mint)
@@ -146,16 +175,33 @@ object ExecutorCanonicalMirror6442 {
                 try { PipelineHealthCollector.labelInc("EXECUTOR_MIRROR_SELL_DUP_6442") } catch (_: Throwable) {}
                 return
             }
+            val posBefore = CanonicalPositionAuthority6441.getPosition(positionId)
+            val qtyToSell = if (terminal && posBefore != null && posBefore.remainingQtyRaw > BigInteger.ZERO) posBefore.remainingQtyRaw else soldQtyRaw
             val result = CanonicalPositionAuthority6441.partialSell(
                 idempotencyKey = idem,
                 positionId = positionId,
-                soldQtyRaw = soldQtyRaw,
+                soldQtyRaw = qtyToSell,
                 proceedsSol = proceedsSol,
                 soldCostBasisSol = soldCostBasisSol,
                 feesSol = feesSol,
                 paperMode = paperMode,
             )
             sellsMirrored.incrementAndGet()
+            val posAfter = CanonicalPositionAuthority6441.getPosition(positionId)
+            if (result == CanonicalPositionAuthority6441.MutateResult.APPLIED && posAfter != null) {
+                if (posAfter.lifecycle == CanonicalPositionAuthority6441.Lifecycle.CLOSED) {
+                    try { PositionStateLedger6427.confirmTerminalSell(canonicalMint(mint)) } catch (_: Throwable) {}
+                    try { LaneAttributionLedger6427.recordExitPolicy(positionId, lane.ifBlank { posAfter.lane }, reason, if (paperMode) "PAPER" else "LIVE", "ExecutorCanonicalMirror6448") } catch (_: Throwable) {}
+                    try { IdempotencyKeyStore6437.markTerminal(idem, "SELL_CONFIRMED") } catch (_: Throwable) {}
+                    try { RewardPurityGate6441.acceptFinalizedClose(positionId, posAfter.realizedPnlSol) } catch (_: Throwable) {}
+                    lastClosedPositionIdByMint[canonicalMint(mint)] = positionId
+                    activePositionIdByMint.remove(canonicalMint(mint), positionId)
+                    try { PipelineHealthCollector.labelInc("CANONICAL_SELL_CONFIRMED_CLOSED_6448") } catch (_: Throwable) {}
+                } else {
+                    try { PositionStateLedger6427.markPartial(canonicalMint(mint)) } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("CANONICAL_PARTIAL_SELL_CONFIRMED_6448") } catch (_: Throwable) {}
+                }
+            }
             try { PipelineHealthCollector.labelInc("EXECUTOR_MIRROR_SELL_$result".take(60)) } catch (_: Throwable) {}
         } catch (t: Throwable) {
             mirrorFailures.incrementAndGet()
