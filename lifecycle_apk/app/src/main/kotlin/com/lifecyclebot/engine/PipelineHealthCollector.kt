@@ -1814,6 +1814,9 @@ object PipelineHealthCollector {
             sb.append("  Trader sizing bridge (§6444): ").append(
                 com.lifecyclebot.engine.truth.TraderSizingBridge6444.statusLine()
             ).append("\n")
+            sb.append("  Maintenance worker (§6448):   ").append(
+                com.lifecyclebot.engine.truth.MaintenanceWorker6448.statusLine()
+            ).append("\n")
             sb.append(com.lifecyclebot.engine.truth.LivePipelineTrace6431.render())
         } catch (_: Throwable) {}
 

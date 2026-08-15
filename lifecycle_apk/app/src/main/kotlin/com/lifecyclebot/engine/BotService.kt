@@ -12636,9 +12636,19 @@ class BotService : Service() {
             try { com.lifecyclebot.engine.truth.CanonicalReconciler6441.quickCheck() } catch (_: Throwable) {}
         }
         if (loopCount % 60 == 0 && loopCount > 0) {
+            // V5.0.6448 P0.4 — route the FULL reconstruct through the
+            // async bounded worker so a slow reconciliation cannot stall
+            // the bot cycle. Deadline 8s; task is cancelled + counted
+            // as DEFERRED if it exceeds. Concurrent submissions of the
+            // same task coalesce.
             try {
-                val rows = com.lifecyclebot.engine.truth.ForensicRowMirror6442.snapshot()
-                com.lifecyclebot.engine.truth.CanonicalReconciler6441.fullReconstruct(rows)
+                com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
+                    name = "canonical_full_reconstruct",
+                    budgetMs = 8_000L,
+                ) {
+                    val rows = com.lifecyclebot.engine.truth.ForensicRowMirror6442.snapshot()
+                    com.lifecyclebot.engine.truth.CanonicalReconciler6441.fullReconstruct(rows)
+                }
             } catch (_: Throwable) {}
         }
         if (loopCount % 6 == 0) {
