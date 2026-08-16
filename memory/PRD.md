@@ -1,6 +1,30 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6453 (Feb 2026) — COMPLETE CONVERGENCE
+
+Deleted obsolete writers. Single reward owner installed as bus subscriber.
+
+**Deletions (obsolete writers)**
+- `PositionCloseLedger.markClosed` — no longer calls shaper directly.
+- `PositionCloseLedger.markClosedFull` — no longer calls shaper directly.
+
+**Additions**
+- `CanonicalRewardBootstrap6453` — installs shaper + purity gate as
+  bus subscribers exactly once.
+- Atomic `MintWorkCoordinator6450.acquireOrAttach` (putIfAbsent).
+- Executor `getActualPrice` stamps `QuoteFreshnessGuard6452` with
+  typed Provenance + real age.
+
+**CI locks**
+- `ConvergenceAcceptanceTest` — atomic mint coord, bootstrap
+  idempotency, subscriber invocation.
+
+CI: Build AATE APK green (run 31950418267). Runtime Smoke Test green
+(run 31951126380).
+
+
+
 ## V5.0.6452 (Feb 2026) — SOURCE-LEVEL AUTHORITY CONVERGENCE
 
 Operator mandate: fix defects at their source, add HARD CI assertions.

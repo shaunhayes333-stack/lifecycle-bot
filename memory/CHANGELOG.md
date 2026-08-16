@@ -1,3 +1,55 @@
+## V5.0.6453 — 2026-02-16 — COMPLETE CONVERGENCE (atomic mint coord + single reward owner + quote provenance)
+
+Operator: "DELETE obsolete writers after rerouting them. Do not report
+CONVERGED until the old mutation paths are gone." Deleted the direct
+shaper/purity-gate writer paths and installed a single bus-subscriber
+owner. Fixed the atomic mint dedup race. Wired real quote provenance.
+
+**§P0-#1 ATOMIC MINT WORK COORDINATOR**
+- Rewrote `MintWorkCoordinator6450.acquireOrAttach` with `putIfAbsent`
+  semantics. The prior `compute{}` impl was racy: two callbacks racing
+  on "first insertion" could both observe `size==1` after their own add
+  and both return `isNew=true`.
+- Post-fix: `putIfAbsent`'s winner is the ONE true candidate; all
+  others coalesce regardless of source composition.
+- Locked by CI: 100 concurrent callbacks → exactly one `isNew` and
+  one canonical `candidateId`.
+
+**§P0-#6 ONE REWARD OWNER (DELETED OBSOLETE WRITERS)**
+- New `CanonicalRewardBootstrap6453` subscribes `GrowthAlignedRewardShaper6439`
+  + `RewardPurityGate6441` to `CanonicalTradeFinalizedBus6450` exactly
+  once (AtomicBoolean CAS).
+- `PositionCloseLedger.markClosed` (compact): **DELETED** the direct
+  `shape()` + `acceptFinalizedClose()` calls. Publishes to the bus.
+- `PositionCloseLedger.markClosedFull`: **DELETED** the direct `shape()`
+  call. Bus subscribers now receive the finalize event.
+- `ensureBootstrapped()` called from every cycle's audit tick.
+- Result: RewardPurity + GrowthShaper + RewardBridge W/L counts can no
+  longer diverge — they all derive from the same bus subscriber.
+
+**§P0-#7 QUOTE PROVENANCE WIRING**
+- `Executor.getActualPrice` stamps `QuoteFreshnessGuard6452.note()` on
+  every price read with typed `Provenance` derived from
+  `ts.lastPriceSource`:
+  - `SYNTH/FALLBACK/DERIVED` → `Provenance.DERIVED`
+  - `CACHE` → `Provenance.CACHED`
+  - `WS/STREAM` → `Provenance.WS_LIVE`
+  - blank → `UNKNOWN`
+  - anything else non-blank → `REST_LIVE`
+- Real `quoteAgeMs = clock − ts.lastPriceUpdate`.
+
+**§P0-#8 HARD CI ASSERTIONS**
+`ConvergenceAcceptanceTest`:
+- 100 concurrent MintWorkCoordinator callbacks → exactly 1 candidate
+- Bootstrap idempotency: `installed=true` after first + repeated calls
+- Bus subscriber invoked on publish (shaperInv strictly increases)
+
+**Pipeline dump gains**: `Reward bootstrap (§6453)` status line.
+
+CI: Build AATE APK green (run 31950418267). Runtime Smoke Test green
+(run 31951126380). PAPER MODE ONLY.
+
+
 ## V5.0.6452 — 2026-02-16 — SOURCE-LEVEL AUTHORITY CONVERGENCE
 
 Operator: "Do NOT add another layer of guards or tune strategy thresholds.
