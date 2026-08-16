@@ -69,51 +69,13 @@ object PositionCloseLedger {
         }
         val id = "C${now}_${mint.take(6)}"
         closed[mint] = CloseRecord(mint, id, now, reason.take(40), pnlPct)
-        // V5.0.6453 §P0-#6 — ONE REWARD OWNER. Deleted the direct
-        // GrowthAlignedRewardShaper6439.shape / RewardPurityGate6441
-        // calls. All reward paths now flow through
-        // CanonicalTradeFinalizedBus6450 subscribers installed by
-        // CanonicalRewardBootstrap6453. This eliminates the parallel
-        // reward writers (RewardPurity vs GrowthShaper vs RewardBridge
-        // disagreeing W/L counts).
-        try {
-            com.lifecyclebot.engine.truth.CanonicalRewardBootstrap6453.ensureBootstrapped()
-            val positionId = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(mint)
-            val terminalEpoch = now
-            val claim = com.lifecyclebot.engine.truth.TerminalCloseIdempotencyLatch6450
-                .tryClaim(positionId, terminalEpoch, reason)
-            if (claim == com.lifecyclebot.engine.truth.TerminalCloseIdempotencyLatch6450.ClaimResult.CLAIMED) {
-                val realizedSolProxy = 0.05 * (pnlPct.toDouble() / 100.0)
-                val outcome = when {
-                    realizedSolProxy > 0.0001 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.WIN
-                    realizedSolProxy < -0.0001 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.LOSS
-                    else -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN
-                }
-                val entrySnap = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(positionId)
-                com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.publish(
-                    com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Event(
-                        positionId = positionId,
-                        mint = mint,
-                        outcome = outcome,
-                        netRealizedPnlSol = realizedSolProxy,
-                        grossRealizedPnlSol = realizedSolProxy,
-                        returnFraction = pnlPct.toDouble() / 100.0,
-                        netReturnPct = pnlPct.toDouble(),
-                        feesSol = 0.0,
-                        entryLane = entrySnap?.entryLane ?: "COMPACT_LEDGER",
-                        entryStrategyPid = entrySnap?.entryStrategyPid ?: "",
-                        entryTactic = entrySnap?.entryTactic ?: "",
-                        exitReason = reason.take(40),
-                        holdingTimeMs = if (entrySnap != null) now - entrySnap.entryTimestampMs else 0L,
-                        dataQuality = "COMPACT",
-                        priceIntegrity = "COMPACT",
-                        mode = "paper",
-                        settledAtMs = now,
-                    ),
-                )
-                try { PipelineHealthCollector.labelInc("POSITION_CLOSE_LEDGER_BUS_PUBLISHED_6453") } catch (_: Throwable) {}
-            }
-        } catch (_: Throwable) {}
+        // V5.0.6454 §P0 — ONE SETTLEMENT, ONE REWARD EVENT. Deleted the
+        // compact 0.05-SOL realizedPnL PROXY (operator: "PositionCloseLedger
+        // may not invent financial values"). The compact markClosed is
+        // now a pure METADATA STAMP — no reward publish. Only
+        // markClosedFull (which carries authoritative realizedSol +
+        // realizedPnl + fees) may publish to the finalized bus.
+        try { PipelineHealthCollector.labelInc("POSITION_CLOSE_LEDGER_METADATA_ONLY_6454") } catch (_: Throwable) {}
         return id
     }
 

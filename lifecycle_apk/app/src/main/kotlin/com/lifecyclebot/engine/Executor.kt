@@ -11587,8 +11587,14 @@ class Executor(
         val gateVerdict6451 = try {
             com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.gate(gateLane6451, ts.mint, sol)
         } catch (_: Throwable) {
+            // V5.0.6454 §P0 — ENTRY AUTHORITY FAIL CLOSED. Gate exceptions
+            // must NEVER allow the BUY to proceed. Prior behaviour returned
+            // ALLOW on gate_error, which was a fail-open. Now we deny.
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ENTRY_AUTHORITY_FAIL_CLOSED_6454")
+            } catch (_: Throwable) {}
             com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Decision(
-                com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW, sol, "gate_error",
+                com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.DENY_LOSING_STREAK, 0.0, "gate_error_fail_closed",
             )
         }
         val effectiveBuySol6451 = when (gateVerdict6451.verdict) {
@@ -13528,8 +13534,12 @@ class Executor(
         val gateVerdictLive6451 = try {
             com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.gate(gateLaneLive6451, ts.mint, sol)
         } catch (_: Throwable) {
+            // V5.0.6454 §P0 — ENTRY AUTHORITY FAIL CLOSED. Live BUY too.
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ENTRY_AUTHORITY_FAIL_CLOSED_LIVE_6454")
+            } catch (_: Throwable) {}
             com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Decision(
-                com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW, sol, "gate_error",
+                com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.DENY_LOSING_STREAK, 0.0, "gate_error_fail_closed",
             )
         }
         when (gateVerdictLive6451.verdict) {

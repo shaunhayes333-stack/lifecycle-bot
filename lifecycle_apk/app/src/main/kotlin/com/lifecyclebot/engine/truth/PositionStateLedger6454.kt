@@ -1,0 +1,184 @@
+package com.lifecyclebot.engine.truth
+
+import com.lifecyclebot.engine.ForensicLogger
+import com.lifecyclebot.engine.PipelineHealthCollector
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * V5.0.6454 §P0 — TERMINAL SELL CAS AT SIDE-EFFECT DOOR.
+ *
+ * OPERATOR MANDATE:
+ *   "Wire PositionStateLedger.reserveTerminalSell() BEFORE every
+ *    paper/live terminal SELL. PositionId mandatory; remove blank-ID
+ *    fail-open. Do NOT use mint as PositionId.
+ *
+ *    Only: OPEN/PARTIAL -> CLOSING via CAS
+ *          CLOSING -> CLOSED via CAS after settlement.
+ *
+ *    confirmTerminalSell must:
+ *      - CAS CLOSING -> CLOSED
+ *      - return false if already CLOSED
+ *      - NEVER increment terminal count twice
+ *      - NEVER journal/account/reward a rejected duplicate
+ *
+ *    DsXR94/2cxRDE/2JLR9u repeated SELL pattern must become impossible."
+ *
+ * DESIGN
+ * ──────
+ * Compact state machine keyed by positionId. reserveTerminalSell() does
+ * CAS OPEN/PARTIAL -> CLOSING. confirmTerminalSell() does CAS CLOSING ->
+ * CLOSED. Any other transition is REJECTED and returns false. Blank
+ * positionId is refused unconditionally.
+ */
+object PositionStateLedger6454 {
+
+    enum class Lifecycle { UNKNOWN, OPEN, PARTIAL, CLOSING, CLOSED }
+
+    enum class ReserveResult { RESERVED, REJECTED_BLANK_ID, REJECTED_ALREADY_CLOSING, REJECTED_ALREADY_CLOSED, REJECTED_UNKNOWN }
+    enum class ConfirmResult { CONFIRMED, REJECTED_NOT_CLOSING, REJECTED_ALREADY_CLOSED, REJECTED_BLANK_ID }
+
+    private val states = ConcurrentHashMap<String, Lifecycle>()
+    private val terminalCount = ConcurrentHashMap<String, AtomicLong>() // positionId -> increments; expected == 1
+    private val reservations = AtomicLong(0L)
+    private val reservationRejects = AtomicLong(0L)
+    private val confirms = AtomicLong(0L)
+    private val confirmRejects = AtomicLong(0L)
+    private val blankIdRejects = AtomicLong(0L)
+
+    /** Called at position creation to seed lifecycle=OPEN. */
+    fun onEntry(positionId: String) {
+        if (positionId.isBlank()) return
+        states.putIfAbsent(positionId, Lifecycle.OPEN)
+    }
+
+    /** Called on any partial sell that leaves >0 remaining. */
+    fun onPartial(positionId: String) {
+        if (positionId.isBlank()) return
+        val prior = states[positionId]
+        if (prior == Lifecycle.OPEN || prior == Lifecycle.PARTIAL) {
+            states[positionId] = Lifecycle.PARTIAL
+        }
+    }
+
+    /**
+     * CAS OPEN/PARTIAL -> CLOSING. Must be called BEFORE any side effect
+     * of a terminal sell (cash mutation, journal write, reward). Returns
+     * REJECTED_* if the position cannot legitimately transition.
+     */
+    fun reserveTerminalSell(positionId: String, reason: String): ReserveResult {
+        if (positionId.isBlank()) {
+            blankIdRejects.incrementAndGet()
+            reservationRejects.incrementAndGet()
+            try {
+                ForensicLogger.lifecycle(
+                    "TERMINAL_SELL_BLANK_POSITION_ID_6454",
+                    "reason=${reason.take(40)}",
+                )
+                PipelineHealthCollector.labelInc("TERMINAL_SELL_BLANK_POSITION_ID_6454")
+            } catch (_: Throwable) {}
+            return ReserveResult.REJECTED_BLANK_ID
+        }
+        val prior = states.putIfAbsent(positionId, Lifecycle.CLOSING)
+        if (prior == null) {
+            // Never seen this positionId — treat as UNKNOWN (fail-closed).
+            states.remove(positionId, Lifecycle.CLOSING)
+            reservationRejects.incrementAndGet()
+            try {
+                ForensicLogger.lifecycle(
+                    "TERMINAL_SELL_UNKNOWN_POSITION_6454",
+                    "positionId=${positionId.take(12)} reason=${reason.take(40)}",
+                )
+                PipelineHealthCollector.labelInc("TERMINAL_SELL_UNKNOWN_POSITION_6454")
+            } catch (_: Throwable) {}
+            return ReserveResult.REJECTED_UNKNOWN
+        }
+        return when (prior) {
+            Lifecycle.OPEN, Lifecycle.PARTIAL -> {
+                if (states.replace(positionId, prior, Lifecycle.CLOSING)) {
+                    reservations.incrementAndGet()
+                    try { PipelineHealthCollector.labelInc("TERMINAL_SELL_RESERVED_6454") } catch (_: Throwable) {}
+                    ReserveResult.RESERVED
+                } else {
+                    // Someone else beat us — inspect current state.
+                    reservationRejects.incrementAndGet()
+                    when (states[positionId]) {
+                        Lifecycle.CLOSING -> ReserveResult.REJECTED_ALREADY_CLOSING
+                        Lifecycle.CLOSED -> ReserveResult.REJECTED_ALREADY_CLOSED
+                        else -> ReserveResult.REJECTED_ALREADY_CLOSING
+                    }
+                }
+            }
+            Lifecycle.CLOSING -> {
+                reservationRejects.incrementAndGet()
+                try {
+                    ForensicLogger.lifecycle(
+                        "TERMINAL_SELL_DUPLICATE_CLOSING_REJECTED_6454",
+                        "positionId=${positionId.take(12)} reason=${reason.take(40)}",
+                    )
+                    PipelineHealthCollector.labelInc("TERMINAL_SELL_DUPLICATE_CLOSING_REJECTED_6454")
+                } catch (_: Throwable) {}
+                ReserveResult.REJECTED_ALREADY_CLOSING
+            }
+            Lifecycle.CLOSED -> {
+                reservationRejects.incrementAndGet()
+                try {
+                    ForensicLogger.lifecycle(
+                        "TERMINAL_SELL_DUPLICATE_CLOSED_REJECTED_6454",
+                        "positionId=${positionId.take(12)} reason=${reason.take(40)}",
+                    )
+                    PipelineHealthCollector.labelInc("TERMINAL_SELL_DUPLICATE_CLOSED_REJECTED_6454")
+                } catch (_: Throwable) {}
+                ReserveResult.REJECTED_ALREADY_CLOSED
+            }
+            Lifecycle.UNKNOWN -> ReserveResult.REJECTED_UNKNOWN
+        }
+    }
+
+    /**
+     * CAS CLOSING -> CLOSED. Must be called AFTER settlement side effects
+     * (journal + accounting + reward publish) succeed. Returns false and
+     * refuses to mutate if not in CLOSING (never double-counts terminal).
+     */
+    fun confirmTerminalSell(positionId: String): ConfirmResult {
+        if (positionId.isBlank()) {
+            blankIdRejects.incrementAndGet()
+            confirmRejects.incrementAndGet()
+            return ConfirmResult.REJECTED_BLANK_ID
+        }
+        val cur = states[positionId]
+        if (cur == Lifecycle.CLOSED) {
+            confirmRejects.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("TERMINAL_SELL_CONFIRM_ALREADY_CLOSED_6454") } catch (_: Throwable) {}
+            return ConfirmResult.REJECTED_ALREADY_CLOSED
+        }
+        if (cur != Lifecycle.CLOSING) {
+            confirmRejects.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("TERMINAL_SELL_CONFIRM_NOT_CLOSING_6454") } catch (_: Throwable) {}
+            return ConfirmResult.REJECTED_NOT_CLOSING
+        }
+        if (!states.replace(positionId, Lifecycle.CLOSING, Lifecycle.CLOSED)) {
+            confirmRejects.incrementAndGet()
+            return ConfirmResult.REJECTED_ALREADY_CLOSED
+        }
+        // Count exactly once.
+        terminalCount.getOrPut(positionId) { AtomicLong(0L) }.incrementAndGet()
+        confirms.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("TERMINAL_SELL_CONFIRMED_6454") } catch (_: Throwable) {}
+        return ConfirmResult.CONFIRMED
+    }
+
+    fun lifecycle(positionId: String): Lifecycle = states[positionId] ?: Lifecycle.UNKNOWN
+
+    fun terminalCount(positionId: String): Long = terminalCount[positionId]?.get() ?: 0L
+
+    fun statusLine(): String = "positions=${states.size} reserved=${reservations.get()}/rej=${reservationRejects.get()} " +
+        "confirmed=${confirms.get()}/rej=${confirmRejects.get()} blankIdRejects=${blankIdRejects.get()}"
+
+    // Test-only helper.
+    internal fun resetForTest() {
+        states.clear(); terminalCount.clear()
+        reservations.set(0); reservationRejects.set(0)
+        confirms.set(0); confirmRejects.set(0); blankIdRejects.set(0)
+    }
+}

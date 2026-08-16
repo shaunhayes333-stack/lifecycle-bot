@@ -4045,6 +4045,49 @@ class BotService : Service() {
 
     fun startBot() {
         isShuttingDown = false  // V5.9.721: clear shutdown flag so traders run normally
+        // V5.0.6454 §P0 — start the INDEPENDENT wall-clock reconciler +
+        // risk clock BEFORE the bot loop launches. These run on their
+        // OWN CoroutineScope (Dispatchers.Default) and are not affected
+        // by any botLoop stall — their cadence is preserved even if the
+        // scanner/watchdog/provider hangs 120s (operator's acceptance
+        // criterion). start() is idempotent so repeated startBot() calls
+        // are safe.
+        try {
+            com.lifecyclebot.engine.truth.WallClockReconciler6454.start(
+                rowSnapshot = { try { com.lifecyclebot.engine.truth.ForensicRowMirror6442.snapshot() } catch (_: Throwable) { null } },
+                fullReconstructor = { rows ->
+                    try {
+                        @Suppress("UNCHECKED_CAST")
+                        val typed = rows as? List<com.lifecyclebot.engine.truth.ForensicExecutionRow6441> ?: emptyList()
+                        com.lifecyclebot.engine.truth.CanonicalReconciler6441.fullReconstruct(typed)
+                    } catch (_: Throwable) {}
+                },
+            )
+        } catch (_: Throwable) {}
+        try {
+            com.lifecyclebot.engine.truth.CanonicalRiskClock6454.start { positionId, mint ->
+                // V5.0.6454 heartbeat-only ping — the REAL per-tick
+                // evaluate(markPx=live) is wired in Executor.riskCheck
+                // which fires from every tick regardless of botLoop.
+                // This clock's job is to guarantee the scheduler
+                // heartbeat + starvation check run on wall-clock cadence
+                // even if botLoop is wedged 150s. Passing markPx=0 makes
+                // the scheduler treat the call as a heartbeat ping that
+                // never latches (§P0-#9 no fake mark).
+                try {
+                    com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.evaluate(
+                        positionId = positionId,
+                        mint = mint,
+                        markPx = 0.0,
+                        stopPx = 0.0,
+                        catastrophePx = 0.0,
+                        tpPx = 0.0,
+                        trailPx = 0.0,
+                        quoteAgeMs = 0L,
+                    )
+                } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
         // V5.0.3789 — a fresh Start rebuilds canonical state, so release the
         // stop-finalization latch. From here, normal persistence saves resume.
         persistenceFinalizedByStop = false

@@ -1879,6 +1879,15 @@ object PipelineHealthCollector {
             sb.append("  Reward bootstrap (§6453):     ").append(
                 com.lifecyclebot.engine.truth.CanonicalRewardBootstrap6453.statusLine()
             ).append("\n")
+            sb.append("  Risk clock (§6454):           ").append(
+                com.lifecyclebot.engine.truth.CanonicalRiskClock6454.statusLine()
+            ).append("\n")
+            sb.append("  Wall-clock reconciler (§6454):").append(
+                com.lifecyclebot.engine.truth.WallClockReconciler6454.statusLine()
+            ).append("\n")
+            sb.append("  Position state ledger (§6454):").append(
+                com.lifecyclebot.engine.truth.PositionStateLedger6454.statusLine()
+            ).append("\n")
             sb.append(com.lifecyclebot.engine.truth.LivePipelineTrace6431.render())
         } catch (_: Throwable) {}
 
