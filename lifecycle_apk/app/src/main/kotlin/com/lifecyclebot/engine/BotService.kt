@@ -4045,6 +4045,23 @@ class BotService : Service() {
 
     fun startBot() {
         isShuttingDown = false  // V5.9.721: clear shutdown flag so traders run normally
+        // V5.0.6456 §P0-#1 — install real mark provider so
+        // CanonicalCapitalAuthority6450's unrealized/equity/conservation
+        // reflect live prices from status.tokens (in-memory cache, no IO).
+        // If a mint has no live price cached, the provider returns 0.0
+        // which the snapshot treats as "use costBasis fallback so unrealized
+        // reads 0" — never a phantom -100%.
+        try {
+            com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.installMarkProvider { mint ->
+                try {
+                    val ts = status.tokens[mint] ?: return@installMarkProvider 0.0
+                    val pos = ts.position
+                    val px = ts.lastPrice
+                    if (!px.isFinite() || px <= 0.0 || !pos.isOpen) 0.0
+                    else px * pos.qtyToken.coerceAtLeast(0.0)
+                } catch (_: Throwable) { 0.0 }
+            }
+        } catch (_: Throwable) {}
         // V5.0.6454 §P0 — start the INDEPENDENT wall-clock reconciler +
         // risk clock BEFORE the bot loop launches. These run on their
         // OWN CoroutineScope (Dispatchers.Default) and are not affected

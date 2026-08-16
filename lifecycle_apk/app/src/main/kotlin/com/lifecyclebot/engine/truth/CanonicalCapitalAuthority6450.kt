@@ -58,12 +58,25 @@ object CanonicalCapitalAuthority6450 {
     private val invariantViolations = AtomicLong(0L)
     private val lastDeltaMicros = AtomicLong(0L) // *1e6, atomic-safe
 
+    // V5.0.6456 §P0-#1 — install a real mark provider once at startup so
+    // unrealized/equity/conservation reflect live prices. Consumers (bot
+    // service / UI) call installMarkProvider() with a lambda that reads
+    // the freshest available price for a mint from an in-memory cache.
+    // Absent installation, we still fall back to costBasis to keep
+    // unrealized as 0 (never a negative-100% phantom loss).
+    private val markProviderRef = java.util.concurrent.atomic.AtomicReference<((String) -> Double)?>(null)
+
+    fun installMarkProvider(provider: (String) -> Double) {
+        markProviderRef.set(provider)
+        try { PipelineHealthCollector.labelInc("CAPITAL_MARK_PROVIDER_INSTALLED_6456") } catch (_: Throwable) {}
+    }
+
     /**
      * Compute the canonical snapshot. Caller supplies a mark provider that
      * returns current SOL market value for a mint (0.0 = mark unknown, use
      * costBasis fallback so unrealized reads as 0 rather than -100%).
      */
-    fun snapshot(markProvider: (String) -> Double = { 0.0 }): Snapshot {
+    fun snapshot(markProvider: (String) -> Double = markProviderRef.get() ?: { 0.0 }): Snapshot {
         val startingCash = PaperAccountLedger6430.startingCashSol()
         val cash = PaperAccountLedger6430.cashSol()
         val realized = PaperAccountLedger6430.realizedPnlSol()
@@ -72,9 +85,13 @@ object CanonicalCapitalAuthority6450 {
         val reserved = 0.0 // reserved capital tracked upstream; kept 0 until wired
         val openCost = open.sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
         val openMv = open.sumOf {
-            val remainingRatio = if (it.entryCostSol > 0.0) ((it.entryCostSol - it.soldCostBasisSol) / it.entryCostSol).coerceAtLeast(0.0) else 1.0
-            val mark = try { markProvider(it.mint) } catch (_: Throwable) { 0.0 }
-            if (mark > 0.0) mark * remainingRatio else (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0)
+            // V5.0.6456 — markProvider returns the CURRENT market VALUE
+            // (SOL) of the position's remaining qty. When unknown (0.0),
+            // fall back to remaining cost basis so unrealized reads as 0
+            // rather than phantom -100%. (Prior code multiplied by
+            // remainingRatio which double-scaled partial exits.)
+            val mv = try { markProvider(it.mint) } catch (_: Throwable) { 0.0 }
+            if (mv > 0.0) mv else (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0)
         }
         val unrealized = openMv - openCost
         val equity = cash + reserved + openMv

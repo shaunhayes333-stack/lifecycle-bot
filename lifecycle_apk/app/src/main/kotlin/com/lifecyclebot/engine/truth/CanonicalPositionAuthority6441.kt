@@ -324,11 +324,42 @@ object CanonicalPositionAuthority6441 {
         it.mint == mint && (it.lifecycle == Lifecycle.OPEN || it.lifecycle == Lifecycle.PARTIALLY_CLOSED)
     }
 
+    /**
+     * V5.0.6456 §P0-#2 CANONICAL POSITION STATE INVARIANT.
+     * Emits (total, byLifecycle) so callers can assert
+     *   total == Σ(byLifecycle.values)
+     * with NO invisible/default/null state permitted. Every position is
+     * accounted to exactly one of PENDING_ENTRY / OPEN / PARTIALLY_CLOSED
+     * / CLOSED / QUARANTINED.
+     */
+    data class LifecycleClassification(val total: Int, val byLifecycle: Map<Lifecycle, Int>, val unaccounted: Int)
+
+    fun classifyLifecycles(): LifecycleClassification {
+        val snapshot = positions.values.toList()
+        val counts = Lifecycle.values().associateWith { life -> snapshot.count { it.lifecycle == life } }
+        val classified = counts.values.sum()
+        val unaccounted = snapshot.size - classified
+        if (unaccounted != 0) {
+            try {
+                ForensicLogger.lifecycle(
+                    "POSITION_STATE_SUM_VIOLATION_6456",
+                    "total=${snapshot.size} classified=$classified unaccounted=$unaccounted breakdown=${counts.entries.joinToString(",") { "${it.key}=${it.value}" }}",
+                )
+                PipelineHealthCollector.labelInc("POSITION_STATE_SUM_VIOLATION_6456")
+            } catch (_: Throwable) {}
+        }
+        return LifecycleClassification(total = snapshot.size, byLifecycle = counts, unaccounted = unaccounted)
+    }
+
     fun statusLine(): String {
         val open = openCount()
         val closed = closedPositions().size
         val cash = paperCashSol.get()
+        val classification = classifyLifecycles()
+        val breakdown = classification.byLifecycle.entries.joinToString(",") { "${it.key}=${it.value}" }
         return "positions=${positions.size} open=$open closed=$closed paperCashSol=${"%.5f".format(cash)} " +
-            "muts=${muts.get()} dups=${duplicates.get()} invViol=${invariantViolations.get()} quarantines=${quarantines.get()}"
+            "muts=${muts.get()} dups=${duplicates.get()} invViol=${invariantViolations.get()} quarantines=${quarantines.get()} " +
+            "sumCheck(total=${classification.total} classified=${classification.byLifecycle.values.sum()} " +
+            "unaccounted=${classification.unaccounted} $breakdown)"
     }
 }
