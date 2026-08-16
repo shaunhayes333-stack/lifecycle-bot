@@ -1876,6 +1876,9 @@ object PipelineHealthCollector {
             sb.append("  Quote freshness (§6452):      ").append(
                 com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.statusLine()
             ).append("\n")
+            sb.append("  Reward bootstrap (§6453):     ").append(
+                com.lifecyclebot.engine.truth.CanonicalRewardBootstrap6453.statusLine()
+            ).append("\n")
             sb.append(com.lifecyclebot.engine.truth.LivePipelineTrace6431.render())
         } catch (_: Throwable) {}
 

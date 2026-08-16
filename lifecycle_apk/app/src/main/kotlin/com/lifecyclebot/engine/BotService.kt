@@ -12678,12 +12678,11 @@ class BotService : Service() {
         if (loopCount % 12 == 0 && loopCount > 0) {
             try { com.lifecyclebot.engine.truth.CanonicalIntegrityGuards6449.auditConservation() } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.assertInvariant() } catch (_: Throwable) {}
-            // V5.0.6450 §P0 — CanonicalCapitalAuthority6450 is the
-            // authoritative wallet surface (CASH/RESERVED/OPEN_MV/
-            // UNREALIZED/REALIZED/EQUITY). assertInvariant emits
-            // CANONICAL_CAPITAL_INVARIANT_VIOLATION_6450 with full
-            // decomposition on breach.
             try { com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.assertInvariant() } catch (_: Throwable) {}
+            // V5.0.6453 §P0-#6 — ensure the single reward subscriber is
+            // installed BEFORE any close fires. Idempotent — no-op after
+            // the first successful install.
+            try { com.lifecyclebot.engine.truth.CanonicalRewardBootstrap6453.ensureBootstrapped() } catch (_: Throwable) {}
         }
         // V5.0.6450 §P0 — ProtectiveExitScheduler6450 must never go silent.
         // Every 3 loops, check its heartbeat and log SCHEDULER_STARVATION

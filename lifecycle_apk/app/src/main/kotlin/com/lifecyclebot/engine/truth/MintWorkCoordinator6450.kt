@@ -46,24 +46,45 @@ object MintWorkCoordinator6450 {
     private val coalesces = AtomicLong(0L)
     private val openMintBuyBlocks = AtomicLong(0L)
 
+    /**
+     * ATOMIC acquire-or-attach. V5.0.6453 §P0-#1.
+     *
+     * Prior (racy) impl used ConcurrentHashMap.compute {} + inspected
+     * `slot.sources.size == 1` to determine isNew, which is not
+     * consistent under concurrent multi-source callbacks: two callbacks
+     * arriving from source A and source B simultaneously could both
+     * observe `size == 1` after their own add and both return isNew=true.
+     *
+     * Fix: use putIfAbsent for the OWNER of the slot, and treat
+     * everything else as a coalesce regardless of source. That means
+     * "100 simultaneous callbacks for one mint" produces exactly one
+     * candidate — regardless of source composition. Only the FIRST
+     * putIfAbsent winner is isNew.
+     */
     fun acquireOrAttach(mint: String, source: String): CoordinationResult {
         if (mint.isBlank()) return CoordinationResult("", false, emptyList())
         acquires.incrementAndGet()
         val now = System.currentTimeMillis()
-        val slot = slots.compute(mint) { _, cur ->
-            if (cur != null && (now - cur.createdAtMs) < SLOT_TTL_MS) {
-                cur.sources += source
-                cur
-            } else {
-                Slot("Q${now}_${mint.take(6)}", mutableSetOf(source), now)
-            }
-        }!!
-        val isNew = slot.sources.size == 1 && slot.sources.contains(source)
-        if (!isNew) {
-            coalesces.incrementAndGet()
-            try { PipelineHealthCollector.labelInc("MINT_WORK_COALESCED_6450") } catch (_: Throwable) {}
+        val proposed = Slot("Q${now}_${mint.take(6)}", java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap()), now)
+        proposed.sources += source
+        val prior = slots.putIfAbsent(mint, proposed)
+        if (prior == null) {
+            // We won ownership — this is the ONE true candidate.
+            return CoordinationResult(proposed.candidateId, isNew = true, coalescedFromSources = listOf(source))
         }
-        return CoordinationResult(slot.candidateId, isNew, slot.sources.toList())
+        // Slot expired? Try to swap it out atomically.
+        if ((now - prior.createdAtMs) >= SLOT_TTL_MS) {
+            if (slots.replace(mint, prior, proposed)) {
+                return CoordinationResult(proposed.candidateId, isNew = true, coalescedFromSources = listOf(source))
+            }
+            // Someone else replaced first — fall through to coalesce.
+        }
+        // Attach evidence to existing slot; always a coalesce.
+        val current = slots[mint] ?: proposed
+        current.sources += source
+        coalesces.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("MINT_WORK_COALESCED_6450") } catch (_: Throwable) {}
+        return CoordinationResult(current.candidateId, isNew = false, coalescedFromSources = current.sources.toList())
     }
 
     /** Called before lane/FDG fan-out. Returns true if a canonical open

@@ -69,22 +69,50 @@ object PositionCloseLedger {
         }
         val id = "C${now}_${mint.take(6)}"
         closed[mint] = CloseRecord(mint, id, now, reason.take(40), pnlPct)
-        // V5.0.6449 §1 REAL CLOSE FUNNEL — route legacy markClosed callers
-        // through the reward stack too. Derive realizedSol from pnlPct
-        // best-effort (0.05 SOL nominal position * pctFraction). This
-        // ensures the shaper + streak reflex fire even from callers that
-        // use the compact signature (previously bypassed the funnel).
-        // Only fires on the first insertion — TTL-dedup above prevents
-        // double-firing when markClosedFull follows.
+        // V5.0.6453 §P0-#6 — ONE REWARD OWNER. Deleted the direct
+        // GrowthAlignedRewardShaper6439.shape / RewardPurityGate6441
+        // calls. All reward paths now flow through
+        // CanonicalTradeFinalizedBus6450 subscribers installed by
+        // CanonicalRewardBootstrap6453. This eliminates the parallel
+        // reward writers (RewardPurity vs GrowthShaper vs RewardBridge
+        // disagreeing W/L counts).
         try {
-            val realizedSolProxy = 0.05 * (pnlPct.toDouble() / 100.0)
-            com.lifecyclebot.engine.truth.GrowthAlignedRewardShaper6439.shape(
-                realizedSolDelta = realizedSolProxy,
-                openedAtMs = now, closedAtMs = now, mint = mint,
-            )
+            com.lifecyclebot.engine.truth.CanonicalRewardBootstrap6453.ensureBootstrapped()
             val positionId = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(mint)
-            com.lifecyclebot.engine.truth.RewardPurityGate6441.acceptFinalizedClose(positionId, realizedSolProxy)
-            try { PipelineHealthCollector.labelInc("POSITION_CLOSE_LEDGER_SHAPED_6449") } catch (_: Throwable) {}
+            val terminalEpoch = now
+            val claim = com.lifecyclebot.engine.truth.TerminalCloseIdempotencyLatch6450
+                .tryClaim(positionId, terminalEpoch, reason)
+            if (claim == com.lifecyclebot.engine.truth.TerminalCloseIdempotencyLatch6450.ClaimResult.CLAIMED) {
+                val realizedSolProxy = 0.05 * (pnlPct.toDouble() / 100.0)
+                val outcome = when {
+                    realizedSolProxy > 0.0001 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.WIN
+                    realizedSolProxy < -0.0001 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.LOSS
+                    else -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN
+                }
+                val entrySnap = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(positionId)
+                com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.publish(
+                    com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Event(
+                        positionId = positionId,
+                        mint = mint,
+                        outcome = outcome,
+                        netRealizedPnlSol = realizedSolProxy,
+                        grossRealizedPnlSol = realizedSolProxy,
+                        returnFraction = pnlPct.toDouble() / 100.0,
+                        netReturnPct = pnlPct.toDouble(),
+                        feesSol = 0.0,
+                        entryLane = entrySnap?.entryLane ?: "COMPACT_LEDGER",
+                        entryStrategyPid = entrySnap?.entryStrategyPid ?: "",
+                        entryTactic = entrySnap?.entryTactic ?: "",
+                        exitReason = reason.take(40),
+                        holdingTimeMs = if (entrySnap != null) now - entrySnap.entryTimestampMs else 0L,
+                        dataQuality = "COMPACT",
+                        priceIntegrity = "COMPACT",
+                        mode = "paper",
+                        settledAtMs = now,
+                    ),
+                )
+                try { PipelineHealthCollector.labelInc("POSITION_CLOSE_LEDGER_BUS_PUBLISHED_6453") } catch (_: Throwable) {}
+            }
         } catch (_: Throwable) {}
         return id
     }
@@ -112,25 +140,14 @@ object PositionCloseLedger {
             dustAmount = dustAmount, realizedSol = realizedSol, realizedPnl = realizedPnl,
             source = source.take(24),
         )
-        // V5.0.6439 — funnel the authoritative close into the growth-aligned
-        // reward shaper. This is THE single point where every real close (paper
-        // or live, every lane, every trader) reports its realized SOL delta —
-        // so every learner that respects the shaper (see doctrine) gets a
-        // reward that penalises break-evens and amplifies bag-holds. The
-        // shaper also feeds LosingStreakReflex6439 which drives the
-        // FinalExecutionPermit cooldown when three losses stack.
-        try {
-            // Reasonable open-timestamp fallback: if the position opened <30min
-            // ago, use the close time (shaper's hold-penalty steps at 5-min
-            // resolution so exact millis do not matter).
-            val openedAtMs = now
-            com.lifecyclebot.engine.truth.GrowthAlignedRewardShaper6439.shape(
-                realizedSolDelta = realizedSol,
-                openedAtMs = openedAtMs,
-                closedAtMs = now,
-                mint = mint,
-            )
-        } catch (_: Throwable) {}
+        // V5.0.6453 §P0-#6 — the direct GrowthAlignedRewardShaper6439.shape
+        // call has been DELETED from this path (obsolete writer). Reward
+        // shaping now fires from the CanonicalTradeFinalizedBus6450
+        // subscriber installed by CanonicalRewardBootstrap6453 — a SINGLE
+        // owner receives the terminal event and fans out to shaper +
+        // RewardPurityGate. Prior redundant call created a parallel W/L
+        // count that disagreed with the bus subscribers.
+        try { com.lifecyclebot.engine.truth.CanonicalRewardBootstrap6453.ensureBootstrapped() } catch (_: Throwable) {}
         // V5.0.6448 — PositionCloseLedger is a close metadata ledger only.
         // Canonical lifecycle/reward transitions are now performed at executor
         // confirmation sites with full qty/proceeds/cost data. Do not infer or

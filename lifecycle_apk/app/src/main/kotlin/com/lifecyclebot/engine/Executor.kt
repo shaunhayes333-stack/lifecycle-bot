@@ -1063,6 +1063,34 @@ class Executor(
     fun getActualPricePublic(ts: TokenState): Double = getActualPrice(ts)
     
     private fun getActualPrice(ts: TokenState): Double {
+        // V5.0.6453 §P0-#7 — REAL PRICE CONTRACT. Stamp the freshness
+        // guard with whichever provenance we can attribute. Consumers
+        // (riskCheck, learners) can then interrogate isFresh() before
+        // using the returned mark for PnL/classification/execution.
+        val livePriceForStamp = ts.lastPrice.takeIf { it.isFinite() && it > 0.0 }
+        if (livePriceForStamp != null) {
+            try {
+                val src = ts.lastPriceSource.uppercase()
+                val provenance = when {
+                    src.contains("SYNTH") || src.contains("FALLBACK") || src.contains("DERIVED") ->
+                        com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.DERIVED
+                    src.contains("CACHE") -> com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.CACHED
+                    src.contains("WS") || src.contains("STREAM") -> com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.WS_LIVE
+                    src.isNotBlank() -> com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.REST_LIVE
+                    else -> com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.UNKNOWN
+                }
+                val ageMs = try {
+                    val stampAt = ts.lastPriceUpdate
+                    if (stampAt > 0L) (System.currentTimeMillis() - stampAt).coerceAtLeast(0L) else 0L
+                } catch (_: Throwable) { 0L }
+                com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.note(
+                    mint = ts.mint,
+                    priceUsd = livePriceForStamp,
+                    source = provenance,
+                    quoteAgeMs = ageMs,
+                )
+            } catch (_: Throwable) {}
+        }
         // V5.9.744 — POOL/SOURCE-AWARE PRICE RESOLVER.
         // ═══════════════════════════════════════════════════════════════
         // The pre-744 implementation returned `ts.lastPrice` as-is, with
