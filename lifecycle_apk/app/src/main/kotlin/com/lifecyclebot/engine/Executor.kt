@@ -18908,7 +18908,7 @@ class Executor(
         }
         // V5.9.719: acquire paper sell lock to prevent double-exit race.
         // If another sell request is already in-flight for this mint, reject this one.
-        if (!acquirePaperSellLock(ts.mint)) {        if (!acquirePaperSellLock(ts.mint)) {
+        if (!acquirePaperSellLock(ts.mint)) {
             ErrorLogger.debug("Executor", "🔒 PAPER_DOUBLE_SELL_BLOCKED: ${ts.symbol} reason=$reason already selling")
             return SellResult.ALREADY_CLOSED
         }
