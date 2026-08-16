@@ -1,3 +1,52 @@
+## V5.0.6456 — 2026-02-16 — SOURCE-CORRECTNESS REPAIR (mark-to-market + state-sum invariant)
+
+Operator dump showed `openCost=3.3545`, `marketValue=3.2728`, expected
+unrealized≈−0.0817 but reported unrealized=0, plus canonical positions
+totaling 155 with 62 open + 42 closed + 51 unaccounted.
+
+**§P0-#1 Capital / Wallet truth**
+- `CanonicalCapitalAuthority6450.installMarkProvider(lambda)` — one
+  authoritative mark provider installed at `BotService.startBot()`.
+  Reads `status.tokens[mint].lastPrice * position.qtyToken` from the
+  in-memory cache (no IO). Unknown → returns 0.0, snapshot falls back
+  to cost basis so unrealized reads 0, never phantom −100%.
+- Fixed the snapshot mark-value logic: provider now returns full
+  market VALUE (SOL). Prior code multiplied by remainingRatio which
+  double-scaled partial exits.
+
+**§P0-#2 Canonical position state invariant**
+- `CanonicalPositionAuthority6441.classifyLifecycles()` emits typed
+  `LifecycleClassification(total, byLifecycle, unaccounted)`. Fires
+  `POSITION_STATE_SUM_VIOLATION_6456` with full breakdown if
+  `unaccounted != 0`.
+- `statusLine()` now embeds `sumCheck(total=X classified=Y
+  unaccounted=Z PENDING_ENTRY=… OPEN=… PARTIALLY_CLOSED=… CLOSED=…
+  QUARANTINED=…)` so the operator dump exposes the sum invariant.
+
+**Hard CI assertions — `SourceCorrectnessAcceptanceTest`**
+- `classifyLifecycles` reports `total == Σ(byLifecycle)` and
+  `unaccounted == 0` on any snapshot.
+- Installed mark provider does not corrupt the algebraic conservation
+  invariant on an empty ledger.
+
+CI: Build AATE APK green (run 31970787761). Runtime Smoke Test green
+(run 31970986035). PAPER MODE ONLY.
+
+**Follow-ups** (need next dump to prioritize)
+- Lane/Strategy identity canonicalization (BLUE_CHIP→BLUECHIP,
+  RESALE_SNIPE→PRESALE_SNIPE) with typed originLane / strategyId /
+  executionLane / exitPolicy.
+- Same-mint dedup upstream at candidate admission.
+- Remove FDG legacy hard lane-auto-pause (`LANE_AUTO_PAUSED_SHITCOIN…`)
+  in favor of the fluid tactic switcher.
+- Robust/winsorized tactic statistics rebuild from canonical clean
+  terminal rows.
+- Explicit sizing hierarchy report (requested / strategyRec / riskCap
+  / laneCap / cashCap / final + which constraint owns final).
+- Reward event fanout audit: verify shaper/losing-streak reflex
+  actually receive bus events (rewardPurity=42 vs shaper=0 divergence).
+
+
 ## V5.0.6455 — 2026-02-16 — OFFLOAD BLOCKING MAINTENANCE + SELL DOOR MIGRATION
 
 **§OFFLOAD — botLoop stays sub-second**
