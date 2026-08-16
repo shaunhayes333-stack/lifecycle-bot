@@ -1,3 +1,87 @@
+## V5.0.6450 — 2026-02-16 — CAPITAL / EXIT / QUALITY REGRESSION REPAIR
+
+Operator dump: 274 vs 42 open positions, -0.319 SOL conservation delta,
+avgStopMs=689425, POST_LEARNING_MAINTENANCE=255754ms, RewardPurity vs
+GrowthShaper vs RewardBridge W/L radically disagreeing, BLUECHIP tags on
+$134k-$300k mcap, QUALITY eval=864 → FDG=7, MintWorkCoordinator not
+deduping, loss streak bypasses.
+
+Twelve new canonical authorities (all in engine/truth/) each wired at
+its originating layer. Every module exposes a statusLine() in the
+pipeline dump.
+
+**§P0 — Capital / Position Lifecycle**
+- `CanonicalCapitalAuthority6450` — single READ surface for CASH /
+  RESERVED / OPEN_MV / UNREALIZED / REALIZED / EQUITY. assertInvariant()
+  every 12 loops.
+- `TerminalCloseIdempotencyLatch6450` — (positionId, terminalEpoch) latch
+  rejects duplicate SELL BEFORE cash/PnL/journal mutation. Wired into
+  `PositionCloseLedger.markClosedFull`.
+
+**§P0 — Protective Exit Hot Path**
+- `ProtectiveExitScheduler6450` — monotonic trigger latch (STOP /
+  CATASTROPHE / TP / TRAIL). `attemptUntrigger()` always denies. Own
+  heartbeat + starvation watchdog, pumped every 3 loops.
+
+**§P0 — Post-Learning Offloader**
+- `PostLearningOffloader6450` — priority-tagged façade over
+  `MaintenanceWorker6448.submit` with deadline miss tracking.
+
+**§P0 — Immutable Entry Strategy**
+- `EntryStrategySnapshot6450` — entry lane / pid / tactic persisted
+  exactly once on BUY. Second write REJECTED and logged. Wired at
+  paperBuy fill site.
+
+**§P0 — One Canonical Reward Event**
+- `CanonicalTradeFinalizedBus6450` — single dedup-by-positionId event.
+  `ExecutableEntryAuthority6450` + `LearningQuarantine6450` subscribe.
+  Published from `PositionCloseLedger.markClosedFull` on first insertion.
+
+**§P0 — Reconciler Watchdog**
+- Wrapped both `quickCheck` (every 9 loops) and `fullReconstruct` (every
+  60 loops) with `ReconcilerWatchdog6430.beforeAttempt/afterAttempt`.
+  healthStatus() cannot stay UNKNOWN.
+
+**§P1 — Classification Provenance**
+- `ClassificationProvenanceGuard6450` — BLUECHIP/QUALITY require
+  CONFIRMED_FRESH mcap/liquidity/supply/age AND above-threshold values.
+  FALLBACK/CACHED/SYNTHETIC/MISSING/INFERRED refuse the classification.
+
+**§P1 — Quality Intake Funnel**
+- `QualityIntakeTrace6450` — INTAKE → METADATA_READY → SCORE_READY →
+  LANE_ALLOW → FDG → EXEC → EXIT with one terminal reason on ATTRITION.
+
+**§P1 — Mint Work Coordinator**
+- `MintWorkCoordinator6450` — multi-source discovery coalesces to one
+  candidateId per mint. `isOpenBlocked(mint)` gates BUY generation.
+
+**§P1 — Single Entry Authority**
+- `ExecutableEntryAuthority6450.gate(lane, mint, size)` — one
+  loss-streak + cohort-cooldown + daily-cap gate. Verdicts: ALLOW /
+  ALLOW_PROBE (streak 5-7, 0.01 SOL) / DENY_LOSING_STREAK /
+  DENY_COOLDOWN / DENY_DAILY_LOSS_CAP.
+
+**§P1 — Learning Quarantine**
+- `LearningQuarantine6450` — implausibility guard (25/0 cohort, +4548%,
+  canonical mismatch). Learners consult `isQuarantined()`.
+
+**§P1 — Runner Compounding Safety Gate**
+- `RunnerLedgerHealthGate6450.allowExpansion()` — sizing may only expand
+  past base lane cap once capital invariant passes, exit scheduler is
+  healthy, and canonical expectancy ≥ 0.
+
+Pipeline dump gains 12 status lines. PAPER MODE ONLY.
+
+CI: Build AATE APK green (run 31935749040). Runtime Smoke Test green
+(run 31936271335).
+
+**Follow-ups**: the modules are wired at their producers (BUY,
+markClosedFull, cycle-end hooks). Per-tick evaluate() calls from the
+executor's price-tick paths, and gate() calls at every executable BUY
+route inside `Executor.kt`, are next-cycle work — the operator dump will
+show the exact bypass counts to guide that migration.
+
+
 ## V5.0.6449 — 2026-02-16 — SELL QTY SOURCE LOCK + CASH CONSERVATION AUDIT + REAL CLOSE FUNNEL + TRADER_SYNC ASYNC
 
 Operator (V5.0.6448 pipeline dump): four P0 regressions to close before

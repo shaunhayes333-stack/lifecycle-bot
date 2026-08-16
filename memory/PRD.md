@@ -1,6 +1,50 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6450 (Feb 2026) — CAPITAL / EXIT / QUALITY REGRESSION REPAIR
+
+Twelve canonical authorities under `engine/truth/` addressing every P0/P1
+in the operator's 6450 mandate. Each module is wired at its originating
+layer and reports via `statusLine()` in the pipeline dump.
+
+**P0 authorities**
+- `CanonicalCapitalAuthority6450` — CASH/RESERVED/OPEN_MV/UNREALIZED/
+  REALIZED/EQUITY read surface + invariant audit.
+- `TerminalCloseIdempotencyLatch6450` — duplicate-SELL guard.
+- `ProtectiveExitScheduler6450` — monotonic trigger latch + heartbeat.
+- `PostLearningOffloader6450` — priority-tagged offload façade.
+- `EntryStrategySnapshot6450` — immutable entry lane/pid/tactic.
+- `CanonicalTradeFinalizedBus6450` — one W/L/BE event per positionId.
+- Reconciler watchdog wrapping (quickCheck + fullReconstruct).
+
+**P1 authorities**
+- `ClassificationProvenanceGuard6450` — BLUECHIP/QUALITY provenance.
+- `QualityIntakeTrace6450` — 7-stage funnel + terminal attrition reason.
+- `MintWorkCoordinator6450` — intake dedup + open-mint BUY block.
+- `ExecutableEntryAuthority6450` — single loss-streak / cooldown gate.
+- `LearningQuarantine6450` — implausible cohort quarantine.
+- `RunnerLedgerHealthGate6450` — capital-safe compounding gate.
+
+**Follow-ups after next operator dump**
+- Wire `ProtectiveExitScheduler6450.evaluate()` into every price-tick
+  site in `Executor.kt` so SL/TP triggers latch synchronously.
+- Wire `ExecutableEntryAuthority6450.gate()` at every executable BUY
+  route immediately before capital reservation (paperBuy, liveBuy,
+  copyTradeBuy, expressBuy, etc.).
+- Wire `MintWorkCoordinator6450.acquireOrAttach()` at each discovery
+  source (PumpPortal / DEX / Raydium / CoinGecko / scanner heal /
+  scanner direct).
+- Wire `PostLearningOffloader6450.offload()` around every heavy
+  learning/aggregation/report block that still runs on the trading
+  cycle in `BotService.botLoop`.
+- Wire `ClassificationProvenanceGuard6450.qualifyBluechip/Quality()`
+  into the classifier so tags cannot be assigned from fallback data.
+
+CI: Build AATE APK green (run 31935749040). Runtime Smoke Test green
+(run 31936271335). PAPER MODE ONLY.
+
+
+
 ## V5.0.6449 (Feb 2026) — SELL QTY SOURCE LOCK + CASH AUDIT + REAL CLOSE FUNNEL + TRADER_SYNC ASYNC
 
 Operator (V5.0.6448 dump — 4 P0s): oversell (2x), −0.809 SOL cash leak,
