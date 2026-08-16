@@ -170,6 +170,29 @@ object PositionStateLedger6454 {
 
     fun lifecycle(positionId: String): Lifecycle = states[positionId] ?: Lifecycle.UNKNOWN
 
+    /**
+     * Revert CLOSING -> OPEN when a reserved terminal SELL fails to
+     * settle (e.g. live route error, provider outage). Callers MUST use
+     * this on any FAILED_* / WAITING_* return path from a sell function
+     * that had a successful reserveTerminalSell. Idempotent — no-op if
+     * lifecycle is not CLOSING (in particular, does NOT undo a
+     * confirmed CLOSED position).
+     */
+    fun abandonTerminalSell(positionId: String, reason: String): Boolean {
+        if (positionId.isBlank()) return false
+        val ok = states.replace(positionId, Lifecycle.CLOSING, Lifecycle.OPEN)
+        if (ok) {
+            try {
+                ForensicLogger.lifecycle(
+                    "TERMINAL_SELL_ABANDONED_6454",
+                    "positionId=${positionId.take(12)} reason=${reason.take(40)}",
+                )
+                PipelineHealthCollector.labelInc("TERMINAL_SELL_ABANDONED_6454")
+            } catch (_: Throwable) {}
+        }
+        return ok
+    }
+
     fun terminalCount(positionId: String): Long = terminalCount[positionId]?.get() ?: 0L
 
     fun statusLine(): String = "positions=${states.size} reserved=${reservations.get()}/rej=${reservationRejects.get()} " +

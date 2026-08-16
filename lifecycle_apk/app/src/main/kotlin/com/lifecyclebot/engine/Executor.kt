@@ -12316,6 +12316,13 @@ class Executor(
                     entryThresholdSnapshot = "",
                 )
             )
+            // V5.0.6455 §SELL_DOOR_MIGRATION — seed PositionStateLedger6454
+            // with lifecycle=OPEN so subsequent terminal sell reservations
+            // (reserveTerminalSell CAS OPEN/PARTIAL -> CLOSING) know this
+            // position is legitimately open. Without this seed the CAS
+            // would refuse with REJECTED_UNKNOWN and block legitimate
+            // sells — fail-closed by design.
+            com.lifecyclebot.engine.truth.PositionStateLedger6454.onEntry(pid6450)
         } catch (_: Throwable) {}
         // V5.9.123 — register in CorrelationHedgeAI so other new-entry scoring
         // sees this position as cluster peer pressure.
@@ -18880,9 +18887,28 @@ class Executor(
                 return SellResult.ALREADY_CLOSED
             }
         }
+        // V5.0.6455 §SELL_DOOR_MIGRATION — reserveTerminalSell CAS BEFORE
+        // the paper sell lock (which is a legacy in-flight guard) so any
+        // duplicate/concurrent terminal SELL for the SAME positionId is
+        // physically impossible past this line. positionId is mandatory;
+        // blank/unknown positions fail-closed. DsXR94/2cxRDE/2JLR9u
+        // repeated-SELL pattern is now unreachable at the CAS door.
+        val terminalPid6455 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
+        val reserveResult6455 = com.lifecyclebot.engine.truth.PositionStateLedger6454
+            .reserveTerminalSell(terminalPid6455, reason)
+        if (reserveResult6455 != com.lifecyclebot.engine.truth.PositionStateLedger6454.ReserveResult.RESERVED) {
+            try {
+                ForensicLogger.lifecycle(
+                    "PAPER_SELL_TERMINAL_RESERVE_REJECTED_6455",
+                    "mint=${ts.mint.take(10)} pid=${terminalPid6455.take(12)} result=$reserveResult6455 reason=$reason",
+                )
+                PipelineHealthCollector.labelInc("PAPER_SELL_TERMINAL_RESERVE_REJECTED_6455")
+            } catch (_: Throwable) {}
+            return SellResult.ALREADY_CLOSED
+        }
         // V5.9.719: acquire paper sell lock to prevent double-exit race.
         // If another sell request is already in-flight for this mint, reject this one.
-        if (!acquirePaperSellLock(ts.mint)) {
+        if (!acquirePaperSellLock(ts.mint)) {        if (!acquirePaperSellLock(ts.mint)) {
             ErrorLogger.debug("Executor", "🔒 PAPER_DOUBLE_SELL_BLOCKED: ${ts.symbol} reason=$reason already selling")
             return SellResult.ALREADY_CLOSED
         }
@@ -19250,6 +19276,15 @@ class Executor(
                 costBasisSoldSol = pos.costSol.coerceAtLeast(0.0),
                 feeSol = simulatedFeeSol.coerceAtLeast(0.0),
             )
+        } catch (_: Throwable) {}
+        // V5.0.6455 §SELL_DOOR_MIGRATION — CAS CLOSING -> CLOSED after
+        // settlement side effects (canonical mirror + account ledger)
+        // succeed. confirmTerminalSell returns false if already CLOSED —
+        // that path is UNREACHABLE past reserveTerminalSell above, but
+        // the confirm here is the final tombstone that guarantees
+        // terminalCount(pid) == 1.
+        try {
+            com.lifecyclebot.engine.truth.PositionStateLedger6454.confirmTerminalSell(terminalPid6455)
         } catch (_: Throwable) {}
 
         val cyclicVirtualPaperClose = pos.tradingMode.equals("CYCLIC", true) || reason.startsWith("CYCLIC_", true)
@@ -20306,6 +20341,16 @@ class Executor(
                 try { PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_EXITED_WITHOUT_CLOSE:$reason") } catch (_: Throwable) {}
             }
             releasePaperSellLock(ts.mint)
+            // V5.0.6455 §SELL_DOOR_MIGRATION — if the reserved CAS never
+            // transitioned to CLOSED (function threw / returned early after
+            // reserve), abandon the reservation so the position can retry.
+            try {
+                if (com.lifecyclebot.engine.truth.PositionStateLedger6454.lifecycle(terminalPid6455) ==
+                    com.lifecyclebot.engine.truth.PositionStateLedger6454.Lifecycle.CLOSING) {
+                    com.lifecyclebot.engine.truth.PositionStateLedger6454
+                        .abandonTerminalSell(terminalPid6455, "paperSell_exited_without_confirm:$reason")
+                }
+            } catch (_: Throwable) {}
             try { ForensicLogger.lifecycle("PAPER_SELL_LOCK_RELEASED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}
         }
     }
@@ -20314,6 +20359,23 @@ class Executor(
                          wallet: SolanaWallet, walletSol: Double,
                          identity: TradeIdentity? = null): SellResult {
         ExecutionRootCauseTrace.sell("LIVE_SELL_ENTRY", ts, "reason=$reason walletSol=$walletSol posQty=${ts.position.qtyToken} entry=${ts.position.entryPrice} high=${ts.position.highestPrice}")
+        // V5.0.6455 §SELL_DOOR_MIGRATION — CAS reserve BEFORE any live
+        // side effect. Blank/unknown positionId => fail closed (return
+        // ALREADY_CLOSED). Prevents DsXR94-style repeat live SELLs from
+        // ever reaching cash mutation / journal / reward.
+        val terminalPidLive6455 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
+        val reserveResultLive6455 = com.lifecyclebot.engine.truth.PositionStateLedger6454
+            .reserveTerminalSell(terminalPidLive6455, reason)
+        if (reserveResultLive6455 != com.lifecyclebot.engine.truth.PositionStateLedger6454.ReserveResult.RESERVED) {
+            try {
+                ForensicLogger.lifecycle(
+                    "LIVE_SELL_TERMINAL_RESERVE_REJECTED_6455",
+                    "mint=${ts.mint.take(10)} pid=${terminalPidLive6455.take(12)} result=$reserveResultLive6455 reason=$reason",
+                )
+                PipelineHealthCollector.labelInc("LIVE_SELL_TERMINAL_RESERVE_REJECTED_6455")
+            } catch (_: Throwable) {}
+            return SellResult.ALREADY_CLOSED
+        }
         // V5.0.6444 §1 LIVE EXECUTOR SELL MIGRATION — mirror the live
         // sell attempt into CanonicalPositionAuthority6441. Runs at the
         // earliest point so the canonical authority tracks live trades

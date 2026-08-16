@@ -13464,20 +13464,31 @@ class BotService : Service() {
         loopCount: Int,
         cfg: com.lifecyclebot.data.BotConfig,
     ) {
-        // V5.9.9: Periodic SOL price refresh — critical for USD display
-        // Without this, paper mode with no wallet = stale $0 price
-        try {
-            val freshPrice = com.lifecyclebot.engine.WalletManager
-                .getInstance(applicationContext).fetchSolPrice()
-            if (freshPrice > 50.0) {
-                com.lifecyclebot.engine.WalletManager.lastKnownSolPrice = freshPrice
-            }
-        } catch (_: Exception) {}
-
-        // V5.9.10: Refresh global SymbolicContext — feeds all 50+ AI modules
-        // + FinalDecisionGate with live 16-channel symbolic intelligence
-        try { com.lifecyclebot.engine.SymbolicContext.refresh() } catch (_: Exception) {}
-
+        // V5.0.6455 §OFFLOAD — fetchSolPrice makes a network call and
+        // SymbolicContext.refresh() rebuilds the 16-channel symbolic
+        // intelligence snapshot; neither may run inline in botLoop.
+        // Both are now dispatched onto MaintenanceWorker6448 via
+        // PostLearningOffloader6450 so botLoop stays sub-second.
+        com.lifecyclebot.engine.truth.PostLearningOffloader6450.offload(
+            phase = "sol_price_refresh",
+            priority = com.lifecyclebot.engine.truth.PostLearningOffloader6450.Priority.POSITION_UPDATE,
+            deadlineMs = 6_000L,
+        ) {
+            try {
+                val freshPrice = com.lifecyclebot.engine.WalletManager
+                    .getInstance(applicationContext).fetchSolPrice()
+                if (freshPrice > 50.0) {
+                    com.lifecyclebot.engine.WalletManager.lastKnownSolPrice = freshPrice
+                }
+            } catch (_: Exception) {}
+        }
+        com.lifecyclebot.engine.truth.PostLearningOffloader6450.offload(
+            phase = "symbolic_context_refresh",
+            priority = com.lifecyclebot.engine.truth.PostLearningOffloader6450.Priority.LEARNING,
+            deadlineMs = 4_000L,
+        ) {
+            try { com.lifecyclebot.engine.SymbolicContext.refresh() } catch (_: Exception) {}
+        }
         try {
             // V5.9.469 — gate ALL Markets watchdogs by the master toggle.
             val marketsLaneOn = isMarketsLaneEnabled(cfg)
@@ -14500,17 +14511,31 @@ class BotService : Service() {
             // Persists the thread-safe watchlist to ConfigStore for restart recovery
             // ═══════════════════════════════════════════════════════════════════
             if (loopCount % 10 == 0) {
-                try {
-                    GlobalTradeRegistry.syncToConfig(applicationContext)
-                    ErrorLogger.debug("BotService", GlobalTradeRegistry.getStats())
-                } catch (e: Exception) {
-                    ErrorLogger.error("BotService", "GlobalTradeRegistry sync error: ${e.message}")
-                }
-                // V5.9.8: Persist paper wallet balance every 10 loops (~50s)
-                if (cfg.paperMode && status.paperWalletSol > 0.01) {
+                // V5.0.6455 §OFFLOAD — GlobalTradeRegistry.syncToConfig
+                // touches SharedPreferences/disk; move off the trading
+                // scheduler onto MaintenanceWorker6448 via
+                // PostLearningOffloader6450. Never runs inline in botLoop.
+                com.lifecyclebot.engine.truth.PostLearningOffloader6450.offload(
+                    phase = "global_trade_registry_sync",
+                    priority = com.lifecyclebot.engine.truth.PostLearningOffloader6450.Priority.REPORTING,
+                    deadlineMs = 3_000L,
+                ) {
                     try {
-                        PaperWalletStore.persist(applicationContext, status.paperWalletSol)
-                    } catch (_: Exception) {}
+                        GlobalTradeRegistry.syncToConfig(applicationContext)
+                        ErrorLogger.debug("BotService", GlobalTradeRegistry.getStats())
+                    } catch (e: Exception) {
+                        ErrorLogger.error("BotService", "GlobalTradeRegistry sync error: ${e.message}")
+                    }
+                }
+                if (cfg.paperMode && status.paperWalletSol > 0.01) {
+                    val walletSol = status.paperWalletSol
+                    com.lifecyclebot.engine.truth.PostLearningOffloader6450.offload(
+                        phase = "paper_wallet_persist",
+                        priority = com.lifecyclebot.engine.truth.PostLearningOffloader6450.Priority.REPORTING,
+                        deadlineMs = 2_000L,
+                    ) {
+                        try { PaperWalletStore.persist(applicationContext, walletSol) } catch (_: Exception) {}
+                    }
                 }
             }
             
