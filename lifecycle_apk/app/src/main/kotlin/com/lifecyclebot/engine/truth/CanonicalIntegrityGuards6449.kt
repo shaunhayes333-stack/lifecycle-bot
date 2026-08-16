@@ -38,6 +38,60 @@ object CanonicalIntegrityGuards6449 {
      *   - 0.0 if position unknown/closed/quarantined in canonical
      *   - min(requestedQtyToken, canonicalRemainingQtyToken) otherwise
      */
+    /**
+     * Strict clamp result — no fail-open on UNKNOWN.
+     * (V5.0.6452 §P0-#8) Unknown canonical sell state must NOT fail-open to
+     * the full requested quantity. Callers get a distinct UNKNOWN return
+     * and must handle it explicitly (typically: skip the sell and force a
+     * canonical reconstruct on the next cycle).
+     */
+    enum class ClampReason { OK, CLAMPED, CLOSED_OR_QUARANTINED, UNKNOWN_POSITION }
+    data class ClampResult(val qtyToken: Double, val reason: ClampReason)
+
+    fun clampToRemainingStrict(mint: String, requestedQtyToken: Double, tokenDecimals: Int = 9): ClampResult {
+        clampCount.incrementAndGet()
+        val positionId = ExecutorCanonicalMirror6442.positionIdOf(mint)
+        val pos = CanonicalPositionAuthority6441.getPosition(positionId)
+        if (pos == null) {
+            try {
+                ForensicLogger.lifecycle(
+                    "SELL_QTY_UNKNOWN_POSITION_6452",
+                    "mint=${mint.take(10)} requested=${"%.6f".format(requestedQtyToken)}",
+                )
+                PipelineHealthCollector.labelInc("SELL_QTY_UNKNOWN_POSITION_6452")
+            } catch (_: Throwable) {}
+            return ClampResult(0.0, ClampReason.UNKNOWN_POSITION)
+        }
+        if (pos.lifecycle == CanonicalPositionAuthority6441.Lifecycle.CLOSED ||
+            pos.lifecycle == CanonicalPositionAuthority6441.Lifecycle.QUARANTINED) {
+            oversellPrevented.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("SELL_QTY_OVERSELL_PREVENTED_6449") } catch (_: Throwable) {}
+            return ClampResult(0.0, ClampReason.CLOSED_OR_QUARANTINED)
+        }
+        val scale = Math.pow(10.0, tokenDecimals.toDouble())
+        val remainingQtyToken = pos.remainingQtyRaw.toDouble() / scale
+        val clamped = kotlin.math.min(requestedQtyToken, remainingQtyToken).coerceAtLeast(0.0)
+        if (clamped < requestedQtyToken) {
+            oversellPrevented.incrementAndGet()
+            try {
+                ForensicLogger.lifecycle(
+                    "SELL_QTY_OVERSELL_PREVENTED_6449",
+                    "mint=${mint.take(10)} requested=${"%.6f".format(requestedQtyToken)} " +
+                        "canonicalRemaining=${"%.6f".format(remainingQtyToken)} clamped=${"%.6f".format(clamped)}",
+                )
+            } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("SELL_QTY_OVERSELL_PREVENTED_6449") } catch (_: Throwable) {}
+            return ClampResult(clamped, ClampReason.CLAMPED)
+        }
+        return ClampResult(clamped, ClampReason.OK)
+    }
+
+    /**
+     * Compat wrapper — preserved for existing callers. NOTE: this still
+     * fail-opens on UNKNOWN by returning the requested qty; new sell paths
+     * should call clampToRemainingStrict and handle UNKNOWN_POSITION
+     * explicitly (V5.0.6452 §P0-#8).
+     */
     fun clampToRemaining(mint: String, requestedQtyToken: Double, tokenDecimals: Int = 9): Double {
         clampCount.incrementAndGet()
         val positionId = ExecutorCanonicalMirror6442.positionIdOf(mint)

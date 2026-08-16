@@ -12698,23 +12698,25 @@ class BotService : Service() {
             try {
                 val open = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
                 for (p in open) {
-                    // No live mark available in this loop; use entryCost as
-                    // a stable placeholder so the scheduler heartbeat + eval
-                    // counter both advance. Full per-tick mark wiring lives
-                    // in Executor's price-tick paths (§P0 stop hot path).
-                    val markPx = p.entryCostSol.coerceAtLeast(0.0)
-                    if (markPx > 0.0) {
-                        com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.evaluate(
-                            positionId = p.positionId,
-                            mint = p.mint,
-                            markPx = markPx,
-                            stopPx = 0.0,
-                            catastrophePx = 0.0,
-                            tpPx = 0.0,
-                            trailPx = 0.0,
-                            quoteAgeMs = 0L,
-                        )
-                    }
+                    // V5.0.6452 §P0-#9 — DO NOT feed entryCostSol as a
+                    // current market price. Cycle-level heartbeat only
+                    // pumps ProtectiveExitScheduler6450 with a
+                    // markPx=0 no-op if no fresh mark is available.
+                    // Real per-tick evaluate() calls come from
+                    // Executor.riskCheck (§SL_HOT_PATH) which has the
+                    // actual price. Here we still emit a heartbeat via
+                    // the eval counter but with markPx=0 (the scheduler
+                    // ignores 0 and returns null, preserving latch state).
+                    com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.evaluate(
+                        positionId = p.positionId,
+                        mint = p.mint,
+                        markPx = 0.0,
+                        stopPx = 0.0,
+                        catastrophePx = 0.0,
+                        tpPx = 0.0,
+                        trailPx = 0.0,
+                        quoteAgeMs = 0L,
+                    )
                 }
             } catch (_: Throwable) {}
         }

@@ -1873,6 +1873,9 @@ object PipelineHealthCollector {
             sb.append("  Runner health gate (§6450):   ").append(
                 com.lifecyclebot.engine.truth.RunnerLedgerHealthGate6450.statusLine()
             ).append("\n")
+            sb.append("  Quote freshness (§6452):      ").append(
+                com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.statusLine()
+            ).append("\n")
             sb.append(com.lifecyclebot.engine.truth.LivePipelineTrace6431.render())
         } catch (_: Throwable) {}
 

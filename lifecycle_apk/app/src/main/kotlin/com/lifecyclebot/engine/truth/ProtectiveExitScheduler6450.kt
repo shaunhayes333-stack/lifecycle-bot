@@ -72,7 +72,11 @@ object ProtectiveExitScheduler6450 {
     ): TriggerKind? {
         lastHeartbeatMs.set(System.currentTimeMillis())
         evaluations.incrementAndGet()
-        if (positionId.isBlank() || markPx <= 0.0) return null
+        if (positionId.isBlank()) return null
+        // V5.0.6452 §P0-#9 — markPx=0 is a heartbeat-only ping (caller has
+        // no fresh mark). Bump heartbeat above but skip trigger logic —
+        // NEVER latch on a zero/placeholder price.
+        if (markPx <= 0.0) return null
         if (latches.containsKey(positionId)) return latches[positionId]?.kind
         val kind: TriggerKind? = when {
             catastrophePx > 0.0 && markPx <= catastrophePx -> TriggerKind.CATASTROPHE

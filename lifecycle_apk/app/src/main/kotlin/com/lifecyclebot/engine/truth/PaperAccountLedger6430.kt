@@ -92,18 +92,37 @@ object PaperAccountLedger6430 {
     }
 
     /**
-     * Paper SELL: credit cash by grossProceeds, subtract costBasisSold
-     * from openCostBasis, accumulate realized PnL = gross - basis - fees.
-     * Only the SOLD portion of the position is realized; partials keep
-     * remaining basis on the books.
+     * Paper SELL: credit cash by NET proceeds (gross − sellFee), subtract
+     * costBasisSold from openCostBasis, accumulate realized PnL as
+     * GROSS pnl (gross − costBasis) — NOT net of fee. Fees are tracked
+     * separately in feesPico for the invariant.
+     *
+     * V5.0.6452 §P0-#1 FEE DOUBLE-COUNT REPAIR.
+     * ─────────────────────────────────────────
+     * Prior bug (pre-6452):
+     *   cashPico  += G                    // ← missed −f_s
+     *   realizedPnlPico += (G − C − f_s)  // ← net (already subtracts fee)
+     *   feesPico  += f_s
+     * Invariant `S + realized − fees == cash + openCost` then broke by
+     * −2·f_s per sell. Operator dump showed conservation delta = −0.319 SOL
+     * exactly matching cumulative sell fees.
+     *
+     * Correct model (real DEX + double-entry consistent):
+     *   cashPico  += (G − f_s)   // cash credit is net of the sell fee
+     *   realizedPnlPico += (G − C) // GROSS pnl; fees are separate line
+     *   feesPico  += f_s
+     * Now algebra holds: S + (G−C) − (f_b+f_s) = (S − C − f_b + G − f_s).
+     * Consumers wanting NET pnl compute realizedPnlSol() − feesSol().
      */
     fun onSell(grossProceedsSol: Double, costBasisSoldSol: Double, feeSol: Double = 0.0) {
         if (!grossProceedsSol.isFinite() || !costBasisSoldSol.isFinite()) return
-        cashPico.addAndGet(toPico(grossProceedsSol.coerceAtLeast(0.0)))
-        openCostBasisPico.addAndGet(-toPico(costBasisSoldSol.coerceAtLeast(0.0)))
-        val pnl = grossProceedsSol - costBasisSoldSol - feeSol
-        realizedPnlPico.addAndGet(toPico(pnl))
-        feesPico.addAndGet(toPico(feeSol.coerceAtLeast(0.0)))
+        val fee = if (feeSol.isFinite()) feeSol.coerceAtLeast(0.0) else 0.0
+        val gross = grossProceedsSol.coerceAtLeast(0.0)
+        val basis = costBasisSoldSol.coerceAtLeast(0.0)
+        cashPico.addAndGet(toPico(gross - fee))
+        openCostBasisPico.addAndGet(-toPico(basis))
+        realizedPnlPico.addAndGet(toPico(gross - basis)) // GROSS pnl
+        feesPico.addAndGet(toPico(fee))
         opCount.incrementAndGet()
     }
 

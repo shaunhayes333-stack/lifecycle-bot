@@ -36,8 +36,10 @@ object CanonicalTradeFinalizedBus6450 {
         val positionId: String,
         val mint: String,
         val outcome: Outcome,
-        val netRealizedPnlSol: Double,
-        val netReturnPct: Double,
+        val netRealizedPnlSol: Double,   // net of ALL fees (gross - buyFee - sellFee)
+        val grossRealizedPnlSol: Double, // gross of fees (proceeds - basis)
+        val returnFraction: Double,      // netPnl / entryCost (e.g. 0.15 = +15%)
+        val netReturnPct: Double,        // legacy: 100 * returnFraction (percent)
         val feesSol: Double,
         val entryLane: String,
         val entryStrategyPid: String,

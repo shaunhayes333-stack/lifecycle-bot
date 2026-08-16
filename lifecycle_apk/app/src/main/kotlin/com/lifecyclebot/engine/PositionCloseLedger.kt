@@ -161,6 +161,8 @@ object PositionCloseLedger {
                         mint = mint,
                         outcome = outcome,
                         netRealizedPnlSol = realizedPnl,
+                        grossRealizedPnlSol = realizedPnl, // net==gross when fee=0 (paper close ledger context)
+                        returnFraction = pnlPct.toDouble() / 100.0,
                         netReturnPct = pnlPct.toDouble(),
                         feesSol = 0.0,
                         entryLane = entrySnap?.entryLane ?: source.take(20),
