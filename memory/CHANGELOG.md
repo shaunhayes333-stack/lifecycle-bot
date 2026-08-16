@@ -1,3 +1,39 @@
+## V5.0.6455 — 2026-02-16 — OFFLOAD BLOCKING MAINTENANCE + SELL DOOR MIGRATION
+
+**§OFFLOAD — botLoop stays sub-second**
+- `GlobalTradeRegistry.syncToConfig` → `PostLearningOffloader6450.offload(REPORTING, 3s)`
+- `PaperWalletStore.persist` → `PostLearningOffloader6450.offload(REPORTING, 2s)`
+- `WalletManager.fetchSolPrice` → `PostLearningOffloader6450.offload(POSITION_UPDATE, 6s)`
+- `SymbolicContext.refresh` → `PostLearningOffloader6450.offload(LEARNING, 4s)`
+- Deadline misses fire `POST_LEARNING_OFFLOAD_DEADLINE_MISS_6450`.
+
+**§SELL_DOOR_MIGRATION — CAS at every terminal side-effect door**
+- Added `PositionStateLedger6454.abandonTerminalSell(pid, reason)` —
+  reverts CLOSING→OPEN on non-terminal returns.
+- `paperBuy`: seeds `PositionStateLedger6454.onEntry(pid)` right after
+  entry snapshot so terminal reservations know the position is OPEN.
+- `paperSell`:
+  - TOP: `reserveTerminalSell(pid, reason)` BEFORE any side effect.
+  - AFTER `PaperAccountLedger6430.onSell`: `confirmTerminalSell(pid)`
+    (CAS CLOSING→CLOSED, terminalCount(pid) == 1).
+  - FINALLY block: `abandonTerminalSell` if still CLOSING (allows retry
+    on throw/early-return).
+- `liveSell`:
+  - TOP: `reserveTerminalSell(pid, reason)` BEFORE any side effect.
+  - Confirm/abandon around live settlement is a follow-up (liveSell
+    has 20+ exit paths without a natural finally block).
+
+**Bugfix during this cycle**
+- Prior push accidentally duplicated `if (!acquirePaperSellLock(...))`
+  on a single line, causing paperSell's block to remain open and
+  cascading into Executor.kt "Missing '}'" at EOF plus unresolved
+  references for closeAllPositions / liveSweepWalletTokens /
+  sellOrphanedToken. Fixed by deduplicating the line.
+
+CI: Build AATE APK green (run 31968798893). Runtime Smoke Test green
+(run 31969527498). PAPER MODE ONLY.
+
+
 ## V5.0.6454 — 2026-02-16 — FINISH CONVERGENCE AT SIDE-EFFECT BOUNDARIES
 
 Operator: "DELETE/reroute the old writer and make the canonical path
