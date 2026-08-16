@@ -1820,6 +1820,43 @@ object PipelineHealthCollector {
             sb.append("  Integrity guards (§6449):     ").append(
                 com.lifecyclebot.engine.truth.CanonicalIntegrityGuards6449.statusLine()
             ).append("\n")
+            // V5.0.6450 — CAPITAL / EXIT / QUALITY REGRESSION REPAIR AUTHORITIES.
+            sb.append("  Capital authority (§6450):    ").append(
+                com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.statusLine()
+            ).append("\n")
+            sb.append("  Terminal latch (§6450):       ").append(
+                com.lifecyclebot.engine.truth.TerminalCloseIdempotencyLatch6450.statusLine()
+            ).append("\n")
+            sb.append("  Exit scheduler (§6450):       ").append(
+                com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.statusLine()
+            ).append("\n")
+            sb.append("  Post-learn offloader (§6450): ").append(
+                com.lifecyclebot.engine.truth.PostLearningOffloader6450.statusLine()
+            ).append("\n")
+            sb.append("  Entry snapshot (§6450):       ").append(
+                com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.statusLine()
+            ).append("\n")
+            sb.append("  Finalized bus (§6450):        ").append(
+                com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.statusLine()
+            ).append("\n")
+            sb.append("  Class provenance (§6450):     ").append(
+                com.lifecyclebot.engine.truth.ClassificationProvenanceGuard6450.statusLine()
+            ).append("\n")
+            sb.append("  Quality trace (§6450):        ").append(
+                com.lifecyclebot.engine.truth.QualityIntakeTrace6450.statusLine()
+            ).append("\n")
+            sb.append("  Mint coordinator (§6450):     ").append(
+                com.lifecyclebot.engine.truth.MintWorkCoordinator6450.statusLine()
+            ).append("\n")
+            sb.append("  Entry authority (§6450):      ").append(
+                com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.statusLine()
+            ).append("\n")
+            sb.append("  Learning quarantine (§6450):  ").append(
+                com.lifecyclebot.engine.truth.LearningQuarantine6450.statusLine()
+            ).append("\n")
+            sb.append("  Runner health gate (§6450):   ").append(
+                com.lifecyclebot.engine.truth.RunnerLedgerHealthGate6450.statusLine()
+            ).append("\n")
             sb.append(com.lifecyclebot.engine.truth.LivePipelineTrace6431.render())
         } catch (_: Throwable) {}
 

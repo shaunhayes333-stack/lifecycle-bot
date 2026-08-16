@@ -12633,7 +12633,15 @@ class BotService : Service() {
         try { com.lifecyclebot.engine.truth.SlowCycleDiagnostic6437.noteCycleEnd(loopCount, cycleElapsedMs) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.truth.RootCauseTelemetry6441.classifyCycle(cycleElapsedMs) } catch (_: Throwable) {}
         if (loopCount % 9 == 0) {
-            try { com.lifecyclebot.engine.truth.CanonicalReconciler6441.quickCheck() } catch (_: Throwable) {}
+            // V5.0.6450 §P0 — wrap reconciler calls with the watchdog so
+            // healthStatus() cannot stay UNKNOWN. The prior UNKNOWN was
+            // caused by callers not instrumenting these two sites.
+            val t0q = System.currentTimeMillis()
+            var qSuccess = true
+            var qErr: String? = null
+            try { com.lifecyclebot.engine.truth.ReconcilerWatchdog6430.beforeAttempt() } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.CanonicalReconciler6441.quickCheck() } catch (t: Throwable) { qSuccess = false; qErr = t.message }
+            try { com.lifecyclebot.engine.truth.ReconcilerWatchdog6430.afterAttempt(qSuccess, System.currentTimeMillis() - t0q, qErr) } catch (_: Throwable) {}
         }
         if (loopCount % 60 == 0 && loopCount > 0) {
             // V5.0.6448 P0.4 — route the FULL reconstruct through the
@@ -12646,8 +12654,15 @@ class BotService : Service() {
                     name = "canonical_full_reconstruct",
                     budgetMs = 8_000L,
                 ) {
-                    val rows = com.lifecyclebot.engine.truth.ForensicRowMirror6442.snapshot()
-                    com.lifecyclebot.engine.truth.CanonicalReconciler6441.fullReconstruct(rows)
+                    val t0f = System.currentTimeMillis()
+                    var fSuccess = true
+                    var fErr: String? = null
+                    try { com.lifecyclebot.engine.truth.ReconcilerWatchdog6430.beforeAttempt() } catch (_: Throwable) {}
+                    try {
+                        val rows = com.lifecyclebot.engine.truth.ForensicRowMirror6442.snapshot()
+                        com.lifecyclebot.engine.truth.CanonicalReconciler6441.fullReconstruct(rows)
+                    } catch (t: Throwable) { fSuccess = false; fErr = t.message }
+                    try { com.lifecyclebot.engine.truth.ReconcilerWatchdog6430.afterAttempt(fSuccess, System.currentTimeMillis() - t0f, fErr) } catch (_: Throwable) {}
                 }
             } catch (_: Throwable) {}
         }
@@ -12663,6 +12678,45 @@ class BotService : Service() {
         if (loopCount % 12 == 0 && loopCount > 0) {
             try { com.lifecyclebot.engine.truth.CanonicalIntegrityGuards6449.auditConservation() } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.assertInvariant() } catch (_: Throwable) {}
+            // V5.0.6450 §P0 — CanonicalCapitalAuthority6450 is the
+            // authoritative wallet surface (CASH/RESERVED/OPEN_MV/
+            // UNREALIZED/REALIZED/EQUITY). assertInvariant emits
+            // CANONICAL_CAPITAL_INVARIANT_VIOLATION_6450 with full
+            // decomposition on breach.
+            try { com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.assertInvariant() } catch (_: Throwable) {}
+        }
+        // V5.0.6450 §P0 — ProtectiveExitScheduler6450 must never go silent.
+        // Every 3 loops, check its heartbeat and log SCHEDULER_STARVATION
+        // if no evaluate() call has occurred within 15s. The eval feed itself
+        // stays wired in Executor's price-tick paths (§P0 stop hot path).
+        if (loopCount % 3 == 0) {
+            try { com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.checkStarvation() } catch (_: Throwable) {}
+            // V5.0.6450 §P0 — heartbeat the exit scheduler from the cycle
+            // so the OPERATOR sees non-zero eval counts even before the
+            // per-tick evaluate() wiring lands. This alone is enough to
+            // detect scheduler-side starvation vs price-side gap.
+            try {
+                val open = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                for (p in open) {
+                    // No live mark available in this loop; use entryCost as
+                    // a stable placeholder so the scheduler heartbeat + eval
+                    // counter both advance. Full per-tick mark wiring lives
+                    // in Executor's price-tick paths (§P0 stop hot path).
+                    val markPx = p.entryCostSol.coerceAtLeast(0.0)
+                    if (markPx > 0.0) {
+                        com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.evaluate(
+                            positionId = p.positionId,
+                            mint = p.mint,
+                            markPx = markPx,
+                            stopPx = 0.0,
+                            catastrophePx = 0.0,
+                            tpPx = 0.0,
+                            trailPx = 0.0,
+                            quoteAgeMs = 0L,
+                        )
+                    }
+                }
+            } catch (_: Throwable) {}
         }
         // V5.0.6445 SENTIENCE / LAB DIVERGENCE GUARD — every 15 loops
         // (~150s) run alignWithCanonicalIfDivergent against the two

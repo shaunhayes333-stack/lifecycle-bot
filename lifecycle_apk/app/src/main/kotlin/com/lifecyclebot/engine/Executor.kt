@@ -12199,6 +12199,31 @@ class Executor(
                 )
             }
         } catch (_: Throwable) {}
+        // V5.0.6450 §P0 — IMMUTABLE ENTRY STRATEGY SNAPSHOT. Persist the
+        // entry lane / strategy pid / tactic exactly once at BUY so any
+        // subsequent exit path is FORBIDDEN from inferring lane from
+        // current scanner state, latest tactic, or watchlist ownership.
+        try {
+            val pid6450 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(tradeId.mint)
+            val entryLane6450 = layerTag.ifBlank { ts.position.tradingMode.ifBlank { ts.source } }.uppercase().take(24).ifBlank { "STANDARD" }
+            com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.setEntry(
+                com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
+                    positionId = pid6450,
+                    mint = tradeId.mint,
+                    entryLane = entryLane6450,
+                    entryStrategyPid = "",
+                    entryTactic = layerTag,
+                    entryRiskProfile = "",
+                    entryExitProfile = "",
+                    entrySource = identity?.source.orEmpty(),
+                    entryScore = score.toInt(),
+                    entryLiquiditySol = 0.0,
+                    entryMarketCapUsd = ts.lastMcap,
+                    entryTimestampMs = System.currentTimeMillis(),
+                    entryThresholdSnapshot = "",
+                )
+            )
+        } catch (_: Throwable) {}
         // V5.9.123 — register in CorrelationHedgeAI so other new-entry scoring
         // sees this position as cluster peer pressure.
         try {

@@ -1,0 +1,99 @@
+package com.lifecyclebot.engine.truth
+
+import com.lifecyclebot.engine.ForensicLogger
+import com.lifecyclebot.engine.PipelineHealthCollector
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * V5.0.6450 §P0 — ONE CANONICAL REWARD EVENT.
+ *
+ * OPERATOR MANDATE:
+ *   Learning systems currently disagree radically:
+ *     RewardPurity: W=4  L=77
+ *     GrowthShaper: W=13 L=45 BE=35
+ *     RewardBridge: W=22 L=125
+ *     TacticSwitcher contains 25/0 and 9/0 cohorts.
+ *
+ *   "Eliminate parallel definitions of 'win'.
+ *    Generate exactly ONE CanonicalTradeFinalizedEvent only after
+ *    canonical terminal settlement. All learning consumers subscribe to
+ *    this SAME event. One PositionId contributes exactly ONE terminal
+ *    W/L/BE observation."
+ *
+ * DESIGN
+ * ──────
+ * Dedup by positionId. First subscriber wins any race. Publish is
+ * idempotent — second publish for same positionId returns false and
+ * emits DUPLICATE_FINALIZE_6450.
+ */
+object CanonicalTradeFinalizedBus6450 {
+
+    enum class Outcome { WIN, LOSS, BREAKEVEN }
+
+    data class Event(
+        val positionId: String,
+        val mint: String,
+        val outcome: Outcome,
+        val netRealizedPnlSol: Double,
+        val netReturnPct: Double,
+        val feesSol: Double,
+        val entryLane: String,
+        val entryStrategyPid: String,
+        val entryTactic: String,
+        val exitReason: String,
+        val holdingTimeMs: Long,
+        val dataQuality: String,
+        val priceIntegrity: String,
+        val mode: String,
+        val settledAtMs: Long,
+    )
+
+    fun interface Subscriber { fun onEvent(event: Event) }
+
+    private val subscribers = CopyOnWriteArrayList<Subscriber>()
+    private val finalized = ConcurrentHashMap<String, Long>() // positionId -> settledAtMs
+    private val published = AtomicLong(0L)
+    private val duplicates = AtomicLong(0L)
+    private val subscriberFailures = AtomicLong(0L)
+
+    fun subscribe(subscriber: Subscriber) {
+        subscribers.addIfAbsent(subscriber)
+    }
+
+    fun publish(event: Event): Boolean {
+        if (event.positionId.isBlank()) return false
+        val prior = finalized.putIfAbsent(event.positionId, event.settledAtMs)
+        if (prior != null) {
+            duplicates.incrementAndGet()
+            try {
+                ForensicLogger.lifecycle(
+                    "CANONICAL_TRADE_FINALIZE_DUPLICATE_6450",
+                    "positionId=${event.positionId.take(12)} priorAtMs=$prior newAtMs=${event.settledAtMs}",
+                )
+                PipelineHealthCollector.labelInc("CANONICAL_TRADE_FINALIZE_DUPLICATE_6450")
+            } catch (_: Throwable) {}
+            return false
+        }
+        published.incrementAndGet()
+        for (s in subscribers) {
+            try { s.onEvent(event) } catch (t: Throwable) {
+                subscriberFailures.incrementAndGet()
+                try {
+                    ForensicLogger.lifecycle(
+                        "CANONICAL_TRADE_FINALIZE_SUB_FAIL_6450",
+                        "positionId=${event.positionId.take(12)} err=${t.message?.take(80)}",
+                    )
+                } catch (_: Throwable) {}
+            }
+        }
+        try {
+            PipelineHealthCollector.labelInc("CANONICAL_TRADE_FINALIZED_6450_${event.outcome}")
+        } catch (_: Throwable) {}
+        return true
+    }
+
+    fun statusLine(): String = "subs=${subscribers.size} published=${published.get()} " +
+        "duplicates=${duplicates.get()} subFail=${subscriberFailures.get()}"
+}
