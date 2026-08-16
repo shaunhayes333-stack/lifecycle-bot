@@ -1817,6 +1817,9 @@ object PipelineHealthCollector {
             sb.append("  Maintenance worker (§6448):   ").append(
                 com.lifecyclebot.engine.truth.MaintenanceWorker6448.statusLine()
             ).append("\n")
+            sb.append("  Integrity guards (§6449):     ").append(
+                com.lifecyclebot.engine.truth.CanonicalIntegrityGuards6449.statusLine()
+            ).append("\n")
             sb.append(com.lifecyclebot.engine.truth.LivePipelineTrace6431.render())
         } catch (_: Throwable) {}
 

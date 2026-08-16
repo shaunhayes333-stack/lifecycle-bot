@@ -12654,6 +12654,16 @@ class BotService : Service() {
         if (loopCount % 6 == 0) {
             try { com.lifecyclebot.engine.truth.AcceptanceInvariantAudit6441.runAudit() } catch (_: Throwable) {}
         }
+        // V5.0.6449 §2 — PAPER CASH CONSERVATION AUDIT. Runs every 12 loops
+        // (~2 min). Reads the PaperAccountLedger6430 authority (wired at
+        // every paper BUY/SELL) and emits CAPITAL_CONSERVATION_VIOLATION_6449
+        // with the first-offending mint if the identity
+        //   startingCash + realized - fees == cash + openCost
+        // breaks. Read-only diagnosis; does not block trading.
+        if (loopCount % 12 == 0 && loopCount > 0) {
+            try { com.lifecyclebot.engine.truth.CanonicalIntegrityGuards6449.auditConservation() } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.assertInvariant() } catch (_: Throwable) {}
+        }
         // V5.0.6445 SENTIENCE / LAB DIVERGENCE GUARD — every 15 loops
         // (~150s) run alignWithCanonicalIfDivergent against the two
         // main learners. Uses their currently-reported win/loss stats
@@ -14299,12 +14309,22 @@ class BotService : Service() {
                 // Live mode: use actual SOL balance
                 status.getEffectiveBalance(cfg.paperMode)
             }
-            com.lifecyclebot.v3.scoring.CashGenerationAI.updateWalletBalance(walletBalanceForTreasury)
+            // V5.0.6449 §4 TRADER SYNC ASYNC — Cash/Treasury sync + arb
+            // treasury USD sync (previously the 102s stall @ POST_LEARNING_TRADER_SYNC)
+            // routed through the async bounded worker so they never block
+            // the bot cycle. Coalesced per-task, deadline 4s.
             try {
-                val arbTreasurySol4335 = com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(cfg.paperMode)
-                val arbSolPrice4335 = WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 150.0
-                com.lifecyclebot.v3.scoring.SolanaArbAI.syncTreasuryUsd(cfg.paperMode, arbTreasurySol4335 * arbSolPrice4335)
-            } catch (_: Throwable) { }
+                com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
+                    name = "trader_sync_treasury", budgetMs = 4_000L,
+                ) {
+                    com.lifecyclebot.v3.scoring.CashGenerationAI.updateWalletBalance(walletBalanceForTreasury)
+                    try {
+                        val arbTreasurySol4335 = com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(cfg.paperMode)
+                        val arbSolPrice4335 = WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 150.0
+                        com.lifecyclebot.v3.scoring.SolanaArbAI.syncTreasuryUsd(cfg.paperMode, arbTreasurySol4335 * arbSolPrice4335)
+                    } catch (_: Throwable) { }
+                }
+            } catch (_: Throwable) {}
             
             // V5.0: Advance TradeAuthorizer epoch for decision tracking
             TradeAuthorizer.advanceEpoch()

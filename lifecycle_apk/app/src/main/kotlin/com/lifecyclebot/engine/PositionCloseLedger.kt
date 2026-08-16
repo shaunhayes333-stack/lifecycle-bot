@@ -69,6 +69,23 @@ object PositionCloseLedger {
         }
         val id = "C${now}_${mint.take(6)}"
         closed[mint] = CloseRecord(mint, id, now, reason.take(40), pnlPct)
+        // V5.0.6449 §1 REAL CLOSE FUNNEL — route legacy markClosed callers
+        // through the reward stack too. Derive realizedSol from pnlPct
+        // best-effort (0.05 SOL nominal position * pctFraction). This
+        // ensures the shaper + streak reflex fire even from callers that
+        // use the compact signature (previously bypassed the funnel).
+        // Only fires on the first insertion — TTL-dedup above prevents
+        // double-firing when markClosedFull follows.
+        try {
+            val realizedSolProxy = 0.05 * (pnlPct.toDouble() / 100.0)
+            com.lifecyclebot.engine.truth.GrowthAlignedRewardShaper6439.shape(
+                realizedSolDelta = realizedSolProxy,
+                openedAtMs = now, closedAtMs = now, mint = mint,
+            )
+            val positionId = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(mint)
+            com.lifecyclebot.engine.truth.RewardPurityGate6441.acceptFinalizedClose(positionId, realizedSolProxy)
+            try { PipelineHealthCollector.labelInc("POSITION_CLOSE_LEDGER_SHAPED_6449") } catch (_: Throwable) {}
+        } catch (_: Throwable) {}
         return id
     }
 

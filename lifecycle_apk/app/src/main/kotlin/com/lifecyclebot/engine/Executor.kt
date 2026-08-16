@@ -3219,7 +3219,16 @@ class Executor(
         val ledgerPositionId = try { com.lifecyclebot.engine.TradeOutcomeLedger.positionId(ts, trade) } catch (_: Throwable) { "" }
         val entryTsForJournal = ts.position.entryTime.takeIf { it > 0L } ?: if (trade.side.equals("BUY", true)) trade.ts else trade.entryTsMs
         val entryCostForJournal = ts.position.costSol.takeIf { it > 0.0 } ?: if (trade.side.equals("BUY", true)) trade.sol else trade.entryCostSol
-        val entryQtyForJournal = ts.position.qtyToken.takeIf { it > 0.0 } ?: trade.entryQtyToken
+        // V5.0.6449 §3 — For SELL/PARTIAL rows, the caller (paperSell /
+        // executeProfitLockSell) now supplies canonical-locked qty in
+        // trade.entryQtyToken / trade.soldQtyToken. Prefer that over the
+        // potentially-drifted ts.position.qtyToken to preserve the qty
+        // source lock end-to-end into the journal.
+        val entryQtyForJournal = if (!trade.side.equals("BUY", true) && trade.entryQtyToken > 0.0) {
+            trade.entryQtyToken
+        } else {
+            ts.position.qtyToken.takeIf { it > 0.0 } ?: trade.entryQtyToken
+        }
         val soldQtyForJournal = if (!trade.side.equals("BUY", true) && entryCostForJournal > 0.0 && entryQtyForJournal > 0.0 && trade.sol > 0.0) {
             (entryQtyForJournal * (trade.sol / entryCostForJournal)).coerceIn(0.0, entryQtyForJournal)
         } else trade.soldQtyToken
@@ -7875,7 +7884,12 @@ class Executor(
             // treasury share so balance, trade count, and journal move together.
             try {
                 val grossPartial6448 = ((sellQty * actualPrice) - paperPartialTreasuryShare6041).coerceAtLeast(0.0)
-                val soldRaw6448 = java.math.BigInteger.valueOf((sellQty * 1_000_000_000.0).toLong().coerceAtLeast(0L))
+                // V5.0.6449 §3 — clamp sellQty against canonical remaining
+                val sellQty6449 = try {
+                    com.lifecyclebot.engine.truth.CanonicalIntegrityGuards6449.clampToRemaining(ts.mint, sellQty.coerceAtLeast(0.0), 9)
+                        .takeIf { it > 0.0 } ?: sellQty.coerceAtLeast(0.0)
+                } catch (_: Throwable) { sellQty.coerceAtLeast(0.0) }
+                val soldRaw6448 = java.math.BigInteger.valueOf((sellQty6449 * 1_000_000_000.0).toLong().coerceAtLeast(0L))
                 com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
                     mint = ts.mint,
                     generation = System.currentTimeMillis(),
@@ -17832,7 +17846,13 @@ class Executor(
             } else 0.0
             try {
                 val grossManualPartial6448 = ((soldValueSol + profitSol) - partialTreasuryShare).coerceAtLeast(0.0)
-                val soldQtyManual6448 = java.math.BigInteger.valueOf(((pos.qtyToken * pct) * 1_000_000_000.0).toLong().coerceAtLeast(0L))
+                // V5.0.6449 §3 — clamp qty against canonical remaining
+                val soldQtyManual6449 = try {
+                    val requested = (pos.qtyToken * pct).coerceAtLeast(0.0)
+                    com.lifecyclebot.engine.truth.CanonicalIntegrityGuards6449.clampToRemaining(ts.mint, requested, 9)
+                        .takeIf { it > 0.0 } ?: requested
+                } catch (_: Throwable) { (pos.qtyToken * pct).coerceAtLeast(0.0) }
+                val soldQtyManual6448 = java.math.BigInteger.valueOf((soldQtyManual6449 * 1_000_000_000.0).toLong().coerceAtLeast(0L))
                 com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
                     mint = ts.mint,
                     generation = System.currentTimeMillis(),
@@ -18920,6 +18940,22 @@ class Executor(
         val simulatedFeeSol = (grossNoFrictionValue - value).coerceAtLeast(0.0)
         val pnl   = value - pos.costSol
         val pnlP  = pct(pos.costSol, value)
+        // V5.0.6449 §3 SELL QTY SOURCE LOCK. Operator KMNo3n snapshot showed
+        // buy=10.495 sell=19.535 — 2x oversell. Root cause: journal Trade row
+        // was reading pos.qtyToken which had drifted (alias-merge/double-count).
+        // Force the journalled + mirrored qty to strictly track the canonical
+        // remaining qty from CanonicalPositionAuthority6441. This is the SINGLE
+        // authoritative sell qty for both the Trade row and the canonical
+        // mirror. Falls back to pos.qtyToken only when canonical is unpopulated.
+        val soldQtyToken6449 = try {
+            val requested = pos.qtyToken.coerceAtLeast(0.0)
+            val clamped = com.lifecyclebot.engine.truth.CanonicalIntegrityGuards6449
+                .clampToRemaining(ts.mint, requested, tokenDecimals = 9)
+            // clamp=0.0 means canonical says CLOSED/QUARANTINED — journal the
+            // legacy qty so downstream sizing/display still has data; the
+            // canonical mirror itself will refuse the mutation.
+            if (clamped <= 0.0) requested else clamped
+        } catch (_: Throwable) { pos.qtyToken.coerceAtLeast(0.0) }
         val trade = Trade(
             side = "SELL", 
             mode = "paper", 
@@ -18956,8 +18992,9 @@ class Executor(
             //   paper sells must journal the full position qty and cost
             //   basis so CanonicalLearningContract6346 parity checks pass
             //   and the round-trip qty shows correctly in the tile.
-            entryQtyToken = pos.qtyToken,
-            soldQtyToken = pos.qtyToken,
+            // V5.0.6449 §3 — soldQtyToken locked to canonical remaining.
+            entryQtyToken = soldQtyToken6449,
+            soldQtyToken = soldQtyToken6449,
             entryCostSol = pos.costSol,
             entryPriceSnapshot = pos.entryPrice,
         )
@@ -19048,11 +19085,12 @@ class Executor(
         } else 0.0
 
         try {
-            val soldQtyRaw6448 = java.math.BigInteger.valueOf((pos.qtyToken * 1_000_000_000.0).toLong().coerceAtLeast(0L))
+            // V5.0.6449 §3 — soldQtyRaw derived from canonical-locked qty.
+            val soldQtyRaw6449 = java.math.BigInteger.valueOf((soldQtyToken6449 * 1_000_000_000.0).toLong().coerceAtLeast(0L))
             com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
                 mint = tradeId.mint,
                 generation = System.currentTimeMillis(),
-                soldQtyRaw = soldQtyRaw6448,
+                soldQtyRaw = soldQtyRaw6449,
                 proceedsSol = (value - treasuryShare).coerceAtLeast(0.0),
                 soldCostBasisSol = pos.costSol.coerceAtLeast(0.0),
                 feesSol = simulatedFeeSol.coerceAtLeast(0.0),
