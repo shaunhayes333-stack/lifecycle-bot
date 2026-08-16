@@ -1,3 +1,67 @@
+## V5.0.6454 — 2026-02-16 — FINISH CONVERGENCE AT SIDE-EFFECT BOUNDARIES
+
+Operator: "DELETE/reroute the old writer and make the canonical path
+physically unavoidable." Independent wall clocks + CAS at every terminal
+side-effect door + fail-closed EntryAuthority + deleted the compact 0.05
+SOL PnL proxy.
+
+**§P0 INDEPENDENT RISK CLOCK — `CanonicalRiskClock6454`**
+- Dedicated `CoroutineScope(Dispatchers.Default)` with 500ms tick.
+- Pumps `ProtectiveExitScheduler6450` heartbeat + starvation check
+  regardless of any botLoop stall.
+- Started from `BotService.startBot()`.
+- Acceptance: provider hang 120s → risk cadence preserved.
+
+**§P0 WALL-CLOCK RECONCILER — `WallClockReconciler6454`**
+- Dedicated CoroutineScope with two coroutines:
+  - quick every 5s (budget 2s, `withTimeoutOrNull`)
+  - full every 30s (budget 8s, `withTimeoutOrNull`)
+- Single-flight. Both wrapped in `ReconcilerWatchdog6430`.
+- Missed cadence (drift > 2× interval) fires `RECONCILER_CADENCE_MISS_6454`.
+
+**§P0 TERMINAL SELL CAS — `PositionStateLedger6454`**
+- `reserveTerminalSell(positionId, reason)`: CAS OPEN/PARTIAL → CLOSING.
+  Blank positionId = `REJECTED_BLANK_ID` (fail-closed). Unknown = `REJECTED_UNKNOWN`
+  (no mint fallback).
+- `confirmTerminalSell(positionId)`: CAS CLOSING → CLOSED. Returns false
+  if already CLOSED. `terminalCount` guaranteed 0 or 1 even under
+  concurrent races.
+- DsXR94/2cxRDE/2JLR9u repeated-SELL pattern impossible at the CAS door.
+
+**§P0 ENTRY AUTHORITY FAIL CLOSED**
+- Both `paperBuy` + `liveBuy` gate catches now return
+  `Decision(DENY_LOSING_STREAK, 0.0, "gate_error_fail_closed")` instead
+  of ALLOW. No executable BUY can fail-open on gate exception.
+
+**§P0 DELETE COMPACT PROXY**
+- `PositionCloseLedger.markClosed` (compact): DELETED the
+  `0.05 * pctFraction` realizedPnL PROXY. Compact `markClosed` is now a
+  pure metadata stamp — no bus publish, no reward. Only `markClosedFull`
+  (real financials) may fire the finalized bus.
+
+**§P0 HARD CI ASSERTIONS — `TerminalSellCasAcceptanceTest`**
+- Blank positionId REJECTED_BLANK_ID.
+- Unknown positionId REJECTED_UNKNOWN (no fail-open).
+- OPEN → CLOSING → CLOSED exactly once.
+- Duplicate reserve/confirm rejected; terminalCount stays 1.
+- 50-way concurrent reserve race → exactly 1 RESERVED.
+- 50-way concurrent confirm race → exactly 1 CONFIRMED.
+
+**Pipeline dump gains**: Risk clock (§6454), Wall-clock reconciler (§6454),
+Position state ledger (§6454).
+
+CI: Build AATE APK green (run 31964768896). Runtime Smoke Test green
+(run 31965474723). PAPER MODE ONLY.
+
+**Follow-ups**: wire `PositionStateLedger6454.onEntry(positionId)` at
+paperBuy fill site; wire `reserveTerminalSell` / `confirmTerminalSell`
+around every `paperSell` / `liveSell` terminal path (side-effect door
+migration); migrate remaining POST_LEARNING_* blocking maintenance
+blocks (`GlobalTradeRegistry.syncToConfig`, `PaperWalletStore.persist`,
+scanner heartbeat recovery, `WalletManager.fetchSolPrice`,
+`SymbolicContext.refresh`) into `PostLearningOffloader6450`.
+
+
 ## V5.0.6453 — 2026-02-16 — COMPLETE CONVERGENCE (atomic mint coord + single reward owner + quote provenance)
 
 Operator: "DELETE obsolete writers after rerouting them. Do not report
