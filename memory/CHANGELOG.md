@@ -1,3 +1,52 @@
+## V5.0.6449 — 2026-02-16 — SELL QTY SOURCE LOCK + CASH CONSERVATION AUDIT + REAL CLOSE FUNNEL + TRADER_SYNC ASYNC
+
+Operator (V5.0.6448 pipeline dump): four P0 regressions to close before
+Perps/Neural bridges — Trader Sync stall cascade (102s), 2x oversell
+(KMNo3n buy=10.495/sell=19.535), −0.809 SOL paper cash leak, and Canonical
+vs Registry divergence blocking the shaper.
+
+1. **§1 Real Close Funnel** — `PositionCloseLedger.markClosed` (compact
+   signature) now funnels the shaper + `RewardPurityGate` on first
+   insertion (TTL-dedup prevents double-fire with `markClosedFull`). Every
+   paper-close writer that hits the compact API now feeds the reward
+   stack, unblocking streak reflex + adaptive shaper.
+
+2. **§2 Paper Cash Conservation Audit** —
+   `CanonicalIntegrityGuards6449.auditConservation` reads
+   `PaperAccountLedger6430` (the authoritative cash ledger, wired at every
+   paper BUY/SELL) and emits `CAPITAL_CONSERVATION_VIOLATION_6449` with
+   first-offending-mint attribution when
+   `startingCash + realized − fees == cash + openCost` breaks. Wired into
+   `runCanonicalCycleEndHooks6443` every 12 loops (~2 min).
+
+3. **§3 Sell Qty Source Lock** —
+   `CanonicalIntegrityGuards6449.clampToRemaining` clamps requested sell
+   qty to `CanonicalPositionAuthority6441.remainingQtyRaw`. Oversell is
+   now structurally impossible. Applied at:
+   - `paperSell` full-exit — Trade row (`entryQtyToken`/`soldQtyToken`)
+     + `ExecutorCanonicalMirror6442.mirrorSell` derived from
+     `soldQtyToken6449`.
+   - Autonomous partial sell (line 7878).
+   - Manual `executeProfitLockSell` partial (line 17835).
+   - `recordTrade` journal now prefers `trade.entryQtyToken` over the
+     potentially-drifted `ts.position.qtyToken` for SELL rows.
+
+4. **§4 Trader Sync Async** — `POST_LEARNING_TRADER_SYNC`
+   (`CashGenerationAI.updateWalletBalance` +
+   `SolanaArbAI.syncTreasuryUsd`) routed through
+   `MaintenanceWorker6448.submit` with 4s deadline. Kills the 102s stall
+   cascade that surfaced after 6448 unblocked `POST_LEARNING_MAINTENANCE`.
+
+Pipeline dump gains `Integrity guards (§6449)` line with clamp / oversell
+/ audit counters.
+
+Golden tape: `PaperFullExitAndLearningWireUp6361Test` updated to guard
+the stronger canonical-source invariant (`soldQtyToken6449`).
+
+CI: Build AATE APK green (run 31928822433). Runtime Smoke Test green
+(run 31929384706).
+
+
 ## V5.0.6445 — 2026-08-14 — LANE TRADER WIRE-THROUGH + SENTIENCE/LAB DIVERGENCE + LADDER FEEDBACK
 
 Operator (V5.0.6444 next actions): do all remaining items.

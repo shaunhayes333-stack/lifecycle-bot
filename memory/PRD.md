@@ -1,6 +1,50 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6449 (Feb 2026) — SELL QTY SOURCE LOCK + CASH AUDIT + REAL CLOSE FUNNEL + TRADER_SYNC ASYNC
+
+Operator (V5.0.6448 dump — 4 P0s): oversell (2x), −0.809 SOL cash leak,
+Canonical/Registry drift, and 102s TRADER_SYNC stall cascade.
+
+### §1 Real Close Funnel
+- `PositionCloseLedger.markClosed` (compact API) now emits
+  `GrowthAlignedRewardShaper6439.shape` + `RewardPurityGate6441.acceptFinalizedClose`
+  on first insertion. Every compact close writer now feeds the reward stack.
+- TTL-dedup prevents double-fire when `markClosedFull` follows.
+
+### §2 Paper Cash Conservation Audit
+- `CanonicalIntegrityGuards6449.auditConservation` reads
+  `PaperAccountLedger6430` (the wired authority) and emits
+  `CAPITAL_CONSERVATION_VIOLATION_6449` with first-offending mint when
+  `startingCash + realized − fees == cash + openCost` breaks.
+- Wired into `runCanonicalCycleEndHooks6443` every 12 loops (~2 min),
+  paired with `PaperAccountLedger6430.assertInvariant`.
+
+### §3 Sell Qty Source Lock
+- `CanonicalIntegrityGuards6449.clampToRemaining` — single sell qty
+  source: `CanonicalPositionAuthority6441.remainingQtyRaw`. Wired at:
+  - `paperSell` full-exit (Trade row + mirror derive from `soldQtyToken6449`).
+  - Autonomous partial sell.
+  - Manual `executeProfitLockSell` partial.
+  - `recordTrade` journal prefers `trade.entryQtyToken` for SELL rows.
+- Oversell is now structurally impossible.
+
+### §4 Trader Sync Async
+- `POST_LEARNING_TRADER_SYNC` routed through
+  `MaintenanceWorker6448.submit` (4s deadline). Kills the 102s stall
+  cascade that appeared after 6448 unblocked `POST_LEARNING_MAINTENANCE`.
+
+CI: Build AATE APK green (run 31928822433). Runtime Smoke Test green
+(run 31929384706). PAPER MODE ONLY — live execution remains disabled.
+
+### Next up (P1, gated on operator pipeline dump proving 0 leak / 0 stall)
+- SOL Perps/Leverage paper-only toggle.
+- Continue extraction from `Executor.kt` / `BotService.kt` into `engine/truth/`.
+- Neural bridge (perps↔stocks cross-learning) — P2.
+- LLM Lab sandbox — P3.
+
+
+
 ## V5.0.6442-6443 (Feb 2026) — CONSUMER MIGRATION + JVM METHOD-SIZE HOTFIX
 
 Operator: V5.0.6441 next actions completed. All 5 consumer migrations
