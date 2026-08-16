@@ -3059,8 +3059,18 @@ for legal compliance.
         // (available paper cash). But the old subtitle simply said "PAPER MODE ◎ X",
         // while the green PnL line below is lifetime journal PnL. That mixed current
         // cash with lifetime realized PnL and made profitable runs look contradictory.
+        // V5.0.6451 §WALLET_UI_SPLIT — pull the 5 canonical wallet
+        // surfaces from CanonicalCapitalAuthority6450 so cash is never
+        // conflated with equity, and expose them in contentDescription
+        // for screen readers + operator dump. Full 5-tile visual layout
+        // is a follow-up (requires activity_main.xml changes); this pass
+        // gives the operator every canonical number in accessible text
+        // and adds an emission label so the pipeline dump can quote it.
+        val walletSnap6451 = if (config.paperMode) {
+            try { com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
+        } else null
         val paperOpenCostSol = if (config.paperMode) {
-            try {
+            walletSnap6451?.openCostBasisSol ?: try {
                 state.openPositions.asSequence()
                     .filter { it.position.isPaperPosition && it.position.isOpen }
                     .filter { !it.position.tradingMode.equals("CYCLIC", true) && !it.position.tradingMode.equals("CYCLIC_VIRTUAL", true) }
@@ -3070,15 +3080,23 @@ for legal compliance.
         val paperEquityAtCostSol = if (config.paperMode) balSol + paperOpenCostSol else balSol
 
         if (balSol > 0.001) {
-            tvBalanceLarge.setTextIfChanged(compactHeroBalance(balSol))  // V5.0.3874 mobile-safe compact headline
-            // V5.9.773 — BIG explicit mode chip so the operator can never
-            // confuse "OK APIs READY" (Jupiter/Pyth health) with actual
-            // trade mode. Per troubleshoot RCA: user saw "LIVE READY"
-            // banner and thought bot was live, but cfg.paperMode=true.
+            tvBalanceLarge.setTextIfChanged(compactHeroBalance(balSol))
             tvBalanceUsd.setTextIfChanged(if (config.paperMode) "PAPER" else "LIVE")
-            tvBalanceUsd.contentDescription = if (config.paperMode) {
+            tvBalanceUsd.contentDescription = if (config.paperMode && walletSnap6451 != null) {
+                // 5-surface canonical breakdown (§6451). Operator now sees
+                // CASH / OPEN_MV / UNREALIZED / REALIZED / EQUITY as
+                // distinct numbers, not one conflated "wallet balance".
+                "CASH ${"%.4f".format(walletSnap6451.cashSol)} SOL · " +
+                    "OPEN_MV ${"%.4f".format(walletSnap6451.openMarketValueSol)} SOL · " +
+                    "UNREALIZED ${"%.4f".format(walletSnap6451.unrealizedPnlSol)} SOL · " +
+                    "REALIZED ${"%.4f".format(walletSnap6451.realizedPnlSol)} SOL · " +
+                    "EQUITY ${"%.4f".format(walletSnap6451.totalEquitySol)} SOL"
+            } else if (config.paperMode) {
                 "Paper cash ${"%.4f".format(balSol)} SOL. Approx equity ${"%.4f".format(paperEquityAtCostSol)} SOL."
             } else "Live wallet ${"%.4f".format(balSol)} SOL."
+            if (config.paperMode) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("WALLET_EQUITY_SURFACE_RENDERED_6451") } catch (_: Throwable) {}
+            }
         } else if (!config.paperMode && ws.isConnected && ws.solBalance > 0) {
             // V5.0.6256 — MODE MIXING FIX AT SOURCE. Prior fallback used
             // ws.solBalance (LIVE wallet) whenever balSol dropped below

@@ -8349,6 +8349,34 @@ class Executor(
         val price = getActualPrice(ts)
         if (!pos.isOpen || price == 0.0) return null
 
+        // V5.0.6451 §SL_HOT_PATH — feed the ProtectiveExitScheduler6450 on
+        // every price tick that reaches riskCheck. `evaluate()` bumps the
+        // scheduler heartbeat (kills SCHEDULER_STARVATION_6450), records the
+        // pipeline eval counter, and — if any threshold breaches
+        // (STOP/CATASTROPHE/TP/TRAIL) — latches a monotonic trigger
+        // (positionId + exitEpoch + kind). Once latched, `isTriggered()`
+        // stays true forever for that position; a subsequent tick cannot
+        // untrigger it. This is the fix for operator's avgStopMs=689425:
+        // the trigger is emitted the moment the price tick arrives,
+        // independent of scanner/learner/UI completion.
+        try {
+            val pid6451 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
+            val effStopPct = modeConf?.stopLossPct ?: cfg().stopLossPct
+            val stopPx = if (pos.entryPrice > 0.0 && effStopPct > 0.0) pos.entryPrice * (1.0 - effStopPct / 100.0) else 0.0
+            val catastrophePx = if (pos.entryPrice > 0.0) pos.entryPrice * 0.75 else 0.0 // -25% catastrophic
+            val trailPx = if (pos.highestPrice > pos.entryPrice) pos.highestPrice * 0.90 else 0.0 // 10% trail off peak
+            com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.evaluate(
+                positionId = pid6451,
+                mint = ts.mint,
+                markPx = price,
+                stopPx = stopPx,
+                catastrophePx = catastrophePx,
+                tpPx = 0.0,
+                trailPx = trailPx,
+                quoteAgeMs = 0L,
+            )
+        } catch (_: Throwable) {}
+
         // ═══════════════════════════════════════════════════════════════════════
         // V5.9.124 — REFLEX AI (sub-second reflex gate). Runs BEFORE every
         // other exit path so meme snipers get hard-exited on catastrophic
@@ -11518,6 +11546,37 @@ class Executor(
                  debitPaperWallet: Boolean = true,
                  maxPaperTradeSolOverride: Double? = null) {
         try { PipelineHealthCollector.labelInc("PAPER_BUY_ATTEMPT") } catch (_: Throwable) {}
+        // V5.0.6451 §ENTRY_GATE — ExecutableEntryAuthority6450.gate() is the
+        // single authority every executable BUY must clear before capital
+        // reservation. Verdict values:
+        //   ALLOW           — proceed at requested size
+        //   ALLOW_PROBE     — proceed at PROBE size (streak 5-7, min 0.01 SOL)
+        //   DENY_LOSING_STREAK / DENY_COOLDOWN / DENY_DAILY_LOSS_CAP — abort
+        // Streak counter derives from CanonicalTradeFinalizedBus6450 (the
+        // SAME event RewardPurity / TacticSwitcher subscribe to), so no
+        // pid/source/lane alias can bypass this gate.
+        val gateLane6451 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "STANDARD" }
+        val gateVerdict6451 = try {
+            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.gate(gateLane6451, ts.mint, sol)
+        } catch (_: Throwable) {
+            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Decision(
+                com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW, sol, "gate_error",
+            )
+        }
+        val effectiveBuySol6451 = when (gateVerdict6451.verdict) {
+            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW -> sol
+            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW_PROBE -> gateVerdict6451.recommendedSizeSol
+            else -> {
+                try {
+                    ForensicLogger.lifecycle(
+                        "PAPER_BUY_DENIED_ENTRY_AUTHORITY_6451",
+                        "mint=${ts.mint.take(10)} lane=$gateLane6451 verdict=${gateVerdict6451.verdict} reason=${gateVerdict6451.reason}",
+                    )
+                    PipelineHealthCollector.labelInc("PAPER_BUY_DENIED_ENTRY_AUTHORITY_6451")
+                } catch (_: Throwable) {}
+                return
+            }
+        }
         // V5.0.6427 §K + §L — register the entry lane IMMUTABLY the
         // instant a paper buy is attempted. First write wins so a
         // later exit run by MOONSHOT_STOP_LOSS on a COPYTRADE entry
@@ -13436,6 +13495,30 @@ class Executor(
         // locally with the normalized value.
         @Suppress("NAME_SHADOWING")
         val layerTag: String = LaneAlias.normalize(layerTag).ifBlank { layerTag }
+        // V5.0.6451 §ENTRY_GATE — one authority for live BUYs too.
+        val gateLaneLive6451 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "LIVE_STANDARD" }
+        val gateVerdictLive6451 = try {
+            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.gate(gateLaneLive6451, ts.mint, sol)
+        } catch (_: Throwable) {
+            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Decision(
+                com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW, sol, "gate_error",
+            )
+        }
+        when (gateVerdictLive6451.verdict) {
+            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.DENY_LOSING_STREAK,
+            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.DENY_COOLDOWN,
+            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.DENY_DAILY_LOSS_CAP -> {
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_BUY_DENIED_ENTRY_AUTHORITY_6451",
+                        "mint=${ts.mint.take(10)} lane=$gateLaneLive6451 verdict=${gateVerdictLive6451.verdict} reason=${gateVerdictLive6451.reason}",
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_BUY_DENIED_ENTRY_AUTHORITY_6451")
+                } catch (_: Throwable) {}
+                return false
+            }
+            else -> {}
+        }
         // V5.0.6444 §1 LIVE EXECUTOR MIGRATION — mirror the live buy
         // attempt into CanonicalPositionAuthority6441 via
         // ExecutorCanonicalMirror6442. Runs at the earliest point so

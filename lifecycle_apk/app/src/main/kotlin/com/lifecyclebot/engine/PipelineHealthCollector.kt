@@ -1821,6 +1821,22 @@ object PipelineHealthCollector {
                 com.lifecyclebot.engine.truth.CanonicalIntegrityGuards6449.statusLine()
             ).append("\n")
             // V5.0.6450 — CAPITAL / EXIT / QUALITY REGRESSION REPAIR AUTHORITIES.
+            // V5.0.6451 §WALLET_UI_SPLIT — dedicated 5-surface wallet block
+            // right above the capital authority telemetry line so the
+            // operator can never confuse CASH with EQUITY. Each surface is
+            // shown on its own labeled line.
+            try {
+                val ws6451 = com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.snapshot()
+                sb.append("\n===== WALLET SURFACES (§6451) =====\n")
+                sb.append("  CASH:              ").append("%.4f".format(ws6451.cashSol)).append(" SOL\n")
+                sb.append("  RESERVED:          ").append("%.4f".format(ws6451.reservedSol)).append(" SOL\n")
+                sb.append("  OPEN MARKET VALUE: ").append("%.4f".format(ws6451.openMarketValueSol)).append(" SOL\n")
+                sb.append("  UNREALIZED PNL:    ").append("%.4f".format(ws6451.unrealizedPnlSol)).append(" SOL\n")
+                sb.append("  REALIZED PNL:      ").append("%.4f".format(ws6451.realizedPnlSol)).append(" SOL\n")
+                sb.append("  FEES:              ").append("%.4f".format(ws6451.feesSol)).append(" SOL\n")
+                sb.append("  TOTAL EQUITY:      ").append("%.4f".format(ws6451.totalEquitySol)).append(" SOL\n")
+                sb.append("  CONSERVATION Δ:    ").append("%.6f".format(ws6451.conservationDeltaSol)).append(" SOL\n\n")
+            } catch (_: Throwable) {}
             sb.append("  Capital authority (§6450):    ").append(
                 com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.statusLine()
             ).append("\n")
