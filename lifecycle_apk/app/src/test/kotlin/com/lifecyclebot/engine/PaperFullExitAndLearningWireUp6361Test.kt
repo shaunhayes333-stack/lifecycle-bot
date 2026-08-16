@@ -16,16 +16,20 @@ class PaperFullExitAndLearningWireUp6361Test {
         // The SELL Trade record built inside paperSell must populate the qty
         // fields so downstream display + learning path see the true round-
         // trip position size, not a back-computed sol/price slice.
-        assertTrue("paper SELL Trade row must set entryQtyToken from pos.qtyToken",
-            txt.contains("entryQtyToken = pos.qtyToken"))
-        assertTrue("paper SELL Trade row must set soldQtyToken from pos.qtyToken (full exit)",
-            txt.contains("soldQtyToken = pos.qtyToken"))
+        assertTrue("paper SELL Trade row must set entryQtyToken from canonical-locked qty (§6449)",
+            txt.contains("entryQtyToken = soldQtyToken6449"))
+        assertTrue("paper SELL Trade row must set soldQtyToken from canonical-locked qty (§6449 full exit)",
+            txt.contains("soldQtyToken = soldQtyToken6449"))
         assertTrue("paper SELL Trade row must set entryCostSol from pos.costSol",
             txt.contains("entryCostSol = pos.costSol"))
         assertTrue("paper SELL Trade row must set entryPriceSnapshot from pos.entryPrice",
             txt.contains("entryPriceSnapshot = pos.entryPrice"))
         assertTrue("V5.0.6361 rationale must be documented inline",
             txt.contains("V5.0.6361"))
+        assertTrue("V5.0.6449 §3 sell qty source lock must be documented inline",
+            txt.contains("V5.0.6449 §3"))
+        assertTrue("paper SELL Trade row must derive qty via CanonicalIntegrityGuards6449.clampToRemaining (§6449)",
+            txt.contains("CanonicalIntegrityGuards6449") && txt.contains("clampToRemaining"))
     }
 
     @Test
