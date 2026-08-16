@@ -1,3 +1,76 @@
+## V5.0.6452 — 2026-02-16 — SOURCE-LEVEL AUTHORITY CONVERGENCE
+
+Operator: "Do NOT add another layer of guards or tune strategy thresholds.
+Fix defects at their source." Rewrote acceptance checks as hard CI
+assertions.
+
+**§P0 fixes at their source**
+- **#1 Fee double-count**: `PaperAccountLedger6430.onSell` was crediting
+  cash by gross (missing −f_s) AND subtracting fee from realized. The
+  invariant broke by −2·f_s per sell. Post-fix: `cash += (G − f_s)`,
+  `realized += (G − C)` (gross), `fees += f_s`. Algebra now holds.
+- **#7 Typed PnL contract**: `CanonicalTradeFinalizedBus6450.Event`
+  gains typed `grossRealizedPnlSol` + `returnFraction` alongside
+  `netRealizedPnlSol` / `netReturnPct`.
+- **#8 No fail-open on UNKNOWN**: New
+  `clampToRemainingStrict(mint, qty)` returns
+  `ClampResult(qty, ClampReason.UNKNOWN_POSITION)` with qty=0 when
+  canonical doesn't know the position. Legacy `clampToRemaining` kept
+  as compat wrapper.
+- **#9 No fake mark price**: BotService cycle heartbeat no longer feeds
+  entryCostSol as current market price into `ProtectiveExitScheduler6450`.
+  `evaluate(markPx=0)` is now a heartbeat-only ping (never latches).
+- **#10 Quote freshness primitive**: New `QuoteFreshnessGuard6452` with
+  typed `Provenance` (WS_LIVE/REST_LIVE/CACHED/DERIVED/UNKNOWN) and
+  `isFresh(mint, maxAgeMs)`. Producers migrate next-cycle.
+
+**§Reconciliation+Acceptance — HARD CI ASSERTIONS**
+`app/src/test/kotlin/com/lifecyclebot/engine/CapitalInvariantAcceptanceTest.kt`
+runs under `testReleaseUnitTest`. CI fails red on regression of:
+- Capital conservation delta = 0 on winning round-trip.
+- Capital conservation delta = 0 on losing round-trip.
+- Realized PnL is GROSS (locks the §P0-#7 contract).
+- Terminal close idempotency latch rejects duplicate SELL per positionId.
+- Finalized bus publishes exactly once per positionId; republish is a
+  no-op that does not re-invoke subscribers.
+- Unknown canonical sell state returns UNKNOWN_POSITION with qty=0.
+
+**Pipeline dump gains**
+- Quote freshness (§6452) status line.
+
+**Follow-ups (queued for next dump)**
+- Migrate all sell paths from `clampToRemaining` → `clampToRemainingStrict`
+  and handle UNKNOWN_POSITION explicitly.
+- Wire producer sites (WS, REST, cache, derived) to
+  `QuoteFreshnessGuard6452.note()` and consumers to `isFresh()`.
+- Route `GrowthAlignedRewardShaper6439` + `RewardPurityGate6441` as
+  bus subscribers so `PositionCloseLedger.markClosed` no longer calls
+  them directly (single owner per operator mandate).
+
+CI: Build AATE APK green (run 31947796912). Runtime Smoke Test green
+(run 31947831859). Acceptance tests green — capital invariant proven.
+
+PAPER MODE ONLY.
+
+---
+
+## V5.0.6451 — 2026-02-16 — SL HOT PATH + ENTRY GATE + WALLET UI SPLIT
+
+- **§SL_HOT_PATH**: `ProtectiveExitScheduler6450.evaluate()` at the top
+  of `Executor.riskCheck` — every price tick pumps the scheduler
+  heartbeat and latches STOP/CATASTROPHE/TRAILING monotonically
+  independent of scanner/learner/UI completion.
+- **§ENTRY_GATE**: `ExecutableEntryAuthority6450.gate()` at the top of
+  paperBuy + liveBuy before any capital reservation. DENY_* short-
+  circuits the BUY. copyTradeBuy/expressBuy are fed through paperBuy/
+  liveBuy so they inherit the gate.
+- **§WALLET_UI_SPLIT**: MainActivity `contentDescription` shows all 5
+  canonical wallet surfaces (CASH/OPEN_MV/UNREALIZED/REALIZED/EQUITY).
+  Pipeline dump gains a dedicated **WALLET SURFACES (§6451)** block.
+
+CI: Build AATE APK green (run 31947162226).
+
+
 ## V5.0.6450 — 2026-02-16 — CAPITAL / EXIT / QUALITY REGRESSION REPAIR
 
 Operator dump: 274 vs 42 open positions, -0.319 SOL conservation delta,

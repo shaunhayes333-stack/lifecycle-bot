@@ -1,6 +1,49 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6452 (Feb 2026) — SOURCE-LEVEL AUTHORITY CONVERGENCE
+
+Operator mandate: fix defects at their source, add HARD CI assertions.
+
+**Source fixes**
+- Fee double-count in `PaperAccountLedger6430.onSell`: cash now credits
+  `(G − f_s)`, realized stores GROSS `(G − C)`, fees tracked separately.
+  Invariant `startingCash + realized − fees == cash + openCost` holds
+  algebraically.
+- `CanonicalTradeFinalizedBus6450.Event` gains typed `grossRealizedPnlSol`
+  + `returnFraction`.
+- `clampToRemainingStrict` returns `UNKNOWN_POSITION` (qty=0) — never
+  fail-opens.
+- No fake mark price in cycle heartbeat (markPx=0 = ping only).
+- `QuoteFreshnessGuard6452` primitive with typed Provenance.
+
+**Hard CI assertions**
+`CapitalInvariantAcceptanceTest` under `testReleaseUnitTest`:
+- capital conservation δ=0 on winning + losing round-trips
+- realized PnL is GROSS
+- duplicate SELL rejected by terminal latch
+- bus publishes exactly once per positionId
+- unknown canonical sell state = qty=0
+
+**Follow-ups**
+- Migrate all sell paths from `clampToRemaining` → `clampToRemainingStrict`.
+- Wire quote producers to `QuoteFreshnessGuard6452.note()`.
+- Subscribe shaper + purity gate to the bus (single owner).
+
+CI: Build AATE APK green (run 31947796912). Runtime Smoke Test green
+(run 31947831859).
+
+## V5.0.6451 (Feb 2026) — SL HOT PATH + ENTRY GATE + WALLET UI SPLIT
+
+- Scheduler `evaluate()` at top of `Executor.riskCheck` (per-tick trigger
+  latching independent of scanner/learner).
+- Entry authority gate at top of paperBuy + liveBuy before capital
+  reservation.
+- Wallet UI shows 5 canonical surfaces via contentDescription + dedicated
+  pipeline dump block.
+
+
+
 ## V5.0.6450 (Feb 2026) — CAPITAL / EXIT / QUALITY REGRESSION REPAIR
 
 Twelve canonical authorities under `engine/truth/` addressing every P0/P1
