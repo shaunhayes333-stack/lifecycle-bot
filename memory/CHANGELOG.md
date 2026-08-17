@@ -1,3 +1,48 @@
+## V5.0.6457 — 2026-02-16 — TIMEOUT INVARIANT (impossible-timeout guard)
+
+Operator dump showed impossible SUPERVISOR_WORKER_TIMEOUT with
+`elapsedMs=0 sinceProgressMs=0`. Root cause: `withTimeoutOrNull` null
+return was unconditionally incrementing `supervisorLifetimeWorkerTimeouts`,
+which corrupted the workerTimeoutStorm counter that the governor /
+sell-pressure / entry authority reads.
+
+**Fix at source (BotService.kt supervisor loop)**
+- Capture `workerStartedAtMs = System.currentTimeMillis()` BEFORE
+  `withTimeoutOrNull`.
+- On null return, compute `actualElapsedMs = now − workerStartedAtMs`.
+- Invariant: `actualElapsedMs >= SUPERVISOR_WORKER_TIMEOUT_MS`.
+- If invariant violated (impossible observation):
+  - Emit `TIMEOUT_INVARIANT_FAILURE_6457` with the offending numbers.
+  - DO NOT increment `supervisorLifetimeWorkerTimeouts`.
+- If invariant holds:
+  - Normal `SUPERVISOR_WORKER_TIMEOUT` emission with new
+    `actualElapsedMs` field so operator can audit real elapsed vs budget.
+
+**Effect**: no policy subsystem (governor / sell-pressure / entry
+authority / safe mode / scanner throttling) can act on impossible
+timeout observations any more.
+
+CI: Build AATE APK green (run 32011464013). Runtime Smoke Test green
+(run 32012601621). PAPER MODE ONLY.
+
+**Remaining P0/P1 from this dump (queued for next cycles)**
+- Dedup before hydration (INTAKE 6760 → HYDRATION 6757 with 2627 dupes)
+- Token map single-flight (`mint → Deferred<TokenMapResult>`)
+- AUTH_TERMINAL provider O(1) snapshot lookup (BIRDEYE 3690 skips)
+- Scanner waves concurrent under global 3-5s deadline (not sequential)
+- Strategy cache miss must not synchronously rebuild history
+- Canonical `netPnlSol` derivation from `grossProceeds − basis − fees`
+  (STRATEGY_FORENSIC_EXCLUDED_PNL_SOL_PERCENT_MISMATCH=3028)
+- Remove `LANE_AUTO_PAUSED_*` legacy hard vetoes; fluid tactic switching
+- Ghost paper position fix: source mutation must set qty=0 AND cost=0
+  on full exit; healer stays defensive only
+- Mode-scoped open count (never compare LIVE host vs PAPER store)
+- Choke relief BEFORE expensive lane work
+- Forensic aggregate suppression window
+- Source rebalance atomic snapshot swap (never hold entry authority)
+- Full report builder reads immutable snapshots only
+
+
 ## V5.0.6456 — 2026-02-16 — SOURCE-CORRECTNESS REPAIR (mark-to-market + state-sum invariant)
 
 Operator dump showed `openCost=3.3545`, `marketValue=3.2728`, expected

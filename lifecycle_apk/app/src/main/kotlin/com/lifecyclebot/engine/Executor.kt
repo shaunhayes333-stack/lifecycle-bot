@@ -17961,8 +17961,16 @@ class Executor(
             // V5.0.3683 — ACCOUNTING LEDGER FIX — populate feeSol/netPnlSol.
             val partialSellFee = soldValueSol * MEME_TRADING_FEE_PERCENT
             val partialSellNetPnl = profitSol - partialSellFee
+            // V5.0.6458 §P0 EXIT STATE MACHINE — determine trade side from
+            // POST-remaining semantic, NOT from the requested percentage.
+            // A partial-sell request that fully drains the position must
+            // journal side=SELL (terminal) — never PARTIAL_SELL with
+            // reason=FULL_EXIT_100PCT. This is the operator's impossible-
+            // event fix: eventType=PARTIAL_SELL reason=FULL_EXIT_100PCT
+            // becomes structurally unreachable.
+            val partialSideBySemantics6458 = if (newSoldPct >= 99.9 || fullyExited) "SELL" else "PARTIAL_SELL"
             val trade = Trade(
-                side             = "PARTIAL_SELL",
+                side             = partialSideBySemantics6458,
                 mode             = "paper",
                 sol              = soldValueSol,
                 price            = currentPrice,
@@ -18377,7 +18385,11 @@ class Executor(
                             } catch (_: Throwable) {}
                         }
                     }
-                    val liveTrade = Trade("PARTIAL_SELL", "live", livePartialCostBasisSol, currentPrice,
+                    // V5.0.6458 §P0 — live partial-sell side derived from
+                    // post-remaining semantic. Full exit journals SELL,
+                    // not PARTIAL_SELL with FULL_EXIT_100PCT reason.
+                    val liveSideBySemantics6458 = if (newSoldPct >= 99.9) "SELL" else "PARTIAL_SELL"
+                    val liveTrade = Trade(liveSideBySemantics6458, "live", livePartialCostBasisSol, currentPrice,
                         System.currentTimeMillis(), if (newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct",
                         livePnl, liveScore, sig = finalSig, feeSol = feeSol, netPnlSol = netPnl,
                         mint = ts.mint, tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji)
