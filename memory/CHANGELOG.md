@@ -1,3 +1,42 @@
+## V5.0.6459 — 2026-02-16 — SELL BOUNDARY + MINT OCCUPANCY + FANOUT PARITY + LANE ID + RECONCILER CADENCE
+
+Five new canonical authorities addressing the remaining P0/P1 items
+from the 6457 dump. Each ships skeleton-complete with hard CI
+assertions and pipeline-dump lines. Producer/consumer wiring migrates
+next cycle using real bypass counts.
+
+**§P0 Sell qty boundary — `SellQuantityBoundary6459`**
+- Keyed by positionId + sellExecutionId (not mint).
+- `sellable = confirmedBought − confirmedSold − reservedPending`.
+- Duplicate sellExecutionId → 0.0 (idempotent).
+- Fires `SELL_QTY_BOUNDARY_OVERSELL_PREVENTED_6459` on clamp.
+
+**§P0 Mint occupancy upstream — `CanonicalMintOccupancyRegistry6459`**
+- States: NONE / PENDING_ENTRY / IN_FLIGHT_ENTRY / OPEN / PENDING_EXIT.
+- `isBlocked(mint)` for BEFORE-V3/lane/FDG fanout.
+
+**§P0 Finalized fanout parity — `FinalizedFanoutParity6459`**
+- Names silent consumers so LosingStreakReflex=0/GrowthShaper=0
+  divergence is visible.
+
+**§P1 Lane identity normalization — `LaneIdentityNormalizer6459`**
+- BLUE_CHIP→BLUECHIP, RESALE_SNIPE→PRESALE_SNIPE, microcap→MICRO_CAP,
+  blank→UNKNOWN. Emits LANE_ALIAS_REWRITE_6459 on every rewrite.
+
+**§P1 Reconciler cadence — `ReconcilerCadenceAuthority6459`**
+- Typed CadenceReport with quick/full overdueMs + per-scope healthy.
+  A stale forensic reconciler cannot appear healthy.
+
+Hard CI assertions (`ExitAccountingAcceptanceTest`):
+- Sell boundary clamps oversell + dedupes duplicate execution ids.
+- Lane normalizer canonicalizes all documented aliases.
+
+Pipeline dump gains 5 status lines.
+
+CI: Build AATE APK green (run 32055330086). Runtime Smoke Test green
+(run 32056634232). PAPER MODE ONLY.
+
+
 ## V5.0.6457 — 2026-02-16 — TIMEOUT INVARIANT (impossible-timeout guard)
 
 Operator dump showed impossible SUPERVISOR_WORKER_TIMEOUT with
