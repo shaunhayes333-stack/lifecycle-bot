@@ -17480,6 +17480,7 @@ if (hotExitHandledSweep) {
                     // cancellation into JVM thread interrupt, which the
                     // vast majority of blocking I/O honors — so the
                     // worker actually dies and the finally block fires.
+                    val workerStartedAtMs = System.currentTimeMillis()
                     val ok = kotlinx.coroutines.withTimeoutOrNull(SUPERVISOR_WORKER_TIMEOUT_MS) {
                         kotlinx.coroutines.runInterruptible(kotlinx.coroutines.Dispatchers.IO) {
                             supervisorLeaseProgress6448(leaseId, "PROCESS_TOKEN_START")
@@ -17493,13 +17494,32 @@ if (hotExitHandledSweep) {
                         supervisorLeaseProgress6448(leaseId, "COMPLETED")
                         supervisorLifetimeProcessed.incrementAndGet()
                     } else {
-                        supervisorLifetimeWorkerTimeouts.incrementAndGet()
+                        // V5.0.6457 §P0 TIMEOUT INVARIANT — a worker can only
+                        // legitimately time out if actualElapsedMs >= threshold.
+                        // Any timeout event with elapsedMs < threshold is impossible
+                        // and must NOT increment workerTimeoutStorm (which the
+                        // governor / sell-pressure / entry authority currently reads).
+                        val actualElapsedMs6457 = System.currentTimeMillis() - workerStartedAtMs
+                        if (actualElapsedMs6457 < SUPERVISOR_WORKER_TIMEOUT_MS) {
+                            try {
+                                ForensicLogger.lifecycle(
+                                    "TIMEOUT_INVARIANT_FAILURE_6457",
+                                    "elapsedMs=$actualElapsedMs6457 thresholdMs=$SUPERVISOR_WORKER_TIMEOUT_MS mint=${mint.take(10)} leaseId=${leaseId}",
+                                )
+                                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TIMEOUT_INVARIANT_FAILURE_6457")
+                            } catch (_: Throwable) {}
+                            // Do NOT increment supervisorLifetimeWorkerTimeouts —
+                            // this is a corrupted observation that must not
+                            // influence sell-pressure / governor / entry authority.
+                        } else {
+                            supervisorLifetimeWorkerTimeouts.incrementAndGet()
+                        }
                         supervisorArmTimeoutCooldown(mint)
                         try { supervisorNoteWorkerTimeoutForThrottle() } catch (_: Throwable) {}
                         try {
                             ForensicLogger.lifecycle(
                                 "SUPERVISOR_WORKER_TIMEOUT",
-                                supervisorTimeoutDetail6448(leaseId, mint) + " budgetMs=$SUPERVISOR_WORKER_TIMEOUT_MS cooldownMs=$SUPERVISOR_TIMEOUT_COOLDOWN_MS open=${supervisorMintIsOpen(mint)}",
+                                supervisorTimeoutDetail6448(leaseId, mint) + " actualElapsedMs=$actualElapsedMs6457 budgetMs=$SUPERVISOR_WORKER_TIMEOUT_MS cooldownMs=$SUPERVISOR_TIMEOUT_COOLDOWN_MS open=${supervisorMintIsOpen(mint)}",
                             )
                         } catch (_: Throwable) {}
                         // V5.9.1324 — P1-6 surgical: structured timeout reason +
