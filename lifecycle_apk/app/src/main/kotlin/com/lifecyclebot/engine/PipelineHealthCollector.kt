@@ -1888,6 +1888,21 @@ object PipelineHealthCollector {
             sb.append("  Position state ledger (§6454):").append(
                 com.lifecyclebot.engine.truth.PositionStateLedger6454.statusLine()
             ).append("\n")
+            sb.append("  Sell qty boundary (§6459):    ").append(
+                com.lifecyclebot.engine.truth.SellQuantityBoundary6459.statusLine()
+            ).append("\n")
+            sb.append("  Mint occupancy (§6459):       ").append(
+                com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6459.statusLine()
+            ).append("\n")
+            sb.append("  Finalized fanout (§6459):     ").append(
+                com.lifecyclebot.engine.truth.FinalizedFanoutParity6459.statusLine()
+            ).append("\n")
+            sb.append("  Lane identity (§6459):        ").append(
+                com.lifecyclebot.engine.truth.LaneIdentityNormalizer6459.statusLine()
+            ).append("\n")
+            sb.append("  Reconciler cadence (§6459):   ").append(
+                com.lifecyclebot.engine.truth.ReconcilerCadenceAuthority6459.statusLine()
+            ).append("\n")
             sb.append(com.lifecyclebot.engine.truth.LivePipelineTrace6431.render())
         } catch (_: Throwable) {}
 
