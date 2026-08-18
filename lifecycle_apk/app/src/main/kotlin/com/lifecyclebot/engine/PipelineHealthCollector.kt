@@ -1903,6 +1903,12 @@ object PipelineHealthCollector {
             sb.append("  Reconciler cadence (§6459):   ").append(
                 com.lifecyclebot.engine.truth.ReconcilerCadenceAuthority6459.statusLine()
             ).append("\n")
+            sb.append("  Dust invariant (§6460):       ").append(
+                com.lifecyclebot.engine.truth.PaperPositionDustInvariant6460.statusLine()
+            ).append("\n")
+            sb.append("  Root cause (§6460):           ").append(
+                com.lifecyclebot.engine.truth.RootCauseClassifier6460.statusLine()
+            ).append("\n")
             sb.append(com.lifecyclebot.engine.truth.LivePipelineTrace6431.render())
         } catch (_: Throwable) {}
 
