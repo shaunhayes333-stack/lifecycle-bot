@@ -1,6 +1,51 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6463 (Feb 2026) — REVERT-ON-REGRESSION + ADVISOR TIMELINE + PARTIAL-SELL VALIDATOR + PERPS SANDBOX
+
+Four operator directives from the 6462 follow-up landed together.
+
+**Revert-on-Regression** (`AdvisorRegressionMonitor6463`)
+- Every AutoPipelineAdvisor6462 auto-apply registers a pending audit
+  with baseline WR/realizedPnl/trade count.
+- `checkAll(ctx)` runs every 12 loops via MaintenanceWorker6448. After
+  the 20-min window: if WR drops >5pp or realizedPnl drops >0.03 SOL
+  with ≥3 decisive trades, a negated `<<TUNE>>` block is synthesised
+  and routed through LlmParameterTuner (same safety gates as apply).
+- Emits `ADVISOR_REVERTED_6463` and records a REVERTED entry in the
+  timeline.
+
+**Advisor UI Timeline** (`AdvisorDecisionHistory6463`)
+- Ring buffer of the last 20 decisions with per-brain vote breakdown
+  (name/agree/weight), old→new values, action taken.
+- Attached to `PipelineHealthCollector.dumpText()` — visible in the
+  existing UI without new layout.
+
+**Executor Partial-Sell Migration** (`PartialSellCorrectness6463`)
+- Wraps `SellFinalizationCoordinator.finalize()` — the single
+  convergence point every partial + full sell flows through.
+- Validates SOL slots through the Fi4FaM firewall + cross-checks
+  arithmetic. Divergence emits `PARTIAL_SELL_ARITH_DIVERGENCE_6463`.
+- Zero touches to Executor.kt's 24k lines — avoids 64KB compile
+  limit regression.
+
+**SOL Perps Sandbox** (`PerpsSandbox6463`)
+- Paper-only leverage substrate with hard live-mode gate.
+- 1x–10x leverage, `EXIT_LIQUIDATION` at
+  `underlyingDropPct × leverageX ≥ 80%`.
+- Config toggle: `BotConfig.perpsSandboxEnabled` (default OFF).
+- BotService syncs `PerpsSandbox6463.setEnabled` on start.
+
+**Follow-ups**
+- Real perps route wiring (still no live execution — sandbox only).
+- Extend the timeline UI with tap-to-apply / tap-to-dismiss controls.
+- Wire the RiskExitPriorityDomain6461 lane-stats snapshot bus feed
+  from ChronicBleederScout for full off-hot-path scout consumption.
+
+CI: Build AATE APK + Runtime Smoke Test both green.
+
+
+
 ## V5.0.6462 (Feb 2026) — AUTONOMOUS PIPELINE ADVISOR (ALL-BRAINS + LLM)
 
 Fixed the "advisor never returns suggestions" bug at the source. The old

@@ -1,3 +1,73 @@
+## V5.0.6463 — 2026-02-18 — REVERT-ON-REGRESSION + ADVISOR TIMELINE + PARTIAL-SELL VALIDATOR + PERPS SANDBOX
+
+All four operator directives from the 6462 follow-up landed as one
+CI-green ship.
+
+**Revert on Regression (`AdvisorRegressionMonitor6463`)**
+- Every auto-apply from AutoPipelineAdvisor6462 registers a pending
+  audit with baseline WR + realizedPnl + trade count.
+- `checkAll(ctx)` walks pending audits every 12 loops via
+  MaintenanceWorker6448 (2s budget). After the 20-min window, if
+    - WR dropped > 5 pp, OR
+    - realizedPnl dropped > 0.03 SOL, AND
+    - decisive trades in window ≥ 3
+  the module synthesises a NEGATED `<<TUNE>>` block and routes it
+  through LlmParameterTuner so allowlist/step-cap/phase-gate govern
+  the revert identically to the apply.
+- Emits `ADVISOR_REVERTED_6463` with wrDrop / solDrop / n; records a
+  REVERTED entry in the decision timeline.
+- Small-sample gate (`< 3 trades in window`) prevents a single unlucky
+  loser from bouncing a genuinely beneficial parameter.
+
+**Advisor UI Timeline (`AdvisorDecisionHistory6463`)**
+- Ring buffer of the last 20 advisor decisions carrying: key, delta,
+  severity, source, action, brainAgreement, per-brain votes
+  (name / agree / weight), reason, resolved old/new values.
+- Actions: AUTO_APPLIED, QUEUED_INBOX, LOW_AGREEMENT, COOLDOWN_SKIP,
+  APPLY_NOOP, APPLY_FAILED, REVERTED.
+- `formatForPipelineDump()` appended to `PipelineHealthCollector
+  .dumpText()` under `===== Advisor Timeline (V5.0.6463) =====` so
+  the existing UI shows it without any new layout.
+
+**Executor Partial-Sell Migration (`PartialSellCorrectness6463`)**
+- Wraps `SellFinalizationCoordinator.finalize()` — the single point
+  every partial + full sell converges through. Validates all SOL
+  slots (netProceeds, propCostBasis, realizedPnl, fees) through the
+  `PartialSellUnitTypes6461` Fi4FaM firewall and cross-checks
+  `realizedPnl == solReceived − propCostBasis − fees` (divergence
+  > 0.001 SOL → `PARTIAL_SELL_ARITH_DIVERGENCE_6463`).
+- Non-mutating — audits every partial-sell path in 24k+ lines of
+  Executor.kt without touching a single line of it, avoiding the
+  64KB compile limit that plagued earlier refactors.
+
+**SOL Perps Sandbox (`PerpsSandbox6463`)**
+- Paper-only leverage substrate. Enable / open / risk-exit clock:
+    - `setEnabled(desired, paperMode)` refuses live-mode enable.
+    - `openLeveragedPaper(positionId, mint, leverageX 1..10, entryPx,
+      paperMode)` refuses live / blank position / out-of-bounds.
+    - `evaluateRiskExit(positionId, underlyingDropPct)` returns
+      `EXIT_LIQUIDATION` when `underlyingDropPct × leverageX ≥ 80%`.
+      A 5x position at −20% underlying is a −100% margin call.
+- Config toggle: `BotConfig.perpsSandboxEnabled` (default OFF),
+  persisted as `perps_sandbox_enabled`. `BotService.startBot` syncs
+  state to `PerpsSandbox6463.setEnabled` every start.
+
+**CI locks (`AdvisorAndPerpsAcceptanceTest6463`)**
+- Timeline stores exactly last 20 with vote breakdown.
+- Regression monitor pending count tracks registerApply.
+- Perps refuses live mode, opens 5x paper position, liquidates at
+  20% drop × 5x, refuses out-of-bounds leverage, returns NO_ACTION
+  under threshold.
+
+Files: 4 new modules, 1 new test, 5 modified. Fix commit swapped the
+brain-name assertion to use the truncated `.take(6)` prefix
+(`"MetaCo"`).
+
+CI: Build AATE APK + Runtime Smoke Test both green.
+
+---
+
+
 ## V5.0.6462 — 2026-02-18 — AUTONOMOUS PIPELINE ADVISOR (ALL-BRAINS + LLM, AUTO-APPLY)
 
 Root cause of "auto pipeline advisor doesn't return any suggestions ever":
