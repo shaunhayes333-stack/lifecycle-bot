@@ -117,8 +117,12 @@ object PaperAccountLedger6430 {
     fun onSell(grossProceedsSol: Double, costBasisSoldSol: Double, feeSol: Double = 0.0) {
         if (!grossProceedsSol.isFinite() || !costBasisSoldSol.isFinite()) return
         val fee = if (feeSol.isFinite()) feeSol.coerceAtLeast(0.0) else 0.0
-        val gross = grossProceedsSol.coerceAtLeast(0.0)
-        val basis = costBasisSoldSol.coerceAtLeast(0.0)
+        // V5.0.6461 §P0-#1 FI4FAM FIREWALL — catch percent-into-SOL leaks
+        // (30 SOL = 60x max entry; anything larger is a unit-mix bug).
+        val gross = com.lifecyclebot.engine.truth.PartialSellUnitTypes6461
+            .assertSolPlausible(grossProceedsSol.coerceAtLeast(0.0), "PaperAccountLedger6430.onSell.gross")
+        val basis = com.lifecyclebot.engine.truth.PartialSellUnitTypes6461
+            .assertSolPlausible(costBasisSoldSol.coerceAtLeast(0.0), "PaperAccountLedger6430.onSell.basis")
         cashPico.addAndGet(toPico(gross - fee))
         openCostBasisPico.addAndGet(-toPico(basis))
         realizedPnlPico.addAndGet(toPico(gross - basis)) // GROSS pnl

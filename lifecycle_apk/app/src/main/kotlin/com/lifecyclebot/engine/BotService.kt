@@ -14074,6 +14074,32 @@ class BotService : Service() {
                 } catch (_: Throwable) {}
             }
 
+            // V5.0.6461 §P0-#2/#3 — PENDING_ENTRY TTL SWEEP + PAPER REPLAY AUDIT.
+            // Both are low-priority, bounded, non-blocking. Sweep runs every
+            // 6 loops (~60s). Replay audit runs every 30 loops (~5min).
+            // Both routed through MaintenanceWorker6448 so botLoop never
+            // blocks on them.
+            if (loopCount % 6 == 0 && !prevCycleWasSlow6421) {
+                try {
+                    com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
+                        name = "pending_entry_sweep_6461", budgetMs = 1_500L,
+                    ) {
+                        com.lifecyclebot.engine.truth.PendingEntryProjectionGuard6461.sweepStalePendingEntries()
+                        com.lifecyclebot.engine.truth.PendingEntryProjectionGuard6461.assertNotInOpenSet()
+                    }
+                } catch (_: Throwable) {}
+            }
+            if (loopCount % 30 == 0 && !prevCycleWasSlow6421 && ConfigStore.load(applicationContext).paperMode) {
+                try {
+                    val startCap6461 = ConfigStore.load(applicationContext).paperSimulatedBalance
+                    com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
+                        name = "paper_replay_audit_6461", budgetMs = 3_000L,
+                    ) {
+                        com.lifecyclebot.engine.truth.PaperAccountReplay6461.auditAgainstLedger(startCap6461)
+                    }
+                } catch (_: Throwable) {}
+            }
+
             // V5.9.454 — WALLET RE-SYNC FIX.
             // BotService's local `wallet` var previously only updated
             // from inside launchWalletConnect's callback. When

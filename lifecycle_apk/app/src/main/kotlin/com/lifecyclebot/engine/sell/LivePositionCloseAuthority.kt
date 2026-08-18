@@ -164,6 +164,22 @@ object LivePositionCloseAuthority {
             return existing
         }
         val cid = if (!signature.isNullOrBlank()) {
+            // V5.0.6461 §P0-#1 FI4FAM UNIT-CORRUPTION FIX.
+            // Prior code passed `realizedPnl = pnlPct.toDouble()` — a
+            // *percentage* into a SOL slot. Downstream bus consumers
+            // (CanonicalTradeFinalizedBus6450 → RewardPurity /
+            // LearnerRewardBridge) then treated a -5% loss as -5.0 SOL of
+            // realized PnL, corrupting learners and wallet math (Fi4FaM
+            // incident). Correct behavior: this authority does not have
+            // the authoritative net-SOL realized PnL at this call site
+            // (that comes from SellFinalizationCoordinator via the
+            // canonical publish helper). Pass 0.0 for realizedSol AND
+            // realizedPnl — the terminal reward event is emitted by the
+            // canonical rich-publish path with the correct SOL value.
+            // Additionally clamp through the Fi4FaM firewall so any
+            // future regression is caught, not silently propagated.
+            val safeRealizedPnl = com.lifecyclebot.engine.truth.PartialSellUnitTypes6461
+                .assertSolPlausible(0.0, "LivePositionCloseAuthority.finalizeClosed")
             PositionCloseLedger.markClosedFull(
                 mint = mint,
                 reason = "LIVE_CLOSE_$reason",
@@ -173,7 +189,7 @@ object LivePositionCloseAuthority {
                 remainingQtyRaw = remainingQtyRaw,
                 dustAmount = 0.0,
                 realizedSol = 0.0,
-                realizedPnl = pnlPct.toDouble(),
+                realizedPnl = safeRealizedPnl,
                 source = source,
             )
         } else {

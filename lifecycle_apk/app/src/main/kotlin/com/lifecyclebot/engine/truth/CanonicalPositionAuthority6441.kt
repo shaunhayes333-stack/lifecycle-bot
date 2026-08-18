@@ -325,6 +325,46 @@ object CanonicalPositionAuthority6441 {
     }
 
     /**
+     * V5.0.6461 §P0-#2 — explicit PENDING_ENTRY iterator.
+     * Callers must never treat these as open positions for capital,
+     * lane, or slot counts. Exposed only for the sweep + audit.
+     */
+    fun pendingEntryPositions6461(): List<Position> = positions.values.filter {
+        it.lifecycle == Lifecycle.PENDING_ENTRY
+    }
+
+    /**
+     * V5.0.6461 §P0-#2 — cancel PENDING_ENTRY rows older than ttlMs.
+     * Moves them to QUARANTINED with reason "PENDING_ENTRY_TTL_CANCELLED_6461"
+     * and refunds any placeholder cash debit for paper positions.
+     * Returns the list of positionIds cancelled.
+     */
+    fun cancelStalePendingEntries6461(ttlMs: Long): List<String> {
+        val now = System.currentTimeMillis()
+        val victims = pendingEntryPositions6461().filter { (now - it.lastMutationMs) > ttlMs }
+        if (victims.isEmpty()) return emptyList()
+        val cancelledIds = mutableListOf<String>()
+        for (v in victims) {
+            lock.lock()
+            try {
+                val cur = positions[v.positionId] ?: continue
+                if (cur.lifecycle != Lifecycle.PENDING_ENTRY) continue
+                // Refund the placeholder debit so cash returns to the pre-open state.
+                val refund = cur.entryCostSol + cur.feesSol
+                if (refund > 0.0) paperCashSol.getAndUpdate { it + refund }
+                positions[cur.positionId] = cur.copy(
+                    lifecycle = Lifecycle.QUARANTINED,
+                    quarantineReason = "PENDING_ENTRY_TTL_CANCELLED_6461",
+                    lastMutationMs = now,
+                )
+                cancelledIds += cur.positionId
+                quarantines.incrementAndGet()
+            } finally { lock.unlock() }
+        }
+        return cancelledIds
+    }
+
+    /**
      * V5.0.6456 §P0-#2 CANONICAL POSITION STATE INVARIANT.
      * Emits (total, byLifecycle) so callers can assert
      *   total == Σ(byLifecycle.values)
