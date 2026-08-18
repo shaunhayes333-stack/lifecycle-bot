@@ -85,15 +85,12 @@ object PositionRegistryParityAudit6464 {
                 CanonicalPositionAuthority6441.Lifecycle.OPEN,
                 CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED -> "OPEN"
                 CanonicalPositionAuthority6441.Lifecycle.PENDING_ENTRY -> "PENDING_ENTRY"
-                CanonicalPositionAuthority6441.Lifecycle.PENDING_EXIT -> "PENDING_EXIT"
                 CanonicalPositionAuthority6441.Lifecycle.CLOSED -> "CLOSED"
-                CanonicalPositionAuthority6441.Lifecycle.CANCELLED_ENTRY -> "CANCELLED_ENTRY"
                 CanonicalPositionAuthority6441.Lifecycle.QUARANTINED -> "QUARANTINED"
-                else -> "OPEN"
             }
             if (r.state != expectedRegState) stateMismatch += "${mint.take(10)}(c=${c.lifecycle} r=${r.state})"
-            val qDelta = kotlin.math.abs(c.openedQtyRaw.toDouble() - r.qtyRaw.toDouble())
-            if (qDelta > 1.0) qtyMismatch += "${mint.take(10)}(cq=${c.openedQtyRaw} rq=${r.qtyRaw})"
+            val qDelta = kotlin.math.abs(c.originalQtyRaw.toDouble() - r.qtyRaw.toDouble())
+            if (qDelta > 1.0) qtyMismatch += "${mint.take(10)}(cq=${c.originalQtyRaw} rq=${r.qtyRaw})"
             val costDelta = kotlin.math.abs(c.entryCostSol - r.entryCostSol)
             if (costDelta > 0.001) costBasisMismatch += "${mint.take(10)}(cc=${"%.4f".format(c.entryCostSol)} rc=${"%.4f".format(r.entryCostSol)})"
         }

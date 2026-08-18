@@ -209,7 +209,7 @@ object SellFinalizationCoordinator {
                     com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.onSellFilled(
                         positionId = positionId, mint = intent.mint, filledQty = actualConsumedRaw,
                     )
-                    val partial = fin.finalState != TxMetaSellFinalizer.FinalState.CLOSED_FULL
+                    val partial = fin.finalState != TxMetaSellFinalizer.FinalState.CLEARED
                     com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordSell(
                         mode = "paper",   // executor sets its own mode; this path is paper-safe.
                         positionId = positionId, mint = intent.mint, symbol = intent.symbol,
@@ -241,7 +241,7 @@ object SellFinalizationCoordinator {
                     mode = "paper", mint = intent.mint, symbol = intent.symbol,
                     source = "SellFinalizationCoordinator",
                 )
-                if (fin.finalState == TxMetaSellFinalizer.FinalState.CLOSED_FULL) {
+                if (fin.finalState == TxMetaSellFinalizer.FinalState.CLEARED) {
                     com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("paper", intent.mint)
                 }
                 com.lifecyclebot.engine.truth.AuthoritySnapshotVersion6464.bump("sell_finalized_${intent.symbol}")
