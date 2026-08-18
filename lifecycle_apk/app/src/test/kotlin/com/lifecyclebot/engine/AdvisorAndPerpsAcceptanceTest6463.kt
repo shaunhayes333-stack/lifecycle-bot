@@ -44,7 +44,7 @@ class AdvisorAndPerpsAcceptanceTest6463 {
         val dump = AdvisorDecisionHistory6463.formatForPipelineDump()
         assertTrue("dump must include AdvisorTimeline6463 header", dump.contains("AdvisorTimeline6463"))
         assertTrue("dump must include AUTO_APPLIED action", dump.contains("AUTO_APPLIED"))
-        assertTrue("dump must include brain vote breakdown", dump.contains("MetaCog"))
+        assertTrue("dump must include brain vote breakdown", dump.contains("MetaCo"))
     }
 
     // ─── ADVISOR REGRESSION MONITOR ─────────────────────────────────────
