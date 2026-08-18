@@ -1,3 +1,86 @@
+## V5.0.6468 — 2026-02-18 — UPSTREAM DEDUP + PROVIDER FAULT CIRCUITS + INVARIANT AUDIT (items 15ext, 16, 17, 18)
+
+Third beat of the Correctness Completion Patch. Green in CI
+(Build AATE APK + Runtime Smoke Test, sha 590ac919).
+
+**§P0-#15 (extension) Advisor Correctness Firewall — new signals**
+- `AdvisorIntegrityHold6466` now trips on:
+  - `EventStreamReplay6467` divergence (|cash|/|realized|/|openCost|
+    > 0.01 SOL, or `firstDivergentEventId != null`).
+  - `ORDER_SIZE_RESOLVER_INVARIANT_VIOLATION_6468` count > 3.
+  - Any `DATA_PROVIDER_AUTH_LOCKOUT_6468` occurrence.
+- Advisor is HELD when any of these fire; guarantees no learning /
+  tuning happens on top of a diverged, mis-sized, or auth-broken
+  environment.
+
+**§P0-#16 OrderSizeResolverInvariant6468**
+- Post-condition guard called at the tail of `OrderSizeResolver6441.resolve()`.
+- Invariants enforced on every `Resolution`:
+  1. `finalSizeSol` finite and non-negative
+  2. `finalSizeSol <= cashCapSol` (when cashCap > 0)
+  3. `finalSizeSol <= laneCapSol` (when laneCap > 0 and finite)
+  4. `executable == true ⇒ finalSizeSol > 0`
+  5. `executable == false ⇒ reason.isNotBlank()`
+- Violations forensic-logged as
+  `ORDER_SIZE_RESOLVER_INVARIANT_VIOLATION_6468` and feed the advisor
+  firewall.
+
+**§P0-#17 ForcedCloseSlotSweeper6468**
+- Sweeps every 30 bot loops. Reconciles
+  `CanonicalMintOccupancyRegistry6464` (OPEN count) against
+  `CanonicalPositionAuthority6441.openPositions()`.
+- Explicit `onForcedClose(mode, mint, reason)` entry point — callable
+  from any forced/synthetic close code site to guarantee the mint
+  occupancy slot is released (no more "OPEN forever" mints blocking
+  future entries).
+- Telemetry: `FORCED_CLOSE_SLOT_MISMATCH_6468`,
+  `FORCED_CLOSE_SLOT_RELEASED_6468`.
+
+**§P0-#18 DataProviderFaultCircuits6468**
+- READ-side circuit breaker for data providers (Birdeye, Groq, Helius,
+  Solscan, GENERIC). Complements `ProviderDomainCircuits6411` (which
+  governs execution adapters).
+- Distinct handling per HTTP status class:
+  - **401 / 403** → `AUTH_LOCKOUT` for 15 min minimum. Retrying an
+    auth-broken endpoint burns quota for zero payoff. **Success
+    does NOT auto-clear** — operator must rotate the key and call
+    `releaseAuthLockout(provider)`.
+  - **404** → `CACHE_ONLY` after 2 consecutive (endpoint gone).
+  - **429** → `CACHE_ONLY` with exponential backoff (30s → 10 min).
+  - **5xx / IO / other** → `CACHE_ONLY` after 3 consecutive
+    (10s → 3 min).
+- Consumers call `mode(provider)` before hitting the network; when
+  not `LIVE`, they read cache. Provider faults will never crash the
+  bot loop.
+- `classify(hostname)` maps well-known hosts to providers.
+
+**Acceptance test**
+- `CorrectnessHardeningAcceptanceTest6468` (9 tests):
+  - single 401 → AUTH_LOCKOUT; success does not auto-clear; release
+    path clears
+  - 429 and 404 → CACHE_ONLY; success closes back to LIVE
+  - hostname classifier maps birdeye/groq/helius/generic
+  - invariant catches executable-with-zero-size
+  - invariant catches final-exceeds-lane-cap
+  - clean Resolution passes
+  - forced-close releases occupancy slot
+  - sweep is idempotent on clean state
+  - firewall statusLine remains publishable after extensions
+  - provider statusLine covers all providers
+
+**Behavioural stance**
+- Paper-mode observability + defensive correctness surfaces. Zero
+  touch to the live execution path. Live routing remains fully
+  functional and gated by mode="live".
+
+**V5.0.6469 — exit tuning — INTENTIONALLY NOT SHIPPED**
+- Blocked per operator mandate: requires ≥20 post-fix MOONSHOT closes
+  with clean parity / replay / conservation metrics BEFORE any exit
+  tuning is applied. Shipping speculatively on unproven data would
+  poison the learning surfaces the last three ships worked to
+  stabilise.
+
+
 ## V5.0.6467 — 2026-02-18 — REPLAY + CAPITAL + RECONCILER HEARTBEAT (items 9-13)
 
 Second beat of the Correctness Completion Patch. Green in CI

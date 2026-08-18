@@ -1,6 +1,54 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6468 (Feb 2026) — UPSTREAM DEDUP + PROVIDER FAULT CIRCUITS + INVARIANT AUDIT
+
+Third beat of the Correctness Completion Patch (items 15-ext, 16, 17, 18).
+CI green (Build APK + Runtime Smoke Test, sha 590ac919).
+
+- **Advisor firewall extended** — `AdvisorIntegrityHold6466` now holds on
+  EventStreamReplay6467 divergence, OrderSizeResolver invariant violations,
+  and DataProvider auth lockouts. No learning on top of a broken environment.
+- **OrderSizeResolverInvariant6468** — post-condition guard called at the
+  tail of `OrderSizeResolver6441.resolve()`. Guards non-negative final,
+  cash/lane ceilings, executable⇔positive-size, non-executable⇔reason.
+- **ForcedCloseSlotSweeper6468** — reconciles CanonicalMintOccupancyRegistry
+  against CanonicalPositionAuthority every 30 loops. Explicit
+  `onForcedClose(mode, mint, reason)` for any forced/synthetic close path.
+- **DataProviderFaultCircuits6468** — read-side circuit breakers for
+  Birdeye, Groq, Helius, Solscan, generic. Distinct handling for 401/403
+  (AUTH_LOCKOUT, no auto-clear), 404 (cache-only), 429 (backoff),
+  5xx/IO (cache-only). Provider faults cannot crash the bot loop.
+
+**V5.0.6469 (exit tuning) — INTENTIONALLY DEFERRED**  
+Blocked per operator mandate: requires ≥20 post-fix MOONSHOT closes with
+clean parity / replay / conservation metrics before exit tuning applies.
+
+
+## V5.0.6467 (Feb 2026) — REPLAY + CAPITAL + RECONCILER HEARTBEAT
+
+Second beat of the Correctness Completion Patch (items 9, 10, 12, 13).
+CI green (Build APK + Runtime Smoke Test, sha 23c105b).
+
+- **EventStreamReplay6467** — deterministic replay of the same
+  `EconomicEventSchema6464` events the terminal path writes, reports the
+  FIRST divergent event id (not just aggregate deltas). Wired into the
+  30-loop parity audit next to `CanonicalPaperReplay6464`.
+- **PaperEquityCalculator6467** — single equity calculator: 
+  `equity = cash + markedOpenValue`; realized already embedded in cash.
+  Consumes canonical `openMarketValueSol` from `CanonicalCapitalAuthority6450`.
+- **ReconcilerHeartbeat6467** — single heartbeat surface. `ageMs` returns
+  `-1` when uninitialized (no MAX_VALUE leakage). `WallClockReconciler6454`
+  feeds it on every quick/full start+success.
+
+
+## V5.0.6466 (Feb 2026) — POSITION AUTHORITY + TERMINAL FINALIZATION + ADVISOR INTEGRITY FIREWALL
+
+First beat of the Correctness Completion Patch (items 1-8 + narrow 15).
+CI green.
+
+
+
 ## V5.0.6465 (Feb 2026) — BUY PATH PUBLISH + CONSUMER FANOUT + REGISTRY AUTO-HEAL + IDENTITY WIRE
 
 Four operator directives from the 6464 follow-up landed together.
