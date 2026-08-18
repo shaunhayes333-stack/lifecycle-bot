@@ -47,6 +47,12 @@ object PositionRegistryParityAudit6464 {
     private val lastSnapshot = AtomicReference<Snapshot?>(null)
     private val audits = AtomicLong(0L)
     private val divergences = AtomicLong(0L)
+    // V5.0.6465 §P0-#3 REGISTRY AUTO-HEAL — after N consecutive
+    // divergent audits, rebuild EmergentGuardrails from canonical
+    // state.
+    private const val AUTO_HEAL_THRESHOLD = 3
+    private val consecutiveDivergences = AtomicLong(0L)
+    private val autoHeals = AtomicLong(0L)
 
     fun audit(): Snapshot {
         audits.incrementAndGet()
@@ -113,20 +119,76 @@ object PositionRegistryParityAudit6464 {
                        snap.costBasisMismatch.isNotEmpty()
         if (diverged) {
             divergences.incrementAndGet()
+            val streak = consecutiveDivergences.incrementAndGet()
             try {
                 ForensicLogger.lifecycle(
                     "POSITION_PARITY_DIVERGENCE_6464",
                     "canonical=${snap.canonicalCount} registry=${snap.registryCount} delta=${snap.delta} " +
                         "missCan=${snap.missingFromCanonical.size} missReg=${snap.missingFromRegistry.size} " +
                         "stateMismatch=${snap.stateMismatch.size} qtyMismatch=${snap.qtyMismatch.size} " +
-                        "costMismatch=${snap.costBasisMismatch.size}",
+                        "costMismatch=${snap.costBasisMismatch.size} streak=$streak",
                 )
                 PipelineHealthCollector.labelInc("POSITION_PARITY_DIVERGENCE_6464")
             } catch (_: Throwable) {}
+            if (streak >= AUTO_HEAL_THRESHOLD) {
+                healRegistryFromCanonical()
+                consecutiveDivergences.set(0L)
+            }
         } else {
+            consecutiveDivergences.set(0L)
             try { PipelineHealthCollector.labelInc("POSITION_PARITY_CONVERGENT_6464") } catch (_: Throwable) {}
         }
         return snap
+    }
+
+    /**
+     * V5.0.6465 §P0-#3 — REBUILD EmergentGuardrails FROM CANONICAL.
+     *
+     * Called automatically after AUTO_HEAL_THRESHOLD consecutive
+     * divergent audits. Walks canonical open positions and:
+     *   - `registerPosition` for any mint missing from the legacy
+     *     registry
+     *   - `unregisterPosition` for any phantom mint present in the
+     *     registry but absent from canonical
+     *
+     * Non-destructive to canonical state; the goal is to make the
+     * legacy registry match the source of truth.
+     */
+    private fun healRegistryFromCanonical() {
+        autoHeals.incrementAndGet()
+        try {
+            val canonical = try {
+                CanonicalPositionAuthority6441.openPositions()
+            } catch (_: Throwable) { emptyList() }
+            val canonicalMints = canonical.map { it.mint }.toSet()
+            val registry = try { EmergentGuardrails.snapshot() } catch (_: Throwable) { emptyMap() }
+            val registryMints = registry.keys.toSet()
+
+            // Add missing canonical mints to registry.
+            for (c in canonical) {
+                if (c.mint !in registryMints) {
+                    try {
+                        EmergentGuardrails.registerPosition(
+                            mint = c.mint, symbol = c.symbol,
+                            layer = c.lane, size = c.entryCostSol,
+                        )
+                    } catch (_: Throwable) {}
+                }
+            }
+            // Remove phantom registry mints not backed by canonical.
+            for (mint in registryMints) {
+                if (mint !in canonicalMints) {
+                    try { EmergentGuardrails.unregisterPosition(mint) } catch (_: Throwable) {}
+                }
+            }
+            ForensicLogger.lifecycle(
+                "POSITION_PARITY_AUTO_HEAL_6465",
+                "canonical=${canonicalMints.size} registryBefore=${registryMints.size} " +
+                    "addedToRegistry=${(canonicalMints - registryMints).size} " +
+                    "removedFromRegistry=${(registryMints - canonicalMints).size}",
+            )
+            PipelineHealthCollector.labelInc("POSITION_PARITY_AUTO_HEAL_6465")
+        } catch (_: Throwable) {}
     }
 
     fun formatForPipelineDump(): String {
@@ -153,10 +215,12 @@ object PositionRegistryParityAudit6464 {
         return sb.toString()
     }
 
-    fun statusLine(): String = "audits=${audits.get()} divergences=${divergences.get()}"
+    fun statusLine(): String = "audits=${audits.get()} divergences=${divergences.get()} " +
+        "consecutiveDivergences=${consecutiveDivergences.get()} autoHeals=${autoHeals.get()}"
 
     internal fun resetForTest() {
         lastSnapshot.set(null)
         audits.set(0L); divergences.set(0L)
+        consecutiveDivergences.set(0L); autoHeals.set(0L)
     }
 }

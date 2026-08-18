@@ -221,13 +221,25 @@ object SellFinalizationCoordinator {
                     )
                     val realizedPct = if (intent.entrySolSpent > 0.0)
                         (pnl.realizedPnlSol / intent.entrySolSpent) * 100.0 else 0.0
-                    com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.publish(
-                        com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope(
-                            tradeId = idKey, atMs = System.currentTimeMillis(),
-                            realizedPnlSol = pnl.realizedPnlSol, realizedReturnPct = realizedPct,
-                            mint = intent.mint, lane = traderTag,
-                        )
+                    val envelope6464 = com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope(
+                        tradeId = idKey, atMs = System.currentTimeMillis(),
+                        realizedPnlSol = pnl.realizedPnlSol, realizedReturnPct = realizedPct,
+                        mint = intent.mint, lane = traderTag,
                     )
+                    val firstPublish6465 = com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.publish(envelope6464)
+                    // V5.0.6465 §P0-#2 — CONSUMER FANOUT. Publish gates
+                    // dedup; deliverToConsumers gates each consumer's
+                    // per-tick ack. Consumers that refuse (false return)
+                    // have their ack removed so the parity report
+                    // resurfaces the miss next tick.
+                    if (firstPublish6465) {
+                        try {
+                            com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.deliverToConsumers(envelope6464) { name, env ->
+                                try { com.lifecyclebot.engine.truth.FinalizedBusConsumerBridge6465.deliver(name, env) }
+                                catch (_: Throwable) { false }
+                            }
+                        } catch (_: Throwable) {}
+                    }
                     // V5.0.6464 §P1 — root-cause TTL: a healthy terminal
                     // sell clears any stale MECHANICAL_FAULT header.
                     try {

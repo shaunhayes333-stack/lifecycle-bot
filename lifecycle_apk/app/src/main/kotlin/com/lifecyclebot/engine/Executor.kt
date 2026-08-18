@@ -12290,6 +12290,35 @@ class Executor(
                     tokenDecimals = 9,
                     paperMode = true,
                 )
+                // V5.0.6465 §P0 — CANONICAL BUY PATH PUBLISH (paper).
+                // Records the confirmed buy on CanonicalLotQuantity6464
+                // (so subsequent sell requests validate against real
+                // bought qty) AND emits a typed BUY row into
+                // EconomicEventSchema6464 (so CanonicalPaperReplay6464
+                // rebuilds cash / openCost from unique fills). Both are
+                // idempotent — the lot ledger sums BigInteger, the event
+                // schema keys on idempotencyKey.
+                try {
+                    val pid6465 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(tradeId.mint)
+                    com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.onBuyFilled(
+                        positionId = pid6465, mint = tradeId.mint, filledQty = buyQtyRaw6448,
+                    )
+                    val fillPrice6465 = if (buyQtyRaw6448.signum() > 0)
+                        actualSol / buyQtyRaw6448.toBigDecimal().movePointLeft(9).toDouble().coerceAtLeast(1e-12)
+                    else 0.0
+                    com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(
+                        mode = "paper", positionId = pid6465, mint = tradeId.mint,
+                        symbol = ts.symbol.ifBlank { tradeId.symbol },
+                        idempotencyKey = "buy_${tradeId.mint}_${System.nanoTime()}",
+                        executedCostSol = actualSol + actualSol * 0.005,
+                        filledQty = buyQtyRaw6448, fillPrice = fillPrice6465,
+                    )
+                    com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen(
+                        mode = "paper", mint = tradeId.mint,
+                        symbol = ts.symbol.ifBlank { tradeId.symbol },
+                        source = "Executor.paperBuyFill",
+                    )
+                } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}
         // V5.0.6450 §P0 — IMMUTABLE ENTRY STRATEGY SNAPSHOT. Persist the
@@ -16320,6 +16349,30 @@ class Executor(
                         tokenDecimals = 9,
                         paperMode = false,
                     )
+                    // V5.0.6465 §P0 — CANONICAL BUY PATH PUBLISH (live).
+                    // Same wiring as paper — keeps replay parity zero
+                    // regardless of which mode the operator switches to.
+                    try {
+                        val pidLive6465 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(tradeId.mint)
+                        com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.onBuyFilled(
+                            positionId = pidLive6465, mint = tradeId.mint, filledQty = liveBuyQtyRaw6448,
+                        )
+                        val fillPriceLive6465 = if (liveBuyQtyRaw6448.signum() > 0)
+                            sol / liveBuyQtyRaw6448.toBigDecimal().movePointLeft(9).toDouble().coerceAtLeast(1e-12)
+                        else 0.0
+                        com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(
+                            mode = "live", positionId = pidLive6465, mint = tradeId.mint,
+                            symbol = ts.symbol.ifBlank { tradeId.symbol },
+                            idempotencyKey = "buy_live_${sig.ifBlank { tradeId.mint }}_${System.nanoTime()}",
+                            executedCostSol = sol + (sol * MEME_TRADING_FEE_PERCENT).coerceAtLeast(0.0),
+                            filledQty = liveBuyQtyRaw6448, fillPrice = fillPriceLive6465,
+                        )
+                        com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen(
+                            mode = "live", mint = tradeId.mint,
+                            symbol = ts.symbol.ifBlank { tradeId.symbol },
+                            source = "Executor.liveBuyFill",
+                        )
+                    } catch (_: Throwable) {}
                 }
             } catch (_: Throwable) {}
             val trade = Trade(

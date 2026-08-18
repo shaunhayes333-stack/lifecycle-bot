@@ -243,6 +243,22 @@ object EmergentGuardrails {
             )
             com.lifecyclebot.engine.truth.AuthoritySnapshotVersion6464.bump("register_$symbol")
         } catch (_: Throwable) {}
+        // V5.0.6465 §P1 — CANONICAL IDENTITY MODEL enforcement.
+        // Every position creation site converges here (paper open path);
+        // record the 5 identity fields exactly once so alias merges for
+        // NEW positions approach zero. Refuses to overwrite an existing
+        // canonicalOriginLane, so a re-register on the same mint keeps
+        // the original attribution.
+        try {
+            com.lifecyclebot.engine.truth.CanonicalIdentityModel6464.record(
+                positionId = mint,
+                canonicalOriginLaneRaw = layer,
+                strategyId = layer,           // best-effort until executor exposes strategy pid
+                routeId = "PAPER_ROUTE",
+                executionLaneRaw = layer,
+                exitPolicy = "STANDARD",
+            )
+        } catch (_: Throwable) {}
     }
     
     /**

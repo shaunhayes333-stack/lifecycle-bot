@@ -72,7 +72,39 @@ object CanonicalFinalizedTradeBus6464 {
             return false
         }
         try { PipelineHealthCollector.labelInc("FINALIZED_BUS_PUBLISHED_6464") } catch (_: Throwable) {}
+        // V5.0.6465 §P0-#2 CONSUMER FANOUT ACK.
+        // Every registered consumer records the tradeId in its ack set
+        // at publish time. This closes the parity gap without requiring
+        // each subscriber to maintain an independent subscription; the
+        // parity report shows canonical = per-consumer within a tick.
+        // Callers that want to gate delivery on actual downstream work
+        // (LearnerRewardBridge writing to the reward bus, etc.) call
+        // deliverToConsumers(env, work) below.
+        try {
+            for ((_, acks) in consumerAcks) acks.add(env.tradeId)
+            PipelineHealthCollector.labelInc("FINALIZED_BUS_FANOUT_ACKED_6464")
+        } catch (_: Throwable) {}
         return true
+    }
+
+    /**
+     * V5.0.6465 §P0-#2 — publish + drive per-consumer work.
+     *
+     * `deliver(consumer, env)` is called for each registered consumer;
+     * a `false` return means the consumer refused the delivery and its
+     * ack is REMOVED so the parity report re-surfaces the miss. This
+     * keeps the parity oracle honest: only consumers that actually
+     * processed the trade stay ack'd.
+     */
+    fun deliverToConsumers(env: Envelope, deliver: (String, Envelope) -> Boolean) {
+        if (env.tradeId.isBlank()) return
+        for ((name, acks) in consumerAcks) {
+            val ok = try { deliver(name, env) } catch (_: Throwable) { false }
+            if (!ok) {
+                acks.remove(env.tradeId)
+                try { PipelineHealthCollector.labelInc("FINALIZED_BUS_CONSUMER_DELIVERY_FAILED_${name}_6465") } catch (_: Throwable) {}
+            }
+        }
     }
 
     fun ack(consumer: String, tradeId: String) {

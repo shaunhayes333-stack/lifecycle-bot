@@ -2593,6 +2593,8 @@ object PipelineHealthCollector {
               .append(com.lifecyclebot.engine.truth.CanonicalPaperReplay6464.statusLine()).append("\n")
             sb.append("  finalizedBus:       ")
               .append(com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.statusLine()).append("\n")
+            sb.append("  consumerBridge:     ")
+              .append(com.lifecyclebot.engine.truth.FinalizedBusConsumerBridge6465.statusLine()).append("\n")
             sb.append("  identityModel:      ")
               .append(com.lifecyclebot.engine.truth.CanonicalIdentityModel6464.statusLine()).append("\n")
             sb.append("  stopLatency:        ")
