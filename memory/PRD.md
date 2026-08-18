@@ -1,6 +1,62 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6464 (Feb 2026) — CORRECTNESS COMPLETION PATCH + EXPORT ONE-LINE-BUG FIX
+
+11 new canonical modules covering 10 operator sections + a targeted
+UX fix for the pipeline report export.
+
+**Export one-line bug (operator report: "just the title")** — the
+share intent stuffed a one-line description into `EXTRA_TEXT`.
+Receivers that read `EXTRA_TEXT` (SMS, Signal, notes) showed only
+that placeholder. Fixed in both `PipelineReportFileExporter6401`
+and `ForensicReportExporter`: `EXTRA_TEXT` now carries the actual
+report text (bounded to a Binder-safe 500_000 chars); `EXTRA_STREAM`
+still attaches the full file.
+
+**§P0 (7 items)**
+- `CanonicalMintOccupancyRegistry6464` — (mode, mint) → occupancy;
+  admission gate before hydration; live/paper isolated.
+- `PositionRegistryParityAudit6464` — per-state breakdown + ID
+  divergence lists; every 30 loops.
+- `CanonicalLotQuantity6464` — sellableQty = bought − sold − reserved;
+  clamps/rejects sells pre-executor.
+- `TerminalSellIdempotency6464` — CAS on (sellExecutionId | fillId |
+  signature) at `SellFinalizationCoordinator.finalize`.
+- `EconomicEventSchema6464` — typed BUY/SELL rows (all fields explicit).
+- `CanonicalPaperReplay6464` — replays typed events, emits
+  `PAPER_REPLAY_PARITY_6464`.
+- `CanonicalFinalizedTradeBus6464` — 8 consumers registered on startup;
+  per-consumer ack set; zero-consumers surface as `FINALIZED_BUS_ZERO_CONSUMERS_6464`.
+
+**§P1 (4 items)**
+- `CanonicalIdentityModel6464` — persists 5 identity fields per
+  positionId; refuses rewrite of canonicalOriginLane.
+- `StopLatencyClasses6464` — NORMAL/TRAILING/HARD/CATASTROPHIC buckets;
+  catastrophic >1000ms fires alert.
+- `RootCauseTtl6464` — 5-min TTL by default; cleared on healthy
+  terminal sell.
+- `AuthoritySnapshotVersion6464` — monotonic epoch; executor validates
+  version before mutation; mismatch → revalidate (kills AUTHZ_RACE).
+
+**Live route preserved** — every 6464 module keys on `(mode, mint)`
+so paper open cannot block live entry and vice versa. Live routing
+stays fully functional when the operator switches modes.
+
+**Follow-ups**
+- Executor buy path event publish (parallel to sell path already wired)
+- LearnerRewardBridge / LosingStreakReflex / GrowthRewardShaper /
+  TacticSwitcher consumers pulling from `CanonicalFinalizedTradeBus6464`
+  and calling `ack(consumer, tradeId)`
+- Extend `PositionRegistryParityAudit6464` to auto-heal legacy
+  EmergentGuardrails registry when divergence stabilises
+- Wire `CanonicalIdentityModel6464.record` at every position-creation
+  site (currently substrate is available, not yet mandatory)
+
+CI: Build AATE APK + Runtime Smoke Test both green.
+
+
+
 ## V5.0.6463 (Feb 2026) — REVERT-ON-REGRESSION + ADVISOR TIMELINE + PARTIAL-SELL VALIDATOR + PERPS SANDBOX
 
 Four operator directives from the 6462 follow-up landed together.

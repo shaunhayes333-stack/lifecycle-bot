@@ -1,3 +1,120 @@
+## V5.0.6464 — 2026-02-18 — CORRECTNESS COMPLETION PATCH + EXPORT ONE-LINE-BUG FIX
+
+Massive 11-module correctness pass covering 10 operator sections + a
+targeted UX fix for the pipeline report export.
+
+**EXPORT ONE-LINE BUG** (`PipelineReportFileExporter6401` + `ForensicReportExporter`)
+- Operator report: "it sends one line if you try to export it. just the title"
+- Root cause: `EXTRA_TEXT` held a one-line description ("AATE pipeline report
+  attached (N bytes)."). Receivers preferring `EXTRA_TEXT` over `EXTRA_STREAM`
+  (SMS, Signal, WhatsApp chat body, Notes) showed only that placeholder.
+- Fix: `EXTRA_TEXT` now carries the ACTUAL report text bounded to a
+  Binder-safe 500_000 chars; `EXTRA_STREAM` still attaches the full file.
+
+**§P0-#1 `CanonicalMintOccupancyRegistry6464`**
+- Mode-scoped (`paper|live`) + canonicalMint key. States NONE / CANDIDATE
+  / PENDING_ENTRY / IN_FLIGHT_ENTRY / OPEN / PENDING_EXIT.
+- Wired into V3 execute path BEFORE hydration — 90%+ of same-mint
+  EXEC_GATE blocks vanish at ingestion.
+- Paper/live isolated → live route stays fully functional.
+- 90s PENDING_ENTRY TTL auto-release.
+
+**§P0-#2 `PositionRegistryParityAudit6464`**
+- Per-state breakdown for canonical + registry + `missingFromCanonical`
+  / `missingFromRegistry` / `stateMismatch` / `qtyMismatch` /
+  `costBasisMismatch` ID lists. Non-mutating; runs every 30 loops via
+  `MaintenanceWorker6448`.
+
+**§P0-#3 `CanonicalLotQuantity6464`**
+- Per-positionId ledger: `confirmedBoughtQty − confirmedSoldQty − reservedPendingSellQty = sellableQty`.
+- Sell requests clamp/reject BEFORE executor mutation.
+- Invariant enforced: `confirmedSoldQty ≤ confirmedBoughtQty + ε`.
+
+**§P0-#4 `TerminalSellIdempotency6464`**
+- CAS on (sellExecutionId | fillId | signature). First observation
+  PROCEEDs, subsequent ones DUPLICATE_IGNORED.
+- Wired at `SellFinalizationCoordinator.finalize` — every terminal
+  path (SL / trail / partial TP / catastrophic / dust / replay)
+  routes through the same gate.
+
+**§P0-#5 `EconomicEventSchema6464`**
+- Typed BUY/SELL rows replace ambiguous sol/cost/pnl:
+  - BUY: `executedCostSol`, `filledQty`, `fillPrice`
+  - SELL: `soldQty`, `allocatedCostBasisSol`, `grossProceedsSol`,
+    `exitFeesSol`, `netProceedsSol`, `realizedPnlSol`,
+    `realizedReturnPct`, `remainingQty`, `remainingCostBasisSol`
+- Computes allocated basis via `preRemainingCost * soldQty/preRemainingQty`.
+- Arithmetic self-audit emits `ECONOMIC_EVENT_ARITH_DIVERGENCE_6464`.
+
+**§P0-#6 `CanonicalPaperReplay6464`**
+- Replays typed events oldest-first with idempotencyKey uniqueness gate.
+- Fi4FaM filter drops `|realized| > 30 SOL` rows.
+- Emits `PAPER_REPLAY_PARITY_6464` with cashΔ / realizedΔ / openCostΔ /
+  qtyMismatch / duplicateDiscarded / invalidRowsQuarantined.
+
+**§P0-#7 `CanonicalFinalizedTradeBus6464`**
+- Single canonical fanout. Consumers registered at `BotService.startBot`:
+  LearnerRewardBridge / LosingStreakReflex / GrowthRewardShaper /
+  TacticSwitcher / Governor / CapitalCreed / EVEstimator / Dashboard.
+- Per-consumer unique-tradeId ack set. `parity()` surfaces
+  `zeroConsumers` so a disconnected learner cannot silently sit at zero
+  → `FINALIZED_BUS_ZERO_CONSUMERS_6464`.
+
+**§P1 `CanonicalIdentityModel6464`**
+- Persists `canonicalOriginLane` / `strategyId` / `routeId` /
+  `executionLane` / `exitPolicy` per positionId.
+- `normalizeLane` alias table (PRESALE_SNIPE → RESALE_SNIPE, BLUECHIP →
+  BLUE_CHIP, etc.).
+- Refuses to overwrite existing `canonicalOriginLane` →
+  `IDENTITY_REWRITE_REFUSED_6464`.
+
+**§P1 `StopLatencyClasses6464`**
+- Four buckets: NORMAL_STOP / TRAILING_STOP / HARD_STOP / CATASTROPHIC_EXIT.
+- Catastrophic >1000ms emits `CATASTROPHIC_EXIT_LATENCY_ALERT_6464`.
+
+**§P1 `RootCauseTtl6464`**
+- Timestamped classification with `expiryAtMs`. Default 5-min TTL.
+- Cleared on healthy terminal sell so MECHANICAL_FAULT hints cannot
+  linger indefinitely.
+
+**§P1 `AuthoritySnapshotVersion6464`**
+- Monotonic epoch. Bumped on register/unregister/finalize. Decisions
+  capture `snapshotVersion`; executor validates before mutation.
+- Mismatch → `AUTHORITY_STALE_REVALIDATE_6464`; caller re-runs the
+  lane predicate on fresh authority. Kills AUTHZ_RACE.
+
+**Wiring**
+- `BotService.startBot`: registers 8 canonical bus consumers.
+- `BotService.botLoop`: schedules position parity + paper replay
+  audits every 30 loops via `MaintenanceWorker6448`.
+- `BotService` V3 execute: mint occupancy admit BEFORE legacy same-mint
+  layer check.
+- `EmergentGuardrails.register/unregister`: publishes OPEN/CLOSED to
+  occupancy + bumps authority + purges lot/identity.
+- `SellFinalizationCoordinator.finalize`: idempotency gate + lot fill
+  + economic event write + finalized bus publish + occupancy transition
+  + authority bump + root-cause auto-clear.
+- `PipelineHealthCollector.dumpText`: prints all 11 module status lines
+  + parity audit under `===== Canonical Correctness (V5.0.6464) =====`.
+
+**CI locks (`CanonicalCorrectnessAcceptanceTest6464`)**
+17 hard assertions covering admission order, paper/live isolation,
+candidate coalesce, over-sell rejection + clamp, sellable invariant,
+idempotency dedup, blank-key handling, proportional cost basis,
+zero-consumer detection, dedup publish, alias normalization,
+identity-rewrite refusal, catastrophic latency alert, root-cause TTL
+expiry, authority stale/validate cycle.
+
+Two build-fix commits needed:
+1. `FinalState.CLEARED` (not `CLOSED_FULL`), `Lifecycle` 5-value set
+   (not 8-value), `Position.originalQtyRaw` (not `openedQtyRaw`).
+2. Strip illegal `;` and `'` characters from backtick test method names.
+
+CI: Build AATE APK + Runtime Smoke Test both green on `e7f55ec16`.
+
+---
+
+
 ## V5.0.6463 — 2026-02-18 — REVERT-ON-REGRESSION + ADVISOR TIMELINE + PARTIAL-SELL VALIDATOR + PERPS SANDBOX
 
 All four operator directives from the 6462 follow-up landed as one
