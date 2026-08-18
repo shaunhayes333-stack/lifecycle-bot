@@ -14074,6 +14074,17 @@ class BotService : Service() {
                 } catch (_: Throwable) {}
             }
 
+            // V5.0.6462 — AUTONOMOUS PIPELINE ADVISOR.
+            // Fires every 12 loops (~2 min). Consults all brains + LLM,
+            // auto-applies safe deltas through LlmParameterTuner.
+            // Rate-limited internally to 90s min interval. Dispatched to
+            // Dispatchers.IO — never blocks the bot loop.
+            if (loopCount % 12 == 0 && !prevCycleWasSlow6421) {
+                try {
+                    com.lifecyclebot.engine.truth.AutoPipelineAdvisor6462.maybeTick(applicationContext)
+                } catch (_: Throwable) {}
+            }
+
             // V5.0.6461 §P0-#2/#3 — PENDING_ENTRY TTL SWEEP + PAPER REPLAY AUDIT.
             // Both are low-priority, bounded, non-blocking. Sweep runs every
             // 6 loops (~60s). Replay audit runs every 30 loops (~5min).

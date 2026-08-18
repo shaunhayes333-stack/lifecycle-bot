@@ -55,6 +55,11 @@ data class BotConfig(
     val fluidLearningEnabled: Boolean = true,  // Enable fluid scaling & all profit tools in paper/shadow mode
     val paperSimulatedBalance: Double = 11.76,   // ~$1000 USD starting paper balance (at ~$85 SOL)
     val autoTrade: Boolean = true,  // ENABLED BY DEFAULT - bot is autonomous
+    // V5.0.6462 — AUTONOMOUS PIPELINE ADVISOR
+    // When ON (default: paper mode only), AutoPipelineAdvisor6462 consults
+    // all brains + LLM every ~2 min and auto-applies safe parameter
+    // deltas (LlmParameterTuner allowlist, step-capped, phase-gated).
+    val autoPipelineAdvisorEnabled: Boolean = true,
     // tokens
     val watchlist: List<String> = emptyList(),
     val activeToken: String = "",
@@ -388,6 +393,7 @@ object ConfigStore {
             putBoolean("fluid_learning_enabled",      cfg.fluidLearningEnabled)
             putFloat("paper_simulated_balance",       cfg.paperSimulatedBalance.toFloat())
             putBoolean("auto_trade",                  cfg.autoTrade)
+            putBoolean("auto_pipeline_advisor_enabled", cfg.autoPipelineAdvisorEnabled)
             putString("watchlist",                    cfg.watchlist.joinToString(","))
             putString("active_token",                 cfg.activeToken)
             putFloat("small_buy_sol",                 cfg.smallBuySol.toFloat())
@@ -543,6 +549,7 @@ object ConfigStore {
             fluidLearningEnabled        = p.getBoolean("fluid_learning_enabled", true),
             paperSimulatedBalance       = p.getFloat("paper_simulated_balance", 11.76f).toDouble(),
             autoTrade                   = p.getBoolean("auto_trade", true),
+            autoPipelineAdvisorEnabled  = p.getBoolean("auto_pipeline_advisor_enabled", true),
             watchlist                   = (p.getString("watchlist", "") ?: "").split(",").filter { it.isNotBlank() },
             activeToken                 = p.getString("active_token", "") ?: "",
             smallBuySol                 = p.getFloat("small_buy_sol", 0.05f).toDouble(),
