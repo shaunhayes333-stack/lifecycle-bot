@@ -236,6 +236,13 @@ object EmergentGuardrails {
             size = size,
         )
         ErrorLogger.debug(TAG, "📍 Position registered: $symbol @ $layer")
+        // V5.0.6464 §P0-#1/§P1 — publish OPEN state + bump authority.
+        try {
+            com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen(
+                mode = "paper", mint = mint, symbol = symbol, source = "EmergentGuardrails.register",
+            )
+            com.lifecyclebot.engine.truth.AuthoritySnapshotVersion6464.bump("register_$symbol")
+        } catch (_: Throwable) {}
     }
     
     /**
@@ -253,6 +260,16 @@ object EmergentGuardrails {
                 com.lifecyclebot.engine.truth.SameMintCandidateEpoch6402
                     .onStateChange(mint, reason = "position_unregistered")
             } catch (_: Throwable) {}
+            // V5.0.6464 §P0-#1/§P1 — release occupancy + bump authority
+            // so the next same-mint candidate admits through the fast path.
+            try {
+                com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed(
+                    mode = "paper", mint = mint,
+                )
+                com.lifecyclebot.engine.truth.AuthoritySnapshotVersion6464.bump("unregister_${removed.symbol}")
+                com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.purge(mint)
+                com.lifecyclebot.engine.truth.CanonicalIdentityModel6464.purge(mint)
+            } catch (_: Throwable) {}
         }
     }
     
@@ -265,6 +282,26 @@ object EmergentGuardrails {
      * Get the layer of an open position.
      */
     fun getPositionLayer(mint: String): String? = openPositions[mint]?.layer
+
+    /**
+     * V5.0.6464 §P0-#2 — read-only snapshot for PositionRegistryParityAudit6464.
+     * Returns a defensive copy keyed by mint.
+     */
+    data class RegistryEntry(
+        val mint: String,
+        val symbol: String,
+        val state: String,     // "OPEN" here — legacy registry does not track pending
+        val qtyRaw: java.math.BigInteger,
+        val entryCostSol: Double,
+    )
+    fun snapshot(): Map<String, RegistryEntry> =
+        openPositions.mapValues { (_, p) ->
+            RegistryEntry(
+                mint = p.mint, symbol = p.symbol, state = "OPEN",
+                qtyRaw = java.math.BigInteger.ZERO, // legacy registry has no qty; audit will flag as mismatch
+                entryCostSol = p.size,
+            )
+        }
     
     /**
      * FIX_3 — MULTI-LAYER LOCK CHECK

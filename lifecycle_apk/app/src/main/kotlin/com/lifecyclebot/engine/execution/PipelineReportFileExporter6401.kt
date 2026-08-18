@@ -90,21 +90,44 @@ object PipelineReportFileExporter6401 {
         writeReportSyncToDir(ensureDir(ctx), text, prefix)
 
     /**
-     * Build a share intent that carries the file as a URI. NEVER puts
-     * the multi-megabyte report in `EXTRA_TEXT` — that path re-triggers
-     * the Binder-IPC freeze this whole helper exists to avoid.
+     * Build a share intent that carries the file as a URI AND the
+     * report text in EXTRA_TEXT for receivers that only read
+     * EXTRA_TEXT (SMS, notes, most chat apps).
+     *
+     * V5.0.6464 fix — the prior implementation put a one-line
+     * description ("AATE pipeline report attached (N bytes).") in
+     * EXTRA_TEXT. Receivers that prefer EXTRA_TEXT over EXTRA_STREAM
+     * (SMS, Signal, WhatsApp chat body, Notes) showed only that
+     * single line and dropped the actual report. Now:
+     *
+     *   - EXTRA_STREAM  = file URI (unchanged; file-capable receivers
+     *                     get the full unbounded report)
+     *   - EXTRA_TEXT    = the ACTUAL report text, bounded to
+     *                     BINDER_SAFE_MAX_CHARS to keep the Intent
+     *                     under Android's ~1MB transaction cap
+     *   - EXTRA_SUBJECT = human-readable subject
+     *
+     * The Binder-safe cap is 500_000 chars (≈500 KB) which is well
+     * under the ~1MB Binder txn ceiling but large enough to carry
+     * every pipeline report we've observed in this run (60–200 KB).
      */
+    private const val BINDER_SAFE_MAX_CHARS = 500_000
+
     fun shareIntent(ctx: Context, file: File, subject: String = "AATE Pipeline Report"): Intent? {
         return try {
             val uri: Uri = FileProvider.getUriForFile(ctx, authority(ctx), file)
+            val body = try {
+                if (file.length() <= BINDER_SAFE_MAX_CHARS.toLong()) file.readText()
+                else file.readText().take(BINDER_SAFE_MAX_CHARS) +
+                    "\n\n… (truncated to ${BINDER_SAFE_MAX_CHARS} chars for Binder safety — see attached file for the full ${file.length()}-byte report)"
+            } catch (_: Throwable) {
+                "AATE pipeline report attached (${file.length()} bytes). Full report is in the attached file."
+            }
             Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
                 putExtra(Intent.EXTRA_STREAM, uri)
                 putExtra(Intent.EXTRA_SUBJECT, "$subject — ${file.name}")
-                putExtra(
-                    Intent.EXTRA_TEXT,
-                    "AATE pipeline report attached (${file.length()} bytes).",
-                )
+                putExtra(Intent.EXTRA_TEXT, body)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
         } catch (t: Throwable) {

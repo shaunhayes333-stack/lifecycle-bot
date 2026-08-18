@@ -71,13 +71,23 @@ object ForensicReportExporter {
     fun shareIntent(ctx: Context, file: File): Intent? {
         return try {
             val uri: Uri = FileProvider.getUriForFile(ctx, authority(ctx), file)
+            // V5.0.6464 fix — receivers that only read EXTRA_TEXT (SMS,
+            // Signal, Notes) got a one-line placeholder. Put the actual
+            // JSON body in EXTRA_TEXT, bounded to a Binder-safe size so
+            // file-capable receivers still get the full file via
+            // EXTRA_STREAM while text-only receivers see the content.
+            val body = try {
+                if (file.length() <= 500_000L) file.readText()
+                else file.readText().take(500_000) +
+                    "\n\n… (truncated to 500000 chars for Binder safety — attached file has the full ${file.length()}-byte payload)"
+            } catch (_: Throwable) {
+                "AATE forensic export attached. Compare intended_symbol vs stored_mint vs wallet_balance vs last_buy_signature."
+            }
             Intent(Intent.ACTION_SEND).apply {
                 type = "application/json"
                 putExtra(Intent.EXTRA_STREAM, uri)
                 putExtra(Intent.EXTRA_SUBJECT, "AATE Forensic Report ${file.name}")
-                putExtra(Intent.EXTRA_TEXT,
-                    "AATE forensic export attached. " +
-                    "Compare intended_symbol vs stored_mint vs wallet_balance vs last_buy_signature.")
+                putExtra(Intent.EXTRA_TEXT, body)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
         } catch (e: Exception) {

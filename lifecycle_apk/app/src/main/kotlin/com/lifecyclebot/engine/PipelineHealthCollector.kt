@@ -2574,6 +2574,35 @@ object PipelineHealthCollector {
             }
         } catch (_: Throwable) {}
 
+        // V5.0.6464 §P0/§P1 — canonical correctness dumps. The parity
+        // audit + replay run on the MaintenanceWorker cadence; this
+        // block just prints the most recent snapshot alongside all
+        // 6464 module status lines.
+        try {
+            sb.append("\n===== Canonical Correctness (V5.0.6464) =====\n")
+            sb.append(com.lifecyclebot.engine.truth.PositionRegistryParityAudit6464.formatForPipelineDump())
+            sb.append("  mintOccupancy:      ")
+              .append(com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.statusLine()).append("\n")
+            sb.append("  lotQuantity:        ")
+              .append(com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.statusLine()).append("\n")
+            sb.append("  terminalIdempotency:")
+              .append(com.lifecyclebot.engine.truth.TerminalSellIdempotency6464.statusLine()).append("\n")
+            sb.append("  economicSchema:     ")
+              .append(com.lifecyclebot.engine.truth.EconomicEventSchema6464.statusLine()).append("\n")
+            sb.append("  paperReplay:        ")
+              .append(com.lifecyclebot.engine.truth.CanonicalPaperReplay6464.statusLine()).append("\n")
+            sb.append("  finalizedBus:       ")
+              .append(com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.statusLine()).append("\n")
+            sb.append("  identityModel:      ")
+              .append(com.lifecyclebot.engine.truth.CanonicalIdentityModel6464.statusLine()).append("\n")
+            sb.append("  stopLatency:        ")
+              .append(com.lifecyclebot.engine.truth.StopLatencyClasses6464.statusLine()).append("\n")
+            sb.append("  rootCauseTtl:       ")
+              .append(com.lifecyclebot.engine.truth.RootCauseTtl6464.statusLine()).append("\n")
+            sb.append("  authorityVersion:   ")
+              .append(com.lifecyclebot.engine.truth.AuthoritySnapshotVersion6464.statusLine()).append("\n")
+        } catch (_: Throwable) {}
+
         return sb.toString()
     }
 

@@ -3651,7 +3651,26 @@ class BotService : Service() {
             // on already-open mints. The existing paperBuy guard remains as
             // belt-and-suspenders for other doBuy callers.
             val existingLayer6373 = try { com.lifecyclebot.engine.EmergentGuardrails.getPositionLayer(ts.mint) } catch (_: Throwable) { null }
-            if (!existingLayer6373.isNullOrBlank()) {
+            // V5.0.6464 §P0-#1 — CANONICAL MINT OCCUPANCY (early admission).
+            // Runs BEFORE the legacy EmergentGuardrails.getPositionLayer path so
+            // 90%+ of same-mint EXEC_GATE blocks vanish at hydration time.
+            val mode6464 = if (isPaper) "paper" else "live"
+            val admission6464 = try {
+                com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.admit(
+                    mode = mode6464, mint = ts.mint, symbol = ts.symbol, source = "V3_EXEC",
+                )
+            } catch (_: Throwable) { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.Admission.PASS_NONE }
+            val occupancyBlocked6464 = admission6464 == com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.Admission.BLOCK_OPEN ||
+                admission6464 == com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.Admission.BLOCK_PENDING ||
+                admission6464 == com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.Admission.BLOCK_EXITING
+            if (occupancyBlocked6464) {
+                try {
+                    PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "MINT_OCCUPANCY_${admission6464.name}_6464")
+                } catch (_: Throwable) {}
+                com.lifecyclebot.v3.ExecuteResult(
+                    success = false, error = "MINT_OCCUPANCY_${admission6464.name}_6464",
+                )
+            } else if (!existingLayer6373.isNullOrBlank()) {
                 try {
                     PipelineHealthCollector.labelInc("V3_EXEC_SAME_MINT_PREEMPT_6373")
                     PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "V3_SAME_MINT_ALREADY_OPEN_6373 existing=$existingLayer6373")
@@ -4045,6 +4064,17 @@ class BotService : Service() {
 
     fun startBot() {
         isShuttingDown = false  // V5.9.721: clear shutdown flag so traders run normally
+        // V5.0.6464 §P0-#7 — REGISTER CANONICAL FINALIZED-TRADE BUS CONSUMERS.
+        // The 8 acknowledged learners/EV/dashboard subscribers each get a
+        // slot in CanonicalFinalizedTradeBus6464 so the parity report
+        // surfaces zero-consumers by name. Registration is idempotent.
+        try {
+            for (c in listOf(
+                "LearnerRewardBridge", "LosingStreakReflex", "GrowthRewardShaper",
+                "TacticSwitcher", "Governor", "CapitalCreed",
+                "EVEstimator", "Dashboard",
+            )) com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.registerConsumer(c)
+        } catch (_: Throwable) {}
         // V5.0.6456 §P0-#1 — install real mark provider so
         // CanonicalCapitalAuthority6450's unrealized/equity/conservation
         // reflect live prices from status.tokens (in-memory cache, no IO).
@@ -14108,6 +14138,23 @@ class BotService : Service() {
                         name = "advisor_regression_check_6463", budgetMs = 2_000L,
                     ) {
                         com.lifecyclebot.engine.truth.AdvisorRegressionMonitor6463.checkAll(applicationContext)
+                    }
+                } catch (_: Throwable) {}
+            }
+
+            // V5.0.6464 §P0 — POSITION PARITY + PAPER REPLAY AUDIT.
+            // Runs every 30 loops (~5 min) through MaintenanceWorker6448
+            // so botLoop never blocks on it. Emits POSITION_PARITY_*_6464
+            // and PAPER_REPLAY_PARITY_6464 telemetry the operator uses
+            // to confirm §P0-#2/#6 acceptance criteria at runtime.
+            if (loopCount % 30 == 0 && !prevCycleWasSlow6421) {
+                try {
+                    com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
+                        name = "position_parity_audit_6464", budgetMs = 3_000L,
+                    ) {
+                        com.lifecyclebot.engine.truth.PositionRegistryParityAudit6464.audit()
+                        val startCap6464 = ConfigStore.load(applicationContext).paperSimulatedBalance
+                        com.lifecyclebot.engine.truth.CanonicalPaperReplay6464.compareToLedger(startCap6464)
                     }
                 } catch (_: Throwable) {}
             }

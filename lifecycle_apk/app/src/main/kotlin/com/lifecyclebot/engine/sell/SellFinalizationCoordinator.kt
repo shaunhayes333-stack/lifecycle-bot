@@ -183,14 +183,68 @@ object SellFinalizationCoordinator {
             pendingRetry = false,
         ).also { res ->
             // V5.0.6463 §P1 — PARTIAL-SELL UNIT CORRECTNESS.
-            // Every partial + full sell converges here; validate all SOL
-            // slots through the Fi4FaM firewall + arithmetic cross-check
-            // before any downstream consumer writes anything based on this
-            // result. Non-mutating — validated snapshot is telemetry only.
             try {
                 com.lifecyclebot.engine.truth.PartialSellCorrectness6463.validate(
                     res, feesSol, siteTag = "SellFinalizationCoordinator.finalize(${traderTag})",
                 )
+            } catch (_: Throwable) {}
+
+            // V5.0.6464 §P0 — CANONICAL EVENT FANOUT (idempotent, keyed by sellSig).
+            // On the FIRST observation only:
+            //   §P0-#3 confirm the sold qty on CanonicalLotQuantity6464
+            //   §P0-#4 stamp the terminal idempotency record
+            //   §P0-#5 emit the typed economic event
+            //   §P0-#7 publish to the canonical finalized-trade bus
+            // Duplicate observations bail before any of the above.
+            try {
+                val idKey = com.lifecyclebot.engine.truth.TerminalSellIdempotency6464.makeKey(
+                    sellExecutionId = null, fillId = sellSig, signature = sellSig,
+                )
+                val positionId = intent.mint  // best-effort; multi-lot future revision may lift this
+                val consume = com.lifecyclebot.engine.truth.TerminalSellIdempotency6464.beginTerminal(
+                    key = idKey, positionId = positionId,
+                    sitePath = "SellFinalizationCoordinator.finalize(${traderTag})",
+                )
+                if (consume == com.lifecyclebot.engine.truth.TerminalSellIdempotency6464.Consume.PROCEED) {
+                    com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.onSellFilled(
+                        positionId = positionId, mint = intent.mint, filledQty = actualConsumedRaw,
+                    )
+                    val partial = fin.finalState != TxMetaSellFinalizer.FinalState.CLOSED_FULL
+                    com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordSell(
+                        mode = "paper",   // executor sets its own mode; this path is paper-safe.
+                        positionId = positionId, mint = intent.mint, symbol = intent.symbol,
+                        idempotencyKey = idKey, partial = partial,
+                        soldQty = actualConsumedRaw,
+                        preRemainingQty = intent.entryTokenRaw.takeIf { it.signum() > 0 } ?: intent.confirmedWalletRaw,
+                        preRemainingCostBasisSol = intent.entrySolSpent,
+                        grossProceedsSol = sellSolReceived, exitFeesSol = feesSol,
+                    )
+                    val realizedPct = if (intent.entrySolSpent > 0.0)
+                        (pnl.realizedPnlSol / intent.entrySolSpent) * 100.0 else 0.0
+                    com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.publish(
+                        com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope(
+                            tradeId = idKey, atMs = System.currentTimeMillis(),
+                            realizedPnlSol = pnl.realizedPnlSol, realizedReturnPct = realizedPct,
+                            mint = intent.mint, lane = traderTag,
+                        )
+                    )
+                    // V5.0.6464 §P1 — root-cause TTL: a healthy terminal
+                    // sell clears any stale MECHANICAL_FAULT header.
+                    try {
+                        val cur = com.lifecyclebot.engine.truth.RootCauseTtl6464.current()
+                        if (cur != null && cur.reason.startsWith("MECHANICAL_FAULT"))
+                            com.lifecyclebot.engine.truth.RootCauseTtl6464.clear()
+                    } catch (_: Throwable) {}
+                }
+                // V5.0.6464 §P1 — occupancy: mark PENDING_EXIT then CLOSED as this path landed.
+                com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markPendingExit(
+                    mode = "paper", mint = intent.mint, symbol = intent.symbol,
+                    source = "SellFinalizationCoordinator",
+                )
+                if (fin.finalState == TxMetaSellFinalizer.FinalState.CLOSED_FULL) {
+                    com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("paper", intent.mint)
+                }
+                com.lifecyclebot.engine.truth.AuthoritySnapshotVersion6464.bump("sell_finalized_${intent.symbol}")
             } catch (_: Throwable) {}
         }
     }

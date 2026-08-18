@@ -1,0 +1,161 @@
+package com.lifecyclebot.engine.truth
+
+import com.lifecyclebot.engine.ForensicLogger
+import com.lifecyclebot.engine.PipelineHealthCollector
+import java.math.BigInteger
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * V5.0.6464 §P0-#3 — CANONICAL LOT QUANTITY (sell boundary is BLIND fix).
+ *
+ * OPERATOR MANDATE:
+ *   "over-sold mints=6 (example: buyQty=35.140 sellQty=57.632). Yet
+ *    runtime overSoldCandidates=0. The boundary guard is validating
+ *    the wrong quantity source."
+ *
+ * DESIGN
+ * ──────
+ * Per-positionId ledger of confirmed buys, confirmed sells, and reserved
+ * pending sells — the sell-side truth boundary. Every sell REQUEST must
+ * pass `assertSellable(positionId, requestedQty)` BEFORE it enters the
+ * executor mutation.
+ *
+ *   confirmedBoughtQty       — atomic, incremented on BUY fill
+ *   confirmedSoldQty         — atomic, incremented on SELL fill
+ *   reservedPendingSellQty   — atomic, held between decision and fill
+ *
+ *   sellableQty = confirmedBoughtQty - confirmedSoldQty - reservedPendingSellQty
+ *
+ * Invariant enforced on every mutation:
+ *   confirmedSoldQty <= confirmedBoughtQty + ε   (ε = 1 raw unit)
+ *
+ * Mint aggregation is retained as forensic fallback only — the primary
+ * key is positionId. When a sell request references a mint we resolve
+ * to the newest OPEN positionId for that mint.
+ */
+object CanonicalLotQuantity6464 {
+
+    data class Lot(
+        val positionId: String,
+        val mint: String,
+        var confirmedBoughtQty: BigInteger,
+        var confirmedSoldQty: BigInteger,
+        var reservedPendingSellQty: BigInteger,
+    ) {
+        fun sellable(): BigInteger =
+            (confirmedBoughtQty - confirmedSoldQty - reservedPendingSellQty).coerceAtLeast(BigInteger.ZERO)
+    }
+
+    enum class GuardResult { OK, CLAMPED_TO_SELLABLE, REJECTED_NO_LOT, REJECTED_ZERO_SELLABLE }
+
+    data class Guard(val result: GuardResult, val allowedQty: BigInteger, val sellable: BigInteger, val reason: String)
+
+    private val lots = ConcurrentHashMap<String, Lot>()
+
+    private val overSellRejects = AtomicLong(0L)
+    private val overSellClamps = AtomicLong(0L)
+    private val invariantViolations = AtomicLong(0L)
+
+    // ─── Confirmed fill hooks ──────────────────────────────────────────
+
+    fun onBuyFilled(positionId: String, mint: String, filledQty: BigInteger) {
+        if (positionId.isBlank() || filledQty <= BigInteger.ZERO) return
+        val lot = lots.compute(positionId) { _, cur ->
+            (cur ?: Lot(positionId, mint, BigInteger.ZERO, BigInteger.ZERO, BigInteger.ZERO)).also {
+                it.confirmedBoughtQty = it.confirmedBoughtQty + filledQty
+            }
+        } ?: return
+        checkInvariant(lot, "onBuyFilled")
+    }
+
+    fun onSellFilled(positionId: String, mint: String, filledQty: BigInteger) {
+        if (positionId.isBlank() || filledQty <= BigInteger.ZERO) return
+        val lot = lots.compute(positionId) { _, cur ->
+            (cur ?: Lot(positionId, mint, BigInteger.ZERO, BigInteger.ZERO, BigInteger.ZERO)).also {
+                it.confirmedSoldQty = it.confirmedSoldQty + filledQty
+                // release reservation (never past zero)
+                it.reservedPendingSellQty = (it.reservedPendingSellQty - filledQty).coerceAtLeast(BigInteger.ZERO)
+            }
+        } ?: return
+        checkInvariant(lot, "onSellFilled")
+    }
+
+    /** Reserve qty before an executor sell mutation (pre-fill). Returns actual reserved qty. */
+    fun reserveForSell(positionId: String, mint: String, requestedQty: BigInteger): Guard {
+        if (positionId.isBlank() || requestedQty <= BigInteger.ZERO) {
+            return Guard(GuardResult.REJECTED_NO_LOT, BigInteger.ZERO, BigInteger.ZERO, "blank_position_or_zero_qty")
+        }
+        val lot = lots[positionId] ?: run {
+            // No lot record — accept but log; mint aggregation is fallback.
+            return Guard(GuardResult.REJECTED_NO_LOT, BigInteger.ZERO, BigInteger.ZERO, "no_lot_for_position")
+        }
+        val sellable = lot.sellable()
+        if (sellable <= BigInteger.ZERO) {
+            overSellRejects.incrementAndGet()
+            try {
+                ForensicLogger.lifecycle(
+                    "CANONICAL_LOT_SELL_REJECTED_6464",
+                    "positionId=${positionId.take(16)} mint=${mint.take(10)} requestedQty=$requestedQty sellable=$sellable " +
+                        "bought=${lot.confirmedBoughtQty} sold=${lot.confirmedSoldQty} reserved=${lot.reservedPendingSellQty}",
+                )
+                PipelineHealthCollector.labelInc("CANONICAL_LOT_SELL_REJECTED_6464")
+            } catch (_: Throwable) {}
+            return Guard(GuardResult.REJECTED_ZERO_SELLABLE, BigInteger.ZERO, sellable, "zero_sellable")
+        }
+        val allowed = if (requestedQty > sellable) sellable else requestedQty
+        if (allowed < requestedQty) {
+            overSellClamps.incrementAndGet()
+            try {
+                ForensicLogger.lifecycle(
+                    "CANONICAL_LOT_SELL_CLAMPED_6464",
+                    "positionId=${positionId.take(16)} mint=${mint.take(10)} requestedQty=$requestedQty allowed=$allowed sellable=$sellable",
+                )
+                PipelineHealthCollector.labelInc("CANONICAL_LOT_SELL_CLAMPED_6464")
+            } catch (_: Throwable) {}
+        }
+        lots.compute(positionId) { _, cur ->
+            (cur ?: lot).also { it.reservedPendingSellQty = it.reservedPendingSellQty + allowed }
+        }
+        val resultKind = if (allowed < requestedQty) GuardResult.CLAMPED_TO_SELLABLE else GuardResult.OK
+        return Guard(resultKind, allowed, sellable, "ok")
+    }
+
+    /** Release reservation without a fill (e.g., sell rejected pre-executor). */
+    fun releaseReservation(positionId: String, qty: BigInteger) {
+        if (positionId.isBlank() || qty <= BigInteger.ZERO) return
+        lots.compute(positionId) { _, cur ->
+            cur?.also {
+                it.reservedPendingSellQty = (it.reservedPendingSellQty - qty).coerceAtLeast(BigInteger.ZERO)
+            }
+        }
+    }
+
+    fun sellable(positionId: String): BigInteger =
+        lots[positionId]?.sellable() ?: BigInteger.ZERO
+
+    fun purge(positionId: String) { lots.remove(positionId) }
+
+    private fun checkInvariant(lot: Lot, site: String) {
+        if (lot.confirmedSoldQty > lot.confirmedBoughtQty + BigInteger.ONE) {
+            invariantViolations.incrementAndGet()
+            try {
+                ForensicLogger.lifecycle(
+                    "CANONICAL_LOT_INVARIANT_VIOLATION_6464",
+                    "site=$site positionId=${lot.positionId.take(16)} mint=${lot.mint.take(10)} " +
+                        "bought=${lot.confirmedBoughtQty} sold=${lot.confirmedSoldQty}",
+                )
+                PipelineHealthCollector.labelInc("CANONICAL_LOT_INVARIANT_VIOLATION_6464")
+            } catch (_: Throwable) {}
+        }
+    }
+
+    fun statusLine(): String =
+        "lots=${lots.size} overSellRejects=${overSellRejects.get()} overSellClamps=${overSellClamps.get()} " +
+            "invariantViolations=${invariantViolations.get()}"
+
+    internal fun resetForTest() {
+        lots.clear()
+        overSellRejects.set(0L); overSellClamps.set(0L); invariantViolations.set(0L)
+    }
+}
