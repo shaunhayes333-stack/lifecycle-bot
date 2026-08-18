@@ -1,6 +1,58 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6461 (Feb 2026) — PARTIAL PNL UNIT ISOLATION + PENDING_ENTRY SWEEP + PAPER REPLAY + RISK DOMAIN
+
+Bundled the four remaining P0 items from the 6457 emergency dump into a
+single CI-green ship. Build and Runtime Smoke Test both passed.
+
+**§P0-#1 Fi4FaM unit-corruption fix** (`PartialSellUnitTypes6461`)
+- Deleted `realizedPnl = pnlPct.toDouble()` at `LivePositionCloseAuthority
+  .finalizeClosed` — a percentage was being written into a SOL slot,
+  corrupting the finalized-trade bus.
+- New `RealizedSol` / `ReturnRatio` / `ReturnPct` inline value classes
+  make future mixups a compile-time error.
+- `PaperAccountLedger6430.onSell` now firewalled: values |x| > 30 SOL
+  clamp to 0 and emit `FI4FAM_UNIT_CORRUPTION_6461`.
+
+**§P0-#2 PENDING_ENTRY → OPEN collapse** (`PendingEntryProjectionGuard6461`)
+- `pendingEntryPositions6461()` iterator + `cancelStalePendingEntries6461(ttlMs)`
+  with 90s default TTL. Quarantines pending rows and refunds placeholder
+  paper cash. `assertNotInOpenSet()` regression trap.
+- Sweep runs every 6 loops through `MaintenanceWorker6448` (1.5s budget).
+
+**§P0-#3 Rebuild paper account from economic events** (`PaperAccountReplay6461`)
+- Replays `TradeHistoryStore` (BUY/PARTIAL/FULL) oldest-first to
+  reconstruct cash/openCost/realizedPnl/fees. Emits
+  `PAPER_REPLAY_DIVERGENCE_6461` when ledger disagrees by > 0.01 SOL.
+- Skips Fi4FaM-poisoned rows. Non-mutating.
+- Audit every 30 loops (paper mode) through `MaintenanceWorker6448` (3s).
+
+**§P0-#4 Risk exit priority domain** (`RiskExitPriorityDomain6461`)
+- HIGH (risk) vs LOW (scout/learner) execution domains with latency
+  instrumentation. `RISK_DOMAIN_HIGH_LATENCY_ALERT_6461` at > 1000ms.
+- Immutable lane-stats snapshot bus for scouts.
+
+**CI locks (`PartialPnlUnitCorrectnessTest6461`)**
+- SOL vs ReturnPct compile-time distinctness.
+- Fi4FaM firewall clamps −500.0 → 0.0.
+- `PaperAccountLedger6430.onSell` cash cannot absorb a Fi4FaM injection.
+- PENDING_ENTRY excluded from openPositions; TTL sweep quarantines.
+- Replay reflects starting cash on empty ledger.
+- High-priority latency alert fires above 1000ms.
+
+**Follow-ups**
+- Migrate remaining partial-sell paths in Executor.kt to the new inline
+  value classes.
+- Extend `PaperAccountReplay6461` to auto-heal (currently non-mutating).
+- Move `ChronicBleederScout` fully onto `RiskExitPriorityDomain6461`'s
+  lane-stats snapshot bus (currently reads directly from
+  StrategyTelemetry via a budget guard).
+
+CI: Build AATE APK green + Runtime Smoke Test green.
+
+
+
 ## V5.0.6453 (Feb 2026) — COMPLETE CONVERGENCE
 
 Deleted obsolete writers. Single reward owner installed as bus subscriber.

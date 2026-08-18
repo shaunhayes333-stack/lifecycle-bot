@@ -1,3 +1,66 @@
+## V5.0.6461 — 2026-02-18 — PARTIAL PNL UNIT ISOLATION + PENDING_ENTRY SWEEP + PAPER REPLAY + RISK DOMAIN
+
+Bundled the four remaining P0 items from the 6457 emergency dump. Build
+AATE APK and Runtime Smoke Test both green.
+
+**§P0-#1 Fi4FaM unit-corruption fix — `PartialSellUnitTypes6461`**
+- Root cause: `LivePositionCloseAuthority.finalizeClosed` was passing
+  `pnlPct.toDouble()` (a percentage) into a `realizedPnl` parameter that
+  is SOL. Bus subscribers then wrote `netRealizedPnlSol = pct`, so a
+  −5% loss surfaced as −5.0 SOL of realized PnL.
+- Fixed at source: the call now passes 0.0 for realizedSol/realizedPnl
+  (the canonical rich-publish path is authoritative for those values).
+- New inline value classes `RealizedSol` / `ReturnRatio` / `ReturnPct`
+  make future percent-into-SOL mixups a compile-time error.
+- `PaperAccountLedger6430.onSell` now routes gross + basis through the
+  Fi4FaM firewall — anything |x| > 30 SOL is clamped to 0 and logged
+  `FI4FAM_UNIT_CORRUPTION_6461`.
+
+**§P0-#2 PENDING_ENTRY → OPEN collapse — `PendingEntryProjectionGuard6461`**
+- `CanonicalPositionAuthority6441.openPositions()` already filters to
+  OPEN + PARTIALLY_CLOSED (PENDING_ENTRY excluded).
+- Added `pendingEntryPositions6461()` iterator + `cancelStalePendingEntries6461(ttlMs)`
+  that quarantines PENDING_ENTRY rows older than 90s and refunds the
+  placeholder paper-cash debit.
+- `PendingEntryProjectionGuard6461.assertNotInOpenSet()` runs every 6
+  loops as a regression trap (`PENDING_ENTRY_LEAKED_INTO_OPEN_6461`).
+- Sweep wired through `MaintenanceWorker6448` (1.5s budget, off hot path).
+
+**§P0-#3 Paper account replay — `PaperAccountReplay6461`**
+- Replays `TradeHistoryStore.getAllValidTradesSnapshot` oldest-first to
+  reconstruct cash / openCostBasis / realizedPnl / fees from confirmed
+  BUY / PARTIAL_SELL / SELL rows in paper mode.
+- `auditAgainstLedger` compares to `PaperAccountLedger6430` and emits
+  `PAPER_REPLAY_DIVERGENCE_6461` when |Δ| > 0.01 SOL.
+- Skips Fi4FaM-poisoned rows (|pnlSol| > 30) with counter so healing
+  can proceed on clean data only. Non-mutating — reconciler decides.
+- Wired every 30 loops (paper mode) through `MaintenanceWorker6448`
+  (3s budget).
+
+**§P0-#4 Risk exit priority domain — `RiskExitPriorityDomain6461`**
+- Formalises HIGH (risk exit) vs LOW (scout/learner) execution domains.
+- `runHighPriority` / `runLowPriority` measure latency; HIGH > 1000ms
+  emits `RISK_DOMAIN_HIGH_LATENCY_ALERT_6461`.
+- Immutable per-tick lane-stats snapshot bus so scouts consume without
+  hitting TradeHistoryStore from the hot path.
+- Risk exits already run on their own wall-clock cadence via
+  `CanonicalRiskClock6454`; this module adds the observability floor.
+
+**Tests (`PartialPnlUnitCorrectnessTest6461`):**
+- RealizedSol/ReturnPct/ReturnRatio compile-time distinctness.
+- `computeRealizedSol` net-of-fee arithmetic.
+- Fi4FaM firewall clamps −500.0 to 0.0.
+- `PaperAccountLedger6430.onSell` cash cannot absorb a Fi4FaM injection.
+- `pendingEntryPositions6461` visible + excluded from `openPositions`.
+- `sweepStalePendingEntries` quarantines with correct reason.
+- Replay on empty ledger reflects starting cash.
+- High-priority latency > 1000ms emits alert.
+
+Files: 5 new, 4 modified. Build + Runtime Smoke both green.
+
+---
+
+
 ## V5.0.6459 — 2026-02-16 — SELL BOUNDARY + MINT OCCUPANCY + FANOUT PARITY + LANE ID + RECONCILER CADENCE
 
 Five new canonical authorities addressing the remaining P0/P1 items
