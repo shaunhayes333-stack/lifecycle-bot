@@ -14155,6 +14155,21 @@ class BotService : Service() {
                         com.lifecyclebot.engine.truth.PositionRegistryParityAudit6464.audit()
                         val startCap6464 = ConfigStore.load(applicationContext).paperSimulatedBalance
                         com.lifecyclebot.engine.truth.CanonicalPaperReplay6464.compareToLedger(startCap6464)
+                        // V5.0.6467 §P0 (item 9) — parallel replay from SAME canonical
+                        // economic event stream that reports FIRST divergent event id.
+                        try {
+                            com.lifecyclebot.engine.truth.EventStreamReplay6467.replayAndCompare(startCap6464)
+                        } catch (_: Throwable) {}
+                        // V5.0.6467 §P0 (item 10) — single paper equity calculator.
+                        // Feeds the canonical open-market-value from CanonicalCapitalAuthority6450
+                        // so equity = cash + markedOpenValue with realized already embedded in cash.
+                        try {
+                            val cap = com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.snapshot()
+                            com.lifecyclebot.engine.truth.PaperEquityCalculator6467.compute(
+                                baselineSol = startCap6464,
+                                markedOpenValueSol = cap.openMarketValueSol,
+                            )
+                        } catch (_: Throwable) {}
                     }
                 } catch (_: Throwable) {}
             }

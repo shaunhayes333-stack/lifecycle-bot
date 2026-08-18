@@ -84,6 +84,7 @@ object WallClockReconciler6454 {
             var success = true
             var err: String? = null
             try { ReconcilerWatchdog6430.beforeAttempt() } catch (_: Throwable) {}
+            try { ReconcilerHeartbeat6467.onQuickStart() } catch (_: Throwable) {}
             try {
                 withTimeoutOrNull(QUICK_BUDGET_MS) {
                     CanonicalReconciler6441.quickCheck()
@@ -101,6 +102,7 @@ object WallClockReconciler6454 {
             if (success) {
                 quickSuccesses.incrementAndGet()
                 quickLastAtMs.set(now)
+                try { ReconcilerHeartbeat6467.onQuickSuccess() } catch (_: Throwable) {}
             }
             if (drift > QUICK_INTERVAL_MS * MISS_THRESHOLD) {
                 try {
@@ -126,6 +128,7 @@ object WallClockReconciler6454 {
             var success = true
             var err: String? = null
             try { ReconcilerWatchdog6430.beforeAttempt() } catch (_: Throwable) {}
+            try { ReconcilerHeartbeat6467.onFullStart() } catch (_: Throwable) {}
             try {
                 withTimeoutOrNull(FULL_BUDGET_MS) {
                     val rows = try { rowSnapshotRef.get()?.invoke() } catch (_: Throwable) { null }
@@ -144,6 +147,7 @@ object WallClockReconciler6454 {
             if (success) {
                 fullSuccesses.incrementAndGet()
                 fullLastAtMs.set(now)
+                try { ReconcilerHeartbeat6467.onFullSuccess() } catch (_: Throwable) {}
             }
             if (drift > FULL_INTERVAL_MS * MISS_THRESHOLD) {
                 try {
