@@ -1,3 +1,51 @@
+## V5.0.6462 — 2026-02-18 — AUTONOMOUS PIPELINE ADVISOR (ALL-BRAINS + LLM, AUTO-APPLY)
+
+Root cause of "auto pipeline advisor doesn't return any suggestions ever":
+- `SelfHealingAdvisor.maybeAutoAdvise()` was defined but never invoked
+  anywhere in BotService. The auto path was dead code.
+- The advisor only consulted `GeminiCopilot`; when the LLM returned null
+  (offline / missing key / rate-limited) it silently produced zero
+  suggestions.
+
+**New `AutoPipelineAdvisor6462`**
+- **Rules engine (always-on, no I/O)**: 8 deterministic rules (R1..R8)
+  read `PipelineHealthCollector` labels + `PaperAccountReplay6461`
+  divergence + `RootCauseClassifier6460` signals and derive candidate
+  parameter deltas. Even with zero LLM the advisor produces output.
+    R1: `FI4FAM_UNIT_CORRUPTION_6461>0` → tighten slippage
+    R2: `PAPER_REPLAY_DIVERGENCE_6461>0` → extend entry cooldown
+    R3: `PAPER_LEDGER_INVARIANT_FAIL_6430>2` → shrink per-position size
+    R4: `RISK_DOMAIN_HIGH_LATENCY_ALERT_6461>0` → widen poll interval
+    R5: `PENDING_ENTRY_LEAKED_INTO_OPEN_6461>0` → raise minDiscoveryScore
+    R6: `API_LAYER_DEGRADED>5` → back off scan interval
+    R7: `TERMINAL_SELL_DUPLICATE_*>3` → pull trailing stop in
+    R8: `CHRONIC_BLEEDER_LAB_REPROVE_6265>0` → lower exit score threshold
+- **Brain consultation** (in-memory, ~1ms each): each candidate fuses
+  agreement scores from MetaCognitionExecutorBridge, SuperBrainEnhancements,
+  CapitalEfficiencyBrain, SentienceOrchestrator, BrainConsensusGate,
+  RiskExitPriorityDomain6461. Weighted vote → `brainAgreement` in 0..1.
+- **LLM ranker (optional, degrades cleanly)**: GeminiCopilot re-ranks and
+  adds candidates when reachable. When unavailable rules stand.
+- **Auto-apply gate**: routes through existing `LlmParameterTuner`
+  (phase-gated, step-capped, allowlist-enforced, freerange-scaled).
+  Applies only when `autoPipelineAdvisorEnabled` + `brainAgreement>=0.55`
+  + severity∈{med,high} + per-key cooldown≥10min + max 2 per tick.
+- **Cadence**: wired into `BotService.botLoop` every 12 loops (~2 min),
+  dispatched to `Dispatchers.IO`. Rate-limited to 90s min between
+  successful runs.
+- **Config toggle**: new `BotConfig.autoPipelineAdvisorEnabled` (default
+  true), persisted as `auto_pipeline_advisor_enabled`.
+
+**CI locks (`AutoPipelineAdvisorSurfaceTest6462`)**
+- Module surface + reset invariants covered.
+- End-to-end tick runs under real Android in the runtime smoke test.
+
+Files: 1 new module, 1 new test, 2 modified (BotConfig, BotService).
+CI: Build AATE APK green + Runtime Smoke Test green.
+
+---
+
+
 ## V5.0.6461 — 2026-02-18 — PARTIAL PNL UNIT ISOLATION + PENDING_ENTRY SWEEP + PAPER REPLAY + RISK DOMAIN
 
 Bundled the four remaining P0 items from the 6457 emergency dump. Build

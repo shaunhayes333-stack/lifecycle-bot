@@ -1,6 +1,51 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6462 (Feb 2026) — AUTONOMOUS PIPELINE ADVISOR (ALL-BRAINS + LLM)
+
+Fixed the "advisor never returns suggestions" bug at the source. The old
+`SelfHealingAdvisor.maybeAutoAdvise` was defined but never called from
+BotService (dead code) and silently failed when the LLM returned null.
+
+**New `AutoPipelineAdvisor6462`**
+- Rules-first: 8 deterministic health rules produce candidates even with
+  zero LLM connectivity (Fi4FaM, replay divergence, ledger invariant,
+  risk latency, PENDING_ENTRY leaks, API degradation, terminal-sell
+  duplicates, chronic bleeders).
+- Consults every brain: MetaCognitionExecutorBridge, SuperBrainEnhancements,
+  CapitalEfficiencyBrain, SentienceOrchestrator, BrainConsensusGate,
+  RiskExitPriorityDomain6461. Weighted brain-agreement scores gate
+  auto-apply.
+- GeminiCopilot is now one voice among many, not the single point of
+  failure. When it responds, LLM re-ranks and adds candidates.
+- Auto-apply routes through the existing `LlmParameterTuner`
+  (phase-gated ≥50 trades, freerange-scaled step cap, allowlist,
+  min/max bounds) — no new safety code needed.
+
+**Auto-apply invariants**
+- `config.autoPipelineAdvisorEnabled` (default true, persists as
+  `auto_pipeline_advisor_enabled` in shared prefs).
+- `brainAgreement >= 0.55`.
+- `severity in {med, high}`.
+- Per-key cooldown 10 min.
+- Max 2 auto-applies per tick.
+- Every applied change emits `AUTO_PIPELINE_ADVISOR_APPLIED_6462` with
+  key/old/new/reason/agree/source for full audit.
+
+**Cadence**: `maybeTick(ctx)` fires from `BotService.botLoop` every 12
+loops (~2 min), dispatched to `Dispatchers.IO`. Rate-limited to 90s min
+between successful runs. Failed runs don't consume the interval.
+
+**Follow-ups**
+- UI surface in PipelineHealthActivity to show live advisor history
+  + apply/dismiss decisions.
+- Revert-on-regression: if WR/EV drops within N minutes of an applied
+  change, auto-revert.
+
+CI: Build AATE APK green + Runtime Smoke Test green.
+
+
+
 ## V5.0.6461 (Feb 2026) — PARTIAL PNL UNIT ISOLATION + PENDING_ENTRY SWEEP + PAPER REPLAY + RISK DOMAIN
 
 Bundled the four remaining P0 items from the 6457 emergency dump into a
