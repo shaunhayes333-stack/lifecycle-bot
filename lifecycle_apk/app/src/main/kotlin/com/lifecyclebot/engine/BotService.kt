@@ -14170,6 +14170,14 @@ class BotService : Service() {
                                 markedOpenValueSol = cap.openMarketValueSol,
                             )
                         } catch (_: Throwable) {}
+                        // V5.0.6468 §P0 (item 17) — forced close slot sweeper.
+                        // Reconciles CanonicalMintOccupancyRegistry against the
+                        // canonical open positions surface. When occupancy leaks
+                        // an OPEN slot after a forced/synthetic close, this fires
+                        // FORCED_CLOSE_SLOT_MISMATCH_6468.
+                        try {
+                            com.lifecyclebot.engine.truth.ForcedCloseSlotSweeper6468.sweep()
+                        } catch (_: Throwable) {}
                     }
                 } catch (_: Throwable) {}
             }

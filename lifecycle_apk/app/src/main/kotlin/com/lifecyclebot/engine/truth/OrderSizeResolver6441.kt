@@ -133,6 +133,11 @@ object OrderSizeResolver6441 {
             )
         } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("ORDER_SIZE_RESOLVED_6441") } catch (_: Throwable) {}
+        // V5.0.6468 §P0 (item 16) — post-condition invariant audit. Any
+        // caller that later "adjusts" the resolved size externally will
+        // still show up because the resolver's own emission is invariant-
+        // guarded. Non-blocking; log-only.
+        try { OrderSizeResolverInvariant6468.check(res) } catch (_: Throwable) {}
         return res
     }
 

@@ -64,6 +64,29 @@ object AdvisorIntegrityHold6466 {
             val ledgerInvFails = PipelineHealthCollector.labelCountSnapshot("PAPER_LEDGER_INVARIANT_FAIL_6430")
             if (fi4famClamps + ledgerInvFails > 5L) reasons++
         } catch (_: Throwable) {}
+        // V5.0.6468 §P0 (item 15 extension) — Event stream replay divergence
+        // (from EventStreamReplay6467) also gates the advisor. Advisor must
+        // never tune around a diverged replay.
+        try {
+            val p = EventStreamReplay6467.lastParity()
+            if (p != null && (kotlin.math.abs(p.cashDelta) > 0.01 ||
+                              kotlin.math.abs(p.realizedDelta) > 0.01 ||
+                              kotlin.math.abs(p.openCostDelta) > 0.01 ||
+                              p.firstDivergentEventId != null)) reasons++
+        } catch (_: Throwable) {}
+        // V5.0.6468 §P0 (item 15 extension) — Order-size invariant violations
+        // observed since startup gate the advisor. Sizing correctness is
+        // upstream of learning; a violated resolver poisons every trade.
+        try {
+            val sizingViolations = PipelineHealthCollector.labelCountSnapshot("ORDER_SIZE_RESOLVER_INVARIANT_VIOLATION_6468")
+            if (sizingViolations > 3L) reasons++
+        } catch (_: Throwable) {}
+        // V5.0.6468 §P0 (item 15 extension) — data provider auth lockout is
+        // an environmental integrity failure; do not tune around it.
+        try {
+            val authLockouts = PipelineHealthCollector.labelCountSnapshot("DATA_PROVIDER_AUTH_LOCKOUT_6468")
+            if (authLockouts > 0L) reasons++
+        } catch (_: Throwable) {}
         val active = reasons > 0
         if (active) {
             holdActive.incrementAndGet()
