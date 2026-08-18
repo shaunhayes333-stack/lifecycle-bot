@@ -143,7 +143,7 @@ class CanonicalCorrectnessAcceptanceTest6464 {
     // ─── §P0-#7  FINALIZED TRADE BUS PARITY ─────────────────────────────
 
     @Test
-    fun `bus reports zero-consumers when none has acked`() {
+    fun `bus records canonical unique on publish`() {
         CanonicalFinalizedTradeBus6464.resetForTest()
         CanonicalFinalizedTradeBus6464.registerConsumer("LearnerRewardBridge")
         CanonicalFinalizedTradeBus6464.registerConsumer("LosingStreakReflex")
@@ -155,8 +155,10 @@ class CanonicalCorrectnessAcceptanceTest6464 {
         )
         val p = CanonicalFinalizedTradeBus6464.parity()
         assertEquals(1, p.canonicalUnique)
-        assertTrue("expected both consumers in zeroConsumers: ${p.zeroConsumers}",
-            p.zeroConsumers.containsAll(listOf("LearnerRewardBridge", "LosingStreakReflex")))
+        // V5.0.6465 change — publish auto-acks all registered consumers
+        // so a disconnected learner cannot sit at zero. Post-6465 the
+        // zero-consumer surface fires only when deliverToConsumers refuses.
+        assertEquals(0, p.zeroConsumers.size)
     }
 
     @Test
