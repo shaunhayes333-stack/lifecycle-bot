@@ -1,3 +1,52 @@
+## V5.0.6467 — 2026-02-18 — REPLAY + CAPITAL + RECONCILER HEARTBEAT (items 9-13)
+
+Second beat of the Correctness Completion Patch. Green in CI
+(Build AATE APK + Runtime Smoke Test, sha 23c105b).
+
+**§P0-#9 Event-stream replay w/ first divergent id**
+- New `EventStreamReplay6467` replays `EconomicEventSchema6464` events
+  (the SAME canonical stream terminal mutations write) oldest-first,
+  deduped by idempotencyKey, and reports the FIRST divergent economic
+  event id — not just aggregate deltas.
+- Wired into `BotService.botLoop` at the 30-loop parity audit block
+  alongside `CanonicalPaperReplay6464`.
+- Telemetry: `EVENT_STREAM_REPLAY_CONVERGED_6467` /
+  `EVENT_STREAM_REPLAY_DIVERGED_6467`.
+
+**§P0-#10 Single paper equity calculator**
+- New `PaperEquityCalculator6467`:
+    equity = cash + markedOpenValue
+  Realized PnL already embedded in cash (never added twice).
+  Baseline = paperSimulatedBalance from ConfigStore.
+- Consumes the canonical `openMarketValueSol` from
+  `CanonicalCapitalAuthority6450.snapshot()`.
+- Conservation violations forensic-logged as
+  `PAPER_EQUITY_CONSERVATION_VIOLATION_6467`.
+
+**§P0-#12/-#13 Single reconciler heartbeat**
+- New `ReconcilerHeartbeat6467` — single truth surface for both
+  quick + full passes.
+- `quickAgeMs()` / `fullAgeMs()` return -1 sentinel when
+  uninitialized. `Long.MAX_VALUE` "overdue" leakage is banned from
+  runtime age exposure.
+- `WallClockReconciler6454` now feeds the canonical heartbeat on
+  every `onQuickStart` / `onQuickSuccess` / `onFullStart` /
+  `onFullSuccess` — health reports observe the ACTUAL wall-clock
+  reconciler cadence.
+
+**Acceptance test**
+- `ReplayCapitalHeartbeatAcceptanceTest6467`:
+  - Replay converges on clean event stream (cash/realized/openCost
+    deltas ≤ tolerance, no divergent id).
+  - Equity identity holds when cash + marked-open-value is provided.
+  - Heartbeat starts uninitialized (`ageMs = -1`, statusLine contains
+    "uninit"), advances on success (ageMs ≥ 0, pass counter += 1).
+
+**Behavioural stance**
+- Paper-mode observability + identity plumbing only. Zero touch to
+  the live execution path — live routing remains fully functional
+  and gated by mode="live".
+
 ## V5.0.6465 — 2026-02-18 — BUY PATH PUBLISH + CONSUMER FANOUT + REGISTRY AUTO-HEAL + IDENTITY WIRE
 
 All four operator directives from the 6464 follow-up landed.
