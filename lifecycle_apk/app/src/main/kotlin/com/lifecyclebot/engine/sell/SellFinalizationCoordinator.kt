@@ -206,6 +206,24 @@ object SellFinalizationCoordinator {
                     sitePath = "SellFinalizationCoordinator.finalize(${traderTag})",
                 )
                 if (consume == com.lifecyclebot.engine.truth.TerminalSellIdempotency6464.Consume.PROCEED) {
+                    // V5.0.6466 §P0 — TERMINAL MUTATION AUTHORITY.
+                    // Second-layer CAS keyed on runId+mode+positionId+
+                    // generation+terminalSequence so replay/reconciler
+                    // reattempts cannot double-fire the fanout even if
+                    // the sellSig gets reused across a run restart.
+                    val positionId6466 = intent.mint
+                    val termClaim6466 = com.lifecyclebot.engine.truth.TerminalMutationAuthority6466.claim(
+                        com.lifecyclebot.engine.truth.TerminalMutationAuthority6466.TerminalEvent(
+                            positionId = positionId6466, mint = intent.mint, symbol = intent.symbol,
+                            mode = "paper", generation = 0L,
+                            terminalSequence = if (fin.finalState == TxMetaSellFinalizer.FinalState.CLEARED) 999L else System.currentTimeMillis(),
+                            runId = "run", exitReason = intent.reason.name,
+                        )
+                    )
+                    if (termClaim6466 != com.lifecyclebot.engine.truth.TerminalMutationAuthority6466.ClaimResult.GRANTED) {
+                        // Duplicate: bail before any side effect.
+                        return@also
+                    }
                     com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.onSellFilled(
                         positionId = positionId, mint = intent.mint, filledQty = actualConsumedRaw,
                     )

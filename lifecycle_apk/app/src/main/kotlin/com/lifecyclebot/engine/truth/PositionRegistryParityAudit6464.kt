@@ -218,6 +218,9 @@ object PositionRegistryParityAudit6464 {
     fun statusLine(): String = "audits=${audits.get()} divergences=${divergences.get()} " +
         "consecutiveDivergences=${consecutiveDivergences.get()} autoHeals=${autoHeals.get()}"
 
+    /** V5.0.6466 — accessor for AdvisorIntegrityHold6466. */
+    fun lastSnapshotOrNull(): Snapshot? = lastSnapshot.get()
+
     internal fun resetForTest() {
         lastSnapshot.set(null)
         audits.set(0L); divergences.set(0L)

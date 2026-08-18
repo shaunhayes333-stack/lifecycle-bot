@@ -2603,6 +2603,10 @@ object PipelineHealthCollector {
               .append(com.lifecyclebot.engine.truth.RootCauseTtl6464.statusLine()).append("\n")
             sb.append("  authorityVersion:   ")
               .append(com.lifecyclebot.engine.truth.AuthoritySnapshotVersion6464.statusLine()).append("\n")
+            sb.append("  terminalMutation:   ")
+              .append(com.lifecyclebot.engine.truth.TerminalMutationAuthority6466.statusLine()).append("\n")
+            sb.append("  integrityHold:      ")
+              .append(com.lifecyclebot.engine.truth.AdvisorIntegrityHold6466.statusLine()).append("\n")
         } catch (_: Throwable) {}
 
         return sb.toString()
