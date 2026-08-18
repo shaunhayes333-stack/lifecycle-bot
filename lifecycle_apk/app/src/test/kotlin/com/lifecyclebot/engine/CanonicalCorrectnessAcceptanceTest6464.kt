@@ -100,7 +100,7 @@ class CanonicalCorrectnessAcceptanceTest6464 {
     // ─── §P0-#4  DUPLICATE CLOSE CONFIRMATION ───────────────────────────
 
     @Test
-    fun `first observation PROCEEDs; second DUPLICATE_IGNORED`() {
+    fun `first observation PROCEEDs then second DUPLICATE_IGNORED`() {
         TerminalSellIdempotency6464.resetForTest()
         val key = "sig_ABC_${System.nanoTime()}"
         val a = TerminalSellIdempotency6464.beginTerminal(key, "PID", "site")
@@ -143,7 +143,7 @@ class CanonicalCorrectnessAcceptanceTest6464 {
     // ─── §P0-#7  FINALIZED TRADE BUS PARITY ─────────────────────────────
 
     @Test
-    fun `bus reports zero-consumers when none has ack'd`() {
+    fun `bus reports zero-consumers when none has acked`() {
         CanonicalFinalizedTradeBus6464.resetForTest()
         CanonicalFinalizedTradeBus6464.registerConsumer("LearnerRewardBridge")
         CanonicalFinalizedTradeBus6464.registerConsumer("LosingStreakReflex")
