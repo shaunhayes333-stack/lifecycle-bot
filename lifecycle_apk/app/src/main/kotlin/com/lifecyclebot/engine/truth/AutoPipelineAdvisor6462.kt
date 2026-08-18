@@ -164,17 +164,52 @@ object AutoPipelineAdvisor6462 {
         var applied = 0
         val emitted = mutableListOf<Candidate>()
         for (c in enriched.sortedByDescending { it.brainAgreement }) {
-            if (c.brainAgreement < AUTO_APPLY_MIN_AGREEMENT) { emitted += c; continue }
-            if (c.severity == "low") { emitted += c; continue }
-            if (!autoEnabled) { emitted += c; continue }
-            if (applied >= MAX_APPLY_PER_TICK) { emitted += c; continue }
+            val votesForHistory = c.brainVotes.map {
+                AdvisorDecisionHistory6463.BrainVote(it.brain, it.agreesWithDeltaSign, it.weight)
+            }
+            fun histAction(action: AdvisorDecisionHistory6463.Action,
+                           oldValue: Double = Double.NaN, newValue: Double = Double.NaN) {
+                AdvisorDecisionHistory6463.record(
+                    AdvisorDecisionHistory6463.Decision(
+                        atMs = System.currentTimeMillis(),
+                        key = c.key, delta = c.delta, severity = c.severity,
+                        source = c.source, action = action,
+                        brainAgreement = c.brainAgreement, votes = votesForHistory,
+                        reason = c.reason, oldValue = oldValue, newValue = newValue,
+                    )
+                )
+            }
+            if (c.brainAgreement < AUTO_APPLY_MIN_AGREEMENT) {
+                histAction(AdvisorDecisionHistory6463.Action.LOW_AGREEMENT); emitted += c; continue
+            }
+            if (c.severity == "low") { histAction(AdvisorDecisionHistory6463.Action.QUEUED_INBOX); emitted += c; continue }
+            if (!autoEnabled) { histAction(AdvisorDecisionHistory6463.Action.QUEUED_INBOX); emitted += c; continue }
+            if (applied >= MAX_APPLY_PER_TICK) {
+                histAction(AdvisorDecisionHistory6463.Action.QUEUED_INBOX); emitted += c; continue
+            }
             val cooldownStart = lastAppliedAtByKey[c.key] ?: 0L
-            if (System.currentTimeMillis() - cooldownStart < PER_KEY_COOLDOWN_MS) { emitted += c; continue }
-            val ok = applyOne(ctx, c)
-            if (ok) {
-                applied++
-                autoApplied.incrementAndGet()
-                lastAppliedAtByKey[c.key] = System.currentTimeMillis()
+            if (System.currentTimeMillis() - cooldownStart < PER_KEY_COOLDOWN_MS) {
+                histAction(AdvisorDecisionHistory6463.Action.COOLDOWN_SKIP); emitted += c; continue
+            }
+            val applyRes = applyOne(ctx, c)
+            when (applyRes) {
+                is ApplyResult.Applied -> {
+                    applied++
+                    autoApplied.incrementAndGet()
+                    lastAppliedAtByKey[c.key] = System.currentTimeMillis()
+                    histAction(
+                        AdvisorDecisionHistory6463.Action.AUTO_APPLIED,
+                        oldValue = applyRes.oldValue, newValue = applyRes.newValue,
+                    )
+                    try {
+                        AdvisorRegressionMonitor6463.registerApply(
+                            id = c.id, key = c.key, deltaApplied = c.delta,
+                            reason = "auto6462:${c.reason.take(120)}",
+                        )
+                    } catch (_: Throwable) {}
+                }
+                is ApplyResult.Noop -> histAction(AdvisorDecisionHistory6463.Action.APPLY_NOOP)
+                is ApplyResult.Failed -> histAction(AdvisorDecisionHistory6463.Action.APPLY_FAILED)
             }
             emitted += c
         }
@@ -458,7 +493,13 @@ into a loosening one. Respond with pure JSON:
 
     // ─── Auto-apply (via LlmParameterTuner) ────────────────────────────────
 
-    private fun applyOne(ctx: Context, c: Candidate): Boolean {
+    sealed class ApplyResult {
+        data class Applied(val oldValue: Double, val newValue: Double) : ApplyResult()
+        object Noop : ApplyResult()
+        object Failed : ApplyResult()
+    }
+
+    private fun applyOne(ctx: Context, c: Candidate): ApplyResult {
         val block = JSONObject().apply {
             put("adjustments", JSONArray().apply {
                 put(JSONObject().apply {
@@ -479,7 +520,7 @@ into a loosening one. Respond with pure JSON:
                 )
                 PipelineHealthCollector.labelInc("AUTO_PIPELINE_ADVISOR_APPLY_FAILED_6462")
             } catch (_: Throwable) {}
-            return false
+            return ApplyResult.Failed
         }
         if (res.changes.isEmpty()) {
             try {
@@ -489,7 +530,7 @@ into a loosening one. Respond with pure JSON:
                 )
                 PipelineHealthCollector.labelInc("AUTO_PIPELINE_ADVISOR_APPLY_NOOP_6462")
             } catch (_: Throwable) {}
-            return false
+            return ApplyResult.Noop
         }
         val ch = res.changes.first()
         try {
@@ -503,7 +544,7 @@ into a loosening one. Respond with pure JSON:
                 "🤖 auto-applied ${ch.key}: ${"%.4f".format(ch.oldValue)}→${"%.4f".format(ch.newValue)} " +
                     "(sev=${c.severity} agree=${"%.2f".format(c.brainAgreement)} src=${c.source})")
         } catch (_: Throwable) {}
-        return true
+        return ApplyResult.Applied(oldValue = ch.oldValue, newValue = ch.newValue)
     }
 
     private fun publishToInbox(candidates: List<Candidate>) {

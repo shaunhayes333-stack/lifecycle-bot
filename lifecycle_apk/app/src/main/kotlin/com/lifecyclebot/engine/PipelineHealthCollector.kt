@@ -2554,6 +2554,26 @@ object PipelineHealthCollector {
             }
         } catch (_: Throwable) {}
 
+        // V5.0.6463 §P1 — advisor decision timeline (last 20) + regression
+        // monitor status. Attached at the end of the dump so the operator
+        // can see WHY each auto-tune fired and which brains voted.
+        try {
+            val tl = com.lifecyclebot.engine.truth.AdvisorDecisionHistory6463.formatForPipelineDump()
+            if (tl.isNotBlank()) {
+                sb.append("\n===== Advisor Timeline (V5.0.6463) =====\n")
+                sb.append(tl)
+                sb.append("  regressionMonitor: ")
+                sb.append(com.lifecyclebot.engine.truth.AdvisorRegressionMonitor6463.statusLine())
+                sb.append("\n")
+                sb.append("  autoAdvisor:       ")
+                sb.append(com.lifecyclebot.engine.truth.AutoPipelineAdvisor6462.statusLine())
+                sb.append("\n")
+                sb.append("  perpsSandbox:      ")
+                sb.append(com.lifecyclebot.engine.truth.PerpsSandbox6463.statusLine())
+                sb.append("\n")
+            }
+        } catch (_: Throwable) {}
+
         return sb.toString()
     }
 

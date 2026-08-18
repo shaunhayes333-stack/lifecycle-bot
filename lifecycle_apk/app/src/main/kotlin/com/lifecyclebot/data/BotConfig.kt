@@ -60,6 +60,12 @@ data class BotConfig(
     // all brains + LLM every ~2 min and auto-applies safe parameter
     // deltas (LlmParameterTuner allowlist, step-capped, phase-gated).
     val autoPipelineAdvisorEnabled: Boolean = true,
+    // V5.0.6463 — SOL PERPS SANDBOX (paper-only leverage toggle).
+    // Substrate for future leverage support. When ON in paper mode,
+    // PerpsSandbox6463 accepts leveraged position records and enforces
+    // margin-call liquidation semantics through the risk-exit clock.
+    // Live mode always refuses regardless of this flag.
+    val perpsSandboxEnabled: Boolean = false,
     // tokens
     val watchlist: List<String> = emptyList(),
     val activeToken: String = "",
@@ -394,6 +400,7 @@ object ConfigStore {
             putFloat("paper_simulated_balance",       cfg.paperSimulatedBalance.toFloat())
             putBoolean("auto_trade",                  cfg.autoTrade)
             putBoolean("auto_pipeline_advisor_enabled", cfg.autoPipelineAdvisorEnabled)
+            putBoolean("perps_sandbox_enabled",       cfg.perpsSandboxEnabled)
             putString("watchlist",                    cfg.watchlist.joinToString(","))
             putString("active_token",                 cfg.activeToken)
             putFloat("small_buy_sol",                 cfg.smallBuySol.toFloat())
@@ -550,6 +557,7 @@ object ConfigStore {
             paperSimulatedBalance       = p.getFloat("paper_simulated_balance", 11.76f).toDouble(),
             autoTrade                   = p.getBoolean("auto_trade", true),
             autoPipelineAdvisorEnabled  = p.getBoolean("auto_pipeline_advisor_enabled", true),
+            perpsSandboxEnabled         = p.getBoolean("perps_sandbox_enabled", false),
             watchlist                   = (p.getString("watchlist", "") ?: "").split(",").filter { it.isNotBlank() },
             activeToken                 = p.getString("active_token", "") ?: "",
             smallBuySol                 = p.getFloat("small_buy_sol", 0.05f).toDouble(),

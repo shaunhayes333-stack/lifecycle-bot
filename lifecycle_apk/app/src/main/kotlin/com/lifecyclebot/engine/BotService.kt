@@ -14074,6 +14074,17 @@ class BotService : Service() {
                 } catch (_: Throwable) {}
             }
 
+            // V5.0.6463 §P1 — SYNC PERPS SANDBOX ENABLE STATE FROM CONFIG.
+            // Only takes effect in paper mode; PerpsSandbox6463.setEnabled
+            // refuses live-mode enable requests unconditionally.
+            try {
+                val cfg6463 = ConfigStore.load(applicationContext)
+                com.lifecyclebot.engine.truth.PerpsSandbox6463.setEnabled(
+                    desired = cfg6463.perpsSandboxEnabled,
+                    paperMode = cfg6463.paperMode,
+                )
+            } catch (_: Throwable) {}
+
             // V5.0.6462 — AUTONOMOUS PIPELINE ADVISOR.
             // Fires every 12 loops (~2 min). Consults all brains + LLM,
             // auto-applies safe deltas through LlmParameterTuner.
@@ -14082,6 +14093,22 @@ class BotService : Service() {
             if (loopCount % 12 == 0 && !prevCycleWasSlow6421) {
                 try {
                     com.lifecyclebot.engine.truth.AutoPipelineAdvisor6462.maybeTick(applicationContext)
+                } catch (_: Throwable) {}
+            }
+
+            // V5.0.6463 §P1 — ADVISOR REGRESSION MONITOR.
+            // Every 12 loops, walk pending auto-apply audits and revert
+            // any tune where WR or realizedPnl regressed within the
+            // 20-min audit window. Non-blocking; routed through
+            // LlmParameterTuner so allowlist/step-cap/phase-gate apply
+            // to the revert the same as the original apply.
+            if (loopCount % 12 == 0 && !prevCycleWasSlow6421) {
+                try {
+                    com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
+                        name = "advisor_regression_check_6463", budgetMs = 2_000L,
+                    ) {
+                        com.lifecyclebot.engine.truth.AdvisorRegressionMonitor6463.checkAll(applicationContext)
+                    }
                 } catch (_: Throwable) {}
             }
 

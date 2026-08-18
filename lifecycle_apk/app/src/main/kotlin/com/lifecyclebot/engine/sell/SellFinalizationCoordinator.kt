@@ -181,6 +181,17 @@ object SellFinalizationCoordinator {
             freshWalletSol = fresh,
             finality = fin.finality,
             pendingRetry = false,
-        )
+        ).also { res ->
+            // V5.0.6463 §P1 — PARTIAL-SELL UNIT CORRECTNESS.
+            // Every partial + full sell converges here; validate all SOL
+            // slots through the Fi4FaM firewall + arithmetic cross-check
+            // before any downstream consumer writes anything based on this
+            // result. Non-mutating — validated snapshot is telemetry only.
+            try {
+                com.lifecyclebot.engine.truth.PartialSellCorrectness6463.validate(
+                    res, feesSol, siteTag = "SellFinalizationCoordinator.finalize(${traderTag})",
+                )
+            } catch (_: Throwable) {}
+        }
     }
 }
