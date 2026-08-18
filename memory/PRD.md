@@ -1,6 +1,37 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6465 (Feb 2026) — BUY PATH PUBLISH + CONSUMER FANOUT + REGISTRY AUTO-HEAL + IDENTITY WIRE
+
+Four operator directives from the 6464 follow-up landed together.
+
+**Buy path publish (paper + live)**: every confirmed executor buy now
+publishes to `CanonicalLotQuantity6464`, `EconomicEventSchema6464`,
+and `CanonicalMintOccupancyRegistry6464` at the same convergence point
+that already ran `ExecutorCanonicalMirror6442.mirrorBuyFill`. Live path
+keys on `mode="live"` — live routing stays fully functional.
+
+**Consumer fanout ack**: `CanonicalFinalizedTradeBus6464.publish()`
+auto-acks all registered consumers so a disconnected learner cannot
+sit at zero. New `deliverToConsumers` returns per-consumer verdicts;
+refused deliveries remove the ack. New `FinalizedBusConsumerBridge6465`
+routes envelopes to each of the 8 consumers — `LosingStreakReflex`
+now receives real `onTradeClosed` deliveries.
+
+**Registry auto-heal**: `PositionRegistryParityAudit6464` fires
+`healRegistryFromCanonical()` after 3 consecutive divergent audits.
+Rebuilds the legacy `EmergentGuardrails` registry to match canonical.
+Non-destructive to canonical state.
+
+**Identity enforcement**: `EmergentGuardrails.registerPosition` now
+records the 5 identity fields via `CanonicalIdentityModel6464.record`
+at every paper open. `normalizeLane` at ingest → alias merges for new
+positions approach zero.
+
+CI: Build AATE APK + Runtime Smoke Test both green.
+
+
+
 ## V5.0.6464 (Feb 2026) — CORRECTNESS COMPLETION PATCH + EXPORT ONE-LINE-BUG FIX
 
 11 new canonical modules covering 10 operator sections + a targeted

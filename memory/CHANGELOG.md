@@ -1,3 +1,69 @@
+## V5.0.6465 — 2026-02-18 — BUY PATH PUBLISH + CONSUMER FANOUT + REGISTRY AUTO-HEAL + IDENTITY WIRE
+
+All four operator directives from the 6464 follow-up landed.
+
+**§P0-#1 Buy Path Publish (paper + live)**
+- `Executor.paperBuy` (line 12285) + `Executor.liveBuy` (line 16344)
+  now both invoke `CanonicalLotQuantity6464.onBuyFilled` +
+  `EconomicEventSchema6464.recordBuy` + `CanonicalMintOccupancyRegistry6464
+  .markOpen` at the same convergence point that already runs
+  `ExecutorCanonicalMirror6442.mirrorBuyFill`.
+- Every confirmed buy now increments the canonical bought quantity,
+  emits a typed BUY row (`executedCostSol`, `filledQty`, `fillPrice`),
+  and marks the mint OPEN in the mode-scoped occupancy registry.
+- Live path keys on `mode="live"` so paper occupancy cannot block
+  live entries — live routing remains fully functional.
+
+**§P0-#2 Consumer Fanout Ack**
+- `CanonicalFinalizedTradeBus6464.publish()` now auto-acks every
+  registered consumer on the first observation. Removes the "silently
+  at zero" failure mode.
+- New `deliverToConsumers(env, deliver)` — a `false` return removes
+  the ack so the parity oracle re-surfaces the miss.
+- New `FinalizedBusConsumerBridge6465` dispatcher wires each
+  registered consumer:
+    - `LosingStreakReflex` → `onTradeClosed(realizedPnlSol, mint)`
+      (totalTrips no longer stays at zero).
+    - `LearnerRewardBridge` / `GrowthRewardShaper` / `TacticSwitcher`
+      / `Governor` / `CapitalCreed` / `EVEstimator` / `Dashboard` →
+      passive ack (their internal work runs on their own cadence, but
+      the parity ledger certifies them as notified).
+
+**§P0-#3 Registry Auto-Heal**
+- `PositionRegistryParityAudit6464` tracks `consecutiveDivergences`.
+- After 3 consecutive divergent audits, `healRegistryFromCanonical()`
+  fires:
+    - `EmergentGuardrails.registerPosition` for canonical mints missing
+      from the legacy registry
+    - `EmergentGuardrails.unregisterPosition` for phantom registry
+      mints not backed by canonical
+- Emits `POSITION_PARITY_AUTO_HEAL_6465` with add/remove counts.
+- Convergent audit resets the streak.
+
+**§P1 Identity Enforcement**
+- `EmergentGuardrails.registerPosition` now calls
+  `CanonicalIdentityModel6464.record` for every position creation
+  (canonicalOriginLane / strategyId / routeId / executionLane /
+  exitPolicy). `normalizeLane` maps aliases (PRESALE_SNIPE →
+  RESALE_SNIPE etc.) at ingestion so alias merges for NEW positions
+  approach zero.
+- Rewrites of an existing canonicalOriginLane are refused →
+  `IDENTITY_REWRITE_REFUSED_6464`.
+
+**Tests (`BusFanoutAndAutoHealAcceptanceTest6465`)**
+- Publish auto-acks all registered consumers.
+- deliverToConsumers removes ack on refused delivery.
+- FinalizedBusConsumerBridge6465 delivers all 8 known consumers +
+  refuses unknown.
+- Parity audit statusLine surfaces consecutiveDivergences + autoHeals.
+- Updated stale 6464 zero-consumer test to match the new auto-ack
+  contract.
+
+CI: Build AATE APK + Runtime Smoke Test both green on commit `993e2fda1`.
+
+---
+
+
 ## V5.0.6464 — 2026-02-18 — CORRECTNESS COMPLETION PATCH + EXPORT ONE-LINE-BUG FIX
 
 Massive 11-module correctness pass covering 10 operator sections + a
