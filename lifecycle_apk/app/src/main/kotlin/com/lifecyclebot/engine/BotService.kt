@@ -14232,6 +14232,17 @@ class BotService : Service() {
                         try {
                             com.lifecyclebot.engine.truth.UnifiedReconcilerHealth6470.snapshot()
                         } catch (_: Throwable) {}
+                        // V5.0.6471 §P0 (items 10-15) — same-domain position parity.
+                        // Prevents false-positive integrityHold when CLOSED/PENDING rows
+                        // are counted against an OPEN-only registry.
+                        try {
+                            com.lifecyclebot.engine.truth.PositionParityDomainAudit6471.audit()
+                        } catch (_: Throwable) {}
+                        // V5.0.6471 §P1 (items 33-34) — priority-ordered root cause.
+                        // Economic integrity > execution > runtime > provider > advisory.
+                        try {
+                            com.lifecyclebot.engine.truth.RootCauseClassifier6471.classify()
+                        } catch (_: Throwable) {}
                     }
                 } catch (_: Throwable) {}
             }

@@ -18986,17 +18986,40 @@ class Executor(
         val configuredMax = maxOverrideSol?.takeIf { it.isFinite() && it > 0.0 } ?: maxConfiguredPaperTradeSol()
         val maxSol = configuredMax.coerceAtLeast(minSol)
         if (!requested.isFinite() || requested <= 0.0) return 0.0
-        val clamped = requested.coerceIn(minSol, maxSol)
-        if (kotlin.math.abs(clamped - requested) > 0.0000001) {
+        // V5.0.6471 §P0 (items 6-9) — SAFETY CLAMP MAY REDUCE ONLY.
+        //
+        // 6470 evidence: cashCap=0.002278, resolver final=0.002278, exec=true,
+        // paperBuy.pre_mutation → 0.050000. The old coerceIn(min, max) INFLATED
+        // any final below the configured min up to `minSol` — a downstream
+        // *increase* of a cash-capped size which the mandate explicitly bans.
+        //
+        // New semantics:
+        //   requested > maxSol  → clamp DOWN to maxSol
+        //   requested < minSol  → SKIP (return 0.0). Callers must interpret 0.0
+        //                         as INSUFFICIENT_CASH_FOR_MIN_ORDER and skip
+        //                         the trade instead of forcing a floor buy.
+        if (requested > maxSol) {
+            val downClamped = maxSol
             try {
                 ForensicLogger.lifecycle(
-                    "PAPER_BUY_SIZE_CLAMPED",
-                    "mint=${mint.take(10)} symbol=$symbol source=$source requested=${requested.fmt(6)} clamped=${clamped.fmt(6)} min=${minSol.fmt(6)} max=${maxSol.fmt(6)}"
+                    "PAPER_BUY_SIZE_CLAMPED_DOWN_6471",
+                    "mint=${mint.take(10)} symbol=$symbol source=$source requested=${requested.fmt(6)} clamped=${downClamped.fmt(6)} max=${maxSol.fmt(6)}"
                 )
-                PipelineHealthCollector.labelInc("PAPER_BUY_SIZE_CLAMPED")
+                PipelineHealthCollector.labelInc("PAPER_BUY_SIZE_CLAMPED_DOWN_6471")
             } catch (_: Throwable) {}
+            return downClamped
         }
-        return clamped
+        if (requested < minSol) {
+            try {
+                ForensicLogger.lifecycle(
+                    "PAPER_BUY_SKIPPED_INSUFFICIENT_MIN_6471",
+                    "mint=${mint.take(10)} symbol=$symbol source=$source requested=${requested.fmt(6)} min=${minSol.fmt(6)} action=SKIP_NEVER_INFLATE"
+                )
+                PipelineHealthCollector.labelInc("PAPER_BUY_SKIPPED_INSUFFICIENT_MIN_6471")
+            } catch (_: Throwable) {}
+            return 0.0
+        }
+        return requested
     }
 
 
