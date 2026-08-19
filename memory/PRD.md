@@ -1,6 +1,50 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6469 (Feb 2026) — SOURCE-FIX: BACKGROUND RUNTIME + CANONICAL TERMINAL PIPELINE + CAPITAL CONSERVATION TRACER
+
+Fourth beat — "source-fix mandate" ship. CI green (Build APK +
+Runtime Smoke Test, sha 0112f312). Landed in response to the 6468
+operator dump showing 0 canonical SELLs, finalizedBus=0,
+capital conservation delta=-1.53, and screen-off UI inactivations
+correlating with heartbeat rescue relaunches.
+
+- **Canonical paper terminal pipeline (root cause)** — every paper
+  SELL/PARTIAL in Executor.kt bypassed the canonical event graph.
+  `CanonicalPaperTerminalBridge6469` now wires every paper sell site
+  to the full 7-step canonical fanout (LotQuantity → Idempotency →
+  MutationAuthority → EconomicEvent → FinalizedBus + Consumers →
+  Occupancy → SnapshotVersion). 3 executor call sites migrated.
+- **Background trading authority** — `BackgroundTradingAuthority6469`
+  rejects UI-lifecycle mutations. Every runtime-active mutation and
+  job registration now names its caller; UI callers get
+  `UI_LIFECYCLE_RUNTIME_MUTATION_REJECTED`.
+- **Capital conservation tracer** — `CapitalConservationTracer6469`
+  reconciles `baseline+realized ⇔ cash+openCost` on every parity
+  audit. NON-CLAMPING — emits `CAPITAL_CONSERVATION_DELTA` with the
+  full mutation history when the identity breaks.
+- **Maintenance budget governor** — `MaintenanceBudgetGovernor6469`
+  provides `tryAcquire(workKey) / release(workKey) / withBudget`
+  for heavy maintenance work keys. Shipped as surface; specific
+  offenders (LabUniverseTick, HOT_WATCHLIST) migrated in 6470.
+- **Forensic counters shipped** (mandated acceptance list):
+  `BACKGROUND_RUNTIME_SCREEN_OFF_TICKS`,
+  `BACKGROUND_RUNTIME_UI_ABSENT_TICKS`,
+  `UI_LIFECYCLE_RUNTIME_MUTATION_REJECTED`,
+  `RUNTIME_JOB_REPLACEMENTS`,
+  `CANONICAL_TERMINAL_SELL`,
+  `CANONICAL_TERMINAL_PARTIAL`,
+  `FINALIZED_BUS_PUBLISHED`,
+  `REGISTRY_CANONICAL_PARITY`,
+  `CAPITAL_CONSERVATION_DELTA`.
+
+**Deferred to 6470** — BotService START/STOP/rescue routing through
+BackgroundTradingAuthority6469; LabUniverseTick / hot-watchlist migration
+onto the governor; off-main PipelineHealthActivity snapshot; reconciler
+split-brain unification; operator-run screen-off ≥10-min runtime test.
+
+
+
 ## V5.0.6468 (Feb 2026) — UPSTREAM DEDUP + PROVIDER FAULT CIRCUITS + INVARIANT AUDIT
 
 Third beat of the Correctness Completion Patch (items 15-ext, 16, 17, 18).

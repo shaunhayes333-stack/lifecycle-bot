@@ -1,3 +1,99 @@
+## V5.0.6469 — 2026-02-18 — SOURCE-FIX: BACKGROUND RUNTIME + CANONICAL TERMINAL PIPELINE + CAPITAL CONSERVATION TRACER
+
+Fourth beat — the "source-fix mandate" ship. Green in CI (Build AATE
+APK + Runtime Smoke Test, sha 0112f312).
+
+**§P0 Canonical paper terminal pipeline (ROOT CAUSE of 6468's 0 SELLs)**
+- 6468 telemetry showed `paper BUY=224 SELL=92 PARTIAL=67` but
+  `economicSchema=205 BUYs, 0 SELLs, 0 PARTIALs` and
+  `finalizedBus=0`, `terminalIdempotency=0`, `canonical=201
+  registry=53 delta=148`.
+- Root cause: every paper SELL/PARTIAL in `Executor.kt` invoked
+  only `ExecutorCanonicalMirror6442.mirrorSell` +
+  `PaperAccountLedger6430.onSell` and skipped the entire canonical
+  event graph. `SellFinalizationCoordinator` did the full fanout
+  but was only invoked by live paths.
+- Fix — `CanonicalPaperTerminalBridge6469`. Two entrypoints:
+    `finalizeSell(...)` (full path) and
+    `emitCanonicalFanout(...)` (steps 3–9 for sites that already
+    invoke mirror + ledger).
+  Wired at every paper sell code site in Executor.kt (paper win
+  terminal close, checkPartial paper partial/dust-close, manual
+  paper partial sell). Each site now emits the full graph:
+    `CanonicalLotQuantity6464.onSellFilled` →
+    `TerminalSellIdempotency6464.beginTerminal` →
+    `TerminalMutationAuthority6466.claim` →
+    `EconomicEventSchema6464.recordSell` →
+    `CanonicalFinalizedTradeBus6464.publish` +
+    `deliverToConsumers` (via `FinalizedBusConsumerBridge6465`) →
+    `CanonicalMintOccupancyRegistry6464.markPendingExit` +
+    `markClosed` (when terminal) →
+    `AuthoritySnapshotVersion6464.bump`.
+- Forensic counters shipped: `CANONICAL_TERMINAL_SELL`,
+  `CANONICAL_TERMINAL_PARTIAL`, `FINALIZED_BUS_PUBLISHED`.
+
+**§P0 BackgroundTradingAuthority6469 (decouple trading from UI)**
+- Every mutation to runtime-active state names its caller string.
+  UI-lifecycle callers (`MainActivity`, `Fragment`, `lifecycleScope`,
+  `onStop`, `onPause`, `onDestroy`, `repeatOnLifecycle`) are
+  REJECTED with `UI_LIFECYCLE_RUNTIME_MUTATION_REJECTED`. Service
+  callers pass through.
+- Counters shipped: `BACKGROUND_RUNTIME_SCREEN_OFF_TICKS`,
+  `BACKGROUND_RUNTIME_UI_ABSENT_TICKS`, `RUNTIME_JOB_REPLACEMENTS`,
+  `UI_LIFECYCLE_RUNTIME_MUTATION_REJECTED`.
+- Authority exposed WITHOUT touching `BotService.kt` START/STOP/
+  rescue call sites — 6469 ships the authority surface; wiring
+  the specific service paths through it is next (6470).
+
+**§P0 CapitalConservationTracer6469 (NON-CLAMPING)**
+- Traces per-terminal contributions to `cash`, `realized`,
+  `openCost` and reconciles the invariant
+  `baseline + realized == cash + openCost` on every 30-loop parity
+  audit.
+- When `|delta| > 0.01`, emits `CAPITAL_CONSERVATION_DELTA` with the
+  full mutation history (cumulative gross / cost / fees / realized +
+  last mutation site). NON-CLAMPING — the tracer names the bug and
+  refuses to reset the number.
+- Called by `CanonicalPaperTerminalBridge6469.emitCanonicalFanout`
+  on every sell/partial + reconciled from `BotService.botLoop`
+  parity audit block.
+
+**§P1 MaintenanceBudgetGovernor6469 (loop starvation harness)**
+- Coalesces + cools down + budgets heavy maintenance tasks by
+  work key (`lab_universe_tick`, `probation_expiry`,
+  `token_map_hydration`, `hot_watchlist_rebalance`,
+  `watchlist_lru_evict`, `paper_replay_audit`, `source_maintenance`,
+  `symbolic_learning_fanout`).
+- `tryAcquire(workKey)` → `Decision.Run(deadline)/Coalesced/CoolingDown`,
+  paired with `release(workKey)`. `withBudget { deadlineMs -> ... }`
+  is the safe idiom.
+- The governor is shipped as available surface; incremental patches
+  will migrate the specific 6468 worst offenders onto it (next).
+
+**§P1 REGISTRY_CANONICAL_PARITY telemetry**
+- 30-loop parity audit now emits `REGISTRY_CANONICAL_PARITY` when
+  `CanonicalMintOccupancyRegistry.OPEN` count diverges from
+  `CanonicalPositionAuthority.openPositions().size`.
+
+**Acceptance test**
+`BackgroundRuntimeAndTerminalPipelineAcceptanceTest6469` (11 tests) —
+bridge fanout, bridge idempotency, UI-caller rejection (setRuntimeActive
++ registerRuntimeJob), screen-off tick counters, job replacements,
+conservation delta identity break, conservation NON-CLAMP, governor
+coalesce / cooldown / withBudget.
+
+**Non-goals — deferred to 6470**
+- Wiring `BotService` START/STOP/rescue through `BackgroundTradingAuthority6469`
+- Migrating `LabUniverseTick` / `HOT_WATCHLIST_SOURCE_REBALANCED` onto the governor
+- Off-main `PipelineHealthActivity` snapshot builder
+- Reconciler telemetry unification (split-brain fix)
+- Runtime background test (screen-off ≥10 min) — operator-run, not CI-runnable
+
+**Behavioural stance**
+Paper-mode canonical event fanout + observability + defensive
+correctness surfaces. Zero touch to the live execution path.
+
+
 ## V5.0.6468 — 2026-02-18 — UPSTREAM DEDUP + PROVIDER FAULT CIRCUITS + INVARIANT AUDIT (items 15ext, 16, 17, 18)
 
 Third beat of the Correctness Completion Patch. Green in CI
