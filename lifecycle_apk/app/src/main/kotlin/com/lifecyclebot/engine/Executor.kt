@@ -6527,16 +6527,19 @@ class Executor(
                                             com.lifecyclebot.engine.truth.PaperAccountLedger6430
                                                 .onSell(grossProceedsSol = gross, costBasisSoldSol = approxCost)
                                             // V5.0.6469 §P0 — canonical fanout for paper win.
-                                            // Historically this site journalled the paper
-                                            // credit ONLY; economicSchema/finalizedBus/
-                                            // idempotency/occupancy were skipped.
+                                            // V5.0.6470 §P0 — positionId MUST come from
+                                            // ExecutorCanonicalMirror6442.positionIdOf() to match
+                                            // the BUY-side canonical positionId; otherwise the
+                                            // SELL creates a phantom lot with bought=0 and trips
+                                            // CANONICAL_LOT_INVARIANT_VIOLATION_6464.
                                             try {
                                                 val syntheticSig6469 = "paper_win_${ts.mint}_${System.currentTimeMillis()}"
+                                                val pid6470 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
                                                 val qtyRaw6469 = java.math.BigInteger.valueOf(
                                                     (ts.position.qtyToken.coerceAtLeast(0.0) * 1_000_000_000.0).toLong().coerceAtLeast(0L)
                                                 )
                                                 com.lifecyclebot.engine.truth.CanonicalPaperTerminalBridge6469.emitCanonicalFanout(
-                                                    positionId = ts.mint, mint = ts.mint, symbol = ts.symbol,
+                                                    positionId = pid6470, mint = ts.mint, symbol = ts.symbol,
                                                     generation = System.currentTimeMillis(),
                                                     sellSig = syntheticSig6469,
                                                     soldQtyRaw = qtyRaw6469,
@@ -7962,13 +7965,15 @@ class Executor(
                 // V5.0.6469 §P0 — canonical fanout for paper partial. Missing
                 // economicSchema/finalizedBus emissions were the root cause of
                 // 6468's 0 canonical SELLs/PARTIALs despite 92+67 paper trades.
+                // V5.0.6470 §P0 — positionId MUST match the canonical BUY-side id.
                 try {
                     val syntheticSig6469 = "paper_partial_${ts.mint}_${System.currentTimeMillis()}"
+                    val pid6470 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
                     val preRemainingRaw6469 = java.math.BigInteger.valueOf(
                         (pos.qtyToken.coerceAtLeast(0.0) * 1_000_000_000.0).toLong().coerceAtLeast(0L)
                     )
                     com.lifecyclebot.engine.truth.CanonicalPaperTerminalBridge6469.emitCanonicalFanout(
-                        positionId = ts.mint, mint = ts.mint, symbol = ts.symbol,
+                        positionId = pid6470, mint = ts.mint, symbol = ts.symbol,
                         generation = System.currentTimeMillis(),
                         sellSig = syntheticSig6469,
                         soldQtyRaw = soldRaw6448,
@@ -18132,13 +18137,15 @@ class Executor(
                     feeSol = partialSellFee.coerceAtLeast(0.0),
                 )
                 // V5.0.6469 §P0 — canonical fanout for manual paper partial sell.
+                // V5.0.6470 §P0 — positionId MUST match the canonical BUY-side id.
                 try {
                     val syntheticSig6469 = "paper_manual_partial_${ts.mint}_${System.currentTimeMillis()}"
+                    val pid6470 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
                     val preRemainingRaw6469 = java.math.BigInteger.valueOf(
                         (pos.qtyToken.coerceAtLeast(0.0) * 1_000_000_000.0).toLong().coerceAtLeast(0L)
                     )
                     com.lifecyclebot.engine.truth.CanonicalPaperTerminalBridge6469.emitCanonicalFanout(
-                        positionId = ts.mint, mint = ts.mint, symbol = ts.symbol,
+                        positionId = pid6470, mint = ts.mint, symbol = ts.symbol,
                         generation = System.currentTimeMillis(),
                         sellSig = syntheticSig6469,
                         soldQtyRaw = soldQtyManual6448,

@@ -71,6 +71,54 @@ object CanonicalLotQuantity6464 {
 
     fun onSellFilled(positionId: String, mint: String, filledQty: BigInteger) {
         if (positionId.isBlank() || filledQty <= BigInteger.ZERO) return
+        // V5.0.6470 §P0 — LOT QUANTITY INVARIANT AT THE SOURCE.
+        //
+        // Operator dump 6469 showed 28 CANONICAL_LOT_INVARIANT_VIOLATION_6464
+        // firings driven by "onSellFilled bought=0 sold=7489167031711" — a
+        // phantom lot got materialised by a SELL when no matching BUY had
+        // ever recorded against that positionId (position-ID mismatch or
+        // orphan generation).
+        //
+        // We now REJECT any sell against a non-existent or bought=0 lot.
+        // The mutation is quarantined at the entry point instead of being
+        // laundered into a lot with bought=0 that will trip the invariant
+        // check after the fact.
+        val existing = lots[positionId]
+        if (existing == null || existing.confirmedBoughtQty <= BigInteger.ZERO) {
+            invariantViolations.incrementAndGet()
+            try {
+                ForensicLogger.lifecycle(
+                    "CANONICAL_LOT_SELL_QUARANTINED_6470",
+                    "reason=NO_MATCHING_BUY positionId=${positionId.take(16)} mint=${mint.take(10)} " +
+                        "filledQty=$filledQty existingBought=${existing?.confirmedBoughtQty ?: "null"}",
+                )
+                PipelineHealthCollector.labelInc("CANONICAL_LOT_SELL_QUARANTINED_6470")
+                // Notify the learning quarantine gate so downstream learners
+                // will drop any finalized event referencing this positionId.
+                LearningQuarantineGate6470.quarantinePositionId(
+                    positionId = positionId,
+                    reason = "LOT_INVARIANT_NO_MATCHING_BUY",
+                )
+            } catch (_: Throwable) {}
+            return
+        }
+        // Additional invariant: sold + filledQty must not exceed bought.
+        if (existing.confirmedSoldQty + filledQty > existing.confirmedBoughtQty + BigInteger.ONE) {
+            invariantViolations.incrementAndGet()
+            try {
+                ForensicLogger.lifecycle(
+                    "CANONICAL_LOT_SELL_QUARANTINED_6470",
+                    "reason=OVERSELL positionId=${positionId.take(16)} mint=${mint.take(10)} " +
+                        "bought=${existing.confirmedBoughtQty} sold=${existing.confirmedSoldQty} filled=$filledQty",
+                )
+                PipelineHealthCollector.labelInc("CANONICAL_LOT_SELL_QUARANTINED_6470")
+                LearningQuarantineGate6470.quarantinePositionId(
+                    positionId = positionId,
+                    reason = "LOT_INVARIANT_OVERSELL",
+                )
+            } catch (_: Throwable) {}
+            return
+        }
         val lot = lots.compute(positionId) { _, cur ->
             (cur ?: Lot(positionId, mint, BigInteger.ZERO, BigInteger.ZERO, BigInteger.ZERO)).also {
                 it.confirmedSoldQty = it.confirmedSoldQty + filledQty

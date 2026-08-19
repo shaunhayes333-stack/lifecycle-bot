@@ -14209,6 +14209,29 @@ class BotService : Service() {
                                 )
                             }
                         } catch (_: Throwable) {}
+                        // V5.0.6470 §P0 — lifecycle projection watchdog.
+                        // Detects canonical-CLOSED but occupancy-OPEN drift and
+                        // quarantines the offending mint from learning fanout.
+                        try {
+                            com.lifecyclebot.engine.truth.CanonicalLifecycleAuthority6470.audit()
+                        } catch (_: Throwable) {}
+                        // V5.0.6470 §P0 — canonical economic identity check.
+                        // The ONE equation: startCap + realized - fees == cash + openCost.
+                        try {
+                            val cap6470 = com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.snapshot()
+                            com.lifecyclebot.engine.truth.CanonicalEconomicIdentity6470.reconcile(
+                                startingCapitalSol = startCap6464,
+                                canonicalRealizedPnlSol = cap6470.realizedPnlSol,
+                                canonicalFeesSol = cap6470.feesSol,
+                                canonicalCashSol = cap6470.cashSol,
+                                canonicalOpenCostBasisSol = cap6470.openCostBasisSol,
+                            )
+                        } catch (_: Throwable) {}
+                        // V5.0.6470 §P0 — unified reconciler health snapshot.
+                        // Detects split-brain state between §6441/§6454/§6459/§6467.
+                        try {
+                            com.lifecyclebot.engine.truth.UnifiedReconcilerHealth6470.snapshot()
+                        } catch (_: Throwable) {}
                     }
                 } catch (_: Throwable) {}
             }

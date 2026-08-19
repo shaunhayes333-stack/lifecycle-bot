@@ -37,6 +37,19 @@ object FinalizedBusConsumerBridge6465 {
     private val refused = AtomicLong(0L)
 
     fun deliver(consumer: String, env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
+        // V5.0.6470 §P1 — learning purity gate. Any envelope whose position id
+        // (encoded as env.tradeId) or mint has been quarantined by
+        // `LearningQuarantineGate6470` is dropped before it reaches any
+        // learner. Learning consumers only see clean canonical outcomes.
+        if (consumer !in NON_LEARNING_CONSUMERS &&
+            LearningQuarantineGate6470.shouldDropForLearning(positionId = env.tradeId, mint = env.mint)
+        ) {
+            refused.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("LEARNING_QUARANTINE_CONSUMER_DROPPED_6470_${consumer}".take(60))
+            } catch (_: Throwable) {}
+            return false
+        }
         val ok = when (consumer) {
             "LearnerRewardBridge" -> deliverToLearnerRewardBridge(env)
             "LosingStreakReflex"  -> deliverToLosingStreakReflex(env)
@@ -57,6 +70,9 @@ object FinalizedBusConsumerBridge6465 {
         } catch (_: Throwable) {}
         return ok
     }
+
+    /** Consumers that are NOT learning targets — quarantine does not gate them. */
+    private val NON_LEARNING_CONSUMERS = setOf("Dashboard")
 
     private fun deliverToLearnerRewardBridge(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         // Best-effort: LearnerRewardBridge6440 exposes a query API but no
