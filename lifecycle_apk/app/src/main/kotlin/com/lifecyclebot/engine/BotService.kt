@@ -14178,6 +14178,37 @@ class BotService : Service() {
                         try {
                             com.lifecyclebot.engine.truth.ForcedCloseSlotSweeper6468.sweep()
                         } catch (_: Throwable) {}
+                        // V5.0.6469 §P0 — capital conservation tracer.
+                        // Reconciles cash + openCost against baseline + realized.
+                        // NON-CLAMPING — emits CAPITAL_CONSERVATION_DELTA when
+                        // the invariant is broken so the operator can trace the
+                        // exact mutation site instead of resetting the number.
+                        try {
+                            val cap6469 = com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.snapshot()
+                            com.lifecyclebot.engine.truth.CapitalConservationTracer6469.reconcile(
+                                baselineSol = startCap6464,
+                                cashSol = cap6469.cashSol,
+                                openCostBasisSol = cap6469.openCostBasisSol,
+                                realizedFromLedger = cap6469.realizedPnlSol,
+                            )
+                        } catch (_: Throwable) {}
+                        // V5.0.6469 §P1 — REGISTRY_CANONICAL_PARITY telemetry.
+                        // Emit the delta between the canonical open-position
+                        // set and the legacy registry snapshot so operator
+                        // dashboards can watch it converge to zero.
+                        try {
+                            val canonicalOpen = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().size
+                            val occSnap = com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.snapshotByOccupancy()
+                            val occOpen = occSnap[com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.Occupancy.OPEN] ?: 0
+                            val delta = occOpen - canonicalOpen
+                            if (delta != 0) {
+                                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("REGISTRY_CANONICAL_PARITY")
+                                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                    "REGISTRY_CANONICAL_PARITY",
+                                    "canonicalOpen=$canonicalOpen registryOpen=$occOpen delta=$delta",
+                                )
+                            }
+                        } catch (_: Throwable) {}
                     }
                 } catch (_: Throwable) {}
             }

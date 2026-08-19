@@ -6526,6 +6526,30 @@ class Executor(
                                             val gross = (approxCost + pnlSol).coerceAtLeast(0.0)
                                             com.lifecyclebot.engine.truth.PaperAccountLedger6430
                                                 .onSell(grossProceedsSol = gross, costBasisSoldSol = approxCost)
+                                            // V5.0.6469 §P0 — canonical fanout for paper win.
+                                            // Historically this site journalled the paper
+                                            // credit ONLY; economicSchema/finalizedBus/
+                                            // idempotency/occupancy were skipped.
+                                            try {
+                                                val syntheticSig6469 = "paper_win_${ts.mint}_${System.currentTimeMillis()}"
+                                                val qtyRaw6469 = java.math.BigInteger.valueOf(
+                                                    (ts.position.qtyToken.coerceAtLeast(0.0) * 1_000_000_000.0).toLong().coerceAtLeast(0L)
+                                                )
+                                                com.lifecyclebot.engine.truth.CanonicalPaperTerminalBridge6469.emitCanonicalFanout(
+                                                    positionId = ts.mint, mint = ts.mint, symbol = ts.symbol,
+                                                    generation = System.currentTimeMillis(),
+                                                    sellSig = syntheticSig6469,
+                                                    soldQtyRaw = qtyRaw6469,
+                                                    preRemainingRaw = qtyRaw6469,
+                                                    preRemainingCostBasisSol = approxCost,
+                                                    grossProceedsSol = gross,
+                                                    soldCostBasisSol = approxCost,
+                                                    feesSol = 0.0,
+                                                    lane = laneForLearn,
+                                                    exitReason = "PAPER_WIN",
+                                                    terminal = true,
+                                                )
+                                            } catch (_: Throwable) {}
                                         }
                                         if (ts.position.isPaperPosition) {
                                             com.lifecyclebot.engine.truth.LiveGrowthCompounder6416
@@ -7935,6 +7959,29 @@ class Executor(
                     costBasisSoldSol = partialCostBasisSol.coerceAtLeast(0.0),
                     feeSol = paperPartialFee.coerceAtLeast(0.0),
                 )
+                // V5.0.6469 §P0 — canonical fanout for paper partial. Missing
+                // economicSchema/finalizedBus emissions were the root cause of
+                // 6468's 0 canonical SELLs/PARTIALs despite 92+67 paper trades.
+                try {
+                    val syntheticSig6469 = "paper_partial_${ts.mint}_${System.currentTimeMillis()}"
+                    val preRemainingRaw6469 = java.math.BigInteger.valueOf(
+                        (pos.qtyToken.coerceAtLeast(0.0) * 1_000_000_000.0).toLong().coerceAtLeast(0L)
+                    )
+                    com.lifecyclebot.engine.truth.CanonicalPaperTerminalBridge6469.emitCanonicalFanout(
+                        positionId = ts.mint, mint = ts.mint, symbol = ts.symbol,
+                        generation = System.currentTimeMillis(),
+                        sellSig = syntheticSig6469,
+                        soldQtyRaw = soldRaw6448,
+                        preRemainingRaw = preRemainingRaw6469,
+                        preRemainingCostBasisSol = pos.costSol.coerceAtLeast(0.0),
+                        grossProceedsSol = grossPartial6448,
+                        soldCostBasisSol = partialCostBasisSol.coerceAtLeast(0.0),
+                        feesSol = paperPartialFee.coerceAtLeast(0.0),
+                        lane = pos.tradingMode,
+                        exitReason = trade.reason,
+                        terminal = paperDustClosed,
+                    )
+                } catch (_: Throwable) {}
             } catch (_: Throwable) {}
             onPaperBalanceChange?.invoke((sellQty * actualPrice) - paperPartialTreasuryShare6041)
             try { ForensicLogger.lifecycle("PARTIAL_SELL_WALLET_CREDITED_6041", "mode=paper mint=${ts.mint.take(10)} symbol=${ts.symbol} gross=${(sellQty * actualPrice).fmtSol()} treasury=${paperPartialTreasuryShare6041.fmtSol()} delta=${((sellQty * actualPrice) - paperPartialTreasuryShare6041).fmtSol()} reason=${trade.reason}") } catch (_: Throwable) {}
@@ -18084,6 +18131,27 @@ class Executor(
                     costBasisSoldSol = soldValueSol.coerceAtLeast(0.0),
                     feeSol = partialSellFee.coerceAtLeast(0.0),
                 )
+                // V5.0.6469 §P0 — canonical fanout for manual paper partial sell.
+                try {
+                    val syntheticSig6469 = "paper_manual_partial_${ts.mint}_${System.currentTimeMillis()}"
+                    val preRemainingRaw6469 = java.math.BigInteger.valueOf(
+                        (pos.qtyToken.coerceAtLeast(0.0) * 1_000_000_000.0).toLong().coerceAtLeast(0L)
+                    )
+                    com.lifecyclebot.engine.truth.CanonicalPaperTerminalBridge6469.emitCanonicalFanout(
+                        positionId = ts.mint, mint = ts.mint, symbol = ts.symbol,
+                        generation = System.currentTimeMillis(),
+                        sellSig = syntheticSig6469,
+                        soldQtyRaw = soldQtyManual6448,
+                        preRemainingRaw = preRemainingRaw6469,
+                        preRemainingCostBasisSol = pos.costSol.coerceAtLeast(0.0),
+                        grossProceedsSol = grossManualPartial6448,
+                        soldCostBasisSol = soldValueSol.coerceAtLeast(0.0),
+                        feesSol = partialSellFee.coerceAtLeast(0.0),
+                        lane = pos.tradingMode,
+                        exitReason = trade.reason,
+                        terminal = fullyExited,
+                    )
+                } catch (_: Throwable) {}
             } catch (_: Throwable) {}
             onPaperBalanceChange?.invoke((soldValueSol + profitSol) - partialTreasuryShare)
 
