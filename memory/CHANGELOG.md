@@ -1,3 +1,86 @@
+## V5.0.6471 — 2026-02-18 — SOURCE-FIX: SIZE INFLATION KILL + MARKET DATA PROVENANCE + PARITY DOMAIN + ROOT CAUSE PRIORITY
+
+Sixth beat — "economic truth + entry authority repair". Green in CI
+(Build AATE APK + Runtime Smoke Test, sha `f346a044`).
+
+**§P0 items 6-9 — Size re-inflation killed at the source**
+- Root cause: `Executor.kt.clampPaperTradeSol` used
+  `requested.coerceIn(minSol, maxSol)` — when a cash-capped resolver
+  output (`0.002278`) was below `minSol` (`0.05`), coerceIn INFLATED
+  the size UP to `0.05` (the exact 6470 field evidence).
+- Fix: safety clamp may REDUCE ONLY. Above `maxSol` → clamp down.
+  Below `minSol` → return `0.0` (caller already handles as SKIP).
+  Zero downstream inflation. Ever.
+- Telemetry: `PAPER_BUY_SIZE_CLAMPED_DOWN_6471`,
+  `PAPER_BUY_SKIPPED_INSUFFICIENT_MIN_6471`.
+
+**§P0 items 16-20 — `MarketDataProvenance6471`**
+- `classify(price, mcap, liquidity, source, poolAddress)` returns
+  `AUTHORITATIVE` / `NON_AUTHORITATIVE_SENTINEL` /
+  `NON_AUTHORITATIVE_MISSING`.
+- Detectors: known template tuple (0.05025 / 50m / 5m — the actual
+  6470 field data), sentinel pool prefixes (`MINT_ROUTE:`,
+  `UNKNOWN`, `PLACEHOLDER`, `SENTINEL`), sentinel source tokens
+  (`UNKNOWN`, `FALLBACK`, `CACHE_DEFAULT`, `CACHE_TEMPLATE`,
+  `SYNTHETIC`), invalid numeric values.
+- `isExecutable(...)` is the single truth surface for "can this
+  data authorize a trade?". NON_AUTHORITATIVE data may still feed
+  shadow telemetry / provider refresh but cannot enter FDG, sizing,
+  or canonical entry snapshots.
+- Telemetry: `MARKET_DATA_SENTINEL_6471`, `MARKET_DATA_MISSING_6471`,
+  `MARKET_DATA_EXECUTABLE_BLOCKED_6471`.
+
+**§P0 items 10-15 — `PositionParityDomainAudit6471`**
+- 6470 evidence: parity compared canonical `70` (58 OPEN + 2 PENDING
+  + 10 CLOSED) against registry `58` (OPEN only) → false 12-count
+  divergence held the advisor.
+- Fix: parity contract by lifecycle domain.
+  - active canonical (OPEN + PARTIALLY_CLOSED) ↔ occupancy OPEN
+  - canonical PENDING_ENTRY ↔ occupancy PENDING_ENTRY
+  - canonical CLOSED / QUARANTINED are not compared against OPEN
+- Only same-domain divergence counts as "genuine". False flags are
+  tracked (`falseFlagsAvoided`) so the audit's health impact is
+  measurable.
+- Telemetry: `POSITION_PARITY_GENUINE_DIVERGENCE_6471`.
+
+**§P1 items 33-34 — `RootCauseClassifier6471`**
+- 6470 evidence: root cause said `DEGRADED/api/providers` while
+  `CAPITAL_IDENTITY_BREACH_6470` + parity divergence + integrity
+  hold were all active. Provider errors masked capital-integrity
+  breaches.
+- Fix: priority-ordered classifier walks probes in mandated order:
+  `ECONOMIC_INTEGRITY > EXECUTION_FINALITY > RUNTIME_STALL >
+   PROVIDER_DEGRADATION > ADVISORY_DEGRADATION > HEALTHY`.
+- Provider errors can never again out-rank a capital breach in
+  the reported root cause.
+- Telemetry: `ROOT_CAUSE_<TIER>_6471`, `ROOT_CAUSE_CLASSIFIED_6471`.
+
+**Wired into `BotService.botLoop` 30-loop parity block**
+- `PositionParityDomainAudit6471.audit()` runs alongside the 6470
+  audits.
+- `RootCauseClassifier6471.classify()` runs after every parity pass.
+
+**Acceptance test** — `EconomicTruthAndEntryAuthorityAcceptanceTest6471`
+(10 cases): template tuple → sentinel; blank pool → missing; MINT_ROUTE
+prefix → sentinel; UNKNOWN source → sentinel; real data → executable;
+zero/negative price → missing; parity idempotent on empty state;
+parity statusLine exposes counters; classifier healthy when no probe
+fires; classifier ranks economic integrity above provider degradation.
+
+**Non-goals — deferred to 6472**
+- Wire `MarketDataProvenance6471` into every mint-entry snapshot site
+  (surface shipped; call-site migration next).
+- SHITCOIN adaptive damping (items 28-29).
+- Slot health canonical rebuild (items 25-27).
+- Reconciler generation-ownership `Long.MAX_VALUE` guard (items 30-32).
+- BotService runtime routing through `BackgroundTradingAuthority6469`.
+
+**Behavioural stance**
+Zero touch to the live execution path. Paper-only defensive
+surfaces + one source-fix inside the safety clamp that structurally
+eliminates the "cash-cap → 0.05 SOL" upsizing observed in 6470.
+
+
 ## V5.0.6470 — 2026-02-18 — SOURCE-FIX: LIFECYCLE CONVERGENCE + ACCOUNTING TRUTH + LEARNING QUARANTINE
 
 Fifth beat — the "canonical lifecycle convergence / accounting

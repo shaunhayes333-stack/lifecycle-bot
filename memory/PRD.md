@@ -1,6 +1,36 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6471 (Feb 2026) — SOURCE-FIX: SIZE INFLATION KILL + MARKET DATA PROVENANCE + PARITY DOMAIN + ROOT CAUSE PRIORITY
+
+Sixth beat — economic truth + entry authority repair. CI green
+(Build APK + Runtime Smoke Test, sha `f346a044`).
+
+- **Size re-inflation KILLED at the source** — `Executor.kt.clampPaperTradeSol`
+  no longer uses `coerceIn(min, max)`. Safety clamp reduces only.
+  Below `minSol` → skip. Above `maxSol` → clamp down. The 6470
+  "cash-cap → forced 0.05 SOL" upsizing is structurally impossible.
+- **Market data provenance** — `MarketDataProvenance6471` classifies
+  the tuple `(price, mcap, liquidity, source, poolAddress)` and
+  exposes `isExecutable(...)` as the single truth surface. Template
+  tuple `0.05025/50m/5m`, MINT_ROUTE sentinel pool, UNKNOWN source →
+  NON_AUTHORITATIVE. Non-authoritative data cannot authorize a trade.
+- **Position parity domain fix** — `PositionParityDomainAudit6471`
+  compares same-domain populations only. Active (OPEN + PARTIALLY_CLOSED)
+  ↔ occupancy OPEN. CLOSED / PENDING / QUARANTINED never trigger
+  OPEN divergence again.
+- **Root cause priority classifier** — `RootCauseClassifier6471`
+  walks probes in mandated priority order. Economic integrity
+  outranks provider degradation. Capital breaches will never again
+  be masked by 401/429/404.
+
+**Deferred to 6472** — Wire MarketDataProvenance into every mint-entry
+snapshot site; SHITCOIN adaptive damping; slot health canonical
+rebuild; reconciler generation-ownership guard; BotService runtime
+routing through BackgroundTradingAuthority6469.
+
+
+
 ## V5.0.6470 (Feb 2026) — SOURCE-FIX: LIFECYCLE CONVERGENCE + ACCOUNTING TRUTH + LEARNING QUARANTINE
 
 Fifth beat — "canonical lifecycle convergence / accounting source-fix"
