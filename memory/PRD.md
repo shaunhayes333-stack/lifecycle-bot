@@ -1,6 +1,42 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6470 (Feb 2026) — SOURCE-FIX: LIFECYCLE CONVERGENCE + ACCOUNTING TRUTH + LEARNING QUARANTINE
+
+Fifth beat — "canonical lifecycle convergence / accounting source-fix"
+ship. CI green (Build APK + Runtime Smoke Test, sha 36de3816).
+
+- **One position authority** — `CanonicalLifecycleAuthority6470` audits
+  canonical CLOSED vs occupancy OPEN contradiction and quarantines
+  offending mints via `LearningQuarantineGate6470`.
+- **Lot quantity invariant AT THE SOURCE** —
+  `CanonicalLotQuantity6464.onSellFilled` now quarantines mutations
+  where the lot is missing, `bought <= 0`, or the sell would oversell.
+  Root cause: 6469 SELL wires passed `ts.mint` directly instead of
+  `ExecutorCanonicalMirror6442.positionIdOf(mint)`; that mismatch
+  created phantom lots with `bought=0`. Fixed at both the guard and
+  every paper sell call site.
+- **Canonical economic identity** — `CanonicalEconomicIdentity6470`
+  enforces the ONE equation
+  `startCap + realized - fees == cash + openCost`. NON-CLAMPING;
+  emits `CAPITAL_IDENTITY_BREACH_6470` when broken. Complements the
+  6469 tracer with the correct fee-inclusive invariant.
+- **Unified reconciler health** — `UnifiedReconcilerHealth6470`
+  aggregates §6441 / §6454 / §6459 / §6467 into a single snapshot;
+  emits `RECONCILER_SPLIT_BRAIN_6470` when siblings contradict the
+  ground-truth heartbeat.
+- **Learning quarantine gate** — `LearningQuarantineGate6470` is
+  consulted by `FinalizedBusConsumerBridge6465.deliver()` before
+  every learner dispatch. Corrupted lots never train learners;
+  Dashboard is not gated (not a learning target).
+
+**Deferred to 6471** — Reconciler service rip-and-replace; BotService
+runtime routing through BackgroundTradingAuthority6469; Groq
+permanent-disable-on-invalid-model; supervisor hot-path partition;
+MOONSHOT exit-quality tuning (requires ≥20 fresh clean closes first).
+
+
+
 ## V5.0.6469 (Feb 2026) — SOURCE-FIX: BACKGROUND RUNTIME + CANONICAL TERMINAL PIPELINE + CAPITAL CONSERVATION TRACER
 
 Fourth beat — "source-fix mandate" ship. CI green (Build APK +

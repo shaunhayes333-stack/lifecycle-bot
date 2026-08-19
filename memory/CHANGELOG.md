@@ -1,3 +1,85 @@
+## V5.0.6470 — 2026-02-18 — SOURCE-FIX: LIFECYCLE CONVERGENCE + ACCOUNTING TRUTH + LEARNING QUARANTINE
+
+Fifth beat — the "canonical lifecycle convergence / accounting
+source-fix" ship. Green in CI (Build AATE APK + Runtime Smoke Test,
+sha `36de3816`).
+
+**§P0-1 One position authority — `CanonicalLifecycleAuthority6470`**
+- Projection watchdog. Every 30-loop parity audit enumerates
+  canonical open + closed positions and cross-references
+  `CanonicalMintOccupancyRegistry6464`. Any (canonical CLOSED) ∩
+  (occupancy OPEN) contradiction quarantines the mint via
+  `LearningQuarantineGate6470` and emits
+  `LIFECYCLE_PROJECTION_DIVERGED_6470` / `_QUARANTINED_6470`.
+
+**§P0-2 Lot quantity invariant AT THE SOURCE — `CanonicalLotQuantity6464.onSellFilled` hardened**
+- Root cause of the 6469 dump `onSellFilled bought=0 sold=7489167031711`:
+  - BUY sites in Executor.kt recorded lots keyed on
+    `ExecutorCanonicalMirror6442.positionIdOf(mint)` (derived).
+  - The 6469 SELL wires used `ts.mint` DIRECTLY as positionId.
+  - Mismatch → `onSellFilled` created a phantom lot with bought=0.
+- Fix A: `onSellFilled` now **quarantines** the mutation when the
+  lot is missing, `confirmedBoughtQty <= 0`, or the sold+filled
+  would exceed bought+1. The phantom lot is never created; the
+  positionId/mint is quarantined for learning.
+- Fix B: every paper sell wire in Executor.kt now derives positionId
+  via `positionIdOf(mint)` — 3 sites (paper win, checkPartial paper,
+  manual paper partial). Phantom lots are structurally unreachable.
+
+**§P0-3 Canonical economic identity — `CanonicalEconomicIdentity6470`**
+- The ONE equation:
+  `startingCapital + realized - fees + deposits - withdrawals
+     == cash + openCostBasis`
+- Reconciled every 30 loops from `CanonicalCapitalAuthority6450.snapshot()`.
+- NON-CLAMPING. `CAPITAL_IDENTITY_BREACH_6470` emitted with full
+  component breakdown when |delta| > 0.01 SOL. Complements the 6469
+  tracer (which omitted fees) with the correct fee-inclusive
+  invariant.
+
+**§P0-4 Unified reconciler health — `UnifiedReconcilerHealth6470`**
+- Single ReconcilerHealth snapshot. Ground truth =
+  `ReconcilerHeartbeat6467` (already fed by `WallClockReconciler6454`
+  since V5.0.6467).
+- Cross-checks secondary surfaces (`RECONCILER_CADENCE_STALE_6459`,
+  `RECONCILER_CADENCE_UNINITIALIZED_6459`) via `PipelineHealthCollector`.
+- Emits `RECONCILER_SPLIT_BRAIN_6470` when a sibling reports stale
+  while ground truth reports healthy.
+
+**§P0-5 Learning purity quarantine — `LearningQuarantineGate6470` +
+`FinalizedBusConsumerBridge6465` gate**
+- Positions/mints flagged by the lot invariant guard OR the
+  lifecycle projection audit are quarantined for LEARNING only.
+  Execution/forensic paths are unaffected.
+- `FinalizedBusConsumerBridge6465.deliver()` now consults the gate
+  BEFORE dispatching to Governor / TacticSwitcher /
+  GrowthRewardShaper / CapitalCreed / EVEstimator /
+  LosingStreakReflex / LearnerRewardBridge. Dashboard passes through
+  (not a learning target).
+- Emits `LEARNING_QUARANTINE_CONSUMER_DROPPED_6470_<consumer>`.
+
+**Acceptance test**
+- `LifecycleConvergenceAcceptanceTest6470` (9 cases): phantom sell
+  quarantined; oversell quarantined; clean sell accepted; learner
+  drop respected; Dashboard passes; economic identity holds; identity
+  NOT clamped; unified reconciler snapshot exposes ground-truth
+  counters; lifecycle audit idempotent on clean state.
+
+**Non-goals — deferred to 6471**
+- Reconciler service rip-and-replace (6470 unifies telemetry
+  without ripping underlying implementations).
+- BotService runtime routing through
+  `BackgroundTradingAuthority6469`.
+- Groq permanent-disable-on-invalid-model.
+- Supervisor / bot-loop hot-path partition.
+- MOONSHOT exit-quality tuning (gated on ≥20 fresh terminal closes
+  with clean canonical accounting).
+
+**Behavioural stance**
+Paper-mode canonical truth graph + defensive quarantine surfaces.
+Zero touch to the live execution path. Live routing remains fully
+functional and gated by `mode="live"`.
+
+
 ## V5.0.6469 — 2026-02-18 — SOURCE-FIX: BACKGROUND RUNTIME + CANONICAL TERMINAL PIPELINE + CAPITAL CONSERVATION TRACER
 
 Fourth beat — the "source-fix mandate" ship. Green in CI (Build AATE
