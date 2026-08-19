@@ -57,7 +57,7 @@ class BackgroundRuntimeAndTerminalPipelineAcceptanceTest6469 {
         assertTrue("busPublished", res.busPublished)
         assertFalse("occupancy released", CanonicalMintOccupancyRegistry6464.isOpen("paper", "MINT_ONE"))
         val sched = EconomicEventSchema6464.snapshot()
-        assertTrue("economicSchema recorded a SELL", sched.any { it is EconomicEventSchema6464.Event.Sell })
+        assertTrue("economicSchema recorded a SELL", sched.any { it is EconomicEventSchema6464.Sell })
     }
 
     @Test
