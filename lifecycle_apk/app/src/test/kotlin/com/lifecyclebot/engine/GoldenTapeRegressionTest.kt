@@ -7520,4 +7520,20 @@ class GoldenTapeRegressionTest {
                 mult.contains("action=preserve_candidate_no_standard_fallback"))
     }
 
+
+
+    @Test
+    fun V5_0_6474_full_paper_sell_commits_canonical_accounting_before_journal_projection() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt").readText()
+        val fullSellIdx = exec.indexOf("fun paperSell(")
+        val commitIdx = exec.indexOf("CANONICAL_PAPER_SELL_COMMIT_6474", fullSellIdx)
+        val journalIdx = exec.indexOf("recordTrade(tsLearningSnap, tradeSnap)", fullSellIdx)
+        assertTrue("V5.0.6474: full PAPER SELL must route through CanonicalPaperTerminalBridge.finalizeSell before journal/learning projection", fullSellIdx >= 0 && commitIdx > fullSellIdx && journalIdx > commitIdx)
+        assertTrue("V5.0.6474: accounting rejection must not write a successful SELL journal row", exec.contains("PAPER_ACCOUNTING_MUTATION_REJECTED") && exec.contains("action=no_successful_sell_journal") && exec.contains("return SellResult.FAILED_FATAL"))
+        assertTrue("V5.0.6474: canonical terminal bridge owns the full paper sell money/event fanout", exec.contains("CanonicalPaperTerminalBridge6469.finalizeSell") && bridge.contains("PaperAccountLedger6430.onSell") && bridge.contains("EconomicEventSchema6464.recordSell") && bridge.contains("CanonicalFinalizedTradeBus6464.publish"))
+        assertFalse("V5.0.6474: full paper sell must not directly call mirrorSell+PaperAccountLedger as a divergent full-close path", exec.substring(fullSellIdx).contains("""ExecutorCanonicalMirror6442.mirrorSell(
+                mint = tradeId.mint"""))
+    }
+
 }

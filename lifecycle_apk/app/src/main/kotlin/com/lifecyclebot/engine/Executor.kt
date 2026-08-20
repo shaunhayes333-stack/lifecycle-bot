@@ -19370,33 +19370,9 @@ class Executor(
             )
         } catch (_: Throwable) { ts }
         try { ts.trades.add(tradeSnap) } catch (_: Throwable) {}
-        kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
-            try {
-                recordTrade(tsLearningSnap, tradeSnap)
-                try { security.recordTrade(tradeSnap) } catch (_: Throwable) {}
-                try { ForensicLogger.lifecycle("PAPER_SELL_JOURNAL_DONE", "mint=${tradeSnap.mint.take(10)} symbol=${tsLearningSnap.symbol} pnlPct=${tradeSnap.pnlPct.toInt()} reason=${tradeSnap.reason}") } catch (_: Throwable) {}
-                // V5.0.3680 — TELEMETRY GAP. EXEC_PAPER_SELL_OK was always 0
-                // despite EXEC_SELL=67 in journal. Same gap pattern as the
-                // V5.0.3679 LIVE_BUY_FAIL telemetry fix. Increment the per-
-                // mode exec counter so the operator dashboard reflects the
-                // 67 paper sells actually happening.
-                try { ForensicLogger.exec(
-                    "PAPER_SELL_OK",
-                    tsLearningSnap.symbol,
-                    "mint=${tradeSnap.mint.take(10)} pnlPct=${tradeSnap.pnlPct.toInt()} reason=${tradeSnap.reason.take(40)}",
-                ) } catch (_: Throwable) {}
-            } catch (t: Throwable) {
-                ErrorLogger.warn("Executor", "paperSell async journal error: ${t.message}")
-                try { ForensicLogger.lifecycle("PAPER_SELL_JOURNAL_ASYNC_ERR", "mint=${tradeSnap.mint.take(10)} err=${t.message?.take(80)}") } catch (_: Throwable) {}
-                // V5.0.3680 — exec FAIL counter increment on the paper async path.
-                try { ForensicLogger.exec(
-                    "PAPER_SELL_FAIL",
-                    tsLearningSnap.symbol,
-                    "mint=${tradeSnap.mint.take(10)} reason=ASYNC_ERR:${t.message?.take(60)}",
-                ) } catch (_: Throwable) {}
-            }
-        }
-        try { ForensicLogger.lifecycle("PAPER_SELL_LEARNING_ASYNC_QUEUED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}
+        // V5.0.6474 — journal/learning projection is queued only after the
+        // canonical paper close reducer below commits. A successful SELL row
+        // without canonical cash/openCost/finalized fanout is a money-path lie.
         
         EmergentGuardrails.unregisterPosition(tradeId.mint)
         // V5.9.385 — match the BUY-side registerPosition by closing the
@@ -19440,27 +19416,64 @@ class Executor(
             }
         } else 0.0
 
+        var canonicalPaperSellCommitted6474 = false
         try {
-            // V5.0.6449 §3 — soldQtyRaw derived from canonical-locked qty.
-            val soldQtyRaw6449 = java.math.BigInteger.valueOf((soldQtyToken6449 * 1_000_000_000.0).toLong().coerceAtLeast(0L))
-            com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
+            // V5.0.6474 — FULL paper SELL uses the same canonical reducer as partials.
+            // This commits cash credit + openCost release + typed economic SELL +
+            // finalized bus before any successful journal projection can be written.
+            val soldQtyRaw6474 = java.math.BigInteger.valueOf((soldQtyToken6449 * 1_000_000_000.0).toLong().coerceAtLeast(0L))
+            val sellGeneration6474 = System.currentTimeMillis()
+            val terminalId6474 = "paper_full_${tradeId.mint}_${sellGeneration6474}"
+            val pid6474 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(tradeId.mint)
+            val close6474 = com.lifecyclebot.engine.truth.CanonicalPaperTerminalBridge6469.finalizeSell(
+                positionId = pid6474,
                 mint = tradeId.mint,
-                generation = System.currentTimeMillis(),
-                soldQtyRaw = soldQtyRaw6449,
-                proceedsSol = (value - treasuryShare).coerceAtLeast(0.0),
+                symbol = tradeId.symbol,
+                generation = sellGeneration6474,
+                sellSig = terminalId6474,
+                soldQtyRaw = soldQtyRaw6474,
+                preRemainingRaw = soldQtyRaw6474,
+                preRemainingCostBasisSol = pos.costSol.coerceAtLeast(0.0),
+                grossProceedsSol = (value - treasuryShare).coerceAtLeast(0.0),
                 soldCostBasisSol = pos.costSol.coerceAtLeast(0.0),
                 feesSol = simulatedFeeSol.coerceAtLeast(0.0),
-                paperMode = true,
-                terminal = true,
                 lane = pos.tradingMode.ifBlank { tradeId.symbol },
-                reason = reason,
+                exitReason = reason,
+                terminal = true,
             )
-            com.lifecyclebot.engine.truth.PaperAccountLedger6430.onSell(
-                grossProceedsSol = (value - treasuryShare).coerceAtLeast(0.0),
-                costBasisSoldSol = pos.costSol.coerceAtLeast(0.0),
-                feeSol = simulatedFeeSol.coerceAtLeast(0.0),
-            )
-        } catch (_: Throwable) {}
+            canonicalPaperSellCommitted6474 = close6474.applied
+            try {
+                ForensicLogger.lifecycle("CANONICAL_PAPER_SELL_COMMIT_6474", "mint=${tradeId.mint.take(10)} pid=${pid6474.take(18)} terminalId=$terminalId6474 applied=${close6474.applied} claimed=${close6474.terminalClaimed} bus=${close6474.busPublished} cash=${com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol().fmtSol()} openCost=${com.lifecyclebot.engine.truth.PaperAccountLedger6430.openCostBasisSol().fmtSol()} reason=$reason")
+                PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_COMMIT_6474")
+                PipelineHealthCollector.labelInc("CANONICAL_PAPER_CASH_CREDIT_6474")
+            } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            try {
+                ForensicLogger.lifecycle("PAPER_ACCOUNTING_MUTATION_REJECTED", "mint=${tradeId.mint.take(10)} reason=$reason err=${t.message?.take(100)} action=no_successful_sell_journal")
+                PipelineHealthCollector.labelInc("PAPER_ACCOUNTING_MUTATION_REJECTED")
+            } catch (_: Throwable) {}
+            return SellResult.FAILED_FATAL
+        }
+        if (!canonicalPaperSellCommitted6474) {
+            try {
+                ForensicLogger.lifecycle("PAPER_ACCOUNTING_MUTATION_REJECTED", "mint=${tradeId.mint.take(10)} reason=$reason action=no_successful_sell_journal")
+                PipelineHealthCollector.labelInc("PAPER_ACCOUNTING_MUTATION_REJECTED")
+            } catch (_: Throwable) {}
+            return SellResult.FAILED_FATAL
+        }
+        kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
+            try {
+                recordTrade(tsLearningSnap, tradeSnap)
+                try { security.recordTrade(tradeSnap) } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("PAPER_SELL_JOURNAL_DONE", "mint=${tradeSnap.mint.take(10)} symbol=${tsLearningSnap.symbol} pnlPct=${tradeSnap.pnlPct.toInt()} reason=${tradeSnap.reason} canonicalCommitted=true") } catch (_: Throwable) {}
+                try { ForensicLogger.exec("PAPER_SELL_OK", tsLearningSnap.symbol, "mint=${tradeSnap.mint.take(10)} pnlPct=${tradeSnap.pnlPct.toInt()} reason=${tradeSnap.reason.take(40)}") } catch (_: Throwable) {}
+            } catch (t: Throwable) {
+                ErrorLogger.warn("Executor", "paperSell async journal error: ${t.message}")
+                try { ForensicLogger.lifecycle("PAPER_SELL_JOURNAL_ASYNC_ERR", "mint=${tradeSnap.mint.take(10)} err=${t.message?.take(80)}") } catch (_: Throwable) {}
+                try { ForensicLogger.exec("PAPER_SELL_FAIL", tsLearningSnap.symbol, "mint=${tradeSnap.mint.take(10)} reason=ASYNC_ERR:${t.message?.take(60)}") } catch (_: Throwable) {}
+            }
+        }
+        try { ForensicLogger.lifecycle("PAPER_SELL_LEARNING_ASYNC_QUEUED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason canonicalCommitted=true") } catch (_: Throwable) {}
         // V5.0.6455 §SELL_DOOR_MIGRATION — CAS CLOSING -> CLOSED after
         // settlement side effects (canonical mirror + account ledger)
         // succeed. confirmTerminalSell returns false if already CLOSED —
