@@ -22,6 +22,8 @@ object TokenWinMemory {
     private const val KEY_PATTERNS = "patterns"
     private const val KEY_CREATORS = "creators"
     private const val KEY_TOKEN_STATS = "token_stats"
+    private const val KEY_LIVE_WINNERS_6477 = "live_winners_6477"
+    private const val KEY_LIVE_TOKEN_STATS_6477 = "live_token_stats_6477"
 
     private const val MAX_WINNERS = 5000
     private const val MAX_PATTERNS = 1000
@@ -105,6 +107,7 @@ object TokenWinMemory {
 
     // Mint -> WinningToken
     private val winningTokens = ConcurrentHashMap<String, WinningToken>()
+    private val liveWinningTokens = ConcurrentHashMap<String, WinningToken>()
 
     // Pattern type -> pattern value -> stats
     private val patterns = ConcurrentHashMap<String, ConcurrentHashMap<String, PatternStats>>()
@@ -114,6 +117,7 @@ object TokenWinMemory {
 
     // Mint -> decisive trade history
     private val tokenStats = ConcurrentHashMap<String, TokenStats>()
+    private val liveTokenStats = ConcurrentHashMap<String, TokenStats>()
 
     private fun isShadowOrSimulatedSource(source: String?): Boolean {
         val s = source?.trim()?.uppercase() ?: return false
@@ -151,6 +155,8 @@ object TokenWinMemory {
         source: String,
         phase: String,
         creatorAddress: String? = null,
+        mode: String = "paper",
+        proofState: String = "unknown",
     ) {
         if (isShadowOrSimulatedSource(source)) {
             try { SourceChokeDiagnostics4584.learningQuarantined("TOKEN_WIN_MEMORY_SHADOW_SOURCE", "mint=${mint.take(8)} symbol=$symbol source=${source.take(60)} phase=${phase.take(40)}") } catch (_: Throwable) {}
@@ -191,6 +197,16 @@ object TokenWinMemory {
         mintStats.bestPnl = maxOf(mintStats.bestPnl, trainablePnl)
         mintStats.lastPnl = trainablePnl
         mintStats.lastSeen = now
+        val verifiedLive = mode.equals("live", true) &&
+            (proofState.contains("confirmed", true) || proofState.contains("canonical", true))
+        if (verifiedLive) {
+            val ls = liveTokenStats.getOrPut(mint) { TokenStats() }
+            if (isWin) ls.wins++ else ls.losses++
+            ls.totalPnl += trainablePnl
+            ls.bestPnl = maxOf(ls.bestPnl, trainablePnl)
+            ls.lastPnl = trainablePnl
+            ls.lastSeen = now
+        }
 
         // ── Record / update winning token memory ──────────────────────────
         val existingWinner = winningTokens[mint]
@@ -232,6 +248,24 @@ object TokenWinMemory {
                 "TokenWinMemory",
                 "📉 KNOWN WINNER LOST: $symbol | ${trainablePnl.toInt()}% | cumulative: ${existingWinner.totalPnl.toInt()}%"
             )
+        }
+
+        if (verifiedLive) {
+            val liveWinner = liveWinningTokens[mint]
+            if (isWin) {
+                if (liveWinner != null) {
+                    liveWinner.timesTraded++
+                    liveWinner.totalPnl += trainablePnl
+                } else {
+                    liveWinningTokens[mint] = WinningToken(
+                        mint, symbol, name, trainablePnl, peakPnl, entryMcap, exitMcap,
+                        entryLiquidity, holdTimeMinutes, buyPercent, now, source, phase,
+                    )
+                }
+            } else if (liveWinner != null) {
+                liveWinner.timesTraded++
+                liveWinner.totalPnl += trainablePnl
+            }
         }
 
         // ── Learn patterns from decisive trades only ──────────────────────
@@ -503,7 +537,10 @@ object TokenWinMemory {
         var score = 0.0
         var factors = 0
 
-        val exactStats = tokenStats[mint]
+        val combinedExactStats = tokenStats[mint]
+        val exactStats = if (RuntimeModeAuthority.isLive()) {
+            liveTokenStats[mint] ?: combinedExactStats?.takeIf { it.totalPnl <= 0.0 }
+        } else combinedExactStats
         if (exactStats != null && exactStats.decisiveTrades > 0 && saneTokenStats(exactStats)) {
             val rawExactScore = when {
                 exactStats.totalPnl >= 100.0 -> 50.0
@@ -527,7 +564,7 @@ object TokenWinMemory {
             val exactScore = if (rawExactScore > 0.0) {
                 // Liquidity ratio: current vs entry-at-win-time. Look up the
                 // most recent WinningToken record for this mint.
-                val winRec = winningTokens[mint]
+                val winRec = if (RuntimeModeAuthority.isLive()) liveWinningTokens[mint] else winningTokens[mint]
                 val liqRatio = if (winRec != null && winRec.entryLiquidity > 0.0 && liquidity > 0.0) {
                     (liquidity / winRec.entryLiquidity).coerceIn(0.0, 2.0)
                 } else 1.0
@@ -619,15 +656,22 @@ object TokenWinMemory {
         return multiplier
     }
 
-    fun isKnownWinner(mint: String): Boolean = winningTokens[mint]?.let { saneWinner(it) } == true
+    fun isKnownWinner(mint: String): Boolean =
+        (if (RuntimeModeAuthority.isLive()) liveWinningTokens[mint] else winningTokens[mint])?.let { saneWinner(it) } == true
 
-    fun getWinnerStats(mint: String): WinningToken? = winningTokens[mint]?.takeIf { saneWinner(it) }
+    fun getWinnerStats(mint: String): WinningToken? =
+        (if (RuntimeModeAuthority.isLive()) liveWinningTokens[mint] else winningTokens[mint])?.takeIf { saneWinner(it) }
 
-    /** V5.0.6239 — snapshot of all sane winners for LiveWinDNAStore backfill. */
-    fun getAllSaneWinners(): List<WinningToken> = winningTokens.values.filter { saneWinner(it) }.toList()
+    /** V5.0.6239 — live mode exposes only proof-confirmed live winners. */
+    fun getAllSaneWinners(): List<WinningToken> =
+        (if (RuntimeModeAuthority.isLive()) liveWinningTokens else winningTokens).values.filter { saneWinner(it) }.toList()
 
     fun getMemoryScoreForMint(mint: String): Int {
-        val stats = tokenStats[mint] ?: return 0
+        val combined = tokenStats[mint]
+        val stats = if (RuntimeModeAuthority.isLive()) {
+            liveTokenStats[mint] ?: combined?.takeIf { it.totalPnl <= 0.0 }
+        } else combined
+        stats ?: return 0
         if (!saneTokenStats(stats)) return 0
 
         return when {
@@ -1011,6 +1055,18 @@ object TokenWinMemory {
                 })
             }
 
+            val liveWinnersJson = JSONArray()
+            liveWinningTokens.values.forEach { w ->
+                liveWinnersJson.put(JSONObject().apply {
+                    put("mint", w.mint); put("symbol", w.symbol); put("name", w.name)
+                    put("pnlPercent", w.pnlPercent); put("peakPnl", w.peakPnl)
+                    put("entryMcap", w.entryMcap); put("exitMcap", w.exitMcap)
+                    put("entryLiquidity", w.entryLiquidity); put("holdTimeMinutes", w.holdTimeMinutes)
+                    put("buyPercent", w.buyPercent); put("timestamp", w.timestamp)
+                    put("source", w.source); put("phase", w.phase)
+                    put("timesTraded", w.timesTraded); put("totalPnl", w.totalPnl)
+                })
+            }
             val tokenStatsJson = JSONObject()
             tokenStats.forEach { (mint, stats) ->
                 tokenStatsJson.put(mint, JSONObject().apply {
@@ -1023,11 +1079,20 @@ object TokenWinMemory {
                 })
             }
 
+            val liveTokenStatsJson = JSONObject()
+            liveTokenStats.forEach { (mint, stats) ->
+                liveTokenStatsJson.put(mint, JSONObject().apply {
+                    put("wins", stats.wins); put("losses", stats.losses); put("totalPnl", stats.totalPnl)
+                    put("bestPnl", stats.bestPnl); put("lastPnl", stats.lastPnl); put("lastSeen", stats.lastSeen)
+                })
+            }
             prefs.edit()
                 .putString(KEY_WINNERS, winnersJson.toString())
+                .putString(KEY_LIVE_WINNERS_6477, liveWinnersJson.toString())
                 .putString(KEY_PATTERNS, patternsJson.toString())
                 .putString(KEY_CREATORS, creatorsJson.toString())
                 .putString(KEY_TOKEN_STATS, tokenStatsJson.toString())
+                .putString(KEY_LIVE_TOKEN_STATS_6477, liveTokenStatsJson.toString())
                 .apply()
 
             PersistentLearning.saveTokenWinMemory(
@@ -1048,6 +1113,8 @@ object TokenWinMemory {
         val c = ctx ?: return
         try {
             winningTokens.clear()
+            liveWinningTokens.clear()
+            liveTokenStats.clear()
             patterns.clear()
             creatorStats.clear()
             tokenStats.clear()
@@ -1063,6 +1130,8 @@ object TokenWinMemory {
             val patternsStr = persistent?.second ?: prefs.getString(KEY_PATTERNS, "{}") ?: "{}"
             val creatorsStr = prefs.getString(KEY_CREATORS, "{}") ?: "{}"
             val tokenStatsStr = prefs.getString(KEY_TOKEN_STATS, "{}") ?: "{}"
+            val liveWinnersStr = prefs.getString(KEY_LIVE_WINNERS_6477, "[]") ?: "[]"
+            val liveTokenStatsStr = prefs.getString(KEY_LIVE_TOKEN_STATS_6477, "{}") ?: "{}"
 
             val winnersJson = JSONArray(winnersStr)
             for (i in 0 until winnersJson.length()) {
@@ -1089,6 +1158,22 @@ object TokenWinMemory {
                 } else {
                     persistedWinnerQuarantine4508++
                 }
+            }
+
+            val liveWinnersJson = JSONArray(liveWinnersStr)
+            for (i in 0 until liveWinnersJson.length()) {
+                val j = liveWinnersJson.getJSONObject(i)
+                val w = WinningToken(
+                    mint = j.getString("mint"), symbol = j.getString("symbol"),
+                    name = j.optString("name", j.getString("symbol")),
+                    pnlPercent = j.getDouble("pnlPercent"), peakPnl = j.optDouble("peakPnl", j.getDouble("pnlPercent")),
+                    entryMcap = j.getDouble("entryMcap"), exitMcap = j.optDouble("exitMcap", j.getDouble("entryMcap")),
+                    entryLiquidity = j.getDouble("entryLiquidity"), holdTimeMinutes = j.getInt("holdTimeMinutes"),
+                    buyPercent = j.getDouble("buyPercent"), timestamp = j.getLong("timestamp"),
+                    source = j.getString("source"), phase = j.getString("phase"),
+                    timesTraded = j.optInt("timesTraded", 1), totalPnl = j.optDouble("totalPnl", j.getDouble("pnlPercent")),
+                )
+                if (sanePersistedWinner4508(w)) liveWinningTokens[w.mint] = w else persistedWinnerQuarantine4508++
             }
 
             val patternsJson = JSONObject(patternsStr)
@@ -1154,6 +1239,20 @@ object TokenWinMemory {
                 } else {
                     persistedTokenStatsQuarantine4508++
                 }
+            }
+
+            val liveStatsJson = JSONObject(liveTokenStatsStr)
+            val liveKeys = liveStatsJson.keys()
+            while (liveKeys.hasNext()) {
+                val mint = liveKeys.next()
+                val j = liveStatsJson.getJSONObject(mint)
+                val loaded = TokenStats(
+                    wins = j.getInt("wins"), losses = j.getInt("losses"),
+                    totalPnl = j.optDouble("totalPnl", 0.0),
+                    bestPnl = j.optDouble("bestPnl", Double.NEGATIVE_INFINITY),
+                    lastPnl = j.optDouble("lastPnl", 0.0), lastSeen = j.optLong("lastSeen", 0L),
+                )
+                if (saneTokenStats(loaded)) liveTokenStats[mint] = loaded else persistedTokenStatsQuarantine4508++
             }
 
             // Backfill tokenStats from winners if older storage had no token stats saved

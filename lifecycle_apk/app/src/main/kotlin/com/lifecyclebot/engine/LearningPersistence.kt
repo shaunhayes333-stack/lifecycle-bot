@@ -173,7 +173,8 @@ object LearningPersistence {
             try { putBlob("FORWARD_OUTCOME_MODEL", com.lifecyclebot.engine.ForwardOutcomeModel.exportState()) } catch (_: Throwable) {}  // V5.9.1261
             try { putBlob("AUTO_COMPOUND", com.lifecyclebot.engine.AutoCompoundEngine.exportState()) } catch (_: Throwable) {}  // V5.9.1481
             try { putBlob("SIGNAL_QUALITY", com.lifecyclebot.engine.SignalQualityTracker.exportState()) } catch (_: Throwable) {}  // V5.9.1271
-            try { putBlob("UNIFIED_POLICY_HEAD", com.lifecyclebot.engine.UnifiedPolicyHead.exportState()) } catch (_: Throwable) {}  // V5.9.1262
+            try { putBlob("UNIFIED_POLICY_HEAD", com.lifecyclebot.engine.UnifiedPolicyHead.exportState()) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.TokenWinMemory.save() } catch (_: Throwable) {} // V5.0.6477 off-main lifecycle flush  // V5.9.1262
             try { putBlob("STRATEGY_HYPOTHESIS", com.lifecyclebot.engine.StrategyHypothesisEngine.exportState()) } catch (_: Throwable) {}  // V5.9.1263
             try { putBlob("ASYNC_STRATEGY_LAB", com.lifecyclebot.engine.AsyncStrategyLab.exportState()) } catch (_: Throwable) {}  // V5.0.4236
             try { putBlob("SEMANTIC_PATTERN_GRAPH", com.lifecyclebot.engine.SemanticPatternGraph.exportState()) } catch (_: Throwable) {}  // V5.0.4238

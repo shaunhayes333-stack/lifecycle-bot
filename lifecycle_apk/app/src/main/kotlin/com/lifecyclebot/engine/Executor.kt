@@ -20469,6 +20469,8 @@ class Executor(
                 lossReason = if (pnlP < -2.0) reason else "",
                 entryCostSol = ts.position.costSol,
                 pnlSol = pnl,
+                executionMode = if (ts.position.isPaperPosition) "paper" else "live",
+                proofState = "canonical_finalized",
             )
             
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
@@ -23298,6 +23300,8 @@ class Executor(
                 lossReason = if (pnlP < -2.0) reason else "",
                 entryCostSol = pos.costSol,
                 pnlSol = pnl,
+                executionMode = if (pos.isPaperPosition) "paper" else "live",
+                proofState = "canonical_finalized",
             )
             
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)

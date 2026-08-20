@@ -7594,4 +7594,18 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.6476: partial paper sells must not publish finalized bus events", java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt").readText().contains("tradeId = idKey" + ","))
     }
 
+
+    @Test
+    fun V5_0_6477_live_token_memory_requires_event_local_proof_and_persists_split() {
+        val memory = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenWinMemory.kt").readText()
+        val edu = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/EducationSubLayerAI.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        assertTrue("V5.0.6477: positive live token authority must be isolated", memory.contains("liveWinningTokens") && memory.contains("liveTokenStats"))
+        assertTrue("V5.0.6477: live mutation must require mode plus confirmed/canonical proof", memory.contains("val verifiedLive = mode.equals") && memory.contains("proofState.contains(" + "\"" + "confirmed" + "\""))
+        assertTrue("V5.0.6477: live-only state must save and load symmetrically", memory.contains("KEY_LIVE_WINNERS_6477") && memory.contains("KEY_LIVE_TOKEN_STATS_6477") && memory.contains("liveWinnersStr") && memory.contains("liveTokenStatsStr"))
+        assertTrue("V5.0.6477: education event must carry execution-local mode/proof", edu.contains("val executionMode: String") && edu.contains("val proofState: String") && exec.contains("proofState = " + "\"" + "canonical_finalized" + "\""))
+        assertTrue("V5.0.6477: TokenWinMemory flush must run under off-main LearningPersistence", persistence.contains("TokenWinMemory.save()") && persistence.contains("saveAllBlockingInternal"))
+    }
+
 }

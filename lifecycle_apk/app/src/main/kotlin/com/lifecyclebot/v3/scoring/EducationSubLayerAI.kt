@@ -1023,6 +1023,8 @@ object EducationSubLayerAI {
                 buyPercent = outcome.buyRatioPct,
                 source = outcome.discoverySource,
                 phase = outcome.entryPhase,
+                mode = outcome.executionMode,
+                proofState = outcome.proofState,
             )
             markLayerOutcome("TokenWinMemory", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
@@ -1344,6 +1346,8 @@ object EducationSubLayerAI {
         // TokenWinMemory, PatternMemory, layer weights, or policy heads.
         val entryCostSol: Double = 0.0,
         val pnlSol: Double = 0.0,
+        val executionMode: String = "unknown",
+        val proofState: String = "unknown",
     ) {
         // V5.9.342 — REVERT V5.9.341 isWin tweak.
         // After audit the >-0.5% threshold turned out to be inert for layer
