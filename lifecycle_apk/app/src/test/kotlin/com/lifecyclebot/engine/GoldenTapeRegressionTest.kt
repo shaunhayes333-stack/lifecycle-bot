@@ -7608,4 +7608,16 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6477: TokenWinMemory flush must run under off-main LearningPersistence", persistence.contains("TokenWinMemory.save()") && persistence.contains("saveAllBlockingInternal"))
     }
 
+
+    @Test
+    fun V5_0_6478_fdg_provider_calls_are_background_cached_only() {
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        val cache = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsyncGeminiNarrativeCache6478.kt").readText()
+        assertFalse("V5.0.6478: FDG must not synchronously call Gemini quick scam", fdg.contains("GeminiCopilot.quickScamCheck"))
+        assertFalse("V5.0.6478: FDG must not synchronously call Gemini narrative", fdg.contains("GeminiCopilot.analyzeNarrative"))
+        assertFalse("V5.0.6478: FDG must not synchronously call UnifiedNarrativeAI", fdg.contains("UnifiedNarrativeAI.analyze"))
+        assertTrue("V5.0.6478: FDG cache miss must schedule background IO and stay neutral", fdg.contains("AsyncGeminiNarrativeCache6478.cachedOrRequest") && fdg.contains("background refresh, neutral now"))
+        assertTrue("V5.0.6478: provider calls must exist only behind IO coroutine cache", cache.contains("Dispatchers.IO") && cache.contains("scope.launch") && cache.contains("inFlight.add") && cache.contains("GEMINI_NARRATIVE_CACHE_MISS_NEUTRAL_6478"))
+    }
+
 }

@@ -3026,75 +3026,49 @@ object FinalDecisionGate {
         var geminiRiskScore = 50.0
         var geminiRecommendation = "WATCH"
         if (blockReason == null && !config.paperMode && config.geminiEnabled) {
-            try {
-                val quickCheck = GeminiCopilot.quickScamCheck(ts.symbol, ts.name)
-                if (quickCheck == true) {
-                    blockReason = "GEMINI_QUICK_SCAM: Pattern detected in ${ts.symbol}"
+            val cached6478 = try { AsyncGeminiNarrativeCache6478.cachedOrRequest(ts.symbol, ts.name) } catch (_: Throwable) { null }
+            val analysis = cached6478?.analysis
+            if (cached6478?.quickScam == true) {
+                blockReason = "GEMINI_QUICK_SCAM: cached pattern detected in ${ts.symbol}"
+                blockLevel = BlockLevel.HARD
+                checks.add(GateCheck("gemini_quick", false, "Cached quick scam pattern detected"))
+                tags.add("gemini_scam")
+            } else if (analysis != null) {
+                geminiRiskScore = 100.0 - analysis.scamConfidence
+                geminiRecommendation = analysis.recommendation
+                if (analysis.isScam && analysis.scamConfidence >= 80) {
+                    blockReason = "GEMINI_SCAM: ${analysis.scamType} (${analysis.scamConfidence.toInt()}% cached conf)"
                     blockLevel = BlockLevel.HARD
-                    checks.add(GateCheck("gemini_quick", false, "Quick scam pattern detected"))
-                    tags.add("gemini_scam")
-                } else {
-                    val analysis = GeminiCopilot.analyzeNarrative(
-                        symbol = ts.symbol,
-                        name = ts.name,
-                        description = "",
-                        socialMentions = emptyList(),
-                    )
-
-                    if (analysis != null) {
-                        geminiRiskScore = 100.0 - analysis.scamConfidence
-                        geminiRecommendation = analysis.recommendation
-
-                        if (analysis.isScam && analysis.scamConfidence >= 80) {
-                            blockReason = "GEMINI_SCAM: ${analysis.scamType} (${analysis.scamConfidence.toInt()}% conf)"
-                            blockLevel = BlockLevel.HARD
-                            checks.add(GateCheck("gemini_narrative", false, "SCAM: ${analysis.reasoning.take(60)}"))
-                            tags.add("gemini_blocked")
-                        } else if (analysis.recommendation == "AVOID" && analysis.scamConfidence >= 60) {
-                            narrativeAdjustment -= 5
-                            checks.add(GateCheck("gemini_narrative", true, "⚠️ AVOID rec | scam=${analysis.scamConfidence.toInt()}% | ${analysis.narrativeType}"))
-                            tags.add("gemini_warning")
-                        } else if (analysis.recommendation == "BUY" && analysis.viralPotential >= 70) {
-                            narrativeAdjustment += 3
-                            checks.add(GateCheck("gemini_narrative", true, "✨ viral=${analysis.viralPotential.toInt()}% | ${analysis.narrativeType} | ${analysis.greenFlags.take(2).joinToString(", ")}"))
-                            tags.add("gemini_bullish")
-                        } else {
-                            checks.add(GateCheck("gemini_narrative", true, "${analysis.recommendation} | viral=${analysis.viralPotential.toInt()}% | ${analysis.narrativeType}"))
-                        }
-                    } else {
-                        checks.add(GateCheck("gemini_narrative", true, "skipped (API timeout)"))
-                    }
-                }
-            } catch (e: Exception) {
-                checks.add(GateCheck("gemini_narrative", true, "skipped (error: ${e.message?.take(30)})"))
+                    checks.add(GateCheck("gemini_narrative", false, "CACHED SCAM: ${analysis.reasoning.take(60)}"))
+                    tags.add("gemini_blocked")
+                } else if (analysis.recommendation == "AVOID" && analysis.scamConfidence >= 60) {
+                    narrativeAdjustment -= 5
+                    checks.add(GateCheck("gemini_narrative", true, "cached AVOID | scam=${analysis.scamConfidence.toInt()}%"))
+                    tags.add("gemini_warning")
+                } else if (analysis.recommendation == "BUY" && analysis.viralPotential >= 70) {
+                    narrativeAdjustment += 3
+                    checks.add(GateCheck("gemini_narrative", true, "cached viral=${analysis.viralPotential.toInt()}%"))
+                    tags.add("gemini_bullish")
+                } else checks.add(GateCheck("gemini_narrative", true, "cached ${analysis.recommendation}"))
+            } else {
+                checks.add(GateCheck("gemini_narrative", true, "cache miss — background refresh, neutral now"))
             }
-        } else if (config.paperMode) {
-            checks.add(GateCheck("gemini_narrative", true, "skipped (paper mode)"))
-        }
+        } else if (config.paperMode) checks.add(GateCheck("gemini_narrative", true, "skipped (paper mode)"))
 
         var orthogonalBonus = 0
         var fdgOrthogonalAgreement6026: Double? = null
         var fdgOrthogonalComposite6026: Double? = null
         if (blockReason == null) {
             try {
-                val unifiedNarrative = try {
-                    UnifiedNarrativeAI.analyze(ts.symbol, ts.name, "", ts.mint, config.groqApiKey)
-                } catch (_: Exception) {
-                    null
-                }
-
-                val geminiStatus = GeminiCopilot.getRateLimitStatus()
-                if (geminiStatus != "OK" && unifiedNarrative?.source == "default") {
-                    ErrorLogger.info("FDG", "⚠️ AI DEGRADED: Gemini $geminiStatus - using neutral narrative for ${ts.symbol}")
-                }
-
+                // V5.0.6478 — provider IO is forbidden in FDG. Cached Gemini
+                // risk or neutral scoring feeds orthogonal assessment.
                 val orthogonalAssessment = OrthogonalSignals.collectSignals(
                     ts = ts,
                     momentumScore = candidate.aiConfidence,
                     liquidityScore = if (ts.lastLiquidityUsd > 5000) 70.0 else if (ts.lastLiquidityUsd > 1000) 50.0 else 30.0,
                     whaleSignal = null,
                     timeScore = null,
-                    narrativeScore = unifiedNarrative?.score ?: (50.0 + narrativeAdjustment * 5).coerceIn(0.0, 100.0),
+                    narrativeScore = (geminiRiskScore + narrativeAdjustment * 5).coerceIn(0.0, 100.0),
                     patternMatchScore = try {
                         com.lifecyclebot.engine.TokenWinMemory.patternScoreForToken(ts.name ?: "", ts.symbol ?: "")
                     } catch (_: Throwable) { null },
