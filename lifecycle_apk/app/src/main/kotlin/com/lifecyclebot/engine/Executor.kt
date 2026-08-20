@@ -12016,7 +12016,7 @@ class Executor(
             // if the damped size falls below the paper min, clampPaperTradeSol
             // (V5.0.6471) will skip cleanly via SIZE_CLAMP_ZERO.
             try {
-                val lane6473 = ts.tradingMode.ifBlank { "STANDARD" }
+                val lane6473 = resolveExecutionLane(ts, fallback = "STANDARD")
                 val decision6473 = com.lifecyclebot.engine.truth.LaneAdmissionGate6473.admissionDecision(
                     lane = lane6473, requestedSizeSol = finalSol,
                 )
