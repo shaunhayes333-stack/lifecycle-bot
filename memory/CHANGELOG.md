@@ -1,3 +1,74 @@
+## V5.0.6472 — 2026-02-18 — CANONICAL TRUTH SURFACES + RUNTIME DEAMPLIFICATION
+
+Seventh beat — canonical instance identity, typed economic units,
+adaptive lane damping, telemetry self-consistency. Green in CI (Build
+AATE APK + Runtime Smoke Test, sha `13de8b53`).
+
+**§P0.1 `CanonicalInstanceIdentity6472`** — process-scoped identity
+triple `(instanceId, runId, epoch)`. Every diagnostic panel calls
+`.stamp(component)` to append the triple to its output. An operator
+can now PROVE two panels are looking at the same in-memory authority
+by comparing their stamped instanceId. Telemetry
+`CANONICAL_INSTANCE_ID_STAMP_6472_<component>`.
+
+**§P0.3 `EconomicOutcome6472`** — immutable typed value:
+`proceedsSol / costBasisSol / feesSol / realizedPnlSol /
+unrealizedPnlSol / returnFraction / returnPct`. Companion
+`ofSell(...)` factory derives realized + returnFraction from
+proceeds/cost/fees so consumers cannot introduce fraction-into-SOL
+bugs. Invariants asserted at construction. `returnPct` computed as
+`returnFraction × 100`.
+
+**§Adaptive Lane Damping — `LaneAdaptiveDamping6472`** — replaces
+`LANE_AUTO_PAUSED_SHITCOIN` hard block with smooth damping keyed on
+recent EV %:
+
+| evPct    | level | sizeMult | scoreBoost | cadence |
+|----------|-------|----------|------------|---------|
+| ≥ -5     | 0     | 1.00     | +0         | 0       |
+| ≥ -20    | 1     | 0.75     | +5         | 30 s    |
+| ≥ -35    | 2     | 0.50     | +10        | 60 s    |
+| ≥ -60    | 3     | 0.25     | +15        | 180 s   |
+| < -60    | 4     | 0.10     | +20        | 300 s   |
+
+Even the deepest level keeps a 10 % probe path open with a 5-min
+cadence — the lane can escape. Hard blocks remain a separate
+authority for safety/rug/integrity. API: `recordLaneEvPct`,
+`damping(lane)`, `onLaneAdmission`, `onLaneThrottled`.
+
+**§P1.6 `TelemetryIntegrityHold6472`** — cross-checks sibling
+telemetry counters that should always agree:
+- `RECONCILER_SPLIT_BRAIN_6470`
+- `CANONICAL_TERMINAL_SELL` vs `FINALIZED_BUS_PUBLISHED`
+- `CAPITAL_IDENTITY_BREACH_6470` vs `CAPITAL_CONSERVATION_DELTA`
+- `POSITION_PARITY_GENUINE_DIVERGENCE_6471` vs `LIFECYCLE_PROJECTION_DIVERGED_6470`
+
+Emits `TELEMETRY_INTEGRITY_HOLD_6472` on disagreement. Non-clamping,
+read-only. Wired into the 30-loop parity audit.
+
+**Acceptance test** — `CanonicalTruthAndRuntimeAcceptanceTest6472`
+(9 cases): identity stamps yield same instanceId; epoch bump reflects
+in stamp; `ofSell` computes realized + returnFraction correctly;
+negative proceeds throws; zero cost basis → zero return fraction;
+damping no-op on neutral EV; damping tightens progressively for
+-57% EV; deepest level still leaves a probe path open; integrity
+check produces stable status line.
+
+**Non-goals — deferred**
+- Wire `CanonicalInstanceIdentity6472.stamp()` into every diagnostic
+  panel (surface shipped; call-site migration next).
+- Migrate every EconomicOutcome consumer onto the typed value.
+- Wire `LaneAdaptiveDamping6472` into the FDG/admission path.
+- Watchlist hard cap invariant (P1.1).
+- Off-main `PipelineHealthActivity` snapshot (P1.5).
+- Token map single-flight consolidation (P1.2).
+- BotService runtime routing through `BackgroundTradingAuthority6469`.
+
+**Behavioural stance**
+Zero touch to the live execution path. Zero productive lane
+disabled. No score-floor tuning. Surfaces + one wire per beat.
+
+
 ## V5.0.6471 — 2026-02-18 — SOURCE-FIX: SIZE INFLATION KILL + MARKET DATA PROVENANCE + PARITY DOMAIN + ROOT CAUSE PRIORITY
 
 Sixth beat — "economic truth + entry authority repair". Green in CI

@@ -1,6 +1,40 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6472 (Feb 2026) — CANONICAL TRUTH SURFACES + RUNTIME DEAMPLIFICATION
+
+Seventh beat — canonical instance identity, typed economic units,
+adaptive lane damping, telemetry integrity hold. CI green (Build APK
++ Runtime Smoke Test, sha `13de8b53`).
+
+- **CanonicalInstanceIdentity6472** — process-scoped
+  `(instanceId, runId, epoch)`. Every panel stamps its diagnostics
+  with the triple so an operator can prove report panels are looking
+  at the same authority instance.
+- **EconomicOutcome6472** — immutable typed value:
+  `proceedsSol / costBasisSol / feesSol / realizedPnlSol /
+   unrealizedPnlSol / returnFraction / returnPct`.
+  `ofSell(...)` factory derives realized + returnFraction from
+  proceeds/cost/fees so consumers cannot introduce fraction-into-SOL
+  bugs. Consumers migrate incrementally in 6473.
+- **LaneAdaptiveDamping6472** — replaces `LANE_AUTO_PAUSED_SHITCOIN`
+  hard block with smooth EV-based damping (level 0…4). Even the
+  deepest level keeps a 10 % probe path open. Losing tactics never
+  equal permanent lane death.
+- **TelemetryIntegrityHold6472** — cross-checks sibling counters
+  (reconciler split-brain / bus-vs-terminal / identity-vs-conservation
+  / parity-vs-projection). Emits `TELEMETRY_INTEGRITY_HOLD_6472` on
+  disagreement. Wired into the 30-loop parity audit.
+
+**Deferred to 6473** — Wire `CanonicalInstanceIdentity6472.stamp()`
+into every diagnostic panel; migrate `EconomicOutcome` consumers;
+wire `LaneAdaptiveDamping6472` into the FDG/admission path; watchlist
+hard cap invariant; off-main `PipelineHealthActivity` snapshot; token
+map single-flight consolidation; BotService runtime routing through
+`BackgroundTradingAuthority6469`.
+
+
+
 ## V5.0.6471 (Feb 2026) — SOURCE-FIX: SIZE INFLATION KILL + MARKET DATA PROVENANCE + PARITY DOMAIN + ROOT CAUSE PRIORITY
 
 Sixth beat — economic truth + entry authority repair. CI green
