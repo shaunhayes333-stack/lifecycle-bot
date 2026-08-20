@@ -3113,7 +3113,7 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("Paper top-up BUY legs must debit available paper cash like fresh buys/graduated adds", exec.contains("paper top-ups are BUY legs") && exec.contains("onPaperBalanceChange?.invoke(-sol)"))
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("Impossible paper wallet balances must repair from journal-derived cash authority", bot.contains("PAPER_WALLET_IMPOSSIBLE_REPAIRED") && bot.contains("expectedCash") && bot.contains("start + realised") && bot.contains("repairUnifiedPaperWalletIfImpossible(\"paper_delta\")"))
+        assertTrue("Impossible paper wallet balances must repair from journal-derived cash authority", bot.contains("PAPER_WALLET_IMPOSSIBLE_REPAIRED") && bot.contains("PAPER_WALLET_IMPOSSIBLE_DIAGNOSTIC_ONLY_6475") && bot.contains("expectedCash") && bot.contains("action=no_wallet_heal_from_journal"))
         val cyclic = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt").readText()
         assertTrue("CYCLIC paper must use a virtual ring book and not mutate shared paper cash", cyclic.contains("paperLayerTag = \"CYCLIC\"") && cyclic.contains("debitPaperWallet = isLiveMode") && exec.contains("PAPER_BUY_SHARED_WALLET_DEBIT_SKIPPED") && exec.contains("PAPER_SELL_SHARED_WALLET_CREDIT_SKIPPED"))
         assertTrue("CYCLIC virtual sizing must bypass the normal tiny paper trade cap while preserving live cap", cyclic.contains("maxPaperTradeSolOverride = if (isLiveMode) null else sizeSol") && exec.contains("maxPaperTradeSolOverride"))
@@ -7458,7 +7458,8 @@ class GoldenTapeRegressionTest {
                 bot.contains("PAPER_CAPITAL_AUTHORITY_SYNCED_6448") &&
                 bot.contains("paper_account_ledger_facade_6448") &&
                 bot.contains("""syncPaperCapitalAuthority6448("bot_loop_top")""") &&
-                bot.contains("""syncPaperCapitalAuthority6448("paper_delta")"""))
+                bot.contains("paper_delta_projection_6475") &&
+                !bot.contains("repairCashFromDisplayed6448(displayedCash"))
         assertTrue("V5.0.6447: repeated PAPER same-mint aliases must be coalesced before ExecutableOpenGate/price/size work, while the 6371 finality guard remains as safety belt",
             exec.contains("paperSameMintOpenCooldownUntil6447") &&
                 exec.contains("PAPER_SAME_MINT_OPEN_COALESCED_6447") &&
@@ -7504,8 +7505,8 @@ class GoldenTapeRegressionTest {
                 mirror.contains("RewardPurityGate6441.acceptFinalizedClose"))
         assertTrue("V5.0.6448: paper account ledger must credit confirmed sells/partials and resolver must read it as paper authority",
             paperLedger.contains("canAffordBuy") &&
-                paperLedger.contains("repairCashFromDisplayed6448") &&
-                exec.contains("PaperAccountLedger6430.onSell") &&
+                !bot.contains("repairCashFromDisplayed6448(displayedCash") &&
+                java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt").readText().contains("PaperAccountLedger6430.onSell") &&
                 sizeResolver.contains("PaperAccountLedger6430.cashSol") &&
                 sizeResolver.contains("PaperAccountLedger6430.canAffordBuy"))
         assertTrue("V5.0.6448: learner fanout must be blocked for partial or non-RewardPurity-finalized SELL rows",
@@ -7521,6 +7522,45 @@ class GoldenTapeRegressionTest {
     }
 
 
+
+    @Test
+    fun V5_0_6475_replay_is_the_only_capital_repair_authority() {
+        val replay = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperReplay6464.kt").readText()
+        val ledger = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PaperAccountLedger6430.kt").readText()
+        val capital = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalCapitalAuthority6450.kt").readText()
+        assertTrue("V5.0.6475: replay must expose orphan cost and required quarantine label", replay.contains("orphanOpenCostSol") && replay.contains("OPEN_COST_WITHOUT_CANONICAL_LOT_6475") && replay.contains("repairLedgerIfClean"))
+        assertTrue("V5.0.6475: capital replacement must validate conservation before atomic replacement", ledger.contains("replaceFromCanonicalReplay") && ledger.contains("PAPER_REPLAY_REPAIR_REJECTED_6475") && ledger.contains("synchronized(this)"))
+        assertTrue("V5.0.6475: capital snapshot must consume typed replay", capital.contains("CanonicalPaperReplay6464.lastSnapshot()") && capital.contains("replay?.openCostBasisSol"))
+    }
+
+    @Test
+    fun V5_0_6475_journal_is_projection_and_finalized_ack_is_truthful() {
+        val journal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/V3JournalRecorder.kt").readText()
+        val shaper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/GrowthAlignedRewardShaper6439.kt").readText()
+        val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt").readText()
+        assertTrue("V5.0.6475: journal close must require explicit canonical finality for learner mutation", journal.contains("isCanonicalFinalized: Boolean = false") && journal.contains("if (isCanonicalFinalized)"))
+        assertFalse("V5.0.6475: reward shaper must not mutate loss streak directly", shaper.contains("LosingStreakReflex6439.onTradeClosed(realizedSolDelta"))
+        assertTrue("V5.0.6475: unwired finalized consumers must report false rather than passive ACK", bridge.contains("FINALIZED_CONSUMER_UNWIRED_") && bridge.contains("return false"))
+    }
+
+    @Test
+    fun V5_0_6475_claim_first_close_and_confirmed_fill_authority() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt").readText()
+        val closeClaim = bridge.indexOf("TerminalSellIdempotency6464.beginTerminal")
+        val closeMirror = bridge.indexOf("ExecutorCanonicalMirror6442.mirrorSell")
+        val closeLedger = bridge.indexOf("PaperAccountLedger6430.onSell")
+        assertTrue("V5.0.6475: terminal idempotency must claim before mirror and cash mutation", closeClaim >= 0 && closeClaim < closeMirror && closeClaim < closeLedger)
+        val fillMarker = exec.indexOf("V5.0.6475 — confirmed-fill-only mutation")
+        val buyDebit = exec.indexOf("PaperAccountLedger6430.onBuy(actualSol")
+        val firstBuyGate = exec.indexOf("PAPER_BUY_BLOCKED_PRESALE_SNIPE_6373F")
+        assertTrue("V5.0.6475: paper BUY cash debit must be after entry gates", fillMarker >= 0 && buyDebit > fillMarker && firstBuyGate < buyDebit)
+        val firstFinalize = exec.indexOf("CanonicalPaperTerminalBridge6469.finalizeSell(")
+        val secondFinalize = exec.indexOf("CanonicalPaperTerminalBridge6469.finalizeSell(", firstFinalize + 1)
+        val thirdFinalize = exec.indexOf("CanonicalPaperTerminalBridge6469.finalizeSell(", secondFinalize + 1)
+        assertTrue("V5.0.6475: autonomous and manual paper partials must route through finalizeSell", firstFinalize >= 0 && secondFinalize > firstFinalize && thirdFinalize > secondFinalize && exec.contains("paper_partial_") && exec.contains("paper_manual_partial_"))
+        assertTrue("V5.0.6475: close authorities must release canonical occupancy", java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionCloseLedger.kt").readText().contains("CanonicalMintOccupancyRegistry6464.markClosed") && java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").readText().contains("CanonicalMintOccupancyRegistry6464.markClosed"))
+    }
 
     @Test
     fun V5_0_6474_full_paper_sell_commits_canonical_accounting_before_journal_projection() {

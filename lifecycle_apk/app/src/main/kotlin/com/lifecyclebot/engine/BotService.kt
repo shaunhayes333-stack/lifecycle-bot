@@ -380,8 +380,15 @@ class BotService : Service() {
                     ErrorLogger.info("UnifiedPaperWallet",
                         "[$source] Δ=${"%.4f".format(delta)} SOL → main balance=${"%.4f".format(status.paperWalletSol)}")
                 } else {
-                    status.paperWalletSol = (status.paperWalletSol + delta).coerceAtLeast(0.0)
-                    try { svc.repairUnifiedPaperWalletIfImpossible("creditUnifiedPaperSol:$source") } catch (_: Throwable) {}
+                    // V5.0.6475 — no callback means no authoritative ledger
+                    // mutation is available here. Do not resurrect direct
+                    // status += delta cash authority; project the current ledger
+                    // snapshot and surface the unwired caller instead.
+                    try { svc.syncPaperCapitalAuthority6448("creditUnifiedPaperSol_projection_only_6475:$source") } catch (_: Throwable) {}
+                    try {
+                        ForensicLogger.lifecycle("UNWIRED_PAPER_CREDIT_PROJECTION_ONLY_6475", "source=$source delta=${"%.6f".format(delta)}")
+                        PipelineHealthCollector.labelInc("UNWIRED_PAPER_CREDIT_PROJECTION_ONLY_6475")
+                    } catch (_: Throwable) {}
                 }
             } catch (e: Throwable) {
                 ErrorLogger.warn("UnifiedPaperWallet", "[$source] credit failed: ${e.message}")
@@ -3473,8 +3480,10 @@ class BotService : Service() {
             )
             try { ForensicLogger.lifecycle("PAPER_WALLET_IMPOSSIBLE_REPAIRED", "source=$source cash=${current.fmt(4)} repaired=${expectedCash.fmt(4)} realized=${realized.fmt(4)} openCost=${openCost.fmt(4)} upper=${upper.fmt(4)}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("PAPER_WALLET_IMPOSSIBLE_REPAIRED") } catch (_: Throwable) {}
-            status.paperWalletSol = expectedCash
-            try { PaperWalletStore.persist(applicationContext, expectedCash) } catch (_: Throwable) {}
+            // V5.0.6475 — this repair is diagnostic only. Journal/status-derived
+            // expectedCash is not allowed to mutate wallet authority; canonical
+            // PaperAccountLedger projection owns displayed paper cash.
+            try { PipelineHealthCollector.labelInc("PAPER_WALLET_IMPOSSIBLE_DIAGNOSTIC_ONLY_6475") } catch (_: Throwable) {}
         } catch (e: Throwable) {
             try { ErrorLogger.warn("PaperWallet", "repairUnifiedPaperWalletIfImpossible failed: ${e.message}") } catch (_: Throwable) {}
         }
@@ -3495,7 +3504,8 @@ class BotService : Service() {
             if (!cfgNow.paperMode) return
             val displayedCash = status.paperWalletSol.takeIf { it.isFinite() && it >= 0.0 }
                 ?: try { FluidLearning.getPaperBalance() } catch (_: Throwable) { 0.0 }
-            try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.repairCashFromDisplayed6448(displayedCash, source) } catch (_: Throwable) {}
+            // V5.0.6475 — do not repair canonical ledger cash from displayed UI
+            // cash. Displayed cash is projection-only; ledger is authority.
             val ledgerCash = try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol().coerceAtLeast(0.0) } catch (_: Throwable) { displayedCash.coerceAtLeast(0.0) }
             status.paperWalletSol = ledgerCash
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(ledgerCash, "paper_account_ledger_facade_6448:$source")
@@ -6316,40 +6326,27 @@ class BotService : Service() {
         }
         // Set up paper wallet balance tracking
         executor.onPaperBalanceChange = { delta ->
-            // V5.9.21 FIX: previous guard (delta > currentBal*100) was silently
-            // DROPPING real winning-sell credits, so trade journal showed +$10k
-            // P&L while free cash stayed frozen at drawdown. The guard
-            // self-reinforced because shrinking free cash shrank the threshold.
-            //
-            // New policy: only CLAMP absurd oracle spikes, never drop. A delta
-            // is "insane" only if it's > 10,000x current balance AND > 500 SOL
-            // absolute — otherwise credit exactly as-is. Even then we clamp
-            // (don't drop) so the trade still moves the wallet in the right
-            // direction, and we log loudly so the price-feed glitch is visible.
-            val currentBal = status.paperWalletSol.coerceAtLeast(0.01)
-            val ratio = if (currentBal > 0) delta / currentBal else 0.0
-            val isInsane = delta > 500.0 && ratio > 10_000.0
-            val applied = if (isInsane) {
-                val capped = currentBal * 100.0
-                ErrorLogger.warn("PaperWallet",
-                    "INSANE DELTA CLAMPED: raw=${delta} (${ratio.toInt()}x bal=${currentBal}) — " +
-                    "oracle/price glitch suspected — crediting capped=${capped} instead of dropping")
-                capped
-            } else {
-                delta
-            }
-
-            status.paperWalletSol = (status.paperWalletSol + applied).coerceAtLeast(0.0)
-            repairUnifiedPaperWalletIfImpossible("paper_delta")
-            syncPaperCapitalAuthority6448("paper_delta")
-            ErrorLogger.info("PaperWallet",
-                "Δ=${"%.4f".format(applied)} SOL → balance=${"%.4f".format(status.paperWalletSol)}" +
-                if (isInsane) " [CLAMPED from ${"%.4f".format(delta)}]" else "")
-
-            // V5.9.8: Persist to SharedPrefs so balance survives app updates
+            // V5.0.6475 — UI/status paper wallet is no longer a mutable cash
+            // authority. Older executor call sites still emit deltas, but the
+            // canonical money mutation must already have happened in
+            // PaperAccountLedger6430 / canonical close reducer. This callback
+            // projects the ledger snapshot into UI + facades and records the
+            // legacy delta as telemetry only; it never does status += delta.
+            val before = try { status.paperWalletSol } catch (_: Throwable) { 0.0 }
+            syncPaperCapitalAuthority6448("paper_delta_projection_6475")
+            val after = try { status.paperWalletSol } catch (_: Throwable) { before }
             try {
-                PaperWalletStore.persist(applicationContext, status.paperWalletSol)
-            } catch (_: Exception) {}
+                ErrorLogger.info(
+                    "PaperWallet",
+                    "projection-only delta=${"%.4f".format(delta)} ignoredForAuthority before=${"%.4f".format(before)} ledger=${"%.4f".format(after)}"
+                )
+                ForensicLogger.lifecycle(
+                    "PAPER_WALLET_DELTA_PROJECTION_ONLY_6475",
+                    "delta=${"%.6f".format(delta)} before=${"%.6f".format(before)} ledger=${"%.6f".format(after)}"
+                )
+                PipelineHealthCollector.labelInc("PAPER_WALLET_DELTA_PROJECTION_ONLY_6475")
+            } catch (_: Throwable) {}
+            try { PaperWalletStore.persist(applicationContext, after) } catch (_: Exception) {}
         }
         
         // Persist running state so BootReceiver can restart after reboot
@@ -12461,22 +12458,18 @@ class BotService : Service() {
                                 val drift = status.paperWalletSol - truth
                                 if (kotlin.math.abs(drift) >= 5.0) {
                                     val prior = status.paperWalletSol
-                                    status.paperWalletSol = truth
-                                    try {
-                                        com.lifecyclebot.engine.PaperWalletStore.persist(applicationContext, truth)
-                                    } catch (_: Throwable) {}
                                     try {
                                         ForensicLogger.lifecycle(
-                                            "PAPER_WALLET_JOURNAL_HEAL_6423",
-                                            "prior=${"%.4f".format(prior)} truth=${"%.4f".format(truth)} drift=${"%.4f".format(drift)} " +
+                                            "PAPER_WALLET_JOURNAL_DIVERGENCE_DIAGNOSTIC_ONLY_6475",
+                                            "prior=${"%.4f".format(prior)} journalTruth=${"%.4f".format(truth)} drift=${"%.4f".format(drift)} action=no_wallet_heal_from_journal " +
                                                 "startCap=${"%.4f".format(startCap)} realizedPnl=${"%.4f".format(realizedPnl)} openCost=${"%.4f".format(openCostSol)} " +
                                                 "buys=${paperBuys.size} sells=${paperSells.size}",
                                         )
-                                        PipelineHealthCollector.labelInc("PAPER_WALLET_JOURNAL_HEAL_6423")
+                                        PipelineHealthCollector.labelInc("PAPER_WALLET_JOURNAL_DIVERGENCE_DIAGNOSTIC_ONLY_6475")
                                     } catch (_: Throwable) {}
                                     ErrorLogger.warn(
                                         "PaperWallet",
-                                        "🩹 PAPER_WALLET_JOURNAL_HEAL_6423 prior=${"%.4f".format(prior)} → truth=${"%.4f".format(truth)} drift=${"%+.4f".format(drift)}",
+                                        "⚠️ PAPER_WALLET_JOURNAL_DIVERGENCE_6475 prior=${"%.4f".format(prior)} → truth=${"%.4f".format(truth)} drift=${"%+.4f".format(drift)}",
                                     )
                                 }
                             }
@@ -14152,9 +14145,17 @@ class BotService : Service() {
                     com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
                         name = "position_parity_audit_6464", budgetMs = 3_000L,
                     ) {
-                        com.lifecyclebot.engine.truth.PositionRegistryParityAudit6464.audit()
                         val startCap6464 = ConfigStore.load(applicationContext).paperSimulatedBalance
+                        // V5.0.6475 — replay is the only capital repair authority.
+                        // Repair first only when typed events are clean; otherwise
+                        // preserve state and keep integrity holds active.
+                        val replayRepaired6475 = try { com.lifecyclebot.engine.truth.CanonicalPaperReplay6464.repairLedgerIfClean(startCap6464) } catch (_: Throwable) { false }
                         com.lifecyclebot.engine.truth.CanonicalPaperReplay6464.compareToLedger(startCap6464)
+                        // Registry is a projection; rebuild only after the
+                        // canonical capital pass has completed, never from UI
+                        // or legacy journal rows.
+                        try { com.lifecyclebot.engine.truth.PositionRegistryParityAudit6464.rebuildFromCanonical6475() } catch (_: Throwable) {}
+                        com.lifecyclebot.engine.truth.PositionRegistryParityAudit6464.audit()
                         // V5.0.6467 §P0 (item 9) — parallel replay from SAME canonical
                         // economic event stream that reports FIRST divergent event id.
                         try {
@@ -14190,6 +14191,7 @@ class BotService : Service() {
                                 cashSol = cap6469.cashSol,
                                 openCostBasisSol = cap6469.openCostBasisSol,
                                 realizedFromLedger = cap6469.realizedPnlSol,
+                                feesFromLedger = cap6469.feesSol,
                             )
                         } catch (_: Throwable) {}
                         // V5.0.6469 §P1 — REGISTRY_CANONICAL_PARITY telemetry.

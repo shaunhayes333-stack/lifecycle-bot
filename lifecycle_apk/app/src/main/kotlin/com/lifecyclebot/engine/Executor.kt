@@ -7945,48 +7945,29 @@ class Executor(
                         .takeIf { it > 0.0 } ?: sellQty.coerceAtLeast(0.0)
                 } catch (_: Throwable) { sellQty.coerceAtLeast(0.0) }
                 val soldRaw6448 = java.math.BigInteger.valueOf((sellQty6449 * 1_000_000_000.0).toLong().coerceAtLeast(0L))
-                com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
-                    mint = ts.mint,
-                    generation = System.currentTimeMillis(),
+                // V5.0.6475 — autonomous PAPER PARTIAL uses the same claim-first
+                // reducer as full SELL. No direct mirror/cash side effects before
+                // TerminalSellIdempotency + TerminalMutationAuthority grant ownership.
+                val pid6475 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
+                val generation6475 = System.currentTimeMillis()
+                val syntheticSig6475 = "paper_partial_${pid6475}_${trade.reason}_${generation6475}_${soldRaw6448}"
+                val preRemainingRaw6475 = java.math.BigInteger.valueOf(
+                    (pos.qtyToken.coerceAtLeast(0.0) * 1_000_000_000.0).toLong().coerceAtLeast(0L)
+                )
+                com.lifecyclebot.engine.truth.CanonicalPaperTerminalBridge6469.finalizeSell(
+                    positionId = pid6475, mint = ts.mint, symbol = ts.symbol,
+                    generation = generation6475,
+                    sellSig = syntheticSig6475,
                     soldQtyRaw = soldRaw6448,
-                    proceedsSol = grossPartial6448,
+                    preRemainingRaw = preRemainingRaw6475,
+                    preRemainingCostBasisSol = pos.costSol.coerceAtLeast(0.0),
+                    grossProceedsSol = grossPartial6448,
                     soldCostBasisSol = partialCostBasisSol.coerceAtLeast(0.0),
                     feesSol = paperPartialFee.coerceAtLeast(0.0),
-                    paperMode = true,
-                    terminal = paperDustClosed,
                     lane = pos.tradingMode,
-                    reason = trade.reason,
+                    exitReason = trade.reason,
+                    terminal = paperDustClosed,
                 )
-                com.lifecyclebot.engine.truth.PaperAccountLedger6430.onSell(
-                    grossProceedsSol = grossPartial6448,
-                    costBasisSoldSol = partialCostBasisSol.coerceAtLeast(0.0),
-                    feeSol = paperPartialFee.coerceAtLeast(0.0),
-                )
-                // V5.0.6469 §P0 — canonical fanout for paper partial. Missing
-                // economicSchema/finalizedBus emissions were the root cause of
-                // 6468's 0 canonical SELLs/PARTIALs despite 92+67 paper trades.
-                // V5.0.6470 §P0 — positionId MUST match the canonical BUY-side id.
-                try {
-                    val syntheticSig6469 = "paper_partial_${ts.mint}_${System.currentTimeMillis()}"
-                    val pid6470 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
-                    val preRemainingRaw6469 = java.math.BigInteger.valueOf(
-                        (pos.qtyToken.coerceAtLeast(0.0) * 1_000_000_000.0).toLong().coerceAtLeast(0L)
-                    )
-                    com.lifecyclebot.engine.truth.CanonicalPaperTerminalBridge6469.emitCanonicalFanout(
-                        positionId = pid6470, mint = ts.mint, symbol = ts.symbol,
-                        generation = System.currentTimeMillis(),
-                        sellSig = syntheticSig6469,
-                        soldQtyRaw = soldRaw6448,
-                        preRemainingRaw = preRemainingRaw6469,
-                        preRemainingCostBasisSol = pos.costSol.coerceAtLeast(0.0),
-                        grossProceedsSol = grossPartial6448,
-                        soldCostBasisSol = partialCostBasisSol.coerceAtLeast(0.0),
-                        feesSol = paperPartialFee.coerceAtLeast(0.0),
-                        lane = pos.tradingMode,
-                        exitReason = trade.reason,
-                        terminal = paperDustClosed,
-                    )
-                } catch (_: Throwable) {}
             } catch (_: Throwable) {}
             onPaperBalanceChange?.invoke((sellQty * actualPrice) - paperPartialTreasuryShare6041)
             try { ForensicLogger.lifecycle("PARTIAL_SELL_WALLET_CREDITED_6041", "mode=paper mint=${ts.mint.take(10)} symbol=${ts.symbol} gross=${(sellQty * actualPrice).fmtSol()} treasury=${paperPartialTreasuryShare6041.fmtSol()} delta=${((sellQty * actualPrice) - paperPartialTreasuryShare6041).fmtSol()} reason=${trade.reason}") } catch (_: Throwable) {}
@@ -11663,46 +11644,10 @@ class Executor(
                 return
             }
         }
-        // V5.0.6427 §K + §L — register the entry lane IMMUTABLY the
-        // instant a paper buy is attempted. First write wins so a
-        // later exit run by MOONSHOT_STOP_LOSS on a COPYTRADE entry
-        // cannot rewrite history. Uses mint as the positionId proxy
-        // because full positionId propagation is a separate patch.
-        try {
-            val entryLane6427 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "STANDARD" }
-            com.lifecyclebot.engine.truth.LaneAttributionLedger6427
-                .recordEntry(
-                    positionId = ts.mint,
-                    lane = entryLane6427,
-                    strategy = ts.source,
-                    profile = layerTag,
-                )
-            // V5.0.6432 — register position OPEN in the state ledger and
-            // debit cash in the paper account ledger. Wiring at the
-            // paperBuy entry (attempt) is intentional: even if the buy
-            // ultimately clamps or rejects downstream, the state ledger
-            // tolerates duplicate registerOpen (idempotent), and the
-            // account ledger sees the same cost the debitPaperWallet
-            // path applies below.
-            com.lifecyclebot.engine.truth.PositionStateLedger6427.registerOpen(ts.mint)
-            // V5.0.6442 §1 EXECUTOR WRITER MIGRATION — mirror the buy
-            // attempt into CanonicalPositionAuthority6441 alongside the
-            // legacy PositionStateLedger6427. On fill the mirror is
-            // promoted PENDING_ENTRY -> OPEN via mirrorBuyFill.
-            try {
-                com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyAttempt(
-                    mint = ts.mint,
-                    symbol = ts.symbol.ifBlank { ts.mint.take(6) },
-                    lane = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "STANDARD" },
-                    estimatedCostSol = sol,
-                    estimatedFeesSol = 0.0,
-                    paperMode = true,
-                )
-            } catch (_: Throwable) {}
-            if (debitPaperWallet && sol.isFinite() && sol > 0.0) {
-                com.lifecyclebot.engine.truth.PaperAccountLedger6430.onBuy(sol)
-            }
-        } catch (_: Throwable) {}
+        // V5.0.6475 — do not mutate position/capital authorities at BUY
+        // attempt time. Every downstream gate after this point may reject the
+        // entry; reservation/open/cash mutation is now deferred to the confirmed
+        // paper fill block below.
         // V5.0.6418 — PAPER GROWTH COMPOUNDER (parity with live at line ~2790).
         // Operator directive: "wallet balance isnt increasing again on live or
         // paper trading. it needs to be more growth centric." Apply the same
@@ -12352,6 +12297,39 @@ class Executor(
                 (baseFluidTp * ts.styleTpMult).coerceIn(5.0, 500.0)
             } catch (_: Throwable) { 0.0 },
         )
+        // V5.0.6475 — confirmed-fill-only mutation. This is deliberately after
+        // all paper entry gates and after the real TokenState position is built.
+        // A rejected paper buy must not debit cash, create PENDING_ENTRY, or
+        // occupy a slot that later needs a TTL sweep to disappear.
+        try {
+            val entryLane6475 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "STANDARD" }
+            com.lifecyclebot.engine.truth.LaneAttributionLedger6427.recordEntry(
+                positionId = ts.mint,
+                lane = entryLane6475,
+                strategy = ts.source,
+                profile = layerTag,
+            )
+            com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyAttempt(
+                mint = ts.mint,
+                symbol = ts.symbol.ifBlank { ts.mint.take(6) },
+                lane = entryLane6475,
+                estimatedCostSol = actualSol,
+                estimatedFeesSol = actualSol * 0.005,
+                paperMode = true,
+            )
+            if (debitPaperWallet && actualSol.isFinite() && actualSol > 0.0) {
+                val accepted6475 = com.lifecyclebot.engine.truth.PaperAccountLedger6430.onBuy(actualSol, actualSol * 0.005)
+                if (!accepted6475) {
+                    try { PipelineHealthCollector.labelInc("PAPER_BUY_CONFIRMED_FILL_LEDGER_REJECTED_6475") } catch (_: Throwable) {}
+                    return
+                }
+            }
+            try { com.lifecyclebot.engine.truth.PositionStateLedger6427.registerOpen(ts.mint) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markPendingEntry("paper", ts.mint, ts.symbol, "Executor.paperBuy.confirmedFill") } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            try { ForensicLogger.lifecycle("PAPER_BUY_CONFIRMED_FILL_AUTHORITY_ERROR_6475", "mint=${ts.mint.take(10)} err=${t.message?.take(100)}") } catch (_: Throwable) {}
+            return
+        }
         try {
             val buyQtyRaw6448 = java.math.BigInteger.valueOf((ts.position.qtyToken * 1_000_000_000.0).toLong().coerceAtLeast(0L))
             if (buyQtyRaw6448 > java.math.BigInteger.ZERO) {
@@ -18140,46 +18118,28 @@ class Executor(
                         .takeIf { it > 0.0 } ?: requested
                 } catch (_: Throwable) { (pos.qtyToken * pct).coerceAtLeast(0.0) }
                 val soldQtyManual6448 = java.math.BigInteger.valueOf((soldQtyManual6449 * 1_000_000_000.0).toLong().coerceAtLeast(0L))
-                com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
-                    mint = ts.mint,
-                    generation = System.currentTimeMillis(),
+                // V5.0.6475 — manual PAPER PARTIAL uses the same claim-first
+                // reducer as full SELL. Direct mirror+ledger+fanout sibling path removed.
+                val pid6475 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
+                val generation6475 = System.currentTimeMillis()
+                val syntheticSig6475 = "paper_manual_partial_${pid6475}_${trade.reason}_${generation6475}_${soldQtyManual6448}"
+                val preRemainingRaw6475 = java.math.BigInteger.valueOf(
+                    (pos.qtyToken.coerceAtLeast(0.0) * 1_000_000_000.0).toLong().coerceAtLeast(0L)
+                )
+                com.lifecyclebot.engine.truth.CanonicalPaperTerminalBridge6469.finalizeSell(
+                    positionId = pid6475, mint = ts.mint, symbol = ts.symbol,
+                    generation = generation6475,
+                    sellSig = syntheticSig6475,
                     soldQtyRaw = soldQtyManual6448,
-                    proceedsSol = grossManualPartial6448,
+                    preRemainingRaw = preRemainingRaw6475,
+                    preRemainingCostBasisSol = pos.costSol.coerceAtLeast(0.0),
+                    grossProceedsSol = grossManualPartial6448,
                     soldCostBasisSol = soldValueSol.coerceAtLeast(0.0),
                     feesSol = partialSellFee.coerceAtLeast(0.0),
-                    paperMode = true,
-                    terminal = fullyExited,
                     lane = pos.tradingMode,
-                    reason = trade.reason,
+                    exitReason = trade.reason,
+                    terminal = fullyExited,
                 )
-                com.lifecyclebot.engine.truth.PaperAccountLedger6430.onSell(
-                    grossProceedsSol = grossManualPartial6448,
-                    costBasisSoldSol = soldValueSol.coerceAtLeast(0.0),
-                    feeSol = partialSellFee.coerceAtLeast(0.0),
-                )
-                // V5.0.6469 §P0 — canonical fanout for manual paper partial sell.
-                // V5.0.6470 §P0 — positionId MUST match the canonical BUY-side id.
-                try {
-                    val syntheticSig6469 = "paper_manual_partial_${ts.mint}_${System.currentTimeMillis()}"
-                    val pid6470 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
-                    val preRemainingRaw6469 = java.math.BigInteger.valueOf(
-                        (pos.qtyToken.coerceAtLeast(0.0) * 1_000_000_000.0).toLong().coerceAtLeast(0L)
-                    )
-                    com.lifecyclebot.engine.truth.CanonicalPaperTerminalBridge6469.emitCanonicalFanout(
-                        positionId = pid6470, mint = ts.mint, symbol = ts.symbol,
-                        generation = System.currentTimeMillis(),
-                        sellSig = syntheticSig6469,
-                        soldQtyRaw = soldQtyManual6448,
-                        preRemainingRaw = preRemainingRaw6469,
-                        preRemainingCostBasisSol = pos.costSol.coerceAtLeast(0.0),
-                        grossProceedsSol = grossManualPartial6448,
-                        soldCostBasisSol = soldValueSol.coerceAtLeast(0.0),
-                        feesSol = partialSellFee.coerceAtLeast(0.0),
-                        lane = pos.tradingMode,
-                        exitReason = trade.reason,
-                        terminal = fullyExited,
-                    )
-                } catch (_: Throwable) {}
             } catch (_: Throwable) {}
             onPaperBalanceChange?.invoke((soldValueSol + profitSol) - partialTreasuryShare)
 
@@ -19422,9 +19382,9 @@ class Executor(
             // This commits cash credit + openCost release + typed economic SELL +
             // finalized bus before any successful journal projection can be written.
             val soldQtyRaw6474 = java.math.BigInteger.valueOf((soldQtyToken6449 * 1_000_000_000.0).toLong().coerceAtLeast(0L))
-            val sellGeneration6474 = System.currentTimeMillis()
-            val terminalId6474 = "paper_full_${tradeId.mint}_${sellGeneration6474}"
-            val pid6474 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(tradeId.mint)
+            val sellGeneration6474 = tradeId.tradeId
+            val pid6474 = terminalPid6455
+            val terminalId6474 = "paper_full_${pid6474}_${sellGeneration6474}"
             val close6474 = com.lifecyclebot.engine.truth.CanonicalPaperTerminalBridge6469.finalizeSell(
                 positionId = pid6474,
                 mint = tradeId.mint,

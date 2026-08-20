@@ -6,78 +6,20 @@ import java.math.BigInteger
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * V5.0.6469 §P0 — CANONICAL PAPER TERMINAL BRIDGE.
+ * V5.0.6469 / V5.0.6475 — CANONICAL PAPER TERMINAL BRIDGE.
  *
- * OPERATOR MANDATE (verbatim, 6468 evidence):
+ * V5.0.6475 source repair:
+ *   The old bridge performed legacy side effects first:
+ *     mirrorSell() + PaperAccountLedger.onSell()
+ *   and only then called terminal idempotency. That was not idempotent: a
+ *   duplicate paper sell could mutate canonical lots/cash before being rejected.
  *
- *   "paper BUY=224 SELL=92 PARTIAL=67
- *    canonical economicSchema=205 BUYs, 0 SELLs, 0 PARTIALs
- *    finalizedBus=0
- *    terminalIdempotency=0
- *    PAPER_CLOSE_FAILED/NO_CANONICAL_POSITION/TERMINAL_ABANDONED=402
- *    There must be ONE authoritative paper/live terminal mutation path."
- *
- * ROOT CAUSE
- * ──────────
- * Every paper SELL / PARTIAL in Executor.kt calls the pair
- *   ExecutorCanonicalMirror6442.mirrorSell(...)   // position + lot ledger
- *   PaperAccountLedger6430.onSell(...)            // cash ledger
- * directly, and the entire canonical event-graph downstream of the sell
- * (`EconomicEventSchema6464.recordSell`, `TerminalSellIdempotency6464`,
- * `TerminalMutationAuthority6466`, `CanonicalFinalizedTradeBus6464`,
- * `CanonicalMintOccupancyRegistry6464.markPendingExit/markClosed`) is
- * SKIPPED. `SellFinalizationCoordinator` performs the full fanout, but
- * only live executor paths invoke it — paper paths never do.
- *
- * FIX (source-level, not symptom-level)
- * ─────────────────────────────────────
- * Every paper sell/partial code site funnels through this bridge:
- *
- *   finalizeSell(positionId, mint, symbol, generation, sellSig,
- *                soldQtyRaw, preRemainingRaw, preRemainingCostBasisSol,
- *                grossProceedsSol, soldCostBasisSol, feesSol, lane,
- *                exitReason, terminal)
- *
- * The bridge performs the following mutations in a single atomic
- * envelope, in this exact order:
- *
- *   1. `ExecutorCanonicalMirror6442.mirrorSell`
- *      (existing legacy — position lifecycle, lot ledger, reward gate)
- *   2. `PaperAccountLedger6430.onSell`
- *      (existing legacy — cash + realized PnL projection)
- *   3. `CanonicalLotQuantity6464.onSellFilled`
- *      (new for paper — confirms sold qty against canonical lot)
- *   4. `TerminalSellIdempotency6464.beginTerminal`
- *      (new for paper — stamps the terminal idempotency claim)
- *   5. `TerminalMutationAuthority6466.claim`
- *      (new for paper — second-layer CAS by runId+mode+positionId+
- *      generation+terminalSequence)
- *   6. `EconomicEventSchema6464.recordSell`
- *      (new for paper — canonical typed economic event)
- *   7. `CanonicalFinalizedTradeBus6464.publish` +
- *      `deliverToConsumers` via `FinalizedBusConsumerBridge6465`
- *      (new for paper — 8 downstream consumers receive real
- *      onTradeClosed deliveries)
- *   8. `CanonicalMintOccupancyRegistry6464.markPendingExit` +
- *      `markClosed` if terminal
- *      (new for paper — occupancy slot transitions correctly)
- *   9. `AuthoritySnapshotVersion6464.bump("paper_sell_finalized_…")`
- *  10. `CapitalConservationTracer6469.onSell` — sanity-trace the
- *      cash/realized/openCost delta after this mutation.
- *
- * Steps (1)+(2) preserve legacy behaviour. Steps (3)-(9) close the
- * canonical divergence. Step (10) records the conservation trace so
- * the -1.53 delta can be traced to its source mutation.
- *
- * Idempotency: (3)-(9) are idempotency-gated by `beginTerminal` +
- * `TerminalMutationAuthority6466.claim`; a replay/duplicate call
- * short-circuits before any second side-effect.
- *
- * Contract:
- *   - Every paper terminal mutation goes through THIS function.
- *   - Callers may pass `terminal=true` for full close, `false` for partial.
- *   - `sellSig` for paper is a synthetic id (e.g. "paper_<mint>_<ms>");
- *     it must be stable within a single close so idempotency works.
+ * Contract from 6475 forward:
+ *   1. Build a stable terminal id.
+ *   2. Claim TerminalSellIdempotency + TerminalMutationAuthority BEFORE any
+ *      economic side effect.
+ *   3. Only the granted caller may mutate mirror/lot/cash/event/finalized bus.
+ *   4. Duplicate callbacks return applied=false and do not credit/debit/realize.
  */
 object CanonicalPaperTerminalBridge6469 {
 
@@ -94,8 +36,58 @@ object CanonicalPaperTerminalBridge6469 {
         val reason: String,
     )
 
+    private data class Claim(
+        val idKey: String,
+        val granted: Boolean,
+        val reason: String,
+    )
+
+    private fun claimBeforeSideEffects(
+        positionId: String,
+        mint: String,
+        symbol: String,
+        generation: Long,
+        sellSig: String,
+        exitReason: String,
+        terminal: Boolean,
+        sitePath: String,
+    ): Claim {
+        val idKey = TerminalSellIdempotency6464.makeKey(
+            sellExecutionId = sellSig,
+            fillId = sellSig,
+            signature = sellSig,
+        )
+        val consume = TerminalSellIdempotency6464.beginTerminal(
+            key = idKey,
+            positionId = positionId,
+            sitePath = sitePath,
+        )
+        if (consume != TerminalSellIdempotency6464.Consume.PROCEED) {
+            duplicates.incrementAndGet()
+            return Claim(idKey, granted = false, reason = consume.name)
+        }
+        val claim = TerminalMutationAuthority6466.claim(
+            TerminalMutationAuthority6466.TerminalEvent(
+                positionId = positionId,
+                mint = mint,
+                symbol = symbol,
+                mode = "paper",
+                generation = generation,
+                terminalSequence = if (terminal) 999L else idKey.hashCode().toLong(),
+                runId = "paper",
+                exitReason = exitReason,
+            ),
+        )
+        if (claim != TerminalMutationAuthority6466.ClaimResult.GRANTED) {
+            duplicates.incrementAndGet()
+            return Claim(idKey, granted = false, reason = claim.name)
+        }
+        return Claim(idKey, granted = true, reason = "GRANTED")
+    }
+
     /**
-     * Finalise a paper sell / partial. Idempotent per (positionId, generation, sellSig).
+     * Finalise a paper sell / partial. Idempotent per stable sellSig/positionId.
+     * This is the only paper close entrypoint executor code should use.
      */
     fun finalizeSell(
         positionId: String,
@@ -113,130 +105,69 @@ object CanonicalPaperTerminalBridge6469 {
         exitReason: String,
         terminal: Boolean,
     ): Result {
-        // 1 + 2. legacy mirrors (position lifecycle + cash ledger)
-        try {
-            ExecutorCanonicalMirror6442.mirrorSell(
-                mint = mint,
-                generation = generation,
-                soldQtyRaw = soldQtyRaw,
-                proceedsSol = grossProceedsSol,
-                soldCostBasisSol = soldCostBasisSol,
-                feesSol = feesSol,
-                paperMode = true,
-                terminal = terminal,
-                lane = lane,
-                reason = exitReason,
-            )
-        } catch (_: Throwable) {}
-        try {
-            PaperAccountLedger6430.onSell(
-                grossProceedsSol = grossProceedsSol,
-                costBasisSoldSol = soldCostBasisSol,
-                feeSol = feesSol,
-            )
-        } catch (_: Throwable) {}
+        val claim = claimBeforeSideEffects(
+            positionId = positionId,
+            mint = mint,
+            symbol = symbol,
+            generation = generation,
+            sellSig = sellSig,
+            exitReason = exitReason,
+            terminal = terminal,
+            sitePath = "CanonicalPaperTerminalBridge6469.finalizeSell($exitReason)",
+        )
+        if (!claim.granted) {
+            try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_DUPLICATE_NO_SIDE_EFFECT_6475") } catch (_: Throwable) {}
+            return Result(applied = false, terminalClaimed = false, busPublished = false, reason = claim.reason)
+        }
 
-        // 3-9. canonical fanout, gated by terminal idempotency + mutation authority.
-        var terminalClaimed = false
         var busPublished = false
         try {
-            val idKey = TerminalSellIdempotency6464.makeKey(
-                sellExecutionId = null, fillId = sellSig, signature = sellSig,
-            )
-            val consume = TerminalSellIdempotency6464.beginTerminal(
-                key = idKey, positionId = positionId,
-                sitePath = "CanonicalPaperTerminalBridge6469($exitReason)",
-            )
-            if (consume == TerminalSellIdempotency6464.Consume.PROCEED) {
-                val claim = TerminalMutationAuthority6466.claim(
-                    TerminalMutationAuthority6466.TerminalEvent(
-                        positionId = positionId, mint = mint, symbol = symbol,
-                        mode = "paper", generation = generation,
-                        terminalSequence = if (terminal) 999L else System.currentTimeMillis(),
-                        runId = "run", exitReason = exitReason,
-                    ),
+            // Legacy mirror + paper ledger are still called during this migration,
+            // but only after the terminal claim has granted ownership.
+            try {
+                ExecutorCanonicalMirror6442.mirrorSell(
+                    mint = mint,
+                    generation = generation,
+                    soldQtyRaw = soldQtyRaw,
+                    proceedsSol = grossProceedsSol,
+                    soldCostBasisSol = soldCostBasisSol,
+                    feesSol = feesSol,
+                    paperMode = true,
+                    terminal = terminal,
+                    lane = lane,
+                    reason = exitReason,
                 )
-                if (claim == TerminalMutationAuthority6466.ClaimResult.GRANTED) {
-                    terminalClaimed = true
-                    // 3. lot quantity
-                    try {
-                        CanonicalLotQuantity6464.onSellFilled(
-                            positionId = positionId, mint = mint, filledQty = soldQtyRaw,
-                        )
-                    } catch (_: Throwable) {}
-                    // 6. economic event (typed)
-                    try {
-                        EconomicEventSchema6464.recordSell(
-                            mode = "paper", positionId = positionId, mint = mint, symbol = symbol,
-                            idempotencyKey = idKey, partial = !terminal,
-                            soldQty = soldQtyRaw,
-                            preRemainingQty = preRemainingRaw,
-                            preRemainingCostBasisSol = preRemainingCostBasisSol,
-                            grossProceedsSol = grossProceedsSol, exitFeesSol = feesSol,
-                        )
-                    } catch (_: Throwable) {}
-                    // 7. finalized bus + consumers
-                    try {
-                        val realizedSol = grossProceedsSol - soldCostBasisSol - feesSol
-                        val realizedPct = if (soldCostBasisSol > 0.0)
-                            (realizedSol / soldCostBasisSol) * 100.0 else 0.0
-                        val env = CanonicalFinalizedTradeBus6464.Envelope(
-                            tradeId = idKey, atMs = System.currentTimeMillis(),
-                            realizedPnlSol = realizedSol, realizedReturnPct = realizedPct,
-                            mint = mint, lane = lane,
-                        )
-                        val first = CanonicalFinalizedTradeBus6464.publish(env)
-                        if (first) {
-                            busPublished = true
-                            busPublishes.incrementAndGet()
-                            try {
-                                CanonicalFinalizedTradeBus6464.deliverToConsumers(env) { name, e ->
-                                    try { FinalizedBusConsumerBridge6465.deliver(name, e) }
-                                    catch (_: Throwable) { false }
-                                }
-                            } catch (_: Throwable) {}
-                            try { PipelineHealthCollector.labelInc("FINALIZED_BUS_PUBLISHED") } catch (_: Throwable) {}
-                        }
-                    } catch (_: Throwable) {}
-                    // 10. conservation tracer
-                    try {
-                        CapitalConservationTracer6469.onSell(
-                            positionId = positionId, mint = mint,
-                            grossProceedsSol = grossProceedsSol,
-                            soldCostBasisSol = soldCostBasisSol,
-                            feesSol = feesSol, terminal = terminal,
-                        )
-                    } catch (_: Throwable) {}
-                    // counters + forensic
-                    if (terminal) {
-                        fullSells.incrementAndGet()
-                        try { PipelineHealthCollector.labelInc("CANONICAL_TERMINAL_SELL") } catch (_: Throwable) {}
-                    } else {
-                        partialSells.incrementAndGet()
-                        try { PipelineHealthCollector.labelInc("CANONICAL_TERMINAL_PARTIAL") } catch (_: Throwable) {}
-                    }
-                } else {
-                    duplicates.incrementAndGet()
-                }
+            } catch (_: Throwable) {}
+            try {
+                PaperAccountLedger6430.onSell(
+                    grossProceedsSol = grossProceedsSol,
+                    costBasisSoldSol = soldCostBasisSol,
+                    feeSol = feesSol,
+                )
+            } catch (_: Throwable) {}
+
+            busPublished = applyFanoutAfterClaim(
+                idKey = claim.idKey,
+                positionId = positionId,
+                mint = mint,
+                symbol = symbol,
+                soldQtyRaw = soldQtyRaw,
+                preRemainingRaw = preRemainingRaw,
+                preRemainingCostBasisSol = preRemainingCostBasisSol,
+                grossProceedsSol = grossProceedsSol,
+                soldCostBasisSol = soldCostBasisSol,
+                feesSol = feesSol,
+                lane = lane,
+                terminal = terminal,
+            )
+            if (terminal) {
+                fullSells.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("CANONICAL_TERMINAL_SELL") } catch (_: Throwable) {}
             } else {
-                duplicates.incrementAndGet()
+                partialSells.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("CANONICAL_TERMINAL_PARTIAL") } catch (_: Throwable) {}
             }
-            // 8. occupancy (always) — pendingExit for partials, closed for terminals.
-            try {
-                CanonicalMintOccupancyRegistry6464.markPendingExit(
-                    mode = "paper", mint = mint, symbol = symbol,
-                    source = "CanonicalPaperTerminalBridge6469",
-                )
-                if (terminal) {
-                    CanonicalMintOccupancyRegistry6464.markClosed("paper", mint)
-                }
-            } catch (_: Throwable) {}
-            // 9. snapshot bump
-            try {
-                AuthoritySnapshotVersion6464.bump(
-                    if (terminal) "paper_sell_finalized_${symbol}" else "paper_partial_finalized_${symbol}"
-                )
-            } catch (_: Throwable) {}
+            return Result(applied = true, terminalClaimed = true, busPublished = busPublished, reason = "GRANTED")
         } catch (t: Throwable) {
             fanoutFailures.incrementAndGet()
             try {
@@ -246,21 +177,13 @@ object CanonicalPaperTerminalBridge6469 {
                 )
                 PipelineHealthCollector.labelInc("CANONICAL_PAPER_TERMINAL_BRIDGE_FANOUT_THREW_6469")
             } catch (_: Throwable) {}
+            return Result(applied = true, terminalClaimed = true, busPublished = busPublished, reason = "APPLIED_WITH_FANOUT_ERROR")
         }
-        return Result(applied = true, terminalClaimed = terminalClaimed,
-            busPublished = busPublished,
-            reason = if (terminalClaimed) "GRANTED" else "DUPLICATE_OR_CLAIM_REFUSED")
     }
 
     /**
-     * Emit ONLY the canonical downstream fanout (steps 3-9). Call this
-     * from paper sell sites that already invoke
-     * `ExecutorCanonicalMirror6442.mirrorSell` and
-     * `PaperAccountLedger6430.onSell` themselves — it wires the missing
-     * event / bus / idempotency / occupancy fanout without touching the
-     * existing legacy mirror + ledger pair.
-     *
-     * Same idempotency guarantees as `finalizeSell`.
+     * Projection-only legacy helper. Executor close paths should not call this;
+     * use finalizeSell(). Kept only for stale callers during migration.
      */
     fun emitCanonicalFanout(
         positionId: String,
@@ -278,112 +201,122 @@ object CanonicalPaperTerminalBridge6469 {
         exitReason: String,
         terminal: Boolean,
     ): Result {
-        var terminalClaimed = false
+        val claim = claimBeforeSideEffects(
+            positionId = positionId,
+            mint = mint,
+            symbol = symbol,
+            generation = generation,
+            sellSig = sellSig,
+            exitReason = exitReason,
+            terminal = terminal,
+            sitePath = "CanonicalPaperTerminalBridge6469.emitCanonicalFanout($exitReason)",
+        )
+        if (!claim.granted) return Result(applied = false, terminalClaimed = false, busPublished = false, reason = claim.reason)
+        val bus = applyFanoutAfterClaim(
+            idKey = claim.idKey,
+            positionId = positionId,
+            mint = mint,
+            symbol = symbol,
+            soldQtyRaw = soldQtyRaw,
+            preRemainingRaw = preRemainingRaw,
+            preRemainingCostBasisSol = preRemainingCostBasisSol,
+            grossProceedsSol = grossProceedsSol,
+            soldCostBasisSol = soldCostBasisSol,
+            feesSol = feesSol,
+            lane = lane,
+            terminal = terminal,
+        )
+        if (terminal) fullSells.incrementAndGet() else partialSells.incrementAndGet()
+        return Result(applied = true, terminalClaimed = true, busPublished = bus, reason = "GRANTED")
+    }
+
+    private fun applyFanoutAfterClaim(
+        idKey: String,
+        positionId: String,
+        mint: String,
+        symbol: String,
+        soldQtyRaw: BigInteger,
+        preRemainingRaw: BigInteger,
+        preRemainingCostBasisSol: Double,
+        grossProceedsSol: Double,
+        soldCostBasisSol: Double,
+        feesSol: Double,
+        lane: String,
+        terminal: Boolean,
+    ): Boolean {
+        try {
+            CanonicalLotQuantity6464.onSellFilled(
+                positionId = positionId,
+                mint = mint,
+                filledQty = soldQtyRaw,
+            )
+        } catch (_: Throwable) {}
+        try {
+            EconomicEventSchema6464.recordSell(
+                mode = "paper",
+                positionId = positionId,
+                mint = mint,
+                symbol = symbol,
+                idempotencyKey = idKey,
+                partial = !terminal,
+                soldQty = soldQtyRaw,
+                preRemainingQty = preRemainingRaw,
+                preRemainingCostBasisSol = preRemainingCostBasisSol,
+                grossProceedsSol = grossProceedsSol,
+                exitFeesSol = feesSol,
+            )
+        } catch (_: Throwable) {}
+
         var busPublished = false
         try {
-            val idKey = TerminalSellIdempotency6464.makeKey(
-                sellExecutionId = null, fillId = sellSig, signature = sellSig,
+            val realizedSol = grossProceedsSol - soldCostBasisSol - feesSol
+            val realizedPct = if (soldCostBasisSol > 0.0) (realizedSol / soldCostBasisSol) * 100.0 else 0.0
+            val env = CanonicalFinalizedTradeBus6464.Envelope(
+                tradeId = idKey,
+                atMs = System.currentTimeMillis(),
+                realizedPnlSol = realizedSol,
+                realizedReturnPct = realizedPct,
+                mint = mint,
+                lane = lane,
             )
-            val consume = TerminalSellIdempotency6464.beginTerminal(
-                key = idKey, positionId = positionId,
-                sitePath = "CanonicalPaperTerminalBridge6469.fanout($exitReason)",
-            )
-            if (consume == TerminalSellIdempotency6464.Consume.PROCEED) {
-                val claim = TerminalMutationAuthority6466.claim(
-                    TerminalMutationAuthority6466.TerminalEvent(
-                        positionId = positionId, mint = mint, symbol = symbol,
-                        mode = "paper", generation = generation,
-                        terminalSequence = if (terminal) 999L else System.currentTimeMillis(),
-                        runId = "run", exitReason = exitReason,
-                    ),
-                )
-                if (claim == TerminalMutationAuthority6466.ClaimResult.GRANTED) {
-                    terminalClaimed = true
-                    try {
-                        CanonicalLotQuantity6464.onSellFilled(
-                            positionId = positionId, mint = mint, filledQty = soldQtyRaw,
-                        )
-                    } catch (_: Throwable) {}
-                    try {
-                        EconomicEventSchema6464.recordSell(
-                            mode = "paper", positionId = positionId, mint = mint, symbol = symbol,
-                            idempotencyKey = idKey, partial = !terminal,
-                            soldQty = soldQtyRaw,
-                            preRemainingQty = preRemainingRaw,
-                            preRemainingCostBasisSol = preRemainingCostBasisSol,
-                            grossProceedsSol = grossProceedsSol, exitFeesSol = feesSol,
-                        )
-                    } catch (_: Throwable) {}
-                    try {
-                        val realizedSol = grossProceedsSol - soldCostBasisSol - feesSol
-                        val realizedPct = if (soldCostBasisSol > 0.0)
-                            (realizedSol / soldCostBasisSol) * 100.0 else 0.0
-                        val env = CanonicalFinalizedTradeBus6464.Envelope(
-                            tradeId = idKey, atMs = System.currentTimeMillis(),
-                            realizedPnlSol = realizedSol, realizedReturnPct = realizedPct,
-                            mint = mint, lane = lane,
-                        )
-                        val first = CanonicalFinalizedTradeBus6464.publish(env)
-                        if (first) {
-                            busPublished = true
-                            busPublishes.incrementAndGet()
-                            try {
-                                CanonicalFinalizedTradeBus6464.deliverToConsumers(env) { name, e ->
-                                    try { FinalizedBusConsumerBridge6465.deliver(name, e) }
-                                    catch (_: Throwable) { false }
-                                }
-                            } catch (_: Throwable) {}
-                            try { PipelineHealthCollector.labelInc("FINALIZED_BUS_PUBLISHED") } catch (_: Throwable) {}
-                        }
-                    } catch (_: Throwable) {}
-                    try {
-                        CapitalConservationTracer6469.onSell(
-                            positionId = positionId, mint = mint,
-                            grossProceedsSol = grossProceedsSol,
-                            soldCostBasisSol = soldCostBasisSol,
-                            feesSol = feesSol, terminal = terminal,
-                        )
-                    } catch (_: Throwable) {}
-                    if (terminal) {
-                        fullSells.incrementAndGet()
-                        try { PipelineHealthCollector.labelInc("CANONICAL_TERMINAL_SELL") } catch (_: Throwable) {}
-                    } else {
-                        partialSells.incrementAndGet()
-                        try { PipelineHealthCollector.labelInc("CANONICAL_TERMINAL_PARTIAL") } catch (_: Throwable) {}
+            val first = CanonicalFinalizedTradeBus6464.publish(env)
+            if (first) {
+                busPublished = true
+                busPublishes.incrementAndGet()
+                try {
+                    CanonicalFinalizedTradeBus6464.deliverToConsumers(env) { name, e ->
+                        try { FinalizedBusConsumerBridge6465.deliver(name, e) } catch (_: Throwable) { false }
                     }
-                } else {
-                    duplicates.incrementAndGet()
-                }
-            } else {
-                duplicates.incrementAndGet()
+                } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("FINALIZED_BUS_PUBLISHED") } catch (_: Throwable) {}
             }
-            try {
-                CanonicalMintOccupancyRegistry6464.markPendingExit(
-                    mode = "paper", mint = mint, symbol = symbol,
-                    source = "CanonicalPaperTerminalBridge6469.fanout",
-                )
-                if (terminal) {
-                    CanonicalMintOccupancyRegistry6464.markClosed("paper", mint)
-                }
-            } catch (_: Throwable) {}
-            try {
-                AuthoritySnapshotVersion6464.bump(
-                    if (terminal) "paper_sell_finalized_${symbol}" else "paper_partial_finalized_${symbol}"
-                )
-            } catch (_: Throwable) {}
-        } catch (t: Throwable) {
-            fanoutFailures.incrementAndGet()
-            try {
-                ForensicLogger.lifecycle(
-                    "CANONICAL_PAPER_TERMINAL_BRIDGE_FANOUT_THREW_6469",
-                    "positionId=$positionId mint=${mint.take(10)} err=${t.message}",
-                )
-                PipelineHealthCollector.labelInc("CANONICAL_PAPER_TERMINAL_BRIDGE_FANOUT_THREW_6469")
-            } catch (_: Throwable) {}
-        }
-        return Result(applied = true, terminalClaimed = terminalClaimed,
-            busPublished = busPublished,
-            reason = if (terminalClaimed) "GRANTED" else "DUPLICATE_OR_CLAIM_REFUSED")
+        } catch (_: Throwable) {}
+
+        try {
+            CapitalConservationTracer6469.onSell(
+                positionId = positionId,
+                mint = mint,
+                grossProceedsSol = grossProceedsSol,
+                soldCostBasisSol = soldCostBasisSol,
+                feesSol = feesSol,
+                terminal = terminal,
+            )
+        } catch (_: Throwable) {}
+        try {
+            CanonicalMintOccupancyRegistry6464.markPendingExit(
+                mode = "paper",
+                mint = mint,
+                symbol = symbol,
+                source = "CanonicalPaperTerminalBridge6469",
+            )
+            if (terminal) CanonicalMintOccupancyRegistry6464.markClosed("paper", mint)
+        } catch (_: Throwable) {}
+        try {
+            AuthoritySnapshotVersion6464.bump(
+                if (terminal) "paper_sell_finalized_${symbol}" else "paper_partial_finalized_${symbol}"
+            )
+        } catch (_: Throwable) {}
+        return busPublished
     }
 
     fun statusLine(): String =

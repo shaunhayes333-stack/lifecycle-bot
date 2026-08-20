@@ -90,8 +90,9 @@ class LifecycleConvergenceAcceptanceTest6470 {
             tradeId = "TID2", atMs = 0L, realizedPnlSol = 0.2, realizedReturnPct = 10.0,
             mint = "CLEAN_MINT", lane = "MEME",
         )
-        // Governor's stub always returns true.
-        assertTrue(FinalizedBusConsumerBridge6465.deliver("Governor", env))
+        // V5.0.6475 — Governor has no wired mutation API; clean delivery must
+        // remain visible as an unfulfilled parity result rather than a fake ACK.
+        assertFalse(FinalizedBusConsumerBridge6465.deliver("Governor", env))
     }
 
     // ─── Canonical economic identity (the ONE equation) ─────────────────

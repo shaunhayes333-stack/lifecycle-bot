@@ -62,10 +62,9 @@ object PositionRegistryParityAudit6464 {
         val canonicalPending = try {
             CanonicalPositionAuthority6441.pendingEntryPositions6461()
         } catch (_: Throwable) { emptyList() }
-        val canonicalClosed = try {
-            CanonicalPositionAuthority6441.closedPositions()
-        } catch (_: Throwable) { emptyList() }
-        val canonicalAll = canonicalOpens + canonicalPending + canonicalClosed
+        // Registry is an active projection; CLOSED canonical rows are retained
+        // in history but must not inflate active parity counts.
+        val canonicalAll = canonicalOpens + canonicalPending
 
         val canonicalByState = canonicalAll.groupingBy { it.lifecycle }.eachCount()
         val canonicalByMint = canonicalAll.associateBy { it.mint }
@@ -131,7 +130,7 @@ object PositionRegistryParityAudit6464 {
                 PipelineHealthCollector.labelInc("POSITION_PARITY_DIVERGENCE_6464")
             } catch (_: Throwable) {}
             if (streak >= AUTO_HEAL_THRESHOLD) {
-                healRegistryFromCanonical()
+                rebuildFromCanonical6475()
                 consecutiveDivergences.set(0L)
             }
         } else {
@@ -154,7 +153,7 @@ object PositionRegistryParityAudit6464 {
      * Non-destructive to canonical state; the goal is to make the
      * legacy registry match the source of truth.
      */
-    private fun healRegistryFromCanonical() {
+    fun rebuildFromCanonical6475() {
         autoHeals.incrementAndGet()
         try {
             val canonical = try {
@@ -164,23 +163,19 @@ object PositionRegistryParityAudit6464 {
             val registry = try { EmergentGuardrails.snapshot() } catch (_: Throwable) { emptyMap() }
             val registryMints = registry.keys.toSet()
 
-            // Add missing canonical mints to registry.
-            for (c in canonical) {
-                if (c.mint !in registryMints) {
-                    try {
-                        EmergentGuardrails.registerPosition(
-                            mint = c.mint, symbol = c.symbol,
-                            layer = c.lane, size = c.entryCostSol,
-                        )
-                    } catch (_: Throwable) {}
+            // V5.0.6475 — rebuild the active projection atomically from
+            // canonical positions. This removes stale OPEN/zero-qty rows and
+            // backfills missing canonical active rows without touching history.
+            EmergentGuardrails.rebuildFromCanonical6475(canonical)
+            try {
+                CanonicalMintOccupancyRegistry6464.clearAll()
+                canonical.forEach { p ->
+                    val occ = if (p.lifecycle == CanonicalPositionAuthority6441.Lifecycle.PENDING_ENTRY)
+                        "PENDING_ENTRY" else "OPEN"
+                    if (occ == "PENDING_ENTRY") CanonicalMintOccupancyRegistry6464.markPendingEntry("paper", p.mint, p.symbol, "parity_rebuild_6475")
+                    else CanonicalMintOccupancyRegistry6464.markOpen("paper", p.mint, p.symbol, "parity_rebuild_6475")
                 }
-            }
-            // Remove phantom registry mints not backed by canonical.
-            for (mint in registryMints) {
-                if (mint !in canonicalMints) {
-                    try { EmergentGuardrails.unregisterPosition(mint) } catch (_: Throwable) {}
-                }
-            }
+            } catch (_: Throwable) {}
             ForensicLogger.lifecycle(
                 "POSITION_PARITY_AUTO_HEAL_6465",
                 "canonical=${canonicalMints.size} registryBefore=${registryMints.size} " +

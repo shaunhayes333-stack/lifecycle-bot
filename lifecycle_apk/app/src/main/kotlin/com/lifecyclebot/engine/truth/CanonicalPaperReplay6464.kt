@@ -46,6 +46,8 @@ object CanonicalPaperReplay6464 {
         val fullSells: Int,
         val duplicateDiscarded: Int,
         val invalidRowsQuarantined: Int,
+        val orphanOpenCostSol: Double = 0.0,
+        val orphanLotCount: Int = 0,
     )
 
     data class Parity(
@@ -55,6 +57,8 @@ object CanonicalPaperReplay6464 {
         val qtyMismatchCount: Int,
         val duplicateDiscarded: Int,
         val invalidRowsQuarantined: Int,
+        val orphanOpenCostSol: Double = 0.0,
+        val orphanLotCount: Int = 0,
     )
 
     private val replays = AtomicLong(0L)
@@ -105,6 +109,19 @@ object CanonicalPaperReplay6464 {
                 }
             }
         }
+        var orphanCost = 0.0
+        var orphanLots = 0
+        perMintCost.forEach { (mint, cost) ->
+            val qty = perMintQty[mint] ?: BigInteger.ZERO
+            if (cost > 1e-9 && qty <= BigInteger.ZERO) {
+                orphanCost += cost
+                orphanLots++
+                try {
+                    ForensicLogger.lifecycle("OPEN_COST_WITHOUT_CANONICAL_LOT_6475", "mint=${mint.take(12)} cost=${"%.9f".format(cost)} qty=$qty")
+                    PipelineHealthCollector.labelInc("OPEN_COST_WITHOUT_CANONICAL_LOT_6475")
+                } catch (_: Throwable) {}
+            }
+        }
         val snap = Snapshot(
             startingCashSol = startingCashSol,
             cashSol = cash, openCostBasisSol = openCost,
@@ -113,9 +130,27 @@ object CanonicalPaperReplay6464 {
             perMintRemainingQty = perMintQty, perMintRemainingCostSol = perMintCost,
             buys = buys, partialSells = partials, fullSells = fulls,
             duplicateDiscarded = dup, invalidRowsQuarantined = invalid,
+            orphanOpenCostSol = orphanCost, orphanLotCount = orphanLots,
         )
         lastSnapshot.set(snap)
         return snap
+    }
+
+    fun repairLedgerIfClean(startingCashSol: Double, toleranceSol: Double = 0.01): Boolean {
+        val snap = replay(startingCashSol)
+        val expected = snap.startingCashSol + snap.realizedPnlSol - snap.feesSol
+        val actual = snap.cashSol + snap.openCostBasisSol
+        val clean = snap.invalidRowsQuarantined == 0 && snap.orphanLotCount == 0 &&
+            kotlin.math.abs(expected - actual) <= toleranceSol
+        if (!clean) {
+            try { PipelineHealthCollector.labelInc("PAPER_REPLAY_REPAIR_HELD_DIRTY_6475") } catch (_: Throwable) {}
+            return false
+        }
+        return PaperAccountLedger6430.replaceFromCanonicalReplay(
+            startingCashSol = snap.startingCashSol, cashSol = snap.cashSol,
+            openCostBasisSol = snap.openCostBasisSol, realizedPnlSol = snap.realizedPnlSol,
+            feesSol = snap.feesSol, source = "CanonicalPaperReplay6464.repairLedgerIfClean",
+        )
     }
 
     fun compareToLedger(startingCashSol: Double, toleranceSol: Double = 0.01): Parity {
@@ -132,11 +167,14 @@ object CanonicalPaperReplay6464 {
             qtyMismatchCount = qtyMismatches,
             duplicateDiscarded = snap.duplicateDiscarded,
             invalidRowsQuarantined = snap.invalidRowsQuarantined,
+            orphanOpenCostSol = snap.orphanOpenCostSol,
+            orphanLotCount = snap.orphanLotCount,
         )
         lastParity.set(parity)
         val diverged = kotlin.math.abs(cashDelta) > toleranceSol ||
                        kotlin.math.abs(realizedDelta) > toleranceSol ||
-                       kotlin.math.abs(openDelta) > toleranceSol
+                       kotlin.math.abs(openDelta) > toleranceSol ||
+                       snap.orphanLotCount > 0
         try {
             ForensicLogger.lifecycle(
                 "PAPER_REPLAY_PARITY_6464",
@@ -158,7 +196,8 @@ object CanonicalPaperReplay6464 {
         return if (p == null) "no_parity_yet replays=${replays.get()}"
         else "cashΔ=${"%.4f".format(p.cashDelta)} realizedΔ=${"%.4f".format(p.realizedDelta)} " +
              "openCostΔ=${"%.4f".format(p.openCostDelta)} qtyMismatch=${p.qtyMismatchCount} " +
-             "dupDiscarded=${p.duplicateDiscarded} invalidQuarantined=${p.invalidRowsQuarantined} replays=${replays.get()}"
+             "dupDiscarded=${p.duplicateDiscarded} invalidQuarantined=${p.invalidRowsQuarantined} " +
+             "orphanOpenCost=${"%.6f".format(p.orphanOpenCostSol)} orphanLots=${p.orphanLotCount} replays=${replays.get()}"
     }
 
     internal fun resetForTest() {

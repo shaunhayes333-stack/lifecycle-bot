@@ -19,7 +19,7 @@ import org.junit.Test
 class BusFanoutAndAutoHealAcceptanceTest6465 {
 
     @Test
-    fun `publish auto-acks all registered consumers`() {
+    fun `publish leaves registered consumers awaiting real delivery ACK`() {
         CanonicalFinalizedTradeBus6464.resetForTest()
         CanonicalFinalizedTradeBus6464.registerConsumer("LearnerRewardBridge")
         CanonicalFinalizedTradeBus6464.registerConsumer("TacticSwitcher")
@@ -30,9 +30,9 @@ class BusFanoutAndAutoHealAcceptanceTest6465 {
         )
         CanonicalFinalizedTradeBus6464.publish(env)
         val p = CanonicalFinalizedTradeBus6464.parity()
-        assertEquals(0, p.zeroConsumers.size)
-        assertEquals(1, p.perConsumer["LearnerRewardBridge"])
-        assertEquals(1, p.perConsumer["TacticSwitcher"])
+        assertEquals(2, p.zeroConsumers.size)
+        assertEquals(0, p.perConsumer["LearnerRewardBridge"])
+        assertEquals(0, p.perConsumer["TacticSwitcher"])
     }
 
     @Test
@@ -46,8 +46,8 @@ class BusFanoutAndAutoHealAcceptanceTest6465 {
             mint = "M", lane = "L",
         )
         CanonicalFinalizedTradeBus6464.publish(env)
-        // publish already ack'd both; deliverToConsumers refuses Beta →
-        // Beta's ack MUST be removed so the parity report resurfaces.
+        // Only the accepted Alpha delivery receives an ACK; refused Beta
+        // remains visible as a parity miss.
         CanonicalFinalizedTradeBus6464.deliverToConsumers(env) { name, _ ->
             name == "Alpha"
         }
@@ -65,15 +65,14 @@ class BusFanoutAndAutoHealAcceptanceTest6465 {
             realizedPnlSol = -0.02, realizedReturnPct = -10.0,
             mint = "M", lane = "L",
         )
-        // Every 8 registered consumers should either PROCEED (passive
-        // ack) or drive their underlying API. Unknown consumer names
-        // return false.
-        for (name in listOf(
+        // V5.0.6475 — only consumers with a real handler may ACK. Unwired
+        // consumers must remain visible as parity misses, not passive success.
+        val delivered = listOf(
             "LearnerRewardBridge", "LosingStreakReflex", "GrowthRewardShaper",
             "TacticSwitcher", "Governor", "CapitalCreed", "EVEstimator", "Dashboard",
-        )) {
-            assertTrue("delivery to $name must succeed", FinalizedBusConsumerBridge6465.deliver(name, env))
-        }
+        ).associateWith { FinalizedBusConsumerBridge6465.deliver(it, env) }
+        assertTrue("LosingStreakReflex and Dashboard have real delivery paths", delivered["LosingStreakReflex"] == true && delivered["Dashboard"] == true)
+        assertTrue("unwired consumers must not receive passive ACKs", delivered["LearnerRewardBridge"] == false && delivered["GrowthRewardShaper"] == false && delivered["TacticSwitcher"] == false && delivered["Governor"] == false && delivered["CapitalCreed"] == false && delivered["EVEstimator"] == false)
         assertEquals(false, FinalizedBusConsumerBridge6465.deliver("UnknownConsumer", env))
     }
 

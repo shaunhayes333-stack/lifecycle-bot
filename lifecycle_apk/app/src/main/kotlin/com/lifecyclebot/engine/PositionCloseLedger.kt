@@ -69,6 +69,7 @@ object PositionCloseLedger {
         }
         val id = "C${now}_${mint.take(6)}"
         closed[mint] = CloseRecord(mint, id, now, reason.take(40), pnlPct)
+        try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("paper", mint) } catch (_: Throwable) {}
         // V5.0.6454 §P0 — ONE SETTLEMENT, ONE REWARD EVENT. Deleted the
         // compact 0.05-SOL realizedPnL PROXY (operator: "PositionCloseLedger
         // may not invent financial values"). The compact markClosed is
@@ -102,6 +103,7 @@ object PositionCloseLedger {
             dustAmount = dustAmount, realizedSol = realizedSol, realizedPnl = realizedPnl,
             source = source.take(24),
         )
+        try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("paper", mint) } catch (_: Throwable) {}
         // V5.0.6453 §P0-#6 — the direct GrowthAlignedRewardShaper6439.shape
         // call has been DELETED from this path (obsolete writer). Reward
         // shaping now fires from the CanonicalTradeFinalizedBus6450

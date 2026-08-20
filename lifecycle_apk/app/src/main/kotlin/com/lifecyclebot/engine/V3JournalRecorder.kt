@@ -207,14 +207,19 @@ object V3JournalRecorder {
         // real Position.peakGainPct so give-back (MFE - realized) is measurable and
         // the exit ladder can be tuned against "runners getting cut" telemetry.
         peakGainPct: Double = 0.0,
+        // V5.0.6475 — journal rows are projections. Learner/re-entry mutation
+        // is forbidden unless the canonical finalized bus explicitly calls this
+        // writer with proof of terminal settlement.
+        isCanonicalFinalized: Boolean = false,
     ) {
-        // V5.9.1375 (P0 #6) — arm RE-ENTRY LOCKOUT for stop-loss-type exits BEFORE
-        // the dedup early-return, so a BUY->STOP_LOSS->BUY loop keeps the lock fresh
-        // even when later close waves are deduped. Fail-open; only arms on real losses.
-        try {
-            val _fam = symbol.uppercase().trim().filter { it.isLetterOrDigit() }.take(8)
-            com.lifecyclebot.engine.ReEntryLockout.onClose(mint, _fam, exitReason, pnlPct)
-        } catch (_: Throwable) {}
+        // V5.0.6475 — raw journal writes cannot arm execution/risk learning.
+        // Re-entry lockout is updated only by canonical finalized settlement.
+        if (isCanonicalFinalized) {
+            try {
+                val _fam = symbol.uppercase().trim().filter { it.isLetterOrDigit() }.take(8)
+                com.lifecyclebot.engine.ReEntryLockout.onClose(mint, _fam, exitReason, pnlPct)
+            } catch (_: Throwable) {}
+        }
 
         // V5.9.1203 — dedup: drop duplicate journal entry for same mint within 60s
         val _dedupNow = System.currentTimeMillis()
@@ -373,6 +378,7 @@ object V3JournalRecorder {
             //   is worse than not doing it at all. The Executor V5.0.6361
             //   full-exit qty preservation is unaffected and remains in
             //   place — that write happens at the correct layer.
+            if (isCanonicalFinalized) {
             try { ScoreExpectancyTracker.record(layer, entryScore, pnlPctLearn) } catch (_: Exception) {}
             try { HoldDurationTracker.record(layer, holdMinutes, pnlPctLearn) } catch (_: Exception) {}
             try { ExitReasonTracker.record(layer, exitReason, pnlPctLearn) } catch (_: Exception) {}
@@ -440,6 +446,7 @@ object V3JournalRecorder {
                 com.lifecyclebot.engine.learning.ExplorationBudget.onLaneOutcome(layer, pnlPctLearn)
             } catch (_: Exception) {}
 
+            }
             // V5.0.6394 — canonical sell-fill ledger wire-up + aggregation.
             // Every live close creates one immutable SellFillRecord6388 and
             // (when a BuyFillLedger6388 record exists for the same

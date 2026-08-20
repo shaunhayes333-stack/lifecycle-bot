@@ -155,10 +155,8 @@ class CanonicalCorrectnessAcceptanceTest6464 {
         )
         val p = CanonicalFinalizedTradeBus6464.parity()
         assertEquals(1, p.canonicalUnique)
-        // V5.0.6465 change — publish auto-acks all registered consumers
-        // so a disconnected learner cannot sit at zero. Post-6465 the
-        // zero-consumer surface fires only when deliverToConsumers refuses.
-        assertEquals(0, p.zeroConsumers.size)
+        // V5.0.6475 — publish never ACKs before real consumer delivery.
+        assertEquals(2, p.zeroConsumers.size)
     }
 
     @Test

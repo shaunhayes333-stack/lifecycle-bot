@@ -75,15 +75,10 @@ object FinalizedBusConsumerBridge6465 {
     private val NON_LEARNING_CONSUMERS = setOf("Dashboard")
 
     private fun deliverToLearnerRewardBridge(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        // Best-effort: LearnerRewardBridge6440 exposes a query API but no
-        // direct "record trade" hook. The bridge already consumes the
-        // parallel 6450 rich-event bus for its actual work — this
-        // dispatcher just guarantees the ack ledger reflects the trade.
-        // A passive ack is safe: it certifies "the bridge WAS notified",
-        // not "the bridge acted on the notification". If ops observes
-        // stale bridge counters vs canonical count, that's the divergence
-        // the parity report is designed to reveal.
-        true
+        // V5.0.6475 — no mutation API exists here. Never claim an ACK for a
+        // learner that was not actually invoked; parity must expose the miss.
+        try { PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_UNWIRED_LearnerRewardBridge_6475") } catch (_: Throwable) {}
+        false
     } catch (_: Throwable) { false }
 
     private fun deliverToLosingStreakReflex(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
@@ -105,22 +100,27 @@ object FinalizedBusConsumerBridge6465 {
     }
 
     private fun deliverToGrowthRewardShaper(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        // Passive ack — the shaper reads from FluidLearningAI on its own
-        // cadence. Certified as "notified" once we've published.
-        true
+        // V5.0.6475 — passive ACKs hide missing learner delivery.
+        try { PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_UNWIRED_GrowthRewardShaper_6475") } catch (_: Throwable) {}
+        false
     } catch (_: Throwable) { false }
 
     private fun deliverToTacticSwitcher(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        // TacticSwitcher records win/loss verdicts via its own bridge.
-        // Passive ack keeps the parity oracle honest without duplicating
-        // the reward path here.
-        true
+        // V5.0.6475 — do not certify a downstream mutation that was not
+        // performed. TacticSwitcher must be wired explicitly before ACK.
+        try { PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_UNWIRED_TacticSwitcher_6475") } catch (_: Throwable) {}
+        false
     } catch (_: Throwable) { false }
 
-    private fun deliverToGovernor(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = true
-    private fun deliverToCapitalCreed(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = true
-    private fun deliverToEvEstimator(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = true
+    private fun deliverToGovernor(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = unwired("Governor")
+    private fun deliverToCapitalCreed(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = unwired("CapitalCreed")
+    private fun deliverToEvEstimator(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = unwired("EVEstimator")
     private fun deliverToDashboard(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = true
+
+    private fun unwired(name: String): Boolean {
+        try { PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_UNWIRED_${name}_6475") } catch (_: Throwable) {}
+        return false
+    }
 
     fun statusLine(): String = "delivered=${delivered.get()} refused=${refused.get()}"
 

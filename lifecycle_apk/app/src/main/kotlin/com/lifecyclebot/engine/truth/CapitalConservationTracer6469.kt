@@ -73,13 +73,20 @@ object CapitalConservationTracer6469 {
      * `CAPITAL_CONSERVATION_DELTA` telemetry so the operator sees where
      * we are on every audit tick.
      */
-    fun reconcile(baselineSol: Double, cashSol: Double, openCostBasisSol: Double, realizedFromLedger: Double): Double {
-        // baseline + realized should == cash + openCost.
+    fun reconcile(
+        baselineSol: Double,
+        cashSol: Double,
+        openCostBasisSol: Double,
+        realizedFromLedger: Double,
+        feesFromLedger: Double = 0.0,
+    ): Double {
+        // realizedFromLedger is gross; fees are a separate canonical line.
+        // baseline + grossRealized - fees == cash + openCost.
         // We use realizedFromLedger (authoritative), not our own cumulative
         // sum, because the ledger is authority. Our cumulative sum is a
         // sanity check — mismatch between it and the ledger indicates a
         // ledger call was missed.
-        val identity = (cashSol + openCostBasisSol) - (baselineSol + realizedFromLedger)
+        val identity = (cashSol + openCostBasisSol) - (baselineSol + realizedFromLedger - feesFromLedger)
         lastConservationDelta.set(identity)
         if (kotlin.math.abs(identity) > 0.01) {
             violations.incrementAndGet()
@@ -87,7 +94,7 @@ object CapitalConservationTracer6469 {
                 ForensicLogger.lifecycle(
                     "CAPITAL_CONSERVATION_DELTA_6469",
                     "baseline=$baselineSol cash=$cashSol openCost=$openCostBasisSol " +
-                        "realizedLedger=$realizedFromLedger delta=$identity " +
+                        "realizedLedger=$realizedFromLedger feesLedger=$feesFromLedger delta=$identity " +
                         "tracerRealized=${cumulativeRealized.get()} tracerGross=${cumulativeGross.get()} " +
                         "tracerCost=${cumulativeCostBasisSold.get()} tracerFees=${cumulativeFees.get()} " +
                         "lastMutation=${lastMutation.get() ?: "-"}"

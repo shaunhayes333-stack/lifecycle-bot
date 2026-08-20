@@ -222,6 +222,8 @@ object EmergentGuardrails {
         val layer: String,
         val openedAt: Long,
         val size: Double,
+        val qtyRaw: java.math.BigInteger = java.math.BigInteger.ZERO,
+        val state: String = "OPEN",
     )
     
     /**
@@ -261,6 +263,27 @@ object EmergentGuardrails {
         } catch (_: Throwable) {}
     }
     
+    /** V5.0.6475 — projection-only rebuild from canonical active positions. */
+    fun rebuildFromCanonical6475(positions: List<com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Position>) {
+        openPositions.clear()
+        positions.filter {
+            it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.OPEN ||
+            it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED ||
+            it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PENDING_ENTRY
+        }.forEach { p ->
+            openPositions[p.mint] = PositionInfo(
+                mint = p.mint, symbol = p.symbol, layer = p.lane,
+                openedAt = p.openedAtMs, size = (p.entryCostSol - p.soldCostBasisSol).coerceAtLeast(0.0),
+                qtyRaw = p.remainingQtyRaw,
+                state = when (p.lifecycle) {
+                    com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PENDING_ENTRY -> "PENDING_ENTRY"
+                    else -> "OPEN"
+                },
+            )
+        }
+        try { ErrorLogger.info(TAG, "CANONICAL_REGISTRY_REBUILT_6475 active=${openPositions.size}") } catch (_: Throwable) {}
+    }
+
     /**
      * Unregister a closed position.
      */
@@ -314,7 +337,7 @@ object EmergentGuardrails {
         openPositions.mapValues { (_, p) ->
             RegistryEntry(
                 mint = p.mint, symbol = p.symbol, state = "OPEN",
-                qtyRaw = java.math.BigInteger.ZERO, // legacy registry has no qty; audit will flag as mismatch
+                qtyRaw = p.qtyRaw,
                 entryCostSol = p.size,
             )
         }

@@ -77,13 +77,22 @@ object CanonicalCapitalAuthority6450 {
      * costBasis fallback so unrealized reads as 0 rather than -100%).
      */
     fun snapshot(markProvider: (String) -> Double = markProviderRef.get() ?: { 0.0 }): Snapshot {
-        val startingCash = PaperAccountLedger6430.startingCashSol()
-        val cash = PaperAccountLedger6430.cashSol()
-        val realized = PaperAccountLedger6430.realizedPnlSol()
-        val fees = PaperAccountLedger6430.feesSol()
+        // V5.0.6475 — typed canonical event replay is the economic source;
+        // PaperAccountLedger is the atomically repaired materialized cache.
+        val replayCandidate = try {
+            CanonicalPaperReplay6464.lastSnapshot()
+                ?: CanonicalPaperReplay6464.replay(PaperAccountLedger6430.startingCashSol())
+        } catch (_: Throwable) { null }
+        // V5.0.6475 — an empty volatile event stream after restart is not a
+        // valid replay and must never fabricate a fresh starting balance.
+        val replay = replayCandidate?.takeIf { it.buys + it.partialSells + it.fullSells > 0 }
+        val startingCash = replay?.startingCashSol ?: PaperAccountLedger6430.startingCashSol()
+        val cash = replay?.cashSol ?: PaperAccountLedger6430.cashSol()
+        val realized = replay?.realizedPnlSol ?: PaperAccountLedger6430.realizedPnlSol()
+        val fees = replay?.feesSol ?: PaperAccountLedger6430.feesSol()
         val open = try { CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }
-        val reserved = 0.0 // reserved capital tracked upstream; kept 0 until wired
-        val openCost = open.sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
+        val reserved = 0.0 // no reserved event currently exists; remains explicit
+        val openCost = replay?.openCostBasisSol ?: open.sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
         val openMv = open.sumOf {
             // V5.0.6456 — markProvider returns the CURRENT market VALUE
             // (SOL) of the position's remaining qty. When unknown (0.0),

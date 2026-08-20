@@ -85,9 +85,9 @@ object GrowthAlignedRewardShaper6439 {
                 -BREAKEVEN_PENALTY_SOL
             }
         }
-        // Funnel into the losing-streak reflex so every learner respecting
-        // the shaper also feeds the capital-preservation cooldown.
-        try { LosingStreakReflex6439.onTradeClosed(realizedSolDelta, mint) } catch (_: Throwable) {}
+        // V5.0.6475 — the shaper is a pure derivation. Loss-streak mutation
+        // belongs only to FinalizedBusConsumerBridge6465 after terminal proof;
+        // calling it here let paper/counterfactual shaping block live buys.
         try {
             ForensicLogger.lifecycle(
                 "REWARD_SHAPED_6439",

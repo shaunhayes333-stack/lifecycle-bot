@@ -114,6 +114,23 @@ object PaperAccountLedger6430 {
      * Now algebra holds: S + (G−C) − (f_b+f_s) = (S − C − f_b + G − f_s).
      * Consumers wanting NET pnl compute realizedPnlSol() − feesSol().
      */
+    /** V5.0.6475 — explicit orphan purge accounting. Never use this as a
+     * balance reset; it only releases cost belonging to a position that a
+     * canonical quarantine/close path has already proven dead. */
+    fun onPositionPurged(costBasisSol: Double, source: String = "unknown"): Boolean {
+        if (!costBasisSol.isFinite() || costBasisSol <= 0.0) return false
+        val before = openCostBasisSol()
+        val release = costBasisSol.coerceAtMost(before)
+        if (release <= 0.0) return false
+        openCostBasisPico.addAndGet(-toPico(release))
+        opCount.incrementAndGet()
+        try {
+            ForensicLogger.lifecycle("PAPER_ORPHAN_COST_RELEASED_6475", "source=$source released=$release before=$before after=${openCostBasisSol()}")
+            PipelineHealthCollector.labelInc("PAPER_ORPHAN_COST_RELEASED_6475")
+        } catch (_: Throwable) {}
+        return true
+    }
+
     fun onSell(grossProceedsSol: Double, costBasisSoldSol: Double, feeSol: Double = 0.0) {
         if (!grossProceedsSol.isFinite() || !costBasisSoldSol.isFinite()) return
         val fee = if (feeSol.isFinite()) feeSol.coerceAtLeast(0.0) else 0.0
@@ -128,6 +145,44 @@ object PaperAccountLedger6430 {
         realizedPnlPico.addAndGet(toPico(gross - basis)) // GROSS pnl
         feesPico.addAndGet(toPico(fee))
         opCount.incrementAndGet()
+    }
+
+    /**
+     * V5.0.6475 — atomic canonical replay replacement. This is the only
+     * reconciliation repair allowed to replace capital totals: the values
+     * must come from a clean typed EconomicEventSchema replay, never UI,
+     * journal summaries, or a synthetic wallet reset.
+     */
+    fun replaceFromCanonicalReplay(
+        startingCashSol: Double,
+        cashSol: Double,
+        openCostBasisSol: Double,
+        realizedPnlSol: Double,
+        feesSol: Double,
+        source: String,
+    ): Boolean {
+        val values = listOf(startingCashSol, cashSol, openCostBasisSol, realizedPnlSol, feesSol)
+        if (values.any { !it.isFinite() } || cashSol < -1e-9 || openCostBasisSol < -1e-9 || feesSol < -1e-9) return false
+        val expected = startingCashSol + realizedPnlSol - feesSol
+        val actual = cashSol + openCostBasisSol
+        if (kotlin.math.abs(expected - actual) > 0.001) {
+            try { ForensicLogger.lifecycle("PAPER_REPLAY_REPAIR_REJECTED_6475", "source=$source expected=$expected actual=$actual") } catch (_: Throwable) {}
+            return false
+        }
+        synchronized(this) {
+            startingCashPico.set(toPico(startingCashSol))
+            cashPico.set(toPico(cashSol))
+            reservedCashPico.set(0L)
+            openCostBasisPico.set(toPico(openCostBasisSol))
+            realizedPnlPico.set(toPico(realizedPnlSol))
+            feesPico.set(toPico(feesSol))
+            opCount.incrementAndGet()
+        }
+        try {
+            ForensicLogger.lifecycle("PAPER_CANONICAL_CAPITAL_REPLACED_6475", "source=$source cash=$cashSol openCost=$openCostBasisSol realized=$realizedPnlSol fees=$feesSol")
+            PipelineHealthCollector.labelInc("PAPER_CANONICAL_CAPITAL_REPLACED_6475")
+        } catch (_: Throwable) {}
+        return true
     }
 
     fun cashSol(): Double = fromPico(cashPico.get())
