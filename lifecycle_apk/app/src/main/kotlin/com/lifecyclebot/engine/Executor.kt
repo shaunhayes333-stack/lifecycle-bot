@@ -12361,7 +12361,8 @@ class Executor(
                         mode = "paper", positionId = pid6465, mint = tradeId.mint,
                         symbol = ts.symbol.ifBlank { tradeId.symbol },
                         idempotencyKey = "buy_${tradeId.mint}_${System.nanoTime()}",
-                        executedCostSol = actualSol + actualSol * 0.005,
+                        executedCostSol = actualSol,
+                        entryFeesSol = actualSol * 0.005,
                         filledQty = buyQtyRaw6448, fillPrice = fillPrice6465,
                     )
                     com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen(
@@ -16415,7 +16416,8 @@ class Executor(
                             mode = "live", positionId = pidLive6465, mint = tradeId.mint,
                             symbol = ts.symbol.ifBlank { tradeId.symbol },
                             idempotencyKey = "buy_live_${sig.ifBlank { tradeId.mint }}_${System.nanoTime()}",
-                            executedCostSol = sol + (sol * MEME_TRADING_FEE_PERCENT).coerceAtLeast(0.0),
+                            executedCostSol = sol,
+                            entryFeesSol = (sol * MEME_TRADING_FEE_PERCENT).coerceAtLeast(0.0),
                             filledQty = liveBuyQtyRaw6448, fillPrice = fillPriceLive6465,
                         )
                         com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen(

@@ -240,9 +240,12 @@ object SellFinalizationCoordinator {
                     val realizedPct = if (intent.entrySolSpent > 0.0)
                         (pnl.realizedPnlSol / intent.entrySolSpent) * 100.0 else 0.0
                     val envelope6464 = com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope(
-                        tradeId = idKey, atMs = System.currentTimeMillis(),
+                        tradeId = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(intent.mint),
+                        atMs = System.currentTimeMillis(),
                         realizedPnlSol = pnl.realizedPnlSol, realizedReturnPct = realizedPct,
                         mint = intent.mint, lane = traderTag,
+                        positionId = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(intent.mint),
+                        mode = "live", proofState = "confirmed_signature", terminal = true,
                     )
                     val firstPublish6465 = com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.publish(envelope6464)
                     // V5.0.6465 §P0-#2 — CONSUMER FANOUT. Publish gates

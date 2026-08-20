@@ -2,6 +2,8 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450
 import com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+import com.lifecyclebot.engine.truth.CanonicalPaperReplay6464
+import com.lifecyclebot.engine.truth.EconomicEventSchema6464
 import com.lifecyclebot.engine.truth.PaperAccountLedger6430
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -40,6 +42,8 @@ class SourceCorrectnessAcceptanceTest {
         // Prior default provider returned 0.0 which forced unrealized=0
         // regardless of real market moves.
         PaperAccountLedger6430.resetForTest()
+        EconomicEventSchema6464.resetForTest()
+        CanonicalPaperReplay6464.resetForTest()
         PaperAccountLedger6430.initialize(startingCashSol = 5.0)
 
         // No canonical positions in this test — the snapshot invariant is

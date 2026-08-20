@@ -48,6 +48,7 @@ object CanonicalPaperReplay6464 {
         val invalidRowsQuarantined: Int,
         val orphanOpenCostSol: Double = 0.0,
         val orphanLotCount: Int = 0,
+        val eventVersion: Long = 0L,
     )
 
     data class Parity(
@@ -67,6 +68,7 @@ object CanonicalPaperReplay6464 {
 
     fun replay(startingCashSol: Double): Snapshot {
         replays.incrementAndGet()
+        val eventVersion = try { EconomicEventSchema6464.version() } catch (_: Throwable) { 0L }
         val events = try { EconomicEventSchema6464.snapshot() } catch (_: Throwable) { emptyList() }
 
         var cash = startingCashSol.coerceAtLeast(0.0)
@@ -87,9 +89,11 @@ object CanonicalPaperReplay6464 {
                 is EconomicEventSchema6464.Buy -> {
                     if (!e.executedCostSol.isFinite() || e.executedCostSol < 0.0 ||
                         e.filledQty <= BigInteger.ZERO) { invalid++; continue }
-                    if (cash - e.executedCostSol < -1e-6) { invalid++; continue }
-                    cash -= e.executedCostSol
+                    val totalDebit = e.executedCostSol + e.entryFeesSol.coerceAtLeast(0.0)
+                    if (cash - totalDebit < -1e-6) { invalid++; continue }
+                    cash -= totalDebit
                     openCost += e.executedCostSol
+                    fees += e.entryFeesSol.coerceAtLeast(0.0)
                     perMintQty.merge(e.mint, e.filledQty) { a, b -> a + b }
                     perMintCost.merge(e.mint, e.executedCostSol) { a, b -> a + b }
                     buys++
@@ -131,6 +135,7 @@ object CanonicalPaperReplay6464 {
             buys = buys, partialSells = partials, fullSells = fulls,
             duplicateDiscarded = dup, invalidRowsQuarantined = invalid,
             orphanOpenCostSol = orphanCost, orphanLotCount = orphanLots,
+            eventVersion = eventVersion,
         )
         lastSnapshot.set(snap)
         return snap
@@ -188,7 +193,9 @@ object CanonicalPaperReplay6464 {
         return parity
     }
 
-    fun lastSnapshot(): Snapshot? = lastSnapshot.get()
+    fun lastSnapshot(): Snapshot? = lastSnapshot.get()?.takeIf {
+        it.eventVersion == try { EconomicEventSchema6464.version() } catch (_: Throwable) { -1L }
+    }
     fun lastParity(): Parity? = lastParity.get()
 
     fun statusLine(): String {

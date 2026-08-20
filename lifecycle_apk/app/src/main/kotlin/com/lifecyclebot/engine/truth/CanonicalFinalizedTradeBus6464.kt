@@ -45,6 +45,10 @@ object CanonicalFinalizedTradeBus6464 {
         val realizedReturnPct: Double,
         val mint: String,
         val lane: String,
+        val positionId: String = tradeId,
+        val mode: String = "unknown",
+        val proofState: String = "unknown",
+        val terminal: Boolean = true,
     )
 
     private val canonicalSeen = ConcurrentHashMap<String, Envelope>()
@@ -63,7 +67,7 @@ object CanonicalFinalizedTradeBus6464 {
      * or acknowledge one-shot via `ack(consumer, tradeId)`.
      */
     fun publish(env: Envelope): Boolean {
-        if (env.tradeId.isBlank()) return false
+        if (env.tradeId.isBlank() || env.positionId.isBlank() || !env.terminal) return false
         val prev = canonicalSeen.putIfAbsent(env.tradeId, env)
         publishes.incrementAndGet()
         if (prev != null) {

@@ -36,6 +36,7 @@ object CanonicalRewardBootstrap6453 {
     private val bootstrapErrors = AtomicLong(0L)
 
     fun ensureBootstrapped() {
+        try { FinalizedFanoutParity6459.ensureInstalled() } catch (_: Throwable) {}
         if (!bootstrapped.compareAndSet(false, true)) return
         try {
             CanonicalTradeFinalizedBus6450.subscribe { event ->

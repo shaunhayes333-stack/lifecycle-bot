@@ -36,33 +36,27 @@ object ForcedCloseSlotSweeper6468 {
         val canonicalMints: Set<String> = try {
             CanonicalPositionAuthority6441.openPositions().map { it.mint }.toSet()
         } catch (_: Throwable) { return 0 }
-        val occupancyByMode = try {
-            CanonicalMintOccupancyRegistry6464.snapshotByOccupancy()
-        } catch (_: Throwable) { emptyMap() }
-        // We need the entry list to compare per-mint; snapshotByOccupancy only
-        // returns counts. Do a defensive iteration using the public API.
-        //
-        // The registry doesn't expose entries; we reconcile the "paper" mode
-        // by using isOpen() as the truth surface and forcing markClosed when
-        // canonical positions are empty for that mint.
-        //
-        // Live path is left untouched — live opens are gated by wallet state.
-        val paperOpenSet = canonicalMints
+        val occupancyEntries = try {
+            CanonicalMintOccupancyRegistry6464.snapshotEntries()
+        } catch (_: Throwable) { emptyList() }
         var released = 0
-        // The registry is authoritative for occupancy but not iterable. We
-        // proxy through the health snapshot for the current OPEN count and
-        // emit a mismatch trace when canonical says N=0 but registry says N>0.
-        val occOpen = occupancyByMode[CanonicalMintOccupancyRegistry6464.Occupancy.OPEN] ?: 0
-        if (occOpen > paperOpenSet.size) {
-            val delta = occOpen - paperOpenSet.size
+        for (entry in occupancyEntries) {
+            if (entry.occupancy != CanonicalMintOccupancyRegistry6464.Occupancy.OPEN &&
+                entry.occupancy != CanonicalMintOccupancyRegistry6464.Occupancy.PENDING_EXIT) continue
+            // CanonicalPositionAuthority contains both modes. A mint still
+            // represented by an active canonical position must retain its slot.
+            if (entry.mint in canonicalMints) continue
+            CanonicalMintOccupancyRegistry6464.markClosed(entry.mode, entry.mint)
+            released++
             try {
                 ForensicLogger.lifecycle(
-                    "FORCED_CLOSE_SLOT_MISMATCH_6468",
-                    "canonicalOpen=${paperOpenSet.size} occupancyOpen=$occOpen delta=$delta action=await_iterable_api",
+                    "FORCED_CLOSE_SLOT_RELEASED_BY_SWEEP_6476",
+                    "mode=${entry.mode} mint=${entry.mint.take(10)} prior=${entry.occupancy}",
                 )
-                PipelineHealthCollector.labelInc("FORCED_CLOSE_SLOT_MISMATCH_6468")
+                PipelineHealthCollector.labelInc("FORCED_CLOSE_SLOT_RELEASED_BY_SWEEP_6476")
             } catch (_: Throwable) {}
-            released = delta
+        }
+        if (released > 0) {
             slotsReleased.addAndGet(released.toLong())
             lastReleased.set(released.toLong())
         }

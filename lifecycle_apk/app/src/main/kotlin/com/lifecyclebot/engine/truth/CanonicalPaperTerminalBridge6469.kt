@@ -268,16 +268,20 @@ object CanonicalPaperTerminalBridge6469 {
         } catch (_: Throwable) {}
 
         var busPublished = false
-        try {
+        if (terminal) try {
             val realizedSol = grossProceedsSol - soldCostBasisSol - feesSol
             val realizedPct = if (soldCostBasisSol > 0.0) (realizedSol / soldCostBasisSol) * 100.0 else 0.0
             val env = CanonicalFinalizedTradeBus6464.Envelope(
-                tradeId = idKey,
+                tradeId = positionId,
                 atMs = System.currentTimeMillis(),
                 realizedPnlSol = realizedSol,
                 realizedReturnPct = realizedPct,
                 mint = mint,
                 lane = lane,
+                positionId = positionId,
+                mode = "paper",
+                proofState = "canonical_paper_fill",
+                terminal = true,
             )
             val first = CanonicalFinalizedTradeBus6464.publish(env)
             if (first) {

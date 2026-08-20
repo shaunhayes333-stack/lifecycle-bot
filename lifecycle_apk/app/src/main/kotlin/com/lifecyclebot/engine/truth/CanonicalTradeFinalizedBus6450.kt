@@ -93,6 +93,28 @@ object CanonicalTradeFinalizedBus6450 {
         try {
             PipelineHealthCollector.labelInc("CANONICAL_TRADE_FINALIZED_6450_${event.outcome}")
         } catch (_: Throwable) {}
+        // V5.0.6476 — one terminal identity across the rich 6450 event and
+        // the 6464 parity fanout. PositionId is the dedup key; mode/proof
+        // travel with the immutable event instead of being inferred later.
+        try {
+            val env = CanonicalFinalizedTradeBus6464.Envelope(
+                tradeId = event.positionId,
+                atMs = event.settledAtMs,
+                realizedPnlSol = event.netRealizedPnlSol,
+                realizedReturnPct = event.netReturnPct,
+                mint = event.mint,
+                lane = event.entryLane,
+                positionId = event.positionId,
+                mode = event.mode,
+                proofState = "${event.dataQuality}:${event.priceIntegrity}",
+                terminal = true,
+            )
+            if (CanonicalFinalizedTradeBus6464.publish(env)) {
+                CanonicalFinalizedTradeBus6464.deliverToConsumers(env) { name, e ->
+                    FinalizedBusConsumerBridge6465.deliver(name, e)
+                }
+            }
+        } catch (_: Throwable) {}
         return true
     }
 

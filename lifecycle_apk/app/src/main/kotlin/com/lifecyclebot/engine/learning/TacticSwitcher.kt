@@ -364,7 +364,7 @@ object TacticSwitcher {
         // catch (a bucket can be net-poison in accumulated history while its
         // since-rotation counter is tiny). The correct sample guard is the
         // MEMORY's own totalSamples below — that's what we're judging on.
-        val st = try { LosingPatternMemory.stats(lane, scoreBandToMidScore(scoreBand)) } catch (_: Throwable) { return }
+        val st = try { LosingPatternMemory.combinedStats(lane, scoreBandToMidScore(scoreBand)) } catch (_: Throwable) { return }
         val totalSamples = st.wins + st.losses
         if (totalSamples < BAYES_MIN_SAMPLES) return
         val lossRate = if (totalSamples > 0) st.losses.toDouble() / totalSamples else 0.0

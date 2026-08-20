@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.truth.EconomicEventSchema6464
+import com.lifecyclebot.engine.truth.CanonicalPaperReplay6464
 import com.lifecyclebot.engine.truth.EventStreamReplay6467
 import com.lifecyclebot.engine.truth.PaperAccountLedger6430
 import com.lifecyclebot.engine.truth.PaperEquityCalculator6467
@@ -94,4 +95,22 @@ class ReplayCapitalHeartbeatAcceptanceTest6467 {
         assertEquals(1L, ReconcilerHeartbeat6467.fullPasses())
         assertTrue("fullAge is now real", ReconcilerHeartbeat6467.fullAgeMs() >= 0L)
     }
+    @Test
+    fun `6476 buy fee remains fee and never becomes open cost`() {
+        EconomicEventSchema6464.resetForTest()
+        PaperAccountLedger6430.resetForTest()
+        PaperAccountLedger6430.initialize(10.0)
+        assertTrue(PaperAccountLedger6430.onBuy(1.0, 0.01))
+        EconomicEventSchema6464.recordBuy(
+            mode = "paper", positionId = "P6476", mint = "M6476", symbol = "T",
+            idempotencyKey = "buy_6476", executedCostSol = 1.0,
+            entryFeesSol = 0.01, filledQty = BigInteger.valueOf(1000), fillPrice = 0.001,
+        )
+        val snap = CanonicalPaperReplay6464.replay(10.0)
+        assertEquals(8.99, snap.cashSol, 1e-9)
+        assertEquals(1.0, snap.openCostBasisSol, 1e-9)
+        assertEquals(0.01, snap.feesSol, 1e-9)
+        assertEquals(0.0, CanonicalPaperReplay6464.compareToLedger(10.0).openCostDelta, 1e-9)
+    }
+
 }

@@ -78,25 +78,25 @@ object LosingPatternMemory {
         if (cache.isNotEmpty() && (now - cacheBuiltAtMs) < CACHE_TTL_MS) return
 
         // V5.0.4072 — build both combined and live-only caches.
-        val acc = ConcurrentHashMap<String, IntArray>(64)
-        val liveAcc = ConcurrentHashMap<String, IntArray>(64)
+        val acc = ConcurrentHashMap<String, LongArray>(64)
+        val liveAcc = ConcurrentHashMap<String, LongArray>(64)
         try {
             val sells = TradeHistoryStore.getRecentValidClosedTrades(limit = 2_000, includePartials = false)
 
             for (t in sells) {
                 val key = bucketKey(tradingMode = t.tradingMode, score = t.score.toInt())
-                val cell = acc.getOrPut(key) { IntArray(3) }
+                val cell = acc.getOrPut(key) { LongArray(3) }
                 if (t.pnlPct <= -5.0) cell[0]++
                 else if (t.pnlPct >= 1.0) cell[1]++
-                cell[2] += (t.pnlPct * 1000).toInt()
+                cell[2] += (t.pnlPct * 1000.0).toLong()
 
                 // V5.0.4072 — live-only cache. Filter by mode=live.
                 val isLive = t.mode.equals("live", true) || (!t.mode.equals("paper", true) && t.sig.isNotBlank())
                 if (isLive) {
-                    val lc = liveAcc.getOrPut(key) { IntArray(3) }
+                    val lc = liveAcc.getOrPut(key) { LongArray(3) }
                     if (t.pnlPct <= -5.0) lc[0]++
                     else if (t.pnlPct >= 1.0) lc[1]++
-                    lc[2] += (t.pnlPct * 1000).toInt()
+                    lc[2] += (t.pnlPct * 1000.0).toLong()
                 }
             }
         } catch (_: Throwable) {
@@ -106,7 +106,7 @@ object LosingPatternMemory {
         for ((k, v) in acc) {
             val sample = v[0] + v[1]
             val mean = if (sample > 0) v[2].toDouble() / 1000.0 / sample else 0.0
-            fresh[k] = BucketStats(losses = v[0], wins = v[1], meanPnl = mean)
+            fresh[k] = BucketStats(losses = v[0].toInt(), wins = v[1].toInt(), meanPnl = mean)
         }
         cache = fresh
         // V5.0.4072 — build live-only cache.
@@ -114,7 +114,7 @@ object LosingPatternMemory {
         for ((k, v) in liveAcc) {
             val sample = v[0] + v[1]
             val mean = if (sample > 0) v[2].toDouble() / 1000.0 / sample else 0.0
-            liveFresh[k] = BucketStats(losses = v[0], wins = v[1], meanPnl = mean)
+            liveFresh[k] = BucketStats(losses = v[0].toInt(), wins = v[1].toInt(), meanPnl = mean)
         }
         liveCache = liveFresh
         cacheBuiltAtMs = now
@@ -127,7 +127,17 @@ object LosingPatternMemory {
     fun stats(tradingMode: String, v3Score: Int): BucketStats {
         refreshIfStale()
         val key = bucketKey(tradingMode, v3Score)
-        return cache[key] ?: BucketStats(0, 0, 0.0)
+        // V5.0.6476 — event-local runtime mode decides the advisory dataset.
+        // LIVE decisions may only consume live-confirmed outcomes; PAPER keeps
+        // combined evidence for broad training and toxic-context discovery.
+        val source = if (RuntimeModeAuthority.isLive()) liveCache else cache
+        return source[key] ?: BucketStats(0, 0, 0.0)
+    }
+
+    /** Learning-only aggregate across PAPER + LIVE. Never use for live risk. */
+    fun combinedStats(tradingMode: String, v3Score: Int): BucketStats {
+        refreshIfStale()
+        return cache[bucketKey(tradingMode, v3Score)] ?: BucketStats(0, 0, 0.0)
     }
 
     // V5.0.4072 — live-only stats. Authoritative danger signal for live

@@ -51,7 +51,8 @@ object EconomicEventSchema6464 {
         override val mint: String,
         override val symbol: String,
         override val idempotencyKey: String,
-        val executedCostSol: Double,      // net cost paid (gross + fees)
+        val executedCostSol: Double,      // principal token cost; excludes entry fee
+        val entryFeesSol: Double = 0.0,    // typed separately for conservation
         val filledQty: java.math.BigInteger,
         val fillPrice: Double,             // executedCostSol / filledQty (in SOL/token)
     ) : Event()
@@ -81,18 +82,19 @@ object EconomicEventSchema6464 {
     private val recordedSells = AtomicLong(0L)
     private val recordedPartials = AtomicLong(0L)
     private val arithDivergences = AtomicLong(0L)
+    private val eventVersion = AtomicLong(0L)
 
     fun recordBuy(
         mode: String, positionId: String, mint: String, symbol: String,
         idempotencyKey: String, executedCostSol: Double, filledQty: java.math.BigInteger,
-        fillPrice: Double,
+        fillPrice: Double, entryFeesSol: Double = 0.0,
     ) {
         val e = Buy(
             atMs = System.currentTimeMillis(), mode = mode.lowercase(),
             positionId = positionId, mint = mint, symbol = symbol,
             idempotencyKey = idempotencyKey.ifBlank { "buy_${System.nanoTime()}" },
-            executedCostSol = executedCostSol, filledQty = filledQty,
-            fillPrice = if (fillPrice.isFinite()) fillPrice else 0.0,
+            executedCostSol = executedCostSol, entryFeesSol = entryFeesSol.coerceAtLeast(0.0),
+            filledQty = filledQty, fillPrice = if (fillPrice.isFinite()) fillPrice else 0.0,
         )
         appendBounded(e)
         recordedBuys.incrementAndGet()
@@ -157,10 +159,12 @@ object EconomicEventSchema6464 {
 
     private fun appendBounded(e: Event) {
         events.addFirst(e)
+        eventVersion.incrementAndGet()
         while (events.size > CAP) events.pollLast()
     }
 
     fun snapshot(): List<Event> = events.toList()
+    fun version(): Long = eventVersion.get()
 
     fun statusLine(): String =
         "events=${events.size} buys=${recordedBuys.get()} sells=${recordedSells.get()} " +
@@ -169,6 +173,6 @@ object EconomicEventSchema6464 {
     internal fun resetForTest() {
         events.clear()
         recordedBuys.set(0L); recordedSells.set(0L); recordedPartials.set(0L)
-        arithDivergences.set(0L)
+        arithDivergences.set(0L); eventVersion.set(0L)
     }
 }

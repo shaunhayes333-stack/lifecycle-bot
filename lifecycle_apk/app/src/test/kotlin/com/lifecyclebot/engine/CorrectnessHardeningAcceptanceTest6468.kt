@@ -149,4 +149,17 @@ class CorrectnessHardeningAcceptanceTest6468 {
         assertTrue(line.contains("HELIUS="))
         assertNotEquals("", line)
     }
+    @Test
+    fun `6476 sweeper releases orphaned open occupancy from iterable registry`() {
+        CanonicalMintOccupancyRegistry6464.resetForTest()
+        ForcedCloseSlotSweeper6468.resetForTest()
+        CanonicalMintOccupancyRegistry6464.markOpen("paper", "ORPHAN_6476", "O", "test")
+        assertEquals(CanonicalMintOccupancyRegistry6464.Occupancy.OPEN,
+            CanonicalMintOccupancyRegistry6464.occupancyOf("paper", "ORPHAN_6476"))
+        val released = ForcedCloseSlotSweeper6468.sweep()
+        assertEquals(1, released)
+        assertEquals(CanonicalMintOccupancyRegistry6464.Occupancy.NONE,
+            CanonicalMintOccupancyRegistry6464.occupancyOf("paper", "ORPHAN_6476"))
+    }
+
 }

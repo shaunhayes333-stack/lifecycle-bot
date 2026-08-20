@@ -7576,4 +7576,22 @@ class GoldenTapeRegressionTest {
                 mint = tradeId.mint"""))
     }
 
+
+    @Test
+    fun V5_0_6476_audit_repairs_fee_replay_occupancy_and_terminal_mux() {
+        val econ = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/EconomicEventSchema6464.kt").readText()
+        val replay = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperReplay6464.kt").readText()
+        val occ = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalMintOccupancyRegistry6464.kt").readText()
+        val sweep = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForcedCloseSlotSweeper6468.kt").readText()
+        val loss = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LosingPatternMemory.kt").readText()
+        val bus = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalizedTradeBus6464.kt").readText()
+        val rich = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt").readText()
+        assertTrue("V5.0.6476: entry fee must be typed separately from principal open cost", econ.contains("entryFeesSol") && replay.contains("openCost += e.executedCostSol") && replay.contains("fees += e.entryFeesSol"))
+        assertTrue("V5.0.6476: cached replay must expire on event mutation", econ.contains("eventVersion.incrementAndGet()") && replay.contains("it.eventVersion == try"))
+        assertTrue("V5.0.6476: forced close sweep must iterate and release real occupancy rows", occ.contains("fun snapshotEntries()") && sweep.contains("FORCED_CLOSE_SLOT_RELEASED_BY_SWEEP_6476") && sweep.contains("markClosed(entry.mode, entry.mint)"))
+        assertTrue("V5.0.6476: losing pattern accumulator must be 64-bit and live decisions mode-local", loss.contains("LongArray(3)") && loss.contains("if (RuntimeModeAuthority.isLive()) liveCache else cache"))
+        assertTrue("V5.0.6476: finalized mux must carry position mode proof and reject non-terminal events", bus.contains("val proofState: String") && bus.contains("!env.terminal") && rich.contains("one terminal identity across the rich 6450 event"))
+        assertFalse("V5.0.6476: partial paper sells must not publish finalized bus events", java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt").readText().contains("tradeId = idKey" + ","))
+    }
+
 }

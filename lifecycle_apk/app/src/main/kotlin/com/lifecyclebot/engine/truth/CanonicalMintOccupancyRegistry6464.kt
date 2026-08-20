@@ -185,6 +185,12 @@ object CanonicalMintOccupancyRegistry6464 {
             "blocksOpen=${blocksOpen.get()} blocksPending=${blocksPending.get()} " +
             "blocksExiting=${blocksExiting.get()} transitions=${transitions.get()} ttlSweeps=${ttlSweeps.get()}"
 
+    data class SnapshotEntry(val mode: String, val mint: String, val occupancy: Occupancy)
+
+    fun snapshotEntries(): List<SnapshotEntry> = entries.values.map {
+        SnapshotEntry(mode = it.mode, mint = it.mint, occupancy = it.occupancy)
+    }
+
     fun snapshotByOccupancy(): Map<Occupancy, Int> {
         val counts = Occupancy.values().associateWith { 0 }.toMutableMap()
         for (e in entries.values) counts[e.occupancy] = (counts[e.occupancy] ?: 0) + 1
