@@ -14243,6 +14243,12 @@ class BotService : Service() {
                         try {
                             com.lifecyclebot.engine.truth.RootCauseClassifier6471.classify()
                         } catch (_: Throwable) {}
+                        // V5.0.6472 §P1.6 — telemetry self-consistency hold.
+                        // Fires TELEMETRY_INTEGRITY_HOLD_6472 when two sibling
+                        // telemetry sections disagree on the same canonical fact.
+                        try {
+                            com.lifecyclebot.engine.truth.TelemetryIntegrityHold6472.check()
+                        } catch (_: Throwable) {}
                     }
                 } catch (_: Throwable) {}
             }
