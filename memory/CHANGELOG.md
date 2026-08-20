@@ -1,3 +1,61 @@
+## V5.0.6473 — 2026-02-18 — WIRE THE DEFERRED 6472 ITEMS
+
+Eighth beat — call-site migrations for the 6472 truth surfaces.
+Green in CI (Build AATE APK + Runtime Smoke Test, sha `845ddcb1`).
+
+**§Damping-Wire — `LaneAdmissionGate6473` → `Executor.paperBuy.pre_mutation`**
+- Wraps `LaneAdaptiveDamping6472.damping(lane)` with an ALLOW / SKIP
+  decision. When `allowProbe=false` and cadence > 0, the buy is
+  SKIPPED with `cadence_throttle_lvl_<level>`. Otherwise the buy
+  proceeds with `effectiveSizeSol = requested × sizeMult` and
+  `scoreFloor += damping.scoreFloorBoost`.
+- Wired directly before `clampPaperTradeSol`. When damping shrinks
+  below the paper min, V5.0.6471 clamp semantics handle the clean
+  SKIP via `SIZE_CLAMP_ZERO`. Zero productive lane goes dark;
+  SHITCOIN at -57 % EV now takes 25 % probes at 3-min cadence.
+- Telemetry: `LANE_ADMISSION_SIZE_SHRUNK_6473_<lane>`,
+  `LANE_ADMISSION_SKIPPED_CADENCE_6473_<lane>`,
+  `PAPER_BUY_LANE_ADMISSION_SKIP_6473`.
+
+**§Identity-Wire — `CanonicalInstanceIdentity6472.stamp()` on live surfaces**
+- `RootCauseClassifier6471.statusLine()`
+- `UnifiedReconcilerHealth6470.statusLine()`
+- `TelemetryIntegrityHold6472.statusLine()`
+- `LaneAdmissionGate6473.statusLine()`
+- `WatchlistHardCapInvariant6473.statusLine()`
+- Operator can now match `instanceId=<prefix>` across every panel
+  and prove they are looking at the same in-memory authority
+  instance. Duplicate observers show up as mismatched stamps.
+
+**§P1.1 — `WatchlistHardCapInvariant6473` → 30-loop parity audit**
+- Non-mutating audit. Reads
+  `HOT_WATCHLIST_SIZE_OBSERVED_6473` counter against a configured
+  cap (default 250 — ConfigStore migration in next incremental
+  patch) and emits `WATCHLIST_HARDCAP_OVERRUN_6473` with the
+  overrun magnitude.
+
+**Acceptance test** — `DeferredWiresAcceptanceTest6473` (7 cases):
+allow probe at neutral EV; shrink SHITCOIN at -57 % EV to 25 % size
++ +15 score floor + level 3; throttle second BLEED admission inside
+its 300 s cadence window; all canonical status lines carry the
+instanceId stamp; watchlist hardcap silent under cap; watchlist
+hardcap fires on overrun with correct magnitude; watchlist hardcap
+safe when cap is zero or negative.
+
+**Still deferred — 6474+**
+- Migrate every `EconomicOutcome` consumer onto the typed value.
+- Off-main `PipelineHealthActivity` snapshot (P1.5) — UI wire.
+- Token map single-flight consolidation (P1.2).
+- BotService runtime routing through `BackgroundTradingAuthority6469`.
+- Wire `HOT_WATCHLIST_SIZE_OBSERVED_6473` emitter into the actual
+  watchlist code (audit reads counter, needs a writer).
+
+**Behavioural stance**
+Zero touch to the live execution path. SHITCOIN + any other bleeding
+lane now takes damped probes instead of being hard-disabled. Losing
+tactics never equal permanent lane death.
+
+
 ## V5.0.6472 — 2026-02-18 — CANONICAL TRUTH SURFACES + RUNTIME DEAMPLIFICATION
 
 Seventh beat — canonical instance identity, typed economic units,

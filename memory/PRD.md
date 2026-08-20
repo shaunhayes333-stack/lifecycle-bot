@@ -1,6 +1,31 @@
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 
+## V5.0.6473 (Feb 2026) — WIRE THE DEFERRED 6472 ITEMS
+
+Eighth beat — call-site migrations for the 6472 truth surfaces. CI
+green (sha `845ddcb1`).
+
+- **LaneAdmissionGate6473** wired into `Executor.paperBuy.pre_mutation`.
+  SHITCOIN at -57 % EV now takes 25 %-size probes at 180 s cadence
+  instead of being hard-disabled. When damping shrinks below the
+  paper minimum, V5.0.6471 clamp handles the clean SKIP.
+- **CanonicalInstanceIdentity6472** stamps appended to
+  `RootCauseClassifier6471`, `UnifiedReconcilerHealth6470`,
+  `TelemetryIntegrityHold6472`, `LaneAdmissionGate6473`,
+  `WatchlistHardCapInvariant6473` status lines. Operator can now
+  match `instanceId=<prefix>` across every panel.
+- **WatchlistHardCapInvariant6473** wired into the 30-loop parity
+  audit. Non-mutating; emits `WATCHLIST_HARDCAP_OVERRUN_6473` with
+  overrun magnitude when the observed size exceeds the configured cap.
+
+**Deferred to 6474** — EconomicOutcome consumer migration; off-main
+PipelineHealthActivity snapshot; token map single-flight
+consolidation; BotService runtime routing through
+BackgroundTradingAuthority6469; watchlist size emitter wire.
+
+
+
 ## V5.0.6472 (Feb 2026) — CANONICAL TRUTH SURFACES + RUNTIME DEAMPLIFICATION
 
 Seventh beat — canonical instance identity, typed economic units,
