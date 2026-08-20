@@ -127,10 +127,5 @@ object LaneAdaptiveDamping6472 {
         dampReads.set(0L); probesAllowed.set(0L); probesThrottled.set(0L)
     }
 
-    private data class Quad(val a: Double, val b: Int, val c: Long, val d: Int) {
-        operator fun component1() = a
-        operator fun component2() = b
-        operator fun component3() = c
-        operator fun component4() = d
-    }
+    private data class Quad(val a: Double, val b: Int, val c: Long, val d: Int)
 }
