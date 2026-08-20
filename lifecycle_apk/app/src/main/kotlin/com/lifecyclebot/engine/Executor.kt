@@ -12009,6 +12009,27 @@ class Executor(
                     }
                 }
             } catch (_: Throwable) {}
+            // V5.0.6473 §Damping-Wire — consult LaneAdaptiveDamping via the
+            // admission gate so a bleeding lane (e.g. SHITCOIN at -57% EV)
+            // shrinks its next entry to 25% size and enforces cadence-based
+            // probes rather than being hard-disabled. Never returns 0 outright;
+            // if the damped size falls below the paper min, clampPaperTradeSol
+            // (V5.0.6471) will skip cleanly via SIZE_CLAMP_ZERO.
+            try {
+                val lane6473 = ts.tradingMode.ifBlank { "STANDARD" }
+                val decision6473 = com.lifecyclebot.engine.truth.LaneAdmissionGate6473.admissionDecision(
+                    lane = lane6473, requestedSizeSol = finalSol,
+                )
+                when (decision6473) {
+                    is com.lifecyclebot.engine.truth.LaneAdmissionGate6473.Decision.Allow -> {
+                        finalSol = decision6473.effectiveSizeSol
+                    }
+                    is com.lifecyclebot.engine.truth.LaneAdmissionGate6473.Decision.Skip -> {
+                        try { ForensicLogger.lifecycle("PAPER_BUY_LANE_ADMISSION_SKIP_6473", "lane=$lane6473 mint=${ts.mint.take(10)} reason=${decision6473.reason}") } catch (_: Throwable) {}
+                        finalSol = 0.0
+                    }
+                }
+            } catch (_: Throwable) {}
             clampPaperTradeSol(finalSol, ts.mint, ts.symbol, "paperBuy.pre_mutation", maxPaperTradeSolOverride)
         }
         if (sol <= 0.0) {

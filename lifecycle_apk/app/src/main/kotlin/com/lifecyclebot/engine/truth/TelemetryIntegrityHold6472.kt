@@ -83,8 +83,10 @@ object TelemetryIntegrityHold6472 {
         return true
     }
 
-    fun statusLine(): String =
-        "checks=${checks.get()} holds=${holds.get()} last=${lastReason.get() ?: "-"}"
+    fun statusLine(): String {
+        val stamp = CanonicalInstanceIdentity6472.stamp("TelemetryIntegrityHold6472")
+        return "checks=${checks.get()} holds=${holds.get()} last=${lastReason.get() ?: "-"} $stamp"
+    }
 
     internal fun resetForTest() {
         checks.set(0L); holds.set(0L); lastReason.set(null)

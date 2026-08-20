@@ -106,11 +106,12 @@ object UnifiedReconcilerHealth6470 {
     fun lastSnapshot(): Snapshot? = lastSnapshot.get()
 
     fun statusLine(): String {
-        val s = lastSnapshot.get() ?: return "queries=${queries.get()} snapshot=null"
+        val stamp = CanonicalInstanceIdentity6472.stamp("UnifiedReconcilerHealth6470")
+        val s = lastSnapshot.get() ?: return "queries=${queries.get()} snapshot=null $stamp"
         return "queries=${queries.get()} splitBrain=${splitBrainDetections.get()} " +
             "quickPasses=${s.quickPasses} fullPasses=${s.fullPasses} " +
             "quickAgeMs=${s.quickAgeMs} fullAgeMs=${s.fullAgeMs} " +
-            "healthy=${s.healthyPer6467} contradictions=${s.contradictions.size}"
+            "healthy=${s.healthyPer6467} contradictions=${s.contradictions.size} $stamp"
     }
 
     internal fun resetForTest() {

@@ -14249,6 +14249,19 @@ class BotService : Service() {
                         try {
                             com.lifecyclebot.engine.truth.TelemetryIntegrityHold6472.check()
                         } catch (_: Throwable) {}
+                        // V5.0.6473 §P1.1 — watchlist hard-cap invariant audit.
+                        // Non-mutating: reports overrun magnitude when the physical
+                        // watchlist exceeds its configured cap so the operator
+                        // sees the invariant break at telemetry level rather than
+                        // watching thousands of downstream rebalance events.
+                        try {
+                            val currentWatchlist = com.lifecyclebot.engine.PipelineHealthCollector.labelCountSnapshot("HOT_WATCHLIST_SIZE_OBSERVED_6473").toInt()
+                            val configuredCap = 250 // default hard cap; incremental patch will source from ConfigStore
+                            if (currentWatchlist > 0 && configuredCap > 0) {
+                                com.lifecyclebot.engine.truth.WatchlistHardCapInvariant6473
+                                    .assertSize(currentWatchlist, configuredCap, "hot_watchlist")
+                            }
+                        } catch (_: Throwable) {}
                     }
                 } catch (_: Throwable) {}
             }

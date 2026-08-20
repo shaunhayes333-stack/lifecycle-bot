@@ -100,9 +100,10 @@ object RootCauseClassifier6471 {
     fun lastResult(): Classification? = lastResult.get()
 
     fun statusLine(): String {
+        val stamp = CanonicalInstanceIdentity6472.stamp("RootCauseClassifier6471")
         val r = lastResult.get()
         return "classifications=${classifications.get()} lastTier=${r?.tier?.name ?: "-"} " +
-            "lastLabel=${r?.label ?: "-"} lastCount=${r?.supportingCount ?: 0L}"
+            "lastLabel=${r?.label ?: "-"} lastCount=${r?.supportingCount ?: 0L} $stamp"
     }
 
     internal fun resetForTest() {
