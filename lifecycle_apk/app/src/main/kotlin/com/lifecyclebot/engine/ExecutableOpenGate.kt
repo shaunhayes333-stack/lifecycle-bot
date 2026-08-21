@@ -809,7 +809,7 @@ object ExecutableOpenGate {
         // EntryState. This does not bypass live safety: unknown/unsafe tier, zero liq,
         // and confirmed rug still block below.
         val syntheticPaperState: EntryState? = if (existingState == null &&
-            modeUpper in setOf("PAPER", "LIVE") &&
+            modeUpper == "LIVE" &&
             isRealExecutionLane(requestedLaneForSynth) &&
             liveLiquidityUsd > 0.0 &&
             (liveSafetyTier.equals("SAFE", true) || liveSafetyTier.equals("CAUTION", true)) &&
@@ -835,7 +835,7 @@ object ExecutableOpenGate {
             ).also {
                 states[mint] = it
                 try {
-                    val synthLabel = if (modeUpper == "LIVE") "LIVE_EXEC_OPEN_SYNTHETIC_FINAL_CANDIDATE" else "PAPER_EXEC_OPEN_SYNTHETIC_FINAL_CANDIDATE"
+                    val synthLabel = "LIVE_EXEC_OPEN_SYNTHETIC_FINAL_CANDIDATE"
                     ForensicLogger.lifecycle(
                         synthLabel,
                         "attemptId=$attemptId symbol=$symbol mint=${mint.take(10)} lane=$requestedLaneForSynth liq=${liveLiquidityUsd.toInt()} safety=$liveSafetyTier rug=$rug source=$source"

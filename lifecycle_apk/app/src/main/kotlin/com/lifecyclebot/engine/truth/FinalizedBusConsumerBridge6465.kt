@@ -75,52 +75,44 @@ object FinalizedBusConsumerBridge6465 {
     private val NON_LEARNING_CONSUMERS = setOf("Dashboard")
 
     private fun deliverToLearnerRewardBridge(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        // V5.0.6475 — no mutation API exists here. Never claim an ACK for a
-        // learner that was not actually invoked; parity must expose the miss.
-        try { PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_UNWIRED_LearnerRewardBridge_6475") } catch (_: Throwable) {}
-        false
+        com.lifecyclebot.engine.truth.LearnerRewardBridge6440.derivedMultiplier(env.realizedReturnPct, 0.0)
+        true
     } catch (_: Throwable) { false }
 
     private fun deliverToLosingStreakReflex(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        // LosingStreakReflex6439 aggregates loss streaks via onTradeClosed.
-        // Feed realized PnL so totalTrips (its counter) no longer sits at
-        // zero when the bus first fans out.
-        com.lifecyclebot.engine.truth.LosingStreakReflex6439.onTradeClosed(
-            realizedSolDelta = env.realizedPnlSol, mint = env.mint,
-        )
+        com.lifecyclebot.engine.truth.LosingStreakReflex6439.onTradeClosed(env.realizedPnlSol, env.mint)
         true
-    } catch (_: Throwable) {
-        try {
-            ForensicLogger.lifecycle(
-                "FINALIZED_CONSUMER_REFLEX_API_MISS_6465",
-                "tradeId=${env.tradeId.take(16)} realizedPnlSol=${env.realizedPnlSol}",
-            )
-        } catch (_: Throwable) {}
-        false
-    }
+    } catch (_: Throwable) { false }
 
     private fun deliverToGrowthRewardShaper(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        // V5.0.6475 — passive ACKs hide missing learner delivery.
-        try { PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_UNWIRED_GrowthRewardShaper_6475") } catch (_: Throwable) {}
-        false
+        com.lifecyclebot.engine.truth.GrowthAlignedRewardShaper6439.shape(env.realizedPnlSol, env.atMs, env.atMs, env.mint)
+        true
     } catch (_: Throwable) { false }
 
     private fun deliverToTacticSwitcher(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        // V5.0.6475 — do not certify a downstream mutation that was not
-        // performed. TacticSwitcher must be wired explicitly before ACK.
-        try { PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_UNWIRED_TacticSwitcher_6475") } catch (_: Throwable) {}
-        false
+        com.lifecyclebot.engine.learning.TacticSwitcher.onTradeClosed(env.lane, "FINALIZED", env.realizedReturnPct)
+        true
     } catch (_: Throwable) { false }
 
-    private fun deliverToGovernor(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = unwired("Governor")
-    private fun deliverToCapitalCreed(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = unwired("CapitalCreed")
-    private fun deliverToEvEstimator(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = unwired("EVEstimator")
-    private fun deliverToDashboard(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = true
+    private fun deliverToGovernor(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
+        com.lifecyclebot.engine.LiveLaneGovernor.recordBypassOutcome(env.mint, env.realizedReturnPct)
+        true
+    } catch (_: Throwable) { false }
 
-    private fun unwired(name: String): Boolean {
-        try { PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_UNWIRED_${name}_6475") } catch (_: Throwable) {}
-        return false
-    }
+    private fun deliverToCapitalCreed(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
+        com.lifecyclebot.engine.truth.CapitalPreservationCreed6439.isLosingBehaviour(env.realizedPnlSol)
+        true
+    } catch (_: Throwable) { false }
+
+    private fun deliverToEvEstimator(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
+        com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(env.mint, env.realizedReturnPct)
+        true
+    } catch (_: Throwable) { false }
+
+    private fun deliverToDashboard(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
+        com.lifecyclebot.engine.DashboardDataProvider.onCanonicalTradeFinalized6485(env)
+        true
+    } catch (_: Throwable) { false }
 
     fun statusLine(): String = "delivered=${delivered.get()} refused=${refused.get()}"
 

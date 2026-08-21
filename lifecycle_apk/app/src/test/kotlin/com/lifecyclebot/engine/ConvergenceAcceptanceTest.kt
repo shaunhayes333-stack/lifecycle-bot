@@ -2,6 +2,7 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.truth.CanonicalRewardBootstrap6453
 import com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450
+import com.lifecyclebot.engine.truth.GrowthAlignedRewardShaper6439
 import com.lifecyclebot.engine.truth.MintWorkCoordinator6450
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -88,7 +89,8 @@ class ConvergenceAcceptanceTest {
         // before and after a bus publish.
         CanonicalRewardBootstrap6453.ensureBootstrapped()
         val statusBefore = CanonicalRewardBootstrap6453.statusLine()
-        val shaperInvBefore = parseCounter(statusBefore, "shaperInv=")
+        val purityInvBefore = parseCounter(statusBefore, "purityInv=")
+        val shapedBefore = parseCounter(GrowthAlignedRewardShaper6439.statusLine(), "shaped=")
 
         val pid = "TEST_PID_BOOT_${System.nanoTime()}"
         CanonicalTradeFinalizedBus6450.publish(
@@ -113,12 +115,10 @@ class ConvergenceAcceptanceTest {
             ),
         )
         val statusAfter = CanonicalRewardBootstrap6453.statusLine()
-        val shaperInvAfter = parseCounter(statusAfter, "shaperInv=")
-        assertTrue(
-            "bootstrap subscriber must have invoked shaper on the published event " +
-                "(before=$shaperInvBefore after=$shaperInvAfter)",
-            shaperInvAfter > shaperInvBefore,
-        )
+        val purityInvAfter = parseCounter(statusAfter, "purityInv=")
+        val shapedAfter = parseCounter(GrowthAlignedRewardShaper6439.statusLine(), "shaped=")
+        assertTrue("purity subscriber must receive the canonical close", purityInvAfter > purityInvBefore)
+        assertTrue("GrowthRewardShaper must receive the same close through the eight-consumer fanout", shapedAfter > shapedBefore)
     }
 
     private fun parseCounter(status: String, key: String): Long {

@@ -21,24 +21,25 @@ object ReconcilerCadenceAuthority6459 {
     private val fullPasses = AtomicLong(0L)
     private val staleReports = AtomicLong(0L)
 
-    fun noteQuickPass() { quickLastMs.set(System.currentTimeMillis()); quickPasses.incrementAndGet() }
-    fun noteFullPass() { fullLastMs.set(System.currentTimeMillis()); fullPasses.incrementAndGet() }
+    fun noteQuickPass() { quickLastMs.set(System.currentTimeMillis()); quickPasses.incrementAndGet(); ReconcilerHeartbeat6467.onQuickSuccess() }
+    fun noteFullPass() { fullLastMs.set(System.currentTimeMillis()); fullPasses.incrementAndGet(); ReconcilerHeartbeat6467.onFullSuccess() }
 
     data class CadenceReport(val quickOverdueMs: Long, val fullOverdueMs: Long, val quickHealthy: Boolean, val fullHealthy: Boolean)
 
     fun report(): CadenceReport {
-        val now = System.currentTimeMillis()
-        val q = quickLastMs.get().let { if (it == 0L) Long.MAX_VALUE else (now - it) - QUICK_EXPECTED_MS }
-        val f = fullLastMs.get().let { if (it == 0L) Long.MAX_VALUE else (now - it) - FULL_EXPECTED_MS }
-        val quickHealthy = q < QUICK_EXPECTED_MS * 3
-        val fullHealthy = f < FULL_EXPECTED_MS * 3
+        val qAge = ReconcilerHeartbeat6467.quickAgeMs()
+        val fAge = ReconcilerHeartbeat6467.fullAgeMs()
+        val q = if (qAge < 0L) 0L else (qAge - QUICK_EXPECTED_MS).coerceAtLeast(0L)
+        val f = if (fAge < 0L) 0L else (fAge - FULL_EXPECTED_MS).coerceAtLeast(0L)
+        val quickHealthy = qAge < 0L || qAge < QUICK_EXPECTED_MS * 4
+        val fullHealthy = fAge < 0L || fAge < FULL_EXPECTED_MS * 4
         if (!quickHealthy || !fullHealthy) staleReports.incrementAndGet()
         return CadenceReport(q.coerceAtLeast(0L), f.coerceAtLeast(0L), quickHealthy, fullHealthy)
     }
 
     fun statusLine(): String {
         val r = report()
-        return "quickPasses=${quickPasses.get()} fullPasses=${fullPasses.get()} " +
+        return "quickPasses=${ReconcilerHeartbeat6467.quickPasses()} fullPasses=${ReconcilerHeartbeat6467.fullPasses()} " +
             "quickOverdueMs=${r.quickOverdueMs}(healthy=${r.quickHealthy}) " +
             "fullOverdueMs=${r.fullOverdueMs}(healthy=${r.fullHealthy}) stale=${staleReports.get()}"
     }

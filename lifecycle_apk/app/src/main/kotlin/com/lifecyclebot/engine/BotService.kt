@@ -14264,6 +14264,14 @@ class BotService : Service() {
                     com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
                         name = "pending_entry_sweep_6461", budgetMs = 1_500L,
                     ) {
+                        val unfunded6485 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.healUnfundedPaperEntries6485()
+                        unfunded6485.forEach { orphan ->
+                            try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("paper", orphan.mint) } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.truth.PositionStateLedger6427.abortOpen6485(orphan.positionId) } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.EmergentGuardrails.unregisterPosition(orphan.mint) } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.GlobalTradeRegistry.closePosition(orphan.mint) } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNFUNDED_PAPER_ENTRY_ABORTED_6485", "positionId=${orphan.positionId.take(24)} mint=${orphan.mint.take(10)} lifecycle=${orphan.lifecycle}") } catch (_: Throwable) {}
+                        }
                         com.lifecyclebot.engine.truth.PendingEntryProjectionGuard6461.sweepStalePendingEntries()
                         com.lifecyclebot.engine.truth.PendingEntryProjectionGuard6461.assertNotInOpenSet()
                     }
@@ -19383,13 +19391,13 @@ if (hotExitHandledSweep) {
         return
     }
 
-    // In PAUSED mode: no new entries (existing positions still managed)
+    // V5.0.6485 — AutoMode PAUSED is current-epoch caution, not a stale
+    // global entry authority. Its 1.35x score / 0.35x size policy shapes below.
     if (modeConf?.mode == AutoModeEngine.BotMode.PAUSED && !ts.position.isOpen) {
         try {
-            PipelineHealthCollector.labelInc("ENTRY_SUPPRESSOR_AUTOMODE_PAUSED_4163")
-            ForensicLogger.lifecycle("ENTRY_SUPPRESSOR_AUTOMODE_PAUSED_4163", "mint=${mint.take(10)} symbol=${ts.symbol} source=${ts.source.take(80)}")
+            PipelineHealthCollector.labelInc("AUTOMODE_PAUSED_CURRENT_EPOCH_SHAPED_6485")
+            ForensicLogger.lifecycle("AUTOMODE_PAUSED_CURRENT_EPOCH_SHAPED_6485", "mint=${mint.take(10)} symbol=${ts.symbol} source=${ts.source.take(80)} action=continue_to_strategy")
         } catch (_: Throwable) {}
-        return
     }
 
     // ═══════════════════════════════════════════════════════════════════

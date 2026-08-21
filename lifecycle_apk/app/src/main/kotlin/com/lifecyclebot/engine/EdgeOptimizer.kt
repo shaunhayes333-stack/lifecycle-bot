@@ -465,10 +465,10 @@ object EdgeOptimizer {
                 walletSol = walletBalanceSol,
                 paperMode = true,   // treat all edge sizing as paper-safe; real paper flag lives at caller
                 laneRiskCapSol = ceiling,
-                laneMinExecutableSol = 0.001,
+                laneMinExecutableSol = com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol(),
             )
-            if (res.executable) kotlin.math.min(res.finalSizeSol, preResolver) else preResolver
-        } catch (_: Throwable) { preResolver }
+            if (res.executable) kotlin.math.min(res.finalSizeSol, preResolver) else 0.0
+        } catch (_: Throwable) { 0.0 }
     }
     
     /**

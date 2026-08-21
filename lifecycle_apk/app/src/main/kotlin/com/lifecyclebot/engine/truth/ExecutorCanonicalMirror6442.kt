@@ -77,8 +77,8 @@ object ExecutorCanonicalMirror6442 {
         estimatedCostSol: Double,
         estimatedFeesSol: Double,
         paperMode: Boolean,
-    ) {
-        try {
+    ): Boolean {
+        return try {
             val positionId = allocatePositionId(mint, paperMode)
             val idem = buyIdempotencyKey(positionId)
             // Reserve in the SQLite idempotency store first so a mid-tx restart
@@ -88,7 +88,7 @@ object ExecutorCanonicalMirror6442 {
             } catch (_: Throwable) { IdempotencyKeyStore6437.InsertResult.NEW }
             if (reserve == IdempotencyKeyStore6437.InsertResult.DUPLICATE) {
                 try { PipelineHealthCollector.labelInc("EXECUTOR_MIRROR_BUY_DUP_6442") } catch (_: Throwable) {}
-                return
+                return false
             }
             val result = CanonicalPositionAuthority6441.openPosition(
                 idempotencyKey = idem,
@@ -101,7 +101,7 @@ object ExecutorCanonicalMirror6442 {
                 openedQtyRaw = BigInteger.ZERO,   // pending fill
                 tokenDecimals = 9,                 // provisional; corrected on fill
                 feesSol = estimatedFeesSol,
-                paperMode = paperMode,
+                paperMode = false,
             )
             buysMirrored.incrementAndGet()
             if (result == CanonicalPositionAuthority6441.MutateResult.APPLIED || result == CanonicalPositionAuthority6441.MutateResult.DUPLICATE) {
@@ -109,14 +109,11 @@ object ExecutorCanonicalMirror6442 {
                 try { PositionStateLedger6427.registerOpen(canonicalMint(mint)) } catch (_: Throwable) {}
             }
             try { PipelineHealthCollector.labelInc("EXECUTOR_MIRROR_BUY_$result".take(60)) } catch (_: Throwable) {}
+            result == CanonicalPositionAuthority6441.MutateResult.APPLIED
         } catch (t: Throwable) {
             mirrorFailures.incrementAndGet()
-            try {
-                ForensicLogger.lifecycle(
-                    "EXECUTOR_MIRROR_BUY_FAIL_6442",
-                    "mint=${mint.take(10)} err=${t.message?.take(80)}",
-                )
-            } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("EXECUTOR_MIRROR_BUY_FAIL_6442", "mint=${mint.take(10)} err=${t.message?.take(80)}") } catch (_: Throwable) {}
+            false
         }
     }
 
@@ -128,8 +125,8 @@ object ExecutorCanonicalMirror6442 {
         actualFeesSol: Double,
         tokenDecimals: Int,
         paperMode: Boolean,
-    ) {
-        try {
+    ): Boolean {
+        return try {
             val positionId = positionIdOf(mint)
             val result = CanonicalPositionAuthority6441.promotePendingToOpen(
                 positionId = positionId,
@@ -137,15 +134,24 @@ object ExecutorCanonicalMirror6442 {
                 actualEntryCostSol = actualCostSol,
                 actualFeesSol = actualFeesSol,
                 tokenDecimals = tokenDecimals,
-                paperMode = paperMode,
+                paperMode = false,
             )
             if (result == CanonicalPositionAuthority6441.MutateResult.APPLIED) {
                 try { IdempotencyKeyStore6437.markTerminal(buyIdempotencyKey(positionId), "BUY_CONFIRMED") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("CANONICAL_BUY_CONFIRMED_OPEN_6448") } catch (_: Throwable) {}
             }
+            result == CanonicalPositionAuthority6441.MutateResult.APPLIED
         } catch (t: Throwable) {
             mirrorFailures.incrementAndGet()
+            false
         }
+    }
+
+    fun abortBuy6485(mint: String, reason: String) {
+        val cm = canonicalMint(mint)
+        val positionId = activePositionIdByMint.remove(cm) ?: return
+        try { CanonicalPositionAuthority6441.abortEntry6485(positionId, refundPaperFacade = false, reason = reason) } catch (_: Throwable) {}
+        try { IdempotencyKeyStore6437.markTerminal(buyIdempotencyKey(positionId), "BUY_ABORTED_6485") } catch (_: Throwable) {}
     }
 
     /**

@@ -53,6 +53,14 @@ object OrderSizeResolver6441 {
     }
 
     private const val ABS_MIN_EXECUTABLE_SOL = 0.001
+    private val paperExecutableMinimum = AtomicReference(0.05)
+
+    fun paperExecutableMinimumSol(): Double = paperExecutableMinimum.get()
+    fun updatePaperExecutableMinimumSol(value: Double): Double {
+        val v = value.takeIf { it.isFinite() && it > 0.0 }?.coerceAtLeast(ABS_MIN_EXECUTABLE_SOL) ?: paperExecutableMinimum.get()
+        paperExecutableMinimum.set(v)
+        return v
+    }
 
     private val totalResolves = AtomicLong(0L)
     private val executableCount = AtomicLong(0L)
@@ -104,7 +112,8 @@ object OrderSizeResolver6441 {
         val laneClamped = cashClamped.coerceAtMost(laneRiskCapSol)
 
         // 5. minimum executable
-        val minExec = laneMinExecutableSol.coerceAtLeast(ABS_MIN_EXECUTABLE_SOL)
+        val minExec = if (paperMode) maxOf(laneMinExecutableSol, paperExecutableMinimumSol())
+            else laneMinExecutableSol.coerceAtLeast(ABS_MIN_EXECUTABLE_SOL)
         val executable = laneClamped >= minExec
         val finalSize = if (executable) laneClamped else 0.0
         val reason = when {

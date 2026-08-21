@@ -200,7 +200,7 @@ object SellFinalizationCoordinator {
                 val idKey = com.lifecyclebot.engine.truth.TerminalSellIdempotency6464.makeKey(
                     sellExecutionId = null, fillId = sellSig, signature = sellSig,
                 )
-                val positionId = intent.mint  // best-effort; multi-lot future revision may lift this
+                val positionId = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(intent.mint)
                 val consume = com.lifecyclebot.engine.truth.TerminalSellIdempotency6464.beginTerminal(
                     key = idKey, positionId = positionId,
                     sitePath = "SellFinalizationCoordinator.finalize(${traderTag})",
@@ -211,11 +211,11 @@ object SellFinalizationCoordinator {
                     // generation+terminalSequence so replay/reconciler
                     // reattempts cannot double-fire the fanout even if
                     // the sellSig gets reused across a run restart.
-                    val positionId6466 = intent.mint
+                    val positionId6466 = positionId
                     val termClaim6466 = com.lifecyclebot.engine.truth.TerminalMutationAuthority6466.claim(
                         com.lifecyclebot.engine.truth.TerminalMutationAuthority6466.TerminalEvent(
                             positionId = positionId6466, mint = intent.mint, symbol = intent.symbol,
-                            mode = "paper", generation = 0L,
+                            mode = "live", generation = 0L,
                             terminalSequence = if (fin.finalState == TxMetaSellFinalizer.FinalState.CLEARED) 999L else System.currentTimeMillis(),
                             runId = "run", exitReason = intent.reason.name,
                         )
@@ -229,7 +229,7 @@ object SellFinalizationCoordinator {
                     )
                     val partial = fin.finalState != TxMetaSellFinalizer.FinalState.CLEARED
                     com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordSell(
-                        mode = "paper",   // executor sets its own mode; this path is paper-safe.
+                        mode = "live",
                         positionId = positionId, mint = intent.mint, symbol = intent.symbol,
                         idempotencyKey = idKey, partial = partial,
                         soldQty = actualConsumedRaw,
@@ -239,27 +239,29 @@ object SellFinalizationCoordinator {
                     )
                     val realizedPct = if (intent.entrySolSpent > 0.0)
                         (pnl.realizedPnlSol / intent.entrySolSpent) * 100.0 else 0.0
-                    val envelope6464 = com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope(
-                        tradeId = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(intent.mint),
-                        atMs = System.currentTimeMillis(),
-                        realizedPnlSol = pnl.realizedPnlSol, realizedReturnPct = realizedPct,
-                        mint = intent.mint, lane = traderTag,
-                        positionId = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(intent.mint),
-                        mode = "live", proofState = "confirmed_signature", terminal = true,
-                    )
-                    val firstPublish6465 = com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.publish(envelope6464)
-                    // V5.0.6465 §P0-#2 — CONSUMER FANOUT. Publish gates
-                    // dedup; deliverToConsumers gates each consumer's
-                    // per-tick ack. Consumers that refuse (false return)
-                    // have their ack removed so the parity report
-                    // resurfaces the miss next tick.
-                    if (firstPublish6465) {
-                        try {
-                            com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.deliverToConsumers(envelope6464) { name, env ->
-                                try { com.lifecyclebot.engine.truth.FinalizedBusConsumerBridge6465.deliver(name, env) }
-                                catch (_: Throwable) { false }
-                            }
-                        } catch (_: Throwable) {}
+                    if (!partial) {
+                        val settledAt6485 = System.currentTimeMillis()
+                        val entrySnap6485 = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(positionId)
+                        val outcome6485 = when {
+                            pnl.realizedPnlSol > 0.0001 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.WIN
+                            pnl.realizedPnlSol < -0.0001 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.LOSS
+                            else -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN
+                        }
+                        com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.publish(
+                            com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Event(
+                                positionId = positionId, mint = intent.mint, outcome = outcome6485,
+                                netRealizedPnlSol = pnl.realizedPnlSol,
+                                grossRealizedPnlSol = sellSolReceived - intent.entrySolSpent,
+                                returnFraction = realizedPct / 100.0, netReturnPct = realizedPct, feesSol = feesSol,
+                                entryLane = entrySnap6485?.entryLane ?: traderTag,
+                                entryStrategyPid = entrySnap6485?.entryStrategyPid ?: "",
+                                entryTactic = entrySnap6485?.entryTactic ?: "",
+                                exitReason = intent.reason.name,
+                                holdingTimeMs = if (entrySnap6485 != null) settledAt6485 - entrySnap6485.entryTimestampMs else 0L,
+                                dataQuality = "confirmed_signature", priceIntegrity = "confirmed_signature",
+                                mode = "live", settledAtMs = settledAt6485,
+                            )
+                        )
                     }
                     // V5.0.6464 §P1 — root-cause TTL: a healthy terminal
                     // sell clears any stale MECHANICAL_FAULT header.

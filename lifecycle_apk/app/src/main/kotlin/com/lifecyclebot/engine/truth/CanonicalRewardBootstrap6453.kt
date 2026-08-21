@@ -40,25 +40,7 @@ object CanonicalRewardBootstrap6453 {
         if (!bootstrapped.compareAndSet(false, true)) return
         try {
             CanonicalTradeFinalizedBus6450.subscribe { event ->
-                // Shaper: uses net-realized-sol as the reward signal.
-                // Bus published nettedRealizedPnl (not gross) is the
-                // learning-appropriate value.
-                try {
-                    GrowthAlignedRewardShaper6439.shape(
-                        realizedSolDelta = event.netRealizedPnlSol,
-                        openedAtMs = event.settledAtMs - event.holdingTimeMs.coerceAtLeast(0L),
-                        closedAtMs = event.settledAtMs,
-                        mint = event.mint,
-                    )
-                    shaperInvocations.incrementAndGet()
-                } catch (t: Throwable) {
-                    try {
-                        ForensicLogger.lifecycle(
-                            "CANONICAL_REWARD_BOOTSTRAP_SHAPER_FAIL_6453",
-                            "pid=${event.positionId.take(12)} err=${t.message?.take(80)}",
-                        )
-                    } catch (_: Throwable) {}
-                }
+                // V5.0.6485 — GrowthRewardShaper is delivered exactly once by FinalizedBusConsumerBridge6465.
                 // Purity gate: authoritative finalized-close ledger.
                 try {
                     RewardPurityGate6441.acceptFinalizedClose(event.positionId, event.netRealizedPnlSol)

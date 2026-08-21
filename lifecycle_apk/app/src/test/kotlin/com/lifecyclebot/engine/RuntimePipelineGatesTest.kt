@@ -1164,7 +1164,7 @@ class ExecutionAuthorityInvariantTest {
             liveLiquidityUsd = 2500.0,
             liveSafetyTier = "SAFE",
         )
-        assertTrue("paper direct wrapper should not drop NO_FINAL_CANDIDATE when context is valid", paper.allowed)
+        assertFalse("paper direct wrapper must not synthesize missing finality state", paper.allowed)
 
         resetAuthorities(paper = false)
         val live = ExecutableOpenGate.canOpenExecutablePosition(

@@ -656,6 +656,10 @@ object CanonicalOutcomeBus {
     /** Publish a canonical outcome — runs through normalizer + counters + router. */
     fun publish(raw: CanonicalTradeOutcome) {
         val normalized = CanonicalOutcomeNormalizer.normalizeOutcomeBeforeLearning(raw) ?: return
+        if (com.lifecyclebot.engine.truth.LearningQuarantineGate6470.shouldDropForLearning(normalized.tradeId, normalized.mint)) {
+            try { PipelineHealthCollector.labelInc("CANONICAL_OUTCOME_QUARANTINED_6485") } catch (_: Throwable) {}
+            return
+        }
         // V5.9.791 — operator audit Item 1 + 2: PositionExitArbiter enforces
         // ONE terminal SELL per (canonicalMint, entryTimeMs). Duplicate
         // exit cascades (CASHGEN_STOP_LOSS + STRICT_SL + RAPID_CATASTROPHE_STOP
@@ -721,6 +725,10 @@ object CanonicalOutcomeBus {
      */
     fun publishUnchecked(raw: CanonicalTradeOutcome) {
         val normalized = CanonicalOutcomeNormalizer.normalizeOutcomeBeforeLearning(raw) ?: return
+        if (com.lifecyclebot.engine.truth.LearningQuarantineGate6470.shouldDropForLearning(normalized.tradeId, normalized.mint)) {
+            try { PipelineHealthCollector.labelInc("CANONICAL_OUTCOME_QUARANTINED_6485") } catch (_: Throwable) {}
+            return
+        }
         bumpCounters(normalized)
         recentEvents.addFirst(normalized)
         while (recentEvents.size > RECENT_MAX) recentEvents.pollLast()

@@ -30,11 +30,9 @@ import java.util.concurrent.atomic.AtomicLong
  * `missingByConsumer(name)` returns tradeIds seen by the bus but not
  * yet acknowledged by that consumer.
  *
- * NOTE: This bus lives ALONGSIDE the existing `CanonicalTradeFinalizedBus6450`
- * — the 6450 bus fans finalized-trade rich events to specific subscribers,
- * and we don't touch it. This 6464 bus is the parity oracle across
- * multiple learners. Callers wire both: 6450 for rich payload, 6464 for
- * fanout parity assertion.
+ * V5.0.6485: this is the parity/fanout projection of the single rich
+ * `CanonicalTradeFinalizedBus6450` publication. Terminal reducers publish
+ * only to 6450; 6450 forwards the identical event identity here once.
  */
 object CanonicalFinalizedTradeBus6464 {
 
@@ -55,6 +53,12 @@ object CanonicalFinalizedTradeBus6464 {
     private val consumerAcks = ConcurrentHashMap<String, MutableSet<String>>() // consumer -> set of tradeIds it ack'd
     private val publishes = AtomicLong(0L)
     private val duplicates = AtomicLong(0L)
+
+    private val CANONICAL_CONSUMERS_6485 = listOf(
+        "LearnerRewardBridge", "LosingStreakReflex", "GrowthRewardShaper", "TacticSwitcher",
+        "Governor", "CapitalCreed", "EVEstimator", "Dashboard",
+    )
+    fun ensureCanonicalConsumers6485() { CANONICAL_CONSUMERS_6485.forEach(::registerConsumer) }
 
     /** Consumers register once at startup. Registration is idempotent. */
     fun registerConsumer(name: String) {

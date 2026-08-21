@@ -24,6 +24,16 @@ object DashboardDataProvider {
     private const val MIN_TRADES_FOR_TOP_MODE = 5
     private const val MAX_TOP_PATTERNS = 8
 
+    data class FinalizedTradeProjection6485(
+        val tradeId: String, val mint: String, val mode: String, val proofState: String,
+        val realizedPnlSol: Double, val realizedReturnPct: Double, val atMs: Long,
+    )
+    private val lastFinalized6485 = java.util.concurrent.atomic.AtomicReference<FinalizedTradeProjection6485?>(null)
+    fun onCanonicalTradeFinalized6485(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope) {
+        lastFinalized6485.set(FinalizedTradeProjection6485(env.tradeId, env.mint, env.mode, env.proofState, env.realizedPnlSol, env.realizedReturnPct, env.atMs))
+    }
+    fun lastCanonicalFinalized6485(): FinalizedTradeProjection6485? = lastFinalized6485.get()
+
     // ═══════════════════════════════════════════════════════════════════
     // UNIFIED DASHBOARD DATA
     // ═══════════════════════════════════════════════════════════════════

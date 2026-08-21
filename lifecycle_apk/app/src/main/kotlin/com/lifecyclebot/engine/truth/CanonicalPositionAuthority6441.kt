@@ -273,6 +273,19 @@ object CanonicalPositionAuthority6441 {
         } finally { lock.unlock() }
     }
 
+    /** V5.0.6485 — remove an uncommitted entry; never expose it to schedulers. */
+    fun abortEntry6485(positionId: String, refundPaperFacade: Boolean, reason: String): Boolean {
+        lock.lock()
+        try {
+            val pos = positions[positionId] ?: return false
+            if (pos.lifecycle == Lifecycle.CLOSED || pos.lifecycle == Lifecycle.PARTIALLY_CLOSED) return false
+            positions.remove(positionId)
+            if (refundPaperFacade) paperCashSol.getAndUpdate { it + pos.entryCostSol + pos.feesSol }
+            try { PipelineHealthCollector.labelInc("CANONICAL_ENTRY_ABORTED_6485") } catch (_: Throwable) {}
+            return true
+        } finally { lock.unlock() }
+    }
+
     fun quarantine(positionId: String, reason: String) {
         lock.lock()
         try {
@@ -329,6 +342,21 @@ object CanonicalPositionAuthority6441 {
      * Callers must never treat these as open positions for capital,
      * lane, or slot counts. Exposed only for the sweep + audit.
      */
+    /** V5.0.6485 — purge paper lifecycle rows that have no funded lot. */
+    fun healUnfundedPaperEntries6485(): List<Position> {
+        lock.lock()
+        try {
+            val victims = positions.values.filter { p ->
+                p.positionId.startsWith("PAPER:") &&
+                    p.lifecycle in setOf(Lifecycle.PENDING_ENTRY, Lifecycle.OPEN) &&
+                    !CanonicalLotQuantity6464.hasFundedOpenLot6485(p.positionId)
+            }
+            victims.forEach { positions.remove(it.positionId) }
+            if (victims.isNotEmpty()) try { PipelineHealthCollector.labelInc("UNFUNDED_PAPER_ENTRY_PURGED_6485") } catch (_: Throwable) {}
+            return victims
+        } finally { lock.unlock() }
+    }
+
     fun pendingEntryPositions6461(): List<Position> = positions.values.filter {
         it.lifecycle == Lifecycle.PENDING_ENTRY
     }

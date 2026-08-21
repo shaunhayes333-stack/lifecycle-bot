@@ -957,14 +957,10 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun paper_direct_executor_missing_state_is_synthetic_only_not_live() {
+    fun paper_direct_executor_missing_state_cannot_synthesize_terminal_candidate() {
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
-        assertTrue(gate.contains("PAPER_EXEC_OPEN_SYNTHETIC_FINAL_CANDIDATE"))
-        assertTrue(gate.contains("modeUpper == \"PAPER\""))
-        assertTrue(gate.contains("isRealExecutionLane(requestedLaneForSynth)"))
-        assertTrue(gate.contains("liveLiquidityUsd > 0.0"))
-        assertTrue(gate.contains("rug != 0"))
-        assertFalse("LIVE must not synthesize missing final candidates", gate.contains("modeUpper == \"LIVE\" &&\n            isRealExecutionLane(requestedLaneForSynth)"))
+        assertFalse("V5.0.6485: PAPER must not synthesize missing final candidates", gate.contains("PAPER_EXEC_OPEN_SYNTHETIC_FINAL_CANDIDATE"))
+        assertTrue("V5.0.6485: LIVE direct-lane restore remains safety/liquidity bounded", gate.contains("modeUpper == " + "\"LIVE\"") && gate.contains("LIVE_EXEC_OPEN_SYNTHETIC_FINAL_CANDIDATE") && gate.contains("isRealExecutionLane(requestedLaneForSynth)") && gate.contains("liveLiquidityUsd > 0.0") && gate.contains("rug != 0"))
     }
 
 
@@ -3450,7 +3446,7 @@ class GoldenTapeRegressionTest {
         assertTrue("mutex busy must be visible as a non-terminal deferred attempt", busyBlock.contains("liveBuyDeferred") && busyBlock.contains("MUTEX_BUSY_DEFERRED"))
         assertFalse("mutex busy must not poison BUY_FAILED/backoff telemetry", busyBlock.contains("emitLiveBuyFail") || busyBlock.contains("buyTerminalFail") || busyBlock.contains("LIVE_BUY_TIMEOUT"))
         assertTrue("lease may still expose non-terminal release for non-live-attempt paths", lease.contains("fun releaseNonTerminal") && lease.contains("terminal=NON_TERMINAL"))
-        assertTrue("live finality must synthesize a current direct-lane candidate when state is missing but safety/liquidity are present", gate.contains("""modeUpper in setOf("PAPER", "LIVE")""") && gate.contains("LIVE_SYNTHETIC_FINAL_CANDIDATE") && gate.contains("LIVE_EXEC_OPEN_SYNTHETIC_FINAL_CANDIDATE"))
+        assertTrue("live finality must synthesize a current direct-lane candidate when state is missing but safety/liquidity are present", gate.contains("modeUpper == " + "\"LIVE\"") && gate.contains("LIVE_SYNTHETIC_FINAL_CANDIDATE") && gate.contains("LIVE_EXEC_OPEN_SYNTHETIC_FINAL_CANDIDATE"))
     }
 
 
@@ -7540,7 +7536,8 @@ class GoldenTapeRegressionTest {
         val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt").readText()
         assertTrue("V5.0.6475: journal close must require explicit canonical finality for learner mutation", journal.contains("isCanonicalFinalized: Boolean = false") && journal.contains("if (isCanonicalFinalized)"))
         assertFalse("V5.0.6475: reward shaper must not mutate loss streak directly", shaper.contains("LosingStreakReflex6439.onTradeClosed(realizedSolDelta"))
-        assertTrue("V5.0.6475: unwired finalized consumers must report false rather than passive ACK", bridge.contains("FINALIZED_CONSUMER_UNWIRED_") && bridge.contains("return false"))
+        assertFalse("V5.0.6485: finalized consumers must not retain unwired/passive ACK branches", bridge.contains("FINALIZED_CONSUMER_UNWIRED_") || bridge.contains("private fun unwired("))
+        assertTrue("V5.0.6485: dashboard ACK requires a real canonical projection write", bridge.contains("DashboardDataProvider.onCanonicalTradeFinalized6485"))
     }
 
     @Test
@@ -7551,7 +7548,7 @@ class GoldenTapeRegressionTest {
         val closeMirror = bridge.indexOf("ExecutorCanonicalMirror6442.mirrorSell")
         val closeLedger = bridge.indexOf("PaperAccountLedger6430.onSell")
         assertTrue("V5.0.6475: terminal idempotency must claim before mirror and cash mutation", closeClaim >= 0 && closeClaim < closeMirror && closeClaim < closeLedger)
-        val fillMarker = exec.indexOf("V5.0.6475 — confirmed-fill-only mutation")
+        val fillMarker = exec.indexOf("V5.0.6485 — ATOMIC PAPER BUY COMMIT")
         val buyDebit = exec.indexOf("PaperAccountLedger6430.onBuy(actualSol")
         val firstBuyGate = exec.indexOf("PAPER_BUY_BLOCKED_PRESALE_SNIPE_6373F")
         assertTrue("V5.0.6475: paper BUY cash debit must be after entry gates", fillMarker >= 0 && buyDebit > fillMarker && firstBuyGate < buyDebit)
@@ -7571,7 +7568,7 @@ class GoldenTapeRegressionTest {
         val journalIdx = exec.indexOf("recordTrade(tsLearningSnap, tradeSnap)", fullSellIdx)
         assertTrue("V5.0.6474: full PAPER SELL must route through CanonicalPaperTerminalBridge.finalizeSell before journal/learning projection", fullSellIdx >= 0 && commitIdx > fullSellIdx && journalIdx > commitIdx)
         assertTrue("V5.0.6474: accounting rejection must not write a successful SELL journal row", exec.contains("PAPER_ACCOUNTING_MUTATION_REJECTED") && exec.contains("action=no_successful_sell_journal") && exec.contains("return SellResult.FAILED_FATAL"))
-        assertTrue("V5.0.6474: canonical terminal bridge owns the full paper sell money/event fanout", exec.contains("CanonicalPaperTerminalBridge6469.finalizeSell") && bridge.contains("PaperAccountLedger6430.onSell") && bridge.contains("EconomicEventSchema6464.recordSell") && bridge.contains("CanonicalFinalizedTradeBus6464.publish"))
+        assertTrue("V5.0.6474: canonical terminal bridge owns the full paper sell money/event fanout", exec.contains("CanonicalPaperTerminalBridge6469.finalizeSell") && bridge.contains("PaperAccountLedger6430.onSell") && bridge.contains("EconomicEventSchema6464.recordSell") && bridge.contains("CanonicalTradeFinalizedBus6450.publish"))
         assertFalse("V5.0.6474: full paper sell must not directly call mirrorSell+PaperAccountLedger as a divergent full-close path", exec.substring(fullSellIdx).contains("""ExecutorCanonicalMirror6442.mirrorSell(
                 mint = tradeId.mint"""))
     }
@@ -7696,6 +7693,27 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.6484: learned lane governor must not abort after FDG", exec.contains("LIVE_LANE_HARD_PAUSED_6247"))
         assertTrue("V5.0.6484: governor source must remain soft and non-disabling", governor.contains("LIVE_LANE_HARD_PAUSE_DEMOTED_TO_SOFT_6331") && governor.contains("return false to"))
         assertTrue("V5.0.6484: true hard-rug advisor authority remains intact", exec.contains("RUG_PREFILTER_HARD_FAIL") && exec.contains("HardRugPreFilter.FilterSeverity.HARD_FAIL"))
+    }
+
+
+    @Test
+    fun V5_0_6485_paper_buy_atomicity_and_single_terminal_bus() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val resolver = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OrderSizeResolver6441.kt").readText()
+        val closeLedger = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionCloseLedger.kt").readText()
+        val paperBridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt").readText()
+        val bus = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt").readText()
+        val consumers = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt").readText()
+        assertTrue("6485 paper BUY must prepare locally before exposing TokenState", exec.contains("val fundedPaperPosition6485 = Position(") && exec.contains("ts.position = fundedPaperPosition6485"))
+        assertTrue("6485 failed BUY must compensate ledger/canonical/lot/occupancy/lease", exec.contains("rollbackPaperEntry6485") && exec.contains("PaperAccountLedger6430.rollbackBuy") && exec.contains("abortBuy6485") && exec.contains("abortOpen6485") && exec.contains("markClosed(" + "\"paper\"") && exec.contains("PAPER_BUY_ABORTED_6485"))
+        assertTrue("6485 paper success predicate requires funded canonical OPEN and occupancy", exec.contains("hasFundedOpenLot6485") && exec.contains("CanonicalMintOccupancyRegistry6464.isOpen") && exec.contains("Lifecycle.OPEN"))
+        assertTrue("6485 has one executable paper minimum authority", resolver.contains("paperExecutableMinimumSol()") && exec.contains("updatePaperExecutableMinimumSol"))
+        assertFalse("6485 paper missing-state path cannot synthesize a final candidate", gate.contains("PAPER_EXEC_OPEN_SYNTHETIC_FINAL_CANDIDATE"))
+        assertFalse("6485 metadata close ledger cannot publish terminal learning events", closeLedger.contains("CanonicalTradeFinalizedBus6450.publish") || closeLedger.contains("CanonicalFinalizedTradeBus6464.publish"))
+        assertTrue("6485 canonical paper terminal reducer publishes the rich bus", paperBridge.contains("CanonicalTradeFinalizedBus6450.publish"))
+        assertTrue("6485 rich bus centrally gates quarantine and forwards parity once", bus.contains("LearningQuarantineGate6470.shouldDropForLearning") && bus.contains("ensureCanonicalConsumers6485"))
+        assertTrue("6485 all named consumers invoke real APIs", consumers.contains("LearnerRewardBridge6440.derivedMultiplier") && consumers.contains("GrowthAlignedRewardShaper6439.shape") && consumers.contains("TacticSwitcher.onTradeClosed") && consumers.contains("LiveLaneGovernor.recordBypassOutcome") && consumers.contains("CapitalPreservationCreed6439.isLosingBehaviour") && consumers.contains("ForwardOutcomeModel.recordOutcome") && consumers.contains("DashboardDataProvider.onCanonicalTradeFinalized6485"))
     }
 
 }

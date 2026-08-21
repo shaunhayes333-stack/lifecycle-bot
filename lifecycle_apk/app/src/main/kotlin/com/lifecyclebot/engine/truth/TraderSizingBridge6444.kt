@@ -70,7 +70,7 @@ object TraderSizingBridge6444 {
                 walletSol = walletSol,
                 paperMode = paperMode,
                 laneRiskCapSol = laneCap,
-                laneMinExecutableSol = 0.001,
+                laneMinExecutableSol = if (paperMode) OrderSizeResolver6441.paperExecutableMinimumSol() else 0.001,
             )
         } catch (t: Throwable) {
             try {
@@ -79,17 +79,12 @@ object TraderSizingBridge6444 {
                     "lane=$laneKey err=${t.message?.take(60)}",
                 )
             } catch (_: Throwable) {}
-            // Fail-open with the caller's requested size clamped to
-            // the lane cap so a bug in the bridge cannot halt trading.
+            // V5.0.6485 — sizing exceptions cannot claim executable and
+            // defer a contradictory rejection into the paper executor.
             OrderSizeResolver6441.Resolution(
-                requestedSol = requestedSol,
-                riskSol = requestedSol,
-                ladderSol = requestedSol,
-                cashCapSol = walletSol * 0.25,
-                laneCapSol = laneCap,
-                finalSizeSol = kotlin.math.min(requestedSol, laneCap),
-                executable = true,
-                reason = "BRIDGE_FALLBACK",
+                requestedSol = requestedSol, riskSol = 0.0, ladderSol = 0.0,
+                cashCapSol = 0.0, laneCapSol = laneCap, finalSizeSol = 0.0,
+                executable = false, reason = "BRIDGE_RESOLUTION_FAILED_6485",
             )
         }
     }

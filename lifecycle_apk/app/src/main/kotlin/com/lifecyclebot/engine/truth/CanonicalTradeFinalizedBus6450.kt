@@ -66,6 +66,7 @@ object CanonicalTradeFinalizedBus6450 {
 
     fun publish(event: Event): Boolean {
         if (event.positionId.isBlank()) return false
+        try { CanonicalRewardBootstrap6453.ensureBootstrapped() } catch (_: Throwable) {}
         val prior = finalized.putIfAbsent(event.positionId, event.settledAtMs)
         if (prior != null) {
             duplicates.incrementAndGet()
@@ -79,7 +80,10 @@ object CanonicalTradeFinalizedBus6450 {
             return false
         }
         published.incrementAndGet()
-        for (s in subscribers) {
+        val quarantined6485 = try {
+            LearningQuarantineGate6470.shouldDropForLearning(positionId = event.positionId, mint = event.mint)
+        } catch (_: Throwable) { true }
+        for (s in if (quarantined6485) emptyList() else subscribers.toList()) {
             try { s.onEvent(event) } catch (t: Throwable) {
                 subscriberFailures.incrementAndGet()
                 try {
@@ -97,6 +101,7 @@ object CanonicalTradeFinalizedBus6450 {
         // the 6464 parity fanout. PositionId is the dedup key; mode/proof
         // travel with the immutable event instead of being inferred later.
         try {
+            CanonicalFinalizedTradeBus6464.ensureCanonicalConsumers6485()
             val env = CanonicalFinalizedTradeBus6464.Envelope(
                 tradeId = event.positionId,
                 atMs = event.settledAtMs,

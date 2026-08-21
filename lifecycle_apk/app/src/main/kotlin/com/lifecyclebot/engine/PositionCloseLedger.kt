@@ -117,48 +117,7 @@ object PositionCloseLedger {
         // confirmation sites with full qty/proceeds/cost data. Do not infer or
         // replay canonical SELL/RewardPurity here from a journal/close row.
         try { PipelineHealthCollector.labelInc("POSITION_CLOSE_LEDGER_METADATA_ONLY_6448") } catch (_: Throwable) {}
-        // V5.0.6450 §P0 — ONE CANONICAL REWARD EVENT. Publish the
-        // finalized trade to CanonicalTradeFinalizedBus6450 exactly once
-        // per positionId. All learners subscribe to this ONE event so W/L
-        // counts cannot diverge across RewardPurity/GrowthShaper/
-        // RewardBridge/TacticSwitcher.
-        try {
-            val positionId = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(mint)
-            val terminalEpoch = now
-            // Guard against double-terminal (idempotency latch). If claim
-            // fails we skip the finalize publish for this positionId.
-            val claim = com.lifecyclebot.engine.truth.TerminalCloseIdempotencyLatch6450
-                .tryClaim(positionId, terminalEpoch, reason)
-            if (claim == com.lifecyclebot.engine.truth.TerminalCloseIdempotencyLatch6450.ClaimResult.CLAIMED) {
-                val outcome = when {
-                    realizedPnl > 0.0001 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.WIN
-                    realizedPnl < -0.0001 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.LOSS
-                    else -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN
-                }
-                val entrySnap = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(positionId)
-                com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.publish(
-                    com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Event(
-                        positionId = positionId,
-                        mint = mint,
-                        outcome = outcome,
-                        netRealizedPnlSol = realizedPnl,
-                        grossRealizedPnlSol = realizedPnl, // net==gross when fee=0 (paper close ledger context)
-                        returnFraction = pnlPct.toDouble() / 100.0,
-                        netReturnPct = pnlPct.toDouble(),
-                        feesSol = 0.0,
-                        entryLane = entrySnap?.entryLane ?: source.take(20),
-                        entryStrategyPid = entrySnap?.entryStrategyPid ?: "",
-                        entryTactic = entrySnap?.entryTactic ?: "",
-                        exitReason = reason.take(40),
-                        holdingTimeMs = if (entrySnap != null) now - entrySnap.entryTimestampMs else 0L,
-                        dataQuality = "OK",
-                        priceIntegrity = "OK",
-                        mode = if (source.contains("paper", true)) "paper" else "unknown",
-                        settledAtMs = now,
-                    ),
-                )
-            }
-        } catch (_: Throwable) {}
+        // V5.0.6485 — metadata-only projection. Canonical terminal reducers publish.
         return id
     }
 

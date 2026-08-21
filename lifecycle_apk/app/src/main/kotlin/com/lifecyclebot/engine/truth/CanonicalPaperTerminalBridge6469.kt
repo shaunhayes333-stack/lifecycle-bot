@@ -271,27 +271,28 @@ object CanonicalPaperTerminalBridge6469 {
         if (terminal) try {
             val realizedSol = grossProceedsSol - soldCostBasisSol - feesSol
             val realizedPct = if (soldCostBasisSol > 0.0) (realizedSol / soldCostBasisSol) * 100.0 else 0.0
-            val env = CanonicalFinalizedTradeBus6464.Envelope(
-                tradeId = positionId,
-                atMs = System.currentTimeMillis(),
-                realizedPnlSol = realizedSol,
-                realizedReturnPct = realizedPct,
-                mint = mint,
-                lane = lane,
-                positionId = positionId,
-                mode = "paper",
-                proofState = "canonical_paper_fill",
-                terminal = true,
+            val settledAt6485 = System.currentTimeMillis()
+            val entrySnap6485 = EntryStrategySnapshot6450.snapshot(positionId)
+            val outcome6485 = when {
+                realizedSol > 0.0001 -> CanonicalTradeFinalizedBus6450.Outcome.WIN
+                realizedSol < -0.0001 -> CanonicalTradeFinalizedBus6450.Outcome.LOSS
+                else -> CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN
+            }
+            busPublished = CanonicalTradeFinalizedBus6450.publish(
+                CanonicalTradeFinalizedBus6450.Event(
+                    positionId = positionId, mint = mint, outcome = outcome6485,
+                    netRealizedPnlSol = realizedSol, grossRealizedPnlSol = grossProceedsSol - soldCostBasisSol,
+                    returnFraction = realizedPct / 100.0, netReturnPct = realizedPct, feesSol = feesSol,
+                    entryLane = entrySnap6485?.entryLane ?: lane,
+                    entryStrategyPid = entrySnap6485?.entryStrategyPid ?: "",
+                    entryTactic = entrySnap6485?.entryTactic ?: "",
+                    exitReason = "CANONICAL_PAPER_FILL", holdingTimeMs = if (entrySnap6485 != null) settledAt6485 - entrySnap6485.entryTimestampMs else 0L,
+                    dataQuality = "canonical_paper_fill", priceIntegrity = "canonical_paper_fill",
+                    mode = "paper", settledAtMs = settledAt6485,
+                )
             )
-            val first = CanonicalFinalizedTradeBus6464.publish(env)
-            if (first) {
-                busPublished = true
+            if (busPublished) {
                 busPublishes.incrementAndGet()
-                try {
-                    CanonicalFinalizedTradeBus6464.deliverToConsumers(env) { name, e ->
-                        try { FinalizedBusConsumerBridge6465.deliver(name, e) } catch (_: Throwable) { false }
-                    }
-                } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("FINALIZED_BUS_PUBLISHED") } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}

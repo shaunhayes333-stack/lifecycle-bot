@@ -71,8 +71,7 @@ class BusFanoutAndAutoHealAcceptanceTest6465 {
             "LearnerRewardBridge", "LosingStreakReflex", "GrowthRewardShaper",
             "TacticSwitcher", "Governor", "CapitalCreed", "EVEstimator", "Dashboard",
         ).associateWith { FinalizedBusConsumerBridge6465.deliver(it, env) }
-        assertTrue("LosingStreakReflex and Dashboard have real delivery paths", delivered["LosingStreakReflex"] == true && delivered["Dashboard"] == true)
-        assertTrue("unwired consumers must not receive passive ACKs", delivered["LearnerRewardBridge"] == false && delivered["GrowthRewardShaper"] == false && delivered["TacticSwitcher"] == false && delivered["Governor"] == false && delivered["CapitalCreed"] == false && delivered["EVEstimator"] == false)
+        assertTrue("all eight canonical consumers must invoke real source APIs", delivered.values.all { it })
         assertEquals(false, FinalizedBusConsumerBridge6465.deliver("UnknownConsumer", env))
     }
 

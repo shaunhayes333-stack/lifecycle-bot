@@ -10202,8 +10202,17 @@ class Executor(
      * || isOpen): paper open sets qtyToken>0/isOpen; live open sets pendingVerify.
      * A blocked-finality paper buy sets none → returns false.
      */
-    fun positionDidOpen(ts: TokenState): Boolean =
-        ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen
+    fun positionDidOpen(ts: TokenState): Boolean {
+        val localOpen = ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen
+        if (!localOpen) return false
+        if (!ts.position.isPaperPosition) return true
+        val pid = try { com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint) } catch (_: Throwable) { return false }
+        val canonical = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid) } catch (_: Throwable) { null }
+        return canonical?.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.OPEN &&
+            canonical.entryCostSol > 0.0 && canonical.remainingQtyRaw > java.math.BigInteger.ZERO &&
+            com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.hasFundedOpenLot6485(pid) &&
+            com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.isOpen("paper", ts.mint)
+    }
 
     private fun buyPhase(label: String) {
         try { PipelineHealthCollector.labelInc(label) } catch (_: Throwable) {}
@@ -12245,7 +12254,8 @@ class Executor(
             extra = "entryTp=${ts.styleTpMult.fmt(2)} hold=${ts.styleHoldMult.fmt(2)}",
         )
         ts.lastPolicySnapshot = paperPolicySnapshot
-        ts.position = Position(
+        val preBuyPosition6485 = ts.position
+        val fundedPaperPosition6485 = Position(
             qtyToken     = effectiveSol / maxOf(effectivePrice, 1e-12),
             entryPrice   = effectivePrice,
             entryTime    = System.currentTimeMillis(),
@@ -12289,82 +12299,81 @@ class Executor(
                 (baseFluidTp * ts.styleTpMult).coerceIn(5.0, 500.0)
             } catch (_: Throwable) { 0.0 },
         )
-        // V5.0.6475 — confirmed-fill-only mutation. This is deliberately after
-        // all paper entry gates and after the real TokenState position is built.
-        // A rejected paper buy must not debit cash, create PENDING_ENTRY, or
-        // occupy a slot that later needs a TTL sweep to disappear.
-        try {
-            val entryLane6475 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "STANDARD" }
-            com.lifecyclebot.engine.truth.LaneAttributionLedger6427.recordEntry(
-                positionId = ts.mint,
-                lane = entryLane6475,
-                strategy = ts.source,
-                profile = layerTag,
-            )
-            com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyAttempt(
-                mint = ts.mint,
-                symbol = ts.symbol.ifBlank { ts.mint.take(6) },
-                lane = entryLane6475,
-                estimatedCostSol = actualSol,
-                estimatedFeesSol = actualSol * 0.005,
-                paperMode = true,
-            )
-            if (debitPaperWallet && actualSol.isFinite() && actualSol > 0.0) {
-                val accepted6475 = com.lifecyclebot.engine.truth.PaperAccountLedger6430.onBuy(actualSol, actualSol * 0.005)
-                if (!accepted6475) {
-                    try { PipelineHealthCollector.labelInc("PAPER_BUY_CONFIRMED_FILL_LEDGER_REJECTED_6475") } catch (_: Throwable) {}
-                    return
-                }
+        // V5.0.6485 — ATOMIC PAPER BUY COMMIT.
+        // Nothing is externally OPEN until economic debit, canonical lifecycle,
+        // funded lot, economic event and occupancy OPEN have all succeeded.
+        val fee6485 = actualSol * 0.005
+        val buyQtyRaw6485 = java.math.BigInteger.valueOf((fundedPaperPosition6485.qtyToken * 1_000_000_000.0).toLong().coerceAtLeast(0L))
+        var ledgerDebited6485 = false
+        var canonicalCreated6485 = false
+        val pid6485: String
+        fun rollbackPaperEntry6485(reason: String) {
+            ts.position = preBuyPosition6485
+            val pid = try { com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(tradeId.mint) } catch (_: Throwable) { "" }
+            if (pid.isNotBlank()) {
+                try { com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.abortBuy6485(pid) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.truth.PositionStateLedger6427.abortOpen6485(pid) } catch (_: Throwable) {}
             }
-            try { com.lifecyclebot.engine.truth.PositionStateLedger6427.registerOpen(ts.mint) } catch (_: Throwable) {}
-            try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markPendingEntry("paper", ts.mint, ts.symbol, "Executor.paperBuy.confirmedFill") } catch (_: Throwable) {}
-        } catch (t: Throwable) {
-            try { ForensicLogger.lifecycle("PAPER_BUY_CONFIRMED_FILL_AUTHORITY_ERROR_6475", "mint=${ts.mint.take(10)} err=${t.message?.take(100)}") } catch (_: Throwable) {}
-            return
+            if (canonicalCreated6485) try { com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.abortBuy6485(tradeId.mint, reason) } catch (_: Throwable) {}
+            if (ledgerDebited6485) try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.rollbackBuy(actualSol, fee6485, reason) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("paper", tradeId.mint) } catch (_: Throwable) {}
+            try { EmergentGuardrails.unregisterPosition(tradeId.mint) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.GlobalTradeRegistry.closePosition(tradeId.mint) } catch (_: Throwable) {}
+            if (paperBuyLeaseKey6369.isNotBlank()) {
+                try { ExecutionAttemptLease.terminalFail(paperBuyLeaseKey6369, "BUY", tradeId.mint, tradeId.symbol, "PAPER_BUY_ABORTED_6485:$reason", "Executor.paperBuy.atomic6485") } catch (_: Throwable) {}
+                paperBuyLeaseKey6369 = ""
+            }
+            try { PipelineHealthCollector.labelInc("PAPER_BUY_ATOMIC_ROLLBACK_6485") } catch (_: Throwable) {}
         }
         try {
-            val buyQtyRaw6448 = java.math.BigInteger.valueOf((ts.position.qtyToken * 1_000_000_000.0).toLong().coerceAtLeast(0L))
-            if (buyQtyRaw6448 > java.math.BigInteger.ZERO) {
-                com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyFill(
-                    mint = tradeId.mint,
-                    actualQtyRaw = buyQtyRaw6448,
-                    actualCostSol = actualSol,
-                    actualFeesSol = actualSol * 0.005,
-                    tokenDecimals = 9,
-                    paperMode = true,
-                )
-                // V5.0.6465 §P0 — CANONICAL BUY PATH PUBLISH (paper).
-                // Records the confirmed buy on CanonicalLotQuantity6464
-                // (so subsequent sell requests validate against real
-                // bought qty) AND emits a typed BUY row into
-                // EconomicEventSchema6464 (so CanonicalPaperReplay6464
-                // rebuilds cash / openCost from unique fills). Both are
-                // idempotent — the lot ledger sums BigInteger, the event
-                // schema keys on idempotencyKey.
-                try {
-                    val pid6465 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(tradeId.mint)
-                    com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.onBuyFilled(
-                        positionId = pid6465, mint = tradeId.mint, filledQty = buyQtyRaw6448,
-                    )
-                    val fillPrice6465 = if (buyQtyRaw6448.signum() > 0)
-                        actualSol / buyQtyRaw6448.toBigDecimal().movePointLeft(9).toDouble().coerceAtLeast(1e-12)
-                    else 0.0
-                    com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(
-                        mode = "paper", positionId = pid6465, mint = tradeId.mint,
-                        symbol = ts.symbol.ifBlank { tradeId.symbol },
-                        idempotencyKey = "buy_${tradeId.mint}_${System.nanoTime()}",
-                        executedCostSol = actualSol,
-                        entryFeesSol = actualSol * 0.005,
-                        filledQty = buyQtyRaw6448, fillPrice = fillPrice6465,
-                    )
-                    com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen(
-                        mode = "paper", mint = tradeId.mint,
-                        symbol = ts.symbol.ifBlank { tradeId.symbol },
-                        source = "Executor.paperBuyFill",
-                    )
-                } catch (_: Throwable) {}
+            if (actualSol < minConfiguredPaperTradeSol() || buyQtyRaw6485 <= java.math.BigInteger.ZERO) {
+                rollbackPaperEntry6485("NON_EXECUTABLE_SIZE_OR_QTY")
+                return
             }
-        } catch (_: Throwable) {}
+            if (!com.lifecyclebot.engine.truth.PaperAccountLedger6430.onBuy(actualSol, fee6485)) {
+                rollbackPaperEntry6485("ECONOMIC_DEBIT_REJECTED")
+                return
+            }
+            ledgerDebited6485 = true
+            val entryLane6485 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "STANDARD" }
+            canonicalCreated6485 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyAttempt(
+                mint = tradeId.mint, symbol = ts.symbol.ifBlank { tradeId.symbol }, lane = entryLane6485,
+                estimatedCostSol = actualSol, estimatedFeesSol = fee6485, paperMode = true,
+            )
+            if (!canonicalCreated6485 || !com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyFill(
+                    mint = tradeId.mint, actualQtyRaw = buyQtyRaw6485, actualCostSol = actualSol,
+                    actualFeesSol = fee6485, tokenDecimals = 9, paperMode = true,
+                )) {
+                rollbackPaperEntry6485("CANONICAL_OPEN_REJECTED")
+                return
+            }
+            pid6485 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(tradeId.mint)
+            com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.onBuyFilled(pid6485, tradeId.mint, buyQtyRaw6485)
+            if (!com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.hasFundedOpenLot6485(pid6485)) {
+                rollbackPaperEntry6485("FUNDED_LOT_MISSING")
+                return
+            }
+            val fillPrice6485 = actualSol / buyQtyRaw6485.toBigDecimal().movePointLeft(9).toDouble().coerceAtLeast(1e-12)
+            com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(
+                mode = "paper", positionId = pid6485, mint = tradeId.mint,
+                symbol = ts.symbol.ifBlank { tradeId.symbol },
+                idempotencyKey = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.buyIdempotencyKey(pid6485),
+                executedCostSol = actualSol, entryFeesSol = fee6485,
+                filledQty = buyQtyRaw6485, fillPrice = fillPrice6485,
+            )
+            com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen("paper", tradeId.mint, ts.symbol, "Executor.paperBuy.atomic6485")
+            com.lifecyclebot.engine.truth.PositionStateLedger6427.registerOpen(pid6485)
+            ts.position = fundedPaperPosition6485
+            if (!positionDidOpen(ts)) {
+                rollbackPaperEntry6485("POST_COMMIT_PROOF_FAILED")
+                return
+            }
+            try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol(), "paper_ledger_projection_6485") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("PAPER_BUY_ATOMIC_COMMIT_6485") } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            rollbackPaperEntry6485("EXCEPTION_${t.javaClass.simpleName}")
+            return
+        }
         // V5.0.6450 §P0 — IMMUTABLE ENTRY STRATEGY SNAPSHOT. Persist the
         // entry lane / strategy pid / tactic exactly once at BUY so any
         // subsequent exit path is FORBIDDEN from inferring lane from
@@ -18934,8 +18943,9 @@ class Executor(
             // spent 100s of trades learning. Operator snapshot showed
             // `requested=0.021340 clamped=0.117600` — a 5.5× override of
             // learning. New floor lets any shape ≥ 0.005 SOL survive.
-            maxOf(legacyMin, (c.paperSimulatedBalance * 0.001).coerceIn(0.005, 0.15))
-        } catch (_: Throwable) { 0.005 }
+            val computed = maxOf(legacyMin, (c.paperSimulatedBalance * 0.001).coerceIn(0.005, 0.15))
+            com.lifecyclebot.engine.truth.OrderSizeResolver6441.updatePaperExecutableMinimumSol(computed)
+        } catch (_: Throwable) { com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol() }
     }
 
     private fun clampPaperTradeSol(requested: Double, mint: String = "", symbol: String = "", source: String = "paper", maxOverrideSol: Double? = null): Double {
@@ -19024,12 +19034,19 @@ class Executor(
                 )
                 PipelineHealthCollector.labelInc("PAPER_SELL_TERMINAL_RESERVE_REJECTED_6455")
             } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "TERMINAL_RESERVE_REJECTED_6485") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "TERMINAL_RESERVE_REJECTED_6485") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.SellExecutionLocks.forceRelease(ts.mint) } catch (_: Throwable) {}
+            try { releasePaperSellLock(ts.mint) } catch (_: Throwable) {}
             return SellResult.ALREADY_CLOSED
         }
         // V5.9.719: acquire paper sell lock to prevent double-exit race.
         // If another sell request is already in-flight for this mint, reject this one.
         if (!acquirePaperSellLock(ts.mint)) {
             ErrorLogger.debug("Executor", "🔒 PAPER_DOUBLE_SELL_BLOCKED: ${ts.symbol} reason=$reason already selling")
+            try { com.lifecyclebot.engine.truth.PositionStateLedger6454.abandonTerminalSell(terminalPid6455, "paper_lock_not_acquired_6485") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "PAPER_LOCK_NOT_ACQUIRED_6485") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "PAPER_LOCK_NOT_ACQUIRED_6485") } catch (_: Throwable) {}
             return SellResult.ALREADY_CLOSED
         }
         PaperPositionCloseAuthority.markClosing("PAPER", ts.mint, ts.symbol, reason)
@@ -20509,6 +20526,9 @@ class Executor(
                 )
                 PipelineHealthCollector.labelInc("LIVE_SELL_TERMINAL_RESERVE_REJECTED_6455")
             } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "TERMINAL_RESERVE_REJECTED_6485") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "TERMINAL_RESERVE_REJECTED_6485") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.SellExecutionLocks.forceRelease(ts.mint) } catch (_: Throwable) {}
             return SellResult.ALREADY_CLOSED
         }
         // V5.0.6444 §1 LIVE EXECUTOR SELL MIGRATION — mirror the live

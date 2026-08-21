@@ -129,6 +129,15 @@ object CanonicalLotQuantity6464 {
         checkInvariant(lot, "onSellFilled")
     }
 
+    fun hasFundedOpenLot6485(positionId: String): Boolean {
+        val lot = lots[positionId] ?: return false
+        return lot.confirmedBoughtQty > BigInteger.ZERO && lot.sellable() > BigInteger.ZERO
+    }
+
+    fun abortBuy6485(positionId: String) {
+        if (positionId.isNotBlank()) lots.remove(positionId)
+    }
+
     /** Reserve qty before an executor sell mutation (pre-fill). Returns actual reserved qty. */
     fun reserveForSell(positionId: String, mint: String, requestedQty: BigInteger): Guard {
         if (positionId.isBlank() || requestedQty <= BigInteger.ZERO) {

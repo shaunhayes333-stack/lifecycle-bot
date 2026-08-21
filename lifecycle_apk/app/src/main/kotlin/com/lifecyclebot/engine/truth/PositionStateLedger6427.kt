@@ -64,6 +64,10 @@ object PositionStateLedger6427 {
         try { PipelineHealthCollector.labelInc("POSITION_STATE_OPEN_LEGACY_ONLY_6448") } catch (_: Throwable) {}
     }
 
+    fun abortOpen6485(positionId: String) {
+        if (positionId.isNotBlank()) ledger.remove(positionId)
+    }
+
     /** After a partial sell that leaves qty > 0. */
     fun markPartial(positionId: String) {
         val slot = ledger[positionId] ?: return

@@ -79,6 +79,20 @@ object PaperAccountLedger6430 {
         return true
     }
 
+    /** V5.0.6485 — compensating rollback for an uncommitted paper BUY. */
+    @Synchronized
+    fun rollbackBuy(costSol: Double, feeSol: Double = 0.0, reason: String): Boolean {
+        if (!costSol.isFinite() || costSol <= 0.0) return false
+        val fee = feeSol.takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 0.0
+        if (openCostBasisSol() + 1e-9 < costSol || feesSol() + 1e-9 < fee) return false
+        cashPico.addAndGet(toPico(costSol + fee))
+        openCostBasisPico.addAndGet(-toPico(costSol))
+        feesPico.addAndGet(-toPico(fee))
+        opCount.incrementAndGet()
+        try { ForensicLogger.lifecycle("PAPER_BUY_ROLLED_BACK_6485", "cost=$costSol fee=$fee reason=${reason.take(100)}") } catch (_: Throwable) {}
+        return true
+    }
+
     fun repairCashFromDisplayed6448(displayedCashSol: Double, source: String): Boolean {
         if (!displayedCashSol.isFinite() || displayedCashSol < 0.0) return false
         val before = cashSol()
