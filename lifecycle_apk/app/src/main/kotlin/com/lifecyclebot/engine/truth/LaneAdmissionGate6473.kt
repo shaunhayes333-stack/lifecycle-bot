@@ -2,6 +2,7 @@ package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.engine.learning.TacticSwitcher
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -16,17 +17,15 @@ import java.util.concurrent.atomic.AtomicLong
  * ──────
  *   • `admissionDecision(lane, requestedSizeSol, score)` — combines
  *     the current lane damping with an admission decision:
- *       - if damping.allowProbe is false → SKIP (cadence throttle)
- *       - otherwise → ALLOW with size = requestedSizeSol * sizeMult,
- *         and scoreFloor = default + damping.scoreFloorBoost
+ *       - cadence pressure rotates the lane-local TacticSwitcher first
+ *       - sizing is secondary and cannot fall below the executable floor
+ *       - learned pressure never becomes a hard trade block or size-zero error
  *
  *   • Callers stamp the outcome on the executor path so the operator
  *     can watch SHITCOIN's cadence + size shrink at telemetry level
  *     rather than the lane going dark.
  *
- *   • Never returns size = 0. If damping shrinks below the paper
- *     minimum, the caller's own min-cash guard drops the buy cleanly
- *     via V5.0.6471 clampPaperTradeSol semantics.
+ *   • Never returns learned size = 0; callers provide the executable floor.
  */
 object LaneAdmissionGate6473 {
 
@@ -35,6 +34,7 @@ object LaneAdmissionGate6473 {
             val effectiveSizeSol: Double,
             val effectiveScoreFloor: Int,
             val level: Int,
+            val pivotedTactic: String? = null,
         ) : Decision()
         data class Skip(val reason: String) : Decision()
     }
@@ -47,17 +47,22 @@ object LaneAdmissionGate6473 {
         lane: String,
         requestedSizeSol: Double,
         baseScoreFloor: Int = 0,
+        candidateScore: Int = baseScoreFloor,
+        minExecutableSizeSol: Double = 0.0,
     ): Decision {
         val d = LaneAdaptiveDamping6472.damping(lane)
+        var pivotedTactic: String? = null
         if (!d.allowProbe && d.cadenceThrottleMs > 0L) {
-            skips.incrementAndGet()
-            LaneAdaptiveDamping6472.onLaneThrottled(lane, "admission_cadence")
-            try {
-                PipelineHealthCollector.labelInc("LANE_ADMISSION_SKIPPED_CADENCE_6473_$lane".take(60))
-            } catch (_: Throwable) {}
-            return Decision.Skip("cadence_throttle_lvl_${d.level}")
+            // V5.0.6481 — strategy first: rotate inside this lane instead of
+            // returning a learned hard-skip or buying the same setup smaller.
+            LaneAdaptiveDamping6472.onLaneThrottled(lane, "lane_local_tactic_pivot")
+            pivotedTactic = try {
+                TacticSwitcher.rotateForLanePressure(lane, candidateScore, "damp_lvl_${d.level}").name
+            } catch (_: Throwable) { null }
+            try { PipelineHealthCollector.labelInc("LANE_ADMISSION_TACTIC_PIVOT_6481_$lane".take(60)) } catch (_: Throwable) {}
         }
-        val effective = (requestedSizeSol * d.sizeMultiplier).coerceAtLeast(0.0)
+        val effective = (requestedSizeSol * d.sizeMultiplier)
+            .coerceAtLeast(minExecutableSizeSol.coerceAtLeast(0.0))
         if (d.sizeMultiplier < 1.0) {
             sizeShrinks.incrementAndGet()
             try {
@@ -74,6 +79,7 @@ object LaneAdmissionGate6473 {
             effectiveSizeSol = effective,
             effectiveScoreFloor = baseScoreFloor + d.scoreFloorBoost,
             level = d.level,
+            pivotedTactic = pivotedTactic,
         )
     }
 

@@ -7646,4 +7646,19 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6480: persisted config must not re-expand above physical authority", config.contains("maxWatchlistSize: Int = 220") && config.contains("coerceIn(100, 220)"))
     }
 
+
+    @Test
+    fun V5_0_6481_lane_pressure_pivots_tactic_before_secondary_sizing() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LaneAdmissionGate6473.kt").readText()
+        val tactics = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6481: tactic switcher must expose lane-local pressure rotation", tactics.contains("fun rotateForLanePressure") && tactics.contains("lane-local-pressure:"))
+        assertTrue("V5.0.6481: admission must rotate tactic before applying size multiplier", gate.indexOf("TacticSwitcher.rotateForLanePressure") in 1 until gate.indexOf("requestedSizeSol * d.sizeMultiplier"))
+        assertTrue("V5.0.6481: approved sizing must retain explicit executable floor", gate.contains("coerceAtLeast(minExecutableSizeSol.coerceAtLeast(0.0))") && exec.contains("minExecutableSizeSol = minConfiguredPaperTradeSol()"))
+        assertFalse("V5.0.6481: paper executor must not translate learned lane pressure into zero", exec.contains("PAPER_BUY_LANE_ADMISSION_SKIP_6473"))
+        assertTrue("V5.0.6481: compatibility branch preserves size", exec.contains("PAPER_BUY_LANE_ADMISSION_SKIP_COMPAT_6481") && exec.contains("action=preserve_size"))
+        assertFalse("V5.0.6481: learned toxic bucket pressure must not hard-veto paper/live buys", exec.contains("PAPER_BUY_TOXIC_BUCKET_HARD_VETO_6249") || exec.contains("TOXIC_BUCKET_HARD_VETO_6249"))
+        assertTrue("V5.0.6481: both modes must pivot tactic inside the lane", exec.contains("PAPER_BUY_TOXIC_BUCKET_TACTIC_PIVOT_6481") && exec.contains("LIVE_BUY_TOXIC_BUCKET_TACTIC_PIVOT_6481"))
+    }
+
 }

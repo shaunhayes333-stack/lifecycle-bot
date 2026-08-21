@@ -49,18 +49,17 @@ class DeferredWiresAcceptanceTest6473 {
     }
 
     @Test
-    fun `admission gate throttles second admission inside cadence window`() {
+    fun `admission pressure rotates same-lane tactic without a size-zero skip`() {
         LaneAdaptiveDamping6472.resetForTest()
         LaneAdmissionGate6473.resetForTest()
         LaneAdaptiveDamping6472.recordLaneEvPct("BLEED", -95.0)
-        // First entry allowed at damped size.
-        val first = LaneAdmissionGate6473.admissionDecision("BLEED", requestedSizeSol = 0.10)
+        val first = LaneAdmissionGate6473.admissionDecision("BLEED", requestedSizeSol = 0.10, candidateScore = 55, minExecutableSizeSol = 0.005)
         assertTrue(first is LaneAdmissionGate6473.Decision.Allow)
-        // Second entry in the same instant must be throttled by the 300s cadence.
-        val second = LaneAdmissionGate6473.admissionDecision("BLEED", requestedSizeSol = 0.10)
-        assertTrue("second is throttled", second is LaneAdmissionGate6473.Decision.Skip)
-        val skip = second as LaneAdmissionGate6473.Decision.Skip
-        assertTrue(skip.reason.startsWith("cadence_throttle_lvl_"))
+        val second = LaneAdmissionGate6473.admissionDecision("BLEED", requestedSizeSol = 0.10, candidateScore = 55, minExecutableSizeSol = 0.005)
+        assertTrue("cadence pressure must pivot, not hard-skip", second is LaneAdmissionGate6473.Decision.Allow)
+        val pivot = second as LaneAdmissionGate6473.Decision.Allow
+        assertTrue("same-lane tactic must rotate before sizing", !pivot.pivotedTactic.isNullOrBlank())
+        assertTrue("approved trade retains executable floor", pivot.effectiveSizeSol >= 0.005)
     }
 
     // ─── Identity stamp wire ──────────────────────────────────────────

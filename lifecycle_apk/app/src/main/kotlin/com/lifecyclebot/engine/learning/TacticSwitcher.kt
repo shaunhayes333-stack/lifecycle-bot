@@ -206,6 +206,14 @@ object TacticSwitcher {
         return currentTactic(lane, band)
     }
 
+    /** V5.0.6481 — explicit lane-local pivot before secondary size damping. */
+    fun rotateForLanePressure(lane: String, score: Int, reason: String): Tactic {
+        val band = try { LosingPatternMemory.scoreBand(score) } catch (_: Throwable) { "UNKNOWN" }
+        val cell = getOrCreate(lane, band)
+        rotate(lane, band, cell, "lane-local-pressure:$reason")
+        return Tactic.values()[cell.tactic.get()]
+    }
+
     private fun posteriorLossProbAbove(losses: Int, wins: Int, threshold: Double = BAYES_LOSS_RATE_TARGET): Double {
         // Loss probability p ~ Beta(losses+1, wins+1). For integer parameters,
         // P(p > x) = sum_{j=0}^{a-1} C(a+b-1,j) x^j (1-x)^(a+b-1-j).

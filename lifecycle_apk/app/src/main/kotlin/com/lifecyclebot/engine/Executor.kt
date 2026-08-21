@@ -11957,22 +11957,24 @@ class Executor(
             } catch (_: Throwable) {}
             // V5.0.6473 §Damping-Wire — consult LaneAdaptiveDamping via the
             // admission gate so a bleeding lane (e.g. SHITCOIN at -57% EV)
-            // shrinks its next entry to 25% size and enforces cadence-based
-            // probes rather than being hard-disabled. Never returns 0 outright;
-            // if the damped size falls below the paper min, clampPaperTradeSol
-            // (V5.0.6471) will skip cleanly via SIZE_CLAMP_ZERO.
+            // pivots the same lane's tactic before secondary sizing. Learned
+            // pressure never returns zero or becomes an execution hard block.
             try {
                 val lane6473 = resolveExecutionLane(ts, fallback = "STANDARD")
                 val decision6473 = com.lifecyclebot.engine.truth.LaneAdmissionGate6473.admissionDecision(
                     lane = lane6473, requestedSizeSol = finalSol,
+                    candidateScore = score.toInt(),
+                    minExecutableSizeSol = minConfiguredPaperTradeSol(),
                 )
                 when (decision6473) {
                     is com.lifecyclebot.engine.truth.LaneAdmissionGate6473.Decision.Allow -> {
                         finalSol = decision6473.effectiveSizeSol
                     }
                     is com.lifecyclebot.engine.truth.LaneAdmissionGate6473.Decision.Skip -> {
-                        try { ForensicLogger.lifecycle("PAPER_BUY_LANE_ADMISSION_SKIP_6473", "lane=$lane6473 mint=${ts.mint.take(10)} reason=${decision6473.reason}") } catch (_: Throwable) {}
-                        finalSol = 0.0
+                        // Compatibility only: 6481 admission no longer emits learned
+                        // skips. Preserve current size rather than disguising a policy
+                        // decision as INVALID_SIZE/SIZE_CLAMP_ZERO.
+                        try { ForensicLogger.lifecycle("PAPER_BUY_LANE_ADMISSION_SKIP_COMPAT_6481", "lane=$lane6473 mint=${ts.mint.take(10)} reason=${decision6473.reason} action=preserve_size") } catch (_: Throwable) {}
                     }
                 }
             } catch (_: Throwable) {}
@@ -11995,27 +11997,16 @@ class Executor(
             )
         } catch (_: Throwable) {}
 
-        // V5.0.6249 — HARD VETO on proven-toxic buckets (paper path).
-        // Operator report shows paper WR crashed to 25.3% rolling because
-        // LiveStrategyTuner's asymmetric_runner_exempt held MOONSHOT and
-        // SHITCOIN at size×=1.00 despite 17-19% live/paper WR. The
-        // advisory LaneBucketPivot trims were ignored. Hard-block new
-        // paper buys into buckets with ≥15 losses AND ≥60% loss rate AND
-        // meanPnl ≤ -15%. Same gate as the live path so the paper
-        // simulation trains against the same forward rules.
-        // V5.0.6250 — TALLY FIX: register this veto with onGate() so it
-        // appears in the "Gate allow / block tally" and "Top block reasons"
-        // panels alongside FDG/LANE_AUTO_PAUSED_*. Prior 6249 report showed
-        // zero visible blocks for this veto because labelInc alone is not
-        // aggregated into the block-reason histogram.
+        // V5.0.6481 — §6249 learned toxic-bucket hard veto removed.
+        // Rotate tactic INSIDE the same lane before purchase; hard blocks remain
+        // reserved for rugs, integrity faults, and original safety authority.
         run {
             val laneTag = try { ts.position.tradingMode.ifBlank { "STANDARD" } } catch (_: Throwable) { "STANDARD" }
-            val bucketVeto = try { com.lifecyclebot.engine.LaneBucketPivot.shouldVeto(laneTag, score.toInt()) } catch (_: Throwable) { false to "" }
-            if (bucketVeto.first) {
-                try { ForensicLogger.lifecycle("PAPER_BUY_TOXIC_BUCKET_HARD_VETO_6249", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag score=${score.toInt()} detail=${bucketVeto.second.take(160)}") } catch (_: Throwable) {}
-                try { PipelineHealthCollector.labelInc("PAPER_BUY_TOXIC_BUCKET_HARD_VETO_6249") } catch (_: Throwable) {}
-                try { PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "TOXIC_BUCKET_HARD_VETO_6249_${laneTag}_S${score.toInt()} mode=PAPER lane=$laneTag detail=${bucketVeto.second.take(120)}") } catch (_: Throwable) {}
-                return
+            val pressure = try { com.lifecyclebot.engine.LaneBucketPivot.shouldVeto(laneTag, score.toInt()) } catch (_: Throwable) { false to "" }
+            if (pressure.first) {
+                val pivoted = try { com.lifecyclebot.engine.learning.TacticSwitcher.rotateForLanePressure(laneTag, score.toInt(), "toxic_bucket_6249_paper").name } catch (_: Throwable) { "UNKNOWN" }
+                try { ForensicLogger.lifecycle("PAPER_BUY_TOXIC_BUCKET_TACTIC_PIVOT_6481", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag score=${score.toInt()} tactic=$pivoted detail=${pressure.second.take(160)}") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("PAPER_BUY_TOXIC_BUCKET_TACTIC_PIVOT_6481") } catch (_: Throwable) {}
             }
         }
         PipelineTracer.executorStart(ts.symbol, ts.mint, "PAPER", sol)
@@ -14567,24 +14558,16 @@ class Executor(
             } catch (_: Throwable) {}
         }
 
-        // V5.0.6249 — HARD VETO on proven-toxic buckets.
-        // LaneBucketPivot's advisory trims were ignored by
-        // asymmetric_runner_exempt_6068 in LiveStrategyTuner, letting
-        // MOONSHOT/SHITCOIN bleed at 17-19% WR full-size. shouldVeto
-        // is a mandatory block for any bucket with ≥15 losses AND
-        // ≥60% loss rate AND meanPnl ≤ -15%.
-        // V5.0.6250 — TALLY FIX: register with onGate() so it shows up
-        // in the block-reason histogram (was invisible under 6249 because
-        // labelInc alone bypasses the phase tally).
-        try {
-            val bucketVeto = com.lifecyclebot.engine.LaneBucketPivot.shouldVeto(layerTag, score.toInt())
-            if (bucketVeto.first) {
-                liveStage("LIVE_BUY_ABORTED", "reason=TOXIC_BUCKET_HARD_VETO_6249 detail=${bucketVeto.second.take(160)}")
-                try { emitLiveBuyFail(ts, sol, "TOXIC_BUCKET_HARD_VETO_6249", bucketVeto.second) } catch (_: Throwable) {}
-                try { PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "TOXIC_BUCKET_HARD_VETO_6249_${layerTag}_S${score.toInt()} mode=LIVE lane=$layerTag detail=${bucketVeto.second.take(120)}") } catch (_: Throwable) {}
-                return false
+        // V5.0.6481 — live sibling of §6249: lane-local tactic pivot,
+        // never a learned hard veto or synthetic executor failure.
+        run {
+            val pressure = try { com.lifecyclebot.engine.LaneBucketPivot.shouldVeto(layerTag, score.toInt()) } catch (_: Throwable) { false to "" }
+            if (pressure.first) {
+                val pivoted = try { com.lifecyclebot.engine.learning.TacticSwitcher.rotateForLanePressure(layerTag, score.toInt(), "toxic_bucket_6249_live").name } catch (_: Throwable) { "UNKNOWN" }
+                liveStage("LIVE_BUY_TACTIC_PIVOT_6481", "lane=$layerTag tactic=$pivoted detail=${pressure.second.take(160)}")
+                try { PipelineHealthCollector.labelInc("LIVE_BUY_TOXIC_BUCKET_TACTIC_PIVOT_6481") } catch (_: Throwable) {}
             }
-        } catch (_: Throwable) {}
+        }
 
         // V5.0.6264 — DNA-BASED PRE-BUY VETO. Op-report V5.0.6263 showed
         // topLossSetup=DEGEN_MICRO_SNIPE(n=7 μ=-50.8%) with only 3 wins @
