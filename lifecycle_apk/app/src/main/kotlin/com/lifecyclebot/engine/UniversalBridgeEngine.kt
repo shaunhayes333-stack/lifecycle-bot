@@ -93,6 +93,8 @@ object UniversalBridgeEngine {
         val targetAmountUi: Double,   // human-readable amount
         val swapTxSig: String?,       // Jupiter tx sig (null if no swap needed)
         val errorMsg: String = "",
+        val targetDecimals: Int = 0,
+        val proofState: String = "UNKNOWN",
     )
 
     data class WalletCapacity(
@@ -193,11 +195,15 @@ object UniversalBridgeEngine {
                     targetAmountRaw= rawAmount,
                     targetAmountUi = rawAmount / 1_000_000.0,
                     swapTxSig      = null,
+                    targetDecimals = 6,
+                    proofState     = "BALANCE_CONFIRMED_NO_SWAP",
                 )
             } else {
                 return@withContext BridgeResult(false, USDC_MINT, USDC_MINT, 0, 0.0, null, "Insufficient USDC balance")
             }
         }
+
+        val preUsdcUi6486 = try { wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: 0.0 } catch (_: Throwable) { 0.0 }
 
         // Calculate how much of source token = sizeUsd
         val sourcePrice = approxPricesUsd[sourceMint] ?: estimateTokenPriceUsd(sourceMint)
@@ -235,20 +241,45 @@ object UniversalBridgeEngine {
             return@withContext BridgeResult(false, sourceMint, USDC_MINT, 0, 0.0, null, "Jupiter swap failed")
         }
 
+        val fill6486 = verifyTargetDelta6486(wallet, USDC_MINT, preUsdcUi6486, txSig)
+            ?: run {
+                bridgesFailed.incrementAndGet()
+                return@withContext BridgeResult(false, sourceMint, USDC_MINT, 0, 0.0, txSig,
+                    "USDC output delta unproved after bridge", proofState = "SIGNATURE_ONLY_UNPROVED")
+            }
         bridgesExecuted.incrementAndGet()
+        ErrorLogger.info(TAG, "✅ Bridge complete: ${fill6486.ui} USDC | tx=${txSig.take(16)} proof=${fill6486.proof}")
+        BridgeResult(true, sourceMint, USDC_MINT, fill6486.raw, fill6486.ui, txSig,
+            targetDecimals = fill6486.decimals, proofState = fill6486.proof)
+    }
 
-        // Return expected USDC output
-        val usdcRaw  = (sizeUsd * 1_000_000 * 0.985).toLong()  // 1.5% slippage buffer
-        ErrorLogger.info(TAG, "✅ Bridge complete: ~${usdcRaw / 1_000_000.0} USDC | tx=${txSig.take(16)}")
+    private data class VerifiedDelta6486(val raw: Long, val ui: Double, val decimals: Int, val proof: String)
 
-        BridgeResult(
-            success        = true,
-            sourceMint     = sourceMint,
-            targetMint     = USDC_MINT,
-            targetAmountRaw= usdcRaw,
-            targetAmountUi = usdcRaw / 1_000_000.0,
-            swapTxSig      = txSig,
-        )
+    private suspend fun verifyTargetDelta6486(
+        wallet: SolanaWallet, targetMint: String, preUi: Double, signature: String,
+    ): VerifiedDelta6486? {
+        try {
+            kotlinx.coroutines.delay(1_200L)
+            val parsed = com.lifecyclebot.engine.execution.TxParseHelper.parseAll(wallet, signature)
+            val d = parsed?.tokenDeltas?.get(targetMint)
+            if (d != null && d.rawDelta.signum() > 0) {
+                val raw = try { d.rawDelta.longValueExact() } catch (_: Throwable) { Long.MAX_VALUE }
+                val ui = java.math.BigDecimal(d.rawDelta).movePointLeft(d.decimals).toDouble()
+                return VerifiedDelta6486(raw, ui, d.decimals, "TX_META_DELTA_CONFIRMED")
+            }
+        } catch (_: Throwable) {}
+        repeat(5) { attempt ->
+            kotlinx.coroutines.delay(longArrayOf(1_500L, 2_500L, 4_000L, 5_000L, 6_000L)[attempt])
+            val row = try { wallet.getTokenAccountsWithDecimalsBounded()[targetMint] } catch (_: Throwable) { null }
+            if (row != null && row.first > preUi) {
+                val ui = row.first - preUi
+                val raw = java.math.BigDecimal.valueOf(ui).movePointRight(row.second).toBigInteger().let {
+                    try { it.longValueExact() } catch (_: Throwable) { Long.MAX_VALUE }
+                }
+                if (raw > 0L) return VerifiedDelta6486(raw, ui, row.second, "WALLET_DELTA_CONFIRMED_${attempt + 1}")
+            }
+        }
+        return null
     }
 
     /**
@@ -278,7 +309,23 @@ object UniversalBridgeEngine {
 
         // Step 2: if source == target, just confirm balance
         if (src == targetMint) {
-            return@withContext bridgeToUsdc(wallet, src, sizeUsd).copy(targetMint = targetMint)
+            val row = if (targetMint == SOL_MINT) {
+                val ui = try { wallet.getSolBalance() } catch (_: Throwable) { 0.0 }
+                Pair(ui, 9)
+            } else try { wallet.getTokenAccountsWithDecimalsBounded()[targetMint] } catch (_: Throwable) { null }
+            val availableUi = row?.first ?: 0.0
+            val decimals = row?.second ?: (TOKEN_DECIMALS[targetMint] ?: 9)
+            val price = approxPricesUsd[targetMint] ?: estimateTokenPriceUsd(targetMint)
+            val requestedUi = if (price > 0.0) sizeUsd / price else 0.0
+            if (requestedUi <= 0.0 || availableUi + 1e-12 < requestedUi) {
+                return@withContext BridgeResult(false, src, targetMint, 0, 0.0, null,
+                    "Insufficient already-held ${mintLabel(targetMint)} for requested allocation")
+            }
+            val raw = java.math.BigDecimal.valueOf(requestedUi).movePointRight(decimals).toBigInteger().let {
+                try { it.longValueExact() } catch (_: Throwable) { Long.MAX_VALUE }
+            }
+            return@withContext BridgeResult(true, src, targetMint, raw, requestedUi, null,
+                targetDecimals = decimals, proofState = "BALANCE_CONFIRMED_NO_SWAP")
         }
 
         // Step 3: if target == USDC, single hop source → USDC
@@ -288,28 +335,19 @@ object UniversalBridgeEngine {
 
         // Step 4: if source == USDC, single hop USDC → target
         if (src == USDC_MINT) {
-            val usdcBal = try { wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: 0.0 } catch (_: Exception) { 0.0 }
-            val usdcRaw  = (minOf(usdcBal, sizeUsd) * 1_000_000).toLong()
-
+            val accountsBefore = try { wallet.getTokenAccountsWithDecimalsBounded() } catch (_: Exception) { emptyMap() }
+            val usdcBal = accountsBefore[USDC_MINT]?.first ?: 0.0
+            val preTarget = accountsBefore[targetMint]?.first ?: 0.0
+            val usdcRaw = (minOf(usdcBal, sizeUsd) * 1_000_000).toLong()
             if (usdcRaw <= 0) return@withContext BridgeResult(false, USDC_MINT, targetMint, 0, 0.0, null, "No USDC available")
-
-            val txSig = executeJupiterSwap(
-                wallet      = wallet,
-                inputMint   = USDC_MINT,
-                outputMint  = targetMint,
-                amountRaw   = usdcRaw,
-                slippageBps = 150,
-            ) ?: return@withContext BridgeResult(false, USDC_MINT, targetMint, 0, 0.0, null, "USDC→target swap failed")
-
+            val txSig = executeJupiterSwap(wallet, USDC_MINT, targetMint, usdcRaw, 150)
+                ?: return@withContext BridgeResult(false, USDC_MINT, targetMint, 0, 0.0, null, "USDC→target swap failed")
+            val fill = verifyTargetDelta6486(wallet, targetMint, preTarget, txSig)
+                ?: return@withContext BridgeResult(false, USDC_MINT, targetMint, 0, 0.0, txSig,
+                    "USDC→target signature exists but target delta is unproved", proofState = "SIGNATURE_ONLY_UNPROVED")
             bridgesExecuted.incrementAndGet()
-            return@withContext BridgeResult(
-                success        = true,
-                sourceMint     = USDC_MINT,
-                targetMint     = targetMint,
-                targetAmountRaw= usdcRaw,
-                targetAmountUi = usdcRaw / 1_000_000.0,
-                swapTxSig      = txSig,
-            )
+            return@withContext BridgeResult(true, USDC_MINT, targetMint, fill.raw, fill.ui, txSig,
+                targetDecimals = fill.decimals, proofState = fill.proof)
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -523,6 +561,8 @@ object UniversalBridgeEngine {
             targetAmountRaw= deltaRaw,
             targetAmountUi = deltaUi,
             swapTxSig      = txSig,
+            targetDecimals = targetDecimals,
+            proofState     = verifySource.uppercase(),
         )
     }
 
@@ -535,36 +575,45 @@ object UniversalBridgeEngine {
         targetMint: String,
         returnToMint: String = USDC_MINT,
     ): BridgeResult = withContext(Dispatchers.IO) {
-
         if (targetMint == returnToMint) {
-            return@withContext BridgeResult(true, targetMint, returnToMint, 0, 0.0, null)
+            val row = if (returnToMint == SOL_MINT) Pair(wallet.getSolBalance(), 9)
+                else try { wallet.getTokenAccountsWithDecimalsBounded()[returnToMint] } catch (_: Throwable) { null }
+            return@withContext BridgeResult(true, targetMint, returnToMint, 0, row?.first ?: 0.0, null,
+                targetDecimals = row?.second ?: 0, proofState = "BALANCE_CONFIRMED_NO_SWAP")
         }
-
-        // Get actual balance of the target token
-        val balRaw: Long = try {
-            val accounts = wallet.getTokenAccountsWithDecimalsBounded()
-            val entry    = accounts[targetMint]
-            if (entry != null) {
-                val (amount, decimals) = entry
-                (amount * Math.pow(10.0, decimals.toDouble())).toLong()
-            } else if (targetMint == SOL_MINT) {
-                val sol = wallet.getSolBalance()
-                ((sol - 0.01).coerceAtLeast(0.0) * 1_000_000_000L).toLong()
-            } else 0L
-        } catch (_: Exception) { 0L }
-
-        if (balRaw <= 0) return@withContext BridgeResult(false, targetMint, returnToMint, 0, 0.0, null, "Nothing to release")
-
-        val txSig = executeJupiterSwap(
-            wallet      = wallet,
-            inputMint   = targetMint,
-            outputMint  = returnToMint,
-            amountRaw   = balRaw,
-            slippageBps = 200,
-        ) ?: return@withContext BridgeResult(false, targetMint, returnToMint, 0, 0.0, null, "Release swap failed")
-
-        ErrorLogger.info(TAG, "✅ Capital released: ${mintLabel(targetMint)} → ${mintLabel(returnToMint)} | tx=${txSig.take(16)}")
-        BridgeResult(true, targetMint, returnToMint, balRaw, balRaw / 1_000_000.0, txSig)
+        val accountsBefore = try { wallet.getTokenAccountsWithDecimalsBounded() } catch (_: Throwable) { emptyMap() }
+        val input = accountsBefore[targetMint]
+        val inputDecimals = if (targetMint == SOL_MINT) 9 else input?.second ?: 0
+        val inputUi = if (targetMint == SOL_MINT) (wallet.getSolBalance() - 0.01).coerceAtLeast(0.0) else input?.first ?: 0.0
+        val balRaw = java.math.BigDecimal.valueOf(inputUi).movePointRight(inputDecimals).toBigInteger().let {
+            try { it.longValueExact() } catch (_: Throwable) { 0L }
+        }
+        if (balRaw <= 0L) return@withContext BridgeResult(false, targetMint, returnToMint, 0, 0.0, null, "Nothing to release")
+        val preOutputUi = if (returnToMint == SOL_MINT) try { wallet.getSolBalance() } catch (_: Throwable) { 0.0 }
+            else accountsBefore[returnToMint]?.first ?: 0.0
+        val txSig = executeJupiterSwap(wallet, targetMint, returnToMint, balRaw, 200)
+            ?: return@withContext BridgeResult(false, targetMint, returnToMint, 0, 0.0, null, "Release swap failed")
+        val fill = if (returnToMint == SOL_MINT) {
+            var result: VerifiedDelta6486? = null
+            repeat(5) { attempt ->
+                if (result == null) {
+                    kotlinx.coroutines.delay(longArrayOf(1_200L, 2_000L, 3_000L, 4_000L, 5_000L)[attempt])
+                    val now = try { wallet.getSolBalance() } catch (_: Throwable) { preOutputUi }
+                    val delta = now - preOutputUi
+                    if (delta > 0.0) result = VerifiedDelta6486((delta * 1_000_000_000L).toLong(), delta, 9, "WALLET_SOL_DELTA_CONFIRMED_${attempt + 1}")
+                }
+            }
+            result
+        } else verifyTargetDelta6486(wallet, returnToMint, preOutputUi, txSig)
+        if (fill == null || fill.raw <= 0L) {
+            bridgesFailed.incrementAndGet()
+            return@withContext BridgeResult(false, targetMint, returnToMint, 0, 0.0, txSig,
+                "Release signature exists but output delta is unproved", proofState = "SIGNATURE_ONLY_UNPROVED")
+        }
+        bridgesExecuted.incrementAndGet()
+        ErrorLogger.info(TAG, "✅ Capital released: ${mintLabel(targetMint)} → ${mintLabel(returnToMint)} ui=${fill.ui} tx=${txSig.take(16)}")
+        BridgeResult(true, targetMint, returnToMint, fill.raw, fill.ui, txSig,
+            targetDecimals = fill.decimals, proofState = fill.proof)
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

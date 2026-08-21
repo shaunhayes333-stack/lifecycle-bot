@@ -205,7 +205,26 @@ object SentienceHooks {
      * Called from each engine's close path. Updates engine running PnL
      * and recomputes cross-engine size biases.
      */
+    private val canonicalEngineOutcomeIds6486 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    fun recordCanonicalEngineOutcome6486(positionId: String, engine: String, pnlSol: Double, isWin: Boolean): Boolean {
+        if (positionId.isBlank() || !canonicalEngineOutcomeIds6486.add(positionId)) return false
+        applyCanonicalEngineOutcome6486(engine, pnlSol, isWin)
+        try { PipelineHealthCollector.labelInc("SENTIENCE_CANONICAL_OUTCOME_CONSUMED_6486") } catch (_: Throwable) {}
+        return true
+    }
+
+    @Deprecated("V5.0.6486 canonical terminal bus only")
     fun recordEngineOutcome(engine: String, pnlSol: Double, isWin: Boolean) {
+        try { PipelineHealthCollector.labelInc("SENTIENCE_DIRECT_OUTCOME_REJECTED_6486") } catch (_: Throwable) {}
+    }
+
+    @Deprecated("V5.0.6486 canonical terminal bus only")
+    fun recordEngineOutcome(engine: String, mint: String, pnlSol: Double, isWin: Boolean) {
+        try { PipelineHealthCollector.labelInc("SENTIENCE_DIRECT_OUTCOME_REJECTED_6486") } catch (_: Throwable) {}
+    }
+
+    private fun applyCanonicalEngineOutcome6486(engine: String, pnlSol: Double, isWin: Boolean) {
         val key = engine.uppercase()
         val s = engineState.getOrPut(key) { EngineRunningPnL() }
         synchronized(s) {
@@ -227,21 +246,6 @@ object SentienceHooks {
             ))
             postMortemIfDue()
         }
-    }
-
-    /**
-     * V5.9.495z21 — mint-aware overload that short-circuits the cross-engine
-     * aggregate update when the trade was a partial-bridge / output-mismatch
-     * / recovery event (target token never landed). Prevents the running
-     * win rate for MEME / LAB engines from being polluted by phantom
-     * outcomes. If the mint has no stamped execution status, behaves
-     * identically to the legacy 3-arg form.
-     */
-    fun recordEngineOutcome(engine: String, mint: String, pnlSol: Double, isWin: Boolean) {
-        if (!com.lifecyclebot.engine.execution.ExecutionStatusRegistry.shouldTrainStrategy(mint)) {
-            return
-        }
-        recordEngineOutcome(engine, pnlSol, isWin)
     }
 
     /** Bias multiplier for use in sizing (0.5..1.5). */

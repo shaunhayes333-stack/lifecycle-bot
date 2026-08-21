@@ -53,7 +53,10 @@ object ForexTrader {
     // V5.9.7: paperBalance now delegates to shared FluidLearning pool
     private var paperBalance: Double
         get() = com.lifecyclebot.engine.BotService.status.paperWalletSol
-        set(value) { com.lifecyclebot.engine.FluidLearning.forceSetBalance(value) }
+        set(@Suppress("UNUSED_PARAMETER") value) {
+            com.lifecyclebot.engine.FluidLearning.forceSetBalance(
+                com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol().coerceAtLeast(0.0))
+        }
     private val totalTrades   = java.util.concurrent.atomic.AtomicInteger(0)
     private val winningTrades = java.util.concurrent.atomic.AtomicInteger(0)
     private val losingTrades  = java.util.concurrent.atomic.AtomicInteger(0)
@@ -687,18 +690,21 @@ object ForexTrader {
             isPaper = isPaperMode.get(),
         )
         
-        positionMap[position.id] = position
-        // V5.9.178 — persist open forex positions for app-update recovery.
-        persistForexPositions()
         
         // V5.9.114: UNIFIED capital move. Paper debits paper; live fires
         // Jupiter swap at same positionSizeSol. Live failure rolls back.
         if (isPaperMode.get()) {
-            com.lifecyclebot.engine.FluidLearning.recordPaperBuy("ForexTrader", positionSizeSol.coerceAtLeast(0.0))
-            com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
-                delta = -positionSizeSol,
-                source = "Forex.open[${signal.market.symbol}]"
+                        val canonicalOpen6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(
+                positionId = position.id, mint = position.market.symbol, symbol = position.market.symbol,
+                lane = "FOREX", source = "ForexTrader",
+                costSol = positionSizeSol, feeSol = positionSizeSol * (if (signal.leverage == 1.0) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT),
+                entryScore = signal.score.toInt(),
             )
+            if (!canonicalOpen6486.applied) {
+                ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: ${position.market.symbol} ${canonicalOpen6486.reason}")
+                return
+            }
+com.lifecyclebot.engine.FluidLearning.recordPaperBuy("ForexTrader", positionSizeSol.coerceAtLeast(0.0))
             // V5.9.171 — local orphan failsafe.
             try {
                 com.lifecyclebot.collective.LocalOrphanStore.recordOpen(
@@ -709,7 +715,7 @@ object ForexTrader {
                 )
             } catch (_: Exception) {}
         } else {
-            val liveOk = executeLiveTradeAtSize(signal, typeLabel, positionSizeSol)
+            val liveOk = executeLiveTradeAtSize(position.id, signal, typeLabel, positionSizeSol)
             if (!liveOk) {
                 positionMap.remove(position.id)
                 persistForexPositions()
@@ -720,6 +726,9 @@ object ForexTrader {
             liveWalletBalance = (liveWalletBalance - positionSizeSol).coerceAtLeast(0.0)
         }
         
+positionMap[position.id] = position
+        persistForexPositions()
+
         ErrorLogger.info(TAG, "💱 OPENED: $typeLabel ${signal.direction.emoji} ${signal.market.symbol} @ ${signal.price.fmt(5)} | size=${positionSizeSol}◎ | score=${signal.score}")
 
         // V5.9.130: register V3 entry for real-accuracy close loop.
@@ -745,9 +754,10 @@ object ForexTrader {
     
     /** V5.7.6b: Execute LIVE trade via MarketsLiveExecutor */
     /** V5.9.114: LIVE swap at caller-supplied size (paper-matched). */
-    private suspend fun executeLiveTradeAtSize(signal: ForexSignal, typeLabel: String, sizeSol: Double): Boolean {
+    private suspend fun executeLiveTradeAtSize(positionId: String, signal: ForexSignal, typeLabel: String, sizeSol: Double): Boolean {
         ErrorLogger.info(TAG, "🔴 LIVE FOREX TRADE: ${signal.direction.emoji} ${signal.market.symbol} size=${sizeSol.fmt(4)}◎")
-        val (success, txSignature) = MarketsLiveExecutor.executeLiveTrade(
+        val fill6486 = MarketsLiveExecutor.executeLiveTradeProof6486(
+            positionId = positionId,
             market = signal.market,
             direction = signal.direction,
             sizeSol = sizeSol.coerceAtLeast(0.01),
@@ -755,6 +765,11 @@ object ForexTrader {
             priceUsd = signal.price,
             traderType = "Forex",
         )
+        val success = fill6486.confirmed
+        val txSignature = fill6486.signature
+        if (fill6486.state == MarketsLiveExecutor.FillState6486.PENDING_PROOF) {
+            ErrorLogger.warn(TAG, "LIVE signature pending proof: ${signal.market.symbol} positionId=$positionId sig=${txSignature?.take(16)}")
+        }
         if (success) {
             ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | tx=${txSignature?.take(16) ?: "bridge"}")
             try {
@@ -766,33 +781,7 @@ object ForexTrader {
         return false
     }
 
-    private suspend fun executeLiveTrade(signal: ForexSignal, typeLabel: String): Boolean {
-        ErrorLogger.info(TAG, "🔴 LIVE FOREX TRADE: ${signal.direction.emoji} ${signal.market.symbol}")
-        ErrorLogger.info(TAG, "🔴 Price: ${signal.price.fmt(5)} | $typeLabel")
-        
-        val (success, txSignature) = MarketsLiveExecutor.executeLiveTrade(
-            market = signal.market,
-            direction = signal.direction,
-            sizeSol = (getEffectiveBalance() * (DEFAULT_SIZE_PCT / 100.0)).coerceAtLeast(0.01),
-            leverage = signal.leverage,
-            priceUsd = signal.price,
-            traderType = "Forex",
-        )
-        
-        // V5.9.2: success is authoritative — txSignature null = bridge trade (no swap needed)
-        if (success) {
-            ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | tx=${txSignature?.take(16) ?: "bridge"}")
-            
-            // Update live wallet balance
-            try {
-                val newBalance = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: liveWalletBalance
-                updateLiveBalance(newBalance)
-            } catch (_: Exception) {}
-            
-            return true
-        }
-        return false
-    }
+
     
     private suspend fun monitorPositions() {
         spotPositions.values.toList().forEach { position ->
@@ -842,18 +831,29 @@ object ForexTrader {
         val pnl = grossPnl - totalFeeSol
         val pnlPct = position.getPnlPercent() - (totalFeeSol / position.size * 100)
         val isWin = pnl >= 0
+        if (position.isPaper) {
+            val canonicalClose6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.close(
+                positionId = position.id, mint = position.market.symbol, symbol = position.market.symbol,
+                grossProceedsSol = (position.size + grossPnl).coerceAtLeast(0.0),
+                sellFeeSol = position.size * feePercent, exitReason = reason,
+                terminalSequence = System.currentTimeMillis(),
+            )
+            if (!canonicalClose6486.applied) {
+                ErrorLogger.warn(TAG, "PAPER CLOSE REJECTED: ${position.market.symbol} ${canonicalClose6486.reason}")
+                return
+            }
+        }
 
         // V5.9.721-FIX: fast shutdown path — skip heavy AI learning on bot stop.
-        if (com.lifecyclebot.engine.BotService.isShuttingDown) {
+        if (com.lifecyclebot.engine.BotService.isShuttingDown && position.isPaper) {
             // V5.9.740: route on position.isPaper, not global isPaperMode.
             if (position.isPaper) {
                 try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(position.market.symbol, position.size, pnl) } catch (_: Exception) {}
-                com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
-                    delta = position.size + pnl,
-                    source = "Forex.close.fast[${position.market.symbol}]"
-                )
             }
             ErrorLogger.info(TAG, "🏃 FAST_CLOSE [${position.market.symbol}] on shutdown — AI learning skipped")
+            positionMap.remove(position.id)
+            persistForexPositions()
+            try { com.lifecyclebot.collective.LocalOrphanStore.clear(position.id) } catch (_: Exception) {}
             return
         }
 
@@ -885,14 +885,17 @@ object ForexTrader {
             var closeSuccess = false
             try {
                 closeSuccess = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
-                    val (ok, _) = MarketsLiveExecutor.closeLivePosition(
+                    val close6486 = MarketsLiveExecutor.closeLivePositionProof6486(
+                        positionId = position.id,
                         market = position.market,
                         direction = position.direction,
                         sizeSol = position.size,
                         leverage = position.leverage,
                         traderType = "Forex",
+                        exitReason = reason,
+                        entryTactic = "FOREX",
                     )
-                    ok
+                    close6486.confirmed
                 }
             } catch (e: Exception) {
                 ErrorLogger.warn(TAG, "Live close failed for ${position.market.symbol}: ${e.message}")
@@ -942,10 +945,6 @@ object ForexTrader {
                 )
             } catch (_: Exception) {}
             // V5.9.48: Unified paper wallet — capital + PnL back to main dashboard.
-            com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
-                delta = position.size + pnl,
-                source = "Forex.close[${position.market.symbol}]"
-            )
         }
         
         // Record pattern for AI memory
@@ -1165,7 +1164,8 @@ object ForexTrader {
     
     // V5.7.6b: Set balance for paper trading
     fun setBalance(balance: Double) {
-        com.lifecyclebot.engine.FluidLearning.forceSetBalance(balance)
+        com.lifecyclebot.engine.FluidLearning.forceSetBalance(
+            com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol().coerceAtLeast(0.0))
         ErrorLogger.info(TAG, "💱 ForexTrader balance set to ${"%.2f".format(balance)} SOL")
     }
     
@@ -1235,9 +1235,6 @@ object ForexTrader {
                         catch (e: Exception) {
                             ErrorLogger.warn(TAG,
                                 "💱 retire-paper close failed for ${pos.market.symbol}: ${e.message}")
-                            // Hard fallback: remove from map so the UI doesn't
-                            // show a stale paper position labelled as live.
-                            map.remove(pos.id)
                         }
                     }
                     persistForexPositions()

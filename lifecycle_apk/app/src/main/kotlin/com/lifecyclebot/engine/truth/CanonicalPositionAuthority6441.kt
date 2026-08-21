@@ -43,6 +43,7 @@ object CanonicalPositionAuthority6441 {
 
     data class Position(
         val positionId: String,
+        val mode: String,
         val mint: String,
         val symbol: String,
         val lane: String,
@@ -116,6 +117,7 @@ object CanonicalPositionAuthority6441 {
         tokenDecimals: Int,
         feesSol: Double,
         paperMode: Boolean,
+        modeOverride: String? = null,
     ): MutateResult {
         lock.lock()
         try {
@@ -141,7 +143,9 @@ object CanonicalPositionAuthority6441 {
             val lifecycle = if (openedQtyRaw == BigInteger.ZERO)
                 Lifecycle.PENDING_ENTRY else Lifecycle.OPEN
             positions[positionId] = Position(
-                positionId = positionId, mint = mint, symbol = symbol, lane = lane, runId = runId,
+                positionId = positionId, mode = modeOverride?.trim()?.lowercase()?.takeIf { it in setOf("paper", "live") }
+                    ?: if (paperMode) "paper" else "live",
+                mint = mint, symbol = symbol, lane = lane, runId = runId,
                 openedAtMs = System.currentTimeMillis(),
                 entryCostSol = entryCostSol,
                 remainingQtyRaw = openedQtyRaw,
@@ -217,6 +221,38 @@ object CanonicalPositionAuthority6441 {
             )
             muts.incrementAndGet()
             try { PipelineHealthCollector.labelInc("CANONICAL_POSITION_PROMOTED_6441") } catch (_: Throwable) {}
+            return MutateResult.APPLIED
+        } finally { lock.unlock() }
+    }
+
+    /** V5.0.6486 — atomic scale-in/add against an existing canonical position. */
+    fun addToPosition6486(
+        idempotencyKey: String,
+        positionId: String,
+        addedCostSol: Double,
+        addedQtyRaw: BigInteger,
+        feesSol: Double,
+    ): MutateResult {
+        lock.lock()
+        try {
+            if (isDuplicate(idempotencyKey)) return MutateResult.DUPLICATE
+            val pos = positions[positionId] ?: return MutateResult.UNKNOWN_POSITION
+            if (pos.lifecycle !in setOf(Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED)) return MutateResult.LIFECYCLE_FORBIDDEN
+            if (!addedCostSol.isFinite() || addedCostSol <= 0.0 || addedQtyRaw <= BigInteger.ZERO || !feesSol.isFinite() || feesSol < 0.0) {
+                invariantViolations.incrementAndGet()
+                return MutateResult.INVARIANT_VIOLATION
+            }
+            positions[positionId] = pos.copy(
+                entryCostSol = pos.entryCostSol + addedCostSol,
+                remainingQtyRaw = pos.remainingQtyRaw + addedQtyRaw,
+                originalQtyRaw = pos.originalQtyRaw + addedQtyRaw,
+                feesSol = pos.feesSol + feesSol,
+                lifecycle = Lifecycle.OPEN,
+                lastMutationMs = System.currentTimeMillis(),
+            )
+            markKeyUsed(idempotencyKey)
+            muts.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("CANONICAL_POSITION_ADD_6486") } catch (_: Throwable) {}
             return MutateResult.APPLIED
         } finally { lock.unlock() }
     }
@@ -354,6 +390,54 @@ object CanonicalPositionAuthority6441 {
             victims.forEach { positions.remove(it.positionId) }
             if (victims.isNotEmpty()) try { PipelineHealthCollector.labelInc("UNFUNDED_PAPER_ENTRY_PURGED_6485") } catch (_: Throwable) {}
             return victims
+        } finally { lock.unlock() }
+    }
+
+    /** V5.0.6486 — rebuild paper position authority from durable typed events. */
+    fun rebuildPaperFromEvents6486(source: List<EconomicEventSchema6464.Event>): Int {
+        lock.lock()
+        try {
+            positions.entries.removeIf { it.value.mode == "paper" }
+            mutationKeys.entries.removeIf { it.key.startsWith("REPLAY6486:") }
+            val paperEvents = source.filter { it.mode == "paper" }.sortedBy { it.atMs }
+            for (e in paperEvents) {
+                when (e) {
+                    is EconomicEventSchema6464.Buy -> {
+                        val cur = positions[e.positionId]
+                        positions[e.positionId] = if (cur == null || cur.lifecycle == Lifecycle.CLOSED) {
+                            Position(
+                                positionId = e.positionId, mode = "paper", mint = e.mint, symbol = e.symbol,
+                                lane = "REPLAY_6486", runId = e.idempotencyKey, openedAtMs = e.atMs,
+                                entryCostSol = e.executedCostSol, remainingQtyRaw = e.filledQty,
+                                originalQtyRaw = e.filledQty, soldCostBasisSol = 0.0,
+                                realizedPnlSol = 0.0, realizedProceedsSol = 0.0,
+                                feesSol = e.entryFeesSol, tokenDecimals = 9, lifecycle = Lifecycle.OPEN,
+                                lastMutationMs = e.atMs, quarantineReason = "",
+                            )
+                        } else cur.copy(
+                            entryCostSol = cur.entryCostSol + e.executedCostSol,
+                            remainingQtyRaw = cur.remainingQtyRaw + e.filledQty,
+                            originalQtyRaw = cur.originalQtyRaw + e.filledQty,
+                            feesSol = cur.feesSol + e.entryFeesSol,
+                            lifecycle = Lifecycle.OPEN, lastMutationMs = e.atMs,
+                        )
+                    }
+                    is EconomicEventSchema6464.Sell -> {
+                        val cur = positions[e.positionId] ?: continue
+                        val life = if (e.remainingQty <= BigInteger.ZERO) Lifecycle.CLOSED else Lifecycle.PARTIALLY_CLOSED
+                        positions[e.positionId] = cur.copy(
+                            remainingQtyRaw = e.remainingQty,
+                            soldCostBasisSol = cur.soldCostBasisSol + e.allocatedCostBasisSol,
+                            realizedPnlSol = cur.realizedPnlSol + e.realizedPnlSol,
+                            realizedProceedsSol = cur.realizedProceedsSol + e.grossProceedsSol,
+                            feesSol = cur.feesSol + e.exitFeesSol,
+                            lifecycle = life, lastMutationMs = e.atMs,
+                        )
+                    }
+                }
+            }
+            try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_POSITIONS_REBUILT_6486") } catch (_: Throwable) {}
+            return positions.values.count { it.mode == "paper" && it.lifecycle != Lifecycle.CLOSED }
         } finally { lock.unlock() }
     }
 

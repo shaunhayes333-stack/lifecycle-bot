@@ -1,5 +1,9 @@
 package com.lifecyclebot.engine
 
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import com.lifecyclebot.util.AppDispatchers
+
 import android.content.Context
 import android.util.Log
 import org.json.JSONObject
@@ -214,7 +218,10 @@ object AutonomousMetaPolicy {
 
     /** Stamp the context chosen for a mint at decision time (for credit). */
     fun stampDecision(mint: String, lane: String, score: Int, regime: String) {
-        try { pending[mint] = contextKey(lane, score, regime) } catch (_: Throwable) {}
+        try {
+            pending[mint] = contextKey(lane, score, regime)
+            appContext?.let { ctx -> GlobalScope.launch(AppDispatchers.sideEffect) { save(ctx) } }
+        } catch (_: Throwable) {}
     }
 
     /** Credit a settled outcome back to the context that produced the decision. */
@@ -230,8 +237,8 @@ object AutonomousMetaPolicy {
             }
             totalUpdates += 1
             if (totalUpdates % DECAY_EVERY == 0L) decayAll()
-            // opportunistic persist every 25 updates (cheap)
-            if (totalUpdates % 25L == 0L) appContext?.let { save(it) }
+            // V5.0.6486 — every pending-label removal is durable; async keeps it off hot path.
+            appContext?.let { ctx -> GlobalScope.launch(AppDispatchers.sideEffect) { save(ctx) } }
         } catch (_: Throwable) {}
     }
 
@@ -289,6 +296,7 @@ object AutonomousMetaPolicy {
             })
         }
         o.put("arms", a)
+        o.put("pending", JSONObject().also { po -> pending.forEach { (mint, key) -> po.put(mint, key) } })
         o.toString()
     } catch (_: Throwable) { "{}" }
 
@@ -308,6 +316,15 @@ object AutonomousMetaPolicy {
                     samples = ao.optLong("n", 0L),
                     pnlSum = ao.optDouble("p", 0.0),
                 )
+            }
+            pending.clear()
+            o.optJSONObject("pending")?.let { po ->
+                val keysPending = po.keys()
+                while (keysPending.hasNext()) {
+                    val mint = keysPending.next()
+                    val key = po.optString(mint, "")
+                    if (key.isNotBlank()) pending[mint] = key
+                }
             }
         } catch (_: Throwable) {}
     }

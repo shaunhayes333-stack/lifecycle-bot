@@ -488,8 +488,9 @@ object PerpsExecutionEngine {
                 // V5.9.600 BUG-1 FIX: real on-chain execution in LIVE mode.
                 // PerpsTraderAI.openPosition was synthetic-only; the swap was never placed.
                 if (!isPaper) {
-                    val (liveOk, txSig) = try {
-                        MarketsLiveExecutor.executeLiveTrade(
+                    val fill6486 = try {
+                        MarketsLiveExecutor.executeLiveTradeProof6486(
+                            positionId = position.id,
                             market     = signal.market,
                             direction  = signal.direction,
                             sizeSol    = sizeSol,
@@ -499,8 +500,12 @@ object PerpsExecutionEngine {
                         )
                     } catch (ex: Exception) {
                         ErrorLogger.warn(TAG, "Live exec exception for ${signal.market.symbol}: ${ex.message}")
-                        Pair(false, null)
+                        MarketsLiveExecutor.MarketsFill6486(
+                            MarketsLiveExecutor.FillState6486.FAILED, position.id, null, "NONE", "",
+                            java.math.BigInteger.ZERO, 0, sizeSol, 0.0, "EXCEPTION", reason = ex.message ?: "exception")
                     }
+                    val liveOk = fill6486.confirmed
+                    val txSig = fill6486.signature
 
                     if (!liveOk) {
                         // Roll back — remove from PerpsTraderAI so wallet and tracker stay aligned
@@ -561,20 +566,23 @@ object PerpsExecutionEngine {
             // and no DEX close was ever placed. Now: live close fires first; if it fails we
             // keep the position open so the next tick retries rather than recording a phantom exit.
             if (!position.isPaper) {
-                val (closeOk, _) = try {
-                    MarketsLiveExecutor.closeLivePosition(
+                val close6486 = try {
+                    MarketsLiveExecutor.closeLivePositionProof6486(
+                        positionId       = position.id,
                         market           = position.market,
                         direction        = position.direction,
                         sizeSol          = position.sizeSol,
                         leverage         = position.leverage,
                         traderType       = "PerpsEngine",
                         flashPositionKey = position.flashPositionKey,
+                        exitReason       = exitSignal.name,
+                        entryTactic      = if (position.leverage > 1.0) "FLASH_PERPS" else "SPOT",
                     )
                 } catch (ex: Exception) {
                     ErrorLogger.warn(TAG, "Live close exception for ${position.market.symbol}: ${ex.message}")
-                    Pair(false, null)
+                    MarketsLiveExecutor.MarketsClose6486(false, position.id, null, 0.0, java.math.BigInteger.ZERO, "EXCEPTION", ex.message ?: "exception")
                 }
-                if (!closeOk) {
+                if (!close6486.confirmed) {
                     ErrorLogger.warn(TAG, "⚡ LIVE CLOSE FAILED: ${position.market.symbol} — keeping position open, will retry next tick")
                     return
                 }

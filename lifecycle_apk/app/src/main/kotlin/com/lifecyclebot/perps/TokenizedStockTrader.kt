@@ -230,7 +230,10 @@ object TokenizedStockTrader {
     // V5.9.7: paperBalance now delegates to shared FluidLearning pool
     private var paperBalance: Double
         get() = com.lifecyclebot.engine.BotService.status.paperWalletSol
-        set(value) { com.lifecyclebot.engine.FluidLearning.forceSetBalance(value) }
+        set(@Suppress("UNUSED_PARAMETER") value) {
+            com.lifecyclebot.engine.FluidLearning.forceSetBalance(
+                com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol().coerceAtLeast(0.0))
+        }
     private var totalPnlSol = 0.0
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -459,7 +462,9 @@ object TokenizedStockTrader {
                 val instanceId = com.lifecyclebot.collective.CollectiveLearning.getInstanceId() ?: ""
                 val state = tursoClient.loadMarketsState(instanceId)
                 if (state != null) {
-                    com.lifecyclebot.engine.FluidLearning.forceSetBalance(state.paperBalanceSol)
+                    com.lifecyclebot.engine.FluidLearning.forceSetBalance(
+                        com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol().coerceAtLeast(0.0))
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("STALE_MARKETS_BALANCE_IGNORED_6486") } catch (_: Throwable) {}
                     totalTrades.set(state.totalTrades)
                     winningTrades.set(state.totalWins)
                     losingTrades.set(state.totalLosses)
@@ -1219,6 +1224,57 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             isPaper = isPaperMode.get(),
         )
         
+        // V5.9.114: UNIFIED capital-move. Paper debits paper wallet;
+        // live fires a Jupiter swap at the EXACT same hiveSizeSol so
+        // sizing learnt in paper carries 1:1 into live. If the live swap
+        // fails, we DO NOT keep the position in our map (roll back).
+        if (isPaperMode.get()) {
+            val entryFee6486 = hiveSizeSol * (if (isSpot) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT)
+            val canonicalOpen6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(
+                positionId = position.id, mint = signal.market.symbol, symbol = signal.market.symbol,
+                lane = if (isSpot) "STOCK_SPOT" else "STOCK_LEV", source = "TokenizedStockTrader",
+                costSol = hiveSizeSol, feeSol = entryFee6486,
+                entryScore = signal.score, tactic = signal.direction.name,
+            )
+            if (!canonicalOpen6486.applied) {
+                ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: ${signal.market.symbol} ${canonicalOpen6486.reason}")
+                return
+            }
+            com.lifecyclebot.engine.FluidLearning.recordPaperBuy("TokenizedStockTrader", hiveSizeSol.coerceAtLeast(0.0))
+            // V5.9.171 — local orphan failsafe. Refunds paper capital on next
+            // startup if the app is wiped mid-trade, even when Turso is offline.
+            try {
+                com.lifecyclebot.collective.LocalOrphanStore.recordOpen(
+                    trader = "Stocks",
+                    posId = position.id,
+                    sizeSol = hiveSizeSol,
+                    symbol = signal.market.symbol,
+                )
+            } catch (_: Exception) {}
+        } else {
+            val liveOk = executeLiveTradeAtSize(position.id, signal, isSpot, hiveSizeSol)
+            if (!liveOk) {
+                // Roll back: remove the position we just inserted.
+                positions.remove(position.id)
+                spotPositions.remove(position.id)
+                leveragePositions.remove(position.id)
+                totalTrades.decrementAndGet()
+                ErrorLogger.warn(TAG, "🔴 LIVE stock trade failed: ${signal.market.symbol} — position rolled back")
+                return
+            }
+            // V5.9.600 BUG-5 FIX: immediately deduct committed capital from cached live balance
+            // so the next concurrent open sees reduced available capital.
+            liveWalletBalance = (liveWalletBalance - hiveSizeSol).coerceAtLeast(0.0)
+            savePersistedState()
+        }
+        
+        // Notify FluidLearningAI
+        // V5.7.6b: Use Markets-specific recording to avoid affecting Meme thresholds
+        try {
+            FluidLearningAI.recordMarketsTradeStart()
+        } catch (_: Exception) {}
+        
+        val leverageStr = if (isSpot) "1x SPOT" else "${leverage.toInt()}x LEV"
         // V5.7.6b: Add to appropriate map
         positions[position.id] = position
         if (isSpot) {
@@ -1244,53 +1300,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 traderSource = "Stocks",
             )
         } catch (_: Exception) {}
-        
-        // V5.9.114: UNIFIED capital-move. Paper debits paper wallet;
-        // live fires a Jupiter swap at the EXACT same hiveSizeSol so
-        // sizing learnt in paper carries 1:1 into live. If the live swap
-        // fails, we DO NOT keep the position in our map (roll back).
-        if (isPaperMode.get()) {
-            com.lifecyclebot.engine.FluidLearning.recordPaperBuy("TokenizedStockTrader", hiveSizeSol.coerceAtLeast(0.0))
-            // V5.9.48: unified paper wallet — debit the deployed capital so the
-            // main dashboard shows the real free cash while the position is open.
-            com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
-                delta = -hiveSizeSol,
-                source = "TokenizedStocks.open[${signal.market.symbol}]"
-            )
-            // V5.9.171 — local orphan failsafe. Refunds paper capital on next
-            // startup if the app is wiped mid-trade, even when Turso is offline.
-            try {
-                com.lifecyclebot.collective.LocalOrphanStore.recordOpen(
-                    trader = "Stocks",
-                    posId = position.id,
-                    sizeSol = hiveSizeSol,
-                    symbol = signal.market.symbol,
-                )
-            } catch (_: Exception) {}
-        } else {
-            val liveOk = executeLiveTradeAtSize(signal, isSpot, hiveSizeSol)
-            if (!liveOk) {
-                // Roll back: remove the position we just inserted.
-                positions.remove(position.id)
-                spotPositions.remove(position.id)
-                leveragePositions.remove(position.id)
-                totalTrades.decrementAndGet()
-                ErrorLogger.warn(TAG, "🔴 LIVE stock trade failed: ${signal.market.symbol} — position rolled back")
-                return
-            }
-            // V5.9.600 BUG-5 FIX: immediately deduct committed capital from cached live balance
-            // so the next concurrent open sees reduced available capital.
-            liveWalletBalance = (liveWalletBalance - hiveSizeSol).coerceAtLeast(0.0)
-            savePersistedState()
-        }
-        
-        // Notify FluidLearningAI
-        // V5.7.6b: Use Markets-specific recording to avoid affecting Meme thresholds
-        try {
-            FluidLearningAI.recordMarketsTradeStart()
-        } catch (_: Exception) {}
-        
-        val leverageStr = if (isSpot) "1x SPOT" else "${leverage.toInt()}x LEV"
+
         ErrorLogger.info(TAG, "📈 OPENED: ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | " +
             "$leverageStr | size=${sizeSol.fmt(3)}◎ | score=${signal.score} | TP=\$${tp.fmt(2)} SL=\$${sl.fmt(2)}")
         
@@ -1370,8 +1380,38 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     }
     
     private fun closePosition(positionId: String, reason: String) {
-        val position = positions.remove(positionId) ?: return
-        
+        val position = positions[positionId] ?: return
+        val grossPnlPct = position.getUnrealizedPnlPct()
+        val grossPnlSol = position.getUnrealizedPnlSol()
+        val feePercent = if (position.isSpot) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT
+        val totalFeeSol = position.sizeSol * feePercent * 2
+        val netPnlSol = grossPnlSol - totalFeeSol
+        val netPnlPct = if (position.sizeSol > 0) (netPnlSol / position.sizeSol) * 100 else 0.0
+        val isWin = netPnlPct > 0
+        if (position.isPaper) {
+            val canonicalClose6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.close(
+                positionId = position.id, mint = position.market.symbol, symbol = position.market.symbol,
+                grossProceedsSol = (position.sizeSol + grossPnlSol).coerceAtLeast(0.0),
+                sellFeeSol = position.sizeSol * feePercent, exitReason = reason,
+                terminalSequence = System.currentTimeMillis(),
+            )
+            if (!canonicalClose6486.applied) {
+                ErrorLogger.warn(TAG, "PAPER CLOSE REJECTED: ${position.market.symbol} ${canonicalClose6486.reason}")
+                return
+            }
+        } else {
+            val closeSuccess6486 = try {
+                kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+                    MarketsLiveExecutor.closeLivePositionProof6486(
+                        positionId = position.id, market = position.market, direction = position.direction,
+                        sizeSol = position.sizeSol, leverage = position.leverage, traderType = "TokenizedStocks",
+                        exitReason = reason, entryTactic = if (position.isSpot) "SPOT" else "SPOT_SCALE",
+                    ).confirmed
+                }
+            } catch (e: Exception) { ErrorLogger.warn(TAG, "Live close failed: ${e.message}"); false }
+            if (!closeSuccess6486) return
+        }
+        positions.remove(positionId)
         // V5.7.6b: Remove from appropriate map
         spotPositions.remove(positionId)
         leveragePositions.remove(positionId)
@@ -1387,15 +1427,11 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         try { com.lifecyclebot.collective.LocalOrphanStore.clear(positionId) } catch (_: Exception) {}
 
         // V5.9.721-FIX: fast shutdown path — skip heavy AI learning on bot stop.
-        if (com.lifecyclebot.engine.BotService.isShuttingDown) {
+        if (com.lifecyclebot.engine.BotService.isShuttingDown && position.isPaper) {
             val fastPnl = position.getUnrealizedPnlSol()
             // V5.9.742 — route on position.isPaper, not global isPaperMode.
             if (position.isPaper) {
                 try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(position.market.symbol, position.sizeSol, fastPnl) } catch (_: Exception) {}
-                com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
-                    delta = position.sizeSol + fastPnl,
-                    source = "Stocks.close.fast[${position.market.symbol}]"
-                )
             }
             ErrorLogger.info(TAG, "🏃 FAST_CLOSE [${position.market.symbol}] on shutdown — AI learning skipped")
             return
@@ -1416,64 +1452,15 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             )
         } catch (_: Exception) {}
         
-        // V5.7.7: Calculate P&L with fee deduction
-        val grossPnlPct = position.getUnrealizedPnlPct()
-        val grossPnlSol = position.getUnrealizedPnlSol()
-        
-        // Deduct trading fees (open + close)
-        val feePercent = if (position.isSpot) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT
-        val totalFeeSol = position.sizeSol * feePercent * 2  // Fee on open + close
-        val netPnlSol = grossPnlSol - totalFeeSol
-        val netPnlPct = if (position.sizeSol > 0) (netPnlSol / position.sizeSol) * 100 else 0.0
-        
-        val isWin = netPnlPct > 0
-        
         // Update stats (use net P&L)
         totalTrades.incrementAndGet()
         if (isWin) winningTrades.incrementAndGet() else losingTrades.incrementAndGet()
         totalPnlSol += netPnlSol
         
-        // V5.7.7 FIX: Execute live on-chain close — MUST wait for result.
-        // V5.9.742 — route on position.isPaper, not the global flag. See
-        // ForexTrader V5.9.740 for diagnosis. NOTE: in Stocks the position
-        // has ALREADY been removed from the three position maps at the top
-        // of this function, so 'position kept open' here is misleading —
-        // the position is in fact lost. Future work: revisit the early-
-        // removal pattern.
-        if (!position.isPaper) {
-            var closeSuccess = false
-            try {
-                closeSuccess = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
-                    val (ok, _) = MarketsLiveExecutor.closeLivePosition(
-                        market = position.market,
-                        direction = position.direction,
-                        sizeSol = position.sizeSol,
-                        leverage = position.leverage,
-                        traderType = "TokenizedStocks",
-                    )
-                    ok
-                }
-            } catch (e: Exception) {
-                ErrorLogger.warn(TAG, "Live close failed for ${position.market.symbol}: ${e.message}")
-            }
-            if (!closeSuccess) {
-                ErrorLogger.warn(TAG, "🚨 LIVE CLOSE FAILED: ${position.market.symbol} — position kept open")
-                return
-            }
-            try {
-                val newBal = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: liveWalletBalance
-                updateLiveBalance(newBal)
-            } catch (_: Exception) {}
+        if (position.isPaper) {
+            try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(position.market.symbol, position.sizeSol, netPnlSol) } catch (_: Exception) {}
         } else {
-            // V5.9.7: balance update handled by FluidLearning.recordPaperSell below
-            // V5.9.48: Unified paper wallet — credit capital + PnL back to main dashboard.
-            // V5.9.742: routing is implicit — the else-branch is reached only
-            // when position.isPaper is true (the if condition above checks
-            // !position.isPaper now), so this credit is always for paper.
-            com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
-                delta = position.sizeSol + netPnlSol,
-                source = "TokenizedStocks.close[${position.market.symbol}]"
-            )
+            try { updateLiveBalance(com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: liveWalletBalance) } catch (_: Exception) {}
         }
         
         // Record to FluidLearningAI
@@ -1785,7 +1772,8 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     
     // V5.7.6b: Set balance for paper trading
     fun setBalance(balance: Double) {
-        com.lifecyclebot.engine.FluidLearning.forceSetBalance(balance)
+        com.lifecyclebot.engine.FluidLearning.forceSetBalance(
+            com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol().coerceAtLeast(0.0))
         ErrorLogger.info(TAG, "📈 TokenizedStockTrader balance set to ${"%.2f".format(balance)} SOL")
     }
     
@@ -1927,9 +1915,6 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                         catch (e: Exception) {
                             ErrorLogger.warn(TAG,
                                 "📈 retire-paper close failed for ${pos.market.symbol}: ${e.message}")
-                            positions.remove(pos.id)
-                            spotPositions.remove(pos.id)
-                            leveragePositions.remove(pos.id)
                         }
                     }
                     persistStockPositions()
@@ -1963,6 +1948,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
      * verify both succeeded.
      */
     private suspend fun executeLiveTradeAtSize(
+        positionId: String,
         signal: StockSignal,
         isSpot: Boolean,
         sizeSol: Double,
@@ -1987,7 +1973,8 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         ErrorLogger.info(TAG, "🔴 LIVE TRADE: ${signal.direction.emoji} ${signal.market.symbol}")
         ErrorLogger.info(TAG, "🔴 Price: \$${signal.price.fmt(2)} | ${if (isSpot) "SPOT" else "${leverage.toInt()}x"}")
         ErrorLogger.info(TAG, "🔴 Size (paper-matched): ${sizeSol.fmt(4)} SOL | Score: ${signal.score}")
-        val (success, txSignature) = MarketsLiveExecutor.executeLiveTrade(
+        val fill6486 = MarketsLiveExecutor.executeLiveTradeProof6486(
+            positionId = positionId,
             market = signal.market,
             direction = signal.direction,
             sizeSol = sizeSol,
@@ -1995,6 +1982,11 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             priceUsd = signal.price,
             traderType = "TokenizedStocks",
         )
+        val success = fill6486.confirmed
+        val txSignature = fill6486.signature
+        if (fill6486.state == MarketsLiveExecutor.FillState6486.PENDING_PROOF) {
+            ErrorLogger.warn(TAG, "LIVE stock signature pending proof: ${signal.market.symbol} positionId=$positionId sig=${txSignature?.take(16)}")
+        }
         if (success) {
             val txLog = txSignature?.take(16)?.let { "tx=$it..." } ?: "bridge-collateral"
             ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | $txLog")
@@ -2016,71 +2008,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         return false
     }
 
-    private suspend fun executeLiveTrade(signal: StockSignal, isSpot: Boolean): Double? {
-        val leverage = if (isSpot) 1.0 else signal.leverage
-        // V5.7.7 FIX: Refresh live wallet balance if uninitialized (0) — prevents all trades being silently blocked
-        if (liveWalletBalance <= 0.0) {
-            try {
-                val fresh = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: 0.0
-                if (fresh > 0) updateLiveBalance(fresh)
-            } catch (_: Exception) {}
-        }
 
-        // V5.9.37: FLUID sizing. 5% of a small wallet falls below the Jupiter
-        // ~0.01 SOL swap floor, silently killing every live attempt. Clamp
-        // size to [FLOOR, balance * 20%] so small wallets still participate.
-        val balance = getEffectiveBalance()
-        val floor = 0.01
-        val desired = balance * (DEFAULT_SIZE_PCT / 100)
-        if (balance < floor) {
-            ErrorLogger.warn(TAG, "🔴 LIVE: wallet ${balance.fmt(4)}◎ < ${floor} floor — cannot trade ${signal.market.symbol}")
-            com.lifecyclebot.engine.LiveAttemptStats.record(
-                "TokenizedStocks",
-                com.lifecyclebot.engine.LiveAttemptStats.Outcome.FLOOR_SKIPPED
-            )
-            return null
-        }
-        val sizeSol = desired.coerceIn(floor, (balance * 0.20).coerceAtLeast(floor))
-        
-        ErrorLogger.info(TAG, "🔴 LIVE TRADE: ${signal.direction.emoji} ${signal.market.symbol}")
-        ErrorLogger.info(TAG, "🔴 Price: \$${signal.price.fmt(2)} | ${if (isSpot) "SPOT" else "${leverage.toInt()}x"}")
-        ErrorLogger.info(TAG, "🔴 Size: ${sizeSol.fmt(4)} SOL | Score: ${signal.score}")
-        
-        // Execute via MarketsLiveExecutor
-        val (success, txSignature) = MarketsLiveExecutor.executeLiveTrade(
-            market = signal.market,
-            direction = signal.direction,
-            sizeSol = sizeSol,
-            leverage = leverage,
-            priceUsd = signal.price,
-            traderType = "TokenizedStocks",
-        )
-        
-        // V5.9.2: success=true is the authority; txSignature can be null for bridge trades
-        if (success) {
-            val txLog = txSignature?.take(16)?.let { "tx=$it..." } ?: "bridge-collateral"
-            ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | $txLog")
-            com.lifecyclebot.engine.LiveAttemptStats.record(
-                "TokenizedStocks",
-                com.lifecyclebot.engine.LiveAttemptStats.Outcome.EXECUTED
-            )
-            
-            // Update live wallet balance
-            try {
-                val newBalance = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: liveWalletBalance
-                updateLiveBalance(newBalance)
-            } catch (_: Exception) {}
-            
-            return sizeSol
-        } else {
-            ErrorLogger.warn(TAG, "🔴 LIVE FAILED: ${signal.market.symbol}")
-            com.lifecyclebot.engine.LiveAttemptStats.record(
-                "TokenizedStocks",
-                com.lifecyclebot.engine.LiveAttemptStats.Outcome.FAILED
-            )
-            return null
-        }
-    }
     
     // V5.9.320: Removed private `Double.fmt` — caused overload resolution
     // ambiguity with the public `Double.fmt` in PerpsModels.kt. The public

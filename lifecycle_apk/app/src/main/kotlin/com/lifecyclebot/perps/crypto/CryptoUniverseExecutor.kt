@@ -31,7 +31,13 @@ object CryptoUniverseExecutor {
     private const val SLIPPAGE_BPS = 200
 
     sealed class Outcome {
-        data class Executed(val txSig: String?) : Outcome()
+        data class Executed(
+            val txSig: String,
+            val mint: String,
+            val filledQtyRaw: java.math.BigInteger,
+            val decimals: Int,
+            val proofState: String,
+        ) : Outcome()
         data class RouteDeferred(val resolution: CryptoUniverseRouteResolver.Resolution) : Outcome()
         data class ExecFailed(
             val resolution: CryptoUniverseRouteResolver.Resolution,
@@ -40,6 +46,7 @@ object CryptoUniverseExecutor {
     }
 
     suspend fun executeLiveTrade(
+        positionId: String,
         market: PerpsMarket,
         direction: PerpsDirection,
         sizeSol: Double,
@@ -204,33 +211,30 @@ object CryptoUniverseExecutor {
         CryptoUniverseForensics.logPhase("CU_TX_SEND_OK_SIGNATURE", symbol, mint, mint, bridge.sourceMint, bridge.targetMint, resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, sig, job.id, "signature non-empty")
         CryptoUniverseForensics.logPhase("CU_CONFIRM_OK", symbol, mint, mint, bridge.sourceMint, bridge.targetMint, resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, sig, job.id, "signSendAndConfirm returned")
 
-        val landed = verifyWalletDelta(wallet, mint, before, symbol, job.id, sig, routeQuote.priceImpactPct)
-
-        // V5.9.665 — operator regression fix.
-        // Previously: if verifyWalletDelta returned false (24s of polling and
-        // no ATA visible) we returned Outcome.ExecFailed and skipped the
-        // tracker chain entirely. That falsely rejected swaps that DID land
-        // on chain — Jupiter had already confirmed the signature and the
-        // operator's wallet held the tokens; only our local
-        // getTokenAccountsWithDecimals() read was lagging.
-        // New behavior: if the swap signature is confirmed but our local
-        // wallet read hasn't caught up, register the buy with the existing
-        // tracker / reconciler architecture (HostWalletTokenTracker +
-        // LiveWalletReconciler) so the position is captured the moment the
-        // ATA becomes visible. We still treat this as Executed because the
-        // trade really did land on chain.
-        try { TokenLifecycleTracker.onTokenLanded(mint, readTokenUi(wallet, mint) ?: bridge.targetAmountUi) } catch (_: Throwable) {}
+        if (bridge.targetAmountRaw <= 0L || bridge.targetDecimals <= 0 ||
+            !bridge.proofState.contains("CONFIRMED", ignoreCase = true)) {
+            val reason = "Bridge returned signature without verified target quantity/proof: raw=${bridge.targetAmountRaw} decimals=${bridge.targetDecimals} proof=${bridge.proofState}"
+            CryptoExecFailureTracker.recordFailure(symbol)
+            CryptoUniverseForensics.logPhase("CU_CONFIRM_FAILED", symbol, mint, mint, bridge.sourceMint, bridge.targetMint,
+                resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, sig, job.id, reason)
+            return@runAwaited Outcome.ExecFailed(resolution, reason)
+        }
+        val filledRaw = java.math.BigInteger.valueOf(bridge.targetAmountRaw)
+        val mutation = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPosition(
+            idempotencyKey = "CRYPTO_UNIVERSE6486:OPEN:$positionId:$sig", positionId = positionId,
+            mint = mint, symbol = symbol, lane = traderType.uppercase(), runId = sig,
+            entryCostSol = sizeSol, openedQtyRaw = filledRaw, tokenDecimals = bridge.targetDecimals,
+            feesSol = 0.0, paperMode = false,
+        )
+        if (mutation != com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.APPLIED &&
+            mutation != com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.DUPLICATE) {
+            return@runAwaited Outcome.ExecFailed(resolution, "Canonical live open rejected: $mutation")
+        }
+        try { TokenLifecycleTracker.onTokenLanded(mint, bridge.targetAmountUi) } catch (_: Throwable) {}
         try { HostWalletTokenTracker.recordBuyPending(mint, symbol, sig) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.sell.LiveWalletReconciler.recordBuySignature(mint, sig) } catch (_: Throwable) {}
-        try { com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(wallet, "crypto_universe_buy_${symbol}") } catch (_: Throwable) {}
-
-        if (!landed) {
-            CryptoUniverseForensics.logPhase("CU_DELTA_LATE_TRUST_SIG", symbol, mint, mint, "CAPITAL_RAIL", mint, resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, sig, job.id, "confirmed signature; ATA not yet visible — registered with reconciler chain for async catch-up")
-            try { com.lifecyclebot.engine.PipelineHealthCollector.event("CRYPTO_UNIVERSE/DELTA_LATE_TRUST_SIG", symbol, "sig=${sig.take(16)}…  mint=${mint.take(8)}…  trusting confirmed signature; reconciler will pick up the ATA when it settles") } catch (_: Throwable) {}
-        }
-
         CryptoExecFailureTracker.recordSuccess(symbol)
-        Outcome.Executed(sig)
+        Outcome.Executed(sig, mint, filledRaw, bridge.targetDecimals, bridge.proofState)
     }
 
     private fun readTokenUi(wallet: SolanaWallet, mint: String): Double? = try {

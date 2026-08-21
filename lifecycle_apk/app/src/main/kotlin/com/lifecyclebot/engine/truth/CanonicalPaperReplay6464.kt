@@ -141,6 +141,22 @@ object CanonicalPaperReplay6464 {
         return snap
     }
 
+    /** V5.0.6486 — startup restore from already-deduplicated durable typed events. */
+    fun restoreLedgerFromDurable6486(startingCashSol: Double): Boolean {
+        val snap = replay(startingCashSol)
+        if (snap.invalidRowsQuarantined != 0 || snap.orphanLotCount != 0) {
+            try { PipelineHealthCollector.labelInc("PAPER_DURABLE_RESTORE_HELD_DIRTY_6486") } catch (_: Throwable) {}
+            return false
+        }
+        val applied = PaperAccountLedger6430.replaceFromCanonicalReplay(
+            startingCashSol = snap.startingCashSol, cashSol = snap.cashSol,
+            openCostBasisSol = snap.openCostBasisSol, realizedPnlSol = snap.realizedPnlSol,
+            feesSol = snap.feesSol, source = "DURABLE_STARTUP_6486",
+        )
+        if (applied) CanonicalPositionAuthority6441.setPaperCash(snap.cashSol, "DURABLE_STARTUP_6486")
+        return applied
+    }
+
     fun repairLedgerIfClean(startingCashSol: Double, toleranceSol: Double = 0.01): Boolean {
         val snap = replay(startingCashSol)
         val expected = snap.startingCashSol + snap.realizedPnlSol - snap.feesSol

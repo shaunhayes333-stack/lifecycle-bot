@@ -84,15 +84,16 @@ object LocalOrphanStore {
         val entries = openEntries.values.toList()
         var refunded = 0.0
         entries.forEach { e ->
-            refunded += e.sizeSol
-            try {
-                BotService.creditUnifiedPaperSol(
-                    delta = e.sizeSol,
-                    source = "${e.trader}.localReconcile[${e.symbol}]",
+            val result = try {
+                com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.refund(
+                    e.posId, "${e.trader}.localReconcile[${e.symbol}]",
                 )
-            } catch (_: Exception) {}
+            } catch (_: Throwable) { null }
+            if (result?.applied == true) {
+                refunded += e.sizeSol
+                openEntries.remove(e.posId)
+            }
         }
-        openEntries.clear()
         persist()
         ErrorLogger.info(
             TAG,

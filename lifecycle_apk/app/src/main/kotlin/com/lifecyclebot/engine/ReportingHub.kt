@@ -236,6 +236,9 @@ object ReportingHub {
         val wallet = try { BotService.status.walletSol } catch (_: Throwable) { 0.0 }
         val open = try { BotService.status.openPositions.toList() } catch (_: Throwable) { emptyList() }
         var trustedLiveOpenPnl = 0.0
+        var trustedLiveOpenCost = 0.0
+        var untrustedLiveOpenPnl = 0.0
+        var untrustedLiveOpenCost = 0.0
         var trustedLiveOpenCount = 0
         var trustedPaperOpenPnl = 0.0
         var trustedPaperOpenCount = 0
@@ -249,7 +252,17 @@ object ReportingHub {
             val route = try { RealPriceLock.lastRouteTruth(ts.mint) } catch (_: Throwable) { null }
             val pnlPct = truth6037.pnlPct
             val pnlSol = truth6037.pnlSol
-            if (truth6037.trusted && !p.isPaperPosition) { trustedLiveOpenPnl += pnlSol; if (pnlSol > 0.0) trustedLiveOpenCount += 1 }
+            if (!p.isPaperPosition) {
+                val costAtRisk = p.costSol.coerceAtLeast(0.0)
+                if (truth6037.trusted) {
+                    trustedLiveOpenPnl += pnlSol
+                    trustedLiveOpenCost += costAtRisk
+                    if (pnlSol > 0.0) trustedLiveOpenCount += 1
+                } else {
+                    untrustedLiveOpenPnl += pnlSol
+                    untrustedLiveOpenCost += costAtRisk
+                }
+            }
             if (truth6037.trusted && p.isPaperPosition) { trustedPaperOpenPnl += pnlSol; if (pnlSol > 0.0) trustedPaperOpenCount += 1 }
             val routeTxt = when {
                 route != null -> "route=${route.impliedRatio.fmt1()}x/${if (route.ok) "ok" else "claim_mismatch"}"
@@ -267,9 +280,9 @@ object ReportingHub {
         val cleanPnlSol6305 = try { com.lifecyclebot.engine.RealizedWalletCompoundingGovernor.snapshot().cleanPnlSol } catch (_: Throwable) { 0.0 }
         val paperMode6305 = try { com.lifecyclebot.engine.GlobalTradeRegistry.isPaperMode } catch (_: Throwable) { true }
         val walletLine = if (paperMode6305 && wallet < 0.001 && cleanPnlSol6305 > 0.0) {
-            "wallet=${wallet.fmt4()} SOL (paperBasis=${cleanPnlSol6305.fmt4()} SOL, live=$paperMode6305 mode) localOpen=live:$localLiveOpen6098 paper:$localPaperOpen6098 hostTracker=$hostTrackerOpen6098 trustedLiveOpen=${trustedLiveOpenPnl.fmt4()} SOL liveRunners=$trustedLiveOpenCount trustedPaperOpen=${trustedPaperOpenPnl.fmt4()} SOL paperRunners=$trustedPaperOpenCount note=open_unrealized_not_wallet_until_sell_finality"
+            "wallet=${wallet.fmt4()} SOL (paperBasis=${cleanPnlSol6305.fmt4()} SOL, live=$paperMode6305 mode) localOpen=live:$localLiveOpen6098 paper:$localPaperOpen6098 hostTracker=$hostTrackerOpen6098 liveOpenCapitalAtRisk=${(trustedLiveOpenCost + untrustedLiveOpenCost).fmt4()} SOL trustedLiveOpenCost=${trustedLiveOpenCost.fmt4()} SOL untrustedLiveOpenCost=${untrustedLiveOpenCost.fmt4()} SOL trustedLiveUnrealizedPnl=${trustedLiveOpenPnl.fmt4()} SOL untrustedLiveUnrealizedPnl=${untrustedLiveOpenPnl.fmt4()} SOL liveRunners=$trustedLiveOpenCount trustedPaperOpen=${trustedPaperOpenPnl.fmt4()} SOL paperRunners=$trustedPaperOpenCount note=open_unrealized_not_wallet_until_sell_finality"
         } else {
-            "wallet=${wallet.fmt4()} SOL localOpen=live:$localLiveOpen6098 paper:$localPaperOpen6098 hostTracker=$hostTrackerOpen6098 trustedLiveOpen=${trustedLiveOpenPnl.fmt4()} SOL liveRunners=$trustedLiveOpenCount trustedPaperOpen=${trustedPaperOpenPnl.fmt4()} SOL paperRunners=$trustedPaperOpenCount note=open_unrealized_not_wallet_until_sell_finality"
+            "wallet=${wallet.fmt4()} SOL localOpen=live:$localLiveOpen6098 paper:$localPaperOpen6098 hostTracker=$hostTrackerOpen6098 liveOpenCapitalAtRisk=${(trustedLiveOpenCost + untrustedLiveOpenCost).fmt4()} SOL trustedLiveOpenCost=${trustedLiveOpenCost.fmt4()} SOL untrustedLiveOpenCost=${untrustedLiveOpenCost.fmt4()} SOL trustedLiveUnrealizedPnl=${trustedLiveOpenPnl.fmt4()} SOL untrustedLiveUnrealizedPnl=${untrustedLiveOpenPnl.fmt4()} SOL liveRunners=$trustedLiveOpenCount trustedPaperOpen=${trustedPaperOpenPnl.fmt4()} SOL paperRunners=$trustedPaperOpenCount note=open_unrealized_not_wallet_until_sell_finality"
         }
         appendLine(walletLine)
         if (pipe != null) {

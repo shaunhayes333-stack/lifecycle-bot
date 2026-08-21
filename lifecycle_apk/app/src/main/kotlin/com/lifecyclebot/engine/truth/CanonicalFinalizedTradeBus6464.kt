@@ -1,9 +1,12 @@
 package com.lifecyclebot.engine.truth
 
+import kotlinx.coroutines.launch
+
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * V5.0.6464 §P0-#7 — CANONICAL FINALIZED TRADE BUS (single source; parity).
@@ -46,6 +49,9 @@ object CanonicalFinalizedTradeBus6464 {
         val positionId: String = tradeId,
         val mode: String = "unknown",
         val proofState: String = "unknown",
+        val holdingTimeMs: Long = 0L,
+        val entryScore: Int = 0,
+        val entryTactic: String = "",
         val terminal: Boolean = true,
     )
 
@@ -53,6 +59,7 @@ object CanonicalFinalizedTradeBus6464 {
     private val consumerAcks = ConcurrentHashMap<String, MutableSet<String>>() // consumer -> set of tradeIds it ack'd
     private val publishes = AtomicLong(0L)
     private val duplicates = AtomicLong(0L)
+    private val retryRunning6486 = AtomicBoolean(false)
 
     private val CANONICAL_CONSUMERS_6485 = listOf(
         "LearnerRewardBridge", "LosingStreakReflex", "GrowthRewardShaper", "TacticSwitcher",
@@ -62,7 +69,8 @@ object CanonicalFinalizedTradeBus6464 {
 
     /** Consumers register once at startup. Registration is idempotent. */
     fun registerConsumer(name: String) {
-        consumerAcks.computeIfAbsent(name) { java.util.Collections.synchronizedSet(HashSet()) }
+        val acks = consumerAcks.computeIfAbsent(name) { java.util.Collections.synchronizedSet(HashSet()) }
+        acks.addAll(CanonicalFinalityPersistence6486.ackedIds6486(name))
     }
 
     /**
@@ -100,9 +108,14 @@ object CanonicalFinalizedTradeBus6464 {
     fun deliverToConsumers(env: Envelope, deliver: (String, Envelope) -> Boolean) {
         if (env.tradeId.isBlank()) return
         for ((name, acks) in consumerAcks) {
+            if (env.tradeId in acks || CanonicalFinalityPersistence6486.hasAck6486(name, env.tradeId)) {
+                acks.add(env.tradeId)
+                continue
+            }
             val ok = try { deliver(name, env) } catch (_: Throwable) { false }
             if (ok) {
                 acks.add(env.tradeId)
+                CanonicalFinalityPersistence6486.recordAck6486(name, env.tradeId)
                 try { PipelineHealthCollector.labelInc("FINALIZED_BUS_CONSUMER_ACKED_${name}_6475") } catch (_: Throwable) {}
             } else {
                 acks.remove(env.tradeId)
@@ -111,16 +124,45 @@ object CanonicalFinalizedTradeBus6464 {
         }
     }
 
+    fun redeliverPending6486() {
+        for ((name, acks) in consumerAcks) {
+            for ((tradeId, env) in canonicalSeen) {
+                if (tradeId in acks || CanonicalFinalityPersistence6486.hasAck6486(name, tradeId)) {
+                    acks.add(tradeId)
+                    continue
+                }
+                val ok = try { FinalizedBusConsumerBridge6465.deliver(name, env) } catch (_: Throwable) { false }
+                if (ok) {
+                    acks.add(tradeId)
+                    CanonicalFinalityPersistence6486.recordAck6486(name, tradeId)
+                }
+            }
+        }
+    }
+
+    fun requestRetry6486() {
+        if (!retryRunning6486.compareAndSet(false, true)) return
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                repeat(4) {
+                    kotlinx.coroutines.delay(2_000L * (it + 1))
+                    redeliverPending6486()
+                }
+            } finally { retryRunning6486.set(false) }
+        }
+    }
+
     fun ack(consumer: String, tradeId: String) {
         if (tradeId.isBlank()) return
         consumerAcks.computeIfAbsent(consumer) { java.util.Collections.synchronizedSet(HashSet()) }
             .add(tradeId)
+        CanonicalFinalityPersistence6486.recordAck6486(consumer, tradeId)
     }
 
     /** Trade IDs the bus has seen but this consumer has not ack'd. */
     fun pending(consumer: String, limit: Int = 32): List<String> {
         val acks = consumerAcks[consumer] ?: emptySet<String>()
-        return canonicalSeen.keys.filter { it !in acks }.take(limit)
+        return canonicalSeen.keys.filter { it !in acks && !CanonicalFinalityPersistence6486.hasAck6486(consumer, it) }.take(limit)
     }
 
     fun canonicalUnique(): Int = canonicalSeen.size
@@ -165,6 +207,6 @@ object CanonicalFinalizedTradeBus6464 {
 
     internal fun resetForTest() {
         canonicalSeen.clear(); consumerAcks.clear()
-        publishes.set(0L); duplicates.set(0L)
+        publishes.set(0L); duplicates.set(0L); retryRunning6486.set(false)
     }
 }

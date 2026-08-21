@@ -59,6 +59,20 @@ object CanonicalLotQuantity6464 {
 
     // ─── Confirmed fill hooks ──────────────────────────────────────────
 
+    @Synchronized
+    fun rebuildPaperFromEvents6486(source: List<EconomicEventSchema6464.Event>): Int {
+        val paperIds = source.asSequence().filter { it.mode == "paper" }.map { it.positionId }.toSet()
+        paperIds.forEach { lots.remove(it) }
+        source.filter { it.mode == "paper" }.sortedBy { it.atMs }.forEach { e ->
+            when (e) {
+                is EconomicEventSchema6464.Buy -> onBuyFilled(e.positionId, e.mint, e.filledQty)
+                is EconomicEventSchema6464.Sell -> onSellFilled(e.positionId, e.mint, e.soldQty)
+            }
+        }
+        try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_LOTS_REBUILT_6486") } catch (_: Throwable) {}
+        return paperIds.size
+    }
+
     fun onBuyFilled(positionId: String, mint: String, filledQty: BigInteger) {
         if (positionId.isBlank() || filledQty <= BigInteger.ZERO) return
         val lot = lots.compute(positionId) { _, cur ->

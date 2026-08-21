@@ -104,6 +104,7 @@ object CanonicalPaperTerminalBridge6469 {
         lane: String,
         exitReason: String,
         terminal: Boolean,
+        directPositionMutation6486: Boolean = false,
     ): Result {
         val claim = claimBeforeSideEffects(
             positionId = positionId,
@@ -122,9 +123,24 @@ object CanonicalPaperTerminalBridge6469 {
 
         var busPublished = false
         try {
-            // Legacy mirror + paper ledger are still called during this migration,
-            // but only after the terminal claim has granted ownership.
-            try {
+            if (!PaperAccountLedger6430.canApplySell6486(soldCostBasisSol)) {
+                try { PipelineHealthCollector.labelInc("PAPER_TERMINAL_LEDGER_BASIS_REJECTED_6486") } catch (_: Throwable) {}
+                return Result(false, true, false, "LEDGER_BASIS_REJECTED")
+            }
+            // V5.0.6486 — cash may move only after the canonical position
+            // mutation reports APPLIED. A swallowed UNKNOWN_POSITION or invariant
+            // failure must never be converted into free paper cash.
+            val positionApplied6486 = if (directPositionMutation6486) {
+                CanonicalPositionAuthority6441.partialSell(
+                    idempotencyKey = "DIRECT:${claim.idKey}",
+                    positionId = positionId,
+                    soldQtyRaw = soldQtyRaw,
+                    proceedsSol = grossProceedsSol,
+                    soldCostBasisSol = soldCostBasisSol,
+                    feesSol = feesSol,
+                    paperMode = false,
+                ) == CanonicalPositionAuthority6441.MutateResult.APPLIED
+            } else {
                 ExecutorCanonicalMirror6442.mirrorSell(
                     mint = mint,
                     generation = generation,
@@ -137,14 +153,20 @@ object CanonicalPaperTerminalBridge6469 {
                     lane = lane,
                     reason = exitReason,
                 )
-            } catch (_: Throwable) {}
-            try {
-                PaperAccountLedger6430.onSell(
-                    grossProceedsSol = grossProceedsSol,
-                    costBasisSoldSol = soldCostBasisSol,
-                    feeSol = feesSol,
-                )
-            } catch (_: Throwable) {}
+            }
+            if (!positionApplied6486) {
+                try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_POSITION_REJECTED_6486") } catch (_: Throwable) {}
+                return Result(applied = false, terminalClaimed = true, busPublished = false, reason = "POSITION_MUTATION_REJECTED")
+            }
+            val ledgerApplied6486 = PaperAccountLedger6430.onSell(
+                grossProceedsSol = grossProceedsSol,
+                costBasisSoldSol = soldCostBasisSol,
+                feeSol = feesSol,
+            )
+            if (!ledgerApplied6486) {
+                try { PipelineHealthCollector.labelInc("PAPER_TERMINAL_LEDGER_COMMIT_FAILED_6486") } catch (_: Throwable) {}
+                return Result(false, true, false, "LEDGER_COMMIT_FAILED")
+            }
 
             busPublished = applyFanoutAfterClaim(
                 idKey = claim.idKey,

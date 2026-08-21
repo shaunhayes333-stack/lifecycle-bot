@@ -53,6 +53,9 @@ object TradeVerifier {
         val uiTokenDelta: Double,         // UI delta (post-decimals)
         val decimals: Int,                // token decimals from postTokenBalances
         val solSpentLamports: Long,       // wallet system-account negative delta (cost incl. fees)
+        val preOwnerLamports: Long = 0L,
+        val postOwnerLamports: Long = 0L,
+        val feeLamports: Long = 0L,
         val txErr: String?,               // meta.err as string if FAILED_CONFIRMED
     )
 
@@ -113,13 +116,13 @@ object TradeVerifier {
             // 1) Signature status — gives us err quickly
             val (statusKnown, statusErr) = pollStatus(wallet, sig)
             if (statusKnown && statusErr != null) {
-                return BuyResult(Outcome.FAILED_CONFIRMED, sig, mint, BigInteger.ZERO, 0.0, 0, 0L, statusErr)
+                return BuyResult(Outcome.FAILED_CONFIRMED, sig, mint, BigInteger.ZERO, 0.0, 0, 0L, txErr = statusErr)
             }
             // 2) getTransaction tx-parse — authoritative on token delta
             val parsed = parseTxForOwner(wallet, sig, mint)
             if (parsed != null) {
                 if (parsed.metaErr != null) {
-                    return BuyResult(Outcome.FAILED_CONFIRMED, sig, mint, BigInteger.ZERO, 0.0, parsed.decimals, 0L, parsed.metaErr)
+                    return BuyResult(Outcome.FAILED_CONFIRMED, sig, mint, BigInteger.ZERO, 0.0, parsed.decimals, 0L, parsed.solBefore, parsed.solAfter, parsed.feeLamports, parsed.metaErr)
                 }
                 val rawDelta = parsed.rawAfter - parsed.rawBefore
                 if (rawDelta > BigInteger.ZERO) {
@@ -127,7 +130,7 @@ object TradeVerifier {
                         rawDelta.toBigDecimal().movePointLeft(parsed.decimals).toDouble()
                     } else rawDelta.toLong().toDouble()
                     val solSpent = (parsed.solBefore - parsed.solAfter).coerceAtLeast(0L)
-                    return BuyResult(Outcome.LANDED, sig, mint, rawDelta, ui, parsed.decimals, solSpent, null)
+                    return BuyResult(Outcome.LANDED, sig, mint, rawDelta, ui, parsed.decimals, solSpent, parsed.solBefore, parsed.solAfter, parsed.feeLamports, null)
                 }
                 // tx confirmed err==null but ZERO token delta for our owner — could be a non-direct route.
                 // Treat as INCONCLUSIVE_PENDING and let reconciler retry; never declare phantom on this alone.
@@ -136,7 +139,7 @@ object TradeVerifier {
             try { Thread.sleep(sleepMs) } catch (_: InterruptedException) { break }
             sleepMs = (sleepMs * 3 / 2).coerceAtMost(8_000L)
         }
-        return BuyResult(Outcome.INCONCLUSIVE_PENDING, sig, mint, BigInteger.ZERO, 0.0, 0, 0L, lastTxErr)
+        return BuyResult(Outcome.INCONCLUSIVE_PENDING, sig, mint, BigInteger.ZERO, 0.0, 0, 0L, txErr = lastTxErr)
     }
 
     /**
@@ -235,6 +238,7 @@ object TradeVerifier {
         val decimals: Int,
         val solBefore: Long,
         val solAfter: Long,
+        val feeLamports: Long,
     )
 
     private fun parseTxForOwner(wallet: SolanaWallet, sig: String, mint: String): TxParse? {
@@ -303,6 +307,7 @@ object TradeVerifier {
                 decimals = decimals,
                 solBefore = solBefore,
                 solAfter  = solAfter,
+                feeLamports = meta.optLong("fee", 0L).coerceAtLeast(0L),
             )
         } catch (e: Throwable) {
             ErrorLogger.debug(TAG, "parseTxForOwner($sig, $mint) failed: ${e.message?.take(60)}")

@@ -80,6 +80,7 @@ object CanonicalTradeFinalizedBus6450 {
             return false
         }
         published.incrementAndGet()
+        CanonicalFinalityPersistence6486.record(event)
         val quarantined6485 = try {
             LearningQuarantineGate6470.shouldDropForLearning(positionId = event.positionId, mint = event.mint)
         } catch (_: Throwable) { true }
@@ -112,14 +113,24 @@ object CanonicalTradeFinalizedBus6450 {
                 positionId = event.positionId,
                 mode = event.mode,
                 proofState = "${event.dataQuality}:${event.priceIntegrity}",
+                holdingTimeMs = event.holdingTimeMs.coerceAtLeast(0L),
+                entryScore = EntryStrategySnapshot6450.snapshot(event.positionId)?.entryScore ?: 0,
+                entryTactic = event.entryTactic,
                 terminal = true,
             )
             if (CanonicalFinalizedTradeBus6464.publish(env)) {
                 CanonicalFinalizedTradeBus6464.deliverToConsumers(env) { name, e ->
                     FinalizedBusConsumerBridge6465.deliver(name, e)
                 }
+                CanonicalFinalizedTradeBus6464.requestRetry6486()
             }
-        } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            subscriberFailures.incrementAndGet()
+            try {
+                ForensicLogger.lifecycle("CANONICAL_FINALITY_FANOUT_FAILED_6486", "positionId=${event.positionId.take(16)} err=${t.message?.take(100)}")
+                PipelineHealthCollector.labelInc("CANONICAL_FINALITY_FANOUT_FAILED_6486")
+            } catch (_: Throwable) {}
+        }
         return true
     }
 

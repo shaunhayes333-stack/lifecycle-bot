@@ -773,7 +773,19 @@ object PerpsTraderAI {
             aiReasoning = signal.aiReasoning,
         )
         
-        // Store position
+        if (isPaper) {
+            val canonicalOpen6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(
+                positionId = position.id, mint = market.symbol, symbol = market.symbol,
+                lane = "PERPS_SYNTHETIC", source = "PerpsTraderAI",
+                costSol = sizeSol, entryScore = signal.score, tactic = direction.name,
+            )
+            if (!canonicalOpen6486.applied) {
+                ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: ${market.symbol} ${canonicalOpen6486.reason}")
+                return null
+            }
+        }
+
+        // Store position only after canonical paper commit.
         activePositions[position.id] = position
         if (isPaper) paperPositions[position.id] = position else livePositions[position.id] = position
         
@@ -789,10 +801,6 @@ object PerpsTraderAI {
         if (isPaper) {
             try {
                 com.lifecyclebot.engine.FluidLearning.recordPaperBuy(market.symbol, sizeSol.coerceAtLeast(0.0))
-                com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
-                    delta = -sizeSol,
-                    source = "Perps.open[${market.symbol}]"
-                )
             } catch (_: Exception) {}
         } else {
             // Live: Perps are synthetic — capital is notionally deployed. Refresh real wallet so
@@ -912,12 +920,13 @@ object PerpsTraderAI {
         val balanceRef = if (isPaper) paperBalanceBps else liveBalanceBps
         balanceRef.addAndGet((sizeSol * 10000).toLong())
         if (isPaper) {
-            try {
-                com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
-                    delta = sizeSol,
-                    source = "Perps.rollback"
-                )
-            } catch (_: Exception) {}
+            val canonicalRefund6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.refund(
+                positionId = positionId, mint = positionId.substringBefore('_'),
+                symbol = positionId.substringBefore('_'), reason = "PERPS_ROLLBACK",
+            )
+            if (!canonicalRefund6486.applied) {
+                ErrorLogger.warn(TAG, "PAPER ROLLBACK REFUND REJECTED: $positionId ${canonicalRefund6486.reason}")
+            }
         }
         ErrorLogger.warn(TAG, "📊 ROLLBACK: $positionId — margin refunded ${sizeSol.fmt(4)}◎")
     }
@@ -926,14 +935,24 @@ object PerpsTraderAI {
      * Close a position
      */
     fun closePosition(positionId: String, exitPrice: Double, exitReason: PerpsExitSignal): PerpsTrade? {
-        val position = activePositions.remove(positionId) ?: return null
-        
-        if (position.isPaper) paperPositions.remove(positionId) else livePositions.remove(positionId)
-        
-        // Calculate P&L
+        val position = activePositions[positionId] ?: return null
+
         val pnlPct = position.getUnrealizedPnlPct()
         val pnlUsd = position.getUnrealizedPnlUsd()
         val pnlSol = position.sizeSol * (pnlPct / 100)
+        if (position.isPaper) {
+            val canonicalClose6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.close(
+                positionId = position.id, mint = position.market.symbol, symbol = position.market.symbol,
+                grossProceedsSol = (position.sizeSol + pnlSol).coerceAtLeast(0.0),
+                exitReason = exitReason.name, terminalSequence = System.currentTimeMillis(),
+            )
+            if (!canonicalClose6486.applied) {
+                ErrorLogger.warn(TAG, "PAPER CLOSE REJECTED: ${position.market.symbol} ${canonicalClose6486.reason}")
+                return null
+            }
+        }
+        activePositions.remove(positionId)
+        if (position.isPaper) paperPositions.remove(positionId) else livePositions.remove(positionId)
         
         val isWin = pnlPct >= 1.0  // V5.9.225: 1% floor — fee washes not counted as wins
         
@@ -971,10 +990,6 @@ object PerpsTraderAI {
         if (position.isPaper) {
             try {
                 com.lifecyclebot.engine.FluidLearning.recordPaperSell(position.market.symbol, position.sizeSol, pnlSol)
-                com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
-                    delta = position.sizeSol + pnlSol,
-                    source = "Perps.close[${position.market.symbol}]"
-                )
             } catch (_: Exception) {}
         } else {
             // Live: refresh real wallet balance so host screen and sizing stay accurate post-close

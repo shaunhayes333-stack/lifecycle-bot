@@ -371,28 +371,12 @@ class BotService : Service() {
         // `creditUnifiedPaperSol(delta)`, which delegates to the same
         // safety-clamped callback the Executor already uses.
         // ═══════════════════════════════════════════════════════════════
+        @Deprecated("V5.0.6486: use CanonicalPaperTransaction6486 typed BUY/SELL/REFUND")
         fun creditUnifiedPaperSol(delta: Double, source: String) {
-            val svc = instance ?: return
             try {
-                val cb = if (svc::executor.isInitialized) svc.executor.onPaperBalanceChange else null
-                if (cb != null) {
-                    cb.invoke(delta)
-                    ErrorLogger.info("UnifiedPaperWallet",
-                        "[$source] Δ=${"%.4f".format(delta)} SOL → main balance=${"%.4f".format(status.paperWalletSol)}")
-                } else {
-                    // V5.0.6475 — no callback means no authoritative ledger
-                    // mutation is available here. Do not resurrect direct
-                    // status += delta cash authority; project the current ledger
-                    // snapshot and surface the unwired caller instead.
-                    try { svc.syncPaperCapitalAuthority6448("creditUnifiedPaperSol_projection_only_6475:$source") } catch (_: Throwable) {}
-                    try {
-                        ForensicLogger.lifecycle("UNWIRED_PAPER_CREDIT_PROJECTION_ONLY_6475", "source=$source delta=${"%.6f".format(delta)}")
-                        PipelineHealthCollector.labelInc("UNWIRED_PAPER_CREDIT_PROJECTION_ONLY_6475")
-                    } catch (_: Throwable) {}
-                }
-            } catch (e: Throwable) {
-                ErrorLogger.warn("UnifiedPaperWallet", "[$source] credit failed: ${e.message}")
-            }
+                ForensicLogger.lifecycle("GENERIC_PAPER_CREDIT_REJECTED_6486", "source=$source delta=${"%.6f".format(delta)}")
+                PipelineHealthCollector.labelInc("GENERIC_PAPER_CREDIT_REJECTED_6486")
+            } catch (_: Throwable) {}
         }
 
 
@@ -1402,8 +1386,18 @@ class BotService : Service() {
                 val startCap6432 = try {
                     com.lifecyclebot.data.ConfigStore.load(applicationContext).paperSimulatedBalance
                 } catch (_: Throwable) { 11.76 }
+                // V5.0.6486 — durable typed events MUST load before any ledger
+                // initialization/replay/reconciliation can derive paper capital.
+                com.lifecyclebot.engine.truth.EconomicEventSchema6464.init6486(applicationContext)
+                val durableEconomicEvents6486 = com.lifecyclebot.engine.truth.EconomicEventSchema6464.snapshot()
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.rebuildPaperFromEvents6486(durableEconomicEvents6486)
+                com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.rebuildPaperFromEvents6486(durableEconomicEvents6486)
                 com.lifecyclebot.engine.truth.PaperAccountLedger6430.initialize(startCap6432)
-                try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(startCap6432, "startup_paper_balance_6447") } catch (_: Throwable) {}
+                val durableLedgerRestored6486 = com.lifecyclebot.engine.truth.CanonicalPaperReplay6464
+                    .restoreLedgerFromDurable6486(startCap6432)
+                if (!durableLedgerRestored6486) {
+                    try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(startCap6432, "startup_paper_balance_6486_fallback") } catch (_: Throwable) {}
+                }
                 com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431
                     .start { /* full reconcile callback: wired in Phase 2 */ }
             } catch (_: Throwable) {}
@@ -1519,7 +1513,9 @@ class BotService : Service() {
                         kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                             try {
                                 val copySizeSol = (c.smallBuySol * 0.5).coerceIn(0.01, 0.5)
-                                val result = com.lifecyclebot.perps.MarketsLiveExecutor.executeLiveTrade(
+                                val copyPositionId6486 = "COPY_PERPS:${mint}:${System.currentTimeMillis()}"
+                                val result = com.lifecyclebot.perps.MarketsLiveExecutor.executeLiveTradeProof6486(
+                                    positionId  = copyPositionId6486,
                                     market      = com.lifecyclebot.perps.PerpsMarket.SOL,
                                     direction   = com.lifecyclebot.perps.PerpsDirection.LONG,
                                     sizeSol     = copySizeSol,
@@ -1527,7 +1523,7 @@ class BotService : Service() {
                                     priceUsd    = ts.lastPrice,
                                     traderType  = "CopyTrade"
                                 )
-                                addLog("📋 COPY PERPS: ${if (result.first) "✅ LONG SOL ${copySizeSol}◎" else "❌ failed"}", mint)
+                                addLog("📋 COPY PERPS: ${if (result.confirmed) "✅ LONG SOL ${copySizeSol}◎" else "❌ ${result.state}:${result.reason.take(48)}"}", mint)
                             } catch (e: Exception) {
                                 ErrorLogger.warn("BotService", "Copy perps error: ${e.message}")
                             }
@@ -1568,6 +1564,12 @@ class BotService : Service() {
 
         // V5.9.438 — durable outcome-learning trackers across restarts.
         try { LearningPersistence.init(applicationContext) } catch (_: Exception) {}
+        try {
+            val replayedFinality6486 = com.lifecyclebot.engine.truth.CanonicalFinalityPersistence6486.initAndReplay(applicationContext)
+            if (replayedFinality6486 > 0) PipelineHealthCollector.labelInc("DURABLE_FINALITY_REPLAYED_6486")
+        } catch (t: Throwable) {
+            try { ForensicLogger.lifecycle("DURABLE_FINALITY_REPLAY_FAILED_6486", t.message.orEmpty().take(120)) } catch (_: Throwable) {}
+        }
 
         // V5.0.6382 — COLD-BOOT TACTIC RE-DERIVE. Purges phantom μ drift from
         // pre-V5.0.6373d expectancy math (μ=+159% at 15% WR was blocking
@@ -3540,10 +3542,9 @@ class BotService : Service() {
         if (!alreadyMigrated) {
             // First-time migration: credit ALL historical realized P&L.
             if (kotlin.math.abs(currentSubPnl) > 0.001) {
-                creditUnifiedPaperSol(currentSubPnl, "Migration.V5.9.54_legacy_pnl")
                 ErrorLogger.info("BotService",
-                    "💰 Unified wallet migration: credited ${"%.4f".format(currentSubPnl)} SOL " +
-                    "of legacy sub-trader realized P&L to main wallet")
+                    "V5.0.6486 legacy aggregate PnL migration suppressed; durable typed economic events own paper capital")
+                try { PipelineHealthCollector.labelInc("LEGACY_AGGREGATE_PNL_CREDIT_SUPPRESSED_6486") } catch (_: Throwable) {}
             }
             prefs.edit()
                 .putBoolean(MIGRATION_KEY, true)
@@ -4795,84 +4796,11 @@ class BotService : Service() {
                 }
             } catch (_: Throwable) {}
 
-        // ═══════════════════════════════════════════════════════════════════
-        // V5.9.621 — PAPER GHOST AUTO-PURGE (V5.9.636: deferred + non-poisoning)
-        //
-        // Operator: "it shows 15 held tokens when its off". Paper positions
-        // are persisted forever (V5.9.122 — never drop for age <60d) so a
-        // restart in paper mode silently re-adopts every paper position
-        // ever opened. After hundreds of trades the watchlist accumulates
-        // a ghost backlog that:
-        //   • inflates the "Open" tile in the header
-        //   • blocks fresh entries on lane caps (ShitCoin 100, Quality 100)
-        //   • breaks the trader-side closePosition() chain because the
-        //     status.tokens entry has no live price feed (lastPrice=0)
-        //
-        // V5.9.636 fix: defer the purge by 90s and run it in scope.launch
-        // so it does NOT block startBot() on the main coroutine, AND
-        // dropped the four sub-trader closePosition() calls because they
-        // tagged ghosts as STOP_LOSS / TIMEOUT / TIME_EXIT and falsely
-        // depressed each lane's lifetime WR. The purge now only refunds
-        // the paper SOL, journals the close, clears status.tokens, and
-        // removes the persistence row — sub-trader caps will refresh
-        // naturally on their next regime sync. The 90-second defer also
-        // gives DataOrchestrator + price feeds time to come back online,
-        // so a transient cold-boot price gap doesn't get classified as a
-        // ghost.
-        // ═══════════════════════════════════════════════════════════════════
-        scope.launch {
-            try {
-                kotlinx.coroutines.delay(90_000L)
-                if (!cfg.paperMode) return@launch
-                val nowMs = System.currentTimeMillis()
-                val tokensSnapshot = synchronized(status.tokens) { status.tokens.values.toList() }
-                var purged = 0
-                var refundedSol = 0.0
-                for (ts in tokensSnapshot) {
-                    try {
-                        val pos = ts.position
-                        if (!pos.isOpen) continue
-                        val ageH = (nowMs - pos.entryTime) / 3600_000.0
-                        val price = try { resolveLivePrice(ts) } catch (_: Throwable) { 0.0 }
-                        val isGhost = ageH > 24.0 && price <= 0.0
-                        if (!isGhost) continue
-                        val refund = (pos.qtyToken * pos.entryPrice).coerceAtLeast(0.0)
-                        try { creditUnifiedPaperSol(refund, source = "paper_ghost_purge[${ts.symbol}]") } catch (_: Throwable) {}
-                        try {
-                            com.lifecyclebot.engine.V3JournalRecorder.recordClose(
-                                symbol = ts.symbol, mint = ts.mint,
-                                entryPrice = pos.entryPrice, exitPrice = pos.entryPrice,
-                                sizeSol = refund, pnlPct = 0.0, pnlSol = 0.0,
-                                isPaper = true,
-                                layer = "GHOST_PURGE",
-                                exitReason = "PAPER_GHOST_NO_PRICE_${ageH.toInt()}H",
-                                holdMinutes = (ageH * 60).toLong(),
-                            )
-                        } catch (_: Throwable) {}
-                        // V5.9.636 — DO NOT call sub-trader closePosition() with
-                        // STOP_LOSS / TIMEOUT / TIME_EXIT here. Those calls
-                        // poisoned ShitCoin/Quality/Moonshot/BlueChip lifetime
-                        // win-rate counters with phantom losses on every
-                        // restart, which is exactly the kind of regression we
-                        // are trying to undo.
-                        synchronized(status.tokens) {
-                            status.tokens[ts.mint]?.position = com.lifecyclebot.data.Position()
-                        }
-                        try { PositionPersistence.removePosition(ts.mint) } catch (_: Throwable) {}
-                        purged++
-                        refundedSol += refund
-                    } catch (e: Exception) {
-                        ErrorLogger.debug("BotService", "ghost-purge error for ${ts.symbol}: ${e.message}")
-                    }
-                }
-                if (purged > 0) {
-                    addLog("👻 Paper ghost purge (deferred): cleared $purged stale ghost(s), refunded ${"%.4f".format(refundedSol)} SOL")
-                    ErrorLogger.info("BotService", "👻 V5.9.636 deferred paper ghost purge: $purged ghost positions cleared, ${refundedSol} SOL refunded (sub-trader stats untouched)")
-                }
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "Deferred paper ghost purge failed: ${e.message}", e)
-            }
-        }
+        // V5.0.6486 — paper price absence is not economic finality. The old
+        // deferred ghost purge/refund was removed: it fabricated breakeven closes,
+        // mutated wallet cash, poisoned journals, and released slots without a
+        // canonical executed SELL. Canonical lifecycle/recovery owns cleanup.
+        try { PipelineHealthCollector.labelInc("PAPER_GHOST_PURGE_REMOVED_6486") } catch (_: Throwable) {}
 
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.430 — START-UP HARD-FLOOR CATCH-UP SWEEP

@@ -214,7 +214,134 @@ object MarketsLiveExecutor {
      * @param traderType Which trader is executing (for logging)
      * @return Pair<Boolean, String?> - (success, txSignature)
      */
+    enum class FillState6486 { CONFIRMED, PENDING_PROOF, FAILED }
+    data class MarketsFill6486(
+        val state: FillState6486,
+        val positionId: String,
+        val signature: String?,
+        val route: String,
+        val targetMint: String,
+        val filledQtyRaw: java.math.BigInteger,
+        val decimals: Int,
+        val principalSol: Double,
+        val feeSol: Double,
+        val proofState: String,
+        val flashPositionKey: String? = null,
+        val reason: String = "",
+    ) { val confirmed: Boolean get() = state == FillState6486.CONFIRMED }
+
+    suspend fun executeLiveTradeProof6486(
+        positionId: String,
+        market: PerpsMarket,
+        direction: PerpsDirection,
+        sizeSol: Double,
+        leverage: Double,
+        priceUsd: Double,
+        traderType: String = "Markets",
+    ): MarketsFill6486 = withContext(Dispatchers.IO) {
+        val wallet = WalletManager.getWallet()
+            ?: return@withContext MarketsFill6486(FillState6486.FAILED, positionId, null, "NONE", "",
+                java.math.BigInteger.ZERO, 0, sizeSol, 0.0, "NO_WALLET", reason = "No wallet")
+        val walletAddress = wallet.publicKeyB58 ?: ""
+        val targetMint = if (market.isCrypto) {
+            DynamicAltTokenRegistry.getTokenBySymbol(market.symbol)?.mint
+                ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
+        } else TokenizedAssetRegistry.mintFor(market.symbol)
+        val preTarget = if (targetMint != null) try {
+            wallet.getTokenAccountsWithDecimalsBounded()[targetMint]
+        } catch (_: Throwable) { null } else null
+        val core = executeLiveTradeCore6486(market, direction, sizeSol, leverage, priceUsd, traderType)
+        val sig = core.second
+        if (!core.first || sig.isNullOrBlank()) {
+            return@withContext MarketsFill6486(FillState6486.FAILED, positionId, sig, "NONE", targetMint ?: "",
+                java.math.BigInteger.ZERO, preTarget?.second ?: 0, sizeSol, sizeSol * if (leverage <= 1.0) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT,
+                "EXECUTION_FAILED", reason = "Route did not return a signature")
+        }
+
+        // A Flash request may transparently degrade to spot. Target delta wins route attribution.
+        var qty = java.math.BigInteger.ZERO
+        var decimals = preTarget?.second ?: 0
+        var proof = ""
+        if (targetMint != null) {
+            try {
+                val parsed = com.lifecyclebot.engine.execution.TxParseHelper.parseAll(wallet, sig)
+                val d = parsed?.tokenDeltas?.get(targetMint)
+                if (d != null && d.rawDelta.signum() > 0) {
+                    qty = d.rawDelta
+                    decimals = d.decimals
+                    proof = "TX_META_TARGET_DELTA"
+                }
+            } catch (_: Throwable) {}
+            if (qty.signum() <= 0) {
+                val post = try { wallet.getTokenAccountsWithDecimalsBounded()[targetMint] } catch (_: Throwable) { null }
+                val deltaUi = (post?.first ?: 0.0) - (preTarget?.first ?: 0.0)
+                if (post != null && deltaUi > 0.0) {
+                    decimals = post.second
+                    qty = java.math.BigDecimal.valueOf(deltaUi).movePointRight(decimals).toBigInteger()
+                    proof = "WALLET_TARGET_DELTA"
+                }
+            }
+        }
+        val principal = if (!market.isCrypto && leverage > 1.0) sizeSol * leverage else sizeSol
+        val fee = sizeSol * if (leverage <= 1.0) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT
+        if (qty.signum() > 0 && targetMint != null) {
+            val mutation = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPosition(
+                idempotencyKey = "MARKETS6486:OPEN:$positionId:$sig", positionId = positionId,
+                mint = targetMint, symbol = market.symbol, lane = traderType.uppercase(), runId = sig,
+                entryCostSol = principal, openedQtyRaw = qty, tokenDecimals = decimals,
+                feesSol = fee, paperMode = false,
+            )
+            val accepted = mutation == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.APPLIED ||
+                mutation == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.DUPLICATE
+            return@withContext MarketsFill6486(if (accepted) FillState6486.CONFIRMED else FillState6486.FAILED,
+                positionId, sig, "SPOT", targetMint, qty, decimals, principal, fee,
+                proof.ifBlank { "TARGET_DELTA_UNPROVED" }, reason = if (accepted) "" else "Canonical live open rejected: $mutation")
+        }
+
+        if (market.isCrypto && leverage > 1.0 && walletAddress.isNotBlank()) {
+            repeat(4) { attempt ->
+                if (attempt > 0) kotlinx.coroutines.delay(1_500L * attempt)
+                val key = findFlashPositionKey(walletAddress, market.symbol, direction)
+                if (!key.isNullOrBlank()) {
+                    val syntheticQty = java.math.BigInteger.valueOf(1_000_000_000L)
+                    val syntheticMint = "flash:${market.symbol}:${direction.name}"
+                    val mutation = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPosition(
+                        "MARKETS6486:OPEN:$positionId:$sig", positionId, syntheticMint, market.symbol,
+                        traderType.uppercase(), sig, principal, syntheticQty, 9, fee, false,
+                    )
+                    val accepted = mutation == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.APPLIED ||
+                        mutation == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.DUPLICATE
+                    return@withContext MarketsFill6486(if (accepted) FillState6486.CONFIRMED else FillState6486.FAILED,
+                        positionId, sig, "FLASH_PERPS", syntheticMint, syntheticQty, 9, principal, fee,
+                        "FLASH_POSITION_ACCOUNT_CONFIRMED", flashPositionKey = key,
+                        reason = if (accepted) "" else "Canonical Flash open rejected: $mutation")
+                }
+            }
+        }
+        try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPosition(
+                "MARKETS6486:PENDING:$positionId:$sig", positionId,
+                targetMint ?: "pending:${market.symbol}", market.symbol, traderType.uppercase(), sig,
+                principal, java.math.BigInteger.ZERO, decimals, fee, false,
+            )
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_LIVE_PENDING_PROOF_6486")
+        } catch (_: Throwable) {}
+        MarketsFill6486(FillState6486.PENDING_PROOF, positionId, sig, "UNKNOWN", targetMint ?: "",
+            java.math.BigInteger.ZERO, decimals, principal, fee, "SIGNATURE_ONLY_PENDING",
+            reason = "Signature exists but neither target delta nor Flash position is proved")
+    }
+
+    @Deprecated("Use executeLiveTradeProof6486; Boolean results discard fill truth")
     suspend fun executeLiveTrade(
+        market: PerpsMarket, direction: PerpsDirection, sizeSol: Double, leverage: Double,
+        priceUsd: Double, traderType: String = "Markets",
+    ): Pair<Boolean, String?> {
+        val syntheticId = "LEGACY_MARKETS:${traderType}:${market.symbol}:${System.currentTimeMillis()}"
+        val fill = executeLiveTradeProof6486(syntheticId, market, direction, sizeSol, leverage, priceUsd, traderType)
+        return Pair(fill.confirmed, fill.signature)
+    }
+
+    private suspend fun executeLiveTradeCore6486(
         market: PerpsMarket,
         direction: PerpsDirection,
         sizeSol: Double,
@@ -525,87 +652,22 @@ object MarketsLiveExecutor {
      * the stock price via Pyth oracles. This is how platforms like
      * Drift Protocol and Parcl handle tokenized assets.
      */
-    private suspend fun executeStockTrade(
-        wallet: SolanaWallet,
-        walletAddress: String,
-        market: PerpsMarket,
-        direction: PerpsDirection,
-        sizeSol: Double,
-        priceUsd: Double,
-    ): String? {
-        // V2.0: Use UniversalBridgeEngine — works from ANY token, not just SOL
-        // Source = best token in wallet → bridge to USDC as collateral
-        val solPriceUsd = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
-        val sizeUsd     = sizeSol * solPriceUsd
-        ErrorLogger.info(TAG, "  Executing STOCK trade: ${direction.emoji} ${market.symbol} | \$${sizeUsd.fmt(2)} via UniversalBridge")
-        val bridge = UniversalBridgeEngine.prepareCapital(wallet, UniversalBridgeEngine.USDC_MINT, sizeUsd)
-        if (!bridge.success) {
-            ErrorLogger.warn(TAG, "  Bridge failed: ${bridge.errorMsg} — falling back to direct SOL swap")
-            return executeJupiterSwap(wallet, walletAddress, SOL_MINT, USDC_MINT, (sizeSol * 1_000_000_000).toLong(), configuredSlippageBps())
-        }
-        return bridge.swapTxSig  // V5.9: null = no swap needed (was placeholder string)
-    }
+
 
     /**
      * Execute a commodity trade
      */
-    private suspend fun executeCommodityTrade(
-        wallet: SolanaWallet,
-        walletAddress: String,
-        market: PerpsMarket,
-        direction: PerpsDirection,
-        sizeSol: Double,
-        priceUsd: Double,
-    ): String? {
-        val solPriceUsd = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
-        val sizeUsd     = sizeSol * solPriceUsd
-        ErrorLogger.info(TAG, "  Executing COMMODITY trade: ${direction.emoji} ${market.symbol} | \$${sizeUsd.fmt(2)} via UniversalBridge")
-        val bridge = UniversalBridgeEngine.prepareCapital(wallet, UniversalBridgeEngine.USDC_MINT, sizeUsd)
-        if (!bridge.success) { return executeJupiterSwap(wallet, walletAddress, SOL_MINT, USDC_MINT, (sizeSol * 1_000_000_000).toLong(), configuredSlippageBps()) }
-        return bridge.swapTxSig  // V5.9: null = no swap needed (was placeholder string)
-    }
+
 
     /**
      * Execute a metal trade
      */
-    private suspend fun executeMetalTrade(
-        wallet: SolanaWallet,
-        walletAddress: String,
-        market: PerpsMarket,
-        direction: PerpsDirection,
-        sizeSol: Double,
-        priceUsd: Double,
-    ): String? {
-        ErrorLogger.info(TAG, "  Executing METAL trade: ${direction.emoji} ${market.symbol} (collateral post SOL→USDC)")
 
-        return executeJupiterSwap(
-            wallet = wallet,
-            walletAddress = walletAddress,
-            inputMint = SOL_MINT,
-            outputMint = USDC_MINT,
-            amountLamports = (sizeSol * 1_000_000_000).toLong(),
-            slippageBps = configuredSlippageBps(),
-        )
-    }
 
     /**
      * Execute a forex trade
      */
-    private suspend fun executeForexTrade(
-        wallet: SolanaWallet,
-        walletAddress: String,
-        market: PerpsMarket,
-        direction: PerpsDirection,
-        sizeSol: Double,
-        priceUsd: Double,
-    ): String? {
-        val solPriceUsd = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
-        val sizeUsd     = sizeSol * solPriceUsd
-        ErrorLogger.info(TAG, "  Executing FOREX trade: ${direction.emoji} ${market.symbol} | \$${sizeUsd.fmt(2)} via UniversalBridge")
-        val bridge = UniversalBridgeEngine.prepareCapital(wallet, UniversalBridgeEngine.USDC_MINT, sizeUsd)
-        if (!bridge.success) { return executeJupiterSwap(wallet, walletAddress, SOL_MINT, USDC_MINT, (sizeSol * 1_000_000_000).toLong(), configuredSlippageBps()) }
-        return bridge.swapTxSig  // V5.9: null = no swap needed (was placeholder string)
-    }
+
     
     /**
      * Execute a crypto perp trade
@@ -1070,16 +1132,9 @@ object MarketsLiveExecutor {
         val symbol = market.symbol
 
         if (symbol !in FLASH_SUPPORTED) {
-            ErrorLogger.info(TAG, "⚠️ Flash: $symbol not in perps universe — degrading to SPOT 1x")
-            val mint = com.lifecyclebot.perps.DynamicAltTokenRegistry
-                .getTokenBySymbol(symbol)?.mint
-                ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
-            return@withContext if (mint != null)
-                executeCryptoSpotSwap(wallet, walletAddress, market, direction, sizeSol, mint)
-            else {
-                ErrorLogger.warn(TAG, "⛔ Flash + SPOT fallback: no mint for $symbol")
-                null
-            }
+            ErrorLogger.warn(TAG, "⛔ Flash: $symbol not in perps universe — requested leveraged tactic rejected; no silent SPOT downgrade")
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FLASH_UNSUPPORTED_NO_SPOT_DOWNGRADE_6486") } catch (_: Throwable) {}
+            return@withContext null
         }
 
         val tradeType = if (direction == PerpsDirection.LONG) "LONG" else "SHORT"
@@ -1088,6 +1143,20 @@ object MarketsLiveExecutor {
         val slippagePct = (configuredSlippageBps() / 100.0).coerceIn(0.1, 5.0)
 
         ErrorLogger.info(TAG, "⚡ Flash.trade PERPS: $symbol $tradeType ${leverage}x | \$${inputAmountUsd.fmt(2)} collateral")
+        val usdcBefore = try { wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: 0.0 } catch (_: Throwable) { 0.0 }
+        if (usdcBefore + 1e-6 < inputAmountUsd) {
+            val capacity = UniversalBridgeEngine.scanWalletCapacity(wallet)
+            val bridge = UniversalBridgeEngine.bridgeToUsdc(wallet, capacity.bestSourceMint, inputAmountUsd - usdcBefore)
+            if (!bridge.success || !bridge.proofState.contains("CONFIRMED", ignoreCase = true)) {
+                ErrorLogger.warn(TAG, "⛔ Flash collateral pre-bridge failed: ${bridge.errorMsg} proof=${bridge.proofState}")
+                return@withContext null
+            }
+        }
+        val fundedUsdc = try { wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: 0.0 } catch (_: Throwable) { 0.0 }
+        if (fundedUsdc + 1e-6 < inputAmountUsd) {
+            ErrorLogger.warn(TAG, "⛔ Flash collateral remains insufficient after bridge: have=$fundedUsdc need=$inputAmountUsd")
+            return@withContext null
+        }
 
         return@withContext try {
             val reqBody = org.json.JSONObject().apply {
@@ -1112,20 +1181,20 @@ object MarketsLiveExecutor {
 
             if (!response.isSuccessful) {
                 ErrorLogger.warn(TAG, "⚠️ Flash open-position ${response.code}: $responseBody — degrading to SPOT")
-                return@withContext degradeFlashToSpot(wallet, walletAddress, market, direction, sizeSol)
+                return@withContext null
             }
 
             val json = org.json.JSONObject(responseBody)
             val err = json.optString("err", "null")
             if (err != "null" && err.isNotBlank()) {
                 ErrorLogger.warn(TAG, "⚠️ Flash API err for $symbol: $err — degrading to SPOT")
-                return@withContext degradeFlashToSpot(wallet, walletAddress, market, direction, sizeSol)
+                return@withContext null
             }
 
             val txBase64 = json.optString("transactionBase64", "")
             if (txBase64.isBlank()) {
                 ErrorLogger.warn(TAG, "⚠️ Flash: no transaction in response for $symbol")
-                return@withContext degradeFlashToSpot(wallet, walletAddress, market, direction, sizeSol)
+                return@withContext null
             }
 
             // Sign and send the Flash transaction
@@ -1133,12 +1202,12 @@ object MarketsLiveExecutor {
                 wallet.signAndSend(txBase64)
             } catch (ex: Exception) {
                 ErrorLogger.warn(TAG, "⚠️ Flash sign/send failed for $symbol: ${ex.message}")
-                return@withContext degradeFlashToSpot(wallet, walletAddress, market, direction, sizeSol)
+                return@withContext null
             }
 
             if (sig.isNullOrBlank()) {
                 ErrorLogger.warn(TAG, "⚠️ Flash: empty sig for $symbol — degrading to SPOT")
-                return@withContext degradeFlashToSpot(wallet, walletAddress, market, direction, sizeSol)
+                return@withContext null
             }
 
             ErrorLogger.info(TAG, "✅ Flash.trade $tradeType $symbol ${leverage}x OPEN: ${sig.take(24)}...")
@@ -1146,25 +1215,12 @@ object MarketsLiveExecutor {
 
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "Flash exception for $symbol: ${e.message} — degrading to SPOT")
-            degradeFlashToSpot(wallet, walletAddress, market, direction, sizeSol)
+            null
         }
     }
 
     /** Degrade a Flash perps open to a Jupiter SPOT swap (1x, LONG only). */
-    private suspend fun degradeFlashToSpot(
-        wallet: com.lifecyclebot.network.SolanaWallet,
-        walletAddress: String,
-        market: PerpsMarket,
-        direction: PerpsDirection,
-        sizeSol: Double,
-    ): String? {
-        val mint = com.lifecyclebot.perps.DynamicAltTokenRegistry
-            .getTokenBySymbol(market.symbol)?.mint
-            ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
-        return if (mint != null)
-            executeCryptoSpotSwap(wallet, walletAddress, market, direction, sizeSol, mint)
-        else null
-    }
+
 
     /**
      * Close a Flash.trade leveraged position.
@@ -1252,7 +1308,99 @@ object MarketsLiveExecutor {
         }
     }
 
+    data class MarketsClose6486(
+        val confirmed: Boolean,
+        val positionId: String,
+        val signature: String?,
+        val proceedsSol: Double,
+        val soldQtyRaw: java.math.BigInteger,
+        val proofState: String,
+        val reason: String = "",
+    )
+
+    suspend fun closeLivePositionProof6486(
+        positionId: String,
+        market: PerpsMarket,
+        direction: PerpsDirection,
+        sizeSol: Double,
+        leverage: Double = 1.0,
+        traderType: String = "Markets",
+        flashPositionKey: String? = null,
+        cryptoTargetMintOverride: String? = null,
+        cryptoSymbolOverride: String? = null,
+        exitReason: String = "MARKETS_CLOSE",
+        entryTactic: String = "MARKETS",
+    ): MarketsClose6486 = withContext(Dispatchers.IO) {
+        val pos = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId)
+            ?: return@withContext MarketsClose6486(false, positionId, null, 0.0, java.math.BigInteger.ZERO, "NO_CANONICAL_POSITION")
+        val wallet = WalletManager.getWallet()
+            ?: return@withContext MarketsClose6486(false, positionId, null, 0.0, java.math.BigInteger.ZERO, "NO_WALLET")
+        val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 10.0 } ?: 150.0
+        val beforeSol = try { wallet.getSolBalance() } catch (_: Throwable) { 0.0 }
+        val beforeUsdc = try { wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: 0.0 } catch (_: Throwable) { 0.0 }
+        val core = closeLivePositionCore6486(positionId, market, direction, sizeSol, leverage, traderType,
+            flashPositionKey, cryptoTargetMintOverride, cryptoSymbolOverride)
+        val sig = core.second
+        if (!core.first || sig.isNullOrBlank()) return@withContext MarketsClose6486(false, positionId, sig, 0.0,
+            java.math.BigInteger.ZERO, "EXECUTION_FAILED")
+        kotlinx.coroutines.delay(1_500L)
+        var afterSol = try { wallet.getSolBalance() } catch (_: Throwable) { beforeSol }
+        var afterUsdc = try { wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: beforeUsdc } catch (_: Throwable) { beforeUsdc }
+        var flashGone = true
+        if (pos.mint.startsWith("flash:")) {
+            flashGone = false
+            repeat(4) { attempt ->
+                if (attempt > 0) kotlinx.coroutines.delay(1_500L * attempt)
+                flashGone = findFlashPositionKey(wallet.publicKeyB58 ?: "", market.symbol, direction).isNullOrBlank()
+                if (flashGone) return@repeat
+            }
+            afterSol = try { wallet.getSolBalance() } catch (_: Throwable) { afterSol }
+            afterUsdc = try { wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: afterUsdc } catch (_: Throwable) { afterUsdc }
+        }
+        val proceedsSol = ((afterSol - beforeSol) + ((afterUsdc - beforeUsdc) / solPrice)).coerceAtLeast(0.0)
+        if (!flashGone || proceedsSol <= 0.0) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_CLOSE_PENDING_PROOF_6486") } catch (_: Throwable) {}
+            return@withContext MarketsClose6486(false, positionId, sig, proceedsSol, java.math.BigInteger.ZERO,
+                if (!flashGone) "FLASH_ACCOUNT_STILL_OPEN" else "NO_POSITIVE_RETURN_DELTA")
+        }
+        val soldQty = pos.remainingQtyRaw
+        val basis = (pos.entryCostSol - pos.soldCostBasisSol).coerceAtLeast(0.0)
+        val mutation = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.partialSell(
+            "MARKETS6486:CLOSE:$positionId:$sig", positionId, soldQty, proceedsSol, basis, 0.0, false)
+        if (mutation != com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.APPLIED &&
+            mutation != com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.DUPLICATE) {
+            return@withContext MarketsClose6486(false, positionId, sig, proceedsSol, soldQty, "CANONICAL_REDUCER_$mutation")
+        }
+        val closed = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId)
+            ?: return@withContext MarketsClose6486(false, positionId, sig, proceedsSol, soldQty, "CANONICAL_ROW_MISSING")
+        if (closed.lifecycle != com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.CLOSED) {
+            return@withContext MarketsClose6486(false, positionId, sig, proceedsSol, soldQty, "NOT_TERMINAL_${closed.lifecycle}")
+        }
+        val pnl = closed.realizedPnlSol
+        val pct = if (closed.entryCostSol > 0.0) pnl / closed.entryCostSol * 100.0 else 0.0
+        com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.publish(
+            com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Event(
+                positionId, closed.mint,
+                when { pnl > 0.0 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.WIN
+                    pnl < 0.0 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.LOSS
+                    else -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN },
+                pnl, closed.realizedProceedsSol - closed.soldCostBasisSol,
+                if (closed.entryCostSol > 0.0) pnl / closed.entryCostSol else 0.0, pct,
+                closed.feesSol, closed.lane, closed.runId, entryTactic, exitReason,
+                (System.currentTimeMillis() - closed.openedAtMs).coerceAtLeast(0L),
+                "CONFIRMED_WALLET_RETURN_DELTA", "ROUTE_VERIFIED_SELLABLE", "live", System.currentTimeMillis()))
+        MarketsClose6486(true, positionId, sig, proceedsSol, soldQty, "INPUT_BURN_AND_RETURN_DELTA_CONFIRMED")
+    }
+
+    @Deprecated("Use closeLivePositionProof6486 with canonical positionId")
     suspend fun closeLivePosition(
+        market: PerpsMarket, direction: PerpsDirection, sizeSol: Double, leverage: Double = 1.0,
+        traderType: String = "Markets", flashPositionKey: String? = null,
+        cryptoTargetMintOverride: String? = null, cryptoSymbolOverride: String? = null,
+    ): Pair<Boolean, String?> = Pair(false, null)
+
+    private suspend fun closeLivePositionCore6486(
+        positionId: String,
         market: PerpsMarket,
         direction: PerpsDirection,
         sizeSol: Double,
@@ -1262,6 +1410,8 @@ object MarketsLiveExecutor {
         cryptoTargetMintOverride: String? = null,
         cryptoSymbolOverride: String? = null,
     ): Pair<Boolean, String?> = withContext(Dispatchers.IO) {
+        val canonicalPos6486 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId)
+            ?: return@withContext Pair(false, null)
         val closeSymbol = cryptoSymbolOverride?.takeIf { it.isNotBlank() } ?: market.symbol
         val cryptoDiagClose = traderType.equals("CryptoAlt", ignoreCase = true) || !cryptoTargetMintOverride.isNullOrBlank()
         
@@ -1372,7 +1522,13 @@ object MarketsLiveExecutor {
                     return@withContext Pair(false, null)
                 }
                 val decimals = tokenData.second
-                val units = (tokenData.first * Math.pow(10.0, decimals.toDouble())).toLong()
+                val walletRaw = java.math.BigDecimal.valueOf(tokenData.first).movePointRight(decimals).toBigInteger()
+                val canonicalRaw = canonicalPos6486.remainingQtyRaw
+                if (canonicalRaw <= java.math.BigInteger.ZERO || walletRaw < canonicalRaw) {
+                    ErrorLogger.warn(TAG, "Canonical close quantity unavailable: positionId=$positionId canonical=$canonicalRaw wallet=$walletRaw")
+                    return@withContext Pair(false, null)
+                }
+                val units = try { canonicalRaw.longValueExact() } catch (_: Throwable) { return@withContext Pair(false, null) }
                 Pair(targetMint, units)
             } else {
                 // V5.9.310: USDC-parked or no-mint position close.

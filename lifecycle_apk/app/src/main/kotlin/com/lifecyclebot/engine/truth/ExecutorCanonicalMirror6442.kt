@@ -170,8 +170,8 @@ object ExecutorCanonicalMirror6442 {
         terminal: Boolean = true,
         lane: String = "",
         reason: String = "SELL_CONFIRMED",
-    ) {
-        try {
+    ): Boolean {
+        return try {
             val positionId = positionIdOf(mint)
             val idem = sellIdempotencyKey(positionId, generation)
             val reserve = try {
@@ -179,7 +179,7 @@ object ExecutorCanonicalMirror6442 {
             } catch (_: Throwable) { IdempotencyKeyStore6437.InsertResult.NEW }
             if (reserve == IdempotencyKeyStore6437.InsertResult.DUPLICATE) {
                 try { PipelineHealthCollector.labelInc("EXECUTOR_MIRROR_SELL_DUP_6442") } catch (_: Throwable) {}
-                return
+                return false
             }
             val posBefore = CanonicalPositionAuthority6441.getPosition(positionId)
             val qtyToSell = if (terminal && posBefore != null && posBefore.remainingQtyRaw > BigInteger.ZERO) posBefore.remainingQtyRaw else soldQtyRaw
@@ -209,8 +209,10 @@ object ExecutorCanonicalMirror6442 {
                 }
             }
             try { PipelineHealthCollector.labelInc("EXECUTOR_MIRROR_SELL_$result".take(60)) } catch (_: Throwable) {}
+            result == CanonicalPositionAuthority6441.MutateResult.APPLIED
         } catch (t: Throwable) {
             mirrorFailures.incrementAndGet()
+            false
         }
     }
 

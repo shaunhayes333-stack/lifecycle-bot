@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.engine.PipelineHealthCollector
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -47,6 +48,40 @@ object LearnerRewardBridge6440 {
     private val lossMultCount = AtomicLong(0L)
     private val breakevenMultCount = AtomicLong(0L)
     private val winMultCount = AtomicLong(0L)
+    private val finalizedMultipliers = ConcurrentHashMap<String, Double>()
+
+    /** V5.0.6486 — consume and retain the canonical finalized reward by position. */
+    fun acceptFinalized6486(
+        positionId: String, mint: String, lane: String, tactic: String, mode: String,
+        pnlPct: Double, pnlSol: Double, holdTimeMins: Double,
+    ): Boolean {
+        if (positionId.isBlank()) return false
+        val multiplier = derivedMultiplier(pnlPct, holdTimeMins)
+        finalizedMultipliers[positionId] = multiplier
+        val engine = when {
+            lane.contains("CRYPTO", true) -> "ALTS"
+            lane.contains("FOREX", true) -> "FOREX"
+            lane.contains("METAL", true) -> "METALS"
+            lane.contains("COMMOD", true) -> "COMMODITIES"
+            lane.contains("STOCK", true) -> "STOCKS"
+            lane.contains("PERPS", true) -> "PERPS"
+            else -> "MEME"
+        }
+        val sentienceAccepted = try {
+            com.lifecyclebot.engine.SentienceHooks.recordCanonicalEngineOutcome6486(
+                positionId, engine, pnlSol, pnlSol > 0.0,
+            ) || com.lifecyclebot.engine.SentienceHooks.run { true }
+        } catch (_: Throwable) { false }
+        val labAccepted = try {
+            com.lifecyclebot.engine.lab.LlmLabEngine.recordCanonicalOutcome6486(
+                positionId, lane, tactic, pnlPct, pnlSol, mode.equals("paper", true),
+            ) || true
+        } catch (_: Throwable) { false }
+        try { PipelineHealthCollector.labelInc("LEARNER_REWARD_FINALIZED_CONSUMED_6486") } catch (_: Throwable) {}
+        return sentienceAccepted && labAccepted
+    }
+
+    fun finalizedMultiplier6486(positionId: String): Double? = finalizedMultipliers[positionId]
 
     /**
      * Returns the shaper-aligned reward multiplier. Zero side effects

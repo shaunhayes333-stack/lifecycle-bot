@@ -551,14 +551,9 @@ class StartupReconciler(
                         // V5.9.122: safety net — if a paper position ever slips
                         // past the guard above, refund the paper SOL before
                         // clearing so capital isn't lost silently.
-                        if (ts.position.isPaperPosition && ts.position.costSol > 0.0) {
-                            try {
-                                com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
-                                    ts.position.costSol,
-                                    source = "ghost_reconcile_refund[${ts.symbol}]"
-                                )
-                                onLog("💰 Refunded ${ts.position.costSol} paper SOL from ghost ${ts.symbol}")
-                            } catch (_: Exception) { /* non-fatal */ }
+                        if (ts.position.isPaperPosition) {
+                            try { PipelineHealthCollector.labelInc("PAPER_LIVE_GHOST_REFUND_REJECTED_6486") } catch (_: Throwable) {}
+                            return@synchronized
                         }
                         ts.position   = com.lifecyclebot.data.Position()
                         ts.lastExitTs = System.currentTimeMillis()

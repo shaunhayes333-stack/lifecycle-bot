@@ -171,7 +171,7 @@ object SellFinalizationCoordinator {
             ErrorLogger.warn("SellFinalizationCoordinator", "lifecycle update failed: ${e.message}")
         }
 
-        return Result(
+        val result6486 = Result(
             finalState = fin.finalState,
             actualConsumedRaw = actualConsumedRaw,
             remainingRaw = remainingRaw,
@@ -181,7 +181,10 @@ object SellFinalizationCoordinator {
             freshWalletSol = fresh,
             finality = fin.finality,
             pendingRetry = false,
-        ).also { res ->
+        )
+        var canonicalMutationFailed6486 = false
+        run {
+            val res = result6486
             // V5.0.6463 §P1 — PARTIAL-SELL UNIT CORRECTNESS.
             try {
                 com.lifecyclebot.engine.truth.PartialSellCorrectness6463.validate(
@@ -222,12 +225,30 @@ object SellFinalizationCoordinator {
                     )
                     if (termClaim6466 != com.lifecyclebot.engine.truth.TerminalMutationAuthority6466.ClaimResult.GRANTED) {
                         // Duplicate: bail before any side effect.
-                        return@also
+                        return@run
+                    }
+                    val partial = fin.finalState != TxMetaSellFinalizer.FinalState.CLEARED
+                    val positionApplied6486 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
+                        mint = intent.mint,
+                        generation = sellSig.hashCode().toLong(),
+                        soldQtyRaw = actualConsumedRaw,
+                        proceedsSol = sellSolReceived,
+                        soldCostBasisSol = pnl.proportionalCostBasisSol,
+                        feesSol = feesSol,
+                        paperMode = false,
+                        terminal = !partial,
+                        lane = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.resolveExitLane(positionId, traderTag),
+                        reason = intent.reason.name,
+                    )
+                    if (!positionApplied6486) {
+                        canonicalMutationFailed6486 = true
+                        com.lifecyclebot.engine.truth.LearningQuarantineGate6470.quarantinePositionId(positionId, "LIVE_SELL_CANONICAL_POSITION_REJECTED_6486")
+                        try { PipelineHealthCollector.labelInc("LIVE_SELL_CANONICAL_POSITION_REJECTED_6486") } catch (_: Throwable) {}
+                        return@run
                     }
                     com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.onSellFilled(
                         positionId = positionId, mint = intent.mint, filledQty = actualConsumedRaw,
                     )
-                    val partial = fin.finalState != TxMetaSellFinalizer.FinalState.CLEARED
                     com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordSell(
                         mode = "live",
                         positionId = positionId, mint = intent.mint, symbol = intent.symbol,
@@ -237,8 +258,7 @@ object SellFinalizationCoordinator {
                         preRemainingCostBasisSol = intent.entrySolSpent,
                         grossProceedsSol = sellSolReceived, exitFeesSol = feesSol,
                     )
-                    val realizedPct = if (intent.entrySolSpent > 0.0)
-                        (pnl.realizedPnlSol / intent.entrySolSpent) * 100.0 else 0.0
+                    val realizedPct = pnl.realizedPnlPct
                     if (!partial) {
                         val settledAt6485 = System.currentTimeMillis()
                         val entrySnap6485 = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(positionId)
@@ -251,7 +271,7 @@ object SellFinalizationCoordinator {
                             com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Event(
                                 positionId = positionId, mint = intent.mint, outcome = outcome6485,
                                 netRealizedPnlSol = pnl.realizedPnlSol,
-                                grossRealizedPnlSol = sellSolReceived - intent.entrySolSpent,
+                                grossRealizedPnlSol = sellSolReceived - pnl.proportionalCostBasisSol,
                                 returnFraction = realizedPct / 100.0, netReturnPct = realizedPct, feesSol = feesSol,
                                 entryLane = entrySnap6485?.entryLane ?: traderTag,
                                 entryStrategyPid = entrySnap6485?.entryStrategyPid ?: "",
@@ -273,14 +293,18 @@ object SellFinalizationCoordinator {
                 }
                 // V5.0.6464 §P1 — occupancy: mark PENDING_EXIT then CLOSED as this path landed.
                 com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markPendingExit(
-                    mode = "paper", mint = intent.mint, symbol = intent.symbol,
+                    mode = "live", mint = intent.mint, symbol = intent.symbol,
                     source = "SellFinalizationCoordinator",
                 )
                 if (fin.finalState == TxMetaSellFinalizer.FinalState.CLEARED) {
-                    com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("paper", intent.mint)
+                    com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("live", intent.mint)
                 }
                 com.lifecyclebot.engine.truth.AuthoritySnapshotVersion6464.bump("sell_finalized_${intent.symbol}")
-            } catch (_: Throwable) {}
+            } catch (t: Throwable) {
+                canonicalMutationFailed6486 = true
+                try { ForensicLogger.lifecycle("LIVE_SELL_CANONICAL_FANOUT_FAILED_6486", "mint=${intent.mint.take(10)} sig=${sellSig.take(12)} err=${t.message?.take(100)}") } catch (_: Throwable) {}
+            }
         }
+        return if (canonicalMutationFailed6486) result6486.copy(pendingRetry = true) else result6486
     }
 }

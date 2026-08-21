@@ -44,11 +44,10 @@ object FinalizedBusConsumerBridge6465 {
         if (consumer !in NON_LEARNING_CONSUMERS &&
             LearningQuarantineGate6470.shouldDropForLearning(positionId = env.tradeId, mint = env.mint)
         ) {
-            refused.incrementAndGet()
             try {
-                PipelineHealthCollector.labelInc("LEARNING_QUARANTINE_CONSUMER_DROPPED_6470_${consumer}".take(60))
+                PipelineHealthCollector.labelInc("LEARNING_QUARANTINE_HANDLED_NO_MUTATION_6486_${consumer}".take(60))
             } catch (_: Throwable) {}
-            return false
+            return true
         }
         val ok = when (consumer) {
             "LearnerRewardBridge" -> deliverToLearnerRewardBridge(env)
@@ -75,8 +74,10 @@ object FinalizedBusConsumerBridge6465 {
     private val NON_LEARNING_CONSUMERS = setOf("Dashboard")
 
     private fun deliverToLearnerRewardBridge(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        com.lifecyclebot.engine.truth.LearnerRewardBridge6440.derivedMultiplier(env.realizedReturnPct, 0.0)
-        true
+        com.lifecyclebot.engine.truth.LearnerRewardBridge6440.acceptFinalized6486(
+            env.positionId, env.mint, env.lane, env.entryTactic, env.mode,
+            env.realizedReturnPct, env.realizedPnlSol, env.holdingTimeMs / 60_000.0,
+        )
     } catch (_: Throwable) { false }
 
     private fun deliverToLosingStreakReflex(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
@@ -85,12 +86,17 @@ object FinalizedBusConsumerBridge6465 {
     } catch (_: Throwable) { false }
 
     private fun deliverToGrowthRewardShaper(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        com.lifecyclebot.engine.truth.GrowthAlignedRewardShaper6439.shape(env.realizedPnlSol, env.atMs, env.atMs, env.mint)
+        com.lifecyclebot.engine.truth.GrowthAlignedRewardShaper6439.shape(
+            env.realizedPnlSol, (env.atMs - env.holdingTimeMs).coerceAtLeast(0L), env.atMs, env.mint,
+        )
         true
     } catch (_: Throwable) { false }
 
     private fun deliverToTacticSwitcher(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        com.lifecyclebot.engine.learning.TacticSwitcher.onTradeClosed(env.lane, "FINALIZED", env.realizedReturnPct)
+        val band = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(env.entryScore)
+        com.lifecyclebot.engine.learning.TacticSwitcher.onCanonicalTradeClosed6486(
+            env.lane, band, env.entryTactic, env.realizedReturnPct,
+        )
         true
     } catch (_: Throwable) { false }
 
@@ -100,8 +106,7 @@ object FinalizedBusConsumerBridge6465 {
     } catch (_: Throwable) { false }
 
     private fun deliverToCapitalCreed(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        com.lifecyclebot.engine.truth.CapitalPreservationCreed6439.isLosingBehaviour(env.realizedPnlSol)
-        true
+        com.lifecyclebot.engine.truth.CapitalPreservationCreed6439.recordFinalized6486(env.positionId, env.realizedPnlSol)
     } catch (_: Throwable) { false }
 
     private fun deliverToEvEstimator(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {

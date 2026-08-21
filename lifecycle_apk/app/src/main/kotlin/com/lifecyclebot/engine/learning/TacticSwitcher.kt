@@ -153,6 +153,12 @@ object TacticSwitcher {
     )
 
     private val cells = ConcurrentHashMap<String, Cell>()
+    private data class HistoricalTacticOutcome6486(
+        val trades: AtomicInteger = AtomicInteger(0),
+        val wins: AtomicInteger = AtomicInteger(0),
+        val pnlBps: AtomicLong = AtomicLong(0L),
+    )
+    private val historicalTacticOutcomes6486 = ConcurrentHashMap<String, HistoricalTacticOutcome6486>()
     private val mutex = Any()
 
     private fun key(lane: String, scoreBand: String): String =
@@ -239,6 +245,25 @@ object TacticSwitcher {
      *
      * pnlPct: realized PnL% on the trade.
      */
+    fun onCanonicalTradeClosed6486(
+        lane: String, scoreBand: String, entryTactic: String, pnlPct: Double,
+    ) {
+        val current = currentTactic(lane, scoreBand).name
+        val entered = entryTactic.trim().uppercase()
+        if (entered.isBlank() || entered == current) {
+            onTradeClosed(lane, scoreBand, pnlPct)
+            return
+        }
+        val histKey = "${key(lane, scoreBand)}|${entered.take(24)}"
+        val row = historicalTacticOutcomes6486.computeIfAbsent(histKey) { HistoricalTacticOutcome6486() }
+        row.trades.incrementAndGet()
+        if (pnlPct > 0.0) row.wins.incrementAndGet()
+        row.pnlBps.addAndGet((pnlPct * 100).toLong())
+        try { PipelineHealthCollector.labelInc("TACTIC_HISTORICAL_OUTCOME_ATTRIBUTED_6486") } catch (_: Throwable) {}
+    }
+
+    fun historicalOutcomeCount6486(): Int = historicalTacticOutcomes6486.values.sumOf { it.trades.get() }
+
     fun onTradeClosed(lane: String, scoreBand: String, pnlPct: Double) {
         val cell = getOrCreate(lane, scoreBand)
         cell.tradesSinceRotation.incrementAndGet()

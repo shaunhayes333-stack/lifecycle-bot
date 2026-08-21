@@ -1,5 +1,8 @@
 package com.lifecyclebot.engine.truth
 
+import com.lifecyclebot.engine.PipelineHealthCollector
+import java.util.concurrent.ConcurrentHashMap
+
 /**
  * V5.0.6439 — CAPITAL PRESERVATION CREED (doctrine as code).
  *
@@ -40,6 +43,17 @@ package com.lifecyclebot.engine.truth
  *   • LOSING_STREAK_TRIPPED_6439 → LosingStreakReflex6439 cools down
  */
 object CapitalPreservationCreed6439 {
+    private val finalizedLosingByPosition6486 = ConcurrentHashMap<String, Boolean>()
+
+    /** V5.0.6486 — retain the creed verdict for each canonical terminal identity. */
+    fun recordFinalized6486(positionId: String, realizedSolDelta: Double): Boolean {
+        if (positionId.isBlank()) return false
+        finalizedLosingByPosition6486[positionId] = isLosingBehaviour(realizedSolDelta)
+        try { PipelineHealthCollector.labelInc("CAPITAL_CREED_FINALIZED_CONSUMED_6486") } catch (_: Throwable) {}
+        return true
+    }
+
+    fun finalizedVerdict6486(positionId: String): Boolean? = finalizedLosingByPosition6486[positionId]
 
     /** Compounding growth targets (lower bounds — actual EV should exceed). */
     const val DAILY_COMPOUNDING_TARGET_PCT: Double = 5.0

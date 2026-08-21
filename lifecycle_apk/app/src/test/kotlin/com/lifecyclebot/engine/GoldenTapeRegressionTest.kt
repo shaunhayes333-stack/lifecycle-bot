@@ -7222,7 +7222,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4582: Crypto funnel must expose opened and closed ok/fail counters", funnel.contains("opened         ok=") && funnel.contains("closed         ok=") && funnel.contains("fun close(success: Boolean)"))
         assertTrue("V5.0.4582: Crypto universe forensics must aggregate phase/route/diagnostic reason counts", diag.contains("phaseCounts") && diag.contains("diagCounts") && diag.contains("routeCounts") && diag.contains("fun summary()"))
         assertTrue("V5.0.4582: Crypto closes must log start/input/success/failure phases like meme sell diagnostics", markets.contains("CU_CLOSE_START") && markets.contains("CU_CLOSE_INPUT_RESOLVED") && markets.contains("CU_CLOSE_OK") && markets.contains("CU_CLOSE_NO_SIGNATURE") && markets.contains("CU_CLOSE_TARGET_ABSENT"))
-        assertTrue("V5.0.4582: CryptoAlt close must feed CryptoFunnel close counters", trader.contains("CryptoFunnel.close(closeSuccess)"))
+        assertTrue("V5.0.4582: CryptoAlt close must feed CryptoFunnel close counters", trader.contains("CryptoFunnel.close(closeSuccess6486)"))
         assertTrue("V5.0.4582: operator crypto digest must surface bridge diagnostics with log-parity marker", digest.contains("bridgeDiag") && digest.contains("CryptoUniverseForensics.summary") && digest.contains("crypto_log_parity=true"))
     }
 
@@ -7713,7 +7713,51 @@ class GoldenTapeRegressionTest {
         assertFalse("6485 metadata close ledger cannot publish terminal learning events", closeLedger.contains("CanonicalTradeFinalizedBus6450.publish") || closeLedger.contains("CanonicalFinalizedTradeBus6464.publish"))
         assertTrue("6485 canonical paper terminal reducer publishes the rich bus", paperBridge.contains("CanonicalTradeFinalizedBus6450.publish"))
         assertTrue("6485 rich bus centrally gates quarantine and forwards parity once", bus.contains("LearningQuarantineGate6470.shouldDropForLearning") && bus.contains("ensureCanonicalConsumers6485"))
-        assertTrue("6485 all named consumers invoke real APIs", consumers.contains("LearnerRewardBridge6440.derivedMultiplier") && consumers.contains("GrowthAlignedRewardShaper6439.shape") && consumers.contains("TacticSwitcher.onTradeClosed") && consumers.contains("LiveLaneGovernor.recordBypassOutcome") && consumers.contains("CapitalPreservationCreed6439.isLosingBehaviour") && consumers.contains("ForwardOutcomeModel.recordOutcome") && consumers.contains("DashboardDataProvider.onCanonicalTradeFinalized6485"))
+        assertTrue("6485 all named consumers invoke real APIs", consumers.contains("LearnerRewardBridge6440.acceptFinalized6486") && consumers.contains("GrowthAlignedRewardShaper6439.shape") && consumers.contains("TacticSwitcher.onCanonicalTradeClosed6486") && consumers.contains("LiveLaneGovernor.recordBypassOutcome") && consumers.contains("CapitalPreservationCreed6439.recordFinalized6486") && consumers.contains("ForwardOutcomeModel.recordOutcome") && consumers.contains("DashboardDataProvider.onCanonicalTradeFinalized6485"))
+    }
+
+
+
+    @Test
+    fun V5_0_6486_canonical_closure_bridge_and_live_finality_are_typed() {
+        val tx = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
+        val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt").readText()
+        val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/UniversalBridgeEngine.kt").readText()
+        val markets = java.io.File("src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt").readText()
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseExecutor.kt").readText()
+        val finality = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalityPersistence6486.kt").readText()
+        val consumers = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt").readText()
+        val parityBus = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalizedTradeBus6464.kt").readText()
+        val reporting = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        val unified = java.io.File("src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt").readText()
+        val meta = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AutonomousMetaPolicy.kt").readText()
+
+        assertTrue("6486 all paper economic mutations use one transaction reducer",
+            tx.contains("""fun open(""") && tx.contains("""fun add(""") && tx.contains("""fun close(""") && tx.contains("""fun refund("""))
+        assertTrue("6486 paper facade debit cannot mislabel canonical mode as live",
+            tx.contains("""modeOverride = "paper"""") && authority.contains("""modeOverride: String? = null"""))
+        assertTrue("6486 bridge quantities must come from proved output deltas",
+            bridge.contains("""verifyTargetDelta6486""") && bridge.contains("""USDC output delta unproved after bridge""") &&
+                bridge.contains("""Release signature exists but output delta is unproved""") &&
+                bridge.contains("""targetDecimals = fill.decimals""") && bridge.contains("""proofState = fill.proof"""))
+        assertFalse("6486 bridge must not synthesize expected USDC output", bridge.contains("""sizeUsd * 1_000_000 * 0.985"""))
+        assertTrue("6486 Markets opens and closes carry typed proof and canonical quantity",
+            markets.contains("""data class MarketsFill6486""") && markets.contains("""data class MarketsClose6486""") &&
+                markets.contains("""canonicalPos6486.remainingQtyRaw""") && markets.contains("""CanonicalTradeFinalizedBus6450.publish"""))
+        assertFalse("6486 requested leverage must not silently degrade to spot", markets.contains("""degradeFlashToSpot"""))
+        assertTrue("6486 Crypto Universe requires verified bridge quantity before OPEN",
+            crypto.contains("""bridge.targetAmountRaw <= 0L""") && crypto.contains("""CanonicalPositionAuthority6441.openPosition""") &&
+                !crypto.contains("""DELTA_LATE_TRUST_SIG"""))
+        assertTrue("6486 rich finality is durable and consumer ACKs are persisted",
+            finality.contains("""PREFIX = "final:"""") && finality.contains("""ACK_PREFIX_6486""") &&
+                finality.contains("""recordAck6486""") && finality.contains("""ackedIds6486""") &&
+                parityBus.contains("""redeliverPending6486""") && parityBus.contains("""requestRetry6486"""))
+        assertTrue("6486 policy pending labels persist on every stamp and settlement",
+            unified.contains("""put("pending"""") && unified.contains("""GlobalScope.launch(AppDispatchers.sideEffect)""") &&
+                meta.contains("""put("pending"""") && meta.contains("""GlobalScope.launch(AppDispatchers.sideEffect)"""))
+        assertTrue("6486 money path distinguishes open cost and unrealized PnL",
+            reporting.contains("""trustedLiveOpenCost""") && reporting.contains("""untrustedLiveOpenCost""") &&
+                reporting.contains("""trustedLiveUnrealizedPnl""") && reporting.contains("""open_unrealized_not_wallet_until_sell_finality"""))
     }
 
 }

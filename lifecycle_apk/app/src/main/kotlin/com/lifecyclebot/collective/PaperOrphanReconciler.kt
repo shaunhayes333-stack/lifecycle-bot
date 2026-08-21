@@ -8,7 +8,7 @@ import com.lifecyclebot.engine.ErrorLogger
  *
  * Root cause of the "paper balance gets wiped on app update" bug:
  *   - Every perps trader (CryptoAlt, Stock, Metals, Forex, Commodities) debits
- *     `BotService.status.paperWalletSol` via `creditUnifiedPaperSol(-sizeSol)`
+ *     canonical paper positions via typed CanonicalPaperTransaction6486 refunds.
  *     when it opens a position.
  *   - The open position is persisted to Turso (`markets_positions` table with
  *     status='OPEN') but the in-memory `spotPositions` / `leveragePositions`
@@ -56,14 +56,15 @@ object PaperOrphanReconciler {
             if (orphans.isEmpty()) return 0.0
             var refunded = 0.0
             orphans.forEach { orphan ->
-                refunded += orphan.sizeSol
-                try {
-                    BotService.creditUnifiedPaperSol(
-                        delta  = orphan.sizeSol,
-                        source = "$sourceLabel.reconcile[${orphan.market}]",
+                val result = try {
+                    com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.refund(
+                        orphan.id, "$sourceLabel.reconcile[${orphan.market}]",
                     )
-                } catch (_: Exception) {}
-                try { client.deleteMarketsPosition(orphan.id) } catch (_: Exception) {}
+                } catch (_: Throwable) { null }
+                if (result?.applied == true) {
+                    refunded += orphan.sizeSol
+                    try { client.deleteMarketsPosition(orphan.id) } catch (_: Exception) {}
+                }
             }
             ErrorLogger.info(
                 TAG,

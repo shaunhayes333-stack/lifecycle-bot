@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine.sell
 
+import kotlinx.coroutines.launch
+
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.LiveTradeLogStore
 import com.lifecyclebot.network.SolanaWallet
@@ -51,7 +53,17 @@ object PartialSellMismatchDetector {
      * @param wallet               wallet for post-sell read
      * @return true if mismatch detected (and lock applied), false if safe
      */
-    fun verifyAndMaybeLock(
+    fun verifyAndMaybeLockAsync6486(
+        mint: String, symbol: String, decimals: Int,
+        expectedConsumedRaw: BigInteger, preSellWalletRaw: BigInteger,
+        wallet: SolanaWallet?,
+    ) {
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            verifyAndMaybeLock(mint, symbol, decimals, expectedConsumedRaw, preSellWalletRaw, wallet)
+        }
+    }
+
+    private fun verifyAndMaybeLock(
         mint: String,
         symbol: String,
         decimals: Int,

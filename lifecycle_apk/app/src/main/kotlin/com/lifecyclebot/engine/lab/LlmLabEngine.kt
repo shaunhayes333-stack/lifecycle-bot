@@ -3,6 +3,7 @@ package com.lifecyclebot.engine.lab
 import android.content.Context
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.GeminiCopilot
+import com.lifecyclebot.engine.PipelineHealthCollector
 import com.lifecyclebot.engine.SentienceHooks
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -66,6 +67,18 @@ object LlmLabEngine {
         val atMs: Long,
     )
     private val externalOutcomes6078 = ConcurrentLinkedDeque<ExternalOutcome6078>()
+
+    private val canonicalExternalIds6486 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    fun recordCanonicalOutcome6486(
+        positionId: String, lane: String, tactic: String, pnlPct: Double,
+        pnlSol: Double, paper: Boolean,
+    ): Boolean {
+        if (positionId.isBlank() || !canonicalExternalIds6486.add(positionId)) return false
+        recordExternalOutcome6078(lane, tactic, pnlPct, pnlSol, trainable = true, accepted = true, paper = paper)
+        try { PipelineHealthCollector.labelInc("LLM_LAB_CANONICAL_OUTCOME_CONSUMED_6486") } catch (_: Throwable) {}
+        return true
+    }
 
     fun recordExternalOutcome6078(
         lane: String,
@@ -528,13 +541,11 @@ Reply with just the JSON object, nothing else.
                 a.strategyId?.let { LabPromotedFeed.grantLiveAuthority(it) }
             }
             LabApprovalKind.TRANSFER_TO_MAIN_PAPER -> {
-                if (LlmLabStore.getPaperBalance() >= a.amountSol) {
-                    LlmLabStore.adjustPaperBalance(-a.amountSol)
-                    try {
-                        com.lifecyclebot.engine.BotService.status.paperWalletSol += a.amountSol
-                    } catch (_: Throwable) {}
-                    ErrorLogger.info(TAG, "🧪 TRANSFER ${a.amountSol}◎ Lab paper → main paper wallet")
-                }
+                // V5.0.6486 — simulated Lab rewards are not executed proceeds and
+                // cannot mint canonical paper wallet cash. Strategy promotion is
+                // allowed; capital changes require a typed BUY/SELL/REFUND event.
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_LAB_FAKE_CASH_TRANSFER_REJECTED_6486") } catch (_: Throwable) {}
+                ErrorLogger.warn(TAG, "🧪 TRANSFER rejected: Lab paper is learning telemetry, not canonical wallet cash")
             }
         }
     }

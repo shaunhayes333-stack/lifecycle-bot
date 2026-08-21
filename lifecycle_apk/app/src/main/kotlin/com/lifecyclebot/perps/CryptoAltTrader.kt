@@ -232,6 +232,8 @@ object CryptoAltTrader {
         val dynMint       : String? = null,
         val direction     : PerpsDirection,
         val isSpot        : Boolean,
+        val isPaper       : Boolean,
+        val canonicalAssetKey: String,
         val entryPrice    : Double,
         var currentPrice  : Double,
         val sizeSol       : Double,
@@ -280,6 +282,8 @@ object CryptoAltTrader {
             .put("market",          p.market.name)
             .put("direction",       p.direction.name)
             .put("isSpot",          p.isSpot)
+            .put("isPaper",         p.isPaper)
+            .put("canonicalAssetKey", p.canonicalAssetKey)
             .put("entryPrice",      p.entryPrice)
             .put("currentPrice",    p.currentPrice)
             .put("sizeSol",         p.sizeSol)
@@ -315,6 +319,9 @@ object CryptoAltTrader {
             dynMint         = j.optString("dynMint", "").ifBlank { null },
             direction       = PerpsDirection.valueOf(j.getString("direction")),
             isSpot          = j.optBoolean("isSpot", true),
+            isPaper         = j.optBoolean("isPaper", true),
+            canonicalAssetKey = j.optString("canonicalAssetKey",
+                j.optString("dynMint", j.optString("dynSymbol", j.optString("market", "UNKNOWN")))),
             entryPrice      = j.getDouble("entryPrice"),
             currentPrice    = j.getDouble("currentPrice"),
             sizeSol         = j.getDouble("sizeSol"),
@@ -2016,6 +2023,8 @@ object CryptoAltTrader {
             dynMint        = signal.dynMint,
             direction      = signal.direction,
             isSpot         = isSpot,
+            isPaper        = isPaperMode.get(),
+            canonicalAssetKey = candidate.assetKey,
             entryPrice     = signal.price,
             currentPrice   = signal.price,
             sizeSol        = finalSize,
@@ -2034,20 +2043,24 @@ object CryptoAltTrader {
         // learnt in paper carries 1:1 into live. If the live swap fails
         // we roll back: the position is not created and we return.
         if (isPaperMode.get()) {
-            // V5.9.5: Deduct from shared FluidLearning pool
-            try { com.lifecyclebot.engine.FluidLearning.recordPaperBuy(mktSym, finalSize) } catch (_: Exception) {}
-            // V5.9.48: Unified paper wallet — debit deployed capital from main.
-            com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
-                delta = -finalSize,
-                source = "CryptoAlt.open[${mktSym}]"
+            val canonicalOpen6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(
+                positionId = position.id, mint = position.canonicalAssetKey, symbol = mktSym,
+                lane = if (isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV", source = "CryptoAltTrader",
+                costSol = finalSize, entryScore = signal.score, tactic = if (isSpot) "SPOT" else "LEVERAGE",
             )
+            if (!canonicalOpen6486.applied) {
+                ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: $mktSym ${canonicalOpen6486.reason}")
+                try { TradeAuthorizer.releasePosition(candidate.assetKey, "CRYPTO_PAPER_CANONICAL_REJECTED", TradeAuthorizer.ExecutionBook.CRYPTO) } catch (_: Throwable) {}
+                return
+            }
+            try { com.lifecyclebot.engine.FluidLearning.recordPaperBuy(mktSym, finalSize) } catch (_: Exception) {}
         } else {
             // LIVE mode — execute Jupiter swap at the exact paper-sized
             // finalSize. If the swap + phantom-verify fail, we do NOT
             // create a bot position (nothing to clean up on-chain either,
             // because MarketsLiveExecutor only returns success after the
             // target mint actually arrived on-chain).
-            val liveOk = executeLiveTradeAtSize(signal, isSpot, finalSize)
+            val liveOk = executeLiveTradeAtSize(position.id, signal, isSpot, finalSize)
             if (!liveOk) {
                 ErrorLogger.warn(TAG, "🔴 LIVE alt trade failed: ${mktSym} — position not recorded")
                 try { TradeAuthorizer.releasePosition(candidate.assetKey, "CRYPTO_LIVE_BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.CRYPTO) } catch (_: Throwable) {}
@@ -2168,6 +2181,7 @@ object CryptoAltTrader {
      * the target mint arrived on-chain.
      */
     private suspend fun executeLiveTradeAtSize(
+        positionId: String,
         signal: AltSignal,
         isSpot: Boolean,
         sizeSol: Double,
@@ -2197,6 +2211,7 @@ object CryptoAltTrader {
             // classified up-front with a precise diag code instead of fake
             // BUY_FAILED. Operator brief items B–G/J.
             val outcome = com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.executeLiveTrade(
+                positionId = positionId,
                 market     = signal.market,
                 direction  = signal.direction,
                 sizeSol    = sizeSol,
@@ -2231,79 +2246,7 @@ object CryptoAltTrader {
         }
     }
 
-    private suspend fun executeLiveTrade(signal: AltSignal, isSpot: Boolean): Double? {
-        return try {
-            val wallet = WalletManager.getWallet()
-                ?: run { ErrorLogger.warn(TAG, "No wallet — cannot execute LIVE alt trade"); return null }
 
-            // V5.9.8: Always read fresh balance from wallet (not stale cache)
-            val balance = try { wallet.getSolBalance() } catch (_: Exception) { 0.0 }
-            if (balance > 0) updateLiveBalance(balance)
-
-            // V5.9.37: FLUID sizing. 3% of balance is the default target, but when
-            // the wallet is small (<1 SOL) 3% falls below Jupiter's ~0.01 SOL
-            // economical-swap floor and every trade was bailing silently.
-            // Policy:
-            //   • Hard-abort only if the wallet itself is below the floor.
-            //   • Otherwise clamp size to [FLOOR, balance * 15%] so small wallets
-            //     can still participate without YOLO-ing.
-            val floor = 0.01
-            // V5.9.88: fluid sizing on LIVE path too — scale conviction-based
-            val sizeMult = fluidSizeMultiplier(signal.score, signal.confidence)
-            val desired = balance * (DEFAULT_SIZE_PCT / 100) * sizeMult
-            if (balance < floor) {
-                ErrorLogger.warn(TAG, "🪙 ⛔ Live wallet too small: ${"%.4f".format(balance)} SOL < ${floor} floor — cannot live-trade ${signal.market.symbol}")
-                LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.FLOOR_SKIPPED)
-                return null
-            }
-            val sizeSol = desired.coerceIn(floor, (balance * 0.15).coerceAtLeast(floor))
-
-            ErrorLogger.info(
-                TAG,
-                "🪙 ⚡ LIVE ATTEMPT: ${signal.market.symbol} ${signal.direction.symbol} " +
-                "| bal=${"%.4f".format(balance)}◎ size=${"%.4f".format(sizeSol)}◎ " +
-                "${if (isSpot) "SPOT" else "${signal.leverage.toInt()}x"}"
-            )
-
-            // V5.9.495z30 — Route via CryptoUniverseExecutor.
-            // Returns sizeSol on Executed, null on RouteDeferred / ExecFailed.
-            // V5.9.495z32 — mark a hot tick so background lanes (Markets/
-            // Yahoo/Commodities/Personality) yield while we run.
-            com.lifecyclebot.engine.HotPathLaneGate.markHotTick()
-            val outcome = com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.executeLiveTrade(
-                market     = signal.market,
-                direction  = signal.direction,
-                sizeSol    = sizeSol,
-                leverage   = if (isSpot) 1.0 else signal.leverage,
-                priceUsd   = signal.price,
-                traderType = "CryptoAlt",
-            )
-            when (outcome) {
-                is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.Executed -> {
-                    LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.EXECUTED)
-                    ErrorLogger.info(TAG, "🪙 LIVE TRADE EXECUTED: ${signal.market.symbol} tx=${outcome.txSig ?: "ok"}")
-                    try { updateLiveBalance(wallet.getSolBalance()) } catch (_: Exception) {}
-                    sizeSol
-                }
-                is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.RouteDeferred -> {
-                    LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.ROUTE_DEFERRED)
-                    ErrorLogger.info(TAG,
-                        "🪙 ROUTE DEFERRED: ${signal.market.symbol} → ${outcome.resolution.route} " +
-                        "[${outcome.resolution.diagCode}] ${outcome.resolution.humanMessage}")
-                    null
-                }
-                is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.ExecFailed -> {
-                    LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.FAILED)
-                    ErrorLogger.warn(TAG,
-                        "🪙 Live exec FAILED for ${signal.market.symbol}: ${outcome.reason}")
-                    null
-                }
-            }
-        } catch (e: Exception) {
-            ErrorLogger.error(TAG, "🪙 Live trade exception: ${e.message}", e)
-            null
-        }
-    }
 
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -2616,9 +2559,41 @@ object CryptoAltTrader {
     }
 
     private fun closePosition(positionId: String, reason: String) {
-        val pos = positions.remove(positionId) ?: return
-        // V5.9.1472 — DYNAMIC CRYPTO: record outcomes under the REAL coin symbol.
+        val pos = positions[positionId] ?: return
         val mktSym = pos.marketSymbol
+        val settlementPnl6486 = pos.getPnlSol()
+        if (pos.isPaper) {
+            val canonicalClose6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.close(
+                positionId = pos.id, mint = pos.canonicalAssetKey, symbol = mktSym,
+                grossProceedsSol = (pos.sizeSol + settlementPnl6486).coerceAtLeast(0.0),
+                exitReason = reason, terminalSequence = System.currentTimeMillis(),
+            )
+            if (!canonicalClose6486.applied) {
+                ErrorLogger.warn(TAG, "PAPER CLOSE REJECTED: $mktSym ${canonicalClose6486.reason}")
+                return
+            }
+        } else {
+            val closeSuccess6486 = try {
+                kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+                    MarketsLiveExecutor.closeLivePositionProof6486(
+                        positionId = pos.id,
+                        market = pos.market, direction = pos.direction, sizeSol = pos.sizeSol,
+                        leverage = pos.leverage, traderType = "CryptoAlt",
+                        flashPositionKey = pos.flashPositionKey,
+                        cryptoTargetMintOverride = pos.dynMint,
+                        cryptoSymbolOverride = mktSym,
+                        exitReason = reason,
+                        entryTactic = if (pos.isSpot) "SPOT" else "FLASH_PERPS",
+                    ).confirmed
+                }
+            } catch (e: Exception) {
+                ErrorLogger.warn(TAG, "Live close failed for $mktSym: ${e.message}")
+                false
+            }
+            try { com.lifecyclebot.perps.crypto.brain.CryptoFunnel.close(closeSuccess6486) } catch (_: Throwable) {}
+            if (!closeSuccess6486) return
+        }
+        positions.remove(positionId)
         spotPositions.remove(positionId)
         leveragePositions.remove(positionId)
         // V5.9.424 — drop momentum snapshot so the map stays bounded.
@@ -2632,7 +2607,7 @@ object CryptoAltTrader {
         // real `positions` map. Belt-and-braces with the per-cycle
         // replaceBucket() rebuild in runScanCycle.
         try {
-            val isPaper = isPaperMode.get()
+            val isPaper = pos.isPaper
             val bucket = if (isPaper)
                 com.lifecyclebot.engine.CryptoPositionState.Bucket.PAPER
             else
@@ -2654,13 +2629,9 @@ object CryptoAltTrader {
         if (reason == "USER_STOP" || reason == "bot_shutdown" || com.lifecyclebot.engine.BotService.isShuttingDown) {
             val pnlSolFast = pos.getPnlSol()
             totalPnlSol += pnlSolFast
-            if (isPaperMode.get()) {
+            if (pos.isPaper) {
                 try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(mktSym, pos.sizeSol, pnlSolFast) } catch (_: Exception) {}
                 paperBalance = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
-                com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
-                    delta = pos.sizeSol + pnlSolFast,
-                    source = "CryptoAlt.close.fast[${mktSym}]"
-                )
             }
             // Async Turso orphan delete (non-blocking)
             scope.launch {
@@ -2689,7 +2660,7 @@ object CryptoAltTrader {
         // V5.9.350 — also route into the persona memory funnel so LLM chat
         // trades drift the bot's traits, trigger milestones, and update the
         // active persona's bio (this was previously meme-only).
-        if (isPaperMode.get() && pos.reasons.any { it.startsWith("LLM chat:", ignoreCase = true) }) {
+        if (pos.isPaper && pos.reasons.any { it.startsWith("LLM chat:", ignoreCase = true) }) {
             try {
                 com.lifecyclebot.engine.LlmTradeScore.recordClose(
                     pnlSol = pnlSol,
@@ -2754,25 +2725,25 @@ object CryptoAltTrader {
         when {
             isWinByPct -> {
                 winningTrades.incrementAndGet()
-                try { if (isPaperMode.get()) FluidLearningAI.recordAltsPaperTrade(true, pnlPctForWin) else FluidLearningAI.recordAltsLiveTrade(true) } catch (_: Exception) {}
+                try { if (pos.isPaper) FluidLearningAI.recordAltsPaperTrade(true, pnlPctForWin) else FluidLearningAI.recordAltsLiveTrade(true) } catch (_: Exception) {}
                 // V5.0.4586c — CRYPTO PARITY: feed the shared AutoCompoundEngine
                 // so crypto wins actually reinvest into the compound pool
                 // (previously only meme wins fed it). Pool size lifts
                 // future position size ceilings across all traders.
                 try {
                     val profitSol = pos.getPnlSol()
-                    if (profitSol > 0.0 && !isPaperMode.get()) {
+                    if (profitSol > 0.0 && !pos.isPaper) {
                         com.lifecyclebot.engine.AutoCompoundEngine.processWin(profitSol)
                     }
                 } catch (_: Throwable) {}
             }
             isLossByPct -> {
                 losingTrades.incrementAndGet()
-                try { if (isPaperMode.get()) FluidLearningAI.recordAltsPaperTrade(false, pnlPctForWin) else FluidLearningAI.recordAltsLiveTrade(false) } catch (_: Exception) {}
+                try { if (pos.isPaper) FluidLearningAI.recordAltsPaperTrade(false, pnlPctForWin) else FluidLearningAI.recordAltsLiveTrade(false) } catch (_: Exception) {}
                 // V5.0.4586c — CRYPTO PARITY: feed loss into compound engine
                 // so streak/drawdown state tracks live capital reality.
                 try {
-                    if (!isPaperMode.get()) com.lifecyclebot.engine.AutoCompoundEngine.processLoss()
+                    if (!pos.isPaper) com.lifecyclebot.engine.AutoCompoundEngine.processLoss()
                 } catch (_: Throwable) {}
             }
             else -> {
@@ -2790,7 +2761,7 @@ object CryptoAltTrader {
         // SharedPreferences (no meme contamination). Lane tag is coarse —
         // CRYPTO_SPOT vs CRYPTO_LEV — so the LaneTimeoutGate can timeout one
         // mode without locking the other.
-        if (!isPaperMode.get()) {
+        if (!pos.isPaper) {
             try {
                 val assetKey4151 = pos.marketSymbol
                 val lane4151 = if (pos.isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV"
@@ -2807,47 +2778,10 @@ object CryptoAltTrader {
             } catch (_: Throwable) {}
         }
 
-        if (isPaperMode.get()) {
-            // V5.9.5: Return funds to shared FluidLearning pool
+        if (pos.isPaper) {
             try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(mktSym, pos.sizeSol, pnlSol) } catch (_: Exception) {}
-            // Keep local paperBalance in sync for persistence/Turso
             paperBalance = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
-            // V5.9.48: Unified paper wallet — capital + PnL back to main dashboard.
-            com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
-                delta = pos.sizeSol + pnlSol,
-                source = "CryptoAlt.close[${mktSym}]"
-            )
         } else {
-            // Live mode: execute on-chain close — MUST wait for result before removing position
-            var closeSuccess = false
-            try {
-                closeSuccess = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
-                    val (ok, _) = MarketsLiveExecutor.closeLivePosition(
-                        market           = pos.market,
-                        direction        = pos.direction,
-                        sizeSol          = pos.sizeSol,
-                        leverage         = pos.leverage,
-                        traderType       = "CryptoAlt",
-                        flashPositionKey = pos.flashPositionKey,  // V5.9.320: Flash key for leveraged crypto
-                        cryptoTargetMintOverride = pos.dynMint,
-                        cryptoSymbolOverride = mktSym,
-                    )
-                    ok
-                }
-            } catch (e: Exception) {
-                ErrorLogger.warn(TAG, "🪙 Live close failed for ${mktSym}: ${e.message}")
-            }
-            try { com.lifecyclebot.perps.crypto.brain.CryptoFunnel.close(closeSuccess) } catch (_: Throwable) {}
-            if (!closeSuccess) {
-                ErrorLogger.warn(TAG, "🚨 LIVE CLOSE FAILED: ${mktSym} — re-inserting position for retry (was orphaned)")
-                positions[positionId] = pos
-                if (pos.leverage <= 1.0) spotPositions[positionId]      = pos
-                else                     leveragePositions[positionId] = pos
-                com.lifecyclebot.engine.WalletPositionLock.recordOpen("CryptoAlt", pos.sizeSol)
-                // V5.9.178 — also re-persist so the position survives restart after a failed close.
-                persistAltPositions()
-                return // DON'T remove position if on-chain close failed
-            }
             try {
                 val newBal = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: liveWalletBalance
                 updateLiveBalance(newBal)
@@ -2862,7 +2796,7 @@ object CryptoAltTrader {
         // fee-band noise. Alts-only — Meme & Perps unchanged.
         val isWin     = pnlPct > 0.0
         val isScratch = pnlPct > -1.0 && pnlPct < 1.0
-        val paper     = isPaperMode.get()
+        val paper     = pos.isPaper
         val modeStr   = if (paper) "paper" else "live"
         val timestamp = System.currentTimeMillis()
         val holdMs    = timestamp - pos.openTime

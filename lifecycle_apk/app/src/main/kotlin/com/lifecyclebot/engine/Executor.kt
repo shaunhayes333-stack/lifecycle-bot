@@ -18,8 +18,6 @@ import com.lifecyclebot.util.pct
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
 import com.lifecyclebot.data.allowLiveMicroProbe
 import com.lifecyclebot.data.capitalMode
@@ -6304,7 +6302,7 @@ class Executor(
                     if (decimalsForAudit > 0 &&
                         expectedConsumedRawForAudit.signum() > 0 &&
                         preSellRawForAudit.signum() > 0) {
-                        com.lifecyclebot.engine.sell.PartialSellMismatchDetector.verifyAndMaybeLock(
+                        com.lifecyclebot.engine.sell.PartialSellMismatchDetector.verifyAndMaybeLockAsync6486(
                             mint = ts.mint,
                             symbol = ts.symbol,
                             decimals = decimalsForAudit,
@@ -8242,7 +8240,7 @@ class Executor(
                         if (decimalsForAudit > 0 &&
                             expectedConsumedRawForAudit.signum() > 0 &&
                             preSellRawForAudit.signum() > 0) {
-                            com.lifecyclebot.engine.sell.PartialSellMismatchDetector.verifyAndMaybeLock(
+                            com.lifecyclebot.engine.sell.PartialSellMismatchDetector.verifyAndMaybeLockAsync6486(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 decimals = decimalsForAudit,
@@ -9252,19 +9250,11 @@ class Executor(
             //   (2) Tighten LIVE timeout 3000 → 1500ms. Wallet-intel is
             //       a soft signal, not the hard gate; we'd rather miss
             //       a marginal bot-farm flag than choke the loop.
-            val alphaSignals = if (isPaper) {
-                null
-            } else try {
-                runBlocking {
-                    withTimeoutOrNull(1500L) {
-                        DataPipeline.getAlphaSignals(ts.mint, cfg()) { msg ->
-                            ErrorLogger.debug("DataPipeline", msg)
-                        }
-                    }
+            val alphaSignals = if (isPaper) null else DataPipeline.cachedAlphaSignals6486(ts.mint).also {
+                DataPipeline.requestAlphaSignalsAsync6486(ts.mint, cfg()) { msg ->
+                    ErrorLogger.debug("DataPipeline", msg)
                 }
-            } catch (e: Exception) {
-                ErrorLogger.debug("DataPipeline", "Error fetching alpha signals: ${e.message}")
-                null
+                if (it == null) try { PipelineHealthCollector.labelInc("ALPHA_CACHE_MISS_FAIL_OPEN_6486") } catch (_: Throwable) {}
             }
             
             if (alphaSignals != null && !isPaper) {
@@ -9466,7 +9456,7 @@ class Executor(
                 }
                 val currentPnlPct = ((getActualPrice(ts) - ts.position.entryPrice) / ts.position.entryPrice) * 100
                 // V5.0.4109 — DEADLOCK FIX. Previously this was a
-                // runBlocking { HoldingLogicLayer.evaluatePosition(...) } call
+                // former runBlocking call; HoldingLogicLayer is local synchronous logic.
                 // that parked the worker thread on a coroutines Mutex inside a
                 // suspend function whose body had no real suspension points.
                 // With 20+ tokens evaluated concurrently the IO dispatcher
@@ -10348,41 +10338,44 @@ class Executor(
         // V5.0.4189 — Emergent LLM validation is advisory only. No external LLM
         // may return before a live buy on the hot path; hard safety remains in
         // deterministic gates. Calls are still bounded/fail-open and only feed logs.
-        try {
-            if (com.lifecyclebot.network.EmergentLlmClient.isEnabled()) {
-                val recentPnl = try {
-                    val s = com.lifecyclebot.engine.TradeHistoryStore.getStats()
-                    // Use 24h win-rate as the "recent performance %" the LLM
-                    // sees — directly comparable across sessions, and the
-                    // validator prompt uses it as a sanity check on whether
-                    // we're on a hot streak vs a losing run.
-                    s.winRate24h.toDouble()
-                } catch (_: Exception) { 50.0 }
-                val verdict = com.lifecyclebot.network.EmergentLlmClient.validateTradeSignal(
-                    symbol      = ts.symbol,
-                    side        = "BUY",
-                    confidence  = quality.hashCode().rem(100),
-                    score       = score.toInt(),
-                    traderTag   = "MEME/${ts.source}",
-                    sizeSol     = sol,
-                    recentPnlPct= recentPnl,
-                )
-                when {
-                    verdict.startsWith("BLOCK", ignoreCase = true) -> {
-                        onLog("🧠 LLM BLOCK ADVISORY: ${ts.symbol} | ${verdict.removePrefix("BLOCK:").trim().take(60)} — ignored for live-throughput doctrine", tradeId.mint)
-                        try {
-                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EMERGENT_LLM_BLOCK_ADVISORY_4189")
-                            com.lifecyclebot.engine.ForensicLogger.lifecycle("EMERGENT_LLM_BLOCK_ADVISORY_4189", "mint=${ts.mint.take(10)} symbol=${ts.symbol} verdict=${verdict.take(120)} action=ignored_no_hard_veto")
-                        } catch (_: Throwable) {}
+        GlobalScope.launch(AppDispatchers.sideEffect) {
+            try {
+                if (com.lifecyclebot.network.EmergentLlmClient.isEnabled()) {
+                    val recentPnl = try {
+                        val s = com.lifecyclebot.engine.TradeHistoryStore.getStats()
+                        // Use 24h win-rate as the "recent performance %" the LLM
+                        // sees — directly comparable across sessions, and the
+                        // validator prompt uses it as a sanity check on whether
+                        // we're on a hot streak vs a losing run.
+                        s.winRate24h.toDouble()
+                    } catch (_: Exception) { 50.0 }
+                    val verdict = com.lifecyclebot.network.EmergentLlmClient.validateTradeSignal(
+                        symbol      = ts.symbol,
+                        side        = "BUY",
+                        confidence  = quality.hashCode().rem(100),
+                        score       = score.toInt(),
+                        traderTag   = "MEME/${ts.source}",
+                        sizeSol     = sol,
+                        recentPnlPct= recentPnl,
+                    )
+                    when {
+                        verdict.startsWith("BLOCK", ignoreCase = true) -> {
+                            onLog("🧠 LLM BLOCK ADVISORY: ${ts.symbol} | ${verdict.removePrefix("BLOCK:").trim().take(60)} — ignored for live-throughput doctrine", tradeId.mint)
+                            try {
+                                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EMERGENT_LLM_BLOCK_ADVISORY_4189")
+                                com.lifecyclebot.engine.ForensicLogger.lifecycle("EMERGENT_LLM_BLOCK_ADVISORY_4189", "mint=${ts.mint.take(10)} symbol=${ts.symbol} verdict=${verdict.take(120)} action=ignored_no_hard_veto")
+                            } catch (_: Throwable) {}
+                        }
+                        verdict.startsWith("CAUTION", ignoreCase = true) -> {
+                            onLog("⚠️ LLM CAUTION: ${ts.symbol} | ${verdict.removePrefix("CAUTION:").trim().take(60)}", tradeId.mint)
+                            // Fall through — caution is informational only.
+                        }
+                        // PROCEED or unrecognised → allow.
                     }
-                    verdict.startsWith("CAUTION", ignoreCase = true) -> {
-                        onLog("⚠️ LLM CAUTION: ${ts.symbol} | ${verdict.removePrefix("CAUTION:").trim().take(60)}", tradeId.mint)
-                        // Fall through — caution is informational only.
-                    }
-                    // PROCEED or unrecognised → allow.
                 }
-            }
-        } catch (_: Throwable) { /* fail open */ }
+            } catch (_: Throwable) { /* fail open */ }
+
+        }
 
         // V5.9.401 — Sentience hook #7: dynamic size scaling (0.5..1.5×, default 1.0).
         val sizeMult = try {
@@ -16373,44 +16366,9 @@ class Executor(
                     (baseFluidTp * ts.styleTpMult).coerceIn(5.0, 500.0)
                 } catch (_: Throwable) { 0.0 },
             )
-            try {
-                val liveBuyQtyRaw6448 = java.math.BigInteger.valueOf((finalQty * 1_000_000_000.0).toLong().coerceAtLeast(0L))
-                if (liveBuyQtyRaw6448 > java.math.BigInteger.ZERO) {
-                    com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyFill(
-                        mint = tradeId.mint,
-                        actualQtyRaw = liveBuyQtyRaw6448,
-                        actualCostSol = sol,
-                        actualFeesSol = (sol * MEME_TRADING_FEE_PERCENT).coerceAtLeast(0.0),
-                        tokenDecimals = 9,
-                        paperMode = false,
-                    )
-                    // V5.0.6465 §P0 — CANONICAL BUY PATH PUBLISH (live).
-                    // Same wiring as paper — keeps replay parity zero
-                    // regardless of which mode the operator switches to.
-                    try {
-                        val pidLive6465 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(tradeId.mint)
-                        com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.onBuyFilled(
-                            positionId = pidLive6465, mint = tradeId.mint, filledQty = liveBuyQtyRaw6448,
-                        )
-                        val fillPriceLive6465 = if (liveBuyQtyRaw6448.signum() > 0)
-                            sol / liveBuyQtyRaw6448.toBigDecimal().movePointLeft(9).toDouble().coerceAtLeast(1e-12)
-                        else 0.0
-                        com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(
-                            mode = "live", positionId = pidLive6465, mint = tradeId.mint,
-                            symbol = ts.symbol.ifBlank { tradeId.symbol },
-                            idempotencyKey = "buy_live_${sig.ifBlank { tradeId.mint }}_${System.nanoTime()}",
-                            executedCostSol = sol,
-                            entryFeesSol = (sol * MEME_TRADING_FEE_PERCENT).coerceAtLeast(0.0),
-                            filledQty = liveBuyQtyRaw6448, fillPrice = fillPriceLive6465,
-                        )
-                        com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen(
-                            mode = "live", mint = tradeId.mint,
-                            symbol = ts.symbol.ifBlank { tradeId.symbol },
-                            source = "Executor.liveBuyFill",
-                        )
-                    } catch (_: Throwable) {}
-                }
-            } catch (_: Throwable) {}
+            // V5.0.6486 — canonical LIVE open is intentionally deferred until
+            // TradeVerifier proves owner token delta + owner SOL delta + chain fee.
+            // Quote output and requested SOL remain provisional only.
             val trade = Trade(
                 side = "BUY", 
                 mode = "live", 
@@ -16629,6 +16587,8 @@ class Executor(
             GlobalScope.launch(AppDispatchers.sideEffect) {
                 try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BALANCE_PROOF_START", "mint=${verifyMint.take(10)} symbol=$verifySymbol signature=${verifySig.take(16)} owner=${verifyWallet.publicKeyB58.take(8)}") } catch (_: Throwable) {}
                 var verifiedQty = 0.0
+                var verifiedActualCostSol6486 = sol
+                var verifiedEntryFeeSol6486 = 0.0
                 var verifiedProof: com.lifecyclebot.engine.sell.BalanceProof? = null
                 var anyRpcError = false
                 var sigParseConfirmedZero = false  // V5.9.265: only TRUE phantom if tx parse explicitly says 0
@@ -16726,7 +16686,7 @@ class Executor(
                         )
                     }
                 }
-                fun promoteVerifiedLiveBuy(qtyUi: Double, stage: String, decimals: Int = -1) {
+                fun promoteVerifiedLiveBuy(qtyUi: Double, stage: String, decimals: Int = -1, actualCostSol6486: Double) {
                     // V5.0.6311 → 6320 — WALLET-VERIFIED FILL LATCH.
                     if (decimals >= 0) {
                         try { walletDecimalsByMint6311[verifyMint] = decimals } catch (_: Throwable) {}
@@ -16740,7 +16700,7 @@ class Executor(
                     // truth divergence (Pilly journal e=$0.00009761 vs
                     // position card $0.00000587 vs sell toast −31%) stops.
                     try {
-                        val entryPxSol = if (qtyUi > 0.0 && sol > 0.0) sol / qtyUi else 0.0
+                        val entryPxSol = if (qtyUi > 0.0 && actualCostSol6486 > 0.0) actualCostSol6486 / qtyUi else 0.0
                         val entryPxUsd = try {
                             if (WalletManager.lastKnownSolPrice > 0.0) entryPxSol * WalletManager.lastKnownSolPrice else 0.0
                         } catch (_: Throwable) { 0.0 }
@@ -16751,7 +16711,7 @@ class Executor(
                                 decimals = decimals,
                                 entryPriceSol = entryPxSol,
                                 entryPriceUsd = entryPxUsd,
-                                solSpentNet = sol,
+                                solSpentNet = actualCostSol6486,
                                 entryTsMs = System.currentTimeMillis(),
                                 buySignature = try { verifySig } catch (_: Throwable) { "" },
                                 fillIndex = 0,
@@ -16767,7 +16727,7 @@ class Executor(
                     // basis feed for [CanonicalPnLAuthority6343] via
                     // [RealizedPnlConduit6344].
                     try {
-                        val entryPxSol6344 = if (qtyUi > 0.0 && sol > 0.0) sol / qtyUi else 0.0
+                        val entryPxSol6344 = if (qtyUi > 0.0 && actualCostSol6486 > 0.0) actualCostSol6486 / qtyUi else 0.0
                         val entryPxUsd6344 = try {
                             if (WalletManager.lastKnownSolPrice > 0.0) entryPxSol6344 * WalletManager.lastKnownSolPrice else 0.0
                         } catch (_: Throwable) { 0.0 }
@@ -16775,7 +16735,7 @@ class Executor(
                             walletAddress = verifyWallet.publicKeyB58,
                             mintAddress = verifyMint,
                             buyTxSig = verifySig,
-                            entryCostSol = SolAmount.of(sol),
+                            entryCostSol = SolAmount.of(actualCostSol6486),
                             entryQty = TokenQuantity.of(qtyUi),
                             entryPriceSolPerToken = PriceSolPerToken.of(entryPxSol6344),
                             entryPriceUsdPerToken = PriceUsdPerToken.of(entryPxUsd6344),
@@ -16857,7 +16817,42 @@ class Executor(
                     )
                 }
 
-                fun completeVerifiedLiveBuyWithProof(proof: com.lifecyclebot.engine.sell.BalanceProof, qtyUi: Double, stage: String): Boolean {
+                fun completeVerifiedLiveBuyWithProof(candidateProof: com.lifecyclebot.engine.sell.BalanceProof, candidateQtyUi: Double, stage: String): Boolean {
+                    val txTruth6486 = try { TradeVerifier.verifyBuy(verifyWallet, verifySig, verifyMint, timeoutMs = 15_000L) } catch (_: Throwable) { null }
+                    if (txTruth6486 == null || txTruth6486.outcome != TradeVerifier.Outcome.LANDED ||
+                        txTruth6486.rawTokenDelta.signum() <= 0 || txTruth6486.solSpentLamports <= 0L || txTruth6486.decimals < 0
+                    ) {
+                        try { ForensicLogger.lifecycle("LIVE_BUY_CANONICAL_COMMIT_DEFERRED_6486", "mint=${verifyMint.take(10)} stage=$stage outcome=${txTruth6486?.outcome} raw=${txTruth6486?.rawTokenDelta} spent=${txTruth6486?.solSpentLamports}") } catch (_: Throwable) {}
+                        return false
+                    }
+                    val proof6386 = com.lifecyclebot.engine.truth.ProofState6386.FinalizedProofComplete(
+                        signature = verifySig,
+                        walletAddress = verifyWallet.publicKeyB58,
+                        mintAddress = verifyMint,
+                        decimals = com.lifecyclebot.engine.truth.MintDecimals.Known(txTruth6486.decimals, "TX_META", verifySig),
+                        preRawBalance = com.lifecyclebot.engine.truth.RawTokenAmount.ZERO,
+                        postRawBalance = com.lifecyclebot.engine.truth.RawTokenAmount(txTruth6486.rawTokenDelta),
+                        preLamports = com.lifecyclebot.engine.truth.Lamports(java.math.BigInteger.valueOf(txTruth6486.preOwnerLamports)),
+                        postLamports = com.lifecyclebot.engine.truth.Lamports(java.math.BigInteger.valueOf(txTruth6486.postOwnerLamports)),
+                        feeLamports = com.lifecyclebot.engine.truth.Lamports(java.math.BigInteger.valueOf(txTruth6486.feeLamports)),
+                    )
+                    val validated6486 = com.lifecyclebot.engine.truth.FinalizedBuyProof6386.validate(verifyWallet.publicKeyB58, verifyMint, proof6386)
+                    if (!validated6486.proofComplete) {
+                        try { ForensicLogger.lifecycle("LIVE_BUY_CANONICAL_COMMIT_DEFERRED_6486", "mint=${verifyMint.take(10)} stage=$stage reason=${validated6486.reason}") } catch (_: Throwable) {}
+                        return false
+                    }
+                    val proof = com.lifecyclebot.engine.sell.BalanceProof(
+                        mint = verifyMint, owner = verifyWallet.publicKeyB58, ata = candidateProof.ata,
+                        amountRaw = txTruth6486.rawTokenDelta, decimals = txTruth6486.decimals,
+                        source = com.lifecyclebot.engine.sell.BalanceProofSource.TX_META_OWNER_DELTA,
+                        authoritative = true, observedAtMs = System.currentTimeMillis(), signature = verifySig,
+                    )
+                    val qtyUi = txTruth6486.uiTokenDelta
+                    val actualFeeSol6486 = txTruth6486.feeLamports.toDouble() / 1_000_000_000.0
+                    val actualCostSol6486 = ((txTruth6486.solSpentLamports - txTruth6486.feeLamports).coerceAtLeast(0L)).toDouble() / 1_000_000_000.0
+                    verifiedQty = qtyUi
+                    verifiedActualCostSol6486 = actualCostSol6486
+                    verifiedEntryFeeSol6486 = actualFeeSol6486
                     if (!proof.authoritative || proof.amountRaw.signum() <= 0 || proof.mint != verifyMint) {
                         try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_PENDING_BALANCE_PROOF", "mint=${verifyMint.take(10)} symbol=$verifySymbol stage=$stage reason=INVALID_PROOF source=${proof.source} raw=${proof.amountRaw}") } catch (_: Throwable) {}
                         try { HostWalletTokenTracker.recordBuyPending(verifyMint, verifySymbol, verifySig) } catch (_: Throwable) {}
@@ -16883,7 +16878,7 @@ class Executor(
                     val solUsdForBasis = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
                     val trustedEntry6405 = com.lifecyclebot.engine.truth
                         .EntryPriceIntegrityAuthority6405.deriveTrustedEntryUsd(
-                            costSol = sol, qtyUi = qtyUi, knownSolUsd = solUsdForBasis,
+                            costSol = actualCostSol6486, qtyUi = qtyUi, knownSolUsd = solUsdForBasis,
                         )
                     val proofEntryUsd = trustedEntry6405?.usdPerToken ?: 0.0
                     if (proofEntryUsd > 0.0 && proofEntryUsd.isFinite()) {
@@ -16897,7 +16892,7 @@ class Executor(
                             entryPrice = proofEntryUsd,
                             highestPrice = proofEntryUsd,
                             lowestPrice = if (ts.position.lowestPrice > 0.0) minOf(ts.position.lowestPrice, proofEntryUsd) else proofEntryUsd,
-                            costSol = sol,
+                            costSol = actualCostSol6486,
                             entryPriceSource = trustedEntry6405?.source ?: "LIVE_PROOF_COST_BASIS",
                             entrySupplyAssumed = 0.0,
                             priceBasisRescaled = true,
@@ -16906,7 +16901,7 @@ class Executor(
                         try {
                             com.lifecyclebot.engine.ForensicLogger.lifecycle(
                                 "LIVE_ENTRY_PRICE_FROM_PROOF",
-                                "mint=${verifyMint.take(10)} symbol=$verifySymbol oldEntry=$oldEntry proofEntryUsd=$proofEntryUsd sol=$sol qty=$qtyUi solUsd=${trustedEntry6405?.solUsdUsed ?: "-"} source=${proof.source} authoritySource=${trustedEntry6405?.source ?: "-"} divergent=$divergent",
+                                "mint=${verifyMint.take(10)} symbol=$verifySymbol oldEntry=$oldEntry proofEntryUsd=$proofEntryUsd sol=$actualCostSol6486 qty=$qtyUi solUsd=${trustedEntry6405?.solUsdUsed ?: "-"} source=${proof.source} authoritySource=${trustedEntry6405?.source ?: "-"} divergent=$divergent",
                             )
                             if (divergent) {
                                 PipelineHealthCollector.labelInc("ENTRY_PRICE_BASIS_DIVERGENCE_6405")
@@ -16917,9 +16912,32 @@ class Executor(
                             }
                         } catch (_: Throwable) {}
                     } else {
-                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_ENTRY_PRICE_PROOF_DEFERRED", "mint=${verifyMint.take(10)} symbol=$verifySymbol reason=missing_sol_or_qty sol=$sol qty=$qtyUi solUsd=$solUsdForBasis") } catch (_: Throwable) {}
+                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_ENTRY_PRICE_PROOF_DEFERRED", "mint=${verifyMint.take(10)} symbol=$verifySymbol reason=missing_sol_or_qty sol=$actualCostSol6486 qty=$qtyUi solUsd=$solUsdForBasis") } catch (_: Throwable) {}
                     }
-                    promoteVerifiedLiveBuy(qtyUi, stage, proof.decimals)
+                    val pidLive6486 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(verifyMint)
+                    val canonicalOpen6486 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyFill(
+                        mint = verifyMint,
+                        actualQtyRaw = proof.amountRaw,
+                        actualCostSol = actualCostSol6486,
+                        actualFeesSol = actualFeeSol6486,
+                        tokenDecimals = proof.decimals,
+                        paperMode = false,
+                    )
+                    if (!canonicalOpen6486) {
+                        try { ForensicLogger.lifecycle("LIVE_BUY_CANONICAL_COMMIT_REJECTED_6486", "mint=${verifyMint.take(10)} pid=${pidLive6486.take(18)} sig=${verifySig.take(16)}") } catch (_: Throwable) {}
+                        return false
+                    }
+                    com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.onBuyFilled(pidLive6486, verifyMint, proof.amountRaw)
+                    com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(
+                        mode = "live", positionId = pidLive6486, mint = verifyMint, symbol = verifySymbol,
+                        idempotencyKey = "buy_live_tx_${verifySig}",
+                        executedCostSol = actualCostSol6486, entryFeesSol = actualFeeSol6486,
+                        filledQty = proof.amountRaw,
+                        fillPrice = actualCostSol6486 / qtyUi.coerceAtLeast(1e-12),
+                    )
+                    com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen("live", verifyMint, verifySymbol, "TradeVerifier.LANDED.6486")
+                    try { PipelineHealthCollector.labelInc("LIVE_BUY_CANONICAL_TX_TRUTH_COMMITTED_6486") } catch (_: Throwable) {}
+                    promoteVerifiedLiveBuy(qtyUi, stage, proof.decimals, actualCostSol6486)
                     // V5.0.6325 — CANONICAL POSITION AUTHORITY WIRE-IN. Upsert
                     // the WALLET_TX_DELTA into CanonicalPositionRegistry so
                     // downstream sell qty, learning eligibility, and health
@@ -17023,7 +17041,7 @@ class Executor(
                             ),
                         )
                     } catch (_: Throwable) {}
-                    buyAttemptTrace4576("WALLET_PROOF_OK", "stage=$stage proof=${proof.source} qty=$qtyUi sig=${verifySig.take(16)}")
+                    buyAttemptTrace4576("WALLET_PROOF_OK", "stage=$stage proof=${proof.source} qty=$qtyUi cost=$actualCostSol6486 fee=$actualFeeSol6486 sig=${verifySig.take(16)}")
                     return true
                 }
 
@@ -20531,29 +20549,8 @@ class Executor(
             try { com.lifecyclebot.engine.sell.SellExecutionLocks.forceRelease(ts.mint) } catch (_: Throwable) {}
             return SellResult.ALREADY_CLOSED
         }
-        // V5.0.6444 §1 LIVE EXECUTOR SELL MIGRATION — mirror the live
-        // sell attempt into CanonicalPositionAuthority6441. Runs at the
-        // earliest point so the canonical authority tracks live trades
-        // exactly like paper. Best-effort no-op if the canonical
-        // position is unknown (legacy sell not paired with a canonical
-        // open — will resolve once liveBuy path is fully migrated).
-        try {
-            val pos0 = ts.position
-            if (pos0.isOpen) {
-                val soldQtyRaw = try { java.math.BigInteger.valueOf((pos0.qtyToken * 1_000_000_000.0).toLong()) } catch (_: Throwable) { java.math.BigInteger.ZERO }
-                if (soldQtyRaw > java.math.BigInteger.ZERO) {
-                    com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
-                        mint = ts.mint,
-                        generation = System.currentTimeMillis() / 1000L,
-                        soldQtyRaw = soldQtyRaw,
-                        proceedsSol = 0.0,
-                        soldCostBasisSol = 0.0,
-                        feesSol = 0.0,
-                        paperMode = false,
-                    )
-                }
-            }
-        } catch (_: Throwable) {}
+        // V5.0.6486 — canonical LIVE sell mutation occurs only inside
+        // SellFinalizationCoordinator after tx-meta proves consumed raw qty and SOL proceeds.
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         var closeAuthoritySig: String? = null
         
@@ -21863,6 +21860,7 @@ class Executor(
             // tokens cleared AND SOL received before declaring LANDED.
             var fullSellVerifiedSol: Long = -1L
             var verifierLanded = false
+            var verifiedSellTruth6486: TradeVerifier.SellResult? = null
             run {
                 if (sig.isBlank() || sig.startsWith("PHANTOM_")) return@run
                 // V5.9.767 — drive SellJobRegistry state machine end-to-end.
@@ -21882,6 +21880,7 @@ class Executor(
                     TradeVerifier.Outcome.LANDED -> {
                         fullSellVerifiedSol = vsr.solReceivedLamports
                         verifierLanded = true
+                        verifiedSellTruth6486 = vsr
                         LiveTradeLogStore.log(
                             sellTradeKey, ts.mint, ts.symbol, "SELL",
                             LiveTradeLogStore.Phase.SELL_TX_PARSE_OK,
@@ -22391,30 +22390,41 @@ class Executor(
             // cost-basis PnL. Belt-and-braces with the existing journal —
             // this row uses the new field names the operator asked for.
             try {
-                val decFinal = com.lifecyclebot.engine.TokenLifecycleTracker
-                    .getEntryMetadata(ts.mint)?.entryDecimals ?: 9
-                val entryMetaFinal = com.lifecyclebot.engine.TokenLifecycleTracker
-                    .getEntryMetadata(ts.mint)
+                val txSellTruth6486 = verifiedSellTruth6486
+                val entryMetaFinal = com.lifecyclebot.engine.TokenLifecycleTracker.getEntryMetadata(ts.mint)
+                val decFinal = txSellTruth6486?.decimals
+                    ?: entryMetaFinal?.entryDecimals
+                    ?: getTokenDecimals(ts)
                 val entrySolSpentFinal = entryMetaFinal?.entrySolSpent
-                    ?.takeIf { it > 0.0 } ?: pos.costSol
+                    ?.takeIf { it > 0.0 }
+                    ?: com.lifecyclebot.engine.CanonicalBuyFillRegistry.get(ts.mint)?.solSpentNet
+                    ?: pos.costSol
                 val entryTokenRawFinal = entryMetaFinal?.entryTokenRawConfirmed
                     ?.takeIf { it.signum() > 0 }
+                    ?: com.lifecyclebot.engine.CanonicalBuyFillRegistry.get(ts.mint)?.let { fill ->
+                        java.math.BigDecimal(fill.walletVerifiedQty).movePointRight(fill.decimals).toBigInteger()
+                    }
                     ?: java.math.BigDecimal(pos.qtyToken).movePointRight(decFinal).toBigInteger()
                         .max(java.math.BigInteger.ONE)
-                val preTokenRawFinal = java.math.BigDecimal(pos.qtyToken)
-                    .movePointRight(decFinal).toBigInteger().max(java.math.BigInteger.ONE)
-                val postUiFinal = try { wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: 0.0 } catch (_: Throwable) { -1.0 }
-                if (postUiFinal < 0.0) {
-                    try {
-                        ForensicLogger.lifecycle("SELL_FINALITY_PENDING_RETRY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=MISSING_POST_BALANCE_PROOF_FINAL sig=${sig.take(16)} action=no_close_no_journal_no_learning_keep_lease")
-                        com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "SELL_FINALITY_PENDING_RETRY_MISSING_POST_BALANCE_PROOF_FINAL")
-                        com.lifecyclebot.engine.sell.SellReconciler.requestUrgentTick("SELL_FINALITY_PENDING_RETRY_MISSING_POST_BALANCE_PROOF_FINAL")
-                    } catch (_: Throwable) {}
-                    return SellResult.FAILED_RETRYABLE
+                val consumedRawFinal6486 = txSellTruth6486?.rawTokenConsumed
+                val preTokenRawFinal = if (consumedRawFinal6486 != null && consumedRawFinal6486.signum() > 0)
+                    entryTokenRawFinal.max(consumedRawFinal6486)
+                else java.math.BigDecimal(pos.qtyToken).movePointRight(decFinal).toBigInteger().max(java.math.BigInteger.ONE)
+                val postTokenRawFinal = if (consumedRawFinal6486 != null && consumedRawFinal6486.signum() > 0) {
+                    preTokenRawFinal.subtract(consumedRawFinal6486).max(java.math.BigInteger.ZERO)
+                } else {
+                    val postUiFinal = try { wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: 0.0 } catch (_: Throwable) { -1.0 }
+                    if (postUiFinal < 0.0) {
+                        try {
+                            ForensicLogger.lifecycle("SELL_FINALITY_PENDING_RETRY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=MISSING_POST_BALANCE_PROOF_FINAL sig=${sig.take(16)} action=no_close_no_journal_no_learning_keep_lease")
+                            com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "SELL_FINALITY_PENDING_RETRY_MISSING_POST_BALANCE_PROOF_FINAL")
+                            com.lifecyclebot.engine.sell.SellReconciler.requestUrgentTick("SELL_FINALITY_PENDING_RETRY_MISSING_POST_BALANCE_PROOF_FINAL")
+                        } catch (_: Throwable) {}
+                        return SellResult.FAILED_RETRYABLE
+                    }
+                    try { java.math.BigDecimal(postUiFinal.coerceAtLeast(0.0)).movePointRight(decFinal).toBigInteger() }
+                    catch (_: Throwable) { java.math.BigInteger.ZERO }
                 }
-                val postTokenRawFinal = try {
-                    java.math.BigDecimal(postUiFinal.coerceAtLeast(0.0)).movePointRight(decFinal).toBigInteger()
-                } catch (_: Throwable) { java.math.BigInteger.ZERO }
                 val intentFinal = com.lifecyclebot.engine.sell.SellIntent.build(
                     mint = ts.mint,
                     symbol = ts.symbol,
@@ -22432,8 +22442,10 @@ class Executor(
                     preTokenBalanceRaw = preTokenRawFinal,
                     postTokenBalanceRaw = postTokenRawFinal,
                     walletPollRaw = postTokenRawFinal,
-                    solReceivedLamports = (solBack * 1_000_000_000.0).toLong().coerceAtLeast(0L),
-                    sellSolReceived = solBack,
+                    solReceivedLamports = txSellTruth6486?.solReceivedLamports
+                        ?: (solBack * 1_000_000_000.0).toLong().coerceAtLeast(0L),
+                    sellSolReceived = txSellTruth6486?.solReceivedLamports
+                        ?.toDouble()?.div(1_000_000_000.0) ?: solBack,
                     feesSol = feeSol,
                     decimals = decFinal,
                     slippageUsedBps = 0,
@@ -22464,20 +22476,8 @@ class Executor(
                         val postRaw = try { java.math.BigDecimal(postUi).movePointRight(postDec).toLong() } catch (_: Throwable) { 0L }
                         ForensicLogger.lifecycle("SELL_FINALIZE_BALANCE", "mint=${ts.mint.take(12)} pre=$tokenUnits post=$postRaw dust=$postUi")
                         val pnlPctInt = try { pnlP.toInt() } catch (_: Throwable) { 0 }
-                        try {
-                            com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
-                                mint = ts.mint,
-                                generation = System.currentTimeMillis(),
-                                soldQtyRaw = java.math.BigInteger.valueOf(tokenUnits.coerceAtLeast(0L)),
-                                proceedsSol = solBack.coerceAtLeast(0.0),
-                                soldCostBasisSol = pos.costSol.coerceAtLeast(0.0),
-                                feesSol = feeSol.coerceAtLeast(0.0),
-                                paperMode = false,
-                                terminal = true,
-                                lane = pos.tradingMode.ifBlank { ts.source },
-                                reason = finalSellReason,
-                            )
-                        } catch (_: Throwable) {}
+                        // Canonical position/economic/finality mutation already committed
+                        // by SellFinalizationCoordinator from tx-meta truth.
                         val cid = com.lifecyclebot.engine.PositionCloseLedger.markClosedFull(
                             mint = ts.mint, reason = finalSellReason, pnlPct = pnlPctInt, sellSig = fSig,
                             soldQtyRaw = tokenUnits, remainingQtyRaw = postRaw, dustAmount = postUi,

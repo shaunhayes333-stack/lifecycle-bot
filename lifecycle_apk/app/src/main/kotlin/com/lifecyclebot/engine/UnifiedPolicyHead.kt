@@ -1,5 +1,9 @@
 package com.lifecyclebot.engine
 
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import com.lifecyclebot.util.AppDispatchers
+
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
@@ -252,6 +256,7 @@ object UnifiedPolicyHead {
         try {
             val laneKey = normalizeLane(lane)
             pending.computeIfAbsent(mint) { java.util.concurrent.ConcurrentHashMap() }[laneKey] = s.toArray()
+            appContext?.let { ctx -> GlobalScope.launch(AppDispatchers.sideEffect) { save(ctx) } }
         } catch (_: Throwable) {}
     }
 
@@ -311,7 +316,7 @@ object UnifiedPolicyHead {
                 }
             }
             try { PipelineHealthCollector.labelInc("UNIFIED_POLICY_HEAD_ALL_LANE_OUTCOME_4470") } catch (_: Throwable) {}
-            if (trained % 25L == 0L) appContext?.let { save(it) }
+            appContext?.let { ctx -> GlobalScope.launch(AppDispatchers.sideEffect) { save(ctx) } }
         } catch (_: Throwable) {}
     }
 
@@ -336,6 +341,11 @@ object UnifiedPolicyHead {
                         put("brierSum", h.brierSum); put("brierN", h.brierN)
                     })
                 }
+            })
+            put("pending", JSONObject().also { po ->
+                for ((mint, byLane) in pending) po.put(mint, JSONObject().also { lo ->
+                    for ((lane, features) in byLane) lo.put(lane, JSONArray().also { a -> features.forEach(a::put) })
+                })
             })
         }.toString()
     } catch (_: Throwable) { "{}" }
@@ -371,6 +381,22 @@ object UnifiedPolicyHead {
                 lo.optJSONArray("fm")?.let { for (i in 0 until minOf(NF, it.length())) h.featMean[i] = it.optDouble(i, 0.5) }
                 h.brierSum = lo.optDouble("brierSum", 0.0); h.brierN = lo.optLong("brierN", 0L)
                 laneHeads[key] = h
+            }
+            pending.clear()
+            o.optJSONObject("pending")?.let { po ->
+                val mints = po.keys()
+                while (mints.hasNext()) {
+                    val mint = mints.next()
+                    val lo = po.optJSONObject(mint) ?: continue
+                    val byLane = java.util.concurrent.ConcurrentHashMap<String, DoubleArray>()
+                    val lanesPending = lo.keys()
+                    while (lanesPending.hasNext()) {
+                        val lane = lanesPending.next()
+                        val a = lo.optJSONArray(lane) ?: continue
+                        byLane[lane] = DoubleArray(a.length()) { i -> a.optDouble(i, 0.0) }
+                    }
+                    if (byLane.isNotEmpty()) pending[mint] = byLane
+                }
             }
         } catch (_: Throwable) {}
     }

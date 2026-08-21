@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine
 
+import kotlinx.coroutines.launch
+
 import com.lifecyclebot.network.SharedHttpClient
 
 import com.lifecyclebot.data.BotConfig
@@ -93,6 +95,29 @@ object DataPipeline {
         val overallGrade: String,
         val confidence: Double,
     )
+
+    private data class CachedAlpha6486(val value: AlphaSignals?, val atMs: Long)
+    private val alphaCache6486 = java.util.concurrent.ConcurrentHashMap<String, CachedAlpha6486>()
+    private val alphaRefreshInFlight6486 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    fun cachedAlphaSignals6486(mint: String, maxAgeMs: Long = 300_000L): AlphaSignals? {
+        val row = alphaCache6486[mint] ?: return null
+        if (System.currentTimeMillis() - row.atMs > maxAgeMs) return null
+        return row.value
+    }
+
+    fun requestAlphaSignalsAsync6486(mint: String, cfg: BotConfig, onLog: (String) -> Unit = {}) {
+        if (!alphaRefreshInFlight6486.add(mint)) return
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val value = getAlphaSignals(mint, cfg, onLog)
+                alphaCache6486[mint] = CachedAlpha6486(value, System.currentTimeMillis())
+                try { PipelineHealthCollector.labelInc("ALPHA_CACHE_REFRESHED_6486") } catch (_: Throwable) {}
+            } catch (_: Throwable) {
+                try { PipelineHealthCollector.labelInc("ALPHA_CACHE_REFRESH_FAILED_6486") } catch (_: Throwable) {}
+            } finally { alphaRefreshInFlight6486.remove(mint) }
+        }
+    }
 
     suspend fun getAlphaSignals(
         mint: String,

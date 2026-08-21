@@ -78,8 +78,8 @@ class LifecycleConvergenceAcceptanceTest6470 {
             tradeId = "TID", atMs = 0L, realizedPnlSol = 0.1, realizedReturnPct = 5.0,
             mint = "BAD_MINT", lane = "MEME",
         )
-        assertFalse("learner is dropped", FinalizedBusConsumerBridge6465.deliver("TacticSwitcher", env))
-        assertFalse("governor is dropped", FinalizedBusConsumerBridge6465.deliver("Governor", env))
+        assertTrue("learner quarantine is handled without mutation or retry loop", FinalizedBusConsumerBridge6465.deliver("TacticSwitcher", env))
+        assertTrue("governor quarantine is handled without mutation or retry loop", FinalizedBusConsumerBridge6465.deliver("Governor", env))
         assertTrue("dashboard is not learning — pass through", FinalizedBusConsumerBridge6465.deliver("Dashboard", env))
     }
 

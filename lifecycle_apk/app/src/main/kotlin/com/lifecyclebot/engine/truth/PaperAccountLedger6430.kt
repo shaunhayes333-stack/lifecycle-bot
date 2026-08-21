@@ -145,8 +145,14 @@ object PaperAccountLedger6430 {
         return true
     }
 
-    fun onSell(grossProceedsSol: Double, costBasisSoldSol: Double, feeSol: Double = 0.0) {
-        if (!grossProceedsSol.isFinite() || !costBasisSoldSol.isFinite()) return
+    @Synchronized
+    fun canApplySell6486(costBasisSoldSol: Double): Boolean =
+        costBasisSoldSol.isFinite() && costBasisSoldSol >= 0.0 &&
+            openCostBasisSol() + 1e-9 >= costBasisSoldSol
+
+    @Synchronized
+    fun onSell(grossProceedsSol: Double, costBasisSoldSol: Double, feeSol: Double = 0.0): Boolean {
+        if (!grossProceedsSol.isFinite() || !costBasisSoldSol.isFinite()) return false
         val fee = if (feeSol.isFinite()) feeSol.coerceAtLeast(0.0) else 0.0
         // V5.0.6461 §P0-#1 FI4FAM FIREWALL — catch percent-into-SOL leaks
         // (30 SOL = 60x max entry; anything larger is a unit-mix bug).
@@ -154,11 +160,16 @@ object PaperAccountLedger6430 {
             .assertSolPlausible(grossProceedsSol.coerceAtLeast(0.0), "PaperAccountLedger6430.onSell.gross")
         val basis = com.lifecyclebot.engine.truth.PartialSellUnitTypes6461
             .assertSolPlausible(costBasisSoldSol.coerceAtLeast(0.0), "PaperAccountLedger6430.onSell.basis")
+        if (!canApplySell6486(basis) || gross + 1e-9 < fee) {
+            try { PipelineHealthCollector.labelInc("PAPER_SELL_LEDGER_REJECTED_6486") } catch (_: Throwable) {}
+            return false
+        }
         cashPico.addAndGet(toPico(gross - fee))
         openCostBasisPico.addAndGet(-toPico(basis))
         realizedPnlPico.addAndGet(toPico(gross - basis)) // GROSS pnl
         feesPico.addAndGet(toPico(fee))
         opCount.incrementAndGet()
+        return true
     }
 
     /**
