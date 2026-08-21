@@ -14535,18 +14535,12 @@ class Executor(
                             } catch (_: Throwable) { false }
                             if (!laneJournalProfitable6312) {
                                 val detail6312 = "setup=$setupKey6312 losses=${loserRow6312.second} avgLoss=${"%.1f".format(loserRow6312.third)}% lane=$layerTag stage=PRE_LEASE"
-                                liveStage("LIVE_BUY_ABORTED", "reason=DNA_VETO_EARLY_APPLIED_6312 detail=$detail6312")
+                                val pivot6312 = try { com.lifecyclebot.engine.learning.TacticSwitcher.rotateForLanePressure(layerTag, score.toInt(), "dna_early_6312").name } catch (_: Throwable) { "UNKNOWN" }
+                                liveStage("LIVE_BUY_DNA_TACTIC_PIVOT_6482", "stage=early lane=$layerTag tactic=$pivot6312 detail=$detail6312")
                                 try {
-                                    emitLiveBuyFail(ts, sol, "DNA_VETO_EARLY_APPLIED_6312", detail6312)
-                                    PipelineHealthCollector.onGate(
-                                        "EXEC_GATE",
-                                        ts.symbol,
-                                        false,
-                                        "DNA_VETO_EARLY_APPLIED_6312 mode=LIVE lane=$layerTag $detail6312",
-                                    )
-                                    PipelineHealthCollector.labelInc("DNA_VETO_EARLY_APPLIED_6312")
+                                    PipelineHealthCollector.labelInc("DNA_EARLY_TACTIC_PIVOT_6482")
+                                    ForensicLogger.lifecycle("DNA_EARLY_TACTIC_PIVOT_6482", "$detail6312 tactic=$pivot6312 action=continue_same_lane")
                                 } catch (_: Throwable) {}
-                                return false
                             }
                         }
                     } else {
@@ -14645,13 +14639,12 @@ class Executor(
                     lossCount > winCount && netEvPct <= -10.0 && !laneJournalProfitable
                 if (provenLoser) {
                     val detail = "setup=$setupKey losses=$lossCount avgLoss=${"%.1f".format(lossAvg)}% wins=$winCount avgWin=${"%.1f".format(winAvg)}% netEV=${"%.1f".format(netEvPct)}% laneFallback=$useLaneFallback laneJournalProfitable=$laneJournalProfitable"
-                    liveStage("LIVE_BUY_ABORTED", "reason=DNA_PROVEN_LOSER_VETO_6264 detail=$detail")
-                    try { emitLiveBuyFail(ts, sol, "DNA_PROVEN_LOSER_VETO_6264", detail) } catch (_: Throwable) {}
+                    val pivot6264 = try { com.lifecyclebot.engine.learning.TacticSwitcher.rotateForLanePressure(layerTag, score.toInt(), "dna_proven_6264").name } catch (_: Throwable) { "UNKNOWN" }
+                    liveStage("LIVE_BUY_DNA_TACTIC_PIVOT_6482", "stage=proven lane=$layerTag tactic=$pivot6264 detail=$detail")
                     try {
-                        com.lifecyclebot.engine.PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "DNA_PROVEN_LOSER_VETO_6264 mode=LIVE lane=$layerTag $detail")
-                        com.lifecyclebot.engine.ForensicLogger.lifecycle("DNA_PROVEN_LOSER_VETO_6264", "$detail lane=$layerTag mint=${ts.mint.take(10)} symbol=${ts.symbol}")
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DNA_PROVEN_LOSER_TACTIC_PIVOT_6482")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle("DNA_PROVEN_LOSER_TACTIC_PIVOT_6482", "$detail lane=$layerTag tactic=$pivot6264 action=continue_same_lane mint=${ts.mint.take(10)}")
                     } catch (_: Throwable) {}
-                    return false
                 } else if (loserRow != null && lossCount >= 3) {
                     val allowReason = when {
                         laneJournalProfitable -> "lane_journal_authority_6285"

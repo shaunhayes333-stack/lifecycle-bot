@@ -7661,4 +7661,17 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6481: both modes must pivot tactic inside the lane", exec.contains("PAPER_BUY_TOXIC_BUCKET_TACTIC_PIVOT_6481") && exec.contains("LIVE_BUY_TOXIC_BUCKET_TACTIC_PIVOT_6481"))
     }
 
+
+    @Test
+    fun V5_0_6482_learned_dna_pause_and_pattern_pressure_pivot_not_veto() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertFalse("V5.0.6482: duplicate DNA learners must not abort live buys", exec.contains("DNA_VETO_EARLY_APPLIED_6312") || exec.contains("DNA_PROVEN_LOSER_VETO_6264"))
+        assertTrue("V5.0.6482: both DNA pressure sites must pivot same-lane tactics", exec.contains("DNA_EARLY_TACTIC_PIVOT_6482") && exec.contains("DNA_PROVEN_LOSER_TACTIC_PIVOT_6482") && exec.contains("action=continue_same_lane"))
+        assertFalse("V5.0.6482: lane pause and toxic pattern learning must not create FDG hard blocks", fdg.contains("LANE_AUTO_PAUSED_HARD_BLOCK") || fdg.contains("TOXIC_PATTERN_HARD_BLOCK"))
+        assertTrue("V5.0.6482: lane pause and toxic patterns must rotate tactic before secondary size shaping", fdg.contains("LANE_AUTO_TACTIC_PIVOT_6482") && fdg.contains("TOXIC_PATTERN_TACTIC_PIVOT_6482") && fdg.contains("TacticSwitcher.rotateForLanePressure"))
+        assertTrue("V5.0.6482: learned pressure keeps an executable floor", fdg.contains("finalSize = (finalSize * 0.35).coerceAtLeast(0.01)"))
+        assertTrue("V5.0.6482: provider-degraded execution safety remains intact", exec.contains("PROVIDER_DEGRADED_BUY_BLOCK_6264") && exec.contains("dexSr < 0.70 && jupQSr < 0.60"))
+    }
+
 }

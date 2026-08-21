@@ -3341,18 +3341,12 @@ object FinalDecisionGate {
                 // production admission path returns to strict.
                 val pauseState = LaneAutoPauseGuard.statusFor(laneName)
                 if (pauseState != null) {
-                    blockReason = "LANE_AUTO_PAUSED_${pauseState.lane}_${pauseState.reason}"
-                    blockLevel = BlockLevel.HARD
-                    checks.add(GateCheck("lane_auto_paused", false, "${pauseState.lane} paused n=${pauseState.sample} wr=${pauseState.wrPct.format(1)}% ev=${pauseState.evPct.format(1)}% reason=${pauseState.reason} — awaiting LLM Lab proof"))
-                    tags.add("lane_auto_paused")
+                    val pivoted6482 = try { com.lifecyclebot.engine.learning.TacticSwitcher.rotateForLanePressure(pauseState.lane, laneScoreBanded, "lane_auto_pause_${pauseState.reason}").name } catch (_: Throwable) { "UNKNOWN" }
+                    finalSize = (finalSize * 0.35).coerceAtLeast(0.01)
+                    checks.add(GateCheck("lane_auto_pivot", true, "${pauseState.lane} pressure n=${pauseState.sample} wr=${pauseState.wrPct.format(1)}% ev=${pauseState.evPct.format(1)}% tactic=$pivoted6482"))
+                    tags.add("lane_auto_tactic_pivot")
                     tags.add("pause_reason:${pauseState.reason}")
-                    try {
-                        ErrorLogger.info(
-                            "FDG",
-                            "🛑 LANE_AUTO_PAUSED_HARD_BLOCK ${ts.symbol} lane=${pauseState.lane} n=${pauseState.sample} wr=${pauseState.wrPct.format(1)}% ev=${pauseState.evPct.format(1)}%",
-                        )
-                    } catch (_: Throwable) {}
-                    try { PipelineHealthCollector.labelInc("LANE_AUTO_PAUSED_FDG_BLOCK_${pauseState.lane}") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("LANE_AUTO_TACTIC_PIVOT_6482_${pauseState.lane}") } catch (_: Throwable) {}
                 }
             } catch (_: Throwable) {}
         }
@@ -3375,18 +3369,12 @@ object FinalDecisionGate {
                 val toxic = LosingPatternMemory.stats(laneName, laneScoreBanded)
                 if (toxic.sample >= 30 && toxic.lossRatePct >= 90.0 && toxic.meanPnl <= -8.0) {
                     val bucketId = try { LosingPatternMemory.bucketKey(laneName, laneScoreBanded) } catch (_: Throwable) { "$laneName|?" }
-                    blockReason = "TOXIC_PATTERN_HARD_BLOCK_${bucketId.replace('|', '_')}"
-                    blockLevel = BlockLevel.HARD
-                    checks.add(GateCheck("toxic_pattern_hard_block", false, "bucket $bucketId n=${toxic.sample} lossRate=${toxic.lossRatePct.format(1)}% mean=${toxic.meanPnl.format(1)}% — proven-toxic, hard-blocked"))
-                    tags.add("toxic_pattern_hard_block")
+                    val pivoted6482 = try { com.lifecyclebot.engine.learning.TacticSwitcher.rotateForLanePressure(laneName, laneScoreBanded, "toxic_pattern_$bucketId").name } catch (_: Throwable) { "UNKNOWN" }
+                    finalSize = (finalSize * 0.35).coerceAtLeast(0.01)
+                    checks.add(GateCheck("toxic_pattern_tactic_pivot", true, "bucket $bucketId n=${toxic.sample} lossRate=${toxic.lossRatePct.format(1)}% tactic=$pivoted6482"))
+                    tags.add("toxic_pattern_tactic_pivot")
                     tags.add("bucket:$bucketId")
-                    try {
-                        ErrorLogger.info(
-                            "FDG",
-                            "🚫 TOXIC_PATTERN_HARD_BLOCK ${ts.symbol} bucket=$bucketId n=${toxic.sample} lossRate=${toxic.lossRatePct.format(1)}% mean=${toxic.meanPnl.format(1)}% — Rule 5 hard-gate fired",
-                        )
-                    } catch (_: Throwable) {}
-                    try { PipelineHealthCollector.labelInc("TOXIC_PATTERN_HARD_BLOCK") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("TOXIC_PATTERN_TACTIC_PIVOT_6482") } catch (_: Throwable) {}
                 }
             } catch (_: Throwable) {}
         }
