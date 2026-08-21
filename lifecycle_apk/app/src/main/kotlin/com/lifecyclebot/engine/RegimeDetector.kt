@@ -118,13 +118,17 @@ object RegimeDetector {
     // showed healthy scanner/executor mechanics but DUMP publishing +20/+0.10,
     // while AgenticStyleRouter already pivots DUMP/CHOP into defensive/reclaim/
     // liquidity-depth routes. Keep DUMP cautious, but do not starve all live flow.
-    fun scoreFloorDelta(): Int = when (currentRegime()) {
-        Regime.BULL_RIPPING -> -10
-        Regime.NORMAL       ->   0
-        Regime.CHOP         -> +10
-        Regime.DUMP         -> +10  // recovery-quality only, not +20 global starvation
-        Regime.DEAD         ->   0
-        Regime.BOOTSTRAP    ->   0  // V5.0.4081 — retained for binary compat; no longer emitted by detect()
+    fun scoreFloorDelta(): Int {
+        val regimeDelta = when (currentRegime()) {
+            Regime.BULL_RIPPING -> -10
+            Regime.NORMAL       ->   0
+            Regime.CHOP         -> +10
+            Regime.DUMP         -> +10
+            Regime.DEAD         ->   0
+            Regime.BOOTSTRAP    ->   0
+        }
+        val streakDelta = try { com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.scoreFloorDelta6487() } catch (_: Throwable) { 0 }
+        return maxOf(regimeDelta, streakDelta)
     }
 
     /**
@@ -135,13 +139,17 @@ object RegimeDetector {
     // V5.0.4528 — hostile-regime recovery sizing. DUMP remains reduced, but
     // no longer micro-sizes every live route to 0.10 before lane/style pivots can
     // express a better tactic. Toxicity/safety gates still own true hard rejects.
-    fun sizeMultiplier(): Double = when (currentRegime()) {
-        Regime.BULL_RIPPING -> 1.0
-        Regime.NORMAL       -> 1.0
-        Regime.CHOP         -> 0.35
-        Regime.DUMP         -> 0.35   // recovery trade size; not live dust tuition
-        Regime.DEAD         -> 0.50   // was 0.70 — no signal, stay tiny
-        Regime.BOOTSTRAP    -> 1.0    // V5.0.4078 — cold-start at full size; we MUST trade to earn samples
+    fun sizeMultiplier(): Double {
+        val regimeMult = when (currentRegime()) {
+            Regime.BULL_RIPPING -> 1.0
+            Regime.NORMAL       -> 1.0
+            Regime.CHOP         -> 0.35
+            Regime.DUMP         -> 0.35
+            Regime.DEAD         -> 0.50
+            Regime.BOOTSTRAP    -> 1.0
+        }
+        val streakMult = try { com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.sizeMultiplier6487() } catch (_: Throwable) { 1.0 }
+        return minOf(regimeMult, streakMult)
     }
 
     // V5.0.6068 — LANE-AWARE REGIME SIZING (operator: "why the good lanes are

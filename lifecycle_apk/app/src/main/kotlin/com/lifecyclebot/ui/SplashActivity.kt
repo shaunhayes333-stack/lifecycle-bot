@@ -246,6 +246,7 @@ class SplashActivity : AppCompatActivity() {
         stopParticleAnimation()
     }
 
+    @android.annotation.SuppressLint("MissingSuperCall")
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         // Disable back button during splash

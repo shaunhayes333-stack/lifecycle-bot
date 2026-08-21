@@ -5978,13 +5978,14 @@ class Executor(
         if (blockIfSellInFlight(ts, reason, sellTradeKey)) return
         if (!com.lifecyclebot.engine.sell.SellExecutionLocks.tryAcquire(ts.mint)) {
             // V5.9.967 — z43-D SellSpamGuard wrap.
-            if (com.lifecyclebot.engine.sell.SellSpamGuard.shouldLogBlocked(ts.mint, reason))
-            LiveTradeLogStore.log(
-                sellTradeKey, ts.mint, ts.symbol, "SELL",
-                LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
-                "SELL_BLOCKED_ALREADY_IN_PROGRESS profit-lock reason=$reason",
-                traderTag = "MEME",
-            )
+            if (com.lifecyclebot.engine.sell.SellSpamGuard.shouldLogBlocked(ts.mint, reason)) {
+                LiveTradeLogStore.log(
+                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                    "SELL_BLOCKED_ALREADY_IN_PROGRESS profit-lock reason=$reason",
+                    traderTag = "MEME",
+                )
+            }
             return
         }
         val sellSlippage = com.lifecyclebot.engine.sell.SellSafetyPolicy.initialSlippageBps(reason)
@@ -11634,7 +11635,7 @@ class Executor(
             )
         }
         val effectiveBuySol6451 = when (gateVerdict6451.verdict) {
-            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW -> sol
+            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW -> gateVerdict6451.recommendedSizeSol
             com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW_PROBE -> gateVerdict6451.recommendedSizeSol
             else -> {
                 try {
@@ -13639,6 +13640,7 @@ class Executor(
             }
             else -> {}
         }
+        val entryAuthoritySol6487 = gateVerdictLive6451.recommendedSizeSol.coerceAtMost(sol)
         // V5.0.6444 §1 LIVE EXECUTOR MIGRATION — mirror the live buy
         // attempt into CanonicalPositionAuthority6441 via
         // ExecutorCanonicalMirror6442. Runs at the earliest point so
@@ -13650,7 +13652,7 @@ class Executor(
                 mint = ts.mint,
                 symbol = ts.symbol.ifBlank { ts.mint.take(6) },
                 lane = layerTag.uppercase().take(24).ifBlank { "LIVE_STANDARD" },
-                estimatedCostSol = sol,
+                estimatedCostSol = entryAuthoritySol6487,
                 estimatedFeesSol = 0.0,
                 paperMode = false,
             )
@@ -13675,7 +13677,7 @@ class Executor(
         // never disables a lane.
         @Suppress("NAME_SHADOWING")
         val sol: Double = run {
-            val originalSol = sol
+            val originalSol = entryAuthoritySol6487
             val govMult = try { com.lifecyclebot.engine.LiveEntrySafetyHold.currentSizeMultiplier() } catch (_: Throwable) { 1.0 }
             // Collapse-guard signal set. Uses defaults when a field is
             // unavailable so we never fabricate a bad signal; the guard

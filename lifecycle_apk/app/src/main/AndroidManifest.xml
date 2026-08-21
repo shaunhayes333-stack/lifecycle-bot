@@ -125,7 +125,11 @@
             android:name=".engine.BotService"
             android:exported="false"
             android:stopWithTask="false"
-            android:foregroundServiceType="dataSync|specialUse"/>
+            android:foregroundServiceType="dataSync|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="continuous automated trading, market monitoring, position risk management, and transaction finality"/>
+        </service>
 
         <!--
           V5.9.661 — debug-only smoke test entry-point.

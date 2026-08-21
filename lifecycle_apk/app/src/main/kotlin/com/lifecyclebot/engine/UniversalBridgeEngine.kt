@@ -40,6 +40,13 @@ object UniversalBridgeEngine {
 
     private const val TAG = "🌉BridgeEngine"
 
+    /** API 26-safe exact signed-Long conversion with overflow rejection. */
+    private fun java.math.BigInteger.toLongExactCompat6487(): Long {
+        val value = toLong()
+        if (java.math.BigInteger.valueOf(value) != this) throw ArithmeticException("raw quantity exceeds signed Long")
+        return value
+    }
+
     // ─── Well-known mint addresses ────────────────────────────────────────────
     const val SOL_MINT    = "So11111111111111111111111111111111111111112"
     const val USDC_MINT   = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
@@ -263,7 +270,10 @@ object UniversalBridgeEngine {
             val parsed = com.lifecyclebot.engine.execution.TxParseHelper.parseAll(wallet, signature)
             val d = parsed?.tokenDeltas?.get(targetMint)
             if (d != null && d.rawDelta.signum() > 0) {
-                val raw = try { d.rawDelta.longValueExact() } catch (_: Throwable) { Long.MAX_VALUE }
+                val raw = try { d.rawDelta.toLongExactCompat6487() } catch (_: ArithmeticException) {
+                    ErrorLogger.warn(TAG, "Rejected unrepresentable target delta for ${targetMint.take(8)}; proof not finalized")
+                    return null
+                }
                 val ui = java.math.BigDecimal(d.rawDelta).movePointLeft(d.decimals).toDouble()
                 return VerifiedDelta6486(raw, ui, d.decimals, "TX_META_DELTA_CONFIRMED")
             }
@@ -273,8 +283,11 @@ object UniversalBridgeEngine {
             val row = try { wallet.getTokenAccountsWithDecimalsBounded()[targetMint] } catch (_: Throwable) { null }
             if (row != null && row.first > preUi) {
                 val ui = row.first - preUi
-                val raw = java.math.BigDecimal.valueOf(ui).movePointRight(row.second).toBigInteger().let {
-                    try { it.longValueExact() } catch (_: Throwable) { Long.MAX_VALUE }
+                val raw = try {
+                    java.math.BigDecimal.valueOf(ui).movePointRight(row.second).toBigInteger().toLongExactCompat6487()
+                } catch (_: ArithmeticException) {
+                    ErrorLogger.warn(TAG, "Rejected unrepresentable wallet target delta for ${targetMint.take(8)}")
+                    return@repeat
                 }
                 if (raw > 0L) return VerifiedDelta6486(raw, ui, row.second, "WALLET_DELTA_CONFIRMED_${attempt + 1}")
             }
@@ -321,8 +334,12 @@ object UniversalBridgeEngine {
                 return@withContext BridgeResult(false, src, targetMint, 0, 0.0, null,
                     "Insufficient already-held ${mintLabel(targetMint)} for requested allocation")
             }
-            val raw = java.math.BigDecimal.valueOf(requestedUi).movePointRight(decimals).toBigInteger().let {
-                try { it.longValueExact() } catch (_: Throwable) { Long.MAX_VALUE }
+            val raw = try {
+                java.math.BigDecimal.valueOf(requestedUi).movePointRight(decimals).toBigInteger().toLongExactCompat6487()
+            } catch (_: ArithmeticException) {
+                return@withContext BridgeResult(false, src, targetMint, 0, 0.0, null,
+                    "Requested raw quantity exceeds supported execution range", targetDecimals = decimals,
+                    proofState = "RAW_QUANTITY_OVERFLOW_REJECTED_6487")
             }
             return@withContext BridgeResult(true, src, targetMint, raw, requestedUi, null,
                 targetDecimals = decimals, proofState = "BALANCE_CONFIRMED_NO_SWAP")
@@ -585,8 +602,12 @@ object UniversalBridgeEngine {
         val input = accountsBefore[targetMint]
         val inputDecimals = if (targetMint == SOL_MINT) 9 else input?.second ?: 0
         val inputUi = if (targetMint == SOL_MINT) (wallet.getSolBalance() - 0.01).coerceAtLeast(0.0) else input?.first ?: 0.0
-        val balRaw = java.math.BigDecimal.valueOf(inputUi).movePointRight(inputDecimals).toBigInteger().let {
-            try { it.longValueExact() } catch (_: Throwable) { 0L }
+        val balRaw = try {
+            java.math.BigDecimal.valueOf(inputUi).movePointRight(inputDecimals).toBigInteger().toLongExactCompat6487()
+        } catch (_: ArithmeticException) {
+            return@withContext BridgeResult(false, targetMint, returnToMint, 0, 0.0, null,
+                "Release raw quantity exceeds supported execution range", targetDecimals = inputDecimals,
+                proofState = "RAW_QUANTITY_OVERFLOW_REJECTED_6487")
         }
         if (balRaw <= 0L) return@withContext BridgeResult(false, targetMint, returnToMint, 0, 0.0, null, "Nothing to release")
         val preOutputUi = if (returnToMint == SOL_MINT) try { wallet.getSolBalance() } catch (_: Throwable) { 0.0 }

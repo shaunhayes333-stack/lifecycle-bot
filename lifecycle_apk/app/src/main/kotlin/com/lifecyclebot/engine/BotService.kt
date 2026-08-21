@@ -479,6 +479,31 @@ class BotService : Service() {
          * makes a subsequent START race the real service state. Runtime truth must be derived
          * from the service-owned loop/stop latches only. This is read-only to UI.
          */
+        data class BackgroundRuntimeHealth6487(
+            val runtimeActive: Boolean,
+            val loopActive: Boolean,
+            val foregroundActive: Boolean,
+            val authorityActive: Boolean,
+            val progressAgeMs: Long,
+            val phase: String,
+            val healthy: Boolean,
+        )
+
+        fun backgroundRuntimeHealth6487(nowMs: Long = System.currentTimeMillis()): BackgroundRuntimeHealth6487 {
+            val svc = instance
+            val runtimeActive = isRuntimeActive()
+            val loopActive = try { svc?.loopJob?.isActive == true } catch (_: Throwable) { false }
+            val foregroundActive = try { svc?.serviceForegroundActive6487 == true } catch (_: Throwable) { false }
+            val progressAt = try { svc?.lastProgressAtMs ?: 0L } catch (_: Throwable) { 0L }
+            val progressAge = if (progressAt > 0L) (nowMs - progressAt).coerceAtLeast(0L) else Long.MAX_VALUE
+            val authorityActive = try { com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.isRuntimeActive() } catch (_: Throwable) { false }
+            val phase = try { svc?.currentPhase ?: "NO_SERVICE" } catch (_: Throwable) { "UNKNOWN" }
+            val healthy = runtimeActive && loopActive && foregroundActive && authorityActive && progressAge <= 120_000L
+            return BackgroundRuntimeHealth6487(runtimeActive, loopActive, foregroundActive, authorityActive, progressAge, phase, healthy)
+        }
+
+        fun isBackgroundRuntimeHealthy6487(): Boolean = backgroundRuntimeHealth6487().healthy
+
         fun isRuntimeActive(): Boolean {
             return try {
                 val svcLoopActive = try { instance?.loopJob?.isActive == true } catch (_: Throwable) { false }
@@ -644,6 +669,7 @@ class BotService : Service() {
     private val botLoopDispatcher: CoroutineDispatcher = botLoopExecutor.asCoroutineDispatcher()
 
     private val dex    = DexscreenerApi()
+    @Volatile private var serviceForegroundActive6487: Boolean = false
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock6032: android.net.wifi.WifiManager.WifiLock? = null
 
@@ -678,7 +704,14 @@ class BotService : Service() {
     }
 
     private fun ensureAlwaysOnRuntimeGuards6031(reason: String) {
-        try { startForeground(NOTIF_ID, buildRunningNotif()) } catch (_: Throwable) {}
+        try {
+            startForeground(NOTIF_ID, buildRunningNotif())
+            serviceForegroundActive6487 = true
+        } catch (t: Throwable) {
+            serviceForegroundActive6487 = false
+            try { PipelineHealthCollector.labelInc("BACKGROUND_FGS_REASSERT_FAILED_6487") } catch (_: Throwable) {}
+            try { ErrorLogger.warn("BotService", "foreground reassert failed reason=$reason err=${t.message}") } catch (_: Throwable) {}
+        }
         ensureRuntimeWakeLock6031(reason)
         ensureRuntimeWifiLock6032(reason)
         try { scheduleKeepAliveAlarm() } catch (_: Throwable) {}
@@ -1361,6 +1394,7 @@ class BotService : Service() {
         // throws ForegroundServiceDidNotStartInTimeException. Do it here before any slow init.
         createChannels()
         startForeground(NOTIF_ID, buildRunningNotif())
+        serviceForegroundActive6487 = true
         ensureRuntimeWakeLock6031("onCreate_after_startForeground")
         ensureRuntimeWifiLock6032("onCreate_after_startForeground")
 
@@ -1392,12 +1426,14 @@ class BotService : Service() {
                 val durableEconomicEvents6486 = com.lifecyclebot.engine.truth.EconomicEventSchema6464.snapshot()
                 com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.rebuildPaperFromEvents6486(durableEconomicEvents6486)
                 com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.rebuildPaperFromEvents6486(durableEconomicEvents6486)
-                com.lifecyclebot.engine.truth.PaperAccountLedger6430.initialize(startCap6432)
-                val durableLedgerRestored6486 = com.lifecyclebot.engine.truth.CanonicalPaperReplay6464
-                    .restoreLedgerFromDurable6486(startCap6432)
-                if (!durableLedgerRestored6486) {
-                    try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(startCap6432, "startup_paper_balance_6486_fallback") } catch (_: Throwable) {}
+                val ledgerRestored6487 = com.lifecyclebot.engine.truth.PaperAccountLedger6430
+                    .initPersistent6487(applicationContext, startCap6432)
+                if (!ledgerRestored6487) {
+                    val migrated6487 = com.lifecyclebot.engine.truth.CanonicalPaperReplay6464
+                        .migrateLegacyLedgerOnce6487(startCap6432)
+                    if (!migrated6487) com.lifecyclebot.engine.truth.PaperAccountLedger6430.persistCurrent6487()
                 }
+                try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol(), "startup_paper_ledger_authority_6487") } catch (_: Throwable) {}
                 com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431
                     .start { /* full reconcile callback: wired in Phase 2 */ }
             } catch (_: Throwable) {}
@@ -2597,6 +2633,7 @@ class BotService : Service() {
                     // while status/runtime controller remained stale false.
                     status.running = true
                     isShuttingDown = false
+                    try { com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.setRuntimeActive(true, "BotService.actionStart.rebind6487") } catch (_: Throwable) {}
                     ensureRuntimeWakeLock6031("action_start_already_running")
                     ensureRuntimeWifiLock6032("action_start_already_running")
                     try { ensureHotExitAlive() } catch (_: Throwable) {}
@@ -2757,6 +2794,16 @@ class BotService : Service() {
                 scope.launch { stopBot(stopSource) }
             }
             ACTION_LOOP_HEARTBEAT -> {
+                if (isManualStopRequested(applicationContext)) {
+                    cancelLoopHeartbeatAlarm()
+                    try { com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.setRuntimeActive(false, "BotService.loopHeartbeat.manualStop6487") } catch (_: Throwable) {}
+                    return START_NOT_STICKY
+                }
+                // V5.0.6487 — heartbeat is the background liveness authority.
+                // Reassert FGS + CPU/network locks before evaluating progress so
+                // minimized/screen-off recovery does not depend on Activity state.
+                ensureAlwaysOnRuntimeGuards6031("loop_heartbeat_6487")
+                if (status.running) try { com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.setRuntimeActive(true, "BotService.loopHeartbeat6487") } catch (_: Throwable) {}
                 // V5.9.762 — EMERGENT CRITICAL #1: HEARTBEAT REWRITE.
                 //
                 // Previous V5.9.760 rescue logic still cancelled-and-relaunched
@@ -2997,6 +3044,8 @@ class BotService : Service() {
         // V5.0.6431 §K — stop the independent reconciler scheduler.
         try { com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431.stop() } catch (_: Throwable) {}
         ErrorLogger.warn("BotService", "onDestroy() called - service being destroyed")
+        serviceForegroundActive6487 = false
+        try { com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.setRuntimeActive(false, "BotService.onDestroy6487") } catch (_: Throwable) {}
 
         // V5.9.438 — flush outcome-learning trackers so nothing is lost on shutdown.
         try { LearningPersistence.saveAll() } catch (_: Exception) {}
@@ -3511,6 +3560,8 @@ class BotService : Service() {
             val ledgerCash = try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol().coerceAtLeast(0.0) } catch (_: Throwable) { displayedCash.coerceAtLeast(0.0) }
             status.paperWalletSol = ledgerCash
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(ledgerCash, "paper_account_ledger_facade_6448:$source")
+            try { FluidLearning.forceSetBalance(ledgerCash) } catch (_: Throwable) {}
+            try { PaperWalletStore.persist(applicationContext, ledgerCash) } catch (_: Throwable) {}
             try {
                 PipelineHealthCollector.labelInc("PAPER_CAPITAL_AUTHORITY_SYNCED_6448")
                 ForensicLogger.lifecycle("PAPER_CAPITAL_AUTHORITY_SYNCED_6448", "source=$source ledgerCash=${"%.5f".format(ledgerCash)} displayedWas=${"%.5f".format(displayedCash)}")
@@ -4193,6 +4244,7 @@ class BotService : Service() {
             BotRuntimeController.registerJob(runtimeGeneration, "botLoop", loopJob)
             BotRuntimeController.publishRunning(runtimeGeneration, enabledTraders = try { EnabledTraderAuthority.snapshotStr() } catch (_: Throwable) { "" })
             status.running = true
+            try { com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.setRuntimeActive(true, "BotService.startBot.rebind6487") } catch (_: Throwable) {}
             ErrorLogger.warn("BotService", "startBot() called but botLoop is already active — rebinding runtime state")
             return
         }
@@ -4927,6 +4979,10 @@ class BotService : Service() {
 
         addLog("✓ Starting bot loop...")
         loopJob = scope.launch(botLoopDispatcher) { botLoop() } // V5.9.1023: dedicated single-thread dispatcher prevents Dispatchers.IO pool starvation from wedged supervisor workers
+        try {
+            com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.setRuntimeActive(true, "BotService.startBot.launch6487")
+            com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.registerRuntimeJob("BotService.startBot.launch6487")
+        } catch (_: Throwable) {}
         BotRuntimeController.registerJob(runtimeGeneration, "botLoop", loopJob)
         BotRuntimeController.publishRunning(runtimeGeneration, enabledTraders = try { EnabledTraderAuthority.snapshotStr() } catch (_: Throwable) { "" })
         runtimeCommitted = true
@@ -6906,6 +6962,7 @@ class BotService : Service() {
         // the tail of this method. Cleared in the `finally` block below.
         stopInProgress = true
         status.running = false  // visible immediately; stopInProgress remains the cleanup truth
+        try { com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.setRuntimeActive(false, "BotService.stopBot.$source.6487") } catch (_: Throwable) {}
 
         // V5.9.1033 — HARD-CANCEL ESCAPE HATCH.
         //
@@ -7645,6 +7702,7 @@ class BotService : Service() {
             BotRuntimeController.publishStopped(stopGeneration, source)
         } catch (_: Throwable) {}
         stopForeground(STOP_FOREGROUND_REMOVE)
+        serviceForegroundActive6487 = false
         stopSelf()
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
@@ -10126,6 +10184,15 @@ class BotService : Service() {
                 )
             }
             val zeroSignal = laneBase.entryScore <= 0.0 && laneBase.aiConfidence <= 10.0
+            val streakDefense6487 = try { com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.defensiveActive6487() } catch (_: Throwable) { false }
+            if (streakDefense6487 && (zeroSignal || laneBase.finalSignal.equals("WAIT", true))) {
+                try {
+                    PipelineHealthCollector.labelInc("DEFENSIVE_WAIT_PROBE_SUPPRESSED_6487")
+                    ForensicLogger.lifecycle("DEFENSIVE_WAIT_PROBE_SUPPRESSED_6487", "lane=$lane mint=${mintForProbe.take(10)} score=${laneBase.entryScore.toInt()} conf=${laneBase.aiConfidence.toInt()} streak=${com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.consecutiveLossesNow6487()} action=shadow_learn_only")
+                    LearningLifecycleBus.preFdgReject("DEFENSIVE_WAIT_SHADOW_ONLY_6487", lane, sourceForChop, mintForProbe, edgeSymbol4529, baseBlock, laneBase.entryScore, laneBase.aiConfidence, liquidityUsd, edgeMcap4529, edgeRegime4529)
+                } catch (_: Throwable) {}
+                return laneBase.copy(signal = "WAIT", finalSignal = "WAIT", shouldTrade = false, blockReason = "DEFENSIVE_WAIT_SHADOW_ONLY_6487")
+            }
             val goodLaneVolume6020 = isProvenLane4591 && !zeroSignal && liqOk &&
                 (laneBase.entryScore >= entryScoreTightenedFloor4591 || laneBase.aiConfidence >= entryScoreTightenedFloor4591)
             if (goodLaneVolume6020) {
@@ -12603,6 +12670,13 @@ class BotService : Service() {
     private fun markProgress(phase: String) {
         lastProgressAtMs = System.currentTimeMillis()
         currentPhase = phase
+        if (phase == "BOT_LOOP_TICK") {
+            try {
+                val interactive = (getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isInteractive ?: true
+                if (!interactive) com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.onScreenOffTick()
+                if (!com.lifecyclebot.AATEApp.isAnyActivityVisible6487()) com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.onUiAbsentTick()
+            } catch (_: Throwable) {}
+        }
         // V5.0.6437 — slow-cycle diagnostic. Passive telemetry that
         // attributes wall-clock time to phases so slow cycles show
         // exactly which block wedged. Zero happy-path cost.
@@ -12802,6 +12876,10 @@ class BotService : Service() {
                 }
             }
             loopJob = newJob
+            try {
+                com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.setRuntimeActive(true, "BotService.rescueRelaunch6487")
+                com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.registerRuntimeJob("BotService.rescueRelaunch6487")
+            } catch (_: Throwable) {}
             ForensicLogger.lifecycle(
                 "RESCUE_RELAUNCHED_SERVICE_SCOPE",
                 "newJobActive=${newJob.isActive} progressGapSec=${progressGapMs / 1000} phase=$phase usedGlobalScope=false"
@@ -14060,10 +14138,8 @@ class BotService : Service() {
                         name = "position_parity_audit_6464", budgetMs = 3_000L,
                     ) {
                         val startCap6464 = ConfigStore.load(applicationContext).paperSimulatedBalance
-                        // V5.0.6475 — replay is the only capital repair authority.
-                        // Repair first only when typed events are clean; otherwise
-                        // preserve state and keep integrity holds active.
-                        val replayRepaired6475 = try { com.lifecyclebot.engine.truth.CanonicalPaperReplay6464.repairLedgerIfClean(startCap6464) } catch (_: Throwable) { false }
+                        // V5.0.6487 — replay is diagnostic-only after one-time
+                        // migration; it may never overwrite authoritative ledger state.
                         com.lifecyclebot.engine.truth.CanonicalPaperReplay6464.compareToLedger(startCap6464)
                         // Registry is a projection; rebuild only after the
                         // canonical capital pass has completed, never from UI
@@ -14831,7 +14907,7 @@ class BotService : Service() {
                 val wakeHeld = try { wakeLock?.isHeld == true } catch (_: Throwable) { false }
                 com.lifecyclebot.engine.truth.TradingRuntimeHealthWatchdog6440.onCycleTick(
                     context = applicationContext,
-                    isServiceForeground = true, // BotService is a foreground service by manifest
+                    isServiceForeground = serviceForegroundActive6487,
                     isWakeHeld = wakeHeld,
                 )
             } catch (_: Throwable) {}
@@ -19218,13 +19294,13 @@ if (hotExitHandledSweep) {
     try { executor.brain?.maybeEaseDrought() } catch (_: Exception) {}
     val (result, decision) = strategy.evaluateWithDecision(ts, modeConfForEval, cfg.paperMode, executor.brain)
 
-        synchronized(ts) {
-            ts.phase      = result.phase
-            ts.signal     = result.signal
-            ts.entryScore = result.entryScore
-            ts.exitScore  = result.exitScore
-            ts.meta       = result.meta
-        }
+    synchronized(ts) {
+        ts.phase      = result.phase
+        ts.signal     = result.signal
+        ts.entryScore = result.entryScore
+        ts.exitScore  = result.exitScore
+        ts.meta       = result.meta
+    }
         
         // ═══════════════════════════════════════════════════════════════════
         // V3 CLEAN RUNTIME: Strategy output is now INPUT to V3, not a decision
@@ -19368,6 +19444,17 @@ if (hotExitHandledSweep) {
     // ═══════════════════════════════════════════════════════════════════
     val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
     val cyclePrimaryLane = canonicalCycleLaneFor(ts, modeClassification)
+    if (!ts.position.isOpen) {
+        val candidateVersion6487 = LaneExecutionCoordinator.candidateVersionFor(identity.mint)
+        val preEntry6487 = try {
+            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.gate(cyclePrimaryLane, identity.mint, 1.0)
+        } catch (_: Throwable) {
+            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Decision(
+                com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.DENY_LOSING_STREAK, 0.0, "gate_error_fail_closed_6487",
+            )
+        }
+        ExecutableOpenGate.recordEntryAuthority6487(identity.mint, candidateVersion6487, preEntry6487)
+    }
     try {
         ForensicLogger.lifecycle(
             "CYCLE_PRIMARY_LANE",
@@ -20018,22 +20105,9 @@ if (hotExitHandledSweep) {
                     // -15% floor remain the real safety rails; this only stops a V3-
                     // approved buy from being vetoed by a stale cached string.
                     try {
-                        ExecutableOpenGate.recordFdg(
-                            ts.mint, ts.symbol, "STANDARD",
-                            canExecute = true,
-                            reason = "V3_EXECUTE",
-                            signal = "BUY",
-                            rugScore = ts.safety.rugcheckScore,
-                            safetyTier = ts.safety.tier.name,
-                            liquidityUsd = ts.lastLiquidityUsd,
-                            hardNoReasons = ts.safety.hardBlockReasons,
-                            entryScore = ts.entryScore.toInt(),
-                            tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus,
-                            tokenMapHydrationComplete = ts.tokenMap.hydrationComplete,
-                            tokenMapExpectedOut = ts.tokenMap.expectedOutAmount,
-                            tokenMapProviderAttempts = ts.tokenMap.providerAttempts,
-                        )
-                    } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+                        PipelineHealthCollector.labelInc("V3_CORE_SHADOW_EXECUTE_VISIBILITY_6487")
+                        ForensicLogger.lifecycle("V3_CORE_SHADOW_EXECUTE_VISIBILITY_6487", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=STANDARD action=score_report_learn_only no_fdg=true no_exec_ticket=true")
+                    } catch (_: Throwable) {}
                     // V5.9.1323 — V3 Verdict Reconciliation (P0-4 surgical).
                     try {
                         com.lifecyclebot.engine.runtime.V3VerdictContract.recordEntry()
@@ -22310,15 +22384,15 @@ if (hotExitHandledSweep) {
                             null
                         }
                         // V5.9.689 — bump FDG forensic counter for MANIP path
-            try {
-                ForensicLogger.phase(ForensicLogger.PHASE.FDG, ts.symbol,
-                    "path=MANIP can=${manipFdg?.canExecute() ?: true} reason=${manipFdg?.blockReason ?: "n/a"}")
-                ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
-                    allow = manipFdg?.canExecute() ?: true,
-                    reason = manipFdg?.blockReason ?: "ok")
-            } catch (_: Throwable) {}
-            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "MANIPULATED", manipFdg?.canExecute() ?: true, manipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
-            // V5.9.691 — FDG modulates, does not hard-kill, Manip signals
+                        try {
+                            ForensicLogger.phase(ForensicLogger.PHASE.FDG, ts.symbol,
+                                "path=MANIP can=${manipFdg?.canExecute() ?: true} reason=${manipFdg?.blockReason ?: "n/a"}")
+                            ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
+                                allow = manipFdg?.canExecute() ?: true,
+                                reason = manipFdg?.blockReason ?: "ok")
+                        } catch (_: Throwable) {}
+                        ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "MANIPULATED", manipFdg?.canExecute() ?: true, manipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
+                        // V5.9.691 — FDG modulates, does not hard-kill, Manip signals
                         val manipFdgStructural = manipFdg != null && !manipFdg.canExecute() &&
                             manipFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
                         val manipFdgProbe = manipFdg != null && !manipFdg.canExecute() && !manipFdgStructural
@@ -23837,7 +23911,8 @@ if (hotExitHandledSweep) {
         // If position IS open: fall through to exit management
     }
     
-    if (!ts.position.isOpen && decision.finalSignal == "BUY" && canProposeEarly) {
+    if (!ts.position.isOpen && decision.finalSignal == "BUY" && canProposeEarly &&
+        cyclePrimaryLane.uppercase() !in setOf("V3_CORE", "STANDARD", "CASHGEN")) {
         // ═══════════════════════════════════════════════════════════════════
         // TRADE IDENTITY: Mark as candidate
         // ═══════════════════════════════════════════════════════════════════

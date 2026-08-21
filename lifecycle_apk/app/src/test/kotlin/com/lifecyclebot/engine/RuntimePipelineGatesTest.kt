@@ -1197,50 +1197,45 @@ class ExecutionAuthorityInvariantTest {
 
 
     @Test
-    fun live_fdg_allow_watch_before_signature_proceeds_with_execution_ticket() {
+    fun live_fdg_state_creates_ticket_only_at_final_exec_gate() {
         resetAuthorities(paper = false)
         ExecutableOpenGate.resetForTests()
         LaneExecutionCoordinator.resetForTests()
+        com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.resetForTest6487()
         val mint = "WatchTicket111111111111111111111111111111"
+        val cv = LaneExecutionCoordinator.candidateVersionFor(mint)
+        val entry = com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.gate("SHITCOIN", mint, 1.0)
+        ExecutableOpenGate.recordEntryAuthority6487(mint, cv, entry)
         ExecutableOpenGate.recordFdg(
-            mint = mint,
-            symbol = "WTCH",
-            lane = "SHITCOIN",
-            canExecute = true,
-            reason = null,
-            signal = "WATCH",
-            rugScore = 90,
-            safetyTier = "SAFE",
-            liquidityUsd = 2500.0,
-            preFdgVerdict = "WATCH",
+            mint = mint, symbol = "WTCH", lane = "SHITCOIN", canExecute = true,
+            reason = null, signal = "BUY", rugScore = 90, safetyTier = "SAFE",
+            liquidityUsd = 2500.0, preFdgVerdict = "BUY", candidateVersion = cv,
         )
-        val attempt = ExecutableOpenGate.recentAllowedAttemptId(mint, "SHITCOIN")
-        assertNotNull("FDG allow must create an immutable execution ticket", attempt)
+        assertNull("FDG state must not create an executable ticket", ExecutableOpenGate.recentAllowedAttemptId(mint, "SHITCOIN"))
         val v = ExecutableOpenGate.canOpenExecutablePosition(
-            mint, "WTCH", 90, "LIVE", "SHITCOIN", "test.watchTicket", attemptId = attempt!!,
+            mint, "WTCH", 90, "LIVE", "SHITCOIN", "test.finalTicket",
             liveLiquidityUsd = 2500.0, liveSafetyTier = "SAFE",
         )
-        assertTrue("pre-signature WATCH must not block tx submission", v.allowed)
+        assertTrue("final EXEC gate should allow and create the one ticket", v.allowed)
+        assertNotNull(ExecutableOpenGate.recentAllowedAttemptId(mint, "SHITCOIN"))
     }
 
     @Test
-    fun live_fdg_ticket_survives_later_candidate_version_rescore() {
+    fun live_one_executable_buy_ticket_per_mint_version() {
         resetAuthorities(paper = false)
         ExecutableOpenGate.resetForTests()
         LaneExecutionCoordinator.resetForTests()
-        val mint = "StaleTicket11111111111111111111111111111"
-        ExecutableOpenGate.recordFdg(mint, "STAL", "MOONSHOT", true, null, signal = "BUY", rugScore = 90, safetyTier = "SAFE", liquidityUsd = 3000.0)
-        val attempt = ExecutableOpenGate.recentAllowedAttemptId(mint, "MOONSHOT")
-        assertNotNull(attempt)
-        // Simulate later lane/fanout churn moving the global candidate version.
-        LaneExecutionCoordinator.canRequestExecution(mint, "SHITCOIN")
-        LaneExecutionCoordinator.releaseIfPrimary(mint, "SHITCOIN", "test_rescore")
-        LaneExecutionCoordinator.canRequestExecution(mint, "QUALITY")
-        val v = ExecutableOpenGate.canOpenExecutablePosition(
-            mint, "STAL", 90, "LIVE", "MOONSHOT", "test.staleTicket", attemptId = attempt!!,
-            liveLiquidityUsd = 3000.0, liveSafetyTier = "SAFE",
+        com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.resetForTest6487()
+        val mint = "SingleTicket1111111111111111111111111111"
+        val cv = LaneExecutionCoordinator.candidateVersionFor(mint)
+        ExecutableOpenGate.recordEntryAuthority6487(
+            mint, cv, com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.gate("MOONSHOT", mint, 1.0),
         )
-        assertTrue("later candidateVersion churn must not invalidate an approved ticket", v.allowed)
+        ExecutableOpenGate.recordFdg(mint, "ONE", "MOONSHOT", true, null, signal = "BUY", rugScore = 90, safetyTier = "SAFE", liquidityUsd = 3000.0, candidateVersion = cv)
+        val first = ExecutableOpenGate.canOpenExecutablePosition(mint, "ONE", 90, "LIVE", "MOONSHOT", "test.one", liveLiquidityUsd = 3000.0, liveSafetyTier = "SAFE")
+        assertTrue(first.allowed)
+        val second = ExecutableOpenGate.canOpenExecutablePosition(mint, "ONE", 90, "LIVE", "SHITCOIN", "test.two", liveLiquidityUsd = 3000.0, liveSafetyTier = "SAFE")
+        assertFalse("alternate lane must not get a second executable BUY ticket", second.allowed)
     }
 
     @Test

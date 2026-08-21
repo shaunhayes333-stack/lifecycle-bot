@@ -237,6 +237,7 @@ class WalletActivity : AppCompatActivity() {
     }
     
     // Handle back button press - just close activity, don't disconnect wallet
+    @android.annotation.SuppressLint("MissingSuperCall")
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         // Just finish the activity - wallet stays connected

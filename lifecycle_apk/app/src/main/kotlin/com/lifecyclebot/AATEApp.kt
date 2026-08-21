@@ -26,12 +26,21 @@ class AATEApp : Application() {
         // V5.9.104: global app context accessor for static utilities
         // (MarketsLiveExecutor, etc.) that need to load BotConfig.
         @Volatile private var _appCtx: android.content.Context? = null
+        private val visibleActivities6487 = java.util.concurrent.atomic.AtomicInteger(0)
         fun appContextOrNull(): android.content.Context? = _appCtx
+        fun isAnyActivityVisible6487(): Boolean = visibleActivities6487.get() > 0
     }
 
     override fun onCreate() {
         super.onCreate()
         _appCtx = applicationContext
+        // V5.0.6487 — this is a per-process prompt latch, not durable consent.
+        // Clearing here lets every fresh process remind the operator until Android
+        // confirms unrestricted battery access; service restarts in this process do not spam.
+        try {
+            getSharedPreferences(BotService.RUNTIME_PREFS, MODE_PRIVATE).edit()
+                .putBoolean("battery_opt_prompted_session", false).apply()
+        } catch (_: Throwable) {}
         
         // Initialize ErrorLogger FIRST - before anything else
         try {
@@ -406,17 +415,16 @@ class AATEApp : Application() {
     private fun installBackgroundRuntimeGuard() {
         try {
             registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
-                private val activeActivities = java.util.concurrent.atomic.AtomicInteger(0)
                 private val bgHandler = android.os.Handler(android.os.Looper.getMainLooper())
                 private val backgroundCheck = Runnable { verifyRuntimeAfterBackground("activity_background") }
 
                 override fun onActivityStarted(activity: android.app.Activity) {
-                    activeActivities.incrementAndGet()
+                    visibleActivities6487.incrementAndGet()
                     bgHandler.removeCallbacks(backgroundCheck)
                 }
 
                 override fun onActivityStopped(activity: android.app.Activity) {
-                    val remaining = activeActivities.decrementAndGet().coerceAtLeast(0)
+                    val remaining = visibleActivities6487.updateAndGet { if (it > 0) it - 1 else 0 }
                     if (remaining == 0) {
                         // Delay one beat so in-app Activity transitions (Main -> Pipeline,
                         // Main -> Journal, etc.) can start the next Activity without being
@@ -444,6 +452,7 @@ class AATEApp : Application() {
             val wasRunning = prefs.getBoolean(BotService.KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
             val manualStop = prefs.getBoolean(BotService.KEY_MANUAL_STOP_REQUESTED, false)
             val runtimeActive = try { BotService.isRuntimeActive() } catch (_: Throwable) { false }
+            val runtimeHealthy = try { BotService.isBackgroundRuntimeHealthy6487() } catch (_: Throwable) { false }
             val intendedToRun = wasRunning || runtimeActive
             if (!intendedToRun || manualStop) return
 
@@ -465,14 +474,15 @@ class AATEApp : Application() {
             try { ServiceWatchdog.schedule(this) } catch (_: Throwable) {}
             try { ServiceWatchdog.scheduleAlarm(this) } catch (_: Throwable) {}
 
-            if (runtimeActive) {
-                ErrorLogger.info("App", "Background guard: runtime active; keepalive renewed ($reason)")
+            if (runtimeActive && runtimeHealthy) {
+                ErrorLogger.info("App", "Background guard: runtime healthy; keepalive renewed ($reason)")
                 return
             }
 
-            ErrorLogger.warn("App", "Background guard: bot intended to run but runtime inactive; re-kicking BotService ($reason)")
+            val recoveryAction = if (runtimeActive) BotService.ACTION_LOOP_HEARTBEAT else BotService.ACTION_START
+            ErrorLogger.warn("App", "Background guard: intended runtime unhealthy; action=$recoveryAction active=$runtimeActive healthy=$runtimeHealthy ($reason)")
             val startIntent = Intent(this, BotService::class.java).apply {
-                action = BotService.ACTION_START
+                action = recoveryAction
                 putExtra(BotService.EXTRA_USER_REQUESTED, false)
             }
             var directOk = false

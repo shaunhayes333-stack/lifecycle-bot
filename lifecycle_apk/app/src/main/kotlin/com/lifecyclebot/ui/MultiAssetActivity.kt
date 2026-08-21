@@ -2767,27 +2767,27 @@ class MultiAssetActivity : AppCompatActivity() {
         builder.setTitle("📒 Markets Trade Journal")
         
         val stats = try {
-        val totalWins = try {
-            com.lifecyclebot.perps.TokenizedStockTrader.getWinningTrades() +
-                com.lifecyclebot.perps.CommoditiesTrader.getWinningTrades() +
-                com.lifecyclebot.perps.MetalsTrader.getWinningTrades() +
-                com.lifecyclebot.perps.ForexTrader.getWinningTrades() +
-                com.lifecyclebot.perps.CryptoAltTrader.getWinCount() +
-                PerpsTraderAI.getLifetimeWins()
-        } catch (_: Exception) { 0 }
-        val totalTrades = try {
-            com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades() +
-                com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades() +
-                com.lifecyclebot.perps.MetalsTrader.getTotalTrades() +
-                com.lifecyclebot.perps.ForexTrader.getTotalTrades() +
-                com.lifecyclebot.perps.CryptoAltTrader.getTotalTrades() +
-                PerpsTraderAI.getLifetimeTrades()
-        } catch (_: Exception) { 0 }
-        val wins = totalWins
-        val losses = (totalTrades - totalWins).coerceAtLeast(0)
-        val trades = totalTrades
-        val pnl = getAllTradersTotalPnlSol()
-        val winRate = if (trades > 0) "%.1f".format(totalWins.toDouble() * 100.0 / trades) else "0.0"
+            val totalWins = try {
+                com.lifecyclebot.perps.TokenizedStockTrader.getWinningTrades() +
+                    com.lifecyclebot.perps.CommoditiesTrader.getWinningTrades() +
+                    com.lifecyclebot.perps.MetalsTrader.getWinningTrades() +
+                    com.lifecyclebot.perps.ForexTrader.getWinningTrades() +
+                    com.lifecyclebot.perps.CryptoAltTrader.getWinCount() +
+                    PerpsTraderAI.getLifetimeWins()
+            } catch (_: Exception) { 0 }
+            val totalTrades = try {
+                com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades() +
+                    com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades() +
+                    com.lifecyclebot.perps.MetalsTrader.getTotalTrades() +
+                    com.lifecyclebot.perps.ForexTrader.getTotalTrades() +
+                    com.lifecyclebot.perps.CryptoAltTrader.getTotalTrades() +
+                    PerpsTraderAI.getLifetimeTrades()
+            } catch (_: Exception) { 0 }
+            val wins = totalWins
+            val losses = (totalTrades - totalWins).coerceAtLeast(0)
+            val trades = totalTrades
+            val pnl = getAllTradersTotalPnlSol()
+            val winRate = if (trades > 0) "%.1f".format(totalWins.toDouble() * 100.0 / trades) else "0.0"
         
             """
             |📊 MARKETS TRADING SUMMARY
@@ -2904,29 +2904,29 @@ class MultiAssetActivity : AppCompatActivity() {
         builder.setTitle("📊 Performance Statistics")
         
         val stats = try {
-        val lifetimeTrades = try {
-            com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades() +
-                com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades() +
-                com.lifecyclebot.perps.MetalsTrader.getTotalTrades() +
-                com.lifecyclebot.perps.ForexTrader.getTotalTrades() +
-                com.lifecyclebot.perps.CryptoAltTrader.getTotalTrades() +
-                PerpsTraderAI.getLifetimeTrades()
-        } catch (_: Exception) { 0 }
-        val lifetimeWins = try {
-            com.lifecyclebot.perps.TokenizedStockTrader.getWinningTrades() +
-                com.lifecyclebot.perps.CommoditiesTrader.getWinningTrades() +
-                com.lifecyclebot.perps.MetalsTrader.getWinningTrades() +
-                com.lifecyclebot.perps.ForexTrader.getWinningTrades() +
-                com.lifecyclebot.perps.CryptoAltTrader.getWinCount() +
-                PerpsTraderAI.getLifetimeWins()
-        } catch (_: Exception) { 0 }
-        val lifetimeWinRate = if (lifetimeTrades > 0) "%.1f".format(lifetimeWins * 100.0 / lifetimeTrades) else "0.0"
-        val dailyPnl = getAllTradersTotalPnlSol()
-        val dailyTrades = try { PerpsTraderAI.getDailyTrades() } catch (_: Exception) { 0 }
-        val dailyWins   = try { PerpsTraderAI.getDailyWins() }   catch (_: Exception) { 0 }
-        val dailyLosses = try { PerpsTraderAI.getDailyLosses() } catch (_: Exception) { 0 }
-        val dailyPnlPct = try { PerpsTraderAI.getDailyPnlPct() } catch (_: Exception) { 0.0 }
-        val readiness   = calculateMarketsReadiness()
+            val lifetimeTrades = try {
+                com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades() +
+                    com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades() +
+                    com.lifecyclebot.perps.MetalsTrader.getTotalTrades() +
+                    com.lifecyclebot.perps.ForexTrader.getTotalTrades() +
+                    com.lifecyclebot.perps.CryptoAltTrader.getTotalTrades() +
+                    PerpsTraderAI.getLifetimeTrades()
+            } catch (_: Exception) { 0 }
+            val lifetimeWins = try {
+                com.lifecyclebot.perps.TokenizedStockTrader.getWinningTrades() +
+                    com.lifecyclebot.perps.CommoditiesTrader.getWinningTrades() +
+                    com.lifecyclebot.perps.MetalsTrader.getWinningTrades() +
+                    com.lifecyclebot.perps.ForexTrader.getWinningTrades() +
+                    com.lifecyclebot.perps.CryptoAltTrader.getWinCount() +
+                    PerpsTraderAI.getLifetimeWins()
+            } catch (_: Exception) { 0 }
+            val lifetimeWinRate = if (lifetimeTrades > 0) "%.1f".format(lifetimeWins * 100.0 / lifetimeTrades) else "0.0"
+            val dailyPnl = getAllTradersTotalPnlSol()
+            val dailyTrades = try { PerpsTraderAI.getDailyTrades() } catch (_: Exception) { 0 }
+            val dailyWins   = try { PerpsTraderAI.getDailyWins() }   catch (_: Exception) { 0 }
+            val dailyLosses = try { PerpsTraderAI.getDailyLosses() } catch (_: Exception) { 0 }
+            val dailyPnlPct = try { PerpsTraderAI.getDailyPnlPct() } catch (_: Exception) { 0.0 }
+            val readiness   = calculateMarketsReadiness()
         
             """
             |🏆 PERFORMANCE METRICS

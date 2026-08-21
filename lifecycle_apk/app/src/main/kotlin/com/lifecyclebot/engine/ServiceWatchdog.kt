@@ -21,6 +21,20 @@ import java.util.concurrent.TimeUnit
  * - Tracks restart count for debugging
  */
 object ServiceWatchdog {
+
+    enum class RecoveryAction6487 { NONE, START_SERVICE, HEARTBEAT_RESCUE }
+
+    internal fun recoveryAction6487(
+        intendedToRun: Boolean,
+        manualStop: Boolean,
+        runtimeActive: Boolean,
+        runtimeHealthy: Boolean,
+    ): RecoveryAction6487 = when {
+        !intendedToRun || manualStop -> RecoveryAction6487.NONE
+        runtimeActive && !runtimeHealthy -> RecoveryAction6487.HEARTBEAT_RESCUE
+        !runtimeActive -> RecoveryAction6487.START_SERVICE
+        else -> RecoveryAction6487.NONE
+    }
     
     private const val WORK_TAG = "service_watchdog"
     private const val PREFS_NAME = "service_watchdog_prefs"
@@ -190,11 +204,14 @@ object ServiceWatchdog {
                     return Result.success()
                 }
                 
-                // Check if service is actually running
-                val isRunning = BotService.status.running
+                // V5.0.6487 — status.running is not health. A live Job plus
+                // service-owned authority and recent phase progress are required.
+                val runtimeActive = BotService.isRuntimeActive()
+                val runtimeHealthy = BotService.isBackgroundRuntimeHealthy6487()
+                val recoveryAction = recoveryAction6487(wasRunning, manualStop, runtimeActive, runtimeHealthy)
                 
-                if (!isRunning) {
-                    ErrorLogger.warn("ServiceWatchdog", "Bot should be running but isn't - RESTARTING")
+                if (recoveryAction != RecoveryAction6487.NONE) {
+                    ErrorLogger.warn("ServiceWatchdog", "Bot runtime recovery action=$recoveryAction active=$runtimeActive healthy=$runtimeHealthy")
                     
                     // Record restart
                     val watchdogPrefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -225,7 +242,8 @@ object ServiceWatchdog {
                     // "immediate FGS start" that is exempted from Android's
                     // background-start restrictions.
                     val intent = Intent(context, BotService::class.java).apply {
-                        action = BotService.ACTION_START
+                        action = if (recoveryAction == RecoveryAction6487.HEARTBEAT_RESCUE)
+                            BotService.ACTION_LOOP_HEARTBEAT else BotService.ACTION_START
                     }
                     
                     var directStartWorked = false
@@ -277,7 +295,7 @@ object ServiceWatchdog {
                         }
                     }
                 } else {
-                    // Service is healthy, record it
+                    // Service is genuinely healthy, record it
                     recordHealthy(context)
                     ErrorLogger.debug("ServiceWatchdog", "Service healthy, recording check")
                 }

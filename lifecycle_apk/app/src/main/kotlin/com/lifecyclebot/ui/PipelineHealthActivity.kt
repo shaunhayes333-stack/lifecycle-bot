@@ -130,11 +130,15 @@ class PipelineHealthActivity : AppCompatActivity() {
             // drops that to ~150-200ms, and selectable=false skips the
             // accessibility/selection overlay layer that fired the
             // 245ms View.onCreateDrawableState hits.
-            try {
+            @android.annotation.SuppressLint("WrongConstant")
+            fun configureDumpTextLayout6487() {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                     dumpText.breakStrategy = android.text.Layout.BREAK_STRATEGY_SIMPLE
                     dumpText.hyphenationFrequency = android.text.Layout.HYPHENATION_FREQUENCY_NONE
                 }
+            }
+            try {
+                configureDumpTextLayout6487()
                 dumpText.setTextIsSelectable(false)
             } catch (_: Throwable) {}
             statLoop      = findViewById(R.id.statLoop)

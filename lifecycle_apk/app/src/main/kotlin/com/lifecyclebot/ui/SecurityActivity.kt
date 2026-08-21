@@ -372,6 +372,7 @@ class SecurityActivity : AppCompatActivity() {
         finish()
     }
 
+    @android.annotation.SuppressLint("MissingSuperCall")
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         // SECURITY: Disable back button - cannot bypass authentication

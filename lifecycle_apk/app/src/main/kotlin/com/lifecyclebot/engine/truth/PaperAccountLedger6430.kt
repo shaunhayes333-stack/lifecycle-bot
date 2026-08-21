@@ -2,6 +2,9 @@ package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
+import android.content.Context
+import android.content.SharedPreferences
+import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -44,6 +47,54 @@ object PaperAccountLedger6430 {
     private val realizedPnlPico = AtomicLong(0L)
     private val feesPico = AtomicLong(0L)
     private val opCount = AtomicLong(0L)
+    @Volatile private var prefs6487: SharedPreferences? = null
+    private const val PREFS_6487 = "paper_account_ledger_6487"
+    private const val STATE_6487 = "canonical_state"
+
+    @Synchronized
+    fun initPersistent6487(context: Context, startingCashSol: Double): Boolean {
+        prefs6487 = context.applicationContext.getSharedPreferences(PREFS_6487, Context.MODE_PRIVATE)
+        val raw = prefs6487?.getString(STATE_6487, null) ?: run {
+            initialize(startingCashSol)
+            return false
+        }
+        return try {
+            val o = JSONObject(raw)
+            val start = o.getString("start").toLong()
+            val cash = o.getString("cash").toLong()
+            val reserved = o.getString("reserved").toLong()
+            val open = o.getString("open").toLong()
+            val realized = o.getString("realized").toLong()
+            val fees = o.getString("fees").toLong()
+            val delta = (start + realized - fees) - (cash + reserved + open)
+            require(cash >= 0L && reserved >= 0L && open >= 0L && fees >= 0L && kotlin.math.abs(delta) <= 1_000_000L)
+            startingCashPico.set(start); cashPico.set(cash); reservedCashPico.set(reserved)
+            openCostBasisPico.set(open); realizedPnlPico.set(realized); feesPico.set(fees)
+            opCount.set(o.optLong("ops", 0L))
+            try { PipelineHealthCollector.labelInc("PAPER_LEDGER_AUTHORITY_RESTORED_6487") } catch (_: Throwable) {}
+            true
+        } catch (t: Throwable) {
+            initialize(startingCashSol)
+            try { ForensicLogger.lifecycle("PAPER_LEDGER_AUTHORITY_RESTORE_REJECTED_6487", "reason=${t.message?.take(100)}") } catch (_: Throwable) {}
+            false
+        }
+    }
+
+    @Synchronized
+    fun persistCurrent6487() {
+        val prefs = prefs6487 ?: return
+        val o = JSONObject()
+            .put("start", startingCashPico.get().toString())
+            .put("cash", cashPico.get().toString())
+            .put("reserved", reservedCashPico.get().toString())
+            .put("open", openCostBasisPico.get().toString())
+            .put("realized", realizedPnlPico.get().toString())
+            .put("fees", feesPico.get().toString())
+            .put("ops", opCount.get())
+        prefs.edit().putString(STATE_6487, o.toString()).apply()
+    }
+
+    fun hasPersistentState6487(): Boolean = prefs6487?.contains(STATE_6487) == true
 
     fun initialize(startingCashSol: Double) {
         val p = toPico(startingCashSol.coerceAtLeast(0.0))
@@ -62,6 +113,7 @@ object PaperAccountLedger6430 {
     }
 
     /** Paper BUY: debit cash, add to open cost basis. Default=no leverage. */
+    @Synchronized
     fun onBuy(costSol: Double, feeSol: Double = 0.0): Boolean {
         if (!costSol.isFinite() || costSol <= 0.0) return false
         val total = costSol + feeSol.coerceAtLeast(0.0)
@@ -76,6 +128,7 @@ object PaperAccountLedger6430 {
         openCostBasisPico.addAndGet(toPico(costSol))
         feesPico.addAndGet(toPico(feeSol.coerceAtLeast(0.0)))
         opCount.incrementAndGet()
+        persistCurrent6487()
         return true
     }
 
@@ -89,6 +142,7 @@ object PaperAccountLedger6430 {
         openCostBasisPico.addAndGet(-toPico(costSol))
         feesPico.addAndGet(-toPico(fee))
         opCount.incrementAndGet()
+        persistCurrent6487()
         try { ForensicLogger.lifecycle("PAPER_BUY_ROLLED_BACK_6485", "cost=$costSol fee=$fee reason=${reason.take(100)}") } catch (_: Throwable) {}
         return true
     }
@@ -98,6 +152,7 @@ object PaperAccountLedger6430 {
         val before = cashSol()
         if (before >= 0.0) return false
         cashPico.set(toPico(displayedCashSol))
+        persistCurrent6487()
         try {
             ForensicLogger.lifecycle("PAPER_LEDGER_CASH_REPAIRED_FROM_DISPLAYED_6448", "source=$source before=${"%.6f".format(before)} after=${"%.6f".format(displayedCashSol)} openCost=${"%.6f".format(openCostBasisSol())}")
             PipelineHealthCollector.labelInc("PAPER_LEDGER_CASH_REPAIRED_FROM_DISPLAYED_6448")
@@ -131,6 +186,7 @@ object PaperAccountLedger6430 {
     /** V5.0.6475 — explicit orphan purge accounting. Never use this as a
      * balance reset; it only releases cost belonging to a position that a
      * canonical quarantine/close path has already proven dead. */
+    @Synchronized
     fun onPositionPurged(costBasisSol: Double, source: String = "unknown"): Boolean {
         if (!costBasisSol.isFinite() || costBasisSol <= 0.0) return false
         val before = openCostBasisSol()
@@ -138,6 +194,7 @@ object PaperAccountLedger6430 {
         if (release <= 0.0) return false
         openCostBasisPico.addAndGet(-toPico(release))
         opCount.incrementAndGet()
+        persistCurrent6487()
         try {
             ForensicLogger.lifecycle("PAPER_ORPHAN_COST_RELEASED_6475", "source=$source released=$release before=$before after=${openCostBasisSol()}")
             PipelineHealthCollector.labelInc("PAPER_ORPHAN_COST_RELEASED_6475")
@@ -169,6 +226,7 @@ object PaperAccountLedger6430 {
         realizedPnlPico.addAndGet(toPico(gross - basis)) // GROSS pnl
         feesPico.addAndGet(toPico(fee))
         opCount.incrementAndGet()
+        persistCurrent6487()
         return true
     }
 
@@ -178,7 +236,8 @@ object PaperAccountLedger6430 {
      * must come from a clean typed EconomicEventSchema replay, never UI,
      * journal summaries, or a synthetic wallet reset.
      */
-    fun replaceFromCanonicalReplay(
+    @Synchronized
+    fun migrateLegacyReplayOnce6487(
         startingCashSol: Double,
         cashSol: Double,
         openCostBasisSol: Double,
@@ -186,6 +245,7 @@ object PaperAccountLedger6430 {
         feesSol: Double,
         source: String,
     ): Boolean {
+        if (hasPersistentState6487()) return false
         val values = listOf(startingCashSol, cashSol, openCostBasisSol, realizedPnlSol, feesSol)
         if (values.any { !it.isFinite() } || cashSol < -1e-9 || openCostBasisSol < -1e-9 || feesSol < -1e-9) return false
         val expected = startingCashSol + realizedPnlSol - feesSol
@@ -203,9 +263,10 @@ object PaperAccountLedger6430 {
             feesPico.set(toPico(feesSol))
             opCount.incrementAndGet()
         }
+        persistCurrent6487()
         try {
-            ForensicLogger.lifecycle("PAPER_CANONICAL_CAPITAL_REPLACED_6475", "source=$source cash=$cashSol openCost=$openCostBasisSol realized=$realizedPnlSol fees=$feesSol")
-            PipelineHealthCollector.labelInc("PAPER_CANONICAL_CAPITAL_REPLACED_6475")
+            ForensicLogger.lifecycle("PAPER_LEDGER_LEGACY_MIGRATED_6487", "source=$source cash=$cashSol openCost=$openCostBasisSol realized=$realizedPnlSol fees=$feesSol")
+            PipelineHealthCollector.labelInc("PAPER_LEDGER_LEGACY_MIGRATED_6487")
         } catch (_: Throwable) {}
         return true
     }

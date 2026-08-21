@@ -1528,7 +1528,11 @@ object MarketsLiveExecutor {
                     ErrorLogger.warn(TAG, "Canonical close quantity unavailable: positionId=$positionId canonical=$canonicalRaw wallet=$walletRaw")
                     return@withContext Pair(false, null)
                 }
-                val units = try { canonicalRaw.longValueExact() } catch (_: Throwable) { return@withContext Pair(false, null) }
+                val units = canonicalRaw.toLong()
+                if (java.math.BigInteger.valueOf(units) != canonicalRaw) {
+                    ErrorLogger.warn(TAG, "Canonical close quantity exceeds supported execution range: positionId=$positionId raw=$canonicalRaw")
+                    return@withContext Pair(false, null)
+                }
                 Pair(targetMint, units)
             } else {
                 // V5.9.310: USDC-parked or no-mint position close.

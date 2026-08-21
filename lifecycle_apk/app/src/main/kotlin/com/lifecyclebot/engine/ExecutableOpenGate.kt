@@ -100,6 +100,31 @@ object ExecutableOpenGate {
     private val openRequests = ConcurrentHashMap<String, Long>()
     private val blockedCooldowns = ConcurrentHashMap<String, Pair<String, Long>>()
     private val restorePenalties = ConcurrentHashMap<String, OpenVerdict>()
+    private val entryAuthority6487 = ConcurrentHashMap<String, com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Decision>()
+    private val executableBuyClaim6487 = ConcurrentHashMap<String, String>()
+
+    private fun authorityKey6487(mint: String, candidateVersion: Long): String =
+        "${BotRuntimeController.currentGeneration()}:${mint.trim()}:$candidateVersion"
+
+    private fun executableClaimKey6487(mode: String, mint: String, candidateVersion: Long): String =
+        "${BotRuntimeController.currentGeneration()}:${mode.uppercase()}:${mint.trim()}:$candidateVersion"
+
+    private fun isShadowReadOnlyLane6487(rawLane: String): Boolean =
+        rawLane.uppercase().trim().replace('-', '_').replace(' ', '_') in setOf("V3_CORE", "STANDARD", "CASHGEN")
+
+    fun recordEntryAuthority6487(
+        mint: String,
+        candidateVersion: Long,
+        decision: com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Decision,
+    ) {
+        entryAuthority6487[authorityKey6487(mint, candidateVersion)] = decision
+        try {
+            ForensicLogger.lifecycle(
+                "PREFDG_ENTRY_AUTHORITY_6487",
+                "mint=${mint.take(10)} version=$candidateVersion verdict=${decision.verdict} recommended=${decision.recommendedSizeSol} reason=${decision.reason}",
+            )
+        } catch (_: Throwable) {}
+    }
 
     fun restorePenaltyForAttempt(attemptId: String): OpenVerdict? = restorePenalties[attemptId]
     fun consumeRestorePenalty(attemptId: String): OpenVerdict? = restorePenalties.remove(attemptId)
@@ -375,6 +400,8 @@ object ExecutableOpenGate {
         executionTickets.clear()
         openRequests.clear()
         blockedCooldowns.clear()
+        entryAuthority6487.clear()
+        executableBuyClaim6487.clear()
     }
 
     private fun cooldownMsFor(log: String, reason: String): Long {
@@ -470,6 +497,24 @@ object ExecutableOpenGate {
         tokenMapProviderAttempts: Int = 0,
     ) {
         val paperRuntime = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        if (isShadowReadOnlyLane6487(lane)) {
+            try {
+                PipelineHealthCollector.labelInc("SHADOW_LANE_FDG_SUPPRESSED_6487_${lane.uppercase()}")
+                ForensicLogger.lifecycle("SHADOW_LANE_FDG_SUPPRESSED_6487", "mint=${mint.take(10)} symbol=$symbol lane=${lane.uppercase()} version=$candidateVersion action=score_report_learn_only")
+            } catch (_: Throwable) {}
+            return
+        }
+        val preEntry6487 = entryAuthority6487[authorityKey6487(mint, candidateVersion)]
+        if (preEntry6487 != null && preEntry6487.verdict !in setOf(
+                com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW,
+                com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW_PROBE,
+            )) {
+            try {
+                PipelineHealthCollector.labelInc("FDG_SUPPRESSED_ENTRY_AUTHORITY_6487")
+                ForensicLogger.lifecycle("FDG_SUPPRESSED_ENTRY_AUTHORITY_6487", "mint=${mint.take(10)} symbol=$symbol lane=${lane.uppercase()} version=$candidateVersion verdict=${preEntry6487.verdict} reason=${preEntry6487.reason}")
+            } catch (_: Throwable) {}
+            return
+        }
         val tokenRouteUpper = tokenMapRouteStatus.uppercase()
         val tokenMapExecutable = tokenRouteUpper == "PUMPFUN_BONDING_CURVE_EXECUTABLE" || tokenRouteUpper == "DEX_ROUTABLE"
         val tokenMapNoRoute = tokenRouteUpper in setOf("NO_ROUTE", "TRUE_ZERO_LIQUIDITY")
@@ -544,38 +589,8 @@ object ExecutableOpenGate {
                 updatedAtMs = System.currentTimeMillis(),
             )
         }
-        try {
-            // V5.0.3917 — immutable execution ticket published at FDG-allow time.
-            // The RuntimePipelineGatesTest pair `live_fdg_allow_watch_before_signature_
-            // proceeds_with_execution_ticket` and `live_fdg_ticket_survives_later_
-            // candidate_version_rescore` assert that as soon as FDG approves with
-            // canExecute=true and no hard-no, an executable ticket exists in
-            // allowedAttempts so a later LaneExecutionCoordinator version churn can
-            // not invalidate the approval. The previous wiring only published the
-            // ticket inside canOpenExecutablePosition, leaving recentAllowedAttemptId
-            // null between FDG approval and the executor call — breaking both tests
-            // and (per the operator dump 06-19) producing FINALITY_BLOCK:STALE_
-            // CANDIDATE_VERSION_xxx spam on live BUYs while no ticket lived.
-            val executableFdgEarly = canExecute && finalHardNo.isEmpty() &&
-                (finalVerdict == "BUY" || finalVerdict == "PROBE_ONLY")
-            if (executableFdgEarly) {
-                val ticket = ExecutionTicket(
-                    attemptId = nextAttemptId(mint, lane),
-                    mint = mint,
-                    symbol = symbol,
-                    lane = lane.uppercase(),
-                    mode = if (paperRuntime) "PAPER" else "LIVE",
-                    candidateVersion = candidateVersion,
-                    fdgReason = reason,
-                    signal = signal.ifBlank { "BUY" },
-                    safetyTier = safetyTier,
-                    liquidityUsd = liquidityUsd,
-                    rugScore = rugScore,
-                    hardNoReasons = finalHardNo,
-                )
-                publishTicket(ticket)
-            }
-        } catch (_: Throwable) {}
+        // V5.0.6487 — FDG records state only. Execution tickets are created
+        // atomically at final EXEC_GATE allow after lane election and entry authority.
         try {
             val hard = finalHardNo.joinToString(prefix = "[", postfix = "]")
             val msg = "symbol=$symbol lane=${lane.uppercase()} preFdg=$finalVerdict hardNo=$hard safety=$safetyTier rug=$rugScore liq=${liquidityUsd.toInt()} duplicate=false circuit=${ToxicModeCircuitBreaker.currentEntryPause().active} sellPressure=${reason ?: "OK"} version=$candidateVersion"
@@ -1318,7 +1333,35 @@ object ExecutableOpenGate {
         if ((signal.equals("WAIT", ignoreCase = true) || fdgReason.contains("WAIT", ignoreCase = true)) && fdgCan != true) {
             return blocked("EXEC_OPEN_BLOCKED_SIGNAL_WAIT", signal.ifBlank { fdgReason }, shadow = mode == "PAPER")
         }
+        val effectiveEntryDecision6487 = entryAuthority6487[authorityKey6487(mint, candidateVersion)] ?: try {
+            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.gate(lane, mint, 1.0).also {
+                entryAuthority6487[authorityKey6487(mint, candidateVersion)] = it
+            }
+        } catch (_: Throwable) {
+            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Decision(
+                com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.DENY_LOSING_STREAK, 0.0, "gate_error_fail_closed_6487",
+            )
+        }
+        if (effectiveEntryDecision6487.verdict !in setOf(
+                com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW,
+                com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW_PROBE,
+            )) {
+            try { PipelineHealthCollector.labelInc("EXEC_GATE_BLOCKED_ENTRY_AUTHORITY_6487") } catch (_: Throwable) {}
+            return blocked("EXEC_OPEN_BLOCKED_ENTRY_AUTHORITY_6487", effectiveEntryDecision6487.reason, shadow = true)
+        }
+        if (isShadowReadOnlyLane6487(lane)) {
+            return blocked("EXEC_OPEN_BLOCKED_SHADOW_LANE_6487", "${lane.uppercase()}_READ_ONLY", shadow = true)
+        }
         val execKey = attemptId.ifBlank { canonicalExecutionKey(mint, mode = mode, side = "BUY", lane = lane) }
+        val claimKey6487 = executableClaimKey6487(modeUpper, mint, candidateVersion)
+        val priorClaim6487 = executableBuyClaim6487.putIfAbsent(claimKey6487, execKey)
+        if (priorClaim6487 != null && priorClaim6487 != execKey) {
+            try {
+                PipelineHealthCollector.labelInc("EXEC_BUY_MINT_VERSION_DUPLICATE_SUPPRESSED_6487")
+                ForensicLogger.lifecycle("EXEC_BUY_MINT_VERSION_DUPLICATE_SUPPRESSED_6487", "mint=${mint.take(10)} symbol=$symbol lane=$lane version=$candidateVersion winner=$priorClaim6487 loser=$execKey")
+            } catch (_: Throwable) {}
+            return blocked("EXEC_OPEN_DEDUP_MINT_VERSION_6487", "ONE_EXECUTABLE_BUY_PER_MINT_VERSION", shadow = true)
+        }
         val now = System.currentTimeMillis()
         openRequests.entries.removeIf { now - it.value > ALLOWED_ATTEMPT_TTL_MS }
         val laneAttemptKey = laneKey(mint, lane)

@@ -134,8 +134,8 @@ class CanonicalCorrectnessAcceptanceTest6464 {
         val e = events.first() as EconomicEventSchema6464.Sell
         assertEquals(0.10, e.allocatedCostBasisSol, 1e-9)      // 0.20 * 50/100
         assertEquals(0.145, e.netProceedsSol, 1e-9)             // gross - fee
-        assertEquals(0.045, e.realizedPnlSol, 1e-9)             // net - allocated
-        assertEquals(45.0, e.realizedReturnPct, 1e-6)           // realized / allocated * 100
+        assertEquals(0.05, e.realizedPnlSol, 1e-9)              // gross - allocated; fee separate
+        assertEquals(50.0, e.realizedReturnPct, 1e-6)            // gross realized / allocated * 100
         assertEquals(BigInteger.valueOf(50L), e.remainingQty)
         assertEquals(0.10, e.remainingCostBasisSol, 1e-9)
     }

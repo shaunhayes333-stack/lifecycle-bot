@@ -150,7 +150,9 @@ object EconomicEventSchema6464 {
             val proportion = soldQty.toDouble() / preRemainingQty.toDouble()
             (preRemainingCostBasisSol * proportion.coerceIn(0.0, 1.0))
         } else 0.0
-        val realized = net - allocatedCost
+        // V5.0.6487 — authoritative paper realized is GROSS PnL; fees remain
+        // a separate canonical field. Net proceeds are still retained explicitly.
+        val realized = gross - allocatedCost
         val ret = if (allocatedCost > 0.0) realized / allocatedCost * 100.0 else 0.0
         val remainingQ = (preRemainingQty - soldQty).coerceAtLeast(java.math.BigInteger.ZERO)
         val remainingCost = (preRemainingCostBasisSol - allocatedCost).coerceAtLeast(0.0)
@@ -173,8 +175,9 @@ object EconomicEventSchema6464 {
         try {
             PipelineHealthCollector.labelInc(if (partial) "ECONOMIC_EVENT_PARTIAL_SELL_6464" else "ECONOMIC_EVENT_SELL_6464")
         } catch (_: Throwable) {}
-        // Arithmetic self-audit — realized == net - allocatedCost by construction; log any drift.
-        val expected = net - allocatedCost
+        // Arithmetic self-audit — canonical realized is gross minus allocated cost;
+        // consumers wanting net PnL subtract exitFeesSol exactly once.
+        val expected = gross - allocatedCost
         if (kotlin.math.abs(expected - realized) > 1e-6) {
             arithDivergences.incrementAndGet()
             try {

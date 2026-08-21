@@ -40,8 +40,9 @@ object ExecutableEntryAuthority6450 {
     data class Decision(val verdict: Verdict, val recommendedSizeSol: Double, val reason: String)
 
     private const val PROBE_SIZE_SOL = 0.01
-    private const val STREAK_HARD_LIMIT = 8
-    private const val STREAK_PROBE_LIMIT = 5
+    private const val STREAK_HARD_LIMIT = 3
+    private const val STREAK_TIGHTEN_ONE = 1
+    private const val STREAK_TIGHTEN_TWO = 2
     private const val DAILY_LOSS_CAP_SOL = 1.5
 
     private val consecutiveLosses = AtomicLong(0L)
@@ -94,16 +95,41 @@ object ExecutableEntryAuthority6450 {
                 try { PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_DENIED_COOLDOWN_6450") } catch (_: Throwable) {}
                 Decision(Verdict.DENY_COOLDOWN, 0.0, "cooldownMs=$cooldownRemainingMs")
             }
-            cl >= STREAK_PROBE_LIMIT -> {
-                probes.incrementAndGet()
-                try { PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_PROBE_6450") } catch (_: Throwable) {}
-                Decision(Verdict.ALLOW_PROBE, PROBE_SIZE_SOL, "probe streak=$cl")
+            cl >= STREAK_TIGHTEN_TWO -> {
+                allows.incrementAndGet()
+                val tightened = requestedSizeSol * 0.35
+                try { PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_DEFENSIVE_TIGHTEN_6487_L2") } catch (_: Throwable) {}
+                Decision(Verdict.ALLOW, tightened, "defensive streak=$cl scoreFloorDelta=15 sizeMult=0.35")
+            }
+            cl >= STREAK_TIGHTEN_ONE -> {
+                allows.incrementAndGet()
+                val tightened = requestedSizeSol * 0.65
+                try { PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_DEFENSIVE_TIGHTEN_6487_L1") } catch (_: Throwable) {}
+                Decision(Verdict.ALLOW, tightened, "defensive streak=$cl scoreFloorDelta=8 sizeMult=0.65")
             }
             else -> {
                 allows.incrementAndGet()
-                Decision(Verdict.ALLOW, requestedSizeSol, "ok")
+                Decision(Verdict.ALLOW, requestedSizeSol, "ok scoreFloorDelta=0 sizeMult=1.00")
             }
         }
+    }
+
+    fun consecutiveLossesNow6487(): Long = consecutiveLosses.get()
+
+    fun defensiveActive6487(): Boolean = consecutiveLosses.get() > 0L
+
+    fun scoreFloorDelta6487(): Int = when {
+        consecutiveLosses.get() >= STREAK_HARD_LIMIT -> 100
+        consecutiveLosses.get() >= STREAK_TIGHTEN_TWO -> 15
+        consecutiveLosses.get() >= STREAK_TIGHTEN_ONE -> 8
+        else -> 0
+    }
+
+    fun sizeMultiplier6487(): Double = when {
+        consecutiveLosses.get() >= STREAK_HARD_LIMIT -> 0.0
+        consecutiveLosses.get() >= STREAK_TIGHTEN_TWO -> 0.35
+        consecutiveLosses.get() >= STREAK_TIGHTEN_ONE -> 0.65
+        else -> 1.0
     }
 
     /** Called if any caller bypasses the gate (should be zero). */
@@ -120,4 +146,14 @@ object ExecutableEntryAuthority6450 {
 
     fun statusLine(): String = "streak=${consecutiveLosses.get()} gates=${gates.get()} " +
         "allows=${allows.get()} probes=${probes.get()} denies=${denies.get()} bypass=${bypassAttempts.get()}"
+
+    internal fun resetForTest6487() {
+        consecutiveLosses.set(0L); cohortLastLossMs.clear(); cohortCooldownMs.clear()
+        gates.set(0L); allows.set(0L); probes.set(0L); denies.set(0L); bypassAttempts.set(0L)
+    }
+
+    internal fun recordLossForTest6487(count: Int, lane: String = "TEST") {
+        repeat(count.coerceAtLeast(0)) { consecutiveLosses.incrementAndGet() }
+        cohortLastLossMs.remove(lane); cohortCooldownMs.remove(lane)
+    }
 }

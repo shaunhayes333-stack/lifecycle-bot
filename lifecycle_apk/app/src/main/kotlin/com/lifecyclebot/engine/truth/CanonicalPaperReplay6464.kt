@@ -101,11 +101,14 @@ object CanonicalPaperReplay6464 {
                 is EconomicEventSchema6464.Sell -> {
                     if (!e.netProceedsSol.isFinite() || !e.allocatedCostBasisSol.isFinite() ||
                         e.soldQty <= BigInteger.ZERO) { invalid++; continue }
-                    // Fi4FaM firewall: realized magnitudes > 30 SOL indicate corruption.
-                    if (kotlin.math.abs(e.realizedPnlSol) > 30.0) { invalid++; continue }
+                    // V5.0.6487 — derive canonical GROSS realized from typed fields.
+                    // 6486 rows stored net realized, so trusting the aggregate would
+                    // import exit fees twice and reproduce the wallet/ledger delta.
+                    val canonicalGrossRealized6487 = e.grossProceedsSol - e.allocatedCostBasisSol
+                    if (kotlin.math.abs(canonicalGrossRealized6487) > 30.0) { invalid++; continue }
                     cash += e.netProceedsSol
                     openCost = (openCost - e.allocatedCostBasisSol).coerceAtLeast(0.0)
-                    realized += e.realizedPnlSol
+                    realized += canonicalGrossRealized6487
                     fees += e.exitFeesSol
                     perMintQty.merge(e.mint, e.soldQty.negate()) { a, b -> (a + b).coerceAtLeast(BigInteger.ZERO) }
                     perMintCost.merge(e.mint, -e.allocatedCostBasisSol) { a, b -> (a + b).coerceAtLeast(0.0) }
@@ -142,36 +145,19 @@ object CanonicalPaperReplay6464 {
     }
 
     /** V5.0.6486 — startup restore from already-deduplicated durable typed events. */
-    fun restoreLedgerFromDurable6486(startingCashSol: Double): Boolean {
+    fun migrateLegacyLedgerOnce6487(startingCashSol: Double): Boolean {
         val snap = replay(startingCashSol)
         if (snap.invalidRowsQuarantined != 0 || snap.orphanLotCount != 0) {
             try { PipelineHealthCollector.labelInc("PAPER_DURABLE_RESTORE_HELD_DIRTY_6486") } catch (_: Throwable) {}
             return false
         }
-        val applied = PaperAccountLedger6430.replaceFromCanonicalReplay(
+        val applied = PaperAccountLedger6430.migrateLegacyReplayOnce6487(
             startingCashSol = snap.startingCashSol, cashSol = snap.cashSol,
             openCostBasisSol = snap.openCostBasisSol, realizedPnlSol = snap.realizedPnlSol,
-            feesSol = snap.feesSol, source = "DURABLE_STARTUP_6486",
+            feesSol = snap.feesSol, source = "DURABLE_STARTUP_MIGRATION_6487",
         )
-        if (applied) CanonicalPositionAuthority6441.setPaperCash(snap.cashSol, "DURABLE_STARTUP_6486")
+        if (applied) CanonicalPositionAuthority6441.setPaperCash(snap.cashSol, "DURABLE_STARTUP_MIGRATION_6487")
         return applied
-    }
-
-    fun repairLedgerIfClean(startingCashSol: Double, toleranceSol: Double = 0.01): Boolean {
-        val snap = replay(startingCashSol)
-        val expected = snap.startingCashSol + snap.realizedPnlSol - snap.feesSol
-        val actual = snap.cashSol + snap.openCostBasisSol
-        val clean = snap.invalidRowsQuarantined == 0 && snap.orphanLotCount == 0 &&
-            kotlin.math.abs(expected - actual) <= toleranceSol
-        if (!clean) {
-            try { PipelineHealthCollector.labelInc("PAPER_REPLAY_REPAIR_HELD_DIRTY_6475") } catch (_: Throwable) {}
-            return false
-        }
-        return PaperAccountLedger6430.replaceFromCanonicalReplay(
-            startingCashSol = snap.startingCashSol, cashSol = snap.cashSol,
-            openCostBasisSol = snap.openCostBasisSol, realizedPnlSol = snap.realizedPnlSol,
-            feesSol = snap.feesSol, source = "CanonicalPaperReplay6464.repairLedgerIfClean",
-        )
     }
 
     fun compareToLedger(startingCashSol: Double, toleranceSol: Double = 0.01): Parity {

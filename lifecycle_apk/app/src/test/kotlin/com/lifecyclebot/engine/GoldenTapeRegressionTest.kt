@@ -3823,7 +3823,7 @@ class GoldenTapeRegressionTest {
         val pre = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
-        assertTrue("FDG allow must create immutable execution tickets", gate.contains("data class ExecutionTicket") && gate.contains("EXEC_TICKET_CREATED") && gate.contains("allowedAttempts[laneKey(ticket.mint, ticket.lane)]"))
+        assertTrue("Final executable gate must create immutable execution tickets", gate.contains("data class ExecutionTicket") && gate.contains("EXEC_TICKET_CREATED") && gate.contains("allowedAttempts[laneKey(ticket.mint, ticket.lane)]") && gate.contains("FDG records state only"))
         assertTrue("ticket restore must bypass mutable WATCH/version/lane churn", gate.contains("EXEC_TICKET_RESTORED_IMMUTABLE") && gate.contains("immutableTicket == null && !selectedLaneMatchesRequest") && gate.contains("""safetyTier.equals("UNKNOWN", true) && immutableTicket == null"""))
         assertTrue("stale/finality failures need separate counters", exec.contains("BUY_FAILED_FINALITY") && exec.contains("BUY_FAILED_STALE_TICKET") && exec.contains("BUY_FAILED_ROUTE") && exec.contains("BUY_FAILED_SAFETY"))
         assertTrue("executor phase counters must represent actual tx progress", listOf("EXEC_SELECTED", "EXEC_TICKET_CREATED", "QUOTE_REQUESTED", "QUOTE_OK", "SWAP_BUILT", "TX_SIGNED", "TX_SUBMITTED", "TX_CONFIRMED", "BUY_JOURNALED").all { (gate + exec).contains(it) })
@@ -6598,7 +6598,7 @@ class GoldenTapeRegressionTest {
         val regime = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RegimeDetector.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.4528: DUMP regime must be recovery-sized, not blanket 0.10 dust", regime.contains("Regime.DUMP         -> +10") && regime.contains("Regime.DUMP         -> 0.35") && regime.contains("not live dust tuition"))
+        assertTrue("V5.0.4528/6487: DUMP remains recovery-sized and composes stricter streak response", regime.contains("Regime.DUMP         -> +10") && regime.contains("Regime.DUMP         -> 0.35") && regime.contains("return maxOf(regimeDelta, streakDelta)") && regime.contains("return minOf(regimeMult, streakMult)"))
         assertTrue("V5.0.4528: DUMP live lane caps must use recovery-size shaping instead of 0.10 micro caps", exec.contains("V5.0.4528 — DUMP regime should pivot/reduce") && exec.contains("dumpRegimeLive && laneTag.contains(" + "\"SHITCOIN\"" + ") -> 0.35") && exec.contains("dumpRegimeLive && laneTag.contains(" + "\"EXPRESS\"" + ") -> 0.35"))
         assertTrue("V5.0.4568: DUMP live relative floor must be executable defensive-pivot size, not dust tuition", exec.contains("dumpRegimeLive -> 0.35") && exec.contains("executable defensive-pivot floor"))
         assertTrue("V5.0.4528: high-conviction liquid setups may still size up in DUMP under stricter score/liquidity", exec.contains("score >= 82.0 && ts.lastLiquidityUsd >= 25_000.0"))
@@ -7520,13 +7520,18 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun V5_0_6475_replay_is_the_only_capital_repair_authority() {
+    fun V5_0_6487_ledger_is_the_only_capital_authority_and_replay_is_diagnostic() {
         val replay = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperReplay6464.kt").readText()
         val ledger = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PaperAccountLedger6430.kt").readText()
         val capital = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalCapitalAuthority6450.kt").readText()
-        assertTrue("V5.0.6475: replay must expose orphan cost and required quarantine label", replay.contains("orphanOpenCostSol") && replay.contains("OPEN_COST_WITHOUT_CANONICAL_LOT_6475") && replay.contains("repairLedgerIfClean"))
-        assertTrue("V5.0.6475: capital replacement must validate conservation before atomic replacement", ledger.contains("replaceFromCanonicalReplay") && ledger.contains("PAPER_REPLAY_REPAIR_REJECTED_6475") && ledger.contains("synchronized(this)"))
-        assertTrue("V5.0.6475: capital snapshot must consume typed replay", capital.contains("CanonicalPaperReplay6464.lastSnapshot()") && capital.contains("replay?.openCostBasisSol"))
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.6487: replay remains a parity/orphan diagnostic", replay.contains("orphanOpenCostSol") && replay.contains("OPEN_COST_WITHOUT_CANONICAL_LOT_6475") && replay.contains("compareToLedger"))
+        assertTrue("V5.0.6487: replay derives gross realized from typed fields instead of stale net aggregate", replay.contains("canonicalGrossRealized6487") && replay.contains("e.grossProceedsSol - e.allocatedCostBasisSol"))
+        assertFalse("V5.0.6487: replay cannot periodically overwrite authoritative ledger", replay.contains("repairLedgerIfClean") || ledger.contains("replaceFromCanonicalReplay"))
+        assertTrue("V5.0.6487: only one-time legacy migration may seed missing durable ledger", replay.contains("migrateLegacyLedgerOnce6487") && ledger.contains("initPersistent6487") && ledger.contains("persistCurrent6487"))
+        assertTrue("V5.0.6487: capital snapshot reads ledger cash/open/realized/fees directly", capital.contains("PaperAccountLedger6430.cashSol()") && capital.contains("PaperAccountLedger6430.openCostBasisSol()") && capital.contains("PaperAccountLedger6430.realizedPnlSol()") && capital.contains("PaperAccountLedger6430.feesSol()"))
+        assertFalse("V5.0.6487: capital snapshot cannot prefer replay totals", capital.contains("CanonicalPaperReplay6464.lastSnapshot()") || capital.contains("replay?.openCostBasisSol"))
+        assertTrue("V5.0.6487: wallet surfaces are synchronized from ledger authority", bot.contains("syncPaperCapitalAuthority6448") && bot.contains("PaperWalletStore.persist(applicationContext, ledgerCash)"))
     }
 
     @Test
@@ -7758,6 +7763,111 @@ class GoldenTapeRegressionTest {
         assertTrue("6486 money path distinguishes open cost and unrealized PnL",
             reporting.contains("""trustedLiveOpenCost""") && reporting.contains("""untrustedLiveOpenCost""") &&
                 reporting.contains("""trustedLiveUnrealizedPnl""") && reporting.contains("""open_unrealized_not_wallet_until_sell_finality"""))
+    }
+
+
+    @Test
+    fun V5_0_6487_single_route_pre_fdg_defence_and_no_funded_wait_probe() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val entry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt").readText()
+        val regime = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RegimeDetector.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val event = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/EconomicEventSchema6464.kt").readText()
+
+        assertTrue("6487 entry authority is recorded before executable lane work",
+            bot.indexOf("recordEntryAuthority6487") >= 0 && bot.indexOf("recordEntryAuthority6487") < bot.indexOf("FinalDecisionGate.evaluate("))
+        assertTrue("6487 named shadow lanes cannot create FDG tickets or executable opens",
+            gate.contains("isShadowReadOnlyLane6487") && gate.contains("V3_CORE") && gate.contains("STANDARD") && gate.contains("CASHGEN") &&
+                gate.contains("SHADOW_LANE_FDG_SUPPRESSED_6487") && gate.contains("EXEC_OPEN_BLOCKED_SHADOW_LANE_6487"))
+        assertTrue("6487 one mint/version has one executable BUY claim",
+            gate.contains("executableBuyClaim6487.putIfAbsent") && gate.contains("ONE_EXECUTABLE_BUY_PER_MINT_VERSION") && gate.contains("EXEC_BUY_MINT_VERSION_DUPLICATE_SUPPRESSED_6487"))
+        assertFalse("6487 FDG recording cannot publish early tickets",
+            gate.substring(gate.indexOf("fun recordFdg"), gate.indexOf("fun clearExecutableApproval")).contains("publishTicket("))
+        assertTrue("6487 streak denial suppresses FDG tickets and final EXEC gate",
+            gate.contains("FDG_SUPPRESSED_ENTRY_AUTHORITY_6487") && gate.contains("EXEC_GATE_BLOCKED_ENTRY_AUTHORITY_6487"))
+        assertTrue("6487 defensive WAIT and zero-signal probes remain shadow-only",
+            bot.contains("DEFENSIVE_WAIT_PROBE_SUPPRESSED_6487") && bot.contains("DEFENSIVE_WAIT_SHADOW_ONLY_6487") &&
+                bot.contains("signal = " + '"' + "WAIT" + '"') && bot.contains("shouldTrade = false"))
+        assertTrue("6487 loss thresholds tighten at one/two and deny at three",
+            entry.contains("STREAK_HARD_LIMIT = 3") && entry.contains("consecutiveLosses.get() >= STREAK_TIGHTEN_ONE -> 8") &&
+                entry.contains("consecutiveLosses.get() >= STREAK_TIGHTEN_TWO -> 15") &&
+                entry.contains("consecutiveLosses.get() >= STREAK_TIGHTEN_ONE -> 0.65") &&
+                entry.contains("consecutiveLosses.get() >= STREAK_TIGHTEN_TWO -> 0.35"))
+        assertTrue("6487 regime and both paper/live executors consume defensive sizing",
+            regime.contains("scoreFloorDelta6487") && regime.contains("sizeMultiplier6487") &&
+                executor.contains("gateVerdict6451.recommendedSizeSol") && executor.contains("entryAuthoritySol6487"))
+        assertTrue("6487 economic event realized matches gross-ledger convention with fees separate",
+            event.contains("val realized = gross - allocatedCost") && event.contains("netProceedsSol = net") && event.contains("exitFeesSol = fees"))
+    }
+
+
+    @Test
+    fun V5_0_6487_background_runtime_is_service_owned_progress_backed_and_doze_recoverable() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val app = java.io.File("src/main/kotlin/com/lifecyclebot/AATEApp.kt").readText()
+        val watchdog = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ServiceWatchdog.kt").readText()
+        val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/BackgroundTradingAuthority6469.kt").readText()
+        val manifest = java.io.File("src/main/AndroidManifest.xml").readText()
+
+        assertTrue("6487 service launch, rescue, stop and destroy own background runtime authority",
+            bot.contains("BotService.startBot.launch6487") && bot.contains("BotService.rescueRelaunch6487") &&
+                bot.contains("BotService.stopBot.$" + "source.6487") && bot.contains("BotService.onDestroy6487") &&
+                bot.contains("registerRuntimeJob"))
+        assertTrue("6487 background health requires live loop, service authority and fresh progress",
+            bot.contains("data class BackgroundRuntimeHealth6487") && bot.contains("loopActive && foregroundActive && authorityActive") &&
+                bot.contains("progressAge <= 120_000L") && bot.contains("isBackgroundRuntimeHealthy6487"))
+        assertTrue("6487 watchdog routes stale active runtime to heartbeat rescue rather than no-op START",
+            watchdog.contains("HEARTBEAT_RESCUE") && watchdog.contains("BotService.isBackgroundRuntimeHealthy6487()") &&
+                watchdog.contains("BotService.ACTION_LOOP_HEARTBEAT") && !watchdog.contains("val isRunning = BotService.status.running"))
+        assertTrue("6487 Activity background guard uses health but cannot mutate runtime authority",
+            app.contains("isAnyActivityVisible6487") && app.contains("BotService.isBackgroundRuntimeHealthy6487()") &&
+                app.contains("recoveryAction = if (runtimeActive) BotService.ACTION_LOOP_HEARTBEAT") &&
+                !app.contains("BackgroundTradingAuthority6469.setRuntimeActive"))
+        assertTrue("6487 foreground proof is event-local, not hardcoded telemetry",
+            bot.contains("serviceForegroundActive6487 = true") && bot.contains("serviceForegroundActive6487 = false") &&
+                bot.contains("isServiceForeground = serviceForegroundActive6487") && !bot.contains("isServiceForeground = true"))
+        assertTrue("6487 heartbeat reasserts foreground, wake and network guards independent of UI",
+            bot.contains("ensureAlwaysOnRuntimeGuards6031(" + '"' + "loop_heartbeat_6487" + '"' + ")") &&
+                bot.contains("BackgroundTradingAuthority6469.onScreenOffTick()") &&
+                bot.contains("BackgroundTradingAuthority6469.onUiAbsentTick()"))
+        assertTrue("6487 stale heartbeat cannot revive a confirmed manual stop",
+            bot.indexOf("isManualStopRequested(applicationContext)", bot.indexOf("ACTION_LOOP_HEARTBEAT ->")) in
+                (bot.indexOf("ACTION_LOOP_HEARTBEAT ->") + 1) until bot.indexOf("ensureAlwaysOnRuntimeGuards6031(" + '"' + "loop_heartbeat_6487" + '"' + ")"))
+        assertTrue("6487 battery prompt latch resets once per process until exemption is granted",
+            app.contains("battery_opt_prompted_session") && app.contains("per-process prompt latch"))
+        assertTrue("6487 Android 14 special-use foreground service declares its subtype",
+            manifest.contains("FOREGROUND_SERVICE_SPECIAL_USE") && manifest.contains("PROPERTY_SPECIAL_USE_FGS_SUBTYPE") &&
+                manifest.contains("foregroundServiceType=" + '"' + "dataSync|specialUse" + '"'))
+        assertTrue("6469 UI caller rejection remains hard and service authority remains separate",
+            authority.contains("UI_LIFECYCLE_RUNTIME_MUTATION_REJECTED") && authority.contains("uiCallerBlacklist"))
+    }
+
+
+    @Test
+    fun V5_0_6487_lint_release_errors_are_closed_without_fake_execution_finality() {
+        val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/UniversalBridgeEngine.kt").readText()
+        val markets = java.io.File("src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val pipeline = java.io.File("src/main/kotlin/com/lifecyclebot/ui/PipelineHealthActivity.kt").readText()
+        val manifest = java.io.File("src/main/AndroidManifest.xml").readText()
+        assertTrue("V5.0.6487: bridge exact raw conversion must support API 26 and reject overflow rather than fabricating Long.MAX_VALUE/zero",
+            bridge.contains("toLongExactCompat6487") &&
+                bridge.contains("RAW_QUANTITY_OVERFLOW_REJECTED_6487") &&
+                !bridge.contains("." + "longValueExact()") &&
+                !bridge.contains("catch (_: Throwable) { Long.MAX_VALUE }"))
+        assertTrue("V5.0.6487: Markets close must reject canonical quantities not representable by its Long execution API",
+            markets.contains("BigInteger.valueOf(units) != canonicalRaw") &&
+                markets.contains("Canonical close quantity exceeds supported execution range"))
+        val lockStart = executor.indexOf("if (!com.lifecyclebot.engine.sell.SellExecutionLocks.tryAcquire(ts.mint))")
+        val guardedLog = executor.indexOf("if (com.lifecyclebot.engine.sell.SellSpamGuard.shouldLogBlocked(ts.mint, reason)) {", lockStart)
+        val returnAfterLog = executor.indexOf("return", guardedLog)
+        assertTrue("V5.0.6487: blocked-sell forensic logging must be explicitly scoped and return without executing a sell",
+            lockStart >= 0 && guardedLog > lockStart && returnAfterLog > guardedLog)
+        assertTrue("V5.0.6487: pipeline text optimization keeps the supported legacy constant under an explicit lint contract",
+            pipeline.contains("configureDumpTextLayout6487") && pipeline.contains("SuppressLint(\"WrongConstant\")"))
+        assertTrue("V5.0.6487: Android 14 special-use foreground service metadata remains declared",
+            manifest.contains("PROPERTY_SPECIAL_USE_FGS_SUBTYPE"))
     }
 
 }
