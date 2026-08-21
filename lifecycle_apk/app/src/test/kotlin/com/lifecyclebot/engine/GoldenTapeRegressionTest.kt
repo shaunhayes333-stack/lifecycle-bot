@@ -7687,4 +7687,15 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6483: manipulated safety overlay remains a strong soft penalty", safety.contains("MANIPULATED_ONLY_OVERLAY_4553") && safety.contains("penalty += 55"))
     }
 
+
+    @Test
+    fun V5_0_6484_live_lane_governor_cannot_resurrect_post_fdg_hard_pause() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val governor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveLaneGovernor.kt").readText()
+        assertTrue("V5.0.6484: executor still feeds lane evidence into governor", exec.contains("LiveLaneGovernor.preBuyBleederPauseWithSetupAndMint"))
+        assertFalse("V5.0.6484: learned lane governor must not abort after FDG", exec.contains("LIVE_LANE_HARD_PAUSED_6247"))
+        assertTrue("V5.0.6484: governor source must remain soft and non-disabling", governor.contains("LIVE_LANE_HARD_PAUSE_DEMOTED_TO_SOFT_6331") && governor.contains("return false to"))
+        assertTrue("V5.0.6484: true hard-rug advisor authority remains intact", exec.contains("RUG_PREFILTER_HARD_FAIL") && exec.contains("HardRugPreFilter.FilterSeverity.HARD_FAIL"))
+    }
+
 }

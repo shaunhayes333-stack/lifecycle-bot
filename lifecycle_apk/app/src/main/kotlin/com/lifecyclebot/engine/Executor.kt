@@ -14723,17 +14723,14 @@ class Executor(
         // credit bypass wins toward auto-unpausing the whole lane.
         try {
             val ec = try { com.lifecyclebot.engine.EntryContextRegistry.peek(ts.mint) } catch (_: Throwable) { null }
-            val laneGov = com.lifecyclebot.engine.LiveLaneGovernor.preBuyBleederPauseWithSetupAndMint(
+            // V5.0.6484 — LiveLaneGovernor is a learned strategy authority:
+            // it may persist/emit pressure, but cannot resurrect a post-FDG hard abort.
+            com.lifecyclebot.engine.LiveLaneGovernor.preBuyBleederPauseWithSetupAndMint(
                 layerTag,
                 entrySetup = ec?.entrySetup,
                 chartPattern = ec?.chartPattern,
                 mint = ts.mint,
             )
-            if (laneGov.first) {
-                liveStage("LIVE_BUY_ABORTED", "reason=LIVE_LANE_HARD_PAUSED_6247 detail=${laneGov.second.take(140)}")
-                try { emitLiveBuyFail(ts, sol, "LIVE_LANE_HARD_PAUSED_6247", laneGov.second) } catch (_: Throwable) {}
-                return false
-            }
         } catch (_: Throwable) {}
 
         // V5.0.6247 — FEE-EATER GUARD: skip buys whose requested size cannot
