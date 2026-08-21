@@ -416,7 +416,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("MEME-only should rotate ownership across the full MemeTrader surface", bot.contains("MEMETRADER_CONTRIBUTION_ROTATION") && bot.contains("fullMemeTraderRing") && bot.contains("MEMETRADER_OWNER_LANE"))
         assertTrue("Rotation must include internal lanes that were previously idle (V5.0.4599: specialists no longer in ring)", listOf("MOONSHOT", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { bot.contains(it) })
-        assertTrue("V5.0.4478: live contribution considers all internal lanes but bounds FDG/executor to owner/rescue", bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("action=considered_bounded_owner_rotation") && bot.contains("val allowed = (l == ownerLane || profitableRescue) && !laneIsPaused4598") && bot.contains("return allowed"))
+        assertTrue("V5.0.4478: live contribution considers all internal lanes but bounds FDG/executor to owner/rescue", bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("action=considered_bounded_owner_rotation") && bot.contains("val allowed = (l == ownerLane || profitableRescue)") && bot.contains("return allowed"))
         assertTrue("V5.0.6014: successful lanes must get bounded entry feed instead of MANIPULATED/SHITCOIN/EXPRESS budget", bot.contains("SUCCESSFUL_LANE_FEED_RESTORED_6014") && bot.contains("successfulFeedLanes6014") && bot.contains("QUALITY") && bot.contains("MOONSHOT") && bot.contains("BLUECHIP") && bot.contains("CRYPTO") && !bot.contains("SPECIALIST_ENTRY_EVAL_RESTORED_6013"))
         assertFalse("3914 live full-ring fanout regression must stay dead", bot.contains("LIVE_FULL_RING_LANE_OBSERVE"))
     }
@@ -847,7 +847,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("MEMETRADER_CONTRIBUTION_ROTATION"))
         assertTrue(bot.contains("exactly ONE owner"))
-        assertTrue(bot.contains("val allowed = (l == ownerLane || profitableRescue) && !laneIsPaused4598"))
+        assertTrue(bot.contains("val allowed = (l == ownerLane || profitableRescue)"))
         assertTrue(bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469"))
         assertTrue(bot.contains("val fullMemeTraderRing = listOf"))
         assertFalse("owner rotation must not require pre-existing affinity", bot.contains("nonMemeSpecialist && affinity.contains(l)"))
@@ -3481,9 +3481,9 @@ class GoldenTapeRegressionTest {
     fun live_meme_mode_must_collapse_to_one_owner_lane_not_full_ring_fanout() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
-        assertTrue("V5.0.4478: live MemeTrader must consider all internal trader lanes while preserving bounded owner telemetry", bot.contains("LIVE_RING_OWNER_COLLAPSE") && bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("MEMETRADER_OWNER_LANE") && bot.contains("val allowed = (l == ownerLane || profitableRescue) && !laneIsPaused4598"))
-        assertTrue("V5.0.4598: paused lanes cannot receive owner-lane election (closes MANIPULATED bypass)", bot.contains("OWNER_LANE_PAUSED_DENIED_4598") && bot.contains("LaneAutoPauseGuard.isPaused(l)"))
-        assertTrue("V5.0.6014: successful-lane feed must respect pause/proof guards and not revive all-lane fanout", bot.contains("SUCCESSFUL_LANE_FEED_DENIED_6014") && bot.contains("qualityProofOk6014") && !bot.contains("LIVE_FULL_RING_LANE_OBSERVE"))
+        assertTrue("V5.0.4478: live MemeTrader must consider all internal trader lanes while preserving bounded owner telemetry", bot.contains("LIVE_RING_OWNER_COLLAPSE") && bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("MEMETRADER_OWNER_LANE") && bot.contains("val allowed = (l == ownerLane || profitableRescue)"))
+        assertTrue("V5.0.6483: paused owner lanes remain bounded owners but pivot tactics before execution", bot.contains("OWNER_LANE_TACTIC_PIVOT_6483") && bot.contains("LaneAutoPauseGuard.isPaused(l)"))
+        assertTrue("V5.0.6483: successful-lane feed preserves quality proof without learned pause denial", bot.contains("SUCCESSFUL_LANE_FEED_DENIED_QUALITY_PROOF_6483") && bot.contains("qualityProofOk6014") && !bot.contains("LIVE_FULL_RING_LANE_OBSERVE"))
         assertFalse("live full-ring observe must not return true before owner rotation", bot.contains("LIVE_FULL_RING_LANE_OBSERVE") || bot.contains("fullRingObserve"))
         assertTrue("V5.0.4474: runtime report must expose live all-lane contribution policy and owner context", pipe.contains("MEME_RING=liveAllLaneContribution") && pipe.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && pipe.contains("LIVE_RING_OWNER_COLLAPSE") && pipe.contains("MEMETRADER_OWNER_LANE"))
         assertTrue("runtime report must expose pre-attempt live buy suppressions", pipe.contains("Pre-attempt suppressions") && pipe.contains("LIVE_BUY_PREATTEMPT_PROVIDER_PROOF_BLIND") && pipe.contains("STALE_AUTH_LOCK_PRUNED"))
@@ -7672,6 +7672,19 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6482: lane pause and toxic patterns must rotate tactic before secondary size shaping", fdg.contains("LANE_AUTO_TACTIC_PIVOT_6482") && fdg.contains("TOXIC_PATTERN_TACTIC_PIVOT_6482") && fdg.contains("TacticSwitcher.rotateForLanePressure"))
         assertTrue("V5.0.6482: learned pressure keeps an executable floor", fdg.contains("finalSize = (finalSize * 0.35).coerceAtLeast(0.01)"))
         assertTrue("V5.0.6482: provider-degraded execution safety remains intact", exec.contains("PROVIDER_DEGRADED_BUY_BLOCK_6264") && exec.contains("dexSr < 0.70 && jupQSr < 0.60"))
+    }
+
+
+    @Test
+    fun V5_0_6483_lane_pause_cannot_disable_trader_or_poison_scanner_intake() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val safety = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenSafetyChecker.kt").readText()
+        assertFalse("V5.0.6483: learned pause must not deny owner lanes or whole Express evaluation", bot.contains("OWNER_LANE_PAUSED_DENIED_4598") || bot.contains("EXPRESS_LANE_PAUSED_EARLY_GATE_4594"))
+        assertTrue("V5.0.6483: owner, successful-feed and Express paths must pivot same-lane tactics", bot.contains("OWNER_LANE_TACTIC_PIVOT_6483") && bot.contains("SUCCESSFUL_LANE_FEED_TACTIC_PIVOT_6483") && bot.contains("EXPRESS_LANE_TACTIC_PIVOT_6483"))
+        assertFalse("V5.0.6483: learned MANIP lane pressure must not persist scanner hard rejects", safety.contains("MANIPULATED_ONLY_LANE_QUARANTINED_4592") || bot.contains("MANIPULATED_ONLY_LANE_QUARANTINED_4591"))
+        assertTrue("V5.0.6483: quality proof still gates quality/bluechip successful feed", bot.contains("if (qualityProofOk6014)") && bot.contains("SUCCESSFUL_LANE_FEED_DENIED_QUALITY_PROOF_6483"))
+        assertTrue("V5.0.6483: Express still requires cycle ownership and enabled authority", bot.contains("expressLaneAllowedThisCycle") && bot.contains("ShitCoinExpress.isEnabled()"))
+        assertTrue("V5.0.6483: manipulated safety overlay remains a strong soft penalty", safety.contains("MANIPULATED_ONLY_OVERLAY_4553") && safety.contains("penalty += 55"))
     }
 
 }

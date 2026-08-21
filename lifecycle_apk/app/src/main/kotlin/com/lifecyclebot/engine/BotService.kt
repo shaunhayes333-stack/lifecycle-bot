@@ -10113,23 +10113,7 @@ class BotService : Service() {
             // Fall through — downstream sizing stack applies heavy penalty via
             // laneQualityPenalty6011 below (score reduced so only dust-size fires).
         } else if (manipulatedOnlyOverlay4553 && !lane.equals("MANIPULATED", ignoreCase = true)) {
-            // V5.0.4591 — INTAKE-STAGE STAMP when MANIPULATED lane is auto-paused.
-            // Operator observed 31/33 FDG blocks were this reason because the token
-            // safety flagged manipulated_only, LaneAutoPauseGuard has MANIPULATED
-            // quarantined (V4588), and the router keeps re-trying non-MANIPULATED
-            // lanes. Stamp ScannerHardRejectStore so subsequent scanner cycles
-            // short-circuit at intake instead of spinning up FDG each time.
-            try {
-                if (LaneAutoPauseGuard.isPaused("MANIPULATED")) {
-                    ScannerHardRejectStore.mark(
-                        mintForProbe,
-                        edgeSymbol4529,
-                        "MANIPULATED_ONLY_LANE_QUARANTINED_4591",
-                        "MANIPULATED_LANE_AUTO_PAUSED",
-                    )
-                    PipelineHealthCollector.labelInc("MANIPULATED_ONLY_LANE_QUARANTINED_4591_STAMP")
-                }
-            } catch (_: Throwable) {}
+            // V5.0.6483 — learned lane pause cannot stamp a scanner hard reject.
             try {
                 PipelineHealthCollector.labelInc("MANIPULATED_ONLY_NON_MANIPULATED_LANE_REJECTED_4553")
                 PipelineHealthCollector.labelInc("PREFDG_DROP_MANIPULATED_ONLY_${lane.uppercase()}")
@@ -10558,14 +10542,18 @@ class BotService : Service() {
                 val paused6014 = try { LaneAutoPauseGuard.isPaused(l) } catch (_: Throwable) { false }
                 val qualityProofRequired6014 = l in setOf("QUALITY", "BLUECHIP")
                 val qualityProofOk6014 = !qualityProofRequired6014 || qualityLaneProofOk()
-                if (!paused6014 && qualityProofOk6014) {
+                if (paused6014) {
+                    val pivot6483 = try { com.lifecyclebot.engine.learning.TacticSwitcher.rotateForLanePressure(l, ts.entryScore.toInt(), "successful_feed_pause").name } catch (_: Throwable) { "UNKNOWN" }
+                    try { ForensicLogger.lifecycle("SUCCESSFUL_LANE_FEED_TACTIC_PIVOT_6483", "lane=$l tactic=$pivot6483 symbol=${ts.symbol} action=continue_same_lane") } catch (_: Throwable) {}
+                }
+                if (qualityProofOk6014) {
                     try {
                         ForensicLogger.lifecycle("SUCCESSFUL_LANE_FEED_RESTORED_6014", "lane=$l primary=$primaryLane symbol=${ts.symbol} mint=${ts.mint.take(10)} affinity=${affinity.joinToString("+")} action=feed_success_lane_not_manipulated")
                         PipelineHealthCollector.labelInc("SUCCESSFUL_LANE_FEED_RESTORED_6014_$l")
                     } catch (_: Throwable) {}
                     return true
                 } else {
-                    try { PipelineHealthCollector.labelInc("SUCCESSFUL_LANE_FEED_DENIED_6014_$l") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("SUCCESSFUL_LANE_FEED_DENIED_QUALITY_PROOF_6483_$l") } catch (_: Throwable) {}
                 }
             }
             // V5.0.3934 — LIVE_RING_OWNER_COLLAPSE.
@@ -10699,14 +10687,12 @@ class BotService : Service() {
                 // any other path still slips through, but this closes the
                 // primary bypass channel.
                 val laneIsPaused4598 = try { LaneAutoPauseGuard.isPaused(l) } catch (_: Throwable) { false }
-                val allowed = (l == ownerLane || profitableRescue) && !laneIsPaused4598
-                if (laneIsPaused4598) {
+                val allowed = (l == ownerLane || profitableRescue)
+                if (laneIsPaused4598 && allowed) {
+                    val pivot6483 = try { com.lifecyclebot.engine.learning.TacticSwitcher.rotateForLanePressure(l, ts.entryScore.toInt(), "owner_lane_pause").name } catch (_: Throwable) { "UNKNOWN" }
                     try {
-                        ForensicLogger.lifecycle(
-                            "OWNER_LANE_PAUSED_DENIED_4598",
-                            "lane=$l primary=$primaryLane owner=$ownerLane symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=lane_auto_paused_by_guard",
-                        )
-                        PipelineHealthCollector.labelInc("OWNER_LANE_PAUSED_DENIED_4598_$l")
+                        ForensicLogger.lifecycle("OWNER_LANE_TACTIC_PIVOT_6483", "lane=$l primary=$primaryLane owner=$ownerLane tactic=$pivot6483 symbol=${ts.symbol} mint=${ts.mint.take(10)} action=continue_same_lane")
+                        PipelineHealthCollector.labelInc("OWNER_LANE_TACTIC_PIVOT_6483_$l")
                     } catch (_: Throwable) {}
                 }
                 if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) {
@@ -22513,15 +22499,12 @@ if (hotExitHandledSweep) {
             // the check to the top of the EXPRESS path so paused lanes cost
             // us nothing.
             if (LaneAutoPauseGuard.isPaused("EXPRESS")) {
+                val pivot6483 = try { com.lifecyclebot.engine.learning.TacticSwitcher.rotateForLanePressure("EXPRESS", ts.entryScore.toInt(), "express_pause").name } catch (_: Throwable) { "UNKNOWN" }
                 try {
-                    ForensicLogger.lifecycle(
-                        "EXPRESS_LANE_PAUSED_EARLY_GATE_4594",
-                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=lane_auto_paused",
-                    )
-                    PipelineHealthCollector.labelInc("EXPRESS_LANE_PAUSED_EARLY_GATE_4594")
+                    ForensicLogger.lifecycle("EXPRESS_LANE_TACTIC_PIVOT_6483", "symbol=${ts.symbol} mint=${ts.mint.take(10)} tactic=$pivot6483 action=continue_same_lane")
+                    PipelineHealthCollector.labelInc("EXPRESS_LANE_TACTIC_PIVOT_6483")
                 } catch (_: Throwable) {}
-                // skip the entire EXPRESS block for this token
-            } else {
+            }
             val expressLaneAllowedThisCycle = !ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "EXPRESS", cyclePrimaryLane)
             if (expressLaneAllowedThisCycle && com.lifecyclebot.v3.scoring.ShitCoinExpress.isEnabled()) {
                 try {
@@ -22773,7 +22756,6 @@ if (hotExitHandledSweep) {
                     ErrorLogger.debug("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | ERROR | ${expEx.message}")
                 }
             }
-            } // V5.0.4594 — close EXPRESS lane-paused else{} early-gate
             // ═══════════════════════════════════════════════════════════════════
             // END ShitCoin Express evaluation
             // ═══════════════════════════════════════════════════════════════════
