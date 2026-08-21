@@ -7633,4 +7633,17 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6479: cache key must bind mint plus PnL and peak buckets", cache.contains("floor(pnlPct / 5.0)") && cache.contains("floor(peakPct / 5.0)"))
     }
 
+
+    @Test
+    fun V5_0_6480_watchlist_cap_is_one_atomic_source_authority() {
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt").readText()
+        val service = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val config = java.io.File("src/main/kotlin/com/lifecyclebot/data/BotConfig.kt").readText()
+        assertTrue("V5.0.6480: registry must expose one canonical 220 cap", registry.contains("const val MAX_WATCHLIST_SIZE = 220"))
+        assertTrue("V5.0.6480: admission size-check eviction insertion must be serialized", registry.contains("@Synchronized" + "\n" + "    fun addToWatchlist") && registry.contains("WatchlistHardCapInvariant6473.assertSize(watchlist.size, MAX_WATCHLIST_SIZE"))
+        assertTrue("V5.0.6480: selector and audit must read registry source facts", service.contains("MAX_ACTIVE_WATCHLIST = com.lifecyclebot.engine.GlobalTradeRegistry.MAX_WATCHLIST_SIZE") && service.contains("val currentWatchlist = com.lifecyclebot.engine.GlobalTradeRegistry.size()") && service.contains("val configuredCap = com.lifecyclebot.engine.GlobalTradeRegistry.MAX_WATCHLIST_SIZE"))
+        assertFalse("V5.0.6480: audit must not treat a label counter as physical size", service.contains("labelCountSnapshot(" + "\"" + "HOT_WATCHLIST_SIZE_OBSERVED_6473" + "\""))
+        assertTrue("V5.0.6480: persisted config must not re-expand above physical authority", config.contains("maxWatchlistSize: Int = 220") && config.contains("coerceIn(100, 220)"))
+    }
+
 }

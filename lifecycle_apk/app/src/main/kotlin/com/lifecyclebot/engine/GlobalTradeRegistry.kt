@@ -133,7 +133,7 @@ object GlobalTradeRegistry {
     // fanout to saturate the bot loop, driving avg cycle above the 30s
     // watchdog threshold and starving intake→FDG→EXEC throughput. 220 keeps
     // ample bench for source-balance policies while restoring sub-15s cycles.
-    private const val MAX_WATCHLIST_SIZE = 220  // V5.0.6278: 500→220 to unstick bot loop cycles
+    const val MAX_WATCHLIST_SIZE = 220  // V5.0.6480: canonical cap shared by admission/selector/config/audit
     private const val MAX_PROBATION_SIZE = 500
 
     // V5.0.3708 — STRICT SOURCE-BALANCED HOT WATCHLIST CAP.
@@ -343,6 +343,7 @@ object GlobalTradeRegistry {
      * Add a token to the watchlist.
      * Returns true if added, false if duplicate/rejected/full.
      */
+    @Synchronized
     fun addToWatchlist(
         mint: String,
         symbol: String,
@@ -519,6 +520,9 @@ object GlobalTradeRegistry {
             entry.toolAffinity.addAll(toolAffinity.map { it.uppercase() })
         }
 
+        // V5.0.6480 — admission is synchronized, so physical size can never
+        // pass the canonical cap between size-check, eviction, and insertion.
+        try { com.lifecyclebot.engine.truth.WatchlistHardCapInvariant6473.assertSize(watchlist.size, MAX_WATCHLIST_SIZE, "global_registry") } catch (_: Throwable) {}
         totalTokensAdded.incrementAndGet()
         ErrorLogger.debug(TAG, "➕ Added $symbol | by=$addedBy | source=$source | mcap=\$${initialMcap.toLong()}")
 

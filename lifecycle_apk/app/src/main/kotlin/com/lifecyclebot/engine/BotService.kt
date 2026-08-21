@@ -13030,7 +13030,7 @@ class BotService : Service() {
         //   - fresh-60s window (newly-arrived tokens)
         // Cap only evicts the oldest stale cold-tail entries. Verified
         // at the eviction site below (filterNot lines 11159–11160).
-        val MAX_ACTIVE_WATCHLIST = 300
+        val MAX_ACTIVE_WATCHLIST = com.lifecyclebot.engine.GlobalTradeRegistry.MAX_WATCHLIST_SIZE
 
         val entriesByMint: Map<String, com.lifecyclebot.engine.GlobalTradeRegistry.WatchlistEntry> = try {
             com.lifecyclebot.engine.GlobalTradeRegistry.getWatchlistEntries()
@@ -14257,9 +14257,9 @@ class BotService : Service() {
                         // sees the invariant break at telemetry level rather than
                         // watching thousands of downstream rebalance events.
                         try {
-                            val currentWatchlist = com.lifecyclebot.engine.PipelineHealthCollector.labelCountSnapshot("HOT_WATCHLIST_SIZE_OBSERVED_6473").toInt()
-                            val configuredCap = 250 // default hard cap; incremental patch will source from ConfigStore
-                            if (currentWatchlist > 0 && configuredCap > 0) {
+                            val currentWatchlist = com.lifecyclebot.engine.GlobalTradeRegistry.size()
+                            val configuredCap = com.lifecyclebot.engine.GlobalTradeRegistry.MAX_WATCHLIST_SIZE
+                            if (configuredCap > 0) {
                                 com.lifecyclebot.engine.truth.WatchlistHardCapInvariant6473
                                     .assertSize(currentWatchlist, configuredCap, "hot_watchlist")
                             }
