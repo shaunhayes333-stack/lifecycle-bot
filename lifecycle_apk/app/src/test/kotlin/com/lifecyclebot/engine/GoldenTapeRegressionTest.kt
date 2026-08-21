@@ -7620,4 +7620,17 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6478: provider calls must exist only behind IO coroutine cache", cache.contains("Dispatchers.IO") && cache.contains("scope.launch") && cache.contains("inFlight.add") && cache.contains("GEMINI_NARRATIVE_CACHE_MISS_NEUTRAL_6478"))
     }
 
+
+    @Test
+    fun V5_0_6479_fluid_and_exit_hot_paths_never_wait_on_providers() {
+        val fluid = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/FluidLearningAI.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val cache = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsyncGeminiExitAdviceCache6479.kt").readText()
+        assertFalse("V5.0.6479: fluid sizing must not runBlocking for SOL price", fluid.contains("runBlocking") || fluid.contains("PriceAggregator.getPrice"))
+        assertTrue("V5.0.6479: fluid sizing must consume bounded cached SOL price", fluid.contains("EfficiencyLayer.getCachedPrice()?.solPriceUsd"))
+        assertFalse("V5.0.6479: executor exit decision must not call Gemini directly", exec.contains("val geminiAdvice = GeminiCopilot.getExitAdvice"))
+        assertTrue("V5.0.6479: exit advice must be background cached with neutral miss telemetry", exec.contains("AsyncGeminiExitAdviceCache6479.cachedOrRequest") && cache.contains("Dispatchers.IO") && cache.contains("GEMINI_EXIT_CACHE_MISS_NEUTRAL_6479"))
+        assertTrue("V5.0.6479: cache key must bind mint plus PnL and peak buckets", cache.contains("floor(pnlPct / 5.0)") && cache.contains("floor(peakPct / 5.0)"))
+    }
+
 }

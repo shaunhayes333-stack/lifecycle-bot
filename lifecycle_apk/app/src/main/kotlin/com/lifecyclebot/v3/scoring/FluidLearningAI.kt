@@ -1,7 +1,7 @@
 package com.lifecyclebot.v3.scoring
 
-import com.lifecyclebot.perps.PriceAggregator
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.engine.EfficiencyLayer
 import com.lifecyclebot.engine.TradeHistoryStore
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -2074,7 +2074,9 @@ object FluidLearningAI {
         var minPct = ROUND_TRIP_FEE_PCT * 100  // V5.9.1451: 1.6%
         
         // Add estimated price impact based on liquidity
-        val solPrice = try { kotlinx.coroutines.runBlocking { PriceAggregator.getPrice("SOL")?.price } ?: 150.0 } catch (_: Exception) { 150.0 } // V5.9: live price
+        // V5.0.6479 — sizing/exit math is hot-path; never block on provider IO.
+        // EfficiencyLayer is refreshed elsewhere and a conservative fallback is neutral.
+        val solPrice = try { EfficiencyLayer.getCachedPrice()?.solPriceUsd ?: 150.0 } catch (_: Exception) { 150.0 }
         val positionUsd = positionSizeSol * solPrice
         
         val priceImpactPct = when {

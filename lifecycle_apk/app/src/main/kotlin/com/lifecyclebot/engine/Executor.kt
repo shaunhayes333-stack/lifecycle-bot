@@ -8577,11 +8577,12 @@ class Executor(
         if (!isPaperRT() && gainPct >= 15) {
             try {
                 val recentPrices = ts.history.takeLast(10).map { it.priceUsd }
-                val geminiAdvice = GeminiCopilot.getExitAdvice(
+                val peakPnl6479 = pos.highestPrice.let { if (it > 0) ((it - pos.entryPrice) / pos.entryPrice) * 100 else gainPct }
+                val geminiAdvice = AsyncGeminiExitAdviceCache6479.cachedOrRequest(
                     ts = ts,
                     currentPnlPct = gainPct,
                     holdTimeMinutes = heldSecs / 60.0,
-                    peakPnlPct = pos.highestPrice.let { if (it > 0) ((it - pos.entryPrice) / pos.entryPrice) * 100 else gainPct },
+                    peakPnlPct = peakPnl6479,
                     recentPriceAction = recentPrices,
                 )
                 
