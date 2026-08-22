@@ -4159,7 +4159,28 @@ class BotService : Service() {
                     val pos = ts.position
                     val px = ts.lastPrice
                     if (!px.isFinite() || px <= 0.0 || !pos.isOpen) 0.0
-                    else px * pos.qtyToken.coerceAtLeast(0.0)
+                    else {
+                        // V5.0.6496 SOURCE-FIX — ts.lastPrice is USD-per-token
+                        // (DexScreener / Jupiter both publish priceUsd).
+                        // CanonicalCapitalAuthority6450 documents the mark
+                        // provider must return WHOLE-MINT VALUE IN SOL. Return-
+                        // ing USD here caused equity/openMV to be recorded as
+                        // 'SOL' and then multiplied by solPrice for dashboard
+                        // USD display — a double-USD scaling that produced the
+                        // observed $956M equity on a $94 starting balance.
+                        //
+                        // Convert USD→SOL at the provider boundary using the
+                        // authoritative SOL/USD price. If the SOL price cache
+                        // is missing or absurd, return 0.0 so the snapshot
+                        // falls back to costBasis (unrealized reads 0, never
+                        // a phantom -100%).
+                        val solUsd = try {
+                            com.lifecyclebot.engine.EfficiencyLayer.getCachedPrice()?.solPriceUsd
+                                ?: com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+                        } catch (_: Throwable) { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice }
+                        if (!solUsd.isFinite() || solUsd <= 50.0 || solUsd >= 5000.0) 0.0
+                        else (px * pos.qtyToken.coerceAtLeast(0.0)) / solUsd
+                    }
                 } catch (_: Throwable) { 0.0 }
             }
         } catch (_: Throwable) {}
