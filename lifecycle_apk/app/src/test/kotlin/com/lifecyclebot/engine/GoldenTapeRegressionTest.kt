@@ -7988,7 +7988,7 @@ class GoldenTapeRegressionTest {
             lab.contains("LAB_SAME_MINT_HYPOTHESIS_COALESCED_6490") && lab.contains("LAB_SANDBOX_OPEN_ISOLATED_6490") &&
                 !lab.contains("V3JournalRecorder.recordOpen") && !lab.contains("V3JournalRecorder.recordClose"))
         assertTrue("6490 slot and report counts must read canonical current-mode active mints",
-            slot.contains("activeMintProjections6490(\"paper\")") && report.contains("Canonical active mints:") &&
+            slot.contains("activeMintProjections6490(\"paper\")") && report.contains("Canonical active mints (current mode):") &&
                 report.contains("LAB sandbox projection:"))
     }
 
@@ -8025,6 +8025,46 @@ class GoldenTapeRegressionTest {
         assertTrue("6491 acceptance failures must expose exact failed invariants and observed count",
             acceptance.contains("invariants=") && acceptance.contains("expected=all_invariants_pass") &&
                 acceptance.contains("failedInvariants=") && report.contains("executable fan-out/intake"))
+    }
+
+
+    @Test
+    fun V5_0_6492_canonical_inventory_marks_tokenmap_partial_and_marketcap_truth() {
+        val position = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt").readText()
+        val lot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLotQuantity6464.kt").readText()
+        val capital = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalCapitalAuthority6450.kt").readText()
+        val tokenMap = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenMapAuthority.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val dex = java.io.File("src/main/kotlin/com/lifecyclebot/network/DexscreenerApi.kt").readText()
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/perps/DynamicAltTokenRegistry.kt").readText()
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/lab/LlmLabTrader.kt").readText()
+
+        assertTrue("6492 replay carry must rebuild canonical position and funded lot projections",
+            position.contains("CANONICAL_CARRY_POSITION_RESTORED_" + "6492") &&
+                position.contains("POSITION_STATE_PROJECTED_FROM_CANONICAL_" + "6492") &&
+                lot.contains("CANONICAL_CARRY_LOT_RESTORED_" + "6492"))
+        assertTrue("6492 missing quote must retain last-good mark or basis, never zero-value open inventory",
+            capital.contains("lastGoodMark" + "6492") && capital.contains("CAPITAL_STALE_LAST_GOOD_MARK_" + "6492") &&
+                capital.contains("CAPITAL_MARK_FALLBACK_NO_CANON_POSITION_" + "6492"))
+        assertTrue("6492 TokenMap must publish shared mint result and retry pending maps on short TTL",
+            tokenMap.contains("canonicalResultByMint" + "6492") && tokenMap.contains("PENDING_RESULT_RETRY_MS_" + "6492") &&
+                tokenMap.contains("TOKEN_MAP_SHARED_RESULT_HIT_" + "6492") && executor.contains("PAPER_BUY_DEFERRED_TOKEN_MAP_RETRY_" + "6492"))
+        assertTrue("6492 terminal paper sell must use canonical remaining raw qty, decimals and basis",
+            executor.contains("terminalRemainingRaw" + "6492") && executor.contains("terminalRemainingCost" + "6492") &&
+                executor.contains("val soldQtyRaw6474 = terminalRemainingRaw" + "6492"))
+        assertTrue("6492 DexScreener must never alias FDV into marketCap",
+            dex.contains("marketCap   = p.optDouble(" + '"' + "marketCap" + '"' + ", 0.0)") &&
+                !dex.contains("if (it == 0.0) p.optDouble"))
+        assertTrue("6492 market cap requires provenance before BLUECHIP or learning",
+            registry.contains("hasTrustedMarketCap" + "6492") && registry.contains("mcapSource") &&
+                crypto.contains("CRYPTO_MCAP_UNTRUSTED_DROPPED_" + "6492") && crypto.contains("no_bluechip_no_learning"))
+        assertTrue("6492 report must expose paper/live/current canonical inventory independently",
+            report.contains("Canonical PAPER active mints:") && report.contains("Canonical LIVE active mints:") &&
+                report.contains("Canonical active mints (current mode):"))
+        assertTrue("6490 LAB hypothesis positions must stay outside canonical TradeHistoryStore",
+            lab.contains("LAB_SANDBOX_OPEN_ISOLATED_" + "6490") && lab.contains("LAB_SANDBOX_CLOSE_ISOLATED_" + "6490"))
     }
 
 }

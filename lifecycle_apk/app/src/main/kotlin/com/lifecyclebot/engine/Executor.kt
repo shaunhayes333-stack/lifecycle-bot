@@ -11888,7 +11888,18 @@ class Executor(
             )
             if (!executableOpen.allowed) {
                 ErrorLogger.warn("Executor", "🚫 PAPER_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${executableOpen.attemptId} | ${executableOpen.reason}")
-                markPaperBuyNotOpened("FINALITY_BLOCKED")
+                val tokenMapTransient6492 = executableOpen.logName == "EXEC_OPEN_DEFERRED_TOKEN_MAP" ||
+                    executableOpen.reason.contains("TOKEN_MAP_PENDING", ignoreCase = true) ||
+                    executableOpen.reason.contains("ROUTE_STALE_RECHECK", ignoreCase = true)
+                if (tokenMapTransient6492) {
+                    // Retain lane election + execution lease. The mint-keyed
+                    // TokenMap owner publishes a shared result; the normal next
+                    // candidate pass retries after the short pending TTL.
+                    try {
+                        PipelineHealthCollector.labelInc("PAPER_BUY_DEFERRED_TOKEN_MAP_RETRY_6492")
+                        ForensicLogger.lifecycle("PAPER_BUY_DEFERRED_TOKEN_MAP_RETRY_6492", "mint=${ts.mint.take(10)} symbol=${ts.symbol} attemptId=${executableOpen.attemptId} lane=$finalityLane action=retain_election_and_lease_for_retry")
+                    } catch (_: Throwable) {}
+                } else markPaperBuyNotOpened("FINALITY_BLOCKED")
                 return
             }
         }
@@ -19078,7 +19089,23 @@ class Executor(
         // physically impossible past this line. positionId is mandatory;
         // blank/unknown positions fail-closed. DsXR94/2cxRDE/2JLR9u
         // repeated-SELL pattern is now unreachable at the CAS door.
-        val terminalPid6455 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
+        val canonicalTerminalPosition6492 = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                .firstOrNull { it.mode == "paper" && it.mint == ts.mint }
+        } catch (_: Throwable) { null }
+        val terminalPid6455 = canonicalTerminalPosition6492?.positionId
+            ?: com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
+        val terminalDecimals6492 = canonicalTerminalPosition6492?.tokenDecimals?.coerceIn(0, 18)
+            ?: (ts.tokenMap.decimals ?: 9).coerceIn(0, 18)
+        val terminalRemainingRaw6492 = canonicalTerminalPosition6492?.remainingQtyRaw
+            ?.takeIf { it > java.math.BigInteger.ZERO }
+            ?: try {
+                java.math.BigDecimal.valueOf(pos.qtyToken.coerceAtLeast(0.0))
+                    .multiply(java.math.BigDecimal.TEN.pow(terminalDecimals6492))
+                    .setScale(0, java.math.RoundingMode.HALF_UP).toBigInteger()
+            } catch (_: Throwable) { java.math.BigInteger.ZERO }
+        val terminalRemainingCost6492 = canonicalTerminalPosition6492?.let { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
+            ?.takeIf { it.isFinite() && it > 0.0 } ?: pos.costSol.coerceAtLeast(0.0)
         val reserveResult6455 = com.lifecyclebot.engine.truth.PositionStateLedger6454
             .reserveTerminalSell(terminalPid6455, reason)
         if (reserveResult6455 != com.lifecyclebot.engine.truth.PositionStateLedger6454.ReserveResult.RESERVED) {
@@ -19278,7 +19305,7 @@ class Executor(
                 base.coerceIn(paperBandFloorPct!!, paperBandCeilPct!!)
             } else base
         }
-        val rawValue = pos.costSol * (1.0 + priceDerivedPnlPct / 100.0) * (1.0 - simulatedFeePct / 100.0)
+        val rawValue = terminalRemainingCost6492 * (1.0 + priceDerivedPnlPct / 100.0) * (1.0 - simulatedFeePct / 100.0)
         // (3) Cost-basis paper proceeds — paper has no real token balance. Do
         // NOT book proceeds from qtyToken * price; a stale qty or source-basis
         // mismatch creates impossible million-SOL rows. We already have the
@@ -19300,10 +19327,10 @@ class Executor(
             } else rawValue
         }
         val value = cappedValue.coerceAtLeast(0.0)
-        val grossNoFrictionValue = (pos.costSol * (1.0 + priceDerivedPnlPct / 100.0)).coerceAtLeast(0.0)
+        val grossNoFrictionValue = (terminalRemainingCost6492 * (1.0 + priceDerivedPnlPct / 100.0)).coerceAtLeast(0.0)
         val simulatedFeeSol = (grossNoFrictionValue - value).coerceAtLeast(0.0)
-        val pnl   = value - pos.costSol
-        val pnlP  = pct(pos.costSol, value)
+        val pnl   = value - terminalRemainingCost6492
+        val pnlP  = pct(terminalRemainingCost6492, value)
         // V5.0.6449 §3 SELL QTY SOURCE LOCK. Operator KMNo3n snapshot showed
         // buy=10.495 sell=19.535 — 2x oversell. Root cause: journal Trade row
         // was reading pos.qtyToken which had drifted (alias-merge/double-count).
@@ -19311,15 +19338,14 @@ class Executor(
         // remaining qty from CanonicalPositionAuthority6441. This is the SINGLE
         // authoritative sell qty for both the Trade row and the canonical
         // mirror. Falls back to pos.qtyToken only when canonical is unpopulated.
+        // V5.0.6492 — paperSell is a terminal API: sell exactly the
+        // canonical remaining lot. Partial APIs use terminal=false reducers.
         val soldQtyToken6449 = try {
-            val requested = pos.qtyToken.coerceAtLeast(0.0)
-            val clamped = com.lifecyclebot.engine.truth.CanonicalIntegrityGuards6449
-                .clampToRemaining(ts.mint, requested, tokenDecimals = 9)
-            // clamp=0.0 means canonical says CLOSED/QUARANTINED — journal the
-            // legacy qty so downstream sizing/display still has data; the
-            // canonical mirror itself will refuse the mutation.
-            if (clamped <= 0.0) requested else clamped
+            terminalRemainingRaw6492.toBigDecimal()
+                .divide(java.math.BigDecimal.TEN.pow(terminalDecimals6492))
+                .toDouble()
         } catch (_: Throwable) { pos.qtyToken.coerceAtLeast(0.0) }
+
         val trade = Trade(
             side = "SELL", 
             mode = "paper", 
@@ -19359,7 +19385,7 @@ class Executor(
             // V5.0.6449 §3 — soldQtyToken locked to canonical remaining.
             entryQtyToken = soldQtyToken6449,
             soldQtyToken = soldQtyToken6449,
-            entryCostSol = pos.costSol,
+            entryCostSol = terminalRemainingCost6492,
             entryPriceSnapshot = pos.entryPrice,
         )
         // V5.9.1011 — PAPER SELL FAST PATH.
@@ -19429,7 +19455,7 @@ class Executor(
             // V5.0.6474 — FULL paper SELL uses the same canonical reducer as partials.
             // This commits cash credit + openCost release + typed economic SELL +
             // finalized bus before any successful journal projection can be written.
-            val soldQtyRaw6474 = java.math.BigInteger.valueOf((soldQtyToken6449 * 1_000_000_000.0).toLong().coerceAtLeast(0L))
+            val soldQtyRaw6474 = terminalRemainingRaw6492
             val sellGeneration6474 = tradeId.tradeId
             val pid6474 = terminalPid6455
             val terminalId6474 = "paper_full_${pid6474}_${sellGeneration6474}"
@@ -19440,10 +19466,10 @@ class Executor(
                 generation = sellGeneration6474,
                 sellSig = terminalId6474,
                 soldQtyRaw = soldQtyRaw6474,
-                preRemainingRaw = soldQtyRaw6474,
-                preRemainingCostBasisSol = pos.costSol.coerceAtLeast(0.0),
+                preRemainingRaw = terminalRemainingRaw6492,
+                preRemainingCostBasisSol = terminalRemainingCost6492,
                 grossProceedsSol = (value - treasuryShare).coerceAtLeast(0.0),
-                soldCostBasisSol = pos.costSol.coerceAtLeast(0.0),
+                soldCostBasisSol = terminalRemainingCost6492,
                 feesSol = simulatedFeeSol.coerceAtLeast(0.0),
                 lane = pos.tradingMode.ifBlank { tradeId.symbol },
                 exitReason = reason,

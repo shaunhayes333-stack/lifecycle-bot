@@ -63,11 +63,23 @@ object CanonicalLotQuantity6464 {
     fun rebuildPaperFromEvents6486(source: List<EconomicEventSchema6464.Event>): Int {
         val paperIds = source.asSequence().filter { it.mode == "paper" }.map { it.positionId }.toSet()
         paperIds.forEach { lots.remove(it) }
+        lots.entries.removeIf { it.key.startsWith("PAPER:CARRY6492:") }
         source.filter { it.mode == "paper" }.sortedBy { it.atMs }.forEach { e ->
             when (e) {
                 is EconomicEventSchema6464.Buy -> onBuyFilled(e.positionId, e.mint, e.filledQty)
                 is EconomicEventSchema6464.Sell -> onSellFilled(e.positionId, e.mint, e.soldQty)
             }
+        }
+        // V5.0.6492 — mirror durable replay carry into the exact active
+        // positionId selected by CanonicalPositionAuthority. Without this,
+        // healUnfundedPaperEntries removes carry-restored positions immediately.
+        val carry6492 = try { EconomicEventSchema6464.replayCarry6489() } catch (_: Throwable) { null }
+        carry6492?.perMintQty?.forEach { (mint, qtyRaw) ->
+            if (mint.isBlank() || qtyRaw <= BigInteger.ZERO) return@forEach
+            val pid = CanonicalPositionAuthority6441.openPositions().filter { it.mint == mint }
+                .firstOrNull { it.mode == "paper" }?.positionId ?: "PAPER:CARRY6492:$mint"
+            onBuyFilled(pid, mint, qtyRaw)
+            try { PipelineHealthCollector.labelInc("CANONICAL_CARRY_LOT_RESTORED_6492") } catch (_: Throwable) {}
         }
         try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_LOTS_REBUILT_6486") } catch (_: Throwable) {}
         return paperIds.size

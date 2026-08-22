@@ -450,6 +450,46 @@ object CanonicalPositionAuthority6441 {
                     }
                 }
             }
+            // V5.0.6492 — replay carry is the confirmed prefix older than
+            // the bounded event window. 6489 restored it into paper capital but
+            // omitted it here, producing openCost>0 with zero paper positions.
+            val carry6492 = try { EconomicEventSchema6464.replayCarry6489() } catch (_: Throwable) { null }
+            carry6492?.perMintQty?.forEach { (mint, qtyRaw) ->
+                val carryCost = carry6492.perMintCostSol[mint] ?: 0.0
+                if (mint.isBlank() || qtyRaw <= BigInteger.ZERO || !carryCost.isFinite() || carryCost <= 0.0) return@forEach
+                val existing = positions.values.firstOrNull {
+                    it.mode == "paper" && it.mint == mint &&
+                        it.lifecycle in setOf(Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED) && it.remainingQtyRaw > BigInteger.ZERO
+                }
+                if (existing != null) {
+                    positions[existing.positionId] = existing.copy(
+                        entryCostSol = existing.entryCostSol + carryCost,
+                        remainingQtyRaw = existing.remainingQtyRaw + qtyRaw,
+                        originalQtyRaw = existing.originalQtyRaw + qtyRaw,
+                        lastMutationMs = System.currentTimeMillis(),
+                    )
+                    try { PipelineHealthCollector.labelInc("CANONICAL_CARRY_MERGED_6492") } catch (_: Throwable) {}
+                } else {
+                    val pid = "PAPER:CARRY6492:$mint"
+                    positions[pid] = Position(
+                        positionId = pid, mode = "paper", mint = mint, symbol = mint.take(8),
+                        lane = "RECOVERED_CARRY_6492", runId = "REPLAY_CARRY_6492",
+                        openedAtMs = System.currentTimeMillis(), entryCostSol = carryCost,
+                        remainingQtyRaw = qtyRaw, originalQtyRaw = qtyRaw,
+                        soldCostBasisSol = 0.0, realizedPnlSol = 0.0, realizedProceedsSol = 0.0,
+                        feesSol = 0.0, tokenDecimals = 9, lifecycle = Lifecycle.OPEN,
+                        lastMutationMs = System.currentTimeMillis(), quarantineReason = "",
+                    )
+                    try { PositionStateLedger6454.onEntry(pid) } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("CANONICAL_CARRY_POSITION_RESTORED_6492") } catch (_: Throwable) {}
+                }
+            }
+            // PositionStateLedger is terminal-CAS projection only. Rebuild it
+            // from canonical lifecycle; it may never invent independent opens.
+            positions.values.filter {
+                it.mode == "paper" && it.lifecycle in setOf(Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED) && it.remainingQtyRaw > BigInteger.ZERO
+            }.forEach { p -> try { PositionStateLedger6454.onEntry(p.positionId) } catch (_: Throwable) {} }
+            try { PipelineHealthCollector.labelInc("POSITION_STATE_PROJECTED_FROM_CANONICAL_6492") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_POSITIONS_REBUILT_6486") } catch (_: Throwable) {}
             return positions.values.count { it.mode == "paper" && it.lifecycle != Lifecycle.CLOSED }
         } finally { lock.unlock() }

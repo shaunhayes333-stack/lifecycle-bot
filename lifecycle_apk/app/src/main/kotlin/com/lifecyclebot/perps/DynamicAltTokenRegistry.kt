@@ -63,6 +63,8 @@ object DynamicAltTokenRegistry {
         val price: Double = 0.0,
         val priceChange24h: Double = 0.0,
         val mcap: Double = 0.0,
+        val fdv: Double = 0.0,
+        val mcapSource: String = "",
         val liquidityUsd: Double = 0.0,
         val volume24h: Double = 0.0,
         val buys24h: Int = 0,
@@ -76,6 +78,10 @@ object DynamicAltTokenRegistry {
         val sector: String = "",
         val lastUpdatedMs: Long = System.currentTimeMillis(),
     ) {
+        val hasTrustedMarketCap6492: Boolean get() = mcap.isFinite() && mcap > 0.0 && mcapSource in setOf(
+            "COINGECKO_MARKET_CAP", "DEXSCREENER_MARKET_CAP", "BIRDEYE_MARKET_CAP", "STATIC_TRUSTED_MARKET_CAP"
+        )
+
         val emoji: String get() = when {
             isTrending && trendingRank == 0 -> "🔥"
             isTrending                       -> "📈"
@@ -326,6 +332,8 @@ object DynamicAltTokenRegistry {
                     put("price", tok.price)
                     put("priceChange24h", tok.priceChange24h)
                     put("mcap", tok.mcap)
+                    put("fdv", tok.fdv)
+                    put("mcapSource", tok.mcapSource)
                     put("liquidityUsd", tok.liquidityUsd)
                     put("volume24h", tok.volume24h)
                     put("buys24h", tok.buys24h)
@@ -378,7 +386,9 @@ object DynamicAltTokenRegistry {
                     pairAddress    = o.optString("pairAddress", ""),
                     price          = o.optDouble("price", 0.0),
                     priceChange24h = o.optDouble("priceChange24h", 0.0),
-                    mcap           = o.optDouble("mcap", 0.0),
+                    mcap           = o.optDouble("mcap", 0.0).takeIf { o.optString("mcapSource", "").isNotBlank() } ?: 0.0,
+                    fdv            = o.optDouble("fdv", 0.0),
+                    mcapSource     = o.optString("mcapSource", ""),
                     liquidityUsd   = o.optDouble("liquidityUsd", 0.0),
                     volume24h      = o.optDouble("volume24h", 0.0),
                     buys24h        = o.optInt("buys24h", 0),
@@ -535,7 +545,12 @@ object DynamicAltTokenRegistry {
     fun updateStaticPrice(symbol: String, price: Double, change24h: Double, mcap: Double, vol24h: Double) {
         val key = "static:$symbol"
         val existing = registry[key] ?: return
-        registry[key] = existing.copy(price = price, priceChange24h = change24h, mcap = mcap, volume24h = vol24h, lastUpdatedMs = System.currentTimeMillis())
+        registry[key] = existing.copy(
+            price = price, priceChange24h = change24h,
+            mcap = mcap.takeIf { it.isFinite() && it > 0.0 } ?: existing.mcap,
+            mcapSource = if (mcap.isFinite() && mcap > 0.0) "STATIC_TRUSTED_MARKET_CAP" else existing.mcapSource,
+            volume24h = vol24h, lastUpdatedMs = System.currentTimeMillis(),
+        )
     }
 
     /**
@@ -601,6 +616,7 @@ object DynamicAltTokenRegistry {
                     pairAddress  = pair?.pairAddress ?: "",
                     price        = pair?.candle?.priceUsd ?: 0.0,
                     mcap         = pair?.candle?.marketCap ?: 0.0,
+                    fdv          = pair?.fdv ?: 0.0,
                     liquidityUsd = pair?.liquidity ?: 0.0,
                     volume24h    = pair?.candle?.volume24h ?: 0.0,
                     buys24h      = pair?.candle?.buys24h ?: 0,
@@ -640,6 +656,7 @@ object DynamicAltTokenRegistry {
                     pairAddress  = pair.pairAddress,
                     price        = pair.candle.priceUsd,
                     mcap         = pair.candle.marketCap,
+                    fdv          = pair.fdv,
                     liquidityUsd = pair.liquidity,
                     volume24h    = pair.candle.volume24h,
                     buys24h      = pair.candle.buys24h,
@@ -672,6 +689,7 @@ object DynamicAltTokenRegistry {
                         pairAddress  = pair.pairAddress,
                         price        = pair.candle.priceUsd,
                         mcap         = pair.candle.marketCap,
+                        fdv          = pair.fdv,
                         liquidityUsd = pair.liquidity,
                         volume24h    = pair.candle.volume24h,
                         buys24h      = pair.candle.buys24h,
@@ -823,8 +841,21 @@ object DynamicAltTokenRegistry {
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
-    private fun upsert(tok: DynToken) {
-        if (tok.mint.isBlank() || tok.symbol.isBlank()) return
+    private fun upsert(rawTok6492: DynToken) {
+        if (rawTok6492.mint.isBlank() || rawTok6492.symbol.isBlank()) return
+        val inferredMcapSource6492 = when {
+            rawTok6492.mcapSource.isNotBlank() -> rawTok6492.mcapSource
+            rawTok6492.mcap <= 0.0 -> ""
+            rawTok6492.source.startsWith("cg_") -> "COINGECKO_MARKET_CAP"
+            rawTok6492.source.startsWith("dex_") -> "DEXSCREENER_MARKET_CAP"
+            rawTok6492.source.contains("birdeye", true) -> "BIRDEYE_MARKET_CAP"
+            else -> ""
+        }
+        // Unknown semantics are never promoted to market-cap truth.
+        val tok = rawTok6492.copy(
+            mcap = rawTok6492.mcap.takeIf { inferredMcapSource6492.isNotBlank() && it.isFinite() && it > 0.0 } ?: 0.0,
+            mcapSource = inferredMcapSource6492,
+        )
 
         // V5.9.3: If this symbol already maps to a static:XXX token, enrich that
         // token directly instead of creating a duplicate cg:/dex: entry.
@@ -836,7 +867,9 @@ object DynamicAltTokenRegistry {
             registry[staticKey] = staticTok.copy(
                 price         = tok.price.takeIf { it > 0 } ?: staticTok.price,
                 priceChange24h= tok.priceChange24h.takeIf { it != 0.0 } ?: staticTok.priceChange24h,
-                mcap          = tok.mcap.takeIf { it > 0 } ?: staticTok.mcap,
+                mcap          = tok.mcap.takeIf { tok.hasTrustedMarketCap6492 } ?: staticTok.mcap,
+                fdv           = tok.fdv.takeIf { it > 0 } ?: staticTok.fdv,
+                mcapSource    = tok.mcapSource.takeIf { tok.hasTrustedMarketCap6492 } ?: staticTok.mcapSource,
                 liquidityUsd  = tok.liquidityUsd.takeIf { it > 0 } ?: staticTok.liquidityUsd,
                 volume24h     = tok.volume24h.takeIf { it > 0 } ?: staticTok.volume24h,
                 buys24h       = tok.buys24h.takeIf { it > 0 } ?: staticTok.buys24h,
@@ -857,7 +890,9 @@ object DynamicAltTokenRegistry {
             registry[tok.mint] = existing.copy(
                 price         = tok.price.takeIf { it > 0 } ?: existing.price,
                 priceChange24h= tok.priceChange24h.takeIf { it != 0.0 } ?: existing.priceChange24h,
-                mcap          = tok.mcap.takeIf { it > 0 } ?: existing.mcap,
+                mcap          = tok.mcap.takeIf { tok.hasTrustedMarketCap6492 } ?: existing.mcap,
+                fdv           = tok.fdv.takeIf { it > 0 } ?: existing.fdv,
+                mcapSource    = tok.mcapSource.takeIf { tok.hasTrustedMarketCap6492 } ?: existing.mcapSource,
                 liquidityUsd  = tok.liquidityUsd.takeIf { it > 0 } ?: existing.liquidityUsd,
                 volume24h     = tok.volume24h.takeIf { it > 0 } ?: existing.volume24h,
                 buys24h       = tok.buys24h.takeIf { it > 0 } ?: existing.buys24h,
@@ -869,7 +904,25 @@ object DynamicAltTokenRegistry {
                 lastUpdatedMs = System.currentTimeMillis(),
             )
         } else {
-            registry[tok.mint] = tok.copy(lastUpdatedMs = System.currentTimeMillis())
+            registry[tok.mint] = if (existing == null) tok.copy(lastUpdatedMs = System.currentTimeMillis()) else existing.copy(
+                symbol = tok.symbol.ifBlank { existing.symbol }, name = tok.name.ifBlank { existing.name },
+                chainId = tok.chainId.ifBlank { existing.chainId }, logoUrl = existing.logoUrl.ifBlank { tok.logoUrl },
+                pairAddress = tok.pairAddress.ifBlank { existing.pairAddress },
+                price = tok.price.takeIf { it > 0.0 } ?: existing.price,
+                priceChange24h = tok.priceChange24h.takeIf { it != 0.0 } ?: existing.priceChange24h,
+                mcap = tok.mcap.takeIf { tok.hasTrustedMarketCap6492 } ?: existing.mcap,
+                fdv = tok.fdv.takeIf { it > 0.0 } ?: existing.fdv,
+                mcapSource = tok.mcapSource.takeIf { tok.hasTrustedMarketCap6492 } ?: existing.mcapSource,
+                liquidityUsd = tok.liquidityUsd.takeIf { it > 0.0 } ?: existing.liquidityUsd,
+                volume24h = tok.volume24h.takeIf { it > 0.0 } ?: existing.volume24h,
+                buys24h = tok.buys24h.takeIf { it > 0 } ?: existing.buys24h,
+                sells24h = tok.sells24h.takeIf { it > 0 } ?: existing.sells24h,
+                ageHours = tok.ageHours.takeIf { it > 0.0 } ?: existing.ageHours,
+                source = tok.source, isTrending = tok.isTrending || existing.isTrending,
+                trendingRank = if (tok.trendingRank >= 0) tok.trendingRank else existing.trendingRank,
+                isBoosted = tok.isBoosted || existing.isBoosted, sector = tok.sector.ifBlank { existing.sector },
+                lastUpdatedMs = System.currentTimeMillis(),
+            )
             if (tok.symbol.isNotBlank()) symbolIndex[tok.symbol.uppercase()] = tok.mint
         }
     }

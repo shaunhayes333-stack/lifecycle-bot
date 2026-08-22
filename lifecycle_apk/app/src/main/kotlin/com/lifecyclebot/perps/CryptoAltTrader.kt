@@ -708,7 +708,16 @@ object CryptoAltTrader {
                 // Re-read the freshly hydrated row so downstream fields are current.
                 val refreshed = DynamicAltTokenRegistry.getTokenByMint(tok.mint) ?: tok
                 val vol     = refreshed.volume24h
-                val mcap    = refreshed.mcap
+                val mcap = if (refreshed.hasTrustedMarketCap6492) refreshed.mcap else {
+                    if (refreshed.mcap > 0.0) try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_MCAP_UNTRUSTED_DROPPED_6492")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "CRYPTO_MCAP_UNTRUSTED_DROPPED_6492",
+                            "symbol=${refreshed.symbol} mint=${refreshed.mint.take(16)} raw=${refreshed.mcap} source=${refreshed.source} provenance=${refreshed.mcapSource.ifBlank { "MISSING" }} action=no_bluechip_no_learning",
+                        )
+                    } catch (_: Throwable) {}
+                    0.0
+                }
                 val rawLiq  = refreshed.liquidityUsd
                 // V5.9.1477 — CRYPTO UNIVERSE LIQUIDITY PROXY. The non-Solana universe
                 // is sourced from CoinGecko (cg:{id} keys), which returns 24h VOLUME but

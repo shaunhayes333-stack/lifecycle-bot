@@ -18,7 +18,9 @@ import java.util.concurrent.atomic.AtomicLong
 object TokenMapAuthority {
     private const val ROUTE_TTL_MS = 90_000L
     private const val ACTIVE_HYDRATION_STALE_MS = 20_000L
+    private const val PENDING_RESULT_RETRY_MS_6492 = 2_000L
     private val activeHydrationByMint = ConcurrentHashMap<String, Long>()
+    private val canonicalResultByMint6492 = ConcurrentHashMap<String, CanonicalTokenMap>()
     private val tokenMapStartUnique = AtomicLong(0L)
     private val tokenMapJoinExisting = AtomicLong(0L)
     private val tokenMapComplete = AtomicLong(0L)
@@ -63,6 +65,19 @@ object TokenMapAuthority {
         return id
     }
 
+    private fun detached6492(tm: CanonicalTokenMap): CanonicalTokenMap = tm.copy(
+        providerTimestamps = tm.providerTimestamps.toMutableMap(),
+        hydrationFailureReasons = tm.hydrationFailureReasons.toMutableList(),
+    )
+
+    private fun installShared6492(ts: TokenState, shared: CanonicalTokenMap): CanonicalTokenMap {
+        val localAttempt = ts.tokenMap.buyAttemptId
+        ts.tokenMap = detached6492(shared).also {
+            if (localAttempt.isNotBlank()) it.buyAttemptId = localAttempt
+        }
+        return ts.tokenMap
+    }
+
     fun ensureDiscoveryTokenMap(ts: TokenState, sourceScanner: String = ts.source): CanonicalTokenMap {
         val now = System.currentTimeMillis()
         val tm = ts.tokenMap
@@ -79,26 +94,34 @@ object TokenMapAuthority {
         tm.marketCap = ts.lastMcap.takeIf { it > 0.0 } ?: tm.marketCap
         tm.fdv = ts.lastFdv.takeIf { it > 0.0 } ?: tm.fdv
         tm.topHolderConcentrationPct = ts.topHolderPct ?: tm.topHolderConcentrationPct
-        tm.providerTimestamps[tm.venue.ifBlank { "DISCOVERY" }] = now
-        tm.updatedAtMs = now
 
         val target = resolveCanonicalTarget(ts, tm)
         tm.canonicalTargetMint = target
-        if (tm.hydrationComplete && (now - tm.updatedAtMs).coerceAtLeast(0L) < ROUTE_TTL_MS) {
-            try {
+        val cached6492 = canonicalResultByMint6492[target]
+        if (cached6492 != null) {
+            val pending = cached6492.routeStatus in setOf("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", "ROUTE_STALE_RECHECK", "DEX_DISCOVERY_VERIFIED_PENDING_JUPITER")
+            val ttl = if (pending) PENDING_RESULT_RETRY_MS_6492 else ROUTE_TTL_MS
+            val strongerLocalEvidence = (tm.pairAddress.isNotBlank() && cached6492.pairAddress.isBlank()) ||
+                (tm.poolAddress.isNotBlank() && cached6492.poolAddress.isBlank()) || tm.jupiterQuoteOk || tm.dexRouteOk
+            if (!strongerLocalEvidence && cached6492.updatedAtMs > 0L && now - cached6492.updatedAtMs < ttl) {
                 tokenMapComplete.incrementAndGet()
-                PipelineHealthCollector.labelInc("TOKEN_MAP_COMPLETE")
-            } catch (_: Throwable) {}
-            return tm
+                try { PipelineHealthCollector.labelInc("TOKEN_MAP_SHARED_RESULT_HIT_6492") } catch (_: Throwable) {}
+                return installShared6492(ts, cached6492)
+            }
         }
+
         val activePrev = activeHydrationByMint.putIfAbsent(target, now)
-        if (activePrev != null && (now - activePrev).coerceAtLeast(0L) < ACTIVE_HYDRATION_STALE_MS) {
+        if (activePrev != null && now - activePrev < ACTIVE_HYDRATION_STALE_MS) {
             tokenMapJoinExisting.incrementAndGet()
+            val shared = canonicalResultByMint6492[target]
             try {
-                ForensicLogger.lifecycle("TOKEN_MAP_JOIN_EXISTING", "attemptId=${tm.buyAttemptId} mint=${target.take(10)} symbol=${tm.symbol} activeAgeMs=${(now-activePrev).coerceAtLeast(0L)}")
+                ForensicLogger.lifecycle("TOKEN_MAP_JOIN_EXISTING", "attemptId=${tm.buyAttemptId} mint=${target.take(10)} symbol=${tm.symbol} activeAgeMs=${(now-activePrev).coerceAtLeast(0L)} action=defer_to_owner_result")
                 PipelineHealthCollector.labelInc("TOKEN_MAP_JOIN_EXISTING")
             } catch (_: Throwable) {}
-            return tm
+            return if (shared != null) installShared6492(ts, shared) else tm.also {
+                it.routeStatus = "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP"
+                it.hydrationComplete = false
+            }
         } else if (activePrev != null) {
             activeHydrationByMint[target] = now
             tokenMapRetry.incrementAndGet()
@@ -107,40 +130,29 @@ object TokenMapAuthority {
         updateActivePeak()
         tokenMapStartUnique.incrementAndGet()
         try { PipelineHealthCollector.labelInc("TOKEN_MAP_START_UNIQUE") } catch (_: Throwable) {}
+        tm.providerTimestamps[tm.venue.ifBlank { "DISCOVERY" }] = now
         if (MintIntegrityGate.isSystemOrStablecoinMint(target)) {
-            tm.routeStatus = "SOURCE_IDENTITY_BAD"
-            tm.hydrationComplete = true
-            tm.hydrationConfidence = 0.0
+            tm.routeStatus = "SOURCE_IDENTITY_BAD"; tm.hydrationComplete = true; tm.hydrationConfidence = 0.0
             tm.hydrationFailureReasons.addOnce("SOURCE_IDENTITY_BAD:target_is_system_or_stable")
         } else if (isSourceLabel(target) || isSourceLabel(ts.symbol) || isSourceLabel(ts.name)) {
-            tm.routeStatus = "SOURCE_IDENTITY_BAD"
-            tm.hydrationComplete = true
-            tm.hydrationConfidence = 0.0
+            tm.routeStatus = "SOURCE_IDENTITY_BAD"; tm.hydrationComplete = true; tm.hydrationConfidence = 0.0
             tm.hydrationFailureReasons.addOnce("SOURCE_IDENTITY_BAD:source_label_as_identity")
-        } else {
-            classifyRoute(tm, ts)
-        }
+        } else classifyRoute(tm, ts)
+        tm.updatedAtMs = now
+        canonicalResultByMint6492[target] = detached6492(tm)
 
         try {
-            ForensicLogger.lifecycle(
-                "TOKEN_MAP_START",
-                "attemptId=${tm.buyAttemptId} mint=${target.take(10)} symbol=${tm.symbol} source=${tm.sourceScanner} pair=${tm.pairAddress.take(10)} pool=${tm.poolAddress.take(10)}"
-            )
+            ForensicLogger.lifecycle("TOKEN_MAP_START", "attemptId=${tm.buyAttemptId} mint=${target.take(10)} symbol=${tm.symbol} source=${tm.sourceScanner} pair=${tm.pairAddress.take(10)} pool=${tm.poolAddress.take(10)}")
             val event = when {
                 tm.routeStatus == "SOURCE_IDENTITY_BAD" -> "TOKEN_MAP_FAIL"
-                tm.routeStatus == "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP" || tm.routeStatus == "ROUTE_STALE_RECHECK" -> "TOKEN_MAP_PENDING"
+                tm.routeStatus in setOf("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", "ROUTE_STALE_RECHECK", "DEX_DISCOVERY_VERIFIED_PENDING_JUPITER") -> "TOKEN_MAP_PENDING"
                 else -> "TOKEN_MAP_OK"
             }
-            ForensicLogger.lifecycle(
-                event,
-                "attemptId=${tm.buyAttemptId} mint=${target.take(10)} symbol=${tm.symbol} routeStatus=${tm.routeStatus} expectedOut=${tm.expectedOutAmount} liqUsd=${tm.liquidityUsd} providers=${tm.providerAttempts} confidence=${tm.hydrationConfidence.fmt2()} failures=${tm.hydrationFailureReasons.joinToString("|").take(160)}"
-            )
+            ForensicLogger.lifecycle(event, "attemptId=${tm.buyAttemptId} mint=${target.take(10)} symbol=${tm.symbol} routeStatus=${tm.routeStatus} expectedOut=${tm.expectedOutAmount} liqUsd=${tm.liquidityUsd} providers=${tm.providerAttempts} confidence=${tm.hydrationConfidence.fmt2()} failures=${tm.hydrationFailureReasons.joinToString("|").take(160)}")
             PipelineHealthCollector.labelInc(event)
         } catch (_: Throwable) {
             try { tokenMapFailed.incrementAndGet(); PipelineHealthCollector.labelInc("TOKEN_MAP_FAILED") } catch (_: Throwable) {}
-        } finally {
-            activeHydrationByMint.remove(target, now)
-        }
+        } finally { activeHydrationByMint.remove(target, now) }
         try { tokenMapComplete.incrementAndGet(); PipelineHealthCollector.labelInc("TOKEN_MAP_COMPLETE") } catch (_: Throwable) {}
         return tm
     }
@@ -151,6 +163,7 @@ object TokenMapAuthority {
         if (tm.routeStatus == "PUMPFUN_BONDING_CURVE_EXECUTABLE") return LiquidityVerdict(tm.routeStatus, executable = true, reason = "pumpfun_curve_expectedOut=${tm.expectedOutAmount}")
         if (tm.routeStatus == "DEX_ROUTABLE") return LiquidityVerdict(tm.routeStatus, executable = true, reason = "dex_or_jupiter_expectedOut=${tm.expectedOutAmount}")
         if (tm.routeStatus == "ROUTE_STALE_RECHECK") return LiquidityVerdict(tm.routeStatus, pending = true, reason = "route older than TTL")
+        if (tm.routeStatus == "DEX_DISCOVERY_VERIFIED_PENDING_JUPITER") return LiquidityVerdict(tm.routeStatus, pending = true, reason = "dex discovery verified; executable quote pending")
         val trueZero = tm.hydrationComplete && tm.routeStatus == "NO_ROUTE" && !tm.pumpFunExecutable && !tm.jupiterQuoteOk && !tm.dexRouteOk && (tm.liquidityUsd ?: 0.0) <= 0.0 && tm.providerAttempts >= 2
         return if (trueZero) {
             LiquidityVerdict("TRUE_ZERO_LIQUIDITY", hardZero = true, reason = "providers=${tm.providerAttempts} evidence=${tm.hydrationFailureReasons.joinToString("|").take(180)}")
@@ -208,6 +221,20 @@ object TokenMapAuthority {
             tm.routeStatus = "ROUTE_STALE_RECHECK"
             tm.hydrationComplete = false
             tm.hydrationFailureReasons.addOnce("ROUTE_STALE_RECHECK:ageMs=$routeAge")
+            return
+        }
+        // V5.0.6492 — provider-family fallback. A scanner-confirmed DEX
+        // price+liquidity observation is enough for paper discovery/finality,
+        // but remains PENDING_JUPITER for LIVE execution until an executable
+        // Jupiter/DEX quote is present. Birdeye is never a prerequisite.
+        val venue6492 = source + " " + tm.venue.uppercase()
+        val dexDiscovery6492 = listOf("DEXSCREENER", "RAYDIUM", "ORCA", "METEORA", "DEX_").any { venue6492.contains(it) }
+        if (dexDiscovery6492 && (tm.priceUsd ?: 0.0) > 0.0 && (tm.liquidityUsd ?: 0.0) > 0.0) {
+            tm.routeStatus = "DEX_DISCOVERY_VERIFIED_PENDING_JUPITER"
+            tm.hydrationComplete = false
+            tm.hydrationConfidence = maxOf(tm.hydrationConfidence, 0.65)
+            tm.providerAttempts = maxOf(tm.providerAttempts, 1)
+            tm.hydrationFailureReasons.addOnce("JUPITER_QUOTE_PENDING:DEX_DISCOVERY_VERIFIED")
             return
         }
         if (tm.providerAttempts >= 2 && tm.hydrationComplete) {

@@ -11055,6 +11055,10 @@ class BotService : Service() {
         operatorLog: Boolean = false,
         expectedRuntimeGeneration: Long? = null,
     ): Boolean {
+        val trustedMarketCapUsd6492 = MarketDataIntegrity6492.trustedMarketCapUsd(
+            raw = marketCapUsd, symbol = symbol, source = source, liquidityUsd = liquidityUsd,
+        ) ?: 0.0
+
         // V5.0.3689 — runtime generation is now an intake contract.
         // Any scanner/self-heal/WS emitter must pass the generation captured at
         // construction. If that generation is no longer the live RUNNING generation,
@@ -11096,7 +11100,7 @@ class BotService : Service() {
             val isUserAdded = source == "USER" || source.contains("USER_ADDED", ignoreCase = true)
             val isRestoredVetted = source == "MEME_REGISTRY_RESTORE" || source == "PROBATION"
             val isPumpSource = source.contains("PUMP", ignoreCase = true) || source.contains("SCANNER_DIRECT", ignoreCase = true)
-            val zeroSignal = liquidityUsd <= 0.0 && confidence <= 0 && marketCapUsd <= 0.0 && volumeH1 <= 0.0
+            val zeroSignal = liquidityUsd <= 0.0 && confidence <= 0 && trustedMarketCapUsd6492 <= 0.0 && volumeH1 <= 0.0
             if (!isUserAdded && !isRestoredVetted && isPumpSource && zeroSignal) {
                 try {
                     ForensicLogger.lifecycle(
@@ -11218,7 +11222,7 @@ class BotService : Service() {
             symbol = symbol,
             source = source,
             liquidityUsd = liquidityUsd,
-            marketCapUsd = marketCapUsd,
+            marketCapUsd = trustedMarketCapUsd6492,
             restoredLosses = 0,
             hasExternalLiquidityProof = liquidityUsd > 0.0,
         )
@@ -11269,7 +11273,7 @@ class BotService : Service() {
         run {
             // V5.9.1036 — pure-zero ALSO covers sub-cent dust (no executable
             // pool, no realistic FDG signal). liq<$1 + mcap<$10 is dust.
-            val isDustLiq = liquidityUsd < 1.0 && marketCapUsd < 10.0
+            val isDustLiq = liquidityUsd < 1.0 && trustedMarketCapUsd6492 < 10.0
             val isUserAdded = source == "USER" || source.contains("USER_ADDED")
             val isRegistryRestore = source == "MEME_REGISTRY_RESTORE"
             val isProbationPromotion = source == "PROBATION"
@@ -11277,7 +11281,7 @@ class BotService : Service() {
                 try {
                     ForensicLogger.lifecycle(
                         "INTAKE_PROBATION_LIQ_ZERO_REJECT_4507",
-                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source srcN=${allSources.size} liq=${"%.4f".format(liquidityUsd)} mcap=${"%.4f".format(marketCapUsd)} no_watchlist=true",
+                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source srcN=${allSources.size} liq=${"%.4f".format(liquidityUsd)} mcap=${"%.4f".format(trustedMarketCapUsd6492)} no_watchlist=true",
                     )
                 } catch (_: Throwable) {}
                 ScannerHardRejectStore.mark(mint, symbol, "PROBATION_LIQ_ZERO_REJECT_4507", source)
@@ -11287,7 +11291,7 @@ class BotService : Service() {
                 try {
                     ForensicLogger.lifecycle(
                         "INTAKE_LIQ_ZERO_REJECT",
-                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source srcN=${allSources.size} liq=${"%.4f".format(liquidityUsd)} mcap=${"%.4f".format(marketCapUsd)}",
+                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source srcN=${allSources.size} liq=${"%.4f".format(liquidityUsd)} mcap=${"%.4f".format(trustedMarketCapUsd6492)}",
                     )
                 } catch (_: Throwable) {}
                 return false
@@ -11333,7 +11337,7 @@ class BotService : Service() {
                     source = source,
                     allSources = allSources,
                     liquidityUsd = liquidityUsd,
-                    marketCapUsd = marketCapUsd,
+                    marketCapUsd = trustedMarketCapUsd6492,
                     volumeH1 = volumeH1,
                     supervisorTimeouts10m = supervisorTimeoutWindowCount,
                     supervisorActive = supervisorLeases.size,
@@ -11363,15 +11367,15 @@ class BotService : Service() {
                 } catch (_: Throwable) {}
             }
             if (coldPump) {
-                val laneAffinity = inferIntakeLaneAffinity(source, allSources, marketCapUsd, liquidityUsd)
-                val toolAffinity = inferIntakeToolAffinity(source, allSources, marketCapUsd, liquidityUsd)
+                val laneAffinity = inferIntakeLaneAffinity(source, allSources, trustedMarketCapUsd6492, liquidityUsd)
+                val toolAffinity = inferIntakeToolAffinity(source, allSources, trustedMarketCapUsd6492, liquidityUsd)
                 val added = try {
                     GlobalTradeRegistry.addToProbationOnly(
                         mint = mint,
                         symbol = symbol.ifBlank { mint.take(6) },
                         addedBy = source,
                         source = allSources.joinToString("+").ifBlank { source },
-                        initialMcap = marketCapUsd,
+                        initialMcap = trustedMarketCapUsd6492,
                         liquidityUsd = liquidityUsd,
                         confidence = confidence,
                         isEstimatedLiquidity = liquidityUsd <= 0.0,
@@ -11384,7 +11388,7 @@ class BotService : Service() {
                     val probationResult = added?.reason ?: "err"
                     ForensicLogger.lifecycle(
                         "INTAKE_PROBATION_ONLY",
-                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source liq=${liquidityUsd.toInt()} mcap=${marketCapUsd.toInt()} vol1h=${volumeH1.toInt()} sourceNeutralPressure=${pressureDecision.probationOnly} pressureReason=${pressureDecision.reason} sourceBrainMult=${"%.2f".format(sourceBrainMult)} sourceBrainProbation=$sourceBrainProbationOnly result=$probationResult"
+                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source liq=${liquidityUsd.toInt()} mcap=${trustedMarketCapUsd6492.toInt()} vol1h=${volumeH1.toInt()} sourceNeutralPressure=${pressureDecision.probationOnly} pressureReason=${pressureDecision.reason} sourceBrainMult=${"%.2f".format(sourceBrainMult)} sourceBrainProbation=$sourceBrainProbationOnly result=$probationResult"
                     )
                 } catch (_: Throwable) {}
                 return added?.probation == true || added?.reason?.contains("PROBATION", ignoreCase = true) == true
@@ -11448,7 +11452,7 @@ class BotService : Service() {
         val prevAt = intakeLastAcceptMs[mint]
         if (prevAt != null && (nowMs - prevAt) < intakeDedupTtlMs) {
             // V5.9.769 — freshness max-take even on dedupe hits.
-            if (liquidityUsd > 0.0 || marketCapUsd > 0.0) {
+            if (liquidityUsd > 0.0 || trustedMarketCapUsd6492 > 0.0) {
                 try {
                     synchronized(status.tokens) {
                         val tsExisting = status.tokens[mint]
@@ -11456,8 +11460,8 @@ class BotService : Service() {
                             if (liquidityUsd > tsExisting.lastLiquidityUsd) {
                                 tsExisting.lastLiquidityUsd = liquidityUsd
                             }
-                            if (marketCapUsd > tsExisting.lastMcap) {
-                                tsExisting.lastMcap = marketCapUsd
+                            if (trustedMarketCapUsd6492 > tsExisting.lastMcap) {
+                                tsExisting.lastMcap = trustedMarketCapUsd6492
                             }
                         }
                     }
@@ -11550,12 +11554,12 @@ class BotService : Service() {
         ForensicLogger.phase(
             ForensicLogger.PHASE.INTAKE,
             symbol.ifBlank { mint.take(6) },
-            "src=$source liq=$$liquidityUsd mcap=$$marketCapUsd vol1h=$$volumeH1 conf=$confidence sources=${allSources.size}"
+            "src=$source liq=$$liquidityUsd mcap=$$trustedMarketCapUsd6492 vol1h=$$volumeH1 conf=$confidence sources=${allSources.size}"
         )
 
         val joinedSources = allSources.ifEmpty { setOf(source) }.joinToString(",")
-        val laneAffinity = inferIntakeLaneAffinity(source, allSources, marketCapUsd, liquidityUsd)
-        val toolAffinity = inferIntakeToolAffinity(source, allSources, marketCapUsd, liquidityUsd)
+        val laneAffinity = inferIntakeLaneAffinity(source, allSources, trustedMarketCapUsd6492, liquidityUsd)
+        val toolAffinity = inferIntakeToolAffinity(source, allSources, trustedMarketCapUsd6492, liquidityUsd)
         try {
             val affinitySymbol = if (symbol.isBlank()) mint.take(6) else symbol
             val laneAffinityLabel = laneAffinity.joinToString("+")
@@ -11621,7 +11625,7 @@ class BotService : Service() {
                     symbol = symbol.ifBlank { mint.take(6) },
                     addedBy = source,
                     source = joinedSources,
-                    initialMcap = marketCapUsd,
+                    initialMcap = trustedMarketCapUsd6492,
                     liquidityUsd = liquidityUsd,
                     confidence = confidence,
                     isMultiSource = allSources.size > 1,
@@ -11634,7 +11638,7 @@ class BotService : Service() {
                     symbol = symbol.ifBlank { mint.take(6) },
                     addedBy = source,
                     source = joinedSources,
-                    initialMcap = marketCapUsd,
+                    initialMcap = trustedMarketCapUsd6492,
                     initialLiquidityUsd = liquidityUsd,
                     confidence = confidence,
                     laneAffinity = laneAffinity,
@@ -11797,9 +11801,9 @@ class BotService : Service() {
                     // wins over older Pump-portal/WS seeds.
                     ts.lastLiquidityUsd = liquidityUsd
                 }
-                if (marketCapUsd > ts.lastMcap) {
+                if (trustedMarketCapUsd6492 > ts.lastMcap) {
                     // V5.9.769 — max-take (was `<= 0.0`).
-                    ts.lastMcap = marketCapUsd
+                    ts.lastMcap = trustedMarketCapUsd6492
                 }
                 // V5.9.655 — operator triage: 391 of 392 PumpPortal tokens
                 // were never reaching SAFETY/V3/LANE_EVAL because
@@ -11815,8 +11819,8 @@ class BotService : Service() {
                 // pre-seed it so the bot can start scoring/safety-checking
                 // immediately instead of waiting for an oracle round-trip
                 // that often fails for fresh launches.
-                if (marketCapUsd > 0.0 && ts.lastPrice <= 0.0) {
-                    ts.lastPrice = marketCapUsd / 1_000_000_000.0
+                if (trustedMarketCapUsd6492 > 0.0 && ts.lastPrice <= 0.0) {
+                    ts.lastPrice = trustedMarketCapUsd6492 / 1_000_000_000.0
                     ts.lastPriceUpdate = System.currentTimeMillis()
                     // V5.9.744 — tag synthetic source. Pump.Fun protocol guarantees
                     // 1B fixed supply on BC, so mcap/1B is the exact per-token price
@@ -11826,7 +11830,7 @@ class BotService : Service() {
                     // and rescales entryPrice once so PnL stays honest.
                     ts.lastPriceSource = "PUMP_FUN_BC_SYNTHETIC"
                     ts.lastPriceDex = "PUMP_FUN"
-                } else if (marketCapUsd > 0.0 && ts.lastPriceSource == "PUMP_FUN_BC_SYNTHETIC") {
+                } else if (trustedMarketCapUsd6492 > 0.0 && ts.lastPriceSource == "PUMP_FUN_BC_SYNTHETIC") {
                     // V5.9.1328 — ROOT FIX F: Synthetic price refresh.
                     // The initial seed above only fires once (lastPrice <= 0
                     // guard). As pump-portal WS keeps streaming updated mcaps
@@ -11840,7 +11844,7 @@ class BotService : Service() {
                     // staleness. The 1B-supply formula is still exact for
                     // pump.fun BC tokens. After graduation to Raydium,
                     // lastPriceSource flips and this branch stops firing.
-                    val newPrice = marketCapUsd / 1_000_000_000.0
+                    val newPrice = trustedMarketCapUsd6492 / 1_000_000_000.0
                     if (newPrice != ts.lastPrice) {
                         ts.lastPrice = newPrice
                         ts.lastPriceUpdate = System.currentTimeMillis()
@@ -11851,7 +11855,7 @@ class BotService : Service() {
                 }
                 if (volumeH1 > 0.0 && ts.history.isEmpty()) {
                     val seedPrice = if (ts.lastPrice > 0) ts.lastPrice else 0.0
-                    val seedMcap = if (ts.lastMcap > 0) ts.lastMcap else marketCapUsd
+                    val seedMcap = if (ts.lastMcap > 0) ts.lastMcap else trustedMarketCapUsd6492
                     val seedCandle = com.lifecyclebot.data.Candle(
                         ts = System.currentTimeMillis(),
                         priceUsd = seedPrice,
@@ -11876,7 +11880,7 @@ class BotService : Service() {
                     val seedCandle = com.lifecyclebot.data.Candle(
                         ts = System.currentTimeMillis(),
                         priceUsd = ts.lastPrice,
-                        marketCap = ts.lastMcap.coerceAtLeast(marketCapUsd),
+                        marketCap = ts.lastMcap.coerceAtLeast(trustedMarketCapUsd6492),
                         volumeH1 = 0.0,
                         volume24h = 0.0,
                         buysH1 = 0,
@@ -11906,9 +11910,9 @@ class BotService : Service() {
                         lastPricePoolAddr = ts.lastPricePoolAddr,
                         lastPriceDex = ts.lastPriceDex,
                         lastPrice = ts.lastPrice.takeIf { it > 0.0 },
-                        lastMcap = ts.lastMcap.takeIf { it > 0.0 } ?: marketCapUsd.takeIf { it > 0.0 },
+                        lastMcap = ts.lastMcap.takeIf { it > 0.0 } ?: trustedMarketCapUsd6492.takeIf { it > 0.0 },
                         lastLiquidityUsd = ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: liquidityUsd.takeIf { it > 0.0 },
-                        lastFdv = ts.lastFdv.takeIf { it > 0.0 } ?: marketCapUsd.takeIf { it > 0.0 },
+                        lastFdv = ts.lastFdv.takeIf { it > 0.0 } ?: trustedMarketCapUsd6492.takeIf { it > 0.0 },
                         creationTimeMs = ts.addedToWatchlistAt.takeIf { it > 0L },
                     )
                 } catch (_: Throwable) {}
@@ -11931,7 +11935,7 @@ class BotService : Service() {
                     mint = mint,
                     symbol = symbol.ifBlank { null },
                     name = name.ifBlank { null },
-                    lastMcap = marketCapUsd.takeIf { it > 0.0 },
+                    lastMcap = trustedMarketCapUsd6492.takeIf { it > 0.0 },
                     lastLiquidityUsd = liquidityUsd.takeIf { it > 0.0 },
                 )
             } catch (_: Throwable) { /* best-effort */ }
@@ -11964,7 +11968,7 @@ class BotService : Service() {
                             lastPriceSource = tsShared?.lastPriceSource ?: "",
                             quoteSuccessful = (tsShared?.pairAddress?.isNotBlank() == true) || (tsShared?.lastPrice ?: 0.0) > 0.0,
                             lastLiquidityUsd = tsShared?.lastLiquidityUsd ?: liquidityUsd,
-                            lastMcapUsd = tsShared?.lastMcap ?: marketCapUsd,
+                            lastMcapUsd = tsShared?.lastMcap ?: trustedMarketCapUsd6492,
                             createdAtMs = creation?.createdAtMs ?: tsShared?.addedToWatchlistAt ?: 0L,
                         )
                     } catch (_: Throwable) {

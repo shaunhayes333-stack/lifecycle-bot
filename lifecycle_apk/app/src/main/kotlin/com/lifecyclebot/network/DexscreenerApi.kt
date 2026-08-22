@@ -154,9 +154,10 @@ class DexscreenerApi {
         val candle = Candle(
             ts          = System.currentTimeMillis(),
             priceUsd    = p.optString("priceUsd", "0").toDoubleOrNull() ?: 0.0,
-            marketCap   = p.optDouble("marketCap", 0.0).let {
-                if (it == 0.0) p.optDouble("fdv", 0.0) else it
-            },
+            // V5.0.6492 — marketCap and FDV are different economics.
+            // Never silently relabel `fdv` as circulating market cap; PairInfo
+            // already carries the provider's FDV separately.
+            marketCap   = p.optDouble("marketCap", 0.0),
             volumeH1    = vol?.optDouble("h1",  0.0) ?: 0.0,
             volume24h   = vol?.optDouble("h24", 0.0) ?: 0.0,
             buysH1      = h1?.optInt("buys",   0) ?: 0,

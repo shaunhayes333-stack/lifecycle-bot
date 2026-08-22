@@ -1313,6 +1313,8 @@ object PipelineHealthCollector {
         try {
             val activeMode6490 = if (try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }) "paper" else "live"
             val canonicalInventory6490 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.activeMintProjections6490(activeMode6490)
+            val canonicalPaper6492 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.activeMintProjections6490("paper")
+            val canonicalLive6492 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.activeMintProjections6490("live")
             val scOpen = canonicalInventory6490.count { it.lane.equals("SHITCOIN", true) }
             val msOpen = canonicalInventory6490.count { it.lane.equals("MOONSHOT", true) }
             val memeOpen = scOpen + msOpen
@@ -1321,7 +1323,10 @@ object PipelineHealthCollector {
             sb.append("===== Canonical active inventory by lane (mode=$activeMode6490) =====\n")
             sb.append(line("Canonical ShitCoin mints:", scOpen, "canonical mode+mint authority")).append('\n')
             sb.append(line("Canonical Moonshot mints:", msOpen, "canonical mode+mint authority")).append('\n')
-            sb.append(line("Canonical active mints:", canonicalInventory6490.size, "wallet/slots/occupancy/sizing source")).append('\n')
+            sb.append(line("Canonical active mints (current mode):", canonicalInventory6490.size, "wallet/slots/occupancy/sizing source")).append('\n')
+            sb.append(line("Canonical PAPER active mints:", canonicalPaper6492.size, "mode+mint projection")).append('\n')
+            sb.append(line("Canonical LIVE active mints:", canonicalLive6492.size, "mode+mint projection")).append('\n')
+            sb.append(line("Canonical active mints (all modes):", (canonicalPaper6492.map { it.mint }.toSet() + canonicalLive6492.map { it.mint }.toSet()).size, "diagnostic union only")).append('\n')
             sb.append(line("Host wallet projection:", hostProjection, "LIVE wallet projection only; not paper authority")).append('\n')
             sb.append(line("LAB sandbox projection:", labProjection, "isolated hypotheses; never canonical inventory")).append('\n')
             sb.append("  Read: canonical active mints are the only slot/capital inventory count; projections are diagnostics only.\n")
@@ -1896,7 +1901,7 @@ object PipelineHealthCollector {
                 com.lifecyclebot.engine.truth.SellQuantityBoundary6459.statusLine()
             ).append("\n")
             sb.append("  Mint occupancy (§6459):       ").append(
-                com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6459.statusLine()
+                com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.statusLine()
             ).append("\n")
             sb.append("  Finalized fanout (§6459):     ").append(
                 com.lifecyclebot.engine.truth.FinalizedFanoutParity6459.statusLine()

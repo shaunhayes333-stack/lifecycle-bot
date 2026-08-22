@@ -52,6 +52,8 @@ object CanonicalCapitalAuthority6450 {
         val feesSol: Double,
         val totalEquitySol: Double,
         val conservationDeltaSol: Double,
+        val staleMarkMints: Int = 0,
+        val fallbackMarkMints: Int = 0,
     )
 
     private val invariantChecks = AtomicLong(0L)
@@ -65,6 +67,8 @@ object CanonicalCapitalAuthority6450 {
     // Absent installation, we still fall back to costBasis to keep
     // unrealized as 0 (never a negative-100% phantom loss).
     private val markProviderRef = java.util.concurrent.atomic.AtomicReference<((String) -> Double)?>(null)
+    private data class GoodMark6492(val wholeMintValueSol: Double, val observedAtMs: Long)
+    private val lastGoodMark6492 = java.util.concurrent.ConcurrentHashMap<String, GoodMark6492>()
 
     fun installMarkProvider(provider: (String) -> Double) {
         markProviderRef.set(provider)
@@ -90,10 +94,36 @@ object CanonicalCapitalAuthority6450 {
         val activeMints = try { CanonicalPositionAuthority6441.activeMintProjections6490("paper") } catch (_: Throwable) { emptyList() }
         val reserved = 0.0 // no reserved event currently exists; remains explicit
         val openCost = PaperAccountLedger6430.openCostBasisSol()
-        val openMv = activeMints.sumOf { aggregate ->
-            val mv = try { markProvider(aggregate.mint) } catch (_: Throwable) { 0.0 }
-            if (mv > 0.0) mv else aggregate.remainingCostBasisSol
+        var staleMarkMints6492 = 0
+        var fallbackMarkMints6492 = 0
+        val activeMintSet6492 = activeMints.map { it.mint }.toSet()
+        lastGoodMark6492.keys.removeIf { it !in activeMintSet6492 }
+        val markedValue6492 = activeMints.sumOf { aggregate ->
+            val fresh = try { markProvider(aggregate.mint) } catch (_: Throwable) { 0.0 }
+            when {
+                fresh.isFinite() && fresh > 0.0 -> {
+                    lastGoodMark6492[aggregate.mint] = GoodMark6492(fresh, System.currentTimeMillis())
+                    fresh
+                }
+                lastGoodMark6492[aggregate.mint] != null -> {
+                    staleMarkMints6492++
+                    lastGoodMark6492.getValue(aggregate.mint).wholeMintValueSol
+                }
+                else -> {
+                    fallbackMarkMints6492++
+                    aggregate.remainingCostBasisSol
+                }
+            }
         }
+        // A non-zero paper open cost with no paper position projection is an
+        // explicit lifecycle mismatch, not a real -100% mark. Keep equity at
+        // basis while the reconciler restores carry positions and surface it.
+        val openMv = if (activeMints.isEmpty() && openCost > 0.0) {
+            fallbackMarkMints6492++
+            try { PipelineHealthCollector.labelInc("CAPITAL_MARK_FALLBACK_NO_CANON_POSITION_6492") } catch (_: Throwable) {}
+            openCost
+        } else markedValue6492
+        if (staleMarkMints6492 > 0) try { PipelineHealthCollector.labelInc("CAPITAL_STALE_LAST_GOOD_MARK_6492") } catch (_: Throwable) {}
         val unrealized = openMv - openCost
         val equity = cash + reserved + openMv
         val expected = startingCash + realized - fees
@@ -109,6 +139,8 @@ object CanonicalCapitalAuthority6450 {
             feesSol = fees,
             totalEquitySol = equity,
             conservationDeltaSol = actual - expected,
+            staleMarkMints = staleMarkMints6492,
+            fallbackMarkMints = fallbackMarkMints6492,
         )
     }
 
@@ -142,6 +174,7 @@ object CanonicalCapitalAuthority6450 {
             "openMV=${"%.4f".format(s.openMarketValueSol)} unrealized=${"%.4f".format(s.unrealizedPnlSol)} " +
             "realized=${"%.4f".format(s.realizedPnlSol)} fees=${"%.4f".format(s.feesSol)} " +
             "equity=${"%.4f".format(s.totalEquitySol)} delta=${"%.6f".format(s.conservationDeltaSol)} " +
+            "staleMarks=${s.staleMarkMints} fallbackMarks=${s.fallbackMarkMints} " +
             "checks=${invariantChecks.get()} violations=${invariantViolations.get()}"
     }
 }
