@@ -54,6 +54,7 @@ object WatchlistEngine {
 
     data class WatchlistItem(
         val symbol: String,
+        val assetId: String = "market:${symbol.uppercase()}",
         val addedAt: Long = System.currentTimeMillis(),
         var lastPrice: Double = 0.0,
         var change24hPct: Double = 0.0,
@@ -108,18 +109,19 @@ object WatchlistEngine {
     // WATCHLIST MANAGEMENT
     // ═══════════════════════════════════════════════════════════════════════
 
-    fun addToWatchlist(symbol: String): Boolean {
+    fun addToWatchlist(symbol: String, assetId: String = "market:${symbol.uppercase()}"): Boolean {
         if (watchlist.size >= MAX_WATCHLIST) return false
-        if (watchlist.containsKey(symbol)) return false
+        val canonicalId = assetId.trim().ifBlank { return false }
+        if (watchlist.containsKey(canonicalId)) return false
 
-        watchlist[symbol] = WatchlistItem(symbol = symbol)
+        watchlist[canonicalId] = WatchlistItem(symbol = symbol, assetId = canonicalId)
         saveWatchlist()
         ErrorLogger.info(TAG, "Added $symbol to watchlist (${watchlist.size} total)")
         return true
     }
 
     fun removeFromWatchlist(symbol: String) {
-        watchlist.remove(symbol)
+        watchlist.entries.removeAll { it.value.symbol.equals(symbol, true) }
         // Remove associated alerts
         alerts.entries.removeAll { it.value.symbol == symbol }
         saveWatchlist()
@@ -129,7 +131,7 @@ object WatchlistEngine {
     fun getWatchlist(): List<WatchlistItem> =
         watchlist.values.sortedByDescending { it.lastUpdated }
 
-    fun isOnWatchlist(symbol: String): Boolean = watchlist.containsKey(symbol)
+    fun isOnWatchlist(symbol: String): Boolean = watchlist.values.any { it.symbol.equals(symbol, true) }
 
     // ═══════════════════════════════════════════════════════════════════════
     // ALERT MANAGEMENT
@@ -179,19 +181,26 @@ object WatchlistEngine {
     suspend fun scan() = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
 
-        for ((symbol, item) in watchlist) {
+        for ((_, item) in watchlist) {
+            val symbol = item.symbol
             try {
-                // Find matching PerpsMarket
-                val market = PerpsMarket.values().firstOrNull { it.symbol == symbol } ?: continue
+                val mintToken = DynamicAltTokenRegistry.getTokenByMint(item.assetId)
+                if (mintToken != null) {
+                    item.lastPrice = mintToken.price
+                    item.change24hPct = mintToken.priceChange24h
+                    item.volume24h = mintToken.volume24h
+                    item.lastUpdated = now
+                    checkAlerts(symbol, item.lastPrice, item.change24hPct, item.volume24h)
+                    continue
+                }
+                if (item.assetId.startsWith("legacy-symbol:")) continue
+                val market = PerpsMarket.values().firstOrNull { "market:${it.symbol.uppercase()}" == item.assetId } ?: continue
                 val data = PerpsMarketDataFetcher.getMarketData(market)
 
-                // Update watchlist item
                 item.lastPrice = data.price
                 item.change24hPct = data.priceChange24hPct
                 item.volume24h = data.volume24h
                 item.lastUpdated = now
-
-                // Check alerts for this symbol
                 checkAlerts(symbol, data.price, data.priceChange24hPct, data.volume24h)
             } catch (e: Exception) {
                 ErrorLogger.debug(TAG, "Scan error for $symbol: ${e.message}")
@@ -261,6 +270,7 @@ object WatchlistEngine {
             watchlist.values.forEach { item ->
                 arr.put(JSONObject().apply {
                     put("symbol", item.symbol)
+                    put("assetId", item.assetId)
                     put("addedAt", item.addedAt)
                 })
             }
@@ -276,8 +286,9 @@ object WatchlistEngine {
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
                 val symbol = obj.getString("symbol")
-                watchlist[symbol] = WatchlistItem(
-                    symbol = symbol,
+                val assetId = obj.optString("assetId", "").ifBlank { "legacy-symbol:${symbol.uppercase()}" }
+                watchlist[assetId] = WatchlistItem(
+                    symbol = symbol, assetId = assetId,
                     addedAt = obj.optLong("addedAt", System.currentTimeMillis())
                 )
             }

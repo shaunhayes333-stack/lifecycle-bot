@@ -244,8 +244,7 @@ object MarketsLiveExecutor {
                 java.math.BigInteger.ZERO, 0, sizeSol, 0.0, "NO_WALLET", reason = "No wallet")
         val walletAddress = wallet.publicKeyB58 ?: ""
         val targetMint = if (market.isCrypto) {
-            DynamicAltTokenRegistry.getTokenBySymbol(market.symbol)?.mint
-                ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
+            com.lifecyclebot.perps.crypto.CryptoWrappedAssetMapper.resolveWrappedMint(market.symbol)
         } else TokenizedAssetRegistry.mintFor(market.symbol)
         val preTarget = if (targetMint != null) try {
             wallet.getTokenAccountsWithDecimalsBounded()[targetMint]
@@ -370,8 +369,7 @@ object MarketsLiveExecutor {
         // so the row stays useful, but no caller will mistake the symbol
         // for an addressable mint downstream.
         val resolvedMint: String? = try {
-            com.lifecyclebot.perps.DynamicAltTokenRegistry.getTokenBySymbol(market.symbol)?.mint
-                ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
+            com.lifecyclebot.perps.crypto.CryptoWrappedAssetMapper.resolveWrappedMint(market.symbol)
                 ?.takeIf { com.lifecyclebot.engine.execution.MintIntegrityGate.isLikelyMint(it) }
         } catch (_: Throwable) { null }
         val forensicsMint = resolvedMint ?: ""
@@ -447,10 +445,7 @@ object MarketsLiveExecutor {
         val txSignature = when {
             market.isCrypto -> {
                 // Resolve Solana mint for the crypto symbol
-                val mint = com.lifecyclebot.perps.DynamicAltTokenRegistry
-                    .getTokenBySymbol(market.symbol)
-                    ?.mint
-                    ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
+                val mint = com.lifecyclebot.perps.crypto.CryptoWrappedAssetMapper.resolveWrappedMint(market.symbol)
 
                 when {
                     leverage > 1.0 -> {
@@ -808,9 +803,7 @@ object MarketsLiveExecutor {
         val sizeUsd = sizeSol * solPriceUsd
 
         // Runtime mint lookup — Jupiter strict list is fetched at startup into DynamicAltTokenRegistry
-        val runtimeMint = com.lifecyclebot.perps.DynamicAltTokenRegistry
-            .getTokenBySymbol(market.symbol)?.mint
-            ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
+        val runtimeMint = com.lifecyclebot.perps.crypto.CryptoWrappedAssetMapper.resolveWrappedMint(market.symbol)
 
         if (runtimeMint == null) {
             // V5.9.495p — operator: "it thought it bought 3 tokens. it just
@@ -1486,10 +1479,7 @@ object MarketsLiveExecutor {
         val cryptoMint = if (!isShortBridge && (market.isCrypto || !cryptoTargetMintOverride.isNullOrBlank())) {
             cryptoTargetMintOverride
                 ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
-                ?: com.lifecyclebot.perps.DynamicAltTokenRegistry
-                    .getTokenBySymbol(closeSymbol)
-                    ?.mint
-                    ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
+                ?: com.lifecyclebot.perps.crypto.CryptoWrappedAssetMapper.resolveWrappedMint(closeSymbol)
         } else null
         val targetMint = tokenizedMint ?: cryptoMint
         val useTokenized = !isShortBridge && targetMint != null &&

@@ -100,8 +100,9 @@ class DexscreenerApi {
         for (i in 0 until pairs.length()) {
             val p = pairs.getJSONObject(i)
             val baseAddress = p.optJSONObject("baseToken")?.optString("address", "") ?: ""
-            if (baseAddress.isNotBlank() && baseAddress != mint) {
-                // This mint is the QUOTE token in this pair — skip it to avoid price pollution
+            if (baseAddress != mint) {
+                // V5.0.6493 — blank, quote-side, or different-token rows are non-authorizing.
+                // Never copy their price/cap/FDV/liquidity/volume onto the requested mint.
                 continue
             }
             val score = scorePair(p)

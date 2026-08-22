@@ -483,10 +483,7 @@ object JupiterPerps {
             return@withContext null
         }
 
-        val mint = DynamicAltTokenRegistry
-            .getTokenBySymbol(market.symbol)
-            ?.mint
-            ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
+        val mint = com.lifecyclebot.perps.crypto.CryptoWrappedAssetMapper.resolveWrappedMint(market.symbol)
 
         if (mint == null) {
             ErrorLogger.warn(TAG, "⛔ No Solana mint for ${market.symbol} in DynamicAltTokenRegistry — cannot execute live trade.")

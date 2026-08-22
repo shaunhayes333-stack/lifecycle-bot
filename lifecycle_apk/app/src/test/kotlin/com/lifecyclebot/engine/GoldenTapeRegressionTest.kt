@@ -7111,7 +7111,7 @@ class GoldenTapeRegressionTest {
         val mainLayout6095 = java.io.File("src/main/res/layout/activity_main.xml").readText()
         assertTrue("V5.0.6095: Crypto Universe must use MEME-parity sizing, not a micro-only treadmill", cryptoAlt6095.contains("DEFAULT_SIZE_PCT      = 6.0") && cryptoAlt6095.contains("CRYPTO_UNIVERSE_MEME_PARITY_SIZE_6095") && cryptoAlt6095.contains("balance * 0.45"))
         assertTrue("V5.0.6095: Crypto toxic buckets must soft-shape tactic/size instead of hard-returning", cryptoAlt6095.contains("CRYPTO_TOXIC_PATTERN_SOFT_SHAPE_6095") && cryptoAlt6095.contains("cryptoToxicSizeMult6095 = 0.35") && !cryptoAlt6095.contains("CRYPTO_TOXIC_PATTERN_HARD_BLOCK"))
-        assertTrue("V5.0.6095: Crypto V3 bridge must receive realistic liquidity context", cryptoAlt6095.contains("entryLiqUsd = altLiqMcapHint(mktSym).first") && cryptoAlt6095.contains("MEME trader's rich entry snapshot structure"))
+        assertTrue("V5.0.6095: Crypto V3 bridge must receive realistic liquidity context", cryptoAlt6095.contains("entryLiqUsd = exactAssetMetrics6493(signal).liquidityUsd") && cryptoAlt6095.contains("MEME trader's rich entry snapshot structure"))
         assertTrue("V5.0.6095: main UI must surface the expanded MEME+CRYPTO layer stack", mainActivity6095.contains("41+ layers · MEME+CRYPTO") && mainLayout6095.contains("41+ layers · MEME+CRYPTO"))
         val insiderCopy6096 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InsiderCopyEngine.kt").readText()
         assertTrue("V5.0.6096: INSIDER_SHARK/COPY must open Crypto Universe positions, not just MEME/watchlist advisories", cryptoAlt6095.contains("copyBuyFromInsiderSignal") && cryptoAlt6095.contains("INSIDER_SHARK_CRYPTO_COPY_BUY_6096") && insiderCopy6096.contains("copyBuyCryptoAlt6096") && insiderCopy6096.contains("CryptoAltTrader.copyBuyFromInsiderSignal"))
@@ -7212,7 +7212,7 @@ class GoldenTapeRegressionTest {
         val markets = java.io.File("src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt").readText()
         val closeFn = markets.substringAfter("suspend fun closeLivePosition").substringBefore("val (inputMint, amountUnits)")
         assertTrue("V5.0.4582: CryptoAlt close must pass the real dynamic crypto mint/symbol into live close", trader.contains("cryptoTargetMintOverride = pos.dynMint") && trader.contains("cryptoSymbolOverride = mktSym"))
-        assertTrue("V5.0.4582: Markets live close must prefer cryptoTargetMintOverride / closeSymbol over the DYN sentinel", closeFn.contains("cryptoTargetMintOverride") && closeFn.contains("val closeSymbol") && closeFn.contains("getTokenBySymbol(closeSymbol)") && closeFn.contains("market != PerpsMarket.DYN"))
+        assertTrue("V5.0.4582: Markets live close must prefer cryptoTargetMintOverride / closeSymbol over the DYN sentinel", closeFn.contains("cryptoTargetMintOverride") && closeFn.contains("val closeSymbol") && closeFn.contains("CryptoWrappedAssetMapper.resolveWrappedMint(closeSymbol)") && closeFn.contains("market != PerpsMarket.DYN"))
         assertTrue("V5.0.4582: overridden crypto target mint must use tokenized target close path, not USDC legacy fallback", closeFn.contains("market.isCrypto || !cryptoTargetMintOverride.isNullOrBlank()") && closeFn.contains("!cryptoTargetMintOverride.isNullOrBlank()"))
     }
 
@@ -8065,6 +8065,57 @@ class GoldenTapeRegressionTest {
                 report.contains("Canonical active mints (current mode):"))
         assertTrue("6490 LAB hypothesis positions must stay outside canonical TradeHistoryStore",
             lab.contains("LAB_SANDBOX_OPEN_ISOLATED_" + "6490") && lab.contains("LAB_SANDBOX_CLOSE_ISOLATED_" + "6490"))
+    }
+
+
+    @Test
+    fun V5_0_6493_token_identity_is_mint_never_symbol() {
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/perps/DynamicAltTokenRegistry.kt").readText()
+        val resolver = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseRouteResolver.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseExecutor.kt").readText()
+        val trader = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val reconcile = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val watchlist = java.io.File("src/main/kotlin/com/lifecyclebot/perps/WatchlistEngine.kt").readText()
+        val price = java.io.File("src/main/kotlin/com/lifecyclebot/perps/PriceAggregator.kt").readText()
+        val scorer = java.io.File("src/main/kotlin/com/lifecyclebot/perps/PerpsUnifiedScorerBridge.kt").readText()
+        val ui = java.io.File("src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt").readText()
+        val dex = java.io.File("src/main/kotlin/com/lifecyclebot/network/DexscreenerApi.kt").readText()
+        val candidate = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoFinalBuyCandidate.kt").readText()
+
+        assertTrue("6493 registry must index multiple canonical IDs per display symbol and reject ambiguous execution",
+            registry.contains("symbolCandidates" + "6493") && registry.contains("getUniqueExecutableTokenBySymbol" + "6493") &&
+                registry.contains("CRYPTO_EXEC_MINT_AMBIGUOUS_REJECTED_" + "6493"))
+        assertTrue("6493 CoinGecko trending and Jupiter discovery must never join by symbol",
+            registry.contains("val mint     = " + '"' + "cg:" + '$' + "{tok.id}" + '"') &&
+                registry.contains("NEVER migrate CoinGecko data onto a Jupiter") &&
+                !registry.contains("val cgKey = symbolIndex[symbol]"))
+        assertTrue("6493 dynamic route and executor must carry explicit symbol plus canonical mint",
+            resolver.contains("assetSymbol" + "6493") && resolver.contains("targetMint" + "6493") &&
+                resolver.contains("no symbol fallback allowed") && executor.contains("targetMint" + "6493"))
+        assertTrue("6493 trader canonical key, live handoff and learning must use dynMint/canonical identity",
+            trader.contains("signal.dynMint?.trim()") && trader.contains("targetMint6493 = signal.dynMint") &&
+                trader.contains("canonicalAssetId6493 = position.canonicalAssetKey") &&
+                trader.contains("canonicalAssetId6493 = pos.dynMint ?: pos.canonicalAssetKey"))
+        assertTrue("6493 wallet reconciliation and price hydration must never resolve an arbitrary ticker owner",
+            reconcile.contains("if (p.dynMint != null) p.dynMint") &&
+                price.contains("getUniqueExecutableTokenBySymbol6493(symbol)"))
+        assertTrue("6493 watchlist and UI must persist/load crypto by canonical asset ID",
+            watchlist.contains("val assetId:") && watchlist.contains("legacy-symbol:") &&
+                watchlist.contains("getTokenByMint(item.assetId)") && ui.contains("pos.dynMint?.let") && ui.contains("getTokenByMint(it)"))
+        assertTrue("6493 scorer entry/close keys must accept canonical asset identity",
+            scorer.contains("canonicalAssetId6493") && scorer.contains("?: makeMintKey(assetClass, symbol)"))
+        assertTrue("6493 Dex data must require exact requested base mint before copying token economics",
+            dex.contains("if (baseAddress != mint)") && dex.contains("blank, quote-side, or different-token rows"))
+        assertTrue("6493 dynamic AI and candidate economics must be address keyed with explicit provenance",
+            trader.contains("ShitCoinTraderAI.hasPosition(tok.mint)") &&
+                trader.contains("mint              = tok.mint") &&
+                trader.contains("val exactMetrics6493 = exactAssetMetrics6493(signal)") &&
+                trader.contains("market = PerpsMarket.DYN") &&
+                !trader.contains("val enumMkt = PerpsMarket.values().find { it.symbol == tok.symbol }") &&
+                candidate.contains("marketCapSource6493"))
+        assertTrue("6493 must not fabricate token liquidity from bulk volume or trust legacy generic Dex caps",
+            !trader.contains("vol * 0.10") && !registry.contains("DEXSCREENER_MARKET_CAP") &&
+                registry.contains("DEXSCREENER_BASE_MINT_MARKET_CAP"))
     }
 
 }

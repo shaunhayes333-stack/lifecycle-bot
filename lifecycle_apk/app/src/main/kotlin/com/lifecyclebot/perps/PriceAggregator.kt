@@ -878,7 +878,7 @@ object PriceAggregator {
         xStockMints[symbol]?.let { return it }
         return try {
             val tokMint = com.lifecyclebot.perps.DynamicAltTokenRegistry
-                .getTokenBySymbol(symbol)?.mint
+                .getUniqueExecutableTokenBySymbol6493(symbol)?.mint
             if (tokMint != null
                 && tokMint.isNotBlank()
                 && !tokMint.startsWith("cg:")

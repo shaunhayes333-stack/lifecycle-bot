@@ -718,21 +718,9 @@ object CryptoAltTrader {
                     } catch (_: Throwable) {}
                     0.0
                 }
-                val rawLiq  = refreshed.liquidityUsd
-                // V5.9.1477 — CRYPTO UNIVERSE LIQUIDITY PROXY. The non-Solana universe
-                // is sourced from CoinGecko (cg:{id} keys), which returns 24h VOLUME but
-                // NOT DEX pool liquidity, so liquidityUsd arrives 0 for every BTC/ETH/L1/
-                // L2 major. The sub-trader gates (BlueChip liq>1M, Quality, Moonshot) then
-                // dropped the ENTIRE non-Solana universe — the bot could only trade the
-                // handful of coins with a resolvable Solana-DEX liq figure (operator saw
-                // ~5 crypto trades over 7h while meme did 536). A top-500-by-volume coin
-                // is by definition deeply liquid; when DEX liq is unknown, use a
-                // conservative fraction of 24h volume as the liquidity proxy so these
-                // legitimately-liquid majors clear the gates. Paper-mode only sizing risk;
-                // spot path. Real Solana-mint tokens keep their true on-chain liq.
-                val liq     = if (rawLiq > 0.0) rawLiq
-                              else if (tok.mint.startsWith("cg:") && vol > 0.0) (vol * 0.10).coerceAtMost(50_000_000.0)
-                              else rawLiq
+                // V5.0.6493 — liquidity is exact-provider data for this canonical
+                // asset ID. Never relabel bulk 24h volume as token liquidity.
+                val liq = refreshed.liquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
                 val change  = refreshed.priceChange24h
                 val buys1h  = refreshed.buys24h  / 24
                 val sells1h = refreshed.sells24h / 24
@@ -745,17 +733,17 @@ object CryptoAltTrader {
                 // Feed sector intelligence layer
                 try {
                     val btcPrice = PerpsMarketDataFetcher.getCachedPrice(PerpsMarket.BTC)?.price ?: 0.0
-                    CryptoAltScannerAI.recordPrice(tok.symbol, price, btcPrice)
-                    CrossAssetLeadLagAI.recordReturn(tok.symbol, change)
-                    CrossMarketRegimeAI.updateMarketState(tok.symbol, price, change, vol)
+                    CryptoAltScannerAI.recordPrice(tok.mint, price, btcPrice)
+                    CrossAssetLeadLagAI.recordReturn(tok.mint, change)
+                    CrossMarketRegimeAI.updateMarketState(tok.mint, price, change, vol)
                 } catch (_: Exception) {}
 
                 // ── ShitCoin sub-AI (low-cap / meme tokens) ──────────────────────────
-                if (mcap < 50_000_000.0 || isMeme) {
-                    if (!ShitCoinTraderAI.hasPosition(tok.symbol)) {
+                if ((mcap > 0.0 && mcap < 50_000_000.0) || isMeme) {
+                    if (!ShitCoinTraderAI.hasPosition(tok.mint)) {
                         try {
                             val sig = ShitCoinTraderAI.evaluate(
-                                mint              = tok.symbol,
+                                mint              = tok.mint,
                                 symbol            = tok.symbol,
                                 currentPrice      = price,
                                 marketCapUsd      = mcap,
@@ -782,7 +770,6 @@ object CryptoAltTrader {
                                 // Prefer a hardcoded enum entry when one exists (keeps
                                 // its metadata); otherwise carry the real identity on the
                                 // DYN sentinel so the coin is no longer silently dropped.
-                                val enumMkt = PerpsMarket.values().find { it.symbol == tok.symbol }
                                 run {
                                     // V5.9.230: direction from buyPressure + momentum, not just price sign
                                     val scDir = when {
@@ -793,12 +780,12 @@ object CryptoAltTrader {
                                         else -> if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT
                                     }
                                     dynExecutableSignals.add(AltSignal(
-                                        market = enumMkt ?: PerpsMarket.DYN, direction = scDir,
+                                        market = PerpsMarket.DYN, direction = scDir,
                                         score = sig.confidence, confidence = sig.confidence, price = price,
                                         priceChange24h = change, reasons = listOf("DynScan ShitCoin score=${sig.confidence} ${scDir.name}"),
                                         layerVotes = emptyMap(),
-                                        dynSymbol = if (enumMkt == null) tok.symbol else null,
-                                        dynName   = if (enumMkt == null) tok.name else null,
+                                        dynSymbol = tok.symbol,
+                                        dynName   = tok.name,
                                         dynMint   = tok.mint
                                     ))
                                 }
@@ -809,10 +796,10 @@ object CryptoAltTrader {
 
                 // ── BlueChip sub-AI (large-cap, liquid) ──────────────────────────────
                 if (mcap > 500_000_000.0 && liq > 1_000_000.0) {
-                    if (!BlueChipTraderAI.hasPosition(tok.symbol)) {
+                    if (!BlueChipTraderAI.hasPosition(tok.mint)) {
                         try {
                             val sig = BlueChipTraderAI.evaluate(
-                                mint           = tok.symbol,
+                                mint           = tok.mint,
                                 symbol         = tok.symbol,
                                 currentPrice   = price,
                                 marketCapUsd   = mcap,
@@ -828,7 +815,6 @@ object CryptoAltTrader {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙🔵 DynSig BlueChip: ${tok.symbol} conf=${sig.confidence}")
                                 // V5.0.4581: no canonical-open hook here — this is only signal generation.
-                                val enumMkt = PerpsMarket.values().find { it.symbol == tok.symbol }
                                 run {
                                     val bcDir = when {
                                         buyPct >= 55 && momentum > 1.0 -> PerpsDirection.LONG
@@ -836,12 +822,12 @@ object CryptoAltTrader {
                                         else -> if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT
                                     }
                                     dynExecutableSignals.add(AltSignal(
-                                        market = enumMkt ?: PerpsMarket.DYN, direction = bcDir,
+                                        market = PerpsMarket.DYN, direction = bcDir,
                                         score = sig.confidence + 5, confidence = sig.confidence, price = price,
                                         priceChange24h = change, reasons = listOf("DynScan BlueChip mcap=\$${(mcap/1_000_000).toInt()}M ${bcDir.name}"),
                                         layerVotes = emptyMap(),
-                                        dynSymbol = if (enumMkt == null) tok.symbol else null,
-                                        dynName   = if (enumMkt == null) tok.name else null,
+                                        dynSymbol = tok.symbol,
+                                        dynName   = tok.name,
                                         dynMint   = tok.mint
                                     ))
                                 }
@@ -852,10 +838,10 @@ object CryptoAltTrader {
 
                 // ── Express sub-AI (high-momentum tokens) ────────────────────────────
                 if (kotlin.math.abs(change) > 5.0 && vol > 100_000.0) {
-                    if (!ShitCoinExpress.hasRide(tok.symbol)) {
+                    if (!ShitCoinExpress.hasRide(tok.mint)) {
                         try {
                             val sig = ShitCoinExpress.evaluate(
-                                mint            = tok.symbol,
+                                mint            = tok.mint,
                                 symbol          = tok.symbol,
                                 currentPrice    = price,
                                 marketCapUsd    = mcap,
@@ -879,10 +865,10 @@ object CryptoAltTrader {
 
                 // ── Moonshot sub-AI (ultra-low mcap, trending) ───────────────────────
                 if (mcap in 100_000.0..50_000_000.0 || tok.isTrending) {
-                    if (!MoonshotTraderAI.hasPosition(tok.symbol)) {
+                    if (!MoonshotTraderAI.hasPosition(tok.mint)) {
                         try {
                             val sig = MoonshotTraderAI.scoreToken(
-                                mint           = tok.symbol,
+                                mint           = tok.mint,
                                 symbol         = tok.symbol,
                                 marketCapUsd   = mcap,
                                 liquidityUsd   = liq,
@@ -898,15 +884,14 @@ object CryptoAltTrader {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙🌙 DynSig Moonshot: ${tok.symbol}")
                                 // V5.0.4581: no canonical-open hook here — this is only signal generation.
-                                val enumMkt = PerpsMarket.values().find { it.symbol == tok.symbol }
                                 dynExecutableSignals.add(AltSignal(
                                     // V5.9.230: Moonshot is always LONG (looking for explosive upside)
-                                    market = enumMkt ?: PerpsMarket.DYN, direction = PerpsDirection.LONG,
+                                    market = PerpsMarket.DYN, direction = PerpsDirection.LONG,
                                     score = sig.score.coerceAtMost(95), confidence = sig.score.coerceAtMost(95), price = price,
                                     priceChange24h = change, reasons = listOf("DynScan Moonshot trending=${tok.isTrending}"),
                                     layerVotes = emptyMap(),
-                                    dynSymbol = if (enumMkt == null) tok.symbol else null,
-                                    dynName   = if (enumMkt == null) tok.name else null,
+                                    dynSymbol = tok.symbol,
+                                    dynName   = tok.name,
                                     dynMint   = tok.mint
                                 ))
                             }
@@ -915,10 +900,10 @@ object CryptoAltTrader {
                 }
 
                 // ── Manipulated sub-AI (pump signals) ────────────────────────────────
-                if (!ManipulatedTraderAI.hasPosition(tok.symbol)) {
+                if (!ManipulatedTraderAI.hasPosition(tok.mint)) {
                     try {
                         val sig = ManipulatedTraderAI.evaluate(
-                            mint          = tok.symbol,
+                            mint          = tok.mint,
                             symbol        = tok.symbol,
                             currentPrice  = price,
                             marketCapUsd  = mcap,
@@ -1086,11 +1071,8 @@ object CryptoAltTrader {
                 // The gate now runs in EVERY live path so unreachable symbols never burn cycles.
                 val isLiveScan = !isPaperMode.get()
                 if (isLiveScan) {
-                    val hasMint = com.lifecyclebot.perps.DynamicAltTokenRegistry
-                        .getTokenBySymbol(market.symbol)
-                        ?.mint
-                        ?.let { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
-                        ?: false
+                    val hasMint = com.lifecyclebot.perps.crypto.CryptoWrappedAssetMapper
+                        .resolveWrappedMint(market.symbol) != null
                     val flashSupported = market.symbol.uppercase() in FLASH_TRADE_PERPS_SYMBOLS
                     if (!hasMint && !flashSupported) {
                         ErrorLogger.debug(TAG, "🪙 LIVE SKIP: ${market.symbol} — no Solana mint AND not on Flash perps")
@@ -1259,11 +1241,8 @@ object CryptoAltTrader {
             // V5.9.303: AUTO-ROUTE TO LEVERAGE when SPOT lacks a Solana mint but Flash supports the symbol.
             // This is the "currency bridge" the user expects — alt trader actually trades the whole market.
             if (!isPaperMode.get() && useSpot) {
-                val hasMint = com.lifecyclebot.perps.DynamicAltTokenRegistry
-                    .getTokenBySymbol(signal.market.symbol)
-                    ?.mint
-                    ?.let { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
-                    ?: false
+                val hasMint = com.lifecyclebot.perps.crypto.CryptoWrappedAssetMapper
+                    .resolveWrappedMint(signal.market.symbol) != null
                 if (!hasMint && signal.market.symbol.uppercase() in FLASH_TRADE_PERPS_SYMBOLS) {
                     useSpot = false
                     leverage = DEFAULT_LEVERAGE
@@ -1664,6 +1643,40 @@ object CryptoAltTrader {
     }
 
 
+    private data class ExactAssetMetrics6493(
+        val liquidityUsd: Double,
+        val marketCapUsd: Double,
+        val marketCapSource: String,
+        val fdvUsd: Double,
+        val volume24hUsd: Double,
+    )
+
+    private fun exactAssetMetrics6493(signal: AltSignal): ExactAssetMetrics6493 {
+        val identity = cryptoAssetKey(signal, isSpot = true)
+        val tok = DynamicAltTokenRegistry.getTokenByMint(identity)
+            ?: return ExactAssetMetrics6493(0.0, 0.0, "", 0.0, 0.0)
+        val trustedMcap = tok.mcap.takeIf { tok.hasTrustedMarketCap6492 && it.isFinite() && it > 0.0 } ?: 0.0
+        return ExactAssetMetrics6493(
+            liquidityUsd = tok.liquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
+            marketCapUsd = trustedMcap,
+            marketCapSource = if (trustedMcap > 0.0) tok.mcapSource else "",
+            fdvUsd = tok.fdv.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
+            volume24hUsd = tok.volume24h.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
+        )
+    }
+
+    private fun cryptoMarketCapLane6493(signal: AltSignal, trustedMcap: Double): CryptoFinalBuyCandidate.MarketCapLane {
+        if (signal.dynMint != null) return when {
+            trustedMcap >= 50_000_000_000.0 -> CryptoFinalBuyCandidate.MarketCapLane.MEGA_CAP
+            trustedMcap >= 5_000_000_000.0 -> CryptoFinalBuyCandidate.MarketCapLane.MAJOR
+            trustedMcap >= 1_000_000_000.0 -> CryptoFinalBuyCandidate.MarketCapLane.LARGE_CAP
+            trustedMcap >= 100_000_000.0 -> CryptoFinalBuyCandidate.MarketCapLane.MID_CAP
+            trustedMcap >= 10_000_000.0 -> CryptoFinalBuyCandidate.MarketCapLane.LOW_CAP
+            else -> CryptoFinalBuyCandidate.MarketCapLane.MICRO_CAP
+        }
+        return cryptoMarketCapLane(signal.marketSymbol)
+    }
+
     private fun cryptoMarketCapLane(symbol: String): CryptoFinalBuyCandidate.MarketCapLane = when (symbol.uppercase()) {
         "BTC", "WBTC", "ETH", "SOL" -> CryptoFinalBuyCandidate.MarketCapLane.MEGA_CAP
         "BNB", "XRP", "ADA", "DOGE", "TRX", "TON", "AVAX", "LINK", "DOT", "LTC" -> CryptoFinalBuyCandidate.MarketCapLane.MAJOR
@@ -1683,9 +1696,10 @@ object CryptoAltTrader {
     }
 
     private fun cryptoAssetKey(signal: AltSignal, isSpot: Boolean): String {
-        val assetType = if (isSpot) "SPOT" else "PERP"
-        val venue = if (isSpot) "UNIVERSE" else "PERP"
-        return "CRYPTO:$venue:${signal.marketSymbol.uppercase()}:$assetType"
+        signal.dynMint?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
+        if (!isSpot) return "perps:${signal.market.name}"
+        return com.lifecyclebot.perps.crypto.CryptoWrappedAssetMapper.resolveWrappedMint(signal.marketSymbol)
+            ?: "unresolved:${signal.market.name}"
     }
 
     private fun buildCryptoFinalBuyCandidate(
@@ -1694,10 +1708,14 @@ object CryptoAltTrader {
         finalSize: Double,
     ): CryptoFinalBuyCandidate {
         val symbol = signal.marketSymbol.uppercase()
-        val lane = cryptoMarketCapLane(symbol)
+        val exactMetrics6493 = exactAssetMetrics6493(signal)
+        val lane = cryptoMarketCapLane6493(signal, exactMetrics6493.marketCapUsd)
         val assetType = if (isSpot) CryptoFinalBuyCandidate.AssetType.SPOT else CryptoFinalBuyCandidate.AssetType.PERP
         val walletSol = try { WalletManager.getWallet()?.getSolBalance() ?: getEffectiveBalance() } catch (_: Throwable) { getEffectiveBalance() }
-        val route = try { CryptoUniverseRouteResolver.resolve(signal.market, walletSol, finalSize) } catch (_: Throwable) { null }
+        val route = try { CryptoUniverseRouteResolver.resolve(
+            signal.market, walletSol, finalSize,
+            assetSymbol6493 = signal.marketSymbol, targetMint6493 = signal.dynMint,
+        ) } catch (_: Throwable) { null }
         val hardNo = mutableListOf<String>()
         val soft = mutableListOf<String>()
         if (signal.price <= 0.0) hardNo += "PRICE_CONTEXT_MISSING"
@@ -1706,7 +1724,9 @@ object CryptoAltTrader {
         if (!isPaperMode.get() && route?.executable != true) hardNo += "ROUTE_UNAVAILABLE"
         if (route?.route == com.lifecyclebot.perps.crypto.CryptoExecutionRoute.PAPER_ONLY && isPaperMode.get()) soft += "PAPER_ONLY_ROUTE"
         if (signal.direction == PerpsDirection.SHORT && isSpot) hardNo += "SPOT_SHORT_UNSUPPORTED"
-        val liq = altLiqMcapHint(symbol).first
+        val liq = exactMetrics6493.liquidityUsd
+        if (signal.dynMint != null && liq <= 0.0) soft += "MINT_LIQUIDITY_UNKNOWN_6493"
+        if (signal.dynMint != null && exactMetrics6493.marketCapUsd <= 0.0) soft += "MINT_MARKET_CAP_UNKNOWN_6493"
         val spread = when (lane) {
             CryptoFinalBuyCandidate.MarketCapLane.MEGA_CAP -> 0.03
             CryptoFinalBuyCandidate.MarketCapLane.MAJOR -> 0.08
@@ -1742,6 +1762,10 @@ object CryptoAltTrader {
             confidence = signal.confidence,
             safetyTier = "SAFE",
             liquidityUsd = liq,
+            marketCapUsd6493 = exactMetrics6493.marketCapUsd,
+            marketCapSource6493 = exactMetrics6493.marketCapSource,
+            fdvUsd6493 = exactMetrics6493.fdvUsd,
+            volume24hUsd6493 = exactMetrics6493.volume24hUsd,
             routeQuality = route?.route?.name ?: "UNKNOWN",
             spread = spread,
             slippageEstimate = slippage,
@@ -1759,7 +1783,7 @@ object CryptoAltTrader {
         // uses fully isolated persistence + state so crypto closes NEVER
         // touch meme discipline state. Vetoes run BEFORE EXEC_GATE/auth.
         run {
-            val assetKey4151 = candidate.assetKey.ifBlank { candidate.symbol }
+            val assetKey4151 = candidate.assetKey
             // Lane tag must match the recorder side (CryptoAltTrader close path)
             // — CRYPTO_SPOT for SPOT/TOKENIZED, CRYPTO_LEV for PERP. This keeps
             // the per-lane WR windows in CryptoLivePauseButton/LaneTimeoutGate
@@ -2147,10 +2171,11 @@ object CryptoAltTrader {
                 // instead of a stale fixed 500k. This makes the new/outer layers
                 // visible and trainable on actual crypto-tier context, matching
                 // the MEME trader's rich entry snapshot structure.
-                entryLiqUsd = altLiqMcapHint(mktSym).first,
+                entryLiqUsd = exactAssetMetrics6493(signal).liquidityUsd,
                 v3Score = signal.score,
                 entryReason = signal.reasons.take(6).joinToString("|").ifBlank { "CryptoAlt:${signal.direction.name}" },
                 traderSource = "CryptoAlt",
+                canonicalAssetId6493 = position.canonicalAssetKey,
             )
         } catch (_: Exception) {}
 
@@ -2210,7 +2235,7 @@ object CryptoAltTrader {
 
             ErrorLogger.info(
                 TAG,
-                "🪙 ⚡ LIVE ATTEMPT: ${signal.market.symbol} ${signal.direction.symbol} " +
+                "🪙 ⚡ LIVE ATTEMPT: ${signal.marketSymbol} ${signal.direction.symbol} " +
                 "| bal=${"%.4f".format(balance)}◎ size=${"%.4f".format(sizeSol)}◎ " +
                 "${if (isSpot) "SPOT" else "${signal.leverage.toInt()}x"}"
             )
@@ -2227,25 +2252,27 @@ object CryptoAltTrader {
                 leverage   = if (isSpot) 1.0 else signal.leverage,
                 priceUsd   = signal.price,
                 traderType = "CryptoAlt",
+                assetSymbol6493 = signal.marketSymbol,
+                targetMint6493 = signal.dynMint,
             )
             when (outcome) {
                 is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.Executed -> {
                     LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.EXECUTED)
-                    ErrorLogger.info(TAG, "🪙 LIVE TRADE EXECUTED: ${signal.market.symbol} tx=${outcome.txSig ?: "ok"}")
+                    ErrorLogger.info(TAG, "🪙 LIVE TRADE EXECUTED: ${signal.marketSymbol} tx=${outcome.txSig ?: "ok"}")
                     try { updateLiveBalance(wallet.getSolBalance()) } catch (_: Exception) {}
                     true
                 }
                 is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.RouteDeferred -> {
                     LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.ROUTE_DEFERRED)
                     ErrorLogger.info(TAG,
-                        "🪙 ROUTE DEFERRED: ${signal.market.symbol} → ${outcome.resolution.route} " +
+                        "🪙 ROUTE DEFERRED: ${signal.marketSymbol} → ${outcome.resolution.route} " +
                         "[${outcome.resolution.diagCode}] ${outcome.resolution.humanMessage}")
                     false
                 }
                 is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.ExecFailed -> {
                     LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.FAILED)
                     ErrorLogger.warn(TAG,
-                        "🪙 Live exec FAILED for ${signal.market.symbol}: ${outcome.reason}")
+                        "🪙 Live exec FAILED for ${signal.marketSymbol}: ${outcome.reason}")
                     false
                 }
             }
@@ -2708,6 +2735,7 @@ object CryptoAltTrader {
                 pnlPct = pos.getPnlPct(),
                 exitReason = reason.ifBlank { "crypto_alt_close" },
                 lossReason = if (pos.getPnlPct() < -2.0) reason else "",
+                canonicalAssetId6493 = pos.dynMint ?: pos.canonicalAssetKey,
             )
         } catch (_: Exception) {}
 
@@ -2772,7 +2800,7 @@ object CryptoAltTrader {
         // mode without locking the other.
         if (!pos.isPaper) {
             try {
-                val assetKey4151 = pos.marketSymbol
+                val assetKey4151 = pos.dynMint ?: pos.canonicalAssetKey
                 val lane4151 = if (pos.isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV"
                 val src4151 = "CRYPTO"
                 val holdMs4151 = (System.currentTimeMillis() - pos.openTime).coerceAtLeast(0L)

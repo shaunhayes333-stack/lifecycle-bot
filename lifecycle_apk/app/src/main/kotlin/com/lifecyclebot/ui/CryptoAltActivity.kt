@@ -653,7 +653,8 @@ class CryptoAltActivity : AppCompatActivity() {
                 }
 
                 // Logo
-                val dynTok = DynamicAltTokenRegistry.getTokenBySymbol(pos.market.symbol)
+                val dynTok = pos.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
+                    ?: if (pos.dynMint == null) DynamicAltTokenRegistry.getTokenBySymbol(pos.market.symbol) else null
                 val logoUrl2 = when {
                     dynTok != null && dynTok.mint.length > 20 && !dynTok.mint.startsWith("static:") && !dynTok.mint.startsWith("cg:") ->
                         "https://cdn.dexscreener.com/tokens/solana/${dynTok.mint}.png"
@@ -2407,7 +2408,7 @@ class CryptoAltActivity : AppCompatActivity() {
 
         // Wire buttons now that dialog exists
         watchBtn.setOnClickListener {
-            WatchlistEngine.addToWatchlist(tok.symbol)
+            WatchlistEngine.addToWatchlist(tok.symbol, tok.mint)
             Toast.makeText(this, "📌 ${tok.symbol} added to watchlist", Toast.LENGTH_SHORT).show()
         }
         // V5.9.293: Close All wiring removed — bot manages all exits automatically.
@@ -2882,7 +2883,7 @@ class CryptoAltActivity : AppCompatActivity() {
         } else {
             watchlistItems.forEach { item ->
                 val sym  = item.symbol
-                val tok  = DynamicAltTokenRegistry.getTokenBySymbol(sym)
+                val tok  = DynamicAltTokenRegistry.getTokenByMint(item.assetId)
                 val chg  = tok?.priceChange24h ?: item.change24hPct
                 val col  = if (chg >= 0) green else red
                 val pos  = openPositions.filter { it.market.symbol.equals(sym, ignoreCase = true) }
@@ -3163,7 +3164,8 @@ class CryptoAltActivity : AppCompatActivity() {
         val pnlColor = if (pnlPct >= 0) green else red
         val valueUsd = (pos.sizeSol + pnlSol) * solPrice
 
-        val dynTok  = DynamicAltTokenRegistry.getTokenBySymbol(pos.market.symbol)
+        val dynTok  = pos.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
+            ?: if (pos.dynMint == null) DynamicAltTokenRegistry.getTokenBySymbol(pos.market.symbol) else null
         val logoUrl = when {
             dynTok != null && dynTok.mint.length > 20 && !dynTok.mint.startsWith("static:") && !dynTok.mint.startsWith("cg:") ->
                 "https://cdn.dexscreener.com/tokens/solana/${dynTok.mint}.png"
@@ -3753,7 +3755,7 @@ class CryptoAltActivity : AppCompatActivity() {
             .setTitle("Add Token to Watchlist")
             .setItems(labels) { _, which ->
                 val tok = topTokens[which]
-                WatchlistEngine.addToWatchlist(tok.symbol)
+                WatchlistEngine.addToWatchlist(tok.symbol, tok.mint)
                 Toast.makeText(this, "📌 ${tok.symbol} added", Toast.LENGTH_SHORT).show()
                 if (currentTab == 1) selectTab(1)
             }

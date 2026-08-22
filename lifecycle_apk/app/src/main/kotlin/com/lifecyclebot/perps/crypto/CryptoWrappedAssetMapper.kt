@@ -25,7 +25,7 @@ object CryptoWrappedAssetMapper {
         //    accept entries that look like real mint addresses (32–44
         //    base58 chars, NOT placeholder "cg:*" / "static:*").
         try {
-            val tok = com.lifecyclebot.perps.DynamicAltTokenRegistry.getTokenBySymbol(sym)
+            val tok = com.lifecyclebot.perps.DynamicAltTokenRegistry.getUniqueExecutableTokenBySymbol6493(sym)
             val dyn = tok?.mint?.takeIf {
                 it.isNotBlank() &&
                 !it.startsWith("cg:") &&

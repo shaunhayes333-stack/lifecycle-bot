@@ -4615,9 +4615,10 @@ class BotService : Service() {
                         try {
                             com.lifecyclebot.perps.CryptoAltTrader.getOpenPositions().mapNotNull { p ->
                                 val resolvedMint = try {
-                                    com.lifecyclebot.perps.DynamicAltTokenRegistry
-                                        .getTokenBySymbol(p.marketSymbol)?.mint
-                                        ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
+                                    if (p.dynMint != null) p.dynMint
+                                        .takeIf { !it.startsWith("cg:") && !it.startsWith("static:") }
+                                        ?.takeIf { com.lifecyclebot.engine.execution.MintIntegrityGate.isLikelyMint(it) }
+                                    else com.lifecyclebot.perps.crypto.CryptoWrappedAssetMapper.resolveWrappedMint(p.marketSymbol)
                                 } catch (_: Throwable) { null }
                                 com.lifecyclebot.engine.execution.PositionWalletReconciler.ReportedPosition(
                                     laneTag = "CRYPTO_ALT",

@@ -51,9 +51,11 @@ object CryptoUniverseRouteResolver {
         market: PerpsMarket,
         walletSolBalance: Double,
         sizeSol: Double,
+        assetSymbol6493: String? = null,
+        targetMint6493: String? = null,
     ): Resolution {
         val cfg = CryptoUniverseConfigStore.get()
-        val sym = market.symbol.uppercase()
+        val sym = assetSymbol6493?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: market.symbol.uppercase()
 
         // Solana meme tokens belong to MemeTrader. The PerpsMarket
         // enum doesn't include pump.fun memes, so this is mostly a
@@ -78,7 +80,14 @@ object CryptoUniverseRouteResolver {
         // curated "wrapped asset only" gate. Crypto Universe is funded via the
         // app's SOL/USDC bridge rail and can trade any crypto token that has a
         // real Solana mint and a Jupiter route.
-        val resolvedMint = CryptoWrappedAssetMapper.resolveWrappedMint(sym)
+        val explicitIdentity6493 = !targetMint6493.isNullOrBlank()
+        val resolvedMint = if (explicitIdentity6493) {
+            targetMint6493
+                ?.takeIf { !it.startsWith("cg:") && !it.startsWith("static:") }
+                ?.takeIf { com.lifecyclebot.engine.execution.MintIntegrityGate.isLikelyMint(it) }
+        } else {
+            CryptoWrappedAssetMapper.resolveWrappedMint(sym)
+        }
         if (resolvedMint != null) {
             if (CryptoExecFailureTracker.isCooledDown(sym)) {
                 val secs = CryptoExecFailureTracker.cooldownRemainingMs(sym) / 1000
@@ -109,7 +118,8 @@ object CryptoUniverseRouteResolver {
             else ->
                 Resolution(sym, CryptoExecutionRoute.PAPER_ONLY, null,
                     CryptoUniverseDiagCodes.ROUTE_NO_WRAPPED_ASSET,
-                    "No verified Solana SPL mint/Jupiter target resolved — paper-only until registry discovers one.",
+                    if (explicitIdentity6493) "Canonical asset identity ${targetMint6493?.take(24)} is not an executable SPL mint — no symbol fallback allowed."
+                    else "No verified Solana SPL mint/Jupiter target resolved — paper-only until registry discovers one.",
                     executable = false)
         }.also {
             ErrorLogger.debug(TAG, "Resolved ${sym} → ${it.route} (${it.diagCode})")

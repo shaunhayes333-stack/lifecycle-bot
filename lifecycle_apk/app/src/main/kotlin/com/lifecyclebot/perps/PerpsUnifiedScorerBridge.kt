@@ -272,8 +272,9 @@ object PerpsUnifiedScorerBridge {
         v3Score: Int,
         entryReason: String = "",
         traderSource: String = "",
+        canonicalAssetId6493: String? = null,
     ) {
-        val key = makeMintKey(assetClass, symbol)
+        val key = canonicalAssetId6493?.takeIf { it.isNotBlank() } ?: makeMintKey(assetClass, symbol)
         val source = traderSource.ifBlank { assetClass.uppercase() }
         openEntries[key] = EntrySnapshot(
             mintKey = key,
@@ -318,8 +319,9 @@ object PerpsUnifiedScorerBridge {
         pnlPct: Double,
         exitReason: String = "perps_close",
         lossReason: String = "",
+        canonicalAssetId6493: String? = null,
     ) {
-        val key = makeMintKey(assetClass, symbol)
+        val key = canonicalAssetId6493?.takeIf { it.isNotBlank() } ?: makeMintKey(assetClass, symbol)
         val snap = openEntries.remove(key) ?: return
         try {
             val holdMin = ((System.currentTimeMillis() - snap.timestamp) / 60_000.0)

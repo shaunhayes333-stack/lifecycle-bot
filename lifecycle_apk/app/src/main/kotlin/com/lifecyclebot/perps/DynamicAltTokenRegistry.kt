@@ -79,7 +79,7 @@ object DynamicAltTokenRegistry {
         val lastUpdatedMs: Long = System.currentTimeMillis(),
     ) {
         val hasTrustedMarketCap6492: Boolean get() = mcap.isFinite() && mcap > 0.0 && mcapSource in setOf(
-            "COINGECKO_MARKET_CAP", "DEXSCREENER_MARKET_CAP", "BIRDEYE_MARKET_CAP", "STATIC_TRUSTED_MARKET_CAP"
+            "COINGECKO_MARKET_CAP", "DEXSCREENER_BASE_MINT_MARKET_CAP", "BIRDEYE_MARKET_CAP", "STATIC_TRUSTED_MARKET_CAP"
         )
 
         val emoji: String get() = when {
@@ -128,8 +128,16 @@ object DynamicAltTokenRegistry {
 
     // ─── State ────────────────────────────────────────────────────────────────
 
-    private val registry     = ConcurrentHashMap<String, DynToken>(4096)
-    private val symbolIndex  = ConcurrentHashMap<String, String>()   // SYMBOL → mint
+    private val registry     = ConcurrentHashMap<String, DynToken>(4096) // canonical mint/asset-id → row
+    private val symbolIndex  = ConcurrentHashMap<String, String>()   // DISPLAY preference only; never execution identity
+    private val symbolCandidates6493 = ConcurrentHashMap<String, MutableSet<String>>()
+
+    private fun indexSymbol6493(symbol: String, canonicalKey: String) {
+        val sym = symbol.trim().uppercase()
+        if (sym.isBlank() || canonicalKey.isBlank()) return
+        symbolCandidates6493.computeIfAbsent(sym) { ConcurrentHashMap.newKeySet<String>() }.add(canonicalKey)
+        symbolIndex.putIfAbsent(sym, canonicalKey)
+    }
 
     private val lastDiscoveryCycle = AtomicLong(0L)
     private val lastPriceRefresh   = AtomicLong(0L)
@@ -250,7 +258,7 @@ object DynamicAltTokenRegistry {
                     source    = "static_enum",
                 )
                 registry[key] = tok
-                symbolIndex[market.symbol.uppercase()] = key
+                indexSymbol6493(market.symbol, key)
             }
         ErrorLogger.info(TAG, "Seeded ${registry.size} static PerpsMarket tokens")
     }
@@ -377,6 +385,12 @@ object DynamicAltTokenRegistry {
                 // Don't clobber a higher-quality in-memory entry we just seeded.
                 val existing = registry[mint]
                 if (existing != null && !existing.isStatic && existing.lastUpdatedMs > o.optLong("lastUpdatedMs", 0L)) continue
+                val restoredMcapSource6493 = o.optString("mcapSource", "").takeIf {
+                    it in setOf("DEXSCREENER_BASE_MINT_MARKET_CAP", "BIRDEYE_MARKET_CAP", "STATIC_TRUSTED_MARKET_CAP")
+                } ?: ""
+                val restoredMcap6493 = o.optDouble("mcap", 0.0).takeIf {
+                    restoredMcapSource6493.isNotBlank() && it.isFinite() && it > 0.0
+                } ?: 0.0
                 val tok = DynToken(
                     mint           = mint,
                     symbol         = o.optString("symbol", "").uppercase(),
@@ -386,9 +400,9 @@ object DynamicAltTokenRegistry {
                     pairAddress    = o.optString("pairAddress", ""),
                     price          = o.optDouble("price", 0.0),
                     priceChange24h = o.optDouble("priceChange24h", 0.0),
-                    mcap           = o.optDouble("mcap", 0.0).takeIf { o.optString("mcapSource", "").isNotBlank() } ?: 0.0,
+                    mcap           = restoredMcap6493,
                     fdv            = o.optDouble("fdv", 0.0),
-                    mcapSource     = o.optString("mcapSource", ""),
+                    mcapSource     = restoredMcapSource6493,
                     liquidityUsd   = o.optDouble("liquidityUsd", 0.0),
                     volume24h      = o.optDouble("volume24h", 0.0),
                     buys24h        = o.optInt("buys24h", 0),
@@ -402,29 +416,9 @@ object DynamicAltTokenRegistry {
                     sector         = o.optString("sector", ""),
                     lastUpdatedMs  = o.optLong("lastUpdatedMs", System.currentTimeMillis()),
                 )
-                // If we already have a static entry for this symbol, enrich it
-                // instead of double-registering under a different key.
-                val staticKey = symbolIndex[tok.symbol.uppercase()]
-                if (staticKey != null && registry[staticKey]?.isStatic == true && staticKey != mint) {
-                    val staticTok = registry[staticKey]!!
-                    registry[staticKey] = staticTok.copy(
-                        price          = tok.price.takeIf { it > 0 } ?: staticTok.price,
-                        priceChange24h = tok.priceChange24h,
-                        mcap           = tok.mcap.takeIf { it > 0 } ?: staticTok.mcap,
-                        liquidityUsd   = tok.liquidityUsd.takeIf { it > 0 } ?: staticTok.liquidityUsd,
-                        volume24h      = tok.volume24h.takeIf { it > 0 } ?: staticTok.volume24h,
-                        pairAddress    = staticTok.pairAddress.ifBlank { tok.pairAddress },
-                        logoUrl        = staticTok.logoUrl.ifBlank { tok.logoUrl },
-                        lastUpdatedMs  = maxOf(staticTok.lastUpdatedMs, tok.lastUpdatedMs),
-                    )
-                    // Also drop the bare mint as a key so getTokenByMint(mint) works
-                    registry[mint] = registry[staticKey]!!.copy(mint = mint, isStatic = false, source = "restored_dyn")
-                } else {
-                    registry[mint] = tok
-                    if (tok.symbol.isNotBlank() && symbolIndex[tok.symbol.uppercase()] == null) {
-                        symbolIndex[tok.symbol.uppercase()] = mint
-                    }
-                }
+                // V5.0.6493 — restore by canonical mint only; ticker never joins rows.
+                registry[mint] = tok
+                if (tok.symbol.isNotBlank()) indexSymbol6493(tok.symbol, mint)
                 loaded++
             }
             ErrorLogger.info(TAG, "📂 Restored $loaded tokens from disk")
@@ -536,7 +530,36 @@ object DynamicAltTokenRegistry {
     fun getTrendingTokens()                    = registry.values.filter { it.isTrending }.sortedBy { it.trendingRank }
     fun getBoostedTokens()                     = registry.values.filter { it.isBoosted }.sortedByDescending { it.qualityScore }
     fun getTokenByMint(mint: String)           = registry[mint]
-    fun getTokenBySymbol(sym: String)          = symbolIndex[sym.uppercase()]?.let { registry[it] }
+
+    /** Display/metadata lookup only. Ambiguous tickers return null. */
+    fun getTokenBySymbol(sym: String): DynToken? {
+        val symbol = sym.trim().uppercase()
+        val candidates = symbolCandidates6493[symbol].orEmpty().mapNotNull { registry[it] }
+            .filter { it.symbol.equals(symbol, true) }
+        val trustedMetadata = candidates.filter { it.hasTrustedMarketCap6492 }
+        if (trustedMetadata.size == 1) return trustedMetadata.single()
+        val staticRows = candidates.filter { it.isStatic }
+        if (staticRows.size == 1 && candidates.size == 1) return staticRows.single()
+        if (candidates.size == 1) return candidates.single()
+        if (candidates.size > 1) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_SYMBOL_AMBIGUOUS_REJECTED_6493")
+        } catch (_: Throwable) {}
+        return null
+    }
+
+    /** Authorizing lookup: a ticker may resolve only when exactly one real mint owns it. */
+    fun getUniqueExecutableTokenBySymbol6493(sym: String): DynToken? {
+        val symbol = sym.trim().uppercase()
+        val candidates = symbolCandidates6493[symbol].orEmpty().mapNotNull { registry[it] }
+            .filter { it.symbol.equals(symbol, true) }
+            .filter { !it.mint.startsWith("cg:") && !it.mint.startsWith("static:") }
+            .filter { com.lifecyclebot.engine.execution.MintIntegrityGate.isLikelyMint(it.mint) }
+            .distinctBy { it.mint }
+        if (candidates.size > 1) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EXEC_MINT_AMBIGUOUS_REJECTED_6493")
+        } catch (_: Throwable) {}
+        return candidates.singleOrNull()
+    }
     fun getNewTokens(maxAgeHours: Double=24.0) = registry.values.filter { !it.isStatic && it.ageHours in 0.0..maxAgeHours }.sortedByDescending { it.qualityScore }
     fun getTokensBySector(sector: String)      = registry.values.filter { it.sector.equals(sector, true) }.sortedByDescending { it.qualityScore }
     fun getStats()                             = "Total: ${registry.size} | Static: ${getStaticCount()} | Dynamic: ${getDynamicCount()} | Trending: ${getTrendingTokens().size} | Boosted: ${getBoostedTokens().size}"
@@ -579,7 +602,10 @@ object DynamicAltTokenRegistry {
         if (price <= 0.0) return 0.0
         registry[mint] = existing.copy(
             price         = price,
-            mcap          = pair.candle.marketCap.takeIf { it > 0.0 } ?: existing.mcap,
+            mcap          = pair.candle.marketCap.takeIf { it.isFinite() && it > 0.0 } ?: existing.mcap,
+            fdv           = pair.fdv.takeIf { it.isFinite() && it > 0.0 } ?: existing.fdv,
+            mcapSource    = if (pair.candle.marketCap.isFinite() && pair.candle.marketCap > 0.0)
+                "DEXSCREENER_BASE_MINT_MARKET_CAP" else existing.mcapSource,
             liquidityUsd  = pair.liquidity.takeIf { it > 0.0 } ?: existing.liquidityUsd,
             volume24h     = pair.candle.volume24h.takeIf { it > 0.0 } ?: existing.volume24h,
             buys24h       = pair.candle.buys24h.takeIf { it > 0 } ?: existing.buys24h,
@@ -754,7 +780,7 @@ object DynamicAltTokenRegistry {
     private fun fetchCoinGeckoTrending() {
         val trending = cgTrending.refresh()
         trending.forEachIndexed { rank, tok ->
-            val mint     = symbolIndex[tok.symbol.uppercase()] ?: "cg:${tok.id}"
+            val mint     = "cg:${tok.id}"
             val existing = registry[mint]
             val updated  = (existing ?: DynToken(
                 mint    = mint,
@@ -770,7 +796,7 @@ object DynamicAltTokenRegistry {
                 lastUpdatedMs = System.currentTimeMillis(),
             )
             registry[mint] = updated
-            symbolIndex[tok.symbol.uppercase()] = mint
+            indexSymbol6493(tok.symbol, mint)
         }
         ErrorLogger.info(TAG, "CoinGecko trending: ${trending.size} tokens marked")
     }
@@ -794,23 +820,8 @@ object DynamicAltTokenRegistry {
 
                 if (mint.isBlank() || symbol.isBlank()) continue
 
-                // If a CoinGecko entry exists for this symbol, upgrade its mint address
-                val cgKey = symbolIndex[symbol]
-                if (cgKey != null && cgKey.startsWith("cg:")) {
-                    val existing = registry[cgKey]
-                    if (existing != null) {
-                        // Migrate to real mint
-                        val upgraded = existing.copy(
-                            mint    = mint,
-                            logoUrl = existing.logoUrl.ifBlank { logoUrl },
-                            lastUpdatedMs = System.currentTimeMillis(),
-                        )
-                        registry.remove(cgKey)
-                        registry[mint] = upgraded
-                        symbolIndex[symbol] = mint
-                        continue
-                    }
-                }
+                // V5.0.6493 — NEVER migrate CoinGecko data onto a Jupiter
+                // mint by ticker. Mint/contract address is canonical identity.
 
                 if (registry.containsKey(mint)) {
                     // Only update logo if missing
@@ -830,7 +841,7 @@ object DynamicAltTokenRegistry {
                     source  = "jupiter_strict",
                     sector  = inferSector(symbol),
                 )
-                symbolIndex[symbol] = mint
+                indexSymbol6493(symbol, mint)
                 added++
             }
             ErrorLogger.info(TAG, "Jupiter strict: +$added new tokens (total ${registry.size})")
@@ -847,7 +858,7 @@ object DynamicAltTokenRegistry {
             rawTok6492.mcapSource.isNotBlank() -> rawTok6492.mcapSource
             rawTok6492.mcap <= 0.0 -> ""
             rawTok6492.source.startsWith("cg_") -> "COINGECKO_MARKET_CAP"
-            rawTok6492.source.startsWith("dex_") -> "DEXSCREENER_MARKET_CAP"
+            rawTok6492.source.startsWith("dex_") -> "DEXSCREENER_BASE_MINT_MARKET_CAP"
             rawTok6492.source.contains("birdeye", true) -> "BIRDEYE_MARKET_CAP"
             else -> ""
         }
@@ -857,33 +868,8 @@ object DynamicAltTokenRegistry {
             mcapSource = inferredMcapSource6492,
         )
 
-        // V5.9.3: If this symbol already maps to a static:XXX token, enrich that
-        // token directly instead of creating a duplicate cg:/dex: entry.
-        // This is what makes SAND/ENJ/etc show real MCap, volume, liquidity.
-        val staticKey = symbolIndex[tok.symbol.uppercase()]
-        val staticTok = staticKey?.let { registry[it] }?.takeIf { it.isStatic }
-
-        if (staticTok != null && staticKey != null) {
-            registry[staticKey] = staticTok.copy(
-                price         = tok.price.takeIf { it > 0 } ?: staticTok.price,
-                priceChange24h= tok.priceChange24h.takeIf { it != 0.0 } ?: staticTok.priceChange24h,
-                mcap          = tok.mcap.takeIf { tok.hasTrustedMarketCap6492 } ?: staticTok.mcap,
-                fdv           = tok.fdv.takeIf { it > 0 } ?: staticTok.fdv,
-                mcapSource    = tok.mcapSource.takeIf { tok.hasTrustedMarketCap6492 } ?: staticTok.mcapSource,
-                liquidityUsd  = tok.liquidityUsd.takeIf { it > 0 } ?: staticTok.liquidityUsd,
-                volume24h     = tok.volume24h.takeIf { it > 0 } ?: staticTok.volume24h,
-                buys24h       = tok.buys24h.takeIf { it > 0 } ?: staticTok.buys24h,
-                sells24h      = tok.sells24h.takeIf { it > 0 } ?: staticTok.sells24h,
-                isTrending    = tok.isTrending || staticTok.isTrending,
-                trendingRank  = if (tok.trendingRank >= 0) tok.trendingRank else staticTok.trendingRank,
-                isBoosted     = tok.isBoosted || staticTok.isBoosted,
-                logoUrl       = staticTok.logoUrl.ifBlank { tok.logoUrl },
-                lastUpdatedMs = System.currentTimeMillis(),
-            )
-            // Don't remap symbolIndex — static key stays authoritative
-            return
-        }
-
+        // V5.0.6493 — merge only by canonical mint/asset ID below.
+        // Symbol is display metadata and cannot establish identity.
         val existing = registry[tok.mint]
         if (existing?.isStatic == true) {
             // Direct mint match — enrich static token
@@ -923,7 +909,7 @@ object DynamicAltTokenRegistry {
                 isBoosted = tok.isBoosted || existing.isBoosted, sector = tok.sector.ifBlank { existing.sector },
                 lastUpdatedMs = System.currentTimeMillis(),
             )
-            if (tok.symbol.isNotBlank()) symbolIndex[tok.symbol.uppercase()] = tok.mint
+            if (tok.symbol.isNotBlank()) indexSymbol6493(tok.symbol, tok.mint)
         }
     }
 
