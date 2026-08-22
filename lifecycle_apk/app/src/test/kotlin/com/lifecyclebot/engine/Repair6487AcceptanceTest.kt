@@ -2,6 +2,7 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450
 import com.lifecyclebot.engine.truth.CanonicalPaperReplay6464
+import com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
 import com.lifecyclebot.engine.truth.EconomicEventSchema6464
 import com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450
 import com.lifecyclebot.engine.truth.PaperAccountLedger6430
@@ -49,23 +50,22 @@ class Repair6487AcceptanceTest {
         assertEquals(0.0, capital.conservationDeltaSol, 1e-8)
     }
 
-    @Test fun streak_defence_tightens_then_denies_without_funded_probe() {
-        ExecutableEntryAuthority6450.recordLossForTest6487(1)
-        val one = ExecutableEntryAuthority6450.gate("TEST", "M1", 1.0)
-        assertEquals(ExecutableEntryAuthority6450.Verdict.ALLOW, one.verdict)
-        assertEquals(0.65, one.recommendedSizeSol, 1e-9)
-        assertEquals(8, ExecutableEntryAuthority6450.scoreFloorDelta6487())
-        ExecutableEntryAuthority6450.resetForTest6487()
-        ExecutableEntryAuthority6450.recordLossForTest6487(2)
-        val two = ExecutableEntryAuthority6450.gate("TEST", "M2", 1.0)
-        assertEquals(0.35, two.recommendedSizeSol, 1e-9)
-        assertEquals(15, ExecutableEntryAuthority6450.scoreFloorDelta6487())
-        ExecutableEntryAuthority6450.resetForTest6487()
-        ExecutableEntryAuthority6450.recordLossForTest6487(3)
-        val three = ExecutableEntryAuthority6450.gate("TEST", "M3", 1.0)
-        assertEquals(ExecutableEntryAuthority6450.Verdict.DENY_LOSING_STREAK, three.verdict)
-        assertEquals(0.0, three.recommendedSizeSol, 0.0)
-        assertEquals(0.0, ExecutableEntryAuthority6450.sizeMultiplier6487(), 0.0)
+    @Test fun streak_defence_is_mode_lane_scoped_and_never_zero_sizes() {
+        ExecutableEntryAuthority6450.recordLossForTest6487(3, lane = "SHITCOIN", mode = "PAPER")
+        val toxic = ExecutableEntryAuthority6450.gate("SHITCOIN", "M1", 1.0)
+        assertEquals(ExecutableEntryAuthority6450.Verdict.ALLOW, toxic.verdict)
+        assertEquals(0.35, toxic.recommendedSizeSol, 1e-9)
+        assertEquals(15, ExecutableEntryAuthority6450.scoreFloorDeltaFor6488("SHITCOIN", "PAPER"))
+        assertEquals(0.35, ExecutableEntryAuthority6450.sizeMultiplierFor6488("SHITCOIN", "PAPER"), 0.0)
+
+        val profitableLane = ExecutableEntryAuthority6450.gate("BLUECHIP", "M2", 1.0)
+        assertEquals(ExecutableEntryAuthority6450.Verdict.ALLOW, profitableLane.verdict)
+        assertEquals(1.0, profitableLane.recommendedSizeSol, 1e-9)
+        assertEquals(0L, ExecutableEntryAuthority6450.consecutiveLossesFor6488("BLUECHIP", "PAPER"))
+        assertEquals(0L, ExecutableEntryAuthority6450.consecutiveLossesFor6488("SHITCOIN", "LIVE"))
+
+        assertEquals(0, ExecutableEntryAuthority6450.scoreFloorDelta6487())
+        assertEquals(1.0, ExecutableEntryAuthority6450.sizeMultiplier6487(), 0.0)
     }
 
     @Test fun shadow_lanes_never_publish_fdg_tickets() {
@@ -93,6 +93,60 @@ class Repair6487AcceptanceTest {
             ServiceWatchdog.RecoveryAction6487.NONE,
             ServiceWatchdog.recoveryAction6487(true, true, false, false),
         )
+    }
+
+
+    @Test fun canonical_registry_projection_is_atomic_and_uses_remaining_partial_basis() {
+        val suffix = System.nanoTime().toString()
+        val mint = "Registry6488$suffix"
+        val positionId = "REG6488:$suffix"
+        assertEquals(
+            CanonicalPositionAuthority6441.MutateResult.APPLIED,
+            CanonicalPositionAuthority6441.openPosition(
+                idempotencyKey = "OPEN:$suffix", positionId = positionId,
+                mint = mint, symbol = "R6488", lane = "BLUECHIP", runId = suffix,
+                entryCostSol = 2.0, openedQtyRaw = BigInteger.valueOf(100L),
+                tokenDecimals = 0, feesSol = 0.0, paperMode = false, modeOverride = "paper",
+            ),
+        )
+        EmergentGuardrails.rebuildFromCanonical6475(CanonicalPositionAuthority6441.openPositions())
+        assertEquals(BigInteger.valueOf(100L), EmergentGuardrails.snapshot()[mint]?.qtyRaw)
+        assertEquals(2.0, EmergentGuardrails.snapshot()[mint]?.entryCostSol ?: -1.0, 1e-9)
+
+        assertEquals(
+            CanonicalPositionAuthority6441.MutateResult.APPLIED,
+            CanonicalPositionAuthority6441.partialSell(
+                "PARTIAL:$suffix", positionId, BigInteger.valueOf(40L),
+                proceedsSol = 1.0, soldCostBasisSol = 0.8, feesSol = 0.0, paperMode = false,
+            ),
+        )
+        EmergentGuardrails.rebuildFromCanonical6475(CanonicalPositionAuthority6441.openPositions())
+        assertEquals(BigInteger.valueOf(60L), EmergentGuardrails.snapshot()[mint]?.qtyRaw)
+        assertEquals(1.2, EmergentGuardrails.snapshot()[mint]?.entryCostSol ?: -1.0, 1e-9)
+
+        assertEquals(
+            CanonicalPositionAuthority6441.MutateResult.APPLIED,
+            CanonicalPositionAuthority6441.partialSell(
+                "CLOSE:$suffix", positionId, BigInteger.valueOf(60L),
+                proceedsSol = 1.4, soldCostBasisSol = 1.2, feesSol = 0.0, paperMode = false,
+            ),
+        )
+        EmergentGuardrails.rebuildFromCanonical6475(CanonicalPositionAuthority6441.openPositions())
+        assertFalse(EmergentGuardrails.snapshot().containsKey(mint))
+    }
+
+
+    @Test fun legacy_losing_streak_reflex_is_cohort_telemetry_not_global_veto() {
+        com.lifecyclebot.engine.truth.LosingStreakReflex6439.reset()
+        repeat(3) { i ->
+            com.lifecyclebot.engine.truth.LosingStreakReflex6439.onTradeClosed(
+                realizedSolDelta = -0.1, mint = "LOSS$i", mode = "paper", lane = "SHITCOIN",
+            )
+        }
+        assertTrue(com.lifecyclebot.engine.truth.LosingStreakReflex6439.cooldownRemainingSec("SHITCOIN", "paper") > 0L)
+        assertEquals(0L, com.lifecyclebot.engine.truth.LosingStreakReflex6439.cooldownRemainingSec("BLUECHIP", "paper"))
+        @Suppress("DEPRECATION")
+        assertFalse(com.lifecyclebot.engine.truth.LosingStreakReflex6439.shouldBlockNewBuys())
     }
 
 }

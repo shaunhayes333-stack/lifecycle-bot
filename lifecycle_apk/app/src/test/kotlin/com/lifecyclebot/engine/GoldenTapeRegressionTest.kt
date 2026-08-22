@@ -6598,7 +6598,7 @@ class GoldenTapeRegressionTest {
         val regime = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RegimeDetector.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.4528/6487: DUMP remains recovery-sized and composes stricter streak response", regime.contains("Regime.DUMP         -> +10") && regime.contains("Regime.DUMP         -> 0.35") && regime.contains("return maxOf(regimeDelta, streakDelta)") && regime.contains("return minOf(regimeMult, streakMult)"))
+        assertTrue("V5.0.4528/6488: DUMP remains recovery-sized without cross-lane streak mux", regime.contains("Regime.DUMP         -> +10") && regime.contains("Regime.DUMP         -> 0.35") && regime.contains("return regimeDelta") && regime.contains("return regimeMult") && !regime.contains("streakDelta") && !regime.contains("streakMult"))
         assertTrue("V5.0.4528: DUMP live lane caps must use recovery-size shaping instead of 0.10 micro caps", exec.contains("V5.0.4528 — DUMP regime should pivot/reduce") && exec.contains("dumpRegimeLive && laneTag.contains(" + "\"SHITCOIN\"" + ") -> 0.35") && exec.contains("dumpRegimeLive && laneTag.contains(" + "\"EXPRESS\"" + ") -> 0.35"))
         assertTrue("V5.0.4568: DUMP live relative floor must be executable defensive-pivot size, not dust tuition", exec.contains("dumpRegimeLive -> 0.35") && exec.contains("executable defensive-pivot floor"))
         assertTrue("V5.0.4528: high-conviction liquid setups may still size up in DUMP under stricter score/liquidity", exec.contains("score >= 82.0 && ts.lastLiquidityUsd >= 25_000.0"))
@@ -7789,13 +7789,12 @@ class GoldenTapeRegressionTest {
         assertTrue("6487 defensive WAIT and zero-signal probes remain shadow-only",
             bot.contains("DEFENSIVE_WAIT_PROBE_SUPPRESSED_6487") && bot.contains("DEFENSIVE_WAIT_SHADOW_ONLY_6487") &&
                 bot.contains("signal = " + '"' + "WAIT" + '"') && bot.contains("shouldTrade = false"))
-        assertTrue("6487 loss thresholds tighten at one/two and deny at three",
-            entry.contains("STREAK_HARD_LIMIT = 3") && entry.contains("consecutiveLosses.get() >= STREAK_TIGHTEN_ONE -> 8") &&
-                entry.contains("consecutiveLosses.get() >= STREAK_TIGHTEN_TWO -> 15") &&
-                entry.contains("consecutiveLosses.get() >= STREAK_TIGHTEN_ONE -> 0.65") &&
-                entry.contains("consecutiveLosses.get() >= STREAK_TIGHTEN_TWO -> 0.35"))
-        assertTrue("6487 regime and both paper/live executors consume defensive sizing",
-            regime.contains("scoreFloorDelta6487") && regime.contains("sizeMultiplier6487") &&
+        assertTrue("6488 streak shaping is mode-lane scoped and bounded above zero",
+            entry.contains("cohortKey(e.mode, e.entryLane)") && entry.contains("sizeMultiplierFor6488") &&
+                entry.contains("streak >= STREAK_HARD_LIMIT || cooling -> 0.35") &&
+                !entry.contains("streak >= STREAK_HARD_LIMIT -> 0.0"))
+        assertTrue("6488 global regime no longer consumes streak state while executors retain final lane sizing",
+            !regime.contains("scoreFloorDelta6487()") && !regime.contains("sizeMultiplier6487()") &&
                 executor.contains("gateVerdict6451.recommendedSizeSol") && executor.contains("entryAuthoritySol6487"))
         assertTrue("6487 economic event realized matches gross-ledger convention with fees separate",
             event.contains("val realized = gross - allocatedCost") && event.contains("netProceedsSol = net") && event.contains("exitFeesSol = fees"))
@@ -7865,9 +7864,52 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6487: blocked-sell forensic logging must be explicitly scoped and return without executing a sell",
             lockStart >= 0 && guardedLog > lockStart && returnAfterLog > guardedLog)
         assertTrue("V5.0.6487: pipeline text optimization keeps the supported legacy constant under an explicit lint contract",
-            pipeline.contains("configureDumpTextLayout6487") && pipeline.contains("SuppressLint(\"WrongConstant\")"))
+            pipeline.contains("configureDumpTextLayout6487") && pipeline.contains("LineBreaker.BREAK_STRATEGY_SIMPLE"))
         assertTrue("V5.0.6487: Android 14 special-use foreground service metadata remains declared",
             manifest.contains("PROPERTY_SPECIAL_USE_FGS_SUBTYPE"))
+    }
+
+
+    @Test
+    fun V5_0_6488_runtime_choke_and_lane_authority_are_source_bounded() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val entry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt").readText()
+        val regime = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RegimeDetector.kt").readText()
+        val health = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        val ledger = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PaperAccountLedger6430.kt").readText()
+
+        assertTrue("6488 costly post-learning sanitize and watchdogs are deadline-bounded single-flight work",
+            bot.contains("cycle_sanitize_6488") && bot.contains("scanner_health_6488") &&
+                bot.contains("project_sniper_sweep_6488") && bot.contains("markets_engine_watchdog_6488") &&
+                bot.contains("MaintenanceWorker6448.submit"))
+        assertTrue("6488 streak authority uses event-local mode and lane and never hard-denies strategy history",
+            entry.contains("cohortKey(e.mode, e.entryLane)") && entry.contains("EXECUTABLE_ENTRY_COHORT_SHAPED_6488") &&
+                entry.contains("Verdict.ALLOW") && !entry.contains("Decision(Verdict.DENY_LOSING_STREAK, 0.0"))
+        val reflex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LosingStreakReflex6439.kt").readText()
+        val permit = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalExecutionPermit.kt").readText()
+        assertTrue("6488 duplicate losing-streak reflex is cohort telemetry only and cannot veto FinalExecutionPermit",
+            reflex.contains("LOSING_STREAK_COHORT_OBSERVED_6488") && reflex.contains("return false") &&
+                permit.contains("LOSING_STREAK_COHORT_NO_GLOBAL_VETO_6488") &&
+                !permit.contains("if (com.lifecyclebot.engine.truth.LosingStreakReflex6439.shouldBlockNewBuys())"))
+        assertTrue("6488 aggregate regime cannot compose a lane streak into scoreFloor=100 or size=0",
+            !regime.contains("scoreFloorDelta6487()") && !regime.contains("sizeMultiplier6487()") &&
+                regime.contains("Regime.CHOP         -> 0.35"))
+        assertTrue("6488 report classifies repeated recent stalls as runtime choke rather than isolated UI",
+            health.contains("recentCycleTail6488") && health.contains("recentSevere6488 >= 3") &&
+                health.contains("RUNTIME_CHOKE: repeated/escalating stalls") &&
+                health.contains("recentSevere6488 <= 1"))
+        assertTrue("6488 runtime repair preserves the canonical paper ledger authority",
+            ledger.contains("object PaperAccountLedger6430") && ledger.contains("fun assertInvariant") &&
+                ledger.contains("fun openCostBasisSol") && ledger.contains("fun realizedPnlSol"))
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EmergentGuardrails.kt").readText()
+        val parity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PositionRegistryParityAudit6464.kt").readText()
+        assertTrue("6488 registry is one atomic canonical projection and excludes pending/zero quantity slots",
+            registry.contains("AtomicReference<Map<String, PositionInfo>>") && registry.contains("openPositions.set(replacement)") &&
+                registry.contains("remainingQtyRaw > java.math.BigInteger.ZERO") &&
+                bot.contains("CanonicalPositionAuthority6441.openPositions()"))
+        assertTrue("6488 parity compares remaining quantity and remaining cost basis from the same active population",
+            parity.contains("val canonicalAll = canonicalOpens") && parity.contains("c.remainingQtyRaw") &&
+                parity.contains("c.entryCostSol - c.soldCostBasisSol"))
     }
 
 }

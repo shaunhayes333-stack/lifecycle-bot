@@ -2,6 +2,7 @@ package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.engine.RuntimeModeAuthority
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -45,92 +46,111 @@ object ExecutableEntryAuthority6450 {
     private const val STREAK_TIGHTEN_TWO = 2
     private const val DAILY_LOSS_CAP_SOL = 1.5
 
-    private val consecutiveLosses = AtomicLong(0L)
-    private val cohortLastLossMs = ConcurrentHashMap<String, Long>() // lane -> ts
-    private val cohortCooldownMs = ConcurrentHashMap<String, Long>() // lane -> cooldown until
+    // V5.0.6488 — streak state is event-local by mode + lane. A paper
+    // SHITCOIN loss must never suppress a live BLUECHIP entry. These maps are
+    // bounded by the finite lane/mode universe and rebuilt from canonical replay.
+    private val cohortLosses = ConcurrentHashMap<String, AtomicLong>()
+    private val cohortLastLossMs = ConcurrentHashMap<String, Long>()
+    private val cohortCooldownMs = ConcurrentHashMap<String, Long>()
     private val gates = AtomicLong(0L)
     private val allows = AtomicLong(0L)
     private val probes = AtomicLong(0L)
     private val denies = AtomicLong(0L)
     private val bypassAttempts = AtomicLong(0L)
 
+    private fun normalizedMode(raw: String?): String = when {
+        raw.equals("live", true) -> "LIVE"
+        raw.equals("paper", true) -> "PAPER"
+        RuntimeModeAuthority.isLive() -> "LIVE"
+        else -> "PAPER"
+    }
+
+    private fun normalizedLane(raw: String?): String = raw?.trim()?.uppercase()
+        ?.takeIf { it.isNotBlank() } ?: "UNKNOWN"
+
+    private fun cohortKey(mode: String?, lane: String?): String =
+        "${normalizedMode(mode)}|${normalizedLane(lane)}"
+
+    private fun currentMode(): String = if (RuntimeModeAuthority.isLive()) "LIVE" else "PAPER"
+
     init {
-        // Subscribe to canonical finalized events so streak state is the SAME
-        // source that reward learners see. Idempotent — bus dedupes.
         try {
             CanonicalTradeFinalizedBus6450.subscribe { e ->
+                val key = cohortKey(e.mode, e.entryLane)
                 when (e.outcome) {
                     CanonicalTradeFinalizedBus6450.Outcome.LOSS -> {
-                        consecutiveLosses.incrementAndGet()
-                        cohortLastLossMs[e.entryLane] = e.settledAtMs
-                        cohortCooldownMs[e.entryLane] = e.settledAtMs + 60_000L // 60s cohort cooldown
+                        cohortLosses.computeIfAbsent(key) { AtomicLong(0L) }.incrementAndGet()
+                        cohortLastLossMs[key] = e.settledAtMs
+                        cohortCooldownMs[key] = e.settledAtMs + 60_000L
                     }
-                    CanonicalTradeFinalizedBus6450.Outcome.WIN -> consecutiveLosses.set(0L)
+                    CanonicalTradeFinalizedBus6450.Outcome.WIN ->
+                        cohortLosses.computeIfAbsent(key) { AtomicLong(0L) }.set(0L)
                     CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN -> Unit
                 }
             }
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.6488: learned streaks soft-shape only. True hard safety remains in
+     * rug/raw-floor/route/finality authorities; strategy history cannot emit a
+     * zero-size or cross-lane shutdown.
+     */
     fun gate(lane: String, mint: String, requestedSizeSol: Double): Decision {
         gates.incrementAndGet()
-        val now = System.currentTimeMillis()
-        val cl = consecutiveLosses.get()
-        val cooldownUntil = cohortCooldownMs[lane] ?: 0L
-        val cooldownRemainingMs = cooldownUntil - now
-        return when {
-            cl >= STREAK_HARD_LIMIT -> {
-                denies.incrementAndGet()
-                try {
-                    ForensicLogger.lifecycle(
-                        "EXECUTABLE_ENTRY_DENIED_STREAK_6450",
-                        "lane=$lane mint=${mint.take(10)} streak=$cl",
-                    )
-                    PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_DENIED_STREAK_6450")
-                } catch (_: Throwable) {}
-                Decision(Verdict.DENY_LOSING_STREAK, 0.0, "streak=$cl>=$STREAK_HARD_LIMIT")
-            }
-            cooldownRemainingMs > 0 -> {
-                denies.incrementAndGet()
-                try { PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_DENIED_COOLDOWN_6450") } catch (_: Throwable) {}
-                Decision(Verdict.DENY_COOLDOWN, 0.0, "cooldownMs=$cooldownRemainingMs")
-            }
-            cl >= STREAK_TIGHTEN_TWO -> {
-                allows.incrementAndGet()
-                val tightened = requestedSizeSol * 0.35
-                try { PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_DEFENSIVE_TIGHTEN_6487_L2") } catch (_: Throwable) {}
-                Decision(Verdict.ALLOW, tightened, "defensive streak=$cl scoreFloorDelta=15 sizeMult=0.35")
-            }
-            cl >= STREAK_TIGHTEN_ONE -> {
-                allows.incrementAndGet()
-                val tightened = requestedSizeSol * 0.65
-                try { PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_DEFENSIVE_TIGHTEN_6487_L1") } catch (_: Throwable) {}
-                Decision(Verdict.ALLOW, tightened, "defensive streak=$cl scoreFloorDelta=8 sizeMult=0.65")
-            }
-            else -> {
-                allows.incrementAndGet()
-                Decision(Verdict.ALLOW, requestedSizeSol, "ok scoreFloorDelta=0 sizeMult=1.00")
-            }
+        val mode = currentMode()
+        val key = cohortKey(mode, lane)
+        val streak = cohortLosses[key]?.get() ?: 0L
+        val cooling = (cohortCooldownMs[key] ?: 0L) > System.currentTimeMillis()
+        val mult = when {
+            streak >= STREAK_HARD_LIMIT || cooling -> 0.35
+            streak >= STREAK_TIGHTEN_TWO -> 0.35
+            streak >= STREAK_TIGHTEN_ONE -> 0.65
+            else -> 1.0
         }
+        val shaped = (requestedSizeSol * mult).coerceAtLeast(0.0)
+        allows.incrementAndGet()
+        try {
+            PipelineHealthCollector.labelInc(
+                if (mult < 1.0) "EXECUTABLE_ENTRY_COHORT_SHAPED_6488" else "EXECUTABLE_ENTRY_COHORT_CLEAR_6488"
+            )
+            if (mult < 1.0) ForensicLogger.lifecycle(
+                "EXECUTABLE_ENTRY_COHORT_SHAPED_6488",
+                "mode=$mode lane=${normalizedLane(lane)} mint=${mint.take(10)} streak=$streak cooling=$cooling sizeMult=$mult",
+            )
+        } catch (_: Throwable) {}
+        return Decision(
+            Verdict.ALLOW,
+            shaped,
+            "mode=$mode lane=${normalizedLane(lane)} streak=$streak cooling=$cooling sizeMult=${"%.2f".format(mult)}",
+        )
     }
 
-    fun consecutiveLossesNow6487(): Long = consecutiveLosses.get()
+    fun consecutiveLossesFor6488(lane: String, mode: String = currentMode()): Long =
+        cohortLosses[cohortKey(mode, lane)]?.get() ?: 0L
 
-    fun defensiveActive6487(): Boolean = consecutiveLosses.get() > 0L
+    fun defensiveActiveFor6488(lane: String, mode: String = currentMode()): Boolean =
+        consecutiveLossesFor6488(lane, mode) > 0L
 
-    fun scoreFloorDelta6487(): Int = when {
-        consecutiveLosses.get() >= STREAK_HARD_LIMIT -> 100
-        consecutiveLosses.get() >= STREAK_TIGHTEN_TWO -> 15
-        consecutiveLosses.get() >= STREAK_TIGHTEN_ONE -> 8
+    fun scoreFloorDeltaFor6488(lane: String, mode: String = currentMode()): Int = when {
+        consecutiveLossesFor6488(lane, mode) >= STREAK_HARD_LIMIT -> 15
+        consecutiveLossesFor6488(lane, mode) >= STREAK_TIGHTEN_TWO -> 15
+        consecutiveLossesFor6488(lane, mode) >= STREAK_TIGHTEN_ONE -> 8
         else -> 0
     }
 
-    fun sizeMultiplier6487(): Double = when {
-        consecutiveLosses.get() >= STREAK_HARD_LIMIT -> 0.0
-        consecutiveLosses.get() >= STREAK_TIGHTEN_TWO -> 0.35
-        consecutiveLosses.get() >= STREAK_TIGHTEN_ONE -> 0.65
+    fun sizeMultiplierFor6488(lane: String, mode: String = currentMode()): Double = when {
+        consecutiveLossesFor6488(lane, mode) >= STREAK_HARD_LIMIT -> 0.35
+        consecutiveLossesFor6488(lane, mode) >= STREAK_TIGHTEN_TWO -> 0.35
+        consecutiveLossesFor6488(lane, mode) >= STREAK_TIGHTEN_ONE -> 0.65
         else -> 1.0
     }
+
+    // Compatibility telemetry only. Global values must not be used for entry authority.
+    fun consecutiveLossesNow6487(): Long = cohortLosses.values.maxOfOrNull { it.get() } ?: 0L
+    fun defensiveActive6487(): Boolean = cohortLosses.values.any { it.get() > 0L }
+    fun scoreFloorDelta6487(): Int = 0
+    fun sizeMultiplier6487(): Double = 1.0
 
     /** Called if any caller bypasses the gate (should be zero). */
     fun recordBypass(lane: String, source: String) {
@@ -144,16 +164,19 @@ object ExecutableEntryAuthority6450 {
         } catch (_: Throwable) {}
     }
 
-    fun statusLine(): String = "streak=${consecutiveLosses.get()} gates=${gates.get()} " +
-        "allows=${allows.get()} probes=${probes.get()} denies=${denies.get()} bypass=${bypassAttempts.get()}"
+    fun statusLine(): String {
+        val hottest = cohortLosses.entries.maxByOrNull { it.value.get() }
+        return "cohorts=${cohortLosses.size} hottest=${hottest?.key ?: "none"}:${hottest?.value?.get() ?: 0L} " +
+            "gates=${gates.get()} allows=${allows.get()} probes=${probes.get()} denies=${denies.get()} bypass=${bypassAttempts.get()}"
+    }
 
     internal fun resetForTest6487() {
-        consecutiveLosses.set(0L); cohortLastLossMs.clear(); cohortCooldownMs.clear()
+        cohortLosses.clear(); cohortLastLossMs.clear(); cohortCooldownMs.clear()
         gates.set(0L); allows.set(0L); probes.set(0L); denies.set(0L); bypassAttempts.set(0L)
     }
 
-    internal fun recordLossForTest6487(count: Int, lane: String = "TEST") {
-        repeat(count.coerceAtLeast(0)) { consecutiveLosses.incrementAndGet() }
-        cohortLastLossMs.remove(lane); cohortCooldownMs.remove(lane)
+    internal fun recordLossForTest6487(count: Int, lane: String = "TEST", mode: String = "PAPER") {
+        cohortLosses[cohortKey(mode, lane)] = AtomicLong(count.coerceAtLeast(0).toLong())
+        cohortLastLossMs.remove(cohortKey(mode, lane)); cohortCooldownMs.remove(cohortKey(mode, lane))
     }
 }

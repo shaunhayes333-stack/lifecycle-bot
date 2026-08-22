@@ -127,8 +127,11 @@ object RegimeDetector {
             Regime.DEAD         ->   0
             Regime.BOOTSTRAP    ->   0
         }
-        val streakDelta = try { com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.scoreFloorDelta6487() } catch (_: Throwable) { 0 }
-        return maxOf(regimeDelta, streakDelta)
+        // V5.0.6488 — this detector has no lane or event-local mode context.
+        // Applying streak state here globally let toxic SHITCOIN/MOONSHOT
+        // cohorts shut down profitable BLUECHIP. Lane streak shaping now lives
+        // only in ExecutableEntryAuthority6450 immediately before reservation.
+        return regimeDelta
     }
 
     /**
@@ -148,8 +151,7 @@ object RegimeDetector {
             Regime.DEAD         -> 0.50
             Regime.BOOTSTRAP    -> 1.0
         }
-        val streakMult = try { com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.sizeMultiplier6487() } catch (_: Throwable) { 1.0 }
-        return minOf(regimeMult, streakMult)
+        return regimeMult
     }
 
     // V5.0.6068 — LANE-AWARE REGIME SIZING (operator: "why the good lanes are

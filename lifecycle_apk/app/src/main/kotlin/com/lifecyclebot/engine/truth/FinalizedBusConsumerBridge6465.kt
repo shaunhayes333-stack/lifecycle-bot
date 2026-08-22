@@ -81,7 +81,7 @@ object FinalizedBusConsumerBridge6465 {
     } catch (_: Throwable) { false }
 
     private fun deliverToLosingStreakReflex(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        com.lifecyclebot.engine.truth.LosingStreakReflex6439.onTradeClosed(env.realizedPnlSol, env.mint)
+        com.lifecyclebot.engine.truth.LosingStreakReflex6439.onTradeClosed(env.realizedPnlSol, env.mint, env.mode, env.lane)
         true
     } catch (_: Throwable) { false }
 

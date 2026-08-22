@@ -2266,13 +2266,20 @@ object PipelineHealthCollector {
 
         // ── Cycle timing ────────────────────────────────────────────────
         sb.append("\n  [BOT-LOOP TIMING]\n")
-        sb.append("  Avg=${avgCycleMs}ms  Max=${s.maxCycleMs}ms\n")
-        if (s.maxCycleMs > 30_000 && avgCycleMs <= 30_000) {
-            sb.append("  ⚠ Max spike >30s but avg is normal — isolated stall. Check for GC pause or main-thread lock.\n")
-        } else if (avgCycleMs > 30_000) {
-            sb.append("  ⚠ Avg cycle >30s — watchlist or scanner overload. May need to reduce watchlist size.\n")
-        } else if (s.maxCycleMs <= 30_000) {
-            sb.append("  ✅ All cycles within 30s.\n")
+        val recentCycleTail6488 = recentCycleMsSamples.toList().takeLast(5)
+        val recentSevere6488 = recentCycleTail6488.count { it > 30_000L }
+        val recentEscalating6488 = recentCycleTail6488.size >= 3 &&
+            recentCycleTail6488.zipWithNext().all { (a, b) -> b > a && b >= (a * 1.20).toLong() }
+        sb.append("  Avg=${avgCycleMs}ms  Max=${s.maxCycleMs}ms  Recent5=${recentCycleTail6488.joinToString("→") { "${it}ms" }}\n")
+        when {
+            recentEscalating6488 || recentSevere6488 >= 3 ->
+                sb.append("  🚨 RUNTIME_CHOKE: repeated/escalating stalls — inspect POST_LEARNING_MAINTENANCE + scanner/supervisor backlog; not an isolated UI spike.\n")
+            s.maxCycleMs > 30_000 && avgCycleMs <= 30_000 && recentSevere6488 <= 1 ->
+                sb.append("  ⚠ Single recent spike >30s — isolated stall candidate; verify phase telemetry before assigning UI/GC cause.\n")
+            avgCycleMs > 30_000 ->
+                sb.append("  🚨 RUNTIME_CHOKE: average cycle >30s — inspect phase timing, worker timeout and source backlog.\n")
+            s.maxCycleMs <= 30_000 -> sb.append("  ✅ All cycles within 30s.\n")
+            else -> sb.append("  ⚠ Repeated historical stalls detected; recent sequence is not yet healthy enough to call isolated.\n")
         }
 
         // ── ANR / stall ─────────────────────────────────────────────────

@@ -255,26 +255,21 @@ object FinalExecutionPermit {
     ): PermitResult {
         val now = System.currentTimeMillis()
 
-        // V5.0.6439 — LOSING-STREAK REFLEX (capital preservation creed).
-        // If the reflex is currently blocking new buys (N consecutive
-        // realized losses within CONSECUTIVE_LOSS_COOLDOWN_MS), veto
-        // EVERY new BUY regardless of lane, paper/live, or open position
-        // state. This is the "bad behaviour must never be rewarded"
-        // guarantee — the bot cannot keep buying while it is proving to
-        // itself that its current model is losing.
-        if (com.lifecyclebot.engine.truth.LosingStreakReflex6439.shouldBlockNewBuys()) {
-            val remSec = com.lifecyclebot.engine.truth.LosingStreakReflex6439.cooldownRemainingSec()
+        // V5.0.6488 — the legacy global streak veto is removed. Cohort streaks
+        // are event-local telemetry here; ExecutableEntryAuthority6450 owns
+        // lane/mode shaping immediately before reservation. Never zero-size or
+        // globally block an unrelated profitable lane from this broad permit.
+        val cohortCooldown6488 = try {
+            com.lifecyclebot.engine.truth.LosingStreakReflex6439.cooldownRemainingSec(requestingLayer)
+        } catch (_: Throwable) { 0L }
+        if (cohortCooldown6488 > 0L) {
             try {
+                PipelineHealthCollector.labelInc("LOSING_STREAK_COHORT_NO_GLOBAL_VETO_6488")
                 ForensicLogger.lifecycle(
-                    "LOSING_STREAK_BLOCK_6439",
-                    "layer=$requestingLayer symbol=$symbol mint=${mint.take(10)} cooldownRemSec=$remSec",
+                    "LOSING_STREAK_COHORT_NO_GLOBAL_VETO_6488",
+                    "layer=$requestingLayer symbol=$symbol mint=${mint.take(10)} cooldownRemSec=$cohortCooldown6488 action=defer_to_executable_entry_authority",
                 )
             } catch (_: Throwable) {}
-            return PermitResult(
-                allowed = false,
-                reason = "LOSING_STREAK_6439: ${com.lifecyclebot.engine.truth.LosingStreakReflex6439.consecutiveLossesNow()} consec losses cooldownRemSec=$remSec",
-                blockingLayer = "CAPITAL_PRESERVATION",
-            )
         }
 
         if (RuntimeConfigOverlay.isLaneDisabled(requestingLayer)) {

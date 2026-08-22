@@ -10184,11 +10184,11 @@ class BotService : Service() {
                 )
             }
             val zeroSignal = laneBase.entryScore <= 0.0 && laneBase.aiConfidence <= 10.0
-            val streakDefense6487 = try { com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.defensiveActive6487() } catch (_: Throwable) { false }
+            val streakDefense6487 = try { com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.defensiveActiveFor6488(lane) } catch (_: Throwable) { false }
             if (streakDefense6487 && (zeroSignal || laneBase.finalSignal.equals("WAIT", true))) {
                 try {
                     PipelineHealthCollector.labelInc("DEFENSIVE_WAIT_PROBE_SUPPRESSED_6487")
-                    ForensicLogger.lifecycle("DEFENSIVE_WAIT_PROBE_SUPPRESSED_6487", "lane=$lane mint=${mintForProbe.take(10)} score=${laneBase.entryScore.toInt()} conf=${laneBase.aiConfidence.toInt()} streak=${com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.consecutiveLossesNow6487()} action=shadow_learn_only")
+                    ForensicLogger.lifecycle("DEFENSIVE_WAIT_PROBE_SUPPRESSED_6487", "lane=$lane mint=${mintForProbe.take(10)} score=${laneBase.entryScore.toInt()} conf=${laneBase.aiConfidence.toInt()} streak=${com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.consecutiveLossesFor6488(lane)} action=shadow_learn_only")
                     LearningLifecycleBus.preFdgReject("DEFENSIVE_WAIT_SHADOW_ONLY_6487", lane, sourceForChop, mintForProbe, edgeSymbol4529, baseBlock, laneBase.entryScore, laneBase.aiConfidence, liquidityUsd, edgeMcap4529, edgeRegime4529)
                 } catch (_: Throwable) {}
                 return laneBase.copy(signal = "WAIT", finalSignal = "WAIT", shouldTrade = false, blockReason = "DEFENSIVE_WAIT_SHADOW_ONLY_6487")
@@ -14571,19 +14571,16 @@ class BotService : Service() {
             // V4.0: GlobalTradeRegistry cleanup
             // Clean expired rejections and cooldowns
             // ═══════════════════════════════════════════════════════════════════
-            GlobalTradeRegistry.cleanup()
-            
-            // ═══════════════════════════════════════════════════════════════════
-            // V4.20: EfficiencyLayer cleanup
-            // Clean stale seen tokens, expired liquidity rejections, etc.
-            // ═══════════════════════════════════════════════════════════════════
-            EfficiencyLayer.cleanup()
-            
-            // ═══════════════════════════════════════════════════════════════════
-            // V5.0: TradeAuthorizer cleanup
-            // Clean stale shadow tracking entries
-            // ═══════════════════════════════════════════════════════════════════
-            TradeAuthorizer.cleanup()
+            // V5.0.6488 — unbounded map scans are maintenance, not cycle
+            // authority. Single-flight/deadline execution prevents a large
+            // registry from parking POST_LEARNING_MAINTENANCE for minutes.
+            com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
+                name = "cycle_sanitize_6488", budgetMs = 1_500L,
+            ) {
+                GlobalTradeRegistry.cleanup()
+                EfficiencyLayer.cleanup()
+                TradeAuthorizer.cleanup()
+            }
 
             // V5.0.6438 — bisection marker A. Everything before this line
             // is sync sanitize (FinalExecutionPermit.clearCycleState,
@@ -14778,14 +14775,13 @@ class BotService : Service() {
             // SCANNER STALENESS CHECK - every 6 loops (~30 seconds)
             // If no new tokens found for 2 minutes, reset scanner maps
             // ═══════════════════════════════════════════════════════════════════
-            if (loopCount % 6 == 0 && marketScanner != null) {
-                marketScanner?.checkAndResetIfStale()
-            }
-
-            // V5.9.660 — extracted to runScannerHeartbeat() to keep
-            // botLoop under the JVM 64KB method size limit.
             if (loopCount % 6 == 0) {
-                runScannerHeartbeat()
+                com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
+                    name = "scanner_health_6488", budgetMs = 3_000L,
+                ) {
+                    marketScanner?.checkAndResetIfStale()
+                    runScannerHeartbeat()
+                }
             }
 
             // ═══════════════════════════════════════════════════════════════════
@@ -14807,7 +14803,9 @@ class BotService : Service() {
             // ═══════════════════════════════════════════════════════════════════
             // V5.9.692 — purge Sniper ghost missions every ~30s (loopCount % 6 = every 5*6=30s)
             if (loopCount % 6 == 0) {
-                try { com.lifecyclebot.v3.scoring.ProjectSniperAI.sweepStaleMissions(300L) } catch (_: Throwable) {}
+                com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
+                    name = "project_sniper_sweep_6488", budgetMs = 1_000L,
+                ) { try { com.lifecyclebot.v3.scoring.ProjectSniperAI.sweepStaleMissions(300L) } catch (_: Throwable) {} }
             }
 
             if (loopCount % 12 == 0) {  // ~60s cadence
@@ -14885,7 +14883,9 @@ class BotService : Service() {
             // botLoop under the JVM 64KB method size limit. Same cadence
             // (every 10 loops), same behavior. See helper for full body.
             if (loopCount % 10 == 0) {
-                runMarketsEngineWatchdog(loopCount, cfg)
+                com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
+                    name = "markets_engine_watchdog_6488", budgetMs = 4_000L,
+                ) { runMarketsEngineWatchdog(loopCount, cfg) }
             }
 
             // V5.0.6438 — bisection marker C. Everything between marker B
@@ -15767,6 +15767,15 @@ val prioritizedWatchlist = if (cfg.v3EngineEnabled && !watchlistPriorityBudgetBy
 try { markProgress("WATCHLIST_PRIORITIZED") } catch (_: Throwable) {}
 
 // ───────────────────────────────────────────────────────────────
+// V5.0.6488 — canonical position authority owns slot truth. Refresh the
+// legacy registry projection atomically before selection so closed/stale rows
+// cannot consume a new cycle and missing opens cannot skip exit management.
+try {
+    com.lifecyclebot.engine.EmergentGuardrails.rebuildFromCanonical6475(
+        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+    )
+} catch (_: Throwable) {}
+
 // PATCH: chunked watchlist processing with per-token timeout
 // Prevent one overloaded loop from timing out the entire batch.
 // Keeps open positions first, then processes the rest in small waves.
@@ -22448,15 +22457,15 @@ if (hotExitHandledSweep) {
                             )
 
   
-                                if (!manipOpened) {
-                                    ErrorLogger.warn("BotService", "MANIPULATED ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
-                                    try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=MANIPULATED symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
-                                    try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "MANIPULATED", "BUY_NOT_OPENED") } catch (_: Throwable) {}
-                                    try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
-                                    try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.MANIPULATED) } catch (_: Throwable) {}
-                                    return
-                                }
-                          val actualManipEntry = ts.position.entryPrice.takeIf { it > 0 } ?: ts.ref
+                            if (!manipOpened) {
+                                ErrorLogger.warn("BotService", "MANIPULATED ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
+                                try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=MANIPULATED symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "MANIPULATED", "BUY_NOT_OPENED") } catch (_: Throwable) {}
+                                try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
+                                try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.MANIPULATED) } catch (_: Throwable) {}
+                                return
+                            }
+                            val actualManipEntry = ts.position.entryPrice.takeIf { it > 0 } ?: ts.ref
                             if (ts.position.isOpen) com.lifecyclebot.v3.scoring.ManipulatedTraderAI.addPosition(
                                 com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipulatedPosition(
                                     mint = ts.mint,

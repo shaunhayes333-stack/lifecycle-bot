@@ -1,7 +1,7 @@
 package com.lifecyclebot.engine
 
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * EmergentGuardrails — Safety Guardrails for 30-Day Proof Mode
@@ -214,7 +214,7 @@ object EmergentGuardrails {
     // Track open positions and their layers
     // ═══════════════════════════════════════════════════════════════════════
     
-    private val openPositions = ConcurrentHashMap<String, PositionInfo>()
+    private val openPositions = AtomicReference<Map<String, PositionInfo>>(emptyMap())
     
     data class PositionInfo(
         val mint: String,
@@ -230,13 +230,17 @@ object EmergentGuardrails {
      * Register an open position.
      */
     fun registerPosition(mint: String, symbol: String, layer: String, size: Double) {
-        openPositions[mint] = PositionInfo(
+        val info = PositionInfo(
             mint = mint,
             symbol = symbol,
             layer = layer,
             openedAt = System.currentTimeMillis(),
             size = size,
         )
+        while (true) {
+            val before = openPositions.get()
+            if (openPositions.compareAndSet(before, before + (mint to info))) break
+        }
         ErrorLogger.debug(TAG, "📍 Position registered: $symbol @ $layer")
         // V5.0.6464 §P0-#1/§P1 — publish OPEN state + bump authority.
         try {
@@ -263,32 +267,41 @@ object EmergentGuardrails {
         } catch (_: Throwable) {}
     }
     
-    /** V5.0.6475 — projection-only rebuild from canonical active positions. */
+    /** V5.0.6488 — atomic projection-only rebuild from funded canonical active positions. */
     fun rebuildFromCanonical6475(positions: List<com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Position>) {
-        openPositions.clear()
-        positions.filter {
-            it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.OPEN ||
-            it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED ||
-            it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PENDING_ENTRY
-        }.forEach { p ->
-            openPositions[p.mint] = PositionInfo(
+        val replacement = positions.asSequence().filter {
+            (it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.OPEN ||
+             it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED) &&
+                it.remainingQtyRaw > java.math.BigInteger.ZERO
+        }.associate { p ->
+            p.mint to PositionInfo(
                 mint = p.mint, symbol = p.symbol, layer = p.lane,
-                openedAt = p.openedAtMs, size = (p.entryCostSol - p.soldCostBasisSol).coerceAtLeast(0.0),
+                openedAt = p.openedAtMs,
+                size = (p.entryCostSol - p.soldCostBasisSol).coerceAtLeast(0.0),
                 qtyRaw = p.remainingQtyRaw,
-                state = when (p.lifecycle) {
-                    com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PENDING_ENTRY -> "PENDING_ENTRY"
-                    else -> "OPEN"
-                },
+                state = "OPEN",
             )
         }
-        try { ErrorLogger.info(TAG, "CANONICAL_REGISTRY_REBUILT_6475 active=${openPositions.size}") } catch (_: Throwable) {}
+        val before = openPositions.get()
+        if (before != replacement) {
+            openPositions.set(replacement)
+            try {
+                ErrorLogger.info(TAG, "CANONICAL_REGISTRY_ATOMIC_REBUILT_6488 before=${before.size} active=${replacement.size}")
+                PipelineHealthCollector.labelInc("CANONICAL_REGISTRY_ATOMIC_REBUILT_6488")
+            } catch (_: Throwable) {}
+        }
     }
 
     /**
      * Unregister a closed position.
      */
     fun unregisterPosition(mint: String) {
-        val removed = openPositions.remove(mint)
+        var removed: PositionInfo? = null
+        while (true) {
+            val before = openPositions.get()
+            removed = before[mint]
+            if (removed == null || openPositions.compareAndSet(before, before - mint)) break
+        }
         if (removed != null) {
             ErrorLogger.debug(TAG, "📍 Position unregistered: ${removed.symbol}")
             // V5.0.6402 §H — position closed IS the meaningful state
@@ -315,12 +328,12 @@ object EmergentGuardrails {
     /**
      * Check if a position is open.
      */
-    fun hasOpenPosition(mint: String): Boolean = openPositions.containsKey(mint)
+    fun hasOpenPosition(mint: String): Boolean = openPositions.get().containsKey(mint)
     
     /**
      * Get the layer of an open position.
      */
-    fun getPositionLayer(mint: String): String? = openPositions[mint]?.layer
+    fun getPositionLayer(mint: String): String? = openPositions.get()[mint]?.layer
 
     /**
      * V5.0.6464 §P0-#2 — read-only snapshot for PositionRegistryParityAudit6464.
@@ -334,7 +347,7 @@ object EmergentGuardrails {
         val entryCostSol: Double,
     )
     fun snapshot(): Map<String, RegistryEntry> =
-        openPositions.mapValues { (_, p) ->
+        openPositions.get().mapValues { (_, p) ->
             RegistryEntry(
                 mint = p.mint, symbol = p.symbol, state = "OPEN",
                 qtyRaw = p.qtyRaw,
@@ -347,7 +360,7 @@ object EmergentGuardrails {
      * Returns true if entry should be blocked due to layer conflict.
      */
     fun shouldBlockMultiLayerEntry(mint: String, requestingLayer: String): Boolean {
-        val existingPosition = openPositions[mint] ?: return false
+        val existingPosition = openPositions.get()[mint] ?: return false
         
         if (existingPosition.layer != requestingLayer) {
             ErrorLogger.info(TAG, "[LAYER_LOCK] ${existingPosition.symbol} | already_active @ ${existingPosition.layer}, requested by $requestingLayer")
@@ -361,7 +374,7 @@ object EmergentGuardrails {
      * Returns true if promotion should be blocked.
      */
     fun shouldBlockPromotion(mint: String, promotionSize: Double): Boolean {
-        val position = openPositions[mint]
+        val position = openPositions.get()[mint]
         
         // Block if no position exists (ghost)
         if (position == null) {
@@ -413,7 +426,7 @@ object EmergentGuardrails {
         synchronized(tradeTimestamps) {
             tradeTimestamps.clear()
         }
-        openPositions.clear()
+        openPositions.set(emptyMap())
         ErrorLogger.info(TAG, "🧹 Guardrails reset")
     }
 }

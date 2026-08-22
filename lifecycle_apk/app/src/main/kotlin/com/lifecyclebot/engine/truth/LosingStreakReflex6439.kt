@@ -2,107 +2,110 @@ package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.engine.RuntimeModeAuthority
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * V5.0.6439 — LOSING STREAK REFLEX.
+ * V5.0.6488 — LANE/MODE LOSING-STREAK OBSERVER.
  *
- * OPERATOR DIRECTIVE:
- *   "Bad behaviour and consistently buying into losers ... should
- *    NEVER be seen or recognised as good behaviour."
+ * This component is telemetry only. The former implementation was a second
+ * global executable-entry authority: three losses in any paper/live lane made
+ * FinalExecutionPermit veto every BUY for every other lane. That duplicated
+ * ExecutableEntryAuthority6450 and caused cross-lane/cross-mode shutdowns.
  *
- * When the bot rings up MAX_CONSECUTIVE_LOSSES realised losses in a
- * row, LosingStreakReflex6439 SHOUTS at every entry gate to STOP
- * opening new positions for CONSECUTIVE_LOSS_COOLDOWN_MS.
- *
- * shouldBlockNewBuys() → true means every BUY (paper OR live) is
- * denied at the exec gate. Positions already open still exit
- * normally — this reflex only stops NEW ones.
- *
- * The reflex is single-source-of-truth via CapitalPreservationCreed6439
- * so tuning the creed retunes the reflex automatically.
- *
- * onTradeClosed(realizedSolDelta, mint) is the ONLY setter. Callers:
- *   • Executor paper-close paths
- *   • Executor live-close paths (via reconciler)
- *   • MarketsLiveExecutor.close
- *   • V3 exit paths
- * All of them call this once per position close.
+ * Canonical lane-local shaping now lives only in ExecutableEntryAuthority6450
+ * immediately before capital reservation. True hard safety remains unchanged.
  */
 object LosingStreakReflex6439 {
 
-    private val consecutiveLosses = AtomicInteger(0)
-    private val consecutiveWins = AtomicInteger(0)
-    private val cooldownUntilMs = AtomicLong(0L)
-    private val totalTrips = AtomicLong(0L)
-    private val totalBlocks = AtomicLong(0L)
-    @Volatile private var lastLossMint: String = ""
+    private data class State(
+        val losses: AtomicInteger = AtomicInteger(0),
+        val wins: AtomicInteger = AtomicInteger(0),
+        val cooldownUntilMs: AtomicLong = AtomicLong(0L),
+        @Volatile var lastLossMint: String = "",
+    )
 
-    /**
-     * Called once per closed position. `realizedSolDelta` is the wallet
-     * SOL delta from open→close (negative = loss). Break-even (delta = 0)
-     * counts as a LOSS by the creed ("Break-even is NOT positive").
-     */
-    fun onTradeClosed(realizedSolDelta: Double, mint: String) {
+    private val states = ConcurrentHashMap<String, State>()
+    private val totalTrips = AtomicLong(0L)
+    private val legacyVetoCalls = AtomicLong(0L)
+
+    private fun normalizeMode(raw: String?): String = when {
+        raw.equals("live", true) -> "LIVE"
+        raw.equals("paper", true) -> "PAPER"
+        RuntimeModeAuthority.isLive() -> "LIVE"
+        else -> "PAPER"
+    }
+
+    private fun normalizeLane(raw: String?): String = raw?.trim()?.uppercase()
+        ?.takeIf { it.isNotBlank() } ?: "UNKNOWN"
+
+    private fun key(mode: String?, lane: String?): String = "${normalizeMode(mode)}|${normalizeLane(lane)}"
+
+    fun onTradeClosed(realizedSolDelta: Double, mint: String, mode: String, lane: String) {
+        val k = key(mode, lane)
+        val state = states.computeIfAbsent(k) { State() }
         val losing = CapitalPreservationCreed6439.isLosingBehaviour(realizedSolDelta)
         if (losing) {
-            val n = consecutiveLosses.incrementAndGet()
-            consecutiveWins.set(0)
-            lastLossMint = mint
+            val n = state.losses.incrementAndGet()
+            state.wins.set(0)
+            state.lastLossMint = mint
             if (n >= CapitalPreservationCreed6439.MAX_CONSECUTIVE_LOSSES) {
-                val cooldownEnd = System.currentTimeMillis() +
-                    CapitalPreservationCreed6439.CONSECUTIVE_LOSS_COOLDOWN_MS
-                cooldownUntilMs.set(cooldownEnd)
+                state.cooldownUntilMs.set(
+                    System.currentTimeMillis() + CapitalPreservationCreed6439.CONSECUTIVE_LOSS_COOLDOWN_MS
+                )
                 totalTrips.incrementAndGet()
                 try {
                     ForensicLogger.lifecycle(
-                        "LOSING_STREAK_TRIPPED_6439",
-                        "consecutiveLosses=$n cooldownMs=${CapitalPreservationCreed6439.CONSECUTIVE_LOSS_COOLDOWN_MS} " +
-                            "lastLossMint=${mint.take(12)} lastDeltaSol=${"%.5f".format(realizedSolDelta)}",
+                        "LOSING_STREAK_COHORT_OBSERVED_6488",
+                        "cohort=$k losses=$n lastLossMint=${mint.take(12)} deltaSol=${"%.5f".format(realizedSolDelta)} action=lane_shaping_authority_only",
                     )
+                    PipelineHealthCollector.labelInc("LOSING_STREAK_COHORT_OBSERVED_6488")
                 } catch (_: Throwable) {}
-                try { PipelineHealthCollector.labelInc("LOSING_STREAK_TRIPPED_6439") } catch (_: Throwable) {}
             }
         } else {
-            consecutiveLosses.set(0)
-            consecutiveWins.incrementAndGet()
+            state.losses.set(0)
+            state.wins.incrementAndGet()
+            state.cooldownUntilMs.set(0L)
         }
     }
 
-    /**
-     * The ONE gate every buy site must consult. Returns true when the
-     * reflex is currently blocking new entries.
-     */
-    fun shouldBlockNewBuys(): Boolean {
-        val until = cooldownUntilMs.get()
-        val blocked = until > System.currentTimeMillis()
-        if (blocked) {
-            totalBlocks.incrementAndGet()
-            try { PipelineHealthCollector.labelInc("LOSING_STREAK_BLOCK_6439") } catch (_: Throwable) {}
-        }
-        return blocked
-    }
+    /** Compatibility overload for old replay/tests; attributed to current mode/UNKNOWN lane. */
+    fun onTradeClosed(realizedSolDelta: Double, mint: String) =
+        onTradeClosed(realizedSolDelta, mint, normalizeMode(null), "UNKNOWN")
 
-    /** Remaining cool-down in seconds (0 if not currently cooling down). */
-    fun cooldownRemainingSec(): Long {
-        val remMs = cooldownUntilMs.get() - System.currentTimeMillis()
+    fun cooldownRemainingSec(lane: String, mode: String = normalizeMode(null)): Long {
+        val remMs = (states[key(mode, lane)]?.cooldownUntilMs?.get() ?: 0L) - System.currentTimeMillis()
         return if (remMs <= 0L) 0L else remMs / 1000L
     }
 
-    fun consecutiveLossesNow(): Int = consecutiveLosses.get()
-    fun consecutiveWinsNow(): Int = consecutiveWins.get()
+    fun consecutiveLossesNow(lane: String, mode: String = normalizeMode(null)): Int =
+        states[key(mode, lane)]?.losses?.get() ?: 0
 
-    /** Manual admin reset (used on wallet-day-rollover, session restart). */
-    fun reset() {
-        consecutiveLosses.set(0)
-        consecutiveWins.set(0)
-        cooldownUntilMs.set(0L)
-        lastLossMint = ""
+    /**
+     * Legacy API is deliberately non-authoritative. It can never veto a BUY.
+     * Kept only so stale external callers fail open while emitting telemetry.
+     */
+    @Deprecated("Use ExecutableEntryAuthority6450 lane/mode shaping")
+    fun shouldBlockNewBuys(): Boolean {
+        legacyVetoCalls.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("LEGACY_GLOBAL_STREAK_VETO_NEUTRALIZED_6488") } catch (_: Throwable) {}
+        return false
     }
 
-    fun statusLine(): String =
-        "consecLosses=${consecutiveLosses.get()} consecWins=${consecutiveWins.get()} " +
-            "cooldownRemSec=${cooldownRemainingSec()} totalTrips=${totalTrips.get()} " +
-            "totalBlocks=${totalBlocks.get()} lastLossMint=${lastLossMint.take(12)}"
+    fun cooldownRemainingSec(): Long = states.values.maxOfOrNull {
+        ((it.cooldownUntilMs.get() - System.currentTimeMillis()).coerceAtLeast(0L)) / 1000L
+    } ?: 0L
+
+    fun consecutiveLossesNow(): Int = states.values.maxOfOrNull { it.losses.get() } ?: 0
+    fun consecutiveWinsNow(): Int = states.values.maxOfOrNull { it.wins.get() } ?: 0
+
+    fun reset() { states.clear() }
+
+    fun statusLine(): String {
+        val hottest = states.entries.maxByOrNull { it.value.losses.get() }
+        return "cohorts=${states.size} hottest=${hottest?.key ?: "none"}:${hottest?.value?.losses?.get() ?: 0} " +
+            "cooldownRemSec=${cooldownRemainingSec()} totalTrips=${totalTrips.get()} legacyVetoCalls=${legacyVetoCalls.get()}"
+    }
 }

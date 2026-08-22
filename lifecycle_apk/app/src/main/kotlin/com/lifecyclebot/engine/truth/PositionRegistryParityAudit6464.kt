@@ -59,12 +59,10 @@ object PositionRegistryParityAudit6464 {
         val canonicalOpens = try {
             CanonicalPositionAuthority6441.openPositions()
         } catch (_: Throwable) { emptyList() }
-        val canonicalPending = try {
-            CanonicalPositionAuthority6441.pendingEntryPositions6461()
-        } catch (_: Throwable) { emptyList() }
-        // Registry is an active projection; CLOSED canonical rows are retained
-        // in history but must not inflate active parity counts.
-        val canonicalAll = canonicalOpens + canonicalPending
+        // V5.0.6488 — slot/registry parity compares funded active positions
+        // only. PENDING_ENTRY has no filled quantity and must not consume an
+        // OPEN slot or manufacture a permanent canonical-registry delta.
+        val canonicalAll = canonicalOpens
 
         val canonicalByState = canonicalAll.groupingBy { it.lifecycle }.eachCount()
         val canonicalByMint = canonicalAll.associateBy { it.mint }
@@ -94,10 +92,11 @@ object PositionRegistryParityAudit6464 {
                 CanonicalPositionAuthority6441.Lifecycle.QUARANTINED -> "QUARANTINED"
             }
             if (r.state != expectedRegState) stateMismatch += "${mint.take(10)}(c=${c.lifecycle} r=${r.state})"
-            val qDelta = kotlin.math.abs(c.originalQtyRaw.toDouble() - r.qtyRaw.toDouble())
-            if (qDelta > 1.0) qtyMismatch += "${mint.take(10)}(cq=${c.originalQtyRaw} rq=${r.qtyRaw})"
-            val costDelta = kotlin.math.abs(c.entryCostSol - r.entryCostSol)
-            if (costDelta > 0.001) costBasisMismatch += "${mint.take(10)}(cc=${"%.4f".format(c.entryCostSol)} rc=${"%.4f".format(r.entryCostSol)})"
+            val qDelta = kotlin.math.abs(c.remainingQtyRaw.toDouble() - r.qtyRaw.toDouble())
+            if (qDelta > 1.0) qtyMismatch += "${mint.take(10)}(cq=${c.remainingQtyRaw} rq=${r.qtyRaw})"
+            val remainingCost = (c.entryCostSol - c.soldCostBasisSol).coerceAtLeast(0.0)
+            val costDelta = kotlin.math.abs(remainingCost - r.entryCostSol)
+            if (costDelta > 0.001) costBasisMismatch += "${mint.take(10)}(cc=${"%.4f".format(remainingCost)} rc=${"%.4f".format(r.entryCostSol)})"
         }
 
         val snap = Snapshot(
