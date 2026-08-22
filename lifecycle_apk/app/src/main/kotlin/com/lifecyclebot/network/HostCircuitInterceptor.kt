@@ -57,6 +57,16 @@ object HostCircuitInterceptor : Interceptor {
         val host = req.url.host
         val now = System.currentTimeMillis()
         val state = states.getOrPut(host) { HostState() }
+        val providerLabel6495 = when {
+            host.contains("dexscreener", ignoreCase = true) -> "dexscreener"
+            else -> ""
+        }
+        if (providerLabel6495.isNotBlank() && try { com.lifecyclebot.engine.ApiBackoff.isLockedOut(providerLabel6495) } catch (_: Throwable) { false }) {
+            state.totalBypassed.incrementAndGet(); totalServerBypass.incrementAndGet()
+            return Response.Builder().request(req).protocol(Protocol.HTTP_1_1).code(599)
+                .message("ApiBackoff shared-client lockout for $providerLabel6495")
+                .body("".toResponseBody(null)).build()
+        }
         val cooldownUntil = state.cooldownUntilMs.get()
 
         // Fast-path short-circuit: host is in cool-down, fail immediately
@@ -90,8 +100,16 @@ object HostCircuitInterceptor : Interceptor {
             throw uhe
         }
 
+        // V5.0.6495 — raw shared-client Dex calls feed the same reactive backoff
+        // as HealthAwareHttp, so direct consumers cannot bypass provider health.
+        if (providerLabel6495.isNotBlank()) {
+            try {
+                if (response.isSuccessful) com.lifecyclebot.engine.ApiBackoff.markSuccess(providerLabel6495)
+                else if (response.code in 400..599) com.lifecyclebot.engine.ApiBackoff.markFailure(providerLabel6495, response.code)
+            } catch (_: Throwable) {}
+        }
         // 5xx / 429 tracking — three within a minute trips a short cool-down.
-        if (response.code in 500..599 || response.code == 429) {
+        if (response.code in 500..599 || response.code == 429 || response.code == 403) {
             val firstFail = state.firstServerFailAtMs.get()
             if (firstFail == 0L || (now - firstFail) > SERVER_FAIL_TRIP_WINDOW_MS) {
                 state.firstServerFailAtMs.set(now)

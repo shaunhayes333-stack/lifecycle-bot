@@ -248,6 +248,10 @@ object TacticSwitcher {
     fun onCanonicalTradeClosed6486(
         lane: String, scoreBand: String, entryTactic: String, pnlPct: Double,
     ) {
+        val pnlVerdict6495 = com.lifecyclebot.engine.LearningPnlSanitizer.inspectPct(
+            pnlPct, "TacticSwitcher.onCanonicalTradeClosed6486/$lane/$scoreBand", emit = true,
+        )
+        if (!pnlVerdict6495.ok) return
         val current = currentTactic(lane, scoreBand).name
         val entered = entryTactic.trim().uppercase()
         if (entered.isBlank() || entered == current) {
@@ -265,6 +269,10 @@ object TacticSwitcher {
     fun historicalOutcomeCount6486(): Int = historicalTacticOutcomes6486.values.sumOf { it.trades.get() }
 
     fun onTradeClosed(lane: String, scoreBand: String, pnlPct: Double) {
+        val pnlVerdict6495 = com.lifecyclebot.engine.LearningPnlSanitizer.inspectPct(
+            pnlPct, "TacticSwitcher.onTradeClosed/$lane/$scoreBand", emit = true,
+        )
+        if (!pnlVerdict6495.ok) return
         val cell = getOrCreate(lane, scoreBand)
         cell.tradesSinceRotation.incrementAndGet()
         cell.pnlSumSinceRotation.addAndGet((pnlPct * 100).toLong())
@@ -525,6 +533,19 @@ object TacticSwitcher {
             Regex(""""w":(\d+)""").find(raw)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { cell.winsSinceRotation.set(it) }
             Regex(""""l":(\d+)""").find(raw)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { cell.lossesSinceRotation.set(it) }
             Regex(""""r":"([^"]*)"""").find(raw)?.groupValues?.getOrNull(1)?.let { cell.lastRotationReason.set(it) }
+            val n6495 = cell.tradesSinceRotation.get()
+            val sum6495 = cell.pnlSumSinceRotation.get()
+            val mean6495 = if (n6495 > 0) (sum6495.toDouble() / 100.0) / n6495 else 0.0
+            val persistedSane6495 = n6495 >= 0 && cell.winsSinceRotation.get() >= 0 && cell.lossesSinceRotation.get() >= 0 &&
+                cell.winsSinceRotation.get() + cell.lossesSinceRotation.get() <= n6495 &&
+                com.lifecyclebot.engine.LearningPnlSanitizer.inspectPct(mean6495, "TacticSwitcher.persisted/$key", emit = false).ok
+            if (!persistedSane6495) {
+                cell.tradesSinceRotation.set(0); cell.pnlSumSinceRotation.set(0L)
+                cell.winsSinceRotation.set(0); cell.lossesSinceRotation.set(0)
+                cell.lastRotationReason.set("persisted_economics_quarantined_6495")
+                persist(key, cell)
+                try { PipelineHealthCollector.labelInc("TACTIC_PERSISTED_ECONOMICS_QUARANTINED_6495") } catch (_: Throwable) {}
+            }
         } catch (_: Throwable) {}
     }
 
@@ -554,6 +575,8 @@ object TacticSwitcher {
                 com.lifecyclebot.engine.TradeHistoryStore.getAllTradesFromDb()
                     .asSequence()
                     .filter { it.side.equals("SELL", true) || it.side.equals("PARTIAL_SELL", true) }
+                    .filter { com.lifecyclebot.engine.TradeHistoryStore.isValidAccountingTrade(it) }
+                    .filter { com.lifecyclebot.engine.LearningPnlSanitizer.inspectTrade(it, "TacticSwitcher.rederive6495", emit = false).ok }
                     .toList()
             } catch (_: Throwable) { emptyList() }
             if (rawSells.isEmpty()) return

@@ -93,8 +93,10 @@ object ScoreExpectancyTracker {
                     try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ACCOUNTING_OUTLIER_NOT_TRAINED") } catch (_: Throwable) {}
                     return
                 }
-                pnlPct > 5000.0 -> { try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ACCOUNTING_OUTLIER_NOT_TRAINED") } catch (_: Throwable) {}; 5000.0 }
-                pnlPct < -100.0 -> -100.0
+                !com.lifecyclebot.engine.LearningPnlSanitizer.inspectPct(pnlPct, "ScoreExpectancyTracker.record/$layer/$score", emit = false).ok -> {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ACCOUNTING_OUTLIER_NOT_TRAINED") } catch (_: Throwable) {}
+                    return
+                }
                 else -> pnlPct
             }
             val key = keyOf(layer, score)
@@ -253,9 +255,13 @@ object ScoreExpectancyTracker {
     }
     fun importState(snapshot: Map<String, List<Double>>) {
         snapshot.forEach { (k, pnls) ->
-            val q = ArrayDeque<Double>(pnls.size + 1)
-            pnls.forEach { q.addLast(it) }
-            windows[k] = q
+            val sane6495 = pnls.filter { com.lifecyclebot.engine.LearningPnlSanitizer.inspectPct(it, "ScoreExpectancyTracker.import/$k", emit = false).ok }
+            if (sane6495.size != pnls.size) {
+                try { PipelineHealthCollector.labelInc("SCORE_EXPECTANCY_PERSISTED_ECONOMICS_QUARANTINED_6495") } catch (_: Throwable) {}
+            }
+            val q = ArrayDeque<Double>(sane6495.size + 1)
+            sane6495.takeLast(WINDOW).forEach { q.addLast(it) }
+            if (q.isNotEmpty()) windows[k] = q
         }
     }
 }

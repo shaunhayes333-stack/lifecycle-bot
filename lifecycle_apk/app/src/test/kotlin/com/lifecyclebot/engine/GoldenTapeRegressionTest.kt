@@ -8137,4 +8137,23 @@ class GoldenTapeRegressionTest {
         assertFalse("lane handoff must not replace auth receipt with mutable recent lookup", bot.contains("val treasuryAttemptId = ExecutableOpenGate.recentAllowedAttemptId"))
     }
 
+
+    @Test
+    fun V5_0_6495_quarantines_impossible_finalized_economics_and_provider_bypasses() {
+        val finalBus = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt").readText()
+        val tactic = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt").readText()
+        val expectancy = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ScoreExpectancyTracker.kt").readText()
+        val dex = java.io.File("src/main/kotlin/com/lifecyclebot/network/DexscreenerApi.kt").readText()
+        val circuit = java.io.File("src/main/kotlin/com/lifecyclebot/network/HostCircuitInterceptor.kt").readText()
+
+        assertTrue(finalBus.contains("CANONICAL_FINALIZED_ECONOMICS_QUARANTINED_6495"))
+        assertTrue(finalBus.contains("IMPLIED_PROCEEDS_ABOVE_5000_SOL") && finalBus.contains("RETURN_FRACTION_PCT_MISMATCH"))
+        assertTrue(tactic.contains("TacticSwitcher.onCanonicalTradeClosed6486") && tactic.contains("persisted_economics_quarantined_6495"))
+        assertTrue(tactic.contains("TradeHistoryStore.isValidAccountingTrade(it)"))
+        assertTrue(expectancy.contains("SCORE_EXPECTANCY_PERSISTED_ECONOMICS_QUARANTINED_6495"))
+        assertTrue(dex.contains("never bypass HealthAwareHttp/ApiBackoff with a raw retry"))
+        assertFalse("DexScreener must not retry raw after the health wrapper", dex.contains("http.newCall(req).execute()"))
+        assertTrue(circuit.contains("ApiBackoff shared-client lockout") && circuit.contains("response.code == 403"))
+    }
+
 }
