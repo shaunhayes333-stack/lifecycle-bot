@@ -35,8 +35,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 object JitoMEVProtection {
 
     private val http = SharedHttpClient.builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(1500, TimeUnit.MILLISECONDS)
+        .readTimeout(2500, TimeUnit.MILLISECONDS)
+        .callTimeout(2500, TimeUnit.MILLISECONDS)
         .build()
 
     // Jito block engine endpoints (mainnet)
@@ -78,6 +79,32 @@ object JitoMEVProtection {
         val error: String?,
         val landed: Boolean = false,
     )
+
+    /** V5.0.6489 — one bounded synchronous bundle submission, no status wait. */
+    fun submitProtectedNoWait6489(signedTxBase64: String, tipLamports: Long = 10_000L): BundleResult {
+        if (!isEnabled.get()) return BundleResult(false, null, null, "Jito protection disabled")
+        val decoded = try {
+            android.util.Base64.decode(signedTxBase64, android.util.Base64.NO_WRAP)
+        } catch (_: Throwable) {
+            try { java.util.Base64.getDecoder().decode(signedTxBase64) } catch (_: Throwable) { null }
+        }
+        if (decoded == null || decoded.size < 80) {
+            return BundleResult(false, null, null, "JITO_PAYLOAD_INVALID_6489")
+        }
+        val bundle = JSONArray().apply { put(signedTxBase64) }
+        return try {
+            val result = sendBundle(getNextEndpoint(), bundle)
+            if (result.success) {
+                bundlesSent++
+                totalTipsPaid += tipLamports
+                try { PipelineHealthCollector.labelInc("JITO_SUBMITTED_NO_WAIT_6489") } catch (_: Throwable) {}
+            }
+            result
+        } catch (t: Throwable) {
+            try { PipelineHealthCollector.labelInc("JITO_BOUNDED_FAIL_RPC_FALLBACK_6489") } catch (_: Throwable) {}
+            BundleResult(false, null, null, t.message ?: "JITO_BOUNDED_FAILURE_6489")
+        }
+    }
 
     /**
      * Send a protected transaction via Jito bundle.

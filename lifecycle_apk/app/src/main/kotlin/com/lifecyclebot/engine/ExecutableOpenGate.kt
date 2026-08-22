@@ -1038,30 +1038,23 @@ object ExecutableOpenGate {
             }
         }
 
-        // V5.0.6379 — LEARNED TOXIC LANE HARD VETO (operator directive: "buys
-        // in the wrong waves of the chart. it needs to use the full aate stack
-        // to find profitable trades live asap"). This is the narrow-band hard
-        // veto that V5.9.1549 previously softened to a shadow-train telemetry.
-        // Fires ONLY for buckets whose RAW journal reality (bypassing the
-        // sanitizer) shows a genuinely catastrophic record over n>=15 trades:
-        //   wr <= 10%  AND  meanPnlPct <= -25%
-        // Enough evidence, low enough WR, deep enough per-trade loss that
-        // continuing to buy the bucket is literally the opposite of learning.
-        // Self-clearing: the same lane un-vetoes itself the moment its rolling
-        // stats improve past any of the three thresholds.
+        // V5.0.6489 — learned lane toxicity is evidence for existing
+        // LiveProbabilityEngine/LaneAdaptiveDamping score+size shaping, never
+        // a global executable veto. Preserve the full canonical lane in
+        // telemetry so SHITCOIN is never collapsed to an ambiguous "S".
         run {
-            val vetoReason6379 = try {
-                com.lifecyclebot.engine.LiveProbabilityEngine.toxicVetoReason6379(canonicalSelectedLane)
+            val toxicShape6489 = try {
+                com.lifecyclebot.engine.LiveProbabilityEngine.toxicShapeReason6489(canonicalSelectedLane)
             } catch (_: Throwable) { null }
-            if (vetoReason6379 != null) {
+            if (toxicShape6489 != null) {
+                val fullLane6489 = canonicalSelectedLane.uppercase()
                 try {
-                    PipelineHealthCollector.labelInc("LEARNED_TOXIC_LANE_HARD_VETO_6379|${canonicalSelectedLane.uppercase()}")
+                    PipelineHealthCollector.labelInc("LEARNED_TOXIC_LANE_SOFT_SHAPED_6489|lane=$fullLane6489")
                     ForensicLogger.lifecycle(
-                        "LEARNED_TOXIC_LANE_HARD_VETO_6379",
-                        "$vetoReason6379 symbol=$symbol mint=${mint.take(10)} mode=$modeUpper attemptId=$attemptId action=blocked_before_buy",
+                        "LEARNED_TOXIC_LANE_SOFT_SHAPED_6489",
+                        "$toxicShape6489 lane=$fullLane6489 symbol=$symbol mint=${mint.take(10)} mode=$modeUpper attemptId=$attemptId action=allow_existing_bounded_shapers",
                     )
                 } catch (_: Throwable) {}
-                return blocked("EXEC_OPEN_BLOCKED_LEARNED_TOXIC_LANE_6379", vetoReason6379)
             }
         }
 

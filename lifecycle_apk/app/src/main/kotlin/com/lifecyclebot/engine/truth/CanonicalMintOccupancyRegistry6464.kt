@@ -164,6 +164,41 @@ object CanonicalMintOccupancyRegistry6464 {
     fun isOpen(mode: String, mint: String): Boolean =
         occupancyOf(mode, mint) == Occupancy.OPEN
 
+    /**
+     * V5.0.6489 — reconcile only funded active occupancy from canonical lots.
+     * Candidate/pending-entry admission state is preserved. Stale OPEN/PENDING_EXIT
+     * rows are removed exactly once; genuine PENDING_EXIT rows remain pending while
+     * their canonical funded lot still exists.
+     */
+    @Synchronized
+    fun reconcileActiveFromCanonical6489(
+        positions: List<CanonicalPositionAuthority6441.Position>,
+    ) {
+        val active = positions.filter {
+            (it.lifecycle == CanonicalPositionAuthority6441.Lifecycle.OPEN ||
+             it.lifecycle == CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED) &&
+                it.remainingQtyRaw > java.math.BigInteger.ZERO
+        }.distinctBy { key(it.mode, it.mint) }
+        val desired = active.associateBy { key(it.mode, it.mint) }
+        entries.entries.removeIf { (k, e) ->
+            (e.occupancy == Occupancy.OPEN || e.occupancy == Occupancy.PENDING_EXIT) && k !in desired
+        }
+        val now = System.currentTimeMillis()
+        active.forEach { p ->
+            val k = key(p.mode, p.mint)
+            val prev = entries[k]
+            if (prev?.occupancy != Occupancy.PENDING_EXIT) {
+                entries[k] = Entry(
+                    mode = p.mode.lowercase(), mint = p.mint, symbol = p.symbol,
+                    source = "canonical_active_reconcile_6489", occupancy = Occupancy.OPEN,
+                    firstSeenMs = prev?.firstSeenMs ?: p.openedAtMs,
+                    lastMutationMs = now,
+                )
+            }
+        }
+        try { PipelineHealthCollector.labelInc("MINT_OCCUPANCY_ACTIVE_RECONCILED_6489") } catch (_: Throwable) {}
+    }
+
     /** Kill switch — called by reconciliation replay after a full run rebuild. */
     fun clearAll() {
         entries.clear()

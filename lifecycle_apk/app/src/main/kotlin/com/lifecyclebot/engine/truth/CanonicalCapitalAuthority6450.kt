@@ -83,17 +83,16 @@ object CanonicalCapitalAuthority6450 {
         val cash = PaperAccountLedger6430.cashSol()
         val realized = PaperAccountLedger6430.realizedPnlSol()
         val fees = PaperAccountLedger6430.feesSol()
-        val open = try { CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }
+        // V5.0.6489 — the mark provider returns WHOLE-MINT market value from
+        // TokenState.position. Canonical storage may contain multiple economic lots
+        // for one mint, so value each mint once; summing one provider value per lot
+        // multiplied equity whenever historical same-mint lots coexisted.
+        val activeMints = try { CanonicalPositionAuthority6441.activeMintProjections6489() } catch (_: Throwable) { emptyList() }
         val reserved = 0.0 // no reserved event currently exists; remains explicit
         val openCost = PaperAccountLedger6430.openCostBasisSol()
-        val openMv = open.sumOf {
-            // V5.0.6456 — markProvider returns the CURRENT market VALUE
-            // (SOL) of the position's remaining qty. When unknown (0.0),
-            // fall back to remaining cost basis so unrealized reads as 0
-            // rather than phantom -100%. (Prior code multiplied by
-            // remainingRatio which double-scaled partial exits.)
-            val mv = try { markProvider(it.mint) } catch (_: Throwable) { 0.0 }
-            if (mv > 0.0) mv else (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0)
+        val openMv = activeMints.sumOf { aggregate ->
+            val mv = try { markProvider(aggregate.mint) } catch (_: Throwable) { 0.0 }
+            if (mv > 0.0) mv else aggregate.remainingCostBasisSol
         }
         val unrealized = openMv - openCost
         val equity = cash + reserved + openMv

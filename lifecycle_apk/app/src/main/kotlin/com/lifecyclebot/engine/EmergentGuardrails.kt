@@ -267,18 +267,19 @@ object EmergentGuardrails {
         } catch (_: Throwable) {}
     }
     
-    /** V5.0.6488 — atomic projection-only rebuild from funded canonical active positions. */
+    /** V5.0.6489 — atomic mint-keyed projection from all funded canonical lots. */
     fun rebuildFromCanonical6475(positions: List<com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Position>) {
         val replacement = positions.asSequence().filter {
             (it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.OPEN ||
              it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED) &&
                 it.remainingQtyRaw > java.math.BigInteger.ZERO
-        }.associate { p ->
-            p.mint to PositionInfo(
+        }.groupBy { it.mint }.mapValues { (_, lots) ->
+            val p = lots.maxByOrNull { it.lastMutationMs } ?: lots.first()
+            PositionInfo(
                 mint = p.mint, symbol = p.symbol, layer = p.lane,
-                openedAt = p.openedAtMs,
-                size = (p.entryCostSol - p.soldCostBasisSol).coerceAtLeast(0.0),
-                qtyRaw = p.remainingQtyRaw,
+                openedAt = lots.minOf { it.openedAtMs },
+                size = lots.sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) },
+                qtyRaw = lots.fold(java.math.BigInteger.ZERO) { acc, lot -> acc + lot.remainingQtyRaw },
                 state = "OPEN",
             )
         }
@@ -286,8 +287,8 @@ object EmergentGuardrails {
         if (before != replacement) {
             openPositions.set(replacement)
             try {
-                ErrorLogger.info(TAG, "CANONICAL_REGISTRY_ATOMIC_REBUILT_6488 before=${before.size} active=${replacement.size}")
-                PipelineHealthCollector.labelInc("CANONICAL_REGISTRY_ATOMIC_REBUILT_6488")
+                ErrorLogger.info(TAG, "CANONICAL_REGISTRY_MINT_AGGREGATE_REBUILT_6489 before=${before.size} activeMints=${replacement.size} activeLots=${positions.size}")
+                PipelineHealthCollector.labelInc("CANONICAL_REGISTRY_MINT_AGGREGATE_REBUILT_6489")
             } catch (_: Throwable) {}
         }
     }

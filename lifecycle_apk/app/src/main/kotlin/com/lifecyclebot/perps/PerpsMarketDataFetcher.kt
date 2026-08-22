@@ -561,7 +561,7 @@ object PerpsMarketDataFetcher {
                     // V5.9.3: Use PriceAggregator for ALL markets — stocks had calculateChange
                     // returning ~0 (Pyth price ≈ EMA price at rest) which killed signal generation.
                     val real24hChange: Double = try {
-                        kotlinx.coroutines.runBlocking { PriceAggregator.getPrice(market.symbol)?.change24h }
+                        PriceAggregator.getPrice(market.symbol)?.change24h
                             ?: calculateChange(pythPrice.price, pythPrice.emaPrice)
                     } catch (_: Exception) { calculateChange(pythPrice.price, pythPrice.emaPrice) }
                     return PerpsMarketData(
@@ -589,7 +589,7 @@ object PerpsMarketDataFetcher {
                         if (pythPrice.price > 0) {
                             ErrorLogger.debug(TAG, "📊 Pyth stale but valid (crypto): ${market.symbol} = \$${pythPrice.price.fmt(2)}")
                             val staleChange: Double = try {
-                                kotlinx.coroutines.runBlocking { PriceAggregator.getPrice(market.symbol)?.change24h }
+                                PriceAggregator.getPrice(market.symbol)?.change24h
                                     ?: calculateChange(pythPrice.price, pythPrice.emaPrice)
                             } catch (_: Exception) { calculateChange(pythPrice.price, pythPrice.emaPrice) }
                             return PerpsMarketData(

@@ -80,13 +80,25 @@ object EconomicEventSchema6464 {
         val remainingCostBasisSol: Double,
     ) : Event()
 
+    data class ReplayCarry6489(
+        val established: Boolean = false,
+        val cashDeltaSol: Double = 0.0,
+        val openCostSol: Double = 0.0,
+        val realizedPnlSol: Double = 0.0,
+        val feesSol: Double = 0.0,
+        val perMintQty: Map<String, java.math.BigInteger> = emptyMap(),
+        val perMintCostSol: Map<String, Double> = emptyMap(),
+    )
+
     private const val CAP = 8192
     private const val PREFS = "canonical_economic_events_6486"
     private const val KEY_PREFIX = "event:"
+    private const val REPLAY_CARRY_KEY_6489 = "replay_carry_6489"
     private val events = ConcurrentLinkedDeque<Event>()
     private val eventKeys = ConcurrentHashMap.newKeySet<String>()
     @Volatile private var prefs: SharedPreferences? = null
     @Volatile private var initialized = false
+    @Volatile private var replayCarry6489 = ReplayCarry6489()
     private val recordedBuys = AtomicLong(0L)
     private val recordedSells = AtomicLong(0L)
     private val recordedPartials = AtomicLong(0L)
@@ -98,6 +110,7 @@ object EconomicEventSchema6464 {
         if (initialized) return
         val p = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs = p
+        replayCarry6489 = decodeReplayCarry6489(p.getString(REPLAY_CARRY_KEY_6489, null)) ?: ReplayCarry6489()
         val loaded = p.all.entries.asSequence()
             .filter { it.key.startsWith(KEY_PREFIX) && it.value is String }
             .mapNotNull { decode6486(it.value as String) }
@@ -239,11 +252,93 @@ object EconomicEventSchema6464 {
         while (events.size > CAP) {
             val evicted = events.pollLast() ?: break
             val evictedKey = "${evicted.mode}:${evicted.idempotencyKey}"
+            foldEvictedIntoReplayCarry6489(evicted)
             eventKeys.remove(evictedKey)
             prefs?.edit()?.remove(KEY_PREFIX + evictedKey)?.apply()
         }
         return true
     }
+
+    @Synchronized
+    fun establishReplayCarry6489(
+        cashDeltaSol: Double,
+        openCostSol: Double,
+        realizedPnlSol: Double,
+        feesSol: Double,
+        perMintQty: Map<String, java.math.BigInteger>,
+        perMintCostSol: Map<String, Double>,
+    ): Boolean {
+        if (replayCarry6489.established) return false
+        replayCarry6489 = ReplayCarry6489(true, cashDeltaSol, openCostSol, realizedPnlSol, feesSol,
+            perMintQty.filterValues { it != java.math.BigInteger.ZERO },
+            perMintCostSol.filterValues { kotlin.math.abs(it) > 1e-12 })
+        persistReplayCarry6489()
+        eventVersion.incrementAndGet()
+        try {
+            ForensicLogger.lifecycle("REPLAY_CARRY_MIGRATED_FROM_LEDGER_6489",
+                "cashOffset=${"%.9f".format(cashDeltaSol)} openOffset=${"%.9f".format(openCostSol)} realizedOffset=${"%.9f".format(realizedPnlSol)}")
+            PipelineHealthCollector.labelInc("REPLAY_CARRY_MIGRATED_FROM_LEDGER_6489")
+        } catch (_: Throwable) {}
+        return true
+    }
+
+    fun replayCarry6489(): ReplayCarry6489 = replayCarry6489
+
+    @Synchronized
+    private fun foldEvictedIntoReplayCarry6489(e: Event) {
+        if (e.mode != "paper") return
+        val old = replayCarry6489
+        val qty = old.perMintQty.toMutableMap()
+        val cost = old.perMintCostSol.toMutableMap()
+        var cash = old.cashDeltaSol
+        var open = old.openCostSol
+        var realized = old.realizedPnlSol
+        var fees = old.feesSol
+        when (e) {
+            is Buy -> {
+                cash -= e.executedCostSol + e.entryFeesSol.coerceAtLeast(0.0)
+                open += e.executedCostSol
+                fees += e.entryFeesSol.coerceAtLeast(0.0)
+                qty[e.mint] = (qty[e.mint] ?: java.math.BigInteger.ZERO) + e.filledQty
+                cost[e.mint] = (cost[e.mint] ?: 0.0) + e.executedCostSol
+            }
+            is Sell -> {
+                cash += e.netProceedsSol
+                open -= e.allocatedCostBasisSol
+                realized += e.grossProceedsSol - e.allocatedCostBasisSol
+                fees += e.exitFeesSol
+                qty[e.mint] = (qty[e.mint] ?: java.math.BigInteger.ZERO) - e.soldQty
+                cost[e.mint] = (cost[e.mint] ?: 0.0) - e.allocatedCostBasisSol
+            }
+        }
+        replayCarry6489 = ReplayCarry6489(true, cash, open, realized, fees,
+            qty.filterValues { it != java.math.BigInteger.ZERO }, cost.filterValues { kotlin.math.abs(it) > 1e-12 })
+        persistReplayCarry6489()
+    }
+
+    private fun persistReplayCarry6489() {
+        // JVM unit tests do not initialize Android SharedPreferences/JSONObject.
+        if (prefs == null) return
+        val c = replayCarry6489
+        val q = JSONObject(); c.perMintQty.forEach { (k, v) -> q.put(k, v.toString()) }
+        val cost = JSONObject(); c.perMintCostSol.forEach { (k, v) -> cost.put(k, v) }
+        val j = JSONObject().put("established", c.established).put("cash", c.cashDeltaSol)
+            .put("open", c.openCostSol).put("realized", c.realizedPnlSol).put("fees", c.feesSol)
+            .put("qty", q).put("cost", cost)
+        prefs?.edit()?.putString(REPLAY_CARRY_KEY_6489, j.toString())?.commit()
+    }
+
+    private fun decodeReplayCarry6489(raw: String?): ReplayCarry6489? = try {
+        if (raw.isNullOrBlank()) null else JSONObject(raw).let { j ->
+            val qj = j.optJSONObject("qty") ?: JSONObject(); val cj = j.optJSONObject("cost") ?: JSONObject()
+            val q = mutableMapOf<String, java.math.BigInteger>(); val qi = qj.keys()
+            while (qi.hasNext()) { val k = qi.next(); q[k] = java.math.BigInteger(qj.getString(k)) }
+            val c = mutableMapOf<String, Double>(); val ci = cj.keys()
+            while (ci.hasNext()) { val k = ci.next(); c[k] = cj.getDouble(k) }
+            ReplayCarry6489(j.optBoolean("established"), j.optDouble("cash"), j.optDouble("open"),
+                j.optDouble("realized"), j.optDouble("fees"), q, c)
+        }
+    } catch (_: Throwable) { null }
 
     fun snapshot(): List<Event> = events.toList()
     fun version(): Long = eventVersion.get()
@@ -256,6 +351,6 @@ object EconomicEventSchema6464 {
         events.clear()
         eventKeys.clear()
         recordedBuys.set(0L); recordedSells.set(0L); recordedPartials.set(0L)
-        arithDivergences.set(0L); eventVersion.set(0L)
+        arithDivergences.set(0L); eventVersion.set(0L); replayCarry6489 = ReplayCarry6489()
     }
 }

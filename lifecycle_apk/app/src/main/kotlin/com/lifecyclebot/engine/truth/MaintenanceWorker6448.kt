@@ -3,14 +3,15 @@ package com.lifecyclebot.engine.truth
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * V5.0.6448 P0.4 — MAINTENANCE WORKER (bounded, async, single-flight).
@@ -22,7 +23,7 @@ import java.util.concurrent.atomic.AtomicReference
  * POST_LEARNING_MAINTENANCE is currently a synchronous ~350 s stall on
  * the bot loop. This module OWNS all discretionary maintenance runs:
  *   • single-flight per taskName (subsequent submissions COALESCE)
- *   • independent CoroutineScope (Dispatchers.Default + SupervisorJob)
+ *   • independent dedicated bounded dispatcher + SupervisorJob
  *     so a task hang can NEVER block the bot cycle
  *   • per-task deadline via withTimeoutOrNull (task is cancelled on
  *     deadline; DEFERRED counter increments)
@@ -38,7 +39,18 @@ import java.util.concurrent.atomic.AtomicReference
  */
 object MaintenanceWorker6448 {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    // V5.0.6489 — real scheduler isolation. Dispatchers.Default is shared by
+    // scoring and other compute work; blocking provider/maintenance calls there
+    // can starve BOT_LOOP even when callers never await the Job. A dedicated,
+    // bounded, low-priority pool makes offload a physical boundary.
+    private val threadSeq = AtomicInteger(0)
+    private val dispatcher = Executors.newFixedThreadPool(2) { task ->
+        Thread(task, "AATE-maint-${threadSeq.incrementAndGet()}").apply {
+            isDaemon = true
+            priority = Thread.MIN_PRIORITY
+        }
+    }.asCoroutineDispatcher()
+    private val scope = CoroutineScope(SupervisorJob() + dispatcher)
 
     private val inFlight = ConcurrentHashMap<String, Job>()
     private val timings = ConcurrentHashMap<String, TaskStat>()

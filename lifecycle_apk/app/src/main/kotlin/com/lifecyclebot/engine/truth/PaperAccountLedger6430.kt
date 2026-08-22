@@ -95,6 +95,7 @@ object PaperAccountLedger6430 {
     }
 
     fun hasPersistentState6487(): Boolean = prefs6487?.contains(STATE_6487) == true
+    fun isAuthorityInitialized6489(): Boolean = startingCashPico.get() > 0L
 
     fun initialize(startingCashSol: Double) {
         val p = toPico(startingCashSol.coerceAtLeast(0.0))

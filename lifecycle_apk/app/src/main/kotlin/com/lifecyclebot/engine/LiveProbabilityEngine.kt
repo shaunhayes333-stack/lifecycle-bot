@@ -71,7 +71,7 @@ object LiveProbabilityEngine {
     }
 
     /**
-     * V5.0.6379 — LEARNED TOXIC LANE VETO (operator directive: "its not
+     * V5.0.6489 — LEARNED TOXIC LANE SHAPE (operator directive: "its not
      * improving overtime... buys in the wrong waves of the chart. it needs
      * to use the full aate stack to find profitable trades live asap").
      *
@@ -81,7 +81,7 @@ object LiveProbabilityEngine {
      * only SHAPES SIZE (min 0.35), which the paperBuy floor then clamps
      * back UP to 0.1176 SOL. Learning has NO teeth on entry.
      *
-     * This narrow hard-veto ONLY fires for genuinely catastrophic buckets
+     * This bounded shape signal activates for genuinely catastrophic buckets
      * — measured off the RAW journal (bypasses StrategyTruthLedger sanitizer
      * which was hiding losses) with a large enough sample that the signal
      * is statistically real:
@@ -94,25 +94,25 @@ object LiveProbabilityEngine {
      *
      * Fluid: thresholds are private consts, adjustable by the on-board
      * learning layer in a future push. Never permanent — the same bucket
-     * can un-veto itself the moment its rolling stats improve.
+     * can recover itself the moment its rolling stats improve.
      */
-    private const val TOXIC_VETO_MIN_SAMPLES  = 15
-    private const val TOXIC_VETO_MAX_WR_PCT   = 10.0
-    private const val TOXIC_VETO_MAX_MEAN_PCT = -25.0
+    private const val TOXIC_SHAPE_MIN_SAMPLES  = 15
+    private const val TOXIC_SHAPE_MAX_WR_PCT   = 10.0
+    private const val TOXIC_SHAPE_MAX_MEAN_PCT = -25.0
 
     fun isLaneLearnedToxic6379(lane: String): Boolean =
         rawLaneReality(lane)?.let { r ->
-            r.n >= TOXIC_VETO_MIN_SAMPLES &&
-                r.wrPct <= TOXIC_VETO_MAX_WR_PCT &&
-                r.meanPnlPct <= TOXIC_VETO_MAX_MEAN_PCT
+            r.n >= TOXIC_SHAPE_MIN_SAMPLES &&
+                r.wrPct <= TOXIC_SHAPE_MAX_WR_PCT &&
+                r.meanPnlPct <= TOXIC_SHAPE_MAX_MEAN_PCT
         } ?: false
 
-    fun toxicVetoReason6379(lane: String): String? =
+    fun toxicShapeReason6489(lane: String): String? =
         rawLaneReality(lane)?.let { r ->
-            if (r.n >= TOXIC_VETO_MIN_SAMPLES &&
-                r.wrPct <= TOXIC_VETO_MAX_WR_PCT &&
-                r.meanPnlPct <= TOXIC_VETO_MAX_MEAN_PCT) {
-                "LEARNED_TOXIC_LANE_HARD_VETO_6379|lane=$lane n=${r.n} wr=${"%.0f".format(r.wrPct)}% mean=${"%+.1f".format(r.meanPnlPct)}%"
+            if (r.n >= TOXIC_SHAPE_MIN_SAMPLES &&
+                r.wrPct <= TOXIC_SHAPE_MAX_WR_PCT &&
+                r.meanPnlPct <= TOXIC_SHAPE_MAX_MEAN_PCT) {
+                "learned_toxic_shape n=${r.n} wr=${"%.0f".format(r.wrPct)}% mean=${"%+.1f".format(r.meanPnlPct)}%"
             } else null
         }
 

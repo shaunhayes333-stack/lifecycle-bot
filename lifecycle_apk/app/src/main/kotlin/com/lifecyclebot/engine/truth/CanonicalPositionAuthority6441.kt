@@ -445,6 +445,42 @@ object CanonicalPositionAuthority6441 {
         it.lifecycle == Lifecycle.PENDING_ENTRY
     }
 
+
+    /**
+     * V5.0.6489 — funded active projection by canonical mint identity.
+     * Economic lots remain positionId-keyed; registries/slots are mint-keyed,
+     * so projection must SUM lots instead of silently keeping the last row.
+     */
+    data class ActiveMintProjection6489(
+        val mint: String,
+        val symbol: String,
+        val lane: String,
+        val primaryMode: String,
+        val modes: Set<String>,
+        val openedAtMs: Long,
+        val remainingQtyRaw: BigInteger,
+        val remainingCostBasisSol: Double,
+        val lotCount: Int,
+    )
+
+    fun activeMintProjections6489(): List<ActiveMintProjection6489> = openPositions()
+        .filter { it.remainingQtyRaw > BigInteger.ZERO }
+        .groupBy { it.mint }
+        .map { (mint, lots) ->
+            val representative = lots.maxByOrNull { it.lastMutationMs } ?: lots.first()
+            ActiveMintProjection6489(
+                mint = mint,
+                symbol = representative.symbol,
+                lane = representative.lane,
+                primaryMode = representative.mode,
+                modes = lots.map { it.mode.lowercase() }.toSet(),
+                openedAtMs = lots.minOf { it.openedAtMs },
+                remainingQtyRaw = lots.fold(BigInteger.ZERO) { acc, p -> acc + p.remainingQtyRaw },
+                remainingCostBasisSol = lots.sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) },
+                lotCount = lots.size,
+            )
+        }
+
     /**
      * V5.0.6461 §P0-#2 — cancel PENDING_ENTRY rows older than ttlMs.
      * Moves them to QUARANTINED with reason "PENDING_ENTRY_TTL_CANCELLED_6461"

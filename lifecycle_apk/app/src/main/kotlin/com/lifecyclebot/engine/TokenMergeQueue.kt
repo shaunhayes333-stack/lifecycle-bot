@@ -208,7 +208,7 @@ object TokenMergeQueue {
     /**
      * Emit entries whose merge window has expired.
      */
-    fun processQueue(): List<MergedToken> {
+    fun processQueue(maxScan: Int = 512, maxEmit: Int = 96): List<MergedToken> {
         val now = System.currentTimeMillis()
 
         if (now - lastProcessTime < PROCESS_INTERVAL_MS) {
@@ -219,7 +219,9 @@ object TokenMergeQueue {
         val readyToEmit = mutableListOf<MergedToken>()
         val toRemove = mutableListOf<String>()
 
+        var scanned = 0
         for ((mint, entry) in pendingDiscoveries) {
+            if (scanned++ >= maxScan.coerceAtLeast(1) || readyToEmit.size >= maxEmit.coerceAtLeast(1)) break
             val elapsed = now - entry.firstSeenAt
 
             if (elapsed >= MERGE_WINDOW_MS) {

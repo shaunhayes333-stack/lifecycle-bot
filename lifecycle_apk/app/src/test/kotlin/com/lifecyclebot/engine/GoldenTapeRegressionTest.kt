@@ -3070,10 +3070,16 @@ class GoldenTapeRegressionTest {
     fun main_ui_money_and_pricing_surfaces_use_display_authority() {
         val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
         val mainLayout = java.io.File("src/main/res/layout/activity_main.xml").readText()
-        assertTrue("Hero balance must preserve the BotService.status rolling wallet balance contract while rendering compact on mobile", main.contains("hero balance — BotService.status is the single source of truth") && main.contains("if (balSol > 0.001)") && main.contains("tvBalanceLarge.setTextIfChanged(compactHeroBalance(balSol))"))
-        assertTrue("Paper hero must be mobile-safe: short PAPER chip, compact headline, detailed cash/equity in contentDescription only", main.contains("compactHeroBalance") && main.contains("if (config.paperMode) \"PAPER\" else \"LIVE\"") && main.contains("Approx equity") && !main.contains("📝 PAPER CASH ◎") && !main.contains("equity≈◎") && !main.contains("displayBankrollSol"))
+        assertTrue("Paper hero headline must render canonical total equity and show ledger cash separately",
+            main.contains("walletSnap6451?.totalEquitySol") && main.contains("PAPER · CASH") &&
+                main.contains("walletSnap6451?.cashSol") && main.contains("tvBalanceLarge.setTextIfChanged(compactHeroBalance(balSol))") &&
+                !main.contains("PaperWalletStore.restore"))
+        assertTrue("Paper hero must remain mobile-safe while exposing the canonical five-surface breakdown",
+            main.contains("compactHeroBalance") && main.contains("PAPER · CASH") &&
+                main.contains("OPEN_MV") && main.contains("UNREALIZED") && main.contains("REALIZED") && main.contains("EQUITY") &&
+                !main.contains("📝 PAPER CASH ◎") && !main.contains("equity≈◎") && !main.contains("displayBankrollSol"))
         assertTrue("Paper PnL percent must not derive from current cash minus lifetime journal PnL and must render short on mobile", main.contains("paperReturnBasisSol") && main.contains("%+.0f%% start") && main.contains(" · ${'$'}journalWinRate% WR") && !main.contains("val startCapitalSol = (balSol - pnl)"))
-        assertTrue("Paper equity detail must exclude CYCLIC virtual ring cost from shared wallet equity", main.contains("CYCLIC_VIRTUAL") && main.contains("paperEquityAtCostSol") && main.contains("contentDescription"))
+        assertTrue("Paper equity detail must come only from canonical capital authority, not an open-position UI projection", main.contains("CanonicalCapitalAuthority6450.snapshot()") && main.contains("contentDescription") && !main.contains("paperEquityAtCostSol") && !main.contains("paperOpenCostSol"))
         assertTrue("Hero XML must be a premium command card, not a flat debug balance row", mainLayout.contains("commandHeroCard") && mainLayout.contains("@drawable/aate_hero_premium_bg") && mainLayout.contains("AATE COMMAND") && mainLayout.contains("rowSymTelemetry"))
         assertTrue("Hero XML must protect mobile width with auto-size headline and capped mode chip", mainLayout.contains("android:autoSizeTextType=\"uniform\"") && mainLayout.contains("android:maxWidth=\"66dp\"") && mainLayout.contains("android:ellipsize=\"end\"") && mainLayout.contains("android:autoSizeMaxTextSize=\"32sp\""))
         assertTrue("Main UI restyle must use the AATE premium visual system", mainLayout.contains("@drawable/aate_screen_bg") && mainLayout.contains("@drawable/aate_metric_card_bg") && mainLayout.contains("@drawable/aate_signal_card_bg") && mainLayout.contains("@drawable/aate_nav_tile_bg") && mainLayout.contains("@drawable/aate_nav_icon_badge_bg") && mainLayout.contains("MISSION CONTROL · NAVIGATION DECK") && !mainLayout.contains("@drawable/stats_pill_bg"))
@@ -7444,7 +7450,8 @@ class GoldenTapeRegressionTest {
         val openGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         assertTrue("V5.0.6447: AI status/cleanup maintenance must run off the bot loop and skip cleanup during slow cycles so POST_LEARNING_MAINTENANCE cannot stall money-path throughput",
             bot.contains("POST_LEARNING_MAINTENANCE source fix") &&
-                bot.contains("scope.launch(kotlinx.coroutines.Dispatchers.Default)") &&
+                bot.contains("name = \"ai_status_maintenance_6489\"") &&
+                bot.contains("MaintenanceWorker6448.submit") &&
                 bot.contains("AI_STATUS_MAINT_ASYNC_6447") &&
                 bot.contains("AI_STATUS_CLEANUP_SKIPPED_SLOW_CYCLE_6447") &&
                 bot.contains("lastPrevCycleMs6421 <= 30_000L"))
@@ -7903,13 +7910,51 @@ class GoldenTapeRegressionTest {
                 ledger.contains("fun openCostBasisSol") && ledger.contains("fun realizedPnlSol"))
         val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EmergentGuardrails.kt").readText()
         val parity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PositionRegistryParityAudit6464.kt").readText()
-        assertTrue("6488 registry is one atomic canonical projection and excludes pending/zero quantity slots",
+        assertTrue("6488 registry remains one atomic canonical projection while 6489 aggregates active economic lots by mint",
             registry.contains("AtomicReference<Map<String, PositionInfo>>") && registry.contains("openPositions.set(replacement)") &&
-                registry.contains("remainingQtyRaw > java.math.BigInteger.ZERO") &&
+                registry.contains("groupBy { it.mint }") && registry.contains("lots.fold(java.math.BigInteger.ZERO)") &&
                 bot.contains("CanonicalPositionAuthority6441.openPositions()"))
-        assertTrue("6488 parity compares remaining quantity and remaining cost basis from the same active population",
-            parity.contains("val canonicalAll = canonicalOpens") && parity.contains("c.remainingQtyRaw") &&
-                parity.contains("c.entryCostSol - c.soldCostBasisSol"))
+        assertTrue("6489 parity compares mint-aggregated quantity and basis in the registry identity domain",
+            parity.contains("activeMintProjections6489") && parity.contains("remainingQtyRaw") && parity.contains("remainingCostBasisSol"))
+    }
+
+
+    @Test
+    fun V5_0_6489_correctness_choke_and_canonical_wallet_contract() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val worker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MaintenanceWorker6448.kt").readText()
+        val merge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenMergeQueue.kt").readText()
+        val openGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val capital = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalCapitalAuthority6450.kt").readText()
+        val canonical = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt").readText()
+        val occupancy = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalMintOccupancyRegistry6464.kt").readText()
+        val replay = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperReplay6464.kt").readText()
+        val events = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/EconomicEventSchema6464.kt").readText()
+        val wallet = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
+        val perps = java.io.File("src/main/kotlin/com/lifecyclebot/perps/PerpsMarketDataFetcher.kt").readText()
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+
+        assertTrue("6489 maintenance and scanner recovery must be isolated from BOT_LOOP",
+            worker.contains("Thread(task, \"AATE-maint-") && worker.contains("newFixedThreadPool") &&
+                bot.contains("inert_scanner_hard_recovery_6489") && bot.contains("MaintenanceWorker6448.submit"))
+        assertTrue("6489 intake work must be bounded and rotating without shrinking the registry",
+            merge.contains("maxScan: Int = 512") && merge.contains("maxEmit: Int = 96") &&
+                bot.contains("WATCHLIST_PRIORITY_ROTATING_WINDOW_6489") && bot.contains("repeat(128)"))
+        val oldHardVeto = "LEARNED_TOXIC_LANE_" + "HARD_VETO_6379"
+        assertTrue("6489 learned toxicity must soft-shape with full lane telemetry and never hard-veto",
+            openGate.contains("LEARNED_TOXIC_LANE_SOFT_SHAPED_6489|lane=") && !openGate.contains(oldHardVeto))
+        assertTrue("6489 canonical positions stay as lots but project by aggregated mint identity",
+            canonical.contains("data class ActiveMintProjection6489") && canonical.contains("groupBy { it.mint }") &&
+                canonical.contains("remainingCostBasisSol") && occupancy.contains("reconcileActiveFromCanonical6489"))
+        assertTrue("6489 equity values each whole mint once and the PAPER hero shows equity plus separate cash",
+            capital.contains("activeMintProjections6489") && capital.contains("markProvider(aggregate.mint)") &&
+                main.contains("walletSnap6451?.totalEquitySol") && main.contains("PAPER · CASH") && !main.contains("PaperWalletStore.restore"))
+        assertTrue("6489 replay carries pre-authority history and folds bounded-event eviction without rewriting money or lots",
+            replay.contains("establishReplayCarry6489") && events.contains("foldEvictedIntoReplayCarry6489") &&
+                events.contains("REPLAY_CARRY_MIGRATED_FROM_LEDGER_6489"))
+        assertTrue("6489 provider paths cannot nest runBlocking in Perps or wallet transaction routing",
+            !wallet.contains("kotlinx.coroutines.run" + "Blocking") && !perps.contains("kotlinx.coroutines.run" + "Blocking") &&
+                wallet.contains("submitProtectedNoWait6489") && wallet.contains("JITO_DEADLINE_6489").not())
     }
 
 }

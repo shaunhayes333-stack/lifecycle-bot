@@ -251,13 +251,13 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         // Try Jito MEV protection if enabled
         if (useJito) {
             try {
-                val jitoResult = kotlinx.coroutines.runBlocking {
-                    com.lifecyclebot.engine.JitoMEVProtection.sendProtectedTransaction(
-                        signedTxBase64 = signedB64,
-                        tipLamports = jitoTipLamports,
-                        maxRetries = 2,
-                    )
-                }
+                // V5.0.6489 — bounded no-wait Jito submission. The same signed
+                // transaction is immediately sent through normal RPC below, so this
+                // preserves dual-route finality without nested runBlocking or a bundle
+                // status wait on the execution thread.
+                val jitoResult = com.lifecyclebot.engine.JitoMEVProtection
+                    .submitProtectedNoWait6489(signedB64, jitoTipLamports)
+
                 
                 if (jitoResult.success && jitoResult.bundleId != null) {
                     com.lifecyclebot.engine.ErrorLogger.info("SolanaWallet", 

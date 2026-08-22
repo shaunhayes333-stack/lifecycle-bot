@@ -63,8 +63,10 @@ object PositionParityDomainAudit6471 {
         // Bucket canonical positions by lifecycle using the exposed iterators.
         // openPositions() covers OPEN + PARTIALLY_CLOSED (per 6441 line 319).
         val active = try { CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }
-        val canonicalOpen = active.count { it.lifecycle == CanonicalPositionAuthority6441.Lifecycle.OPEN }
-        val canonicalPartial = active.count { it.lifecycle == CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED }
+        val canonicalOpen = active.filter { it.lifecycle == CanonicalPositionAuthority6441.Lifecycle.OPEN }
+            .map { "${it.mode.lowercase()}|${it.mint}" }.toSet().size
+        val canonicalPartial = active.filter { it.lifecycle == CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED }
+            .map { "${it.mode.lowercase()}|${it.mint}" }.toSet().size
         val canonicalPending = try { CanonicalPositionAuthority6441.pendingEntryPositions6461().size } catch (_: Throwable) { 0 }
         val canonicalClosed = try { CanonicalPositionAuthority6441.closedPositions().size } catch (_: Throwable) { 0 }
         // Quarantined not exposed via a dedicated iterator; we use 0 which is
@@ -77,7 +79,7 @@ object PositionParityDomainAudit6471 {
         val occupancyPending = occSnap[CanonicalMintOccupancyRegistry6464.Occupancy.PENDING_ENTRY] ?: 0
 
         // Active registry = OPEN + PARTIALLY_CLOSED. Anything else is a different domain.
-        val activeCanonical = canonicalOpen + canonicalPartial
+        val activeCanonical = active.map { "${it.mode.lowercase()}|${it.mint}" }.toSet().size
         val activeRegistryDelta = occupancyOpen - activeCanonical
         val pendingDelta = occupancyPending - canonicalPending
 

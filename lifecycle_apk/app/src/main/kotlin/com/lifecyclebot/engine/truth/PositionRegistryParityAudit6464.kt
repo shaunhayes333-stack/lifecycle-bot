@@ -65,7 +65,7 @@ object PositionRegistryParityAudit6464 {
         val canonicalAll = canonicalOpens
 
         val canonicalByState = canonicalAll.groupingBy { it.lifecycle }.eachCount()
-        val canonicalByMint = canonicalAll.associateBy { it.mint }
+        val canonicalByMint = CanonicalPositionAuthority6441.activeMintProjections6489().associateBy { it.mint }
         val canonicalMints = canonicalByMint.keys
 
         val registryMap: Map<String, EmergentGuardrails.RegistryEntry> = try {
@@ -84,27 +84,19 @@ object PositionRegistryParityAudit6464 {
         for (mint in common) {
             val c = canonicalByMint[mint] ?: continue
             val r = registryMap[mint] ?: continue
-            val expectedRegState = when (c.lifecycle) {
-                CanonicalPositionAuthority6441.Lifecycle.OPEN,
-                CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED -> "OPEN"
-                CanonicalPositionAuthority6441.Lifecycle.PENDING_ENTRY -> "PENDING_ENTRY"
-                CanonicalPositionAuthority6441.Lifecycle.CLOSED -> "CLOSED"
-                CanonicalPositionAuthority6441.Lifecycle.QUARANTINED -> "QUARANTINED"
-            }
-            if (r.state != expectedRegState) stateMismatch += "${mint.take(10)}(c=${c.lifecycle} r=${r.state})"
+            if (r.state != "OPEN") stateMismatch += "${mint.take(10)}(c=ACTIVE_LOTS r=${r.state})"
             val qDelta = kotlin.math.abs(c.remainingQtyRaw.toDouble() - r.qtyRaw.toDouble())
-            if (qDelta > 1.0) qtyMismatch += "${mint.take(10)}(cq=${c.remainingQtyRaw} rq=${r.qtyRaw})"
-            val remainingCost = (c.entryCostSol - c.soldCostBasisSol).coerceAtLeast(0.0)
-            val costDelta = kotlin.math.abs(remainingCost - r.entryCostSol)
-            if (costDelta > 0.001) costBasisMismatch += "${mint.take(10)}(cc=${"%.4f".format(remainingCost)} rc=${"%.4f".format(r.entryCostSol)})"
+            if (qDelta > 1.0) qtyMismatch += "${mint.take(10)}(cq=${c.remainingQtyRaw} rq=${r.qtyRaw} lots=${c.lotCount})"
+            val costDelta = kotlin.math.abs(c.remainingCostBasisSol - r.entryCostSol)
+            if (costDelta > 0.001) costBasisMismatch += "${mint.take(10)}(cc=${"%.4f".format(c.remainingCostBasisSol)} rc=${"%.4f".format(r.entryCostSol)} lots=${c.lotCount})"
         }
 
         val snap = Snapshot(
             canonicalByState = canonicalByState,
             registryByState = registryByState,
-            canonicalCount = canonicalAll.size,
+            canonicalCount = canonicalByMint.size,
             registryCount = registryMap.size,
-            delta = canonicalAll.size - registryMap.size,
+            delta = canonicalByMint.size - registryMap.size,
             missingFromCanonical = missingFromCanonical.take(20).map { it.take(12) },
             missingFromRegistry = missingFromRegistry.take(20).map { it.take(12) },
             stateMismatch = stateMismatch.take(20),
@@ -167,13 +159,7 @@ object PositionRegistryParityAudit6464 {
             // backfills missing canonical active rows without touching history.
             EmergentGuardrails.rebuildFromCanonical6475(canonical)
             try {
-                CanonicalMintOccupancyRegistry6464.clearAll()
-                canonical.forEach { p ->
-                    val occ = if (p.lifecycle == CanonicalPositionAuthority6441.Lifecycle.PENDING_ENTRY)
-                        "PENDING_ENTRY" else "OPEN"
-                    if (occ == "PENDING_ENTRY") CanonicalMintOccupancyRegistry6464.markPendingEntry("paper", p.mint, p.symbol, "parity_rebuild_6475")
-                    else CanonicalMintOccupancyRegistry6464.markOpen("paper", p.mint, p.symbol, "parity_rebuild_6475")
-                }
+                CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(canonical)
             } catch (_: Throwable) {}
             ForensicLogger.lifecycle(
                 "POSITION_PARITY_AUTO_HEAL_6465",

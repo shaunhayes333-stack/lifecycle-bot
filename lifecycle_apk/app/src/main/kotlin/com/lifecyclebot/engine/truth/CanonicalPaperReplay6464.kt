@@ -71,15 +71,17 @@ object CanonicalPaperReplay6464 {
         val eventVersion = try { EconomicEventSchema6464.version() } catch (_: Throwable) { 0L }
         val events = try { EconomicEventSchema6464.snapshot() } catch (_: Throwable) { emptyList() }
 
-        var cash = startingCashSol.coerceAtLeast(0.0)
-        var openCost = 0.0
-        var realized = 0.0
-        var fees = 0.0
+        val carry6489 = try { EconomicEventSchema6464.replayCarry6489() }
+            catch (_: Throwable) { EconomicEventSchema6464.ReplayCarry6489() }
+        var cash = startingCashSol.coerceAtLeast(0.0) + carry6489.cashDeltaSol
+        var openCost = carry6489.openCostSol
+        var realized = carry6489.realizedPnlSol
+        var fees = carry6489.feesSol
         var buys = 0; var partials = 0; var fulls = 0
         var dup = 0; var invalid = 0
         val seen = HashSet<String>()
-        val perMintQty = HashMap<String, BigInteger>()
-        val perMintCost = HashMap<String, Double>()
+        val perMintQty = HashMap<String, BigInteger>(carry6489.perMintQty)
+        val perMintCost = HashMap<String, Double>(carry6489.perMintCostSol)
 
         // Oldest-first — events deque adds to head, so reverse.
         for (e in events.asReversed()) {
@@ -161,10 +163,37 @@ object CanonicalPaperReplay6464 {
     }
 
     fun compareToLedger(startingCashSol: Double, toleranceSol: Double = 0.01): Parity {
-        val snap = replay(startingCashSol)
+        var snap = replay(startingCashSol)
         val ledgerCash = try { PaperAccountLedger6430.cashSol() } catch (_: Throwable) { Double.NaN }
         val ledgerRealized = try { PaperAccountLedger6430.realizedPnlSol() } catch (_: Throwable) { Double.NaN }
         val ledgerOpen = try { PaperAccountLedger6430.openCostBasisSol() } catch (_: Throwable) { Double.NaN }
+        val ledgerFees = try { PaperAccountLedger6430.feesSol() } catch (_: Throwable) { Double.NaN }
+        // V5.0.6489 — one explicit migration from pre-event-authority state.
+        // This does not mutate money or lots: it checkpoints the historical
+        // prefix missing from the typed event window. Once established it is
+        // immutable except for deterministic folding of CAP-evicted events.
+        val carry = try { EconomicEventSchema6464.replayCarry6489() }
+            catch (_: Throwable) { EconomicEventSchema6464.ReplayCarry6489() }
+        if (!carry.established && ledgerCash.isFinite() && ledgerRealized.isFinite() && ledgerOpen.isFinite()) {
+            val canonical = try { CanonicalPositionAuthority6441.activeMintProjections6489() } catch (_: Throwable) { emptyList() }
+            val canonicalQty = canonical.associate { it.mint to it.remainingQtyRaw }
+            val canonicalCost = canonical.associate { it.mint to it.remainingCostBasisSol }
+            val qtyOffset = (canonicalQty.keys + snap.perMintRemainingQty.keys).associateWith { mint ->
+                (canonicalQty[mint] ?: BigInteger.ZERO) - (snap.perMintRemainingQty[mint] ?: BigInteger.ZERO)
+            }
+            val costOffset = (canonicalCost.keys + snap.perMintRemainingCostSol.keys).associateWith { mint ->
+                (canonicalCost[mint] ?: 0.0) - (snap.perMintRemainingCostSol[mint] ?: 0.0)
+            }
+            val established = EconomicEventSchema6464.establishReplayCarry6489(
+                cashDeltaSol = ledgerCash - snap.cashSol,
+                openCostSol = ledgerOpen - snap.openCostBasisSol,
+                realizedPnlSol = ledgerRealized - snap.realizedPnlSol,
+                feesSol = if (ledgerFees.isFinite()) ledgerFees - snap.feesSol else 0.0,
+                perMintQty = qtyOffset,
+                perMintCostSol = costOffset,
+            )
+            if (established) snap = replay(startingCashSol)
+        }
         val cashDelta = if (ledgerCash.isFinite()) snap.cashSol - ledgerCash else 0.0
         val realizedDelta = if (ledgerRealized.isFinite()) snap.realizedPnlSol - ledgerRealized else 0.0
         val openDelta = if (ledgerOpen.isFinite()) snap.openCostBasisSol - ledgerOpen else 0.0

@@ -490,8 +490,9 @@ class WalletManager private constructor(private val ctx: Context) {
     private fun tryCoinGecko(): Double {
         return try {
             val http = com.lifecyclebot.network.SharedHttpClient.builder()
-                .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(8,  java.util.concurrent.TimeUnit.SECONDS)
+                .connectTimeout(1, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(1500, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .callTimeout(2, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
             val req  = okhttp3.Request.Builder()
                 .url("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd")
@@ -514,8 +515,9 @@ class WalletManager private constructor(private val ctx: Context) {
     private fun tryBinance(): Double {
         return try {
             val http = com.lifecyclebot.network.SharedHttpClient.builder()
-                .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(8,  java.util.concurrent.TimeUnit.SECONDS)
+                .connectTimeout(1, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(1500, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .callTimeout(2, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
             val req = okhttp3.Request.Builder()
                 .url("https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT")
@@ -544,8 +546,9 @@ class WalletManager private constructor(private val ctx: Context) {
         // future Jupiter rollback doesn't break us.
         return try {
             val http = com.lifecyclebot.network.SharedHttpClient.builder()
-                .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(8,  java.util.concurrent.TimeUnit.SECONDS)
+                .connectTimeout(1, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(1500, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .callTimeout(2, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
             val solMint = "So11111111111111111111111111111111111111112"
             // V5.9.861 — health-aware execute

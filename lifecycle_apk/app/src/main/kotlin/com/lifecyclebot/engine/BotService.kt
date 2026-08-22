@@ -11969,7 +11969,7 @@ class BotService : Service() {
     }
 
     private fun processTokenMergeQueue(loopCount: Int) {
-        val mergedTokens = TokenMergeQueue.processQueue()
+        val mergedTokens = TokenMergeQueue.processQueue(maxScan = 512, maxEmit = 96)
         for (merged in mergedTokens) {
             val boostLabel = if (merged.multiScannerBoost) " [MULTI-SCANNER]" else ""
             val scannersInfo = if (merged.allScanners.size > 1)
@@ -13478,6 +13478,8 @@ class BotService : Service() {
      *  watchdog restarts. Manual `requestScannerRestart` bypasses (operator
      *  intent is explicit). */
     private val SCANNER_WATCHDOG_RESTART_COOLDOWN_MS: Long = 30_000L
+    // V5.0.6489 — per-cycle priority window cursor; registry remains intact.
+    private val watchlistPriorityCursor6489 = java.util.concurrent.atomic.AtomicInteger(0)
     @Volatile private var lastWatchdogRestartMs: Long = 0L
     private fun watchdogCooldownExpired(): Boolean {
         val sinceLast = System.currentTimeMillis() - lastWatchdogRestartMs
@@ -14809,61 +14811,53 @@ class BotService : Service() {
             }
 
             if (loopCount % 12 == 0) {  // ~60s cadence
-                try {
-                    val now = System.currentTimeMillis()
-                    val silenceMs = now - lastScannerDiscoveryMs
-                    when {
-                        silenceMs > 5 * 60_000L -> {
-                            ErrorLogger.error("BotService",
-                                "🚨 INERT-LOOP WATCHDOG (HARD): no scanner activity in ${silenceMs/1000}s — restarting scanner")
-                            addLog("🚨 INERT WATCHDOG: ${silenceMs/1000}s of scanner silence — restarting Solana scanner")
-                            try { marketScanner?.stop() } catch (_: Throwable) {}
-                            delay(500)
-                            try { orchestrator?.reconnectStreams() } catch (_: Throwable) {}
-                            val sc = marketScanner
-                            if (sc != null) {
-                                try {
-                                    sc.start()
-                                    addLog("✅ Solana scanner restarted by inert watchdog")
-                                    ErrorLogger.warn("BotService", "✅ Inert watchdog restarted existing SolanaMarketScanner")
-                                } catch (t: Throwable) {
-                                    ErrorLogger.error("BotService", "Scanner restart failed: ${t.message}", t)
-                                    addLog("❌ Scanner restart failed: ${t.message}")
-                                }
-                            } else {
-                                // V5.9.645 — never silently swallow a null scanner.
-                                // Self-heal the scanner instead of telling the operator
-                                // to restart. The construction is now wrapped in
-                                // bootMemeScanner() so we can call it idempotently from
-                                // any recovery path.
-                                ErrorLogger.error("BotService", "🚨 INERT WATCHDOG: marketScanner is NULL — auto-recovering via bootMemeScanner")
-                                addLog("🚨 Scanner missing — auto-recovering via self-heal")
-                                bootMemeScanner(reason = "INERT_WATCHDOG_NULL")
+                val now6489 = System.currentTimeMillis()
+                val silenceMs6489 = now6489 - lastScannerDiscoveryMs
+                when {
+                    silenceMs6489 > 5 * 60_000L -> {
+                        // Stamp before dispatch so repeated ticks coalesce instead of
+                        // manufacturing restart storms while sockets are closing.
+                        lastScannerDiscoveryMs = now6489
+                        inertWatchdogFiredOnce = false
+                        com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
+                            name = "inert_scanner_hard_recovery_6489", budgetMs = 8_000L,
+                        ) {
+                            try {
+                                ErrorLogger.error("BotService", "🚨 INERT WATCHDOG HARD: silenceSec=${silenceMs6489/1000} action=async_scanner_restart")
+                                try { marketScanner?.stop() } catch (_: Throwable) {}
+                                kotlinx.coroutines.delay(250L)
+                                try { orchestrator?.reconnectStreams() } catch (_: Throwable) {}
+                                val sc = marketScanner
+                                if (sc != null) sc.start() else bootMemeScanner(reason = "INERT_WATCHDOG_NULL")
+                                PipelineHealthCollector.labelInc("INERT_SCANNER_HARD_RECOVERY_OFFLOOP_6489")
+                            } catch (t: Throwable) {
+                                ErrorLogger.error("BotService", "Async scanner restart failed: ${t.message}", t)
                             }
-                            // Reset clock so the restart gets ~3min before another hard-reset
-                            lastScannerDiscoveryMs = now
-                            inertWatchdogFiredOnce = false
-                        }
-                        silenceMs > 3 * 60_000L && !inertWatchdogFiredOnce -> {
-                            ErrorLogger.warn("BotService",
-                                "⚠️ INERT-LOOP WATCHDOG (SOFT): ${silenceMs/1000}s of scanner silence — reconnecting streams")
-                            addLog("⚠️ INERT WATCHDOG: ${silenceMs/1000}s of scanner silence — reconnect attempted")
-                            try { orchestrator?.reconnectStreams() } catch (_: Throwable) {}
-                            try { marketScanner?.checkAndResetIfStale() } catch (_: Throwable) {}
-                            try { com.lifecyclebot.engine.AntiChokeManager.tick(
-                                isPaperMode = cfg.paperMode,
-                                wallet = wallet,
-                                tokens = status.tokens,
-                                loopCount = loopCount,
-                            ) } catch (_: Throwable) {}
-                            inertWatchdogFiredOnce = true
                         }
                     }
-                } catch (e: Exception) {
-                    ErrorLogger.debug("BotService", "Inert watchdog tick error: ${e.message}")
+                    silenceMs6489 > 3 * 60_000L && !inertWatchdogFiredOnce -> {
+                        inertWatchdogFiredOnce = true
+                        com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
+                            name = "inert_scanner_soft_recovery_6489", budgetMs = 5_000L,
+                        ) {
+                            try {
+                                try { orchestrator?.reconnectStreams() } catch (_: Throwable) {}
+                                try { marketScanner?.checkAndResetIfStale() } catch (_: Throwable) {}
+                                try {
+                                    com.lifecyclebot.engine.AntiChokeManager.tick(
+                                        isPaperMode = cfg.paperMode, wallet = wallet,
+                                        tokens = status.tokens, loopCount = loopCount,
+                                    )
+                                } catch (_: Throwable) {}
+                                PipelineHealthCollector.labelInc("INERT_SCANNER_SOFT_RECOVERY_OFFLOOP_6489")
+                            } catch (t: Throwable) {
+                                ErrorLogger.debug("BotService", "Async scanner reconnect failed: ${t.message}")
+                            }
+                        }
+                    }
                 }
             }
-            
+
             // ═══════════════════════════════════════════════════════════════════
             // PERIODIC ORPHAN SCAN - every 10 loops (~50 seconds) in live mode
             // Catches tokens that failed to sell and are stuck in wallet
@@ -15031,11 +15025,16 @@ class BotService : Service() {
             // even when no trades are happening. Talks about philosophy, memory,
             // the market, the user relationship, humor — not just trade outcomes.
             if (loopCount % 12 == 0 && loopCount % 60 != 0) {
-                try { SentientPersonality.freeMusing() } catch (_: Exception) {}
+                com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
+                    name = "sentient_free_musing_6489", budgetMs = 1_000L,
+                ) { try { SentientPersonality.freeMusing() } catch (_: Exception) {} }
             }
             if (loopCount % 60 == 0) {
-                // V5.9.9: Sentient personality periodic reflection
-                try { SentientPersonality.periodicReflection() } catch (_: Exception) {}
+                // V5.0.6489 — personality reflection is discretionary and cannot
+                // own BOT_LOOP completion.
+                com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
+                    name = "sentient_reflection_6489", budgetMs = 1_000L,
+                ) { try { SentientPersonality.periodicReflection() } catch (_: Exception) {} }
 
                 scope.launch {
                     try {
@@ -15076,19 +15075,25 @@ class BotService : Service() {
                 // directive from recent trade outcomes + layer health. Cheap
                 // (O(window=30)). The coaching state then steers entries via
                 // LifecycleStrategy.shouldTradeBase / FinalDecisionGate.
-                try { com.lifecyclebot.engine.TradingCopilot.update() } catch (_: Exception) {}
-                try {
-                    val antiChoke = com.lifecyclebot.engine.AntiChokeManager.tick(
-                        isPaperMode = cfg.paperMode,
-                        wallet = wallet,
-                        tokens = status.tokens,
-                        loopCount = loopCount,
-                    )
-                    if (antiChoke != null && antiChoke.level != com.lifecyclebot.engine.AntiChokeManager.Level.CLEAR) {
-                        addLog("🫁 AntiChoke ${antiChoke.level.name}: ghosts=${antiChoke.ghostsCleared} pruned=${antiChoke.dormantPruned} trades24h=${antiChoke.trades24h}/${antiChoke.target24h}")
+                com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
+                    name = "trading_copilot_update_6489", budgetMs = 1_500L,
+                ) { try { com.lifecyclebot.engine.TradingCopilot.update() } catch (_: Exception) {} }
+                com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
+                    name = "anti_choke_tick_6489", budgetMs = 2_000L,
+                ) {
+                    try {
+                        val antiChoke = com.lifecyclebot.engine.AntiChokeManager.tick(
+                            isPaperMode = cfg.paperMode,
+                            wallet = wallet,
+                            tokens = status.tokens,
+                            loopCount = loopCount,
+                        )
+                        if (antiChoke != null && antiChoke.level != com.lifecyclebot.engine.AntiChokeManager.Level.CLEAR) {
+                            addLog("🫁 AntiChoke ${antiChoke.level.name}: ghosts=${antiChoke.ghostsCleared} pruned=${antiChoke.dormantPruned} trades24h=${antiChoke.trades24h}/${antiChoke.target24h}")
+                        }
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "AntiChoke tick error: ${e.message}")
                     }
-                } catch (e: Exception) {
-                    ErrorLogger.debug("BotService", "AntiChoke tick error: ${e.message}")
                 }
 
                 // V5.9.439 — LEARNING TRANSPARENCY LOG (~every 5 min).
@@ -15168,7 +15173,9 @@ class BotService : Service() {
             // - Time since last loss
             // - Session P&L percentage
             // ═══════════════════════════════════════════════════════════════════
-            scope.launch {
+            com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
+                name = "adaptive_confidence_refresh_6489", budgetMs = 2_500L,
+            ) {
                 try {
                     // Calculate average volatility and buy pressure from watched tokens
                     val tokenList = synchronized(status.tokens) { status.tokens.values.toList() }
@@ -15312,7 +15319,9 @@ class BotService : Service() {
                 // already-slow cycles. Preserves telemetry while protecting the
                 // money path and 2x–5x compounding throughput.
                 val aiStatusLoop6447 = loopCount
-                scope.launch(kotlinx.coroutines.Dispatchers.Default) {
+                com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
+                    name = "ai_status_maintenance_6489", budgetMs = 3_000L,
+                ) {
                     try {
                         addLog("🤖 AI STATUS: ${TradingMemory.getStats()}")
                         val brainStatus = botBrain?.let { b ->
@@ -15652,9 +15661,24 @@ if (watchlistPriorityBudgetBypass6446) {
         PipelineHealthCollector.labelInc("WATCHLIST_PRIORITY_BUDGET_BYPASS_6446")
     } catch (_: Throwable) {}
 }
+val canonicalOpenForPriority6489 = try {
+    com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().map { it.mint }.toSet()
+} catch (_: Throwable) { emptySet() }
+val priorityWindowInput6489 = run {
+    val all = effectiveWatchlist.distinct()
+    val opens = all.filter { it in canonicalOpenForPriority6489 }
+    val candidates = all.filterNot { it in canonicalOpenForPriority6489 }
+    if (candidates.size <= 128) opens + candidates else {
+        val start6489 = Math.floorMod(watchlistPriorityCursor6489.getAndAdd(128), candidates.size)
+        val rotated6489 = ArrayList<String>(128)
+        repeat(128) { idx -> rotated6489 += candidates[(start6489 + idx) % candidates.size] }
+        try { PipelineHealthCollector.labelInc("WATCHLIST_PRIORITY_ROTATING_WINDOW_6489") } catch (_: Throwable) {}
+        (opens + rotated6489).distinct()
+    }
+}
 val prioritizedWatchlist = if (cfg.v3EngineEnabled && !watchlistPriorityBudgetBypass6446) {
     val nowMs = System.currentTimeMillis()
-    effectiveWatchlist.sortedByDescending { mint ->
+    priorityWindowInput6489.sortedByDescending { mint ->
         val ts = status.tokens[mint]
         if (ts == null) {
             // V5.9.624 — unknown freshly-enqueued mints should get hydrated,
@@ -15757,7 +15781,7 @@ val prioritizedWatchlist = if (cfg.v3EngineEnabled && !watchlistPriorityBudgetBy
         }
     }
 } else {
-    effectiveWatchlist
+    priorityWindowInput6489
 }
 
 // V5.0.6438 — bisection marker F. prioritizedWatchlist is a full sortedByDescending

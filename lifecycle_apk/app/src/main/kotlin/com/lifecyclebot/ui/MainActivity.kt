@@ -2413,18 +2413,21 @@ for legal compliance.
         try {
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
             if (!cfg.paperMode) return
-            val restored = com.lifecyclebot.engine.PaperWalletStore.restore(applicationContext, cfg)
-            if (restored.balanceSol > 0.001 && com.lifecyclebot.engine.BotService.status.paperWalletSol <= 0.001) {
-                com.lifecyclebot.engine.BotService.status.paperWalletSol = restored.balanceSol
-                com.lifecyclebot.engine.BotService.status.paperWalletInitialized = true
-                com.lifecyclebot.engine.BotService.status.paperWalletLastRefreshMs = System.currentTimeMillis()
-                com.lifecyclebot.engine.ErrorLogger.info(
-                    "MainActivity",
-                    "TREASURY Paper wallet cold-open hydrate ($reason): ${"%.4f".format(restored.balanceSol)} SOL"
-                )
+            val ledger = com.lifecyclebot.engine.truth.PaperAccountLedger6430
+            if (!ledger.isAuthorityInitialized6489()) {
+                ledger.initPersistent6487(applicationContext, cfg.paperSimulatedBalance)
             }
+            // Legacy status is a projection of canonical deployable cash only;
+            // the headline wallet surface reads CanonicalCapitalAuthority equity.
+            com.lifecyclebot.engine.BotService.status.paperWalletSol = ledger.cashSol()
+            com.lifecyclebot.engine.BotService.status.paperWalletInitialized = true
+            com.lifecyclebot.engine.BotService.status.paperWalletLastRefreshMs = System.currentTimeMillis()
+            com.lifecyclebot.engine.ErrorLogger.info(
+                "MainActivity",
+                "PAPER_CANONICAL_COLD_OPEN_6489 ($reason): cash=${"%.4f".format(ledger.cashSol())} SOL"
+            )
         } catch (e: Exception) {
-            com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "paper wallet cold-open hydrate failed: ${e.message}")
+            com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "canonical paper cold-open hydrate failed: ${e.message}")
         }
     }
 
@@ -3044,19 +3047,21 @@ for legal compliance.
             }
         }
 
-        // ── hero balance — BotService.status is the single source of truth ──
+        // ── hero balance — canonical TOTAL EQUITY in paper mode ──
         val config = state.config // V5.9.706 — use pre-loaded config from UiState (avoid AES-GCM decrypt on main thread)
         val solPx  = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..500.0 } ?: 85.0
+        val walletSnap6451 = if (config.paperMode) {
+            try { com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
+        } else null
         val balSol = if (config.paperMode) {
-            val livePaper = com.lifecyclebot.engine.BotService.status.paperWalletSol
-            if (livePaper > 0.001) livePaper else ws.solBalance
+            walletSnap6451?.totalEquitySol ?: 0.0
         } else {
             ws.solBalance
         }
 
         // V5.0.3871 — paper CASH vs EQUITY clarity.
-        // The headline balance contract remains BotService.status.paperWalletSol
-        // (available paper cash). But the old subtitle simply said "PAPER MODE ◎ X",
+        // V5.0.6489 — headline is canonical TOTAL EQUITY; deployable CASH
+        // remains separately visible in the subtitle. The old subtitle simply said "PAPER MODE ◎ X",
         // while the green PnL line below is lifetime journal PnL. That mixed current
         // cash with lifetime realized PnL and made profitable runs look contradictory.
         // V5.0.6451 §WALLET_UI_SPLIT — pull the 5 canonical wallet
@@ -3066,22 +3071,12 @@ for legal compliance.
         // is a follow-up (requires activity_main.xml changes); this pass
         // gives the operator every canonical number in accessible text
         // and adds an emission label so the pipeline dump can quote it.
-        val walletSnap6451 = if (config.paperMode) {
-            try { com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
-        } else null
-        val paperOpenCostSol = if (config.paperMode) {
-            walletSnap6451?.openCostBasisSol ?: try {
-                state.openPositions.asSequence()
-                    .filter { it.position.isPaperPosition && it.position.isOpen }
-                    .filter { !it.position.tradingMode.equals("CYCLIC", true) && !it.position.tradingMode.equals("CYCLIC_VIRTUAL", true) }
-                    .sumOf { it.position.costSol.takeIf { v -> v.isFinite() && v > 0.0 } ?: 0.0 }
-            } catch (_: Throwable) { 0.0 }
-        } else 0.0
-        val paperEquityAtCostSol = if (config.paperMode) balSol + paperOpenCostSol else balSol
 
         if (balSol > 0.001) {
             tvBalanceLarge.setTextIfChanged(compactHeroBalance(balSol))
-            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "PAPER" else "LIVE")
+            tvBalanceUsd.setTextIfChanged(
+                if (config.paperMode) "PAPER · CASH ${"%.4f".format(walletSnap6451?.cashSol ?: 0.0)} SOL" else "LIVE"
+            )
             tvBalanceUsd.contentDescription = if (config.paperMode && walletSnap6451 != null) {
                 // 5-surface canonical breakdown (§6451). Operator now sees
                 // CASH / OPEN_MV / UNREALIZED / REALIZED / EQUITY as
@@ -3092,7 +3087,7 @@ for legal compliance.
                     "REALIZED ${"%.4f".format(walletSnap6451.realizedPnlSol)} SOL · " +
                     "EQUITY ${"%.4f".format(walletSnap6451.totalEquitySol)} SOL"
             } else if (config.paperMode) {
-                "Paper cash ${"%.4f".format(balSol)} SOL. Approx equity ${"%.4f".format(paperEquityAtCostSol)} SOL."
+                "Paper total equity ${"%.4f".format(balSol)} SOL. Cash unavailable until ledger hydration."
             } else "Live wallet ${"%.4f".format(balSol)} SOL."
             if (config.paperMode) {
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("WALLET_EQUITY_SURFACE_RENDERED_6451") } catch (_: Throwable) {}
@@ -3120,7 +3115,9 @@ for legal compliance.
             } else {
                 tvBalanceLarge.setTextIfChanged("—")
             }
-            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "PAPER" else "LIVE")
+            tvBalanceUsd.setTextIfChanged(
+                if (config.paperMode) "PAPER · CASH ${"%.4f".format(walletSnap6451?.cashSol ?: 0.0)} SOL" else "LIVE"
+            )
         }
 
         // ── Live SOL Price ──────────────────────────────────────────────

@@ -73,8 +73,11 @@ object CanonicalLifecycleAuthority6470 {
         // and querying isOpen on occupancy.
         val closedButOpen = try {
             var c = 0
-            CanonicalPositionAuthority6441.closedPositions().forEach { pos ->
-                if (CanonicalMintOccupancyRegistry6464.isOpen("paper", pos.mint)) {
+            CanonicalPositionAuthority6441.closedPositions()
+                .filter { it.mint !in canonicalOpen }
+                .distinctBy { "${it.mode.lowercase()}|${it.mint}" }
+                .forEach { pos ->
+                if (CanonicalMintOccupancyRegistry6464.isOpen(pos.mode, pos.mint)) {
                     // Contradiction: canonical CLOSED, occupancy OPEN.
                     LearningQuarantineGate6470.quarantineMint(
                         pos.mint, "CANONICAL_CLOSED_OCCUPANCY_OPEN_6470",
