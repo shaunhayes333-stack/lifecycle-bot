@@ -1,4 +1,65 @@
-# AATE V4.1 Release Notes
+# AATE Release Notes
+
+## Version 5.0.6495 — February 2026 — PAPER MODE
+
+### Overview
+
+Twenty-second beat of the V5.7 Correctness Mandate (Source-Level
+Authority Convergence). CI green (Build AATE APK + Runtime Smoke
+Test) on commit `abe50b9d5`. **PAPER MODE ONLY** — live execution
+remains disabled until every correctness surface stays green across
+consecutive operator dumps.
+
+### Highlights
+
+1. **Paper → LIVE mistag killed at source**
+   `ExecutorCanonicalMirror6442.mirrorBuyAttempt` /
+   `mirrorBuyFill` no longer hard-code `paperMode=false`. Paper-mode
+   projections (`activeMintProjections6490('paper')`) route
+   correctly and no longer show `0 paper mints / N LIVE mints`
+   during a paper session.
+
+2. **Root-cause classifier gains display precedence**
+   `PipelineHealthCollector` now consults
+   `RootCauseClassifier6471.classify()`. Only `ECONOMIC_INTEGRITY`
+   / `EXECUTION_FINALITY` tier verdicts prepend to the display, so
+   provider-degradation labels can never again mask a capital
+   breach.
+
+3. **laneCap sentinel replaced**
+   `OrderSizeResolver6441` default lane risk cap dropped from
+   `Double.MAX_VALUE` (1.79e+308) to a named constant
+   `DEFAULT_LANE_RISK_CAP_SOL = 5.0`. Diagnostic lines stop
+   rendering catastrophic figures.
+
+4. **USD / SOL mark scaling fix**
+   `BotService` mark-provider callback divides USD by `solPrice`
+   before publishing to `CanonicalCapitalAuthority6450`. Equity
+   snapshots stay SOL-denominated — the `$926M` phantom equity
+   that appeared on a $50 wallet is structurally impossible now.
+
+5. **Impossible-outcome quarantine + provider circuits**
+   Companion commit `919fb489a` shipped an impossible-outcome
+   quarantine on canonical event ingress and enforced provider
+   circuit breakers at every read site.
+
+### What's still deferred
+
+- MOONSHOT exit-quality tuning — gated on ≥20 fresh clean closes.
+- Full BotService routing through `BackgroundTradingAuthority6469`.
+- `rem` non-linear partial-sell audit (likely resolved by 6495 USD
+  scaling; awaiting operator dump confirmation).
+
+---
+
+## Previous version history
+
+See [/app/memory/CHANGELOG.md](../memory/CHANGELOG.md) for the full
+V5.0.6440 → V5.0.6495 shipping stack.
+
+---
+
+## Legacy V4.1 notes
 
 ## Version 4.1.2 - December 2025
 

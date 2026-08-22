@@ -1,3 +1,235 @@
+## V5.0.6495 — 2026-02-19 — SOURCE-FIX: paper→LIVE mistag + root-cause priority + laneCap sentinel
+
+Two-commit ship (`919fb489a` quarantine + provider circuits, `abe50b9d5`
+source-fix pass). CI green — Runtime Smoke Test + Build AATE APK both
+pass on `abe50b9d5`.
+
+**§1 — Paper→LIVE position mistag** (`ExecutorCanonicalMirror6442`)
+- Root cause: `mirrorBuyAttempt` and `mirrorBuyFill` hard-coded
+  `paperMode = false` when calling `openPosition()` /
+  `promotePendingToOpen()`, regardless of the paperMode parameter
+  the caller passed in. Every paper buy was being registered under
+  `mode=LIVE` in `CanonicalPositionAuthority6441`, so
+  `activeMintProjections6490('paper')` reported 0 while
+  `activeMintProjections6490('live')` reported 10 during a paper
+  session — the "0 paper mints / 10 LIVE mints" pipeline evidence.
+- Fix: forward the `paperMode` parameter through to the canonical
+  authority. Paper session projections now route to `mode=paper`.
+
+**§2 — Root cause priority classifier wired into report render**
+- Root cause: `PipelineHealthCollector` rendered "Root cause likely:"
+  from `RuntimeDoctor` + heuristics without consulting the V5.0.6471
+  `RootCauseClassifier6471`. Provider-degradation labels masked
+  economic breaches — the exact 6470 mandate violation.
+- Fix: after the `RuntimeDoctor` block, consult
+  `RootCauseClassifier6471.classify()` and prepend its verdict at
+  index 0 **only** when the tier is `ECONOMIC_INTEGRITY` or
+  `EXECUTION_FINALITY`. Provider- and advisory-tier verdicts do NOT
+  override RuntimeDoctor advisories.
+
+**§3 — laneCap Double.MAX_VALUE sentinel replaced**
+- `OrderSizeResolver6441.resolve()` defaulted `laneRiskCapSol` to
+  `Double.MAX_VALUE` (1.79e+308). The diagnostic line rendered a
+  visually catastrophic "$926M" style figure whenever a caller
+  omitted the cap.
+- Fix: named constant `DEFAULT_LANE_RISK_CAP_SOL = 5.0` replaces the
+  raw `Double.MAX_VALUE` default. Real callers still pass their own
+  lane risk cap; this is a safe ceiling for unspecified callers.
+
+**§4 — USD/SOL mark scaling fix** (`BotService.kt`)
+- Root cause: mark-provider callback fed USD price directly into a
+  SOL-denominated equity accumulator; on a $926M mcap token this
+  scaled canonical `openMarketValueSol` into billions.
+- Fix: divide USD by current `solPrice` before publishing to the
+  mark provider so the value is always SOL-denominated.
+
+**§quarantine + provider circuits** (from `919fb489a`)
+- Impossible-outcome quarantine gate on canonical event ingress;
+  provider circuit breakers now enforced at every read site so a
+  degraded provider cannot masquerade as authoritative data.
+
+**Behavioural stance**
+- Zero touch to live execution path. Paper-mode source fixes address
+  four distinct sites (mode attribution, root-cause priority, sentinel
+  render, mark-price scaling) at the level where the bug was born,
+  per the operator's Source-Level Authority Convergence mandate.
+
+
+## V5.0.6494 / V5.0.6494a — 2026-02-19 — PRESERVE IMMUTABLE LANE ELECTION
+
+Two commits: `43dfb89a7` (main ship) + `c8c12bec9` (test alignment).
+CI green.
+
+- Sealed-election semantics: `canRequestExecution` now picks primary
+  from `qualifiedLanesFor(mint, laneUpper)` at the **first** claim
+  and seals it. Under `MintAffinity → SHITCOIN`, MOONSHOT's first
+  call correctly resolves to SHITCOIN as primary; MOONSHOT is denied
+  on subsequent attempts.
+- Test alignment: `LaneExecutionCoordinatorSmokeTest ›
+  affinity_lane_can_upgrade_non_affinity_higher_base_lane` was
+  updated to `assertFalse` and asserts sealed-election immutability
+  under repeated MOONSHOT attempts — the intent (affinity elects
+  SHITCOIN over the higher-base MOONSHOT) is preserved with the
+  new "affinity elects at first call" sequencing.
+
+
+## V5.0.6493 — 2026-02-19 — MINT-AUTHORITATIVE TOKEN IDENTITY + MARKET DATA
+
+Crypto token identity and market data are now keyed on canonical mint
+rather than downstream aliases. Ends the token-map alias-merge class of
+bugs at ingest.
+
+
+## V5.0.6492 — 2026-02-19 — UNIFY INVENTORY / VALUATION / FINALITY / MARKET-CAP TRUTH
+
+Four adjacent read surfaces (inventory qty, valuation SOL, terminal
+finality, market-cap classification) collapsed onto a single canonical
+projection so downstream consumers cannot disagree on the same trade
+state.
+
+
+## V5.0.6491 / V5.0.6491a — 2026-02-19 — SIZE-BEFORE-AUTH + LANE FANOUT COLLAPSE
+
+- `V5.0.6491`: resolve size **before** authorization; collapse lane
+  fanout so a mint cannot enter more than one lane's admission path
+  in parallel.
+- `V5.0.6491a`: align authority tests with size-bearing finality
+  (authority verdict now carries the resolved size).
+
+
+## V5.0.6490 / V5.0.6490a — 2026-02-19 — UNIFIED EXECUTABLE SIZING + CANONICAL INVENTORY
+
+- `V5.0.6490`: single executable sizing surface; canonical inventory
+  becomes the authoritative source for "how much do I own?".
+- `V5.0.6490a`: align paper minimum acceptance reason string with
+  the new size resolver output.
+
+
+## V5.0.6489 — 2026-02-19 — RESTORE THROUGHPUT + CANONICAL POSITION TRUTH
+
+Paper throughput recovered by removing residual defensive probes that
+were funded through global streak shutdowns. Canonical position truth
+becomes the sole basis for open-mint accounting.
+
+
+## V5.0.6488 — 2026-02-19 — RUNTIME THROUGHPUT + LANE-LOCAL AUTHORITY
+
+Offloaded post-learning maintenance, removed global streak shutdowns
+(only lane-local pauses remain), atomically project canonical positions,
+fix parity math and escalating-stall diagnosis, preserve paper capital
+authority, close release lint.
+
+
+## V5.0.6487 — 2026-02-19 — EXECUTABLE THROUGHPUT + CANONICAL RUNTIME TRUTH
+
+- Entry/streak authority moved **before** FDG ticket creation.
+- One executable route per mint enforced.
+- Funded defensive probes removed (they were poisoning learning without
+  changing outcomes).
+- `PaperAccountLedger` becomes the sole paper capital authority.
+- Atomic debit/idempotency semantics repaired.
+- Bridge quantity overflow now rejects instead of fabricating execution
+  proof.
+
+
+## V5.0.6486 — 2026-02-19 — TYPED FINALITY + CANONICAL ACCOUNTING CLOSURE
+
+Paper/live transaction truth closed across Markets, Perps, Crypto
+Universe, meme partials, orphan refunds, durable learning finality,
+pending policy persistence, bridge output proof, and money-path
+reporting. Added funded conservation acceptance coverage and Golden
+Tape contracts for growth-safe execution truth.
+
+
+## V5.0.6485 — 2026-02-19 — ATOMIC PAPER TRANSACTIONS + CANONICAL FINALITY
+
+- Restored executable paper throughput with one shared size minimum
+  and fail-closed sizing.
+- Paper BUY state committed atomically across cash, canonical
+  lifecycle, lot, occupancy, and projections; rollback every
+  provisional surface on failure.
+- Purged unfunded startup rows without manufacturing OPEN state.
+- Unified terminal publication through the rich 6450 bus.
+- Learning quarantined centrally; all eight finalized consumers wired
+  with truthful ACKs.
+- Rejected sell locks released; reconciler cadence aligned; stale
+  AutoMode PAUSED hard choke removed.
+- 1624 release tests green.
+
+
+## V5.0.6484 — 2026-02-19 — REMOVE DORMANT POST-FDG LANE HARD ABORT
+
+Dead-code path removed. Post-FDG lane hard abort was not being consulted
+anywhere but was blocking future migrations.
+
+
+## V5.0.6483 — 2026-02-19 — STOP LEARNED LANE PAUSES DISABLING TRADERS
+
+Learned lane pauses no longer propagate to trader-level disable. Lane
+damping continues via `LaneAdaptiveDamping6472` (V5.0.6472).
+
+
+## V5.0.6482 — 2026-02-19 — REMOVE DUPLICATE LEARNED HARD VETOES
+
+Two independent hard-veto paths collapsed to one to prevent double
+disable of the same lane.
+
+
+## V5.0.6481 — 2026-02-19 — PIVOT TOXIC LANES INSTEAD OF CHOKING VOLUME
+
+Toxic-lane detection now pivots capital to healthier lanes rather than
+reducing total volume — preserves the V5.7 growth mandate.
+
+
+## V5.0.6480 — 2026-02-19 — ATOMIC WATCHLIST CAP AUTHORITY
+
+Single atomic authority for watchlist cap enforcement replaces the
+three separate cap checks that were fighting each other.
+
+
+## V5.0.6479 — 2026-02-19 — REMOVE PROVIDER WAITS FROM SIZING + EXITS
+
+Sizing and exit hot paths can no longer block on provider I/O. Provider
+data is consulted opportunistically; missing data does not stall
+size resolution or exit evaluation.
+
+
+## V5.0.6478 — 2026-02-19 — REMOVE PROVIDER IO FROM FDG HOT PATH
+
+FDG evaluation reads only from canonical caches / substrate. Provider
+refresh is scheduled on a background cadence and never in the FDG
+hot path.
+
+
+## V5.0.6477 — 2026-02-19 — ISOLATE PROOF-CONFIRMED LIVE TOKEN LEARNING
+
+Only tokens with confirmed proof (chain-verified fill + settlement)
+feed the live-token learners. Unconfirmed candidates are quarantined
+from learner training data.
+
+
+## V5.0.6476 — 2026-02-19 — REPAIR CAPITAL REPLAY FINALITY MUX + OCCUPANCY TRUTH
+
+Capital replay path repaired: the finality multiplexer now correctly
+attributes replayed events to the right terminal channel, and
+occupancy truth updates on the same tick.
+
+
+## V5.0.6475 — 2026-02-19 — CANONICAL PAPER CAPITAL + REGISTRY REPAIR
+
+Paper capital and registry read surfaces converged onto the canonical
+authority. Legacy divergences repaired at their originating write
+sites.
+
+
+## V5.0.6474 — 2026-02-19 — ROUTE FULL PAPER SELL THROUGH CANONICAL CLOSE REDUCER
+
+Every full paper sell now flows through the same close reducer as the
+canonical terminal pipeline. Removes the last "paper-only" bypass of
+the V5.0.6469 canonical terminal fanout.
+
+
+
 ## V5.0.6473 — 2026-02-18 — WIRE THE DEFERRED 6472 ITEMS
 
 Eighth beat — call-site migrations for the 6472 truth surfaces.

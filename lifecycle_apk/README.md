@@ -20,7 +20,7 @@
 ### **110,000+ Lines of Kotlin. 914+ Commits. 28 AI Layers. 1 Guy. 10 Days. 1 Phone.**
 
 [![Build Status](https://github.com/shaunhayes333-stack/lifecycle-bot/actions/workflows/build.yml/badge.svg)](https://github.com/shaunhayes333-stack/lifecycle-bot/actions)
-[![Version](https://img.shields.io/badge/version-5.2.11-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-5.0.6495-blue.svg)]()
 [![Platform](https://img.shields.io/badge/platform-Android-green.svg)]()
 [![Kotlin](https://img.shields.io/badge/kotlin-1.9.0-purple.svg)]()
 
@@ -313,11 +313,16 @@ AATE is designed to work out of the box, but power users can configure:
 
 ## Roadmap
 
+- [x] V5.7 Correctness Mandate — 26-point convergence (see [docs/V5.7_CORRECTNESS_MANDATE.md](docs/V5.7_CORRECTNESS_MANDATE.md))
+- [x] Source-Level Authority Convergence — canonical authorities at every side-effect door
+- [x] Canonical terminal pipeline for paper + live (V5.0.6469 → V5.0.6474 → V5.0.6485)
+- [x] Growth-Centric Runner Compounding (`RunnerCompoundingLadder6440`, $50 → $1M mindset)
+- [ ] MOONSHOT exit-quality tuning (gated on ≥20 fresh clean closes)
+- [ ] SOL Perps/Leverage full enablement (paper-only sandbox already live via `PerpsSandbox6463`)
+- [ ] Neural bridge — AI cross-learning perps ↔ stocks
+- [ ] LLM Lab sandbox
 - [ ] GitHub Releases automation for APK distribution
-- [ ] UI improvements for SHADOW_ONLY tokens
-- [ ] iOS port (maybe)
 - [ ] Web dashboard for monitoring
-- [ ] Advanced analytics export
 
 ---
 
@@ -341,6 +346,6 @@ Proprietary. All rights reserved.
 
 ### Built with obsession by one developer, one phone, ten days of madness.
 
-**AATE V5.2.11** | March 2026
+**AATE V5.0.6495** | February 2026
 
 </div>

@@ -1,3 +1,220 @@
+# AATE PRD — V5.0.6495 (V5.7+ Growth-Centric Runner Compounding)
+
+**Status:** PAPER TRADING ONLY. Live execution intentionally disabled
+until the 26-point correctness mandate reaches 100 % green across
+consecutive operator dumps. Do NOT tune profitability while
+correctness surfaces are still stabilising.
+
+**Product goal:** $50 → $1M mindset. Every canonical authority is
+tuned to (a) protect capital, (b) preserve every side-effect door at
+its originating layer (SOURCE-LEVEL AUTHORITY CONVERGENCE — no
+passive read-only mirrors), and (c) keep learning purity so runner
+compounding is monotonic.
+
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change
+lands via `git push` → GitHub Actions CI. Verification is the pair
+(`Build AATE APK` green, `Runtime Smoke Test` green) on the head SHA.
+
+
+## V5.0.6495 (Feb 2026) — SOURCE-FIX: paper→LIVE mistag + root-cause priority + laneCap sentinel
+
+Twenty-second beat. CI green on commit `abe50b9d5`
+(Build AATE APK + Runtime Smoke Test both green).
+
+Four concrete source-fixes prompted by the 6494 pipeline snapshot
+showing 0 paper mints / 10 LIVE mints in a paper session, root
+cause stuck on provider-degradation, and resolver reporting
+`laneCap=1.79e+308`:
+
+- **Paper→LIVE mistag killed at source** —
+  `ExecutorCanonicalMirror6442.mirrorBuyAttempt/mirrorBuyFill` was
+  hardcoding `paperMode=false` on the canonical open call. Now the
+  caller's `paperMode` is forwarded, so
+  `activeMintProjections6490('paper')` routes correctly.
+- **Root cause priority classifier now wins display precedence** —
+  `PipelineHealthCollector` render pass consults
+  `RootCauseClassifier6471.classify()`; verdicts at tier
+  `ECONOMIC_INTEGRITY` / `EXECUTION_FINALITY` prepend to the display
+  list. Provider- / advisory-tier verdicts never mask capital
+  breaches again.
+- **laneCap sentinel replaced** — `OrderSizeResolver6441.resolve()`
+  default of `Double.MAX_VALUE` replaced with named constant
+  `DEFAULT_LANE_RISK_CAP_SOL = 5.0` (real callers still pass their
+  own cap). Diagnostic no longer renders "1.79e+308 SOL / $926M".
+- **USD/SOL mark scaling fix** — `BotService.kt` mark-provider
+  callback now divides USD price by `solPrice` before publishing to
+  `CanonicalCapitalAuthority6450.installMarkProvider`. Equity
+  snapshots stay SOL-denominated.
+
+Companion earlier commit `919fb489a` shipped impossible-outcome
+quarantine + provider circuit enforcement across every read site.
+
+**Deferred to 6496+** — non-linear `rem` values on the same `id` in
+partial-sell rows (`Executor.kt` / `PaperAccountLedger` audit
+pending); MOONSHOT exit-quality tuning (still gated on ≥20 fresh
+clean closes); BotService runtime routing through
+`BackgroundTradingAuthority6469`.
+
+
+## V5.0.6494 / V5.0.6494a (Feb 2026) — PRESERVE IMMUTABLE LANE ELECTION
+
+CI green (`43dfb89a7` + test-alignment `c8c12bec9`).
+
+- `canRequestExecution` now picks primary from
+  `qualifiedLanesFor(mint, laneUpper)` at the first claim and seals
+  it. Under `MintAffinity → SHITCOIN`, MOONSHOT's first call
+  correctly resolves to SHITCOIN.
+- `LaneExecutionCoordinatorSmokeTest ›
+  affinity_lane_can_upgrade_non_affinity_higher_base_lane` updated
+  to assert sealed-election immutability under repeated MOONSHOT
+  attempts.
+
+
+## V5.0.6493 (Feb 2026) — MINT-AUTHORITATIVE TOKEN IDENTITY + MARKET DATA
+
+Crypto token identity and market data keyed on canonical mint rather
+than downstream aliases. Terminates the token-map alias-merge class
+of bugs at ingest.
+
+
+## V5.0.6492 (Feb 2026) — UNIFY INVENTORY / VALUATION / FINALITY / MARKET-CAP TRUTH
+
+Four adjacent read surfaces (inventory qty, valuation SOL, terminal
+finality, market-cap classification) collapsed onto a single
+canonical projection.
+
+
+## V5.0.6491 / V5.0.6491a (Feb 2026) — SIZE-BEFORE-AUTH + LANE FANOUT COLLAPSE
+
+Resolve size before authorization; collapse lane fanout so a mint
+cannot enter more than one lane's admission path in parallel.
+Authority verdict now carries the resolved size.
+
+
+## V5.0.6490 / V5.0.6490a (Feb 2026) — UNIFIED EXECUTABLE SIZING + CANONICAL INVENTORY
+
+Single executable sizing surface; canonical inventory is the sole
+authority for "how much do I own?". Paper minimum acceptance reason
+string aligned with the new size resolver output.
+
+
+## V5.0.6489 (Feb 2026) — RESTORE THROUGHPUT + CANONICAL POSITION TRUTH
+
+Paper throughput recovered by removing residual defensive probes
+funded through global streak shutdowns. Canonical position truth
+is the sole basis for open-mint accounting.
+
+
+## V5.0.6488 (Feb 2026) — RUNTIME THROUGHPUT + LANE-LOCAL AUTHORITY
+
+- Offload post-learning maintenance.
+- Remove global streak shutdowns (lane-local pauses remain).
+- Atomically project canonical positions.
+- Fix parity math and escalating-stall diagnosis.
+- Preserve paper capital authority.
+- Close release lint.
+
+
+## V5.0.6487 (Feb 2026) — EXECUTABLE THROUGHPUT + CANONICAL RUNTIME TRUTH
+
+Entry/streak authority moved before FDG ticket creation; one
+executable route per mint; funded defensive probes removed;
+`PaperAccountLedger` becomes the sole paper capital authority;
+atomic debit/idempotency semantics repaired; bridge quantity overflow
+rejects instead of fabricating execution proof.
+
+
+## V5.0.6486 (Feb 2026) — TYPED FINALITY + CANONICAL ACCOUNTING CLOSURE
+
+Paper/live transaction truth closed across Markets, Perps, Crypto
+Universe, meme partials, orphan refunds, durable learning finality,
+pending policy persistence, bridge output proof, and money-path
+reporting. Golden Tape contracts added for growth-safe execution
+truth.
+
+
+## V5.0.6485 (Feb 2026) — ATOMIC PAPER TRANSACTIONS + CANONICAL FINALITY
+
+- One shared size minimum; fail-closed sizing.
+- Paper BUY state committed atomically across cash / canonical
+  lifecycle / lot / occupancy / projections; rollback on failure.
+- Unfunded startup rows purged without manufacturing OPEN state.
+- Terminal publication unified through the rich 6450 bus.
+- All 8 finalized consumers wired with truthful ACKs.
+- Reconciler cadence aligned; stale AutoMode PAUSED hard choke
+  removed.
+- 1624 release tests green.
+
+
+## V5.0.6484 (Feb 2026) — REMOVE DORMANT POST-FDG LANE HARD ABORT
+
+Dead-code path removed. Was not consulted anywhere but blocked
+future migrations.
+
+
+## V5.0.6483 (Feb 2026) — STOP LEARNED LANE PAUSES DISABLING TRADERS
+
+Learned lane pauses no longer propagate to trader-level disable.
+Lane damping continues via `LaneAdaptiveDamping6472`.
+
+
+## V5.0.6482 (Feb 2026) — REMOVE DUPLICATE LEARNED HARD VETOES
+
+Two independent hard-veto paths collapsed to one to prevent double
+disable of the same lane.
+
+
+## V5.0.6481 (Feb 2026) — PIVOT TOXIC LANES INSTEAD OF CHOKING VOLUME
+
+Toxic-lane detection now pivots capital to healthier lanes rather
+than reducing total volume — preserves the V5.7 growth mandate.
+
+
+## V5.0.6480 (Feb 2026) — ATOMIC WATCHLIST CAP AUTHORITY
+
+Single atomic authority replaces the three separate cap checks that
+were fighting each other.
+
+
+## V5.0.6479 (Feb 2026) — REMOVE PROVIDER WAITS FROM SIZING + EXITS
+
+Sizing and exit hot paths no longer block on provider I/O.
+
+
+## V5.0.6478 (Feb 2026) — REMOVE PROVIDER IO FROM FDG HOT PATH
+
+FDG reads only from canonical caches / substrate. Provider refresh
+runs on background cadence.
+
+
+## V5.0.6477 (Feb 2026) — ISOLATE PROOF-CONFIRMED LIVE TOKEN LEARNING
+
+Only tokens with chain-verified fill + settlement feed live-token
+learners. Unconfirmed candidates quarantined.
+
+
+## V5.0.6476 (Feb 2026) — REPAIR CAPITAL REPLAY FINALITY MUX + OCCUPANCY TRUTH
+
+Capital replay finality multiplexer now correctly attributes replayed
+events to the right terminal channel; occupancy truth updates on the
+same tick.
+
+
+## V5.0.6475 (Feb 2026) — CANONICAL PAPER CAPITAL + REGISTRY REPAIR
+
+Paper capital and registry read surfaces converged onto the canonical
+authority; legacy divergences repaired at their originating write
+sites.
+
+
+## V5.0.6474 (Feb 2026) — ROUTE FULL PAPER SELL THROUGH CANONICAL CLOSE REDUCER
+
+Every full paper sell flows through the same close reducer as the
+canonical terminal pipeline. Last "paper-only" bypass of the
+V5.0.6469 canonical terminal fanout removed.
+
+
+
 # AATE PRD — V5.0.6405 §1-§16 Crash-Safe Portfolio Substrate + Full Executor Wire-Up
 
 

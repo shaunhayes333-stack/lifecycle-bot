@@ -1,3 +1,61 @@
+# AATE V5.0.6495 — V5.7 Canonical Layer Overview
+
+> The V4.1 architecture diagram below is retained for historical
+> context. Since V5.0.6440 → V5.0.6495 the runtime has been
+> restructured around a **canonical authority layer** under
+> `app/src/main/kotlin/com/lifecyclebot/engine/truth/`. Every
+> side-effect door (buy, sell, fee, learning input) is gated by a
+> single canonical authority — see
+> [docs/V5.7_CORRECTNESS_MANDATE.md](docs/V5.7_CORRECTNESS_MANDATE.md)
+> for the full 26-point map.
+
+## V5.7 canonical layer (top-down)
+
+```
+                     ┌─────────────────────────────────────────┐
+                     │  CanonicalPositionAuthority6441         │  ← §1 lifecycle single source
+                     │  CanonicalCapitalAuthority6450          │  ← §11 cash/equity read
+                     │  CanonicalMintOccupancyRegistry6464     │  ← §15 occupancy
+                     │  CanonicalLotQuantity6464               │  ← §16 sellable qty invariant
+                     └─────────────────────────────────────────┘
+                                     ▲
+                     ┌───────────────┴────────────────┐
+                     │                                │
+       ┌─────────────┴─────────────┐    ┌─────────────┴─────────────┐
+       │   Executor.paperBuy       │    │   Executor.paperSell      │
+       │   Executor.liveBuy        │    │   Executor.liveSell       │
+       │                           │    │                           │
+       │ • ExecutableEntryAuthority│    │ • PositionStateLedger6454 │  ← §14 terminal CAS
+       │   6450.gate()             │    │ • TerminalSellIdempotency │  ← §12 dedupe
+       │ • ExecutorCanonicalMirror │    │ • CanonicalPaperTerminal- │  ← §19 fanout
+       │   6442.mirrorBuyFill      │    │   Bridge6469              │
+       │ • CanonicalLotQuantity6464│    │ • CanonicalFinalizedTrade-│  ← §18 bus
+       │   .onBuyFilled            │    │   Bus6464 (8 consumers)   │
+       │ • EconomicEventSchema     │    │                           │
+       │   6464.recordBuy          │    │                           │
+       └───────────────────────────┘    └───────────────────────────┘
+                                     ▲
+                     ┌───────────────┴────────────────┐
+                     │   BotService.botLoop           │
+                     │                                │
+                     │ • ScannerFanoutDedupe6374      │
+                     │ • SameMintDedupAuthority6441   │  ← §3
+                     │ • LaneAdmissionGate6473        │  ← §24 adaptive damping
+                     │ • ExecutableSizeResolver6490   │  ← §2 size-before-auth
+                     │ • FDG / LaneEntryContract      │
+                     │ • RootCauseClassifier6471      │  ← §8 priority classifier
+                     │ • PositionRegistryParityAudit  │
+                     │ • EventStreamReplay6467        │
+                     │ • CapitalConservationTracer    │  ← §20
+                     └────────────────────────────────┘
+```
+
+Everything below is the pre-V5.7 architecture and is kept for
+historical reference only.
+
+---
+
+
 # AATE V4.1 - Technical Architecture
 
 ## System Overview
