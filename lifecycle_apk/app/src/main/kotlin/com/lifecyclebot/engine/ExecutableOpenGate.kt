@@ -43,6 +43,8 @@ object ExecutableOpenGate {
         val lane: String,
         val mode: String,
         val candidateVersion: Long,
+        val electionId6494: String = "",
+        val authorityVersion6494: Long = 0L,
         val fdgReason: String?,
         val signal: String,
         val safetyTier: String,
@@ -639,6 +641,10 @@ object ExecutableOpenGate {
         liveSafetyTier: String = "",
         lastSafetyCheckMs: Long = -1L,
         preResolvedSizeSol6490: Double = -1.0,
+        electedLane6494: String = "",
+        electedCandidateVersion6494: Long = 0L,
+        electionId6494: String = "",
+        authorityVersion6494: Long = 0L,
     ): OpenVerdict {
         return canOpenExecutablePositionInternal(
             mint = mint,
@@ -652,6 +658,10 @@ object ExecutableOpenGate {
             liveSafetyTier = liveSafetyTier,
             lastSafetyCheckMs = lastSafetyCheckMs,
             preResolvedSizeSol6490 = preResolvedSizeSol6490,
+            electedLane6494 = electedLane6494,
+            electedCandidateVersion6494 = electedCandidateVersion6494,
+            electionId6494 = electionId6494,
+            authorityVersion6494 = authorityVersion6494,
         )
     }
 
@@ -662,6 +672,10 @@ object ExecutableOpenGate {
         source: String,
         attemptId: String = nextAttemptId(ts.mint, lane),
         preResolvedSizeSol6490: Double = -1.0,
+        electedLane6494: String = "",
+        electedCandidateVersion6494: Long = 0L,
+        electionId6494: String = "",
+        authorityVersion6494: Long = 0L,
     ): OpenVerdict {
         // V5.0.6387 — CANONICAL_LEDGER_PARITY_HOLD_6387 (Directive A P0) +
         // FALSE_PROFIT_TRIGGER_HOLD_6387 (Directive B P0). Either hold blocks
@@ -802,6 +816,10 @@ object ExecutableOpenGate {
             liveSafetyTier = ts.safety.tier.name,
             lastSafetyCheckMs = ts.lastSafetyCheck,
             preResolvedSizeSol6490 = preResolvedSizeSol6490,
+            electedLane6494 = electedLane6494,
+            electedCandidateVersion6494 = electedCandidateVersion6494,
+            electionId6494 = electionId6494,
+            authorityVersion6494 = authorityVersion6494,
         )
     }
 
@@ -817,6 +835,10 @@ object ExecutableOpenGate {
         liveSafetyTier: String = "",
         lastSafetyCheckMs: Long = -1L,  // V5.9.1496 — for finality reason normalization
         preResolvedSizeSol6490: Double = -1.0,
+        electedLane6494: String = "",
+        electedCandidateVersion6494: Long = 0L,
+        electionId6494: String = "",
+        authorityVersion6494: Long = 0L,
     ): OpenVerdict {
         val modeUpper = mode.uppercase()
         val requestedLaneForSynth = canonicalLane(lane)
@@ -884,6 +906,7 @@ object ExecutableOpenGate {
         val liquidityUsd = if (liveLiquidityUsd > 0.0) liveLiquidityUsd else stateLiq
         val rawSelectedLane = state?.selectedLane ?: "UNKNOWN"
         val requestedLane = canonicalLane(lane)
+        val receiptLane6494 = canonicalLane(electedLane6494)
         // V5.9.1320 (Item 6) — RESOLVE THE LANE BEFORE the FDG/EXEC finality checks.
         // The 89 EXEC_OPEN_DROPPED_SELECTED_LANE_UNKNOWN came from candidates whose state
         // carried selectedLane=UNKNOWN (state created by a non-FDG path, or recordFdg lagged
@@ -892,6 +915,7 @@ object ExecutableOpenGate {
         // real REQUESTING lane (it is the lane trying to execute). Only truly UNKNOWN when
         // NEITHER is a real execution lane → then we block with CANON_LANE_UNRESOLVED.
         val selectedLane = when {
+            isRealExecutionLane(receiptLane6494) -> receiptLane6494
             isRealExecutionLane(rawSelectedLane) -> canonicalLane(rawSelectedLane)
             isRealExecutionLane(lane) -> requestedLane
             else -> "UNKNOWN"
@@ -899,7 +923,7 @@ object ExecutableOpenGate {
         val canonicalSelectedLane = canonicalLane(selectedLane)
         val preFdgVerdict = state?.preFdgVerdict ?: "WATCH"
         val hardNoReasons = state?.hardNoReasons ?: emptyList()
-        val candidateVersion = state?.candidateVersion ?: 0L
+        val candidateVersion = electedCandidateVersion6494.takeIf { it > 0L } ?: state?.candidateVersion ?: 0L
         var restorePenalty = LiveRestoreExecutionPolicy.fromRuntimeDrift(liquidityUsd)
         val staleApprovedVerdict = mode.equals("LIVE", true) &&
             preFdgVerdict.uppercase() in setOf("WATCH", "PROBE", "NO_BUY") &&
@@ -1417,9 +1441,11 @@ object ExecutableOpenGate {
                         attemptId = execKey,
                         mint = mint,
                         symbol = symbol,
-                        lane = canonicalLane(lane),
+                        lane = canonicalSelectedLane,
                         mode = modeUpper,
                         candidateVersion = candidateVersion,
+                        electionId6494 = electionId6494,
+                        authorityVersion6494 = authorityVersion6494,
                         fdgReason = fdgReason,
                         signal = signal,
                         safetyTier = safetyTier,

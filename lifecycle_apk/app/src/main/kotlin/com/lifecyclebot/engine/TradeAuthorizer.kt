@@ -72,6 +72,10 @@ object TradeAuthorizer {
         val blockLevel: BlockLevel? = null,
         val canRetry: Boolean = false,
         val attemptId: String = "",
+        val canonicalLane6494: String = "",
+        val candidateVersion6494: Long = 0L,
+        val electionId6494: String = "",
+        val authorityVersion6494: Long = 0L,
     ) {
         fun isExecutable(): Boolean {
             return verdict == ExecutionVerdict.PAPER_EXECUTE || verdict == ExecutionVerdict.LIVE_EXECUTE
@@ -94,6 +98,8 @@ object TradeAuthorizer {
         TREASURY,
         QUALITY,
         SHITCOIN,
+        EXPRESS,
+        PROJECT_SNIPER,
         BLUECHIP,
         MOONSHOT,
         SHADOW,
@@ -224,8 +230,17 @@ object TradeAuthorizer {
             }
         }
 
+        var electionReceipt6494: LaneExecutionCoordinator.Verdict? = null
         fun releasePrimaryAfterAuthFailure(reason: String) {
-            try { LaneExecutionCoordinator.releaseIfPrimary(mint, requestedBook.name, reason) } catch (_: Throwable) {}
+            val receipt = electionReceipt6494
+            try {
+                LaneExecutionCoordinator.releaseIfPrimary(
+                    mint = mint,
+                    lane = receipt?.primaryLane ?: requestedBook.name,
+                    reason = reason,
+                    candidateVersion = receipt?.candidateVersion ?: LaneExecutionCoordinator.candidateVersionFor(mint),
+                )
+            } catch (_: Throwable) {}
         }
 
         // V5.9.1120 — lane election BEFORE finality/open-request side effects.
@@ -235,6 +250,7 @@ object TradeAuthorizer {
         // supervisor timeouts without increasing real trades. Preserve primary
         // lane execution; suppress secondary lanes as telemetry before finality.
         val laneElection = LaneExecutionCoordinator.canRequestExecution(mint, requestedBook.name)
+        electionReceipt6494 = laneElection
         if (!laneElection.allowed) {
             try {
                 ForensicLogger.lifecycle(
@@ -264,6 +280,10 @@ object TradeAuthorizer {
             source = "TradeAuthorizer.preAuth",
             attemptId = finalityAttemptId,
             liveLiquidityUsd = liquidity,
+            electedLane6494 = laneElection.primaryLane,
+            electedCandidateVersion6494 = laneElection.candidateVersion,
+            electionId6494 = laneElection.electionId,
+            authorityVersion6494 = laneElection.authorityVersion,
         )
         if (!finality.allowed) {
             ErrorLogger.info(TAG, "❌ REJECT $symbol: FINALITY_${finality.logName} attemptId=${finality.attemptId} reason=${finality.reason}")
@@ -508,6 +528,10 @@ object TradeAuthorizer {
             blockLevel = null,
             canRetry = false,
             attemptId = finality.attemptId,
+            canonicalLane6494 = laneElection.primaryLane,
+            candidateVersion6494 = laneElection.candidateVersion,
+            electionId6494 = laneElection.electionId,
+            authorityVersion6494 = laneElection.authorityVersion,
         )
     }
 

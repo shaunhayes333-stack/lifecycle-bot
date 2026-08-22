@@ -132,7 +132,15 @@ object FinalExecutionPermit {
     ): Boolean {
         val now = System.currentTimeMillis()
         fun releasePrimaryAfterPermitFailure(reason: String) {
-            try { LaneExecutionCoordinator.releaseIfPrimary(mint, layer, reason) } catch (_: Throwable) {}
+            val ticket6494 = ExecutableOpenGate.ticketForAttempt(attemptId)
+            try {
+                LaneExecutionCoordinator.releaseIfPrimary(
+                    mint = mint,
+                    lane = ticket6494?.lane ?: layer,
+                    reason = reason,
+                    candidateVersion = ticket6494?.candidateVersion ?: LaneExecutionCoordinator.candidateVersionFor(mint),
+                )
+            } catch (_: Throwable) {}
         }
         fun recordPermitFalseReturn4416(reason: String) {
             ChokeReliefBus.launch("FEP_FALSE_RETURN_ROUTE_VISIBLE_4421", mint) {
@@ -163,10 +171,7 @@ object FinalExecutionPermit {
         // V5.9.1093 — finality BEFORE ENTER/permit side effects.
         // Existing lane code logs ENTER immediately after this function returns
         // true, so this is the last universal pre-side-effect choke point.
-        val finalityAttemptId = attemptId.ifBlank {
-            ExecutableOpenGate.recentAllowedAttemptId(mint, layer)
-                ?: ExecutableOpenGate.nextAttemptId(mint, layer)
-        }
+        val finalityAttemptId = attemptId.ifBlank { ExecutableOpenGate.nextAttemptId(mint, layer) }
         val sizeFinalityTicketPresent6491 = ExecutableOpenGate.ticketForAttempt(finalityAttemptId) != null
         if (!finalityPrechecked || !sizeFinalityTicketPresent6491) {
             val finality = ExecutableOpenGate.canOpenExecutablePosition(
@@ -190,16 +195,27 @@ object FinalExecutionPermit {
             }
         }
 
-        val laneElection = LaneExecutionCoordinator.canRequestExecution(mint, layer)
-        if (!laneElection.allowed) {
+        // V5.0.6494 — immutable authorization receipt. TradeAuthorizer elected the
+        // canonical lane and ExecutableOpenGate sealed it into this ticket. Never
+        // re-elect from mutable watchlist/lane state during permit finality.
+        val executionTicket6494 = ExecutableOpenGate.ticketForAttempt(finalityAttemptId)
+        if (executionTicket6494 == null || executionTicket6494.mint != mint) {
+            recordPermitFalseReturn4416("IMMUTABLE_EXEC_TICKET_MISSING_6494")
+            return false
+        }
+        val requestedLane6494 = when (layer.uppercase().replace('-', '_').replace(' ', '_')) {
+            "BLUE_CHIP" -> "BLUECHIP"
+            "SHIT_COIN" -> "SHITCOIN"
+            else -> layer.uppercase().replace('-', '_').replace(' ', '_')
+        }
+        if (executionTicket6494.lane != requestedLane6494) {
             try {
                 ForensicLogger.lifecycle(
-                    "LANE_EXECUTION_SUPPRESSED",
-                    "mint=${mint.take(10)} symbol=$symbol lane=$layer primary=${laneElection.primaryLane} candidateVersion=${laneElection.candidateVersion} reason=${laneElection.reason}"
+                    "IMMUTABLE_ELECTION_LANE_MISMATCH_6494",
+                    "mint=${mint.take(10)} symbol=$symbol requested=$requestedLane6494 ticket=${executionTicket6494.lane} election=${executionTicket6494.electionId6494} authority=${executionTicket6494.authorityVersion6494}"
                 )
             } catch (_: Throwable) {}
-            ErrorLogger.debug(TAG, "🧭 LANE_TELEMETRY_ONLY: $symbol | layer=$layer primary=${laneElection.primaryLane}")
-            recordPermitFalseReturn4416("LANE_TELEMETRY_ONLY")
+            recordPermitFalseReturn4416("IMMUTABLE_ELECTION_LANE_MISMATCH_6494")
             return false
         }
 

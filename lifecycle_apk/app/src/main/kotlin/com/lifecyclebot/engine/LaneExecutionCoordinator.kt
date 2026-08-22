@@ -23,6 +23,9 @@ object LaneExecutionCoordinator {
         val primaryLane: String,
         val secondaryTelemetryLane: String? = null,
         val createdAtMs: Long = System.currentTimeMillis(),
+        val electionId: String = "",
+        val authorityVersion: Long = 0L,
+        val sealed: Boolean = false,
     )
 
     data class Verdict(
@@ -30,10 +33,13 @@ object LaneExecutionCoordinator {
         val reason: String,
         val primaryLane: String,
         val candidateVersion: Long,
+        val electionId: String = "",
+        val authorityVersion: Long = 0L,
     )
 
     private const val TTL_MS = 30_000L
     private val versionSeq = AtomicLong(0L)
+    private val authoritySeq6494 = AtomicLong(0L)
     private val elections = ConcurrentHashMap<String, Election>()
     private val duplicateOpenSuppressed = AtomicLong(0L)
     private val affinities = ConcurrentHashMap<String, Set<String>>()
@@ -48,6 +54,7 @@ object LaneExecutionCoordinator {
     private val lanePriority = mapOf(
         "MOONSHOT" to 100,
         "SHITCOIN" to 95,
+        "EXPRESS" to 93,
         "MANIPULATED" to 90,
         "DIP_HUNTER" to 85,
         "PROJECT_SNIPER" to 80,
@@ -184,7 +191,12 @@ object LaneExecutionCoordinator {
         val now = System.currentTimeMillis()
         val old = elections[mapKey]
         if (old != null && now - old.createdAtMs <= TTL_MS) return old
-        val e = Election(key, primary, secondary, now)
+        val authorityVersion6494 = authoritySeq6494.incrementAndGet()
+        val e = Election(
+            key = key, primaryLane = primary, secondaryTelemetryLane = secondary, createdAtMs = now,
+            electionId = "${runtimeGeneration}:${candidateVersion}:$authorityVersion6494",
+            authorityVersion = authorityVersion6494,
+        )
         elections[mapKey] = e
         prune(now)
         return e
@@ -214,6 +226,8 @@ object LaneExecutionCoordinator {
                 reason = "TREASURY_DEFER_SPECIALIST_FIRST primary=${deferred.primaryLane}",
                 primaryLane = deferred.primaryLane,
                 candidateVersion = deferred.key.candidateVersion,
+                electionId = deferred.electionId,
+                authorityVersion = deferred.authorityVersion,
             )
         }
         // V5.9.1335 — FAIRNESS-WEIGHTED upgrade decision, hoisted for a clean smart-cast.
@@ -224,22 +238,27 @@ object LaneExecutionCoordinator {
         // still wins normally and only yields to a starved specialist once it is
         // genuinely hogging the book. No single-win thrash; static priority is never
         // lost unless a lane is winning over everything else.
-        val challengerUpgrades: Boolean = if (existing == null) false else {
+        val challengerUpgrades: Boolean = if (existing == null || existing.sealed) false else {
             val qualified = qualifiedLanesFor(mint, laneUpper, existing.primaryLane)
             claimPriority(mint, laneUpper, qualified) > claimPriority(mint, existing.primaryLane, qualified)
         }
         val e = when {
             existing == null -> {
-                val fresh = elect(mint, listOf(laneUpper), laneUpper, candidateVersion, runtimeGeneration)
+                val qualified6494 = qualifiedLanesFor(mint, laneUpper)
+                val primary6494 = pickFreshPrimary(mint, qualified6494) ?: laneUpper
+                val fresh = elect(mint, qualified6494, primary6494, candidateVersion, runtimeGeneration)
                 recordPrimaryWin(fresh.primaryLane)
                 fresh
             }
             challengerUpgrades -> {
+                val authorityVersion6494 = authoritySeq6494.incrementAndGet()
                 val upgraded = Election(
                     key = existing.key,
                     primaryLane = laneUpper,
                     secondaryTelemetryLane = existing.primaryLane,
                     createdAtMs = existing.createdAtMs,
+                    electionId = "${runtimeGeneration}:${existing.key.candidateVersion}:$authorityVersion6494",
+                    authorityVersion = authorityVersion6494,
                 )
                 elections[mapKey] = upgraded
                 recordPrimaryWin(laneUpper)
@@ -258,12 +277,17 @@ object LaneExecutionCoordinator {
             else -> existing
         }
         val allowed = e.primaryLane == laneUpper
+        val finalElection6494 = if (allowed && !e.sealed) {
+            e.copy(sealed = true).also { elections[mapKey] = it }
+        } else e
         if (!allowed) duplicateOpenSuppressed.incrementAndGet()
         return Verdict(
             allowed = allowed,
-            reason = if (allowed) "LANE_PRIMARY_ELECTED" else "LANE_TELEMETRY_ONLY primary=${e.primaryLane}",
-            primaryLane = e.primaryLane,
-            candidateVersion = e.key.candidateVersion,
+            reason = if (allowed) "LANE_PRIMARY_ELECTED" else "LANE_TELEMETRY_ONLY primary=${finalElection6494.primaryLane}",
+            primaryLane = finalElection6494.primaryLane,
+            candidateVersion = finalElection6494.key.candidateVersion,
+            electionId = finalElection6494.electionId,
+            authorityVersion = finalElection6494.authorityVersion,
         )
     }
 
@@ -286,8 +310,18 @@ object LaneExecutionCoordinator {
     ): Boolean {
         val laneUpper = lane.uppercase()
         val key = CandidateKey(runtimeGeneration, mint, candidateVersion)
-        val mapKey = mapKey(key)
-        val current = elections[mapKey]
+        var mapKey = mapKey(key)
+        var current = elections[mapKey]
+        if (current == null) {
+            val now = System.currentTimeMillis()
+            val active = elections.entries
+                .filter { (_, e) -> e.key.runtimeGeneration == runtimeGeneration && e.key.mint == mint && now - e.createdAtMs <= TTL_MS }
+                .maxByOrNull { it.value.createdAtMs }
+            if (active != null) {
+                mapKey = active.key
+                current = active.value
+            }
+        }
         if (current == null) {
             ChokeReliefBus.launch("LANE_PRIMARY_RELEASE_FALSE_VISIBLE_4421", mint) {
                 try { PipelineHealthCollector.labelInc("LANE_PRIMARY_RELEASE_FALSE_VISIBLE_4419_MISSING_ELECTION") } catch (_: Throwable) {}
@@ -329,6 +363,7 @@ object LaneExecutionCoordinator {
         affinities.clear()
         duplicateOpenSuppressed.set(0L)
         versionSeq.set(0L)
+        authoritySeq6494.set(0L)
         laneWinTimestamps.clear()   // V5.9.1335a — fairness state must reset per test
     }
 

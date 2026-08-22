@@ -5851,7 +5851,7 @@ class GoldenTapeRegressionTest {
     fun finalExecutionPermitFalseReturns_4416AreRouteVisibleWithoutChangingAuthority() {
         val source = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalExecutionPermit.kt").readText()
         assertTrue("V5.0.4416: FEP false-return branches must emit route-visible telemetry", source.contains("recordPermitFalseReturn4416") && source.contains("FEP_FALSE_RETURN_ROUTE_VISIBLE_4416") && source.contains("PipelineHealthCollector.labelInc"))
-        assertTrue("V5.0.4420: FEP route-visible telemetry must cover runtime, finality, lane-telemetry and pending false returns", source.contains("RUNTIME_PAUSED") && source.contains("RUNTIME_OVERLAY_DISABLED") && source.contains("LANE_TELEMETRY_ONLY") && source.contains("PENDING_"))
+        assertTrue("V5.0.6494: FEP route-visible telemetry must cover runtime, finality, immutable-ticket and pending false returns", source.contains("RUNTIME_PAUSED") && source.contains("RUNTIME_OVERLAY_DISABLED") && source.contains("IMMUTABLE_EXEC_TICKET_MISSING_6494") && source.contains("IMMUTABLE_ELECTION_LANE_MISMATCH_6494") && source.contains("PENDING_"))
         assertTrue("V5.0.4420: FEP behavior remains authority-preserving; telemetry records before existing false returns", source.contains("FINALITY_") && source.contains("releasePrimaryAfterPermitFailure") && source.contains("recordPermitFalseReturn4416") && source.contains("return false"))
     }
 
@@ -8116,6 +8116,25 @@ class GoldenTapeRegressionTest {
         assertTrue("6493 must not fabricate token liquidity from bulk volume or trust legacy generic Dex caps",
             !trader.contains("vol * 0.10") && !registry.contains("DEXSCREENER_MARKET_CAP") &&
                 registry.contains("DEXSCREENER_BASE_MINT_MARKET_CAP"))
+    }
+
+
+    @Test
+    fun V5_0_6494_immutable_lane_election_ticket_and_pre_fdg_occupancy() {
+        val coordinator = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneExecutionCoordinator.kt").readText()
+        val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt").readText()
+        val permit = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalExecutionPermit.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+
+        assertTrue(coordinator.contains("val electionId: String") && coordinator.contains("val authorityVersion: Long"))
+        assertTrue(coordinator.contains("existing == null || existing.sealed") && coordinator.contains("e.copy(sealed = true)"))
+        assertTrue(auth.contains("electedLane6494 = laneElection.primaryLane") && auth.contains("electionId6494 = laneElection.electionId"))
+        assertFalse("permit must not independently re-elect after authorization", permit.contains("LaneExecutionCoordinator.canRequestExecution(mint, layer)"))
+        assertTrue(permit.contains("IMMUTABLE_EXEC_TICKET_MISSING_6494") && permit.contains("IMMUTABLE_ELECTION_LANE_MISMATCH_6494"))
+        assertTrue(gate.contains("isRealExecutionLane(receiptLane6494) -> receiptLane6494") && gate.contains("lane = canonicalSelectedLane"))
+        assertTrue(bot.contains("PRE_FDG_CANON_MINT_OCCUPIED_SUPPRESSED_6494") && bot.contains("executionBookForLane6494(cyclePrimaryLane)"))
+        assertFalse("lane handoff must not replace auth receipt with mutable recent lookup", bot.contains("val treasuryAttemptId = ExecutableOpenGate.recentAllowedAttemptId"))
     }
 
 }
