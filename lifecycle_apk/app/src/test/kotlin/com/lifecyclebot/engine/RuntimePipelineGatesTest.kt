@@ -558,7 +558,7 @@ class RuntimeEnforcementSmokeTest {
             safetyTier = "SAFE",
             liquidityUsd = 2500.0,
         )
-        val v = ExecutableOpenGate.canOpenExecutablePosition(mint, "RCP", 1, "PAPER", "CYCLIC", "test")
+        val v = ExecutableOpenGate.canOpenExecutablePosition(mint, "RCP", 1, "PAPER", "CYCLIC", "test", preResolvedSizeSol6490 = 0.05)
         assertTrue("CYCLIC paper RC_PENDING score=1 should bypass rug-score V3 fatal", v.allowed)
         assertEquals("EXEC_OPEN_ALLOWED", v.logName)
     }
@@ -586,7 +586,7 @@ class RuntimeEnforcementSmokeTest {
             safetyTier = "SAFE",
             liquidityUsd = 2500.0,
         )
-        val v = ExecutableOpenGate.canOpenExecutablePosition(mint, "RCP", 1, "PAPER", "SHITCOIN", "test")
+        val v = ExecutableOpenGate.canOpenExecutablePosition(mint, "RCP", 1, "PAPER", "SHITCOIN", "test", preResolvedSizeSol6490 = 0.05)
         assertTrue("all PAPER lanes must bypass learnable RC_PENDING/model-rug V3 fatal", v.allowed)
         assertEquals("EXEC_OPEN_ALLOWED", v.logName)
     }
@@ -687,6 +687,7 @@ class ExecutionAuthorityInvariantTest {
             mode = "PAPER",
             lane = "SHITCOIN",
             source = "test",
+            preResolvedSizeSol6490 = 0.05,
         )
         assertTrue("paper mode must keep trading through circuit telemetry", v.allowed)
         assertEquals("EXEC_OPEN_ALLOWED", v.logName)
@@ -715,6 +716,7 @@ class ExecutionAuthorityInvariantTest {
             mode = "LIVE",
             lane = "SHITCOIN",
             source = "test",
+            preResolvedSizeSol6490 = 0.05,
         )
         assertFalse(v.allowed)
         assertEquals("EXEC_OPEN_BLOCKED_CIRCUIT_BREAKER", v.logName)
@@ -744,6 +746,7 @@ class ExecutionAuthorityInvariantTest {
             mode = "PAPER",
             lane = "TREASURY",
             source = "test",
+            preResolvedSizeSol6490 = 0.05,
         )
         assertTrue("paper missing RC context should be learnable unknown", v.allowed)
         assertEquals("EXEC_OPEN_ALLOWED", v.logName)
@@ -771,6 +774,7 @@ class ExecutionAuthorityInvariantTest {
             mode = "LIVE",
             lane = "TREASURY",
             source = "test",
+            preResolvedSizeSol6490 = 0.05,
         )
         assertTrue("live missing rug context after FDG allow must be penalty/ticket compatible", v.allowed)
         assertEquals("EXEC_OPEN_ALLOWED", v.logName)
@@ -798,6 +802,7 @@ class ExecutionAuthorityInvariantTest {
             mode = "PAPER",
             lane = "SHITCOIN",
             source = "test",
+            preResolvedSizeSol6490 = 0.05,
         )
         assertTrue("paper RC_PENDING score=1 must be learnable", v.allowed)
         assertEquals("EXEC_OPEN_ALLOWED", v.logName)
@@ -825,6 +830,7 @@ class ExecutionAuthorityInvariantTest {
             mode = "PAPER",
             lane = "SHITCOIN",
             source = "test",
+            preResolvedSizeSol6490 = 0.05,
         )
         assertTrue("paper low RC score=6 must remain learnable", v.allowed)
         assertEquals("EXEC_OPEN_ALLOWED", v.logName)
@@ -852,6 +858,7 @@ class ExecutionAuthorityInvariantTest {
             mode = "LIVE",
             lane = "SHITCOIN",
             source = "test",
+            preResolvedSizeSol6490 = 0.05,
         )
         assertTrue("live low nonzero RC after FDG allow must remain executable with penalty, not hard finality", v.allowed)
         assertEquals("EXEC_OPEN_ALLOWED", v.logName)
@@ -982,7 +989,7 @@ class ExecutionAuthorityInvariantTest {
         )
         assertTrue(auth.isExecutable())
         assertTrue("authorized execution must carry the finality attemptId contract", auth.attemptId.isNotBlank())
-        assertEquals(auth.attemptId, ExecutableOpenGate.recentAllowedAttemptId(mint, "SHITCOIN"))
+        assertNull("pre-size TradeAuthorizer safety precheck must not publish EXEC_OPEN_ALLOWED", ExecutableOpenGate.recentAllowedAttemptId(mint, "SHITCOIN"))
     }
 
     @Test
@@ -1010,6 +1017,7 @@ class ExecutionAuthorityInvariantTest {
             mode = "LIVE",
             lane = "QUALITY",
             source = "test",
+            preResolvedSizeSol6490 = 0.05,
         )
         assertTrue("LIVE execution must continue via non-Birdeye/free route proof when only the app-local daily Birdeye cap is exhausted", v.allowed)
         assertEquals("EXEC_OPEN_ALLOWED", v.logName)
@@ -1036,6 +1044,7 @@ class ExecutionAuthorityInvariantTest {
             mode = "PAPER",
             lane = "QUALITY",
             source = "test",
+            preResolvedSizeSol6490 = 0.05,
         )
         assertFalse(first.allowed)
         assertEquals("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY", first.logName)
@@ -1046,6 +1055,7 @@ class ExecutionAuthorityInvariantTest {
             mode = "PAPER",
             lane = "QUALITY",
             source = "test",
+            preResolvedSizeSol6490 = 0.05,
         )
         assertFalse(second.allowed)
         assertEquals("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY", second.logName)
@@ -1062,6 +1072,7 @@ class ExecutionAuthorityInvariantTest {
             mode = "LIVE",
             lane = "QUALITY",
             source = "test",
+            preResolvedSizeSol6490 = 0.05,
         )
         assertFalse(v.allowed)
         assertEquals("EXEC_OPEN_BLOCKED_MODE_AUTHORITY", v.logName)
@@ -1176,6 +1187,7 @@ class ExecutionAuthorityInvariantTest {
             "test.liveDirect",
             liveLiquidityUsd = 2500.0,
             liveSafetyTier = "SAFE",
+            preResolvedSizeSol6490 = 0.05,
         )
         assertTrue("live direct wrapper should synthesize current candidate when lane/liquidity/safety are valid", live.allowed)
         assertEquals("EXEC_OPEN_ALLOWED", live.logName)
@@ -1214,7 +1226,7 @@ class ExecutionAuthorityInvariantTest {
         assertNull("FDG state must not create an executable ticket", ExecutableOpenGate.recentAllowedAttemptId(mint, "SHITCOIN"))
         val v = ExecutableOpenGate.canOpenExecutablePosition(
             mint, "WTCH", 90, "LIVE", "SHITCOIN", "test.finalTicket",
-            liveLiquidityUsd = 2500.0, liveSafetyTier = "SAFE",
+            liveLiquidityUsd = 2500.0, liveSafetyTier = "SAFE", preResolvedSizeSol6490 = 0.05,
         )
         assertTrue("final EXEC gate should allow and create the one ticket", v.allowed)
         assertNotNull(ExecutableOpenGate.recentAllowedAttemptId(mint, "SHITCOIN"))
@@ -1232,9 +1244,9 @@ class ExecutionAuthorityInvariantTest {
             mint, cv, com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.gate("MOONSHOT", mint, 1.0),
         )
         ExecutableOpenGate.recordFdg(mint, "ONE", "MOONSHOT", true, null, signal = "BUY", rugScore = 90, safetyTier = "SAFE", liquidityUsd = 3000.0, candidateVersion = cv)
-        val first = ExecutableOpenGate.canOpenExecutablePosition(mint, "ONE", 90, "LIVE", "MOONSHOT", "test.one", liveLiquidityUsd = 3000.0, liveSafetyTier = "SAFE")
+        val first = ExecutableOpenGate.canOpenExecutablePosition(mint, "ONE", 90, "LIVE", "MOONSHOT", "test.one", liveLiquidityUsd = 3000.0, liveSafetyTier = "SAFE", preResolvedSizeSol6490 = 0.05)
         assertTrue(first.allowed)
-        val second = ExecutableOpenGate.canOpenExecutablePosition(mint, "ONE", 90, "LIVE", "SHITCOIN", "test.two", liveLiquidityUsd = 3000.0, liveSafetyTier = "SAFE")
+        val second = ExecutableOpenGate.canOpenExecutablePosition(mint, "ONE", 90, "LIVE", "SHITCOIN", "test.two", liveLiquidityUsd = 3000.0, liveSafetyTier = "SAFE", preResolvedSizeSol6490 = 0.05)
         assertFalse("alternate lane must not get a second executable BUY ticket", second.allowed)
     }
 
