@@ -252,9 +252,16 @@ class LaneExecutionCoordinatorSmokeTest {
         val gen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
         LaneExecutionCoordinator.resetForTests()
         LaneExecutionCoordinator.registerAffinity("MintAffinity", setOf("SHITCOIN"))
-        assertTrue(LaneExecutionCoordinator.canRequestExecution("MintAffinity", "MOONSHOT", runtimeGeneration = gen).allowed)
-        assertTrue("affinity boost should let SHITCOIN claim its routed token", LaneExecutionCoordinator.canRequestExecution("MintAffinity", "SHITCOIN", runtimeGeneration = gen).allowed)
-        assertFalse(LaneExecutionCoordinator.canRequestExecution("MintAffinity", "MOONSHOT", runtimeGeneration = gen).allowed)
+        // V5.0.6494 — affinity is honoured at first election. MOONSHOT never
+        // gets a provisional claim on a mint that is routed to SHITCOIN; the
+        // election is picked from the qualified lanes (which prefer the
+        // affinity lane) and is sealed on the winner's first successful call.
+        assertFalse("affinity lane routes MintAffinity → SHITCOIN, so MOONSHOT is denied on first call",
+            LaneExecutionCoordinator.canRequestExecution("MintAffinity", "MOONSHOT", runtimeGeneration = gen).allowed)
+        assertTrue("affinity boost lets SHITCOIN claim its routed token",
+            LaneExecutionCoordinator.canRequestExecution("MintAffinity", "SHITCOIN", runtimeGeneration = gen).allowed)
+        assertFalse("sealed election refuses subsequent MOONSHOT attempts",
+            LaneExecutionCoordinator.canRequestExecution("MintAffinity", "MOONSHOT", runtimeGeneration = gen).allowed)
     }
 
     @Test
