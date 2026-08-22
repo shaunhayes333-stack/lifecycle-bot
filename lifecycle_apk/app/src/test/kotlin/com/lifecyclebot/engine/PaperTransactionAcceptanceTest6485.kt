@@ -24,7 +24,7 @@ class PaperTransactionAcceptanceTest6485 {
         )
         assertFalse(result.executable)
         assertEquals(0.0, result.finalSizeSol, 0.0)
-        assertEquals("BELOW_MIN_EXECUTABLE", result.reason)
+        assertEquals("LANE_CAP_BELOW_MIN_EXECUTABLE_6490", result.reason)
     }
 
     @Test
