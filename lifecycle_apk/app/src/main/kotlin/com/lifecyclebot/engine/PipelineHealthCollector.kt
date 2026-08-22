@@ -1189,6 +1189,17 @@ object PipelineHealthCollector {
                     rootCauses.add(0, "${diag.faultCode}/${diag.subsystem}: ${diag.rootCause}".take(160))
                 }
             } catch (_: Throwable) {}
+            // V5.0.6495 §Root-Cause-Wire — the V5.0.6471 priority classifier
+            // must beat provider-degradation whenever economic/execution
+            // integrity has fired. Insert LAST at index 0 so its verdict wins
+            // display precedence over RuntimeDoctor advisories.
+            try {
+                val c = com.lifecyclebot.engine.truth.RootCauseClassifier6471.classify()
+                if (c.tier == com.lifecyclebot.engine.truth.RootCauseClassifier6471.Tier.ECONOMIC_INTEGRITY ||
+                    c.tier == com.lifecyclebot.engine.truth.RootCauseClassifier6471.Tier.EXECUTION_FINALITY) {
+                    rootCauses.add(0, "${c.tier.name}/${c.label} (n=${c.supportingCount})".take(160))
+                }
+            } catch (_: Throwable) {}
             if (rootCauses.isEmpty()) rootCauses.add("HEALTHY — mechanics and recent performance within deterministic bands")
             sb.append("  Root cause likely:    ${rootCauses.distinct().joinToString(" | ").take(220)}\n")
         } catch (_: Throwable) {}

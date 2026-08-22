@@ -86,12 +86,19 @@ object OrderSizeResolver6441 {
      * @param laneRiskCapSol lane's absolute risk ceiling per trade in SOL
      * @param laneMinExecutableSol lane's minimum executable size (0.0 = use ABS_MIN)
      */
+    /** V5.0.6495 — hard per-trade ceiling. Replaces the `Double.MAX_VALUE`
+     *  sentinel that made `laneCap=1.79e+308` render on every diagnostic
+     *  line. Real callers should pass their own `laneRiskCapSol`; this is
+     *  the safety ceiling when none is supplied. Tunable in ConfigStore.
+     */
+    const val DEFAULT_LANE_RISK_CAP_SOL = 5.0
+
     fun resolve(
         requestedSol: Double,
         laneName: String,
         walletSol: Double,
         paperMode: Boolean,
-        laneRiskCapSol: Double = Double.MAX_VALUE,
+        laneRiskCapSol: Double = DEFAULT_LANE_RISK_CAP_SOL,
         laneMinExecutableSol: Double = ABS_MIN_EXECUTABLE_SOL,
     ): Resolution {
         totalResolves.incrementAndGet()

@@ -101,7 +101,7 @@ object ExecutorCanonicalMirror6442 {
                 openedQtyRaw = BigInteger.ZERO,   // pending fill
                 tokenDecimals = 9,                 // provisional; corrected on fill
                 feesSol = estimatedFeesSol,
-                paperMode = false,
+                paperMode = paperMode,
             )
             buysMirrored.incrementAndGet()
             if (result == CanonicalPositionAuthority6441.MutateResult.APPLIED || result == CanonicalPositionAuthority6441.MutateResult.DUPLICATE) {
@@ -134,7 +134,7 @@ object ExecutorCanonicalMirror6442 {
                 actualEntryCostSol = actualCostSol,
                 actualFeesSol = actualFeesSol,
                 tokenDecimals = tokenDecimals,
-                paperMode = false,
+                paperMode = paperMode,
             )
             if (result == CanonicalPositionAuthority6441.MutateResult.APPLIED) {
                 try { IdempotencyKeyStore6437.markTerminal(buyIdempotencyKey(positionId), "BUY_CONFIRMED") } catch (_: Throwable) {}
