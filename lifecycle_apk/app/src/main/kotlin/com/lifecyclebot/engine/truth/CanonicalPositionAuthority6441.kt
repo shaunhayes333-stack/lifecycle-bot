@@ -122,6 +122,21 @@ object CanonicalPositionAuthority6441 {
         lock.lock()
         try {
             if (isDuplicate(idempotencyKey)) return MutateResult.DUPLICATE
+            val canonicalMode6490 = modeOverride?.trim()?.lowercase()?.takeIf { it in setOf("paper", "live") }
+                ?: if (paperMode) "paper" else "live"
+            val existingSameMint6490 = positions.values.firstOrNull {
+                it.mode == canonicalMode6490 && it.mint == mint &&
+                    it.lifecycle in setOf(Lifecycle.PENDING_ENTRY, Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED) &&
+                    (it.lifecycle == Lifecycle.PENDING_ENTRY || it.remainingQtyRaw > BigInteger.ZERO)
+            }
+            if (existingSameMint6490 != null && existingSameMint6490.positionId != positionId) {
+                duplicates.incrementAndGet()
+                try {
+                    PipelineHealthCollector.labelInc("CANONICAL_SAME_MODE_MINT_OPEN_REJECTED_6490")
+                    ForensicLogger.lifecycle("CANONICAL_SAME_MODE_MINT_OPEN_REJECTED_6490", "mode=$canonicalMode6490 mint=${mint.take(10)} existingPid=${existingSameMint6490.positionId.take(20)} rejectedPid=${positionId.take(20)} action=use_explicit_add")
+                } catch (_: Throwable) {}
+                return MutateResult.DUPLICATE
+            }
             if (entryCostSol < 0.0 || openedQtyRaw < BigInteger.ZERO) {
                 invariantViolations.incrementAndGet()
                 return MutateResult.INVARIANT_VIOLATION
@@ -143,8 +158,7 @@ object CanonicalPositionAuthority6441 {
             val lifecycle = if (openedQtyRaw == BigInteger.ZERO)
                 Lifecycle.PENDING_ENTRY else Lifecycle.OPEN
             positions[positionId] = Position(
-                positionId = positionId, mode = modeOverride?.trim()?.lowercase()?.takeIf { it in setOf("paper", "live") }
-                    ?: if (paperMode) "paper" else "live",
+                positionId = positionId, mode = canonicalMode6490,
                 mint = mint, symbol = symbol, lane = lane, runId = runId,
                 openedAtMs = System.currentTimeMillis(),
                 entryCostSol = entryCostSol,
@@ -463,13 +477,16 @@ object CanonicalPositionAuthority6441 {
         val lotCount: Int,
     )
 
-    fun activeMintProjections6489(): List<ActiveMintProjection6489> = openPositions()
-        .filter { it.remainingQtyRaw > BigInteger.ZERO }
-        .groupBy { it.mint }
-        .map { (mint, lots) ->
+    fun activeMintProjections6489(): List<ActiveMintProjection6489> = activeMintProjections6490()
+
+    /** V5.0.6490 — one inventory identity is mode + mint, never bare mint. */
+    fun activeMintProjections6490(mode: String? = null): List<ActiveMintProjection6489> = openPositions()
+        .filter { it.remainingQtyRaw > BigInteger.ZERO && (mode == null || it.mode.equals(mode, true)) }
+        .groupBy { "${it.mode.lowercase()}|${it.mint}" }
+        .map { (_, lots) ->
             val representative = lots.maxByOrNull { it.lastMutationMs } ?: lots.first()
             ActiveMintProjection6489(
-                mint = mint,
+                mint = representative.mint,
                 symbol = representative.symbol,
                 lane = representative.lane,
                 primaryMode = representative.mode,

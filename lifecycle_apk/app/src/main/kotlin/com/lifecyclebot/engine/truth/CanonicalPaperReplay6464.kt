@@ -175,7 +175,7 @@ object CanonicalPaperReplay6464 {
         val carry = try { EconomicEventSchema6464.replayCarry6489() }
             catch (_: Throwable) { EconomicEventSchema6464.ReplayCarry6489() }
         if (!carry.established && ledgerCash.isFinite() && ledgerRealized.isFinite() && ledgerOpen.isFinite()) {
-            val canonical = try { CanonicalPositionAuthority6441.activeMintProjections6489() } catch (_: Throwable) { emptyList() }
+            val canonical = try { CanonicalPositionAuthority6441.activeMintProjections6490("paper") } catch (_: Throwable) { emptyList() }
             val canonicalQty = canonical.associate { it.mint to it.remainingQtyRaw }
             val canonicalCost = canonical.associate { it.mint to it.remainingCostBasisSol }
             val qtyOffset = (canonicalQty.keys + snap.perMintRemainingQty.keys).associateWith { mint ->

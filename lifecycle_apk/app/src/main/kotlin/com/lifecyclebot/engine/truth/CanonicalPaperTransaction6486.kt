@@ -102,4 +102,43 @@ object CanonicalPaperTransaction6486 {
         return close(positionId, mint, symbol, basis, pos.remainingQtyRaw, basis, 0.0,
             "REFUND:$reason", System.currentTimeMillis())
     }
+    data class DuplicateMintRepair6490(val duplicateMints: Int, val refundedLots: Int, val refundedBasisSol: Double, val failures: Int)
+
+    /**
+     * V5.0.6490 — startup correction for historical same-mint paper opens.
+     * Keep the earliest funded position; refund every alias lot at remaining
+     * basis (zero strategy PnL) and suppress learning. This restores deployable
+     * cash without inventing profit or deleting economic history.
+     */
+    fun refundDuplicateActiveMintLots6490(): DuplicateMintRepair6490 {
+        val groups = CanonicalPositionAuthority6441.openPositions()
+            .filter { it.mode == "paper" && it.remainingQtyRaw > BigInteger.ZERO }
+            .groupBy { it.mint }
+            .filterValues { it.size > 1 }
+        var refunded = 0; var failures = 0; var basisTotal = 0.0
+        groups.values.forEach { lots ->
+            val keep = lots.minWithOrNull(compareBy<CanonicalPositionAuthority6441.Position> { it.openedAtMs }.thenBy { it.positionId })
+            lots.filter { it.positionId != keep?.positionId }.forEach { pos ->
+                val basis = (pos.entryCostSol - pos.soldCostBasisSol).coerceAtLeast(0.0)
+                val result = CanonicalPaperTerminalBridge6469.finalizeSell(
+                    positionId = pos.positionId, mint = pos.mint, symbol = pos.symbol,
+                    generation = pos.openedAtMs,
+                    sellSig = "INVENTORY_CORRECTION_6490:${pos.positionId}",
+                    soldQtyRaw = pos.remainingQtyRaw, preRemainingRaw = pos.remainingQtyRaw,
+                    preRemainingCostBasisSol = basis, grossProceedsSol = basis,
+                    soldCostBasisSol = basis, feesSol = 0.0, lane = pos.lane,
+                    exitReason = "DUPLICATE_SAME_MINT_REFUND_6490", terminal = true,
+                    directPositionMutation6486 = true, suppressLearningFanout6490 = true,
+                )
+                if (result.applied) { refunded++; basisTotal += basis } else failures++
+            }
+        }
+        if (groups.isNotEmpty()) try {
+            PipelineHealthCollector.labelInc("DUPLICATE_SAME_MINT_INVENTORY_REPAIRED_6490")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("DUPLICATE_SAME_MINT_INVENTORY_REPAIRED_6490", "duplicateMints=${groups.size} refundedLots=$refunded refundedBasis=${"%.6f".format(basisTotal)} failures=$failures")
+        } catch (_: Throwable) {}
+        return DuplicateMintRepair6490(groups.size, refunded, basisTotal, failures)
+    }
+
+
 }

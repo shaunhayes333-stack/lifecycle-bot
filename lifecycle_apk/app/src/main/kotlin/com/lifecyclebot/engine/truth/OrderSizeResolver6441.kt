@@ -53,6 +53,7 @@ object OrderSizeResolver6441 {
     }
 
     private const val ABS_MIN_EXECUTABLE_SOL = 0.001
+    private const val PAPER_ENTRY_FEE_RESERVE_RATE_6490 = 0.005
     private val paperExecutableMinimum = AtomicReference(0.05)
 
     fun paperExecutableMinimumSol(): Double = paperExecutableMinimum.get()
@@ -106,21 +107,36 @@ object OrderSizeResolver6441 {
         // balance consumers can converge on one transactional paper account.
         val authoritativeCash = if (paperMode) PaperAccountLedger6430.cashSol().coerceAtLeast(0.0) else walletSol
         val cashCap = authoritativeCash * 0.25
+        val feeAwareAvailable6490 = if (paperMode) {
+            authoritativeCash / (1.0 + PAPER_ENTRY_FEE_RESERVE_RATE_6490)
+        } else authoritativeCash
         val cashClamped = laddered.coerceAtMost(cashCap)
 
         // 4. lane cap
         val laneClamped = cashClamped.coerceAtMost(laneRiskCapSol)
 
-        // 5. minimum executable
+        // 5. minimum executable — V5.0.6490 source repair.
+        // The 25%-cash percentage is an advisory risk cap, not permission to
+        // manufacture an impossible sub-minimum order. If the authoritative
+        // account and lane can genuinely fund the minimum, preserve that floor;
+        // otherwise resolve non-executable BEFORE an execution ticket exists.
         val minExec = if (paperMode) maxOf(laneMinExecutableSol, paperExecutableMinimumSol())
             else laneMinExecutableSol.coerceAtLeast(ABS_MIN_EXECUTABLE_SOL)
-        val executable = laneClamped >= minExec
-        val finalSize = if (executable) laneClamped else 0.0
+        val minimumFundable6490 = requested > 0.0 && feeAwareAvailable6490 >= minExec && laneRiskCapSol >= minExec
+        val executableCandidate6490 = when {
+            laneClamped >= minExec -> laneClamped
+            minimumFundable6490 -> minExec
+            else -> 0.0
+        }.coerceAtMost(feeAwareAvailable6490).coerceAtMost(laneRiskCapSol)
+        val executable = executableCandidate6490 >= minExec
+        val finalSize = if (executable) executableCandidate6490 else 0.0
         val reason = when {
             !executable && authoritativeCash <= 0.0 -> "NO_WALLET"
-            !executable                       -> "BELOW_MIN_EXECUTABLE"
-            paperMode && !PaperAccountLedger6430.canAffordBuy(finalSize) -> "PAPER_CASH_INSUFFICIENT"
-            else                              -> "OK"
+            !executable && feeAwareAvailable6490 < minExec -> "CAPITAL_BELOW_MIN_EXECUTABLE_6490"
+            !executable && laneRiskCapSol < minExec -> "LANE_CAP_BELOW_MIN_EXECUTABLE_6490"
+            !executable -> "BELOW_MIN_EXECUTABLE"
+            paperMode && authoritativeCash + 1e-12 < finalSize * (1.0 + PAPER_ENTRY_FEE_RESERVE_RATE_6490) -> "PAPER_CASH_INSUFFICIENT_WITH_FEE_6490"
+            else -> "OK"
         }
         val actuallyExec = executable && (reason == "OK")
         val res = Resolution(

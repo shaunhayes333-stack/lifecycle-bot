@@ -1311,16 +1311,20 @@ object PipelineHealthCollector {
         // this section tells us whether the lane is HOLDING positions (slot
         // ceiling) or simply not finding setups (intake/score floor).
         try {
-            val scOpen = try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().size } catch (_: Throwable) { -1 }
-            val msOpen = try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().size } catch (_: Throwable) { -1 }
-            val hostOpen = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { -1 }
-            val memeOpen = (if (scOpen >= 0) scOpen else 0) + (if (msOpen >= 0) msOpen else 0)
-            sb.append("===== Per-lane open positions (slot-cap diagnostic) =====\n")
-            sb.append(line("ShitCoin open:", scOpen, "active ShitCoin paper+live positions")).append('\n')
-            sb.append(line("Moonshot open:", msOpen, "active Moonshot paper+live positions")).append('\n')
-            sb.append(line("Meme open (SC+MS):", memeOpen, "combined meme-lane slot consumption")).append('\n')
-            sb.append(line("Host wallet open:", hostOpen, "cross-lane wallet tracker count")).append('\n')
-            sb.append("  Read: high memeOpen + zero EXEC ⇒ slot stall (waiting on exits). Low memeOpen + zero EXEC ⇒ intake/score-floor stall.\n")
+            val activeMode6490 = if (try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }) "paper" else "live"
+            val canonicalInventory6490 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.activeMintProjections6490(activeMode6490)
+            val scOpen = canonicalInventory6490.count { it.lane.equals("SHITCOIN", true) }
+            val msOpen = canonicalInventory6490.count { it.lane.equals("MOONSHOT", true) }
+            val memeOpen = scOpen + msOpen
+            val hostProjection = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { -1 }
+            val labProjection = try { com.lifecyclebot.engine.lab.LlmLabStore.allPositions().map { it.mint }.toSet().size } catch (_: Throwable) { -1 }
+            sb.append("===== Canonical active inventory by lane (mode=$activeMode6490) =====\n")
+            sb.append(line("Canonical ShitCoin mints:", scOpen, "canonical mode+mint authority")).append('\n')
+            sb.append(line("Canonical Moonshot mints:", msOpen, "canonical mode+mint authority")).append('\n')
+            sb.append(line("Canonical active mints:", canonicalInventory6490.size, "wallet/slots/occupancy/sizing source")).append('\n')
+            sb.append(line("Host wallet projection:", hostProjection, "LIVE wallet projection only; not paper authority")).append('\n')
+            sb.append(line("LAB sandbox projection:", labProjection, "isolated hypotheses; never canonical inventory")).append('\n')
+            sb.append("  Read: canonical active mints are the only slot/capital inventory count; projections are diagnostics only.\n")
             sb.append('\n')
         } catch (_: Throwable) {}
 

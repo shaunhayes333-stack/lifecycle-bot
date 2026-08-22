@@ -1434,6 +1434,15 @@ class BotService : Service() {
                     if (!migrated6487) com.lifecyclebot.engine.truth.PaperAccountLedger6430.persistCurrent6487()
                 }
                 try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol(), "startup_paper_ledger_authority_6487") } catch (_: Throwable) {}
+                // V5.0.6490 — after ledger hydration, reverse historical duplicate
+                // same-mint paper debits at remaining basis. Then rebuild every
+                // projection from the repaired canonical inventory before trading.
+                val inventoryRepair6490 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.refundDuplicateActiveMintLots6490()
+                val repairedPaperPositions6490 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().filter { it.mode == "paper" }
+                com.lifecyclebot.engine.EmergentGuardrails.rebuildFromCanonical6475(repairedPaperPositions6490)
+                com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(repairedPaperPositions6490)
+                try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol(), "startup_duplicate_inventory_repair_6490") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("CANONICAL_INVENTORY_STARTUP_REPAIRED_6490", "duplicateMints=${inventoryRepair6490.duplicateMints} refundedLots=${inventoryRepair6490.refundedLots} refundedBasis=${inventoryRepair6490.refundedBasisSol} failures=${inventoryRepair6490.failures}") } catch (_: Throwable) {}
                 com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431
                     .start { /* full reconcile callback: wired in Phase 2 */ }
             } catch (_: Throwable) {}
@@ -12352,10 +12361,10 @@ class BotService : Service() {
                     val startCap = cfg6377?.paperSimulatedBalance ?: 11.76
                     val paperModeNow = cfg6377?.paperMode ?: true
                     val canonicalOpen = try {
-                        status.openPositions.size
+                        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.activeMintProjections6490(if (paperModeNow) "paper" else "live").size
                     } catch (_: Throwable) { 0 }
                     val registryOpen = try {
-                        TradeHistoryStore.openMintSetFromJournal().size
+                        com.lifecyclebot.engine.EmergentGuardrails.snapshot().size
                     } catch (_: Throwable) { 0 }
                     // V5.0.6430 §Q — instrument the reconciler with a
                     // watchdog so operator can see liveness in the pipeline

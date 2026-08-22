@@ -54,11 +54,7 @@ object SlotHealthGate {
     private const val ENTRY_HARD_CAP = 12
 
     private fun canonicalPaperOpenCount(): Int = try {
-        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositionsForMode(true).size +
-            com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositionsForMode(true).size +
-            com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositionsForMode(true).size +
-            com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositionsForMode(true).size +
-            com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsForMode(true).size
+        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.activeMintProjections6490("paper").size
     } catch (_: Throwable) { -1 }
 
     fun publish(

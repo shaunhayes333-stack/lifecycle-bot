@@ -11804,6 +11804,31 @@ class Executor(
         val routeIsShadow = routeVerdict.route == ExecutionRouteGuard.Route.SHADOW
         paperBuyLeaseMode6369 = if (routeIsShadow) "SHADOW" else "PAPER"
         val finalityLane = layerTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source?.takeIf { it.isNotBlank() } ?: "STANDARD" } }
+        // V5.0.6490 — resolve capital BEFORE PAPER ticket publication. The
+        // entry authority may down-shape a 0.05 intent, but no downstream
+        // component may manufacture a 0.021 order that can never execute.
+        val preTicketSize6490 = try {
+            com.lifecyclebot.engine.truth.TraderSizingBridge6444.resolveForLane(
+                laneName = finalityLane,
+                requestedSol = effectiveBuySol6451,
+                walletSol = com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol(),
+                paperMode = true,
+                overrideLaneRiskCapSol = maxPaperTradeSolOverride,
+            )
+        } catch (_: Throwable) {
+            com.lifecyclebot.engine.truth.OrderSizeResolver6441.Resolution(
+                effectiveBuySol6451, 0.0, 0.0, 0.0, 0.0, 0.0, false, "PRE_TICKET_SIZE_RESOLUTION_FAILED_6490",
+            )
+        }
+        if (!preTicketSize6490.executable) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_BUY_REJECTED_BEFORE_TICKET_SIZE_6490")
+                ForensicLogger.lifecycle("PAPER_BUY_REJECTED_BEFORE_TICKET_SIZE_6490", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$finalityLane ${preTicketSize6490.trace()} action=no_exec_ticket")
+            } catch (_: Throwable) {}
+            markPaperBuyNotOpened("PRE_TICKET_SIZE_${preTicketSize6490.reason}")
+            return
+        }
+        val canonicalBuyIntentSol6490 = preTicketSize6490.finalSizeSol
         paperBuyLeaseProcessor6369 = "PAPER_BUY_${finalityLane.uppercase()}"
         val paperBuyLease6369 = try {
             ExecutionAttemptLease.acquire(
@@ -11859,6 +11884,7 @@ class Executor(
                 lane = finalityLane,
                 source = "Executor.paperBuy",
                 attemptId = attemptId.ifBlank { ExecutableOpenGate.nextAttemptId(ts.mint, finalityLane) },
+                preResolvedSizeSol6490 = canonicalBuyIntentSol6490,
             )
             if (!executableOpen.allowed) {
                 ErrorLogger.warn("Executor", "🚫 PAPER_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${executableOpen.attemptId} | ${executableOpen.reason}")
@@ -11878,10 +11904,10 @@ class Executor(
         @Suppress("NAME_SHADOWING")
         val sol = run {
             var finalSol = if (wrSizeMult < 1.0) {
-                val damped = sol * wrSizeMult
-                ErrorLogger.info("Executor", "🩹 WR_RECOVERY_SIZE_DAMP (paper): ${ts.symbol} | sol=${sol.fmt(4)} × ${"%.2f".format(wrSizeMult)} → ${damped.fmt(4)} (band=${WrRecoveryPartial.stateNow().band.name})")
+                val damped = canonicalBuyIntentSol6490 * wrSizeMult
+                ErrorLogger.info("Executor", "🩹 WR_RECOVERY_SIZE_DAMP (paper): ${ts.symbol} | sol=${canonicalBuyIntentSol6490.fmt(4)} × ${"%.2f".format(wrSizeMult)} → ${damped.fmt(4)} (band=${WrRecoveryPartial.stateNow().band.name})")
                 damped
-            } else sol
+            } else canonicalBuyIntentSol6490
 
             // V5.0.6422 — RUNNER AUTO-COMPOUND. Auto-shovel the current
             // paper win-streak straight into this buy's size. Cross-lane,
@@ -11981,7 +12007,12 @@ class Executor(
                     }
                 }
             } catch (_: Throwable) {}
-            clampPaperTradeSol(finalSol, ts.mint, ts.symbol, "paperBuy.pre_mutation", maxPaperTradeSolOverride)
+            val executableFloor6490 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol()
+            val floorPreserved6490 = if (canonicalBuyIntentSol6490 >= executableFloor6490 && finalSol < executableFloor6490) {
+                try { PipelineHealthCollector.labelInc("PAPER_SIZE_SHAPER_FLOOR_PRESERVED_6490") } catch (_: Throwable) {}
+                executableFloor6490
+            } else finalSol
+            clampPaperTradeSol(floorPreserved6490, ts.mint, ts.symbol, "paperBuy.pre_mutation6490", maxPaperTradeSolOverride)
         }
         if (sol <= 0.0) {
             try { ForensicLogger.lifecycle("PAPER_BUY_INVALID_SIZE_REJECTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$sol") } catch (_: Throwable) {}
@@ -12110,7 +12141,10 @@ class Executor(
             // Score-band tilt: S0 → 0.60x, S50 → 1.00x, S100 → 1.60x (linear).
             val scoreTilt = (0.60 + (scoreInt.toDouble() / 100.0)).coerceIn(0.60, 1.60)
             val combined = (pivotMult * mentalityMult * universalTargetMult6372 * scoreTilt).coerceIn(0.25, 2.5)
-            val shaped = (sol * combined).coerceAtLeast(0.01)
+            val shapedRaw6490 = sol * combined
+            val executableFloor6490 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol()
+            val shaped = if (sol >= executableFloor6490 && shapedRaw6490 < executableFloor6490) executableFloor6490
+                else shapedRaw6490.coerceAtLeast(0.01)
             try {
                 ForensicLogger.lifecycle(
                     "FLUID_SIZE_SHAPE_6241",

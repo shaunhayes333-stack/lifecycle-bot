@@ -49,6 +49,7 @@ object ExecutableOpenGate {
         val liquidityUsd: Double,
         val rugScore: Int,
         val hardNoReasons: List<String>,
+        val resolvedSizeSol: Double = 0.0,
         val createdAtMs: Long = System.currentTimeMillis(),
     )
 
@@ -637,6 +638,7 @@ object ExecutableOpenGate {
         liveLiquidityUsd: Double = -1.0,
         liveSafetyTier: String = "",
         lastSafetyCheckMs: Long = -1L,
+        preResolvedSizeSol6490: Double = -1.0,
     ): OpenVerdict {
         return canOpenExecutablePositionInternal(
             mint = mint,
@@ -649,6 +651,7 @@ object ExecutableOpenGate {
             liveLiquidityUsd = liveLiquidityUsd,
             liveSafetyTier = liveSafetyTier,
             lastSafetyCheckMs = lastSafetyCheckMs,
+            preResolvedSizeSol6490 = preResolvedSizeSol6490,
         )
     }
 
@@ -658,6 +661,7 @@ object ExecutableOpenGate {
         lane: String,
         source: String,
         attemptId: String = nextAttemptId(ts.mint, lane),
+        preResolvedSizeSol6490: Double = -1.0,
     ): OpenVerdict {
         // V5.0.6387 — CANONICAL_LEDGER_PARITY_HOLD_6387 (Directive A P0) +
         // FALSE_PROFIT_TRIGGER_HOLD_6387 (Directive B P0). Either hold blocks
@@ -797,6 +801,7 @@ object ExecutableOpenGate {
             liveLiquidityUsd = ts.lastLiquidityUsd,
             liveSafetyTier = ts.safety.tier.name,
             lastSafetyCheckMs = ts.lastSafetyCheck,
+            preResolvedSizeSol6490 = preResolvedSizeSol6490,
         )
     }
 
@@ -811,6 +816,7 @@ object ExecutableOpenGate {
         liveLiquidityUsd: Double = -1.0,
         liveSafetyTier: String = "",
         lastSafetyCheckMs: Long = -1L,  // V5.9.1496 — for finality reason normalization
+        preResolvedSizeSol6490: Double = -1.0,
     ): OpenVerdict {
         val modeUpper = mode.uppercase()
         val requestedLaneForSynth = canonicalLane(lane)
@@ -1386,7 +1392,9 @@ object ExecutableOpenGate {
         try {
             allowedAttempts[laneAttemptKey] = execKey to System.currentTimeMillis()
             allowedAttempts[mint.trim()] = execKey to System.currentTimeMillis()
-            if (executionTickets[execKey] == null) {
+            val paperSizeReady6490 = modeUpper != "PAPER" ||
+                preResolvedSizeSol6490 >= com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol()
+            if (executionTickets[execKey] == null && paperSizeReady6490) {
                 publishTicket(
                     ExecutionTicket(
                         attemptId = execKey,
@@ -1401,8 +1409,14 @@ object ExecutableOpenGate {
                         liquidityUsd = liquidityUsd,
                         rugScore = rug,
                         hardNoReasons = hardNoReasons,
+                        resolvedSizeSol = preResolvedSizeSol6490.coerceAtLeast(0.0),
                     )
                 )
+            } else if (!paperSizeReady6490) {
+                try {
+                    PipelineHealthCollector.labelInc("EXEC_TICKET_DEFERRED_UNTIL_SIZE_RESOLVED_6490")
+                    ForensicLogger.lifecycle("EXEC_TICKET_DEFERRED_UNTIL_SIZE_RESOLVED_6490", "mint=${mint.take(10)} symbol=$symbol lane=$lane version=$candidateVersion action=finality_allow_no_ticket")
+                } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}
         val allowedVerdict = OpenVerdict(

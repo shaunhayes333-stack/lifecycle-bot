@@ -64,8 +64,10 @@ object PositionRegistryParityAudit6464 {
         // OPEN slot or manufacture a permanent canonical-registry delta.
         val canonicalAll = canonicalOpens
 
-        val canonicalByState = canonicalAll.groupingBy { it.lifecycle }.eachCount()
-        val canonicalByMint = CanonicalPositionAuthority6441.activeMintProjections6489().associateBy { it.mint }
+        val activeMode6490 = if (try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }) "paper" else "live"
+        val canonicalModeRows6490 = canonicalAll.filter { it.mode == activeMode6490 }
+        val canonicalByState = canonicalModeRows6490.groupingBy { it.lifecycle }.eachCount()
+        val canonicalByMint = CanonicalPositionAuthority6441.activeMintProjections6490(activeMode6490).associateBy { it.mint }
         val canonicalMints = canonicalByMint.keys
 
         val registryMap: Map<String, EmergentGuardrails.RegistryEntry> = try {
@@ -148,7 +150,8 @@ object PositionRegistryParityAudit6464 {
         autoHeals.incrementAndGet()
         try {
             val canonical = try {
-                CanonicalPositionAuthority6441.openPositions()
+                val mode6490 = if (try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }) "paper" else "live"
+                CanonicalPositionAuthority6441.openPositions().filter { it.mode == mode6490 }
             } catch (_: Throwable) { emptyList() }
             val canonicalMints = canonical.map { it.mint }.toSet()
             val registry = try { EmergentGuardrails.snapshot() } catch (_: Throwable) { emptyMap() }

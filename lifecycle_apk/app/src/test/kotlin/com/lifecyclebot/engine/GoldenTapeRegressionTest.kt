@@ -2981,7 +2981,7 @@ class GoldenTapeRegressionTest {
         assertTrue("first paper close must mark requested before trace", exec.contains("PaperPositionCloseAuthority.markCloseRequested"))
         assertTrue("paperSell must finalize the paper authority when ledger closes", exec.contains("PaperPositionCloseAuthority.markClosed(\"PAPER\", tradeId.mint"))
 
-        assertTrue("paper buy must clamp before position and journal mutation", exec.contains("clampPaperTradeSol(finalSol"))
+        assertTrue("paper buy must clamp before position and journal mutation", exec.contains("clampPaperTradeSol(floorPreserved6490"))
         assertTrue("paper buy max must be bankroll-backed live-transfer size, not legacy maxPositionSol micro-cap", exec.contains("ALL PAPER ENTRIES") && exec.contains("paperSimulatedBalance * 0.10") && exec.contains("coerceIn(legacyMax, 2.0)"))
         // V5.0.6381 — floor lowered from paperSimulatedBalance * 0.01 to * 0.001
         // per operator directive: learning-shrunk sizes (e.g. 0.021 SOL) were being
@@ -7511,7 +7511,7 @@ class GoldenTapeRegressionTest {
                 !bot.contains("repairCashFromDisplayed6448(displayedCash") &&
                 java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt").readText().contains("PaperAccountLedger6430.onSell") &&
                 sizeResolver.contains("PaperAccountLedger6430.cashSol") &&
-                sizeResolver.contains("PaperAccountLedger6430.canAffordBuy"))
+                sizeResolver.contains("PAPER_ENTRY_FEE_RESERVE_RATE_6490"))
         assertTrue("V5.0.6448: learner fanout must be blocked for partial or non-RewardPurity-finalized SELL rows",
             exec.contains("REWARD_PURITY_PARTIAL_LEARNING_BLOCKED_6448") &&
                 exec.contains("REWARD_PURITY_LEARNING_BLOCKED_6448") &&
@@ -7914,8 +7914,8 @@ class GoldenTapeRegressionTest {
             registry.contains("AtomicReference<Map<String, PositionInfo>>") && registry.contains("openPositions.set(replacement)") &&
                 registry.contains("groupBy { it.mint }") && registry.contains("lots.fold(java.math.BigInteger.ZERO)") &&
                 bot.contains("CanonicalPositionAuthority6441.openPositions()"))
-        assertTrue("6489 parity compares mint-aggregated quantity and basis in the registry identity domain",
-            parity.contains("activeMintProjections6489") && parity.contains("remainingQtyRaw") && parity.contains("remainingCostBasisSol"))
+        assertTrue("6490 parity compares current-mode mint-aggregated quantity and basis in the registry identity domain",
+            parity.contains("activeMintProjections6490(activeMode6490)") && parity.contains("remainingQtyRaw") && parity.contains("remainingCostBasisSol"))
     }
 
 
@@ -7943,11 +7943,11 @@ class GoldenTapeRegressionTest {
         val oldHardVeto = "LEARNED_TOXIC_LANE_" + "HARD_VETO_6379"
         assertTrue("6489 learned toxicity must soft-shape with full lane telemetry and never hard-veto",
             openGate.contains("LEARNED_TOXIC_LANE_SOFT_SHAPED_6489|lane=") && !openGate.contains(oldHardVeto))
-        assertTrue("6489 canonical positions stay as lots but project by aggregated mint identity",
-            canonical.contains("data class ActiveMintProjection6489") && canonical.contains("groupBy { it.mint }") &&
-                canonical.contains("remainingCostBasisSol") && occupancy.contains("reconcileActiveFromCanonical6489"))
-        assertTrue("6489 equity values each whole mint once and the PAPER hero shows equity plus separate cash",
-            capital.contains("activeMintProjections6489") && capital.contains("markProvider(aggregate.mint)") &&
+        assertTrue("6490 canonical positions enforce one active economic position per mode and mint",
+            canonical.contains("data class ActiveMintProjection6489") && canonical.contains("groupBy { \"" + "$" + "{it.mode.lowercase()}|" + "$" + "{it.mint}\" }") &&
+                canonical.contains("CANONICAL_SAME_MODE_MINT_OPEN_REJECTED_6490") && occupancy.contains("reconcileActiveFromCanonical6489"))
+        assertTrue("6490 equity values each paper mode mint once and the PAPER hero shows equity plus separate cash",
+            capital.contains("activeMintProjections6490(\"paper\")") && capital.contains("markProvider(aggregate.mint)") &&
                 main.contains("walletSnap6451?.totalEquitySol") && main.contains("PAPER · CASH") && !main.contains("PaperWalletStore.restore"))
         assertTrue("6489 replay carries pre-authority history and folds bounded-event eviction without rewriting money or lots",
             replay.contains("establishReplayCarry6489") && events.contains("foldEvictedIntoReplayCarry6489") &&
@@ -7955,6 +7955,39 @@ class GoldenTapeRegressionTest {
         assertTrue("6489 provider paths cannot nest runBlocking in Perps or wallet transaction routing",
             !wallet.contains("kotlinx.coroutines.run" + "Blocking") && !perps.contains("kotlinx.coroutines.run" + "Blocking") &&
                 wallet.contains("submitProtectedNoWait6489") && wallet.contains("JITO_DEADLINE_6489").not())
+    }
+
+
+    @Test
+    fun V5_0_6490_inventory_dedup_and_executable_floor_are_canonical() {
+        val resolver = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OrderSizeResolver6441.kt").readText()
+        val openGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val canonical = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt").readText()
+        val tx = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
+        val terminal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt").readText()
+        val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/lab/LlmLabTrader.kt").readText()
+        val slot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt").readText()
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue("6490 resolver must preserve the executable floor only when fee-aware capital and lane cap can fund it",
+            resolver.contains("minimumFundable6490") && resolver.contains("PAPER_ENTRY_FEE_RESERVE_RATE_6490") &&
+                resolver.contains("CAPITAL_BELOW_MIN_EXECUTABLE_6490"))
+        assertTrue("6490 paper tickets must be deferred until canonical size resolution",
+            openGate.contains("EXEC_TICKET_DEFERRED_UNTIL_SIZE_RESOLVED_6490") &&
+                openGate.contains("resolvedSizeSol = preResolvedSizeSol6490.coerceAtLeast(0.0)") &&
+                executor.contains("PRE_TICKET_SIZE_RESOLUTION_FAILED_6490"))
+        assertTrue("6490 duplicate position creation must be blocked at canonical mutation authority",
+            canonical.contains("CANONICAL_SAME_MODE_MINT_OPEN_REJECTED_6490") &&
+                canonical.contains("it.mode == canonicalMode6490") && canonical.contains("it.mint == mint"))
+        assertTrue("6490 historical duplicate paper debits must refund basis without learning contamination",
+            tx.contains("refundDuplicateActiveMintLots6490") && tx.contains("DUPLICATE_SAME_MINT_REFUND_6490") &&
+                terminal.contains("suppressLearningFanout") && terminal.contains("INVENTORY_CORRECTION_LEARNING_SUPPRESSED_6490"))
+        assertTrue("6490 LAB hypotheses must coalesce per mint and remain outside canonical journal inventory",
+            lab.contains("LAB_SAME_MINT_HYPOTHESIS_COALESCED_6490") && lab.contains("LAB_SANDBOX_OPEN_ISOLATED_6490") &&
+                !lab.contains("V3JournalRecorder.recordOpen") && !lab.contains("V3JournalRecorder.recordClose"))
+        assertTrue("6490 slot and report counts must read canonical current-mode active mints",
+            slot.contains("activeMintProjections6490(\"paper\")") && report.contains("Canonical active mints:") &&
+                report.contains("LAB sandbox projection:"))
     }
 
 }

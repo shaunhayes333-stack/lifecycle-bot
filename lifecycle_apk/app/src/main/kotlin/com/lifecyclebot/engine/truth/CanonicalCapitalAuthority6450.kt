@@ -87,7 +87,7 @@ object CanonicalCapitalAuthority6450 {
         // TokenState.position. Canonical storage may contain multiple economic lots
         // for one mint, so value each mint once; summing one provider value per lot
         // multiplied equity whenever historical same-mint lots coexisted.
-        val activeMints = try { CanonicalPositionAuthority6441.activeMintProjections6489() } catch (_: Throwable) { emptyList() }
+        val activeMints = try { CanonicalPositionAuthority6441.activeMintProjections6490("paper") } catch (_: Throwable) { emptyList() }
         val reserved = 0.0 // no reserved event currently exists; remains explicit
         val openCost = PaperAccountLedger6430.openCostBasisSol()
         val openMv = activeMints.sumOf { aggregate ->

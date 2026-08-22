@@ -21,9 +21,17 @@ import com.lifecyclebot.engine.SentienceHooks
 object LlmLabTrader {
     private const val TAG = "LlmLabTrader"
 
+    @Synchronized
     fun openPaper(strategy: LabStrategy, tick: LlmLabEngine.LabUniverseTick, sizeSol: Double) {
         if (sizeSol <= 0.0) return
-        if (LlmLabStore.openPosition(strategy.id, tick.mint) != null) return
+        val existingMint6490 = LlmLabStore.allPositions().firstOrNull { it.mint == tick.mint }
+        if (existingMint6490 != null) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAB_SAME_MINT_HYPOTHESIS_COALESCED_6490")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle("LAB_SAME_MINT_HYPOTHESIS_COALESCED_6490", "mint=${tick.mint.take(10)} symbol=${tick.symbol} existingStrategy=${existingMint6490.strategyId} observingStrategy=${strategy.id} action=no_second_economic_position")
+            } catch (_: Throwable) {}
+            return
+        }
         if (LlmLabStore.getPaperBalance() < sizeSol) return
 
         // Deduct from lab bankroll
@@ -46,16 +54,10 @@ object LlmLabTrader {
         // Mark strategy as last-evaluated
         LlmLabStore.updateStrategy(strategy.copy(lastEvaluatedAt = System.currentTimeMillis()))
 
-        // V5.9.447 — UNIVERSAL JOURNAL COVERAGE. Lab paper trades now show
-        // up in the user's Journal alongside main-bot trades.
-        try {
-            com.lifecyclebot.engine.V3JournalRecorder.recordOpen(
-                symbol = tick.symbol, mint = tick.mint,
-                entryPrice = tick.price, sizeSol = sizeSol,
-                isPaper = true, layer = "LAB",
-                entryReason = strategy.name.take(24),
-            )
-        } catch (_: Throwable) {}
+        // V5.0.6490 — LAB is an isolated hypothesis sandbox. Its positions
+        // remain in LlmLabStore and must never masquerade as canonical paper
+        // inventory in TradeHistoryStore / sell pressure / wallet reports.
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAB_SANDBOX_OPEN_ISOLATED_6490") } catch (_: Throwable) {}
 
         ErrorLogger.info(TAG, "🧪 OPEN ${strategy.name} → ${tick.symbol} ${"%.6f".format(tick.price)} size=${"%.4f".format(sizeSol)}◎ (asset=${tick.asset})")
     }
@@ -162,21 +164,8 @@ object LlmLabTrader {
         // Telegraph into the universe so Symbiosis/cross-engine biases see Lab too.
         try { SentienceHooks.recordEngineOutcome("LAB", pnlSol, isWin) } catch (_: Throwable) {}
 
-        // V5.9.447 — UNIVERSAL JOURNAL COVERAGE. Every Lab close now writes
-        // a SELL row to TradeHistoryStore so the user's Journal reflects
-        // Lab P&L too. (Lab live trades flow through the main Executor and
-        // are journaled there.)
-        try {
-            val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60_000L
-            com.lifecyclebot.engine.V3JournalRecorder.recordClose(
-                symbol = pos.symbol, mint = pos.mint,
-                entryPrice = pos.entryPrice, exitPrice = exitPrice,
-                sizeSol = pos.sizeSol, pnlPct = pnlPct, pnlSol = pnlSol,
-                isPaper = !pos.isLive, layer = "LAB",
-                exitReason = reason,
-                holdMinutes = holdMins,
-            )
-        } catch (_: Throwable) {}
+        // V5.0.6490 — close remains in the LAB store/outcome hooks only.
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAB_SANDBOX_CLOSE_ISOLATED_6490") } catch (_: Throwable) {}
 
         ErrorLogger.info(TAG, "🧪 CLOSE ${strategy?.name ?: pos.strategyId} → ${pos.symbol} ${reason} " +
             "pnl=${"%+.2f".format(pnlPct)}% (${"%+.4f".format(pnlSol)}◎) hold=${(System.currentTimeMillis() - pos.entryTime) / 60_000L}min " +

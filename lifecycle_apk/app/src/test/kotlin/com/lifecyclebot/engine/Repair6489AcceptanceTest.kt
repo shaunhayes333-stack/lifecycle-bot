@@ -9,7 +9,7 @@ import java.math.BigInteger
 
 class Repair6489AcceptanceTest {
     @Test
-    fun same_mint_lots_remain_economic_rows_but_project_as_one_summed_active_mint() {
+    fun same_mode_mint_cannot_open_a_second_economic_position() {
         val suffix = System.nanoTime().toString()
         val mint = "MINT6489$suffix"
         fun open(id: String, cost: Double, qty: Long) = CanonicalPositionAuthority6441.openPosition(
@@ -19,17 +19,17 @@ class Repair6489AcceptanceTest {
             feesSol = 0.0, paperMode = false, modeOverride = "paper",
         )
         assertEquals(CanonicalPositionAuthority6441.MutateResult.APPLIED, open("LOT-A:$suffix", 1.25, 100L))
-        assertEquals(CanonicalPositionAuthority6441.MutateResult.APPLIED, open("LOT-B:$suffix", 0.75, 60L))
+        assertEquals(CanonicalPositionAuthority6441.MutateResult.DUPLICATE, open("LOT-B:$suffix", 0.75, 60L))
 
-        val aggregate = CanonicalPositionAuthority6441.activeMintProjections6489().single { it.mint == mint }
-        assertEquals(2, aggregate.lotCount)
-        assertEquals(BigInteger.valueOf(160L), aggregate.remainingQtyRaw)
-        assertEquals(2.0, aggregate.remainingCostBasisSol, 1e-9)
+        val aggregate = CanonicalPositionAuthority6441.activeMintProjections6490("paper").single { it.mint == mint }
+        assertEquals(1, aggregate.lotCount)
+        assertEquals(BigInteger.valueOf(100L), aggregate.remainingQtyRaw)
+        assertEquals(1.25, aggregate.remainingCostBasisSol, 1e-9)
 
         EmergentGuardrails.rebuildFromCanonical6475(CanonicalPositionAuthority6441.openPositions())
         val projected = EmergentGuardrails.snapshot()[mint]
-        assertEquals(BigInteger.valueOf(160L), projected?.qtyRaw)
-        assertEquals(2.0, projected?.entryCostSol ?: -1.0, 1e-9)
+        assertEquals(BigInteger.valueOf(100L), projected?.qtyRaw)
+        assertEquals(1.25, projected?.entryCostSol ?: -1.0, 1e-9)
 
         CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(
             CanonicalPositionAuthority6441.openPositions(),

@@ -105,6 +105,7 @@ object CanonicalPaperTerminalBridge6469 {
         exitReason: String,
         terminal: Boolean,
         directPositionMutation6486: Boolean = false,
+        suppressLearningFanout6490: Boolean = false,
     ): Result {
         val claim = claimBeforeSideEffects(
             positionId = positionId,
@@ -181,6 +182,7 @@ object CanonicalPaperTerminalBridge6469 {
                 feesSol = feesSol,
                 lane = lane,
                 terminal = terminal,
+                suppressLearningFanout6490 = suppressLearningFanout6490,
             )
             if (terminal) {
                 fullSells.incrementAndGet()
@@ -265,6 +267,7 @@ object CanonicalPaperTerminalBridge6469 {
         feesSol: Double,
         lane: String,
         terminal: Boolean,
+        suppressLearningFanout6490: Boolean = false,
     ): Boolean {
         try {
             CanonicalLotQuantity6464.onSellFilled(
@@ -290,7 +293,7 @@ object CanonicalPaperTerminalBridge6469 {
         } catch (_: Throwable) {}
 
         var busPublished = false
-        if (terminal) try {
+        if (terminal && !suppressLearningFanout6490) try {
             val realizedSol = grossProceedsSol - soldCostBasisSol - feesSol
             val realizedPct = if (soldCostBasisSol > 0.0) (realizedSol / soldCostBasisSol) * 100.0 else 0.0
             val settledAt6485 = System.currentTimeMillis()
@@ -319,6 +322,10 @@ object CanonicalPaperTerminalBridge6469 {
             }
         } catch (_: Throwable) {}
 
+        if (terminal && suppressLearningFanout6490) try {
+            PipelineHealthCollector.labelInc("INVENTORY_CORRECTION_LEARNING_SUPPRESSED_6490")
+            ForensicLogger.lifecycle("INVENTORY_CORRECTION_LEARNING_SUPPRESSED_6490", "positionId=$positionId mint=${mint.take(10)} basis=${"%.6f".format(soldCostBasisSol)}")
+        } catch (_: Throwable) {}
         try {
             CapitalConservationTracer6469.onSell(
                 positionId = positionId,
