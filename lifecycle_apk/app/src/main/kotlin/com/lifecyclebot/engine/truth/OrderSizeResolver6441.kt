@@ -44,6 +44,7 @@ object OrderSizeResolver6441 {
         val finalSizeSol: Double,
         val executable: Boolean,
         val reason: String,
+        val minimumExecutableSol: Double = 0.0,
     ) {
         fun trace(): String =
             "req=${fmt(requestedSol)} risk=${fmt(riskSol)} ladder=${fmt(ladderSol)} " +
@@ -53,7 +54,14 @@ object OrderSizeResolver6441 {
     }
 
     private const val ABS_MIN_EXECUTABLE_SOL = 0.001
+    private const val SOL_LAMPORTS_6491 = 1_000_000_000L
     private const val PAPER_ENTRY_FEE_RESERVE_RATE_6490 = 0.005
+
+    private fun toLamports6491(sol: Double): Long =
+        if (!sol.isFinite() || sol <= 0.0) 0L else kotlin.math.round(sol * SOL_LAMPORTS_6491.toDouble()).toLong().coerceAtLeast(0L)
+    private fun fromLamports6491(lamports: Long): Double = lamports.toDouble() / SOL_LAMPORTS_6491.toDouble()
+    fun meetsMinimum6491(valueSol: Double, minimumSol: Double): Boolean =
+        toLamports6491(valueSol) >= toLamports6491(minimumSol)
     private val paperExecutableMinimum = AtomicReference(0.05)
 
     fun paperExecutableMinimumSol(): Double = paperExecutableMinimum.get()
@@ -120,20 +128,27 @@ object OrderSizeResolver6441 {
         // manufacture an impossible sub-minimum order. If the authoritative
         // account and lane can genuinely fund the minimum, preserve that floor;
         // otherwise resolve non-executable BEFORE an execution ticket exists.
-        val minExec = if (paperMode) maxOf(laneMinExecutableSol, paperExecutableMinimumSol())
+        val minExecRaw6491 = if (paperMode) maxOf(laneMinExecutableSol, paperExecutableMinimumSol())
             else laneMinExecutableSol.coerceAtLeast(ABS_MIN_EXECUTABLE_SOL)
-        val minimumFundable6490 = requested > 0.0 && feeAwareAvailable6490 >= minExec && laneRiskCapSol >= minExec
-        val executableCandidate6490 = when {
-            laneClamped >= minExec -> laneClamped
-            minimumFundable6490 -> minExec
-            else -> 0.0
-        }.coerceAtMost(feeAwareAvailable6490).coerceAtMost(laneRiskCapSol)
-        val executable = executableCandidate6490 >= minExec
-        val finalSize = if (executable) executableCandidate6490 else 0.0
+        val minExecLamports6491 = toLamports6491(minExecRaw6491)
+        val minExec = fromLamports6491(minExecLamports6491)
+        val requestedLamports6491 = toLamports6491(requested)
+        val availableLamports6491 = toLamports6491(feeAwareAvailable6490)
+        val laneCapLamports6491 = toLamports6491(laneRiskCapSol)
+        val laneClampedLamports6491 = toLamports6491(laneClamped)
+        val minimumFundable6490 = requestedLamports6491 > 0L &&
+            availableLamports6491 >= minExecLamports6491 && laneCapLamports6491 >= minExecLamports6491
+        val executableLamports6491 = when {
+            laneClampedLamports6491 >= minExecLamports6491 -> laneClampedLamports6491
+            minimumFundable6490 -> minExecLamports6491
+            else -> 0L
+        }.coerceAtMost(availableLamports6491).coerceAtMost(laneCapLamports6491)
+        val executable = executableLamports6491 >= minExecLamports6491
+        val finalSize = if (executable) fromLamports6491(executableLamports6491) else 0.0
         val reason = when {
             !executable && authoritativeCash <= 0.0 -> "NO_WALLET"
-            !executable && feeAwareAvailable6490 < minExec -> "CAPITAL_BELOW_MIN_EXECUTABLE_6490"
-            !executable && laneRiskCapSol < minExec -> "LANE_CAP_BELOW_MIN_EXECUTABLE_6490"
+            !executable && availableLamports6491 < minExecLamports6491 -> "CAPITAL_BELOW_MIN_EXECUTABLE_6490"
+            !executable && laneCapLamports6491 < minExecLamports6491 -> "LANE_CAP_BELOW_MIN_EXECUTABLE_6490"
             !executable -> "BELOW_MIN_EXECUTABLE"
             paperMode && authoritativeCash + 1e-12 < finalSize * (1.0 + PAPER_ENTRY_FEE_RESERVE_RATE_6490) -> "PAPER_CASH_INSUFFICIENT_WITH_FEE_6490"
             else -> "OK"
@@ -148,6 +163,7 @@ object OrderSizeResolver6441 {
             finalSizeSol = if (actuallyExec) finalSize else 0.0,
             executable = actuallyExec,
             reason = reason,
+            minimumExecutableSol = minExec,
         )
         lastResolution.set(res)
         if (actuallyExec) executableCount.incrementAndGet() else skippedCount.incrementAndGet()

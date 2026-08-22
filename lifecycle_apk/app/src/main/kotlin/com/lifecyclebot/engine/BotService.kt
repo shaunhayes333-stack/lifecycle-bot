@@ -10423,6 +10423,19 @@ class BotService : Service() {
         //      lane shapes — but we still cap fanout per the operator P1 spec:
         //      "primary lane + at most one rescue lane".
         val l = lane.uppercase()
+        // V5.0.6491 — ONE EXECUTABLE SPECIALIST LANE PER MINT/VERSION.
+        // canonicalCycleLaneFor elected the owner before these lane sections.
+        // All non-primary lanes remain read-only contributors and must not reach
+        // FDG, sizing, TradeAuthorizer, occupancy, or executor work.
+        if (!l.equals(primaryLane, ignoreCase = true)) {
+            try {
+                PipelineHealthCollector.labelInc("LANE_READ_ONLY_NON_PRIMARY_6491_$l")
+                if (ForensicEmitRateLimiter6356.shouldEmit("LANE_READ_ONLY_NON_PRIMARY_6491", "${ts.mint}|$l")) {
+                    ForensicLogger.lifecycle("LANE_READ_ONLY_NON_PRIMARY_6491", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$l primary=$primaryLane action=no_fdg_no_size_no_exec")
+                }
+            } catch (_: Throwable) {}
+            return false
+        }
         // V5.0.4178 — L7 WORST-LANE SUPPRESSION (operator directive).
         // SHITCOIN / EXPRESS / MANIPULATED / DIP_HUNTER all bleed (0% WR in
         // journal). While the bot is below the 45% LIVE_ADAPTIVE doctrine
@@ -10515,6 +10528,16 @@ class BotService : Service() {
             }
             if (catastrophicPaperLowScoreSpecialistBleed(ts, l)) {
                 try { ForensicLogger.lifecycle("LANE_PRIMARY_SUPPRESSED_CATASTROPHIC_PAPER_BLEED", "lane=$l symbol=${ts.symbol} mint=${ts.mint.take(10)} score=${ts.lastV3Score ?: ts.entryScore.toInt()}") } catch (_: Throwable) {}
+                return false
+            }
+            val learnedFloorDelta6491 = try { LiveProbabilityEngine.learnedEntryFloorDelta6491(l) } catch (_: Throwable) { 0 }
+            val score6491 = (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(0, 100)
+            val learnedFloor6491 = 45 + learnedFloorDelta6491
+            if (learnedFloorDelta6491 > 0 && score6491 < learnedFloor6491) {
+                try {
+                    PipelineHealthCollector.labelInc("LANE_LOCAL_LEARNED_FLOOR_READ_ONLY_6491_$l")
+                    ForensicLogger.lifecycle("LANE_LOCAL_LEARNED_FLOOR_READ_ONLY_6491", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$l score=$score6491 floor=$learnedFloor6491 delta=$learnedFloorDelta6491 action=lane_local_selectivity_not_pause")
+                } catch (_: Throwable) {}
                 return false
             }
             return true

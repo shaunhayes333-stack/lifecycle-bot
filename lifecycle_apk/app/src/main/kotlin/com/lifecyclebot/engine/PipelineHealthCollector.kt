@@ -2375,13 +2375,12 @@ object PipelineHealthCollector {
             // alarming ~8% when the real per-token rate is ~30-40%. Normalise by observed
             // fan-out so it means "of tokens lane-evaluated, what % reached a V3 decision".
             val distinctLanes = s.laneEvalCounts.size.coerceAtLeast(1)
-            val avgFanout = (totalLaneEval.toDouble() / distinctLanes).coerceAtLeast(1.0)
-            val approxTokensEvaluated = (totalLaneEval.toDouble() / avgFanout).coerceAtLeast(1.0)
+            val fanoutPerIntake6491 = if (totalIntake > 0L) totalLaneEval.toDouble() / totalIntake.toDouble() else 0.0
             val v3Total2 = (v3Allow + v3Skipped).toDouble()
-            val evalToV3PerToken = (v3Total2 / approxTokensEvaluated * 100.0).coerceAtMost(100.0)
+            val evalToV3PerIntake = if (totalIntake > 0L) (v3Total2 / totalIntake.toDouble() * 100.0) else 0.0
             val rawEvalToV3 = (v3Total2 / totalLaneEval * 100.0)
-            sb.append("  lane eval → V3:       ${"%.1f".format(evalToV3PerToken)}% per-token  (target >20%)\n")
-            sb.append("    └─ raw per-lane:    ${"%.1f".format(rawEvalToV3)}%  ($totalLaneEval evals / $distinctLanes lanes ≈ ${approxTokensEvaluated.toLong()} tokens, fan-out≈${"%.1f".format(avgFanout)})\n")
+            sb.append("  intake → V3:          ${"%.1f".format(evalToV3PerIntake)}%  (target >20%)\n")
+            sb.append("    └─ raw per-lane:    ${"%.1f".format(rawEvalToV3)}%  ($totalLaneEval evals / $totalIntake intake, executable fan-out/intake≈${"%.2f".format(fanoutPerIntake6491)}, activeLanes=$distinctLanes)\n")
         }
         val v3Total = v3Allow + v3Skipped
         if (v3Total > 0L) {

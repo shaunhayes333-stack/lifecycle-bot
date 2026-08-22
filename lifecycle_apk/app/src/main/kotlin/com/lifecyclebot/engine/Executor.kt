@@ -15243,6 +15243,7 @@ class Executor(
                 lane = canonicalRoutedLane,  // V5.0.4005: canonical executable lane authority; never source/watchlist/advisory label
                 source = "Executor.liveBuy.canonicalLane",
                 attemptId = recoveredLiveAttemptId.ifBlank { ExecutableOpenGate.nextAttemptId(ts.mint, canonicalRoutedLane.ifBlank { "UNKNOWN" }) },
+                preResolvedSizeSol6490 = sol,
             )
             if (!executableOpen.allowed) {
                 ExecutionRootCauseTrace.finality("BUY", "LIVE_BUY_FINALITY_BLOCK", ts, "attemptId=${executableOpen.attemptId} reason=${executableOpen.reason}")

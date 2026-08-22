@@ -1352,6 +1352,25 @@ object ExecutableOpenGate {
             return blocked("EXEC_OPEN_BLOCKED_SHADOW_LANE_6487", "${lane.uppercase()}_READ_ONLY", shadow = true)
         }
         val execKey = attemptId.ifBlank { canonicalExecutionKey(mint, mode = mode, side = "BUY", lane = lane) }
+        // V5.0.6491 — FINALITY PRECHECK IS NOT EXECUTION AUTHORIZATION.
+        // TradeAuthorizer can inspect safety before canonical size exists, but it
+        // may not claim occupancy, publish a ticket, or emit EXEC_OPEN_ALLOWED.
+        // FinalExecutionPermit supplies resolved size and is the first authority
+        // allowed to cross this boundary.
+        val minExecutable6491 = if (modeUpper == "PAPER")
+            com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol() else 0.001
+        if (preResolvedSizeSol6490 < 0.0) {
+            try {
+                PipelineHealthCollector.labelInc("EXEC_OPEN_PRECHECK_SIZE_PENDING_6491")
+                ForensicLogger.lifecycle("EXEC_OPEN_PRECHECK_SIZE_PENDING_6491", "attemptId=$execKey mint=${mint.take(10)} symbol=$symbol mode=$modeUpper lane=$lane action=safety_precheck_only_no_claim_no_ticket_no_allow")
+            } catch (_: Throwable) {}
+            return OpenVerdict(true, "SIZE_PENDING_PRECHECK_ONLY_6491", shadowOnly = true,
+                logName = "EXEC_OPEN_PRECHECK_SIZE_PENDING_6491", attemptId = execKey)
+        }
+        if (!com.lifecyclebot.engine.truth.OrderSizeResolver6441.meetsMinimum6491(preResolvedSizeSol6490, minExecutable6491)) {
+            return blocked("EXEC_OPEN_BLOCKED_SIZE_NOT_EXECUTABLE_6491",
+                "resolvedSize=$preResolvedSizeSol6490 minimum=$minExecutable6491", shadow = true)
+        }
         val claimKey6487 = executableClaimKey6487(modeUpper, mint, candidateVersion)
         val priorClaim6487 = executableBuyClaim6487.putIfAbsent(claimKey6487, execKey)
         if (priorClaim6487 != null && priorClaim6487 != execKey) {
@@ -1392,9 +1411,7 @@ object ExecutableOpenGate {
         try {
             allowedAttempts[laneAttemptKey] = execKey to System.currentTimeMillis()
             allowedAttempts[mint.trim()] = execKey to System.currentTimeMillis()
-            val paperSizeReady6490 = modeUpper != "PAPER" ||
-                preResolvedSizeSol6490 >= com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol()
-            if (executionTickets[execKey] == null && paperSizeReady6490) {
+            if (executionTickets[execKey] == null) {
                 publishTicket(
                     ExecutionTicket(
                         attemptId = execKey,
@@ -1412,11 +1429,6 @@ object ExecutableOpenGate {
                         resolvedSizeSol = preResolvedSizeSol6490.coerceAtLeast(0.0),
                     )
                 )
-            } else if (!paperSizeReady6490) {
-                try {
-                    PipelineHealthCollector.labelInc("EXEC_TICKET_DEFERRED_UNTIL_SIZE_RESOLVED_6490")
-                    ForensicLogger.lifecycle("EXEC_TICKET_DEFERRED_UNTIL_SIZE_RESOLVED_6490", "mint=${mint.take(10)} symbol=$symbol lane=$lane version=$candidateVersion action=finality_allow_no_ticket")
-                } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}
         val allowedVerdict = OpenVerdict(

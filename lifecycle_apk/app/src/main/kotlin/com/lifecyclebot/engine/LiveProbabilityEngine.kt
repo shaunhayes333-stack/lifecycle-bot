@@ -70,6 +70,17 @@ object LiveProbabilityEngine {
         return rawLaneRealityCache[lane.uppercase()]
     }
 
+    /** V5.0.6491 — learned lane-local entry selectivity, never a global pause. */
+    fun learnedEntryFloorDelta6491(rawLane: String): Int {
+        val lane = canonical(rawLane)
+        val raw = try { rawLaneReality(lane) } catch (_: Throwable) { null } ?: return 0
+        return when {
+            lane == "SHITCOIN" && raw.n >= 10 && raw.wrPct <= 15.0 -> 20
+            lane == "TREASURY" && raw.n >= 10 && raw.totalSolPnl < 0.0 && raw.wrPct <= 30.0 -> 10
+            else -> 0
+        }
+    }
+
     /**
      * V5.0.6489 — LEARNED TOXIC LANE SHAPE (operator directive: "its not
      * improving overtime... buys in the wrong waves of the chart. it needs

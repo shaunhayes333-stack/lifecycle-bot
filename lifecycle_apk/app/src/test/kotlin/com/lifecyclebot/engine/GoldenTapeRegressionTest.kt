@@ -7972,8 +7972,10 @@ class GoldenTapeRegressionTest {
         assertTrue("6490 resolver must preserve the executable floor only when fee-aware capital and lane cap can fund it",
             resolver.contains("minimumFundable6490") && resolver.contains("PAPER_ENTRY_FEE_RESERVE_RATE_6490") &&
                 resolver.contains("CAPITAL_BELOW_MIN_EXECUTABLE_6490"))
-        assertTrue("6490 paper tickets must be deferred until canonical size resolution",
-            openGate.contains("EXEC_TICKET_DEFERRED_UNTIL_SIZE_RESOLVED_6490") &&
+        assertTrue("6491 precheck must not authorize before canonical size resolution",
+            openGate.contains("EXEC_OPEN_PRECHECK_SIZE_PENDING_6491") &&
+                openGate.contains("EXEC_OPEN_BLOCKED_SIZE_NOT_EXECUTABLE_6491") &&
+                !openGate.contains("EXEC_TICKET_DEFERRED_UNTIL_SIZE_RESOLVED_6490") &&
                 openGate.contains("resolvedSizeSol = preResolvedSizeSol6490.coerceAtLeast(0.0)") &&
                 executor.contains("PRE_TICKET_SIZE_RESOLUTION_FAILED_6490"))
         assertTrue("6490 duplicate position creation must be blocked at canonical mutation authority",
@@ -7988,6 +7990,41 @@ class GoldenTapeRegressionTest {
         assertTrue("6490 slot and report counts must read canonical current-mode active mints",
             slot.contains("activeMintProjections6490(\"paper\")") && report.contains("Canonical active mints:") &&
                 report.contains("LAB sandbox projection:"))
+    }
+
+
+
+    @Test
+    fun V5_0_6491_size_before_allow_primary_lane_fanout_and_exact_acceptance_diagnostics() {
+        val resolver = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OrderSizeResolver6441.kt").readText()
+        val invariant = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OrderSizeResolverInvariant6468.kt").readText()
+        val openGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val permit = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalExecutionPermit.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val probability = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt").readText()
+        val acceptance = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/AcceptanceInvariantAudit6441.kt").readText()
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        assertTrue("6491 sizing boundary must compare integer lamports, including exact equality",
+            resolver.contains("SOL_LAMPORTS_6491") && resolver.contains("toLamports6491") &&
+                resolver.contains("laneCapLamports6491 >= minExecLamports6491") &&
+                resolver.contains("executableLamports6491 >= minExecLamports6491") &&
+                invariant.contains("canonicalFloorPromotion6491"))
+        val sizePrecheck = openGate.indexOf("EXEC_OPEN_PRECHECK_SIZE_PENDING_6491")
+        val mintClaim = openGate.indexOf("executableBuyClaim6487.putIfAbsent")
+        val allowed = openGate.indexOf("ForensicLogger.lifecycle(" + '"' + "EXEC_OPEN_ALLOWED" + '"')
+        assertTrue("6491 unresolved size must return before mint claim and EXEC_OPEN_ALLOWED",
+            sizePrecheck >= 0 && mintClaim > sizePrecheck && allowed > mintClaim &&
+                permit.contains("sizeFinalityTicketPresent6491") && permit.contains("preResolvedSizeSol6490 = sizeSol"))
+        assertTrue("6491 specialist lanes must become read-only unless elected primary before FDG",
+            bot.contains("LANE_READ_ONLY_NON_PRIMARY_6491") &&
+                bot.contains("action=no_fdg_no_size_no_exec") && bot.contains("return false"))
+        assertTrue("6491 toxic SHITCOIN/TREASURY shaping must use learned lane-local entry floors, not global pauses",
+            probability.contains("learnedEntryFloorDelta6491") && probability.contains("lane == " + '"' + "SHITCOIN" + '"') &&
+                probability.contains("lane == " + '"' + "TREASURY" + '"') && bot.contains("LANE_LOCAL_LEARNED_FLOOR_READ_ONLY_6491"))
+        assertTrue("6491 acceptance failures must expose exact failed invariants and observed count",
+            acceptance.contains("invariants=") && acceptance.contains("expected=all_invariants_pass") &&
+                acceptance.contains("failedInvariants=") && report.contains("executable fan-out/intake"))
     }
 
 }

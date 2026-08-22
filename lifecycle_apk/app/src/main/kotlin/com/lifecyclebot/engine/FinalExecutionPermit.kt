@@ -167,7 +167,8 @@ object FinalExecutionPermit {
             ExecutableOpenGate.recentAllowedAttemptId(mint, layer)
                 ?: ExecutableOpenGate.nextAttemptId(mint, layer)
         }
-        if (!finalityPrechecked) {
+        val sizeFinalityTicketPresent6491 = ExecutableOpenGate.ticketForAttempt(finalityAttemptId) != null
+        if (!finalityPrechecked || !sizeFinalityTicketPresent6491) {
             val finality = ExecutableOpenGate.canOpenExecutablePosition(
                 mint = mint,
                 symbol = symbol,
@@ -179,6 +180,7 @@ object FinalExecutionPermit {
                 liveLiquidityUsd = liquidityUsd,
                 liveSafetyTier = safetyTier,
                 lastSafetyCheckMs = lastSafetyCheckMs,
+                preResolvedSizeSol6490 = sizeSol,
             )
             if (!finality.allowed) {
                 ErrorLogger.debug(TAG, "🚫 FINALITY_BLOCK: $symbol | layer=$layer attemptId=${finality.attemptId} reason=${finality.reason}")

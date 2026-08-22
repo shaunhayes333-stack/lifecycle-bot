@@ -106,7 +106,7 @@ object AcceptanceInvariantAudit6441 {
             try {
                 ForensicLogger.lifecycle(
                     "ACCEPTANCE_AUDIT_FAIL_6441",
-                    "failedCount=${failed.size} first=${failed.first().take(80)}",
+                    "failedCount=${failed.size} invariants=${failed.joinToString("|") { it.take(160) }} expected=all_invariants_pass observed=${failed.size}_failed",
                 )
             } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("ACCEPTANCE_AUDIT_FAIL_6441") } catch (_: Throwable) {}
@@ -120,7 +120,7 @@ object AcceptanceInvariantAudit6441 {
         val runs = runCount.get()
         val fails = failureCount.get()
         val last = lastReport
-        val lastStat = if (last == null) "none" else "passed=${last.passed.size} failed=${last.failed.size} ok=${last.ok}"
+        val lastStat = if (last == null) "none" else "passed=${last.passed.size} failed=${last.failed.size} ok=${last.ok} failedInvariants=${last.failed.joinToString("|") { it.take(100) }.ifBlank { "none" }}"
         return "runs=$runs failures=$fails last=[$lastStat]"
     }
 }
