@@ -112,6 +112,14 @@ class BotService : Service() {
         // Set to true at the START of stopBot(), cleared on startBot().
         @Volatile var isShuttingDown: Boolean = false
 
+        // V5.0.6504 §5 — one-shot latch (mint:entryTime key) so the
+        // PAPER_STALE_ZOMBIE_SCRATCH_EXIT lifecycle line + requestSell fire
+        // EXACTLY ONCE per eligible position. Cleared by prunePaperZombieLatch
+        // when the mint closes so a legitimate re-open + re-timeout still
+        // works.
+        val paperStaleZombieLatch6504: java.util.concurrent.ConcurrentHashMap.KeySetView<String, Boolean> =
+            java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
         // V5.9.1165 — permanent-runtime stop contract.
         // The bot may stop only from an explicit confirmed Stop button / halt
         // reset, operator manual stop, or controlled config restart. Unknown
@@ -4272,6 +4280,42 @@ class BotService : Service() {
         try {
             com.lifecyclebot.engine.truth.PaperAccountLedger6430.rebuildRealizedFromCanonicalEvents6502()
         } catch (_: Throwable) {}
+        // V5.0.6504 §10 — PURGE + REBUILD FROM IMMUTABLE FILL LOTS.
+        // Operator mandate: "Rebuild contaminated PAPER performance from
+        // immutable fills after repair. Do not treat TRUMP +7133.8% or
+        // derived BLUECHIP +1300% EV as canonical while basis is
+        // untrusted."
+        // The 6502 rebuild replays EconomicEventSchema6464 which is a
+        // journal of what the bot *thought* happened. The 6504 rebuild
+        // sources realized PnL exclusively from FillLotLedger6504
+        // (BUY_lots × SELL_lots via FIFO lamport matching) — the ONLY
+        // structurally immutable record. On divergence >|0.001 SOL|,
+        // the ledger's realizedPnl is overwritten with the fill-lot
+        // truth and a loud lifecycle line surfaces the delta.
+        try {
+            val fillLotRealized6504 = com.lifecyclebot.engine.truth.FillLotLedger6504.rebuildRealizedSol(isPaperOnly = true)
+            val currentLedger6504 = com.lifecyclebot.engine.truth.PaperAccountLedger6430.realizedPnlSol()
+            val delta6504 = fillLotRealized6504 - currentLedger6504
+            if (kotlin.math.abs(delta6504) > 0.001) {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "FILL_LOT_REALIZED_DIVERGES_FROM_LEDGER_6504",
+                    "fillLotRealized=${"%.6f".format(fillLotRealized6504)} " +
+                        "ledgerRealized=${"%.6f".format(currentLedger6504)} " +
+                        "delta=${"%.6f".format(delta6504)} action=overwrite_ledger_with_fill_lot_truth",
+                )
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FILL_LOT_REALIZED_DIVERGES_FROM_LEDGER_6504")
+                try {
+                    com.lifecyclebot.engine.truth.PaperAccountLedger6430
+                        .overrideRealizedFromFillLots6504(fillLotRealized6504)
+                } catch (_: Throwable) {}
+            } else {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FILL_LOT_REALIZED_MATCHES_LEDGER_6504")
+            }
+        } catch (_: Throwable) {}
+        // V5.0.6504 §5 — clear zombie latch on startBot so a
+        // legitimately re-opened mint's stale-price timeout can fire
+        // its one-shot again in the new session.
+        try { paperStaleZombieLatch6504.clear() } catch (_: Throwable) {}
         // V5.0.6503 §2 — start HeroSnapshotAuthority6503 so MainActivity /
         // hero panels can read equity/exposure/openCount/pnl off Main via
         // an O(1) atomic reference. Idempotent. Publishes every 500ms on
@@ -8512,18 +8556,33 @@ class BotService : Service() {
                                         // keeps moving without inventing a rug loss.
                                         val paperStaleTimeoutMs = staleLivePriceThreshMs + 60_000L
                                         if (cfg.paperMode && livePriceAgeMs > paperStaleTimeoutMs) {
-                                            try {
-                                                ForensicLogger.lifecycle(
-                                                    "PAPER_STALE_ZOMBIE_SCRATCH_EXIT",
-                                                    "symbol=${ts.symbol} lastPnlPct=${"%.1f".format(lastKnownPnlPct)} floor=${"%.1f".format(stalePnlFloor)} ageS=${livePriceAgeMs/1000} timeoutS=${paperStaleTimeoutMs/1000} — feed+oracle dark, closing scratch to prevent forcedOpen/WR poison"
+                                            // V5.0.6504 §5 — ONE-SHOT ZOMBIE LATCH.
+                                            // The exit loop was re-emitting PAPER_STALE_ZOMBIE_SCRATCH_EXIT
+                                            // every tick for the same mint because the sell terminal
+                                            // wasn't atomically clearing occupancy in time. Latch per
+                                            // (mint, generation) so the loud lifecycle line + requestSell
+                                            // fire EXACTLY ONCE per eligible position. Subsequent ticks
+                                            // short-circuit `continue` until the position is CLOSED
+                                            // (PositionCloseLedger.isClosed) — at which point the outer
+                                            // exit sweep also drops the mint.
+                                            val zombieLatchKey6504 = "${ts.mint}:${ts.position.entryTime}"
+                                            if (paperStaleZombieLatch6504.add(zombieLatchKey6504)) {
+                                                try {
+                                                    ForensicLogger.lifecycle(
+                                                        "PAPER_STALE_ZOMBIE_SCRATCH_EXIT",
+                                                        "symbol=${ts.symbol} lastPnlPct=${"%.1f".format(lastKnownPnlPct)} floor=${"%.1f".format(stalePnlFloor)} ageS=${livePriceAgeMs/1000} timeoutS=${paperStaleTimeoutMs/1000} — feed+oracle dark, closing scratch to prevent forcedOpen/WR poison (one-shot 6504)"
+                                                    )
+                                                    PipelineHealthCollector.labelInc("PAPER_STALE_ZOMBIE_SCRATCH_EXIT_ONESHOT_6504")
+                                                } catch (_: Throwable) {}
+                                                executor.requestSell(
+                                                    ts = ts,
+                                                    reason = "PAPER_STALE_PRICE_TIMEOUT_SCRATCH",
+                                                    wallet = wallet,
+                                                    walletSol = effectiveBalance,
                                                 )
-                                            } catch (_: Throwable) {}
-                                            executor.requestSell(
-                                                ts = ts,
-                                                reason = "PAPER_STALE_PRICE_TIMEOUT_SCRATCH",
-                                                wallet = wallet,
-                                                walletSol = effectiveBalance,
-                                            )
+                                            } else {
+                                                try { PipelineHealthCollector.labelInc("PAPER_STALE_ZOMBIE_SCRATCH_EXIT_SUPPRESSED_6504") } catch (_: Throwable) {}
+                                            }
                                             continue
                                         }
                                         try {

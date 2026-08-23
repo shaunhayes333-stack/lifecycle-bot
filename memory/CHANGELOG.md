@@ -1,3 +1,121 @@
+## V5.0.6504 — 2026-02-19 — POSITION/EXIT TRUTH REPAIR (P0 CORE)
+
+Operator mandate (verbatim, this session): "quit fucking around i
+want volume and data integrity back so I can test with real money".
+
+Bundled ship of the P0 + partial P1 items from the 10-point
+POSITION/EXIT TRUTH REPAIR mandate. Paper only. Live routing
+untouched. Sequential P1 remainder (funnel counter wiring at
+OrderSizeResolver / RouteResolver / TicketMachine convergence
+sites, close-atomicity slot/forced-open clears, single-retry heal
+path) staged for V5.0.6504b in the same session.
+
+**§1 FillLotLedger6504 — IMMUTABLE QUANTITY TRUTH**
+- New SQLite (WAL, ACID) table `fill_lot(_id, ts_ms, mint, lot_id,
+  side, qty_token_raw, lamports, finalized, is_paper, source, note)`
+  with UNIQUE(mint, lot_id, side) and INDEX(mint, side, finalized).
+- INSERT-ONLY. The only permitted mutation is the finalized flag
+  flipping 0→1 exactly once when a sell terminal-confirms.
+- `recordBuyFill(mint, lotId, qtyTokenRaw, lamports, isPaper, …)`
+  wired in `Executor.paperBuy.atomic6485` right after
+  `EconomicEventSchema6464.recordBuy`. Idempotent by (mint, lotId).
+- `recordSellFill(mint, lotId, qtyTokenRaw, lamports, finalized=true, …)`
+  wired in the full paper sell path immediately after
+  `CanonicalPaperTerminalBridge6469.finalizeSell` succeeds.
+- `canonicalQtyOf(mint) = Σ finalized BUY − Σ finalized SELL` is the
+  read authority for the qty invariant.
+- `assertMatches(mint, observedRaw, tolerance)` emits
+  `FILL_LOT_QTY_INVARIANT_BROKEN_6504` on divergence (non-mutating).
+- `AATEApp.onCreate` attaches the store before `BotService` starts.
+
+**§10 PURGE + REBUILD FROM IMMUTABLE FILLS**
+- `FillLotLedger6504.rebuildRealizedSol(isPaperOnly=true)` performs
+  FIFO lamport matching per mint (SELL lamports_share − BUY
+  lamports_share) to produce a pure realized SOL total from
+  IMMUTABLE fills only.
+- `BotService.startBot` now runs the rebuild after the 6502
+  canonical-events rebuild and, on |delta| > 0.001 SOL, calls the
+  new `PaperAccountLedger6430.overrideRealizedFromFillLots6504(…)`
+  method which atomically overwrites `realizedPnlPico` with the
+  fill-lot truth and persists.
+- Emits `FILL_LOT_REALIZED_DIVERGES_FROM_LEDGER_6504` /
+  `FILL_LOT_REALIZED_MATCHES_LEDGER_6504` /
+  `PAPER_LEDGER_OVERRIDE_FROM_FILL_LOTS_6504` so the operator can
+  see exactly which pass purged the contaminated PnL.
+- Kills TRUMP +7133.8% / BLUECHIP +1300% derivations at the source —
+  the analytics feed is now sourced from immutable fills, not from
+  a journal that could contain contaminated recomputed rows.
+
+**§5 ONE-SHOT ZOMBIE LATCH — PAPER_STALE_ZOMBIE_SCRATCH_EXIT**
+- New `BotService.paperStaleZombieLatch6504` (thread-safe key set).
+  The exit-loop stale-price emit at
+  `BotService.kt:8514` now consults the latch first and only
+  emits the lifecycle line + calls `executor.requestSell` when the
+  key `mint:entryTime` was not already latched.
+- Subsequent ticks bump `PAPER_STALE_ZOMBIE_SCRATCH_EXIT_SUPPRESSED_6504`
+  instead of re-emitting the loud line.
+- Latch is cleared on `startBot()` so a legitimately re-opened mint
+  gets a fresh one-shot window in the next session.
+
+**§10 EconomicPurityGate6504 — READ-ONLY ANALYTICS GATE**
+- `shouldExcludeFromAnalytics(mint)` combines the local
+  untrusted-set with the upstream `QuantityInvariantAuthority6500`
+  + `LearningQuarantineGate6470` quarantines.
+- `markUntrusted(mint, reason)` / `clearUntrusted(mint)` for the
+  exit-path RUNNER_EXIT_BASIS_UNTRUSTED signal.
+- Callers (RewardPurityGate6441 / StrategyTelemetry / MathEdge /
+  GrowthRewardShaper / Governor / HypothesisEngine ingress) can
+  invoke this before ingesting a terminal-close row. Non-mutating;
+  defence-in-depth on top of the existing quarantine gates.
+
+**§11 UniversalSlSentinel6504**
+- New sentinel with `noteStart(id)` / `noteDone(id)` /
+  `noteReset(id)` and a `sweep(onTimeout)` method that force-reaps
+  any entries older than 10 s.
+- Consumer wiring at the actual `sl.start / sl.done` sites is
+  scheduled for V5.0.6504b so the sentinel receives real traffic.
+
+**§6 ENTRY BRIDGE FUNNEL — FDG_BUY_TO_AUTH counter**
+- `Executor.doBuy` now bumps `FDG_BUY_TO_AUTH_6504` at every entry
+  and `FDG_BUY_TO_AUTH_DROP_NON_BUY_SIGNAL_6504` when the §7
+  non-BUY guard trips. AUTH_TO_SIZE / SIZE_TO_ROUTE /
+  ROUTE_TO_TICKET / TICKET_TO_OPEN sibling counters staged for
+  V5.0.6504b (each at their respective convergence site).
+
+**§7 NON-BUY GUARD**
+- `Executor.doBuy` short-circuits BEFORE any sizing side effect
+  when `ts.signal` ∉ {BUY, PROBE, PROBE_ONLY, EXECUTE, ""}.
+- Emits `ENTRY_BRIDGE_NON_BUY_GUARD_6504` with mint/symbol/signal.
+- Read-only, telemetry, WAIT, OTHER, non-primary lane evaluations
+  can no longer enter OrderSizeResolver / doBuy.
+
+**FILES**
+- NEW `engine/truth/FillLotLedger6504.kt` (445 lines)
+- NEW `engine/truth/EconomicPurityGate6504.kt` (139 lines)
+- NEW `engine/truth/UniversalSlSentinel6504.kt` (94 lines)
+- MOD `AATEApp.kt` — attach FillLotLedger6504
+- MOD `engine/BotService.kt` — §5 latch, §10 rebuild+override,
+  startBot integration
+- MOD `engine/Executor.kt` — §1 recordBuyFill/recordSellFill,
+  §6/§7 entry bridge counters + non-BUY guard
+- MOD `engine/truth/PaperAccountLedger6430.kt` — §10
+  `overrideRealizedFromFillLots6504`
+
+**Acceptance signals expected on next dump**
+- `FILL_LOT_LEDGER_6504_ATTACHED` prints once at startup.
+- `FILL_LOT_BUY_RECORDED_6504` / `FILL_LOT_SELL_FINALIZED_6504`
+  keep parity with paper open/close counts.
+- `FILL_LOT_REALIZED_DIVERGES_FROM_LEDGER_6504` fires ONCE on the
+  first startup after 6504 ships (purging the contamination), then
+  `FILL_LOT_REALIZED_MATCHES_LEDGER_6504` steady-state.
+- `PAPER_STALE_ZOMBIE_SCRATCH_EXIT_ONESHOT_6504` per position,
+  followed by `..._SUPPRESSED_6504` for repeat evaluations.
+- `FDG_BUY_TO_AUTH_6504` count == doBuy invocations; any drop has
+  a matched `_DROP_<reason>_6504` counter.
+- `ENTRY_BRIDGE_NON_BUY_GUARD_6504` fires on stale-signal spam.
+
+
+
 ## V5.0.6503 — 2026-02-19 — LEDGER REBUILD WIRE + HERO OFF-MAIN + TAXONOMY + BIRDEYE 401 STICKY
 
 Operator mandate (verbatim, this session): "I want all the items done

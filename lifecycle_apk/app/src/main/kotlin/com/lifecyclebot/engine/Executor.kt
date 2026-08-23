@@ -10361,6 +10361,39 @@ class Executor(
                       identity: TradeIdentity? = null,
                       quality: String = "C",
                       skipGraduated: Boolean = false) {
+        // V5.0.6504 §6 — ENTRY BRIDGE FUNNEL: FDG_BUY_TO_AUTH edge.
+        // Every doBuy call bumps FDG_BUY_TO_AUTH; every early return
+        // bumps FDG_BUY_TO_AUTH_DROP_<reason>. Together with the
+        // AUTH_TO_SIZE / SIZE_TO_ROUTE / ROUTE_TO_TICKET / TICKET_TO_OPEN
+        // counters wired at their respective ExecutableOpenGate /
+        // OrderSizeResolver / RouteResolver / ExecutionTicketMachine
+        // convergence sites, this gives explicit attribution for
+        // BUY_QUALIFIED→EXEC_OPEN_REQUEST drops (operator mandate:
+        // "audit why BUY_QUALIFIED≈99 produces EXEC_OPEN_REQUEST=2").
+        try { PipelineHealthCollector.labelInc("FDG_BUY_TO_AUTH_6504") } catch (_: Throwable) {}
+        // V5.0.6504 §7 — NON-BUY GUARD.
+        // Read-only / telemetry / WAIT / OTHER / non-primary lane
+        // evaluations must never call OrderSizeResolver / doBuy. Trap
+        // any preFdgVerdict outside the executable-BUY set at the
+        // spine of doBuy and short-circuit BEFORE sizing side effects.
+        try {
+            val preFdgVerdict6504 = try {
+                com.lifecyclebot.engine.EntryContextRegistry.peek(ts.mint)?.entrySetup ?: ""
+            } catch (_: Throwable) { "" }
+            val signal6504 = ts.signal.uppercase()
+            val nonBuySignal = signal6504.isNotBlank() &&
+                signal6504 !in setOf("BUY", "PROBE", "PROBE_ONLY", "EXECUTE")
+            if (nonBuySignal) {
+                try {
+                    PipelineHealthCollector.labelInc("FDG_BUY_TO_AUTH_DROP_NON_BUY_SIGNAL_6504")
+                    ForensicLogger.lifecycle(
+                        "ENTRY_BRIDGE_NON_BUY_GUARD_6504",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} signal=$signal6504 preFdg=$preFdgVerdict6504 action=abort_before_sizing",
+                    )
+                } catch (_: Throwable) {}
+                return
+            }
+        } catch (_: Throwable) {}
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         // V5.0.4578 — SOURCE FIX for live INVALID_SCORE floods. Runtime 4575
         // showed 26/30 live BUY failures as INVALID_SCORE even though candidates
@@ -12512,6 +12545,25 @@ class Executor(
                 executedCostSol = actualSol, entryFeesSol = fee6485,
                 filledQty = buyQtyRaw6485, fillPrice = fillPrice6485,
             )
+            // V5.0.6504 §1 — IMMUTABLE FILL LOT LEDGER. Persist the
+            // canonical (mint, lotId=pid, side=BUY, qtyTokenRaw, lamports)
+            // atomically so this fill is authoritative even after a
+            // process restart. Downstream sell paths sum ΣbuyLots −
+            // ΣfinalizedSellLots for the canonical qty invariant.
+            try {
+                val lamports6504 = java.math.BigInteger.valueOf(
+                    (actualSol * 1_000_000_000.0).toLong().coerceAtLeast(0L)
+                )
+                com.lifecyclebot.engine.truth.FillLotLedger6504.recordBuyFill(
+                    mint = tradeId.mint,
+                    lotId = pid6485.ifBlank { com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.buyIdempotencyKey(pid6485) },
+                    qtyTokenRaw = buyQtyRaw6485,
+                    lamports = lamports6504,
+                    isPaper = true,
+                    source = entryLane6485,
+                    note = "paperBuy.atomic6485",
+                )
+            } catch (_: Throwable) {}
             com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen("paper", tradeId.mint, ts.symbol, "Executor.paperBuy.atomic6485")
             com.lifecyclebot.engine.truth.PositionStateLedger6427.registerOpen(pid6485)
             com.lifecyclebot.engine.truth.PositionStateLedger6454.onEntry(pid6485)
@@ -19614,6 +19666,29 @@ class Executor(
                 terminal = true,
             )
             canonicalPaperSellCommitted6474 = close6474.applied
+            // V5.0.6504 §1 — IMMUTABLE FILL LOT LEDGER (SELL side).
+            // Persist the terminal SELL fill so canonicalQtyOf(mint) =
+            // ΣBuy − ΣfinalizedSell. Finalized=true because this branch
+            // is only reached after CanonicalPaperTerminalBridge6469
+            // committed cash credit + openCost release + typed economic
+            // SELL + finalized bus. Idempotent on (mint, lotId=terminalId).
+            if (canonicalPaperSellCommitted6474) {
+                try {
+                    val proceedsLamports6504 = java.math.BigInteger.valueOf(
+                        ((value - treasuryShare).coerceAtLeast(0.0) * 1_000_000_000.0).toLong().coerceAtLeast(0L)
+                    )
+                    com.lifecyclebot.engine.truth.FillLotLedger6504.recordSellFill(
+                        mint = tradeId.mint,
+                        lotId = terminalId6474,
+                        qtyTokenRaw = soldQtyRaw6474,
+                        lamports = proceedsLamports6504,
+                        finalized = true,
+                        isPaper = true,
+                        source = pos.tradingMode.ifBlank { tradeId.symbol },
+                        note = "paperSellFull.6474.$reason".take(120),
+                    )
+                } catch (_: Throwable) {}
+            }
             try {
                 ForensicLogger.lifecycle("CANONICAL_PAPER_SELL_COMMIT_6474", "mint=${tradeId.mint.take(10)} pid=${pid6474.take(18)} terminalId=$terminalId6474 applied=${close6474.applied} claimed=${close6474.terminalClaimed} bus=${close6474.busPublished} cash=${com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol().fmtSol()} openCost=${com.lifecyclebot.engine.truth.PaperAccountLedger6430.openCostBasisSol().fmtSol()} reason=$reason")
                 PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_COMMIT_6474")

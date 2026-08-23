@@ -324,6 +324,28 @@ object PaperAccountLedger6430 {
      * maintained by onBuy/onSell and the invariant sweep. Only the
      * historical realized aggregate is regenerated.
      */
+    /**
+     * V5.0.6504 §10 — OVERRIDE realized from FillLotLedger6504 truth.
+     * Called from BotService.startBot when the fill-lot rebuild disagrees
+     * with the ledger by more than 0.001 SOL. Non-transactional (single
+     * atomic write); the ledger caller has already prepared to persist.
+     */
+    @Synchronized
+    fun overrideRealizedFromFillLots6504(fillLotRealizedSol: Double) {
+        val prior = fromPico(realizedPnlPico.get())
+        realizedPnlPico.set(toPico(fillLotRealizedSol))
+        opCount.incrementAndGet()
+        persistCurrent6487()
+        try {
+            ForensicLogger.lifecycle(
+                "PAPER_LEDGER_OVERRIDE_FROM_FILL_LOTS_6504",
+                "priorRealized=${"%.6f".format(prior)} rebuiltFromFillLots=${"%.6f".format(fillLotRealizedSol)} " +
+                    "delta=${"%.6f".format(fillLotRealizedSol - prior)}",
+            )
+            PipelineHealthCollector.labelInc("PAPER_LEDGER_OVERRIDE_FROM_FILL_LOTS_6504")
+        } catch (_: Throwable) {}
+    }
+
     @Synchronized
     fun rebuildRealizedFromCanonicalEvents6502(): Double {
         val events = try {

@@ -99,6 +99,18 @@ class AATEApp : Application() {
             ErrorLogger.error("App", "IdempotencyKeyStore6437 attach failed: ${e.message}", e)
         }
 
+        // V5.0.6504 §1 — FILL LOT LEDGER (SQLite WAL, ACID).
+        // Immutable canonical (mint, lotId, side, qty_token_raw, lamports,
+        // finalized) rows. Position qty = Σ finalized BUY − Σ finalized SELL.
+        // Feeds §10 realized-PnL rebuild + §1 auto-repair on
+        // QTY_DIVERGES_FROM_CANONICAL. Attach is idempotent.
+        try {
+            com.lifecyclebot.engine.truth.FillLotLedger6504.attach(this)
+            ErrorLogger.info("App", "FillLotLedger6504 attached — immutable fill lot ledger active")
+        } catch (e: Exception) {
+            ErrorLogger.error("App", "FillLotLedger6504 attach failed: ${e.message}", e)
+        }
+
         // V5.0.6439 — CAPITAL PRESERVATION CREED + PAPER↔LIVE PARITY.
         // Log the creed constants and the mandatory-parity artefact list at
         // boot so the operator's next dump shows what the bot is aiming for
