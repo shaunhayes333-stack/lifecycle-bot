@@ -101,6 +101,7 @@ object FillLotLedger6504 {
         return try {
             val db = h.writableDatabase
             db.beginTransactionNonExclusive()
+            var result: Long = -1L
             try {
                 // Idempotency check: same (mint, lotId, BUY) row already present?
                 val existing = db.query(
@@ -110,25 +111,27 @@ object FillLotLedger6504 {
                 ).use { c -> if (c.moveToFirst()) c.getLong(0) else -1L }
                 if (existing > 0) {
                     db.setTransactionSuccessful()
-                    return@use existing
+                    result = existing
+                } else {
+                    val cv = ContentValues().apply {
+                        put("ts_ms", System.currentTimeMillis())
+                        put("mint", mint)
+                        put("lot_id", lotId)
+                        put("side", "BUY")
+                        put("qty_token_raw", qtyTokenRaw.toString())
+                        put("lamports", lamports.toString())
+                        put("finalized", 1) // A confirmed buy fill IS the terminal event for that lot; sells reference it
+                        put("is_paper", if (isPaper) 1 else 0)
+                        put("source", source.take(48))
+                        put("note", note.take(120))
+                    }
+                    val id = db.insert("fill_lot", null, cv)
+                    db.setTransactionSuccessful()
+                    try { PipelineHealthCollector.labelInc("FILL_LOT_BUY_RECORDED_6504") } catch (_: Throwable) {}
+                    result = id
                 }
-                val cv = ContentValues().apply {
-                    put("ts_ms", System.currentTimeMillis())
-                    put("mint", mint)
-                    put("lot_id", lotId)
-                    put("side", "BUY")
-                    put("qty_token_raw", qtyTokenRaw.toString())
-                    put("lamports", lamports.toString())
-                    put("finalized", 1) // A confirmed buy fill IS the terminal event for that lot; sells reference it
-                    put("is_paper", if (isPaper) 1 else 0)
-                    put("source", source.take(48))
-                    put("note", note.take(120))
-                }
-                val id = db.insert("fill_lot", null, cv)
-                db.setTransactionSuccessful()
-                try { PipelineHealthCollector.labelInc("FILL_LOT_BUY_RECORDED_6504") } catch (_: Throwable) {}
-                id
             } finally { db.endTransaction() }
+            result
         } catch (t: Throwable) {
             ErrorLogger.warn("FillLotLedger6504", "recordBuyFill failed: ${t.message?.take(120)}")
             -1L
@@ -159,6 +162,7 @@ object FillLotLedger6504 {
         return try {
             val db = h.writableDatabase
             db.beginTransactionNonExclusive()
+            var result: Long = -1L
             try {
                 val existing = db.query(
                     "fill_lot", arrayOf("_id", "finalized"),
@@ -178,30 +182,32 @@ object FillLotLedger6504 {
                         try { PipelineHealthCollector.labelInc("FILL_LOT_SELL_FINALIZED_6504") } catch (_: Throwable) {}
                     }
                     db.setTransactionSuccessful()
-                    return@use existingId
+                    result = existingId
+                } else {
+                    val cv = ContentValues().apply {
+                        put("ts_ms", System.currentTimeMillis())
+                        put("mint", mint)
+                        put("lot_id", lotId)
+                        put("side", "SELL")
+                        put("qty_token_raw", qtyTokenRaw.toString())
+                        put("lamports", lamports.toString())
+                        put("finalized", if (finalized) 1 else 0)
+                        put("is_paper", if (isPaper) 1 else 0)
+                        put("source", source.take(48))
+                        put("note", note.take(120))
+                    }
+                    val id = db.insert("fill_lot", null, cv)
+                    db.setTransactionSuccessful()
+                    try {
+                        PipelineHealthCollector.labelInc(
+                            if (finalized) "FILL_LOT_SELL_FINALIZED_6504"
+                            else "FILL_LOT_SELL_PENDING_6504"
+                        )
+                    } catch (_: Throwable) {}
+                    result = id
                 }
-                val cv = ContentValues().apply {
-                    put("ts_ms", System.currentTimeMillis())
-                    put("mint", mint)
-                    put("lot_id", lotId)
-                    put("side", "SELL")
-                    put("qty_token_raw", qtyTokenRaw.toString())
-                    put("lamports", lamports.toString())
-                    put("finalized", if (finalized) 1 else 0)
-                    put("is_paper", if (isPaper) 1 else 0)
-                    put("source", source.take(48))
-                    put("note", note.take(120))
-                }
-                val id = db.insert("fill_lot", null, cv)
-                db.setTransactionSuccessful()
-                try {
-                    PipelineHealthCollector.labelInc(
-                        if (finalized) "FILL_LOT_SELL_FINALIZED_6504"
-                        else "FILL_LOT_SELL_PENDING_6504"
-                    )
-                } catch (_: Throwable) {}
-                id
             } finally { db.endTransaction() }
+            result
         } catch (t: Throwable) {
             ErrorLogger.warn("FillLotLedger6504", "recordSellFill failed: ${t.message?.take(120)}")
             -1L
