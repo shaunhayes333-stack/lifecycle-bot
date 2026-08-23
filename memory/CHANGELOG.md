@@ -1,3 +1,61 @@
+## V5.0.6501 — 2026-02-19 — ECONOMIC INTEGRITY CLEANUP
+
+Single-commit ship (`e5106d06d`). CI green — Build AATE APK + Runtime
+Smoke Test both pass.
+
+Operator 6500 mandate: runtime is now healthy but economic truth is
+still not trustworthy. MathEdge outputs $6,267,242.8403 SOL BLUECHIP
+PnL from contaminated legacy inputs. 140 `PAPER_CLOSE_FAILED` zombie
+exits per session. Reported (cash + openMV) disagrees with canonical
+reconstructed equity.
+
+**Files added**
+- `engine/truth/CanonicalTradeStream6501.kt` — source-level analytics filter
+- `engine/truth/AcceptanceInvariantAuthority6501.kt` — forensic invariant
+
+**§1 ALWAYS AT SOURCE — analytics-wide quarantine consumption**
+`CanonicalTradeStream6501.isEligible(record)` combines the three
+existing gates into one predicate: `TerminalCloseAuthority6499` +
+`QuantityInvariantAuthority6500` + `LearningQuarantineGate6470`.
+Wired at two source points per operator mandate:
+- `MathematicalEdgeEngine.captureTerminal` gates partial reasons +
+  invariant-quarantined + historical-quarantined mints BEFORE
+  `submit`. The 6.27M-SOL BLUECHIP output is structurally impossible
+  now.
+- `StrategyTruthLedger.clean` gains explicit invariant +
+  historical-quarantine skip so strategy WR / PF / expectancy /
+  reward learners never see contaminated rows.
+
+**§4 CANONICAL EXISTENCE GATE — kill 140 zombie sells**
+`Executor.requestSell` now consults
+`CanonicalPositionAuthority6441.hasOpenMint(ts.mint)` before any
+other guard. Non-existent canonical positions return
+`ALREADY_CLOSED` and emit `EXIT_REJECTED_NO_CANONICAL_POSITION_6501`.
+Skips the gate for `INVARIANT_QUARANTINE_6500` sweep +
+`ORPHAN_RECONCIL` + `BOOTUP_RESURRECT` + `MANUAL_TP_TRIGGERED_` +
+`STARTUP_SWEEP` paths where the canonical entry may already be
+cleared as part of the same transaction.
+
+**§8 ACCEPTANCE INVARIANT AUTHORITY — forensic guardrail**
+`AcceptanceInvariantAuthority6501.check()` runs on every
+`WallClockReconciler6454` quick tick. Compares reported (cash +
+openMV per `CanonicalCapitalAuthority6450.snapshot`) vs canonical
+`totalEquitySol`. Delta above 0.01 SOL emits
+`ECONOMIC_TRUTH_DIVERGENCE_6501` with the specific breakdown.
+
+**RootCauseClassifier6471 additions**
+- `ECONOMIC_TRUTH_DIVERGENCE_6501` under `ECONOMIC_INTEGRITY` tier
+- `EXIT_REJECTED_NO_CANONICAL_POSITION_6501` under `ENTRY_FINALITY` tier
+
+**Deferred** (architectural rewrites — separate ship once the
+invariant guardrail proves stable across two consecutive dumps):
+- §3 wallet rebuild from events on startup
+- §7 main-thread UI aggregation off-main
+- §5 UNKNOWN taxonomy (cosmetic — operator noted it's a reporting
+  aggregation, not a real fault)
+
+
+
 ## V5.0.6500 — 2026-02-19 — QUANTITY INVARIANT ENFORCEMENT
 
 Single-commit ship (`149489973`). CI green — Build AATE APK + Runtime
