@@ -58,13 +58,14 @@ object TraderSizingBridge6444 {
         walletSol: Double,
         paperMode: Boolean,
         overrideLaneRiskCapSol: Double? = null,
+        mintForSeal: String = "",
     ): OrderSizeResolver6441.Resolution {
         invocations.incrementAndGet()
         perLaneInvocations.computeIfAbsent(laneName) { AtomicLong(0L) }.incrementAndGet()
         val laneKey = laneName.uppercase()
         val laneCap = overrideLaneRiskCapSol ?: laneRiskCap[laneKey] ?: Double.MAX_VALUE
         return try {
-            OrderSizeResolver6441.resolve(
+            val r = OrderSizeResolver6441.resolve(
                 requestedSol = requestedSol,
                 laneName = laneKey,
                 walletSol = walletSol,
@@ -72,6 +73,14 @@ object TraderSizingBridge6444 {
                 laneRiskCapSol = laneCap,
                 laneMinExecutableSol = if (paperMode) OrderSizeResolver6441.paperExecutableMinimumSol() else 0.001,
             )
+            // V5.0.6497 §1 — seal executable resolution for the mint so
+            // downstream execution readers cannot re-compute a smaller
+            // value. TraderSizingBridge6444.sizeForLane forwards blank
+            // mint and does NOT seal (unchanged for backward compat).
+            if (mintForSeal.isNotBlank() && r.executable) {
+                try { SealedOrderSizeAuthority6497.sealFor(mintForSeal, r, laneKey) } catch (_: Throwable) {}
+            }
+            r
         } catch (t: Throwable) {
             try {
                 ForensicLogger.lifecycle(

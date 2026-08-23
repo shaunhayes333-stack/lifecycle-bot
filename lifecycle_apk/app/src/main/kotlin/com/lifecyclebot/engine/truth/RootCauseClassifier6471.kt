@@ -37,6 +37,7 @@ object RootCauseClassifier6471 {
     enum class Tier {
         ECONOMIC_INTEGRITY,
         EXECUTION_FINALITY,
+        ENTRY_FINALITY,          // V5.0.6497 §5 — BUY-approved → open failures
         RUNTIME_STALL,
         PROVIDER_DEGRADATION,
         ADVISORY_DEGRADATION,
@@ -59,6 +60,13 @@ object RootCauseClassifier6471 {
         Tier.ECONOMIC_INTEGRITY to "LIFECYCLE_PROJECTION_DIVERGED_6470",
         Tier.EXECUTION_FINALITY to "CANONICAL_PAPER_TERMINAL_BRIDGE_FANOUT_THREW_6469",
         Tier.EXECUTION_FINALITY to "MARKET_DATA_EXECUTABLE_BLOCKED_6471",
+        // V5.0.6497 §5 — ENTRY_FINALITY tier. Approved BUY candidates that
+        // never open belong here. Diagnoses entry-handoff faults instead
+        // of misattributing them to MECHANICAL_FAULT/UI.
+        Tier.ENTRY_FINALITY to "PAPER_ENTRY_FINALITY_MISSING_TERMINAL_6497",
+        Tier.ENTRY_FINALITY to "EXEC_SIZE_AUTHORITY_MISMATCH_6497",
+        Tier.ENTRY_FINALITY to "EXEC_OPEN_DROPPED_SNAPSHOT_DRIFT_6496",
+        Tier.ENTRY_FINALITY to "ZOMBIE_CATASTROPHE_PENDING_RETRY",
         Tier.RUNTIME_STALL to "MAINT_GOV_OVERRAN_6469",
         Tier.RUNTIME_STALL to "HEARTBEAT_RESCUE_IDLE_PHASE_TIMEOUT",
         Tier.PROVIDER_DEGRADATION to "DATA_PROVIDER_AUTH_LOCKOUT_6468",

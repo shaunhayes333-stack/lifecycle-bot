@@ -3780,10 +3780,14 @@ class BotService : Service() {
                 // orchestrator never emits EXECUTOR_DONE, never calls opened hooks,
                 // never increments EXEC_BUY, never feeds canonical learning.
                 try {
+                    val label6497 = if (wasOpenBefore) "TRUE_DUPLICATE_OPEN"
+                        else if (isPaper) "ROUTE_FAILED_PAPER" else "ROUTE_FAILED_LIVE"
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                        if (wasOpenBefore) "TRUE_DUPLICATE_OPEN" else "ROUTE_FAILED",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=V3 reason=${if (wasOpenBefore) "ALREADY_OPEN" else "NO_OPEN_COMMITTED"} mode=${if (isPaper) "PAPER" else "LIVE"}"
+                        label6497,
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=V3 reason=${if (wasOpenBefore) "ALREADY_OPEN" else "NO_OPEN_COMMITTED"} mode=${if (isPaper) "PAPER" else "LIVE"} (see PAPER_BUY_NOT_OPENED_* for explicit reason)"
                     )
+                    // Preserve legacy aggregate for dashboards.
+                    if (!wasOpenBefore) com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ROUTE_FAILED")
                 } catch (_: Throwable) {}
                 com.lifecyclebot.v3.ExecuteResult(
                     success = false,
@@ -8643,6 +8647,42 @@ class BotService : Service() {
                         // wallet read required (the wallet RPC is the thing that's broken).
                         val zombieAttempts = try { com.lifecyclebot.engine.sell.CloseLease.attemptCount(ts.mint) } catch (_: Throwable) { 0 }
                         if (posAgeForNet > 30 * 60_000L && pnlPct <= -30.0 && ts.position.isOpen) {
+                            // V5.0.6497 §4 — PAPER CATASTROPHIC CLOSE IDEMPOTENCY.
+                            // In PAPER mode a catastrophic position with a valid
+                            // canonical lot must resolve in ONE atomic simulated
+                            // close, not hundreds of zombie retries. LIVE mode
+                            // keeps the "no local close without sell finality
+                            // proof" doctrine below (unchanged).
+                            val isPaperMode6497 = try { cfg.paperMode } catch (_: Throwable) { false }
+                            if (isPaperMode6497) {
+                                val claim6497 = try {
+                                    com.lifecyclebot.engine.truth.PaperCatastrophicCloseIdempotency6497
+                                        .tryClaim(ts.mint, ts.symbol)
+                                } catch (_: Throwable) { com.lifecyclebot.engine.truth.PaperCatastrophicCloseIdempotency6497.Outcome.CLAIMED_FIRST }
+                                if (claim6497 == com.lifecyclebot.engine.truth.PaperCatastrophicCloseIdempotency6497.Outcome.ALREADY_CLAIMED) {
+                                    // A prior tick already claimed this mint —
+                                    // do not re-request sell / bump the retry
+                                    // counter. Just continue past the position.
+                                    continue
+                                }
+                                // First claim: attempt the paper close ONCE via
+                                // requestSell, then let the CloseLease + reconciler
+                                // finalise. If the economic record is corrupt,
+                                // quarantine and stop retrying.
+                                try {
+                                    executor.requestSell(ts = ts, reason = "PAPER_CATASTROPHE_ONESHOT_6497", wallet = wallet, walletSol = effectiveBalance)
+                                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_CATASTROPHE_ONESHOT_6497")
+                                    com.lifecyclebot.engine.ForensicLogger.lifecycle("PAPER_CATASTROPHE_ONESHOT_6497", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${pnlPct.toInt()} ageMs=$posAgeForNet action=one_shot_simulated_close")
+                                } catch (e: Throwable) {
+                                    // Corrupt economic record path — quarantine once.
+                                    try {
+                                        com.lifecyclebot.engine.truth.PaperCatastrophicCloseIdempotency6497
+                                            .quarantineOnce(ts.mint, "REQUEST_SELL_THREW_${e.javaClass.simpleName}")
+                                    } catch (_: Throwable) {}
+                                    ErrorLogger.warn("BotService", "PAPER_CATASTROPHE_ONESHOT_6497 sell error: ${e.message?.take(50)}")
+                                }
+                                continue
+                            }
                             // V5.0.3985 — FINALITY DOCTRINE FIX.
                             // This used to force a LOCAL close (zero qty, release CloseLease,
                             // mark SellJob landed, confirm tracker zero) when an old catastrophe

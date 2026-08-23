@@ -11611,6 +11611,21 @@ class Executor(
                  debitPaperWallet: Boolean = true,
                  maxPaperTradeSolOverride: Double? = null) {
         try { PipelineHealthCollector.labelInc("PAPER_BUY_ATTEMPT") } catch (_: Throwable) {}
+        // V5.0.6497 §2 — PAPER ENTRY FINALITY AUTHORITY.
+        // Every LANE_BUY_INTENT_OVERRIDES_BASE_WAIT event must produce
+        // exactly one terminal outcome: PAPER_BUY_OPENED (via markOk
+        // at recordTrade success) or PAPER_ENTRY_FINALITY_REJECT_<reason>
+        // (via markPaperBuyNotOpened). Any silent early return is
+        // caught by the periodic sweep as PAPER_ENTRY_FINALITY_MISSING_TERMINAL_6497.
+        val entryFinalityId6497 = attemptId.ifBlank { "PB-${ts.mint.take(10)}-${System.nanoTime()}" }
+        try {
+            com.lifecyclebot.engine.truth.PaperEntryFinalityAuthority6497.beginAttempt(
+                attemptId = entryFinalityId6497,
+                mint = ts.mint,
+                symbol = ts.symbol,
+                lane = layerTag.ifBlank { ts.source }.ifBlank { "STANDARD" },
+            )
+        } catch (_: Throwable) {}
         // V5.0.6451 §ENTRY_GATE — ExecutableEntryAuthority6450.gate() is the
         // single authority every executable BUY must clear before capital
         // reservation. Verdict values:
@@ -11704,6 +11719,8 @@ class Executor(
                 } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_PRESALE_SNIPE_51K_RUG_6373F") } catch (_: Throwable) {}
+                // V5.0.6497 §2 — terminal reject in the entry finality authority.
+                try { com.lifecyclebot.engine.truth.PaperEntryFinalityAuthority6497.markRejected(entryFinalityId6497, "PRESALE_SNIPE_51K_RUG_6373F") } catch (_: Throwable) {}
                 return
             }
         }
@@ -11721,6 +11738,8 @@ class Executor(
         fun markPaperBuyNotOpened(reason: String) {
             try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_$reason") } catch (_: Throwable) {}
+            // V5.0.6497 §2 — terminal reject in the entry finality authority.
+            try { com.lifecyclebot.engine.truth.PaperEntryFinalityAuthority6497.markRejected(entryFinalityId6497, reason) } catch (_: Throwable) {}
             if (paperBuyLeaseKey6369.isNotBlank()) {
                 try { ExecutionAttemptLease.releaseNonTerminal(paperBuyLeaseKey6369, "BUY", ts.mint, ts.symbol, "PAPER_BUY_NOT_OPENED_$reason") } catch (_: Throwable) {}
                 paperBuyLeaseKey6369 = ""
@@ -11814,6 +11833,7 @@ class Executor(
                 walletSol = com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol(),
                 paperMode = true,
                 overrideLaneRiskCapSol = maxPaperTradeSolOverride,
+                mintForSeal = ts.mint,  // V5.0.6497 §1 seal for downstream authority
             )
         } catch (_: Throwable) {
             com.lifecyclebot.engine.truth.OrderSizeResolver6441.Resolution(
@@ -12489,6 +12509,8 @@ class Executor(
         recordTrade(ts, trade)
         security.recordTrade(trade)
         try { PipelineHealthCollector.labelInc("PAPER_BUY_OPENED") } catch (_: Throwable) {}
+        // V5.0.6497 §2 — terminal OK in the entry finality authority.
+        try { com.lifecyclebot.engine.truth.PaperEntryFinalityAuthority6497.markOk(entryFinalityId6497) } catch (_: Throwable) {}
 
         EmergentGuardrails.registerPosition(tradeId.mint, tradeId.symbol, currentLayer, actualSol)
         // V5.9.385 — the GHOST POSITION fix. V5.9.369 added a guard in

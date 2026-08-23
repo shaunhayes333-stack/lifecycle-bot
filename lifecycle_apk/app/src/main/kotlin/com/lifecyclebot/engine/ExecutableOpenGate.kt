@@ -231,22 +231,21 @@ object ExecutableOpenGate {
     ): Pair<String, String>? {
         val selected = canonicalLane(selectedLane)
         val requested = canonicalLane(requestedLane)
-        // V5.0.6496 §4 — EXECUTION SNAPSHOT DRIFT CHECK. If FDG_ALLOW
-        // sealed a (candidateVersion, primaryLane, preFdgVerdict, ...)
-        // tuple for this mint, refuse ticket creation UPSTREAM when the
-        // currently-observed tuple has drifted. This is the SOURCE-LEVEL
-        // fix for the Orangie case: primary=PROJECT_SNIPER at FDG,
-        // ticket=STANDARD/preFdg=WATCH at EXEC_OPEN → old code minted a
-        // ticket then dropped it as EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY
-        // (465 rows). Now the drift is caught before ticket creation.
+        // V5.0.6496 §4 → V5.0.6497 §3 — RELAXED SNAPSHOT DRIFT CHECK.
+        // Tuple now: (primaryLane, safetyAuthorityTier,
+        // canonicalOccupancy, resolvedOrderSizeSol). Volatile fields
+        // (candidateVersion, preFdgVerdict) refresh rather than reject.
         if (mint.isNotBlank()) {
+            val resolvedForDriftCheck = try {
+                com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint) ?: 0.0
+            } catch (_: Throwable) { 0.0 }
             val drift = try {
                 com.lifecyclebot.engine.truth.ExecutionSnapshotAuthority6496.matchOrDriftReason(
                     mint = mint,
-                    candidateVersion = candidateVersion,
                     primaryLane = selected,
-                    preFdgVerdict = preFdgVerdict,
-                    authorityVersion = candidateVersion,
+                    safetyAuthorityTier = currentSafetyTier,
+                    canonicalOccupancy = "$mint:${selected.uppercase()}",
+                    resolvedOrderSizeSol = resolvedForDriftCheck,
                 )
             } catch (_: Throwable) { null }
             if (drift != null) {
@@ -630,21 +629,25 @@ object ExecutableOpenGate {
             if (executableFdg) {
                 ErrorLogger.info("FDG", "FDG_ALLOW $symbol lane=${lane.uppercase()} preFdg=$finalVerdict hardNo=[] safety=$safetyTier rug=$rugScore liq=${liquidityUsd.toInt()} duplicate=false circuit=${ToxicModeCircuitBreaker.currentEntryPause().active} sellPressure=${reason ?: "OK"} version=$candidateVersion")
                 ForensicLogger.phase(ForensicLogger.PHASE.FDG, symbol, "FDG_ALLOW $msg")
-                // V5.0.6496 §4 — seal the (candidateVersion, primaryLane,
-                // preFdgVerdict, authorityVersion) tuple at the FDG allow
-                // site. Any subsequent ticket-creation drift will be
-                // refused UPSTREAM instead of producing a
-                // EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY / TOKEN_STATE_CHANGED
-                // row. authorityVersion is set to candidateVersion for
-                // now (both bump together); a future authority-version
-                // counter can replace it without changing the wire.
+                // V5.0.6497 §3 — RELAXED SNAPSHOT TUPLE.
+                // 6496 sealed (candidateVersion, primaryLane, preFdgVerdict,
+                // authorityVersion). candidateVersion + preFdgVerdict are
+                // volatile by design (state churn on fresh ticks) and were
+                // rejecting 39 legitimate candidates. Operator's exact
+                // spec: seal (primaryLane, safetyAuthorityTier,
+                // canonicalOccupancy, resolvedOrderSizeSol). Volatile
+                // market data refreshes rather than rejects.
                 try {
+                    val resolvedSizeForSeal = try {
+                        com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497
+                            .sealedSize(mint) ?: 0.0
+                    } catch (_: Throwable) { 0.0 }
                     com.lifecyclebot.engine.truth.ExecutionSnapshotAuthority6496.record(
                         mint = mint,
-                        candidateVersion = candidateVersion,
                         primaryLane = lane,
-                        preFdgVerdict = finalVerdict,
-                        authorityVersion = candidateVersion,
+                        safetyAuthorityTier = safetyTier,
+                        canonicalOccupancy = "$mint:${lane.uppercase()}",
+                        resolvedOrderSizeSol = resolvedSizeForSeal,
                     )
                 } catch (_: Throwable) {}
             } else {
@@ -1422,7 +1425,18 @@ object ExecutableOpenGate {
         // allowed to cross this boundary.
         val minExecutable6491 = if (modeUpper == "PAPER")
             com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol() else 0.001
-        if (preResolvedSizeSol6490 < 0.0) {
+        // V5.0.6497 §1 — SEALED ORDER SIZE AUTHORITY. If the canonical
+        // OrderSizeResolver has sealed a larger executable size for
+        // this mint, use it. This prevents a stale/duplicated caller
+        // from passing 0.01 SOL while the canonical resolver produced
+        // 2.00 SOL — the exact mismatch operator observed in 6496.
+        val authoritativeSize6497 = try {
+            com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497
+                .authoritativeSize(mint, preResolvedSizeSol6490.coerceAtLeast(0.0))
+        } catch (_: Throwable) { preResolvedSizeSol6490.coerceAtLeast(0.0) }
+        val effectiveResolvedSize6497 = if (preResolvedSizeSol6490 < 0.0) preResolvedSizeSol6490
+            else authoritativeSize6497
+        if (effectiveResolvedSize6497 < 0.0) {
             try {
                 PipelineHealthCollector.labelInc("EXEC_OPEN_PRECHECK_SIZE_PENDING_6491")
                 ForensicLogger.lifecycle("EXEC_OPEN_PRECHECK_SIZE_PENDING_6491", "attemptId=$execKey mint=${mint.take(10)} symbol=$symbol mode=$modeUpper lane=$lane action=safety_precheck_only_no_claim_no_ticket_no_allow")
@@ -1430,9 +1444,9 @@ object ExecutableOpenGate {
             return OpenVerdict(true, "SIZE_PENDING_PRECHECK_ONLY_6491", shadowOnly = true,
                 logName = "EXEC_OPEN_PRECHECK_SIZE_PENDING_6491", attemptId = execKey)
         }
-        if (!com.lifecyclebot.engine.truth.OrderSizeResolver6441.meetsMinimum6491(preResolvedSizeSol6490, minExecutable6491)) {
+        if (!com.lifecyclebot.engine.truth.OrderSizeResolver6441.meetsMinimum6491(effectiveResolvedSize6497, minExecutable6491)) {
             return blocked("EXEC_OPEN_BLOCKED_SIZE_NOT_EXECUTABLE_6491",
-                "resolvedSize=$preResolvedSizeSol6490 minimum=$minExecutable6491", shadow = true)
+                "resolvedSize=$effectiveResolvedSize6497 minimum=$minExecutable6491 sealedSize=${try { com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint) } catch (_: Throwable) { null }}", shadow = true)
         }
         val claimKey6487 = executableClaimKey6487(modeUpper, mint, candidateVersion)
         val priorClaim6487 = executableBuyClaim6487.putIfAbsent(claimKey6487, execKey)
@@ -1491,7 +1505,7 @@ object ExecutableOpenGate {
                         liquidityUsd = liquidityUsd,
                         rugScore = rug,
                         hardNoReasons = hardNoReasons,
-                        resolvedSizeSol = preResolvedSizeSol6490.coerceAtLeast(0.0),
+                        resolvedSizeSol = effectiveResolvedSize6497.coerceAtLeast(0.0),
                     )
                 )
             }

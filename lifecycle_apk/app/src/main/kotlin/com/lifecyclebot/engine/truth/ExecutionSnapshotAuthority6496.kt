@@ -6,59 +6,40 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * V5.0.6496 §4 — EXECUTION SNAPSHOT AUTHORITY.
+ * V5.0.6496 §4 → V5.0.6497 §3 — EXECUTION SNAPSHOT AUTHORITY (relaxed).
  *
- * OPERATOR MANDATE (verbatim, 6495 evidence):
+ * 6496 SHIP CAPTURED THE INTENT BUT OVER-CONSTRAINED THE HANDOFF.
+ * ────────────────────────────────────────────────────────────────
+ * The 6496 tuple was (candidateVersion, primaryLane, preFdgVerdict,
+ * authorityVersion). Operator's 6496 dump proved this rejects legit
+ * candidates:
  *
- *   "Look at the failed-open path:
- *      PAPER_BUY_NOT_OPENED: 1827
- *      ROUTE_FAILED: 1539
- *      BUY_NON_TERMINAL_RELEASE: 1537
- *      EXEC_OPEN_PRECHECK_SIZE_PENDING: 399
- *      EXEC_OPEN_DROPPED_TOKEN_STATE_CHANGED: 293
- *      EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY: 465
+ *   EXEC_SNAPSHOT_DRIFT_6496 = 39
+ *   EXEC_OPEN_DROPPED_SNAPSHOT_DRIFT_6496 = 39
  *
- *    That is a lot of lifecycle work for very few committed entries.
- *    Some of this is deliberate suppression, but there's still a
- *    routing inconsistency visible in your Orangie example:
- *      primary=PROJECT_SNIPER
- *    then execution ticket:
- *      lane=STANDARD preFdg=WATCH
- *    then EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY.
+ * candidateVersion and preFdgVerdict are BOTH volatile by design —
+ * `preFdgVerdict` transitions BUY↔WATCH as fresh price ticks land,
+ * and `candidateVersion` bumps on any material state mutation. Fast-
+ * moving tokens naturally see both change between FDG-allow and
+ * EXEC_OPEN and that must not veto the entry.
  *
- *    The candidate changed ownership/semantic lane between evaluation
- *    and execution. It correctly refused the entry, but it shouldn't
- *    be producing the ticket in the first place.
+ * V5.0.6497 §3 tuple (operator's exact spec):
+ *   • primaryLane          — the elected lane (immutable per election)
+ *   • safetyAuthorityTier  — SAFE / CAUTION / RUG (identity, not price)
+ *   • canonicalOccupancy   — mint-lane occupancy identity
+ *   • resolvedOrderSizeSol — the sealed order size (§1 authority)
  *
- *    I'd enforce: candidateVersion + primaryLane + preFdgVerdict +
- *    authorityVersion as one immutable execution snapshot."
- *
- * DESIGN
- * ──────
- * `record(mint, snap)` is called at the FDG-allow site — the moment
- * a candidate is deemed executable. The 4-tuple is sealed for the
- * mint until (a) it is consumed via `consumeIfMatches` or (b) it
- * expires after `SNAPSHOT_TTL_MS`.
- *
- * At ticket-creation site the caller invokes `matches(mint, snap)`
- * with the tuple it CURRENTLY sees. If they diverge:
- *   • label `EXEC_SNAPSHOT_DRIFT_6496` fires (visible in root cause)
- *   • ticket creation MUST be refused UPSTREAM (no
- *     EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY row minted)
- *
- * The stored snapshot never mutates. If FDG re-evaluates and issues
- * a new allow, the new snapshot fully replaces the prior one.
- *
- * TTL exists so a legitimately re-evaluated candidate on a later
- * tick is not blocked by a stale seal from 30 s ago.
+ * Only these four fields are checked. Volatile market data (price,
+ * mcap, liquidity, preFdgVerdict, candidateVersion) refreshes rather
+ * than rejects.
  */
 object ExecutionSnapshotAuthority6496 {
 
     data class Snapshot(
-        val candidateVersion: Long,
         val primaryLane: String,
-        val preFdgVerdict: String,
-        val authorityVersion: Long,
+        val safetyAuthorityTier: String,
+        val canonicalOccupancy: String,
+        val resolvedOrderSizeSol: Double,
         val recordedAtMs: Long,
     )
 
@@ -68,21 +49,24 @@ object ExecutionSnapshotAuthority6496 {
     private val drifts = AtomicLong(0L)
 
     private const val SNAPSHOT_TTL_MS = 15_000L
+    // Resolved order size may re-clamp within a small band as cash /
+    // ladder / lane cap re-evaluate. Only reject on material drift.
+    private const val SIZE_MATERIAL_DRIFT_RATIO = 0.20  // 20 %
 
     /** Called by FDG-allow. Seals the executable tuple for the mint. */
     fun record(
         mint: String,
-        candidateVersion: Long,
         primaryLane: String,
-        preFdgVerdict: String,
-        authorityVersion: Long,
+        safetyAuthorityTier: String,
+        canonicalOccupancy: String,
+        resolvedOrderSizeSol: Double,
     ) {
         if (mint.isBlank()) return
         val snap = Snapshot(
-            candidateVersion = candidateVersion,
             primaryLane = primaryLane.uppercase(),
-            preFdgVerdict = preFdgVerdict.uppercase(),
-            authorityVersion = authorityVersion,
+            safetyAuthorityTier = safetyAuthorityTier.uppercase(),
+            canonicalOccupancy = canonicalOccupancy,
+            resolvedOrderSizeSol = resolvedOrderSizeSol,
             recordedAtMs = System.currentTimeMillis(),
         )
         sealed[mint] = snap
@@ -98,15 +82,13 @@ object ExecutionSnapshotAuthority6496 {
      *
      * A stale (>TTL) or missing snapshot is treated as "no seal ⇒
      * allow" so we do not accidentally block cold-start candidates.
-     * The whole point is to catch drift *during a live seal*, not
-     * to enforce a seal exists everywhere.
      */
     fun matchOrDriftReason(
         mint: String,
-        candidateVersion: Long,
         primaryLane: String,
-        preFdgVerdict: String,
-        authorityVersion: Long,
+        safetyAuthorityTier: String,
+        canonicalOccupancy: String,
+        resolvedOrderSizeSol: Double,
     ): String? {
         val snap = sealed[mint] ?: return null
         if (System.currentTimeMillis() - snap.recordedAtMs > SNAPSHOT_TTL_MS) {
@@ -114,16 +96,25 @@ object ExecutionSnapshotAuthority6496 {
             return null
         }
         val pLane = primaryLane.uppercase()
-        val pVerdict = preFdgVerdict.uppercase()
+        val pSafety = safetyAuthorityTier.uppercase()
         val driftBits = buildList {
-            if (snap.candidateVersion != candidateVersion)
-                add("candidateVersion(${snap.candidateVersion}->$candidateVersion)")
             if (snap.primaryLane != pLane)
                 add("primaryLane(${snap.primaryLane}->$pLane)")
-            if (snap.preFdgVerdict != pVerdict)
-                add("preFdgVerdict(${snap.preFdgVerdict}->$pVerdict)")
-            if (snap.authorityVersion != authorityVersion)
-                add("authorityVersion(${snap.authorityVersion}->$authorityVersion)")
+            // Safety drift only matters when it degrades to a hard
+            // veto tier. SAFE → CAUTION is not drift; anything → RUG /
+            // NO_BUY / UNKNOWN is a material identity change.
+            val hardSafetyDrift = snap.safetyAuthorityTier != pSafety &&
+                (pSafety == "RUG" || pSafety == "NO_BUY" || pSafety == "UNKNOWN")
+            if (hardSafetyDrift)
+                add("safetyAuthorityTier(${snap.safetyAuthorityTier}->$pSafety)")
+            if (snap.canonicalOccupancy.isNotBlank() && canonicalOccupancy.isNotBlank() &&
+                snap.canonicalOccupancy != canonicalOccupancy)
+                add("canonicalOccupancy(${snap.canonicalOccupancy}->$canonicalOccupancy)")
+            // Order size drift — only reject on MATERIAL shrink beyond
+            // the tolerance band. A resize UP is never drift.
+            if (snap.resolvedOrderSizeSol > 0.0 &&
+                resolvedOrderSizeSol < snap.resolvedOrderSizeSol * (1.0 - SIZE_MATERIAL_DRIFT_RATIO))
+                add("resolvedOrderSizeSol(${"%.4f".format(snap.resolvedOrderSizeSol)}->${"%.4f".format(resolvedOrderSizeSol)})")
         }
         return if (driftBits.isEmpty()) {
             matches.incrementAndGet()
