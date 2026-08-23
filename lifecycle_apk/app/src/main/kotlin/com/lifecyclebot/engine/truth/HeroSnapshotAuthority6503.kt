@@ -126,7 +126,7 @@ object HeroSnapshotAuthority6503 {
             } catch (_: Throwable) {}
         }
         val equitySol = try {
-            CanonicalCapitalAuthority6450.equitySol()
+            CanonicalCapitalAuthority6450.snapshot().totalEquitySol
         } catch (_: Throwable) { 0.0 }
         val cashSol = try {
             PaperAccountLedger6430.cashSol()
