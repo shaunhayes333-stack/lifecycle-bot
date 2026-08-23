@@ -1,3 +1,94 @@
+# AATE PRD — V5.0.6504 (POSITION/EXIT TRUTH REPAIR — P0 CORE GREEN)
+
+**Status:** PAPER TRADING ONLY. Live execution intentionally disabled
+until the 26-point correctness mandate + the 10-point POSITION/EXIT
+TRUTH REPAIR mandate are 100 % green across consecutive operator
+dumps.
+
+**Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading".
+Every canonical authority protects capital first, preserves every
+side-effect door at its originating layer, and keeps learning purity
+so runner compounding is monotonic.
+
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change
+lands via `git push` → GitHub Actions CI. Verification is the pair
+(`Build AATE APK` green, `Runtime Smoke Test` green) on the head SHA.
+
+
+## V5.0.6504a (Feb 2026) — POSITION/EXIT TRUTH REPAIR — P0 CORE ✅ CI GREEN
+
+Twenty-sixth beat. CI green on commit `2e7764671`:
+Build AATE APK ✅ + Runtime Smoke Test ✅.
+
+Bundled the P0 items from the 10-point POSITION/EXIT TRUTH REPAIR
+mandate plus §6/§7 P1 entry-bridge scaffolding.
+
+- **§1 FillLotLedger6504** — SQLite WAL immutable `(mint, lotId,
+  side, qty_token_raw, lamports, finalized)` ledger. INSERT-ONLY
+  except finalized-flag flip. Wired at `paperBuy.atomic6485` (BUY)
+  and full `paperSell` after `CanonicalPaperTerminalBridge6469`
+  (SELL). `canonicalQtyOf(mint) = Σ finalized BUY − Σ finalized
+  SELL` is the immutable qty truth.
+- **§10 PURGE + REBUILD** — `FillLotLedger6504.rebuildRealizedSol`
+  FIFO lamport-matches per mint, produces pure realized SOL. On
+  |delta| > 0.001 SOL vs ledger, atomically overwrites via
+  `PaperAccountLedger6430.overrideRealizedFromFillLots6504`.
+  Emits `FILL_LOT_REALIZED_DIVERGES_FROM_LEDGER_6504` /
+  `PAPER_LEDGER_OVERRIDE_FROM_FILL_LOTS_6504`.
+- **§5 ONE-SHOT ZOMBIE LATCH** — `BotService.paperStaleZombieLatch6504`
+  keyed by `mint:entryTime`. PAPER_STALE_ZOMBIE_SCRATCH_EXIT emit +
+  `executor.requestSell` fires EXACTLY ONCE per eligible position.
+- **§10 EconomicPurityGate6504** — read surface unioning local
+  untrusted-set with `QuantityInvariantAuthority6500` +
+  `LearningQuarantineGate6470`.
+- **§11 UniversalSlSentinel6504** — `noteStart / noteDone /
+  noteReset / sweep(onTimeout)` with 10 s TTL.
+- **§6 FDG_BUY_TO_AUTH counter** at `Executor.doBuy` spine.
+- **§7 NON-BUY GUARD** — `Executor.doBuy` short-circuits BEFORE
+  sizing when `ts.signal` ∉ {BUY, PROBE, PROBE_ONLY, EXECUTE, ""}.
+
+
+## V5.0.6503a (Feb 2026) — LEDGER REBUILD WIRE + HERO OFF-MAIN + TAXONOMY + BIRDEYE 401 STICKY ✅ CI GREEN
+
+`e253c15dd` Build ✅ + Runtime Smoke Test ✅.
+
+- **§1** Wired `PaperAccountLedger6430.rebuildRealizedFromCanonicalEvents6502()`
+  in `BotService.startBot` (finishes V5.0.6502).
+- **§2** New `HeroSnapshotAuthority6503` — 500 ms Dispatchers.Default
+  loop publishing `(openCount, exposure, unrealized, equity, cash,
+  realized)` via AtomicReference. `MainActivity
+  .precomputeMainRenderModelAsync` reuses the cached values to kill
+  the 3017 ms Main-thread frame gap. Paper + live parity.
+- **§3** `ExecutableOpenGate` `EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY`
+  now reports `SIGNAL_NOT_BUY:<signal>` — no more
+  `EXEC_GATE/UNKNOWN` rows.
+- **§4** `BirdeyeApi.getRaw` emits one loud
+  `BIRDEYE_KEY_DEAD_401_STICKY_6503` line + counter.
+
+
+## FOLLOW-UPS (staged for V5.0.6504b)
+
+- Sibling funnel counters at their convergence sites:
+  `AUTH_TO_SIZE_6504` at `OrderSizeResolver6441.resolve`,
+  `SIZE_TO_ROUTE_6504` at `RouteResolver6411.resolve`,
+  `ROUTE_TO_TICKET_6504` at `ExecutionTicketMachine6411.create`,
+  `TICKET_TO_OPEN_6504` at the executor open finalization.
+- Auto-repair loop for QTY_DIVERGES_FROM_CANONICAL: on divergence
+  call `FillLotLedger6504.canonicalQtyOf(mint)`, retry once with
+  the corrected qty, quarantine only if lots themselves disagree.
+- `UniversalSlSentinel6504` producer wiring at the actual
+  `sl.start / sl.done` sites (currently the sentinel is available
+  but unwired).
+- `EconomicPurityGate6504` consumer wiring at RewardPurityGate6441,
+  StrategyTelemetry, MathEdge, Governor, HypothesisEngine ingress.
+- Close-atomicity clears (slot occupancy, forced-open, exitPending)
+  bundled into `PositionCloseLedger.markClosedFull`.
+- Paper routing repair: ROUTE_FAILED_PAPER=887 / PAPER_BUY_NOT_OPENED=888
+  needs concrete reason attribution + drop the live-proof
+  requirement in the paper path.
+
+
+
 # AATE PRD — V5.0.6503 (V5.7+ FINISH DEFERRED ITEMS)
 
 **Status:** PAPER TRADING ONLY. Live execution intentionally disabled.
