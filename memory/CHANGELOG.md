@@ -1,3 +1,76 @@
+## V5.0.6506 — 2026-02-19 — CANONICAL ENTRY + ECONOMIC TRUTH ROOT REPAIR (partial)
+
+Operator mandate (verbatim): "This build is plumbing correctness
+first. Do not tune trading strategy until these invariants are
+clean. No new pauses, chokes, disables. Remember this is a
+self-learning, self-evolving, super super intelligent multi-platform
+trading deck."
+
+Scope-honest partial ship of the V5.0.6506 mandate. Highest-volume
+items land this commit; the atomic-lane-election snapshot rewrite
+(P0-2 remainder) and UNVERIFIED valuation partitioning (P0-4) are
+staged for V5.0.6506b because both require rewriting existing
+executable-open contracts safely.
+
+**§P0-3 BELOW-MIN SIZING PROMOTION**  ✅ (kills the 299/hour reject storm)
+- `OrderSizeResolver6441.resolve`: when `0 < shapedLamports <
+  minExecLamports` AND `minExecLamports <= availableLamports AND
+  <= laneCapLamports AND <= riskLamports`, we now PROMOTE the
+  shaped order up to `MIN_EXECUTABLE` instead of zeroing it.
+- Emits `ORDER_SIZE_PROMOTED_TO_MIN_EXECUTABLE_6506` with the shaped
+  vs min vs available vs lane vs risk detail.
+- `BELOW_MIN_EXECUTABLE` verdict now only fires when the minimum
+  itself genuinely violates a hard cap (as mandated).
+- Unblocks orders like `req=0.04887→shaped=0.04887→min=0.05` which
+  were being deleted purely because the compounding ladder trimmed
+  them under 0.05 SOL by a few thousandths.
+
+**§P0-1 EXEC_NON_BUY_INTENT_INVARIANT_FAIL counter** (diagnostic)
+- `ExecutableOpenGate.canOpenExecutablePositionInternal`: at
+  EXEC_OPEN_REQUEST emission, if `signal ∉ {BUY, EXECUTE,
+  PROBE_ONLY, PROBE}` the counter bumps and a diagnostic lifecycle
+  line surfaces the leaked non-BUY intent producer.
+- Expected steady-state value: 0 per operator acceptance #1.
+
+**§P0-2 CANONICAL LANE ALIAS FOLD**  (partial — full election-snapshot
+in 6506b)
+- New `engine/truth/CanonicalLaneIdentity6506.kt` — single
+  `canonical(name)` function folds `BLUE_CHIP → BLUECHIP`,
+  `MOON_SHOT → MOONSHOT`, `PROJECT-SNIPER → PROJECT_SNIPER`,
+  `MICROCAP → MICRO`.
+- `ExecutableOpenGate.canOpenExecutablePosition` (both public
+  overloads) now folds `lane` + `electedLane6494` at the boundary
+  via NAME_SHADOWING so downstream comparisons / snapshots /
+  authority version stamps cannot fragment.
+- Acceptance #5 (no BLUE_CHIP/BLUECHIP split in newly written
+  state) satisfied AT THE BOUNDARY. Producer sites (LayerTransitionManager
+  BLUE_CHIP enum, MainActivity legacy constants) are read-normalised
+  here.
+
+**§P1 DRAWDOWN AUTHORITY REBASED ON CANONICAL EQUITY**
+- `PerformanceAnalytics.calculateDrawdown` now seeds peak + equity
+  from `PaperAccountLedger6430.startingCashSol()` instead of 0.0
+  and drops the `grossDeployed` proxy denominator.
+- `DD = (equityHighWater − currentEquity) / equityHighWater` with
+  positive baseline. The "100 % current/max DD with positive equity"
+  cannot happen because the denominator is the canonical starting
+  cash (or higher).
+- Matches operator acceptance #11.
+
+**STAGED FOR V5.0.6506b**
+- P0-2 full atomic election snapshot: at candidate finalisation
+  stamp `mint + canonicalLane + candidateVersion + authorityVersion
+  + signal + mode` and require the FDG / executor to consume that
+  immutable snapshot (no independent re-election).
+- P0-4 UNVERIFIED valuation partition: derive `authoritativeOpenValue`
+  vs `unverifiedOpenValue` + fallbackMarkCount + missingCostBasisCount
+  in `PositionWalletReconciler`; UI segregates unverified from
+  headline equity growth.
+- P1 provider fail-open reinforcement (already largely intact; final
+  audit pass).
+
+
+
 ## V5.0.6505 — 2026-02-19 — HOLDS DISABLED, BOT TRADES FREELY
 
 Operator mandate (verbatim, this session): "I want all enforced

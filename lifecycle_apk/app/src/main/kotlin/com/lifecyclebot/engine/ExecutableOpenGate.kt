@@ -729,6 +729,9 @@ object ExecutableOpenGate {
         electionId6494: String = "",
         authorityVersion6494: Long = 0L,
     ): OpenVerdict {
+        // V5.0.6506 §P0-2 — canonical lane alias fold at boundary.
+        @Suppress("NAME_SHADOWING") val lane = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)
+        @Suppress("NAME_SHADOWING") val electedLane6494 = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(electedLane6494)
         return canOpenExecutablePositionInternal(
             mint = mint,
             symbol = symbol,
@@ -760,6 +763,13 @@ object ExecutableOpenGate {
         electionId6494: String = "",
         authorityVersion6494: Long = 0L,
     ): OpenVerdict {
+        // V5.0.6506 §P0-2 — CANONICAL LANE ALIAS FOLD AT BOUNDARY.
+        // Legacy aliases (BLUE_CHIP, MOON_SHOT, PROJECT-SNIPER, MICROCAP)
+        // migrate on read to their canonical form so lane comparisons,
+        // snapshots and authority-version stamps cannot fragment
+        // (previously produced EXEC_OPEN_DROPPED_CANON_LANE_UNRESOLVED).
+        @Suppress("NAME_SHADOWING") val lane = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)
+        @Suppress("NAME_SHADOWING") val electedLane6494 = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(electedLane6494)
         // V5.0.6387 — CANONICAL_LEDGER_PARITY_HOLD_6387 (Directive A P0) +
         // FALSE_PROFIT_TRIGGER_HOLD_6387 (Directive B P0). Either hold blocks
         // ALL new live BUYs until parity + price-identity are validated for
@@ -1564,6 +1574,25 @@ object ExecutableOpenGate {
             try { restorePenalties[execKey] = allowedVerdict } catch (_: Throwable) {}
         }
         try {
+            // V5.0.6506 §P0-1 — EXEC_NON_BUY_INTENT_INVARIANT counter.
+            // Executable-open construction may ONLY proceed with canonical
+            // BUY intent. If the caller reached EXEC_GATE_ALLOW while the
+            // upstream signal is anything other than BUY (or a legacy
+            // BUY-equivalent), we bump the invariant-fail counter so it
+            // stays visible in the dump. This does NOT change the current
+            // flow — the ExecutableOpenGate remains the last safety
+            // validation, not a garbage collector. The counter surfaces
+            // any producer that leaked non-BUY intent into the gate.
+            val canonicalBuy6506 = signal.trim().uppercase() in setOf("BUY", "EXECUTE", "PROBE_ONLY", "PROBE")
+            if (!canonicalBuy6506) {
+                PipelineHealthCollector.labelInc("EXEC_NON_BUY_INTENT_INVARIANT_FAIL_6506")
+                ForensicLogger.lifecycle(
+                    "EXEC_NON_BUY_INTENT_INVARIANT_FAIL_6506",
+                    "attemptId=$execKey mint=${mint.take(10)} symbol=$symbol lane=$lane " +
+                        "signal=${signal.ifBlank { "UNKNOWN" }} preFdg=$preFdgVerdict source=$source " +
+                        "action=continue_with_diagnostic_only",
+                )
+            }
             val detail = "attemptId=$execKey symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane source=$source preFdg=$preFdgVerdict selectedLane=$selectedLane hardNo=[] candidateVersion=$candidateVersion v3Decision=$v3Decision fdgCan=${fdgCan ?: "unknown"} fdgReason=$fdgReason safetyTier=$safetyTier rugScore=$rug liquidityUsd=${liquidityUsd.toInt()} signal=$signal band=$band restorePenalty=${restorePenalty.reason} sizeMult=${restorePenalty.sizeMultiplier}"
             ForensicLogger.lifecycle("EXEC_OPEN_REQUEST", detail)
             ForensicLogger.lifecycle("EXEC_GATE_ALLOW", detail)

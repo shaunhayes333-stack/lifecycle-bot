@@ -288,40 +288,52 @@ object PerformanceAnalytics {
     private fun calculateDrawdown(trades: List<TradeRecord>): Triple<Double, Double, Double> {
         val sorted = trades.sortedBy { it.tsExit }
 
-        // V5.9.1499 — DRAWDOWN INTEGRITY. The previous logic seeded peak=0 and
-        // only recorded a DD% once peak crossed a 0.05 SOL floor. Consequence:
-        // a curve that loses FIRST (peak stuck at 0) or whose wins/losses net to
-        // a small peak reported 0.0% DD even with a real intra-session dip —
-        // exactly the "Max Drawdown 0.0%" seen with +3.8 SOL / 175 losses.
-        // Correct definition: peak = running max of equity INCLUDING the implicit
-        // 0 starting baseline; maxDD(SOL) = largest peak→trough drop anywhere on
-        // the curve. The % is expressed against the running peak when it is
-        // meaningfully positive, otherwise against the gross capital deployed up
-        // to that trough (so a pre-peak bleed still yields a real, bounded %).
-        var peak = 0.0          // running equity high-water mark (>= 0 baseline)
-        var equity = 0.0
+        // V5.0.6506 §P1 — DRAWDOWN AUTHORITY REBASED ON CANONICAL EQUITY.
+        // Operator mandate: "Drawdown authority must use the canonical
+        // equity curve: DD = (equityHighWater - currentEquity) /
+        // equityHighWater with valid positive high-water initialization.
+        // Do not derive account drawdown from losing-streak PnL, closed-
+        // trade windows, zero baselines or incomplete restored inventory."
+        //
+        // Prior logic seeded peak=0 and used a `grossDeployed` proxy when
+        // peak was too small — that produced "100% current/max drawdown"
+        // with positive account equity because a first-loss trade could
+        // arithmetically hit dd/grossDeployed ≈ 100%.
+        //
+        // New logic seeds the equity curve at the CANONICAL STARTING
+        // CASH (PaperAccountLedger6430.startingCashSol) so the equity
+        // high-water is always a real positive account value and the DD%
+        // matches the operator's mental model: DD as a fraction of the
+        // canonical account, never as a fraction of "risk deployed so far".
+        val startingCash = try {
+            com.lifecyclebot.engine.truth.PaperAccountLedger6430.startingCashSol()
+        } catch (_: Throwable) { 0.0 }
+        val baseline = if (startingCash.isFinite() && startingCash > 0.0) startingCash else 0.0
+        var peak = baseline
+        var equity = baseline
         var maxDdSol = 0.0
         var maxDdPct = 0.0
-        var grossDeployed = 0.0 // cumulative |risk| proxy for pre-peak DD%
 
         for (trade in sorted) {
             val pnl = sanitizeDouble(trade.pnlSol)
-            grossDeployed += kotlin.math.abs(sanitizeDouble(trade.solIn).let { if (it > 0.0) it else pnl })
             equity += pnl
             if (equity > peak) peak = equity
 
-            val dd = peak - equity        // always >= 0
+            val dd = peak - equity            // always >= 0
             if (dd > maxDdSol) {
                 maxDdSol = dd
-                val denom = if (peak >= 0.05) peak else grossDeployed
-                maxDdPct = if (denom > 0.0) ((dd / denom) * 100.0).coerceIn(0.0, 100.0) else 0.0
+                // Denominator is the equity high-water — canonical per
+                // operator mandate. Guaranteed positive (baseline > 0
+                // when startingCash > 0; otherwise falls back to 100%
+                // clamp only if peak==0 which means no positive equity
+                // was ever reached).
+                maxDdPct = if (peak > 0.0) ((dd / peak) * 100.0).coerceIn(0.0, 100.0) else 0.0
             }
         }
 
         val curDd = peak - equity
-        val curDenom = if (peak >= 0.05) peak else grossDeployed
-        val currentDdPct = if (curDd > 0.0 && curDenom > 0.0) {
-            ((curDd / curDenom) * 100.0).coerceIn(0.0, 100.0)
+        val currentDdPct = if (curDd > 0.0 && peak > 0.0) {
+            ((curDd / peak) * 100.0).coerceIn(0.0, 100.0)
         } else 0.0
 
         return Triple(
