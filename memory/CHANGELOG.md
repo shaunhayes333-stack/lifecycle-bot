@@ -1,3 +1,59 @@
+## V5.0.6500 — 2026-02-19 — QUANTITY INVARIANT ENFORCEMENT
+
+Single-commit ship (`149489973`). CI green — Build AATE APK + Runtime
+Smoke Test both pass.
+
+Operator 6499 dump: compassSOL paper position shows 6.71K tokens on
+0.05 SOL at $112.15/token → $752K phantom notional on a $5 paper buy.
+That one position produced the entire $754K phantom equity delta the
+main UI kept displaying. Every open position violates
+`qty × entryPrice ≈ sizeSol × solPrice`.
+
+**Root cause — two stacked bugs**
+
+Bug A: `Executor.paperBuy` at line 12343 stored `qtyToken =
+effectiveSol / effectivePrice`. `effectiveSol` is SOL, `effectivePrice`
+is USD-per-token → wrong units. Missing the `× solPriceUsd` factor.
+Documented as the "WADDLE 1000× skew" at line 1563 for the chain-
+decimal detector but never applied to the paper store.
+
+Bug B: `Executor.PRICE_BASIS_REBASE` at line 1285 rebased `entryPrice`
+by factor F when a paper position graduated from pump.fun BC to
+Raydium but did NOT scale `qtyToken` by `1/F`. Silent phantom notional
+inflation. On compassSOL the factor was 15,000,000×.
+
+**Fixes**
+
+- **§1 paperBuy formula**: `qtyAtBuy6500 = (effectiveSol × solPrice) /
+  effectivePrice` with cold-boot fallback + `PAPER_BUY_QTY_SOLPX_FALLBACK_6500`
+  canary.
+- **§2 PRICE_BASIS_REBASE invariant preservation**: scale `qtyToken`
+  by `1/factor` when rebasing entry price. Additionally cap rebase
+  factor at 100×. Rebase attempts beyond that come from corrupted
+  quotes (mcap/1B basis vs USD basis) → emit
+  `PRICE_BASIS_REBASE_REJECTED_INVARIANT_6500` + route to permanent
+  invariant quarantine.
+- **§3 `QuantityInvariantAuthority6500`** (new file):
+  `check(pos)` validates `|qty × entryPrice − costSol × solPrice| /
+  (costSol × solPrice) < 0.10`. `markInvariantBroken` routes to
+  `HistoricalEconomicQuarantine6496` exactly once per mint.
+  `isQuarantined` enables downstream exclusion.
+- **§4 BotService mark-provider gate**: `installMarkProvider` callback
+  consults `isQuarantined(mint)`. Broken positions contribute 0.0 SOL
+  to `openMarketValueSol` so equity never inflates from phantom
+  notionals.
+- **§5 BotService startup sweep**: on `startBot` walk every open paper
+  position and force-close any that fail the invariant via
+  `executor.requestSell(reason = "INVARIANT_QUARANTINE_6500")`. Per
+  operator mandate: clean slate for live-strategy tuning today.
+  Emits `INVARIANT_QUARANTINE_STARTUP_SWEEP_6500`.
+- **§6 MainActivity Open Positions honesty**: position cards consult
+  `isQuarantined + check(pos)` live. On broken invariant the Entry
+  and Size lines render `INVARIANT_BROKEN_6500` in amber instead of
+  the phantom qty and price.
+
+
+
 ## V5.0.6497 — 2026-02-19 — ENTRY FINALITY REPAIR
 
 Two commits ship this beat (`375671cd4` main + `951fb7a2a` test alignment).
