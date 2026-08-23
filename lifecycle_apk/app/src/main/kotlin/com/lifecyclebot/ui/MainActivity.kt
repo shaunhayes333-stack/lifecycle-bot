@@ -2898,12 +2898,24 @@ for legal compliance.
                 // must never call buildUnifiedOpenPositions() synchronously while the
                 // bot is running; that was the header/list mismatch + ANR source.
                 val allOpen = buildUnifiedOpenPositions(state)
-                val totalExposure = allOpen.sumOf { it.position.costSol }
-                val totalUpnl = allOpen.sumOf { token ->
-                    val pos = token.position
-                    val verdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(token, "MainActivity.precomputeTotalUpnl6078/${token.symbol}/${token.mint.take(8)}", emit = false)
-                    if (verdict.ok) pos.costSol * verdict.pnlPct / 100.0 else 0.0
-                }
+                // V5.0.6503 §2 — HERO SNAPSHOT AUTHORITY hot-cache reuse.
+                // The background HeroSnapshotAuthority6503 already summed
+                // costSol + unrealized (OpenPnlSanity.inspect) off Main every
+                // 500ms. When the cached hero is fresh, skip the duplicate
+                // Σ passes below to keep this Default worker tick short —
+                // the operator's 6501/6502 dumps still had 3s frame gaps
+                // during hero rebuild churn.
+                val hero6503 = try {
+                    com.lifecyclebot.engine.truth.HeroSnapshotAuthority6503.current()
+                } catch (_: Throwable) { null }
+                val totalExposure = if (hero6503 != null) hero6503.totalExposureSol
+                    else allOpen.sumOf { it.position.costSol }
+                val totalUpnl = if (hero6503 != null) hero6503.totalUnrealizedSol
+                    else allOpen.sumOf { token ->
+                        val pos = token.position
+                        val verdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(token, "MainActivity.precomputeTotalUpnl6078/${token.symbol}/${token.mint.take(8)}", emit = false)
+                        if (verdict.ok) pos.costSol * verdict.pnlPct / 100.0 else 0.0
+                    }
                 val h = (allOpen.joinToString("|") { t ->
                     val p = t.position
                     "${t.mint}:${p.costSol}:${p.qtyToken}:${p.isPaperPosition}:${p.pendingVerify}"

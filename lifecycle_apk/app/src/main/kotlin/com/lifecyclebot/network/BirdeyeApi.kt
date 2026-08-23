@@ -41,6 +41,14 @@ class BirdeyeApi(private val apiKey: String = "") {
 
     private val BASE = "https://public-api.birdeye.so"
 
+    companion object {
+        // V5.0.6503 §4 — one-shot sticky 401 latch so the loud lifecycle
+        // line only fires on the first 401 in this process lifetime.
+        // Every subsequent 401 short-circuits at KeyValidator/circuit
+        // breaker before even reaching this method (no retry storm).
+        private val birdeye401StickyEmitted6503 = java.util.concurrent.atomic.AtomicBoolean(false)
+    }
+
     // ── OHLCV candle history ──────────────────────────────────────────
 
     /**
@@ -635,6 +643,29 @@ class BirdeyeApi(private val apiKey: String = "") {
                     try {
                         com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
                             .onAuthTerminal(com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE)
+                    } catch (_: Throwable) {}
+                    // V5.0.6503 §4 — one-shot loud operator-visible surface
+                    // for the Birdeye 401 taxonomy. The circuit breaker
+                    // already blocks every subsequent call, but the operator
+                    // reported the 401 wasn't obvious in pipeline dumps
+                    // (Issue 4). Emit ONE sticky lifecycle line + a counter
+                    // + KeyValidator sticky-DEAD verdict so the report shows
+                    // exactly "BIRDEYE_KEY_DEAD_401_STICKY_6503" once and
+                    // the health tile turns red until the operator
+                    // rotates via SettingsBottomSheet/etBirdeyeKey.
+                    try {
+                        if (birdeye401StickyEmitted6503.compareAndSet(false, true)) {
+                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                "BIRDEYE_KEY_DEAD_401_STICKY_6503",
+                                "http=${resp.code} action=circuit_open+keyvalidator_dead " +
+                                    "recovery=operator_must_rotate_via_settings_etBirdeyeKey " +
+                                    "downstream=providerCircuitBreaker6402+keyValidator+apiBackoff",
+                            )
+                            com.lifecyclebot.engine.PipelineHealthCollector
+                                .labelInc("BIRDEYE_KEY_DEAD_401_STICKY_6503")
+                        }
+                        com.lifecyclebot.engine.PipelineHealthCollector
+                            .labelInc("BIRDEYE_HTTP_${resp.code}_6503")
                     } catch (_: Throwable) {}
                     null
                 }

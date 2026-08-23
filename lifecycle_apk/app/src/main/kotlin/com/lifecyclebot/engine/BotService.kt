@@ -4260,6 +4260,25 @@ class BotService : Service() {
                 }
             }
         } catch (_: Throwable) {}
+        // V5.0.6502 §3 — CANONICAL WALLET REBUILD (phantom-realized reject
+        // third leg). Rebuilds PaperAccountLedger6430.realizedPnl from the
+        // canonical EconomicEventSchema6464 stream, dropping every event whose
+        // mint sits in the QuantityInvariantAuthority6500 or
+        // LearningQuarantineGate6470 quarantines. Must run AFTER the invariant
+        // sweep above so the freshly-quarantined phantom-qty mints are already
+        // marked before their realized rows are replayed. Idempotent — one
+        // synchronous replay per startBot() call, no live-mode side effects
+        // (writes only into PaperAccountLedger6430.realizedPnlPico).
+        try {
+            com.lifecyclebot.engine.truth.PaperAccountLedger6430.rebuildRealizedFromCanonicalEvents6502()
+        } catch (_: Throwable) {}
+        // V5.0.6503 §2 — start HeroSnapshotAuthority6503 so MainActivity /
+        // hero panels can read equity/exposure/openCount/pnl off Main via
+        // an O(1) atomic reference. Idempotent. Publishes every 500ms on
+        // Dispatchers.Default from a materialised token-map snapshot.
+        try {
+            com.lifecyclebot.engine.truth.HeroSnapshotAuthority6503.start(status)
+        } catch (_: Throwable) {}
         // V5.0.6496 §5 — start the background UI snapshot refresher so
         // BotStatus.openPositions no longer traverses the token map on
         // Dispatchers.Main. Idempotent.

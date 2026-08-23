@@ -1,3 +1,46 @@
+# AATE PRD — V5.0.6503 (V5.7+ FINISH DEFERRED ITEMS)
+
+**Status:** PAPER TRADING ONLY. Live execution intentionally disabled.
+
+**Product goal (verbatim operator mantra):** "$50 to a million thru
+Autonomous intelligent trading". Every canonical authority is tuned
+to (a) protect capital, (b) preserve every side-effect door at its
+originating layer, and (c) keep learning purity so runner
+compounding is monotonic. The 26-point correctness mandate stays
+green before any live routing enables.
+
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change
+lands via `git push` → GitHub Actions CI. Verification is the pair
+(`Build AATE APK` green, `Runtime Smoke Test` green) on the head
+SHA.
+
+
+## V5.0.6503 (Feb 2026) — LEDGER REBUILD WIRE + HERO OFF-MAIN + TAXONOMY + BIRDEYE 401 STICKY
+
+Twenty-fifth beat. Bundled ship of every item the previous fork
+deferred/skipped:
+
+- **§1** — Wired `PaperAccountLedger6430.rebuildRealizedFromCanonicalEvents6502()`
+  into `BotService.startBot()` right after the 6500 invariant sweep.
+  This finishes V5.0.6502 (phantom-realized reject third leg).
+- **§2** — New `HeroSnapshotAuthority6503`. Background 500 ms
+  Dispatchers.Default loop publishes immutable
+  `(openCount, exposure, unrealized, equity, cash, realized)` for
+  hero-tile readers. Started idempotently from `startBot`. Consumed
+  in `MainActivity.precomputeMainRenderModelAsync` to eliminate the
+  duplicate Σ passes that produced the 3017 ms Main-thread frame
+  gaps. Applies to paper AND live modes.
+- **§3** — `ExecutableOpenGate` `EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY`
+  blocks now report `SIGNAL_NOT_BUY:<signal>` so the pipeline dump
+  no longer contains 143 `EXEC_GATE/UNKNOWN` rows.
+- **§4** — `BirdeyeApi.getRaw` 401 path emits one loud
+  `BIRDEYE_KEY_DEAD_401_STICKY_6503` lifecycle line + counter so the
+  operator sees the dead-key state clearly. All existing
+  KeyValidator + ProviderCircuitBreaker6402 sticky-DEAD gating
+  untouched — this is a visibility upgrade only.
+
+
+
 # AATE PRD — V5.0.6497 (V5.7+ Entry Finality Repair)
 
 **Status:** PAPER TRADING ONLY. Live execution intentionally disabled

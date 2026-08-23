@@ -1,3 +1,107 @@
+## V5.0.6503 — 2026-02-19 — LEDGER REBUILD WIRE + HERO OFF-MAIN + TAXONOMY + BIRDEYE 401 STICKY
+
+Operator mandate (verbatim, this session): "I want all the items done
+now. all changes must be reflected in all trading modes as required.
+remember the $50 to a million thru Autonomous intelligent trading
+mantra!!!"
+
+Bundled ship of every deferred/skipped correctness item from the
+6501/6502 dumps. Paper trading only. Live routing untouched.
+
+**§1 — WIRE 6502 CANONICAL WALLET REBUILD (finishes P0)**
+
+- `BotService.startBot` now calls
+  `PaperAccountLedger6430.rebuildRealizedFromCanonicalEvents6502()`
+  IMMEDIATELY AFTER the `INVARIANT_QUARANTINE_STARTUP_SWEEP_6500`
+  block. The rebuild replays `EconomicEventSchema6464.canonicalRealizedEvents()`
+  (§3 of 6502) minus every mint quarantined by
+  `QuantityInvariantAuthority6500` or `LearningQuarantineGate6470`,
+  writes the clean sum back to `realizedPnlPico`, and emits
+  `PAPER_LEDGER_REBUILD_FROM_CANONICAL_6502` with priorRealized /
+  rebuiltRealized / accepted / droppedInvariant / droppedHistorical.
+- Kills the +38.12 SOL phantom the operator saw on 6501 dumps. The
+  749 quarantined rows can no longer contribute to the ledger's
+  historical realized aggregate.
+- `EconomicEventSchema6464.canonicalRealizedEvents()` factory shipped
+  in the same commit — returns an immutable list of
+  `TerminalSellSnapshot6502(mint, realizedPnlSol)` filtered to
+  `!partial` rows.
+
+**§2 — HERO SNAPSHOT AUTHORITY (P1 UI OFF-MAIN)**
+
+- New `engine/truth/HeroSnapshotAuthority6503.kt`. Background
+  `Dispatchers.Default` loop refreshes every 500 ms with a
+  materialised token-map snapshot; publishes an immutable
+  `Hero(openCount, totalExposureSol, totalUnrealizedSol, equitySol,
+   cashSol, realizedPnlSol, atMs)` via `AtomicReference`.
+- Started idempotently from `BotService.startBot` alongside
+  `UiSnapshotAuthority6496`.
+- `MainActivity.precomputeMainRenderModelAsync` now consults
+  `HeroSnapshotAuthority6503.current()` before the `allOpen.sumOf {…}`
+  Σ passes — when the hero cache is fresh, both totalExposureSol and
+  totalUnrealizedSol are reused from the pre-computed off-Main
+  aggregate. Fresh compute path retained as fallback.
+- Applies to paper AND live modes — the authority is mode-agnostic
+  and reads the same live token map both surfaces render.
+
+**§3 — TAXONOMY: EXEC_GATE/UNKNOWN → SIGNAL_NOT_BUY:*  (P2)**
+
+- `ExecutableOpenGate.canOpenExecutablePositionInternal` two
+  `blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", signal…)` call sites
+  now pass an explicit `"SIGNAL_NOT_BUY:<signal>"` reason string so
+  `ForensicLogger.gate(EXEC_GATE, allow=false, reason=…)` no longer
+  renders as `EXEC_GATE/UNKNOWN`. The 143 UNKNOWN rows in the 6501
+  pipeline dump are now labelled with the actual upstream signal.
+- Cosmetic only — no execution decision change. Every path was
+  already correctly blocked; only the counter/report string was
+  ambiguous.
+
+**§4 — BIRDEYE 401 STICKY OPERATOR-VISIBLE SURFACE (P2)**
+
+- `BirdeyeApi.getRaw` 401/403 branch: adds a one-shot lifecycle emit
+  `BIRDEYE_KEY_DEAD_401_STICKY_6503` (guarded by a class-level
+  `AtomicBoolean` — one loud line per process lifetime, no spam) +
+  bumps `BIRDEYE_HTTP_401_6503` counter every call.
+- `KeyValidator.recordResult("birdeye", 401)` already marks the
+  service DEAD for `DEAD_TTL_MS` and `ProviderCircuitBreaker6402
+  .onAuthTerminal(BIRDEYE)` opens the circuit permanently — those
+  paths were correct; the operator's issue was purely visibility
+  ("Birdeye 401 wasn't obvious in pipeline dumps"). Now the very
+  first 401 emits a single loud line the report tile can display,
+  the counter tracks total attempts, and the operator sees the
+  recovery hint: "operator_must_rotate_via_settings_etBirdeyeKey".
+- Zero retry storm — every subsequent request short-circuits at
+  `KeyValidator.isLive` OR `ProviderCircuitBreaker6402.shouldSkip`
+  before reaching `http.newCall(…)`.
+
+**Files touched**
+- `engine/BotService.kt` — startBot() wires §1 rebuild + §2
+  HeroSnapshotAuthority6503.start
+- `engine/truth/PaperAccountLedger6430.kt` — §1 rebuild method
+  (already staged in 6502)
+- `engine/truth/EconomicEventSchema6464.kt` — §1 canonicalRealizedEvents
+  factory (already staged in 6502)
+- `engine/truth/HeroSnapshotAuthority6503.kt` — NEW §2 authority
+- `ui/MainActivity.kt` — §2 hero cache reuse in
+  precomputeMainRenderModelAsync
+- `engine/ExecutableOpenGate.kt` — §3 taxonomy strings
+- `network/BirdeyeApi.kt` — §4 one-shot sticky lifecycle +
+  companion AtomicBoolean
+
+**Acceptance snapshot expected**
+- `PAPER_LEDGER_REBUILD_FROM_CANONICAL_6502` prints on every
+  startBot; delta reflects the phantom purge.
+- `HERO_SNAPSHOT_AUTHORITY_STARTED_6503` prints once at startBot.
+- `HeroSnapshotAuthority6503.statusLine()` shows `refreshes>0
+  cacheHits>0 cacheMisses=0` steady-state — Main-thread aggregation
+  now services from cache.
+- `EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY` blocks report as
+  `SIGNAL_NOT_BUY:<signal>` in `ForensicLogger.gate(EXEC_GATE,…)`.
+- `BIRDEYE_KEY_DEAD_401_STICKY_6503` emits exactly once per process
+  when the operator's Birdeye key is dead.
+
+
+
 ## V5.0.6501 — 2026-02-19 — ECONOMIC INTEGRITY CLEANUP
 
 Single-commit ship (`e5106d06d`). CI green — Build AATE APK + Runtime

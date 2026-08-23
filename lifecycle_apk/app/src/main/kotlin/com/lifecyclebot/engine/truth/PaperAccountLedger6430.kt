@@ -307,6 +307,64 @@ object PaperAccountLedger6430 {
     fun startingCashSol(): Double = fromPico(startingCashPico.get())
 
     /**
+     * V5.0.6502 §3 — CANONICAL WALLET REBUILD.
+     *
+     * Called from BotService.startBot AFTER the QuantityInvariantAuthority6500
+     * startup sweep has force-closed and quarantined every phantom-qty
+     * position. Rebuilds `realizedPnlPico` from scratch by summing the
+     * canonical EconomicEventSchema6464 terminal events, dropping any
+     * event whose mint is in the quantity-invariant or historical
+     * quarantines.
+     *
+     * This wipes pre-6502 persisted phantoms (the +38.12 SOL the
+     * operator saw on the 6501 dump) because the 749 quarantined rows
+     * that produced the phantom are filtered out at replay.
+     *
+     * cash/openCost are NOT rebuilt — those are already atomically
+     * maintained by onBuy/onSell and the invariant sweep. Only the
+     * historical realized aggregate is regenerated.
+     */
+    @Synchronized
+    fun rebuildRealizedFromCanonicalEvents6502(): Double {
+        val events = try {
+            com.lifecyclebot.engine.truth.EconomicEventSchema6464.canonicalRealizedEvents()
+        } catch (_: Throwable) { emptyList() }
+        var cleanSum = 0.0
+        var droppedInvariant = 0
+        var droppedHistorical = 0
+        var accepted = 0
+        for (ev in events) {
+            val mint = ev.mint
+            if (mint.isNotBlank()) {
+                val invariantBroken = try {
+                    QuantityInvariantAuthority6500.isQuarantined(mint)
+                } catch (_: Throwable) { false }
+                if (invariantBroken) { droppedInvariant++; continue }
+                val historical = try {
+                    LearningQuarantineGate6470.isQuarantined(positionId = null, mint = mint)
+                } catch (_: Throwable) { false }
+                if (historical) { droppedHistorical++; continue }
+            }
+            cleanSum += ev.realizedPnlSol
+            accepted++
+        }
+        val priorRealized = fromPico(realizedPnlPico.get())
+        realizedPnlPico.set(toPico(cleanSum))
+        opCount.incrementAndGet()
+        persistCurrent6487()
+        try {
+            ForensicLogger.lifecycle(
+                "PAPER_LEDGER_REBUILD_FROM_CANONICAL_6502",
+                "priorRealized=${"%.4f".format(priorRealized)} rebuiltRealized=${"%.4f".format(cleanSum)} " +
+                    "accepted=$accepted droppedInvariant=$droppedInvariant droppedHistorical=$droppedHistorical " +
+                    "delta=${"%.4f".format(cleanSum - priorRealized)}",
+            )
+            PipelineHealthCollector.labelInc("PAPER_LEDGER_REBUILD_FROM_CANONICAL_6502")
+        } catch (_: Throwable) {}
+        return cleanSum
+    }
+
+    /**
      * Capital conservation invariant:
      *   startingCash + realizedPnl - fees == cash + openCostBasis + reservedCash
      * within tolerance. Returns null on pass, error message on fail.

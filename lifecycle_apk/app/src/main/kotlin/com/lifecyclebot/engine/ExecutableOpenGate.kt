@@ -1407,7 +1407,7 @@ object ExecutableOpenGate {
                 restorePenalty = restorePenalty.combine(LiveRestoreExecutionPolicy.fromStaleWatch(liquidityUsd))
                 try { ForensicLogger.lifecycle("LIVE_RESTORE_SIGNAL_SOFT_ALLOW", "symbol=$symbol mint=${mint.take(10)} signal=$signal fdgCan=true liq=${liquidityUsd.toInt()}") } catch (_: Throwable) {}
             } else {
-                return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", signal.ifBlank { "UNKNOWN" }, shadow = mode == "PAPER")
+                return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", "SIGNAL_NOT_BUY:${signal.ifBlank { "UNKNOWN" }}", shadow = mode == "PAPER")
             }
         }
         if (fdgCan != true) {
@@ -1418,7 +1418,7 @@ object ExecutableOpenGate {
                 restorePenalty = restorePenalty.combine(LiveRestoreExecutionPolicy.fromStaleWatch(liquidityUsd))
                 try { ForensicLogger.lifecycle("LIVE_RESTORE_SIGNAL_SOFT_ALLOW", "symbol=$symbol mint=${mint.take(10)} signal=$signal fdgCan=true liq=${liquidityUsd.toInt()}") } catch (_: Throwable) {}
             } else {
-                return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", signal, shadow = mode == "PAPER")
+                return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", "SIGNAL_NOT_BUY:$signal", shadow = mode == "PAPER")
             }
         }
         // V5.0.3915 — only confirmed rug is a final-open hard block. Low/nonzero

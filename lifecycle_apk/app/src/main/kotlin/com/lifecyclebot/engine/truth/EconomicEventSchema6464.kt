@@ -284,6 +284,20 @@ object EconomicEventSchema6464 {
 
     fun replayCarry6489(): ReplayCarry6489 = replayCarry6489
 
+    /**
+     * V5.0.6502 §3 — Terminal (non-partial) Sell events for ledger rebuild.
+     * Returns an immutable snapshot so callers can iterate without
+     * holding the deque lock. Filters to `!partial` — partial rows are
+     * not decisive realized events.
+     */
+    data class TerminalSellSnapshot6502(val mint: String, val realizedPnlSol: Double)
+    fun canonicalRealizedEvents(): List<TerminalSellSnapshot6502> =
+        events.mapNotNull { ev ->
+            (ev as? Sell)?.takeIf { !it.partial }?.let {
+                TerminalSellSnapshot6502(mint = it.mint, realizedPnlSol = it.realizedPnlSol)
+            }
+        }
+
     /** V5.0.6498 — repair a stale historical prefix from current canonical
      * ledger + active inventory truth. Refuses if the event stream changed
      * during comparison, so an in-flight trade can never be folded into carry. */
