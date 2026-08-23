@@ -600,6 +600,15 @@ object CanonicalPositionAuthority6441 {
         return LifecycleClassification(total = snapshot.size, byLifecycle = counts, unaccounted = unaccounted)
     }
 
+    internal fun resetForTest() {
+        lock.lock()
+        try {
+            positions.clear(); mutationKeys.clear()
+            paperCashSol.set(0.0); paperCashInitialisedMs.set(0L); liveCashObservedSol.set(0.0)
+            muts.set(0L); duplicates.set(0L); invariantViolations.set(0L); quarantines.set(0L)
+        } finally { lock.unlock() }
+    }
+
     fun statusLine(): String {
         val open = openCount()
         val closed = closedPositions().size

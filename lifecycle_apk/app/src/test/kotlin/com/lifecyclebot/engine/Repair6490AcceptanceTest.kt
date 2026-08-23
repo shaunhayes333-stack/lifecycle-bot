@@ -9,7 +9,7 @@ import org.junit.Test
 
 class Repair6490AcceptanceTest {
     @Test
-    fun affordable_paper_order_cannot_be_shaped_below_executable_floor() = synchronized(PaperAccountLedger6430) {
+    fun sub_minimum_request_is_not_inflated_above_requested_risk() = synchronized(PaperAccountLedger6430) {
         PaperAccountLedger6430.resetForTest()
         PaperAccountLedger6430.initialize(0.0583)
         val r = OrderSizeResolver6441.resolve(
@@ -20,9 +20,9 @@ class Repair6490AcceptanceTest {
             laneRiskCapSol = 0.05,
             laneMinExecutableSol = 0.05,
         )
-        assertTrue(r.executable)
-        assertEquals(0.05, r.finalSizeSol, 1e-9)
-        assertEquals("OK", r.reason)
+        assertFalse(r.executable)
+        assertEquals(0.0, r.finalSizeSol, 1e-9)
+        assertTrue(r.reason.contains("BELOW_MIN_EXECUTABLE"))
     }
 
     @Test

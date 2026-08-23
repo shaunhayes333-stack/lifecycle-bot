@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+
 import com.lifecyclebot.engine.truth.MarketDataProvenance6471
 import com.lifecyclebot.engine.truth.PositionParityDomainAudit6471
 import com.lifecyclebot.engine.truth.RootCauseClassifier6471
@@ -92,6 +94,7 @@ class EconomicTruthAndEntryAuthorityAcceptanceTest6471 {
     @Test
     fun `parity audit is idempotent and does not flag empty state`() {
         PositionParityDomainAudit6471.resetForTest()
+        CanonicalPositionAuthority6441.resetForTest()
         val r = PositionParityDomainAudit6471.audit()
         assertNotNull(r)
         assertEquals(0, r.canonicalOpen)

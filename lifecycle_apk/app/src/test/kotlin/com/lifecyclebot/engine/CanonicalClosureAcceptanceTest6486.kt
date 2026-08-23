@@ -5,6 +5,8 @@ import com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486
 import com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
 import com.lifecyclebot.engine.truth.EconomicEventSchema6464
 import com.lifecyclebot.engine.truth.PaperAccountLedger6430
+import com.lifecyclebot.engine.truth.SellQtyBoundaryClamp6427
+import com.lifecyclebot.engine.truth.PositionStateLedger6454
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -16,6 +18,9 @@ import kotlin.math.abs
 class CanonicalClosureAcceptanceTest6486 {
     private fun reset(starting: Double) {
         PaperAccountLedger6430.resetForTest()
+        CanonicalPositionAuthority6441.resetForTest()
+        SellQtyBoundaryClamp6427.resetForTest()
+        PositionStateLedger6454.resetForTest()
         CanonicalLotQuantity6464.resetForTest()
         EconomicEventSchema6464.resetForTest()
         PaperAccountLedger6430.initialize(starting)

@@ -8171,9 +8171,11 @@ class GoldenTapeRegressionTest {
         val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EmergentGuardrails.kt").readText()
         val sizing = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OrderSizeResolver6441.kt").readText()
         val groq = java.io.File("src/main/kotlin/com/lifecyclebot/engine/GroqRouteConfig6498.kt").readText()
+        val paperTx = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
 
         assertTrue(executor.contains("PositionStateLedger6454.onEntry(pid6485)") && executor.contains("syncAuthoritativeRaw(pid6485"))
         assertTrue(executor.indexOf("canonicalPaperSellCommitted6474 = close6474.applied") in 1 until executor.indexOf("PAPER_TERMINAL_PROJECTIONS_COMMITTED_6498"))
+        assertTrue(paperTx.contains("PositionStateLedger6454.onEntry(positionId)") && paperTx.contains("SellQtyBoundaryClamp6427.syncAuthoritativeRaw(positionId"))
         assertTrue(bridge.contains("admitRaw(positionId, soldQtyRaw") && bridge.contains("commitRaw(positionId, soldQtyRaw, terminal)"))
         assertTrue(boundary.contains("SELL_QTY_BOUNDARY_ADMITTED_" + "6498") && boundary.contains("SELL_QTY_BOUNDARY_REJECTED_" + "6498"))
         assertTrue(parity.contains("canonicalStateByMint" + "6498") && parity.contains("c=$" + "expectedState6498"))

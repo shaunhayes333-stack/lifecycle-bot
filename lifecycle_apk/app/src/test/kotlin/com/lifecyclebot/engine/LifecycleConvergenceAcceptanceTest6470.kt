@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+
 import com.lifecyclebot.engine.truth.CanonicalEconomicIdentity6470
 import com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464
 import com.lifecyclebot.engine.truth.CanonicalLifecycleAuthority6470
@@ -140,6 +142,7 @@ class LifecycleConvergenceAcceptanceTest6470 {
     @Test
     fun `lifecycle authority audit is idempotent on clean state`() {
         CanonicalLifecycleAuthority6470.resetForTest()
+        CanonicalPositionAuthority6441.resetForTest()
         CanonicalMintOccupancyRegistry6464.resetForTest()
         val r = CanonicalLifecycleAuthority6470.audit()
         assertNotNull(r)

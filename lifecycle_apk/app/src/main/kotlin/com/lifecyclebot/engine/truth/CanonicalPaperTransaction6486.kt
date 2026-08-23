@@ -30,6 +30,8 @@ object CanonicalPaperTransaction6486 {
             return@withLock Result(false, positionId, "POSITION_$opened")
         }
         CanonicalLotQuantity6464.onBuyFilled(positionId, mint, qtyRaw)
+        PositionStateLedger6454.onEntry(positionId)
+        SellQtyBoundaryClamp6427.syncAuthoritativeRaw(positionId, qtyRaw, qtyRaw)
         EconomicEventSchema6464.recordBuy("paper", positionId, mint, symbol, idem, costSol,
             qtyRaw, costSol / qtyRaw.toDouble(), feeSol)
         EntryStrategySnapshot6450.setEntry(EntryStrategySnapshot6450.Snapshot(
@@ -56,6 +58,10 @@ object CanonicalPaperTransaction6486 {
             return@withLock Result(false, positionId, "POSITION_$applied")
         }
         CanonicalLotQuantity6464.onBuyFilled(positionId, mint, addedQtyRaw)
+        CanonicalPositionAuthority6441.getPosition(positionId)?.let { updated6498 ->
+            PositionStateLedger6454.onEntry(positionId)
+            SellQtyBoundaryClamp6427.syncAuthoritativeRaw(positionId, updated6498.originalQtyRaw, updated6498.remainingQtyRaw)
+        }
         EconomicEventSchema6464.recordBuy("paper", positionId, mint, symbol, idem, addedCostSol,
             addedQtyRaw, addedCostSol / addedQtyRaw.toDouble(), addedFeeSol)
         try { PipelineHealthCollector.labelInc("PAPER_TRANSACTION_ADD_COMMITTED_6486") } catch (_: Throwable) {}
