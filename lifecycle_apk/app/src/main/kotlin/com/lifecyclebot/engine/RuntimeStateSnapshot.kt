@@ -208,6 +208,7 @@ data class RuntimeStateSnapshot(
                     storeOpen = positionStoreOpen,
                     closedNonDust = closedNonDust,
                     staleLivePriceExit = staleExit,
+                    paperMode = isPaperRuntime,  // V5.0.6499 §4
                 )
             } catch (_: Throwable) {}
 

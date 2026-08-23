@@ -6927,6 +6927,21 @@ class Executor(
             try { ForensicLogger.lifecycle("LIVE_STRATEGY_TUNER_TP_RAISED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKey baseTp=${tpPct.toInt()} learned=${learnedTpFloor.toInt()} tuned=${liveGrowthTpPct.toInt()} tune=${tune.compact}") } catch (_: Throwable) {}
         }
         if (pnlPct >= liveGrowthTpPct) {
+            // V5.0.6499 §3 — MARK AUTHORITY INVALID LATCH. When the
+            // mark is latched invalid (e.g. LIQ_HALVED_MARK_INVALIDATED_6310
+            // for this mint), the +N% PnL is phantom. Refuse the
+            // profit-labelled TP sell. Emergency exits (STRICT_SL / rug
+            // net) still fire from their own paths.
+            if (try { com.lifecyclebot.engine.truth.MarkAuthorityInvalidLatch6499.isInvalid(ts.mint) } catch (_: Throwable) { false }) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "SWEEP_TAKE_PROFIT_BLOCKED_MARK_INVALID_6499",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} phantomPnl=${pnlPct.toInt()} reason=${com.lifecyclebot.engine.truth.MarkAuthorityInvalidLatch6499.reasonOf(ts.mint) ?: "unknown"} action=no_profit_labelled_partial",
+                    )
+                    PipelineHealthCollector.labelInc("SWEEP_TAKE_PROFIT_BLOCKED_MARK_INVALID_6499")
+                } catch (_: Throwable) {}
+                return false
+            }
             val tag = if (settleBypass) "SWEEP_TAKE_PROFIT_SETTLE_BYPASS_4200" else "SWEEP_TAKE_PROFIT"
             try {
                 ForensicLogger.lifecycle(
@@ -7200,6 +7215,16 @@ class Executor(
                             "mint=${ts.mint.take(10)} sym=${ts.symbol} bestPnl=${bestPnl.fmt(1)}% entryLiq=\$${entryLiq6310.fmt(0)} nowLiq=\$${currentLiq6310.fmt(0)} halvedTo=${(currentLiq6310 / entryLiq6310 * 100.0).fmt(1)}% — runner gate blocked (rug in progress, positive mark is phantom)",
                         )
                         PipelineHealthCollector.labelInc("LIQ_HALVED_MARK_INVALIDATED_6310")
+                    } catch (_: Throwable) {}
+                    // V5.0.6499 §3 — MARK AUTHORITY INVALID LATCH.
+                    // Propagate the invalidation upstream so downstream
+                    // TP / partial / reward computation bails BEFORE
+                    // it can emit `pnl=+0.32 PARTIAL_SELL` phantoms.
+                    try {
+                        com.lifecyclebot.engine.truth.MarkAuthorityInvalidLatch6499.mark(
+                            ts.mint,
+                            "LIQ_HALVED_${(currentLiq6310 / entryLiq6310 * 100.0).toInt()}pct",
+                        )
                     } catch (_: Throwable) {}
                     onLog("🛑 LIQ HALVED: ${ts.symbol} pool \$${entryLiq6310.fmt(0)}→\$${currentLiq6310.fmt(0)} — +${bestPnl.toInt()}% mark discarded, runner exit blocked", ts.mint)
                     return@quickRunner

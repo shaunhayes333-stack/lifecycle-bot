@@ -281,6 +281,47 @@ object ExecutableOpenGate {
                 } catch (_: Throwable) {}
                 return null
             }
+            // V5.0.6499 §5 — SNAPSHOT EXECUTION RACE. If ExecutionSnapshotAuthority6496
+            // has a frozen tuple for this mint (primaryLane +
+            // safetyAuthorityTier + canonicalOccupancy + resolvedOrderSizeSol
+            // sealed at FDG allow), that IS the frozen authoritative state.
+            // We do NOT need the transient FDG state row that scanner storms
+            // may have swept — the operator's spec: "The execution ticket
+            // should freeze mint + candidateVersion + primaryLane +
+            // safetyEpoch + decisionEpoch and only revalidate genuinely
+            // safety-critical state before commit. A telemetry/style/lane
+            // reshuffle must not invalidate an otherwise accepted paper
+            // ticket." Missing FDG state row alone is exactly that class
+            // of non-safety drift.
+            if (mint.isNotBlank() && isRealExecutionLane(selected) &&
+                currentLiquidityUsd > 0.0 &&
+                (currentSafetyTier.equals("SAFE", true) || currentSafetyTier.equals("CAUTION", true))) {
+                val hasFrozenSnap = try {
+                    com.lifecyclebot.engine.truth.ExecutionSnapshotAuthority6496
+                        .matchOrDriftReason(
+                            mint = mint,
+                            primaryLane = selected,
+                            safetyAuthorityTier = currentSafetyTier,
+                            canonicalOccupancy = "$mint:${selected.uppercase()}",
+                            resolvedOrderSizeSol = try {
+                                com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint) ?: 0.0
+                            } catch (_: Throwable) { 0.0 },
+                        ) == null &&
+                        try {
+                            com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint) != null
+                        } catch (_: Throwable) { false }
+                } catch (_: Throwable) { false }
+                if (hasFrozenSnap) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "EXEC_STATE_RESTORED_FROM_FROZEN_SNAPSHOT_6499",
+                            "mint=${mint.take(10)} symbol=$symbol selected=$selected safety=$currentSafetyTier liq=${currentLiquidityUsd.toInt()} action=allow_from_snapshot",
+                        )
+                        PipelineHealthCollector.labelInc("EXEC_STATE_RESTORED_FROM_FROZEN_SNAPSHOT_6499")
+                    } catch (_: Throwable) {}
+                    return null
+                }
+            }
             return "EXEC_OPEN_DROPPED_TOKEN_STATE_CHANGED" to "TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE"
         }
         // V5.9.1559 — live unchoke: stale context hardNos must not survive

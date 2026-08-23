@@ -86,9 +86,7 @@ object PerformanceAnalytics {
         val closedTradesRaw = trades.filter { sanitizeDouble(it.exitPrice) > 0.0 && it.tsExit > 0L }
         if (closedTradesRaw.isEmpty()) {
             return AnalyticsSnapshot(totalTrades = 0)
-        }
-
-        // V5.9.1365 — ACCOUNTING POISON GUARD. The CYCLIC lane is a separate
+        }        // V5.9.1365 — ACCOUNTING POISON GUARD. The CYCLIC lane is a separate
         // $500→$1M compounding ring that deploys its FULL virtual balance each
         // cycle (by design — see CyclicTradeEngine). In paper that ring balloons
         // to thousands of SOL (e.g. 7950 SOL notional). Summing those giant
@@ -109,11 +107,33 @@ object PerformanceAnalytics {
             val pnl = abs(sanitizeDouble(t.pnlSol))
             pnl <= notional * 50.0
         }
+        // V5.0.6499 §1 — TERMINAL CLOSE AUTHORITY. Partial sells are
+        // not terminal — analytics must NEVER count them as closed
+        // trades. Operator 6498 dump proved 4 partials + 2 terminals
+        // were being reported as 6 closed trades / 5W-1L with a
+        // PF=3435 nonsense.
+        val closedTradesTerminalOnly = closedTrades.filter { t ->
+            com.lifecyclebot.engine.truth.TerminalCloseAuthority6499.isTerminalClose(t)
+        }
+        if (closedTradesTerminalOnly.isEmpty()) {
+            return AnalyticsSnapshot(totalTrades = 0)
+        }
+        // V5.0.6499 §2 — CANONICAL P&L AUTHORITY. Journal `pnlSol`
+        // is a display-time approximation; PaperAccountLedger6430
+        // holds the atomically-committed realized P&L in pico-SOL.
+        // When both are available and disagree by more than a
+        // material band, EMIT the divergence label and use the
+        // canonical value for the totalPnl field. Downstream WR /
+        // PF / expectancy still consume per-trade pnlSol so they
+        // remain classifier-consistent — but total P&L cannot lie.
+        val canonicalRealizedPnl = try {
+            com.lifecyclebot.engine.truth.PaperAccountLedger6430.realizedPnlSol()
+        } catch (_: Throwable) { Double.NaN }
         if (closedTrades.isEmpty()) {
             return AnalyticsSnapshot(totalTrades = 0)
         }
 
-        val decisiveTrades = closedTrades.filter { isDecisive(it) }
+        val decisiveTrades = closedTradesTerminalOnly.filter { isDecisive(it) }
         if (decisiveTrades.isEmpty()) {
             return AnalyticsSnapshot(
                 totalTrades = 0,
@@ -135,7 +155,27 @@ object PerformanceAnalytics {
         val losses = decisiveTrades.filter { isLoss(it) }
 
         val winRate = percentage(wins.size, wins.size + losses.size)
-        val totalPnl = decisiveTrades.sumOf { sanitizeDouble(it.pnlSol) }
+        val journalTotalPnl = decisiveTrades.sumOf { sanitizeDouble(it.pnlSol) }
+        // V5.0.6499 §2 — canonical P&L overrides journal aggregate.
+        // Emits CANONICAL_PNL_DIVERGENCE_6499 when the two disagree
+        // materially (> 0.1 SOL absolute or > 20% relative) so the
+        // divergence is visible in the root-cause ENTRY_FINALITY
+        // tier without silencing the analytics.
+        val totalPnl = if (canonicalRealizedPnl.isFinite()) {
+            val absDelta = kotlin.math.abs(canonicalRealizedPnl - journalTotalPnl)
+            val relDelta = if (kotlin.math.abs(canonicalRealizedPnl) > 1e-9)
+                absDelta / kotlin.math.abs(canonicalRealizedPnl) else 0.0
+            if (absDelta > 0.1 && relDelta > 0.20) {
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "CANONICAL_PNL_DIVERGENCE_6499",
+                        "journal=${"%.4f".format(journalTotalPnl)} canonical=${"%.4f".format(canonicalRealizedPnl)} absDelta=${"%.4f".format(absDelta)} using=canonical",
+                    )
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_PNL_DIVERGENCE_6499")
+                } catch (_: Throwable) {}
+            }
+            canonicalRealizedPnl
+        } else journalTotalPnl
         val avgPnl = safeAverage(decisiveTrades.map { sanitizeDouble(it.pnlSol) })
         val avgWin = safeAverage(wins.map { sanitizeDouble(it.pnlSol) })
         val avgLoss = abs(safeAverage(losses.map { sanitizeDouble(it.pnlSol) }))

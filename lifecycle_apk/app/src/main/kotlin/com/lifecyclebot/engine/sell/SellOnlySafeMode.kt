@@ -30,6 +30,7 @@ object SellOnlySafeMode {
     @Volatile private var orphanLivePositions: Int = 0
     @Volatile private var hostTrackerOpenCount: Int = 0
     @Volatile private var positionStoreOpenCount: Int = 0
+    @Volatile private var _paperMode: Boolean = false  // V5.0.6499 §4
     @Volatile private var closedWithNonDustBalance: Int = 0
     @Volatile private var staleLivePriceExitActive: Boolean = false
     @Volatile private var lastSignalMs: Long = 0L
@@ -75,6 +76,7 @@ object SellOnlySafeMode {
         storeOpen: Int,
         closedNonDust: Int,
         staleLivePriceExit: Boolean,
+        paperMode: Boolean = false,  // V5.0.6499 §4 — mode-scoped inventory
     ) {
         pendingSellQueueSize = pendingSellQueue
         sellReconcilerActiveJobs = activeJobs
@@ -95,6 +97,7 @@ object SellOnlySafeMode {
         positionStoreOpenCount = storeOpen
         closedWithNonDustBalance = closedNonDust
         staleLivePriceExitActive = staleLivePriceExit
+        _paperMode = paperMode
         lastSignalMs = now
         recompute()
     }
@@ -176,8 +179,16 @@ object SellOnlySafeMode {
             if (orphanLivePositions > 0) reasons += "orphanLive=$orphanLivePositions"
             // V5.0.3685 — P0: exact equality is too brittle (normal RPC-confirm delay
             // can put these off by 1 transiently). Require diff > 1 to flag mismatch.
-            if (kotlin.math.abs(hostTrackerOpenCount - positionStoreOpenCount) > 1)
-                reasons += "openCountMismatch host=$hostTrackerOpenCount store=$positionStoreOpenCount"
+            if (kotlin.math.abs(hostTrackerOpenCount - positionStoreOpenCount) > 1) {
+                // V5.0.6499 §4 — MODE-SCOPED INVENTORY. In PAPER mode
+                // hostTrackerOpenCount is the LIVE wallet projection
+                // (always 0). Comparing that against the paper position
+                // store produces phantom LIFECYCLE_PROJECTION_DIVERGED_6470
+                // diagnoses. Only report the mismatch in LIVE mode.
+                if (!_paperMode) {
+                    reasons += "openCountMismatch host=$hostTrackerOpenCount store=$positionStoreOpenCount"
+                }
+            }
             // V5.0.3685 — P0: 1 closed-with-dust entry is common during normal settlement
             // (RPC lag between SELL_TX_PARSE_OK and balance zero). Require > 1 to trigger.
             if (closedWithNonDustBalance > 1) reasons += "closedWithNonDust=$closedWithNonDustBalance"
