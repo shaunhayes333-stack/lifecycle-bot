@@ -280,7 +280,7 @@ object EmergentGuardrails {
                 openedAt = lots.minOf { it.openedAtMs },
                 size = lots.sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) },
                 qtyRaw = lots.fold(java.math.BigInteger.ZERO) { acc, lot -> acc + lot.remainingQtyRaw },
-                state = "OPEN",
+                state = if (lots.any { it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED }) "PARTIALLY_CLOSED" else "OPEN",
             )
         }
         val before = openPositions.get()
@@ -350,7 +350,7 @@ object EmergentGuardrails {
     fun snapshot(): Map<String, RegistryEntry> =
         openPositions.get().mapValues { (_, p) ->
             RegistryEntry(
-                mint = p.mint, symbol = p.symbol, state = "OPEN",
+                mint = p.mint, symbol = p.symbol, state = p.state,
                 qtyRaw = p.qtyRaw,
                 entryCostSol = p.size,
             )

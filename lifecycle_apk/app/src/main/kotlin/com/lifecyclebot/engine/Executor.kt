@@ -12422,6 +12422,8 @@ class Executor(
             )
             com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen("paper", tradeId.mint, ts.symbol, "Executor.paperBuy.atomic6485")
             com.lifecyclebot.engine.truth.PositionStateLedger6427.registerOpen(pid6485)
+            com.lifecyclebot.engine.truth.PositionStateLedger6454.onEntry(pid6485)
+            com.lifecyclebot.engine.truth.SellQtyBoundaryClamp6427.syncAuthoritativeRaw(pid6485, buyQtyRaw6485, buyQtyRaw6485)
             ts.position = fundedPaperPosition6485
             if (!positionDidOpen(ts)) {
                 rollbackPaperEntry6485("POST_COMMIT_PROOF_FAILED")
@@ -19115,10 +19117,25 @@ class Executor(
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
                 .firstOrNull { it.mode == "paper" && it.mint == ts.mint }
         } catch (_: Throwable) { null }
-        val terminalPid6455 = canonicalTerminalPosition6492?.positionId
-            ?: com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
-        val terminalDecimals6492 = canonicalTerminalPosition6492?.tokenDecimals?.coerceIn(0, 18)
-            ?: (ts.tokenMap.decimals ?: 9).coerceIn(0, 18)
+        if (canonicalTerminalPosition6492 == null) {
+            try {
+                ForensicLogger.lifecycle("PAPER_SELL_CANONICAL_POSITION_MISSING_6498", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason action=retry_no_projection_mutation")
+                PipelineHealthCollector.labelInc("PAPER_SELL_CANONICAL_POSITION_MISSING_6498")
+            } catch (_: Throwable) {}
+            try { PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "CANONICAL_POSITION_MISSING_6498:$reason") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "CANONICAL_POSITION_MISSING_6498") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "CANONICAL_POSITION_MISSING_6498") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.SellExecutionLocks.forceRelease(ts.mint) } catch (_: Throwable) {}
+            return SellResult.FAILED_RETRYABLE
+        }
+        val terminalPid6455 = canonicalTerminalPosition6492.positionId
+        try { com.lifecyclebot.engine.truth.PositionStateLedger6454.onEntry(terminalPid6455) } catch (_: Throwable) {}
+        try {
+            com.lifecyclebot.engine.truth.SellQtyBoundaryClamp6427.syncAuthoritativeRaw(
+                terminalPid6455, canonicalTerminalPosition6492.originalQtyRaw, canonicalTerminalPosition6492.remainingQtyRaw,
+            )
+        } catch (_: Throwable) {}
+        val terminalDecimals6492 = canonicalTerminalPosition6492.tokenDecimals.coerceIn(0, 18)
         val terminalRemainingRaw6492 = canonicalTerminalPosition6492?.remainingQtyRaw
             ?.takeIf { it > java.math.BigInteger.ZERO }
             ?: try {
@@ -19430,27 +19447,6 @@ class Executor(
         // canonical paper close reducer below commits. A successful SELL row
         // without canonical cash/openCost/finalized fanout is a money-path lie.
         
-        EmergentGuardrails.unregisterPosition(tradeId.mint)
-        // V5.9.385 — match the BUY-side registerPosition by closing the
-        // GlobalTradeRegistry.activePositions entry here. After this call
-        // the scanner eviction guard releases and the mint can be removed
-        // from the watchlist normally (or kept around via cooldown as before).
-        try {
-            com.lifecyclebot.engine.GlobalTradeRegistry.closePosition(tradeId.mint)
-        } catch (_: Exception) { /* non-critical */ }
-        try { com.lifecyclebot.v4.meta.PortfolioHeatAI.removePosition(tradeId.mint) } catch (_: Throwable) {}
-        // V5.9.1470 (spec item 1) — ATOMIC CLOSE STAMP. Record the canonical close
-        // identity so every later exit pass / slot tracker / forcedOpen scan sees this
-        // mint as CLOSED and cannot re-sell it or hold its slot. Stamped here, inside
-        // the sell-lock try-block, the instant the registry close fires. Metadata only —
-        // never touches qtyToken, balances, or P&L.
-        try {
-            val pnlPctForLedger = try { OpenPnlSanity.inspectPosition(pos, price, "Executor.close_ledger_stamp_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct?.toInt() ?: 0 } catch (_: Throwable) { 0 }
-            val cid = com.lifecyclebot.engine.PositionCloseLedger.markClosed(tradeId.mint, reason, pnlPctForLedger)
-            PaperPositionCloseAuthority.markClosed("PAPER", tradeId.mint, ts.symbol, reason, cid)
-            ForensicLogger.lifecycle("POSITION_CLOSE_LEDGER_STAMPED", "mint=${tradeId.mint.take(10)} closeId=$cid reason=$reason")
-        } catch (_: Throwable) {}
-
         // V5.9.428 — treasury split BEFORE wallet credit (was double-counting).
         // Previously: wallet got `value` (principal + 100% profit) AND treasury
         // got 30% on top — inflating both balances and leaving treasury a
@@ -19538,6 +19534,18 @@ class Executor(
         // terminalCount(pid) == 1.
         try {
             com.lifecyclebot.engine.truth.PositionStateLedger6454.confirmTerminalSell(terminalPid6455)
+        } catch (_: Throwable) {}
+        // V5.0.6498 — canonical mutation is the commit point. Only now may
+        // projections stamp CLOSED, release slots, or suppress future zombie exits.
+        try {
+            val pnlPctForLedger6498 = try { OpenPnlSanity.inspectPosition(pos, price, "Executor.close_ledger_stamp_6038_6498/${ts.symbol}/${ts.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct?.toInt() ?: 0 } catch (_: Throwable) { 0 }
+            val cid6498 = com.lifecyclebot.engine.PositionCloseLedger.markClosed(tradeId.mint, reason, pnlPctForLedger6498)
+            PaperPositionCloseAuthority.markClosed("PAPER", tradeId.mint, ts.symbol, reason, cid6498)
+            EmergentGuardrails.unregisterPosition(tradeId.mint)
+            com.lifecyclebot.engine.GlobalTradeRegistry.closePosition(tradeId.mint)
+            try { com.lifecyclebot.v4.meta.PortfolioHeatAI.removePosition(tradeId.mint) } catch (_: Throwable) {}
+            ForensicLogger.lifecycle("POSITION_CLOSE_LEDGER_STAMPED_6498", "mint=${tradeId.mint.take(10)} closeId=$cid6498 reason=$reason canonicalCommitted=true")
+            PipelineHealthCollector.labelInc("PAPER_TERMINAL_PROJECTIONS_COMMITTED_6498")
         } catch (_: Throwable) {}
 
         val cyclicVirtualPaperClose = pos.tradingMode.equals("CYCLIC", true) || reason.startsWith("CYCLIC_", true)

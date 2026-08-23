@@ -284,6 +284,42 @@ object EconomicEventSchema6464 {
 
     fun replayCarry6489(): ReplayCarry6489 = replayCarry6489
 
+    /** V5.0.6498 — repair a stale historical prefix from current canonical
+     * ledger + active inventory truth. Refuses if the event stream changed
+     * during comparison, so an in-flight trade can never be folded into carry. */
+    @Synchronized
+    fun reconcileReplayCarry6498(
+        expectedEventVersion: Long,
+        cashDelta: Double,
+        openCostDelta: Double,
+        realizedDelta: Double,
+        feesDelta: Double,
+        perMintQtyCorrection: Map<String, java.math.BigInteger>,
+        perMintCostCorrection: Map<String, Double>,
+    ): Boolean {
+        if (!replayCarry6489.established || eventVersion.get() != expectedEventVersion) return false
+        val old = replayCarry6489
+        val qty = old.perMintQty.toMutableMap()
+        perMintQtyCorrection.forEach { (mint, delta) -> qty[mint] = (qty[mint] ?: java.math.BigInteger.ZERO) + delta }
+        val cost = old.perMintCostSol.toMutableMap()
+        perMintCostCorrection.forEach { (mint, delta) -> cost[mint] = (cost[mint] ?: 0.0) + delta }
+        replayCarry6489 = ReplayCarry6489(
+            established = true,
+            cashDeltaSol = old.cashDeltaSol - cashDelta,
+            openCostSol = old.openCostSol - openCostDelta,
+            realizedPnlSol = old.realizedPnlSol - realizedDelta,
+            feesSol = old.feesSol - feesDelta,
+            perMintQty = qty.filterValues { it != java.math.BigInteger.ZERO },
+            perMintCostSol = cost.filterValues { kotlin.math.abs(it) > 1e-12 },
+        )
+        persistReplayCarry6489(); eventVersion.incrementAndGet()
+        try {
+            ForensicLogger.lifecycle("REPLAY_CARRY_RECONCILED_6498", "cashCorrection=${"%.9f".format(cashDelta)} openCorrection=${"%.9f".format(openCostDelta)} realizedCorrection=${"%.9f".format(realizedDelta)} qtyMints=${perMintQtyCorrection.size} costMints=${perMintCostCorrection.size}")
+            PipelineHealthCollector.labelInc("REPLAY_CARRY_RECONCILED_6498")
+        } catch (_: Throwable) {}
+        return true
+    }
+
     @Synchronized
     private fun foldEvictedIntoReplayCarry6489(e: Event) {
         if (e.mode != "paper") return

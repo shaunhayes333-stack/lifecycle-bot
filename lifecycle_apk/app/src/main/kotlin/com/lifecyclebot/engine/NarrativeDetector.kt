@@ -39,7 +39,7 @@ object NarrativeDetector {
 
     private val JSON_MT = "application/json".toMediaType()
     private val GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-    private val MODEL = "llama-3.1-70b-versatile"  // V5.0.6496 §migrate — llama-3.3-70b-versatile is not available on Groq
+    private val MODEL = GroqRouteConfig6498.PRIMARY_MODEL
 
     // Cache: mint → (result, timestamp)
     private val cache = mutableMapOf<String, Pair<NarrativeResult, Long>>()

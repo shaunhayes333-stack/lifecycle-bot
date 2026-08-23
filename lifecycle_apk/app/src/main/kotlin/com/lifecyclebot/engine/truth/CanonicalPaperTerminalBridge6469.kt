@@ -107,6 +107,11 @@ object CanonicalPaperTerminalBridge6469 {
         directPositionMutation6486: Boolean = false,
         suppressLearningFanout6490: Boolean = false,
     ): Result {
+        val qtyAdmission6498 = SellQtyBoundaryClamp6427.admitRaw(positionId, soldQtyRaw, mint, symbol)
+        if (!qtyAdmission6498.allowed) {
+            try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_QTY_REJECTED_6498") } catch (_: Throwable) {}
+            return Result(applied = false, terminalClaimed = false, busPublished = false, reason = "SELL_QTY_${qtyAdmission6498.reason}")
+        }
         val claim = claimBeforeSideEffects(
             positionId = positionId,
             mint = mint,
@@ -158,6 +163,10 @@ object CanonicalPaperTerminalBridge6469 {
             if (!positionApplied6486) {
                 try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_POSITION_REJECTED_6486") } catch (_: Throwable) {}
                 return Result(applied = false, terminalClaimed = true, busPublished = false, reason = "POSITION_MUTATION_REJECTED")
+            }
+            if (!SellQtyBoundaryClamp6427.commitRaw(positionId, soldQtyRaw, terminal)) {
+                try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_QTY_COMMIT_FAILED_6498") } catch (_: Throwable) {}
+                return Result(applied = false, terminalClaimed = true, busPublished = false, reason = "SELL_QTY_COMMIT_FAILED_6498")
             }
             val ledgerApplied6486 = PaperAccountLedger6430.onSell(
                 grossProceedsSol = grossProceedsSol,

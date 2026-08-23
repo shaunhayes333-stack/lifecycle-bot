@@ -4,6 +4,7 @@ import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import java.math.BigInteger
 
 /**
  * V5.0.6427 §I — SELL-QTY BOUNDARY CLAMP.
@@ -45,6 +46,57 @@ object SellQtyBoundaryClamp6427 {
     private fun fromPico(p: Long): Double = p.toDouble() / PICO_UNIT
 
     private val ledger = ConcurrentHashMap<String, Slot>()
+
+    private data class RawSlot(var original: BigInteger, var remaining: BigInteger)
+    data class RawAdmission(val allowed: Boolean, val requested: BigInteger, val remaining: BigInteger, val reason: String)
+    private val rawLedger = ConcurrentHashMap<String, RawSlot>()
+    private val rawAdmits = AtomicLong(0L)
+    private val rawRejects = AtomicLong(0L)
+
+    /** V5.0.6498 — rebuild boundary truth from canonical active inventory. */
+    fun syncAuthoritativeRaw(positionId: String, originalQtyRaw: BigInteger, remainingQtyRaw: BigInteger) {
+        if (positionId.isBlank() || originalQtyRaw <= BigInteger.ZERO || remainingQtyRaw < BigInteger.ZERO || remainingQtyRaw > originalQtyRaw) return
+        rawLedger.compute(positionId) { _, old ->
+            if (old == null) RawSlot(originalQtyRaw, remainingQtyRaw)
+            else synchronized(old) { old.original = originalQtyRaw; old.remaining = remainingQtyRaw; old }
+        }
+    }
+
+    /** Admission is read-only; quantity is committed only after canonical position mutation succeeds. */
+    fun admitRaw(positionId: String, requestedSellQtyRaw: BigInteger, mint: String, symbol: String): RawAdmission {
+        if (positionId.isBlank() || requestedSellQtyRaw <= BigInteger.ZERO) {
+            rawRejects.incrementAndGet()
+            return RawAdmission(false, requestedSellQtyRaw, BigInteger.ZERO, "INVALID_REQUEST")
+        }
+        val slot = rawLedger[positionId] ?: run {
+            rawRejects.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("SELL_QTY_BOUNDARY_UNKNOWN_POSITION_6498") } catch (_: Throwable) {}
+            return RawAdmission(false, requestedSellQtyRaw, BigInteger.ZERO, "UNKNOWN_POSITION")
+        }
+        synchronized(slot) {
+            if (requestedSellQtyRaw > slot.remaining) {
+                rawRejects.incrementAndGet()
+                try {
+                    ForensicLogger.lifecycle("SELL_QTY_BOUNDARY_REJECTED_6498", "positionId=$positionId requested=$requestedSellQtyRaw remaining=${slot.remaining} mint=${mint.take(10)} sym=$symbol")
+                    PipelineHealthCollector.labelInc("SELL_QTY_BOUNDARY_REJECTED_6498")
+                } catch (_: Throwable) {}
+                return RawAdmission(false, requestedSellQtyRaw, slot.remaining, "REQUEST_EXCEEDS_CANONICAL_REMAINING")
+            }
+            rawAdmits.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("SELL_QTY_BOUNDARY_ADMITTED_6498") } catch (_: Throwable) {}
+            return RawAdmission(true, requestedSellQtyRaw, slot.remaining, "ADMITTED")
+        }
+    }
+
+    fun commitRaw(positionId: String, soldQtyRaw: BigInteger, terminal: Boolean): Boolean {
+        val slot = rawLedger[positionId] ?: return false
+        synchronized(slot) {
+            if (soldQtyRaw <= BigInteger.ZERO || soldQtyRaw > slot.remaining) return false
+            slot.remaining -= soldQtyRaw
+            if (terminal || slot.remaining == BigInteger.ZERO) rawLedger.remove(positionId, slot)
+            return true
+        }
+    }
 
     fun registerBuy(positionId: String, qty: Double) {
         if (positionId.isBlank() || !qty.isFinite() || qty <= 0.0) return
@@ -102,8 +154,8 @@ object SellQtyBoundaryClamp6427 {
 
     fun statusLine(): String {
         val overSoldCount = ledger.values.count { it.sold.get() > it.bought.get() }
-        return "positions=${ledger.size} overSoldCandidates=$overSoldCount"
+        return "positions=${rawLedger.size} admits=${rawAdmits.get()} rejects=${rawRejects.get()} legacyPositions=${ledger.size} overSoldCandidates=$overSoldCount"
     }
 
-    internal fun resetForTest() { ledger.clear() }
+    internal fun resetForTest() { ledger.clear(); rawLedger.clear(); rawAdmits.set(0L); rawRejects.set(0L) }
 }

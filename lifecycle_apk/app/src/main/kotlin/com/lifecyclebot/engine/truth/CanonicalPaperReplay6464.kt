@@ -200,9 +200,37 @@ object CanonicalPaperReplay6464 {
             )
             if (established) snap = replay(startingCashSol)
         }
-        val cashDelta = if (ledgerCash.isFinite()) snap.cashSol - ledgerCash else 0.0
-        val realizedDelta = if (ledgerRealized.isFinite()) snap.realizedPnlSol - ledgerRealized else 0.0
-        val openDelta = if (ledgerOpen.isFinite()) snap.openCostBasisSol - ledgerOpen else 0.0
+        var cashDelta = if (ledgerCash.isFinite()) snap.cashSol - ledgerCash else 0.0
+        var realizedDelta = if (ledgerRealized.isFinite()) snap.realizedPnlSol - ledgerRealized else 0.0
+        var openDelta = if (ledgerOpen.isFinite()) snap.openCostBasisSol - ledgerOpen else 0.0
+        // V5.0.6498 — stale carry repair is allowed only after CURRENT money
+        // conservation and position parity are clean. Ledger/canonical are the
+        // authorities; the historical prefix is the derived projection.
+        val currentConservationClean6498 = try { kotlin.math.abs(PaperEquityCalculator6467.lastSnapshot()?.conservationDelta ?: Double.POSITIVE_INFINITY) <= toleranceSol } catch (_: Throwable) { false }
+        val positionParityClean6498 = try {
+            val ps = PositionRegistryParityAudit6464.lastSnapshotOrNull()
+            ps != null && ps.delta == 0 && ps.missingFromCanonical.isEmpty() && ps.missingFromRegistry.isEmpty() &&
+                ps.stateMismatch.isEmpty() && ps.qtyMismatch.isEmpty() && ps.costBasisMismatch.isEmpty()
+        } catch (_: Throwable) { false }
+        val staleCarryDiverged6498 = kotlin.math.abs(cashDelta) > toleranceSol || kotlin.math.abs(realizedDelta) > toleranceSol || kotlin.math.abs(openDelta) > toleranceSol || snap.orphanLotCount > 0
+        if (carry.established && currentConservationClean6498 && positionParityClean6498 && staleCarryDiverged6498) {
+            val canonical6498 = try { CanonicalPositionAuthority6441.activeMintProjections6490("paper") } catch (_: Throwable) { emptyList() }
+            val canonicalQty6498 = canonical6498.associate { it.mint to it.remainingQtyRaw }
+            val canonicalCost6498 = canonical6498.associate { it.mint to it.remainingCostBasisSol }
+            val qtyCorrection6498 = (canonicalQty6498.keys + snap.perMintRemainingQty.keys).associateWith { mint ->
+                (canonicalQty6498[mint] ?: BigInteger.ZERO) - (snap.perMintRemainingQty[mint] ?: BigInteger.ZERO)
+            }.filterValues { it != BigInteger.ZERO }
+            val costCorrection6498 = (canonicalCost6498.keys + snap.perMintRemainingCostSol.keys).associateWith { mint ->
+                (canonicalCost6498[mint] ?: 0.0) - (snap.perMintRemainingCostSol[mint] ?: 0.0)
+            }.filterValues { kotlin.math.abs(it) > 1e-12 }
+            val feesDelta6498 = if (ledgerFees.isFinite()) snap.feesSol - ledgerFees else 0.0
+            if (EconomicEventSchema6464.reconcileReplayCarry6498(snap.eventVersion, cashDelta, openDelta, realizedDelta, feesDelta6498, qtyCorrection6498, costCorrection6498)) {
+                snap = replay(startingCashSol)
+                cashDelta = if (ledgerCash.isFinite()) snap.cashSol - ledgerCash else 0.0
+                realizedDelta = if (ledgerRealized.isFinite()) snap.realizedPnlSol - ledgerRealized else 0.0
+                openDelta = if (ledgerOpen.isFinite()) snap.openCostBasisSol - ledgerOpen else 0.0
+            }
+        }
         val qtyMismatches = snap.perMintRemainingQty.values.count { it < BigInteger.ZERO }
         val parity = Parity(
             cashDelta = cashDelta, realizedDelta = realizedDelta, openCostDelta = openDelta,

@@ -204,7 +204,7 @@ object KeyValidator {
 
     private fun probeGroqConfiguredModel(apiKey: String) {
         val service = "groq"
-        val model = "openai/gpt-oss-20b"
+        val model = GroqRouteConfig6498.PRIMARY_MODEL
         val client = SharedHttpClient.builder().connectTimeout(4, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).callTimeout(10, TimeUnit.SECONDS).build()
         val payload = JSONObject()
             .put("model", model)

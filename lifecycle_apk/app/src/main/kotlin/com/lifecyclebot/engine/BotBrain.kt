@@ -847,7 +847,7 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
 
         try {
             val requestBody = JSONObject().apply {
-                put("model", "llama-3.1-70b-versatile")  // V5.0.6496 §migrate — llama-3.3-70b-versatile is not available on Groq
+                put("model", GroqRouteConfig6498.PRIMARY_MODEL)  // V5.0.6498 configured route matches KeyValidator
                 put("max_tokens", 600)
                 put("temperature", 0.2)
                 put("messages", JSONArray().put(JSONObject().apply {

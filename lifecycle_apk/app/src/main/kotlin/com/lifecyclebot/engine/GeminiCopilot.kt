@@ -39,7 +39,7 @@ object GeminiCopilot {
     private const val DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
     private const val DEFAULT_EMERGENT_MODEL = "gemini/gemini-2.5-flash"
     private const val DEFAULT_OPENROUTER_MODEL = "openrouter/auto"
-    private const val DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
+    private const val DEFAULT_GROQ_MODEL = GroqRouteConfig6498.PRIMARY_MODEL
     private const val DEFAULT_CEREBRAS_MODEL = "openai/gpt-oss-120b"
     private const val DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
     private const val DEFAULT_MISTRAL_MODEL = "mistral-small-latest"

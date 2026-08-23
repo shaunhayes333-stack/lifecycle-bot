@@ -7970,8 +7970,8 @@ class GoldenTapeRegressionTest {
         val slot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt").readText()
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         assertTrue("6490 resolver must preserve the executable floor only when fee-aware capital and lane cap can fund it",
-            resolver.contains("minimumFundable6490") && resolver.contains("PAPER_ENTRY_FEE_RESERVE_RATE_6490") &&
-                resolver.contains("CAPITAL_BELOW_MIN_EXECUTABLE_6490"))
+            resolver.contains("authorityCapLamports" + "6498") && resolver.contains("PAPER_ENTRY_FEE_RESERVE_RATE_6490") &&
+                resolver.contains("CAPITAL_BELOW_MIN_EXECUTABLE_6490") && !resolver.contains("minimumFundable6490"))
         assertTrue("6491 precheck must not authorize before canonical size resolution",
             openGate.contains("EXEC_OPEN_PRECHECK_SIZE_PENDING_6491") &&
                 openGate.contains("EXEC_OPEN_BLOCKED_SIZE_NOT_EXECUTABLE_6491") &&
@@ -8013,9 +8013,8 @@ class GoldenTapeRegressionTest {
 
         assertTrue("6491 sizing boundary must compare integer lamports, including exact equality",
             resolver.contains("SOL_LAMPORTS_6491") && resolver.contains("toLamports6491") &&
-                resolver.contains("laneCapLamports6491 >= minExecLamports6491") &&
-                resolver.contains("executableLamports6491 >= minExecLamports6491") &&
-                invariant.contains("canonicalFloorPromotion6491"))
+                resolver.contains("boundedExecutableLamports6498 >= minExecLamports6491") &&
+                invariant.contains("final_exceeds_requested") && invariant.contains("final_exceeds_risk"))
         val sizePrecheck = openGate.indexOf("EXEC_OPEN_PRECHECK_SIZE_PENDING_6491")
         val mintClaim = openGate.indexOf("executableBuyClaim6487.putIfAbsent")
         val allowed = openGate.indexOf("ForensicLogger.lifecycle(" + '"' + "EXEC_OPEN_ALLOWED" + '"')
@@ -8160,6 +8159,28 @@ class GoldenTapeRegressionTest {
         assertTrue(dex.contains("never bypass HealthAwareHttp/ApiBackoff with a raw retry"))
         assertFalse("DexScreener must not retry raw after the health wrapper", dex.contains("http.newCall(req).execute()"))
         assertTrue(circuit.contains("ApiBackoff shared-client lockout") && circuit.contains("response.code == 403"))
+    }
+
+
+    @Test
+    fun V5_0_6498_paper_terminal_state_qty_parity_and_sizing_are_canonical() {
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt").readText()
+        val boundary = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/SellQtyBoundaryClamp6427.kt").readText()
+        val parity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PositionRegistryParityAudit6464.kt").readText()
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EmergentGuardrails.kt").readText()
+        val sizing = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OrderSizeResolver6441.kt").readText()
+        val groq = java.io.File("src/main/kotlin/com/lifecyclebot/engine/GroqRouteConfig6498.kt").readText()
+
+        assertTrue(executor.contains("PositionStateLedger6454.onEntry(pid6485)") && executor.contains("syncAuthoritativeRaw(pid6485"))
+        assertTrue(executor.indexOf("canonicalPaperSellCommitted6474 = close6474.applied") in 1 until executor.indexOf("PAPER_TERMINAL_PROJECTIONS_COMMITTED_6498"))
+        assertTrue(bridge.contains("admitRaw(positionId, soldQtyRaw") && bridge.contains("commitRaw(positionId, soldQtyRaw, terminal)"))
+        assertTrue(boundary.contains("SELL_QTY_BOUNDARY_ADMITTED_" + "6498") && boundary.contains("SELL_QTY_BOUNDARY_REJECTED_" + "6498"))
+        assertTrue(parity.contains("canonicalStateByMint" + "6498") && parity.contains("c=$" + "expectedState6498"))
+        assertTrue(registry.contains("state = p.state") && registry.contains("PARTIALLY_CLOSED"))
+        assertTrue(sizing.contains("kotlin.math.min(risk, ladderFloor)") && !sizing.contains("kotlin.math.max(risk, ladderFloor)"))
+        assertTrue(sizing.contains("authorityCapLamports" + "6498"))
+        assertTrue(groq.contains("openai/gpt-oss-20b"))
     }
 
 }

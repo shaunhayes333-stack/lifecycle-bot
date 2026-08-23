@@ -68,6 +68,9 @@ object PositionRegistryParityAudit6464 {
         val canonicalModeRows6490 = canonicalAll.filter { it.mode == activeMode6490 }
         val canonicalByState = canonicalModeRows6490.groupingBy { it.lifecycle }.eachCount()
         val canonicalByMint = CanonicalPositionAuthority6441.activeMintProjections6490(activeMode6490).associateBy { it.mint }
+        val canonicalStateByMint6498 = canonicalModeRows6490.groupBy { it.mint }.mapValues { (_, lots) ->
+            if (lots.any { it.lifecycle == CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED }) "PARTIALLY_CLOSED" else "OPEN"
+        }
         val canonicalMints = canonicalByMint.keys
 
         val registryMap: Map<String, EmergentGuardrails.RegistryEntry> = try {
@@ -86,7 +89,8 @@ object PositionRegistryParityAudit6464 {
         for (mint in common) {
             val c = canonicalByMint[mint] ?: continue
             val r = registryMap[mint] ?: continue
-            if (r.state != "OPEN") stateMismatch += "${mint.take(10)}(c=ACTIVE_LOTS r=${r.state})"
+            val expectedState6498 = canonicalStateByMint6498[mint] ?: "OPEN"
+            if (!r.state.equals(expectedState6498, true)) stateMismatch += "${mint.take(10)}(c=$expectedState6498 r=${r.state})"
             val qDelta = kotlin.math.abs(c.remainingQtyRaw.toDouble() - r.qtyRaw.toDouble())
             if (qDelta > 1.0) qtyMismatch += "${mint.take(10)}(cq=${c.remainingQtyRaw} rq=${r.qtyRaw} lots=${c.lotCount})"
             val costDelta = kotlin.math.abs(c.remainingCostBasisSol - r.entryCostSol)

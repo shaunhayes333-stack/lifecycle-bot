@@ -39,10 +39,9 @@ object OrderSizeResolverInvariant6468 {
         }
         // cashCap = 0 sometimes reflects "cash cap unknown" (paper allowed);
         // only enforce when cashCap is a real positive number.
-        val canonicalFloorPromotion6491 = res.minimumExecutableSol > 0.0 &&
-            OrderSizeResolver6441.meetsMinimum6491(res.finalSizeSol, res.minimumExecutableSol) &&
-            OrderSizeResolver6441.meetsMinimum6491(res.minimumExecutableSol, res.finalSizeSol)
-        if (res.cashCapSol > 0.0 && res.finalSizeSol > res.cashCapSol + 1e-9 && !canonicalFloorPromotion6491) {
+        if (res.finalSizeSol > res.requestedSol + 1e-9) reasons += "final_exceeds_requested"
+        if (res.finalSizeSol > res.riskSol + 1e-9) reasons += "final_exceeds_risk"
+        if (res.cashCapSol > 0.0 && res.finalSizeSol > res.cashCapSol + 1e-9) {
             reasons += "final_exceeds_cash_cap"
         }
         if (res.laneCapSol.isFinite() && res.laneCapSol > 0.0 && res.finalSizeSol > res.laneCapSol + 1e-9) {

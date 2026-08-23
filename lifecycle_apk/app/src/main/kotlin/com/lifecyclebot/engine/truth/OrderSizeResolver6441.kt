@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicReference
  * Sizing pipeline (deterministic, all in SOL):
  *   requestedSol
  *     -> strategyRiskSol (bounded by lane risk profile)
- *     -> compoundingLadderSol (max with ladder floor)
+ *     -> compoundingLadderSol (permitted step at or below risk authority)
  *     -> walletOrCashCapSol (paperCash if paper, walletSol if live)
  *     -> laneCapSol (per-lane maximum)
  *     -> minimumExecutableSol (below floor -> ZERO / SKIP)
@@ -107,14 +107,13 @@ object OrderSizeResolver6441 {
         val requested = requestedSol.coerceAtLeast(0.0)
         val risk = requested.coerceAtMost(laneRiskCapSol)
 
-        // 2. compounding ladder — max(risk, ladder floor) so tiny wallets
-        //    escalate size as they grow. LadderCompound may clamp too if
-        //    the caller wants that behaviour; we prefer MAX because the
-        //    ladder is a growth-alignment floor.
+        // 2. V5.0.6498 — compounding ladder is advisory and may REDUCE only.
+        // It can select a permitted step at/below risk authority; it must never
+        // turn a 0.39 SOL approved request into a 10 SOL order.
         val ladderFloor = try {
             RunnerCompoundingLadder6440.recommendedSizeSol(walletSol)
         } catch (_: Throwable) { 0.0 }
-        val laddered = kotlin.math.max(risk, ladderFloor)
+        val laddered = if (ladderFloor.isFinite() && ladderFloor > 0.0) kotlin.math.min(risk, ladderFloor) else risk
 
         // 3. wallet / cash cap — never risk more than 25% of authoritative cash.
         // V5.0.6448: PAPER affordability reads PaperAccountLedger6430, not the
@@ -143,15 +142,11 @@ object OrderSizeResolver6441 {
         val availableLamports6491 = toLamports6491(feeAwareAvailable6490)
         val laneCapLamports6491 = toLamports6491(laneRiskCapSol)
         val laneClampedLamports6491 = toLamports6491(laneClamped)
-        val minimumFundable6490 = requestedLamports6491 > 0L &&
-            availableLamports6491 >= minExecLamports6491 && laneCapLamports6491 >= minExecLamports6491
-        val executableLamports6491 = when {
-            laneClampedLamports6491 >= minExecLamports6491 -> laneClampedLamports6491
-            minimumFundable6490 -> minExecLamports6491
-            else -> 0L
-        }.coerceAtMost(availableLamports6491).coerceAtMost(laneCapLamports6491)
-        val executable = executableLamports6491 >= minExecLamports6491
-        val finalSize = if (executable) fromLamports6491(executableLamports6491) else 0.0
+        val executableLamports6491 = if (laneClampedLamports6491 >= minExecLamports6491) laneClampedLamports6491 else 0L
+        val authorityCapLamports6498 = minOf(requestedLamports6491, toLamports6491(risk), availableLamports6491, laneCapLamports6491)
+        val boundedExecutableLamports6498 = executableLamports6491.coerceAtMost(authorityCapLamports6498)
+        val executable = boundedExecutableLamports6498 >= minExecLamports6491
+        val finalSize = if (executable) fromLamports6491(boundedExecutableLamports6498) else 0.0
         val reason = when {
             !executable && authoritativeCash <= 0.0 -> "NO_WALLET"
             !executable && availableLamports6491 < minExecLamports6491 -> "CAPITAL_BELOW_MIN_EXECUTABLE_6490"

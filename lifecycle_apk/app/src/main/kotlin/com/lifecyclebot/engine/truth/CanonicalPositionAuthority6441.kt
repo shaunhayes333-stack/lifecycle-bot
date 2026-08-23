@@ -488,8 +488,12 @@ object CanonicalPositionAuthority6441 {
             // from canonical lifecycle; it may never invent independent opens.
             positions.values.filter {
                 it.mode == "paper" && it.lifecycle in setOf(Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED) && it.remainingQtyRaw > BigInteger.ZERO
-            }.forEach { p -> try { PositionStateLedger6454.onEntry(p.positionId) } catch (_: Throwable) {} }
+            }.forEach { p ->
+                try { PositionStateLedger6454.onEntry(p.positionId) } catch (_: Throwable) {}
+                try { SellQtyBoundaryClamp6427.syncAuthoritativeRaw(p.positionId, p.originalQtyRaw, p.remainingQtyRaw) } catch (_: Throwable) {}
+            }
             try { PipelineHealthCollector.labelInc("POSITION_STATE_PROJECTED_FROM_CANONICAL_6492") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("SELL_QTY_BOUNDARY_PROJECTED_FROM_CANONICAL_6498") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_POSITIONS_REBUILT_6486") } catch (_: Throwable) {}
             return positions.values.count { it.mode == "paper" && it.lifecycle != Lifecycle.CLOSED }
         } finally { lock.unlock() }
