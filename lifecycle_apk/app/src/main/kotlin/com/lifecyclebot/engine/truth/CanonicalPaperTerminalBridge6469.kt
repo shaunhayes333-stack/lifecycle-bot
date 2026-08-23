@@ -172,6 +172,7 @@ object CanonicalPaperTerminalBridge6469 {
                 grossProceedsSol = grossProceedsSol,
                 costBasisSoldSol = soldCostBasisSol,
                 feeSol = feesSol,
+                mint = mint,  // V5.0.6502 §1 — enable quarantine reject at ledger source
             )
             if (!ledgerApplied6486) {
                 try { PipelineHealthCollector.labelInc("PAPER_TERMINAL_LEDGER_COMMIT_FAILED_6486") } catch (_: Throwable) {}

@@ -209,8 +209,36 @@ object PaperAccountLedger6430 {
             openCostBasisSol() + 1e-9 >= costBasisSoldSol
 
     @Synchronized
-    fun onSell(grossProceedsSol: Double, costBasisSoldSol: Double, feeSol: Double = 0.0): Boolean {
+    fun onSell(grossProceedsSol: Double, costBasisSoldSol: Double, feeSol: Double = 0.0, mint: String = ""): Boolean {
         if (!grossProceedsSol.isFinite() || !costBasisSoldSol.isFinite()) return false
+        // V5.0.6502 §1 — LEDGER QUARANTINE REJECT. Positions whose qty
+        // invariant was violated (compassSOL-class phantom) or whose
+        // mint is in the historical economic quarantine MUST NOT
+        // credit realized PnL or mutate cash. The startup sweep +
+        // catastrophic-close paths still release occupancy via
+        // Executor.requestSell but the LEDGER now refuses the phantom
+        // credit. Kills the +38.12 SOL phantom the operator saw on the
+        // 6501 dump when 752 quarantined rows were being credited.
+        if (mint.isNotBlank()) {
+            val invariantBroken = try {
+                com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.isQuarantined(mint)
+            } catch (_: Throwable) { false }
+            val historicalQuarantined = try {
+                com.lifecyclebot.engine.truth.LearningQuarantineGate6470.isQuarantined(
+                    positionId = null, mint = mint,
+                )
+            } catch (_: Throwable) { false }
+            if (invariantBroken || historicalQuarantined) {
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "LEDGER_REJECTED_QUARANTINED_CLOSE_6502",
+                        "mint=${mint.take(10)} invariantBroken=$invariantBroken historicalQuarantined=$historicalQuarantined gross=${"%.6f".format(grossProceedsSol)} basis=${"%.6f".format(costBasisSoldSol)} action=refuse_cash_and_realized_mutation",
+                    )
+                    PipelineHealthCollector.labelInc("LEDGER_REJECTED_QUARANTINED_CLOSE_6502")
+                } catch (_: Throwable) {}
+                return false
+            }
+        }
         val fee = if (feeSol.isFinite()) feeSol.coerceAtLeast(0.0) else 0.0
         // V5.0.6461 §P0-#1 FI4FAM FIREWALL — catch percent-into-SOL leaks
         // (30 SOL = 60x max entry; anything larger is a unit-mix bug).

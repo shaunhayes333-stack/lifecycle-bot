@@ -70,6 +70,9 @@ object RootCauseClassifier6471 {
         // V5.0.6501 §4 §8 — economic-truth and canonical-existence faults.
         Tier.ECONOMIC_INTEGRITY to "ECONOMIC_TRUTH_DIVERGENCE_6501",
         Tier.ENTRY_FINALITY to "EXIT_REJECTED_NO_CANONICAL_POSITION_6501",
+        // V5.0.6502 §1 §2 — ledger phantom-realized + journal divergence.
+        Tier.ECONOMIC_INTEGRITY to "LEDGER_VS_JOURNAL_DIVERGENCE_6502",
+        Tier.ECONOMIC_INTEGRITY to "LEDGER_REJECTED_QUARANTINED_CLOSE_6502",
         Tier.RUNTIME_STALL to "MAINT_GOV_OVERRAN_6469",
         Tier.RUNTIME_STALL to "HEARTBEAT_RESCUE_IDLE_PHASE_TIMEOUT",
         Tier.PROVIDER_DEGRADATION to "DATA_PROVIDER_AUTH_LOCKOUT_6468",

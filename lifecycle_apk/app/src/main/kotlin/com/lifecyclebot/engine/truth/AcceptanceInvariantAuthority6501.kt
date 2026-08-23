@@ -113,6 +113,31 @@ object AcceptanceInvariantAuthority6501 {
         )
     }
 
+    /**
+     * V5.0.6502 §2 — JOURNAL-VS-LEDGER THIRD LEG. Catches the class
+     * of bug where reported and canonical are BOTH wrong in the SAME
+     * direction (6501 dump: +38.12 SOL canonical realized vs $326
+     * journal sum). Compares canonical realized against the sum of
+     * every terminal journal row's pnlSol per canonical (mint, side).
+     */
+    fun checkJournalVsLedger(journalTerminalSumSol: Double): Boolean {
+        checks.incrementAndGet()
+        val canonicalRealized = try { PaperAccountLedger6430.realizedPnlSol() } catch (_: Throwable) { 0.0 }
+        val delta = kotlin.math.abs(canonicalRealized - journalTerminalSumSol)
+        val ok = delta <= TOLERANCE_SOL
+        if (!ok) {
+            realizedDivergences.incrementAndGet()
+            try {
+                ForensicLogger.lifecycle(
+                    "LEDGER_VS_JOURNAL_DIVERGENCE_6502",
+                    "canonicalRealized=${"%.4f".format(canonicalRealized)} journalTerminalSum=${"%.4f".format(journalTerminalSumSol)} delta=${"%.4f".format(delta)} tolerance=${TOLERANCE_SOL}",
+                )
+                PipelineHealthCollector.labelInc("LEDGER_VS_JOURNAL_DIVERGENCE_6502")
+            } catch (_: Throwable) {}
+        }
+        return ok
+    }
+
     fun statusLine(): String =
         "checks=${checks.get()} equityDivergences=${equityDivergences.get()} realizedDivergences=${realizedDivergences.get()}"
 
