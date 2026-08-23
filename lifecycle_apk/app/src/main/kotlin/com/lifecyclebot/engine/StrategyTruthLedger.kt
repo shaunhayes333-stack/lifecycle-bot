@@ -169,6 +169,32 @@ object StrategyTruthLedger {
                 inc("STRATEGY_FORENSIC_EXCLUDED_${forensicReject}")
                 continue
             }
+            // V5.0.6501 §1 — SOURCE-LEVEL QUARANTINE. StrategyTruthLedger
+            // is the strategy learner's canonical read filter. Positions
+            // with a quantity-invariant break (§6500) or historical
+            // economic quarantine (§6496 §2) must be excluded from every
+            // strategy μ / WR / PF / expectancy derivation — not just
+            // the reward bridge.
+            if (row.mint.isNotBlank()) {
+                val invariantBroken = try {
+                    com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.isQuarantined(row.mint)
+                } catch (_: Throwable) { false }
+                if (invariantBroken) {
+                    forensic++
+                    inc("STRATEGY_INVARIANT_QUARANTINED_6501")
+                    continue
+                }
+                val historicalQuarantined = try {
+                    com.lifecyclebot.engine.truth.LearningQuarantineGate6470.isQuarantined(
+                        positionId = null, mint = row.mint,
+                    )
+                } catch (_: Throwable) { false }
+                if (historicalQuarantined) {
+                    forensic++
+                    inc("STRATEGY_HISTORICAL_QUARANTINED_6501")
+                    continue
+                }
+            }
 
             val terminalKey = terminalKey(row)
             val generationKey = generationKey(row)

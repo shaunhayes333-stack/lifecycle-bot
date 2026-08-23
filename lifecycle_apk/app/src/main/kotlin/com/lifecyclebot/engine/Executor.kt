@@ -17893,6 +17893,34 @@ class Executor(
     }
     
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
+        // V5.0.6501 §4 — CANONICAL EXISTENCE GATE. Operator's 6500 dump
+        // showed 140 PAPER_CLOSE_FAILED + 140 SELL_BLOCKED_NO_CANONICAL_POSITION_6373
+        // + 141 TERMINAL_SELL_ABANDONED_6454 rows from stale exit requests
+        // for positions that no longer exist in canonical authority.
+        // Refuse the sell UPSTREAM before executor invocation.
+        // Skip the gate for INVARIANT_QUARANTINE_6500 sweeps and other
+        // authority-driven paths where the canonical entry may already
+        // have been cleared as part of the same transaction.
+        val skip6501 = reason.contains("INVARIANT_QUARANTINE_6500") ||
+            reason.contains("ORPHAN_RECONCIL") ||
+            reason.contains("BOOTUP_RESURRECT") ||
+            reason.contains("MANUAL_TP_TRIGGERED_") ||
+            reason.contains("STARTUP_SWEEP")
+        if (!skip6501) {
+            val canonicalExists = try {
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(ts.mint)
+            } catch (_: Throwable) { true }
+            if (!canonicalExists) {
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "EXIT_REJECTED_NO_CANONICAL_POSITION_6501",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol ?: "?"} reason=$reason action=refuse_before_executor",
+                    )
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_REJECTED_NO_CANONICAL_POSITION_6501")
+                } catch (_: Throwable) {}
+                return SellResult.ALREADY_CLOSED
+            }
+        }
         val requestReason = if (reason.isBlank() || reason.equals("exit", ignoreCase = true)) {
             val trackerStatus = try { HostWalletTokenTracker.getEntry(ts.mint)?.status?.name ?: "UNKNOWN" } catch (_: Throwable) { "UNKNOWN" }
             val closeState = try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.stateOf(ts.mint)?.name ?: "OPEN" } catch (_: Throwable) { "OPEN" }

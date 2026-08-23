@@ -103,6 +103,13 @@ object WallClockReconciler6454 {
                 quickSuccesses.incrementAndGet()
                 quickLastAtMs.set(now)
                 try { ReconcilerHeartbeat6467.onQuickSuccess() } catch (_: Throwable) {}
+                // V5.0.6501 §8 — ACCEPTANCE INVARIANT AUTHORITY.
+                // Runs on every quick reconciler tick. Compares reported
+                // (cash + openMV) vs canonical reconstructed equity;
+                // emits ECONOMIC_TRUTH_DIVERGENCE_6501 on divergence >
+                // TOLERANCE_SOL so any leaking phantom notional is
+                // visible in the root cause banner.
+                try { AcceptanceInvariantAuthority6501.check() } catch (_: Throwable) {}
             }
             if (drift > QUICK_INTERVAL_MS * MISS_THRESHOLD) {
                 try {

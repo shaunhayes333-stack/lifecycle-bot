@@ -279,10 +279,39 @@ object MathematicalEdgeEngine {
         kind = "FILL", stage = stage, lane = lane, source = source, mint = mint, symbol = symbol, decision = "FILL_$side", reason = reason, liquidityUsd = liquidityUsd, quotePx = quotePx, realizedPx = realizedPx, slippagePct = slippagePct, latencyMs = latencyMs,
     ))
 
-    fun captureTerminal(stage: String, lane: String, source: String, mint: String, symbol: String, side: String, reason: String, pnlPct: Double, pnlSol: Double, sizeSol: Double, holdMs: Long, peakGainPct: Double, maxDrawdownPct: Double, trainable: Boolean, accepted: Boolean, score: Double = -1.0, regime: String = "") = submit(EdgeEvent(
-        kind = "TERMINAL", stage = stage, lane = lane, source = source, mint = mint, symbol = symbol, decision = if (accepted && trainable) "TERMINAL_TRAINABLE" else if (accepted) "TERMINAL_UNTRAINABLE" else "TERMINAL_SUPPRESSED", reason = "$side:$reason",
-        score = score, regime = regime, pnlPct = pnlPct, pnlSol = pnlSol, finalSol = sizeSol, holdMs = holdMs, peakGainPct = peakGainPct, maxDrawdownPct = maxDrawdownPct, trainable = trainable, accepted = accepted,
-    ))
+    fun captureTerminal(stage: String, lane: String, source: String, mint: String, symbol: String, side: String, reason: String, pnlPct: Double, pnlSol: Double, sizeSol: Double, holdMs: Long, peakGainPct: Double, maxDrawdownPct: Double, trainable: Boolean, accepted: Boolean, score: Double = -1.0, regime: String = ""): Boolean {
+        // V5.0.6501 §1 — SOURCE-LEVEL QUARANTINE. MathEdge stats must
+        // never see quantity-invariant-broken, historically-quarantined,
+        // or partial-close rows. Operator's 6500 dump showed BLUECHIP
+        // PnL = 6,267,242.8403 SOL from contaminated inputs — that
+        // must become impossible.
+        val isPartialReason = reason.lowercase().let { r ->
+            r.contains("partial") || r.contains("profit_lock") ||
+                r.contains("capital_recovery") || r.contains("wr_recovery") ||
+                r.contains("profit_take_partial") || r.contains("scale_out")
+        }
+        if (isPartialReason) {
+            try { PipelineHealthCollector.labelInc("MATHEDGE_TERMINAL_DROPPED_PARTIAL_6501") } catch (_: Throwable) {}
+            return false
+        }
+        if (mint.isNotBlank()) {
+            val invariantBroken = try { com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.isQuarantined(mint) } catch (_: Throwable) { false }
+            val historicalQuarantined = try { com.lifecyclebot.engine.truth.LearningQuarantineGate6470.isQuarantined(positionId = null, mint = mint) } catch (_: Throwable) { false }
+            if (invariantBroken) {
+                try { PipelineHealthCollector.labelInc("MATHEDGE_TERMINAL_DROPPED_INVARIANT_6501") } catch (_: Throwable) {}
+                return false
+            }
+            if (historicalQuarantined) {
+                try { PipelineHealthCollector.labelInc("MATHEDGE_TERMINAL_DROPPED_HISTORICAL_6501") } catch (_: Throwable) {}
+                return false
+            }
+        }
+        submit(EdgeEvent(
+            kind = "TERMINAL", stage = stage, lane = lane, source = source, mint = mint, symbol = symbol, decision = if (accepted && trainable) "TERMINAL_TRAINABLE" else if (accepted) "TERMINAL_UNTRAINABLE" else "TERMINAL_SUPPRESSED", reason = "$side:$reason",
+            score = score, regime = regime, pnlPct = pnlPct, pnlSol = pnlSol, finalSol = sizeSol, holdMs = holdMs, peakGainPct = peakGainPct, maxDrawdownPct = maxDrawdownPct, trainable = trainable, accepted = accepted,
+        ))
+        return true
+    }
 
     fun captureExitDecision(stage: String, lane: String, source: String, mint: String, symbol: String, decision: String, reason: String, pnlPct: Double, peakGainPct: Double, holdMs: Long, liquidityUsd: Double) = submit(EdgeEvent(
         kind = "EXIT_DECISION", stage = stage, lane = lane, source = source, mint = mint, symbol = symbol, decision = decision, reason = reason, pnlPct = pnlPct, peakGainPct = peakGainPct, holdMs = holdMs, liquidityUsd = liquidityUsd,
