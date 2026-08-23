@@ -346,6 +346,54 @@ object PaperAccountLedger6430 {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.6505 §5 — PAPER CASH RECONSTRUCTION FROM ECONOMIC IDENTITY.
+     *
+     * Operator mandate: rebuild paper cash from
+     *   cash = startingCash + realizedPnL − fees − openCost − reserved
+     * and rerun the conservation invariant. Called from
+     * BotService.startBot after the realized-PnL rebuild so cash is
+     * derived from the freshly-corrected realized figure.
+     *
+     * Reserved is treated as 0 (no reserved event exists yet — matches
+     * CanonicalCapitalAuthority6450.snapshot). Non-clamping: if the
+     * recomputed cash disagrees with the persisted cash by |Δ|>0.001
+     * SOL we overwrite and emit a loud lifecycle line so the operator
+     * sees the correction.
+     *
+     * This CANNOT modify startingCash or equity to "force delta=0" —
+     * only cash is rebuilt from the equation. Economic events remain
+     * the source of truth.
+     */
+    @Synchronized
+    fun rebuildPaperCashFromIdentity6505(): Double {
+        val starting = fromPico(startingCashPico.get())
+        val realized = fromPico(realizedPnlPico.get())
+        val fees = fromPico(feesPico.get())
+        val openCost = fromPico(openCostBasisPico.get())
+        val recomputed = starting + realized - fees - openCost
+        val prior = fromPico(cashPico.get())
+        val delta = recomputed - prior
+        if (kotlin.math.abs(delta) > 0.001) {
+            cashPico.set(toPico(recomputed))
+            opCount.incrementAndGet()
+            persistCurrent6487()
+            try {
+                ForensicLogger.lifecycle(
+                    "PAPER_LEDGER_CASH_REBUILT_FROM_IDENTITY_6505",
+                    "starting=${"%.6f".format(starting)} realized=${"%.6f".format(realized)} " +
+                        "fees=${"%.6f".format(fees)} openCost=${"%.6f".format(openCost)} " +
+                        "priorCash=${"%.6f".format(prior)} rebuiltCash=${"%.6f".format(recomputed)} " +
+                        "delta=${"%.6f".format(delta)}",
+                )
+                PipelineHealthCollector.labelInc("PAPER_LEDGER_CASH_REBUILT_FROM_IDENTITY_6505")
+            } catch (_: Throwable) {}
+        } else {
+            try { PipelineHealthCollector.labelInc("PAPER_LEDGER_CASH_IDENTITY_HEALTHY_6505") } catch (_: Throwable) {}
+        }
+        return recomputed
+    }
+
     @Synchronized
     fun rebuildRealizedFromCanonicalEvents6502(): Double {
         val events = try {

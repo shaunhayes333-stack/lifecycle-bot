@@ -32,9 +32,40 @@ object AdvisorIntegrityHold6466 {
     private val holdChecks = AtomicLong(0L)
     private val holdActive = AtomicLong(0L)
 
-    /** Aggregate signals into a single verdict. Non-blocking; ~1ms. */
+    /**
+     * V5.0.6505 — HOLDS DISABLED, DIAGNOSTIC KEPT.
+     *
+     * Operator mandate (this session): "I want all enforced holds
+     * removed. I just want the bot to go back to trading correctly.
+     * Full data integrity and super intelligent autonomous trading."
+     *
+     * The correctness surface has moved to the SOURCE: FillLotLedger6504
+     * is the immutable lot truth, PaperAccountLedger6430
+     * .overrideRealizedFromFillLots6504 rebuilds realized PnL from
+     * finalized fills, EconomicPurityGate6504 quarantines contaminated
+     * mints from analytics — the bot no longer needs to be strangled
+     * to protect learners. Data integrity is enforced at write time,
+     * not by refusing to trade.
+     *
+     * `isHold()` therefore returns FALSE unconditionally so the
+     * AutoPipelineAdvisor6462 tick and every other consumer runs.
+     * The multi-signal diagnostic is preserved via
+     * `diagnosticActive()` for reporting only — dashboards can still
+     * surface the underlying integrity signal without gating flow.
+     */
     fun isHold(): Boolean {
         holdChecks.incrementAndGet()
+        // Advisor + trading flow no longer gated. FillLotLedger6504 is
+        // now the source-of-truth correctness surface.
+        return false
+    }
+
+    /**
+     * V5.0.6505 — DIAGNOSTIC ONLY. Returns the same multi-signal
+     * verdict the pre-6505 `isHold()` returned so dashboards can
+     * report on integrity signals without enforcing a hold.
+     */
+    fun diagnosticActive(): Boolean {
         var reasons = 0
         // Position parity
         try {
@@ -64,9 +95,6 @@ object AdvisorIntegrityHold6466 {
             val ledgerInvFails = PipelineHealthCollector.labelCountSnapshot("PAPER_LEDGER_INVARIANT_FAIL_6430")
             if (fi4famClamps + ledgerInvFails > 5L) reasons++
         } catch (_: Throwable) {}
-        // V5.0.6468 §P0 (item 15 extension) — Event stream replay divergence
-        // (from EventStreamReplay6467) also gates the advisor. Advisor must
-        // never tune around a diverged replay.
         try {
             val p = EventStreamReplay6467.lastParity()
             if (p != null && (kotlin.math.abs(p.cashDelta) > 0.01 ||
@@ -74,15 +102,10 @@ object AdvisorIntegrityHold6466 {
                               kotlin.math.abs(p.openCostDelta) > 0.01 ||
                               p.firstDivergentEventId != null)) reasons++
         } catch (_: Throwable) {}
-        // V5.0.6468 §P0 (item 15 extension) — Order-size invariant violations
-        // observed since startup gate the advisor. Sizing correctness is
-        // upstream of learning; a violated resolver poisons every trade.
         try {
             val sizingViolations = PipelineHealthCollector.labelCountSnapshot("ORDER_SIZE_RESOLVER_INVARIANT_VIOLATION_6468")
             if (sizingViolations > 3L) reasons++
         } catch (_: Throwable) {}
-        // V5.0.6468 §P0 (item 15 extension) — data provider auth lockout is
-        // an environmental integrity failure; do not tune around it.
         try {
             val authLockouts = PipelineHealthCollector.labelCountSnapshot("DATA_PROVIDER_AUTH_LOCKOUT_6468")
             if (authLockouts > 0L) reasons++
@@ -90,13 +113,13 @@ object AdvisorIntegrityHold6466 {
         val active = reasons > 0
         if (active) {
             holdActive.incrementAndGet()
-            try { PipelineHealthCollector.labelInc("ADVISOR_INTEGRITY_HOLD_ACTIVE_6466") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("ADVISOR_INTEGRITY_DIAGNOSTIC_ACTIVE_6505") } catch (_: Throwable) {}
         }
         return active
     }
 
     fun statusLine(): String {
-        return "checks=${holdChecks.get()} activeCount=${holdActive.get()}"
+        return "checks=${holdChecks.get()} diagnosticActiveCount=${holdActive.get()} enforcementDisabled=true_6505"
     }
 
     internal fun resetForTest() { holdChecks.set(0L); holdActive.set(0L) }

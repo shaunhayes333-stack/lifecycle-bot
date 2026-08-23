@@ -149,21 +149,17 @@ object AutoPipelineAdvisor6462 {
     // ─── Internal: one tick ────────────────────────────────────────────────
 
     private fun runTick(ctx: Context) {
-        // V5.0.6466 §P1 (narrow) — DATA INTEGRITY HOLD.
-        // If canonical lifecycle/accounting integrity is compromised, the
-        // advisor may only emit engineering remediation — never mutate
-        // strategy parameters. Bail before rules-engine derivation so no
-        // apply path can even be reached.
-        if (com.lifecyclebot.engine.truth.AdvisorIntegrityHold6466.isHold()) {
-            try {
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("AUTO_PIPELINE_ADVISOR_HELD_INTEGRITY_6466")
-                com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                    "AUTO_PIPELINE_ADVISOR_HELD_INTEGRITY_6466",
-                    "advisor tick skipped — data integrity hold active",
-                )
-            } catch (_: Throwable) {}
-            return
-        }
+        // V5.0.6505 — HOLDS DISABLED, ADVISOR ALWAYS RUNS.
+        // Operator mandate: "quit strangling the bot — just fix the
+        // fucking thing properly." Data integrity is now enforced at
+        // the source (FillLotLedger6504 + purge/rebuild), so the
+        // advisor tick no longer bails on ECONOMIC_INTEGRITY signals.
+        // Diagnostic captured for reports only.
+        try {
+            if (com.lifecyclebot.engine.truth.AdvisorIntegrityHold6466.diagnosticActive()) {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("AUTO_PIPELINE_ADVISOR_RUN_WITH_INTEGRITY_DIAGNOSTIC_6505")
+            }
+        } catch (_: Throwable) {}
         // 1) rules engine — always produces candidates
         val rules = deriveRulesCandidates()
         // 2) brain readings (in-memory, no I/O)

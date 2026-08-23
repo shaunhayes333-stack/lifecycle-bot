@@ -4312,6 +4312,16 @@ class BotService : Service() {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FILL_LOT_REALIZED_MATCHES_LEDGER_6504")
             }
         } catch (_: Throwable) {}
+        // V5.0.6505 §5 — PAPER CASH RECONSTRUCTION.
+        // Rebuild paper cash from the economic identity
+        //   cash = startingCash + realizedPnL - fees - openCost
+        // using the freshly-corrected realized figure. Non-clamping;
+        // only overwrites when |Δ|>0.001 SOL. Never touches
+        // startingCash / equity — economic events remain source of
+        // truth per operator mandate #6.
+        try {
+            com.lifecyclebot.engine.truth.PaperAccountLedger6430.rebuildPaperCashFromIdentity6505()
+        } catch (_: Throwable) {}
         // V5.0.6504 §5 — clear zombie latch on startBot so a
         // legitimately re-opened mint's stale-price timeout can fire
         // its one-shot again in the new session.

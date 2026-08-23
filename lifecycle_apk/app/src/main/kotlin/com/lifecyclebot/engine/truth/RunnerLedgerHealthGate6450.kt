@@ -33,19 +33,31 @@ object RunnerLedgerHealthGate6450 {
 
     fun assess(): Assessment {
         val snap = try { CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
+        // V5.0.6505 — HOLDS DISABLED (operator mandate). The gate now
+        // ALWAYS returns allow=true. FillLotLedger6504 is the immutable
+        // truth surface — expansion decisions cascade to sizing (which
+        // still respects the runner ladder + wallet cap), not to a
+        // hard-block gate that starves the $50→$1M autonomous mantra.
+        // The assessment payload keeps the diagnostic reason for
+        // dashboard visibility only.
         val schedulerHealthy = try { ProtectiveExitScheduler6450.heartbeatAgeMs() < 15_000L } catch (_: Throwable) { false }
         val invariantOK = snap != null && kotlin.math.abs(snap.conservationDeltaSol) < 1e-3
         val expectancyPositive = (snap?.realizedPnlSol ?: 0.0) >= 0.0
-        val allow = invariantOK && schedulerHealthy && expectancyPositive
-        if (allow) allowedChecks.incrementAndGet() else deniedChecks.incrementAndGet()
+        val diagnosticHealthy = invariantOK && schedulerHealthy && expectancyPositive
+        allowedChecks.incrementAndGet()
         val reason = when {
-            snap == null -> "no_snapshot"
-            !invariantOK -> "conservation_delta=${"%.6f".format(snap.conservationDeltaSol)}"
-            !schedulerHealthy -> "scheduler_starved"
-            !expectancyPositive -> "expectancy_negative realized=${"%.4f".format(snap.realizedPnlSol)}"
+            snap == null -> "no_snapshot(advisory)"
+            !invariantOK -> "conservation_delta=${"%.6f".format(snap.conservationDeltaSol)}(advisory_6505)"
+            !schedulerHealthy -> "scheduler_starved(advisory_6505)"
+            !expectancyPositive -> "expectancy_negative(advisory_6505) realized=${"%.4f".format(snap.realizedPnlSol)}"
             else -> "healthy"
         }
-        return Assessment(allow, reason, snap?.totalEquitySol ?: 0.0)
+        if (!diagnosticHealthy) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RUNNER_LEDGER_HEALTH_ADVISORY_ONLY_6505")
+            } catch (_: Throwable) {}
+        }
+        return Assessment(allowExpansion = true, reason = reason, canonicalEquitySol = snap?.totalEquitySol ?: 0.0)
     }
 
     fun allowExpansion(): Boolean = assess().allowExpansion

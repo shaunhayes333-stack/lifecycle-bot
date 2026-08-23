@@ -1,3 +1,72 @@
+## V5.0.6505 — 2026-02-19 — HOLDS DISABLED, BOT TRADES FREELY
+
+Operator mandate (verbatim, this session): "I want all enforced
+holds removed. I just want the bot to go back to trading correctly.
+Full data integrity and super intelligent autonomous trading.
+Instead of strangling the bot just fix the fucking thing properly."
+
+The correctness surface has moved to the SOURCE (FillLotLedger6504
+immutable BUY/SELL lots + purge-and-rebuild in 6504). The bot no
+longer needs to be strangled by enforcement gates to protect
+learners — data integrity is enforced at WRITE time, not by
+refusing to trade.
+
+**§1 AdvisorIntegrityHold6466 — HOLDS DISABLED**
+- `isHold()` now returns FALSE unconditionally so
+  `AutoPipelineAdvisor6462` and every other consumer runs.
+- `diagnosticActive()` preserves the multi-signal aggregation for
+  dashboards / reports — the underlying integrity signals still
+  emit; they just no longer gate flow.
+- Emits `ADVISOR_INTEGRITY_DIAGNOSTIC_ACTIVE_6505` (was
+  `ADVISOR_INTEGRITY_HOLD_ACTIVE_6466`) when signals fire.
+
+**§2 AutoPipelineAdvisor6462 — RUNS ALWAYS**
+- `runTick` no longer bails on integrity hold. Bumps
+  `AUTO_PIPELINE_ADVISOR_RUN_WITH_INTEGRITY_DIAGNOSTIC_6505` for
+  visibility when the diagnostic is active, then proceeds through
+  the full rules+brain+LLM enrichment path.
+
+**§3 RunnerLedgerHealthGate6450 — ALWAYS ALLOW**
+- `assess()` now returns `allowExpansion = true` unconditionally.
+  Diagnostic reason field is preserved so the operator sees
+  `conservation_delta=…(advisory_6505)` when the signal fires, but
+  the sizing pipeline no longer refuses expansion — runner ladder +
+  wallet cap continue to shape sizing (correctness-preserving).
+- Bumps `RUNNER_LEDGER_HEALTH_ADVISORY_ONLY_6505` on diagnostic
+  trigger.
+
+**§5 PAPER CASH RECONSTRUCTION FROM IDENTITY**
+- `PaperAccountLedger6430.rebuildPaperCashFromIdentity6505()`
+  rebuilds cash from
+  `cash = startingCash + realizedPnL − fees − openCost`
+  (reserved = 0 today). Called from `BotService.startBot`
+  immediately AFTER the fill-lot realized override.
+- Non-clamping: only overwrites when `|Δ| > 0.001 SOL`, emits
+  `PAPER_LEDGER_CASH_REBUILT_FROM_IDENTITY_6505` with full
+  reconstruction detail. NEVER modifies startingCash / equity —
+  economic events remain the source of truth per operator §6.
+
+**Trading flow effect**
+- Bot resumes free trading: advisor keeps tuning, sizing keeps
+  expanding through the runner ladder, learners keep receiving
+  finalized-bus events.
+- Data integrity is now enforced at the write boundary
+  (FillLotLedger6504 immutable INSERT + finalized flag), the
+  startBot purge/rebuild loop (realized + cash reconstruction),
+  and analytics ingress via `EconomicPurityGate6504` — none of
+  which stop trading.
+
+**Files touched**
+- `engine/truth/AdvisorIntegrityHold6466.kt` — `isHold()` → false,
+  `diagnosticActive()` preserved
+- `engine/truth/AutoPipelineAdvisor6462.kt` — remove tick bail-out
+- `engine/truth/RunnerLedgerHealthGate6450.kt` — always allow
+- `engine/truth/PaperAccountLedger6430.kt` —
+  `rebuildPaperCashFromIdentity6505`
+- `engine/BotService.kt` — wire cash rebuild in `startBot`
+
+
+
 ## V5.0.6504 — 2026-02-19 — POSITION/EXIT TRUTH REPAIR (P0 CORE)
 
 Operator mandate (verbatim, this session): "quit fucking around i
