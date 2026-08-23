@@ -1,3 +1,71 @@
+# AATE PRD — V5.0.6497 (V5.7+ Entry Finality Repair)
+
+**Status:** PAPER TRADING ONLY. Live execution intentionally disabled
+until every mandate point remains green across consecutive operator
+dumps. Do NOT tune profitability while correctness surfaces are
+still stabilising.
+
+**Product goal:** $50 → $1M mindset. Every canonical authority is
+tuned to (a) protect capital, (b) preserve every side-effect door at
+its originating layer (SOURCE-LEVEL AUTHORITY CONVERGENCE), and
+(c) keep learning purity so runner compounding is monotonic.
+
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change
+lands via `git push` → GitHub Actions CI. Verification is the pair
+(`Build AATE APK` green, `Runtime Smoke Test` green) on the head SHA.
+
+
+## V5.0.6497 (Feb 2026) — ENTRY FINALITY REPAIR
+
+Twenty-fourth beat. CI green on commit `951fb7a2a` (Build AATE APK
++ Runtime Smoke Test both green).
+
+Operator's 6496 dump: 168 BUY verdicts, 270 FDG allows, **0
+executor invocations, 0 paper buys**. Entry handoff broken. 6496 §4
+over-constrained snapshot rejected 39 legit candidates. MER stuck
+at −99.9 % generating 554 zombie retries. Sizing authority
+contradiction: canonical `resolve()` returned `final=2.00 SOL` but
+EXEC_GATE saw `resolvedSize=0.01`.
+
+Six source-level fixes:
+
+- **§1 SealedOrderSizeAuthority6497** — `TraderSizingBridge6444`
+  seals `(mint, finalSizeSol)` on executable resolution;
+  `ExecutableOpenGate` consults `authoritativeSize(mint, local)`;
+  emits `EXEC_SIZE_AUTHORITY_MISMATCH_6497`.
+- **§2 PaperEntryFinalityAuthority6497** — per-attempt latch on
+  paperBuy; every LANE_BUY_INTENT event resolves to `PAPER_BUY_OK`
+  or `PAPER_ENTRY_FINALITY_REJECT_<reason>`; sweep flushes stale
+  as `PAPER_ENTRY_FINALITY_MISSING_TERMINAL_6497`.
+- **§3 Relaxed ExecutionSnapshotAuthority6496** — new tuple
+  `(primaryLane, safetyAuthorityTier, canonicalOccupancy,
+  resolvedOrderSizeSol)`; volatile fields refresh rather than
+  reject; safety only drifts on RUG/NO_BUY/UNKNOWN; order size
+  only drifts on >20 % material shrink.
+- **§4 PaperCatastrophicCloseIdempotency6497** — one-shot latch
+  per mint gates the zombie retry storm in paper mode. First
+  claim → one `requestSell`; subsequent claims → short-circuit
+  `continue`. Throw → `quarantineOnce` via
+  `HistoricalEconomicQuarantine6496`.
+- **§5 RootCauseClassifier6471 ENTRY_FINALITY tier** — new tier
+  between EXECUTION_FINALITY and RUNTIME_STALL; covers the four
+  6497 labels.
+- **§6 ROUTE_FAILED sub-reasons** — `ROUTE_FAILED_PAPER` /
+  `ROUTE_FAILED_LIVE` sub-events; flat aggregate preserved for
+  dashboards.
+
+
+## V5.0.6496 (Feb 2026) — INTEGRITY CLEANUP
+
+Twenty-third beat. CI green on commit `279cacca6`. Five source-level
+authorities + provider fixes: fallback-mark contamination gated,
+historical fault mints quarantined from learners, root-cause
+banner uses active deltas, execution snapshot immutability, UI
+snapshot off Main. Groq model migrated from
+`llama-3.3-70b-versatile` (unavailable) to `llama-3.1-70b-versatile`.
+
+
+
 # AATE PRD — V5.0.6495 (V5.7+ Growth-Centric Runner Compounding)
 
 **Status:** PAPER TRADING ONLY. Live execution intentionally disabled

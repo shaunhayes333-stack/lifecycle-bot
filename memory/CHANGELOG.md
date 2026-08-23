@@ -1,3 +1,101 @@
+## V5.0.6497 — 2026-02-19 — ENTRY FINALITY REPAIR
+
+Two commits ship this beat (`375671cd4` main + `951fb7a2a` test alignment).
+CI green — Build AATE APK + Runtime Smoke Test both pass on `951fb7a2a`.
+
+Operator 6496 dump: 168 BUY verdicts, 270 FDG allows, **0 executor
+invocations, 0 paper buys**. 6496 §4 over-constrained snapshot
+rejected 39 legit candidates. MER stuck at −99.9 % generating 554
+zombie retries. Canonical resolver reported final=2.00 SOL but
+EXEC_GATE read `resolvedSize=0.01`.
+
+**§1 SealedOrderSizeAuthority6497** — TraderSizingBridge6444 now
+seals `(mint, finalSizeSol)` when the resolver returns executable.
+ExecutableOpenGate consumes the seal via `authoritativeSize(mint,
+local)` — the sealed value wins when it materially exceeds local.
+Emits `EXEC_SIZE_AUTHORITY_MISMATCH_6497` on every correction.
+
+**§2 PaperEntryFinalityAuthority6497** — Executor.paperBuy begins
+an attempt on entry; `markPaperBuyNotOpened` calls `markRejected`;
+successful `recordTrade` calls `markOk`. Any attempt that never
+marks terminal within 30 s is flushed as
+`PAPER_ENTRY_FINALITY_MISSING_TERMINAL_6497` on the next begin —
+surfacing the 159 silent-release pattern as a diagnosable label.
+
+**§3 Relaxed ExecutionSnapshotAuthority6496 (regression fix)** —
+6496 sealed `(candidateVersion, primaryLane, preFdgVerdict,
+authorityVersion)`. `candidateVersion` and `preFdgVerdict` are
+volatile by design. New tuple per operator spec: `(primaryLane,
+safetyAuthorityTier, canonicalOccupancy, resolvedOrderSizeSol)`.
+Safety only drifts on degradation to `RUG` / `NO_BUY` / `UNKNOWN`.
+Order size only drifts on >20 % material shrink.
+
+**§4 PaperCatastrophicCloseIdempotency6497** — BotService zombie
+catastrophe block checks `cfg.paperMode`. Paper mode:
+`tryClaim(mint)` gates the retry; first claim → one `requestSell`
+attempt + `PAPER_CATASTROPHE_ONESHOT_6497`; subsequent claims →
+short-circuit `continue` (no retry, no counter bump). `requestSell`
+throw → `quarantineOnce` routes to `HistoricalEconomicQuarantine6496`
+exactly once. LIVE doctrine unchanged.
+
+**§5 RootCauseClassifier6471 — new ENTRY_FINALITY tier** between
+`EXECUTION_FINALITY` and `RUNTIME_STALL`. Probes cover the four
+6497 labels so entry-handoff faults are diagnosed correctly instead
+of misattributed to MECHANICAL_FAULT/UI.
+
+**§6 ROUTE_FAILED sub-reasons** — BotService v3 runner emits
+`ROUTE_FAILED_PAPER` / `ROUTE_FAILED_LIVE` lifecycle events; flat
+`ROUTE_FAILED` aggregate preserved for dashboards; explicit reason
+remains in `PAPER_BUY_NOT_OPENED_<reason>`.
+
+**Groq migration** — `llama-3.3-70b-versatile` → `llama-3.1-70b-versatile`
+in NarrativeDetector + BotBrain (shipped in 6496 with docs update in
+this beat).
+
+
+## V5.0.6496 — 2026-02-19 — INTEGRITY CLEANUP
+
+Single-commit ship (`279cacca6`). CI green — Build AATE APK +
+Runtime Smoke Test both pass. Bundles five source-level authorities
+plus two provider follow-ups. Per operator's 6495 rating (runtime
+8/10, execution 7/10, economic truth 5/10, learning truth 4/10) —
+integrity cleanup, not another strategy tune.
+
+**§1 MarkAuthorityIntegrityGate6496** — mark-provider callback
+consults `MarketDataProvenance6471`. `NON_AUTHORITATIVE` marks
+(fallback / sentinel / template / missing) return 0.0 → snapshot
+falls back to costBasis. Kills the observed +525 SOL unrealized
+inflation on 37 fallback marks. UI `ts.lastPrice` untouched.
+Emits `MARK_AUTHORITY_GATE_BLOCKED_6496`.
+
+**§2 HistoricalEconomicQuarantine6496** — extends
+`LearningQuarantineGate6470` with four historical fault feeds:
+- ForensicReconciler6377 BUY_SELL_QTY_SKEW → 13 oversold mints
+- CanonicalPaperReplay6464 orphan-lot loop → mint quarantine
+- EventStreamReplay6467 divergence → position id quarantine
+- PaperAccountReplay6461 divergence (piggy-backed on the above)
+
+**§3 RootCauseFreshnessAuthority6496** — RootCauseClassifier6471
+now consults `activeCount(label)` (delta within the 60 s freshness
+window) instead of lifetime `labelCountSnapshot(label)`. Historical
+counters no longer surface as active root cause.
+
+**§4 ExecutionSnapshotAuthority6496** — seals FDG-allow tuple at
+the mint. Ticket-creation drift refused UPSTREAM. NOTE: tuple
+relaxed in V5.0.6497 §3 above after the 6496 dump showed 39 false
+drift rejections. See 6497 §3 entry.
+
+**§5 UiSnapshotAuthority6496** — background refresh loop on
+`Dispatchers.Default` polls `status.tokens.values` every 500 ms
+into an immutable snapshot. `BotStatus.openPositions` fast-path is
+now an atomic ref load. Kills the 49 ANR hints / 51 s main-thread
+stall in the 6495 dump.
+
+**Providers:**
+- Groq: `llama-3.3-70b-versatile` → `llama-3.1-70b-versatile`
+  in NarrativeDetector + BotBrain.
+
+
 ## V5.0.6495 — 2026-02-19 — SOURCE-FIX: paper→LIVE mistag + root-cause priority + laneCap sentinel
 
 Two-commit ship (`919fb489a` quarantine + provider circuits, `abe50b9d5`
