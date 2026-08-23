@@ -7976,7 +7976,13 @@ class GoldenTapeRegressionTest {
             openGate.contains("EXEC_OPEN_PRECHECK_SIZE_PENDING_6491") &&
                 openGate.contains("EXEC_OPEN_BLOCKED_SIZE_NOT_EXECUTABLE_6491") &&
                 !openGate.contains("EXEC_TICKET_DEFERRED_UNTIL_SIZE_RESOLVED_6490") &&
-                openGate.contains("resolvedSizeSol = preResolvedSizeSol6490.coerceAtLeast(0.0)") &&
+                // V5.0.6497 §1 — resolvedSizeSol is now sourced from
+                // effectiveResolvedSize6497 (fold of preResolvedSizeSol6490
+                // and the SealedOrderSizeAuthority6497 seal). Either name
+                // proves the ticket-publish site consumes the canonical
+                // resolved size (never a manufactured 0.0 fallback).
+                (openGate.contains("resolvedSizeSol = preResolvedSizeSol6490.coerceAtLeast(0.0)") ||
+                    openGate.contains("resolvedSizeSol = effectiveResolvedSize6497.coerceAtLeast(0.0)")) &&
                 executor.contains("PRE_TICKET_SIZE_RESOLUTION_FAILED_6490"))
         assertTrue("6490 duplicate position creation must be blocked at canonical mutation authority",
             canonical.contains("CANONICAL_SAME_MODE_MINT_OPEN_REJECTED_6490") &&
