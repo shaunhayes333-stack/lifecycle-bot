@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
  * NarrativeDetector — Groq-powered scam/narrative detection
  * ════════════════════════════════════════════════════════════════════
  *
- * Uses Groq LLM (llama-3.3-70b-versatile) to analyze:
+ * Uses Groq LLM (llama-3.1-70b-versatile) to analyze:
  *   1. Token name/symbol for scam patterns (ELONMUSK, SAFEMOON2, etc.)
  *   2. Social sentiment from Twitter/Telegram mentions
  *   3. Token metadata/description for red flags
@@ -39,7 +39,7 @@ object NarrativeDetector {
 
     private val JSON_MT = "application/json".toMediaType()
     private val GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-    private val MODEL = "llama-3.3-70b-versatile"  // More capable model for narrative detection
+    private val MODEL = "llama-3.1-70b-versatile"  // V5.0.6496 §migrate — llama-3.3-70b-versatile is not available on Groq
 
     // Cache: mint → (result, timestamp)
     private val cache = mutableMapOf<String, Pair<NarrativeResult, Long>>()

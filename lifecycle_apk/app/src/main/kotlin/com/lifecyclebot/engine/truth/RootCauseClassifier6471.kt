@@ -74,11 +74,15 @@ object RootCauseClassifier6471 {
     fun classify(): Classification {
         classifications.incrementAndGet()
         for ((tier, label) in probes) {
+            // V5.0.6496 §3 — consult freshness authority. Historical
+            // (lifetime > 0 but no delta within the 60s window) counters
+            // MUST NOT surface as active root cause. Only ACTIVE deltas
+            // fire the "Root cause likely" bullet.
             val count = try {
-                PipelineHealthCollector.labelCountSnapshot(label)
-            } catch (_: Throwable) { 0L }
-            // Some economic labels start-with match (e.g. LEARNING_QUARANTINE_CONSUMER_DROPPED_6470_*).
-            // We keep it simple here — exact-label probing is deterministic.
+                RootCauseFreshnessAuthority6496.activeCount(label)
+            } catch (_: Throwable) {
+                try { PipelineHealthCollector.labelCountSnapshot(label) } catch (_: Throwable) { 0L }
+            }
             if (count > 0L) {
                 val c = Classification(tier = tier, label = label, supportingCount = count)
                 lastResult.set(c)

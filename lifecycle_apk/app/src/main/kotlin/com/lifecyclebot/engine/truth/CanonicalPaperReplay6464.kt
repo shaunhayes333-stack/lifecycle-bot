@@ -129,6 +129,12 @@ object CanonicalPaperReplay6464 {
                     ForensicLogger.lifecycle("OPEN_COST_WITHOUT_CANONICAL_LOT_6475", "mint=${mint.take(12)} cost=${"%.9f".format(cost)} qty=$qty")
                     PipelineHealthCollector.labelInc("OPEN_COST_WITHOUT_CANONICAL_LOT_6475")
                 } catch (_: Throwable) {}
+                // V5.0.6496 §2 — orphan lots feed the historical economic
+                // quarantine so their contaminated cost basis never
+                // reaches learners.
+                try {
+                    HistoricalEconomicQuarantine6496.reportOrphanLot(mint, cost)
+                } catch (_: Throwable) {}
             }
         }
         val snap = Snapshot(

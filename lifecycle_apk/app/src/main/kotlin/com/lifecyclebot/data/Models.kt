@@ -499,14 +499,22 @@ data class BotStatus(
      *  positions" and "the bot is showing me the position and waiting
      *  for on-chain confirmation". */
     val openPositions: List<TokenState>
-        get() = tokens.values.filter { ts ->
-            val pos = ts.position
-            // V5.9.1530 — UI/COUNT AUTHORITY: a CLOSED-ledger mint is never open.
-            if (com.lifecyclebot.engine.PositionCloseLedger.isClosed(ts.mint)) return@filter false
-            if (pos.isOpen) return@filter true
-            // V5.0.3760 — no 120s invisibility window. Confirmed/pending-proof
-            // live positions are already returned by pos.isOpen above.
-            false
+        get() {
+            // V5.0.6496 §5 — UI SNAPSHOT AUTHORITY. Fast-path via the
+            // background-refreshed immutable snapshot to keep this call
+            // off Dispatchers.Main (49 ANR hints / 51s stall on 6495).
+            // Fall through to the inline filter when the authority is
+            // not started or the cache is stale.
+            com.lifecyclebot.engine.truth.UiSnapshotAuthority6496.current()?.let { return it }
+            return tokens.values.filter { ts ->
+                val pos = ts.position
+                // V5.9.1530 — UI/COUNT AUTHORITY: a CLOSED-ledger mint is never open.
+                if (com.lifecyclebot.engine.PositionCloseLedger.isClosed(ts.mint)) return@filter false
+                if (pos.isOpen) return@filter true
+                // V5.0.3760 — no 120s invisibility window. Confirmed/pending-proof
+                // live positions are already returned by pos.isOpen above.
+                false
+            }
         }
 
     /** Total SOL currently at risk across all positions */

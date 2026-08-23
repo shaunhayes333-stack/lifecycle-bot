@@ -36,7 +36,7 @@ import java.util.concurrent.ConcurrentHashMap   // V5.9.826: thread-safe counter
  *
  * LAYER 2 — Groq LLM pattern analysis (runs every 50 trades or weekly)
  * ──────────────────────────────────────────────────────────────────────
- * Sends a structured summary of recent trades to Groq (llama-3.3-70b-versatile).
+ * Sends a structured summary of recent trades to Groq (llama-3.1-70b-versatile).
  * Asks it to identify patterns, explain what's working vs failing, and
  * suggest specific parameter changes. Returns structured JSON.
  * Falls back gracefully if no key or rate limited.
@@ -847,7 +847,7 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
 
         try {
             val requestBody = JSONObject().apply {
-                put("model", "llama-3.3-70b-versatile")
+                put("model", "llama-3.1-70b-versatile")  // V5.0.6496 §migrate — llama-3.3-70b-versatile is not available on Groq
                 put("max_tokens", 600)
                 put("temperature", 0.2)
                 put("messages", JSONArray().put(JSONObject().apply {

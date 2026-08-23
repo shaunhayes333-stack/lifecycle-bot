@@ -4160,29 +4160,56 @@ class BotService : Service() {
                     val px = ts.lastPrice
                     if (!px.isFinite() || px <= 0.0 || !pos.isOpen) 0.0
                     else {
-                        // V5.0.6496 SOURCE-FIX — ts.lastPrice is USD-per-token
-                        // (DexScreener / Jupiter both publish priceUsd).
-                        // CanonicalCapitalAuthority6450 documents the mark
-                        // provider must return WHOLE-MINT VALUE IN SOL. Return-
-                        // ing USD here caused equity/openMV to be recorded as
-                        // 'SOL' and then multiplied by solPrice for dashboard
-                        // USD display — a double-USD scaling that produced the
-                        // observed $956M equity on a $94 starting balance.
-                        //
-                        // Convert USD→SOL at the provider boundary using the
-                        // authoritative SOL/USD price. If the SOL price cache
-                        // is missing or absurd, return 0.0 so the snapshot
-                        // falls back to costBasis (unrealized reads 0, never
-                        // a phantom -100%).
-                        val solUsd = try {
-                            com.lifecyclebot.engine.EfficiencyLayer.getCachedPrice()?.solPriceUsd
-                                ?: com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
-                        } catch (_: Throwable) { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice }
-                        if (!solUsd.isFinite() || solUsd <= 50.0 || solUsd >= 5000.0) 0.0
-                        else (px * pos.qtyToken.coerceAtLeast(0.0)) / solUsd
+                        // V5.0.6496 §1 — MARK AUTHORITY INTEGRITY GATE. Fallback /
+                        // sentinel / synthetic marks (per MarketDataProvenance6471)
+                        // may DISPLAY in the UI but MUST NOT flow into
+                        // openMarketValueSol / unrealizedPnl / EconomicOutcome6472
+                        // / learners. Return 0.0 on non-authoritative → snapshot
+                        // falls back to costBasis so unrealized reads 0 (never a
+                        // phantom +525 SOL / $926M inflation). Only the economic
+                        // path is gated; ts.lastPrice for UI is untouched.
+                        val provOk = try {
+                            com.lifecyclebot.engine.truth.MarkAuthorityIntegrityGate6496.isAuthoritative(
+                                mint = mint,
+                                priceUsd = ts.lastPrice,
+                                mcapUsd = ts.lastMcap,
+                                liquidityUsd = ts.lastLiquidityUsd,
+                                source = ts.lastPriceSource.ifBlank { "UNKNOWN" },
+                                poolAddress = ts.lastPricePoolAddr.ifBlank { "MINT_ROUTE:${mint.take(8)}" },
+                            )
+                        } catch (_: Throwable) { false }
+                        if (!provOk) 0.0
+                        else {
+                            // V5.0.6496 SOURCE-FIX — ts.lastPrice is USD-per-token
+                            // (DexScreener / Jupiter both publish priceUsd).
+                            // CanonicalCapitalAuthority6450 documents the mark
+                            // provider must return WHOLE-MINT VALUE IN SOL. Return-
+                            // ing USD here caused equity/openMV to be recorded as
+                            // 'SOL' and then multiplied by solPrice for dashboard
+                            // USD display — a double-USD scaling that produced the
+                            // observed $956M equity on a $94 starting balance.
+                            //
+                            // Convert USD→SOL at the provider boundary using the
+                            // authoritative SOL/USD price. If the SOL price cache
+                            // is missing or absurd, return 0.0 so the snapshot
+                            // falls back to costBasis (unrealized reads 0, never
+                            // a phantom -100%).
+                            val solUsd = try {
+                                com.lifecyclebot.engine.EfficiencyLayer.getCachedPrice()?.solPriceUsd
+                                    ?: com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+                            } catch (_: Throwable) { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice }
+                            if (!solUsd.isFinite() || solUsd <= 50.0 || solUsd >= 5000.0) 0.0
+                            else (px * pos.qtyToken.coerceAtLeast(0.0)) / solUsd
+                        }
                     }
                 } catch (_: Throwable) { 0.0 }
             }
+        } catch (_: Throwable) {}
+        // V5.0.6496 §5 — start the background UI snapshot refresher so
+        // BotStatus.openPositions no longer traverses the token map on
+        // Dispatchers.Main. Idempotent.
+        try {
+            com.lifecyclebot.engine.truth.UiSnapshotAuthority6496.start(status)
         } catch (_: Throwable) {}
         // V5.0.6454 §P0 — start the INDEPENDENT wall-clock reconciler +
         // risk clock BEFORE the bot loop launches. These run on their

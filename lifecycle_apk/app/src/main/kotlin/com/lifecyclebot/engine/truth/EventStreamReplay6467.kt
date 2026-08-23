@@ -69,6 +69,15 @@ object EventStreamReplay6467 {
                     "cashΔ=${"%.4f".format(cashD)} realizedΔ=${"%.4f".format(realD)} openΔ=${"%.4f".format(openD)} " +
                     "firstDivergentEventId=${firstDivergent ?: "n/a"} idx=$divIndex totalEvents=${ordered.size}")
                 PipelineHealthCollector.labelInc("EVENT_STREAM_REPLAY_DIVERGED_6467")
+                // V5.0.6496 §2 — feed the divergent event id into the
+                // historical economic quarantine so its (corrupted)
+                // outcome never reaches learners.
+                try {
+                    HistoricalEconomicQuarantine6496.reportEventStreamDivergence(
+                        firstDivergentEventId = firstDivergent,
+                        mint = null,
+                    )
+                } catch (_: Throwable) {}
             } else {
                 PipelineHealthCollector.labelInc("EVENT_STREAM_REPLAY_CONVERGED_6467")
             }

@@ -141,6 +141,15 @@ object ForensicReconciler6377 {
             val summary = if (ok) "buyMints=${buyByMint.size} sellMints=${sellByMint.size}"
                           else "over-sold mints=${violators.size} e.g. ${violators.first().key.take(6)}=(buy${fmt(buyByMint[violators.first().key] ?: 0.0)}/sell${fmt(violators.first().value)})"
             results += CheckResult("BUY_SELL_QTY_SKEW", ok, summary)
+            // V5.0.6496 §2 — feed skewed mints into the historical
+            // economic quarantine so their (contaminated) outcomes
+            // never reach learners / tactic μ / WR / FOM / UPH / sizing.
+            if (!ok) {
+                try {
+                    com.lifecyclebot.engine.truth.HistoricalEconomicQuarantine6496
+                        .reportBuySellSkew(violators.map { it.key })
+                } catch (_: Throwable) {}
+            }
         }
 
         // ── 4. COST_BASIS (buy.sol > 0 for entries) ──────────────────────

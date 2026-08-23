@@ -231,6 +231,28 @@ object ExecutableOpenGate {
     ): Pair<String, String>? {
         val selected = canonicalLane(selectedLane)
         val requested = canonicalLane(requestedLane)
+        // V5.0.6496 §4 — EXECUTION SNAPSHOT DRIFT CHECK. If FDG_ALLOW
+        // sealed a (candidateVersion, primaryLane, preFdgVerdict, ...)
+        // tuple for this mint, refuse ticket creation UPSTREAM when the
+        // currently-observed tuple has drifted. This is the SOURCE-LEVEL
+        // fix for the Orangie case: primary=PROJECT_SNIPER at FDG,
+        // ticket=STANDARD/preFdg=WATCH at EXEC_OPEN → old code minted a
+        // ticket then dropped it as EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY
+        // (465 rows). Now the drift is caught before ticket creation.
+        if (mint.isNotBlank()) {
+            val drift = try {
+                com.lifecyclebot.engine.truth.ExecutionSnapshotAuthority6496.matchOrDriftReason(
+                    mint = mint,
+                    candidateVersion = candidateVersion,
+                    primaryLane = selected,
+                    preFdgVerdict = preFdgVerdict,
+                    authorityVersion = candidateVersion,
+                )
+            } catch (_: Throwable) { null }
+            if (drift != null) {
+                return "EXEC_OPEN_DROPPED_SNAPSHOT_DRIFT_6496" to drift
+            }
+        }
         if (state == null) {
             // V5.0.4003 — SOURCE FIX: final-candidate state can be swept or
             // overwritten between FDG_ALLOW and liveBuy handoff during scanner storms.
@@ -608,6 +630,23 @@ object ExecutableOpenGate {
             if (executableFdg) {
                 ErrorLogger.info("FDG", "FDG_ALLOW $symbol lane=${lane.uppercase()} preFdg=$finalVerdict hardNo=[] safety=$safetyTier rug=$rugScore liq=${liquidityUsd.toInt()} duplicate=false circuit=${ToxicModeCircuitBreaker.currentEntryPause().active} sellPressure=${reason ?: "OK"} version=$candidateVersion")
                 ForensicLogger.phase(ForensicLogger.PHASE.FDG, symbol, "FDG_ALLOW $msg")
+                // V5.0.6496 §4 — seal the (candidateVersion, primaryLane,
+                // preFdgVerdict, authorityVersion) tuple at the FDG allow
+                // site. Any subsequent ticket-creation drift will be
+                // refused UPSTREAM instead of producing a
+                // EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY / TOKEN_STATE_CHANGED
+                // row. authorityVersion is set to candidateVersion for
+                // now (both bump together); a future authority-version
+                // counter can replace it without changing the wire.
+                try {
+                    com.lifecyclebot.engine.truth.ExecutionSnapshotAuthority6496.record(
+                        mint = mint,
+                        candidateVersion = candidateVersion,
+                        primaryLane = lane,
+                        preFdgVerdict = finalVerdict,
+                        authorityVersion = candidateVersion,
+                    )
+                } catch (_: Throwable) {}
             } else {
                 ErrorLogger.info("FDG", "FDG_BLOCK $symbol lane=${lane.uppercase()} preFdg=$finalVerdict hardNo=$hard reason=${reason ?: finalHardNo.firstOrNull() ?: "FDG_BLOCK"}")
                 ForensicLogger.phase(ForensicLogger.PHASE.FDG, symbol, "FDG_BLOCK $msg reason=${reason ?: finalHardNo.firstOrNull() ?: "FDG_BLOCK"}")
