@@ -4163,6 +4163,12 @@ class BotService : Service() {
                     val pos = ts.position
                     val px = ts.lastPrice
                     if (!px.isFinite() || px <= 0.0 || !pos.isOpen) 0.0
+                    else if (try { com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.isQuarantined(mint) } catch (_: Throwable) { false }) {
+                        // V5.0.6500 — broken-invariant positions contribute
+                        // 0.0 to openMarketValueSol so equity display stays
+                        // honest. UI still shows the position but flagged.
+                        0.0
+                    }
                     else {
                         // V5.0.6496 §1 — MARK AUTHORITY INTEGRITY GATE. Fallback /
                         // sentinel / synthetic marks (per MarketDataProvenance6471)
@@ -4207,6 +4213,51 @@ class BotService : Service() {
                         }
                     }
                 } catch (_: Throwable) { 0.0 }
+            }
+        } catch (_: Throwable) {}
+        // V5.0.6500 §sweep — QUANTITY INVARIANT ENFORCEMENT.
+        // Walk every open position on startup and quarantine + force-
+        // close any that violate `qty × entryPrice ≈ costSol × solPrice`.
+        // Operator mandate: clean slate for testing today. Broken
+        // positions produced $752K phantom equity on a $5 paper buy.
+        try {
+            val brokenMints6500 = mutableListOf<String>()
+            for (ts in status.tokens.values) {
+                val pos = ts.position
+                if (!pos.isOpen) continue
+                if (!pos.isPaperPosition) continue
+                val check = try {
+                    com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.check(pos)
+                } catch (_: Throwable) { null }
+                if (check != null && !check.ok) {
+                    try {
+                        com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
+                            .markInvariantBroken(ts.mint, "STARTUP_SWEEP: ${check.reason}")
+                    } catch (_: Throwable) {}
+                    brokenMints6500 += ts.mint
+                }
+            }
+            if (brokenMints6500.isNotEmpty()) {
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "INVARIANT_QUARANTINE_STARTUP_SWEEP_6500",
+                        "count=${brokenMints6500.size} sampleMints=${brokenMints6500.take(5).joinToString(",") { it.take(8) }}",
+                    )
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("INVARIANT_QUARANTINE_STARTUP_SWEEP_6500")
+                } catch (_: Throwable) {}
+                // Force-close each broken position via executor.requestSell
+                // — the paper terminal pipeline will atomically close and
+                // release occupancy. Reason INVARIANT_QUARANTINE_6500 flags
+                // these as economic quarantine (never feeds learners).
+                for (mint in brokenMints6500) {
+                    val ts = status.tokens[mint] ?: continue
+                    try {
+                        executor.requestSell(ts = ts, reason = "INVARIANT_QUARANTINE_6500", wallet = wallet, walletSol = 0.0)
+                    } catch (e: Throwable) {
+                        com.lifecyclebot.engine.ErrorLogger.warn("BotService",
+                            "INVARIANT_QUARANTINE_6500 force-close failed for ${mint.take(10)}: ${e.message?.take(50)}")
+                    }
+                }
             }
         } catch (_: Throwable) {}
         // V5.0.6496 §5 — start the background UI snapshot refresher so

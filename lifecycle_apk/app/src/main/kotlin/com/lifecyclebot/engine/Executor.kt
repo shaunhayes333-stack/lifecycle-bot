@@ -1278,18 +1278,57 @@ class Executor(
                     if (rebasedEntry > 0 && rebasedEntry.isFinite()) {
                         val factor = rebasedEntry / pos.entryPrice
                         if (factor.isFinite() && factor > 0 && factor < 1e9) {
-                            ErrorLogger.warn("Executor",
-                                "🔄 PRICE_BASIS_REBASE ${ts.symbol}: source ${pos.entryPriceSource}→${ts.lastPriceSource} " +
-                                "| entry ${pos.entryPrice}→${rebasedEntry} (×${"%.4g".format(factor)}) " +
-                                "| mcap ${entryMcap}→${currentMcap} | live ${livePrice}")
-                            ts.position = pos.copy(
-                                entryPrice = rebasedEntry,
-                                highestPrice = pos.highestPrice * factor,
-                                lowestPrice = if (pos.lowestPrice > 0) pos.lowestPrice * factor else 0.0,
-                                lastTopUpPrice = if (pos.lastTopUpPrice > 0) pos.lastTopUpPrice * factor else 0.0,
-                                priceBasisRescaled = true,
-                                priceBasisRescaleFactor = factor,
-                            )
+                            // V5.0.6500 — SOURCE FIX: invariant preservation.
+                            // Pre-6500 rebase multiplied entryPrice by
+                            // `factor` but LEFT qtyToken unchanged. That
+                            // silently inflates the qty × entryPrice
+                            // notional by exactly `factor` — the source
+                            // of compassSOL 6710 × $112 = $752K phantom
+                            // equity on a $5 paper buy. Correct behaviour:
+                            // scale qtyToken inversely so
+                            //   qty' × entryPrice' = (qty/factor) × (entryPrice×factor)
+                            //                      = qty × entryPrice
+                            //                      = original notional  ✓
+                            // Additionally cap the factor at 100× — any
+                            // rebase larger than that comes from a
+                            // corrupted quote (pump.fun BC mcap/1B basis
+                            // at buy vs Raydium USD basis after grad).
+                            // Those positions are quarantined instead
+                            // of rebased.
+                            val CAP_FACTOR = 100.0
+                            val factorOutOfBand = factor > CAP_FACTOR || factor < (1.0 / CAP_FACTOR)
+                            if (factorOutOfBand) {
+                                try {
+                                    ForensicLogger.lifecycle(
+                                        "PRICE_BASIS_REBASE_REJECTED_INVARIANT_6500",
+                                        "mint=${ts.mint.take(10)} sym=${ts.symbol} factor=${"%.4g".format(factor)} cap=$CAP_FACTOR action=quarantine",
+                                    )
+                                    PipelineHealthCollector.labelInc("PRICE_BASIS_REBASE_REJECTED_INVARIANT_6500")
+                                } catch (_: Throwable) {}
+                                try {
+                                    com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
+                                        .markInvariantBroken(ts.mint, "REBASE_FACTOR_OUT_OF_BAND_$factor")
+                                } catch (_: Throwable) {}
+                                // Mark as rescaled so we don't loop; but
+                                // do NOT actually rebase.
+                                ts.position = pos.copy(priceBasisRescaled = true)
+                            } else {
+                                val newQty = pos.qtyToken / factor
+                                ErrorLogger.warn("Executor",
+                                    "🔄 PRICE_BASIS_REBASE ${ts.symbol}: source ${pos.entryPriceSource}→${ts.lastPriceSource} " +
+                                    "| entry ${pos.entryPrice}→${rebasedEntry} (×${"%.4g".format(factor)}) " +
+                                    "| qty ${pos.qtyToken}→${newQty} (÷factor, invariant preserved) " +
+                                    "| mcap ${entryMcap}→${currentMcap} | live ${livePrice}")
+                                ts.position = pos.copy(
+                                    entryPrice = rebasedEntry,
+                                    qtyToken = newQty,
+                                    highestPrice = pos.highestPrice * factor,
+                                    lowestPrice = if (pos.lowestPrice > 0) pos.lowestPrice * factor else 0.0,
+                                    lastTopUpPrice = if (pos.lastTopUpPrice > 0) pos.lastTopUpPrice * factor else 0.0,
+                                    priceBasisRescaled = true,
+                                    priceBasisRescaleFactor = factor,
+                                )
+                            }
                         }
                     }
                 } else {
@@ -12339,8 +12378,36 @@ class Executor(
         )
         ts.lastPolicySnapshot = paperPolicySnapshot
         val preBuyPosition6485 = ts.position
+        // V5.0.6500 — SOURCE FIX: paper qty formula. Pre-6500 code was:
+        //   qtyToken = effectiveSol / effectivePrice
+        // effectiveSol is in SOL. effectivePrice is USD-per-token
+        // (dexscreener/jupiter/pumpfun price basis). Dividing them gives
+        // SOL·token/USD — wrong units. The correct formula (documented
+        // at line ~1563 for the chain-decimal detector but never applied
+        // to the paper store) is:
+        //   qtyToken = (effectiveSol × solPriceUsd) / effectivePrice
+        //            = notional_usd / price_usd_per_token
+        //            = qty_tokens                  ✓
+        // Missing solPriceUsd factor is exactly the class of bug that
+        // produced compassSOL 0.05 SOL → 6710 tokens ($752K phantom
+        // notional) in the operator's 6499 dump.
+        val solPriceForQty6500 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val qtyAtBuy6500 = if (solPriceForQty6500 >= 50.0 && solPriceForQty6500 <= 5000.0) {
+            (effectiveSol * solPriceForQty6500) / maxOf(effectivePrice, 1e-12)
+        } else {
+            // Cold-boot fallback: SOL price cache not warm. Emit a canary
+            // so operator can see it never happens in flight and fall back
+            // to the (unit-mismatched) legacy formula only to avoid a
+            // crash-loop before WalletManager warms.
+            try {
+                ErrorLogger.warn("Executor",
+                    "⚠ PAPER_BUY_QTY_SOLPX_FALLBACK_6500 solPx=$solPriceForQty6500 effSol=$effectiveSol effPx=$effectivePrice — using pre-6500 formula until SOL price warms")
+                PipelineHealthCollector.labelInc("PAPER_BUY_QTY_SOLPX_FALLBACK_6500")
+            } catch (_: Throwable) {}
+            effectiveSol / maxOf(effectivePrice, 1e-12)
+        }
         val fundedPaperPosition6485 = Position(
-            qtyToken     = effectiveSol / maxOf(effectivePrice, 1e-12),
+            qtyToken     = qtyAtBuy6500,
             entryPrice   = effectivePrice,
             entryTime    = System.currentTimeMillis(),
             costSol      = actualSol,

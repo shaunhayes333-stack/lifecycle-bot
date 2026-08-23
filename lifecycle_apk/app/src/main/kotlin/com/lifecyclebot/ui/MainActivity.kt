@@ -5595,11 +5595,23 @@ for legal compliance.
                     })
                 }
             }
+            // V5.0.6500 — QUANTITY INVARIANT AUTHORITY. If the position
+            // violates qty × entryPrice ≈ costSol × solPrice, do not show
+            // phantom qty/notional. Render "INVARIANT_BROKEN" so the
+            // operator sees the fault and equity/analytics exclude it.
+            val invariantBroken6500 = try {
+                com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.isQuarantined(ts.mint) ||
+                    !com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.check(pos).ok
+            } catch (_: Throwable) { false }
             // Entry price per token and time — V5.0.6321 prefer canonical fill
             info.addView(TextView(this).apply {
-                text = "Entry: ${if (entryPriceForCard6321 > 0.0) entryPriceForCard6321.fmtPrice() else "pricing wait"}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
+                text = if (invariantBroken6500) {
+                    "Entry: INVARIANT_BROKEN_6500  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
+                } else {
+                    "Entry: ${if (entryPriceForCard6321 > 0.0) entryPriceForCard6321.fmtPrice() else "pricing wait"}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
+                }
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
-                setTextColor(muted)
+                setTextColor(if (invariantBroken6500) 0xFFFBBF24.toInt() else muted)
                 typeface = android.graphics.Typeface.MONOSPACE
             })
             // Entry size and token amount
@@ -5609,9 +5621,13 @@ for legal compliance.
                     tokenAmount >= 1_000     -> "%.2fK".format(tokenAmount / 1_000)
                     else                     -> "%.2f".format(tokenAmount)
                 }
-                text = "Size: %.4f◎  ·  %s tokens".format(repairedCostSol6412, tokenAmtStr)
+                text = if (invariantBroken6500) {
+                    "Size: %.4f◎  ·  qty INVALID (invariant broken)".format(repairedCostSol6412)
+                } else {
+                    "Size: %.4f◎  ·  %s tokens".format(repairedCostSol6412, tokenAmtStr)
+                }
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
-                setTextColor(muted)
+                setTextColor(if (invariantBroken6500) 0xFFFBBF24.toInt() else muted)
                 typeface = android.graphics.Typeface.MONOSPACE
             })
             row.addView(info)
