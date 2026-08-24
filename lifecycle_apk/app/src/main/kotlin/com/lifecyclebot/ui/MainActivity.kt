@@ -3084,17 +3084,26 @@ for legal compliance.
             // `walletSnap6451?.totalEquitySol` preserved.
             val totalEquityCandidate6508 = walletSnap6451?.totalEquitySol ?: 0.0
             val snap6508 = walletSnap6451
-            if (snap6508 != null && snap6508.fallbackMarkMints > 0) {
-                val totalOpen6508 = snap6508.fallbackMarkMints + snap6508.staleMarkMints
-                val fallbackDominant6508 = totalOpen6508 == 0 ||
-                    snap6508.fallbackMarkMints.toDouble() / (totalOpen6508 + 1).toDouble() > 0.20
-                if (fallbackDominant6508) {
-                    try {
-                        com.lifecyclebot.engine.PipelineHealthCollector
-                            .labelInc("HERO_EQUITY_AUTHORITATIVE_FALLBACK_6508")
-                    } catch (_: Throwable) {}
-                    snap6508.authoritativeEquitySol
-                } else totalEquityCandidate6508
+            // V5.0.6508d — TIGHTER FALLBACK GUARD.
+            // Operator screenshot: starting $1000+, only $60 bought,
+            // 2 open paper positions + 2 bluechip, cash $93 SOL yet
+            // UI showed $732. Root cause: 6508a guard only triggered
+            // on FALLBACK-to-basis marks (>20% of open), not on
+            // stale-lastGood marks that still valued positions at
+            // their last cached fresh price. Old cached marks from
+            // prior sessions manufactured ~$500 of phantom equity.
+            //
+            // 6508d: Use authoritative equity (cash + reserved +
+            // FRESH-marked open MV only) whenever ANY non-fresh mark
+            // exists. Stale-lastGood or fallback-to-basis both count
+            // as unverified — neither may contribute to headline.
+            if (snap6508 != null &&
+                (snap6508.fallbackMarkMints > 0 || snap6508.staleMarkMints > 0)) {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector
+                        .labelInc("HERO_EQUITY_AUTHORITATIVE_FALLBACK_6508")
+                } catch (_: Throwable) {}
+                snap6508.authoritativeEquitySol
             } else totalEquityCandidate6508
         } else {
             ws.solBalance

@@ -126,14 +126,14 @@ object HeroSnapshotAuthority6503 {
             } catch (_: Throwable) {}
         }
         val equitySol = try {
-            // V5.0.6508a — same fallback-mark guard as MainActivity hero.
+            // V5.0.6508d — same tighter fallback guard as MainActivity hero.
+            // ANY non-fresh mark (stale-lastGood OR fallback-to-basis)
+            // triggers use of authoritativeEquitySol so cached prior-session
+            // marks cannot manufacture headline equity.
             val snap6508 = CanonicalCapitalAuthority6450.snapshot()
-            val totalOpen6508 = snap6508.fallbackMarkMints + snap6508.staleMarkMints
-            val fallbackDominant6508 = snap6508.fallbackMarkMints > 0 &&
-                (totalOpen6508 == 0 ||
-                    snap6508.fallbackMarkMints.toDouble() / (totalOpen6508 + 1).toDouble() > 0.20)
-            if (fallbackDominant6508) snap6508.authoritativeEquitySol
-            else snap6508.totalEquitySol
+            if (snap6508.fallbackMarkMints > 0 || snap6508.staleMarkMints > 0) {
+                snap6508.authoritativeEquitySol
+            } else snap6508.totalEquitySol
         } catch (_: Throwable) { 0.0 }
         val cashSol = try {
             PaperAccountLedger6430.cashSol()
