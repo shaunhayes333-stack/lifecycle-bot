@@ -30,7 +30,8 @@ class Repair6495OutcomeAndProviderAcceptanceTest {
 
     @Test fun dexscreenerCannotRawRetryAroundHealthCircuit() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/network/DexscreenerApi.kt").readText()
-        assertTrue(src.contains("HealthAwareHttp.execute(http, req, host = \"dexscreener\")"))
+        assertTrue(src.contains("HealthAwareHttp.execute(http, req, host = host)"))
+        assertTrue(src.contains("private fun get(url: String, host: String = \"dexscreener\")"))
         assertFalse(src.contains("http.newCall(req).execute()"))
     }
 }
