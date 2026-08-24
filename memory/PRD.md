@@ -1,3 +1,51 @@
+# AATE PRD — V5.0.6508f (OPEN-COST RECONCILIATION GREEN)
+
+**Status:** PAPER TRADING ONLY.
+
+**Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE (FillLotLedger6504 immutable SQLite lots + per-lot projection reconciliation), never by strangling flow.
+
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is the pair (`Build AATE APK` green, `Runtime Smoke Test` green) on the head SHA.
+
+
+## V5.0.6508f (Feb 2026) — OPEN-COST SCALAR RECONCILIATION ✅ CI GREEN
+
+`ca3adfbd4` Build ✅ + Runtime Smoke Test ✅.
+
+Operator screenshot: starting ~10.75 SOL, spent ~1.23 SOL on 4 open positions, headline showed 7.87 SOL → **~2.9 SOL "missing"**.
+
+Traced through the code (no guessing):
+- `CanonicalCapitalAuthority6450.snapshot`: `equity = cash + reserved + openMv`
+- `PaperAccountLedger6430.openCostBasisPico` is a scalar accumulator that can drift from per-lot truth (`CanonicalPositionAuthority6441.activeMintProjections6490.remainingCostBasisSol`).
+- The 6505 cash rebuild `cash = startingCash + realized − fees − openCost` uses the drifted scalar → cash under-counted by drift.
+
+**§6508f OPEN-COST RECONCILE FROM PROJECTIONS**
+- `PaperAccountLedger6430.overrideOpenCostFromProjections6508(sol)` overwrites the scalar when `|Δ| > 0.001 SOL`, emits `PAPER_LEDGER_OPEN_COST_RECONCILED_FROM_PROJECTIONS_6508`.
+- `BotService.startBot` sums `remainingCostBasisSol` across active paper projections and calls the override BEFORE the 6505 cash rebuild.
+
+Prior 6508a–e still green: journal-supplied UI, closeId dedup for unlinked rows, `authoritativeEquitySol` snapshot field, `walletSnap6451?.totalEquitySol` literal preserved, conservative equity guard reverted to totalEquitySol + divergence counter (`HERO_EQUITY_AUTHORITATIVE_DIVERGENCE_6508`).
+
+
+## STAGED (next sessions)
+
+**From CANONICAL EXECUTION + RUNTIME REPAIR mandate**
+- P0 full CanonicalFillBuilder wrapping every entry path
+- P0 immutable ExecutionTicket at FDG BUY
+- P0 EXIT FINALITY atomic 6-store terminal mutation
+- P0 replay/canonical reconciliation
+- P0/P1 loop performance — cycle budget + off-critical maintenance
+
+**From CANONICAL ENTRY + ECONOMIC TRUTH mandate**
+- P0-2 full atomic election snapshot
+- P0-4 UNVERIFIED valuation partition (authoritativeOpenValue / unverifiedOpenValue / fallbackMarkCount / missingCostBasisCount)
+
+**From EXECUTION AUTHORITY + PAPER FINALITY REPAIR mandate**
+- P0-1 full ExecutionTicket data structure at FDG BUY commit + Executor consumes ticket.decision
+- P0-3 full authoritative-mark rebuild across all open positions
+- P0-4 replay/canonical reconciliation
+  (EVENT_STREAM_REPLAY_DIVERGED_6467 / PAPER_REPLAY_DIVERGENCE_6461)
+
+
+
 # AATE PRD — V5.0.6507a (POSITION/EXIT TRUTH + FILL-LOT AUTHORITY GREEN)
 
 **Status:** PAPER TRADING ONLY. Live routing intentionally disabled
