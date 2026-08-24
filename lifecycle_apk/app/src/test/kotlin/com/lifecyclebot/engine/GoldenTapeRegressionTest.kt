@@ -2984,10 +2984,8 @@ class GoldenTapeRegressionTest {
 
         assertTrue("paper buy must clamp before position and journal mutation", exec.contains("clampPaperTradeSol(floorPreserved6490"))
         assertTrue("paper buy max must be bankroll-backed live-transfer size, not legacy maxPositionSol micro-cap", exec.contains("ALL PAPER ENTRIES") && exec.contains("paperSimulatedBalance * 0.10") && exec.contains("coerceIn(legacyMax, 2.0)"))
-        // V5.0.6381 — floor lowered from paperSimulatedBalance * 0.01 to * 0.001
-        // per operator directive: learning-shrunk sizes (e.g. 0.021 SOL) were being
-        // clamped UP to 0.1176 which nullified the LiveProbabilityEngine shape signal.
-        assertTrue("paper buy min must have a live-transfer floor for all entries", exec.contains("live-transfer floor") && exec.contains("paperSimulatedBalance * 0.001"))
+        // V5.0.6511 — executable minimum is independent from requested sizing and wallet percentage.
+        assertTrue("paper buy minimum must use the independent bounded runtime floor", exec.contains("PaperPreTicketSizeFloor6511.boundedMinimum(runtimeMinimum6511)") && !exec.substring(exec.indexOf("private fun minConfiguredPaperTradeSol"), exec.indexOf("private fun clampPaperTradeSol")).contains("c.smallBuySol"))
         assertTrue("paper buy sizing helper must delegate to the sole canonical resolver", exec.contains("PAPER_SIZE_CANONICAL_RESOLVER_6510") && exec.contains("OrderSizeResolver6441.resolve("))
 
         // V5.0.6366 — F4 raised the paper learning-eligibility ceiling from
@@ -8228,6 +8226,25 @@ class GoldenTapeRegressionTest {
         assertTrue(partial.contains("""val operationId = """") && partial.contains("positionId") && partial.contains("sequence") && partial.contains("CanonicalPaperTerminalBridge6469.finalizeSell"))
         assertFalse("paper partial operation IDs must not contain wallclock generations", partial.contains("System.currentTimeMillis()}_"))
         assertTrue(incident.contains("enum class State { OPEN, RESOLVED }") && freshness.contains("elapsed time never reactivates lifetime history"))
+    }
+
+
+    @Test
+    fun V5_0_6511_paper_pre_ticket_floor_is_independent_and_preserves_valid_shaped_buys() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val minimumStart = exec.indexOf("private fun minConfiguredPaperTradeSol")
+        val minimumEnd = exec.indexOf("private fun clampPaperTradeSol", minimumStart)
+        val minimumBlock = exec.substring(minimumStart, minimumEnd)
+        assertFalse("ordinary requested smallBuySol must not be executable-floor authority", minimumBlock.contains("c.smallBuySol"))
+        assertFalse("wallet-relative requested sizing must not become an executable floor", minimumBlock.contains("paperSimulatedBalance * 0.001"))
+        assertTrue(minimumBlock.contains("PaperPreTicketSizeFloor6511.boundedMinimum(runtimeMinimum6511)"))
+        val promote = exec.indexOf("effectiveRequestedSol6511 = PaperPreTicketSizeFloor6511.effectiveRequested")
+        val bridge = exec.indexOf("TraderSizingBridge6444.resolveForLane", promote)
+        val reject = exec.indexOf("PAPER_BUY_REJECTED_BEFORE_TICKET_SIZE_6490", bridge)
+        val ticket = exec.indexOf("ExecutableOpenGate.canOpenExecutablePosition", reject)
+        val commit = exec.indexOf("V5.0.6485 — ATOMIC PAPER BUY COMMIT", ticket)
+        assertTrue(promote >= 0 && promote < bridge && bridge < reject && reject < ticket && ticket < commit)
+        assertTrue(exec.contains("PAPER_BUY_SIZE_FLOOR_PROMOTED_6511") && exec.contains("availableCashSol=") && exec.contains("resolvedSol="))
     }
 
 }

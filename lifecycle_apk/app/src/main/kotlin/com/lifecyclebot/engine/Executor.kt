@@ -26,6 +26,20 @@ import com.lifecyclebot.data.maxPoolImpactPct
 import com.lifecyclebot.data.maxWalletRiskPerTradePct
 import com.lifecyclebot.data.minLiveBuySol
 
+internal object PaperPreTicketSizeFloor6511 {
+    private const val ABSOLUTE_EXECUTABLE_FLOOR_SOL = 0.005
+    private const val MAX_BOUNDED_RUNTIME_MINIMUM_SOL = 0.15
+
+    fun boundedMinimum(runtimeMinimumSol: Double): Double =
+        runtimeMinimumSol.takeIf { it.isFinite() && it > 0.0 }
+            ?.coerceIn(ABSOLUTE_EXECUTABLE_FLOOR_SOL, MAX_BOUNDED_RUNTIME_MINIMUM_SOL)
+            ?: ABSOLUTE_EXECUTABLE_FLOOR_SOL
+
+    fun effectiveRequested(requestedSol: Double, minimumSol: Double, availableCashSol: Double): Double =
+        if (requestedSol.isFinite() && requestedSol > 0.0 && requestedSol < minimumSol && availableCashSol >= minimumSol) minimumSol
+        else requestedSol
+}
+
 data class MintEntryMarketSnapshot(
     val priceUsd: Double,
     val marketCapUsd: Double,
@@ -11901,11 +11915,19 @@ class Executor(
         // V5.0.6490 — resolve capital BEFORE PAPER ticket publication. The
         // entry authority may down-shape a 0.05 intent, but no downstream
         // component may manufacture a 0.021 order that can never execute.
+        val availableCashSol6511 = try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol() } catch (_: Throwable) { 0.0 }
+        val paperExecutableMinimumSol6511 = minConfiguredPaperTradeSol()
+        val effectiveRequestedSol6511 = PaperPreTicketSizeFloor6511.effectiveRequested(
+            requestedSol = effectiveBuySol6451,
+            minimumSol = paperExecutableMinimumSol6511,
+            availableCashSol = availableCashSol6511,
+        )
+        val floorPromotionRequested6511 = effectiveRequestedSol6511 > effectiveBuySol6451
         val preTicketSize6490 = try {
             com.lifecyclebot.engine.truth.TraderSizingBridge6444.resolveForLane(
                 laneName = finalityLane,
-                requestedSol = effectiveBuySol6451,
-                walletSol = com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol(),
+                requestedSol = effectiveRequestedSol6511,
+                walletSol = availableCashSol6511,
                 paperMode = true,
                 overrideLaneRiskCapSol = maxPaperTradeSolOverride,
                 mintForSeal = ts.mint,  // V5.0.6497 §1 seal for downstream authority
@@ -11914,6 +11936,15 @@ class Executor(
             com.lifecyclebot.engine.truth.OrderSizeResolver6441.Resolution(
                 effectiveBuySol6451, 0.0, 0.0, 0.0, 0.0, 0.0, false, "PRE_TICKET_SIZE_RESOLUTION_FAILED_6490",
             )
+        }
+        if (floorPromotionRequested6511) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_BUY_SIZE_FLOOR_PROMOTED_6511")
+                ForensicLogger.lifecycle(
+                    "PAPER_BUY_SIZE_FLOOR_PROMOTED_6511",
+                    "mint=${ts.mint} symbol=${ts.symbol} lane=$finalityLane requestedSol=${effectiveBuySol6451.fmt(6)} minimumSol=${paperExecutableMinimumSol6511.fmt(6)} availableCashSol=${availableCashSol6511.fmt(6)} resolvedSol=${preTicketSize6490.finalSizeSol.fmt(6)}",
+                )
+            } catch (_: Throwable) {}
         }
         if (!preTicketSize6490.executable) {
             try {
@@ -19218,25 +19249,13 @@ class Executor(
     }
 
     private fun minConfiguredPaperTradeSol(): Double {
-        return try {
-            val c = cfg()
-            val legacyMin = c.smallBuySol.takeIf { it.isFinite() && it > 0.0 } ?: 0.005
-            // V5.0.3873 — live-transfer floor. A 0.01/0.03 SOL paper row is useful
-            // for route smoke, but not for learned live sizing.
-            // V5.0.6241 — floor lowered to [0.02, 0.15] so fluid-sizing shape
-            // multipliers (LaneBucketPivot × CompoundGrowthMentality × score-tilt)
-            // can actually differentiate low-confidence probes from high-
-            // confidence presses.
-            // V5.0.6381 — floor lowered FURTHER to [0.005, 0.15]. The 0.02 floor
-            // was clamping learning-shrunk sizes (e.g. shape=0.021 for a low-
-            // confidence bucket) back UP to 0.1176 SOL — directly nullifying
-            // the shape signal the LiveProbabilityEngine and TacticSwitcher
-            // spent 100s of trades learning. Operator snapshot showed
-            // `requested=0.021340 clamped=0.117600` — a 5.5× override of
-            // learning. New floor lets any shape ≥ 0.005 SOL survive.
-            val computed = maxOf(legacyMin, (c.paperSimulatedBalance * 0.001).coerceIn(0.005, 0.15))
-            com.lifecyclebot.engine.truth.OrderSizeResolver6441.updatePaperExecutableMinimumSol(computed)
-        } catch (_: Throwable) { com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol() }
+        // V5.0.6511 — smallBuySol is an ordinary requested-size target, never
+        // executable-floor authority. Paper uses the independent bounded runtime
+        // minimum (absolute floor 0.005 SOL); genuine runtime/exchange minimums
+        // may raise it, while pathological values are capped safely.
+        val runtimeMinimum6511 = try { cfg().minLiveBuySol } catch (_: Throwable) { 0.005 }
+        val boundedMinimum6511 = PaperPreTicketSizeFloor6511.boundedMinimum(runtimeMinimum6511)
+        return com.lifecyclebot.engine.truth.OrderSizeResolver6441.updatePaperExecutableMinimumSol(boundedMinimum6511)
     }
 
     private fun clampPaperTradeSol(requested: Double, mint: String = "", symbol: String = "", source: String = "paper", maxOverrideSol: Double? = null): Double {
