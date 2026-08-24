@@ -84,6 +84,8 @@ object StrategyHypothesisEngine {
     /** V5.9.1353 — TRUE RESET: drop baselines, active hypotheses + pending. */
     fun reset() { baseline.clear(); stopBaseline.clear(); active.clear(); pending.clear() }
     @Volatile private var promotions = 0L
+    @Volatile private var outcomeUpdates6512 = 0L
+    fun outcomeUpdateCount6512(): Long = outcomeUpdates6512
     @Volatile private var retirements = 0L
     @Volatile private var appContext: Context? = null
 
@@ -250,6 +252,7 @@ object StrategyHypothesisEngine {
             val a = pending.remove(mint) ?: return
             val ctx = a.first; val variant = a.second
             val h = active[ctx] ?: return
+            outcomeUpdates6512 += 1L
             val pnl = pnlPct.coerceIn(-95.0, 1000.0)
             if (variant) h.variant.update(pnl) else h.control.update(pnl)
             try {

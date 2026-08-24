@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicLong
  * V5.0.6497 §3 tuple (operator's exact spec):
  *   • primaryLane          — the elected lane (immutable per election)
  *   • safetyAuthorityTier  — SAFE / CAUTION / RUG (identity, not price)
- *   • canonicalOccupancy   — mint-lane occupancy identity
+ *   • canonicalOccupancy   — mode+mint position occupancy identity
  *   • resolvedOrderSizeSol — the sealed order size (§1 authority)
  *
  * Only these four fields are checked. Volatile market data (price,
@@ -98,8 +98,8 @@ object ExecutionSnapshotAuthority6496 {
         val pLane = primaryLane.uppercase()
         val pSafety = safetyAuthorityTier.uppercase()
         val driftBits = buildList {
-            if (snap.primaryLane != pLane)
-                add("primaryLane(${snap.primaryLane}->$pLane)")
+            // V5.0.6512 — strategy lane may rebind before ticket commit.
+            // It is not position occupancy and cannot manufacture snapshot drift.
             // Safety drift only matters when it degrades to a hard
             // veto tier. SAFE → CAUTION is not drift; anything → RUG /
             // NO_BUY / UNKNOWN is a material identity change.

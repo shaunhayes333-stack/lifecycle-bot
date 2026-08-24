@@ -4817,8 +4817,52 @@ object FinalDecisionGate {
             }
         } catch (_: Throwable) { /* live size contract must never break FDG */ }
 
+        val aateEnvelope6512 = try {
+            val hardReason6512 = blockReasonFinal?.uppercase().orEmpty()
+            val trueHard6512 = listOf("CONFIRMED_RUG", "RUGCHECK_100", "RC_SCORE_0", "NO_EXECUTABLE_ROUTE", "TRUE_ZERO_LIQUIDITY", "DUPLICATE_OPEN", "MINT_AUTHORITY_RETAINED", "FREEZE_AUTHORITY_RETAINED", "MANUAL_LIQUIDATION")
+                .filter { hardReason6512.contains(it) }
+            val contributions6512 = checks.map { c ->
+                com.lifecyclebot.engine.truth.AateBrainContribution6512(
+                    brain = c.name, role = if (c.name.contains("safety", true) || c.name.contains("rug", true)) "SAFETY" else "CONTRIBUTOR",
+                    weight = if (c.passed) 0.55 else 0.70, effect = if (c.passed) 0.05 else -0.10,
+                    pWin = if (c.name.contains("policy", true) || c.name.contains("outcome", true)) (adjustedConfidence / 100.0).coerceIn(0.0, 1.0) else null,
+                    sizeMultiplier = if (proposedSizeSol > 0.0) (finalSize / proposedSizeSol).coerceIn(0.05, 3.0) else 1.0,
+                )
+            }.plus(
+                com.lifecyclebot.engine.truth.AateBrainContribution6512(
+                    brain = "PolicySynthesizerInput", role = "INPUT", weight = 1.0,
+                    effect = if (shouldTradeFinal) 0.25 else -0.25,
+                    pWin = (adjustedConfidence / 100.0).coerceIn(0.0, 1.0),
+                    expectedPnlPct = when (edgeVerdict) { EdgeVerdict.STRONG -> 15.0; EdgeVerdict.WEAK -> 2.0; EdgeVerdict.SKIP -> -5.0 },
+                    moonshotP = if (laneName == "MOONSHOT") (adjustedConfidence / 100.0).coerceIn(0.0, 1.0) else 0.0,
+                    rugP = if (trueHard6512.any { it.contains("RUG") }) 1.0 else 0.0,
+                    sizeMultiplier = if (proposedSizeSol > 0.0) (finalSize / proposedSizeSol).coerceIn(0.05, 3.0) else 1.0,
+                )
+            )
+            val context6512 = com.lifecyclebot.engine.truth.AateStrategyContext6512(
+                candidateId = "${ts.mint}:${com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)}",
+                runtimeGeneration = com.lifecyclebot.engine.BotRuntimeController.currentGeneration(),
+                mode = mode.name, mint = ts.mint, symbol = ts.symbol,
+                candidateVersion = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint),
+                primaryStrategy = laneName, source = ts.source.ifBlank { "UNKNOWN" },
+                regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
+            )
+            com.lifecyclebot.engine.truth.AateDecisionFabric6512.record(
+                com.lifecyclebot.engine.truth.PolicySynthesizer6512.synthesize(
+                    context = context6512,
+                    proposedAction = if (shouldTradeFinal) if (blockReasonFinal == "PROBE_ONLY") "PROBE_ONLY" else "BUY" else "BLOCK",
+                    scoreBase = candidate.entryScore, scoreFinal = effectiveGateScore6025,
+                    sizeBase = proposedSizeSol, sizeFinal = finalSize,
+                    tactic = tags.firstOrNull { it.startsWith("tactic:") }?.substringAfter(':') ?: laneName,
+                    hardSafety = trueHard6512, contributors = contributions6512,
+                    learningState = "entryHead=${com.lifecyclebot.engine.UnifiedPolicyHead.currentAuthority(laneName).name};meta=${"contexts=" + com.lifecyclebot.engine.AutonomousMetaPolicy.contextCount()}",
+                )
+            )
+        } catch (_: Throwable) { null }
+        if (aateEnvelope6512 != null) finalSize = aateEnvelope6512.sizeFinal
+
         return rememberFdgVerdict(fdgCacheKey, FinalDecision(
-            shouldTrade = shouldTradeFinal,
+            shouldTrade = shouldTradeFinal && aateEnvelope6512?.action != "BLOCK",
             mode = mode,
             approvalClass = approvalClass,
             quality = candidate.finalQuality,

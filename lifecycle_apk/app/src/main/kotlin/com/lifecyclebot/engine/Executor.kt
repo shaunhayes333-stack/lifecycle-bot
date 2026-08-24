@@ -10368,21 +10368,24 @@ class Executor(
             val signal6504 = ts.signal.uppercase()
             val nonBuySignal = signal6504.isNotBlank() &&
                 signal6504 !in setOf("BUY", "PROBE", "PROBE_ONLY", "EXECUTE")
-            val currentVersion6510 = try { LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { tradeId.fdgCandidateVersion }
-            val decision6510 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.consume(
-                ts.mint, currentVersion6510, tradeId.fdgVerdictSnapshot, tradeId.executionLane,
+            val frozenVersion6512 = tradeId.fdgCandidateVersion.takeIf { it > 0L }
+                ?: try { LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
+            val frozenLane6512 = normalizeExecutionLane(tradeId.executionLane)
+            val decision6512 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.consume(
+                ts.mint, frozenVersion6512, tradeId.fdgVerdictSnapshot, frozenLane6512,
             )
-            val snapshotExecutable6510 = decision6510?.verdict in setOf("BUY", "PROBE_ONLY") &&
-                normalizeExecutionLane(decision6510?.executionLane).isNotBlank()
-            if (nonBuySignal && snapshotExecutable6510) {
+            val snapshotExecutable6512 = decision6512?.verdict in setOf("BUY", "PROBE_ONLY") &&
+                normalizeExecutionLane(decision6512?.executionLane).isNotBlank()
+            if (nonBuySignal && snapshotExecutable6512) {
                 try {
-                    PipelineHealthCollector.labelInc("FDG_MUTABLE_SIGNAL_IGNORED_6510")
-                    ForensicLogger.lifecycle("FDG_MUTABLE_SIGNAL_IGNORED_6510", "mint=${ts.mint.take(10)} candidateVersion=${decision6510?.candidateVersion} verdict=${decision6510?.verdict} mutableSignal=$signal6504 action=consume_immutable_snapshot")
+                    PipelineHealthCollector.labelInc("FDG_MUTABLE_SIGNAL_IGNORED_6512")
+                    ForensicLogger.lifecycle("FDG_MUTABLE_SIGNAL_IGNORED_6512", "mint=${ts.mint.take(10)} candidateVersion=${decision6512?.candidateVersion} verdict=${decision6512?.verdict} lane=${decision6512?.executionLane} mutableSignal=$signal6504 action=continue_frozen_pre_execution_authority")
                 } catch (_: Throwable) {}
             } else if (nonBuySignal) {
+                val released6512 = try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, frozenLane6512, "EXEC_AUTHORITY_MISSING_6512", frozenVersion6512) } catch (_: Throwable) { false }
                 try {
-                    PipelineHealthCollector.labelInc("FDG_BUY_TO_AUTH_DROP_NON_BUY_SIGNAL_6504")
-                    ForensicLogger.lifecycle("ENTRY_BRIDGE_NON_BUY_GUARD_6504", "mint=${ts.mint.take(10)} symbol=${ts.symbol} signal=$signal6504 preFdg=$preFdgVerdict6504 action=abort_no_executable_snapshot")
+                    PipelineHealthCollector.labelInc("EXEC_AUTHORITY_MISSING_DEFERRED_6512")
+                    ForensicLogger.lifecycle("EXEC_AUTHORITY_MISSING_DEFERRED_6512", "mint=${ts.mint.take(10)} symbol=${ts.symbol} signal=$signal6504 preFdg=$preFdgVerdict6504 lane=$frozenLane6512 version=$frozenVersion6512 electionReleased=$released6512 action=defer_re_elect_next_cycle")
                 } catch (_: Throwable) {}
                 return
             }

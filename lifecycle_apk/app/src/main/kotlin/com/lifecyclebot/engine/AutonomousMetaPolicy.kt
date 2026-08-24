@@ -91,6 +91,7 @@ object AutonomousMetaPolicy {
     private val arms = ConcurrentHashMap<String, Arm>()
     fun contextCount(): Int = arms.size  // V5.9.1355 P0.5 audit
     @Volatile private var totalUpdates: Long = 0L
+    fun totalUpdateCount6512(): Long = totalUpdates
     @Volatile private var appContext: Context? = null
 
     // ── Context key ──────────────────────────────────────────────────────

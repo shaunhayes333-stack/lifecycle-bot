@@ -49,6 +49,7 @@ android {
         // API Keys - User must provide their own keys in app settings
         // DO NOT hardcode API keys here!
         buildConfigField("String", "JUPITER_API_KEY", "\"\"")
+        buildConfigField("String", "TWELVE_DATA_API_KEY", "\"\"")
         buildConfigField("String", "GROQ_KEY_P1", "\"\"")
         buildConfigField("String", "GROQ_KEY_P2", "\"\"")
     }

@@ -97,11 +97,12 @@ object ExecutableOpenGate {
 
     /** V5.0.6509 — finalized decision tuple; raw scanner signal is diagnostic only. */
     internal fun canonicalExecutableIntent6509(
-        fdgCan: Boolean?, preFdgVerdict: String, hardNoReasons: List<String>, hasImmutableTicket: Boolean,
-    ): Boolean = fdgCan == true && hardNoReasons.isEmpty() && hasImmutableTicket &&
+        fdgCan: Boolean?, preFdgVerdict: String, hardNoReasons: List<String>,
+    ): Boolean = fdgCan == true && hardNoReasons.isEmpty() &&
         (preFdgVerdict.equals("BUY", true) || preFdgVerdict.equals("PROBE_ONLY", true))
 
     private val states = ConcurrentHashMap<String, EntryState>()
+    private val fdgElectionLocks6512 = ConcurrentHashMap<String, Any>()
     private const val TTL_MS = 10 * 60 * 1000L
     private val allowedAttempts = ConcurrentHashMap<String, Pair<String, Long>>()
     private val executionTickets = ConcurrentHashMap<String, ExecutionTicket>()
@@ -148,6 +149,7 @@ object ExecutableOpenGate {
         executionTickets.entries.removeIf { now - it.value.createdAtMs > EXECUTION_TICKET_TTL_MS }
         allowedAttempts.entries.removeIf { now - it.value.second > ALLOWED_ATTEMPT_TTL_MS }
         executionTickets[ticket.attemptId] = ticket
+        try { com.lifecyclebot.engine.truth.AateDecisionFabric6512.sealForExecution(ticket.attemptId, ticket.mode, ticket.mint, ticket.candidateVersion, ticket.lane) } catch (_: Throwable) {}
         allowedAttempts[laneKey(ticket.mint, ticket.lane)] = ticket.attemptId to now
         allowedAttempts[ticket.mint.trim()] = ticket.attemptId to now
         try { PipelineHealthCollector.labelInc("EXEC_TICKET_CREATED") } catch (_: Throwable) {}
@@ -250,7 +252,7 @@ object ExecutableOpenGate {
                     mint = mint,
                     primaryLane = selected,
                     safetyAuthorityTier = currentSafetyTier,
-                    canonicalOccupancy = "$mint:${selected.uppercase()}",
+                    canonicalOccupancy = "${mode.uppercase()}:$mint",
                     resolvedOrderSizeSol = resolvedForDriftCheck,
                 )
             } catch (_: Throwable) { null }
@@ -308,7 +310,7 @@ object ExecutableOpenGate {
                             mint = mint,
                             primaryLane = selected,
                             safetyAuthorityTier = currentSafetyTier,
-                            canonicalOccupancy = "$mint:${selected.uppercase()}",
+                            canonicalOccupancy = "${mode.uppercase()}:$mint",
                             resolvedOrderSizeSol = try {
                                 com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint) ?: 0.0
                             } catch (_: Throwable) { 0.0 },
@@ -622,18 +624,9 @@ object ExecutableOpenGate {
             // signal label — treat as executable PROBE_ONLY rather than WATCH-dropping it.
             else -> "PROBE_ONLY"
         }
-        try {
-            val identity6510 = TradeIdentityManager.getOrCreate(mint, symbol)
-            if (canExecute && finalHardNo.isEmpty() && finalVerdict in setOf("BUY", "PROBE_ONLY")) {
-                identity6510.executionLane = lane.uppercase()
-                identity6510.fdgCandidateVersion = candidateVersion
-                identity6510.fdgVerdictSnapshot = finalVerdict
-                com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.record(
-                    com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot(mint, candidateVersion, finalVerdict, lane.uppercase(), entryScore.toDouble(), System.currentTimeMillis())
-                )
-            }
-        } catch (_: Throwable) {}
-        put(mint) { old ->
+        val winningState6512 = synchronized(fdgElectionLocks6512.computeIfAbsent(mint) { Any() }) {
+            var resolvedWinner6512: EntryState? = null
+            put(mint) { old ->
             // V5.9.1545 — VERDICT PRECEDENCE (multi-lane last-write-wins clobber fix).
             // A single candidate (e.g. KNECKS) is evaluated across many lanes in one
             // tick; each lane calls this writer. Plain last-write-wins meant a later
@@ -647,19 +640,19 @@ object ExecutableOpenGate {
                 "NO_BUY" -> 0; "HARD_NO_BUY" -> 0; else -> 1
             }
             val sameVersion = old != null && old.candidateVersion == candidateVersion
-            val keepOld = sameVersion && rank(old?.preFdgVerdict) > rank(finalVerdict)
+            val keepOld = sameVersion && rank(old?.preFdgVerdict) >= rank(finalVerdict)
             val effectiveVerdict = if (keepOld) old!!.preFdgVerdict else finalVerdict
             val effectiveCan = if (keepOld) old!!.fdgCan else canExecute
             (old ?: EntryState(mint = mint, symbol = symbol)).copy(
-                symbol = symbol,
+                symbol = if (keepOld) old?.symbol ?: symbol else symbol,
                 fdgCan = effectiveCan,
                 fdgReason = if (keepOld) old?.fdgReason else reason,
-                signal = signal.ifBlank { "UNKNOWN" },
-                decisionBand = if (effectiveVerdict == "BUY") "BUY" else (old?.decisionBand ?: effectiveVerdict),
-                selectedLane = lane.uppercase(),
+                signal = if (keepOld) old?.signal ?: "UNKNOWN" else signal.ifBlank { "UNKNOWN" },
+                decisionBand = if (keepOld) old?.decisionBand ?: effectiveVerdict else if (effectiveVerdict == "BUY") "BUY" else effectiveVerdict,
+                selectedLane = if (keepOld) old?.selectedLane ?: "UNKNOWN" else lane.uppercase(),
                 preFdgVerdict = effectiveVerdict,
                 hardNoReasons = if (keepOld) (old?.hardNoReasons ?: finalHardNo) else finalHardNo,
-                candidateVersion = candidateVersion,
+                candidateVersion = if (keepOld) old?.candidateVersion ?: candidateVersion else candidateVersion,
                 entryScore = if (entryScore >= 0) entryScore else old?.entryScore ?: -1,
                 liquidityUsd = if (liquidityUsd > 0.0) liquidityUsd else old?.liquidityUsd ?: 0.0,
                 tokenMapRouteStatus = tokenMapRouteStatus.ifBlank { old?.tokenMapRouteStatus ?: "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP" },
@@ -669,7 +662,37 @@ object ExecutableOpenGate {
                 rugScore = if (rugScore >= 0) rugScore else old?.rugScore ?: -1,
                 safetyTier = if (safetyTier.isNotBlank() && !safetyTier.equals("UNKNOWN", true)) safetyTier else old?.safetyTier ?: "UNKNOWN",
                 updatedAtMs = System.currentTimeMillis(),
-            )
+            ).also { resolvedWinner6512 = it }
+        }
+            val winner = resolvedWinner6512
+            if (winner?.fdgCan == true && winner.hardNoReasons.isEmpty() && winner.preFdgVerdict in setOf("BUY", "PROBE_ONLY")) {
+                try {
+                    val identity6512 = TradeIdentityManager.getOrCreate(mint, winner.symbol)
+                    identity6512.executionLane = winner.selectedLane
+                    identity6512.fdgCandidateVersion = winner.candidateVersion
+                    identity6512.fdgVerdictSnapshot = winner.preFdgVerdict
+                    com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.record(
+                        com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot(
+                            mint = mint, candidateVersion = winner.candidateVersion,
+                            verdict = winner.preFdgVerdict, executionLane = winner.selectedLane,
+                            score = winner.entryScore.toDouble(), generatedAtMs = System.currentTimeMillis(),
+                        )
+                    )
+                    val mode6512 = if (paperRuntime) "PAPER" else "LIVE"
+                    if (com.lifecyclebot.engine.truth.AateDecisionFabric6512.get(mode6512, mint, winner.candidateVersion, winner.selectedLane) == null) {
+                        com.lifecyclebot.engine.truth.AateDecisionFabric6512.record(
+                            com.lifecyclebot.engine.truth.PolicySynthesizer6512.synthesize(
+                                context = com.lifecyclebot.engine.truth.AateStrategyContext6512("$mint:${winner.candidateVersion}", BotRuntimeController.currentGeneration(), mode6512, mint, winner.symbol, winner.candidateVersion, winner.selectedLane, "FDG_HANDOFF", "UNKNOWN"),
+                                proposedAction = winner.preFdgVerdict, scoreBase = winner.entryScore.toDouble(), scoreFinal = winner.entryScore.toDouble(),
+                                sizeBase = 0.0, sizeFinal = 0.0, tactic = winner.selectedLane, hardSafety = winner.hardNoReasons,
+                                contributors = listOf(com.lifecyclebot.engine.truth.AateBrainContribution6512("FinalDecisionGate", "CONTRIBUTOR", 1.0, 0.25, pWin = if (winner.fdgCan == true) 0.65 else 0.35)),
+                                learningState = "FDG_FALLBACK_ENVELOPE",
+                            )
+                        )
+                    }
+                } catch (_: Throwable) {}
+            }
+            winner
         }
         // V5.0.6487 — FDG records state only. Execution tickets are created
         // atomically at final EXEC_GATE allow after lane election and entry authority.
@@ -681,7 +704,7 @@ object ExecutableOpenGate {
             // verdict. ForensicLogger.decision() had ZERO callers, which is why the funnel
             // always showed verdicts produced=0 despite FDG running. phase() bumps phaseCounts;
             // decision() bumps verdictCounts — both are needed.
-            val executableFdg = canExecute && finalHardNo.isEmpty() && (finalVerdict == "BUY" || finalVerdict == "PROBE_ONLY")
+            val executableFdg = winningState6512?.fdgCan == true && winningState6512.hardNoReasons.isEmpty() && winningState6512.preFdgVerdict in setOf("BUY", "PROBE_ONLY")
             val verdictLabel = if (executableFdg) finalVerdict else "BLOCK"
             try { ForensicLogger.decision(ForensicLogger.PHASE.FDG, symbol, verdictLabel, 0, 0, reason ?: finalHardNo.firstOrNull() ?: verdictLabel) } catch (_: Throwable) {}
             if (executableFdg) {
@@ -702,9 +725,9 @@ object ExecutableOpenGate {
                     } catch (_: Throwable) { 0.0 }
                     com.lifecyclebot.engine.truth.ExecutionSnapshotAuthority6496.record(
                         mint = mint,
-                        primaryLane = lane,
-                        safetyAuthorityTier = safetyTier,
-                        canonicalOccupancy = "$mint:${lane.uppercase()}",
+                        primaryLane = winningState6512?.selectedLane ?: lane.uppercase(),
+                        safetyAuthorityTier = winningState6512?.safetyTier ?: safetyTier,
+                        canonicalOccupancy = "${if (paperRuntime) "PAPER" else "LIVE"}:$mint",
                         resolvedOrderSizeSol = resolvedSizeForSeal,
                     )
                 } catch (_: Throwable) {}
@@ -1247,7 +1270,7 @@ object ExecutableOpenGate {
             return blocked("EXEC_OPEN_BLOCKED_RUNTIME_PAUSED", "RUNTIME_MITIGATION_PAUSE")
         }
         val currentCandidateVersion = LaneExecutionCoordinator.candidateVersionFor(mint)
-        val immutableTicket = ticketForAttempt(attemptId)
+        val immutableTicket = ticketForAttempt(attemptId) // output/recheck only; never prerequisite for pre-execution FDG intent
         val stateTokenMapRouteStatus = state?.tokenMapRouteStatus ?: "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP"
         val stateTokenMapHydrationComplete = state?.tokenMapHydrationComplete == true
         val stateTokenMapExpectedOut = state?.tokenMapExpectedOut ?: 0.0
@@ -1433,14 +1456,13 @@ object ExecutableOpenGate {
             fdgCan = fdgCan,
             preFdgVerdict = preFdgVerdict,
             hardNoReasons = hardNoReasons,
-            hasImmutableTicket = immutableTicket != null,
         )
         if (!signal.equals("BUY", true) && !signal.equals("EXECUTE", true)) {
             try { com.lifecyclebot.engine.truth.CanonicalFdgBuyStamp6508.reportMismatch(mint, signal, candidateVersion) } catch (_: Throwable) {}
             if (canonicalExecutableIntent6509) {
                 try {
                     PipelineHealthCollector.labelInc("EXEC_RAW_SIGNAL_DIAGNOSTIC_IGNORED_6509")
-                    ForensicLogger.lifecycle("EXEC_RAW_SIGNAL_DIAGNOSTIC_IGNORED_6509", "symbol=$symbol mint=${mint.take(10)} signal=${signal.ifBlank { "UNKNOWN" }} preFdg=$preFdgVerdict ticket=true")
+                    ForensicLogger.lifecycle("EXEC_RAW_SIGNAL_DIAGNOSTIC_IGNORED_6509", "symbol=$symbol mint=${mint.take(10)} signal=${signal.ifBlank { "UNKNOWN" }} preFdg=$preFdgVerdict authority=PRE_EXEC_FDG")
                 } catch (_: Throwable) {}
             } else {
                 return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", "SIGNAL_NOT_BUY:${signal.ifBlank { "UNKNOWN" }}", shadow = mode == "PAPER")

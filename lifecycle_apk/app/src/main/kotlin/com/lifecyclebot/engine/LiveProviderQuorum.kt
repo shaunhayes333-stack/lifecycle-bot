@@ -42,15 +42,21 @@ object LiveProviderQuorum {
         }
 
         val providers = mutableListOf<String>()
-        if (src.contains("DEX") || ts.pairAddress.isNotBlank() || hostHealthy("dexscreener", "api.dexscreener.com")) providers += "DEXSCREENER"
+        if (src.contains("DEXPAPRIKA") || hostHealthy("dexpaprika", "api.dexpaprika.com")) providers += "DEXPAPRIKA"
+        if (src.contains("RAYDIUM") || hostHealthy("raydium", "api-v3.raydium.io")) providers += "RAYDIUM"
+        if (src.contains("DEXSCREENER") || hostHealthy("dexscreener", "api.dexscreener.com")) providers += "DEXSCREENER_ENRICHMENT"
         if (src.contains("PUMP") || hostHealthy("pumpfun", "pump.fun", "frontend-api.pump.fun", "pumpportal")) providers += "PUMPFUN"
         if (src.contains("BIRDEYE") || hostHealthy("birdeye", "public-api.birdeye.so")) providers += "BIRDEYE"
         if (src.contains("GECKO") || hostHealthy("geckoterminal", "api.geckoterminal.com")) providers += "GECKOTERMINAL"
+        if (src.contains("HELIUS") || hostHealthy("helius", "api.helius.xyz")) providers += "HELIUS_ONCHAIN"
+        if (src.contains("JUP") || hostHealthy("jupiter", "api.jup.ag", "lite-api.jup.ag")) providers += "JUPITER_ROUTE"
         if (hostHealthy("coingecko", "api.coingecko.com") || ts.lastPrice > 0.0) providers += "COINGECKO_SOL_CONTEXT"
 
         val degraded = mutableListOf<String>()
         if (hostDegraded("birdeye", "public-api.birdeye.so")) degraded += "BIRDEYE"
         if (hostDegraded("geckoterminal", "api.geckoterminal.com")) degraded += "GECKOTERMINAL"
+        if (hostDegraded("dexscreener", "api.dexscreener.com")) degraded += "DEXSCREENER_OPTIONAL"
+        if (hostDegraded("coingecko", "api.coingecko.com")) degraded += "COINGECKO_OPTIONAL"
         if (hostDegraded("gemini", "groq")) degraded += "LLM_ADVISORY_ONLY"
 
         val marketCount = providers.distinct().size

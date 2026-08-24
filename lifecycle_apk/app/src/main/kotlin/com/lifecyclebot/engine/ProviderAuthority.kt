@@ -36,12 +36,14 @@ object ProviderAuthority {
         "WALLET" to ProviderConfig("WALLET", setOf(Role.EXECUTION, Role.ACCOUNTING, Role.EXIT_RISK), emptySet()),
         "HELIUS" to ProviderConfig("HELIUS", setOf(Role.EXECUTION, Role.ACCOUNTING, Role.EXIT_RISK), setOf(Role.EXECUTION)),
         "JUPITER" to ProviderConfig("JUPITER", setOf(Role.EXECUTION, Role.ACCOUNTING, Role.EXIT_RISK), setOf(Role.ACCOUNTING)),
-        "RAYDIUM" to ProviderConfig("RAYDIUM", setOf(Role.EXIT_RISK, Role.DISPLAY), emptySet()),
+        "DEXPAPRIKA" to ProviderConfig("DEXPAPRIKA", setOf(Role.DISCOVERY, Role.DISPLAY, Role.EXIT_RISK), setOf(Role.EXECUTION, Role.ACCOUNTING)),
+        "RAYDIUM" to ProviderConfig("RAYDIUM", setOf(Role.DISCOVERY, Role.DISPLAY, Role.EXIT_RISK), emptySet()),
         "ORCA" to ProviderConfig("ORCA", setOf(Role.EXIT_RISK, Role.DISPLAY), emptySet()),
         "METEORA" to ProviderConfig("METEORA", setOf(Role.EXIT_RISK, Role.DISPLAY), emptySet()),
         "PUMPPORTAL" to ProviderConfig("PUMPPORTAL", setOf(Role.DISCOVERY, Role.DISPLAY, Role.EXIT_RISK), setOf(Role.ACCOUNTING)),
         "DEXSCREENER" to ProviderConfig("DEXSCREENER", setOf(Role.DISCOVERY, Role.DISPLAY), setOf(Role.EXECUTION, Role.ACCOUNTING, Role.EXIT_RISK)),
-        "BIRDEYE" to ProviderConfig("BIRDEYE", setOf(Role.DISCOVERY, Role.DISPLAY), setOf(Role.ACCOUNTING)),
+        "BIRDEYE" to ProviderConfig("BIRDEYE", setOf(Role.DISPLAY), setOf(Role.EXECUTION, Role.ACCOUNTING, Role.EXIT_RISK)),
+        "COINGECKO" to ProviderConfig("COINGECKO", setOf(Role.DISPLAY), setOf(Role.EXECUTION, Role.ACCOUNTING, Role.EXIT_RISK)),
     )
 
     private val degradedProviders = ConcurrentHashMap<String, Long>()

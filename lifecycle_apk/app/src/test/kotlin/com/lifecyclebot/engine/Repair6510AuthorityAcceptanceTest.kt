@@ -21,7 +21,7 @@ class Repair6510AuthorityAcceptanceTest {
         ExecutableOpenGate.recordFdg(mint, "PS", "PROJECT_SNIPER", true, null,
             signal = "BUY", rugScore = 90, safetyTier = "SAFE", liquidityUsd = 5000.0,
             preFdgVerdict = "BUY", candidateVersion = cv, entryScore = 88)
-        val snap = requireNotNull(ExecutionDecisionSnapshot6510.get(mint))
+        val snap = requireNotNull(ExecutionDecisionSnapshot6510.get(mint, cv, "PROJECT_SNIPER"))
         assertEquals("PROJECT_SNIPER", snap.executionLane); assertEquals("BUY", snap.verdict); assertEquals(cv, snap.candidateVersion)
         val id = requireNotNull(TradeIdentityManager.get(mint))
         assertEquals("PROJECT_SNIPER", id.executionLane); assertNotEquals("PUMP_FUN_NEW,SCANNER_DIRECT", id.executionLane)
@@ -31,7 +31,7 @@ class Repair6510AuthorityAcceptanceTest {
     @Test fun version_change_is_explicitly_revalidated_or_cancelled() {
         ExecutionDecisionSnapshot6510.resetForTest(); val mint = "VER6510_${System.nanoTime()}"
         ExecutionDecisionSnapshot6510.record(ExecutionDecisionSnapshot(mint, 1L, "BUY", "PROJECT_SNIPER", 80.0, 1L))
-        assertEquals(2L, ExecutionDecisionSnapshot6510.consume(mint, 2L, "BUY", "PROJECT_SNIPER")?.candidateVersion)
+        assertNull(ExecutionDecisionSnapshot6510.consume(mint, 2L, "BUY", "PROJECT_SNIPER"))
         assertNull(ExecutionDecisionSnapshot6510.consume(mint, 3L, "NO_BUY", "PROJECT_SNIPER"))
     }
 

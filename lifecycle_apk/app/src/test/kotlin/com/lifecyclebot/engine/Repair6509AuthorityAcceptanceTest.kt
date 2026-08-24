@@ -83,10 +83,10 @@ class Repair6509AuthorityAcceptanceTest {
     }
 
     @Test fun canonical_fdg_intent_ignores_unknown_raw_signal_but_preserves_hard_no_and_ticket_guards() {
-        assertTrue(ExecutableOpenGate.canonicalExecutableIntent6509(true, "BUY", emptyList(), true))
-        assertTrue(ExecutableOpenGate.canonicalExecutableIntent6509(true, "PROBE_ONLY", emptyList(), true))
-        assertFalse(ExecutableOpenGate.canonicalExecutableIntent6509(true, "BUY", listOf("CONFIRMED_RUG"), true))
-        assertFalse(ExecutableOpenGate.canonicalExecutableIntent6509(true, "BUY", emptyList(), false))
-        assertFalse(ExecutableOpenGate.canonicalExecutableIntent6509(false, "BUY", emptyList(), true))
+        assertTrue(ExecutableOpenGate.canonicalExecutableIntent6509(true, "BUY", emptyList()))
+        assertTrue(ExecutableOpenGate.canonicalExecutableIntent6509(true, "PROBE_ONLY", emptyList()))
+        assertFalse(ExecutableOpenGate.canonicalExecutableIntent6509(true, "BUY", listOf("CONFIRMED_RUG")))
+        assertTrue(ExecutableOpenGate.canonicalExecutableIntent6509(true, "BUY", emptyList()))
+        assertFalse(ExecutableOpenGate.canonicalExecutableIntent6509(false, "BUY", emptyList()))
     }
 }

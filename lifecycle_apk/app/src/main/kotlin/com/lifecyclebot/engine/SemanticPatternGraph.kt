@@ -50,6 +50,8 @@ object SemanticPatternGraph {
     private const val MAX_EDGES_PER_NODE = 48
     private val nodes = CopyOnWriteArrayList<PatternNode>()
     private val edges = CopyOnWriteArrayList<PatternEdge>()
+    fun nodeCount6512(): Int = nodes.size
+    fun edgeCount6512(): Int = edges.size
 
     fun recordOutcome(
         lane: String,

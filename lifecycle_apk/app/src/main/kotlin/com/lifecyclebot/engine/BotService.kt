@@ -1253,9 +1253,7 @@ class BotService : Service() {
                 try {
                     val curWallet = WalletManager.getWallet()
                     val curSol = status.getEffectiveBalance(cfg.paperMode)
-                    val openTokens = synchronized(status.tokens) {
-                        status.tokens.values.filter { it.position.isOpen }.toList()
-                    }
+                    val openTokens = canonicalExitTokenSnapshot6512()
                     if (openTokens.isNotEmpty()) {
                         // V5.9.1196 — make hotExit the authoritative active
                         // exit-maintenance heartbeat. 3163 showed POST_SUPERVISOR
@@ -8384,9 +8382,7 @@ class BotService : Service() {
                 val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
                 
                 // Get all open positions
-                val openPositions = synchronized(status.tokens) {
-                    status.tokens.values.filter { it.position.isOpen }.toList()
-                }
+                val openPositions = canonicalExitTokenSnapshot6512()
                 // V5.9.484 — adaptive idle sleep when no positions are open
                 if (openPositions.isEmpty()) {
                     kotlinx.coroutines.delay(IDLE_INTERVAL_MS)
@@ -18193,6 +18189,41 @@ if (hotExitHandledSweep) {
     }
 
 
+    /** V5.0.6512 — every exit sweep starts from canonical OPEN authority.
+     * Mutable TokenState is projection-only. We rebind canonical quantity/basis/lane/id
+     * when a token projection exists; a missing mark remains visible but non-triggering.
+     */
+    private fun canonicalExitTokenSnapshot6512(): List<com.lifecyclebot.data.TokenState> {
+        val canonical = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }
+        if (canonical.isEmpty()) return emptyList()
+        val tokenByMint = try { synchronized(status.tokens) { status.tokens.values.associateBy { it.mint } } } catch (_: Throwable) { emptyMap() }
+        var missingState = 0; var missingMark = 0; var projected = 0
+        val out = canonical.map { cp ->
+            val qty = try { cp.remainingQtyRaw.toBigDecimal().movePointLeft(cp.tokenDecimals).toDouble() } catch (_: Throwable) { 0.0 }
+            val basis = (cp.entryCostSol - cp.soldCostBasisSol).coerceAtLeast(0.0)
+            val existing = tokenByMint[cp.mint]
+            val ts = existing ?: com.lifecyclebot.data.TokenState(mint = cp.mint, symbol = cp.symbol).also { missingState++ }
+            val old = ts.position
+            if (!old.isOpen || old.positionId != cp.positionId || kotlin.math.abs(old.qtyToken - qty) > 1e-12 || !old.tradingMode.equals(cp.lane, true)) {
+                ts.position = old.copy(
+                    qtyToken = qty, entryTime = cp.openedAtMs, costSol = basis,
+                    isPaperPosition = cp.mode.equals("paper", true), tradingMode = cp.lane,
+                    positionId = cp.positionId,
+                )
+                projected++
+            }
+            if (ts.position.entryPrice <= 0.0 || ts.lastPrice <= 0.0) missingMark++
+            ts
+        }
+        try {
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("CANONICAL_EXIT_FEED_6512", "canonicalOpen=${canonical.size} exitVisible=${out.size} projected=$projected missingTokenState=$missingState missingMark=$missingMark")
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_EXIT_POSITION_SEEN_6512|N=${canonical.size}")
+            if (missingState > 0) com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_EXIT_TOKEN_STATE_MISSING_6512|N=$missingState")
+            if (missingMark > 0) com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_EXIT_MARK_MISSING_6512|N=$missingMark")
+        } catch (_: Throwable) {}
+        return out
+    }
+
     private fun sweepUniversalExits(
         cfg: com.lifecyclebot.data.BotConfig,
         wallet: com.lifecyclebot.network.SolanaWallet?,
@@ -18219,9 +18250,7 @@ if (hotExitHandledSweep) {
         // 45s post-buy grace honored (consistent with Part 1) so we never
         // clip a position before the first scanner refresh has populated it.
         try {
-            val openTokensForFloor = synchronized(status.tokens) {
-                status.tokens.values.filter { it.position.isOpen }.toList()
-            }
+            val openTokensForFloor = canonicalExitTokenSnapshot6512()
             val nowMs = System.currentTimeMillis()
             // V5.0.6402 §C — hard deadline for the full exit sweep too.
             // 6402 snapshot cycles hit 94-173s despite Universal SL being
@@ -18352,9 +18381,7 @@ if (hotExitHandledSweep) {
         // Part 2 — V3 lane: ensure profit-lock + partial + risk fire on
         // every open position, not just those with fresh scanner data.
         try {
-            val openTokens = synchronized(status.tokens) {
-                status.tokens.values.filter { it.position.isOpen }.toList()
-            }
+            val openTokens = canonicalExitTokenSnapshot6512()
             openTokens.forEach { ts ->
                 try { executor.runManageOnly(ts, wallet, effectiveBalance) }
                 catch (e: Exception) {
@@ -26512,14 +26539,7 @@ if (hotExitHandledSweep) {
         try {
             // Snapshot the token map so we never iterate while it mutates
             // under us (executor.requestSell sets isOpen=false in place).
-            val openSnapshot = try {
-                status.tokens.values.filter {
-                    it.position.isOpen &&
-                        it.position.qtyToken > 0.0 &&
-                        it.position.entryPrice > 0.0 &&
-                        it.lastPrice > 0.0
-                }
-            } catch (_: Throwable) { emptyList() }
+            val openSnapshot = canonicalExitTokenSnapshot6512()
             positionsSeen = openSnapshot.size
 
             if (openSnapshot.isEmpty()) return

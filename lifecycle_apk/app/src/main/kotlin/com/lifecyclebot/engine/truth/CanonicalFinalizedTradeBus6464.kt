@@ -52,6 +52,8 @@ object CanonicalFinalizedTradeBus6464 {
         val holdingTimeMs: Long = 0L,
         val entryScore: Int = 0,
         val entryTactic: String = "",
+        val mfePct: Double = 0.0,
+        val maePct: Double = 0.0,
         val terminal: Boolean = true,
     )
 
@@ -63,7 +65,7 @@ object CanonicalFinalizedTradeBus6464 {
 
     private val CANONICAL_CONSUMERS_6485 = listOf(
         "LearnerRewardBridge", "LosingStreakReflex", "GrowthRewardShaper", "TacticSwitcher",
-        "Governor", "CapitalCreed", "EVEstimator", "Dashboard",
+        "Governor", "CapitalCreed", "EVEstimator", "AatePolicyReward", "Dashboard",
     )
     fun ensureCanonicalConsumers6485() { CANONICAL_CONSUMERS_6485.forEach(::registerConsumer) }
 

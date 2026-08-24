@@ -57,6 +57,7 @@ object FinalizedBusConsumerBridge6465 {
             "Governor"            -> deliverToGovernor(env)
             "CapitalCreed"        -> deliverToCapitalCreed(env)
             "EVEstimator"         -> deliverToEvEstimator(env)
+            "AatePolicyReward"    -> deliverToAatePolicyReward(env)
             "Dashboard"           -> deliverToDashboard(env)
             else -> false
         }
@@ -112,6 +113,10 @@ object FinalizedBusConsumerBridge6465 {
     private fun deliverToEvEstimator(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(env.mint, env.realizedReturnPct)
         true
+    } catch (_: Throwable) { false }
+
+    private fun deliverToAatePolicyReward(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
+        AateDecisionFabric6512.onFinalized(env)
     } catch (_: Throwable) { false }
 
     private fun deliverToDashboard(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {

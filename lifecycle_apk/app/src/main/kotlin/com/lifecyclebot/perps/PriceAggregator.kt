@@ -1,6 +1,7 @@
 package com.lifecyclebot.perps
 
 import com.lifecyclebot.network.SharedHttpClient
+import com.lifecyclebot.BuildConfig
 
 import com.lifecyclebot.engine.ErrorLogger
 import kotlinx.coroutines.*
@@ -160,7 +161,7 @@ object PriceAggregator {
         val type = if (assetType == AssetType.AUTO) detectAssetType(symbol) else assetType
         
         // Get sources for this asset type
-        val sources = getSourcesForType(type)
+        val sources = getSourcesForType(type, symbol)
         
         // Try each source
         for (source in sources) {
@@ -292,9 +293,26 @@ object PriceAggregator {
         }
     }
     
-    private fun getSourcesForType(type: AssetType): List<DataSource> {
+    private fun getSourcesForType(type: AssetType, symbol: String): List<DataSource> {
         return when (type) {
-            AssetType.CRYPTO -> listOf(
+            AssetType.CRYPTO -> if (resolveSolanaMint(symbol) != null) listOf(
+                DataSource.DEXPAPRIKA,
+                DataSource.RAYDIUM_V3,
+                DataSource.JUPITER,
+                DataSource.JUPITER_LITE,
+                DataSource.BINANCE,
+                DataSource.KRAKEN,
+                DataSource.COINPAPRIKA,
+                DataSource.GECKO_TERMINAL,
+                DataSource.COINBASE,
+                DataSource.DEXSCREENER,
+                DataSource.BIRDEYE,
+                DataSource.COINGECKO,
+                DataSource.DIA_DATA,
+                DataSource.COINCAP,
+                DataSource.PYTH,
+                DataSource.SWITCHBOARD
+            ) else listOf(
                 // V5.9.23: DEX / exchanges FIRST — they cover thousands of tokens.
                 // Pyth only covers ~200 blue-chips and shouldn't gate coverage for
                 // the long tail. Pyth is demoted to a late oracle-sanity source.
@@ -307,20 +325,21 @@ object PriceAggregator {
                 // oracle sanity checks last. All 15 crypto sources are attempted
                 // in this order until one returns a positive price.
                 DataSource.BINANCE,
-                DataSource.JUPITER,
-                DataSource.JUPITER_LITE,        // V5.0.6065 — keyless jup public
-                DataSource.DEXSCREENER,
-                DataSource.RAYDIUM_V3,          // V5.0.6065 — native #1 Solana DEX
-                DataSource.BIRDEYE,
-                DataSource.GECKO_TERMINAL,      // V5.0.6065 — keyless GeckoTerminal
-                DataSource.COINBASE,
-                DataSource.COINGECKO,
                 DataSource.KRAKEN,
-                DataSource.DIA_DATA,            // V5.0.6065 — keyless DIA aggregator
-                DataSource.COINPAPRIKA,         // V5.0.6065 — keyless CMC alternative
-                DataSource.COINCAP,             // V5.0.6065 — keyless CoinCap v2
-                DataSource.PYTH,           // late: oracle sanity for majors only
-                DataSource.SWITCHBOARD     // last resort
+                DataSource.COINPAPRIKA,
+                DataSource.COINBASE,
+                DataSource.JUPITER,
+                DataSource.JUPITER_LITE,
+                DataSource.RAYDIUM_V3,
+                DataSource.DEXPAPRIKA,
+                DataSource.GECKO_TERMINAL,
+                DataSource.DIA_DATA,
+                DataSource.COINCAP,
+                DataSource.DEXSCREENER,
+                DataSource.BIRDEYE,
+                DataSource.COINGECKO,
+                DataSource.PYTH,
+                DataSource.SWITCHBOARD
             )
             AssetType.STOCK, AssetType.ETF -> listOf(
                 // V5.9.5: Yahoo first — it returns REAL 24h % change. On-chain sources
@@ -377,7 +396,7 @@ object PriceAggregator {
         // V5.0.6065 — API REDUNDANCY EXPLOSION. New keyless crypto sources so
         // the bot never becomes a hostage of Birdeye/CoinGecko rate limits.
         // All six are documented public/no-key endpoints.
-        GECKO_TERMINAL, DIA_DATA, JUPITER_LITE, RAYDIUM_V3, COINPAPRIKA, COINCAP,
+        GECKO_TERMINAL, DIA_DATA, JUPITER_LITE, DEXPAPRIKA, RAYDIUM_V3, COINPAPRIKA, COINCAP,
         // Stocks
         YAHOO_V7, YAHOO_V8, STOOQ, CNBC, GOOGLE_FINANCE, FINNHUB, ALPHA_VANTAGE, 
         TWELVE_DATA, IEX, POLYGON, FMP, TIINGO, MARKETSTACK,
@@ -400,6 +419,7 @@ object PriceAggregator {
             DataSource.GECKO_TERMINAL -> fetchGeckoTerminal(symbol)
             DataSource.DIA_DATA -> fetchDiaData(symbol)
             DataSource.JUPITER_LITE -> fetchJupiterLite(symbol)
+            DataSource.DEXPAPRIKA -> fetchDexPaprika(symbol)
             DataSource.RAYDIUM_V3 -> fetchRaydiumV3(symbol)
             DataSource.COINPAPRIKA -> fetchCoinPaprika(symbol)
             DataSource.COINCAP -> fetchCoinCap(symbol)
@@ -487,7 +507,7 @@ object PriceAggregator {
         try {
             val pair = "${symbol}USDT"
             val request = Request.Builder()
-                .url("https://api.binance.com/api/v3/ticker/24hr?symbol=$pair")
+                .url("https://data-api.binance.vision/api/v3/ticker/24hr?symbol=$pair")
                 .build()
             
             val response = client.newCall(request).execute()
@@ -747,6 +767,25 @@ object PriceAggregator {
                 } else null
             }
         } catch (_: Exception) { null }
+    }
+
+    /** V5.0.6512 — DexPaprika keyless Solana token market data. Mint-only;
+     *  symbol ambiguity is rejected by resolveSolanaMint before any request.
+     */
+    private suspend fun fetchDexPaprika(symbol: String): PriceResult? = withContext(Dispatchers.IO) {
+        try {
+            val mint = resolveSolanaMint(symbol) ?: return@withContext null
+            val request = Request.Builder()
+                .url("https://api.dexpaprika.com/networks/solana/tokens/$mint")
+                .header("User-Agent", "lifecycle-bot-android/6.0").build()
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val json = JSONObject(resp.body?.string() ?: return@withContext null)
+                if (!json.optString("id", "").equals(mint, true)) return@withContext null
+                val price = json.optJSONObject("summary")?.optDouble("price_usd", 0.0) ?: 0.0
+                if (price > 0.0) PriceResult(price, calcChange(symbol, price), "DEXPAPRIKA") else null
+            }
+        } catch (_: Throwable) { null }
     }
 
     /** V5.0.6065 — Raydium v3 keyless mint price endpoint.
@@ -1152,8 +1191,9 @@ object PriceAggregator {
     
     private suspend fun fetchTwelveData(symbol: String): PriceResult? = withContext(Dispatchers.IO) {
         try {
+            if (BuildConfig.TWELVE_DATA_API_KEY.isBlank()) return@withContext null
             val request = Request.Builder()
-                .url("https://api.twelvedata.com/price?symbol=$symbol&apikey=demo")
+                .url("https://api.twelvedata.com/price?symbol=$symbol&apikey=${BuildConfig.TWELVE_DATA_API_KEY}")
                 .build()
             
             val response = client.newCall(request).execute()

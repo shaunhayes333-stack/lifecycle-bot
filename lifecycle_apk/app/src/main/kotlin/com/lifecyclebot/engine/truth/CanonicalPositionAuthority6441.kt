@@ -174,6 +174,7 @@ object CanonicalPositionAuthority6441 {
                 quarantineReason = "",
             )
             markKeyUsed(idempotencyKey)
+            try { AateDecisionFabric6512.attachPosition(positionId, canonicalMode6490, mint, lane) } catch (_: Throwable) {}
             muts.incrementAndGet()
             try {
                 PipelineHealthCollector.labelInc(

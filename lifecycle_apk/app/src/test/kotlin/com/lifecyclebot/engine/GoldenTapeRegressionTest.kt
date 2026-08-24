@@ -8203,7 +8203,9 @@ class GoldenTapeRegressionTest {
             close.contains("POST_CLOSE_PORTFOLIO_REMOVE_FAIL_6509"))
         assertTrue(executor.contains("canonicalClosedNoActive") && executor.contains("return SellResult.ALREADY_CLOSED"))
         assertTrue(gate.contains("canonicalExecutableIntent6509") && gate.contains("EXEC_RAW_SIGNAL_DIAGNOSTIC_IGNORED_6509"))
-        assertEquals("6509 must retain one diagnostic raw-signal blocker only", 1, Regex("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY").findAll(gate).count())
+        val canonicalIntent = gate.substring(gate.indexOf("internal fun canonicalExecutableIntent6509"), gate.indexOf("private val states"))
+        assertFalse("execution ticket is output, never input to pre-execution FDG authority", canonicalIntent.contains("hasImmutableTicket"))
+        assertTrue("raw non-BUY remains diagnostic after canonical FDG authorization", gate.contains("EXEC_RAW_SIGNAL_DIAGNOSTIC_IGNORED_6509"))
     }
 
 
@@ -8220,8 +8222,8 @@ class GoldenTapeRegressionTest {
 
         assertTrue(identity.contains("var executionLane: String") && identity.contains("var fdgCandidateVersion: Long"))
         assertFalse("discovery provenance must never resolve execution lane", exec.contains("normalizeExecutionLane(identity?.source)") || exec.contains("normalizeExecutionLane(ts.source)"))
-        assertTrue(exec.contains("EXEC_LANE_IDENTITY_INVARIANT_FAILED") && exec.contains("FDG_MUTABLE_SIGNAL_IGNORED_6510"))
-        assertTrue(gate.contains("ExecutionDecisionSnapshot6510.record") && decision.contains("EXEC_DECISION_VERSION_REVALIDATED_6510"))
+        assertTrue(exec.contains("EXEC_LANE_IDENTITY_INVARIANT_FAILED") && exec.contains("FDG_MUTABLE_SIGNAL_IGNORED_6512"))
+        assertTrue(gate.contains("ExecutionDecisionSnapshot6510.record") && decision.contains("byAuthorityKey") && decision.contains("runtimeGeneration") && decision.contains("mode"))
         assertTrue(mark.contains("val priceAuthoritative") && mark.contains("val routeExecutable"))
         assertTrue(partial.contains("""val operationId = """") && partial.contains("positionId") && partial.contains("sequence") && partial.contains("CanonicalPaperTerminalBridge6469.finalizeSell"))
         assertFalse("paper partial operation IDs must not contain wallclock generations", partial.contains("System.currentTimeMillis()}_"))
@@ -8245,6 +8247,38 @@ class GoldenTapeRegressionTest {
         val commit = exec.indexOf("V5.0.6485 — ATOMIC PAPER BUY COMMIT", ticket)
         assertTrue(promote >= 0 && promote < bridge && bridge < reject && reject < ticket && ticket < commit)
         assertTrue(exec.contains("PAPER_BUY_SIZE_FLOOR_PROMOTED_6511") && exec.contains("availableCashSol=") && exec.contains("resolvedSol="))
+    }
+
+
+    @Test
+    fun V5_0_6512_execution_authority_and_provider_rotation_are_source_rooted() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val decision = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionDecisionSnapshot6510.kt").readText()
+        val snapshot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionSnapshotAuthority6496.kt").readText()
+        val aggregator = java.io.File("src/main/kotlin/com/lifecyclebot/perps/PriceAggregator.kt").readText()
+        val dex = java.io.File("src/main/kotlin/com/lifecyclebot/network/DexscreenerApi.kt").readText()
+        val provider = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ProviderAuthority.kt").readText()
+        val fabric = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/AateDecisionEnvelope6512.kt").readText()
+        val finalBus = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalizedTradeBus6464.kt").readText()
+        val consumer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+
+        val intent = gate.substring(gate.indexOf("internal fun canonicalExecutableIntent6509"), gate.indexOf("private val states"))
+        assertFalse(intent.contains("hasImmutableTicket"))
+        assertTrue(gate.contains("fdgElectionLocks6512") && gate.contains("rank(old?.preFdgVerdict) >= rank(finalVerdict)"))
+        assertTrue(gate.contains("signal = if (keepOld) old?.signal") && gate.contains("selectedLane = if (keepOld) old?.selectedLane"))
+        assertTrue(decision.contains("byAuthorityKey") && decision.contains("runtimeGeneration") && decision.contains("candidateVersion") && decision.contains("executionLane"))
+        assertFalse(snapshot.contains("add(" + "\"primaryLane("))
+        assertTrue(gate.contains("canonicalOccupancy =") && gate.contains("mode.uppercase()}:" + "$" + "mint") && gate.contains("PAPER") && gate.contains("LIVE"))
+        assertTrue(exec.contains("FDG_MUTABLE_SIGNAL_IGNORED_6512") && exec.contains("EXEC_AUTHORITY_MISSING_DEFERRED_6512") && exec.contains("releaseIfPrimary"))
+        assertFalse(exec.contains("ENTRY_BRIDGE_NON_BUY_GUARD_6504"))
+        assertTrue(aggregator.contains("DataSource.DEXPAPRIKA") && aggregator.contains("data-api.binance.vision"))
+        assertTrue(dex.contains("fetchDexPaprikaToken6512") && provider.contains("DEXPAPRIKA") && provider.contains("ProviderConfig"))
+        assertTrue(fabric.contains("object PolicySynthesizer6512") && fabric.contains("data class AateDecisionEnvelope6512") && fabric.contains("AATE_POLICY") && fabric.contains("AATE_REWARD"))
+        assertTrue(fabric.contains("byAttempt") && fabric.contains("byPosition") && fabric.contains("rewardedPositions"))
+        assertTrue(finalBus.contains("AatePolicyReward") && consumer.contains("deliverToAatePolicyReward"))
+        assertTrue(bot.contains("canonicalExitTokenSnapshot6512") && bot.contains("CanonicalPositionAuthority6441.openPositions()") && bot.contains("CANONICAL_EXIT_FEED_6512"))
     }
 
 }

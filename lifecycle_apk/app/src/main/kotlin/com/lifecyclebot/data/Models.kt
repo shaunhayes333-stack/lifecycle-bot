@@ -110,6 +110,7 @@ data class Position(
     // This is the contract that proves which lane/style/source/sizing tools actually
     // reached capital, instead of merely being available in reports.
     var entryPolicySnapshot: String = "",
+    val positionId: String = "",          // V5.0.6512 canonical position/decision lineage
     var modeHistory: String = "",           // Track mode switches: "PUMP_SNIPER>MOMENTUM_SWING"
     // ═══════════════════════════════════════════════════════════════════
     // TREASURY MODE - Quick scalp exits

@@ -67,6 +67,18 @@ class DexscreenerApi {
             return cached.pair
         }
         
+        // V5.0.6512 — DexPaprika is the primary keyless Solana token market-data
+        // source. DexScreener remains optional pair/social enrichment. A token-level
+        // response deliberately carries blank pairAddress so it can never fabricate
+        // executable route proof or pool identity.
+        if (RateLimiter.allowRequest("dexpaprika")) {
+            val paprika = fetchDexPaprikaToken6512(mint)
+            if (paprika != null) {
+                pairCache[mint] = CachedPair(paprika, now)
+                return paprika
+            }
+        }
+
         // Use stale cache if rate limited (up to 2 minutes old)
         if (cached != null && now - cached.timestamp < CACHE_TTL_MS * 3) {
             if (!RateLimiter.allowRequest("dexscreener")) {
@@ -136,6 +148,38 @@ class DexscreenerApi {
     }
 
     // ── internals ──────────────────────────────────────────
+
+    private fun fetchDexPaprikaToken6512(mint: String): PairInfo? {
+        val body = get("https://api.dexpaprika.com/networks/solana/tokens/$mint", "dexpaprika") ?: return null
+        return try {
+            val json = JSONObject(body)
+            if (!json.optString("id", "").equals(mint, true)) return null
+            val summary = json.optJSONObject("summary") ?: return null
+            val h1 = summary.optJSONObject("1h")
+            val h24 = summary.optJSONObject("24h")
+            val price = summary.optDouble("price_usd", 0.0)
+            if (!price.isFinite() || price <= 0.0) return null
+            PairInfo(
+                pairAddress = "",
+                baseSymbol = json.optString("symbol", ""),
+                baseName = json.optString("name", ""),
+                url = "https://dexpaprika.com/solana/token/$mint",
+                candle = Candle(
+                    ts = System.currentTimeMillis(), priceUsd = price, marketCap = 0.0,
+                    volumeH1 = h1?.optDouble("volume_usd", 0.0) ?: 0.0,
+                    volume24h = h24?.optDouble("volume_usd", 0.0) ?: 0.0,
+                    buysH1 = h1?.optInt("buys", 0) ?: 0,
+                    sellsH1 = h1?.optInt("sells", 0) ?: 0,
+                    buys24h = h24?.optInt("buys", 0) ?: 0,
+                    sells24h = h24?.optInt("sells", 0) ?: 0,
+                ),
+                pairCreatedAtMs = try { java.time.Instant.parse(json.optString("added_at", "")).toEpochMilli() } catch (_: Throwable) { 0L },
+                liquidity = summary.optDouble("liquidity_usd", 0.0),
+                fdv = summary.optDouble("fdv", 0.0),
+                baseTokenAddress = mint,
+            )
+        } catch (_: Throwable) { null }
+    }
 
     private fun scorePair(p: JSONObject): Double {
         val liq  = p.optJSONObject("liquidity")?.optDouble("usd",  0.0) ?: 0.0
@@ -256,13 +300,13 @@ class DexscreenerApi {
         return out
     }
 
-    private fun get(url: String): String? = try {
+    private fun get(url: String, host: String = "dexscreener"): String? = try {
         val req  = Request.Builder().url(url)
             .header("User-Agent", "lifecycle-bot-android/6.0").build()
         // V5.0.6495 — never bypass HealthAwareHttp/ApiBackoff with a raw retry.
         // A wrapper/network failure is a provider failure, not permission to fire
         // a second same-cycle request that defeats the circuit breaker.
-        val resp = com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "dexscreener")
+        val resp = com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = host)
         if (resp.isSuccessful) resp.body?.string() else null
     } catch (e: Exception) { null }
 
