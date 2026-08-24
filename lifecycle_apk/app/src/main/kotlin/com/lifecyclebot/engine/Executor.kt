@@ -12532,13 +12532,16 @@ class Executor(
                     com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.get(tradeId.mint) ?: 9
                 } catch (_: Throwable) { 9 }
                 val qtyTokenDouble6507 = buyQtyRaw6485.toDouble() / Math.pow(10.0, decimals6507.toDouble())
-                val reconstructedNotionalSol6507 = qtyTokenDouble6507 * fillPrice6485
+                // Compute a local fillPrice for the invariant — the canonical
+                // fillPrice6485 is derived downstream at line ~12584 from the
+                // same actualSol/qtyRaw pair; we replicate here so the check
+                // can run BEFORE persistence and BEFORE fillPrice6485's decl.
+                val fillPriceLocal6507 = if (qtyTokenDouble6507 > 0.0) actualSol / qtyTokenDouble6507 else 0.0
+                val reconstructedNotionalSol6507 = qtyTokenDouble6507 * fillPriceLocal6507
                 // Tolerance: 5% of costSol or 0.001 SOL (whichever is greater).
-                // 5% accommodates paper-mode slippage/fee bookkeeping; the
-                // absolute floor guards tiny orders.
                 val tolerance6507 = maxOf(actualSol * 0.05, 0.001)
                 val invariantDelta6507 = kotlin.math.abs(reconstructedNotionalSol6507 - actualSol)
-                if (qtyTokenDouble6507 <= 0.0 || !fillPrice6485.isFinite() || fillPrice6485 <= 0.0 ||
+                if (qtyTokenDouble6507 <= 0.0 || !fillPriceLocal6507.isFinite() || fillPriceLocal6507 <= 0.0 ||
                     invariantDelta6507 > tolerance6507) {
                     try {
                         PipelineHealthCollector.labelInc("QUANTITY_RECONSTRUCTION_INVARIANT_FAIL_6507")
@@ -12547,7 +12550,7 @@ class Executor(
                             "mint=${tradeId.mint.take(10)} symbol=${ts.symbol} " +
                                 "buyQtyRaw=$buyQtyRaw6485 decimals=$decimals6507 " +
                                 "qtyToken=${"%.6f".format(qtyTokenDouble6507)} " +
-                                "fillPrice=${"%.9f".format(fillPrice6485)} " +
+                                "fillPrice=${"%.9f".format(fillPriceLocal6507)} " +
                                 "reconstructedNotionalSol=${"%.6f".format(reconstructedNotionalSol6507)} " +
                                 "costSol=${"%.6f".format(actualSol)} " +
                                 "delta=${"%.6f".format(invariantDelta6507)} " +
@@ -19301,7 +19304,10 @@ class Executor(
         // V5.0.6448 — SELL mirror moved to confirmed paper fill below.
         // Do not mutate canonical lifecycle at sell-attempt time with zero
         // proceeds/cost; that was the direct source of SELL invariant violations.
-        val pos   = ts.position
+        // V5.0.6507 §P0 EXIT FINALITY — changed to `var` so the heal path
+        // in QTY_DIVERGES_FROM_CANONICAL can rebind after copying with
+        // lot-truth qty (see line ~19460).
+        var pos   = ts.position
         val price = getActualPrice(ts)
         if (!pos.isOpen) {
             PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_NOT_OPEN:$reason")
@@ -19456,7 +19462,13 @@ class Executor(
                         val lotQtyToken = lotQtyRaw.toDouble() / Math.pow(10.0, decimals.toDouble())
                         if (lotQtyToken.isFinite() && lotQtyToken > 0.0) {
                             val prior = pos.qtyToken
-                            pos.qtyToken = lotQtyToken
+                            // Position is an immutable data class — replace
+                            // the whole position on the token state via copy,
+                            // AND rebind the local `pos` var so downstream
+                            // reads see the healed qty.
+                            val healed = pos.copy(qtyToken = lotQtyToken)
+                            ts.position = healed
+                            pos = healed
                             try {
                                 PipelineHealthCollector.labelInc("EXIT_FINALITY_HEAL_FROM_LOTS_6507")
                                 ForensicLogger.lifecycle(
