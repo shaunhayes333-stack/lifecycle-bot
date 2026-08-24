@@ -4312,6 +4312,21 @@ class BotService : Service() {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FILL_LOT_REALIZED_MATCHES_LEDGER_6504")
             }
         } catch (_: Throwable) {}
+        // V5.0.6508f §OPEN-COST RECONCILIATION FROM PROJECTIONS.
+        // BEFORE the 6505 cash rebuild — the cash formula reads openCost,
+        // so a drifted scalar (recordBuy/recordSell accumulator that lost
+        // sync with per-lot truth) would silently under-count cash. Sum
+        // remainingCostBasisSol across active paper projections and
+        // overwrite the ledger scalar when |Δ| > 0.001 SOL. Emits
+        // PAPER_LEDGER_OPEN_COST_RECONCILED_FROM_PROJECTIONS_6508.
+        // Kills the operator-observed 2.9 SOL "missing cash" symptom.
+        try {
+            val projectionOpenCost6508 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+                .activeMintProjections6490("paper")
+                .sumOf { it.remainingCostBasisSol }
+            com.lifecyclebot.engine.truth.PaperAccountLedger6430
+                .overrideOpenCostFromProjections6508(projectionOpenCost6508)
+        } catch (_: Throwable) {}
         // V5.0.6505 §5 — PAPER CASH RECONSTRUCTION.
         // Rebuild paper cash from the economic identity
         //   cash = startingCash + realizedPnL - fees - openCost

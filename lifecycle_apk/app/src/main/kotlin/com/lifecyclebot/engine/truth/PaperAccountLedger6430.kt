@@ -325,6 +325,47 @@ object PaperAccountLedger6430 {
      * historical realized aggregate is regenerated.
      */
     /**
+     * V5.0.6508f §OPEN-COST RECONCILIATION.
+     *
+     * Operator screenshot: starting 10.75 SOL, spent 1.23 SOL on 4 open
+     * positions, cash should be 9.52 SOL but headline showed 7.87 SOL
+     * equity → ~2.9 SOL missing. Root cause: `openCostBasisPico` is a
+     * scalar that accumulates recordBuy (+= cost) / recordSell (-= cost)
+     * and can drift from the per-lot truth in
+     * `CanonicalPositionAuthority6441.activeMintProjections6490` (e.g.
+     * when a sell path failed to decrement the scalar). The 6505 cash
+     * rebuild then computes `cash = startingCash + realized − fees −
+     * openCost` using the DRIFTED openCost → cash is under-counted by
+     * the drift amount.
+     *
+     * This method is the reconciler: caller passes the projection-derived
+     * open cost sum; we overwrite when |Δ| > 0.001 SOL, emit a loud
+     * lifecycle line and persist. Non-clamping: economic events remain
+     * the source of truth (matches the operator §6 mandate).
+     */
+    @Synchronized
+    fun overrideOpenCostFromProjections6508(projectionOpenCostSol: Double) {
+        val prior = fromPico(openCostBasisPico.get())
+        val delta = projectionOpenCostSol - prior
+        if (kotlin.math.abs(delta) > 0.001) {
+            openCostBasisPico.set(toPico(projectionOpenCostSol))
+            opCount.incrementAndGet()
+            persistCurrent6487()
+            try {
+                ForensicLogger.lifecycle(
+                    "PAPER_LEDGER_OPEN_COST_RECONCILED_FROM_PROJECTIONS_6508",
+                    "priorOpenCostSol=${"%.6f".format(prior)} " +
+                        "projectionOpenCostSol=${"%.6f".format(projectionOpenCostSol)} " +
+                        "delta=${"%.6f".format(delta)}",
+                )
+                PipelineHealthCollector.labelInc("PAPER_LEDGER_OPEN_COST_RECONCILED_FROM_PROJECTIONS_6508")
+            } catch (_: Throwable) {}
+        } else {
+            try { PipelineHealthCollector.labelInc("PAPER_LEDGER_OPEN_COST_MATCHES_PROJECTIONS_6508") } catch (_: Throwable) {}
+        }
+    }
+
+    /**
      * V5.0.6504 §10 — OVERRIDE realized from FillLotLedger6504 truth.
      * Called from BotService.startBot when the fill-lot rebuild disagrees
      * with the ledger by more than 0.001 SOL. Non-transactional (single
