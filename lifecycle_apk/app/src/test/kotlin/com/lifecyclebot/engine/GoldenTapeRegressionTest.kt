@@ -7566,7 +7566,8 @@ class GoldenTapeRegressionTest {
         val firstBuyGate = exec.indexOf("PAPER_BUY_BLOCKED_PRESALE_SNIPE_6373F")
         assertTrue("V5.0.6475: paper BUY cash debit must be after entry gates", fillMarker >= 0 && buyDebit > fillMarker && firstBuyGate < buyDebit)
         val partial6510 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperPartialOperation6510.kt").readText()
-        assertTrue("V5.0.6475/6510: autonomous and manual paper partials must route through one claim-first canonical operation", exec.contains("CanonicalPaperPartialOperation6510.commit") && partial6510.contains("CanonicalPaperTerminalBridge6469.finalizeSell") && !exec.contains("paper_manual_partial_") && !exec.contains("paper_partial_${"$"}pid"))
+        val retiredSyntheticPartialPrefix6510 = "paper_partial_" + "$" + "pid"
+        assertTrue("V5.0.6475/6510: autonomous and manual paper partials must route through one claim-first canonical operation", exec.contains("CanonicalPaperPartialOperation6510.commit") && partial6510.contains("CanonicalPaperTerminalBridge6469.finalizeSell") && !exec.contains("paper_manual_partial_") && !exec.contains(retiredSyntheticPartialPrefix6510))
         assertTrue("V5.0.6475: close authorities must release canonical occupancy", java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionCloseLedger.kt").readText().contains("CanonicalMintOccupancyRegistry6464.markClosed") && java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").readText().contains("CanonicalMintOccupancyRegistry6464.markClosed"))
     }
 
