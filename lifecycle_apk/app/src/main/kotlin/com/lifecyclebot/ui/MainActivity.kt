@@ -3084,27 +3084,28 @@ for legal compliance.
             // `walletSnap6451?.totalEquitySol` preserved.
             val totalEquityCandidate6508 = walletSnap6451?.totalEquitySol ?: 0.0
             val snap6508 = walletSnap6451
-            // V5.0.6508d — TIGHTER FALLBACK GUARD.
-            // Operator screenshot: starting $1000+, only $60 bought,
-            // 2 open paper positions + 2 bluechip, cash $93 SOL yet
-            // UI showed $732. Root cause: 6508a guard only triggered
-            // on FALLBACK-to-basis marks (>20% of open), not on
-            // stale-lastGood marks that still valued positions at
-            // their last cached fresh price. Old cached marks from
-            // prior sessions manufactured ~$500 of phantom equity.
-            //
-            // 6508d: Use authoritative equity (cash + reserved +
-            // FRESH-marked open MV only) whenever ANY non-fresh mark
-            // exists. Stale-lastGood or fallback-to-basis both count
-            // as unverified — neither may contribute to headline.
-            if (snap6508 != null &&
-                (snap6508.fallbackMarkMints > 0 || snap6508.staleMarkMints > 0)) {
-                try {
-                    com.lifecyclebot.engine.PipelineHealthCollector
-                        .labelInc("HERO_EQUITY_AUTHORITATIVE_FALLBACK_6508")
-                } catch (_: Throwable) {}
-                snap6508.authoritativeEquitySol
-            } else totalEquityCandidate6508
+            // V5.0.6508e — CONSERVATIVE GUARD.
+            // The 6508d "any non-fresh mark switches to authoritative"
+            // rule zeroed stale-marked positions out of headline which
+            // under-counted legitimately-held inventory (a stale mark
+            // from 30 s ago is still real inventory). Reverted to
+            // headline = totalEquitySol; authoritativeEquitySol is now
+            // exposed only through the counter
+            // HERO_EQUITY_AUTHORITATIVE_DIVERGENCE_6508 which fires when
+            // the two figures disagree by >5 %. Operator can then read
+            // the counter in a pipeline dump without the hero being
+            // silently over- or under-stated.
+            if (snap6508 != null) {
+                val delta6508 = kotlin.math.abs(totalEquityCandidate6508 - snap6508.authoritativeEquitySol)
+                if (totalEquityCandidate6508 > 0.001 &&
+                    delta6508 / totalEquityCandidate6508 > 0.05) {
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector
+                            .labelInc("HERO_EQUITY_AUTHORITATIVE_DIVERGENCE_6508")
+                    } catch (_: Throwable) {}
+                }
+            }
+            totalEquityCandidate6508
         } else {
             ws.solBalance
         }

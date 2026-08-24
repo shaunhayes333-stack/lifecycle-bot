@@ -126,14 +126,19 @@ object HeroSnapshotAuthority6503 {
             } catch (_: Throwable) {}
         }
         val equitySol = try {
-            // V5.0.6508d — same tighter fallback guard as MainActivity hero.
-            // ANY non-fresh mark (stale-lastGood OR fallback-to-basis)
-            // triggers use of authoritativeEquitySol so cached prior-session
-            // marks cannot manufacture headline equity.
+            // V5.0.6508e — CONSERVATIVE (see MainActivity).
+            // Hero background snapshot uses totalEquitySol; divergence
+            // vs authoritativeEquitySol surfaces via counter only.
             val snap6508 = CanonicalCapitalAuthority6450.snapshot()
-            if (snap6508.fallbackMarkMints > 0 || snap6508.staleMarkMints > 0) {
-                snap6508.authoritativeEquitySol
-            } else snap6508.totalEquitySol
+            val delta6508 = kotlin.math.abs(snap6508.totalEquitySol - snap6508.authoritativeEquitySol)
+            if (snap6508.totalEquitySol > 0.001 &&
+                delta6508 / snap6508.totalEquitySol > 0.05) {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector
+                        .labelInc("HERO_EQUITY_AUTHORITATIVE_DIVERGENCE_6508")
+                } catch (_: Throwable) {}
+            }
+            snap6508.totalEquitySol
         } catch (_: Throwable) { 0.0 }
         val cashSol = try {
             PaperAccountLedger6430.cashSol()
