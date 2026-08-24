@@ -2759,12 +2759,22 @@ for legal compliance.
         // code because this function never returns null.
         val life = try { com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats() } catch (_: Throwable) { null }
         val paritySeeded = j.updatedAtMs > 0L
-        val truthWr        = life?.winRate           ?: (if (paritySeeded) j.winRate    else 0.0)
-        val truthWins      = life?.totalWins         ?: (if (paritySeeded) j.totalWins  else 0)
-        val truthLosses    = life?.totalLosses       ?: (if (paritySeeded) j.totalLosses else 0)
-        val truthScratches = life?.totalScratches    ?: (if (paritySeeded) j.scratchCount else 0)
-        val truthTrades    = life?.totalSells        ?: (if (paritySeeded) j.rowCount   else 0)
-        val truthPnl       = life?.realizedPnlSol    ?: (if (paritySeeded) j.totalPnlSol else 0.0)
+        // V5.0.6508a — OPERATOR MANDATE: "the journal must supply the
+        // information to the UI." Main-UI and journal previously diverged
+        // (Main showed 230 trades / 37 % WR while the journal itself
+        // reported 387 trades / 30 % WR) because Main preferred the
+        // TradeHistoryStore `getLifetimeStats()` aggregate while the
+        // journal read `TradeJournal.rowCount` directly. Now we prefer
+        // the journal-derived counts when the journal is seeded — Main
+        // and journal see the same rows and same WR from the same source.
+        // The lifetime aggregate remains a fallback for the pre-seed
+        // paint window.
+        val truthWr        = if (paritySeeded) j.winRate     else (life?.winRate        ?: 0.0)
+        val truthWins      = if (paritySeeded) j.totalWins   else (life?.totalWins      ?: 0)
+        val truthLosses    = if (paritySeeded) j.totalLosses else (life?.totalLosses    ?: 0)
+        val truthScratches = if (paritySeeded) j.scratchCount else (life?.totalScratches ?: 0)
+        val truthTrades    = if (paritySeeded) j.rowCount    else (life?.totalSells     ?: 0)
+        val truthPnl       = if (paritySeeded) j.totalPnlSol else (life?.realizedPnlSol  ?: 0.0)
         if (!paritySeeded && truthTrades == 0) return null  // truly no data yet — let callers decide
         return com.lifecyclebot.engine.TradeHistoryStore.StatsSnapshot(
             trades24h = j.rowCount,
@@ -3066,7 +3076,31 @@ for legal compliance.
             try { com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
         } else null
         val balSol = if (config.paperMode) {
-            walletSnap6451?.totalEquitySol ?: 0.0
+            // V5.0.6508a — HEADLINE EQUITY FALLBACK-MARK GUARD.
+            // Operator mandate: "no +thousands-percent portfolio equity
+            // from fallback marks." Screenshot showed +28400 % start on
+            // $94 SOL cash because openMarketValueSol held ~200 fallback
+            // marks all valued at entry basis, inflating equity to $316 K.
+            // When fallback marks make up more than a token minority of
+            // open positions, the hero uses AUTHORITATIVE equity
+            // (cash + reserved + fresh-marked open MV only). The
+            // remaining unpriced inventory keeps lifecycle state alive
+            // but no longer manufactures headline equity.
+            val snap6508 = walletSnap6451
+            val totalOpen6508 = (snap6508?.fallbackMarkMints ?: 0) + (snap6508?.staleMarkMints ?: 0)
+            val fallbackDominant6508 = snap6508 != null &&
+                snap6508.fallbackMarkMints > 0 &&
+                (totalOpen6508 == 0 || snap6508.fallbackMarkMints.toDouble() /
+                    (totalOpen6508 + 1).toDouble() > 0.20)
+            if (fallbackDominant6508) {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector
+                        .labelInc("HERO_EQUITY_AUTHORITATIVE_FALLBACK_6508")
+                } catch (_: Throwable) {}
+                snap6508.authoritativeEquitySol
+            } else {
+                snap6508?.totalEquitySol ?: 0.0
+            }
         } else {
             ws.solBalance
         }

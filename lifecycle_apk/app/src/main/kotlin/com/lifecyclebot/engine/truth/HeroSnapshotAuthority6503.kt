@@ -126,7 +126,14 @@ object HeroSnapshotAuthority6503 {
             } catch (_: Throwable) {}
         }
         val equitySol = try {
-            CanonicalCapitalAuthority6450.snapshot().totalEquitySol
+            // V5.0.6508a — same fallback-mark guard as MainActivity hero.
+            val snap6508 = CanonicalCapitalAuthority6450.snapshot()
+            val totalOpen6508 = snap6508.fallbackMarkMints + snap6508.staleMarkMints
+            val fallbackDominant6508 = snap6508.fallbackMarkMints > 0 &&
+                (totalOpen6508 == 0 ||
+                    snap6508.fallbackMarkMints.toDouble() / (totalOpen6508 + 1).toDouble() > 0.20)
+            if (fallbackDominant6508) snap6508.authoritativeEquitySol
+            else snap6508.totalEquitySol
         } catch (_: Throwable) { 0.0 }
         val cashSol = try {
             PaperAccountLedger6430.cashSol()

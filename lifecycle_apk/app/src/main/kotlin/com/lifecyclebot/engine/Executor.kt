@@ -3161,36 +3161,53 @@ class Executor(
             // Paper trades usually have a blank `sig` so the classic
             // AccountingIdempotencyRegistry skip fires and the caller
             // could produce duplicate journal rows (operator-observed
-            // 3× rndriz sell duplicates). Synthesize a stable closeId
-            // from (positionId + side + reason) for paper terminal SELLs
-            // and reject the duplicate at the journal boundary.
+            // 3× rndriz / 6× BLUE_CHIP mode_maxhold_zombie_de duplicates).
+            // Synthesize a stable closeId for paper terminal SELLs.
+            //
+            // V5.0.6508a — operator screenshot revealed journal rows
+            // land with positionId="" (`id=unlinked`), so the original
+            // `trade.positionId.isNotBlank()` guard NEVER triggered
+            // the dedup. Broadened: use positionId when present,
+            // otherwise fall back to (mint + reason + 5-second tsBucket)
+            // as the idempotency key. tsBucket=5s tolerates repeated
+            // exit paths firing in the same tick without collapsing
+            // legitimate re-entries.
             if (idempotencySig.isBlank() &&
                 trade.mode.equals("paper", ignoreCase = true) &&
                 trade.side.equals("SELL", ignoreCase = true) &&
-                trade.positionId.isNotBlank() &&
                 !trade.reason.startsWith("partial", ignoreCase = true) &&
                 !trade.reason.contains("profit_lock", ignoreCase = true) &&
                 !trade.reason.contains("capital_recovery", ignoreCase = true) &&
                 !trade.reason.contains("wr_recovery_partial", ignoreCase = true)) {
                 val mintForKey6508 = if (trade.mint.isBlank()) ts.mint else trade.mint
-                val closeId6508 = "PAPER:${trade.positionId}:${trade.reason.take(40)}"
-                val ok6508 = com.lifecyclebot.engine.AccountingIdempotencyRegistry.claim(
-                    closeId6508, mintForKey6508, "SELL",
-                    reasonForLog = "paperClose6508/${trade.reason.take(40)}",
-                )
-                if (!ok6508) {
-                    try {
-                        ForensicLogger.lifecycle(
-                            "PAPER_CLOSE_JOURNAL_DUPLICATE_SUPPRESSED_6508",
-                            "mint=${mintForKey6508.take(10)} symbol=${ts.symbol} " +
-                                "positionId=${trade.positionId.take(24)} " +
-                                "closeId=$closeId6508 " +
-                                "reason=${trade.reason.take(40)} " +
-                                "action=drop_duplicate_journal_row",
-                        )
-                        PipelineHealthCollector.labelInc("PAPER_CLOSE_JOURNAL_DUPLICATE_SUPPRESSED_6508")
-                    } catch (_: Throwable) {}
-                    return
+                if (mintForKey6508.isNotBlank()) {
+                    val closeId6508 = if (trade.positionId.isNotBlank()) {
+                        "PAPER:${trade.positionId}:${trade.reason.take(40)}"
+                    } else {
+                        // 5-second bucket so same-tick exit-path storms
+                        // collapse; legitimate re-entries land in the
+                        // next bucket window.
+                        val tsBucket6508 = trade.ts / 5_000L
+                        "PAPER:${mintForKey6508}:${trade.reason.take(40)}:${tsBucket6508}"
+                    }
+                    val ok6508 = com.lifecyclebot.engine.AccountingIdempotencyRegistry.claim(
+                        closeId6508, mintForKey6508, "SELL",
+                        reasonForLog = "paperClose6508/${trade.reason.take(40)}",
+                    )
+                    if (!ok6508) {
+                        try {
+                            ForensicLogger.lifecycle(
+                                "PAPER_CLOSE_JOURNAL_DUPLICATE_SUPPRESSED_6508",
+                                "mint=${mintForKey6508.take(10)} symbol=${ts.symbol} " +
+                                    "positionId=${trade.positionId.take(24).ifBlank { "unlinked" }} " +
+                                    "closeId=$closeId6508 " +
+                                    "reason=${trade.reason.take(40)} " +
+                                    "action=drop_duplicate_journal_row",
+                            )
+                            PipelineHealthCollector.labelInc("PAPER_CLOSE_JOURNAL_DUPLICATE_SUPPRESSED_6508")
+                        } catch (_: Throwable) {}
+                        return
+                    }
                 }
             }
         } catch (_: Throwable) {}

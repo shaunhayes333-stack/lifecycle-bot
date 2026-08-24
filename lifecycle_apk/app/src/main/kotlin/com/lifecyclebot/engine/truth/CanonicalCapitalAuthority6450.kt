@@ -59,6 +59,7 @@ object CanonicalCapitalAuthority6450 {
         // Learners/rewards must consume this instead of openMarketValueSol
         // to avoid training on manufactured PnL from fallback marks.
         val authoritativeOpenMarketValueSol: Double = 0.0,
+        val authoritativeEquitySol: Double = 0.0,
     )
 
     private val invariantChecks = AtomicLong(0L)
@@ -157,6 +158,11 @@ object CanonicalCapitalAuthority6450 {
             staleMarkMints = staleMarkMints6492,
             fallbackMarkMints = fallbackMarkMints6492,
             authoritativeOpenMarketValueSol = authoritativeOpenMv6508,
+            // V5.0.6508a — authoritative equity: cash + reserved +
+            // AUTHORITATIVE openMV only (excludes stale/fallback marks).
+            // Main UI hero uses this to avoid the +28400% start
+            // impossibility that stale entry-basis marks manufactured.
+            authoritativeEquitySol = cash + reserved + authoritativeOpenMv6508,
         )
     }
 
