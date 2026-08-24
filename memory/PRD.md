@@ -1,3 +1,69 @@
+# AATE PRD — V5.0.6507a (POSITION/EXIT TRUTH + FILL-LOT AUTHORITY GREEN)
+
+**Status:** PAPER TRADING ONLY. Live routing intentionally disabled
+until the 26-point correctness mandate + 10-point POSITION/EXIT
+TRUTH REPAIR mandate + 15-point CANONICAL ENTRY + ECONOMIC TRUTH
+mandate + 12-point CANONICAL EXECUTION + RUNTIME REPAIR mandate
+are 100 % green across consecutive operator dumps.
+
+**Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading."
+Data integrity enforced at the SOURCE (FillLotLedger6504 immutable
+SQLite lots), never by strangling flow. Correctness surfaces are
+write-time invariants + startBot purge/rebuild, not enforcement
+gates.
+
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change
+lands via `git push` → GitHub Actions CI. Verification is the pair
+(`Build AATE APK` green, `Runtime Smoke Test` green) on the head
+SHA.
+
+
+## V5.0.6507a (Feb 2026) — EXIT FINALITY HEAL + QTY INVARIANT + ADVISOR COOLDOWN ✅ CI GREEN
+
+`71e7acd3a` Build ✅ + Runtime Smoke Test ✅.
+
+Methodical 4-item subset from the 12-point CANONICAL EXECUTION +
+RUNTIME REPAIR mandate:
+
+- **§P0 EXIT FINALITY** — `Executor.paperSell` QTY_DIVERGES_FROM_CANONICAL
+  block now heals `pos.qtyToken` from `FillLotLedger6504.canonicalQtyOf`
+  BEFORE rejecting. Emits `EXIT_FINALITY_HEAL_FROM_LOTS_6507`.
+- **§P0 QUANTITY AUTHORITY** — `Executor.paperBuy.atomic6485`
+  enforces `abs(reconstructedNotionalSol − costSol) <= tolerance`
+  before persistence. Rolls back malformed lots via
+  `rollbackPaperEntry6485`.
+- **§P1 ADVISOR INTERLOCK** — `AutoPipelineAdvisor6462` R2 rule
+  memoises `lastSeenReplayDivergence6507`; historical divergences
+  no longer indefinitely extend `entryCooldownSec`.
+- **§P2 UI OFF-MAIN** — Audit confirmed `getLifetimeStats` is O(1)
+  @Volatile in-memory; `HeatmapRenderCache6374` already on
+  `Dispatchers.Default`. No code change needed.
+
+
+## STAGED (next sessions)
+
+**V5.0.6507b/c (from CANONICAL EXECUTION + RUNTIME REPAIR mandate)**
+- P0 QUANTITY AUTHORITY full: single `CanonicalFillBuilder` wrapping
+  every entry path (NORMAL/CYCLIC/TOP_UP/PROBE/ADD_MORE)
+- P0 SAME-MINT / ENTRY AUTHORITY: immutable ExecutionTicket
+  post-FDG + explicit expiry/invalidation
+- P0 EXIT FINALITY atomic 6-store terminal mutation
+- P1 ECONOMIC DATA: strategy/reward statistics rebuild from
+  corrected canonical economic events; quarantined rows excluded
+  from WR/EV/tactic/advisor learning
+- P1 RUNTIME: hard cycle budget + single-flight scanner coalescing
+  + POST_LEARNING_MAINTENANCE async
+- P2 UI: full MainActivity report/heatmap off-Main
+
+**V5.0.6506b (from CANONICAL ENTRY + ECONOMIC TRUTH mandate)**
+- P0-2 full atomic election snapshot stamping
+- P0-4 UNVERIFIED valuation partition
+  (`authoritativeOpenValue` / `unverifiedOpenValue` /
+  `fallbackMarkCount` / `missingCostBasisCount`)
+- P1 provider fail-open final audit
+
+
+
 # AATE PRD — V5.0.6504 (POSITION/EXIT TRUTH REPAIR — P0 CORE GREEN)
 
 **Status:** PAPER TRADING ONLY. Live execution intentionally disabled
