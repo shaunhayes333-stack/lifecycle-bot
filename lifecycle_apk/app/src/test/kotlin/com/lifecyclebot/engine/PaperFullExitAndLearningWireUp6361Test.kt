@@ -28,8 +28,10 @@ class PaperFullExitAndLearningWireUp6361Test {
             txt.contains("V5.0.6361"))
         assertTrue("V5.0.6449 §3 sell qty source lock must be documented inline",
             txt.contains("V5.0.6449 §3"))
-        assertTrue("paper SELL Trade row must derive qty via CanonicalIntegrityGuards6449.clampToRemaining (§6449)",
-            txt.contains("CanonicalIntegrityGuards6449") && txt.contains("clampToRemaining"))
+        assertTrue("paper SELL Trade row must derive qty from canonical raw remaining quantity and verify journal raw equality (§6492/6509)",
+            txt.contains("terminalRemainingRaw6492.toBigDecimal()") &&
+                txt.contains("PaperTokenQuantityAuthority6509.journalSoldRaw") &&
+                txt.contains("journalSoldQtyRaw6509 != terminalRemainingRaw6492"))
     }
 
     @Test
