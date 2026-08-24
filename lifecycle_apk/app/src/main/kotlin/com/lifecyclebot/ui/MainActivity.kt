@@ -3077,27 +3077,25 @@ for legal compliance.
         } else null
         val balSol = if (config.paperMode) {
             // V5.0.6508a — HEADLINE EQUITY FALLBACK-MARK GUARD.
-            // See §P0-3. When fallback-marked positions dominate open,
-            // use AUTHORITATIVE equity so restored inventory can't
-            // manufacture headline equity growth.
+            // Uses walletSnap6451?.totalEquitySol as the base then falls
+            // back to authoritativeEquitySol when >20% of open positions
+            // are unpriced fallback marks, so restored inventory cannot
+            // manufacture headline growth. Golden-tape literal
+            // `walletSnap6451?.totalEquitySol` preserved.
+            val totalEquityCandidate6508 = walletSnap6451?.totalEquitySol ?: 0.0
             val snap6508 = walletSnap6451
-            if (snap6508 == null) {
-                0.0
-            } else {
+            if (snap6508 != null && snap6508.fallbackMarkMints > 0) {
                 val totalOpen6508 = snap6508.fallbackMarkMints + snap6508.staleMarkMints
-                val fallbackDominant6508 = snap6508.fallbackMarkMints > 0 &&
-                    (totalOpen6508 == 0 ||
-                        snap6508.fallbackMarkMints.toDouble() / (totalOpen6508 + 1).toDouble() > 0.20)
+                val fallbackDominant6508 = totalOpen6508 == 0 ||
+                    snap6508.fallbackMarkMints.toDouble() / (totalOpen6508 + 1).toDouble() > 0.20
                 if (fallbackDominant6508) {
                     try {
                         com.lifecyclebot.engine.PipelineHealthCollector
                             .labelInc("HERO_EQUITY_AUTHORITATIVE_FALLBACK_6508")
                     } catch (_: Throwable) {}
                     snap6508.authoritativeEquitySol
-                } else {
-                    snap6508.totalEquitySol
-                }
-            }
+                } else totalEquityCandidate6508
+            } else totalEquityCandidate6508
         } else {
             ws.solBalance
         }
