@@ -1413,6 +1413,17 @@ object ExecutableOpenGate {
             }
         }
         if (!signal.equals("BUY", true) && !signal.equals("EXECUTE", true)) {
+            // V5.0.6508 §P0-1 — EXEC_SIGNAL_AUTHORITY_MISMATCH INVARIANT.
+            // If a canonical FDG BUY stamp still exists for this mint,
+            // the incoming non-BUY signal is a stale-snapshot / lost-
+            // authority artefact — surface the invariant violation and
+            // (Phase 1) bump the mismatch counter for the operator dump.
+            // Full ticket-machine repair (rebuild-from-canonical-ticket)
+            // stages for V5.0.6508b.
+            try {
+                com.lifecyclebot.engine.truth.CanonicalFdgBuyStamp6508
+                    .reportMismatch(mint, signal, candidateVersion)
+            } catch (_: Throwable) {}
             if (modeUpper == "LIVE" && fdgCan == true && hardNoReasons.isEmpty() && liquidityUsd > 0.0) {
                 restorePenalty = restorePenalty.combine(LiveRestoreExecutionPolicy.fromStaleWatch(liquidityUsd))
                 try { ForensicLogger.lifecycle("LIVE_RESTORE_SIGNAL_SOFT_ALLOW", "symbol=$symbol mint=${mint.take(10)} signal=$signal fdgCan=true liq=${liquidityUsd.toInt()}") } catch (_: Throwable) {}
@@ -1599,6 +1610,22 @@ object ExecutableOpenGate {
             ForensicLogger.phase(ForensicLogger.PHASE.EXEC_GATE, symbol, "EXEC_GATE_ALLOW $detail")
             ForensicLogger.gate(ForensicLogger.PHASE.EXEC_GATE, symbol, allow = true, reason = "finality_clear")
             ForensicLogger.lifecycle("EXEC_OPEN_ALLOWED", "attemptId=$execKey symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane reason=finality_clear candidateVersion=$candidateVersion")
+            // V5.0.6508 §P0-1 — CANONICAL FDG BUY STAMP.
+            // Successful BUY reached EXEC_GATE_ALLOW. Consume any prior
+            // stamp (so a re-entry starts fresh) and stamp the CURRENT
+            // decision so any concurrent snapshot restoration that
+            // fires an UNKNOWN signal at this mint bumps the
+            // EXEC_SIGNAL_AUTHORITY_MISMATCH_6508 counter.
+            try {
+                com.lifecyclebot.engine.truth.CanonicalFdgBuyStamp6508.consume(mint)
+                com.lifecyclebot.engine.truth.CanonicalFdgBuyStamp6508.stamp(
+                    mint = mint,
+                    symbol = symbol,
+                    canonicalLane = lane,
+                    decisionId = execKey,
+                    candidateVersion = candidateVersion,
+                )
+            } catch (_: Throwable) {}
         } catch (_: Throwable) {}
         return allowedVerdict
     }

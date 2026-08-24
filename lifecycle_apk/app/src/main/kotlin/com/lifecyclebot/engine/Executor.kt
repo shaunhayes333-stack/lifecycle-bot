@@ -3157,6 +3157,42 @@ class Executor(
                 )
                 if (!ok) return
             }
+            // V5.0.6508 §P0-2 — PAPER CLOSE IDEMPOTENCY (STABLE closeId).
+            // Paper trades usually have a blank `sig` so the classic
+            // AccountingIdempotencyRegistry skip fires and the caller
+            // could produce duplicate journal rows (operator-observed
+            // 3× rndriz sell duplicates). Synthesize a stable closeId
+            // from (positionId + side + reason) for paper terminal SELLs
+            // and reject the duplicate at the journal boundary.
+            if (idempotencySig.isBlank() &&
+                trade.mode.equals("paper", ignoreCase = true) &&
+                trade.side.equals("SELL", ignoreCase = true) &&
+                trade.positionId.isNotBlank() &&
+                !trade.reason.startsWith("partial", ignoreCase = true) &&
+                !trade.reason.contains("profit_lock", ignoreCase = true) &&
+                !trade.reason.contains("capital_recovery", ignoreCase = true) &&
+                !trade.reason.contains("wr_recovery_partial", ignoreCase = true)) {
+                val mintForKey6508 = if (trade.mint.isBlank()) ts.mint else trade.mint
+                val closeId6508 = "PAPER:${trade.positionId}:${trade.reason.take(40)}"
+                val ok6508 = com.lifecyclebot.engine.AccountingIdempotencyRegistry.claim(
+                    closeId6508, mintForKey6508, "SELL",
+                    reasonForLog = "paperClose6508/${trade.reason.take(40)}",
+                )
+                if (!ok6508) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "PAPER_CLOSE_JOURNAL_DUPLICATE_SUPPRESSED_6508",
+                            "mint=${mintForKey6508.take(10)} symbol=${ts.symbol} " +
+                                "positionId=${trade.positionId.take(24)} " +
+                                "closeId=$closeId6508 " +
+                                "reason=${trade.reason.take(40)} " +
+                                "action=drop_duplicate_journal_row",
+                        )
+                        PipelineHealthCollector.labelInc("PAPER_CLOSE_JOURNAL_DUPLICATE_SUPPRESSED_6508")
+                    } catch (_: Throwable) {}
+                    return
+                }
+            }
         } catch (_: Throwable) {}
         // V5.9.791 — operator audit Item 1 + 2: PositionExitArbiter chokepoint.
         // Without this, a cascade of exit reasons (CASHGEN_STOP_LOSS firing

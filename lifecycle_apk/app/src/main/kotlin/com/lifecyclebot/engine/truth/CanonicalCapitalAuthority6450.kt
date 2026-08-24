@@ -54,6 +54,11 @@ object CanonicalCapitalAuthority6450 {
         val conservationDeltaSol: Double,
         val staleMarkMints: Int = 0,
         val fallbackMarkMints: Int = 0,
+        // V5.0.6508 §P0-3 — authoritative subset of openMarketValueSol
+        // (fresh marks only; excludes stale/fallback held at basis).
+        // Learners/rewards must consume this instead of openMarketValueSol
+        // to avoid training on manufactured PnL from fallback marks.
+        val authoritativeOpenMarketValueSol: Double = 0.0,
     )
 
     private val invariantChecks = AtomicLong(0L)
@@ -96,6 +101,12 @@ object CanonicalCapitalAuthority6450 {
         val openCost = PaperAccountLedger6430.openCostBasisSol()
         var staleMarkMints6492 = 0
         var fallbackMarkMints6492 = 0
+        // V5.0.6508 §P0-3 — TRACK AUTHORITATIVE MARK VALUE SEPARATELY.
+        // Operator mandate: fallback/stale marks MUST NOT manufacture
+        // PnL for learning/reward. Sum only the fresh-marked slice so
+        // downstream consumers can gate WR/EV/tactic training on
+        // authoritativeOpenMv rather than the fallback-inflated total.
+        var authoritativeOpenMv6508 = 0.0
         val activeMintSet6492 = activeMints.map { it.mint }.toSet()
         lastGoodMark6492.keys.removeIf { it !in activeMintSet6492 }
         val markedValue6492 = activeMints.sumOf { aggregate ->
@@ -103,14 +114,18 @@ object CanonicalCapitalAuthority6450 {
             when {
                 fresh.isFinite() && fresh > 0.0 -> {
                     lastGoodMark6492[aggregate.mint] = GoodMark6492(fresh, System.currentTimeMillis())
+                    authoritativeOpenMv6508 += fresh
                     fresh
                 }
                 lastGoodMark6492[aggregate.mint] != null -> {
                     staleMarkMints6492++
+                    try { PipelineHealthCollector.labelInc("PAPER_MARK_STALE_LAST_GOOD_6508") } catch (_: Throwable) {}
                     lastGoodMark6492.getValue(aggregate.mint).wholeMintValueSol
                 }
                 else -> {
                     fallbackMarkMints6492++
+                    // Position held at entry basis, UNPRICED authoritatively.
+                    try { PipelineHealthCollector.labelInc("PAPER_MARK_UNPRICED_6508") } catch (_: Throwable) {}
                     aggregate.remainingCostBasisSol
                 }
             }
@@ -141,6 +156,7 @@ object CanonicalCapitalAuthority6450 {
             conservationDeltaSol = actual - expected,
             staleMarkMints = staleMarkMints6492,
             fallbackMarkMints = fallbackMarkMints6492,
+            authoritativeOpenMarketValueSol = authoritativeOpenMv6508,
         )
     }
 

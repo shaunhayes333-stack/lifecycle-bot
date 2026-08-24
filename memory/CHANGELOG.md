@@ -1,3 +1,65 @@
+## V5.0.6508 — 2026-02-19 — EXECUTION AUTHORITY + PAPER FINALITY REPAIR (methodical subset)
+
+Operator mandate: "a be methodical it won't go bad!" Paper only. No
+threshold/risk/AI tuning. Preserves all 1501–1512 + 6504 + 6507
+protections.
+
+**§P0-1 EXEC_SIGNAL_AUTHORITY_MISMATCH_6508 (partial)**
+- NEW `engine/truth/CanonicalFdgBuyStamp6508.kt` — per-mint stamp
+  keyed by `(decisionId, candidateVersion, canonicalLane,
+  createdAt)` with 60 s TTL.
+- `ExecutableOpenGate.canOpenExecutablePositionInternal` stamps on
+  EXEC_OPEN_ALLOWED (successful BUY reaches the gate) and calls
+  `CanonicalFdgBuyStamp6508.reportMismatch(mint, signal,
+  candidateVersion)` at the SIGNAL_NOT_BUY branch. If a fresh
+  stamp exists, the invariant violation surfaces as
+  `EXEC_SIGNAL_AUTHORITY_MISMATCH_6508` in the pipeline dump with
+  full decisionId + candidateVersion + age detail.
+- Repair (rebuild-from-canonical-ticket) staged for V5.0.6508b —
+  requires the full ExecutionTicket data structure at FDG BUY
+  finalization.
+
+**§P0-2 PAPER CLOSE STABLE closeId — DUPLICATE JOURNAL SUPPRESSION**
+- `Executor.recordTrade` now synthesises a stable closeId of the
+  form `PAPER:<positionId>:<reason>` for paper terminal SELLs
+  when the transaction has no live signature. Claim via existing
+  `AccountingIdempotencyRegistry.claim(closeId, mint, "SELL")`.
+- On duplicate claim: emit
+  `PAPER_CLOSE_JOURNAL_DUPLICATE_SUPPRESSED_6508` and RETURN before
+  writing the journal row / recording the trade / mutating
+  learners. No new economic SELL for the same closeId.
+- Kills the 3× rndriz duplicate sell journal rows.
+- Partials (profit_lock_*, capital_recovery_*, wr_recovery_partial_*,
+  reason starting with 'partial') are correctly excluded so multiple
+  partial rows can still land against the same positionId.
+
+**§P0-3 PAPER MARK UNPRICED_6508 + authoritativeOpenMarketValueSol**
+- `CanonicalCapitalAuthority6450.snapshot` now tracks
+  `authoritativeOpenMarketValueSol` (Σ of FRESH-mark values only)
+  alongside the existing `openMarketValueSol` (which includes
+  stale/fallback held-at-basis positions).
+- Emits `PAPER_MARK_STALE_LAST_GOOD_6508` when a mint falls back to
+  its lastGoodMark and `PAPER_MARK_UNPRICED_6508` when the fallback
+  drops all the way to entry basis.
+- Downstream consumers (WR/EV/reward/tactic learners) should read
+  `authoritativeOpenMarketValueSol` — not `openMarketValueSol` —
+  to avoid training on manufactured PnL from fallback marks.
+- Full consumer wiring at RewardPurityGate6441 + StrategyTelemetry
+  ingress staged for V5.0.6508b.
+
+**STAGED FOR V5.0.6508b**
+- P0-1 full ExecutionTicket data structure at FDG BUY commit +
+  Executor consumes ticket.decision (not mutable candidate.signal)
+- P0-3 full authoritative-mark rebuild across all open positions +
+  reprice via canonical fill lots + quarantine on divergence
+- P0-4 replay/canonical reconciliation
+  (EVENT_STREAM_REPLAY_DIVERGED_6467 / PAPER_REPLAY_DIVERGENCE_6461
+   / OPEN_COST_WITHOUT_CANONICAL_LOT_6475)
+- P0-5 loop performance — move blocking maintenance off critical
+  path
+
+
+
 ## V5.0.6507 — 2026-02-19 — EXIT FINALITY HEAL + QTY RECONSTRUCTION INVARIANT + ADVISOR COOLDOWN NON-EXTEND
 
 Operator mandate: proceed methodically with the 4-item subset (a).
