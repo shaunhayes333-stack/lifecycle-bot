@@ -3077,29 +3077,26 @@ for legal compliance.
         } else null
         val balSol = if (config.paperMode) {
             // V5.0.6508a — HEADLINE EQUITY FALLBACK-MARK GUARD.
-            // Operator mandate: "no +thousands-percent portfolio equity
-            // from fallback marks." Screenshot showed +28400 % start on
-            // $94 SOL cash because openMarketValueSol held ~200 fallback
-            // marks all valued at entry basis, inflating equity to $316 K.
-            // When fallback marks make up more than a token minority of
-            // open positions, the hero uses AUTHORITATIVE equity
-            // (cash + reserved + fresh-marked open MV only). The
-            // remaining unpriced inventory keeps lifecycle state alive
-            // but no longer manufactures headline equity.
+            // See §P0-3. When fallback-marked positions dominate open,
+            // use AUTHORITATIVE equity so restored inventory can't
+            // manufacture headline equity growth.
             val snap6508 = walletSnap6451
-            val totalOpen6508 = (snap6508?.fallbackMarkMints ?: 0) + (snap6508?.staleMarkMints ?: 0)
-            val fallbackDominant6508 = snap6508 != null &&
-                snap6508.fallbackMarkMints > 0 &&
-                (totalOpen6508 == 0 || snap6508.fallbackMarkMints.toDouble() /
-                    (totalOpen6508 + 1).toDouble() > 0.20)
-            if (fallbackDominant6508) {
-                try {
-                    com.lifecyclebot.engine.PipelineHealthCollector
-                        .labelInc("HERO_EQUITY_AUTHORITATIVE_FALLBACK_6508")
-                } catch (_: Throwable) {}
-                snap6508.authoritativeEquitySol
+            if (snap6508 == null) {
+                0.0
             } else {
-                snap6508?.totalEquitySol ?: 0.0
+                val totalOpen6508 = snap6508.fallbackMarkMints + snap6508.staleMarkMints
+                val fallbackDominant6508 = snap6508.fallbackMarkMints > 0 &&
+                    (totalOpen6508 == 0 ||
+                        snap6508.fallbackMarkMints.toDouble() / (totalOpen6508 + 1).toDouble() > 0.20)
+                if (fallbackDominant6508) {
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector
+                            .labelInc("HERO_EQUITY_AUTHORITATIVE_FALLBACK_6508")
+                    } catch (_: Throwable) {}
+                    snap6508.authoritativeEquitySol
+                } else {
+                    snap6508.totalEquitySol
+                }
             }
         } else {
             ws.solBalance
