@@ -1,3 +1,66 @@
+## V5.0.6507 — 2026-02-19 — EXIT FINALITY HEAL + QTY RECONSTRUCTION INVARIANT + ADVISOR COOLDOWN NON-EXTEND
+
+Operator mandate: proceed methodically with the 4-item subset (a).
+Paper only. No new pauses, chokes, disables. Preserves 1501–1512 +
+6504 protections.
+
+**§P0 EXIT FINALITY — HEAL FROM CANONICAL LOTS**
+- `Executor.paperSell` `QTY_DIVERGES_FROM_CANONICAL` block now heals
+  `pos.qtyToken` from `FillLotLedger6504.canonicalQtyOf(mint, isPaper=true)`
+  BEFORE rejecting. When the lot ledger has a positive canonical
+  qty, the position is repaired (Σ finalized BUY − Σ finalized SELL)
+  and the sell continues from lot truth.
+- Emits `EXIT_FINALITY_HEAL_FROM_LOTS_6507` on repair with
+  prior/healed/canonicalBuy qty + decimals detail. Only when the
+  lot ledger itself is empty do we bump
+  `EXIT_FINALITY_LOTS_EMPTY_QUARANTINE_6507` and fall through to the
+  deterministic reject (with `invariantReason=lot_ledger_empty_6507`
+  appended to the existing SELL_BLOCKED_NO_CANONICAL_POSITION_6373
+  emission).
+- Other block reasons (NO_CANONICAL_BUY_RECORD, CANONICAL_BUY_MALFORMED,
+  POS_UNPOPULATED, COST_BASIS_*) remain hard rejects — those signal
+  data-integrity failures the fill-lot ledger cannot correct.
+- Directly targets acceptance: `SELL_BLOCKED_NO_CANONICAL_POSITION = 0
+  for valid canonical positions` + `PAPER_CLOSE_FAILED / PAPER_CLOSE_REQUESTED
+  < 1 %`.
+
+**§P0 QUANTITY AUTHORITY — RECONSTRUCTION INVARIANT**
+- `Executor.paperBuy.atomic6485` now enforces
+  `abs(reconstructedNotionalSol − costSol) <= tolerance` before
+  fill persistence.
+- Rejects when: `qtyToken <= 0`, `fillPrice not finite / <= 0`, or
+  `|delta| > max(costSol × 5 %, 0.001 SOL)`. Decimals resolved via
+  `MintDecimalsAuthority6392.get(mint)` (default 9).
+- On failure: emits `QUANTITY_RECONSTRUCTION_INVARIANT_FAIL_6507`
+  with buyQtyRaw / decimals / qtyToken / fillPrice /
+  reconstructedNotionalSol / costSol / delta / tolerance, then calls
+  the existing `rollbackPaperEntry6485` — the fill NEVER lands in
+  the ledger / registry / lot store. Malformed lots quarantined by
+  existing `QuantityInvariantAuthority6500` on the same rollback.
+- Directly targets acceptance: `QTY_DECIMAL_SKEW = 0 on newly-created
+  fills` + `no ~SOLUSD-factor disagreement for same cost/price`.
+
+**§P1 ADVISOR INTERLOCK — R2 REPLAY COOLDOWN NON-EXTEND**
+- `AutoPipelineAdvisor6462.deriveRulesCandidates` R2 rule
+  (PAPER_REPLAY_DIVERGENCE → +60 s entryCooldownSec) now memoises
+  the last-seen divergence count via `lastSeenReplayDivergence6507`
+  and only proposes the cooldown extension when
+  `replayDiv > lastSeenReplayDivergence6507.get()`. Historical
+  divergences no longer indefinitely grow entryCooldown.
+- Emits `ADVISOR_R2_REPLAY_COOLDOWN_EXTEND_6507` on new event and
+  `ADVISOR_R2_REPLAY_COOLDOWN_SUPPRESSED_HISTORICAL_6507` when a
+  stale non-zero count is suppressed.
+
+**§P2 UI OFF-MAIN — VERIFIED-ALREADY-DONE**
+- Audit confirmed the specific `TradeHistoryStore.getLifetimeStats()`
+  reads @Volatile Int/Double in-memory counters — O(1) on Main is
+  fine.
+- `HeatmapRenderCache6374` already computes on
+  `Dispatchers.Default` with a bounded cadence.
+- No new code needed; documented and closed.
+
+
+
 ## V5.0.6506 — 2026-02-19 — CANONICAL ENTRY + ECONOMIC TRUTH ROOT REPAIR (partial)
 
 Operator mandate (verbatim): "This build is plumbing correctness

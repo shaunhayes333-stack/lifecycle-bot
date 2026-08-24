@@ -12514,6 +12514,50 @@ class Executor(
                 rollbackPaperEntry6485("NON_EXECUTABLE_SIZE_OR_QTY")
                 return
             }
+            // V5.0.6507 §P0 QUANTITY AUTHORITY — RECONSTRUCTION INVARIANT.
+            // Operator mandate: "Reject a fill before persistence if
+            //   qtyToken <= 0
+            //   notional reconstruction exceeds tolerance
+            //   price unit is unknown
+            //   SOL/USD authority is unavailable for a USD-priced token.
+            // Invariant: abs(reconstructedNotionalSol - costSol) <= tolerance."
+            //
+            // Non-clamping: on failure we abort the atomic path via the
+            // existing rollback which quarantines the position — malformed
+            // lots are never silently merged, in line with the operator
+            // mandate ("Existing malformed lots are quarantined, never
+            // silently merged").
+            try {
+                val decimals6507 = try {
+                    com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.get(tradeId.mint) ?: 9
+                } catch (_: Throwable) { 9 }
+                val qtyTokenDouble6507 = buyQtyRaw6485.toDouble() / Math.pow(10.0, decimals6507.toDouble())
+                val reconstructedNotionalSol6507 = qtyTokenDouble6507 * fillPrice6485
+                // Tolerance: 5% of costSol or 0.001 SOL (whichever is greater).
+                // 5% accommodates paper-mode slippage/fee bookkeeping; the
+                // absolute floor guards tiny orders.
+                val tolerance6507 = maxOf(actualSol * 0.05, 0.001)
+                val invariantDelta6507 = kotlin.math.abs(reconstructedNotionalSol6507 - actualSol)
+                if (qtyTokenDouble6507 <= 0.0 || !fillPrice6485.isFinite() || fillPrice6485 <= 0.0 ||
+                    invariantDelta6507 > tolerance6507) {
+                    try {
+                        PipelineHealthCollector.labelInc("QUANTITY_RECONSTRUCTION_INVARIANT_FAIL_6507")
+                        ForensicLogger.lifecycle(
+                            "QUANTITY_RECONSTRUCTION_INVARIANT_FAIL_6507",
+                            "mint=${tradeId.mint.take(10)} symbol=${ts.symbol} " +
+                                "buyQtyRaw=$buyQtyRaw6485 decimals=$decimals6507 " +
+                                "qtyToken=${"%.6f".format(qtyTokenDouble6507)} " +
+                                "fillPrice=${"%.9f".format(fillPrice6485)} " +
+                                "reconstructedNotionalSol=${"%.6f".format(reconstructedNotionalSol6507)} " +
+                                "costSol=${"%.6f".format(actualSol)} " +
+                                "delta=${"%.6f".format(invariantDelta6507)} " +
+                                "tolerance=${"%.6f".format(tolerance6507)} action=abort_before_persistence",
+                        )
+                    } catch (_: Throwable) {}
+                    rollbackPaperEntry6485("QUANTITY_RECONSTRUCTION_INVARIANT_FAIL_6507")
+                    return
+                }
+            } catch (_: Throwable) {}
             if (!com.lifecyclebot.engine.truth.PaperAccountLedger6430.onBuy(actualSol, fee6485)) {
                 rollbackPaperEntry6485("ECONOMIC_DEBIT_REJECTED")
                 return
@@ -19391,19 +19435,84 @@ class Executor(
             }
             if (block != null) {
                 val (code, detail) = block
-                try {
-                    PipelineHealthCollector.labelInc("SELL_BLOCKED_NO_CANONICAL_POSITION_6373")
-                    PipelineHealthCollector.labelInc("SELL_BLOCKED_NO_CANONICAL_POSITION_6373|$code")
-                    ForensicLogger.lifecycle(
-                        "SELL_BLOCKED_NO_CANONICAL_POSITION_6373",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason code=$code detail=$detail"
-                    )
-                } catch (_: Throwable) {}
-                // IMPORTANT: do not markClosed/unregister — the real position
-                // (if any) must remain untouched so a subsequent well-formed sell
-                // can process it. Release the sell lock and short-circuit.
-                try { releasePaperSellLock(ts.mint) } catch (_: Throwable) {}
-                return SellResult.FAILED_RETRYABLE
+                // V5.0.6507 §P0 EXIT FINALITY — HEAL FROM CANONICAL LOTS.
+                // Operator mandate: "Sell quantity comes only from canonical
+                // remaining fill lots. On divergence, rebuild position qty
+                // from FillLotLedger before rejecting. Heal from lots then
+                // retry exactly once, quarantine only if authoritative lots
+                // themselves disagree."
+                //
+                // Only the QTY_DIVERGES_FROM_CANONICAL block is repairable —
+                // NO_CANONICAL_BUY_RECORD / CANONICAL_BUY_MALFORMED / POS_UNPOPULATED
+                // / COST_BASIS_* remain hard rejects because they signal
+                // data-integrity failures the fill-lot ledger cannot correct.
+                if (code == "QTY_DIVERGES_FROM_CANONICAL") {
+                    val healed6507 = try {
+                        val lotQtyRaw = com.lifecyclebot.engine.truth.FillLotLedger6504
+                            .canonicalQtyOf(ts.mint, isPaper = true)
+                        val decimals = try {
+                            com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.get(ts.mint) ?: 6
+                        } catch (_: Throwable) { 6 }
+                        val lotQtyToken = lotQtyRaw.toDouble() / Math.pow(10.0, decimals.toDouble())
+                        if (lotQtyToken.isFinite() && lotQtyToken > 0.0) {
+                            val prior = pos.qtyToken
+                            pos.qtyToken = lotQtyToken
+                            try {
+                                PipelineHealthCollector.labelInc("EXIT_FINALITY_HEAL_FROM_LOTS_6507")
+                                ForensicLogger.lifecycle(
+                                    "EXIT_FINALITY_HEAL_FROM_LOTS_6507",
+                                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} " +
+                                        "priorQty=${"%.4f".format(prior)} " +
+                                        "healedQty=${"%.4f".format(lotQtyToken)} " +
+                                        "canonicalBuyQty=${"%.4f".format(canonicalBuy?.entryQtyToken ?: 0.0)} " +
+                                        "decimals=$decimals action=continue_with_lot_truth",
+                                )
+                            } catch (_: Throwable) {}
+                            true
+                        } else {
+                            try {
+                                PipelineHealthCollector.labelInc("EXIT_FINALITY_LOTS_EMPTY_QUARANTINE_6507")
+                                ForensicLogger.lifecycle(
+                                    "EXIT_FINALITY_LOTS_EMPTY_QUARANTINE_6507",
+                                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} " +
+                                        "lotQtyRaw=$lotQtyRaw action=deterministic_reject",
+                                )
+                            } catch (_: Throwable) {}
+                            false
+                        }
+                    } catch (_: Throwable) { false }
+                    if (healed6507) {
+                        // Skip the block — heal succeeded, proceed with sell
+                        // using the corrected pos.qtyToken. If the sell
+                        // fails downstream for a different reason, it will
+                        // surface with its own concrete code.
+                    } else {
+                        try {
+                            PipelineHealthCollector.labelInc("SELL_BLOCKED_NO_CANONICAL_POSITION_6373")
+                            PipelineHealthCollector.labelInc("SELL_BLOCKED_NO_CANONICAL_POSITION_6373|$code")
+                            ForensicLogger.lifecycle(
+                                "SELL_BLOCKED_NO_CANONICAL_POSITION_6373",
+                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason code=$code detail=$detail invariantReason=lot_ledger_empty_6507"
+                            )
+                        } catch (_: Throwable) {}
+                        try { releasePaperSellLock(ts.mint) } catch (_: Throwable) {}
+                        return SellResult.FAILED_RETRYABLE
+                    }
+                } else {
+                    try {
+                        PipelineHealthCollector.labelInc("SELL_BLOCKED_NO_CANONICAL_POSITION_6373")
+                        PipelineHealthCollector.labelInc("SELL_BLOCKED_NO_CANONICAL_POSITION_6373|$code")
+                        ForensicLogger.lifecycle(
+                            "SELL_BLOCKED_NO_CANONICAL_POSITION_6373",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason code=$code detail=$detail"
+                        )
+                    } catch (_: Throwable) {}
+                    // IMPORTANT: do not markClosed/unregister — the real position
+                    // (if any) must remain untouched so a subsequent well-formed sell
+                    // can process it. Release the sell lock and short-circuit.
+                    try { releasePaperSellLock(ts.mint) } catch (_: Throwable) {}
+                    return SellResult.FAILED_RETRYABLE
+                }
             }
         }
 

@@ -94,6 +94,9 @@ object AutoPipelineAdvisor6462 {
 
     private val lastRunMs = AtomicLong(0L)
     private val lastAppliedAtByKey = ConcurrentHashMap<String, Long>()
+    // V5.0.6507 §P1 — memoise last-seen PAPER_REPLAY_DIVERGENCE_6461 so
+    // Rule R2 fires only on NEW divergences, not historical ones.
+    private val lastSeenReplayDivergence6507 = AtomicLong(0L)
     private val ticks = AtomicLong(0L)
     private val runsOk = AtomicLong(0L)
     private val runsFailed = AtomicLong(0L)
@@ -266,14 +269,23 @@ object AutoPipelineAdvisor6462 {
             )
         }
 
-        // Rule R2: Replay divergence → widen entry cooldown so ledger has
-        //          time to reconcile between bursts.
-        if (replayDiv > 0) {
+        // V5.0.6507 §P1 ADVISOR INTERLOCK — HISTORICAL DIVERGENCE MUST NOT
+        // REPEATEDLY EXTEND COOLDOWN. Rule R2 previously fired on every
+        // tick whenever the PAPER_REPLAY_DIVERGENCE_6461 label was
+        // non-zero, even if the divergence event happened once at
+        // startup and was already reconciled. That grew entryCooldown
+        // indefinitely and starved fresh entries. We now emit only on
+        // NEW divergence events observed since the last tick.
+        if (replayDiv > 0 && replayDiv > lastSeenReplayDivergence6507.get()) {
             out += mk(
                 key = "entryCooldownSec", delta = +60.0, severity = "high",
-                reason = "PAPER_REPLAY_DIVERGENCE_6461=$replayDiv — extend cooldown so replay can converge",
+                reason = "PAPER_REPLAY_DIVERGENCE_6461=$replayDiv (newSinceLast=${replayDiv - lastSeenReplayDivergence6507.get()}) — extend cooldown so replay can converge",
             )
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADVISOR_R2_REPLAY_COOLDOWN_EXTEND_6507") } catch (_: Throwable) {}
+        } else if (replayDiv > 0) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADVISOR_R2_REPLAY_COOLDOWN_SUPPRESSED_HISTORICAL_6507") } catch (_: Throwable) {}
         }
+        lastSeenReplayDivergence6507.set(replayDiv)
 
         // Rule R3: Ledger invariant failures → shrink per-position size to
         //          bound the blast radius of any accounting drift.
