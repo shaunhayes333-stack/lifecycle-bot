@@ -2970,6 +2970,7 @@ class GoldenTapeRegressionTest {
         val tradeStore = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
         val rowSanity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/TradeRowSanityCheck.kt").readText()
         val collector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        val closeConvergence6509 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperTerminalProjectionConvergence6509.kt").readText()
 
         assertTrue("paper close authority must exist", paperClose.contains("object PaperPositionCloseAuthority"))
         assertTrue("paper authority must expose CLOSE_REQUESTED", paperClose.contains("CLOSE_REQUESTED"))
@@ -2979,7 +2980,7 @@ class GoldenTapeRegressionTest {
         val traceIdx = exec.indexOf("ExecutionRootCauseTrace.sell(\"DO_SELL_ENTRY\"")
         assertTrue("paper close guard must run before DO_SELL_ENTRY / EXEC_TRACE_SELL", guardIdx >= 0 && traceIdx >= 0 && guardIdx < traceIdx)
         assertTrue("first paper close must mark requested before trace", exec.contains("PaperPositionCloseAuthority.markCloseRequested"))
-        assertTrue("paperSell must finalize the paper authority when ledger closes", exec.contains("PaperPositionCloseAuthority.markClosed(\"PAPER\", tradeId.mint"))
+        assertTrue("paperSell must finalize the paper authority when ledger closes", closeConvergence6509.contains("PaperPositionCloseAuthority.markClosed(\"PAPER\", mint"))
 
         assertTrue("paper buy must clamp before position and journal mutation", exec.contains("clampPaperTradeSol(floorPreserved6490"))
         assertTrue("paper buy max must be bankroll-backed live-transfer size, not legacy maxPositionSol micro-cap", exec.contains("ALL PAPER ENTRIES") && exec.contains("paperSimulatedBalance * 0.10") && exec.contains("coerceIn(legacyMax, 2.0)"))
@@ -8174,7 +8175,7 @@ class GoldenTapeRegressionTest {
         val paperTx = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
 
         assertTrue(executor.contains("PositionStateLedger6454.onEntry(pid6485)") && executor.contains("syncAuthoritativeRaw(pid6485"))
-        assertTrue(executor.indexOf("canonicalPaperSellCommitted6474 = close6474.applied") in 1 until executor.indexOf("PAPER_TERMINAL_PROJECTIONS_COMMITTED_6498"))
+        assertTrue(executor.indexOf("canonicalPaperSellCommitted6474 = close6474.applied") in 1 until executor.lastIndexOf("PaperTerminalProjectionConvergence6509.converge"))
         assertTrue(paperTx.contains("PositionStateLedger6454.onEntry(positionId)") && paperTx.contains("SellQtyBoundaryClamp6427.syncAuthoritativeRaw(positionId"))
         assertTrue(bridge.contains("admitRaw(positionId, soldQtyRaw") && bridge.contains("commitRaw(positionId, soldQtyRaw, terminal)"))
         assertTrue(boundary.contains("SELL_QTY_BOUNDARY_ADMITTED_" + "6498") && boundary.contains("SELL_QTY_BOUNDARY_REJECTED_" + "6498"))
@@ -8183,6 +8184,29 @@ class GoldenTapeRegressionTest {
         assertTrue(sizing.contains("kotlin.math.min(risk, ladderFloor)") && !sizing.contains("kotlin.math.max(risk, ladderFloor)"))
         assertTrue(sizing.contains("authorityCapLamports" + "6498"))
         assertTrue(groq.contains("openai/gpt-oss-20b"))
+    }
+
+
+    @Test
+    fun V5_0_6509_source_rooted_quantity_close_and_exec_intent_authorities() {
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val qty = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PaperTokenQuantityAuthority6509.kt").readText()
+        val mirror = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt").readText()
+        val close = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperTerminalProjectionConvergence6509.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+
+        assertFalse("6509 recordTrade must never derive sold-token fraction from economic return", executor.contains("entryQtyForJournal * (trade.sol / entryCostForJournal)"))
+        assertTrue(executor.contains("resolveJournalSoldQty") && executor.contains("JOURNAL_CANONICAL_SOLD_QTY_MISMATCH_6509"))
+        assertTrue(qty.contains("expected = (costSol * solUsd) / tokenPriceUsd") && qty.contains("decoded = decode(raw, decimals)"))
+        assertTrue(executor.contains("PAPER_BUY_DEFERRED_SOL_USD_MISSING_6509") && !executor.contains("effectiveSol / maxOf(effectivePrice, 1e-12)"))
+        assertTrue(executor.contains("paperTokenDecimals6509") && executor.contains("tokenDecimals = paperTokenDecimals6509"))
+        assertTrue(mirror.contains("tokenDecimals = tokenDecimals") && !mirror.contains("tokenDecimals = 9,                 // provisional"))
+        assertTrue(close.contains("POST_CLOSE_LEDGER_STAMP_FAIL_6509") && close.contains("POST_CLOSE_PAPER_AUTH_FAIL_6509") &&
+            close.contains("POST_CLOSE_GUARDRAIL_REMOVE_FAIL_6509") && close.contains("POST_CLOSE_GLOBAL_REGISTRY_FAIL_6509") &&
+            close.contains("POST_CLOSE_PORTFOLIO_REMOVE_FAIL_6509"))
+        assertTrue(executor.contains("canonicalClosedNoActive") && executor.contains("return SellResult.ALREADY_CLOSED"))
+        assertTrue(gate.contains("canonicalExecutableIntent6509") && gate.contains("EXEC_RAW_SIGNAL_DIAGNOSTIC_IGNORED_6509"))
+        assertEquals("6509 must retain one diagnostic raw-signal blocker only", 1, Regex("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY").findAll(gate).count())
     }
 
 }

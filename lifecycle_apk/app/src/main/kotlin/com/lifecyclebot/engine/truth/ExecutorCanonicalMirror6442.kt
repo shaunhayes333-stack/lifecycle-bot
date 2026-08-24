@@ -77,6 +77,7 @@ object ExecutorCanonicalMirror6442 {
         estimatedCostSol: Double,
         estimatedFeesSol: Double,
         paperMode: Boolean,
+        tokenDecimals: Int = 9,
     ): Boolean {
         return try {
             val positionId = allocatePositionId(mint, paperMode)
@@ -99,7 +100,7 @@ object ExecutorCanonicalMirror6442 {
                 runId = runIdHash,
                 entryCostSol = estimatedCostSol,
                 openedQtyRaw = BigInteger.ZERO,   // pending fill
-                tokenDecimals = 9,                 // provisional; corrected on fill
+                tokenDecimals = tokenDecimals,     // V5.0.6509 position-bound authority
                 feesSol = estimatedFeesSol,
                 paperMode = paperMode,
             )

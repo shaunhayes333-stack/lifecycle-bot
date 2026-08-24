@@ -3347,8 +3347,19 @@ class Executor(
         } else {
             ts.position.qtyToken.takeIf { it > 0.0 } ?: trade.entryQtyToken
         }
-        val soldQtyForJournal = if (!trade.side.equals("BUY", true) && entryCostForJournal > 0.0 && entryQtyForJournal > 0.0 && trade.sol > 0.0) {
-            (entryQtyForJournal * (trade.sol / entryCostForJournal)).coerceIn(0.0, entryQtyForJournal)
+        val exitReason6509 = trade.reason.lowercase()
+        val isExit6509 = trade.side.equals("SELL", true) || trade.side.equals("PARTIAL_SELL", true)
+        val isPartial6509 = trade.side.equals("PARTIAL_SELL", true) || exitReason6509.contains("partial") ||
+            exitReason6509.startsWith("profit_lock") || exitReason6509.startsWith("capital_recovery") || exitReason6509.contains("scale_out")
+        // V5.0.6509 — source-locked token quantity. Economic return is never a token fraction.
+        // Legacy inference is intentionally zero unless a future importer explicitly marks/provides it.
+        val soldQtyForJournal = if (isExit6509) {
+            com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.resolveJournalSoldQty(
+                suppliedSoldQtyToken = trade.soldQtyToken,
+                suppliedEntryQtyToken = trade.entryQtyToken,
+                terminal = !isPartial6509,
+                explicitLegacyInferenceQty = 0.0,
+            )
         } else trade.soldQtyToken
         val entryMcapForJournal: Double = trade.entryMcapUsd.takeIf { it > 0.0 }
             ?: ts.position.entryMcap.takeIf { it > 0.0 }
@@ -12477,23 +12488,28 @@ class Executor(
         // Missing solPriceUsd factor is exactly the class of bug that
         // produced compassSOL 0.05 SOL → 6710 tokens ($752K phantom
         // notional) in the operator's 6499 dump.
-        val solPriceForQty6500 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-        val qtyAtBuy6500 = if (solPriceForQty6500 >= 50.0 && solPriceForQty6500 <= 5000.0) {
-            (effectiveSol * solPriceForQty6500) / maxOf(effectivePrice, 1e-12)
-        } else {
-            // Cold-boot fallback: SOL price cache not warm. Emit a canary
-            // so operator can see it never happens in flight and fall back
-            // to the (unit-mismatched) legacy formula only to avoid a
-            // crash-loop before WalletManager warms.
+        val solPriceForQty6509 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        if (!solPriceForQty6509.isFinite() || solPriceForQty6509 !in 50.0..5000.0) {
             try {
-                ErrorLogger.warn("Executor",
-                    "⚠ PAPER_BUY_QTY_SOLPX_FALLBACK_6500 solPx=$solPriceForQty6500 effSol=$effectiveSol effPx=$effectivePrice — using pre-6500 formula until SOL price warms")
-                PipelineHealthCollector.labelInc("PAPER_BUY_QTY_SOLPX_FALLBACK_6500")
+                PipelineHealthCollector.labelInc("PAPER_BUY_DEFERRED_SOL_USD_MISSING_6509")
+                ForensicLogger.lifecycle("PAPER_BUY_DEFERRED_SOL_USD_MISSING_6509", "mint=${tradeId.mint.take(10)} solUsd=$solPriceForQty6509 action=defer_before_debit")
             } catch (_: Throwable) {}
-            effectiveSol / maxOf(effectivePrice, 1e-12)
+            return
         }
+        val paperTokenDecimals6509 = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.resolveDecimals(
+            tradeId.mint,
+            getTokenDecimals(ts).takeIf { it in 0..18 },
+        )
+        if (paperTokenDecimals6509 == null) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_BUY_DEFERRED_DECIMALS_MISSING_6509")
+                ForensicLogger.lifecycle("PAPER_BUY_DEFERRED_DECIMALS_MISSING_6509", "mint=${tradeId.mint.take(10)} action=defer_before_debit")
+            } catch (_: Throwable) {}
+            return
+        }
+        val qtyAtBuy6509 = (effectiveSol * solPriceForQty6509) / maxOf(effectivePrice, 1e-12)
         val fundedPaperPosition6485 = Position(
-            qtyToken     = qtyAtBuy6500,
+            qtyToken     = qtyAtBuy6509,
             entryPrice   = effectivePrice,
             entryTime    = System.currentTimeMillis(),
             costSol      = actualSol,
@@ -12540,7 +12556,16 @@ class Executor(
         // Nothing is externally OPEN until economic debit, canonical lifecycle,
         // funded lot, economic event and occupancy OPEN have all succeeded.
         val fee6485 = actualSol * 0.005
-        val buyQtyRaw6485 = java.math.BigInteger.valueOf((fundedPaperPosition6485.qtyToken * 1_000_000_000.0).toLong().coerceAtLeast(0L))
+        val buyQtyRaw6485 = try {
+            com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.encode(fundedPaperPosition6485.qtyToken, paperTokenDecimals6509)
+        } catch (_: Throwable) { java.math.BigInteger.ZERO }
+        val qtyInvariant6509 = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.independentCheck(
+            actualSol, solPriceForQty6509, effectivePrice, buyQtyRaw6485, paperTokenDecimals6509,
+        )
+        if (!qtyInvariant6509.ok) {
+            try { PipelineHealthCollector.labelInc("PAPER_BUY_QTY_DIMENSIONAL_REJECT_6509") } catch (_: Throwable) {}
+            return
+        }
         var ledgerDebited6485 = false
         var canonicalCreated6485 = false
         val pid6485: String
@@ -12623,10 +12648,11 @@ class Executor(
             canonicalCreated6485 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyAttempt(
                 mint = tradeId.mint, symbol = ts.symbol.ifBlank { tradeId.symbol }, lane = entryLane6485,
                 estimatedCostSol = actualSol, estimatedFeesSol = fee6485, paperMode = true,
+                tokenDecimals = paperTokenDecimals6509,
             )
             if (!canonicalCreated6485 || !com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyFill(
                     mint = tradeId.mint, actualQtyRaw = buyQtyRaw6485, actualCostSol = actualSol,
-                    actualFeesSol = fee6485, tokenDecimals = 9, paperMode = true,
+                    actualFeesSol = fee6485, tokenDecimals = paperTokenDecimals6509, paperMode = true,
                 )) {
                 rollbackPaperEntry6485("CANONICAL_OPEN_REJECTED")
                 return
@@ -12637,7 +12663,8 @@ class Executor(
                 rollbackPaperEntry6485("FUNDED_LOT_MISSING")
                 return
             }
-            val fillPrice6485 = actualSol / buyQtyRaw6485.toBigDecimal().movePointLeft(9).toDouble().coerceAtLeast(1e-12)
+            val fillPrice6485 = actualSol / com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509
+                .decode(buyQtyRaw6485, paperTokenDecimals6509).coerceAtLeast(1e-12)
             com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(
                 mode = "paper", positionId = pid6485, mint = tradeId.mint,
                 symbol = ts.symbol.ifBlank { tradeId.symbol },
@@ -12751,6 +12778,12 @@ class Executor(
             // on the BUY leg (SELL leg already correct via ts.position.tradingMode).
             tradingMode = if (layerTag.isNotBlank()) layerTag else currentMode.name,
             tradingModeEmoji = if (layerTagEmoji.isNotBlank()) layerTagEmoji else currentMode.emoji,
+            positionId = pid6485,
+            entryQtyToken = fundedPaperPosition6485.qtyToken,
+            remainingQtyToken = fundedPaperPosition6485.qtyToken,
+            entryCostSol = actualSol,
+            entryPriceSnapshot = effectivePrice,
+            entryDecimals = paperTokenDecimals6509,
         )
         recordTrade(ts, trade)
         security.recordTrade(trade)
@@ -19354,6 +19387,18 @@ class Executor(
 
     fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null): SellResult {
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+        fun reconcileCanonicalClosed6509(): Boolean {
+            if (!PaperTerminalProjectionConvergence6509.canonicalClosedNoActive(ts.mint)) return false
+            PaperTerminalProjectionConvergence6509.converge(ts.mint, ts.symbol, "CANONICAL_ALREADY_CLOSED_6509:$reason", 0)
+            ts.position = Position()
+            try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "CANONICAL_ALREADY_CLOSED_6509") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "CANONICAL_ALREADY_CLOSED_6509") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.SellExecutionLocks.forceRelease(ts.mint) } catch (_: Throwable) {}
+            try { releasePaperSellLock(ts.mint) } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("PAPER_SELL_CANONICAL_CLOSED_RECONCILED_6509") } catch (_: Throwable) {}
+            return true
+        }
+        if (reconcileCanonicalClosed6509()) return SellResult.ALREADY_CLOSED
         // V5.0.6448 — SELL mirror moved to confirmed paper fill below.
         // Do not mutate canonical lifecycle at sell-attempt time with zero
         // proceeds/cost; that was the direct source of SELL invariant violations.
@@ -19393,6 +19438,7 @@ class Executor(
                 .firstOrNull { it.mode == "paper" && it.mint == ts.mint }
         } catch (_: Throwable) { null }
         if (canonicalTerminalPosition6492 == null) {
+            if (reconcileCanonicalClosed6509()) return SellResult.ALREADY_CLOSED
             try {
                 ForensicLogger.lifecycle("PAPER_SELL_CANONICAL_POSITION_MISSING_6498", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason action=retry_no_projection_mutation")
                 PipelineHealthCollector.labelInc("PAPER_SELL_CANONICAL_POSITION_MISSING_6498")
@@ -19772,7 +19818,19 @@ class Executor(
             soldQtyToken = soldQtyToken6449,
             entryCostSol = terminalRemainingCost6492,
             entryPriceSnapshot = pos.entryPrice,
+            entryDecimals = terminalDecimals6492,
+            positionId = terminalPid6455,
         )
+        val journalSoldQtyRaw6509 = try {
+            com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.journalSoldRaw(trade.soldQtyToken, terminalDecimals6492)
+        } catch (_: Throwable) { java.math.BigInteger.ZERO }
+        if (journalSoldQtyRaw6509 != terminalRemainingRaw6492) {
+            try {
+                PipelineHealthCollector.labelInc("JOURNAL_CANONICAL_SOLD_QTY_MISMATCH_6509")
+                ForensicLogger.lifecycle("JOURNAL_CANONICAL_SOLD_QTY_MISMATCH_6509", "mint=${ts.mint.take(10)} journalRaw=$journalSoldQtyRaw6509 canonicalRaw=$terminalRemainingRaw6492 decimals=$terminalDecimals6492 action=reject_before_economics")
+            } catch (_: Throwable) {}
+            return SellResult.FAILED_FATAL
+        }
         // V5.9.1011 — PAPER SELL FAST PATH.
         // Snapshot before closing the real position, then move canonical journal
         // + security + ML/learning fanout off this sell thread. V5.9.1010
@@ -19861,7 +19919,9 @@ class Executor(
                         source = pos.tradingMode.ifBlank { tradeId.symbol },
                         note = "paperSellFull.6474.$reason".take(120),
                     )
-                } catch (_: Throwable) {}
+                } catch (t: Throwable) {
+                    try { PipelineHealthCollector.labelInc("POST_CLOSE_FILL_LOT_STAMP_FAIL_6509"); ForensicLogger.lifecycle("POST_CLOSE_FILL_LOT_STAMP_FAIL_6509", "mint=${tradeId.mint.take(10)} err=${t.message?.take(80)}") } catch (_: Throwable) {}
+                }
             }
             try {
                 ForensicLogger.lifecycle("CANONICAL_PAPER_SELL_COMMIT_6474", "mint=${tradeId.mint.take(10)} pid=${pid6474.take(18)} terminalId=$terminalId6474 applied=${close6474.applied} claimed=${close6474.terminalClaimed} bus=${close6474.busPublished} cash=${com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol().fmtSol()} openCost=${com.lifecyclebot.engine.truth.PaperAccountLedger6430.openCostBasisSol().fmtSol()} reason=$reason")
@@ -19903,19 +19963,15 @@ class Executor(
         // terminalCount(pid) == 1.
         try {
             com.lifecyclebot.engine.truth.PositionStateLedger6454.confirmTerminalSell(terminalPid6455)
-        } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            try { PipelineHealthCollector.labelInc("POST_CLOSE_STATE_LEDGER_CONFIRM_FAIL_6509"); ForensicLogger.lifecycle("POST_CLOSE_STATE_LEDGER_CONFIRM_FAIL_6509", "mint=${tradeId.mint.take(10)} err=${t.message?.take(80)}") } catch (_: Throwable) {}
+        }
         // V5.0.6498 — canonical mutation is the commit point. Only now may
         // projections stamp CLOSED, release slots, or suppress future zombie exits.
-        try {
-            val pnlPctForLedger6498 = try { OpenPnlSanity.inspectPosition(pos, price, "Executor.close_ledger_stamp_6038_6498/${ts.symbol}/${ts.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct?.toInt() ?: 0 } catch (_: Throwable) { 0 }
-            val cid6498 = com.lifecyclebot.engine.PositionCloseLedger.markClosed(tradeId.mint, reason, pnlPctForLedger6498)
-            PaperPositionCloseAuthority.markClosed("PAPER", tradeId.mint, ts.symbol, reason, cid6498)
-            EmergentGuardrails.unregisterPosition(tradeId.mint)
-            com.lifecyclebot.engine.GlobalTradeRegistry.closePosition(tradeId.mint)
-            try { com.lifecyclebot.v4.meta.PortfolioHeatAI.removePosition(tradeId.mint) } catch (_: Throwable) {}
-            ForensicLogger.lifecycle("POSITION_CLOSE_LEDGER_STAMPED_6498", "mint=${tradeId.mint.take(10)} closeId=$cid6498 reason=$reason canonicalCommitted=true")
-            PipelineHealthCollector.labelInc("PAPER_TERMINAL_PROJECTIONS_COMMITTED_6498")
-        } catch (_: Throwable) {}
+        val pnlPctForLedger6498 = try { OpenPnlSanity.inspectPosition(pos, price, "Executor.close_ledger_stamp_6038_6498/${ts.symbol}/${ts.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct?.toInt() ?: 0 } catch (_: Throwable) { 0 }
+        PaperTerminalProjectionConvergence6509.converge(tradeId.mint, ts.symbol, reason, pnlPctForLedger6498)
+        // Canonical CLOSED also closes the local projection; no future exit retry may treat it as open.
+        ts.position = Position()
 
         val cyclicVirtualPaperClose = pos.tradingMode.equals("CYCLIC", true) || reason.startsWith("CYCLIC_", true)
         if (cyclicVirtualPaperClose) {

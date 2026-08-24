@@ -95,6 +95,12 @@ object ExecutableOpenGate {
         return if (base58.matches(m)) m else "INVALID_MINT_REDACTED"
     }
 
+    /** V5.0.6509 — finalized decision tuple; raw scanner signal is diagnostic only. */
+    internal fun canonicalExecutableIntent6509(
+        fdgCan: Boolean?, preFdgVerdict: String, hardNoReasons: List<String>, hasImmutableTicket: Boolean,
+    ): Boolean = fdgCan == true && hardNoReasons.isEmpty() && hasImmutableTicket &&
+        (preFdgVerdict.equals("BUY", true) || preFdgVerdict.equals("PROBE_ONLY", true))
+
     private val states = ConcurrentHashMap<String, EntryState>()
     private const val TTL_MS = 10 * 60 * 1000L
     private val allowedAttempts = ConcurrentHashMap<String, Pair<String, Long>>()
@@ -1412,35 +1418,25 @@ object ExecutableOpenGate {
                 return blocked("EXEC_OPEN_BLOCKED_TRUE_ZERO_LIQUIDITY", "TRUE_ZERO_LIQUIDITY", shadow = false)
             }
         }
+        val canonicalExecutableIntent6509 = canonicalExecutableIntent6509(
+            fdgCan = fdgCan,
+            preFdgVerdict = preFdgVerdict,
+            hardNoReasons = hardNoReasons,
+            hasImmutableTicket = immutableTicket != null,
+        )
         if (!signal.equals("BUY", true) && !signal.equals("EXECUTE", true)) {
-            // V5.0.6508 §P0-1 — EXEC_SIGNAL_AUTHORITY_MISMATCH INVARIANT.
-            // If a canonical FDG BUY stamp still exists for this mint,
-            // the incoming non-BUY signal is a stale-snapshot / lost-
-            // authority artefact — surface the invariant violation and
-            // (Phase 1) bump the mismatch counter for the operator dump.
-            // Full ticket-machine repair (rebuild-from-canonical-ticket)
-            // stages for V5.0.6508b.
-            try {
-                com.lifecyclebot.engine.truth.CanonicalFdgBuyStamp6508
-                    .reportMismatch(mint, signal, candidateVersion)
-            } catch (_: Throwable) {}
-            if (modeUpper == "LIVE" && fdgCan == true && hardNoReasons.isEmpty() && liquidityUsd > 0.0) {
-                restorePenalty = restorePenalty.combine(LiveRestoreExecutionPolicy.fromStaleWatch(liquidityUsd))
-                try { ForensicLogger.lifecycle("LIVE_RESTORE_SIGNAL_SOFT_ALLOW", "symbol=$symbol mint=${mint.take(10)} signal=$signal fdgCan=true liq=${liquidityUsd.toInt()}") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.CanonicalFdgBuyStamp6508.reportMismatch(mint, signal, candidateVersion) } catch (_: Throwable) {}
+            if (canonicalExecutableIntent6509) {
+                try {
+                    PipelineHealthCollector.labelInc("EXEC_RAW_SIGNAL_DIAGNOSTIC_IGNORED_6509")
+                    ForensicLogger.lifecycle("EXEC_RAW_SIGNAL_DIAGNOSTIC_IGNORED_6509", "symbol=$symbol mint=${mint.take(10)} signal=${signal.ifBlank { "UNKNOWN" }} preFdg=$preFdgVerdict ticket=true")
+                } catch (_: Throwable) {}
             } else {
                 return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", "SIGNAL_NOT_BUY:${signal.ifBlank { "UNKNOWN" }}", shadow = mode == "PAPER")
             }
         }
         if (fdgCan != true) {
             return blocked("EXEC_OPEN_BLOCKED_FDG_FINAL", fdgReason, shadow = mode == "PAPER")
-        }
-        if (signal.isNotBlank() && !signal.equals("UNKNOWN", true) && !signal.equals("BUY", true) && !signal.equals("EXECUTE", true)) {
-            if (modeUpper == "LIVE" && fdgCan == true && hardNoReasons.isEmpty() && liquidityUsd > 0.0) {
-                restorePenalty = restorePenalty.combine(LiveRestoreExecutionPolicy.fromStaleWatch(liquidityUsd))
-                try { ForensicLogger.lifecycle("LIVE_RESTORE_SIGNAL_SOFT_ALLOW", "symbol=$symbol mint=${mint.take(10)} signal=$signal fdgCan=true liq=${liquidityUsd.toInt()}") } catch (_: Throwable) {}
-            } else {
-                return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", "SIGNAL_NOT_BUY:$signal", shadow = mode == "PAPER")
-            }
         }
         // V5.0.3915 — only confirmed rug is a final-open hard block. Low/nonzero
         // RC scores are risk penalties, not mechanical impossibility.
