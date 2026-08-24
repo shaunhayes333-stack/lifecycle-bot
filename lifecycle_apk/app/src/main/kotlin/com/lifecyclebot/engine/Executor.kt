@@ -3123,15 +3123,17 @@ class Executor(
     }
 
     private fun resolveExecutionLane(ts: TokenState, identity: TradeIdentity? = null, fallback: String = "STANDARD"): String {
-        val fromPosition = normalizeExecutionLane(ts.position.tradingMode)
-        if (fromPosition.isNotBlank()) return fromPosition
-        val fromIdentity = normalizeExecutionLane(identity?.source)
-        if (fromIdentity.isNotBlank()) return fromIdentity
-        val fromSource = normalizeExecutionLane(ts.source)
-        if (fromSource.isNotBlank()) return fromSource
-        return try {
-            normalizeExecutionLane(com.lifecyclebot.engine.TokenMetricStageRouter.preferredPrimaryLane(ts, fallback)).ifBlank { fallback }
-        } catch (_: Throwable) { fallback }
+        val explicit = normalizeExecutionLane(identity?.executionLane)
+        if (explicit.isNotBlank()) return explicit
+        val cyclePrimary = try { normalizeExecutionLane(com.lifecyclebot.engine.TokenMetricStageRouter.preferredPrimaryLane(ts, "")) } catch (_: Throwable) { "" }
+        if (cyclePrimary.isNotBlank()) return cyclePrimary
+        val committedLegacy = if (ts.position.isOpen) normalizeExecutionLane(ts.position.tradingMode) else ""
+        if (committedLegacy.isNotBlank()) return committedLegacy
+        try {
+            PipelineHealthCollector.labelInc("EXEC_LANE_IDENTITY_INVARIANT_FAILED")
+            ForensicLogger.lifecycle("EXEC_LANE_IDENTITY_INVARIANT_FAILED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} candidateVersion=${identity?.fdgCandidateVersion ?: 0L} explicit=${identity?.executionLane} cycle=$cyclePrimary position=${ts.position.tradingMode} identitySource=${identity?.source} tokenSource=${ts.source} fallback=$fallback")
+        } catch (_: Throwable) {}
+        return fallback
     }
 
     /**
@@ -5648,55 +5650,12 @@ class Executor(
                 return false
             }
             if (pos.isPaperPosition) {
-                val newQty = pos.qtyToken - sellQty
-                val newCost = pos.costSol * (1.0 - sellFraction)
-                val pnlSol = sellSol - pos.costSol * sellFraction
-                
-                ts.position = pos.copy(
-                    qtyToken = newQty,
-                    costSol = newCost,
-                    capitalRecovered = true,
-                    capitalRecoveredSol = sellSol,
-                    isHouseMoney = true,
-                    lockedProfitFloor = sellSol,
-                    partialSoldPct = (pos.partialSoldPct + sellFraction * 100.0).coerceAtMost(100.0),
-                )
-                
-                val trade = Trade("PARTIAL_SELL", "paper", sellSol, actualPrice,
-                    System.currentTimeMillis(), "capital_recovery_${gainMultiple.fmt(1)}x",
-                    pnlSol, gainPct)
-                // V5.0.3683 — ACCOUNTING LEDGER FIX — replaced by canonical
-                // cost-basis tradeRow below. Kept as no-op recordTrade so any
-                // consumer wired by reference still sees the same identity.
-                @Suppress("UNUSED_VARIABLE") val _legacyCRTrade = trade
-                val paperCRCostBasis = pos.costSol * sellFraction
-                val paperCRFee = paperCRCostBasis * MEME_TRADING_FEE_PERCENT
-                val paperCRNetPnl = pnlSol - paperCRFee
-                val paperCRLegPct = pct(paperCRCostBasis, sellSol)
-                val tradeRow = Trade(
-                    "PARTIAL_SELL", "paper", paperCRCostBasis, actualPrice,
-                    System.currentTimeMillis(), "capital_recovery_${gainMultiple.fmt(1)}x",
-                    pnlSol, paperCRLegPct,
-                    feeSol = paperCRFee, netPnlSol = paperCRNetPnl,
-                )
-                recordTrade(ts, tradeRow)
-                security.recordTrade(tradeRow)
-                onPaperBalanceChange?.invoke(sellSol)
-                
-                val solPrice = WalletManager.lastKnownSolPrice
-                TreasuryManager.recordProfitLockEvent(
-                    TreasuryEventType.CAPITAL_RECOVERED,
-                    sellSol,
-                    ts.symbol,
-                    gainMultiple,
-                    solPrice
-                )
-                
-                if (pnlSol > 0) {
-                    TreasuryManager.lockRealizedProfit(pnlSol, solPrice)
+                val opReason6510 = "capital_recovery_${gainMultiple.fmt(1)}x"
+                executeProfitLockSellPaperOrLive(ts, wallet, sellFraction, opReason6510, walletSol, pos, actualPrice, gainMultiple, gainPct)
+                if (ts.position.qtyToken < pos.qtyToken) {
+                    ts.position = ts.position.copy(capitalRecovered = true, capitalRecoveredSol = sellSol,
+                        isHouseMoney = true, lockedProfitFloor = sellSol)
                 }
-                
-                onLog("📄 PAPER CAPITAL LOCK: Sold ${sellSol.fmt(4)} SOL @ +${gainPct.toInt()}% — now playing with house money!", ts.mint)
             } else {
                 // V5.9.751b — wallet is guaranteed non-null here by the
                 // CAPITAL_RECOVERY_DEFERRED guard above; assert for smart cast.
@@ -5736,52 +5695,12 @@ class Executor(
                 return false
             }
             if (pos.isPaperPosition) {
-                val newQty = pos.qtyToken - sellQty
-                val newCost = pos.costSol * (1.0 - sellFraction)
-                val pnlSol = sellSol - pos.costSol * sellFraction
-                
-                ts.position = pos.copy(
-                    qtyToken = newQty,
-                    costSol = newCost,
-                    profitLocked = true,
-                    profitLockedSol = sellSol,
-                    lockedProfitFloor = pos.lockedProfitFloor + sellSol,
-                    partialSoldPct = (pos.partialSoldPct + sellFraction * 100.0).coerceAtMost(100.0),
-                )
-                
-                val trade = Trade("PARTIAL_SELL", "paper", sellSol, actualPrice,
-                    System.currentTimeMillis(), "profit_lock_${gainMultiple.fmt(1)}x",
-                    pnlSol, gainPct)
-                // V5.0.3683 — ACCOUNTING LEDGER FIX — canonical cost-basis row.
-                @Suppress("UNUSED_VARIABLE") val _legacyPLTrade = trade
-                val paperPLCostBasis = pos.costSol * sellFraction
-                val paperPLFee = paperPLCostBasis * MEME_TRADING_FEE_PERCENT
-                val paperPLNetPnl = pnlSol - paperPLFee
-                val paperPLLegPct = pct(paperPLCostBasis, sellSol)
-                val tradeRow = Trade(
-                    "PARTIAL_SELL", "paper", paperPLCostBasis, actualPrice,
-                    System.currentTimeMillis(), "profit_lock_${gainMultiple.fmt(1)}x",
-                    pnlSol, paperPLLegPct,
-                    feeSol = paperPLFee, netPnlSol = paperPLNetPnl,
-                )
-                recordTrade(ts, tradeRow)
-                security.recordTrade(tradeRow)
-                onPaperBalanceChange?.invoke(sellSol)
-                
-                val solPrice = WalletManager.lastKnownSolPrice
-                TreasuryManager.recordProfitLockEvent(
-                    TreasuryEventType.PROFIT_LOCK_SELL,
-                    sellSol,
-                    ts.symbol,
-                    gainMultiple,
-                    solPrice
-                )
-                
-                if (pnlSol > 0) {
-                    TreasuryManager.lockRealizedProfit(pnlSol, solPrice)
+                val opReason6510 = "profit_lock_${gainMultiple.fmt(1)}x"
+                executeProfitLockSellPaperOrLive(ts, wallet, sellFraction, opReason6510, walletSol, pos, actualPrice, gainMultiple, gainPct)
+                if (ts.position.qtyToken < pos.qtyToken) {
+                    ts.position = ts.position.copy(profitLocked = true, profitLockedSol = sellSol,
+                        lockedProfitFloor = pos.lockedProfitFloor + sellSol)
                 }
-                
-                onLog("📄 PAPER PROFIT LOCK: Sold ${sellSol.fmt(4)} SOL @ ${gainMultiple.fmt(1)}x — letting rest ride free!", ts.mint)
             } else {
                 // V5.9.751b — wallet guaranteed non-null by PROFIT_LOCK_DEFERRED guard.
                 executeProfitLockSell(ts, wallet!!, sellFraction, "profit_lock_${gainMultiple.fmt(1)}x", walletSol)
@@ -5829,24 +5748,37 @@ class Executor(
         // Paper branch — mirror the capital_recovery / profit_lock paper accounting.
         val sellQty = pos.qtyToken * sellFraction
         val sellSol = sellQty * actualPrice
-        val newQty = pos.qtyToken - sellQty
-        val newCost = pos.costSol * (1.0 - sellFraction)
-        val pnlSol = sellSol - pos.costSol * sellFraction
-        ts.position = pos.copy(
-            qtyToken = newQty,
-            costSol = newCost,
+        val pid6510 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
+        val paperFeeEstimate6510 = (pos.costSol * sellFraction) * MEME_TRADING_FEE_PERCENT
+        val partial6510 = com.lifecyclebot.engine.truth.CanonicalPaperPartialOperation6510.commit(
+            pid6510, ts.mint, ts.symbol, sellFraction, sellSol, paperFeeEstimate6510, reason,
+        )
+        if (!partial6510.applied) return
+        val decimals6510 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid6510)?.tokenDecimals ?: 0
+        val newQty = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.decode(partial6510.postQty, decimals6510)
+        val newCost = partial6510.postCost
+        val pnlSol = partial6510.realizedPnl
+        ts.position = if (partial6510.postQty <= java.math.BigInteger.ZERO) Position() else pos.copy(
+            qtyToken = newQty, costSol = newCost,
             partialSoldPct = (pos.partialSoldPct + sellFraction * 100.0).coerceAtMost(100.0),
             lockedProfitFloor = pos.lockedProfitFloor + sellSol.coerceAtLeast(0.0),
         )
-        val paperCostBasis = pos.costSol * sellFraction
-        val paperFee = paperCostBasis * MEME_TRADING_FEE_PERCENT
-        val paperNetPnl = pnlSol - paperFee
+        val paperCostBasis = partial6510.soldCostBasis
+        val paperFee = partial6510.fees
+        val paperNetPnl = partial6510.realizedPnl
         val paperLegPct = pct(paperCostBasis, sellSol)
         val tradeRow = Trade(
             "PARTIAL_SELL", "paper", paperCostBasis, actualPrice,
             System.currentTimeMillis(), reason,
             pnlSol, paperLegPct,
             feeSol = paperFee, netPnlSol = paperNetPnl,
+            positionId = partial6510.positionId, operationId = partial6510.operationId,
+            partialSequence = partial6510.partialSequence,
+            preQtyToken = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.decode(partial6510.preQty, decimals6510),
+            soldQtyToken = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.decode(partial6510.soldQty, decimals6510),
+            postQtyToken = newQty, preCostSol = partial6510.preCost,
+            soldCostBasisSol = partial6510.soldCostBasis, postCostSol = partial6510.postCost,
+            grossProceedsSol = partial6510.grossProceeds,
         )
         recordTrade(ts, tradeRow)
         security.recordTrade(tradeRow)
@@ -8011,30 +7943,36 @@ class Executor(
             return false
         }
         if (pos.isPaperPosition) {
-            val paperDustClosed = newQty <= 1e-12 || newCost <= 0.000_001
-            ts.position = if (paperDustClosed) com.lifecyclebot.data.Position() else pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
+            val paperPartialFee = (pos.costSol * sellFraction) * MEME_TRADING_FEE_PERCENT
+            val paperPartialReason = if (newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct"
+            val pid6510 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
+            val partial6510 = com.lifecyclebot.engine.truth.CanonicalPaperPartialOperation6510.commit(
+                pid6510, ts.mint, ts.symbol, sellFraction, sellQty * actualPrice, paperPartialFee, paperPartialReason,
+            )
+            if (!partial6510.applied) return false
+            val decimals6510 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid6510)?.tokenDecimals ?: 0
+            val postQty6510 = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.decode(partial6510.postQty, decimals6510)
+            val paperDustClosed = partial6510.postQty <= java.math.BigInteger.ZERO || partial6510.postCost <= 0.000_001
+            ts.position = if (paperDustClosed) Position() else pos.copy(qtyToken = postQty6510, costSol = partial6510.postCost, partialSoldPct = newSoldPct)
             if (paperDustClosed) {
                 try { PositionPersistence.removePosition(ts.mint) } catch (_: Throwable) {}
                 try { GlobalTradeRegistry.closePosition(ts.mint) } catch (_: Throwable) {}
                 try { com.lifecyclebot.v4.meta.PortfolioHeatAI.removePosition(ts.mint) } catch (_: Throwable) {}
-                try { PositionCloseLedger.markClosed(ts.mint, "PAPER_PARTIAL_DUST_CLOSED", gainPct.toInt()) } catch (_: Throwable) {}
-                try { PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "PAPER_PARTIAL_DUST_CLOSED") } catch (_: Throwable) {}
-                try { ForensicLogger.lifecycle("PAPER_CLOSE_CONFIRMED_LEDGER_ONLY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=PARTIAL_DUST") } catch (_: Throwable) {}
-                try { PipelineHealthCollector.labelInc("PAPER_CLOSE_CONFIRMED_LEDGER_ONLY") } catch (_: Throwable) {}
             }
-            val partialCostBasisSol = pos.costSol * sellFraction
-            // V5.0.3683 — ACCOUNTING LEDGER FIX — wire feeSol/netPnlSol so the
-            // exporter never zeroes Net Gain on paper partials.
-            val paperPartialFee = partialCostBasisSol * MEME_TRADING_FEE_PERCENT
-            val paperPartialNetPnl = paperPnlSol - paperPartialFee
-            val paperPartialReason = if (paperDustClosed || newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct"
-            val trade   = Trade("PARTIAL_SELL", "paper", partialCostBasisSol, actualPrice,
-                              System.currentTimeMillis(), paperPartialReason,
-                              paperPnlSol, pct(partialCostBasisSol, sellQty * actualPrice),
-                              feeSol = paperPartialFee, netPnlSol = paperPartialNetPnl,
-                              tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji, mint = ts.mint)
+            val paperPartialNetPnl = partial6510.realizedPnl
+            val trade = Trade("PARTIAL_SELL", "paper", partial6510.soldCostBasis, actualPrice,
+                System.currentTimeMillis(), paperPartialReason, partial6510.realizedPnl,
+                pct(partial6510.soldCostBasis, partial6510.grossProceeds), feeSol = partial6510.fees,
+                netPnlSol = paperPartialNetPnl, tradingMode = pos.tradingMode,
+                tradingModeEmoji = pos.tradingModeEmoji, mint = ts.mint,
+                positionId = partial6510.positionId, operationId = partial6510.operationId,
+                partialSequence = partial6510.partialSequence,
+                preQtyToken = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.decode(partial6510.preQty, decimals6510),
+                soldQtyToken = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.decode(partial6510.soldQty, decimals6510),
+                postQtyToken = postQty6510, preCostSol = partial6510.preCost,
+                soldCostBasisSol = partial6510.soldCostBasis, postCostSol = partial6510.postCost,
+                grossProceedsSol = partial6510.grossProceeds)
             recordTrade(ts, trade); security.recordTrade(trade)
-            try { ForensicLogger.lifecycle("PAPER_PARTIAL_CLOSE_DONE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} soldQty=$sellQty remaining=${if (paperDustClosed) 0.0 else newQty} dustClosed=$paperDustClosed") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("PAPER_PARTIAL_CLOSE_DONE") } catch (_: Throwable) {}
             // V5.9.743 — wire 70/30 treasury siphon onto the AUTONOMOUS partial-
             // sell ladder. Previously only the manual requestPartialSell entry
@@ -8064,47 +8002,15 @@ class Executor(
             // PARTIAL_SELL but never credited the paper wallet, unlike manual
             // partials/full sells/profit locks. Credit principal+P&L less any
             // treasury share so balance, trade count, and journal move together.
-            try {
-                val grossPartial6448 = ((sellQty * actualPrice) - paperPartialTreasuryShare6041).coerceAtLeast(0.0)
-                // V5.0.6449 §3 — clamp sellQty against canonical remaining
-                val sellQty6449 = try {
-                    com.lifecyclebot.engine.truth.CanonicalIntegrityGuards6449.clampToRemaining(ts.mint, sellQty.coerceAtLeast(0.0), 9)
-                        .takeIf { it > 0.0 } ?: sellQty.coerceAtLeast(0.0)
-                } catch (_: Throwable) { sellQty.coerceAtLeast(0.0) }
-                val soldRaw6448 = java.math.BigInteger.valueOf((sellQty6449 * 1_000_000_000.0).toLong().coerceAtLeast(0L))
-                // V5.0.6475 — autonomous PAPER PARTIAL uses the same claim-first
-                // reducer as full SELL. No direct mirror/cash side effects before
-                // TerminalSellIdempotency + TerminalMutationAuthority grant ownership.
-                val pid6475 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
-                val generation6475 = System.currentTimeMillis()
-                val syntheticSig6475 = "paper_partial_${pid6475}_${trade.reason}_${generation6475}_${soldRaw6448}"
-                val preRemainingRaw6475 = java.math.BigInteger.valueOf(
-                    (pos.qtyToken.coerceAtLeast(0.0) * 1_000_000_000.0).toLong().coerceAtLeast(0L)
-                )
-                com.lifecyclebot.engine.truth.CanonicalPaperTerminalBridge6469.finalizeSell(
-                    positionId = pid6475, mint = ts.mint, symbol = ts.symbol,
-                    generation = generation6475,
-                    sellSig = syntheticSig6475,
-                    soldQtyRaw = soldRaw6448,
-                    preRemainingRaw = preRemainingRaw6475,
-                    preRemainingCostBasisSol = pos.costSol.coerceAtLeast(0.0),
-                    grossProceedsSol = grossPartial6448,
-                    soldCostBasisSol = partialCostBasisSol.coerceAtLeast(0.0),
-                    feesSol = paperPartialFee.coerceAtLeast(0.0),
-                    lane = pos.tradingMode,
-                    exitReason = trade.reason,
-                    terminal = paperDustClosed,
-                )
-            } catch (_: Throwable) {}
             onPaperBalanceChange?.invoke((sellQty * actualPrice) - paperPartialTreasuryShare6041)
             try { ForensicLogger.lifecycle("PARTIAL_SELL_WALLET_CREDITED_6041", "mode=paper mint=${ts.mint.take(10)} symbol=${ts.symbol} gross=${(sellQty * actualPrice).fmtSol()} treasury=${paperPartialTreasuryShare6041.fmtSol()} delta=${((sellQty * actualPrice) - paperPartialTreasuryShare6041).fmtSol()} reason=${trade.reason}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("PARTIAL_SELL_WALLET_CREDITED_6041") } catch (_: Throwable) {}
             try { ForensicLogger.lifecycle("PARTIAL_SELL_ACCOUNTING",
-                "mode=paper mint=${ts.mint.take(10)} symbol=${ts.symbol} soldPct=${(sellFraction*100).fmt(1)} cost=${partialCostBasisSol.fmtSol()} gross=${(sellQty * actualPrice).fmtSol()} pnl=${paperPnlSol.fmtSignedSol()} net=${paperPartialNetPnl.fmtSignedSol()} pct=${pct(partialCostBasisSol, sellQty * actualPrice).fmtPctPrecise()} reason=${trade.reason}") } catch (_: Throwable) {}
+                "mode=paper mint=${ts.mint.take(10)} symbol=${ts.symbol} soldPct=${(sellFraction*100).fmt(1)} cost=${partial6510.soldCostBasis.fmtSol()} gross=${(sellQty * actualPrice).fmtSol()} pnl=${paperPnlSol.fmtSignedSol()} net=${paperPartialNetPnl.fmtSignedSol()} pct=${pct(partial6510.soldCostBasis, sellQty * actualPrice).fmtPctPrecise()} reason=${trade.reason}") } catch (_: Throwable) {}
             onLog("PAPER PARTIAL SELL ${(sellFraction*100).toInt()}% | " +
-                  "cost=${partialCostBasisSol.fmtSol()} gross=${(sellQty * actualPrice).fmtSol()} pnl=${paperPnlSol.fmtSignedSol()} (${pct(partialCostBasisSol, sellQty * actualPrice).fmtPctPrecise()})", ts.mint)
+                  "cost=${partial6510.soldCostBasis.fmtSol()} gross=${(sellQty * actualPrice).fmtSol()} pnl=${paperPnlSol.fmtSignedSol()} (${pct(partial6510.soldCostBasis, sellQty * actualPrice).fmtPctPrecise()})", ts.mint)
             onNotify("💰 $milestoneLabel",
-                 "${ts.symbol}: sold ${(sellFraction*100).toInt()}% | PnL ${pct(partialCostBasisSol, sellQty * actualPrice).fmtPctPrecise()} (${paperPartialNetPnl.fmtSignedSol()} SOL net)",
+                 "${ts.symbol}: sold ${(sellFraction*100).toInt()}% | PnL ${pct(partial6510.soldCostBasis, sellQty * actualPrice).fmtPctPrecise()} (${paperPartialNetPnl.fmtSignedSol()} SOL net)",
                  com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             sounds?.playMilestone(gainPct)
         } else {
@@ -10435,6 +10341,7 @@ class Executor(
         // BUY_QUALIFIED→EXEC_OPEN_REQUEST drops (operator mandate:
         // "audit why BUY_QUALIFIED≈99 produces EXEC_OPEN_REQUEST=2").
         try { PipelineHealthCollector.labelInc("FDG_BUY_TO_AUTH_6504") } catch (_: Throwable) {}
+        val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         // V5.0.6504 §7 — NON-BUY GUARD.
         // Read-only / telemetry / WAIT / OTHER / non-primary lane
         // evaluations must never call OrderSizeResolver / doBuy. Trap
@@ -10447,18 +10354,25 @@ class Executor(
             val signal6504 = ts.signal.uppercase()
             val nonBuySignal = signal6504.isNotBlank() &&
                 signal6504 !in setOf("BUY", "PROBE", "PROBE_ONLY", "EXECUTE")
-            if (nonBuySignal) {
+            val currentVersion6510 = try { LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { tradeId.fdgCandidateVersion }
+            val decision6510 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.consume(
+                ts.mint, currentVersion6510, tradeId.fdgVerdictSnapshot, tradeId.executionLane,
+            )
+            val snapshotExecutable6510 = decision6510?.verdict in setOf("BUY", "PROBE_ONLY") &&
+                normalizeExecutionLane(decision6510?.executionLane).isNotBlank()
+            if (nonBuySignal && snapshotExecutable6510) {
+                try {
+                    PipelineHealthCollector.labelInc("FDG_MUTABLE_SIGNAL_IGNORED_6510")
+                    ForensicLogger.lifecycle("FDG_MUTABLE_SIGNAL_IGNORED_6510", "mint=${ts.mint.take(10)} candidateVersion=${decision6510?.candidateVersion} verdict=${decision6510?.verdict} mutableSignal=$signal6504 action=consume_immutable_snapshot")
+                } catch (_: Throwable) {}
+            } else if (nonBuySignal) {
                 try {
                     PipelineHealthCollector.labelInc("FDG_BUY_TO_AUTH_DROP_NON_BUY_SIGNAL_6504")
-                    ForensicLogger.lifecycle(
-                        "ENTRY_BRIDGE_NON_BUY_GUARD_6504",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} signal=$signal6504 preFdg=$preFdgVerdict6504 action=abort_before_sizing",
-                    )
+                    ForensicLogger.lifecycle("ENTRY_BRIDGE_NON_BUY_GUARD_6504", "mint=${ts.mint.take(10)} symbol=${ts.symbol} signal=$signal6504 preFdg=$preFdgVerdict6504 action=abort_no_executable_snapshot")
                 } catch (_: Throwable) {}
                 return
             }
         } catch (_: Throwable) {}
-        val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         // V5.0.4578 — SOURCE FIX for live INVALID_SCORE floods. Runtime 4575
         // showed 26/30 live BUY failures as INVALID_SCORE even though candidates
         // had already passed intake/lane/FDG. That means a caller sentinel
@@ -18408,6 +18322,14 @@ class Executor(
             val soldValueSol = pos.costSol * pct
             val profitSol = soldValueSol * (pnlPct / 100.0)
             val newSoldPct = pos.partialSoldPct + (pct * 100.0)
+            val partialSellFee = soldValueSol * MEME_TRADING_FEE_PERCENT
+            val manualReason6510 = if (newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct"
+            val pid6510 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
+            val partial6510 = com.lifecyclebot.engine.truth.CanonicalPaperPartialOperation6510.commit(
+                pid6510, ts.mint, ts.symbol, pct, soldValueSol + profitSol, partialSellFee, manualReason6510,
+            )
+            if (!partial6510.applied) return
+            val decimals6510 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid6510)?.tokenDecimals ?: 0
 
             // Update position state to reflect the partial sell so that subsequent
             // exits operate on the correct remaining size, not the full original.
@@ -18419,9 +18341,9 @@ class Executor(
             // internal token map with qtyToken > 0 forever and AntiChoke has
             // to ghost-clear it every cycle.
             val cumulativeSoldPct = newSoldPct
-            val residualQty = pos.qtyToken * (1.0 - pct)
-            val residualSol = pos.costSol * (1.0 - pct)
-            val fullyExited = cumulativeSoldPct >= 99.0 || residualQty <= 1e-9 || residualSol <= 0.000_001
+            val residualQty = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.decode(partial6510.postQty, decimals6510)
+            val residualSol = partial6510.postCost
+            val fullyExited = partial6510.postQty <= java.math.BigInteger.ZERO || residualSol <= 0.000_001
             if (fullyExited) {
                 ts.position = Position()
                 ts.lastExitTs = System.currentTimeMillis()
@@ -18443,8 +18365,7 @@ class Executor(
 
             // Record the partial sell as a proper Trade entry in the journal
             // V5.0.3683 — ACCOUNTING LEDGER FIX — populate feeSol/netPnlSol.
-            val partialSellFee = soldValueSol * MEME_TRADING_FEE_PERCENT
-            val partialSellNetPnl = profitSol - partialSellFee
+            val partialSellNetPnl = partial6510.realizedPnl
             // V5.0.6458 §P0 EXIT STATE MACHINE — determine trade side from
             // POST-remaining semantic, NOT from the requested percentage.
             // A partial-sell request that fully drains the position must
@@ -18467,6 +18388,13 @@ class Executor(
                 tradingMode      = pos.tradingMode,
                 tradingModeEmoji = pos.tradingModeEmoji,
                 mint             = ts.mint,
+                positionId = partial6510.positionId, operationId = partial6510.operationId,
+                partialSequence = partial6510.partialSequence,
+                preQtyToken = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.decode(partial6510.preQty, decimals6510),
+                soldQtyToken = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.decode(partial6510.soldQty, decimals6510),
+                postQtyToken = residualQty, preCostSol = partial6510.preCost,
+                soldCostBasisSol = partial6510.soldCostBasis, postCostSol = partial6510.postCost,
+                grossProceedsSol = partial6510.grossProceeds,
             )
             recordTrade(ts, trade)
             try { ForensicLogger.lifecycle("PAPER_PARTIAL_CLOSE_DONE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} soldValue=$soldValueSol remaining=${if (fullyExited) 0.0 else residualQty} fullyExited=$fullyExited") } catch (_: Throwable) {}
@@ -18489,38 +18417,6 @@ class Executor(
                     0.0
                 }
             } else 0.0
-            try {
-                val grossManualPartial6448 = ((soldValueSol + profitSol) - partialTreasuryShare).coerceAtLeast(0.0)
-                // V5.0.6449 §3 — clamp qty against canonical remaining
-                val soldQtyManual6449 = try {
-                    val requested = (pos.qtyToken * pct).coerceAtLeast(0.0)
-                    com.lifecyclebot.engine.truth.CanonicalIntegrityGuards6449.clampToRemaining(ts.mint, requested, 9)
-                        .takeIf { it > 0.0 } ?: requested
-                } catch (_: Throwable) { (pos.qtyToken * pct).coerceAtLeast(0.0) }
-                val soldQtyManual6448 = java.math.BigInteger.valueOf((soldQtyManual6449 * 1_000_000_000.0).toLong().coerceAtLeast(0L))
-                // V5.0.6475 — manual PAPER PARTIAL uses the same claim-first
-                // reducer as full SELL. Direct mirror+ledger+fanout sibling path removed.
-                val pid6475 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
-                val generation6475 = System.currentTimeMillis()
-                val syntheticSig6475 = "paper_manual_partial_${pid6475}_${trade.reason}_${generation6475}_${soldQtyManual6448}"
-                val preRemainingRaw6475 = java.math.BigInteger.valueOf(
-                    (pos.qtyToken.coerceAtLeast(0.0) * 1_000_000_000.0).toLong().coerceAtLeast(0L)
-                )
-                com.lifecyclebot.engine.truth.CanonicalPaperTerminalBridge6469.finalizeSell(
-                    positionId = pid6475, mint = ts.mint, symbol = ts.symbol,
-                    generation = generation6475,
-                    sellSig = syntheticSig6475,
-                    soldQtyRaw = soldQtyManual6448,
-                    preRemainingRaw = preRemainingRaw6475,
-                    preRemainingCostBasisSol = pos.costSol.coerceAtLeast(0.0),
-                    grossProceedsSol = grossManualPartial6448,
-                    soldCostBasisSol = soldValueSol.coerceAtLeast(0.0),
-                    feesSol = partialSellFee.coerceAtLeast(0.0),
-                    lane = pos.tradingMode,
-                    exitReason = trade.reason,
-                    terminal = fullyExited,
-                )
-            } catch (_: Throwable) {}
             onPaperBalanceChange?.invoke((soldValueSol + profitSol) - partialTreasuryShare)
 
             try { ForensicLogger.lifecycle("PARTIAL_SELL_ACCOUNTING",
@@ -19344,44 +19240,20 @@ class Executor(
     }
 
     private fun clampPaperTradeSol(requested: Double, mint: String = "", symbol: String = "", source: String = "paper", maxOverrideSol: Double? = null): Double {
-        val minSol = minConfiguredPaperTradeSol()
-        val configuredMax = maxOverrideSol?.takeIf { it.isFinite() && it > 0.0 } ?: maxConfiguredPaperTradeSol()
-        val maxSol = configuredMax.coerceAtLeast(minSol)
         if (!requested.isFinite() || requested <= 0.0) return 0.0
-        // V5.0.6471 §P0 (items 6-9) — SAFETY CLAMP MAY REDUCE ONLY.
-        //
-        // 6470 evidence: cashCap=0.002278, resolver final=0.002278, exec=true,
-        // paperBuy.pre_mutation → 0.050000. The old coerceIn(min, max) INFLATED
-        // any final below the configured min up to `minSol` — a downstream
-        // *increase* of a cash-capped size which the mandate explicitly bans.
-        //
-        // New semantics:
-        //   requested > maxSol  → clamp DOWN to maxSol
-        //   requested < minSol  → SKIP (return 0.0). Callers must interpret 0.0
-        //                         as INSUFFICIENT_CASH_FOR_MIN_ORDER and skip
-        //                         the trade instead of forcing a floor buy.
-        if (requested > maxSol) {
-            val downClamped = maxSol
-            try {
-                ForensicLogger.lifecycle(
-                    "PAPER_BUY_SIZE_CLAMPED_DOWN_6471",
-                    "mint=${mint.take(10)} symbol=$symbol source=$source requested=${requested.fmt(6)} clamped=${downClamped.fmt(6)} max=${maxSol.fmt(6)}"
-                )
-                PipelineHealthCollector.labelInc("PAPER_BUY_SIZE_CLAMPED_DOWN_6471")
-            } catch (_: Throwable) {}
-            return downClamped
-        }
-        if (requested < minSol) {
-            try {
-                ForensicLogger.lifecycle(
-                    "PAPER_BUY_SKIPPED_INSUFFICIENT_MIN_6471",
-                    "mint=${mint.take(10)} symbol=$symbol source=$source requested=${requested.fmt(6)} min=${minSol.fmt(6)} action=SKIP_NEVER_INFLATE"
-                )
-                PipelineHealthCollector.labelInc("PAPER_BUY_SKIPPED_INSUFFICIENT_MIN_6471")
-            } catch (_: Throwable) {}
-            return 0.0
-        }
-        return requested
+        val minSol = minConfiguredPaperTradeSol()
+        val laneCap = (maxOverrideSol?.takeIf { it.isFinite() && it > 0.0 } ?: maxConfiguredPaperTradeSol()).coerceAtLeast(0.0)
+        val lane6510 = TradeIdentityManager.get(mint)?.executionLane?.takeIf { it.isNotBlank() } ?: source
+        val cash6510 = try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol() } catch (_: Throwable) { 0.0 }
+        val resolved6510 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.resolve(
+            requestedSol = requested, laneName = lane6510, walletSol = cash6510, paperMode = true,
+            laneRiskCapSol = laneCap, laneMinExecutableSol = minSol,
+        )
+        try {
+            ForensicLogger.lifecycle("PAPER_SIZE_CANONICAL_RESOLVER_6510", "mint=${mint.take(10)} symbol=$symbol source=$source ${resolved6510.trace()}")
+            PipelineHealthCollector.labelInc("PAPER_SIZE_CANONICAL_RESOLVER_6510")
+        } catch (_: Throwable) {}
+        return resolved6510.finalSizeSol
     }
 
 

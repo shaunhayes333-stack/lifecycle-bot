@@ -31,6 +31,7 @@ object PaperEquityCalculator6467 {
         val snap = Snapshot(cash, mv, equity, baselineSol, delta)
         lastSnap.set(snap)
         if (kotlin.math.abs(delta) > 0.02) {
+            RootCauseIncidentLifecycle6510.open("PAPER_EQUITY_CONSERVATION_VIOLATION_6467", "delta=$delta")
             violations.incrementAndGet()
             try {
                 ForensicLogger.lifecycle("PAPER_EQUITY_CONSERVATION_VIOLATION_6467",
@@ -38,6 +39,8 @@ object PaperEquityCalculator6467 {
                     "baseline=${"%.4f".format(baselineSol)} realized=${"%.4f".format(realized)} delta=${"%.4f".format(delta)}")
                 PipelineHealthCollector.labelInc("PAPER_EQUITY_CONSERVATION_VIOLATION_6467")
             } catch (_: Throwable) {}
+        } else {
+            RootCauseIncidentLifecycle6510.resolve("PAPER_EQUITY_CONSERVATION_VIOLATION_6467", "conservation_delta_within_tolerance:$delta")
         }
         return snap
     }

@@ -2284,8 +2284,8 @@ class GoldenTapeRegressionTest {
         assertTrue("JournalActivity count must include BUY, SELL, and partial lifecycle rows", journalActivity.contains("tvJournalCount.text = entries.size.toString()") && journalActivity.contains("val sellEntries = entries.filter") && journalActivity.contains("stats only; visible list is full lifecycle"))
         assertFalse("partials must not be demoted to terminal-only stats", journal.contains("terminalSells") || journalActivity.contains("isTerminalSell"))
 
-        assertTrue("capital recovery partial must store realized leg pct, not full-position gainPct", executor.contains("val paperCRLegPct = pct(paperCRCostBasis, sellSol)") && executor.contains("pnlSol, paperCRLegPct"))
-        assertTrue("profit lock partial must store realized leg pct, not full-position gainPct", executor.contains("val paperPLLegPct = pct(paperPLCostBasis, sellSol)") && executor.contains("pnlSol, paperPLLegPct"))
+        assertTrue("capital recovery partial must store realized leg pct, not full-position gainPct", executor.contains("val paperLegPct = pct(paperCostBasis, sellSol)") && executor.contains("pnlSol, paperLegPct"))
+        assertTrue("profit lock partial must share the same canonical leg-accounting path", executor.contains("executeProfitLockSellPaperOrLive") && executor.contains("CanonicalPaperPartialOperation6510.commit"))
         assertFalse("capital/profit-lock canonical row must not store raw gainPct as partial pnlPct", executor.contains("""pnlSol, gainPct,
                     feeSol = paperCRFee""") || executor.contains("""pnlSol, gainPct,
                     feeSol = paperPLFee"""))
@@ -2988,7 +2988,7 @@ class GoldenTapeRegressionTest {
         // per operator directive: learning-shrunk sizes (e.g. 0.021 SOL) were being
         // clamped UP to 0.1176 which nullified the LiveProbabilityEngine shape signal.
         assertTrue("paper buy min must have a live-transfer floor for all entries", exec.contains("live-transfer floor") && exec.contains("paperSimulatedBalance * 0.001"))
-        assertTrue("paper buy clamp telemetry must exist", exec.contains("PAPER_BUY_SIZE_CLAMPED"))
+        assertTrue("paper buy sizing helper must delegate to the sole canonical resolver", exec.contains("PAPER_SIZE_CANONICAL_RESOLVER_6510") && exec.contains("OrderSizeResolver6441.resolve("))
 
         // V5.0.6366 — F4 raised the paper learning-eligibility ceiling from
         // paperSimulatedBalance * 0.10 (clamped to 2.0) to paperSimulatedBalance * 0.25
@@ -7565,10 +7565,8 @@ class GoldenTapeRegressionTest {
         val buyDebit = exec.indexOf("PaperAccountLedger6430.onBuy(actualSol")
         val firstBuyGate = exec.indexOf("PAPER_BUY_BLOCKED_PRESALE_SNIPE_6373F")
         assertTrue("V5.0.6475: paper BUY cash debit must be after entry gates", fillMarker >= 0 && buyDebit > fillMarker && firstBuyGate < buyDebit)
-        val firstFinalize = exec.indexOf("CanonicalPaperTerminalBridge6469.finalizeSell(")
-        val secondFinalize = exec.indexOf("CanonicalPaperTerminalBridge6469.finalizeSell(", firstFinalize + 1)
-        val thirdFinalize = exec.indexOf("CanonicalPaperTerminalBridge6469.finalizeSell(", secondFinalize + 1)
-        assertTrue("V5.0.6475: autonomous and manual paper partials must route through finalizeSell", firstFinalize >= 0 && secondFinalize > firstFinalize && thirdFinalize > secondFinalize && exec.contains("paper_partial_") && exec.contains("paper_manual_partial_"))
+        val partial6510 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperPartialOperation6510.kt").readText()
+        assertTrue("V5.0.6475/6510: autonomous and manual paper partials must route through one claim-first canonical operation", exec.contains("CanonicalPaperPartialOperation6510.commit") && partial6510.contains("CanonicalPaperTerminalBridge6469.finalizeSell") && !exec.contains("paper_manual_partial_") && !exec.contains("paper_partial_${"$"}pid"))
         assertTrue("V5.0.6475: close authorities must release canonical occupancy", java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionCloseLedger.kt").readText().contains("CanonicalMintOccupancyRegistry6464.markClosed") && java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").readText().contains("CanonicalMintOccupancyRegistry6464.markClosed"))
     }
 
@@ -8207,6 +8205,28 @@ class GoldenTapeRegressionTest {
         assertTrue(executor.contains("canonicalClosedNoActive") && executor.contains("return SellResult.ALREADY_CLOSED"))
         assertTrue(gate.contains("canonicalExecutableIntent6509") && gate.contains("EXEC_RAW_SIGNAL_DIAGNOSTIC_IGNORED_6509"))
         assertEquals("6509 must retain one diagnostic raw-signal blocker only", 1, Regex("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY").findAll(gate).count())
+    }
+
+
+    @Test
+    fun V5_0_6510_lane_decision_mark_partial_and_incident_authorities_are_source_rooted() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val identity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeIdentity.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val decision = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionDecisionSnapshot6510.kt").readText()
+        val mark = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MarkAuthorityIntegrityGate6496.kt").readText()
+        val partial = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperPartialOperation6510.kt").readText()
+        val incident = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/RootCauseIncidentLifecycle6510.kt").readText()
+        val freshness = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/RootCauseFreshnessAuthority6496.kt").readText()
+
+        assertTrue(identity.contains("var executionLane: String") && identity.contains("var fdgCandidateVersion: Long"))
+        assertFalse("discovery provenance must never resolve execution lane", exec.contains("normalizeExecutionLane(identity?.source)") || exec.contains("normalizeExecutionLane(ts.source)"))
+        assertTrue(exec.contains("EXEC_LANE_IDENTITY_INVARIANT_FAILED") && exec.contains("FDG_MUTABLE_SIGNAL_IGNORED_6510"))
+        assertTrue(gate.contains("ExecutionDecisionSnapshot6510.record") && decision.contains("EXEC_DECISION_VERSION_REVALIDATED_6510"))
+        assertTrue(mark.contains("val priceAuthoritative") && mark.contains("val routeExecutable"))
+        assertTrue(partial.contains("""val operationId = """") && partial.contains("positionId") && partial.contains("sequence") && partial.contains("CanonicalPaperTerminalBridge6469.finalizeSell"))
+        assertFalse("paper partial operation IDs must not contain wallclock generations", partial.contains("System.currentTimeMillis()}_"))
+        assertTrue(incident.contains("enum class State { OPEN, RESOLVED }") && freshness.contains("elapsed time never reactivates lifetime history"))
     }
 
 }

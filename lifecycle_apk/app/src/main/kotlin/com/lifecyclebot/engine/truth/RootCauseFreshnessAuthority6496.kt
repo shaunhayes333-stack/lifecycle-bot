@@ -66,8 +66,7 @@ object RootCauseFreshnessAuthority6496 {
         lastSampled[label] = Sample(current, nowMs)
         return when {
             prev == null -> current // fail-open on first sighting
-            (nowMs - prev.atMs) > FRESHNESS_WINDOW_MS -> current // stale window — treat as fresh
-            else -> (current - prev.count).coerceAtLeast(0L)
+            else -> (current - prev.count).coerceAtLeast(0L) // elapsed time never reactivates lifetime history
         }
     }
 

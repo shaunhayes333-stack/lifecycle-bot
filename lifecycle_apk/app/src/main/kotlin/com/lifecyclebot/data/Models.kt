@@ -238,6 +238,15 @@ data class Trade(
     val remainingQtyToken: Double = 0.0,
     val entryPriceSource: String = "",
     val entryPoolAddress: String = "",
+    // V5.0.6510 canonical paper-partial receipt fields.
+    val operationId: String = "",
+    val partialSequence: Long = 0L,
+    val preQtyToken: Double = 0.0,
+    val postQtyToken: Double = 0.0,
+    val preCostSol: Double = 0.0,
+    val soldCostBasisSol: Double = 0.0,
+    val postCostSol: Double = 0.0,
+    val grossProceedsSol: Double = 0.0,
 )
 
 data class StrategyMeta(

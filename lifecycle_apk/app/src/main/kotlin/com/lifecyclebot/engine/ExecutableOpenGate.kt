@@ -622,6 +622,17 @@ object ExecutableOpenGate {
             // signal label — treat as executable PROBE_ONLY rather than WATCH-dropping it.
             else -> "PROBE_ONLY"
         }
+        try {
+            val identity6510 = TradeIdentityManager.getOrCreate(mint, symbol)
+            if (canExecute && finalHardNo.isEmpty() && finalVerdict in setOf("BUY", "PROBE_ONLY")) {
+                identity6510.executionLane = lane.uppercase()
+                identity6510.fdgCandidateVersion = candidateVersion
+                identity6510.fdgVerdictSnapshot = finalVerdict
+                com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.record(
+                    com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot(mint, candidateVersion, finalVerdict, lane.uppercase(), entryScore.toDouble(), System.currentTimeMillis())
+                )
+            }
+        } catch (_: Throwable) {}
         put(mint) { old ->
             // V5.9.1545 — VERDICT PRECEDENCE (multi-lane last-write-wins clobber fix).
             // A single candidate (e.g. KNECKS) is evaluated across many lanes in one

@@ -97,7 +97,9 @@ object RootCauseClassifier6471 {
             } catch (_: Throwable) {
                 try { PipelineHealthCollector.labelCountSnapshot(label) } catch (_: Throwable) { 0L }
             }
-            if (count > 0L) {
+            val lifecycleManaged6510 = label in setOf("PAPER_EQUITY_CONSERVATION_VIOLATION_6467", "EVENT_STREAM_REPLAY_DIVERGED_6467")
+            val active6510 = if (lifecycleManaged6510) RootCauseIncidentLifecycle6510.isOpen(label) else count > 0L
+            if (active6510) {
                 val c = Classification(tier = tier, label = label, supportingCount = count)
                 lastResult.set(c)
                 try {

@@ -184,6 +184,10 @@ data class TradeIdentity(
     var fdgConfidence: Double = 0.0,
     var fdgApprovalClass: String = "",  // "LIVE", "PAPER_BENCHMARK", "PAPER_EXPLORATION", "BLOCKED"
     var approvedSizeSol: Double = 0.0,
+    // V5.0.6510 — immutable/versioned pre-execution authority; source is provenance only.
+    var executionLane: String = "",
+    var fdgCandidateVersion: Long = 0L,
+    var fdgVerdictSnapshot: String = "",
     var blockReason: String = "",
     var blockLevel: String = "",
     

@@ -52,6 +52,36 @@ object MarkAuthorityIntegrityGate6496 {
      * When [price] is 0/NaN or [source]/[poolAddress] is blank the
      * gate blocks (missing provenance is never AUTHORITATIVE).
      */
+    data class AuthorityResult(val priceAuthoritative: Boolean, val routeExecutable: Boolean, val provenance: MarketDataProvenance6471.Provenance)
+
+    fun evaluate(
+        mint: String,
+        priceUsd: Double,
+        mcapUsd: Double,
+        liquidityUsd: Double,
+        source: String,
+        poolAddress: String,
+        fresh: Boolean = true,
+    ): AuthorityResult {
+        evaluated.incrementAndGet()
+        val provenance = try { MarketDataProvenance6471.classify(priceUsd, mcapUsd, liquidityUsd, source, poolAddress) }
+            catch (_: Throwable) { MarketDataProvenance6471.Provenance.NON_AUTHORITATIVE_MISSING }
+        val sourceUpper = source.trim().uppercase()
+        val realPriceSource = sourceUpper in setOf("DEXSCREENER_PAIR_POLL", "DEXSCREENER", "BIRDEYE", "JUPITER", "PUMPFUN_BONDING_CURVE", "PUMP_FUN_BC_SYNTHETIC", "PUMP_FUN_FRONTEND_API")
+        val numericPriceValid = fresh && priceUsd.isFinite() && priceUsd > 0.0 && liquidityUsd.isFinite() && liquidityUsd > 0.0
+        val knownTemplate = kotlin.math.abs(priceUsd - 0.050250000) < 1e-6 && kotlin.math.abs(mcapUsd - 50_000_000.0) < 1.0 && kotlin.math.abs(liquidityUsd - 5_000_000.0) < 1.0
+        val priceAuthoritative = numericPriceValid && realPriceSource && !knownTemplate
+        val routeExecutable = provenance == MarketDataProvenance6471.Provenance.AUTHORITATIVE
+        if (priceAuthoritative) authoritativePasses.incrementAndGet() else {
+            nonAuthoritativeBlocks.incrementAndGet()
+            try {
+                ForensicLogger.lifecycle("MARK_AUTHORITY_GATE_BLOCKED_6496", "mint=${mint.take(10)} provenance=${provenance.name} src=$source pool=${poolAddress.take(24)} priceUsd=${"%.6f".format(priceUsd)} mcap=$mcapUsd liq=$liquidityUsd reason=price_authority")
+                PipelineHealthCollector.labelInc("MARK_AUTHORITY_GATE_BLOCKED_6496")
+            } catch (_: Throwable) {}
+        }
+        return AuthorityResult(priceAuthoritative, routeExecutable, provenance)
+    }
+
     fun isAuthoritative(
         mint: String,
         priceUsd: Double,
@@ -60,34 +90,7 @@ object MarkAuthorityIntegrityGate6496 {
         source: String,
         poolAddress: String,
     ): Boolean {
-        evaluated.incrementAndGet()
-        val provenance = try {
-            MarketDataProvenance6471.classify(
-                price = priceUsd,
-                mcap = mcapUsd,
-                liquidity = liquidityUsd,
-                source = source,
-                poolAddress = poolAddress,
-            )
-        } catch (_: Throwable) {
-            MarketDataProvenance6471.Provenance.NON_AUTHORITATIVE_MISSING
-        }
-        val ok = provenance == MarketDataProvenance6471.Provenance.AUTHORITATIVE
-        if (ok) {
-            authoritativePasses.incrementAndGet()
-        } else {
-            nonAuthoritativeBlocks.incrementAndGet()
-            try {
-                ForensicLogger.lifecycle(
-                    "MARK_AUTHORITY_GATE_BLOCKED_6496",
-                    "mint=${mint.take(10)} provenance=${provenance.name} " +
-                        "src=$source pool=${poolAddress.take(24)} " +
-                        "priceUsd=${"%.6f".format(priceUsd)} mcap=$mcapUsd liq=$liquidityUsd",
-                )
-                PipelineHealthCollector.labelInc("MARK_AUTHORITY_GATE_BLOCKED_6496")
-            } catch (_: Throwable) {}
-        }
-        return ok
+        return evaluate(mint, priceUsd, mcapUsd, liquidityUsd, source, poolAddress, fresh = true).priceAuthoritative
     }
 
     fun statusLine(): String =

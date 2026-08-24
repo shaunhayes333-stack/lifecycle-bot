@@ -64,6 +64,7 @@ object EventStreamReplay6467 {
                        kotlin.math.abs(openD) > toleranceSol
         try {
             if (diverged) {
+                RootCauseIncidentLifecycle6510.open("EVENT_STREAM_REPLAY_DIVERGED_6467", "cash=$cashD realized=$realD open=$openD")
                 divergences.incrementAndGet()
                 ForensicLogger.lifecycle("EVENT_STREAM_REPLAY_DIVERGED_6467",
                     "cashΔ=${"%.4f".format(cashD)} realizedΔ=${"%.4f".format(realD)} openΔ=${"%.4f".format(openD)} " +
@@ -79,6 +80,7 @@ object EventStreamReplay6467 {
                     )
                 } catch (_: Throwable) {}
             } else {
+                RootCauseIncidentLifecycle6510.resolve("EVENT_STREAM_REPLAY_DIVERGED_6467", "replay_converged")
                 PipelineHealthCollector.labelInc("EVENT_STREAM_REPLAY_CONVERGED_6467")
             }
         } catch (_: Throwable) {}
