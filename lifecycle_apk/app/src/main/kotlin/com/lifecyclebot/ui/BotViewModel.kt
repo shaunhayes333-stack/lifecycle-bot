@@ -265,7 +265,18 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
             putExtra(BotService.EXTRA_USER_REQUESTED, true)
         }
         _ui.value = _ui.value.copy(runtime = BotRuntimeController.snapshot(), running = BotRuntimeController.snapshot().runtimeActive)
-        ctx.startForegroundService(intent)
+        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UI_START_DISPATCHED_6517", "foreground=true userRequested=true") } catch (_: Throwable) {}
+        try {
+            ctx.startForegroundService(intent)
+        } catch (first: Throwable) {
+            try {
+                ctx.startService(intent)
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UI_START_FALLBACK_DISPATCHED_6517", "type=${first.javaClass.simpleName}") } catch (_: Throwable) {}
+            } catch (second: Throwable) {
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UI_START_DISPATCH_FAILED_6517", "first=${first.javaClass.simpleName} second=${second.javaClass.simpleName} msg=${second.message.orEmpty().take(80)}") } catch (_: Throwable) {}
+                com.lifecyclebot.engine.ErrorLogger.error("BotViewModel", "Start dispatch failed: ${second.message}", second)
+            }
+        }
     }
 
     fun stopBot(source: String = "ui_stop_button", uiStopConfirmed: Boolean = false) {

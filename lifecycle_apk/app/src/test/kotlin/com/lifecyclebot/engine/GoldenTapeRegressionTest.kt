@@ -8370,7 +8370,7 @@ class GoldenTapeRegressionTest {
         assertTrue("complete service bootstrap must wait behind canonical replay", serviceLaunch > eventLoad)
         assertTrue("every startBot path must hit the complete service-ready gate first", gate > start && gate < bot.indexOf("isShuttingDown = false", start))
         assertTrue(bot.contains("canonicalBootstrapJob" + "6515?.join()"))
-        assertTrue(bot.contains("serviceBootstrapJob" + "6516?.join()"))
+        assertTrue(bot.contains("val bootstrap = serviceBootstrapJob" + "6516"))
         assertTrue(bot.contains("START_DEFERRED_SERVICE_BOOTSTRAP_" + "6516"))
         assertTrue(bot.contains("START_BLOCKED_SERVICE_BOOTSTRAP_FAILED_" + "6516"))
     }
@@ -8413,7 +8413,37 @@ class GoldenTapeRegressionTest {
         assertTrue(smoke.contains("pidof com.lifecyclebot.aate"))
         assertTrue(smoke.contains("ANR in com.lifecyclebot.aate"))
         assertTrue(smoke.contains("Process: com.lifecyclebot.aate"))
-        assertTrue(smoke.contains("FN_LOOP") && smoke.contains("Persisted-state Start PASS"))
+        assertTrue(smoke.contains("FN_LOOP") && smoke.contains("Persisted UI Start/Stop PASS"))
+    }
+
+
+    @Test
+    fun V5_0_6517_start_stop_is_immediate_visible_durable_and_cancellable() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        val vm = java.io.File("src/main/kotlin/com/lifecyclebot/ui/BotViewModel.kt").readText()
+        val view = main.indexOf("btnToggle       = findViewById(R.id.btnToggle)")
+        val immediateBind = main.indexOf("bindRuntimeToggleListener" + "6517()", view)
+        val renderer = main.indexOf("private fun renderRuntimeBar(")
+        assertTrue(view > 0 && immediateBind > view && immediateBind < renderer)
+        assertFalse(main.contains("btnToggle.isEnabled = false"))
+        assertTrue(main.contains("UI_RUNTIME_TOGGLE_TAP_" + "6517"))
+        assertTrue(main.contains("Cancel Start") && main.contains("START FAILED ·"))
+        assertTrue(bot.contains("serviceStartRequested" + "6517.set(true)"))
+        assertTrue(bot.contains("START_REQUEST_RETAINED_DURING_BOOTSTRAP_" + "6517"))
+        assertTrue(bot.contains("SERVICE_BOOTSTRAP_JOB_MISSING_" + "6517"))
+        assertFalse(bot.contains("while (!serviceBootstrapReady" + "6516)"))
+        assertTrue(bot.contains("DEFERRED_START_CANCELLED_BY_STOP_" + "6517"))
+        assertTrue(vm.contains("UI_START_DISPATCHED_" + "6517"))
+        assertTrue(vm.contains("UI_START_FALLBACK_DISPATCHED_" + "6517"))
+        val smoke = java.io.File("../../ci/runtime-test.sh").readText()
+        val receiver = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmokeTestReceiver.kt").readText()
+        assertTrue(receiver.contains("start_service") && receiver.contains("SMOKE_UI_SETUP_ONLY_" + "6517"))
+        assertTrue(smoke.contains("--ez start_service false"))
+        assertTrue(smoke.contains("ui_tap id btnToggle ui_start_1.xml"))
+        assertTrue(smoke.contains("ui_tap text " + "\"Stop bot\""))
+        assertTrue(smoke.contains("ui_tap id btnToggle ui_start_2.xml"))
+        assertTrue(smoke.contains("FN_UI_TAP") && smoke.contains("FN_UI_START") && smoke.contains("FN_UI_STOP"))
     }
 
 }

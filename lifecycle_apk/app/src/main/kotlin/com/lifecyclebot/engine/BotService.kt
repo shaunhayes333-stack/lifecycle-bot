@@ -512,6 +512,17 @@ class BotService : Service() {
 
         fun isBackgroundRuntimeHealthy6487(): Boolean = backgroundRuntimeHealth6487().healthy
 
+        // V5.0.6517 — UI-visible command truth. A queued Start is not a running
+        // runtime, but it must never be invisible: MainActivity renders it as
+        // "Cancel Start" and can revoke it through the normal confirmed Stop path.
+        fun isStartPending6517(): Boolean = try {
+            instance?.serviceStartRequested6517?.get() == true && !isRuntimeActive()
+        } catch (_: Throwable) { false }
+
+        fun startFailure6517(): String = try {
+            instance?.serviceBootstrapFailure6517.orEmpty()
+        } catch (_: Throwable) { "" }
+
         fun isRuntimeActive(): Boolean {
             return try {
                 val svcLoopActive = try { instance?.loopJob?.isActive == true } catch (_: Throwable) { false }
@@ -590,7 +601,12 @@ class BotService : Service() {
     @Volatile private var serviceBootstrapReady6516 = false
     @Volatile private var serviceBootstrapSucceeded6516 = false
     @Volatile private var serviceBootstrapJob6516: kotlinx.coroutines.Job? = null
+    // `serviceStartQueued6516` owns the single waiter coroutine only.
+    // `serviceStartRequested6517` separately owns operator intent so repeated
+    // taps are durable and Stop can cancel a deferred start without races.
     private val serviceStartQueued6516 = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val serviceStartRequested6517 = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var serviceBootstrapFailure6517: String = ""
 
     // V5.9.1495 — async safety-refresh trigger. Must fire BEFORE FDG's
     // LiveBuyAdmissionGate.SAFETY_STALE_MS (120s) cutoff so the regenerated
@@ -2591,12 +2607,14 @@ class BotService : Service() {
 
 
                     serviceBootstrapSucceeded6516 = true
+                    serviceBootstrapFailure6517 = ""
                     try {
                         ForensicLogger.lifecycle("SERVICE_BOOTSTRAP_READY_6516", "durMs=${android.os.SystemClock.elapsedRealtime() - serviceStarted6516} thread=${Thread.currentThread().name}")
                         PipelineHealthCollector.labelInc("SERVICE_BOOTSTRAP_READY_6516")
                     } catch (_: Throwable) {}
                 } catch (t: Throwable) {
                     serviceBootstrapSucceeded6516 = false
+                    serviceBootstrapFailure6517 = "${t.javaClass.simpleName}: ${t.message.orEmpty().take(120)}"
                     ErrorLogger.crash("BotService", "SERVICE_BOOTSTRAP_FAILED_6516: ${t.javaClass.simpleName}: ${t.message}", t)
                     try {
                         ForensicLogger.lifecycle("SERVICE_BOOTSTRAP_FAILED_6516", "type=${t.javaClass.simpleName} msg=${t.message?.take(120)} durMs=${android.os.SystemClock.elapsedRealtime() - serviceStarted6516}")
@@ -2838,6 +2856,8 @@ class BotService : Service() {
                     return START_STICKY
                 }
                 try { ForensicLogger.lifecycle("LIFECYCLE_STOP_ACCEPTED", "source=$stopSource manual=$isConfirmedManualStop") } catch (_: Throwable) {}
+                serviceStartRequested6517.set(false)
+                try { ForensicLogger.lifecycle("DEFERRED_START_CANCELLED_BY_STOP_6517", "source=$stopSource") } catch (_: Throwable) {}
                 // V5.9.1078 — STOP LOOP != LIQUIDATE POSITIONS.
                 // Only a confirmed operator stop should arm the manual-stop latch
                 // and disarm resurrection. Internal/config/lifecycle stops are soft
@@ -4193,35 +4213,66 @@ class BotService : Service() {
         }
     }
 
-    /** V5.0.6516 — queue exactly one start behind complete persisted-state initialization. */
+    /** V5.0.6517 — durable, visible and cancellable Start behind full bootstrap. */
     private fun deferStartUntilServiceReady6516(): Boolean {
+        serviceStartRequested6517.set(true)
         if (serviceBootstrapReady6516) {
             if (!serviceBootstrapSucceeded6516) {
+                serviceStartRequested6517.set(false)
                 try {
-                    ForensicLogger.lifecycle("START_BLOCKED_SERVICE_BOOTSTRAP_FAILED_6516", "action=keep_runtime_stopped")
+                    ForensicLogger.lifecycle("START_BLOCKED_SERVICE_BOOTSTRAP_FAILED_6516", "failure=${serviceBootstrapFailure6517.take(120)} action=surface_failure")
                     PipelineHealthCollector.labelInc("START_BLOCKED_SERVICE_BOOTSTRAP_FAILED_6516")
                 } catch (_: Throwable) {}
                 return true
             }
+            serviceStartRequested6517.set(false)
             return false
         }
         if (serviceStartQueued6516.compareAndSet(false, true)) {
             try {
-                ForensicLogger.lifecycle("START_DEFERRED_SERVICE_BOOTSTRAP_6516", "action=await_complete_io_init")
+                ForensicLogger.lifecycle("START_DEFERRED_SERVICE_BOOTSTRAP_6516", "action=await_complete_io_init visible=true cancellable=true")
                 PipelineHealthCollector.labelInc("START_DEFERRED_SERVICE_BOOTSTRAP_6516")
             } catch (_: Throwable) {}
-            scope.launch(kotlinx.coroutines.CoroutineName("service-start-barrier-6516")) {
+            scope.launch(kotlinx.coroutines.CoroutineName("service-start-barrier-6517")) {
+                val bootstrap = serviceBootstrapJob6516
+                if (bootstrap == null) {
+                    serviceBootstrapFailure6517 = "bootstrap job missing"
+                    serviceBootstrapSucceeded6516 = false
+                    serviceBootstrapReady6516 = true
+                    serviceStartQueued6516.set(false)
+                    serviceStartRequested6517.set(false)
+                    try {
+                        ForensicLogger.lifecycle("SERVICE_BOOTSTRAP_JOB_MISSING_6517", "action=fail_visible_no_infinite_wait")
+                        PipelineHealthCollector.labelInc("SERVICE_BOOTSTRAP_JOB_MISSING_6517")
+                    } catch (_: Throwable) {}
+                    return@launch
+                }
                 try {
-                    serviceBootstrapJob6516?.join()
-                    while (!serviceBootstrapReady6516) kotlinx.coroutines.delay(25L)
+                    bootstrap.join()
                 } finally {
                     serviceStartQueued6516.set(false)
                 }
-                if (serviceBootstrapSucceeded6516 && !stopInProgress &&
-                    !isManualStopRequested(applicationContext) && loopJob?.isActive != true) {
-                    startBot()
+                val requested = serviceStartRequested6517.getAndSet(false)
+                if (requested && serviceBootstrapReady6516 && serviceBootstrapSucceeded6516 &&
+                    !stopInProgress && !isManualStopRequested(applicationContext) && loopJob?.isActive != true) {
+                    try { ForensicLogger.lifecycle("START_RESUMED_AFTER_SERVICE_BOOTSTRAP_6517", "operatorIntent=true") } catch (_: Throwable) {}
+                    startInProgress = true
+                    try {
+                        startBot()
+                    } finally {
+                        startInProgress = false
+                    }
+                } else {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "START_NOT_RESUMED_AFTER_SERVICE_BOOTSTRAP_6517",
+                            "requested=$requested ready=$serviceBootstrapReady6516 success=$serviceBootstrapSucceeded6516 stop=$stopInProgress manual=${isManualStopRequested(applicationContext)}",
+                        )
+                    } catch (_: Throwable) {}
                 }
             }
+        } else {
+            try { ForensicLogger.lifecycle("START_REQUEST_RETAINED_DURING_BOOTSTRAP_6517", "operatorIntent=true waiterAlreadyActive=true") } catch (_: Throwable) {}
         }
         return true
     }

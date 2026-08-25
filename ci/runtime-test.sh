@@ -115,44 +115,93 @@ adb shell uiautomator dump /sdcard/ui.xml 2>/dev/null || true
 adb pull /sdcard/ui.xml "$WS/ui_dump.xml" || true
 echo "::endgroup::"
 
-echo "::group::V5.9.661 — actually start the bot (smoke broadcast + UI fallback)"
-# Path A (preferred): SmokeTestReceiver. Bypasses PIN + forces paper +
-# starts BotService directly. Hard-guarded server-side on FLAG_DEBUGGABLE.
+echo "::group::V5.0.6517 — UI-only Start → Stop → Start-again acceptance"
+# Receiver performs DEBUG-only PIN setup and opens MainActivity, but MUST NOT
+# start BotService. Every runtime command below comes from a real btnToggle tap.
 adb shell am broadcast \
     -a com.lifecyclebot.aate.SMOKE_AUTOSTART \
     -n com.lifecyclebot.aate/com.lifecyclebot.engine.SmokeTestReceiver \
     --ez paper true \
-    || echo "::warning::SMOKE_AUTOSTART broadcast failed; falling back to UI tap"
-sleep 3
+    --ez open_main true \
+    --ez start_service false
+sleep 4
 
-# Path B (fallback): drive the UI. Re-dump the hierarchy and look for
-# resource-id=btnToggle ('Start Bot' button on activity_main). If found,
-# tap its center. Useful when (A) didn't deliver the broadcast (e.g.
-# build wasn't debuggable on this runner image).
-adb shell uiautomator dump /sdcard/ui2.xml 2>/dev/null || true
-adb pull /sdcard/ui2.xml "$WS/ui_dump_after_broadcast.xml" || true
-BTN_BOUNDS=$(grep -oE 'resource-id="[^"]*btnToggle"[^/]*bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' "$WS/ui_dump_after_broadcast.xml" 2>/dev/null \
-    | grep -oE 'bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' | head -1 || true)
-if [ -n "$BTN_BOUNDS" ]; then
-    # bounds="[x1,y1][x2,y2]" — compute center.
-    COORDS=$(echo "$BTN_BOUNDS" | grep -oE '[0-9]+')
-    X1=$(echo "$COORDS" | sed -n '1p'); Y1=$(echo "$COORDS" | sed -n '2p')
-    X2=$(echo "$COORDS" | sed -n '3p'); Y2=$(echo "$COORDS" | sed -n '4p')
-    CX=$(( (X1 + X2) / 2 )); CY=$(( (Y1 + Y2) / 2 ))
-    echo "btnToggle bounds=$BTN_BOUNDS  → tapping ($CX,$CY) as UI fallback"
-    adb shell input tap "$CX" "$CY" || true
-    sleep 2
-else
-    echo "btnToggle not in UI dump — staying with broadcast-only path"
-fi
+ui_tap() {
+    local mode="$1" value="$2" dump="$3"
+    adb shell uiautomator dump "/sdcard/$dump" >/dev/null 2>&1 || true
+    adb pull "/sdcard/$dump" "$WS/$dump" >/dev/null 2>&1 || true
+    local coords
+    coords=$(python3 - "$WS/$dump" "$mode" "$value" <<'PYTAP'
+import re, sys, xml.etree.ElementTree as ET
+path, mode, value = sys.argv[1:]
+try:
+    root = ET.parse(path).getroot()
+except Exception:
+    raise SystemExit(1)
+for node in root.iter("node"):
+    attr = node.attrib.get("resource-id", "") if mode == "id" else node.attrib.get("text", "")
+    match = attr.endswith(value) if mode == "id" else attr.lower() == value.lower()
+    if not match or node.attrib.get("enabled", "true") != "true":
+        continue
+    nums = [int(x) for x in re.findall(r"\d+", node.attrib.get("bounds", ""))]
+    if len(nums) == 4:
+        print((nums[0] + nums[2]) // 2, (nums[1] + nums[3]) // 2)
+        raise SystemExit(0)
+raise SystemExit(1)
+PYTAP
+) || true
+    [ -n "$coords" ] || { echo "::error::UI target missing/disabled mode=$mode value=$value dump=$dump"; return 1; }
+    echo "UI tap mode=$mode value=$value coords=$coords"
+    adb shell input tap $coords
+}
+
+wait_log_marker() {
+    local marker="$1" timeout="$2" label="$3"
+    local deadline=$((SECONDS + timeout))
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        if adb logcat -d | grep -q "$marker"; then
+            echo "$label marker reached: $marker"
+            return 0
+        fi
+        sleep 2
+    done
+    echo "::error::$label timed out waiting for $marker"
+    return 1
+}
+
+# First real UI Start from a cold service + max persisted state.
+ui_tap id btnToggle ui_start_1.xml
+wait_log_marker "UI_RUNTIME_TOGGLE_TAP_6517" 20 "first UI tap"
+wait_log_marker "SERVICE_BOOTSTRAP_READY_6516" 180 "persisted bootstrap"
+wait_log_marker "BOT_LOOP_TICK" 60 "first runtime loop"
+
+# Real UI Stop, including the confirmation dialog.
+sleep 3
+ui_tap id btnToggle ui_stop_button.xml
+sleep 1
+ui_tap text "Stop bot" ui_stop_confirm.xml
+wait_log_marker "LIFECYCLE_STOP_COMPLETE" 90 "confirmed UI stop"
+FIRST_UI_TAPS=$(adb logcat -d | grep -c "UI_RUNTIME_TOGGLE_TAP_6517" || true)
+FIRST_STARTS=$(adb logcat -d | grep -c "UI_START_DISPATCHED_6517" || true)
+FIRST_STOPS=$(adb logcat -d | grep -c "LIFECYCLE_STOP_COMPLETE" || true)
+adb logcat -d -v time > "$WS/ui_first_cycle_logcat.txt"
+
+# Second real UI Start proves Stop did not poison the latch or listener.
+adb logcat -c
+sleep 3
+ui_tap id btnToggle ui_start_2.xml
+wait_log_marker "UI_RUNTIME_TOGGLE_TAP_6517" 20 "second UI tap"
+wait_log_marker "UI_START_DISPATCHED_6517" 20 "second UI dispatch"
+wait_log_marker "BOT_LOOP_TICK" 90 "second runtime loop"
 echo "::endgroup::"
 
-echo "::group::Capture logcat for ${CAPTURE_SECONDS}s"
-adb logcat -v time > "$WS/logcat_full.txt" &
+echo "::group::Capture logcat for ${CAPTURE_SECONDS}s after second UI Start"
+adb logcat -v time > "$WS/logcat_second_start.txt" &
 LOGCAT_PID=$!
 sleep "$CAPTURE_SECONDS"
 kill "$LOGCAT_PID" || true
 sleep 2
+cat "$WS/ui_first_cycle_logcat.txt" "$WS/logcat_second_start.txt" > "$WS/logcat_full.txt"
 echo "::endgroup::"
 
 echo "::group::Filter logcat to forensic + trader lines"
@@ -187,6 +236,9 @@ FN_LOOP=$(    grep -c "BOT_LOOP_TICK" "$WS/logcat_full.txt" || true)
 FN_SCANCB=$(  grep -c "SCAN_CB"       "$WS/logcat_full.txt" || true)
 FN_JRNL=$(    grep -c "TRADEJRNL_REC" "$WS/logcat_full.txt" || true)
 FN_SMOKE=$(   grep -c "SMOKE_AUTOSTART" "$WS/logcat_full.txt" || true)
+FN_UI_TAP=$(  grep -c "UI_RUNTIME_TOGGLE_TAP_6517" "$WS/logcat_full.txt" || true)
+FN_UI_START=$(grep -c "UI_START_DISPATCHED_6517" "$WS/logcat_full.txt" || true)
+FN_UI_STOP=$( grep -c "LIFECYCLE_STOP_COMPLETE" "$WS/logcat_full.txt" || true)
 cat > "$WS/funnel_summary.txt" <<SUMMARY
 ===== Pipeline funnel (after ${CAPTURE_SECONDS}s capture) =====
   SMOKE_AUTOSTART:       $FN_SMOKE     (V5.9.661 receiver hits — should be ≥1)
@@ -200,6 +252,9 @@ cat > "$WS/funnel_summary.txt" <<SUMMARY
   EXECUTE/BUY:           $FN_BUY
   SELL:                  $FN_SELL
   TRADEJRNL_REC:         $FN_JRNL      (V5.9.658 journal write hits)
+  UI_TOGGLE_TAPS:        $FN_UI_TAP    (must prove Start → Stop → Start)
+  UI_START_DISPATCHES:   $FN_UI_START  (must be ≥2)
+  UI_STOP_COMPLETES:     $FN_UI_STOP   (must be ≥1)
 ===== Interpretation =====
   SMOKE=0             -> SmokeTestReceiver never fired (debuggable=false?)
   SMOKE>0 LOOP=0      -> receiver fired but BotService didn't enter botLoop
@@ -230,5 +285,5 @@ if [ "$FN_CANON_READY" -lt 1 ] || [ "$FN_SERVICE_READY" -lt 1 ] || [ -z "$PID_AL
     echo "::error::Persisted-state Start failed: canonical=$FN_CANON_READY service=$FN_SERVICE_READY pid=${PID_ALIVE:-NONE} deaths=$FN_PROCESS_DEATH anr=$FN_ANR loop=$FN_LOOP"
     exit 1
 fi
-echo "Persisted-state Start PASS: 8192 events replayed, service ready, process alive, loop active"
+echo "Persisted UI Start/Stop PASS: 8192 events, Start → Stop → Start, process alive, second loop active"
 echo "::endgroup::"

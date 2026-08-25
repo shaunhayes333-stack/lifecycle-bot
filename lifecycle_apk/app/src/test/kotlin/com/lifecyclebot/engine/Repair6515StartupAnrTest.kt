@@ -26,7 +26,7 @@ class Repair6515StartupAnrTest {
         assertTrue(source.contains("START_BLOCKED_SERVICE_BOOTSTRAP_FAILED_6516"))
         assertTrue(source.contains("serviceStartQueued6516.compareAndSet(false, true)"))
         assertTrue(source.contains("canonicalBootstrapJob6515?.join()"))
-        assertTrue(source.contains("serviceBootstrapJob6516?.join()"))
+        assertTrue(source.contains("val bootstrap = serviceBootstrapJob6516"))
         assertTrue(source.contains("loopJob?.isActive != true"))
     }
 

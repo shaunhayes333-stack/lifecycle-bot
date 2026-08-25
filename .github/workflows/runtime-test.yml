@@ -101,6 +101,9 @@ jobs:
             logcat_filtered.txt
             funnel_summary.txt
             ui_dump.xml
+            ui_*.xml
+            ui_first_cycle_logcat.txt
+            logcat_second_start.txt
 
       - name: Fail job if pipeline funnel collapsed
         if: always()

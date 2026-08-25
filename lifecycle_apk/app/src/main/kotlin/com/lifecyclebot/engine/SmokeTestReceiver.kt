@@ -54,7 +54,9 @@ class SmokeTestReceiver : BroadcastReceiver() {
         }
 
         val paper = intent.getBooleanExtra("paper", true)
-        Log.i(TAG, "🧪 SMOKE_AUTOSTART received — bypassing PIN, forcing paper=$paper, starting BotService")
+        val startService = intent.getBooleanExtra("start_service", true)
+        val openMain = intent.getBooleanExtra("open_main", false)
+        Log.i(TAG, "🧪 SMOKE_AUTOSTART received — bypassing PIN, forcing paper=$paper startService=$startService openMain=$openMain")
 
         try {
             // 1) Bypass SecurityActivity PIN. The activity reads
@@ -80,9 +82,21 @@ class SmokeTestReceiver : BroadcastReceiver() {
                 .putBoolean("paper_mode", paper)
                 .apply()
 
-            // 3) Mark the start as user-requested so the
-            //    manual-stop latch in BotService is cleared and the
-            //    new ACTION_START is honoured immediately.
+            // V5.0.6517 — UI-only runtime smoke mode. Open MainActivity from
+            // inside the debug app but DO NOT start BotService; ci/runtime-test.sh
+            // must prove the real btnToggle listener dispatches every command.
+            if (openMain) {
+                ctx.startActivity(Intent(ctx, com.lifecyclebot.ui.MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                })
+                Log.i(TAG, "🧪 SMOKE_UI_SETUP_6517: MainActivity opened")
+            }
+            if (!startService) {
+                Log.i(TAG, "🧪 SMOKE_UI_SETUP_ONLY_6517: service start intentionally withheld")
+                return
+            }
+
+            // 3) Legacy direct-service mode for older/manual smoke invocations.
             val startIntent = Intent(ctx, BotService::class.java).apply {
                 action = BotService.ACTION_START
                 putExtra(BotService.EXTRA_USER_REQUESTED, true)

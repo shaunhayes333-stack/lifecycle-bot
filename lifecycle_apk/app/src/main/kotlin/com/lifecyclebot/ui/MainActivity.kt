@@ -2078,18 +2078,11 @@ for legal compliance.
         tvPnlPercent     = try { findViewById(R.id.tvPnlPercent) } catch (_: Exception) { TextView(this) }
         tvPnlValue       = try { findViewById(R.id.tvPnlValue) } catch (_: Exception) { TextView(this) }
 
-        // V5.9.1081 — DISABLED early-window. The previous V5.9.1076 fix kept a
-        // "START-only" listener wired in onCreate as a safety against startup
-        // racing with updateUi. But that listener still ran on any tap before
-        // the first state-bound render bound the real handler at line ~3327,
-        // and 10 rapid START taps in that window were processed by an
-        // ACTION_START path that — pre V5.9.1081 — could force-cancel a healthy
-        // loop. Now the button is hard-disabled at creation and only the
-        // state-aware bind in updateUi (running → STOP / else → START) is
-        // permitted to enable + wire it. Safe no-op listener so nothing
-        // happens if the view somehow becomes enabled before bind.
-        btnToggle.setOnClickListener { /* state-bound in updateUi */ }
-        btnToggle.isEnabled = false
+        // V5.0.6517 — command wiring is a view invariant, not a dashboard-render
+        // side effect. Bind immediately so a stalled/failed first UiState render can
+        // never leave the operator with a disabled no-op Start/Stop button.
+        bindRuntimeToggleListener6517()
+        btnToggle.isEnabled = true
         btnWalletTop.setOnClickListener {
             startActivity(Intent(this, WalletActivity::class.java))
         }
@@ -2471,10 +2464,69 @@ for legal compliance.
     }
 
 
+    private fun bindRuntimeToggleListener6517() {
+        if (toggleListenerBound) return
+        toggleListenerBound = true
+        btnToggle.setOnClickListener {
+            val pendingNow = try { com.lifecyclebot.engine.BotService.isStartPending6517() } catch (_: Throwable) { false }
+            val haltedNow = try {
+                val svc = com.lifecyclebot.engine.BotService.instance
+                val f = svc?.javaClass?.getDeclaredField("securityGuard")
+                f?.isAccessible = true
+                (f?.get(svc) as? com.lifecyclebot.engine.SecurityGuard)?.getCircuitBreakerState()?.isHalted ?: false
+            } catch (_: Throwable) { false }
+            val runningNow = try {
+                com.lifecyclebot.engine.BotService.isRuntimeActive() ||
+                    com.lifecyclebot.engine.BotRuntimeController.snapshot().runtimeActive
+            } catch (_: Throwable) { false }
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "UI_RUNTIME_TOGGLE_TAP_6517",
+                    "halted=$haltedNow running=$runningNow pending=$pendingNow enabled=${btnToggle.isEnabled} text=${btnToggle.text}",
+                )
+            } catch (_: Throwable) {}
+            when {
+                haltedNow -> {
+                    try {
+                        val svc = com.lifecyclebot.engine.BotService.instance
+                        val f = svc?.javaClass?.getDeclaredField("securityGuard")
+                        f?.isAccessible = true
+                        (f?.get(svc) as? com.lifecyclebot.engine.SecurityGuard)?.clearHalt()
+                    } catch (_: Exception) {}
+                    vm.stopBot(source = "halt_reset", uiStopConfirmed = true)
+                }
+                runningNow || pendingNow -> {
+                    val title = if (pendingNow && !runningNow) "Cancel bot startup?" else "Stop the bot?"
+                    val message = if (pendingNow && !runningNow) {
+                        "This cancels the queued Start while persisted state is loading."
+                    } else {
+                        "This halts all scanning and trading. Open positions stay managed but no new trades will be taken until you start again."
+                    }
+                    try {
+                        AlertDialog.Builder(this)
+                            .setTitle(title)
+                            .setMessage(message)
+                            .setPositiveButton(if (pendingNow && !runningNow) "Cancel start" else "Stop bot") { d, _ ->
+                                d.dismiss(); vm.stopBotFromStopButton()
+                            }
+                            .setNegativeButton("Keep running", null)
+                            .show()
+                    } catch (_: Throwable) { vm.stopBotFromStopButton() }
+                }
+                else -> {
+                    btnToggle.setTextIfChanged("Starting Bot…")
+                    vm.startBot()
+                }
+            }
+        }
+    }
+
     private fun renderRuntimeBar(state: UiState, activeToken: TokenState?, cfg: BotConfig) {
         val serviceActive = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
         val runtimeActive = try { com.lifecyclebot.engine.BotRuntimeController.snapshot().runtimeActive } catch (_: Throwable) { false }
         val running = state.running || serviceActive || runtimeActive
+        val startPending6517 = try { com.lifecyclebot.engine.BotService.isStartPending6517() } catch (_: Throwable) { false }
+        val startFailure6517 = try { com.lifecyclebot.engine.BotService.startFailure6517() } catch (_: Throwable) { "" }
         val cb      = state.circuitBreaker
 
         val isHalted  = cb.isHalted
@@ -2487,7 +2539,8 @@ for legal compliance.
         // immediately. Only redundant same-state repaints (the ANR-prone case where
         // a 1Hz tick re-runs the whole bar) are gated.
         run {
-            val critical = (if (isRunning) 1 else 0) or (if (isHalted) 2 else 0) or (if (isPaused) 4 else 0)
+            val critical = (if (isRunning) 1 else 0) or (if (isHalted) 2 else 0) or
+                (if (isPaused) 4 else 0) or (if (startPending6517) 8 else 0) or (if (startFailure6517.isNotBlank()) 16 else 0)
             val nowMs = System.currentTimeMillis()
             if (critical == lastRuntimeBarCriticalState &&
                 lastRuntimeBarRenderMs > 0L &&
@@ -2501,63 +2554,23 @@ for legal compliance.
 
         btnToggle.setTextIfChanged(when {
             isHalted -> "Halted — Tap to Reset"
+            startPending6517 -> "Cancel Start"
             running  -> "Stop Bot"
+            startFailure6517.isNotBlank() -> "Start Failed"
             else     -> "Start Bot"
         })
         val commandButtonBg = when {
             isHalted -> R.drawable.aate_command_button_halt
+            startPending6517 -> R.drawable.aate_command_button_stop
             running  -> R.drawable.aate_command_button_stop
             else     -> R.drawable.aate_command_button_start
         }
         btnToggle.setBackgroundDrawableIfChanged(commandButtonBg, cachedDrawable(this, commandButtonBg))
         btnToggle.setTextColorIfChanged(white)
 
-        // V5.9.1316 — STOP must ALWAYS work and not be lost to per-render churn.
-        // Previously the click listener was REASSIGNED every render tick inside a
-        // when{} block (isHalted/running/else). With always-render (1314) that
-        // reassigns every ~2.5s, and the tap could not be processed while the main
-        // thread was busy rebuilding position rows — operator hit STOP and it was
-        // "completely unresponsive". FIX: keep the 1081 gate (only wire after the
-        // first state-bound render, button stays enabled here), but bind the
-        // listener ONCE via toggleListenerBound and have it read LIVE state at
-        // tap-time so it is correct regardless of which render last ran.
-        if (!toggleListenerBound) {
-            toggleListenerBound = true
-            btnToggle.setOnClickListener {
-                val haltedNow = try {
-                    val svc = com.lifecyclebot.engine.BotService.instance
-                    val f   = svc?.javaClass?.getDeclaredField("securityGuard")
-                    f?.isAccessible = true
-                    (f?.get(svc) as? com.lifecyclebot.engine.SecurityGuard)?.getCircuitBreakerState()?.isHalted ?: false
-                } catch (_: Throwable) { false }
-                val runningNow = try {
-                    com.lifecyclebot.engine.BotService.isRuntimeActive() ||
-                    com.lifecyclebot.engine.BotRuntimeController.snapshot().runtimeActive
-                } catch (_: Throwable) { false }
-                when {
-                    haltedNow -> {
-                        try {
-                            val svc = com.lifecyclebot.engine.BotService.instance
-                            val f   = svc?.javaClass?.getDeclaredField("securityGuard")
-                            f?.isAccessible = true
-                            (f?.get(svc) as? com.lifecyclebot.engine.SecurityGuard)?.clearHalt()
-                        } catch (_: Exception) {}
-                        vm.stopBot(source = "halt_reset", uiStopConfirmed = true)
-                    }
-                    runningNow -> {
-                        try {
-                            AlertDialog.Builder(this)
-                                .setTitle("Stop the bot?")
-                                .setMessage("This halts all scanning and trading. Open positions stay managed but no new trades will be taken until you start again.")
-                                .setPositiveButton("Stop bot") { d, _ -> d.dismiss(); vm.stopBotFromStopButton() }
-                                .setNegativeButton("Keep running", null)
-                                .show()
-                        } catch (_: Throwable) { vm.stopBotFromStopButton() }
-                    }
-                    else -> vm.startBot()
-                }
-            }
-        }
+        // V5.0.6517 — idempotent safety call only. Functional wiring already
+        // happened in bindViews(); rendering can never disable command authority.
+        bindRuntimeToggleListener6517()
         btnToggle.isEnabled = true
 
         val dotKey = when {
@@ -2570,6 +2583,8 @@ for legal compliance.
 
         tvBotStatus.setTextIfChanged(when {
             isHalted  -> "HALT · ${cb.haltReason.take(40)}"
+            startPending6517 -> "STARTING · loading persisted state off main thread"
+            startFailure6517.isNotBlank() -> "START FAILED · ${startFailure6517.take(80)}"
             isPaused  -> "PAUSED · ${cb.pauseRemainingSecs}s  •  ${cb.consecutiveLosses} losses"
             running && activeToken?.signal in listOf("BUY","EXIT","SELL") ->
                 "Signal: ${activeToken?.signal}  •  ${activeToken?.symbol ?: ""}"
