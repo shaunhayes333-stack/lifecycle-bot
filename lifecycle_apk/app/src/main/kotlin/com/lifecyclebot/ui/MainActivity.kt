@@ -5667,7 +5667,7 @@ for legal compliance.
             // operator sees the fault and equity/analytics exclude it.
             val invariantBroken6500 = try {
                 com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.isQuarantined(ts.mint) ||
-                    !com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.check(pos).ok
+                    !com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.check(ts.mint, pos).ok
             } catch (_: Throwable) { false }
             // Entry price per token and time — V5.0.6321 prefer canonical fill
             info.addView(TextView(this).apply {

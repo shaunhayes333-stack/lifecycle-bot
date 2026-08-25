@@ -4356,47 +4356,25 @@ class BotService : Service() {
                 } catch (_: Throwable) { 0.0 }
             }
         } catch (_: Throwable) {}
-        // V5.0.6500 §sweep — QUANTITY INVARIANT ENFORCEMENT.
-        // Walk every open position on startup and quarantine + force-
-        // close any that violate `qty × entryPrice ≈ costSol × solPrice`.
-        // Operator mandate: clean slate for testing today. Broken
-        // positions produced $752K phantom equity on a $5 paper buy.
+        // V5.0.6521 — canonical-raw reconstruction before quarantine; never abandon/force-close.
         try {
-            val brokenMints6500 = mutableListOf<String>()
             for (ts in status.tokens.values) {
                 val pos = ts.position
-                if (!pos.isOpen) continue
-                if (!pos.isPaperPosition) continue
-                val check = try {
-                    com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.check(pos)
-                } catch (_: Throwable) { null }
-                if (check != null && !check.ok) {
-                    try {
-                        com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
-                            .markInvariantBroken(ts.mint, "STARTUP_SWEEP: ${check.reason}")
-                    } catch (_: Throwable) {}
-                    brokenMints6500 += ts.mint
-                }
-            }
-            if (brokenMints6500.isNotEmpty()) {
-                try {
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                        "INVARIANT_QUARANTINE_STARTUP_SWEEP_6500",
-                        "count=${brokenMints6500.size} sampleMints=${brokenMints6500.take(5).joinToString(",") { it.take(8) }}",
-                    )
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("INVARIANT_QUARANTINE_STARTUP_SWEEP_6500")
-                } catch (_: Throwable) {}
-                // Force-close each broken position via executor.requestSell
-                // — the paper terminal pipeline will atomically close and
-                // release occupancy. Reason INVARIANT_QUARANTINE_6500 flags
-                // these as economic quarantine (never feeds learners).
-                for (mint in brokenMints6500) {
-                    val ts = status.tokens[mint] ?: continue
-                    try {
-                        executor.requestSell(ts = ts, reason = "INVARIANT_QUARANTINE_6500", wallet = wallet, walletSol = 0.0)
-                    } catch (e: Throwable) {
-                        com.lifecyclebot.engine.ErrorLogger.warn("BotService",
-                            "INVARIANT_QUARANTINE_6500 force-close failed for ${mint.take(10)}: ${e.message?.take(50)}")
+                if (!pos.isOpen || !pos.isPaperPosition) continue
+                val check = com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.check(ts.mint, pos)
+                if (!check.ok) {
+                    val repaired = com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.reconstructFromCanonical(ts.mint, pos)
+                    if (repaired != null && com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.check(ts.mint, repaired).ok) {
+                        ts.position = repaired
+                        com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.release(ts.mint)
+                        try { PositionPersistence.savePosition(ts) } catch (_: Throwable) {}
+                        try {
+                            ForensicLogger.lifecycle("QUANTITY_PROJECTION_RECONSTRUCTED_FROM_CANONICAL_RAW_6521", "mint=${ts.mint.take(10)} qty=${repaired.qtyToken} cost=${repaired.costSol} action=continue_position_learning_eligible")
+                            PipelineHealthCollector.labelInc("QUANTITY_PROJECTION_RECONSTRUCTED_FROM_CANONICAL_RAW_6521")
+                        } catch (_: Throwable) {}
+                    } else {
+                        com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.markInvariantBroken(ts.mint, "CANONICAL_RECONSTRUCTION_UNAVAILABLE: ${check.reason}")
+                        try { PipelineHealthCollector.labelInc("QUANTITY_REPAIR_DEFERRED_NO_FORCE_CLOSE_6521") } catch (_: Throwable) {}
                     }
                 }
             }

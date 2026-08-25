@@ -8482,4 +8482,18 @@ class GoldenTapeRegressionTest {
         assertFalse(authority.contains("BigDecimal(double)"))
     }
 
+
+    @Test
+    fun V5_0_6521_quantity_invariant_repairs_from_canonical_raw_without_force_close() {
+        val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/QuantityInvariantAuthority6500.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val ui = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue(authority.contains("remainingQtyRaw.toBigDecimal().movePointLeft") && authority.contains("reconstructFromCanonical"))
+        assertFalse(authority.contains("WalletManager.lastKnownSolPrice"))
+        assertFalse(authority.contains("HistoricalEconomicQuarantine6496.reportOrphanLot"))
+        assertTrue(bot.contains("QUANTITY_PROJECTION_RECONSTRUCTED_FROM_CANONICAL_RAW_6521") && bot.contains("PositionPersistence.savePosition(ts)"))
+        assertFalse(bot.contains("requestSell(ts = ts, reason = " + "\"INVARIANT_QUARANTINE_6500\""))
+        assertTrue(ui.contains("QuantityInvariantAuthority6500.check(ts.mint, pos).ok"))
+    }
+
 }
