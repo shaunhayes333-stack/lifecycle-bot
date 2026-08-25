@@ -59,6 +59,8 @@ object EconomicEventSchema6464 {
         val entryFeesSol: Double = 0.0,    // typed separately for conservation
         val filledQty: java.math.BigInteger,
         val fillPrice: Double,             // executedCostSol / filledQty (in SOL/token)
+        val tokenDecimals: Int = 9,        // actual metadata; -1 when unknown
+        val quantityScale: Int = tokenDecimals, // immutable raw accounting representation
     ) : Event()
 
     data class Sell(
@@ -88,6 +90,8 @@ object EconomicEventSchema6464 {
         val feesSol: Double = 0.0,
         val perMintQty: Map<String, java.math.BigInteger> = emptyMap(),
         val perMintCostSol: Map<String, Double> = emptyMap(),
+        val perMintTokenDecimals: Map<String, Int> = emptyMap(),
+        val perMintQuantityScale: Map<String, Int> = emptyMap(),
     )
 
     private const val CAP = 8192
@@ -131,6 +135,7 @@ object EconomicEventSchema6464 {
         mode: String, positionId: String, mint: String, symbol: String,
         idempotencyKey: String, executedCostSol: Double, filledQty: java.math.BigInteger,
         fillPrice: Double, entryFeesSol: Double = 0.0,
+        tokenDecimals: Int = 9, quantityScale: Int = tokenDecimals,
     ) {
         val e = Buy(
             atMs = System.currentTimeMillis(), mode = mode.lowercase(),
@@ -138,6 +143,7 @@ object EconomicEventSchema6464 {
             idempotencyKey = idempotencyKey.ifBlank { "buy_${System.nanoTime()}" },
             executedCostSol = executedCostSol, entryFeesSol = entryFeesSol.coerceAtLeast(0.0),
             filledQty = filledQty, fillPrice = if (fillPrice.isFinite()) fillPrice else 0.0,
+            tokenDecimals = tokenDecimals, quantityScale = quantityScale,
         )
         if (!appendBounded(e)) return
         recordedBuys.incrementAndGet()
@@ -211,6 +217,7 @@ object EconomicEventSchema6464 {
             is Buy -> {
                 put("executedCostSol", e.executedCostSol); put("entryFeesSol", e.entryFeesSol)
                 put("filledQty", e.filledQty.toString()); put("fillPrice", e.fillPrice)
+                put("tokenDecimals", e.tokenDecimals); put("quantityScale", e.quantityScale)
             }
             is Sell -> {
                 put("partial", e.partial); put("soldQty", e.soldQty.toString())
@@ -231,6 +238,7 @@ object EconomicEventSchema6464 {
             baseAt, mode, pid, mint, symbol, key,
             j.getDouble("executedCostSol"), j.optDouble("entryFeesSol", 0.0),
             java.math.BigInteger(j.getString("filledQty")), j.getDouble("fillPrice"),
+            j.optInt("tokenDecimals", 9), j.optInt("quantityScale", j.optInt("tokenDecimals", 9)),
         ) else Sell(
             baseAt, mode, pid, mint, symbol, key, j.getBoolean("partial"),
             java.math.BigInteger(j.getString("soldQty")), j.getDouble("allocatedCostBasisSol"),
@@ -325,6 +333,8 @@ object EconomicEventSchema6464 {
             feesSol = old.feesSol - feesDelta,
             perMintQty = qty.filterValues { it != java.math.BigInteger.ZERO },
             perMintCostSol = cost.filterValues { kotlin.math.abs(it) > 1e-12 },
+            perMintTokenDecimals = old.perMintTokenDecimals,
+            perMintQuantityScale = old.perMintQuantityScale,
         )
         persistReplayCarry6489(); eventVersion.incrementAndGet()
         try {
@@ -340,6 +350,8 @@ object EconomicEventSchema6464 {
         val old = replayCarry6489
         val qty = old.perMintQty.toMutableMap()
         val cost = old.perMintCostSol.toMutableMap()
+        val decimals = old.perMintTokenDecimals.toMutableMap()
+        val scales = old.perMintQuantityScale.toMutableMap()
         var cash = old.cashDeltaSol
         var open = old.openCostSol
         var realized = old.realizedPnlSol
@@ -351,6 +363,8 @@ object EconomicEventSchema6464 {
                 fees += e.entryFeesSol.coerceAtLeast(0.0)
                 qty[e.mint] = (qty[e.mint] ?: java.math.BigInteger.ZERO) + e.filledQty
                 cost[e.mint] = (cost[e.mint] ?: 0.0) + e.executedCostSol
+                decimals[e.mint] = e.tokenDecimals
+                scales[e.mint] = e.quantityScale
             }
             is Sell -> {
                 cash += e.netProceedsSol
@@ -362,7 +376,8 @@ object EconomicEventSchema6464 {
             }
         }
         replayCarry6489 = ReplayCarry6489(true, cash, open, realized, fees,
-            qty.filterValues { it != java.math.BigInteger.ZERO }, cost.filterValues { kotlin.math.abs(it) > 1e-12 })
+            qty.filterValues { it != java.math.BigInteger.ZERO }, cost.filterValues { kotlin.math.abs(it) > 1e-12 },
+            decimals, scales)
         persistReplayCarry6489()
     }
 
@@ -372,21 +387,28 @@ object EconomicEventSchema6464 {
         val c = replayCarry6489
         val q = JSONObject(); c.perMintQty.forEach { (k, v) -> q.put(k, v.toString()) }
         val cost = JSONObject(); c.perMintCostSol.forEach { (k, v) -> cost.put(k, v) }
+        val dec = JSONObject(); c.perMintTokenDecimals.forEach { (k, v) -> dec.put(k, v) }
+        val scale = JSONObject(); c.perMintQuantityScale.forEach { (k, v) -> scale.put(k, v) }
         val j = JSONObject().put("established", c.established).put("cash", c.cashDeltaSol)
             .put("open", c.openCostSol).put("realized", c.realizedPnlSol).put("fees", c.feesSol)
-            .put("qty", q).put("cost", cost)
+            .put("qty", q).put("cost", cost).put("decimals", dec).put("quantityScale", scale)
         prefs?.edit()?.putString(REPLAY_CARRY_KEY_6489, j.toString())?.commit()
     }
 
     private fun decodeReplayCarry6489(raw: String?): ReplayCarry6489? = try {
         if (raw.isNullOrBlank()) null else JSONObject(raw).let { j ->
             val qj = j.optJSONObject("qty") ?: JSONObject(); val cj = j.optJSONObject("cost") ?: JSONObject()
+            val dj = j.optJSONObject("decimals") ?: JSONObject(); val sj = j.optJSONObject("quantityScale") ?: JSONObject()
             val q = mutableMapOf<String, java.math.BigInteger>(); val qi = qj.keys()
             while (qi.hasNext()) { val k = qi.next(); q[k] = java.math.BigInteger(qj.getString(k)) }
             val c = mutableMapOf<String, Double>(); val ci = cj.keys()
             while (ci.hasNext()) { val k = ci.next(); c[k] = cj.getDouble(k) }
+            val d = mutableMapOf<String, Int>(); val di = dj.keys()
+            while (di.hasNext()) { val k = di.next(); d[k] = dj.getInt(k) }
+            val sc = mutableMapOf<String, Int>(); val si = sj.keys()
+            while (si.hasNext()) { val k = si.next(); sc[k] = sj.getInt(k) }
             ReplayCarry6489(j.optBoolean("established"), j.optDouble("cash"), j.optDouble("open"),
-                j.optDouble("realized"), j.optDouble("fees"), q, c)
+                j.optDouble("realized"), j.optDouble("fees"), q, c, d, sc)
         }
     } catch (_: Throwable) { null }
 

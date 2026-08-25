@@ -13,7 +13,8 @@ object CanonicalPaperTransaction6486 {
 
     fun open(positionId: String, mint: String, symbol: String, lane: String, source: String,
              costSol: Double, feeSol: Double = 0.0, qtyRaw: BigInteger = syntheticUnit,
-             decimals: Int = 9, entryScore: Int = 0, tactic: String = lane): Result = lock.withLock {
+             decimals: Int = 9, entryScore: Int = 0, tactic: String = lane,
+             quantityScale: Int = decimals): Result = lock.withLock {
         if (positionId.isBlank() || mint.isBlank() || !costSol.isFinite() || costSol <= 0.0 ||
             !feeSol.isFinite() || feeSol < 0.0 || qtyRaw <= BigInteger.ZERO)
             return@withLock Result(false, positionId, "INVALID_OPEN")
@@ -23,8 +24,10 @@ object CanonicalPaperTransaction6486 {
             return@withLock Result(false, positionId, "INSUFFICIENT_CANONICAL_CASH")
         val idem = "PAPER6486:OPEN:$positionId"
         val opened = CanonicalPositionAuthority6441.openPosition(
-            idem, positionId, mint, symbol, lane, positionId.substringAfterLast(':', positionId),
-            costSol, qtyRaw, decimals, feeSol, paperMode = false, modeOverride = "paper")
+            idempotencyKey = idem, positionId = positionId, mint = mint, symbol = symbol,
+            lane = lane, runId = positionId.substringAfterLast(':', positionId),
+            entryCostSol = costSol, openedQtyRaw = qtyRaw, tokenDecimals = decimals,
+            feesSol = feeSol, paperMode = false, modeOverride = "paper", quantityScale = quantityScale)
         if (opened != CanonicalPositionAuthority6441.MutateResult.APPLIED) {
             PaperAccountLedger6430.rollbackBuy(costSol, feeSol, "PAPER6486_OPEN_$opened")
             return@withLock Result(false, positionId, "POSITION_$opened")
@@ -33,7 +36,7 @@ object CanonicalPaperTransaction6486 {
         PositionStateLedger6454.onEntry(positionId)
         SellQtyBoundaryClamp6427.syncAuthoritativeRaw(positionId, qtyRaw, qtyRaw)
         EconomicEventSchema6464.recordBuy("paper", positionId, mint, symbol, idem, costSol,
-            qtyRaw, costSol / qtyRaw.toDouble(), feeSol)
+            qtyRaw, costSol / qtyRaw.toDouble(), feeSol, decimals, quantityScale)
         EntryStrategySnapshot6450.setEntry(EntryStrategySnapshot6450.Snapshot(
             positionId, mint, lane, "", tactic, "", "", source, entryScore, 0.0, 0.0,
             System.currentTimeMillis(), ""))

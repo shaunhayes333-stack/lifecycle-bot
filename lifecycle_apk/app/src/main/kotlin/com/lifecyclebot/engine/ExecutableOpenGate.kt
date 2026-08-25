@@ -150,6 +150,24 @@ object ExecutableOpenGate {
 
     fun ticketForAttempt(attemptId: String): ExecutionTicket? = executionTickets[attemptId]?.takeIf { ticketLive(it) }
 
+    /** V5.0.6514 — revoke every transient ticket/allowed-attempt residue after dispatch. */
+    private fun revokeAttempt6514(attemptId: String, mint: String, lane: String) {
+        if (attemptId.isNotBlank()) executionTickets.remove(attemptId)
+        allowedAttempts.entries.removeIf { (attemptId.isNotBlank() && it.value.first == attemptId) ||
+            it.key == mint.trim() || it.key == laneKey(mint, lane) }
+        restorePenalties.remove(attemptId)
+        executableBuyClaim6487.entries.removeIf { (attemptId.isNotBlank() && it.value.startsWith("$attemptId:")) ||
+            it.key.contains(":${mint.trim()}:") }
+    }
+
+    fun releaseAttemptNonTerminal6514(attemptId: String, mint: String, lane: String, reason: String) {
+        revokeAttempt6514(attemptId, mint, lane)
+        try { PipelineHealthCollector.labelInc("PAPER_TICKET_NONTERMINAL_RELEASE_6514") } catch (_: Throwable) {}
+        try { ForensicLogger.lifecycle("PAPER_TICKET_NONTERMINAL_RELEASE_6514", "attemptId=$attemptId mint=${mint.take(10)} lane=$lane reason=$reason ticketReleased=true") } catch (_: Throwable) {}
+    }
+
+    fun terminalizeAttempt6514(attemptId: String, mint: String, lane: String) = revokeAttempt6514(attemptId, mint, lane)
+
     private fun publishTicket(ticket: ExecutionTicket) {
         val now = System.currentTimeMillis()
         executionTickets.entries.removeIf { now - it.value.createdAtMs > EXECUTION_TICKET_TTL_MS }

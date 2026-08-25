@@ -7371,9 +7371,11 @@ class GoldenTapeRegressionTest {
                 paperBuy.contains("PAPER_BUY_SAME_MINT_OPEN_SUPPRESSED_6370"))
         val registryWrite6370 = paperBuy.indexOf("EmergentGuardrails.registerPosition")
         val globalWrite6370 = paperBuy.indexOf("GlobalTradeRegistry.registerPosition", registryWrite6370)
-        val openedTerminal6370 = paperBuy.indexOf("ExecutionAttemptLease.terminalOk", globalWrite6370)
+        val openedTerminal6370 = paperBuy.indexOf("markPaperTicketTerminalOpen" + "6514", globalWrite6370)
+        val terminalHelper6370 = paperBuy.substring(paperBuy.indexOf("fun markPaperTicketTerminalOpen" + "6514"), paperBuy.indexOf("// V5.0.6451", paperBuy.indexOf("fun markPaperTicketTerminalOpen" + "6514")))
         assertTrue("V5.0.6370: successful new-open lease must clear only after EmergentGuardrails and GlobalTradeRegistry registries; retry recovery may terminalize its existing result earlier",
             registryWrite6370 >= 0 && globalWrite6370 > registryWrite6370 && openedTerminal6370 > globalWrite6370 &&
+                terminalHelper6370.contains("ExecutionAttemptLease.terminalOk") &&
                 paperBuy.contains("PAPER_BUY_OPENED_6370"))
     }
 
@@ -8198,6 +8200,7 @@ class GoldenTapeRegressionTest {
         assertTrue(executor.contains("resolveJournalSoldQty") && executor.contains("JOURNAL_CANONICAL_SOLD_QTY_MISMATCH_6509"))
         assertTrue(qty.contains("expected = (costSol * solUsd) / tokenPriceUsd") && qty.contains("decoded = decode(raw, decimals)"))
         assertTrue(executor.contains("PAPER_BUY_DEFERRED_SOL_USD_MISSING_6509") && !executor.contains("effectiveSol / maxOf(effectivePrice, 1e-12)"))
+        assertFalse("6514: unknown PAPER decimals are advisory, never a blocking reason", executor.contains("PAPER_BUY_DEFERRED_DECIMALS_MISSING_" + "6509"))
         assertTrue(executor.contains("paperTokenDecimals6509") && executor.contains("tokenDecimals = paperTokenDecimals6509"))
         assertTrue(mirror.contains("tokenDecimals = tokenDecimals") && !mirror.contains("tokenDecimals = 9,                 // provisional"))
         assertTrue(close.contains("POST_CLOSE_LEDGER_STAMP_FAIL_6509") && close.contains("POST_CLOSE_PAPER_AUTH_FAIL_6509") &&
@@ -8315,6 +8318,40 @@ class GoldenTapeRegressionTest {
         assertTrue(tokenMap.contains("cachedForExit6513") && bot.contains("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513"))
         assertTrue(bot.contains("scope.launch(kotlinx.coroutines.Dispatchers.IO)"))
         assertTrue(root.indexOf("EXEC_AUTHORITY_STATE_MISMATCH") < root.indexOf("DATA_PROVIDER_AUTH_LOCKOUT_6468"))
+    }
+
+
+    @Test
+    fun V5_0_6514_paper_ticket_dispatch_ignores_missing_decimals_and_releases_every_nonterminal_authority() {
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val canonical = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt").readText()
+        val tx = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
+
+        assertFalse(executor.contains("PAPER_BUY_DEFERRED_DECIMALS_MISSING_" + "6509"))
+        assertTrue(executor.contains("PAPER_DECIMALS_PENDING_ADVISORY_" + "6514"))
+        assertTrue(executor.contains("PAPER_TICKET_DISPATCHED_" + "6514"))
+        assertTrue(executor.contains("PAPER_TICKET_TERMINAL_OPEN_" + "6514"))
+        assertTrue(executor.contains("PAPER_TICKET_TERMINAL_BLOCK_" + "6514"))
+        assertTrue(gate.contains("PAPER_TICKET_NONTERMINAL_RELEASE_" + "6514"))
+        assertTrue(executor.contains("EXEC_LEASE_LEAK_INVARIANT_" + "6514"))
+        assertTrue(executor.contains("releasePaperBuyNonTerminal6514(" + "\"" + "SOL_USD_MISSING_" + "6509" + "\"" + ")"))
+        assertTrue(executor.contains("action=release_all_authority_retry_next_cycle"))
+        assertTrue(executor.contains("FinalExecutionPermit.releaseExecution(ts.mint)"))
+        assertTrue(executor.contains("LaneExecutionCoordinator.releaseIfPrimary"))
+        assertTrue(gate.contains("releaseAttemptNonTerminal" + "6514"))
+        assertTrue(gate.contains("executionTickets.remove(attemptId)"))
+        assertTrue(gate.contains("executableBuyClaim6487.entries.removeIf"))
+        assertTrue(canonical.contains("val quantityScale: Int = tokenDecimals"))
+        assertTrue(tx.contains("quantityScale: Int = decimals"))
+        assertTrue(executor.contains("quantityScale = paperQuantityScale" + "6514"))
+        val modeBranch = executor.indexOf("if (isPaperMode) {")
+        val paperDispatch = executor.indexOf("paperBuy(ts, effSol", modeBranch)
+        val liveBranch = executor.indexOf("} else if (wallet == null) {", modeBranch)
+        assertTrue("PAPER must dispatch before LIVE-only executor validation", modeBranch > 0 && paperDispatch > modeBranch && liveBranch > paperDispatch)
+        val journal = executor.indexOf("recordTrade(ts, trade)", executor.indexOf("fun paperBuy("))
+        val terminal = executor.indexOf("PAPER_TICKET_TERMINAL_OPEN_" + "6514", executor.indexOf("fun paperBuy("))
+        assertTrue("real BUY journal must be on the paper open path", journal > 0 && terminal > 0)
     }
 
 }

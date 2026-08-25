@@ -216,6 +216,11 @@ object ExecutionAttemptLease {
         emit("EXEC_RETRY_BACKOFF_SET", side, mint, symbol, "reason=$reason processor=$processor failures=$failures backoffMs=$backoff")
     }
 
+    fun isActiveKey6514(key: String): Boolean {
+        val n = now(); pruneExpired(n)
+        return key.isNotBlank() && states[key]?.activeUntilMs?.let { it > n } == true
+    }
+
     fun activeBuyLeases(): Int { val n = now(); pruneExpired(n); return states.values.count { it.side.equals("BUY", true) && it.activeUntilMs > n } }
     fun activeSellLeases(): Int { val n = now(); pruneExpired(n); return states.values.count { it.side.equals("SELL", true) && it.activeUntilMs > n } }
     fun activeBackoffs(): Int { val n = now(); pruneExpired(n); return states.values.count { it.backoffUntilMs > n } }

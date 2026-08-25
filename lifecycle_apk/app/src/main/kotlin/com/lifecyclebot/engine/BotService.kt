@@ -18202,7 +18202,7 @@ if (hotExitHandledSweep) {
         val latestBuyByMint6513 = try { TradeHistoryStore.getLatestBuyByMintSnapshot() } catch (_: Throwable) { emptyMap() }
         var missingState = 0; var missingMark = 0; var projected = 0; var cacheHydrated = 0
         val out = canonical.map { cp ->
-            val qty = try { cp.remainingQtyRaw.toBigDecimal().movePointLeft(cp.tokenDecimals).toDouble() } catch (_: Throwable) { 0.0 }
+            val qty = try { cp.remainingQtyRaw.toBigDecimal().movePointLeft(cp.quantityScale).toDouble() } catch (_: Throwable) { 0.0 }
             val basis = (cp.entryCostSol - cp.soldCostBasisSol).coerceAtLeast(0.0)
             val existing = tokenByMint[cp.mint]
             val ts = existing ?: com.lifecyclebot.data.TokenState(mint = cp.mint, symbol = cp.symbol).also {

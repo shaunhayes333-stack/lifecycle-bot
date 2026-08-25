@@ -57,6 +57,8 @@ object CanonicalPositionAuthority6441 {
         val realizedProceedsSol: Double,
         val feesSol: Double,
         val tokenDecimals: Int,
+        /** Decimal-neutral PAPER raw storage scale. This is NOT mint metadata. */
+        val quantityScale: Int = tokenDecimals,
         val lifecycle: Lifecycle,
         val lastMutationMs: Long,
         val quarantineReason: String,
@@ -126,6 +128,7 @@ object CanonicalPositionAuthority6441 {
         entryPriceSource: String = "",
         entryPoolAddress: String = "",
         entryDex: String = "",
+        quantityScale: Int = tokenDecimals,
     ): MutateResult {
         lock.lock()
         try {
@@ -177,6 +180,7 @@ object CanonicalPositionAuthority6441 {
                 realizedProceedsSol = 0.0,
                 feesSol = feesSol,
                 tokenDecimals = tokenDecimals,
+                quantityScale = quantityScale,
                 lifecycle = lifecycle,
                 lastMutationMs = System.currentTimeMillis(),
                 quarantineReason = "",
@@ -210,6 +214,7 @@ object CanonicalPositionAuthority6441 {
         actualFeesSol: Double,
         tokenDecimals: Int,
         paperMode: Boolean,
+        quantityScale: Int = tokenDecimals,
     ): MutateResult {
         lock.lock()
         try {
@@ -243,6 +248,7 @@ object CanonicalPositionAuthority6441 {
                 originalQtyRaw = actualQtyRaw,
                 feesSol = actualFeesSol,
                 tokenDecimals = tokenDecimals,
+                quantityScale = quantityScale,
                 lifecycle = Lifecycle.OPEN,
                 lastMutationMs = System.currentTimeMillis(),
             )
@@ -438,7 +444,8 @@ object CanonicalPositionAuthority6441 {
                                 entryCostSol = e.executedCostSol, remainingQtyRaw = e.filledQty,
                                 originalQtyRaw = e.filledQty, soldCostBasisSol = 0.0,
                                 realizedPnlSol = 0.0, realizedProceedsSol = 0.0,
-                                feesSol = e.entryFeesSol, tokenDecimals = 9, lifecycle = Lifecycle.OPEN,
+                                feesSol = e.entryFeesSol, tokenDecimals = e.tokenDecimals,
+                                quantityScale = e.quantityScale, lifecycle = Lifecycle.OPEN,
                                 lastMutationMs = e.atMs, quarantineReason = "",
                                 entryPriceUsd = e.fillPrice, entryPriceSource = "ECONOMIC_EVENT_REPLAY_6513",
                             )
@@ -491,7 +498,10 @@ object CanonicalPositionAuthority6441 {
                         openedAtMs = System.currentTimeMillis(), entryCostSol = carryCost,
                         remainingQtyRaw = qtyRaw, originalQtyRaw = qtyRaw,
                         soldCostBasisSol = 0.0, realizedPnlSol = 0.0, realizedProceedsSol = 0.0,
-                        feesSol = 0.0, tokenDecimals = 9, lifecycle = Lifecycle.OPEN,
+                        feesSol = 0.0,
+                        tokenDecimals = carry6492.perMintTokenDecimals[mint] ?: 9,
+                        quantityScale = carry6492.perMintQuantityScale[mint] ?: (carry6492.perMintTokenDecimals[mint] ?: 9),
+                        lifecycle = Lifecycle.OPEN,
                         lastMutationMs = System.currentTimeMillis(), quarantineReason = "",
                     )
                     try { PositionStateLedger6454.onEntry(pid) } catch (_: Throwable) {}

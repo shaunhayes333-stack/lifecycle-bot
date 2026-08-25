@@ -85,6 +85,7 @@ object ExecutorCanonicalMirror6442 {
         entryPriceSource: String = "",
         entryPoolAddress: String = "",
         entryDex: String = "",
+        quantityScale: Int = tokenDecimals,
     ): Boolean {
         return try {
             val positionId = allocatePositionId(mint, paperMode)
@@ -107,7 +108,8 @@ object ExecutorCanonicalMirror6442 {
                 runId = runIdHash,
                 entryCostSol = estimatedCostSol,
                 openedQtyRaw = BigInteger.ZERO,   // pending fill
-                tokenDecimals = tokenDecimals,     // V5.0.6509 position-bound authority
+                tokenDecimals = tokenDecimals,     // actual mint metadata; may be -1 for PAPER
+                quantityScale = quantityScale,       // decimal-neutral accounting representation
                 feesSol = estimatedFeesSol,
                 paperMode = paperMode,
                 entryPriceUsd = entryPriceUsd,
@@ -137,6 +139,7 @@ object ExecutorCanonicalMirror6442 {
         actualFeesSol: Double,
         tokenDecimals: Int,
         paperMode: Boolean,
+        quantityScale: Int = tokenDecimals,
     ): Boolean {
         return try {
             val positionId = positionIdOf(mint)
@@ -147,6 +150,7 @@ object ExecutorCanonicalMirror6442 {
                 actualFeesSol = actualFeesSol,
                 tokenDecimals = tokenDecimals,
                 paperMode = paperMode,
+                quantityScale = quantityScale,
             )
             if (result == CanonicalPositionAuthority6441.MutateResult.APPLIED) {
                 try { IdempotencyKeyStore6437.markTerminal(buyIdempotencyKey(positionId), "BUY_CONFIRMED") } catch (_: Throwable) {}

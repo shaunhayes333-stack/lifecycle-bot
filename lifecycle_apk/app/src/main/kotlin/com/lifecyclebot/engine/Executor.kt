@@ -26,6 +26,12 @@ import com.lifecyclebot.data.maxPoolImpactPct
 import com.lifecyclebot.data.maxWalletRiskPerTradePct
 import com.lifecyclebot.data.minLiveBuySol
 
+internal object PaperQuantityRepresentation6514 {
+    const val DECIMAL_NEUTRAL_STORAGE_SCALE = 12
+    fun metadataDecimals(resolved: Int?): Int = resolved?.takeIf { it in 0..18 } ?: -1
+    fun accountingScale(resolved: Int?): Int = resolved?.takeIf { it in 0..18 } ?: DECIMAL_NEUTRAL_STORAGE_SCALE
+}
+
 internal object PaperPreTicketSizeFloor6511 {
     private const val ABSOLUTE_EXECUTABLE_FLOOR_SOL = 0.005
     private const val MAX_BOUNDED_RUNTIME_MINIMUM_SOL = 0.15
@@ -5768,7 +5774,7 @@ class Executor(
             pid6510, ts.mint, ts.symbol, sellFraction, sellSol, paperFeeEstimate6510, reason,
         )
         if (!partial6510.applied) return
-        val decimals6510 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid6510)?.tokenDecimals ?: 0
+        val decimals6510 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid6510)?.quantityScale ?: 0
         val newQty = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.decode(partial6510.postQty, decimals6510)
         val newCost = partial6510.postCost
         val pnlSol = partial6510.realizedPnl
@@ -7964,7 +7970,7 @@ class Executor(
                 pid6510, ts.mint, ts.symbol, sellFraction, sellQty * actualPrice, paperPartialFee, paperPartialReason,
             )
             if (!partial6510.applied) return false
-            val decimals6510 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid6510)?.tokenDecimals ?: 0
+            val decimals6510 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid6510)?.quantityScale ?: 0
             val postQty6510 = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.decode(partial6510.postQty, decimals6510)
             val paperDustClosed = partial6510.postQty <= java.math.BigInteger.ZERO || partial6510.postCost <= 0.000_001
             ts.position = if (paperDustClosed) Position() else pos.copy(qtyToken = postQty6510, costSol = partial6510.postCost, partialSoldPct = newSoldPct)
@@ -11714,14 +11720,87 @@ class Executor(
         // at recordTrade success) or PAPER_ENTRY_FINALITY_REJECT_<reason>
         // (via markPaperBuyNotOpened). Any silent early return is
         // caught by the periodic sweep as PAPER_ENTRY_FINALITY_MISSING_TERMINAL_6497.
-        val entryFinalityId6497 = attemptId.ifBlank { "PB-${ts.mint.take(10)}-${System.nanoTime()}" }
         val authorityVersion6513 = identity?.fdgCandidateVersion?.takeIf { it > 0L }
             ?: try { LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
         val authority6513 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(ts.mint, authorityVersion6513, "PAPER")
-        val ticket6513 = attemptId.takeIf { it.isNotBlank() }?.let { ExecutableOpenGate.ticketForAttempt(it) }
+        val preTicketLane6514 = authority6513?.executionLane ?: layerTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source.orEmpty().ifBlank { "STANDARD" } } }
+        val executionAttemptId6514 = attemptId.ifBlank { ExecutableOpenGate.nextAttemptId(ts.mint, preTicketLane6514) }
+        val entryFinalityId6497 = executionAttemptId6514
+        val ticket6513 = ExecutableOpenGate.ticketForAttempt(executionAttemptId6514)
         @Suppress("NAME_SHADOWING") val layerTag = ticket6513?.primaryLane
             ?: authority6513?.executionLane
             ?: layerTag
+        // V5.0.6514 — ticket lifecycle authority must exist above EVERY return.
+        var paperBuyLeaseKey6369 = ""
+        var paperBuyLeaseMode6369 = "PAPER"
+        var paperBuyLeaseProcessor6369 = "PAPER_BUY"
+        var hasDispatchedTicket6514 = false
+        fun markPaperTicketDispatched6514() {
+            if (hasDispatchedTicket6514) return
+            hasDispatchedTicket6514 = true
+            try {
+                PipelineHealthCollector.labelInc("PAPER_TICKET_DISPATCHED_6514")
+                ForensicLogger.lifecycle("PAPER_TICKET_DISPATCHED_6514", "attemptId=$executionAttemptId6514 mint=${ts.mint.take(10)} lane=$layerTag decimals=${getTokenDecimals(ts)}")
+            } catch (_: Throwable) {}
+        }
+        if (ticket6513 != null) markPaperTicketDispatched6514()
+
+        fun clearPaperAuthorities6514(reason: String, nonTerminal: Boolean) {
+            val leaseKey = paperBuyLeaseKey6369
+            if (leaseKey.isNotBlank()) {
+                try { ExecutionAttemptLease.releaseNonTerminal(leaseKey, "BUY", ts.mint, ts.symbol, reason) } catch (_: Throwable) {}
+                paperBuyLeaseKey6369 = ""
+            }
+            try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
+            try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, layerTag.ifBlank { ts.position.tradingMode.ifBlank { "PAPER" } }, reason, authorityVersion6513) } catch (_: Throwable) {}
+            if (nonTerminal) {
+                try { ExecutableOpenGate.releaseAttemptNonTerminal6514(executionAttemptId6514, ts.mint, layerTag, reason) } catch (_: Throwable) {}
+            } else {
+                try { ExecutableOpenGate.terminalizeAttempt6514(executionAttemptId6514, ts.mint, layerTag) } catch (_: Throwable) {}
+            }
+            if (leaseKey.isNotBlank() && ExecutionAttemptLease.isActiveKey6514(leaseKey)) try {
+                PipelineHealthCollector.labelInc("EXEC_LEASE_LEAK_INVARIANT_6514")
+                ForensicLogger.lifecycle("EXEC_LEASE_LEAK_INVARIANT_6514", "attemptId=$executionAttemptId6514 mint=${ts.mint.take(10)} reason=$reason key=$leaseKey")
+            } catch (_: Throwable) {}
+        }
+
+        fun markPaperBuyNotOpened(reason: String) {
+            try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_$reason") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.PaperEntryFinalityAuthority6497.markRejected(entryFinalityId6497, reason) } catch (_: Throwable) {}
+            clearPaperAuthorities6514("PAPER_BUY_HARD_BLOCKED_$reason", nonTerminal = false)
+            if (hasDispatchedTicket6514) try {
+                PipelineHealthCollector.labelInc("PAPER_TICKET_TERMINAL_BLOCK_6514")
+                PipelineHealthCollector.labelInc("PAPER_BUY_HARD_BLOCKED_$reason")
+                ForensicLogger.lifecycle("PAPER_TICKET_TERMINAL_BLOCK_6514", "attemptId=$executionAttemptId6514 mint=${ts.mint.take(10)} lane=$layerTag reason=$reason")
+            } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("PAPER_BUY_NOT_OPENED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$reason attemptId=$executionAttemptId6514") } catch (_: Throwable) {}
+        }
+
+        fun releasePaperBuyNonTerminal6514(reason: String) {
+            try { com.lifecyclebot.engine.truth.PaperEntryFinalityAuthority6497.markRejected(entryFinalityId6497, "NONTERMINAL_$reason") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("PAPER_BUY_NONTERMINAL_DEFERRED_$reason") } catch (_: Throwable) {}
+            clearPaperAuthorities6514("PAPER_BUY_NONTERMINAL_DEFERRED_$reason", nonTerminal = true)
+        }
+
+        fun markPaperTicketTerminalOpen6514(reason: String) {
+            val leaseKey = paperBuyLeaseKey6369
+            if (leaseKey.isNotBlank()) {
+                try { ExecutionAttemptLease.terminalOk(leaseKey, "BUY", ts.mint, ts.symbol, reason) } catch (_: Throwable) {}
+                paperBuyLeaseKey6369 = ""
+            }
+            try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
+            try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, layerTag.ifBlank { ts.position.tradingMode.ifBlank { "PAPER" } }, reason, authorityVersion6513) } catch (_: Throwable) {}
+            try { ExecutableOpenGate.terminalizeAttempt6514(executionAttemptId6514, ts.mint, layerTag) } catch (_: Throwable) {}
+            if (hasDispatchedTicket6514) try {
+                PipelineHealthCollector.labelInc("PAPER_TICKET_TERMINAL_OPEN_6514")
+                ForensicLogger.lifecycle("PAPER_TICKET_TERMINAL_OPEN_6514", "attemptId=$executionAttemptId6514 mint=${ts.mint.take(10)} lane=$layerTag reason=$reason")
+            } catch (_: Throwable) {}
+            if (leaseKey.isNotBlank() && ExecutionAttemptLease.isActiveKey6514(leaseKey)) try {
+                PipelineHealthCollector.labelInc("EXEC_LEASE_LEAK_INVARIANT_6514")
+                ForensicLogger.lifecycle("EXEC_LEASE_LEAK_INVARIANT_6514", "attemptId=$executionAttemptId6514 mint=${ts.mint.take(10)} reason=$reason key=$leaseKey")
+            } catch (_: Throwable) {}
+        }
         // V5.0.6451 §ENTRY_GATE — ExecutableEntryAuthority6450.gate() is the
         // single authority every executable BUY must clear before capital
         // reservation. Verdict values:
@@ -11756,6 +11835,7 @@ class Executor(
                     )
                     PipelineHealthCollector.labelInc("PAPER_BUY_DENIED_ENTRY_AUTHORITY_6451")
                 } catch (_: Throwable) {}
+                markPaperBuyNotOpened("ENTRY_AUTHORITY_${gateVerdict6451.reason}")
                 return
             }
         }
@@ -11816,35 +11896,10 @@ class Executor(
                 try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_PRESALE_SNIPE_51K_RUG_6373F") } catch (_: Throwable) {}
                 // V5.0.6497 §2 — terminal reject in the entry finality authority.
-                try { com.lifecyclebot.engine.truth.PaperEntryFinalityAuthority6497.markRejected(entryFinalityId6497, "PRESALE_SNIPE_51K_RUG_6373F") } catch (_: Throwable) {}
+                markPaperBuyNotOpened("PRESALE_SNIPE_51K_RUG_6373F")
                 return
             }
         }
-        // V5.0.6369 — PAPER BUY FANOUT RACE CLAIM.
-        // Runtime 6368 showed the same BLUECHIP paper mint opening twice within
-        // milliseconds while lane fanout was active. The old guard checked only
-        // ts.position.isOpen after advisor/route/finality work; concurrent lane
-        // passes could all observe closed before recordTrade() mutated the shared
-        // position. Reuse ExecutionAttemptLease as an early per-mint BUY claim for
-        // PAPER/SHADOW too, so lane fanout can observe but only one path opens.
-        var paperBuyLeaseKey6369 = ""
-        var paperBuyLeaseMode6369 = "PAPER"
-        var paperBuyLeaseProcessor6369 = "PAPER_BUY"
-
-        fun markPaperBuyNotOpened(reason: String) {
-            try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED") } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_$reason") } catch (_: Throwable) {}
-            // V5.0.6497 §2 — terminal reject in the entry finality authority.
-            try { com.lifecyclebot.engine.truth.PaperEntryFinalityAuthority6497.markRejected(entryFinalityId6497, reason) } catch (_: Throwable) {}
-            if (paperBuyLeaseKey6369.isNotBlank()) {
-                try { ExecutionAttemptLease.releaseNonTerminal(paperBuyLeaseKey6369, "BUY", ts.mint, ts.symbol, "PAPER_BUY_NOT_OPENED_$reason") } catch (_: Throwable) {}
-                paperBuyLeaseKey6369 = ""
-            }
-            try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
-            try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, layerTag.ifBlank { ts.position.tradingMode.ifBlank { "PAPER" } }, "BUY_NOT_OPENED_$reason") } catch (_: Throwable) {}
-            try { ForensicLogger.lifecycle("PAPER_BUY_NOT_OPENED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$reason attemptId=$attemptId") } catch (_: Throwable) {}
-        }
-
         if (sol <= 0 || sol.isNaN() || sol.isInfinite()) {
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Paper buy skipped: invalid size $sol for ${ts.symbol}")
             markPaperBuyNotOpened("INVALID_SIZE")
@@ -11963,6 +12018,7 @@ class Executor(
         }
         val canonicalBuyIntentSol6490 = preTicketSize6490.finalSizeSol
         paperBuyLeaseProcessor6369 = "PAPER_BUY_${finalityLane.uppercase()}"
+        // V5.0.6369 — PAPER BUY FANOUT RACE CLAIM remains the same-mint concurrency authority.
         val paperBuyLease6369 = try {
             ExecutionAttemptLease.acquire(
                 side = "BUY",
@@ -12016,7 +12072,7 @@ class Executor(
                 mode = if (routeIsShadow) "SHADOW" else "PAPER",
                 lane = finalityLane,
                 source = "Executor.paperBuy",
-                attemptId = attemptId.ifBlank { ExecutableOpenGate.nextAttemptId(ts.mint, finalityLane) },
+                attemptId = executionAttemptId6514,
                 preResolvedSizeSol6490 = canonicalBuyIntentSol6490,
             )
             if (!executableOpen.allowed) {
@@ -12025,16 +12081,15 @@ class Executor(
                     executableOpen.reason.contains("TOKEN_MAP_PENDING", ignoreCase = true) ||
                     executableOpen.reason.contains("ROUTE_STALE_RECHECK", ignoreCase = true)
                 if (tokenMapTransient6492) {
-                    // Retain lane election + execution lease. The mint-keyed
-                    // TokenMap owner publishes a shared result; the normal next
-                    // candidate pass retries after the short pending TTL.
                     try {
                         PipelineHealthCollector.labelInc("PAPER_BUY_DEFERRED_TOKEN_MAP_RETRY_6492")
-                        ForensicLogger.lifecycle("PAPER_BUY_DEFERRED_TOKEN_MAP_RETRY_6492", "mint=${ts.mint.take(10)} symbol=${ts.symbol} attemptId=${executableOpen.attemptId} lane=$finalityLane action=retain_election_and_lease_for_retry")
+                        ForensicLogger.lifecycle("PAPER_BUY_DEFERRED_TOKEN_MAP_RETRY_6492", "mint=${ts.mint.take(10)} symbol=${ts.symbol} attemptId=${executableOpen.attemptId} lane=$finalityLane action=release_all_authority_retry_next_cycle")
                     } catch (_: Throwable) {}
-                } else markPaperBuyNotOpened("FINALITY_BLOCKED")
+                    releasePaperBuyNonTerminal6514("TOKEN_MAP_${executableOpen.reason}")
+                } else markPaperBuyNotOpened("FINALITY_BLOCKED_${executableOpen.reason}")
                 return
             }
+            markPaperTicketDispatched6514()
         }
 
         // V5.9.801 — operator audit Fix D: WR recovery entry-size dampener.
@@ -12444,20 +12499,27 @@ class Executor(
         if (!solPriceForQty6509.isFinite() || solPriceForQty6509 !in 50.0..5000.0) {
             try {
                 PipelineHealthCollector.labelInc("PAPER_BUY_DEFERRED_SOL_USD_MISSING_6509")
-                ForensicLogger.lifecycle("PAPER_BUY_DEFERRED_SOL_USD_MISSING_6509", "mint=${tradeId.mint.take(10)} solUsd=$solPriceForQty6509 action=defer_before_debit")
+                ForensicLogger.lifecycle("PAPER_BUY_DEFERRED_SOL_USD_MISSING_6509", "mint=${tradeId.mint.take(10)} solUsd=$solPriceForQty6509 action=nonterminal_release_before_debit")
             } catch (_: Throwable) {}
+            releasePaperBuyNonTerminal6514("SOL_USD_MISSING_6509")
             return
         }
-        val paperTokenDecimals6509 = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.resolveDecimals(
+        val resolvedPaperDecimals6514 = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.resolveDecimals(
             tradeId.mint,
             getTokenDecimals(ts).takeIf { it in 0..18 },
         )
-        if (paperTokenDecimals6509 == null) {
+        val paperTokenDecimals6509 = PaperQuantityRepresentation6514.metadataDecimals(resolvedPaperDecimals6514)
+        val paperQuantityScale6514 = PaperQuantityRepresentation6514.accountingScale(resolvedPaperDecimals6514)
+        if (resolvedPaperDecimals6514 == null) {
             try {
-                PipelineHealthCollector.labelInc("PAPER_BUY_DEFERRED_DECIMALS_MISSING_6509")
-                ForensicLogger.lifecycle("PAPER_BUY_DEFERRED_DECIMALS_MISSING_6509", "mint=${tradeId.mint.take(10)} action=defer_before_debit")
+                PipelineHealthCollector.labelInc("PAPER_DECIMALS_PENDING_ADVISORY_6514")
+                ForensicLogger.lifecycle("PAPER_DECIMALS_PENDING_ADVISORY_6514", "mint=${tradeId.mint.take(10)} metadataDecimals=-1 accountingScale=$paperQuantityScale6514 action=continue_paper_fill_async_hydrate_no_economic_rewrite")
             } catch (_: Throwable) {}
-            return
+            ChokeReliefBus.launch("PAPER_DECIMALS_ASYNC_HYDRATE_6514", tradeId.mint) {
+                try {
+                    com.lifecyclebot.engine.truth.DecimalIntegrityAuthority6405.resolveDecimalsStrict(tradeId.mint, wallet, null, null)
+                } catch (_: Throwable) { /* advisory only; TokenMap/RPC may hydrate later */ }
+            }
         }
         val qtyAtBuy6509 = (effectiveSol * solPriceForQty6509) / maxOf(effectivePrice, 1e-12)
         val fundedPaperPosition6485 = Position(
@@ -12509,13 +12571,14 @@ class Executor(
         // funded lot, economic event and occupancy OPEN have all succeeded.
         val fee6485 = actualSol * 0.005
         val buyQtyRaw6485 = try {
-            com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.encode(fundedPaperPosition6485.qtyToken, paperTokenDecimals6509)
+            com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.encode(fundedPaperPosition6485.qtyToken, paperQuantityScale6514)
         } catch (_: Throwable) { java.math.BigInteger.ZERO }
         val qtyInvariant6509 = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.independentCheck(
-            actualSol, solPriceForQty6509, effectivePrice, buyQtyRaw6485, paperTokenDecimals6509,
+            actualSol, solPriceForQty6509, effectivePrice, buyQtyRaw6485, paperQuantityScale6514,
         )
         if (!qtyInvariant6509.ok) {
             try { PipelineHealthCollector.labelInc("PAPER_BUY_QTY_DIMENSIONAL_REJECT_6509") } catch (_: Throwable) {}
+            markPaperBuyNotOpened("QTY_DIMENSIONAL_REJECT_6509")
             return
         }
         var ledgerDebited6485 = false
@@ -12538,6 +12601,12 @@ class Executor(
                 paperBuyLeaseKey6369 = ""
             }
             try { com.lifecyclebot.engine.truth.PaperEntryFinalityAuthority6497.markRejected(entryFinalityId6497, reason) } catch (_: Throwable) {}
+            clearPaperAuthorities6514("PAPER_BUY_HARD_BLOCKED_$reason", nonTerminal = false)
+            if (hasDispatchedTicket6514) try {
+                PipelineHealthCollector.labelInc("PAPER_TICKET_TERMINAL_BLOCK_6514")
+                PipelineHealthCollector.labelInc("PAPER_BUY_HARD_BLOCKED_$reason")
+                ForensicLogger.lifecycle("PAPER_TICKET_TERMINAL_BLOCK_6514", "attemptId=$executionAttemptId6514 mint=${ts.mint.take(10)} lane=$layerTag reason=$reason atomicRollback=true")
+            } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("PAPER_BUY_ATOMIC_ROLLBACK_6485") } catch (_: Throwable) {}
         }
         val existingPid6513 = try { com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(tradeId.mint) } catch (_: Throwable) { "" }
@@ -12551,7 +12620,7 @@ class Executor(
                 PipelineHealthCollector.labelInc("PAPER_BUY_TERMINAL_REPLAY_RECOVERED_6513")
                 ForensicLogger.lifecycle("PAPER_BUY_TERMINAL_REPLAY_RECOVERED_6513", "attemptId=$entryFinalityId6497 positionId=$existingPid6513 mint=${tradeId.mint.take(10)} terminal=$existingTerminal6513 action=return_existing_terminal_no_second_debit")
             } catch (_: Throwable) {}
-            if (paperBuyLeaseKey6369.isNotBlank()) try { ExecutionAttemptLease.terminalOk(paperBuyLeaseKey6369, "BUY", tradeId.mint, tradeId.symbol, "PAPER_BUY_EXISTING_TERMINAL_6513") } catch (_: Throwable) {}
+            markPaperTicketTerminalOpen6514("PAPER_BUY_EXISTING_TERMINAL_6513")
             return
         }
         try { com.lifecyclebot.engine.truth.PaperEntryFinalityAuthority6497.beginAttempt(entryFinalityId6497, ts.mint, ts.symbol, layerTag.ifBlank { ts.source }.ifBlank { "STANDARD" }) } catch (_: Throwable) {}
@@ -12574,9 +12643,7 @@ class Executor(
             // mandate ("Existing malformed lots are quarantined, never
             // silently merged").
             try {
-                val decimals6507 = try {
-                    com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.get(tradeId.mint) ?: 9
-                } catch (_: Throwable) { 9 }
+                val decimals6507 = paperQuantityScale6514
                 val qtyTokenDouble6507 = buyQtyRaw6485.toDouble() / Math.pow(10.0, decimals6507.toDouble())
                 // Compute a local fillPrice for the invariant — the canonical
                 // fillPrice6485 is derived downstream at line ~12584 from the
@@ -12612,6 +12679,7 @@ class Executor(
                 mint = tradeId.mint, symbol = ts.symbol.ifBlank { tradeId.symbol }, lane = entryLane6485,
                 estimatedCostSol = actualSol, estimatedFeesSol = fee6485, paperMode = true,
                 tokenDecimals = paperTokenDecimals6509, attemptId = entryFinalityId6497,
+                quantityScale = paperQuantityScale6514,
                 entryPriceUsd = effectivePrice,
                 entryPriceSource = entryMarketSnapshot?.priceSource ?: ts.lastPriceSource,
                 entryPoolAddress = entryMarketSnapshot?.poolAddress ?: ts.lastPricePoolAddr.ifBlank { ts.pairAddress },
@@ -12629,6 +12697,7 @@ class Executor(
             if (!com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyFill(
                     mint = tradeId.mint, actualQtyRaw = buyQtyRaw6485, actualCostSol = actualSol,
                     actualFeesSol = fee6485, tokenDecimals = paperTokenDecimals6509, paperMode = true,
+                    quantityScale = paperQuantityScale6514,
                 )) {
                 rollbackPaperEntry6485("CANONICAL_OPEN_REJECTED")
                 return
@@ -12640,13 +12709,14 @@ class Executor(
                 return
             }
             val fillPrice6485 = actualSol / com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509
-                .decode(buyQtyRaw6485, paperTokenDecimals6509).coerceAtLeast(1e-12)
+                .decode(buyQtyRaw6485, paperQuantityScale6514).coerceAtLeast(1e-12)
             com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(
                 mode = "paper", positionId = pid6485, mint = tradeId.mint,
                 symbol = ts.symbol.ifBlank { tradeId.symbol },
                 idempotencyKey = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.buyIdempotencyKey(pid6485),
                 executedCostSol = actualSol, entryFeesSol = fee6485,
                 filledQty = buyQtyRaw6485, fillPrice = fillPrice6485,
+                tokenDecimals = paperTokenDecimals6509, quantityScale = paperQuantityScale6514,
             )
             // V5.0.6504 §1 — IMMUTABLE FILL LOT LEDGER. Persist the
             // canonical (mint, lotId=pid, side=BUY, qtyTokenRaw, lamports)
@@ -12788,10 +12858,7 @@ class Executor(
         // open registries have been written. Clearing it before registerPosition()
         // left a tiny same-tick window where another lane alias could pass the
         // lease and still not see a global open owner.
-        if (paperBuyLeaseKey6369.isNotBlank()) {
-            try { ExecutionAttemptLease.terminalOk(paperBuyLeaseKey6369, "BUY", tradeId.mint, tradeId.symbol, "PAPER_BUY_OPENED_6370") } catch (_: Throwable) {}
-            paperBuyLeaseKey6369 = ""
-        }
+        markPaperTicketTerminalOpen6514("PAPER_BUY_OPENED_6370")
         // V5.9.1470 (spec item 2 corollary) — REOPEN clears any prior close stamp so a
         // legitimately re-bought mint trades again cleanly (the duplicate-suppress guard
         // in paperSell only blocks a SELL while a live close stamp exists; a real new BUY
@@ -12874,8 +12941,8 @@ class Executor(
         
         val buildInfo = if (buildPhase == 1) " [BUILD 1/3]" else ""
         val buyAttemptLane = if (layerTag.isNotBlank()) layerTag else trade.tradingMode
-        try { ForensicLogger.lifecycle("TRADE_HISTORY_BUY_ATTEMPT", "attemptId=$attemptId symbol=${tradeId.symbol} mint=${tradeId.mint.take(10)} mode=PAPER lane=$buyAttemptLane") } catch (_: Throwable) {}
-        onLog("PAPER BUY attemptId=$attemptId @ ${price.fmt()} | ${actualSol.fmt(4)} SOL | score=${score.toInt()}$buildInfo", tradeId.mint)
+        try { ForensicLogger.lifecycle("TRADE_HISTORY_BUY_ATTEMPT", "attemptId=$executionAttemptId6514 symbol=${tradeId.symbol} mint=${tradeId.mint.take(10)} mode=PAPER lane=$buyAttemptLane") } catch (_: Throwable) {}
+        onLog("PAPER BUY attemptId=$executionAttemptId6514 @ ${price.fmt()} | ${actualSol.fmt(4)} SOL | score=${score.toInt()}$buildInfo", tradeId.mint)
         onNotify("📈 Paper Buy", "${tradeId.symbol}  ${actualSol.fmt(3)} SOL$buildInfo", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
         
         TradeAlerts.onBuy(cfg(), tradeId.symbol, actualSol, score, 0.0, ts.position.tradingMode, isPaper = true)
@@ -18391,7 +18458,7 @@ class Executor(
                 pid6510, ts.mint, ts.symbol, pct, soldValueSol + profitSol, partialSellFee, manualReason6510,
             )
             if (!partial6510.applied) return
-            val decimals6510 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid6510)?.tokenDecimals ?: 0
+            val decimals6510 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid6510)?.quantityScale ?: 0
 
             // Update position state to reflect the partial sell so that subsequent
             // exits operate on the correct remaining size, not the full original.
