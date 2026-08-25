@@ -2246,7 +2246,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Trade row must persist cost basis snapshot", models.contains("val entryCostSol: Double"))
         assertTrue("Trade row must persist partial accounting quantities", models.contains("val soldQtyToken: Double") && models.contains("val remainingQtyToken: Double"))
 
-        assertTrue("SQLite schema must version linkage columns", store.contains("const val DB_VERSION = 6"))
+        assertTrue("SQLite schema must version linkage columns", store.contains("const val DB_VERSION = 7"))
         assertTrue("SQLite schema must store position_id", store.contains("position_id   TEXT"))
         assertTrue("SQLite schema must store entry price snapshot", store.contains("entry_price_snapshot"))
         assertTrue("TradeHistoryStore must enrich missing sell linkage from prior BUY", store.contains("fun enrichJournalLinkage") && store.contains("TRADE_JOURNAL_LINKAGE_ENRICHED"))
@@ -8198,7 +8198,8 @@ class GoldenTapeRegressionTest {
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
 
         assertFalse("6509 recordTrade must never derive sold-token fraction from economic return", executor.contains("entryQtyForJournal * (trade.sol / entryCostForJournal)"))
-        assertTrue(executor.contains("resolveJournalSoldQty") && executor.contains("JOURNAL_CANONICAL_SOLD_QTY_MISMATCH_6509"))
+        assertTrue(executor.contains("canonicalConsumedRaw = rawVerdict6520.normalizedRaw") &&
+            !executor.contains("journalSoldRaw(trade.soldQtyToken"))
         assertTrue(qty.contains("expected = (costSol * solUsd) / tokenPriceUsd") && qty.contains("decoded = decode(raw, decimals)"))
         assertTrue(executor.contains("PAPER_BUY_DEFERRED_SOL_USD_MISSING_6509") && !executor.contains("effectiveSol / maxOf(effectivePrice, 1e-12)"))
         assertFalse("6514: unknown PAPER decimals are advisory, never a blocking reason", executor.contains("PAPER_BUY_DEFERRED_DECIMALS_MISSING_" + "6509"))
