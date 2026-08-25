@@ -586,7 +586,11 @@ class BotService : Service() {
     @Volatile private var canonicalBootstrapReady6515 = false
     @Volatile private var canonicalBootstrapSucceeded6515 = false
     @Volatile private var canonicalBootstrapJob6515: kotlinx.coroutines.Job? = null
-    private val canonicalStartQueued6515 = java.util.concurrent.atomic.AtomicBoolean(false)
+    // V5.0.6516 — complete persisted-state/service bootstrap barrier.
+    @Volatile private var serviceBootstrapReady6516 = false
+    @Volatile private var serviceBootstrapSucceeded6516 = false
+    @Volatile private var serviceBootstrapJob6516: kotlinx.coroutines.Job? = null
+    private val serviceStartQueued6516 = java.util.concurrent.atomic.AtomicBoolean(false)
 
     // V5.9.1495 — async safety-refresh trigger. Must fire BEFORE FDG's
     // LiveBuyAdmissionGate.SAFETY_STALE_MS (120s) cutoff so the regenerated
@@ -1413,9 +1417,6 @@ class BotService : Service() {
         try {
             // Initialize error logger first so we can capture any init errors
             ErrorLogger.init(applicationContext)
-            FeeRetryQueue.init(applicationContext)  // V5.9.226: Bug #7 — fee retry queue
-            FeeAccumulator.init(applicationContext)  // V5.0.3920 — fee accumulator (batched flush)
-            ScannerHardRejectStore.init(applicationContext)  // V5.0.4036 — durable hard-reject scanner quarantine
             // V5.0.6515 — P0 STARTUP ANR REPAIR. This durable replay previously
             // called SharedPreferences.all and rebuilt up to 8,192 economic events,
             // positions, lots, duplicate refunds, and projections synchronously in
@@ -1476,8 +1477,25 @@ class BotService : Service() {
             // V5.9.495z8 — register canonical learning subscribers once at startup.
             // Idempotent: subsequent calls are no-ops. Wires FluidLearningAI
             // mirror + LayerReadinessRegistry samples to the canonical bus.
-            CanonicalSubscribers.registerAll()
-
+            // V5.0.6516 — COMPLETE STARTUP FAMILY REPAIR. Everything below
+            // can load persisted JSON/SharedPreferences/SQLite, rebuild learning,
+            // or start a trader. Running any of it inline in Service.onCreate()
+            // makes startup scale with device history and can trigger Android's
+            // fatal service ANR. Keep only foreground establishment, ErrorLogger,
+            // and the Choreographer hook on main; run the full dependency graph on IO.
+            serviceBootstrapReady6516 = false
+            serviceBootstrapSucceeded6516 = false
+            serviceBootstrapJob6516 = scope.launch(kotlinx.coroutines.CoroutineName("service-bootstrap-6516")) {
+                val serviceStarted6516 = android.os.SystemClock.elapsedRealtime()
+                try {
+                    canonicalBootstrapJob6515?.join()
+                    check(canonicalBootstrapReady6515 && canonicalBootstrapSucceeded6515) {
+                        "canonical bootstrap unavailable"
+                    }
+                    FeeRetryQueue.init(applicationContext)
+                    FeeAccumulator.init(applicationContext)
+                    ScannerHardRejectStore.init(applicationContext)
+                    CanonicalSubscribers.registerAll()
             // V5.9.1382 — ExternalAlphaFeeds: ADDITIVE smart-money + token-safety
             // feeders into CrossTalkFusionEngine. Signal-only, fail-open, off the
             // trade-critical path (own IO coroutine, 90s cadence). Never vetoes,
@@ -2571,6 +2589,23 @@ class BotService : Service() {
             } catch (_: Throwable) {}
         }
 
+
+                    serviceBootstrapSucceeded6516 = true
+                    try {
+                        ForensicLogger.lifecycle("SERVICE_BOOTSTRAP_READY_6516", "durMs=${android.os.SystemClock.elapsedRealtime() - serviceStarted6516} thread=${Thread.currentThread().name}")
+                        PipelineHealthCollector.labelInc("SERVICE_BOOTSTRAP_READY_6516")
+                    } catch (_: Throwable) {}
+                } catch (t: Throwable) {
+                    serviceBootstrapSucceeded6516 = false
+                    ErrorLogger.crash("BotService", "SERVICE_BOOTSTRAP_FAILED_6516: ${t.javaClass.simpleName}: ${t.message}", t)
+                    try {
+                        ForensicLogger.lifecycle("SERVICE_BOOTSTRAP_FAILED_6516", "type=${t.javaClass.simpleName} msg=${t.message?.take(120)} durMs=${android.os.SystemClock.elapsedRealtime() - serviceStarted6516}")
+                        PipelineHealthCollector.labelInc("SERVICE_BOOTSTRAP_FAILED_6516")
+                    } catch (_: Throwable) {}
+                } finally {
+                    serviceBootstrapReady6516 = true
+                }
+            }
         } catch (e: Exception) {
             ErrorLogger.crash("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
             android.util.Log.e("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
@@ -4158,31 +4193,31 @@ class BotService : Service() {
         }
     }
 
-    /** V5.0.6515 — queue exactly one start behind durable canonical truth. */
-    private fun deferStartUntilCanonicalReady6515(): Boolean {
-        if (canonicalBootstrapReady6515) {
-            if (!canonicalBootstrapSucceeded6515) {
+    /** V5.0.6516 — queue exactly one start behind complete persisted-state initialization. */
+    private fun deferStartUntilServiceReady6516(): Boolean {
+        if (serviceBootstrapReady6516) {
+            if (!serviceBootstrapSucceeded6516) {
                 try {
-                    ForensicLogger.lifecycle("START_BLOCKED_CANONICAL_BOOTSTRAP_FAILED_6515", "action=keep_runtime_stopped")
-                    PipelineHealthCollector.labelInc("START_BLOCKED_CANONICAL_BOOTSTRAP_FAILED_6515")
+                    ForensicLogger.lifecycle("START_BLOCKED_SERVICE_BOOTSTRAP_FAILED_6516", "action=keep_runtime_stopped")
+                    PipelineHealthCollector.labelInc("START_BLOCKED_SERVICE_BOOTSTRAP_FAILED_6516")
                 } catch (_: Throwable) {}
                 return true
             }
             return false
         }
-        if (canonicalStartQueued6515.compareAndSet(false, true)) {
+        if (serviceStartQueued6516.compareAndSet(false, true)) {
             try {
-                ForensicLogger.lifecycle("START_DEFERRED_CANONICAL_BOOTSTRAP_6515", "action=await_io_replay")
-                PipelineHealthCollector.labelInc("START_DEFERRED_CANONICAL_BOOTSTRAP_6515")
+                ForensicLogger.lifecycle("START_DEFERRED_SERVICE_BOOTSTRAP_6516", "action=await_complete_io_init")
+                PipelineHealthCollector.labelInc("START_DEFERRED_SERVICE_BOOTSTRAP_6516")
             } catch (_: Throwable) {}
-            scope.launch(kotlinx.coroutines.CoroutineName("canonical-start-barrier-6515")) {
+            scope.launch(kotlinx.coroutines.CoroutineName("service-start-barrier-6516")) {
                 try {
-                    canonicalBootstrapJob6515?.join()
-                    while (!canonicalBootstrapReady6515) kotlinx.coroutines.delay(25L)
+                    serviceBootstrapJob6516?.join()
+                    while (!serviceBootstrapReady6516) kotlinx.coroutines.delay(25L)
                 } finally {
-                    canonicalStartQueued6515.set(false)
+                    serviceStartQueued6516.set(false)
                 }
-                if (canonicalBootstrapSucceeded6515 && !stopInProgress &&
+                if (serviceBootstrapSucceeded6516 && !stopInProgress &&
                     !isManualStopRequested(applicationContext) && loopJob?.isActive != true) {
                     startBot()
                 }
@@ -4192,7 +4227,7 @@ class BotService : Service() {
     }
 
     fun startBot() {
-        if (deferStartUntilCanonicalReady6515()) return
+        if (deferStartUntilServiceReady6516()) return
         isShuttingDown = false  // V5.9.721: clear shutdown flag so traders run normally
         // V5.0.6464 §P0-#7 — REGISTER CANONICAL FINALIZED-TRADE BUS CONSUMERS.
         // The 8 acknowledged learners/EV/dashboard subscribers each get a

@@ -20,11 +20,26 @@ class Repair6515StartupAnrTest {
     }
 
     @Test
-    fun `canonical failure keeps execution stopped while successful replay resumes one queued start`() {
+    fun `complete service failure keeps execution stopped while successful bootstrap resumes one queued start`() {
         assertTrue(source.contains("canonicalBootstrapSucceeded6515 = false"))
-        assertTrue(source.contains("START_BLOCKED_CANONICAL_BOOTSTRAP_FAILED_6515"))
-        assertTrue(source.contains("canonicalStartQueued6515.compareAndSet(false, true)"))
+        assertTrue(source.contains("serviceBootstrapSucceeded6516 = false"))
+        assertTrue(source.contains("START_BLOCKED_SERVICE_BOOTSTRAP_FAILED_6516"))
+        assertTrue(source.contains("serviceStartQueued6516.compareAndSet(false, true)"))
         assertTrue(source.contains("canonicalBootstrapJob6515?.join()"))
+        assertTrue(source.contains("serviceBootstrapJob6516?.join()"))
         assertTrue(source.contains("loopJob?.isActive != true"))
+    }
+
+    @Test
+    fun `persisted stores and trader startup are all downstream of IO service bootstrap`() {
+        val onCreate = source.substring(source.indexOf("override fun onCreate()"), source.indexOf("override fun onStartCommand"))
+        val launch = onCreate.indexOf("serviceBootstrapJob6516 = scope.launch")
+        val prefix = onCreate.substring(0, launch)
+        val background = onCreate.substring(launch)
+        listOf("FeeRetryQueue.init(", "TradeHistoryStore.init(", "LearningPersistence.init(",
+            "PositionPersistence.init(", "PerpsTraderAI.init(", "TokenizedStockTrader.start(",
+            "CryptoAltTrader.start(").forEach { forbidden -> assertFalse(prefix.contains(forbidden)) }
+        assertTrue(background.contains("TradeHistoryStore.init(applicationContext)"))
+        assertTrue(background.contains("SERVICE_BOOTSTRAP_READY_6516"))
     }
 }
