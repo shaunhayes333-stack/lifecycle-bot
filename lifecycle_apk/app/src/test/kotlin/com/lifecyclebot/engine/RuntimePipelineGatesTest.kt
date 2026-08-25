@@ -1196,8 +1196,9 @@ class ExecutionAuthorityInvariantTest {
             liveSafetyTier = "SAFE",
             preResolvedSizeSol6490 = 0.05,
         )
-        assertTrue("live direct wrapper should synthesize current candidate when lane/liquidity/safety are valid", live.allowed)
-        assertEquals("EXEC_OPEN_ALLOWED", live.logName)
+        assertFalse("live direct wrapper must not synthesize executable authority without an immutable FDG decision", live.allowed)
+        assertEquals("AUTHORITY_INVARIANT_FAILURE", live.logName)
+        assertEquals("FDG_ALLOW_WITHOUT_CURRENT_IMMUTABLE_AUTHORITY", live.reason)
 
         resetAuthorities(paper = false)
         val unsafeLive = ExecutableOpenGate.canOpenExecutablePosition(
