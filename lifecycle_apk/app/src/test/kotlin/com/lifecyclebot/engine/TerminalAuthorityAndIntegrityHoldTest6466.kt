@@ -17,7 +17,7 @@ class TerminalAuthorityAndIntegrityHoldTest6466 {
         TerminalMutationAuthority6466.resetForTest()
         val event = TerminalMutationAuthority6466.TerminalEvent(
             positionId = "PID_${System.nanoTime()}", mint = "M", symbol = "T",
-            mode = "paper", generation = 0L, terminalSequence = 1L,
+            mode = "paper", generation = 6466L, terminalSequence = 1L,
             runId = "r", exitReason = "TEST",
         )
         assertEquals(TerminalMutationAuthority6466.ClaimResult.GRANTED, TerminalMutationAuthority6466.claim(event))
@@ -39,7 +39,7 @@ class TerminalAuthorityAndIntegrityHoldTest6466 {
         TerminalMutationAuthority6466.resetForTest()
         val e1 = TerminalMutationAuthority6466.TerminalEvent(
             positionId = "PID_A", mint = "M", symbol = "T", mode = "paper",
-            generation = 0L, terminalSequence = 1L, runId = "r", exitReason = "PARTIAL",
+            generation = 6466L, terminalSequence = 1L, runId = "r", exitReason = "PARTIAL",
         )
         val e2 = e1.copy(terminalSequence = 2L)
         assertEquals(TerminalMutationAuthority6466.ClaimResult.GRANTED, TerminalMutationAuthority6466.claim(e1))

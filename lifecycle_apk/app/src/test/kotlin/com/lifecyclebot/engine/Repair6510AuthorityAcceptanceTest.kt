@@ -35,11 +35,11 @@ class Repair6510AuthorityAcceptanceTest {
         assertNull(ExecutionDecisionSnapshot6510.consume(mint, 3L, "NO_BUY", "PROJECT_SNIPER"))
     }
 
-    @Test fun fresh_dex_mark_is_authoritative_while_mint_route_is_not_executable() {
+    @Test fun synthetic_mint_route_is_neither_price_authoritative_nor_executable() {
         val mint = "MARK6510_${System.nanoTime()}"
         val r = MarkAuthorityIntegrityGate6496.evaluate(mint, 0.001, 100_000.0, 25_000.0,
             "DEXSCREENER_PAIR_POLL", "MINT_ROUTE:$mint", fresh = true)
-        assertTrue(r.priceAuthoritative); assertFalse(r.routeExecutable)
+        assertFalse(r.priceAuthoritative); assertFalse(r.routeExecutable)
     }
 
     @Test fun ten_identical_partials_commit_economics_once_and_replay_is_duplicate() {
