@@ -8354,4 +8354,24 @@ class GoldenTapeRegressionTest {
         assertTrue("real BUY journal must be on the paper open path", journal > 0 && terminal > 0)
     }
 
+
+    @Test
+    fun V5_0_6515_canonical_bootstrap_is_off_main_and_hard_barriers_execution() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val onCreate = bot.indexOf("override fun onCreate()")
+        val foreground = bot.indexOf("startForeground(NOTIF_ID", onCreate)
+        val launch = bot.indexOf("canonicalBootstrapJob" + "6515 = scope.launch", onCreate)
+        val eventLoad = bot.indexOf("EconomicEventSchema" + "6464.init6486", launch)
+        val ready = bot.indexOf("CANONICAL_BOOTSTRAP_READY_" + "6515", eventLoad)
+        val start = bot.indexOf("fun startBot()")
+        val gate = bot.indexOf("deferStartUntilCanonicalReady" + "6515()", start)
+        assertTrue("6515 foreground service must be established before durable replay", foreground > onCreate && launch > foreground)
+        assertTrue("6515 durable event load must execute inside IO-scope bootstrap", eventLoad > launch && ready > eventLoad)
+        assertTrue("6515 every startBot path must hit the canonical-ready gate first", gate > start && gate < bot.indexOf("isShuttingDown = false", start))
+        assertTrue(bot.contains("START_DEFERRED_CANONICAL_BOOTSTRAP_" + "6515"))
+        assertTrue(bot.contains("START_BLOCKED_CANONICAL_BOOTSTRAP_FAILED_" + "6515"))
+        assertTrue(bot.contains("canonicalBootstrapJob" + "6515?.join()"))
+        assertTrue(bot.contains("canonicalBootstrapSucceeded" + "6515 && !stopInProgress"))
+    }
+
 }

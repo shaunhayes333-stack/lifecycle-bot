@@ -582,6 +582,12 @@ class BotService : Service() {
 
     private val scope  = CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler)
 
+    // V5.0.6515 — canonical durable replay must never run in Service.onCreate's main thread.
+    @Volatile private var canonicalBootstrapReady6515 = false
+    @Volatile private var canonicalBootstrapSucceeded6515 = false
+    @Volatile private var canonicalBootstrapJob6515: kotlinx.coroutines.Job? = null
+    private val canonicalStartQueued6515 = java.util.concurrent.atomic.AtomicBoolean(false)
+
     // V5.9.1495 — async safety-refresh trigger. Must fire BEFORE FDG's
     // LiveBuyAdmissionGate.SAFETY_STALE_MS (120s) cutoff so the regenerated
     // report lands while still "fresh", closing the 2min–10min dead zone that
@@ -1410,48 +1416,57 @@ class BotService : Service() {
             FeeRetryQueue.init(applicationContext)  // V5.9.226: Bug #7 — fee retry queue
             FeeAccumulator.init(applicationContext)  // V5.0.3920 — fee accumulator (batched flush)
             ScannerHardRejectStore.init(applicationContext)  // V5.0.4036 — durable hard-reject scanner quarantine
-            // V5.0.6431 §K — start the INDEPENDENT reconciler scheduler
-            // on its own SupervisorJob + Dispatchers.IO scope so it
-            // cannot be starved by main-loop congestion. Callback is a
-            // no-op stub; the actual runAll continues to fire from
-            // emitBotLoopTick every 200 loops (Phase 2 will migrate the
-            // callback body). Quick invariant-check ticker runs every
-            // 5s regardless.
-            try {
-                // V5.0.6432 — initialise the paper account ledger with
-                // the operator's starting capital BEFORE any paper buy
-                // can debit the ledger; the quick reconciler ticker
-                // starts asserting the capital-conservation invariant
-                // 5s later.
-                val startCap6432 = try {
-                    com.lifecyclebot.data.ConfigStore.load(applicationContext).paperSimulatedBalance
-                } catch (_: Throwable) { 11.76 }
-                // V5.0.6486 — durable typed events MUST load before any ledger
-                // initialization/replay/reconciliation can derive paper capital.
-                com.lifecyclebot.engine.truth.EconomicEventSchema6464.init6486(applicationContext)
-                val durableEconomicEvents6486 = com.lifecyclebot.engine.truth.EconomicEventSchema6464.snapshot()
-                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.rebuildPaperFromEvents6486(durableEconomicEvents6486)
-                com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.rebuildPaperFromEvents6486(durableEconomicEvents6486)
-                val ledgerRestored6487 = com.lifecyclebot.engine.truth.PaperAccountLedger6430
-                    .initPersistent6487(applicationContext, startCap6432)
-                if (!ledgerRestored6487) {
-                    val migrated6487 = com.lifecyclebot.engine.truth.CanonicalPaperReplay6464
-                        .migrateLegacyLedgerOnce6487(startCap6432)
-                    if (!migrated6487) com.lifecyclebot.engine.truth.PaperAccountLedger6430.persistCurrent6487()
+            // V5.0.6515 — P0 STARTUP ANR REPAIR. This durable replay previously
+            // called SharedPreferences.all and rebuilt up to 8,192 economic events,
+            // positions, lots, duplicate refunds, and projections synchronously in
+            // Service.onCreate() on Android's main thread. Large real-device history
+            // therefore caused an immediate fatal ANR while clean CI installs passed.
+            // Start foreground first (above), then perform the complete canonical
+            // bootstrap on the service IO scope. startBot() is hard-barriered below:
+            // no scanner/executor may run until this succeeds.
+            canonicalBootstrapReady6515 = false
+            canonicalBootstrapSucceeded6515 = false
+            val canonicalCtx6515 = applicationContext
+            canonicalBootstrapJob6515 = scope.launch(kotlinx.coroutines.CoroutineName("canonical-bootstrap-6515")) {
+                val started6515 = android.os.SystemClock.elapsedRealtime()
+                try {
+                    val startCap6432 = try {
+                        com.lifecyclebot.data.ConfigStore.load(canonicalCtx6515).paperSimulatedBalance
+                    } catch (_: Throwable) { 11.76 }
+                    com.lifecyclebot.engine.truth.EconomicEventSchema6464.init6486(canonicalCtx6515)
+                    val durableEconomicEvents6486 = com.lifecyclebot.engine.truth.EconomicEventSchema6464.snapshot()
+                    com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.rebuildPaperFromEvents6486(durableEconomicEvents6486)
+                    com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.rebuildPaperFromEvents6486(durableEconomicEvents6486)
+                    val ledgerRestored6487 = com.lifecyclebot.engine.truth.PaperAccountLedger6430
+                        .initPersistent6487(canonicalCtx6515, startCap6432)
+                    if (!ledgerRestored6487) {
+                        val migrated6487 = com.lifecyclebot.engine.truth.CanonicalPaperReplay6464
+                            .migrateLegacyLedgerOnce6487(startCap6432)
+                        if (!migrated6487) com.lifecyclebot.engine.truth.PaperAccountLedger6430.persistCurrent6487()
+                    }
+                    try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol(), "startup_paper_ledger_authority_6487") } catch (_: Throwable) {}
+                    val inventoryRepair6490 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.refundDuplicateActiveMintLots6490()
+                    val repairedPaperPositions6490 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().filter { it.mode == "paper" }
+                    com.lifecyclebot.engine.EmergentGuardrails.rebuildFromCanonical6475(repairedPaperPositions6490)
+                    com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(repairedPaperPositions6490)
+                    try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol(), "startup_duplicate_inventory_repair_6490") } catch (_: Throwable) {}
+                    com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431.start { /* full reconcile callback: wired in Phase 2 */ }
+                    canonicalBootstrapSucceeded6515 = true
+                    try {
+                        ForensicLogger.lifecycle("CANONICAL_BOOTSTRAP_READY_6515", "events=${durableEconomicEvents6486.size} positions=${repairedPaperPositions6490.size} duplicateMints=${inventoryRepair6490.duplicateMints} durMs=${android.os.SystemClock.elapsedRealtime() - started6515} thread=${Thread.currentThread().name}")
+                        PipelineHealthCollector.labelInc("CANONICAL_BOOTSTRAP_READY_6515")
+                    } catch (_: Throwable) {}
+                } catch (t: Throwable) {
+                    canonicalBootstrapSucceeded6515 = false
+                    ErrorLogger.crash("BotService", "CANONICAL_BOOTSTRAP_FAILED_6515: ${t.javaClass.simpleName}: ${t.message}", t)
+                    try {
+                        ForensicLogger.lifecycle("CANONICAL_BOOTSTRAP_FAILED_6515", "type=${t.javaClass.simpleName} msg=${t.message?.take(120)} durMs=${android.os.SystemClock.elapsedRealtime() - started6515}")
+                        PipelineHealthCollector.labelInc("CANONICAL_BOOTSTRAP_FAILED_6515")
+                    } catch (_: Throwable) {}
+                } finally {
+                    canonicalBootstrapReady6515 = true
                 }
-                try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol(), "startup_paper_ledger_authority_6487") } catch (_: Throwable) {}
-                // V5.0.6490 — after ledger hydration, reverse historical duplicate
-                // same-mint paper debits at remaining basis. Then rebuild every
-                // projection from the repaired canonical inventory before trading.
-                val inventoryRepair6490 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.refundDuplicateActiveMintLots6490()
-                val repairedPaperPositions6490 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().filter { it.mode == "paper" }
-                com.lifecyclebot.engine.EmergentGuardrails.rebuildFromCanonical6475(repairedPaperPositions6490)
-                com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(repairedPaperPositions6490)
-                try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol(), "startup_duplicate_inventory_repair_6490") } catch (_: Throwable) {}
-                try { ForensicLogger.lifecycle("CANONICAL_INVENTORY_STARTUP_REPAIRED_6490", "duplicateMints=${inventoryRepair6490.duplicateMints} refundedLots=${inventoryRepair6490.refundedLots} refundedBasis=${inventoryRepair6490.refundedBasisSol} failures=${inventoryRepair6490.failures}") } catch (_: Throwable) {}
-                com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431
-                    .start { /* full reconcile callback: wired in Phase 2 */ }
-            } catch (_: Throwable) {}
+            }
             // V5.9.666 — install Choreographer-based ANR / long-frame
             // detector so the in-app Pipeline Health panel captures
             // every main-thread stutter with elapsed delta. onCreate
@@ -4143,7 +4158,41 @@ class BotService : Service() {
         }
     }
 
+    /** V5.0.6515 — queue exactly one start behind durable canonical truth. */
+    private fun deferStartUntilCanonicalReady6515(): Boolean {
+        if (canonicalBootstrapReady6515) {
+            if (!canonicalBootstrapSucceeded6515) {
+                try {
+                    ForensicLogger.lifecycle("START_BLOCKED_CANONICAL_BOOTSTRAP_FAILED_6515", "action=keep_runtime_stopped")
+                    PipelineHealthCollector.labelInc("START_BLOCKED_CANONICAL_BOOTSTRAP_FAILED_6515")
+                } catch (_: Throwable) {}
+                return true
+            }
+            return false
+        }
+        if (canonicalStartQueued6515.compareAndSet(false, true)) {
+            try {
+                ForensicLogger.lifecycle("START_DEFERRED_CANONICAL_BOOTSTRAP_6515", "action=await_io_replay")
+                PipelineHealthCollector.labelInc("START_DEFERRED_CANONICAL_BOOTSTRAP_6515")
+            } catch (_: Throwable) {}
+            scope.launch(kotlinx.coroutines.CoroutineName("canonical-start-barrier-6515")) {
+                try {
+                    canonicalBootstrapJob6515?.join()
+                    while (!canonicalBootstrapReady6515) kotlinx.coroutines.delay(25L)
+                } finally {
+                    canonicalStartQueued6515.set(false)
+                }
+                if (canonicalBootstrapSucceeded6515 && !stopInProgress &&
+                    !isManualStopRequested(applicationContext) && loopJob?.isActive != true) {
+                    startBot()
+                }
+            }
+        }
+        return true
+    }
+
     fun startBot() {
+        if (deferStartUntilCanonicalReady6515()) return
         isShuttingDown = false  // V5.9.721: clear shutdown flag so traders run normally
         // V5.0.6464 §P0-#7 — REGISTER CANONICAL FINALIZED-TRADE BUS CONSUMERS.
         // The 8 acknowledged learners/EV/dashboard subscribers each get a
