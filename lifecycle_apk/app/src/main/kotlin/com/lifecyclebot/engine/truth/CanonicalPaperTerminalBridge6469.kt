@@ -34,6 +34,10 @@ object CanonicalPaperTerminalBridge6469 {
         val terminalClaimed: Boolean,
         val busPublished: Boolean,
         val reason: String,
+        val canonicalConsumedRaw: BigInteger = BigInteger.ZERO,
+        val preRemainingRaw: BigInteger = BigInteger.ZERO,
+        val postRemainingRaw: BigInteger = BigInteger.ZERO,
+        val tokenDecimals: Int = -1,
     )
 
     private data class Claim(
@@ -201,7 +205,10 @@ object CanonicalPaperTerminalBridge6469 {
                 partialSells.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("CANONICAL_TERMINAL_PARTIAL") } catch (_: Throwable) {}
             }
-            return Result(applied = true, terminalClaimed = true, busPublished = busPublished, reason = "GRANTED")
+            return Result(applied = true, terminalClaimed = true, busPublished = busPublished, reason = "GRANTED",
+                canonicalConsumedRaw = soldQtyRaw, preRemainingRaw = preRemainingRaw,
+                postRemainingRaw = preRemainingRaw.subtract(soldQtyRaw).coerceAtLeast(BigInteger.ZERO),
+                tokenDecimals = CanonicalPositionAuthority6441.getPosition(positionId)?.quantityScale ?: -1)
         } catch (t: Throwable) {
             fanoutFailures.incrementAndGet()
             try {
@@ -211,7 +218,10 @@ object CanonicalPaperTerminalBridge6469 {
                 )
                 PipelineHealthCollector.labelInc("CANONICAL_PAPER_TERMINAL_BRIDGE_FANOUT_THREW_6469")
             } catch (_: Throwable) {}
-            return Result(applied = true, terminalClaimed = true, busPublished = busPublished, reason = "APPLIED_WITH_FANOUT_ERROR")
+            return Result(applied = true, terminalClaimed = true, busPublished = busPublished, reason = "APPLIED_WITH_FANOUT_ERROR",
+                canonicalConsumedRaw = soldQtyRaw, preRemainingRaw = preRemainingRaw,
+                postRemainingRaw = preRemainingRaw.subtract(soldQtyRaw).coerceAtLeast(BigInteger.ZERO),
+                tokenDecimals = CanonicalPositionAuthority6441.getPosition(positionId)?.quantityScale ?: -1)
         }
     }
 

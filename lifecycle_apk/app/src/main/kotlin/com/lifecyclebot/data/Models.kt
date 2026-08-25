@@ -1,5 +1,7 @@
 package com.lifecyclebot.data
 
+import java.math.BigInteger
+
 data class Candle(
     val ts: Long,
     val priceUsd: Double,
@@ -237,6 +239,11 @@ data class Trade(
     val entryDecimals: Int = 0,
     val soldQtyToken: Double = 0.0,
     val remainingQtyToken: Double = 0.0,
+    // V5.0.6520 — canonical accounting/finality quantity. UI Doubles above are presentation only.
+    val entryRawQty: BigInteger = BigInteger.ZERO,
+    val canonicalConsumedRaw: BigInteger = BigInteger.ZERO,
+    val remainingRawQty: BigInteger = BigInteger.ZERO,
+    val tokenDecimals: Int = -1,
     val entryPriceSource: String = "",
     val entryPoolAddress: String = "",
     // V5.0.6510 canonical paper-partial receipt fields.

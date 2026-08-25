@@ -8465,4 +8465,20 @@ class GoldenTapeRegressionTest {
         assertTrue(smoke.contains("Verifier rejected"))
     }
 
+
+    @Test
+    fun V5_0_6520_raw_quantity_is_canonical_end_to_end() {
+        val model = java.io.File("src/main/kotlin/com/lifecyclebot/data/Models.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val history = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        val terminal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt").readText()
+        val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalRawQuantityAuthority6520.kt").readText()
+        assertTrue(model.contains("val entryRawQty: BigInteger") && model.contains("val canonicalConsumedRaw: BigInteger") && model.contains("val remainingRawQty: BigInteger"))
+        assertTrue(executor.contains("paperRawFromEconomics(") && !executor.contains("journalSoldRaw(trade.soldQtyToken"))
+        assertTrue(executor.contains("canonicalConsumedRaw = rawVerdict6520.normalizedRaw") && terminal.contains("canonicalConsumedRaw = soldQtyRaw"))
+        assertTrue(history.contains("entry_raw_qty TEXT") && history.contains("put(" + "\"canonical_consumed_raw\"" + ", t.canonicalConsumedRaw.toString())"))
+        assertTrue(authority.contains("LEGACY_ROUNDING_EPSILON_RAW: BigInteger = BigInteger.ONE") && authority.contains("DECIMAL_SCALE_MISMATCH"))
+        assertFalse(authority.contains("BigDecimal(double)"))
+    }
+
 }

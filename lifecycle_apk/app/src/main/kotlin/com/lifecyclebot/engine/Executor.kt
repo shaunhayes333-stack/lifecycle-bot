@@ -5799,6 +5799,10 @@ class Executor(
             postQtyToken = newQty, preCostSol = partial6510.preCost,
             soldCostBasisSol = partial6510.soldCostBasis, postCostSol = partial6510.postCost,
             grossProceedsSol = partial6510.grossProceeds,
+            entryRawQty = partial6510.preQty,
+            canonicalConsumedRaw = partial6510.soldQty,
+            remainingRawQty = partial6510.postQty,
+            tokenDecimals = decimals6510,
         )
         recordTrade(ts, tradeRow)
         security.recordTrade(tradeRow)
@@ -7991,7 +7995,11 @@ class Executor(
                 soldQtyToken = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.decode(partial6510.soldQty, decimals6510),
                 postQtyToken = postQty6510, preCostSol = partial6510.preCost,
                 soldCostBasisSol = partial6510.soldCostBasis, postCostSol = partial6510.postCost,
-                grossProceedsSol = partial6510.grossProceeds)
+                grossProceedsSol = partial6510.grossProceeds,
+                entryRawQty = partial6510.preQty,
+                canonicalConsumedRaw = partial6510.soldQty,
+                remainingRawQty = partial6510.postQty,
+                tokenDecimals = decimals6510)
             recordTrade(ts, trade); security.recordTrade(trade)
             try { PipelineHealthCollector.labelInc("PAPER_PARTIAL_CLOSE_DONE") } catch (_: Throwable) {}
             // V5.9.743 — wire 70/30 treasury siphon onto the AUTONOMOUS partial-
@@ -12526,7 +12534,16 @@ class Executor(
                 } catch (_: Throwable) { /* advisory only; TokenMap/RPC may hydrate later */ }
             }
         }
-        val qtyAtBuy6509 = (effectiveSol * solPriceForQty6509) / maxOf(effectivePrice, 1e-12)
+        val buyQtyRaw6485 = try {
+            com.lifecyclebot.engine.truth.CanonicalRawQuantityAuthority6520.paperRawFromEconomics(
+                effectiveSol.toString(), solPriceForQty6509.toString(), effectivePrice.toString(), paperQuantityScale6514,
+            )
+        } catch (_: Throwable) { java.math.BigInteger.ZERO }
+        if (buyQtyRaw6485 <= java.math.BigInteger.ZERO) {
+            markPaperBuyNotOpened("RAW_QTY_ECONOMICS_INVALID_6520")
+            return
+        }
+        val qtyAtBuy6509 = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.decode(buyQtyRaw6485, paperQuantityScale6514)
         val fundedPaperPosition6485 = Position(
             qtyToken     = qtyAtBuy6509,
             entryPrice   = effectivePrice,
@@ -12575,9 +12592,6 @@ class Executor(
         // Nothing is externally OPEN until economic debit, canonical lifecycle,
         // funded lot, economic event and occupancy OPEN have all succeeded.
         val fee6485 = actualSol * 0.005
-        val buyQtyRaw6485 = try {
-            com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.encode(fundedPaperPosition6485.qtyToken, paperQuantityScale6514)
-        } catch (_: Throwable) { java.math.BigInteger.ZERO }
         val qtyInvariant6509 = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.independentCheck(
             actualSol, solPriceForQty6509, effectivePrice, buyQtyRaw6485, paperQuantityScale6514,
         )
@@ -12842,6 +12856,9 @@ class Executor(
             entryCostSol = actualSol,
             entryPriceSnapshot = effectivePrice,
             entryDecimals = paperTokenDecimals6509,
+            entryRawQty = buyQtyRaw6485,
+            remainingRawQty = buyQtyRaw6485,
+            tokenDecimals = paperTokenDecimals6509,
         )
         recordTrade(ts, trade)
         security.recordTrade(trade)
@@ -19823,17 +19840,12 @@ class Executor(
             entryPriceSnapshot = pos.entryPrice,
             entryDecimals = terminalDecimals6492,
             positionId = terminalPid6455,
+            entryRawQty = terminalRemainingRaw6492,
+            canonicalConsumedRaw = java.math.BigInteger.ZERO,
+            remainingRawQty = terminalRemainingRaw6492,
+            tokenDecimals = terminalDecimals6492,
         )
-        val journalSoldQtyRaw6509 = try {
-            com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.journalSoldRaw(trade.soldQtyToken, terminalDecimals6492)
-        } catch (_: Throwable) { java.math.BigInteger.ZERO }
-        if (journalSoldQtyRaw6509 != terminalRemainingRaw6492) {
-            try {
-                PipelineHealthCollector.labelInc("JOURNAL_CANONICAL_SOLD_QTY_MISMATCH_6509")
-                ForensicLogger.lifecycle("JOURNAL_CANONICAL_SOLD_QTY_MISMATCH_6509", "mint=${ts.mint.take(10)} journalRaw=$journalSoldQtyRaw6509 canonicalRaw=$terminalRemainingRaw6492 decimals=$terminalDecimals6492 action=reject_before_economics")
-            } catch (_: Throwable) {}
-            return SellResult.FAILED_FATAL
-        }
+        // V5.0.6520 — no UI→raw journal calculation. The close receipt supplies consumed raw.
         // V5.9.1011 — PAPER SELL FAST PATH.
         // Snapshot before closing the real position, then move canonical journal
         // + security + ML/learning fanout off this sell thread. V5.9.1010
@@ -19841,7 +19853,7 @@ class Executor(
         // PAPER_SELL_JOURNAL_DONE, i.e. inside synchronous recordTrade()/
         // TradeHistoryStore/SecurityGuard work. Closing the position and
         // releasing locks must not wait for that fanout.
-        val tradeSnap = if (trade.mint.isBlank()) trade.copy(mint = ts.mint) else trade
+        var tradeSnap = if (trade.mint.isBlank()) trade.copy(mint = ts.mint) else trade
         val tsLearningSnap = try {
             ts.copy(
                 position = pos.copy(),
@@ -19849,7 +19861,6 @@ class Executor(
                 recentEntryTimes = ts.recentEntryTimes.toMutableList(),
             )
         } catch (_: Throwable) { ts }
-        try { ts.trades.add(tradeSnap) } catch (_: Throwable) {}
         // V5.0.6474 — journal/learning projection is queued only after the
         // canonical paper close reducer below commits. A successful SELL row
         // without canonical cash/openCost/finalized fanout is a money-path lie.
@@ -19901,6 +19912,25 @@ class Executor(
                 terminal = true,
             )
             canonicalPaperSellCommitted6474 = close6474.applied
+            if (canonicalPaperSellCommitted6474) {
+                val rawVerdict6520 = com.lifecyclebot.engine.truth.CanonicalRawQuantityAuthority6520.normalizeLegacyJournalRaw(
+                    journalRaw = close6474.canonicalConsumedRaw,
+                    canonicalConsumedRaw = soldQtyRaw6474,
+                )
+                if (!rawVerdict6520.accepted) {
+                    com.lifecyclebot.engine.truth.LearningQuarantineGate6470.quarantinePositionId(
+                        pid6474, "DECIMAL_SCALE_MISMATCH_RECONSTRUCT_CANONICAL_LOT_6520",
+                    )
+                    return SellResult.FAILED_RETRYABLE
+                }
+                tradeSnap = tradeSnap.copy(
+                    entryRawQty = close6474.preRemainingRaw,
+                    canonicalConsumedRaw = rawVerdict6520.normalizedRaw,
+                    remainingRawQty = close6474.postRemainingRaw,
+                    tokenDecimals = close6474.tokenDecimals.takeIf { it >= 0 } ?: terminalDecimals6492,
+                )
+                try { ts.trades.add(tradeSnap) } catch (_: Throwable) {}
+            }
             // V5.0.6504 §1 — IMMUTABLE FILL LOT LEDGER (SELL side).
             // Persist the terminal SELL fill so canonicalQtyOf(mint) =
             // ΣBuy − ΣfinalizedSell. Finalized=true because this branch

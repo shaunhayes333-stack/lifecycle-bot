@@ -225,7 +225,7 @@ object TradeHistoryStore {
             // The DB on device is at v3 from a previous experiment, so returning
             // the codebase to v1 throws SQLiteException on startup and breaks
             // the entire learning pipeline. Bump to v4 to force an upgrade instead.
-            const val DB_VERSION = 6
+            const val DB_VERSION = 7
             const val TABLE = "trades"
         }
 
@@ -257,6 +257,10 @@ object TradeHistoryStore {
                     entry_decimals INTEGER NOT NULL DEFAULT 0,
                     sold_qty_token REAL NOT NULL DEFAULT 0,
                     remaining_qty_token REAL NOT NULL DEFAULT 0,
+                    entry_raw_qty TEXT NOT NULL DEFAULT '0',
+                    canonical_consumed_raw TEXT NOT NULL DEFAULT '0',
+                    remaining_raw_qty TEXT NOT NULL DEFAULT '0',
+                    token_decimals INTEGER NOT NULL DEFAULT -1,
                     entry_price_source TEXT NOT NULL DEFAULT '',
                     entry_pool_address TEXT NOT NULL DEFAULT '',
                     dedup_key     TEXT    UNIQUE
@@ -283,6 +287,12 @@ object TradeHistoryStore {
                 try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN entry_price_source TEXT NOT NULL DEFAULT ''") } catch (_: Throwable) {}
                 try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN entry_pool_address TEXT NOT NULL DEFAULT ''") } catch (_: Throwable) {}
                 try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_position_id ON $TABLE(position_id)") } catch (_: Throwable) {}
+            }
+            if (oldVersion < 7) {
+                try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN entry_raw_qty TEXT NOT NULL DEFAULT '0'") } catch (_: Throwable) {}
+                try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN canonical_consumed_raw TEXT NOT NULL DEFAULT '0'") } catch (_: Throwable) {}
+                try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN remaining_raw_qty TEXT NOT NULL DEFAULT '0'") } catch (_: Throwable) {}
+                try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN token_decimals INTEGER NOT NULL DEFAULT -1") } catch (_: Throwable) {}
             }
         }
     }
@@ -1408,6 +1418,10 @@ object TradeHistoryStore {
                         entryDecimals  = c.intOrZero("entry_decimals"),
                         soldQtyToken   = c.doubleOrZero("sold_qty_token"),
                         remainingQtyToken = c.doubleOrZero("remaining_qty_token"),
+                        entryRawQty = com.lifecyclebot.engine.truth.CanonicalRawQuantityAuthority6520.parseStoredRaw(c.stringOrBlank("entry_raw_qty")),
+                        canonicalConsumedRaw = com.lifecyclebot.engine.truth.CanonicalRawQuantityAuthority6520.parseStoredRaw(c.stringOrBlank("canonical_consumed_raw")),
+                        remainingRawQty = com.lifecyclebot.engine.truth.CanonicalRawQuantityAuthority6520.parseStoredRaw(c.stringOrBlank("remaining_raw_qty")),
+                        tokenDecimals = c.intOrZero("token_decimals").takeIf { it >= 0 } ?: -1,
                         entryPriceSource = c.stringOrBlank("entry_price_source"),
                         entryPoolAddress = c.stringOrBlank("entry_pool_address"),
                     )
@@ -2131,6 +2145,10 @@ object TradeHistoryStore {
         put("entry_decimals", t.entryDecimals)
         put("sold_qty_token", t.soldQtyToken)
         put("remaining_qty_token", t.remainingQtyToken)
+        put("entry_raw_qty", t.entryRawQty.toString())
+        put("canonical_consumed_raw", t.canonicalConsumedRaw.toString())
+        put("remaining_raw_qty", t.remainingRawQty.toString())
+        put("token_decimals", t.tokenDecimals)
         put("entry_price_source", t.entryPriceSource)
         put("entry_pool_address", t.entryPoolAddress)
         put("dedup_key",     "${t.ts}_${t.mint}_${t.side}_${tradeSeq.incrementAndGet()}")
@@ -2171,6 +2189,10 @@ object TradeHistoryStore {
                         entryDecimals  = c.intOrZero("entry_decimals"),
                         soldQtyToken   = c.doubleOrZero("sold_qty_token"),
                         remainingQtyToken = c.doubleOrZero("remaining_qty_token"),
+                        entryRawQty = com.lifecyclebot.engine.truth.CanonicalRawQuantityAuthority6520.parseStoredRaw(c.stringOrBlank("entry_raw_qty")),
+                        canonicalConsumedRaw = com.lifecyclebot.engine.truth.CanonicalRawQuantityAuthority6520.parseStoredRaw(c.stringOrBlank("canonical_consumed_raw")),
+                        remainingRawQty = com.lifecyclebot.engine.truth.CanonicalRawQuantityAuthority6520.parseStoredRaw(c.stringOrBlank("remaining_raw_qty")),
+                        tokenDecimals = c.intOrZero("token_decimals").takeIf { it >= 0 } ?: -1,
                         entryPriceSource = c.stringOrBlank("entry_price_source"),
                         entryPoolAddress = c.stringOrBlank("entry_pool_address"),
                     )

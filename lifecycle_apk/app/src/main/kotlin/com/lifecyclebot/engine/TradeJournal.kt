@@ -11,6 +11,7 @@ import androidx.core.content.FileProvider
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.data.Trade
 import java.io.File
+import java.math.BigInteger
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -72,6 +73,10 @@ class TradeJournal(private val ctx: Context) {
             entryDecimals = e.entryDecimals,
             soldQtyToken = e.soldQtyToken,
             remainingQtyToken = e.remainingQtyToken,
+            entryRawQty = e.entryRawQty,
+            canonicalConsumedRaw = e.canonicalConsumedRaw,
+            remainingRawQty = e.remainingRawQty,
+            tokenDecimals = e.tokenDecimals,
             entryPriceSource = e.entryPriceSource,
             entryPoolAddress = e.entryPoolAddress,
         )
@@ -106,6 +111,10 @@ class TradeJournal(private val ctx: Context) {
         val entryDecimals: Int = 0,
         val soldQtyToken: Double = 0.0,
         val remainingQtyToken: Double = 0.0,
+        val entryRawQty: BigInteger = BigInteger.ZERO,
+        val canonicalConsumedRaw: BigInteger = BigInteger.ZERO,
+        val remainingRawQty: BigInteger = BigInteger.ZERO,
+        val tokenDecimals: Int = -1,
         val entryPriceSource: String = "",
         val entryPoolAddress: String = "",
     )
@@ -141,6 +150,10 @@ class TradeJournal(private val ctx: Context) {
             entryDecimals = trade.entryDecimals,
             soldQtyToken = trade.soldQtyToken,
             remainingQtyToken = trade.remainingQtyToken,
+            entryRawQty = trade.entryRawQty,
+            canonicalConsumedRaw = trade.canonicalConsumedRaw,
+            remainingRawQty = trade.remainingRawQty,
+            tokenDecimals = trade.tokenDecimals,
             entryPriceSource = trade.entryPriceSource,
             entryPoolAddress = trade.entryPoolAddress,
         )
