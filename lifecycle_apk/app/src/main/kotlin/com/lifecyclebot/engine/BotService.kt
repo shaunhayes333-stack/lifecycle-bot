@@ -18189,6 +18189,8 @@ if (hotExitHandledSweep) {
     }
 
 
+    private val exitMarkRefreshPending6513 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
     /** V5.0.6512 — every exit sweep starts from canonical OPEN authority.
      * Mutable TokenState is projection-only. We rebind canonical quantity/basis/lane/id
      * when a token projection exists; a missing mark remains visible but non-triggering.
@@ -18197,26 +18199,63 @@ if (hotExitHandledSweep) {
         val canonical = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }
         if (canonical.isEmpty()) return emptyList()
         val tokenByMint = try { synchronized(status.tokens) { status.tokens.values.associateBy { it.mint } } } catch (_: Throwable) { emptyMap() }
-        var missingState = 0; var missingMark = 0; var projected = 0
+        val latestBuyByMint6513 = try { TradeHistoryStore.getLatestBuyByMintSnapshot() } catch (_: Throwable) { emptyMap() }
+        var missingState = 0; var missingMark = 0; var projected = 0; var cacheHydrated = 0
         val out = canonical.map { cp ->
             val qty = try { cp.remainingQtyRaw.toBigDecimal().movePointLeft(cp.tokenDecimals).toDouble() } catch (_: Throwable) { 0.0 }
             val basis = (cp.entryCostSol - cp.soldCostBasisSol).coerceAtLeast(0.0)
             val existing = tokenByMint[cp.mint]
-            val ts = existing ?: com.lifecyclebot.data.TokenState(mint = cp.mint, symbol = cp.symbol).also { missingState++ }
+            val ts = existing ?: com.lifecyclebot.data.TokenState(mint = cp.mint, symbol = cp.symbol).also {
+                try { synchronized(status.tokens) { status.tokens.putIfAbsent(cp.mint, it) } } catch (_: Throwable) { missingState++ }
+            }
+            val journalBuy6513 = latestBuyByMint6513[cp.mint]
+            val canonicalEntryPrice6513 = cp.entryPriceUsd.takeIf { it > 0.0 }
+                ?: journalBuy6513?.entryPriceSnapshot?.takeIf { it > 0.0 }
+                ?: journalBuy6513?.price?.takeIf { it > 0.0 }
+                ?: 0.0
+            val cached = try { TokenMapAuthority.cachedForExit6513(cp.mint) } catch (_: Throwable) { null }
+            if ((ts.lastPrice <= 0.0 || System.currentTimeMillis() - ts.lastPriceUpdate > 90_000L) && cached != null) {
+                ts.lastPrice = cached.priceUsd ?: 0.0
+                ts.lastPriceUpdate = cached.updatedAtMs
+                ts.lastPriceSource = cached.sourceScanner.ifBlank { "TOKEN_MAP_CACHE_6513" }
+                ts.lastPricePoolAddr = cached.poolAddress.ifBlank { cached.pairAddress }
+                ts.lastPriceDex = cached.dexId
+                ts.lastLiquidityUsd = cached.liquidityUsd ?: ts.lastLiquidityUsd
+                ts.tokenMap = cached
+                cacheHydrated++
+            }
             val old = ts.position
-            if (!old.isOpen || old.positionId != cp.positionId || kotlin.math.abs(old.qtyToken - qty) > 1e-12 || !old.tradingMode.equals(cp.lane, true)) {
+            if (!old.isOpen || old.positionId != cp.positionId || kotlin.math.abs(old.qtyToken - qty) > 1e-12 || !old.tradingMode.equals(cp.lane, true) || old.entryPrice <= 0.0) {
                 ts.position = old.copy(
-                    qtyToken = qty, entryTime = cp.openedAtMs, costSol = basis,
+                    qtyToken = qty,
+                    entryPrice = old.entryPrice.takeIf { it > 0.0 } ?: canonicalEntryPrice6513,
+                    entryTime = cp.openedAtMs, costSol = basis,
                     isPaperPosition = cp.mode.equals("paper", true), tradingMode = cp.lane,
                     positionId = cp.positionId,
+                    entryPriceSource = old.entryPriceSource.ifBlank { cp.entryPriceSource },
+                    entryPoolAddress = old.entryPoolAddress.ifBlank { cp.entryPoolAddress },
+                    entryDex = old.entryDex.ifBlank { cp.entryDex },
+                    highestPrice = maxOf(old.highestPrice, old.entryPrice.takeIf { it > 0.0 } ?: canonicalEntryPrice6513),
                 )
                 projected++
             }
-            if (ts.position.entryPrice <= 0.0 || ts.lastPrice <= 0.0) missingMark++
+            if (ts.position.entryPrice <= 0.0 || ts.lastPrice <= 0.0) {
+                missingMark++
+                if (exitMarkRefreshPending6513.add(cp.mint)) {
+                    try {
+                        PipelineHealthCollector.labelInc("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513")
+                        ForensicLogger.lifecycle("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513", "positionId=${cp.positionId} mint=${cp.mint.take(10)} entryPrice=${ts.position.entryPrice} mark=${ts.lastPrice} action=async_refresh_no_silent_eval")
+                    } catch (_: Throwable) {}
+                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        try { tryFallbackPriceData(cp.mint, ts) }
+                        finally { exitMarkRefreshPending6513.remove(cp.mint) }
+                    }
+                }
+            }
             ts
         }
         try {
-            com.lifecyclebot.engine.ForensicLogger.lifecycle("CANONICAL_EXIT_FEED_6512", "canonicalOpen=${canonical.size} exitVisible=${out.size} projected=$projected missingTokenState=$missingState missingMark=$missingMark")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("CANONICAL_EXIT_FEED_6512", "canonicalOpen=${canonical.size} exitVisible=${out.size} projected=$projected cacheHydrated=$cacheHydrated missingTokenState=$missingState missingMark=$missingMark")
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_EXIT_POSITION_SEEN_6512|N=${canonical.size}")
             if (missingState > 0) com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_EXIT_TOKEN_STATE_MISSING_6512|N=$missingState")
             if (missingMark > 0) com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_EXIT_MARK_MISSING_6512|N=$missingMark")

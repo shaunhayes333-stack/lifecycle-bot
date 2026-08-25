@@ -52,6 +52,13 @@ object TokenMapAuthority {
         val reason: String = "",
     )
 
+    fun cachedForExit6513(mint: String, maxAgeMs: Long = 90_000L): CanonicalTokenMap? {
+        val snap = canonicalResultByMint6492[mint] ?: return null
+        if (snap.updatedAtMs <= 0L || System.currentTimeMillis() - snap.updatedAtMs > maxAgeMs) return null
+        if ((snap.priceUsd ?: 0.0) <= 0.0) return null
+        return detached6492(snap)
+    }
+
     fun isSourceLabel(value: String?): Boolean {
         val v = value?.trim()?.uppercase()?.replace('-', '_') ?: return false
         return v in SOURCE_LABELS

@@ -49,6 +49,8 @@ object ExecutorCanonicalMirror6442 {
      */
     fun positionIdOf(mint: String): String {
         val cm = canonicalMint(mint)
+        val restored = try { CanonicalPositionAuthority6441.openPositions().firstOrNull { it.mint == cm }?.positionId } catch (_: Throwable) { null }
+        if (!restored.isNullOrBlank()) activePositionIdByMint[cm] = restored
         return activePositionIdByMint[cm] ?: lastClosedPositionIdByMint[cm] ?: "PAPER:$cm:$runIdHash"
     }
 
@@ -78,6 +80,11 @@ object ExecutorCanonicalMirror6442 {
         estimatedFeesSol: Double,
         paperMode: Boolean,
         tokenDecimals: Int = 9,
+        attemptId: String = "",
+        entryPriceUsd: Double = 0.0,
+        entryPriceSource: String = "",
+        entryPoolAddress: String = "",
+        entryDex: String = "",
     ): Boolean {
         return try {
             val positionId = allocatePositionId(mint, paperMode)
@@ -85,7 +92,7 @@ object ExecutorCanonicalMirror6442 {
             // Reserve in the SQLite idempotency store first so a mid-tx restart
             // cannot resubmit; if the reserve returns DUPLICATE, skip the mirror.
             val reserve = try {
-                IdempotencyKeyStore6437.checkAndReserve(idem, if (paperMode) "PAPER" else "LIVE", "buy_attempt")
+                IdempotencyKeyStore6437.checkAndReserve(idem, if (paperMode) "PAPER" else "LIVE", "buy_attempt:$attemptId")
             } catch (_: Throwable) { IdempotencyKeyStore6437.InsertResult.NEW }
             if (reserve == IdempotencyKeyStore6437.InsertResult.DUPLICATE) {
                 try { PipelineHealthCollector.labelInc("EXECUTOR_MIRROR_BUY_DUP_6442") } catch (_: Throwable) {}
@@ -103,6 +110,10 @@ object ExecutorCanonicalMirror6442 {
                 tokenDecimals = tokenDecimals,     // V5.0.6509 position-bound authority
                 feesSol = estimatedFeesSol,
                 paperMode = paperMode,
+                entryPriceUsd = entryPriceUsd,
+                entryPriceSource = entryPriceSource,
+                entryPoolAddress = entryPoolAddress,
+                entryDex = entryDex,
             )
             buysMirrored.incrementAndGet()
             if (result == CanonicalPositionAuthority6441.MutateResult.APPLIED || result == CanonicalPositionAuthority6441.MutateResult.DUPLICATE) {

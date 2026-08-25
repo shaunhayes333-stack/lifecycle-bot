@@ -60,6 +60,10 @@ object CanonicalPositionAuthority6441 {
         val lifecycle: Lifecycle,
         val lastMutationMs: Long,
         val quarantineReason: String,
+        val entryPriceUsd: Double = 0.0,
+        val entryPriceSource: String = "",
+        val entryPoolAddress: String = "",
+        val entryDex: String = "",
     )
 
     enum class MutateResult { APPLIED, DUPLICATE, INVARIANT_VIOLATION, UNKNOWN_POSITION, LIFECYCLE_FORBIDDEN }
@@ -118,6 +122,10 @@ object CanonicalPositionAuthority6441 {
         feesSol: Double,
         paperMode: Boolean,
         modeOverride: String? = null,
+        entryPriceUsd: Double = 0.0,
+        entryPriceSource: String = "",
+        entryPoolAddress: String = "",
+        entryDex: String = "",
     ): MutateResult {
         lock.lock()
         try {
@@ -172,6 +180,10 @@ object CanonicalPositionAuthority6441 {
                 lifecycle = lifecycle,
                 lastMutationMs = System.currentTimeMillis(),
                 quarantineReason = "",
+                entryPriceUsd = entryPriceUsd,
+                entryPriceSource = entryPriceSource,
+                entryPoolAddress = entryPoolAddress,
+                entryDex = entryDex,
             )
             markKeyUsed(idempotencyKey)
             try { AateDecisionFabric6512.attachPosition(positionId, canonicalMode6490, mint, lane) } catch (_: Throwable) {}
@@ -428,6 +440,7 @@ object CanonicalPositionAuthority6441 {
                                 realizedPnlSol = 0.0, realizedProceedsSol = 0.0,
                                 feesSol = e.entryFeesSol, tokenDecimals = 9, lifecycle = Lifecycle.OPEN,
                                 lastMutationMs = e.atMs, quarantineReason = "",
+                                entryPriceUsd = e.fillPrice, entryPriceSource = "ECONOMIC_EVENT_REPLAY_6513",
                             )
                         } else cur.copy(
                             entryCostSol = cur.entryCostSol + e.executedCostSol,

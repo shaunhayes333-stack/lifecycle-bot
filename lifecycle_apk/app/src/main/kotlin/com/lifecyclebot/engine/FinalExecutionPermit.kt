@@ -203,6 +203,18 @@ object FinalExecutionPermit {
             recordPermitFalseReturn4416("IMMUTABLE_EXEC_TICKET_MISSING_6494")
             return false
         }
+        val currentVersion6513 = LaneExecutionCoordinator.candidateVersionFor(mint)
+        if (executionTicket6494.primaryLane != executionTicket6494.lane ||
+            executionTicket6494.fdgVerdict !in setOf("BUY", "PROBE_ONLY") ||
+            executionTicket6494.authoritativeSignal != "BUY" ||
+            executionTicket6494.candidateVersion != currentVersion6513) {
+            try {
+                PipelineHealthCollector.labelInc("AUTHORITY_INVARIANT_FAILURE")
+                ForensicLogger.lifecycle("AUTHORITY_INVARIANT_FAILURE", "attemptId=$finalityAttemptId mint=${mint.take(10)} ticketLane=${executionTicket6494.lane} primaryLane=${executionTicket6494.primaryLane} verdict=${executionTicket6494.fdgVerdict} signal=${executionTicket6494.authoritativeSignal} ticketVersion=${executionTicket6494.candidateVersion} currentVersion=$currentVersion6513")
+            } catch (_: Throwable) {}
+            recordPermitFalseReturn4416("AUTHORITY_INVARIANT_FAILURE")
+            return false
+        }
         val requestedLane6494 = when (layer.uppercase().replace('-', '_').replace(' ', '_')) {
             "BLUE_CHIP" -> "BLUECHIP"
             "SHIT_COIN" -> "SHITCOIN"

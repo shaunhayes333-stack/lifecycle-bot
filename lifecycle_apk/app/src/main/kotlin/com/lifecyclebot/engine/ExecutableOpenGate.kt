@@ -43,6 +43,12 @@ object ExecutableOpenGate {
         val lane: String,
         val mode: String,
         val candidateVersion: Long,
+        val candidateId: String = "$mint:$candidateVersion",
+        val primaryLane: String = lane,
+        val fdgVerdict: String = "BUY",
+        val authoritativeSignal: String = "BUY",
+        val safetyVerdict: String = "UNKNOWN",
+        val authorityVersion: Long = 0L,
         val electionId6494: String = "",
         val authorityVersion6494: Long = 0L,
         val fdgReason: String?,
@@ -676,6 +682,8 @@ object ExecutableOpenGate {
                             mint = mint, candidateVersion = winner.candidateVersion,
                             verdict = winner.preFdgVerdict, executionLane = winner.selectedLane,
                             score = winner.entryScore.toDouble(), generatedAtMs = System.currentTimeMillis(),
+                            authoritativeSignal = "BUY", safetyVerdict = winner.safetyTier,
+                            resolvedSizeSol = try { com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint) ?: 0.0 } catch (_: Throwable) { 0.0 },
                         )
                     )
                     val mode6512 = if (paperRuntime) "PAPER" else "LIVE"
@@ -1020,11 +1028,23 @@ object ExecutableOpenGate {
                 } catch (_: Throwable) {}
             }
         } else null
-        val state = existingState ?: syntheticPaperState
+        val provisionalState6513 = existingState ?: syntheticPaperState
+        val authorityCandidateVersion6513 = electedCandidateVersion6494.takeIf { it > 0L }
+            ?: provisionalState6513?.candidateVersion
+            ?: LaneExecutionCoordinator.candidateVersionFor(mint)
+        val immutableAuthority6513 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(
+            mint, authorityCandidateVersion6513, modeUpper,
+        )
+        val state = provisionalState6513 ?: immutableAuthority6513?.let { a ->
+            EntryState(mint = mint, symbol = symbol, fdgCan = true, fdgReason = a.verdict,
+                safetyTier = a.safetyVerdict, signal = a.authoritativeSignal, decisionBand = a.verdict,
+                selectedLane = a.executionLane, preFdgVerdict = a.verdict,
+                candidateVersion = a.candidateVersion, updatedAtMs = a.generatedAtMs)
+        }
         val v3Decision = state?.v3Decision ?: "UNKNOWN"
-        val fdgCan = state?.fdgCan
-        val fdgReason = state?.fdgReason ?: "n/a"
-        val signal = state?.signal ?: "UNKNOWN"
+        val fdgCan = if (immutableAuthority6513 != null) true else state?.fdgCan
+        val fdgReason = immutableAuthority6513?.verdict ?: state?.fdgReason ?: "n/a"
+        val signal = immutableAuthority6513?.authoritativeSignal ?: state?.signal ?: "UNKNOWN"
         val band = state?.decisionBand ?: v3Decision
         val fatalReason = state?.v3FatalReason ?: fdgReason
         // V5.9.1367 — prefer LIVE context (ground truth at decision time) over a stale
@@ -1048,15 +1068,17 @@ object ExecutableOpenGate {
         // real REQUESTING lane (it is the lane trying to execute). Only truly UNKNOWN when
         // NEITHER is a real execution lane → then we block with CANON_LANE_UNRESOLVED.
         val selectedLane = when {
+            immutableAuthority6513 != null -> canonicalLane(immutableAuthority6513.executionLane)
             isRealExecutionLane(receiptLane6494) -> receiptLane6494
             isRealExecutionLane(rawSelectedLane) -> canonicalLane(rawSelectedLane)
             isRealExecutionLane(lane) -> requestedLane
             else -> "UNKNOWN"
         }
         val canonicalSelectedLane = canonicalLane(selectedLane)
-        val preFdgVerdict = state?.preFdgVerdict ?: "WATCH"
+        val preFdgVerdict = immutableAuthority6513?.verdict ?: state?.preFdgVerdict ?: "WATCH"
         val hardNoReasons = state?.hardNoReasons ?: emptyList()
-        val candidateVersion = electedCandidateVersion6494.takeIf { it > 0L } ?: state?.candidateVersion ?: 0L
+        val candidateVersion = immutableAuthority6513?.candidateVersion
+            ?: electedCandidateVersion6494.takeIf { it > 0L } ?: state?.candidateVersion ?: 0L
         var restorePenalty = LiveRestoreExecutionPolicy.fromRuntimeDrift(liquidityUsd)
         val staleApprovedVerdict = mode.equals("LIVE", true) &&
             preFdgVerdict.uppercase() in setOf("WATCH", "PROBE", "NO_BUY") &&
@@ -1366,7 +1388,7 @@ object ExecutableOpenGate {
             }
             return dropped(log, reason)
         }
-        if (immutableTicket == null && !selectedLaneMatchesRequest(selectedLane, lane)) {
+        if (immutableTicket == null && immutableAuthority6513 == null && !selectedLaneMatchesRequest(selectedLane, lane)) {
             // V5.9.1499 — LANE-CONTENTION DEDUP (not lost volume). When two REAL
             // specialist lanes both qualify the same mint, LaneExecutionCoordinator
             // elects ONE primary (priority + recent-WR based, with upgrade-steal).
@@ -1452,6 +1474,24 @@ object ExecutableOpenGate {
                 return blocked("EXEC_OPEN_BLOCKED_TRUE_ZERO_LIQUIDITY", "TRUE_ZERO_LIQUIDITY", shadow = false)
             }
         }
+        if (fdgCan == true && hardNoReasons.isEmpty() && immutableAuthority6513 == null) {
+            try {
+                PipelineHealthCollector.labelInc("AUTHORITY_INVARIANT_FAILURE")
+                PipelineHealthCollector.labelInc("EXEC_AUTHORITY_STATE_MISMATCH")
+                ForensicLogger.lifecycle("AUTHORITY_INVARIANT_FAILURE", "attemptId=$attemptId mint=${mint.take(10)} candidateVersion=$candidateVersion currentVersion=$currentCandidateVersion requestedLane=$requestedLane selectedLane=$canonicalSelectedLane preFdg=$preFdgVerdict reason=FDG_ALLOW_WITHOUT_CURRENT_IMMUTABLE_AUTHORITY")
+            } catch (_: Throwable) {}
+            return blocked("AUTHORITY_INVARIANT_FAILURE", "FDG_ALLOW_WITHOUT_CURRENT_IMMUTABLE_AUTHORITY", shadow = mode == "PAPER")
+        }
+        if (immutableAuthority6513 != null && (immutableAuthority6513.candidateVersion != currentCandidateVersion ||
+                immutableAuthority6513.executionLane != canonicalSelectedLane || immutableAuthority6513.authoritativeSignal != "BUY" ||
+                immutableAuthority6513.verdict !in setOf("BUY", "PROBE_ONLY"))) {
+            try {
+                PipelineHealthCollector.labelInc("AUTHORITY_INVARIANT_FAILURE")
+                PipelineHealthCollector.labelInc("EXEC_AUTHORITY_STATE_MISMATCH")
+                ForensicLogger.lifecycle("AUTHORITY_INVARIANT_FAILURE", "attemptId=$attemptId mint=${mint.take(10)} ticketLane=$canonicalSelectedLane authorityLane=${immutableAuthority6513.executionLane} authorityVersion=${immutableAuthority6513.authorityVersion} candidateVersion=${immutableAuthority6513.candidateVersion} currentVersion=$currentCandidateVersion verdict=${immutableAuthority6513.verdict} signal=${immutableAuthority6513.authoritativeSignal}")
+            } catch (_: Throwable) {}
+            return blocked("AUTHORITY_INVARIANT_FAILURE", "IMMUTABLE_AUTHORITY_NOT_CURRENT", shadow = mode == "PAPER")
+        }
         val canonicalExecutableIntent6509 = canonicalExecutableIntent6509(
             fdgCan = fdgCan,
             preFdgVerdict = preFdgVerdict,
@@ -1505,7 +1545,7 @@ object ExecutableOpenGate {
             try { PipelineHealthCollector.labelInc("EXEC_GATE_BLOCKED_ENTRY_AUTHORITY_6487") } catch (_: Throwable) {}
             return blocked("EXEC_OPEN_BLOCKED_ENTRY_AUTHORITY_6487", effectiveEntryDecision6487.reason, shadow = true)
         }
-        if (isShadowReadOnlyLane6487(lane)) {
+        if (isShadowReadOnlyLane6487(lane) && immutableAuthority6513 == null) {
             return blocked("EXEC_OPEN_BLOCKED_SHADOW_LANE_6487", "${lane.uppercase()}_READ_ONLY", shadow = true)
         }
         val execKey = attemptId.ifBlank { canonicalExecutionKey(mint, mode = mode, side = "BUY", lane = lane) }
@@ -1589,10 +1629,15 @@ object ExecutableOpenGate {
                         mode = modeUpper,
                         candidateVersion = candidateVersion,
                         electionId6494 = electionId6494,
-                        authorityVersion6494 = authorityVersion6494,
+                        authorityVersion6494 = immutableAuthority6513?.authorityVersion ?: authorityVersion6494,
                         fdgReason = fdgReason,
-                        signal = signal,
-                        safetyTier = safetyTier,
+                        signal = immutableAuthority6513?.authoritativeSignal ?: signal,
+                        safetyTier = immutableAuthority6513?.safetyVerdict?.takeIf { it.isNotBlank() && it != "UNKNOWN" } ?: safetyTier,
+                        primaryLane = immutableAuthority6513?.executionLane ?: canonicalSelectedLane,
+                        fdgVerdict = if (immutableAuthority6513?.verdict in setOf("BUY", "PROBE_ONLY")) "BUY" else preFdgVerdict,
+                        authoritativeSignal = immutableAuthority6513?.authoritativeSignal ?: "BUY",
+                        safetyVerdict = immutableAuthority6513?.safetyVerdict?.takeIf { it.isNotBlank() } ?: safetyTier,
+                        authorityVersion = immutableAuthority6513?.authorityVersion ?: authorityVersion6494,
                         liquidityUsd = liquidityUsd,
                         rugScore = rug,
                         hardNoReasons = hardNoReasons,

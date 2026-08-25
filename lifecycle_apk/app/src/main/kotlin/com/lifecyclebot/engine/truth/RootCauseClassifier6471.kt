@@ -63,6 +63,7 @@ object RootCauseClassifier6471 {
         // V5.0.6497 §5 — ENTRY_FINALITY tier. Approved BUY candidates that
         // never open belong here. Diagnoses entry-handoff faults instead
         // of misattributing them to MECHANICAL_FAULT/UI.
+        Tier.ENTRY_FINALITY to "EXEC_AUTHORITY_STATE_MISMATCH",
         Tier.ENTRY_FINALITY to "PAPER_ENTRY_FINALITY_MISSING_TERMINAL_6497",
         Tier.ENTRY_FINALITY to "EXEC_SIZE_AUTHORITY_MISMATCH_6497",
         Tier.ENTRY_FINALITY to "EXEC_OPEN_DROPPED_SNAPSHOT_DRIFT_6496",

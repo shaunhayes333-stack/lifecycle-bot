@@ -387,7 +387,7 @@ class GoldenTapeRegressionTest {
     fun live_stale_restore_cannot_resurrect_old_fdg_approval() {
         val openGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         assertTrue("LIVE stale-WATCH restore must be ticket based, not global-version based", openGate.contains("data class ExecutionTicket") && openGate.contains("EXEC_TICKET_RESTORED_IMMUTABLE"))
-        assertTrue("LIVE stale-candidate version churn must not kill an immutable ticket", openGate.contains("immutableTicket == null && !selectedLaneMatchesRequest") && openGate.contains("immutableTicket == null"))
+        assertTrue("LIVE stale-candidate version churn must not kill an immutable ticket", openGate.contains("immutableTicket == null && immutableAuthority6513 == null && !selectedLaneMatchesRequest") && openGate.contains("immutableTicket == null"))
     }
     @Test
     fun internet_edge_text_fallback_is_not_mislabeled_as_parsed_internet_json() {
@@ -3829,7 +3829,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         assertTrue("Final executable gate must create immutable execution tickets", gate.contains("data class ExecutionTicket") && gate.contains("EXEC_TICKET_CREATED") && gate.contains("allowedAttempts[laneKey(ticket.mint, ticket.lane)]") && gate.contains("FDG records state only"))
-        assertTrue("ticket restore must bypass mutable WATCH/version/lane churn", gate.contains("EXEC_TICKET_RESTORED_IMMUTABLE") && gate.contains("immutableTicket == null && !selectedLaneMatchesRequest") && gate.contains("""safetyTier.equals("UNKNOWN", true) && immutableTicket == null"""))
+        assertTrue("ticket restore must bypass mutable WATCH/version/lane churn", gate.contains("EXEC_TICKET_RESTORED_IMMUTABLE") && gate.contains("immutableTicket == null && immutableAuthority6513 == null && !selectedLaneMatchesRequest") && gate.contains("""safetyTier.equals("UNKNOWN", true) && immutableTicket == null"""))
         assertTrue("stale/finality failures need separate counters", exec.contains("BUY_FAILED_FINALITY") && exec.contains("BUY_FAILED_STALE_TICKET") && exec.contains("BUY_FAILED_ROUTE") && exec.contains("BUY_FAILED_SAFETY"))
         assertTrue("executor phase counters must represent actual tx progress", listOf("EXEC_SELECTED", "EXEC_TICKET_CREATED", "QUOTE_REQUESTED", "QUOTE_OK", "SWAP_BUILT", "TX_SIGNED", "TX_SUBMITTED", "TX_CONFIRMED", "BUY_JOURNALED").all { (gate + exec).contains(it) })
         assertTrue("tx confirmed without live journal must fail regression guard", pipe.contains("TX_CONFIRMED_WITHOUT_BUY_JOURNALED") && pipe.contains("REGRESSION_GUARDS_FAIL"))
@@ -7369,9 +7369,11 @@ class GoldenTapeRegressionTest {
                 paperBuy.contains("EmergentGuardrails.getPositionLayer(tradeId.mint)") &&
                 paperBuy.indexOf("EmergentGuardrails.getPositionLayer(tradeId.mint)") < paperBuy.indexOf("val price = getActualPrice(ts)") &&
                 paperBuy.contains("PAPER_BUY_SAME_MINT_OPEN_SUPPRESSED_6370"))
-        assertTrue("V5.0.6370: 6369 short paper BUY lease must be cleared only after EmergentGuardrails and GlobalTradeRegistry open registries are written",
-            paperBuy.indexOf("EmergentGuardrails.registerPosition") < paperBuy.indexOf("ExecutionAttemptLease.terminalOk") &&
-                paperBuy.indexOf("GlobalTradeRegistry.registerPosition") < paperBuy.indexOf("ExecutionAttemptLease.terminalOk") &&
+        val registryWrite6370 = paperBuy.indexOf("EmergentGuardrails.registerPosition")
+        val globalWrite6370 = paperBuy.indexOf("GlobalTradeRegistry.registerPosition", registryWrite6370)
+        val openedTerminal6370 = paperBuy.indexOf("ExecutionAttemptLease.terminalOk", globalWrite6370)
+        assertTrue("V5.0.6370: successful new-open lease must clear only after EmergentGuardrails and GlobalTradeRegistry registries; retry recovery may terminalize its existing result earlier",
+            registryWrite6370 >= 0 && globalWrite6370 > registryWrite6370 && openedTerminal6370 > globalWrite6370 &&
                 paperBuy.contains("PAPER_BUY_OPENED_6370"))
     }
 
@@ -8279,6 +8281,40 @@ class GoldenTapeRegressionTest {
         assertTrue(fabric.contains("byAttempt") && fabric.contains("byPosition") && fabric.contains("rewardedPositions"))
         assertTrue(finalBus.contains("AatePolicyReward") && consumer.contains("deliverToAatePolicyReward"))
         assertTrue(bot.contains("canonicalExitTokenSnapshot6512") && bot.contains("CanonicalPositionAuthority6441.openPositions()") && bot.contains("CANONICAL_EXIT_FEED_6512"))
+    }
+
+
+    @Test
+    fun V5_0_6513_entry_authority_paper_finality_and_exit_marks_are_source_authoritative() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val decision = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionDecisionSnapshot6510.kt").readText()
+        val permit = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalExecutionPermit.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val mirror = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt").readText()
+        val idem = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/IdempotencyKeyStore6437.kt").readText()
+        val canon = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt").readText()
+        val tokenMap = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenMapAuthority.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val root = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/RootCauseClassifier6471.kt").readText()
+
+        assertTrue(decision.contains("authorityVersion") && decision.contains("authoritativeSignal") && decision.contains("safetyVerdict") && decision.contains("resolvedSizeSol"))
+        assertTrue(gate.contains("immutableAuthority6513") && gate.contains("primaryLane = immutableAuthority6513?.executionLane"))
+        assertTrue(gate.contains("fdgVerdict = if (immutableAuthority6513?.verdict in setOf") && gate.contains("authoritativeSignal = immutableAuthority6513?.authoritativeSignal"))
+        assertTrue(gate.contains("AUTHORITY_INVARIANT_FAILURE") && gate.contains("EXEC_AUTHORITY_STATE_MISMATCH"))
+        assertTrue(permit.contains("executionTicket6494.primaryLane != executionTicket6494.lane") && permit.contains("executionTicket6494.authoritativeSignal != " + "\"BUY\""))
+        assertTrue(exec.contains("ticket6513?.primaryLane") && exec.contains("PAPER_BUY_TERMINAL_REPLAY_RECOVERED_6513"))
+        val begin = exec.indexOf("PaperEntryFinalityAuthority6497.beginAttempt(entryFinalityId6497")
+        val reserve = exec.indexOf("ExecutorCanonicalMirror6442.mirrorBuyAttempt(", begin)
+        val debit = exec.indexOf("PaperAccountLedger6430.onBuy(actualSol, fee6485)", reserve)
+        val fill = exec.indexOf("ExecutorCanonicalMirror6442.mirrorBuyFill(", debit)
+        val journal = exec.indexOf("recordTrade(ts, trade)", fill)
+        val terminal = exec.indexOf("PaperEntryFinalityAuthority6497.markOk(entryFinalityId6497)", journal)
+        assertTrue(begin > 0 && reserve > begin && debit > reserve && fill > debit && journal > fill && terminal > journal)
+        assertTrue(mirror.contains("buy_attempt:" + "$" + "attemptId") && idem.contains("fun terminalFor"))
+        assertTrue(canon.contains("entryPriceUsd") && canon.contains("entryPriceSource") && canon.contains("entryPoolAddress") && canon.contains("entryPriceUsd = e.fillPrice"))
+        assertTrue(tokenMap.contains("cachedForExit6513") && bot.contains("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513"))
+        assertTrue(bot.contains("scope.launch(kotlinx.coroutines.Dispatchers.IO)"))
+        assertTrue(root.indexOf("EXEC_AUTHORITY_STATE_MISMATCH") < root.indexOf("DATA_PROVIDER_AUTH_LOCKOUT_6468"))
     }
 
 }

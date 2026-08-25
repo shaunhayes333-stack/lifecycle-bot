@@ -155,6 +155,16 @@ object IdempotencyKeyStore6437 {
      * True if the key exists AND is not yet terminal (still in-flight).
      * Used by restart replay to detect submitted-but-unconfirmed trades.
      */
+    fun terminalFor(key: String): String? {
+        val h = helperRef.get() ?: return null
+        return try {
+            val db = h.readableDatabase
+            db.query(TABLE, arrayOf("terminal"), "key=?", arrayOf(key), null, null, null).use { c ->
+                if (!c.moveToFirst()) null else c.getString(0)?.takeIf { it.isNotBlank() }
+            }
+        } catch (_: Throwable) { null }
+    }
+
     fun isInFlight(key: String): Boolean {
         val h = helperRef.get() ?: return false
         return try {

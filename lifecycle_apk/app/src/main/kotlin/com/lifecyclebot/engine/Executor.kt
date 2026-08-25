@@ -10371,9 +10371,14 @@ class Executor(
             val frozenVersion6512 = tradeId.fdgCandidateVersion.takeIf { it > 0L }
                 ?: try { LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
             val frozenLane6512 = normalizeExecutionLane(tradeId.executionLane)
-            val decision6512 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.consume(
-                ts.mint, frozenVersion6512, tradeId.fdgVerdictSnapshot, frozenLane6512,
+            val decision6512 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(
+                ts.mint, frozenVersion6512, if (isPaperRT()) "PAPER" else "LIVE",
             )
+            if (decision6512 != null) {
+                tradeId.executionLane = decision6512.executionLane
+                tradeId.fdgCandidateVersion = decision6512.candidateVersion
+                tradeId.fdgVerdictSnapshot = decision6512.verdict
+            }
             val snapshotExecutable6512 = decision6512?.verdict in setOf("BUY", "PROBE_ONLY") &&
                 normalizeExecutionLane(decision6512?.executionLane).isNotBlank()
             if (nonBuySignal && snapshotExecutable6512) {
@@ -11710,14 +11715,13 @@ class Executor(
         // (via markPaperBuyNotOpened). Any silent early return is
         // caught by the periodic sweep as PAPER_ENTRY_FINALITY_MISSING_TERMINAL_6497.
         val entryFinalityId6497 = attemptId.ifBlank { "PB-${ts.mint.take(10)}-${System.nanoTime()}" }
-        try {
-            com.lifecyclebot.engine.truth.PaperEntryFinalityAuthority6497.beginAttempt(
-                attemptId = entryFinalityId6497,
-                mint = ts.mint,
-                symbol = ts.symbol,
-                lane = layerTag.ifBlank { ts.source }.ifBlank { "STANDARD" },
-            )
-        } catch (_: Throwable) {}
+        val authorityVersion6513 = identity?.fdgCandidateVersion?.takeIf { it > 0L }
+            ?: try { LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
+        val authority6513 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(ts.mint, authorityVersion6513, "PAPER")
+        val ticket6513 = attemptId.takeIf { it.isNotBlank() }?.let { ExecutableOpenGate.ticketForAttempt(it) }
+        @Suppress("NAME_SHADOWING") val layerTag = ticket6513?.primaryLane
+            ?: authority6513?.executionLane
+            ?: layerTag
         // V5.0.6451 §ENTRY_GATE — ExecutableEntryAuthority6450.gate() is the
         // single authority every executable BUY must clear before capital
         // reservation. Verdict values:
@@ -12533,8 +12537,24 @@ class Executor(
                 try { ExecutionAttemptLease.terminalFail(paperBuyLeaseKey6369, "BUY", tradeId.mint, tradeId.symbol, "PAPER_BUY_ABORTED_6485:$reason", "Executor.paperBuy.atomic6485") } catch (_: Throwable) {}
                 paperBuyLeaseKey6369 = ""
             }
+            try { com.lifecyclebot.engine.truth.PaperEntryFinalityAuthority6497.markRejected(entryFinalityId6497, reason) } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("PAPER_BUY_ATOMIC_ROLLBACK_6485") } catch (_: Throwable) {}
         }
+        val existingPid6513 = try { com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(tradeId.mint) } catch (_: Throwable) { "" }
+        val existingIdem6513 = if (existingPid6513.isNotBlank()) com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.buyIdempotencyKey(existingPid6513) else ""
+        val existingTerminal6513 = if (existingIdem6513.isNotBlank()) try { com.lifecyclebot.engine.truth.IdempotencyKeyStore6437.terminalFor(existingIdem6513) } catch (_: Throwable) { null } else null
+        val existingCanonical6513 = if (existingPid6513.isNotBlank()) try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(existingPid6513) } catch (_: Throwable) { null } else null
+        if (existingTerminal6513 == "BUY_CONFIRMED" && existingCanonical6513?.lifecycle in setOf(
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.OPEN,
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED)) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_BUY_TERMINAL_REPLAY_RECOVERED_6513")
+                ForensicLogger.lifecycle("PAPER_BUY_TERMINAL_REPLAY_RECOVERED_6513", "attemptId=$entryFinalityId6497 positionId=$existingPid6513 mint=${tradeId.mint.take(10)} terminal=$existingTerminal6513 action=return_existing_terminal_no_second_debit")
+            } catch (_: Throwable) {}
+            if (paperBuyLeaseKey6369.isNotBlank()) try { ExecutionAttemptLease.terminalOk(paperBuyLeaseKey6369, "BUY", tradeId.mint, tradeId.symbol, "PAPER_BUY_EXISTING_TERMINAL_6513") } catch (_: Throwable) {}
+            return
+        }
+        try { com.lifecyclebot.engine.truth.PaperEntryFinalityAuthority6497.beginAttempt(entryFinalityId6497, ts.mint, ts.symbol, layerTag.ifBlank { ts.source }.ifBlank { "STANDARD" }) } catch (_: Throwable) {}
         try {
             if (actualSol < minConfiguredPaperTradeSol() || buyQtyRaw6485 <= java.math.BigInteger.ZERO) {
                 rollbackPaperEntry6485("NON_EXECUTABLE_SIZE_OR_QTY")
@@ -12587,18 +12607,26 @@ class Executor(
                     return
                 }
             } catch (_: Throwable) {}
+            val entryLane6485 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "STANDARD" }
+            canonicalCreated6485 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyAttempt(
+                mint = tradeId.mint, symbol = ts.symbol.ifBlank { tradeId.symbol }, lane = entryLane6485,
+                estimatedCostSol = actualSol, estimatedFeesSol = fee6485, paperMode = true,
+                tokenDecimals = paperTokenDecimals6509, attemptId = entryFinalityId6497,
+                entryPriceUsd = effectivePrice,
+                entryPriceSource = entryMarketSnapshot?.priceSource ?: ts.lastPriceSource,
+                entryPoolAddress = entryMarketSnapshot?.poolAddress ?: ts.lastPricePoolAddr.ifBlank { ts.pairAddress },
+                entryDex = entryMarketSnapshot?.dex ?: ts.lastPriceDex,
+            )
+            if (!canonicalCreated6485) {
+                rollbackPaperEntry6485("CANONICAL_RESERVATION_REJECTED")
+                return
+            }
             if (!com.lifecyclebot.engine.truth.PaperAccountLedger6430.onBuy(actualSol, fee6485)) {
                 rollbackPaperEntry6485("ECONOMIC_DEBIT_REJECTED")
                 return
             }
             ledgerDebited6485 = true
-            val entryLane6485 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "STANDARD" }
-            canonicalCreated6485 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyAttempt(
-                mint = tradeId.mint, symbol = ts.symbol.ifBlank { tradeId.symbol }, lane = entryLane6485,
-                estimatedCostSol = actualSol, estimatedFeesSol = fee6485, paperMode = true,
-                tokenDecimals = paperTokenDecimals6509,
-            )
-            if (!canonicalCreated6485 || !com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyFill(
+            if (!com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyFill(
                     mint = tradeId.mint, actualQtyRaw = buyQtyRaw6485, actualCostSol = actualSol,
                     actualFeesSol = fee6485, tokenDecimals = paperTokenDecimals6509, paperMode = true,
                 )) {
