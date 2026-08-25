@@ -7983,8 +7983,8 @@ class GoldenTapeRegressionTest {
                 // and the SealedOrderSizeAuthority6497 seal). Either name
                 // proves the ticket-publish site consumes the canonical
                 // resolved size (never a manufactured 0.0 fallback).
-                (openGate.contains("resolvedSizeSol = preResolvedSizeSol6490.coerceAtLeast(0.0)") ||
-                    openGate.contains("resolvedSizeSol = effectiveResolvedSize6497.coerceAtLeast(0.0)")) &&
+                (openGate.contains("resolvedSize = effectiveResolvedSize6497.coerceAtLeast(0.0)") &&
+                    openGate.contains("fdgIntent6519.copy(")) &&
                 executor.contains("PRE_TICKET_SIZE_RESOLUTION_FAILED_6490"))
         assertTrue("6490 duplicate position creation must be blocked at canonical mutation authority",
             canonical.contains("CANONICAL_SAME_MODE_MINT_OPEN_REJECTED_6490") &&
@@ -8139,7 +8139,8 @@ class GoldenTapeRegressionTest {
         assertTrue(auth.contains("electedLane6494 = laneElection.primaryLane") && auth.contains("electionId6494 = laneElection.electionId"))
         assertFalse("permit must not independently re-elect after authorization", permit.contains("LaneExecutionCoordinator.canRequestExecution(mint, layer)"))
         assertTrue(permit.contains("IMMUTABLE_EXEC_TICKET_MISSING_6494") && permit.contains("IMMUTABLE_ELECTION_LANE_MISMATCH_6494"))
-        assertTrue(gate.contains("isRealExecutionLane(receiptLane6494) -> receiptLane6494") && gate.contains("lane = canonicalSelectedLane"))
+        assertTrue(gate.contains("isRealExecutionLane(receiptLane6494) -> receiptLane6494") &&
+            gate.contains("canonicalLane = canonicalLane6519") && gate.contains("fdgIntent6519.copy("))
         assertTrue(bot.contains("PRE_FDG_CANON_MINT_OCCUPIED_SUPPRESSED_6494") && bot.contains("executionBookForLane6494(cyclePrimaryLane)"))
         assertFalse("lane handoff must not replace auth receipt with mutable recent lookup", bot.contains("val treasuryAttemptId = ExecutableOpenGate.recentAllowedAttemptId"))
     }
@@ -8301,8 +8302,9 @@ class GoldenTapeRegressionTest {
         val root = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/RootCauseClassifier6471.kt").readText()
 
         assertTrue(decision.contains("authorityVersion") && decision.contains("authoritativeSignal") && decision.contains("safetyVerdict") && decision.contains("resolvedSizeSol"))
-        assertTrue(gate.contains("immutableAuthority6513") && gate.contains("primaryLane = immutableAuthority6513?.executionLane"))
-        assertTrue(gate.contains("fdgVerdict = if (immutableAuthority6513?.verdict in setOf") && gate.contains("authoritativeSignal = immutableAuthority6513?.authoritativeSignal"))
+        assertTrue(gate.contains("immutableAuthority6513") && gate.contains("immutableFdgBuy6519"))
+        assertTrue(gate.contains("fdgIntent6519.copy(") && gate.contains("authoritativeSignal = \"BUY\"") &&
+            gate.contains("fdgVerdict = if (winner.preFdgVerdict in setOf"))
         assertTrue(gate.contains("AUTHORITY_INVARIANT_FAILURE") && gate.contains("EXEC_AUTHORITY_STATE_MISMATCH"))
         assertTrue(permit.contains("executionTicket6494.primaryLane != executionTicket6494.lane") && permit.contains("executionTicket6494.authoritativeSignal != " + "\"BUY\""))
         assertTrue(exec.contains("ticket6513?.primaryLane") && exec.contains("PAPER_BUY_TERMINAL_REPLAY_RECOVERED_6513"))
@@ -8314,7 +8316,7 @@ class GoldenTapeRegressionTest {
         val terminal = exec.indexOf("PaperEntryFinalityAuthority6497.markOk(entryFinalityId6497)", journal)
         assertTrue(begin > 0 && reserve > begin && debit > reserve && fill > debit && journal > fill && terminal > journal)
         assertTrue(mirror.contains("buy_attempt:" + "$" + "attemptId") && idem.contains("fun terminalFor"))
-        assertTrue(canon.contains("entryPriceUsd") && canon.contains("entryPriceSource") && canon.contains("entryPoolAddress") && canon.contains("entryPriceUsd = e.fillPrice"))
+        assertTrue(canon.contains("entryPriceUsd") && canon.contains("entryPriceSource") && canon.contains("entryPoolAddress") && canon.contains("entryPriceUsd = repairedPrice6519"))
         assertTrue(tokenMap.contains("cachedForExit6513") && bot.contains("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513"))
         assertTrue(bot.contains("scope.launch(kotlinx.coroutines.Dispatchers.IO)"))
         assertTrue(root.indexOf("EXEC_AUTHORITY_STATE_MISMATCH") < root.indexOf("DATA_PROVIDER_AUTH_LOCKOUT_6468"))

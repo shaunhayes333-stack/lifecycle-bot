@@ -79,7 +79,7 @@ class Repair6513AuthorityFinalityAcceptanceTest {
         assertTrue(map.contains("fun cachedForExit6513"))
         assertTrue(bot.contains("TokenMapAuthority.cachedForExit6513(cp.mint)"))
         assertTrue(bot.contains("entryPrice = old.entryPrice.takeIf { it > 0.0 } ?: canonicalEntryPrice6513"))
-        assertTrue(canon.contains("entryPriceUsd = e.fillPrice"))
+        assertTrue(canon.contains("entryPriceUsd = repairedPrice6519"))
         assertTrue(bot.contains("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513"))
         assertTrue(bot.contains("scope.launch(kotlinx.coroutines.Dispatchers.IO)"))
     }
