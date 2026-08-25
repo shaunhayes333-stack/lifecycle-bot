@@ -47,6 +47,54 @@ adb shell pm grant com.lifecyclebot.aate android.permission.WRITE_EXTERNAL_STORA
 adb shell appops set com.lifecyclebot.aate RUN_IN_BACKGROUND allow || true
 echo "::endgroup::"
 
+# V5.0.6516a — persisted-device startup pressure. The old smoke always
+# uninstalled/cleaned the app, so BotService.onCreate() never saw the large
+# histories that fatal-ANR'd the operator's real install. Seed the exact
+# canonical SharedPreferences schema at its hard cap before launching.
+echo "::group::Seed max persisted canonical history (8192 valid events)"
+SEED_XML="$WS/canonical_economic_events_6486.xml"
+python3 - "$SEED_XML" <<'PYSEED'
+import json, sys, xml.etree.ElementTree as ET
+out = sys.argv[1]
+root = ET.Element("map")
+base = 1777071600000
+for i in range(4096):
+    mint = f"PersistedMint{i:032d}"
+    pid = f"persisted-position-{i}"
+    qty = "1000000000"
+    buy_key = f"seed_buy_{i}"
+    sell_key = f"seed_sell_{i}"
+    buy = {
+        "type":"BUY", "atMs":base + i*2, "mode":"paper",
+        "positionId":pid, "mint":mint, "symbol":f"P{i}",
+        "idempotencyKey":buy_key, "executedCostSol":0.001,
+        "entryFeesSol":0.000001, "filledQty":qty,
+        "fillPrice":0.000000000001, "tokenDecimals":9, "quantityScale":9,
+    }
+    sell = {
+        "type":"SELL", "atMs":base + i*2 + 1, "mode":"paper",
+        "positionId":pid, "mint":mint, "symbol":f"P{i}",
+        "idempotencyKey":sell_key, "partial":False, "soldQty":qty,
+        "allocatedCostBasisSol":0.001, "grossProceedsSol":0.0011,
+        "exitFeesSol":0.000001, "netProceedsSol":0.001099,
+        "realizedPnlSol":0.0001, "realizedReturnPct":10.0,
+        "remainingQty":"0", "remainingCostBasisSol":0.0,
+    }
+    ET.SubElement(root, "string", {"name":f"event:paper:{buy_key}"}).text = json.dumps(buy, separators=(",",":"))
+    ET.SubElement(root, "string", {"name":f"event:paper:{sell_key}"}).text = json.dumps(sell, separators=(",",":"))
+ET.ElementTree(root).write(out, encoding="utf-8", xml_declaration=True)
+print(f"seeded_events=8192 file={out}")
+PYSEED
+adb push "$SEED_XML" /data/local/tmp/canonical_economic_events_6486.xml
+adb shell chmod 644 /data/local/tmp/canonical_economic_events_6486.xml
+adb shell run-as com.lifecyclebot.aate mkdir -p shared_prefs
+adb shell run-as com.lifecyclebot.aate cp /data/local/tmp/canonical_economic_events_6486.xml shared_prefs/canonical_economic_events_6486.xml
+adb shell rm -f /data/local/tmp/canonical_economic_events_6486.xml
+SEED_COUNT=$(adb shell run-as com.lifecyclebot.aate grep -o 'event:paper:' shared_prefs/canonical_economic_events_6486.xml | wc -l | tr -d '\r ')
+echo "Persisted canonical seed count=$SEED_COUNT"
+[ "$SEED_COUNT" = "8192" ] || { echo "::error::Persisted seed incomplete: $SEED_COUNT"; exit 1; }
+echo "::endgroup::"
+
 echo "::group::Clear logcat + launch LAUNCHER activity"
 adb logcat -c
 # V5.9.657 — first runtime-test run failed with:
@@ -162,5 +210,25 @@ cat > "$WS/funnel_summary.txt" <<SUMMARY
   EXECUTE=0           -> all gates pass but Executor not invoked
   EXECUTE>0 JRNL=0    -> Executor running but TradeHistoryStore not writing
 SUMMARY
+# V5.0.6516a — hard persisted-start gates. A clean emulator launch is not
+# sufficient: require both bootstrap barriers, a living process, and an active loop.
+FN_CANON_READY=$(grep -c "CANONICAL_BOOTSTRAP_READY_6515" "$WS/logcat_full.txt" || true)
+FN_SERVICE_READY=$(grep -c "SERVICE_BOOTSTRAP_READY_6516" "$WS/logcat_full.txt" || true)
+FN_PROCESS_DEATH=$(grep -c "Process: com.lifecyclebot.aate" "$WS/logcat_full.txt" || true)
+FN_ANR=$(grep -c "ANR in com.lifecyclebot.aate" "$WS/logcat_full.txt" || true)
+PID_ALIVE=$(adb shell pidof com.lifecyclebot.aate | tr -d '\r' || true)
+cat >> "$WS/funnel_summary.txt" <<PERSISTED
+===== Persisted-state startup gate (8192 events) =====
+  CANONICAL_BOOTSTRAP_READY_6515: $FN_CANON_READY
+  SERVICE_BOOTSTRAP_READY_6516:   $FN_SERVICE_READY
+  PROCESS_PID_AT_END:             ${PID_ALIVE:-NONE}
+  PROCESS_DEATH_MARKERS:          $FN_PROCESS_DEATH
+  ANR_MARKERS:                    $FN_ANR
+PERSISTED
 cat "$WS/funnel_summary.txt"
+if [ "$FN_CANON_READY" -lt 1 ] || [ "$FN_SERVICE_READY" -lt 1 ] || [ -z "$PID_ALIVE" ] ||    [ "$FN_PROCESS_DEATH" -gt 0 ] || [ "$FN_ANR" -gt 0 ] || [ "$FN_LOOP" -lt 1 ]; then
+    echo "::error::Persisted-state Start failed: canonical=$FN_CANON_READY service=$FN_SERVICE_READY pid=${PID_ALIVE:-NONE} deaths=$FN_PROCESS_DEATH anr=$FN_ANR loop=$FN_LOOP"
+    exit 1
+fi
+echo "Persisted-state Start PASS: 8192 events replayed, service ready, process alive, loop active"
 echo "::endgroup::"

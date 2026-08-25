@@ -8400,4 +8400,20 @@ class GoldenTapeRegressionTest {
         assertTrue(ioBody.contains("SERVICE_BOOTSTRAP_FAILED_" + "6516"))
     }
 
+
+    @Test
+    fun V5_0_6516a_runtime_smoke_replays_max_persisted_history_and_requires_live_start() {
+        val smoke = java.io.File("../../ci/runtime-test.sh").readText()
+        assertTrue(smoke.contains("canonical_economic_events_" + "6486.xml"))
+        assertTrue(smoke.contains("range(4096)"))
+        assertTrue(smoke.contains("seeded_events=8192"))
+        assertTrue(smoke.contains("SEED_COUNT") && smoke.contains("= " + "\"8192\""))
+        assertTrue(smoke.contains("CANONICAL_BOOTSTRAP_READY_" + "6515"))
+        assertTrue(smoke.contains("SERVICE_BOOTSTRAP_READY_" + "6516"))
+        assertTrue(smoke.contains("pidof com.lifecyclebot.aate"))
+        assertTrue(smoke.contains("ANR in com.lifecyclebot.aate"))
+        assertTrue(smoke.contains("Process: com.lifecyclebot.aate"))
+        assertTrue(smoke.contains("FN_LOOP") && smoke.contains("Persisted-state Start PASS"))
+    }
+
 }
