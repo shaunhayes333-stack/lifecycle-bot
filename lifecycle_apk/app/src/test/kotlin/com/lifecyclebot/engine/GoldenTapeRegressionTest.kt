@@ -8446,4 +8446,21 @@ class GoldenTapeRegressionTest {
         assertTrue(smoke.contains("FN_UI_TAP") && smoke.contains("FN_UI_START") && smoke.contains("FN_UI_STOP"))
     }
 
+
+    @Test
+    fun V5_0_6518_executor_liveBuy_wide_register_arithmetic_is_in_kept_helper() {
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val helper = executor.indexOf("private fun dnaProvenWinnerSizeBoost" + "6518")
+        val live = executor.indexOf("private fun liveBuy(", helper)
+        val call = executor.indexOf("dnaProvenWinnerSizeBoost" + "6518(ts, layerTag)", live)
+        assertTrue(helper > 0 && live > helper && call > live)
+        assertTrue(executor.substring(helper - 100, helper).contains("@androidx.annotation.Keep"))
+        val extractedHelper = executor.substring(helper, live)
+        assertTrue(extractedHelper.contains("LiveWinDNAStore.setupFrequency"))
+        assertTrue(extractedHelper.contains("(avgWin - 20.0) / 100.0"))
+        val smoke = java.io.File("../../ci/runtime-test.sh").readText()
+        assertTrue(smoke.contains("FN_VERIFY_ERROR"))
+        assertTrue(smoke.contains("Verifier rejected"))
+    }
+
 }

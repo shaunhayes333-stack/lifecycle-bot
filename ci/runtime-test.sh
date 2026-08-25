@@ -271,6 +271,7 @@ FN_CANON_READY=$(grep -c "CANONICAL_BOOTSTRAP_READY_6515" "$WS/logcat_full.txt" 
 FN_SERVICE_READY=$(grep -c "SERVICE_BOOTSTRAP_READY_6516" "$WS/logcat_full.txt" || true)
 FN_PROCESS_DEATH=$(grep -c "Process: com.lifecyclebot.aate" "$WS/logcat_full.txt" || true)
 FN_ANR=$(grep -c "ANR in com.lifecyclebot.aate" "$WS/logcat_full.txt" || true)
+FN_VERIFY_ERROR=$(grep -cE "VerifyError|Verifier rejected" "$WS/logcat_full.txt" || true)
 PID_ALIVE=$(adb shell pidof com.lifecyclebot.aate | tr -d '\r' || true)
 cat >> "$WS/funnel_summary.txt" <<PERSISTED
 ===== Persisted-state startup gate (8192 events) =====
@@ -279,10 +280,11 @@ cat >> "$WS/funnel_summary.txt" <<PERSISTED
   PROCESS_PID_AT_END:             ${PID_ALIVE:-NONE}
   PROCESS_DEATH_MARKERS:          $FN_PROCESS_DEATH
   ANR_MARKERS:                    $FN_ANR
+  VERIFY_ERROR_MARKERS:           $FN_VERIFY_ERROR
 PERSISTED
 cat "$WS/funnel_summary.txt"
-if [ "$FN_CANON_READY" -lt 1 ] || [ "$FN_SERVICE_READY" -lt 1 ] || [ -z "$PID_ALIVE" ] ||    [ "$FN_PROCESS_DEATH" -gt 0 ] || [ "$FN_ANR" -gt 0 ] || [ "$FN_LOOP" -lt 1 ]; then
-    echo "::error::Persisted-state Start failed: canonical=$FN_CANON_READY service=$FN_SERVICE_READY pid=${PID_ALIVE:-NONE} deaths=$FN_PROCESS_DEATH anr=$FN_ANR loop=$FN_LOOP"
+if [ "$FN_CANON_READY" -lt 1 ] || [ "$FN_SERVICE_READY" -lt 1 ] || [ -z "$PID_ALIVE" ] ||    [ "$FN_PROCESS_DEATH" -gt 0 ] || [ "$FN_ANR" -gt 0 ] || [ "$FN_VERIFY_ERROR" -gt 0 ] || [ "$FN_LOOP" -lt 1 ]; then
+    echo "::error::Persisted-state Start failed: canonical=$FN_CANON_READY service=$FN_SERVICE_READY pid=${PID_ALIVE:-NONE} deaths=$FN_PROCESS_DEATH anr=$FN_ANR verify=$FN_VERIFY_ERROR loop=$FN_LOOP"
     exit 1
 fi
 echo "Persisted UI Start/Stop PASS: 8192 events, Start → Stop → Start, process alive, second loop active"
