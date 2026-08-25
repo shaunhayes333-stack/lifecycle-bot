@@ -128,7 +128,7 @@ object PipelineHealthCollector {
         fdgLiveBlock.set(0L)
         fdgPaperAllow.set(0L)
         fdgPaperBlock.set(0L)
-        execLiveAttempt.set(0L)
+        execLiveAttempt.set(0L); execPaperAttempt.set(0L)
         execLiveBuyOk.set(0L)
         execLiveBuyFail.set(0L)
         execLiveSellOk.set(0L)
@@ -164,6 +164,7 @@ object PipelineHealthCollector {
     private val execLiveSellOk   = AtomicLong(0L)
     private val execLiveSellFail = AtomicLong(0L)
     private val execLiveSellPendingFinality = AtomicLong(0L)
+    private val execPaperAttempt = AtomicLong(0L)
     private val execPaperBuyOk   = AtomicLong(0L)
     private val execPaperSellOk  = AtomicLong(0L)
     private val execPaperPartialOk = AtomicLong(0L)
@@ -543,6 +544,7 @@ object PipelineHealthCollector {
             // PAPER OK counters are journal-attributed in recordExec(); PAPER_BUY/PAPER_SELL
             // exec labels are attempts and must not inflate successful journal rows.
             eventMode == "LIVE" && action.contains("BUY", ignoreCase = true) -> execLiveAttempt.incrementAndGet()
+            eventMode == "PAPER" && action.contains("BUY", ignoreCase = true) -> execPaperAttempt.incrementAndGet()
         }
         appendEvent(Event(System.currentTimeMillis(), "EXEC/$action", symbol, fields.take(220)))
     }
@@ -917,7 +919,11 @@ object PipelineHealthCollector {
     // Read paths — snapshot + clipboard dump.
     // ════════════════════════════════════════════════════════════════
 
+    private val reportRevision6522 = java.util.concurrent.atomic.AtomicLong(0L)
+
     data class Snapshot(
+        val reportRevision: Long,
+        val canonicalTradeCounts: com.lifecyclebot.engine.truth.CanonicalTradeCounts6522,
         val startedAtMs: Long,
         val nowMs: Long,
         val phaseCounts: Map<String, Long>,
@@ -966,8 +972,14 @@ object PipelineHealthCollector {
 
     fun snapshot(): Snapshot {
         val events = ring.toList()
+        val revision6522 = reportRevision6522.incrementAndGet()
+        val started6522 = startedAtMs.get()
+        val attempts6522 = execLiveAttempt.get() + execPaperAttempt.get()
+        val canonicalCounts6522 = com.lifecyclebot.engine.truth.CanonicalTradeCountAuthority6522.capture(started6522, revision6522, attempts6522)
         return Snapshot(
-            startedAtMs            = startedAtMs.get(),
+            reportRevision         = revision6522,
+            canonicalTradeCounts   = canonicalCounts6522,
+            startedAtMs            = started6522,
             nowMs                  = System.currentTimeMillis(),
             phaseCounts            = phaseCounts.mapValues { it.value.get() },
             phaseAllow             = phaseAllow.mapValues  { it.value.get() },
@@ -1044,6 +1056,11 @@ object PipelineHealthCollector {
 
         val sb = StringBuilder(16 * 1024)
         sb.append("===== AATE Pipeline Health Snapshot =====\n")
+        sb.append("  Report revision: ${s.reportRevision}\n")
+        sb.append("  Session completed trades: ${s.canonicalTradeCounts.sessionCompletedTrades}\n")
+        sb.append("  Lifetime completed trades: ${s.canonicalTradeCounts.lifetimeCompletedTrades}\n")
+        sb.append("  Open positions: ${s.canonicalTradeCounts.openTrades}\n")
+        sb.append("  Canonical buys/partials: ${s.canonicalTradeCounts.buys} / ${s.canonicalTradeCounts.partialExits}\n")
         // V5.9.915 — version stamp at top so we never debate which build
         // is on the device. Tag is a hardcoded const bumped per release;
         // appVer comes from BuildConfig.VERSION_NAME (set by gradle to

@@ -37,12 +37,13 @@ object TerminalMutationAuthority6466 {
     private val claims = AtomicLong(0L)
     private val alreadyFinalized = AtomicLong(0L)
     private val blanks = AtomicLong(0L)
-    private val runId = AtomicLong(System.currentTimeMillis())
-
     fun buildKey(mode: String, positionId: String, generation: Long, terminalSequence: Long): String {
-        if (positionId.isBlank()) return ""
-        return "${runId.get()}|${mode.lowercase()}|$positionId|$generation|$terminalSequence"
+        if (positionId.isBlank() || generation <= 0L) return ""
+        val closeType = if (terminalSequence == FULL_CLOSE_SEQUENCE_6522) "FULL_CLOSE" else "PARTIAL_CLOSE:$terminalSequence"
+        return "${mode.lowercase()}|$positionId|$generation|$closeType"
     }
+
+    const val FULL_CLOSE_SEQUENCE_6522 = 999L
 
     /**
      * Attempt to claim terminal mutation. Returns GRANTED on first claim,

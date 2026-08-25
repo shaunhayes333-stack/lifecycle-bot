@@ -2090,7 +2090,8 @@ class GoldenTapeRegressionTest {
         // SELL_ONLY_SAFE_MODE via openCountMismatch / pendingSellQueue.
         assertTrue(recon.contains("DUST_RAW_REAP"))
         assertTrue(recon.contains("DUST_ZOMBIE_POSITION_REAPED"))
-        assertTrue(recon.contains("if (rawApprox <= DUST_RAW_REAP) continue"))
+        assertTrue(recon.contains("if (walletRawExact > java.math.BigInteger.valueOf(DUST_RAW_REAP)) continue"))
+        assertFalse(recon.contains("rawApprox <= DUST_RAW_REAP"))
     }
 
 
@@ -8494,6 +8495,35 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("QUANTITY_PROJECTION_RECONSTRUCTED_FROM_CANONICAL_RAW_6521") && bot.contains("PositionPersistence.savePosition(ts)"))
         assertFalse(bot.contains("requestSell(ts = ts, reason = " + "\"INVARIANT_QUARANTINE_6500\""))
         assertTrue(ui.contains("QuantityInvariantAuthority6500.check(ts.mint, pos).ok"))
+    }
+
+
+    @Test
+    fun V5_0_6522_canonical_quantity_terminal_counts_marks_and_snapshot_contract() {
+        val amount = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTokenAmount6522.kt").readText()
+        val wallet = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
+        val processor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ProcessorAmountPlanner.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val terminal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TerminalMutationAuthority6466.kt").readText()
+        val paper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt").readText()
+        val counts = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeCountAuthority6522.kt").readText()
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        val marks = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MarkAuthorityIntegrityGate6496.kt").readText()
+        assertTrue(amount.contains("val raw: BigInteger") && amount.contains("fun ui(): BigDecimal"))
+        assertTrue(wallet.contains("optString(" + "\"amount\"" + ", " + "\"\"" + ")"))
+        assertFalse(wallet.contains("Map<String, Pair<Double, Int>>"))
+        assertFalse(processor.contains("BigDecimal(requestedUiQty"))
+        assertFalse(executor.contains("val qty = entrySol / entryPrice"))
+        assertFalse(executor.contains("val healedQty = (pos.costSol * priceMoveMultiple) / actualPrice"))
+        assertTrue(amount.contains("FULL_CLOSE_NOT_EXACT_REMAINDER") && amount.contains("QTY_DECIMAL_SKEW"))
+        assertTrue(terminal.contains("$" + "{mode.lowercase()}|$" + "positionId|$" + "generation|$" + "closeType"))
+        assertFalse(terminal.contains("$" + "{runId.get()}|"))
+        assertTrue(paper.contains("CANONICAL_QTY_$" + "{qtyValidation6522.reason}"))
+        assertTrue(counts.contains("sessionCompletedTrades") && counts.contains("lifetimeCompletedTrades") && counts.contains("openTrades"))
+        assertTrue(report.contains("val revision6522 = reportRevision6522.incrementAndGet()"))
+        assertTrue(report.contains("Session completed trades:") && report.contains("Lifetime completed trades:") && report.contains("Open positions:"))
+        assertTrue(marks.contains("val priceValidity") && marks.contains("val liquidityValidity"))
+        assertTrue(marks.contains("!poolAddress.startsWith(" + "\"MINT_ROUTE:\""))
     }
 
 }

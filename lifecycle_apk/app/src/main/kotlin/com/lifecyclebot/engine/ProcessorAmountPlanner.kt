@@ -9,9 +9,9 @@ import kotlin.math.pow
 object ProcessorAmountPlanner {
 
     private data class ConfirmedSellAmount(
-        val requestedRaw: Long,
+        val requestedRaw: BigInteger,
         val requestedUi: Double,
-        val walletRaw: Long,
+        val walletRaw: BigInteger,
         val walletUi: Double,
         val decimals: Int,
     )
@@ -26,6 +26,7 @@ object ProcessorAmountPlanner {
 
     data class SellPlan(
         val processor: String,
+        /** External Solana transaction builders accept u64/Long; conversion is exact here only. */
         val rawAmount: Long,
         val uiAmount: Double,
         val walletRaw: Long,
@@ -134,9 +135,9 @@ object ProcessorAmountPlanner {
     fun planSellFromConfirmed(
         ts: TokenState,
         processor: String,
-        requestedRaw: Long,
+        requestedRaw: BigInteger,
         requestedUi: Double,
-        walletRaw: Long,
+        walletRaw: BigInteger,
         walletUi: Double,
         decimals: Int,
         sellTradeKey: String? = null,
@@ -153,7 +154,13 @@ object ProcessorAmountPlanner {
         } catch (_: Throwable) {}
         ExecutionRootCauseTrace.authority("SELL", "SELL_PLAN_OK", ts, "processor=$processor raw=$requestedRaw ui=$requestedUi walletRaw=$walletRaw walletUi=$walletUi decimals=$decimals")
         try { ForensicLogger.lifecycle("PROCESSOR_AMOUNT_RECALCULATED", "processor=$processor mint=${ts.mint.take(10)} raw=$requestedRaw ui=$requestedUi decimals=$decimals") } catch (_: Throwable) {}
-        return SellPlan(processor, requestedRaw, requestedUi, walletRaw, walletUi, decimals)
+        val requestedRawLong = try { requestedRaw.longValueExact() } catch (_: ArithmeticException) {
+            throw IllegalArgumentException("SELL_RAW_EXCEEDS_LONG:$requestedRaw")
+        }
+        val walletRawLong = try { walletRaw.longValueExact() } catch (_: ArithmeticException) {
+            throw IllegalArgumentException("WALLET_RAW_EXCEEDS_LONG:$walletRaw")
+        }
+        return SellPlan(processor, requestedRawLong, requestedUi, walletRawLong, walletUi, decimals)
     }
 
     private fun resolveConfirmedSellAmountOrNull(
@@ -209,19 +216,24 @@ object ProcessorAmountPlanner {
                 }
         }
 
-        val (walletUi, dec) = entry
-        if (!walletUi.isFinite() || walletUi <= 0.0) return null
-        val decimals = dec.coerceAtLeast(0)
-        val scale = 10.0.pow(decimals.toDouble())
-        val walletRaw = (walletUi * scale).toLong().coerceAtLeast(0L)
-        if (walletRaw <= 0L) return null
-        val requestedUi = when {
-            fraction != null -> walletUi * fraction.coerceIn(0.0, 1.0)
-            requestedUiQty > walletUi -> walletUi
-            else -> requestedUiQty
+        val walletRaw = entry.raw
+        val decimals = entry.decimals
+        val walletUi = entry.uiDoubleForDisplay()
+        if (walletRaw.signum() <= 0) return null
+        val canonical = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+            .filter { it.mint == ts.mint && it.mode == "live" }
+            .maxByOrNull { it.lastMutationMs } ?: return null
+        if (canonical.quantityScale != decimals || canonical.remainingQtyRaw.signum() <= 0) {
+            try { PipelineHealthCollector.labelInc("SELL_BLOCKED_CANONICAL_DECIMAL_SKEW_6522") } catch (_: Throwable) {}
+            return null
         }
-        val requestedRaw = (requestedUi * scale).toLong().coerceIn(1L, walletRaw)
-        return ConfirmedSellAmount(requestedRaw, requestedRaw.toDouble() / scale, walletRaw, walletUi, decimals)
+        val availableRaw = canonical.remainingQtyRaw.min(walletRaw)
+        val requestedRaw = if (fraction != null) {
+            availableRaw.toBigDecimal().multiply(BigDecimal.valueOf(fraction.coerceIn(0.0, 1.0)))
+                .setScale(0, java.math.RoundingMode.DOWN).toBigInteger().max(BigInteger.ONE)
+        } else availableRaw
+        val requestedUi = com.lifecyclebot.engine.truth.CanonicalTokenAmount(requestedRaw, decimals).uiDoubleForDisplay()
+        return ConfirmedSellAmount(requestedRaw, requestedUi, walletRaw, walletUi, decimals)
     }
 
     private fun recoverFromSellAmountAuthorityOrNull(
@@ -233,17 +245,16 @@ object ProcessorAmountPlanner {
     ): ConfirmedSellAmount? {
         val recovered = try { com.lifecyclebot.engine.sell.SellAmountAuthority.resolveForExit(ts.mint, wallet, reason) } catch (_: Throwable) { null }
         val c = recovered as? com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Confirmed ?: return null
-        val walletRawBig = if (c.rawAmount.signum() < 0) BigInteger.ZERO else c.rawAmount
-        val walletRaw = if (walletRawBig > BigInteger.valueOf(Long.MAX_VALUE)) Long.MAX_VALUE else walletRawBig.toLong()
+        val walletRaw = if (c.rawAmount.signum() < 0) BigInteger.ZERO else c.rawAmount
         val decimals = c.decimals.coerceAtLeast(0)
-        val scale = 10.0.pow(decimals.toDouble())
-        val requestedRawBig0 = BigDecimal(requestedUiQty.coerceAtLeast(0.0)).movePointRight(decimals).toBigInteger()
-        val requestedRawBig = if (requestedRawBig0 < BigInteger.ONE) BigInteger.ONE else requestedRawBig0
-        val requestedRaw = (if (requestedRawBig > walletRawBig) walletRawBig else requestedRawBig)
-            .let { if (it > BigInteger.valueOf(Long.MAX_VALUE)) Long.MAX_VALUE else it.toLong() }
-            .coerceIn(1L, walletRaw.coerceAtLeast(1L))
-        val requestedUi = requestedRaw.toDouble() / scale
-        val walletUi = walletRaw.toDouble() / scale
+        val canonical = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+            .filter { it.mint == ts.mint && it.mode == "live" }
+            .maxByOrNull { it.lastMutationMs } ?: return null
+        if (canonical.quantityScale != decimals || canonical.remainingQtyRaw.signum() <= 0) return null
+        val requestedRaw = canonical.remainingQtyRaw.min(walletRaw)
+        if (requestedRaw.signum() <= 0) return null
+        val requestedUi = com.lifecyclebot.engine.truth.CanonicalTokenAmount(requestedRaw, decimals).uiDoubleForDisplay()
+        val walletUi = com.lifecyclebot.engine.truth.CanonicalTokenAmount(walletRaw, decimals).uiDoubleForDisplay()
         ExecutionRootCauseTrace.authority("SELL", "PROCESSOR_AMOUNT_OWNER_DELTA_RECOVERED", ts, "processor=$processor reason=$reason requestedRaw=$requestedRaw walletRaw=$walletRaw decimals=$decimals")
         try { ForensicLogger.lifecycle("PROCESSOR_AMOUNT_OWNER_DELTA_RECOVERED", "processor=$processor mint=${ts.mint.take(10)} reason=$reason requestedRaw=$requestedRaw walletRaw=$walletRaw decimals=$decimals") } catch (_: Throwable) {}
         return ConfirmedSellAmount(requestedRaw, requestedUi, walletRaw, walletUi, decimals)

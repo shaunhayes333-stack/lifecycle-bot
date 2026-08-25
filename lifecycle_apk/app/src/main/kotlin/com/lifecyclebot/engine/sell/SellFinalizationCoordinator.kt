@@ -200,10 +200,19 @@ object SellFinalizationCoordinator {
             //   §P0-#7 publish to the canonical finalized-trade bus
             // Duplicate observations bail before any of the above.
             try {
-                val idKey = com.lifecyclebot.engine.truth.TerminalSellIdempotency6464.makeKey(
-                    sellExecutionId = null, fillId = sellSig, signature = sellSig,
-                )
                 val positionId = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(intent.mint)
+                val canonicalPosition6522 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId) ?: return@run
+                val partial = fin.finalState != TxMetaSellFinalizer.FinalState.CLEARED
+                val qtyValidation6522 = com.lifecyclebot.engine.truth.CanonicalSellQuantityGuard6522.validate(
+                    mode = "live", positionId = positionId, generation = canonicalPosition6522.openedAtMs, mint = intent.mint,
+                    sellRaw = actualConsumedRaw, sellDecimals = canonicalPosition6522.quantityScale,
+                    callerRemainingRaw = canonicalPosition6522.remainingQtyRaw, terminal = !partial,
+                )
+                if (!qtyValidation6522.allowed) return@run
+                val invariantCloseKey6522 = if (!partial) "live|$positionId|${canonicalPosition6522.openedAtMs}|FULL_CLOSE" else "live|$positionId|${canonicalPosition6522.openedAtMs}|PARTIAL_CLOSE|$sellSig"
+                val idKey = com.lifecyclebot.engine.truth.TerminalSellIdempotency6464.makeKey(
+                    sellExecutionId = invariantCloseKey6522, fillId = invariantCloseKey6522, signature = invariantCloseKey6522,
+                )
                 val consume = com.lifecyclebot.engine.truth.TerminalSellIdempotency6464.beginTerminal(
                     key = idKey, positionId = positionId,
                     sitePath = "SellFinalizationCoordinator.finalize(${traderTag})",
@@ -218,8 +227,8 @@ object SellFinalizationCoordinator {
                     val termClaim6466 = com.lifecyclebot.engine.truth.TerminalMutationAuthority6466.claim(
                         com.lifecyclebot.engine.truth.TerminalMutationAuthority6466.TerminalEvent(
                             positionId = positionId6466, mint = intent.mint, symbol = intent.symbol,
-                            mode = "live", generation = 0L,
-                            terminalSequence = if (fin.finalState == TxMetaSellFinalizer.FinalState.CLEARED) 999L else System.currentTimeMillis(),
+                            mode = "live", generation = canonicalPosition6522.openedAtMs,
+                            terminalSequence = if (!partial) com.lifecyclebot.engine.truth.TerminalMutationAuthority6466.FULL_CLOSE_SEQUENCE_6522 else idKey.hashCode().toLong(),
                             runId = "run", exitReason = intent.reason.name,
                         )
                     )
@@ -227,10 +236,9 @@ object SellFinalizationCoordinator {
                         // Duplicate: bail before any side effect.
                         return@run
                     }
-                    val partial = fin.finalState != TxMetaSellFinalizer.FinalState.CLEARED
                     val positionApplied6486 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
                         mint = intent.mint,
-                        generation = sellSig.hashCode().toLong(),
+                        generation = canonicalPosition6522.openedAtMs,
                         soldQtyRaw = actualConsumedRaw,
                         proceedsSol = sellSolReceived,
                         soldCostBasisSol = pnl.proportionalCostBasisSol,

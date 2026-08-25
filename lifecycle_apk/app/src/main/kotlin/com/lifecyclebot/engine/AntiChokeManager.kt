@@ -213,7 +213,7 @@ object AntiChokeManager {
         try { GlobalTradeRegistry.getOpenPositions().forEach { mints.add(it.mint) } } catch (_: Throwable) {}
         try { TokenLifecycleTracker.all().filter { it.status.name !in setOf("CLEARED", "RECONCILE_FAILED") }.forEach { mints.add(it.mint) } } catch (_: Throwable) {}
 
-        var walletMap: Map<String, Pair<Double, Int>>? = null
+        var walletMap: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>? = null
         if (!isPaperMode && wallet != null) {
             walletMap = withTimeoutOrNull(7_000L) { wallet.getTokenAccountsWithDecimalsBounded() }
             if (walletMap == null) return 0

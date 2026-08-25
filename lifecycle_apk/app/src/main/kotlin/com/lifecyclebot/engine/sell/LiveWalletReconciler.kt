@@ -180,7 +180,7 @@ object LiveWalletReconciler {
     fun reconcileBlocking(wallet: SolanaWallet, reason: String): Int {
         totalRuns.incrementAndGet()
         lastRunMs.set(System.currentTimeMillis())
-        val balances: Map<String, Pair<Double, Int>> = try {
+        val balances: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount> = try {
             wallet.getTokenAccountsWithDecimalsBounded()
         } catch (e: Throwable) {
             ErrorLogger.warn(TAG, "wallet read failed during reconcile: ${e.message}")
@@ -248,11 +248,8 @@ object LiveWalletReconciler {
             for (p in tracked) {
                 if (p.status != com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.OPEN_TRACKING) continue
                 val pair = balances[p.mint]
-                val walletRawApprox = if (pair != null) {
-                    val (ui, dec) = pair
-                    (ui * Math.pow(10.0, dec.toDouble())).toLong()
-                } else 0L  // tracked-open mint absent from a healthy non-empty read = drained
-                if (walletRawApprox > DUST_RAW_REAP) continue   // genuinely held; leave it
+                val walletRawExact = pair?.raw ?: java.math.BigInteger.ZERO
+                if (walletRawExact > java.math.BigInteger.valueOf(DUST_RAW_REAP)) continue   // genuinely held; leave it
                 val ageMs = now - (p.buyTimeMs ?: p.firstSeenWalletMs)
                 if (ageMs < ZOMBIE_AGE_MS) continue              // too fresh; not-yet-visible buy
                 val closed = try {
@@ -275,7 +272,7 @@ object LiveWalletReconciler {
                     try { com.lifecyclebot.engine.sell.CloseLease.release(p.mint, terminal = "DUST_ZOMBIE_REAP") } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.sell.SellJobRegistry.markLanded(p.mint, signature = null) } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.BotService.purgeGhostLivePosition(p.mint, "DUST_ZOMBIE_REAP") } catch (_: Throwable) {}
-                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("DUST_ZOMBIE_POSITION_REAPED", "mint=${p.mint.take(10)} symbol=${p.symbol} walletRaw=$walletRawApprox ageMs=$ageMs reason=$reason") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("DUST_ZOMBIE_POSITION_REAPED", "mint=${p.mint.take(10)} symbol=${p.symbol} walletRaw=$walletRawExact ageMs=$ageMs reason=$reason") } catch (_: Throwable) {}
                 }
             }
         }
@@ -326,12 +323,13 @@ object LiveWalletReconciler {
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_WALLET_RECONCILER_SKIP_DEAD_TOKEN") } catch (_: Throwable) {}
                 continue
             }
-            val (uiAmount, decimals) = pair
-            if (uiAmount <= 0.0) continue
+            val uiAmount = pair.uiDoubleForDisplay()
+            val decimals = pair.decimals
+            if (pair.raw.signum() <= 0) continue
             // V5.0.3791 — do not re-open / keep dust as a live held token; the
             // dust-zombie reaper above owns finality for these.
-            val rawApprox = (uiAmount * Math.pow(10.0, decimals.toDouble())).toLong()
-            if (rawApprox <= DUST_RAW_REAP) continue
+            val rawExact = pair.raw
+            if (rawExact <= java.math.BigInteger.valueOf(DUST_RAW_REAP)) continue
             try {
                 // Lazy-create if missing — ALL live wallet tokens must be tracked.
                 if (TokenLifecycleTracker.get(mint) == null) {

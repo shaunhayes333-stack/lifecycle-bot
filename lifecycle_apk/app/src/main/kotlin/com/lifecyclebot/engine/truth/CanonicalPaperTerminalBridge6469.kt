@@ -56,10 +56,11 @@ object CanonicalPaperTerminalBridge6469 {
         terminal: Boolean,
         sitePath: String,
     ): Claim {
+        val invariantCloseKey6522 = if (terminal) "paper|$positionId|$generation|FULL_CLOSE" else "paper|$positionId|$generation|PARTIAL_CLOSE|$sellSig"
         val idKey = TerminalSellIdempotency6464.makeKey(
-            sellExecutionId = sellSig,
-            fillId = sellSig,
-            signature = sellSig,
+            sellExecutionId = invariantCloseKey6522,
+            fillId = invariantCloseKey6522,
+            signature = invariantCloseKey6522,
         )
         val consume = TerminalSellIdempotency6464.beginTerminal(
             key = idKey,
@@ -77,7 +78,7 @@ object CanonicalPaperTerminalBridge6469 {
                 symbol = symbol,
                 mode = "paper",
                 generation = generation,
-                terminalSequence = if (terminal) 999L else idKey.hashCode().toLong(),
+                terminalSequence = if (terminal) TerminalMutationAuthority6466.FULL_CLOSE_SEQUENCE_6522 else idKey.hashCode().toLong(),
                 runId = "paper",
                 exitReason = exitReason,
             ),
@@ -111,6 +112,16 @@ object CanonicalPaperTerminalBridge6469 {
         directPositionMutation6486: Boolean = false,
         suppressLearningFanout6490: Boolean = false,
     ): Result {
+        val canonicalBefore6522 = CanonicalPositionAuthority6441.getPosition(positionId)
+        val sellDecimals6522 = canonicalBefore6522?.quantityScale ?: -1
+        val qtyValidation6522 = CanonicalSellQuantityGuard6522.validate(
+            mode = "paper", positionId = positionId, generation = generation, mint = mint,
+            sellRaw = soldQtyRaw, sellDecimals = sellDecimals6522,
+            callerRemainingRaw = preRemainingRaw, terminal = terminal,
+        )
+        if (!qtyValidation6522.allowed) {
+            return Result(false, false, false, "CANONICAL_QTY_${qtyValidation6522.reason}")
+        }
         val qtyAdmission6498 = SellQtyBoundaryClamp6427.admitRaw(positionId, soldQtyRaw, mint, symbol)
         if (!qtyAdmission6498.allowed) {
             try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_QTY_REJECTED_6498") } catch (_: Throwable) {}

@@ -220,7 +220,8 @@ object PerformanceAnalytics {
         )
 
         return AnalyticsSnapshot(
-            totalTrades = decisiveTrades.size,
+            totalTrades = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.closedPositions()
+                .distinctBy { "${it.mode.lowercase()}|${it.positionId}|${it.openedAtMs}" }.size } catch (_: Throwable) { decisiveTrades.size },
             winCount = wins.size,
             lossCount = losses.size,
             winRate = sanitizeDouble(winRate),

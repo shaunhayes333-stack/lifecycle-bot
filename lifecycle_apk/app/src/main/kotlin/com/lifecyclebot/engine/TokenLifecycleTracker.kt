@@ -507,8 +507,8 @@ object TokenLifecycleTracker {
                         delay(WALLET_RECONCILE_BACKOFF_MS * attempt)
                         continue
                     }
-                    val (ui, _) = map[mint] ?: (0.0 to 0)
-                    return@withTimeoutOrNull Reading.Confirmed(ui)
+                    val amount = map[mint]
+                    return@withTimeoutOrNull Reading.Confirmed(amount?.uiDoubleForDisplay() ?: 0.0)
                 } catch (e: Exception) {
                     ErrorLogger.debug(TAG, "reconcile attempt $attempt err: ${e.message}")
                     delay(WALLET_RECONCILE_BACKOFF_MS * attempt)

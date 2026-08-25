@@ -130,7 +130,7 @@ object SellAmountAuthority {
 
         // Source 1+2 fused: getTokenAccountsByOwner is what SolanaWallet
         // already exposes. EMPTY MAP MUST mean UNKNOWN (operator spec).
-        val balances: Map<String, Pair<Double, Int>> = try {
+        val balances: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount> = try {
             w.getTokenAccountsWithDecimalsBounded()
         } catch (e: Throwable) {
             // V5.0.3762 source fix: bounded wallet read failures/timeouts are
@@ -160,8 +160,9 @@ object SellAmountAuthority {
             ErrorLogger.warn(TAG, "BALANCE_UNKNOWN reason=MINT_ABSENT_FROM_ONE_PROVIDER mint=${mint.take(8)}…")
             return Resolution.Unknown
         }
-        val (uiAmount, decimals) = entry
-        if (uiAmount <= 0.0) {
+        val uiAmount = entry.uiDoubleForDisplay()
+        val decimals = entry.decimals
+        if (entry.raw.signum() <= 0) {
             // V5.0.3791 — a trusted two-program wallet read that returns the mint at
             // exactly zero IS a confirmed-zero proof (not indeterminate). The read
             // succeeded robustly (getTokenAccountsWithDecimalsBounded did not throw),
@@ -174,10 +175,7 @@ object SellAmountAuthority {
             ErrorLogger.warn(TAG, "BALANCE_CONFIRMED_ZERO reason=TRUSTED_WALLET_ZERO mint=${mint.take(8)}…")
             return Resolution.Zero(Source.TOKEN_ACCOUNTS_BY_OWNER)
         }
-        val raw = if (decimals > 0)
-            BigDecimal(uiAmount).movePointRight(decimals).toBigInteger()
-        else
-            BigDecimal(uiAmount).toBigInteger()
+        val raw = entry.raw
         try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.clearUntrustedRpc(mint) } catch (_: Throwable) {}
         // V5.0.3791 — DUST-ZERO FINALITY. A confirmed wallet read whose raw units round
         // to dust (<= SELL_DUST_RAW) is economically empty and unsellable — every sell

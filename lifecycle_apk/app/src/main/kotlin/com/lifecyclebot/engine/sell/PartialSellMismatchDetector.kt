@@ -77,7 +77,7 @@ object PartialSellMismatchDetector {
         // Brief settle window to let RPC see the tx.
         try { Thread.sleep(2_000) } catch (_: InterruptedException) { return false }
 
-        val postUiAndDec: Pair<Double, Int>? = try {
+        val postUiAndDec = try {
             w.getTokenAccountsWithDecimalsBounded()[mint]
         } catch (_: Throwable) { null }
         if (postUiAndDec == null) {

@@ -968,24 +968,25 @@ object HostWalletTokenTracker {
      *   - Will never overwrite a higher status (e.g. EXIT_SIGNALLED) with
      *     a lower one (HELD_IN_WALLET).
      */
-    fun applyWalletSnapshot(walletMints: Map<String, Pair<Double, Int>>) {
+    fun applyWalletSnapshot(walletMints: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>) {
         if (walletMints.isEmpty()) return  // RPC blip — defended elsewhere too
         val now = System.currentTimeMillis()
 
         // Pass 1: orphan recovery / refresh existing.
         for ((mint, pair) in walletMints) {
             if (mint == SOL_MINT) continue
-            val (uiAmount, decimals) = pair
-            val rawApprox = (uiAmount * Math.pow(10.0, decimals.toDouble())).toLong()
+            val uiAmount = pair.uiDoubleForDisplay()
+            val decimals = pair.decimals
+            val rawExact = pair.raw
             val walletHasTradableUi = uiAmount.isFinite() && uiAmount > TERMINAL_DUST_UI
-            val walletHasTradableRaw = rawApprox > DUST_RAW && walletHasTradableUi
+            val walletHasTradableRaw = rawExact > BigInteger.valueOf(DUST_RAW) && walletHasTradableUi
             val existing = positions[mint]
             if (existing != null) {
                 // V5.9.1496 — balance returned → cancel any pending zero-close debounce.
                 if (walletHasTradableUi) existing.consecutiveZeroConfirms = 0
                 existing.uiAmount = uiAmount
                 existing.decimals = decimals
-                existing.rawAmount = rawApprox.toString()
+                existing.rawAmount = rawExact.toString()
                 existing.lastSeenWalletMs = now
                 existing.lastWalletReconcileMs = now
                 if (!walletHasTradableUi) {
@@ -995,20 +996,20 @@ object HostWalletTokenTracker {
                         existing.activeSellAttemptId = null
                         existing.sellAttemptStartedMs = 0L
                         existing.zeroBalanceConfirmedByTwoProviders = true
-                        existing.notes.add("wallet snapshot terminal dust ignored qty=$uiAmount raw=$rawApprox")
+                        existing.notes.add("wallet snapshot terminal dust ignored qty=$uiAmount raw=$rawExact")
                         try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(mint, "CLOSED_BY_TERMINAL_TOKEN_DUST", 0) } catch (_: Throwable) {}
                         try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(mint) } catch (_: Throwable) {}
                         try { com.lifecyclebot.engine.sell.CloseLease.release(mint, "CLOSED_BY_TERMINAL_TOKEN_DUST") } catch (_: Throwable) {}
                         try { com.lifecyclebot.engine.BotService.purgeGhostLivePosition(mint, "CLOSED_BY_TERMINAL_TOKEN_DUST") } catch (_: Throwable) {}
                         emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, mint, existing.symbol, null,
-                            "WALLET_TERMINAL_DUST_IGNORED ${existing.symbol ?: mint.take(6)} qty=$uiAmount raw=$rawApprox")
+                            "WALLET_TERMINAL_DUST_IGNORED ${existing.symbol ?: mint.take(6)} qty=$uiAmount raw=$rawExact")
                     }
                     continue
                 }
                 if (walletHasTradableRaw) {
                     walletAuthority[mint] = WalletAuthoritySnapshot.HELD(
                         mint = mint,
-                        raw = BigInteger.valueOf(rawApprox.coerceAtLeast(0L)),
+                        raw = rawExact,
                         uiAmount = uiAmount,
                         decimals = decimals,
                         source = BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT.name,
@@ -1090,7 +1091,7 @@ object HostWalletTokenTracker {
                 }
                 continue
             }
-            if (!walletHasTradableUi || rawApprox <= DUST_RAW) continue
+            if (!walletHasTradableUi || rawExact <= BigInteger.valueOf(DUST_RAW)) continue
             // V5.0.3788 — orphan recovery disabled by operator. A wallet token the
             // bot never bought is ignored: it never enters the position book, never
             // consumes a slot, and never spawns a sell. Emit a forensic so it is
@@ -1112,7 +1113,7 @@ object HostWalletTokenTracker {
                 buySignature = null, sellSignature = null,
                 buyTimeMs = null, firstSeenWalletMs = now, lastSeenWalletMs = now,
                 entryPriceUsd = null, entrySol = null, entryMarketCap = null,
-                rawAmount = rawApprox.toString(), decimals = decimals, uiAmount = uiAmount,
+                rawAmount = rawExact.toString(), decimals = decimals, uiAmount = uiAmount,
                 currentPriceUsd = null, currentValueSol = null, currentValueAud = null,
                 highestPriceUsd = null, lowestPriceUsd = null,
                 maxGainPct = 0.0, maxDrawdownPct = 0.0,
@@ -1128,7 +1129,7 @@ object HostWalletTokenTracker {
             positions[mint] = recovered
             walletAuthority[mint] = WalletAuthoritySnapshot.HELD(
                 mint = mint,
-                raw = BigInteger.valueOf(rawApprox.coerceAtLeast(0L)),
+                raw = rawExact,
                 uiAmount = uiAmount,
                 decimals = decimals,
                 source = BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT.name,
@@ -1449,7 +1450,7 @@ object HostWalletTokenTracker {
      * walletMints: fresh on-chain snapshot (mint -> (uiAmount, decimals)).
      * Pass an EMPTY map ONLY when you intend a full wipe (cold start, no holds).
      */
-    fun forceStartupGhostReconcile(walletMints: Map<String, Pair<Double, Int>>): Int {
+    fun forceStartupGhostReconcile(walletMints: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>): Int {
         var closed = 0
         for (p in positions.values.toList()) {
             if (p.status !in OPEN_STATUSES) continue

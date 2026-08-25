@@ -50,7 +50,7 @@ object WalletReconciler {
         if (now - prev < MIN_INTERVAL_MS) return 0
         if (!lastRunMs.compareAndSet(prev, now)) return 0
 
-        val walletMints: Map<String, Pair<Double, Int>> = try {
+        val walletMints: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount> = try {
             wallet.getTokenAccountsWithDecimalsBounded()
         } catch (t: Throwable) {
             ErrorLogger.debug(TAG, "wallet read failed: ${t.message?.take(80)}")
@@ -75,9 +75,10 @@ object WalletReconciler {
         // ── Pass 1: orphan recovery ─────────────────────────────────────────
         // Every mint in the wallet with raw>dust must have an open position.
         for ((mint, pair) in walletMints) {
-            val (uiAmount, decimals) = pair
-            val rawApprox = (uiAmount * Math.pow(10.0, decimals.toDouble())).toLong()
-            if (rawApprox <= DUST_RAW) continue
+            val uiAmount = pair.uiDoubleForDisplay()
+            val decimals = pair.decimals
+            val rawExact = pair.raw
+            if (rawExact <= java.math.BigInteger.valueOf(DUST_RAW)) continue
             val ts = status.tokens[mint]
             if (ts != null && ts.position.isOpen) {
                 // Already tracked — bring qty up to wallet truth if drifted.

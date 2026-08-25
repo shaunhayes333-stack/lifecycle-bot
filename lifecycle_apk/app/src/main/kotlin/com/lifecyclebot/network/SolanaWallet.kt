@@ -1,5 +1,7 @@
 package com.lifecyclebot.network
 
+import com.lifecyclebot.engine.truth.CanonicalTokenAmount
+
 import com.iwebpp.crypto.TweetNaclFast
 import io.github.novacrypto.base58.Base58
 import okhttp3.MediaType.Companion.toMediaType
@@ -649,7 +651,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * Get token accounts with BOTH balance AND decimals.
      * Returns Map<mint, Pair<uiAmount, decimals>>
      */
-    fun getTokenAccountsWithDecimals(): Map<String, Pair<Double, Int>> = try {
+    fun getTokenAccountsWithDecimals(): Map<String, CanonicalTokenAmount> = try {
         getTokenAccountsWithDecimalsStrict()
     } catch (e: Exception) {
         android.util.Log.w("SolanaWallet", "getTokenAccountsWithDecimals non-strict failed: ${e.message}")
@@ -741,7 +743,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         throw RuntimeException("getTokenAccountsByOwner failed on ${endpoints.size} wallet endpoints: ${failures.joinToString("|").take(420)}")
     }
 
-    private fun heliusDasFungibleTokensByOwner(): Map<String, Pair<Double, Int>> {
+    private fun heliusDasFungibleTokensByOwner(): Map<String, CanonicalTokenAmount> {
         val apiKey = try { com.lifecyclebot.data.DefaultKeys.HELIUS } catch (_: Throwable) { "" }
         if (apiKey.isBlank()) throw RuntimeException("Helius DAS unavailable: missing api key")
         val url = "https://mainnet.helius-rpc.com/?api-key=$apiKey"
@@ -773,7 +775,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         if (err != null) throw RuntimeException("Helius DAS RPC ${err.optString("message", err.toString())}")
         val result = json.optJSONObject("result") ?: throw RuntimeException("Helius DAS missing result")
         val items = result.optJSONArray("items") ?: JSONArray()
-        val out = mutableMapOf<String, Pair<Double, Int>>()
+        val out = mutableMapOf<String, CanonicalTokenAmount>()
         for (i in 0 until items.length()) {
             val item = items.optJSONObject(i) ?: continue
             val mint = item.optString("id", item.optString("mint", ""))
@@ -784,11 +786,8 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                 is String -> rawAny
                 else -> tokenInfo.optString("amount", "0")
             }
-            val raw = rawText.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
-            if (mint.isNotBlank() && raw.signum() > 0) {
-                val ui = try { raw.movePointLeft(decimals).toDouble() } catch (_: Throwable) { 0.0 }
-                if (ui > 0.0 && ui.isFinite()) out[mint] = Pair(ui, decimals)
-            }
+            val amount = try { CanonicalTokenAmount.fromRpcAmount(rawText, decimals) } catch (_: Throwable) { null }
+            if (mint.isNotBlank() && amount != null && amount.raw.signum() > 0) out[mint] = amount
         }
         try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKENS_DAS_OK", "count=${out.size} source=HELIUS_DAS") } catch (_: Throwable) {}
         return out
@@ -801,7 +800,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * meme holdings live there. Token-2022 is additive only: a Token-2022 read
      * failure must not poison an otherwise successful SPL wallet snapshot.
      */
-    fun getTokenAccountsWithDecimalsStrict(): Map<String, Pair<Double, Int>> {
+    fun getTokenAccountsWithDecimalsStrict(): Map<String, CanonicalTokenAmount> {
         // V5.0.4173 — WALLET CACHE 5s. Operator dump: 281 GB / 29 days.
         // This RPC fires every cycle (~6s) returning the full wallet SPL
         // state (5–100 KB payload) — across a day that's ~14,400 calls
@@ -816,7 +815,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
 
         val TOKEN_PROGRAM    = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         val TOKEN_2022_PROG  = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        val out = mutableMapOf<String, Pair<Double, Int>>()
+        val out = mutableMapOf<String, CanonicalTokenAmount>()
         val failures = mutableListOf<String>()
         var splProgramOk = false
         var token2022Ok = false
@@ -832,9 +831,10 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                     ?.optJSONObject("parsed")?.optJSONObject("info") ?: continue
                 val mint = info.optString("mint", "")
                 val tokenAmount = info.optJSONObject("tokenAmount")
-                val qty = tokenAmount?.optString("uiAmountString", "0")?.toDoubleOrNull() ?: 0.0
-                val decimals = tokenAmount?.optInt("decimals", 9) ?: 9
-                if (mint.isNotBlank() && qty > 0) out[mint] = Pair(qty, decimals)
+                val rawAmount = tokenAmount?.optString("amount", "") ?: ""
+                val decimals = tokenAmount?.optInt("decimals", -1) ?: -1
+                val amount = try { CanonicalTokenAmount.fromRpcAmount(rawAmount, decimals) } catch (_: Throwable) { null }
+                if (mint.isNotBlank() && amount != null && amount.raw.signum() > 0) out[mint] = amount
             }
         }
 
@@ -901,8 +901,8 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      */
     fun getTokenAccountsWithDecimalsBounded(
         timeoutMs: Long = 5_000L
-    ): Map<String, Pair<Double, Int>> {
-        val fut: java.util.concurrent.Future<Map<String, Pair<Double, Int>>> = try {
+    ): Map<String, CanonicalTokenAmount> {
+        val fut: java.util.concurrent.Future<Map<String, CanonicalTokenAmount>> = try {
             boundedRpcExecutor().submit(java.util.concurrent.Callable {
                 getTokenAccountsWithDecimalsStrict()
             })

@@ -86,7 +86,9 @@ object CanonicalPaperReplay6464 {
         // Oldest-first — events deque adds to head, so reverse.
         for (e in events.asReversed()) {
             if (e.mode != "paper") continue
-            if (!seen.add(e.idempotencyKey)) { dup++; continue }
+            val replayIdentity6522 = if (e is EconomicEventSchema6464.Sell && !e.partial)
+                "paper|${e.positionId}|FULL_CLOSE" else e.idempotencyKey
+            if (!seen.add(replayIdentity6522)) { dup++; continue }
             when (e) {
                 is EconomicEventSchema6464.Buy -> {
                     if (!e.executedCostSol.isFinite() || e.executedCostSol < 0.0 ||
@@ -106,6 +108,15 @@ object CanonicalPaperReplay6464 {
                     // V5.0.6487 — derive canonical GROSS realized from typed fields.
                     // 6486 rows stored net realized, so trusting the aggregate would
                     // import exit fees twice and reproduce the wallet/ledger delta.
+                    val currentRaw6522 = perMintQty[e.mint] ?: BigInteger.ZERO
+                    if (e.soldQty > currentRaw6522 || (!e.partial && e.soldQty != currentRaw6522)) {
+                        invalid++
+                        try {
+                            PipelineHealthCollector.labelInc("PAPER_REPLAY_QTY_DECIMAL_SKEW_QUARANTINED_6522")
+                            ForensicLogger.lifecycle("PAPER_REPLAY_QTY_DECIMAL_SKEW_QUARANTINED_6522", "positionId=${e.positionId} mint=${e.mint.take(10)} sold=${e.soldQty} remaining=$currentRaw6522 terminal=${!e.partial}")
+                        } catch (_: Throwable) {}
+                        continue
+                    }
                     val canonicalGrossRealized6487 = e.grossProceedsSol - e.allocatedCostBasisSol
                     if (kotlin.math.abs(canonicalGrossRealized6487) > 30.0) { invalid++; continue }
                     cash += e.netProceedsSol

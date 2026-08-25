@@ -5119,7 +5119,7 @@ class BotService : Service() {
                             try { PipelineHealthCollector.labelInc("STARTUP_GHOST_RECONCILE_DEFERRED_6068") } catch (_: Throwable) {}
                             return@launch
                         }
-                        val snap1: Map<String, Pair<Double, Int>> = if (paperGhost) {
+                        val snap1: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount> = if (paperGhost) {
                             emptyMap()
                         } else {
                             try { wallet?.getTokenAccountsWithDecimalsBounded() ?: emptyMap() } catch (_: Throwable) { emptyMap() }
@@ -5127,11 +5127,11 @@ class BotService : Service() {
                         // V5.0.6068 — TWO-READ CONSENSUS for live mode. Single wallet
                         // read on cold-start can be partial due to RPC 429 or timeout.
                         // Wait 5s and read again. Only close mints missing from BOTH.
-                        val snap: Map<String, Pair<Double, Int>> = if (paperGhost) {
+                        val snap: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount> = if (paperGhost) {
                             snap1
                         } else {
                             kotlinx.coroutines.delay(5_000L)
-                            val snap2: Map<String, Pair<Double, Int>> = try { wallet?.getTokenAccountsWithDecimalsBounded() ?: emptyMap() } catch (_: Throwable) { emptyMap() }
+                            val snap2: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount> = try { wallet?.getTokenAccountsWithDecimalsBounded() ?: emptyMap() } catch (_: Throwable) { emptyMap() }
                             if (snap1.isEmpty() && snap2.isEmpty()) {
                                 addLog("🛡 Startup reconcile DEFERRED — both wallet reads empty (V5.0.6068)")
                                 ForensicLogger.lifecycle("STARTUP_GHOST_RECONCILE_DEFERRED_6068", "reason=both_reads_empty_would_erase_real_positions snap1=${snap1.size} snap2=${snap2.size}")
@@ -5140,7 +5140,7 @@ class BotService : Service() {
                             }
                             // Merge UNION of both reads. A mint present in EITHER read is
                             // preserved. Only mints missing from BOTH are subject to close.
-                            val merged = HashMap<String, Pair<Double, Int>>()
+                            val merged = HashMap<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>()
                             merged.putAll(snap1)
                             for ((k, v) in snap2) if (!merged.containsKey(k)) merged[k] = v
                             ForensicLogger.lifecycle("STARTUP_GHOST_RECONCILE_TWO_READ_UNION_6068", "snap1=${snap1.size} snap2=${snap2.size} merged=${merged.size}")
@@ -14167,7 +14167,7 @@ class BotService : Service() {
             var phantomCount = 0
             val isLive = !com.lifecyclebot.data.ConfigStore.load(applicationContext).paperMode
             val w = wallet
-            val onChainBalances: Map<String, Pair<Double, Int>>? = if (isLive && w != null) {
+            val onChainBalances: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>? = if (isLive && w != null) {
                 try { w.getTokenAccountsWithDecimalsBounded() } catch (e: Exception) {
                     ErrorLogger.warn("BotService", "🔧 [VERIFY_WATCHDOG] RPC failed; will retry next tick: ${e.message}")
                     null
@@ -19073,6 +19073,21 @@ if (hotExitHandledSweep) {
             // discovery-gate + tick-gate. By the time we reach here the
             // quote is trusted enough to persist.
             val validatedPrice = incomingPrice
+            val canonicalMarkAccepted6522 = try {
+                com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.publish(
+                    com.lifecyclebot.engine.truth.CanonicalPriceMark6522(
+                        mint = mint, pairId = pair.pairAddress, baseMint = pair.baseTokenAddress,
+                        quoteMint = pair.quoteTokenAddress, source = "DEXSCREENER_PAIR_POLL",
+                        timestampMs = System.currentTimeMillis(),
+                        priceUsd = com.lifecyclebot.engine.truth.PriceUsd(java.math.BigDecimal.valueOf(validatedPrice)),
+                        liquidityUsd = pair.liquidity.takeIf { it.isFinite() && it > 0.0 }?.let { java.math.BigDecimal.valueOf(it) },
+                    )
+                )
+            } catch (_: Throwable) { false }
+            if (!canonicalMarkAccepted6522) {
+                try { PipelineHealthCollector.labelInc("CANONICAL_PRICE_MARK_REJECTED_6522") } catch (_: Throwable) {}
+                return
+            }
             
             ts.lastPrice        = validatedPrice
             ts.lastPriceSource  = "DEXSCREENER_PAIR_POLL"  // V5.9.744

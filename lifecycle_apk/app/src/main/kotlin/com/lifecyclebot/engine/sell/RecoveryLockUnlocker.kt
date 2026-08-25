@@ -114,11 +114,9 @@ object RecoveryLockUnlocker {
 
         // Step 2 — chain wallet balance.
         val balances = try { wallet.getTokenAccountsWithDecimalsBounded() } catch (_: Throwable) { emptyMap() }
-        val (uiAmount, decimals) = balances[mint] ?: (0.0 to 0)
-        val effectiveDecimals = if (decimals > 0) decimals else meta.entryDecimals.coerceAtLeast(6)
-        val currentRaw: BigInteger = if (uiAmount > 0.0 && effectiveDecimals > 0) {
-            BigDecimal(uiAmount).movePointRight(effectiveDecimals).toBigInteger()
-        } else BigInteger.ZERO
+        val walletAmount = balances[mint]
+        val effectiveDecimals = walletAmount?.decimals ?: meta.entryDecimals.coerceAtLeast(6)
+        val currentRaw: BigInteger = walletAmount?.raw ?: BigInteger.ZERO
         if (currentRaw.signum() <= 0) return Outcome.SKIPPED_NO_WALLET_TOKENS
 
         // Step 3 — Jupiter advisory quote (non-binding).

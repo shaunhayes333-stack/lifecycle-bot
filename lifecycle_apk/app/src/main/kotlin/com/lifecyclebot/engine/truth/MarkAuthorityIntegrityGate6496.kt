@@ -68,14 +68,16 @@ object MarkAuthorityIntegrityGate6496 {
             catch (_: Throwable) { MarketDataProvenance6471.Provenance.NON_AUTHORITATIVE_MISSING }
         val sourceUpper = source.trim().uppercase()
         val realPriceSource = sourceUpper in setOf("DEXSCREENER_PAIR_POLL", "DEXSCREENER", "BIRDEYE", "JUPITER", "PUMPFUN_BONDING_CURVE", "PUMP_FUN_BC_SYNTHETIC", "PUMP_FUN_FRONTEND_API")
-        val numericPriceValid = fresh && priceUsd.isFinite() && priceUsd > 0.0 && liquidityUsd.isFinite() && liquidityUsd > 0.0
+        val priceValidity = fresh && priceUsd.isFinite() && priceUsd > 0.0
+        val liquidityValidity = liquidityUsd.isFinite() && liquidityUsd > 0.0
+        val realPoolIdentity = poolAddress.isNotBlank() && !poolAddress.startsWith("MINT_ROUTE:", ignoreCase = true)
         val knownTemplate = kotlin.math.abs(priceUsd - 0.050250000) < 1e-6 && kotlin.math.abs(mcapUsd - 50_000_000.0) < 1.0 && kotlin.math.abs(liquidityUsd - 5_000_000.0) < 1.0
-        val priceAuthoritative = numericPriceValid && realPriceSource && !knownTemplate
-        val routeExecutable = provenance == MarketDataProvenance6471.Provenance.AUTHORITATIVE
+        val priceAuthoritative = priceValidity && realPriceSource && realPoolIdentity && !knownTemplate
+        val routeExecutable = liquidityValidity && provenance == MarketDataProvenance6471.Provenance.AUTHORITATIVE
         if (priceAuthoritative) authoritativePasses.incrementAndGet() else {
             nonAuthoritativeBlocks.incrementAndGet()
             try {
-                ForensicLogger.lifecycle("MARK_AUTHORITY_GATE_BLOCKED_6496", "mint=${mint.take(10)} provenance=${provenance.name} src=$source pool=${poolAddress.take(24)} priceUsd=${"%.6f".format(priceUsd)} mcap=$mcapUsd liq=$liquidityUsd reason=price_authority")
+                ForensicLogger.lifecycle("MARK_AUTHORITY_GATE_BLOCKED_6496", "mint=${mint.take(10)} provenance=${provenance.name} src=$source pool=${poolAddress.take(24)} priceUsd=${"%.6f".format(priceUsd)} mcap=$mcapUsd liq=$liquidityUsd reason=price_authority priceValid=$priceValidity liquidityValid=$liquidityValidity poolValid=$realPoolIdentity")
                 PipelineHealthCollector.labelInc("MARK_AUTHORITY_GATE_BLOCKED_6496")
             } catch (_: Throwable) {}
         }

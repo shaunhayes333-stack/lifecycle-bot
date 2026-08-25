@@ -140,9 +140,9 @@ object UniversalBridgeEngine {
         try {
             // SPL tokens
             val tokens = wallet.getTokenAccountsWithDecimalsBounded()
-            tokens.forEach { (mint, pair) ->
-                val (amount, _) = pair
-                if (amount > 0.000001) {
+            tokens.forEach { (mint, tokenAmount) ->
+                val amount = tokenAmount.uiDoubleForDisplay()
+                if (tokenAmount.raw.signum() > 0) {
                     balances[mint] = amount
                     // Get USD value from known prices or Jupiter quote
                     val usdVal = estimateUsdValue(mint, amount)
@@ -322,12 +322,9 @@ object UniversalBridgeEngine {
 
         // Step 2: if source == target, just confirm balance
         if (src == targetMint) {
-            val row = if (targetMint == SOL_MINT) {
-                val ui = try { wallet.getSolBalance() } catch (_: Throwable) { 0.0 }
-                Pair(ui, 9)
-            } else try { wallet.getTokenAccountsWithDecimalsBounded()[targetMint] } catch (_: Throwable) { null }
-            val availableUi = row?.first ?: 0.0
-            val decimals = row?.second ?: (TOKEN_DECIMALS[targetMint] ?: 9)
+            val tokenAmount = if (targetMint == SOL_MINT) null else try { wallet.getTokenAccountsWithDecimalsBounded()[targetMint] } catch (_: Throwable) { null }
+            val availableUi = if (targetMint == SOL_MINT) try { wallet.getSolBalance() } catch (_: Throwable) { 0.0 } else tokenAmount?.uiDoubleForDisplay() ?: 0.0
+            val decimals = if (targetMint == SOL_MINT) 9 else tokenAmount?.decimals ?: (TOKEN_DECIMALS[targetMint] ?: 9)
             val price = approxPricesUsd[targetMint] ?: estimateTokenPriceUsd(targetMint)
             val requestedUi = if (price > 0.0) sizeUsd / price else 0.0
             if (requestedUi <= 0.0 || availableUi + 1e-12 < requestedUi) {
@@ -485,10 +482,8 @@ object UniversalBridgeEngine {
             while (attempt < backoffsMs.size && deltaRaw <= 0L) {
                 kotlinx.coroutines.delay(backoffsMs[attempt])
                 attempt++
-                val postEntry: Pair<Double, Int>? = try {
-                    wallet.getTokenAccountsWithDecimalsBounded()[targetMint]
-                } catch (_: Exception) { null }
-                val postTargetBal = postEntry?.first ?: 0.0
+                val postEntry = try { wallet.getTokenAccountsWithDecimalsBounded()[targetMint] } catch (_: Exception) { null }
+                val postTargetBal = postEntry?.uiDoubleForDisplay() ?: 0.0
                 targetDecimals = postEntry?.second ?: targetDecimals
                 val attemptDeltaUi = postTargetBal - preTargetBal
                 if (attemptDeltaUi > 0.0) {
@@ -593,10 +588,11 @@ object UniversalBridgeEngine {
         returnToMint: String = USDC_MINT,
     ): BridgeResult = withContext(Dispatchers.IO) {
         if (targetMint == returnToMint) {
-            val row = if (returnToMint == SOL_MINT) Pair(wallet.getSolBalance(), 9)
-                else try { wallet.getTokenAccountsWithDecimalsBounded()[returnToMint] } catch (_: Throwable) { null }
-            return@withContext BridgeResult(true, targetMint, returnToMint, 0, row?.first ?: 0.0, null,
-                targetDecimals = row?.second ?: 0, proofState = "BALANCE_CONFIRMED_NO_SWAP")
+            val tokenAmount = if (returnToMint == SOL_MINT) null else try { wallet.getTokenAccountsWithDecimalsBounded()[returnToMint] } catch (_: Throwable) { null }
+            val ui = if (returnToMint == SOL_MINT) wallet.getSolBalance() else tokenAmount?.uiDoubleForDisplay() ?: 0.0
+            val decimals = if (returnToMint == SOL_MINT) 9 else tokenAmount?.decimals ?: 0
+            return@withContext BridgeResult(true, targetMint, returnToMint, 0, ui, null,
+                targetDecimals = decimals, proofState = "BALANCE_CONFIRMED_NO_SWAP")
         }
         val accountsBefore = try { wallet.getTokenAccountsWithDecimalsBounded() } catch (_: Throwable) { emptyMap() }
         val input = accountsBefore[targetMint]

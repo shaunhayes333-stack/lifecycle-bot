@@ -1691,8 +1691,8 @@ class Executor(
             return false
         }
         val entry = accounts[mint] ?: return false
-        val (qty, _) = entry
-        if (qty <= 0.0) return false
+        val qty = entry.uiDoubleForDisplay()
+        if (entry.raw.signum() <= 0) return false
         // Best-effort entry price: current price if we have it, else 0
         // (which leaves entryPrice unchanged — caller can still compute
         // qty in lamports for the SELL since qtyToken is what matters).
@@ -1755,21 +1755,24 @@ class Executor(
         val mint = ts.mint
         // Local helper: stamp the rehydrated values onto ts.position.
         fun applyRehydrate(entrySol: Double, entryPrice: Double, entryTime: Long, isPaper: Boolean, sourceTag: String): Boolean {
-            if (entrySol <= 0.0 || entryPrice <= 0.0) return false
-            val qty = entrySol / entryPrice
+            val mode = if (isPaper) "paper" else "live"
+            val canonical = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                .filter { it.mint == mint && it.mode.equals(mode, true) && it.remainingQtyRaw.signum() > 0 }
+                .maxByOrNull { it.lastMutationMs } ?: return false
+            val qty = com.lifecyclebot.engine.truth.CanonicalTokenAmount(canonical.remainingQtyRaw, canonical.quantityScale).uiDoubleForDisplay()
             if (qty <= 0.0 || !qty.isFinite()) return false
             synchronized(ts) {
                 ts.position = ts.position.copy(
                     qtyToken = qty,
-                    costSol = entrySol,
-                    entryPrice = entryPrice,
-                    entryTime = entryTime,
+                    costSol = (canonical.entryCostSol - canonical.soldCostBasisSol).coerceAtLeast(0.0),
+                    entryPrice = canonical.entryPriceUsd,
+                    entryTime = canonical.openedAtMs,
                     isPaperPosition = isPaper,
                     pendingVerify = false,
                 )
             }
             ErrorLogger.info("Executor",
-                "🩹 REHYDRATE [${sourceTag}] ${ts.symbol}: qty=$qty entrySol=$entrySol entryPrice=$entryPrice " +
+                "🩹 REHYDRATE_CANONICAL_6522 [${sourceTag}] ${ts.symbol}: positionId=${canonical.positionId} raw=${canonical.remainingQtyRaw} decimals=${canonical.quantityScale} qty=$qty " +
                 "(isPaper=$isPaper) — sub-trader had position but ts.position was empty")
             return true
         }
@@ -5353,28 +5356,10 @@ class Executor(
                 try { com.lifecyclebot.engine.ErrorLogger.warn("Executor",
                     "🚫 PHANTOM_MULTIPLE_GUARD ${ts.symbol}: raw=${rawGainMultiple} >> priceMove=${priceMoveMultiple} " +
                     "(entry=${pos.entryPrice} live=${actualPrice}) — using price-move, basis likely corrupt") } catch (_: Throwable) {}
-                // V5.0.6064 — C: HEAL corrupted qtyToken persistently instead of
-                // just clamping every tick. When priceMove is a trusted number
-                // and rawGainMultiple is 5x+ off, qtyToken carries a decimals-
-                // mismatched value from position rehydrate. Rebuild it from
-                // the honest identity: qty = (costSol * priceMoveMultiple) /
-                // actualPrice. This makes future ticks compute the correct
-                // multiple without needing the guard, and unblocks profit-lock
-                // sizing that reads pos.qtyToken * actualPrice.
-                if (!pos.isPaperPosition && pos.costSol > 0.0 && actualPrice > 0.0 &&
-                    priceMoveMultiple.isFinite() && priceMoveMultiple > 0.0) {
-                    val healedQty = (pos.costSol * priceMoveMultiple) / actualPrice
-                    if (healedQty.isFinite() && healedQty > 0.0) {
-                        try {
-                            ts.position = pos.copy(qtyToken = healedQty)
-                            ForensicLogger.lifecycle(
-                                "PHANTOM_QTY_HEALED_6064",
-                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} oldQty=${pos.qtyToken} newQty=$healedQty priceMove=$priceMoveMultiple entry=${pos.entryPrice} live=$actualPrice",
-                            )
-                            PipelineHealthCollector.labelInc("PHANTOM_QTY_HEALED_6064")
-                        } catch (_: Throwable) {}
-                    }
-                }
+                try {
+                    PipelineHealthCollector.labelInc("PHANTOM_QTY_REPAIR_REQUESTED_6522")
+                    ForensicLogger.lifecycle("PHANTOM_QTY_REPAIR_REQUESTED_6522", "mint=${ts.mint.take(10)} action=retain_canonical_raw_no_price_derived_qty")
+                } catch (_: Throwable) {}
                 priceMoveMultiple.coerceAtMost(100.0)
             }
             else -> rawGainMultiple.coerceAtMost(100.0)
@@ -6576,42 +6561,8 @@ class Executor(
                                         // onPaperWin call as a terminal close of the
                                         // slice; partials that don't reach this branch
                                         // are handled elsewhere.
-                                        if (ts.position.isPaperPosition) {
-                                            com.lifecyclebot.engine.truth.PositionStateLedger6427
-                                                .confirmTerminalSell(ts.mint)
-                                            val approxCost = ts.position.costSol.coerceAtLeast(0.0)
-                                            val pnlSol = approxCost * (pnlPct / 100.0)
-                                            val gross = (approxCost + pnlSol).coerceAtLeast(0.0)
-                                            com.lifecyclebot.engine.truth.PaperAccountLedger6430
-                                                .onSell(grossProceedsSol = gross, costBasisSoldSol = approxCost)
-                                            // V5.0.6469 §P0 — canonical fanout for paper win.
-                                            // V5.0.6470 §P0 — positionId MUST come from
-                                            // ExecutorCanonicalMirror6442.positionIdOf() to match
-                                            // the BUY-side canonical positionId; otherwise the
-                                            // SELL creates a phantom lot with bought=0 and trips
-                                            // CANONICAL_LOT_INVARIANT_VIOLATION_6464.
-                                            try {
-                                                val syntheticSig6469 = "paper_win_${ts.mint}_${System.currentTimeMillis()}"
-                                                val pid6470 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
-                                                val qtyRaw6469 = java.math.BigInteger.valueOf(
-                                                    (ts.position.qtyToken.coerceAtLeast(0.0) * 1_000_000_000.0).toLong().coerceAtLeast(0L)
-                                                )
-                                                com.lifecyclebot.engine.truth.CanonicalPaperTerminalBridge6469.emitCanonicalFanout(
-                                                    positionId = pid6470, mint = ts.mint, symbol = ts.symbol,
-                                                    generation = System.currentTimeMillis(),
-                                                    sellSig = syntheticSig6469,
-                                                    soldQtyRaw = qtyRaw6469,
-                                                    preRemainingRaw = qtyRaw6469,
-                                                    preRemainingCostBasisSol = approxCost,
-                                                    grossProceedsSol = gross,
-                                                    soldCostBasisSol = approxCost,
-                                                    feesSol = 0.0,
-                                                    lane = laneForLearn,
-                                                    exitReason = "PAPER_WIN",
-                                                    terminal = true,
-                                                )
-                                            } catch (_: Throwable) {}
-                                        }
+                                        // V5.0.6522 — no synthetic paper cash, quantity, journal, or fanout here.
+                                        // Only CanonicalPaperTerminalBridge6469.finalizeSell may settle a paper close.
                                         if (ts.position.isPaperPosition) {
                                             com.lifecyclebot.engine.truth.LiveGrowthCompounder6416
                                                 .onPaperWin(
@@ -17224,15 +17175,14 @@ class Executor(
                     } catch (_: Throwable) {}
                 }
 
-                fun buildOwnerAccountProof(qtyUi: Double, decimals: Int, stage: String): com.lifecyclebot.engine.sell.BalanceProof? {
-                    val raw = try { java.math.BigDecimal(qtyUi).movePointRight(decimals.coerceAtLeast(0)).toBigInteger() } catch (_: Throwable) { java.math.BigInteger.ZERO }
-                    if (raw.signum() <= 0) return null
+                fun buildOwnerAccountProof(amount: com.lifecyclebot.engine.truth.CanonicalTokenAmount, stage: String): com.lifecyclebot.engine.sell.BalanceProof? {
+                    if (amount.raw.signum() <= 0) return null
                     return com.lifecyclebot.engine.sell.BalanceProof(
                         mint = verifyMint,
                         owner = verifyWallet.publicKeyB58,
                         ata = null,
-                        amountRaw = raw,
-                        decimals = decimals.coerceAtLeast(0),
+                        amountRaw = amount.raw,
+                        decimals = amount.decimals,
                         source = com.lifecyclebot.engine.sell.BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT,
                         authoritative = true,
                         observedAtMs = System.currentTimeMillis(),
@@ -17581,14 +17531,14 @@ class Executor(
                     // map; if it's empty, treat as inconclusive (do NOT
                     // wipe). If non-empty and the mint truly is absent
                     // → real phantom.
-                    val lastChanceBalances: Map<String, Pair<Double, Int>>? = try {
+                    val lastChanceBalances: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>? = try {
                         verifyWallet.getTokenAccountsWithDecimalsBounded()
                     } catch (_: Throwable) { null }
-                    val lastChanceQty: Double = lastChanceBalances?.get(verifyMint)?.first ?: 0.0
+                    val lastChanceAmount = lastChanceBalances?.get(verifyMint)
+                    val lastChanceQty: Double = lastChanceAmount?.uiDoubleForDisplay() ?: 0.0
                     val lastChanceMapEmpty = lastChanceBalances?.isEmpty() == true
-                    if (lastChanceQty > 0.0) {
-                        val lastChanceDecimals = lastChanceBalances?.get(verifyMint)?.second ?: 9
-                        val lastChanceProof = buildOwnerAccountProof(lastChanceQty, lastChanceDecimals, "LAST_CHANCE_ATA_RESCUE")
+                    if (lastChanceAmount != null && lastChanceAmount.raw.signum() > 0) {
+                        val lastChanceProof = buildOwnerAccountProof(lastChanceAmount, "LAST_CHANCE_ATA_RESCUE")
                         if (lastChanceProof == null || !completeVerifiedLiveBuyWithProof(lastChanceProof, lastChanceQty, "LAST_CHANCE_ATA_RESCUE")) {
                             try { HostWalletTokenTracker.recordBuyPending(verifyMint, verifySymbol, verifySig) } catch (_: Throwable) {}
                             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_PENDING_BALANCE_PROOF", "mint=${verifyMint.take(10)} symbol=$verifySymbol reason=LAST_CHANCE_PROOF_BUILD_FAILED qty=$lastChanceQty") } catch (_: Throwable) {}
@@ -21421,7 +21371,7 @@ class Executor(
             // V5.0.3778 — timeout/transport failure is INDETERMINATE, not an empty
             // wallet snapshot. Never convert it to sell authority for recovered rows.
             var walletReadIndeterminate = false
-            var onChainBalances: Map<String, Pair<Double, Int>> = try {
+            var onChainBalances: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount> = try {
                 wallet.getTokenAccountsWithDecimalsBounded(5_000L)
             } catch (e: Throwable) {
                 walletReadIndeterminate = true
@@ -21506,7 +21456,7 @@ class Executor(
                         val decimals = authorityConfirmed.decimals.coerceAtLeast(0)
                         val ui = try { java.math.BigDecimal(authorityConfirmed.rawAmount).movePointLeft(decimals).toDouble() } catch (_: Throwable) { 0.0 }
                         if (ui > 0.0 && ui.isFinite()) {
-                            tokenData = Pair(ui, decimals)
+                            tokenData = com.lifecyclebot.engine.truth.CanonicalTokenAmount(authorityConfirmed.rawAmount, decimals)
                             mapEmpty = false
                             recovered = true
                             zeroBalanceRetries.remove(retryCountKey)
@@ -24057,7 +24007,7 @@ class Executor(
             // root cause: a single failing RPC call would silently abort the
             // entire sweep, leaving every leaked token stranded on-chain.
             var lastErr: Exception? = null
-            var result: Map<String, Pair<Double, Int>>? = null
+            var result: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>? = null
             for (attempt in 1..3) {
                 try {
                     result = wallet.getTokenAccountsWithDecimalsBounded()
@@ -24727,7 +24677,7 @@ class Executor(
             // and bailed PHANTOM — even though the wallet held thousands of
             // tokens. We now read the WHOLE map separately, detect
             // emptiness, and bail/proceed accordingly.
-            val preBalances: Map<String, Pair<Double, Int>>? = try {
+            val preBalances: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>? = try {
                 wallet.getTokenAccountsWithDecimalsBounded()
             } catch (_: Throwable) { null }
             val preBalancesEmpty = preBalances?.isEmpty() == true

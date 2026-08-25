@@ -193,7 +193,7 @@ object WalletAccountCache {
     private const val DEFAULT_TTL_MS = 10_000L
 
     @Volatile private var cachedAtMs: Long = 0L
-    @Volatile private var cachedTokens: Map<String, Pair<Double, Int>>? = null
+    @Volatile private var cachedTokens: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>? = null
 
     private val hits = AtomicLong(0L)
     private val misses = AtomicLong(0L)
@@ -203,7 +203,7 @@ object WalletAccountCache {
      * Returns cached snapshot if within TTL, null otherwise.
      * Callers fetch from RPC on null and call [put] with the result.
      */
-    fun snapshot(ttlMs: Long = DEFAULT_TTL_MS): Map<String, Pair<Double, Int>>? {
+    fun snapshot(ttlMs: Long = DEFAULT_TTL_MS): Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>? {
         val now = System.currentTimeMillis()
         val ageMs = now - cachedAtMs
         val snap = cachedTokens
@@ -217,7 +217,7 @@ object WalletAccountCache {
     }
 
     /** Store a fresh snapshot. */
-    fun put(tokens: Map<String, Pair<Double, Int>>) {
+    fun put(tokens: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>) {
         cachedTokens = tokens
         cachedAtMs = System.currentTimeMillis()
     }

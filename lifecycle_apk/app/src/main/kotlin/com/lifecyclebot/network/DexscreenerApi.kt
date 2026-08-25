@@ -18,6 +18,7 @@ data class PairInfo(
     val liquidity: Double = 0.0,       // USD liquidity
     val fdv: Double = 0.0,             // fully diluted valuation
     val baseTokenAddress: String = "", // base token mint address (Solana)
+    val quoteTokenAddress: String = "", // quote token mint; required for canonical orientation
     // V5.9.911 — SOCIAL SIGNAL HARVEST. DexScreener already returns these in
     // info.socials / info.websites on every token-pairs response — they were
     // being dropped at parse time (memory #87 #1 "dropped signal = dropped
@@ -177,6 +178,7 @@ class DexscreenerApi {
                 liquidity = summary.optDouble("liquidity_usd", 0.0),
                 fdv = summary.optDouble("fdv", 0.0),
                 baseTokenAddress = mint,
+                quoteTokenAddress = "USD",
             )
         } catch (_: Throwable) { null }
     }
@@ -191,6 +193,7 @@ class DexscreenerApi {
 
     private fun parsePair(p: JSONObject): PairInfo {
         val base    = p.optJSONObject("baseToken")
+        val quote   = p.optJSONObject("quoteToken")
         val vol     = p.optJSONObject("volume")
         val txns    = p.optJSONObject("txns")
         val h1      = txns?.optJSONObject("h1")
@@ -248,6 +251,7 @@ class DexscreenerApi {
             liquidity        = (p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0),
             fdv              = p.optDouble("fdv", 0.0),
             baseTokenAddress = base?.optString("address", "") ?: "",
+            quoteTokenAddress = quote?.optString("address", "") ?: "",
             socials          = socialsList.toList(),
             websites         = websitesList.toList(),
             hasImage         = imagePresent,

@@ -279,14 +279,14 @@ object SellReconciler {
         // pass (the only truly destructive path). Tracker-open check and
         // held-auto-heal can still run against last-known state so the bot
         // isn't fully locked. Reset counter on any successful read.
-        val tokensOrNull: Map<String, Pair<Double, Int>>? = withContext(Dispatchers.IO) {
+        val tokensOrNull: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>? = withContext(Dispatchers.IO) {
             try { w.getTokenAccountsWithDecimalsBounded() } catch (e: Throwable) {
                 try { ForensicLogger.lifecycle("RECONCILER_WALLET_READ_INDETERMINATE_SKIP", "reason=${e.message?.take(140)}") } catch (_: Throwable) {}
                 ErrorLogger.warn("SellReconciler", "wallet read indeterminate; skipping zero-close pass: ${e.message?.take(80)}")
                 null
             }
         }
-        val tokens: Map<String, Pair<Double, Int>> = tokensOrNull ?: run {
+        val tokens: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount> = tokensOrNull ?: run {
             consecutiveIndeterminate++
             if (consecutiveIndeterminate >= FAIL_OPEN_AFTER) {
                 try {
@@ -477,7 +477,7 @@ object SellReconciler {
 
     private fun reconcileOne(
         pos: HostWalletTokenTracker.TrackedTokenPosition,
-        walletTokens: Map<String, Pair<Double, Int>>,
+        walletTokens: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>,
     ) {
         val balance = walletTokens[pos.mint]?.first ?: 0.0
         try {

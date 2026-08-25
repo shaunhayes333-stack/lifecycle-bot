@@ -76,7 +76,7 @@ object LiveSafetyFlags {
      * Re-evaluate flags from the canonical trackers. Called by the reconciler
      * after every wallet-snapshot pass.
      */
-    fun reevaluate(walletBalances: Map<String, Pair<Double, Int>>) {
+    fun reevaluate(walletBalances: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>) {
         // SELL_VERIFYING_WITH_NO_SIGNATURE
         try {
             for (p in HostWalletTokenTracker.snapshot()) {
@@ -91,8 +91,8 @@ object LiveSafetyFlags {
         try {
             val tracked = HostWalletTokenTracker.snapshot().associateBy { it.mint }
             for ((mint, pair) in walletBalances) {
-                val (uiAmount, _) = pair
-                if (uiAmount <= 0.0) continue
+                val uiAmount = pair.uiDoubleForDisplay()
+                if (pair.raw.signum() <= 0) continue
                 if (mint == "So11111111111111111111111111111111111111112") continue
                 if (tracked[mint] == null) {
                     raise(mint, Flag.WALLET_HELD_BOT_NOT_TRACKING,
