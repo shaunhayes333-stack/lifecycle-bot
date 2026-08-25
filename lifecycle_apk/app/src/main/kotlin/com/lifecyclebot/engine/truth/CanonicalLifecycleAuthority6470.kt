@@ -53,19 +53,31 @@ object CanonicalLifecycleAuthority6470 {
 
     fun audit(): ParityReport {
         audits.incrementAndGet()
-        val canonicalOpen = try {
-            CanonicalPositionAuthority6441.openPositions().map { it.mint }.toSet()
-        } catch (_: Throwable) { emptySet() }
+        val canonicalOpenPositions = try {
+            CanonicalPositionAuthority6441.openPositions().filter { it.remainingQtyRaw > java.math.BigInteger.ZERO }
+        } catch (_: Throwable) { emptyList() }
+        try { CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(canonicalOpenPositions) } catch (_: Throwable) {}
+        try { PositionStateLedger6454.syncFromCanonical6519(canonicalOpenPositions) } catch (_: Throwable) {}
+        try { SellQtyBoundaryClamp6427.syncFromCanonical6519(canonicalOpenPositions) } catch (_: Throwable) {}
+        val canonicalOpen = canonicalOpenPositions.map { it.mint }.toSet()
         val occSnap = try {
             CanonicalMintOccupancyRegistry6464.snapshotByOccupancy()
         } catch (_: Throwable) { emptyMap() }
         val occupancyOpen = occSnap[CanonicalMintOccupancyRegistry6464.Occupancy.OPEN] ?: 0
+        val positionStateOpen = try { PositionStateLedger6454.openOrPartialCount6519() } catch (_: Throwable) { -1 }
+        val sellBoundaryOpen = try { SellQtyBoundaryClamp6427.trackedOpenCount6519() } catch (_: Throwable) { -1 }
+        val exitCoordinatorVisibleOpen = canonicalOpenPositions.size
         // We cannot enumerate the legacy EmergentGuardrails registry from here
         // (private API); PositionRegistryParityAudit6464 does that. We record
         // the canonical vs occupancy delta here — the legacy registry parity
         // is fed via PIPELINE_HEALTH counters.
-        val registryOpen = 0  // legacy registry projection not directly readable here
-        val delta = occupancyOpen - canonicalOpen.size
+        val registryOpen = positionStateOpen
+        val delta = maxOf(
+            kotlin.math.abs(occupancyOpen - canonicalOpenPositions.size),
+            kotlin.math.abs(positionStateOpen - canonicalOpenPositions.size),
+            kotlin.math.abs(sellBoundaryOpen - canonicalOpenPositions.size),
+            kotlin.math.abs(exitCoordinatorVisibleOpen - canonicalOpenPositions.size),
+        )
         lastDelta.set(delta.toLong())
         var quarantinedNow = 0
         // Detect: canonical CLOSED but occupancy still OPEN for the same mint.
@@ -93,8 +105,8 @@ object CanonicalLifecycleAuthority6470 {
             try {
                 ForensicLogger.lifecycle(
                     "LIFECYCLE_PROJECTION_DIVERGED_6470",
-                    "canonicalOpen=${canonicalOpen.size} occupancyOpen=$occupancyOpen " +
-                        "delta=$delta closedButOccupancyOpen=$closedButOpen quarantinedNow=$quarantinedNow",
+                    "canonicalOpen=${canonicalOpenPositions.size} positionStateOpen=$positionStateOpen sellBoundaryOpen=$sellBoundaryOpen exitCoordinatorVisibleOpen=$exitCoordinatorVisibleOpen occupancyOpen=$occupancyOpen " +
+                        "delta=$delta closedButOccupancyOpen=$closedButOpen quarantinedNow=$quarantinedNow invariant=${canonicalOpenPositions.size == positionStateOpen && canonicalOpenPositions.size == sellBoundaryOpen && canonicalOpenPositions.size == exitCoordinatorVisibleOpen}",
                 )
                 PipelineHealthCollector.labelInc("LIFECYCLE_PROJECTION_DIVERGED_6470")
                 if (quarantinedNow > 0) {
@@ -104,7 +116,7 @@ object CanonicalLifecycleAuthority6470 {
             } catch (_: Throwable) {}
         }
         return ParityReport(
-            canonicalOpen = canonicalOpen.size,
+            canonicalOpen = canonicalOpenPositions.size,
             registryOpen = registryOpen,
             occupancyOpen = occupancyOpen,
             delta = delta,

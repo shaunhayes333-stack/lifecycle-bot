@@ -386,7 +386,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun live_stale_restore_cannot_resurrect_old_fdg_approval() {
         val openGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
-        assertTrue("LIVE stale-WATCH restore must be ticket based, not global-version based", openGate.contains("data class ExecutionTicket") && openGate.contains("EXEC_TICKET_RESTORED_IMMUTABLE"))
+        assertTrue("LIVE stale-WATCH restore must be ticket based, not global-version based", openGate.contains("data class ExecutionIntent") && openGate.contains("EXEC_TICKET_RESTORED_IMMUTABLE"))
         assertTrue("LIVE stale-candidate version churn must not kill an immutable ticket", openGate.contains("immutableTicket == null && immutableAuthority6513 == null && !selectedLaneMatchesRequest") && openGate.contains("immutableTicket == null"))
     }
     @Test
@@ -3460,7 +3460,7 @@ class GoldenTapeRegressionTest {
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         val safe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellOnlySafeMode.kt").readText()
         assertTrue("FDG-approved WATCH/PROBE must be restorable when current candidate is safe/liquid", gate.contains("verdictAllowedByFdg") && gate.contains("WATCH") && gate.contains("PROBE") && gate.contains("LIVE_RESTORE_STALE_WATCH_SOFT_ALLOW"))
-        assertTrue("WATCH restore must be backed by FDG/ticket authority, safety, liquidity, and no hardNo", gate.contains("verdictAllowedByFdg") && gate.contains("liqOk") && gate.contains("effectiveHardNoReasons.isEmpty()") && gate.contains("ExecutionTicket"))
+        assertTrue("WATCH restore must be backed by FDG/ticket authority, safety, liquidity, and no hardNo", gate.contains("verdictAllowedByFdg") && gate.contains("liqOk") && gate.contains("effectiveHardNoReasons.isEmpty()") && gate.contains("ExecutionIntent"))
         assertTrue("SellOnlySafeMode must not let empty stale drain jobs globally block live buys", safe.contains("liveExposureToDrain") && safe.contains("liveExposureToDrain && pendingSellQueueSize > 0") && safe.contains("liveExposureToDrain && sellReconcilerActiveJobs > 0"))
         assertTrue("Real sell-only dangers must remain hard reasons", safe.contains("workerTimeoutStorm()") && safe.contains("orphanLivePositions > 0") && safe.contains("closedWithNonDustBalance > 1") && safe.contains("providerBackoffActive()"))
     }
@@ -3828,7 +3828,7 @@ class GoldenTapeRegressionTest {
         val pre = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
-        assertTrue("Final executable gate must create immutable execution tickets", gate.contains("data class ExecutionTicket") && gate.contains("EXEC_TICKET_CREATED") && gate.contains("allowedAttempts[laneKey(ticket.mint, ticket.lane)]") && gate.contains("FDG records state only"))
+        assertTrue("Final executable gate must create immutable execution tickets", gate.contains("data class ExecutionIntent") && gate.contains("EXEC_TICKET_CREATED") && gate.contains("allowedAttempts[laneKey(ticket.mint, ticket.lane)]") && gate.contains("EXEC_INTENT_CREATED"))
         assertTrue("ticket restore must bypass mutable WATCH/version/lane churn", gate.contains("EXEC_TICKET_RESTORED_IMMUTABLE") && gate.contains("immutableTicket == null && immutableAuthority6513 == null && !selectedLaneMatchesRequest") && gate.contains("""safetyTier.equals("UNKNOWN", true) && immutableTicket == null"""))
         assertTrue("stale/finality failures need separate counters", exec.contains("BUY_FAILED_FINALITY") && exec.contains("BUY_FAILED_STALE_TICKET") && exec.contains("BUY_FAILED_ROUTE") && exec.contains("BUY_FAILED_SAFETY"))
         assertTrue("executor phase counters must represent actual tx progress", listOf("EXEC_SELECTED", "EXEC_TICKET_CREATED", "QUOTE_REQUESTED", "QUOTE_OK", "SWAP_BUILT", "TX_SIGNED", "TX_SUBMITTED", "TX_CONFIRMED", "BUY_JOURNALED").all { (gate + exec).contains(it) })

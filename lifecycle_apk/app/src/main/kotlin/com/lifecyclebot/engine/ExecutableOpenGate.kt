@@ -36,30 +36,38 @@ object ExecutableOpenGate {
         val updatedAtMs: Long = System.currentTimeMillis(),
     )
 
-    data class ExecutionTicket(
+    /** V5.0.6519 — immutable execution authority created at FDG allow. */
+    data class ExecutionIntent(
         val attemptId: String,
-        val mint: String,
-        val symbol: String,
-        val lane: String,
-        val mode: String,
+        val candidateId: String,
         val candidateVersion: Long,
-        val candidateId: String = "$mint:$candidateVersion",
-        val primaryLane: String = lane,
-        val fdgVerdict: String = "BUY",
+        val mint: String,
+        val mode: String,
+        val canonicalLane: String,
+        val fdgVerdict: String,
+        val fdgAllowed: Boolean,
+        val authorityVersion: Long,
+        val resolvedSize: Double,
+        val createdAt: Long,
+        val symbol: String,
+        val primaryLane: String = canonicalLane,
         val authoritativeSignal: String = "BUY",
         val safetyVerdict: String = "UNKNOWN",
-        val authorityVersion: Long = 0L,
         val electionId6494: String = "",
-        val authorityVersion6494: Long = 0L,
-        val fdgReason: String?,
-        val signal: String,
-        val safetyTier: String,
-        val liquidityUsd: Double,
-        val rugScore: Int,
-        val hardNoReasons: List<String>,
-        val resolvedSizeSol: Double = 0.0,
-        val createdAtMs: Long = System.currentTimeMillis(),
-    )
+        val authorityVersion6494: Long = authorityVersion,
+        val fdgReason: String? = null,
+        val diagnosticSignal: String = "UNKNOWN",
+        val safetyTier: String = safetyVerdict,
+        val liquidityUsd: Double = 0.0,
+        val rugScore: Int = -1,
+        val hardNoReasons: List<String> = emptyList(),
+    ) {
+        val lane: String get() = canonicalLane
+        val signal: String get() = diagnosticSignal
+        val resolvedSizeSol: Double get() = resolvedSize
+        val createdAtMs: Long get() = createdAt
+    }
+
 
     data class OpenVerdict(
         val allowed: Boolean,
@@ -107,11 +115,57 @@ object ExecutableOpenGate {
     ): Boolean = fdgCan == true && hardNoReasons.isEmpty() &&
         (preFdgVerdict.equals("BUY", true) || preFdgVerdict.equals("PROBE_ONLY", true))
 
+    internal fun mutableSignalCanVeto6519(intent: ExecutionIntent?, signal: String): Boolean =
+        !signal.equals("BUY", true) && !signal.equals("EXECUTE", true) &&
+            !(intent?.fdgAllowed == true && intent.fdgVerdict == "BUY")
+
     private val states = ConcurrentHashMap<String, EntryState>()
     private val fdgElectionLocks6512 = ConcurrentHashMap<String, Any>()
     private const val TTL_MS = 10 * 60 * 1000L
     private val allowedAttempts = ConcurrentHashMap<String, Pair<String, Long>>()
-    private val executionTickets = ConcurrentHashMap<String, ExecutionTicket>()
+    private val executionTickets = ConcurrentHashMap<String, ExecutionIntent>()
+    private val activeExecutionIntents6519 = ConcurrentHashMap<String, ExecutionIntent>()
+    private fun intentKey6519(mode: String, mint: String, candidateVersion: Long): String =
+        "${mode.uppercase()}:${mint.trim()}:$candidateVersion"
+
+    fun activeExecutionIntent6519(mode: String, mint: String, candidateVersion: Long = 0L): ExecutionIntent? {
+        if (candidateVersion > 0L) activeExecutionIntents6519[intentKey6519(mode, mint, candidateVersion)]?.let { return it }
+        return activeExecutionIntents6519.values
+            .filter { it.mode.equals(mode, true) && it.mint == mint }
+            .maxByOrNull { it.candidateVersion }
+    }
+
+    private fun publishFdgIntent6519(intent: ExecutionIntent) {
+        val key = intentKey6519(intent.mode, intent.mint, intent.candidateVersion)
+        val authoritative = activeExecutionIntents6519.putIfAbsent(key, intent) ?: intent
+        executionTickets.putIfAbsent(authoritative.attemptId, authoritative)
+        try {
+            PipelineHealthCollector.labelInc("EXEC_INTENT_CREATED")
+            ForensicLogger.lifecycle(
+                "EXEC_INTENT_CREATED",
+                "attemptId=${authoritative.attemptId} candidateId=${authoritative.candidateId} mint=${authoritative.mint.take(10)} mode=${authoritative.mode} lane=${authoritative.canonicalLane} fdg=${authoritative.fdgVerdict} allowed=${authoritative.fdgAllowed} authority=${authoritative.authorityVersion} size=${authoritative.resolvedSize}",
+            )
+        } catch (_: Throwable) {}
+    }
+
+    internal fun restoreExecStateFromFrozenSnapshot(
+        intent: ExecutionIntent?, snapshotCandidateVersion: Long, snapshotAuthorityVersion: Long,
+    ): Boolean {
+        if (intent == null) return true
+        val staleCandidate = snapshotCandidateVersion in 1 until intent.candidateVersion
+        val staleAuthority = snapshotAuthorityVersion in 1 until intent.authorityVersion
+        if (staleCandidate || staleAuthority) {
+            try {
+                PipelineHealthCollector.labelInc("EXEC_FROZEN_RESTORE_STALE_SKIPPED_6519")
+                ForensicLogger.lifecycle(
+                    "EXEC_FROZEN_RESTORE_STALE_SKIPPED_6519",
+                    "attemptId=${intent.attemptId} mint=${intent.mint.take(10)} snapshotCandidate=$snapshotCandidateVersion activeCandidate=${intent.candidateVersion} snapshotAuthority=$snapshotAuthorityVersion activeAuthority=${intent.authorityVersion} action=metadata_only_no_authority_downgrade",
+                )
+            } catch (_: Throwable) {}
+            return false
+        }
+        return true
+    }
     private const val EXECUTION_TICKET_TTL_MS = 45_000L
     private val openRequests = ConcurrentHashMap<String, Long>()
     private val blockedCooldowns = ConcurrentHashMap<String, Pair<String, Long>>()
@@ -145,10 +199,10 @@ object ExecutableOpenGate {
     fun restorePenaltyForAttempt(attemptId: String): OpenVerdict? = restorePenalties[attemptId]
     fun consumeRestorePenalty(attemptId: String): OpenVerdict? = restorePenalties.remove(attemptId)
 
-    private fun ticketLive(ticket: ExecutionTicket, now: Long = System.currentTimeMillis()): Boolean =
+    private fun ticketLive(ticket: ExecutionIntent, now: Long = System.currentTimeMillis()): Boolean =
         now - ticket.createdAtMs <= EXECUTION_TICKET_TTL_MS
 
-    fun ticketForAttempt(attemptId: String): ExecutionTicket? = executionTickets[attemptId]?.takeIf { ticketLive(it) }
+    fun ticketForAttempt(attemptId: String): ExecutionIntent? = executionTickets[attemptId]?.takeIf { ticketLive(it) }
 
     /** V5.0.6514 — revoke every transient ticket/allowed-attempt residue after dispatch. */
     private fun revokeAttempt6514(attemptId: String, mint: String, lane: String) {
@@ -168,7 +222,7 @@ object ExecutableOpenGate {
 
     fun terminalizeAttempt6514(attemptId: String, mint: String, lane: String) = revokeAttempt6514(attemptId, mint, lane)
 
-    private fun publishTicket(ticket: ExecutionTicket) {
+    private fun publishTicket(ticket: ExecutionIntent) {
         val now = System.currentTimeMillis()
         executionTickets.entries.removeIf { now - it.value.createdAtMs > EXECUTION_TICKET_TTL_MS }
         allowedAttempts.entries.removeIf { now - it.value.second > ALLOWED_ATTEMPT_TTL_MS }
@@ -495,6 +549,7 @@ object ExecutableOpenGate {
         states.clear()
         allowedAttempts.clear()
         executionTickets.clear()
+        activeExecutionIntents6519.clear()
         openRequests.clear()
         blockedCooldowns.clear()
         entryAuthority6487.clear()
@@ -705,6 +760,26 @@ object ExecutableOpenGate {
                         )
                     )
                     val mode6512 = if (paperRuntime) "PAPER" else "LIVE"
+                    val immutableAuthority6519 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510
+                        .currentForMint(mint, winner.candidateVersion, mode6512)
+                    val resolvedSize6519 = immutableAuthority6519?.resolvedSizeSol
+                        ?: try { com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint) ?: 0.0 } catch (_: Throwable) { 0.0 }
+                    val canonicalLane6519 = winner.selectedLane.uppercase()
+                    publishFdgIntent6519(
+                        ExecutionIntent(
+                            attemptId = canonicalExecutionKey(mint, mode = mode6512, side = "BUY", lane = canonicalLane6519, candidateVersion = winner.candidateVersion),
+                            candidateId = "$mint:${winner.candidateVersion}", candidateVersion = winner.candidateVersion,
+                            mint = mint, mode = mode6512, canonicalLane = canonicalLane6519,
+                            fdgVerdict = if (winner.preFdgVerdict in setOf("BUY", "PROBE_ONLY")) "BUY" else winner.preFdgVerdict,
+                            fdgAllowed = true, authorityVersion = immutableAuthority6519?.authorityVersion ?: 0L,
+                            resolvedSize = resolvedSize6519, createdAt = System.currentTimeMillis(), symbol = winner.symbol,
+                            authoritativeSignal = "BUY", safetyVerdict = winner.safetyTier,
+                            authorityVersion6494 = immutableAuthority6519?.authorityVersion ?: 0L,
+                            fdgReason = winner.fdgReason, diagnosticSignal = winner.signal,
+                            safetyTier = winner.safetyTier, liquidityUsd = winner.liquidityUsd,
+                            rugScore = winner.rugScore, hardNoReasons = winner.hardNoReasons,
+                        )
+                    )
                     if (com.lifecyclebot.engine.truth.AateDecisionFabric6512.get(mode6512, mint, winner.candidateVersion, winner.selectedLane) == null) {
                         com.lifecyclebot.engine.truth.AateDecisionFabric6512.record(
                             com.lifecyclebot.engine.truth.PolicySynthesizer6512.synthesize(
@@ -1310,7 +1385,9 @@ object ExecutableOpenGate {
             return blocked("EXEC_OPEN_BLOCKED_RUNTIME_PAUSED", "RUNTIME_MITIGATION_PAUSE")
         }
         val currentCandidateVersion = LaneExecutionCoordinator.candidateVersionFor(mint)
-        val immutableTicket = ticketForAttempt(attemptId) // output/recheck only; never prerequisite for pre-execution FDG intent
+        val immutableTicket = ticketForAttempt(attemptId)
+            ?: activeExecutionIntent6519(modeUpper, mint, state?.candidateVersion ?: currentCandidateVersion)
+        val immutableFdgBuy6519 = immutableTicket?.fdgAllowed == true && immutableTicket.fdgVerdict == "BUY"
         val stateTokenMapRouteStatus = state?.tokenMapRouteStatus ?: "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP"
         val stateTokenMapHydrationComplete = state?.tokenMapHydrationComplete == true
         val stateTokenMapExpectedOut = state?.tokenMapExpectedOut ?: 0.0
@@ -1368,7 +1445,12 @@ object ExecutableOpenGate {
             } catch (_: Throwable) {}
         }
 
-        if (immutableTicket != null && modeUpper == "LIVE") {
+        if (immutableTicket != null) {
+            restoreExecStateFromFrozenSnapshot(
+                immutableTicket,
+                snapshotCandidateVersion = state?.candidateVersion ?: 0L,
+                snapshotAuthorityVersion = immutableAuthority6513?.authorityVersion ?: 0L,
+            )
             val ticketExpired = !ticketLive(immutableTicket)
             val ticketHardNo = immutableTicket.hardNoReasons.firstOrNull { trueHardTicketKill(it) }
             if (ticketExpired) return blocked("EXEC_OPEN_BLOCKED_STALE_TICKET", "TICKET_TTL_EXPIRED")
@@ -1492,16 +1574,16 @@ object ExecutableOpenGate {
                 return blocked("EXEC_OPEN_BLOCKED_TRUE_ZERO_LIQUIDITY", "TRUE_ZERO_LIQUIDITY", shadow = false)
             }
         }
-        if (fdgCan == true && hardNoReasons.isEmpty() && immutableAuthority6513 == null) {
+        if (fdgCan == true && hardNoReasons.isEmpty() && immutableTicket == null) {
             try {
                 PipelineHealthCollector.labelInc("AUTHORITY_INVARIANT_FAILURE")
                 PipelineHealthCollector.labelInc("EXEC_AUTHORITY_STATE_MISMATCH")
-                ForensicLogger.lifecycle("AUTHORITY_INVARIANT_FAILURE", "attemptId=$attemptId mint=${mint.take(10)} candidateVersion=$candidateVersion currentVersion=$currentCandidateVersion requestedLane=$requestedLane selectedLane=$canonicalSelectedLane preFdg=$preFdgVerdict reason=FDG_ALLOW_WITHOUT_CURRENT_IMMUTABLE_AUTHORITY")
+                ForensicLogger.lifecycle("AUTHORITY_INVARIANT_FAILURE", "attemptId=$attemptId mint=${mint.take(10)} candidateVersion=$candidateVersion currentVersion=$currentCandidateVersion requestedLane=$requestedLane selectedLane=$canonicalSelectedLane preFdg=$preFdgVerdict reason=FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519")
             } catch (_: Throwable) {}
-            return blocked("AUTHORITY_INVARIANT_FAILURE", "FDG_ALLOW_WITHOUT_CURRENT_IMMUTABLE_AUTHORITY", shadow = mode == "PAPER")
+            return blocked("AUTHORITY_INVARIANT_FAILURE", "FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519", shadow = mode == "PAPER")
         }
-        if (immutableAuthority6513 != null && (immutableAuthority6513.candidateVersion != currentCandidateVersion ||
-                immutableAuthority6513.executionLane != canonicalSelectedLane || immutableAuthority6513.authoritativeSignal != "BUY" ||
+        if (immutableAuthority6513 != null && immutableTicket == null && (
+                immutableAuthority6513.authoritativeSignal != "BUY" ||
                 immutableAuthority6513.verdict !in setOf("BUY", "PROBE_ONLY"))) {
             try {
                 PipelineHealthCollector.labelInc("AUTHORITY_INVARIANT_FAILURE")
@@ -1517,12 +1599,12 @@ object ExecutableOpenGate {
         )
         if (!signal.equals("BUY", true) && !signal.equals("EXECUTE", true)) {
             try { com.lifecyclebot.engine.truth.CanonicalFdgBuyStamp6508.reportMismatch(mint, signal, candidateVersion) } catch (_: Throwable) {}
-            if (canonicalExecutableIntent6509) {
+            if (immutableFdgBuy6519 || canonicalExecutableIntent6509) {
                 try {
                     PipelineHealthCollector.labelInc("EXEC_RAW_SIGNAL_DIAGNOSTIC_IGNORED_6509")
-                    ForensicLogger.lifecycle("EXEC_RAW_SIGNAL_DIAGNOSTIC_IGNORED_6509", "symbol=$symbol mint=${mint.take(10)} signal=${signal.ifBlank { "UNKNOWN" }} preFdg=$preFdgVerdict authority=PRE_EXEC_FDG")
+                    ForensicLogger.lifecycle("EXEC_RAW_SIGNAL_DIAGNOSTIC_IGNORED_6509", "symbol=$symbol mint=${mint.take(10)} signal=${signal.ifBlank { "UNKNOWN" }} preFdg=$preFdgVerdict authority=${if (immutableFdgBuy6519) "IMMUTABLE_EXECUTION_INTENT_6519" else "PRE_EXEC_FDG"}")
                 } catch (_: Throwable) {}
-            } else {
+            } else if (mutableSignalCanVeto6519(immutableTicket, signal)) {
                 return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", "SIGNAL_NOT_BUY:${signal.ifBlank { "UNKNOWN" }}", shadow = mode == "PAPER")
             }
         }
@@ -1638,28 +1720,13 @@ object ExecutableOpenGate {
             allowedAttempts[laneAttemptKey] = execKey to System.currentTimeMillis()
             allowedAttempts[mint.trim()] = execKey to System.currentTimeMillis()
             if (executionTickets[execKey] == null) {
+                val fdgIntent6519 = immutableTicket ?: return blocked(
+                    "AUTHORITY_INVARIANT_FAILURE", "EXEC_INTENT_MISSING_AT_FINAL_BIND_6519", shadow = mode == "PAPER",
+                )
                 publishTicket(
-                    ExecutionTicket(
+                    fdgIntent6519.copy(
                         attemptId = execKey,
-                        mint = mint,
-                        symbol = symbol,
-                        lane = canonicalSelectedLane,
-                        mode = modeUpper,
-                        candidateVersion = candidateVersion,
-                        electionId6494 = electionId6494,
-                        authorityVersion6494 = immutableAuthority6513?.authorityVersion ?: authorityVersion6494,
-                        fdgReason = fdgReason,
-                        signal = immutableAuthority6513?.authoritativeSignal ?: signal,
-                        safetyTier = immutableAuthority6513?.safetyVerdict?.takeIf { it.isNotBlank() && it != "UNKNOWN" } ?: safetyTier,
-                        primaryLane = immutableAuthority6513?.executionLane ?: canonicalSelectedLane,
-                        fdgVerdict = if (immutableAuthority6513?.verdict in setOf("BUY", "PROBE_ONLY")) "BUY" else preFdgVerdict,
-                        authoritativeSignal = immutableAuthority6513?.authoritativeSignal ?: "BUY",
-                        safetyVerdict = immutableAuthority6513?.safetyVerdict?.takeIf { it.isNotBlank() } ?: safetyTier,
-                        authorityVersion = immutableAuthority6513?.authorityVersion ?: authorityVersion6494,
-                        liquidityUsd = liquidityUsd,
-                        rugScore = rug,
-                        hardNoReasons = hardNoReasons,
-                        resolvedSizeSol = effectiveResolvedSize6497.coerceAtLeast(0.0),
+                        resolvedSize = effectiveResolvedSize6497.coerceAtLeast(0.0),
                     )
                 )
             }

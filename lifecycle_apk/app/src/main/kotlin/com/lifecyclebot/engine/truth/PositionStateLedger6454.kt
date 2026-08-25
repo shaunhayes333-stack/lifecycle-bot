@@ -46,6 +46,22 @@ object PositionStateLedger6454 {
     private val confirmRejects = AtomicLong(0L)
     private val blankIdRejects = AtomicLong(0L)
 
+    /** V5.0.6519 — projection rebuild from CanonicalPositionAuthority only. */
+    fun syncFromCanonical6519(openPositions: List<CanonicalPositionAuthority6441.Position>) {
+        states.clear()
+        openPositions.forEach { p ->
+            if (p.positionId.isNotBlank() && p.remainingQtyRaw > java.math.BigInteger.ZERO) {
+                states[p.positionId] = when (p.lifecycle) {
+                    CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED -> Lifecycle.PARTIAL
+                    else -> Lifecycle.OPEN
+                }
+            }
+        }
+        try { PipelineHealthCollector.labelInc("POSITION_STATE_PROJECTED_FROM_CANONICAL_6519") } catch (_: Throwable) {}
+    }
+
+    fun openOrPartialCount6519(): Int = states.values.count { it == Lifecycle.OPEN || it == Lifecycle.PARTIAL }
+
     /** Called at position creation to seed lifecycle=OPEN. */
     fun onEntry(positionId: String) {
         if (positionId.isBlank()) return

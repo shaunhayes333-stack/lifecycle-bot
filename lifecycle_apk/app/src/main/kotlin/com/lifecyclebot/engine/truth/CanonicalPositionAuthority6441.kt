@@ -433,11 +433,35 @@ object CanonicalPositionAuthority6441 {
             positions.entries.removeIf { it.value.mode == "paper" }
             mutationKeys.entries.removeIf { it.key.startsWith("REPLAY6486:") }
             val paperEvents = source.filter { it.mode == "paper" }.sortedBy { it.atMs }
+            fun repairedEntryPrice6519(fillPrice: Double, costSol: Double, qtyRaw: BigInteger, quantityScale: Int): Double {
+                if (fillPrice.isFinite() && fillPrice > 0.0) return fillPrice
+                val qty = try { PaperTokenQuantityAuthority6509.decode(qtyRaw, quantityScale) } catch (_: Throwable) { 0.0 }
+                return if (costSol.isFinite() && costSol > 0.0 && qty.isFinite() && qty > 0.0) costSol / qty else 0.0
+            }
             for (e in paperEvents) {
                 when (e) {
                     is EconomicEventSchema6464.Buy -> {
                         val cur = positions[e.positionId]
-                        positions[e.positionId] = if (cur == null || cur.lifecycle == Lifecycle.CLOSED) {
+                        val repairedPrice6519 = repairedEntryPrice6519(e.fillPrice, e.executedCostSol, e.filledQty, e.quantityScale)
+                        if (!repairedPrice6519.isFinite() || repairedPrice6519 <= 0.0) {
+                            positions[e.positionId] = Position(
+                                positionId = e.positionId, mode = "paper", mint = e.mint, symbol = e.symbol,
+                                lane = "REPLAY_6486", runId = e.idempotencyKey, openedAtMs = e.atMs,
+                                entryCostSol = e.executedCostSol, remainingQtyRaw = e.filledQty,
+                                originalQtyRaw = e.filledQty, soldCostBasisSol = 0.0,
+                                realizedPnlSol = 0.0, realizedProceedsSol = 0.0, feesSol = e.entryFeesSol,
+                                tokenDecimals = e.tokenDecimals, quantityScale = e.quantityScale,
+                                lifecycle = Lifecycle.QUARANTINED, lastMutationMs = e.atMs,
+                                quarantineReason = "QUARANTINE_POSITION_BAD_ENTRY_6519",
+                                entryPriceUsd = 0.0, entryPriceSource = "UNRECOVERABLE_DURABLE_BUY_EVENT",
+                            )
+                            try {
+                                PipelineHealthCollector.labelInc("QUARANTINE_POSITION_BAD_ENTRY_6519")
+                                ForensicLogger.lifecycle("QUARANTINE_POSITION_BAD_ENTRY_6519", "positionId=${e.positionId} mint=${e.mint.take(10)} cost=${e.executedCostSol} qty=${e.filledQty} scale=${e.quantityScale}")
+                            } catch (_: Throwable) {}
+                            continue
+                        }
+                        positions[e.positionId] = if (cur == null || cur.lifecycle == Lifecycle.CLOSED || cur.lifecycle == Lifecycle.QUARANTINED) {
                             Position(
                                 positionId = e.positionId, mode = "paper", mint = e.mint, symbol = e.symbol,
                                 lane = "REPLAY_6486", runId = e.idempotencyKey, openedAtMs = e.atMs,
@@ -447,13 +471,15 @@ object CanonicalPositionAuthority6441 {
                                 feesSol = e.entryFeesSol, tokenDecimals = e.tokenDecimals,
                                 quantityScale = e.quantityScale, lifecycle = Lifecycle.OPEN,
                                 lastMutationMs = e.atMs, quarantineReason = "",
-                                entryPriceUsd = e.fillPrice, entryPriceSource = "ECONOMIC_EVENT_REPLAY_6513",
+                                entryPriceUsd = repairedPrice6519, entryPriceSource = if (e.fillPrice > 0.0) "ECONOMIC_EVENT_REPLAY_6513" else "DURABLE_COST_QTY_REPAIR_6519",
                             )
                         } else cur.copy(
                             entryCostSol = cur.entryCostSol + e.executedCostSol,
                             remainingQtyRaw = cur.remainingQtyRaw + e.filledQty,
                             originalQtyRaw = cur.originalQtyRaw + e.filledQty,
                             feesSol = cur.feesSol + e.entryFeesSol,
+                            entryPriceUsd = cur.entryPriceUsd.takeIf { it.isFinite() && it > 0.0 } ?: repairedPrice6519,
+                            entryPriceSource = cur.entryPriceSource.ifBlank { "DURABLE_COST_QTY_REPAIR_6519" },
                             lifecycle = Lifecycle.OPEN, lastMutationMs = e.atMs,
                         )
                     }
@@ -492,6 +518,8 @@ object CanonicalPositionAuthority6441 {
                     try { PipelineHealthCollector.labelInc("CANONICAL_CARRY_MERGED_6492") } catch (_: Throwable) {}
                 } else {
                     val pid = "PAPER:CARRY6492:$mint"
+                    val carryScale6519 = carry6492.perMintQuantityScale[mint] ?: (carry6492.perMintTokenDecimals[mint] ?: 9)
+                    val carryEntryPrice6519 = repairedEntryPrice6519(0.0, carryCost, qtyRaw, carryScale6519)
                     positions[pid] = Position(
                         positionId = pid, mode = "paper", mint = mint, symbol = mint.take(8),
                         lane = "RECOVERED_CARRY_6492", runId = "REPLAY_CARRY_6492",
@@ -500,9 +528,12 @@ object CanonicalPositionAuthority6441 {
                         soldCostBasisSol = 0.0, realizedPnlSol = 0.0, realizedProceedsSol = 0.0,
                         feesSol = 0.0,
                         tokenDecimals = carry6492.perMintTokenDecimals[mint] ?: 9,
-                        quantityScale = carry6492.perMintQuantityScale[mint] ?: (carry6492.perMintTokenDecimals[mint] ?: 9),
-                        lifecycle = Lifecycle.OPEN,
-                        lastMutationMs = System.currentTimeMillis(), quarantineReason = "",
+                        quantityScale = carryScale6519,
+                        lifecycle = if (carryEntryPrice6519 > 0.0) Lifecycle.OPEN else Lifecycle.QUARANTINED,
+                        lastMutationMs = System.currentTimeMillis(),
+                        quarantineReason = if (carryEntryPrice6519 > 0.0) "" else "QUARANTINE_POSITION_BAD_ENTRY_6519",
+                        entryPriceUsd = carryEntryPrice6519,
+                        entryPriceSource = if (carryEntryPrice6519 > 0.0) "DURABLE_CARRY_COST_QTY_REPAIR_6519" else "UNRECOVERABLE_DURABLE_CARRY",
                     )
                     try { PositionStateLedger6454.onEntry(pid) } catch (_: Throwable) {}
                     try { PipelineHealthCollector.labelInc("CANONICAL_CARRY_POSITION_RESTORED_6492") } catch (_: Throwable) {}
@@ -510,12 +541,13 @@ object CanonicalPositionAuthority6441 {
             }
             // PositionStateLedger is terminal-CAS projection only. Rebuild it
             // from canonical lifecycle; it may never invent independent opens.
-            positions.values.filter {
-                it.mode == "paper" && it.lifecycle in setOf(Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED) && it.remainingQtyRaw > BigInteger.ZERO
-            }.forEach { p ->
-                try { PositionStateLedger6454.onEntry(p.positionId) } catch (_: Throwable) {}
-                try { SellQtyBoundaryClamp6427.syncAuthoritativeRaw(p.positionId, p.originalQtyRaw, p.remainingQtyRaw) } catch (_: Throwable) {}
+            val canonicalOpen6519 = positions.values.filter {
+                it.mode == "paper" && it.lifecycle in setOf(Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED) &&
+                    it.remainingQtyRaw > BigInteger.ZERO && it.entryPriceUsd.isFinite() && it.entryPriceUsd > 0.0
             }
+            try { PositionStateLedger6454.syncFromCanonical6519(canonicalOpen6519) } catch (_: Throwable) {}
+            try { SellQtyBoundaryClamp6427.syncFromCanonical6519(canonicalOpen6519) } catch (_: Throwable) {}
+            try { CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(canonicalOpen6519) } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("POSITION_STATE_PROJECTED_FROM_CANONICAL_6492") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("SELL_QTY_BOUNDARY_PROJECTED_FROM_CANONICAL_6498") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_POSITIONS_REBUILT_6486") } catch (_: Throwable) {}

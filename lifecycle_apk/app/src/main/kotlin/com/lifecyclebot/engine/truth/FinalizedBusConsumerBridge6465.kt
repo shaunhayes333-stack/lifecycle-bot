@@ -41,6 +41,13 @@ object FinalizedBusConsumerBridge6465 {
         // (encoded as env.tradeId) or mint has been quarantined by
         // `LearningQuarantineGate6470` is dropped before it reaches any
         // learner. Learning consumers only see clean canonical outcomes.
+        if (consumer !in NON_LEARNING_CONSUMERS && !env.learningEligible) {
+            try {
+                PipelineHealthCollector.labelInc("FINALIZED_LEARNING_INELIGIBLE_ACK_NO_MUTATION_6519_${consumer}".take(60))
+                ForensicLogger.lifecycle("FINALIZED_LEARNING_INELIGIBLE_6519", "consumer=$consumer positionId=${env.positionId} mint=${env.mint.take(10)} reason=${env.learningEligibilityReason.take(120)}")
+            } catch (_: Throwable) {}
+            return true
+        }
         if (consumer !in NON_LEARNING_CONSUMERS &&
             LearningQuarantineGate6470.shouldDropForLearning(positionId = env.tradeId, mint = env.mint)
         ) {
@@ -58,6 +65,7 @@ object FinalizedBusConsumerBridge6465 {
             "CapitalCreed"        -> deliverToCapitalCreed(env)
             "EVEstimator"         -> deliverToEvEstimator(env)
             "AatePolicyReward"    -> deliverToAatePolicyReward(env)
+            "StrategyHypothesisEngine" -> deliverToStrategyHypothesis(env)
             "Dashboard"           -> deliverToDashboard(env)
             else -> false
         }
@@ -117,6 +125,11 @@ object FinalizedBusConsumerBridge6465 {
 
     private fun deliverToAatePolicyReward(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         AateDecisionFabric6512.onFinalized(env)
+    } catch (_: Throwable) { false }
+
+    private fun deliverToStrategyHypothesis(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
+        com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(env.mint, env.realizedReturnPct)
+        true
     } catch (_: Throwable) { false }
 
     private fun deliverToDashboard(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {

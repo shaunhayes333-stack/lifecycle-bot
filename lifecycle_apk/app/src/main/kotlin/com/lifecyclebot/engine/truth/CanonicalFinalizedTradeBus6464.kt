@@ -55,6 +55,8 @@ object CanonicalFinalizedTradeBus6464 {
         val mfePct: Double = 0.0,
         val maePct: Double = 0.0,
         val terminal: Boolean = true,
+        val learningEligible: Boolean = true,
+        val learningEligibilityReason: String = "ELIGIBLE",
     )
 
     private val canonicalSeen = ConcurrentHashMap<String, Envelope>()
@@ -65,7 +67,7 @@ object CanonicalFinalizedTradeBus6464 {
 
     private val CANONICAL_CONSUMERS_6485 = listOf(
         "LearnerRewardBridge", "LosingStreakReflex", "GrowthRewardShaper", "TacticSwitcher",
-        "Governor", "CapitalCreed", "EVEstimator", "AatePolicyReward", "Dashboard",
+        "Governor", "CapitalCreed", "EVEstimator", "AatePolicyReward", "StrategyHypothesisEngine", "Dashboard",
     )
     fun ensureCanonicalConsumers6485() { CANONICAL_CONSUMERS_6485.forEach(::registerConsumer) }
 

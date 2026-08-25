@@ -53,6 +53,17 @@ object SellQtyBoundaryClamp6427 {
     private val rawAdmits = AtomicLong(0L)
     private val rawRejects = AtomicLong(0L)
 
+    /** V5.0.6519 — full projection rebuild from the single canonical position repository. */
+    fun syncFromCanonical6519(openPositions: List<CanonicalPositionAuthority6441.Position>) {
+        rawLedger.clear()
+        openPositions.forEach { p ->
+            syncAuthoritativeRaw(p.positionId, p.originalQtyRaw, p.remainingQtyRaw)
+        }
+        try { PipelineHealthCollector.labelInc("SELL_QTY_BOUNDARY_PROJECTED_FROM_CANONICAL_6519") } catch (_: Throwable) {}
+    }
+
+    fun trackedOpenCount6519(): Int = rawLedger.size
+
     /** V5.0.6498 — rebuild boundary truth from canonical active inventory. */
     fun syncAuthoritativeRaw(positionId: String, originalQtyRaw: BigInteger, remainingQtyRaw: BigInteger) {
         if (positionId.isBlank() || originalQtyRaw <= BigInteger.ZERO || remainingQtyRaw < BigInteger.ZERO || remainingQtyRaw > originalQtyRaw) return

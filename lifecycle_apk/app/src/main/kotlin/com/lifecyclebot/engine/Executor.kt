@@ -11928,24 +11928,29 @@ class Executor(
         // FluidLearningAI floor, EntryIntelligence — all wired identically
         // to live so the learning data isn't contaminated by rug-class
         // outcomes that live wouldn't have taken either.
+        var paperLearningEligible6519 = true
+        var paperLearningReason6519 = "ELIGIBLE"
         val advisor = consultEntryAdvisors(ts, score, layerTag, isPaperMode = true)
         if (!advisor.first) {
-            ErrorLogger.warn("Executor",
-                "🛡️ PAPER_BUY_ADVISOR_BLOCK ${ts.symbol} layer=$layerTag reason=${advisor.second}")
+            val advisorHardSafety6519 = advisor.second.startsWith("RUG_PREFILTER_HARD_FAIL", ignoreCase = true)
+            if (advisorHardSafety6519) {
+                try { PipelineHealthCollector.labelInc("PAPER_BUY_ADVISOR_HARD_SAFETY_BLOCK_6519") } catch (_: Throwable) {}
+                markPaperBuyNotOpened("HARD_SAFETY_ADVISOR_${advisor.second.substringBefore(':')}")
+                return
+            }
+            paperLearningEligible6519 = false
+            paperLearningReason6519 = "ADVISOR_SOFT_${advisor.second.take(120)}"
             try {
-                ForensicLogger.lifecycle("PAPER_BUY_ADVISOR_BLOCK",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=${advisor.second}")
+                PipelineHealthCollector.labelInc("PAPER_BUY_ADVISOR_SOFT_SHAPED_6519")
+                ForensicLogger.lifecycle("PAPER_BUY_ADVISOR_SOFT_SHAPED_6519", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=${advisor.second} action=execute_learning_ineligible")
             } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("PAPER_BUY_ADVISOR_BLOCK") } catch (_: Throwable) {}
-            markPaperBuyNotOpened("ADVISOR_${advisor.second.substringBefore(':')}")
-            return
         }
         shouldSuppressPaperLearningEntry(ts, score, layerTag, identity)?.let { why ->
+            paperLearningEligible6519 = false
+            paperLearningReason6519 = "QUALITY_SUPPRESSED:$why"
             try { PipelineHealthCollector.labelInc("PAPER_LEARNING_QUALITY_SUPPRESSED") } catch (_: Throwable) {}
-            try { ForensicLogger.lifecycle("PAPER_LEARNING_QUALITY_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$why") } catch (_: Throwable) {}
-            ErrorLogger.debug("Executor", "🧪 PAPER_LEARNING_QUALITY_SUPPRESSED: ${ts.symbol} | $why")
-            markPaperBuyNotOpened("QUALITY_SUPPRESSED")
-            return
+            try { ForensicLogger.lifecycle("PAPER_LEARNING_QUALITY_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$why learningEligible=false openTrade=true terminalBlock=false") } catch (_: Throwable) {}
+            ErrorLogger.debug("Executor", "🧪 PAPER_LEARNING_QUALITY_SUPPRESSED: ${ts.symbol} | $why | execution continues")
         }
         // V5.9.1129 — route authority must run before open authority for direct
         // paperBuy() callers. In LIVE mode with shadowPaperEnabled=true this is
@@ -12812,6 +12817,13 @@ class Executor(
             )
             PipelineHealthCollector.labelInc("PORTFOLIO_HEAT_MEME_POSITION_REGISTERED_4212")
         } catch (_: Throwable) {}
+        com.lifecyclebot.engine.truth.PaperLearningEligibility6519.record(
+            mint = tradeId.mint, positionId = pid6485,
+            eligible = paperLearningEligible6519, reason = paperLearningReason6519,
+        )
+        try {
+            ForensicLogger.lifecycle("PAPER_LEARNING_ELIGIBILITY_6519", "positionId=$pid6485 mint=${tradeId.mint.take(10)} eligible=$paperLearningEligible6519 reason=${paperLearningReason6519.take(120)}")
+        } catch (_: Throwable) {}
         val trade = Trade(
             side = "BUY", 
             mode = if (routeIsShadow) "shadow" else "paper",
@@ -12886,12 +12898,11 @@ class Executor(
             try { ForensicLogger.lifecycle("PAPER_BUY_SHARED_WALLET_DEBIT_SKIPPED", "mint=${tradeId.mint.take(10)} symbol=${tradeId.symbol} layer=$layerTag sol=${actualSol.fmt(4)} reason=virtual_book") } catch (_: Throwable) {}
         }
         
-        if (cfg().fluidLearningEnabled) {
+        if (paperLearningEligible6519 && cfg().fluidLearningEnabled) {
             FluidLearning.recordPaperBuy(tradeId.mint, actualSol)
             FluidLearning.recordPriceImpact(tradeId.mint, actualSol, ts.lastLiquidityUsd, isBuy = true)
         }
-        
-        EdgeLearning.recordEntry(
+        if (paperLearningEligible6519) EdgeLearning.recordEntry(
             mint = tradeId.mint,
             symbol = tradeId.symbol,
             buyPct = ts.meta.pressScore,
@@ -12918,9 +12929,10 @@ class Executor(
             isNearResistance = ts.meta.posInRange > 75.0,
             candlePattern = "none",
         )
-        EntryIntelligence.recordEntry(tradeId.mint, entryConditions)
-        
-        LiquidityDepthAI.recordEntryLiquidity(tradeId.mint, ts.lastLiquidityUsd)
+        if (paperLearningEligible6519) {
+            EntryIntelligence.recordEntry(tradeId.mint, entryConditions)
+            LiquidityDepthAI.recordEntryLiquidity(tradeId.mint, ts.lastLiquidityUsd)
+        }
         
         try {
             val narrative = NarrativeDetectorAI.detectNarrative(ts.symbol, ts.name)
@@ -12964,7 +12976,7 @@ class Executor(
                 }
                 append("|press="); append(pressBand)
             }
-            com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordEntryReason(
+            if (paperLearningEligible6519) com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordEntryReason(
                 mint = tradeId.mint,
                 traderSource = ts.position.tradingMode.ifEmpty { "MEME" },  // V5.9.320: was hardcoded "Meme"
                 reason = reason,

@@ -143,6 +143,7 @@ object CanonicalTradeFinalizedBus6450 {
         // travel with the immutable event instead of being inferred later.
         try {
             CanonicalFinalizedTradeBus6464.ensureCanonicalConsumers6485()
+            val learningEligibility6519 = PaperLearningEligibility6519.decision(event.positionId, event.mint)
             val env = CanonicalFinalizedTradeBus6464.Envelope(
                 tradeId = event.positionId,
                 atMs = event.settledAtMs,
@@ -157,6 +158,8 @@ object CanonicalTradeFinalizedBus6450 {
                 entryScore = EntryStrategySnapshot6450.snapshot(event.positionId)?.entryScore ?: 0,
                 entryTactic = event.entryTactic,
                 terminal = true,
+                learningEligible = learningEligibility6519.eligible,
+                learningEligibilityReason = learningEligibility6519.reason,
             )
             if (CanonicalFinalizedTradeBus6464.publish(env)) {
                 CanonicalFinalizedTradeBus6464.deliverToConsumers(env) { name, e ->
