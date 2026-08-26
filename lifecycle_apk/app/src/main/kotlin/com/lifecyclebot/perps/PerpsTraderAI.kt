@@ -780,8 +780,8 @@ object PerpsTraderAI {
                 costSol = sizeSol, entryScore = signal.score, tactic = direction.name,
                 // V5.0.6525 §ASSET_CLASS + §ENTRY_PRICE.
                 assetClass = com.lifecyclebot.engine.truth.AssetClass.PERPS,
-                entryPriceUsd = signal.price,
-                entryPriceSource = "PerpsTraderAI/signal.price",
+                entryPriceUsd = entryPrice,
+                entryPriceSource = "PerpsTraderAI/entryPrice",
             )
             if (!canonicalOpen6486.applied) {
                 ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: ${market.symbol} ${canonicalOpen6486.reason}")
