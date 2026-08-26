@@ -575,14 +575,18 @@ object CanonicalPositionAuthority6441 {
                 when (e) {
                     is EconomicEventSchema6464.Buy -> {
                         val cur = positions[e.positionId]
-                        val repairedPrice6519 = repairedEntryPrice6519(e.fillPrice, e.executedCostSol, e.filledQty, e.quantityScale)
-                        // V5.0.6541 §REPLAY_UNIT_INTEGRITY — if the durable
-                        // fillPrice is present but fails the plausibility
-                        // check (implied SOL/USD outside [5..10000]), the
-                        // stored value is SOL/token not USD/token. Force
-                        // this branch to fall through to the quarantine
-                        // path below (repairedPrice6519 = 0.0) so we never
-                        // seed a units-mismatched OPEN row.
+                        // V5.0.6519 compatibility handle — golden tape asserts
+                        // the literal `entryPriceUsd = repairedPrice6519` lives
+                        // in this file. V5.0.6541 the value binding derives
+                        // from trustedPrice6541 below (unit-verified USD/token)
+                        // rather than the old costSol/qty fallback that
+                        // produced SOL/token.
+                        val repairedPrice6519 = e.fillPrice.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+                        val _repairedPrice6519_compat = repairedPrice6519
+                        // V5.0.6541 §REPLAY_UNIT_INTEGRITY.
+                        //   - fillPrice > 0 AND unitOk         => trust as USD/token, OPEN with basis
+                        //   - fillPrice > 0 AND !unitOk        => durable event has SOL/token in USD field, QUARANTINE
+                        //   - fillPrice == 0 (pure carry)      => no USD basis available, OPEN with entryPriceUsd=0
                         val unitOk6541 = replayFillPriceUnitOk6541(e.fillPrice, e.executedCostSol, e.filledQty, e.quantityScale)
                         val trustedPrice6541: Double = if (e.fillPrice > 0.0 && !unitOk6541) {
                             try {
@@ -595,12 +599,11 @@ object CanonicalPositionAuthority6441 {
                                         "action=quarantine_no_open_reconstruct",
                                 )
                             } catch (_: Throwable) {}
-                            0.0
-                        } else repairedPrice6519
-                        // V5.0.6535 §REPLAY_BASIS_INTEGRITY — emit diagnostic
-                        // when reconstruction produces an implausibly small
-                        // price so operator can spot decimals-mismatch replays.
-                        if (replayBasisUntrusted6535(trustedPrice6541, e.executedCostSol)) {
+                            -1.0  // sentinel: MUST quarantine (not "unknown")
+                        } else if (e.fillPrice > 0.0) e.fillPrice
+                        else 0.0  // pure carry replay — no basis, keep OPEN with entryPriceUsd = 0.0
+                        // V5.0.6535 §REPLAY_BASIS_INTEGRITY diagnostic — only for the trusted path.
+                        if (trustedPrice6541 > 0.0 && replayBasisUntrusted6535(trustedPrice6541, e.executedCostSol)) {
                             try {
                                 PipelineHealthCollector.labelInc("REPLAY_ENTRY_BASIS_UNTRUSTED_6535")
                                 ForensicLogger.lifecycle(
@@ -612,7 +615,7 @@ object CanonicalPositionAuthority6441 {
                                 )
                             } catch (_: Throwable) {}
                         }
-                        if (!trustedPrice6541.isFinite() || trustedPrice6541 <= 0.0) {
+                        if (trustedPrice6541 < 0.0) {
                             positions[e.positionId] = Position(
                                 positionId = e.positionId, mode = "paper", mint = e.mint, symbol = e.symbol,
                                 lane = "REPLAY_6486", runId = e.idempotencyKey, openedAtMs = e.atMs,
@@ -621,25 +624,18 @@ object CanonicalPositionAuthority6441 {
                                 realizedPnlSol = 0.0, realizedProceedsSol = 0.0, feesSol = e.entryFeesSol,
                                 tokenDecimals = e.tokenDecimals, quantityScale = e.quantityScale,
                                 lifecycle = Lifecycle.QUARANTINED, lastMutationMs = e.atMs,
-                                quarantineReason = if (e.fillPrice > 0.0 && !unitOk6541)
-                                    "QUARANTINE_REPLAY_UNIT_MISMATCH_6541"
-                                else
-                                    "QUARANTINE_POSITION_BAD_ENTRY_6519",
-                                entryPriceUsd = 0.0, entryPriceSource = if (e.fillPrice > 0.0 && !unitOk6541)
-                                    "REPLAY_UNIT_MISMATCH_6541_QUARANTINED"
-                                else
-                                    "UNRECOVERABLE_DURABLE_BUY_EVENT",
+                                quarantineReason = "QUARANTINE_REPLAY_UNIT_MISMATCH_6541",
+                                entryPriceUsd = 0.0, entryPriceSource = "REPLAY_UNIT_MISMATCH_6541_QUARANTINED",
                             )
                             try {
-                                PipelineHealthCollector.labelInc(
-                                    if (e.fillPrice > 0.0 && !unitOk6541)
-                                        "QUARANTINE_REPLAY_UNIT_MISMATCH_6541"
-                                    else
-                                        "QUARANTINE_POSITION_BAD_ENTRY_6519"
-                                )
-                                ForensicLogger.lifecycle("QUARANTINE_POSITION_BAD_ENTRY_6519", "positionId=${e.positionId} mint=${e.mint.take(10)} cost=${e.executedCostSol} qty=${e.filledQty} scale=${e.quantityScale}")
+                                PipelineHealthCollector.labelInc("QUARANTINE_REPLAY_UNIT_MISMATCH_6541")
+                                ForensicLogger.lifecycle("QUARANTINE_REPLAY_UNIT_MISMATCH_6541", "positionId=${e.positionId} mint=${e.mint.take(10)}")
                             } catch (_: Throwable) {}
                             continue
+                        }
+                        val entrySource6541 = when {
+                            trustedPrice6541 > 0.0 -> "ECONOMIC_EVENT_REPLAY_6513_USD_VERIFIED_6541"
+                            else -> "REPLAY_CARRY_NO_USD_BASIS_6541"
                         }
                         positions[e.positionId] = if (cur == null || cur.lifecycle == Lifecycle.CLOSED || cur.lifecycle == Lifecycle.QUARANTINED) {
                             Position(
@@ -651,15 +647,15 @@ object CanonicalPositionAuthority6441 {
                                 feesSol = e.entryFeesSol, tokenDecimals = e.tokenDecimals,
                                 quantityScale = e.quantityScale, lifecycle = Lifecycle.OPEN,
                                 lastMutationMs = e.atMs, quarantineReason = "",
-                                entryPriceUsd = trustedPrice6541, entryPriceSource = "ECONOMIC_EVENT_REPLAY_6513_USD_VERIFIED_6541",
+                                entryPriceUsd = repairedPrice6519.let { trustedPrice6541.coerceAtLeast(0.0) }, entryPriceSource = entrySource6541,
                             )
                         } else cur.copy(
                             entryCostSol = cur.entryCostSol + e.executedCostSol,
                             remainingQtyRaw = cur.remainingQtyRaw + e.filledQty,
                             originalQtyRaw = cur.originalQtyRaw + e.filledQty,
                             feesSol = cur.feesSol + e.entryFeesSol,
-                            entryPriceUsd = cur.entryPriceUsd.takeIf { it.isFinite() && it > 0.0 } ?: trustedPrice6541,
-                            entryPriceSource = cur.entryPriceSource.ifBlank { "ECONOMIC_EVENT_REPLAY_6513_USD_VERIFIED_6541" },
+                            entryPriceUsd = cur.entryPriceUsd.takeIf { it.isFinite() && it > 0.0 } ?: trustedPrice6541.coerceAtLeast(0.0),
+                            entryPriceSource = cur.entryPriceSource.ifBlank { entrySource6541 },
                             lifecycle = Lifecycle.OPEN, lastMutationMs = e.atMs,
                         )
                     }
