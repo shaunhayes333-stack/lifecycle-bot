@@ -52,7 +52,7 @@ object CrossAssetMarkRouter6530 {
             if (data.price.isFinite() && data.price > 0.0) {
                 ts.lastPrice = data.price
                 ts.lastPriceSource = "CrossAssetMarkRouter6530/${assetClass.tag}/${market.name}"
-                ts.lastPriceMs = System.currentTimeMillis()
+                ts.lastPriceUpdate = System.currentTimeMillis()
                 emit("OK", assetClass, symbol, "price=${"%.6f".format(data.price)} market=${market.name}")
                 true
             } else {
