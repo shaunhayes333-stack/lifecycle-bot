@@ -97,7 +97,7 @@ object CanonicalPaperTransaction6486 {
         val fillPrice6539 = if (addedEntryPriceUsd > 0.0 && addedEntryPriceUsd.isFinite())
             addedEntryPriceUsd else addedCostSol / addedQtyRaw.toDouble()
         EconomicEventSchema6464.recordBuy("paper", positionId, mint, symbol, idem, addedCostSol,
-            addedQtyRaw, fillPrice6539, addedFeeSol, decimals = quantityScale, quantityScale = quantityScale)
+            addedQtyRaw, fillPrice6539, addedFeeSol, tokenDecimals = quantityScale, quantityScale = quantityScale)
         try { PipelineHealthCollector.labelInc("PAPER_TRANSACTION_ADD_COMMITTED_6486") } catch (_: Throwable) {}
         Result(true, positionId, "ADD_COMMITTED")
     }
