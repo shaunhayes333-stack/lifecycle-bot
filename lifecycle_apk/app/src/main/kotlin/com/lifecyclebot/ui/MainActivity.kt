@@ -2930,12 +2930,19 @@ for legal compliance.
                 // Σ passes below to keep this Default worker tick short —
                 // the operator's 6501/6502 dumps still had 3s frame gaps
                 // during hero rebuild churn.
+                // V5.0.6523 §HEADER_ROW_PARITY — pull the mode-partitioned
+                // hero fields so the header "X◎ at risk / +Y◎" matches the
+                // paper-only OR live-only row list. Operator screenshot
+                // Feb 2026 showed header +483◎ while paper rows summed to
+                // only +55.83◎ because the hero previously included both
+                // paper AND live open positions in the same total.
+                val paperMode6523 = state.config.paperMode
                 val hero6503 = try {
                     com.lifecyclebot.engine.truth.HeroSnapshotAuthority6503.current()
                 } catch (_: Throwable) { null }
-                val totalExposure = if (hero6503 != null) hero6503.totalExposureSol
+                val totalExposure = if (hero6503 != null) hero6503.totalExposureSolFor(paperMode6523)
                     else allOpen.sumOf { it.position.costSol }
-                val totalUpnl = if (hero6503 != null) hero6503.totalUnrealizedSol
+                val totalUpnl = if (hero6503 != null) hero6503.totalUnrealizedSolFor(paperMode6523)
                     else allOpen.sumOf { token ->
                         val pos = token.position
                         val verdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(token, "MainActivity.precomputeTotalUpnl6078/${token.symbol}/${token.mint.take(8)}", emit = false)

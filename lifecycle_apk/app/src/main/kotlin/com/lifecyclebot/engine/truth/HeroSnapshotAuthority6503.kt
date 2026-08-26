@@ -66,12 +66,31 @@ object HeroSnapshotAuthority6503 {
         val cashSol: Double,
         val realizedPnlSol: Double,
         val atMs: Long,
-    )
+        // V5.0.6523 §HEADER_ROW_PARITY — split by mode so the paper hero
+        // does not double-count live open positions (operator screenshot
+        // Feb 2026: header +483◎ vs paper rows summing to only +55.83◎).
+        // The UI row list filters state.openPositions by isPaperPosition
+        // == config.paperMode; the hero authority MUST expose the same
+        // partition so header numbers match the row list byte-for-byte.
+        val paperOpenCount: Int = openCount,
+        val paperTotalExposureSol: Double = totalExposureSol,
+        val paperTotalUnrealizedSol: Double = totalUnrealizedSol,
+        val liveOpenCount: Int = 0,
+        val liveTotalExposureSol: Double = 0.0,
+        val liveTotalUnrealizedSol: Double = 0.0,
+    ) {
+        fun openCountFor(paperMode: Boolean): Int = if (paperMode) paperOpenCount else liveOpenCount
+        fun totalExposureSolFor(paperMode: Boolean): Double = if (paperMode) paperTotalExposureSol else liveTotalExposureSol
+        fun totalUnrealizedSolFor(paperMode: Boolean): Double = if (paperMode) paperTotalUnrealizedSol else liveTotalUnrealizedSol
+    }
 
     private val cached = AtomicReference<Hero?>(null)
     private val refreshes = AtomicLong(0L)
     private val cacheHits = AtomicLong(0L)
     private val cacheMisses = AtomicLong(0L)
+    // V5.0.6523 — rate-limit the HERO_UNREALIZED_BREAKDOWN_6523 diagnostic
+    // so operator dumps get one line every 5s instead of 2/s at REFRESH_MS.
+    private val lastDiagnosticEmitMs = AtomicLong(0L)
     private var scope: CoroutineScope? = null
     private var job: Job? = null
 
@@ -106,6 +125,24 @@ object HeroSnapshotAuthority6503 {
         var openCount = 0
         var totalExposureSol = 0.0
         var totalUnrealizedSol = 0.0
+        // V5.0.6523 §HEADER_ROW_PARITY — track paper vs live separately so
+        // the UI can bind whichever total matches its filtered row list.
+        var paperOpenCount = 0
+        var paperTotalExposureSol = 0.0
+        var paperTotalUnrealizedSol = 0.0
+        var liveOpenCount = 0
+        var liveTotalExposureSol = 0.0
+        var liveTotalUnrealizedSol = 0.0
+        // V5.0.6523 diagnostic — capture per-position contributions so
+        // the operator can see WHICH positions produced the header total
+        // whenever it surprises them (screenshot Feb 2026: paper header
+        // +483◎ vs paper rows summing to +55.83◎).
+        data class Contrib(
+            val mint: String, val symbol: String, val paper: Boolean,
+            val costSol: Double, val pnlPct: Double, val contribSol: Double,
+            val entrySource: String, val currentSource: String,
+        )
+        val contribs = ArrayList<Contrib>(values.size)
         for (ts in values) {
             try {
                 val pos = ts.position
@@ -120,11 +157,54 @@ object HeroSnapshotAuthority6503 {
                         emit = false,
                     )
                 } catch (_: Throwable) { null }
+                val posUnrealizedSol = if (verdict != null && verdict.ok) pos.costSol * verdict.pnlPct / 100.0 else 0.0
                 if (verdict != null && verdict.ok) {
-                    totalUnrealizedSol += pos.costSol * verdict.pnlPct / 100.0
+                    totalUnrealizedSol += posUnrealizedSol
                 }
+                if (pos.isPaperPosition) {
+                    paperOpenCount++
+                    paperTotalExposureSol += pos.costSol
+                    paperTotalUnrealizedSol += posUnrealizedSol
+                } else {
+                    liveOpenCount++
+                    liveTotalExposureSol += pos.costSol
+                    liveTotalUnrealizedSol += posUnrealizedSol
+                }
+                contribs.add(Contrib(
+                    mint = ts.mint, symbol = ts.symbol, paper = pos.isPaperPosition,
+                    costSol = pos.costSol, pnlPct = verdict?.pnlPct ?: 0.0,
+                    contribSol = posUnrealizedSol,
+                    entrySource = pos.entryPriceSource,
+                    currentSource = ts.lastPriceSource,
+                ))
             } catch (_: Throwable) {}
         }
+        try {
+            val now = System.currentTimeMillis()
+            val shouldEmit = kotlin.math.abs(paperTotalUnrealizedSol) > 100.0 ||
+                kotlin.math.abs(liveTotalUnrealizedSol) > 100.0 ||
+                (paperOpenCount > 0 && liveOpenCount > 0)
+            if (shouldEmit && now - lastDiagnosticEmitMs.get() > 5_000L) {
+                lastDiagnosticEmitMs.set(now)
+                val top = contribs.sortedByDescending { kotlin.math.abs(it.contribSol) }.take(6)
+                val summary = top.joinToString(" · ") { c ->
+                    "${c.symbol.ifBlank { c.mint.take(6) }}|${if (c.paper) "P" else "L"}|" +
+                        "cost=${"%.4f".format(c.costSol)}|pct=${"%.1f".format(c.pnlPct)}|" +
+                        "contrib=${"%+.4f".format(c.contribSol)}|" +
+                        "eSrc=${c.entrySource.take(12)}|cSrc=${c.currentSource.take(12)}"
+                }
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "HERO_UNREALIZED_BREAKDOWN_6523",
+                    "paperOpen=$paperOpenCount paperExp=${"%.4f".format(paperTotalExposureSol)} " +
+                        "paperUpnl=${"%+.4f".format(paperTotalUnrealizedSol)} " +
+                        "liveOpen=$liveOpenCount liveExp=${"%.4f".format(liveTotalExposureSol)} " +
+                        "liveUpnl=${"%+.4f".format(liveTotalUnrealizedSol)} " +
+                        "totalOpen=$openCount total=${"%.4f".format(totalExposureSol)} " +
+                        "upnl=${"%+.4f".format(totalUnrealizedSol)} top6=[$summary]",
+                )
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HERO_UNREALIZED_BREAKDOWN_6523")
+            }
+        } catch (_: Throwable) {}
         val equitySol = try {
             // V5.0.6508e — CONSERVATIVE (see MainActivity).
             // Hero background snapshot uses totalEquitySol; divergence
@@ -155,6 +235,12 @@ object HeroSnapshotAuthority6503 {
                 cashSol = cashSol,
                 realizedPnlSol = realizedPnlSol,
                 atMs = System.currentTimeMillis(),
+                paperOpenCount = paperOpenCount,
+                paperTotalExposureSol = paperTotalExposureSol,
+                paperTotalUnrealizedSol = paperTotalUnrealizedSol,
+                liveOpenCount = liveOpenCount,
+                liveTotalExposureSol = liveTotalExposureSol,
+                liveTotalUnrealizedSol = liveTotalUnrealizedSol,
             )
         )
     }

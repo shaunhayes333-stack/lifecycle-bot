@@ -68,10 +68,30 @@ object LearningPnlSanitizer {
             return reject(labelVerdict.dirtyReason.ifBlank { "DIRTY_PARTIAL_LABEL" }, t.pnlPct, context, emit = emit)
         }
         val realizedSol = t.netPnlSol.takeIf { it != 0.0 } ?: t.pnlSol
+        // V5.0.6523 §WR_CRASH_REPAIR — SOL-basis mismatch must compare
+        // realized PnL against the COST BASIS, not the gross proceeds.
+        //
+        // Operator report Feb 2026: WR crashed 75% → 4% while paper
+        // unrealized runners sat at +5000%..+10000%. Root cause: this
+        // sanitizer's mismatch check used `t.sol` — which was correct
+        // pre-V5.9.1018c (when t.sol carried cost basis) but is now
+        // gross proceeds after V5.9.1018c ("this was `sol = pos.costSol`,
+        // …every other SELL constructor uses GROSS PROCEEDS. …the
+        // journal SELL row's `sol` field"). With sol=proceeds, the
+        // formula (pnlSol/sol)*100 collapses to percent-of-proceeds while
+        // pnlPct is percent-of-cost. Any big winner ends up with a
+        // 400%+ implied/pnlPct delta and is quarantined by
+        // PNL_PCT_SOL_BASIS_MISMATCH → isValidAccountingTrade returns
+        // false → the trade never enters WR stats. Small losses pass the
+        // check → WR crashes to a phantom 4%.
+        //
+        // Fix: use `entryCostSol` (immutable cost basis on the row) as
+        // the divisor. That restores the pre-V5.9.1018c semantic —
+        // (realizedSol / entryCostSol) * 100 must equal pnlPct.
         return inspectPct(
             pnlPct = t.pnlPct,
             context = "$context/${side}/${t.tradingMode}/${t.reason.take(32)}",
-            sol = t.sol,
+            sol = t.entryCostSol,
             pnlSol = realizedSol,
             emit = emit,
         )

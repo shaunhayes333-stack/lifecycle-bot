@@ -87,9 +87,18 @@ object TradeRowSanityCheck {
             if (t.entryPriceSnapshot <= 0.0) return record(QuarantineReason.MISSING_ENTRY_PRICE, t)
         }
 
-        // 3. Impossible PnL: declared pnlPct vs implied from pnlSol/sol.
-        if (closeLike && t.sol > 0.0) {
-            val impliedPct = t.pnlSol / t.sol * 100.0
+        // 3. Impossible PnL: declared pnlPct vs implied from pnlSol/entryCostSol.
+        //
+        // V5.0.6523 §WR_CRASH_REPAIR — must divide realized PnL by COST
+        // BASIS, not by t.sol (which is GROSS PROCEEDS after V5.9.1018c).
+        // See LearningPnlSanitizer.inspectTrade for the full write-up: any
+        // 200%+ paper win produces impliedPct ≈ 67% while declared pnlPct
+        // = 200%, delta 133 > 50 → quarantined as IMPOSSIBLE_PNL. Result:
+        // real runner wins were quarantined en masse and WR crashed
+        // 75% → 4%. Use entryCostSol so implied ≡ pnlPct for every clean
+        // row.
+        if (closeLike && t.entryCostSol > 0.0) {
+            val impliedPct = t.pnlSol / t.entryCostSol * 100.0
             val declared = t.pnlPct
             // Allow paper-mode clamps within tolerance; outside +/- 50 absolute pts is impossible.
             if (kotlin.math.abs(impliedPct - declared) > 50.0) {
