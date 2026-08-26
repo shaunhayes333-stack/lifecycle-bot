@@ -242,6 +242,48 @@ object CanonicalPositionAuthority6441 {
                 invariantViolations.incrementAndGet()
                 return MutateResult.INVARIANT_VIOLATION
             }
+            // V5.0.6538 §CANONICAL_OPENER_ECONOMIC_BELT — the operator's
+            // "root-cause the mint" mandate. Pre-V5.0.6509 paperBuy did not
+            // validate WalletManager.lastKnownSolPrice and could mint qty
+            // with solUsd≈$1 (default before hydration), yielding paper
+            // positions whose implied SOL price is off by ~200×. Those rows
+            // persisted through canonical restore because the runtime and
+            // canonical sides agreed on the wrong qty. This belt runs the
+            // same economic notional check at the CANONICAL opener so no
+            // future path (existing or added by mistake) can commit a raw
+            // qty whose implied SOL price is physically impossible.
+            //
+            // Live mode is exempt — real chain fills are ground truth even
+            // if the derived implied-SOL price would be wonky (odd fees,
+            // slippage, or off-market fills happen). Paper is fully
+            // deterministic, so we enforce.
+            if (paperMode && actualEntryCostSol > 0.0 && prev.entryPriceUsd > 0.0 && quantityScale in 0..18 &&
+                !prev.entryPriceSource.uppercase().contains("SYNTH") &&
+                !prev.entryPriceSource.uppercase().contains("PUMP_FUN_BC")
+            ) {
+                val qtyToken6538 = actualQtyRaw.toBigDecimal().movePointLeft(quantityScale).toDouble()
+                val impliedSolUsd6538 = if (qtyToken6538.isFinite() && qtyToken6538 > 0.0)
+                    (qtyToken6538 * prev.entryPriceUsd) / actualEntryCostSol.coerceAtLeast(1e-18)
+                else Double.NaN
+                if (!impliedSolUsd6538.isFinite() ||
+                    impliedSolUsd6538 !in 5.0..10_000.0
+                ) {
+                    invariantViolations.incrementAndGet()
+                    try {
+                        PipelineHealthCollector.labelInc("CANONICAL_PAPER_OPEN_ECONOMIC_REJECT_6538")
+                        ForensicLogger.lifecycle(
+                            "CANONICAL_PAPER_OPEN_ECONOMIC_REJECT_6538",
+                            "positionId=$positionId mint=${prev.mint.take(10)} " +
+                                "qtyRaw=$actualQtyRaw scale=$quantityScale qtyToken=$qtyToken6538 " +
+                                "entryPriceUsd=${prev.entryPriceUsd} entryCostSol=$actualEntryCostSol " +
+                                "impliedSolUsd=$impliedSolUsd6538 band=[5.0..10000.0] " +
+                                "expected=implied_sol_price_in_physical_band " +
+                                "observed=out_of_band_units_mismatch action=reject_promotion",
+                        )
+                    } catch (_: Throwable) {}
+                    return MutateResult.INVARIANT_VIOLATION
+                }
+            }
             // Cash adjustment — refund the placeholder debit and re-debit actual.
             if (paperMode) {
                 val cash = paperCashSol.get()

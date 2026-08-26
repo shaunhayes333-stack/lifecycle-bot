@@ -1,10 +1,66 @@
-# AATE PRD — V5.0.6537 (ECONOMIC INVARIANT ROOT-FIX + SPOT_SHORT REROUTE + PROVIDER DEGRADATION + HARD ACCEPTANCE INVARIANTS)
+# AATE PRD — V5.0.6538 (CANONICAL ECONOMIC BELT + LEGACY MINT SWEEP + SOL PERPS PHASE 1 ONLINE)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE (FillLotLedger6504 immutable SQLite lots + per-lot projection reconciliation), never by strangling flow.
 
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA.
+
+
+## V5.0.6538 (Feb 2026) — CANONICAL ECONOMIC BELT + LEGACY MINT SWEEP + SOL PERPS PHASE 1 ONLINE
+
+Operator directive: (1) *Root-Cause Quantity Mint* — the V5.0.6537 economic invariant currently catches the corrupted rows during rendering and reconstruction, but nothing prevents them at the *canonical opener* — make the invariant a **BELT**, not just a suspender. (2) *SOL Perps Enable* — kick off Phase 1 in paper mode now that correctness bundles are stable.
+
+### §ROOT_CAUSE_LINEAGE — where the 8 broken rows came from
+
+- **Belt (source):** `Executor.paperBuy` at line 12463 (added V5.0.6509) validates `WalletManager.lastKnownSolPrice ∈ [50, 5000]` **AND** cross-checks the derived raw qty with `PaperTokenQuantityAuthority6509.independentCheck(costSol, solUsd, tokenPriceUsd, raw, decimals)` at ratio ≤ 2 %. No NEW paper position can be minted with units-mismatched math.
+- **Legacy exposure:** the 8 rows in the operator's TNOS/Morty/SPACES/SRM/POPCAT/MOBILE/Buddy/Pistacia screenshot were minted **pre-V5.0.6509**, when `WalletManager.lastKnownSolPrice` defaulted to `≈ $1` before hydration. The wrong qty was persisted into `CanonicalPositionAuthority6441`; `BotService.startBot()` line 4278 restores them via `QuantityInvariantAuthority6500.reconstructFromCanonical` on every boot; both runtime and canonical agree on the wrong qty so the 6500 check silently passed.
+- V5.0.6537 caught them *at render / sweep time* via the implied-SOL-price plausibility band. V5.0.6538 turns the suspender into a **belt** by enforcing the same check at the canonical opener.
+
+### §CANONICAL_OPENER_ECONOMIC_BELT
+
+`CanonicalPositionAuthority6441.promotePendingToOpen(actualQtyRaw, actualEntryCostSol, …)` now rejects any **paper** promotion whose implied SOL price is out-of-band:
+
+```
+impliedSolUsd = (actualQtyRaw / 10^quantityScale) × prev.entryPriceUsd / actualEntryCostSol
+require impliedSolUsd ∈ [5.0, 10000.0] or MutateResult.INVARIANT_VIOLATION
+```
+
+Live mode is exempt — real chain fills are ground truth even with off-market slippage. Synthetic bases (`PUMP_FUN_BC` / `SYNTH`) are skipped by design.
+
+Counter: `CANONICAL_PAPER_OPEN_ECONOMIC_REJECT_6538`.
+
+### §LEGACY_MINT_ATTRIBUTION_SWEEP
+
+`BotService.startBot()` now runs a one-shot pre-reconstruction sweep across every `CanonicalPositionAuthority6441.openPositions()` row:
+- Computes the implied SOL price the same way.
+- Tags the row with `LEGACY_MINT_DETECTED_6538` (pre-boot legacy) or `FRESH_MINT_ECONOMIC_BROKEN_6538` (a new mint that somehow got through — should never fire under V5.0.6538 belt).
+- Immediately quarantines via `QuantityInvariantAuthority6500.markInvariantBroken(mint, reason)` so the V5.0.6537 UI hook renders `INVARIANT_BROKEN_6500 · qty INVALID (invariant broken)` on the very first paint.
+
+### §SOL_PERPS_PHASE_1_ONLINE
+
+SOL perps was already wired end-to-end but had no operator-visible affirmation:
+- `PerpsMarket.SOL` present with `maxLeverage = 20x`, `24/7`, `isSolPerp = true`.
+- `PerpsMarketScanners.runAllScanners()` runs `scanSolMomentum` + `scanSolSniper` unconditionally on every 10 s tick.
+- `PerpsTraderAI` auto-enables in paper mode + auto-acknowledges risk.
+- `ConfigStore.perpsEnabled` defaults to **true** — lane filter in `PerpsExecutionEngine` doesn't drop SOL.
+
+V5.0.6538 adds an explicit **paper-only online affirmation** at `BotService.startBot()` right after `PerpsExecutionEngine.start(...)`:
+
+```
+SOL_PERPS_PHASE_1_ONLINE_6538 market=SOL maxLeverage=20.0x paperMode=true perpsTraderEnabled=true
+    laneEnabled=true paperWallet=X.YYYY◎ expected=SOL_MOMENTUM+SOL_SNIPER_scanner_ticks
+    observed=engine_started action=learn_in_paper_no_live_execution
+```
+
+The operator can now grep `SOL_PERPS_PHASE_1_ONLINE_6538` in the logcat + the acceptance audit counter to confirm SOL Perps is armed on every boot without touching live execution.
+
+### Files touched (V5.0.6538)
+
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt` (§CANONICAL_OPENER_ECONOMIC_BELT)
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt` (§LEGACY_MINT_ATTRIBUTION_SWEEP + §SOL_PERPS_PHASE_1_ONLINE)
+
+**Known pre-existing regression NOT introduced by V5.0.6536+:** Runtime Smoke Test has been failing since ~V5.0.6511 (`ui_start_1.xml` dump shows Nexus launcher — MainActivity fails to reach foreground before the first `btnToggle` tap window). `Build AATE APK` is the CI gate; smoke script is a separate optional gate.
 
 
 ## V5.0.6537 (Feb 2026) — ECONOMIC INVARIANT ROOT-FIX (operator screenshot TNOS/Morty/SPACES/SRM/POPCAT/MOBILE/Buddy/Pistacia)

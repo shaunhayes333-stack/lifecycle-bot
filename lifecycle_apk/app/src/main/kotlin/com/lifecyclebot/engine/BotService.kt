@@ -2182,6 +2182,44 @@ class BotService : Service() {
             try {
                 com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
                 ErrorLogger.info("BotService", "⚡ PerpsExecutionEngine STARTED - Fully Automatic Trading ACTIVE")
+                // V5.0.6538 §SOL_PERPS_PHASE_1_ONLINE — operator directive:
+                // "kick off Phase 1: enable SOL perps/leverage in paper mode
+                // now that correctness bundles are stable". SOL is already
+                // in PerpsMarket.isSolPerp and the SOL_MOMENTUM/SOL_SNIPER
+                // scanners are running unconditionally through
+                // PerpsMarketScanners.runAllScanners(). Emit an explicit
+                // paper-only affirmation so the operator can see the SOL
+                // perp lane is armed and observe the first scan tick.
+                try {
+                    val sol6538 = com.lifecyclebot.perps.PerpsMarket.SOL
+                    val paperBal6538 = try {
+                        com.lifecyclebot.perps.PerpsTraderAI.getBalance(true)
+                    } catch (_: Throwable) { 0.0 }
+                    val enabled6538 = try {
+                        com.lifecyclebot.perps.PerpsTraderAI.isEnabled()
+                    } catch (_: Throwable) { false }
+                    val paperMode6538 = try {
+                        com.lifecyclebot.perps.PerpsTraderAI.isPaperMode
+                    } catch (_: Throwable) { true }
+                    val laneEnabled6538 = try {
+                        com.lifecyclebot.data.ConfigStore.load(applicationContext).perpsEnabled
+                    } catch (_: Throwable) { true }
+                    com.lifecyclebot.engine.PipelineHealthCollector
+                        .labelInc("SOL_PERPS_PHASE_1_ONLINE_6538")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "SOL_PERPS_PHASE_1_ONLINE_6538",
+                        "market=${sol6538.symbol} maxLeverage=${sol6538.maxLeverage}x " +
+                            "paperMode=$paperMode6538 perpsTraderEnabled=$enabled6538 " +
+                            "laneEnabled=$laneEnabled6538 paperWallet=${"%.4f".format(paperBal6538)}◎ " +
+                            "expected=SOL_MOMENTUM+SOL_SNIPER_scanner_ticks observed=engine_started " +
+                            "action=learn_in_paper_no_live_execution",
+                    )
+                    ErrorLogger.info(
+                        "BotService",
+                        "◎ SOL_PERPS_PHASE_1 ONLINE - market=SOL maxLev=${sol6538.maxLeverage}x paper=$paperMode6538 " +
+                            "enabled=$enabled6538 lane=$laneEnabled6538 bal=${"%.4f".format(paperBal6538)}◎",
+                    )
+                } catch (_: Throwable) {}
             } catch (e: Exception) {
                 ErrorLogger.error("BotService", "PerpsExecutionEngine start error: ${e.message}", e)
             }
@@ -4269,6 +4307,52 @@ class BotService : Service() {
             }
         } catch (_: Throwable) {}
         // V5.0.6521 — canonical-raw reconstruction before quarantine; never abandon/force-close.
+        try {
+            // V5.0.6538 §LEGACY_MINT_ATTRIBUTION_SWEEP — the operator's
+            // "root-cause the mint" mandate: attribute every economic-
+            // invariant break to its lineage so we can distinguish
+            // pre-V5.0.6509 legacy corruption (paperBuy minted qty with
+            // solUsd≈$1 before the V5.0.6509 SOL-price validation guard
+            // was added) from a fresh regression in the current commit.
+            // The V5.0.6537 economic notional check will quarantine the
+            // row a moment later — this sweep just tags provenance so
+            // the operator's screenshot rows report as legacy vs new.
+            for (canonical in com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()) {
+                if (canonical.mode != "paper") continue
+                if (canonical.entryPriceUsd <= 0.0 || canonical.entryCostSol <= 0.0) continue
+                if (canonical.remainingQtyRaw <= java.math.BigInteger.ZERO) continue
+                if (canonical.quantityScale !in 0..18) continue
+                val src6538 = canonical.entryPriceSource.uppercase()
+                if (src6538.contains("SYNTH") || src6538.contains("PUMP_FUN_BC")) continue
+                val qtyToken6538 = canonical.remainingQtyRaw
+                    .toBigDecimal().movePointLeft(canonical.quantityScale).toDouble()
+                if (!qtyToken6538.isFinite() || qtyToken6538 <= 0.0) continue
+                val impliedSolUsd6538 = (qtyToken6538 * canonical.entryPriceUsd) /
+                    canonical.entryCostSol.coerceAtLeast(1e-18)
+                if (!impliedSolUsd6538.isFinite() || impliedSolUsd6538 !in 5.0..10_000.0) {
+                    val ageMs6538 = System.currentTimeMillis() - canonical.openedAtMs
+                    val legacy6538 = ageMs6538 > 0L  // any pre-boot position is by definition legacy
+                    try {
+                        PipelineHealthCollector.labelInc(
+                            if (legacy6538) "LEGACY_MINT_DETECTED_6538" else "FRESH_MINT_ECONOMIC_BROKEN_6538"
+                        )
+                        ForensicLogger.lifecycle(
+                            if (legacy6538) "LEGACY_MINT_DETECTED_6538" else "FRESH_MINT_ECONOMIC_BROKEN_6538",
+                            "positionId=${canonical.positionId.take(20)} mint=${canonical.mint.take(10)} " +
+                                "symbol=${canonical.symbol} openedAgeMs=$ageMs6538 " +
+                                "qtyToken=$qtyToken6538 entryPriceUsd=${canonical.entryPriceUsd} " +
+                                "entryCostSol=${canonical.entryCostSol} impliedSolUsd=$impliedSolUsd6538 " +
+                                "expected=implied_sol_price_in_[5..10000] observed=out_of_band " +
+                                "action=quarantine_via_6537_at_next_check",
+                        )
+                    } catch (_: Throwable) {}
+                    try {
+                        com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
+                            .markInvariantBroken(canonical.mint, "LEGACY_ECONOMIC_MISMATCH_6538_impliedSol=$impliedSolUsd6538")
+                    } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) {}
         try {
             for (ts in status.tokens.values) {
                 val pos = ts.position
