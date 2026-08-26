@@ -1196,7 +1196,21 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
 
         // V5.8.0: Apply Hivemind size/TP modifier (stacked with fluid multipliers)
         val (_, hiveSizeMult, hiveTpAdj) = hiveEntryModifier(signal.market.symbol)
-        val hiveSizeSol = (sizeSol * hiveSizeMult * fluidSizeMult).coerceIn(0.01, balance * 0.30)
+        val requestedHiveSizeSol = (sizeSol * hiveSizeMult * fluidSizeMult).coerceIn(0.01, balance * 0.30)
+        // V5.0.6532 §CANONICAL_SIZING_BRIDGE — route through OrderSizeResolver6441
+        // so acceptance audit stops flagging "OrderSizeResolver resolves=0".
+        val stockSizingRes = com.lifecyclebot.engine.truth.CanonicalSizingBridge6532.resolve(
+            requestedSol = requestedHiveSizeSol,
+            assetClass = com.lifecyclebot.engine.truth.AssetClass.STOCK,
+            laneName = if (isSpot) "STOCK_SPOT" else "STOCK_LEV",
+            walletSol = balance,
+            paperMode = isPaperMode.get(),
+        )
+        if (!stockSizingRes.executable) {
+            ErrorLogger.warn(TAG, "📈 sizing gate declined ${signal.market.symbol}: ${stockSizingRes.reason}")
+            return
+        }
+        val hiveSizeSol = stockSizingRes.finalSizeSol
         val hiveTpPct = ((tpPct * fluidTpMult) + hiveTpAdj).coerceAtLeast(1.5)
         val fluidSlPct = (slPct * fluidSlMult).coerceAtLeast(1.0)
         if (hiveSizeMult != 1.0 || hiveTpAdj != 0.0 || fluidSizeMult != 1.0) {

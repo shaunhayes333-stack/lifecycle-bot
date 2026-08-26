@@ -18351,28 +18351,17 @@ if (hotExitHandledSweep) {
                         ForensicLogger.lifecycle("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513", "positionId=${cp.positionId} mint=${cp.mint.take(10)} assetClass=${cp.assetClass.tag} entryPrice=${ts.position.entryPrice} mark=${ts.lastPrice} action=async_refresh_no_silent_eval")
                     } catch (_: Throwable) {}
                     scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        // V5.0.6525 §MARK_REFRESH_ASSET_CLASS_ROUTING — only
-                        // route Solana on-chain tokens through the Birdeye/
-                        // DexScreener/pump.fun fallback. Stock/FX/commodity/
-                        // metal marks must never be resolved by a Solana
-                        // token oracle (that was the "GBPJPY→Birdeye" bug).
-                        // For non-Solana assets, stamp CANONICAL_EXIT_MARK_
-                        // OFFCHAIN_UNROUTED so the operator sees the missing
-                        // per-asset provider wiring in the funnel. Real
-                        // Yahoo/Polygon/OpenExchangeRates wiring is queued
-                        // as the follow-up architectural pass.
+                        // V5.0.6530 §CROSS_ASSET_MARK_ROUTING — route non-Solana
+                        // canonical marks through PerpsMarketDataFetcher (Pyth →
+                        // PriceAggregator → Yahoo fallback). SOLANA_TOKEN stays
+                        // on the Birdeye / DexScreener / pump.fun cascade.
                         try {
                             if (cp.assetClass == com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN) {
                                 tryFallbackPriceData(cp.mint, ts)
                             } else {
-                                try {
-                                    PipelineHealthCollector.labelInc("CANONICAL_EXIT_MARK_OFFCHAIN_UNROUTED_6525|CLASS=${cp.assetClass.tag}")
-                                    ForensicLogger.lifecycle(
-                                        "CANONICAL_EXIT_MARK_OFFCHAIN_UNROUTED_6525",
-                                        "positionId=${cp.positionId} mint=${cp.mint.take(10)} symbol=${cp.symbol} assetClass=${cp.assetClass.tag} " +
-                                            "action=skip_solana_router reason=cross_asset_provider_not_wired",
-                                    )
-                                } catch (_: Throwable) {}
+                                com.lifecyclebot.engine.truth.CrossAssetMarkRouter6530.refreshMark(
+                                    cp.assetClass, cp.symbol, ts,
+                                )
                             }
                         } finally { exitMarkRefreshPending6513.remove(cp.mint) }
                     }

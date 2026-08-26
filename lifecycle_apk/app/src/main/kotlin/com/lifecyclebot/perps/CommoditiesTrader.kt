@@ -603,7 +603,20 @@ object CommoditiesTrader {
         val balance = getEffectiveBalance()
         // V5.9.93: fluid sizing — scale base 5% by conviction (0.45x..2.00x)
         val sizeMult = PerpsFluidSizing.sizeMultiplier(signal.score, signal.confidence)
-        val positionSizeSol = (balance * DEFAULT_SIZE_PCT / 100.0 * sizeMult).coerceAtLeast(0.01)
+        val requestedSizeSol = (balance * DEFAULT_SIZE_PCT / 100.0 * sizeMult).coerceAtLeast(0.01)
+        // V5.0.6532 §CANONICAL_SIZING_BRIDGE.
+        val sizingRes = com.lifecyclebot.engine.truth.CanonicalSizingBridge6532.resolve(
+            requestedSol = requestedSizeSol,
+            assetClass = com.lifecyclebot.engine.truth.AssetClass.COMMODITY,
+            laneName = "COMMODITIES",
+            walletSol = balance,
+            paperMode = isPaperMode.get(),
+        )
+        if (!sizingRes.executable) {
+            ErrorLogger.warn(TAG, "🛢️ sizing gate declined ${signal.market.symbol}: ${sizingRes.reason}")
+            return
+        }
+        val positionSizeSol = sizingRes.finalSizeSol
         if (balance < positionSizeSol) {
             ErrorLogger.warn(TAG, "🛢️ Insufficient balance for ${signal.market.symbol}")
             return

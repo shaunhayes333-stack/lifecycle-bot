@@ -2017,7 +2017,20 @@ object CryptoAltTrader {
         // compounding/winner pressure already included above to express up to
         // 45% of available mode-local balance. Total portfolio risk cap remains
         // 80%, wallet lock still applies live, and route proof still gates real buys.
-        val finalSize = (sizeSol * hiveSizeMult).coerceIn(0.01, balance * 0.45)
+        val requestedFinalSize = (sizeSol * hiveSizeMult).coerceIn(0.01, balance * 0.45)
+        // V5.0.6532 §CANONICAL_SIZING_BRIDGE.
+        val altSizingRes = com.lifecyclebot.engine.truth.CanonicalSizingBridge6532.resolve(
+            requestedSol = requestedFinalSize,
+            assetClass = com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT,
+            laneName = if (isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV",
+            walletSol = balance,
+            paperMode = isPaperMode.get(),
+        )
+        if (!altSizingRes.executable) {
+            ErrorLogger.warn(TAG, "🪙 sizing gate declined ${mktSym}: ${altSizingRes.reason}")
+            return
+        }
+        val finalSize = altSizingRes.finalSizeSol
         try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_UNIVERSE_MEME_PARITY_SIZE_6095")
             ErrorLogger.info(TAG, "🪙 CRYPTO_UNIVERSE_MEME_PARITY_SIZE_6095 ${mktSym} base=${"%.4f".format(sizeSol)} hive=${"%.2f".format(hiveSizeMult)} final=${"%.4f".format(finalSize)} bal=${"%.4f".format(balance)} toxic=${"%.2f".format(cryptoToxicSizeMult6095)}")

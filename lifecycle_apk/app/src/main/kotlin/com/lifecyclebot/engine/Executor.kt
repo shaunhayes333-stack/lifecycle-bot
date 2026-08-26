@@ -19929,6 +19929,18 @@ class Executor(
             try {
                 recordTrade(tsLearningSnap, tradeSnap)
                 try { security.recordTrade(tradeSnap) } catch (_: Throwable) {}
+                // V5.0.6531 §PERPS_NEURAL_BRIDGE — feed cross-asset terminal
+                // outcomes into the perps sizer now that AssetClass tags every
+                // canonical row. SOLANA_TOKEN outcomes stay in the meme learner.
+                try {
+                    val assetClass6531 = canonicalTerminalPosition6492?.assetClass
+                        ?: com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN
+                    com.lifecyclebot.engine.truth.PerpsNeuralBridge6531.recordTerminalOutcome(
+                        assetClass = assetClass6531,
+                        symbol = tsLearningSnap.symbol,
+                        pnlPct = tradeSnap.pnlPct,
+                    )
+                } catch (_: Throwable) {}
                 try { ForensicLogger.lifecycle("PAPER_SELL_JOURNAL_DONE", "mint=${tradeSnap.mint.take(10)} symbol=${tsLearningSnap.symbol} pnlPct=${tradeSnap.pnlPct.toInt()} reason=${tradeSnap.reason} canonicalCommitted=true") } catch (_: Throwable) {}
                 try { ForensicLogger.exec("PAPER_SELL_OK", tsLearningSnap.symbol, "mint=${tradeSnap.mint.take(10)} pnlPct=${tradeSnap.pnlPct.toInt()} reason=${tradeSnap.reason.take(40)}") } catch (_: Throwable) {}
             } catch (t: Throwable) {

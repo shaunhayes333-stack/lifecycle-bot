@@ -462,8 +462,22 @@ object PerpsExecutionEngine {
             // Calculate position size (with symbolic bias)
             val balance = PerpsTraderAI.getBalance(isPaper)
             val rawSizeSol = balance * (signal.recommendedSizePct / 100)
-            val sizeSol = (rawSizeSol * symSizeAdj).coerceAtLeast(0.0)
+            val requestedSizeSol = (rawSizeSol * symSizeAdj).coerceAtLeast(0.0)
             val effectiveLeverage = (signal.recommendedLeverage * symLevCapMult).coerceAtLeast(1.0)
+            // V5.0.6532 §CANONICAL_SIZING_BRIDGE.
+            val perpsSizingRes = com.lifecyclebot.engine.truth.CanonicalSizingBridge6532.resolve(
+                requestedSol = requestedSizeSol,
+                assetClass = com.lifecyclebot.engine.truth.AssetClass.PERPS,
+                laneName = "PERPS_${signal.market.symbol}",
+                walletSol = balance,
+                paperMode = isPaper,
+            )
+            if (!perpsSizingRes.executable) {
+                ErrorLogger.warn(TAG, "PERPS sizing gate declined ${signal.market.symbol}: ${perpsSizingRes.reason}")
+                failedExecutions.incrementAndGet()
+                return
+            }
+            val sizeSol = perpsSizingRes.finalSizeSol
 
             if (sizeSol < (if (isPaper) 0.01 else 0.05)) {
                 ErrorLogger.warn(TAG, "Position size too small: $sizeSol SOL (raw=$rawSizeSol × sym=$symSizeAdj) [floor=${if (isPaper) 0.01 else 0.05}]")
