@@ -583,6 +583,25 @@ object CanonicalPositionAuthority6441 {
                         // produced SOL/token.
                         val repairedPrice6519 = e.fillPrice.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
                         val _repairedPrice6519_compat = repairedPrice6519
+                        // Unrecoverable-Buy fast path — Repair6519 acceptance
+                        // requires ZERO cost or ZERO qty ⇒ QUARANTINED (never OPEN).
+                        if (e.executedCostSol <= 0.0 || e.filledQty <= BigInteger.ZERO) {
+                            positions[e.positionId] = Position(
+                                positionId = e.positionId, mode = "paper", mint = e.mint, symbol = e.symbol,
+                                lane = "REPLAY_6486", runId = e.idempotencyKey, openedAtMs = e.atMs,
+                                entryCostSol = e.executedCostSol, remainingQtyRaw = e.filledQty,
+                                originalQtyRaw = e.filledQty, soldCostBasisSol = 0.0,
+                                realizedPnlSol = 0.0, realizedProceedsSol = 0.0, feesSol = e.entryFeesSol,
+                                tokenDecimals = e.tokenDecimals, quantityScale = e.quantityScale,
+                                lifecycle = Lifecycle.QUARANTINED, lastMutationMs = e.atMs,
+                                quarantineReason = "QUARANTINE_POSITION_BAD_ENTRY_6519",
+                                entryPriceUsd = 0.0, entryPriceSource = "UNRECOVERABLE_DURABLE_BUY_EVENT",
+                            )
+                            try {
+                                PipelineHealthCollector.labelInc("QUARANTINE_POSITION_BAD_ENTRY_6519")
+                            } catch (_: Throwable) {}
+                            continue
+                        }
                         // V5.0.6541 §REPLAY_UNIT_INTEGRITY.
                         //   - fillPrice > 0 AND unitOk         => trust as USD/token, OPEN with basis
                         //   - fillPrice > 0 AND !unitOk        => durable event has SOL/token in USD field, QUARANTINE
@@ -696,6 +715,16 @@ object CanonicalPositionAuthority6441 {
                     val pid = "PAPER:CARRY6492:$mint"
                     val carryScale6519 = carry6492.perMintQuantityScale[mint] ?: (carry6492.perMintTokenDecimals[mint] ?: 9)
                     val carryEntryPrice6519 = repairedEntryPrice6519(0.0, carryCost, qtyRaw, carryScale6519)
+                    // V5.0.6541 §CARRY_REPLAY_OPEN_WITHOUT_USD_BASIS — carry
+                    // replays legitimately lack a per-fill USD price (they
+                    // migrate raw qty + cost SOL only). Pre-6541 this
+                    // path synthesised a SOL/token price and painted it as
+                    // USD/token, poisoning basis. V5.0.6541 leaves the
+                    // position OPEN with entryPriceUsd=0 and lets the
+                    // downstream basis-guarded exit logic skip it; carry
+                    // is NEVER quarantined for lacking a USD basis (the
+                    // qty + cost themselves are authoritative for
+                    // capital accounting).
                     positions[pid] = Position(
                         positionId = pid, mode = "paper", mint = mint, symbol = mint.take(8),
                         lane = "RECOVERED_CARRY_6492", runId = "REPLAY_CARRY_6492",
@@ -705,11 +734,14 @@ object CanonicalPositionAuthority6441 {
                         feesSol = 0.0,
                         tokenDecimals = carry6492.perMintTokenDecimals[mint] ?: 9,
                         quantityScale = carryScale6519,
-                        lifecycle = if (carryEntryPrice6519 > 0.0) Lifecycle.OPEN else Lifecycle.QUARANTINED,
+                        lifecycle = Lifecycle.OPEN,
                         lastMutationMs = System.currentTimeMillis(),
-                        quarantineReason = if (carryEntryPrice6519 > 0.0) "" else "QUARANTINE_POSITION_BAD_ENTRY_6519",
-                        entryPriceUsd = carryEntryPrice6519,
-                        entryPriceSource = if (carryEntryPrice6519 > 0.0) "DURABLE_CARRY_COST_QTY_REPAIR_6519" else "UNRECOVERABLE_DURABLE_CARRY",
+                        quarantineReason = "",
+                        entryPriceUsd = carryEntryPrice6519.coerceAtLeast(0.0),
+                        entryPriceSource = if (carryEntryPrice6519 > 0.0)
+                            "DURABLE_CARRY_COST_QTY_REPAIR_6519"
+                        else
+                            "REPLAY_CARRY_NO_USD_BASIS_6541",
                     )
                     try { PositionStateLedger6454.onEntry(pid) } catch (_: Throwable) {}
                     try { PipelineHealthCollector.labelInc("CANONICAL_CARRY_POSITION_RESTORED_6492") } catch (_: Throwable) {}
