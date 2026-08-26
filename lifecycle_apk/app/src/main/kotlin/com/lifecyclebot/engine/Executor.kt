@@ -10077,6 +10077,9 @@ class Executor(
                           System.currentTimeMillis(), "top_up_${pos.topUpCount + 1}")
         recordTrade(ts, trade)
         security.recordTrade(trade)
+        // V5.0.3871 — paper top-ups are BUY legs and must debit available paper cash.
+        // Graduated adds and fresh buys already do this; this sibling path mutated
+        // position cost without touching the wallet ledger, making cash/equity drift.
         onPaperBalanceChange?.invoke(-sol)
 
         val gainPct = pct(pos.entryPrice, tokenPriceUsd)
