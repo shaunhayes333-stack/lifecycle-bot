@@ -1,4 +1,4 @@
-# AATE PRD — V5.0.6533 (SPLIT-BRAIN AUTHORITY REPAIR COMPLETE — 8/8)
+# AATE PRD — V5.0.6533 (EXECUTION AUTHORITY REPAIR — operator-landed)
 
 **Status:** PAPER TRADING ONLY.
 
@@ -7,7 +7,27 @@
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA.
 
 
-## V5.0.6524 → V5.0.6533 (Feb 2026) — SPLIT-BRAIN AUTHORITY REPAIR
+## V5.0.6533 (Feb 2026) — EXECUTION AUTHORITY REPAIR — operator-landed
+
+Operator patch `37084be57` covers the P0 source-level authority defects from the AATE-wide funnel audit (706 intake → 82 lane evals → 13 V3 allows → 2 FDG → 1 executor). Added `ExecutionAuthorityPolicy6533.kt` + `Repair6533ExecutionAuthorityAcceptanceTest.kt`.
+
+Landed:
+- **§1 Trunk-path unamputation** — `shouldRunBuyLaneForCycle` reordered so STANDARD/CORE/V3 pass before non-primary suppression; primary+one-rescue doctrine reachable again.
+- **§3 Raw-signal authority repair** — `mutableSignalCanVeto6519` shields FDG BUY/PROBE_ONLY intent from UNKNOWN scanner strings.
+- **§4 Cross-universe TokenMap isolation** — `ExecutableOpenGate` accepts `requiresSolanaTokenMap` (default true); CRYPTO/FOREX/STOCK/COMMODITY/METAL/PERPS bypass `LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP`. State + immutable ticket propagate the flag.
+- **§6 SPOT_SHORT adapter mismatch** — no longer a hard-safety block.
+- **§9 Acceptance tests A–G** — landed as `Repair6533ExecutionAuthorityAcceptanceTest.kt`.
+
+## Backlog — audit items still deferred to V5.0.6534+
+
+- **§2 V3 executable trunk telemetry-only** — `V3Decision.Execute` still emits `V3_CORE_SHADOW_EXECUTE_VISIBILITY_6487 action=score_report_learn_only no_fdg=true no_exec_ticket=true` while executor still calls `executor.v3Buy(...)`. Hybrid architecture — V3 must HAND OFF its executable approval to the elected canonical lane and produce an immutable `ExecutionIntent` before the executor call.
+- **§5 CryptoAltTrader.exactAssetMetrics6493()** — `DynamicAltTokenRegistry` miss returns all-zero metrics. Registry absence = UNKNOWN metadata, not liquidity=0.
+- **§7 MARKETS paper doctrine consistency** — `FOREX_START_SKIPPED_DISABLED_6524=25` while `isMarketsLaneEnabled(paper)=true`. Master paper enable must not lose sub-engines to stale sub-toggles.
+- **§8 Provider degradation** — Birdeye 401 / CoinGecko degradation currently starves token hydration when DexScreener/GeckoTerminal/Pump/Helius are healthy. Provider absence ≠ zero-liquidity truth.
+- **§10 Health invariants** — add counters: `V3_ALLOW_WITHOUT_FDG_OR_EXPLICIT_REJECT`, `FDG_ALLOW_WITHOUT_EXEC_INTENT`, `EXEC_SIGNAL_UNKNOWN_AFTER_FDG_ALLOW`, `NON_SOLANA_TOKENMAP_HARDNO`, `EXECUTABLE_FANOUT_PER_CANDIDATE`, `PRIMARY_WITHOUT_RESCUE_WHEN_PRIMARY_REJECTS`.
+
+
+## V5.0.6524 → V5.0.6532 (Feb 2026) — SPLIT-BRAIN AUTHORITY REPAIR
 
 Operator source-level audit landed **all 8/8** mandated fixes across ten commits. `Build AATE APK` ✅ on `V5.0.6533`.
 
