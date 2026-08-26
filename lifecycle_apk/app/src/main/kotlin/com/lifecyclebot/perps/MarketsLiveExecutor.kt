@@ -895,20 +895,32 @@ object MarketsLiveExecutor {
             ErrorLogger.info(TAG, "  ✂️ ${market.symbol}: trimmed sizeSol ${sizeSol.fmt(4)} → ${effectiveSizeSol.fmt(4)} (rent reserve)")
         }
         ErrorLogger.info(TAG, "  🧾 REAL tokenized trade: ${market.symbol} LONG via $label | ${effectiveSizeSol.fmt(4)} SOL")
-        val amountLamports = (effectiveSizeSol * 1_000_000_000L).toLong()
-        // V5.9.105: snapshot target-mint balance BEFORE swap for phantom guard
+        // V5.0.6545 — canonical bridge rail for every tokenized asset entry.
+        // Do not hard-wire SOL as the funding asset: UniversalBridgeEngine may
+        // select SOL/USDC/USDT/another verified wallet source and routes atomically.
+        // The target delta remains mandatory; a signature alone never opens a position.
+        val solPriceUsd = WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 150.0
+        val sizeUsd = effectiveSizeSol * solPriceUsd
         val balanceBefore = readTokenUi(wallet, targetMint) ?: 0.0
-        // Tokenized-asset pools (xStocks/PAXG/EURC) are thinner than SOL/USDC —
-        // use 2% slippage tolerance to avoid spurious Jupiter rejections.
-        val sig = executeJupiterSwap(
-            wallet         = wallet,
-            walletAddress  = walletAddress,
-            inputMint      = SOL_MINT,
-            outputMint     = targetMint,
-            amountLamports = amountLamports,
-            slippageBps    = configuredSlippageBps(),  // V5.9.104: user-config capped at 5%
-        ) ?: return null
-        // V5.9.105: verify tokens actually arrived — otherwise phantom
+        val bridge = try {
+            UniversalBridgeEngine.prepareCapital(
+                wallet = wallet,
+                targetMint = targetMint,
+                sizeUsd = sizeUsd,
+            )
+        } catch (t: Throwable) {
+            ErrorLogger.warn(TAG, "🌉 ${market.symbol} canonical bridge threw: ${t.message}")
+            return null
+        }
+        if (!bridge.success) {
+            ErrorLogger.warn(TAG, "🌉 ${market.symbol} canonical bridge rejected: ${bridge.errorMsg}")
+            return null
+        }
+        val sig = bridge.swapTxSig?.trim().orEmpty()
+        if (sig.isBlank()) {
+            ErrorLogger.warn(TAG, "🌉 ${market.symbol} canonical bridge returned no swap signature; refusing open")
+            return null
+        }
         return if (verifyBuyDelivered(wallet, targetMint, balanceBefore, market.symbol)) sig else null
     }
     

@@ -8584,6 +8584,11 @@ class GoldenTapeRegressionTest {
         assertTrue(commodities.contains("val commodityMarkets = PerpsMarket.values().filter { it.isCommodity }") &&
             commodities.contains("MarketsLiveExecutor.executeLiveTradeProof6486"))
         assertTrue(markets.contains("executeLiveTradeProof6486") && tokenized.contains("hasRealRoute"))
+        assertTrue(markets.contains("V5.0.6545 — canonical bridge rail") &&
+            markets.contains("UniversalBridgeEngine.prepareCapital(") &&
+            markets.contains("canonical bridge returned no swap signature; refusing open") &&
+            !markets.substringAfter("V5.0.6545 — canonical bridge rail").substringBefore("private suspend fun executeJupiterSwap")
+                .contains("inputMint         = SOL_MINT"))
         assertTrue(bot.contains("backgroundLivenessSnapshot6544") && bot.contains("recordBackgroundProgress6544") &&
             bot.contains("dozeEvidence6544") && bot.contains("HEARTBEAT_RESCUE_PROGRESS_TIMEOUT_6544") &&
             bot.contains("LONG_CYCLE_NOT_DOZE_6544") && bot.contains("batteryOptWhitelisted="))
