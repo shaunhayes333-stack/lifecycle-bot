@@ -1,10 +1,33 @@
-# AATE PRD — V5.0.6523 (HERO PAPER/LIVE PARITY + WR SOL-BASIS FIX)
+# AATE PRD — V5.0.6528 (SPLIT-BRAIN AUTHORITY REPAIR COMPLETE)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE (FillLotLedger6504 immutable SQLite lots + per-lot projection reconciliation), never by strangling flow.
 
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is the pair (`Build AATE APK` green, `Runtime Smoke Test` green) on the head SHA.
+
+
+## V5.0.6524 → V5.0.6528 (Feb 2026) — SPLIT-BRAIN AUTHORITY REPAIR
+
+Operator source-level audit landed 7 of 8 mandated fixes across four commits:
+
+**V5.0.6524** — 3 P0s: `ForexTrader.start()` initial-scan gate (six phantom FX opens then silence), mode-aware `marketLanesQuarantined()` (LIVE-only quarantine; paper learns), `effectiveSnapshot()` collapse of `isEnabled(t)` vs raw `snapshot()` split-brain.
+
+**V5.0.6525** — Asset-class axis + telemetry:
+- NEW `AssetClass` enum (SOLANA_TOKEN / STOCK / FOREX / COMMODITY / METAL / CRYPTO_ALT / PERPS / UNKNOWN)
+- `CanonicalPositionAuthority6441.Position` and `CanonicalPaperTransaction6486.open()` accept `assetClass` + `entryPriceUsd` + `entryPriceSource`. Fixed the "signal.price never passed" bug that produced `SPOT_GBPJPY entryPrice=0.0 mark=0.0` canonical rows.
+- Exit-mark refresh scheduler routes by `cp.assetClass`: SOLANA_TOKEN → tryFallbackPriceData; everything else → `CANONICAL_EXIT_MARK_OFFCHAIN_UNROUTED_6525`. `tryFallbackPriceData("GBPJPY")` now impossible.
+- NEW `PreV3ReturnTelemetry6525` — every pre-V3 return in `processTokenCycle` stamped with a canonical reason token (BLACKLIST / CANONICAL_MARK_REJECTED / DECIMAL_JUMP / DISTRIBUTION_FADE / HARD_RUG / NO_PAIR). Operator can now grep `PRE_V3_RETURN_<REASON>` in funnel dumps.
+- `PHASE.SAFETY` wired up so the funnel counter increments (was only emitting `SAFETY_WRITE` lifecycle).
+
+**V5.0.6526** — TraderRuntimePlan authority collapse:
+- NEW `TraderRuntimePlan6526` — one immutable data class + factory. All three duplicated inline derivations in BotService (`applyMarketsSwitches`, `startBot`, `startCryptoAlt`) now call `TraderRuntimePlan6526.from(...)` and consume `plan.perpsEffective` / `plan.cryptoUniverseOn` / `plan.enabledTraderSet()`. Drift between derivation paths is now physically impossible.
+
+**V5.0.6527/6528** — compile fixes (`signal.price` → `entryPrice` in PerpsTraderAI; missing `EnabledTraderAuthority` import in TraderRuntimePlan6526).
+
+## Deferred to V5.0.6529+
+
+**#7 Markets/Crypto through canonical sizing/execution contract** — specialized traders (Forex/Stock/Commodities/Metals/CryptoAlt/PerpsTraderAI) still open positions via `CanonicalPaperTransaction6486.open()` directly rather than through `OrderSizeResolver` + external idempotency contract. Requires bridging six execution paths and is a large architectural pass. Operator acceptance-audit label: "six executions exist while OrderSizeResolver resolves=0".
 
 
 ## V5.0.6523 (Feb 2026) — HERO PAPER/LIVE PARITY + WR SOL-BASIS FIX ✅ BUILD GREEN
