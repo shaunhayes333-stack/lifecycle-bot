@@ -66,6 +66,35 @@ object QuantityInvariantAuthority6500 {
     /** V5.0.6521 — validate mutable runtime projection against canonical raw lot truth. */
     fun check(mint: String, pos: Position): InvariantCheck {
         validations.incrementAndGet()
+        // V5.0.6537 §ECONOMIC_INVARIANT — the operator's original 6499 mandate
+        // was: "qty × entryPrice_usd disagrees with costSol × solPrice → quarantine
+        // immediately". Pre-6537 the check only compared runtime pos to the
+        // canonical raw record, so bugs that minted BOTH sides with the same
+        // bad math (e.g. paper qty derived without solPriceUsd, or entryPrice
+        // written in SOL/token instead of USD/token) passed the invariant
+        // silently. The operator's TNOS/Morty/SPACES/SRM/POPCAT/MOBILE/Buddy/
+        // Pistacia rows (18.78 tokens for 0.0008 SOL @ $0.00003998 "USD", etc.)
+        // all satisfy the canonical vs runtime check but violate the ECONOMIC
+        // notional identity by ~200x. Enforce the economic side FIRST so a
+        // canonical row that co-agrees with a broken runtime row is still
+        // caught.
+        val econ6537 = economicNotionalCheck6537(pos)
+        if (econ6537 != null && !econ6537.ok) {
+            if (quarantined.putIfAbsent(mint, econ6537.reason) == null) {
+                breaks.incrementAndGet()
+                try {
+                    ForensicLogger.lifecycle(
+                        "QUANTITY_ECONOMIC_INVARIANT_BROKEN_6537",
+                        "mint=${mint.take(10)} qtyNotionalUsd=${econ6537.qtyNotionalUsd} " +
+                            "costNotionalUsd=${econ6537.costNotionalUsd} ratio=${econ6537.ratio} " +
+                            "expected=|qty*entry-cost*solPrice|/cost*solPrice<=${TOLERANCE_RATIO} " +
+                            "observed=${econ6537.reason}",
+                    )
+                    PipelineHealthCollector.labelInc("QUANTITY_ECONOMIC_INVARIANT_BROKEN_6537")
+                } catch (_: Throwable) {}
+            }
+            return econ6537
+        }
         val canonical = CanonicalPositionAuthority6441.openPositions()
             .filter { it.mint == mint && it.mode == if (pos.isPaperPosition) "paper" else "live" }
             .maxByOrNull { it.lastMutationMs }
@@ -97,6 +126,47 @@ object QuantityInvariantAuthority6500 {
         val valid = pos.qtyToken.isFinite() && pos.qtyToken > 0.0 && pos.entryPrice.isFinite() && pos.entryPrice > 0.0 && pos.costSol.isFinite() && pos.costSol > 0.0
         return InvariantCheck(valid, if (valid) 0.0 else Double.POSITIVE_INFINITY, 0.0, 0.0,
             if (valid) "legacy_structural_only" else "invalid_runtime_projection")
+    }
+
+    /**
+     * V5.0.6537 — ECONOMIC NOTIONAL INVARIANT (operator's original 6499 mandate).
+     *
+     * Two independent expressions of the same open notional:
+     *   qty_notional_usd  = pos.qtyToken × pos.entryPrice  (per-token accounting)
+     *   cost_notional_usd = pos.costSol × solPriceUsd     (per-SOL accounting)
+     *
+     * These MUST match within TOLERANCE_RATIO (10 %) — otherwise the position
+     * was minted with mismatched units (SOL/token vs USD/token, or without the
+     * SOL→USD leg). Returns null when the check cannot run (unknown SOL price,
+     * malformed fields, or a synthetic price basis where entry is intentionally
+     * on a non-USD scale). When the check does run and fails, callers should
+     * treat the position as broken and quarantine the mint.
+     */
+    fun economicNotionalCheck6537(pos: Position): InvariantCheck? {
+        if (!pos.qtyToken.isFinite() || pos.qtyToken <= 0.0) return null
+        if (!pos.entryPrice.isFinite() || pos.entryPrice <= 0.0) return null
+        if (!pos.costSol.isFinite() || pos.costSol <= 0.0) return null
+        // Skip synthetic bases where entryPrice is not directly comparable to
+        // USD notional. The rebase authority handles those separately.
+        val src = pos.entryPriceSource.uppercase()
+        if (src.contains("SYNTH") || src.contains("PUMP_FUN_BC")) return null
+        val solPriceUsd = try {
+            WalletManager.lastKnownSolPrice.takeIf { it.isFinite() && it in 50.0..5000.0 }
+        } catch (_: Throwable) { null } ?: return null
+        val qtyNotionalUsd = pos.qtyToken * pos.entryPrice
+        val costNotionalUsd = pos.costSol * solPriceUsd
+        if (qtyNotionalUsd <= 0.0 || costNotionalUsd <= 0.0) return null
+        val ratio = kotlin.math.abs(qtyNotionalUsd - costNotionalUsd) /
+            costNotionalUsd.coerceAtLeast(1e-18)
+        val ok = ratio <= TOLERANCE_RATIO
+        return InvariantCheck(
+            ok = ok,
+            ratio = ratio,
+            qtyNotionalUsd = qtyNotionalUsd,
+            costNotionalUsd = costNotionalUsd,
+            reason = if (ok) "economic_notional_ok"
+            else "economic_notional_mismatch qtyNotional=$qtyNotionalUsd costNotional=$costNotionalUsd ratio=$ratio tol=$TOLERANCE_RATIO",
+        )
     }
 
     fun reconstructFromCanonical(mint: String, pos: Position): Position? {

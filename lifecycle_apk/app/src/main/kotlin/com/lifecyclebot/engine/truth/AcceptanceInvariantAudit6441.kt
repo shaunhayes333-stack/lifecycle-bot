@@ -185,10 +185,17 @@ object AcceptanceInvariantAudit6441 {
         // F. Provider degradation ⇒ HYDRATION_DEFERRED, not hard-zero.
         val providerHardZeroFail = try {
             val cb = com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
-            val P = com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider
-            val degraded =
-                (cb.isAuthTerminal(P.BIRDEYE) || cb.isRateLimited(P.BIRDEYE)) &&
-                (cb.isAuthTerminal(P.COINGECKO) || cb.isRateLimited(P.COINGECKO))
+            val birdeyeDown = cb.isAuthTerminal(
+                com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE
+            ) || cb.isRateLimited(
+                com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE
+            )
+            val geckoDown = cb.isAuthTerminal(
+                com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.COINGECKO
+            ) || cb.isRateLimited(
+                com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.COINGECKO
+            )
+            val degraded = birdeyeDown && geckoDown
             val hardZero = com.lifecyclebot.engine.PipelineHealthCollector
                 .labelCountSnapshot("ELIGIBILITY_ZERO_LIQUIDITY_HARD_WHILE_DEGRADED_6536")
             degraded && hardZero > 0L

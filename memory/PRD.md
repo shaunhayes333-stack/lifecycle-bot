@@ -1,4 +1,4 @@
-# AATE PRD — V5.0.6536 (SPOT_SHORT REROUTE + PROVIDER DEGRADATION SOFT-DEFER + HARD ACCEPTANCE INVARIANTS)
+# AATE PRD — V5.0.6537 (ECONOMIC INVARIANT ROOT-FIX + SPOT_SHORT REROUTE + PROVIDER DEGRADATION + HARD ACCEPTANCE INVARIANTS)
 
 **Status:** PAPER TRADING ONLY.
 
@@ -6,6 +6,25 @@
 
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA.
 
+
+## V5.0.6537 (Feb 2026) — ECONOMIC INVARIANT ROOT-FIX (operator screenshot TNOS/Morty/SPACES/SRM/POPCAT/MOBILE/Buddy/Pistacia)
+
+Operator screenshot showed 8 open PAPER positions with **internally inconsistent economics**:
+- TNOS: 18.78 tokens for 0.0008 SOL @ "$0.00003998" → notional $0.00075 vs cost notional $0.16 (200× off)
+- Morty: 2.17K tokens for 0.03 SOL @ "$0.00001381" → notional $0.030 vs cost notional $6.00 (200× off)
+- Same 200× discrepancy on SPACES / SRM / POPCAT / MOBILE / Buddy / Pistacia — the exact ratio of SOL/USD, meaning the qty was computed without the `solPriceUsd` leg (or the entry was stored in SOL/token but painted with `$`).
+
+**Root cause bucket:** `QuantityInvariantAuthority6500.check(mint, pos)` compared only runtime pos ↔ canonical raw. When both sides were minted with the same wrong math (paper qty derived without the SOL→USD multiplier), the invariant passed silently and the UI happily rendered astronomical +8000–12000 % gains.
+
+**Fix:** Added `QuantityInvariantAuthority6500.economicNotionalCheck6537(pos)` that verifies the operator's **original 6499 mandate** end-to-end:
+
+```
+|qty × entry_usd  −  cost_sol × sol_price_usd| / (cost_sol × sol_price_usd) ≤ 10%
+```
+
+`check(mint, pos)` now runs this check **first** (before the canonical comparison) and quarantines the mint the moment the notional identity breaks. The renderer at `MainActivity` also directly consults `economicNotionalCheck6537(pos)` so the astronomical PnL is suppressed on the very first render, even before the sweep quarantines the mint.
+
+**Behaviour on the operator's screenshot after this fix:** every one of the 8 rows will surface as `Entry: INVARIANT_BROKEN_6500 · qty INVALID (invariant broken)` (matching the two J1xeTqo…/BARK rows already caught) and their fake unrealized PnL will drop to `basis wait`. Equity/analytics/learners are unaffected because the quarantine already gates them.
 
 ## V5.0.6536 (Feb 2026) — SPOT_SHORT REROUTE + PROVIDER DEGRADATION SOFT-DEFER + HARD ACCEPTANCE INVARIANTS A–G
 
@@ -30,13 +49,15 @@ Operator directive: "stop selectively ignoring things — I wanted it all done."
 - **G. Crypto Universe Ownership preserved** — CRYPTO_ALT identity never hijacked by meme lane (guards V5.0.6535).
 - New CI-blocking test: `HardAcceptanceInvariantsTest6536` under `app/src/test/kotlin/.../truth/`.
 
-**Files touched:**
+**Files touched (V5.0.6536 + V5.0.6537):**
 - `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt`
 - `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v3/eligibility/EligibilityGate.kt`
 - `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/AcceptanceInvariantAudit6441.kt`
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/QuantityInvariantAuthority6500.kt`
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt`
 - `lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/truth/HardAcceptanceInvariantsTest6536.kt` *(new)*
 
-**Known pre-existing regression NOT introduced by V5.0.6536:** Runtime Smoke Test has been failing since ~V5.0.6511 (`ui_start_1.xml` dump shows Nexus launcher — MainActivity fails to reach foreground before the first `btnToggle` tap window). `Build AATE APK` is green; only the emulator smoke script is red. Operator has been pushing through the smoke red for 15+ commits — investigation deferred; not blocking this bundle.
+**Known pre-existing regression NOT introduced by V5.0.6536+:** Runtime Smoke Test has been failing since ~V5.0.6511 (`ui_start_1.xml` dump shows Nexus launcher — MainActivity fails to reach foreground before the first `btnToggle` tap window). `Build AATE APK` is the CI gate; smoke script is a separate optional gate. Operator has been pushing through the smoke red for 15+ commits — investigation deferred; not blocking these bundles.
 
 
 ## V5.0.6533 (Feb 2026) — EXECUTION AUTHORITY REPAIR — operator-landed

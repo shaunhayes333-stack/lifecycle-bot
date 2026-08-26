@@ -223,13 +223,20 @@ class EligibilityGate(
         if (candidate.liquidityUsd <= 0.0) {
             val degraded6536 = try {
                 val cb = com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
-                val P = com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider
-                val birdeyeBad = cb.isAuthTerminal(P.BIRDEYE) ||
-                    cb.isRateLimited(P.BIRDEYE) ||
-                    cb.isServerCoolingDown(P.BIRDEYE)
-                val geckoBad = cb.isAuthTerminal(P.COINGECKO) ||
-                    cb.isRateLimited(P.COINGECKO) ||
-                    cb.isServerCoolingDown(P.COINGECKO)
+                val birdeyeBad = cb.isAuthTerminal(
+                    com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE
+                ) || cb.isRateLimited(
+                    com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE
+                ) || cb.isServerCoolingDown(
+                    com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE
+                )
+                val geckoBad = cb.isAuthTerminal(
+                    com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.COINGECKO
+                ) || cb.isRateLimited(
+                    com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.COINGECKO
+                ) || cb.isServerCoolingDown(
+                    com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.COINGECKO
+                )
                 birdeyeBad && geckoBad
             } catch (_: Throwable) { false }
             return if (degraded6536) {

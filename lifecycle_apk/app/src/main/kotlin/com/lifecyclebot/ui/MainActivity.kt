@@ -5481,6 +5481,34 @@ for legal compliance.
                     } catch (_: Throwable) {}
                 }
             }
+            // V5.0.6537 §UI_ECONOMIC_INVARIANT — the operator's TNOS / Morty /
+            // SPACES / SRM / POPCAT / MOBILE / Buddy / Pistacia screenshot
+            // showed +7592% … +12639% gains with token counts and SOL PnL
+            // that only reconcile if the position was minted with units-
+            // mismatched math. Reuse the newly-added economic invariant so
+            // the UI marks these rows the same way it already marks the
+            // canonical-vs-runtime broken rows: hide the astronomical %
+            // print and suppress the PnL row until the row is quarantined
+            // or repaired by the sweep.
+            val economicBroken6537 = try {
+                com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
+                    .economicNotionalCheck6537(pos)
+                    ?.let { !it.ok } ?: false
+            } catch (_: Throwable) { false }
+            if (economicBroken6537 && basisTrusted) {
+                basisTrusted = false
+                gainPct = 0.0
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "UI_ECONOMIC_INVARIANT_SUPPRESSED_6537",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} " +
+                            "qty=${pos.qtyToken} entryUsd=${pos.entryPrice} " +
+                            "costSol=${pos.costSol} action=hide_astronomical_pnl_until_quarantine_sweep",
+                    )
+                    com.lifecyclebot.engine.PipelineHealthCollector
+                        .labelInc("UI_ECONOMIC_INVARIANT_SUPPRESSED_6537")
+                } catch (_: Throwable) {}
+            }
             val gainCol = if (!basisTrusted) muted else if (gainPct >= 0) green else red
             val pnlSol  = if (basisTrusted) repairedCostSol6412 * gainPct / 100.0 else 0.0
 
