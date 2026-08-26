@@ -3,7 +3,6 @@ package com.lifecyclebot.engine.truth
 import com.lifecyclebot.data.Position
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
-import com.lifecyclebot.engine.WalletManager
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -135,12 +134,18 @@ object QuantityInvariantAuthority6500 {
      *   qty_notional_usd  = pos.qtyToken × pos.entryPrice  (per-token accounting)
      *   cost_notional_usd = pos.costSol × solPriceUsd     (per-SOL accounting)
      *
-     * These MUST match within TOLERANCE_RATIO (10 %) — otherwise the position
-     * was minted with mismatched units (SOL/token vs USD/token, or without the
-     * SOL→USD leg). Returns null when the check cannot run (unknown SOL price,
-     * malformed fields, or a synthetic price basis where entry is intentionally
-     * on a non-USD scale). When the check does run and fails, callers should
-     * treat the position as broken and quarantine the mint.
+     * These MUST match — implying:
+     *   impliedSolPriceUsd = (qty × entry) / cost_sol
+     * must fall inside a physically sane band [MIN_PLAUSIBLE_SOL_USD .. MAX_PLAUSIBLE_SOL_USD].
+     *
+     * V5.0.6521 doctrine forbids reading any mutable runtime SOL price
+     * (WalletManager last-known-Sol-USD field) inside the invariant
+     * (mutable runtime scalar → false quarantine risk), so we derive the
+     * implied SOL price purely from the position's own immutable fields and only reject when the implied price is
+     * physically impossible (e.g. < $5 or > $10,000 → obvious units bug).
+     *
+     * Returns null when the check cannot run (malformed fields, or a
+     * synthetic price basis where entry is intentionally non-USD).
      */
     fun economicNotionalCheck6537(pos: Position): InvariantCheck? {
         if (!pos.qtyToken.isFinite() || pos.qtyToken <= 0.0) return null
@@ -150,24 +155,28 @@ object QuantityInvariantAuthority6500 {
         // USD notional. The rebase authority handles those separately.
         val src = pos.entryPriceSource.uppercase()
         if (src.contains("SYNTH") || src.contains("PUMP_FUN_BC")) return null
-        val solPriceUsd = try {
-            WalletManager.lastKnownSolPrice.takeIf { it.isFinite() && it in 50.0..5000.0 }
-        } catch (_: Throwable) { null } ?: return null
         val qtyNotionalUsd = pos.qtyToken * pos.entryPrice
-        val costNotionalUsd = pos.costSol * solPriceUsd
-        if (qtyNotionalUsd <= 0.0 || costNotionalUsd <= 0.0) return null
-        val ratio = kotlin.math.abs(qtyNotionalUsd - costNotionalUsd) /
-            costNotionalUsd.coerceAtLeast(1e-18)
-        val ok = ratio <= TOLERANCE_RATIO
+        if (!qtyNotionalUsd.isFinite() || qtyNotionalUsd <= 0.0) return null
+        // impliedSolPriceUsd = notional_usd / cost_sol. If entry is genuinely
+        // USD/token this equals the SOL price at buy — physically bounded.
+        // If entry was mistakenly stored as SOL/token, the ratio collapses
+        // to ~1 (or 1×slippage), well below MIN_PLAUSIBLE_SOL_USD.
+        val impliedSolPriceUsd = qtyNotionalUsd / pos.costSol.coerceAtLeast(1e-18)
+        val ok = impliedSolPriceUsd.isFinite() &&
+            impliedSolPriceUsd in MIN_PLAUSIBLE_SOL_USD..MAX_PLAUSIBLE_SOL_USD
+        val reason = if (ok) "economic_notional_ok_impliedSolUsd=$impliedSolPriceUsd"
+            else "economic_notional_mismatch impliedSolUsd=$impliedSolPriceUsd band=[$MIN_PLAUSIBLE_SOL_USD,$MAX_PLAUSIBLE_SOL_USD] qtyNotional=$qtyNotionalUsd costSol=${pos.costSol}"
         return InvariantCheck(
             ok = ok,
-            ratio = ratio,
+            ratio = impliedSolPriceUsd,
             qtyNotionalUsd = qtyNotionalUsd,
-            costNotionalUsd = costNotionalUsd,
-            reason = if (ok) "economic_notional_ok"
-            else "economic_notional_mismatch qtyNotional=$qtyNotionalUsd costNotional=$costNotionalUsd ratio=$ratio tol=$TOLERANCE_RATIO",
+            costNotionalUsd = 0.0, // not comparable without runtime SOL price
+            reason = reason,
         )
     }
+
+    private const val MIN_PLAUSIBLE_SOL_USD = 5.0
+    private const val MAX_PLAUSIBLE_SOL_USD = 10_000.0
 
     fun reconstructFromCanonical(mint: String, pos: Position): Position? {
         val canonical = CanonicalPositionAuthority6441.openPositions()
