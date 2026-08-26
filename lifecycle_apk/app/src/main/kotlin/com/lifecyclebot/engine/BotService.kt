@@ -20569,6 +20569,39 @@ if (hotExitHandledSweep) {
                         PipelineHealthCollector.labelInc("V3_CANONICAL_HANDOFF_PENDING_6533")
                         ForensicLogger.lifecycle("V3_CANONICAL_HANDOFF_PENDING_6533", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$cyclePrimaryLane action=real_fdg_then_one_immutable_intent")
                     } catch (_: Throwable) {}
+                    // V5.0.6534 §V3_EXECUTABLE_TRUNK_HANDOFF — operator audit
+                    // Feb 2026: V3 Execute was leaving a stale cached
+                    // preFdgVerdict (often NO_BUY/WATCH from the prior tick)
+                    // so the downstream STANDARD/V3 doBuy() precheck dropped
+                    // the buy as EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY. The
+                    // V3_CANONICAL_HANDOFF_PENDING_6533 telemetry above only
+                    // announced the intent — it didn't refresh the gate.
+                    // Fix: refresh ExecutableOpenGate's FDG verdict with V3's
+                    // own BUY authority on the primary/rescue lane so
+                    // finality reads a fresh BUY and the immutable execution
+                    // ticket downstream carries V3's approval. Boolean
+                    // fdgCan/hardNo/liquidity/safety-tier rails from the
+                    // canonical FDG payload are preserved on the elected
+                    // lane's snapshot — this only refreshes the string
+                    // verdict so the executor sees V3's decision, not a
+                    // stale prior-tick record.
+                    try {
+                        ExecutableOpenGate.recordFdg(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            lane = cyclePrimaryLane.uppercase(),
+                            canExecute = true,
+                            reason = "V3_EXECUTE_HANDOFF_6534",
+                            signal = "BUY",
+                            rugScore = ts.safety.rugcheckScore,
+                            safetyTier = "V3",
+                            liquidityUsd = ts.lastLiquidityUsd,
+                            hardNoReasons = emptyList(),
+                            preFdgVerdict = "BUY",
+                            candidateVersion = System.currentTimeMillis(),
+                        )
+                        PipelineHealthCollector.labelInc("V3_EXECUTABLE_TRUNK_HANDOFF_6534")
+                    } catch (_: Throwable) {}
                     // V5.9.1323 — V3 Verdict Reconciliation (P0-4 surgical).
                     try {
                         com.lifecyclebot.engine.runtime.V3VerdictContract.recordEntry()
