@@ -179,16 +179,18 @@ class BotService : Service() {
         fun reapplyMarketsTraderSwitches(ctx: android.content.Context) {
             val cfg = com.lifecyclebot.data.ConfigStore.load(ctx)
             val kill = MARKET_TRADER_KILL_SWITCH
-            // V5.9.708 FIX: honour the marketsTraderEnabled master toggle.
-            // If the master Markets toggle is off (or kill switch active), disable all
-            // Markets sub-traders AND stop PerpsExecutionEngine immediately so the user
-            // doesn't have to restart the bot manually.
-            val marketsOn = !kill && isMarketsLaneEnabled(cfg)
-            try { com.lifecyclebot.perps.PerpsTraderAI.setEnabled(marketsOn && cfg.perpsEnabled) } catch (_: Exception) {}
-            try { com.lifecyclebot.perps.TokenizedStockTrader.setEnabled(marketsOn && cfg.stocksEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.marketLanesQuarantined()) } catch (_: Exception) {}
-            try { com.lifecyclebot.perps.CommoditiesTrader.setEnabled(marketsOn && cfg.commoditiesEnabled) } catch (_: Exception) {}
-            try { com.lifecyclebot.perps.MetalsTrader.setEnabled(marketsOn && cfg.metalsEnabled) } catch (_: Exception) {}
-            try { com.lifecyclebot.perps.ForexTrader.setEnabled(marketsOn && cfg.forexEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.marketLanesQuarantined()) } catch (_: Exception) {}
+            // V5.0.6526 §TRADER_RUNTIME_PLAN — one derivation. reapply()
+            // and startBot() both consume this so drift between the two
+            // paths is physically impossible.
+            val plan = com.lifecyclebot.engine.truth.TraderRuntimePlan6526.from(
+                cfg = cfg, marketsKill = kill, marketsLaneOnFn = { isMarketsLaneEnabled(it) },
+            )
+            val marketsOn = plan.marketsLaneOn
+            try { com.lifecyclebot.perps.PerpsTraderAI.setEnabled(plan.perpsEffective) } catch (_: Exception) {}
+            try { com.lifecyclebot.perps.TokenizedStockTrader.setEnabled(plan.stocksEffective) } catch (_: Exception) {}
+            try { com.lifecyclebot.perps.CommoditiesTrader.setEnabled(plan.commoditiesEffective) } catch (_: Exception) {}
+            try { com.lifecyclebot.perps.MetalsTrader.setEnabled(plan.metalsEffective) } catch (_: Exception) {}
+            try { com.lifecyclebot.perps.ForexTrader.setEnabled(plan.forexEffective) } catch (_: Exception) {}
             // Stop PerpsExecutionEngine immediately when Markets master toggle is turned off
             if (!marketsOn) {
                 try {
@@ -199,27 +201,15 @@ class BotService : Service() {
                     }
                 } catch (_: Exception) {}
             }
-            // V5.9.1160 — Crypto Universe is part of the Markets lane. In MEME-only
-            // mode (tradingMode=0 or markets master OFF) it must not scan, publish
-            // DynSig/SIGNAL logs, write learning, or execute.
-            // V5.0.3744 — operator explicit-enable escape hatch (crypto-isolated).
-            // If cryptoAltsEnabled=true AND marketsTraderEnabled=true, keep crypto
-            // running even when tradingMode==0. Operator intent ('explicitly
-            // enabled') overrides the mode-based suppression.
-            // V5.0.6015 — operator doctrine: Crypto Universe is an isolated
-            // sidecar to the successful-lane feed, not part of stocks/forex/perps.
-            // It must run with MEME when the bot is trading live so volume can come
-            // from major/alt crypto setups without reopening MARKET_STOCKS.
-            val cryptoUniverseDoctrine6015 = cfg.memeTraderEnabled
-            val cryptoUniverseOn = cryptoUniverseDoctrine6015 || ((marketsOn ||
-                (cfg.marketsTraderEnabled && cfg.cryptoAltsEnabled)) &&
-                cfg.cryptoAltsEnabled)
+            val cryptoUniverseOn = plan.cryptoUniverseOn
             try { com.lifecyclebot.perps.CryptoAltTrader.setEnabled(cryptoUniverseOn) } catch (_: Exception) {}
             try {
-                val cur = com.lifecyclebot.engine.EnabledTraderAuthority.snapshot().toMutableSet()
-                if (cryptoUniverseOn) cur += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT
-                else cur -= com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT
-                com.lifecyclebot.engine.EnabledTraderAuthority.publish(cur)
+                // V5.0.6526 — publish the WHOLE canonical enabled set from
+                // the plan so reapply() and startBot() agree on the exact
+                // authority payload. The old code mutated only the CRYPTO
+                // bit of the previous snapshot which left stale entries
+                // when the operator toggled other lanes mid-session.
+                com.lifecyclebot.engine.EnabledTraderAuthority.publish(plan.enabledTraderSet())
             } catch (_: Exception) {}
             if (!cryptoUniverseOn) {
                 try {
@@ -2112,20 +2102,19 @@ class BotService : Service() {
                 "skipping PerpsExecutionEngine + Stocks/Commodities/Metals/Forex starts")
             addLog("📴 Markets lane OFF — Perps/Stocks/Commodities/Metals/Forex will not run this session")
         }
-        com.lifecyclebot.perps.PerpsTraderAI.setEnabled(marketsLaneOn && marketsStartCfg.perpsEnabled)
-        com.lifecyclebot.perps.TokenizedStockTrader.setEnabled(marketsLaneOn && marketsStartCfg.stocksEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.marketLanesQuarantined())
-        com.lifecyclebot.perps.CommoditiesTrader.setEnabled(marketsLaneOn && marketsStartCfg.commoditiesEnabled)
-        com.lifecyclebot.perps.MetalsTrader.setEnabled(marketsLaneOn && marketsStartCfg.metalsEnabled)
-        com.lifecyclebot.perps.ForexTrader.setEnabled(marketsLaneOn && marketsStartCfg.forexEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.marketLanesQuarantined())
-        // V5.9.1160 — Crypto Universe must honor Markets lane authority.
-        // MEME-only mode must not start CryptoAlt scanner/signals/learning.
-        // V5.0.3744 — operator explicit-enable escape hatch (crypto-isolated).
-        // V5.0.6015 — force isolated Crypto Universe sidecar with MEME runtime;
-        // this does not enable quarantined MARKETS_STOCKS / forex / perps.
-        val cryptoUniverseDoctrine6015 = cfg.memeTraderEnabled
-        val cryptoUniverseOnAtStart = cryptoUniverseDoctrine6015 || ((marketsLaneOn ||
-            (marketsStartCfg.marketsTraderEnabled && marketsStartCfg.cryptoAltsEnabled)) &&
-            marketsStartCfg.cryptoAltsEnabled)
+        // V5.0.6526 §TRADER_RUNTIME_PLAN — one derivation used by every
+        // setEnabled call in startBot(). reapply() derives the same plan
+        // via the same factory so drift is physically impossible.
+        val plan6526 = com.lifecyclebot.engine.truth.TraderRuntimePlan6526.from(
+            cfg = marketsStartCfg, marketsKill = marketsKill,
+            marketsLaneOnFn = { isMarketsLaneEnabled(it) },
+        )
+        com.lifecyclebot.perps.PerpsTraderAI.setEnabled(plan6526.perpsEffective)
+        com.lifecyclebot.perps.TokenizedStockTrader.setEnabled(plan6526.stocksEffective)
+        com.lifecyclebot.perps.CommoditiesTrader.setEnabled(plan6526.commoditiesEffective)
+        com.lifecyclebot.perps.MetalsTrader.setEnabled(plan6526.metalsEffective)
+        com.lifecyclebot.perps.ForexTrader.setEnabled(plan6526.forexEffective)
+        val cryptoUniverseOnAtStart = plan6526.cryptoUniverseOn
         com.lifecyclebot.perps.CryptoAltTrader.setEnabled(cryptoUniverseOnAtStart)
         if (!cryptoUniverseOnAtStart) {
             try { com.lifecyclebot.perps.CryptoAltTrader.stop() } catch (_: Exception) {}
@@ -2371,10 +2360,12 @@ class BotService : Service() {
             // V5.0.6015 — startup should follow the same isolated crypto-sidecar
             // doctrine as EnabledTraderAuthority publishing: MEME can run crypto
             // universe without enabling stocks/forex/perps/markets fanout.
-            val cryptoUniverseDoctrine6015 = cfg.memeTraderEnabled
-            val cryptoUniverseOn = cryptoUniverseDoctrine6015 || ((isMarketsLaneEnabled(cfg) ||
-                (cfg.marketsTraderEnabled && cfg.cryptoAltsEnabled)) &&
-                cfg.cryptoAltsEnabled)
+            // V5.0.6526 — one derivation via TraderRuntimePlan6526.
+            val cryptoPlan6526 = com.lifecyclebot.engine.truth.TraderRuntimePlan6526.from(
+                cfg = cfg, marketsKill = MARKET_TRADER_KILL_SWITCH,
+                marketsLaneOnFn = { isMarketsLaneEnabled(it) },
+            )
+            val cryptoUniverseOn = cryptoPlan6526.cryptoUniverseOn
             com.lifecyclebot.perps.CryptoAltTrader.setEnabled(cryptoUniverseOn)
             if (cryptoUniverseOn) {
                 com.lifecyclebot.perps.CryptoAltTrader.start()
