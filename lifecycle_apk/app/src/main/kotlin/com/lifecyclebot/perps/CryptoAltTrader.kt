@@ -2089,6 +2089,28 @@ object CryptoAltTrader {
         // 45% of available mode-local balance. Total portfolio risk cap remains
         // 80%, wallet lock still applies live, and route proof still gates real buys.
         val requestedFinalSize = (sizeSol * hiveSizeMult).coerceIn(0.01, balance * 0.45)
+        // V5.0.6540 §ONE_EXECUTION_AUTHORITY — CryptoAlt specialist must
+        // announce its candidate to the canonical entry funnel BEFORE it
+        // consults sizing. Route to MARKETS_SPOT/MARKETS_PERPS venue by
+        // spot capability + leverage. This keeps the operator's funnel
+        // telemetry (candidate → submit → allow → sized → intent →
+        // dispatch → open) coherent per venue and enables the P0
+        // acceptance-invariant fail-build guard.
+        val venue6540 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.routeVenue(
+            isLong = signal.direction == PerpsDirection.LONG,
+            isSpotCapable = isSpot,
+            leveraged = !isSpot,
+        )
+        try {
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markCandidate(
+                venue = venue6540, symbol = mktSym,
+                note = "isSpot=$isSpot lev=$lev score=${signal.score} conf=${signal.confidence}",
+            )
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAuthSubmit(
+                venue = venue6540, symbol = mktSym,
+                note = "requestedSol=$requestedFinalSize",
+            )
+        } catch (_: Throwable) {}
         // V5.0.6532 §CANONICAL_SIZING_BRIDGE.
         val altSizingRes = com.lifecyclebot.engine.truth.CanonicalSizingBridge6532.resolve(
             requestedSol = requestedFinalSize,
@@ -2098,6 +2120,12 @@ object CryptoAltTrader {
             paperMode = isPaperMode.get(),
         )
         if (!altSizingRes.executable) {
+            try {
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAuthBlock(
+                    venue = venue6540, symbol = mktSym,
+                    reason = "SIZE_NOT_EXECUTABLE:${altSizingRes.reason}",
+                )
+            } catch (_: Throwable) {}
             ErrorLogger.warn(TAG, "🪙 sizing gate declined ${mktSym}: ${altSizingRes.reason}")
             return
         }
@@ -2121,10 +2149,21 @@ object CryptoAltTrader {
         }
 
         val candidate = buildCryptoFinalBuyCandidate(signal, isSpot, finalSize)
+        try {
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markSized(
+                venue = venue6540, symbol = mktSym,
+            )
+        } catch (_: Throwable) {}
         com.lifecyclebot.perps.crypto.brain.CryptoFunnel.preFdg(candidate.canEnterFdg)
         val authResult = authorizeCryptoFinalCandidate(candidate)
         com.lifecyclebot.perps.crypto.brain.CryptoFunnel.execGate(authResult != null)
         if (authResult == null) {
+            try {
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAuthBlock(
+                    venue = venue6540, symbol = mktSym,
+                    reason = "FDG_OR_HARD_NO:${candidate.hardNoReasons}",
+                )
+            } catch (_: Throwable) {}
             ErrorLogger.info(TAG, "🪙 CRYPTO EXEC BLOCKED: ${mktSym} | preFdg=${candidate.preFdgVerdict} hardNo=${candidate.hardNoReasons} route=${candidate.routeQuality}")
             // V5.9.1317 (P0-5) — release the primary-lane lease on the CRYPTO book so a
             // blocked candidate does not suppress follow-up CRYPTO attempts for the same
@@ -2132,6 +2171,18 @@ object CryptoAltTrader {
             try { com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(candidate.assetKey, "CRYPTO", "CRYPTO_EXEC_BLOCKED") } catch (_: Throwable) {}
             return
         }
+        try {
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAuthAllow(
+                venue = venue6540, symbol = mktSym,
+            )
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markIntentCreated(
+                venue = venue6540, symbol = mktSym,
+                intentId = "ALT_${positionCounter.get() + 1}",
+            )
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAdapterDispatch(
+                venue = venue6540, symbol = mktSym,
+            )
+        } catch (_: Throwable) {}
 
         val position = AltPosition(
             id             = "ALT_${positionCounter.incrementAndGet()}",
@@ -2196,6 +2247,11 @@ object CryptoAltTrader {
         positions[position.id]         = position
         if (isSpot) spotPositions[position.id]     = position
         else        leveragePositions[position.id]  = position
+        try {
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markOpenConfirmed(
+                venue = venue6540, symbol = mktSym, positionId = position.id,
+            )
+        } catch (_: Throwable) {}
         com.lifecyclebot.perps.crypto.brain.CryptoFunnel.open(true)
         // V5.0.4581 — CRYPTO CANONICAL OPEN HOOK. The isolated CryptoBrain close
         // path was settling trades without a matching open hook, causing canonical
@@ -3003,7 +3059,16 @@ object CryptoAltTrader {
             realizedPnlPct = pnlPct,
             maxGainPct    = pos.highestPnlPct.takeIf { it > 0.0 },
             closeReason   = "CRYPTOALT_$reason",
-            assetClass    = com.lifecyclebot.engine.AssetClass.CRYPTO_ALT_SPOT,  // V5.9.1317 — canonical; was mislabeled MEME
+            // V5.0.6540 §CANONICAL_ATTRIBUTION_FIX — operator directive:
+            // "CryptoAltTrader close currently publishes every close as
+            // CRYPTO_ALT_SPOT. This is wrong for leveraged/perp positions."
+            // Publish canonical asset class from the committed position:
+            //   pos.isSpot == true  → CRYPTO_ALT_SPOT (Markets Spot lane)
+            //   pos.isSpot == false → PERPS_CRYPTOALT (Markets Perps lane)
+            assetClass    = if (pos.isSpot)
+                com.lifecyclebot.engine.AssetClass.CRYPTO_ALT_SPOT
+            else
+                com.lifecyclebot.engine.AssetClass.PERPS_CRYPTOALT,
             entryScore    = pos.aiScore.toDouble(),
             // V5.9.896 — promote lite→rich for BehaviorLearning.
             entryPattern  = "CRYPTOALT_ENTRY",

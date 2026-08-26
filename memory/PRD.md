@@ -1,10 +1,62 @@
-# AATE PRD — V5.0.6539 (TOP-UP ECONOMIC ATOMICITY ROOT FIX)
+# AATE PRD — V5.0.6540 (MARKETS + CRYPTO EXECUTION CONVERGENCE — ONE EXECUTION AUTHORITY)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE (FillLotLedger6504 immutable SQLite lots + per-lot projection reconciliation), never by strangling flow.
 
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA.
+
+
+## V5.0.6540 (Feb 2026) — MARKETS + CRYPTO EXECUTION CONVERGENCE
+
+Operator mandate: Markets Spot, Markets Perps and Crypto Universe must converge on ONE canonical execution authority. Their scanners/brains stay alive, but sizing/execution funnels through a single canonical topology; local statistics are no longer authoritative.
+
+### §CANONICAL_ENTRY_AUTHORITY_6540
+
+New `CanonicalEntryAuthority6540` singleton is the single funnel every specialist announces its candidate to. Emits 11 stage-transition counters per venue (`MARKETS_SPOT`, `MARKETS_PERPS`, `CRYPTO`):
+
+```
+MARKETS_SPOT_CANDIDATE_6540           MARKETS_PERPS_CANDIDATE_6540    CRYPTO_CANDIDATE_6540
+CANONICAL_AUTH_SUBMIT_6540
+CANONICAL_AUTH_ALLOW_6540 / _BLOCK_6540
+CANONICAL_SIZE_RESOLVED_6540
+EXEC_INTENT_CREATED_6540
+ASSET_ROUTER_DISPATCH_6540
+MARKETS_SPOT_OPEN_CONFIRMED_6540      MARKETS_PERPS_OPEN_CONFIRMED_6540    CRYPTO_OPEN_CONFIRMED_6540
+```
+
+Snapshot API: `snapshot(Venue)` / `snapshotAll()` returns `VenueStats(candidates, authSubmit, authAllow, authBlock, sized, intents, dispatches, opensConfirmed)`. `candidatesWithoutAuthSubmit()` powers the P0 fail-build guard.
+
+### Specialist wiring
+
+- **CryptoAltTrader.executeSignal** — announces `markCandidate` + `markAuthSubmit` before sizing bridge; `markSized` after resolver; `markAuthBlock` on sizing/FDG reject; `markAuthAllow` + `markIntentCreated` + `markAdapterDispatch` on allow; `markOpenConfirmed` after `positions[id] = position`. Routes to `MARKETS_SPOT` (LONG+spot) or `MARKETS_PERPS` (SHORT/leveraged) per §P0-3.
+- **PerpsExecutionEngine.executeEntry** — announces `MARKETS_PERPS` venue at every stage. `markAuthBlock` fires on both the sizing declined path AND the below-floor path.
+
+### §CANONICAL_ATTRIBUTION_FIX (P0)
+
+`CryptoAltTrader` close path at line 3006 no longer hardcodes `assetClass = CRYPTO_ALT_SPOT`. Now uses:
+```
+assetClass = if (pos.isSpot) AssetClass.CRYPTO_ALT_SPOT else AssetClass.PERPS_CRYPTOALT
+```
+This aligns UI projections: a leveraged CRYPTO close now correctly increments `Markets Perps` instead of `Markets Spot`.
+
+### Acceptance invariants (extends V5.0.6536 A–G)
+
+New checks in `AcceptanceInvariantAudit6441.runAudit()`:
+- **H. NO_LEVERAGED_CLOSE_AS_SPOT** — `CRYPTO_LEVERAGED_CLOSE_STAMPED_SPOT_6540` counter must remain 0.
+- **I. CANDIDATES_WITHOUT_AUTH_SUBMIT** (fail-build guard) — any venue with candidates > 0 must also have authSubmit > 0. `CanonicalEntryAuthority6540.candidatesWithoutAuthSubmit()` powers the assertion.
+
+### Deferred to V5.0.6541+
+
+Per operator "DO NOT weaken safety" — the *removal* of specialists' direct sizing-bridge / open ownership (§P0-1, §P0-2 "REMOVE direct ownership") is left for a follow-up. V5.0.6540 lays the funnel foundation and telemetry so the migration can be executed with zero-drop confidence in the next bundle.
+
+### Files touched (V5.0.6540)
+
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEntryAuthority6540.kt` *(new)*
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt`
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/perps/PerpsExecutionEngine.kt`
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/AcceptanceInvariantAudit6441.kt`
+- `memory/PRD.md`
 
 
 ## V5.0.6539 (Feb 2026) — TOP-UP ECONOMIC ATOMICITY ROOT FIX

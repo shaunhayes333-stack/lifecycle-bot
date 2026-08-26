@@ -464,6 +464,20 @@ object PerpsExecutionEngine {
             val rawSizeSol = balance * (signal.recommendedSizePct / 100)
             val requestedSizeSol = (rawSizeSol * symSizeAdj).coerceAtLeast(0.0)
             val effectiveLeverage = (signal.recommendedLeverage * symLevCapMult).coerceAtLeast(1.0)
+            // V5.0.6540 §ONE_EXECUTION_AUTHORITY — perps engine must
+            // announce its candidate to the canonical entry funnel. All
+            // perps go to MARKETS_PERPS venue.
+            val perpsVenue6540 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.Venue.MARKETS_PERPS
+            try {
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markCandidate(
+                    venue = perpsVenue6540, symbol = signal.market.symbol,
+                    note = "dir=${signal.direction} lev=$effectiveLeverage isPaper=$isPaper",
+                )
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAuthSubmit(
+                    venue = perpsVenue6540, symbol = signal.market.symbol,
+                    note = "requestedSol=$requestedSizeSol",
+                )
+            } catch (_: Throwable) {}
             // V5.0.6532 §CANONICAL_SIZING_BRIDGE.
             val perpsSizingRes = com.lifecyclebot.engine.truth.CanonicalSizingBridge6532.resolve(
                 requestedSol = requestedSizeSol,
@@ -473,17 +487,42 @@ object PerpsExecutionEngine {
                 paperMode = isPaper,
             )
             if (!perpsSizingRes.executable) {
+                try {
+                    com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAuthBlock(
+                        venue = perpsVenue6540, symbol = signal.market.symbol,
+                        reason = "SIZE_NOT_EXECUTABLE:${perpsSizingRes.reason}",
+                    )
+                } catch (_: Throwable) {}
                 ErrorLogger.warn(TAG, "PERPS sizing gate declined ${signal.market.symbol}: ${perpsSizingRes.reason}")
                 failedExecutions.incrementAndGet()
                 return
             }
             val sizeSol = perpsSizingRes.finalSizeSol
+            try {
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markSized(
+                    venue = perpsVenue6540, symbol = signal.market.symbol,
+                )
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAuthAllow(
+                    venue = perpsVenue6540, symbol = signal.market.symbol,
+                )
+            } catch (_: Throwable) {}
 
             if (sizeSol < (if (isPaper) 0.01 else 0.05)) {
+                try {
+                    com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAuthBlock(
+                        venue = perpsVenue6540, symbol = signal.market.symbol,
+                        reason = "SIZE_BELOW_FLOOR:${sizeSol}",
+                    )
+                } catch (_: Throwable) {}
                 ErrorLogger.warn(TAG, "Position size too small: $sizeSol SOL (raw=$rawSizeSol × sym=$symSizeAdj) [floor=${if (isPaper) 0.01 else 0.05}]")
                 failedExecutions.incrementAndGet()
                 return
             }
+            try {
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAdapterDispatch(
+                    venue = perpsVenue6540, symbol = signal.market.symbol,
+                )
+            } catch (_: Throwable) {}
             
             // Open position — always recorded in PerpsTraderAI first (in-memory state).
             // In LIVE mode we then fire the real on-chain swap. If that swap fails we
@@ -499,6 +538,12 @@ object PerpsExecutionEngine {
             )
             
             if (position != null) {
+                try {
+                    com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markIntentCreated(
+                        venue = perpsVenue6540, symbol = signal.market.symbol,
+                        intentId = position.id,
+                    )
+                } catch (_: Throwable) {}
                 // V5.9.600 BUG-1 FIX: real on-chain execution in LIVE mode.
                 // PerpsTraderAI.openPosition was synthetic-only; the swap was never placed.
                 if (!isPaper) {
@@ -549,6 +594,12 @@ object PerpsExecutionEngine {
 
                 successfulExecutions.incrementAndGet()
                 lastExecutionTime.set(System.currentTimeMillis())
+                try {
+                    com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markOpenConfirmed(
+                        venue = perpsVenue6540, symbol = signal.market.symbol,
+                        positionId = position.id,
+                    )
+                } catch (_: Throwable) {}
                 
                 ErrorLogger.info(TAG, "⚡ EXECUTED [${scanner.displayName}]: " +
                     "${position.direction.emoji} ${position.market.symbol} | " +

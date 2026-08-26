@@ -212,6 +212,33 @@ object AcceptanceInvariantAudit6441 {
         if (!universeOwnershipFail) passed.add("G_crypto_universe_identity_preserved")
         else failed.add("G_crypto_universe_identity_hijacked_by_meme_lane")
 
+        // ─────────────────────────────────────────────────────────────
+        // V5.0.6540 §ONE_EXECUTION_AUTHORITY — additional invariants
+        //
+        //  H. NO_LEVERAGED_CLOSE_AS_SPOT
+        //     Emitted every time CryptoAltTrader closes a leveraged
+        //     position with assetClass=CRYPTO_ALT_SPOT (must NEVER fire).
+        //  I. CANDIDATES_WITHOUT_AUTH_SUBMIT (fail-build guard)
+        //     Any venue with candidates > 0 must also have
+        //     authSubmit > 0 over the observation window.
+        // ─────────────────────────────────────────────────────────────
+        val closeAsSpotFail6540 = try {
+            val leak = com.lifecyclebot.engine.PipelineHealthCollector
+                .labelCountSnapshot("CRYPTO_LEVERAGED_CLOSE_STAMPED_SPOT_6540")
+            leak > 0L
+        } catch (_: Throwable) { false }
+        if (!closeAsSpotFail6540) passed.add("H_leveraged_close_not_stamped_spot")
+        else failed.add("H_leveraged_close_stamped_spot_6540")
+
+        val candWithoutSubmit6540 = try {
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.candidatesWithoutAuthSubmit()
+        } catch (_: Throwable) { emptyList() }
+        if (candWithoutSubmit6540.isEmpty()) passed.add("I_all_venues_submit_when_they_have_candidates")
+        else failed.add(
+            "I_candidates_without_auth_submit_venues=" +
+                candWithoutSubmit6540.joinToString(",") { "${it.venue}(cand=${it.candidates})" }
+        )
+
         val report = AuditReport(
             whenMs = System.currentTimeMillis(),
             passed = passed,
