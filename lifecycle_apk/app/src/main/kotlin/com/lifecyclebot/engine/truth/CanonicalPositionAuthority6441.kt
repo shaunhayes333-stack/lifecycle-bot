@@ -66,6 +66,11 @@ object CanonicalPositionAuthority6441 {
         val entryPriceSource: String = "",
         val entryPoolAddress: String = "",
         val entryDex: String = "",
+        // V5.0.6525 §ASSET_CLASS_AXIS — one axis every canonical lifecycle,
+        // mark refresh, and telemetry path can dispatch on. Written at open,
+        // never mutated. Defaults to SOLANA_TOKEN so historical positions
+        // (pre-6525) reload with the correct implicit class.
+        val assetClass: AssetClass = AssetClass.SOLANA_TOKEN,
     )
 
     enum class MutateResult { APPLIED, DUPLICATE, INVARIANT_VIOLATION, UNKNOWN_POSITION, LIFECYCLE_FORBIDDEN }
@@ -129,6 +134,11 @@ object CanonicalPositionAuthority6441 {
         entryPoolAddress: String = "",
         entryDex: String = "",
         quantityScale: Int = tokenDecimals,
+        // V5.0.6525 §ASSET_CLASS_AXIS — accept the asset class at open so
+        // downstream mark/exit routers do not have to guess from the mint
+        // string. Defaults to SOLANA_TOKEN (backwards-compatible with
+        // pre-6525 callers).
+        assetClass: AssetClass = AssetClass.SOLANA_TOKEN,
     ): MutateResult {
         lock.lock()
         try {
@@ -188,6 +198,7 @@ object CanonicalPositionAuthority6441 {
                 entryPriceSource = entryPriceSource,
                 entryPoolAddress = entryPoolAddress,
                 entryDex = entryDex,
+                assetClass = assetClass,
             )
             markKeyUsed(idempotencyKey)
             try { AateDecisionFabric6512.attachPosition(positionId, canonicalMode6490, mint, lane) } catch (_: Throwable) {}

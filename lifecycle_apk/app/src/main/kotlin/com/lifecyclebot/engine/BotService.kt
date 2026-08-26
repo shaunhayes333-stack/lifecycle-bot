@@ -18357,11 +18357,33 @@ if (hotExitHandledSweep) {
                 if (exitMarkRefreshPending6513.add(cp.mint)) {
                     try {
                         PipelineHealthCollector.labelInc("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513")
-                        ForensicLogger.lifecycle("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513", "positionId=${cp.positionId} mint=${cp.mint.take(10)} entryPrice=${ts.position.entryPrice} mark=${ts.lastPrice} action=async_refresh_no_silent_eval")
+                        ForensicLogger.lifecycle("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513", "positionId=${cp.positionId} mint=${cp.mint.take(10)} assetClass=${cp.assetClass.tag} entryPrice=${ts.position.entryPrice} mark=${ts.lastPrice} action=async_refresh_no_silent_eval")
                     } catch (_: Throwable) {}
                     scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        try { tryFallbackPriceData(cp.mint, ts) }
-                        finally { exitMarkRefreshPending6513.remove(cp.mint) }
+                        // V5.0.6525 §MARK_REFRESH_ASSET_CLASS_ROUTING — only
+                        // route Solana on-chain tokens through the Birdeye/
+                        // DexScreener/pump.fun fallback. Stock/FX/commodity/
+                        // metal marks must never be resolved by a Solana
+                        // token oracle (that was the "GBPJPY→Birdeye" bug).
+                        // For non-Solana assets, stamp CANONICAL_EXIT_MARK_
+                        // OFFCHAIN_UNROUTED so the operator sees the missing
+                        // per-asset provider wiring in the funnel. Real
+                        // Yahoo/Polygon/OpenExchangeRates wiring is queued
+                        // as the follow-up architectural pass.
+                        try {
+                            if (cp.assetClass == com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN) {
+                                tryFallbackPriceData(cp.mint, ts)
+                            } else {
+                                try {
+                                    PipelineHealthCollector.labelInc("CANONICAL_EXIT_MARK_OFFCHAIN_UNROUTED_6525|CLASS=${cp.assetClass.tag}")
+                                    ForensicLogger.lifecycle(
+                                        "CANONICAL_EXIT_MARK_OFFCHAIN_UNROUTED_6525",
+                                        "positionId=${cp.positionId} mint=${cp.mint.take(10)} symbol=${cp.symbol} assetClass=${cp.assetClass.tag} " +
+                                            "action=skip_solana_router reason=cross_asset_provider_not_wired",
+                                    )
+                                } catch (_: Throwable) {}
+                            }
+                        } finally { exitMarkRefreshPending6513.remove(cp.mint) }
                     }
                 }
             }
@@ -18951,6 +18973,7 @@ if (hotExitHandledSweep) {
                         if (extendedHold6277) {
                             try { PipelineHealthCollector.labelInc("INTAKE_NO_PAIR_EXTENDED_HYDRATION_6277") } catch (_: Throwable) {}
                             try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_EXTENDED_HYDRATION_6277", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} pc=$processCount ageMs=$ageMs liq=${ts.lastLiquidityUsd.toInt()} action=keep_hot_extended") } catch (_: Throwable) {}
+                            com.lifecyclebot.engine.truth.PreV3ReturnTelemetry6525.stamp(ts, "NO_PAIR")
                             return
                         }
                         if (!agedNoPair) {
@@ -18960,6 +18983,7 @@ if (hotExitHandledSweep) {
                             if (liveHeldOrManagedMint(mint)) {
                                 try { PipelineHealthCollector.labelInc("ENTRY_AUTHORITY_HELD_NO_PAIR_DEMOTE_REMOVE_BLOCKED_4550") } catch (_: Throwable) {}
                                 try { ForensicLogger.lifecycle("ENTRY_AUTHORITY_HELD_NO_PAIR_DEMOTE_REMOVE_BLOCKED_4550", "mint=${mint.take(10)} symbol=${ts.symbol} pc=$processCount ageMs=$ageMs action=keep_watchlist_and_registry") } catch (_: Throwable) {}
+                                com.lifecyclebot.engine.truth.PreV3ReturnTelemetry6525.stamp(ts, "NO_PAIR")
                                 return
                             }
                             val demoted = try {
@@ -18979,6 +19003,7 @@ if (hotExitHandledSweep) {
                             }
                         }
                     }
+                    com.lifecyclebot.engine.truth.PreV3ReturnTelemetry6525.stamp(ts, "NO_PAIR")
                     return
                 }
                 synth  // continue into the rest of the cycle with synthesized pair
@@ -19066,6 +19091,7 @@ if (hotExitHandledSweep) {
             // getBestPair() already filters this, but guard here in case of stale cache hits.
             if (pair.baseTokenAddress.isNotBlank() && pair.baseTokenAddress != mint) {
                 ErrorLogger.warn("BotService", "DATA POLLUTION GUARD: ${ts.symbol} pair baseToken=${pair.baseTokenAddress} != queried mint=$mint — skipping price update")
+                com.lifecyclebot.engine.truth.PreV3ReturnTelemetry6525.stamp(ts, "DECIMAL_JUMP")
                 return
             }
 
@@ -19086,6 +19112,7 @@ if (hotExitHandledSweep) {
             } catch (_: Throwable) { false }
             if (!canonicalMarkAccepted6522) {
                 try { PipelineHealthCollector.labelInc("CANONICAL_PRICE_MARK_REJECTED_6522") } catch (_: Throwable) {}
+                com.lifecyclebot.engine.truth.PreV3ReturnTelemetry6525.stamp(ts, "CANONICAL_MARK_REJECTED")
                 return
             }
             
@@ -19364,6 +19391,19 @@ if (hotExitHandledSweep) {
                         "key=${canonicalMint.take(10)} symbol=${ts.symbol} tier=${r.tier.name} hardBlocks=${r.hardBlockReasons.size}",
                     )
                 } catch (_: Throwable) {}
+                // V5.0.6525 §PHASE.SAFETY wire-up — operator audit Feb 2026:
+                // "the actual safety code emits SAFETY_WRITE, not PHASE.SAFETY,
+                //  so the health-funnel Safety counter is not correctly
+                //  instrumented." Emit PHASE.SAFETY here so the funnel dump
+                // shows every safety-check attempt, not just SAFETY_WRITE
+                // lifecycle lines. Counts one per successful safety run.
+                try {
+                    ForensicLogger.phase(
+                        ForensicLogger.PHASE.SAFETY,
+                        ts.symbol,
+                        "mint=${canonicalMint.take(10)} tier=${r.tier.name} hardBlocks=${r.hardBlockReasons.size} softPenalties=${r.softPenalties.size}",
+                    )
+                } catch (_: Throwable) {}
                 r
             } catch (e: Exception) {
                 // V5.9.776 — never swallow safety failures.
@@ -19540,6 +19580,8 @@ if (hotExitHandledSweep) {
                 preFilterResult.reason?.contains("AUTH",  true) == true  -> "rug_auth"
                 else                                                      -> "rug_filtered"
             }
+            // V5.0.6525 §PRE_V3_RETURN_TELEMETRY — stamp exit-before-V3 site.
+            com.lifecyclebot.engine.truth.PreV3ReturnTelemetry6525.stamp(ts, "HARD_RUG")
             return  // Skip to next token (exit this coroutine)
         }
     }
@@ -19595,6 +19637,8 @@ if (hotExitHandledSweep) {
                 )
             } catch (_: Throwable) {}
         }
+        // V5.0.6525 §PRE_V3_RETURN_TELEMETRY — stamp exit-before-V3 site.
+        com.lifecyclebot.engine.truth.PreV3ReturnTelemetry6525.stamp(ts, "DISTRIBUTION_FADE")
         return  // Skip to next token (exit this coroutine)
     }
     
@@ -19912,6 +19956,8 @@ if (hotExitHandledSweep) {
             try { ForensicLogger.lifecycle("TOKEN_BLACKLIST_FLAT_SKIPPED_PRELANE", "mint=${mint.take(10)} symbol=${ts.symbol} paper=${cfg.paperMode} source=${ts.source.take(80)}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("TOKEN_BLACKLIST_FLAT_SKIPPED_PRELANE") } catch (_: Throwable) {}
         }
+        // V5.0.6525 §PRE_V3_RETURN_TELEMETRY — stamp exit-before-V3 site.
+        com.lifecyclebot.engine.truth.PreV3ReturnTelemetry6525.stamp(ts, "BLACKLIST")
         return
     }
 

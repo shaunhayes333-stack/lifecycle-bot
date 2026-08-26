@@ -1240,6 +1240,13 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 lane = if (isSpot) "STOCK_SPOT" else "STOCK_LEV", source = "TokenizedStockTrader",
                 costSol = hiveSizeSol, feeSol = entryFee6486,
                 entryScore = signal.score, tactic = signal.direction.name,
+                // V5.0.6525 §ASSET_CLASS + §ENTRY_PRICE — persist real stock
+                // price so the canonical row has non-zero entryPriceUsd and
+                // the exit mark router uses the equity provider, never a
+                // Solana on-chain lookup.
+                assetClass = com.lifecyclebot.engine.truth.AssetClass.STOCK,
+                entryPriceUsd = signal.price,
+                entryPriceSource = "TokenizedStockTrader/signal.price",
             )
             if (!canonicalOpen6486.applied) {
                 ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: ${signal.market.symbol} ${canonicalOpen6486.reason}")

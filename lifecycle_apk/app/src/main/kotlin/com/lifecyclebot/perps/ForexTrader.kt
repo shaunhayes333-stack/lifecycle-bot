@@ -722,6 +722,14 @@ object ForexTrader {
                 lane = "FOREX", source = "ForexTrader",
                 costSol = positionSizeSol, feeSol = positionSizeSol * (if (signal.leverage == 1.0) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT),
                 entryScore = signal.score.toInt(),
+                // V5.0.6525 §ASSET_CLASS + §ENTRY_PRICE — do NOT throw away
+                // the live FX quote. Persist signal.price so the canonical
+                // row has an economically valid entryPriceUsd, and stamp
+                // the class so the exit mark router does not shovel
+                // "GBPJPY" into Birdeye/DexScreener/pump.fun on refresh.
+                assetClass = com.lifecyclebot.engine.truth.AssetClass.FOREX,
+                entryPriceUsd = signal.price,
+                entryPriceSource = "ForexTrader/signal.price",
             )
             if (!canonicalOpen6486.applied) {
                 ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: ${position.market.symbol} ${canonicalOpen6486.reason}")

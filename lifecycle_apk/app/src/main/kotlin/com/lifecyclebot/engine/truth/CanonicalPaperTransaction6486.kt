@@ -14,7 +14,22 @@ object CanonicalPaperTransaction6486 {
     fun open(positionId: String, mint: String, symbol: String, lane: String, source: String,
              costSol: Double, feeSol: Double = 0.0, qtyRaw: BigInteger = syntheticUnit,
              decimals: Int = 9, entryScore: Int = 0, tactic: String = lane,
-             quantityScale: Int = decimals): Result = lock.withLock {
+             quantityScale: Int = decimals,
+             // V5.0.6525 §ASSET_CLASS_AXIS + §ENTRY_PRICE_PROPAGATION —
+             // Operator audit Feb 2026: the paper bridge threw away
+             // signal.price and forced 1e9 qty @ 9 decimals on every
+             // asset class. ForexTrader.open() then produced canonical
+             // rows with entryPriceUsd=0.0, mark=0.0, and the exit
+             // scheduler queued Birdeye lookups on "GBPJPY". Accept the
+             // asset class, the real entry price, and the price-source
+             // metadata so the canonical row is economically valid on
+             // non-Solana assets. Defaults preserve the pre-6525 SOL
+             // token behaviour.
+             assetClass: AssetClass = AssetClass.SOLANA_TOKEN,
+             entryPriceUsd: Double = 0.0,
+             entryPriceSource: String = "",
+             entryPoolAddress: String = "",
+             entryDex: String = ""): Result = lock.withLock {
         if (positionId.isBlank() || mint.isBlank() || !costSol.isFinite() || costSol <= 0.0 ||
             !feeSol.isFinite() || feeSol < 0.0 || qtyRaw <= BigInteger.ZERO)
             return@withLock Result(false, positionId, "INVALID_OPEN")
@@ -27,7 +42,10 @@ object CanonicalPaperTransaction6486 {
             idempotencyKey = idem, positionId = positionId, mint = mint, symbol = symbol,
             lane = lane, runId = positionId.substringAfterLast(':', positionId),
             entryCostSol = costSol, openedQtyRaw = qtyRaw, tokenDecimals = decimals,
-            feesSol = feeSol, paperMode = false, modeOverride = "paper", quantityScale = quantityScale)
+            feesSol = feeSol, paperMode = false, modeOverride = "paper", quantityScale = quantityScale,
+            entryPriceUsd = entryPriceUsd, entryPriceSource = entryPriceSource,
+            entryPoolAddress = entryPoolAddress, entryDex = entryDex,
+            assetClass = assetClass)
         if (opened != CanonicalPositionAuthority6441.MutateResult.APPLIED) {
             PaperAccountLedger6430.rollbackBuy(costSol, feeSol, "PAPER6486_OPEN_$opened")
             return@withLock Result(false, positionId, "POSITION_$opened")

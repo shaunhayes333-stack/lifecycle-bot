@@ -2082,6 +2082,10 @@ object CryptoAltTrader {
                 positionId = position.id, mint = position.canonicalAssetKey, symbol = mktSym,
                 lane = if (isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV", source = "CryptoAltTrader",
                 costSol = finalSize, entryScore = signal.score, tactic = if (isSpot) "SPOT" else "LEVERAGE",
+                // V5.0.6525 §ASSET_CLASS + §ENTRY_PRICE.
+                assetClass = com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT,
+                entryPriceUsd = signal.price,
+                entryPriceSource = "CryptoAltTrader/signal.price",
             )
             if (!canonicalOpen6486.applied) {
                 ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: $mktSym ${canonicalOpen6486.reason}")

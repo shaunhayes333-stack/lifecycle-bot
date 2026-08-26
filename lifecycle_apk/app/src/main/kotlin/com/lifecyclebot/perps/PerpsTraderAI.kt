@@ -778,6 +778,10 @@ object PerpsTraderAI {
                 positionId = position.id, mint = market.symbol, symbol = market.symbol,
                 lane = "PERPS_SYNTHETIC", source = "PerpsTraderAI",
                 costSol = sizeSol, entryScore = signal.score, tactic = direction.name,
+                // V5.0.6525 §ASSET_CLASS + §ENTRY_PRICE.
+                assetClass = com.lifecyclebot.engine.truth.AssetClass.PERPS,
+                entryPriceUsd = signal.price,
+                entryPriceSource = "PerpsTraderAI/signal.price",
             )
             if (!canonicalOpen6486.applied) {
                 ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: ${market.symbol} ${canonicalOpen6486.reason}")

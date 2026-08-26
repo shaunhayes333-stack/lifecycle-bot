@@ -664,6 +664,10 @@ object MetalsTrader {
                 lane = "METALS", source = "MetalsTrader",
                 costSol = positionSizeSol, feeSol = positionSizeSol * (if (signal.leverage == 1.0) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT),
                 entryScore = signal.score.toInt(),
+                // V5.0.6525 §ASSET_CLASS + §ENTRY_PRICE.
+                assetClass = com.lifecyclebot.engine.truth.AssetClass.METAL,
+                entryPriceUsd = signal.price,
+                entryPriceSource = "MetalsTrader/signal.price",
             )
             if (!canonicalOpen6486.applied) {
                 ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: ${position.market.symbol} ${canonicalOpen6486.reason}")

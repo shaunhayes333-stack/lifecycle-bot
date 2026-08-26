@@ -663,6 +663,10 @@ object CommoditiesTrader {
                 lane = "COMMODITIES", source = "CommoditiesTrader",
                 costSol = positionSizeSol, feeSol = positionSizeSol * (if (signal.tradeType == TradeType.SPOT) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT),
                 entryScore = signal.score.toInt(),
+                // V5.0.6525 §ASSET_CLASS + §ENTRY_PRICE.
+                assetClass = com.lifecyclebot.engine.truth.AssetClass.COMMODITY,
+                entryPriceUsd = signal.price,
+                entryPriceSource = "CommoditiesTrader/signal.price",
             )
             if (!canonicalOpen6486.applied) {
                 ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: ${position.market.symbol} ${canonicalOpen6486.reason}")
