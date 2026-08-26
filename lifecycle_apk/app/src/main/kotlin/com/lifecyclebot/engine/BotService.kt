@@ -500,6 +500,27 @@ class BotService : Service() {
             return BackgroundRuntimeHealth6487(runtimeActive, loopActive, foregroundActive, authorityActive, progressAge, phase, healthy)
         }
 
+        fun backgroundLivenessSnapshot6544(): String {
+            val svc = instance ?: return "background service=ABSENT"
+            return try {
+                val pm = svc.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                val interactive = pm?.isInteractive ?: true
+                val idle = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) pm?.isDeviceIdleMode ?: false else false
+                val whitelisted = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) pm?.isIgnoringBatteryOptimizations(svc.packageName) ?: false else true
+                val am = svc.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+                val usm = svc.getSystemService(Context.USAGE_STATS_SERVICE) as? android.app.usage.UsageStatsManager
+                val standby = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) usm?.appStandbyBucket ?: -1 else -1
+                val restricted = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) am?.isBackgroundRestricted ?: false else false
+                val uiVisible = try { com.lifecyclebot.AATEApp.isAnyActivityVisible6487() } catch (_: Throwable) { false }
+                val wakeHeld = try { svc.wakeLock?.isHeld == true } catch (_: Throwable) { false }
+                val wifiHeld = try { svc.wifiLock6032?.isHeld == true } catch (_: Throwable) { false }
+                "screenInteractive=$interactive uiVisible=$uiVisible batteryOptWhitelisted=$whitelisted " +
+                    "deviceIdle=$idle standbyBucket=$standby backgroundRestricted=$restricted " +
+                    "foregroundService=${svc.serviceForegroundActive6487} wakeLockHeld=$wakeHeld wifiLockHeld=$wifiHeld " +
+                    "botLoopActive=${svc.loopJob?.isActive == true} phase=${svc.currentPhase} progressAgeMs=${backgroundRuntimeHealth6487().progressAgeMs}"
+            } catch (_: Throwable) { "background liveness=UNAVAILABLE" }
+        }
+
         fun isBackgroundRuntimeHealthy6487(): Boolean = backgroundRuntimeHealth6487().healthy
 
         // V5.0.6517 — UI-visible command truth. A queued Start is not a running
@@ -2933,14 +2954,17 @@ class BotService : Service() {
                         // For the ceiling to fire, all 12 of those refreshes
                         // would have to fail to register, which means the
                         // supervisor coroutine itself is dead (not just slow).
-                        phaseIsActive && progressGapMs >= 120_000L -> {
+                        // V5.0.6544 — Job.isActive is not proof of liveness. A
+                        // running coroutine with no phase beacon for 120s is a
+                        // stalled worker regardless of its current phase.
+                        progressGapMs >= 120_000L -> {
                             ErrorLogger.warn(
                                 "BotService",
                                 "🩺 LOOP_HEARTBEAT(alarm): FORCED RESCUE — progress stalled ${progressGapMs / 1000}s in active phase=$phase (past 2-min ceiling, V5.9.936 with 10s inner ticker)"
                             )
                             ForensicLogger.lifecycle(
-                                "HEARTBEAT_RESCUE_ACTIVE_PHASE_TIMEOUT",
-                                "progressGapSec=${progressGapMs / 1000} phase=$phase ceilingMs=120000"
+                                "HEARTBEAT_RESCUE_PROGRESS_TIMEOUT_6544",
+                                "progressGapSec=${progressGapMs / 1000} phase=$phase activePhase=$phaseIsActive ceilingMs=120000"
                             )
                             // V5.9.935 — track consecutive same-phase rescues.
                             // If we rescue twice in <120s on the same phase, the
@@ -12954,34 +12978,29 @@ class BotService : Service() {
             // Firing the prompt at 45s (vs 90s) surfaces the issue after
             // the FIRST meaningful stall instead of waiting for a two-tick
             // freeze. Cycles this long are already broken by definition.
-            if (prevCycleMs > 45_000L && loopCount > 1) {
-                try {
-                    ForensicLogger.lifecycle(
-                        "DOZE_DORMANCY_RECOVERED",
-                        "gapSec=${prevCycleMs / 1000} loop=$loopCount — device was suspended (deep Doze); waking + re-arming heartbeat",
-                    )
-                } catch (_: Throwable) {}
-                try { addLog("⏰ Woke from ${prevCycleMs / 60000}min Doze suspension — resuming. Whitelist battery for 24/7.") } catch (_: Throwable) {}
-                // Re-arm the heartbeat right now so the next gap is bounded.
+            val dozeEvidence6544 = try {
+                val pmChk = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                val interactive = pmChk?.isInteractive ?: true
+                val idle = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) pmChk?.isDeviceIdleMode ?: false else false
+                val whitelisted = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) pmChk?.isIgnoringBatteryOptimizations(packageName) ?: true else true
+                !interactive && !com.lifecyclebot.AATEApp.isAnyActivityVisible6487() && (idle || !whitelisted)
+            } catch (_: Throwable) { false }
+            if (prevCycleMs > 45_000L && loopCount > 1 && dozeEvidence6544) {
+                try { ForensicLogger.lifecycle("DOZE_DORMANCY_RECOVERED", "gapSec=${prevCycleMs / 1000} loop=$loopCount evidence=screen_off_ui_absent_idle_or_unwhitelisted") } catch (_: Throwable) {}
+                try { addLog("⏰ Recovered from evidence-backed Doze/background gap=${prevCycleMs / 60000}min; resuming.") } catch (_: Throwable) {}
                 try { scheduleLoopHeartbeatAlarm() } catch (_: Throwable) {}
-                // The real fix: ensure the OS exemption is in place. Re-prompt if
-                // the device keeps Doze-suspending us (whitelisted check is cheap;
-                // checkAndPromptBatteryOptimisation self-limits the dialog to once
-                // per process via battery_opt_prompted_session).
                 try {
                     val pmChk = getSystemService(Context.POWER_SERVICE) as? PowerManager
                     val whitelisted = pmChk?.isIgnoringBatteryOptimizations(packageName) ?: true
                     if (!whitelisted) {
                         try { ForensicLogger.lifecycle("DOZE_DORMANCY_NOT_WHITELISTED", "gapSec=${prevCycleMs/1000} reprompting=true") } catch (_: Throwable) {}
-                        // Clear the once-per-session latch so the dialog can re-fire
-                        // after a genuine overnight dormancy event (not just on boot).
-                        try {
-                            getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
-                                .edit().putBoolean("battery_opt_prompted_session", false).apply()
-                        } catch (_: Throwable) {}
+                        try { getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE).edit().putBoolean("battery_opt_prompted_session", false).apply() } catch (_: Throwable) {}
                         try { checkAndPromptBatteryOptimisation() } catch (_: Throwable) {}
                     }
                 } catch (_: Throwable) {}
+            } else if (prevCycleMs > 45_000L && loopCount > 1) {
+                try { ForensicLogger.lifecycle("LONG_CYCLE_NOT_DOZE_6544", "gapSec=${prevCycleMs / 1000} screen_or_ui_evidence_absent=false action=diagnose_pipeline_stall") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("LONG_CYCLE_NOT_DOZE_6544") } catch (_: Throwable) {}
             }
             // V5.0.4175 — CYCLE OVERRUN ALARM (Fix D, partner to scan-batch cut).
             // Field 4175 log: cycle 17–48s (avg 7288ms, max 48693ms) with 22
@@ -13074,6 +13093,7 @@ class BotService : Service() {
         // V5.0.6437 — slow-cycle diagnostic. Passive telemetry that
         // attributes wall-clock time to phases so slow cycles show
         // exactly which block wedged. Zero happy-path cost.
+        try { PipelineHealthCollector.recordBackgroundProgress6544(phase) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.truth.SlowCycleDiagnostic6437.notePhase(phase) } catch (_: Throwable) {}
     }
 

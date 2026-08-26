@@ -19999,7 +19999,10 @@ class Executor(
             // This commits cash credit + openCost release + typed economic SELL +
             // finalized bus before any successful journal projection can be written.
             val soldQtyRaw6474 = terminalRemainingRaw6492
-            val sellGeneration6474 = tradeId.tradeId
+            // V5.0.6544 — runtime restarts must not invalidate a legitimate
+            // canonical position. Generation is the immutable openedAtMs carried
+            // by the canonical position, never the external TradeId.
+            val sellGeneration6474 = canonicalTerminalPosition6492.openedAtMs
             val pid6474 = terminalPid6455
             val terminalId6474 = "paper_full_${pid6474}_${sellGeneration6474}"
             val close6474 = com.lifecyclebot.engine.truth.CanonicalPaperTerminalBridge6469.finalizeSell(

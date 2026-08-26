@@ -365,7 +365,10 @@ object CryptoAltTrader {
         val dynSymbol   : String? = null,
         val dynName     : String? = null,
         val dynEmoji    : String  = "🪙",
-        val dynMint     : String? = null
+        val dynMint     : String? = null,
+        // V5.0.6544 — raw adapter address is separate from the chain-aware key.
+        val dynChainId  : String? = null,
+        val dynAssetKey  : String? = null
     ) {
         /** Real coin symbol — dynamic value when present, else the enum symbol. */
         val marketSymbol: String get() = dynSymbol ?: market.symbol
@@ -674,7 +677,9 @@ object CryptoAltTrader {
             return@withContext
         }
         ensureActive()
-        val allTokens = DynamicAltTokenRegistry.getAllTokens(DynamicAltTokenRegistry.SortMode.QUALITY)
+        // V5.0.6544 — blended fresh/trending/changed/established queue.
+        // Static membership is a weak tie-breaker, never a blanket priority.
+        val allTokens = DynamicAltTokenRegistry.getBlendedOpportunityQueue6544()
         if (allTokens.isEmpty()) return@withContext
 
         val totalBatches = maxOf(1, (allTokens.size + DYN_BATCH_SIZE - 1) / DYN_BATCH_SIZE)
@@ -705,12 +710,14 @@ object CryptoAltTrader {
                 // the token is genuinely unresolvable.
                 var priceNow = tok.price
                 if (priceNow <= 0.0) {
-                    priceNow = DynamicAltTokenRegistry.refreshPriceForMintBlocking(tok.mint)
+                    priceNow = DynamicAltTokenRegistry.refreshPriceForMintBlocking(tok.canonicalIdentity6544)
                     if (priceNow <= 0.0) continue
                 }
                 val price   = priceNow
                 // Re-read the freshly hydrated row so downstream fields are current.
-                val refreshed = DynamicAltTokenRegistry.getTokenByMint(tok.mint) ?: tok
+                val refreshed = DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(tok.canonicalIdentity6544)
+                    ?: DynamicAltTokenRegistry.getTokenByMint(tok.mint) ?: tok
+                DynamicAltTokenRegistry.markEvaluation6544(refreshed)
                 val vol     = refreshed.volume24h
                 val mcap = if (refreshed.hasTrustedMarketCap6492) refreshed.mcap else {
                     if (refreshed.mcap > 0.0) try {
@@ -790,7 +797,9 @@ object CryptoAltTrader {
                                         layerVotes = emptyMap(),
                                         dynSymbol = tok.symbol,
                                         dynName   = tok.name,
-                                        dynMint   = tok.mint
+                                        dynMint   = tok.mint,
+                                        dynChainId = tok.chainId,
+                                        dynAssetKey = tok.canonicalIdentity6544
                                     ))
                                 }
                             }
@@ -832,7 +841,9 @@ object CryptoAltTrader {
                                         layerVotes = emptyMap(),
                                         dynSymbol = tok.symbol,
                                         dynName   = tok.name,
-                                        dynMint   = tok.mint
+                                        dynMint   = tok.mint,
+                                        dynChainId = tok.chainId,
+                                        dynAssetKey = tok.canonicalIdentity6544
                                     ))
                                 }
                             }
@@ -896,7 +907,9 @@ object CryptoAltTrader {
                                     layerVotes = emptyMap(),
                                     dynSymbol = tok.symbol,
                                     dynName   = tok.name,
-                                    dynMint   = tok.mint
+                                    dynMint   = tok.mint,
+                                    dynChainId = tok.chainId,
+                                    dynAssetKey = tok.canonicalIdentity6544
                                 ))
                             }
                         } catch (_: Exception) {}
@@ -1672,7 +1685,8 @@ object CryptoAltTrader {
 
     private fun exactAssetMetrics6493(signal: AltSignal): ExactAssetMetrics6493 {
         val identity = cryptoAssetKey(signal, isSpot = true)
-        val tok = DynamicAltTokenRegistry.getTokenByMint(identity)
+        val tok = DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(identity)
+            ?: DynamicAltTokenRegistry.getTokenByMint(identity)
             ?: return ExactAssetMetrics6493(0.0, 0.0, "", 0.0, 0.0, false)
         val trustedMcap = tok.mcap.takeIf { tok.hasTrustedMarketCap6492 && it.isFinite() && it > 0.0 } ?: 0.0
         return ExactAssetMetrics6493(
@@ -1716,6 +1730,7 @@ object CryptoAltTrader {
     }
 
     private fun cryptoAssetKey(signal: AltSignal, isSpot: Boolean): String {
+        signal.dynAssetKey?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
         signal.dynMint?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
         if (!isSpot) return "perps:${signal.market.name}"
         return com.lifecyclebot.perps.crypto.CryptoWrappedAssetMapper.resolveWrappedMint(signal.marketSymbol)
@@ -1756,7 +1771,9 @@ object CryptoAltTrader {
         val walletSol = try { WalletManager.getWallet()?.getSolBalance() ?: getEffectiveBalance() } catch (_: Throwable) { getEffectiveBalance() }
         val route = try { CryptoUniverseRouteResolver.resolve(
             signal.market, walletSol, finalSize,
-            assetSymbol6493 = signal.marketSymbol, targetMint6493 = signal.dynMint,
+            assetSymbol6493 = signal.marketSymbol,
+            targetMint6493 = signal.dynMint,
+            targetChainId6544 = signal.dynChainId,
         ) } catch (_: Throwable) { null }
         val hardNo = mutableListOf<String>()
         val soft = mutableListOf<String>()
@@ -1814,6 +1831,11 @@ object CryptoAltTrader {
             route?.executable == true -> "CRYPTO_UNIVERSE_EXECUTOR"
             else -> "DEFERRED_ROUTE"
         }
+        DynamicAltTokenRegistry.markFdgReach6544(
+            DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(cryptoAssetKey(signal, effectiveIsSpot6536)),
+            liveRoutable = route?.executable == true,
+            paperOnlyNoRoute = route?.route == com.lifecyclebot.perps.crypto.CryptoExecutionRoute.PAPER_ONLY,
+        )
         return CryptoFinalBuyCandidate(
             assetKey = cryptoAssetKey(signal, effectiveIsSpot6536),
             symbol = symbol,
@@ -2400,6 +2422,7 @@ object CryptoAltTrader {
                 traderType = "CryptoAlt",
                 assetSymbol6493 = signal.marketSymbol,
                 targetMint6493 = signal.dynMint,
+                targetChainId6544 = signal.dynChainId,
             )
             when (outcome) {
                 is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.Executed -> {

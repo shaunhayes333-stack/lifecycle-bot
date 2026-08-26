@@ -8110,7 +8110,8 @@ class GoldenTapeRegressionTest {
         assertTrue("6493 scorer entry/close keys must accept canonical asset identity",
             scorer.contains("canonicalAssetId6493") && scorer.contains("?: makeMintKey(assetClass, symbol)"))
         assertTrue("6493 Dex data must require exact requested base mint before copying token economics",
-            dex.contains("if (baseAddress != mint)") && dex.contains("blank, quote-side, or different-token rows"))
+            dex.contains("baseAddress.equals(tokenAddress, ignoreCase = chainId != " + '"' + "solana" + '"' + ")") &&
+                dex.contains("val baseAddress = row.optJSONObject(" + '"' + "baseToken" + '"' + ")?.optString(" + '"' + "address" + '"' + ", " + '"' + '"' + ")"))
         assertTrue("6493 dynamic AI and candidate economics must be address keyed with explicit provenance",
             trader.contains("ShitCoinTraderAI.hasPosition(tok.mint)") &&
                 trader.contains("mint              = tok.mint") &&
@@ -8548,6 +8549,56 @@ class GoldenTapeRegressionTest {
         assertTrue(plan.contains("paperLearnEverything6533") && bot.contains("publish(plan6526.enabledTraderSet())"))
         assertTrue(report.contains("EXECUTION AUTHORITY INVARIANTS 6533") &&
             report.contains("NON_SOLANA_TOKENMAP_HARDNO") && report.contains("EXECUTABLE_FANOUT_PER_CANDIDATE_GT_2"))
+    }
+
+
+    @Test
+    fun V5_0_6544_existing_authorities_prove_multichain_discovery_without_parallel_architecture() {
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/perps/DynamicAltTokenRegistry.kt").readText()
+        val dex = java.io.File("src/main/kotlin/com/lifecyclebot/network/DexscreenerApi.kt").readText()
+        val resolver = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseRouteResolver.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseExecutor.kt").readText()
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val commodities = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CommoditiesTrader.kt").readText()
+        val markets = java.io.File("src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt").readText()
+        val tokenized = java.io.File("src/main/kotlin/com/lifecyclebot/perps/TokenizedAssetRegistry.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val paperExecutor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        assertEquals("base|0xabc", com.lifecyclebot.perps.DynamicAltTokenRegistry.canonicalIdentity6544("base", "0xabc"))
+        assertEquals("unknown|0xabc", com.lifecyclebot.perps.DynamicAltTokenRegistry.canonicalIdentity6544("", "0xabc"))
+        assertTrue(registry.contains("val chainId: String = " + '"' + '"') &&
+            registry.contains("val canonicalIdentity6544") && registry.contains("val tokenAddress: String = mint"))
+        assertTrue(dex.contains("val chainId: String") && dex.contains("val dexId: String") &&
+            dex.contains("val tokenAddress: String") && dex.contains("val quoteAddress: String") &&
+            dex.contains("val pairCreatedAt: Long") && dex.contains("token-pairs/v1/" + '$' + "{encode(chainId)}/" + '$' + "{encode(tokenAddress)}"))
+        assertFalse(registry.contains("if (pair.chainId != " + '"' + "solana" + '"' + ") continue"))
+        assertTrue(registry.contains("fetchGeckoPools6544") && registry.contains("HealthAwareHttp.execute(http, req, host)") &&
+            registry.contains("FRESH_DISCOVERY_MS_6544") && registry.contains("ACTIVE_DISCOVERY_MS_6544") &&
+            registry.contains("getBlendedOpportunityQueue6544"))
+        assertTrue(resolver.contains("nonSolanaExplicit6544") && resolver.contains("targetChainId6544"))
+        assertTrue(executor.contains("targetChainId6544 = targetChainId6544"))
+        assertTrue(crypto.contains("getBlendedOpportunityQueue6544()") && crypto.contains("dynAssetKey") &&
+            crypto.contains("targetChainId6544 = signal.dynChainId"))
+        assertTrue(commodities.contains("val commodityMarkets = PerpsMarket.values().filter { it.isCommodity }") &&
+            commodities.contains("MarketsLiveExecutor.executeLiveTradeProof6486"))
+        assertTrue(markets.contains("executeLiveTradeProof6486") && tokenized.contains("hasRealRoute"))
+        assertTrue(bot.contains("backgroundLivenessSnapshot6544") && bot.contains("recordBackgroundProgress6544") &&
+            bot.contains("dozeEvidence6544") && bot.contains("HEARTBEAT_RESCUE_PROGRESS_TIMEOUT_6544") &&
+            bot.contains("LONG_CYCLE_NOT_DOZE_6544") && bot.contains("batteryOptWhitelisted="))
+        assertTrue(paperExecutor.contains("val sellGeneration6474 = canonicalTerminalPosition6492.openedAtMs") &&
+            !paperExecutor.contains("val sellGeneration6474 = tradeId.tradeId"))
+        assertTrue(report.contains("Background Runtime Progress (V5.0.6544)") &&
+            report.contains("BG_BOT_LOOP_TICK") && report.contains("BG_SCAN_CB") && report.contains("BG_INTAKE") &&
+            report.contains("BG_FDG") && report.contains("BG_EXIT"))
+        assertTrue(report.contains("Crypto Universe Discovery (V5.0.6544)"))
+        assertTrue(registry.contains("networks observed=") && registry.contains("DEXes observed=") &&
+            registry.contains("fresh pools discovered=") && registry.contains("unique chain+token identities=") &&
+            registry.contains("discoveries by chain=") && registry.contains("pool cohorts <5m=") &&
+            registry.contains("fresh reaching CryptoBrain=") && registry.contains("fresh reaching V3/FDG=") &&
+            registry.contains("paper-only unavailable live route=") && registry.contains("live-routable candidates=") &&
+            registry.contains("static-vs-dynamic evaluation share="))
     }
 
 }

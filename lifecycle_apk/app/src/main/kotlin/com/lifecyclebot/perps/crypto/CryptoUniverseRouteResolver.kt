@@ -53,6 +53,7 @@ object CryptoUniverseRouteResolver {
         sizeSol: Double,
         assetSymbol6493: String? = null,
         targetMint6493: String? = null,
+        targetChainId6544: String? = null,
     ): Resolution {
         val cfg = CryptoUniverseConfigStore.get()
         val sym = assetSymbol6493?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: market.symbol.uppercase()
@@ -81,7 +82,14 @@ object CryptoUniverseRouteResolver {
         // app's SOL/USDC bridge rail and can trade any crypto token that has a
         // real Solana mint and a Jupiter route.
         val explicitIdentity6493 = !targetMint6493.isNullOrBlank()
-        val resolvedMint = if (explicitIdentity6493) {
+        val explicitChain6544 = targetChainId6544?.trim()?.lowercase().orEmpty()
+        val nonSolanaExplicit6544 = explicitChain6544.isNotBlank() && explicitChain6544 != "solana"
+        // A non-Solana dynamic candidate must never fall through to a same-symbol
+        // Solana wrapped mint. Discovery/paper remain valid; live route proof stays
+        // honest and is resolved by the configured bridge/CEX adapters only.
+        val resolvedMint = if (nonSolanaExplicit6544) {
+            null
+        } else if (explicitIdentity6493) {
             targetMint6493
                 ?.takeIf { !it.startsWith("cg:") && !it.startsWith("static:") }
                 ?.takeIf { com.lifecyclebot.engine.execution.MintIntegrityGate.isLikelyMint(it) }

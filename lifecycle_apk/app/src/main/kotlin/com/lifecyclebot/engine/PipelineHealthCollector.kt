@@ -86,6 +86,9 @@ object PipelineHealthCollector {
     private val laneEvalSuppressedCounts = ConcurrentHashMap<String, AtomicLong>()
     private val fdgPathCounts = ConcurrentHashMap<String, AtomicLong>()
     private val fdgSuppressedPathCounts = ConcurrentHashMap<String, AtomicLong>()
+    // V5.0.6544 — background progress is independent of Job.isActive/UI state.
+    private val backgroundProgressCounts6544 = ConcurrentHashMap<String, AtomicLong>()
+    private val backgroundProgressLastMs6544 = ConcurrentHashMap<String, AtomicLong>()
 
     /** V5.9.915 — block-reason histogram across all gate types (top key on dump). */
     private val blockReasonCounts = ConcurrentHashMap<String, AtomicLong>()
@@ -353,6 +356,20 @@ object PipelineHealthCollector {
             "LIVE" -> "LIVE_BROADCAST"
             else -> ""
         }
+    }
+
+    fun recordBackgroundProgress6544(phase: String, nowMs: Long = System.currentTimeMillis()) {
+        if (!attached) return
+        val key = when (phase.substringBefore('/')) {
+            "BOT_LOOP_TICK", "BOTLOOP_BOOT", "ENTER" -> "BG_BOT_LOOP_TICK"
+            "SCAN_CB" -> "BG_SCAN_CB"
+            "INTAKE" -> "BG_INTAKE"
+            "FDG" -> "BG_FDG"
+            "EXIT", "EXIT_SWEEP", "CYCLE_EXIT" -> "BG_EXIT"
+            else -> return
+        }
+        bump(backgroundProgressCounts6544, key)
+        backgroundProgressLastMs6544.computeIfAbsent(key) { AtomicLong(0L) }.set(nowMs)
     }
 
     fun onPhase(phaseTag: String, symbol: String, fields: String) {
@@ -2663,6 +2680,25 @@ object PipelineHealthCollector {
               .append(com.lifecyclebot.engine.truth.AdvisorIntegrityHold6466.statusLine()).append("\n")
         } catch (_: Throwable) {}
 
+        // V5.0.6544 — independent multichain discovery evidence. This is a
+        // projection of DynamicAltTokenRegistry, never a second source of truth.
+        try {
+            sb.append("\n===== Crypto Universe Discovery (V5.0.6544) =====\n")
+            sb.append(com.lifecyclebot.perps.DynamicAltTokenRegistry.discoveryReport6544()).append("\n")
+        } catch (_: Throwable) {}
+
+        try {
+            sb.append("\n===== Background Runtime Progress (V5.0.6544) =====\n")
+            val now6544 = System.currentTimeMillis()
+            listOf("BG_BOT_LOOP_TICK", "BG_SCAN_CB", "BG_INTAKE", "BG_FDG", "BG_EXIT").forEach { key ->
+                val count = backgroundProgressCounts6544[key]?.get() ?: 0L
+                val last = backgroundProgressLastMs6544[key]?.get() ?: 0L
+                val age = if (last > 0L) (now6544 - last).coerceAtLeast(0L) else Long.MAX_VALUE
+                sb.append("  ").append(key).append("=").append(count).append(" lastAgeMs=").append(age).append("\n")
+            }
+            sb.append(com.lifecyclebot.engine.BotService.backgroundLivenessSnapshot6544()).append("\n")
+        } catch (_: Throwable) {}
+
         return sb.toString()
     }
 
@@ -2679,6 +2715,8 @@ object PipelineHealthCollector {
         laneEvalSuppressedCounts.clear()
         fdgPathCounts.clear()
         fdgSuppressedPathCounts.clear()
+        backgroundProgressCounts6544.clear()
+        backgroundProgressLastMs6544.clear()
         blockReasonCounts.clear()
         v3RejectReasonCounts.clear()
         symbolIntakeCounts.clear()

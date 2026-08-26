@@ -17,8 +17,14 @@ data class PairInfo(
     val pairCreatedAtMs: Long = 0L,   // epoch ms when pair was created
     val liquidity: Double = 0.0,       // USD liquidity
     val fdv: Double = 0.0,             // fully diluted valuation
-    val baseTokenAddress: String = "", // base token mint address (Solana)
-    val quoteTokenAddress: String = "", // quote token mint; required for canonical orientation
+    val baseTokenAddress: String = "", // compatibility alias; use tokenAddress for multichain identity
+    val quoteTokenAddress: String = "", // compatibility alias; use quoteAddress for multichain identity
+    // V5.0.6544 — preserve provider-native multichain pair identity end-to-end.
+    val chainId: String = "",
+    val dexId: String = "",
+    val tokenAddress: String = baseTokenAddress,
+    val quoteAddress: String = quoteTokenAddress,
+    val pairCreatedAt: Long = pairCreatedAtMs,
     // V5.9.911 — SOCIAL SIGNAL HARVEST. DexScreener already returns these in
     // info.socials / info.websites on every token-pairs response — they were
     // being dropped at parse time (memory #87 #1 "dropped signal = dropped
@@ -58,80 +64,63 @@ class DexscreenerApi {
     private val CACHE_TTL_MS = 45_000L  // 45 seconds cache (was 15) - reduce API calls
 
     /** Returns the best-scoring pair for this mint on Solana, or null. */
-    fun getBestPair(mint: String): PairInfo? {
-        // Check cache first - ALWAYS use cache if available and not too old
-        val cached = pairCache[mint]
+    fun getBestPair(mint: String): PairInfo? = getBestPairInternal("solana", mint, allowDexPaprika = true)
+
+    /**
+     * V5.0.6544 — chain-aware DexScreener hydration for Crypto Universe.
+     * This does not change MemeTrader's Solana-specialized getBestPair(mint).
+     */
+    fun getBestPair(chainId: String, tokenAddress: String): PairInfo? {
+        val chain = chainId.trim().lowercase()
+        if (chain.isBlank() || tokenAddress.isBlank()) return null
+        return getBestPairInternal(chain, tokenAddress.trim(), allowDexPaprika = chain == "solana")
+    }
+
+    private fun getBestPairInternal(chainId: String, tokenAddress: String, allowDexPaprika: Boolean): PairInfo? {
+        val cacheKey = "$chainId|$tokenAddress"
+        val cached = pairCache[cacheKey]
         val now = System.currentTimeMillis()
-        
-        // Use cache if fresh (45 seconds)
-        if (cached != null && now - cached.timestamp < CACHE_TTL_MS) {
-            return cached.pair
-        }
-        
-        // V5.0.6512 — DexPaprika is the primary keyless Solana token market-data
-        // source. DexScreener remains optional pair/social enrichment. A token-level
-        // response deliberately carries blank pairAddress so it can never fabricate
-        // executable route proof or pool identity.
-        if (RateLimiter.allowRequest("dexpaprika")) {
-            val paprika = fetchDexPaprikaToken6512(mint)
+        if (cached != null && now - cached.timestamp < CACHE_TTL_MS) return cached.pair
+
+        // DexPaprika token hydration is explicitly Solana-only. Never project it
+        // onto Base/ETH/BSC/etc identities.
+        if (allowDexPaprika && RateLimiter.allowRequest("dexpaprika")) {
+            val paprika = fetchDexPaprikaToken6512(tokenAddress)
             if (paprika != null) {
-                pairCache[mint] = CachedPair(paprika, now)
+                pairCache[cacheKey] = CachedPair(paprika, now)
                 return paprika
             }
         }
 
-        // Use stale cache if rate limited (up to 2 minutes old)
         if (cached != null && now - cached.timestamp < CACHE_TTL_MS * 3) {
-            if (!RateLimiter.allowRequest("dexscreener")) {
-                // Silently return stale cache - don't log rate limit spam
-                return cached.pair
-            }
-        } else if (!RateLimiter.allowRequest("dexscreener")) {
-            // No cache and rate limited - just return null silently
-            return null
-        }
-        
-        val url = "https://api.dexscreener.com/token-pairs/v1/solana/$mint"
+            if (!RateLimiter.allowRequest("dexscreener")) return cached.pair
+        } else if (!RateLimiter.allowRequest("dexscreener")) return null
+
+        val url = "https://api.dexscreener.com/token-pairs/v1/${encode(chainId)}/${encode(tokenAddress)}"
         val body = get(url) ?: run {
-            // Cache null result to avoid hammering API
-            pairCache[mint] = CachedPair(null, System.currentTimeMillis())
+            pairCache[cacheKey] = CachedPair(null, System.currentTimeMillis())
             return null
         }
         val pairs = JSONArray(body)
         if (pairs.length() == 0) {
-            pairCache[mint] = CachedPair(null, System.currentTimeMillis())
+            pairCache[cacheKey] = CachedPair(null, System.currentTimeMillis())
             return null
         }
-
-        // Score each pair by liquidity + volume + tx count.
-        // CRITICAL: Only consider pairs where the requested mint is the BASE token.
-        // DexScreener can return pairs where the meme token is the QUOTE (e.g., SOL/MEME).
-        // In those pairs, priceUsd is the SOL price (~$150) not the meme token price,
-        // which causes massive price data pollution in the token state.
         var best: JSONObject? = null
         var bestScore = -1.0
         for (i in 0 until pairs.length()) {
-            val p = pairs.getJSONObject(i)
-            val baseAddress = p.optJSONObject("baseToken")?.optString("address", "") ?: ""
-            if (baseAddress != mint) {
-                // V5.0.6493 — blank, quote-side, or different-token rows are non-authorizing.
-                // Never copy their price/cap/FDV/liquidity/volume onto the requested mint.
-                continue
-            }
-            val score = scorePair(p)
-            if (score > bestScore) { bestScore = score; best = p }
+            val row = pairs.getJSONObject(i)
+            val baseAddress = row.optJSONObject("baseToken")?.optString("address", "") ?: ""
+            if (!baseAddress.equals(tokenAddress, ignoreCase = chainId != "solana")) continue
+            val score = scorePair(row)
+            if (score > bestScore) { bestScore = score; best = row }
         }
         val result = best?.let { parsePair(it) }
-        
-        // Cache the result
-        pairCache[mint] = CachedPair(result, System.currentTimeMillis())
-        
-        // Clean up old cache entries periodically
-        if (pairCache.size > 200) {
-            val now = System.currentTimeMillis()
-            pairCache.entries.removeIf { now - it.value.timestamp > CACHE_TTL_MS * 4 }
+        pairCache[cacheKey] = CachedPair(result, System.currentTimeMillis())
+        if (pairCache.size > 400) {
+            val cutoffNow = System.currentTimeMillis()
+            pairCache.entries.removeIf { cutoffNow - it.value.timestamp > CACHE_TTL_MS * 4 }
         }
-        
         return result
     }
 
@@ -179,6 +168,9 @@ class DexscreenerApi {
                 fdv = summary.optDouble("fdv", 0.0),
                 baseTokenAddress = mint,
                 quoteTokenAddress = "USD",
+                chainId = "solana", dexId = "dexpaprika",
+                tokenAddress = mint, quoteAddress = "USD",
+                pairCreatedAt = try { java.time.Instant.parse(json.optString("added_at", "")).toEpochMilli() } catch (_: Throwable) { 0L },
             )
         } catch (_: Throwable) { null }
     }
@@ -252,6 +244,11 @@ class DexscreenerApi {
             fdv              = p.optDouble("fdv", 0.0),
             baseTokenAddress = base?.optString("address", "") ?: "",
             quoteTokenAddress = quote?.optString("address", "") ?: "",
+            chainId          = p.optString("chainId", ""),
+            dexId            = p.optString("dexId", ""),
+            tokenAddress     = base?.optString("address", "") ?: "",
+            quoteAddress     = quote?.optString("address", "") ?: "",
+            pairCreatedAt    = p.optLong("pairCreatedAt", 0L),
             socials          = socialsList.toList(),
             websites         = websitesList.toList(),
             hasImage         = imagePresent,

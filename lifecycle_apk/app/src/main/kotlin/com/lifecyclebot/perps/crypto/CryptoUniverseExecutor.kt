@@ -55,6 +55,7 @@ object CryptoUniverseExecutor {
         traderType: String = "CryptoUniverse",
         assetSymbol6493: String? = null,
         targetMint6493: String? = null,
+        targetChainId6544: String? = null,
     ): Outcome = LiveExecutionScope.runAwaited("CU_${assetSymbol6493 ?: market.symbol}_${direction.name}") { job ->
         val symbol = assetSymbol6493?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: market.symbol.uppercase()
         val wallet = try { WalletManager.getWallet() } catch (_: Throwable) { null }
@@ -67,7 +68,7 @@ object CryptoUniverseExecutor {
         }
         val walletSol = try { wallet.getSolBalance() } catch (_: Throwable) { 0.0 }
         val resolution = CryptoUniverseRouteResolver.resolve(
-            market, walletSol, sizeSol, assetSymbol6493 = symbol, targetMint6493 = targetMint6493,
+            market, walletSol, sizeSol, assetSymbol6493 = symbol, targetMint6493 = targetMint6493, targetChainId6544 = targetChainId6544,
         )
         val mint = resolution.mint
 
