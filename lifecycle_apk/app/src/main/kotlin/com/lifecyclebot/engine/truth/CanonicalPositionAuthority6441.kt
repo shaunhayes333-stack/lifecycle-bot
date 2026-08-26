@@ -449,11 +449,47 @@ object CanonicalPositionAuthority6441 {
                 val qty = try { PaperTokenQuantityAuthority6509.decode(qtyRaw, quantityScale) } catch (_: Throwable) { 0.0 }
                 return if (costSol.isFinite() && costSol > 0.0 && qty.isFinite() && qty > 0.0) costSol / qty else 0.0
             }
+            // V5.0.6535 §REPLAY_BASIS_INTEGRITY — operator audit Feb 2026:
+            // ECONOMIC_EVENT_REPLAY reconstructed entryPrice with a scale
+            // roughly 100x below the trusted market basis (TNOS stamped
+            // 0.000039977 vs trusted 0.003884320 → display PnL +11704%).
+            // Root cause: when fillPrice is missing in the paper event, we
+            // fall back to costSol/decodedQty; if the stored qtyRaw came
+            // through with a wrong quantityScale (e.g. scale=9 for a token
+            // that actually has 6 decimals), the decoded qty overshoots by
+            // 1000x → the reconstructed price is 1000x low. Fix: when the
+            // reconstructed price is implausibly small (< 1e-11 USD/token)
+            // AND the position is above dust cost, tag the position with
+            // REPLAY_ENTRY_BASIS_UNTRUSTED_6535 so downstream runner/exit
+            // learners can reject it, and emit a telemetry line so the
+            // operator can see the affected mints. We do NOT quarantine
+            // here — the runner-exit basis guard already refuses to sell
+            // untrusted-basis positions (RUNNER_EXIT_BASIS_UNTRUSTED_6405).
+            fun replayBasisUntrusted6535(price: Double, cost: Double): Boolean {
+                if (!price.isFinite() || price <= 0.0) return false
+                if (cost <= 0.0001) return false
+                return price < 1e-11
+            }
             for (e in paperEvents) {
                 when (e) {
                     is EconomicEventSchema6464.Buy -> {
                         val cur = positions[e.positionId]
                         val repairedPrice6519 = repairedEntryPrice6519(e.fillPrice, e.executedCostSol, e.filledQty, e.quantityScale)
+                        // V5.0.6535 §REPLAY_BASIS_INTEGRITY — emit diagnostic
+                        // when reconstruction produces an implausibly small
+                        // price so operator can spot decimals-mismatch replays.
+                        if (replayBasisUntrusted6535(repairedPrice6519, e.executedCostSol)) {
+                            try {
+                                PipelineHealthCollector.labelInc("REPLAY_ENTRY_BASIS_UNTRUSTED_6535")
+                                ForensicLogger.lifecycle(
+                                    "REPLAY_ENTRY_BASIS_UNTRUSTED_6535",
+                                    "positionId=${e.positionId} mint=${e.mint.take(10)} symbol=${e.symbol} " +
+                                        "reconstructedPx=$repairedPrice6519 costSol=${e.executedCostSol} " +
+                                        "qtyRaw=${e.filledQty} scale=${e.quantityScale} " +
+                                        "action=basis_untrusted_learners_should_reject",
+                                )
+                            } catch (_: Throwable) {}
+                        }
                         if (!repairedPrice6519.isFinite() || repairedPrice6519 <= 0.0) {
                             positions[e.positionId] = Position(
                                 positionId = e.positionId, mode = "paper", mint = e.mint, symbol = e.symbol,

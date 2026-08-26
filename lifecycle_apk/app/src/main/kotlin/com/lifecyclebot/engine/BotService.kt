@@ -11092,10 +11092,38 @@ class BotService : Service() {
         // Pump/Raydium candidates should feed the winning lane cluster instead of
         // starving behind SHITCOIN/EXPRESS/PROJECT/MANIP affinity. STANDARD/CORE/V3
         // are trunk passes elsewhere; this adds affinity only for bounded rescue.
+        // V5.0.6535 §CRYPTO_UNIVERSE_OWNERSHIP_PROVENANCE — operator audit
+        // Feb 2026: COINGECKO_ESTABLISHED / non-Solana crypto sources were
+        // being expanded into meme lanes (QUALITY / MOONSHOT / BLUECHIP)
+        // simply because they crossed the meme-breadth liquidity threshold.
+        // Runtime evidence: GTBTC (src=COINGECKO_ESTABLISHED) got
+        // WATCHLIST_AFFINITY lanes=QUALITY+TREASURY+CASHGEN+BLUECHIP+MOONSHOT
+        // and its CRYPTO_ALT ownership was lost before executable lane
+        // selection. Fix: gate the successful-meme-source-breadth expansion
+        // to actual meme provenance (Pump / Raydium / DEX / Solana on-chain
+        // sources). CRYPTO_ALT candidates keep their own executable universe
+        // via CryptoAltTrader.
+        val srcU6535 = source.uppercase()
+        val isCryptoUniverseSource6535 = srcU6535.contains("COINGECKO_ESTABLISHED") ||
+            srcU6535.contains("CRYPTO_ALT") ||
+            srcU6535.contains("CG_") ||
+            srcU6535.contains("BINANCE") ||
+            srcU6535.contains("COINMARKETCAP")
         val successfulMemeSourceBreadth6016 =
-            liquidityUsd >= 7_500.0 ||
-                marketCapUsd >= 25_000.0 ||
-                tags.contains("DEX") || tags.contains("RAYDIUM") || tags.contains("GECKO") || tags.contains("SMART") || tags.contains("WALLET")
+            !isCryptoUniverseSource6535 && (
+                liquidityUsd >= 7_500.0 ||
+                    marketCapUsd >= 25_000.0 ||
+                    tags.contains("DEX") || tags.contains("RAYDIUM") || tags.contains("GECKO") || tags.contains("SMART") || tags.contains("WALLET")
+            )
+        if (isCryptoUniverseSource6535) {
+            try {
+                PipelineHealthCollector.labelInc("CRYPTO_UNIVERSE_OWNERSHIP_PROVENANCE_6535")
+                ForensicLogger.lifecycle(
+                    "CRYPTO_UNIVERSE_OWNERSHIP_PROVENANCE_6535",
+                    "src=$source action=skip_meme_lane_expansion reason=crypto_alt_owned",
+                )
+            } catch (_: Throwable) {}
+        }
         if (successfulMemeSourceBreadth6016) {
             out += "QUALITY"
             out += "MOONSHOT"
