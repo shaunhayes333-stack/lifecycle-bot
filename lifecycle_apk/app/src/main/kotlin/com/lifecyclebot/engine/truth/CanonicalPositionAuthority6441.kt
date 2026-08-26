@@ -522,9 +522,33 @@ object CanonicalPositionAuthority6441 {
             mutationKeys.entries.removeIf { it.key.startsWith("REPLAY6486:") }
             val paperEvents = source.filter { it.mode == "paper" }.sortedBy { it.atMs }
             fun repairedEntryPrice6519(fillPrice: Double, costSol: Double, qtyRaw: BigInteger, quantityScale: Int): Double {
+                // V5.0.6541 §REPLAY_UNIT_INTEGRITY — operator P0-A: pre-6541
+                // fallback returned `costSol / qty` = SOL/token and stored it
+                // in `entryPriceUsd`, yielding a units-mismatched restored
+                // basis that made reconciled/trustedEntry = replayed × solUsd
+                // (~96.38× per operator screenshot: Sky, BananaCat, HHDiF…,
+                // BATON, Pistacio, RedLeek). Now: if the durable fill has a
+                // recorded USD/token price we USE IT; otherwise we return
+                // 0.0 so the caller QUARANTINES the position instead of
+                // silently reconstructing a wrong-currency basis. Never
+                // return SOL/token in a USD/token field.
                 if (fillPrice.isFinite() && fillPrice > 0.0) return fillPrice
+                return 0.0
+            }
+            // V5.0.6541 §UNIT_PLAUSIBILITY — before we trust a durable
+            // fillPrice as USD/token, cross-check it with the accompanying
+            // (costSol, qty) — an authentically USD/token price should yield
+            // an implied SOL/USD in the physical band [5, 10000]. If it
+            // collapses to ~1 we know the durable value was actually
+            // SOL/token (pre-V5.0.6539 CanonicalPaperTransaction6486.add
+            // stored costSol/qty as fillPrice — the exact bug this
+            // replaces).
+            fun replayFillPriceUnitOk6541(fillPrice: Double, costSol: Double, qtyRaw: BigInteger, quantityScale: Int): Boolean {
+                if (!fillPrice.isFinite() || fillPrice <= 0.0) return false
                 val qty = try { PaperTokenQuantityAuthority6509.decode(qtyRaw, quantityScale) } catch (_: Throwable) { 0.0 }
-                return if (costSol.isFinite() && costSol > 0.0 && qty.isFinite() && qty > 0.0) costSol / qty else 0.0
+                if (!qty.isFinite() || qty <= 0.0 || costSol <= 0.0) return false
+                val impliedSolUsd = (fillPrice * qty) / costSol
+                return impliedSolUsd.isFinite() && impliedSolUsd in 5.0..10_000.0
             }
             // V5.0.6535 §REPLAY_BASIS_INTEGRITY — operator audit Feb 2026:
             // ECONOMIC_EVENT_REPLAY reconstructed entryPrice with a scale
@@ -552,22 +576,43 @@ object CanonicalPositionAuthority6441 {
                     is EconomicEventSchema6464.Buy -> {
                         val cur = positions[e.positionId]
                         val repairedPrice6519 = repairedEntryPrice6519(e.fillPrice, e.executedCostSol, e.filledQty, e.quantityScale)
+                        // V5.0.6541 §REPLAY_UNIT_INTEGRITY — if the durable
+                        // fillPrice is present but fails the plausibility
+                        // check (implied SOL/USD outside [5..10000]), the
+                        // stored value is SOL/token not USD/token. Force
+                        // this branch to fall through to the quarantine
+                        // path below (repairedPrice6519 = 0.0) so we never
+                        // seed a units-mismatched OPEN row.
+                        val unitOk6541 = replayFillPriceUnitOk6541(e.fillPrice, e.executedCostSol, e.filledQty, e.quantityScale)
+                        val trustedPrice6541: Double = if (e.fillPrice > 0.0 && !unitOk6541) {
+                            try {
+                                PipelineHealthCollector.labelInc("REPLAY_FILL_PRICE_UNIT_REJECTED_6541")
+                                ForensicLogger.lifecycle(
+                                    "REPLAY_FILL_PRICE_UNIT_REJECTED_6541",
+                                    "positionId=${e.positionId} mint=${e.mint.take(10)} symbol=${e.symbol} " +
+                                        "storedFillPrice=${e.fillPrice} costSol=${e.executedCostSol} qtyRaw=${e.filledQty} " +
+                                        "scale=${e.quantityScale} expected=usd_per_token observed=probably_sol_per_token " +
+                                        "action=quarantine_no_open_reconstruct",
+                                )
+                            } catch (_: Throwable) {}
+                            0.0
+                        } else repairedPrice6519
                         // V5.0.6535 §REPLAY_BASIS_INTEGRITY — emit diagnostic
                         // when reconstruction produces an implausibly small
                         // price so operator can spot decimals-mismatch replays.
-                        if (replayBasisUntrusted6535(repairedPrice6519, e.executedCostSol)) {
+                        if (replayBasisUntrusted6535(trustedPrice6541, e.executedCostSol)) {
                             try {
                                 PipelineHealthCollector.labelInc("REPLAY_ENTRY_BASIS_UNTRUSTED_6535")
                                 ForensicLogger.lifecycle(
                                     "REPLAY_ENTRY_BASIS_UNTRUSTED_6535",
                                     "positionId=${e.positionId} mint=${e.mint.take(10)} symbol=${e.symbol} " +
-                                        "reconstructedPx=$repairedPrice6519 costSol=${e.executedCostSol} " +
+                                        "reconstructedPx=$trustedPrice6541 costSol=${e.executedCostSol} " +
                                         "qtyRaw=${e.filledQty} scale=${e.quantityScale} " +
                                         "action=basis_untrusted_learners_should_reject",
                                 )
                             } catch (_: Throwable) {}
                         }
-                        if (!repairedPrice6519.isFinite() || repairedPrice6519 <= 0.0) {
+                        if (!trustedPrice6541.isFinite() || trustedPrice6541 <= 0.0) {
                             positions[e.positionId] = Position(
                                 positionId = e.positionId, mode = "paper", mint = e.mint, symbol = e.symbol,
                                 lane = "REPLAY_6486", runId = e.idempotencyKey, openedAtMs = e.atMs,
@@ -576,11 +621,22 @@ object CanonicalPositionAuthority6441 {
                                 realizedPnlSol = 0.0, realizedProceedsSol = 0.0, feesSol = e.entryFeesSol,
                                 tokenDecimals = e.tokenDecimals, quantityScale = e.quantityScale,
                                 lifecycle = Lifecycle.QUARANTINED, lastMutationMs = e.atMs,
-                                quarantineReason = "QUARANTINE_POSITION_BAD_ENTRY_6519",
-                                entryPriceUsd = 0.0, entryPriceSource = "UNRECOVERABLE_DURABLE_BUY_EVENT",
+                                quarantineReason = if (e.fillPrice > 0.0 && !unitOk6541)
+                                    "QUARANTINE_REPLAY_UNIT_MISMATCH_6541"
+                                else
+                                    "QUARANTINE_POSITION_BAD_ENTRY_6519",
+                                entryPriceUsd = 0.0, entryPriceSource = if (e.fillPrice > 0.0 && !unitOk6541)
+                                    "REPLAY_UNIT_MISMATCH_6541_QUARANTINED"
+                                else
+                                    "UNRECOVERABLE_DURABLE_BUY_EVENT",
                             )
                             try {
-                                PipelineHealthCollector.labelInc("QUARANTINE_POSITION_BAD_ENTRY_6519")
+                                PipelineHealthCollector.labelInc(
+                                    if (e.fillPrice > 0.0 && !unitOk6541)
+                                        "QUARANTINE_REPLAY_UNIT_MISMATCH_6541"
+                                    else
+                                        "QUARANTINE_POSITION_BAD_ENTRY_6519"
+                                )
                                 ForensicLogger.lifecycle("QUARANTINE_POSITION_BAD_ENTRY_6519", "positionId=${e.positionId} mint=${e.mint.take(10)} cost=${e.executedCostSol} qty=${e.filledQty} scale=${e.quantityScale}")
                             } catch (_: Throwable) {}
                             continue
@@ -595,15 +651,15 @@ object CanonicalPositionAuthority6441 {
                                 feesSol = e.entryFeesSol, tokenDecimals = e.tokenDecimals,
                                 quantityScale = e.quantityScale, lifecycle = Lifecycle.OPEN,
                                 lastMutationMs = e.atMs, quarantineReason = "",
-                                entryPriceUsd = repairedPrice6519, entryPriceSource = if (e.fillPrice > 0.0) "ECONOMIC_EVENT_REPLAY_6513" else "DURABLE_COST_QTY_REPAIR_6519",
+                                entryPriceUsd = trustedPrice6541, entryPriceSource = "ECONOMIC_EVENT_REPLAY_6513_USD_VERIFIED_6541",
                             )
                         } else cur.copy(
                             entryCostSol = cur.entryCostSol + e.executedCostSol,
                             remainingQtyRaw = cur.remainingQtyRaw + e.filledQty,
                             originalQtyRaw = cur.originalQtyRaw + e.filledQty,
                             feesSol = cur.feesSol + e.entryFeesSol,
-                            entryPriceUsd = cur.entryPriceUsd.takeIf { it.isFinite() && it > 0.0 } ?: repairedPrice6519,
-                            entryPriceSource = cur.entryPriceSource.ifBlank { "DURABLE_COST_QTY_REPAIR_6519" },
+                            entryPriceUsd = cur.entryPriceUsd.takeIf { it.isFinite() && it > 0.0 } ?: trustedPrice6541,
+                            entryPriceSource = cur.entryPriceSource.ifBlank { "ECONOMIC_EVENT_REPLAY_6513_USD_VERIFIED_6541" },
                             lifecycle = Lifecycle.OPEN, lastMutationMs = e.atMs,
                         )
                     }

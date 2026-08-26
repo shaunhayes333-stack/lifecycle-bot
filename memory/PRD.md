@@ -1,10 +1,44 @@
-# AATE PRD — V5.0.6540 (MARKETS + CRYPTO EXECUTION CONVERGENCE — ONE EXECUTION AUTHORITY)
+# AATE PRD — V5.0.6541 (REPLAY UNIT INTEGRITY + RECOVERY-BYPASS SEAL)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE (FillLotLedger6504 immutable SQLite lots + per-lot projection reconciliation), never by strangling flow.
 
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA.
+
+
+## V5.0.6541 (Feb 2026) — REPLAY UNIT INTEGRITY + RECOVERY-BYPASS SEAL
+
+Operator forensic diagnosed two stacked P0 regressions from V5.0.6540 runtime:
+
+1. **`ECONOMIC_EVENT_REPLAY_6513` currency corruption.** Sky/BananaCat/HHDiF…/BATON/Pistacio/RedLeek all showed `replayEntry × 96.38 = trustedEntry`, exactly `WalletManager.lastKnownSolPrice`. Replay was doing `entryPrice = costSol / qty` (SOL/token) and storing it in the `entryPriceUsd` field. This poisoned peak-PnL learning (peakPct = 9327% while curPct = 7%) and cascaded into `RUNNER_EXIT_BASIS_UNTRUSTED_6405 = 3641`, `PAPER_ACCOUNTING_MUTATION_REJECTED = 78`, `LEDGER_REJECTED_QUARANTINED_CLOSE_6502 = 10`.
+
+2. **`V3_BUY_REJECTED_NO_EXACT_INTENT_6533` recovery bypass.** V3 ALLOW rate 100 % but FDG allow + block = 0 verdicts. Recovery path called `executor.v3Buy(...)` without an `attemptId`, so `ExecutableOpenGate.ticketForAttempt("") == null` and every recovery entry short-circuited into the explicit-reject counter — without ever reaching FDG.
+
+### §REPLAY_UNIT_INTEGRITY (P0-A)
+
+`CanonicalPositionAuthority6441.rebuildPaperFromEvents6486`:
+
+- `repairedEntryPrice6519(fillPrice, costSol, qtyRaw, quantityScale)` no longer falls back to `costSol / qty`. It returns the recorded USD/token `fillPrice` when present, else `0.0` — so the caller quarantines the position instead of silently reconstructing a SOL/token basis in a USD/token field.
+- New `replayFillPriceUnitOk6541(fillPrice, costSol, qtyRaw, quantityScale)` cross-checks a stored fillPrice against `(costSol, qty)`. An authentic USD/token fillPrice implies SOL/USD in `[5, 10 000]`. A pre-V5.0.6539 durable event that stored `costSol / qtyRaw.toDouble()` as `fillPrice` collapses this implied ratio to ~1 and is rejected.
+- Buy-event handler: when `fillPrice > 0` but `unitOk6541 == false`, the position is quarantined under a new lifecycle reason `QUARANTINE_REPLAY_UNIT_MISMATCH_6541` (counter of same name). Non-quarantined OPEN rows now stamp `entryPriceSource = "ECONOMIC_EVENT_REPLAY_6513_USD_VERIFIED_6541"`.
+- Consequence: the operator's TNOS/Morty/Sky/BananaCat/BATON/Pistacio/RedLeek/HHDiF rows return as `QUARANTINED` on the next boot instead of contaminating equity / peak-PnL / exit throttles.
+
+### §RECOVERY_ENTRY_TRUNK_SEAL (P0-C)
+
+`BotService` recovery-candidate branch no longer calls `executor.v3Buy(...)` with an empty `attemptId`. It emits an explicit `RECOVERY_ENTRY_DISABLED_UNTIL_CANONICAL_TRUNK_6541` and returns. Recovery re-entries must be re-built through the canonical V3 → FDG → intent trunk (V5.0.6542 backlog).
+
+### Deferred to V5.0.6542
+
+- **P0-B canonical fill-lot rebuild.** `remainingQty = canonical_buy_fill_qty − finalized_sell_qty − finalized_partial_qty`. Paper qty authority must not depend on live-wallet balance. Then clear stale `closePending / sell` locks on repaired positions and allow one clean close retry.
+- **Recovery via canonical trunk.** Rebuild recovery so it produces `EXACT_EXECUTABLE_INTENT → FDG` rather than bypassing.
+- **Specialist sizing routing.** Verify that PROJECT_SNIPER / EXPRESS / TREASURY / DIP_HUNTER lanes are routed through the CanonicalSizingBridge with their real strategy tag (not defaulted to MOONSHOT).
+
+### Files touched (V5.0.6541)
+
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt`
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt`
+- `memory/PRD.md`
 
 
 ## V5.0.6540 (Feb 2026) — MARKETS + CRYPTO EXECUTION CONVERGENCE
