@@ -251,7 +251,11 @@ object PerpsExecutionEngine {
                             // paperLearnEverything6533 is respected. Raw UI
                             // toggles gate LIVE only.
                             val plan6542 = try {
-                                com.lifecyclebot.engine.truth.TraderRuntimePlan6526.from(cfg)
+                                com.lifecyclebot.engine.truth.TraderRuntimePlan6526.from(
+                                    cfg = cfg,
+                                    marketsKill = false,
+                                    marketsLaneOnFn = { c -> c.marketsTraderEnabled },
+                                )
                             } catch (_: Throwable) { null }
                             scanResults.filter { r ->
                                 val m = r.signal?.market ?: return@filter true
