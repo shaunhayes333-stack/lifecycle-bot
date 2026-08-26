@@ -64,7 +64,14 @@ object CanonicalPaperTransaction6486 {
     }
 
     fun add(positionId: String, mint: String, symbol: String, addedCostSol: Double,
-            addedFeeSol: Double = 0.0, addedQtyRaw: BigInteger = syntheticUnit): Result = lock.withLock {
+            addedFeeSol: Double = 0.0, addedQtyRaw: BigInteger = syntheticUnit,
+            // V5.0.6539 §TOP_UP_ATOMICITY — accept the fill's authoritative
+            // USD/token price so canonical row weighted-average USD entry
+            // basis is updated in the SAME atomic mutation, and the
+            // durable economic-event fillPrice is USD/token rather than
+            // SOL/raw. Defaults to 0.0 (skip rewrite; pre-6539 semantics).
+            addedEntryPriceUsd: Double = 0.0,
+            quantityScale: Int = 9): Result = lock.withLock {
         val pos = CanonicalPositionAuthority6441.getPosition(positionId)
             ?: return@withLock Result(false, positionId, "UNKNOWN_POSITION")
         if (!addedCostSol.isFinite() || addedCostSol <= 0.0 || addedQtyRaw <= BigInteger.ZERO)
@@ -73,7 +80,7 @@ object CanonicalPaperTransaction6486 {
             return@withLock Result(false, positionId, "INSUFFICIENT_CANONICAL_CASH")
         val idem = "PAPER6486:ADD:$positionId:${pos.originalQtyRaw}"
         val applied = CanonicalPositionAuthority6441.addToPosition6486(
-            idem, positionId, addedCostSol, addedQtyRaw, addedFeeSol)
+            idem, positionId, addedCostSol, addedQtyRaw, addedFeeSol, addedEntryPriceUsd)
         if (applied != CanonicalPositionAuthority6441.MutateResult.APPLIED) {
             PaperAccountLedger6430.rollbackBuy(addedCostSol, addedFeeSol, "PAPER6486_ADD_$applied")
             return@withLock Result(false, positionId, "POSITION_$applied")
@@ -83,8 +90,14 @@ object CanonicalPaperTransaction6486 {
             PositionStateLedger6454.onEntry(positionId)
             SellQtyBoundaryClamp6427.syncAuthoritativeRaw(positionId, updated6498.originalQtyRaw, updated6498.remainingQtyRaw)
         }
+        // V5.0.6539 §DURABLE_ECONOMIC_EVENT — fillPrice is USD/token when
+        // available so replay reproduces the same weighted USD basis
+        // (previously we recorded SOL/rawUnit which is a nonsense unit and
+        // cannot be replayed into a USD-basis position).
+        val fillPrice6539 = if (addedEntryPriceUsd > 0.0 && addedEntryPriceUsd.isFinite())
+            addedEntryPriceUsd else addedCostSol / addedQtyRaw.toDouble()
         EconomicEventSchema6464.recordBuy("paper", positionId, mint, symbol, idem, addedCostSol,
-            addedQtyRaw, addedCostSol / addedQtyRaw.toDouble(), addedFeeSol)
+            addedQtyRaw, fillPrice6539, addedFeeSol, decimals = quantityScale, quantityScale = quantityScale)
         try { PipelineHealthCollector.labelInc("PAPER_TRANSACTION_ADD_COMMITTED_6486") } catch (_: Throwable) {}
         Result(true, positionId, "ADD_COMMITTED")
     }

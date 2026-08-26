@@ -9914,35 +9914,173 @@ class Executor(
                 return
             }
         }
+        // V5.0.6539 §TOP_UP_ECONOMIC_ATOMICITY_ROOT_FIX — operator mandate.
+        //
+        //   pre-6539 paperTopUp:
+        //     newQty     = sol / price        ← SOL/token corruption
+        //     entryPrice = totalCost / totalQty ← SOL/token corruption
+        //     ts.position = pos.copy(...)     ← runtime-only, not atomic
+        //
+        //   V5.0.6539 paperTopUp:
+        //     solUsd          = authoritative WalletManager SOL/USD (else defer)
+        //     addedNotionalUsd = sol × solUsd
+        //     addedQtyToken   = addedNotionalUsd / tokenPriceUsd
+        //     canonical add   = CanonicalPaperTransaction6486.add(...) with
+        //                       addedEntryPriceUsd=tokenPriceUsd so the
+        //                       weighted USD entry basis is updated in the
+        //                       SAME atomic canonical mutation.
+        //   Only after APPLIED do we project ts.position from the canonical
+        //   row and record the Trade / debit event. No canonical success =
+        //   no wallet debit, no Trade row, no runtime mutation.
         val pos   = ts.position
-        val price = getActualPrice(ts)
-        if (price <= 0) return
-
-        val newQty    = sol / maxOf(price, 1e-12)
-        val totalQty  = pos.qtyToken + newQty
-        val totalCost = pos.costSol + sol
-
+        val tokenPriceUsd = getActualPrice(ts)
+        if (!tokenPriceUsd.isFinite() || tokenPriceUsd <= 0.0) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_TOPUP_DEFERRED_TOKEN_USD_MISSING_6539")
+                ForensicLogger.lifecycle(
+                    "PAPER_TOPUP_DEFERRED_TOKEN_USD_MISSING_6539",
+                    "mint=${ts.mint.take(10)} tokenPriceUsd=$tokenPriceUsd action=defer_no_mutation",
+                )
+            } catch (_: Throwable) {}
+            return
+        }
+        val solUsd6539 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        if (!solUsd6539.isFinite() || solUsd6539 !in 50.0..5000.0) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_TOPUP_DEFERRED_SOL_USD_MISSING_6539")
+                ForensicLogger.lifecycle(
+                    "PAPER_TOPUP_DEFERRED_SOL_USD_MISSING_6539",
+                    "mint=${ts.mint.take(10)} solUsd=$solUsd6539 action=defer_no_mutation",
+                )
+            } catch (_: Throwable) {}
+            return
+        }
+        val addedNotionalUsd6539 = sol * solUsd6539
+        val addedQtyToken6539 = addedNotionalUsd6539 / tokenPriceUsd
+        if (!addedQtyToken6539.isFinite() || addedQtyToken6539 <= 0.0) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_TOPUP_QTY_INVALID_6539")
+                ForensicLogger.lifecycle(
+                    "PAPER_TOPUP_QTY_INVALID_6539",
+                    "mint=${ts.mint.take(10)} sol=$sol solUsd=$solUsd6539 tokenUsd=$tokenPriceUsd addedQtyToken=$addedQtyToken6539",
+                )
+            } catch (_: Throwable) {}
+            return
+        }
+        val positionId6539 = try {
+            com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
+        } catch (_: Throwable) { "" }
+        val canonicalPos6539 = if (positionId6539.isNotBlank())
+            try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId6539) } catch (_: Throwable) { null }
+        else null
+        if (positionId6539.isBlank() || canonicalPos6539 == null) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_TOPUP_NO_CANONICAL_ROW_6539")
+                ForensicLogger.lifecycle(
+                    "PAPER_TOPUP_NO_CANONICAL_ROW_6539",
+                    "mint=${ts.mint.take(10)} positionId=$positionId6539 action=refuse_runtime_only_mutation",
+                )
+            } catch (_: Throwable) {}
+            return
+        }
+        val quantityScale6539 = canonicalPos6539.quantityScale.takeIf { it in 0..18 } ?: 9
+        val addedQtyRaw6539 = try {
+            com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.encode(addedQtyToken6539, quantityScale6539)
+        } catch (_: Throwable) { java.math.BigInteger.ZERO }
+        if (addedQtyRaw6539 <= java.math.BigInteger.ZERO) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_TOPUP_RAW_ENCODE_FAIL_6539")
+            } catch (_: Throwable) {}
+            return
+        }
+        val addedFee6539 = sol * 0.005
+        val addResult6539 = try {
+            com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.add(
+                positionId = positionId6539,
+                mint = ts.mint,
+                symbol = ts.symbol,
+                addedCostSol = sol,
+                addedFeeSol = addedFee6539,
+                addedQtyRaw = addedQtyRaw6539,
+                addedEntryPriceUsd = tokenPriceUsd,
+                quantityScale = quantityScale6539,
+            )
+        } catch (t: Throwable) {
+            com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.Result(false, positionId6539, "EXCEPTION_${t.message?.take(40)}")
+        }
+        if (!addResult6539.applied) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_TOPUP_CANONICAL_REJECTED_6539")
+                ForensicLogger.lifecycle(
+                    "PAPER_TOPUP_CANONICAL_REJECTED_6539",
+                    "mint=${ts.mint.take(10)} positionId=$positionId6539 reason=${addResult6539.reason} action=no_runtime_mutation_no_debit",
+                )
+            } catch (_: Throwable) {}
+            return
+        }
+        // Persist immutable fill lot so restart replay recomputes correctly.
+        try {
+            val lamports6539 = java.math.BigInteger.valueOf(
+                (sol * 1_000_000_000.0).toLong().coerceAtLeast(0L)
+            )
+            com.lifecyclebot.engine.truth.FillLotLedger6504.recordBuyFill(
+                mint = ts.mint,
+                lotId = positionId6539,
+                qtyTokenRaw = addedQtyRaw6539,
+                lamports = lamports6539,
+                isPaper = true,
+                source = "paperTopUp",
+                note = "paperTopUp.atomic6539",
+            )
+        } catch (_: Throwable) {}
+        // Project ts.position from canonical truth (weighted USD basis lives
+        // in the canonical row now).
+        val refreshedCanonical6539 = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId6539)
+        } catch (_: Throwable) { null }
+        val projectedQty6539 = if (refreshedCanonical6539 != null && refreshedCanonical6539.quantityScale in 0..18)
+            refreshedCanonical6539.remainingQtyRaw.toBigDecimal()
+                .movePointLeft(refreshedCanonical6539.quantityScale).toDouble()
+        else pos.qtyToken + addedQtyToken6539
+        val projectedEntryPriceUsd6539 = refreshedCanonical6539?.entryPriceUsd?.takeIf { it > 0.0 } ?: run {
+            val prevNotional = pos.qtyToken * pos.entryPrice
+            (prevNotional + addedNotionalUsd6539) / (pos.qtyToken + addedQtyToken6539)
+        }
+        val projectedCostSol6539 = refreshedCanonical6539?.entryCostSol ?: (pos.costSol + sol)
         ts.position = pos.copy(
-            qtyToken       = totalQty,
-            entryPrice     = totalCost / totalQty,
-            costSol        = totalCost,
+            qtyToken       = projectedQty6539,
+            entryPrice     = projectedEntryPriceUsd6539,
+            costSol        = projectedCostSol6539,
             topUpCount     = pos.topUpCount + 1,
             topUpCostSol   = pos.topUpCostSol + sol,
             lastTopUpTime  = System.currentTimeMillis(),
-            lastTopUpPrice = price,
+            lastTopUpPrice = tokenPriceUsd,
         )
-
-        val trade = Trade("BUY", "paper", sol, price,
+        // Post-mutation assert — every top-up must satisfy the economic
+        // invariant. Runtime and canonical projections must agree.
+        try {
+            val econCheck6539 = com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
+                .economicNotionalCheck6537(ts.position)
+            if (econCheck6539 != null && !econCheck6539.ok) {
+                PipelineHealthCollector.labelInc("PAPER_TOPUP_POST_MUTATION_INVARIANT_BROKEN_6539")
+                ForensicLogger.lifecycle(
+                    "PAPER_TOPUP_POST_MUTATION_INVARIANT_BROKEN_6539",
+                    "mint=${ts.mint.take(10)} reason=${econCheck6539.reason} action=quarantine",
+                )
+                com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
+                    .markInvariantBroken(ts.mint, "PAPER_TOPUP_POST_ASSERT_6539:${econCheck6539.reason}")
+            } else {
+                PipelineHealthCollector.labelInc("PAPER_TOPUP_POST_MUTATION_INVARIANT_OK_6539")
+            }
+        } catch (_: Throwable) {}
+        val trade = Trade("BUY", "paper", sol, tokenPriceUsd,
                           System.currentTimeMillis(), "top_up_${pos.topUpCount + 1}")
         recordTrade(ts, trade)
         security.recordTrade(trade)
-        // V5.0.3871 — paper top-ups are BUY legs and must debit available paper cash.
-        // Graduated adds and fresh buys already do this; this sibling path mutated
-        // position cost without touching the wallet ledger, making cash/equity drift.
         onPaperBalanceChange?.invoke(-sol)
 
-        val gainPct = pct(pos.entryPrice, price)
-        onLog("PAPER TOP-UP #${pos.topUpCount + 1} @ ${price.fmt()} | " +
+        val gainPct = pct(pos.entryPrice, tokenPriceUsd)
+        onLog("PAPER TOP-UP #${pos.topUpCount + 1} @ ${tokenPriceUsd.fmt()} | " +
               "${sol.fmt(4)} SOL | running gain was +${gainPct.toInt()}% | " +
               "avg entry now ${ts.position.entryPrice.fmt()}", ts.mint)
         onNotify("🔺 Top-Up #${pos.topUpCount + 1}",
@@ -10167,13 +10305,58 @@ class Executor(
 
             ts.position = pos.copy(
                 qtyToken       = pos.qtyToken + effectiveNewQty,
-                entryPrice     = (pos.costSol + sol) / (pos.qtyToken + effectiveNewQty),
+                // V5.0.6539 §LIVE_TOP_UP_ROOT_FIX — pre-6539 used
+                //   entryPrice = (pos.costSol + sol) / (pos.qtyToken + qty)
+                // which is SOL/token and corrupts the USD basis. Now use
+                // authoritative SOL/USD to derive weighted USD entry:
+                //   addedNotionalUsd = sol × solUsd
+                //   weightedEntryUsd = (prevQty × prevEntryUsd + addedNotionalUsd)
+                //                    / (prevQty + effectiveNewQty)
+                // If SOL/USD is unavailable, keep the prior entryPrice and
+                // emit a lifecycle marker so the operator can see the fill
+                // landed without a basis-refresh (rather than silently
+                // corrupting the USD basis with a SOL/token number).
+                entryPrice     = run {
+                    val solUsdLive6539 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+                    if (!solUsdLive6539.isFinite() || solUsdLive6539 !in 5.0..10_000.0) {
+                        try {
+                            PipelineHealthCollector.labelInc("LIVE_TOPUP_SOL_USD_MISSING_BASIS_KEPT_6539")
+                            ForensicLogger.lifecycle(
+                                "LIVE_TOPUP_SOL_USD_MISSING_BASIS_KEPT_6539",
+                                "mint=${ts.mint.take(10)} solUsd=$solUsdLive6539 action=keep_prior_entryPrice",
+                            )
+                        } catch (_: Throwable) {}
+                        pos.entryPrice
+                    } else {
+                        val addedNotionalUsd6539 = sol * solUsdLive6539
+                        val prevNotional6539 = pos.qtyToken * pos.entryPrice.coerceAtLeast(0.0)
+                        val totalQty6539 = pos.qtyToken + effectiveNewQty
+                        if (totalQty6539 > 0.0)
+                            (prevNotional6539 + addedNotionalUsd6539) / totalQty6539
+                        else pos.entryPrice
+                    }
+                },
                 costSol        = pos.costSol + sol,
                 topUpCount     = pos.topUpCount + 1,
                 topUpCostSol   = pos.topUpCostSol + sol,
                 lastTopUpTime  = System.currentTimeMillis(),
                 lastTopUpPrice = price,
             )
+            // V5.0.6539 §POST_MUTATION_ASSERT — verify the post-topup
+            // position satisfies the economic invariant.
+            try {
+                val econLive6539 = com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
+                    .economicNotionalCheck6537(ts.position)
+                if (econLive6539 != null && !econLive6539.ok) {
+                    PipelineHealthCollector.labelInc("LIVE_TOPUP_POST_MUTATION_INVARIANT_BROKEN_6539")
+                    ForensicLogger.lifecycle(
+                        "LIVE_TOPUP_POST_MUTATION_INVARIANT_BROKEN_6539",
+                        "mint=${ts.mint.take(10)} reason=${econLive6539.reason}",
+                    )
+                } else {
+                    PipelineHealthCollector.labelInc("LIVE_TOPUP_POST_MUTATION_INVARIANT_OK_6539")
+                }
+            } catch (_: Throwable) {}
 
             val gainPct = pct(pos.entryPrice, price)
             val trade   = Trade("BUY", "live", sol, price,

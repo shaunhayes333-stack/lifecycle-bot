@@ -186,13 +186,35 @@ object QuantityInvariantAuthority6500 {
         val qty = canonical.remainingQtyRaw.toBigDecimal().movePointLeft(canonical.quantityScale).toDouble()
         val cost = (canonical.entryCostSol - canonical.soldCostBasisSol).coerceAtLeast(0.0)
         if (!qty.isFinite() || qty <= 0.0 || !cost.isFinite() || cost <= 0.0) return null
-        return pos.copy(
+        val reconstructed6539 = pos.copy(
             qtyToken = qty,
             costSol = cost,
             entryPrice = canonical.entryPriceUsd.takeIf { it.isFinite() && it > 0.0 } ?: pos.entryPrice,
             entryPriceSource = canonical.entryPriceSource.ifBlank { pos.entryPriceSource },
             entryPoolAddress = canonical.entryPoolAddress.ifBlank { pos.entryPoolAddress },
         )
+        // V5.0.6539 §CORRUPTED_CANONICAL_REFUSE_RECONSTRUCT — operator
+        // mandate: "DO NOT reconstruct these from their current runtime
+        // qty/entryPrice. They contain SOL/token contamination." Even
+        // reading from the canonical row is unsafe when the canonical row
+        // itself was minted with the same wrong math (pre-6509 paperBuy).
+        // Verify the reconstructed row satisfies the economic invariant;
+        // if it does not, refuse reconstruction so the row stays
+        // quarantined instead of being silently "repaired" back into the
+        // ledger.
+        val econ6539 = try { economicNotionalCheck6537(reconstructed6539) } catch (_: Throwable) { null }
+        if (econ6539 != null && !econ6539.ok) {
+            try {
+                ForensicLogger.lifecycle(
+                    "CANONICAL_RECONSTRUCT_REFUSED_ECONOMIC_INVARIANT_6539",
+                    "mint=${mint.take(10)} reason=${econ6539.reason} " +
+                        "action=keep_quarantined_not_repaired",
+                )
+                PipelineHealthCollector.labelInc("CANONICAL_RECONSTRUCT_REFUSED_6539")
+            } catch (_: Throwable) {}
+            return null
+        }
+        return reconstructed6539
     }
 
     /**

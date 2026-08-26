@@ -311,13 +311,21 @@ object CanonicalPositionAuthority6441 {
         } finally { lock.unlock() }
     }
 
-    /** V5.0.6486 — atomic scale-in/add against an existing canonical position. */
+    /**
+     * V5.0.6486 — atomic scale-in/add against an existing canonical position.
+     * V5.0.6539 §TOP_UP_ATOMICITY — extended to accept the newly-added USD
+     * fill price and compute the weighted USD entry basis in the same
+     * atomic mutation. Callers that do not know the fill USD price should
+     * pass 0.0 (or the pre-6539 signature via the default overload below)
+     * and the weighted entry will not be recomputed.
+     */
     fun addToPosition6486(
         idempotencyKey: String,
         positionId: String,
         addedCostSol: Double,
         addedQtyRaw: BigInteger,
         feesSol: Double,
+        addedEntryPriceUsd: Double = 0.0,
     ): MutateResult {
         lock.lock()
         try {
@@ -328,17 +336,44 @@ object CanonicalPositionAuthority6441 {
                 invariantViolations.incrementAndGet()
                 return MutateResult.INVARIANT_VIOLATION
             }
+            // V5.0.6539 §WEIGHTED_USD_ENTRY_BASIS — compute the new weighted
+            // entry USD basis atomically. Formula (operator spec):
+            //   prevNotionalUsd = prevQtyToken × prevEntryPriceUsd
+            //   addedNotionalUsd = addedQtyToken × addedEntryPriceUsd
+            //   newEntryPriceUsd = (prev + added) / (prevQty + addedQty)
+            // Only rewrite when we have a positive addedEntryPriceUsd AND
+            // both sides can be decoded. If either is missing we keep the
+            // previous entryPriceUsd (backwards-compatible pre-6539 call).
+            val newEntryPriceUsd6539: Double = run {
+                if (addedEntryPriceUsd <= 0.0 || !addedEntryPriceUsd.isFinite()) return@run pos.entryPriceUsd
+                if (pos.quantityScale !in 0..18) return@run pos.entryPriceUsd
+                val prevQtyToken = pos.remainingQtyRaw.toBigDecimal().movePointLeft(pos.quantityScale).toDouble()
+                val addedQtyToken = addedQtyRaw.toBigDecimal().movePointLeft(pos.quantityScale).toDouble()
+                if (!prevQtyToken.isFinite() || prevQtyToken <= 0.0) return@run addedEntryPriceUsd
+                if (!addedQtyToken.isFinite() || addedQtyToken <= 0.0) return@run pos.entryPriceUsd
+                val prevNotional = prevQtyToken * pos.entryPriceUsd.coerceAtLeast(0.0)
+                val addedNotional = addedQtyToken * addedEntryPriceUsd
+                val totalQty = prevQtyToken + addedQtyToken
+                if (totalQty <= 0.0) return@run pos.entryPriceUsd
+                (prevNotional + addedNotional) / totalQty
+            }
             positions[positionId] = pos.copy(
                 entryCostSol = pos.entryCostSol + addedCostSol,
                 remainingQtyRaw = pos.remainingQtyRaw + addedQtyRaw,
                 originalQtyRaw = pos.originalQtyRaw + addedQtyRaw,
                 feesSol = pos.feesSol + feesSol,
+                entryPriceUsd = newEntryPriceUsd6539,
                 lifecycle = Lifecycle.OPEN,
                 lastMutationMs = System.currentTimeMillis(),
             )
             markKeyUsed(idempotencyKey)
             muts.incrementAndGet()
-            try { PipelineHealthCollector.labelInc("CANONICAL_POSITION_ADD_6486") } catch (_: Throwable) {}
+            try {
+                PipelineHealthCollector.labelInc("CANONICAL_POSITION_ADD_6486")
+                if (addedEntryPriceUsd > 0.0) {
+                    PipelineHealthCollector.labelInc("CANONICAL_POSITION_ADD_WEIGHTED_USD_6539")
+                }
+            } catch (_: Throwable) {}
             return MutateResult.APPLIED
         } finally { lock.unlock() }
     }

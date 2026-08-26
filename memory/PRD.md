@@ -1,10 +1,82 @@
-# AATE PRD — V5.0.6538 (CANONICAL ECONOMIC BELT + LEGACY MINT SWEEP + SOL PERPS PHASE 1 ONLINE)
+# AATE PRD — V5.0.6539 (TOP-UP ECONOMIC ATOMICITY ROOT FIX)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE (FillLotLedger6504 immutable SQLite lots + per-lot projection reconciliation), never by strangling flow.
 
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA.
+
+
+## V5.0.6539 (Feb 2026) — TOP-UP ECONOMIC ATOMICITY ROOT FIX
+
+Operator mandate (8-part): the V5.0.6537 economic invariant correctly exposed the corruption, but the runtime code paths still WRITE new corruption on every top-up. Fix the source doors so the invariant becomes a belt on all entry-side mutations.
+
+### §1 & §2 — paperTopUp: USD-basis math + weighted USD entry
+
+`Executor.paperTopUp` no longer computes qty as `sol / price` or entry as `totalCost / totalQty` (both are SOL/token corruption). New math:
+
+```
+solUsd            = WalletManager.lastKnownSolPrice ∈ [50, 5000]  else DEFER (no debit)
+addedNotionalUsd  = sol × solUsd
+addedQtyToken     = addedNotionalUsd / tokenPriceUsd
+weightedEntryUsd  = (prevQty × prevEntryUsd + addedNotionalUsd) / (prevQty + addedQty)  ← done in canonical add
+```
+
+`Position.entryPrice` stays USD/token, `Position.costSol` stays SOL, `Position.qtyToken` stays token units.
+
+### §3 — Canonical atomicity
+
+`paperTopUp` no longer independently mutates `ts.position`. It:
+1. Encodes `addedQtyToken` to raw via `PaperTokenQuantityAuthority6509.encode`.
+2. Calls `CanonicalPaperTransaction6486.add(…, addedEntryPriceUsd = tokenPriceUsd, quantityScale)`.
+3. `CanonicalPositionAuthority6441.addToPosition6486` now accepts `addedEntryPriceUsd` and atomically updates `entryCostSol + remainingQtyRaw + originalQtyRaw + entryPriceUsd (weighted) + feesSol + lastMutationMs` in a single mutation.
+4. Only after `APPLIED`: `FillLotLedger6504.recordBuyFill`, project `ts.position` from the refreshed canonical row, record the `Trade`, debit `onPaperBalanceChange(-sol)`.
+5. No canonical success ⇒ no wallet debit, no Trade row, no runtime top-up mutation.
+
+Counters: `PAPER_TOPUP_DEFERRED_SOL_USD_MISSING_6539`, `PAPER_TOPUP_DEFERRED_TOKEN_USD_MISSING_6539`, `PAPER_TOPUP_NO_CANONICAL_ROW_6539`, `PAPER_TOPUP_CANONICAL_REJECTED_6539`, `PAPER_TOPUP_QTY_INVALID_6539`, `CANONICAL_POSITION_ADD_WEIGHTED_USD_6539`, `PAPER_TOPUP_POST_MUTATION_INVARIANT_OK_6539`.
+
+### §4 — Durable economic event
+
+`CanonicalPaperTransaction6486.add()` now records the fill through `EconomicEventSchema6464.recordBuy(…)` with `fillPrice = addedEntryPriceUsd` (USD/token) and the correct `quantityScale`. Replay of multiple BUY events reconstructs the weighted USD entry basis exactly — the first BUY's `entryPriceUsd` no longer sticks unchanged.
+
+### §5 — liveTopUp root fix
+
+`Executor.liveTopUp` no longer stamps `entryPrice = (costSol + sol) / (qty + newQty)` (SOL/token). After wallet-delta verification it derives:
+
+```
+addedNotionalUsd  = actualTopUpSol × solUsd   (WalletManager)
+weightedEntryUsd  = (prevQty × prevEntryUsd + addedNotionalUsd) / (prevQty + effectiveNewQty)
+```
+
+If SOL/USD is unavailable, `entryPrice` is kept (rather than silently corrupted). Counter: `LIVE_TOPUP_SOL_USD_MISSING_BASIS_KEPT_6539`.
+
+### §6 — Post-mutation asserts
+
+Both `paperTopUp` and `liveTopUp` run `QuantityInvariantAuthority6500.economicNotionalCheck6537(ts.position)` immediately after every mutation. Fail ⇒ mint quarantined; counters `PAPER_TOPUP_POST_MUTATION_INVARIANT_BROKEN_6539` / `LIVE_TOPUP_POST_MUTATION_INVARIANT_BROKEN_6539`.
+
+### §7 — Existing 6537-corrupted positions
+
+`QuantityInvariantAuthority6500.reconstructFromCanonical(mint, pos)` now **refuses** to reconstruct when the derived row fails `economicNotionalCheck6537`. Pre-V5.0.6509 legacy rows stay quarantined instead of being silently "repaired" back into the ledger with SOL/token contamination. Counter: `CANONICAL_RECONSTRUCT_REFUSED_6539`.
+
+### §8 — Regression tests
+
+`HardAcceptanceInvariantsTest6536` + new `TopUpEconomicAtomicityTest6539` cover:
+- Fresh paper BUY, no top-up → passes
+- Paper BUY + one top-up → passes
+- Paper BUY + repeated top-ups → passes
+- Restart/replay after top-ups → identical qty/cost/entryUsd
+- Live verified top-up → USD/token basis remains valid
+- Deliberate `sol/price` qty → MUST fail
+- Deliberate `costSol/qty` as `entryPriceUsd` → MUST fail
+
+### Files touched (V5.0.6539)
+
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt` (paperTopUp + liveTopUp root fix)
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt` (`addToPosition6486` weighted USD entry)
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt` (`add` accepts `addedEntryPriceUsd + quantityScale`, records USD fillPrice)
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/QuantityInvariantAuthority6500.kt` (`reconstructFromCanonical` refuses invariant-broken rebuild)
+- `lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/truth/TopUpEconomicAtomicityTest6539.kt` *(new)*
+- `memory/PRD.md`
 
 
 ## V5.0.6538 (Feb 2026) — CANONICAL ECONOMIC BELT + LEGACY MINT SWEEP + SOL PERPS PHASE 1 ONLINE
