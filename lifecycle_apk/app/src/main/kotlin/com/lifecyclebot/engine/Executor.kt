@@ -12974,7 +12974,18 @@ class Executor(
         // race). Now reads from RuntimeModeAuthority, single source.
         val isPaper = isPaperRT()
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
-        
+        val effectiveAttemptId = attemptId
+        val exactIntent6533 = effectiveAttemptId.takeIf { it.isNotBlank() }?.let { ExecutableOpenGate.ticketForAttempt(it) }
+        if (exactIntent6533 == null || exactIntent6533.mint != ts.mint || !exactIntent6533.fdgAllowed ||
+            exactIntent6533.fdgVerdict.uppercase() !in setOf("BUY", "PROBE_ONLY")) {
+            try {
+                PipelineHealthCollector.labelInc("V3_EXPLICIT_REJECT_NO_EXACT_INTENT_6533")
+                ForensicLogger.lifecycle("V3_BUY_REJECTED_NO_EXACT_INTENT_6533", "mint=${ts.mint.take(10)} symbol=${ts.symbol} attemptId=${effectiveAttemptId.take(48)} action=no_economic_side_effect")
+            } catch (_: Throwable) {}
+            try { TradeAuthorizer.releasePosition(ts.mint, "V3_NO_EXACT_INTENT_6533", TradeAuthorizer.ExecutionBook.CORE) } catch (_: Throwable) {}
+            return
+        }
+        val effectiveFinalityPrechecked = false
         identity.executed(getActualPrice(ts), sizeSol, isPaper)
 
         // ── V5.9.844 — observability for 3 silently-dropped v3Buy params ──
@@ -13012,48 +13023,8 @@ class Executor(
             ErrorLogger.warn("Executor", "📊 HIGH_EXPOSURE_AT_ENTRY ${ts.symbol} | exposure=${exposurePctOfBank.toInt()}% of bank | openPos=$openPositionCount")
         }
         
-        // V5.0.3731 — recover lane-approved finality handoff when caller lost it.
-        // Some V3 live paths arrive with blank attemptId even though TradeAuthorizer just
-        // approved a specialist lane (MOONSHOT/SHITCOIN/etc). Reuse that approved key so
-        // liveBuy does not re-check as STANDARD candidateVersion=0 and emit
-        // NO_FINAL_BUY_CANDIDATE.
-        val effectiveAttemptId = attemptId.ifBlank { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint) ?: "" }
-        val effectiveFinalityPrechecked = finalityPrechecked || effectiveAttemptId.isNotBlank()
-
-        // V5.9.1366 — STANDARD-LANE GATE VERDICT. ROOT CAUSE of "parked / 0 open
-        // despite V3 EXECUTE": the ExecutableOpenGate EntryState is keyed by MINT and
-        // SHARED across every lane. When a meme lane (e.g. SHITCOIN) evaluates a token
-        // and records a non-BUY verdict (EXPECTANCY_REJECT / DANGER_BUCKET → WATCH),
-        // that WATCH is stamped into the shared state. The V3 spine then reaches a
-        // genuine EXECUTE_STANDARD + FDG✓ decision for the SAME mint and calls v3Buy —
-        // but it never recorded its OWN pre-FDG BUY verdict for the STANDARD/V3 lane.
-        // canOpenExecutablePosition() reads state.preFdgVerdict (=WATCH from the meme
-        // lane) → EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY → every V3 trade silently dropped,
-        // book parks at 0 open. Reaching v3Buy means V3 already cleared its own FDG
-        // hard-veto upstream (see BotService V3-EXECUTE: FDG is a hard veto there), so
-        // stamping a STANDARD BUY here is correct and safe — it does NOT bypass FDG,
-        // it records the verdict the V3 path already earned. Real safety context
-        // (rug/liq/tier) is passed so genuine hard-no's still convert to HARD_NO_BUY
-        // inside recordFdg. This is the missing sibling of the 8 lane recordFdg calls.
-        try {
-            ExecutableOpenGate.recordFdg(
-                ts.mint, ts.symbol, "STANDARD",
-                canExecute = true,
-                reason = null,
-                signal = "BUY",
-                rugScore = ts.safety.rugcheckScore,
-                safetyTier = ts.safety.tier.name,
-                liquidityUsd = ts.lastLiquidityUsd,
-                hardNoReasons = ts.safety.hardBlockReasons,
-                candidateVersion = effectiveAttemptId.substringAfterLast(":").toLongOrNull()
-                    ?: LaneExecutionCoordinator.candidateVersionFor(ts.mint),
-                entryScore = v3Score,
-                tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus,
-                tokenMapHydrationComplete = ts.tokenMap.hydrationComplete,
-                tokenMapExpectedOut = ts.tokenMap.expectedOutAmount,
-                tokenMapProviderAttempts = ts.tokenMap.providerAttempts,
-            )
-        } catch (_: Throwable) {}
+        // V5.0.6533 — no any-lane fallback and no late synthetic FDG write.
+        // The exact immutable intent was validated before lifecycle mutation above.
 
         val openedByV3Buy4462: Boolean = if (isPaper) {
             paperBuy(

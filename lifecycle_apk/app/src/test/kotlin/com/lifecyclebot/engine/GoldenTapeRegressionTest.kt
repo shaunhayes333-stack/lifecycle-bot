@@ -416,7 +416,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("MEME-only should rotate ownership across the full MemeTrader surface", bot.contains("MEMETRADER_CONTRIBUTION_ROTATION") && bot.contains("fullMemeTraderRing") && bot.contains("MEMETRADER_OWNER_LANE"))
         assertTrue("Rotation must include internal lanes that were previously idle (V5.0.4599: specialists no longer in ring)", listOf("MOONSHOT", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { bot.contains(it) })
-        assertTrue("V5.0.4478: live contribution considers all internal lanes but bounds FDG/executor to owner/rescue", bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("action=considered_bounded_owner_rotation") && bot.contains("val allowed = (l == ownerLane || profitableRescue)") && bot.contains("return allowed"))
+        assertTrue("V5.0.4478: live contribution considers all internal lanes but bounds FDG/executor to owner/rescue", bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("action=considered_bounded_owner_rotation") && bot.contains("val selectedRescue6533 = ExecutionAuthorityPolicy6533.selectOneRescue") && bot.contains("val allowed = profitableRescue") && bot.contains("return allowed"))
         assertTrue("V5.0.6014: successful lanes must get bounded entry feed instead of MANIPULATED/SHITCOIN/EXPRESS budget", bot.contains("SUCCESSFUL_LANE_FEED_RESTORED_6014") && bot.contains("successfulFeedLanes6014") && bot.contains("QUALITY") && bot.contains("MOONSHOT") && bot.contains("BLUECHIP") && bot.contains("CRYPTO") && !bot.contains("SPECIALIST_ENTRY_EVAL_RESTORED_6013"))
         assertFalse("3914 live full-ring fanout regression must stay dead", bot.contains("LIVE_FULL_RING_LANE_OBSERVE"))
     }
@@ -674,7 +674,8 @@ class GoldenTapeRegressionTest {
     @Test
     fun runtime_report_faults_from_3700_are_guarded() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("Meme runtime must treat legacy BOTH mode as MEME-only authority", bot.contains("cfg.tradingMode == 2 && memeOn"))
+        val plan = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TraderRuntimePlan6526.kt").readText()
+        assertTrue("Meme runtime must treat legacy BOTH mode through the immutable runtime plan", plan.contains("cfg.tradingMode == 2 && memeOn") && bot.contains("plan6526.enabledTraderSet()"))
         assertTrue("Cached FDG reuse must not be counted as a fresh FDG phase", bot.contains("FDG_CACHED_REUSE"))
         assertTrue(bot.contains("if (!fdgWasCached)"))
         val doctor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StateDebuggerAI.kt").readText()
@@ -847,7 +848,8 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("MEMETRADER_CONTRIBUTION_ROTATION"))
         assertTrue(bot.contains("exactly ONE owner"))
-        assertTrue(bot.contains("val allowed = (l == ownerLane || profitableRescue)"))
+        assertTrue(bot.contains("val selectedRescue6533 = ExecutionAuthorityPolicy6533.selectOneRescue"))
+        assertTrue(bot.contains("val allowed = profitableRescue"))
         assertTrue(bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469"))
         assertTrue(bot.contains("val fullMemeTraderRing = listOf"))
         assertFalse("owner rotation must not require pre-existing affinity", bot.contains("nonMemeSpecialist && affinity.contains(l)"))
@@ -1125,26 +1127,17 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun v3_live_handoff_reuses_any_recent_lane_approved_attempt() {
+    fun v3_live_handoff_requires_exact_canonical_fdg_intent() {
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
-        assertTrue(gate.contains("fun recentAllowedAttemptIdAnyLane"))
-        assertFalse("Generic NO_FINAL_BUY_CANDIDATE must not survive as final live-buy reason", gate.contains("\"NO_FINAL_BUY_CANDIDATE\""))
-        assertTrue(gate.contains("TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE"))
-        assertTrue(gate.contains("MOONSHOT"))
-
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(bot.contains("recentAllowedAttemptIdAnyLane(ts.mint)"))
-        assertTrue(bot.contains("authResult.attemptId.ifBlank"))
-        assertTrue(bot.contains("recentAllowedAttemptId(ts.mint, ts.position.tradingMode.ifBlank"))
-
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(exec.contains("effectiveAttemptId"))
-        assertTrue(exec.contains("effectiveFinalityPrechecked"))
-        assertTrue(exec.contains("recentAllowedAttemptIdAnyLane(ts.mint)"))
+        val v3Buy = exec.substringAfter("fun v3Buy(").substringBefore("\n    fun ")
+        assertTrue(gate.contains("recordFdgAndGetIntent6533") && gate.contains("allowTrunkExecutionHandoff6533"))
+        assertTrue(bot.contains("val v3AttemptId = v3Intent6533.attemptId") && bot.contains("finalityPrechecked = false"))
+        assertTrue(v3Buy.contains("V3_BUY_REJECTED_NO_EXACT_INTENT_6533"))
+        assertFalse(v3Buy.contains("recentAllowedAttemptIdAnyLane"))
         assertFalse("Executor must not emit generic NO_FINAL_BUY_CANDIDATE", exec.contains("reason=FINALITY_BLOCK:NO_FINAL_BUY_CANDIDATE"))
-        assertTrue(exec.contains("FINALITY_BLOCK:${'$'}{executableOpen.reason"))
     }
-
 
     @Test
     fun source_balance_demotion_preserves_intake_liquidity_metadata() {
@@ -1407,10 +1400,10 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EnabledTraderAuthority.kt").readText()
         val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val plan = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TraderRuntimePlan6526.kt").readText()
 
-        assertTrue(bot.contains("cryptoSidecarOn"))
-        assertTrue(bot.contains("Trader.CRYPTO_ALT"))
-        assertTrue(bot.contains("cryptoSidecarOn) add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT)"))
+        assertTrue(plan.contains("cryptoUniverseOn") && plan.contains("Trader.CRYPTO_ALT"))
+        assertTrue(bot.contains("plan6526.enabledTraderSet()"))
         assertTrue(bot.contains("CryptoAltTrader.start"))
         assertTrue(bot.contains("CryptoAltTrader.setEnabled(cryptoUniverseOn"))
         assertTrue("V5.0.6526: Crypto Universe/Markets derivation now flows through TraderRuntimePlan6526",
@@ -2456,10 +2449,11 @@ class GoldenTapeRegressionTest {
     fun meme_runtime_authority_activates_all_internal_layers_without_market_fanout() {
         val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EnabledTraderAuthority.kt").readText()
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val plan = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TraderRuntimePlan6526.kt").readText()
         assertTrue("Authority enum must expose every internal meme layer except disabled CYCLIC sidecar", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "QUALITY", "TREASURY", "CASHGEN", "BLUECHIP", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER").all { auth.contains(it) })
-        assertTrue("Meme-only publish must include full internal specialist set except CYCLIC", listOf("Trader.QUALITY", "Trader.TREASURY", "Trader.CASHGEN", "Trader.BLUECHIP", "Trader.PROJECT_SNIPER", "Trader.DIP_HUNTER", "Trader.MANIPULATED").all { bot.contains(it) } && !bot.contains("add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC)"))
+        assertTrue("Meme-only publish must include full internal specialist set except CYCLIC", listOf("Trader.QUALITY", "Trader.TREASURY", "Trader.CASHGEN", "Trader.BLUECHIP", "Trader.PROJECT_SNIPER", "Trader.DIP_HUNTER", "Trader.MANIPULATED").all { plan.contains(it) } && !plan.contains("s += EnabledTraderAuthority.Trader.CYCLIC") && bot.contains("plan6526.enabledTraderSet()"))
         assertTrue("Internal specialists must be ignored by isMemeLiveOnly so markets/perps remain isolated; CYCLIC must not be an internal meme layer", auth.contains("internalMemeLayers") && auth.contains("Trader.PROJECT_SNIPER") && auth.contains("set - Trader.CRYPTO_ALT - internalMemeLayers") && !auth.substringAfter("val internalMemeLayers = setOf(").substringBefore(")").contains("Trader.CYCLIC"))
-        assertTrue("Runtime report should expose all active meme lanes while CYCLIC stays excluded", bot.contains("all internal MEME lanes stay active") && bot.contains("CYCLIC remains excluded"))
+        assertTrue("Runtime plan must expose active meme lanes while CYCLIC stays excluded", plan.contains("fun enabledTraderSet()") && bot.contains("CyclicTradeEngine.setEnabled(false)"))
     }
 
 
@@ -3486,7 +3480,7 @@ class GoldenTapeRegressionTest {
     fun live_meme_mode_must_collapse_to_one_owner_lane_not_full_ring_fanout() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
-        assertTrue("V5.0.4478: live MemeTrader must consider all internal trader lanes while preserving bounded owner telemetry", bot.contains("LIVE_RING_OWNER_COLLAPSE") && bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("MEMETRADER_OWNER_LANE") && bot.contains("val allowed = (l == ownerLane || profitableRescue)"))
+        assertTrue("V5.0.6533: live MemeTrader considers all lanes while execution is primary plus one rescue", bot.contains("LIVE_RING_OWNER_COLLAPSE") && bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("MEMETRADER_OWNER_LANE") && bot.contains("val allowed = profitableRescue") && bot.contains("selectedRescue6533"))
         assertTrue("V5.0.6483: paused owner lanes remain bounded owners but pivot tactics before execution", bot.contains("OWNER_LANE_TACTIC_PIVOT_6483") && bot.contains("LaneAutoPauseGuard.isPaused(l)"))
         assertTrue("V5.0.6483: successful-lane feed preserves quality proof without learned pause denial", bot.contains("SUCCESSFUL_LANE_FEED_DENIED_QUALITY_PROOF_6483") && bot.contains("qualityProofOk6014") && !bot.contains("LIVE_FULL_RING_LANE_OBSERVE"))
         assertFalse("live full-ring observe must not return true before owner rotation", bot.contains("LIVE_FULL_RING_LANE_OBSERVE") || bot.contains("fullRingObserve"))
@@ -4042,7 +4036,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val mode = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ModeRouter.kt").readText()
         assertTrue("Stage router must identify base/mid/markup/peak/dump/rug states", router.contains("BASE_START") && router.contains("MID_ACCUMULATION") && router.contains("CONTROLLED_MARKUP") && router.contains("PEAK_EXHAUSTION") && router.contains("RUG_PRONE"))
-        assertTrue("Metric-stage mismatch must be soft telemetry while RUG_PRONE remains hard safety", bot.contains("TOKEN_METRIC_STAGE_LANE_SOFT_MISMATCH_4162") && bot.contains("TokenMetricStageRouter.laneFit(ts, l)") && bot.contains("metricFit.stage == TokenMetricStageRouter.Stage.RUG_PRONE") && bot.indexOf("TOKEN_METRIC_STAGE_LANE_SOFT_MISMATCH_4162") < bot.indexOf("if (l == \"STANDARD\" || l == \"CORE\" || l == \"V3\")"))
+        assertTrue("Metric-stage rug safety must run before causal trunk handling", bot.contains("TOKEN_METRIC_STAGE_LANE_SOFT_MISMATCH_4162") && bot.contains("TokenMetricStageRouter.laneFit(ts, l)") && bot.contains("metricFit.stage == TokenMetricStageRouter.Stage.RUG_PRONE") && bot.indexOf("metricFit.stage == TokenMetricStageRouter.Stage.RUG_PRONE") < bot.indexOf("ExecutionAuthorityPolicy6533.isTrunkLane(l)"))
         assertTrue("V3 trunk must also obey metric-stage fit", bot.contains("V3_TOKEN_METRIC_STAGE_DEFERRED") && bot.contains("TokenMetricStageRouter.laneFit(ts, \"V3\")"))
         assertTrue("Primary lane election must be metric-aware, not only style/source aware", bot.contains("TokenMetricStageRouter.preferredPrimaryLane") && bot.contains("TOKEN_METRIC_STAGE_PRIMARY"))
         assertTrue("ModeRouter must not reward extended near-high peak chasing as breakout", mode.contains("BREAKOUT_REJECT: peak exhaustion") && mode.contains("controlled approach below local high"))
@@ -6551,8 +6545,8 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
         assertTrue("V5.0.4522: fanout pressure detector must use cached laneEval/intake plus live WR", pressure.contains("ratio > 8.0") && pressure.contains("wr < 30.0") && pressure.contains("TTL_MS"))
-        assertTrue("V5.0.4522: pressure mode must narrow broad score/liquidity profitable rescue, not disable lanes", bot.contains("LIVE_FANOUT_PRESSURE_RESCUE_NARROWED_4522") && bot.contains("primary lane and affinity-proven rescue still run"))
-        assertTrue("V5.0.4522: normal mode must preserve the existing profitable rescue path", bot.contains("scoreForToxicity >= 55") && bot.contains("ts.lastLiquidityUsd >= 15_000.0"))
+        assertTrue("V5.0.6533: pressure telemetry remains while one deterministic rescue prevents broad fanout", bot.contains("LIVE_FANOUT_PRESSURE_RESCUE_NARROWED_4522") && bot.contains("selectedRescue6533"))
+        assertTrue("V5.0.6533: rescue eligibility remains proof and toxicity filtered", bot.contains("filterNonToxic(rawOwnerPool") && bot.contains("qualityEligible") && bot.contains("cashGenEligible"))
         assertTrue("V5.0.4522: reports must surface fanout pressure state", report.contains("LiveLaneFanoutPressure.snapshot"))
     }
 
@@ -7357,10 +7351,9 @@ class GoldenTapeRegressionTest {
                 paperBuy.contains("PAPER_BUY_NOT_OPENED_") &&
                 paperBuy.contains("ExecutionAttemptLease.terminalOk") &&
                 (paperBuy.contains("PAPER_BUY_OPENED_6369") || paperBuy.contains("PAPER_BUY_OPENED_6370")))
-        assertTrue("V5.0.6369: PAPER CashGen/Treasury rescue must require explicit lane affinity; broad score/liquidity rescue is live-only to prevent runtime lane fanout explosions",
-            bot.contains("paperCashTreasuryRescue6369") &&
-            bot.contains("""!RuntimeModeAuthority.isLive() && l in setOf("TREASURY", "CASHGEN") && affinity.contains(l)""") &&
-                bot.contains("val rescueModeAllowed6072 = RuntimeModeAuthority.isLive() || paperCashTreasuryRescue6369"))
+        assertTrue("V5.0.6533: paper rescue must be one deterministic affinity-preferred lane",
+            bot.contains("selectedRescue6533") && bot.contains("affinityLanes = affinity") &&
+                bot.contains("val allowed = profitableRescue"))
     }
 
 
@@ -8027,9 +8020,10 @@ class GoldenTapeRegressionTest {
         assertTrue("6491 unresolved size must return before mint claim and EXEC_OPEN_ALLOWED",
             sizePrecheck >= 0 && mintClaim > sizePrecheck && allowed > mintClaim &&
                 permit.contains("sizeFinalityTicketPresent6491") && permit.contains("preResolvedSizeSol6490 = sizeSol"))
-        assertTrue("6491 specialist lanes must become read-only unless elected primary before FDG",
-            bot.contains("LANE_READ_ONLY_NON_PRIMARY_6491") &&
-                bot.contains("action=no_fdg_no_size_no_exec") && bot.contains("return false"))
+        assertTrue("6533 supersedes 6491 amputation with trunk plus one deterministic rescue",
+            bot.contains("ExecutionAuthorityPolicy6533.isTrunkLane(l)") &&
+                bot.contains("selectOneRescue(") && bot.contains("LANE_READ_ONLY_NON_RESCUE_6533") &&
+                !bot.contains("LANE_READ_ONLY_NON_PRIMARY_6491"))
         assertTrue("6491 toxic SHITCOIN/TREASURY shaping must use learned lane-local entry floors, not global pauses",
             probability.contains("learnedEntryFloorDelta6491") && probability.contains("lane == " + '"' + "SHITCOIN" + '"') &&
                 probability.contains("lane == " + '"' + "TREASURY" + '"') && bot.contains("LANE_LOCAL_LEARNED_FLOOR_READ_ONLY_6491"))
@@ -8527,6 +8521,33 @@ class GoldenTapeRegressionTest {
         assertTrue(report.contains("Session completed trades:") && report.contains("Lifetime completed trades:") && report.contains("Open positions:"))
         assertTrue(marks.contains("val priceValidity") && marks.contains("val liquidityValidity"))
         assertTrue(marks.contains("!poolAddress.startsWith(" + "\"MINT_ROUTE:\""))
+    }
+
+    @Test
+    fun V5_0_6533_execution_authority_is_causal_bounded_and_cross_universe_safe() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val policy = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionAuthorityPolicy6533.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val plan = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TraderRuntimePlan6526.kt").readText()
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        assertTrue(policy.contains("fun isTrunkLane") && policy.contains("fun selectOneRescue"))
+        assertTrue(bot.contains("V3_CANONICAL_HANDOFF_PENDING_6533") && bot.contains("recordFdgAndGetIntent6533"))
+        assertTrue(bot.contains("FinalDecisionGate.evaluate(") && bot.contains("val v3AttemptId = v3Intent6533.attemptId"))
+        assertFalse(bot.contains("V3_CORE_SHADOW_EXECUTE_VISIBILITY_6487"))
+        assertTrue(executor.contains("V3_BUY_REJECTED_NO_EXACT_INTENT_6533"))
+        val v3BuyArea6533 = executor.substringAfter("fun v3Buy(").substringBefore("\n    fun ")
+        assertFalse(v3BuyArea6533.contains("recentAllowedAttemptIdAnyLane(ts.mint)"))
+        assertTrue(gate.contains("requiresSolanaTokenMap") && gate.contains("allowTrunkExecutionHandoff6533"))
+        assertTrue(gate.contains("intent.fdgVerdict.uppercase() in setOf(") && gate.contains("PROBE_ONLY"))
+        assertTrue(crypto.contains("CRYPTO_SHORT_REROUTED_TO_PERP_6533") && crypto.contains("ADAPTER_DIRECTION_UNSUPPORTED"))
+        assertFalse(crypto.contains("SPOT_SHORT_UNSUPPORTED"))
+        assertTrue(crypto.contains("requiresSolanaTokenMap = ExecutionAuthorityPolicy6533.requiresSolanaTokenMap"))
+        assertTrue(plan.contains("paperLearnEverything6533") && bot.contains("publish(plan6526.enabledTraderSet())"))
+        assertTrue(report.contains("EXECUTION AUTHORITY INVARIANTS 6533") &&
+            report.contains("NON_SOLANA_TOKENMAP_HARDNO") && report.contains("EXECUTABLE_FANOUT_PER_CANDIDATE_GT_2"))
     }
 
 }

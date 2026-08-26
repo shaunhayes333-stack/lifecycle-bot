@@ -2139,89 +2139,10 @@ class BotService : Service() {
         // mode publishes only MEME. Non-meme-only modes still get the full
         // surface for autonomous learning.
         run {
-            val memeOn = cfg.memeTraderEnabled
-            // V5.0.3702 — operator runtime dump 3700: enabled=MEME,CRYPTO_ALT,PERPS,CYCLIC
-            // while running the meme trader. Mode 2 (legacy BOTH/Recommended) still let
-            // markets/perps/cyclic into the enabled set and inflated FDG/supervisor work.
-            // For the meme runtime, authority must publish MEME only. Markets-only mode
-            // remains mode=1; it is the only path allowed to publish non-meme traders.
-            val memeOnlyUiMode = cfg.tradingMode == 0 || (cfg.tradingMode == 2 && memeOn)
-            val marketsOn = !marketsKill && cfg.marketsTraderEnabled && cfg.tradingMode == 1
-            val cryptoSidecarOn = ((marketsOn || (cfg.marketsTraderEnabled && cfg.cryptoAltsEnabled)) && cfg.cryptoAltsEnabled)
-            val enabledSet = if (memeOnlyUiMode && memeOn) {
-                // True meme runtime keeps meme lane isolated, but CRYPTO_ALT is an
-                // isolated sidecar engine when explicitly enabled; it does not fan
-                // out meme FDG/lane evaluation.
-                mutableSetOf(
-                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME,
-                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.SHITCOIN,
-                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MOONSHOT,
-                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.EXPRESS,
-                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.QUALITY,
-                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.TREASURY,
-                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CASHGEN,
-                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.BLUECHIP,
-                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MANIPULATED,
-                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.DIP_HUNTER,
-                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER,
-                ).apply {
-                    if (cryptoSidecarOn) add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT)
-                    // V5.0.6073 — SHADOW ALWAYS-ON (operator: "ensure the shadow
-                    // trading module is running at all times as designed as a
-                    // constant learning tool"). Shadow paper runs behind BOTH
-                    // paper and live modes, in meme-only mode too.
-                    add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.SHADOW_PAPER)
-                    // V5.0.4155 — all internal MEME lanes stay active, but CYCLIC is
-                    // intentionally excluded from live authority per operator. It is a
-                    // sidecar compound ring, not part of the current all-lanes meme pass.
-                    // Do not add Trader.CYCLIC here even if a stale persisted toggle is true.
-                }.toSet()
-            } else {
-                // Markets-only mode: respect per-lane toggles, but exclude
-                // quarantined market lanes and forced-off Crypto when markets-OFF.
-                val s = mutableSetOf<com.lifecyclebot.engine.EnabledTraderAuthority.Trader>()
-                if (memeOn) {
-                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME
-                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.SHITCOIN
-                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MOONSHOT
-                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.EXPRESS
-                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.QUALITY
-                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.TREASURY
-                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CASHGEN
-                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.BLUECHIP
-                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MANIPULATED
-                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.DIP_HUNTER
-                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER
-                }
-                if (cryptoSidecarOn) s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT
-                if (marketsOn && (cfg.stocksEnabled || cfg.commoditiesEnabled || cfg.metalsEnabled || cfg.forexEnabled)
-                    && !com.lifecyclebot.engine.EnabledTraderAuthority.marketLanesQuarantined()) {
-                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MARKETS_STOCKS
-                }
-                if (marketsOn && cfg.perpsEnabled) s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PERPS
-                // V5.0.4155 — CYCLIC remains excluded; all other enabled traders/lanes
-                // are allowed to work. Avoid stale persisted cyclic toggle re-entering
-                // runtime authority and choking the meme executor.
-                // V5.0.6073 — SHADOW ALWAYS-ON: no toggle, no mode gate.
-                s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.SHADOW_PAPER
-                // Project Sniper requires explicit opt-in AND non-meme-only mode.
-                if (!memeOnlyUiMode && cfg.v3EngineEnabled) {
-                    // Note: ProjectSniperAI has its own .isEnabled() — we only
-                    // publish the authority bit here; the AI side decides if it
-                    // actually evaluates this tick.
-                    // Opt-in: only when operator has chosen mixed/full mode.
-                }
-                if (s.isEmpty()) s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME
-                s.toSet()
-            }
-            com.lifecyclebot.engine.EnabledTraderAuthority.publish(enabledSet)
-            try {
-                CyclicTradeEngine.setEnabled(
-                    com.lifecyclebot.engine.EnabledTraderAuthority.isEnabled(
-                        com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC
-                    )
-                )
-            } catch (_: Throwable) {}
+            // V5.0.6533 — publish the same immutable plan already consumed by
+            // setEnabled/startup. No second interpretation of mode or sub-toggles.
+            com.lifecyclebot.engine.EnabledTraderAuthority.publish(plan6526.enabledTraderSet())
+            try { CyclicTradeEngine.setEnabled(false) } catch (_: Throwable) {}
             // V5.9.789 — operator audit Critical Fix 3: comprehensive startup
             // authority dump. The previous publish() call only logged the
             // enabled/disabled trader sets. Operator audit requires the full
@@ -2246,7 +2167,7 @@ class BotService : Service() {
             } catch (_: Throwable) { /* logging is best-effort */ }
         }
 
-        if (marketsLaneOn) {
+        if (plan6526.perpsEffective) {
             // V5.9.600 BUG-1 FIX: PerpsTraderAI was never getting setLiveMode called.
             // Sub-traders all get setLiveMode(!cfg.paperMode) below, but PerpsTraderAI
             // only had setTradingMode(isPaper) and was never reached from BotService.
@@ -2267,7 +2188,7 @@ class BotService : Service() {
         }
 
         // V5.7.5: Start TokenizedStockTrader - DEDICATED stock trading engine
-        if (marketsLaneOn && marketsStartCfg.stocksEnabled) {
+        if (plan6526.stocksEffective) {
             try {
                 com.lifecyclebot.perps.TokenizedStockTrader.init()
                 com.lifecyclebot.perps.TokenizedStockTrader.setLiveMode(!cfg.paperMode)
@@ -2284,7 +2205,7 @@ class BotService : Service() {
         }
 
         // V5.7.6: Start CommoditiesTrader - Energy & Agricultural commodities
-        if (marketsLaneOn && marketsStartCfg.commoditiesEnabled) {
+        if (plan6526.commoditiesEffective) {
             try {
                 com.lifecyclebot.perps.CommoditiesTrader.initialize()
                 com.lifecyclebot.perps.CommoditiesTrader.setLiveMode(!cfg.paperMode)
@@ -2296,7 +2217,7 @@ class BotService : Service() {
         }
 
         // V5.7.6: Start MetalsTrader - Precious & Industrial metals
-        if (marketsLaneOn && marketsStartCfg.metalsEnabled) {
+        if (plan6526.metalsEffective) {
             try {
                 com.lifecyclebot.perps.MetalsTrader.initialize(applicationContext)
                 com.lifecyclebot.perps.MetalsTrader.setLiveMode(!cfg.paperMode)
@@ -2308,7 +2229,7 @@ class BotService : Service() {
         }
 
         // V5.7.6: Start ForexTrader - Currency pairs
-        if (marketsLaneOn && marketsStartCfg.forexEnabled) {
+        if (plan6526.forexEffective) {
             try {
                 com.lifecyclebot.perps.ForexTrader.initialize(applicationContext)
                 com.lifecyclebot.perps.ForexTrader.setLiveMode(!cfg.paperMode)
@@ -10780,19 +10701,11 @@ class BotService : Service() {
         //      lane shapes — but we still cap fanout per the operator P1 spec:
         //      "primary lane + at most one rescue lane".
         val l = lane.uppercase()
-        // V5.0.6491 — ONE EXECUTABLE SPECIALIST LANE PER MINT/VERSION.
+        // V5.0.6533 — specialist execution is bounded below to primary + one deterministic rescue.
+        // Trunk handling occurs after metric-stage hard safety below.
         // canonicalCycleLaneFor elected the owner before these lane sections.
-        // All non-primary lanes remain read-only contributors and must not reach
-        // FDG, sizing, TradeAuthorizer, occupancy, or executor work.
-        if (!l.equals(primaryLane, ignoreCase = true)) {
-            try {
-                PipelineHealthCollector.labelInc("LANE_READ_ONLY_NON_PRIMARY_6491_$l")
-                if (ForensicEmitRateLimiter6356.shouldEmit("LANE_READ_ONLY_NON_PRIMARY_6491", "${ts.mint}|$l")) {
-                    ForensicLogger.lifecycle("LANE_READ_ONLY_NON_PRIMARY_6491", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$l primary=$primaryLane action=no_fdg_no_size_no_exec")
-                }
-            } catch (_: Throwable) {}
-            return false
-        }
+        // Non-primary specialists continue to the bounded rescue election below;
+        // they are not unconditionally amputated before affinity/owner policy.
         // V5.0.4178 — L7 WORST-LANE SUPPRESSION (operator directive).
         // SHITCOIN / EXPRESS / MANIPULATED / DIP_HUNTER all bleed (0% WR in
         // journal). While the bot is below the 45% LIVE_ADAPTIVE doctrine
@@ -10830,6 +10743,8 @@ class BotService : Service() {
             // FDG/sizing handle risk.
             if (metricFit.stage == TokenMetricStageRouter.Stage.RUG_PRONE) return false
         }
+        // V5.0.6533 — trunk is causal after quarantine/rug safety, before specialist ownership.
+        if (ExecutionAuthorityPolicy6533.isTrunkLane(l)) return true
         fun qualityLaneProofOk(): Boolean {
             val routeProof = ts.lastPrice > 0.0 && (ts.lastPriceSource.isNotBlank() || ts.source.isNotBlank())
             val holderProof = try { ts.safety.topHolderPct > 0.0 || ts.peakHolderCount > 0 || ts.holderGrowthRate != 0.0 } catch (_: Throwable) { false }
@@ -10867,8 +10782,6 @@ class BotService : Service() {
             }
             return ok
         }
-        // (1) Regression guard — must remain literally these tokens.
-        if (l == "STANDARD" || l == "CORE" || l == "V3") return true
         // (2) Primary normally evaluates, except catastrophic paper S0-10
         // specialist bleed. This prevents a low-score DIP/QUALITY/TREASURY/etc
         // primary from bypassing the bounded rescue cap during a sub-bootstrap
@@ -10935,7 +10848,8 @@ class BotService : Service() {
                         ForensicLogger.lifecycle("SUCCESSFUL_LANE_FEED_RESTORED_6014", "lane=$l primary=$primaryLane symbol=${ts.symbol} mint=${ts.mint.take(10)} affinity=${affinity.joinToString("+")} action=feed_success_lane_not_manipulated")
                         PipelineHealthCollector.labelInc("SUCCESSFUL_LANE_FEED_RESTORED_6014_$l")
                     } catch (_: Throwable) {}
-                    return true
+                    // 6533: feed evidence participates in the deterministic rescue pool;
+                    // it may not independently return true and create a second rescue.
                 } else {
                     try { PipelineHealthCollector.labelInc("SUCCESSFUL_LANE_FEED_DENIED_QUALITY_PROOF_6483_$l") } catch (_: Throwable) {}
                 }
@@ -11012,49 +10926,19 @@ class BotService : Service() {
                 try { ForensicLogger.lifecycle("QUALITY_OWNER_PROOF_REJECTED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct} primary=$primaryLane cashGenEligible=$cashGenEligible") } catch (_: Throwable) {}
             }
             val ownerPool = com.lifecyclebot.engine.LaneToxicityGuard.filterNonToxic(rawOwnerPool, scoreForToxicity).ifEmpty { rawOwnerPool }
-            val rot = try { (System.currentTimeMillis() / 3_000L).toInt() } catch (_: Throwable) { 0 }
-            val ownerLane = ownerPool[((ts.mint.hashCode() xor rot) and 0x7fffffff) % ownerPool.size]
-            // V5.0.3986 — LIVE PROFITABLE-FANOUT REPAIR. Owner rotation prevents
-            // FDG storms, but a strict single owner starves the quality lanes the
-            // operator expects to make money. In LIVE, allow bounded affinity/
-            // character-confirmed quality rescue lanes in addition to the owner;
-            // the actual lane must still emit BUY intent and pass FDG/executor.
-            val fanoutPressure4522 = try { LiveLaneFanoutPressure.snapshot() } catch (_: Throwable) { LiveLaneFanoutPressure.Snapshot(false, 0.0, 0.0, 0, "error") }
-            // V5.0.6072 — CASHGEN/TREASURY rescue extended to PAPER. The rescue
-            // path was live-only, so in paper the money-printer lanes only ran
-            // when they won the 1-of-7 owner rotation — starving the compounder
-            // learning surface. Quality-family rescue stays live-only (paper WR
-            // dilution guard); TREASURY/CASHGEN rescue is bounded by
-            // cashGenEligible + affinity/score/liq conditions below.
-            // V5.0.6369 — PAPER FANOUT BACKSTOP.
-            // 6072 extended CASHGEN/TREASURY rescue to PAPER, but the non-pressure
-            // branch below admits them on broad score/liquidity even when the token
-            // has no explicit CASHGEN/TREASURY affinity. Runtime 6368 showed this
-            // back as lane-fanout pressure + duplicate paper BUYs. Live keeps the
-            // profitable rescue logic; paper only gets CASHGEN/TREASURY rescue when
-            // the classifier/source explicitly tagged that lane. Owner rotation still
-            // samples every ring lane over time, so learning breadth is preserved.
-            val paperCashTreasuryRescue6369 = !RuntimeModeAuthority.isLive() && l in setOf("TREASURY", "CASHGEN") && affinity.contains(l)
-            val rescueModeAllowed6072 = RuntimeModeAuthority.isLive() || paperCashTreasuryRescue6369
-            val profitableRescue = rescueModeAllowed6072 && l in setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP", "MOONSHOT", "PROJECT_SNIPER") && (
-                if (fanoutPressure4522.active) {
-                    // V5.0.4522 — pressure mode: keep owner rotation + explicit affinity,
-                    // but remove broad score/liquidity rescue that lets every quality-family
-                    // lane evaluate the same mint during live WR collapse. This is not lane
-                    // amputation: primary lane and affinity-proven rescue still run.
-                    // V5.0.6047 — CASHGEN/TREASURY use cashGenEligible (permissive scalp proof)
-                    (l in setOf("QUALITY", "BLUECHIP") && qualityEligible && affinity.contains(l)) ||
-                        (l in setOf("TREASURY", "CASHGEN") && cashGenEligible && affinity.contains(l)) ||
-                        (l == "MOONSHOT" && (affinity.contains(l) || l == primaryLane.uppercase() || scoreForToxicity >= 65 || ts.meta.momScore >= 70.0)) ||
-                        (l == "PROJECT_SNIPER" && qualityEligible && affinity.contains(l))
-                } else {
-                    // V5.0.6047 — CASHGEN/TREASURY use cashGenEligible (liq>=$2K) instead of qualityEligible (liq>=$15K)
-                    (l in setOf("QUALITY", "BLUECHIP") && qualityEligible && (affinity.contains(l) || l == primaryLane.uppercase() || scoreForToxicity >= 55 || ts.lastLiquidityUsd >= 15_000.0)) ||
-                        (l in setOf("TREASURY", "CASHGEN") && cashGenEligible && (affinity.contains(l) || l == primaryLane.uppercase() || scoreForToxicity >= 45 || ts.lastLiquidityUsd >= 2_000.0)) ||
-                        (l == "MOONSHOT" && (affinity.contains(l) || l == primaryLane.uppercase() || scoreForToxicity >= 55 || ts.meta.momScore >= 60.0)) ||
-                        (l == "PROJECT_SNIPER" && qualityEligible && affinity.contains(l))
-                }
+            val candidateVersion6533 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+            val ownerLane = ownerPool[((ts.mint.hashCode().toLong() xor candidateVersion6533).and(Long.MAX_VALUE) % ownerPool.size).toInt()]
+            // V5.0.6533 — exactly one deterministic rescue. Prefer explicit affinity;
+            // fall back to the toxicity/proof-filtered owner pool, never wall-clock rotation.
+            val selectedRescue6533 = ExecutionAuthorityPolicy6533.selectOneRescue(
+                mint = ts.mint,
+                candidateVersion = candidateVersion6533,
+                primaryLane = primaryLane,
+                affinityLanes = affinity,
+                eligibleLanes = ownerPool,
             )
+            val profitableRescue = l == selectedRescue6533
+            val fanoutPressure4522 = try { LiveLaneFanoutPressure.snapshot() } catch (_: Throwable) { LiveLaneFanoutPressure.Snapshot(false, 0.0, 0.0, 0, "error") }
             if (fanoutPressure4522.active && l in setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP") && !profitableRescue) {
                 try { PipelineHealthCollector.labelInc("LIVE_FANOUT_PRESSURE_RESCUE_NARROWED_4522_$l") } catch (_: Throwable) {}
             }
@@ -11071,7 +10955,7 @@ class BotService : Service() {
                 // any other path still slips through, but this closes the
                 // primary bypass channel.
                 val laneIsPaused4598 = try { LaneAutoPauseGuard.isPaused(l) } catch (_: Throwable) { false }
-                val allowed = (l == ownerLane || profitableRescue)
+                val allowed = profitableRescue
                 if (laneIsPaused4598 && allowed) {
                     val pivot6483 = try { com.lifecyclebot.engine.learning.TacticSwitcher.rotateForLanePressure(l, ts.entryScore.toInt(), "owner_lane_pause").name } catch (_: Throwable) { "UNKNOWN" }
                     try {
@@ -11142,14 +11026,19 @@ class BotService : Service() {
             return false
         }
 
-        // (4) Mixed mode: primary + at most one rescue from the token's
-        // affinity set. Skip non-meme specialists that the affinity router
-        // didn't tag for this candidate.
-        if (nonMemeSpecialist) {
-            return affinity.contains(l)
-        }
-        // Default: allow (preserves SHITCOIN/MOONSHOT/MEME side-by-side learning).
-        return true
+        // (4) Mixed mode: primary + exactly one deterministic eligible rescue.
+        val mixedEligible6533 = (affinity + setOf("SHITCOIN", "MOONSHOT", "EXPRESS"))
+            .filter { !ExecutionAuthorityPolicy6533.isTrunkLane(it) }
+        val mixedRescue6533 = ExecutionAuthorityPolicy6533.selectOneRescue(
+            mint = ts.mint,
+            candidateVersion = LaneExecutionCoordinator.candidateVersionFor(ts.mint),
+            primaryLane = primaryLane,
+            affinityLanes = affinity,
+            eligibleLanes = mixedEligible6533,
+        )
+        val mixedAllowed6533 = l == mixedRescue6533
+        if (!mixedAllowed6533) try { PipelineHealthCollector.labelInc("LANE_READ_ONLY_NON_RESCUE_6533_$l") } catch (_: Throwable) {}
+        return mixedAllowed6533
     }
 
     private fun walletCorrespondentOpenPrice4481(ts: com.lifecyclebot.data.TokenState, rawPrice: Double, context: String): Double {
@@ -20677,8 +20566,8 @@ if (hotExitHandledSweep) {
                     // -15% floor remain the real safety rails; this only stops a V3-
                     // approved buy from being vetoed by a stale cached string.
                     try {
-                        PipelineHealthCollector.labelInc("V3_CORE_SHADOW_EXECUTE_VISIBILITY_6487")
-                        ForensicLogger.lifecycle("V3_CORE_SHADOW_EXECUTE_VISIBILITY_6487", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=STANDARD action=score_report_learn_only no_fdg=true no_exec_ticket=true")
+                        PipelineHealthCollector.labelInc("V3_CANONICAL_HANDOFF_PENDING_6533")
+                        ForensicLogger.lifecycle("V3_CANONICAL_HANDOFF_PENDING_6533", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$cyclePrimaryLane action=real_fdg_then_one_immutable_intent")
                     } catch (_: Throwable) {}
                     // V5.9.1323 — V3 Verdict Reconciliation (P0-4 surgical).
                     try {
@@ -24031,13 +23920,49 @@ if (hotExitHandledSweep) {
                                 )
                             }
 
-                            val v3AttemptId = authResult.attemptId.ifBlank {
-                                ExecutableOpenGate.recentAllowedAttemptId(ts.mint, ts.position.tradingMode.ifBlank { "STANDARD" })
-                                    ?: ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "CORE")
-                                    ?: ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "V3")
-                                    ?: ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint)
-                                    ?: ""
+                            // V5.0.6533 — V3 approval is causal input, not a finality bypass.
+                            // Run the real FDG once for the elected canonical lane and require
+                            // its exact immutable intent before Executor may see the order.
+                            val v3Candidate6533 = laneQualifiedBuyDecision(
+                                decision, cyclePrimaryLane,
+                                confidenceFloor = result.confidence.toDouble(),
+                                liquidityUsd = ts.lastLiquidityUsd,
+                                mintForProbe = ts.mint,
+                            )
+                            val v3Fdg6533 = FinalDecisionGate.evaluate(
+                                ts = ts, candidate = v3Candidate6533, config = cfg,
+                                proposedSizeSol = proposedSize, brain = executor.brain,
+                                tradingModeTag = modeTag, laneScore = result.score.toDouble(),
+                            )
+                            val v3CandidateVersion6533 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+                            val v3Intent6533 = ExecutableOpenGate.recordFdgAndGetIntent6533(
+                                mint = ts.mint, symbol = ts.symbol, lane = cyclePrimaryLane,
+                                canExecute = v3Fdg6533.canExecute(), reason = v3Fdg6533.blockReason,
+                                signal = if (v3Fdg6533.canExecute()) "BUY" else "NO_BUY",
+                                rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name,
+                                liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons,
+                                preFdgVerdict = if (v3Fdg6533.canExecute()) (v3Fdg6533.blockReason ?: "BUY") else "NO_BUY",
+                                candidateVersion = v3CandidateVersion6533, entryScore = result.score,
+                                tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus,
+                                tokenMapHydrationComplete = ts.tokenMap.hydrationComplete,
+                                tokenMapExpectedOut = ts.tokenMap.expectedOutAmount,
+                                tokenMapProviderAttempts = ts.tokenMap.providerAttempts,
+                                requiresSolanaTokenMap = true,
+                                allowTrunkExecutionHandoff6533 = true,
+                            )
+                            if (!v3Fdg6533.canExecute() || v3Intent6533 == null) {
+                                val explicitReason6533 = v3Fdg6533.blockReason ?: "FDG_ALLOW_WITHOUT_EXEC_INTENT"
+                                try {
+                                    PipelineHealthCollector.labelInc("V3_EXECUTE_EXPLICIT_REJECT_6533")
+                                    if (v3Fdg6533.canExecute()) PipelineHealthCollector.labelInc("V3_ALLOW_EXPLICIT_REJECT_NO_INTENT_6533")
+                                    ForensicLogger.lifecycle("V3_EXECUTE_EXPLICIT_REJECT_6533", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$cyclePrimaryLane reason=$explicitReason6533 version=$v3CandidateVersion6533")
+                                } catch (_: Throwable) {}
+                                try { TradeAuthorizer.releasePosition(ts.mint, "V3_FDG_REJECT_6533", TradeAuthorizer.ExecutionBook.CORE) } catch (_: Throwable) {}
+                                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, cyclePrimaryLane, "V3_FDG_REJECT_6533") } catch (_: Throwable) {}
+                                return
                             }
+                            if (v3Fdg6533.sizeSol > 0.0) proposedSize = v3Fdg6533.sizeSol
+                            val v3AttemptId = v3Intent6533.attemptId
                             ErrorLogger.info("BotService", "[EXECUTION] ${identity.symbol} | ${if (cfg.paperMode) "PAPER" else "LIVE"}_BUY | ${proposedSize.fmt(4)} SOL")
                             
                             // Record proposal for dedupe
@@ -24055,7 +23980,7 @@ if (hotExitHandledSweep) {
                             lastSuccessfulPollMs = lastSuccessfulPollMs,
                             openPositionCount = status.openPositionCount,
                             totalExposureSol = status.totalExposureSol,
-                            finalityPrechecked = true,
+                            finalityPrechecked = false,
                             attemptId = v3AttemptId,
                         )
                         

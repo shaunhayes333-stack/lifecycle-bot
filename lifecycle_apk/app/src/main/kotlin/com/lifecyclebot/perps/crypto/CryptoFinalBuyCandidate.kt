@@ -25,6 +25,7 @@ data class CryptoFinalBuyCandidate(
     val confidence: Int,
     val safetyTier: String,
     val liquidityUsd: Double,
+    val liquidityKnown6533: Boolean = false,
     val marketCapUsd6493: Double = 0.0,
     val marketCapSource6493: String = "",
     val fdvUsd6493: Double = 0.0,

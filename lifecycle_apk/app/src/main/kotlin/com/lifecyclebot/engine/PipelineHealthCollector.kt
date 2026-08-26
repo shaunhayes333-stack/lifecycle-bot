@@ -1246,6 +1246,17 @@ object PipelineHealthCollector {
             sb.append(line("FDG_RAW_ROWS:", rawFdgRows, "forensic FDG rows; not unique evaluations")).append('\n')
         }
         sb.append('\n')
+        // V5.0.6533 — explicit causal-authority invariants. Absence is rendered as zero.
+        sb.append("===== EXECUTION AUTHORITY INVARIANTS 6533 =====\n")
+        listOf(
+            "V3_ALLOW_WITHOUT_FDG_OR_EXPLICIT_REJECT",
+            "FDG_ALLOW_WITHOUT_EXEC_INTENT",
+            "EXEC_SIGNAL_UNKNOWN_AFTER_FDG_ALLOW",
+            "NON_SOLANA_TOKENMAP_HARDNO",
+            "EXECUTABLE_FANOUT_PER_CANDIDATE_GT_2",
+            "PRIMARY_WITHOUT_RESCUE_WHEN_PRIMARY_REJECTS",
+        ).forEach { key6533 -> sb.append(line("$key6533:", s.labelCounts[key6533] ?: 0L)).append('\n') }
+        sb.append('\n')
 
         // ── Bot loop cycle timing ───────────────────────────────────
         sb.append("===== Bot-loop cycle timing =====\n")

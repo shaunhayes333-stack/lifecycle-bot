@@ -10,6 +10,8 @@ import com.lifecyclebot.engine.ShadowLearningEngine
 import com.lifecyclebot.engine.TradeHistoryStore
 import com.lifecyclebot.engine.WalletManager
 import com.lifecyclebot.engine.ExecutableOpenGate
+import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.engine.ExecutionAuthorityPolicy6533
 import com.lifecyclebot.engine.TradeAuthorizer
 import com.lifecyclebot.engine.LaneExecutionCoordinator
 import com.lifecyclebot.engine.ForensicLogger
@@ -1277,6 +1279,20 @@ object CryptoAltTrader {
                 )
             } catch (_: Exception) {}
 
+            if (signal.direction == PerpsDirection.SHORT && useSpot) {
+                val perpCapable6533 = isPaperMode.get() || signal.market.symbol.uppercase() in FLASH_TRADE_PERPS_SYMBOLS
+                if (perpCapable6533) {
+                    useSpot = false
+                    leverage = DEFAULT_LEVERAGE
+                    try { ForensicLogger.lifecycle("CRYPTO_SHORT_REROUTED_TO_PERP_6533", "symbol=${signal.market.symbol} paper=${isPaperMode.get()} leverage=$leverage") } catch (_: Throwable) {}
+                } else {
+                    try {
+                        PipelineHealthCollector.labelInc("CRYPTO_ADAPTER_UNSUPPORTED_DIRECTION_6533")
+                        ForensicLogger.lifecycle("CRYPTO_ADAPTER_UNSUPPORTED_DIRECTION_6533", "symbol=${signal.market.symbol} direction=SHORT adapter=SPOT action=no_buy_not_hard_safety")
+                    } catch (_: Throwable) {}
+                    continue
+                }
+            }
             ErrorLogger.info(TAG, "🪙 EXECUTING: ${signal.market.symbol} ${signal.direction.symbol} @ ${"%.4f".format(signal.price)} | ${if (useSpot) "SPOT" else "${leverage.toInt()}x"}")
             executeSignal(signal.copy(leverage = leverage), isSpot = useSpot)
         }
@@ -1651,12 +1667,13 @@ object CryptoAltTrader {
         val marketCapSource: String,
         val fdvUsd: Double,
         val volume24hUsd: Double,
+        val liquidityKnown6533: Boolean,
     )
 
     private fun exactAssetMetrics6493(signal: AltSignal): ExactAssetMetrics6493 {
         val identity = cryptoAssetKey(signal, isSpot = true)
         val tok = DynamicAltTokenRegistry.getTokenByMint(identity)
-            ?: return ExactAssetMetrics6493(0.0, 0.0, "", 0.0, 0.0)
+            ?: return ExactAssetMetrics6493(0.0, 0.0, "", 0.0, 0.0, false)
         val trustedMcap = tok.mcap.takeIf { tok.hasTrustedMarketCap6492 && it.isFinite() && it > 0.0 } ?: 0.0
         return ExactAssetMetrics6493(
             liquidityUsd = tok.liquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
@@ -1664,6 +1681,7 @@ object CryptoAltTrader {
             marketCapSource = if (trustedMcap > 0.0) tok.mcapSource else "",
             fdvUsd = tok.fdv.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
             volume24hUsd = tok.volume24h.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
+            liquidityKnown6533 = tok.liquidityUsd.isFinite() && tok.liquidityUsd > 0.0,
         )
     }
 
@@ -1725,7 +1743,7 @@ object CryptoAltTrader {
         if (signal.confidence <= 0 || signal.score <= 0) hardNo += "SCORE_CONTEXT_MISSING"
         if (!isPaperMode.get() && route?.executable != true) hardNo += "ROUTE_UNAVAILABLE"
         if (route?.route == com.lifecyclebot.perps.crypto.CryptoExecutionRoute.PAPER_ONLY && isPaperMode.get()) soft += "PAPER_ONLY_ROUTE"
-        if (signal.direction == PerpsDirection.SHORT && isSpot) hardNo += "SPOT_SHORT_UNSUPPORTED"
+        if (signal.direction == PerpsDirection.SHORT && isSpot) soft += "ADAPTER_DIRECTION_UNSUPPORTED"
         val liq = exactMetrics6493.liquidityUsd
         if (signal.dynMint != null && liq <= 0.0) soft += "MINT_LIQUIDITY_UNKNOWN_6493"
         if (signal.dynMint != null && exactMetrics6493.marketCapUsd <= 0.0) soft += "MINT_MARKET_CAP_UNKNOWN_6493"
@@ -1764,6 +1782,7 @@ object CryptoAltTrader {
             confidence = signal.confidence,
             safetyTier = "SAFE",
             liquidityUsd = liq,
+            liquidityKnown6533 = exactMetrics6493.liquidityKnown6533,
             marketCapUsd6493 = exactMetrics6493.marketCapUsd,
             marketCapSource6493 = exactMetrics6493.marketCapSource,
             fdvUsd6493 = exactMetrics6493.fdvUsd,
@@ -1833,7 +1852,7 @@ object CryptoAltTrader {
             rugScore = 100,
             safetyTier = candidate.safetyTier,
         )
-        ExecutableOpenGate.recordFdg(
+        val cryptoIntent6533 = ExecutableOpenGate.recordFdgAndGetIntent6533(
             mint = candidate.assetKey,
             symbol = candidate.symbol,
             lane = candidate.selectedLane,
@@ -1846,7 +1865,12 @@ object CryptoAltTrader {
             hardNoReasons = candidate.hardNoReasons,
             preFdgVerdict = candidate.preFdgVerdict.name,
             candidateVersion = candidate.candidateVersion,
+            requiresSolanaTokenMap = ExecutionAuthorityPolicy6533.requiresSolanaTokenMap(candidate.chain, candidate.assetKey),
         )
+        if (candidate.canEnterFdg && cryptoIntent6533 == null) {
+            try { ForensicLogger.lifecycle("CRYPTO_FDG_ALLOW_WITHOUT_INTENT_REJECTED_6533", "symbol=${candidate.symbol} assetKey=${candidate.assetKey} version=${candidate.candidateVersion}") } catch (_: Throwable) {}
+            return null
+        }
         if (!candidate.canEnterFdg) {
             try { ForensicLogger.lifecycle("EXEC_GATE_BLOCK", "universe=CRYPTO symbol=${candidate.symbol} assetKey=${candidate.assetKey} reason=${candidate.hardNoReasons.firstOrNull() ?: candidate.preFdgVerdict.name} candidateVersion=${candidate.candidateVersion}") } catch (_: Throwable) {}
             return null

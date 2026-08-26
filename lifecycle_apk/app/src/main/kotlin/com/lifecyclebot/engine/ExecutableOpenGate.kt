@@ -31,6 +31,7 @@ object ExecutableOpenGate {
         val tokenMapHydrationComplete: Boolean = false,
         val tokenMapExpectedOut: Double = 0.0,
         val tokenMapProviderAttempts: Int = 0,
+        val requiresSolanaTokenMap: Boolean = true,
         val entryScore: Int = -1,  // V5.9.1373 — for SHADOW_TRAIN_ONLY bucket lookup
         val candidateVersion: Long = 0L,
         val updatedAtMs: Long = System.currentTimeMillis(),
@@ -61,6 +62,7 @@ object ExecutableOpenGate {
         val liquidityUsd: Double = 0.0,
         val rugScore: Int = -1,
         val hardNoReasons: List<String> = emptyList(),
+        val requiresSolanaTokenMap: Boolean = true,
     ) {
         val lane: String get() = canonicalLane
         val signal: String get() = diagnosticSignal
@@ -106,7 +108,11 @@ object ExecutableOpenGate {
     private fun sanitizeMintForKey(mint: String): String {
         val m = mint.trim()
         val base58 = Regex("^[1-9A-HJ-NP-Za-km-z]{32,44}$")
-        return if (base58.matches(m)) m else "INVALID_MINT_REDACTED"
+        if (base58.matches(m)) return m
+        if (m.startsWith("unresolved:", true) || m.startsWith("perps:", true) || m.startsWith("multichain:", true)) {
+            return "ASSET_${m.hashCode().toUInt().toString(16)}"
+        }
+        return "INVALID_MINT_REDACTED"
     }
 
     /** V5.0.6509 — finalized decision tuple; raw scanner signal is diagnostic only. */
@@ -115,9 +121,11 @@ object ExecutableOpenGate {
     ): Boolean = fdgCan == true && hardNoReasons.isEmpty() &&
         (preFdgVerdict.equals("BUY", true) || preFdgVerdict.equals("PROBE_ONLY", true))
 
-    internal fun mutableSignalCanVeto6519(intent: ExecutionIntent?, signal: String): Boolean =
-        !signal.equals("BUY", true) && !signal.equals("EXECUTE", true) &&
-            !(intent?.fdgAllowed == true && intent.fdgVerdict == "BUY")
+    internal fun mutableSignalCanVeto6519(intent: ExecutionIntent?, signal: String): Boolean {
+        val immutableExecutable6533 = intent?.fdgAllowed == true && intent.hardNoReasons.isEmpty() &&
+            intent.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY")
+        return !signal.equals("BUY", true) && !signal.equals("EXECUTE", true) && !immutableExecutable6533
+    }
 
     private val states = ConcurrentHashMap<String, EntryState>()
     private val fdgElectionLocks6512 = ConcurrentHashMap<String, Any>()
@@ -604,6 +612,31 @@ object ExecutableOpenGate {
         } catch (_: Throwable) {}
     }
 
+    fun recordFdgAndGetIntent6533(
+        mint: String, symbol: String, lane: String, canExecute: Boolean, reason: String?,
+        signal: String = "BUY", rugScore: Int = -1, safetyTier: String = "UNKNOWN",
+        liquidityUsd: Double = 0.0, hardNoReasons: List<String> = emptyList(),
+        preFdgVerdict: String = if (canExecute) "BUY" else "NO_BUY",
+        candidateVersion: Long = LaneExecutionCoordinator.candidateVersionFor(mint), entryScore: Int = -1,
+        tokenMapRouteStatus: String = "", tokenMapHydrationComplete: Boolean = false,
+        tokenMapExpectedOut: Double = 0.0, tokenMapProviderAttempts: Int = 0,
+        requiresSolanaTokenMap: Boolean = true,
+        allowTrunkExecutionHandoff6533: Boolean = false,
+    ): ExecutionIntent? {
+        recordFdg(mint, symbol, lane, canExecute, reason, signal, rugScore, safetyTier, liquidityUsd,
+            hardNoReasons, preFdgVerdict, candidateVersion, entryScore, tokenMapRouteStatus,
+            tokenMapHydrationComplete, tokenMapExpectedOut, tokenMapProviderAttempts, requiresSolanaTokenMap,
+            allowTrunkExecutionHandoff6533)
+        if (!canExecute) return null
+        val mode = if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
+        val intent = activeExecutionIntent6519(mode, mint, candidateVersion)
+        if (intent == null) try {
+            PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT")
+            ForensicLogger.lifecycle("FDG_ALLOW_WITHOUT_EXEC_INTENT", "mint=${mint.take(10)} symbol=$symbol lane=$lane version=$candidateVersion action=explicit_reject")
+        } catch (_: Throwable) {}
+        return intent
+    }
+
     fun recordV3(
         mint: String,
         symbol: String,
@@ -647,9 +680,11 @@ object ExecutableOpenGate {
         tokenMapHydrationComplete: Boolean = false,
         tokenMapExpectedOut: Double = 0.0,
         tokenMapProviderAttempts: Int = 0,
+        requiresSolanaTokenMap: Boolean = true,
+        allowTrunkExecutionHandoff6533: Boolean = false,
     ) {
         val paperRuntime = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
-        if (isShadowReadOnlyLane6487(lane)) {
+        if (isShadowReadOnlyLane6487(lane) && !allowTrunkExecutionHandoff6533) {
             try {
                 PipelineHealthCollector.labelInc("SHADOW_LANE_FDG_SUPPRESSED_6487_${lane.uppercase()}")
                 ForensicLogger.lifecycle("SHADOW_LANE_FDG_SUPPRESSED_6487", "mint=${mint.take(10)} symbol=$symbol lane=${lane.uppercase()} version=$candidateVersion action=score_report_learn_only")
@@ -672,8 +707,9 @@ object ExecutableOpenGate {
         val tokenMapNoRoute = tokenRouteUpper in setOf("NO_ROUTE", "TRUE_ZERO_LIQUIDITY")
         val tokenMapTrueZero = tokenMapHydrationComplete && tokenMapNoRoute && tokenMapExpectedOut <= 0.0 && tokenMapProviderAttempts >= 2
         val finalHardNo = hardNoReasons.toMutableList().apply {
-            if (liquidityUsd <= 0.0 && tokenMapTrueZero) add("TRUE_ZERO_LIQUIDITY")
-            if (liquidityUsd <= 0.0 && !tokenMapTrueZero && !tokenMapExecutable) add("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP")
+            if (requiresSolanaTokenMap && liquidityUsd <= 0.0 && tokenMapTrueZero) add("TRUE_ZERO_LIQUIDITY")
+            if (requiresSolanaTokenMap && liquidityUsd <= 0.0 && !tokenMapTrueZero && !tokenMapExecutable) add("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP")
+            if (!requiresSolanaTokenMap) removeAll { it.equals("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", true) }
             // V5.0.3915 — hard-block residue purge. FDG/ticket hardNo may only
             // encode mechanical impossibility / confirmed rug. Missing safety, pending
             // RC, low-but-nonzero RC, LP/mint/dev/holder warnings are penalty/size
@@ -738,6 +774,7 @@ object ExecutableOpenGate {
                 tokenMapHydrationComplete = tokenMapHydrationComplete || old?.tokenMapHydrationComplete == true,
                 tokenMapExpectedOut = if (tokenMapExpectedOut > 0.0) tokenMapExpectedOut else old?.tokenMapExpectedOut ?: 0.0,
                 tokenMapProviderAttempts = if (tokenMapProviderAttempts > 0) tokenMapProviderAttempts else old?.tokenMapProviderAttempts ?: 0,
+                requiresSolanaTokenMap = requiresSolanaTokenMap,
                 rugScore = if (rugScore >= 0) rugScore else old?.rugScore ?: -1,
                 safetyTier = if (safetyTier.isNotBlank() && !safetyTier.equals("UNKNOWN", true)) safetyTier else old?.safetyTier ?: "UNKNOWN",
                 updatedAtMs = System.currentTimeMillis(),
@@ -778,6 +815,7 @@ object ExecutableOpenGate {
                             fdgReason = winner.fdgReason, diagnosticSignal = winner.signal,
                             safetyTier = winner.safetyTier, liquidityUsd = winner.liquidityUsd,
                             rugScore = winner.rugScore, hardNoReasons = winner.hardNoReasons,
+                            requiresSolanaTokenMap = winner.requiresSolanaTokenMap,
                         )
                     )
                     if (com.lifecyclebot.engine.truth.AateDecisionFabric6512.get(mode6512, mint, winner.candidateVersion, winner.selectedLane) == null) {
@@ -1387,7 +1425,8 @@ object ExecutableOpenGate {
         val currentCandidateVersion = LaneExecutionCoordinator.candidateVersionFor(mint)
         val immutableTicket = ticketForAttempt(attemptId)
             ?: activeExecutionIntent6519(modeUpper, mint, state?.candidateVersion ?: currentCandidateVersion)
-        val immutableFdgBuy6519 = immutableTicket?.fdgAllowed == true && immutableTicket.fdgVerdict == "BUY"
+        val immutableFdgBuy6519 = immutableTicket?.fdgAllowed == true && immutableTicket.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY")
+        val stateRequiresSolanaTokenMap6533 = immutableTicket?.requiresSolanaTokenMap ?: state?.requiresSolanaTokenMap ?: true
         val stateTokenMapRouteStatus = state?.tokenMapRouteStatus ?: "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP"
         val stateTokenMapHydrationComplete = state?.tokenMapHydrationComplete == true
         val stateTokenMapExpectedOut = state?.tokenMapExpectedOut ?: 0.0
@@ -1458,8 +1497,8 @@ object ExecutableOpenGate {
             val ticketRouteUpper = stateTokenMapRouteStatus.uppercase()
             val ticketNoRoute = ticketRouteUpper in setOf("NO_ROUTE", "TRUE_ZERO_LIQUIDITY")
             val ticketExecutableRoute = ticketRouteUpper in setOf("PUMPFUN_BONDING_CURVE_EXECUTABLE", "DEX_ROUTABLE")
-            if (liquidityUsd <= 0.0 && immutableTicket.liquidityUsd <= 0.0 && stateTokenMapHydrationComplete && ticketNoRoute && stateTokenMapProviderAttempts >= 2) return blocked("EXEC_OPEN_BLOCKED_TRUE_ZERO_LIQUIDITY", "TRUE_ZERO_LIQUIDITY")
-            if (liquidityUsd <= 0.0 && immutableTicket.liquidityUsd <= 0.0 && !ticketExecutableRoute) return blocked("EXEC_OPEN_DEFERRED_TOKEN_MAP", "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", shadow = true)
+            if (stateRequiresSolanaTokenMap6533 && liquidityUsd <= 0.0 && immutableTicket.liquidityUsd <= 0.0 && stateTokenMapHydrationComplete && ticketNoRoute && stateTokenMapProviderAttempts >= 2) return blocked("EXEC_OPEN_BLOCKED_TRUE_ZERO_LIQUIDITY", "TRUE_ZERO_LIQUIDITY")
+            if (stateRequiresSolanaTokenMap6533 && liquidityUsd <= 0.0 && immutableTicket.liquidityUsd <= 0.0 && !ticketExecutableRoute) return blocked("EXEC_OPEN_DEFERRED_TOKEN_MAP", "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", shadow = true)
             try {
                 ForensicLogger.lifecycle(
                     "EXEC_TICKET_RESTORED_IMMUTABLE",
@@ -1555,7 +1594,7 @@ object ExecutableOpenGate {
                 PipelineHealthCollector.labelInc("LIVE_PENDING_RUG_CONTEXT_SOFT_ALLOWED")
             } catch (_: Throwable) {}
         }
-        if (liquidityUsd <= 0.0) {
+        if (stateRequiresSolanaTokenMap6533 && liquidityUsd <= 0.0) {
             val routeUpper = stateTokenMapRouteStatus.uppercase()
             val executableTokenMap = routeUpper == "PUMPFUN_BONDING_CURVE_EXECUTABLE" || routeUpper == "DEX_ROUTABLE"
             val routeNoRoute = routeUpper in setOf("NO_ROUTE", "TRUE_ZERO_LIQUIDITY")

@@ -44,11 +44,14 @@ data class TraderRuntimePlan6526(
     val cryptoUniverseOn: Boolean,
     val marketLanesQuarantined: Boolean,
 ) {
-    val stocksEffective: Boolean get() = marketsLaneOn && stocksOn && !marketLanesQuarantined
-    val forexEffective: Boolean get() = marketsLaneOn && forexOn && !marketLanesQuarantined
-    val commoditiesEffective: Boolean get() = marketsLaneOn && commoditiesOn
-    val metalsEffective: Boolean get() = marketsLaneOn && metalsOn
-    val perpsEffective: Boolean get() = marketsLaneOn && perpsOn
+    // V5.0.6533 — PAPER_MODE=LEARN_EVERYTHING is resolved here once. Raw stale
+    // sub-toggles cannot disagree with startup/reapply/watchdog authority.
+    val paperLearnEverything6533: Boolean get() = paperMode && marketsLaneOn
+    val stocksEffective: Boolean get() = marketsLaneOn && (paperLearnEverything6533 || stocksOn) && !marketLanesQuarantined
+    val forexEffective: Boolean get() = marketsLaneOn && (paperLearnEverything6533 || forexOn) && !marketLanesQuarantined
+    val commoditiesEffective: Boolean get() = marketsLaneOn && (paperLearnEverything6533 || commoditiesOn)
+    val metalsEffective: Boolean get() = marketsLaneOn && (paperLearnEverything6533 || metalsOn)
+    val perpsEffective: Boolean get() = marketsLaneOn && (paperLearnEverything6533 || perpsOn)
 
     /** The canonical enabled set to publish to EnabledTraderAuthority. */
     fun enabledTraderSet(): Set<EnabledTraderAuthority.Trader> {
@@ -67,7 +70,7 @@ data class TraderRuntimePlan6526(
             s += EnabledTraderAuthority.Trader.PROJECT_SNIPER
         }
         if (cryptoUniverseOn) s += EnabledTraderAuthority.Trader.CRYPTO_ALT
-        if (marketsLaneOn && (stocksOn || commoditiesOn || metalsOn || forexOn) && !marketLanesQuarantined) {
+        if ((stocksEffective || commoditiesEffective || metalsEffective || forexEffective) && !marketLanesQuarantined) {
             s += EnabledTraderAuthority.Trader.MARKETS_STOCKS
         }
         if (perpsEffective) s += EnabledTraderAuthority.Trader.PERPS
