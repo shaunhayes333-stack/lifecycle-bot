@@ -206,9 +206,46 @@ class EligibilityGate(
     private val exposureGuard: ExposureGuard
 ) {
     fun evaluate(candidate: CandidateSnapshot): EligibilityResult {
+        // V5.0.6536 §PROVIDER_DEGRADATION_PROTECTION — the operator directive
+        // is: "provider degradation must not hard-starve token hydration when
+        // alternative routes are healthy". Previously any candidate whose
+        // liquidity providers were down would emit ZERO_LIQUIDITY as a HARD
+        // fail (permanent block for the discovery cycle), effectively
+        // converting "provider absent" into "false zero-liquidity truth".
+        // Now: when the two primary liquidity/mcap providers (Birdeye,
+        // CoinGecko) are BOTH in a degraded state (auth-terminal, rate
+        // limited, or in a server cool-down) AND we see zero, we treat it
+        // as HYDRATION_DEFERRED (soft, retry-eligible) so the alternate
+        // hydration paths (DexScreener, Pump, Helius) get a fair shot on
+        // the next cycle instead of being amputated by a false-zero read.
+        //
         // Zero liquidity = can't trade
         if (candidate.liquidityUsd <= 0.0) {
-            return EligibilityResult.fail("ZERO_LIQUIDITY")
+            val degraded6536 = try {
+                val cb = com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
+                val birdeyeBad = cb.isAuthTerminal(cb.Provider.BIRDEYE) ||
+                    cb.isRateLimited(cb.Provider.BIRDEYE) ||
+                    cb.isServerCoolingDown(cb.Provider.BIRDEYE)
+                val geckoBad = cb.isAuthTerminal(cb.Provider.COINGECKO) ||
+                    cb.isRateLimited(cb.Provider.COINGECKO) ||
+                    cb.isServerCoolingDown(cb.Provider.COINGECKO)
+                birdeyeBad && geckoBad
+            } catch (_: Throwable) { false }
+            return if (degraded6536) {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector
+                        .labelInc("ELIGIBILITY_HYDRATION_DEFERRED_PROVIDERS_DEGRADED_6536")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "ELIGIBILITY_HYDRATION_DEFERRED_PROVIDERS_DEGRADED_6536",
+                        "mint=${candidate.mint} symbol=${candidate.symbol} " +
+                            "expected=alt_providers_hydrate_liquidity observed=birdeye+coingecko_both_degraded " +
+                            "action=defer_not_hard_zero",
+                    )
+                } catch (_: Throwable) {}
+                EligibilityResult.fail("HYDRATION_DEFERRED_PROVIDERS_DEGRADED_6536")
+            } else {
+                EligibilityResult.fail("ZERO_LIQUIDITY")
+            }
         }
 
         // Too old = stale opportunity

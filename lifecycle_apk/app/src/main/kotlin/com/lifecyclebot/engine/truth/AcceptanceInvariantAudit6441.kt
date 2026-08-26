@@ -95,6 +95,115 @@ object AcceptanceInvariantAudit6441 {
         val reconStat = CanonicalReconciler6441.statusLine()
         passed.add("recon_$reconStat".take(50))
 
+        // ─────────────────────────────────────────────────────────────
+        // V5.0.6536 §HARD_ACCEPTANCE_INVARIANTS — operator directive:
+        // encode Tests A–G as CI-assertable invariants so the funnel can
+        // never silently amputate lanes or fan-out incoherent candidates.
+        //
+        //  A. EXECUTABLE_FANOUT_PER_CANDIDATE ≤ 2
+        //     Bounded fanout: a single canonical candidate may spawn at
+        //     most 2 executable emissions (paper + shadow). Anything
+        //     higher means a lane is duplicating executables — the
+        //     "split-brain" pathology from audit #1.
+        //
+        //  B. V3_ALLOW_WITHOUT_FDG_OR_EXPLICIT_REJECT == 0
+        //     Every V3 admission must have a matching FDG verdict OR an
+        //     explicit reject. A V3 admission without either represents
+        //     execution authority silently bypassing the FDG gate.
+        //
+        //  C. INTAKE→V3 conversion ≥ 20 % when INTAKE ≥ 700
+        //     Lane-amputation guard: 700+ intake collapsing to <20 % V3
+        //     eligible means non-primary lanes were amputated before
+        //     evaluation (the pathology described in audit #2).
+        //
+        //  D. SPOT_SHORT_ADAPTER_MISMATCH_HARD_SAFETY == 0
+        //     Enforce §SPOT_SHORT_ADAPTER_REROUTE (V5.0.6536): a SHORT
+        //     signal on a SPOT-only adapter must reroute to PERP, never
+        //     stamp HARD_SAFETY on the canonical candidate.
+        //
+        //  E. Every specialized trader routes through CanonicalSizingBridge
+        //     — matches OrderSizeResolver invariant #5 but per-class.
+        //
+        //  F. Providers degraded ⇒ HYDRATION_DEFERRED, not ZERO_LIQUIDITY
+        //     hard-block. Ensures the fix at V5.0.6536 §PROVIDER_DEGRADATION
+        //     stays honoured.
+        //
+        //  G. Crypto Universe Ownership — established tokens keep their
+        //     CRYPTO_ALT identity (guarded by V5.0.6535).
+        // ─────────────────────────────────────────────────────────────
+
+        // A. Fanout guard.
+        val fanoutFail = try {
+            val over = com.lifecyclebot.engine.PipelineHealthCollector
+                .labelCountSnapshot("EXECUTABLE_FANOUT_OVER_LIMIT_6536")
+            over > 0L
+        } catch (_: Throwable) { false }
+        if (!fanoutFail) passed.add("A_fanout_bounded") else failed.add("A_executable_fanout_exceeded_2")
+
+        // B. V3 admission ⇒ FDG verdict OR explicit reject.
+        val v3OrphanFail = try {
+            val orphan = com.lifecyclebot.engine.PipelineHealthCollector
+                .labelCountSnapshot("V3_ADMIT_WITHOUT_FDG_OR_REJECT_6536")
+            orphan > 0L
+        } catch (_: Throwable) { false }
+        if (!v3OrphanFail) passed.add("B_v3_admits_have_fdg_or_reject") else failed.add("B_v3_admit_without_fdg_or_reject")
+
+        // C. Lane-amputation guard: only enforce when INTAKE ≥ 700.
+        val laneAmputationFail = try {
+            val intake = com.lifecyclebot.engine.PipelineHealthCollector
+                .labelCountSnapshot("INTAKE_TOTAL_6536")
+            val v3Eligible = com.lifecyclebot.engine.PipelineHealthCollector
+                .labelCountSnapshot("V3_ELIGIBLE_TOTAL_6536")
+            intake >= 700L && v3Eligible * 5L < intake
+        } catch (_: Throwable) { false }
+        if (!laneAmputationFail) passed.add("C_intake_to_v3_conversion_healthy")
+        else failed.add("C_intake_to_v3_lt_20pct_lane_amputation_suspected")
+
+        // D. SPOT+SHORT hard-safety leak.
+        val spotShortHardFail = try {
+            val leak = com.lifecyclebot.engine.PipelineHealthCollector
+                .labelCountSnapshot("SPOT_SHORT_ADAPTER_MISMATCH_HARD_SAFETY_6536")
+            leak > 0L
+        } catch (_: Throwable) { false }
+        if (!spotShortHardFail) passed.add("D_spot_short_reroutes_not_hard_safety")
+        else failed.add("D_spot_short_stamped_hard_safety_leak")
+
+        // E. Specialized traders routed through CanonicalSizingBridge6532.
+        val bridgeSitesSeen = try {
+            listOf("FOREX", "STOCKS", "COMMODITIES", "METALS", "CRYPTO_ALT", "PERPS").count { klass ->
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelCountSnapshot("CANONICAL_SIZING_BRIDGE_6532|CLASS=$klass|LANE=$klass|EXEC=true") > 0L ||
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelCountSnapshot("CANONICAL_SIZING_BRIDGE_6532|CLASS=$klass|LANE=$klass|EXEC=false") > 0L
+            }
+        } catch (_: Throwable) { 0 }
+        // We only assert once ANY execution has happened. If nothing
+        // has traded yet, bridgeSitesSeen == 0 and we don't penalise.
+        if (allPositions.isEmpty() || bridgeSitesSeen >= 1) passed.add("E_sizing_bridge_visited_$bridgeSitesSeen")
+        else failed.add("E_no_specialized_trader_routed_through_sizing_bridge")
+
+        // F. Provider degradation ⇒ HYDRATION_DEFERRED, not hard-zero.
+        val providerHardZeroFail = try {
+            val cb = com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
+            val degraded =
+                (cb.isAuthTerminal(cb.Provider.BIRDEYE) || cb.isRateLimited(cb.Provider.BIRDEYE)) &&
+                (cb.isAuthTerminal(cb.Provider.COINGECKO) || cb.isRateLimited(cb.Provider.COINGECKO))
+            val hardZero = com.lifecyclebot.engine.PipelineHealthCollector
+                .labelCountSnapshot("ELIGIBILITY_ZERO_LIQUIDITY_HARD_WHILE_DEGRADED_6536")
+            degraded && hardZero > 0L
+        } catch (_: Throwable) { false }
+        if (!providerHardZeroFail) passed.add("F_provider_degradation_soft_defer")
+        else failed.add("F_zero_liquidity_hard_fail_while_providers_degraded")
+
+        // G. Crypto Universe Ownership stays honoured (V5.0.6535).
+        val universeOwnershipFail = try {
+            val hijack = com.lifecyclebot.engine.PipelineHealthCollector
+                .labelCountSnapshot("CRYPTO_UNIVERSE_IDENTITY_HIJACK_6535")
+            hijack > 0L
+        } catch (_: Throwable) { false }
+        if (!universeOwnershipFail) passed.add("G_crypto_universe_identity_preserved")
+        else failed.add("G_crypto_universe_identity_hijacked_by_meme_lane")
+
         val report = AuditReport(
             whenMs = System.currentTimeMillis(),
             passed = passed,

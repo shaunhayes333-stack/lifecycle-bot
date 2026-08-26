@@ -1730,7 +1730,29 @@ object CryptoAltTrader {
         val symbol = signal.marketSymbol.uppercase()
         val exactMetrics6493 = exactAssetMetrics6493(signal)
         val lane = cryptoMarketCapLane6493(signal, exactMetrics6493.marketCapUsd)
-        val assetType = if (isSpot) CryptoFinalBuyCandidate.AssetType.SPOT else CryptoFinalBuyCandidate.AssetType.PERP
+        // V5.0.6536 §SPOT_SHORT_ADAPTER_REROUTE — defense-in-depth belt for
+        // the operator directive: "if an adapter cannot express SHORT,
+        // reroute to a supported perp/bearish adapter; do NOT stamp the
+        // canonical candidate as HARD_NO_BUY or HARD_SAFETY". The executor
+        // pre-check at line 1282 already reroutes SHORT+spot to perp when
+        // perp-capable, but the canonical candidate is the *source of truth*
+        // for the authority ledger. If a stray callsite bypasses that
+        // pre-check, we must NEVER emit an incoherent (SPOT, SHORT) pair
+        // to the canonical registry — the operator explicitly forbids
+        // capability mismatches contaminating canonical execution state.
+        val perpCapable6536 = isPaperMode.get() || symbol in FLASH_TRADE_PERPS_SYMBOLS
+        val effectiveIsSpot6536 = if (isSpot && signal.direction == PerpsDirection.SHORT && perpCapable6536) {
+            try {
+                PipelineHealthCollector.labelInc("SPOT_SHORT_ADAPTER_REROUTED_CANDIDATE_6536")
+                ForensicLogger.lifecycle(
+                    "SPOT_SHORT_ADAPTER_REROUTED_CANDIDATE_6536",
+                    "symbol=$symbol requested=SPOT direction=SHORT rerouted=PERP paper=${isPaperMode.get()} " +
+                        "expected=perp_adapter_owns_short observed=candidate_would_have_been_incoherent",
+                )
+            } catch (_: Throwable) {}
+            false
+        } else isSpot
+        val assetType = if (effectiveIsSpot6536) CryptoFinalBuyCandidate.AssetType.SPOT else CryptoFinalBuyCandidate.AssetType.PERP
         val walletSol = try { WalletManager.getWallet()?.getSolBalance() ?: getEffectiveBalance() } catch (_: Throwable) { getEffectiveBalance() }
         val route = try { CryptoUniverseRouteResolver.resolve(
             signal.market, walletSol, finalSize,
@@ -1743,7 +1765,11 @@ object CryptoAltTrader {
         if (signal.confidence <= 0 || signal.score <= 0) hardNo += "SCORE_CONTEXT_MISSING"
         if (!isPaperMode.get() && route?.executable != true) hardNo += "ROUTE_UNAVAILABLE"
         if (route?.route == com.lifecyclebot.perps.crypto.CryptoExecutionRoute.PAPER_ONLY && isPaperMode.get()) soft += "PAPER_ONLY_ROUTE"
-        if (signal.direction == PerpsDirection.SHORT && isSpot) soft += "ADAPTER_DIRECTION_UNSUPPORTED"
+        // V5.0.6536 §SPOT_SHORT_ADAPTER_REROUTE — evaluate against the
+        // *effective* (post-reroute) assetType, not the requested one. If
+        // we've flipped SPOT→PERP for a SHORT signal, the adapter now
+        // supports the direction and the soft flag is stale.
+        if (signal.direction == PerpsDirection.SHORT && effectiveIsSpot6536) soft += "ADAPTER_DIRECTION_UNSUPPORTED"
         val liq = exactMetrics6493.liquidityUsd
         if (signal.dynMint != null && liq <= 0.0) soft += "MINT_LIQUIDITY_UNKNOWN_6493"
         if (signal.dynMint != null && exactMetrics6493.marketCapUsd <= 0.0) soft += "MINT_MARKET_CAP_UNKNOWN_6493"
@@ -1757,6 +1783,27 @@ object CryptoAltTrader {
         }
         val slippage = spread * 2.0
         if (spread > 1.0) hardNo += "SPREAD_TOO_HIGH"
+        // V5.0.6536 §HARD_ACCEPTANCE_INVARIANT_D — detect regression:
+        // if a SPOT+SHORT combination has been stamped HARD_NO_BUY via
+        // adapter-direction reasons instead of being rerouted, bump the
+        // invariant counter so the acceptance audit and unit test
+        // observe the pathology. This never fires under the V5.0.6536
+        // reroute; it will only trip if a future edit reintroduces the
+        // leak by moving ADAPTER_DIRECTION_UNSUPPORTED from `soft` to
+        // `hardNo` or wiring a new spot-short hard-safety path.
+        if (signal.direction == PerpsDirection.SHORT && effectiveIsSpot6536 &&
+            hardNo.any { it.contains("ADAPTER_DIRECTION_UNSUPPORTED", ignoreCase = true) }
+        ) {
+            try {
+                PipelineHealthCollector.labelInc("SPOT_SHORT_ADAPTER_MISMATCH_HARD_SAFETY_6536")
+                ForensicLogger.lifecycle(
+                    "SPOT_SHORT_ADAPTER_MISMATCH_HARD_SAFETY_6536",
+                    "symbol=$symbol direction=SHORT adapter=SPOT " +
+                        "expected=reroute_to_perp observed=hard_no_buy_stamped " +
+                        "action=investigate_regression",
+                )
+            } catch (_: Throwable) {}
+        }
         val pre = when {
             hardNo.isNotEmpty() -> CryptoFinalBuyCandidate.PreFdgVerdict.HARD_NO_BUY
             signal.score >= 50 && signal.confidence >= 40 -> CryptoFinalBuyCandidate.PreFdgVerdict.BUY
@@ -1768,7 +1815,7 @@ object CryptoAltTrader {
             else -> "DEFERRED_ROUTE"
         }
         return CryptoFinalBuyCandidate(
-            assetKey = cryptoAssetKey(signal, isSpot),
+            assetKey = cryptoAssetKey(signal, effectiveIsSpot6536),
             symbol = symbol,
             chain = if (route?.mint != null) "SOLANA" else "MULTICHAIN",
             venue = route?.route?.name ?: "UNKNOWN",
@@ -1794,7 +1841,7 @@ object CryptoAltTrader {
             softWarnings = soft.distinct(),
             finalSize = finalSize,
             executionAdapter = adapter,
-            candidateVersion = LaneExecutionCoordinator.candidateVersionFor(cryptoAssetKey(signal, isSpot)),
+            candidateVersion = LaneExecutionCoordinator.candidateVersionFor(cryptoAssetKey(signal, effectiveIsSpot6536)),
         )
     }
 

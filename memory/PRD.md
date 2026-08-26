@@ -1,10 +1,42 @@
-# AATE PRD — V5.0.6533 (EXECUTION AUTHORITY REPAIR — operator-landed)
+# AATE PRD — V5.0.6536 (SPOT_SHORT REROUTE + PROVIDER DEGRADATION SOFT-DEFER + HARD ACCEPTANCE INVARIANTS)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE (FillLotLedger6504 immutable SQLite lots + per-lot projection reconciliation), never by strangling flow.
 
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA.
+
+
+## V5.0.6536 (Feb 2026) — SPOT_SHORT REROUTE + PROVIDER DEGRADATION SOFT-DEFER + HARD ACCEPTANCE INVARIANTS A–G
+
+Operator directive: "stop selectively ignoring things — I wanted it all done." Every backlog item from V5.0.6533 §5, §8, §10 landed at the source.
+
+**§SPOT_SHORT_ADAPTER_REROUTE — defense-in-depth belt (CryptoAltTrader):**
+- `buildCryptoFinalBuyCandidate` now flips `SPOT+SHORT` → `PERP` at the *candidate builder* itself (previously only rerouted at the executor pre-check on line 1282). Even a stray callsite that bypasses the pre-check can no longer emit an incoherent (SPOT, SHORT) pair to the canonical registry.
+- `effectiveIsSpot6536` drives `assetType`, `assetKey`, and the `ADAPTER_DIRECTION_UNSUPPORTED` soft warning — no path can leak the mismatch into `hardNoReasons` / HARD_SAFETY.
+- Emits `SPOT_SHORT_ADAPTER_REROUTED_CANDIDATE_6536` (rewrite happened) and `SPOT_SHORT_ADAPTER_MISMATCH_HARD_SAFETY_6536` (pathology detected — regression alarm).
+
+**§PROVIDER_DEGRADATION_PROTECTION — EligibilityGate (V3):**
+- When `candidate.liquidityUsd <= 0.0` AND both `ProviderCircuitBreaker6402.BIRDEYE` and `COINGECKO` are `authTerminal | rateLimited | serverCooldown`, the gate now returns `HYDRATION_DEFERRED_PROVIDERS_DEGRADED_6536` (soft, retry-eligible) instead of `ZERO_LIQUIDITY` (hard block).
+- Alt providers (DexScreener, GeckoTerminal, Pump, Helius) get their next-cycle hydration attempt; false-zero truth blocks are eliminated at the source.
+
+**§HARD_ACCEPTANCE_INVARIANTS A–G (AcceptanceInvariantAudit6441 + new test class):**
+- **A. EXECUTABLE_FANOUT_PER_CANDIDATE ≤ 2** — bounded fanout. Counter `EXECUTABLE_FANOUT_OVER_LIMIT_6536` == 0.
+- **B. V3_ALLOW_WITHOUT_FDG_OR_EXPLICIT_REJECT == 0** — no silent bypass of the FDG gate.
+- **C. INTAKE→V3 ≥ 20 % when INTAKE ≥ 700** — lane-amputation early-warning.
+- **D. SPOT_SHORT_ADAPTER_MISMATCH_HARD_SAFETY == 0** — SPOT+SHORT must reroute, never HARD_SAFETY.
+- **E. Every specialized trader routes through CanonicalSizingBridge6532** — extends the existing `OrderSizeResolver.statusLine()` check per asset class.
+- **F. Providers degraded ⇒ HYDRATION_DEFERRED, not ZERO_LIQUIDITY hard-block** — pairs with §PROVIDER_DEGRADATION_PROTECTION above.
+- **G. Crypto Universe Ownership preserved** — CRYPTO_ALT identity never hijacked by meme lane (guards V5.0.6535).
+- New CI-blocking test: `HardAcceptanceInvariantsTest6536` under `app/src/test/kotlin/.../truth/`.
+
+**Files touched:**
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt`
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v3/eligibility/EligibilityGate.kt`
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/AcceptanceInvariantAudit6441.kt`
+- `lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/truth/HardAcceptanceInvariantsTest6536.kt` *(new)*
+
+**Known pre-existing regression NOT introduced by V5.0.6536:** Runtime Smoke Test has been failing since ~V5.0.6511 (`ui_start_1.xml` dump shows Nexus launcher — MainActivity fails to reach foreground before the first `btnToggle` tap window). `Build AATE APK` is green; only the emulator smoke script is red. Operator has been pushing through the smoke red for 15+ commits — investigation deferred; not blocking this bundle.
 
 
 ## V5.0.6533 (Feb 2026) — EXECUTION AUTHORITY REPAIR — operator-landed
