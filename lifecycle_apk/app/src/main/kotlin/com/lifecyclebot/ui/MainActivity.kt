@@ -7741,38 +7741,33 @@ for legal compliance.
 
             tvPerpsReadinessText?.text = readiness.recommendation
 
-            // Fetch and display SOL price
-            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                try {
-                    val marketData = com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(
-                        com.lifecyclebot.perps.PerpsMarket.SOL
-                    )
-                    tvPerpsSolPrice?.text = "$${"%.2f".format(marketData.price)}"
-                    val changeSign = if (marketData.priceChange24hPct >= 0) "+" else ""
-                    tvPerpsSolChange?.text = "$changeSign${"%.1f".format(marketData.priceChange24hPct)}%"
-                    tvPerpsSolChange?.setTextColor(
-                        if (marketData.priceChange24hPct >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt()
-                    )
-                } catch (_: Exception) {
-                    tvPerpsSolPrice?.text = "$—"
-                    tvPerpsSolChange?.text = "—"
+            // V5.0.6529 §OFF_MAIN_UI_REFACTOR — was launching on
+            // Dispatchers.Main and calling PerpsMarketDataFetcher.getMarketData
+            // there. That network call was blocking the UI thread on cold
+            // cache and contributing to the operator's ANR hints. Fetch all
+            // four markets in parallel on IO, then switch to Main only for
+            // the TextView update.
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val sol = try { com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(com.lifecyclebot.perps.PerpsMarket.SOL) } catch (_: Exception) { null }
+                val aapl = try { com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(com.lifecyclebot.perps.PerpsMarket.AAPL) } catch (_: Exception) { null }
+                val tsla = try { com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(com.lifecyclebot.perps.PerpsMarket.TSLA) } catch (_: Exception) { null }
+                val nvda = try { com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(com.lifecyclebot.perps.PerpsMarket.NVDA) } catch (_: Exception) { null }
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    if (sol != null) {
+                        tvPerpsSolPrice?.text = "$${"%.2f".format(sol.price)}"
+                        val changeSign = if (sol.priceChange24hPct >= 0) "+" else ""
+                        tvPerpsSolChange?.text = "$changeSign${"%.1f".format(sol.priceChange24hPct)}%"
+                        tvPerpsSolChange?.setTextColor(
+                            if (sol.priceChange24hPct >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt()
+                        )
+                    } else {
+                        tvPerpsSolPrice?.text = "$—"
+                        tvPerpsSolChange?.text = "—"
+                    }
+                    tvPerpsAaplPrice?.text = aapl?.let { "$${"%.2f".format(it.price)}" } ?: "$--"
+                    tvPerpsTslaPrice?.text = tsla?.let { "$${"%.2f".format(it.price)}" } ?: "$--"
+                    tvPerpsNvdaPrice?.text = nvda?.let { "$${"%.2f".format(it.price)}" } ?: "$--"
                 }
-
-                // V5.7.4: Update AAPL/TSLA/NVDA prices in perps card header
-                try {
-                    val aaplData = com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(com.lifecyclebot.perps.PerpsMarket.AAPL)
-                    tvPerpsAaplPrice?.text = "$${"%.2f".format(aaplData.price)}"
-                } catch (_: Exception) { tvPerpsAaplPrice?.text = "$--" }
-
-                try {
-                    val tslaData = com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(com.lifecyclebot.perps.PerpsMarket.TSLA)
-                    tvPerpsTslaPrice?.text = "$${"%.2f".format(tslaData.price)}"
-                } catch (_: Exception) { tvPerpsTslaPrice?.text = "$--" }
-
-                try {
-                    val nvdaData = com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(com.lifecyclebot.perps.PerpsMarket.NVDA)
-                    tvPerpsNvdaPrice?.text = "$${"%.2f".format(nvdaData.price)}"
-                } catch (_: Exception) { tvPerpsNvdaPrice?.text = "$--" }
             }
 
             // V5.7.1: Update Layer Confidence Dashboard
