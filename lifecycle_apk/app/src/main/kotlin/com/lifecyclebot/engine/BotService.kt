@@ -185,10 +185,10 @@ class BotService : Service() {
             // doesn't have to restart the bot manually.
             val marketsOn = !kill && isMarketsLaneEnabled(cfg)
             try { com.lifecyclebot.perps.PerpsTraderAI.setEnabled(marketsOn && cfg.perpsEnabled) } catch (_: Exception) {}
-            try { com.lifecyclebot.perps.TokenizedStockTrader.setEnabled(marketsOn && cfg.stocksEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.MARKET_LANES_QUARANTINED) } catch (_: Exception) {}
+            try { com.lifecyclebot.perps.TokenizedStockTrader.setEnabled(marketsOn && cfg.stocksEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.marketLanesQuarantined()) } catch (_: Exception) {}
             try { com.lifecyclebot.perps.CommoditiesTrader.setEnabled(marketsOn && cfg.commoditiesEnabled) } catch (_: Exception) {}
             try { com.lifecyclebot.perps.MetalsTrader.setEnabled(marketsOn && cfg.metalsEnabled) } catch (_: Exception) {}
-            try { com.lifecyclebot.perps.ForexTrader.setEnabled(marketsOn && cfg.forexEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.MARKET_LANES_QUARANTINED) } catch (_: Exception) {}
+            try { com.lifecyclebot.perps.ForexTrader.setEnabled(marketsOn && cfg.forexEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.marketLanesQuarantined()) } catch (_: Exception) {}
             // Stop PerpsExecutionEngine immediately when Markets master toggle is turned off
             if (!marketsOn) {
                 try {
@@ -2113,10 +2113,10 @@ class BotService : Service() {
             addLog("📴 Markets lane OFF — Perps/Stocks/Commodities/Metals/Forex will not run this session")
         }
         com.lifecyclebot.perps.PerpsTraderAI.setEnabled(marketsLaneOn && marketsStartCfg.perpsEnabled)
-        com.lifecyclebot.perps.TokenizedStockTrader.setEnabled(marketsLaneOn && marketsStartCfg.stocksEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.MARKET_LANES_QUARANTINED)
+        com.lifecyclebot.perps.TokenizedStockTrader.setEnabled(marketsLaneOn && marketsStartCfg.stocksEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.marketLanesQuarantined())
         com.lifecyclebot.perps.CommoditiesTrader.setEnabled(marketsLaneOn && marketsStartCfg.commoditiesEnabled)
         com.lifecyclebot.perps.MetalsTrader.setEnabled(marketsLaneOn && marketsStartCfg.metalsEnabled)
-        com.lifecyclebot.perps.ForexTrader.setEnabled(marketsLaneOn && marketsStartCfg.forexEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.MARKET_LANES_QUARANTINED)
+        com.lifecyclebot.perps.ForexTrader.setEnabled(marketsLaneOn && marketsStartCfg.forexEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.marketLanesQuarantined())
         // V5.9.1160 — Crypto Universe must honor Markets lane authority.
         // MEME-only mode must not start CryptoAlt scanner/signals/learning.
         // V5.0.3744 — operator explicit-enable escape hatch (crypto-isolated).
@@ -2206,7 +2206,7 @@ class BotService : Service() {
                 }
                 if (cryptoSidecarOn) s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT
                 if (marketsOn && (cfg.stocksEnabled || cfg.commoditiesEnabled || cfg.metalsEnabled || cfg.forexEnabled)
-                    && !com.lifecyclebot.engine.EnabledTraderAuthority.MARKET_LANES_QUARANTINED) {
+                    && !com.lifecyclebot.engine.EnabledTraderAuthority.marketLanesQuarantined()) {
                     s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MARKETS_STOCKS
                 }
                 if (marketsOn && cfg.perpsEnabled) s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PERPS

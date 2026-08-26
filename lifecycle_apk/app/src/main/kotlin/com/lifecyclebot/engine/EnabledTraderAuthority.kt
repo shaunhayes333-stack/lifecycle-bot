@@ -56,12 +56,29 @@ object EnabledTraderAuthority {
     // V5.9.1446 — STOCKS/FOREX QUARANTINE (operator directive 2026-06-09).
     // 5.0.3448 expectancy: Stocks n=82 WR=0% PnL=-12,381 SOL, Forex n=6 WR=0%.
     // These non-meme market lanes bleed on TIME_CAP_2H exits and distort the
-    // whole P&L view by 4 orders of magnitude vs the meme spine. Hard-quarantine
-    // their BUY path in code (overrides the persisted stocks_enabled/forex_enabled
-    // prefs so it takes effect on the live device without a UI toggle). Open
-    // positions still exit and still record outcomes to the learner — this only
-    // stops NEW market entries. Flip to false to lift the quarantine.
-    @JvmStatic val MARKET_LANES_QUARANTINED: Boolean = true
+    // whole P&L view by 4 orders of magnitude vs the meme spine.
+    //
+    // V5.0.6524 §MARKET_LANE_QUARANTINE_MODE_AWARE — operator audit Feb 2026:
+    // hard-coding true here amputates PAPER learning, which contradicts the
+    // PAPER MODE = LEARN EVERYTHING doctrine. Quarantine is a LIVE-only
+    // protection now. Paper still learns Stocks/Forex outcomes at zero real
+    // capital risk. Kept as a Boolean const alias (=false) so any code that
+    // still references the constant compiles unchanged and no longer blocks
+    // paper. Runtime callers should prefer `marketLanesQuarantined()` which
+    // returns true only in LIVE mode (until a mode-aware operator override
+    // is wired through the config UI).
+    @Deprecated("Use marketLanesQuarantined() — the boolean version was mode-blind and amputated paper learning.")
+    @JvmStatic val MARKET_LANES_QUARANTINED: Boolean = false
+
+    /**
+     * V5.0.6524 — mode-aware market-lane quarantine. Returns true only when
+     * LIVE mode is active (protects real capital on the historically bleeding
+     * Stocks/Forex lanes). Paper mode always returns false so the learning
+     * surface stays intact.
+     */
+    fun marketLanesQuarantined(): Boolean = try {
+        !com.lifecyclebot.engine.GlobalTradeRegistry.isPaperMode
+    } catch (_: Throwable) { false }
 
     /**
      * The published, atomic enabled set. Default empty so any path that
@@ -111,6 +128,27 @@ object EnabledTraderAuthority {
     }
     fun snapshot(): Set<Trader> = enabled.get()
     fun snapshotStr(): String = enabled.get().joinToString(",") { it.name }
+
+    /**
+     * V5.0.6524 §AUTHORITY_COLLAPSE — canonical **effective** enabled set.
+     *
+     * Operator audit Feb 2026: split-brain execution authority.
+     * `isEnabled(t)` returns true for every trader in PAPER, but the raw
+     * `snapshot()` set only contains what BotService.publish() emitted.
+     * Callers that read `snapshot()` directly to decide "may this trader
+     * execute?" therefore got DISABLED verdicts while `isEnabled(t)` said
+     * ENABLED for the same trader in the same tick. Two answers, one
+     * "authoritative" object.
+     *
+     * `effectiveSnapshot()` returns the SAME answer as `isEnabled()` for
+     * every trader — the full trader universe when PAPER, the published
+     * set when LIVE. Production execution-permission code paths must
+     * prefer this over `snapshot()`.
+     */
+    fun effectiveSnapshot(): Set<Trader> {
+        val paper = try { com.lifecyclebot.engine.GlobalTradeRegistry.isPaperMode } catch (_: Throwable) { false }
+        return if (paper) Trader.values().toSet() else enabled.get()
+    }
 
     /**
      * V5.0.3682 — RESTORED canonical meme-live-only predicate.

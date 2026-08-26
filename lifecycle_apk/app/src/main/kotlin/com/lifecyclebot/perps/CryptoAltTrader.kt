@@ -506,7 +506,9 @@ object CryptoAltTrader {
         // CryptoAlt DynScan keep firing DynSig logs during a Meme-only session.
         var authorityAllowsCrypto6015 = false
         try {
-            val authority = com.lifecyclebot.engine.EnabledTraderAuthority.snapshot()
+            // V5.0.6524 §AUTHORITY_COLLAPSE — effectiveSnapshot() matches
+            // isEnabled(t) semantics (paper=all, live=published).
+            val authority = com.lifecyclebot.engine.EnabledTraderAuthority.effectiveSnapshot()
             authorityAllowsCrypto6015 = com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT in authority
             if (authority.isNotEmpty() && !authorityAllowsCrypto6015) {
                 return "SUB_TRADER_SUPPRESSED_MEME_ONLY"

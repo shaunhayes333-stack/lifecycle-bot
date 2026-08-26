@@ -218,18 +218,41 @@ object ForexTrader {
             monitorJob?.cancel()
             isRunning.set(false)
         }
+        // V5.0.6524 §FOREX_INITIAL_SCAN_GATE — operator audit Feb 2026:
+        // start() unconditionally invoked runScanCycle() BEFORE the isEnabled
+        // gate inside the main loop, so a disabled ForexTrader still opened
+        // six FX positions in one shot (GBPJPY/CADJPY/EURJPY/AUDJPY/CHFJPY/
+        // NZDJPY) and then never scanned again. Root cause matches the
+        // operator's source-level audit exactly: BotService called start()
+        // even after setEnabled(false), and the initial scan bypassed the
+        // gate. Fix: refuse to start when disabled AND gate the initial
+        // scan behind isEnabled just like the periodic scan. No disabled
+        // trader may ever open a position, even a one-shot.
+        if (!isEnabled.get()) {
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "FOREX_START_SKIPPED_DISABLED_6524",
+                    "reason=isEnabled_false action=no_engine_launch",
+                )
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FOREX_START_SKIPPED_DISABLED_6524")
+            } catch (_: Throwable) {}
+            return
+        }
         isRunning.set(true)
-        
+
         engineJob = scope.launch {
             ErrorLogger.info(TAG, "💱💱💱 ForexTrader ENGINE STARTED 💱💱💱")
-            
-            // Initial scan
-            try {
-                runScanCycle()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                ErrorLogger.error(TAG, "Initial scan error: ${e.message}", e)
+
+            // Initial scan — V5.0.6524 gated behind isEnabled to match the
+            // periodic scan below. A disabled trader must never run any scan.
+            if (isEnabled.get()) {
+                try {
+                    runScanCycle()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    ErrorLogger.error(TAG, "Initial scan error: ${e.message}", e)
+                }
             }
 
             // Main loop

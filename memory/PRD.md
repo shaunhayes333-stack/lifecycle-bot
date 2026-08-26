@@ -1,10 +1,41 @@
-# AATE PRD — V5.0.6508f (OPEN-COST RECONCILIATION GREEN)
+# AATE PRD — V5.0.6523 (HERO PAPER/LIVE PARITY + WR SOL-BASIS FIX)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE (FillLotLedger6504 immutable SQLite lots + per-lot projection reconciliation), never by strangling flow.
 
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is the pair (`Build AATE APK` green, `Runtime Smoke Test` green) on the head SHA.
+
+
+## V5.0.6523 (Feb 2026) — HERO PAPER/LIVE PARITY + WR SOL-BASIS FIX ✅ BUILD GREEN
+
+`c220000cd` Build AATE APK ✅. Runtime Smoke Test in progress (V5.0.6522a's smoke test also failed; unrelated to 6523 scope).
+
+Operator screenshot (paper): Open Positions header showed **`1.216◎ at risk +483.0541◎`** while the visible paper rows summed to only **+55.83◎** (delta ~427◎). Separately, WR crashed **75% → 4%** while paper runners sat at +5000%..+10000% unrealized.
+
+Two SOURCE-level authority bugs found by code inspection (no guessing):
+
+**§1 HERO HEADER/ROW MODE PARITY**
+- `HeroSnapshotAuthority6503.refresh()` iterated `status.tokens.values` with only `isClosed`/`isOpen` filters — no paper/live filter.
+- `MainActivity.buildUnifiedOpenPositions()` filters `state.openPositions` by `isPaperPosition == config.paperMode`.
+- Header summed paper + live opens together, rows only showed the current mode → header/row divergence.
+- Fix: partition Hero into paper vs live buckets. Added `Hero.totalExposureSolFor(paperMode)` / `totalUnrealizedSolFor(paperMode)` / `openCountFor(paperMode)` accessors. Legacy unified fields preserved for other callers.
+- MainActivity now reads mode-aware accessors so header ≡ row-list sum byte-for-byte.
+- New diagnostic: `HERO_UNREALIZED_BREAKDOWN_6523` prints top 6 contributors whenever either bucket exceeds ±100◎ (rate-limited 5s).
+
+**§2 WR SOL-BASIS SANITIZER FIX**
+- `LearningPnlSanitizer.inspectTrade()` and `TradeRowSanityCheck` both compared `pnlPct` (percent-of-cost) against `implied = pnlSol / t.sol * 100`.
+- Pre-V5.9.1018c: `t.sol = pos.costSol` (cost basis) — check worked.
+- V5.9.1018c flipped `t.sol` on terminal SELL to **gross proceeds** ("every other SELL constructor uses GROSS PROCEEDS"). With sol=proceeds, `implied` = percent-of-proceeds ≠ pnlPct = percent-of-cost.
+- Any big paper winner ended up with `impliedPct ≈ 67%` vs `pnlPct = 200%`, delta 133 > tolerance 70 → quarantined by `PNL_PCT_SOL_BASIS_MISMATCH` (LearningPnlSanitizer) or `IMPOSSIBLE_PNL` (TradeRowSanityCheck).
+- Big runner wins never reached `getCleanStatsSnapshot4517`'s WR denominator while small losses passed → phantom 4% WR.
+- Fix: divide realized PnL by `t.entryCostSol` (immutable cost basis on the row) in both sanitizers. Now `(pnlSol / entryCostSol) * 100 ≡ pnlPct` for every mathematically consistent close row.
+
+**Files touched:**
+- `engine/truth/HeroSnapshotAuthority6503.kt`
+- `engine/LearningPnlSanitizer.kt`
+- `engine/learning/TradeRowSanityCheck.kt`
+- `ui/MainActivity.kt`
 
 
 ## V5.0.6508f (Feb 2026) — OPEN-COST SCALAR RECONCILIATION ✅ CI GREEN

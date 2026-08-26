@@ -246,9 +246,9 @@ object PerpsExecutionEngine {
                             scanResults.filter { r ->
                                 val m = r.signal?.market ?: return@filter true
                                 when {
-                                    // V5.9.1446 — hard quarantine overrides the persisted pref.
-                                    m.isStock     -> cfg.stocksEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.MARKET_LANES_QUARANTINED
-                                    m.isForex     -> cfg.forexEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.MARKET_LANES_QUARANTINED
+                                    // V5.0.6524 — mode-aware quarantine (LIVE only).
+                                    m.isStock     -> cfg.stocksEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.marketLanesQuarantined()
+                                    m.isForex     -> cfg.forexEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.marketLanesQuarantined()
                                     m.isCommodity -> cfg.commoditiesEnabled
                                     m.isMetal     -> cfg.metalsEnabled
                                     m.isCrypto    -> cfg.perpsEnabled

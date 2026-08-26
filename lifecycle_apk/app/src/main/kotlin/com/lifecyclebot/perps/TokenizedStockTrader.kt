@@ -552,7 +552,12 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             if (com.lifecyclebot.engine.BotService.isShuttingDown) return "runtime_stopping"
         } catch (_: Throwable) {}
         try {
-            val authority = com.lifecyclebot.engine.EnabledTraderAuthority.snapshot()
+            // V5.0.6524 §AUTHORITY_COLLAPSE — was `.snapshot()` (raw published
+            // set), which said DISABLED for MARKETS_STOCKS in PAPER even when
+            // `isEnabled(t)` said ENABLED. effectiveSnapshot() returns the
+            // full trader universe in PAPER (matches isEnabled(t)) so both
+            // APIs answer the same question the same way.
+            val authority = com.lifecyclebot.engine.EnabledTraderAuthority.effectiveSnapshot()
             if (authority.isNotEmpty() &&
                 com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MARKETS_STOCKS !in authority) {
                 return "TRADER_SWITCH_SUPPRESSED_MEME_ONLY"
@@ -561,8 +566,8 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         val c = try { com.lifecyclebot.engine.BotService.instance?.applicationContext } catch (_: Throwable) { null }
         if (c != null) {
             val cfg = try { com.lifecyclebot.data.ConfigStore.load(c) } catch (_: Throwable) { null }
-            // V5.9.1446 — hard stocks quarantine (overrides persisted pref).
-            if (com.lifecyclebot.engine.EnabledTraderAuthority.MARKET_LANES_QUARANTINED) {
+            // V5.0.6524 — mode-aware quarantine (LIVE only). Paper learns.
+            if (com.lifecyclebot.engine.EnabledTraderAuthority.marketLanesQuarantined()) {
                 return "STOCKS_QUARANTINED_V5_9_1446"
             }
             if (cfg != null && (cfg.tradingMode == 0 || !cfg.marketsTraderEnabled || !cfg.stocksEnabled)) {
