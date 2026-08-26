@@ -8604,6 +8604,14 @@ class GoldenTapeRegressionTest {
             registry.contains("fresh reaching CryptoBrain=") && registry.contains("fresh reaching V3/FDG=") &&
             registry.contains("paper-only unavailable live route=") && registry.contains("live-routable candidates=") &&
             registry.contains("static-vs-dynamic evaluation share="))
+        val generator = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MultiChainWalletGenerator6546.kt").readText()
+        val vault = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MultiChainWalletVault6546.kt").readText()
+        val walletManager = java.io.File("src/main/kotlin/com/lifecyclebot/engine/WalletManager.kt").readText()
+        assertTrue(generator.contains("SLIP-0010") && generator.contains("44 or HARDENED") &&
+            generator.contains("ethereumAddress") && generator.contains("bitcoinAddress"))
+        assertTrue(vault.contains("EncryptedSharedPreferences") && vault.contains("solana_private_key_b58") &&
+            vault.contains("MULTICHAIN_PUBLIC_ADDRESS_EMPTY"))
+        assertTrue(walletManager.contains("generateMultiChainWallet") && walletManager.contains("loadMultiChainWallet"))
     }
 
 }

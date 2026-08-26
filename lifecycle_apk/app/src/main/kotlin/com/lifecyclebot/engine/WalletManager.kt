@@ -198,6 +198,23 @@ class WalletManager private constructor(private val ctx: Context) {
         }
     }
 
+    // ── multi-chain wallet generation ─────────────────────────────────
+
+    /**
+     * Creates one deterministic multi-chain wallet and stores its recovery
+     * material in the encrypted wallet vault. Existing imported Solana wallets
+     * are not replaced; the caller must explicitly choose this operation.
+     */
+    fun generateMultiChainWallet(passphrase: String = ""): MultiChainWalletGenerator6546.GeneratedWallet {
+        val generated = MultiChainWalletGenerator6546.generate(passphrase = passphrase)
+        MultiChainWalletVault6546.save(ctx, generated)
+        return generated
+    }
+
+    /** Returns the encrypted multi-chain wallet, if one has been generated. */
+    fun loadMultiChainWallet(): MultiChainWalletVault6546.StoredWallet? =
+        MultiChainWalletVault6546.load(ctx)
+
     // ── connect / disconnect ──────────────────────────────────────────
 
     fun connect(privateKeyB58: String, rpcUrl: String): Boolean {

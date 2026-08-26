@@ -158,6 +158,12 @@ dependencies {
     // Base58 for Solana keypair
     implementation("io.github.novacrypto:Base58:2022.01.17")
 
+    // V5.0.6546 — deterministic multi-chain wallet derivation.
+    // Used only for address/key derivation; chain-specific execution remains
+    // gated on confirmed signer + venue adapters.
+    implementation("org.web3j:crypto:4.12.3")
+    implementation("org.bitcoinj:bitcoinj-core:0.16.3")
+
     // TweetNaCl for ed25519 signing (no JNI, pure Java)
     implementation("com.github.InstantWebP2P:tweetnacl-java:v1.1.2")
 
