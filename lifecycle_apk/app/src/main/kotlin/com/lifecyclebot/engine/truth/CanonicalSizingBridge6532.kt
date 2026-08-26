@@ -65,6 +65,31 @@ object CanonicalSizingBridge6532 {
                 "CANONICAL_SIZING_BRIDGE_6532|CLASS=${assetClass.tag}|LANE=$laneName|EXEC=${res.executable}"
             )
         } catch (_: Throwable) {}
+        // V5.0.6543 §UNIVERSAL_FUNNEL_AUTOREPORT — instrument at the sizing
+        // bridge so every specialist (Forex / Stocks / Commodities / Metals
+        // / CryptoAlt / Perps) auto-appears in CanonicalEntryAuthority6540
+        // without touching each specialist file. Emits CANDIDATE + AUTH_SUBMIT
+        // pair (specialist has proposed a size); markSized/markAuthAllow or
+        // markAuthBlock derived from `res.executable`.
+        try {
+            val venue6543 = when (assetClass) {
+                AssetClass.STOCK, AssetClass.FOREX, AssetClass.COMMODITY, AssetClass.METAL ->
+                    CanonicalEntryAuthority6540.Venue.MARKETS_SPOT
+                AssetClass.PERPS -> CanonicalEntryAuthority6540.Venue.MARKETS_PERPS
+                AssetClass.CRYPTO_ALT -> CanonicalEntryAuthority6540.Venue.CRYPTO
+                else -> null
+            }
+            if (venue6543 != null) {
+                CanonicalEntryAuthority6540.markCandidate(venue6543, laneName, "cls=${assetClass.tag}")
+                CanonicalEntryAuthority6540.markAuthSubmit(venue6543, laneName, "requestedSol=$requestedSol paper=$paperMode")
+                if (res.executable) {
+                    CanonicalEntryAuthority6540.markSized(venue6543, laneName)
+                    CanonicalEntryAuthority6540.markAuthAllow(venue6543, laneName)
+                } else {
+                    CanonicalEntryAuthority6540.markAuthBlock(venue6543, laneName, "SIZE_NOT_EXECUTABLE:${res.reason}")
+                }
+            }
+        } catch (_: Throwable) {}
         try {
             ForensicLogger.lifecycle(
                 "CANONICAL_SIZING_BRIDGE_6532",

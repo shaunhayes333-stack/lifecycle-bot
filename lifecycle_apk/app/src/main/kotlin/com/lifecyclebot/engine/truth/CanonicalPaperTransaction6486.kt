@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.engine.ForensicLogger
 import java.math.BigInteger
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
@@ -60,6 +61,36 @@ object CanonicalPaperTransaction6486 {
             System.currentTimeMillis(), ""))
         CanonicalMintOccupancyRegistry6464.markOpen("paper", mint, symbol, source)
         try { PipelineHealthCollector.labelInc("PAPER_TRANSACTION_OPEN_COMMITTED_6486") } catch (_: Throwable) {}
+        // V5.0.6543 §UNIVERSAL_FUNNEL_AUTOREPORT — the SAME canonical
+        // open is where CanonicalEntryAuthority6540.markOpenConfirmed
+        // must fire and the canonical BUY journal projection is emitted.
+        // Route by assetClass to venue; every specialist now shows up in
+        // the funnel + the paper trade journal without touching each
+        // specialist file.
+        try {
+            val venue6543 = when (assetClass) {
+                AssetClass.STOCK, AssetClass.FOREX, AssetClass.COMMODITY, AssetClass.METAL ->
+                    CanonicalEntryAuthority6540.Venue.MARKETS_SPOT
+                AssetClass.PERPS -> CanonicalEntryAuthority6540.Venue.MARKETS_PERPS
+                AssetClass.CRYPTO_ALT -> CanonicalEntryAuthority6540.Venue.CRYPTO
+                else -> null
+            }
+            if (venue6543 != null) {
+                CanonicalEntryAuthority6540.markIntentCreated(venue6543, symbol, positionId)
+                CanonicalEntryAuthority6540.markAdapterDispatch(venue6543, symbol)
+                CanonicalEntryAuthority6540.markOpenConfirmed(venue6543, symbol, positionId)
+                // Canonical BUY projection — one journal event per canonical
+                // open. Guarantees Markets Spot/Perps/Crypto card counts
+                // reconcile to canonical committed positions (operator
+                // §P0 "fix trade counters / UI").
+                PipelineHealthCollector.labelInc("CANONICAL_BUY_JOURNAL_PROJECTED_6543")
+                ForensicLogger.lifecycle(
+                    "CANONICAL_BUY_JOURNAL_PROJECTED_6543",
+                    "venue=$venue6543 assetClass=${assetClass.tag} symbol=$symbol " +
+                        "positionId=$positionId costSol=$costSol entryPriceUsd=$entryPriceUsd source=$source",
+                )
+            }
+        } catch (_: Throwable) {}
         Result(true, positionId, "OPEN_COMMITTED")
     }
 

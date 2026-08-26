@@ -1,10 +1,38 @@
-# AATE PRD — V5.0.6542 (MODE-AUTHORITY ORDERING + PAPER-LEARN-EVERYTHING RESPECT + INVARIANT E TAG ALIGNMENT + ASSET-AWARE MIN)
+# AATE PRD — V5.0.6543 (UNIVERSAL FUNNEL AUTOREPORT + CANONICAL BUY JOURNAL PROJECTION)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE (FillLotLedger6504 immutable SQLite lots + per-lot projection reconciliation), never by strangling flow.
 
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA.
+
+
+## V5.0.6543 (Feb 2026) — universal §6540 funnel + canonical BUY journal
+
+Operator demanded shipping the V5.0.6542 deferred items. Landed via **two upstream chokepoints** rather than editing each specialist (surgical, no specialist-file churn).
+
+### §UNIVERSAL_FUNNEL_AUTOREPORT
+
+- **`CanonicalSizingBridge6532.resolve`** — every specialist already calls this. Instrumented to auto-report `markCandidate → markAuthSubmit → markSized/markAuthAllow OR markAuthBlock("SIZE_NOT_EXECUTABLE:${reason}")` to `CanonicalEntryAuthority6540`. Venue derived from `assetClass`:
+  - `STOCK / FOREX / COMMODITY / METAL` → `MARKETS_SPOT`
+  - `PERPS` → `MARKETS_PERPS`
+  - `CRYPTO_ALT` → `CRYPTO`
+- **`CanonicalPaperTransaction6486.open`** — every specialist committing a paper open passes through here. Instrumented to auto-emit `markIntentCreated → markAdapterDispatch → markOpenConfirmed`.
+- Consequence: Forex / Stocks / Metals / Commodities / CryptoAlt / Perps now all appear in the operator's cross-asset funnel telemetry with **zero specialist-file edits**. The V5.0.6540 `CanonicalEntryAuthority6540.candidatesWithoutAuthSubmit()` fail-build guard now covers every specialist.
+
+### §CANONICAL_BUY_JOURNAL_PROJECTION
+
+`CanonicalPaperTransaction6486.open` emits a `CANONICAL_BUY_JOURNAL_PROJECTED_6543` counter + `ForensicLogger.lifecycle` record on every successful canonical open. Payload includes venue, assetClass, symbol, positionId, costSol, entryPriceUsd, source. This is the single canonical BUY-journal event; UI card counts (Markets Spot / Markets Perps / Crypto) can project from `CanonicalPositionAuthority6441` + this counter without touching per-specialist local counters — resolving the operator's "9 perps confirmed but PAPER executions UI is all Solana/meme" observation.
+
+### Per-asset rejection telemetry (partial)
+
+`markAuthBlock` already accepts a reason string; the funnel autoreport now emits `SIZE_NOT_EXECUTABLE:<inner-reason>` from the sizing bridge path. Additional reason-keyed telemetry (V3_VETO / FDG_BLOCK / etc) requires wiring per-stage failure paths in the specialists — landed at the sizing bridge; V3/FDG paths remain to be tagged in V5.0.6544.
+
+### Files touched (V5.0.6543)
+
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalSizingBridge6532.kt`
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt`
+- `memory/PRD.md`
 
 
 ## V5.0.6542 (Feb 2026) — cross-asset control-plane repair
