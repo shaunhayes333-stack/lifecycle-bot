@@ -169,12 +169,34 @@ object AcceptanceInvariantAudit6441 {
         else failed.add("D_spot_short_stamped_hard_safety_leak")
 
         // E. Specialized traders routed through CanonicalSizingBridge6532.
+        // V5.0.6542 §INVARIANT_E_TAG_ALIGNMENT — operator: pre-6542 used
+        // plural strings (STOCKS/COMMODITIES/METALS) while the actual
+        // AssetClass.tag emits singular STOCK/COMMODITY/METAL and lane
+        // names include "FOREX_GBPJPY", "PERPS_SOL" etc. Match by prefix
+        // so the invariant reflects real invocations regardless of the
+        // per-lane suffix used by each specialist.
         val bridgeSitesSeen = try {
-            listOf("FOREX", "STOCKS", "COMMODITIES", "METALS", "CRYPTO_ALT", "PERPS").count { klass ->
-                com.lifecyclebot.engine.PipelineHealthCollector
-                    .labelCountSnapshot("CANONICAL_SIZING_BRIDGE_6532|CLASS=$klass|LANE=$klass|EXEC=true") > 0L ||
-                com.lifecyclebot.engine.PipelineHealthCollector
-                    .labelCountSnapshot("CANONICAL_SIZING_BRIDGE_6532|CLASS=$klass|LANE=$klass|EXEC=false") > 0L
+            val snap = com.lifecyclebot.engine.PipelineHealthCollector.snapshot()
+            val bridgeKeys = try { snap.javaClass } catch (_: Throwable) { null } // reflective access is not our style
+            // Direct labelCountSnapshot for each canonical tag; use prefix
+            // "CANONICAL_SIZING_BRIDGE_6532|CLASS=<TAG>" and check both
+            // EXEC=true and EXEC=false variants across the primary lane.
+            listOf("FOREX", "STOCK", "COMMODITY", "METAL", "CRYPTO_ALT", "PERPS").count { klass ->
+                val laneCandidates = when (klass) {
+                    "FOREX"     -> listOf("FOREX")
+                    "STOCK"     -> listOf("STOCK", "STOCKS", "MARKETS_STOCKS")
+                    "COMMODITY" -> listOf("COMMODITY", "COMMODITIES")
+                    "METAL"     -> listOf("METAL", "METALS")
+                    "CRYPTO_ALT"-> listOf("CRYPTO_SPOT", "CRYPTO_LEV", "CRYPTO_ALT")
+                    "PERPS"     -> listOf("PERPS_SOL", "PERPS_BTC", "PERPS_ETH", "PERPS")
+                    else        -> listOf(klass)
+                }
+                laneCandidates.any { lane ->
+                    listOf("true", "false").any { exec ->
+                        com.lifecyclebot.engine.PipelineHealthCollector
+                            .labelCountSnapshot("CANONICAL_SIZING_BRIDGE_6532|CLASS=$klass|LANE=$lane|EXEC=$exec") > 0L
+                    }
+                }
             }
         } catch (_: Throwable) { 0 }
         // We only assert once ANY execution has happened. If nothing

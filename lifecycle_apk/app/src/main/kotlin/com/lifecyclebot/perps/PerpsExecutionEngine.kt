@@ -243,24 +243,33 @@ object PerpsExecutionEngine {
                             scanResults
                         } else {
                             val cfg = com.lifecyclebot.data.ConfigStore.load(ctx)
+                            // V5.0.6542 §NO_RAW_SUBTOGGLE_FILTER — operator: PAPER
+                            // "learn everything" must not be defeated by raw
+                            // cfg.forexEnabled / commoditiesEnabled / metalsEnabled
+                            // / stocksEnabled after the scan. Use the already-
+                            // resolved TraderRuntimePlan6526.effective flags so
+                            // paperLearnEverything6533 is respected. Raw UI
+                            // toggles gate LIVE only.
+                            val plan6542 = try {
+                                com.lifecyclebot.engine.truth.TraderRuntimePlan6526.from(cfg)
+                            } catch (_: Throwable) { null }
                             scanResults.filter { r ->
                                 val m = r.signal?.market ?: return@filter true
-                                when {
-                                    // V5.0.6524 — mode-aware quarantine (LIVE only).
-                                    m.isStock     -> cfg.stocksEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.marketLanesQuarantined()
-                                    m.isForex     -> cfg.forexEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.marketLanesQuarantined()
-                                    m.isCommodity -> cfg.commoditiesEnabled
-                                    m.isMetal     -> cfg.metalsEnabled
-                                    m.isCrypto    -> cfg.perpsEnabled
-                                    else          -> true
-                                }
+                                if (plan6542 != null) {
+                                    when {
+                                        m.isStock     -> plan6542.stocksEffective
+                                        m.isForex     -> plan6542.forexEffective
+                                        m.isCommodity -> plan6542.commoditiesEffective
+                                        m.isMetal     -> plan6542.metalsEffective
+                                        m.isCrypto    -> plan6542.perpsEffective
+                                        else          -> true
+                                    }
+                                } else true
                             }.also { kept ->
                                 val dropped = scanResults.size - kept.size
                                 if (dropped > 0) {
                                     ErrorLogger.debug(TAG,
-                                        "⚡ LANE GATE: dropped $dropped/${scanResults.size} signals for disabled lanes " +
-                                        "(perps=${cfg.perpsEnabled} stocks=${cfg.stocksEnabled} " +
-                                        "comm=${cfg.commoditiesEnabled} metals=${cfg.metalsEnabled} forex=${cfg.forexEnabled})")
+                                        "⚡ LANE GATE: dropped $dropped/${scanResults.size} signals via TraderRuntimePlan6526 (paper=${cfg.paperMode})")
                                 }
                             }
                         }

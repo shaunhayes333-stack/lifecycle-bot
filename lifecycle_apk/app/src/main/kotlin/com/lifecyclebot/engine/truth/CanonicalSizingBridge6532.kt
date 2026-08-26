@@ -42,13 +42,23 @@ object CanonicalSizingBridge6532 {
         laneRiskCapSol: Double = 1.0,
         laneMinExecutableSol: Double = 0.001,
     ): OrderSizeResolver6441.Resolution {
+        // V5.0.6542 §ASSET_AWARE_PAPER_MIN — operator: PAPER cross-asset
+        // learning must be able to take legitimate smaller probes. Cash
+        // is 1.6 SOL, a 2% cross-asset recommendation is only 0.032 SOL —
+        // below the meme-shaped 0.05 SOL PAPER floor. Lower the effective
+        // minimum for non-Solana asset classes in PAPER mode so the
+        // canonical funnel doesn't SIZE_NOT_EXECUTABLE-block them.
+        val effectiveMinSol6542 = if (paperMode && assetClass != AssetClass.SOLANA_TOKEN)
+            minOf(laneMinExecutableSol, 0.005)
+        else
+            laneMinExecutableSol
         val res = OrderSizeResolver6441.resolve(
             requestedSol = requestedSol,
             laneName = laneName,
             walletSol = walletSol,
             paperMode = paperMode,
             laneRiskCapSol = laneRiskCapSol,
-            laneMinExecutableSol = laneMinExecutableSol,
+            laneMinExecutableSol = effectiveMinSol6542,
         )
         try {
             PipelineHealthCollector.labelInc(

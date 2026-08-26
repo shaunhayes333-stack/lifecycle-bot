@@ -1,10 +1,55 @@
-# AATE PRD — V5.0.6541 (REPLAY UNIT INTEGRITY + RECOVERY-BYPASS SEAL)
+# AATE PRD — V5.0.6542 (MODE-AUTHORITY ORDERING + PAPER-LEARN-EVERYTHING RESPECT + INVARIANT E TAG ALIGNMENT + ASSET-AWARE MIN)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE (FillLotLedger6504 immutable SQLite lots + per-lot projection reconciliation), never by strangling flow.
 
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA.
+
+
+## V5.0.6542 (Feb 2026) — cross-asset control-plane repair
+
+Operator runtime snapshot of V5.0.6541 showed AATE-wide execution is working (10 confirmed opens, 9 perps + 1 spot). Remaining defects are cross-asset control-plane splits:
+
+### §MODE_AUTHORITY_ORDERING (P0 — Forex cold-start fix)
+
+`TraderRuntimePlan6526.Companion.from(cfg)` was consulting `EnabledTraderAuthority.marketLanesQuarantined()`, which reads `GlobalTradeRegistry.isPaperMode` (defaults `false`). During cold boot the plan is derived BEFORE the config's real `paperMode` is written into the registry, so PAPER briefly looks like LIVE, quarantines Forex/Metals/Commodities/Stocks, and produces `FOREX_START_SKIPPED_DISABLED_6524 = 55` per the operator's runtime snapshot.
+
+**Fix**: `TraderRuntimePlan6526` is now pure — `marketLanesQuarantined` is derived from `cfg.paperMode` first (`!cfg.paperMode && EnabledTraderAuthority.marketLanesQuarantined()`). PAPER is NEVER quarantined for a stale runtime mode signal.
+
+### §NO_RAW_SUBTOGGLE_FILTER (Fix #2)
+
+`PerpsExecutionEngine` post-scan filter was consulting `cfg.forexEnabled / commoditiesEnabled / metalsEnabled / stocksEnabled / perpsEnabled` directly, defeating `paperLearnEverything6533`. Signals that survived the scan were being dropped by stale UI toggles.
+
+**Fix**: filter now consumes the already-resolved `TraderRuntimePlan6526` `stocksEffective` / `forexEffective` / `commoditiesEffective` / `metalsEffective` / `perpsEffective` flags, honouring `paperLearnEverything6533` in PAPER mode.
+
+### §INVARIANT_E_TAG_ALIGNMENT (Fix #7)
+
+Acceptance invariant E was checking for `CLASS=STOCKS/COMMODITIES/METALS` (plural), while `AssetClass.tag` emits singular `STOCK/COMMODITY/METAL` and the lane names include per-market suffixes (`FOREX_GBPJPY`, `PERPS_SOL`, `CRYPTO_SPOT`, etc). Result: acceptance audit failed 39/40 runs despite the sizing bridge demonstrably being invoked.
+
+**Fix**: match by class-tag + a per-class lane-candidate list (`STOCK`/`STOCKS`/`MARKETS_STOCKS`; `PERPS`/`PERPS_SOL`/`PERPS_BTC`; `CRYPTO_ALT`/`CRYPTO_SPOT`/`CRYPTO_LEV`, etc.).
+
+### §ASSET_AWARE_PAPER_MIN (Fix #6)
+
+`CanonicalSizingBridge6532.resolve` applied the same `0.05 SOL` PAPER min (a meme-shaped floor) to every asset class. With `paperWallet = 1.6 SOL`, a 2 % cross-asset recommendation is only `0.032 SOL` → `SIZE_NOT_EXECUTABLE`.
+
+**Fix**: PAPER + non-`SOLANA_TOKEN` classes get a `min(laneMinExecutable, 0.005)` floor so cross-asset learning can take smaller probes.
+
+### Deferred to V5.0.6543
+
+- **§6540 specialist funnel completion** — Forex / Metals / Commodities / Stocks / CryptoAlt / Perps all still bypass `CanonicalEntryAuthority6540` for their own opens (only CryptoAlt + Perps wired in V5.0.6540).
+- **Per-asset rejection telemetry** — replace opaque `CANONICAL_AUTH_BLOCK` with reason-keyed telemetry (`SIZE_NOT_EXECUTABLE`, `V3_VETO`, `FDG_BLOCK`, etc).
+- **Canonical journal projection** — single BUY journal event from canonical open finalization; specialists must not double-journal.
+- **Recovery via canonical trunk** (V5.0.6541 deferred).
+- **Canonical fill-lot rebuild** (V5.0.6541 P0-B deferred).
+
+### Files touched (V5.0.6542)
+
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/TraderRuntimePlan6526.kt`
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/perps/PerpsExecutionEngine.kt`
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/AcceptanceInvariantAudit6441.kt`
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalSizingBridge6532.kt`
+- `memory/PRD.md`
 
 
 ## V5.0.6541 (Feb 2026) — REPLAY UNIT INTEGRITY + RECOVERY-BYPASS SEAL

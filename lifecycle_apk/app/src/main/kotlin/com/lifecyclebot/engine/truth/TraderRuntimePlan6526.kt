@@ -99,9 +99,16 @@ data class TraderRuntimePlan6526(
             // the MEME runtime. Enabled when meme is on, OR (markets lane on
             // AND cryptoAlts toggle on) OR (marketsToggleOn + cryptoAlts).
             val cryptoUniverseOn = memeOn || ((marketsLaneOn || (marketsToggleOn && cfg.cryptoAltsEnabled)) && cfg.cryptoAltsEnabled)
-            val quarantined = try {
-                EnabledTraderAuthority.marketLanesQuarantined()
-            } catch (_: Throwable) { false }
+            // V5.0.6542 §MODE_AUTHORITY_ORDERING — operator: TraderRuntimePlan6526
+            // must be PURE. Determine quarantine from the cfg.paperMode passed
+            // into the plan, not from GlobalTradeRegistry.isPaperMode which
+            // defaults to false and hasn't been written yet during cold boot.
+            // Pre-6542 boot ordering caused PAPER to look like LIVE for the
+            // first cycle, disabling Forex/Metals/Commodities and producing
+            // 55× FOREX_START_SKIPPED_DISABLED_6524 per operator's V5.0.6541
+            // runtime snapshot.
+            val quarantined = !cfg.paperMode &&
+                try { EnabledTraderAuthority.marketLanesQuarantined() } catch (_: Throwable) { false }
             return TraderRuntimePlan6526(
                 paperMode = cfg.paperMode,
                 memeOn = memeOn,
