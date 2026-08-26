@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.data.BotConfig
+import com.lifecyclebot.engine.EnabledTraderAuthority
 
 /**
  * V5.0.6526 §TRADER_RUNTIME_PLAN — one immutable derivation of the
