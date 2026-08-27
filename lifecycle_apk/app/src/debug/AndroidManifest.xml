@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.6550a — DEBUG-ONLY manifest overlay.
+
+  Runtime Smoke Test needs adb to `am start` MainActivity so
+  ci/runtime-test.sh can drive btnToggle taps. Production manifest
+  declares android:exported="false" so third-party apps cannot launch
+  MainActivity, and adb shell (uid=2000) hits the same permission
+  denial. This overlay flips exported to true ONLY for debug builds.
+
+  Release builds are unaffected because Gradle applies main + release
+  manifests; this overlay is limited to the debug source set.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application>
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            tools:replace="android:exported" />
+    </application>
+
+</manifest>
