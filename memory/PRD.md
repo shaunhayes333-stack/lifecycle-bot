@@ -1,10 +1,42 @@
-# AATE PRD — V5.0.6548b (V5.0.6547 EXECUTION-CORRECTNESS FOLLOW-THROUGH)
+# AATE PRD — V5.0.6550a (P0 EXECUTION COMMIT AUTHORITY REPAIR)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE (FillLotLedger6504 immutable SQLite lots + per-lot projection reconciliation), never by strangling flow.
 
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA.
+
+
+## V5.0.6550 / 6550a (Feb 2026) — P0 EXECUTION COMMIT AUTHORITY REPAIR
+
+Operator V5.0.6549 forensic: 22 EXEC_OPEN_ALLOWED → 22 dispatched → 0 committed. 16 TERMINAL_BLOCK + 6 SOL_USD_MISSING accounts for all 22.
+
+### §P0-A — SINGLE CANONICAL SIZE DECISION
+
+`Executor.paperBuy`: the graduated-entry percentage produced 0.0035 SOL after `paperBuy.pre_mutation6490` had already dispatched a 0.010 SOL ticket. `clampPaperTradeSol` at `paperBuy.graduated` re-ran the canonical resolver, flipped exec=false BELOW_MIN_EXECUTABLE, and killed the already-dispatched ticket. Fix: extend the fluid path's floor-preservation contract to the graduated path — if the graduated shape falls below the executable floor while the pre-mutation authoritative size was above it, keep the pre-mutation size. Counter: `PAPER_SIZE_GRADUATED_FLOOR_PRESERVED_6550`.
+
+### §P0-B — MODE-AWARE RAW QUANTITY
+
+`Executor.paperBuy`: `CanonicalRawQuantityAuthority6520.paperRawFromEconomics` returned ZERO for mints with `decimals=-1`, and the hard terminal block converted `DECIMALS_PENDING` into `RAW_QTY_ECONOMICS_INVALID_6520 → PAPER_TICKET_TERMINAL_BLOCK_6514`. Fix: when raw==0 in PAPER mode AND the underlying economic basis is valid (effectiveSol > 0, solPrice ∈ (0,∞), tokenPriceUsd > 0), synthesize the raw quantity from economics (qty_tokens = notional_usd / price_usd_per_token, encoded at the neutral storage scale). The downstream `PaperTokenQuantityAuthority6509.independentCheck` computes the same expected qty, ratio=0.0 (OK). Live path unchanged. Counter: `PAPER_RAW_QTY_ECONOMICS_FALLBACK_6550`.
+
+### §P0-C — already delivered by V5.0.6548 §P0-A immutable ticket ownership.
+
+### §Runtime Smoke — DEBUG-ONLY EXPORTED MAIN ACTIVITY
+
+`app/src/debug/AndroidManifest.xml` overlay flips `MainActivity` `android:exported="true"` for DEBUG builds only. adb shell (uid=2000) can now `am start` MainActivity and drive btnToggle taps. Release manifests unchanged.
+
+### CI Status
+
+  * `Build AATE APK` on `cee97249` (V5.0.6550 P0-A + P0-B): ✅ SUCCESS
+  * `Build AATE APK` on `e00286e4` (V5.0.6550a debug overlay): pending
+  * Runtime Smoke: awaiting first end-to-end trade proof after all four fixes stack (V5.0.6548 P0-A/B + V5.0.6549 gradle-flake + V5.0.6549b MainActivity launch + V5.0.6550 sizing/raw-qty + V5.0.6550a exported overlay).
+
+
+## V5.0.6549 / 6549a / 6549b (Feb 2026) — RUNTIME SMOKE UNBLOCK + PERPS SANDBOX + NEURAL BRIDGE
+
+  * V5.0.6549: `ci/runtime-test.sh` gradle CDN retry-with-backoff (mirrors build.yml). Smoke funnel now surfaces V5.0.6548 execution-commit counters. JVM tests: `ImmutableTicketOwnership6548Test` (5 cases) + `MarkAuthorityProviderNormalization6548Test` (6 cases).
+  * V5.0.6549a: `BotConfig.perpsSandboxEnabled` default flipped `false → true` (paper-only; `PerpsSandbox6463.setEnabled` still refuses live mode).
+  * V5.0.6549b: smoke script now `am start`s MainActivity directly (bypasses Android 10+ background-activity-start block on `SmokeTestReceiver.startActivity()`). `PerpsLearningBridge.learnFromAssetTrade` propagates 30% of trust delta from non-PERPS asset trades into PERPS lane trust for the same layer (crypto/stock outcomes now bias the perps entry scorer). Counter: `PERPS_NEURAL_BRIDGE_XFER_6549`.
 
 
 ## V5.0.6548 / 6548a / 6548b (Feb 2026) — 6547 EXECUTION-CORRECTNESS FOLLOW-THROUGH
