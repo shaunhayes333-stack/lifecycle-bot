@@ -11859,6 +11859,23 @@ class Executor(
                  debitPaperWallet: Boolean = true,
                  maxPaperTradeSolOverride: Double? = null) {
         try { PipelineHealthCollector.labelInc("PAPER_BUY_ATTEMPT") } catch (_: Throwable) {}
+        // V5.0.6547 §P0-2 — BACKGROUND ENTRY PIPELINE parity counters.
+        // Operator mandate: entry pipeline must fire regardless of
+        // MainActivity/UI state. This bookkeeping proves it — every
+        // paperBuy attempt is tagged with the current UI/screen state so
+        // the pipeline dump can compare foreground vs background
+        // execution counts. Trading path never gates on these values.
+        try {
+            val uiAbsent6547 = try { !com.lifecyclebot.AATEApp.isAnyActivityVisible6487() } catch (_: Throwable) { false }
+            val screenOff6547 = try {
+                val ctx = com.lifecyclebot.AATEApp.appContextOrNull()
+                val pm = ctx?.getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
+                pm != null && !pm.isInteractive
+            } catch (_: Throwable) { false }
+            if (uiAbsent6547) PipelineHealthCollector.labelInc("PAPER_BUY_ATTEMPT_UI_ABSENT_6547")
+            if (screenOff6547) PipelineHealthCollector.labelInc("PAPER_BUY_ATTEMPT_SCREEN_OFF_6547")
+            if (!uiAbsent6547 && !screenOff6547) PipelineHealthCollector.labelInc("PAPER_BUY_ATTEMPT_FOREGROUND_6547")
+        } catch (_: Throwable) {}
         // V5.0.6497 §2 — PAPER ENTRY FINALITY AUTHORITY.
         // Every LANE_BUY_INTENT_OVERRIDES_BASE_WAIT event must produce
         // exactly one terminal outcome: PAPER_BUY_OPENED (via markOk
@@ -11917,7 +11934,11 @@ class Executor(
             if (hasDispatchedTicket6514) try {
                 PipelineHealthCollector.labelInc("PAPER_TICKET_TERMINAL_BLOCK_6514")
                 PipelineHealthCollector.labelInc("PAPER_BUY_HARD_BLOCKED_$reason")
-                ForensicLogger.lifecycle("PAPER_TICKET_TERMINAL_BLOCK_6514", "attemptId=$executionAttemptId6514 mint=${ts.mint.take(10)} lane=$layerTag reason=$reason")
+                ForensicLogger.lifecycle(
+                    "PAPER_TICKET_TERMINAL_BLOCK_6514",
+                    "reason=$reason stage=paperBuy.markNotOpened mint=${ts.mint.take(10)} " +
+                        "ticketId=$executionAttemptId6514 paper=true lane=$layerTag",
+                )
             } catch (_: Throwable) {}
             try { ForensicLogger.lifecycle("PAPER_BUY_NOT_OPENED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$reason attemptId=$executionAttemptId6514") } catch (_: Throwable) {}
         }
@@ -12661,15 +12682,32 @@ class Executor(
         val paperTokenDecimals6509 = PaperQuantityRepresentation6514.metadataDecimals(resolvedPaperDecimals6514)
         val paperQuantityScale6514 = PaperQuantityRepresentation6514.accountingScale(resolvedPaperDecimals6514)
         if (resolvedPaperDecimals6514 == null) {
+            // V5.0.6547 §P0-1 — PAPER DECIMALS PENDING → NONTERMINAL DEFER.
+            // Operator mandate: "Stop paper mode from terminal-blocking on
+            // missing decimals; it must defer/requeue the immutable ticket
+            // instead." Prior behaviour continued the fill at a neutral
+            // storage scale (12) and stamped paperTokenDecimals=-1 onto the
+            // lot. Downstream SELL_ABORTED_DECIMAL_INTEGRITY_6405 then
+            // silently killed the exit because strict decimals never
+            // hydrated in time. Requeuing the ticket keeps the same
+            // immutable attemptId; TokenMap/RPC hydrates async; the next
+            // scanner cycle re-attempts the same mint with real decimals.
             try {
-                PipelineHealthCollector.labelInc("PAPER_DECIMALS_PENDING_ADVISORY_6514")
-                ForensicLogger.lifecycle("PAPER_DECIMALS_PENDING_ADVISORY_6514", "mint=${tradeId.mint.take(10)} metadataDecimals=-1 accountingScale=$paperQuantityScale6514 action=continue_paper_fill_async_hydrate_no_economic_rewrite")
+                PipelineHealthCollector.labelInc("PAPER_DECIMALS_PENDING_DEFER_6547")
+                PipelineHealthCollector.labelInc("PAPER_TICKET_REQUEUED_6547")
+                ForensicLogger.lifecycle(
+                    "PAPER_DECIMALS_PENDING_DEFER_6547",
+                    "reason=DECIMALS_PENDING stage=paperBuy.decimalsResolve mint=${tradeId.mint.take(10)} " +
+                        "ticketId=$executionAttemptId6514 paper=true lane=$layerTag action=nonterminal_release_await_async_hydrate",
+                )
             } catch (_: Throwable) {}
-            ChokeReliefBus.launch("PAPER_DECIMALS_ASYNC_HYDRATE_6514", tradeId.mint) {
+            ChokeReliefBus.launch("PAPER_DECIMALS_ASYNC_HYDRATE_6547", tradeId.mint) {
                 try {
                     com.lifecyclebot.engine.truth.DecimalIntegrityAuthority6405.resolveDecimalsStrict(tradeId.mint, wallet, null, null)
-                } catch (_: Throwable) { /* advisory only; TokenMap/RPC may hydrate later */ }
+                } catch (_: Throwable) { /* async hydrate; retry next cycle */ }
             }
+            releasePaperBuyNonTerminal6514("DECIMALS_PENDING_6547")
+            return
         }
         val buyQtyRaw6485 = try {
             com.lifecyclebot.engine.truth.CanonicalRawQuantityAuthority6520.paperRawFromEconomics(
@@ -12761,7 +12799,11 @@ class Executor(
             if (hasDispatchedTicket6514) try {
                 PipelineHealthCollector.labelInc("PAPER_TICKET_TERMINAL_BLOCK_6514")
                 PipelineHealthCollector.labelInc("PAPER_BUY_HARD_BLOCKED_$reason")
-                ForensicLogger.lifecycle("PAPER_TICKET_TERMINAL_BLOCK_6514", "attemptId=$executionAttemptId6514 mint=${ts.mint.take(10)} lane=$layerTag reason=$reason atomicRollback=true")
+                ForensicLogger.lifecycle(
+                    "PAPER_TICKET_TERMINAL_BLOCK_6514",
+                    "reason=$reason stage=paperBuy.atomicRollback mint=${ts.mint.take(10)} " +
+                        "ticketId=$executionAttemptId6514 paper=true lane=$layerTag atomicRollback=true",
+                )
             } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("PAPER_BUY_ATOMIC_ROLLBACK_6485") } catch (_: Throwable) {}
         }
