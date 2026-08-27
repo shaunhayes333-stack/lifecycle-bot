@@ -720,6 +720,7 @@ object PerpsTraderAI {
         leverage: Double,
         signal: PerpsSignal,
         isPaper: Boolean,
+        executionIntent6565: com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent? = null,
     ): PerpsPosition? {
         
         if (hasPosition(market)) {
@@ -774,6 +775,33 @@ object PerpsTraderAI {
         )
         
         if (isPaper) {
+            val perpsVersion6565 = executionIntent6565?.candidateVersion
+                ?: com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(market.symbol)
+            val perpsAdmission6565 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.submit(
+                com.lifecyclebot.engine.truth.CanonicalAssetEntryCandidate6551(
+                    assetId = market.symbol, symbol = market.symbol,
+                    assetClass = com.lifecyclebot.engine.truth.AssetClass.PERPS,
+                    mode = "PAPER", direction = direction.name, requestedVenue = "PAPER_PERPS",
+                    adapter = "PerpsTraderAI", source = "PerpsExecutionEngine",
+                    specialist = "PERPS", score = signal.score.toDouble(), confidence = 1.0,
+                    evidence = mapOf("upstreamConfidence" to signal.confidence.toString(), "walletSol" to getBalance(true).toString()),
+                    requestedSizeSol = sizeSol, price = entryPrice, liquidityUsd = 0.0,
+                    routeAvailable = true, candidateVersion = perpsVersion6565,
+                    diagnosticSignal = "BUY",
+                )
+            )
+            val perpsIntent6565 = when (perpsAdmission6565) {
+                is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Allowed -> perpsAdmission6565.intent
+                is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Probe -> perpsAdmission6565.intent
+                is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Blocked -> {
+                    ErrorLogger.warn(TAG, "PAPER OPEN AUTH REJECTED: ${market.symbol} ${perpsAdmission6565.reason}")
+                    return null
+                }
+                is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Deferred -> {
+                    ErrorLogger.warn(TAG, "PAPER OPEN AUTH DEFERRED: ${market.symbol} ${perpsAdmission6565.reason}")
+                    return null
+                }
+            }
             val canonicalOpen6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(
                 positionId = position.id, mint = market.symbol, symbol = market.symbol,
                 lane = "PERPS_SYNTHETIC", source = "PerpsTraderAI",
@@ -782,6 +810,7 @@ object PerpsTraderAI {
                 assetClass = com.lifecyclebot.engine.truth.AssetClass.PERPS,
                 entryPriceUsd = entryPrice,
                 entryPriceSource = "PerpsTraderAI/entryPrice",
+                executionIntent = perpsIntent6565,
             )
             if (!canonicalOpen6486.applied) {
                 ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: ${market.symbol} ${canonicalOpen6486.reason}")

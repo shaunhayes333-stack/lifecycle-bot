@@ -21,11 +21,13 @@ class CanonicalEntryAuthority6551Test {
         score: Double = 50.0,
         confidence: Double = 1.0,
         size: Double = 0.1,
+        direction: String = "LONG",
+        version: Long = 6551L,
     ) = CanonicalAssetEntryCandidate6551(
-        assetId = id, symbol = id, assetClass = cls, mode = "PAPER", direction = "LONG",
+        assetId = id, symbol = id, assetClass = cls, mode = "PAPER", direction = direction,
         requestedVenue = cls.tag, adapter = "test", source = "test", specialist = cls.tag,
         score = score, confidence = confidence, requestedSizeSol = size, price = 1.0,
-        candidateVersion = 6551L,
+        candidateVersion = version,
     )
 
     @Test fun mechanically_valid_paper_candidate_seals_buy_intent_before_open() {
@@ -64,4 +66,48 @@ class CanonicalEntryAuthority6551Test {
         assertTrue(CanonicalEntryAuthority6551.submit(candidate(id = "BTC", cls = TruthAssetClass.CRYPTO_ALT)) is CanonicalAssetEntryResult6551.Allowed)
         assertTrue(CanonicalEntryAuthority6551.submit(candidate(id = "BTC", cls = TruthAssetClass.CRYPTO_ALT)) is CanonicalAssetEntryResult6551.Blocked)
     }
+
+    @Test fun every_non_solana_paper_universe_can_seal_and_debit_exact_size() {
+        val classes = listOf(
+            TruthAssetClass.CRYPTO_ALT to "ETH-6565",
+            TruthAssetClass.PERPS to "BTC-PERP-6565",
+            TruthAssetClass.FOREX to "EURUSD-6565",
+            TruthAssetClass.METAL to "XAUUSD-6565",
+            TruthAssetClass.COMMODITY to "WTI-6565",
+        )
+        classes.forEachIndexed { i, (cls, id) ->
+            val admitted = CanonicalEntryAuthority6551.submit(
+                candidate(id = id, cls = cls, size = 0.1, version = 656500L + i)
+            )
+            assertTrue("$cls must receive canonical admission", admitted is CanonicalAssetEntryResult6551.Allowed)
+            val intent = (admitted as CanonicalAssetEntryResult6551.Allowed).intent
+            val opened = CanonicalPaperTransaction6486.open(
+                positionId = "p6565-$i", mint = id, symbol = id, lane = cls.tag, source = "test6565",
+                costSol = intent.resolvedSize, qtyRaw = BigInteger.ONE, decimals = 0, quantityScale = 0,
+                assetClass = cls, entryPriceUsd = 1.0, executionIntent = intent,
+            )
+            assertTrue("$cls canonical debit/open failed: ${opened.reason}", opened.applied)
+        }
+        assertEquals(5, CanonicalPositionAuthority6441.openPositions().size)
+        assertEquals(9.5, PaperAccountLedger6430.cashSol(), 1e-9)
+    }
+
+    @Test fun paper_short_is_allowed_but_exact_size_conflict_is_rejected() {
+        val id = "GBPJPY-SHORT-6565"
+        val short = CanonicalEntryAuthority6551.submit(
+            candidate(id = id, cls = TruthAssetClass.FOREX, direction = "SHORT", version = 656599L)
+        )
+        assertTrue(short is CanonicalAssetEntryResult6551.Allowed)
+        val intent = (short as CanonicalAssetEntryResult6551.Allowed).intent
+        assertEquals("SHORT", intent.direction)
+        val mismatch = CanonicalPaperTransaction6486.open(
+            "p-short-6565", id, id, "FOREX", "test", intent.resolvedSize + 0.01,
+            qtyRaw = BigInteger.ONE, decimals = 0, quantityScale = 0,
+            assetClass = TruthAssetClass.FOREX, entryPriceUsd = 1.0, executionIntent = intent,
+        )
+        assertFalse(mismatch.applied)
+        assertEquals("CANONICAL_EXECUTION_INTENT_MISMATCH", mismatch.reason)
+        assertEquals(10.0, PaperAccountLedger6430.cashSol(), 1e-9)
+    }
+
 }

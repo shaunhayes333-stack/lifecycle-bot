@@ -582,6 +582,7 @@ object PerpsExecutionEngine {
                 leverage = effectiveLeverage,
                 signal = signal,
                 isPaper = isPaper,
+                executionIntent6565 = sealedPerpIntent6558,
             )
             
             if (position != null) {

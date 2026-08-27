@@ -8758,4 +8758,22 @@ class GoldenTapeRegressionTest {
             perpsBrain.contains("entryPattern = \"PERPS_"))
     }
 
+
+    @Test
+    fun V5_0_6565_all_cross_asset_paper_opens_carry_one_compatible_canonical_intent() {
+        val contract = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt").readText()
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val perps = java.io.File("src/main/kotlin/com/lifecyclebot/perps/PerpsTraderAI.kt").readText()
+        val forex = java.io.File("src/main/kotlin/com/lifecyclebot/perps/ForexTrader.kt").readText()
+        val metals = java.io.File("src/main/kotlin/com/lifecyclebot/perps/MetalsTrader.kt").readText()
+        val commodities = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CommoditiesTrader.kt").readText()
+        assertTrue(contract.contains("candidate.mode.equals(\"LIVE\", true) && candidate.direction.equals(\"SHORT\", true)"))
+        assertTrue(contract.contains("UPSTREAM_INTENT_CONFLICT") && contract.contains("registered.resolvedSize - sizing.finalSizeSol"))
+        listOf(crypto, perps, forex, metals, commodities).forEach {
+            assertTrue(it.contains("CanonicalEntryAuthority6551.submit"))
+            assertTrue(it.contains("executionIntent = "))
+        }
+        assertTrue(perps.contains("executionIntent6565") && crypto.contains("canonicalCryptoIntent6565"))
+    }
+
 }

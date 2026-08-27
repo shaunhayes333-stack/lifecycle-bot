@@ -2244,6 +2244,33 @@ object CryptoAltTrader {
             try { com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(candidate.assetKey, "CRYPTO", "CRYPTO_EXEC_BLOCKED") } catch (_: Throwable) {}
             return
         }
+        val canonicalCryptoAdmission6565 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.submit(
+            com.lifecyclebot.engine.truth.CanonicalAssetEntryCandidate6551(
+                assetId = candidate.assetKey, symbol = mktSym,
+                assetClass = com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT,
+                mode = if (isPaperMode.get()) "PAPER" else "LIVE",
+                direction = signal.direction.name, requestedVenue = candidate.venue,
+                adapter = candidate.executionAdapter, source = candidate.universe,
+                specialist = "CRYPTO", score = candidate.score.toDouble(), confidence = 1.0,
+                evidence = mapOf("upstreamConfidence" to candidate.confidence.toString(), "walletSol" to balance.toString()),
+                requestedSizeSol = finalSize, price = signal.price, liquidityUsd = candidate.liquidityUsd,
+                routeAvailable = isPaperMode.get() || candidate.executionAdapter != "NONE",
+                hardSafetyReasons = candidate.hardNoReasons, candidateVersion = candidate.candidateVersion,
+                diagnosticSignal = candidate.preFdgVerdict.name,
+            )
+        )
+        val canonicalCryptoIntent6565 = when (canonicalCryptoAdmission6565) {
+            is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Allowed -> canonicalCryptoAdmission6565.intent
+            is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Probe -> canonicalCryptoAdmission6565.intent
+            is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Blocked -> {
+                try { TradeAuthorizer.releasePosition(candidate.assetKey, "CRYPTO_6551_BLOCKED_${canonicalCryptoAdmission6565.reason}", TradeAuthorizer.ExecutionBook.CRYPTO) } catch (_: Throwable) {}
+                return
+            }
+            is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Deferred -> {
+                try { TradeAuthorizer.releasePosition(candidate.assetKey, "CRYPTO_6551_DEFERRED_${canonicalCryptoAdmission6565.reason}", TradeAuthorizer.ExecutionBook.CRYPTO) } catch (_: Throwable) {}
+                return
+            }
+        }
         try {
             com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAuthAllow(
                 venue = venue6540, symbol = mktSym,
@@ -2294,6 +2321,7 @@ object CryptoAltTrader {
                 assetClass = com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT,
                 entryPriceUsd = signal.price,
                 entryPriceSource = "CryptoAltTrader/signal.price",
+                executionIntent = canonicalCryptoIntent6565,
             )
             if (!canonicalOpen6486.applied) {
                 ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: $mktSym ${canonicalOpen6486.reason}")

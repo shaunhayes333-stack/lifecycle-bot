@@ -85,7 +85,10 @@ object CanonicalEntryAuthority6551 {
             return blocked(candidate, venue, candidate.hardSafetyReasons.joinToString(","))
         if (candidate.mode.equals("LIVE", true) && !candidate.routeAvailable)
             return blocked(candidate, venue, "LIVE_ROUTE_UNAVAILABLE")
-        if (candidate.direction.equals("SHORT", true) && candidate.assetClass != AssetClass.PERPS)
+        // V5.0.6565 — PAPER is a strategy/economics simulator and must be able
+        // to model supported directional instruments even when a LIVE adapter
+        // cannot place that order type. Keep the adapter limitation LIVE-only.
+        if (candidate.mode.equals("LIVE", true) && candidate.direction.equals("SHORT", true) && candidate.assetClass != AssetClass.PERPS)
             return blocked(candidate, venue, "UNSUPPORTED_LIVE_DIRECTION")
         if (pending.keys.any { it.startsWith("${candidate.mode.uppercase()}:${candidate.assetId}:") })
             return blocked(candidate, venue, "DUPLICATE_CANONICAL_POSITION")
@@ -125,6 +128,14 @@ object CanonicalEntryAuthority6551 {
         )
         val registered = ExecutableOpenGate.registerCanonicalIntent6554(intent)
             ?: return deferred(candidate, venue, "EXEC_INTENT_REGISTRATION_FAILED")
+        // A 6533 specialist may already have sealed this exact candidate.
+        // Adopt it only when immutable identity and exact resolved size agree;
+        // never mint a rival authority or silently debit a differently-sized lot.
+        if (registered.mint != candidate.assetId || registered.candidateVersion != candidate.candidateVersion ||
+            !registered.mode.equals(candidate.mode, true) ||
+            kotlin.math.abs(registered.resolvedSize - sizing.finalSizeSol) > 1e-9) {
+            return blocked(candidate, venue, "UPSTREAM_INTENT_CONFLICT")
+        }
         pending["${registered.mode}:${candidate.assetId}:${candidate.candidateVersion}"] = registered
         CanonicalEntryAuthority6540.markAuthAllowFor6551(candidate.assetClass, candidate.symbol)
         CanonicalEntryAuthority6540.markIntentCreatedFor6551(candidate.assetClass, candidate.symbol, registered.attemptId)
@@ -133,8 +144,8 @@ object CanonicalEntryAuthority6551 {
             ForensicLogger.lifecycle("CANONICAL_FDG_INTENT_SEALED_6551", "asset=${candidate.assetId.take(16)} class=${candidate.assetClass} verdict=$verdict registered=true")
         } catch (_: Throwable) {}
         val resultShaping = shaping.copy(sizeMultiplier = if (shaping.sizeMultiplier > 0.0) sizing.finalSizeSol / candidate.requestedSizeSol.coerceAtLeast(0.0000001) else 1.0)
-        return if (shaping.probe) CanonicalAssetEntryResult6551.Probe(intent, sizing.finalSizeSol, venue, resultShaping)
-        else CanonicalAssetEntryResult6551.Allowed(intent, sizing.finalSizeSol, venue, resultShaping)
+        return if (shaping.probe) CanonicalAssetEntryResult6551.Probe(registered, registered.resolvedSize, venue, resultShaping)
+        else CanonicalAssetEntryResult6551.Allowed(registered, registered.resolvedSize, venue, resultShaping)
     }
 
     fun findPending(assetId: String, mode: String, candidateVersion: Long? = null): ExecutableOpenGate.ExecutionIntent? {

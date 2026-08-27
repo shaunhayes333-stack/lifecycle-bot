@@ -732,6 +732,31 @@ object ForexTrader {
         // V5.9.114: UNIFIED capital move. Paper debits paper; live fires
         // Jupiter swap at same positionSizeSol. Live failure rolls back.
         if (isPaperMode.get()) {
+            val admission6565 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.submit(
+                com.lifecyclebot.engine.truth.CanonicalAssetEntryCandidate6551(
+                    assetId = position.market.symbol, symbol = position.market.symbol,
+                    assetClass = com.lifecyclebot.engine.truth.AssetClass.FOREX,
+                    mode = "PAPER", direction = signal.direction.name, requestedVenue = "PAPER_FOREX",
+                    adapter = "ForexTrader", source = "ForexTrader", specialist = "FOREX",
+                    score = signal.score.toDouble(), confidence = 1.0,
+                    evidence = mapOf("upstreamConfidence" to signal.confidence.toString(), "walletSol" to balance.toString()),
+                    requestedSizeSol = positionSizeSol, price = signal.price, routeAvailable = true,
+                    candidateVersion = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(position.market.symbol),
+                    diagnosticSignal = "BUY",
+                )
+            )
+            val executionIntent6565 = when (admission6565) {
+                is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Allowed -> admission6565.intent
+                is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Probe -> admission6565.intent
+                is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Blocked -> {
+                    ErrorLogger.warn(TAG, "PAPER OPEN AUTH REJECTED: ${position.market.symbol} ${admission6565.reason}")
+                    return
+                }
+                is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Deferred -> {
+                    ErrorLogger.warn(TAG, "PAPER OPEN AUTH DEFERRED: ${position.market.symbol} ${admission6565.reason}")
+                    return
+                }
+            }
                         val canonicalOpen6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(
                 positionId = position.id, mint = position.market.symbol, symbol = position.market.symbol,
                 lane = "FOREX", source = "ForexTrader",
@@ -745,6 +770,7 @@ object ForexTrader {
                 assetClass = com.lifecyclebot.engine.truth.AssetClass.FOREX,
                 entryPriceUsd = signal.price,
                 entryPriceSource = "ForexTrader/signal.price",
+                executionIntent = executionIntent6565,
             )
             if (!canonicalOpen6486.applied) {
                 ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: ${position.market.symbol} ${canonicalOpen6486.reason}")
