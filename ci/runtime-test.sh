@@ -139,13 +139,26 @@ echo "::endgroup::"
 echo "::group::V5.0.6517 — UI-only Start → Stop → Start-again acceptance"
 # Receiver performs DEBUG-only PIN setup and opens MainActivity, but MUST NOT
 # start BotService. Every runtime command below comes from a real btnToggle tap.
+# V5.0.6549b — the receiver-initiated startActivity() gets refused by
+# Android 10+ background-activity-start restrictions on the smoke
+# emulator (ui_start_1.xml consistently captured the LAUNCHER rather
+# than MainActivity, so btnToggle was never resolvable). Fix: keep the
+# broadcast for PIN/paper-mode SharedPreferences setup, but launch
+# MainActivity directly via `adb shell am start` — adb shell has the
+# START_ACTIVITIES_FROM_BACKGROUND privilege and can open exported=false
+# activities in the same package.
 adb shell am broadcast \
     -a com.lifecyclebot.aate.SMOKE_AUTOSTART \
     -n com.lifecyclebot.aate/com.lifecyclebot.engine.SmokeTestReceiver \
     --ez paper true \
-    --ez open_main true \
+    --ez open_main false \
     --ez start_service false
-sleep 4
+sleep 2
+adb shell am start -n com.lifecyclebot.aate/com.lifecyclebot.ui.MainActivity \
+    --activity-clear-top --activity-single-top
+sleep 5
+adb shell uiautomator dump /sdcard/ui_after_launch.xml >/dev/null 2>&1 || true
+adb pull /sdcard/ui_after_launch.xml "$WS/ui_after_launch.xml" >/dev/null 2>&1 || true
 
 ui_tap() {
     local mode="$1" value="$2" dump="$3"

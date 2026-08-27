@@ -931,6 +931,34 @@ object PerpsLearningBridge {
             // V5.9.463 — floor raised 0.1 → 0.15 to match the sentient-fluid
             // retune in StrategyTrustAI (no full-veto anywhere).
             layerPerpsTrust[key] = (currentTrust + trustDelta).coerceIn(0.15, 1.0)
+
+            // V5.0.6549 §PERPS_NEURAL_BRIDGE — cross-asset edge propagation.
+            // Operator directive: "Let the crypto and stock brains share
+            // edge signals so perps trades ride the AATE learning curve."
+            // Prior gap: aggregateLayerSignals reads layerPerpsTrust[..., PERPS]
+            // for the perps entry scorer, while learnFromAssetTrade wrote
+            // layerPerpsTrust[..., ALTCOIN / STOCK / etc.]. Crypto and stock
+            // outcomes updated the correct-asset trust but never touched the
+            // PERPS-keyed trust the perps scorer actually reads, so perps
+            // never inherited the AATE learning curve for the same layer.
+            //
+            // Fix: propagate a fractional trust delta from every NON-PERPS
+            // outcome into the PERPS lane trust for the same layer.
+            // Fraction is intentionally small so a hot streak in memes
+            // does not overwhelm the perps trust; it's an ADDITIVE edge
+            // signal, not a takeover.
+            if (asset != AssetClass.PERPS) {
+                val perpsKey = laneKey(layerName, AssetClass.PERPS)
+                val perpsCurrent = layerPerpsTrust[perpsKey] ?: (cfg?.trustWeight ?: 0.5)
+                val bridgeDelta = trustDelta * 0.30
+                layerPerpsTrust[perpsKey] = (perpsCurrent + bridgeDelta).coerceIn(0.15, 1.0)
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector
+                        .labelInc("PERPS_NEURAL_BRIDGE_XFER_6549")
+                    com.lifecyclebot.engine.PipelineHealthCollector
+                        .labelInc("PERPS_NEURAL_BRIDGE_XFER_${asset.name}_6549")
+                } catch (_: Throwable) {}
+            }
         }
 
         crossLayerSyncs.incrementAndGet()
