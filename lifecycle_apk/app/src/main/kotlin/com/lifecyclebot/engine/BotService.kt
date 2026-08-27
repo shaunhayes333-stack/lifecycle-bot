@@ -5723,6 +5723,12 @@ class BotService : Service() {
                                 symbol,
                                 "path=STARTUP src=${source.name} liq=$$liquidityUsd score=$score vol=$$volumeH1"
                             )
+                            // V5.0.6548 §P0-C — background phase progress
+                            // beacon. Records that scan-callback is actually
+                            // firing under the persistent service runtime
+                            // so `BG_SCAN_CB` reflects real activity, not
+                            // just service loop ticks.
+                            try { markProgress("SCAN_CB") } catch (_: Throwable) {}
                             // V5.9.623 — scanner heartbeat means raw discovery, not only
                             // post-filter enqueue. Prevents false "scan stale 9999s" while
                             // the scanner is alive but candidates are returning early.
@@ -11437,6 +11443,11 @@ class BotService : Service() {
         operatorLog: Boolean = false,
         expectedRuntimeGeneration: Long? = null,
     ): Boolean {
+        // V5.0.6548 §P0-C — background pipeline instrumentation. Every
+        // successful intake admit call must record an INTAKE progress
+        // beacon so the BG_INTAKE counter reflects real intake activity
+        // (was previously never wired, always 0 in the background dump).
+        try { markProgress("INTAKE") } catch (_: Throwable) {}
         val trustedMarketCapUsd6492 = MarketDataIntegrity6492.trustedMarketCapUsd(
             raw = marketCapUsd, symbol = symbol, source = source, liquidityUsd = liquidityUsd,
         ) ?: 0.0

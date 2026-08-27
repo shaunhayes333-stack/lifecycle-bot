@@ -759,6 +759,12 @@ object FinalDecisionGate {
         // remains separate; this only fixes score/quality/behavior gates.
         laneScore: Double = candidate.entryScore,
     ): FinalDecision {
+        // V5.0.6548 §P0-C — FDG background progress beacon. Every FDG
+        // evaluation is a decision boundary that must show up in the
+        // background pipeline dump. Prior to 6548 the BG_FDG counter
+        // was permanently 0 because no call site emitted the phase
+        // beacon. Zero happy-path cost.
+        try { PipelineHealthCollector.recordBackgroundProgress6544("FDG") } catch (_: Throwable) {}
         val checks = mutableListOf<GateCheck>()
         var blockReason: String? = null
         var blockLevel: BlockLevel? = null
