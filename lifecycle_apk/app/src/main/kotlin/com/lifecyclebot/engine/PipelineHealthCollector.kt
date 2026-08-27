@@ -2411,6 +2411,9 @@ object PipelineHealthCollector {
         // ═══════════════════════════════════════════════════════════════════
         sb.append("\n===== Throughput choke audit (V5.9.951) =====\n")
         val totalIntake = s.intakeBySource.values.sum()
+        val uniqueIntakeCandidates6564 = s.symbolIntakeCounts.size.toLong()
+        val preV3Returns6564 = s.labelCounts.filterKeys { it.startsWith("PRE_V3_RETURN_") }
+        val totalPreV3Returns6564 = preV3Returns6564.values.sum()
         val totalLaneEval = s.laneEvalCounts.values.sum()
         val throughputFdgRawRows = s.phaseCounts["FDG"] ?: 0L
         val throughputFdgDecisions = ((s.phaseAllow["FDG"] ?: 0L) + (s.phaseBlock["FDG"] ?: 0L)).takeIf { it > 0L } ?: throughputFdgRawRows
@@ -2420,7 +2423,9 @@ object PipelineHealthCollector {
         val execGateBlock = s.phaseBlock["EXEC_GATE"] ?: 0L
         val recentExecCount = s.recentExecs.size.toLong()
         val acceptedJournalRows = (s.phaseCounts["TRADEJRNL_REC"] ?: s.labelCounts["TRADEJRNL_REC"] ?: 0L)
-        sb.append("  intake total:         $totalIntake (sum of all scanner sources)\n")
+        sb.append("  intake callbacks:     $totalIntake (sum of scanner-source events; repeats allowed)\n")
+        sb.append("  unique intake symbols:$uniqueIntakeCandidates6564 (candidate-normalized denominator)\n")
+        sb.append("  pre-V3 returns:       $totalPreV3Returns6564${if (preV3Returns6564.isEmpty()) "" else " [" + preV3Returns6564.entries.sortedByDescending { it.value }.take(8).joinToString { "${it.key.removePrefix("PRE_V3_RETURN_") }=${it.value}" } + "]"}\n")
         sb.append("  lane evaluations:     $totalLaneEval active (${s.laneEvalSuppressedCounts.values.sum()} suppressed by QUALITY-only policy, ${s.laneEvalShadowReadOnlyCounts.values.sum()} shadow/read-only)\n")
         sb.append("  V3 evaluations:       ${v3Allow + v3Skipped}\n")
         sb.append("  FDG active/suppressed:$throughputFdgDecisions / ${s.fdgSuppressedPathCounts.values.sum()}\n")
@@ -2433,8 +2438,12 @@ object PipelineHealthCollector {
         sb.append("  recent execs in ring: $recentExecCount\n")
         // Conversion ratios — operator can see where the funnel is hemorrhaging.
         if (totalIntake > 0L) {
-            val intakeToEval = (totalLaneEval.toDouble() / totalIntake * 100.0)
-            sb.append("  intake → lane eval:   ${"%.1f".format(intakeToEval)}%  (target >40%)\n")
+            val callbackToEval6564 = totalLaneEval.toDouble() / totalIntake * 100.0
+            sb.append("  raw callback → eval:  ${"%.1f".format(callbackToEval6564)}%  (diagnostic only; callbacks repeat)\n")
+        }
+        if (uniqueIntakeCandidates6564 > 0L) {
+            val uniqueToV36564 = (v3Allow + v3Skipped).toDouble() / uniqueIntakeCandidates6564.toDouble() * 100.0
+            sb.append("  unique intake → V3:   ${"%.1f".format(uniqueToV36564)}%  (${v3Allow + v3Skipped}/$uniqueIntakeCandidates6564; use PRE_V3 reasons for genuine loss)\n")
         }
         if (totalLaneEval > 0L) {
             // V5.9.1343 — HONEST PER-TOKEN RATIO. LANE_EVAL is counted PER LANE (each
@@ -2447,7 +2456,7 @@ object PipelineHealthCollector {
             val v3Total2 = (v3Allow + v3Skipped).toDouble()
             val evalToV3PerIntake = if (totalIntake > 0L) (v3Total2 / totalIntake.toDouble() * 100.0) else 0.0
             val rawEvalToV3 = (v3Total2 / totalLaneEval * 100.0)
-            sb.append("  intake → V3:          ${"%.1f".format(evalToV3PerIntake)}%  (target >20%)\n")
+            sb.append("  raw callbacks → V3:   ${"%.1f".format(evalToV3PerIntake)}%  (not candidate-normalized)\n")
             sb.append("    └─ raw per-lane:    ${"%.1f".format(rawEvalToV3)}%  ($totalLaneEval evals / $totalIntake intake, executable fan-out/intake≈${"%.2f".format(fanoutPerIntake6491)}, activeLanes=$distinctLanes)\n")
         }
         val v3Total = v3Allow + v3Skipped

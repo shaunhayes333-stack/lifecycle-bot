@@ -8716,4 +8716,46 @@ class GoldenTapeRegressionTest {
         assertTrue(walletManager.contains("generateMultiChainWallet") && walletManager.contains("loadMultiChainWallet"))
     }
 
+
+    @Test
+    fun V5_0_6564_paper_universes_restore_measurable_handoffs_ticket_truth_wallet_truth_and_causal_learning() {
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val stocks = java.io.File("src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt").readText()
+        val perps = java.io.File("src/main/kotlin/com/lifecyclebot/perps/PerpsExecutionEngine.kt").readText()
+        val perpsBrain = java.io.File("src/main/kotlin/com/lifecyclebot/perps/PerpsTraderAI.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        val money = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        val governor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RealizedWalletCompoundingGovernor.kt").readText()
+        val contract = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt").readText()
+
+        assertTrue(crypto.contains("lane=CRYPTO_ALT source=DYNAMIC_ALT") &&
+            crypto.contains("lane=CRYPTO_ALT source=STATIC_ALT") &&
+            crypto.contains("path=CRYPTO_ALT mode="))
+        assertTrue(stocks.contains("lane=MARKETS_STOCKS source=TOKENIZED_STOCK") &&
+            contract.contains("PHASE.FDG") && contract.contains("sealed=true assetClass="))
+        assertTrue(perps.contains("lane=PERPS source=") && perps.contains("path=PERPS mode=") &&
+            perps.contains("LaneExecutionCoordinator.candidateVersionFor(signal.market.symbol)"))
+        assertFalse(perps.contains("candidateVersion = System.currentTimeMillis()"))
+
+        assertTrue(gate.contains("val ticketAuthority6564 = ticketForAttempt(attemptId)") &&
+            gate.contains("ticketAuthority6564?.authoritativeSignal") &&
+            gate.contains("ticketAuthority6564?.fdgVerdict"))
+        assertTrue(gate.contains("LIVE_EXECUTION_TICKET_TTL_MS = 45_000L") &&
+            gate.contains("PAPER_EXECUTION_TICKET_TTL_MS = 180_000L") &&
+            gate.contains("ticket.mode.equals(\"PAPER\", true)"))
+
+        assertTrue(money.contains("PaperAccountLedger6430.isAuthorityInitialized6489()") &&
+            money.contains("PaperAccountLedger6430.cashSol()"))
+        assertTrue(governor.contains("PaperAccountLedger6430.isAuthorityInitialized6489()") &&
+            governor.contains("PaperAccountLedger6430.cashSol()"))
+
+        assertTrue(report.contains("unique intake symbols:") && report.contains("unique intake → V3:") &&
+            report.contains("pre-V3 returns:") && report.contains("PRE_V3_RETURN_"))
+        assertTrue(stocks.contains("CanonicalPublishHelper.publishExit") &&
+            stocks.contains("entryPattern = \"STOCK_"))
+        assertTrue(perpsBrain.contains("CanonicalPublishHelper.publishExit") &&
+            perpsBrain.contains("entryPattern = \"PERPS_"))
+    }
+
 }

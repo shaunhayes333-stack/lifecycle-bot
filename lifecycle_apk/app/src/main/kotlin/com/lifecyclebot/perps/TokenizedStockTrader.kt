@@ -781,6 +781,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 
                 // V5.7.6: Log every signal attempt
                 if (signal != null) {
+                    try { com.lifecyclebot.engine.ForensicLogger.phase(com.lifecyclebot.engine.ForensicLogger.PHASE.LANE_EVAL, market.symbol, "lane=MARKETS_STOCKS source=TOKENIZED_STOCK score=${signal.score} confidence=${signal.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
                     ErrorLogger.info(TAG, "📈 SIGNAL: ${market.symbol} | score=${signal.score} | conf=${signal.confidence} | dir=${signal.direction.symbol}")
                     
                     // V5.9.328: TRUST GATE — if StrategyTrustAI has marked this layer as
@@ -1551,6 +1552,31 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 lossReason = if (position.getUnrealizedPnlPct() < -2.0) reason else "",
             )
         } catch (_: Exception) {}
+
+        // V5.0.6564 — Stocks previously learned only in local specialist stores.
+        // Publish the settled, event-local outcome to the shared causal bus so
+        // entry tactic/score/mode can train the same intelligence stack as Meme.
+        val stockExitTs6564 = System.currentTimeMillis()
+        com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(
+            tradeIdSeed = "${position.id}_$stockExitTs6564",
+            mint = position.market.symbol,
+            symbol = position.market.symbol,
+            source = com.lifecyclebot.engine.TradeSource.MARKETS,
+            isPaper = position.isPaper,
+            entryTimeMs = position.entryTime,
+            exitTimeMs = stockExitTs6564,
+            entryPrice = position.entryPrice,
+            exitPrice = position.currentPrice,
+            entrySol = position.sizeSol,
+            exitSol = (position.sizeSol + netPnlSol).coerceAtLeast(0.0),
+            realizedPnlSol = netPnlSol,
+            realizedPnlPct = netPnlPct,
+            closeReason = reason,
+            assetClass = com.lifecyclebot.engine.AssetClass.STOCK,
+            entryScore = position.aiScore.toDouble(),
+            entryPattern = "STOCK_${if (position.isSpot) "SPOT" else "LEVERAGED"}_${position.direction.name}",
+            venue = if (position.isPaper) "PAPER" else "MARKETS_LIVE_EXECUTOR",
+        )
         
         // Update stats (use net P&L)
         totalTrades.incrementAndGet()

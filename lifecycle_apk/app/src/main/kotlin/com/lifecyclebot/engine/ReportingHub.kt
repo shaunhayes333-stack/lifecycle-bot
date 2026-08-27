@@ -233,7 +233,12 @@ object ReportingHub {
 
     private fun buildMoneyPathTruthSummary6029(): String = buildString(2 * 1024) {
         val pipe = safeSnapshot { PipelineHealthCollector.snapshot() }
-        val wallet = try { BotService.status.walletSol } catch (_: Throwable) { 0.0 }
+        val paperMode6564 = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { GlobalTradeRegistry.isPaperMode }
+        val wallet = try {
+            if (paperMode6564 && com.lifecyclebot.engine.truth.PaperAccountLedger6430.isAuthorityInitialized6489())
+                com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol()
+            else BotService.status.walletSol
+        } catch (_: Throwable) { 0.0 }
         val open = try { BotService.status.openPositions.toList() } catch (_: Throwable) { emptyList() }
         var trustedLiveOpenPnl = 0.0
         var trustedLiveOpenCost = 0.0
@@ -278,7 +283,7 @@ object ReportingHub {
         // Show cleanPnlSol from RealizedWalletCompoundingGovernor so the truth
         // section reflects paper progress toward the 2x-5x daily target.
         val cleanPnlSol6305 = try { com.lifecyclebot.engine.RealizedWalletCompoundingGovernor.snapshot().cleanPnlSol } catch (_: Throwable) { 0.0 }
-        val paperMode6305 = try { com.lifecyclebot.engine.GlobalTradeRegistry.isPaperMode } catch (_: Throwable) { true }
+        val paperMode6305 = paperMode6564
         val walletLine = if (paperMode6305 && wallet < 0.001 && cleanPnlSol6305 > 0.0) {
             "wallet=${wallet.fmt4()} SOL (paperBasis=${cleanPnlSol6305.fmt4()} SOL, live=$paperMode6305 mode) localOpen=live:$localLiveOpen6098 paper:$localPaperOpen6098 hostTracker=$hostTrackerOpen6098 liveOpenCapitalAtRisk=${(trustedLiveOpenCost + untrustedLiveOpenCost).fmt4()} SOL trustedLiveOpenCost=${trustedLiveOpenCost.fmt4()} SOL untrustedLiveOpenCost=${untrustedLiveOpenCost.fmt4()} SOL trustedLiveUnrealizedPnl=${trustedLiveOpenPnl.fmt4()} SOL untrustedLiveUnrealizedPnl=${untrustedLiveOpenPnl.fmt4()} SOL liveRunners=$trustedLiveOpenCount trustedPaperOpen=${trustedPaperOpenPnl.fmt4()} SOL paperRunners=$trustedPaperOpenCount note=open_unrealized_not_wallet_until_sell_finality"
         } else {

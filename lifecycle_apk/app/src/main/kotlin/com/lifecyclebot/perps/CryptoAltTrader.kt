@@ -994,6 +994,7 @@ object CryptoAltTrader {
                 .take(25) // V5.9.128: raised from 3 → 25 to use full 449-token universe
             for (sig in topDyn) {
                 if (positions.size >= MAX_POSITIONS) break
+                try { ForensicLogger.phase(ForensicLogger.PHASE.LANE_EVAL, sig.marketSymbol, "lane=CRYPTO_ALT source=DYNAMIC_ALT score=${sig.score} confidence=${sig.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
                 // V5.9.1472 — dedupe by real symbol so DYN coins aren't collapsed.
                 if (hasPositionSymbol(sig.marketSymbol)) continue
                 // V5.9.3: respect UI toggle for DynScan signals too
@@ -1234,6 +1235,7 @@ object CryptoAltTrader {
         // layers + real accuracy loop + ReflexAI that the memetrader uses.
         val v3Filtered = topSignals.mapNotNull { sig ->
             try {
+                ForensicLogger.phase(ForensicLogger.PHASE.LANE_EVAL, sig.marketSymbol, "lane=CRYPTO_ALT source=STATIC_ALT score=${sig.score} confidence=${sig.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}")
                 // V5.9.400 — pass realistic per-tier liquidity/mcap so V3
                 // layers (LiquidityExitPath, ExecutionCost, MEV, etc.) don't
                 // mis-score every alt with `liquidity=-7`. Tier inference
@@ -1981,6 +1983,9 @@ object CryptoAltTrader {
             requiresSolanaTokenMap = ExecutionAuthorityPolicy6533.requiresSolanaTokenMap(candidate.chain, candidate.assetKey),
             resolvedSizeSol6558 = candidate.finalSize,
         )
+        if (cryptoIntent6533 != null) {
+            try { ForensicLogger.phase(ForensicLogger.PHASE.FDG, candidate.symbol, "path=CRYPTO_ALT mode=${cryptoIntent6533.mode} verdict=${cryptoIntent6533.fdgVerdict} sealed=true version=${cryptoIntent6533.candidateVersion}") } catch (_: Throwable) {}
+        }
         if (candidate.canEnterFdg && cryptoIntent6533 == null) {
             try { ForensicLogger.lifecycle("CRYPTO_FDG_ALLOW_WITHOUT_INTENT_REJECTED_6533", "symbol=${candidate.symbol} assetKey=${candidate.assetKey} version=${candidate.candidateVersion}") } catch (_: Throwable) {}
             return null

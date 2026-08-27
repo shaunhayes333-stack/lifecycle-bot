@@ -305,6 +305,7 @@ object PerpsExecutionEngine {
                     
                     for (result in highPrioritySignals) {
                         val signal = result.signal ?: continue
+                        try { com.lifecyclebot.engine.ForensicLogger.phase(com.lifecyclebot.engine.ForensicLogger.PHASE.LANE_EVAL, signal.market.symbol, "lane=PERPS source=${result.scanner.name} priority=${result.priority} mode=${if (isPaper) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
                         
                         // Check if we should take this trade
                         if (shouldTakeTrade(signal)) {
@@ -553,10 +554,13 @@ object PerpsExecutionEngine {
                 liquidityUsd = 1.0,
                 hardNoReasons = emptyList(),
                 preFdgVerdict = "BUY",
-                candidateVersion = System.currentTimeMillis(),
+                candidateVersion = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(signal.market.symbol),
                 requiresSolanaTokenMap = false,
                 resolvedSizeSol6558 = sizeSol,
             )
+            if (sealedPerpIntent6558 != null) {
+                try { com.lifecyclebot.engine.ForensicLogger.phase(com.lifecyclebot.engine.ForensicLogger.PHASE.FDG, signal.market.symbol, "path=PERPS mode=${sealedPerpIntent6558.mode} verdict=${sealedPerpIntent6558.fdgVerdict} sealed=true version=${sealedPerpIntent6558.candidateVersion}") } catch (_: Throwable) {}
+            }
             if (sealedPerpIntent6558 == null) {
                 failedExecutions.incrementAndGet()
                 try {

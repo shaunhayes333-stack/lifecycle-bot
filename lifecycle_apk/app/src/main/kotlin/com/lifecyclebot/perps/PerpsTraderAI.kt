@@ -1045,6 +1045,30 @@ object PerpsTraderAI {
             riskTier = position.riskTier,
         )
         
+        // V5.0.6564 — Perps local learning is not sufficient: publish the
+        // settled event to the shared causal outcome bus with immutable entry
+        // context so cross-lane intelligence can learn from paper Perps.
+        com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(
+            tradeIdSeed = trade.id,
+            mint = position.market.symbol,
+            symbol = position.market.symbol,
+            source = com.lifecyclebot.engine.TradeSource.MARKETS,
+            isPaper = position.isPaper,
+            entryTimeMs = position.entryTime,
+            exitTimeMs = trade.closeTime,
+            entryPrice = position.entryPrice,
+            exitPrice = exitPrice,
+            entrySol = position.sizeSol,
+            exitSol = (position.sizeSol + pnlSol).coerceAtLeast(0.0),
+            realizedPnlSol = pnlSol,
+            realizedPnlPct = pnlPct,
+            closeReason = exitReason.name,
+            assetClass = com.lifecyclebot.engine.AssetClass.PERPS_CRYPTOALT,
+            entryScore = position.entryScore.toDouble(),
+            entryPattern = "PERPS_${position.market.symbol}_${position.direction.name}_${position.leverage.toInt()}X",
+            venue = if (position.isPaper) "PAPER" else "MARKETS_LIVE_EXECUTOR",
+        )
+
         // Add to recent trades
         synchronized(recentTrades) {
             recentTrades.add(0, trade)

@@ -185,7 +185,8 @@ object ExecutableOpenGate {
         }
         return true
     }
-    private const val EXECUTION_TICKET_TTL_MS = 45_000L
+    private const val LIVE_EXECUTION_TICKET_TTL_MS = 45_000L
+    private const val PAPER_EXECUTION_TICKET_TTL_MS = 180_000L
     private val openRequests = ConcurrentHashMap<String, Long>()
     private val blockedCooldowns = ConcurrentHashMap<String, Pair<String, Long>>()
     private val restorePenalties = ConcurrentHashMap<String, OpenVerdict>()
@@ -218,8 +219,10 @@ object ExecutableOpenGate {
     fun restorePenaltyForAttempt(attemptId: String): OpenVerdict? = restorePenalties[attemptId]
     fun consumeRestorePenalty(attemptId: String): OpenVerdict? = restorePenalties.remove(attemptId)
 
-    private fun ticketLive(ticket: ExecutionIntent, now: Long = System.currentTimeMillis()): Boolean =
-        now - ticket.createdAtMs <= EXECUTION_TICKET_TTL_MS
+    private fun ticketLive(ticket: ExecutionIntent, now: Long = System.currentTimeMillis()): Boolean {
+        val ttl = if (ticket.mode.equals("PAPER", true)) PAPER_EXECUTION_TICKET_TTL_MS else LIVE_EXECUTION_TICKET_TTL_MS
+        return now - ticket.createdAtMs <= ttl
+    }
 
     fun ticketForAttempt(attemptId: String): ExecutionIntent? = executionTickets[attemptId]?.takeIf { ticketLive(it) }
 
@@ -307,7 +310,7 @@ object ExecutableOpenGate {
 
     private fun publishTicket(ticket: ExecutionIntent) {
         val now = System.currentTimeMillis()
-        executionTickets.entries.removeIf { now - it.value.createdAtMs > EXECUTION_TICKET_TTL_MS }
+        executionTickets.entries.removeIf { !ticketLive(it.value, now) }
         allowedAttempts.entries.removeIf { now - it.value.second > ALLOWED_ATTEMPT_TTL_MS }
         executionTickets[ticket.attemptId] = ticket
         try { com.lifecyclebot.engine.truth.AateDecisionFabric6512.sealForExecution(ticket.attemptId, ticket.mode, ticket.mint, ticket.candidateVersion, ticket.lane) } catch (_: Throwable) {}
@@ -1257,10 +1260,11 @@ object ExecutableOpenGate {
                 selectedLane = a.executionLane, preFdgVerdict = a.verdict,
                 candidateVersion = a.candidateVersion, updatedAtMs = a.generatedAtMs)
         }
+        val ticketAuthority6564 = ticketForAttempt(attemptId)
         val v3Decision = state?.v3Decision ?: "UNKNOWN"
-        val fdgCan = if (immutableAuthority6513 != null) true else state?.fdgCan
-        val fdgReason = immutableAuthority6513?.verdict ?: state?.fdgReason ?: "n/a"
-        val signal = immutableAuthority6513?.authoritativeSignal ?: state?.signal ?: "UNKNOWN"
+        val fdgCan = if (immutableAuthority6513 != null || ticketAuthority6564?.fdgAllowed == true) true else state?.fdgCan
+        val fdgReason = immutableAuthority6513?.verdict ?: ticketAuthority6564?.fdgVerdict ?: state?.fdgReason ?: "n/a"
+        val signal = immutableAuthority6513?.authoritativeSignal ?: ticketAuthority6564?.authoritativeSignal ?: state?.signal ?: "UNKNOWN"
         val band = state?.decisionBand ?: v3Decision
         val fatalReason = state?.v3FatalReason ?: fdgReason
         // V5.9.1367 — prefer LIVE context (ground truth at decision time) over a stale
@@ -1508,7 +1512,7 @@ object ExecutableOpenGate {
             return blocked("EXEC_OPEN_BLOCKED_RUNTIME_PAUSED", "RUNTIME_MITIGATION_PAUSE")
         }
         val currentCandidateVersion = LaneExecutionCoordinator.candidateVersionFor(mint)
-        val immutableTicket = ticketForAttempt(attemptId)
+        val immutableTicket = ticketAuthority6564
             ?: activeExecutionIntent6519(modeUpper, mint, state?.candidateVersion ?: currentCandidateVersion)
         val immutableFdgBuy6519 = immutableTicket?.fdgAllowed == true && immutableTicket.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY")
         val stateRequiresSolanaTokenMap6533 = immutableTicket?.requiresSolanaTokenMap ?: state?.requiresSolanaTokenMap ?: true

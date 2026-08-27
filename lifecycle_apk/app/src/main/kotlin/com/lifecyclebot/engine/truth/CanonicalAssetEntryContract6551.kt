@@ -128,7 +128,10 @@ object CanonicalEntryAuthority6551 {
         pending["${registered.mode}:${candidate.assetId}:${candidate.candidateVersion}"] = registered
         CanonicalEntryAuthority6540.markAuthAllowFor6551(candidate.assetClass, candidate.symbol)
         CanonicalEntryAuthority6540.markIntentCreatedFor6551(candidate.assetClass, candidate.symbol, registered.attemptId)
-        try { ForensicLogger.lifecycle("CANONICAL_FDG_INTENT_SEALED_6551", "asset=${candidate.assetId.take(16)} class=${candidate.assetClass} verdict=$verdict registered=true") } catch (_: Throwable) {}
+        try {
+            com.lifecyclebot.engine.ForensicLogger.phase(com.lifecyclebot.engine.ForensicLogger.PHASE.FDG, candidate.symbol, "path=${candidate.specialist.uppercase()} mode=${candidate.mode.uppercase()} verdict=$verdict sealed=true assetClass=${candidate.assetClass}")
+            ForensicLogger.lifecycle("CANONICAL_FDG_INTENT_SEALED_6551", "asset=${candidate.assetId.take(16)} class=${candidate.assetClass} verdict=$verdict registered=true")
+        } catch (_: Throwable) {}
         val resultShaping = shaping.copy(sizeMultiplier = if (shaping.sizeMultiplier > 0.0) sizing.finalSizeSol / candidate.requestedSizeSol.coerceAtLeast(0.0000001) else 1.0)
         return if (shaping.probe) CanonicalAssetEntryResult6551.Probe(intent, sizing.finalSizeSol, venue, resultShaping)
         else CanonicalAssetEntryResult6551.Allowed(intent, sizing.finalSizeSol, venue, resultShaping)
