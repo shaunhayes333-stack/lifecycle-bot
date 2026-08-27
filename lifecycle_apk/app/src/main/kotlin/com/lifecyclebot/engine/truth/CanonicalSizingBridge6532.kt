@@ -70,19 +70,11 @@ object CanonicalSizingBridge6532 {
                 "CANONICAL_SIZING_BRIDGE_6532|CLASS=${assetClass.tag}|LANE=$laneName|EXEC=${res.executable}"
             )
         } catch (_: Throwable) {}
-        // V5.0.6551 — sizing is no longer an authorization signal. The
-        // specialist must submit a typed candidate to the real authority.
-        if (canonicalAssetId.isNotBlank()) {
-            CanonicalEntryAuthority6551.submit(CanonicalAssetEntryCandidate6551(
-                assetId = canonicalAssetId, symbol = symbol, assetClass = assetClass,
-                mode = if (paperMode) "PAPER" else "LIVE", direction = "LONG",
-                requestedVenue = assetClass.tag, adapter = source, source = source,
-                specialist = laneName, score = 50.0, confidence = 1.0,
-                evidence = mapOf("walletSol" to walletSol.toString(), "laneRiskCapSol" to laneRiskCapSol.toString(), "laneMinExecutableSol" to effectiveMinSol6542.toString()),
-                requestedSizeSol = res.finalSizeSol, price = price, routeAvailable = paperMode,
-                candidateVersion = candidateVersion,
-            ))
-        }
+        // V5.0.6558 — sizing is advisory input, never a pre-FDG
+        // authorization. The actual typed candidate is submitted exactly
+        // once by the specialist's FDG path after safety/decision context
+        // is complete. This prevents synthetic LONG intents and duplicate
+        // pending authority rows from being created here.
         try {
             ForensicLogger.lifecycle(
                 "CANONICAL_SIZING_BRIDGE_6532",

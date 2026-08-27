@@ -8270,6 +8270,22 @@ class GoldenTapeRegressionTest {
     }
 
     @Test
+    fun V5_0_6558_cross_asset_size_seal_and_perps_sandbox_are_source_rooted() {
+        val sizing = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalSizingBridge6532.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val perpsEngine = java.io.File("src/main/kotlin/com/lifecyclebot/perps/PerpsExecutionEngine.kt").readText()
+        val perpsTrader = java.io.File("src/main/kotlin/com/lifecyclebot/perps/PerpsTraderAI.kt").readText()
+        val sandbox = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PerpsSandbox6463.kt").readText()
+        assertTrue(sizing.contains("sizing is advisory input, never a pre-FDG"))
+        assertTrue(gate.contains("resolvedSizeSol6558") && gate.contains("CROSS_ASSET_LEGACY_SIGNAL_DIVERGENCE_6554") && gate.contains("action=diagnostic_only"))
+        assertTrue(crypto.contains("resolvedSizeSol6558 = candidate.finalSize"))
+        assertTrue(perpsEngine.contains("recordFdgAndGetIntent6533") && perpsEngine.contains("resolvedSizeSol6558 = sizeSol"))
+        assertTrue(perpsTrader.contains("PerpsSandbox6463.openLeveragedPaper") && perpsTrader.contains("CanonicalPaperTransaction6486.refund"))
+        assertTrue(sandbox.contains("PERPS_EXEC_DISPATCH_6554") && sandbox.contains("PERPS_OPEN_CONFIRMED_6554") && sandbox.contains("PERPS_OPEN_REFUSED_6554"))
+    }
+
+    @Test
     fun V5_0_6553_paper_mode_reaches_markets_and_crypto_scanners() {
         val markets = java.io.File("src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt").readText()
         val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()

@@ -697,11 +697,13 @@ object ExecutableOpenGate {
         tokenMapExpectedOut: Double = 0.0, tokenMapProviderAttempts: Int = 0,
         requiresSolanaTokenMap: Boolean = true,
         allowTrunkExecutionHandoff6533: Boolean = false,
+        resolvedSizeSol6558: Double = 0.0,
     ): ExecutionIntent? {
         recordFdg(mint, symbol, lane, canExecute, reason, signal, rugScore, safetyTier, liquidityUsd,
             hardNoReasons, preFdgVerdict, candidateVersion, entryScore, tokenMapRouteStatus,
             tokenMapHydrationComplete, tokenMapExpectedOut, tokenMapProviderAttempts, requiresSolanaTokenMap,
-            allowTrunkExecutionHandoff6533)
+            allowTrunkExecutionHandoff6533,
+            resolvedSizeSol6558)
         if (!canExecute) return null
         val mode = if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
         val intent = activeExecutionIntent6519(mode, mint, candidateVersion)
@@ -757,6 +759,7 @@ object ExecutableOpenGate {
         tokenMapProviderAttempts: Int = 0,
         requiresSolanaTokenMap: Boolean = true,
         allowTrunkExecutionHandoff6533: Boolean = false,
+        resolvedSizeSol6558: Double = 0.0,
     ) {
         val paperRuntime = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
         if (isShadowReadOnlyLane6487(lane) && !allowTrunkExecutionHandoff6533) {
@@ -881,6 +884,7 @@ object ExecutableOpenGate {
                     val resolvedSize6519 = immutableAuthority6519?.resolvedSizeSol
                         ?.takeIf { it > 0.0 }
                         ?: try { com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint)?.takeIf { it > 0.0 } } catch (_: Throwable) { null }
+                        ?: resolvedSizeSol6558.takeIf { it.isFinite() && it > 0.0 }
                         ?: 0.0
                     val canonicalLane6519 = winner.selectedLane.uppercase()
                     publishFdgIntent6519(
@@ -1719,6 +1723,12 @@ object ExecutableOpenGate {
         )
         if (!signal.equals("BUY", true) && !signal.equals("EXECUTE", true)) {
             try { com.lifecyclebot.engine.truth.CanonicalFdgBuyStamp6508.reportMismatch(mint, signal, candidateVersion) } catch (_: Throwable) {}
+            if (immutableFdgBuy6519 && !stateRequiresSolanaTokenMap6533) {
+                try {
+                    PipelineHealthCollector.labelInc("CROSS_ASSET_LEGACY_SIGNAL_DIVERGENCE_6554")
+                    ForensicLogger.lifecycle("CROSS_ASSET_LEGACY_SIGNAL_DIVERGENCE_6554", "mint=${mint.take(16)} symbol=$symbol canonical=BUY legacy=${signal.ifBlank { "UNKNOWN" }} action=diagnostic_only")
+                } catch (_: Throwable) {}
+            }
             if (immutableFdgBuy6519 || canonicalExecutableIntent6509) {
                 try {
                     PipelineHealthCollector.labelInc("EXEC_RAW_SIGNAL_DIAGNOSTIC_IGNORED_6509")

@@ -787,6 +787,22 @@ object PerpsTraderAI {
                 ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: ${market.symbol} ${canonicalOpen6486.reason}")
                 return null
             }
+            if (leverage > 1.0 && com.lifecyclebot.engine.truth.PerpsSandbox6463.isEnabled()) {
+                val sandboxResult6558 = com.lifecyclebot.engine.truth.PerpsSandbox6463.openLeveragedPaper(
+                    positionId = position.id, mint = market.symbol, leverageX = leverage,
+                    entryPx = entryPrice, paperMode = true,
+                )
+                if (sandboxResult6558 != com.lifecyclebot.engine.truth.PerpsSandbox6463.OpenResult.OPENED) {
+                    com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.refund(
+                        positionId = position.id,
+                        mint = market.symbol,
+                        symbol = market.symbol,
+                        reason = "PERPS_SANDBOX_REFUSED_6558:$sandboxResult6558",
+                    )
+                    ErrorLogger.warn(TAG, "PAPER PERP SANDBOX REFUSED: ${market.symbol} $sandboxResult6558")
+                    return null
+                }
+            }
         }
 
         // Store position only after canonical paper commit.

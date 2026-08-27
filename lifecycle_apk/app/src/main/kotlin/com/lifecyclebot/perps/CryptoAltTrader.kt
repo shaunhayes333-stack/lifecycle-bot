@@ -1963,6 +1963,7 @@ object CryptoAltTrader {
             preFdgVerdict = candidate.preFdgVerdict.name,
             candidateVersion = candidate.candidateVersion,
             requiresSolanaTokenMap = ExecutionAuthorityPolicy6533.requiresSolanaTokenMap(candidate.chain, candidate.assetKey),
+            resolvedSizeSol6558 = candidate.finalSize,
         )
         if (candidate.canEnterFdg && cryptoIntent6533 == null) {
             try { ForensicLogger.lifecycle("CRYPTO_FDG_ALLOW_WITHOUT_INTENT_REJECTED_6533", "symbol=${candidate.symbol} assetKey=${candidate.assetKey} version=${candidate.candidateVersion}") } catch (_: Throwable) {}

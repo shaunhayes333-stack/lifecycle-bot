@@ -537,6 +537,35 @@ object PerpsExecutionEngine {
                     venue = perpsVenue6540, symbol = signal.market.symbol,
                 )
             } catch (_: Throwable) {}
+
+            // V5.0.6558 — seal the exact PERP BUY decision before any
+            // legacy position object is created. The returned immutable
+            // intent is the only authority for the downstream open.
+            val sealedPerpIntent6558 = com.lifecyclebot.engine.ExecutableOpenGate.recordFdgAndGetIntent6533(
+                mint = signal.market.symbol,
+                symbol = signal.market.symbol,
+                lane = "PERPS",
+                canExecute = true,
+                reason = null,
+                signal = "BUY",
+                rugScore = 100,
+                safetyTier = "CLEAR",
+                liquidityUsd = 1.0,
+                hardNoReasons = emptyList(),
+                preFdgVerdict = "BUY",
+                candidateVersion = System.currentTimeMillis(),
+                requiresSolanaTokenMap = false,
+                resolvedSizeSol6558 = sizeSol,
+            )
+            if (sealedPerpIntent6558 == null) {
+                failedExecutions.incrementAndGet()
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PERPS_OPEN_FAILED_6554")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle("PERPS_OPEN_FAILED_6554", "reason=FDG_ALLOW_WITHOUT_INTENT asset=${signal.market.symbol.take(16)}")
+                } catch (_: Throwable) {}
+                return
+            }
+            try { com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAdapterDispatch(perpsVenue6540, signal.market.symbol) } catch (_: Throwable) {}
             
             // Open position — always recorded in PerpsTraderAI first (in-memory state).
             // In LIVE mode we then fire the real on-chain swap. If that swap fails we

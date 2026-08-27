@@ -101,6 +101,15 @@ object PerpsSandbox6463 {
 
     fun isEnabled(): Boolean = enabled.get()
 
+    private fun terminal6554(result: OpenResult, positionId: String, mint: String) {
+        try {
+            val label = if (result == OpenResult.OPENED) "PERPS_OPEN_CONFIRMED_6554" else "PERPS_OPEN_REFUSED_6554"
+            PipelineHealthCollector.labelInc(label)
+            ForensicLogger.lifecycle(label, "positionId=${positionId.take(16)} mint=${mint.take(16)} result=$result")
+        } catch (_: Throwable) {}
+    }
+
+
     // ─── Open / Close ─────────────────────────────────────────────────────
 
     fun openLeveragedPaper(
@@ -110,8 +119,9 @@ object PerpsSandbox6463 {
         entryPx: Double,
         paperMode: Boolean,
     ): OpenResult {
-        if (!paperMode) { refuses.incrementAndGet(); return OpenResult.REFUSED_LIVE_MODE }
-        if (!enabled.get()) return OpenResult.DISABLED
+        try { PipelineHealthCollector.labelInc("PERPS_EXEC_DISPATCH_6554") } catch (_: Throwable) {}
+        if (!paperMode) { refuses.incrementAndGet(); val r = OpenResult.REFUSED_LIVE_MODE; terminal6554(r, positionId, mint); return r }
+        if (!enabled.get()) { val r = OpenResult.DISABLED; terminal6554(r, positionId, mint); return r }
         if (positionId.isBlank()) {
             refuses.incrementAndGet()
             try {
@@ -121,7 +131,9 @@ object PerpsSandbox6463 {
                 )
                 PipelineHealthCollector.labelInc("PERPS_SANDBOX_OPEN_BLANK_POSITION_6463")
             } catch (_: Throwable) {}
-            return OpenResult.REFUSED_BLANK_POSITION
+            val result = OpenResult.REFUSED_BLANK_POSITION
+            terminal6554(result, positionId, mint)
+            return result
         }
         if (!leverageX.isFinite() || leverageX < 1.0 || leverageX > MAX_LEVERAGE) {
             refuses.incrementAndGet()
@@ -132,7 +144,9 @@ object PerpsSandbox6463 {
                 )
                 PipelineHealthCollector.labelInc("PERPS_SANDBOX_OPEN_LEVERAGE_BOUNDS_6463")
             } catch (_: Throwable) {}
-            return OpenResult.REFUSED_LEVERAGE_BOUNDS
+            val result = OpenResult.REFUSED_LEVERAGE_BOUNDS
+            terminal6554(result, positionId, mint)
+            return result
         }
         positions[positionId] = Position(
             positionId = positionId, mint = mint, leverageX = leverageX,
@@ -146,6 +160,7 @@ object PerpsSandbox6463 {
             )
             PipelineHealthCollector.labelInc("PERPS_SANDBOX_OPENED_6463")
         } catch (_: Throwable) {}
+        terminal6554(OpenResult.OPENED, positionId, mint)
         return OpenResult.OPENED
     }
 
