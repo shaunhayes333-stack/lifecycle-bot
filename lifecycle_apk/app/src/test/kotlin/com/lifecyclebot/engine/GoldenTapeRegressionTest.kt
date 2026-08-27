@@ -1415,7 +1415,7 @@ class GoldenTapeRegressionTest {
         assertTrue(auth.contains("return laneSet.size == 1 && Trader.MEME in laneSet"))
         assertTrue(crypto.contains("operatorExplicitlyEnabled"))
         assertTrue(crypto.contains("cfg.cryptoAltsEnabled && cfg.marketsTraderEnabled"))
-        assertTrue("V5.0.6015: CryptoAltTrader must honor EnabledTraderAuthority CRYPTO_ALT over stale market toggles", crypto.contains("authorityAllowsCrypto6015") && crypto.contains("Trader.CRYPTO_ALT in authority") && crypto.contains("!authorityAllowsCrypto6015 && (cfg.tradingMode == 0"))
+        assertTrue("V5.0.6015: CryptoAltTrader must honor EnabledTraderAuthority CRYPTO_ALT over stale market toggles", crypto.contains("authorityAllowsCrypto6015") && crypto.contains("Trader.CRYPTO_ALT in authority") && crypto.contains("!cfg.paperMode && !authorityAllowsCrypto6015") && crypto.contains("CRYPTO_PAPER_LEARN_EVERYTHING_ADMITTED_6553"))
     }
 
 
