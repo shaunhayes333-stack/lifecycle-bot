@@ -34,6 +34,7 @@ object PerformanceAnalytics {
         val totalTrades: Int = 0,
         val winCount: Int = 0,
         val lossCount: Int = 0,
+        val breakEvenCount: Int = 0,
         val winRate: Double = 0.0,
         val totalPnlSol: Double = 0.0,
         val avgPnlSol: Double = 0.0,
@@ -134,6 +135,25 @@ object PerformanceAnalytics {
         }
 
         val decisiveTrades = closedTradesTerminalOnly.filter { isDecisive(it) }
+        // V5.0.6548 §P1-E — canonical vs window divergence advisory. Emit
+        // when the canonical closed-position count differs from the
+        // window's terminal-close count so operator can see the drift
+        // without breaking the Trades==W+L+BE invariant.
+        try {
+            val canonicalCount = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+                .closedPositions()
+                .distinctBy { "${it.mode.lowercase()}|${it.positionId}|${it.openedAtMs}" }
+                .size
+            if (canonicalCount != closedTradesTerminalOnly.size) {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_CLOSE_COUNT_DIVERGENCE_6548")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "CANONICAL_CLOSE_COUNT_DIVERGENCE_6548",
+                    "canonical=$canonicalCount window=${closedTradesTerminalOnly.size} " +
+                        "decisive=${decisiveTrades.size} scratches=${closedTradesTerminalOnly.size - decisiveTrades.size} " +
+                        "using=window scope=analytics_snapshot",
+                )
+            }
+        } catch (_: Throwable) {}
         if (decisiveTrades.isEmpty()) {
             return AnalyticsSnapshot(
                 totalTrades = 0,
@@ -220,10 +240,21 @@ object PerformanceAnalytics {
         )
 
         return AnalyticsSnapshot(
-            totalTrades = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.closedPositions()
-                .distinctBy { "${it.mode.lowercase()}|${it.positionId}|${it.openedAtMs}" }.size } catch (_: Throwable) { decisiveTrades.size },
+            // V5.0.6548 §P1-E — REPORTING SCOPE INVARIANT.
+            // Operator report: dashboard said `Trades: 38 (30W / 53L)` where
+            // 30 + 53 = 83, not 38. Root cause: `totalTrades` was taken from
+            // CanonicalPositionAuthority6441.closedPositions().size (session
+            // scope) while wins/losses came from `decisiveTrades` (input
+            // window scope). Two different data sources → sums lie.
+            // Fix: total = winCount + lossCount + breakEvenCount, all
+            // computed from the same closedTradesTerminalOnly window so the
+            // invariant `Trades == W + L + BE` holds for every displayed
+            // window. Canonical closed-position count is now emitted as a
+            // divergence advisory instead of overwriting the total.
+            totalTrades = wins.size + losses.size + (closedTradesTerminalOnly.size - decisiveTrades.size),
             winCount = wins.size,
             lossCount = losses.size,
+            breakEvenCount = closedTradesTerminalOnly.size - decisiveTrades.size,
             winRate = sanitizeDouble(winRate),
             totalPnlSol = sanitizeDouble(totalPnl),
             avgPnlSol = sanitizeDouble(avgPnl),
@@ -545,7 +576,8 @@ object PerformanceAnalytics {
         sb.append("*Overall:*\n")
         sb.append("  Trades: ").append(stats.totalTrades).append(" (")
             .append(stats.winCount).append("W / ")
-            .append(stats.lossCount).append("L)\n")
+            .append(stats.lossCount).append("L / ")
+            .append(stats.breakEvenCount).append("BE)\n")
         sb.append("  Win Rate: ").append(stats.winRate.fmt(1)).append("%\n")
         sb.append("  Total P&L: ").append(stats.totalPnlSol.fmt(4)).append(" SOL\n")
         sb.append("  Profit Factor: ").append(stats.profitFactor.fmt(2)).append("\n")
