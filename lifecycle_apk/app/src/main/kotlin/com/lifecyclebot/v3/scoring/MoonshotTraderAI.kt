@@ -836,14 +836,14 @@ object MoonshotTraderAI {
         // the trader's own reductions. Wallet SOL sourced from canonical
         // paper cash (Moonshot's scoreToken has no wallet param).
         val _moonshotFinalSol = try {
-            val walletSolProxy = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.paperCashSol().coerceAtLeast(0.1)
+            val walletSolProxy = com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol().coerceAtLeast(0.0)
             val bridged = com.lifecyclebot.engine.truth.TraderSizingBridge6444.sizeForLane(
                 laneName = "MOONSHOT",
                 requestedSol = sizeSol,
                 walletSol = walletSolProxy,
                 paperMode = isPaper,
             )
-            kotlin.math.min(bridged, sizeSol)
+            bridged
         } catch (_: Throwable) { sizeSol }
         return MoonshotScore(
             eligible = true,

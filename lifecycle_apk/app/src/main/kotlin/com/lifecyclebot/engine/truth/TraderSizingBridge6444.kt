@@ -31,19 +31,11 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object TraderSizingBridge6444 {
 
-    /** Per-lane risk cap in SOL. Callers override via explicit param. */
-    private val laneRiskCap: Map<String, Double> = mapOf(
-        "BLUECHIP"        to 2.00,
-        "QUALITY"         to 1.00,
-        "TREASURY"        to 0.50,
-        "MOONSHOT"        to 0.05,
-        "SHITCOIN"        to 0.05,
-        "PROJECT_SNIPER"  to 0.20,
-        "DIP_HUNTER"      to 0.15,
-        "EXPRESS"         to 0.10,
-        "MANIPULATED"     to 0.02,
-        "COPY_TRADE"      to 0.20,
-    )
+    // V5.0.6552 — lane names are attribution, not eternal SOL ceilings.
+    // Hard limits come from wallet-percent, liquidity, and portfolio risk at
+    // resolution time; learned lane conviction may shape the proposal.
+    private const val DEFAULT_WALLET_RISK_PCT_6552 = 0.12
+    private const val DEFAULT_PORTFOLIO_CAP_SOL_6552 = 5.0
 
     private val invocations = AtomicLong(0L)
     private val perLaneInvocations = ConcurrentHashMap<String, AtomicLong>()
@@ -59,11 +51,14 @@ object TraderSizingBridge6444 {
         paperMode: Boolean,
         overrideLaneRiskCapSol: Double? = null,
         mintForSeal: String = "",
+        walletRiskPct: Double = DEFAULT_WALLET_RISK_PCT_6552,
+        portfolioCapSol: Double = DEFAULT_PORTFOLIO_CAP_SOL_6552,
     ): OrderSizeResolver6441.Resolution {
         invocations.incrementAndGet()
         perLaneInvocations.computeIfAbsent(laneName) { AtomicLong(0L) }.incrementAndGet()
         val laneKey = laneName.uppercase()
-        val laneCap = overrideLaneRiskCapSol ?: laneRiskCap[laneKey] ?: Double.MAX_VALUE
+        val dynamicWalletCap = (walletSol.coerceAtLeast(0.0) * walletRiskPct.coerceIn(0.0, 1.0))
+        val laneCap = overrideLaneRiskCapSol ?: dynamicWalletCap.coerceAtMost(portfolioCapSol)
         return try {
             val r = OrderSizeResolver6441.resolve(
                 requestedSol = requestedSol,
@@ -115,8 +110,6 @@ object TraderSizingBridge6444 {
         return "invocations=$n top5=[$perLane]"
     }
 
-    /** Declared risk caps for pipeline health inspection. */
-    fun declaredCaps(): String = laneRiskCap.entries
-        .sortedBy { it.key }
-        .joinToString(",") { "${it.key}=${it.value}" }
+    /** Dynamic cap policy for pipeline health inspection. */
+    fun declaredCaps(): String = "walletPct=$DEFAULT_WALLET_RISK_PCT_6552 portfolioCapSol=$DEFAULT_PORTFOLIO_CAP_SOL_6552"
 }

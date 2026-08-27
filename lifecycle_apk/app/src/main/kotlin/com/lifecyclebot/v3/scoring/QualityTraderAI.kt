@@ -545,7 +545,7 @@ object QualityTraderAI {
         // lane respects the same risk-cap + ladder + cash-cap + min-
         // executable pipeline. Parity-preserving: MIN(bridge, trader).
         val _qualityFinalSol = try {
-            val walletSolProxy = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.paperCashSol().coerceAtLeast(0.1)
+            val walletSolProxy = com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol().coerceAtLeast(0.0)
             val bridged = com.lifecyclebot.engine.truth.TraderSizingBridge6444.sizeForLane(
                 laneName = "QUALITY",
                 requestedSol = _qualitySizedSol,

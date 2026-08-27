@@ -62,7 +62,9 @@ object OrderSizeResolver6441 {
     private fun fromLamports6491(lamports: Long): Double = lamports.toDouble() / SOL_LAMPORTS_6491.toDouble()
     fun meetsMinimum6491(valueSol: Double, minimumSol: Double): Boolean =
         toLamports6491(valueSol) >= toLamports6491(minimumSol)
-    private val paperExecutableMinimum = AtomicReference(0.05)
+    // Exchange minimum is distinct from the strategy's meaningful notional.
+    // The proposal/policy decides meaningful size; this only prevents dust.
+    private val paperExecutableMinimum = AtomicReference(0.005)
 
     fun paperExecutableMinimumSol(): Double = paperExecutableMinimum.get()
     fun updatePaperExecutableMinimumSol(value: Double): Double {
@@ -107,20 +109,20 @@ object OrderSizeResolver6441 {
         val requested = requestedSol.coerceAtLeast(0.0)
         val risk = requested.coerceAtMost(laneRiskCapSol)
 
-        // 2. V5.0.6498 — compounding ladder is advisory and may REDUCE only.
-        // It can select a permitted step at/below risk authority; it must never
-        // turn a 0.39 SOL approved request into a 10 SOL order.
-        val ladderFloor = try {
+        // V5.0.6552 — the runner ladder is an authorized target input. It may
+        // lift a positive proposal, but can never bypass hard risk/cash caps.
+        val ladderTarget = try {
             RunnerCompoundingLadder6440.recommendedSizeSol(walletSol)
         } catch (_: Throwable) { 0.0 }
-        val laddered = if (ladderFloor.isFinite() && ladderFloor > 0.0) kotlin.math.min(risk, ladderFloor) else risk
+        val laddered = if (ladderTarget.isFinite() && ladderTarget > 0.0) kotlin.math.max(risk, ladderTarget) else risk
 
-        // 3. wallet / cash cap — never risk more than 25% of authoritative cash.
+        // 3. wallet / cash cap — final hard cap is supplied by the dynamic
+        // wallet-percent/portfolio policy, not a lane's static SOL map.
         // V5.0.6448: PAPER affordability reads PaperAccountLedger6430, not the
         // canonical-position mirror cash facade, so all executor/runner/UI/report
         // balance consumers can converge on one transactional paper account.
         val authoritativeCash = if (paperMode) PaperAccountLedger6430.cashSol().coerceAtLeast(0.0) else walletSol
-        val cashCap = authoritativeCash * 0.25
+        val cashCap = authoritativeCash
         val feeAwareAvailable6490 = if (paperMode) {
             authoritativeCash / (1.0 + PAPER_ENTRY_FEE_RESERVE_RATE_6490)
         } else authoritativeCash
