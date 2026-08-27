@@ -12557,7 +12557,36 @@ class Executor(
             buildPhase = if (quality != "C") 1 else 3
             targetBuild = if (quality != "C") fluidSol / graduatedInitialPct(quality) else 0.0
         } else {
-            actualSol = clampPaperTradeSol(graduatedInitialSize(fluidSol, quality), ts.mint, ts.symbol, "paperBuy.graduated", maxPaperTradeSolOverride)
+            // V5.0.6550 §P0-A — SINGLE CANONICAL SIZE DECISION.
+            // Operator forensic (V5.0.6549): paperBuy.pre_mutation6490
+            // resolved a 0.01 SOL executable size and the ticket was
+            // dispatched, then the graduated-entry percentage produced
+            // 0.0035 SOL, and the canonical resolver flipped exec=false
+            // BELOW_MIN_EXECUTABLE, killing the already-dispatched ticket.
+            //
+            // The immutable ticket must not be discarded by post-dispatch
+            // shaping. Apply the same floor-preservation contract the
+            // fluid path already uses at line 12409-12412: if the
+            // graduated shape falls below the executable floor while the
+            // pre-mutation authoritative size was above it, keep the
+            // pre-mutation authoritative size. Shaping expresses INTENT
+            // to trim the notional, not authority to void the ticket.
+            val graduatedRaw6550 = graduatedInitialSize(fluidSol, quality)
+            val executableFloor6550 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol()
+            val graduatedFloorPreserved6550 = if (sol >= executableFloor6550 && graduatedRaw6550 < executableFloor6550) {
+                try {
+                    PipelineHealthCollector.labelInc("PAPER_SIZE_GRADUATED_FLOOR_PRESERVED_6550")
+                    ForensicLogger.lifecycle(
+                        "PAPER_SIZE_GRADUATED_FLOOR_PRESERVED_6550",
+                        "mint=${ts.mint.take(10)} preMutationSol=${"%.4f".format(sol)} " +
+                            "graduatedRawSol=${"%.4f".format(graduatedRaw6550)} " +
+                            "executableFloor=${"%.4f".format(executableFloor6550)} " +
+                            "action=keep_pre_mutation_size_preserve_dispatched_ticket paper=true",
+                    )
+                } catch (_: Throwable) {}
+                sol
+            } else graduatedRaw6550
+            actualSol = clampPaperTradeSol(graduatedFloorPreserved6550, ts.mint, ts.symbol, "paperBuy.graduated", maxPaperTradeSolOverride)
             buildPhase = 1
             targetBuild = fluidSol.coerceAtMost(maxConfiguredPaperTradeSol())
         }
@@ -12735,11 +12764,52 @@ class Executor(
                 } catch (_: Throwable) { /* async hydrate; retry next cycle */ }
             }
         }
-        val buyQtyRaw6485 = try {
+        val buyQtyRawEconomic6485 = try {
             com.lifecyclebot.engine.truth.CanonicalRawQuantityAuthority6520.paperRawFromEconomics(
                 effectiveSol.toString(), solPriceForQty6509.toString(), effectivePrice.toString(), paperQuantityScale6514,
             )
         } catch (_: Throwable) { java.math.BigInteger.ZERO }
+        // V5.0.6550 §P0-B — MODE-AWARE RAW QUANTITY.
+        // Operator forensic (V5.0.6549): raw quantity was returning ZERO for
+        // paper mints whose decimals were unresolved (decimals=-1), and the
+        // subsequent hard terminal block converted DECIMALS_PENDING into
+        // RAW_QTY_ECONOMICS_INVALID_6520 → PAPER_TICKET_TERMINAL_BLOCK_6514,
+        // killing 16 of 22 dispatched tickets in one snapshot. That inserts
+        // a LIVE-only chain-integrity invariant into the PAPER path.
+        //
+        // Prior executor contract (pre-6514): "if authoritative decimals
+        // aren't available, the heuristic continues so the buy can proceed
+        // on estimate" (learning suppressed until reconciliation, async
+        // hydrate populates the strict decimals for downstream SELL).
+        //
+        // Fix: when raw==0 in PAPER mode, and the underlying economic
+        // basis is valid, synthesize the raw quantity from economics
+        // (qty_tokens = notional_usd / price_usd_per_token, encoded at
+        // the neutral storage scale). This preserves the simulation's
+        // economic accuracy — paper P&L is derived from cost/entryPrice,
+        // not from the raw integer — while removing the LIVE-only
+        // integrity veto from the paper commit path.
+        val paperEconomicsValid6550 = effectiveSol > 0.0 && effectivePrice > 0.0 &&
+            solPriceForQty6509.isFinite() && solPriceForQty6509 > 0.0 && effectivePrice.isFinite()
+        val buyQtyRaw6485: java.math.BigInteger = if (buyQtyRawEconomic6485 <= java.math.BigInteger.ZERO && paperEconomicsValid6550) {
+            try {
+                val qtyTokens = (effectiveSol * solPriceForQty6509) / effectivePrice
+                val scale = paperQuantityScale6514.coerceIn(0, 18)
+                val bi = java.math.BigDecimal.valueOf(qtyTokens)
+                    .multiply(java.math.BigDecimal.TEN.pow(scale))
+                    .toBigInteger()
+                PipelineHealthCollector.labelInc("PAPER_RAW_QTY_ECONOMICS_FALLBACK_6550")
+                ForensicLogger.lifecycle(
+                    "PAPER_RAW_QTY_ECONOMICS_FALLBACK_6550",
+                    "reason=raw_zero_paper_mode stage=paperBuy.rawQty mint=${tradeId.mint.take(10)} " +
+                        "ticketId=$executionAttemptId6514 paper=true lane=$layerTag " +
+                        "effSol=${"%.6f".format(effectiveSol)} solUsd=${"%.2f".format(solPriceForQty6509)} " +
+                        "priceUsd=${"%.8f".format(effectivePrice)} qtyTokens=${"%.4f".format(qtyTokens)} " +
+                        "encodedScale=$scale action=synthesize_from_economics_no_terminal_block",
+                )
+                bi
+            } catch (_: Throwable) { java.math.BigInteger.ZERO }
+        } else buyQtyRawEconomic6485
         if (buyQtyRaw6485 <= java.math.BigInteger.ZERO) {
             markPaperBuyNotOpened("RAW_QTY_ECONOMICS_INVALID_6520")
             return
