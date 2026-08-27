@@ -33,7 +33,7 @@ internal object PaperQuantityRepresentation6514 {
 }
 
 internal object PaperPreTicketSizeFloor6511 {
-    private const val ABSOLUTE_EXECUTABLE_FLOOR_SOL = 0.005
+    private const val ABSOLUTE_EXECUTABLE_FLOOR_SOL = 0.05
     private const val MAX_BOUNDED_RUNTIME_MINIMUM_SOL = 0.15
 
     fun boundedMinimum(runtimeMinimumSol: Double): Double =
@@ -19521,10 +19521,10 @@ class Executor(
     }
 
     private fun minConfiguredPaperTradeSol(): Double {
-        // V5.0.6511 — smallBuySol is an ordinary requested-size target, never
-        // executable-floor authority. Paper uses the independent bounded runtime
-        // minimum (absolute floor 0.005 SOL); genuine runtime/exchange minimums
-        // may raise it, while pathological values are capped safely.
+        // V5.0.6555 — paper must not create cents-worth positions. smallBuySol
+        // remains an ordinary target; the independent executable floor is 0.05
+        // SOL, bounded and cash-capped. Strategy truth may shape a trade down,
+        // but cannot silently turn an executable buy into dust.
         val runtimeMinimum6511 = try { cfg().minLiveBuySol } catch (_: Throwable) { 0.005 }
         val boundedMinimum6511 = PaperPreTicketSizeFloor6511.boundedMinimum(runtimeMinimum6511)
         return com.lifecyclebot.engine.truth.OrderSizeResolver6441.updatePaperExecutableMinimumSol(boundedMinimum6511)

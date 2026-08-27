@@ -58,7 +58,7 @@ import java.util.ArrayDeque
  *
  * HARD LIMITS (always enforced, regardless of multipliers):
  * ──────────────────────────────────────────────────────────
- *   Min position:  0.005 SOL (dust prevention)
+ *   Min position:  0.05 SOL (economic minimum; cash-capped)
  *   Max position:  20% of tradeable wallet per trade
  *   Max exposure:  70% of tradeable wallet across all open positions
  *   Liquidity cap: never own >4% of the token's pool (avoids becoming exit liquidity)
@@ -699,26 +699,15 @@ object SmartSizer {
             }
         }
 
-        // Dust floor - lower for paper mode
+        // V5.0.6555 — paper mirrors live economics: never create a
+        // cents-worth position. This is a sizing floor only; cash, route,
+        // rug and finality authorities remain unchanged.
         size = size.coerceAtLeast(0.0)
-        // V5.9.212: live dust 0.002 → 0.01 — Jito+Jupiter+platform fees ~0.004 SOL min
-        // Sub-0.01 positions can NEVER be sold profitably. Paper stays 0.001.
-        // V5.0.6269 — LIVE DUST FLOOR raised 0.01 → 0.05 (operator: "no stupid
-        // dust size trades ffs!"). Pump.fun tokens routinely reject Jupiter
-        // quotes below ~0.03 SOL (ROUTE_FAILED_NO_OPEN_COMMITTED), which burns
-        // an EXEC attempt for zero fill. Matching MIN_POSITION_SOL=0.05 across
-        // every live sizing path guarantees the wallet never spends compute on
-        // trades Jupiter will refuse. Paper stays at 0.001 (learning surface
-        // can always fill).
-        val dustFloor = if (isPaperMode) 0.001 else 0.05
-        
-        // PAPER MODE MINIMUM: Always trade at least 0.01 SOL (or 5% of wallet) to ensure learning
-        if (isPaperMode && size < dustFloor) {
-            val minPaperSize = maxOf(0.01, tradeable * 0.05)  // At least 0.01 SOL or 5% of wallet
-            if (tradeable >= 0.02) {  // Only if we have at least 0.02 SOL
-                size = minPaperSize
-                ErrorLogger.info("SmartSizer", "📏 PAPER MIN SIZE: forcing $size SOL (was below dust)")
-            }
+        val dustFloor = 0.05
+        if (size < dustFloor && tradeable >= dustFloor * 2.0) {
+            size = dustFloor
+            ErrorLogger.info("SmartSizer", "📏 ECONOMIC MIN SIZE 6555: forcing $size SOL (was below floor)")
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ECONOMIC_MIN_SIZE_PROMOTED_6555") } catch (_: Throwable) {}
         }
         
         if (size < dustFloor) {
@@ -760,7 +749,7 @@ object SmartSizer {
         if (lanePhaseMult < 1.0) {
             size *= lanePhaseMult
             // Re-apply dust floor after reduction
-            val dustFloor2 = if (isPaperMode) 0.001 else 0.05
+            val dustFloor2 = 0.05
             if (size < dustFloor2) size = dustFloor2
             ErrorLogger.info("SmartSizer", "📉 Lane phase mult: $laneMode → ${lanePhaseMult.fmt1}x (size now ${size.fmt(4)} SOL)")
         }
@@ -773,7 +762,7 @@ object SmartSizer {
         val exploreMult = 1.0
         if (exploreMult < 1.0) {
             size *= exploreMult
-            val dustFloor3 = if (isPaperMode) 0.001 else 0.05
+            val dustFloor3 = 0.05
             if (size < dustFloor3) size = dustFloor3
             ErrorLogger.info("SmartSizer", "🔬 Paper exploration size ramp: ${exploreMult.fmt1}x (size now ${size.fmt(4)} SOL)")
         }
@@ -792,7 +781,7 @@ object SmartSizer {
         } catch (_: Throwable) { 1.0 }
         if (coldMult < 1.0) {
             size *= coldMult
-            val dustFloor4 = if (isPaperMode) 0.001 else 0.05
+            val dustFloor4 = 0.05
             if (size < dustFloor4) size = dustFloor4
             ErrorLogger.info("SmartSizer", "🥶 Cold-streak damp: ${coldMult.fmt1}x [$laneMode] (size now ${size.fmt(4)} SOL)")
         }

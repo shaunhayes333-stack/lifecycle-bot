@@ -8240,12 +8240,14 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_6511_paper_pre_ticket_floor_is_independent_and_preserves_valid_shaped_buys() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val sizer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt").readText()
         val minimumStart = exec.indexOf("private fun minConfiguredPaperTradeSol")
         val minimumEnd = exec.indexOf("private fun clampPaperTradeSol", minimumStart)
         val minimumBlock = exec.substring(minimumStart, minimumEnd)
         assertFalse("ordinary requested smallBuySol must not be executable-floor authority", minimumBlock.contains("c.smallBuySol"))
         assertFalse("wallet-relative requested sizing must not become an executable floor", minimumBlock.contains("paperSimulatedBalance * 0.001"))
         assertTrue(minimumBlock.contains("PaperPreTicketSizeFloor6511.boundedMinimum(runtimeMinimum6511)"))
+        assertTrue(exec.contains("ABSOLUTE_EXECUTABLE_FLOOR_SOL = 0.05") && sizer.contains("ECONOMIC_MIN_SIZE_PROMOTED_6555") && sizer.contains("val dustFloor = 0.05"))
         val promote = exec.indexOf("val effectiveRequestedSol6511")
         val bridge = exec.indexOf("TraderSizingBridge6444.resolveForLane", promote)
         val reject = exec.indexOf("PAPER_BUY_REJECTED_BEFORE_TICKET_SIZE_6490", bridge)

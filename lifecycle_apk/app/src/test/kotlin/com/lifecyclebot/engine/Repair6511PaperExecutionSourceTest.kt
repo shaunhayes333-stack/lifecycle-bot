@@ -11,7 +11,7 @@ import java.io.File
 
 class Repair6511PaperExecutionSourceTest {
     @Test
-    fun shaped_002419_executes_when_small_buy_target_is_005() = synchronized(PaperAccountLedger6430) {
+    fun sub_floor_buys_promote_to_economic_minimum_005() = synchronized(PaperAccountLedger6430) {
         PaperAccountLedger6430.resetForTest()
         PaperAccountLedger6430.initialize(5.5099)
         OrderSizeResolver6441.updatePaperExecutableMinimumSol(
@@ -30,7 +30,8 @@ class Repair6511PaperExecutionSourceTest {
             overrideLaneRiskCapSol = 1.0,
             mintForSeal = "6511-test-mint",
         )
-        assertEquals(0.02419, requested, 1e-9)
+        assertEquals(0.05, requested, 1e-9)
+        assertTrue(resolved.finalSizeSol >= 0.05)
         assertTrue(resolved.finalSizeSol > 0.0)
         assertTrue(resolved.executable)
         assertFalse(resolved.reason.contains("BELOW_MIN_EXECUTABLE"))
