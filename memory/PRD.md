@@ -1,10 +1,73 @@
-# AATE PRD — V5.0.6547a (TARGETED PIPELINE REPAIR: P0-1/P0-2 + P1 TELEMETRY)
+# AATE PRD — V5.0.6548b (V5.0.6547 EXECUTION-CORRECTNESS FOLLOW-THROUGH)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE (FillLotLedger6504 immutable SQLite lots + per-lot projection reconciliation), never by strangling flow.
 
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA.
+
+
+## V5.0.6548 / 6548a / 6548b (Feb 2026) — 6547 EXECUTION-CORRECTNESS FOLLOW-THROUGH
+
+Operator 6547 forensic verdict: "discovery is alive; execution is not." 76 EXEC_OPEN_ALLOWED → 76 PAPER_TICKET_NONTERMINAL_RELEASE → 0 committed. Authority works, commit doesn't. MARK_AUTHORITY blocked 3,547 authoritative DexScreener WS marks solely on transport-channel name. BG scan/intake/FDG counters permanently zero because no site emitted the phase beacons. Trades/W/L displayed sums do not reconcile.
+
+### §P0-A — IMMUTABLE TICKET OWNERSHIP (ExecutableOpenGate + Executor.paperBuy)
+
+Prior invariant break: `releaseAttemptNonTerminal6514` revoked every ticket + `allowedAttempts[mint]` residue → next intake cycle minted a fresh attemptId → immutable execution authority was lost on every defer.
+
+  * `ExecutableOpenGate.RetryPending6548` slot keyed by mint (TTL 40 s) records the attemptId + lane + reason on every nonterminal release.
+  * `releaseAttemptNonTerminal6514` now prunes ONLY per-lane residues + the specific attempt lease, retains the mint-keyed ownership, and stamps retryPending6548.
+  * `terminalizeAttempt6514` clears retryPending6548 (COMMITTED / TERMINAL_REJECTED both close the slot).
+  * `Executor.paperBuy` — on entry, if the intake caller did not supply an attemptId, look up `ExecutableOpenGate.retryPendingFor6548(mint)` and resume the SAME immutable attemptId.
+  * Counters: `PAPER_TICKET_RETRY_PENDING_6548`, `PAPER_TICKET_RETRY_PENDING_CLEARED_6548`, `PAPER_TICKET_RESUMED_6548`, `PAPER_TICKET_COMMITTED_6548`.
+
+### §P0-B — CANONICAL PROVIDER IDENTITY (MarkAuthorityIntegrityGate6496)
+
+Prior: `SOURCE_NOT_WHITELISTED:DEXSCREENER_WS` fired 3,547× in a single session for AUTHORITATIVE-provenance marks with valid liquidity + pool + finite positive price. Transport channel is not a trust domain.
+
+`MarkAuthorityIntegrityGate6496.evaluate` now canonicalises the source string BEFORE the whitelist check:
+
+  * `DEXSCREENER_WS / DEXSCREENER_REST / DEXSCREENER_POLL / DEXSCREENER_PAIR_POLL / DEXSCREENER_BASE_MINT_MARKET_CAP → DEXSCREENER`
+  * `BIRDEYE_* → BIRDEYE`
+  * `JUPITER_* → JUPITER`
+  * `PUMPFUN_* / PUMP_FUN_* / PUMP_PORTAL_* → PUMPFUN`
+
+Freshness / pool identity / template checks unchanged. Block log carries `canonSrc=` for audit. No gate/check/whitelist was relaxed.
+
+### §P0-C — BACKGROUND PHASE PROGRESS BEACONS (BotService + FinalDecisionGate)
+
+Prior: `BG_BOT_LOOP_TICK=151`, `BG_EXIT=150` but `BG_SCAN_CB=0`, `BG_INTAKE=0`, `BG_FDG=0`. No call site emitted markProgress for those phases → counters were permanently zero, masking whether scan → intake → FDG actually ran under the persistent service runtime.
+
+  * `BotService.STARTUP` scan callback → `markProgress("SCAN_CB")`.
+  * `BotService.admitProtectedMemeIntake` → `markProgress("INTAKE")` at entry.
+  * `FinalDecisionGate.evaluate` → `recordBackgroundProgress6544("FDG")` at entry.
+
+Instrumentation only. Next runtime capture will report BG_SCAN_CB / BG_INTAKE / BG_FDG that reflect real pipeline activity so operator can decide whether P0-C also needs an ownership refactor.
+
+### §P1-E — REPORTING SCOPE INVARIANT (PerformanceAnalytics)
+
+Prior: `Trades: 38 (30W / 53L)` where 30 + 53 = 83, not 38. Root cause: `totalTrades` came from `CanonicalPositionAuthority6441.closedPositions().size` (session scope) while wins/losses came from `decisiveTrades` (input window scope).
+
+  * `AnalyticsSnapshot` gains `breakEvenCount` field.
+  * `totalTrades = winCount + lossCount + breakEvenCount`, all from the same closedTradesTerminalOnly window. Invariant `Trades == W + L + BE` holds for every displayed scope.
+  * Canonical drift surfaces via new `CANONICAL_CLOSE_COUNT_DIVERGENCE_6548` counter + lifecycle log — visible without breaking display sums.
+  * `formatSummary` renders `Trades: X (W / L / BE)`.
+
+### CI Status (Feb 2026)
+
+  * `Build AATE APK` on `cbc7ccda` (V5.0.6548 P0-A + P0-B): ✅ SUCCESS
+  * `Build AATE APK` on `e909569c` (V5.0.6548a P0-C beacons): ✅ SUCCESS
+  * `Build AATE APK` on `96188d92` (V5.0.6548b P1-E reporting fix): ✅ SUCCESS
+  * `Runtime Smoke Test`: still the known pre-existing `btnToggle` UI-startup failure. Operator deprioritized.
+
+### Files touched (V5.0.6548 series)
+
+  * `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt`
+  * `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt`
+  * `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt`
+  * `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt`
+  * `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/PerformanceAnalytics.kt`
+  * `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/MarkAuthorityIntegrityGate6496.kt`
 
 
 ## V5.0.6547 / V5.0.6547a (Feb 2026) — TARGETED PIPELINE REPAIR
