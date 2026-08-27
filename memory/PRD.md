@@ -1,10 +1,66 @@
-# AATE PRD — V5.0.6543 (UNIVERSAL FUNNEL AUTOREPORT + CANONICAL BUY JOURNAL PROJECTION)
+# AATE PRD — V5.0.6547a (TARGETED PIPELINE REPAIR: P0-1/P0-2 + P1 TELEMETRY)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE (FillLotLedger6504 immutable SQLite lots + per-lot projection reconciliation), never by strangling flow.
 
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA.
+
+
+## V5.0.6547 / V5.0.6547a (Feb 2026) — TARGETED PIPELINE REPAIR
+
+Operator directive: "DO NOT redesign gates, scoring, lanes, learning, sizing, exits, discovery, or provider architecture. Trace and fix the existing source paths." Every fix in this bump is either a taxonomy addition, a nonterminal defer, or a passive telemetry counter. Zero gates were relaxed.
+
+### §P0-1 — PAPER DECIMALS NONTERMINAL DEFER (Executor.paperBuy)
+
+Prior: `resolvedPaperDecimals6514 == null` → advisory log + continue at neutral storage scale 12 → lot stamped `paperTokenDecimals=-1` → SELL later blocked by `SELL_ABORTED_DECIMAL_INTEGRITY_6405`, silently killing the exit.
+
+Now: `resolvedPaperDecimals6514 == null` → `releasePaperBuyNonTerminal6514("DECIMALS_PENDING_6547")` + async hydrate via `DecimalIntegrityAuthority6405.resolveDecimalsStrict`. The immutable ticket is requeued so the next scanner cycle re-attempts the same mint with real decimals resolved. Counters: `PAPER_DECIMALS_PENDING_DEFER_6547`, `PAPER_TICKET_REQUEUED_6547`.
+
+Also expanded taxonomy on every `PAPER_TICKET_TERMINAL_BLOCK_6514` log emission: `reason=`, `stage=`, `mint=`, `ticketId=`, `paper=true`, `lane=` (both markPaperBuyNotOpened and atomicRollback paths).
+
+### §P0-2 — BACKGROUND ENTRY PIPELINE PARITY COUNTERS (Executor.paperBuy)
+
+Entry pipeline execution remains service-owned per `BackgroundTradingAuthority6469` (no UI-scoped gate). Added passive parity telemetry at paperBuy entrance:
+- `PAPER_BUY_ATTEMPT_UI_ABSENT_6547` — fires when `AATEApp.isAnyActivityVisible6487() == false`
+- `PAPER_BUY_ATTEMPT_SCREEN_OFF_6547` — fires when PowerManager.isInteractive == false
+- `PAPER_BUY_ATTEMPT_FOREGROUND_6547` — fires when both above are false
+
+Trading path never gates on these values — the counters exist so pipeline dumps can prove the bot keeps firing under background/Doze/screen-off conditions.
+
+### §P1-3 — CRYPTO UNIVERSE CANONICAL HANDOFF (DynamicAltTokenRegistry)
+
+Publishes to `PipelineHealthCollector` (already tracked internally as `AtomicLong`):
+- `CRYPTO_FRESH_BRAIN_6547` — fresh candidate reached CryptoBrain evaluation
+- `CRYPTO_FRESH_FDG_6547` — fresh candidate reached V3/FDG
+- `CRYPTO_FRESH_EVICTED_6547` — fresh candidate evicted from registry before hitting the brain (enrichment-race attrition surface)
+
+### §P1-4 — EXIT PENDING LATCH RECOVERY (PaperPositionCloseAuthority)
+
+`preSellGuard` emits `PAPER_CLOSE_RETRY_ATTEMPTED_6547` for both:
+- FAILED/REJECTED → retryable after `FAILED_RETRY_TTL_MS=20s`
+- CLOSE_REQUESTED/CLOSING stuck → retryable after `STUCK_CLOSE_TTL_MS=30s`
+
+`markClosed` emits `PAPER_CLOSE_RETRY_RECOVERED_6547` when priorState was FAILED/REJECTED or had prior stuck-retries, proving the retry actually completed. Operator can grep both counters to verify the exit-pending latch is unjammable.
+
+### §P1-5 — MARK AUTHORITY COMPARISON TELEMETRY (MarkAuthorityIntegrityGate6496)
+
+`MARK_AUTHORITY_GATE_BLOCKED_6496` log line now includes: `realPriceSource`, `knownTemplate`, `fresh`, and a `blockReason6547` classifier (`PRICE_INVALID_OR_STALE` / `SOURCE_NOT_WHITELISTED:<src>` / `POOL_MISSING_OR_MINT_ROUTE` / `KNOWN_TEMPLATE_PRICE_50M_5M`). Also emits `MARK_AUTHORITY_GATE_BLOCKED_6547|<reason>` for per-reason attrition triage.
+
+No gate/check/whitelist was relaxed. Zero economic impact on decisions.
+
+### CI Status
+
+- `Build AATE APK` on 4d8e543c: ✅ **SUCCESS** (1755 tests, 0 failed).
+- `Runtime Smoke Test` on 4d8e543c: still in progress at task close (pre-existing `btnToggle` UI-startup failure; user deprioritized).
+
+### Files touched (V5.0.6547 / 6547a)
+
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt`
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt`
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/MarkAuthorityIntegrityGate6496.kt`
+- `lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/perps/DynamicAltTokenRegistry.kt`
+- `lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt` (updated `V5_0_6514_paper_ticket_dispatch_ignores_missing_decimals*` to assert the new nonterminal-defer counters)
 
 
 ## V5.0.6543 (Feb 2026) — universal §6540 funnel + canonical BUY journal
