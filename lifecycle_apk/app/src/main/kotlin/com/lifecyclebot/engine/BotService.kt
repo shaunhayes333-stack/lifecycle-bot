@@ -14583,10 +14583,19 @@ class BotService : Service() {
                         // so equity = cash + markedOpenValue with realized already embedded in cash.
                         try {
                             val cap = com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.snapshot()
-                            com.lifecyclebot.engine.truth.PaperEquityCalculator6467.compute(
+                            val equitySnap = com.lifecyclebot.engine.truth.PaperEquityCalculator6467.compute(
                                 baselineSol = startCap6464,
                                 markedOpenValueSol = cap.openMarketValueSol,
                             )
+                            // V5.0.6550c — GROWTH COMPOUND RING observer.
+                            // Fold the just-computed equity into the $50 → $1M
+                            // milestone tape. Uses the latest cached SOL/USD
+                            // from WalletManager. Read-only; no gate impact.
+                            val solUsdForRing = try {
+                                com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+                            } catch (_: Throwable) { 0.0 }
+                            com.lifecyclebot.engine.truth.PaperEquityCalculator6467
+                                .observeGrowthRing(equitySnap, solUsdForRing)
                         } catch (_: Throwable) {}
                         // V5.0.6468 §P0 (item 17) — forced close slot sweeper.
                         // Reconciles CanonicalMintOccupancyRegistry against the

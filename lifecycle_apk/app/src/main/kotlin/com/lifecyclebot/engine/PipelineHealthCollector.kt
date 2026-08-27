@@ -1779,6 +1779,13 @@ object PipelineHealthCollector {
             sb.append("  Paper capital conservation:   ").append(
                 if (paperLedgerErr == null) "✅ OK" else "🛑 $paperLedgerErr"
             ).append("\n")
+            // V5.0.6550c — GROWTH COMPOUND RING scoreboard. Read-only
+            // projection over PaperEquityCalculator6467 that shows the
+            // live compounding progress from $50 → $1M so operator can
+            // watch every milestone illuminate.
+            sb.append("  Growth ring (§6550c):         ").append(
+                com.lifecyclebot.engine.truth.GrowthCompoundRing6550.statusLine()
+            ).append("\n")
             sb.append("  Reconciler watchdog (§Q):     ").append(
                 com.lifecyclebot.engine.truth.ReconcilerWatchdog6430.statusLine()
             ).append("\n")

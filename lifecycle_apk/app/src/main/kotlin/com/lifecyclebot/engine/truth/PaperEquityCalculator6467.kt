@@ -44,6 +44,18 @@ object PaperEquityCalculator6467 {
         }
         return snap
     }
+
+    /**
+     * V5.0.6550c — GROWTH COMPOUND RING driver. Feed the just-computed
+     * equity + a fresh SOL/USD quote into GrowthCompoundRing6550 so
+     * the milestone tape stays live. Ring is READ-ONLY over this snap;
+     * bad SOL/USD holds prior USD equity instead of driving false
+     * milestones.
+     */
+    fun observeGrowthRing(snap: Snapshot, solPriceUsd: Double) {
+        try { GrowthCompoundRing6550.observe(snap.equitySol, solPriceUsd) } catch (_: Throwable) {}
+    }
+
     fun lastSnapshot(): Snapshot? = lastSnap.get()
     fun statusLine(): String {
         val s = lastSnap.get() ?: return "no_calc calcs=${calcs.get()} violations=${violations.get()}"

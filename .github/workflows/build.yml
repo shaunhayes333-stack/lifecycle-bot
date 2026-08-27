@@ -49,7 +49,14 @@ jobs:
           # (e.g. report 4550 while git head is 4570). Use the larger of the CI
           # run number and the latest V5.0.xxxx commit subject so report/build/git
           # numbers line up again without ever decreasing versionCode.
-          COMMIT_BUILD_NUMBER=$(git log -1 --pretty=%s | sed -n 's/^V5\.0\.\([0-9][0-9]*\).*/\1/p')
+          # V5.0.6550b — regex tightening. Prior form required the subject to
+          # START with V5.0.NNNN, so any non-version-bump commit (PRD.md,
+          # ci/*, tests-only) collapsed COMMIT_BUILD_NUMBER to 0 and CI fell
+          # back to GITHUB_RUN_NUMBER — producing a "weird" small build
+          # number in the APK filename and BuildConfig. Fix: match V5.0.NNNN
+          # ANYWHERE in the subject AND scan the last 20 commits so the
+          # highest patch stamp always wins.
+          COMMIT_BUILD_NUMBER=$(git log -20 --pretty=%s | grep -oE 'V5\.0\.[0-9]+' | sed -E 's/V5\.0\.//' | sort -n | tail -1)
           if [ -z "$COMMIT_BUILD_NUMBER" ]; then COMMIT_BUILD_NUMBER=0; fi
           if [ "$COMMIT_BUILD_NUMBER" -gt "$RUN_BUILD_NUMBER" ]; then
             BUILD_NUMBER="$COMMIT_BUILD_NUMBER"
