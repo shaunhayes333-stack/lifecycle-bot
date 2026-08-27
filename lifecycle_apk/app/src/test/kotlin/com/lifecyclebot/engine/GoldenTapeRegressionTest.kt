@@ -2453,7 +2453,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Authority enum must expose every internal meme layer except disabled CYCLIC sidecar", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "QUALITY", "TREASURY", "CASHGEN", "BLUECHIP", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER").all { auth.contains(it) })
         assertTrue("Meme-only publish must include full internal specialist set except CYCLIC", listOf("Trader.QUALITY", "Trader.TREASURY", "Trader.CASHGEN", "Trader.BLUECHIP", "Trader.PROJECT_SNIPER", "Trader.DIP_HUNTER", "Trader.MANIPULATED").all { plan.contains(it) } && !plan.contains("s += EnabledTraderAuthority.Trader.CYCLIC") && bot.contains("plan6526.enabledTraderSet()"))
         assertTrue("Internal specialists must be ignored by isMemeLiveOnly so markets/perps remain isolated; CYCLIC must not be an internal meme layer", auth.contains("internalMemeLayers") && auth.contains("Trader.PROJECT_SNIPER") && auth.contains("set - Trader.CRYPTO_ALT - internalMemeLayers") && !auth.substringAfter("val internalMemeLayers = setOf(").substringBefore(")").contains("Trader.CYCLIC"))
-        assertTrue("Runtime plan must expose active meme lanes while CYCLIC stays excluded", plan.contains("fun enabledTraderSet()") && bot.contains("CyclicTradeEngine.setEnabled(false)"))
+        assertTrue("Runtime plan must expose active meme lanes and Cyclic must follow paper/live authority", plan.contains("fun enabledTraderSet()") && bot.contains("val cyclicEnabled6563 = plan6526.paperMode || marketsStartCfg.cyclicTradeEnabled") && !bot.contains("CyclicTradeEngine.setEnabled(false)"))
     }
 
 
@@ -8267,6 +8267,23 @@ class GoldenTapeRegressionTest {
         assertTrue(gate.contains("fun registerCanonicalIntent6554") && gate.contains("activeExecutionIntents6519") && gate.contains("executionTickets"))
         assertTrue(gate.contains("private fun publishFdgIntent6519") && gate.contains("registerCanonicalIntent6554(sizedIntent)"))
         assertTrue(contract.contains("CANONICAL_PENDING_EXPIRED") && contract.contains("markFailed") && contract.contains("markDeferred") && contract.contains("markCancelled"))
+    }
+
+    @Test
+    fun V5_0_6563_cyclic_is_not_unconditionally_disabled_after_runtime_plan() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("CYCLIC_RUNTIME_ENABLED_6563"))
+        assertTrue(bot.contains("val cyclicEnabled6563 = plan6526.paperMode || marketsStartCfg.cyclicTradeEnabled"))
+        assertTrue(!bot.contains("CyclicTradeEngine.setEnabled(false)"))
+    }
+
+    @Test
+    fun V5_0_6562_crypto_paper_learning_reaches_fdg_without_relaxing_live_momentum() {
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue(crypto.contains("CRYPTO_PAPER_LEARNING_ADMISSION_6562"))
+        assertTrue(crypto.contains("val paperLearningCandidate6562 = isPaperMode.get() && score >= 50 && confidence >= 40"))
+        assertTrue(crypto.contains("!paperLearningCandidate6562"))
+        assertTrue(crypto.indexOf("paperLearningCandidate6562") < crypto.indexOf("return AltSignal("))
     }
 
     @Test

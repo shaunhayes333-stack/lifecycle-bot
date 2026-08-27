@@ -1681,10 +1681,17 @@ object CryptoAltTrader {
             (techRsiForGate > 55.0 || techMacdBullish)
         val reversalSetup   = techRsiForGate < 30.0 && change > 0.0  // oversold bounce only
         val shortSetup      = techRsiForGate > 70.0 && change < 0.0  // overbought fade only
-        if (!strongLongSetup && !reversalSetup && !shortSetup) {
+        val paperLearningCandidate6562 = isPaperMode.get() && score >= 50 && confidence >= 40
+        if (!strongLongSetup && !reversalSetup && !shortSetup && !paperLearningCandidate6562) {
             ErrorLogger.debug(TAG,
                 "🚫 MOMENTUM GATE: ${market.symbol} change=${"%.2f".format(change)}% RSI=${"%.0f".format(techRsiForGate)} MACD=${if (techMacdBullish) "BULL" else "NA"} — no directional edge")
             return null
+        }
+        if (paperLearningCandidate6562 && !strongLongSetup && !reversalSetup && !shortSetup) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_PAPER_LEARNING_ADMISSION_6562")
+                ForensicLogger.lifecycle("CRYPTO_PAPER_LEARNING_ADMISSION_6562", "symbol=${market.symbol} score=$score confidence=$confidence change=${"%.2f".format(change)} action=fdg_safety_learning_only")
+            } catch (_: Throwable) {}
         }
 
         // V5.9.432 — FLAT-4H FILTER: if the token's last-4h total movement
@@ -1692,7 +1699,7 @@ object CryptoAltTrader {
         // momentum-gate-positive signal is unlikely to produce a winner.
         // Uses the 24h change as a proxy (real 4h range requires candle
         // fetch; approximate via abs(change) < 0.5 ≈ flat 4h too).
-        if (kotlin.math.abs(change) < 0.5 && !reversalSetup) {
+        if (kotlin.math.abs(change) < 0.5 && !reversalSetup && !paperLearningCandidate6562) {
             ErrorLogger.debug(TAG,
                 "🚫 FLAT_4H_FILTER: ${market.symbol} change=${"%.2f".format(change)}% — chop, skip")
             return null

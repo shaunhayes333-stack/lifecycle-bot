@@ -2163,7 +2163,15 @@ class BotService : Service() {
             // V5.0.6533 — publish the same immutable plan already consumed by
             // setEnabled/startup. No second interpretation of mode or sub-toggles.
             com.lifecyclebot.engine.EnabledTraderAuthority.publish(plan6526.enabledTraderSet())
-            try { CyclicTradeEngine.setEnabled(false) } catch (_: Throwable) {}
+            // V5.0.6563 — do not unconditionally disable the Cyclic ring after
+            // the runtime plan is built. That stale kill silently overrode the
+            // PAPER=LEARN_EVERYTHING watchdog policy and made CYCLIC absent
+            // even though its tick path explicitly allowed paper learning.
+            val cyclicEnabled6563 = plan6526.paperMode || marketsStartCfg.cyclicTradeEnabled
+            try { CyclicTradeEngine.setEnabled(cyclicEnabled6563) } catch (_: Throwable) {}
+            try {
+                PipelineHealthCollector.labelInc(if (cyclicEnabled6563) "CYCLIC_RUNTIME_ENABLED_6563" else "CYCLIC_RUNTIME_DISABLED_LIVE_TOGGLE_6563")
+            } catch (_: Throwable) {}
             // V5.9.789 — operator audit Critical Fix 3: comprehensive startup
             // authority dump. The previous publish() call only logged the
             // enabled/disabled trader sets. Operator audit requires the full
