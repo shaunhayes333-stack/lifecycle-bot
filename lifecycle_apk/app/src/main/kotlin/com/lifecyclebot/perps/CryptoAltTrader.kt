@@ -521,8 +521,16 @@ object CryptoAltTrader {
         } catch (_: Throwable) { /* fall through to config check */ }
         // V5.0.6015 — if BotService published CRYPTO_ALT as the isolated crypto
         // sidecar, do not let stale markets/crypto UI toggles stop the trader loop.
-        if (cfg != null && !authorityAllowsCrypto6015 && (cfg.tradingMode == 0 || !cfg.marketsTraderEnabled || !cfg.cryptoAltsEnabled)) {
+        // V5.0.6553 — PAPER_MODE=LEARN_EVERYTHING. Runtime plan already
+        // admits the crypto universe for paper sampling; stale meme-only UI
+        // flags must not silence the independent multi-chain scanner.
+        if (cfg != null && !cfg.paperMode && !authorityAllowsCrypto6015 &&
+            (cfg.tradingMode == 0 || !cfg.marketsTraderEnabled || !cfg.cryptoAltsEnabled)) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_RUNTIME_BLOCKED_LIVE_CONFIG_6553") } catch (_: Throwable) {}
             return "MEME_ONLY_MODE"
+        }
+        if (cfg?.paperMode == true) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_PAPER_LEARN_EVERYTHING_ADMITTED_6553") } catch (_: Throwable) {}
         }
         if (!isEnabled.get()) return "disabled"
         return null

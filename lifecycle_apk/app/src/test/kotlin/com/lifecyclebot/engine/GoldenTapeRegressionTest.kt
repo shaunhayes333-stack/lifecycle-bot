@@ -8257,6 +8257,14 @@ class GoldenTapeRegressionTest {
 
 
     @Test
+    fun V5_0_6553_paper_mode_reaches_markets_and_crypto_scanners() {
+        val markets = java.io.File("src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt").readText()
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue(markets.contains("!cfg.paperMode") && markets.contains("MARKETS_PAPER_LEARN_EVERYTHING_ADMITTED_6553"))
+        assertTrue(crypto.contains("!cfg.paperMode") && crypto.contains("CRYPTO_PAPER_LEARN_EVERYTHING_ADMITTED_6553"))
+    }
+
+    @Test
     fun V5_0_6512_execution_authority_and_provider_rotation_are_source_rooted() {
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()

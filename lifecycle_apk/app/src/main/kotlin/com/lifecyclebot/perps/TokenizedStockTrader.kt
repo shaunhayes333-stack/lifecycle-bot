@@ -570,8 +570,16 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             if (com.lifecyclebot.engine.EnabledTraderAuthority.marketLanesQuarantined()) {
                 return "STOCKS_QUARANTINED_V5_9_1446"
             }
-            if (cfg != null && (cfg.tradingMode == 0 || !cfg.marketsTraderEnabled || !cfg.stocksEnabled)) {
+            // V5.0.6553 — PAPER_MODE=LEARN_EVERYTHING. The immutable
+            // TraderRuntimePlan enables Markets in paper even when the UI is
+            // set to meme-only; do not reintroduce the old contradictory gate.
+            if (cfg != null && !cfg.paperMode &&
+                (cfg.tradingMode == 0 || !cfg.marketsTraderEnabled || !cfg.stocksEnabled)) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_RUNTIME_BLOCKED_LIVE_CONFIG_6553") } catch (_: Throwable) {}
                 return "MEME_ONLY_MODE"
+            }
+            if (cfg?.paperMode == true) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_PAPER_LEARN_EVERYTHING_ADMITTED_6553") } catch (_: Throwable) {}
             }
         }
         if (!isEnabled.get()) return "disabled"
