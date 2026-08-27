@@ -1,10 +1,43 @@
-# AATE PRD — V5.0.6550a (P0 EXECUTION COMMIT AUTHORITY REPAIR)
+# AATE PRD — V5.0.6550c (P0 EXECUTION COMMIT + GROWTH COMPOUND RING)
 
 **Status:** PAPER TRADING ONLY.
 
-**Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE (FillLotLedger6504 immutable SQLite lots + per-lot projection reconciliation), never by strangling flow.
+**Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE (FillLotLedger6504 immutable SQLite lots + per-lot projection reconciliation), never by strangling flow. **The Growth Compound Ring now materialises this mantra as a live scoreboard tick-by-tick.**
 
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA.
+
+
+## V5.0.6550b / 6550c (Feb 2026) — CI VERSION FIX + $50 → $1M SCOREBOARD
+
+### §6550b — CI build-number regex
+
+Operator: "the last build pushed a weird build number". Root cause: prior regex `s/^V5\.0\.NNNN.*/…/p` required the subject to START with `V5.0.NNNN`; the PRD.md commit didn't start there, so `COMMIT_BUILD_NUMBER=0` and CI fell back to `GITHUB_RUN_NUMBER`. Fix: scan the last 20 commit subjects for `V5.0.NNNN` anywhere in the line and take the max. `.github/workflows/build.yml` line 52.
+
+### §6550c — GROWTH COMPOUND RING
+
+Operator directive: "Turn the freshly-flowing paper buys into a live-shadow $50 → $1M compounding scoreboard operators can watch grow."
+
+`GrowthCompoundRing6550` (new object under `com.lifecyclebot.engine.truth`):
+
+  * Read-only projection over every `PaperEquityCalculator6467.compute()` snapshot. Converts SOL → USD via `WalletManager.lastKnownSolPrice`.
+  * Tracks `currentEquityUsd`, `multipleFromStart` (equity / $50), `progressBps` (0..10_000 toward $1M), `peakEquityUsd` + `drawdownFromPeakBps`.
+  * 13 milestones: $100, $250, $500, $1K, $2.5K, $5K, $10K, $25K, $50K, $100K, $250K, $500K, $1M.
+  * First-crossing timestamps recorded exactly once; emits `GROWTH_MILESTONE_CROSSED_6550c|<amount>` per-milestone counter + lifecycle log.
+  * Bad SOL/USD (NaN, 0, negative) HOLDS the prior USD equity so a provider blip cannot spuriously trigger a milestone.
+
+Wire-up:
+
+  * `PaperEquityCalculator6467.observeGrowthRing(snap, solPriceUsd)` called from `BotService`'s equity-compute site (same reconciler tick that fires the conservation invariant).
+  * `PipelineHealthCollector` renders `Growth ring (§6550c): equityUsd=$X mult=Yx progressBps=Z peakUsd=$P ddBps=D milestones=N/13 next=$LABEL@$AMOUNT rem=$REM bumps=B` in every pipeline health dump.
+
+Zero authority impact — gates, sizing, learning, exits, marks do NOT read this object. It only observes.
+
+`GrowthCompoundRing6550Test` — 7 acceptance cases lock: anchor start below $100 crosses no milestone; $1K + $10K crossings timestamp once and remain stable; peak monotonic, drawdown measured against it; bad SOL feed holds prior equity; target reached reports no next milestone; progressBps clamped [0, 10_000]; statusLine non-blank after first observation.
+
+### CI Status
+
+  * `Build AATE APK` on `039aa372` (V5.0.6550b + 6550c): ✅ SUCCESS
+  * Runtime Smoke: awaiting first end-to-end trade proof on the 6550/6550a stack.
 
 
 ## V5.0.6550 / 6550a (Feb 2026) — P0 EXECUTION COMMIT AUTHORITY REPAIR
