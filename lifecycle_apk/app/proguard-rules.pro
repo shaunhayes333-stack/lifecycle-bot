@@ -43,3 +43,7 @@
 
 # Keep TweetNaCl JitPack dependency
 -keep class com.iwebpp.** { *; }
+
+# V5.0.6546 — bitcoinj optional Groovy script integration is not packaged or
+# called by AATE; suppress only its absent optional runtime class.
+-dontwarn groovy.lang.GroovyShell

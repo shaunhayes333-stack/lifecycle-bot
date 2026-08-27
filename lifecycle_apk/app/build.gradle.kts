@@ -97,7 +97,8 @@ android {
                 "META-INF/LICENSE.txt",
                 "META-INF/license.txt",
                 "META-INF/NOTICE",
-                "META-INF/NOTICE.txt"
+                "META-INF/NOTICE.txt",
+                "META-INF/DISCLAIMER"
             )
         }
     }
@@ -162,7 +163,13 @@ dependencies {
     // Used only for address/key derivation; chain-specific execution remains
     // gated on confirmed signer + venue adapters.
     implementation("org.web3j:crypto:4.12.3")
-    implementation("org.bitcoinj:bitcoinj-core:0.16.3")
+    implementation("org.bitcoinj:bitcoinj-core:0.16.3") {
+        // web3j supplies the single Android-compatible Bouncy Castle line.
+        // Keep one provider version to avoid duplicate classes in APK packaging.
+        exclude(group = "org.bouncycastle", module = "bcprov-jdk15to18")
+        // Turso already supplies protobuf-java; avoid duplicate full/lite classes.
+        exclude(group = "com.google.protobuf", module = "protobuf-javalite")
+    }
 
     // TweetNaCl for ed25519 signing (no JNI, pure Java)
     implementation("com.github.InstantWebP2P:tweetnacl-java:v1.1.2")
