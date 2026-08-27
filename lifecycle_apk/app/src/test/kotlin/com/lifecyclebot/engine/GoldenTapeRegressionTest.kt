@@ -8270,6 +8270,16 @@ class GoldenTapeRegressionTest {
     }
 
     @Test
+    fun V5_0_6559_paper_runtime_precedes_stale_live_authority_for_markets_and_crypto() {
+        val markets = java.io.File("src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt").readText()
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue(markets.contains("MARKETS_PAPER_RUNTIME_PRECEDENCE_6559") && markets.contains("val paperRuntime6559"))
+        assertTrue(crypto.contains("CRYPTO_PAPER_RUNTIME_PRECEDENCE_6559") && crypto.contains("val paperRuntime6559"))
+        assertTrue(markets.indexOf("val paperRuntime6559") < markets.indexOf("effectiveSnapshot()"))
+        assertTrue(crypto.indexOf("val paperRuntime6559") < crypto.indexOf("effectiveSnapshot()"))
+    }
+
+    @Test
     fun V5_0_6558_cross_asset_size_seal_and_perps_sandbox_are_source_rooted() {
         val sizing = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalSizingBridge6532.kt").readText()
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()

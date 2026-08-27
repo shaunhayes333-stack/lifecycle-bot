@@ -551,11 +551,21 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         try {
             if (com.lifecyclebot.engine.BotService.isShuttingDown) return "runtime_stopping"
         } catch (_: Throwable) {}
+        val c6559 = try { com.lifecyclebot.engine.BotService.instance?.applicationContext } catch (_: Throwable) { null }
+        val cfg6559 = try { c6559?.let { com.lifecyclebot.data.ConfigStore.load(it) } } catch (_: Throwable) { null }
+        // V5.0.6559 — paper runtime precedence. Do not let a stale/early
+        // live authority snapshot suppress Markets before its first scan.
+        val paperRuntime6559 = (cfg6559?.paperMode == true) || try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        if (paperRuntime6559) {
+            if (!isEnabled.get()) return "disabled"
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_PAPER_RUNTIME_PRECEDENCE_6559") } catch (_: Throwable) {}
+            return null
+        }
         try {
             // V5.0.6524 §AUTHORITY_COLLAPSE — was `.snapshot()` (raw published
             // set), which said DISABLED for MARKETS_STOCKS in PAPER even when
             // `isEnabled(t)` said ENABLED. effectiveSnapshot() returns the
-            // full trader universe in PAPER (matches isEnabled(t)) so both
+            // full trader universe in PAPER (matches `isEnabled(t)`) so both
             // APIs answer the same question the same way.
             val authority = com.lifecyclebot.engine.EnabledTraderAuthority.effectiveSnapshot()
             if (authority.isNotEmpty() &&

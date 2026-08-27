@@ -498,6 +498,15 @@ object CryptoAltTrader {
         //   2. Otherwise fall through to the authority + config guards.
         val c = ctx
         val cfg = try { c?.let { com.lifecyclebot.data.ConfigStore.load(it) } } catch (_: Throwable) { null }
+        // V5.0.6559 — runtime mode is the paper authority. A stale/early
+        // published live trader set must not suppress the independent paper
+        // learning scanner before its first tick.
+        val paperRuntime6559 = (cfg?.paperMode == true) || try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        if (paperRuntime6559) {
+            if (!isEnabled.get()) return "disabled"
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_PAPER_RUNTIME_PRECEDENCE_6559") } catch (_: Throwable) {}
+            return null
+        }
         val operatorExplicitlyEnabled = cfg != null &&
             cfg.cryptoAltsEnabled && cfg.marketsTraderEnabled
         if (operatorExplicitlyEnabled) {
