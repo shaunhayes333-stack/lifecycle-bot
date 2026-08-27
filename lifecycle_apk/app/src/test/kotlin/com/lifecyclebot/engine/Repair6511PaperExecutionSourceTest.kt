@@ -46,12 +46,13 @@ class Repair6511PaperExecutionSourceTest {
         assertFalse(minimumBlock.contains("c.smallBuySol"))
         assertFalse(minimumBlock.contains("paperSimulatedBalance * 0.001"))
         assertTrue(minimumBlock.contains("PaperPreTicketSizeFloor6511.boundedMinimum"))
-        val promotion = executor.indexOf("effectiveRequestedSol6511 = PaperPreTicketSizeFloor6511.effectiveRequested")
+        val promotion = executor.indexOf("val effectiveRequestedSol6511")
         val bridge = executor.indexOf("TraderSizingBridge6444.resolveForLane", promotion)
         val reject = executor.indexOf("PAPER_BUY_REJECTED_BEFORE_TICKET_SIZE_6490", bridge)
         val ticket = executor.indexOf("ExecutableOpenGate.canOpenExecutablePosition", reject)
         val commit = executor.indexOf("V5.0.6485 — ATOMIC PAPER BUY COMMIT", ticket)
         assertTrue(promotion >= 0 && promotion < bridge && bridge < reject && reject < ticket && ticket < commit)
+        assertTrue(executor.contains("PAPER_SEALED_NOTIONAL_CONSUMED_6552") && executor.contains("sealedNotional6552"))
         assertTrue(executor.contains("PAPER_BUY_SIZE_FLOOR_PROMOTED_6511"))
     }
 }

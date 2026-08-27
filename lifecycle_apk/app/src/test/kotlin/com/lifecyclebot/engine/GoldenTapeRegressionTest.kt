@@ -2980,7 +2980,7 @@ class GoldenTapeRegressionTest {
         assertTrue("first paper close must mark requested before trace", exec.contains("PaperPositionCloseAuthority.markCloseRequested"))
         assertTrue("paperSell must finalize the paper authority when ledger closes", closeConvergence6509.contains("PaperPositionCloseAuthority.markClosed(\"PAPER\", mint"))
 
-        assertTrue("paper buy must clamp before position and journal mutation", exec.contains("clampPaperTradeSol(floorPreserved6490"))
+        assertTrue("paper buy must clamp before position and journal mutation", exec.contains("PAPER_SEALED_NOTIONAL_CONSUMED_6552") && exec.contains("sealedNotional6552"))
         assertTrue("paper buy max must be bankroll-backed live-transfer size, not legacy maxPositionSol micro-cap", exec.contains("ALL PAPER ENTRIES") && exec.contains("paperSimulatedBalance * 0.10") && exec.contains("coerceIn(legacyMax, 2.0)"))
         // V5.0.6511 — executable minimum is independent from requested sizing and wallet percentage.
         assertTrue("paper buy minimum must use the independent bounded runtime floor", exec.contains("PaperPreTicketSizeFloor6511.boundedMinimum(runtimeMinimum6511)") && !exec.substring(exec.indexOf("private fun minConfiguredPaperTradeSol"), exec.indexOf("private fun clampPaperTradeSol")).contains("c.smallBuySol"))
@@ -7662,9 +7662,9 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("V5.0.6481: tactic switcher must expose lane-local pressure rotation", tactics.contains("fun rotateForLanePressure") && tactics.contains("lane-local-pressure:"))
         assertTrue("V5.0.6481: admission must rotate tactic before applying size multiplier", gate.indexOf("TacticSwitcher.rotateForLanePressure") in 1 until gate.indexOf("requestedSizeSol * d.sizeMultiplier"))
-        assertTrue("V5.0.6481: approved sizing must retain explicit executable floor", gate.contains("coerceAtLeast(minExecutableSizeSol.coerceAtLeast(0.0))") && exec.contains("minExecutableSizeSol = minConfiguredPaperTradeSol()"))
+        assertTrue("V5.0.6481: approved sizing must retain explicit executable floor", gate.contains("coerceAtLeast(minExecutableSizeSol.coerceAtLeast(0.0))") && exec.contains("paperExecutableMinimumSol6511 = minConfiguredPaperTradeSol()"))
         assertFalse("V5.0.6481: paper executor must not translate learned lane pressure into zero", exec.contains("PAPER_BUY_LANE_ADMISSION_SKIP_6473"))
-        assertTrue("V5.0.6481: compatibility branch preserves size", exec.contains("PAPER_BUY_LANE_ADMISSION_SKIP_COMPAT_6481") && exec.contains("action=preserve_size"))
+        assertTrue("V5.0.6552: sealed notional is consumed without post-ticket shapers", exec.contains("PAPER_SEALED_NOTIONAL_CONSUMED_6552") && exec.contains("sealedNotional6552"))
         assertFalse("V5.0.6481: learned toxic bucket pressure must not hard-veto paper/live buys", exec.contains("PAPER_BUY_TOXIC_BUCKET_HARD_VETO_6249") || exec.contains("TOXIC_BUCKET_HARD_VETO_6249"))
         assertTrue("V5.0.6481: both modes must pivot tactic inside the lane", exec.contains("PAPER_BUY_TOXIC_BUCKET_TACTIC_PIVOT_6481") && exec.contains("LIVE_BUY_TOXIC_BUCKET_TACTIC_PIVOT_6481"))
     }
@@ -8246,13 +8246,13 @@ class GoldenTapeRegressionTest {
         assertFalse("ordinary requested smallBuySol must not be executable-floor authority", minimumBlock.contains("c.smallBuySol"))
         assertFalse("wallet-relative requested sizing must not become an executable floor", minimumBlock.contains("paperSimulatedBalance * 0.001"))
         assertTrue(minimumBlock.contains("PaperPreTicketSizeFloor6511.boundedMinimum(runtimeMinimum6511)"))
-        val promote = exec.indexOf("effectiveRequestedSol6511 = PaperPreTicketSizeFloor6511.effectiveRequested")
+        val promote = exec.indexOf("val effectiveRequestedSol6511")
         val bridge = exec.indexOf("TraderSizingBridge6444.resolveForLane", promote)
         val reject = exec.indexOf("PAPER_BUY_REJECTED_BEFORE_TICKET_SIZE_6490", bridge)
         val ticket = exec.indexOf("ExecutableOpenGate.canOpenExecutablePosition", reject)
         val commit = exec.indexOf("V5.0.6485 — ATOMIC PAPER BUY COMMIT", ticket)
         assertTrue(promote >= 0 && promote < bridge && bridge < reject && reject < ticket && ticket < commit)
-        assertTrue(exec.contains("PAPER_BUY_SIZE_FLOOR_PROMOTED_6511") && exec.contains("availableCashSol=") && exec.contains("resolvedSol="))
+        assertTrue(exec.contains("PAPER_BUY_SIZE_FLOOR_PROMOTED_6511") && exec.contains("availableCashSol=") && exec.contains("resolvedSol=") && exec.contains("sealedNotional6552"))
     }
 
 

@@ -12178,11 +12178,15 @@ class Executor(
         // component may manufacture a 0.021 order that can never execute.
         val availableCashSol6511 = try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol() } catch (_: Throwable) { 0.0 }
         val paperExecutableMinimumSol6511 = minConfiguredPaperTradeSol()
-        val effectiveRequestedSol6511 = PaperPreTicketSizeFloor6511.effectiveRequested(
-            requestedSol = effectiveBuySol6451,
-            minimumSol = paperExecutableMinimumSol6511,
-            availableCashSol = availableCashSol6511,
-        )
+        val sealedNotional6552 = try {
+            com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(ts.mint)
+        } catch (_: Throwable) { null }
+        val effectiveRequestedSol6511 = sealedNotional6552?.takeIf { it > 0.0 }
+            ?: PaperPreTicketSizeFloor6511.effectiveRequested(
+                requestedSol = effectiveBuySol6451,
+                minimumSol = paperExecutableMinimumSol6511,
+                availableCashSol = availableCashSol6511,
+            )
         val floorPromotionRequested6511 = effectiveRequestedSol6511 > effectiveBuySol6451
         val preTicketSize6490 = try {
             com.lifecyclebot.engine.truth.TraderSizingBridge6444.resolveForLane(
@@ -12291,127 +12295,21 @@ class Executor(
             markPaperTicketDispatched6514()
         }
 
-        // V5.9.801 — operator audit Fix D: WR recovery entry-size dampener.
-        // When WR recovery is in MODERATE/AGGRESSIVE the bot is bleeding
-        // and every entry is statistically more likely to be a loss.
-        // Halving (AGGRESSIVE) or three-quartering (MODERATE) the position
-        // size shrinks each loss proportionally while still collecting
-        // training samples, so the bot can climb out of the deficit
-        // without compounding it. FLUID/OFF bands are not touched.
-        val wrSizeMult = try { WrRecoveryPartial.entrySizeMultiplier() } catch (_: Throwable) { 1.0 }
-        @Suppress("NAME_SHADOWING")
-        val sol = run {
-            var finalSol = if (wrSizeMult < 1.0) {
-                val damped = canonicalBuyIntentSol6490 * wrSizeMult
-                ErrorLogger.info("Executor", "🩹 WR_RECOVERY_SIZE_DAMP (paper): ${ts.symbol} | sol=${canonicalBuyIntentSol6490.fmt(4)} × ${"%.2f".format(wrSizeMult)} → ${damped.fmt(4)} (band=${WrRecoveryPartial.stateNow().band.name})")
-                damped
-            } else canonicalBuyIntentSol6490
+        // V5.0.6552 — execution consumes the sealed notional. No WR,
+        // runner, cold-streak, lane-admission, or second resolver may mutate
+        // size after ticket dispatch. A changed market cancels/requotes.
+        val sol = try {
+            com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(ts.mint)
+                ?: canonicalBuyIntentSol6490
+        } catch (_: Throwable) { canonicalBuyIntentSol6490 }
+        try {
+            ForensicLogger.lifecycle(
+                "PAPER_SEALED_NOTIONAL_CONSUMED_6552",
+                "mint=${ts.mint.take(10)} lane=$finalityLane attemptId=$executionAttemptId6514 sealed=${sol.fmt(6)} source=${if (sealedNotional6552 != null) "SEALED" else "CANONICAL_INTENT"}",
+            )
+            PipelineHealthCollector.labelInc("PAPER_SEALED_NOTIONAL_CONSUMED_6552")
+        } catch (_: Throwable) {}
 
-            // V5.0.6422 — RUNNER AUTO-COMPOUND. Auto-shovel the current
-            // paper win-streak straight into this buy's size. Cross-lane,
-            // non-consuming — as long as consecutive wins keep landing the
-            // multiplier stays on and every buy grows automatically.
-            // Extended wallet-growth tier lift stacks on top for 3× / 5×
-            // / 10× ratios so the $50 → $1M ladder keeps climbing past
-            // the LiveGrowthCompounder6416 cap (1.35× at 2× ratio).
-            try {
-                val runnerMult6422 = com.lifecyclebot.engine.truth.RunnerAutoCompound6422
-                    .paperStreakMultiplier()
-                if (runnerMult6422 > 1.0) {
-                    val boosted = finalSol * runnerMult6422
-                    ErrorLogger.info(
-                        "Executor",
-                        "🚀 RUNNER_AUTO_COMPOUND_6422 (paper): ${ts.symbol} | sol=${finalSol.fmt(4)} × ${"%.2f".format(runnerMult6422)} → ${boosted.fmt(4)}",
-                    )
-                    ForensicLogger.lifecycle(
-                        "RUNNER_STREAK_APPLIED_6422",
-                        "mode=PAPER mint=${ts.mint.take(10)} sym=${ts.symbol} from=${finalSol.fmt(4)} mult=${"%.2f".format(runnerMult6422)} to=${boosted.fmt(4)}",
-                    )
-                    PipelineHealthCollector.labelInc("RUNNER_STREAK_APPLIED_6422")
-                    finalSol = boosted
-                }
-                val paperBaseline6422 = try {
-                    com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.paperBaselineSolOrNull()
-                } catch (_: Throwable) { null }
-                // Extended tier lift needs the wallet-vs-baseline ratio,
-                // read directly (V5.0.6424) rather than parsed from a
-                // human-readable statusLine string as in V5.0.6422 —
-                // that path was also picking up the LIVE baseline, not
-                // the PAPER one.
-                val currentPaperSol6422 = try {
-                    com.lifecyclebot.engine.BotService.status.paperWalletSol
-                } catch (_: Throwable) { 0.0 }
-                if (paperBaseline6422 != null && paperBaseline6422 > 0.0 && currentPaperSol6422 > 0.0) {
-                    val ratio6422 = currentPaperSol6422 / paperBaseline6422
-                    val extLift = com.lifecyclebot.engine.truth.RunnerAutoCompound6422
-                        .paperExtendedTierLift(ratio6422)
-                    if (extLift > 1.0) {
-                        val lifted = finalSol * extLift
-                        ErrorLogger.info(
-                            "Executor",
-                            "📈 RUNNER_EXTENDED_TIER_6422 (paper): ${ts.symbol} | ratio=${"%.2f".format(ratio6422)} × ${"%.2f".format(extLift)} → ${lifted.fmt(4)}",
-                        )
-                        finalSol = lifted
-                    }
-                }
-            } catch (_: Throwable) {}
-
-            // V5.9.1131 — side-effect boundary paper cold-streak cap.
-            // SmartSizer has its own cap, but 3098 proved several lane paths can
-            // deliver 6-12 SOL directly into paperBuy(). Clamp at the last possible
-            // point before wallet/journal mutation so no bypass can create outsized
-            // paper losses during a cold WR regime.
-            try {
-                val stats = TradeHistoryStore.getStatsCached()
-                val decisive = stats.totalWins + stats.totalLosses
-                val wr = if (decisive > 0) stats.totalWins.toDouble() / decisive * 100.0 else 100.0
-                val perf = SmartSizer.getPerformanceContext(walletSol.takeIf { it > 0.0 } ?: finalSol, decisive, isPaperMode = true)
-                val coldCapPct = when {
-                    decisive >= 25 && (perf.lossStreak >= 10 || wr < 10.0) -> 0.02
-                    decisive >= 25 && (perf.lossStreak >= 6  || wr < 20.0) -> 0.035
-                    decisive >= 25 && (perf.lossStreak >= 4  || wr < 30.0) -> 0.05
-                    else -> 0.0
-                }
-                if (coldCapPct > 0.0) {
-                    val baseWallet = walletSol.takeIf { it > 0.0 } ?: try { FluidLearning.getSimulatedBalance() } catch (_: Throwable) { finalSol }
-                    val cap = maxOf(0.01, baseWallet * coldCapPct).coerceAtMost(1.0)
-                    if (finalSol > cap) {
-                        ErrorLogger.warn("Executor", "🧯 PAPER_BUY_COLD_CAP: ${ts.symbol} ${finalSol.fmt(4)} → ${cap.fmt(4)} SOL | wr=${wr.toInt()}% lossStreak=${perf.lossStreak} trades=$decisive")
-                        try { ForensicLogger.lifecycle("PAPER_BUY_COLD_CAP", "symbol=${ts.symbol} mint=${ts.mint.take(10)} from=${finalSol.fmt(4)} to=${cap.fmt(4)} wr=${wr.toInt()} lossStreak=${perf.lossStreak} trades=$decisive") } catch (_: Throwable) {}
-                        finalSol = cap
-                    }
-                }
-            } catch (_: Throwable) {}
-            // V5.0.6473 §Damping-Wire — consult LaneAdaptiveDamping via the
-            // admission gate so a bleeding lane (e.g. SHITCOIN at -57% EV)
-            // pivots the same lane's tactic before secondary sizing. Learned
-            // pressure never returns zero or becomes an execution hard block.
-            try {
-                val lane6473 = resolveExecutionLane(ts, fallback = "STANDARD")
-                val decision6473 = com.lifecyclebot.engine.truth.LaneAdmissionGate6473.admissionDecision(
-                    lane = lane6473, requestedSizeSol = finalSol,
-                    candidateScore = score.toInt(),
-                    minExecutableSizeSol = minConfiguredPaperTradeSol(),
-                )
-                when (decision6473) {
-                    is com.lifecyclebot.engine.truth.LaneAdmissionGate6473.Decision.Allow -> {
-                        finalSol = decision6473.effectiveSizeSol
-                    }
-                    is com.lifecyclebot.engine.truth.LaneAdmissionGate6473.Decision.Skip -> {
-                        // Compatibility only: 6481 admission no longer emits learned
-                        // skips. Preserve current size rather than disguising a policy
-                        // decision as INVALID_SIZE/SIZE_CLAMP_ZERO.
-                        try { ForensicLogger.lifecycle("PAPER_BUY_LANE_ADMISSION_SKIP_COMPAT_6481", "lane=$lane6473 mint=${ts.mint.take(10)} reason=${decision6473.reason} action=preserve_size") } catch (_: Throwable) {}
-                    }
-                }
-            } catch (_: Throwable) {}
-            val executableFloor6490 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol()
-            val floorPreserved6490 = if (canonicalBuyIntentSol6490 >= executableFloor6490 && finalSol < executableFloor6490) {
-                try { PipelineHealthCollector.labelInc("PAPER_SIZE_SHAPER_FLOOR_PRESERVED_6490") } catch (_: Throwable) {}
-                executableFloor6490
-            } else finalSol
-            clampPaperTradeSol(floorPreserved6490, ts.mint, ts.symbol, "paperBuy.pre_mutation6490", maxPaperTradeSolOverride)
-        }
         if (sol <= 0.0) {
             try { ForensicLogger.lifecycle("PAPER_BUY_INVALID_SIZE_REJECTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$sol") } catch (_: Throwable) {}
             markPaperBuyNotOpened("SIZE_CLAMP_ZERO")
