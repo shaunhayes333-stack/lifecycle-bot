@@ -150,7 +150,7 @@ object ExecutableOpenGate {
      * authority, never retain a parallel private execution intent. */
     fun registerCanonicalIntent6554(intent: ExecutionIntent): ExecutionIntent? {
         if (!intent.fdgAllowed || intent.fdgVerdict.uppercase() !in setOf("BUY", "PROBE_ONLY") ||
-            intent.hardNoReasons.isNotEmpty() || intent.resolvedSize <= 0.0 ||
+            intent.hardNoReasons.isNotEmpty() ||
             intent.mint.isBlank() || intent.candidateVersion <= 0L) return null
         val key = intentKey6519(intent.mode, intent.mint, intent.candidateVersion)
         val authoritative = activeExecutionIntents6519.putIfAbsent(key, intent) ?: intent
@@ -161,8 +161,10 @@ object ExecutableOpenGate {
         return authoritative
     }
 
-    private fun publishFdgIntent6519(intent: ExecutionIntent) {
-        registerCanonicalIntent6554(intent)
+    private fun publishFdgIntent6519(intent: ExecutionIntent, fallbackSizeSol6556: Double = 0.0) {
+        val sizedIntent = if (intent.resolvedSize > 0.0 || fallbackSizeSol6556 <= 0.0) intent
+        else intent.copy(resolvedSize = fallbackSizeSol6556)
+        registerCanonicalIntent6554(sizedIntent)
     }
 
     internal fun restoreExecStateFromFrozenSnapshot(
@@ -872,8 +874,14 @@ object ExecutableOpenGate {
                     val mode6512 = if (paperRuntime) "PAPER" else "LIVE"
                     val immutableAuthority6519 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510
                         .currentForMint(mint, winner.candidateVersion, mode6512)
+                    // V5.0.6556 — sealed size is preferred, but a final-gate
+                    // caller may already hold a valid resolved size. Do not
+                    // manufacture a zero-size intent merely because no seal was
+                    // written in this direct/test/admission path.
                     val resolvedSize6519 = immutableAuthority6519?.resolvedSizeSol
-                        ?: try { com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint) ?: 0.0 } catch (_: Throwable) { 0.0 }
+                        ?.takeIf { it > 0.0 }
+                        ?: try { com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint)?.takeIf { it > 0.0 } } catch (_: Throwable) { null }
+                        ?: 0.0
                     val canonicalLane6519 = winner.selectedLane.uppercase()
                     publishFdgIntent6519(
                         ExecutionIntent(
@@ -889,7 +897,7 @@ object ExecutableOpenGate {
                             safetyTier = winner.safetyTier, liquidityUsd = winner.liquidityUsd,
                             rugScore = winner.rugScore, hardNoReasons = winner.hardNoReasons,
                             requiresSolanaTokenMap = winner.requiresSolanaTokenMap,
-                        )
+                        ),
                     )
                     if (com.lifecyclebot.engine.truth.AateDecisionFabric6512.get(mode6512, mint, winner.candidateVersion, winner.selectedLane) == null) {
                         com.lifecyclebot.engine.truth.AateDecisionFabric6512.record(
