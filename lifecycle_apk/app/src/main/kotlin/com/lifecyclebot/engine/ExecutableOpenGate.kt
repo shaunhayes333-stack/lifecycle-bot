@@ -63,6 +63,9 @@ object ExecutableOpenGate {
         val rugScore: Int = -1,
         val hardNoReasons: List<String> = emptyList(),
         val requiresSolanaTokenMap: Boolean = true,
+        // V5.0.6554 — lifecycle action and trade direction are orthogonal.
+        val action: String = "OPEN",
+        val direction: String = "LONG",
     ) {
         val lane: String get() = canonicalLane
         val signal: String get() = authoritativeSignal
@@ -143,17 +146,23 @@ object ExecutableOpenGate {
             .maxByOrNull { it.candidateVersion }
     }
 
-    private fun publishFdgIntent6519(intent: ExecutionIntent) {
+    /** V5.0.6554 — canonical cross-asset callers must publish through this
+     * authority, never retain a parallel private execution intent. */
+    fun registerCanonicalIntent6554(intent: ExecutionIntent): ExecutionIntent? {
+        if (!intent.fdgAllowed || intent.fdgVerdict.uppercase() !in setOf("BUY", "PROBE_ONLY") ||
+            intent.hardNoReasons.isNotEmpty() || intent.resolvedSize <= 0.0 ||
+            intent.mint.isBlank() || intent.candidateVersion <= 0L) return null
         val key = intentKey6519(intent.mode, intent.mint, intent.candidateVersion)
         val authoritative = activeExecutionIntents6519.putIfAbsent(key, intent) ?: intent
         executionTickets.putIfAbsent(authoritative.attemptId, authoritative)
-        try {
-            PipelineHealthCollector.labelInc("EXEC_INTENT_CREATED")
-            ForensicLogger.lifecycle(
-                "EXEC_INTENT_CREATED",
-                "attemptId=${authoritative.attemptId} candidateId=${authoritative.candidateId} mint=${authoritative.mint.take(10)} mode=${authoritative.mode} lane=${authoritative.canonicalLane} fdg=${authoritative.fdgVerdict} allowed=${authoritative.fdgAllowed} authority=${authoritative.authorityVersion} size=${authoritative.resolvedSize}",
-            )
+        try { PipelineHealthCollector.labelInc("EXEC_INTENT_CREATED")
+            ForensicLogger.lifecycle("EXEC_INTENT_CREATED", "attemptId=${authoritative.attemptId} candidateId=${authoritative.candidateId} mint=${authoritative.mint.take(10)} mode=${authoritative.mode} lane=${authoritative.canonicalLane} fdg=${authoritative.fdgVerdict} allowed=${authoritative.fdgAllowed} authority=${authoritative.authorityVersion} size=${authoritative.resolvedSize}")
         } catch (_: Throwable) {}
+        return authoritative
+    }
+
+    private fun publishFdgIntent6519(intent: ExecutionIntent) {
+        registerCanonicalIntent6554(intent)
     }
 
     internal fun restoreExecStateFromFrozenSnapshot(

@@ -8257,11 +8257,23 @@ class GoldenTapeRegressionTest {
 
 
     @Test
+    fun V5_0_6554_canonical_entry_uses_open_gate_authority_and_open_direction() {
+        val contract = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue(contract.contains("registerCanonicalIntent6554") && contract.contains("EXEC_INTENT_REGISTRATION_FAILED"))
+        assertTrue(contract.contains("""side = "BUY"""") && contract.contains("""action = "OPEN"""") && contract.contains("direction = if"))
+        assertTrue(gate.contains("fun registerCanonicalIntent6554") && gate.contains("activeExecutionIntents6519") && gate.contains("executionTickets"))
+        assertTrue(contract.contains("CANONICAL_PENDING_EXPIRED") && contract.contains("markFailed") && contract.contains("markDeferred") && contract.contains("markCancelled"))
+    }
+
+    @Test
     fun V5_0_6553_paper_mode_reaches_markets_and_crypto_scanners() {
         val markets = java.io.File("src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt").readText()
         val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
         assertTrue(markets.contains("!cfg.paperMode") && markets.contains("MARKETS_PAPER_LEARN_EVERYTHING_ADMITTED_6553"))
         assertTrue(crypto.contains("!cfg.paperMode") && crypto.contains("CRYPTO_PAPER_LEARN_EVERYTHING_ADMITTED_6553"))
+        assertTrue(crypto.contains("discoveryAgeMinutes6554") && crypto.contains("CRYPTO_DYN_EXPRESS_EXECUTABLE_6554") && crypto.contains("CRYPTO_DYN_MANIP_EXECUTABLE_6554"))
+        assertFalse(crypto.substring(crypto.indexOf("private suspend fun runDynamicTokenScan"), crypto.indexOf("private suspend fun runScanCycle")).contains("tokenAgeMinutes   = 9999.0"))
     }
 
     @Test

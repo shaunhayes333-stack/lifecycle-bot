@@ -726,6 +726,10 @@ object CryptoAltTrader {
                 val refreshed = DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(tok.canonicalIdentity6544)
                     ?: DynamicAltTokenRegistry.getTokenByMint(tok.mint) ?: tok
                 DynamicAltTokenRegistry.markEvaluation6544(refreshed)
+                // V5.0.6554 — specialist AIs must receive registry-owned age;
+                // fresh launches must not be presented as established tokens.
+                val discoveryAgeMinutes6554 = refreshed.discoveryAgeHours6544
+                    .takeIf { it.isFinite() && it >= 0.0 }?.times(60.0) ?: 9999.0
                 val vol     = refreshed.volume24h
                 val mcap = if (refreshed.hasTrustedMarketCap6492) refreshed.mcap else {
                     if (refreshed.mcap > 0.0) try {
@@ -771,7 +775,7 @@ object CryptoAltTrader {
                                 buyPressurePct    = buyPct,
                                 momentum          = momentum,
                                 volatility        = kotlin.math.abs(change),
-                                tokenAgeMinutes   = 9999.0,  // established token
+                                tokenAgeMinutes   = discoveryAgeMinutes6554,
                                 launchPlatform    = ShitCoinTraderAI.LaunchPlatform.UNKNOWN,
                                 isDexBoosted      = tok.isBoosted,
                                 dexTrendingRank   = if (tok.isTrending) tok.trendingRank else -1,
@@ -875,12 +879,20 @@ object CryptoAltTrader {
                                 priceChange5Min = change / 288.0,
                                 isTrending      = tok.isTrending,
                                 isBoosted       = tok.isBoosted,
-                                tokenAgeMinutes = 9999.0
+                                tokenAgeMinutes = discoveryAgeMinutes6554
                             )
                             if (sig.shouldRide) {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙⚡ DynSig Express: ${tok.symbol}")
-                                // V5.0.4581: no canonical-open hook here — this is only signal generation.
+                                val expressDir6554 = if (momentum >= 0.0) PerpsDirection.LONG else PerpsDirection.SHORT
+                                dynExecutableSignals.add(AltSignal(
+                                    market = PerpsMarket.DYN, direction = expressDir6554,
+                                    score = sig.confidence, confidence = sig.confidence, price = price,
+                                    priceChange24h = change, reasons = listOf("DynScan Express ${sig.reason} ${expressDir6554.name}"),
+                                    layerVotes = emptyMap(), dynSymbol = tok.symbol, dynName = tok.name,
+                                    dynMint = tok.mint, dynChainId = tok.chainId, dynAssetKey = tok.canonicalIdentity6544
+                                ))
+                                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_DYN_EXPRESS_EXECUTABLE_6554") } catch (_: Throwable) {}
                             }
                         } catch (_: Exception) {}
                     }
@@ -937,14 +949,22 @@ object CryptoAltTrader {
                             buyPressurePct= buyPct,
                             bundlePct     = 0.0,
                             source        = tok.source,
-                            ageMinutes    = 9999.0,
+                            ageMinutes    = discoveryAgeMinutes6554,
                             rugcheckScore = if (tok.source.contains("Jupiter")) 5 else 3,
                             isPaper       = isPaperMode.get()
                         )
                         if (sig.shouldEnter) {
                             signals++
                             ErrorLogger.info(TAG, "🪙🎭 DynSig Manip: ${tok.symbol}")
-                            // V5.0.4581: no canonical-open hook here — this is only signal generation.
+                            val manipDir6554 = if (momentum >= 0.0) PerpsDirection.LONG else PerpsDirection.SHORT
+                            dynExecutableSignals.add(AltSignal(
+                                market = PerpsMarket.DYN, direction = manipDir6554,
+                                score = sig.manipScore, confidence = sig.manipScore, price = price,
+                                priceChange24h = change, reasons = listOf("DynScan Manip ${sig.reason} ${manipDir6554.name}"),
+                                layerVotes = emptyMap(), dynSymbol = tok.symbol, dynName = tok.name,
+                                dynMint = tok.mint, dynChainId = tok.chainId, dynAssetKey = tok.canonicalIdentity6544
+                            ))
+                            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_DYN_MANIP_EXECUTABLE_6554") } catch (_: Throwable) {}
                         }
                     } catch (_: Exception) {}
                 }

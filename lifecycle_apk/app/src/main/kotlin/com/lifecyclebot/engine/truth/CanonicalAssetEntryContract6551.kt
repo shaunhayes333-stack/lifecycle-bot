@@ -57,9 +57,23 @@ sealed class CanonicalAssetEntryResult6551 {
  * the returned intent.
  */
 object CanonicalEntryAuthority6551 {
+    private const val PENDING_TTL_MS_6554 = 2 * 60 * 1000L
     private val pending = ConcurrentHashMap<String, ExecutableOpenGate.ExecutionIntent>()
 
+    private fun expirePending6554() {
+        val now = System.currentTimeMillis()
+        pending.entries.removeIf { (_, intent) ->
+            val expired = now - intent.createdAt > PENDING_TTL_MS_6554
+            if (expired) try {
+                ForensicLogger.lifecycle("CANONICAL_PENDING_EXPIRED", "attemptId=${intent.attemptId} asset=${intent.mint.take(16)} mode=${intent.mode}")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_PENDING_EXPIRED")
+            } catch (_: Throwable) {}
+            expired
+        }
+    }
+
     fun submit(candidate: CanonicalAssetEntryCandidate6551): CanonicalAssetEntryResult6551 {
+        expirePending6554()
         val venue = candidate.requestedVenue.ifBlank { candidate.assetClass.tag }
         CanonicalEntryAuthority6540.markCandidateFor6551(candidate.assetClass, candidate.symbol, venue)
         CanonicalEntryAuthority6540.markSubmitFor6551(candidate.assetClass, candidate.symbol, candidate.source)
@@ -96,7 +110,7 @@ object CanonicalEntryAuthority6551 {
 
         val verdict = if (shaping.probe) "PROBE_ONLY" else "BUY"
         val attemptId = ExecutableOpenGate.canonicalExecutionKey(
-            mint = candidate.assetId, mode = candidate.mode, side = if (candidate.direction.equals("SHORT", true)) "SELL" else "BUY",
+            mint = candidate.assetId, mode = candidate.mode, side = "BUY",
             lane = candidate.specialist.ifBlank { candidate.assetClass.tag }, candidateVersion = candidate.candidateVersion,
         )
         val intent = ExecutableOpenGate.ExecutionIntent(
@@ -107,17 +121,21 @@ object CanonicalEntryAuthority6551 {
             authoritativeSignal = "BUY", safetyVerdict = "CLEAR", fdgReason = "CANONICAL_FDG_6551",
             diagnosticSignal = candidate.diagnosticSignal, safetyTier = "CLEAR", liquidityUsd = candidate.liquidityUsd,
             hardNoReasons = emptyList(), requiresSolanaTokenMap = candidate.assetClass == AssetClass.SOLANA_TOKEN,
+            action = "OPEN", direction = if (candidate.direction.equals("SHORT", true)) "SHORT" else "LONG",
         )
-        pending["${intent.mode}:${candidate.assetId}:${candidate.candidateVersion}"] = intent
+        val registered = ExecutableOpenGate.registerCanonicalIntent6554(intent)
+            ?: return deferred(candidate, venue, "EXEC_INTENT_REGISTRATION_FAILED")
+        pending["${registered.mode}:${candidate.assetId}:${candidate.candidateVersion}"] = registered
         CanonicalEntryAuthority6540.markAuthAllowFor6551(candidate.assetClass, candidate.symbol)
-        CanonicalEntryAuthority6540.markIntentCreatedFor6551(candidate.assetClass, candidate.symbol, intent.attemptId)
-        try { ForensicLogger.lifecycle("CANONICAL_FDG_INTENT_SEALED_6551", "asset=${candidate.assetId.take(16)} class=${candidate.assetClass} verdict=$verdict") } catch (_: Throwable) {}
+        CanonicalEntryAuthority6540.markIntentCreatedFor6551(candidate.assetClass, candidate.symbol, registered.attemptId)
+        try { ForensicLogger.lifecycle("CANONICAL_FDG_INTENT_SEALED_6551", "asset=${candidate.assetId.take(16)} class=${candidate.assetClass} verdict=$verdict registered=true") } catch (_: Throwable) {}
         val resultShaping = shaping.copy(sizeMultiplier = if (shaping.sizeMultiplier > 0.0) sizing.finalSizeSol / candidate.requestedSizeSol.coerceAtLeast(0.0000001) else 1.0)
         return if (shaping.probe) CanonicalAssetEntryResult6551.Probe(intent, sizing.finalSizeSol, venue, resultShaping)
         else CanonicalAssetEntryResult6551.Allowed(intent, sizing.finalSizeSol, venue, resultShaping)
     }
 
     fun findPending(assetId: String, mode: String, candidateVersion: Long? = null): ExecutableOpenGate.ExecutionIntent? {
+        expirePending6554()
         val prefix = "${mode.uppercase()}:$assetId:"
         return pending.entries.firstOrNull { it.key.startsWith(prefix) && (candidateVersion == null || it.value.candidateVersion == candidateVersion) }?.value
     }
@@ -128,7 +146,26 @@ object CanonicalEntryAuthority6551 {
 
     fun markConfirmed(intent: ExecutableOpenGate.ExecutionIntent, positionId: String) {
         pending.remove("${intent.mode}:${intent.mint}:${intent.candidateVersion}")
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_PENDING_CONFIRMED_RELEASE") } catch (_: Throwable) {}
         CanonicalEntryAuthority6540.markOpenConfirmedFor6551(AssetClass.fromLane(intent.canonicalLane), intent.symbol, positionId)
+    }
+
+    fun markFailed(intent: ExecutableOpenGate.ExecutionIntent, reason: String) = releasePending6554(intent, "FAILED", reason)
+    fun markDeferred(intent: ExecutableOpenGate.ExecutionIntent, reason: String) = releasePending6554(intent, "DEFERRED", reason)
+    fun markCancelled(intent: ExecutableOpenGate.ExecutionIntent, reason: String) = releasePending6554(intent, "CANCELLED", reason)
+
+    private fun releasePending6554(intent: ExecutableOpenGate.ExecutionIntent, state: String, reason: String) {
+        if (pending.remove("${intent.mode}:${intent.mint}:${intent.candidateVersion}") != null) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_PENDING_${state}_RELEASE")
+                ForensicLogger.lifecycle("CANONICAL_PENDING_${state}_RELEASE", "attemptId=${intent.attemptId} asset=${intent.mint.take(16)} reason=${reason.take(120)}")
+            } catch (_: Throwable) {}
+        }
+    }
+
+    private fun deferred(c: CanonicalAssetEntryCandidate6551, venue: String, reason: String): CanonicalAssetEntryResult6551.Deferred {
+        CanonicalEntryAuthority6540.markAuthBlockFor6551(c.assetClass, c.symbol, reason)
+        return CanonicalAssetEntryResult6551.Deferred(reason)
     }
 
     private fun blocked(c: CanonicalAssetEntryCandidate6551, venue: String, reason: String): CanonicalAssetEntryResult6551.Blocked {
