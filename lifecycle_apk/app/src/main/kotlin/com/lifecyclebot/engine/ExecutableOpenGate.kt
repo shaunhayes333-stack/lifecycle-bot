@@ -222,13 +222,77 @@ object ExecutableOpenGate {
             it.key.contains(":${mint.trim()}:") }
     }
 
-    fun releaseAttemptNonTerminal6514(attemptId: String, mint: String, lane: String, reason: String) {
-        revokeAttempt6514(attemptId, mint, lane)
-        try { PipelineHealthCollector.labelInc("PAPER_TICKET_NONTERMINAL_RELEASE_6514") } catch (_: Throwable) {}
-        try { ForensicLogger.lifecycle("PAPER_TICKET_NONTERMINAL_RELEASE_6514", "attemptId=$attemptId mint=${mint.take(10)} lane=$lane reason=$reason ticketReleased=true") } catch (_: Throwable) {}
+    // V5.0.6548 §P0-A — RETRY-PENDING OWNERSHIP.
+    // Operator mandate: after EXEC_OPEN_ALLOWED, a paper ticket must end in
+    // exactly one of {COMMITTED, TERMINAL_REJECTED, RETRY_PENDING(owner,
+    // deadline)}. Prior behaviour revoked the ticket completely on
+    // nonterminal defer, so the next intake cycle minted a fresh attemptId
+    // and the immutable ownership was lost. Now we retain the ticket
+    // inside a per-mint retry slot for a bounded window and let the next
+    // paperBuy resume the SAME attemptId. Terminal outcomes still revoke.
+    data class RetryPending6548(
+        val attemptId: String,
+        val mint: String,
+        val lane: String,
+        val reason: String,
+        val stampedAtMs: Long = System.currentTimeMillis(),
+    )
+    private val retryPending6548 = ConcurrentHashMap<String, RetryPending6548>()
+    const val RETRY_PENDING_TTL_MS_6548: Long = 40_000L
+
+    fun retryPendingFor6548(mint: String): RetryPending6548? {
+        val key = mint.trim()
+        val entry = retryPending6548[key] ?: return null
+        val now = System.currentTimeMillis()
+        if (now - entry.stampedAtMs > RETRY_PENDING_TTL_MS_6548) {
+            retryPending6548.remove(key, entry)
+            return null
+        }
+        return entry
     }
 
-    fun terminalizeAttempt6514(attemptId: String, mint: String, lane: String) = revokeAttempt6514(attemptId, mint, lane)
+    fun clearRetryPending6548(mint: String, reason: String) {
+        retryPending6548.remove(mint.trim())?.let { prior ->
+            try {
+                ForensicLogger.lifecycle(
+                    "PAPER_TICKET_RETRY_PENDING_CLEARED_6548",
+                    "attemptId=${prior.attemptId} mint=${prior.mint.take(10)} lane=${prior.lane} priorReason=${prior.reason} clearReason=$reason",
+                )
+                PipelineHealthCollector.labelInc("PAPER_TICKET_RETRY_PENDING_CLEARED_6548")
+            } catch (_: Throwable) {}
+        }
+    }
+
+    fun releaseAttemptNonTerminal6514(attemptId: String, mint: String, lane: String, reason: String) {
+        // V5.0.6548 §P0-A — retain the ticket + allowedAttempts[mint] entry
+        // so the immutable authority stays owned across the retry window.
+        // Only prune per-lane residues and the specific attempt lease.
+        if (attemptId.isNotBlank()) executionTickets.remove(attemptId)
+        allowedAttempts.entries.removeIf { (attemptId.isNotBlank() && it.value.first == attemptId) ||
+            it.key == laneKey(mint, lane) }
+        restorePenalties.remove(attemptId)
+        executableBuyClaim6487.entries.removeIf { attemptId.isNotBlank() && it.value.startsWith("$attemptId:") }
+        val key = mint.trim()
+        if (key.isNotEmpty()) {
+            retryPending6548[key] = RetryPending6548(attemptId, key, lane, reason)
+            try { PipelineHealthCollector.labelInc("PAPER_TICKET_RETRY_PENDING_6548") } catch (_: Throwable) {}
+            try {
+                ForensicLogger.lifecycle(
+                    "PAPER_TICKET_RETRY_PENDING_6548",
+                    "attemptId=$attemptId mint=${key.take(10)} lane=$lane reason=$reason ttlMs=$RETRY_PENDING_TTL_MS_6548 " +
+                        "action=retain_authority_await_resume",
+                )
+            } catch (_: Throwable) {}
+        }
+        try { PipelineHealthCollector.labelInc("PAPER_TICKET_NONTERMINAL_RELEASE_6514") } catch (_: Throwable) {}
+        try { ForensicLogger.lifecycle("PAPER_TICKET_NONTERMINAL_RELEASE_6514", "attemptId=$attemptId mint=${mint.take(10)} lane=$lane reason=$reason ticketReleased=true retryPending6548=true") } catch (_: Throwable) {}
+    }
+
+    fun terminalizeAttempt6514(attemptId: String, mint: String, lane: String) {
+        revokeAttempt6514(attemptId, mint, lane)
+        // Terminal outcomes clear the retry-pending owner as well.
+        retryPending6548.remove(mint.trim())
+    }
 
     private fun publishTicket(ticket: ExecutionIntent) {
         val now = System.currentTimeMillis()

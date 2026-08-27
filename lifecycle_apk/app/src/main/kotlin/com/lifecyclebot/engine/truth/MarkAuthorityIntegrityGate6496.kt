@@ -67,7 +67,25 @@ object MarkAuthorityIntegrityGate6496 {
         val provenance = try { MarketDataProvenance6471.classify(priceUsd, mcapUsd, liquidityUsd, source, poolAddress) }
             catch (_: Throwable) { MarketDataProvenance6471.Provenance.NON_AUTHORITATIVE_MISSING }
         val sourceUpper = source.trim().uppercase()
-        val realPriceSource = sourceUpper in setOf("DEXSCREENER_PAIR_POLL", "DEXSCREENER", "BIRDEYE", "JUPITER", "PUMPFUN_BONDING_CURVE", "PUMP_FUN_BC_SYNTHETIC", "PUMP_FUN_FRONTEND_API")
+        // V5.0.6548 §P0-B — CANONICAL PROVIDER IDENTITY.
+        // Operator evidence: `MARK_AUTHORITY_GATE_BLOCKED_6547|SOURCE_NOT_WHITELISTED:DEXSCREENER_WS`
+        // fired 3,547× in one session for AUTHORITATIVE-provenance WS marks.
+        // Transport channel (WS vs REST vs POLL) is not a trust domain —
+        // canonicalise the family, then apply the whitelist. This admits
+        // DEXSCREENER_WS / DEXSCREENER_REST / DEXSCREENER_POLL /
+        // DEXSCREENER_PAIR_POLL / DEXSCREENER_BASE_MINT_MARKET_CAP as a
+        // single canonical DEXSCREENER provider, matching Birdeye / Jupiter /
+        // PumpFun handling. Freshness / pool identity / template checks
+        // are unchanged — only the string comparison is normalized.
+        val canonicalSource6548 = when {
+            sourceUpper.startsWith("DEXSCREENER") -> "DEXSCREENER"
+            sourceUpper.startsWith("BIRDEYE") -> "BIRDEYE"
+            sourceUpper.startsWith("JUPITER") -> "JUPITER"
+            sourceUpper.startsWith("PUMPFUN") || sourceUpper.startsWith("PUMP_FUN") ||
+                sourceUpper.startsWith("PUMP_PORTAL") -> "PUMPFUN"
+            else -> sourceUpper
+        }
+        val realPriceSource = canonicalSource6548 in setOf("DEXSCREENER", "BIRDEYE", "JUPITER", "PUMPFUN")
         val priceValidity = fresh && priceUsd.isFinite() && priceUsd > 0.0
         val liquidityValidity = liquidityUsd.isFinite() && liquidityUsd > 0.0
         val realPoolIdentity = poolAddress.isNotBlank() && !poolAddress.startsWith("MINT_ROUTE:", ignoreCase = true)
@@ -83,7 +101,7 @@ object MarkAuthorityIntegrityGate6496 {
                 // Do NOT relax any check — this is diagnostic only.
                 val blockReason6547 = when {
                     !priceValidity -> "PRICE_INVALID_OR_STALE"
-                    !realPriceSource -> "SOURCE_NOT_WHITELISTED:${sourceUpper.ifBlank { "BLANK" }}"
+                    !realPriceSource -> "SOURCE_NOT_WHITELISTED:${canonicalSource6548.ifBlank { "BLANK" }}"
                     !realPoolIdentity -> "POOL_MISSING_OR_MINT_ROUTE"
                     knownTemplate -> "KNOWN_TEMPLATE_PRICE_50M_5M"
                     else -> "UNKNOWN"
@@ -92,7 +110,7 @@ object MarkAuthorityIntegrityGate6496 {
                 PipelineHealthCollector.labelInc("MARK_AUTHORITY_GATE_BLOCKED_6547|$blockReason6547")
                 ForensicLogger.lifecycle(
                     "MARK_AUTHORITY_GATE_BLOCKED_6496",
-                    "mint=${mint.take(10)} provenance=${provenance.name} src=$source pool=${poolAddress.take(24)} " +
+                    "mint=${mint.take(10)} provenance=${provenance.name} src=$source canonSrc=$canonicalSource6548 pool=${poolAddress.take(24)} " +
                         "priceUsd=${"%.6f".format(priceUsd)} mcap=$mcapUsd liq=$liquidityUsd " +
                         "reason=price_authority blockReason6547=$blockReason6547 " +
                         "priceValid=$priceValidity realPriceSource=$realPriceSource " +

@@ -11886,7 +11886,30 @@ class Executor(
             ?: try { LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
         val authority6513 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(ts.mint, authorityVersion6513, "PAPER")
         val preTicketLane6514 = authority6513?.executionLane ?: layerTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source.orEmpty().ifBlank { "STANDARD" } } }
-        val executionAttemptId6514 = attemptId.ifBlank { ExecutableOpenGate.nextAttemptId(ts.mint, preTicketLane6514) }
+        // V5.0.6548 §P0-A — RESUME EXISTING RETRY-PENDING TICKET.
+        // Operator mandate: after EXEC_OPEN_ALLOWED, a paper ticket must not
+        // be discarded by a nonterminal release. ExecutableOpenGate now
+        // retains the attemptId in a per-mint retry slot after each defer;
+        // resuming the SAME attemptId keeps immutable execution authority
+        // stable across the SOL/USD-missing, TokenMap-pending and decimals-
+        // pending windows. If the intake caller already passed an
+        // attemptId, that wins (explicit ownership).
+        val retryPending6548 = if (attemptId.isBlank()) {
+            try { ExecutableOpenGate.retryPendingFor6548(ts.mint) } catch (_: Throwable) { null }
+        } else null
+        if (retryPending6548 != null) try {
+            PipelineHealthCollector.labelInc("PAPER_TICKET_RESUMED_6548")
+            ForensicLogger.lifecycle(
+                "PAPER_TICKET_RESUMED_6548",
+                "attemptId=${retryPending6548.attemptId} mint=${ts.mint.take(10)} " +
+                    "priorLane=${retryPending6548.lane} priorReason=${retryPending6548.reason} " +
+                    "ageMs=${System.currentTimeMillis() - retryPending6548.stampedAtMs} paper=true",
+            )
+        } catch (_: Throwable) {}
+        val executionAttemptId6514 = attemptId.ifBlank {
+            retryPending6548?.attemptId
+                ?: ExecutableOpenGate.nextAttemptId(ts.mint, preTicketLane6514)
+        }
         val entryFinalityId6497 = executionAttemptId6514
         val ticket6513 = ExecutableOpenGate.ticketForAttempt(executionAttemptId6514)
         @Suppress("NAME_SHADOWING") val layerTag = ticket6513?.primaryLane
@@ -11960,7 +11983,12 @@ class Executor(
             try { ExecutableOpenGate.terminalizeAttempt6514(executionAttemptId6514, ts.mint, layerTag) } catch (_: Throwable) {}
             if (hasDispatchedTicket6514) try {
                 PipelineHealthCollector.labelInc("PAPER_TICKET_TERMINAL_OPEN_6514")
-                ForensicLogger.lifecycle("PAPER_TICKET_TERMINAL_OPEN_6514", "attemptId=$executionAttemptId6514 mint=${ts.mint.take(10)} lane=$layerTag reason=$reason")
+                PipelineHealthCollector.labelInc("PAPER_TICKET_COMMITTED_6548")
+                ForensicLogger.lifecycle(
+                    "PAPER_TICKET_TERMINAL_OPEN_6514",
+                    "reason=$reason stage=paperBuy.markTerminalOpen mint=${ts.mint.take(10)} " +
+                        "ticketId=$executionAttemptId6514 paper=true lane=$layerTag committed=true",
+                )
             } catch (_: Throwable) {}
             if (leaseKey.isNotBlank() && ExecutionAttemptLease.isActiveKey6514(leaseKey)) try {
                 PipelineHealthCollector.labelInc("EXEC_LEASE_LEAK_INVARIANT_6514")
