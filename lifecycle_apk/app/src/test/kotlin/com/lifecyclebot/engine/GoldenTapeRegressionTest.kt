@@ -8265,7 +8265,7 @@ class GoldenTapeRegressionTest {
         assertTrue(contract.contains("registerCanonicalIntent6554") && contract.contains("EXEC_INTENT_REGISTRATION_FAILED"))
         assertTrue(contract.contains("""side = "BUY"""") && contract.contains("""action = "OPEN"""") && contract.contains("direction = if"))
         assertTrue(gate.contains("fun registerCanonicalIntent6554") && gate.contains("activeExecutionIntents6519") && gate.contains("executionTickets"))
-        assertTrue(gate.contains("preResolvedSizeSol6490.takeIf { it > 0.0 }") && gate.contains("Do not\n                    // manufacture a zero-size intent"))
+        assertTrue(gate.contains("private fun publishFdgIntent6519") && gate.contains("registerCanonicalIntent6554(sizedIntent)"))
         assertTrue(contract.contains("CANONICAL_PENDING_EXPIRED") && contract.contains("markFailed") && contract.contains("markDeferred") && contract.contains("markCancelled"))
     }
 
