@@ -65,7 +65,13 @@ data class BotConfig(
     // PerpsSandbox6463 accepts leveraged position records and enforces
     // margin-call liquidation semantics through the risk-exit clock.
     // Live mode always refuses regardless of this flag.
-    val perpsSandboxEnabled: Boolean = false,
+    // V5.0.6549 — default flipped ON. `PerpsSandbox6463.setEnabled(...)`
+    // still refuses when `paperMode=false`, so this is a no-op for live
+    // execution. Enabling the paper-only leverage path lets 6548's
+    // ownership machinery route perps tickets through the same commit
+    // pipeline as spot paper trades so operator can validate end-to-end
+    // trade processing on both asset legs.
+    val perpsSandboxEnabled: Boolean = true,
     // tokens
     val watchlist: List<String> = emptyList(),
     val activeToken: String = "",
@@ -557,7 +563,7 @@ object ConfigStore {
             paperSimulatedBalance       = p.getFloat("paper_simulated_balance", 11.76f).toDouble(),
             autoTrade                   = p.getBoolean("auto_trade", true),
             autoPipelineAdvisorEnabled  = p.getBoolean("auto_pipeline_advisor_enabled", true),
-            perpsSandboxEnabled         = p.getBoolean("perps_sandbox_enabled", false),
+            perpsSandboxEnabled         = p.getBoolean("perps_sandbox_enabled", true),
             watchlist                   = (p.getString("watchlist", "") ?: "").split(",").filter { it.isNotBlank() },
             activeToken                 = p.getString("active_token", "") ?: "",
             smallBuySol                 = p.getFloat("small_buy_sol", 0.05f).toDouble(),
