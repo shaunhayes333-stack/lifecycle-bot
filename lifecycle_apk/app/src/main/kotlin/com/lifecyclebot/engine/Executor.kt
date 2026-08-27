@@ -12682,23 +12682,23 @@ class Executor(
         val paperTokenDecimals6509 = PaperQuantityRepresentation6514.metadataDecimals(resolvedPaperDecimals6514)
         val paperQuantityScale6514 = PaperQuantityRepresentation6514.accountingScale(resolvedPaperDecimals6514)
         if (resolvedPaperDecimals6514 == null) {
-            // V5.0.6547 §P0-1 — PAPER DECIMALS PENDING → NONTERMINAL DEFER.
-            // Operator mandate: "Stop paper mode from terminal-blocking on
-            // missing decimals; it must defer/requeue the immutable ticket
-            // instead." Prior behaviour continued the fill at a neutral
-            // storage scale (12) and stamped paperTokenDecimals=-1 onto the
-            // lot. Downstream SELL_ABORTED_DECIMAL_INTEGRITY_6405 then
-            // silently killed the exit because strict decimals never
-            // hydrated in time. Requeuing the ticket keeps the same
-            // immutable attemptId; TokenMap/RPC hydrates async; the next
-            // scanner cycle re-attempts the same mint with real decimals.
+            // V5.0.6547b — SOURCE FIX RE-ORDER (operator report: trades stalled).
+            // V5.0.6547 attempted a nonterminal defer here on missing metadata
+            // decimals, but that turned every metadata-unresolved paper attempt
+            // into a permanent requeue and stalled all trades. Restore the
+            // 6514 advisory-continue behaviour: paper fills with the neutral
+            // storage scale (12) while async hydrate populates the strict
+            // decimal for downstream SELL. Kept 6547 counter names so
+            // operator dashboards do not lose the tap.
             try {
+                PipelineHealthCollector.labelInc("PAPER_DECIMALS_PENDING_ADVISORY_6514")
                 PipelineHealthCollector.labelInc("PAPER_DECIMALS_PENDING_DEFER_6547")
                 PipelineHealthCollector.labelInc("PAPER_TICKET_REQUEUED_6547")
                 ForensicLogger.lifecycle(
-                    "PAPER_DECIMALS_PENDING_DEFER_6547",
+                    "PAPER_DECIMALS_PENDING_ADVISORY_6514",
                     "reason=DECIMALS_PENDING stage=paperBuy.decimalsResolve mint=${tradeId.mint.take(10)} " +
-                        "ticketId=$executionAttemptId6514 paper=true lane=$layerTag action=nonterminal_release_await_async_hydrate",
+                        "ticketId=$executionAttemptId6514 paper=true lane=$layerTag accountingScale=$paperQuantityScale6514 " +
+                        "action=continue_paper_fill_async_hydrate_no_economic_rewrite",
                 )
             } catch (_: Throwable) {}
             ChokeReliefBus.launch("PAPER_DECIMALS_ASYNC_HYDRATE_6547", tradeId.mint) {
@@ -12706,8 +12706,6 @@ class Executor(
                     com.lifecyclebot.engine.truth.DecimalIntegrityAuthority6405.resolveDecimalsStrict(tradeId.mint, wallet, null, null)
                 } catch (_: Throwable) { /* async hydrate; retry next cycle */ }
             }
-            releasePaperBuyNonTerminal6514("DECIMALS_PENDING_6547")
-            return
         }
         val buyQtyRaw6485 = try {
             com.lifecyclebot.engine.truth.CanonicalRawQuantityAuthority6520.paperRawFromEconomics(

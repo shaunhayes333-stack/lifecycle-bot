@@ -8331,16 +8331,14 @@ class GoldenTapeRegressionTest {
         val tx = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
 
         assertFalse(executor.contains("PAPER_BUY_DEFERRED_DECIMALS_MISSING_" + "6509"))
-        // V5.0.6547 §P0-1 — missing decimals now defer nonterminally (immutable
-        // ticket requeued for next cycle) rather than continuing at neutral
-        // storage scale. Both counter names must be present in Executor so
-        // the old advisory-path evidence and the new defer-path evidence
-        // coexist in the golden tape.
+        // V5.0.6547b — after operator report that V5.0.6547 P0-1 defer stalled
+        // every trade, we restored the 6514 advisory-continue path. Both the
+        // legacy 6514 counter and the 6547 companion counters must be present.
+        assertTrue(executor.contains("PAPER_DECIMALS_PENDING_ADVISORY_" + "6514"))
         assertTrue(
             executor.contains("PAPER_DECIMALS_PENDING_DEFER_" + "6547") &&
                 executor.contains("PAPER_TICKET_REQUEUED_" + "6547"),
         )
-        assertTrue(executor.contains("releasePaperBuyNonTerminal6514(" + "\"" + "DECIMALS_PENDING_" + "6547" + "\"" + ")"))
         assertTrue(executor.contains("PAPER_TICKET_DISPATCHED_" + "6514"))
         assertTrue(executor.contains("PAPER_TICKET_TERMINAL_OPEN_" + "6514"))
         assertTrue(executor.contains("PAPER_TICKET_TERMINAL_BLOCK_" + "6514"))
