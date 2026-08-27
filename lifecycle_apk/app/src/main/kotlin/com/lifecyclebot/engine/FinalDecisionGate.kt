@@ -4823,6 +4823,30 @@ object FinalDecisionGate {
             }
         } catch (_: Throwable) { /* live size contract must never break FDG */ }
 
+        // V5.0.6552 — ONE IMMUTABLE NOTIONAL AUTHORITY.
+        // The legacy intelligence sites above remain advisory inputs, but their
+        // sequential multipliers must not compound the same WR/regime risk
+        // repeatedly into a dust probe. Preserve the aggregate direction in a
+        // bounded log-space band, then resolve the one executable notional.
+        if (shouldTradeFinal && finalSize > 0.0 && proposedSizeSol > 0.0) {
+            val rawShape6552 = (finalSize / proposedSizeSol).takeIf { it.isFinite() && it > 0.0 } ?: 1.0
+            val boundedShape6552 = kotlin.math.exp(kotlin.math.ln(rawShape6552).coerceIn(kotlin.math.ln(0.35), kotlin.math.ln(1.50)))
+            val beforeCanonical6552 = finalSize
+            finalSize = (proposedSizeSol * boundedShape6552).coerceAtLeast(0.005)
+            checks.add(GateCheck("canonical_notional_6552", true,
+                "one bounded composite shape raw=${rawShape6552.format(3)} bounded=${boundedShape6552.format(3)} " +
+                    "size ${beforeCanonical6552.format(4)}→${finalSize.format(4)}"))
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_NOTIONAL_RESOLVED_6552")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "CANONICAL_NOTIONAL_RESOLVED_6552",
+                    "mint=${ts.mint.take(10)} lane=$laneName mode=${if (config.paperMode) "PAPER" else "LIVE"} " +
+                        "proposal=${proposedSizeSol.format(5)} rawShape=${rawShape6552.format(4)} " +
+                        "shape=${boundedShape6552.format(4)} final=${finalSize.format(5)}",
+                )
+            } catch (_: Throwable) {}
+        }
+
         val aateEnvelope6512 = try {
             val hardReason6512 = blockReasonFinal?.uppercase().orEmpty()
             val trueHard6512 = listOf("CONFIRMED_RUG", "RUGCHECK_100", "RC_SCORE_0", "NO_EXECUTABLE_ROUTE", "TRUE_ZERO_LIQUIDITY", "DUPLICATE_OPEN", "MINT_AUTHORITY_RETAINED", "FREEZE_AUTHORITY_RETAINED", "MANUAL_LIQUIDATION")
@@ -4866,6 +4890,22 @@ object FinalDecisionGate {
             )
         } catch (_: Throwable) { null }
         if (aateEnvelope6512 != null) finalSize = aateEnvelope6512.sizeFinal
+        // Seal only after every advisory input and the canonical envelope have
+        // finished. Downstream paper/live execution must consume this value;
+        // any market change requires a fresh ticket rather than mutation.
+        if (shouldTradeFinal && finalSize >= 0.005 && ts.mint.isNotBlank()) {
+            try {
+                val sealed6552 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.resolve(
+                    requestedSol = finalSize,
+                    laneName = laneName,
+                    walletSol = try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol() } catch (_: Throwable) { 0.0 },
+                    paperMode = config.paperMode,
+                    laneRiskCapSol = (try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol() } catch (_: Throwable) { 0.0 }) * 0.12,
+                    laneMinExecutableSol = 0.005,
+                )
+                if (sealed6552.executable) com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealFor(ts.mint, sealed6552, laneName)
+            } catch (_: Throwable) {}
+        }
 
         return rememberFdgVerdict(fdgCacheKey, FinalDecision(
             shouldTrade = shouldTradeFinal && aateEnvelope6512?.action != "BLOCK",
