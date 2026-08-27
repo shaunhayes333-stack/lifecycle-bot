@@ -498,6 +498,7 @@ object PerpsExecutionEngine {
                 laneName = "PERPS_${signal.market.symbol}",
                 walletSol = balance,
                 paperMode = isPaper,
+                canonicalAssetId = signal.market.symbol, symbol = signal.market.symbol, price = entryPrice, source = "PerpsExecutionEngine",
             )
             if (!perpsSizingRes.executable) {
                 try {

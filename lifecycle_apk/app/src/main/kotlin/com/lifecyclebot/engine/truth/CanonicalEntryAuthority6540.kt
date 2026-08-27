@@ -215,6 +215,25 @@ object CanonicalEntryAuthority6540 {
     fun candidatesWithoutAuthSubmit(): List<VenueStats> =
         snapshotAll().filter { it.candidates > 0L && it.authSubmit == 0L }
 
+    internal fun markCandidateFor6551(assetClass: AssetClass, symbol: String, note: String) {
+        val venue = when (assetClass) {
+            AssetClass.PERPS -> Venue.MARKETS_PERPS
+            AssetClass.CRYPTO_ALT, AssetClass.SOLANA_TOKEN -> Venue.CRYPTO
+            else -> Venue.MARKETS_SPOT
+        }
+        markCandidate(venue, symbol, "class=${assetClass.tag} $note")
+    }
+    internal fun markSubmitFor6551(assetClass: AssetClass, symbol: String, note: String) {
+        val venue = if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT
+        markAuthSubmit(venue, symbol, "class=${assetClass.tag} $note")
+    }
+    internal fun markSizedFor6551(assetClass: AssetClass, symbol: String) { markSized(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol) }
+    internal fun markAuthAllowFor6551(assetClass: AssetClass, symbol: String) { markAuthAllow(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol) }
+    internal fun markAuthBlockFor6551(assetClass: AssetClass, symbol: String, reason: String) { markAuthBlock(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol, reason) }
+    internal fun markIntentCreatedFor6551(assetClass: AssetClass, symbol: String, id: String) { markIntentCreated(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol, id) }
+    internal fun markAdapterDispatchFor6551(assetClass: AssetClass, symbol: String) { markAdapterDispatch(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol) }
+    internal fun markOpenConfirmedFor6551(assetClass: AssetClass, symbol: String, id: String) { markOpenConfirmed(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol, id) }
+
     private fun bump(label: String) {
         try { PipelineHealthCollector.labelInc(label + "_6540") } catch (_: Throwable) {}
     }

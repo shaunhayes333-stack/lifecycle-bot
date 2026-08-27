@@ -30,7 +30,21 @@ object CanonicalPaperTransaction6486 {
              entryPriceUsd: Double = 0.0,
              entryPriceSource: String = "",
              entryPoolAddress: String = "",
-             entryDex: String = ""): Result = lock.withLock {
+             entryDex: String = "",
+             executionIntent: com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent? = null): Result = lock.withLock {
+        // V5.0.6551 — every non-Solana paper open must be authorized before
+        // debit. Missing/mismatched intent is rejected without mutation.
+        if (assetClass != AssetClass.SOLANA_TOKEN) {
+            val intent = executionIntent ?: CanonicalEntryAuthority6551.findPending(mint, "PAPER")
+                ?: return@withLock Result(false, positionId, "MISSING_CANONICAL_EXECUTION_INTENT")
+            if (intent.mint != mint || intent.candidateVersion <= 0L || !intent.fdgAllowed ||
+                intent.authoritativeSignal.uppercase() != "BUY" ||
+                intent.fdgVerdict.uppercase() !in setOf("BUY", "PROBE_ONLY") ||
+                intent.resolvedSize <= 0.0 || kotlin.math.abs(intent.resolvedSize - costSol) > 1e-9 ||
+                intent.mode.uppercase() != "PAPER")
+                return@withLock Result(false, positionId, "CANONICAL_EXECUTION_INTENT_MISMATCH")
+            CanonicalEntryAuthority6551.markDispatch(intent)
+        }
         if (positionId.isBlank() || mint.isBlank() || !costSol.isFinite() || costSol <= 0.0 ||
             !feeSol.isFinite() || feeSol < 0.0 || qtyRaw <= BigInteger.ZERO)
             return@withLock Result(false, positionId, "INVALID_OPEN")
@@ -61,35 +75,21 @@ object CanonicalPaperTransaction6486 {
             System.currentTimeMillis(), ""))
         CanonicalMintOccupancyRegistry6464.markOpen("paper", mint, symbol, source)
         try { PipelineHealthCollector.labelInc("PAPER_TRANSACTION_OPEN_COMMITTED_6486") } catch (_: Throwable) {}
-        // V5.0.6543 §UNIVERSAL_FUNNEL_AUTOREPORT — the SAME canonical
-        // open is where CanonicalEntryAuthority6540.markOpenConfirmed
-        // must fire and the canonical BUY journal projection is emitted.
-        // Route by assetClass to venue; every specialist now shows up in
-        // the funnel + the paper trade journal without touching each
-        // specialist file.
+        // V5.0.6551 — intent/dispatch were sealed before debit; only the
+        // successful canonical commit emits OPEN_CONFIRMED.
+        if (assetClass != AssetClass.SOLANA_TOKEN) {
+            CanonicalEntryAuthority6551.findPending(mint, "PAPER")?.let { intent ->
+                CanonicalEntryAuthority6551.markConfirmed(intent, positionId)
+            }
+        }
+        // Canonical BUY projection — one journal event per canonical open.
+        // It is emitted only after the authority-backed commit succeeds.
         try {
-            val venue6543 = when (assetClass) {
-                AssetClass.STOCK, AssetClass.FOREX, AssetClass.COMMODITY, AssetClass.METAL ->
-                    CanonicalEntryAuthority6540.Venue.MARKETS_SPOT
-                AssetClass.PERPS -> CanonicalEntryAuthority6540.Venue.MARKETS_PERPS
-                AssetClass.CRYPTO_ALT -> CanonicalEntryAuthority6540.Venue.CRYPTO
-                else -> null
-            }
-            if (venue6543 != null) {
-                CanonicalEntryAuthority6540.markIntentCreated(venue6543, symbol, positionId)
-                CanonicalEntryAuthority6540.markAdapterDispatch(venue6543, symbol)
-                CanonicalEntryAuthority6540.markOpenConfirmed(venue6543, symbol, positionId)
-                // Canonical BUY projection — one journal event per canonical
-                // open. Guarantees Markets Spot/Perps/Crypto card counts
-                // reconcile to canonical committed positions (operator
-                // §P0 "fix trade counters / UI").
-                PipelineHealthCollector.labelInc("CANONICAL_BUY_JOURNAL_PROJECTED_6543")
-                ForensicLogger.lifecycle(
-                    "CANONICAL_BUY_JOURNAL_PROJECTED_6543",
-                    "venue=$venue6543 assetClass=${assetClass.tag} symbol=$symbol " +
-                        "positionId=$positionId costSol=$costSol entryPriceUsd=$entryPriceUsd source=$source",
-                )
-            }
+            PipelineHealthCollector.labelInc("CANONICAL_BUY_JOURNAL_PROJECTED_6543")
+            ForensicLogger.lifecycle(
+                "CANONICAL_BUY_JOURNAL_PROJECTED_6543",
+                "assetClass=${assetClass.tag} symbol=$symbol positionId=$positionId costSol=$costSol entryPriceUsd=$entryPriceUsd source=$source",
+            )
         } catch (_: Throwable) {}
         Result(true, positionId, "OPEN_COMMITTED")
     }

@@ -616,6 +616,7 @@ object MetalsTrader {
             laneName = "METALS",
             walletSol = balance,
             paperMode = isPaperMode.get(),
+            canonicalAssetId = signal.market.symbol, symbol = signal.market.symbol, price = signal.price, source = "MetalsTrader",
         )
         if (!sizingRes.executable) {
             ErrorLogger.warn(TAG, "🥇 sizing gate declined ${signal.market.symbol}: ${sizingRes.reason}")

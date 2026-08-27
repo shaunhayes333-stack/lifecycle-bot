@@ -65,7 +65,7 @@ object ExecutableOpenGate {
         val requiresSolanaTokenMap: Boolean = true,
     ) {
         val lane: String get() = canonicalLane
-        val signal: String get() = diagnosticSignal
+        val signal: String get() = authoritativeSignal
         val resolvedSizeSol: Double get() = resolvedSize
         val createdAtMs: Long get() = createdAt
     }

@@ -2140,6 +2140,7 @@ object CryptoAltTrader {
             laneName = if (isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV",
             walletSol = balance,
             paperMode = isPaperMode.get(),
+            canonicalAssetId = signal.dynMint?.ifBlank { signal.market.symbol } ?: signal.market.symbol, symbol = mktSym, price = signal.price, source = "CryptoAltTrader",
         )
         if (!altSizingRes.executable) {
             try {

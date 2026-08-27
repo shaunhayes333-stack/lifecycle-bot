@@ -41,6 +41,11 @@ object CanonicalSizingBridge6532 {
         paperMode: Boolean,
         laneRiskCapSol: Double = 1.0,
         laneMinExecutableSol: Double = 0.001,
+        canonicalAssetId: String = "",
+        symbol: String = laneName,
+        price: Double = 1.0,
+        candidateVersion: Long = System.currentTimeMillis(),
+        source: String = "specialist",
     ): OrderSizeResolver6441.Resolution {
         // V5.0.6542 §ASSET_AWARE_PAPER_MIN — operator: PAPER cross-asset
         // learning must be able to take legitimate smaller probes. Cash
@@ -65,31 +70,19 @@ object CanonicalSizingBridge6532 {
                 "CANONICAL_SIZING_BRIDGE_6532|CLASS=${assetClass.tag}|LANE=$laneName|EXEC=${res.executable}"
             )
         } catch (_: Throwable) {}
-        // V5.0.6543 §UNIVERSAL_FUNNEL_AUTOREPORT — instrument at the sizing
-        // bridge so every specialist (Forex / Stocks / Commodities / Metals
-        // / CryptoAlt / Perps) auto-appears in CanonicalEntryAuthority6540
-        // without touching each specialist file. Emits CANDIDATE + AUTH_SUBMIT
-        // pair (specialist has proposed a size); markSized/markAuthAllow or
-        // markAuthBlock derived from `res.executable`.
-        try {
-            val venue6543 = when (assetClass) {
-                AssetClass.STOCK, AssetClass.FOREX, AssetClass.COMMODITY, AssetClass.METAL ->
-                    CanonicalEntryAuthority6540.Venue.MARKETS_SPOT
-                AssetClass.PERPS -> CanonicalEntryAuthority6540.Venue.MARKETS_PERPS
-                AssetClass.CRYPTO_ALT -> CanonicalEntryAuthority6540.Venue.CRYPTO
-                else -> null
-            }
-            if (venue6543 != null) {
-                CanonicalEntryAuthority6540.markCandidate(venue6543, laneName, "cls=${assetClass.tag}")
-                CanonicalEntryAuthority6540.markAuthSubmit(venue6543, laneName, "requestedSol=$requestedSol paper=$paperMode")
-                if (res.executable) {
-                    CanonicalEntryAuthority6540.markSized(venue6543, laneName)
-                    CanonicalEntryAuthority6540.markAuthAllow(venue6543, laneName)
-                } else {
-                    CanonicalEntryAuthority6540.markAuthBlock(venue6543, laneName, "SIZE_NOT_EXECUTABLE:${res.reason}")
-                }
-            }
-        } catch (_: Throwable) {}
+        // V5.0.6551 — sizing is no longer an authorization signal. The
+        // specialist must submit a typed candidate to the real authority.
+        if (canonicalAssetId.isNotBlank()) {
+            CanonicalEntryAuthority6551.submit(CanonicalAssetEntryCandidate6551(
+                assetId = canonicalAssetId, symbol = symbol, assetClass = assetClass,
+                mode = if (paperMode) "PAPER" else "LIVE", direction = "LONG",
+                requestedVenue = assetClass.tag, adapter = source, source = source,
+                specialist = laneName, score = 50.0, confidence = 1.0,
+                evidence = mapOf("walletSol" to walletSol.toString(), "laneRiskCapSol" to laneRiskCapSol.toString(), "laneMinExecutableSol" to effectiveMinSol6542.toString()),
+                requestedSizeSol = res.finalSizeSol, price = price, routeAvailable = paperMode,
+                candidateVersion = candidateVersion,
+            ))
+        }
         try {
             ForensicLogger.lifecycle(
                 "CANONICAL_SIZING_BRIDGE_6532",

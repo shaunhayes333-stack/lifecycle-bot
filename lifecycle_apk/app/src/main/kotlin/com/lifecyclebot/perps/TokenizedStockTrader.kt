@@ -1205,6 +1205,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             laneName = if (isSpot) "STOCK_SPOT" else "STOCK_LEV",
             walletSol = balance,
             paperMode = isPaperMode.get(),
+            canonicalAssetId = signal.market.symbol, symbol = signal.market.symbol, price = signal.price, source = "TokenizedStockTrader",
         )
         if (!stockSizingRes.executable) {
             ErrorLogger.warn(TAG, "📈 sizing gate declined ${signal.market.symbol}: ${stockSizingRes.reason}")
