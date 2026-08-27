@@ -17,9 +17,30 @@ cd lifecycle_apk
 echo "::group::Build debug APK"
 chmod +x gradlew || true
 mkdir -p gradle/wrapper
-curl -sL -o gradle/wrapper/gradle-wrapper.jar \
+# V5.0.6549 §RUNTIME_SMOKE_GRADLE_FLAKE_FIX — the smoke workflow was
+# consistently failing with "Downloading from https://services.gradle.org
+# /distributions/gradle-8.7-bin.zip failed: timeout (10000ms)". Emulator
+# step gets a shorter default network budget than the build workflow.
+# Mirror the build.yml retry-with-backoff loop so a single transient
+# 504/timeout on the gradle CDN no longer kills the smoke test.
+curl -sL --retry 5 --retry-delay 15 --retry-connrefused -o gradle/wrapper/gradle-wrapper.jar \
   "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
-./gradlew assembleDebug --no-daemon --stacktrace -PbuildNumber="${GITHUB_RUN_NUMBER:-0}"
+export GRADLE_OPTS="-Dorg.gradle.internal.http.connectionTimeout=60000 -Dorg.gradle.internal.http.socketTimeout=60000 ${GRADLE_OPTS:-}"
+GRADLE_CMD="./gradlew"
+for i in 1 2 3 4 5; do
+  if ./gradlew --version --no-daemon; then
+    GRADLE_CMD="./gradlew"
+    break
+  fi
+  echo "Gradle wrapper bootstrap attempt $i failed; retrying in $((i*15))s..."
+  sleep $((i*15))
+done
+if ! ./gradlew --version --no-daemon; then
+  echo "Gradle wrapper unavailable (missing/bad gradle-wrapper.jar or CDN outage); falling back to system gradle"
+  GRADLE_CMD="gradle"
+  gradle --version
+fi
+$GRADLE_CMD assembleDebug --no-daemon --stacktrace -PbuildNumber="${GITHUB_RUN_NUMBER:-0}"
 APK="$(find app/build/outputs/apk/debug -name '*.apk' | head -1)"
 echo "APK=$APK"
 [ -n "$APK" ] || { echo "No APK produced"; exit 1; }
@@ -239,6 +260,26 @@ FN_SMOKE=$(   grep -c "SMOKE_AUTOSTART" "$WS/logcat_full.txt" || true)
 FN_UI_TAP=$(  grep -c "UI_RUNTIME_TOGGLE_TAP_6517" "$WS/logcat_full.txt" || true)
 FN_UI_START=$(grep -c "UI_START_DISPATCHED_6517" "$WS/logcat_full.txt" || true)
 FN_UI_STOP=$( grep -c "LIFECYCLE_STOP_COMPLETE" "$WS/logcat_full.txt" || true)
+# V5.0.6549 §END_TO_END_TRADE_PROCESSING_PROOF — operator directive:
+# "ensure trades are actually processing end to end". The prior smoke
+# summary stopped at LANE_EVAL, so it could not tell an execution
+# stall (76 EXEC_OPEN_ALLOWED → 0 committed, per V5.0.6547 forensic)
+# from a healthy pipeline. These counters expose the ownership +
+# commit path introduced in V5.0.6548:
+#   PAPER_TICKET_RESUMED_6548 — same immutable attemptId picked back
+#     up after a nonterminal defer (proves ownership survives).
+#   PAPER_TICKET_RETRY_PENDING_6548 — defer stamped into per-mint slot.
+#   PAPER_TICKET_COMMITTED_6548 — terminal OPEN, i.e. paper buy did
+#     commit end-to-end (fill lot + cash mutation + journal row).
+#   PAPER_BUY_OK — legacy 6488 confirmation counter.
+#   PAPER_SELL_OK — legacy sell-side counterpart.
+FN_TICKET_DISPATCHED=$(grep -c "PAPER_TICKET_DISPATCHED_6514"  "$WS/logcat_full.txt" || true)
+FN_TICKET_RESUMED=$(   grep -c "PAPER_TICKET_RESUMED_6548"     "$WS/logcat_full.txt" || true)
+FN_TICKET_RETRY=$(     grep -c "PAPER_TICKET_RETRY_PENDING_6548" "$WS/logcat_full.txt" || true)
+FN_TICKET_COMMITTED=$( grep -c "PAPER_TICKET_COMMITTED_6548"   "$WS/logcat_full.txt" || true)
+FN_PAPER_BUY_OK=$(     grep -c "PAPER_BUY_OK"                  "$WS/logcat_full.txt" || true)
+FN_PAPER_SELL_OK=$(    grep -c "PAPER_SELL_OK"                 "$WS/logcat_full.txt" || true)
+FN_MARK_BLOCK_WS=$(    grep -c "SOURCE_NOT_WHITELISTED:DEXSCREENER" "$WS/logcat_full.txt" || true)
 cat > "$WS/funnel_summary.txt" <<SUMMARY
 ===== Pipeline funnel (after ${CAPTURE_SECONDS}s capture) =====
   SMOKE_AUTOSTART:       $FN_SMOKE     (V5.9.661 receiver hits — should be ≥1)
@@ -255,6 +296,14 @@ cat > "$WS/funnel_summary.txt" <<SUMMARY
   UI_TOGGLE_TAPS:        $FN_UI_TAP    (must prove Start → Stop → Start)
   UI_START_DISPATCHES:   $FN_UI_START  (must be ≥2)
   UI_STOP_COMPLETES:     $FN_UI_STOP   (must be ≥1)
+===== V5.0.6548 execution-commit path (end-to-end trade proof) =====
+  PAPER_TICKET_DISPATCHED_6514:    $FN_TICKET_DISPATCHED
+  PAPER_TICKET_RETRY_PENDING_6548: $FN_TICKET_RETRY       (defers that keep ownership)
+  PAPER_TICKET_RESUMED_6548:       $FN_TICKET_RESUMED     (same attemptId re-picked)
+  PAPER_TICKET_COMMITTED_6548:     $FN_TICKET_COMMITTED   (terminal OPEN, cash mutated)
+  PAPER_BUY_OK:                    $FN_PAPER_BUY_OK
+  PAPER_SELL_OK:                   $FN_PAPER_SELL_OK
+  SOURCE_NOT_WHITELISTED_DEX*:     $FN_MARK_BLOCK_WS      (must be ≈0 after 6548 P0-B)
 ===== Interpretation =====
   SMOKE=0             -> SmokeTestReceiver never fired (debuggable=false?)
   SMOKE>0 LOOP=0      -> receiver fired but BotService didn't enter botLoop
@@ -264,6 +313,9 @@ cat > "$WS/funnel_summary.txt" <<SUMMARY
   V3>0 LANE_EVAL=0    -> V3 disabled or short-circuiting
   EXECUTE=0           -> all gates pass but Executor not invoked
   EXECUTE>0 JRNL=0    -> Executor running but TradeHistoryStore not writing
+  DISPATCHED>0 COMMITTED=0 RETRY_PENDING>0 -> owned but async metadata missing
+  DISPATCHED>0 COMMITTED=0 RETRY_PENDING=0 -> hard reject path — check terminal blocks
+  DISPATCHED==COMMITTED (roughly) -> ✅ end-to-end paper buy pipeline is committing
 SUMMARY
 # V5.0.6516a — hard persisted-start gates. A clean emulator launch is not
 # sufficient: require both bootstrap barriers, a living process, and an active loop.
