@@ -8270,6 +8270,35 @@ class GoldenTapeRegressionTest {
     }
 
     @Test
+    fun V5_0_6561_markets_exit_uses_canonical_paper_close_and_live_finality() {
+        val stocks = java.io.File("src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt").readText()
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue(stocks.contains("CanonicalPaperTransaction6486.close") && stocks.contains("closeLivePositionProof6486"))
+        assertTrue(crypto.contains("CanonicalPaperTransaction6486.close") && crypto.contains("closeLivePositionProof6486"))
+        assertTrue(stocks.contains("if (!canonicalClose6486.applied)"))
+        assertTrue(crypto.contains("if (!canonicalClose6486.applied)"))
+    }
+
+    @Test
+    fun V5_0_6561_markets_specialist_reaches_canonical_fdg_before_open() {
+        val stocks = java.io.File("src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt").readText()
+        assertTrue(stocks.contains("CanonicalEntryAuthority6551.submit"))
+        assertTrue(stocks.contains("CanonicalAssetEntryCandidate6551"))
+        assertTrue(stocks.contains("marketIntent6561"))
+        assertTrue(stocks.contains("CanonicalEntryAuthority6551.markConfirmed"))
+        assertTrue(stocks.contains("CanonicalEntryAuthority6551.markFailed"))
+        assertTrue(stocks.indexOf("CanonicalEntryAuthority6551.submit") < stocks.indexOf("val position = StockPosition"))
+    }
+
+    @Test
+    fun V5_0_6560_paper_xstocks_bypass_traditional_hours_but_live_does_not() {
+        val stocks = java.io.File("src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt").readText()
+        assertTrue(stocks.contains("MARKETS_PAPER_24X7_EXECUTION_6560"))
+        assertTrue(stocks.contains("if (!isPaperMode.get() && !isStockMarketOpen())"))
+        assertTrue(stocks.indexOf("if (!isPaperMode.get() && !isStockMarketOpen())") < stocks.indexOf("MARKETS_PAPER_24X7_EXECUTION_6560"))
+    }
+
+    @Test
     fun V5_0_6559_paper_runtime_precedes_stale_live_authority_for_markets_and_crypto() {
         val markets = java.io.File("src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt").readText()
         val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()

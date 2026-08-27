@@ -1153,9 +1153,16 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         // sustained ~0.10 SOL/hour bleed for zero signal. The market-hours
         // gate already existed (isStockMarketOpen, line 69) but was never
         // wired into execution. Wiring it in now.
-        if (!isStockMarketOpen()) {
-            ErrorLogger.debug(TAG, "📉 ${signal.market.symbol}: stock market CLOSED — refusing to open (would flush flat at 30m)")
+        // V5.0.6560 — paper xStocks are 24/7 simulated DEX assets. The
+        // traditional-hours guard is live-only; applying it to paper made
+        // Markets scan successfully but execute nothing overnight, starving
+        // cross-asset learning and paper/live parity.
+        if (!isPaperMode.get() && !isStockMarketOpen()) {
+            ErrorLogger.debug(TAG, "📉 ${signal.market.symbol}: stock market CLOSED — refusing live open (would flush flat at 30m)")
             return
+        }
+        if (isPaperMode.get() && !isStockMarketOpen()) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_PAPER_24X7_EXECUTION_6560") } catch (_: Throwable) {}
         }
         // V5.9.114: UNIFIED paper + live pipeline.
         // Per user policy — live must behave exactly like paper. All
@@ -1230,6 +1237,51 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             return
         }
         val hiveSizeSol = stockSizingRes.finalSizeSol
+        // V5.0.6561 — Markets must enter through the canonical FDG authority.
+        // Previously this specialist scored a stock, sized it, and opened a
+        // local position directly; the central FDG funnel therefore saw zero
+        // Markets candidates and could not seal/attribute their execution.
+        val marketCandidateVersion6561 = com.lifecyclebot.engine.LaneExecutionCoordinator
+            .candidateVersionFor(signal.market.symbol)
+        val marketAuthority6561 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.submit(
+            com.lifecyclebot.engine.truth.CanonicalAssetEntryCandidate6551(
+                assetId = signal.market.symbol,
+                symbol = signal.market.symbol,
+                assetClass = com.lifecyclebot.engine.truth.AssetClass.STOCK,
+                mode = if (isPaperMode.get()) "PAPER" else "LIVE",
+                direction = signal.direction.name,
+                requestedVenue = "STOCK",
+                adapter = if (isSpot) "STOCK_SPOT" else "STOCK_LEV",
+                source = "TokenizedStockTrader",
+                specialist = if (isSpot) "STOCK_SPOT" else "STOCK_LEV",
+                score = signal.score.toDouble(),
+                confidence = (signal.confidence / 100.0).coerceIn(0.0, 1.0),
+                evidence = mapOf(
+                    "walletSol" to balance.toString(),
+                    "laneRiskCapSol" to (balance * 0.30).toString(),
+                    "laneMinExecutableSol" to "0.05",
+                ),
+                requestedSizeSol = hiveSizeSol,
+                price = signal.price,
+                liquidityUsd = 10_000_000.0,
+                routeAvailable = isPaperMode.get() || TokenizedAssetRegistry.hasRealRoute(signal.market.symbol),
+                candidateVersion = marketCandidateVersion6561,
+                diagnosticSignal = "BUY",
+            ),
+        )
+        val marketIntent6561 = when (marketAuthority6561) {
+            is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Allowed -> marketAuthority6561.intent
+            is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Probe -> marketAuthority6561.intent
+            is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Blocked -> {
+                ErrorLogger.warn(TAG, "📈 ${signal.market.symbol}: canonical FDG blocked — ${marketAuthority6561.reason}")
+                return
+            }
+            is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Deferred -> {
+                ErrorLogger.warn(TAG, "📈 ${signal.market.symbol}: canonical FDG deferred — ${marketAuthority6561.reason}")
+                return
+            }
+        }
+        val fdgSizeSol6561 = marketIntent6561.resolvedSize.takeIf { it > 0.0 } ?: return
         val hiveTpPct = ((tpPct * fluidTpMult) + hiveTpAdj).coerceAtLeast(1.5)
         val fluidSlPct = (slPct * fluidSlMult).coerceAtLeast(1.0)
         if (hiveSizeMult != 1.0 || hiveTpAdj != 0.0 || fluidSizeMult != 1.0) {
@@ -1251,7 +1303,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             direction = signal.direction,
             entryPrice = signal.price,
             currentPrice = signal.price,
-            sizeSol = hiveSizeSol,
+            sizeSol = fdgSizeSol6561,
             leverage = leverage,
             takeProfitPrice = tp,
             stopLossPrice = sl,
@@ -1267,11 +1319,10 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         // sizing learnt in paper carries 1:1 into live. If the live swap
         // fails, we DO NOT keep the position in our map (roll back).
         if (isPaperMode.get()) {
-            val entryFee6486 = hiveSizeSol * (if (isSpot) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT)
             val canonicalOpen6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(
                 positionId = position.id, mint = signal.market.symbol, symbol = signal.market.symbol,
                 lane = if (isSpot) "STOCK_SPOT" else "STOCK_LEV", source = "TokenizedStockTrader",
-                costSol = hiveSizeSol, feeSol = entryFee6486,
+                costSol = fdgSizeSol6561, feeSol = fdgSizeSol6561 * (if (isSpot) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT),
                 entryScore = signal.score, tactic = signal.direction.name,
                 // V5.0.6525 §ASSET_CLASS + §ENTRY_PRICE — persist real stock
                 // price so the canonical row has non-zero entryPriceUsd and
@@ -1282,23 +1333,26 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 entryPriceSource = "TokenizedStockTrader/signal.price",
             )
             if (!canonicalOpen6486.applied) {
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(marketIntent6561, canonicalOpen6486.reason)
                 ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: ${signal.market.symbol} ${canonicalOpen6486.reason}")
                 return
             }
-            com.lifecyclebot.engine.FluidLearning.recordPaperBuy("TokenizedStockTrader", hiveSizeSol.coerceAtLeast(0.0))
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markConfirmed(marketIntent6561, position.id)
+            com.lifecyclebot.engine.FluidLearning.recordPaperBuy("TokenizedStockTrader", fdgSizeSol6561.coerceAtLeast(0.0))
             // V5.9.171 — local orphan failsafe. Refunds paper capital on next
             // startup if the app is wiped mid-trade, even when Turso is offline.
             try {
                 com.lifecyclebot.collective.LocalOrphanStore.recordOpen(
                     trader = "Stocks",
                     posId = position.id,
-                    sizeSol = hiveSizeSol,
+                    sizeSol = fdgSizeSol6561,
                     symbol = signal.market.symbol,
                 )
             } catch (_: Exception) {}
         } else {
-            val liveOk = executeLiveTradeAtSize(position.id, signal, isSpot, hiveSizeSol)
+            val liveOk = executeLiveTradeAtSize(position.id, signal, isSpot, fdgSizeSol6561)
             if (!liveOk) {
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(marketIntent6561, "LIVE_EXECUTION_FAILED")
                 // Roll back: remove the position we just inserted.
                 positions.remove(position.id)
                 spotPositions.remove(position.id)
@@ -1307,9 +1361,10 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 ErrorLogger.warn(TAG, "🔴 LIVE stock trade failed: ${signal.market.symbol} — position rolled back")
                 return
             }
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markConfirmed(marketIntent6561, position.id)
             // V5.9.600 BUG-5 FIX: immediately deduct committed capital from cached live balance
             // so the next concurrent open sees reduced available capital.
-            liveWalletBalance = (liveWalletBalance - hiveSizeSol).coerceAtLeast(0.0)
+            liveWalletBalance = (liveWalletBalance - fdgSizeSol6561).coerceAtLeast(0.0)
             savePersistedState()
         }
         
