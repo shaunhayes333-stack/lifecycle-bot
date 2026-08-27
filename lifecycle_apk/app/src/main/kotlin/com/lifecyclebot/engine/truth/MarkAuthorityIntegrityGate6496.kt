@@ -77,8 +77,28 @@ object MarkAuthorityIntegrityGate6496 {
         if (priceAuthoritative) authoritativePasses.incrementAndGet() else {
             nonAuthoritativeBlocks.incrementAndGet()
             try {
-                ForensicLogger.lifecycle("MARK_AUTHORITY_GATE_BLOCKED_6496", "mint=${mint.take(10)} provenance=${provenance.name} src=$source pool=${poolAddress.take(24)} priceUsd=${"%.6f".format(priceUsd)} mcap=$mcapUsd liq=$liquidityUsd reason=price_authority priceValid=$priceValidity liquidityValid=$liquidityValidity poolValid=$realPoolIdentity")
+                // V5.0.6547 §P1-5 — MARK AUTHORITY comparison telemetry.
+                // Operator mandate: emit per-check verdict so the operator
+                // can see WHY a mark is being blocked instead of guessing.
+                // Do NOT relax any check — this is diagnostic only.
+                val blockReason6547 = when {
+                    !priceValidity -> "PRICE_INVALID_OR_STALE"
+                    !realPriceSource -> "SOURCE_NOT_WHITELISTED:${sourceUpper.ifBlank { "BLANK" }}"
+                    !realPoolIdentity -> "POOL_MISSING_OR_MINT_ROUTE"
+                    knownTemplate -> "KNOWN_TEMPLATE_PRICE_50M_5M"
+                    else -> "UNKNOWN"
+                }
                 PipelineHealthCollector.labelInc("MARK_AUTHORITY_GATE_BLOCKED_6496")
+                PipelineHealthCollector.labelInc("MARK_AUTHORITY_GATE_BLOCKED_6547|$blockReason6547")
+                ForensicLogger.lifecycle(
+                    "MARK_AUTHORITY_GATE_BLOCKED_6496",
+                    "mint=${mint.take(10)} provenance=${provenance.name} src=$source pool=${poolAddress.take(24)} " +
+                        "priceUsd=${"%.6f".format(priceUsd)} mcap=$mcapUsd liq=$liquidityUsd " +
+                        "reason=price_authority blockReason6547=$blockReason6547 " +
+                        "priceValid=$priceValidity realPriceSource=$realPriceSource " +
+                        "liquidityValid=$liquidityValidity poolValid=$realPoolIdentity " +
+                        "knownTemplate=$knownTemplate fresh=$fresh"
+                )
             } catch (_: Throwable) {}
         }
         return AuthorityResult(priceAuthoritative, routeExecutable, provenance)

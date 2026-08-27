@@ -569,14 +569,29 @@ object DynamicAltTokenRegistry {
         val realStaleTs = now - TOKEN_STALE_MS
         val placeholderStaleTs = now - PLACEHOLDER_STALE_MS
         var evicted = 0
+        var freshEvicted6547 = 0
         registry.entries.removeIf { (_, tok) ->
             if (tok.isStatic) return@removeIf false
             val placeholder = tok.tokenAddress.startsWith("cg:") || tok.tokenAddress.startsWith("static:")
             val drop = tok.lastUpdatedMs < if (placeholder) placeholderStaleTs else realStaleTs
-            if (drop) evicted++
+            if (drop) {
+                evicted++
+                // V5.0.6547 §P1-3 — expose fresh-drop attrition. If a
+                // fresh discovery is evicted before hitting the brain,
+                // it likely didn't finish enrichment in time. Counter
+                // is diagnostic; behaviour unchanged.
+                if (tok.isFresh6544) freshEvicted6547++
+            }
             drop
         }
-        ErrorLogger.info(TAG, "Discovery complete: ${registry.size} tokens (-$evicted evicted)")
+        if (freshEvicted6547 > 0) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_FRESH_EVICTED_6547")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "CRYPTO_FRESH_EVICTED_6547",
+                "count=$freshEvicted6547 stage=discoveryCycle.eviction paper=false action=diagnose_enrichment_race",
+            )
+        } catch (_: Throwable) {}
+        ErrorLogger.info(TAG, "Discovery complete: ${registry.size} tokens (-$evicted evicted, fresh=$freshEvicted6547)")
         scheduleSave()
     }
 
@@ -651,10 +666,21 @@ object DynamicAltTokenRegistry {
 
     fun markEvaluation6544(tok: DynToken) {
         if (tok.isStatic) staticEvaluated6544.incrementAndGet() else dynamicEvaluated6544.incrementAndGet()
-        if (tok.isFresh6544) freshReachedBrain6544.incrementAndGet()
+        if (tok.isFresh6544) {
+            freshReachedBrain6544.incrementAndGet()
+            // V5.0.6547 §P1-3 — publish CRYPTO_FRESH_BRAIN as a pipeline
+            // counter so the health dump can trace fresh discovery from
+            // scanner → CryptoBrain without diving into the registry's
+            // internal AtomicLong.
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_FRESH_BRAIN_6547") } catch (_: Throwable) {}
+        }
     }
     fun markFdgReach6544(tok: DynToken?, liveRoutable: Boolean, paperOnlyNoRoute: Boolean) {
-        if (tok?.isFresh6544 == true) freshReachedFdg6544.incrementAndGet()
+        if (tok?.isFresh6544 == true) {
+            freshReachedFdg6544.incrementAndGet()
+            // V5.0.6547 §P1-3 — same-tier counter for FDG stage.
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_FRESH_FDG_6547") } catch (_: Throwable) {}
+        }
         if (liveRoutable) liveRoutable6544.incrementAndGet()
         if (paperOnlyNoRoute) paperOnlyNoRoute6544.incrementAndGet()
     }

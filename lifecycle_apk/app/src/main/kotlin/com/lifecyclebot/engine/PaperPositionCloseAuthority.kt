@@ -69,7 +69,21 @@ object PaperPositionCloseAuthority {
         val st = states[k]
         if (st != null) {
             if (st.state == State.FAILED || st.state == State.REJECTED) {
-                if (now - st.updatedAtMs >= FAILED_RETRY_TTL_MS) return Guard(false, st.state, "retryable_after_failed", st.closeId)
+                if (now - st.updatedAtMs >= FAILED_RETRY_TTL_MS) {
+                    // V5.0.6547 §P1-4 — visibility that a stuck failed close
+                    // actually recovered via TTL retry, not by accumulation.
+                    // Operator mandate: PAPER_CLOSE_ALREADY_PENDING must not
+                    // permanently suppress a legitimate retry.
+                    try {
+                        PipelineHealthCollector.labelInc("PAPER_CLOSE_RETRY_ATTEMPTED_6547")
+                        ForensicLogger.lifecycle(
+                            "PAPER_CLOSE_RETRY_ATTEMPTED_6547",
+                            "reason=$reason stage=preSellGuard.failedTtl mint=${mint.take(10)} " +
+                                "prior=${st.state} ageMs=${now - st.updatedAtMs} closeId=${st.closeId} paper=true",
+                        )
+                    } catch (_: Throwable) {}
+                    return Guard(false, st.state, "retryable_after_failed", st.closeId)
+                }
             }
             // V5.0.6071 — STUCK-STATE TTL. Operator: paper mode was accumulating
             // 50+ positions because CLOSE_REQUESTED and CLOSING had NO TTL.
@@ -122,6 +136,15 @@ object PaperPositionCloseAuthority {
                         "PAPER_CLOSE_STUCK_TTL_RETRY_6071",
                         "mint=${mint.take(10)} symbol=$symbol prior=${st.state} ageMs=${now - st.updatedAtMs} retryCount=${st.stuckRetryCount} reason=$reason action=allow_retry"
                     )
+                    // V5.0.6547 §P1-4 — exit-pending latch cannot suppress
+                    // the retry; publish it as an actionable pipeline event.
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_CLOSE_RETRY_ATTEMPTED_6547")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "PAPER_CLOSE_RETRY_ATTEMPTED_6547",
+                        "reason=$reason stage=preSellGuard.stuckTtl mint=${mint.take(10)} " +
+                            "prior=${st.state} ageMs=${now - st.updatedAtMs} closeId=${st.closeId} " +
+                            "retryCount=${st.stuckRetryCount} paper=true",
+                    )
                 } catch (_: Throwable) {}
                 return Guard(false, st.state, "retryable_after_stuck_${st.state.name.lowercase()}", st.closeId)
             }
@@ -173,6 +196,8 @@ object PaperPositionCloseAuthority {
         val k = key(mode, mint)
         val now = System.currentTimeMillis()
         val cid = closeId.ifBlank { runCatching { PositionCloseLedger.closeIdOf(mint) }.getOrNull() ?: "PAPER_${mint.take(10)}_${now}" }
+        val priorStateForRecoveryTelemetry6547 = states[k]?.state
+        val priorStuckRetryCountForRecoveryTelemetry6547 = states[k]?.stuckRetryCount ?: 0
         states.compute(k) { _, old ->
             val s = old ?: CloseState(k, mint, normMode(mode), symbol = symbol)
             s.state = State.CLOSED
@@ -186,6 +211,22 @@ object PaperPositionCloseAuthority {
         try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed(normMode(mode).lowercase(), mint) } catch (_: Throwable) {}
         emit("PAPER_CLOSE_CLOSED", mint, symbol, "closeId=$cid reason=$reason")
         if (normMode(mode) == "PAPER") emit("PAPER_CLOSE_CONFIRMED_LEDGER_ONLY", mint, symbol, "closeId=$cid reason=$reason")
+        // V5.0.6547 §P1-4 — retry recovery marker. Prove the exit-pending
+        // latch is unjammable: a prior FAILED / REJECTED / stuck-retried
+        // close is now genuinely CLOSED, meaning the TTL retry path did
+        // its job. Operator can grep this counter to see recoveries.
+        if (priorStateForRecoveryTelemetry6547 == State.FAILED ||
+            priorStateForRecoveryTelemetry6547 == State.REJECTED ||
+            priorStuckRetryCountForRecoveryTelemetry6547 > 0
+        ) try {
+            PipelineHealthCollector.labelInc("PAPER_CLOSE_RETRY_RECOVERED_6547")
+            ForensicLogger.lifecycle(
+                "PAPER_CLOSE_RETRY_RECOVERED_6547",
+                "reason=$reason stage=markClosed mint=${mint.take(10)} " +
+                    "priorState=$priorStateForRecoveryTelemetry6547 stuckRetryCount=$priorStuckRetryCountForRecoveryTelemetry6547 " +
+                    "closeId=$cid paper=${normMode(mode) == "PAPER"}",
+            )
+        } catch (_: Throwable) {}
     }
 
     fun markFailed(mode: String = "PAPER", mint: String, symbol: String = "", reason: String = "") {
