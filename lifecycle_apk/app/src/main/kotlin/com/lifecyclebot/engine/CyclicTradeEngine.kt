@@ -282,11 +282,12 @@ object CyclicTradeEngine {
         walletSol: Double
     ) {
         val cfg = ConfigStore.load(context)
-        // V5.9.222: Always run in paper mode — paper needs no user opt-in.
-        // Live execution still requires cyclicTradeLiveEnabled or treasury >= $5K.
-        // The old hard-return on !cyclicTradeEnabled was silently killing the engine
-        // because the flag defaulted to false and had no UI toggle.
-        if (!enabled.get()) { enabled.set(true) }
+        // V5.0.6566 — central runtime plan owns enablement. A tick may never
+        // resurrect a trader that BotService intentionally disabled.
+        if (!enabled.get()) {
+            try { PipelineHealthCollector.labelInc("CYCLIC_TICK_SKIPPED_DISABLED_6566") } catch (_: Throwable) {}
+            return
+        }
 
         // Determine live vs paper
         val treasuryUsd = TreasuryManager.treasuryUsd
@@ -1018,14 +1019,39 @@ object CyclicTradeEngine {
         val deployedSizeSol = entrySizeSol.takeIf { it > 0.0 } ?: ringBalanceSol
         val pnlSol = deployedSizeSol * (pnlPct / 100.0)
 
-        // Execute sell
-        if (isLiveMode) {
+        // Execute sell. Economic/learning state may move only after the
+        // canonical executor reports terminal confirmation.
+        val sellResult6566 = if (isLiveMode) {
             executor.requestSell(ts, "CYCLIC_$reason", wallet, walletSol)
         } else {
             executor.paperSell(ts, "CYCLIC_$reason")
         }
+        when (sellResult6566) {
+            Executor.SellResult.CONFIRMED, Executor.SellResult.PAPER_CONFIRMED -> Unit
+            Executor.SellResult.ALREADY_CLOSED -> {
+                // Canonical authority already finalized this position elsewhere.
+                // Reconcile local occupancy without inventing a second PnL outcome.
+                try { PipelineHealthCollector.labelInc("CYCLIC_ALREADY_CLOSED_RECONCILED_6566") } catch (_: Throwable) {}
+                clearLocalCycleState6566()
+                try { TradeAuthorizer.releasePosition(ts.mint, "CYCLIC_ALREADY_CLOSED", TradeAuthorizer.ExecutionBook.CYCLIC) } catch (_: Throwable) {}
+                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "CYCLIC", "CYCLIC_ALREADY_CLOSED") } catch (_: Throwable) {}
+                save(context)
+                return
+            }
+            else -> {
+                // Retryable/no-wallet/no-signature/waiting/fatal outcomes retain
+                // the position and lane ownership for reconciliation or retry.
+                statusMessage = "⏳ Sell not final: ${sellResult6566.name}"
+                try {
+                    PipelineHealthCollector.labelInc("CYCLIC_SELL_NOT_FINAL_6566_${sellResult6566.name}")
+                    ForensicLogger.lifecycle("CYCLIC_SELL_NOT_FINAL_6566", "mint=${ts.mint.take(10)} result=${sellResult6566.name} reason=$reason action=retain_position_no_learning")
+                } catch (_: Throwable) {}
+                save(context)
+                return
+            }
+        }
 
-        // Update ring
+        // Update ring only after confirmed sell finality.
         ringBalanceSol = (ringBalanceSol + pnlSol).coerceAtLeast(0.001)
         ringBalanceUsd = ringBalanceSol * solPrice
         totalPnlSol   += pnlSol
@@ -1078,22 +1104,26 @@ object CyclicTradeEngine {
         try { TradeAuthorizer.releasePosition(ts.mint, "CYCLIC_$reason", TradeAuthorizer.ExecutionBook.CYCLIC) } catch (_: Throwable) {}
         try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "CYCLIC", "CYCLIC_$reason") } catch (_: Throwable) {}
 
-        lastCycleEndMs = System.currentTimeMillis()
-        isInPosition   = false
-        currentMint    = ""
-        currentMode    = "STANDARD"
-        currentSymbol  = ""
-        entryPriceSol  = 0.0
-        currentPriceSol = 0.0
-        currentPnlPct = 0.0
-        priceState = "WAIT"
-        entrySizeSol   = 0.0
-        entryTimeMs    = 0L
+        clearLocalCycleState6566()
 
         val winRate = if (cycleCount > 0) (winCount.toDouble() / cycleCount * 100).toInt() else 0
         statusMessage = "✅ $reason | PnL: ${"%+.1f".format(pnlPct)}% | Ring: \$${ringBalanceUsd.toInt()} | WR: $winRate%"
         ErrorLogger.info(TAG, "Cycle closed [$reason] | pnl=${"%+.2f".format(pnlPct)}% | ring=${ringBalanceSol.fmt(3)} SOL (\$${ringBalanceUsd.toInt()}) | total cycles=$cycleCount")
         save(context)
+    }
+
+    private fun clearLocalCycleState6566() {
+        lastCycleEndMs = System.currentTimeMillis()
+        isInPosition = false
+        currentMint = ""
+        currentMode = "STANDARD"
+        currentSymbol = ""
+        entryPriceSol = 0.0
+        currentPriceSol = 0.0
+        currentPnlPct = 0.0
+        priceState = "WAIT"
+        entrySizeSol = 0.0
+        entryTimeMs = 0L
     }
 
     private fun abandonCycle(context: Context, reason: String, solPrice: Double) {

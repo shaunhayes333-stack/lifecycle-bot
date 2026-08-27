@@ -3,9 +3,27 @@ package com.lifecyclebot.engine.truth
 import java.math.BigDecimal
 import java.math.BigInteger
 import java.math.RoundingMode
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 /** V5.0.6510 — one claim, one canonical paper partial economic mutation. */
 object CanonicalPaperPartialOperation6510 {
+    private val sequences = ConcurrentHashMap<String, AtomicLong>()
+    private val requestSequences = ConcurrentHashMap<String, Long>()
+
+    private fun nextSequence(positionId: String, requestKey: String): Long {
+        return requestSequences.computeIfAbsent("$positionId|$requestKey") {
+            val seq = sequences.computeIfAbsent(positionId) {
+            // Restart-safe seed: persisted economic events are authoritative.
+            val prior = EconomicEventSchema6464.snapshot().count { e ->
+                e is EconomicEventSchema6464.Sell && e.positionId == positionId && e.partial
+            }.toLong()
+                AtomicLong(prior)
+            }
+            seq.incrementAndGet()
+        }
+    }
+
     data class Receipt(
         val applied: Boolean, val duplicate: Boolean, val reason: String,
         val positionId: String, val operationId: String, val partialSequence: Long,
@@ -20,7 +38,9 @@ object CanonicalPaperPartialOperation6510 {
             ?: return empty(positionId, "", 0L, "UNKNOWN_POSITION")
         if (pre.mode != "paper" || fraction <= 0.0 || fraction > 1.0 || pre.remainingQtyRaw <= BigInteger.ZERO)
             return empty(positionId, "", 0L, "INVALID_PARTIAL")
-        val sequence = kotlin.math.abs(exitReason.hashCode().toLong()).coerceAtLeast(1L)
+        // V5.0.6566 — operation identity is position-local and monotonic.
+        // Exit text is metadata, never idempotency authority.
+        val sequence = nextSequence(positionId, exitReason)
         val operationId = "$positionId:$sequence"
         val soldRaw = pre.remainingQtyRaw.toBigDecimal().multiply(BigDecimal.valueOf(fraction))
             .setScale(0, RoundingMode.HALF_UP).toBigInteger().coerceIn(BigInteger.ONE, pre.remainingQtyRaw)

@@ -133,6 +133,35 @@ object CanonicalPaperTransaction6486 {
         Result(true, positionId, "ADD_COMMITTED")
     }
 
+    data class PartialResult(
+        val applied: Boolean, val positionId: String, val reason: String,
+        val operationId: String = "", val partialSequence: Long = 0L,
+        val remainingCostSol: Double = 0.0, val realizedPnlSol: Double = 0.0,
+    )
+
+    /** V5.0.6566 — typed cross-asset partial. Canonical receipt commits first;
+     * local trader maps may mirror remainingCostSol only when applied=true. */
+    fun partial(positionId: String, mint: String, symbol: String, fraction: Double,
+                currentPnlPct: Double, feeRate: Double, exitReason: String): PartialResult = lock.withLock {
+        val pos = CanonicalPositionAuthority6441.getPosition(positionId)
+            ?: return@withLock PartialResult(false, positionId, "UNKNOWN_POSITION")
+        if (pos.mode != "paper" || fraction <= 0.0 || fraction >= 1.0 ||
+            !currentPnlPct.isFinite() || !feeRate.isFinite() || feeRate < 0.0)
+            return@withLock PartialResult(false, positionId, "INVALID_PARTIAL")
+        val remainingBasis = (pos.entryCostSol - pos.soldCostBasisSol).coerceAtLeast(0.0)
+        val soldBasis = remainingBasis * fraction
+        val grossProceeds = (soldBasis * (1.0 + currentPnlPct / 100.0)).coerceAtLeast(0.0)
+        val fees = grossProceeds * feeRate
+        val receipt = CanonicalPaperPartialOperation6510.commit(
+            positionId, mint, symbol, fraction, grossProceeds, fees, exitReason,
+        )
+        if (!receipt.applied) return@withLock PartialResult(false, positionId, receipt.reason,
+            receipt.operationId, receipt.partialSequence, receipt.postCost, receipt.realizedPnl)
+        try { PipelineHealthCollector.labelInc("PAPER_TRANSACTION_PARTIAL_COMMITTED_6566") } catch (_: Throwable) {}
+        PartialResult(true, positionId, receipt.reason, receipt.operationId,
+            receipt.partialSequence, receipt.postCost, receipt.realizedPnl)
+    }
+
     fun close(positionId: String, mint: String, symbol: String, grossProceedsSol: Double,
               soldQtyRaw: BigInteger? = null, soldCostBasisSol: Double? = null,
               sellFeeSol: Double = 0.0, exitReason: String, terminalSequence: Long): Result = lock.withLock {

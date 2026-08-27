@@ -781,7 +781,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 
                 // V5.7.6: Log every signal attempt
                 if (signal != null) {
-                    try { com.lifecyclebot.engine.ForensicLogger.phase(com.lifecyclebot.engine.ForensicLogger.PHASE.LANE_EVAL, market.symbol, "lane=MARKETS_STOCKS source=TOKENIZED_STOCK score=${signal.score} confidence=${signal.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MARKETS_STOCK_SIGNAL_SELECTED_6566", "symbol=${market.symbol} score=${signal.score} confidence=${signal.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
                     ErrorLogger.info(TAG, "📈 SIGNAL: ${market.symbol} | score=${signal.score} | conf=${signal.confidence} | dir=${signal.direction.symbol}")
                     
                     // V5.9.328: TRUST GATE — if StrategyTrustAI has marked this layer as
@@ -1244,6 +1244,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         // Markets candidates and could not seal/attribute their execution.
         val marketCandidateVersion6561 = com.lifecyclebot.engine.LaneExecutionCoordinator
             .candidateVersionFor(signal.market.symbol)
+        try { com.lifecyclebot.engine.ForensicLogger.phase(com.lifecyclebot.engine.ForensicLogger.PHASE.LANE_EVAL, signal.market.symbol, "lane=MARKETS_STOCKS source=CANONICAL_HANDOFF_6566 score=${signal.score} confidence=${signal.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
         val marketAuthority6561 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.submit(
             com.lifecyclebot.engine.truth.CanonicalAssetEntryCandidate6551(
                 assetId = signal.market.symbol,
@@ -1467,7 +1468,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                     com.lifecyclebot.engine.SymbolicExitReasoner.Action.EXIT ->
                         closePosition(id, "AI_EXIT: ${assessment.primarySignal} (${String.format("%.2f", assessment.conviction)})")
                     com.lifecyclebot.engine.SymbolicExitReasoner.Action.PARTIAL ->
-                        closePosition(id, "AI_PARTIAL: ${assessment.primarySignal} (${String.format("%.2f", assessment.conviction)})")
+                        partialPosition6566(id, "AI_PARTIAL: ${assessment.primarySignal} (${String.format("%.2f", assessment.conviction)})")
                     else -> {
                         // Safety net: extreme TP only
                         if (position.shouldTakeProfit()) closePosition(id, "TP_SAFETY")
@@ -1480,6 +1481,28 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         }
     }
     
+    private fun partialPosition6566(positionId: String, reason: String) {
+        val position = positions[positionId] ?: return
+        if (!position.isPaper) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_PARTIAL_DEFERRED_NO_CONFIRMED_ADAPTER_6566_STOCK") } catch (_: Throwable) {}
+            return
+        }
+        val feeRate = if (position.isSpot) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT
+        val receipt = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.partial(
+            position.id, position.market.symbol, position.market.symbol, 0.5,
+            position.getUnrealizedPnlPct(), feeRate, reason,
+        )
+        if (!receipt.applied) {
+            ErrorLogger.warn(TAG, "PAPER PARTIAL REJECTED: ${position.market.symbol} ${receipt.reason}")
+            return
+        }
+        val updated = position.copy(sizeSol = receipt.remainingCostSol)
+        positions[positionId] = updated
+        if (updated.isSpot) spotPositions[positionId] = updated else leveragePositions[positionId] = updated
+        persistStockPositions()
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_PARTIAL_APPLIED_6566_STOCK") } catch (_: Throwable) {}
+    }
+
     private fun closePosition(positionId: String, reason: String) {
         val position = positions[positionId] ?: return
         val grossPnlPct = position.getUnrealizedPnlPct()
@@ -1596,15 +1619,8 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             if (position.isPaper) FluidLearningAI.recordMarketsPaperTrade(isWin, netPnlPct)
             else FluidLearningAI.recordMarketsLiveTrade(isWin, netPnlPct)
         } catch (_: Exception) {}
-        // V5.9.6: Sync closed P&L to shared FluidLearning pool so main bot balance updates
-        // V5.9.742: route on position.isPaper.
-        if (position.isPaper) try {
-            com.lifecyclebot.engine.FluidLearning.recordPaperSell(
-                mint = position.market.symbol,
-                originalSol = position.sizeSol,
-                pnlSol = netPnlSol
-            )
-        } catch (_: Exception) {}
+        // V5.0.6566 — one canonical terminal close produces exactly one
+        // FluidLearning paper-sell observation (recorded above).
         
         // V5.7.6: Record to PerpsLearningBridge for unified tracking
         try {

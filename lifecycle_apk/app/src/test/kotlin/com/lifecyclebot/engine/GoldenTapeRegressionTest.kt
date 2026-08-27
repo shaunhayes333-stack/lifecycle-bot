@@ -8729,10 +8729,12 @@ class GoldenTapeRegressionTest {
         val governor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RealizedWalletCompoundingGovernor.kt").readText()
         val contract = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt").readText()
 
-        assertTrue(crypto.contains("lane=CRYPTO_ALT source=DYNAMIC_ALT") &&
-            crypto.contains("lane=CRYPTO_ALT source=STATIC_ALT") &&
+        assertTrue(crypto.contains("CRYPTO_SIGNAL_SELECTED_6566") &&
+            crypto.contains("source=DYNAMIC_ALT") && crypto.contains("source=STATIC_ALT") &&
+            crypto.contains("lane=CRYPTO_ALT source=CANONICAL_HANDOFF_6566") &&
             crypto.contains("path=CRYPTO_ALT mode="))
-        assertTrue(stocks.contains("lane=MARKETS_STOCKS source=TOKENIZED_STOCK") &&
+        assertTrue(stocks.contains("MARKETS_STOCK_SIGNAL_SELECTED_6566") &&
+            stocks.contains("lane=MARKETS_STOCKS source=CANONICAL_HANDOFF_6566") &&
             contract.contains("PHASE.FDG") && contract.contains("sealed=true assetClass="))
         assertTrue(perps.contains("lane=PERPS source=") && perps.contains("path=PERPS mode=") &&
             perps.contains("LaneExecutionCoordinator.candidateVersionFor(signal.market.symbol)"))
@@ -8774,6 +8776,80 @@ class GoldenTapeRegressionTest {
             assertTrue(it.contains("executionIntent = "))
         }
         assertTrue(perps.contains("executionIntent6565") && crypto.contains("canonicalCryptoIntent6565"))
+    }
+
+
+    @Test
+    fun V5_0_6566_partials_are_sequence_idempotent_canonical_and_nonterminal() {
+        val partial = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperPartialOperation6510.kt").readText()
+        val reducer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
+        val stock = java.io.File("src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt").readText()
+        val forex = java.io.File("src/main/kotlin/com/lifecyclebot/perps/ForexTrader.kt").readText()
+        val metals = java.io.File("src/main/kotlin/com/lifecyclebot/perps/MetalsTrader.kt").readText()
+        val commodities = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CommoditiesTrader.kt").readText()
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue(partial.contains("requestSequences.computeIfAbsent") && partial.contains("seq.incrementAndGet()"))
+        assertFalse(partial.contains("abs(exitReason.hashCode()"))
+        assertTrue(reducer.contains("fun partial(") && reducer.contains("CanonicalPaperPartialOperation6510.commit"))
+        listOf(stock, forex, metals, commodities, crypto).forEach {
+            assertTrue(it.contains("partialPosition6566"))
+            assertTrue(it.contains("CanonicalPaperTransaction6486.partial"))
+            assertFalse(it.contains("Action.PARTIAL ->\n                        closePosition"))
+        }
+        assertEquals(2, Regex("FluidLearning\\.recordPaperSell\\(").findAll(stock).count()) // shutdown + one normal terminal path
+    }
+
+
+    @Test
+    fun V5_0_6566_meme_partial_and_cyclic_close_state_require_applied_finality() {
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val moon = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
+        val cyclic = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt").readText()
+        assertTrue(executor.contains("data class PartialSellReceipt6566") &&
+            executor.contains("fun requestPartialSellConfirmed6566("))
+        assertTrue(executor.contains("partial6510.operationId") &&
+            executor.contains("LIVE_PARTIAL_CONFIRMED") && executor.contains("finalSig"))
+        assertEquals(10, Regex("requestPartialSellConfirmed6566\\(").findAll(bot).count())
+        assertTrue("all optimistic rung/chunk mutations must be receipt-gated",
+            Regex("partialReceipt6566\\.applied").findAll(bot).count() >= 10)
+        val checkExitStart6566 = moon.indexOf("fun checkExit(")
+        val checkExit = moon.substring(checkExitStart6566, moon.indexOf("private fun updateLearning(", checkExitStart6566))
+        assertFalse(checkExit.contains("partialRungsTaken += 1"))
+        assertTrue(checkExit.contains("val proposedRung = pos.partialRungsTaken + 1"))
+        val onPartial = moon.substring(moon.indexOf("fun onPartialSell("), moon.indexOf("fun getActivePositions("))
+        assertTrue(onPartial.contains("partialRungsTaken = (pos.partialRungsTaken + 1)"))
+        assertFalse("tick must never resurrect disabled Cyclic authority", cyclic.contains("if (!enabled.get()) { enabled.set(true) }"))
+        assertTrue(cyclic.contains("CYCLIC_TICK_SKIPPED_DISABLED_6566"))
+        val closeCycle = cyclic.substring(cyclic.indexOf("private fun closeCycle("), cyclic.indexOf("private fun clearLocalCycleState6566"))
+        assertTrue(closeCycle.indexOf("when (sellResult6566)") < closeCycle.indexOf("// Update ring only after confirmed sell finality."))
+        assertTrue(closeCycle.contains("CYCLIC_SELL_NOT_FINAL_6566") && closeCycle.contains("retain_position_no_learning"))
+        assertTrue(closeCycle.contains("Executor.SellResult.CONFIRMED") && closeCycle.contains("Executor.SellResult.PAPER_CONFIRMED"))
+    }
+
+
+    @Test
+    fun V5_0_6566_crypto_markets_handoffs_and_meme_dedupe_preserve_executable_intake() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val files = listOf(
+            "CryptoAltTrader.kt" to "CRYPTO_ALT",
+            "TokenizedStockTrader.kt" to "MARKETS_STOCKS",
+            "ForexTrader.kt" to "MARKETS_FOREX",
+            "MetalsTrader.kt" to "MARKETS_METALS",
+            "CommoditiesTrader.kt" to "MARKETS_COMMODITIES",
+        )
+        files.forEach { (name, lane) ->
+            val src = java.io.File("src/main/kotlin/com/lifecyclebot/perps/$name").readText()
+            val handoff = src.indexOf("lane=$lane source=CANONICAL_HANDOFF_6566")
+            val submit = src.indexOf("CanonicalEntryAuthority6551.submit", handoff)
+            assertTrue("$lane must emit active lane-eval immediately before canonical FDG submit", handoff >= 0 && submit > handoff && submit - handoff < 1200)
+            assertEquals("$lane must have one canonical active handoff marker", 1, Regex("lane=$lane source=CANONICAL_HANDOFF_6566").findAll(src).count())
+        }
+        assertTrue(bot.contains("intakeSeenSourcesByMint6566") && bot.contains("newSourceEvidence6566"))
+        assertTrue(bot.contains("GlobalTradeRegistry.updateProbationScanner(mint, source)"))
+        assertTrue(bot.contains("GlobalTradeRegistry.mergeAffinity(mint, lanes6566, tools6566)"))
+        assertTrue(bot.contains("ScannerHydrationQueues6347.Bucket.LIVE_READY") && bot.contains("MEME_DEDUPE_REFRESH_6566"))
+        assertTrue(bot.contains("MEME_INTAKE_DEDUPE_EVIDENCE_REFRESH_6566"))
     }
 
 }

@@ -9328,13 +9328,14 @@ class BotService : Service() {
                                                 walletSol = effectiveBalance
                                             )
                                         } else {
-                                            executor.requestPartialSell(
+                                            val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                                                 ts = ts,
                                                 sellPercentage = capturePct4301,
                                                 reason = "RAPID_INSTANT_PROFIT_CAPTURE_4301_${(capturePct4301*100).toInt()}PCT_${pnlPct.toInt()}PCT",
                                                 wallet = wallet,
                                                 walletBalance = effectiveBalance
                                             )
+                                            if (!partialReceipt6566.applied) continue
                                         }
                                         TradeStateMachine.startCooldown(ts.mint)
                                         continue
@@ -10176,6 +10177,7 @@ class BotService : Service() {
     // already fail-open, so the dedupe gate is purely a noise filter.
     private val intakeLastAcceptMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val intakeDedupCount = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val intakeSeenSourcesByMint6566 = java.util.concurrent.ConcurrentHashMap<String, MutableSet<String>>()
     private val intakeDedupTtlMs: Long = 30_000L
     // V5.9.1464 — FAMILY-LEVEL intake burst gate (spec item 7). The per-mint
     // dedupe above stops the SAME mint re-flooding, but pump.fun spam ships the
@@ -11850,40 +11852,57 @@ class BotService : Service() {
         // (which sat just below the $2,100 SHITCOIN floor). Max-take
         // semantics: never overwrite a higher value with a lower one.
         val nowMs = System.currentTimeMillis()
+        val incomingSources6566 = (allSources + source).filter { it.isNotBlank() }.toSet()
+        val seenSources6566 = intakeSeenSourcesByMint6566.computeIfAbsent(mint) {
+            java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        }
+        val newSourceEvidence6566 = incomingSources6566.any { seenSources6566.add(it) }
         val prevAt = intakeLastAcceptMs[mint]
         if (prevAt != null && (nowMs - prevAt) < intakeDedupTtlMs) {
-            // V5.9.769 — freshness max-take even on dedupe hits.
-            if (liquidityUsd > 0.0 || trustedMarketCapUsd6492 > 0.0) {
-                try {
-                    synchronized(status.tokens) {
-                        val tsExisting = status.tokens[mint]
-                        if (tsExisting != null) {
-                            if (liquidityUsd > tsExisting.lastLiquidityUsd) {
-                                tsExisting.lastLiquidityUsd = liquidityUsd
-                            }
-                            if (trustedMarketCapUsd6492 > tsExisting.lastMcap) {
-                                tsExisting.lastMcap = trustedMarketCapUsd6492
-                            }
-                        }
+            val lanes6566 = inferIntakeLaneAffinity(source, incomingSources6566, trustedMarketCapUsd6492, liquidityUsd)
+            val tools6566 = inferIntakeToolAffinity(source, incomingSources6566, trustedMarketCapUsd6492, liquidityUsd)
+            GlobalTradeRegistry.mergeAffinity(mint, lanes6566, tools6566)
+            val promoted6566 = if (newSourceEvidence6566) {
+                try { GlobalTradeRegistry.updateProbationScanner(mint, source) } catch (_: Throwable) { false }
+            } else false
+            try {
+                synchronized(status.tokens) {
+                    status.tokens[mint]?.let { existing ->
+                        if (liquidityUsd > existing.lastLiquidityUsd) existing.lastLiquidityUsd = liquidityUsd
+                        if (trustedMarketCapUsd6492 > existing.lastMcap) existing.lastMcap = trustedMarketCapUsd6492
+                        existing.laneAffinity.addAll(lanes6566)
+                        existing.toolAffinity.addAll(tools6566)
+                        existing.source = (existing.source.split(',').filter { it.isNotBlank() } + incomingSources6566).distinct().joinToString(",")
                     }
-                } catch (_: Throwable) {}
+                }
+            } catch (_: Throwable) {}
+            val hot6566 = GlobalTradeRegistry.getEntry(mint) != null
+            if (hot6566) {
+                GlobalTradeRegistry.addToWatchlist(
+                    mint, symbol.ifBlank { mint.take(6) }, source,
+                    incomingSources6566.joinToString(","), trustedMarketCapUsd6492,
+                    liquidityUsd, confidence, lanes6566, tools6566,
+                )
+                ScannerHydrationQueues6347.enqueue(
+                    mint, ScannerHydrationQueues6347.Bucket.LIVE_READY,
+                    laneRequested = lanes6566.firstOrNull() ?: "STANDARD",
+                    note = "MEME_DEDUPE_REFRESH_6566",
+                )
             }
             val cnt = (intakeDedupCount[mint] ?: 0) + 1
             intakeDedupCount[mint] = cnt
-            // Emit ONE dedupe forensic per mint per TTL window so the dump
-            // proves the drop happened without re-flooding (dedupe spam
-            // would defeat the point). Subsequent drops within the same
-            // window are silent — the counter is exposed via the
-            // ConcurrentHashMap for any future "top dedupe offenders" UI.
-            if (cnt == 1) {
+            if (newSourceEvidence6566 || promoted6566) {
                 try {
-                    ForensicLogger.lifecycle(
-                        "INTAKE_DEDUPE_DROP",
-                        "mint=${mint.take(10)} symbol=${symbol.ifBlank { mint.take(6) }} src=$source ageMs=${nowMs - prevAt}",
-                    )
+                    PipelineHealthCollector.labelInc("MEME_INTAKE_DEDUPE_EVIDENCE_REFRESH_6566")
+                    ForensicLogger.lifecycle("MEME_INTAKE_DEDUPE_EVIDENCE_REFRESH_6566",
+                        "mint=${mint.take(10)} symbol=${symbol.ifBlank { mint.take(6) }} src=$source newSource=$newSourceEvidence6566 promoted=$promoted6566 hot=$hot6566 lanes=${lanes6566.joinToString("+")}")
                 } catch (_: Throwable) {}
+            } else if (cnt == 1) {
+                try { ForensicLogger.lifecycle("INTAKE_DEDUPE_DROP", "mint=${mint.take(10)} symbol=${symbol.ifBlank { mint.take(6) }} src=$source ageMs=${nowMs - prevAt}") } catch (_: Throwable) {}
             }
-            return true   // semantically still admitted (already in registry)
+            if (!promoted6566) return true
+            // Promotion crossed probation→hot: continue once through canonical
+            // hydration so the newly-qualified mint cannot remain projection-only.
         }
         intakeLastAcceptMs[mint] = nowMs
         intakeDedupCount[mint] = 0
@@ -11947,6 +11966,7 @@ class BotService : Service() {
                 if (e.value < cutoff) {
                     it.remove()
                     intakeDedupCount.remove(e.key)
+                    intakeSeenSourcesByMint6566.remove(e.key)
                 }
             }
         }
@@ -25736,13 +25756,14 @@ if (hotExitHandledSweep) {
 
                 if (exitSignal == com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.PARTIAL_TAKE) {
                     // Sell 25%, let 75% ride
-                    executor.requestPartialSell(
+                    val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                         ts = ts,
                         sellPercentage = 0.25,
                         reason = "SHITCOIN_PARTIAL_TAKE_25PCT",
                         wallet = wallet,
                         walletBalance = effectiveBalance,
                     )
+                    if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_SHITCOIN") } catch (_: Throwable) {}; return }
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.markFirstTakeDone(ts.mint)
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.onPartialSell(ts.mint, 0.25) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)               // V5.9.705
@@ -25806,13 +25827,14 @@ if (hotExitHandledSweep) {
                     com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_100,
                 )
                 if (isLadderRung) {
-                    executor.requestPartialSell(
+                    val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                         ts = ts,
                         sellPercentage = 0.20,
                         reason = "EXPRESS_${exitSignal.name}_PARTIAL_20PCT",
                         wallet = wallet,
                         walletBalance = effectiveBalance,
                     )
+                    if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_EXPRESS") } catch (_: Throwable) {}; return }
                     com.lifecyclebot.v3.scoring.ShitCoinExpress.onPartialSell(ts.mint, 0.20) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)              // V5.9.705
                     addLog("$exitEmoji EXPRESS PARTIAL: ${ts.symbol} | ${exitSignal.name} | sold 20%, riding 80%", ts.mint)
@@ -25850,13 +25872,14 @@ if (hotExitHandledSweep) {
             if (exitSignal != com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.HOLD) {
                 // V5.9.168 — laddered partial sell (20% per rung)
                 if (exitSignal == com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.PARTIAL_TAKE) {
-                    executor.requestPartialSell(
+                    val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                         ts = ts,
                         sellPercentage = 0.20,
                         reason = "MANIP_PARTIAL_TAKE_20PCT",
                         wallet = wallet,
                         walletBalance = effectiveBalance,
                     )
+                    if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_MANIP") } catch (_: Throwable) {}; return }
                     com.lifecyclebot.v3.scoring.ManipulatedTraderAI.onPartialSell(ts.mint, 0.20) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)                  // V5.9.705
                     addLog("💰 MANIP PARTIAL: ${ts.symbol} | sold 20%, riding 80%", ts.mint)
@@ -25978,14 +26001,15 @@ if (hotExitHandledSweep) {
                 if (exitSignal == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.PARTIAL_TAKE) {
                     // Sell 50%, let 50% ride to the moon
                     val partialPct = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getPartialSellPct(ts.mint)
-                    executor.requestPartialSell(
+                    val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                         ts = ts,
                         sellPercentage = partialPct,
                         reason = "MOONSHOT_PARTIAL_TAKE_${(partialPct * 100).toInt()}PCT",
                         wallet = wallet,
                         walletBalance = effectiveBalance,
                     )
-                    // firstTakeDone flag is already set inside MoonshotTraderAI.checkExit()
+                    if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_MOONSHOT") } catch (_: Throwable) {}; return }
+                    // onPartialSell advances rung/firstTake only after canonical receipt.
                     com.lifecyclebot.v3.scoring.MoonshotTraderAI.onPartialSell(ts.mint, partialPct) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)                    // V5.9.705
                     addLog("💰 MOONSHOT PARTIAL: ${ts.symbol} | sold ${(partialPct*100).toInt()}%, riding rest", ts.mint)
@@ -26089,13 +26113,14 @@ if (hotExitHandledSweep) {
 
                 // V5.9.166 — laddered partial sell (20% per rung)
                 if (exitSignal == com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.PARTIAL_TAKE) {
-                    executor.requestPartialSell(
+                    val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                         ts = ts,
                         sellPercentage = 0.20,
                         reason = "QUALITY_PARTIAL_TAKE_20PCT",
                         wallet = wallet,
                         walletBalance = effectiveBalance,
                     )
+                    if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_QUALITY") } catch (_: Throwable) {}; return }
                     com.lifecyclebot.v3.scoring.QualityTraderAI.onPartialSell(ts.mint, 0.20) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)              // V5.9.705
                     addLog("💰 QUALITY PARTIAL: ${ts.symbol} | sold 20%, riding 80%", ts.mint)
@@ -26220,13 +26245,14 @@ if (hotExitHandledSweep) {
 
                 // V5.9.166 — laddered partial sell (20% per rung)
                 if (exitSignal == com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.PARTIAL_TAKE) {
-                    executor.requestPartialSell(
+                    val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                         ts = ts,
                         sellPercentage = 0.20,
                         reason = "BLUECHIP_PARTIAL_TAKE_20PCT",
                         wallet = wallet,
                         walletBalance = effectiveBalance,
                     )
+                    if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_BLUECHIP") } catch (_: Throwable) {}; return }
                     com.lifecyclebot.v3.scoring.BlueChipTraderAI.onPartialSell(ts.mint, 0.20) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)               // V5.9.705
                     addLog("💰 BLUECHIP PARTIAL: ${ts.symbol} | sold 20%, riding 80%", ts.mint)
@@ -26417,7 +26443,7 @@ if (hotExitHandledSweep) {
                     "locked=${sellOptSignal.lockedProfitSol}SOL")
                 
                 // Execute partial sell
-                executor.requestPartialSell(
+                val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                     ts = ts,
                     sellPercentage = chunkPct,
                     reason = "[SELL_OPT] ${strategy.label}: ${sellOptSignal.reason}",
@@ -26425,11 +26451,15 @@ if (hotExitHandledSweep) {
                     walletBalance = effectiveBalance,
                 )
                 
-                // Record chunk in SellOptimizationAI
-                val profitSol = (ts.position.costSol * chunkPct) * (pnlPct / 100.0)
-                com.lifecyclebot.v3.scoring.SellOptimizationAI.recordChunkSell(
-                    ts.mint, ts.position.costSol * chunkPct, pnlPct, profitSol
-                )
+                // Record chunk only after confirmed canonical/live mutation.
+                if (partialReceipt6566.applied) {
+                    val profitSol = (ts.position.costSol * chunkPct) * (pnlPct / 100.0)
+                    com.lifecyclebot.v3.scoring.SellOptimizationAI.recordChunkSell(
+                        ts.mint, ts.position.costSol * chunkPct, pnlPct, profitSol
+                    )
+                } else {
+                    try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_SELL_OPT") } catch (_: Throwable) {}
+                }
                 
             } else if (urgency in listOf(
                 com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitUrgency.HIGH,
@@ -26935,11 +26965,12 @@ if (hotExitHandledSweep) {
                     ErrorLogger.warn("BotService",
                         "🛡️ [FALLBACK_EXIT][SHITCOIN] ${ts.symbol} | signal=$sig | price=$price (DexScreener down)")
                     if (sig == com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.PARTIAL_TAKE) {
-                        executor.requestPartialSell(
+                        val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                             ts = ts, sellPercentage = 0.25,
                             reason = "FALLBACK_SHITCOIN_PARTIAL_TAKE",
                             wallet = wallet, walletBalance = effectiveBalance,
                         )
+                        if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_FALLBACK_SHITCOIN") } catch (_: Throwable) {}; return }
                         com.lifecyclebot.v3.scoring.ShitCoinTraderAI.markFirstTakeDone(ts.mint)
                         com.lifecyclebot.v3.scoring.ShitCoinTraderAI.onPartialSell(ts.mint, 0.25) // V5.9.705
                         com.lifecyclebot.engine.PositionPersistence.savePosition(ts)               // V5.9.705
@@ -26967,11 +26998,12 @@ if (hotExitHandledSweep) {
                         "🛡️ [FALLBACK_EXIT][MOONSHOT] ${ts.symbol} | signal=$sig | price=$price (DexScreener down)")
                     if (sig == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.PARTIAL_TAKE) {
                         val partialPct = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getPartialSellPct(ts.mint)
-                        executor.requestPartialSell(
+                        val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                             ts = ts, sellPercentage = partialPct,
                             reason = "FALLBACK_MOONSHOT_PARTIAL_TAKE_${(partialPct * 100).toInt()}PCT",
                             wallet = wallet, walletBalance = effectiveBalance,
                         )
+                        if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_FALLBACK_MOONSHOT") } catch (_: Throwable) {}; return }
                         com.lifecyclebot.v3.scoring.MoonshotTraderAI.onPartialSell(ts.mint, partialPct) // V5.9.705
                         com.lifecyclebot.engine.PositionPersistence.savePosition(ts)                    // V5.9.705
                     } else {

@@ -18527,12 +18527,32 @@ class Executor(
         return doSell(ts, requestReason, wallet, walletSol)
     }
     
+    data class PartialSellReceipt6566(
+        val applied: Boolean,
+        val terminal: Boolean = false,
+        val authorityResult: String = "NOT_APPLIED",
+        val operationId: String = "",
+    )
+
+    fun requestPartialSellConfirmed6566(
+        ts: TokenState,
+        sellPercentage: Double,
+        reason: String,
+        wallet: SolanaWallet?,
+        walletBalance: Double,
+    ): PartialSellReceipt6566 {
+        var receipt = PartialSellReceipt6566(false)
+        requestPartialSell(ts, sellPercentage, reason, wallet, walletBalance) { receipt = it }
+        return receipt
+    }
+
     fun requestPartialSell(
         ts: TokenState, 
         sellPercentage: Double, 
         reason: String, 
         wallet: SolanaWallet?, 
-        walletBalance: Double
+        walletBalance: Double,
+        receipt6566: ((PartialSellReceipt6566) -> Unit)? = null,
     ) {
         val pct = sellPercentage.coerceIn(0.0, 1.0)
         if (pct <= 0) return
@@ -18731,6 +18751,7 @@ class Executor(
             onNotify("📊 Partial Profit (PAPER)",
                 "${ts.symbol}: sold ${(pct * 100).toInt()}% | PnL ${pnlPct.fmtPctPrecise()} (${profitSol.fmtSignedSol()} SOL)",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+            receipt6566?.invoke(PartialSellReceipt6566(true, fullyExited, partial6510.reason, partial6510.operationId))
 
         } else {
             // LIVE partial sell - need wallet
@@ -18762,7 +18783,12 @@ class Executor(
                 "${(pct * 100).toInt()}% of holdings")
             
             if (pct >= 0.9) {
-                doSell(ts, "[PARTIAL→FULL] $reason", activeWallet, walletBalance)
+                val fullResult6566 = doSell(ts, "[PARTIAL→FULL] $reason", activeWallet, walletBalance)
+                receipt6566?.invoke(PartialSellReceipt6566(
+                    applied = fullResult6566 in setOf(SellResult.CONFIRMED, SellResult.PAPER_CONFIRMED, SellResult.ALREADY_CLOSED),
+                    terminal = fullResult6566 in setOf(SellResult.CONFIRMED, SellResult.PAPER_CONFIRMED, SellResult.ALREADY_CLOSED),
+                    authorityResult = fullResult6566.name,
+                ))
             } else {
                 val lockTradeKeyPre = LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime)
                 if (blockIfSellInFlight(ts, reason, lockTradeKeyPre)) return
@@ -19147,6 +19173,7 @@ class Executor(
                     onNotify("💰 Live Partial Sell",
                         "${ts.symbol}: sold ${(pct*100).toInt()}% | PnL ${liveScore.fmtPctPrecise()} (${netPnl.fmtSignedSol()} SOL net)",
                         com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                    receipt6566?.invoke(PartialSellReceipt6566(true, false, "LIVE_PARTIAL_CONFIRMED", finalSig))
                         
                 } catch (e: Exception) {
                     // V5.9.474 — classified post-quote forensics for partial-sell catch

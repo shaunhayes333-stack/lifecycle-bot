@@ -673,6 +673,7 @@ object MetalsTrader {
         // fires Jupiter swap at the same positionSizeSol so sizing learnt
         // in paper carries into live 1:1. Live failure rolls back the position.
         if (isPaperMode.get()) {
+            try { com.lifecyclebot.engine.ForensicLogger.phase(com.lifecyclebot.engine.ForensicLogger.PHASE.LANE_EVAL, signal.market.symbol, "lane=MARKETS_METALS source=CANONICAL_HANDOFF_6566 score=${signal.score} confidence=${signal.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
             val admission6565 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.submit(
                 com.lifecyclebot.engine.truth.CanonicalAssetEntryCandidate6551(
                     assetId = position.market.symbol, symbol = position.market.symbol,
@@ -826,7 +827,7 @@ positionMap[position.id] = position
                     com.lifecyclebot.engine.SymbolicExitReasoner.Action.EXIT ->
                         closePosition(position, positionMap, "AI_EXIT: ${assessment.primarySignal}")
                     com.lifecyclebot.engine.SymbolicExitReasoner.Action.PARTIAL ->
-                        closePosition(position, positionMap, "AI_PARTIAL: ${assessment.primarySignal}")
+                        partialPosition6566(position, positionMap, "AI_PARTIAL: ${assessment.primarySignal}")
                     else -> {
                         if (position.shouldStopLoss()) closePosition(position, positionMap, "FLUID_SL_SAFETY")
                         else if (position.shouldTakeProfit()) closePosition(position, positionMap, "TP_SAFETY")
@@ -836,6 +837,26 @@ positionMap[position.id] = position
         } catch (_: Exception) {}
     }
     
+    private fun partialPosition6566(position: MetalPosition, positionMap: ConcurrentHashMap<String, MetalPosition>, reason: String) {
+        if (!position.isPaper) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_PARTIAL_DEFERRED_NO_CONFIRMED_ADAPTER_6566_METAL") } catch (_: Throwable) {}
+            return
+        }
+        val feeRate = if (position.leverage == 1.0) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT
+        val receipt = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.partial(
+            position.id, position.market.symbol, position.market.symbol, 0.5,
+            position.getPnlPercent(), feeRate, reason,
+        )
+        if (!receipt.applied) {
+            ErrorLogger.warn(TAG, "PAPER PARTIAL REJECTED: ${position.market.symbol} ${receipt.reason}")
+            return
+        }
+        val updated = position.copy(size = receipt.remainingCostSol)
+        positionMap[position.id] = updated
+        persistMetalPositions()
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_PARTIAL_APPLIED_6566_METAL") } catch (_: Throwable) {}
+    }
+
     private fun closePosition(position: MetalPosition, positionMap: ConcurrentHashMap<String, MetalPosition>, reason: String) {
         val grossPnl = position.getPnlSol()
         val feePercent = if (position.leverage == 1.0) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT

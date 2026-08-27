@@ -1043,7 +1043,12 @@ object MoonshotTraderAI {
         if (frac <= 0.0) return
         val pos = synchronized(activePositions) { activePositions[mint] } ?: return
         val newEntrySol = pos.entrySol * (1.0 - frac)
-        val updated = pos.copy(entrySol = newEntrySol)
+        val updated = pos.copy(
+            entrySol = newEntrySol,
+            partialRungsTaken = (pos.partialRungsTaken + 1).coerceAtMost(PARTIAL_TAKE_LADDER.size),
+            firstTakeDone = true,
+            partialSellPct = (pos.partialSellPct + frac).coerceAtMost(1.0),
+        )
         synchronized(activePositions) { activePositions[mint] = updated }
         ErrorLogger.debug(TAG, "🌙🔪 onPartialSell ${pos.symbol}: entrySol ${pos.entrySol} → ${newEntrySol} (sold ${(frac*100).toInt()}%)")
     }
@@ -1634,9 +1639,8 @@ object MoonshotTraderAI {
         val rungs = PARTIAL_TAKE_LADDER
         if (pos.partialRungsTaken < rungs.size && pnlPct >= rungs[pos.partialRungsTaken]) {
             val hitRung = rungs[pos.partialRungsTaken]
-            pos.partialRungsTaken += 1
-            pos.firstTakeDone = true  // kept for legacy UI / metrics
-            ErrorLogger.info(TAG, "💰 LADDER PARTIAL #${pos.partialRungsTaken}: ${pos.symbol} | " +
+            val proposedRung = pos.partialRungsTaken + 1
+            ErrorLogger.info(TAG, "💰 LADDER PARTIAL #$proposedRung: ${pos.symbol} | " +
                 "hit +${hitRung.toInt()}% (now +${pnlPct.fmt(1)}%) — locking a slice, rest rides")
             return ExitSignal.PARTIAL_TAKE
         }

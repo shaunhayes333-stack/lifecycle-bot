@@ -80,4 +80,20 @@ class Repair6510AuthorityAcceptanceTest {
         RootCauseIncidentLifecycle6510.resolve("PAPER_EQUITY_CONSERVATION_VIOLATION_6467", "delta=0")
         assertFalse(RootCauseIncidentLifecycle6510.isOpen("PAPER_EQUITY_CONSERVATION_VIOLATION_6467"))
     }
+
+    @Test fun distinct_partial_requests_use_monotonic_ids_and_never_terminally_remove_position() {
+        resetPaper(); val mint = "PART6566_${System.nanoTime()}"; val pid = "PAPER:PART6566:${System.nanoTime()}"
+        assertTrue(CanonicalPaperTransaction6486.open(pid, mint, "P", "CRYPTO_ALT", "6566", 1.0,
+            qtyRaw = BigInteger.valueOf(1_000_000L), decimals = 6, quantityScale = 6).applied)
+        val first = CanonicalPaperTransaction6486.partial(pid, mint, "P", 0.5, 20.0, 0.0, "RUNNER_RUNG_1")
+        val second = CanonicalPaperTransaction6486.partial(pid, mint, "P", 0.5, -10.0, 0.0, "RUNNER_RUNG_2")
+        assertTrue(first.applied); assertTrue(second.applied)
+        assertEquals("$pid:1", first.operationId); assertEquals("$pid:2", second.operationId)
+        assertEquals(0.5, first.remainingCostSol, 1e-9); assertEquals(0.25, second.remainingCostSol, 1e-9)
+        val remaining = requireNotNull(CanonicalPositionAuthority6441.getPosition(pid))
+        assertEquals(CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED, remaining.lifecycle)
+        assertEquals(BigInteger.valueOf(250_000L), remaining.remainingQtyRaw)
+        assertEquals(9.825, PaperAccountLedger6430.cashSol(), 1e-9)
+    }
+
 }

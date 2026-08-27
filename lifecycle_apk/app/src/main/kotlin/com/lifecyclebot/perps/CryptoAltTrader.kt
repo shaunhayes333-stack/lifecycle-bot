@@ -994,7 +994,7 @@ object CryptoAltTrader {
                 .take(25) // V5.9.128: raised from 3 → 25 to use full 449-token universe
             for (sig in topDyn) {
                 if (positions.size >= MAX_POSITIONS) break
-                try { ForensicLogger.phase(ForensicLogger.PHASE.LANE_EVAL, sig.marketSymbol, "lane=CRYPTO_ALT source=DYNAMIC_ALT score=${sig.score} confidence=${sig.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("CRYPTO_SIGNAL_SELECTED_6566", "symbol=${sig.marketSymbol} source=DYNAMIC_ALT score=${sig.score} confidence=${sig.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
                 // V5.9.1472 — dedupe by real symbol so DYN coins aren't collapsed.
                 if (hasPositionSymbol(sig.marketSymbol)) continue
                 // V5.9.3: respect UI toggle for DynScan signals too
@@ -1235,7 +1235,7 @@ object CryptoAltTrader {
         // layers + real accuracy loop + ReflexAI that the memetrader uses.
         val v3Filtered = topSignals.mapNotNull { sig ->
             try {
-                ForensicLogger.phase(ForensicLogger.PHASE.LANE_EVAL, sig.marketSymbol, "lane=CRYPTO_ALT source=STATIC_ALT score=${sig.score} confidence=${sig.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}")
+                ForensicLogger.lifecycle("CRYPTO_SIGNAL_SELECTED_6566", "symbol=${sig.marketSymbol} source=STATIC_ALT score=${sig.score} confidence=${sig.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}")
                 // V5.9.400 — pass realistic per-tier liquidity/mcap so V3
                 // layers (LiquidityExitPath, ExecutionCost, MEV, etc.) don't
                 // mis-score every alt with `liquidity=-7`. Tier inference
@@ -2244,6 +2244,7 @@ object CryptoAltTrader {
             try { com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(candidate.assetKey, "CRYPTO", "CRYPTO_EXEC_BLOCKED") } catch (_: Throwable) {}
             return
         }
+        try { ForensicLogger.phase(ForensicLogger.PHASE.LANE_EVAL, candidate.symbol, "lane=CRYPTO_ALT source=CANONICAL_HANDOFF_6566 score=${signal.score} confidence=${signal.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
         val canonicalCryptoAdmission6565 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.submit(
             com.lifecyclebot.engine.truth.CanonicalAssetEntryCandidate6551(
                 assetId = candidate.assetKey, symbol = mktSym,
@@ -2790,7 +2791,7 @@ object CryptoAltTrader {
                     com.lifecyclebot.engine.SymbolicExitReasoner.Action.EXIT ->
                         closePosition(id, "AI_EXIT: ${assessment.primarySignal} (conv=${"%.2f".format(assessment.conviction)})")
                     com.lifecyclebot.engine.SymbolicExitReasoner.Action.PARTIAL ->
-                        closePosition(id, "AI_PARTIAL: ${assessment.primarySignal} (conv=${"%.2f".format(assessment.conviction)})")
+                        partialPosition6566(id, "AI_PARTIAL: ${assessment.primarySignal} (conv=${"%.2f".format(assessment.conviction)})")
                     else -> {
                         // V5.9.118: FLUID PROFIT-FLOOR LOCK — same lock semantics
                         // as the main meme trader so alts runners don't give back
@@ -2840,6 +2841,27 @@ object CryptoAltTrader {
             } catch (e: CancellationException) { throw e }
               catch (_: Exception) {}
         }
+    }
+
+    private fun partialPosition6566(positionId: String, reason: String) {
+        val position = positions[positionId] ?: return
+        if (!position.isPaper) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_PARTIAL_DEFERRED_NO_CONFIRMED_ADAPTER_6566_CRYPTO") } catch (_: Throwable) {}
+            return
+        }
+        val receipt = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.partial(
+            position.id, position.canonicalAssetKey, position.marketSymbol, 0.5,
+            position.getPnlPct(), 0.005, reason,
+        )
+        if (!receipt.applied) {
+            ErrorLogger.warn(TAG, "PAPER PARTIAL REJECTED: ${position.marketSymbol} ${receipt.reason}")
+            return
+        }
+        val updated = position.copy(sizeSol = receipt.remainingCostSol)
+        positions[positionId] = updated
+        if (updated.isSpot) spotPositions[positionId] = updated else leveragePositions[positionId] = updated
+        persistAltPositions()
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_PARTIAL_APPLIED_6566_CRYPTO") } catch (_: Throwable) {}
     }
 
     private fun closePosition(positionId: String, reason: String) {
