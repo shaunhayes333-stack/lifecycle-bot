@@ -1273,23 +1273,19 @@ class MultiAssetActivity : AppCompatActivity() {
                     wallet?.getSolBalance() ?: -1.0
                 } catch (_: Exception) { -1.0 }
 
-                // CryptoAltTrader is the single wallet — all screens read from it
+                // V5.0.6577 §P0-1 — SINGLE PAPER CAPITAL AUTHORITY. Every UI
+                // (Main / Markets / Meme / Crypto Alt) reads paper cash from
+                // PaperCapitalAuthority6577 which fronts PaperAccountLedger6430.
+                // The pre-6577 formula (paperBaseSol + marketsPnlSol) computed
+                // a lane-specific view that diverged from other screens —
+                // Meme could refuse trades while Markets still displayed funds.
+                val paperSnap6577 = com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.snapshot()
+                val paperBalanceSol = paperSnap6577.totalEquitySol
+                // Legacy telemetry only — divergence between the old lane-PnL
+                // formula and the canonical authority is recorded but does not
+                // authoritatively drive the UI anymore.
                 val paperBaseSol = com.lifecyclebot.engine.BotService.status.paperWalletSol
-
-                // V5.9.52/V5.9.54: Historical Markets P&L used to be added here
-                // to compensate for the main wallet not crediting sub-trader
-                // closes (pre-V5.9.48). V5.9.54's reconciliation migration now
-                // folds that history into `paperBaseSol` itself, and V5.9.48
-                // keeps it up-to-date on every open/close. So we add ONLY the
-                // delta that hasn't been migrated yet — if the migration flag
-                // is set, the value is already canonical and we add zero.
-                val migrated = try {
-                    applicationContext
-                        .getSharedPreferences("bot_runtime", android.content.Context.MODE_PRIVATE)
-                        .getBoolean("unified_wallet_migration_v5_9_54", false)
-                } catch (_: Throwable) { false }
-
-                val marketsPnlSol = if (migrated) 0.0 else try {
+                val marketsPnlSol = try {
                     TokenizedStockTrader.getTotalPnlSol() +
                     CommoditiesTrader.getTotalPnlSol() +
                     MetalsTrader.getTotalPnlSol() +
@@ -1297,7 +1293,11 @@ class MultiAssetActivity : AppCompatActivity() {
                     CryptoAltTrader.getTotalPnlSol() +
                     PerpsTraderAI.getLifetimePnlSol()
                 } catch (_: Exception) { 0.0 }
-                val paperBalanceSol = paperBaseSol + marketsPnlSol
+                try {
+                    com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.probeUiCash(
+                        "MultiAssetActivity", paperBaseSol + marketsPnlSol - paperSnap6577.openMarketValueSol
+                    )
+                } catch (_: Throwable) {}
 
                 // Get SOL price — Pyth first, cached fallback
                 val solPriceUsd = try {

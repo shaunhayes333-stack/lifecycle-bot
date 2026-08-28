@@ -3634,10 +3634,15 @@ object CryptoAltTrader {
     fun isPaperMode(): Boolean = isPaperMode.get()
     fun isLiveMode() : Boolean = !isPaperMode.get()
 
-    // V5.9.5: In paper mode, read from shared FluidLearning pool (same as main AATE)
+    // V5.0.6577 §P0-1 — SHARED PAPER CAPITAL AUTHORITY.
+    // Every paper lane reads the same canonical PaperCapitalAuthority6577,
+    // never a lane-local field. Previously BotService.status.paperWalletSol
+    // was used, which could lag behind the canonical ledger during in-flight
+    // trades — Crypto Alt UI displayed $648 while other lanes saw $1,190.
     fun getBalance()          : Double = getEffectiveBalance()
     fun getEffectiveBalance() : Double = if (isPaperMode.get())
-        com.lifecyclebot.engine.BotService.status.paperWalletSol
+        try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.availableCashSol() }
+            catch (_: Throwable) { com.lifecyclebot.engine.BotService.status.paperWalletSol }
         else liveWalletBalance
 
     fun setBalance(bal: Double) {

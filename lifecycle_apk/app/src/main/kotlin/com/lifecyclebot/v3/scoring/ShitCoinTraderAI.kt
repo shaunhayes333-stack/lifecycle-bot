@@ -370,7 +370,19 @@ object ShitCoinTraderAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     fun getBalance(isPaper: Boolean): Double {
-        return if (isPaper) paperBalanceBps.get() / 100.0 else liveBalanceBps.get() / 100.0
+        // V5.0.6577 §P0-1 — SHARED PAPER CAPITAL AUTHORITY.
+        // Operator directive: "MEME can stop opening positions from low
+        // available funds after Markets/Crypto consume capital, while Meme
+        // UI still displays funds." Fix at source: paper balance is the
+        // canonical PaperCapitalAuthority6577 available cash, not the
+        // lane-local paperBalanceBps accumulator. Live path unchanged.
+        return if (isPaper) {
+            try {
+                com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.availableCashSol()
+            } catch (_: Throwable) { paperBalanceBps.get() / 100.0 }
+        } else {
+            liveBalanceBps.get() / 100.0
+        }
     }
     
     fun getCurrentBalance(): Double = getBalance(isPaperMode)
