@@ -1006,7 +1006,7 @@ object CryptoAltTrader {
                         layerVotes = emptyMap(), dynSymbol = refreshed.symbol, dynName = refreshed.name,
                         dynMint = refreshed.mint, dynChainId = refreshed.chainId, dynAssetKey = refreshed.canonicalIdentity6544,
                     ))
-                    DynamicAltTokenRegistry.markEvaluationDisposition6567(refreshed, "OBSERVE_SPECIALIST_SILENCE_6569")
+                    DynamicAltTokenRegistry.markEvaluationProgress6570(refreshed, "SPECIALIST_SILENCE_SHARED_EVIDENCE")
                     try { PipelineHealthCollector.labelInc("CRYPTO_SPECIALIST_SILENCE_TO_SHARED_INTELLIGENCE_6569") } catch (_: Throwable) {}
                 }
 
@@ -1031,7 +1031,7 @@ object CryptoAltTrader {
             uniqueDynSignals6567.filterNot { it in topDyn }.forEach { observed ->
                 val observedTok6569 = observed.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
                     ?: observed.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
-                DynamicAltTokenRegistry.markEvaluationDisposition6567(observedTok6569, "OBSERVE_SHARED_INTELLIGENCE_BACKLOG_6569")
+                DynamicAltTokenRegistry.markEvaluationProgress6570(observedTok6569, "SHARED_INTELLIGENCE_BACKLOG_COALESCED_REQUEUE")
             }
             for ((signalIndex6567, sig) in topDyn.withIndex()) {
                 if (positions.size >= MAX_POSITIONS) {
@@ -2342,6 +2342,11 @@ object CryptoAltTrader {
                 return
             }
         }
+        val canonicalFinalSize6570 = canonicalCryptoIntent6565.resolvedSize
+        if (!canonicalFinalSize6570.isFinite() || canonicalFinalSize6570 <= 0.0) {
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(canonicalCryptoIntent6565, "INVALID_SEALED_SIZE_6570")
+            return
+        }
         try {
             com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAuthAllow(
                 venue = venue6540, symbol = mktSym,
@@ -2368,7 +2373,7 @@ object CryptoAltTrader {
             canonicalAssetKey = candidate.assetKey,
             entryPrice     = signal.price,
             currentPrice   = signal.price,
-            sizeSol        = finalSize,
+            sizeSol        = canonicalFinalSize6570,
             leverage       = lev,
             takeProfitPrice= tp,
             stopLossPrice  = sl,
@@ -2380,14 +2385,14 @@ object CryptoAltTrader {
         // Note: totalTrades incremented at CLOSE, not open, for accurate win rate
 
         // V5.9.114: UNIFIED capital move. Paper debits paper wallet;
-        // live fires a Jupiter swap at the EXACT same finalSize so sizing
+        // live fires a Jupiter swap at the EXACT same canonicalFinalSize6570 so sizing
         // learnt in paper carries 1:1 into live. If the live swap fails
         // we roll back: the position is not created and we return.
         if (isPaperMode.get()) {
             val canonicalOpen6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(
                 positionId = position.id, mint = position.canonicalAssetKey, symbol = mktSym,
                 lane = if (isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV", source = "CryptoAltTrader",
-                costSol = finalSize, entryScore = signal.score, tactic = if (isSpot) "SPOT" else "LEVERAGE",
+                costSol = canonicalFinalSize6570, entryScore = signal.score, tactic = if (isSpot) "SPOT" else "LEVERAGE",
                 // V5.0.6525 §ASSET_CLASS + §ENTRY_PRICE.
                 assetClass = com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT,
                 entryPriceUsd = signal.price,
@@ -2396,24 +2401,27 @@ object CryptoAltTrader {
             )
             if (!canonicalOpen6486.applied) {
                 ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: $mktSym ${canonicalOpen6486.reason}")
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(canonicalCryptoIntent6565, canonicalOpen6486.reason)
                 try { TradeAuthorizer.releasePosition(candidate.assetKey, "CRYPTO_PAPER_CANONICAL_REJECTED", TradeAuthorizer.ExecutionBook.CRYPTO) } catch (_: Throwable) {}
                 return
             }
-            try { com.lifecyclebot.engine.FluidLearning.recordPaperBuy(mktSym, finalSize) } catch (_: Exception) {}
+            try { com.lifecyclebot.engine.FluidLearning.recordPaperBuy(mktSym, canonicalFinalSize6570) } catch (_: Exception) {}
         } else {
             // LIVE mode — execute Jupiter swap at the exact paper-sized
-            // finalSize. If the swap + phantom-verify fail, we do NOT
+            // canonicalFinalSize6570. If the swap + phantom-verify fail, we do NOT
             // create a bot position (nothing to clean up on-chain either,
             // because MarketsLiveExecutor only returns success after the
             // target mint actually arrived on-chain).
-            val liveOk = executeLiveTradeAtSize(position.id, signal, isSpot, finalSize)
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markDispatch(canonicalCryptoIntent6565)
+            val liveOk = executeLiveTradeAtSize(position.id, signal, isSpot, canonicalFinalSize6570)
             if (!liveOk) {
                 ErrorLogger.warn(TAG, "🔴 LIVE alt trade failed: ${mktSym} — position not recorded")
                 try { TradeAuthorizer.releasePosition(candidate.assetKey, "CRYPTO_LIVE_BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.CRYPTO) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(candidate.assetKey, "CRYPTO", "CRYPTO_LIVE_BUY_NOT_OPENED") } catch (_: Throwable) {}
                 return
             }
-            ErrorLogger.info(TAG, "🪙 LIVE trade success: ${mktSym} (paper-sized ${finalSize.fmt(4)}◎)")
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markConfirmed(canonicalCryptoIntent6565, position.id)
+            ErrorLogger.info(TAG, "🪙 LIVE trade success: ${mktSym} (paper-sized ${canonicalFinalSize6570.fmt(4)}◎)")
         }
 
         positions[position.id]         = position
@@ -2430,7 +2438,7 @@ object CryptoAltTrader {
         // learning drift and preventing clean maturity/threshold adaptation. Fire
         // only after the paper debit or live execution has actually committed.
         try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.onTradeStart() } catch (_: Throwable) {}
-        com.lifecyclebot.engine.WalletPositionLock.recordOpen("CryptoAlt", finalSize)
+        com.lifecyclebot.engine.WalletPositionLock.recordOpen("CryptoAlt", canonicalFinalSize6570)
 
         // V5.9.320: After a successful LIVE leveraged open, look up the Flash.trade
         // position key so we can close it properly via the Flash close-position endpoint.
@@ -2470,7 +2478,7 @@ object CryptoAltTrader {
                 com.lifecyclebot.collective.LocalOrphanStore.recordOpen(
                     trader = "CryptoAlt",
                     posId = position.id,
-                    sizeSol = finalSize,
+                    sizeSol = canonicalFinalSize6570,
                     symbol = mktSym,
                 )
             } catch (_: Exception) {}
@@ -2513,7 +2521,7 @@ object CryptoAltTrader {
         } catch (_: Exception) {}
 
         ErrorLogger.info(TAG, "🪙 OPENED: ${signal.direction.emoji} ${mktSym} @ ${"%.4f".format(signal.price)} | " +
-            "${position.leverageLabel} | size=${finalSize.fmt(3)}◎ | score=${signal.score} | TP=${"%.4f".format(tp)} SL=${"%.4f".format(sl)}")
+            "${position.leverageLabel} | size=${canonicalFinalSize6570.fmt(3)}◎ | score=${signal.score} | TP=${"%.4f".format(tp)} SL=${"%.4f".format(sl)}")
 
         signal.reasons.take(3).forEach { ErrorLogger.debug(TAG, "   → $it") }
 

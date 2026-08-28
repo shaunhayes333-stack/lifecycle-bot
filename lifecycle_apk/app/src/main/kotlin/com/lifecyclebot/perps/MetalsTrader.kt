@@ -422,6 +422,7 @@ object MetalsTrader {
             return null
         }
         val direction = setup.direction
+        layerVotes["MetalsStrategy"] = direction
         
         // 1. Momentum analysis
         when {

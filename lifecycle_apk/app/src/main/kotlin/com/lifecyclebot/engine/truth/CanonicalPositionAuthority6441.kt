@@ -75,6 +75,41 @@ object CanonicalPositionAuthority6441 {
 
     enum class MutateResult { APPLIED, DUPLICATE, INVARIANT_VIOLATION, UNKNOWN_POSITION, LIFECYCLE_FORBIDDEN }
 
+    data class ExitEligibility6570(val eligible: Boolean, val position: Position?, val reason: String)
+
+    /** V5.0.6570 — one canonical pre-PnL/pre-side-effect exit contract. */
+    fun exitEligibility6570(
+        positionId: String? = null,
+        mint: String,
+        expectedMode: String? = null,
+        expectedAssetClass: AssetClass? = null,
+    ): ExitEligibility6570 {
+        val pos = positionId?.takeIf { it.isNotBlank() }?.let { positions[it] }
+            ?: positions.values.firstOrNull { it.mint == mint && it.lifecycle in setOf(Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED) }
+            ?: return ExitEligibility6570(false, null, "NO_CANONICAL_POSITION")
+        val reason = when {
+            pos.lifecycle !in setOf(Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED) -> "LIFECYCLE_${pos.lifecycle.name}"
+            !pos.entryCostSol.isFinite() || pos.entryCostSol <= 0.0 ||
+                (pos.entryCostSol - pos.soldCostBasisSol) <= 0.0 -> "INVALID_ENTRY_BASIS"
+            pos.remainingQtyRaw <= BigInteger.ZERO -> "INVALID_REMAINING_QUANTITY"
+            pos.mode !in setOf("paper", "live") -> "INVALID_MODE"
+            pos.assetClass == AssetClass.UNKNOWN -> "INVALID_ASSET_CLASS"
+            expectedMode != null && !pos.mode.equals(expectedMode, true) -> "MODE_MISMATCH"
+            expectedAssetClass != null && pos.assetClass != expectedAssetClass -> "ASSET_CLASS_MISMATCH"
+            PositionStateLedger6454.lifecycle(pos.positionId) == PositionStateLedger6454.Lifecycle.CLOSING -> "TERMINAL_CLAIM_ACTIVE"
+            PositionStateLedger6454.lifecycle(pos.positionId) == PositionStateLedger6454.Lifecycle.CLOSED -> "TERMINAL_ALREADY_CLOSED"
+            else -> "ELIGIBLE"
+        }
+        if (reason != "ELIGIBLE" && reason !in setOf("TERMINAL_CLAIM_ACTIVE", "TERMINAL_ALREADY_CLOSED")) {
+            quarantine(pos.positionId, "EXIT_ELIGIBILITY_6570:$reason")
+        }
+        try {
+            PipelineHealthCollector.labelInc("EXIT_ELIGIBILITY_6570|$reason")
+            if (reason != "ELIGIBLE") ForensicLogger.lifecycle("EXIT_ELIGIBILITY_REJECTED_6570", "positionId=${pos.positionId} mint=${pos.mint.take(12)} mode=${pos.mode} assetClass=${pos.assetClass.tag} reason=$reason")
+        } catch (_: Throwable) {}
+        return ExitEligibility6570(reason == "ELIGIBLE", pos, reason)
+    }
+
     private val positions = ConcurrentHashMap<String, Position>()
     private val mutationKeys = ConcurrentHashMap<String, Long>()   // key -> whenMs (idempotency)
     private val lock = ReentrantLock()

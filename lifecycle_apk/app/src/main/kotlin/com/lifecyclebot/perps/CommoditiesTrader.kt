@@ -443,6 +443,7 @@ object CommoditiesTrader {
             return null
         }
         val direction = setup.direction
+        layerVotes["CommoditiesStrategy"] = direction
         
         // Add trade type indicator
         reasons.add("${tradeType.emoji} ${tradeType.name}")

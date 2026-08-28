@@ -52,7 +52,12 @@ object MarkAuthorityIntegrityGate6496 {
      * When [price] is 0/NaN or [source]/[poolAddress] is blank the
      * gate blocks (missing provenance is never AUTHORITATIVE).
      */
-    data class AuthorityResult(val priceAuthoritative: Boolean, val routeExecutable: Boolean, val provenance: MarketDataProvenance6471.Provenance)
+    data class AuthorityResult(
+        val priceAuthoritative: Boolean,
+        val observationAuthoritative: Boolean,
+        val routeExecutable: Boolean,
+        val provenance: MarketDataProvenance6471.Provenance,
+    )
 
     fun evaluate(
         mint: String,
@@ -80,17 +85,19 @@ object MarkAuthorityIntegrityGate6496 {
         val canonicalSource6548 = when {
             sourceUpper.startsWith("DEXSCREENER") -> "DEXSCREENER"
             sourceUpper.startsWith("BIRDEYE") -> "BIRDEYE"
+            sourceUpper.startsWith("GECKOTERMINAL") || sourceUpper.startsWith("GECKO_TERMINAL") -> "GECKOTERMINAL"
             sourceUpper.startsWith("JUPITER") -> "JUPITER"
             sourceUpper.startsWith("PUMPFUN") || sourceUpper.startsWith("PUMP_FUN") ||
                 sourceUpper.startsWith("PUMP_PORTAL") -> "PUMPFUN"
             else -> sourceUpper
         }
-        val realPriceSource = canonicalSource6548 in setOf("DEXSCREENER", "BIRDEYE", "JUPITER", "PUMPFUN")
+        val realPriceSource = canonicalSource6548 in setOf("DEXSCREENER", "GECKOTERMINAL", "BIRDEYE", "JUPITER", "PUMPFUN")
         val priceValidity = fresh && priceUsd.isFinite() && priceUsd > 0.0
         val liquidityValidity = liquidityUsd.isFinite() && liquidityUsd > 0.0
         val realPoolIdentity = poolAddress.isNotBlank() && !poolAddress.startsWith("MINT_ROUTE:", ignoreCase = true)
         val knownTemplate = kotlin.math.abs(priceUsd - 0.050250000) < 1e-6 && kotlin.math.abs(mcapUsd - 50_000_000.0) < 1.0 && kotlin.math.abs(liquidityUsd - 5_000_000.0) < 1.0
-        val priceAuthoritative = priceValidity && realPriceSource && realPoolIdentity && !knownTemplate
+        val observationAuthoritative = priceValidity && realPriceSource && !knownTemplate
+        val priceAuthoritative = observationAuthoritative && realPoolIdentity
         val routeExecutable = liquidityValidity && provenance == MarketDataProvenance6471.Provenance.AUTHORITATIVE
         if (priceAuthoritative) authoritativePasses.incrementAndGet() else {
             nonAuthoritativeBlocks.incrementAndGet()
@@ -119,7 +126,31 @@ object MarkAuthorityIntegrityGate6496 {
                 )
             } catch (_: Throwable) {}
         }
-        return AuthorityResult(priceAuthoritative, routeExecutable, provenance)
+        return AuthorityResult(priceAuthoritative, observationAuthoritative, routeExecutable, provenance)
+    }
+
+
+    /** V5.0.6570 — observation/V3 authority is price+provider+freshness only.
+     * Pool identity and liquidity remain mandatory at executable/live route and
+     * economic/exit mark boundaries; MINT_ROUTE is never executable proof. */
+    fun isObservationAuthoritative6570(
+        mint: String,
+        priceUsd: Double,
+        source: String,
+        poolAddress: String,
+        fresh: Boolean,
+    ): Boolean {
+        if (mint.isBlank() || poolAddress.isBlank() || !fresh || !priceUsd.isFinite() || priceUsd <= 0.0) return false
+        val sourceUpper = source.trim().uppercase()
+        val canonicalSource = when {
+            sourceUpper.startsWith("DEXSCREENER") -> "DEXSCREENER"
+            sourceUpper.startsWith("GECKOTERMINAL") || sourceUpper.startsWith("GECKO_TERMINAL") -> "GECKOTERMINAL"
+            sourceUpper.startsWith("BIRDEYE") -> "BIRDEYE"
+            sourceUpper.startsWith("JUPITER") -> "JUPITER"
+            sourceUpper.startsWith("PUMPFUN") || sourceUpper.startsWith("PUMP_FUN") || sourceUpper.startsWith("PUMP_PORTAL") -> "PUMPFUN"
+            else -> sourceUpper
+        }
+        return canonicalSource in setOf("DEXSCREENER", "GECKOTERMINAL", "BIRDEYE", "JUPITER", "PUMPFUN")
     }
 
     fun isAuthoritative(

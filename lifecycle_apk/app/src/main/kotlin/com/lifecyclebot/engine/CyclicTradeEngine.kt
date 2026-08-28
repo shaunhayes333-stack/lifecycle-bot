@@ -214,7 +214,7 @@ object CyclicTradeEngine {
     /** V5.0.6567 — sellability evidence is four-state. Heuristic absence is
      * never equivalent to confirmed non-sellability; canonical safety/FDG
      * remains the hard authority downstream. */
-    private fun cyclicEntrySellabilityGuard6097(ts: TokenState, context: String): Boolean {
+    private fun cyclicEntrySellabilityGuard6097(ts: TokenState, context: String, isLiveMode: Boolean): Boolean {
         return try {
             val safety = ts.safety
             val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() } ?: 0.0
@@ -248,10 +248,11 @@ object CyclicTradeEngine {
                 if (evidence == CyclicSellabilityEvidence6567.CONFIRMED_FALSE)
                     PipelineHealthCollector.labelInc("CYCLIC_SELLABILITY_ENTRY_REJECT_6097")
             } catch (_: Throwable) {}
-            evidence != CyclicSellabilityEvidence6567.CONFIRMED_FALSE
+            if (isLiveMode) evidence == CyclicSellabilityEvidence6567.CONFIRMED_TRUE
+            else evidence != CyclicSellabilityEvidence6567.CONFIRMED_FALSE
         } catch (_: Throwable) {
             try { PipelineHealthCollector.labelInc("CYCLIC_SELLABILITY_PROVIDER_UNAVAILABLE_6567") } catch (_: Throwable) {}
-            true
+            !isLiveMode
         }
     }
 
@@ -555,8 +556,10 @@ object CyclicTradeEngine {
             .filter { ts ->
                 val tokenScore = (ts.lastV3Score ?: ts.entryScore.toInt()).toDouble()
                 !ts.position.isOpen
+                    && !com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.isOpen(if (isLiveMode) "live" else "paper", ts.mint)
+                    && !com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(ts.mint)
                     && resolveCyclicPrice(ts, executor, 0.0, "candidate", requireFresh = true).ok
-                    && cyclicEntrySellabilityGuard6097(ts, "candidate")
+                    && cyclicEntrySellabilityGuard6097(ts, "candidate", isLiveMode)
                     && tokenScore >= effectiveMinScore
                     && ts.mint != currentMint   // don't immediately re-enter same token
                     // V5.9.451 — TokenBlacklist + MemeLossStreakGuard respect.
@@ -625,8 +628,10 @@ object CyclicTradeEngine {
                     .filter { ts ->
                         val tScore = (ts.lastV3Score ?: ts.entryScore.toInt()).toDouble()
                         !ts.position.isOpen
+                            && !com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.isOpen(if (isLiveMode) "live" else "paper", ts.mint)
+                            && !com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(ts.mint)
                             && resolveCyclicPrice(ts, executor, 0.0, "probe", requireFresh = true).ok
-                            && cyclicEntrySellabilityGuard6097(ts, "probe")
+                            && cyclicEntrySellabilityGuard6097(ts, "probe", isLiveMode)
                             && tScore >= probeFloor
                             && ts.mint != currentMint
                             && !TokenBlacklist.isBlocked(ts.mint)

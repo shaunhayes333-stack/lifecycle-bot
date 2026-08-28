@@ -8890,7 +8890,7 @@ class GoldenTapeRegressionTest {
         }
 
         assertTrue(cyclic.contains("CONFIRMED_FALSE, UNKNOWN, PROVIDER_UNAVAILABLE, CONFIRMED_TRUE"))
-        assertTrue(cyclic.contains("evidence != CyclicSellabilityEvidence6567.CONFIRMED_FALSE"))
+        assertTrue(cyclic.contains("if (isLiveMode) evidence == CyclicSellabilityEvidence6567.CONFIRMED_TRUE") && cyclic.contains("else evidence != CyclicSellabilityEvidence6567.CONFIRMED_FALSE"))
         assertTrue(crypto.contains("uniqueDynSignals6567") && crypto.contains("groupBy { it.dynAssetKey"))
         assertTrue(crypto.contains("POSITION_CAP_REACHED") && crypto.contains("OBSERVE_SPECIALIST_SILENCE_6569") &&
             !crypto.contains("""markEvaluationDisposition6567(refreshed, "NO_ACTIONABLE_SPECIALIST_SIGNAL")"""))
@@ -8970,6 +8970,40 @@ class GoldenTapeRegressionTest {
         assertTrue("6569 bounded Crypto shared-intelligence work", crypto.contains("OBSERVE_SHARED_INTELLIGENCE_BACKLOG_6569") && crypto.contains(".take(25)"))
         assertTrue("6569 advisor causal-domain isolation", advisor.contains("ADVISOR_CROSS_DOMAIN_MUTATION_BLOCKED_6569") && advisor.contains("REPLAY_DRIVEN_ENTRY_COOLDOWN_ROLLED_BACK_6569") && !advisor.contains("""Candidate("entryCooldownSec", +3.0"""))
         assertTrue("6569 leveraged terminal proceeds and quarantine", crypto.contains("sol              = (pos.sizeSol + pnlSol).coerceAtLeast(0.0)") && paper.contains("LEVERAGED_TERMINAL_ARITHMETIC_DIVERGENCE_6569") && paper.contains("PaperLearningEligibility6519.record"))
+    }
+
+    @Test
+    fun V5_0_6570_execution_and_exit_authority_repair_contract() {
+        val mark = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPriceMark6522.kt").readText()
+        val markGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MarkAuthorityIntegrityGate6496.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/perps/DynamicAltTokenRegistry.kt").readText()
+        val cyclic = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt").readText()
+        val perps = java.io.File("src/main/kotlin/com/lifecyclebot/perps/PerpsExecutionEngine.kt").readText()
+        val perpsAi = java.io.File("src/main/kotlin/com/lifecyclebot/perps/PerpsTraderAI.kt").readText()
+        val positions = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt").readText()
+        val paper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val live = java.io.File("src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt").readText()
+        val forex = java.io.File("src/main/kotlin/com/lifecyclebot/perps/ForexTrader.kt").readText()
+        val commodities = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CommoditiesTrader.kt").readText()
+        val metals = java.io.File("src/main/kotlin/com/lifecyclebot/perps/MetalsTrader.kt").readText()
+
+        assertTrue(mark.contains("CanonicalMarkPurpose6570.OBSERVATION_SCORING") && bot.contains("purpose = com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING"))
+        assertTrue(markGate.contains("isObservationAuthoritative6570") && markGate.contains("GECKOTERMINAL"))
+        assertTrue(crypto.contains("markEvaluationProgress6570(refreshed") && crypto.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED_REQUEUE"))
+        assertFalse(crypto.contains("markEvaluationDisposition6567(refreshed, \"OBSERVE_SPECIALIST_SILENCE_6569\")"))
+        assertTrue(registry.contains("evaluation non-terminal progress=") && registry.contains("terminal=false coalesced=true"))
+        assertTrue(crypto.contains("canonicalFinalSize6570 = canonicalCryptoIntent6565.resolvedSize") && crypto.contains("markFailed(canonicalCryptoIntent6565"))
+        assertTrue(cyclic.contains("CanonicalMintOccupancyRegistry6464.isOpen") && cyclic.contains("if (isLiveMode) evidence == CyclicSellabilityEvidence6567.CONFIRMED_TRUE"))
+        assertTrue(perps.contains("CanonicalAssetEntryCandidate6551") && perps.contains("assetClass = com.lifecyclebot.engine.truth.AssetClass.PERPS") && perps.contains("sealedPerpIntent6570"))
+        assertFalse(perps.contains("recordFdgAndGetIntent6533("))
+        assertTrue(perpsAi.contains("executionIntent6565 ?: when (perpsAdmission6565)"))
+        assertTrue(positions.contains("fun exitEligibility6570(") && paper.contains("exitEligibility6570(positionId, mint, expectedMode = \"paper\")"))
+        assertTrue(executor.contains("exitEligibility6570(") && live.contains("exitEligibility6570("))
+        assertTrue(commodities.contains("layerVotes[\"CommoditiesStrategy\"] = direction") && metals.contains("layerVotes[\"MetalsStrategy\"] = direction"))
+        assertTrue(forex.contains("AssetClass.FOREX, \"RAW_SIGNAL\""))
     }
 
 }

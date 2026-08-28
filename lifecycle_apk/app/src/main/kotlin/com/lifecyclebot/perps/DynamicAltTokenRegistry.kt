@@ -198,6 +198,7 @@ object DynamicAltTokenRegistry {
     private val freshReachedFdg6544 = AtomicLong(0L)
     private val evaluationStarted6567 = AtomicLong(0L)
     private val evaluationDisposition6567 = ConcurrentHashMap<String, AtomicLong>()
+    private val evaluationProgress6570 = ConcurrentHashMap<String, AtomicLong>()
     private val paperOnlyNoRoute6544 = AtomicLong(0L)
     private val liveRoutable6544 = AtomicLong(0L)
     private val staticEvaluated6544 = AtomicLong(0L)
@@ -681,6 +682,17 @@ object DynamicAltTokenRegistry {
         evaluationStarted6567.incrementAndGet()
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_STARTED_6567") } catch (_: Throwable) {}
     }
+    fun markEvaluationProgress6570(tok: DynToken?, state: String) {
+        if (tok == null) return
+        val key = state.uppercase().replace(Regex("[^A-Z0-9_]+"), "_").take(72)
+        evaluationProgress6570.computeIfAbsent(key) { AtomicLong(0L) }.incrementAndGet()
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_PROGRESS_6570|$key")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("CRYPTO_EVAL_PROGRESS_6570",
+                "identity=${tok.canonicalIdentity6544} symbol=${tok.symbol} chain=${tok.chainId.ifBlank { "unknown" }} state=$key terminal=false coalesced=true")
+        } catch (_: Throwable) {}
+    }
+
     fun markEvaluationDisposition6567(tok: DynToken?, reason: String) {
         if (tok == null) return
         val key = reason.uppercase().replace(Regex("[^A-Z0-9_]+"), "_").take(72)
@@ -724,6 +736,8 @@ object DynamicAltTokenRegistry {
             append("evaluation terminal dispositions=started:").append(evaluationStarted6567.get())
                 .append(" terminal:").append(terminal6567)
                 .append(" missing:").append((evaluationStarted6567.get() - terminal6567).coerceAtLeast(0L)).append('\n')
+            append("evaluation non-terminal progress=").append(evaluationProgress6570.entries
+                .sortedByDescending { it.value.get() }.joinToString { "${it.key}:${it.value.get()}" }).append('\n')
             append("evaluation terminal reasons=").append(evaluationDisposition6567.entries
                 .sortedByDescending { it.value.get() }.joinToString { "${it.key}:${it.value.get()}" })
         }

@@ -740,6 +740,12 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         // scanning them too produced duplicate low-conviction signals on the
         // same symbols (SAND/MANA/AXS/XTZ/EOS/...). Stocks/Pyth stocks only.
         val stockMarkets = pythStocks + otherStocks.take(10)
+        if (stockMarkets.isEmpty()) {
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.completeProducerWindow6569(
+                com.lifecyclebot.engine.truth.AssetClass.STOCK, isEnabled.get(), isRunning.get(),
+                if (!isPaperMode.get()) "NO_FRESH_LIVE_STOCK_SOURCE" else "NO_CONFIGURED_STOCK_SOURCE",
+            )
+        }
         ErrorLogger.info(TAG, "📈 Scanning ${pythStocks.size} Pyth stocks + ${otherStocks.take(10).size} others (crypto handled by CryptoAltTrader)")
         
         // Fetch prices and generate signals

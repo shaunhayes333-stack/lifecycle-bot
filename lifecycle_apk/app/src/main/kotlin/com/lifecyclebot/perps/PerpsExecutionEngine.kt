@@ -551,35 +551,36 @@ object PerpsExecutionEngine {
                 )
             } catch (_: Throwable) {}
 
-            // V5.0.6558 — seal the exact PERP BUY decision before any
-            // legacy position object is created. The returned immutable
-            // intent is the only authority for the downstream open.
-            val sealedPerpIntent6558 = com.lifecyclebot.engine.ExecutableOpenGate.recordFdgAndGetIntent6533(
-                mint = signal.market.symbol,
-                symbol = signal.market.symbol,
-                lane = "PERPS",
-                canExecute = true,
-                reason = null,
-                signal = "BUY",
-                rugScore = 100,
-                safetyTier = "CLEAR",
-                liquidityUsd = 1.0,
-                hardNoReasons = emptyList(),
-                preFdgVerdict = "BUY",
-                candidateVersion = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(signal.market.symbol),
-                requiresSolanaTokenMap = false,
-                resolvedSizeSol6558 = sizeSol,
+            // V5.0.6570 — one typed PERPS admission owns FDG, sizing and intent.
+            val perpsAdmission6570 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.submit(
+                com.lifecyclebot.engine.truth.CanonicalAssetEntryCandidate6551(
+                    assetId = signal.market.symbol, symbol = signal.market.symbol,
+                    assetClass = com.lifecyclebot.engine.truth.AssetClass.PERPS,
+                    mode = if (isPaper) "PAPER" else "LIVE", direction = signal.direction.name,
+                    requestedVenue = perpsVenue6540.name, adapter = "PerpsExecutionEngine",
+                    source = scanner.name, specialist = "PERPS", score = signal.score.toDouble(),
+                    confidence = signal.confidence.toDouble() / 100.0,
+                    evidence = mapOf("leverage" to effectiveLeverage.toString()),
+                    requestedSizeSol = sizeSol, price = entryPrice, liquidityUsd = 0.0,
+                    routeAvailable = isPaper || signal.market.symbol in MarketsLiveExecutor.FLASH_SUPPORTED_PUBLIC || signal.market.isCrypto,
+                    candidateVersion = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(signal.market.symbol).coerceAtLeast(1L),
+                    diagnosticSignal = "BUY",
+                )
             )
-            if (sealedPerpIntent6558 != null) {
-                try { com.lifecyclebot.engine.ForensicLogger.phase(com.lifecyclebot.engine.ForensicLogger.PHASE.FDG, signal.market.symbol, "path=PERPS mode=${sealedPerpIntent6558.mode} verdict=${sealedPerpIntent6558.fdgVerdict} sealed=true version=${sealedPerpIntent6558.candidateVersion}") } catch (_: Throwable) {}
+            val sealedPerpIntent6570 = when (perpsAdmission6570) {
+                is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Allowed -> perpsAdmission6570.intent
+                is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Probe -> perpsAdmission6570.intent
+                is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Blocked -> {
+                    failedExecutions.incrementAndGet(); return
+                }
+                is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Deferred -> {
+                    failedExecutions.incrementAndGet(); return
+                }
             }
-            if (sealedPerpIntent6558 == null) {
-                failedExecutions.incrementAndGet()
-                try {
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PERPS_OPEN_FAILED_6554")
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle("PERPS_OPEN_FAILED_6554", "reason=FDG_ALLOW_WITHOUT_INTENT asset=${signal.market.symbol.take(16)}")
-                } catch (_: Throwable) {}
-                return
+            val canonicalPerpsSize6570 = sealedPerpIntent6570.resolvedSizeSol
+            if (!canonicalPerpsSize6570.isFinite() || canonicalPerpsSize6570 <= 0.0) {
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(sealedPerpIntent6570, "INVALID_SEALED_SIZE_6570")
+                failedExecutions.incrementAndGet(); return
             }
             try { com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAdapterDispatch(perpsVenue6540, signal.market.symbol) } catch (_: Throwable) {}
             
@@ -590,11 +591,11 @@ object PerpsExecutionEngine {
                 market = signal.market,
                 direction = signal.direction,
                 entryPrice = entryPrice,
-                sizeSol = sizeSol,
+                sizeSol = canonicalPerpsSize6570,
                 leverage = effectiveLeverage,
                 signal = signal,
                 isPaper = isPaper,
-                executionIntent6565 = sealedPerpIntent6558,
+                executionIntent6565 = sealedPerpIntent6570,
             )
             
             if (position != null) {
@@ -607,12 +608,13 @@ object PerpsExecutionEngine {
                 // V5.9.600 BUG-1 FIX: real on-chain execution in LIVE mode.
                 // PerpsTraderAI.openPosition was synthetic-only; the swap was never placed.
                 if (!isPaper) {
+                    com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markDispatch(sealedPerpIntent6570)
                     val fill6486 = try {
                         MarketsLiveExecutor.executeLiveTradeProof6486(
                             positionId = position.id,
                             market     = signal.market,
                             direction  = signal.direction,
-                            sizeSol    = sizeSol,
+                            sizeSol    = canonicalPerpsSize6570,
                             leverage   = effectiveLeverage,
                             priceUsd   = entryPrice,
                             traderType = "PerpsEngine",
@@ -621,18 +623,19 @@ object PerpsExecutionEngine {
                         ErrorLogger.warn(TAG, "Live exec exception for ${signal.market.symbol}: ${ex.message}")
                         MarketsLiveExecutor.MarketsFill6486(
                             MarketsLiveExecutor.FillState6486.FAILED, position.id, null, "NONE", "",
-                            java.math.BigInteger.ZERO, 0, sizeSol, 0.0, "EXCEPTION", reason = ex.message ?: "exception")
+                            java.math.BigInteger.ZERO, 0, canonicalPerpsSize6570, 0.0, "EXCEPTION", reason = ex.message ?: "exception")
                     }
                     val liveOk = fill6486.confirmed
                     val txSig = fill6486.signature
 
                     if (!liveOk) {
                         // Roll back — remove from PerpsTraderAI so wallet and tracker stay aligned
-                        PerpsTraderAI.rollbackPosition(position.id, sizeSol, isPaper = false)
+                        PerpsTraderAI.rollbackPosition(position.id, canonicalPerpsSize6570, isPaper = false)
                         failedExecutions.incrementAndGet()
                         ErrorLogger.warn(TAG, "⚡ LIVE OPEN FAILED (rolled back): ${signal.market.symbol}")
                         return
                     }
+                    com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markConfirmed(sealedPerpIntent6570, position.id)
 
                     // For Flash perps: resolve and store the Flash position key so the close
                     // API call can target the exact on-chain account (not just symbol+direction).

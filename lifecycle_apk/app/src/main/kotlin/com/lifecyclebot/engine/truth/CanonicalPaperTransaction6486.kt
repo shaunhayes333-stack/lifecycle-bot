@@ -145,9 +145,11 @@ object CanonicalPaperTransaction6486 {
      * local trader maps may mirror remainingCostSol only when applied=true. */
     fun partial(positionId: String, mint: String, symbol: String, fraction: Double,
                 currentPnlPct: Double, feeRate: Double, exitReason: String): PartialResult = lock.withLock {
-        val pos = CanonicalPositionAuthority6441.getPosition(positionId)
-            ?: return@withLock PartialResult(false, positionId, "UNKNOWN_POSITION")
-        if (pos.mode != "paper" || fraction <= 0.0 || fraction >= 1.0 ||
+        val eligibility6570 = CanonicalPositionAuthority6441.exitEligibility6570(positionId, mint, expectedMode = "paper")
+        val pos = eligibility6570.position
+            ?: return@withLock PartialResult(false, positionId, eligibility6570.reason)
+        if (!eligibility6570.eligible) return@withLock PartialResult(false, positionId, eligibility6570.reason)
+        if (fraction <= 0.0 || fraction >= 1.0 ||
             !currentPnlPct.isFinite() || !feeRate.isFinite() || feeRate < 0.0)
             return@withLock PartialResult(false, positionId, "INVALID_PARTIAL")
         val remainingBasis = (pos.entryCostSol - pos.soldCostBasisSol).coerceAtLeast(0.0)
@@ -168,8 +170,10 @@ object CanonicalPaperTransaction6486 {
               soldQtyRaw: BigInteger? = null, soldCostBasisSol: Double? = null,
               sellFeeSol: Double = 0.0, exitReason: String, terminalSequence: Long,
               expectedRealizedPnlSol6569: Double? = null, leveragedReturnPct6569: Double? = null): Result = lock.withLock {
-        val pos = CanonicalPositionAuthority6441.getPosition(positionId)
-            ?: return@withLock Result(false, positionId, "UNKNOWN_POSITION")
+        val eligibility6570 = CanonicalPositionAuthority6441.exitEligibility6570(positionId, mint, expectedMode = "paper")
+        val pos = eligibility6570.position
+            ?: return@withLock Result(false, positionId, eligibility6570.reason)
+        if (!eligibility6570.eligible) return@withLock Result(false, positionId, eligibility6570.reason)
         val qty = soldQtyRaw ?: pos.remainingQtyRaw
         val basis = soldCostBasisSol ?: (pos.entryCostSol - pos.soldCostBasisSol).coerceAtLeast(0.0)
         if (qty <= BigInteger.ZERO || qty > pos.remainingQtyRaw || !grossProceedsSol.isFinite() ||

@@ -365,6 +365,7 @@ object ForexTrader {
                 val levScoreThresh = FluidLearningAI.getMarketsLeverageScoreThreshold()
                 
                 val signal = analyzeMarket(market, data)
+                if (signal != null) com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.FOREX, "RAW_SIGNAL")
                 // V5.9.328: Trust gate — halt new entries when ForexAI is DISTRUSTED
                 val forexTrust = try { com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel("ForexAI") } catch (_: Exception) { null }
                 if (!isPaperMode.get() && (forexTrust == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED)) {

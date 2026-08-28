@@ -19167,6 +19167,7 @@ if (hotExitHandledSweep) {
                         timestampMs = System.currentTimeMillis(),
                         priceUsd = com.lifecyclebot.engine.truth.PriceUsd(java.math.BigDecimal.valueOf(validatedPrice)),
                         liquidityUsd = pair.liquidity.takeIf { it.isFinite() && it > 0.0 }?.let { java.math.BigDecimal.valueOf(it) },
+                        purpose = com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING,
                     )
                 )
             } catch (_: Throwable) { false }

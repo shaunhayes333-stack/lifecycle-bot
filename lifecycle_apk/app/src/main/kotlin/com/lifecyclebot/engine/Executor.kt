@@ -18364,14 +18364,17 @@ class Executor(
             reason.contains("MANUAL_TP_TRIGGERED_") ||
             reason.contains("STARTUP_SWEEP")
         if (!skip6501) {
-            val canonicalExists = try {
-                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(ts.mint)
-            } catch (_: Throwable) { true }
-            if (!canonicalExists) {
+            val exitEligibility6570 = try {
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.exitEligibility6570(
+                    mint = ts.mint,
+                    expectedMode = if (ts.position.isPaperPosition) "paper" else "live",
+                )
+            } catch (_: Throwable) { null }
+            if (exitEligibility6570 != null && !exitEligibility6570.eligible) {
                 try {
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(
                         "EXIT_REJECTED_NO_CANONICAL_POSITION_6501",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol ?: "?"} reason=$reason action=refuse_before_executor",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol ?: "?"} reason=$reason eligibility=${exitEligibility6570?.reason} action=refuse_before_executor",
                     )
                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_REJECTED_NO_CANONICAL_POSITION_6501")
                 } catch (_: Throwable) {}

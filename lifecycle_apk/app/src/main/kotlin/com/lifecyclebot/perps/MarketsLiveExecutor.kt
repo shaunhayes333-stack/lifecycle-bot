@@ -1336,8 +1336,12 @@ object MarketsLiveExecutor {
         exitReason: String = "MARKETS_CLOSE",
         entryTactic: String = "MARKETS",
     ): MarketsClose6486 = withContext(Dispatchers.IO) {
-        val pos = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId)
-            ?: return@withContext MarketsClose6486(false, positionId, null, 0.0, java.math.BigInteger.ZERO, "NO_CANONICAL_POSITION")
+        val eligibility6570 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.exitEligibility6570(
+            positionId = positionId, mint = cryptoTargetMintOverride ?: market.symbol, expectedMode = "live",
+        )
+        val pos = eligibility6570.position
+            ?: return@withContext MarketsClose6486(false, positionId, null, 0.0, java.math.BigInteger.ZERO, eligibility6570.reason)
+        if (!eligibility6570.eligible) return@withContext MarketsClose6486(false, positionId, null, 0.0, java.math.BigInteger.ZERO, eligibility6570.reason)
         val wallet = WalletManager.getWallet()
             ?: return@withContext MarketsClose6486(false, positionId, null, 0.0, java.math.BigInteger.ZERO, "NO_WALLET")
         val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 10.0 } ?: 150.0
