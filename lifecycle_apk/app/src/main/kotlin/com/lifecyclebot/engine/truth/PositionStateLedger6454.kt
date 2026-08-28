@@ -133,6 +133,13 @@ object PositionStateLedger6454 {
                         "positionId=${positionId.take(12)} reason=${reason.take(40)}",
                     )
                     PipelineHealthCollector.labelInc("TERMINAL_SELL_DUPLICATE_CLOSING_REJECTED_6454")
+                    // V5.0.6578 §P1-4 — duplicate close loop invariant.
+                    // Operator directive: "duplicate close loops = 0". Every
+                    // duplicate attempt is now recorded under the canonical
+                    // DUPLICATE_TERMINAL_MUTATION_6578 counter so a runaway
+                    // retry pattern is visible without inspecting per-reason
+                    // labels.
+                    PipelineHealthCollector.labelInc("DUPLICATE_TERMINAL_MUTATION_6578")
                 } catch (_: Throwable) {}
                 ReserveResult.REJECTED_ALREADY_CLOSING
             }
@@ -144,6 +151,8 @@ object PositionStateLedger6454 {
                         "positionId=${positionId.take(12)} reason=${reason.take(40)}",
                     )
                     PipelineHealthCollector.labelInc("TERMINAL_SELL_DUPLICATE_CLOSED_REJECTED_6454")
+                    // V5.0.6578 §P1-4 — same invariant.
+                    PipelineHealthCollector.labelInc("DUPLICATE_TERMINAL_MUTATION_6578")
                 } catch (_: Throwable) {}
                 ReserveResult.REJECTED_ALREADY_CLOSED
             }

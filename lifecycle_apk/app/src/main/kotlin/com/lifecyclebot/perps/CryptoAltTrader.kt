@@ -2389,6 +2389,15 @@ object CryptoAltTrader {
         // learnt in paper carries 1:1 into live. If the live swap fails
         // we roll back: the position is not created and we return.
         if (isPaperMode.get()) {
+            // V5.0.6578 §P1-1 — PAPER PATH DISPATCH PARITY.
+            // Operator forensic (6573): CryptoAlt intent=3 dispatch=0 open=0
+            // unexplained=3. The paper branch previously never called
+            // markDispatch / markConfirmed on CanonicalEntryAuthority6551
+            // so every paper attempt stalled between 'intent' and 'dispatch'
+            // regardless of open outcome. Live branch was correct; paper
+            // is now brought into parity: markDispatch before the canonical
+            // open, markConfirmed on success, markFailed on rejection.
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markDispatch(canonicalCryptoIntent6565)
             val canonicalOpen6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(
                 positionId = position.id, mint = position.canonicalAssetKey, symbol = mktSym,
                 lane = if (isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV", source = "CryptoAltTrader",
@@ -2405,6 +2414,8 @@ object CryptoAltTrader {
                 try { TradeAuthorizer.releasePosition(candidate.assetKey, "CRYPTO_PAPER_CANONICAL_REJECTED", TradeAuthorizer.ExecutionBook.CRYPTO) } catch (_: Throwable) {}
                 return
             }
+            // V5.0.6578 — success confirms the paper dispatch produced a canonical open.
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markConfirmed(canonicalCryptoIntent6565, position.id)
             try { com.lifecyclebot.engine.FluidLearning.recordPaperBuy(mktSym, canonicalFinalSize6570) } catch (_: Exception) {}
         } else {
             // LIVE mode — execute Jupiter swap at the exact paper-sized

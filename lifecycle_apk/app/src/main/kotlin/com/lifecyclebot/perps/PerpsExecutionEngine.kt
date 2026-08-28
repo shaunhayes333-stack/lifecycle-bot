@@ -231,8 +231,32 @@ object PerpsExecutionEngine {
                     // Run all scanners
                     val scanResults = PerpsMarketScanners.runAllScanners(isPaper)
                     if (scanResults.isNotEmpty()) com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.PERPS, "MARKET_DATA_OK", scanResults.size.toLong())
+                    else {
+                        // V5.0.6578 §P1-2 — NO SILENT SCAN TICKS.
+                        // Operator directive: "Every perps scan must terminate
+                        // in a forensic state. No silent return paths." When
+                        // runAllScanners produces zero results the scan MUST
+                        // still emit an attributable terminal reason so the
+                        // operator can distinguish a healthy quiet market from
+                        // a producer/data fault.
+                        try {
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PERPS_MARKET_DATA_EMPTY_6578")
+                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                "PERPS_MARKET_DATA_EMPTY_6578",
+                                "scan=${scanCount.get()} paper=$isPaper reason=all_scanners_empty",
+                            )
+                        } catch (_: Throwable) {}
+                    }
                     val nativePerpsRaw6569 = scanResults.count { it.signal != null }
                     if (nativePerpsRaw6569 > 0) com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.PERPS, "RAW_SIGNAL", nativePerpsRaw6569.toLong())
+                    else if (scanResults.isNotEmpty()) {
+                        // V5.0.6578 §P1-2 — market data OK but no signal is a
+                        // valid outcome; log it explicitly so zero-candidate
+                        // windows are attributable.
+                        try {
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PERPS_SIGNAL_NONE_6578")
+                        } catch (_: Throwable) {}
+                    }
 
                     // V5.9.454 — LANE-TOGGLE FILTER.
                     // Previously runAllScanners returned signals across the
