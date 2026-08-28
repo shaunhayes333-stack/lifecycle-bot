@@ -110,4 +110,43 @@ class CanonicalEntryAuthority6551Test {
         assertEquals(10.0, PaperAccountLedger6430.cashSol(), 1e-9)
     }
 
+
+    @Test fun crypto_alt_identity_survives_intent_dispatch_and_conservation_6569() {
+        val id = "SOL-ALT-6569-${System.nanoTime()}"
+        val admitted = CanonicalEntryAuthority6551.submit(candidate(id=id, cls=TruthAssetClass.CRYPTO_ALT, version=6569001L))
+        assertTrue(admitted is CanonicalAssetEntryResult6551.Allowed)
+        val intent = (admitted as CanonicalAssetEntryResult6551.Allowed).intent
+        assertEquals(TruthAssetClass.CRYPTO_ALT.tag, intent.assetClassTag)
+        var row = CanonicalEntryAuthority6540.assetClassStats6567().first { it.assetClass == TruthAssetClass.CRYPTO_ALT }
+        assertEquals(1L, row.intents)
+        assertEquals(1L, row.pending)
+        CanonicalEntryAuthority6551.markDispatch(intent)
+        row = CanonicalEntryAuthority6540.assetClassStats6567().first { it.assetClass == TruthAssetClass.CRYPTO_ALT }
+        assertEquals(1L, row.dispatches)
+        assertEquals(0L, row.pending)
+        assertEquals(0L, row.intents-row.dispatches-row.dispatchRejects-row.pending)
+        assertEquals(0L, CanonicalEntryAuthority6540.assetClassStats6567().first { it.assetClass == TruthAssetClass.SOLANA_TOKEN }.dispatches)
+        CanonicalEntryAuthority6551.markFailed(intent, "test_cleanup")
+    }
+
+    @Test fun enabled_running_empty_producer_reports_three_window_liveness_fault_context_6569() {
+        repeat(3) { CanonicalEntryAuthority6540.completeProducerWindow6569(TruthAssetClass.STOCK, true, true, "SOURCE_OK_NO_SIGNAL") }
+        val report = CanonicalEntryAuthority6540.producerLivenessReport6569()
+        assertTrue(report.contains("STOCK:"))
+        assertTrue(report.contains("zeroCandidateWindows=3"))
+        assertTrue(report.contains("SOURCE_OK_NO_SIGNAL"))
+    }
+
+
+    @Test fun leveraged_return_with_zero_realized_settles_but_cannot_train_6569() {
+        val id="TRUMP-LEV-6569-${System.nanoTime()}"; val pid="p-lev-6569-${System.nanoTime()}"
+        val admitted=CanonicalEntryAuthority6551.submit(candidate(id=id, cls=TruthAssetClass.CRYPTO_ALT, size=0.5, version=6569002L)) as CanonicalAssetEntryResult6551.Allowed
+        val opened=CanonicalPaperTransaction6486.open(pid,id,id,"CRYPTO_LEV","test",admitted.intent.resolvedSize,qtyRaw=BigInteger.ONE,decimals=0,quantityScale=0,assetClass=TruthAssetClass.CRYPTO_ALT,entryPriceUsd=2.76,executionIntent=admitted.intent)
+        assertTrue(opened.applied)
+        val zeroRealized=CanonicalPaperTransaction6486.close(positionId=pid,mint=id,symbol=id,grossProceedsSol=admitted.intent.resolvedSize,exitReason="HARD_TP",terminalSequence=1L,expectedRealizedPnlSol6569=12.5,leveragedReturnPct6569=2500.0)
+        assertTrue(zeroRealized.applied)
+        assertFalse(PaperLearningEligibility6519.decision(pid,id).eligible)
+        assertFalse(CanonicalPerformanceFilter6395.isCanonicalEligible(pid))
+    }
+
 }

@@ -60,6 +60,7 @@ object CanonicalFinalizedTradeBus6464 {
         val terminal: Boolean = true,
         val learningEligible: Boolean = true,
         val learningEligibilityReason: String = "ELIGIBLE",
+        val assetClassTag: String = AssetClass.fromLane(lane).tag,
     )
 
     private val canonicalSeen = ConcurrentHashMap<String, Envelope>()

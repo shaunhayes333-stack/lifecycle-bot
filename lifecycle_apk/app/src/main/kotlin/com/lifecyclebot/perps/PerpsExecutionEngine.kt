@@ -82,6 +82,7 @@ object PerpsExecutionEngine {
      * Start the perps execution engine
      */
     fun start(context: android.content.Context) {
+        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.PERPS, "STARTED")
         if (isRunning.get()) {
             // Check if jobs are actually alive — they may have died silently
             val scanAlive     = scanJob?.isActive == true
@@ -223,11 +224,15 @@ object PerpsExecutionEngine {
                 if (!isPaused.get() && PerpsTraderAI.isEnabled()) {
                     val isPaper = PerpsTraderAI.isPaperMode
                     scanCount.incrementAndGet()
+                    com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.PERPS, "SCAN_TICK")
                     
                     ErrorLogger.info(TAG, "⚡ PERPS SCAN #${scanCount.get()} | paper=$isPaper")
                     
                     // Run all scanners
                     val scanResults = PerpsMarketScanners.runAllScanners(isPaper)
+                    if (scanResults.isNotEmpty()) com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.PERPS, "MARKET_DATA_OK", scanResults.size.toLong())
+                    val nativePerpsRaw6569 = scanResults.count { it.signal != null }
+                    if (nativePerpsRaw6569 > 0) com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.PERPS, "RAW_SIGNAL", nativePerpsRaw6569.toLong())
 
                     // V5.9.454 — LANE-TOGGLE FILTER.
                     // Previously runAllScanners returned signals across the
@@ -281,6 +286,13 @@ object PerpsExecutionEngine {
                         ErrorLogger.warn(TAG, "Lane filter failed, passing through: ${e.message}")
                         scanResults
                     }
+
+                    val nativePerpsActionable6569 = laneFilteredResults.count { it.signal != null }
+                    if (nativePerpsActionable6569 > 0) com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.PERPS, "ACTIONABLE_SIGNAL", nativePerpsActionable6569.toLong())
+                    com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.completeProducerWindow6569(
+                        com.lifecyclebot.engine.truth.AssetClass.PERPS, PerpsTraderAI.isEnabled(), isRunning.get(),
+                        "scanResults=${scanResults.size} nativeCryptoRaw=$nativePerpsRaw6569 laneFiltered=$nativePerpsActionable6569 paused=${isPaused.get()}"
+                    )
 
                     // V5.7.3: In paper mode, lower threshold to priority >= 3 for learning
                     // In live mode, require priority >= 5 for safety

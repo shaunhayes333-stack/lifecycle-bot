@@ -106,24 +106,56 @@ object CanonicalEntryAuthority6540 {
     data class AssetClassStats6567(
         val assetClass: AssetClass, val candidates: Long, val submits: Long,
         val allows: Long, val blocks: Long, val sized: Long, val intents: Long,
-        val dispatches: Long, val opens: Long,
+        val dispatches: Long, val dispatchRejects: Long, val pending: Long, val opens: Long,
     )
     private val classStages6567 = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+    private val completedWindows6569 = java.util.concurrent.ConcurrentHashMap<AssetClass, AtomicLong>()
+    private val zeroCandidateWindows6569 = java.util.concurrent.ConcurrentHashMap<AssetClass, AtomicLong>()
+    private val lastCandidateAtWindow6569 = java.util.concurrent.ConcurrentHashMap<AssetClass, Long>()
+    private val lastRejectSummary6569 = java.util.concurrent.ConcurrentHashMap<AssetClass, String>()
     private fun classKey6567(assetClass: AssetClass, stage: String) = "${assetClass.tag}|$stage"
     private fun bumpClass6567(assetClass: AssetClass, stage: String) {
         classStages6567.computeIfAbsent(classKey6567(assetClass, stage)) { AtomicLong(0L) }.incrementAndGet()
     }
+    fun markProducerStage6569(assetClass: AssetClass, stage: String, amount: Long = 1L) {
+        if (assetClass == AssetClass.UNKNOWN || amount <= 0L) return
+        classStages6567.computeIfAbsent(classKey6567(assetClass, stage.uppercase())) { AtomicLong(0L) }.addAndGet(amount)
+    }
+
+    fun completeProducerWindow6569(assetClass: AssetClass, enabled: Boolean, running: Boolean, rejectSummary: String) {
+        if (assetClass == AssetClass.UNKNOWN) return
+        completedWindows6569.computeIfAbsent(assetClass) { AtomicLong() }.incrementAndGet()
+        lastRejectSummary6569[assetClass] = rejectSummary.take(240)
+        val candidates = classStages6567[classKey6567(assetClass, "CANDIDATE")]?.get() ?: 0L
+        val prior = lastCandidateAtWindow6569.put(assetClass, candidates) ?: 0L
+        val zero = zeroCandidateWindows6569.computeIfAbsent(assetClass) { AtomicLong() }
+        if (enabled && running && candidates == prior) zero.incrementAndGet() else zero.set(0L)
+        if (enabled && running && zero.get() >= 3L) {
+            val n: (String) -> Long = { st -> classStages6567[classKey6567(assetClass, st)]?.get() ?: 0L }
+            try {
+                PipelineHealthCollector.labelInc("MARKET_CLASS_LIVENESS_FAULT_${assetClass.tag}_6569")
+                ForensicLogger.lifecycle("MARKET_CLASS_LIVENESS_FAULT", "class=${assetClass.tag} enabled=$enabled running=$running windows=${zero.get()} scan=${n("SCAN_TICK")} data=${n("MARKET_DATA_OK")} rawSignal=${n("RAW_SIGNAL")} actionable=${n("ACTIONABLE_SIGNAL")} candidate=$candidates submit=${n("SUBMIT")} rejects=${lastRejectSummary6569[assetClass]}")
+            } catch (_: Throwable) {}
+        }
+    }
+
+    fun producerLivenessReport6569(): String = AssetClass.values().filter { it != AssetClass.UNKNOWN }.joinToString("\n") { c ->
+        fun n(st: String) = classStages6567[classKey6567(c, st)]?.get() ?: 0L
+        "  ${c.tag}: started=${n("STARTED")} scanTick=${n("SCAN_TICK")} marketDataOk=${n("MARKET_DATA_OK")} rawSignal=${n("RAW_SIGNAL")} actionableSignal=${n("ACTIONABLE_SIGNAL")} candidateCreated=${n("CANDIDATE")} canonicalSubmit=${n("SUBMIT")} zeroCandidateWindows=${zeroCandidateWindows6569[c]?.get() ?: 0L} rejects=${lastRejectSummary6569[c].orEmpty()}"
+    }
+
     fun assetClassStats6567(): List<AssetClassStats6567> = AssetClass.values()
         .filter { it != AssetClass.UNKNOWN }
         .map { c ->
             fun n(stage: String) = classStages6567[classKey6567(c, stage)]?.get() ?: 0L
             AssetClassStats6567(c, n("CANDIDATE"), n("SUBMIT"), n("ALLOW"), n("BLOCK"),
-                n("SIZED"), n("INTENT"), n("DISPATCH"), n("OPEN"))
+                n("SIZED"), n("INTENT"), n("DISPATCH"), n("DISPATCH_REJECT"),
+                CanonicalEntryAuthority6551.undispatchedPendingCount6569(c), n("OPEN"))
         }
     fun assetClassFunnelReport6567(): String = assetClassStats6567().joinToString("\n") { r ->
         "  ${r.assetClass.tag}: candidate=${r.candidates} submit=${r.submits} fdgAllow=${r.allows} " +
-            "fdgBlock=${r.blocks} sized=${r.sized} intent=${r.intents} dispatch=${r.dispatches} open=${r.opens}"
-    }
+            "fdgBlock=${r.blocks} sized=${r.sized} intent=${r.intents} dispatch=${r.dispatches} dispatchReject=${r.dispatchRejects} pending=${r.pending} unexplained=${(r.intents-r.dispatches-r.dispatchRejects-r.pending).coerceAtLeast(0L)} open=${r.opens}"
+    } + "\nCrossAsset producer liveness 6569:\n" + producerLivenessReport6569()
 
 
     /**
@@ -263,6 +295,11 @@ object CanonicalEntryAuthority6540 {
 
     internal fun markIntentCreatedFor6551(assetClass: AssetClass, symbol: String, id: String) { bumpClass6567(assetClass, "INTENT"); markIntentCreated(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol, id) }
 
+    internal fun markDispatchRejectFor6569(assetClass: AssetClass, symbol: String, reason: String) {
+        bumpClass6567(assetClass, "DISPATCH_REJECT")
+        try { ForensicLogger.lifecycle("CROSS_ASSET_DISPATCH_REJECT_6569", "class=${assetClass.tag} symbol=$symbol reason=${reason.take(120)}") } catch (_: Throwable) {}
+    }
+
     internal fun markAdapterDispatchFor6551(assetClass: AssetClass, symbol: String) { bumpClass6567(assetClass, "DISPATCH"); markAdapterDispatch(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol) }
 
     internal fun markOpenConfirmedFor6551(assetClass: AssetClass, symbol: String, id: String) { bumpClass6567(assetClass, "OPEN"); markOpenConfirmed(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol, id) }
@@ -281,5 +318,7 @@ object CanonicalEntryAuthority6540 {
         intentCount.values.forEach { it.set(0L) }
         dispatchCount.values.forEach { it.set(0L) }
         openCount.values.forEach { it.set(0L) }
+        classStages6567.clear(); completedWindows6569.clear(); zeroCandidateWindows6569.clear()
+        lastCandidateAtWindow6569.clear(); lastRejectSummary6569.clear()
     }
 }

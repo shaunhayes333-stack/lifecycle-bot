@@ -597,6 +597,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     }
 
     fun start() {
+        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.STOCK, "STARTED")
         // V5.9.1374 — hard authority gate at entry: never start the engine when
         // the operator's UI authority excludes MARKETS_STOCKS.
         runtimeDisabledReason()?.let { reason ->
@@ -707,6 +708,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     private suspend fun runScanCycle() {
         scanCount.incrementAndGet()
         val scanNum = scanCount.get()
+        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.STOCK, "SCAN_TICK")
         
         // Tokenized stocks are Solana crypto tokens (xStocks) — they trade 24/7 on DEXes.
         // The underlying NYSE/NASDAQ stock market hours do NOT apply here.
@@ -756,6 +758,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 
                 // Get market data
                 val data = PerpsMarketDataFetcher.getMarketData(market)
+                if (data.price > 0.0) com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.STOCK, "MARKET_DATA_OK")
                 
                 // V5.7.6: Log every price fetch for debugging
                 if (analyzedCount < 5) {
@@ -778,6 +781,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 
                 // Generate signal using AI layers
                 val signal = analyzeStock(market, data)
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.STOCK, "RAW_SIGNAL")
                 
                 // V5.7.6: Log every signal attempt
                 if (signal != null) {
@@ -819,6 +823,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
 
                     if (fluidPass) {
                         signals.add(signal)
+                        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.STOCK, "ACTIONABLE_SIGNAL")
                         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FUNNEL_6567|FAMILY=STOCKS|STAGE=SIGNAL_SELECTED") } catch (_: Throwable) {}
                     } else if (prefilterOk) {
                         // V3 decides.
@@ -843,6 +848,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
 
                         if (v3Approves) {
                             signals.add(signal)
+                        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.STOCK, "ACTIONABLE_SIGNAL")
                             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FUNNEL_6567|FAMILY=STOCKS|STAGE=SIGNAL_SELECTED") } catch (_: Throwable) {}
                         }
                         else ErrorLogger.warn(TAG, "📈 ${market.symbol}: BELOW FLUID + V3 VETO (score=${signal.score}<$scoreThresh or conf=${signal.confidence}<$confThresh)")
@@ -873,6 +879,8 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             com.lifecyclebot.v4.meta.CrossTalkFusionEngine.fuse()
         } catch (_: Exception) {}
         
+        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.completeProducerWindow6569(com.lifecyclebot.engine.truth.AssetClass.STOCK, isEnabled.get(), isRunning.get(), "markets=${stockMarkets.size} analyzed=$analyzedCount badPrice=$skippedBadPrice signals=${signals.size}")
+
         // Sort by score and take best signals
         val topSignals = signals.sortedByDescending { it.score }.take(25)  // V5.9.128: raised from 3
         

@@ -65,6 +65,7 @@ object EntryStrategySnapshot6450 {
         val forwardPWin: Double = 0.5,
         val sizingMultipliers: String = "",
         val authorizationReason: String = "",
+        val assetClassTag: String = AssetClass.SOLANA_TOKEN.tag,
     )
 
     private val snapshots = ConcurrentHashMap<String, Snapshot>() // positionId -> Snapshot
@@ -118,7 +119,7 @@ object EntryStrategySnapshot6450 {
                 .put("holders", snap.entryHolderConcentrationPct).put("rug", snap.entryRugEvidence)
                 .put("ageMs", snap.entryTokenAgeMs).put("priceUsd", snap.entryPriceUsd)
                 .put("forwardPWin", snap.forwardPWin).put("sizeMults", snap.sizingMultipliers)
-                .put("authorization", snap.authorizationReason)
+                .put("authorization", snap.authorizationReason).put("assetClass", snap.assetClassTag)
             LearningPersistence.save(persistenceKey6567(snap.positionId), j.toString())
         } catch (_: Throwable) {}
     }
@@ -144,7 +145,7 @@ object EntryStrategySnapshot6450 {
             entryHolderConcentrationPct = j.optDouble("holders", 0.0), entryRugEvidence = j.optString("rug", ""),
             entryTokenAgeMs = j.optLong("ageMs", 0L), entryPriceUsd = j.optDouble("priceUsd", 0.0),
             forwardPWin = j.optDouble("forwardPWin", 0.5), sizingMultipliers = j.optString("sizeMults", ""),
-            authorizationReason = j.optString("authorization", ""),
+            authorizationReason = j.optString("authorization", ""), assetClassTag = j.optString("assetClass", AssetClass.SOLANA_TOKEN.tag),
         ).also { snapshots.putIfAbsent(positionId, it) }
     } catch (_: Throwable) { null }
     }

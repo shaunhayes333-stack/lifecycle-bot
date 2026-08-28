@@ -345,6 +345,7 @@ object CanonicalPaperTerminalBridge6469 {
                     exitReason = "CANONICAL_PAPER_FILL", holdingTimeMs = if (entrySnap6485 != null) settledAt6485 - entrySnap6485.entryTimestampMs else 0L,
                     dataQuality = "canonical_paper_fill", priceIntegrity = "canonical_paper_fill",
                     mode = "paper", settledAtMs = settledAt6485,
+                    assetClassTag = entrySnap6485?.assetClassTag ?: CanonicalPositionAuthority6441.getPosition(positionId)?.assetClass?.tag.orEmpty(),
                 )
             )
             if (busPublished) {

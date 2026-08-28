@@ -58,7 +58,7 @@ object SmartSystemRuntimeRegistry {
         SmartSystem("HotfixRules", RuntimeClass.FUTURE, "repair_brain", "operator-only/future bounded repair classification"),
         SmartSystem("TelegramBot", RuntimeClass.SIDECAR, "operator_channel", "Not auto-wired: external-message side effects require explicit operator config/approval; Base44/Discord channels are canonical runtime alerts"),
         SmartSystem("ProviderHealthGate", RuntimeClass.DEPRECATED, "provider_health", "Superseded by ApiHealthMonitor + HealthAwareHttp + ExecutionHealthGuard; do not wire duplicate breaker"),
-        SmartSystem("ColdStreakDamper", RuntimeClass.ACTIVE, "runtime_health", "SmartSizer consumes sizeMultiplier; V3JournalRecorder feeds terminal outcomes; LearningPersistence saves state"),
+        SmartSystem("ColdStreakDamper", RuntimeClass.ACTIVE, "runtime_health", "SmartSizer consumes sizeMultiplier; eligible CanonicalFinalizedTradeBus consumer feeds outcomes; LearningPersistence saves state"),
     )
 
     val sentinels: List<SmartSystem> = listOf(

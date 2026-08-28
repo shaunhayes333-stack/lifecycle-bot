@@ -210,6 +210,7 @@ object CommoditiesTrader {
     }
     
     fun start() {
+        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.COMMODITY, "STARTED")
         if (isRunning.get()) {
             // Detect silent loop death — check if jobs are actually alive
             val engineAlive  = engineJob?.isActive == true
@@ -304,6 +305,7 @@ object CommoditiesTrader {
     private suspend fun runScanCycle() {
         scanCount.incrementAndGet()
         val scanNum = scanCount.get()
+        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.COMMODITY, "SCAN_TICK")
 
         // V5.7.7: Check if weekend (commodities closed on weekends) - use NY timezone
         val nyZone = java.util.TimeZone.getTimeZone("America/New_York")
@@ -311,6 +313,7 @@ object CommoditiesTrader {
         val dayOfWeek = cal.get(java.util.Calendar.DAY_OF_WEEK)
         if (dayOfWeek == java.util.Calendar.SATURDAY || dayOfWeek == java.util.Calendar.SUNDAY) {
             ErrorLogger.info(TAG, "🛢️ SCAN #$scanNum SKIPPED - Commodity markets CLOSED (Weekend)")
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.completeProducerWindow6569(com.lifecyclebot.engine.truth.AssetClass.COMMODITY, isEnabled.get(), isRunning.get(), "SOURCE_CLOSED_WEEKEND")
             return
         }
 
@@ -330,6 +333,7 @@ object CommoditiesTrader {
         for (market in commodityMarkets) {
             try {
                 val data = PerpsMarketDataFetcher.getMarketData(market)
+                if (data.price > 0.0) com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.COMMODITY, "MARKET_DATA_OK")
                 if (data.price <= 0) {
                     ErrorLogger.warn(TAG, "🛢️ ${market.symbol}: SKIPPED - price=0")
                     continue
@@ -354,8 +358,10 @@ object CommoditiesTrader {
                 // Generate SPOT signal if no spot position
                 if (!hasSpotPosition(market)) {
                     val spotSignal = analyzeMarket(market, data, TradeType.SPOT)
+                    if (spotSignal != null) com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.COMMODITY, "RAW_SIGNAL")
                     if (spotSignal != null && (isPaperMode.get() || (spotSignal.score >= spotScoreThresh && spotSignal.confidence >= spotConfThresh))) {
                         spotSignals.add(spotSignal)
+                        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.COMMODITY, "ACTIONABLE_SIGNAL")
                         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FUNNEL_6567|FAMILY=COMMODITIES|STAGE=SIGNAL_SELECTED") } catch (_: Throwable) {}
                     }
                 }
@@ -363,8 +369,10 @@ object CommoditiesTrader {
                 // Generate LEVERAGE signal if no leverage position (only if UI toggle allows)
                 if (preferLeverage.get() && !hasLeveragePosition(market)) {
                     val leverageSignal = analyzeMarket(market, data, TradeType.LEVERAGE)
+                    if (leverageSignal != null) com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.COMMODITY, "RAW_SIGNAL")
                     if (leverageSignal != null && (isPaperMode.get() || (leverageSignal.score >= levScoreThresh && leverageSignal.confidence >= levConfThresh))) {
                         leverageSignals.add(leverageSignal)
+                        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.COMMODITY, "ACTIONABLE_SIGNAL")
                         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FUNNEL_6567|FAMILY=COMMODITIES|STAGE=SIGNAL_SELECTED") } catch (_: Throwable) {}
                     }
                 }
@@ -377,6 +385,8 @@ object CommoditiesTrader {
         
         ErrorLogger.info(TAG, "🛢️ Generated ${spotSignals.size} SPOT signals, ${leverageSignals.size} LEVERAGE signals")
         
+        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.completeProducerWindow6569(com.lifecyclebot.engine.truth.AssetClass.COMMODITY, isEnabled.get(), isRunning.get(), "spot=${spotSignals.size} leverage=${leverageSignals.size} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}")
+
         // Execute top SPOT signals (lower risk, more positions)
         val topSpotSignals = spotSignals.sortedByDescending { it.score }.take(25)  // V5.9.128: raised from 4
         if (topSpotSignals.isNotEmpty()) {

@@ -50,7 +50,7 @@ object CanonicalFinalityPersistence6486 {
         put("returnFraction", e.returnFraction); put("netReturnPct", e.netReturnPct); put("feesSol", e.feesSol)
         put("entryLane", e.entryLane); put("entryStrategyPid", e.entryStrategyPid); put("entryTactic", e.entryTactic)
         put("exitReason", e.exitReason); put("holdingTimeMs", e.holdingTimeMs); put("dataQuality", e.dataQuality)
-        put("priceIntegrity", e.priceIntegrity); put("mode", e.mode); put("settledAtMs", e.settledAtMs)
+        put("priceIntegrity", e.priceIntegrity); put("mode", e.mode); put("settledAtMs", e.settledAtMs); put("assetClass", e.assetClassTag)
     }.toString()
 
     private fun decode(raw: String): CanonicalTradeFinalizedBus6450.Event? = try {
@@ -65,7 +65,7 @@ object CanonicalFinalityPersistence6486 {
             entryStrategyPid = j.optString("entryStrategyPid"), entryTactic = j.optString("entryTactic"),
             exitReason = j.optString("exitReason"), holdingTimeMs = j.optLong("holdingTimeMs"),
             dataQuality = j.optString("dataQuality"), priceIntegrity = j.optString("priceIntegrity"),
-            mode = j.optString("mode", "unknown"), settledAtMs = j.getLong("settledAtMs"),
+            mode = j.optString("mode", "unknown"), settledAtMs = j.getLong("settledAtMs"), assetClassTag = j.optString("assetClass", ""),
         )
     } catch (_: Throwable) { null }
 }

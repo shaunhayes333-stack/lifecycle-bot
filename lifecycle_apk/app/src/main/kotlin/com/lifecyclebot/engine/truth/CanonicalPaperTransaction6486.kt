@@ -37,7 +37,7 @@ object CanonicalPaperTransaction6486 {
         if (assetClass != AssetClass.SOLANA_TOKEN) {
             val intent = executionIntent ?: CanonicalEntryAuthority6551.findPending(mint, "PAPER")
                 ?: return@withLock Result(false, positionId, "MISSING_CANONICAL_EXECUTION_INTENT")
-            if (intent.mint != mint || intent.candidateVersion <= 0L || !intent.fdgAllowed ||
+            if (intent.assetClassTag != assetClass.tag || intent.mint != mint || intent.candidateVersion <= 0L || !intent.fdgAllowed ||
                 intent.authoritativeSignal.uppercase() != "BUY" ||
                 intent.fdgVerdict.uppercase() !in setOf("BUY", "PROBE_ONLY") ||
                 intent.resolvedSize <= 0.0 || kotlin.math.abs(intent.resolvedSize - costSol) > 1e-9 ||
@@ -73,7 +73,8 @@ object CanonicalPaperTransaction6486 {
         EntryStrategySnapshot6450.setEntry(EntryStrategySnapshot6450.Snapshot(
             positionId, mint, lane, "", tactic, "", "", source, entryScore, 0.0, 0.0,
             System.currentTimeMillis(), "",
-            entryMarketRegime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" }))
+            entryMarketRegime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" },
+            assetClassTag = assetClass.tag))
         CanonicalMintOccupancyRegistry6464.markOpen("paper", mint, symbol, source)
         try { PipelineHealthCollector.labelInc("PAPER_TRANSACTION_OPEN_COMMITTED_6486") } catch (_: Throwable) {}
         // V5.0.6551 — intent/dispatch were sealed before debit; only the
@@ -165,7 +166,8 @@ object CanonicalPaperTransaction6486 {
 
     fun close(positionId: String, mint: String, symbol: String, grossProceedsSol: Double,
               soldQtyRaw: BigInteger? = null, soldCostBasisSol: Double? = null,
-              sellFeeSol: Double = 0.0, exitReason: String, terminalSequence: Long): Result = lock.withLock {
+              sellFeeSol: Double = 0.0, exitReason: String, terminalSequence: Long,
+              expectedRealizedPnlSol6569: Double? = null, leveragedReturnPct6569: Double? = null): Result = lock.withLock {
         val pos = CanonicalPositionAuthority6441.getPosition(positionId)
             ?: return@withLock Result(false, positionId, "UNKNOWN_POSITION")
         val qty = soldQtyRaw ?: pos.remainingQtyRaw
@@ -174,6 +176,20 @@ object CanonicalPaperTransaction6486 {
             grossProceedsSol < 0.0 || !basis.isFinite() || basis < 0.0)
             return@withLock Result(false, positionId, "INVALID_CLOSE")
         val terminal = qty >= pos.remainingQtyRaw
+        val canonicalRealizedPnl6569 = grossProceedsSol - basis - sellFeeSol
+        val expected6569 = expectedRealizedPnlSol6569
+        val return6569 = leveragedReturnPct6569
+        val tolerance6569 = maxOf(0.000001, kotlin.math.abs(expected6569 ?: 0.0) * 0.02)
+        val arithmeticDivergence6569 = expected6569 != null && kotlin.math.abs(canonicalRealizedPnl6569 - expected6569) > tolerance6569
+        val impossibleZero6569 = return6569 != null && kotlin.math.abs(return6569) > 5.0 && kotlin.math.abs(canonicalRealizedPnl6569) < 0.0005
+        if (arithmeticDivergence6569 || impossibleZero6569) {
+            CanonicalPerformanceFilter6395.quarantine(positionId, CanonicalPerformanceFilter6395.QuarantineReason.REPLAY_UNIT_MISMATCH)
+            PaperLearningEligibility6519.record(mint, positionId, false, "LEVERAGED_TERMINAL_ARITHMETIC_DIVERGENCE_6569")
+            try {
+                PipelineHealthCollector.labelInc("LEVERAGED_TERMINAL_ARITHMETIC_DIVERGENCE_6569")
+                ForensicLogger.lifecycle("LEVERAGED_TERMINAL_ARITHMETIC_DIVERGENCE_6569", "positionId=$positionId symbol=$symbol basis=$basis gross=$grossProceedsSol fee=$sellFeeSol expected=$expected6569 realized=$canonicalRealizedPnl6569 returnPct=$return6569 action=settle_but_quarantine_learning")
+            } catch (_: Throwable) {}
+        }
         val r = CanonicalPaperTerminalBridge6469.finalizeSell(
             positionId = positionId, mint = mint, symbol = symbol,
             generation = pos.openedAtMs, sellSig = "PAPER6486:$positionId:$terminalSequence",

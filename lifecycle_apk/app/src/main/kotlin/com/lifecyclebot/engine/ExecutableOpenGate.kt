@@ -66,6 +66,7 @@ object ExecutableOpenGate {
         // V5.0.6554 — lifecycle action and trade direction are orthogonal.
         val action: String = "OPEN",
         val direction: String = "LONG",
+        val assetClassTag: String = com.lifecyclebot.engine.truth.AssetClass.fromLane(canonicalLane).tag,
     ) {
         val lane: String get() = canonicalLane
         val signal: String get() = authoritativeSignal

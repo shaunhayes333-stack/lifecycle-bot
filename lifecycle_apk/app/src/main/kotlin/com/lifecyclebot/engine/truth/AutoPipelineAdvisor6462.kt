@@ -2,6 +2,7 @@ package com.lifecyclebot.engine.truth
 
 import android.content.Context
 import com.lifecyclebot.data.ConfigStore
+import com.lifecyclebot.data.BotConfig
 import com.lifecyclebot.engine.AdvisorInbox
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.ForensicLogger
@@ -152,6 +153,7 @@ object AutoPipelineAdvisor6462 {
     // ─── Internal: one tick ────────────────────────────────────────────────
 
     private fun runTick(ctx: Context) {
+        repairReplayDrivenStrategyMutation6569(ctx)
         // V5.0.6505 — HOLDS DISABLED, ADVISOR ALWAYS RUNS.
         // Operator mandate: "quit strangling the bot — just fix the
         // fucking thing properly." Data integrity is now enforced at
@@ -192,6 +194,10 @@ object AutoPipelineAdvisor6462 {
                         reason = c.reason, oldValue = oldValue, newValue = newValue,
                     )
                 )
+            }
+            if (!causalDomainAllowsAutoApply6569(c)) {
+                try { PipelineHealthCollector.labelInc("ADVISOR_CROSS_DOMAIN_MUTATION_BLOCKED_6569") } catch (_: Throwable) {}
+                histAction(AdvisorDecisionHistory6463.Action.QUEUED_INBOX); emitted += c; continue
             }
             if (c.brainAgreement < AUTO_APPLY_MIN_AGREEMENT) {
                 histAction(AdvisorDecisionHistory6463.Action.LOW_AGREEMENT); emitted += c; continue
@@ -237,6 +243,31 @@ object AutoPipelineAdvisor6462 {
                     "sources=${enriched.groupingBy { it.source }.eachCount()}",
             )
             PipelineHealthCollector.labelInc("AUTO_PIPELINE_ADVISOR_TICK_6462")
+        } catch (_: Throwable) {}
+    }
+
+    private val strategyKeys6569 = setOf("entryCooldownSec", "minHoldMins", "perPositionSizePct", "minDiscoveryScore", "exitScoreThreshold", "defensiveLossThreshold", "trailingStopBasePct")
+    private val integrityTerms6569 = listOf("REPLAY", "LEDGER", "INTEGRITY", "CONSERVATION", "DECIMAL", "UNIT_MISMATCH", "PENDING_ENTRY", "DUPLICATE", "STALE_FEED", "ZERO_LIQUIDITY", "API_LAYER", "PROVIDER", "LATENCY")
+
+    private fun causalDomainAllowsAutoApply6569(c: Candidate): Boolean {
+        val reason = c.reason.uppercase()
+        return !(c.key in strategyKeys6569 && integrityTerms6569.any { reason.contains(it) })
+    }
+
+    private fun repairReplayDrivenStrategyMutation6569(ctx: Context) {
+        try {
+            val prefs = ctx.getSharedPreferences("aate_6569_migrations", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("replay_cooldown_repaired", false)) return
+            val cfg = ConfigStore.load(ctx)
+            val baseline = BotConfig().entryCooldownSec
+            val replayEvidence = readLabel("PAPER_REPLAY_DIVERGENCE_6461") > 0L || readLabel("ADVISOR_R2_REPLAY_COOLDOWN_EXTEND_6507") > 0L
+            if (replayEvidence && cfg.entryCooldownSec > baseline) {
+                ConfigStore.save(ctx, cfg.copy(entryCooldownSec = baseline))
+                AdvisorDecisionHistory6463.record(AdvisorDecisionHistory6463.Decision(System.currentTimeMillis(), "entryCooldownSec", (baseline-cfg.entryCooldownSec).toDouble(), "high", "integrity_repair", AdvisorDecisionHistory6463.Action.REVERTED, 1.0, emptyList(), "6569 rollback of replay-driven mutation", cfg.entryCooldownSec.toDouble(), baseline.toDouble()))
+                PipelineHealthCollector.labelInc("REPLAY_DRIVEN_ENTRY_COOLDOWN_ROLLED_BACK_6569")
+                ForensicLogger.lifecycle("REPLAY_DRIVEN_ENTRY_COOLDOWN_ROLLED_BACK_6569", "old=${cfg.entryCooldownSec} restoredStrategyBaseline=$baseline adaptiveAuthority=resumed")
+            }
+            prefs.edit().putBoolean("replay_cooldown_repaired", true).apply()
         } catch (_: Throwable) {}
     }
 

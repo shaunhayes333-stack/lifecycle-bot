@@ -204,6 +204,7 @@ object ForexTrader {
     }
     
     fun start() {
+        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.FOREX, "STARTED")
         if (isRunning.get()) {
             // Detect silent loop death — check if jobs are actually alive
             val engineAlive  = engineJob?.isActive == true
@@ -321,6 +322,7 @@ object ForexTrader {
     private suspend fun runScanCycle() {
         scanCount.incrementAndGet()
         val scanNum = scanCount.get()
+        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.FOREX, "SCAN_TICK")
 
         // V5.7.7: Check if weekend (Forex closed Sat-Sun) - use NY timezone
         val nyZone = java.util.TimeZone.getTimeZone("America/New_York")
@@ -328,6 +330,7 @@ object ForexTrader {
         val dayOfWeek = cal.get(java.util.Calendar.DAY_OF_WEEK)
         if (dayOfWeek == java.util.Calendar.SATURDAY || dayOfWeek == java.util.Calendar.SUNDAY) {
             ErrorLogger.info(TAG, "💱 SCAN #$scanNum SKIPPED - Forex markets CLOSED (Weekend)")
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.completeProducerWindow6569(com.lifecyclebot.engine.truth.AssetClass.FOREX, isEnabled.get(), isRunning.get(), "SOURCE_CLOSED_WEEKEND")
             return
         }
 
@@ -350,6 +353,7 @@ object ForexTrader {
         for (market in forexMarkets) {
             try {
                 val data = PerpsMarketDataFetcher.getMarketData(market)
+                if (data.price > 0.0) com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.FOREX, "MARKET_DATA_OK")
                 if (data.price <= 0) {
                     ErrorLogger.warn(TAG, "💱 ${market.symbol}: SKIPPED - price=0")
                     continue
@@ -388,6 +392,8 @@ object ForexTrader {
             }
         }
         
+        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.completeProducerWindow6569(com.lifecyclebot.engine.truth.AssetClass.FOREX, isEnabled.get(), isRunning.get(), "spot=${spotSignals.size} leverage=${leverageSignals.size} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}")
+
         // Execute top SPOT signals
         val topSpotSignals = spotSignals.sortedByDescending { it.score }.take(25)  // V5.9.128: raised from 5
         if (topSpotSignals.isNotEmpty()) {

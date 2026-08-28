@@ -50,6 +50,7 @@ object CanonicalTradeFinalizedBus6450 {
         val priceIntegrity: String,
         val mode: String,
         val settledAtMs: Long,
+        val assetClassTag: String = "",
     )
 
     fun interface Subscriber { fun onEvent(event: Event) }
@@ -165,6 +166,7 @@ object CanonicalTradeFinalizedBus6450 {
                 terminal = true,
                 learningEligible = learningEligibility6519.eligible,
                 learningEligibilityReason = learningEligibility6519.reason,
+                assetClassTag = event.assetClassTag.ifBlank { entrySnap6567?.assetClassTag ?: AssetClass.fromLane(event.entryLane).tag },
             )
             if (CanonicalFinalizedTradeBus6464.publish(env)) {
                 CanonicalFinalizedTradeBus6464.deliverToConsumers(env) { name, e ->

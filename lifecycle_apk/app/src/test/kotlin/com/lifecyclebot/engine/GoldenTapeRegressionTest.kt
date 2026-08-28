@@ -5308,9 +5308,9 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val scorer = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/UnifiedScorer.kt").readText()
         val sizer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt").readText()
-        val journal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/V3JournalRecorder.kt").readText()
+        val finalizedBridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt").readText()
         assertTrue("V5.0.4343: CloudLearningSync must be classified active only if BotService and UnifiedScorer consume it", registry.contains("CloudLearningSync") && registry.contains("RuntimeClass.ACTIVE") && bot.contains("CloudLearningSync.init") && bot.contains("CloudLearningSync.downloadCommunityWeights") && scorer.contains("CloudLearningSync") && scorer.contains("downloads community pattern multipliers"))
-        assertTrue("V5.0.4343: ColdStreakDamper must be classified active only if sizing and outcomes consume it", registry.contains("ColdStreakDamper") && registry.contains("cloud_and_cold_streak_active=true") && sizer.contains("ColdStreakDamper.sizeMultiplier") && journal.contains("ColdStreakDamper.noteOutcome"))
+        assertTrue("V5.0.6568: ColdStreakDamper must be classified active only if sizing and eligible canonical outcomes consume it", registry.contains("ColdStreakDamper") && registry.contains("cloud_and_cold_streak_active=true") && sizer.contains("ColdStreakDamper.sizeMultiplier") && finalizedBridge.contains("ColdStreakDamper.noteOutcome") && finalizedBridge.contains("!env.learningEligible"))
     }
 
 
@@ -8892,7 +8892,8 @@ class GoldenTapeRegressionTest {
         assertTrue(cyclic.contains("CONFIRMED_FALSE, UNKNOWN, PROVIDER_UNAVAILABLE, CONFIRMED_TRUE"))
         assertTrue(cyclic.contains("evidence != CyclicSellabilityEvidence6567.CONFIRMED_FALSE"))
         assertTrue(crypto.contains("uniqueDynSignals6567") && crypto.contains("groupBy { it.dynAssetKey"))
-        assertTrue(crypto.contains("POSITION_CAP_REACHED") && crypto.contains("NO_ACTIONABLE_SPECIALIST_SIGNAL"))
+        assertTrue(crypto.contains("POSITION_CAP_REACHED") && crypto.contains("OBSERVE_SPECIALIST_SILENCE_6569") &&
+            !crypto.contains("""markEvaluationDisposition6567(refreshed, "NO_ACTIONABLE_SPECIALIST_SIGNAL")"""))
         assertFalse(crypto.contains(".take(25) // V5.9.128: raised from 3"))
         assertTrue(registry.contains("evaluation terminal dispositions=") && registry.contains("CRYPTO_EVAL_TERMINAL_6567"))
         assertTrue(bot.contains("if (isCryptoUniverseSource6535) out += \"CRYPTO_ALT\""))
@@ -8944,10 +8945,31 @@ class GoldenTapeRegressionTest {
         assertTrue("6568 typed immutable entry policy evidence", snapshot.contains("entryPolicySnapshotId") && snapshot.contains("v3Components") && snapshot.contains("brainConsensusVerdict") && snapshot.contains("policyProbability") && snapshot.contains("specialistContributions") && snapshot.contains("sizingMultipliers") && snapshot.contains("authorizationReason"))
         assertTrue("6568 every-25 close causal report", snapshot.contains("rows.size % 25 == 0") && snapshot.contains("MEME_WINNER_LOSER_CAUSAL_REPORT_6568"))
         assertTrue("6568 persisted bounded causal learner", snapshot.contains("meme_causal_learning_6568") && snapshot.contains("while (rows.size > 100)") && snapshot.contains("ensureRestored"))
-        assertTrue("6568 integrity diagnostics cannot mutate strategy", advisor.contains("ADVISOR_INTEGRITY_DIAGNOSTIC_ONLY_6568") && !advisor.contains("ADVISOR_R2_REPLAY_COOLDOWN_EXTEND_6507") && !advisor.contains("PENDING_ENTRY_LEAKED_INTO_OPEN_6461=$" + "pendingLeaks — throttle entries"))
+        assertTrue("6568 integrity diagnostics cannot mutate strategy", advisor.contains("ADVISOR_INTEGRITY_DIAGNOSTIC_ONLY_6568") && !advisor.contains("""Candidate("entryCooldownSec", +3.0""") && !advisor.contains("PENDING_ENTRY_LEAKED_INTO_OPEN_6461=$" + "pendingLeaks — throttle entries"))
         assertTrue("6568 invalid terminals forensic only", eligibility.contains("FORENSIC_ONLY_$" + "invalid") && journal.contains("JOURNAL_STRATEGY_LEARNING_QUARANTINED_6568"))
         assertTrue("6568 one canonical causal consumer", bridge.contains("deliverToMemeCausalLearning6568") && bridge.contains("DamageControlGate.noteOutcome") && !journal.contains("TacticSwitcher.onTradeClosed(layer, band, pnlPctLearn)"))
         assertTrue("6568 WR/PF shapes not disables", snapshot.contains("if (wr>=0.15 && pf>=0.5)") && snapshot.contains("0.70 else 0.20") && sizer.contains("MEME_CAUSAL_PERFORMANCE_SHAPED_6568"))
+    }
+
+
+    @Test
+    fun V5_0_6569_cross_asset_causal_liveness_identity_advisor_and_economics() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEntryAuthority6540.kt").readText()
+        val contract = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt").readText()
+        val paper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
+        val finality = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt").readText()
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val advisor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/AutoPipelineAdvisor6462.kt").readText()
+        assertTrue("6569 immutable class lives on sealed ticket", gate.contains("assetClassTag") && contract.contains("assetClassTag = candidate.assetClass.tag"))
+        assertTrue("6569 dispatch never re-derives class from executor lane", contract.contains("intentAssetClass6569(intent)") && !contract.contains("markAdapterDispatchFor6551(AssetClass.fromLane(intent.canonicalLane)"))
+        assertTrue("6569 terminal learning carries immutable class", finality.contains("assetClassTag = event.assetClassTag.ifBlank"))
+        assertTrue("6569 intent conservation is explicit", authority.contains("dispatchReject=") && authority.contains("pending=") && authority.contains("unexplained="))
+        assertTrue("6569 three-window producer liveness fault", authority.contains("MARKET_CLASS_LIVENESS_FAULT") && authority.contains("zero.get() >= 3L"))
+        assertTrue("6569 specialist silence observes through shared authority", crypto.contains("OBSERVE_SPECIALIST_SILENCE_6569") && crypto.contains("markFdgReach6544(sharedTok6569") && !crypto.contains("""markEvaluationDisposition6567(refreshed, "NO_ACTIONABLE_SPECIALIST_SIGNAL")"""))
+        assertTrue("6569 bounded Crypto shared-intelligence work", crypto.contains("OBSERVE_SHARED_INTELLIGENCE_BACKLOG_6569") && crypto.contains(".take(25)"))
+        assertTrue("6569 advisor causal-domain isolation", advisor.contains("ADVISOR_CROSS_DOMAIN_MUTATION_BLOCKED_6569") && advisor.contains("REPLAY_DRIVEN_ENTRY_COOLDOWN_ROLLED_BACK_6569") && !advisor.contains("""Candidate("entryCooldownSec", +3.0"""))
+        assertTrue("6569 leveraged terminal proceeds and quarantine", crypto.contains("sol              = (pos.sizeSol + pnlSol).coerceAtLeast(0.0)") && paper.contains("LEVERAGED_TERMINAL_ARITHMETIC_DIVERGENCE_6569") && paper.contains("PaperLearningEligibility6519.record"))
     }
 
 }

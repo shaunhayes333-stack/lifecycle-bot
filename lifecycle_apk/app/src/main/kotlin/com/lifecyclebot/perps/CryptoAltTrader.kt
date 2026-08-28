@@ -689,6 +689,7 @@ object CryptoAltTrader {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private suspend fun runDynamicTokenScan() = withContext(Dispatchers.Default) {
+        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "SCAN_TICK")
         runtimeDisabledReason()?.let { reason ->
             ErrorLogger.info(TAG, "CRYPTO_ALT_DYNSCAN_ABORTED reason=$reason")
             return@withContext
@@ -742,6 +743,7 @@ object CryptoAltTrader {
                 val refreshed = DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(tok.canonicalIdentity6544)
                     ?: DynamicAltTokenRegistry.getTokenByMint(tok.mint) ?: tok
                 DynamicAltTokenRegistry.markEvaluation6544(refreshed)
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "MARKET_DATA_OK")
                 val executableSignalCountBefore6567 = dynExecutableSignals.size
                 // V5.0.6554 — specialist AIs must receive registry-owned age;
                 // fresh launches must not be presented as established tokens.
@@ -985,8 +987,27 @@ object CryptoAltTrader {
                         }
                     } catch (_: Exception) {}
                 }
+                if (dynExecutableSignals.size > executableSignalCountBefore6567) {
+                    com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "ACTIONABLE_SIGNAL")
+                }
                 if (dynExecutableSignals.size == executableSignalCountBefore6567) {
-                    DynamicAltTokenRegistry.markEvaluationDisposition6567(refreshed, "NO_ACTIONABLE_SPECIALIST_SIGNAL")
+                    // V5.0.6569 — specialist silence is observation context, not a
+                    // terminal rejection. Preserve canonical identity/features and let
+                    // shared Crypto scoring/V3/policy decide. Bounded to top-25 below.
+                    val observeScore6569 = (45.0 + momentum.coerceIn(-20.0, 20.0) * 0.35 +
+                        (buyPct - 50.0).coerceIn(-25.0, 25.0) * 0.20 +
+                        if (refreshed.isTrending) 5.0 else 0.0).toInt().coerceIn(20, 75)
+                    dynExecutableSignals.add(AltSignal(
+                        market = PerpsMarket.DYN,
+                        direction = if (momentum >= 0.0) PerpsDirection.LONG else PerpsDirection.SHORT,
+                        score = observeScore6569, confidence = 40, price = price,
+                        priceChange24h = change,
+                        reasons = listOf("OBSERVE_SPECIALIST_SILENCE_6569 momentum=$momentum buyPct=$buyPct source=${refreshed.source}"),
+                        layerVotes = emptyMap(), dynSymbol = refreshed.symbol, dynName = refreshed.name,
+                        dynMint = refreshed.mint, dynChainId = refreshed.chainId, dynAssetKey = refreshed.canonicalIdentity6544,
+                    ))
+                    DynamicAltTokenRegistry.markEvaluationDisposition6567(refreshed, "OBSERVE_SPECIALIST_SILENCE_6569")
+                    try { PipelineHealthCollector.labelInc("CRYPTO_SPECIALIST_SILENCE_TO_SHARED_INTELLIGENCE_6569") } catch (_: Throwable) {}
                 }
 
             } catch (e: CancellationException) { throw e }
@@ -999,18 +1020,18 @@ object CryptoAltTrader {
         // Now we convert high-confidence DynToken signals into real AltSignal trades
         if (dynExecutableSignals.isNotEmpty()) {
             // V5.9.1442 — Crypto isolated brain thresholds (was FluidLearningAI.getAltsXxx).
-            val scoreThresh = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotScoreFloor() } catch (_: Exception) { 60 }
-            val confThresh  = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotConfFloor() }  catch (_: Exception) { 55 }
             val uniqueDynSignals6567 = dynExecutableSignals
                 .groupBy { it.dynAssetKey ?: it.dynMint ?: "${it.market.name}:${it.marketSymbol}" }
                 .values.mapNotNull { rows -> rows.maxByOrNull { it.score * 1000 + it.confidence } }
+            // V5.0.6569 — specialist thresholds are features for the shared
+            // authority, not a terminal pre-V3 gate. Rank continuously and bound work.
             val topDyn = uniqueDynSignals6567
-                .filter { it.score >= scoreThresh && it.confidence >= confThresh }
-                .sortedByDescending { it.score }
-            uniqueDynSignals6567.filterNot { it in topDyn }.forEach { rejected ->
-                val rejectedTok6567 = rejected.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
-                    ?: rejected.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
-                DynamicAltTokenRegistry.markEvaluationDisposition6567(rejectedTok6567, "BELOW_CRYPTO_SCORE_OR_CONFIDENCE")
+                .sortedWith(compareByDescending<AltSignal> { it.score + it.confidence }.thenByDescending { it.score })
+                .take(25)
+            uniqueDynSignals6567.filterNot { it in topDyn }.forEach { observed ->
+                val observedTok6569 = observed.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
+                    ?: observed.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
+                DynamicAltTokenRegistry.markEvaluationDisposition6567(observedTok6569, "OBSERVE_SHARED_INTELLIGENCE_BACKLOG_6569")
             }
             for ((signalIndex6567, sig) in topDyn.withIndex()) {
                 if (positions.size >= MAX_POSITIONS) {
@@ -1021,6 +1042,10 @@ object CryptoAltTrader {
                     }
                     break
                 }
+                val sharedTok6569 = sig.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
+                    ?: sig.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
+                DynamicAltTokenRegistry.markFdgReach6544(sharedTok6569, liveRoutable = false, paperOnlyNoRoute = isPaperMode.get())
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "RAW_SIGNAL")
                 try { ForensicLogger.lifecycle("CRYPTO_SIGNAL_SELECTED_6566", "symbol=${sig.marketSymbol} source=DYNAMIC_ALT score=${sig.score} confidence=${sig.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
                 // V5.9.1472 — dedupe by real symbol so DYN coins aren't collapsed.
                 if (hasPositionSymbol(sig.marketSymbol)) {
@@ -1050,6 +1075,10 @@ object CryptoAltTrader {
             }
         }
 
+        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.completeProducerWindow6569(
+            com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, isEnabled.get(), isRunning.get(),
+            "batch=${batch.size} scanned=$scanned specialistSignals=$signals sharedCandidates=${dynExecutableSignals.size}"
+        )
         if (signals > 0 || scanned % 200 == 0) {
             ErrorLogger.info(TAG, "🪙⚡ DynScan done: scanned=$scanned execSignals=${dynExecutableSignals.size} (universe=${allTokens.size})")
         }
@@ -2914,6 +2943,8 @@ object CryptoAltTrader {
                 positionId = pos.id, mint = pos.canonicalAssetKey, symbol = mktSym,
                 grossProceedsSol = (pos.sizeSol + settlementPnl6486).coerceAtLeast(0.0),
                 exitReason = reason, terminalSequence = System.currentTimeMillis(),
+                expectedRealizedPnlSol6569 = pos.sizeSol * (pos.getPnlPct() / 100.0),
+                leveragedReturnPct6569 = pos.getPnlPct(),
             )
             if (!canonicalClose6486.applied) {
                 ErrorLogger.warn(TAG, "PAPER CLOSE REJECTED: $mktSym ${canonicalClose6486.reason}")
@@ -3243,7 +3274,7 @@ object CryptoAltTrader {
         try {
             TradeHistoryStore.recordTrade(Trade(
                 side             = "SELL", mode = modeStr,
-                sol              = pos.sizeSol, price = pos.currentPrice,
+                sol              = (pos.sizeSol + pnlSol).coerceAtLeast(0.0), price = pos.currentPrice,
                 ts               = timestamp, reason = "ALT:$reason",
                 pnlSol           = pnlSol, pnlPct = pnlPct,
                 score            = pos.aiScore.toDouble(),

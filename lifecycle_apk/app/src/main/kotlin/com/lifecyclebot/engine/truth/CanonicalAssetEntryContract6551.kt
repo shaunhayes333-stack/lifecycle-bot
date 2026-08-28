@@ -59,12 +59,17 @@ sealed class CanonicalAssetEntryResult6551 {
 object CanonicalEntryAuthority6551 {
     private const val PENDING_TTL_MS_6554 = 2 * 60 * 1000L
     private val pending = ConcurrentHashMap<String, ExecutableOpenGate.ExecutionIntent>()
+    private val dispatchedAttempts6569 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private fun intentAssetClass6569(intent: ExecutableOpenGate.ExecutionIntent): AssetClass =
+        AssetClass.values().firstOrNull { it.tag == intent.assetClassTag } ?: AssetClass.UNKNOWN
 
     private fun expirePending6554() {
         val now = System.currentTimeMillis()
         pending.entries.removeIf { (_, intent) ->
             val expired = now - intent.createdAt > PENDING_TTL_MS_6554
             if (expired) try {
+                if (!dispatchedAttempts6569.remove(intent.attemptId))
+                    CanonicalEntryAuthority6540.markDispatchRejectFor6569(intentAssetClass6569(intent), intent.symbol, "PENDING_EXPIRED")
                 ForensicLogger.lifecycle("CANONICAL_PENDING_EXPIRED", "attemptId=${intent.attemptId} asset=${intent.mint.take(16)} mode=${intent.mode}")
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_PENDING_EXPIRED")
             } catch (_: Throwable) {}
@@ -126,6 +131,7 @@ object CanonicalEntryAuthority6551 {
             diagnosticSignal = candidate.diagnosticSignal, safetyTier = "CLEAR", liquidityUsd = candidate.liquidityUsd,
             hardNoReasons = emptyList(), requiresSolanaTokenMap = candidate.assetClass == AssetClass.SOLANA_TOKEN,
             action = "OPEN", direction = if (candidate.direction.equals("SHORT", true)) "SHORT" else "LONG",
+            assetClassTag = candidate.assetClass.tag,
         )
         val registered = ExecutableOpenGate.registerCanonicalIntent6554(intent)
             ?: return deferred(candidate, venue, "EXEC_INTENT_REGISTRATION_FAILED")
@@ -149,6 +155,11 @@ object CanonicalEntryAuthority6551 {
         else CanonicalAssetEntryResult6551.Allowed(registered, registered.resolvedSize, venue, resultShaping)
     }
 
+    fun undispatchedPendingCount6569(assetClass: AssetClass): Long {
+        expirePending6554()
+        return pending.values.count { intentAssetClass6569(it) == assetClass && it.attemptId !in dispatchedAttempts6569 }.toLong()
+    }
+
     fun findPending(assetId: String, mode: String, candidateVersion: Long? = null): ExecutableOpenGate.ExecutionIntent? {
         expirePending6554()
         val prefix = "${mode.uppercase()}:$assetId:"
@@ -156,13 +167,15 @@ object CanonicalEntryAuthority6551 {
     }
 
     fun markDispatch(intent: ExecutableOpenGate.ExecutionIntent) {
-        CanonicalEntryAuthority6540.markAdapterDispatchFor6551(AssetClass.fromLane(intent.canonicalLane), intent.symbol)
+        if (dispatchedAttempts6569.add(intent.attemptId))
+            CanonicalEntryAuthority6540.markAdapterDispatchFor6551(intentAssetClass6569(intent), intent.symbol)
     }
 
     fun markConfirmed(intent: ExecutableOpenGate.ExecutionIntent, positionId: String) {
         pending.remove("${intent.mode}:${intent.mint}:${intent.candidateVersion}")
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_PENDING_CONFIRMED_RELEASE") } catch (_: Throwable) {}
-        CanonicalEntryAuthority6540.markOpenConfirmedFor6551(AssetClass.fromLane(intent.canonicalLane), intent.symbol, positionId)
+        dispatchedAttempts6569.remove(intent.attemptId)
+        CanonicalEntryAuthority6540.markOpenConfirmedFor6551(intentAssetClass6569(intent), intent.symbol, positionId)
     }
 
     fun markFailed(intent: ExecutableOpenGate.ExecutionIntent, reason: String) = releasePending6554(intent, "FAILED", reason)
@@ -170,6 +183,8 @@ object CanonicalEntryAuthority6551 {
     fun markCancelled(intent: ExecutableOpenGate.ExecutionIntent, reason: String) = releasePending6554(intent, "CANCELLED", reason)
 
     private fun releasePending6554(intent: ExecutableOpenGate.ExecutionIntent, state: String, reason: String) {
+        if (!dispatchedAttempts6569.remove(intent.attemptId))
+            CanonicalEntryAuthority6540.markDispatchRejectFor6569(intentAssetClass6569(intent), intent.symbol, "$state:$reason")
         if (pending.remove("${intent.mode}:${intent.mint}:${intent.candidateVersion}") != null) {
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_PENDING_${state}_RELEASE")

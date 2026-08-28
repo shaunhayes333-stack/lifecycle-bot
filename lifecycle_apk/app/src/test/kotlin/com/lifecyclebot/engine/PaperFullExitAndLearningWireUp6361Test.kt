@@ -74,7 +74,9 @@ class PaperFullExitAndLearningWireUp6361Test {
         assertTrue(txt.contains("HoldDurationTracker.record("))
         assertTrue(txt.contains("ExitReasonTracker.record("))
         assertTrue(txt.contains("LaneExitTuner.recordClose("))
-        assertTrue(txt.contains("TacticSwitcher.onTradeClosed("))
+        val bridge = File("src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt").readText()
+        assertTrue(bridge.contains("TacticSwitcher.onCanonicalTradeClosed6486("))
+        assertFalse(txt.contains("TacticSwitcher.onTradeClosed(layer, band, pnlPctLearn)"))
         assertTrue(txt.contains("LanePolicy.recordOutcome("))
         assertTrue(txt.contains("RetrainingDecay.noteOutcome("))
     }
