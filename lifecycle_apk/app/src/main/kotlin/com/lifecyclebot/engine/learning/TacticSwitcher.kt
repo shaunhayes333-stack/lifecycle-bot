@@ -279,7 +279,10 @@ object TacticSwitcher {
         val histKey = "${key(lane, scoreBand)}|${elected.name}"
         val row = historicalRow6567(histKey)
         row.trades.incrementAndGet()
-        if (pnlPct > 0.0) row.wins.incrementAndGet()
+        // V5.0.6576 §P0-3 — canonical classifier (was pnlPct > 0.0).
+        if (com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(pnlPct)
+            == com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.WIN
+        ) row.wins.incrementAndGet()
         row.pnlBps.addAndGet((pnlPct * 100).toLong())
         persistHistorical6567(histKey, row)
         try { PipelineHealthCollector.labelInc("TACTIC_HISTORICAL_OUTCOME_ATTRIBUTED_6568") } catch (_: Throwable) {}
@@ -296,7 +299,16 @@ object TacticSwitcher {
         val cell = getOrCreate(lane, scoreBand)
         cell.tradesSinceRotation.incrementAndGet()
         cell.pnlSumSinceRotation.addAndGet((pnlPct * 100).toLong())
-        if (pnlPct > 0.0) cell.winsSinceRotation.incrementAndGet() else cell.lossesSinceRotation.incrementAndGet()
+        // V5.0.6576 §P0-3 — canonical classifier (was pnlPct > 0.0 else LOSS).
+        val outcomeClass6576 = com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(pnlPct)
+        when (outcomeClass6576) {
+            com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.WIN -> cell.winsSinceRotation.incrementAndGet()
+            com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.LOSS -> cell.lossesSinceRotation.incrementAndGet()
+            com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.BREAKEVEN -> {
+                // Breakeven neither wins nor loses — recorded only as a trade.
+                try { PipelineHealthCollector.labelInc("TACTIC_BREAKEVEN_6576") } catch (_: Throwable) {}
+            }
+        }
 
         val tradesIn = cell.tradesSinceRotation.get()
         val losses = cell.lossesSinceRotation.get()

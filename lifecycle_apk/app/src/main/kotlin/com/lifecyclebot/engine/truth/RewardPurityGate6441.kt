@@ -45,6 +45,11 @@ object RewardPurityGate6441 {
      * Register the canonical finalized outcome for a closed position.
      * Returns true if this call is authoritative (first finalization);
      * false if it was rejected (duplicate or position not CLOSED).
+     *
+     * V5.0.6576 §P0-3 — classification is delegated to the single
+     * CanonicalOutcomeClassifier6576 so RewardPurity agrees with every
+     * other terminal learner (previously ">0 WIN" → contradicted
+     * PerformanceAnalytics and LearnerRewardBridge on the same closes).
      */
     fun acceptFinalizedClose(positionId: String, realizedPnlSol: Double): Boolean {
         val pos = CanonicalPositionAuthority6441.getPosition(positionId)
@@ -59,10 +64,15 @@ object RewardPurityGate6441 {
             try { PipelineHealthCollector.labelInc("REWARD_PURITY_REJECT_LIFECYCLE_6441") } catch (_: Throwable) {}
             return false
         }
-        val outcome = when {
-            realizedPnlSol > 0.0 -> Outcome.WIN
-            realizedPnlSol < 0.0 -> Outcome.LOSS
-            else                 -> Outcome.BREAKEVEN
+        val costBasis6576 = try {
+            val c = pos.entryCostSol
+            if (c > 0.0 && c.isFinite()) c else 0.0
+        } catch (_: Throwable) { 0.0 }
+        val canonical6576 = CanonicalOutcomeClassifier6576.classifyPnl(realizedPnlSol, costBasis6576)
+        val outcome = when (canonical6576) {
+            CanonicalOutcomeClassifier6576.Class.WIN -> Outcome.WIN
+            CanonicalOutcomeClassifier6576.Class.LOSS -> Outcome.LOSS
+            CanonicalOutcomeClassifier6576.Class.BREAKEVEN -> Outcome.BREAKEVEN
         }
         val prev = finalizedIds.putIfAbsent(positionId, outcome)
         if (prev != null) {

@@ -16,8 +16,13 @@ import kotlin.math.max
  */
 object PerformanceAnalytics {
 
-    private const val WIN_THRESHOLD_PCT = 0.5
-    private const val LOSS_THRESHOLD_PCT = -2.0
+    // V5.0.6576 §P0-3 — thresholds are now derived from the single
+    // CanonicalOutcomeClassifier6576 (symmetric ±0.5%). Prior 0.5% / -2.0%
+    // asymmetric doctrine put 60+ closes into a "scratch" bucket the other
+    // learners were treating as losses/wins — the source of the 0W/7L/67BE
+    // vs RewardPurityGate 75L/0BE contradiction.
+    private const val WIN_THRESHOLD_PCT = com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.BREAKEVEN_BAND_PCT
+    private const val LOSS_THRESHOLD_PCT = -com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.BREAKEVEN_BAND_PCT
     private val UTC: TimeZone = TimeZone.getTimeZone("UTC")
 
     // V5.9.1378 (P0 #8/#10) — cache the most recent analyze() result + a lifetime
@@ -607,15 +612,19 @@ object PerformanceAnalytics {
     }
 
     private fun isWin(trade: TradeRecord): Boolean {
-        return sanitizeDouble(trade.pnlPct) >= WIN_THRESHOLD_PCT
+        // V5.0.6576 §P0-3 — delegate to CanonicalOutcomeClassifier6576.
+        return com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576
+            .classifyReadonly(sanitizeDouble(trade.pnlPct)) == com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.WIN
     }
 
     private fun isLoss(trade: TradeRecord): Boolean {
-        return sanitizeDouble(trade.pnlPct) <= LOSS_THRESHOLD_PCT
+        return com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576
+            .classifyReadonly(sanitizeDouble(trade.pnlPct)) == com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.LOSS
     }
 
     private fun isDecisive(trade: TradeRecord): Boolean {
-        return isWin(trade) || isLoss(trade)
+        return com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576
+            .classifyReadonly(sanitizeDouble(trade.pnlPct)) != com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.BREAKEVEN
     }
 
     private fun percentage(count: Int, total: Int): Double {
