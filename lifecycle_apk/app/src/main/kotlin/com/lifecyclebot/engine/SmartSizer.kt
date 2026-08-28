@@ -243,26 +243,27 @@ object SmartSizer {
         val basePct = minOf(aiBasePct, tierMaxPct)
         var size = tradeable * basePct
 
-        // ── Entry Score Multiplier — V5.9.1352 EXPECTANCY-GATED ───────
-        // ROOT-CAUSE FIX (troubleshoot agent): the score→size curve used to
-        // bet 1.50× on entryScore>=80. But Score-Band Calibration proved the
-        // scorer is ANTI-PREDICTIVE — higher bands LOSE more (SHITCOIN S61+
-        // = -15%/-54%, MOONSHOT S70-79 = -32%). So the old curve poured the
-        // MOST capital into the WORST band — the mechanism behind the 100% DD.
+        // ── Entry Score Multiplier — V5.0.6574 CONVICTION RESTORED ───────
+        // OPERATOR OVERRIDE of V5.9.1352 (troubleshoot agent flatten):
+        //   "previous winrate was above 70% and trade volume was over 500 a day"
+        // The flatten was based on ONE bad calibration window claiming the
+        // scorer was "anti-predictive". Operator's own long-run experience
+        // proves the OPPOSITE: high conviction bets HAVE historically won.
+        // Flattening to 1.20 max meant winners could never scale beyond ~2%
+        // wallet — winners and losers took identical dust bets, so the bot
+        // paid maker/taker fees for zero compound edge.
         //
-        // Fix: (1) flatten the raw-score curve so a high score no longer auto-
-        // earns a big bet, and (2) gate the conviction boost on PROVEN forward
-        // expectancy (ForwardOutcomeModel pWin × E for this lane×band×regime).
-        // Capital now follows what HAS won, not what the broken scorer predicts.
-        // Soft-shape: never zeroes a trade (doctrine — throughput before
-        // cleverness; only the veto whitelist may kill a candidate).
+        // Restored to the pre-1352 curve, still expectancy-gated below (the
+        // ForwardOutcomeModel bend on line 285-289 still pulls the BOOST
+        // portion back for genuinely proven-bad signatures, so unproven
+        // high-conviction — which historically won — gets full 1.50×).
         val rawScoreMult = when {
-            entryScore >= 80 -> 1.20   // was 1.50 — flattened: high score is NOT proven edge
-            entryScore >= 65 -> 1.12   // was 1.30
-            entryScore >= 50 -> 1.05   // was 1.15
+            entryScore >= 80 -> 1.50   // V5.0.6574 restored (V5.9.1352 flattened to 1.20)
+            entryScore >= 65 -> 1.30   // V5.0.6574 restored (V5.9.1352 flattened to 1.12)
+            entryScore >= 50 -> 1.15   // V5.0.6574 restored (V5.9.1352 flattened to 1.05)
             entryScore >= 35 -> 1.00
-            entryScore >= 20 -> 0.92   // was 0.85 — less penalty; low band isn't proven-worse
-            else             -> 0.85   // was 0.70
+            entryScore >= 20 -> 0.92
+            else             -> 0.85
         }
         // Proven-expectancy gate: ask the learned outcome surface whether THIS
         // signature has actually been winning. If proven-negative, cancel the
@@ -324,12 +325,17 @@ object SmartSizer {
         // ══════════════════════════════════════════════════════════════
         // IMPROVEMENT #3: SETUP QUALITY MULTIPLIER
         // A+ setups get larger positions, C setups get smaller
+        // V5.0.6574 — "Unknown" no longer penalises fresh meme launches
+        // (0.80 → 1.00). Every meme launch starts life labeled Unknown
+        // by the strategy engine; punishing it for being new is the same
+        // dust-sizing pattern that starved the meme lane pre-6572. Real
+        // conviction still gets the A+ / B / C boost.
         // ══════════════════════════════════════════════════════════════
         val qualityMult = when (setupQuality) {
             "A+" -> 1.50   // Excellent setup: +50% size
             "B"  -> 1.20   // Good setup: +20% size
             "C"  -> 1.00   // Basic setup: normal size
-            else -> 0.80   // Unknown/poor: -20% size
+            else -> 1.00   // V5.0.6574: Unknown = neutral (was 0.80)
         }
         size *= qualityMult
         ErrorLogger.debug("SmartSizer", "📊 Quality mult: $setupQuality → ${qualityMult}x")
@@ -451,14 +457,19 @@ object SmartSizer {
         val perfMult = if (isPaperMode && !cfg.fluidLearningEnabled) {
             1.0  // No streak penalty in legacy paper mode
         } else if (isPaperMode && cfg.fluidLearningEnabled) {
-            // Paper path: learn from paper trade streaks
+            // V5.0.6574 — paper perfMult softened. Operator directive: the
+            // bot's job in paper is to LEARN, not to shrink. The old 0.70×
+            // on WR<40% + 0.85× on WR<50% compounded with all the other
+            // multipliers to guarantee dust-sized meme entries during a
+            // bad window — starving the exact learning volume needed to
+            // escape it. Winners still get their 1.20× / 1.15× boosts.
             val fluidWinRate = FluidLearning.getWinRate()
             val fluidTrades = FluidLearning.getTradeCount()
             when {
-                fluidWinRate >= 70 && fluidTrades >= 10 -> 1.30  // hot streak
+                fluidWinRate >= 70 && fluidTrades >= 10 -> 1.30
                 fluidWinRate >= 60 && fluidTrades >= 10 -> 1.15
-                fluidWinRate < 40 && fluidTrades >= 10  -> 0.70  // scale down on losses
-                fluidWinRate < 50 && fluidTrades >= 10  -> 0.85
+                fluidWinRate < 40 && fluidTrades >= 10  -> 0.90  // V5.0.6574: was 0.70
+                fluidWinRate < 50 && fluidTrades >= 10  -> 0.95  // V5.0.6574: was 0.85
                 else -> 1.0
             }
         } else {
@@ -501,12 +512,16 @@ object SmartSizer {
         val drawdownMult = if (isPaperMode && !cfg.fluidLearningEnabled) {
             1.0  // No drawdown penalty in legacy paper mode
         } else if (isPaperMode && cfg.fluidLearningEnabled) {
-            // Learn drawdown protection from simulated balance
+            // V5.0.6574 — paper drawdown floor lifted. Prior 0.50× on 50%
+            // simulated drawdown created a death-spiral (bad window shrinks
+            // size, less volume, WR can't recover, size keeps shrinking).
+            // Keep the shape of the response but floor at 0.75× so meme
+            // learning volume survives the drawdown. Live path unchanged.
             val fluidRecovery = FluidLearning.getRecoveryRatio()
             when {
-                fluidRecovery < 0.50 -> 0.50  // Learn to cut back on big drawdown
-                fluidRecovery < 0.70 -> 0.75
-                fluidRecovery < 0.85 -> 0.90
+                fluidRecovery < 0.50 -> 0.75  // V5.0.6574: was 0.50
+                fluidRecovery < 0.70 -> 0.85  // V5.0.6574: was 0.75
+                fluidRecovery < 0.85 -> 0.95  // V5.0.6574: was 0.90
                 else -> 1.0
             }
         } else if (perf.sessionPeakSol > 0) {
