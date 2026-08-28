@@ -15,15 +15,14 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * V5.0.6281 — Self-Healing LLM Advisor.
  *
- * Reads the current Pipeline Health / Unified Operational report, funnels
- * it through the LLM (via GeminiCopilot), and produces *advisory-only*
- * tuning suggestions the operator can one-tap accept.
- *
- * The advisor NEVER auto-applies changes — every suggestion lands in the
- * AdvisorInbox and requires an explicit accept from the operator. When
- * accepted, it feeds a <<TUNE>>...<<ENDTUNE>> JSON block to the existing
- * LlmParameterTuner path so the same allowlist/step-cap/phase gating
- * applies as an LLM-emitted tune block.
+ * V5.0.6571 — AUTONOMOUS SELF-HEALING (operator: "should be making the
+ * required changes in an Autonomous state. not require user intervention").
+ * Parsed suggestions now auto-apply through the existing LlmParameterTuner
+ * pipeline (same allowlist / step-cap / phase gate / persistence path an
+ * LLM TUNE block would use) instead of parking in AdvisorInbox for one-
+ * tap accept. AdvisorInbox is still populated for audit visibility so
+ * operator can see everything the advisor did without gating on their
+ * approval.
  *
  * Cadence:
  *  - On-demand via runNowAsync() (button tap in PipelineHealth).
@@ -128,15 +127,76 @@ object SelfHealingAdvisor {
         val parsed = parseAdvisorReply(reply)
         if (parsed.isNotEmpty()) {
             AdvisorInbox.addAll(parsed)
+            // V5.0.6571 — AUTONOMOUS SELF-HEALING.
+            // Auto-apply suggestions instead of waiting for operator tap.
+            // The application path reuses LlmParameterTuner.extractAndApply
+            // so every safety valve — phase gate (bootstrap/learning/mature),
+            // free-range step-cap ramp, allowlist, per-key min/max, per-call
+            // adjustment count — is exactly the same as if the LLM had
+            // emitted a native <<TUNE>>…<<ENDTUNE>> block. AdvisorInbox is
+            // still populated so operator can audit what changed.
+            val applied = try { autoApplySuggestions(ctx, parsed) } catch (_: Throwable) { null }
             try {
                 ForensicLogger.lifecycle(
                     "SELF_HEALING_ADVISOR_SUGGESTIONS_6281",
-                    "count=${parsed.size} keys=${parsed.joinToString("|") { it.key }}",
+                    "count=${parsed.size} keys=${parsed.joinToString("|") { it.key }} " +
+                        "autoApplied=${applied?.changes?.size ?: 0} " +
+                        "autoRejected=${applied?.rejected?.size ?: 0}",
                 )
                 PipelineHealthCollector.labelInc("SELF_HEALING_ADVISOR_SUGGESTIONS_6281")
+                if ((applied?.changes?.size ?: 0) > 0) {
+                    PipelineHealthCollector.labelInc("SELF_HEALING_ADVISOR_AUTOAPPLIED_6571")
+                    for (c in applied?.changes.orEmpty()) {
+                        // Every accepted change ticks its own key so the
+                        // operator can see the parameter drift per-metric.
+                        PipelineHealthCollector.labelInc("SELF_HEALING_TUNE_APPLIED_6571|${c.key}")
+                        // Book-keep the corresponding advisor suggestion
+                        // as "applied" so the inbox UI does not offer it
+                        // again as a pending action.
+                        for (s in parsed) if (s.key == c.key) AdvisorInbox.markApplied(s.id)
+                        ForensicLogger.lifecycle(
+                            "SELF_HEALING_TUNE_APPLIED_6571",
+                            "key=${c.key} old=${c.oldValue} new=${c.newValue} reason=${c.reason.take(120)}",
+                        )
+                    }
+                }
+                for (r in applied?.rejected.orEmpty()) {
+                    PipelineHealthCollector.labelInc("SELF_HEALING_TUNE_REJECTED_6571")
+                    ForensicLogger.lifecycle(
+                        "SELF_HEALING_TUNE_REJECTED_6571",
+                        "detail=${r.take(160)}",
+                    )
+                }
             } catch (_: Throwable) {}
         }
         RunResult(true, null, parsed, reply)
+    }
+
+    /**
+     * V5.0.6571 — convert parsed advisor suggestions into a
+     * <<TUNE>>...<<ENDTUNE>> block and hand it to LlmParameterTuner. All
+     * safety valves (phase gate, step cap, allowlist, per-call adjustment
+     * cap) live inside that path so nothing bypasses them here.
+     */
+    private fun autoApplySuggestions(
+        ctx: Context,
+        suggestions: List<Suggestion>,
+    ): LlmParameterTuner.Applied {
+        if (suggestions.isEmpty()) {
+            return LlmParameterTuner.Applied(cleanedReply = "", changes = emptyList(), rejected = emptyList())
+        }
+        val adjustmentsArr = JSONArray()
+        for (s in suggestions) {
+            adjustmentsArr.put(
+                JSONObject()
+                    .put("key", s.key)
+                    .put("delta", s.delta)
+                    .put("reason", "self-healing:${s.severity}:${s.reason.take(120)}"),
+            )
+        }
+        val body = JSONObject().put("adjustments", adjustmentsArr).toString()
+        val block = "<<TUNE>>$body<<ENDTUNE>>"
+        return LlmParameterTuner.extractAndApply(ctx, block)
     }
 
     private suspend fun buildReport(): String {
