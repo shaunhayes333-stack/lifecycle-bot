@@ -16,8 +16,16 @@ object PaperLearningEligibility6519 {
         if (byPosition.size > 8192) byPosition.entries.removeIf { System.currentTimeMillis() - it.value.atMs > 7L * 24L * 60L * 60L * 1000L }
     }
 
-    fun decision(positionId: String?, mint: String): Decision =
-        positionId?.takeIf { it.isNotBlank() }?.let { byPosition[it] } ?: byMint[mint] ?: Decision(true, "DEFAULT_ELIGIBLE")
+    fun decision(positionId: String?, mint: String): Decision {
+        val pid = positionId.orEmpty()
+        val recorded = pid.takeIf { it.isNotBlank() }?.let { byPosition[it] } ?: byMint[mint] ?: Decision(true, "DEFAULT_ELIGIBLE")
+        if (!recorded.eligible) return recorded
+        if (pid.isNotBlank() && !CanonicalPerformanceFilter6395.isCanonicalEligible(pid))
+            return Decision(false, "CANONICAL_PERFORMANCE_QUARANTINE:${CanonicalPerformanceFilter6395.reasons(pid).joinToString("+")}")
+        val reason = recorded.reason.uppercase()
+        val invalid = listOf("STALE", "RESTORED_INVALID", "REPLAY", "DECIMAL", "ORPHAN", "PHANTOM", "UNRESOLVED_BASIS", "ADMINISTRATIVE", "SYNTHETIC_CLOSE").firstOrNull { reason.contains(it) }
+        return if (invalid != null) Decision(false, "FORENSIC_ONLY_$invalid") else recorded
+    }
 
     internal fun resetForTest() { byMint.clear(); byPosition.clear() }
 }

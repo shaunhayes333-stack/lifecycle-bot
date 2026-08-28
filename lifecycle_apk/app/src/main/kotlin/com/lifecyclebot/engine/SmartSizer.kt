@@ -786,6 +786,14 @@ object SmartSizer {
             ErrorLogger.info("SmartSizer", "🥶 Cold-streak damp: ${coldMult.fmt1}x [$laneMode] (size now ${size.fmt(4)} SOL)")
         }
 
+        val causalTactic6568 = try { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(laneMode, entryScore.toInt()).name } catch (_: Throwable) { "UNKNOWN" }
+        val causalMult6568 = try { com.lifecyclebot.engine.truth.MemeCausalLearning6568.sizeMultiplier(laneMode, causalTactic6568) } catch (_: Throwable) { 1.0 }
+        if (causalMult6568 < 1.0) {
+            size *= causalMult6568
+            if (size < 0.05) size = 0.05
+            try { PipelineHealthCollector.labelInc("MEME_CAUSAL_PERFORMANCE_SHAPED_6568") } catch (_: Throwable) {}
+        }
+
         val explanation = buildString {
             append("AI conf=${aiConfidence.toInt()} ")
             append("base=${(basePct*100).toInt()}% ")
@@ -797,6 +805,7 @@ object SmartSizer {
             if (perfMult != 1.0) append("×perf=${perfMult.fmt1} ")
             if (drawdownMult != 1.0) append("×dd=${drawdownMult.fmt1} ")
             if (lanePhaseMult != 1.0) append("×lane=${lanePhaseMult.fmt1}[$laneMode] ")
+            if (causalMult6568 != 1.0) append("×causal6568=${causalMult6568.fmt1} ")
             append("→${size.fmt()}◎")
             if (cappedBy != "none") append(" [cap:$cappedBy]")
         }

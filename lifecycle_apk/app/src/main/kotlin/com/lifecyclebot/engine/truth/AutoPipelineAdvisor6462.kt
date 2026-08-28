@@ -260,77 +260,17 @@ object AutoPipelineAdvisor6462 {
         val terminalDupRejects = readLabel("TERMINAL_SELL_DUPLICATE_CLOSING_REJECTED_6454") +
                                  readLabel("TERMINAL_SELL_DUPLICATE_CLOSED_REJECTED_6454")
 
-        // Rule R1: Fi4FaM clamps observed → tighten quote freshness so bad
-        //          prices don't propagate into partial-close math.
-        if (fi4famClamps > 0) {
-            out += mk(
-                key = "slippageBps", delta = -25.0, severity = "med",
-                reason = "FI4FAM_UNIT_CORRUPTION_6461=$fi4famClamps — tighten slippage to reduce percent-into-SOL surface",
-            )
-        }
-
-        // V5.0.6507 §P1 ADVISOR INTERLOCK — HISTORICAL DIVERGENCE MUST NOT
-        // REPEATEDLY EXTEND COOLDOWN. Rule R2 previously fired on every
-        // tick whenever the PAPER_REPLAY_DIVERGENCE_6461 label was
-        // non-zero, even if the divergence event happened once at
-        // startup and was already reconciled. That grew entryCooldown
-        // indefinitely and starved fresh entries. We now emit only on
-        // NEW divergence events observed since the last tick.
-        if (replayDiv > 0 && replayDiv > lastSeenReplayDivergence6507.get()) {
-            out += mk(
-                key = "entryCooldownSec", delta = +60.0, severity = "high",
-                reason = "PAPER_REPLAY_DIVERGENCE_6461=$replayDiv (newSinceLast=${replayDiv - lastSeenReplayDivergence6507.get()}) — extend cooldown so replay can converge",
-            )
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADVISOR_R2_REPLAY_COOLDOWN_EXTEND_6507") } catch (_: Throwable) {}
-        } else if (replayDiv > 0) {
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADVISOR_R2_REPLAY_COOLDOWN_SUPPRESSED_HISTORICAL_6507") } catch (_: Throwable) {}
+        // V5.0.6568 — INTEGRITY ISOLATION. Replay, ledger, quantity, projection,
+        // provider latency and duplicate-finality evidence belongs to repair/quarantine,
+        // never automatic mutation of entry/exit/hold/liquidity/scan parameters.
+        val integritySignals6568 = fi4famClamps + replayDiv + ledgerInvFails + highLatencyAlerts + pendingLeaks + degraded + terminalDupRejects
+        if (integritySignals6568 > 0L) {
+            try {
+                PipelineHealthCollector.labelInc("ADVISOR_INTEGRITY_DIAGNOSTIC_ONLY_6568")
+                ForensicLogger.lifecycle("ADVISOR_INTEGRITY_DIAGNOSTIC_ONLY_6568", "fi4fam=$fi4famClamps replay=$replayDiv ledger=$ledgerInvFails latency=$highLatencyAlerts pending=$pendingLeaks api=$degraded terminalDup=$terminalDupRejects action=repair_or_quarantine_no_strategy_mutation")
+            } catch (_: Throwable) {}
         }
         lastSeenReplayDivergence6507.set(replayDiv)
-
-        // Rule R3: Ledger invariant failures → shrink per-position size to
-        //          bound the blast radius of any accounting drift.
-        if (ledgerInvFails > 2) {
-            out += mk(
-                key = "perPositionSizePct", delta = -0.02, severity = "high",
-                reason = "PAPER_LEDGER_INVARIANT_FAIL_6430=$ledgerInvFails — shrink size while accounting heals",
-            )
-        }
-
-        // Rule R4: HIGH-priority risk-domain latency alerts → widen poll
-        //          interval so scanners don't starve the risk clock.
-        if (highLatencyAlerts > 0) {
-            out += mk(
-                key = "pollSeconds", delta = +2.0, severity = "med",
-                reason = "RISK_DOMAIN_HIGH_LATENCY_ALERT_6461=$highLatencyAlerts — give risk clock more headroom",
-            )
-        }
-
-        // Rule R5: PENDING_ENTRY leak → tighten discovery score floor so
-        //          fewer entries queue up while projection heals.
-        if (pendingLeaks > 0) {
-            out += mk(
-                key = "minDiscoveryScore", delta = +4.0, severity = "high",
-                reason = "PENDING_ENTRY_LEAKED_INTO_OPEN_6461=$pendingLeaks — throttle entries to let projection heal",
-            )
-        }
-
-        // Rule R6: 3rd-party API degradation → increase scan interval so
-        //          rate-limiter has time to recover.
-        if (degraded > 5) {
-            out += mk(
-                key = "scanIntervalSecs", delta = +5.0, severity = "med",
-                reason = "API_LAYER_DEGRADED=$degraded — back off scanner cadence",
-            )
-        }
-
-        // Rule R7: Duplicate terminal-sell rejects → tighten trailing so
-        //          exits fire earlier and don't queue duplicates.
-        if (terminalDupRejects > 3) {
-            out += mk(
-                key = "trailingStopBasePct", delta = -1.5, severity = "med",
-                reason = "TERMINAL_SELL_DUPLICATE_*=$terminalDupRejects — pull trail in to reduce duplicate close pressure",
-            )
-        }
 
         // Rule R8: Chronic-bleeder pattern → recommend lifting exit score
         //          threshold so laggard positions get out sooner. Fires

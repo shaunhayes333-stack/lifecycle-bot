@@ -378,7 +378,11 @@ object V3JournalRecorder {
             //   is worse than not doing it at all. The Executor V5.0.6361
             //   full-exit qty preservation is unaffected and remains in
             //   place — that write happens at the correct layer.
-            if (isCanonicalFinalized) {
+            val invalidStrategyReason6568 = listOf("STALE", "RESTORED", "REPLAY", "DECIMAL", "ORPHAN", "PHANTOM", "UNRESOLVED_BASIS", "ADMINISTRATIVE", "SYNTHETIC_CLOSE").any { exitReason.uppercase().contains(it) }
+            val strategyEligible6568 = isCanonicalFinalized && !invalidStrategyReason6568 &&
+                com.lifecyclebot.engine.truth.PaperLearningEligibility6519.decision(null, mint).eligible
+            if (!strategyEligible6568) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("JOURNAL_STRATEGY_LEARNING_QUARANTINED_6568") } catch (_: Throwable) {}
+            if (strategyEligible6568) {
             try { ScoreExpectancyTracker.record(layer, entryScore, pnlPctLearn) } catch (_: Exception) {}
             try { HoldDurationTracker.record(layer, holdMinutes, pnlPctLearn) } catch (_: Exception) {}
             try { ExitReasonTracker.record(layer, exitReason, pnlPctLearn) } catch (_: Exception) {}
@@ -409,21 +413,8 @@ object V3JournalRecorder {
                     lane = layer, pnlPct = pnlPctLearn, peakPct = peakGainPct, exitReason = exitReason
                 )
             } catch (_: Throwable) {}
-            // V5.9.1333 — Tactic switcher observes per-(lane, scoreBand) outcome.
-            // When a bucket bleeds past threshold, rotates its entry tactic
-            // (MOMENTUM → PULLBACK → REACCUMULATION → BREAKOUT). Never disables.
-            try {
-                val band = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(entryScore)
-                com.lifecyclebot.engine.learning.TacticSwitcher.onTradeClosed(layer, band, pnlPctLearn)
-            } catch (_: Exception) {}
-            // V5.9.1355 P0.6 — feed the global damage-control window + per-lane
-            // cold-streak damper. recordClose is the MEME close fanout so these
-            // windows stay meme-domain clean.
-            try {
-                val isWinC = pnlPctLearn > 0.5; val isLossC = pnlPctLearn < -0.5
-                com.lifecyclebot.engine.runtime.ColdStreakDamper.noteOutcome(layer, isPaper, isWinC, isLossC)
-                com.lifecyclebot.engine.runtime.DamageControlGate.noteOutcome(pnlPctLearn)
-            } catch (_: Exception) {}
+            // V5.0.6568 — TacticSwitcher, ColdStreak and damage/causal cohorts are
+            // trained only by the eligible CanonicalFinalizedTradeBus consumer below.
             // V5.9.1460 — CLOSE THE LEARNING LOOP. Before this, the two levers that
             // actually decide how much capital a lane gets (LanePolicy policy-State,
             // read by FdgRouteVerdict at entry; and RetrainingDecay executionWeight)

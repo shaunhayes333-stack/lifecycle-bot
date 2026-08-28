@@ -32,6 +32,12 @@ object CanonicalPerformanceFilter6395 {
         MISSING_PARSED_RAW_DELTAS,
         INCONSISTENT_COST_BASIS,
         UNVERIFIED_WALLET_QUANTITY,
+        STALE_OR_RESTORED_INVALID_MARK,
+        REPLAY_UNIT_MISMATCH,
+        ORPHAN_SELL,
+        PHANTOM_CATASTROPHIC_MARK,
+        UNRESOLVED_ENTRY_BASIS,
+        SYNTHETIC_ADMINISTRATIVE_CLOSE,
     }
 
     private val quarantined = ConcurrentHashMap<String, MutableSet<QuarantineReason>>()

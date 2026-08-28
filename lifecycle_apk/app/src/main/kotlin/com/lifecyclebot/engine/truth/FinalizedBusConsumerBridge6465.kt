@@ -66,6 +66,7 @@ object FinalizedBusConsumerBridge6465 {
             "EVEstimator"         -> deliverToEvEstimator(env)
             "AatePolicyReward"    -> deliverToAatePolicyReward(env)
             "StrategyHypothesisEngine" -> deliverToStrategyHypothesis(env)
+            "MemeCausalLearning6568" -> deliverToMemeCausalLearning6568(env)
             "Dashboard"           -> deliverToDashboard(env)
             else -> false
         }
@@ -130,6 +131,16 @@ object FinalizedBusConsumerBridge6465 {
     private fun deliverToStrategyHypothesis(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(env.mint, env.realizedReturnPct)
         true
+    } catch (_: Throwable) { false }
+
+    private fun deliverToMemeCausalLearning6568(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
+        val memeLane = env.lane.uppercase() in setOf("MEME","STANDARD","SHITCOIN","EXPRESS","MOONSHOT","BLUECHIP","BLUE_CHIP","QUALITY","MANIPULATED","CASHGEN","CYCLIC","DIP_HUNTER","TREASURY","PROJECT_SNIPER")
+        if (memeLane) {
+            val win = env.realizedReturnPct > 0.5; val loss = env.realizedReturnPct < -0.5
+            com.lifecyclebot.engine.runtime.ColdStreakDamper.noteOutcome(env.lane, env.mode.equals("paper", true), win, loss)
+            com.lifecyclebot.engine.runtime.DamageControlGate.noteOutcome(env.realizedReturnPct)
+            MemeCausalLearning6568.record(env)
+        } else true
     } catch (_: Throwable) { false }
 
     private fun deliverToDashboard(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {

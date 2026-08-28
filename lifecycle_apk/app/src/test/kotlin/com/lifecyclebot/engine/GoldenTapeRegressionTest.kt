@@ -8932,4 +8932,22 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("authoritativePolicyPositive6568") && bot.contains("NEGATIVE_CONSENSUS_NORMAL_BUY_SUPPRESSED_6568") && bot.contains("liqOk && authoritativePolicyPositive6568"))
     }
 
+
+    @Test
+    fun V5_0_6568_completion_causal_learning_integrity_and_shaping() {
+        val snapshot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/EntryStrategySnapshot6450.kt").readText()
+        val advisor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/AutoPipelineAdvisor6462.kt").readText()
+        val eligibility = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PaperLearningEligibility6519.kt").readText()
+        val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt").readText()
+        val journal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/V3JournalRecorder.kt").readText()
+        val sizer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt").readText()
+        assertTrue("6568 typed immutable entry policy evidence", snapshot.contains("entryPolicySnapshotId") && snapshot.contains("v3Components") && snapshot.contains("brainConsensusVerdict") && snapshot.contains("policyProbability") && snapshot.contains("specialistContributions") && snapshot.contains("sizingMultipliers") && snapshot.contains("authorizationReason"))
+        assertTrue("6568 every-25 close causal report", snapshot.contains("rows.size % 25 == 0") && snapshot.contains("MEME_WINNER_LOSER_CAUSAL_REPORT_6568"))
+        assertTrue("6568 persisted bounded causal learner", snapshot.contains("meme_causal_learning_6568") && snapshot.contains("while (rows.size > 100)") && snapshot.contains("ensureRestored"))
+        assertTrue("6568 integrity diagnostics cannot mutate strategy", advisor.contains("ADVISOR_INTEGRITY_DIAGNOSTIC_ONLY_6568") && !advisor.contains("ADVISOR_R2_REPLAY_COOLDOWN_EXTEND_6507") && !advisor.contains("PENDING_ENTRY_LEAKED_INTO_OPEN_6461=$" + "pendingLeaks — throttle entries"))
+        assertTrue("6568 invalid terminals forensic only", eligibility.contains("FORENSIC_ONLY_$" + "invalid") && journal.contains("JOURNAL_STRATEGY_LEARNING_QUARANTINED_6568"))
+        assertTrue("6568 one canonical causal consumer", bridge.contains("deliverToMemeCausalLearning6568") && bridge.contains("DamageControlGate.noteOutcome") && !journal.contains("TacticSwitcher.onTradeClosed(layer, band, pnlPctLearn)"))
+        assertTrue("6568 WR/PF shapes not disables", snapshot.contains("if (wr>=0.15 && pf>=0.5)") && snapshot.contains("0.70 else 0.20") && sizer.contains("MEME_CAUSAL_PERFORMANCE_SHAPED_6568"))
+    }
+
 }

@@ -11758,6 +11758,8 @@ class Executor(
         ).filter { it.isNotBlank() }.joinToString(";")
     }
 
+    private fun policyField6568(snapshot: String, key: String): String = snapshot.split(';').firstOrNull { it.startsWith("$key=") }?.substringAfter('=') ?: ""
+
     private fun hydrateMintEntryMarketSnapshotFromCache(ts: TokenState): Boolean {
         val ctx = try { com.lifecyclebot.AATEApp.appContextOrNull() } catch (_: Throwable) { null } ?: return false
         val cached = try { TokenMetaCache.get(ctx).lookup(ts.mint) } catch (_: Throwable) { null } ?: return false
@@ -12972,6 +12974,23 @@ class Executor(
                     entryTimestampMs = System.currentTimeMillis(),
                     entryThresholdSnapshot = paperPolicySnapshot,
                     entryMarketRegime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" },
+                    entryPolicySnapshotId = "$pid6450:6568", entryTacticVersion = "6568",
+                    v3Components = "score=${ts.lastV3Score ?: score.toInt()};confidence=${ts.lastV3Confidence ?: 0};phase=${ts.phase}",
+                    brainConsensusVerdict = policyField6568(paperPolicySnapshot, "brainConsensus"),
+                    brainConsensusConfidence = if (ts.lastConsensusObjections.isEmpty()) 1.0 else (1.0 / (1.0 + ts.lastConsensusObjections.size)),
+                    brainConsensusObjections = ts.lastConsensusObjections.joinToString("+").take(240),
+                    policyAuthority = policyField6568(paperPolicySnapshot, "policyAuthority"),
+                    policyProbability = policyField6568(paperPolicySnapshot, "policyPWin").toDoubleOrNull() ?: 0.5,
+                    metaPolicyContext = "phase=${ts.phase};mode=$finalMode;ema=${ts.meta.emafanAlignment}",
+                    specialistContributions = "lanes=${ts.laneAffinity.joinToString("+")};tools=${ts.toolAffinity.joinToString("+")}",
+                    entryLiquidityUsd = ts.lastLiquidityUsd, entryVolumeVelocity = ts.meta.volScore,
+                    entryBuyPressurePct = ts.lastBuyPressurePct, entrySellPressurePct = ts.lastSellPressurePct,
+                    entryHolderConcentrationPct = ts.topHolderPct ?: ts.safety.topHolderPct,
+                    entryRugEvidence = "rug=${ts.safety.rugcheckStatus};hard=${ts.safety.hardBlockReasons.joinToString("+").take(120)}",
+                    entryTokenAgeMs = (System.currentTimeMillis() - ts.addedToWatchlistAt).coerceAtLeast(0L), entryPriceUsd = effectivePrice,
+                    forwardPWin = policyField6568(paperPolicySnapshot, "policyPWin").toDoubleOrNull() ?: 0.5,
+                    sizingMultipliers = paperPolicySnapshot.substringAfter("sizeMult=", "").take(240),
+                    authorizationReason = policyField6568(paperPolicySnapshot, "reasons"),
                 )
             )
             // V5.0.6455 §SELL_DOOR_MIGRATION — seed PositionStateLedger6454
@@ -17509,6 +17528,23 @@ class Executor(
                             entryMarketCapUsd = ts.position.entryMcap, entryTimestampMs = ts.position.entryTime,
                             entryThresholdSnapshot = ts.position.entryPolicySnapshot,
                             entryMarketRegime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" },
+                            entryPolicySnapshotId = "$pidLive6486:6568", entryTacticVersion = "6568",
+                            v3Components = "score=${ts.lastV3Score ?: ts.position.entryScore.toInt()};confidence=${ts.lastV3Confidence ?: 0};phase=${ts.phase}",
+                            brainConsensusVerdict = policyField6568(ts.position.entryPolicySnapshot, "brainConsensus"),
+                            brainConsensusConfidence = if (ts.lastConsensusObjections.isEmpty()) 1.0 else (1.0 / (1.0 + ts.lastConsensusObjections.size)),
+                            brainConsensusObjections = ts.lastConsensusObjections.joinToString("+").take(240),
+                            policyAuthority = policyField6568(ts.position.entryPolicySnapshot, "policyAuthority"),
+                            policyProbability = policyField6568(ts.position.entryPolicySnapshot, "policyPWin").toDoubleOrNull() ?: 0.5,
+                            metaPolicyContext = "phase=${ts.phase};mode=$liveEntryLane6568;ema=${ts.meta.emafanAlignment}",
+                            specialistContributions = "lanes=${ts.laneAffinity.joinToString("+")};tools=${ts.toolAffinity.joinToString("+")}",
+                            entryLiquidityUsd = ts.position.entryLiquidityUsd, entryVolumeVelocity = ts.meta.volScore,
+                            entryBuyPressurePct = ts.lastBuyPressurePct, entrySellPressurePct = ts.lastSellPressurePct,
+                            entryHolderConcentrationPct = ts.topHolderPct ?: ts.safety.topHolderPct,
+                            entryRugEvidence = "rug=${ts.safety.rugcheckStatus};hard=${ts.safety.hardBlockReasons.joinToString("+").take(120)}",
+                            entryTokenAgeMs = (ts.position.entryTime - ts.addedToWatchlistAt).coerceAtLeast(0L), entryPriceUsd = ts.position.entryPrice,
+                            forwardPWin = policyField6568(ts.position.entryPolicySnapshot, "policyPWin").toDoubleOrNull() ?: 0.5,
+                            sizingMultipliers = ts.position.entryPolicySnapshot.substringAfter("sizeMult=", "").take(240),
+                            authorizationReason = policyField6568(ts.position.entryPolicySnapshot, "reasons"),
                         )
                     )
                     try { PipelineHealthCollector.labelInc("LIVE_ENTRY_POLICY_SNAPSHOT_CANONICAL_6568") } catch (_: Throwable) {}
