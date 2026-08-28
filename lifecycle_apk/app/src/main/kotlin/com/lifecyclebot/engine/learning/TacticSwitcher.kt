@@ -270,17 +270,20 @@ object TacticSwitcher {
         if (!pnlVerdict6495.ok) return
         val current = currentTactic(lane, scoreBand).name
         val entered = entryTactic.trim().uppercase()
-        if (entered.isBlank() || entered == current) {
+        val elected = Tactic.values().firstOrNull { it.name == entered }
+        if (elected == null) {
+            try { PipelineHealthCollector.labelInc("TACTIC_ENTRY_ATTRIBUTION_INVALID_6568") } catch (_: Throwable) {}
             onTradeClosed(lane, scoreBand, pnlPct)
             return
         }
-        val histKey = "${key(lane, scoreBand)}|${entered.take(24)}"
+        val histKey = "${key(lane, scoreBand)}|${elected.name}"
         val row = historicalRow6567(histKey)
         row.trades.incrementAndGet()
         if (pnlPct > 0.0) row.wins.incrementAndGet()
         row.pnlBps.addAndGet((pnlPct * 100).toLong())
         persistHistorical6567(histKey, row)
-        try { PipelineHealthCollector.labelInc("TACTIC_HISTORICAL_OUTCOME_ATTRIBUTED_6486") } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("TACTIC_HISTORICAL_OUTCOME_ATTRIBUTED_6568") } catch (_: Throwable) {}
+        if (elected.name == current) onTradeClosed(lane, scoreBand, pnlPct)
     }
 
     fun historicalOutcomeCount6486(): Int = historicalTacticOutcomes6486.values.sumOf { it.trades.get() }

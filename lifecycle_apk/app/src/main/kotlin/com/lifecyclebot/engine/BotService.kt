@@ -10590,7 +10590,17 @@ class BotService : Service() {
                 } catch (_: Throwable) {}
                 return laneBase.copy(signal = "WAIT", finalSignal = "WAIT", shouldTrade = false, blockReason = "DEFENSIVE_WAIT_SHADOW_ONLY_6487")
             }
-            val goodLaneVolume6020 = isProvenLane4591 && !zeroSignal && liqOk &&
+            val authoritativePolicyPositive6568 = if (agiAuthority6020 != com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE) true else try {
+                val policySignals6568 = com.lifecyclebot.engine.UnifiedPolicyHead.Signals(
+                    mlEntryConf = (laneBase.entryScore / 100.0).coerceIn(0.0, 1.0), symGreenLight = 0.5, evRatio = 0.5,
+                    metaConviction = 0.5,
+                    fwdPWin = com.lifecyclebot.engine.LiveProbabilityEngine.forecast(laneUpperForFloor4591, laneBase.entryScore.toInt().coerceIn(0, 100), cleanQuality.take(1), edgeRegime4529).pWin,
+                    candConf = (laneBase.aiConfidence / 100.0).coerceIn(0.0, 1.0),
+                )
+                com.lifecyclebot.engine.UnifiedPolicyHead.predictWinProb(laneUpperForFloor4591, policySignals6568) >= 0.50 && edgeToken4529?.lastConsensusObjections.orEmpty().isEmpty()
+            } catch (_: Throwable) { false }
+            if (!authoritativePolicyPositive6568) try { PipelineHealthCollector.labelInc("NEGATIVE_CONSENSUS_NORMAL_BUY_SUPPRESSED_6568") } catch (_: Throwable) {}
+            val goodLaneVolume6020 = isProvenLane4591 && !zeroSignal && liqOk && authoritativePolicyPositive6568 &&
                 (laneBase.entryScore >= entryScoreTightenedFloor4591 || laneBase.aiConfidence >= entryScoreTightenedFloor4591)
             if (goodLaneVolume6020) {
                 try {

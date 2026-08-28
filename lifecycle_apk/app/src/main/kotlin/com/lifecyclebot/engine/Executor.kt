@@ -11723,11 +11723,26 @@ class Executor(
         val source = ts.lastPriceSource.ifBlank { scannerSource }
         val mult = if (plannedSol > 0.0) (finalSol / plannedSol).coerceIn(0.0, 50.0) else 1.0
         val reasonText = reasons.filter { it.isNotBlank() }.joinToString("|").take(240)
+        val electedTactic6568 = try { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(safeLane, score.toInt()).name } catch (_: Throwable) { "UNKNOWN" }
+        val brainVerdict6568 = if (ts.lastConsensusObjections.isEmpty()) "ALLOW" else "SOFT_BLOCK"
+        val policySignals6568 = UnifiedPolicyHead.Signals(
+            mlEntryConf = (score / 100.0).coerceIn(0.0, 1.0), symGreenLight = 0.5, evRatio = 0.5,
+            metaConviction = 0.5,
+            fwdPWin = try { LiveProbabilityEngine.forecast(safeLane, score.toInt().coerceIn(0, 100), "C", try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" }).pWin } catch (_: Throwable) { 0.5 },
+            candConf = (score / 100.0).coerceIn(0.0, 1.0),
+        )
+        val policyPWin6568 = try { UnifiedPolicyHead.predictWinProb(safeLane, policySignals6568) } catch (_: Throwable) { 0.5 }
         return listOf(
             "v=4193",
             "mode=$mode",
             "lane=$safeLane",
             "style=$safeStyle",
+            "entryTactic=$electedTactic6568",
+            "tacticVersion=6568",
+            "brainConsensus=$brainVerdict6568",
+            "brainObjections=${ts.lastConsensusObjections.joinToString("+").take(120)}",
+            "policyAuthority=${try { UnifiedPolicyHead.currentAuthority(safeLane).name } catch (_: Throwable) { "BOOTSTRAP" }}",
+            "policyPWin=${policyPWin6568.fmt(3)}",
             "scanner=$scannerSource",
             "source=$source",
             "score=${score.fmt(1)}",
@@ -12947,7 +12962,7 @@ class Executor(
                     mint = tradeId.mint,
                     entryLane = entryLane6450,
                     entryStrategyPid = "",
-                    entryTactic = layerTag,
+                    entryTactic = try { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(entryLane6450, score.toInt()).name } catch (_: Throwable) { "UNKNOWN" },
                     entryRiskProfile = "",
                     entryExitProfile = "",
                     entrySource = identity?.source.orEmpty(),
@@ -12955,7 +12970,7 @@ class Executor(
                     entryLiquiditySol = 0.0,
                     entryMarketCapUsd = ts.lastMcap,
                     entryTimestampMs = System.currentTimeMillis(),
-                    entryThresholdSnapshot = "",
+                    entryThresholdSnapshot = paperPolicySnapshot,
                     entryMarketRegime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" },
                 )
             )
@@ -17484,6 +17499,19 @@ class Executor(
                         try { ForensicLogger.lifecycle("LIVE_BUY_CANONICAL_COMMIT_REJECTED_6486", "mint=${verifyMint.take(10)} pid=${pidLive6486.take(18)} sig=${verifySig.take(16)}") } catch (_: Throwable) {}
                         return false
                     }
+                    val liveEntryLane6568 = ts.position.tradingMode.uppercase().ifBlank { "STANDARD" }
+                    com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.setEntry(
+                        com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
+                            positionId = pidLive6486, mint = verifyMint, entryLane = liveEntryLane6568,
+                            entryStrategyPid = "", entryTactic = try { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(liveEntryLane6568, ts.position.entryScore.toInt()).name } catch (_: Throwable) { "UNKNOWN" },
+                            entryRiskProfile = "", entryExitProfile = "", entrySource = ts.source,
+                            entryScore = ts.position.entryScore.toInt(), entryLiquiditySol = 0.0,
+                            entryMarketCapUsd = ts.position.entryMcap, entryTimestampMs = ts.position.entryTime,
+                            entryThresholdSnapshot = ts.position.entryPolicySnapshot,
+                            entryMarketRegime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" },
+                        )
+                    )
+                    try { PipelineHealthCollector.labelInc("LIVE_ENTRY_POLICY_SNAPSHOT_CANONICAL_6568") } catch (_: Throwable) {}
                     com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.onBuyFilled(pidLive6486, verifyMint, proof.amountRaw)
                     com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(
                         mode = "live", positionId = pidLive6486, mint = verifyMint, symbol = verifySymbol,

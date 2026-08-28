@@ -8920,4 +8920,16 @@ class GoldenTapeRegressionTest {
         assertFalse(main.contains("llOpenPositions.addView(View(this).apply"))
     }
 
+    @Test
+    fun V5_0_6568_meme_entry_policy_and_tactic_rewards_are_causal() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val tactic = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(exec.contains("LIVE_ENTRY_POLICY_SNAPSHOT_CANONICAL_6568") && exec.contains("entryThresholdSnapshot = ts.position.entryPolicySnapshot"))
+        assertTrue(exec.contains("entryTactic=" + "$" + "electedTactic6568") && exec.contains("brainConsensus=" + "$" + "brainVerdict6568") && exec.contains("policyPWin=" + "$" + "{policyPWin6568.fmt(3)}"))
+        assertTrue(tactic.contains("TACTIC_HISTORICAL_OUTCOME_ATTRIBUTED_6568") && tactic.contains("if (elected.name == current) onTradeClosed"))
+        assertFalse(tactic.contains("entered.isBlank() || entered == current"))
+        assertTrue(bot.contains("authoritativePolicyPositive6568") && bot.contains("NEGATIVE_CONSENSUS_NORMAL_BUY_SUPPRESSED_6568") && bot.contains("liqOk && authoritativePolicyPositive6568"))
+    }
+
 }
