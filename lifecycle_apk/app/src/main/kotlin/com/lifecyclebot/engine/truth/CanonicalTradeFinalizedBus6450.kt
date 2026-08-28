@@ -144,6 +144,8 @@ object CanonicalTradeFinalizedBus6450 {
         try {
             CanonicalFinalizedTradeBus6464.ensureCanonicalConsumers6485()
             val learningEligibility6519 = PaperLearningEligibility6519.decision(event.positionId, event.mint)
+            val entrySnap6567 = EntryStrategySnapshot6450.snapshot(event.positionId)
+            val entryScore6567 = entrySnap6567?.entryScore ?: 0
             val env = CanonicalFinalizedTradeBus6464.Envelope(
                 tradeId = event.positionId,
                 atMs = event.settledAtMs,
@@ -155,8 +157,11 @@ object CanonicalTradeFinalizedBus6450 {
                 mode = event.mode,
                 proofState = "${event.dataQuality}:${event.priceIntegrity}",
                 holdingTimeMs = event.holdingTimeMs.coerceAtLeast(0L),
-                entryScore = EntryStrategySnapshot6450.snapshot(event.positionId)?.entryScore ?: 0,
+                entryScore = entryScore6567,
                 entryTactic = event.entryTactic,
+                entrySource = entrySnap6567?.entrySource ?: "",
+                marketRegime = entrySnap6567?.entryMarketRegime ?: "",
+                scoreBand = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(entryScore6567),
                 terminal = true,
                 learningEligible = learningEligibility6519.eligible,
                 learningEligibilityReason = learningEligibility6519.reason,

@@ -798,9 +798,12 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                     val trustLevel = try {
                         com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel("TokenizedStockAI")
                     } catch (_: Exception) { null }
-                    if (!wideOpen && trustLevel == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED) {
+                    if (!isPaperMode.get() && (!wideOpen && trustLevel == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED)) {
                         ErrorLogger.warn(TAG, "📈 ${market.symbol}: TRUST_GATE — TokenizedStockAI DISTRUSTED, skipping entry")
                         continue
+                    }
+                    if (isPaperMode.get() && trustLevel == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED) {
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FUNNEL_6567|FAMILY=STOCKS|STAGE=PAPER_TRUST_ADVISORY") } catch (_: Throwable) {}
                     }
                     
                     // V5.7.6: Use FLUID thresholds from FluidLearningAI
@@ -812,10 +815,11 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                     // if fluid conf gate blocks — the 41-layer AI stack is the
                     // authoritative signal quality gauge, not a 2-point conf drift.
                     val fluidPass = signal.score >= scoreThresh && signal.confidence >= confThresh
-                    val prefilterOk = signal.score >= 45  // minimal sanity floor
+                    val prefilterOk = isPaperMode.get() || signal.score >= 45  // minimal sanity floor
 
                     if (fluidPass) {
                         signals.add(signal)
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FUNNEL_6567|FAMILY=STOCKS|STAGE=SIGNAL_SELECTED") } catch (_: Throwable) {}
                     } else if (prefilterOk) {
                         // V3 decides.
                         val v3Approves = try {
@@ -837,7 +841,10 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                             } else false
                         } catch (_: Exception) { false }
 
-                        if (v3Approves) signals.add(signal)
+                        if (v3Approves) {
+                            signals.add(signal)
+                            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FUNNEL_6567|FAMILY=STOCKS|STAGE=SIGNAL_SELECTED") } catch (_: Throwable) {}
+                        }
                         else ErrorLogger.warn(TAG, "📈 ${market.symbol}: BELOW FLUID + V3 VETO (score=${signal.score}<$scoreThresh or conf=${signal.confidence}<$confThresh)")
                     } else {
                         ErrorLogger.warn(TAG, "📈 ${market.symbol}: below prefilter (score=${signal.score}<45)")
@@ -1261,7 +1268,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 evidence = mapOf(
                     "walletSol" to balance.toString(),
                     "laneRiskCapSol" to (balance * 0.30).toString(),
-                    "laneMinExecutableSol" to "0.05",
+                    "laneMinExecutableSol" to "0.001",
                 ),
                 requestedSizeSol = hiveSizeSol,
                 price = signal.price,

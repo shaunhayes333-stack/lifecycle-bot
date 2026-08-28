@@ -1169,18 +1169,7 @@ object MoonshotTraderAI {
 
         // V5.9.434 — journal every V3 Moonshot close so it shows in Journal
         // V5.9.436 — recorder also feeds outcome-attribution trackers.
-        try {
-            com.lifecyclebot.engine.V3JournalRecorder.recordClose(
-                symbol = pos.symbol, mint = mint,
-                entryPrice = pos.entryPrice, exitPrice = exitPrice,
-                sizeSol = pos.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
-                isPaper = pos.isPaperMode, layer = "MOONSHOT",
-                exitReason = exitReason.name,
-                entryScore = pos.entryScore.toInt(),
-                holdMinutes = holdMinutesLong,
-                peakGainPct = pos.peakPnlPct,   // V5.9.1378 (#9) — feed MFE give-back telemetry
-            )
-        } catch (_: Exception) {}
+                // V5.0.6567 — canonical terminal bridge owns the single SELL journal projection.
         
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
         try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, pos.isPaperMode, assetClass = "MOONSHOT") } catch (_: Exception) {}
@@ -1198,31 +1187,7 @@ object MoonshotTraderAI {
         // bypassing it = invisible outcomes for AGI calibration. This emits a
         // lite-rich outcome (featuresIncomplete=true) tagged TradeSource.MOONSHOT.
         val exitTs = System.currentTimeMillis()
-        com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(
-            tradeIdSeed   = "${mint}_$exitTs",
-            mint          = mint,
-            symbol        = pos.symbol,
-            source        = com.lifecyclebot.engine.TradeSource.MOONSHOT,
-            isPaper       = pos.isPaperMode,
-            entryTimeMs   = pos.entryTime,
-            exitTimeMs    = exitTs,
-            entryPrice    = pos.entryPrice,
-            exitPrice     = exitPrice,
-            entrySol      = pos.entrySol,
-            exitSol       = pos.entrySol + pnlSol,
-            realizedPnlSol = pnlSol,
-            realizedPnlPct = pnlPct,
-            maxGainPct    = if (pos.entryPrice > 0 && pos.highWaterMark > pos.entryPrice)
-                                ((pos.highWaterMark - pos.entryPrice) / pos.entryPrice) * 100.0 else null,
-            closeReason   = "MOONSHOT_${exitReason.name}",
-            assetClass    = com.lifecyclebot.engine.AssetClass.MEME,
-            entryScore    = pos.entryScore,
-            // V5.9.896 — promote lite→rich for BehaviorLearning.
-            // V5.9.897 — add real liq/mcap buckets.
-            entryPattern  = "MOONSHOT_ENTRY",
-            liqBucket     = com.lifecyclebot.engine.CanonicalPublishHelper.liqBucketFromUsd(pos.liquidityUsd),
-            mcapBucket    = com.lifecyclebot.engine.CanonicalPublishHelper.mcapBucketFromUsd(pos.marketCapUsd),
-        )
+        // V5.0.6567 — canonical finalized bus is published by TerminalBridge/Executor only.
 
         // V5.9.401 — Sentience hook #4: cross-engine telegraph.
         try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, isWin) } catch (_: Exception) {}

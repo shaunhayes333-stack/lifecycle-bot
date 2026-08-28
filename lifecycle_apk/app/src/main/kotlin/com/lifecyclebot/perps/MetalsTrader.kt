@@ -342,17 +342,21 @@ object MetalsTrader {
                 val signal = analyzeMarket(market, data)
                 // V5.9.328: Trust gate — halt new entries when MetalsAI is DISTRUSTED
                 val metalsTrust = try { com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel("MetalsAI") } catch (_: Exception) { null }
-                if (metalsTrust == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED) {
+                if (!isPaperMode.get() && (metalsTrust == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED)) {
                     ErrorLogger.warn(TAG, "🥇 ${market.symbol}: TRUST_GATE — MetalsAI DISTRUSTED, skipping entry")
                     continue
                 }
-                if (signal != null && signal.score >= spotScoreThresh && signal.confidence >= spotConfThresh) {
+                if (isPaperMode.get() && metalsTrust == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FUNNEL_6567|FAMILY=METALS|STAGE=PAPER_TRUST_ADVISORY") } catch (_: Throwable) {}
+                }
+                if (signal != null && (isPaperMode.get() || (signal.score >= spotScoreThresh && signal.confidence >= spotConfThresh))) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FUNNEL_6567|FAMILY=METALS|STAGE=SIGNAL_SELECTED") } catch (_: Throwable) {}
                     // SPOT signal if no spot position
                     if (!spotPositions.values.any { it.market == market }) {
                         spotSignals.add(signal.copy(leverage = 1.0))
                     }
                     // LEVERAGE signal - uses fluid threshold (only if UI toggle allows)
-                    if (preferLeverage.get() && signal.score >= levScoreThresh && !leveragePositions.values.any { it.market == market }) {
+                    if (preferLeverage.get() && (isPaperMode.get() || signal.score >= levScoreThresh) && !leveragePositions.values.any { it.market == market }) {
                         leverageSignals.add(signal.copy(leverage = 5.0))
                     }
                 }

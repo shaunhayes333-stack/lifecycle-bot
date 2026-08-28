@@ -576,18 +576,7 @@ object ShitCoinTraderAI {
         // V5.9.436 — recorder now also feeds Score/HoldDuration/ExitReason
         // expectancy trackers for outcome-based learning.
         // V5.0.6303 — feed peakPnlPct so MFE give-back records for SHITCOIN.
-        try {
-            com.lifecyclebot.engine.V3JournalRecorder.recordClose(
-                symbol = pos.symbol, mint = pos.mint,
-                entryPrice = pos.entryPrice, exitPrice = exitPrice,
-                sizeSol = pos.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
-                isPaper = pos.isPaper, layer = "SHITCOIN",
-                exitReason = exitReason.name,
-                entryScore = pos.entryScore,
-                holdMinutes = holdMinutes,
-                peakGainPct = pos.peakPnlPct,
-            )
-        } catch (_: Exception) {}
+                // V5.0.6567 — canonical terminal bridge owns the single SELL journal projection.
 
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
         try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, pos.isPaper, assetClass = "SHITCOIN") } catch (_: Exception) {}
@@ -603,31 +592,7 @@ object ShitCoinTraderAI {
 
         // V5.9.852 — non-meme close → CanonicalOutcomeBus (Layer Readiness fix).
         val shitcoinExitTs = System.currentTimeMillis()
-        com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(
-            tradeIdSeed   = "${mint}_$shitcoinExitTs",
-            mint          = mint,
-            symbol        = pos.symbol,
-            source        = com.lifecyclebot.engine.TradeSource.SHITCOIN,
-            isPaper       = pos.isPaper,
-            entryTimeMs   = pos.entryTime,
-            exitTimeMs    = shitcoinExitTs,
-            entryPrice    = pos.entryPrice,
-            exitPrice     = exitPrice,
-            entrySol      = pos.entrySol,
-            exitSol       = pos.entrySol + pnlSol,
-            realizedPnlSol = pnlSol,
-            realizedPnlPct = pnlPct,
-            maxGainPct    = if (pos.entryPrice > 0 && pos.highWaterMark > pos.entryPrice)
-                                ((pos.highWaterMark - pos.entryPrice) / pos.entryPrice) * 100.0 else null,
-            closeReason   = "SHITCOIN_${exitReason.name}",
-            assetClass    = com.lifecyclebot.engine.AssetClass.MEME,
-            entryScore    = pos.entryScore.toDouble(),
-            // V5.9.896 — promote lite→rich for BehaviorLearning.
-            // V5.9.897 — add real liq/mcap buckets.
-            entryPattern  = "SHITCOIN_ENTRY",
-            liqBucket     = com.lifecyclebot.engine.CanonicalPublishHelper.liqBucketFromUsd(pos.liquidityUsd),
-            mcapBucket    = com.lifecyclebot.engine.CanonicalPublishHelper.mcapBucketFromUsd(pos.marketCapUsd),
-        )
+        // V5.0.6567 — canonical finalized bus is published by TerminalBridge/Executor only.
 
         // V5.9.401 — Sentience hook #4: cross-engine telegraph (MEME).
         try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, pnlPct >= 1.0) } catch (_: Exception) {}

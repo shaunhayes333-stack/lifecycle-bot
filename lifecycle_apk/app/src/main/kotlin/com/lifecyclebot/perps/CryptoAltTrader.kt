@@ -719,7 +719,11 @@ object CryptoAltTrader {
                 return@withContext
             }
             try {
-                if (SOL_PERPS_SYMBOLS.contains(tok.symbol)) continue
+                DynamicAltTokenRegistry.markEvaluationStarted6567(tok)
+                if (SOL_PERPS_SYMBOLS.contains(tok.symbol)) {
+                    DynamicAltTokenRegistry.markEvaluationDisposition6567(tok, "OWNED_BY_SOL_PERPS")
+                    continue
+                }
                 // V5.9.147 — lazy price hydration. Jupiter-seeded mints arrive
                 // with price=0 and used to be skipped forever, which is why
                 // DynScan was reporting scanned=0 on a 200-token universe.
@@ -728,13 +732,17 @@ object CryptoAltTrader {
                 var priceNow = tok.price
                 if (priceNow <= 0.0) {
                     priceNow = DynamicAltTokenRegistry.refreshPriceForMintBlocking(tok.canonicalIdentity6544)
-                    if (priceNow <= 0.0) continue
+                    if (priceNow <= 0.0) {
+                        DynamicAltTokenRegistry.markEvaluationDisposition6567(tok, "PRICE_UNAVAILABLE")
+                        continue
+                    }
                 }
                 val price   = priceNow
                 // Re-read the freshly hydrated row so downstream fields are current.
                 val refreshed = DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(tok.canonicalIdentity6544)
                     ?: DynamicAltTokenRegistry.getTokenByMint(tok.mint) ?: tok
                 DynamicAltTokenRegistry.markEvaluation6544(refreshed)
+                val executableSignalCountBefore6567 = dynExecutableSignals.size
                 // V5.0.6554 — specialist AIs must receive registry-owned age;
                 // fresh launches must not be presented as established tokens.
                 val discoveryAgeMinutes6554 = refreshed.discoveryAgeHours6544
@@ -977,26 +985,50 @@ object CryptoAltTrader {
                         }
                     } catch (_: Exception) {}
                 }
+                if (dynExecutableSignals.size == executableSignalCountBefore6567) {
+                    DynamicAltTokenRegistry.markEvaluationDisposition6567(refreshed, "NO_ACTIONABLE_SPECIALIST_SIGNAL")
+                }
 
             } catch (e: CancellationException) { throw e }
-              catch (_: Exception) {}
+              catch (e: Exception) {
+                  DynamicAltTokenRegistry.markEvaluationDisposition6567(tok, "EVALUATION_EXCEPTION_${e.javaClass.simpleName}")
+              }
         }
 
         // V5.9.2: Execute top DynScan signals — previously these were logged but never acted on
         // Now we convert high-confidence DynToken signals into real AltSignal trades
-        if (dynExecutableSignals.isNotEmpty() && positions.size < MAX_POSITIONS) {
+        if (dynExecutableSignals.isNotEmpty()) {
             // V5.9.1442 — Crypto isolated brain thresholds (was FluidLearningAI.getAltsXxx).
             val scoreThresh = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotScoreFloor() } catch (_: Exception) { 60 }
             val confThresh  = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotConfFloor() }  catch (_: Exception) { 55 }
-            val topDyn = dynExecutableSignals
+            val uniqueDynSignals6567 = dynExecutableSignals
+                .groupBy { it.dynAssetKey ?: it.dynMint ?: "${it.market.name}:${it.marketSymbol}" }
+                .values.mapNotNull { rows -> rows.maxByOrNull { it.score * 1000 + it.confidence } }
+            val topDyn = uniqueDynSignals6567
                 .filter { it.score >= scoreThresh && it.confidence >= confThresh }
                 .sortedByDescending { it.score }
-                .take(25) // V5.9.128: raised from 3 → 25 to use full 449-token universe
-            for (sig in topDyn) {
-                if (positions.size >= MAX_POSITIONS) break
+            uniqueDynSignals6567.filterNot { it in topDyn }.forEach { rejected ->
+                val rejectedTok6567 = rejected.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
+                    ?: rejected.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
+                DynamicAltTokenRegistry.markEvaluationDisposition6567(rejectedTok6567, "BELOW_CRYPTO_SCORE_OR_CONFIDENCE")
+            }
+            for ((signalIndex6567, sig) in topDyn.withIndex()) {
+                if (positions.size >= MAX_POSITIONS) {
+                    topDyn.drop(signalIndex6567).forEach { capped ->
+                        val cappedTok6567 = capped.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
+                            ?: capped.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
+                        DynamicAltTokenRegistry.markEvaluationDisposition6567(cappedTok6567, "POSITION_CAP_REACHED")
+                    }
+                    break
+                }
                 try { ForensicLogger.lifecycle("CRYPTO_SIGNAL_SELECTED_6566", "symbol=${sig.marketSymbol} source=DYNAMIC_ALT score=${sig.score} confidence=${sig.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
                 // V5.9.1472 — dedupe by real symbol so DYN coins aren't collapsed.
-                if (hasPositionSymbol(sig.marketSymbol)) continue
+                if (hasPositionSymbol(sig.marketSymbol)) {
+                    val openTok6567 = sig.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
+                        ?: sig.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
+                    DynamicAltTokenRegistry.markEvaluationDisposition6567(openTok6567, "POSITION_ALREADY_OPEN")
+                    continue
+                }
                 // V5.9.3: respect UI toggle for DynScan signals too
                 val dynSpot = !preferLeverage.get()
                 val dynLev  = if (dynSpot) 1.0 else DEFAULT_LEVERAGE
@@ -1005,7 +1037,16 @@ object CryptoAltTrader {
                 // route gates. Rejected candidates may be attempted/evaluated, but
                 // must never emit EXECUTE wording unless an open actually succeeds.
                 ErrorLogger.info(TAG, "🪙⚡ DynScan ATTEMPT: ${sig.marketSymbol} score=${sig.score} conf=${sig.confidence} ${if (dynSpot) "SPOT" else "${dynLev.toInt()}x"}")
-                executeSignal(sig.copy(leverage = dynLev), isSpot = dynSpot)
+                val terminalTok6567 = sig.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
+                    ?: sig.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
+                try {
+                    executeSignal(sig.copy(leverage = dynLev), isSpot = dynSpot)
+                    DynamicAltTokenRegistry.markEvaluationDisposition6567(terminalTok6567, "HANDED_TO_CANONICAL_AUTHORITY")
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    DynamicAltTokenRegistry.markEvaluationDisposition6567(terminalTok6567, "EXECUTION_EXCEPTION_${e.javaClass.simpleName}")
+                }
             }
         }
 

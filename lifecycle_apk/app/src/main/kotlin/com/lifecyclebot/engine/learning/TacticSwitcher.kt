@@ -159,6 +159,22 @@ object TacticSwitcher {
         val pnlBps: AtomicLong = AtomicLong(0L),
     )
     private val historicalTacticOutcomes6486 = ConcurrentHashMap<String, HistoricalTacticOutcome6486>()
+    private fun historicalRow6567(histKey: String): HistoricalTacticOutcome6486 =
+        historicalTacticOutcomes6486.computeIfAbsent(histKey) {
+            val row = HistoricalTacticOutcome6486()
+            try {
+                val raw = LearningPersistence.load("tactic_hist_$histKey")
+                if (raw != null) {
+                    Regex(""""n":(\d+)""").find(raw)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { row.trades.set(it) }
+                    Regex(""""w":(\d+)""").find(raw)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { row.wins.set(it) }
+                    Regex(""""pnl":(-?\d+)""").find(raw)?.groupValues?.getOrNull(1)?.toLongOrNull()?.let { row.pnlBps.set(it) }
+                }
+            } catch (_: Throwable) {}
+            row
+        }
+    private fun persistHistorical6567(histKey: String, row: HistoricalTacticOutcome6486) {
+        try { LearningPersistence.save("tactic_hist_$histKey", "{\"n\":${row.trades.get()},\"w\":${row.wins.get()},\"pnl\":${row.pnlBps.get()}}") } catch (_: Throwable) {}
+    }
     private val mutex = Any()
 
     private fun key(lane: String, scoreBand: String): String =
@@ -259,10 +275,11 @@ object TacticSwitcher {
             return
         }
         val histKey = "${key(lane, scoreBand)}|${entered.take(24)}"
-        val row = historicalTacticOutcomes6486.computeIfAbsent(histKey) { HistoricalTacticOutcome6486() }
+        val row = historicalRow6567(histKey)
         row.trades.incrementAndGet()
         if (pnlPct > 0.0) row.wins.incrementAndGet()
         row.pnlBps.addAndGet((pnlPct * 100).toLong())
+        persistHistorical6567(histKey, row)
         try { PipelineHealthCollector.labelInc("TACTIC_HISTORICAL_OUTCOME_ATTRIBUTED_6486") } catch (_: Throwable) {}
     }
 
@@ -494,6 +511,9 @@ object TacticSwitcher {
         val meanPnlPct: Double,
         val ageMs: Long,
         val lastReason: String,
+        val historicalTradesForCohort: Int,
+        val historicalWinsForCohort: Int,
+        val historicalMeanPnlPct: Double,
     )
 
     fun snapshotAll(): List<Snapshot> {
@@ -501,6 +521,11 @@ object TacticSwitcher {
         return cells.entries.map { (k, c) ->
             val trades = c.tradesSinceRotation.get()
             val pnlMean = if (trades > 0) (c.pnlSumSinceRotation.get().toDouble() / 100.0) / trades else 0.0
+            val historical = Tactic.values().map { entered -> historicalRow6567("$k|${entered.name}") }
+            val histTrades = historical.sumOf { it.trades.get() }
+            val histWins = historical.sumOf { it.wins.get() }
+            val histMean = if (histTrades > 0)
+                historical.sumOf { it.pnlBps.get() }.toDouble() / 100.0 / histTrades else 0.0
             Snapshot(
                 key = k,
                 tactic = Tactic.values()[c.tactic.get()],
@@ -510,6 +535,9 @@ object TacticSwitcher {
                 meanPnlPct = pnlMean,
                 ageMs = now - c.trialStartedAt.get(),
                 lastReason = c.lastRotationReason.get() ?: "",
+                historicalTradesForCohort = histTrades,
+                historicalWinsForCohort = histWins,
+                historicalMeanPnlPct = histMean,
             )
         }.sortedByDescending { it.tradesSinceRotation }
     }

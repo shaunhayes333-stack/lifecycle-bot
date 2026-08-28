@@ -99,7 +99,15 @@ object RootCauseClassifier6471 {
                 try { PipelineHealthCollector.labelCountSnapshot(label) } catch (_: Throwable) { 0L }
             }
             val lifecycleManaged6510 = label in setOf("PAPER_EQUITY_CONSERVATION_VIOLATION_6467", "EVENT_STREAM_REPLAY_DIVERGED_6467")
-            val active6510 = if (lifecycleManaged6510) RootCauseIncidentLifecycle6510.isOpen(label) else count > 0L
+            val currentPaperConservationHealthy6567 = if (label == "PAPER_EQUITY_CONSERVATION_VIOLATION_6467") {
+                PaperEquityCalculator6467.lastSnapshot()?.let { kotlin.math.abs(it.conservationDelta) <= 0.02 } == true
+            } else false
+            if (currentPaperConservationHealthy6567) {
+                RootCauseIncidentLifecycle6510.resolve(label, "classifier_current_canonical_delta_healthy_6567")
+            }
+            val active6510 = if (lifecycleManaged6510)
+                RootCauseIncidentLifecycle6510.isOpen(label) && !currentPaperConservationHealthy6567
+            else count > 0L
             if (active6510) {
                 val c = Classification(tier = tier, label = label, supportingCount = count)
                 lastResult.set(c)

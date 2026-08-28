@@ -103,6 +103,29 @@ object CanonicalEntryAuthority6540 {
         Venue.CRYPTO to AtomicLong(),
     )
 
+    data class AssetClassStats6567(
+        val assetClass: AssetClass, val candidates: Long, val submits: Long,
+        val allows: Long, val blocks: Long, val sized: Long, val intents: Long,
+        val dispatches: Long, val opens: Long,
+    )
+    private val classStages6567 = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+    private fun classKey6567(assetClass: AssetClass, stage: String) = "${assetClass.tag}|$stage"
+    private fun bumpClass6567(assetClass: AssetClass, stage: String) {
+        classStages6567.computeIfAbsent(classKey6567(assetClass, stage)) { AtomicLong(0L) }.incrementAndGet()
+    }
+    fun assetClassStats6567(): List<AssetClassStats6567> = AssetClass.values()
+        .filter { it != AssetClass.UNKNOWN }
+        .map { c ->
+            fun n(stage: String) = classStages6567[classKey6567(c, stage)]?.get() ?: 0L
+            AssetClassStats6567(c, n("CANDIDATE"), n("SUBMIT"), n("ALLOW"), n("BLOCK"),
+                n("SIZED"), n("INTENT"), n("DISPATCH"), n("OPEN"))
+        }
+    fun assetClassFunnelReport6567(): String = assetClassStats6567().joinToString("\n") { r ->
+        "  ${r.assetClass.tag}: candidate=${r.candidates} submit=${r.submits} fdgAllow=${r.allows} " +
+            "fdgBlock=${r.blocks} sized=${r.sized} intent=${r.intents} dispatch=${r.dispatches} open=${r.opens}"
+    }
+
+
     /**
      * Choose the venue for a candidate given direction + spot capability.
      * Operator spec §P0-3 routing table.
@@ -215,7 +238,9 @@ object CanonicalEntryAuthority6540 {
     fun candidatesWithoutAuthSubmit(): List<VenueStats> =
         snapshotAll().filter { it.candidates > 0L && it.authSubmit == 0L }
 
+
     internal fun markCandidateFor6551(assetClass: AssetClass, symbol: String, note: String) {
+        bumpClass6567(assetClass, "CANDIDATE")
         val venue = when (assetClass) {
             AssetClass.PERPS -> Venue.MARKETS_PERPS
             AssetClass.CRYPTO_ALT, AssetClass.SOLANA_TOKEN -> Venue.CRYPTO
@@ -223,16 +248,24 @@ object CanonicalEntryAuthority6540 {
         }
         markCandidate(venue, symbol, "class=${assetClass.tag} $note")
     }
+
     internal fun markSubmitFor6551(assetClass: AssetClass, symbol: String, note: String) {
+        bumpClass6567(assetClass, "SUBMIT")
         val venue = if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT
         markAuthSubmit(venue, symbol, "class=${assetClass.tag} $note")
     }
-    internal fun markSizedFor6551(assetClass: AssetClass, symbol: String) { markSized(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol) }
-    internal fun markAuthAllowFor6551(assetClass: AssetClass, symbol: String) { markAuthAllow(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol) }
-    internal fun markAuthBlockFor6551(assetClass: AssetClass, symbol: String, reason: String) { markAuthBlock(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol, reason) }
-    internal fun markIntentCreatedFor6551(assetClass: AssetClass, symbol: String, id: String) { markIntentCreated(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol, id) }
-    internal fun markAdapterDispatchFor6551(assetClass: AssetClass, symbol: String) { markAdapterDispatch(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol) }
-    internal fun markOpenConfirmedFor6551(assetClass: AssetClass, symbol: String, id: String) { markOpenConfirmed(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol, id) }
+
+    internal fun markSizedFor6551(assetClass: AssetClass, symbol: String) { bumpClass6567(assetClass, "SIZED"); markSized(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol) }
+
+    internal fun markAuthAllowFor6551(assetClass: AssetClass, symbol: String) { bumpClass6567(assetClass, "ALLOW"); markAuthAllow(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol) }
+
+    internal fun markAuthBlockFor6551(assetClass: AssetClass, symbol: String, reason: String) { bumpClass6567(assetClass, "BLOCK"); markAuthBlock(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol, reason) }
+
+    internal fun markIntentCreatedFor6551(assetClass: AssetClass, symbol: String, id: String) { bumpClass6567(assetClass, "INTENT"); markIntentCreated(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol, id) }
+
+    internal fun markAdapterDispatchFor6551(assetClass: AssetClass, symbol: String) { bumpClass6567(assetClass, "DISPATCH"); markAdapterDispatch(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol) }
+
+    internal fun markOpenConfirmedFor6551(assetClass: AssetClass, symbol: String, id: String) { bumpClass6567(assetClass, "OPEN"); markOpenConfirmed(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol, id) }
 
     private fun bump(label: String) {
         try { PipelineHealthCollector.labelInc(label + "_6540") } catch (_: Throwable) {}

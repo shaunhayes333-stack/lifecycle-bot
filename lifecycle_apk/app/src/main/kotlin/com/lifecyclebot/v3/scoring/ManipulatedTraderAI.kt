@@ -602,18 +602,7 @@ object ManipulatedTraderAI {
         // Trade Journal reflects ALL trades across the universe.
         // V5.9.436 — recorder also feeds outcome-attribution trackers.
         // V5.0.6303 — feed peakPnlPct so MFE give-back records for MANIPULATED.
-        try {
-            com.lifecyclebot.engine.V3JournalRecorder.recordClose(
-                symbol = pos.symbol, mint = pos.mint,
-                entryPrice = pos.entryPrice, exitPrice = exitPrice,
-                sizeSol = pos.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
-                isPaper = pos.isPaper, layer = "MANIPULATED",
-                exitReason = reason.name,
-                entryScore = pos.manipScore,
-                holdMinutes = holdMinutesLong,
-                peakGainPct = pos.peakPnlPct,
-            )
-        } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("ManipulatedTraderAI", "trade_record skip: ${e.message}") }
+                // V5.0.6567 — canonical terminal bridge owns the single SELL journal projection.
         val _isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 win-threshold
         try { com.lifecyclebot.engine.SmartSizer.recordTrade(_isWin, isPaperMode = pos.isPaper) } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("ManipulatedTraderAI", "smartsizer skip: ${e.message}") }
         // V5.0.4160 — feed shared ScratchStreakRegistry (butterfly sweep).
@@ -638,28 +627,7 @@ object ManipulatedTraderAI {
 
         // V5.9.852 — non-meme close → CanonicalOutcomeBus (Layer Readiness fix).
         val manipExitTs = System.currentTimeMillis()
-        com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(
-            tradeIdSeed   = "${pos.mint}_$manipExitTs",
-            mint          = pos.mint,
-            symbol        = pos.symbol,
-            source        = com.lifecyclebot.engine.TradeSource.MANIP,
-            isPaper       = pos.isPaper,
-            entryTimeMs   = pos.entryTime,
-            exitTimeMs    = manipExitTs,
-            entryPrice    = pos.entryPrice,
-            exitPrice     = exitPrice,
-            entrySol      = pos.entrySol,
-            exitSol       = pos.entrySol + pnlSol,
-            realizedPnlSol = pnlSol,
-            realizedPnlPct = pnlPct,
-            maxGainPct    = if (pos.entryPrice > 0 && pos.highWaterMark > pos.entryPrice)
-                                ((pos.highWaterMark - pos.entryPrice) / pos.entryPrice) * 100.0 else null,
-            closeReason   = "MANIPULATED_${reason.name}",
-            assetClass    = com.lifecyclebot.engine.AssetClass.MEME,
-            entryScore    = pos.manipScore.toDouble(),
-            // V5.9.896 — promote lite→rich for BehaviorLearning.
-            entryPattern  = "MANIPULATED_ENTRY",
-        )
+        // V5.0.6567 — canonical finalized bus is published by TerminalBridge/Executor only.
 
         // V5.9.8: Sync paper P&L to shared wallet
         // V5.9.495z17: deduct treasuryShare so wallet only gets 70%.

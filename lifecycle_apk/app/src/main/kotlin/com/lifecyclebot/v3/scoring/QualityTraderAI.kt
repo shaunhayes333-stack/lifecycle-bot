@@ -771,18 +771,7 @@ object QualityTraderAI {
         // Trade Journal reflects ALL trades across the universe.
         // V5.9.436 — recorder also feeds outcome-attribution trackers.
         // V5.0.6303 — feed peakPnlPct so MFE give-back records for QUALITY.
-        try {
-            com.lifecyclebot.engine.V3JournalRecorder.recordClose(
-                symbol = pos.symbol, mint = pos.mint,
-                entryPrice = pos.entryPrice, exitPrice = exitPrice,
-                sizeSol = pos.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
-                isPaper = isPaperMode, layer = "QUALITY",
-                exitReason = exitSignal.name,
-                entryScore = pos.entryScore,
-                holdMinutes = holdMinutesLong,
-                peakGainPct = pos.peakPnlPct,
-            )
-        } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("QualityTraderAI", "trade_record skip: ${e.message}") }
+                // V5.0.6567 — canonical terminal bridge owns the single SELL journal projection.
 
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
         try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, isPaperMode, assetClass = "QUALITY") } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("QualityTraderAI", "copilot skip: ${e.message}") }

@@ -5211,6 +5211,7 @@ for legal compliance.
         val usdTv: android.widget.TextView,
         val trailLockTv: android.widget.TextView?,
         val barView: android.view.View,
+        val dividerView: android.view.View,
         var staticHash: Int,
     )
     // Insertion-ordered so we can cheaply diff against the desired sort order.
@@ -5292,7 +5293,9 @@ for legal compliance.
             // from the UI render path. Snapshot showed it on the main-thread ANR stack.
             symbolToMints.entries.filter { it.value.size >= 2 }.map { it.key }.toSet()
         } catch (_: Throwable) { emptySet() }
-        llOpenPositions.removeAllViews()
+        // V5.0.6567 — stable hierarchy: text-only refreshes never detach/re-add
+        // cached rows. Rebuild ordering only when the structural hash changes.
+        if (structuralChange) llOpenPositions.removeAllViews()
         // V5.9.495z37 — operator-reported confusion: tSpaceX / TCLAW /
         // TripleT / GMAR / MAGA / ROAF appear in lane cards (Blue Chip
         // Trades / Treasury Scalps / Moonshot) but NOT in Open
@@ -5593,14 +5596,12 @@ for legal compliance.
                         }
                     }
                 }
-                // Detach from any prior parent and re-add in the current sort order.
-                (cached.rowView.parent as? android.view.ViewGroup)?.removeView(cached.rowView)
-                llOpenPositions.addView(cached.rowView)
-                llOpenPositions.addView(View(this).apply {
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 10 }
-                    setBackgroundColor(0xFF1F2937.toInt())
-                })
+                if (structuralChange) {
+                    (cached.rowView.parent as? android.view.ViewGroup)?.removeView(cached.rowView)
+                    (cached.dividerView.parent as? android.view.ViewGroup)?.removeView(cached.dividerView)
+                    llOpenPositions.addView(cached.rowView)
+                    llOpenPositions.addView(cached.dividerView)
+                }
                 return@forEach
             }
             // ── BUILD PATH — construct once, cache, then reuse on later renders.
@@ -5881,6 +5882,7 @@ for legal compliance.
                     usdTv = usdRef,
                     trailLockTv = trailLockTvRef,
                     barView = barRef,
+                    dividerView = div,
                     staticHash = staticHash,
                 )
             }
@@ -5898,7 +5900,7 @@ for legal compliance.
         // V5.0.6039 — hidden-held note when the cap is applied. The panel
         // must show exactly the top 10 held rows by gain high→low, and must
         // explicitly list the rest as still held/managed in the same order.
-        if (hiddenCount > 0) {
+        if (hiddenCount > 0 && structuralChange) {
             val hiddenSummary6039 = hiddenHeld6039.take(12).joinToString(" · ") { h ->
                 val v = try { com.lifecyclebot.engine.OpenPnlSanity.inspect(h, "MainActivity.hiddenHeld6039/${h.symbol}/${h.mint.take(8)}", emit = false) } catch (_: Throwable) { com.lifecyclebot.engine.OpenPnlSanity.Verdict(false, reason = "INSPECT_THROW") }
                 val pct = if (v.ok) "%+.1f%%".format(v.pnlPct) else "basis wait"

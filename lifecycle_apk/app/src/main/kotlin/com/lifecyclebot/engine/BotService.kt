@@ -11260,7 +11260,8 @@ class BotService : Service() {
         // V5.0.6016 — do NOT source-feed MANIPULATED from generic Pump thin-liq.
         // Manipulated still has true safety/overlay routing, but it should not burn
         // hundreds of evaluations just because Pump/Raydium volume is present.
-        if (out.isEmpty()) out += listOf("SHITCOIN", "MOONSHOT")
+        if (isCryptoUniverseSource6535) out += "CRYPTO_ALT"
+        else if (out.isEmpty()) out += listOf("SHITCOIN", "MOONSHOT")
 
         // V5.0.4149 — REGIME-AWARE INTAKE PIVOT.
         // Operator: 'its not meant to disable its meant to pivot to the right strategy'

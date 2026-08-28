@@ -11,30 +11,24 @@ import java.io.File
 
 class Repair6511PaperExecutionSourceTest {
     @Test
-    fun sub_floor_buys_promote_to_economic_minimum_005() = synchronized(PaperAccountLedger6430) {
+    fun sub_floor_adaptive_buys_remain_non_executable_instead_of_being_promoted() = synchronized(PaperAccountLedger6430) {
         PaperAccountLedger6430.resetForTest()
         PaperAccountLedger6430.initialize(5.5099)
         OrderSizeResolver6441.updatePaperExecutableMinimumSol(
             PaperPreTicketSizeFloor6511.boundedMinimum(0.005),
         )
-        val requested = PaperPreTicketSizeFloor6511.effectiveRequested(
-            requestedSol = 0.02419,
-            minimumSol = OrderSizeResolver6441.paperExecutableMinimumSol(),
-            availableCashSol = PaperAccountLedger6430.cashSol(),
-        )
         val resolved = TraderSizingBridge6444.resolveForLane(
             laneName = "QUALITY",
-            requestedSol = requested,
+            requestedSol = 0.02419,
             walletSol = PaperAccountLedger6430.cashSol(),
             paperMode = true,
             overrideLaneRiskCapSol = 1.0,
             mintForSeal = "6511-test-mint",
         )
-        assertEquals(0.05, requested, 1e-9)
-        assertTrue(resolved.finalSizeSol >= 0.05)
-        assertTrue(resolved.finalSizeSol > 0.0)
-        assertTrue(resolved.executable)
-        assertFalse(resolved.reason.contains("BELOW_MIN_EXECUTABLE"))
+        assertEquals(0.02419, resolved.requestedSol, 1e-9)
+        assertEquals(0.0, resolved.finalSizeSol, 0.0)
+        assertFalse(resolved.executable)
+        assertTrue(resolved.reason.contains("BELOW_MIN_EXECUTABLE"))
     }
 
     @Test
@@ -54,6 +48,7 @@ class Repair6511PaperExecutionSourceTest {
         val commit = executor.indexOf("V5.0.6485 — ATOMIC PAPER BUY COMMIT", ticket)
         assertTrue(promotion >= 0 && promotion < bridge && bridge < reject && reject < ticket && ticket < commit)
         assertTrue(executor.contains("PAPER_SEALED_NOTIONAL_CONSUMED_6552") && executor.contains("sealedNotional6552"))
-        assertTrue(executor.contains("PAPER_BUY_SIZE_FLOOR_PROMOTED_6511"))
+        assertTrue(executor.contains("val floorPromotionRequested6511 = false"))
+        assertFalse(executor.contains("PAPER_BUY_SIZE_FLOOR_PROMOTED_6511"))
     }
 }

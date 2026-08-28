@@ -107,6 +107,7 @@ object CanonicalEntryAuthority6551 {
             paperMode = candidate.mode.equals("PAPER", true),
             laneRiskCapSol = candidate.evidence["laneRiskCapSol"]?.toDoubleOrNull() ?: OrderSizeResolver6441.DEFAULT_LANE_RISK_CAP_SOL,
             laneMinExecutableSol = candidate.evidence["laneMinExecutableSol"]?.toDoubleOrNull() ?: 0.001,
+            applyPaperMemeMinimum = candidate.assetClass == AssetClass.SOLANA_TOKEN,
         )
         if (!sizing.executable) return blocked(candidate, venue, "SIZE_NOT_EXECUTABLE:${sizing.reason}")
         CanonicalEntryAuthority6540.markSizedFor6551(candidate.assetClass, candidate.symbol)

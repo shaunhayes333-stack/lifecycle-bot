@@ -7114,7 +7114,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6096: INSIDER_SHARK/COPY must open Crypto Universe positions, not just MEME/watchlist advisories", cryptoAlt6095.contains("copyBuyFromInsiderSignal") && cryptoAlt6095.contains("INSIDER_SHARK_CRYPTO_COPY_BUY_6096") && insiderCopy6096.contains("copyBuyCryptoAlt6096") && insiderCopy6096.contains("CryptoAltTrader.copyBuyFromInsiderSignal"))
         assertTrue("V5.0.6096: ALTS readiness must expose crypto size/layer policy on the main UI", cryptoAlt6095.contains("sizePolicy") && cryptoAlt6095.contains("layerPolicy") && mainActivity6095.contains("val layerPolicy") && mainActivity6095.contains("val sizePolicy") && mainActivity6095.contains("\$layerPolicy"))
         val cyclic6097 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt").readText()
-        assertTrue("V5.0.6097: CYCLIC ring must guard entry sellability/liquidity/age before a -15 floor can gap to -98", cyclic6097.contains("cyclicEntrySellabilityGuard6097") && cyclic6097.contains("CYCLIC_SELLABILITY_ENTRY_REJECT_6097") && cyclic6097.contains("liq < 15_000.0") && cyclic6097.contains("ageMin in 0.0..3.0") && cyclic6097.contains("lpUnlockedRisk && liq < 50_000.0"))
+        assertTrue("V5.0.6567: CYCLIC ring must preserve confirmed hard safety while unknown/provider gaps continue to canonical FDG", cyclic6097.contains("cyclicEntrySellabilityGuard6097") && cyclic6097.contains("CONFIRMED_FALSE, UNKNOWN, PROVIDER_UNAVAILABLE, CONFIRMED_TRUE") && cyclic6097.contains("CYCLIC_SELLABILITY_ENTRY_REJECT_6097") && cyclic6097.contains("evidence != CyclicSellabilityEvidence6567.CONFIRMED_FALSE"))
         assertTrue("V5.0.6097: CYCLIC normal and starvation-probe filters must both apply sellability guard", cyclic6097.contains("""cyclicEntrySellabilityGuard6097(ts, "candidate")""") && cyclic6097.contains("""cyclicEntrySellabilityGuard6097(ts, "probe")"""))
         val report6098 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
         assertTrue("V5.0.6098: executive report loop/journal counters must fall back to label counters used by core dump", report6098.contains("""label6098("BOT_LOOP_TICK")""") && report6098.contains("""pipe.labelCounts["BOT_LOOP_TICK"]""") && report6098.contains("""pipe.labelCounts["TRADEJRNL_REC"]"""))
@@ -8254,7 +8254,8 @@ class GoldenTapeRegressionTest {
         val ticket = exec.indexOf("ExecutableOpenGate.canOpenExecutablePosition", reject)
         val commit = exec.indexOf("V5.0.6485 — ATOMIC PAPER BUY COMMIT", ticket)
         assertTrue(promote >= 0 && promote < bridge && bridge < reject && reject < ticket && ticket < commit)
-        assertTrue(exec.contains("PAPER_BUY_SIZE_FLOOR_PROMOTED_6511") && exec.contains("availableCashSol=") && exec.contains("resolvedSol=") && exec.contains("sealedNotional6552"))
+        assertTrue(exec.contains("val floorPromotionRequested6511 = false") && exec.contains("sealedNotional6552") && exec.contains("PAPER_BUY_REJECTED_BEFORE_TICKET_SIZE_6490"))
+        assertFalse("V5.0.6567: reduced adaptive requests must never be inflated by a downstream floor", exec.contains("PAPER_BUY_SIZE_FLOOR_PROMOTED_6511"))
     }
 
 
@@ -8850,6 +8851,73 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("GlobalTradeRegistry.mergeAffinity(mint, lanes6566, tools6566)"))
         assertTrue(bot.contains("ScannerHydrationQueues6347.Bucket.LIVE_READY") && bot.contains("MEME_DEDUPE_REFRESH_6566"))
         assertTrue(bot.contains("MEME_INTAKE_DEDUPE_EVIDENCE_REFRESH_6566"))
+    }
+
+
+
+    @Test
+    fun V5_0_6567_quantity_sizing_finality_funnel_learning_health_and_ui_are_canonical() {
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val sizing = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OrderSizeResolver6441.kt").readText()
+        val sizingBridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalSizingBridge6532.kt").readText()
+        val cyclic = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt").readText()
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/perps/DynamicAltTokenRegistry.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEntryAuthority6540.kt").readText()
+        val entrySnapshot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/EntryStrategySnapshot6450.kt").readText()
+        val finalized = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalizedTradeBus6464.kt").readText()
+        val tactic = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt").readText()
+        val classifier = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/RootCauseClassifier6471.kt").readText()
+        val health = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+
+        assertTrue(executor.contains("canonicalTerminalPosition6492.quantityScale.coerceIn(0, 18)"))
+        assertFalse(executor.contains("canonicalTerminalPosition6492.tokenDecimals.takeIf"))
+        assertTrue(sizing.contains("applyPaperMemeMinimum") && sizingBridge.contains("applyPaperMemeMinimum = assetClass == AssetClass.SOLANA_TOKEN"))
+        assertTrue(sizing.contains("val effectiveShapedLamports6506 = laneClampedLamports6491"))
+        assertFalse(sizing.contains("ORDER_SIZE_PROMOTED_TO_MIN_EXECUTABLE_6506"))
+        assertTrue(executor.contains("val floorPromotionRequested6511 = false"))
+
+        val specialists = listOf("BlueChipTraderAI.kt", "CashGenerationAI.kt", "ManipulatedTraderAI.kt",
+            "MoonshotTraderAI.kt", "QualityTraderAI.kt", "ShitCoinExpress.kt", "ShitCoinTraderAI.kt")
+            .map { java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/$it").readText() }
+        specialists.forEach {
+            assertFalse(it.contains("V3JournalRecorder.recordClose("))
+            assertFalse(it.contains("CanonicalPublishHelper.publishExit("))
+            assertTrue(it.contains("canonical terminal bridge owns the single SELL journal projection") ||
+                it.contains("canonical finalized bus is published by TerminalBridge/Executor only"))
+        }
+
+        assertTrue(cyclic.contains("CONFIRMED_FALSE, UNKNOWN, PROVIDER_UNAVAILABLE, CONFIRMED_TRUE"))
+        assertTrue(cyclic.contains("evidence != CyclicSellabilityEvidence6567.CONFIRMED_FALSE"))
+        assertTrue(crypto.contains("uniqueDynSignals6567") && crypto.contains("groupBy { it.dynAssetKey"))
+        assertTrue(crypto.contains("POSITION_CAP_REACHED") && crypto.contains("NO_ACTIONABLE_SPECIALIST_SIGNAL"))
+        assertFalse(crypto.contains(".take(25) // V5.9.128: raised from 3"))
+        assertTrue(registry.contains("evaluation terminal dispositions=") && registry.contains("CRYPTO_EVAL_TERMINAL_6567"))
+        assertTrue(bot.contains("if (isCryptoUniverseSource6535) out += \"CRYPTO_ALT\""))
+
+        mapOf("TokenizedStockTrader.kt" to "STOCKS", "ForexTrader.kt" to "FOREX",
+            "MetalsTrader.kt" to "METALS", "CommoditiesTrader.kt" to "COMMODITIES").forEach { (file, family) ->
+            val src = java.io.File("src/main/kotlin/com/lifecyclebot/perps/$file").readText()
+            assertTrue(src.contains("isPaperMode.get() ||"))
+            assertTrue(src.contains("MARKETS_FUNNEL_6567|FAMILY=$family|STAGE=SIGNAL_SELECTED"))
+            assertTrue(src.contains("MARKETS_FUNNEL_6567|FAMILY=$family|STAGE=PAPER_TRUST_ADVISORY"))
+        }
+        assertTrue(authority.contains("AssetClassStats6567") && authority.contains("assetClassFunnelReport6567"))
+        assertTrue(health.contains("Cross-Asset Canonical Funnel (V5.0.6567) [CANONICAL CURRENT SESSION]"))
+
+        assertTrue(entrySnapshot.contains("LearningPersistence.save(persistenceKey6567") &&
+            entrySnapshot.contains("LearningPersistence.load(persistenceKey6567"))
+        assertTrue(finalized.contains("val entrySource: String") && finalized.contains("val marketRegime: String") && finalized.contains("val scoreBand: String"))
+        assertTrue(tactic.contains("persistHistorical6567") && tactic.contains("historicalTradesForCohort"))
+        assertTrue(classifier.contains("currentPaperConservationHealthy6567") && classifier.contains("classifier_current_canonical_delta_healthy_6567"))
+        assertTrue(health.contains("[SESSION HISTORICAL COUNTERS]") && health.contains("[CANONICAL CURRENT SNAPSHOTS]"))
+
+        assertTrue(main.contains("if (structuralChange) llOpenPositions.removeAllViews()"))
+        assertTrue(main.contains("val dividerView: android.view.View"))
+        assertTrue(main.contains("if (structuralChange) {") && main.contains("cached.dividerView"))
+        assertFalse(main.contains("llOpenPositions.addView(View(this).apply"))
     }
 
 }

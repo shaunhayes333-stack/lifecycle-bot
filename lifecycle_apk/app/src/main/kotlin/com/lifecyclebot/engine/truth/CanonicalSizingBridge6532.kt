@@ -64,6 +64,7 @@ object CanonicalSizingBridge6532 {
             paperMode = paperMode,
             laneRiskCapSol = laneRiskCapSol,
             laneMinExecutableSol = effectiveMinSol6542,
+            applyPaperMemeMinimum = assetClass == AssetClass.SOLANA_TOKEN,
         )
         try {
             PipelineHealthCollector.labelInc(

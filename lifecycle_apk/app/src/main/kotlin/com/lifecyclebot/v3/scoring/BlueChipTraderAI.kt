@@ -431,18 +431,7 @@ object BlueChipTraderAI {
         // V5.9.436 — recorder also feeds outcome-attribution trackers.
         // V5.0.6303 — pass real peakGainPct so MFE give-back telemetry actually
         // fires for BLUECHIP (previously defaulted to 0.0 → recordMfe skipped).
-        try {
-            com.lifecyclebot.engine.V3JournalRecorder.recordClose(
-                symbol = pos.symbol, mint = mint,
-                entryPrice = pos.entryPrice, exitPrice = exitPrice,
-                sizeSol = pos.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
-                isPaper = pos.isPaper, layer = "BLUECHIP",
-                exitReason = exitReason.name,
-                entryScore = pos.entryScore,
-                holdMinutes = holdMinutesLong,
-                peakGainPct = pos.peakPnlPct,
-            )
-        } catch (_: Exception) {}
+                // V5.0.6567 — canonical terminal bridge owns the single SELL journal projection.
 
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
         try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, pos.isPaper, assetClass = "BLUECHIP") } catch (_: Exception) {}
@@ -457,33 +446,7 @@ object BlueChipTraderAI {
 
         // V5.9.852 — non-meme close → CanonicalOutcomeBus (Layer Readiness fix).
         val bluechipExitTs = System.currentTimeMillis()
-        com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(
-            tradeIdSeed   = "${mint}_$bluechipExitTs",
-            mint          = mint,
-            symbol        = pos.symbol,
-            source        = com.lifecyclebot.engine.TradeSource.BLUECHIP,
-            isPaper       = pos.isPaper,
-            entryTimeMs   = pos.entryTime,
-            exitTimeMs    = bluechipExitTs,
-            entryPrice    = pos.entryPrice,
-            exitPrice     = exitPrice,
-            entrySol      = pos.entrySol,
-            exitSol       = pos.entrySol + pnlSol,
-            realizedPnlSol = pnlSol,
-            realizedPnlPct = pnlPct,
-            maxGainPct    = if (pos.entryPrice > 0 && pos.highWaterMark > pos.entryPrice)
-                                ((pos.highWaterMark - pos.entryPrice) / pos.entryPrice) * 100.0 else null,
-            closeReason   = "BLUECHIP_${exitReason.name}",
-            assetClass    = com.lifecyclebot.engine.AssetClass.BLUECHIP,
-            entryScore    = pos.entryScore.toDouble(),
-            // V5.9.896 — promote from lite→rich so BehaviorLearning stops
-            // dropping every BlueChip sample at line 880.
-            // V5.9.897 — add real liq/mcap buckets so AdaptiveLearningEngine
-            // pattern keys partition BlueChip samples by actual size band.
-            entryPattern  = "BLUECHIP_ENTRY",
-            liqBucket     = com.lifecyclebot.engine.CanonicalPublishHelper.liqBucketFromUsd(pos.liquidityUsd),
-            mcapBucket    = com.lifecyclebot.engine.CanonicalPublishHelper.mcapBucketFromUsd(pos.marketCapUsd),
-        )
+        // V5.0.6567 — canonical finalized bus is published by TerminalBridge/Executor only.
 
         // V5.9.401 — Sentience hook #4: cross-engine telegraph (MEME).
         try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, pnlPct >= 1.0) } catch (_: Exception) {}

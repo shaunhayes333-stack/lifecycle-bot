@@ -2,6 +2,8 @@ package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.engine.LearningPersistence
+import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -41,6 +43,7 @@ object EntryStrategySnapshot6450 {
         val entryMarketCapUsd: Double,
         val entryTimestampMs: Long,
         val entryThresholdSnapshot: String,
+        val entryMarketRegime: String = "",
     )
 
     private val snapshots = ConcurrentHashMap<String, Snapshot>() // positionId -> Snapshot
@@ -51,7 +54,8 @@ object EntryStrategySnapshot6450 {
 
     fun setEntry(snap: Snapshot): Boolean {
         if (snap.positionId.isBlank()) { rejects.incrementAndGet(); return false }
-        val prior = snapshots.putIfAbsent(snap.positionId, snap)
+        val restoredPrior6567 = snapshot(snap.positionId)
+        val prior = restoredPrior6567 ?: snapshots.putIfAbsent(snap.positionId, snap)
         if (prior != null) {
             rejects.incrementAndGet()
             val laneChanged = prior.entryLane != snap.entryLane
@@ -68,18 +72,50 @@ object EntryStrategySnapshot6450 {
             return false
         }
         writes.incrementAndGet()
+        persist6567(snap)
         return true
     }
 
-    fun snapshot(positionId: String): Snapshot? = snapshots[positionId]
+    private fun persistenceKey6567(positionId: String) = "entry_strategy_6450_$positionId"
+    private fun persist6567(snap: Snapshot) {
+        try {
+            val j = JSONObject()
+                .put("positionId", snap.positionId).put("mint", snap.mint)
+                .put("lane", snap.entryLane).put("pid", snap.entryStrategyPid)
+                .put("tactic", snap.entryTactic).put("risk", snap.entryRiskProfile)
+                .put("exit", snap.entryExitProfile).put("source", snap.entrySource)
+                .put("score", snap.entryScore).put("liq", snap.entryLiquiditySol)
+                .put("mcap", snap.entryMarketCapUsd).put("at", snap.entryTimestampMs)
+                .put("threshold", snap.entryThresholdSnapshot).put("regime", snap.entryMarketRegime)
+            LearningPersistence.save(persistenceKey6567(snap.positionId), j.toString())
+        } catch (_: Throwable) {}
+    }
+    private fun restore6567(positionId: String): Snapshot? {
+        return try {
+        val raw = LearningPersistence.load(persistenceKey6567(positionId)) ?: return null
+        val j = JSONObject(raw)
+        Snapshot(
+            positionId = j.optString("positionId", positionId), mint = j.optString("mint", ""),
+            entryLane = j.optString("lane", ""), entryStrategyPid = j.optString("pid", ""),
+            entryTactic = j.optString("tactic", ""), entryRiskProfile = j.optString("risk", ""),
+            entryExitProfile = j.optString("exit", ""), entrySource = j.optString("source", ""),
+            entryScore = j.optInt("score", 0), entryLiquiditySol = j.optDouble("liq", 0.0),
+            entryMarketCapUsd = j.optDouble("mcap", 0.0), entryTimestampMs = j.optLong("at", 0L),
+            entryThresholdSnapshot = j.optString("threshold", ""), entryMarketRegime = j.optString("regime", ""),
+        ).also { snapshots.putIfAbsent(positionId, it) }
+    } catch (_: Throwable) { null }
+    }
+
+    fun snapshot(positionId: String): Snapshot? = snapshots[positionId] ?: restore6567(positionId)
 
     /** Explicit canonical migration event. Rare; only used when the
      *  operator confirms a legitimate re-classification via a canonical
      *  migration flag on the position. */
     fun migrate(positionId: String, newLane: String, reason: String): Snapshot? {
-        val cur = snapshots[positionId] ?: return null
+        val cur = snapshot(positionId) ?: return null
         val next = cur.copy(entryLane = newLane)
         snapshots[positionId] = next
+        persist6567(next)
         migrations.incrementAndGet()
         try {
             ForensicLogger.lifecycle(
@@ -95,7 +131,7 @@ object EntryStrategySnapshot6450 {
      *  no snapshot is registered (legacy position), caller falls back to
      *  the current runtime lane and we count it as unresolved. */
     fun resolveExitLane(positionId: String, fallbackLane: String): String {
-        val s = snapshots[positionId]
+        val s = snapshot(positionId)
         return if (s != null) {
             s.entryLane
         } else {

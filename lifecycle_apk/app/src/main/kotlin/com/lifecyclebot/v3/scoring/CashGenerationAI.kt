@@ -1558,17 +1558,7 @@ object CashGenerationAI {
         // Trade Journal reflects ALL trades across the universe (was only
         // showing ~300 of 4791 because V3 sub-traders bypassed Executor).
         // V5.9.436 — recorder also feeds outcome-attribution trackers.
-        try {
-            com.lifecyclebot.engine.V3JournalRecorder.recordClose(
-                symbol = pos.symbol, mint = pos.mint,
-                entryPrice = pos.entryPrice, exitPrice = exitPrice,
-                sizeSol = pos.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
-                isPaper = pos.isPaper, layer = "TREASURY",
-                exitReason = exitReason.name,
-                entryScore = pos.entryScore,
-                holdMinutes = holdMinutesLong,
-            )
-        } catch (_: Exception) {}
+                // V5.0.6567 — canonical terminal bridge owns the single SELL journal projection.
 
         recentExits[mint] = System.currentTimeMillis()
         val oneMinuteAgo = System.currentTimeMillis() - 60_000

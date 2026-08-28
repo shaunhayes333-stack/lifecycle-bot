@@ -102,6 +102,7 @@ object OrderSizeResolver6441 {
         paperMode: Boolean,
         laneRiskCapSol: Double = DEFAULT_LANE_RISK_CAP_SOL,
         laneMinExecutableSol: Double = ABS_MIN_EXECUTABLE_SOL,
+        applyPaperMemeMinimum: Boolean = true,
     ): Resolution {
         totalResolves.incrementAndGet()
 
@@ -136,47 +137,22 @@ object OrderSizeResolver6441 {
         // manufacture an impossible sub-minimum order. If the authoritative
         // account and lane can genuinely fund the minimum, preserve that floor;
         // otherwise resolve non-executable BEFORE an execution ticket exists.
-        val minExecRaw6491 = if (paperMode) maxOf(laneMinExecutableSol, paperExecutableMinimumSol())
-            else laneMinExecutableSol.coerceAtLeast(ABS_MIN_EXECUTABLE_SOL)
+        val minExecRaw6491 = when {
+            paperMode && applyPaperMemeMinimum -> maxOf(laneMinExecutableSol, paperExecutableMinimumSol())
+            else -> laneMinExecutableSol.coerceAtLeast(ABS_MIN_EXECUTABLE_SOL)
+        }
         val minExecLamports6491 = toLamports6491(minExecRaw6491)
         val minExec = fromLamports6491(minExecLamports6491)
         val requestedLamports6491 = toLamports6491(requested)
         val availableLamports6491 = toLamports6491(feeAwareAvailable6490)
         val laneCapLamports6491 = toLamports6491(laneRiskCapSol)
         val laneClampedLamports6491 = toLamports6491(laneClamped)
-        // V5.0.6506 §P0-3 — MIN-FLOOR PROMOTION.
-        // Operator mandate: "If 0 < shapedSize < MIN_EXECUTABLE and
-        // MIN_EXECUTABLE itself satisfies every hard risk/cash/lane cap,
-        // normalize to MIN_EXECUTABLE instead of zeroing the order.
-        // Never allow a soft advisory multiplier to turn an otherwise
-        // legal BUY into zero solely because it crossed the minimum by
-        // a few thousandths of SOL."
-        //
-        // 299 buys with req=0.04887→shaped=0.04887→final=0 were being
-        // deleted purely because the compounding ladder / risk shape
-        // trimmed them to a hair below the 0.05 SOL executable floor.
-        // We now promote to MIN_EXECUTABLE when it fits under ALL hard
-        // caps (available cash, lane risk cap, requested risk figure).
-        val riskLamports6491 = toLamports6491(risk)
-        val shapedBelowMin6506 = laneClampedLamports6491 > 0L && laneClampedLamports6491 < minExecLamports6491
-        val minExecLegalUnderHardCaps6506 = minExecLamports6491 <= availableLamports6491 &&
-            minExecLamports6491 <= laneCapLamports6491 &&
-            minExecLamports6491 <= riskLamports6491
-        val promotedToMin6506 = shapedBelowMin6506 && minExecLegalUnderHardCaps6506
-        val effectiveShapedLamports6506 = if (promotedToMin6506) minExecLamports6491 else laneClampedLamports6491
-        if (promotedToMin6506) {
-            try {
-                PipelineHealthCollector.labelInc("ORDER_SIZE_PROMOTED_TO_MIN_EXECUTABLE_6506")
-                ForensicLogger.lifecycle(
-                    "ORDER_SIZE_PROMOTED_TO_MIN_EXECUTABLE_6506",
-                    "lane=$laneName shapedSol=${"%.6f".format(fromLamports6491(laneClampedLamports6491))} " +
-                        "minExecSol=${"%.6f".format(minExec)} availableSol=${"%.6f".format(feeAwareAvailable6490)} " +
-                        "laneCapSol=${"%.6f".format(laneRiskCapSol)} riskSol=${"%.6f".format(risk)} " +
-                        "action=promote_to_min_instead_of_zero"
-                )
-            } catch (_: Throwable) {}
-        }
+        // V5.0.6567 — executable floors are constraints, never size creators.
+        // Preserve the complete adaptive request; below-minimum proposals remain
+        // explicit non-executable/shadow samples and are never promoted upward.
+        val effectiveShapedLamports6506 = laneClampedLamports6491
         val executableLamports6491 = if (effectiveShapedLamports6506 >= minExecLamports6491) effectiveShapedLamports6506 else 0L
+        val riskLamports6491 = toLamports6491(risk)
         val authorityCapLamports6498 = minOf(requestedLamports6491, riskLamports6491, availableLamports6491, laneCapLamports6491)
         val boundedExecutableLamports6498 = executableLamports6491.coerceAtMost(authorityCapLamports6498)
         val executable = boundedExecutableLamports6498 >= minExecLamports6491

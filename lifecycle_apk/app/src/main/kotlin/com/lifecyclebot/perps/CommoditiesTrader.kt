@@ -343,24 +343,29 @@ object CommoditiesTrader {
                 
                 // V5.9.328: Trust gate — halt new entries when CommoditiesAI is DISTRUSTED
                 val commTrust = try { com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel("CommoditiesAI") } catch (_: Exception) { null }
-                if (commTrust == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED) {
+                if (!isPaperMode.get() && (commTrust == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED)) {
                     ErrorLogger.warn(TAG, "🛢️ ${market.symbol}: TRUST_GATE — CommoditiesAI DISTRUSTED, skipping entry")
                     continue
+                }
+                if (isPaperMode.get() && commTrust == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FUNNEL_6567|FAMILY=COMMODITIES|STAGE=PAPER_TRUST_ADVISORY") } catch (_: Throwable) {}
                 }
 
                 // Generate SPOT signal if no spot position
                 if (!hasSpotPosition(market)) {
                     val spotSignal = analyzeMarket(market, data, TradeType.SPOT)
-                    if (spotSignal != null && spotSignal.score >= spotScoreThresh && spotSignal.confidence >= spotConfThresh) {
+                    if (spotSignal != null && (isPaperMode.get() || (spotSignal.score >= spotScoreThresh && spotSignal.confidence >= spotConfThresh))) {
                         spotSignals.add(spotSignal)
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FUNNEL_6567|FAMILY=COMMODITIES|STAGE=SIGNAL_SELECTED") } catch (_: Throwable) {}
                     }
                 }
                 
                 // Generate LEVERAGE signal if no leverage position (only if UI toggle allows)
                 if (preferLeverage.get() && !hasLeveragePosition(market)) {
                     val leverageSignal = analyzeMarket(market, data, TradeType.LEVERAGE)
-                    if (leverageSignal != null && leverageSignal.score >= levScoreThresh && leverageSignal.confidence >= levConfThresh) {
+                    if (leverageSignal != null && (isPaperMode.get() || (leverageSignal.score >= levScoreThresh && leverageSignal.confidence >= levConfThresh))) {
                         leverageSignals.add(leverageSignal)
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FUNNEL_6567|FAMILY=COMMODITIES|STAGE=SIGNAL_SELECTED") } catch (_: Throwable) {}
                     }
                 }
             } catch (e: CancellationException) {

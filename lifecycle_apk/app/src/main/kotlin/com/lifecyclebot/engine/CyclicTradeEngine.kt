@@ -207,6 +207,13 @@ object CyclicTradeEngine {
      * first-minute sniper lane. It must avoid candidates whose next valid mark
      * can gap straight through the universal -15% floor before the next tick.
      */
+    private enum class CyclicSellabilityEvidence6567 {
+        CONFIRMED_FALSE, UNKNOWN, PROVIDER_UNAVAILABLE, CONFIRMED_TRUE
+    }
+
+    /** V5.0.6567 — sellability evidence is four-state. Heuristic absence is
+     * never equivalent to confirmed non-sellability; canonical safety/FDG
+     * remains the hard authority downstream. */
     private fun cyclicEntrySellabilityGuard6097(ts: TokenState, context: String): Boolean {
         return try {
             val safety = ts.safety
@@ -221,20 +228,30 @@ object CyclicTradeEngine {
                 safety.hardBlockReasons.forEach { append(it).append(' ') }
                 safety.softPenalties.forEach { append(it.first).append(' ') }
             }.lowercase()
-            val lpUnlockedRisk = hardText.contains("lp unlocked") || hardText.contains("large amount of lp unlocked") || safety.lpLockPct == 0.0
-            val unverifiedRisk = hardText.contains("unverified")
-            val holderRisk = safety.topHolderPct >= 65.0 || (ts.topHolderPct ?: -1.0) >= 65.0 || hardText.contains("low amount of holders") || hardText.contains("holder concentration")
-            val lowLiq = liq > 0.0 && liq < 15_000.0
-            val tooFresh = ageMin in 0.0..3.0
-            val blocked = safety.isBlocked || safety.tier == SafetyTier.HARD_BLOCK || safety.hardBlockReasons.isNotEmpty()
-            val reject = blocked || lowLiq || tooFresh || (lpUnlockedRisk && liq < 50_000.0) || (unverifiedRisk && liq < 50_000.0) || holderRisk
-            if (reject) {
-                try { PipelineHealthCollector.labelInc("CYCLIC_SELLABILITY_ENTRY_REJECT_6097") } catch (_: Throwable) {}
-                try { ForensicLogger.lifecycle("CYCLIC_SELLABILITY_ENTRY_REJECT_6097", "context=$context symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=$liq ageMin=${"%.1f".format(ageMin)} tier=${safety.tier} lpLock=${safety.lpLockPct} holder=${safety.topHolderPct} reasons=${safety.hardBlockReasons.joinToString("|")}") } catch (_: Throwable) {}
+            val providerUnavailable = liq <= 0.0 || ts.lastPrice <= 0.0 || ts.lastPriceSource.isBlank()
+            val softUnknown = ageMin in 0.0..3.0 ||
+                hardText.contains("unverified") || safety.lpLockPct == 0.0 ||
+                safety.topHolderPct >= 65.0 || (ts.topHolderPct ?: -1.0) >= 65.0 ||
+                (liq in 0.0000001..14_999.999999)
+            val evidence = when {
+                safety.isBlocked || safety.tier == SafetyTier.HARD_BLOCK || safety.hardBlockReasons.isNotEmpty() ->
+                    CyclicSellabilityEvidence6567.CONFIRMED_FALSE
+                providerUnavailable -> CyclicSellabilityEvidence6567.PROVIDER_UNAVAILABLE
+                softUnknown -> CyclicSellabilityEvidence6567.UNKNOWN
+                else -> CyclicSellabilityEvidence6567.CONFIRMED_TRUE
             }
-            !reject
+            val label = "CYCLIC_SELLABILITY_${evidence.name}_6567"
+            try {
+                PipelineHealthCollector.labelInc(label)
+                ForensicLogger.lifecycle(label,
+                    "context=$context symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=$liq ageMin=${"%.1f".format(ageMin)} tier=${safety.tier} lpLock=${safety.lpLockPct} holder=${safety.topHolderPct} action=${if (evidence == CyclicSellabilityEvidence6567.CONFIRMED_FALSE) "hard_reject" else "continue_to_fdg_advisory"}")
+                if (evidence == CyclicSellabilityEvidence6567.CONFIRMED_FALSE)
+                    PipelineHealthCollector.labelInc("CYCLIC_SELLABILITY_ENTRY_REJECT_6097")
+            } catch (_: Throwable) {}
+            evidence != CyclicSellabilityEvidence6567.CONFIRMED_FALSE
         } catch (_: Throwable) {
-            true // fail-open on guard bugs; hard safety still lives in TokenSafetyChecker/FDG/Executor
+            try { PipelineHealthCollector.labelInc("CYCLIC_SELLABILITY_PROVIDER_UNAVAILABLE_6567") } catch (_: Throwable) {}
+            true
         }
     }
 

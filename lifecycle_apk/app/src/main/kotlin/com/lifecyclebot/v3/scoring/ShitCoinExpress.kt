@@ -845,19 +845,7 @@ object ShitCoinExpress {
         // V5.9.447 — UNIVERSAL JOURNAL COVERAGE. Every Express exit now
         // writes a SELL row so the user can see all Express closes with
         // PnL in the Journal. Was previously a silent lane.
-        try {
-            val holdMins = (System.currentTimeMillis() - ride.entryTime) / 60_000L
-            // V5.0.6303 — feed peakPnlPct so MFE give-back records for EXPRESS.
-            com.lifecyclebot.engine.V3JournalRecorder.recordClose(
-                symbol = ride.symbol, mint = ride.mint,
-                entryPrice = ride.entryPrice, exitPrice = exitPrice,
-                sizeSol = ride.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
-                isPaper = ride.isPaper, layer = "EXPRESS",
-                exitReason = exitSignal.name,
-                holdMinutes = holdMins,
-                peakGainPct = ride.peakPnlPct,
-            )
-        } catch (_: Exception) {}
+                // V5.0.6567 — canonical terminal bridge owns the single SELL journal projection.
 
         try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(ride.mint, ride.symbol, "EXPRESS", "EXPRESS_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${exitSignal.name}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}
 

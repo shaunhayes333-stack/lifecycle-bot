@@ -12181,13 +12181,11 @@ class Executor(
         val sealedNotional6552 = try {
             com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(ts.mint)
         } catch (_: Throwable) { null }
-        val effectiveRequestedSol6511 = sealedNotional6552?.takeIf { it > 0.0 }
-            ?: PaperPreTicketSizeFloor6511.effectiveRequested(
-                requestedSol = effectiveBuySol6451,
-                minimumSol = paperExecutableMinimumSol6511,
-                availableCashSol = availableCashSol6511,
-            )
-        val floorPromotionRequested6511 = effectiveRequestedSol6511 > effectiveBuySol6451
+        // V5.0.6567 — preserve adaptive/risk/regime/learner authority. A
+        // downstream executable minimum may reject/shadow a reduced request, but
+        // must never inflate it back into a normal position.
+        val effectiveRequestedSol6511 = sealedNotional6552?.takeIf { it > 0.0 } ?: effectiveBuySol6451
+        val floorPromotionRequested6511 = false
         val preTicketSize6490 = try {
             com.lifecyclebot.engine.truth.TraderSizingBridge6444.resolveForLane(
                 laneName = finalityLane,
@@ -12202,15 +12200,7 @@ class Executor(
                 effectiveBuySol6451, 0.0, 0.0, 0.0, 0.0, 0.0, false, "PRE_TICKET_SIZE_RESOLUTION_FAILED_6490",
             )
         }
-        if (floorPromotionRequested6511) {
-            try {
-                PipelineHealthCollector.labelInc("PAPER_BUY_SIZE_FLOOR_PROMOTED_6511")
-                ForensicLogger.lifecycle(
-                    "PAPER_BUY_SIZE_FLOOR_PROMOTED_6511",
-                    "mint=${ts.mint} symbol=${ts.symbol} lane=$finalityLane requestedSol=${effectiveBuySol6451.fmt(6)} minimumSol=${paperExecutableMinimumSol6511.fmt(6)} availableCashSol=${availableCashSol6511.fmt(6)} resolvedSol=${preTicketSize6490.finalSizeSol.fmt(6)}",
-                )
-            } catch (_: Throwable) {}
-        }
+        if (floorPromotionRequested6511) error("unreachable: paper floor promotion disabled by 6567")
         if (!preTicketSize6490.executable) {
             try {
                 PipelineHealthCollector.labelInc("PAPER_BUY_REJECTED_BEFORE_TICKET_SIZE_6490")
@@ -12966,6 +12956,7 @@ class Executor(
                     entryMarketCapUsd = ts.lastMcap,
                     entryTimestampMs = System.currentTimeMillis(),
                     entryThresholdSnapshot = "",
+                    entryMarketRegime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" },
                 )
             )
             // V5.0.6455 §SELL_DOOR_MIGRATION — seed PositionStateLedger6454
@@ -19646,7 +19637,10 @@ class Executor(
                 terminalPid6455, canonicalTerminalPosition6492.originalQtyRaw, canonicalTerminalPosition6492.remainingQtyRaw,
             )
         } catch (_: Throwable) {}
-        val terminalDecimals6492 = canonicalTerminalPosition6492.tokenDecimals.coerceIn(0, 18)
+        // V5.0.6567 — PAPER lot integers use canonical quantityScale, which is
+        // independent of on-chain mint decimals. Using tokenDecimals here produced
+        // exact ×10^12 SELL journal corruption when paper scale=12 and mint metadata=0.
+        val terminalDecimals6492 = canonicalTerminalPosition6492.quantityScale.coerceIn(0, 18)
         val terminalRemainingRaw6492 = canonicalTerminalPosition6492?.remainingQtyRaw
             ?.takeIf { it > java.math.BigInteger.ZERO }
             ?: try {
@@ -19745,9 +19739,7 @@ class Executor(
                     val healed6507 = try {
                         val lotQtyRaw = com.lifecyclebot.engine.truth.FillLotLedger6504
                             .canonicalQtyOf(ts.mint, isPaper = true)
-                        val decimals = try {
-                            com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.get(ts.mint) ?: 6
-                        } catch (_: Throwable) { 6 }
+                        val decimals = canonicalTerminalPosition6492.quantityScale.coerceIn(0, 18)
                         val lotQtyToken = lotQtyRaw.toDouble() / Math.pow(10.0, decimals.toDouble())
                         if (lotQtyToken.isFinite() && lotQtyToken > 0.0) {
                             val prior = pos.qtyToken

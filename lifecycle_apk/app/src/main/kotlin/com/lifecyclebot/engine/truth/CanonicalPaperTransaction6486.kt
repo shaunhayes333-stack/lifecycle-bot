@@ -72,7 +72,8 @@ object CanonicalPaperTransaction6486 {
             qtyRaw, costSol / qtyRaw.toDouble(), feeSol, decimals, quantityScale)
         EntryStrategySnapshot6450.setEntry(EntryStrategySnapshot6450.Snapshot(
             positionId, mint, lane, "", tactic, "", "", source, entryScore, 0.0, 0.0,
-            System.currentTimeMillis(), ""))
+            System.currentTimeMillis(), "",
+            entryMarketRegime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" }))
         CanonicalMintOccupancyRegistry6464.markOpen("paper", mint, symbol, source)
         try { PipelineHealthCollector.labelInc("PAPER_TRANSACTION_OPEN_COMMITTED_6486") } catch (_: Throwable) {}
         // V5.0.6551 — intent/dispatch were sealed before debit; only the

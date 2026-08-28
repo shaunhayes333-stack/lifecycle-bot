@@ -1396,7 +1396,7 @@ object PipelineHealthCollector {
                 com.lifecyclebot.engine.learning.TacticSwitcher.snapshotAll()
             } catch (_: Throwable) { emptyList() }
             if (tacticSnaps.isNotEmpty()) {
-                sb.append("===== Tactic Switcher (V5.9.1333) — fluid tactic rotation =====\n")
+                sb.append("===== Tactic Switcher (V5.9.1333) [CANONICAL CURRENT + HISTORICAL ENTRY COHORTS] =====\n")
                 tacticSnaps.take(15).forEach { snap ->
                     val ageMin = snap.ageMs / 60_000L
                     val laneAndBand = snap.key.split("|", limit = 2)
@@ -1412,7 +1412,7 @@ object PipelineHealthCollector {
                             else " 🧪 (lab pending — falling back to MOMENTUM shape)"
                         } catch (_: Throwable) { "" }
                     } else ""
-                    sb.append("  ${snap.key.padEnd(24)} ${snap.tactic.name.padEnd(15)} n=${snap.tradesSinceRotation} W/L=${snap.winsSinceRotation}/${snap.lossesSinceRotation} μ=${"%+.1f".format(snap.meanPnlPct)}% age=${ageMin}m$labTag\n")
+                    sb.append("  ${snap.key.padEnd(24)} ${snap.tactic.name.padEnd(15)} currentN=${snap.tradesSinceRotation} W/L=${snap.winsSinceRotation}/${snap.lossesSinceRotation} μ=${"%+.1f".format(snap.meanPnlPct)}% historicalEntryN=${snap.historicalTradesForCohort} historicalW=${snap.historicalWinsForCohort} historicalμ=${"%+.1f".format(snap.historicalMeanPnlPct)}% age=${ageMin}m$labTag\n")
                 }
                 sb.append("  (Rotates MOMENTUM → PULLBACK → REACCUMULATION → BREAKOUT → LAB_PROPOSED on Bayesian early-stop (8+ decisive closes), hard bleed, or persistent bleed. NEVER disables.)\n\n")
             }
@@ -1715,9 +1715,9 @@ object PipelineHealthCollector {
             sb.append("  Excluded from canon: broadcast=${c6312("LIVE_PNL_BROADCAST_EXCLUDED")} duplicate=${c6312("LIVE_PNL_DUPLICATE_EXCLUDED")} quarantined=${c6312("QTY_DECIMAL_SKEW_LEARNING_QUARANTINE_6310")}\n")
 
             sb.append('\n')
-            sb.append("===== QUANTITY / DECIMAL INTEGRITY =====\n")
+            sb.append("===== QUANTITY / DECIMAL INTEGRITY [SESSION HISTORICAL COUNTERS] =====\n")
             sb.append("  Decimal skew audit:         ${c6312("QTY_DECIMAL_SKEW_DETECTED_6309")}\n")
-            sb.append("  Skew learning quarantine:   ${c6312("QTY_DECIMAL_SKEW_LEARNING_QUARANTINE_6310")}\n")
+            sb.append("  Skew learning quarantine:   ${c6312("QTY_DECIMAL_SKEW_LEARNING_QUARANTINE_6310") + c6312("QTY_DECIMAL_SKEW_LEARNING_QUARANTINE_6373") + c6312("DECIMAL_INTEGRITY_HARD_BLOCK_6405")}\n")
             sb.append("  Buy qty wallet backfill:    ${c6312("BUY_QTY_BACKFILL_WALLET_VERIFIED_6311")}\n")
             sb.append("  Sell wallet-clamp events:   ${c6312("SELL_RAW_QTY_CLAMPED_TO_WALLET")}\n")
             sb.append("  Sell unknown-balance adv:   ${c6312("SELL_BLOCKED_UNKNOWN_RAW_BALANCE_ADVISORY_6312")}\n")
@@ -1755,7 +1755,7 @@ object PipelineHealthCollector {
         // every pipeline dump. This is a partial answer — surfaces the
         // by-construction correctness guards that landed in V5.0.6427.
         try {
-            sb.append("===== CORRECTNESS GUARDS (V5.0.6427+) =====\n")
+            sb.append("===== CORRECTNESS GUARDS (V5.0.6427+) [CANONICAL CURRENT SNAPSHOTS] =====\n")
             sb.append("  Position state ledger (§H):   ").append(
                 com.lifecyclebot.engine.truth.PositionStateLedger6427.statusLine()
             ).append("\n")
@@ -1857,7 +1857,7 @@ object PipelineHealthCollector {
             sb.append("  Reward purity gate (§6441):   ").append(
                 com.lifecyclebot.engine.truth.RewardPurityGate6441.statusLine()
             ).append("\n")
-            sb.append("  Learner budget (§6441):       ").append(
+            sb.append("  Learner budget (§6441) [MAINTENANCE SLICES; reward queries use separate counter]: ").append(
                 com.lifecyclebot.engine.truth.LearnerRuntimeBudgetGuard6441.statusLine()
             ).append("\n")
             sb.append("  Canonical reconciler (§6441): ").append(
@@ -2701,6 +2701,8 @@ object PipelineHealthCollector {
         try {
             sb.append("\n===== Crypto Universe Discovery (V5.0.6544) =====\n")
             sb.append(com.lifecyclebot.perps.DynamicAltTokenRegistry.discoveryReport6544()).append("\n")
+            sb.append("\n===== Cross-Asset Canonical Funnel (V5.0.6567) [CANONICAL CURRENT SESSION] =====\n")
+            sb.append(com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.assetClassFunnelReport6567()).append("\n")
         } catch (_: Throwable) {}
 
         try {

@@ -196,6 +196,8 @@ object DynamicAltTokenRegistry {
     private val freshPoolsDiscovered6544 = AtomicLong(0L)
     private val freshReachedBrain6544 = AtomicLong(0L)
     private val freshReachedFdg6544 = AtomicLong(0L)
+    private val evaluationStarted6567 = AtomicLong(0L)
+    private val evaluationDisposition6567 = ConcurrentHashMap<String, AtomicLong>()
     private val paperOnlyNoRoute6544 = AtomicLong(0L)
     private val liveRoutable6544 = AtomicLong(0L)
     private val staticEvaluated6544 = AtomicLong(0L)
@@ -675,6 +677,21 @@ object DynamicAltTokenRegistry {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_FRESH_BRAIN_6547") } catch (_: Throwable) {}
         }
     }
+    fun markEvaluationStarted6567(tok: DynToken) {
+        evaluationStarted6567.incrementAndGet()
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_STARTED_6567") } catch (_: Throwable) {}
+    }
+    fun markEvaluationDisposition6567(tok: DynToken?, reason: String) {
+        if (tok == null) return
+        val key = reason.uppercase().replace(Regex("[^A-Z0-9_]+"), "_").take(72)
+        evaluationDisposition6567.computeIfAbsent(key) { AtomicLong(0L) }.incrementAndGet()
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_TERMINAL_6567|$key")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("CRYPTO_EVAL_TERMINAL_6567",
+                "identity=${tok.canonicalIdentity6544} symbol=${tok.symbol} chain=${tok.chainId.ifBlank { "unknown" }} dex=${tok.dexId.ifBlank { "unknown" }} reason=$key")
+        } catch (_: Throwable) {}
+    }
+
     fun markFdgReach6544(tok: DynToken?, liveRoutable: Boolean, paperOnlyNoRoute: Boolean) {
         if (tok?.isFresh6544 == true) {
             freshReachedFdg6544.incrementAndGet()
@@ -702,7 +719,13 @@ object DynamicAltTokenRegistry {
             append("fresh reaching V3/FDG=").append(freshReachedFdg6544.get()).append('\n')
             append("paper-only unavailable live route=").append(paperOnlyNoRoute6544.get()).append('\n')
             append("live-routable candidates=").append(liveRoutable6544.get()).append('\n')
-            append("static-vs-dynamic evaluation share=").append(staticEvaluated6544.get()).append('/').append(dynamicEvaluated6544.get())
+            append("static-vs-dynamic evaluation share=").append(staticEvaluated6544.get()).append('/').append(dynamicEvaluated6544.get()).append('\n')
+            val terminal6567 = evaluationDisposition6567.values.sumOf { it.get() }
+            append("evaluation terminal dispositions=started:").append(evaluationStarted6567.get())
+                .append(" terminal:").append(terminal6567)
+                .append(" missing:").append((evaluationStarted6567.get() - terminal6567).coerceAtLeast(0L)).append('\n')
+            append("evaluation terminal reasons=").append(evaluationDisposition6567.entries
+                .sortedByDescending { it.value.get() }.joinToString { "${it.key}:${it.value.get()}" })
         }
     }
 
