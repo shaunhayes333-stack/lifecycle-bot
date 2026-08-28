@@ -309,7 +309,12 @@ data class BotConfig(
     val perpsEnabled: Boolean = true,           // SOL Perps trader
 
     // ═══ Cyclic Trade Ring ($500 USD compound ring) ═══
-    val cyclicTradeEnabled: Boolean = false,        // V5.0.4155: operator requested CYCLIC disabled; all other meme lanes active
+    // V5.0.6573 — operator mandate: "all trading lanes, layers, trading tools
+    // need to be enabled and functioning" so the self-learning system has full
+    // observation across every lane. Cyclic paper ring rejoins the paper
+    // learning mesh. Live cyclic remains guarded off — live cutover still
+    // requires the treasury threshold + explicit operator confirmation.
+    val cyclicTradeEnabled: Boolean = true,          // V5.0.6573: was false; paper cyclic ring re-enabled for full lane learning
     val cyclicTradeLiveEnabled: Boolean = false,     // Force live execution (overrides treasury threshold)
 )
 

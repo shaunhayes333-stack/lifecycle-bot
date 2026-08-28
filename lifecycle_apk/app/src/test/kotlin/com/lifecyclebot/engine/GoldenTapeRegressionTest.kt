@@ -8340,7 +8340,7 @@ class GoldenTapeRegressionTest {
         assertTrue(sizing.contains("sizing is advisory input, never a pre-FDG"))
         assertTrue(gate.contains("resolvedSizeSol6558") && gate.contains("CROSS_ASSET_LEGACY_SIGNAL_DIVERGENCE_6554") && gate.contains("action=diagnostic_only"))
         assertTrue(crypto.contains("resolvedSizeSol6558 = candidate.finalSize"))
-        assertTrue(perpsEngine.contains("CanonicalEntryAuthority6551.evaluate") && perpsEngine.contains("sealedPerpIntent6570") && perpsEngine.contains("canonicalPerpsSize6570 = sealedPerpIntent6570.resolvedSizeSol"))
+        assertTrue(perpsEngine.contains("CanonicalEntryAuthority6551.submit") && perpsEngine.contains("sealedPerpIntent6570") && perpsEngine.contains("canonicalPerpsSize6570 = sealedPerpIntent6570.resolvedSizeSol"))
         assertTrue(perpsTrader.contains("PerpsSandbox6463.openLeveragedPaper") && perpsTrader.contains("CanonicalPaperTransaction6486.refund"))
         assertTrue(sandbox.contains("PERPS_EXEC_DISPATCH_6554") && sandbox.contains("PERPS_OPEN_CONFIRMED_6554") && sandbox.contains("PERPS_OPEN_REFUSED_6554"))
     }

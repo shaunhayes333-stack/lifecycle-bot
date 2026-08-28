@@ -1541,8 +1541,46 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 terminalSequence = System.currentTimeMillis(),
             )
             if (!canonicalClose6486.applied) {
-                ErrorLogger.warn(TAG, "PAPER CLOSE REJECTED: ${position.market.symbol} ${canonicalClose6486.reason}")
-                return
+                // V5.0.6572 — MARKETS UNCLOSEABLE CAPITAL LEAK REPAIR.
+                // Operator forensic: 58 open positions with only 27 lifetime
+                // trades because stock SELLs were being journaled while the
+                // canonical ledger refused (stocks are opened via
+                // MarketsExecutionEngine, not the canonical paper open
+                // path, so the ledger has no matching row). Prior behaviour
+                // 'return' left the position stuck in positions[] forever,
+                // starving meme lanes of capital. Now we fall through:
+                // refund locally against PaperAccountLedger6430 so the
+                // slot + cash are freed, and forensic-log the divergence
+                // so operator can see how many closes went through the
+                // fallback path.
+                ErrorLogger.warn(TAG, "PAPER CLOSE FALLBACK 6572: ${position.market.symbol} ${canonicalClose6486.reason} — freeing slot locally")
+                try {
+                    val grossProceedsSol = (position.sizeSol + grossPnlSol).coerceAtLeast(0.0)
+                    val sellFeeSol = position.sizeSol * feePercent
+                    // Best-effort: try the standard sell path so realized
+                    // PnL updates. If openCostBasis doesn't cover this
+                    // position (stocks may have been opened outside the
+                    // canonical ledger), the ledger will refuse and we
+                    // still free the slot below — the important
+                    // invariant is that capital is not stranded forever.
+                    com.lifecyclebot.engine.truth.PaperAccountLedger6430.onSell(
+                        grossProceedsSol = grossProceedsSol,
+                        costBasisSoldSol = position.sizeSol,
+                        feeSol = sellFeeSol,
+                        mint = position.market.symbol,
+                    )
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_CLOSE_FALLBACK_6572")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "PAPER_CLOSE_FALLBACK_6572",
+                        "positionId=${position.id} symbol=${position.market.symbol} " +
+                            "reason=${canonicalClose6486.reason} exitReason=$reason " +
+                            "grossProceedsSol=${"%.4f".format(grossProceedsSol)} " +
+                            "sellFeeSol=${"%.4f".format(sellFeeSol)} lane=STOCKS " +
+                            "action=free_slot_refund_capital",
+                    )
+                } catch (_: Throwable) {}
+                // FALL THROUGH — do NOT return; the slot must be freed
+                // below so capital re-enters the wallet.
             }
         } else {
             val closeSuccess6486 = try {
