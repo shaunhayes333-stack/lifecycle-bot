@@ -704,9 +704,17 @@ object SmartSizer {
         // rug and finality authorities remain unchanged.
         size = size.coerceAtLeast(0.0)
         val dustFloor = 0.05
-        if (size < dustFloor && tradeable >= dustFloor * 2.0) {
+        // V5.0.6572 — MEME VOLUME REPAIR (operator forensic snapshot: 26
+        // EXEC_OPEN_BLOCKED_SIZE_NOT_EXECUTABLE_6491 rejections and 20+
+        // EXEC_GATE resolvedSize≈0.01 blocks in 27 lifetime trades).
+        // Prior promotion required tradeable >= 2×dustFloor (0.10 SOL);
+        // with heavy stock-lane tie-ups the reported operator wallet
+        // still had cash but promotion missed sizes that got clipped
+        // downstream. Any tradeable balance at-or-above the executable
+        // floor should promote; below-floor tradeable still blocks.
+        if (size < dustFloor && tradeable >= dustFloor) {
             size = dustFloor
-            ErrorLogger.info("SmartSizer", "📏 ECONOMIC MIN SIZE 6555: forcing $size SOL (was below floor)")
+            ErrorLogger.info("SmartSizer", "📏 ECONOMIC MIN SIZE 6555/6572: forcing $size SOL (was below floor)")
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ECONOMIC_MIN_SIZE_PROMOTED_6555") } catch (_: Throwable) {}
         }
         

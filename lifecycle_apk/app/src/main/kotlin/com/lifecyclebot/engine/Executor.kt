@@ -12462,36 +12462,21 @@ class Executor(
             buildPhase = if (quality != "C") 1 else 3
             targetBuild = if (quality != "C") fluidSol / graduatedInitialPct(quality) else 0.0
         } else {
-            // V5.0.6550 §P0-A — SINGLE CANONICAL SIZE DECISION.
-            // Operator forensic (V5.0.6549): paperBuy.pre_mutation6490
-            // resolved a 0.01 SOL executable size and the ticket was
-            // dispatched, then the graduated-entry percentage produced
-            // 0.0035 SOL, and the canonical resolver flipped exec=false
-            // BELOW_MIN_EXECUTABLE, killing the already-dispatched ticket.
-            //
-            // The immutable ticket must not be discarded by post-dispatch
-            // shaping. Apply the same floor-preservation contract the
-            // fluid path already uses at line 12409-12412: if the
-            // graduated shape falls below the executable floor while the
-            // pre-mutation authoritative size was above it, keep the
-            // pre-mutation authoritative size. Shaping expresses INTENT
-            // to trim the notional, not authority to void the ticket.
-            val graduatedRaw6550 = graduatedInitialSize(fluidSol, quality)
-            val executableFloor6550 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol()
-            val graduatedFloorPreserved6550 = if (sol >= executableFloor6550 && graduatedRaw6550 < executableFloor6550) {
-                try {
-                    PipelineHealthCollector.labelInc("PAPER_SIZE_GRADUATED_FLOOR_PRESERVED_6550")
-                    ForensicLogger.lifecycle(
-                        "PAPER_SIZE_GRADUATED_FLOOR_PRESERVED_6550",
-                        "mint=${ts.mint.take(10)} preMutationSol=${"%.4f".format(sol)} " +
-                            "graduatedRawSol=${"%.4f".format(graduatedRaw6550)} " +
-                            "executableFloor=${"%.4f".format(executableFloor6550)} " +
-                            "action=keep_pre_mutation_size_preserve_dispatched_ticket paper=true",
-                    )
-                } catch (_: Throwable) {}
-                sol
-            } else graduatedRaw6550
-            actualSol = clampPaperTradeSol(graduatedFloorPreserved6550, ts.mint, ts.symbol, "paperBuy.graduated", maxPaperTradeSolOverride)
+            // V5.0.6572 — MEME VOLUME REPAIR. Operator forensic
+            // ($1000+ hero balance, 27 lifetime trades, 26 SIZE_NOT_EXECUTABLE
+            // rejections, dust-sized entries poisoning learning): the
+            // graduated 35% initial tranche was the primary dust source
+            // (0.05 SOL fluid → 0.0175 SOL graduated → sub-floor reject).
+            // For paper mode, the graduated tranche is training noise —
+            // there is no real-money slippage benefit and every 35% shave
+            // is a lost learning signal. Skip graduated tranching for
+            // paper entirely and use the fluid size directly. Live
+            // execution retains graduated tranching per V5.0.6549 for
+            // slippage protection. V5.0.6550 §P0-A floor preservation
+            // remains in place as a belt-and-braces guard when the
+            // graduated code path is re-enabled elsewhere.
+            actualSol = clampPaperTradeSol(fluidSol, ts.mint, ts.symbol, "paperBuy.paperFullFluid_6572", maxPaperTradeSolOverride)
+            try { PipelineHealthCollector.labelInc("PAPER_GRADUATED_TRANCHE_SKIPPED_6572") } catch (_: Throwable) {}
             buildPhase = 1
             targetBuild = fluidSol.coerceAtMost(maxConfiguredPaperTradeSol())
         }
