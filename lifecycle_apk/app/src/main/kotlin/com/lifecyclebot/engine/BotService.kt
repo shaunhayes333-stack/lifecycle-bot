@@ -19158,24 +19158,63 @@ if (hotExitHandledSweep) {
             // V5.9.62: decimal/price-sanity was hoisted above to act as a
             // discovery-gate + tick-gate. By the time we reach here the
             // quote is trusted enough to persist.
+            //
+            // V5.0.6575 §P0-2 — PURPOSE-SPLIT MARK PUBLICATION.
+            // Operator directive: missing pair/quote metadata must not become
+            // an accidental pre-V3 veto. Split into two marks:
+            //   • OBSERVATION_SCORING — looser, feeds V3/FDG scoring even when
+            //     the provider evidence is only observational.
+            //   • EXECUTABLE_ENTRY_QUOTE — strict, required by Executor.paperBuy
+            //     and live open path. Publishing failure here does NOT return
+            //     the cycle; execution is refused at the boundary with the
+            //     EXECUTION_WITH_PROVISIONAL_MARK counter.
             val validatedPrice = incomingPrice
-            val canonicalMarkAccepted6522 = try {
+            val nowMs6575 = System.currentTimeMillis()
+            val priceUsd6575 = com.lifecyclebot.engine.truth.PriceUsd(java.math.BigDecimal.valueOf(validatedPrice))
+            val liquidityUsd6575 = pair.liquidity.takeIf { it.isFinite() && it > 0.0 }?.let { java.math.BigDecimal.valueOf(it) }
+            val observationAccepted6575 = try {
                 com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.publish(
                     com.lifecyclebot.engine.truth.CanonicalPriceMark6522(
                         mint = mint, pairId = pair.pairAddress, baseMint = pair.baseTokenAddress,
                         quoteMint = pair.quoteTokenAddress, source = "DEXSCREENER_PAIR_POLL",
-                        timestampMs = System.currentTimeMillis(),
-                        priceUsd = com.lifecyclebot.engine.truth.PriceUsd(java.math.BigDecimal.valueOf(validatedPrice)),
-                        liquidityUsd = pair.liquidity.takeIf { it.isFinite() && it > 0.0 }?.let { java.math.BigDecimal.valueOf(it) },
+                        timestampMs = nowMs6575,
+                        priceUsd = priceUsd6575,
+                        liquidityUsd = liquidityUsd6575,
                         purpose = com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING,
                     )
                 )
             } catch (_: Throwable) { false }
-            if (!canonicalMarkAccepted6522) {
-                try { PipelineHealthCollector.labelInc("CANONICAL_PRICE_MARK_REJECTED_6522") } catch (_: Throwable) {}
-                com.lifecyclebot.engine.truth.PreV3ReturnTelemetry6525.stamp(ts, "CANONICAL_MARK_REJECTED")
-                return
+            if (observationAccepted6575) {
+                try { PipelineHealthCollector.labelInc("CANONICAL_PRICE_MARK_OBSERVATION_ACCEPTED_6575") } catch (_: Throwable) {}
+            } else {
+                try {
+                    PipelineHealthCollector.labelInc("CANONICAL_PRICE_MARK_OBSERVATION_REJECTED_6575")
+                    // V5.0.6575 — stamp the reason for forensic parity with the
+                    // pre-6575 CANONICAL_MARK_REJECTED counter, but this is now
+                    // *informational* and does not return the cycle.
+                    com.lifecyclebot.engine.truth.PreV3ReturnTelemetry6525.stamp(ts, "CANONICAL_MARK_REJECTED_INFO_6575")
+                } catch (_: Throwable) {}
             }
+            val executableAccepted6575 = try {
+                com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.publish(
+                    com.lifecyclebot.engine.truth.CanonicalPriceMark6522(
+                        mint = mint, pairId = pair.pairAddress, baseMint = pair.baseTokenAddress,
+                        quoteMint = pair.quoteTokenAddress, source = "DEXSCREENER_PAIR_POLL",
+                        timestampMs = nowMs6575,
+                        priceUsd = priceUsd6575,
+                        liquidityUsd = liquidityUsd6575,
+                        purpose = com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
+                    )
+                )
+            } catch (_: Throwable) { false }
+            if (executableAccepted6575) {
+                try { PipelineHealthCollector.labelInc("CANONICAL_PRICE_MARK_EXECUTABLE_ACCEPTED_6575") } catch (_: Throwable) {}
+            } else {
+                try { PipelineHealthCollector.labelInc("CANONICAL_PRICE_MARK_EXECUTABLE_DEFERRED_6575") } catch (_: Throwable) {}
+            }
+            // No pre-V3 return. Cycle proceeds even when neither mark
+            // was accepted — the executor boundary enforces the strict
+            // rule via EXECUTION_WITH_PROVISIONAL_MARK.
             
             ts.lastPrice        = validatedPrice
             ts.lastPriceSource  = "DEXSCREENER_PAIR_POLL"  // V5.9.744

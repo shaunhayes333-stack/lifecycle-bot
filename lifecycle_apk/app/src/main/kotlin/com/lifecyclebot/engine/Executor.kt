@@ -12012,6 +12012,33 @@ class Executor(
                 ForensicLogger.lifecycle("EXEC_LEASE_LEAK_INVARIANT_6514", "attemptId=$executionAttemptId6514 mint=${ts.mint.take(10)} reason=$reason key=$leaseKey")
             } catch (_: Throwable) {}
         }
+        // V5.0.6575 §P0-2 — EXECUTION MARK ENFORCEMENT.
+        // Operator invariant: EXECUTION_WITH_PROVISIONAL_MARK must be 0.
+        // A paper BUY may only proceed when the strict
+        // EXECUTABLE_ENTRY_QUOTE canonical mark exists for this mint.
+        // Observation marks are for scoring, not execution. This is the
+        // hard-safety half of the P0-2 pair: the pre-V3 return was
+        // removed in BotService.processTokenCycle so V3/FDG can see
+        // provisional data, but the executor MUST refuse to fill without
+        // a strict mark.
+        val executableMark6575 = try {
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(
+                ts.mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
+            )
+        } catch (_: Throwable) { null }
+        if (executableMark6575 == null) {
+            try {
+                PipelineHealthCollector.labelInc("EXECUTION_WITH_PROVISIONAL_MARK_6575")
+                ForensicLogger.lifecycle(
+                    "EXECUTION_WITH_PROVISIONAL_MARK_6575",
+                    "mint=${ts.mint.take(10)} lane=$layerTag action=refuse_no_strict_mark paper=true",
+                )
+            } catch (_: Throwable) {}
+            markPaperBuyNotOpened("NO_EXECUTABLE_MARK_6575")
+            return
+        } else {
+            try { PipelineHealthCollector.labelInc("EXECUTION_STRICT_MARK_OK_6575") } catch (_: Throwable) {}
+        }
         // V5.0.6451 §ENTRY_GATE — ExecutableEntryAuthority6450.gate() is the
         // single authority every executable BUY must clear before capital
         // reservation. Verdict values:

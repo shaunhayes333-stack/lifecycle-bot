@@ -17,7 +17,11 @@ data class CanonicalPriceMark6522(
 )
 
 object CanonicalPriceMarkRegistry6522 {
-    private val marks = ConcurrentHashMap<String, CanonicalPriceMark6522>()
+    // V5.0.6575 — P0-2: split storage per purpose so publishing an OBSERVATION
+    // mark cannot overwrite a valid EXECUTABLE_ENTRY_QUOTE mark for the same
+    // mint (and vice-versa). Executors read the strict-purpose slot; scoring
+    // reads whichever slot has fresher data.
+    private val marks = ConcurrentHashMap<Pair<String, CanonicalMarkPurpose6570>, CanonicalPriceMark6522>()
 
     fun publish(mark: CanonicalPriceMark6522): Boolean {
         if (mark.mint.isBlank() || mark.baseMint != mark.mint) return false
@@ -34,10 +38,22 @@ object CanonicalPriceMarkRegistry6522 {
             )
             if (!observationOk) return false
         }
-        marks.compute(mark.mint) { _, current -> if (current == null || mark.timestampMs >= current.timestampMs) mark else current }
-        return marks[mark.mint] == mark
+        val key = mark.mint to mark.purpose
+        marks.compute(key) { _, current -> if (current == null || mark.timestampMs >= current.timestampMs) mark else current }
+        return marks[key] == mark
     }
 
-    fun get(mint: String): CanonicalPriceMark6522? = marks[mint]
+    /** V5.0.6575 — purpose-aware lookup. Executors MUST use
+     *  purpose = EXECUTABLE_ENTRY_QUOTE. Scoring/observation callers may
+     *  fall back to OBSERVATION_SCORING when the strict mark is absent. */
+    fun get(mint: String, purpose: CanonicalMarkPurpose6570): CanonicalPriceMark6522? =
+        marks[mint to purpose]
+
+    /** Back-compat: prefer strict executable mark, then exit-economic, then observation. */
+    fun get(mint: String): CanonicalPriceMark6522? =
+        marks[mint to CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE]
+            ?: marks[mint to CanonicalMarkPurpose6570.EXIT_ECONOMIC]
+            ?: marks[mint to CanonicalMarkPurpose6570.OBSERVATION_SCORING]
+
     internal fun resetForTest() = marks.clear()
 }
