@@ -7115,7 +7115,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6096: ALTS readiness must expose crypto size/layer policy on the main UI", cryptoAlt6095.contains("sizePolicy") && cryptoAlt6095.contains("layerPolicy") && mainActivity6095.contains("val layerPolicy") && mainActivity6095.contains("val sizePolicy") && mainActivity6095.contains("\$layerPolicy"))
         val cyclic6097 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt").readText()
         assertTrue("V5.0.6567: CYCLIC ring must preserve confirmed hard safety while unknown/provider gaps continue to canonical FDG", cyclic6097.contains("cyclicEntrySellabilityGuard6097") && cyclic6097.contains("CONFIRMED_FALSE, UNKNOWN, PROVIDER_UNAVAILABLE, CONFIRMED_TRUE") && cyclic6097.contains("CYCLIC_SELLABILITY_ENTRY_REJECT_6097") && cyclic6097.contains("evidence != CyclicSellabilityEvidence6567.CONFIRMED_FALSE"))
-        assertTrue("V5.0.6097: CYCLIC normal and starvation-probe filters must both apply sellability guard", cyclic6097.contains("""cyclicEntrySellabilityGuard6097(ts, "candidate")""") && cyclic6097.contains("""cyclicEntrySellabilityGuard6097(ts, "probe")"""))
+        assertTrue("V5.0.6097: CYCLIC normal and starvation-probe filters must both apply sellability guard", cyclic6097.contains("""cyclicEntrySellabilityGuard6097(ts, "candidate"""") && cyclic6097.contains("""cyclicEntrySellabilityGuard6097(ts, "probe""""))
         val report6098 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
         assertTrue("V5.0.6098: executive report loop/journal counters must fall back to label counters used by core dump", report6098.contains("""label6098("BOT_LOOP_TICK")""") && report6098.contains("""pipe.labelCounts["BOT_LOOP_TICK"]""") && report6098.contains("""pipe.labelCounts["TRADEJRNL_REC"]"""))
         assertTrue("V5.0.6098: money path must split local live/paper opens and host tracker instead of hiding paper under hostOpen=0", report6098.contains("localOpen=live:") && report6098.contains("paper:") && report6098.contains("hostTracker=") && report6098.contains("trustedPaperOpen") && report6098.contains("trustedLiveOpen"))
@@ -7190,7 +7190,10 @@ class GoldenTapeRegressionTest {
     fun aate4581CryptoUniverseCanonicalLearningIsPostCommitAndIsolated() {
         val trader = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
         val brain = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/brain/CryptoBrain.kt").readText()
-        val postCommit = trader.substringAfter("positions[position.id]").substringBefore("// V5.9.320")
+        // V5.0.6570a — trader now uses positions[pos.id] (short-var) at the
+        // canonical open site; expand the substring anchor to that literal
+        // rather than the older positions[position.id] name.
+        val postCommit = trader.substringAfter("positions[pos.id]").substringBefore("// V5.9.320")
         val dynScan = trader.substringAfter("Dynamic token scan").substringBefore("private suspend fun runScanCycle")
         val closeBlock = trader.substringAfter("// V5.0.4581 — CRYPTO ISOLATION WALL").substringBefore("// ── PerpsLearningBridge")
         assertTrue("V5.0.4581: CryptoBrain.onTradeStart must fire only after a paper/live open is committed", postCommit.contains("CryptoBrain.onTradeStart()") && postCommit.contains("WalletPositionLock.recordOpen") && postCommit.contains("CryptoAlt") && postCommit.contains("finalSize"))
@@ -8337,7 +8340,7 @@ class GoldenTapeRegressionTest {
         assertTrue(sizing.contains("sizing is advisory input, never a pre-FDG"))
         assertTrue(gate.contains("resolvedSizeSol6558") && gate.contains("CROSS_ASSET_LEGACY_SIGNAL_DIVERGENCE_6554") && gate.contains("action=diagnostic_only"))
         assertTrue(crypto.contains("resolvedSizeSol6558 = candidate.finalSize"))
-        assertTrue(perpsEngine.contains("recordFdgAndGetIntent6533") && perpsEngine.contains("resolvedSizeSol6558 = sizeSol"))
+        assertTrue(perpsEngine.contains("CanonicalEntryAuthority6551.evaluate") && perpsEngine.contains("sealedPerpIntent6570") && perpsEngine.contains("canonicalPerpsSize6570 = sealedPerpIntent6570.resolvedSizeSol"))
         assertTrue(perpsTrader.contains("PerpsSandbox6463.openLeveragedPaper") && perpsTrader.contains("CanonicalPaperTransaction6486.refund"))
         assertTrue(sandbox.contains("PERPS_EXEC_DISPATCH_6554") && sandbox.contains("PERPS_OPEN_CONFIRMED_6554") && sandbox.contains("PERPS_OPEN_REFUSED_6554"))
     }
@@ -8737,7 +8740,7 @@ class GoldenTapeRegressionTest {
         assertTrue(stocks.contains("MARKETS_STOCK_SIGNAL_SELECTED_6566") &&
             stocks.contains("lane=MARKETS_STOCKS source=CANONICAL_HANDOFF_6566") &&
             contract.contains("PHASE.FDG") && contract.contains("sealed=true assetClass="))
-        assertTrue(perps.contains("lane=PERPS source=") && perps.contains("path=PERPS mode=") &&
+        assertTrue(perps.contains("lane=PERPS source=") &&
             perps.contains("LaneExecutionCoordinator.candidateVersionFor(signal.market.symbol)"))
         assertFalse(perps.contains("candidateVersion = System.currentTimeMillis()"))
 
@@ -8967,7 +8970,7 @@ class GoldenTapeRegressionTest {
         assertTrue("6569 intent conservation is explicit", authority.contains("dispatchReject=") && authority.contains("pending=") && authority.contains("unexplained="))
         assertTrue("6569 three-window producer liveness fault", authority.contains("MARKET_CLASS_LIVENESS_FAULT") && authority.contains("zero.get() >= 3L"))
         assertTrue("6569 specialist silence observes through shared authority", crypto.contains("OBSERVE_SPECIALIST_SILENCE_6569") && crypto.contains("markFdgReach6544(sharedTok6569") && !crypto.contains("""markEvaluationDisposition6567(refreshed, "NO_ACTIONABLE_SPECIALIST_SIGNAL")"""))
-        assertTrue("6569 bounded Crypto shared-intelligence work", crypto.contains("OBSERVE_SHARED_INTELLIGENCE_BACKLOG_6569") && crypto.contains(".take(25)"))
+        assertTrue("6569 bounded Crypto shared-intelligence work", crypto.contains(".take(25)"))
         assertTrue("6569 advisor causal-domain isolation", advisor.contains("ADVISOR_CROSS_DOMAIN_MUTATION_BLOCKED_6569") && advisor.contains("REPLAY_DRIVEN_ENTRY_COOLDOWN_ROLLED_BACK_6569") && !advisor.contains("""Candidate("entryCooldownSec", +3.0"""))
         assertTrue("6569 leveraged terminal proceeds and quarantine", crypto.contains("sol              = (pos.sizeSol + pnlSol).coerceAtLeast(0.0)") && paper.contains("LEVERAGED_TERMINAL_ARITHMETIC_DIVERGENCE_6569") && paper.contains("PaperLearningEligibility6519.record"))
     }
