@@ -1,3 +1,47 @@
+## V5.0.6578 — P1-1 P1-2 P1-4 source-level repairs
+- **P1-1** CryptoAlt paper branch now calls `CanonicalEntryAuthority6551.markDispatch` + `markConfirmed`/`markFailed` in parity with the live branch. Fixes `intent=3 dispatch=0 open=0` forensic.
+- **P1-2** PerpsExecutionEngine emits `PERPS_MARKET_DATA_EMPTY_6578` + `PERPS_SIGNAL_NONE_6578` so every scan has an attributable terminal state (no silent zero-candidate windows).
+- **P1-4** PositionStateLedger6454 duplicate-close attempts increment the `DUPLICATE_TERMINAL_MUTATION_6578` invariant counter so operator's "duplicate close loops = 0" is directly visible.
+- Regression: `P1RepairSourceCoverage6578Test`.
+
+## V5.0.6577 — P0-1 ONE CANONICAL PAPER CAPITAL AUTHORITY
+- **NEW** `engine/truth/PaperCapitalAuthority6577` — thin facade over `PaperAccountLedger6430` exposing `snapshot() / availableCashSol() / openMarketValueSol() / totalEquitySol()` + invariant probes: `probeUiCash` (`PAPER_UI_CASH_DIVERGENCE_6577`, target 0), `probeDebitReservation` (`PAPER_DEBIT_WITHOUT_RESERVATION`), `probeEquityConservation`.
+- `ShitCoinTraderAI.getBalance` paper mode now reads canonical `availableCashSol()`, not local `paperBalanceBps`.
+- `CryptoAltTrader.getEffectiveBalance` paper mode now reads canonical authority (was `status.paperWalletSol` cache).
+- `MultiAssetActivity.updateTotalBalance` displays paper equity from `snapshot().totalEquitySol` and probes divergence.
+- Regression: `PaperCapitalAuthorityP0_1_6577Test`.
+
+## V5.0.6576 — P0-3 ONE CANONICAL OUTCOME CLASSIFICATION
+- **NEW** `engine/truth/CanonicalOutcomeClassifier6576` — single authority WIN/LOSS/BREAKEVEN with symmetric ±0.5% band. Provides `classify(returnPct)`, `classifyReadonly`, `classifyPnl(pnlSol, costBasisSol)`, `reportConsumerClass` (emits `OUTCOME_CLASS_DIVERGENCE_6576`).
+- `RewardPurityGate6441.acceptFinalizedClose` now uses classifier + entryCostSol (was raw `>0.0` / `<0.0` → contradicted every other consumer).
+- `PerformanceAnalytics.WIN_THRESHOLD_PCT/LOSS_THRESHOLD_PCT` derived from classifier constant; `isWin/isLoss/isDecisive` delegate to classifier. Prior asymmetric 0.5/-2.0 doctrine removed.
+- `TacticSwitcher.onTradeClosed` + historical-row attribution both use `classifyReadonly`. Breakevens attributed under `TACTIC_BREAKEVEN_6576`.
+- Regression: `CanonicalOutcomeClassifierP0_3_6576Test`.
+
+## V5.0.6575 — P0-2 CANONICAL MARK IS NOT A PRE-V3 VETO
+- `CanonicalPriceMarkRegistry6522` now keys by `(mint, purpose)` — OBSERVATION_SCORING and EXECUTABLE_ENTRY_QUOTE marks coexist per mint.
+- `BotService.processTokenCycle` publishes BOTH marks per pair-poll and no longer `return`s on mark rejection (was the sole source of 1589 pre-V3 rejects). New counters `CANONICAL_PRICE_MARK_OBSERVATION_ACCEPTED_6575`, `..._REJECTED_6575`, `..._EXECUTABLE_ACCEPTED_6575`, `..._DEFERRED_6575`.
+- `Executor.paperBuy` hard-refuses when no `EXECUTABLE_ENTRY_QUOTE` mark exists — emits `EXECUTION_WITH_PROVISIONAL_MARK_6575` (invariant = 0) and `EXECUTION_STRICT_MARK_OK_6575` on the happy path.
+- Regression: `CanonicalMarkNotAPreV3Veto6575Test`. **CI green.**
+
+## V5.0.6574 — MEME PROFITABILITY RESTORATION (source-level knob revert)
+- Restored `rawScoreMult ≥80 1.50 / ≥65 1.30 / ≥50 1.15` (V5.9.1352 flatten reverted).
+- `qualityMult "Unknown" 0.80 → 1.00` (fresh meme launches no longer sized-down for being new).
+- Paper `perfMult` WR<40% floor 0.70→0.90 (death-spiral fix).
+- Paper `drawdownMult` <50% floor 0.50→0.75 (recovery volume preserved).
+- Regression: `MemeProfitabilityRestore6574Test`. **CI green.**
+
+## V5.0.6573 — enable all lanes + repair CI + reclaim uncloseable market capital
+- `BotConfig.cyclicTradeEnabled = true` (paper) — every lane on for full self-learning coverage.
+- `GoldenTapeRegressionTest V5_0_6558...` assertion aligned to source (`.submit` was renamed from `.evaluate`). Unblocks CI.
+- `TokenizedStockTrader.paperClose` refunds locally when ledger refuses (`PAPER_CLOSE_FALLBACK_6572`) so stocks stop stranding 58 open rows.
+- **CI green.**
+
+## V5.0.6572 — meme volume repair (kill dust-sized paper buys at source)
+- `Executor.kt` paper skips 35% graduated tranching (was dust generator).
+- `SmartSizer.kt` economic-min promotion relaxed to `tradeable ≥ dustFloor` (was 2× dust).
+
+
 ## V5.0.6508 — 2026-02-19 — EXECUTION AUTHORITY + PAPER FINALITY REPAIR (methodical subset)
 
 Operator mandate: "a be methodical it won't go bad!" Paper only. No
