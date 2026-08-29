@@ -7737,8 +7737,19 @@ for legal compliance.
                 if (cfg.paperMode) R.drawable.pill_bg_yellow else R.drawable.pill_bg_green
             )
 
-            // Balance
-            val balance = if (cfg.paperMode) state.paperBalanceSol else state.liveBalanceSol
+            // V5.0.6593 §SHARED_WALLET_HERO_TRUTH — operator directive Feb 2026:
+            // "Trader-specific screens may filter positions/PnL by trader/lane,
+            //  but may NOT invent their own wallet balance." The Perps card
+            // previously showed state.paperBalanceSol (a trader-local cache
+            // that could diverge from the canonical authority — that's how
+            // the Meme hero showed 5.09 SOL as BALANCE when total equity
+            // was 14.25 SOL). Route through PaperCapitalAuthority6577 so
+            // every hero reads the same immutable snapshot.
+            val balance = if (cfg.paperMode) {
+                try {
+                    com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.totalEquitySol()
+                } catch (_: Throwable) { state.paperBalanceSol }
+            } else state.liveBalanceSol
             tvPerpsBalance?.text = "%.4f".format(balance)
 
             // P&L

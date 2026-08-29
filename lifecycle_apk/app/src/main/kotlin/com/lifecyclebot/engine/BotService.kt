@@ -10634,6 +10634,43 @@ class BotService : Service() {
                     LearningLifecycleBus.preFdgProbe("ZERO_SIGNAL_PROBE", lane, sourceForChop, mintForProbe, edgeSymbol4529, baseBlock, laneBase.entryScore, laneBase.aiConfidence, liquidityUsd, edgeMcap4529, resolveProbeSizeMult(mintForProbe, liquidityUsd), edgeRegime4529)
                 } catch (_: Throwable) {}
             }
+            // V5.0.6593 §ENTRY_SELECTIVITY — operator directive Feb 2026:
+            //   > "Lane evidence MAY overcome weak generic scoring only when
+            //   >  it provides independent positive evidence. Lane membership
+            //   >  alone cannot promote WAIT."
+            // Pre-6593 the DUST_PROBE fallthrough promoted WAIT -> PROBE for
+            // EVERY weakWait candidate whose liquidity was OK, regardless of
+            // what the learned policy stack had to say. Snapshot 6591 counted
+            // 107 LANE_WAIT_OVERRIDE_DUST_PROBE + 80 ZERO_SIGNAL_DUST_PROBE
+            // while learned global bias was -0.62 and every context reported
+            // winP ~11-20%. That is negative causal evidence with zero causal
+            // effect on the WAIT->PROBE conversion. Fix: when the authority-
+            // tier policy head says negative, the WAIT->PROBE promotion must
+            // be vetoed with a distinct telemetry line (never silently kept
+            // as PROBE). The lane is NOT disabled; a positive policy signal
+            // on the next tick reopens promotion.
+            val laneAuthoritativePolicyNegative6593 = agiAuthority6020 ==
+                com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE &&
+                !authoritativePolicyPositive6568
+            if (laneAuthoritativePolicyNegative6593) {
+                try {
+                    PipelineHealthCollector.labelInc("LEARNED_POLICY_NEGATIVE_LANE_WAIT_PROMOTION_VETO_6593")
+                    PipelineHealthCollector.labelInc("PREFDG_LEARNED_VETO_${lane.uppercase()}")
+                    ForensicLogger.lifecycle(
+                        "LEARNED_POLICY_NEGATIVE_LANE_WAIT_PROMOTION_VETO_6593",
+                        "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} action=block_wait_to_probe_until_policy_positive"
+                    )
+                    LearningLifecycleBus.preFdgReject(
+                        "LEARNED_POLICY_VETO_6593", lane, sourceForChop, mintForProbe,
+                        edgeSymbol4529, baseBlock, laneBase.entryScore, laneBase.aiConfidence,
+                        liquidityUsd, edgeMcap4529, edgeRegime4529,
+                    )
+                } catch (_: Throwable) {}
+                return laneBase.copy(
+                    signal = "WAIT", finalSignal = "WAIT", shouldTrade = false,
+                    blockReason = "LEARNED_POLICY_VETO_6593",
+                )
+            }
             // Liquidity OK but still weak → DUST-PROBE only (explicit + tiny size).
             try {
                 PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_DUST_PROBE")
