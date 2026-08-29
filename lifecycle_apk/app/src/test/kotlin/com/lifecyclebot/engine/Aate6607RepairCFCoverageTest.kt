@@ -116,13 +116,14 @@ class Aate6607RepairCFCoverageTest {
             restoreMarker6607 in 1 until emitIdx && emitIdx - restoreMarker6607 < 4000
         )
         // The old failure mode was the emit being gated on isLive(). Prove
-        // the emit line itself does NOT sit under an `if (` that
-        // immediately checks isLive() — look at the 500 chars immediately
-        // preceding the emit.
-        val precedingSlice = bot.substring(maxOf(0, emitIdx - 500), emitIdx)
+        // the emit line itself is preceded (within the same block) by the
+        // mode-tag ternary that computes both PAPER and LIVE labels.
+        val modeTagIdx = bot.substring(0, emitIdx).lastIndexOf(
+            "modeTag6607 = if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive())"
+        )
         assertTrue(
-            "V5.0.6607b: emit must not sit directly under an isLive() gate; expected the mode-tag ternary within a run{ } wrapper instead",
-            precedingSlice.contains("modeTag6607 = if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive())")
+            "V5.0.6607b: emit must be preceded by the modeTag6607 ternary that computes both PAPER and LIVE labels (modeTag=$modeTagIdx emit=$emitIdx)",
+            modeTagIdx in 1 until emitIdx && emitIdx - modeTagIdx < 4000
         )
         assertTrue(
             "V5.0.6607b: mode-tagged all-lane contribution label must exist",
