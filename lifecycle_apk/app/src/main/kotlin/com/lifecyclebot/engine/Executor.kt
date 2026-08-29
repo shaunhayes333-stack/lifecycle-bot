@@ -8438,13 +8438,26 @@ class Executor(
             val stopPx = if (pos.entryPrice > 0.0 && effStopPct > 0.0) pos.entryPrice * (1.0 - effStopPct / 100.0) else 0.0
             val catastrophePx = if (pos.entryPrice > 0.0) pos.entryPrice * 0.75 else 0.0 // -25% catastrophic
             val trailPx = if (pos.highestPrice > pos.entryPrice) pos.highestPrice * 0.90 else 0.0 // 10% trail off peak
+            // V5.0.6581 §P0-7 — TAKE-PROFIT WIRING.
+            // Operator forensic (6580): 13,381 exit evaluations, TP=0 with
+            // +7.8 SOL unrealised. tpPx was hard-coded to 0.0 which meant the
+            // scheduler had no take-profit threshold to compare against — every
+            // winner rolled through until stopped out. Now derive tpPx from:
+            //   1) treasuryTakeProfit if set by the treasury sizer
+            //   2) modeConf.takeProfitPct or the growth default 50%
+            // else fall back to 25% (the meme runner default).
+            val effTpPct = when {
+                pos.isTreasuryPosition && pos.treasuryTakeProfit > 0.0 -> pos.treasuryTakeProfit
+                else -> 25.0  // 25% meme runner default — was 0 (TP disabled), now wired
+            }
+            val tpPx = if (pos.entryPrice > 0.0 && effTpPct > 0.0) pos.entryPrice * (1.0 + effTpPct / 100.0) else 0.0
             com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.evaluate(
                 positionId = pid6451,
                 mint = ts.mint,
                 markPx = price,
                 stopPx = stopPx,
                 catastrophePx = catastrophePx,
-                tpPx = 0.0,
+                tpPx = tpPx,
                 trailPx = trailPx,
                 quoteAgeMs = 0L,
             )
