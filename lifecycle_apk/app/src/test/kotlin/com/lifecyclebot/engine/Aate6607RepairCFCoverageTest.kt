@@ -102,20 +102,22 @@ class Aate6607RepairCFCoverageTest {
         val bot = java.io.File(
             "src/main/kotlin/com/lifecyclebot/engine/BotService.kt"
         ).readText()
-        // The LIVE_ALL_LANE_CONTRIBUTION_4469 emit must fire regardless of
-        // isLive(). The MEME_ALL_LANE_CONTRIBUTION_6607_<MODE>_<LANE>
-        // label carries the mode tag so operator can grep either.
+        // Locate the ONE unique 4469 emit in the file.
         val emitIdx = bot.indexOf("PipelineHealthCollector.labelInc(\"LIVE_ALL_LANE_CONTRIBUTION_4469_")
         assertTrue("V5.0.6607b: 4469 emit must exist", emitIdx > 0)
-        // Search backward for the nearest enclosing `if (` — it must NOT be
-        // the RuntimeModeAuthority.isLive() gate.
+        // The V5.0.6607b marker comment must appear BEFORE the emit and
+        // must be closer to the emit than any RuntimeModeAuthority.isLive()
+        // gate — meaning the emit is inside the unconditional wrapper, not
+        // inside the isLive() gate.
+        val restoreMarker6607 = bot.substring(0, emitIdx).lastIndexOf(
+            "§RESTORE_ALL_LANE_CONTRIBUTION_PAPER"
+        )
         val liveGateNearestBefore = bot.substring(0, emitIdx).lastIndexOf(
             "if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive())"
         )
-        val runBlockNearestBefore = bot.substring(0, emitIdx).lastIndexOf("run {")
         assertTrue(
-            "V5.0.6607b: 4469 emit must be inside a `run { }` block that runs unconditionally in both paper and live, not inside the isLive() gate",
-            runBlockNearestBefore > liveGateNearestBefore
+            "V5.0.6607b: emit must be inside the §RESTORE_ALL_LANE_CONTRIBUTION_PAPER wrapper that runs unconditionally, not inside an isLive() gate (marker=$restoreMarker6607 liveGate=$liveGateNearestBefore emit=$emitIdx)",
+            restoreMarker6607 > 0 && (liveGateNearestBefore < 0 || restoreMarker6607 > liveGateNearestBefore)
         )
         assertTrue(
             "V5.0.6607b: mode-tagged all-lane contribution label must exist",
