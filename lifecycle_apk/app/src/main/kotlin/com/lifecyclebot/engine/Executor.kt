@@ -12012,30 +12012,44 @@ class Executor(
                 ForensicLogger.lifecycle("EXEC_LEASE_LEAK_INVARIANT_6514", "attemptId=$executionAttemptId6514 mint=${ts.mint.take(10)} reason=$reason key=$leaseKey")
             } catch (_: Throwable) {}
         }
-        // V5.0.6575 §P0-2 — EXECUTION MARK ENFORCEMENT.
-        // Operator invariant: EXECUTION_WITH_PROVISIONAL_MARK must be 0.
-        // A paper BUY may only proceed when the strict
-        // EXECUTABLE_ENTRY_QUOTE canonical mark exists for this mint.
-        // Observation marks are for scoring, not execution. This is the
-        // hard-safety half of the P0-2 pair: the pre-V3 return was
-        // removed in BotService.processTokenCycle so V3/FDG can see
-        // provisional data, but the executor MUST refuse to fill without
-        // a strict mark.
-        val executableMark6575 = try {
+        // V5.0.6575 §P0-2 + V5.0.6579 §P0-e — EXECUTION MARK ENFORCEMENT.
+        // Operator invariant: EXECUTION_WITH_PROVISIONAL_MARK must be 0
+        // for LIVE. Paper is different — per V5.0.6579 P0-e directive:
+        //   "PAPER must not require Jupiter transaction construction,
+        //    signing, live-wallet delta proof, live-chain route
+        //    availability or live finality. It may use live/provider
+        //    market data for price/sellability evidence, but the
+        //    simulated fill path must terminalize independently."
+        // Paper therefore accepts either the strict EXECUTABLE_ENTRY_QUOTE
+        // mark OR a fresh OBSERVATION_SCORING mark. Only live must require
+        // the strict mark. This eliminates the 6578 ROUTE_FAILED_PAPER
+        // false blocks for paper trades sourced from paths where only
+        // the observation mark got through.
+        val strictMark6575 = try {
             com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(
                 ts.mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
             )
         } catch (_: Throwable) { null }
-        if (executableMark6575 == null) {
+        val observationMark6579 = try {
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(
+                ts.mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING,
+            )
+        } catch (_: Throwable) { null }
+        val paperMarkOk6579 = strictMark6575 != null || observationMark6579 != null
+        if (!paperMarkOk6579) {
             try {
                 PipelineHealthCollector.labelInc("EXECUTION_WITH_PROVISIONAL_MARK_6575")
                 ForensicLogger.lifecycle(
                     "EXECUTION_WITH_PROVISIONAL_MARK_6575",
-                    "mint=${ts.mint.take(10)} lane=$layerTag action=refuse_no_strict_mark paper=true",
+                    "mint=${ts.mint.take(10)} lane=$layerTag action=refuse_no_mark_paper=true",
                 )
             } catch (_: Throwable) {}
             markPaperBuyNotOpened("NO_EXECUTABLE_MARK_6575")
             return
+        } else if (strictMark6575 == null) {
+            // Paper-only: observation mark accepted; count separately so the
+            // operator can see how many paper trades ran on provisional evidence.
+            try { PipelineHealthCollector.labelInc("EXECUTION_PAPER_OBSERVATION_MARK_OK_6579") } catch (_: Throwable) {}
         } else {
             try { PipelineHealthCollector.labelInc("EXECUTION_STRICT_MARK_OK_6575") } catch (_: Throwable) {}
         }

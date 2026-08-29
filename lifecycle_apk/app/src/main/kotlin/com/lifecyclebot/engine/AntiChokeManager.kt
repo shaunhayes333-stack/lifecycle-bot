@@ -103,7 +103,28 @@ object AntiChokeManager {
         val stagnantStarvation = !throughputMet && stagnantMs > TARGET_MS_PER_TRADE * SOFTEN_STAGNATION_MULT
         val projectedStarvation = projectedDaily < TARGET_TRADES_PER_DAY * 0.70
         val starving = stagnantStarvation || projectedStarvation
-        val clogged = false // intake-pool size is not a choke signal; upstream gates decide entries
+        // V5.0.6579 §P0-b — REAL CONGESTION SIGNAL.
+        // Operator directive (6578 forensic):
+        //   "AntiChokeManager clogged=false cannot remain hard-coded. Derive
+        //    congestion from queue age, pending unique work, supervisor
+        //    saturation, cycle duration and progress age."
+        // 6578 phone snapshot: 16,323 token-map pendings, 15,634 probation
+        // holds, 15,974 watchlist rebalances, avg cycle 98.3s, p95 244s.
+        // A hard-coded false meant SOFTEN never fired on real work
+        // amplification — only on trade-starvation stagnation. Derive
+        // clogged from pipeline health counters that indicate pending
+        // unique work outrunning canonical consumption.
+        val clogged = try {
+            val tokenMapPending = try { PipelineHealthCollector.labelCountSnapshot("TOKEN_MAP_PENDING") } catch (_: Throwable) { 0L }
+            val probationHold  = try { PipelineHealthCollector.labelCountSnapshot("PROBATION_HOLD_ADMIT") } catch (_: Throwable) { 0L }
+            val supervisorCap  = try { PipelineHealthCollector.labelCountSnapshot("SUPERVISOR_CAP_FIRED") } catch (_: Throwable) { 0L }
+            // 6578 baseline: token-map pendings and probation holds each
+            // >15k over the session. Threshold trip when either work
+            // queue exceeds 1000 (10× baseline healthy) OR supervisor cap
+            // has fired more than 100 times (loops overshooting budget).
+            tokenMapPending > 1000L || probationHold > 1000L || supervisorCap > 100L
+        } catch (_: Throwable) { false }
+        if (clogged) try { PipelineHealthCollector.labelInc("ANTI_CHOKE_CLOGGED_DETECTED_6579") } catch (_: Throwable) {}
         val ghostPressure = openInternal >= 12 && openWalletBefore <= 2 && !isPaperMode
 
         level = when {

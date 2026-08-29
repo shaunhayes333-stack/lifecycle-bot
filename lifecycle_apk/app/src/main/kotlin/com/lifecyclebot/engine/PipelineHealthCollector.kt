@@ -2708,11 +2708,26 @@ object PipelineHealthCollector {
         try {
             sb.append("\n===== Background Runtime Progress (V5.0.6544) =====\n")
             val now6544 = System.currentTimeMillis()
+            val bgAges6579 = mutableMapOf<String, Long>()
             listOf("BG_BOT_LOOP_TICK", "BG_SCAN_CB", "BG_INTAKE", "BG_FDG", "BG_EXIT").forEach { key ->
                 val count = backgroundProgressCounts6544[key]?.get() ?: 0L
                 val last = backgroundProgressLastMs6544[key]?.get() ?: 0L
                 val age = if (last > 0L) (now6544 - last).coerceAtLeast(0L) else Long.MAX_VALUE
+                bgAges6579[key] = age
                 sb.append("  ").append(key).append("=").append(count).append(" lastAgeMs=").append(age).append("\n")
+            }
+            // V5.0.6579 §P0-a — SPLIT RUNTIME INVARIANT.
+            // Operator forensic: BG_INTAKE age 849 ms while BG_SCAN_CB /
+            // BG_FDG were ~8.2h stale — an intake-only zombie. Emit the
+            // dedicated invariant counter when INTAKE is fresh (<60s) but
+            // canonical stages have not advanced in > 10 minutes.
+            val intakeAge = bgAges6579["BG_INTAKE"] ?: Long.MAX_VALUE
+            val scanAge = bgAges6579["BG_SCAN_CB"] ?: Long.MAX_VALUE
+            val fdgAge = bgAges6579["BG_FDG"] ?: Long.MAX_VALUE
+            if (intakeAge < 60_000L && (scanAge > 600_000L || fdgAge > 600_000L)) {
+                labelInc("BG_SPLIT_RUNTIME_INTAKE_ZOMBIE_6579")
+                sb.append("  ⚠ BG_SPLIT_RUNTIME_INTAKE_ZOMBIE_6579=intakeAge<60s scanAge=${scanAge}ms fdgAge=${fdgAge}ms\n")
+                sb.append("     ROOT-CAUSE: intake producer alive without canonical scan/FDG generation.\n")
             }
             sb.append(com.lifecyclebot.engine.BotService.backgroundLivenessSnapshot6544()).append("\n")
         } catch (_: Throwable) {}

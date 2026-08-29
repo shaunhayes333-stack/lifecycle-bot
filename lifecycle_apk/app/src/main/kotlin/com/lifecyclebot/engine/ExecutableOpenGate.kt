@@ -1811,8 +1811,17 @@ object ExecutableOpenGate {
                 logName = "EXEC_OPEN_PRECHECK_SIZE_PENDING_6491", attemptId = execKey)
         }
         if (!com.lifecyclebot.engine.truth.OrderSizeResolver6441.meetsMinimum6491(effectiveResolvedSize6497, minExecutable6491)) {
+            // V5.0.6579 §P0-d — block reason must be a concrete taxonomy,
+            // never merely 'resolvedSize=<positive number>'. Operator
+            // directive: BELOW_MIN_NOTIONAL / NO_AVAILABLE_CAPITAL / LANE_CAP.
+            val taxonomyReason6579 = when {
+                effectiveResolvedSize6497 <= 0.0 -> "SIZE_ZERO_UNPRICED_INTAKE"
+                effectiveResolvedSize6497 < minExecutable6491 -> "BELOW_MIN_NOTIONAL"
+                else -> "SIZE_BELOW_MIN_EXECUTABLE"
+            }
+            try { PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCK_TAXONOMY_${taxonomyReason6579}_6579") } catch (_: Throwable) {}
             return blocked("EXEC_OPEN_BLOCKED_SIZE_NOT_EXECUTABLE_6491",
-                "resolvedSize=$effectiveResolvedSize6497 minimum=$minExecutable6491 sealedSize=${try { com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint) } catch (_: Throwable) { null }}", shadow = true)
+                "taxonomy=$taxonomyReason6579 resolvedSize=$effectiveResolvedSize6497 minimum=$minExecutable6491 sealedSize=${try { com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint) } catch (_: Throwable) { null }}", shadow = true)
         }
         val claimKey6487 = executableClaimKey6487(modeUpper, mint, candidateVersion)
         val priorClaim6487 = executableBuyClaim6487.putIfAbsent(claimKey6487, execKey)
