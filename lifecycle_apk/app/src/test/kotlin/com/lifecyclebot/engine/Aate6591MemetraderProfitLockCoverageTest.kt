@@ -1,8 +1,8 @@
 package com.lifecyclebot.engine
 
 import org.junit.Test
-import kotlin.test.assertTrue
-import kotlin.test.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 
 /**
  * V5.0.6591 — regression coverage for the three source-of-truth patches
