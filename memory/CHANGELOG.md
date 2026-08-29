@@ -1,3 +1,15 @@
+## V5.0.6582 — 6580 P0-7 TAKE-PROFIT WIRED
+- **P0-7** `Executor.riskCheck` was calling `ProtectiveExitScheduler6450.evaluate(..., tpPx = 0.0, ...)` with tpPx hard-coded to zero. Explains `eval=13381 SL=0 CATA=0 TP=0 TRAIL=0` with +7.8 SOL unrealised across 61 open positions.
+- Fix: `tpPx = pos.entryPrice * (1 + effTpPct/100)` where `effTpPct = pos.treasuryTakeProfit` if set, else `25.0` (meme-runner default).
+- Regression: `TakeProfitWired6582Test`. **CI green.**
+
+## V5.0.6581 — 6580 P0-1 + P0-2 + P0-3
+- **P0-1 Canonical SELL fallback stays canonical**: `TokenizedStockTrader.closePosition` PAPER path — when `CanonicalPaperTransaction6486.close` refuses, now calls `.refund(positionId, mint, symbol)` which fires the canonical FinalizedBus event. Fixes 51/52 uncounted stock sells. Last-resort `PAPER_CLOSE_UNJOURNALED_LEAK_6581` counter for the rare canonical-refund-also-refused case.
+- **P0-2 MINT_ROUTE observation-authoritative**: `MarkAuthorityIntegrityGate6496.isObservationAuthoritative6570` now accepts `MINT_ROUTE:*` pool identity for OBSERVATION_SCORING (still rejects at execution boundary via `evaluate()`). Unblocks 1,365 valid DexScreener pre-V3 rejects.
+- **P0-3 CryptoAlt CANDIDATE stamp**: producer now emits `markProducerStage6569(CRYPTO_ALT, "CANDIDATE")` before `executeSignal`. Funnel shows candidate ≥ 0 (was silently 0).
+- Regression: `BuildRepair6581CoverageTest`. **CI green.**
+
+
 ## V5.0.6580 — 6578 P0-f + P0-g
 - **P0-f Bounded evidence deadline** — `DynamicAltTokenRegistry.markEvaluationProgress6570` now tracks per-(identity, state) first-seen timestamp in `evaluationProgressStamp6580`. After `EVIDENCE_TTL_MS_6580` (5 min), the token reaps into terminal `STALE_EXPIRED_6580_<state>` with `CRYPTO_EVAL_STALE_REAPED_6580` counter. Fixes 159/200 evaluations never terminalizing.
 - **P0-g CryptoAlt STARTED** — `CryptoAltTrader.start()` emits `CanonicalEntryAuthority6540.markProducerStage6569(CRYPTO_ALT, "STARTED")`. Cross-asset funnel now shows `started=1` when running.
