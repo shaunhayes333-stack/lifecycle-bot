@@ -670,6 +670,27 @@ object CanonicalPositionAuthority6441 {
                             } catch (_: Throwable) {}
                         }
                         if (trustedPrice6541 < 0.0) {
+                            // V5.0.6589 §P0-6 — LEGACY SOL-PER-TOKEN REPLAY MIGRATION.
+                            // Prior behaviour quarantined these events entirely.
+                            // Operator directive: 'replay produces exactly zero
+                            // divergence'. 275 QUARANTINE_REPLAY_UNIT_MISMATCH
+                            // events represent legacy schema where fillPrice
+                            // was stored as SOL/token, not USD/token. We can
+                            // still open the position with the correct qty
+                            // and cost basis — only entryPriceUsd is
+                            // historically unknowable without a per-timestamp
+                            // SOL/USD price feed. Open as pure-carry (no USD
+                            // basis) instead of quarantining so capital is
+                            // reconstructed and future exits work.
+                            try {
+                                PipelineHealthCollector.labelInc("REPLAY_UNIT_MIGRATED_TO_CARRY_6589")
+                                ForensicLogger.lifecycle(
+                                    "REPLAY_UNIT_MIGRATED_TO_CARRY_6589",
+                                    "positionId=${e.positionId} mint=${e.mint.take(10)} " +
+                                        "legacyFillPrice=${e.fillPrice} costSol=${e.executedCostSol} " +
+                                        "qtyRaw=${e.filledQty} action=open_no_usd_basis migration_source=6588",
+                                )
+                            } catch (_: Throwable) {}
                             positions[e.positionId] = Position(
                                 positionId = e.positionId, mode = "paper", mint = e.mint, symbol = e.symbol,
                                 lane = "REPLAY_6486", runId = e.idempotencyKey, openedAtMs = e.atMs,
@@ -677,14 +698,10 @@ object CanonicalPositionAuthority6441 {
                                 originalQtyRaw = e.filledQty, soldCostBasisSol = 0.0,
                                 realizedPnlSol = 0.0, realizedProceedsSol = 0.0, feesSol = e.entryFeesSol,
                                 tokenDecimals = e.tokenDecimals, quantityScale = e.quantityScale,
-                                lifecycle = Lifecycle.QUARANTINED, lastMutationMs = e.atMs,
-                                quarantineReason = "QUARANTINE_REPLAY_UNIT_MISMATCH_6541",
-                                entryPriceUsd = 0.0, entryPriceSource = "REPLAY_UNIT_MISMATCH_6541_QUARANTINED",
+                                lifecycle = Lifecycle.OPEN, lastMutationMs = e.atMs,
+                                quarantineReason = null,
+                                entryPriceUsd = 0.0, entryPriceSource = "REPLAY_UNIT_LEGACY_SOL_PER_TOKEN_6589",
                             )
-                            try {
-                                PipelineHealthCollector.labelInc("QUARANTINE_REPLAY_UNIT_MISMATCH_6541")
-                                ForensicLogger.lifecycle("QUARANTINE_REPLAY_UNIT_MISMATCH_6541", "positionId=${e.positionId} mint=${e.mint.take(10)}")
-                            } catch (_: Throwable) {}
                             continue
                         }
                         val entrySource6541 = when {
