@@ -1,3 +1,16 @@
+## V5.0.6591 — MemeTrader profit-lock + §H ledger alignment + fanout guardian right-size (CI GREEN)
+- **BLEED FIX**: `ProfitabilityLayer.checkTrailingStop` was firing at effective +4% (meme) or +1% (bluechip) → fees + slippage scratched every winner. Snapshot 6590 showed pnl=+0.000 on every `trail_stop_peak6..14` sell. Widen defaults + fee-aware min-lock:
+  - meme:      activate 12% → **25%**, giveback 8% → **12%**
+  - bluechip:  activate  4% → **8%**,  giveback 3% → **4%**
+  - **MIN_LOCKED_NET_PCT=6%** floor — trail cannot fire on a scratch.
+  - Downside protection (hard-floor stop, drain-exit, catastrophic-gap, v8_fast_rug) untouched.
+- **§H LEDGER**: `Executor.paperBuy.atomic6485` registered `PositionStateLedger6427` slots under `pid6485` while `ExecutorCanonicalMirror6442` registered + closed under `canonicalMint(mint)`. Different keys ⇒ 2 slots per buy, only mirror side ever closed. Snapshot showed `states={OPEN=25, CLOSED=13}` while canonical open=5 (20 phantom OPENs). Align register + abort keys to `canonicalMint`.
+- **FANOUT GUARDIAN**: `LANE_FANOUT_EXPLOSION` + `FDG_FANOUT_EXPLOSION` tripped on 6590 while the pipeline was demonstrably productive (24 paper BUYs, 32 journal rows). `productiveFanout6019` required `exec >= intake/2` (50% conversion, unrealistic for a filter bot). Rewire:
+  - productive := `journalRows > 0`  OR  `exec >= intake/20` (5% proxy).
+  - FDG threshold: `3.0` → `4.0` with journal-rows>0 escape hatch.
+  - Golden-tape substring assertions preserved (`productiveFanout6019`, `laneRatio > 18.0`, `laneRatio > 12.0 && !productiveFanout6019`).
+- Regression: `Aate6591MemetraderProfitLockCoverageTest`. **CI green** (build 33243088392).
+
 ## V5.0.6590 — 6589 compile fix (green)
 - `quarantineReason` is a non-null `String` — replaced `null` with empty-string sentinel. **CI green.** 12-point 6580 directive now COMPLETE.
 

@@ -1,13 +1,42 @@
-# AATE PRD — V5.0.6550c (P0 EXECUTION COMMIT + GROWTH COMPOUND RING)
+# AATE PRD — V5.0.6591 (MEMETRADER PROFIT-LOCK RECALIBRATED)
 
 **Status:** PAPER TRADING ONLY.
 
-**Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE (FillLotLedger6504 immutable SQLite lots + per-lot projection reconciliation), never by strangling flow. **The Growth Compound Ring now materialises this mantra as a live scoreboard tick-by-tick.**
+**Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE (FillLotLedger6504 immutable SQLite lots + per-lot projection reconciliation), never by strangling flow. **The Growth Compound Ring materialises this mantra as a live scoreboard tick-by-tick.**
 
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA.
 
+## V5.0.6591 (Feb 2026) — MEMETRADER BLEED FIX + §H LEDGER ALIGNMENT + FANOUT GUARDIAN
 
-## V5.0.6550b / 6550c (Feb 2026) — CI VERSION FIX + $50 → $1M SCOREBOARD
+### Bleed root cause (biggest impact this cycle)
+
+Screenshot from operator: MemeTrader was showing **7% WR, EV -6.58%/trade, -$29.67 P&L across 46 trades**. Sell journal showed every "winner" scratching to `pnl=+0.000` via `trail_stop_peak6..14`. Root cause: `ProfitabilityLayer.checkTrailingStop` was set to `activate=12% / giveback=8%` (meme) and `activate=4% / giveback=3%` (bluechip). A +12% peak that pulled back 8% exited at effective +4% gross — after ~2% round-trip in fees + Jupiter slippage that lands at ~breakeven. Bluechips exited at +1% gross → net loss.
+
+Fix (V5.0.6591):
+
+  * meme:      activate 12% → **25%**,  giveback 8% → **12%**
+  * bluechip:  activate  4% → **8%**,   giveback 3% → **4%**
+  * **MIN_LOCKED_NET_PCT = 6%** — the trailing stop refuses to fire when the effective locked pnl (`peakPct - pullback`) is under 6% gross, so a fee-eaten scratch is impossible by construction.
+  * Downside protection unchanged: hard-floor stop (-15%), catastrophic-gap guard, drain-exit, v8_fast_rug, RAPID_CATASTROPHE_STOP all still fire independently.
+
+### §H position-ledger key alignment
+
+Snapshot 6590 showed `Position state ledger (§H): positions=38 states={OPEN=25, CLOSED=13}` while `AUTHORITATIVE LIVE-OPEN POSITIONS: 5`. 20 phantom OPEN slots — root cause: `Executor.paperBuy.atomic6485` registered `PositionStateLedger6427` under `pid6485` ("PAPER:mint:runIdHash:seq") while `ExecutorCanonicalMirror6442` registered + confirmed-terminal-sold under `canonicalMint(mint)`. Different key ⇒ two ledger slots per buy, only the mirror side ever closed. Aligned Executor's register + abort keys to `canonicalMint(mint)`.
+
+### Fanout guardian right-sized
+
+`LANE_FANOUT_EXPLOSION` + `FDG_FANOUT_EXPLOSION` tripped on 6590 while the pipeline was productive (413 intakes → 5562 lane evals → 1283 FDG → 28 exec → 24 paper BUY ok → 32 journal rows). `productiveFanout6019` required `exec >= intake/2` (50% intake→exec) — unrealistic for a filter bot whose job is to reject most candidates. Rewire:
+
+  * productive := `journalRows > 0`  OR  `exec >= intake/20` (5% proxy)
+  * FDG threshold: `3.0` → `4.0` with journal-rows>0 escape hatch
+  * `laneRatio > 18.0` extreme trigger untouched (still catches true runaway fanout)
+  * Golden-tape substring assertions preserved
+
+### Testing
+
+`Aate6591MemetraderProfitLockCoverageTest` — regression guards for all three fixes. CI green (run 33243088392).
+
+## V5.0.6550c — P0 EXECUTION COMMIT + GROWTH COMPOUND RING
 
 ### §6550b — CI build-number regex
 
