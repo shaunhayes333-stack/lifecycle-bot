@@ -160,17 +160,25 @@ object OrderSizeResolver6441 {
         //   >  canonical minimum."
         // Snapshot 6595: RunnerCompounding recommendedSizeSol=0.400 arrived
         // at OrderSizeResolver, req=0.010 risk=0.010 ladder=0.400, then
-        // final=0.00000 BELOW_MIN_EXECUTABLE. Root cause: the ladder legitimately
-        // lifted `laddered` to 0.400 (line 118 uses max(risk, ladderTarget))
+        // final=0.00000 BELOW_MIN_EXECUTABLE. Root cause: `laddered` was
+        // legitimately lifted to 0.400 (line 118 uses max(risk, ladderTarget))
         // and `laneClamped` respected all wallet/lane caps, but then this
         // authority cap re-imposed the ORIGINAL `requested`=0.010 ceiling
         // via `min(requestedLamports, riskLamports, ...)`. That negated the
-        // ladder every time. Fix: the authority cap now uses `laneClamped`
-        // (the fully-lifted, wallet/lane-capped size) as the ceiling, keeping
-        // the `available` fee-aware check. `requested` and `risk` no longer
-        // re-cap the ladder lift; they still drive the earlier `laddered =
-        // max(risk, ladderTarget)` calculation as before.
-        val authorityCapLamports6498 = minOf(laneClampedLamports6491, availableLamports6491)
+        // ladder every time.
+        //
+        // Fix (surgical): when the runner ladder ACTIVELY lifted the size
+        // (ladderTarget > requested), use `laneClamped` (fully-lifted +
+        // wallet/lane-capped) as the ceiling so the ladder is honoured. When
+        // no ladder lift is in play (ladderTarget<=requested or unavailable),
+        // keep the pre-6598 conservative authority cap so callers who pass an
+        // adaptive/sub-floor request continue to see it capped, not promoted.
+        val ladderLiftedAbove6598 = ladderTarget.isFinite() && ladderTarget > requested
+        val authorityCapLamports6498 = if (ladderLiftedAbove6598) {
+            minOf(laneClampedLamports6491, availableLamports6491)
+        } else {
+            minOf(requestedLamports6491, riskLamports6491, availableLamports6491, laneCapLamports6491)
+        }
         val boundedExecutableLamports6498 = executableLamports6491.coerceAtMost(authorityCapLamports6498)
         val executable = boundedExecutableLamports6498 >= minExecLamports6491
         val finalSize = if (executable) fromLamports6491(boundedExecutableLamports6498) else 0.0

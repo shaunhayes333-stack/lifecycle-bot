@@ -39,12 +39,18 @@ class Aate6598SizingLadderAndLruProtectionCoverageTest {
             "src/main/kotlin/com/lifecyclebot/engine/truth/OrderSizeResolver6441.kt"
         ).readText()
         assertTrue(
-            "V5.0.6598: authority cap must use laneClamped (fully-lifted, wallet/lane-capped) " +
-                "as the ceiling — not `requested` — so the ladder lift is honored",
-            src.contains("val authorityCapLamports6498 = minOf(laneClampedLamports6491, availableLamports6491)")
+            "V5.0.6598: authority cap must switch on whether the runner ladder actively " +
+                "lifted the size (ladderTarget > requested)",
+            src.contains("ladderLiftedAbove6598 = ladderTarget.isFinite() && ladderTarget > requested")
         )
-        assertFalse(
-            "V5.0.6598: pre-6598 authority cap with requestedLamports6491 in the min must be removed",
+        assertTrue(
+            "V5.0.6598: when ladder lifts, authority cap must use laneClamped (fully-lifted, " +
+                "wallet/lane-capped) as the ceiling — not `requested`",
+            src.contains("minOf(laneClampedLamports6491, availableLamports6491)")
+        )
+        assertTrue(
+            "V5.0.6598: when ladder does NOT lift, the conservative pre-6598 authority cap is " +
+                "preserved so adaptive/sub-floor callers still see requested-ceiling behaviour",
             src.contains("minOf(requestedLamports6491, riskLamports6491, availableLamports6491, laneCapLamports6491)")
         )
     }
