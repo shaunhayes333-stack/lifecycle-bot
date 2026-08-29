@@ -1,10 +1,24 @@
-# AATE PRD — V5.0.6606 (BOT-LOOP ANR RELIEF + REPAIR L/B/H SHIPPED — 6604 REGRESSION FIXED, 11 REPAIRS REMAIN)
+# AATE PRD — V5.0.6608 (SEALED-ENVELOPE + MEMETRADER ORGANISM + REPAIR F/C AUDIT + STANDARD-LANE LEGITIMATE)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
-**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA.
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6608d CI GREEN.**
+
+## V5.0.6608 (Feb 2026) — SEALED_ENVELOPE_INVARIANT + MEMETRADER ORGANISM DIRECTIVE
+
+Operator's post-6606 dump captured 156× `EXEC_GATE/SIGNAL_NOT_BUY:UNKNOWN` against 296 FDG allows (52% of allowed candidates vetoed at the executable-open gate by stale mutable signal). Operator directive: *"After FDG BUY: UNKNOWN is an invariant failure. EXEC MUST consume this envelope. EXEC MUST NOT re-read a mutable V3/base/lane signal and convert the sealed BUY to UNKNOWN/WAIT."*
+
+**§SEALED_ENVELOPE_INVARIANT (V5.0.6608 — ExecutableOpenGate.canOpenExecutablePosition)** — pre-existing seal check only consulted `immutableFdgBuy6519` (ExecutionIntent object) and `canonicalExecutableIntent6509` (state.preFdgVerdict). Missed the two OTHER seals already computed at the same call site: `immutableAuthority6513` (canonical FDG authority record with `.verdict`) and `ticketAuthority6564` (FDG ticket with `.fdgAllowed` + `.fdgVerdict` + `.hardNoReasons`). Added `sealedBuyIntent6608` combining both; diagnostic-ignore branch now trusts them over the mutable raw signal. Emits `EXEC_SEALED_ENVELOPE_HONOURED_6608` on recovery and `FDG_BUY_TO_EXEC_UNKNOWN_6608` (target zero) whenever a fdgCan-true candidate still gets vetoed.
+
+**§OPERATOR_DIRECTIVE_STANDARD_IS_LEGITIMATE (V5.0.6607b — REVERT of 6607a refusal)** — operator's new directive explicitly lists STANDARD as a first-class MemeTrader specialist alongside QUALITY / BLUECHIP / SHITCOIN / CYCLIC / EXPRESS / CORE / MOONSHOT / PROJECT_SNIPER / DIP_HUNTER / MANIPULATED / TREASURY / CASHGEN / V3_CORE / REPLAY_6486 / SNIPE / MEME_GENERIC / RANGE / MEME_RING. Executor's `.ifBlank { "STANDARD" }` restored; only emits forensic telemetry (`EXECUTOR_OWNERLANE_SYNTHESIZED_STANDARD_6607`) when both `layerTag` and `ts.source` are blank so the operator can grep for upstream owner-attribution gaps without blocking the buy.
+
+**§RESTORE_ALL_LANE_CONTRIBUTION_PAPER (V5.0.6607b — BotService)** — operator smoking gun: `MEME_RING contributorOnly=23155 / allLaneContribution=0`. Root cause: the `LIVE_ALL_LANE_CONTRIBUTION_4469` emit was gated on `RuntimeModeAuthority.isLive()`. Paper runs — the operator's mode — could never increment. Emit now fires unconditionally with `mode=PAPER|LIVE` tagging; new `MEME_ALL_LANE_CONTRIBUTION_6607_<MODE>_<LANE>` label for mode-scoped grep.
+
+**§ACCEPTANCE_AUDIT_LANE_NAME_ALIGNMENT (V5.0.6607 — AcceptanceInvariantAudit6441)** — 7/7 `E_no_specialized_trader_routed_through_sizing_bridge` was caused by hard-coded lane names (STOCK, PERPS) never matching the actual specialist-emitted lane suffixes (STOCK_SPOT / STOCK_LEV / CRYPTO_SPOT / PERPS_SOLUSDT). Fixed via new `PipelineHealthCollector.labelSnapshotByPrefix6607(prefix)` + audit prefix-scan.
+
+**§EXECUTABLE_MARK_PROPAGATION (V5.0.6607 — Executor)** — 158× `missingExecutableMarkWithValidSource`. Bootstrap freshness window widened from 120s to `WINDOW_MS_6607 = 300s` + last-resort provisional bootstrap `PAPER_ENTRY_OBSERVATION_MARK_STALE_BOOTSTRAPPED_6607` when a valid priceUsd exists but timestamps are all zero.
 
 ## V5.0.6606 (Feb 2026) — BOT-LOOP MAIN-THREAD ANR RELIEF (post-6604 forensic dump)
 
