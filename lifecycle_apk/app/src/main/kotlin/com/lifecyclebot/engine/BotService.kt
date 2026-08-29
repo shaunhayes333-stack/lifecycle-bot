@@ -3636,11 +3636,22 @@ class BotService : Service() {
             status.paperWalletSol = ledgerCash
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(ledgerCash, "paper_account_ledger_facade_6448:$source")
             try { FluidLearning.forceSetBalance(ledgerCash) } catch (_: Throwable) {}
-            try { PaperWalletStore.persist(applicationContext, ledgerCash) } catch (_: Throwable) {}
-            try {
-                PipelineHealthCollector.labelInc("PAPER_CAPITAL_AUTHORITY_SYNCED_6448")
-                ForensicLogger.lifecycle("PAPER_CAPITAL_AUTHORITY_SYNCED_6448", "source=$source ledgerCash=${"%.5f".format(ledgerCash)} displayedWas=${"%.5f".format(displayedCash)}")
-            } catch (_: Throwable) {}
+            // V5.0.6606 §REPAIR_MAIN_THREAD_ANR (operator directive on
+            //   V5.0.6604 forensic dump: bot-loop cycles reached 25s with
+            //   MECHANICAL_FAULT/ui/reporting root cause and "EXIT sweep
+            //   starts but never completes" sentinel). syncPaperCapitalAuthority
+            //   fires on every bot-loop iteration; the SharedPreferences write
+            //   and per-cycle ForensicLogger emit were happening on the loop
+            //   coroutine. Offload both to AppDispatchers.sideEffect so the
+            //   bot loop never blocks on XML flush or forensic file I/O.
+            //   Reads (cashSol) stay in-line (cheap atomic).
+            kotlinx.coroutines.GlobalScope.launch(com.lifecyclebot.util.AppDispatchers.sideEffect) {
+                try { PaperWalletStore.persist(applicationContext, ledgerCash) } catch (_: Throwable) {}
+                try {
+                    PipelineHealthCollector.labelInc("PAPER_CAPITAL_AUTHORITY_SYNCED_6448")
+                    ForensicLogger.lifecycle("PAPER_CAPITAL_AUTHORITY_SYNCED_6448", "source=$source ledgerCash=${"%.5f".format(ledgerCash)} displayedWas=${"%.5f".format(displayedCash)}")
+                } catch (_: Throwable) {}
+            }
         } catch (_: Throwable) {}
     }
 
