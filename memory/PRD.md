@@ -1,10 +1,16 @@
-# AATE PRD — V5.0.6605 (OPERATOR REPAIR L/B/H SHIPPED — 6604 REGRESSION FIXED + 11 REPAIRS REMAIN)
+# AATE PRD — V5.0.6606 (BOT-LOOP ANR RELIEF + REPAIR L/B/H SHIPPED — 6604 REGRESSION FIXED, 11 REPAIRS REMAIN)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA.
+
+## V5.0.6606 (Feb 2026) — BOT-LOOP MAIN-THREAD ANR RELIEF (post-6604 forensic dump)
+
+Operator captured avg cycle ms=9470 / max 24970 / recent [12781, 12893, 16097, 17845] with `MECHANICAL_FAULT/ui/reporting: Main-thread stalls/ANR hints active` and `EXIT sweep starts but never completes` sentinels. Trading was intermittent because the bot-loop coroutine was blocked on synchronous XML flushes and forensic disk emits during every iteration.
+
+**REPAIR §BOT_LOOP_TOP_SIDE_EFFECT_OFFLOAD** — `BotService.syncPaperCapitalAuthority6448` fires on every loop tick. The per-cycle `PaperWalletStore.persist` (SharedPreferences.edit().apply() file I/O) and `ForensicLogger.lifecycle` emit were happening on the loop coroutine — slow XML flush parked the entire cycle. Both moved inside `GlobalScope.launch(AppDispatchers.sideEffect)`. Cheap in-memory read (`PaperCapitalAuthority6577.cashSol()`) remains in-line so `status.paperWalletSol` and `CanonicalPositionAuthority6441.setPaperCash` reflect the ledger BEFORE the bot loop makes its next capital decision.
 
 ## V5.0.6605 (Feb 2026) — REPAIR L / B / H (operator directive on V5.0.6604 forensic dump)
 
