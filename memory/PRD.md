@@ -1,12 +1,61 @@
-# AATE PRD — V5.0.6591 (MEMETRADER PROFIT-LOCK RECALIBRATED)
+# AATE PRD — V5.0.6595 (SOURCE-LEVEL AUTHORITY CONVERGENCE)
 
 **Status:** PAPER TRADING ONLY.
 
-**Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE (FillLotLedger6504 immutable SQLite lots + per-lot projection reconciliation), never by strangling flow. **The Growth Compound Ring materialises this mantra as a live scoreboard tick-by-tick.**
+**Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA.
 
-## V5.0.6591 (Feb 2026) — MEMETRADER BLEED FIX + §H LEDGER ALIGNMENT + FANOUT GUARDIAN
+## V5.0.6592–6595 (Feb 2026) — CROSS-ASSET IMMUTABILITY, COHORT TRUTH, LEARNED VETO, MARK TTL
+
+### Directive origin
+Operator delivered an 18-point P0/P1 directive Feb 2026 exposing multiple concurrent architectural faults visible in the 6591 snapshot: STOCK_* positions tagged as SOLANA_TOKEN, 24,807 mark-refresh events for 51 open positions, CRYPTO_ALT dispatch counter attributing to SOLANA_TOKEN, PerformanceAnalytics splicing account-ledger PnL onto journal WR, and 221 LANE_BUY_INTENT_OVERRIDES_BASE_WAIT overriding negative learned policy. This build package (6592–6595) delivers the first tranche of fixes.
+
+### V5.0.6592 — cross-asset AssetClass immutability
+
+  * `AssetClass.fromLane` no longer falls back to `SOLANA_TOKEN` for unknown lanes; Solana lanes explicitly whitelisted, unrecognised → `UNKNOWN`
+  * New `AssetClass.fromPositionIdPrefix(positionId)` for invariant/repair inference
+  * `CanonicalPositionAuthority6441.openPosition` fires `ASSET_CLASS_POSITIONID_MISMATCH_6592` and routes by inferred class when a caller passed SOLANA_TOKEN contradicting a non-Solana positionId prefix
+  * `CryptoAltTrader` + `PerpsExecutionEngine` now class-attribute dispatch via `markAdapterDispatchFor6551`
+  * `BotService` mark-refresh routes by inferred class if stored disagrees; UNKNOWN skips network
+
+### V5.0.6593 — performance cohort truth
+
+  * `PerformanceAnalytics.totalPnlSol` == `journalTotalPnl` (same cohort as WR/PF/expectancy)
+  * `accountLedgerRealizedPnlSol` is now a SEPARATE field
+  * New cohort identity fields: `cohortTerminalN`, `cohortTerminalIdsHash`, `cohortJournalRows`, `cohortBuyRows`, `cohortSellRows`, `cohortPartialRows`
+  * New helper `PerformanceCohortHash6592` (order-independent SHA-256 truncated to 8 bytes)
+
+### V5.0.6594 — entry selectivity + shared Perps hero
+
+  * Learned-authoritative negative policy now vetoes WAIT→PROBE promotion (`LEARNED_POLICY_NEGATIVE_LANE_WAIT_PROMOTION_VETO_6593`)
+  * MainActivity Perps card reads `PaperCapitalAuthority6577.totalEquitySol()` instead of the trader-local paperBalanceSol cache
+
+### V5.0.6595 — mark-refresh dedup TTL
+
+  * Per-mint attempt + success timestamp maps
+  * TTL 30s on success, 5s on failure
+  * Kills the 24,807-refresh storm; skips counted as `MARK_REFRESH_TTL_SKIPPED_6594`
+
+### STILL TO SHIP (from the 18-point directive)
+
+  * Remaining hero surfaces (Meme/CryptoAlt cards → shared PaperCapitalAuthority6577)
+  * Causal wiring for MathematicalEdgeEngine + friends (currently `report+learning_data_only`)
+  * Sizing handoff repair (0.400 SOL → 0.010 → 0 BELOW_MIN_EXECUTABLE collapse)
+  * Discovery quality (distinguish MEME_REGISTRY_RESTORE from fresh discovery)
+  * Provider circuit routing (Birdeye 401, PumpFun 0%)
+  * Replay/restored provenance separation from clean learning
+  * Bayesian pooled parent priors for TacticSwitcher
+  * SPECIALIST_SILENCE_SHARED_EVIDENCE + coalesced-requeue backlog
+  * Cross-asset dispatch black-hole downstream verification
+
+## V5.0.6591 — MemeTrader profit-lock + §H ledger alignment + fanout guardian
+
+  * `ProfitabilityLayer.checkTrailingStop` — meme trail 12/8 → 25/12, bluechip 4/3 → 8/4, MIN_LOCKED_NET_PCT=6% fee-aware floor
+  * §H ledger register + abort keys aligned to `canonicalMint`
+  * Fanout productivity signal switched to `journalRows > 0 || exec >= intake/20`
+
+## V5.0.6550c — P0 EXECUTION COMMIT + GROWTH COMPOUND RING
 
 ### Bleed root cause (biggest impact this cycle)
 

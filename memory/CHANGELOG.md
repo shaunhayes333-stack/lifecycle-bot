@@ -1,3 +1,34 @@
+## V5.0.6595 — P1 mark-refresh dedup TTL (kills the 24,807-refresh storm) (CI GREEN)
+- Snapshot 6591 observed 24,807 `CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513` across 51 open positions in ~7 min. Pre-6595 dedup was pending-set only; the 5s exit-feed tick immediately re-queued each mint after the async coroutine cleared it.
+- **FIX**: per-mint attempt + success timestamp maps. TTL 30s on success, 5s on failure. Skips counted as `MARK_REFRESH_TTL_SKIPPED_6594`.
+- Regression: `Aate6595MarkRefreshDedupTtlCoverageTest`.
+
+## V5.0.6594 — P0 entry selectivity (learned-policy WAIT→PROBE veto) + shared Perps hero (CI GREEN)
+- Operator: "Lane evidence MAY overcome weak generic scoring only when it provides independent positive evidence. Lane membership alone cannot promote WAIT."
+- 6591 showed `LANE_BUY_INTENT_OVERRIDES_BASE_WAIT: 221`, `LANE_WAIT_OVERRIDE_DUST_PROBE: 107` with learned global bias -0.62 and calibrationDemotes=0. The `authoritativePolicyPositive6568` check existed but only gated the GOOD_LANE_VOLUME_PIVOT path; DUST_PROBE fallthrough ignored it.
+- **FIX**: `agiAuthority6020 == AUTHORITATIVE && !authoritativePolicyPositive6568` now vetoes WAIT→PROBE with `LEARNED_POLICY_NEGATIVE_LANE_WAIT_PROMOTION_VETO_6593`. Lane not disabled; next positive tick reopens.
+- **BONUS**: Perps card in MainActivity now reads `PaperCapitalAuthority6577.totalEquitySol()` (was trader-local `state.paperBalanceSol` cache).
+- Regression: `Aate6594EntrySelectivityAndHeroTruthCoverageTest`.
+
+## V5.0.6593 — P0 performance cohort truth (WR/PF/expectancy/totalPnl same terminal set) (CI GREEN)
+- Operator: "For any card, ALL of: N, wins, losses, WR, grossWin, grossLoss, PF, expectancy, realizedPnL must come from the exact same terminal trade ID set."
+- Pre-6593 `PerformanceAnalytics` overrode `totalPnlSol` with `PaperAccountLedger6430.realizedPnlSol()` while leaving WR/PF/expectancy on journal decisive-trades → impossible cards (16 trades / 2W-14L / PF 0.81 with Total P&L +2.6492 SOL).
+- **FIX**: `totalPnl := journalTotalPnl` (same cohort as WR/PF/expectancy). `accountLedgerRealizedPnlSol` exposed as SEPARATE field. New identity fields: `cohortTerminalN`, `cohortTerminalIdsHash` (stable 8-byte SHA-256), `cohortJournalRows/BuyRows/SellRows/PartialRows`.
+- New helper: `PerformanceCohortHash6592` — set-identity (order-independent).
+- Regression: `Aate6593PerformanceCohortTruthCoverageTest`.
+
+## V5.0.6592 — P0 cross-asset AssetClass immutability + class-attributed telemetry (CI GREEN)
+- Operator: "AssetClass must be immutable and mandatory. There must be NO fallback of unknown/null/non-Solana → SOLANA_TOKEN."
+- Snapshot 6591 showed STOCK_* (AAPL/NVDA/AMZN) positions carrying `assetClass=SOLANA_TOKEN` → 24,807 mark-refresh events routing stocks to Birdeye. CRYPTO_ALT candidate=295 → intent=30 → dispatch=0 while SOLANA_TOKEN dispatch=30 with zero upstream (misattribution).
+- **FIXES**:
+  1. `AssetClass.fromLane` `else → SOLANA_TOKEN` fallback REMOVED. Solana lanes explicitly whitelisted; unknown → UNKNOWN.
+  2. `AssetClass.fromPositionIdPrefix` — new inference helper (STOCK_/FOREX_/ALT_/PERPS_).
+  3. `CanonicalPositionAuthority6441.openPosition` corrects a caller-passed SOLANA_TOKEN that contradicts positionId prefix; fires `ASSET_CLASS_POSITIONID_MISMATCH_6592` + `ASSET_CLASS_UNKNOWN_ON_OPEN_6592`.
+  4. `CryptoAltTrader` dispatch class-attributed via `markAdapterDispatchFor6551(CRYPTO_ALT)`.
+  5. `PerpsExecutionEngine` dispatch class-attributed via `markAdapterDispatchFor6551(PERPS)`.
+  6. `BotService` mark-refresh routes by inferred class if stored disagrees; UNKNOWN skips network (`MARK_REFRESH_SKIPPED_UNKNOWN_CLASS_6592`).
+- Regression: `Aate6592CrossAssetImmutabilityCoverageTest` (6 tests).
+
 ## V5.0.6591 — MemeTrader profit-lock + §H ledger alignment + fanout guardian right-size (CI GREEN)
 - **BLEED FIX**: `ProfitabilityLayer.checkTrailingStop` was firing at effective +4% (meme) or +1% (bluechip) → fees + slippage scratched every winner. Snapshot 6590 showed pnl=+0.000 on every `trail_stop_peak6..14` sell. Widen defaults + fee-aware min-lock:
   - meme:      activate 12% → **25%**, giveback 8% → **12%**
