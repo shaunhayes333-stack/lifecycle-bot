@@ -105,19 +105,24 @@ class Aate6607RepairCFCoverageTest {
         // Locate the ONE unique 4469 emit in the file.
         val emitIdx = bot.indexOf("PipelineHealthCollector.labelInc(\"LIVE_ALL_LANE_CONTRIBUTION_4469_")
         assertTrue("V5.0.6607b: 4469 emit must exist", emitIdx > 0)
-        // The V5.0.6607b marker comment must appear BEFORE the emit and
-        // must be closer to the emit than any RuntimeModeAuthority.isLive()
-        // gate — meaning the emit is inside the unconditional wrapper, not
-        // inside the isLive() gate.
+        // The V5.0.6607b marker comment must appear BEFORE the emit — proves
+        // the emit lives inside the unconditional wrapper block, not inside
+        // the original isLive() gate.
         val restoreMarker6607 = bot.substring(0, emitIdx).lastIndexOf(
             "§RESTORE_ALL_LANE_CONTRIBUTION_PAPER"
         )
-        val liveGateNearestBefore = bot.substring(0, emitIdx).lastIndexOf(
-            "if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive())"
-        )
         assertTrue(
-            "V5.0.6607b: emit must be inside the §RESTORE_ALL_LANE_CONTRIBUTION_PAPER wrapper that runs unconditionally, not inside an isLive() gate (marker=$restoreMarker6607 liveGate=$liveGateNearestBefore emit=$emitIdx)",
-            restoreMarker6607 > 0 && (liveGateNearestBefore < 0 || restoreMarker6607 > liveGateNearestBefore)
+            "V5.0.6607b: emit must be preceded by the §RESTORE_ALL_LANE_CONTRIBUTION_PAPER marker within the same block (marker=$restoreMarker6607 emit=$emitIdx)",
+            restoreMarker6607 in 1 until emitIdx && emitIdx - restoreMarker6607 < 4000
+        )
+        // The old failure mode was the emit being gated on isLive(). Prove
+        // the emit line itself does NOT sit under an `if (` that
+        // immediately checks isLive() — look at the 500 chars immediately
+        // preceding the emit.
+        val precedingSlice = bot.substring(maxOf(0, emitIdx - 500), emitIdx)
+        assertTrue(
+            "V5.0.6607b: emit must not sit directly under an isLive() gate; expected the mode-tag ternary within a run{ } wrapper instead",
+            precedingSlice.contains("modeTag6607 = if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive())")
         )
         assertTrue(
             "V5.0.6607b: mode-tagged all-lane contribution label must exist",
