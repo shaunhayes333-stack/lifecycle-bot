@@ -1727,6 +1727,35 @@ object ExecutableOpenGate {
             preFdgVerdict = preFdgVerdict,
             hardNoReasons = hardNoReasons,
         )
+        // V5.0.6608 §SEALED_ENVELOPE_INVARIANT (operator directive Feb 2026:
+        //   "After FDG BUY: UNKNOWN is an invariant failure. EXEC MUST
+        //    consume this envelope. EXEC MUST NOT re-read a mutable
+        //    V3/base/lane signal and convert the sealed BUY to UNKNOWN/
+        //    WAIT."). Operator's post-6606 dump captured 156×
+        //   EXEC_GATE/SIGNAL_NOT_BUY:UNKNOWN against 296 FDG allows —
+        //   52% of allowed candidates were being vetoed here by a stale
+        //   or empty mutable signal even though FDG had already sealed
+        //   BUY intent via immutableAuthority6513 / ticketAuthority6564.
+        //   Fix: recognise the sealed envelope explicitly. If EITHER
+        //   authority is present AND carries a BUY/PROBE_ONLY verdict
+        //   with no hardNoReasons, the executor takes the diagnostic-
+        //   ignore path — the mutable raw `signal` may be UNKNOWN or
+        //   stale but the SEALED verdict is authoritative. The pre-
+        //   existing conditions (`immutableFdgBuy6519 ||
+        //   canonicalExecutableIntent6509`) missed this because they
+        //   required either `immutableTicket` (a specific
+        //   ExecutionIntent object) or the state's `preFdgVerdict` to
+        //   equal BUY/PROBE_ONLY. `immutableAuthority6513` and
+        //   `ticketAuthority6564` are ALSO valid seals; they just
+        //   weren't consulted here.
+        val sealedBuyIntent6608 = try {
+            val immAuth6608 = immutableAuthority6513
+            val immAuthSealed6608 = immAuth6608 != null && immAuth6608.verdict.uppercase() in setOf("BUY", "PROBE_ONLY")
+            val ticketSealed6608 = ticketAuthority6564?.fdgAllowed == true &&
+                ticketAuthority6564.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY") &&
+                ticketAuthority6564.hardNoReasons.isEmpty()
+            (immAuthSealed6608 || ticketSealed6608) && hardNoReasons.isEmpty()
+        } catch (_: Throwable) { false }
         if (!signal.equals("BUY", true) && !signal.equals("EXECUTE", true)) {
             try { com.lifecyclebot.engine.truth.CanonicalFdgBuyStamp6508.reportMismatch(mint, signal, candidateVersion) } catch (_: Throwable) {}
             if (immutableFdgBuy6519 && !stateRequiresSolanaTokenMap6533) {
@@ -1735,12 +1764,39 @@ object ExecutableOpenGate {
                     ForensicLogger.lifecycle("CROSS_ASSET_LEGACY_SIGNAL_DIVERGENCE_6554", "mint=${mint.take(16)} symbol=$symbol canonical=BUY legacy=${signal.ifBlank { "UNKNOWN" }} action=diagnostic_only")
                 } catch (_: Throwable) {}
             }
-            if (immutableFdgBuy6519 || canonicalExecutableIntent6509) {
+            if (immutableFdgBuy6519 || canonicalExecutableIntent6509 || sealedBuyIntent6608) {
                 try {
                     PipelineHealthCollector.labelInc("EXEC_RAW_SIGNAL_DIAGNOSTIC_IGNORED_6509")
-                    ForensicLogger.lifecycle("EXEC_RAW_SIGNAL_DIAGNOSTIC_IGNORED_6509", "symbol=$symbol mint=${mint.take(10)} signal=${signal.ifBlank { "UNKNOWN" }} preFdg=$preFdgVerdict authority=${if (immutableFdgBuy6519) "IMMUTABLE_EXECUTION_INTENT_6519" else "PRE_EXEC_FDG"}")
+                    if (sealedBuyIntent6608 && !immutableFdgBuy6519 && !canonicalExecutableIntent6509) {
+                        // This is the exact set of 156 events the operator
+                        // captured — sealed intent existed but was previously
+                        // vetoed by SIGNAL_NOT_BUY:UNKNOWN.
+                        PipelineHealthCollector.labelInc("EXEC_SEALED_ENVELOPE_HONOURED_6608")
+                        ForensicLogger.lifecycle(
+                            "EXEC_SEALED_ENVELOPE_HONOURED_6608",
+                            "mint=${mint.take(10)} symbol=$symbol signal=${signal.ifBlank { "UNKNOWN" }} " +
+                                "immAuth=${immutableAuthority6513?.verdict} ticketFdg=${ticketAuthority6564?.fdgVerdict} " +
+                                "candidateVersion=$candidateVersion action=honour_sealed_buy_over_mutable_signal",
+                        )
+                    }
+                    ForensicLogger.lifecycle("EXEC_RAW_SIGNAL_DIAGNOSTIC_IGNORED_6509", "symbol=$symbol mint=${mint.take(10)} signal=${signal.ifBlank { "UNKNOWN" }} preFdg=$preFdgVerdict authority=${when { immutableFdgBuy6519 -> "IMMUTABLE_EXECUTION_INTENT_6519"; canonicalExecutableIntent6509 -> "PRE_EXEC_FDG"; else -> "SEALED_ENVELOPE_6608" }}")
                 } catch (_: Throwable) {}
             } else if (mutableSignalCanVeto6519(immutableTicket, signal)) {
+                // Invariant counter: any veto reaching this point after any
+                // seal signal should be zero once upstream owner election
+                // stops dropping the seal. Operator: FDG_BUY_TO_EXEC_UNKNOWN
+                // must be 0.
+                try {
+                    if (fdgCan == true) {
+                        PipelineHealthCollector.labelInc("FDG_BUY_TO_EXEC_UNKNOWN_6608")
+                        ForensicLogger.lifecycle(
+                            "FDG_BUY_TO_EXEC_UNKNOWN_6608",
+                            "mint=${mint.take(10)} symbol=$symbol signal=${signal.ifBlank { "UNKNOWN" }} " +
+                                "fdgCan=$fdgCan preFdg=$preFdgVerdict hardNos=$hardNoReasons " +
+                                "candidateVersion=$candidateVersion action=invariant_failure_no_seal_available",
+                        )
+                    }
+                } catch (_: Throwable) {}
                 return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", "SIGNAL_NOT_BUY:${signal.ifBlank { "UNKNOWN" }}", shadow = mode == "PAPER")
             }
         }
