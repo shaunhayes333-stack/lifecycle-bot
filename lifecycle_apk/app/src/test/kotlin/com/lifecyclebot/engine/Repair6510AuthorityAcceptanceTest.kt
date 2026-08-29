@@ -66,7 +66,20 @@ class Repair6510AuthorityAcceptanceTest {
             PaperAccountLedger6430.resetForTest(); PaperAccountLedger6430.initialize(cash)
             return OrderSizeResolver6441.resolve(req, "PROJECT_SNIPER", cash, true, cap, 0.05)
         }
-        assertFalse(r(0.028, 1.0, 10.0).executable) // requested/risk authority forbids promotion
+        // V5.0.6598 §SIZING_LADDER_HONORED — operator directive Feb 2026:
+        //   > "If final BUY risk budget can afford the minimum executable
+        //   >  notional: clamp the executable order to canonical minimum."
+        // Snapshot 6595: RunnerCompounding recommendedSizeSol=0.400 with
+        // requested=0.010 was silently collapsed to BELOW_MIN_EXECUTABLE.
+        // With `cash=10 SOL` the runner ladder recommends ~4 SOL (>= 3×
+        // minExec=0.15), so an intentionally-dust request 0.028 no longer
+        // silently fails — the rescue clamps it to the executable minimum
+        // and beyond. Test updated to exercise the rescue exit: r() at
+        // req < minExec with a small wallet where the ladder ALSO stays
+        // under 3×minExec (so rescue does not apply and the sub-floor
+        // rejection contract is preserved for that path).
+        assertFalse(r(0.028, 1.0, 0.05).executable) // wallet 0.05 SOL -> ladder 0.02 < 3*minExec, rescue skipped, sub-floor rejection stands
+        assertTrue(r(0.028, 1.0, 10.0).executable)   // 6598 rescue: ladder 4.0 >> 3*minExec, request lifted to minExec
         assertTrue(r(0.05, 1.0, 10.0).executable)
         assertTrue(r(0.10, 1.0, 10.0).executable)
         assertFalse(r(0.10, 0.04, 10.0).executable)

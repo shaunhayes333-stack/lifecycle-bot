@@ -17,6 +17,19 @@ class Repair6511PaperExecutionSourceTest {
         OrderSizeResolver6441.updatePaperExecutableMinimumSol(
             PaperPreTicketSizeFloor6511.boundedMinimum(0.005),
         )
+        // V5.0.6598 §SIZING_LADDER_HONORED — operator directive Feb 2026:
+        //   > "If final BUY risk budget can afford the minimum executable
+        //   >  notional: clamp the executable order to canonical minimum."
+        // Pre-6598 a sub-floor adaptive request (0.02419) below minExec
+        // (0.05) with cash 5.5099 SOL was silently collapsed to
+        // BELOW_MIN_EXECUTABLE. Under the 6598 rescue, a substantial
+        // runner ladder (tier 6.0 -> 0.40 SOL, i.e., >= 3× minExec) with
+        // a sub-floor request now promotes to the executable minimum. To
+        // preserve this test's original intent (adaptive sub-floor without
+        // ladder rescue must NOT be promoted), use a wallet size that puts
+        // the ladder BELOW 3× minExec so rescue does not apply.
+        PaperAccountLedger6430.resetForTest()
+        PaperAccountLedger6430.initialize(0.1)  // ladder tier 0.3 -> 0.02, < 3*minExec (0.15) -> no rescue
         val resolved = TraderSizingBridge6444.resolveForLane(
             laneName = "QUALITY",
             requestedSol = 0.02419,
