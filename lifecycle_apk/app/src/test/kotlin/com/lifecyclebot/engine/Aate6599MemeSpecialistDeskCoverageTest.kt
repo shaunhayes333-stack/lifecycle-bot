@@ -31,14 +31,15 @@ class Aate6599MemeSpecialistDeskCoverageTest {
         assertTrue(bot.contains("PROJECT_SNIPER_DESIGNATED_POOL_REJECTED_6599"))
     }
 
-    @Test fun strongest_qualified_desk_is_only_specialist_execution_primary() {
+    @Test fun source_style_owner_plus_bounded_qualified_rescue_replace_preselected_hypothesis_collapse() {
         val bot = source("engine/BotService.kt")
-        assertTrue(bot.contains("strongestDesk6599"))
-        assertTrue(bot.contains("deskHypotheses.values.maxByOrNull { it.conviction }?.lane"))
-        assertTrue(bot.contains("l.equals(primaryLane, true) && designatedDeskQualified6599"))
-        assertTrue(bot.contains("MEME_DESK_QUALIFIED_CONTRIBUTOR_ONLY_6599"))
-        assertFalse(bot.contains("val allowed = profitableRescue"))
-        assertFalse(bot.contains("val mixedAllowed6533 = l == mixedRescue6533"))
+        assertFalse(bot.contains("strongestDesk6599"))
+        assertTrue(bot.contains("forced ?: styleLanes.firstOrNull()"))
+        assertTrue(bot.contains("boundedRescue6600"))
+        assertTrue(bot.contains("specialistEvaluationAllowed6600"))
+        assertTrue(bot.contains("l.equals(primaryLane, true) || l.equals(boundedRescue6600, true)"))
+        assertTrue(bot.contains("claimedOwner6600"))
+        assertTrue(bot.contains("CONTRIBUTOR_ONLY"))
     }
 
     @Test fun sniper_open_mission_management_is_not_hidden_behind_entry_gate() {

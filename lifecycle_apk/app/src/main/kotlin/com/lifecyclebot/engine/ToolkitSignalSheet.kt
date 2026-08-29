@@ -540,6 +540,32 @@ object ToolkitSignalSheet {
 
     private fun deskCount6599(lane: String, stage: String): Long = deskStageCounts6599["${lane.uppercase()}|${stage.uppercase()}"]?.get() ?: 0L
 
+    private val causalIssueCounts6600 = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+
+    fun recordCausalIssue6600(issue: String, lane: String = "UNKNOWN", detail: String = "") {
+        val key = issue.trim().replace(Regex("[^A-Za-z0-9_]"), "_")
+        causalIssueCounts6600.computeIfAbsent(key) { java.util.concurrent.atomic.AtomicLong(0L) }.incrementAndGet()
+        try {
+            PipelineHealthCollector.labelInc("MEME_SPECIALIST_CAUSAL_$key")
+            ForensicLogger.lifecycle("MEME_SPECIALIST_CAUSAL_$key", "lane=$lane ${detail.take(180)}")
+        } catch (_: Throwable) {}
+    }
+
+    private fun causalIssue6600(issue: String): Long = causalIssueCounts6600[issue]?.get() ?: 0L
+
+    fun specialistCausalFunnel6600(): String = buildString {
+        appendLine("===== MEME SPECIALIST CAUSAL FUNNEL =====")
+        configuredMemeDesks6599.forEach { lane ->
+            appendLine("$lane discovered=${deskCount6599(lane, "POOL")} qualified=${deskCount6599(lane, "QUALIFIED")} ownerSelected=${deskCount6599(lane, "OWNER_SELECTED")} buyIntent=${deskCount6599(lane, "BUY_INTENT")} fdgAllow=${deskCount6599(lane, "FDG_ALLOW")} fdgBlock=${deskCount6599(lane, "FDG_BLOCK")} sizedExecutable=${deskCount6599(lane, "SIZED_EXECUTABLE")} sizeReject=${deskCount6599(lane, "SIZE_REJECT")} markReady=${deskCount6599(lane, "MARK_READY")} markReject=${deskCount6599(lane, "MARK_REJECT")} ticket=${deskCount6599(lane, "TICKET")} exec=${deskCount6599(lane, "EXEC")} positionOpened=${deskCount6599(lane, "POSITION_OPENED")} exitTrigger=${deskCount6599(lane, "EXIT_TRIGGER")} sellAttempt=${deskCount6599(lane, "SELL_ATTEMPT")} sellConfirmed=${deskCount6599(lane, "SELL_CONFIRMED")} finalized=${deskCount6599(lane, "FINALIZED")} learningDelivered=${deskCount6599(lane, "LEARNING")}")
+        }
+        appendLine("ownerLaneChangedAfterSelection=${causalIssue6600("ownerLaneChangedAfterSelection")}")
+        appendLine("crossLaneExecutionRewrite=${causalIssue6600("crossLaneExecutionRewrite")}")
+        appendLine("telemetryOnlySuppression=${causalIssue6600("telemetryOnlySuppression")}")
+        appendLine("missingExecutableMarkWithValidSource=${causalIssue6600("missingExecutableMarkWithValidSource")}")
+        appendLine("specialistLearningMissing=${causalIssue6600("specialistLearningMissing")}")
+        appendLine("sellCanonicalLookupFailure=${causalIssue6600("sellCanonicalLookupFailure")}")
+    }
+
     fun designatedRoleLivenessReport6599(): String = buildString {
         appendLine("===== MEME SPECIALIST ROLE LIVENESS =====")
         configuredMemeDesks6599.forEach { lane ->
@@ -561,12 +587,22 @@ object ToolkitSignalSheet {
     fun specialistCapitalReport6599(): String = buildString {
         appendLine("===== MEME SPECIALIST CAPITAL =====")
         val positions = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }
-        val sharedCash = try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol() } catch (_: Throwable) { 0.0 }
+        val capital = try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.snapshot() } catch (_: Throwable) { null }
+        val sharedCash = capital?.availableCashSol ?: 0.0
+        val sharedEquity = capital?.totalEquitySol ?: sharedCash
+        val weights = configuredMemeDesks6599.associateWith { lane ->
+            val expectancy = try { LaneExpectancyDamper.sizeMultiplier(lane) } catch (_: Throwable) { 1.0 }
+            val opportunity = (1.0 + kotlin.math.ln1p(deskCount6599(lane, "QUALIFIED").toDouble())).coerceAtMost(4.0)
+            (expectancy.coerceIn(0.25, 1.50) * opportunity).coerceAtLeast(0.01)
+        }
+        val weightSum = weights.values.sum().coerceAtLeast(0.01)
         configuredMemeDesks6599.forEach { lane ->
             val owned = positions.filter { it.lane.equals(lane, true) || (lane == "BLUECHIP" && it.lane.equals("BLUE_CHIP", true)) }
             val used = owned.sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
             val pending = (deskCount6599(lane, "BUY_INTENT") - deskCount6599(lane, "EXEC")).coerceAtLeast(0L)
-            appendLine("$lane targetAllocation=UNPROVEN_SOURCE availableAllocation=sharedCash:${"%.4f".format(sharedCash)} usedAllocation=${"%.4f".format(used)} openPositions=${owned.size} pendingIntents=$pending capitalStarved=${pending > 0L && sharedCash <= 0.0} starvedByLane=UNPROVEN allocationDecisionSource=CANONICAL_SHARED_WALLET")
+            val targetPct = (weights.getValue(lane) / weightSum * 100.0).coerceIn(0.0, 100.0)
+            val targetSol = sharedEquity * (targetPct / 100.0)
+            appendLine("$lane targetAllocation=${"%.2f".format(targetPct)}% targetSol=${"%.4f".format(targetSol)} availableAllocation=sharedCash:${"%.4f".format(sharedCash)} usedAllocation=${"%.4f".format(used)} openPositions=${owned.size} pendingIntents=$pending capitalStarved=${pending > 0L && sharedCash <= 0.0} starvedByLane=NONE allocationDecisionSource=PAPER_CAPITAL_AUTHORITY_6577+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE")
         }
     }
 

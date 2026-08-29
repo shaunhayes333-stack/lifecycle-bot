@@ -202,6 +202,16 @@ object LaneExecutionCoordinator {
         return e
     }
 
+    fun currentElection6600(
+        mint: String,
+        candidateVersion: Long = candidateVersionFor(mint),
+        runtimeGeneration: Long = BotRuntimeController.currentGeneration(),
+    ): Election? {
+        val now = System.currentTimeMillis()
+        return elections[mapKey(CandidateKey(runtimeGeneration, mint, candidateVersion))]
+            ?.takeIf { now - it.createdAtMs <= TTL_MS }
+    }
+
     fun canRequestExecution(
         mint: String,
         lane: String,

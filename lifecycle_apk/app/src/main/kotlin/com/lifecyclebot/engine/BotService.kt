@@ -10764,9 +10764,11 @@ class BotService : Service() {
         return try {
             val forced = RuntimeConfigOverlay.forcedPrimaryLane()?.takeIf { it.isNotBlank() }
             val deskSheet6599 = ToolkitSignalSheet.snapshot(ts, classification)
-            val strongestDesk6599 = deskSheet6599.deskHypotheses.values.maxByOrNull { it.conviction }?.lane
             val styleLanes = AgenticStyleRouter.lanesFor(ts, classification, laneAffinityForTradeType(classification.tradeType)).toList()
-            val stylePrimary = RuntimeConfigOverlay.normalizeLane(forced ?: strongestDesk6599 ?: styleLanes.firstOrNull() ?: ts.laneAffinity.firstOrNull() ?: "SHITCOIN")
+            // V5.0.6600 — restore the pre-6599 authority: source/character/style routing
+            // owns execution selection. Desk hypotheses contribute evidence but map
+            // insertion/tie order must never rewrite the owner to PROJECT_SNIPER.
+            val stylePrimary = RuntimeConfigOverlay.normalizeLane(forced ?: styleLanes.firstOrNull() ?: ts.laneAffinity.firstOrNull() ?: "SHITCOIN")
             val metricProposal6599 = TokenMetricStageRouter.preferredPrimaryLane(ts, stylePrimary)
             val metricPrimary = if (forced != null || deskSheet6599.deskHypotheses.isEmpty() || deskSheet6599.deskHypotheses.containsKey(metricProposal6599.uppercase())) metricProposal6599 else stylePrimary
             val scoreForPivot4524 = (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(0, 100)
@@ -10889,6 +10891,11 @@ class BotService : Service() {
         //      lane shapes — but we still cap fanout per the operator P1 spec:
         //      "primary lane + at most one rescue lane".
         val l = lane.uppercase()
+        val claimedOwner6600 = LaneExecutionCoordinator.currentElection6600(ts.mint)?.primaryLane
+        if (!claimedOwner6600.isNullOrBlank() && !claimedOwner6600.equals(l, true)) {
+            try { ToolkitSignalSheet.recordDeskStage(l, "CONTRIBUTOR_ONLY", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}
+            return false
+        }
         // V5.0.6533 — specialist execution is bounded below to primary + one deterministic rescue.
         // Trunk handling occurs after metric-stage hard safety below.
         // canonicalCycleLaneFor elected the owner before these lane sections.
@@ -10936,6 +10943,17 @@ class BotService : Service() {
         val designatedDeskSheet6599 = try { ToolkitSignalSheet.snapshot(ts) } catch (_: Throwable) { null }
         val designatedDeskHypothesis6599 = designatedDeskSheet6599?.deskHypotheses?.get(l)
         val designatedDeskQualified6599 = designatedDeskSheet6599 == null || designatedDeskSheet6599.deskHypotheses.isEmpty() || designatedDeskHypothesis6599 != null
+        val candidateVersion6600 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+        val qualifiedDeskLanes6600 = designatedDeskSheet6599?.deskHypotheses?.keys.orEmpty().filter { !ExecutionAuthorityPolicy6533.isTrunkLane(it) }
+        val boundedRescue6600 = ExecutionAuthorityPolicy6533.selectOneRescue(
+            mint = ts.mint,
+            candidateVersion = candidateVersion6600,
+            primaryLane = primaryLane,
+            affinityLanes = ts.laneAffinity,
+            eligibleLanes = qualifiedDeskLanes6600,
+        )
+        val specialistEvaluationAllowed6600 = designatedDeskQualified6599 &&
+            (l.equals(primaryLane, true) || l.equals(boundedRescue6600, true))
         if (l == "PROJECT_SNIPER") {
             val sniperSetup6599 = designatedDeskHypothesis6599?.setup
             val genuineSniperPool6599 = sniperSetup6599 == ToolkitSignalSheet.Setup.DEGEN_MICRO_SNIPE ||
@@ -10947,10 +10965,10 @@ class BotService : Service() {
         }
         val standaloneMissionDesk6599 = l in setOf("SHITCOIN", "EXPRESS", "PROJECT_SNIPER")
         if (standaloneMissionDesk6599) {
-            val allowed6599 = l.equals(primaryLane, true) && designatedDeskQualified6599
+            val allowed6599 = specialistEvaluationAllowed6600
             try {
                 PipelineHealthCollector.labelInc(if (allowed6599) "MEME_DESK_CANONICAL_PRIMARY_6599_$l" else "MEME_DESK_QUALIFIED_CONTRIBUTOR_ONLY_6599_$l")
-                if (allowed6599) ToolkitSignalSheet.recordDeskStage(l, "BUY_INTENT", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}")
+                if (allowed6599) { ToolkitSignalSheet.recordDeskStage(l, "OWNER_SELECTED", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}"); ToolkitSignalSheet.recordDeskStage(l, "BUY_INTENT", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") }
             } catch (_: Throwable) {}
             return allowed6599
         }
@@ -11140,7 +11158,7 @@ class BotService : Service() {
             // qualified desk hypothesis is the one canonical specialist execution
             // primary; other desks contribute evidence without a second FDG attempt.
             val contributorRotationHint6599 = ownerPool[((ts.mint.hashCode().toLong() xor candidateVersion6533).and(Long.MAX_VALUE) % ownerPool.size).toInt()]
-            val canonicalDeskPrimary6599 = l.equals(primaryLane, true) && designatedDeskQualified6599
+            val canonicalDeskPrimary6599 = specialistEvaluationAllowed6600
             val fanoutPressure4522 = try { LiveLaneFanoutPressure.snapshot() } catch (_: Throwable) { LiveLaneFanoutPressure.Snapshot(false, 0.0, 0.0, 0, "error") }
             if (fanoutPressure4522.active && l in setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP") && !canonicalDeskPrimary6599) {
                 try { PipelineHealthCollector.labelInc("LIVE_FANOUT_PRESSURE_CONTRIBUTOR_ONLY_6599_$l") } catch (_: Throwable) {}
@@ -11168,12 +11186,12 @@ class BotService : Service() {
                 }
                 if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) {
                     try {
-                        ForensicLogger.lifecycle("LIVE_ALL_LANE_CONTRIBUTION_4469", "lane=$l primary=$primaryLane ownerHint=$contributorRotationHint6599 canonicalPrimary=$allowed contributorOnly=${!allowed} symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")} action=considered_bounded_owner_rotation")
+                        ForensicLogger.lifecycle("LIVE_ALL_LANE_CONTRIBUTION_4469", "lane=$l primary=$primaryLane ownerHint=$contributorRotationHint6599 specialistSelected=$allowed primary=${l.equals(primaryLane, true)} rescue=${l.equals(boundedRescue6600, true)} contributorOnly=${!allowed} symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")} action=considered_bounded_owner_rotation")
                         PipelineHealthCollector.labelInc("LIVE_ALL_LANE_CONTRIBUTION_4469_$l")
                         if (!allowed) PipelineHealthCollector.labelInc("LIVE_ALL_LANE_CONTRIBUTION_SUPPRESSED_4478_$l")
                     } catch (_: Throwable) {}
                     if (allowed) {
-                        try { ForensicLogger.lifecycle("MEMETRADER_OWNER_LANE", "lane=$l primary=$primaryLane ownerHint=$contributorRotationHint6599 canonicalPrimary=$allowed symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")}") } catch (_: Throwable) {}
+                        try { ForensicLogger.lifecycle("MEMETRADER_OWNER_LANE", "lane=$l primary=$primaryLane ownerHint=$contributorRotationHint6599 specialistSelected=$allowed symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")}") } catch (_: Throwable) {}
                     } else {
                         try { ForensicLogger.lifecycle("LANE_SUPPRESSED_BY_OWNER_ROTATION", "lane=$l primary=$primaryLane ownerHint=$contributorRotationHint6599 symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=bounded_live_all_lane_contribution_no_fdg") } catch (_: Throwable) {}
                         // V5.0.6070 — WIDEN LANE_EVAL VISIBILITY. Operator: "its
@@ -11220,11 +11238,11 @@ class BotService : Service() {
                     return allowed
                 }
                 if (allowed) {
-                    try { ForensicLogger.lifecycle("MEMETRADER_OWNER_LANE", "lane=$l primary=$primaryLane ownerHint=$contributorRotationHint6599 canonicalPrimary=$allowed symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")}") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("MEMETRADER_OWNER_LANE", "lane=$l primary=$primaryLane ownerHint=$contributorRotationHint6599 specialistSelected=$allowed symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")}") } catch (_: Throwable) {}
                 } else {
                     try { ForensicLogger.lifecycle("LANE_SUPPRESSED_BY_OWNER_ROTATION", "lane=$l primary=$primaryLane ownerHint=$contributorRotationHint6599 symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
                 }
-                if (allowed) try { ToolkitSignalSheet.recordDeskStage(l, "BUY_INTENT", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}
+                if (allowed) try { ToolkitSignalSheet.recordDeskStage(l, "OWNER_SELECTED", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}"); ToolkitSignalSheet.recordDeskStage(l, "BUY_INTENT", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}
                 return allowed
             }
             return false
@@ -11232,9 +11250,9 @@ class BotService : Service() {
 
         // (4) Mixed mode: all qualified desks remain contributors, but only
         // the strongest canonical primary reaches specialist FDG/execution.
-        val mixedAllowed6533 = l.equals(primaryLane, true) && designatedDeskQualified6599
+        val mixedAllowed6533 = specialistEvaluationAllowed6600
         if (!mixedAllowed6533) try { PipelineHealthCollector.labelInc("MEME_DESK_QUALIFIED_CONTRIBUTOR_ONLY_6599_$l") } catch (_: Throwable) {}
-        if (mixedAllowed6533) try { ToolkitSignalSheet.recordDeskStage(l, "BUY_INTENT", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}
+        if (mixedAllowed6533) try { ToolkitSignalSheet.recordDeskStage(l, "OWNER_SELECTED", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}"); ToolkitSignalSheet.recordDeskStage(l, "BUY_INTENT", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}
         return mixedAllowed6533
     }
 

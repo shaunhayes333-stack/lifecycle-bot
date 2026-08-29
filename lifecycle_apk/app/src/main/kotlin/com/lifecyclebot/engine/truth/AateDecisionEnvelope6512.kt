@@ -101,6 +101,10 @@ object AateDecisionFabric6512 {
         if (!rewardedPositions.add(env.positionId)) return true
         val e = byPosition[env.positionId] ?: byAuthority.values.asSequence()
             .filter { it.context.mint == env.mint && it.context.primaryStrategy.equals(env.lane, true) }.maxByOrNull { it.revision }
+        try { ToolkitSignalSheet.recordDeskStage(env.lane, "FINALIZED", env.positionId) } catch (_: Throwable) {}
+        if (e == null && env.lane.uppercase() in setOf("QUALITY","BLUECHIP","BLUE_CHIP","SHITCOIN","CYCLIC","EXPRESS","CORE","MOONSHOT","PROJECT_SNIPER","DIP_HUNTER","MANIPULATED","TREASURY","CASHGEN")) {
+            try { ToolkitSignalSheet.recordCausalIssue6600("specialistLearningMissing", env.lane, "positionId=${env.positionId.take(18)}") } catch (_: Throwable) {}
+        }
         val contributors = e?.contributors.orEmpty(); val updated = mutableListOf<String>()
         val uphBefore = UnifiedPolicyHead.trainedCount()
         try { UnifiedPolicyHead.recordOutcome(env.mint, env.realizedReturnPct) } catch (_: Throwable) {}

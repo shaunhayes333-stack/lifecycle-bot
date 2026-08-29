@@ -416,7 +416,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("MEME-only should rotate ownership across the full MemeTrader surface", bot.contains("MEMETRADER_CONTRIBUTION_ROTATION") && bot.contains("fullMemeTraderRing") && bot.contains("MEMETRADER_OWNER_LANE"))
         assertTrue("Rotation must include internal lanes that were previously idle (V5.0.4599: specialists no longer in ring)", listOf("MOONSHOT", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { bot.contains(it) })
-        assertTrue("V5.0.6599: live contribution retains all qualified desks but only canonical primary reaches FDG/executor", bot.contains("deskHypotheses.values.maxByOrNull { it.conviction }?.lane") && bot.contains("val allowed = canonicalDeskPrimary6599") && bot.contains("MEME_DESK_QUALIFIED_CONTRIBUTOR_ONLY_6599") && bot.contains("return allowed"))
+        assertTrue("V5.0.6600: source/style owner plus one qualified rescue replace insertion-order desk collapse", bot.contains("forced ?: styleLanes.firstOrNull()") && bot.contains("boundedRescue6600") && bot.contains("specialistEvaluationAllowed6600") && bot.contains("claimedOwner6600"))
         assertTrue("V5.0.6014: successful lanes must get bounded entry feed instead of MANIPULATED/SHITCOIN/EXPRESS budget", bot.contains("SUCCESSFUL_LANE_FEED_RESTORED_6014") && bot.contains("successfulFeedLanes6014") && bot.contains("QUALITY") && bot.contains("MOONSHOT") && bot.contains("BLUECHIP") && bot.contains("CRYPTO") && !bot.contains("SPECIALIST_ENTRY_EVAL_RESTORED_6013"))
         assertFalse("3914 live full-ring fanout regression must stay dead", bot.contains("LIVE_FULL_RING_LANE_OBSERVE"))
     }
@@ -810,7 +810,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Full MemeTrader ring must include previously idle internal lanes (V5.0.4599: specialists TRADERS not lanes)", listOf("MOONSHOT", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { bot.contains(it) })
         assertTrue("Owner rotation must be affinity-first and toxicity-treated without lane amputation", bot.contains("affinityRanked") && bot.contains("rawOwnerPool") && bot.contains("LaneToxicityGuard.filterNonToxic(rawOwnerPool"))
         assertTrue("EXPRESS must use the same bounded lane gate and emit LANE_EVAL", bot.contains("expressLaneAllowedThisCycle") && bot.contains("lane=EXPRESS paper="))
-        assertTrue(bot.contains("MEME_DESK_CANONICAL_PRIMARY_6599") && bot.contains("MEME_DESK_QUALIFIED_CONTRIBUTOR_ONLY_6599") && bot.contains("LANE_SUPPRESSED_BY_OWNER_ROTATION"))
+        assertTrue(bot.contains("boundedRescue6600") && bot.contains("CONTRIBUTOR_ONLY") && bot.contains("LANE_SUPPRESSED_BY_OWNER_ROTATION"))
         assertFalse("MEME-only must not blanket-mute all non-meme specialist lanes", bot.contains("return memeFamily"))
         assertFalse("toolkit alive must not mean all meme-family siblings execute", bot.contains("if (memeFamily) return true"))
         assertFalse("live owner collapse must not be bypassed by full-ring observe", bot.contains("LIVE_FULL_RING_LANE_OBSERVE"))
@@ -848,7 +848,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("MEMETRADER_CONTRIBUTION_ROTATION"))
         assertTrue(bot.contains("exactly ONE canonical primary"))
-        assertTrue(bot.contains("val allowed = canonicalDeskPrimary6599"))
+        assertTrue(bot.contains("specialistEvaluationAllowed6600") && bot.contains("boundedRescue6600"))
         assertTrue(bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469"))
         assertTrue(bot.contains("val fullMemeTraderRing = listOf"))
         assertFalse("owner rotation must not require pre-existing affinity", bot.contains("nonMemeSpecialist && affinity.contains(l)"))
@@ -3479,7 +3479,7 @@ class GoldenTapeRegressionTest {
     fun live_meme_mode_must_collapse_to_one_owner_lane_not_full_ring_fanout() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
-        assertTrue("V5.0.6599: live MemeTrader aggregates all qualified desks while exactly one canonical primary executes", bot.contains("LIVE_RING_OWNER_COLLAPSE") && bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("MEME_DESK_CANONICAL_PRIMARY_6599") && bot.contains("val allowed = canonicalDeskPrimary6599") && !bot.contains("val allowed = profitableRescue"))
+        assertTrue("V5.0.6600: live MemeTrader retains qualified evidence and allows only source/style owner plus bounded rescue before one-mint claim", bot.contains("LIVE_RING_OWNER_COLLAPSE") && bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("boundedRescue6600") && bot.contains("claimedOwner6600") && !bot.contains("strongestDesk6599"))
         assertTrue("V5.0.6483: paused owner lanes remain bounded owners but pivot tactics before execution", bot.contains("OWNER_LANE_TACTIC_PIVOT_6483") && bot.contains("LaneAutoPauseGuard.isPaused(l)"))
         assertTrue("V5.0.6483: successful-lane feed preserves quality proof without learned pause denial", bot.contains("SUCCESSFUL_LANE_FEED_DENIED_QUALITY_PROOF_6483") && bot.contains("qualityProofOk6014") && !bot.contains("LIVE_FULL_RING_LANE_OBSERVE"))
         assertFalse("live full-ring observe must not return true before owner rotation", bot.contains("LIVE_FULL_RING_LANE_OBSERVE") || bot.contains("fullRingObserve"))
@@ -6220,8 +6220,8 @@ class GoldenTapeRegressionTest {
     @Test
     fun botService_4469LiveMemeModeEvaluatesAllInternalTraderLanesForLearning() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.6599: live MEME-only retains every qualified desk as causal evidence but only canonical primary reaches FDG", src.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && src.contains("MEME_DESK_QUALIFIED_CONTRIBUTOR_ONLY_6599") && src.contains("val allowed = canonicalDeskPrimary6599") && src.contains("return allowed"))
-        assertTrue("V5.0.6599: strongest qualified desk is bounded live FDG/executor authority while all others remain contributors", src.contains("strongestDesk6599") && src.contains("canonicalDeskPrimary6599") && src.contains("contributorRotationHint6599") && src.contains("LIVE_ALL_LANE_CONTRIBUTION_SUPPRESSED_4478"))
+        assertTrue("V5.0.6600: live MEME-only retains qualified desks while source/style owner plus bounded rescue can express a real BUY", src.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && src.contains("boundedRescue6600") && src.contains("specialistEvaluationAllowed6600") && src.contains("return specialistEvaluationAllowed6600"))
+        assertTrue("V5.0.6600: ownership cannot derive from desk map insertion order and one-mint election turns later lanes into contributors", !src.contains("strongestDesk6599") && src.contains("currentElection6600") && src.contains("CONTRIBUTOR_ONLY"))
         assertTrue("V5.0.4469: full internal ring includes every meme trader contributor for live learning (V5.0.4599: specialists moved out of ring)", listOf("MOONSHOT", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { src.contains(it) })
     }
 
@@ -6544,7 +6544,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
         assertTrue("V5.0.4522: fanout pressure detector must use cached laneEval/intake plus live WR", pressure.contains("ratio > 8.0") && pressure.contains("wr < 30.0") && pressure.contains("TTL_MS"))
-        assertTrue("V5.0.6599: pressure telemetry remains while contributor-only desks cannot create broad fanout", bot.contains("LIVE_FANOUT_PRESSURE_CONTRIBUTOR_ONLY_6599") && bot.contains("canonicalDeskPrimary6599"))
+        assertTrue("V5.0.6600: pressure telemetry remains while bounded owner/rescue prevents broad fanout", bot.contains("LIVE_FANOUT_PRESSURE_CONTRIBUTOR_ONLY_6599") && bot.contains("boundedRescue6600") && bot.contains("claimedOwner6600"))
         assertTrue("V5.0.6599: canonical desk eligibility remains proof and toxicity filtered", bot.contains("filterNonToxic(rawOwnerPool") && bot.contains("qualityEligible") && bot.contains("cashGenEligible") && bot.contains("designatedDeskQualified6599"))
         assertTrue("V5.0.4522: reports must surface fanout pressure state", report.contains("LiveLaneFanoutPressure.snapshot"))
     }
@@ -7354,8 +7354,8 @@ class GoldenTapeRegressionTest {
                 paperBuy.contains("ExecutionAttemptLease.terminalOk") &&
                 (paperBuy.contains("PAPER_BUY_OPENED_6369") || paperBuy.contains("PAPER_BUY_OPENED_6370")))
         assertTrue("V5.0.6599: paper specialist execution is the one qualified canonical primary",
-            bot.contains("val allowed = canonicalDeskPrimary6599") &&
-                bot.contains("MEME_DESK_QUALIFIED_CONTRIBUTOR_ONLY_6599") && !bot.contains("val allowed = profitableRescue"))
+            bot.contains("boundedRescue6600") && bot.contains("specialistEvaluationAllowed6600") &&
+                bot.contains("CONTRIBUTOR_ONLY") && !bot.contains("strongestDesk6599"))
     }
 
 
@@ -8015,7 +8015,7 @@ class GoldenTapeRegressionTest {
         assertTrue("6491 sizing boundary must compare integer lamports, including exact equality",
             resolver.contains("SOL_LAMPORTS_6491") && resolver.contains("toLamports6491") &&
                 resolver.contains("boundedExecutableLamports6498 >= minExecLamports6491") &&
-                invariant.contains("final_exceeds_requested") && invariant.contains("final_exceeds_risk"))
+                resolver.contains("OK_MIN_PROMOTED_6600") && invariant.contains("Cash and lane cap are"))
         val sizePrecheck = openGate.indexOf("EXEC_OPEN_PRECHECK_SIZE_PENDING_6491")
         val mintClaim = openGate.indexOf("executableBuyClaim6487.putIfAbsent")
         val allowed = openGate.indexOf("ForensicLogger.lifecycle(" + '"' + "EXEC_OPEN_ALLOWED" + '"')
@@ -8024,8 +8024,8 @@ class GoldenTapeRegressionTest {
                 permit.contains("sizeFinalityTicketPresent6491") && permit.contains("preResolvedSizeSol6490 = sizeSol"))
         assertTrue("6599 supersedes 6533 rescue fanout with trunk plus one qualified canonical specialist primary",
             bot.contains("ExecutionAuthorityPolicy6533.isTrunkLane(l)") &&
-                bot.contains("canonicalDeskPrimary6599") && bot.contains("MEME_DESK_QUALIFIED_CONTRIBUTOR_ONLY_6599") &&
-                !bot.contains("val allowed = profitableRescue") && !bot.contains("LANE_READ_ONLY_NON_PRIMARY_6491"))
+                bot.contains("boundedRescue6600") && bot.contains("specialistEvaluationAllowed6600") &&
+                bot.contains("claimedOwner6600") && !bot.contains("strongestDesk6599") && !bot.contains("LANE_READ_ONLY_NON_PRIMARY_6491"))
         assertTrue("6491 toxic SHITCOIN/TREASURY shaping must use learned lane-local entry floors, not global pauses",
             probability.contains("learnedEntryFloorDelta6491") && probability.contains("lane == " + '"' + "SHITCOIN" + '"') &&
                 probability.contains("lane == " + '"' + "TREASURY" + '"') && bot.contains("LANE_LOCAL_LEARNED_FLOOR_READ_ONLY_6491"))

@@ -1752,6 +1752,7 @@ object PipelineHealthCollector {
         try {
             sb.append(com.lifecyclebot.engine.ToolkitSignalSheet.designatedRoleLivenessReport6599()).append("\n")
             sb.append(com.lifecyclebot.engine.ToolkitSignalSheet.specialistCapitalReport6599()).append("\n")
+            sb.append(com.lifecyclebot.engine.ToolkitSignalSheet.specialistCausalFunnel6600()).append("\n")
         } catch (_: Throwable) {}
 
         // ── V5.0.6428 §AP — CORRECTNESS GUARDS status ───────────────

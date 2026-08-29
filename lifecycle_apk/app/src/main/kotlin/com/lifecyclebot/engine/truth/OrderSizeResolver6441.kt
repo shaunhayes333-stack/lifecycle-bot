@@ -147,44 +147,18 @@ object OrderSizeResolver6441 {
         val availableLamports6491 = toLamports6491(feeAwareAvailable6490)
         val laneCapLamports6491 = toLamports6491(laneRiskCapSol)
         val laneClampedLamports6491 = toLamports6491(laneClamped)
-        // V5.0.6567 — executable floors are constraints, never size creators.
-        // Preserve the complete adaptive request; below-minimum proposals remain
-        // explicit non-executable/shadow samples and are never promoted upward.
-        val effectiveShapedLamports6506 = laneClampedLamports6491
-        val executableLamports6491 = if (effectiveShapedLamports6506 >= minExecLamports6491) effectiveShapedLamports6506 else 0L
-        val riskLamports6491 = toLamports6491(risk)
-        // V5.0.6598 §SIZING_LADDER_HONORED — operator directive Feb 2026:
-        //   > "Do not let five successive 0.x multipliers multiply a valid
-        //   >  order into dust ... If final BUY risk budget can afford the
-        //   >  minimum executable notional: clamp the executable order to
-        //   >  canonical minimum."
-        // Snapshot 6595: RunnerCompounding recommendedSizeSol=0.400 arrived
-        // at OrderSizeResolver, req=0.010 risk=0.010 ladder=0.400, then
-        // final=0.00000 BELOW_MIN_EXECUTABLE.
-        //
-        // The pathology has a specific shape: `requested` is BELOW the
-        // minimum executable AND the runner ladder legitimately provides
-        // a lift ABOVE the minimum. Pre-6598 the authority cap re-imposed
-        // `requested` via minOf(requestedLamports, ...), collapsing back
-        // to sub-minimum and terminating as BELOW_MIN_EXECUTABLE.
-        //
-        // Fix (narrow): when `requested < minExec` AND `ladderTarget >= minExec`,
-        // the authority cap uses `laneClamped` (fully-lifted, wallet/lane-capped)
-        // so the executable can reach at least the minimum. This is the
-        // "clamp the executable order to canonical minimum" case the operator
-        // named. All other cases (requested >= minExec, no ladder lift,
-        // adaptive sub-floor without ladder rescue) keep the pre-6598
-        // conservative authority cap so sub-floor requests remain non-
-        // executable rather than being promoted.
-        val ladderRescueApplies6598 =
-            ladderTarget.isFinite() && ladderTarget >= (minExec * 3.0) &&
-                requestedLamports6491 < minExecLamports6491
-        val authorityCapLamports6498 = if (ladderRescueApplies6598) {
-            minOf(laneClampedLamports6491, availableLamports6491)
-        } else {
-            minOf(requestedLamports6491, riskLamports6491, availableLamports6491, laneCapLamports6491)
+        // V5.0.6600 — restore canonical executable-minimum semantics. An
+        // approved positive proposal is promoted exactly once to minExec when the
+        // authoritative cash and lane hard cap can fund it. Soft intelligence may
+        // shape risk, but cannot multiply an otherwise executable BUY into dust.
+        val canFundMinimum6600 = requestedLamports6491 > 0L &&
+            availableLamports6491 >= minExecLamports6491 && laneCapLamports6491 >= minExecLamports6491
+        val shapedOrMinimumLamports6600 = when {
+            laneClampedLamports6491 >= minExecLamports6491 -> laneClampedLamports6491
+            canFundMinimum6600 -> minExecLamports6491
+            else -> 0L
         }
-        val boundedExecutableLamports6498 = executableLamports6491.coerceAtMost(authorityCapLamports6498)
+        val boundedExecutableLamports6498 = minOf(shapedOrMinimumLamports6600, availableLamports6491, laneCapLamports6491)
         val executable = boundedExecutableLamports6498 >= minExecLamports6491
         val finalSize = if (executable) fromLamports6491(boundedExecutableLamports6498) else 0.0
         val reason = when {
@@ -193,9 +167,10 @@ object OrderSizeResolver6441 {
             !executable && laneCapLamports6491 < minExecLamports6491 -> "LANE_CAP_BELOW_MIN_EXECUTABLE_6490"
             !executable -> "BELOW_MIN_EXECUTABLE"
             paperMode && authoritativeCash + 1e-12 < finalSize * (1.0 + PAPER_ENTRY_FEE_RESERVE_RATE_6490) -> "PAPER_CASH_INSUFFICIENT_WITH_FEE_6490"
+            canFundMinimum6600 && laneClampedLamports6491 < minExecLamports6491 -> "OK_MIN_PROMOTED_6600"
             else -> "OK"
         }
-        val actuallyExec = executable && (reason == "OK")
+        val actuallyExec = executable && reason in setOf("OK", "OK_MIN_PROMOTED_6600")
         val res = Resolution(
             requestedSol = requested,
             riskSol = risk,
@@ -221,6 +196,7 @@ object OrderSizeResolver6441 {
         // still show up because the resolver's own emission is invariant-
         // guarded. Non-blocking; log-only.
         try { OrderSizeResolverInvariant6468.check(res) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(laneName, if (res.executable) "SIZED_EXECUTABLE" else "SIZE_REJECT") } catch (_: Throwable) {}
         return res
     }
 

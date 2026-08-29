@@ -4847,6 +4847,8 @@ object FinalDecisionGate {
             } catch (_: Throwable) {}
         }
 
+        try { com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(laneName, if (shouldTradeFinal) "FDG_ALLOW" else "FDG_BLOCK", "${ts.mint}:${com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}
+
         val aateEnvelope6512 = try {
             val hardReason6512 = blockReasonFinal?.uppercase().orEmpty()
             val trueHard6512 = listOf("CONFIRMED_RUG", "RUGCHECK_100", "RC_SCORE_0", "NO_EXECUTABLE_ROUTE", "TRUE_ZERO_LIQUIDITY", "DUPLICATE_OPEN", "MINT_AUTHORITY_RETAINED", "FREEZE_AUTHORITY_RETAINED", "MANUAL_LIQUIDATION")

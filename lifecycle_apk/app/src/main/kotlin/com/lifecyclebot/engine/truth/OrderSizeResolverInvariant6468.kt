@@ -39,8 +39,9 @@ object OrderSizeResolverInvariant6468 {
         }
         // cashCap = 0 sometimes reflects "cash cap unknown" (paper allowed);
         // only enforce when cashCap is a real positive number.
-        if (res.finalSizeSol > res.requestedSol + 1e-9) reasons += "final_exceeds_requested"
-        if (res.finalSizeSol > res.riskSol + 1e-9) reasons += "final_exceeds_risk"
+        // V5.0.6600: canonical min-executable promotion and runner-ladder lifts
+        // may validly exceed soft requested/risk suggestions. Cash and lane cap are
+        // the hard invariants; promotion is reported in Resolution.trace().
         if (res.cashCapSol > 0.0 && res.finalSizeSol > res.cashCapSol + 1e-9) {
             reasons += "final_exceeds_cash_cap"
         }

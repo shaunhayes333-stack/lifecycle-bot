@@ -715,6 +715,7 @@ object ExecutableOpenGate {
             PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT")
             ForensicLogger.lifecycle("FDG_ALLOW_WITHOUT_EXEC_INTENT", "mint=${mint.take(10)} symbol=$symbol lane=$lane version=$candidateVersion action=explicit_reject")
         } catch (_: Throwable) {}
+        if (intent != null) try { ToolkitSignalSheet.recordDeskStage(lane, "TICKET", intent.attemptId) } catch (_: Throwable) {}
         return intent
     }
 

@@ -8451,7 +8451,7 @@ class Executor(
                 else -> 25.0  // 25% meme runner default — was 0 (TP disabled), now wired
             }
             val tpPx = if (pos.entryPrice > 0.0 && effTpPct > 0.0) pos.entryPrice * (1.0 + effTpPct / 100.0) else 0.0
-            com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.evaluate(
+            val canonicalExitTrigger6600 = com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.evaluate(
                 positionId = pid6451,
                 mint = ts.mint,
                 markPx = price,
@@ -8461,7 +8461,19 @@ class Executor(
                 trailPx = trailPx,
                 quoteAgeMs = 0L,
             )
-        } catch (_: Throwable) {}
+            if (canonicalExitTrigger6600 != null) {
+                try {
+                    PipelineHealthCollector.labelInc("PROTECTIVE_EXIT_DELIVERED_TO_REQUEST_SELL_6600_${canonicalExitTrigger6600.name}")
+                    ToolkitSignalSheet.recordDeskStage(pos.tradingMode, "EXIT_TRIGGER", "$pid6451:${canonicalExitTrigger6600.name}")
+                } catch (_: Throwable) {}
+                return "PROTECTIVE_EXIT_${canonicalExitTrigger6600.name}_6450"
+            }
+        } catch (t: Throwable) {
+            try {
+                PipelineHealthCollector.labelInc("PROTECTIVE_EXIT_DELIVERY_ERROR_6600")
+                ForensicLogger.lifecycle("PROTECTIVE_EXIT_DELIVERY_ERROR_6600", "mint=${ts.mint.take(10)} error=${t.message}")
+            } catch (_: Throwable) {}
+        }
 
         // ═══════════════════════════════════════════════════════════════════════
         // V5.9.124 — REFLEX AI (sub-second reflex gate). Runs BEFORE every
@@ -10542,6 +10554,14 @@ class Executor(
                 ts.mint, frozenVersion6512, if (isPaperRT()) "PAPER" else "LIVE",
             )
             if (decision6512 != null) {
+                val identityLane6600 = normalizeExecutionLane(tradeId.executionLane)
+                val sealedLane6600 = normalizeExecutionLane(decision6512.executionLane)
+                if (identityLane6600.isNotBlank() && sealedLane6600.isNotBlank() && !identityLane6600.equals(sealedLane6600, true)) {
+                    try {
+                        ToolkitSignalSheet.recordCausalIssue6600("ownerLaneChangedAfterSelection", sealedLane6600, "identity=$identityLane6600 mint=${ts.mint.take(10)}")
+                        ToolkitSignalSheet.recordCausalIssue6600("crossLaneExecutionRewrite", sealedLane6600, "identity=$identityLane6600 mint=${ts.mint.take(10)}")
+                    } catch (_: Throwable) {}
+                }
                 tradeId.executionLane = decision6512.executionLane
                 tradeId.fdgCandidateVersion = decision6512.candidateVersion
                 tradeId.fdgVerdictSnapshot = decision6512.verdict
@@ -12057,6 +12077,33 @@ class Executor(
         // the strict mark. This eliminates the 6578 ROUTE_FAILED_PAPER
         // false blocks for paper trades sourced from paths where only
         // the observation mark got through.
+        // V5.0.6600 — restore the existing 6579 PAPER observation path at its
+        // source. Fresh scanner/TokenMap evidence may establish the first canonical
+        // observation mark; this is not live route proof and never relaxes LIVE.
+        try {
+            val now6600 = System.currentTimeMillis()
+            val tokenMapFresh6600 = ts.tokenMap.updatedAtMs > 0L && now6600 - ts.tokenMap.updatedAtMs <= 120_000L
+            val stateFresh6600 = ts.lastPriceUpdate > 0L && now6600 - ts.lastPriceUpdate <= 120_000L
+            val bootstrapPrice6600 = ts.tokenMap.priceUsd?.takeIf { tokenMapFresh6600 && it.isFinite() && it > 0.0 }
+                ?: ts.lastPrice.takeIf { stateFresh6600 && it.isFinite() && it > 0.0 }
+            val bootstrapSource6600 = ts.tokenMap.sourceScanner.takeIf { tokenMapFresh6600 && it.isNotBlank() }
+                ?: ts.lastPriceSource.ifBlank { ts.source }
+            val bootstrapPool6600 = ts.tokenMap.poolAddress.ifBlank { ts.tokenMap.pairAddress }
+                .ifBlank { ts.lastPricePoolAddr }.ifBlank { ts.pairAddress }.ifBlank { "MINT_ROUTE:${ts.mint}" }
+            if (bootstrapPrice6600 != null && bootstrapSource6600.isNotBlank()) {
+                val published6600 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.publish(
+                    com.lifecyclebot.engine.truth.CanonicalPriceMark6522(
+                        mint = ts.mint, pairId = bootstrapPool6600, baseMint = ts.mint,
+                        quoteMint = ts.tokenMap.quoteMint.ifBlank { "USD" }, source = bootstrapSource6600,
+                        timestampMs = maxOf(ts.tokenMap.updatedAtMs, ts.lastPriceUpdate).takeIf { it > 0L } ?: now6600,
+                        priceUsd = com.lifecyclebot.engine.truth.PriceUsd(java.math.BigDecimal.valueOf(bootstrapPrice6600)),
+                        liquidityUsd = (ts.tokenMap.liquidityUsd ?: ts.lastLiquidityUsd).takeIf { it.isFinite() && it > 0.0 }?.let { java.math.BigDecimal.valueOf(it) },
+                        purpose = com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING,
+                    )
+                )
+                if (published6600) PipelineHealthCollector.labelInc("PAPER_ENTRY_OBSERVATION_MARK_BOOTSTRAPPED_6600")
+            }
+        } catch (_: Throwable) {}
         val strictMark6575 = try {
             com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(
                 ts.mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
@@ -12068,7 +12115,13 @@ class Executor(
             )
         } catch (_: Throwable) { null }
         val paperMarkOk6579 = strictMark6575 != null || observationMark6579 != null
+        if (paperMarkOk6579) try { ToolkitSignalSheet.recordDeskStage(layerTag, "MARK_READY", executionAttemptId6514) } catch (_: Throwable) {}
         if (!paperMarkOk6579) {
+            try {
+                ToolkitSignalSheet.recordDeskStage(layerTag, "MARK_REJECT", executionAttemptId6514)
+                val validSource6600 = (ts.tokenMap.priceUsd ?: 0.0) > 0.0 || (ts.lastPrice > 0.0 && ts.lastLiquidityUsd > 0.0)
+                if (validSource6600) ToolkitSignalSheet.recordCausalIssue6600("missingExecutableMarkWithValidSource", layerTag, "mint=${ts.mint.take(10)}")
+            } catch (_: Throwable) {}
             try {
                 PipelineHealthCollector.labelInc("EXECUTION_WITH_PROVISIONAL_MARK_6575")
                 ForensicLogger.lifecycle(
@@ -13074,6 +13127,7 @@ class Executor(
                 com.lifecyclebot.engine.ToolkitSignalSheet.contributionSummary(ts), "POSITION_INFLUENCE", pid6450,
             )
             com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(entryLane6450, "EXEC", pid6450)
+            com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(entryLane6450, "POSITION_OPENED", pid6450)
             // V5.0.6455 §SELL_DOOR_MIGRATION — seed PositionStateLedger6454
             // with lifecycle=OPEN so subsequent terminal sell reservations
             // (reserveTerminalSell CAS OPEN/PARTIAL -> CLOSING) know this
@@ -17635,6 +17689,7 @@ class Executor(
                         com.lifecyclebot.engine.ToolkitSignalSheet.contributionSummary(ts), "POSITION_INFLUENCE", pidLive6486,
                     )
                     com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(liveEntryLane6568, "EXEC", pidLive6486)
+                    com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(liveEntryLane6568, "POSITION_OPENED", pidLive6486)
                     try { PipelineHealthCollector.labelInc("LIVE_ENTRY_POLICY_SNAPSHOT_CANONICAL_6568") } catch (_: Throwable) {}
                     com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.onBuyFilled(pidLive6486, verifyMint, proof.amountRaw)
                     com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(
@@ -19778,6 +19833,7 @@ class Executor(
             try {
                 ForensicLogger.lifecycle("PAPER_SELL_CANONICAL_POSITION_MISSING_6498", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason action=retry_no_projection_mutation")
                 PipelineHealthCollector.labelInc("PAPER_SELL_CANONICAL_POSITION_MISSING_6498")
+                ToolkitSignalSheet.recordCausalIssue6600("sellCanonicalLookupFailure", ts.position.tradingMode, "mint=${ts.mint.take(10)} positionId=${ts.position.positionId.take(18)}")
             } catch (_: Throwable) {}
             try { PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "CANONICAL_POSITION_MISSING_6498:$reason") } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "CANONICAL_POSITION_MISSING_6498") } catch (_: Throwable) {}
@@ -19836,131 +19892,52 @@ class Executor(
         // bot-stop closeAllPositions() to see ALREADY_CLOSED and skip the position.
         try {
         try { ForensicLogger.lifecycle("PAPER_SELL_START", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}
+        try { ToolkitSignalSheet.recordDeskStage(ts.position.tradingMode, "SELL_ATTEMPT", "${ts.position.positionId}:$reason") } catch (_: Throwable) {}
 
-        // V5.0.6373b — CANONICAL POSITION SENTINEL (P0-1 + P0-2 + P0-3 source-of-creation).
-        // Operator snapshot proved the phantom-sell bug: 4 different mints
-        // (BhmJPx, 2MwxyM, 39q9ks, b7vYe1) all "sold" within a 0.5s window
-        // reporting identical cost=0.0100 qty=4750 entry=2.1052162e-06 while
-        // their real BUYs were qty=8.15e+04 cost=0.1811. The sell path was
-        // reading a shared/reset TokenState.position instead of the mint's
-        // real buy record. Cross-check ts.position against TradeHistoryStore's
-        // authoritative latest BUY record for this mint. Block the sell (do NOT
-        // journal, do NOT unregister, do NOT train) when:
-        //   • no BUY row exists for this mint (P0-1)
-        //   • pos.costSol diverges from BUY.entryCostSol by >2× (P0-3 phantom cost)
-        //   • pos.qtyToken diverges from BUY.entryQtyToken by >2× (P0-2 oversell/undersell)
-        //   • pos.costSol < 0.05 SOL AND the BUY was >= 0.05 SOL (kills the 0.01 fallback)
-        // Emits SELL_BLOCKED_NO_CANONICAL_POSITION_6373 + counter so the operator
-        // sees the block instead of the phantom row.
+        // V5.0.6600 — canonical position authority already passed the 6570 exit
+        // eligibility contract above. Heal the mutable TokenState projection from
+        // that authority; never veto a genuine canonical close because a journal or
+        // legacy projection index is stale.
         run {
-            val canonicalBuy = try {
-                com.lifecyclebot.engine.TradeHistoryStore.getLatestBuyByMintSnapshot()[ts.mint]
-            } catch (_: Throwable) { null }
-            val block: Pair<String, String>? = when {
-                canonicalBuy == null ->
-                    "NO_CANONICAL_BUY_RECORD" to "no BUY row for mint in TradeHistoryStore"
-                canonicalBuy.entryCostSol <= 0.0 || canonicalBuy.entryQtyToken <= 0.0 ->
-                    "CANONICAL_BUY_MALFORMED" to "buy.entryCostSol=${canonicalBuy.entryCostSol} buy.entryQtyToken=${canonicalBuy.entryQtyToken}"
-                pos.costSol <= 0.0 || pos.entryPrice <= 0.0 || pos.qtyToken <= 0.0 ->
-                    "POS_UNPOPULATED" to "pos.costSol=${pos.costSol} pos.entryPrice=${pos.entryPrice} pos.qtyToken=${pos.qtyToken}"
-                pos.costSol < 0.05 && canonicalBuy.entryCostSol >= 0.05 ->
-                    "COST_BASIS_PHANTOM_FALLBACK" to "pos.costSol=${pos.costSol} buy.entryCostSol=${canonicalBuy.entryCostSol} — phantom 0.01-SOL fallback detected"
-                run {
-                    val ratio = maxOf(pos.costSol, canonicalBuy.entryCostSol) / minOf(pos.costSol, canonicalBuy.entryCostSol)
-                    ratio > 2.0
-                } ->
-                    "COST_BASIS_DIVERGES_FROM_CANONICAL" to "pos.costSol=${pos.costSol} buy.entryCostSol=${canonicalBuy.entryCostSol}"
-                run {
-                    val ratio = maxOf(pos.qtyToken, canonicalBuy.entryQtyToken) / minOf(pos.qtyToken, canonicalBuy.entryQtyToken)
-                    ratio > 2.0
-                } ->
-                    "QTY_DIVERGES_FROM_CANONICAL" to "pos.qtyToken=${pos.qtyToken} buy.entryQtyToken=${canonicalBuy.entryQtyToken}"
-                else -> null
-            }
-            if (block != null) {
-                val (code, detail) = block
-                // V5.0.6507 §P0 EXIT FINALITY — HEAL FROM CANONICAL LOTS.
-                // Operator mandate: "Sell quantity comes only from canonical
-                // remaining fill lots. On divergence, rebuild position qty
-                // from FillLotLedger before rejecting. Heal from lots then
-                // retry exactly once, quarantine only if authoritative lots
-                // themselves disagree."
-                //
-                // Only the QTY_DIVERGES_FROM_CANONICAL block is repairable —
-                // NO_CANONICAL_BUY_RECORD / CANONICAL_BUY_MALFORMED / POS_UNPOPULATED
-                // / COST_BASIS_* remain hard rejects because they signal
-                // data-integrity failures the fill-lot ledger cannot correct.
-                if (code == "QTY_DIVERGES_FROM_CANONICAL") {
-                    val healed6507 = try {
-                        val lotQtyRaw = com.lifecyclebot.engine.truth.FillLotLedger6504
-                            .canonicalQtyOf(ts.mint, isPaper = true)
-                        val decimals = canonicalTerminalPosition6492.quantityScale.coerceIn(0, 18)
-                        val lotQtyToken = lotQtyRaw.toDouble() / Math.pow(10.0, decimals.toDouble())
-                        if (lotQtyToken.isFinite() && lotQtyToken > 0.0) {
-                            val prior = pos.qtyToken
-                            // Position is an immutable data class — replace
-                            // the whole position on the token state via copy,
-                            // AND rebind the local `pos` var so downstream
-                            // reads see the healed qty.
-                            val healed = pos.copy(qtyToken = lotQtyToken)
-                            ts.position = healed
-                            pos = healed
-                            try {
-                                PipelineHealthCollector.labelInc("EXIT_FINALITY_HEAL_FROM_LOTS_6507")
-                                ForensicLogger.lifecycle(
-                                    "EXIT_FINALITY_HEAL_FROM_LOTS_6507",
-                                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} " +
-                                        "priorQty=${"%.4f".format(prior)} " +
-                                        "healedQty=${"%.4f".format(lotQtyToken)} " +
-                                        "canonicalBuyQty=${"%.4f".format(canonicalBuy?.entryQtyToken ?: 0.0)} " +
-                                        "decimals=$decimals action=continue_with_lot_truth",
-                                )
-                            } catch (_: Throwable) {}
-                            true
-                        } else {
-                            try {
-                                PipelineHealthCollector.labelInc("EXIT_FINALITY_LOTS_EMPTY_QUARANTINE_6507")
-                                ForensicLogger.lifecycle(
-                                    "EXIT_FINALITY_LOTS_EMPTY_QUARANTINE_6507",
-                                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} " +
-                                        "lotQtyRaw=$lotQtyRaw action=deterministic_reject",
-                                )
-                            } catch (_: Throwable) {}
-                            false
-                        }
-                    } catch (_: Throwable) { false }
-                    if (healed6507) {
-                        // Skip the block — heal succeeded, proceed with sell
-                        // using the corrected pos.qtyToken. If the sell
-                        // fails downstream for a different reason, it will
-                        // surface with its own concrete code.
-                    } else {
-                        try {
-                            PipelineHealthCollector.labelInc("SELL_BLOCKED_NO_CANONICAL_POSITION_6373")
-                            PipelineHealthCollector.labelInc("SELL_BLOCKED_NO_CANONICAL_POSITION_6373|$code")
-                            ForensicLogger.lifecycle(
-                                "SELL_BLOCKED_NO_CANONICAL_POSITION_6373",
-                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason code=$code detail=$detail invariantReason=lot_ledger_empty_6507"
-                            )
-                        } catch (_: Throwable) {}
-                        try { releasePaperSellLock(ts.mint) } catch (_: Throwable) {}
-                        return SellResult.FAILED_RETRYABLE
-                    }
-                } else {
+            val canonicalQtyToken6600 = try {
+                java.math.BigDecimal(canonicalTerminalPosition6492.remainingQtyRaw)
+                    .movePointLeft(canonicalTerminalPosition6492.quantityScale.coerceIn(0, 18)).toDouble()
+            } catch (_: Throwable) { 0.0 }
+            val canonicalCost6600 = (canonicalTerminalPosition6492.entryCostSol - canonicalTerminalPosition6492.soldCostBasisSol).coerceAtLeast(0.0)
+            val canonicalEntry6600 = canonicalTerminalPosition6492.entryPriceUsd.takeIf { it.isFinite() && it > 0.0 } ?: pos.entryPrice
+            if (canonicalQtyToken6600.isFinite() && canonicalQtyToken6600 > 0.0 && canonicalCost6600.isFinite() && canonicalCost6600 > 0.0 && canonicalEntry6600.isFinite() && canonicalEntry6600 > 0.0) {
+                val projectionDrift6600 = pos.positionId != canonicalTerminalPosition6492.positionId ||
+                    !pos.tradingMode.equals(canonicalTerminalPosition6492.lane, true) ||
+                    kotlin.math.abs(pos.qtyToken - canonicalQtyToken6600) > maxOf(1e-9, canonicalQtyToken6600 * 0.000001) ||
+                    kotlin.math.abs(pos.costSol - canonicalCost6600) > maxOf(1e-9, canonicalCost6600 * 0.000001)
+                if (projectionDrift6600) {
+                    pos = pos.copy(
+                        qtyToken = canonicalQtyToken6600, entryPrice = canonicalEntry6600,
+                        entryTime = canonicalTerminalPosition6492.openedAtMs, costSol = canonicalCost6600,
+                        entryPriceSource = canonicalTerminalPosition6492.entryPriceSource,
+                        entryPoolAddress = canonicalTerminalPosition6492.entryPoolAddress,
+                        entryDex = canonicalTerminalPosition6492.entryDex,
+                        isPaperPosition = true, tradingMode = canonicalTerminalPosition6492.lane,
+                        positionId = canonicalTerminalPosition6492.positionId,
+                    )
+                    ts.position = pos
                     try {
-                        PipelineHealthCollector.labelInc("SELL_BLOCKED_NO_CANONICAL_POSITION_6373")
-                        PipelineHealthCollector.labelInc("SELL_BLOCKED_NO_CANONICAL_POSITION_6373|$code")
-                        ForensicLogger.lifecycle(
-                            "SELL_BLOCKED_NO_CANONICAL_POSITION_6373",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason code=$code detail=$detail"
-                        )
+                        PipelineHealthCollector.labelInc("SELL_CANONICAL_PROJECTION_HEALED_6600")
+                        ForensicLogger.lifecycle("SELL_CANONICAL_PROJECTION_HEALED_6600", "positionId=${canonicalTerminalPosition6492.positionId} mint=${ts.mint.take(10)} lane=${canonicalTerminalPosition6492.lane} qty=$canonicalQtyToken6600 cost=$canonicalCost6600 action=continue_canonical_close")
                     } catch (_: Throwable) {}
-                    // IMPORTANT: do not markClosed/unregister — the real position
-                    // (if any) must remain untouched so a subsequent well-formed sell
-                    // can process it. Release the sell lock and short-circuit.
-                    try { releasePaperSellLock(ts.mint) } catch (_: Throwable) {}
-                    return SellResult.FAILED_RETRYABLE
                 }
+            } else {
+                try {
+                    PipelineHealthCollector.labelInc("SELL_BLOCKED_CANONICAL_POSITION_MALFORMED_6600")
+                    ForensicLogger.lifecycle("SELL_BLOCKED_CANONICAL_POSITION_MALFORMED_6600", "positionId=${canonicalTerminalPosition6492.positionId} mint=${ts.mint.take(10)} qty=$canonicalQtyToken6600 cost=$canonicalCost6600 entry=$canonicalEntry6600 action=retry_no_terminal_abandon")
+                } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.truth.PositionStateLedger6454.abandonTerminalSell(terminalPid6455, "canonical_position_malformed_6600") } catch (_: Throwable) {}
+                try { PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "CANONICAL_POSITION_MALFORMED_6600:$reason") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "CANONICAL_POSITION_MALFORMED_6600") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "CANONICAL_POSITION_MALFORMED_6600") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.sell.SellExecutionLocks.forceRelease(ts.mint) } catch (_: Throwable) {}
+                try { releasePaperSellLock(ts.mint) } catch (_: Throwable) {}
+                return SellResult.FAILED_RETRYABLE
             }
         }
 
@@ -21385,6 +21362,7 @@ class Executor(
         // V5.9.248: stamp cooldown so universal gate blocks immediate re-entry
         com.lifecyclebot.engine.BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis()
         try { ForensicLogger.lifecycle("PAPER_SELL_DONE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}
+        try { ToolkitSignalSheet.recordDeskStage(canonicalTerminalPosition6492.lane, "SELL_CONFIRMED", terminalPid6455) } catch (_: Throwable) {}
 
         return SellResult.PAPER_CONFIRMED
         } finally {
