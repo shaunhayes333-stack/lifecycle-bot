@@ -567,6 +567,18 @@ object CryptoAltTrader {
             isRunning.set(false)
         }
         isRunning.set(true)
+        // V5.0.6580 §P0-g — CRYPTO_ALT producer STARTED stamp.
+        // Operator forensic (6578): CryptoAlt data/raw/actionable stages
+        // active but producer 'started=0' in cross-asset funnel. The
+        // canonical STARTED stamp was never emitted at start(). Fixed:
+        // every enabled trader/producer now stamps STARTED with its
+        // canonical asset class so 'no enabled asset class silently
+        // stops at data/raw/actionable' becomes observable.
+        try {
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(
+                com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "STARTED"
+            )
+        } catch (_: Throwable) {}
 
         engineJob = scope.launch {
             ErrorLogger.info(TAG, "🪙🪙🪙 CryptoAltTrader ENGINE STARTED 🪙🪙🪙")

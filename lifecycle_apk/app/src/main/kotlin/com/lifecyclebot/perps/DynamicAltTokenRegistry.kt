@@ -199,6 +199,11 @@ object DynamicAltTokenRegistry {
     private val evaluationStarted6567 = AtomicLong(0L)
     private val evaluationDisposition6567 = ConcurrentHashMap<String, AtomicLong>()
     private val evaluationProgress6570 = ConcurrentHashMap<String, AtomicLong>()
+    // V5.0.6580 §P0-f — bounded evidence deadline. First-seen timestamp per
+    // (identity, state-key) so a second stamp of the same non-terminal state
+    // more than EVIDENCE_TTL_MS_6580 later reaps into STALE_EXPIRED_6580_<state>.
+    private val evaluationProgressStamp6580 = ConcurrentHashMap<String, Long>()
+    private val EVIDENCE_TTL_MS_6580: Long = 5L * 60L * 1000L  // 5 minutes
     private val paperOnlyNoRoute6544 = AtomicLong(0L)
     private val liveRoutable6544 = AtomicLong(0L)
     private val staticEvaluated6544 = AtomicLong(0L)
@@ -690,6 +695,28 @@ object DynamicAltTokenRegistry {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_PROGRESS_6570|$key")
             com.lifecyclebot.engine.ForensicLogger.lifecycle("CRYPTO_EVAL_PROGRESS_6570",
                 "identity=${tok.canonicalIdentity6544} symbol=${tok.symbol} chain=${tok.chainId.ifBlank { "unknown" }} state=$key terminal=false coalesced=true")
+        } catch (_: Throwable) {}
+        // V5.0.6580 §P0-f — BOUNDED EVIDENCE DEADLINE.
+        // Operator directive (6578 forensic): 159/200 crypto evaluations never
+        // terminalize because SHARED_INTELLIGENCE_BACKLOG_COALESCED_REQUEUE and
+        // SPECIALIST_SILENCE_SHARED_EVIDENCE stamp indefinitely without a
+        // deadline. This block records the first-seen timestamp per identity
+        // per state key; a second stamp for the same identity/state more than
+        // EVIDENCE_TTL_MS after the first triggers a terminal STALE_EXPIRED_6580
+        // disposition so operator's 'no permanent missing bucket' invariant
+        // holds. Discovery breadth is not reduced — the token remains in the
+        // registry, just with an explicit terminal disposition.
+        try {
+            val progressKey6580 = "${tok.canonicalIdentity6544}|$key"
+            val firstSeenAt = evaluationProgressStamp6580.putIfAbsent(progressKey6580, System.currentTimeMillis())
+            if (firstSeenAt != null) {
+                val age = System.currentTimeMillis() - firstSeenAt
+                if (age > EVIDENCE_TTL_MS_6580) {
+                    evaluationProgressStamp6580.remove(progressKey6580)
+                    markEvaluationDisposition6567(tok, "STALE_EXPIRED_6580_$key")
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_STALE_REAPED_6580")
+                }
+            }
         } catch (_: Throwable) {}
     }
 
