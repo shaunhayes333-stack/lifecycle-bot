@@ -9489,6 +9489,9 @@ class Executor(
                 // With 20+ tokens evaluated concurrently the IO dispatcher
                 // drained and the supervisor hung on Unsafe.park. The function
                 // is now a regular synchronous fun; call directly.
+                val causalPositionId6599 = try { com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint) } catch (_: Throwable) { ts.mint }
+                val causalEntry6599 = try { com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(causalPositionId6599) } catch (_: Throwable) { null }
+                causalEntry6599?.let { com.lifecyclebot.engine.ToolkitSignalSheet.recordContributorSummary(it.specialistContributions, "EXIT_INFLUENCE", causalPositionId6599) }
                 val holdEval = HoldingLogicLayer.evaluatePosition(
                     position = ts.position,
                     ts = ts,
@@ -13030,15 +13033,17 @@ class Executor(
         try {
             val pid6450 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(tradeId.mint)
             val entryLane6450 = layerTag.ifBlank { ts.position.tradingMode.ifBlank { ts.source } }.uppercase().take(24).ifBlank { "STANDARD" }
+            val entryDeskHypothesis6599 = try { com.lifecyclebot.engine.ToolkitSignalSheet.snapshot(ts).deskHypotheses[entryLane6450] } catch (_: Throwable) { null }
+            entryDeskHypothesis6599?.let { ts.styleHoldMult = it.holdMult.coerceIn(0.30, 3.50) }
             com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.setEntry(
                 com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
                     positionId = pid6450,
                     mint = tradeId.mint,
                     entryLane = entryLane6450,
                     entryStrategyPid = "",
-                    entryTactic = try { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(entryLane6450, score.toInt()).name } catch (_: Throwable) { "UNKNOWN" },
-                    entryRiskProfile = "",
-                    entryExitProfile = "",
+                    entryTactic = entryDeskHypothesis6599?.entryStyle ?: try { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(entryLane6450, score.toInt()).name } catch (_: Throwable) { "UNKNOWN" },
+                    entryRiskProfile = entryDeskHypothesis6599?.let { "size=${it.sizeMult};hold=${it.holdMult};setup=${it.setup.name}" }.orEmpty(),
+                    entryExitProfile = entryDeskHypothesis6599?.let { "style=${it.exitStyle};tp=${it.tpMult};hold=${it.holdMult}" }.orEmpty(),
                     entrySource = identity?.source.orEmpty(),
                     entryScore = score.toInt(),
                     entryLiquiditySol = 0.0,
@@ -13054,7 +13059,7 @@ class Executor(
                     policyAuthority = policyField6568(paperPolicySnapshot, "policyAuthority"),
                     policyProbability = policyField6568(paperPolicySnapshot, "policyPWin").toDoubleOrNull() ?: 0.5,
                     metaPolicyContext = "phase=${ts.phase};mode=$finalMode;ema=${ts.meta.emafanAlignment}",
-                    specialistContributions = "lanes=${ts.laneAffinity.joinToString("+")};tools=${ts.toolAffinity.joinToString("+")}",
+                    specialistContributions = com.lifecyclebot.engine.ToolkitSignalSheet.contributionSummary(ts).ifBlank { "lane=$entryLane6450;tools=${ts.toolAffinity.joinToString("+")}" },
                     entryLiquidityUsd = ts.lastLiquidityUsd, entryVolumeVelocity = ts.meta.volScore,
                     entryBuyPressurePct = ts.lastBuyPressurePct, entrySellPressurePct = ts.lastSellPressurePct,
                     entryHolderConcentrationPct = ts.topHolderPct ?: ts.safety.topHolderPct,
@@ -13065,6 +13070,10 @@ class Executor(
                     authorizationReason = policyField6568(paperPolicySnapshot, "reasons"),
                 )
             )
+            com.lifecyclebot.engine.ToolkitSignalSheet.recordContributorSummary(
+                com.lifecyclebot.engine.ToolkitSignalSheet.contributionSummary(ts), "POSITION_INFLUENCE", pid6450,
+            )
+            com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(entryLane6450, "EXEC", pid6450)
             // V5.0.6455 §SELL_DOOR_MIGRATION — seed PositionStateLedger6454
             // with lifecycle=OPEN so subsequent terminal sell reservations
             // (reserveTerminalSell CAS OPEN/PARTIAL -> CLOSING) know this
@@ -17591,11 +17600,14 @@ class Executor(
                         return false
                     }
                     val liveEntryLane6568 = ts.position.tradingMode.uppercase().ifBlank { "STANDARD" }
+                    val liveDeskHypothesis6599 = try { com.lifecyclebot.engine.ToolkitSignalSheet.snapshot(ts).deskHypotheses[liveEntryLane6568] } catch (_: Throwable) { null }
+                    liveDeskHypothesis6599?.let { ts.styleHoldMult = it.holdMult.coerceIn(0.30, 3.50) }
                     com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.setEntry(
                         com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
                             positionId = pidLive6486, mint = verifyMint, entryLane = liveEntryLane6568,
-                            entryStrategyPid = "", entryTactic = try { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(liveEntryLane6568, ts.position.entryScore.toInt()).name } catch (_: Throwable) { "UNKNOWN" },
-                            entryRiskProfile = "", entryExitProfile = "", entrySource = ts.source,
+                            entryStrategyPid = "", entryTactic = liveDeskHypothesis6599?.entryStyle ?: try { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(liveEntryLane6568, ts.position.entryScore.toInt()).name } catch (_: Throwable) { "UNKNOWN" },
+                            entryRiskProfile = liveDeskHypothesis6599?.let { "size=${it.sizeMult};hold=${it.holdMult};setup=${it.setup.name}" }.orEmpty(),
+                            entryExitProfile = liveDeskHypothesis6599?.let { "style=${it.exitStyle};tp=${it.tpMult};hold=${it.holdMult}" }.orEmpty(), entrySource = ts.source,
                             entryScore = ts.position.entryScore.toInt(), entryLiquiditySol = 0.0,
                             entryMarketCapUsd = ts.position.entryMcap, entryTimestampMs = ts.position.entryTime,
                             entryThresholdSnapshot = ts.position.entryPolicySnapshot,
@@ -17608,7 +17620,7 @@ class Executor(
                             policyAuthority = policyField6568(ts.position.entryPolicySnapshot, "policyAuthority"),
                             policyProbability = policyField6568(ts.position.entryPolicySnapshot, "policyPWin").toDoubleOrNull() ?: 0.5,
                             metaPolicyContext = "phase=${ts.phase};mode=$liveEntryLane6568;ema=${ts.meta.emafanAlignment}",
-                            specialistContributions = "lanes=${ts.laneAffinity.joinToString("+")};tools=${ts.toolAffinity.joinToString("+")}",
+                            specialistContributions = com.lifecyclebot.engine.ToolkitSignalSheet.contributionSummary(ts).ifBlank { "lane=$liveEntryLane6568;tools=${ts.toolAffinity.joinToString("+")}" },
                             entryLiquidityUsd = ts.position.entryLiquidityUsd, entryVolumeVelocity = ts.meta.volScore,
                             entryBuyPressurePct = ts.lastBuyPressurePct, entrySellPressurePct = ts.lastSellPressurePct,
                             entryHolderConcentrationPct = ts.topHolderPct ?: ts.safety.topHolderPct,
@@ -17619,6 +17631,10 @@ class Executor(
                             authorizationReason = policyField6568(ts.position.entryPolicySnapshot, "reasons"),
                         )
                     )
+                    com.lifecyclebot.engine.ToolkitSignalSheet.recordContributorSummary(
+                        com.lifecyclebot.engine.ToolkitSignalSheet.contributionSummary(ts), "POSITION_INFLUENCE", pidLive6486,
+                    )
+                    com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(liveEntryLane6568, "EXEC", pidLive6486)
                     try { PipelineHealthCollector.labelInc("LIVE_ENTRY_POLICY_SNAPSHOT_CANONICAL_6568") } catch (_: Throwable) {}
                     com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.onBuyFilled(pidLive6486, verifyMint, proof.amountRaw)
                     com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(

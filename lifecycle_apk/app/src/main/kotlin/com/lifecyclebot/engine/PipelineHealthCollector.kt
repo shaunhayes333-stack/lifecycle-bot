@@ -1749,6 +1749,11 @@ object PipelineHealthCollector {
             } catch (_: Throwable) {}
         } catch (_: Throwable) {}
 
+        try {
+            sb.append(com.lifecyclebot.engine.ToolkitSignalSheet.designatedRoleLivenessReport6599()).append("\n")
+            sb.append(com.lifecyclebot.engine.ToolkitSignalSheet.specialistCapitalReport6599()).append("\n")
+        } catch (_: Throwable) {}
+
         // ── V5.0.6428 §AP — CORRECTNESS GUARDS status ───────────────
         // Operator (V5.0.6424 spec §AI/§AP): background runtime,
         // ledger invariants, paper/live isolation must be surfaced in
@@ -2613,7 +2618,10 @@ object PipelineHealthCollector {
             sb.append("  Buy fail buckets: finality=${lc("BUY_FAILED_FINALITY")} route=${lc("BUY_FAILED_ROUTE")} staleTicket=${lc("BUY_FAILED_STALE_TICKET")} safety=${lc("BUY_FAILED_SAFETY")}\n")
             val advisorSoftKinds = labelCounts.keys.count { it.startsWith("LIVE_BUY_ADVISOR_SOFT_") }
             sb.append("  Pre-attempt suppressions: providerProofBlind=${lc("LIVE_BUY_PREATTEMPT_PROVIDER_PROOF_BLIND")} brainPattern=${lc("LIVE_BUY_PREATTEMPT_BRAIN_PATTERN_SUPPRESSED")} staleAuthPruned=${lc("STALE_AUTH_LOCK_PRUNED")} liveEntered=${lc("LIVE_BUY_ENTERED")} advisorSoft=$advisorSoftKinds\n")
-            sb.appendLine("  Live lane policy: CYCLIC=liveSoftSized MEME_RING=liveAllLaneContribution MANIPULATED=dumpSoftSized TREASURY=dumpSoftSized ownerContext=${lc("LIVE_RING_OWNER_COLLAPSE")} ownerLane=${lc("MEMETRADER_OWNER_LANE")} allLaneContribution=${lc("LIVE_ALL_LANE_CONTRIBUTION_4469")} dumpSizeEvents=${lc("DUMP_REGIME_LIVE_SIZE_SHAPED")} noPairHeldHot=${lc("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION")}")
+            val memeDesks6599 = listOf("QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "EXPRESS", "CORE", "MOONSHOT", "PROJECT_SNIPER", "DIP_HUNTER", "MANIPULATED", "TREASURY", "CASHGEN")
+            val canonicalPrimary6599 = memeDesks6599.sumOf { lc("MEME_DESK_CANONICAL_PRIMARY_6599_$it") }
+            val contributorOnly6599 = memeDesks6599.sumOf { lc("MEME_DESK_QUALIFIED_CONTRIBUTOR_ONLY_6599_$it") }
+            sb.appendLine("  Live lane policy: CYCLIC=liveSoftSized MEME_RING=qualifiedDeskAggregation MANIPULATED=dumpSoftSized TREASURY=dumpSoftSized canonicalPrimary=$canonicalPrimary6599 contributorOnly=$contributorOnly6599 legacyOwnerCollapse=${lc("LIVE_RING_OWNER_COLLAPSE")} allLaneContribution=${lc("LIVE_ALL_LANE_CONTRIBUTION_4469")} dumpSizeEvents=${lc("DUMP_REGIME_LIVE_SIZE_SHAPED")} noPairHeldHot=${lc("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION")}")
         } catch (_: Throwable) { /* capability report never fails dumpText */ }
 
         try {

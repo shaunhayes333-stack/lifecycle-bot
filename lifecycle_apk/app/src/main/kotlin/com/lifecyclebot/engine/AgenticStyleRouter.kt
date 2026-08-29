@@ -49,7 +49,7 @@ object AgenticStyleRouter {
         REGIME_DEFENSIVE_PROBE("regime_defensive_probe", setOf("SHITCOIN", "PROJECT_SNIPER", "MOONSHOT"), setOf("DEFENSIVE_PROBE", "TOXIC_GUARD", "REGIME"), 0.35, 0.75, 0.55),
         MICRO_SNIPE("micro_snipe", setOf("PROJECT_SNIPER", "SHITCOIN", "EXPRESS"), setOf("SNIPER", "PUMP_FUN", "EXPRESS"), 0.55, 0.85, 0.45),
         QUICK_FLIP("quick_flip", setOf("SHITCOIN", "EXPRESS", "MANIPULATED"), setOf("EXPRESS", "MEME", "PUMP_FUN"), 0.75, 0.95, 0.65),
-        BREAKOUT_RUNNER("breakout_runner", setOf("MOONSHOT", "SHITCOIN", "PROJECT_SNIPER"), setOf("MOONSHOT", "BREAKOUT", "RAYDIUM"), 1.05, 1.25, 1.50),
+        BREAKOUT_RUNNER("breakout_runner", setOf("MOONSHOT", "SHITCOIN", "QUALITY"), setOf("MOONSHOT", "BREAKOUT", "RAYDIUM"), 1.05, 1.25, 1.50),
         SWING_HOLD("swing_hold", setOf("MOONSHOT", "QUALITY", "BLUECHIP"), setOf("SWING", "MFE_TRAIL", "QUALITY_DEPTH"), 0.90, 1.35, 2.00),
         PULLBACK_RECLAIM("pullback_reclaim", setOf("DIP_HUNTER", "QUALITY", "TREASURY"), setOf("PULLBACK", "DIP_RECLAIM", "DEX"), 0.85, 1.05, 1.25),
         WHALE_FOLLOW("whale_follow", setOf("BLUECHIP", "QUALITY", "MOONSHOT"), setOf("WHALE", "QUALITY_DEPTH", "HOLD"), 0.90, 1.20, 1.80),
@@ -57,9 +57,9 @@ object AgenticStyleRouter {
         // V5.0.4544 — inner-lane defensive style. Do not advertise QUALITY/DIP/
         // TREASURY as a toxic-meme escape hatch. The lane-local caller keeps the lane
         // owner and pivots tactic/style/confirmation inside that lane instead.
-        DEFENSIVE_PROBE("defensive_probe", setOf("SHITCOIN", "MOONSHOT", "PROJECT_SNIPER", "EXPRESS", "MANIPULATED"), setOf("PROBE", "ORDER_FLOW", "SMART_MONEY", "TOXIC_GUARD"), 0.35, 0.75, 0.55),
+        DEFENSIVE_PROBE("defensive_probe", setOf("SHITCOIN", "MOONSHOT", "EXPRESS", "MANIPULATED"), setOf("PROBE", "ORDER_FLOW", "SMART_MONEY", "TOXIC_GUARD"), 0.35, 0.75, 0.55),
         TOXIC_RECLAIM_TACTIC("toxic_reclaim_tactic", setOf("SHITCOIN", "EXPRESS", "MANIPULATED", "MOONSHOT"), setOf("PULLBACK_RECLAIM", "LIQUIDITY_DEPTH", "ORDER_FLOW", "SMART_MONEY", "TOXIC_GUARD"), 0.68, 0.88, 0.70),
-        LAB_EXPLORATION("lab_exploration", setOf("SHITCOIN", "MOONSHOT", "MANIPULATED", "PROJECT_SNIPER"), setOf("LAB", "HYPOTHESIS", "MEME"), 0.50, 1.00, 1.00),
+        LAB_EXPLORATION("lab_exploration", setOf("SHITCOIN", "MOONSHOT", "MANIPULATED"), setOf("LAB", "HYPOTHESIS", "MEME"), 0.50, 1.00, 1.00),
     }
 
     data class Decision(

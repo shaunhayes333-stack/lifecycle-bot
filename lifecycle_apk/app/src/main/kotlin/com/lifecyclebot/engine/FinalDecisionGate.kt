@@ -4851,6 +4851,25 @@ object FinalDecisionGate {
             val hardReason6512 = blockReasonFinal?.uppercase().orEmpty()
             val trueHard6512 = listOf("CONFIRMED_RUG", "RUGCHECK_100", "RC_SCORE_0", "NO_EXECUTABLE_ROUTE", "TRUE_ZERO_LIQUIDITY", "DUPLICATE_OPEN", "MINT_AUTHORITY_RETAINED", "FREEZE_AUTHORITY_RETAINED", "MANUAL_LIQUIDATION")
                 .filter { hardReason6512.contains(it) }
+            val specialistDeskContributions6512 = try {
+                com.lifecyclebot.engine.ToolkitSignalSheet.snapshot(ts).deskHypotheses.values.map { h ->
+                    com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(h.lane, "FDG", "${ts.mint}:${com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)}")
+                    com.lifecyclebot.engine.truth.AateBrainContribution6512(
+                        brain = "MemeDesk:${h.lane}:${h.setup.name}", role = "MEME_SPECIALIST_DESK",
+                        weight = (h.conviction / 100.0).coerceIn(0.25, 1.0),
+                        effect = if (h.lane.equals(laneName, true)) 0.25 else 0.10,
+                        pWin = (h.conviction / 100.0).coerceIn(0.0, 1.0),
+                        expectedPnlPct = null,
+                        moonshotP = if (h.lane == "MOONSHOT") (h.conviction / 100.0).coerceIn(0.0, 1.0) else null,
+                        sizeMultiplier = h.sizeMult,
+                    )
+                }
+            } catch (_: Throwable) { emptyList() }
+            val cooperativeDeskSizeMult6599 = if (specialistDeskContributions6512.isEmpty()) 1.0 else {
+                val weightSum = specialistDeskContributions6512.sumOf { it.weight }.coerceAtLeast(0.0001)
+                (specialistDeskContributions6512.sumOf { it.sizeMultiplier * it.weight } / weightSum).coerceIn(0.65, 1.25)
+            }
+            val cooperativeDeskSize6599 = (finalSize * cooperativeDeskSizeMult6599).coerceAtLeast(0.0)
             val contributions6512 = checks.map { c ->
                 com.lifecyclebot.engine.truth.AateBrainContribution6512(
                     brain = c.name, role = if (c.name.contains("safety", true) || c.name.contains("rug", true)) "SAFETY" else "CONTRIBUTOR",
@@ -4868,7 +4887,7 @@ object FinalDecisionGate {
                     rugP = if (trueHard6512.any { it.contains("RUG") }) 1.0 else 0.0,
                     sizeMultiplier = if (proposedSizeSol > 0.0) (finalSize / proposedSizeSol).coerceIn(0.05, 3.0) else 1.0,
                 )
-            )
+            ).plus(specialistDeskContributions6512)
             val context6512 = com.lifecyclebot.engine.truth.AateStrategyContext6512(
                 candidateId = "${ts.mint}:${com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)}",
                 runtimeGeneration = com.lifecyclebot.engine.BotRuntimeController.currentGeneration(),
@@ -4882,7 +4901,7 @@ object FinalDecisionGate {
                     context = context6512,
                     proposedAction = if (shouldTradeFinal) if (blockReasonFinal == "PROBE_ONLY") "PROBE_ONLY" else "BUY" else "BLOCK",
                     scoreBase = candidate.entryScore, scoreFinal = effectiveGateScore6025,
-                    sizeBase = proposedSizeSol, sizeFinal = finalSize,
+                    sizeBase = proposedSizeSol, sizeFinal = cooperativeDeskSize6599,
                     tactic = tags.firstOrNull { it.startsWith("tactic:") }?.substringAfter(':') ?: laneName,
                     hardSafety = trueHard6512, contributors = contributions6512,
                     learningState = "entryHead=${com.lifecyclebot.engine.UnifiedPolicyHead.currentAuthority(laneName).name};meta=${"contexts=" + com.lifecyclebot.engine.AutonomousMetaPolicy.contextCount()}",

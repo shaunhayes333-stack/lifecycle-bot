@@ -111,6 +111,23 @@ object AateDecisionFabric6512 {
         val hypoBefore = StrategyHypothesisEngine.outcomeUpdateCount6512()
         try { StrategyHypothesisEngine.recordOutcome(env.mint, env.realizedReturnPct) } catch (_: Throwable) {}
         if (StrategyHypothesisEngine.outcomeUpdateCount6512() > hypoBefore) updated += "StrategyHypothesisEngine"
+        contributors.filter { it.role == "MEME_SPECIALIST_DESK" && it.brain.startsWith("MemeDesk:") }.forEach { c ->
+            val lane = c.brain.substringAfter("MemeDesk:").substringBefore(':').uppercase()
+            val scoreBand = try { LosingPatternMemory.scoreBand(e?.scoreFinal?.toInt() ?: 0) } catch (_: Throwable) { "UNKNOWN" }
+            val outcome = CanonicalOutcomeClassifier6576.classifyReadonly(env.realizedReturnPct)
+            try {
+                // Primary lane is already trained exactly once by V3JournalRecorder.
+                // Only secondary desk contributors need this causal outcome fanout.
+                if (!lane.equals(env.lane, true)) {
+                    com.lifecyclebot.engine.learning.LanePolicy.recordOutcome(
+                        lane, scoreBand,
+                        outcome == CanonicalOutcomeClassifier6576.Class.WIN,
+                        outcome == CanonicalOutcomeClassifier6576.Class.LOSS,
+                    )
+                }
+                ToolkitSignalSheet.recordDeskStage(lane, "LEARNING", env.positionId)
+            } catch (_: Throwable) {}
+        }
         val graphBefore = SemanticPatternGraph.nodeCount6512()
         val graphId = try { SemanticPatternGraph.recordOutcome(
             lane = env.lane, source = e?.context?.source ?: "CANONICAL_FINALITY",

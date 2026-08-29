@@ -10763,9 +10763,12 @@ class BotService : Service() {
         // non-primary BUY lanes unless the operator explicitly forces a primary.
         return try {
             val forced = RuntimeConfigOverlay.forcedPrimaryLane()?.takeIf { it.isNotBlank() }
+            val deskSheet6599 = ToolkitSignalSheet.snapshot(ts, classification)
+            val strongestDesk6599 = deskSheet6599.deskHypotheses.values.maxByOrNull { it.conviction }?.lane
             val styleLanes = AgenticStyleRouter.lanesFor(ts, classification, laneAffinityForTradeType(classification.tradeType)).toList()
-            val stylePrimary = RuntimeConfigOverlay.normalizeLane(forced ?: styleLanes.firstOrNull() ?: ts.laneAffinity.firstOrNull() ?: "SHITCOIN")
-            val metricPrimary = TokenMetricStageRouter.preferredPrimaryLane(ts, stylePrimary)
+            val stylePrimary = RuntimeConfigOverlay.normalizeLane(forced ?: strongestDesk6599 ?: styleLanes.firstOrNull() ?: ts.laneAffinity.firstOrNull() ?: "SHITCOIN")
+            val metricProposal6599 = TokenMetricStageRouter.preferredPrimaryLane(ts, stylePrimary)
+            val metricPrimary = if (forced != null || deskSheet6599.deskHypotheses.isEmpty() || deskSheet6599.deskHypotheses.containsKey(metricProposal6599.uppercase())) metricProposal6599 else stylePrimary
             val scoreForPivot4524 = (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(0, 100)
             val electedPrimary4524 = RuntimeConfigOverlay.normalizeLane(forced ?: metricPrimary)
             val pivotedPrimary4524 = if (forced.isNullOrBlank() && LaneToxicityGuard.isNetNegativeDanger(electedPrimary4524, scoreForPivot4524)) {
@@ -10930,6 +10933,27 @@ class BotService : Service() {
         }
         // V5.0.6533 — trunk is causal after quarantine/rug safety, before specialist ownership.
         if (ExecutionAuthorityPolicy6533.isTrunkLane(l)) return true
+        val designatedDeskSheet6599 = try { ToolkitSignalSheet.snapshot(ts) } catch (_: Throwable) { null }
+        val designatedDeskHypothesis6599 = designatedDeskSheet6599?.deskHypotheses?.get(l)
+        val designatedDeskQualified6599 = designatedDeskSheet6599 == null || designatedDeskSheet6599.deskHypotheses.isEmpty() || designatedDeskHypothesis6599 != null
+        if (l == "PROJECT_SNIPER") {
+            val sniperSetup6599 = designatedDeskHypothesis6599?.setup
+            val genuineSniperPool6599 = sniperSetup6599 == ToolkitSignalSheet.Setup.DEGEN_MICRO_SNIPE ||
+                sniperSetup6599 == ToolkitSignalSheet.Setup.PUMP_GRADUATION_SNIPE
+            if (!genuineSniperPool6599) {
+                try { PipelineHealthCollector.labelInc("PROJECT_SNIPER_DESIGNATED_POOL_REJECTED_6599") } catch (_: Throwable) {}
+                return false
+            }
+        }
+        val standaloneMissionDesk6599 = l in setOf("SHITCOIN", "EXPRESS", "PROJECT_SNIPER")
+        if (standaloneMissionDesk6599) {
+            val allowed6599 = l.equals(primaryLane, true) && designatedDeskQualified6599
+            try {
+                PipelineHealthCollector.labelInc(if (allowed6599) "MEME_DESK_CANONICAL_PRIMARY_6599_$l" else "MEME_DESK_QUALIFIED_CONTRIBUTOR_ONLY_6599_$l")
+                if (allowed6599) ToolkitSignalSheet.recordDeskStage(l, "BUY_INTENT", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}")
+            } catch (_: Throwable) {}
+            return allowed6599
+        }
         fun qualityLaneProofOk(): Boolean {
             val routeProof = ts.lastPrice > 0.0 && (ts.lastPriceSource.isNotBlank() || ts.source.isNotBlank())
             val holderProof = try { ts.safety.topHolderPct > 0.0 || ts.peakHolderCount > 0 || ts.holderGrowthRate != 0.0 } catch (_: Throwable) { false }
@@ -11078,7 +11102,7 @@ class BotService : Service() {
             // DIP/QUALITY contributed while 90% of MemeTrader sat idle. The old
             // primary+one-rescue contract protected against fanout explosions but
             // it starved the internal trader surface. Keep bounded fanout, but make
-            // ownership rotate across the whole MemeTrader ring: exactly ONE owner
+            // cooperative evidence spans the MemeTrader ring: exactly ONE canonical primary
             // lane per token/cycle (plus STANDARD/CORE/V3 trunk above), with affinity
             // lanes first and toxicity treatment, not lane amputation. This raises contribution without
             // returning to every-token/every-lane FDG storms.
@@ -11089,7 +11113,7 @@ class BotService : Service() {
             // owner-lane ring. They are specialist traders that own tokens
             // from entry through mission-complete condition, THEN hand off
             // via LaneTransitionManager (V5.0.4599). No longer eligible for
-            // owner-lane election competition. They still evaluate entries
+            // canonical specialist election competition. They still evaluate entries
             // via their dedicated AI classes but their positions are owned
             // by them, not passed to the memetrader ring.
             val fullMemeTraderRing = listOf(
@@ -11112,20 +11136,14 @@ class BotService : Service() {
             }
             val ownerPool = com.lifecyclebot.engine.LaneToxicityGuard.filterNonToxic(rawOwnerPool, scoreForToxicity).ifEmpty { rawOwnerPool }
             val candidateVersion6533 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
-            val ownerLane = ownerPool[((ts.mint.hashCode().toLong() xor candidateVersion6533).and(Long.MAX_VALUE) % ownerPool.size).toInt()]
-            // V5.0.6533 — exactly one deterministic rescue. Prefer explicit affinity;
-            // fall back to the toxicity/proof-filtered owner pool, never wall-clock rotation.
-            val selectedRescue6533 = ExecutionAuthorityPolicy6533.selectOneRescue(
-                mint = ts.mint,
-                candidateVersion = candidateVersion6533,
-                primaryLane = primaryLane,
-                affinityLanes = affinity,
-                eligibleLanes = ownerPool,
-            )
-            val profitableRescue = l == selectedRescue6533
+            // V5.0.6599 — owner rotation is diagnostic context only. The strongest
+            // qualified desk hypothesis is the one canonical specialist execution
+            // primary; other desks contribute evidence without a second FDG attempt.
+            val contributorRotationHint6599 = ownerPool[((ts.mint.hashCode().toLong() xor candidateVersion6533).and(Long.MAX_VALUE) % ownerPool.size).toInt()]
+            val canonicalDeskPrimary6599 = l.equals(primaryLane, true) && designatedDeskQualified6599
             val fanoutPressure4522 = try { LiveLaneFanoutPressure.snapshot() } catch (_: Throwable) { LiveLaneFanoutPressure.Snapshot(false, 0.0, 0.0, 0, "error") }
-            if (fanoutPressure4522.active && l in setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP") && !profitableRescue) {
-                try { PipelineHealthCollector.labelInc("LIVE_FANOUT_PRESSURE_RESCUE_NARROWED_4522_$l") } catch (_: Throwable) {}
+            if (fanoutPressure4522.active && l in setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP") && !canonicalDeskPrimary6599) {
+                try { PipelineHealthCollector.labelInc("LIVE_FANOUT_PRESSURE_CONTRIBUTOR_ONLY_6599_$l") } catch (_: Throwable) {}
             }
             if (l in fullMemeTraderRing) {
                 // V5.0.4598 — RESPECT LaneAutoPauseGuard IN OWNER-LANE BYPASS.
@@ -11140,24 +11158,24 @@ class BotService : Service() {
                 // any other path still slips through, but this closes the
                 // primary bypass channel.
                 val laneIsPaused4598 = try { LaneAutoPauseGuard.isPaused(l) } catch (_: Throwable) { false }
-                val allowed = profitableRescue
+                val allowed = canonicalDeskPrimary6599
                 if (laneIsPaused4598 && allowed) {
                     val pivot6483 = try { com.lifecyclebot.engine.learning.TacticSwitcher.rotateForLanePressure(l, ts.entryScore.toInt(), "owner_lane_pause").name } catch (_: Throwable) { "UNKNOWN" }
                     try {
-                        ForensicLogger.lifecycle("OWNER_LANE_TACTIC_PIVOT_6483", "lane=$l primary=$primaryLane owner=$ownerLane tactic=$pivot6483 symbol=${ts.symbol} mint=${ts.mint.take(10)} action=continue_same_lane")
+                        ForensicLogger.lifecycle("OWNER_LANE_TACTIC_PIVOT_6483", "lane=$l primary=$primaryLane ownerHint=$contributorRotationHint6599 tactic=$pivot6483 symbol=${ts.symbol} mint=${ts.mint.take(10)} action=continue_same_lane")
                         PipelineHealthCollector.labelInc("OWNER_LANE_TACTIC_PIVOT_6483_$l")
                     } catch (_: Throwable) {}
                 }
                 if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) {
                     try {
-                        ForensicLogger.lifecycle("LIVE_ALL_LANE_CONTRIBUTION_4469", "lane=$l primary=$primaryLane owner=$ownerLane ownerSelected=$allowed rescue=$profitableRescue symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")} action=considered_bounded_owner_rotation")
+                        ForensicLogger.lifecycle("LIVE_ALL_LANE_CONTRIBUTION_4469", "lane=$l primary=$primaryLane ownerHint=$contributorRotationHint6599 canonicalPrimary=$allowed contributorOnly=${!allowed} symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")} action=considered_bounded_owner_rotation")
                         PipelineHealthCollector.labelInc("LIVE_ALL_LANE_CONTRIBUTION_4469_$l")
                         if (!allowed) PipelineHealthCollector.labelInc("LIVE_ALL_LANE_CONTRIBUTION_SUPPRESSED_4478_$l")
                     } catch (_: Throwable) {}
                     if (allowed) {
-                        try { ForensicLogger.lifecycle("MEMETRADER_OWNER_LANE", "lane=$l primary=$primaryLane owner=$ownerLane rescue=$profitableRescue symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")}") } catch (_: Throwable) {}
+                        try { ForensicLogger.lifecycle("MEMETRADER_OWNER_LANE", "lane=$l primary=$primaryLane ownerHint=$contributorRotationHint6599 canonicalPrimary=$allowed symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")}") } catch (_: Throwable) {}
                     } else {
-                        try { ForensicLogger.lifecycle("LANE_SUPPRESSED_BY_OWNER_ROTATION", "lane=$l primary=$primaryLane owner=$ownerLane symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=bounded_live_all_lane_contribution_no_fdg") } catch (_: Throwable) {}
+                        try { ForensicLogger.lifecycle("LANE_SUPPRESSED_BY_OWNER_ROTATION", "lane=$l primary=$primaryLane ownerHint=$contributorRotationHint6599 symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=bounded_live_all_lane_contribution_no_fdg") } catch (_: Throwable) {}
                         // V5.0.6070 — WIDEN LANE_EVAL VISIBILITY. Operator: "its
                         // meant to be standard, v3, core, shit coin, bluechip,
                         // quality, moonshot, shit coin express, sniper, manipulated
@@ -11193,7 +11211,7 @@ class BotService : Service() {
                                 ForensicLogger.phase(
                                     ForensicLogger.PHASE.LANE_EVAL,
                                     ts.symbol,
-                                    "lane=$l shadow=LIVE_LANE_READ_FLOOR_4489 no_fdg=true primary=$primaryLane owner=$ownerLane rescue=$profitableRescue mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
+                                    "lane=$l shadow=LIVE_LANE_READ_FLOOR_4489 no_fdg=true primary=$primaryLane ownerHint=$contributorRotationHint6599 canonicalPrimary=$allowed mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
                                 )
                                 PipelineHealthCollector.labelInc("LIVE_LANE_READ_FLOOR_4489_$l")
                             } catch (_: Throwable) {}
@@ -11202,27 +11220,21 @@ class BotService : Service() {
                     return allowed
                 }
                 if (allowed) {
-                    try { ForensicLogger.lifecycle("MEMETRADER_OWNER_LANE", "lane=$l primary=$primaryLane owner=$ownerLane rescue=$profitableRescue symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")}") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("MEMETRADER_OWNER_LANE", "lane=$l primary=$primaryLane ownerHint=$contributorRotationHint6599 canonicalPrimary=$allowed symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")}") } catch (_: Throwable) {}
                 } else {
-                    try { ForensicLogger.lifecycle("LANE_SUPPRESSED_BY_OWNER_ROTATION", "lane=$l primary=$primaryLane owner=$ownerLane symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("LANE_SUPPRESSED_BY_OWNER_ROTATION", "lane=$l primary=$primaryLane ownerHint=$contributorRotationHint6599 symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
                 }
+                if (allowed) try { ToolkitSignalSheet.recordDeskStage(l, "BUY_INTENT", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}
                 return allowed
             }
             return false
         }
 
-        // (4) Mixed mode: primary + exactly one deterministic eligible rescue.
-        val mixedEligible6533 = (affinity + setOf("SHITCOIN", "MOONSHOT", "EXPRESS"))
-            .filter { !ExecutionAuthorityPolicy6533.isTrunkLane(it) }
-        val mixedRescue6533 = ExecutionAuthorityPolicy6533.selectOneRescue(
-            mint = ts.mint,
-            candidateVersion = LaneExecutionCoordinator.candidateVersionFor(ts.mint),
-            primaryLane = primaryLane,
-            affinityLanes = affinity,
-            eligibleLanes = mixedEligible6533,
-        )
-        val mixedAllowed6533 = l == mixedRescue6533
-        if (!mixedAllowed6533) try { PipelineHealthCollector.labelInc("LANE_READ_ONLY_NON_RESCUE_6533_$l") } catch (_: Throwable) {}
+        // (4) Mixed mode: all qualified desks remain contributors, but only
+        // the strongest canonical primary reaches specialist FDG/execution.
+        val mixedAllowed6533 = l.equals(primaryLane, true) && designatedDeskQualified6599
+        if (!mixedAllowed6533) try { PipelineHealthCollector.labelInc("MEME_DESK_QUALIFIED_CONTRIBUTOR_ONLY_6599_$l") } catch (_: Throwable) {}
+        if (mixedAllowed6533) try { ToolkitSignalSheet.recordDeskStage(l, "BUY_INTENT", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}
         return mixedAllowed6533
     }
 
@@ -23646,10 +23658,12 @@ if (hotExitHandledSweep) {
             val sniperAllowed = com.lifecyclebot.engine.EnabledTraderAuthority.isEnabled(
                 com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER
             )
-            val projectSniperLaneAllowedThisCycle4483 = !ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "PROJECT_SNIPER", cyclePrimaryLane) && !RuntimeConfigOverlay.isLaneDisabled("PROJECT_SNIPER")
+            val projectSniperMissionOpen6599 = com.lifecyclebot.v3.scoring.ProjectSniperAI.hasMission(ts.mint)
+            val projectSniperEntryAllowed6599 = !ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "PROJECT_SNIPER", cyclePrimaryLane) && !RuntimeConfigOverlay.isLaneDisabled("PROJECT_SNIPER")
+            val projectSniperLaneAllowedThisCycle4483 = projectSniperMissionOpen6599 || projectSniperEntryAllowed6599
             // V5.9.920 — PROJECT_SNIPER LANE_EVAL emit (before sniperAllowed gate
             // so brain sees skips due to mode/permit too).
-            if (projectSniperLaneAllowedThisCycle4483) {
+            if (projectSniperEntryAllowed6599) {
                 try {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,

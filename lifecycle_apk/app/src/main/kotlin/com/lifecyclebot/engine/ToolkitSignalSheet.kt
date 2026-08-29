@@ -29,6 +29,12 @@ object ToolkitSignalSheet {
     private data class CacheEntry(val sheet: Sheet, val tsMs: Long, val fingerprint: Int)
     private val cache = ConcurrentHashMap<String, CacheEntry>()
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
+    private val deskStageCounts6599 = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+    private val deskStageOnce6599 = ConcurrentHashMap.newKeySet<String>()
+    private val configuredMemeDesks6599 = listOf(
+        "QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "EXPRESS", "CORE", "MOONSHOT",
+        "PROJECT_SNIPER", "DIP_HUNTER", "MANIPULATED", "TREASURY", "CASHGEN",
+    )
 
     enum class Setup {
         NONE,
@@ -51,6 +57,18 @@ object ToolkitSignalSheet {
         REGIME_DEFENSIVE_PROBE,
     }
 
+    data class DeskHypothesis(
+        val lane: String,
+        val setup: Setup,
+        val conviction: Double,
+        val entryStyle: String,
+        val exitStyle: String,
+        val holdMult: Double,
+        val sizeMult: Double,
+        val tpMult: Double,
+        val reason: String,
+    )
+
     data class Sheet(
         val setup: Setup,
         val confidence: Double,
@@ -61,6 +79,7 @@ object ToolkitSignalSheet {
         val sizeMult: Double,
         val tpMult: Double,
         val laneVotes: Set<String>,
+        val deskHypotheses: Map<String, DeskHypothesis>,
         val toolVotes: Set<String>,
         val reasons: List<String>,
     ) {
@@ -116,6 +135,7 @@ object ToolkitSignalSheet {
             sizeMult = 1.0,
             tpMult = 1.0,
             laneVotes = emptySet(),
+            deskHypotheses = emptyMap(),
             toolVotes = emptySet(),
             reasons = listOf("silent_refresh_pending", "type=$tt", "mint=${ts.mint.take(8)}") + if (weakRegime) listOf("regime=weak_runtime") else emptyList(),
         )
@@ -234,12 +254,12 @@ object ToolkitSignalSheet {
                 size = ms.sizeMult,
                 tp = if (ms.holdMult > 1.4) 1.25 else 0.92,
                 lanes = when (ms.pattern) {
-                    "BREAKOUT_CONTINUATION" -> setOf("MOONSHOT", "QUALITY", "PROJECT_SNIPER")
-                    "PULLBACK_RECLAIM" -> setOf("DIP_HUNTER", "QUALITY", "TREASURY")
-                    "ACCUMULATION_COMPRESSION" -> setOf("QUALITY", "BLUECHIP", "WHALE_FOLLOW")
+                    "BREAKOUT_CONTINUATION" -> setOf("MOONSHOT", "QUALITY")
+                    "PULLBACK_RECLAIM" -> setOf("DIP_HUNTER", "QUALITY", "CYCLIC", "CASHGEN")
+                    "ACCUMULATION_COMPRESSION" -> setOf("QUALITY", "BLUECHIP", "CYCLIC")
                     "EXHAUSTION_CHASE" -> setOf("EXPRESS", "MANIPULATED", "SHITCOIN")
                     "VOLUME_IGNITION" -> setOf("EXPRESS", "SHITCOIN", "MOONSHOT")
-                    else -> setOf("SHITCOIN", "PROJECT_SNIPER")
+                    else -> setOf("SHITCOIN")
                 },
                 tools = setOf("SMART_CHART", "PATTERN_CLASSIFIER", "MFE_TRAIL", "MOVEMENT_PATTERN"),
                 reasons = listOf("movement=${ms.pattern}", "conf=${ms.confidence.toInt()}", ms.reason)
@@ -287,7 +307,7 @@ object ToolkitSignalSheet {
             hold = 1.75,
             size = 1.02,
             tp = 1.30,
-            lanes = setOf("MOONSHOT", "PROJECT_SNIPER"),
+            lanes = setOf("MOONSHOT", "QUALITY"),
             tools = setOf("SMART_CHART", "CHART_BREAKOUT", "PATTERN_CLASSIFIER", "VOLUME_IGNITION"),
             reasons = listOf("move12=${move12.toInt()}%", "higherLows=$higherLows", "volIgn=${"%.1f".format(volIgnition)}x", "nearHigh=$nearHigh")
         ))
@@ -302,7 +322,7 @@ object ToolkitSignalSheet {
             hold = 1.25,
             size = 0.82,
             tp = 1.05,
-            lanes = setOf("DIP_HUNTER", "QUALITY"),
+            lanes = setOf("DIP_HUNTER", "QUALITY", "CYCLIC", "CASHGEN"),
             tools = setOf("PULLBACK_RECLAIM", "SMART_CHART", "REENTRY_RECOVERY", "DIP_RECLAIM"),
             reasons = listOf("pullback=${pullbackFromHigh.toInt()}%", "wickBought=$wickBought", "bp=${bp.toInt()}", "move5=${move5.toInt()}%")
         ))
@@ -348,7 +368,7 @@ object ToolkitSignalSheet {
             hold = 0.75,
             size = 0.78,
             tp = 0.92,
-            lanes = setOf("EXPRESS", "SHITCOIN", "MANIPULATED"),
+            lanes = setOf("EXPRESS", "SHITCOIN", "MANIPULATED", "CASHGEN"),
             tools = setOf("VOLUME_IGNITION", "ORDER_FLOW", "SCALP", "DEGEN_EXIT"),
             reasons = listOf("volIgn=${"%.1f".format(volIgnition)}x", "bp=${bp.toInt()}", "move5=${move5.toInt()}%")
         ))
@@ -408,7 +428,7 @@ object ToolkitSignalSheet {
             hold = 1.05,
             size = 0.62,
             tp = 0.95,
-            lanes = setOf("DIP_HUNTER", "TREASURY", "QUALITY"),
+            lanes = setOf("DIP_HUNTER", "TREASURY", "QUALITY", "CYCLIC", "CASHGEN"),
             tools = setOf("PANIC_REVERSION", "REENTRY_RECOVERY", "DIP_RECLAIM", "PATTERN_BACKTESTER"),
             reasons = listOf("pullback=${pullbackFromHigh.toInt()}%", "wickBought=$wickBought", "move5=${move5.toInt()}%")
         ))
@@ -423,7 +443,7 @@ object ToolkitSignalSheet {
             hold = 0.55,
             size = 0.60,
             tp = 0.78,
-            lanes = setOf("EXPRESS", "SHITCOIN", "TREASURY"),
+            lanes = setOf("EXPRESS", "SHITCOIN", "TREASURY", "CASHGEN"),
             tools = setOf("ARB", "FLOW_IMBALANCE", "VENUE_LAG", "ORDER_FLOW"),
             reasons = listOf("arbHint=$arbHint", "mom=${momentum.toInt()}", "volIgn=${"%.1f".format(volIgnition)}x")
         ))
@@ -438,7 +458,7 @@ object ToolkitSignalSheet {
             hold = 0.50,
             size = 0.42,
             tp = 0.75,
-            lanes = setOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS"),
+            lanes = setOf("SHITCOIN", "EXPRESS", "MANIPULATED"),
             tools = setOf("MEV_PROTECTION", "JITO", "DEFENSIVE_PROBE", "TOXIC_GUARD"),
             reasons = listOf("mevRisk=$mevRisk", "upperWicks=$upperWicks", "sell=${sellPressure.toInt()}", "vol=${volatility.toInt()}")
         ))
@@ -448,7 +468,41 @@ object ToolkitSignalSheet {
         // and fresh_pool_momentum still dominated setup selection. Treat HOSTILE as a
         // defensive/risk-off state and combine it with DUMP regime bias before choosing.
         val defensiveRisk = internetRiskMode.equals("risk_off", ignoreCase = true) || internetRiskMode.equals("hostile", ignoreCase = true)
-        val best = candidates.maxByOrNull { it.score + InternetEdgeDesk.setupScoreBias(it.setup.name) + regimeSetupBias(it.setup, regime) + riskOffSetupBias(it.setup, defensiveRisk) } ?: Candidate(
+        fun causalScore(c: Candidate): Double = c.score + InternetEdgeDesk.setupScoreBias(c.setup.name) +
+            regimeSetupBias(c.setup, regime) + riskOffSetupBias(c.setup, defensiveRisk)
+        val bestByDesk = linkedMapOf<String, Pair<Candidate, Double>>()
+        candidates.forEach { candidate ->
+            val score = causalScore(candidate).coerceIn(0.0, 100.0)
+            if (score >= 25.0) candidate.lanes.forEach { rawLane ->
+                val lane = rawLane.uppercase()
+                val prior = bestByDesk[lane]
+                if (prior == null || score > prior.second) bestByDesk[lane] = candidate to score
+            }
+        }
+        val deskHypotheses = bestByDesk.mapValuesTo(linkedMapOf()) { (lane, pair) ->
+            val c = pair.first
+            DeskHypothesis(
+                lane = lane, setup = c.setup, conviction = pair.second,
+                entryStyle = c.entry, exitStyle = c.exit,
+                holdMult = c.hold.coerceIn(0.30, 3.50), sizeMult = c.size.coerceIn(0.30, 1.15),
+                tpMult = c.tp.coerceIn(0.60, 1.70), reason = c.reasons.take(4).joinToString(";"),
+            )
+        }
+        // CORE is the ensemble coordinator over real qualified desks, never an
+        // independent duplicate scanner or position owner.
+        deskHypotheses.values.maxByOrNull { it.conviction }?.let { strongest ->
+            deskHypotheses["CORE"] = strongest.copy(
+                lane = "CORE",
+                entryStyle = "aggregate_${strongest.entryStyle}",
+                exitStyle = "aggregate_${strongest.exitStyle}",
+                reason = "ensemble=${deskHypotheses.keys.joinToString("+")};leader=${strongest.lane};${strongest.reason}",
+            )
+        }
+        deskHypotheses.values.forEach { h ->
+            recordDeskStage(h.lane, "POOL")
+            recordDeskStage(h.lane, "QUALIFIED")
+        }
+        val best = candidates.maxByOrNull { causalScore(it) } ?: Candidate(
             setup = Setup.NONE, score = 0.0, chart = "none", entry = "none", exit = "default", hold = 1.0, size = 1.0, tp = 1.0,
             lanes = emptySet(), tools = emptySet(), reasons = listOf("no_toolkit_setup")
         )
@@ -463,10 +517,64 @@ object ToolkitSignalSheet {
             holdMult = best.hold.coerceIn(0.30, 3.50),
             sizeMult = best.size.coerceIn(0.30, 1.15),
             tpMult = best.tp.coerceIn(0.60, 1.70),
-            laneVotes = best.lanes,
+            laneVotes = deskHypotheses.keys,
+            deskHypotheses = deskHypotheses,
             toolVotes = best.tools,
             reasons = best.reasons + listOf("internetBias=${InternetEdgeDesk.setupScoreBias(best.setup.name).toInt()}", "regimeBias=${regimeSetupBias(best.setup, regime).toInt()}", "riskOffBias=${riskOffSetupBias(best.setup, defensiveRisk).toInt()}", "regime=${regime?.regime ?: "unknown"}", internetRiskMode),
         )
+    }
+
+    fun recordDeskStage(lane: String, stage: String, eventId: String = "") {
+        val l = lane.uppercase().replace("BLUE_CHIP", "BLUECHIP").replace("SHITCOIN_EXPRESS", "EXPRESS")
+        if (l.isBlank()) return
+        val st = stage.uppercase()
+        if (eventId.isNotBlank() && !deskStageOnce6599.add("$l|$st|$eventId")) return
+        deskStageCounts6599.computeIfAbsent("$l|$st") { java.util.concurrent.atomic.AtomicLong(0L) }.incrementAndGet()
+    }
+
+    fun recordContributorSummary(summary: String, stage: String, eventId: String = "") {
+        Regex("(?:^|\\|)([A-Z_]+):[A-Z0-9_]+:").findAll(summary.uppercase()).forEach { m ->
+            recordDeskStage(m.groupValues[1], stage, eventId)
+        }
+    }
+
+    private fun deskCount6599(lane: String, stage: String): Long = deskStageCounts6599["${lane.uppercase()}|${stage.uppercase()}"]?.get() ?: 0L
+
+    fun designatedRoleLivenessReport6599(): String = buildString {
+        appendLine("===== MEME SPECIALIST ROLE LIVENESS =====")
+        configuredMemeDesks6599.forEach { lane ->
+            val pool = deskCount6599(lane, "POOL"); val qualified = deskCount6599(lane, "QUALIFIED")
+            val primary = deskCount6599(lane, "BUY_INTENT"); val fdg = deskCount6599(lane, "FDG")
+            val exec = deskCount6599(lane, "EXEC"); val pos = deskCount6599(lane, "POSITION_INFLUENCE")
+            val exit = deskCount6599(lane, "EXIT_INFLUENCE"); val learn = deskCount6599(lane, "LEARNING")
+            val status = when {
+                pool > 0 && qualified > 0 && primary > 0 && fdg > 0 && exec > 0 && pos > 0 && exit > 0 && learn > 0 -> "ACTIVE"
+                qualified > 0 && primary == 0L && pos == 0L -> "TELEMETRY_ONLY"
+                pool + qualified + primary + fdg + exec + pos + exit + learn > 0 -> "DEGRADED"
+                else -> "DEAD"
+            }
+            appendLine("$lane taskAlive=${qualified > 0} poolAlive=${pool > 0} discoveryAlive=${pool > 0} candidateN=$pool qualifiedN=$qualified buyIntentN=$primary fdgN=$fdg execN=$exec positionInfluenceN=$pos exitInfluenceN=$exit learningN=$learn capitalAvailable=SHARED_CANONICAL status=$status")
+        }
+        appendLine("PROJECT_SNIPER_NON_SNIPER_ADMISSION = ${deskCount6599("PROJECT_SNIPER", "NON_SNIPER_ADMISSION")}")
+    }
+
+    fun specialistCapitalReport6599(): String = buildString {
+        appendLine("===== MEME SPECIALIST CAPITAL =====")
+        val positions = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }
+        val sharedCash = try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol() } catch (_: Throwable) { 0.0 }
+        configuredMemeDesks6599.forEach { lane ->
+            val owned = positions.filter { it.lane.equals(lane, true) || (lane == "BLUECHIP" && it.lane.equals("BLUE_CHIP", true)) }
+            val used = owned.sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
+            val pending = (deskCount6599(lane, "BUY_INTENT") - deskCount6599(lane, "EXEC")).coerceAtLeast(0L)
+            appendLine("$lane targetAllocation=UNPROVEN_SOURCE availableAllocation=sharedCash:${"%.4f".format(sharedCash)} usedAllocation=${"%.4f".format(used)} openPositions=${owned.size} pendingIntents=$pending capitalStarved=${pending > 0L && sharedCash <= 0.0} starvedByLane=UNPROVEN allocationDecisionSource=CANONICAL_SHARED_WALLET")
+        }
+    }
+
+    fun contributionSummary(ts: TokenState, classification: ModeRouter.Classification? = null): String {
+        val sheet = snapshot(ts, classification)
+        return sheet.deskHypotheses.values.sortedByDescending { it.conviction }.joinToString("|") { h ->
+            "${h.lane}:${h.setup.name}:${"%.1f".format(h.conviction)}:${h.entryStyle}:${h.exitStyle}:hold=${"%.2f".format(h.holdMult)}:size=${"%.2f".format(h.sizeMult)}:tp=${"%.2f".format(h.tpMult)}"
+        }
     }
 
     private fun riskOffSetupBias(setup: Setup, riskOff: Boolean): Double {
