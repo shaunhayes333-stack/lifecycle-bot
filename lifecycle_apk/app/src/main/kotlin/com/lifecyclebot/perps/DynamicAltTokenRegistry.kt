@@ -204,6 +204,10 @@ object DynamicAltTokenRegistry {
     // more than EVIDENCE_TTL_MS_6580 later reaps into STALE_EXPIRED_6580_<state>.
     private val evaluationProgressStamp6580 = ConcurrentHashMap<String, Long>()
     private val EVIDENCE_TTL_MS_6580: Long = 5L * 60L * 1000L  // 5 minutes
+    // V5.0.6587 §P0-4 — global sweep bookkeeping. Reaper runs at most once
+    // per SWEEP_INTERVAL_MS regardless of how many progress stamps arrive.
+    private val lastGlobalSweepMs6587 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val SWEEP_INTERVAL_MS_6587: Long = 30L * 1000L  // sweep every 30s
     private val paperOnlyNoRoute6544 = AtomicLong(0L)
     private val liveRoutable6544 = AtomicLong(0L)
     private val staticEvaluated6544 = AtomicLong(0L)
@@ -715,6 +719,47 @@ object DynamicAltTokenRegistry {
                     evaluationProgressStamp6580.remove(progressKey6580)
                     markEvaluationDisposition6567(tok, "STALE_EXPIRED_6580_$key")
                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_STALE_REAPED_6580")
+                }
+            }
+        } catch (_: Throwable) {}
+        // V5.0.6587 §P0-4 — GLOBAL STALE SWEEP.
+        // Operator forensic (6580 → 6586): 438 tokens stuck at
+        // SPECIALIST_SILENCE_SHARED_EVIDENCE + SHARED_INTELLIGENCE_BACKLOG_
+        // COALESCED_REQUEUE. The per-token TTL added in 6580 catches only
+        // re-stamps. If a token is stamped ONCE and never re-appears in a
+        // scanner window, its entry sits forever. Every markEvaluationProgress
+        // call now also sweeps the whole progress map — any entry older than
+        // EVIDENCE_TTL_MS_6580 is reaped as STALE_EXPIRED_6587_<state> even
+        // if the caller never revisits it. Batched so at most one sweep
+        // per SWEEP_INTERVAL_MS.
+        try {
+            val nowMs6587 = System.currentTimeMillis()
+            if (nowMs6587 - lastGlobalSweepMs6587.get() > SWEEP_INTERVAL_MS_6587) {
+                lastGlobalSweepMs6587.set(nowMs6587)
+                val iter = evaluationProgressStamp6580.entries.iterator()
+                var reaped = 0
+                while (iter.hasNext()) {
+                    val entry = iter.next()
+                    if (nowMs6587 - entry.value > EVIDENCE_TTL_MS_6580) {
+                        val split = entry.key.indexOf('|')
+                        if (split > 0) {
+                            val identity6587 = entry.key.substring(0, split)
+                            val state6587 = entry.key.substring(split + 1)
+                            val stale6587 = getTokenByCanonicalIdentity6544(identity6587)
+                            if (stale6587 != null) markEvaluationDisposition6567(stale6587, "STALE_EXPIRED_6587_$state6587")
+                        }
+                        iter.remove()
+                        reaped++
+                    }
+                }
+                if (reaped > 0) {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_STALE_SWEEP_REAPED_6587")
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "CRYPTO_EVAL_STALE_SWEEP_6587",
+                            "reaped=$reaped mapSize=${evaluationProgressStamp6580.size}",
+                        )
+                    } catch (_: Throwable) {}
                 }
             }
         } catch (_: Throwable) {}

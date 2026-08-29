@@ -11982,6 +11982,22 @@ class Executor(
         fun markPaperBuyNotOpened(reason: String) {
             try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_$reason") } catch (_: Throwable) {}
+            // V5.0.6587 §P0-9 — TAXONOMY ROLLUP.
+            // Operator forensic (6580): 908 PAPER_BUY_NOT_OPENED without a
+            // category rollup makes root-cause hard to spot. Bucket into
+            // MARK / SIZE / GATE / AUTHZ / EXCEPTION / OTHER so the summary
+            // dashboard shows a single distribution line.
+            val bucket6587 = when {
+                reason.contains("MARK", true) -> "MARK"
+                reason.contains("SIZE", true) || reason.contains("BELOW_MIN", true) || reason.contains("DUST", true) -> "SIZE"
+                reason.contains("GATE", true) || reason.contains("ENTRY_AUTHORITY", true) || reason.contains("FDG", true) -> "GATE"
+                reason.contains("AUTHZ", true) || reason.contains("AUTHORITY", true) || reason.contains("RACE", true) -> "AUTHZ"
+                reason.contains("EXCEPTION", true) || reason.contains("EXCEPT", true) || reason.contains("TIMEOUT", true) -> "EXCEPTION"
+                reason.contains("ROUTE", true) || reason.contains("PROVIDER", true) -> "ROUTE"
+                reason.contains("CAPITAL", true) || reason.contains("CASH", true) || reason.contains("INSUFFICIENT", true) -> "CAPITAL"
+                else -> "OTHER"
+            }
+            try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_BUCKET_${bucket6587}_6587") } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.truth.PaperEntryFinalityAuthority6497.markRejected(entryFinalityId6497, reason) } catch (_: Throwable) {}
             clearPaperAuthorities6514("PAPER_BUY_HARD_BLOCKED_$reason", nonTerminal = false)
             if (hasDispatchedTicket6514) try {
