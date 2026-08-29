@@ -39,18 +39,22 @@ class Aate6598SizingLadderAndLruProtectionCoverageTest {
             "src/main/kotlin/com/lifecyclebot/engine/truth/OrderSizeResolver6441.kt"
         ).readText()
         assertTrue(
-            "V5.0.6598: authority cap must switch on whether the runner ladder actively " +
-                "lifted the size (ladderTarget > requested)",
-            src.contains("ladderLiftedAbove6598 = ladderTarget.isFinite() && ladderTarget > requested")
+            "V5.0.6598: ladder rescue must fire only when (a) requested < minExec AND " +
+                "(b) ladderTarget >= minExec*3 — narrow enough to preserve existing " +
+                "sub-floor rejection contracts while catching the 6595 case (req=0.010 " +
+                "ladder=0.400 minExec=~0.05)",
+            src.contains("ladderRescueApplies6598") &&
+                src.contains("ladderTarget >= (minExec * 3.0)") &&
+                src.contains("requestedLamports6491 < minExecLamports6491")
         )
         assertTrue(
-            "V5.0.6598: when ladder lifts, authority cap must use laneClamped (fully-lifted, " +
+            "V5.0.6598: when rescue applies, authority cap uses laneClamped (fully-lifted, " +
                 "wallet/lane-capped) as the ceiling — not `requested`",
             src.contains("minOf(laneClampedLamports6491, availableLamports6491)")
         )
         assertTrue(
-            "V5.0.6598: when ladder does NOT lift, the conservative pre-6598 authority cap is " +
-                "preserved so adaptive/sub-floor callers still see requested-ceiling behaviour",
+            "V5.0.6598: when rescue does NOT apply, the conservative pre-6598 authority cap " +
+                "is preserved so adaptive/sub-floor callers still see requested-ceiling behaviour",
             src.contains("minOf(requestedLamports6491, riskLamports6491, availableLamports6491, laneCapLamports6491)")
         )
     }

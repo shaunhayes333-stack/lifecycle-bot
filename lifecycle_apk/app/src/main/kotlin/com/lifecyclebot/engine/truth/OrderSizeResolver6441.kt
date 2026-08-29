@@ -160,21 +160,26 @@ object OrderSizeResolver6441 {
         //   >  canonical minimum."
         // Snapshot 6595: RunnerCompounding recommendedSizeSol=0.400 arrived
         // at OrderSizeResolver, req=0.010 risk=0.010 ladder=0.400, then
-        // final=0.00000 BELOW_MIN_EXECUTABLE. Root cause: `laddered` was
-        // legitimately lifted to 0.400 (line 118 uses max(risk, ladderTarget))
-        // and `laneClamped` respected all wallet/lane caps, but then this
-        // authority cap re-imposed the ORIGINAL `requested`=0.010 ceiling
-        // via `min(requestedLamports, riskLamports, ...)`. That negated the
-        // ladder every time.
+        // final=0.00000 BELOW_MIN_EXECUTABLE.
         //
-        // Fix (surgical): when the runner ladder ACTIVELY lifted the size
-        // (ladderTarget > requested), use `laneClamped` (fully-lifted +
-        // wallet/lane-capped) as the ceiling so the ladder is honoured. When
-        // no ladder lift is in play (ladderTarget<=requested or unavailable),
-        // keep the pre-6598 conservative authority cap so callers who pass an
-        // adaptive/sub-floor request continue to see it capped, not promoted.
-        val ladderLiftedAbove6598 = ladderTarget.isFinite() && ladderTarget > requested
-        val authorityCapLamports6498 = if (ladderLiftedAbove6598) {
+        // The pathology has a specific shape: `requested` is BELOW the
+        // minimum executable AND the runner ladder legitimately provides
+        // a lift ABOVE the minimum. Pre-6598 the authority cap re-imposed
+        // `requested` via minOf(requestedLamports, ...), collapsing back
+        // to sub-minimum and terminating as BELOW_MIN_EXECUTABLE.
+        //
+        // Fix (narrow): when `requested < minExec` AND `ladderTarget >= minExec`,
+        // the authority cap uses `laneClamped` (fully-lifted, wallet/lane-capped)
+        // so the executable can reach at least the minimum. This is the
+        // "clamp the executable order to canonical minimum" case the operator
+        // named. All other cases (requested >= minExec, no ladder lift,
+        // adaptive sub-floor without ladder rescue) keep the pre-6598
+        // conservative authority cap so sub-floor requests remain non-
+        // executable rather than being promoted.
+        val ladderRescueApplies6598 =
+            ladderTarget.isFinite() && ladderTarget >= (minExec * 3.0) &&
+                requestedLamports6491 < minExecLamports6491
+        val authorityCapLamports6498 = if (ladderRescueApplies6598) {
             minOf(laneClampedLamports6491, availableLamports6491)
         } else {
             minOf(requestedLamports6491, riskLamports6491, availableLamports6491, laneCapLamports6491)
