@@ -1797,7 +1797,7 @@ object PipelineHealthCollector {
                 com.lifecyclebot.engine.truth.CandidateAccumulator6430.statusLine()
             ).append("\n")
             sb.append("  Paper account ledger (§N):    ").append(
-                com.lifecyclebot.engine.truth.PaperAccountLedger6430.statusLine()
+                com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.statusLineFromLedger6604()
             ).append("\n")
             val paperLedgerErr = com.lifecyclebot.engine.truth.PaperAccountLedger6430.assertInvariant()
             sb.append("  Paper capital conservation:   ").append(

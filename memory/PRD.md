@@ -1,4 +1,4 @@
-# AATE PRD — V5.0.6598 (SOURCE-LEVEL AUTHORITY CONVERGENCE — DIRECTIVE 6595 COMPLETE)
+# AATE PRD — V5.0.6604 (MEME CAUSAL AUTHORITY RESTORED — TROUBLESHOOT_AGENT P0/P1/P2 SHIPPED)
 
 **Status:** PAPER TRADING ONLY.
 
@@ -6,7 +6,24 @@
 
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA.
 
-## V5.0.6596–6598 (Feb 2026) — 6595 EXECUTION-LIVENESS REPAIR (8 REPAIRS SHIPPED)
+## V5.0.6604 (Feb 2026) — RESTORE MEME CAUSAL AUTHORITY (troubleshoot_agent P0/P1/P2, CI GREEN)
+
+troubleshoot_agent's forensic analysis of the <10% MemeTrader WR concluded the brains were behaving as **telemetry-only** — three converging causal-authority gaps meant learned negative signals never bound execution.
+
+**P0 §MEME_CAUSAL_AUTHORITY (UnifiedPolicyHead)** — `laneHasOwnAuthoritativeHead(lane)` widened for MEME family (SHITCOIN/EXPRESS/MOONSHOT/PROJECT_SNIPER/MEMETRADER) when the global head has hit `MEME_GLOBAL_AUTHORITY_TRAINED_6604 = 50L`. Cold MEME lanes can no longer sidestep the global −0.66 bias by having an empty own-head. Non-MEME lanes unchanged.
+
+**P0 §TACTIC_CAUSAL_AUTHORITY (BotService weakWait branch)** — the weakWait branch now consults `TacticSwitcher.currentTactic(lane, score)`. When the rotator has moved off MOMENTUM to PULLBACK/REACCUMULATION/BREAKOUT/LAB_PROPOSED, the branch emits `TACTIC_ROTATED_WEAK_WAIT_BLOCKED_6604` instead of firing yet another dust-probe. Rotations now have teeth: they actually gate volume until the rotator heals back to MOMENTUM or the primary path produces a normal-strength BUY.
+
+**P0 §SPECIALIST_CONSENSUS_GATE (BotService `specialistEvaluationAllowed6600`)** — MEME specialists are elected as primary/rescue ONLY after two additional binding checks:
+  * `MEME_SPECIALIST_CONSENSUS_HARD_BLOCK_6604` — proven-dead bucket classifier mirroring `BrainConsensusGate.isProvenDead`.
+  * `MEME_SPECIALIST_PWIN_GATE_6604` — when the lane head is AUTHORITATIVE, require `UnifiedPolicyHead.predictWinProb(lane) >= SPECIALIST_MIN_PWIN_6604 (0.45)`.
+  Standalone-desk return contract (`return specialistEvaluationAllowed6600`) preserved for the GoldenTape 6600 assertion.
+
+**P1 §PER_POSITION_MARK_QUARANTINE (CanonicalCapitalAuthority6450)** — aggregate 6602 clamp preserved as second-line safety net; per-mint quarantine at the SOURCE emits `HERO_OPENMV_PER_POSITION_QUARANTINE_6604` when a single fresh mark exceeds its position's cost basis by more than 100×. Inflated mint held at cost basis for the tick and counted as a fallback mark; heals automatically on the next sane mark.
+
+**P2 §PAPER_LEDGER_READ_UNIFICATION (PaperCapitalAuthority6577)** — facade widened with `cashSol/openCostBasisSol/realizedPnlSol/feesSol/startingCashSol/isAuthorityInitialized6489` as thin read-only delegations. All read-only ledger call sites in main sources (~70 hits across 24 files) rerouted through the facade. Writes (`onBuy/onSell/rollbackBuy/initialize/assertInvariant`) remain on the ledger — facade is READ-ONLY. `Aate6604MemeCausalAuthorityCoverageTest` fails the build if any main-source read-only bypass re-appears.
+
+## V5.0.6596–6603 (Feb 2026) — 6595 EXECUTION-LIVENESS REPAIR (8 REPAIRS SHIPPED)
 
 Operator's V5.0.6595 snapshot exposed the meme trader remained crippled AFTER V5.0.6595's mark-TTL/§H fixes: 1,107 scan callbacks → 240 FDG decisions → only 6 executor invocations. The bottleneck moved downstream to lane identity → preauth → sizing → canonical execution. 8 P0/P1 repairs shipped across 6596/6597/6598, all CI-green.
 

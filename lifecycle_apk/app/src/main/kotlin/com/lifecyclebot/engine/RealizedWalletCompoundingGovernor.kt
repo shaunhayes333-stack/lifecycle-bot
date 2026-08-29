@@ -193,7 +193,7 @@ object RealizedWalletCompoundingGovernor {
             // and live must use symmetric wallet math or the compounding tier
             // thresholds trigger on the wrong base.
             if (paperRuntime6081) {
-                if (com.lifecyclebot.engine.truth.PaperAccountLedger6430.isAuthorityInitialized6489())
+                if (com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.isAuthorityInitialized6489())
                     com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol()
                 else BotService.status.paperWalletSol
             } else {
