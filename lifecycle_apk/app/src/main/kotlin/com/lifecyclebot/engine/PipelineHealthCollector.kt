@@ -1756,6 +1756,24 @@ object PipelineHealthCollector {
         // by-construction correctness guards that landed in V5.0.6427.
         try {
             sb.append("===== CORRECTNESS GUARDS (V5.0.6427+) [CANONICAL CURRENT SNAPSHOTS] =====\n")
+            // V5.0.6588 §P0-12 — ONE CANONICAL POSITION COUNT.
+            // Operator forensic (6580): §H showed 18, §6454 showed 61, §6459
+            // showed 0, older sell boundary showed 61 — four different numbers
+            // for 'positions' because each sub-ledger surfaced its own view of
+            // the same underlying store. Add an unambiguous header line that
+            // pulls the authoritative live-open count from
+            // CanonicalPositionAuthority6441 (the single-source-of-truth
+            // registry) and explicitly labels the sub-ledger status lines
+            // below as internal-invariant snapshots, not competing counts.
+            try {
+                val liveOpen6588 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+                    .openPositions().size
+                sb.append("  ✅ AUTHORITATIVE LIVE-OPEN POSITIONS: $liveOpen6588 " +
+                    "(source: CanonicalPositionAuthority6441.openPositions())\n")
+                sb.append("     NOTE — the sub-ledger status lines below (§H, §6454, §6459)\n")
+                sb.append("     are internal-invariant snapshots (per-guard views of the same\n")
+                sb.append("     underlying store); they are NOT competing authorities.\n")
+            } catch (_: Throwable) {}
             sb.append("  Position state ledger (§H):   ").append(
                 com.lifecyclebot.engine.truth.PositionStateLedger6427.statusLine()
             ).append("\n")

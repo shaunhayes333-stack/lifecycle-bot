@@ -667,9 +667,20 @@ object DynamicAltTokenRegistry {
     fun getNewTokens(maxAgeHours: Double=24.0) = registry.values
         .filter { !it.isStatic && it.discoveryAgeHours6544 <= maxAgeHours }
         .sortedByDescending { it.opportunityScore6544 }
-    /** Existing registry's blended queue: fresh, trending/boosted, changed, then established by opportunity strength. */
+    /** Existing registry's blended queue: fresh, trending/boosted, changed, then established by opportunity strength.
+     *
+     *  V5.0.6588 §P0-5 — FRESH-DISCOVERY PRIORITY.
+     *  Operator forensic (6580): 772 identities, 157 new, only 1 reaches
+     *  CryptoBrain. Root cause: prior blended sort was opportunityScore
+     *  DESC then volume24h DESC — fresh tokens have low volume24h so they
+     *  never bubble to top-25. Fresh-pool hunter contract required them
+     *  first. isFresh6544 now becomes the primary sort key (true first),
+     *  then opportunityScore, then volume — every top-25 scan is guaranteed
+     *  to include every currently-fresh token before falling through to
+     *  established ranking. */
     fun getBlendedOpportunityQueue6544(): List<DynToken> = registry.values.sortedWith(
-        compareByDescending<DynToken> { it.opportunityScore6544 }
+        compareByDescending<DynToken> { it.isFresh6544 }
+            .thenByDescending { it.opportunityScore6544 }
             .thenByDescending { it.volume24h }
             .thenByDescending { it.lastUpdatedMs }
     )
