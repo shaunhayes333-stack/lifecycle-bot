@@ -4309,6 +4309,14 @@ class BotService : Service() {
                                 liquidityUsd = ts.lastLiquidityUsd,
                                 source = ts.lastPriceSource.ifBlank { "UNKNOWN" },
                                 poolAddress = ts.lastPricePoolAddr.ifBlank { "MINT_ROUTE:${mint.take(8)}" },
+                                // V5.0.6596 §MARK_AUTHORITY_MINT_ROUTE_FOR_KNOWN_OPEN — this
+                                // callsite is the exit-mark / openMV recompute path for
+                                // KNOWN OPEN canonical positions (pos was fetched from the
+                                // canonical authority via positionsByMint). The mint identity
+                                // is therefore proven; MINT_ROUTE:* pool prefix is treated
+                                // as acceptable for pool identity on this path only. New-
+                                // entry paths continue to reject MINT_ROUTE:* as before.
+                                isKnownOpenMint6596 = true,
                             )
                         } catch (_: Throwable) { false }
                         if (!provOk) 0.0

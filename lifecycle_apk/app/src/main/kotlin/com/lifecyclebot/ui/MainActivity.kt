@@ -3575,12 +3575,27 @@ for legal compliance.
                 ?: 130.0  // Reasonable fallback if all else fails
 
             if (isPaper) {
-                // V5.9.425 — paper mode previously read CashGenerationAI's separate
-                // auto-compound counter, which hid the 70/30 meme-sell splits that
-                // land in TreasuryManager.treasurySol. Unified both modes on the
-                // canonical TreasuryManager counter so the 70/30 splits are visible.
-                trs = com.lifecyclebot.engine.TreasuryManager.treasurySol
-                trsUsd = if (ws.treasuryUsd > 0) ws.treasuryUsd else trs * solPrice
+                // V5.0.6596 §TREASURY_CAPITAL_AUTHORITY — operator directive Feb 2026:
+                //   > "Remove legacy/local/isolated Treasury wallet state.
+                //   >  PAPER: Treasury uses canonical PaperCapitalAuthority/
+                //   >  CapitalAuthority. All meme lanes, Treasury, sizing and
+                //   >  UI must consume the same mode-specific capital snapshot."
+                // Snapshot 6595: Tier=None, Next=\$100 while canonical
+                // paper cash=1.8741 SOL, total equity=11.5057 SOL, growth
+                // system equity=\$1,191.06. The pre-6596 code read
+                // TreasuryManager.treasurySol which is the accumulated 70/30
+                // profit-split sub-allocation, not the actual wallet equity.
+                // The tier ladder is designed against \$50 -> \$1M wallet
+                // growth, so it must be measured against canonical total
+                // equity, not the treasury sub-account. If canonical is
+                // unavailable, fall back to the legacy counter.
+                val canonicalPaperEquitySol6596 = try {
+                    com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.totalEquitySol()
+                } catch (_: Throwable) { 0.0 }
+                trs = if (canonicalPaperEquitySol6596 > 0.0) canonicalPaperEquitySol6596
+                      else com.lifecyclebot.engine.TreasuryManager.treasurySol
+                trsUsd = if (canonicalPaperEquitySol6596 > 0.0) trs * solPrice
+                         else if (ws.treasuryUsd > 0) ws.treasuryUsd else trs * solPrice
             } else {
                 // In live mode, show the TreasuryManager live treasury
                 trs = ws.treasurySol

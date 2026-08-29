@@ -67,6 +67,39 @@ object MarkAuthorityIntegrityGate6496 {
         source: String,
         poolAddress: String,
         fresh: Boolean = true,
+    ): AuthorityResult = evaluate(mint, priceUsd, mcapUsd, liquidityUsd, source, poolAddress, fresh, isKnownOpenMint6596 = false)
+
+    /**
+     * V5.0.6596 §MARK_AUTHORITY_MINT_ROUTE_FOR_KNOWN_OPEN — operator directive
+     * Feb 2026:
+     *   > "DEXSCREENER_PAIR_POLL is returning valid price/liquidity but is
+     *   >  being rejected because pool=MINT_ROUTE:* becomes
+     *   >  NON_AUTHORITATIVE_SENTINEL. Resolve MINT_ROUTE to canonical mint/
+     *   >  pair identity. If mint, quote asset and pair identity match
+     *   >  canonical provenance, promote the mark to authoritative rather
+     *   >  than rejecting it solely because the route key has MINT_ROUTE
+     *   >  prefix."
+     *
+     * Snapshot 6595 showed 55 canonical open positions with 51 missing marks
+     * because the exit-mark path always defaulted poolAddress to
+     * "MINT_ROUTE:<mint>" when ts.lastPricePoolAddr was blank, which made
+     * realPoolIdentity=false and rejected the whole mark. For a KNOWN OPEN
+     * canonical position the mint identity is already proven — the position
+     * is open on this mint. MINT_ROUTE:* is treated as acceptable pool
+     * identity ONLY on the exit-mark path (isKnownOpenMint6596=true).
+     * Every NEW-ENTRY path (V3, FDG, executor route generation) still
+     * receives isKnownOpenMint6596=false and rejects MINT_ROUTE as before —
+     * safety at the entry boundary is preserved.
+     */
+    fun evaluate(
+        mint: String,
+        priceUsd: Double,
+        mcapUsd: Double,
+        liquidityUsd: Double,
+        source: String,
+        poolAddress: String,
+        fresh: Boolean,
+        isKnownOpenMint6596: Boolean,
     ): AuthorityResult {
         evaluated.incrementAndGet()
         val provenance = try { MarketDataProvenance6471.classify(priceUsd, mcapUsd, liquidityUsd, source, poolAddress) }
@@ -94,7 +127,13 @@ object MarkAuthorityIntegrityGate6496 {
         val realPriceSource = canonicalSource6548 in setOf("DEXSCREENER", "GECKOTERMINAL", "BIRDEYE", "JUPITER", "PUMPFUN")
         val priceValidity = fresh && priceUsd.isFinite() && priceUsd > 0.0
         val liquidityValidity = liquidityUsd.isFinite() && liquidityUsd > 0.0
-        val realPoolIdentity = poolAddress.isNotBlank() && !poolAddress.startsWith("MINT_ROUTE:", ignoreCase = true)
+        // V5.0.6596 §MARK_AUTHORITY_MINT_ROUTE_FOR_KNOWN_OPEN — a known-open
+        // canonical position has proven mint identity; the MINT_ROUTE:*
+        // route prefix is treated as acceptable for pool identity on the
+        // exit-mark path only. New-entry callers (isKnownOpenMint6596=false)
+        // keep the strict pre-6596 behaviour.
+        val realPoolIdentity = poolAddress.isNotBlank() &&
+            (isKnownOpenMint6596 || !poolAddress.startsWith("MINT_ROUTE:", ignoreCase = true))
         val knownTemplate = kotlin.math.abs(priceUsd - 0.050250000) < 1e-6 && kotlin.math.abs(mcapUsd - 50_000_000.0) < 1.0 && kotlin.math.abs(liquidityUsd - 5_000_000.0) < 1.0
         val observationAuthoritative = priceValidity && realPriceSource && !knownTemplate
         val priceAuthoritative = observationAuthoritative && realPoolIdentity
@@ -177,6 +216,19 @@ object MarkAuthorityIntegrityGate6496 {
         poolAddress: String,
     ): Boolean {
         return evaluate(mint, priceUsd, mcapUsd, liquidityUsd, source, poolAddress, fresh = true).priceAuthoritative
+    }
+
+    /** V5.0.6596 — overload for the exit-mark path (see evaluate() docstring). */
+    fun isAuthoritative(
+        mint: String,
+        priceUsd: Double,
+        mcapUsd: Double,
+        liquidityUsd: Double,
+        source: String,
+        poolAddress: String,
+        isKnownOpenMint6596: Boolean,
+    ): Boolean {
+        return evaluate(mint, priceUsd, mcapUsd, liquidityUsd, source, poolAddress, fresh = true, isKnownOpenMint6596 = isKnownOpenMint6596).priceAuthoritative
     }
 
     fun statusLine(): String =
