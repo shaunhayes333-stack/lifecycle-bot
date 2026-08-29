@@ -161,7 +161,7 @@ object PerformanceAnalytics {
         // PF / expectancy still consume per-trade pnlSol so they
         // remain classifier-consistent — but total P&L cannot lie.
         val canonicalRealizedPnl = try {
-            com.lifecyclebot.engine.truth.PaperAccountLedger6430.realizedPnlSol()
+            com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.realizedPnlSol()
         } catch (_: Throwable) { Double.NaN }
         if (closedTrades.isEmpty()) {
             return AnalyticsSnapshot(totalTrades = 0)
@@ -382,12 +382,12 @@ object PerformanceAnalytics {
         // arithmetically hit dd/grossDeployed ≈ 100%.
         //
         // New logic seeds the equity curve at the CANONICAL STARTING
-        // CASH (PaperAccountLedger6430.startingCashSol) so the equity
+        // CASH (PaperCapitalAuthority6577.startingCashSol) so the equity
         // high-water is always a real positive account value and the DD%
         // matches the operator's mental model: DD as a fraction of the
         // canonical account, never as a fraction of "risk deployed so far".
         val startingCash = try {
-            com.lifecyclebot.engine.truth.PaperAccountLedger6430.startingCashSol()
+            com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.startingCashSol()
         } catch (_: Throwable) { 0.0 }
         val baseline = if (startingCash.isFinite() && startingCash > 0.0) startingCash else 0.0
         var peak = baseline

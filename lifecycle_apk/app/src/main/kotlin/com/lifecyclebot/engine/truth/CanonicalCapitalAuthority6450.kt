@@ -25,13 +25,13 @@ import java.util.concurrent.atomic.AtomicLong
  * CanonicalPositionAuthority6441 (positions). This module *does not*
  * duplicate storage — it computes the 5 canonical surfaces:
  *
- *   CASH                — PaperAccountLedger6430.cashSol
+ *   CASH                — PaperCapitalAuthority6577.cashSol
  *   RESERVED            — sum of PENDING_ENTRY costSol
  *   OPEN_COST_BASIS     — canonical open cost, excluding reserved
  *   OPEN_MARKET_VALUE   — sum(currentMarkValue) via caller-supplied mark
  *   UNREALIZED_PNL      — OPEN_MARKET_VALUE - OPEN_COST_BASIS
- *   REALIZED_PNL        — PaperAccountLedger6430.realizedPnlSol
- *   FEES                — PaperAccountLedger6430.feesSol
+ *   REALIZED_PNL        — PaperCapitalAuthority6577.realizedPnlSol
+ *   FEES                — PaperCapitalAuthority6577.feesSol
  *   TOTAL_EQUITY        — CASH + RESERVED + OPEN_MARKET_VALUE
  *
  * The wallet UI MUST NOT display CASH as equity. Callers use snapshot().
@@ -89,17 +89,17 @@ object CanonicalCapitalAuthority6450 {
     fun snapshot(markProvider: (String) -> Double = markProviderRef.get() ?: { 0.0 }): Snapshot {
         // V5.0.6487 — PaperAccountLedger is the sole capital read authority.
         // Replay is parity diagnostics only and may never replace wallet surfaces.
-        val startingCash = PaperAccountLedger6430.startingCashSol()
-        val cash = PaperAccountLedger6430.cashSol()
-        val realized = PaperAccountLedger6430.realizedPnlSol()
-        val fees = PaperAccountLedger6430.feesSol()
+        val startingCash = PaperCapitalAuthority6577.startingCashSol()
+        val cash = PaperCapitalAuthority6577.cashSol()
+        val realized = PaperCapitalAuthority6577.realizedPnlSol()
+        val fees = PaperCapitalAuthority6577.feesSol()
         // V5.0.6489 — the mark provider returns WHOLE-MINT market value from
         // TokenState.position. Canonical storage may contain multiple economic lots
         // for one mint, so value each mint once; summing one provider value per lot
         // multiplied equity whenever historical same-mint lots coexisted.
         val activeMints = try { CanonicalPositionAuthority6441.activeMintProjections6490("paper") } catch (_: Throwable) { emptyList() }
         val reserved = 0.0 // no reserved event currently exists; remains explicit
-        val openCost = PaperAccountLedger6430.openCostBasisSol()
+        val openCost = PaperCapitalAuthority6577.openCostBasisSol()
         var staleMarkMints6492 = 0
         var fallbackMarkMints6492 = 0
         // V5.0.6508 §P0-3 — TRACK AUTHORITATIVE MARK VALUE SEPARATELY.
@@ -112,6 +112,34 @@ object CanonicalCapitalAuthority6450 {
         lastGoodMark6492.keys.removeIf { it !in activeMintSet6492 }
         val markedValue6492 = activeMints.sumOf { aggregate ->
             val fresh = try { markProvider(aggregate.mint) } catch (_: Throwable) { 0.0 }
+            // V5.0.6604 §PER_POSITION_MARK_QUARANTINE (operator P1 fix).
+            //   The 6602 aggregate clamp masked the inflation but never
+            //   located WHICH position's mark was corrupt. Add a per-mint
+            //   forensic quarantine: if a single fresh mark exceeds the
+            //   position's remainingCostBasis by more than SANITY_MULT_6602
+            //   (100×), treat that mint as fallback (hold at cost basis),
+            //   emit HERO_OPENMV_PER_POSITION_QUARANTINE_6604 so operator
+            //   can see the mint / raw mark / ratio, and count it as a
+            //   fallback mark rather than authoritative. Rotation-safe:
+            //   the next tick reads the mark again — if it comes back
+            //   sane, position resumes authoritative marking.
+            val costBasis6604 = aggregate.remainingCostBasisSol
+            val SANITY_MULT_6604 = 100.0
+            val perPositionInflated6604 = fresh.isFinite() && fresh > 0.0 &&
+                costBasis6604 > 0.0 && fresh > costBasis6604 * SANITY_MULT_6604
+            if (perPositionInflated6604) {
+                try {
+                    PipelineHealthCollector.labelInc("HERO_OPENMV_PER_POSITION_QUARANTINE_6604")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "HERO_OPENMV_PER_POSITION_QUARANTINE_6604",
+                        "mint=${aggregate.mint.take(10)} costBasis=${"%.6f".format(costBasis6604)} " +
+                            "rawMark=${"%.6f".format(fresh)} ratio=${"%.1f".format(fresh / costBasis6604)}x " +
+                            "action=treat_as_fallback_mark",
+                    )
+                } catch (_: Throwable) {}
+                fallbackMarkMints6492++
+                return@sumOf costBasis6604
+            }
             when {
                 fresh.isFinite() && fresh > 0.0 -> {
                     lastGoodMark6492[aggregate.mint] = GoodMark6492(fresh, System.currentTimeMillis())

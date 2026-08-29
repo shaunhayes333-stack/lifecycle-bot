@@ -122,7 +122,7 @@ object OrderSizeResolver6441 {
         // V5.0.6448: PAPER affordability reads PaperAccountLedger6430, not the
         // canonical-position mirror cash facade, so all executor/runner/UI/report
         // balance consumers can converge on one transactional paper account.
-        val authoritativeCash = if (paperMode) PaperAccountLedger6430.cashSol().coerceAtLeast(0.0) else walletSol
+        val authoritativeCash = if (paperMode) PaperCapitalAuthority6577.cashSol().coerceAtLeast(0.0) else walletSol
         val cashCap = authoritativeCash
         val feeAwareAvailable6490 = if (paperMode) {
             authoritativeCash / (1.0 + PAPER_ENTRY_FEE_RESERVE_RATE_6490)

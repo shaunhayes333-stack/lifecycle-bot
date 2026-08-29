@@ -194,7 +194,7 @@ object RealizedWalletCompoundingGovernor {
             // thresholds trigger on the wrong base.
             if (paperRuntime6081) {
                 if (com.lifecyclebot.engine.truth.PaperAccountLedger6430.isAuthorityInitialized6489())
-                    com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol()
+                    com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol()
                 else BotService.status.paperWalletSol
             } else {
                 BotService.status.walletSol

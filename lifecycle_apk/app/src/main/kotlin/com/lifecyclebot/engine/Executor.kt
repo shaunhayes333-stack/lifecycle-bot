@@ -12319,7 +12319,7 @@ class Executor(
         // V5.0.6490 — resolve capital BEFORE PAPER ticket publication. The
         // entry authority may down-shape a 0.05 intent, but no downstream
         // component may manufacture a 0.021 order that can never execute.
-        val availableCashSol6511 = try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol() } catch (_: Throwable) { 0.0 }
+        val availableCashSol6511 = try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { 0.0 }
         val paperExecutableMinimumSol6511 = minConfiguredPaperTradeSol()
         val sealedNotional6552 = try {
             com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(ts.mint)
@@ -13073,7 +13073,7 @@ class Executor(
                 rollbackPaperEntry6485("POST_COMMIT_PROOF_FAILED")
                 return
             }
-            try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol(), "paper_ledger_projection_6485") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol(), "paper_ledger_projection_6485") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("PAPER_BUY_ATOMIC_COMMIT_6485") } catch (_: Throwable) {}
         } catch (t: Throwable) {
             rollbackPaperEntry6485("EXCEPTION_${t.javaClass.simpleName}")
@@ -19763,7 +19763,7 @@ class Executor(
         val minSol = minConfiguredPaperTradeSol()
         val laneCap = (maxOverrideSol?.takeIf { it.isFinite() && it > 0.0 } ?: maxConfiguredPaperTradeSol()).coerceAtLeast(0.0)
         val lane6510 = TradeIdentityManager.get(mint)?.executionLane?.takeIf { it.isNotBlank() } ?: source
-        val cash6510 = try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol() } catch (_: Throwable) { 0.0 }
+        val cash6510 = try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { 0.0 }
         val resolved6510 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.resolve(
             requestedSol = requested, laneName = lane6510, walletSol = cash6510, paperMode = true,
             laneRiskCapSol = laneCap, laneMinExecutableSol = minSol,
@@ -20254,7 +20254,7 @@ class Executor(
                 }
             }
             try {
-                ForensicLogger.lifecycle("CANONICAL_PAPER_SELL_COMMIT_6474", "mint=${tradeId.mint.take(10)} pid=${pid6474.take(18)} terminalId=$terminalId6474 applied=${close6474.applied} claimed=${close6474.terminalClaimed} bus=${close6474.busPublished} cash=${com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol().fmtSol()} openCost=${com.lifecyclebot.engine.truth.PaperAccountLedger6430.openCostBasisSol().fmtSol()} reason=$reason")
+                ForensicLogger.lifecycle("CANONICAL_PAPER_SELL_COMMIT_6474", "mint=${tradeId.mint.take(10)} pid=${pid6474.take(18)} terminalId=$terminalId6474 applied=${close6474.applied} claimed=${close6474.terminalClaimed} bus=${close6474.busPublished} cash=${com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol().fmtSol()} openCost=${com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.openCostBasisSol().fmtSol()} reason=$reason")
                 PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_COMMIT_6474")
                 PipelineHealthCollector.labelInc("CANONICAL_PAPER_CASH_CREDIT_6474")
             } catch (_: Throwable) {}

@@ -128,11 +128,11 @@ object CanonicalIntegrityGuards6449 {
      */
     fun auditConservation(toleranceSol: Double = 1e-4): Double {
         conservationChecks.incrementAndGet()
-        val startingCash = PaperAccountLedger6430.startingCashSol()
-        val cash = PaperAccountLedger6430.cashSol()
-        val openCost = PaperAccountLedger6430.openCostBasisSol()
-        val realized = PaperAccountLedger6430.realizedPnlSol()
-        val fees = PaperAccountLedger6430.feesSol()
+        val startingCash = PaperCapitalAuthority6577.startingCashSol()
+        val cash = PaperCapitalAuthority6577.cashSol()
+        val openCost = PaperCapitalAuthority6577.openCostBasisSol()
+        val realized = PaperCapitalAuthority6577.realizedPnlSol()
+        val fees = PaperCapitalAuthority6577.feesSol()
         val expected = startingCash + realized - fees
         val actual = cash + openCost
         val delta = actual - expected

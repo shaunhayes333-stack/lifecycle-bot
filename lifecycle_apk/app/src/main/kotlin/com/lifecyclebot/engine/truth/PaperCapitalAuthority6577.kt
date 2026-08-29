@@ -92,6 +92,26 @@ object PaperCapitalAuthority6577 {
     fun totalEquitySol(): Double = snapshot().totalEquitySol
     fun accountId(): String = ACCOUNT_ID
 
+    // V5.0.6604 §PAPER_LEDGER_READ_UNIFICATION (operator P2 fix).
+    //   The 6577 facade previously exposed only cash/open/equity reads,
+    //   so the majority of consumers still bypassed it and called
+    //   PaperAccountLedger6430 directly (54 direct call sites at the last
+    //   audit). Add the remaining read-only accessors as thin delegations
+    //   so every non-write caller can converge on the facade without
+    //   changing behaviour. Writes (onBuy / onSell / rollback / repair /
+    //   invariant assert) remain on the ledger — the facade is READ-ONLY.
+    fun cashSol(): Double = snapshot().availableCashSol
+    fun openCostBasisSol(): Double = snapshot().openMarketValueSol
+    fun realizedPnlSol(): Double = snapshot().realizedPnlSol
+    fun feesSol(): Double = snapshot().feesSol
+    fun startingCashSol(): Double = snapshot().startingCashSol
+    fun isAuthorityInitialized6489(): Boolean = try {
+        PaperAccountLedger6430.isAuthorityInitialized6489()
+    } catch (_: Throwable) { false }
+    fun statusLineFromLedger6604(): String = try {
+        PaperAccountLedger6430.statusLine()
+    } catch (_: Throwable) { "" }
+
     /**
      * Invariant probe — every UI surface that computes a paper cash figure
      * must call this. Divergence beyond toleranceSol emits

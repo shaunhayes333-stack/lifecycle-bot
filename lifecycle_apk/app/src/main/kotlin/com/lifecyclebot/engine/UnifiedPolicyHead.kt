@@ -70,6 +70,12 @@ object UnifiedPolicyHead {
     // V5.0.6009 — model-version tag for poisoned-state reset.
     private const val MODEL_VERSION_V6009 = 6009
 
+    // V5.0.6604 §MEME_CAUSAL_AUTHORITY (troubleshoot_agent P0 fix). Threshold
+    // above which the global head is trusted to bind MEME lanes even before
+    // their own per-lane head trains up. See laneHasOwnAuthoritativeHead
+    // for the full rationale.
+    private const val MEME_GLOBAL_AUTHORITY_TRAINED_6604 = 50L
+
     // Global head (warm-start source + fallback)
     private val w = DoubleArray(NF) { 0.0 }
     @Volatile private var bias = 0.0
@@ -183,8 +189,28 @@ object UnifiedPolicyHead {
      * terminal veto.
      */
     fun laneHasOwnAuthoritativeHead(lane: String): Boolean {
-        val h = laneHeads[normalizeLane(lane)] ?: return false
-        return h.trained >= AUTHORITY_AUTHORITATIVE
+        val laneKey = normalizeLane(lane)
+        val h = laneHeads[laneKey]
+        if (h != null && h.trained >= AUTHORITY_AUTHORITATIVE) return true
+        // V5.0.6604 §MEME_CAUSAL_AUTHORITY (troubleshoot_agent P0 fix).
+        //   Root cause of the <10% MemeTrader WR: fresh MEME lanes (SHITCOIN /
+        //   EXPRESS / MOONSHOT / PROJECT_SNIPER) rarely accumulate 25 own-head
+        //   samples fast enough because entries are already being throttled
+        //   elsewhere. Meanwhile the GLOBAL head has learned a strong bias
+        //   (e.g. -0.66 at trained≈150) that KNOWS these lanes bleed, but the
+        //   6596 fix required the LANE'S OWN head to be AUTHORITATIVE before
+        //   the LEARNED_POLICY_VETO_6593 could fire. Result: the veto never
+        //   fires for MEME, weak-WAIT probes bleed at 90%+ loss, brains are
+        //   telemetry-only. Fix: for MEME-family lanes, once the GLOBAL head
+        //   has hit MEME_GLOBAL_AUTHORITY_TRAINED_6604 (50) samples, treat the
+        //   veto as authoritative even when the lane's own head is still cold.
+        //   Non-MEME lanes are unchanged (cold BLUECHIP/STANDARD must still
+        //   collect their own sample before the global bias binds them).
+        val isMemeLane = laneKey.let { it.contains("SHITCOIN") || it.contains("EXPRESS") ||
+            it.contains("MOONSHOT") || it.contains("MEMETRADER") || it.contains("MEME") ||
+            it.contains("PROJECT_SNIPER") }
+        if (isMemeLane && trained >= MEME_GLOBAL_AUTHORITY_TRAINED_6604) return true
+        return false
     }
 
     /** Per-lane authority tier — calibration-aware. A miscalibrated head is

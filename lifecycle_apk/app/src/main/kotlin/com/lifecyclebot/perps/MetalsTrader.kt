@@ -54,7 +54,7 @@ object MetalsTrader {
         get() = com.lifecyclebot.engine.BotService.status.paperWalletSol
         set(@Suppress("UNUSED_PARAMETER") value) {
             com.lifecyclebot.engine.FluidLearning.forceSetBalance(
-                com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol().coerceAtLeast(0.0))
+                com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol().coerceAtLeast(0.0))
         }
     private val totalTrades   = java.util.concurrent.atomic.AtomicInteger(0)
     private val winningTrades = java.util.concurrent.atomic.AtomicInteger(0)
@@ -1197,7 +1197,7 @@ positionMap[position.id] = position
     // V5.7.6b: Set balance for paper trading
     fun setBalance(balance: Double) {
         com.lifecyclebot.engine.FluidLearning.forceSetBalance(
-            com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol().coerceAtLeast(0.0))
+            com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol().coerceAtLeast(0.0))
         ErrorLogger.info(TAG, "🥇 MetalsTrader balance set to ${"%.2f".format(balance)} SOL")
     }
     

@@ -236,7 +236,7 @@ object ReportingHub {
         val paperMode6564 = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { GlobalTradeRegistry.isPaperMode }
         val wallet = try {
             if (paperMode6564 && com.lifecyclebot.engine.truth.PaperAccountLedger6430.isAuthorityInitialized6489())
-                com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol()
+                com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol()
             else BotService.status.walletSol
         } catch (_: Throwable) { 0.0 }
         val open = try { BotService.status.openPositions.toList() } catch (_: Throwable) { emptyList() }

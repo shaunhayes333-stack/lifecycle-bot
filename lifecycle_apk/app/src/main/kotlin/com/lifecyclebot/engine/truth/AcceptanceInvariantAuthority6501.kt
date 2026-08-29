@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicLong
  * ──────
  * Runs on every reconciler tick. Compares:
  *
- *   A. `PaperAccountLedger6430.cashSol() + openMarketValueSol` (as
+ *   A. `PaperCapitalAuthority6577.cashSol() + openMarketValueSol` (as
  *      published by CanonicalCapitalAuthority6450, which already
  *      excludes invariant-quarantined marks per V5.0.6500)
  *   vs.
@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicLong
  * fault.
  *
  * Realized-side check compares
- * `PaperAccountLedger6430.realizedPnlSol()` (canonical) vs. the
+ * `PaperCapitalAuthority6577.realizedPnlSol()` (canonical) vs. the
  * journal-derived realized total (as sanity gate against the class
  * of bug that produced 6.27M-SOL BLUECHIP output in 6500).
  */
@@ -64,7 +64,7 @@ object AcceptanceInvariantAuthority6501 {
      */
     fun check(journalRealizedSol: Double? = null): InvariantResult {
         checks.incrementAndGet()
-        val cash = try { PaperAccountLedger6430.cashSol() } catch (_: Throwable) { 0.0 }
+        val cash = try { PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { 0.0 }
         val snap = try { CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
         val openMv = snap?.openMarketValueSol ?: 0.0
         val reported = cash + openMv
@@ -73,7 +73,7 @@ object AcceptanceInvariantAuthority6501 {
         // reported so the invariant does not falsely trip.
         val canonical = snap?.totalEquitySol ?: reported
         val equityDelta = kotlin.math.abs(reported - canonical)
-        val canonicalRealized = try { PaperAccountLedger6430.realizedPnlSol() } catch (_: Throwable) { 0.0 }
+        val canonicalRealized = try { PaperCapitalAuthority6577.realizedPnlSol() } catch (_: Throwable) { 0.0 }
         val realizedDelta = if (journalRealizedSol != null)
             kotlin.math.abs(canonicalRealized - journalRealizedSol) else 0.0
         val equityOk = equityDelta <= TOLERANCE_SOL
@@ -122,7 +122,7 @@ object AcceptanceInvariantAuthority6501 {
      */
     fun checkJournalVsLedger(journalTerminalSumSol: Double): Boolean {
         checks.incrementAndGet()
-        val canonicalRealized = try { PaperAccountLedger6430.realizedPnlSol() } catch (_: Throwable) { 0.0 }
+        val canonicalRealized = try { PaperCapitalAuthority6577.realizedPnlSol() } catch (_: Throwable) { 0.0 }
         val delta = kotlin.math.abs(canonicalRealized - journalTerminalSumSol)
         val ok = delta <= TOLERANCE_SOL
         if (!ok) {

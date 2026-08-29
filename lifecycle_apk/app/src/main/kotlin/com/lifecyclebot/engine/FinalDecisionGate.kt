@@ -4919,9 +4919,9 @@ object FinalDecisionGate {
                 val sealed6552 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.resolve(
                     requestedSol = finalSize,
                     laneName = laneName,
-                    walletSol = try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol() } catch (_: Throwable) { 0.0 },
+                    walletSol = try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { 0.0 },
                     paperMode = config.paperMode,
-                    laneRiskCapSol = (try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol() } catch (_: Throwable) { 0.0 }) * 0.12,
+                    laneRiskCapSol = (try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { 0.0 }) * 0.12,
                     laneMinExecutableSol = 0.005,
                 )
                 if (sealed6552.executable) com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealFor(ts.mint, sealed6552, laneName)

@@ -181,10 +181,10 @@ object CanonicalPaperReplay6464 {
 
     fun compareToLedger(startingCashSol: Double, toleranceSol: Double = 0.01): Parity {
         var snap = replay(startingCashSol)
-        val ledgerCash = try { PaperAccountLedger6430.cashSol() } catch (_: Throwable) { Double.NaN }
-        val ledgerRealized = try { PaperAccountLedger6430.realizedPnlSol() } catch (_: Throwable) { Double.NaN }
-        val ledgerOpen = try { PaperAccountLedger6430.openCostBasisSol() } catch (_: Throwable) { Double.NaN }
-        val ledgerFees = try { PaperAccountLedger6430.feesSol() } catch (_: Throwable) { Double.NaN }
+        val ledgerCash = try { PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { Double.NaN }
+        val ledgerRealized = try { PaperCapitalAuthority6577.realizedPnlSol() } catch (_: Throwable) { Double.NaN }
+        val ledgerOpen = try { PaperCapitalAuthority6577.openCostBasisSol() } catch (_: Throwable) { Double.NaN }
+        val ledgerFees = try { PaperCapitalAuthority6577.feesSol() } catch (_: Throwable) { Double.NaN }
         // V5.0.6489 — one explicit migration from pre-event-authority state.
         // This does not mutate money or lots: it checkpoints the historical
         // prefix missing from the typed event window. Once established it is

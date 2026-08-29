@@ -53,6 +53,14 @@ class BotService : Service() {
         // liquidity) still passes — the zero-score gate handles those.
         private const val LANE_PROBE_MIN_LIQ_USD = 1_500.0  // V5.9.1429 2500->1500: re-admit legit $1.5-2.5K tokens (3424 sweet spot), still rejects sub-$1K rug spam
 
+        // V5.0.6604 §SPECIALIST_CONSENSUS_GATE (troubleshoot_agent P0 fix).
+        //   Min UnifiedPolicyHead.predictWinProb required for a MEME specialist
+        //   to be elected as primary/rescue owner once its lane head has
+        //   graduated to AUTHORITATIVE. Below this floor the head itself has
+        //   voted the candidate as a loser; specialist affinity must not
+        //   overrule the learned negative signal.
+        private const val SPECIALIST_MIN_PWIN_6604 = 0.45
+
         // V5.9.1455 — TICK-TIME catastrophic loss floor for memes (Moonshot/ShitCoin).
         // Evaluated INSIDE the 1Hz openPositionTickLoop on every fresh price → no
         // 2s hotExit / 30s sweep slippage window. The lane-specific HARD_FLOOR_STOP
@@ -1472,12 +1480,12 @@ class BotService : Service() {
                             .migrateLegacyLedgerOnce6487(startCap6432)
                         if (!migrated6487) com.lifecyclebot.engine.truth.PaperAccountLedger6430.persistCurrent6487()
                     }
-                    try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol(), "startup_paper_ledger_authority_6487") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol(), "startup_paper_ledger_authority_6487") } catch (_: Throwable) {}
                     val inventoryRepair6490 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.refundDuplicateActiveMintLots6490()
                     val repairedPaperPositions6490 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().filter { it.mode == "paper" }
                     com.lifecyclebot.engine.EmergentGuardrails.rebuildFromCanonical6475(repairedPaperPositions6490)
                     com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(repairedPaperPositions6490)
-                    try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol(), "startup_duplicate_inventory_repair_6490") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol(), "startup_duplicate_inventory_repair_6490") } catch (_: Throwable) {}
                     com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431.start { /* full reconcile callback: wired in Phase 2 */ }
                     canonicalBootstrapSucceeded6515 = true
                     try {
@@ -3624,7 +3632,7 @@ class BotService : Service() {
                 ?: try { FluidLearning.getPaperBalance() } catch (_: Throwable) { 0.0 }
             // V5.0.6475 — do not repair canonical ledger cash from displayed UI
             // cash. Displayed cash is projection-only; ledger is authority.
-            val ledgerCash = try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol().coerceAtLeast(0.0) } catch (_: Throwable) { displayedCash.coerceAtLeast(0.0) }
+            val ledgerCash = try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol().coerceAtLeast(0.0) } catch (_: Throwable) { displayedCash.coerceAtLeast(0.0) }
             status.paperWalletSol = ledgerCash
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(ledgerCash, "paper_account_ledger_facade_6448:$source")
             try { FluidLearning.forceSetBalance(ledgerCash) } catch (_: Throwable) {}
@@ -4441,7 +4449,7 @@ class BotService : Service() {
         // truth and a loud lifecycle line surfaces the delta.
         try {
             val fillLotRealized6504 = com.lifecyclebot.engine.truth.FillLotLedger6504.rebuildRealizedSol(isPaperOnly = true)
-            val currentLedger6504 = com.lifecyclebot.engine.truth.PaperAccountLedger6430.realizedPnlSol()
+            val currentLedger6504 = com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.realizedPnlSol()
             val delta6504 = fillLotRealized6504 - currentLedger6504
             if (kotlin.math.abs(delta6504) > 0.001) {
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
@@ -10686,6 +10694,55 @@ class BotService : Service() {
                 )
             }
             // Liquidity OK but still weak → DUST-PROBE only (explicit + tiny size).
+            // V5.0.6604 §TACTIC_CAUSAL_AUTHORITY (troubleshoot_agent P0 fix).
+            //   Root cause slice of the <10% MemeTrader WR: TacticSwitcher was
+            //   correctly rotating catastrophic tactics (MOMENTUM→PULLBACK→
+            //   REACCUMULATION→BREAKOUT) but BotService's weakWait branch
+            //   promoted candidates to a DUST-PROBE buy regardless of the
+            //   current tactic. Rotation was cosmetic — the same weak signal
+            //   fired the same probe. Fix: honor the rotator's authority.
+            //   • MOMENTUM (default / initial): probe as before — momentum
+            //     tactic is satisfied by any positive intake velocity, which
+            //     the upstream lane already asserted before reaching here.
+            //   • Non-MOMENTUM (PULLBACK / REACCUMULATION / BREAKOUT /
+            //     LAB_PROPOSED): the rotator has said "the current shape
+            //     doesn't work; wait for a specific structural signal." A
+            //     weak-WAIT probe categorically does NOT satisfy any of
+            //     those signals, so block the probe until either the tactic
+            //     rotates back OR the primary path produces a normal-strength
+            //     BUY (which bypasses this weakWait branch entirely).
+            //   This is a rotation-gated block, never a lane disable —
+            //   TacticSwitcher continues rotating on outcomes so the block
+            //   self-heals when the rotator finds a working shape.
+            val tacticGateActive6604 = try {
+                val laneUpper6604 = lane.uppercase()
+                val currentTactic6604 = com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(
+                    laneUpper6604, laneBase.entryScore.toInt(),
+                )
+                currentTactic6604 != com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.MOMENTUM
+            } catch (_: Throwable) { false }
+            if (tacticGateActive6604) {
+                try {
+                    val currentTacticName6604 = com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(
+                        lane.uppercase(), laneBase.entryScore.toInt(),
+                    ).name
+                    PipelineHealthCollector.labelInc("TACTIC_ROTATED_WEAK_WAIT_BLOCKED_6604_${lane.uppercase()}")
+                    PipelineHealthCollector.labelInc("PREFDG_TACTIC_ROTATED_${lane.uppercase()}")
+                    ForensicLogger.lifecycle(
+                        "TACTIC_ROTATED_WEAK_WAIT_BLOCKED_6604",
+                        "lane=$lane tactic=$currentTacticName6604 score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} action=block_probe_until_tactic_or_normal_buy",
+                    )
+                    LearningLifecycleBus.preFdgReject(
+                        "TACTIC_ROTATED_WEAK_WAIT_BLOCKED_6604", lane, sourceForChop, mintForProbe,
+                        edgeSymbol4529, baseBlock, laneBase.entryScore, laneBase.aiConfidence,
+                        liquidityUsd, edgeMcap4529, edgeRegime4529,
+                    )
+                } catch (_: Throwable) {}
+                return laneBase.copy(
+                    signal = "WAIT", finalSignal = "WAIT", shouldTrade = false,
+                    blockReason = "TACTIC_ROTATED_WEAK_WAIT_BLOCKED_6604",
+                )
+            }
             try {
                 PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_DUST_PROBE")
                 PipelineHealthCollector.labelInc("PREFDG_DUST_PROBE_${lane.uppercase()}")
@@ -10954,6 +11011,76 @@ class BotService : Service() {
         )
         val specialistEvaluationAllowed6600 = designatedDeskQualified6599 &&
             (l.equals(primaryLane, true) || l.equals(boundedRescue6600, true))
+        // V5.0.6604 §SPECIALIST_CONSENSUS_GATE (troubleshoot_agent P0 fix).
+        //   Root cause slice of the <10% MemeTrader WR: MEME specialists
+        //   (SHITCOIN / EXPRESS / MOONSHOT / PROJECT_SNIPER) could satisfy
+        //   `designatedDeskQualified6599` and become primary/rescue while
+        //   BrainConsensusGate would independently HARD_BLOCK the same
+        //   candidate downstream. But because the specialist was already
+        //   the elected desk, capital was already committed to the buy
+        //   path; the downstream veto only reshaped the trade instead of
+        //   preventing it. Fix: hoist the two strongest binding signals
+        //   (proven-dead HARD_BLOCK equivalent + AUTHORITATIVE lane pWin
+        //   floor) into the specialist election itself for MEME lanes.
+        //   • provenDeadHardBlock6604: mirror BrainConsensusGate's
+        //     proven-dead classifier (`LosingPatternMemory.isDangerZone`
+        //     with a non-trivial sample) — this is the same input BCG
+        //     uses to emit its HARD_BLOCK verdict.
+        //   • lanePWinBelowGate6604: when the lane's own head has
+        //     graduated to AUTHORITATIVE, require predictWinProb ≥
+        //     SPECIALIST_MIN_PWIN_6604 (0.45). Below that, the head
+        //     itself says this candidate loses — specialist affinity
+        //     is not enough to override a learned negative signal.
+        //   Both are lane-rotational, never lane-disabling: when the
+        //   bucket recovers (rotation heals danger-zone stats, head pWin
+        //   climbs above 0.45), specialists automatically resume.
+        val memeSpecialistLane6604 = l in setOf("SHITCOIN", "EXPRESS", "MOONSHOT", "PROJECT_SNIPER", "MEMETRADER")
+        val provenDeadHardBlock6604 = if (!memeSpecialistLane6604 || !specialistEvaluationAllowed6600) false else try {
+            val v3 = ts.entryScore.toInt()
+            val bucket = com.lifecyclebot.engine.LosingPatternMemory.stats(l, v3)
+            val sample = bucket.wins + bucket.losses
+            val lossRate = if (sample > 0) bucket.losses.toDouble() / sample else 0.0
+            // Same shape as BrainConsensusGate.isProvenDead: mature sample,
+            // decisively net-negative, high loss rate.
+            sample >= 20 && bucket.meanPnl <= -1.0 &&
+                (lossRate >= 0.75 && bucket.losses >= 15 || (bucket.losses >= 20 && bucket.wins <= 1))
+        } catch (_: Throwable) { false }
+        if (provenDeadHardBlock6604) {
+            try {
+                PipelineHealthCollector.labelInc("MEME_SPECIALIST_CONSENSUS_HARD_BLOCK_6604_$l")
+                ForensicLogger.lifecycle(
+                    "MEME_SPECIALIST_CONSENSUS_HARD_BLOCK_6604",
+                    "lane=$l mint=${ts.mint.take(10)} score=${ts.entryScore.toInt()} action=block_specialist_election_proven_dead_bucket",
+                )
+            } catch (_: Throwable) {}
+            return false
+        }
+        val lanePWinBelowGate6604 = if (!memeSpecialistLane6604 || !specialistEvaluationAllowed6600) false else try {
+            val laneOwnAuth6604 = com.lifecyclebot.engine.UnifiedPolicyHead.currentAuthority(l) ==
+                com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE
+            if (!laneOwnAuth6604) false else {
+                val sigs6604 = com.lifecyclebot.engine.UnifiedPolicyHead.Signals(
+                    mlEntryConf = (ts.entryScore / 100.0).coerceIn(0.0, 1.0),
+                    symGreenLight = 0.5,
+                    evRatio = 0.5,
+                    metaConviction = 0.5,
+                    fwdPWin = 0.5,
+                    candConf = (ts.entryScore / 100.0).coerceIn(0.0, 1.0),
+                )
+                val pWin6604 = com.lifecyclebot.engine.UnifiedPolicyHead.predictWinProb(l, sigs6604)
+                pWin6604 < SPECIALIST_MIN_PWIN_6604
+            }
+        } catch (_: Throwable) { false }
+        if (lanePWinBelowGate6604) {
+            try {
+                PipelineHealthCollector.labelInc("MEME_SPECIALIST_PWIN_GATE_6604_$l")
+                ForensicLogger.lifecycle(
+                    "MEME_SPECIALIST_PWIN_GATE_6604",
+                    "lane=$l mint=${ts.mint.take(10)} score=${ts.entryScore.toInt()} floor=${"%.2f".format(SPECIALIST_MIN_PWIN_6604)} action=block_specialist_election_lane_head_negative",
+                )
+            } catch (_: Throwable) {}
+            return false
+        }
         if (l == "PROJECT_SNIPER") {
             val sniperSetup6599 = designatedDeskHypothesis6599?.setup
             val genuineSniperPool6599 = sniperSetup6599 == ToolkitSignalSheet.Setup.DEGEN_MICRO_SNIPE ||

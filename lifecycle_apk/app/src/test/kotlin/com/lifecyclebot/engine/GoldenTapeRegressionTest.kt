@@ -7512,7 +7512,12 @@ class GoldenTapeRegressionTest {
             paperLedger.contains("canAffordBuy") &&
                 !bot.contains("repairCashFromDisplayed6448(displayedCash") &&
                 java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt").readText().contains("PaperAccountLedger6430.onSell") &&
-                sizeResolver.contains("PaperAccountLedger6430.cashSol") &&
+                // V5.0.6604 §PAPER_LEDGER_READ_UNIFICATION — resolver may
+                // now read the canonical facade (PaperCapitalAuthority6577)
+                // which is a thin READ-ONLY delegation to the same ledger
+                // authority, so either reference is acceptable.
+                (sizeResolver.contains("PaperAccountLedger6430.cashSol") ||
+                    sizeResolver.contains("PaperCapitalAuthority6577.cashSol")) &&
                 sizeResolver.contains("PAPER_ENTRY_FEE_RESERVE_RATE_6490"))
         assertTrue("V5.0.6448: learner fanout must be blocked for partial or non-RewardPurity-finalized SELL rows",
             exec.contains("REWARD_PURITY_PARTIAL_LEARNING_BLOCKED_6448") &&
@@ -7538,7 +7543,11 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6487: replay derives gross realized from typed fields instead of stale net aggregate", replay.contains("canonicalGrossRealized6487") && replay.contains("e.grossProceedsSol - e.allocatedCostBasisSol"))
         assertFalse("V5.0.6487: replay cannot periodically overwrite authoritative ledger", replay.contains("repairLedgerIfClean") || ledger.contains("replaceFromCanonicalReplay"))
         assertTrue("V5.0.6487: only one-time legacy migration may seed missing durable ledger", replay.contains("migrateLegacyLedgerOnce6487") && ledger.contains("initPersistent6487") && ledger.contains("persistCurrent6487"))
-        assertTrue("V5.0.6487: capital snapshot reads ledger cash/open/realized/fees directly", capital.contains("PaperAccountLedger6430.cashSol()") && capital.contains("PaperAccountLedger6430.openCostBasisSol()") && capital.contains("PaperAccountLedger6430.realizedPnlSol()") && capital.contains("PaperAccountLedger6430.feesSol()"))
+        assertTrue("V5.0.6487: capital snapshot reads ledger cash/open/realized/fees directly (post-6604 may read via PaperCapitalAuthority6577 facade — same authority)",
+            (capital.contains("PaperAccountLedger6430.cashSol()") || capital.contains("PaperCapitalAuthority6577.cashSol()")) &&
+                (capital.contains("PaperAccountLedger6430.openCostBasisSol()") || capital.contains("PaperCapitalAuthority6577.openCostBasisSol()")) &&
+                (capital.contains("PaperAccountLedger6430.realizedPnlSol()") || capital.contains("PaperCapitalAuthority6577.realizedPnlSol()")) &&
+                (capital.contains("PaperAccountLedger6430.feesSol()") || capital.contains("PaperCapitalAuthority6577.feesSol()")))
         assertFalse("V5.0.6487: capital snapshot cannot prefer replay totals", capital.contains("CanonicalPaperReplay6464.lastSnapshot()") || capital.contains("replay?.openCostBasisSol"))
         assertTrue("V5.0.6487: wallet surfaces are synchronized from ledger authority", bot.contains("syncPaperCapitalAuthority6448") && bot.contains("PaperWalletStore.persist(applicationContext, ledgerCash)"))
     }
@@ -8750,10 +8759,20 @@ class GoldenTapeRegressionTest {
             gate.contains("PAPER_EXECUTION_TICKET_TTL_MS = 180_000L") &&
             gate.contains("ticket.mode.equals(\"PAPER\", true)"))
 
-        assertTrue(money.contains("PaperAccountLedger6430.isAuthorityInitialized6489()") &&
-            money.contains("PaperAccountLedger6430.cashSol()"))
-        assertTrue(governor.contains("PaperAccountLedger6430.isAuthorityInitialized6489()") &&
-            governor.contains("PaperAccountLedger6430.cashSol()"))
+        // V5.0.6604 §PAPER_LEDGER_READ_UNIFICATION — the reporting/governor
+        // surfaces may now read from the canonical facade
+        // (PaperCapitalAuthority6577) which is a READ-ONLY delegation to
+        // the same PaperAccountLedger6430 authority. Both references are
+        // acceptable — the operator's convergence goal is any read path
+        // that ultimately resolves to the single ledger.
+        assertTrue((money.contains("PaperAccountLedger6430.isAuthorityInitialized6489()") ||
+                money.contains("PaperCapitalAuthority6577.isAuthorityInitialized6489()")) &&
+            (money.contains("PaperAccountLedger6430.cashSol()") ||
+                money.contains("PaperCapitalAuthority6577.cashSol()")))
+        assertTrue((governor.contains("PaperAccountLedger6430.isAuthorityInitialized6489()") ||
+                governor.contains("PaperCapitalAuthority6577.isAuthorityInitialized6489()")) &&
+            (governor.contains("PaperAccountLedger6430.cashSol()") ||
+                governor.contains("PaperCapitalAuthority6577.cashSol()")))
 
         assertTrue(report.contains("unique intake symbols:") && report.contains("unique intake → V3:") &&
             report.contains("pre-V3 returns:") && report.contains("PRE_V3_RETURN_"))

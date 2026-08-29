@@ -160,9 +160,9 @@ object PaperAccountReplay6461 {
      */
     fun auditAgainstLedger(startingCashSol: Double, toleranceSol: Double = 0.01): Snapshot {
         val snap = replay(startingCashSol)
-        val ledgerCash = try { PaperAccountLedger6430.cashSol() } catch (_: Throwable) { Double.NaN }
-        val ledgerRealized = try { PaperAccountLedger6430.realizedPnlSol() } catch (_: Throwable) { Double.NaN }
-        val ledgerOpen = try { PaperAccountLedger6430.openCostBasisSol() } catch (_: Throwable) { Double.NaN }
+        val ledgerCash = try { PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { Double.NaN }
+        val ledgerRealized = try { PaperCapitalAuthority6577.realizedPnlSol() } catch (_: Throwable) { Double.NaN }
+        val ledgerOpen = try { PaperCapitalAuthority6577.openCostBasisSol() } catch (_: Throwable) { Double.NaN }
 
         val cashDelta = if (ledgerCash.isFinite()) snap.cashSol - ledgerCash else 0.0
         val realizedDelta = if (ledgerRealized.isFinite()) snap.realizedPnlSol - ledgerRealized else 0.0

@@ -22,10 +22,10 @@ object PaperEquityCalculator6467 {
 
     fun compute(baselineSol: Double, markedOpenValueSol: Double): Snapshot {
         calcs.incrementAndGet()
-        val cash = try { PaperAccountLedger6430.cashSol() } catch (_: Throwable) { baselineSol }
+        val cash = try { PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { baselineSol }
         val mv = if (markedOpenValueSol.isFinite() && markedOpenValueSol >= 0.0) markedOpenValueSol else 0.0
         val equity = cash + mv
-        val realized = try { PaperAccountLedger6430.realizedPnlSol() } catch (_: Throwable) { 0.0 }
+        val realized = try { PaperCapitalAuthority6577.realizedPnlSol() } catch (_: Throwable) { 0.0 }
         val expected = baselineSol + realized
         val delta = equity - expected - mv // mv is unrealized, not in expected
         val snap = Snapshot(cash, mv, equity, baselineSol, delta)

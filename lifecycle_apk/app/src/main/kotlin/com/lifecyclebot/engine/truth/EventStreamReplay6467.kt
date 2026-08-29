@@ -45,15 +45,15 @@ object EventStreamReplay6467 {
             }
             // Snapshot check every 10 events for first-divergent identification.
             if (firstDivergent == null && idx > 0 && idx % 10 == 0) {
-                val lCash = try { PaperAccountLedger6430.cashSol() } catch (_: Throwable) { Double.NaN }
+                val lCash = try { PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { Double.NaN }
                 if (lCash.isFinite() && kotlin.math.abs(cash - lCash) > toleranceSol * 5) {
                     firstDivergent = e.idempotencyKey; divIndex = idx
                 }
             }
         }
-        val lCash = try { PaperAccountLedger6430.cashSol() } catch (_: Throwable) { Double.NaN }
-        val lReal = try { PaperAccountLedger6430.realizedPnlSol() } catch (_: Throwable) { Double.NaN }
-        val lOpen = try { PaperAccountLedger6430.openCostBasisSol() } catch (_: Throwable) { Double.NaN }
+        val lCash = try { PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { Double.NaN }
+        val lReal = try { PaperCapitalAuthority6577.realizedPnlSol() } catch (_: Throwable) { Double.NaN }
+        val lOpen = try { PaperCapitalAuthority6577.openCostBasisSol() } catch (_: Throwable) { Double.NaN }
         val cashD = if (lCash.isFinite()) cash - lCash else 0.0
         val realD = if (lReal.isFinite()) realized - lReal else 0.0
         val openD = if (lOpen.isFinite()) openCost - lOpen else 0.0

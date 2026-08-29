@@ -35,8 +35,8 @@ import java.util.concurrent.atomic.AtomicReference
  *   totalExposureSol    — Σ position.costSol over open positions
  *   totalUnrealizedSol  — Σ costSol × (mark−entry)/entry via OpenPnlSanity
  *   equitySol           — CanonicalCapitalAuthority6450.equitySol()
- *   cashSol             — PaperAccountLedger6430.cashSol()
- *   realizedPnlSol      — PaperAccountLedger6430.realizedPnlSol()
+ *   cashSol             — PaperCapitalAuthority6577.cashSol()
+ *   realizedPnlSol      — PaperCapitalAuthority6577.realizedPnlSol()
  *
  * The result is stored in an `AtomicReference<Hero?>`. Main-thread
  * readers get O(1) atomic load. Cache is stale after `STALE_TTL_MS`
@@ -221,10 +221,10 @@ object HeroSnapshotAuthority6503 {
             snap6508.totalEquitySol
         } catch (_: Throwable) { 0.0 }
         val cashSol = try {
-            PaperAccountLedger6430.cashSol()
+            PaperCapitalAuthority6577.cashSol()
         } catch (_: Throwable) { 0.0 }
         val realizedPnlSol = try {
-            PaperAccountLedger6430.realizedPnlSol()
+            PaperCapitalAuthority6577.realizedPnlSol()
         } catch (_: Throwable) { 0.0 }
         cached.set(
             Hero(
