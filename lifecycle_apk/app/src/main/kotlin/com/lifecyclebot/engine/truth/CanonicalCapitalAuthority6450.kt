@@ -134,11 +134,34 @@ object CanonicalCapitalAuthority6450 {
         // A non-zero paper open cost with no paper position projection is an
         // explicit lifecycle mismatch, not a real -100% mark. Keep equity at
         // basis while the reconciler restores carry positions and surface it.
-        val openMv = if (activeMints.isEmpty() && openCost > 0.0) {
+        val openMvRaw6602 = if (activeMints.isEmpty() && openCost > 0.0) {
             fallbackMarkMints6492++
             try { PipelineHealthCollector.labelInc("CAPITAL_MARK_FALLBACK_NO_CANON_POSITION_6492") } catch (_: Throwable) {}
             openCost
         } else markedValue6492
+        // V5.0.6602 §HERO_OPENMV_SANITY_CLAMP — operator directive Feb 2026:
+        // hero was showing $9,595 equity on a wallet with journal +$33.57
+        // realized P&L on ~0.5 SOL of cost basis (~200× inflation). Trail
+        // stops fire at peak +25% so no legitimate paper position could
+        // sustain 100×+ market value vs cost basis before exiting. When
+        // openMv exceeds openCost by more than a sane meme-run ceiling
+        // (100×), the mark provider is misreporting — clamp to openCost and
+        // emit HERO_OPENMV_SANITY_CLAMP_6602 so operator can see the raw
+        // divergence in a pipeline dump. UI shows honest cost-basis equity
+        // rather than a fantasy $9k figure.
+        val SANITY_MULT_6602 = 100.0
+        val openMv = if (openCost > 0.0 && openMvRaw6602 > openCost * SANITY_MULT_6602) {
+            try {
+                PipelineHealthCollector.labelInc("HERO_OPENMV_SANITY_CLAMP_6602")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "HERO_OPENMV_SANITY_CLAMP_6602",
+                    "openCost=${"%.4f".format(openCost)} openMvRaw=${"%.4f".format(openMvRaw6602)} " +
+                        "ratio=${"%.1f".format(openMvRaw6602 / openCost)}x mints=${activeMints.size} " +
+                        "action=clamp_to_costBasis",
+                )
+            } catch (_: Throwable) {}
+            openCost
+        } else openMvRaw6602
         if (staleMarkMints6492 > 0) try { PipelineHealthCollector.labelInc("CAPITAL_STALE_LAST_GOOD_MARK_6492") } catch (_: Throwable) {}
         val unrealized = openMv - openCost
         val equity = cash + reserved + openMv
