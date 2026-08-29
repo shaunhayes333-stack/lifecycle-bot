@@ -270,7 +270,16 @@ object LiveSizingProfile {
         conviction: Conviction,
         isPaperMode: Boolean,
     ): Double {
-        if (!enabled || isPaperMode || baseSol <= 0.0) return baseSol
+        // V5.0.6583 §P0-8 — paper mode now included. Operator directive:
+        // 'Paper mode must reproduce how LIVE mode behaves.' The compound
+        // floor / wallet-pct cap logic is SOL-based and applies to paper
+        // capital exactly the same. Previously paper was bailed out here
+        // which allowed 15 stacked multipliers to compound-shrink an
+        // 0.400 SOL recommended request down to 0.01247 SOL — the exact
+        // 6580 forensic collapse. isPaperMode remains as a parameter so
+        // future divergent logic can key on it, but the hard bail-out
+        // is removed.
+        if (!enabled || baseSol <= 0.0) return baseSol
         if (walletSol <= GAS_RESERVE_SOL) return baseSol
         val L = lane.uppercase()
 

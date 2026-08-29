@@ -847,21 +847,25 @@ object SmartSizer {
         //    BLUECHIP+DIP_HUNTER+QUALITY), falls back to global tiers
         //    otherwise so siblings stay safe.
         // ════════════════════════════════════════════════════════════════
-        val finalSize = if (size > 0.0 && !isPaperMode && LiveSizingProfile.enabled) {
+        // V5.0.6583 §P0-8 — PAPER-MODE COMPOUND FLOOR PARITY.
+        // Operator forensic (6580): wallet 4.641 SOL, recommended 0.400 SOL,
+        // canonical requested 0.01247 SOL, final=0 BELOW_MIN_EXECUTABLE.
+        // 30× shrink caused by 15 stacked multipliers with no compound
+        // protection because the laneCompoundFloor only fires in live mode.
+        // Paper is now included so 15 shape multipliers can't compound-shrink
+        // the recommended size to dust while the wallet clearly has cash.
+        val finalSize = if (size > 0.0 && LiveSizingProfile.enabled) {
             try {
                 val conviction = LiveSizingProfile.convictionFromScore(entryScore, setupQuality)
-                // 1) raw output
                 var v = size
-                // 2) consume any gate-soft-shape multiplier set by FDG (per-thread)
                 val gateMult = LiveSizingProfile.consumeGateSoftShape("")
                 if (gateMult < 0.999) v *= gateMult
-                // 3) apply lane-aware compound floor (lifts to floor, caps to walletPct)
                 v = LiveSizingProfile.laneCompoundFloor(
                     lane = laneMode,
                     baseSol = v,
                     walletSol = effectiveWallet,
                     conviction = conviction,
-                    isPaperMode = false,
+                    isPaperMode = isPaperMode,
                 )
                 v
             } catch (_: Throwable) { size }
