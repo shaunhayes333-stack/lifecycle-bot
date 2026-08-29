@@ -10965,12 +10965,11 @@ class BotService : Service() {
         }
         val standaloneMissionDesk6599 = l in setOf("SHITCOIN", "EXPRESS", "PROJECT_SNIPER")
         if (standaloneMissionDesk6599) {
-            val allowed6599 = specialistEvaluationAllowed6600
             try {
-                PipelineHealthCollector.labelInc(if (allowed6599) "MEME_DESK_CANONICAL_PRIMARY_6599_$l" else "MEME_DESK_QUALIFIED_CONTRIBUTOR_ONLY_6599_$l")
-                if (allowed6599) { ToolkitSignalSheet.recordDeskStage(l, "OWNER_SELECTED", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}"); ToolkitSignalSheet.recordDeskStage(l, "BUY_INTENT", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") }
+                PipelineHealthCollector.labelInc(if (specialistEvaluationAllowed6600) "MEME_DESK_CANONICAL_PRIMARY_6599_$l" else "MEME_DESK_QUALIFIED_CONTRIBUTOR_ONLY_6599_$l")
+                if (specialistEvaluationAllowed6600) { ToolkitSignalSheet.recordDeskStage(l, "OWNER_SELECTED", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}"); ToolkitSignalSheet.recordDeskStage(l, "BUY_INTENT", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") }
             } catch (_: Throwable) {}
-            return allowed6599
+            return specialistEvaluationAllowed6600
         }
         fun qualityLaneProofOk(): Boolean {
             val routeProof = ts.lastPrice > 0.0 && (ts.lastPriceSource.isNotBlank() || ts.source.isNotBlank())
