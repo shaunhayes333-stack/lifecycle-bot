@@ -18412,6 +18412,28 @@ if (hotExitHandledSweep) {
 
     private val exitMarkRefreshPending6513 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
+    // V5.0.6594 §MARK_REFRESH_DEDUP_TTL — operator directive Feb 2026:
+    // "Deduplicate mark refresh by (assetClass, instrumentId) with one
+    //  in-flight request and TTL. Never enqueue another refresh while
+    //  one is in flight. Never repeatedly request an incompatible
+    //  provider for a known asset class."
+    // The pre-6594 pending-set dedup only stopped concurrent enqueues;
+    // once the async coroutine removed the mint from the set the next
+    // exit-feed tick (~5s cadence) re-queued the same refresh. Snapshot
+    // 6591 observed 24,807 queued refreshes across 51 open positions in
+    // ~7 minutes — that's ~9 per position per tick. TTL: on any attempt
+    // (success or failure), record wall-clock; a subsequent attempt for
+    // the same mint before TTL_MS elapses is skipped and counted as
+    // MARK_REFRESH_TTL_SKIPPED_6594. Successful refreshes get a longer
+    // TTL because the fresh mark is authoritative for a while; failures
+    // get a short backoff so recovery is fast but not stampeded.
+    private val exitMarkRefreshLastAttemptMs6594 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val exitMarkRefreshLastSuccessMs6594 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private object MarkRefreshDedupTtl6594 {
+        const val TTL_SUCCESS_MS = 30_000L
+        const val TTL_FAILURE_MS = 5_000L
+    }
+
     /** V5.0.6512 — every exit sweep starts from canonical OPEN authority.
      * Mutable TokenState is projection-only. We rebind canonical quantity/basis/lane/id
      * when a token projection exists; a missing mark remains visible but non-triggering.
@@ -18462,7 +18484,21 @@ if (hotExitHandledSweep) {
             }
             if (ts.position.entryPrice <= 0.0 || ts.lastPrice <= 0.0) {
                 missingMark++
-                if (exitMarkRefreshPending6513.add(cp.mint)) {
+                // V5.0.6594 §MARK_REFRESH_DEDUP_TTL — enforce a per-mint TTL
+                // so the exit-feed 5s cadence cannot re-queue the same
+                // refresh 9× per position per tick as it did on 6591.
+                val nowMs6594 = System.currentTimeMillis()
+                val lastAttempt6594 = exitMarkRefreshLastAttemptMs6594[cp.mint] ?: 0L
+                val lastSuccess6594 = exitMarkRefreshLastSuccessMs6594[cp.mint] ?: 0L
+                val ttlActive6594 = when {
+                    nowMs6594 - lastSuccess6594 < MarkRefreshDedupTtl6594.TTL_SUCCESS_MS -> true
+                    nowMs6594 - lastAttempt6594 < MarkRefreshDedupTtl6594.TTL_FAILURE_MS -> true
+                    else -> false
+                }
+                if (ttlActive6594) {
+                    try { PipelineHealthCollector.labelInc("MARK_REFRESH_TTL_SKIPPED_6594") } catch (_: Throwable) {}
+                } else if (exitMarkRefreshPending6513.add(cp.mint)) {
+                    exitMarkRefreshLastAttemptMs6594[cp.mint] = nowMs6594
                     // V5.0.6592 §MARK_REFRESH_CLASS_ROUTING — the operator's
                     // 24,807-mark-refresh storm was driven by STOCK_* /
                     // FOREX_* / ALT_* positions carrying assetClass=SOLANA_TOKEN
@@ -18497,19 +18533,26 @@ if (hotExitHandledSweep) {
                         // PriceAggregator → Yahoo fallback). SOLANA_TOKEN stays
                         // on the Birdeye / DexScreener / pump.fun cascade.
                         try {
-                            if (effectiveMarkClass6592 == com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN) {
-                                tryFallbackPriceData(cp.mint, ts)
-                            } else if (effectiveMarkClass6592 == com.lifecyclebot.engine.truth.AssetClass.UNKNOWN) {
-                                // V5.0.6592 — refuse to guess a provider for
-                                // an unclassified position; surface the gap
-                                // and skip the network call.
-                                try {
-                                    PipelineHealthCollector.labelInc("MARK_REFRESH_SKIPPED_UNKNOWN_CLASS_6592")
-                                } catch (_: Throwable) {}
-                            } else {
-                                com.lifecyclebot.engine.truth.CrossAssetMarkRouter6530.refreshMark(
+                            val refreshed6594 = when (effectiveMarkClass6592) {
+                                com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN -> {
+                                    tryFallbackPriceData(cp.mint, ts)
+                                    ts.lastPrice > 0.0
+                                }
+                                com.lifecyclebot.engine.truth.AssetClass.UNKNOWN -> {
+                                    // V5.0.6592 — refuse to guess a provider for
+                                    // an unclassified position; surface the gap
+                                    // and skip the network call.
+                                    try {
+                                        PipelineHealthCollector.labelInc("MARK_REFRESH_SKIPPED_UNKNOWN_CLASS_6592")
+                                    } catch (_: Throwable) {}
+                                    false
+                                }
+                                else -> com.lifecyclebot.engine.truth.CrossAssetMarkRouter6530.refreshMark(
                                     effectiveMarkClass6592, cp.symbol, ts,
                                 )
+                            }
+                            if (refreshed6594) {
+                                exitMarkRefreshLastSuccessMs6594[cp.mint] = System.currentTimeMillis()
                             }
                         } finally { exitMarkRefreshPending6513.remove(cp.mint) }
                     }
