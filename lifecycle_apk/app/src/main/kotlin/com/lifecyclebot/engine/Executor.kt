@@ -12839,8 +12839,14 @@ class Executor(
             val pid = try { com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(tradeId.mint) } catch (_: Throwable) { "" }
             if (pid.isNotBlank()) {
                 try { com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.abortBuy6485(pid) } catch (_: Throwable) {}
-                try { com.lifecyclebot.engine.truth.PositionStateLedger6427.abortOpen6485(pid) } catch (_: Throwable) {}
             }
+            // V5.0.6591 — abort the canonicalMint-keyed ledger slot registered
+            // at commit (see 6591 above). abortOpen6485 removes the slot fully,
+            // so it never appears as a phantom OPEN in §H.
+            try {
+                val abortKey6591 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.canonicalMint(tradeId.mint)
+                com.lifecyclebot.engine.truth.PositionStateLedger6427.abortOpen6485(abortKey6591)
+            } catch (_: Throwable) {}
             if (canonicalCreated6485) try { com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.abortBuy6485(tradeId.mint, reason) } catch (_: Throwable) {}
             if (ledgerDebited6485) try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.rollbackBuy(actualSol, fee6485, reason) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("paper", tradeId.mint) } catch (_: Throwable) {}
@@ -12992,7 +12998,18 @@ class Executor(
                 )
             } catch (_: Throwable) {}
             com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen("paper", tradeId.mint, ts.symbol, "Executor.paperBuy.atomic6485")
-            com.lifecyclebot.engine.truth.PositionStateLedger6427.registerOpen(pid6485)
+            // V5.0.6591 — §H POSITION LEDGER KEY ALIGNMENT.
+            // ExecutorCanonicalMirror6442 registers with canonicalMint(mint) at
+            // buy commit AND calls confirmTerminalSell with canonicalMint(mint)
+            // at sell. This Executor path previously registered with pid6485
+            // (a "PAPER:mint:runIdHash:seq" string), creating a duplicate
+            // ledger slot that never received a matching confirmTerminalSell.
+            // Snapshot 5.0.6590 showed §H positions=38 states={OPEN=25,
+            // CLOSED=13} while canonical open=5 — the extra 20 OPENs were
+            // these phantom pid6485 slots. Align this key with the mirror's
+            // canonicalMint convention so open + close land on the same slot.
+            val ledgerKey6591 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.canonicalMint(tradeId.mint)
+            com.lifecyclebot.engine.truth.PositionStateLedger6427.registerOpen(ledgerKey6591)
             com.lifecyclebot.engine.truth.PositionStateLedger6454.onEntry(pid6485)
             com.lifecyclebot.engine.truth.SellQtyBoundaryClamp6427.syncAuthoritativeRaw(pid6485, buyQtyRaw6485, buyQtyRaw6485)
             ts.position = fundedPaperPosition6485

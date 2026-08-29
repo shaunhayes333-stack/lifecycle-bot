@@ -112,7 +112,20 @@ object InvariantGuardian {
         // around the enabled-lane count while FDG/EXEC are flowing. Treat that as
         // productive exploration, not a mechanical fault. Only warn at the old 12×
         // threshold when the fanout is unproductive, or at an extreme 18× regardless.
-        val productiveFanout6019 = s.fdg > 0L && s.exec > 0L && s.exec >= (s.intake / 2L).coerceAtLeast(1L)
+        // V5.0.6591 — RIGHT-SIZE THE PRODUCTIVITY BAR. The 6019 rule required
+        // exec >= intake/2 (50% intake→exec conversion) to consider fanout
+        // productive. That threshold is unrealistic in paper mode where the
+        // filter's job is to reject most candidates. Snapshot 6590 showed
+        // intake=413/exec=28/paperBuyOk=24/paperJournalRows=32 with the full
+        // funnel healthy end-to-end — yet fanout was flagged as unproductive
+        // because 28 < 206. Correct signal: the pipeline is productive when
+        // real trades reach the journal. Use paper+live journal rows and a
+        // 5% intake→exec proxy so we still catch a truly-choked pipeline.
+        val journalRows6591 = (pipe?.labelCounts?.get("TRADEJRNL_REC") ?: 0L) +
+            (pipe?.labelCounts?.get("TRADEJRNL_REC_LIVE") ?: 0L) +
+            (pipe?.labelCounts?.get("TRADEJRNL_REC_PAPER") ?: 0L)
+        val productiveFanout6019 = s.fdg > 0L && s.exec > 0L &&
+            (journalRows6591 > 0L || s.exec >= (s.intake / 20L).coerceAtLeast(1L))
         if (s.intake > 0 && (laneRatio > 18.0 || (laneRatio > 12.0 && !productiveFanout6019))) {
             out += Fault(FaultCode.LANE_FANOUT_EXPLOSION, "HIGH", "laneEval/intake=${"%.2f".format(laneRatio)} productive=$productiveFanout6019")
         }
@@ -123,7 +136,13 @@ object InvariantGuardian {
         // as telemetry.
         val fdgDecisions = pipe?.let { (it.phaseAllow["FDG"] ?: 0L) + (it.phaseBlock["FDG"] ?: 0L) }?.takeIf { it > 0L } ?: s.fdg
         val fdgRatio = if (s.intake > 0) fdgDecisions.toDouble() / s.intake else 0.0
-        if (s.intake > 0 && fdgRatio > 3.0) out += Fault(FaultCode.FDG_FANOUT_EXPLOSION, "HIGH", "FDG_decisions/intake=${"%.2f".format(fdgRatio)} fdgDecisions=$fdgDecisions rawFdgRows=${pipe?.phaseCounts?.get("FDG") ?: s.fdg} intake=${s.intake}")
+        // V5.0.6591 — accept multi-lane FDG breadth up to 4x/intake when the
+        // pipeline is producing journal rows. 3.0 was set before FdgReEvalThrottle
+        // landed; today the throttle already dedups repeat verdicts per mint,
+        // and legitimate MULTI_LANE_ACTIVE evaluations naturally push the ratio
+        // near lane-count. Only fault when ratio is genuinely runaway (>4x)
+        // OR the ratio exceeds 3x AND the pipeline is not producing journal rows.
+        if (s.intake > 0 && (fdgRatio > 4.0 || (fdgRatio > 3.0 && journalRows6591 == 0L))) out += Fault(FaultCode.FDG_FANOUT_EXPLOSION, "HIGH", "FDG_decisions/intake=${"%.2f".format(fdgRatio)} fdgDecisions=$fdgDecisions rawFdgRows=${pipe?.phaseCounts?.get("FDG") ?: s.fdg} intake=${s.intake} journalRows=$journalRows6591")
         val ignoredSignal = pipe?.labelCounts?.get("LIFECYCLE/FDG_BASE_SIGNAL_BLOCK_IGNORED") ?: 0L
         if (ignoredSignal > 0L) out += Fault(FaultCode.FDG_SIGNAL_BYPASS, "CRITICAL", "FDG_BASE_SIGNAL_BLOCK_IGNORED=$ignoredSignal")
         // V5.0.3740 — live sell finality authority. Doctor must not report NO_FAULT

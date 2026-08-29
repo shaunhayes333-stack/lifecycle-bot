@@ -27,12 +27,22 @@ object ProfitabilityLayer {
             if (!pos.isOpen || pos.entryPrice <= 0 || ts.lastPrice <= 0) return null
             val pnlPct = (ts.lastPrice / pos.entryPrice - 1.0) * 100.0
 
-            // Different activation thresholds per asset class. Memes move
-            // fast (12% activation, 8% giveback). Bluechips slower (4%/3%).
+            // V5.0.6591 — MEMETRADER PROFIT-LOCK RECALIBRATION.
+            //
+            // Prior (activate=12/give=8 for memes, 4/3 for bluechip) was too
+            // narrow: a 12% peak that pulls back 8% exits at +4% — after a
+            // ~2% round-trip in fees + Jupiter slippage the position closes
+            // near breakeven. Snapshot 5.0.6590 showed every "winner"
+            // scratching to pnl=+0.000 via trail_stop_peak6..14.
+            //
+            // Doctrine: never fire a trail-stop that locks in less than
+            // MIN_LOCKED_NET_PCT (fees + slippage). Widen activation so
+            // memes have room to run before the trail arms. Bluechips
+            // (bigger caps, smoother tapes) still get an earlier arm.
             val isBluechip = pos.isBlueChipPosition ||
                 pos.tradingMode.contains("BLUE", ignoreCase = true)
-            val activate = if (isBluechip) 4.0 else 12.0
-            val giveback = if (isBluechip) 3.0 else 8.0
+            val activate = if (isBluechip) 8.0 else 25.0
+            val giveback = if (isBluechip) 4.0 else 12.0
 
             // We need peakGainPct to be meaningful. It's updated by Executor
             // on every poll via the existing highestPrice tracking.
@@ -41,9 +51,19 @@ object ProfitabilityLayer {
 
             // Trailing hit when pullback from peak exceeds giveback budget.
             val pullback = peakPct - pnlPct
-            if (pullback >= giveback) {
-                "trail_stop_peak${peakPct.toInt()}_pull${pullback.toInt()}"
-            } else null
+            if (pullback < giveback) return null
+
+            // V5.0.6591 — FEE-AWARE MIN LOCK. Only trigger if the effective
+            // exit pnl still nets a real win after fees + slippage. The
+            // effective locked gain is peakPct - pullback (≈ current pnlPct);
+            // require it to clear MIN_LOCKED_NET_PCT (default 6%). If not,
+            // let the position continue running (hard floor / drain exit /
+            // rug guards still protect the downside).
+            val MIN_LOCKED_NET_PCT = 6.0
+            val effectiveLockedPct = peakPct - pullback
+            if (effectiveLockedPct < MIN_LOCKED_NET_PCT) return null
+
+            "trail_stop_peak${peakPct.toInt()}_pull${pullback.toInt()}"
         } catch (_: Throwable) { null }
     }
 
