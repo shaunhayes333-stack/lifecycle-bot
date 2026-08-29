@@ -12171,35 +12171,32 @@ class Executor(
         // Streak counter derives from CanonicalTradeFinalizedBus6450 (the
         // SAME event RewardPurity / TacticSwitcher subscribe to), so no
         // pid/source/lane alias can bypass this gate.
-        // V5.0.6607 §REPAIR_C_OWNERLANE_IMMUTABILITY (operator directive Feb 2026).
-        //   Operator captured "real PAPER BUY journal rows exist with lane=STANDARD"
-        //   despite STANDARD being a shadow/read-only lane with no FDG/exec. Root
-        //   cause: this gate previously defaulted blank layerTag+source to
-        //   "STANDARD", which then propagated as ownerLane through the ticket,
-        //   journal, and learning bus — silently producing STANDARD-owned
-        //   canonical positions.
-        //   Fix: refuse to synthesize an ownerLane. If BOTH layerTag and
-        //   ts.source are blank at execution time, this is an upstream owner-
-        //   attribution defect (specialist election never sealed a real
-        //   ownerLane). Fail-close with EXECUTOR_OWNERLANE_MISSING_6607 so the
-        //   real owner-attribution bug is surfaced upstream instead of being
-        //   masked by a STANDARD alias.
-        val laneRawSource6607 = layerTag.ifBlank { ts.source }.uppercase().take(24)
-        if (laneRawSource6607.isBlank() || laneRawSource6607 == "STANDARD") {
+        // V5.0.6607b §OPERATOR_DIRECTIVE_STANDARD_IS_LEGITIMATE (Feb 2026).
+        //   The initial V5.0.6607 change refused to synthesize a "STANDARD"
+        //   lane at the entry gate, treating STANDARD as a shadow/read-only
+        //   sentinel. The operator's follow-up directive explicitly lists
+        //   STANDARD as a legitimate MemeTrader specialist:
+        //     "This includes at minimum: QUALITY, BLUECHIP, SHITCOIN,
+        //      CYCLIC, EXPRESS, CORE, MOONSHOT, PROJECT_SNIPER, DIP_HUNTER,
+        //      MANIPULATED, TREASURY, CASHGEN, STANDARD, V3_CORE, ..."
+        //   Revert to the original .ifBlank { "STANDARD" } derivation so
+        //   STANDARD remains an executable lane. Only emit forensic
+        //   telemetry when the derived lane came from a blank layerTag
+        //   AND blank ts.source — that's a genuine owner-attribution
+        //   gap (not a STANDARD problem) and should be surfaced without
+        //   blocking the buy.
+        val gateLane6451 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "STANDARD" }
+        if (layerTag.isBlank() && ts.source.isBlank()) {
             try {
-                PipelineHealthCollector.labelInc("EXECUTOR_OWNERLANE_MISSING_6607")
+                PipelineHealthCollector.labelInc("EXECUTOR_OWNERLANE_SYNTHESIZED_STANDARD_6607")
                 ForensicLogger.lifecycle(
-                    "EXECUTOR_OWNERLANE_MISSING_6607",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} layerTag='$layerTag' " +
-                        "ts.source='${ts.source}' " +
-                        "action=refuse_paperBuy_without_authoritative_ownerLane " +
-                        "reason=STANDARD_is_shadow_read_only_and_must_never_open_positions",
+                    "EXECUTOR_OWNERLANE_SYNTHESIZED_STANDARD_6607",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} " +
+                        "action=synthesized_STANDARD_from_blank_ownerLane " +
+                        "note=upstream_owner_election_missed_attribution",
                 )
             } catch (_: Throwable) {}
-            markPaperBuyNotOpened("OWNERLANE_MISSING_OR_STANDARD_6607")
-            return
         }
-        val gateLane6451 = laneRawSource6607
         val gateVerdict6451 = try {
             com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.gate(gateLane6451, ts.mint, sol)
         } catch (_: Throwable) {

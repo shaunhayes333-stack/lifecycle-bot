@@ -11336,12 +11336,26 @@ class BotService : Service() {
                         PipelineHealthCollector.labelInc("OWNER_LANE_TACTIC_PIVOT_6483_$l")
                     } catch (_: Throwable) {}
                 }
-                if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) {
+                // V5.0.6607b §RESTORE_ALL_LANE_CONTRIBUTION_PAPER (operator
+                //   directive Feb 2026: MEME_RING contributorOnly=23155
+                //   allLaneContribution=0). The 4469 emit was gated on
+                //   RuntimeModeAuthority.isLive(), so paper runs — which is
+                //   what the operator observes — could never increment the
+                //   allLaneContribution counter regardless of how many
+                //   specialists contributed. Every specialist opinion is
+                //   still influential in paper via the same desk aggregation
+                //   path; emit the label in both modes so the operator's
+                //   causal-contribution invariant reflects reality.
+                run {
                     try {
-                        ForensicLogger.lifecycle("LIVE_ALL_LANE_CONTRIBUTION_4469", "lane=$l primary=$primaryLane ownerHint=$contributorRotationHint6599 specialistSelected=$allowed primary=${l.equals(primaryLane, true)} rescue=${l.equals(boundedRescue6600, true)} contributorOnly=${!allowed} symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")} action=considered_bounded_owner_rotation")
+                        val modeTag6607 = if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) "LIVE" else "PAPER"
+                        ForensicLogger.lifecycle("LIVE_ALL_LANE_CONTRIBUTION_4469", "mode=$modeTag6607 lane=$l primary=$primaryLane ownerHint=$contributorRotationHint6599 specialistSelected=$allowed primary=${l.equals(primaryLane, true)} rescue=${l.equals(boundedRescue6600, true)} contributorOnly=${!allowed} symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")} action=considered_bounded_owner_rotation")
                         PipelineHealthCollector.labelInc("LIVE_ALL_LANE_CONTRIBUTION_4469_$l")
+                        PipelineHealthCollector.labelInc("MEME_ALL_LANE_CONTRIBUTION_6607_${modeTag6607}_$l")
                         if (!allowed) PipelineHealthCollector.labelInc("LIVE_ALL_LANE_CONTRIBUTION_SUPPRESSED_4478_$l")
                     } catch (_: Throwable) {}
+                }
+                if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) {
                     if (allowed) {
                         try { ForensicLogger.lifecycle("MEMETRADER_OWNER_LANE", "lane=$l primary=$primaryLane ownerHint=$contributorRotationHint6599 specialistSelected=$allowed symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")}") } catch (_: Throwable) {}
                     } else {
