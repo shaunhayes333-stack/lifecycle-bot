@@ -11,25 +11,17 @@ import java.io.File
 
 class Repair6511PaperExecutionSourceTest {
     @Test
-    fun sub_floor_adaptive_buys_remain_non_executable_instead_of_being_promoted() = synchronized(PaperAccountLedger6430) {
+    fun sub_floor_adaptive_buys_promoted_once_to_min_6600() = synchronized(PaperAccountLedger6430) {
+        // V5.0.6600 — restore canonical executable-minimum semantics.
+        // Operator directive Feb 2026: sub-min requests with hard caps
+        // that can fund minExec are promoted exactly once, so the
+        // specialist can execute at trade #1 (was: silently collapsed to
+        // BELOW_MIN_EXECUTABLE, blocking the learning loop entirely).
         PaperAccountLedger6430.resetForTest()
-        PaperAccountLedger6430.initialize(5.5099)
+        PaperAccountLedger6430.initialize(0.1)  // fund at minimum
         OrderSizeResolver6441.updatePaperExecutableMinimumSol(
             PaperPreTicketSizeFloor6511.boundedMinimum(0.005),
         )
-        // V5.0.6598 §SIZING_LADDER_HONORED — operator directive Feb 2026:
-        //   > "If final BUY risk budget can afford the minimum executable
-        //   >  notional: clamp the executable order to canonical minimum."
-        // Pre-6598 a sub-floor adaptive request (0.02419) below minExec
-        // (0.05) with cash 5.5099 SOL was silently collapsed to
-        // BELOW_MIN_EXECUTABLE. Under the 6598 rescue, a substantial
-        // runner ladder (tier 6.0 -> 0.40 SOL, i.e., >= 3× minExec) with
-        // a sub-floor request now promotes to the executable minimum. To
-        // preserve this test's original intent (adaptive sub-floor without
-        // ladder rescue must NOT be promoted), use a wallet size that puts
-        // the ladder BELOW 3× minExec so rescue does not apply.
-        PaperAccountLedger6430.resetForTest()
-        PaperAccountLedger6430.initialize(0.1)  // ladder tier 0.3 -> 0.02, < 3*minExec (0.15) -> no rescue
         val resolved = TraderSizingBridge6444.resolveForLane(
             laneName = "QUALITY",
             requestedSol = 0.02419,
@@ -39,9 +31,8 @@ class Repair6511PaperExecutionSourceTest {
             mintForSeal = "6511-test-mint",
         )
         assertEquals(0.02419, resolved.requestedSol, 1e-9)
-        assertEquals(0.0, resolved.finalSizeSol, 0.0)
-        assertFalse(resolved.executable)
-        assertTrue(resolved.reason.contains("BELOW_MIN_EXECUTABLE"))
+        assertTrue(resolved.executable)
+        assertEquals("OK_MIN_PROMOTED_6600", resolved.reason)
     }
 
     @Test

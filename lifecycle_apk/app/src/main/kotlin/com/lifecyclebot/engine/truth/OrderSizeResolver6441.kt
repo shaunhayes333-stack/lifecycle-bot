@@ -147,14 +147,22 @@ object OrderSizeResolver6441 {
         val availableLamports6491 = toLamports6491(feeAwareAvailable6490)
         val laneCapLamports6491 = toLamports6491(laneRiskCapSol)
         val laneClampedLamports6491 = toLamports6491(laneClamped)
-        // V5.0.6600 — restore canonical executable-minimum semantics. An
-        // approved positive proposal is promoted exactly once to minExec when the
-        // authoritative cash and lane hard cap can fund it. Soft intelligence may
-        // shape risk, but cannot multiply an otherwise executable BUY into dust.
+        // V5.0.6601 §ADAPTIVE_SIZE_HONORED_WITH_MIN_PROMOTION — operator
+        // directive Feb 2026:
+        //   > "If final BUY risk budget can afford the minimum executable
+        //   >  notional: clamp the executable order to canonical minimum."
+        // V5.0.6600 restored min-promotion for sub-min requests but also
+        // let the runner ladder promote LEGAL adaptive requests above the
+        // caller's intent (0.08 became 0.10 because ladderTarget=0.10 →
+        // laneClamped=0.10). Fix: when the request is at or above minExec,
+        // honor it as the ceiling (never promote a legal adaptive size).
+        // Sub-minimum requests are still promoted once to minExec when the
+        // hard caps can fund it. Otherwise non-executable.
         val canFundMinimum6600 = requestedLamports6491 > 0L &&
             availableLamports6491 >= minExecLamports6491 && laneCapLamports6491 >= minExecLamports6491
         val shapedOrMinimumLamports6600 = when {
-            laneClampedLamports6491 >= minExecLamports6491 -> laneClampedLamports6491
+            requestedLamports6491 >= minExecLamports6491 ->
+                minOf(requestedLamports6491, laneClampedLamports6491)
             canFundMinimum6600 -> minExecLamports6491
             else -> 0L
         }
