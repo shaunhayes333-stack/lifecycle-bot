@@ -109,6 +109,42 @@ object UnifiedPolicyHead {
     fun authoritativeOverrideHits(): Long = authoritativeOverrideCount.get()
     fun calibrationDemoteHits(): Long = calibrationDemoteCount.get()
 
+    /**
+     * V5.0.6605 §PWIN_BOOTSTRAP_SEMANTICS (operator REPAIR L).
+     *   Returns the LANE'S OWN-head trained count with no global-fallback.
+     *   Callers that need to distinguish an UNKNOWN/BOOTSTRAP lane (no
+     *   own-head samples) from a genuinely LEARNED lane must use this
+     *   rather than `currentAuthority(lane)`, which quietly falls back
+     *   to `globalAuthority()` when a lane has no head. Zero-signal
+     *   candidates in an unbootstrapped lane must not be classified as
+     *   "the learned head says this loses" — that's the operator regression
+     *   from V5.0.6604 where EXPRESS score=0 got hard-blocked by the pWin
+     *   gate despite EXPRESS having 0 own-head samples.
+     */
+    fun laneOwnHeadTrainedCount6605(lane: String): Long {
+        val h = laneHeads[normalizeLane(lane)] ?: return 0L
+        return h.trained
+    }
+
+    /**
+     * V5.0.6605 §PWIN_BOOTSTRAP_SEMANTICS (operator REPAIR L).
+     *   Explicit BOOTSTRAP / ADVISORY / LEARNED / AUTHORITATIVE tier of
+     *   the LANE'S OWN head, without global fallback. When the lane has
+     *   no own head at all this returns BOOTSTRAP (never AUTHORITATIVE
+     *   via global fallback). This is the correct gate for turning a
+     *   pWin estimate into an authoritative negative signal.
+     */
+    fun laneOwnHeadAuthority6605(lane: String): AuthorityTier {
+        val n = laneOwnHeadTrainedCount6605(lane)
+        return when {
+            n >= AUTHORITY_AUTHORITATIVE -> AuthorityTier.AUTHORITATIVE
+            n >= AUTHORITY_LEARNED       -> AuthorityTier.LEARNED
+            n >= AUTHORITY_ADVISORY      -> AuthorityTier.ADVISORY
+            else                          -> AuthorityTier.BOOTSTRAP
+        }
+    }
+
+
     enum class AuthorityTier(val minSamples: Long) {
         BOOTSTRAP(0L),
         ADVISORY(AUTHORITY_ADVISORY),

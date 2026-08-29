@@ -50,6 +50,42 @@ object CanonicalPaperTransaction6486 {
             return@withLock Result(false, positionId, "INVALID_OPEN")
         if (CanonicalPositionAuthority6441.getPosition(positionId) != null)
             return@withLock Result(false, positionId, "POSITION_EXISTS")
+        // V5.0.6605 §REPAIR_H (operator directive Feb 2026 — CANONICAL SAME-MINT OCCUPANCY):
+        //   Operator forensic V5.0.6604 dump captured D1cdMQ opened in QUALITY
+        //   at 01:10:43 then again ~15s later in PROJECT_SNIPER — despite
+        //   `SameMintDedupAuthority6441` reporting raw=97 accepts=97
+        //   coalesces=0 blocks=0 across 81 canonical opens. The scan-time
+        //   dedup gate correctly rejects duplicates WITHIN a single scan
+        //   cycle, but the specialist election → sizing → executor path
+        //   can accept a second candidate for the same mint after the
+        //   first has already opened (different positionId, same mint).
+        //   Bind the invariant HERE at the canonical reducer: if the mint
+        //   already has an OPEN canonical position, refuse a second open
+        //   and emit CANONICAL_SAME_MINT_OCCUPANCY_BLOCK_6605 so the
+        //   contributor lane can be routed to "influence existing
+        //   position" or discarded. This is the last write barrier
+        //   before capital debit; nothing downstream can bypass it.
+        //   Different execution modes (paper vs live) are still allowed
+        //   to co-exist per (mode, mint) — the check is scoped to the
+        //   same runtime mode as the incoming open.
+        val incomingMode6605 = "paper"
+        val duplicateOpenSameMode6605 = try {
+            CanonicalPositionAuthority6441.openPositions().any { p ->
+                p.mint == mint && p.mode.equals(incomingMode6605, ignoreCase = true)
+            }
+        } catch (_: Throwable) { false }
+        if (duplicateOpenSameMode6605) {
+            try {
+                PipelineHealthCollector.labelInc("CANONICAL_SAME_MINT_OCCUPANCY_BLOCK_6605")
+                PipelineHealthCollector.labelInc("CANONICAL_SAME_MINT_OCCUPANCY_BLOCK_6605_${lane.uppercase()}")
+                ForensicLogger.lifecycle(
+                    "CANONICAL_SAME_MINT_OCCUPANCY_BLOCK_6605",
+                    "mint=${mint.take(10)} lane=$lane positionId=${positionId.take(24)} " +
+                        "mode=$incomingMode6605 action=refuse_duplicate_open",
+                )
+            } catch (_: Throwable) {}
+            return@withLock Result(false, positionId, "CANONICAL_SAME_MINT_ALREADY_OPEN_6605")
+        }
         if (!PaperAccountLedger6430.onBuy(costSol, feeSol))
             return@withLock Result(false, positionId, "INSUFFICIENT_CANONICAL_CASH")
         val idem = "PAPER6486:OPEN:$positionId"

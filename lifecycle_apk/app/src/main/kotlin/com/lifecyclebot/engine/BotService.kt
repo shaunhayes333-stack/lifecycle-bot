@@ -11056,9 +11056,22 @@ class BotService : Service() {
             return false
         }
         val lanePWinBelowGate6604 = if (!memeSpecialistLane6604 || !specialistEvaluationAllowed6600) false else try {
-            val laneOwnAuth6604 = com.lifecyclebot.engine.UnifiedPolicyHead.currentAuthority(l) ==
-                com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE
-            if (!laneOwnAuth6604) false else {
+            // V5.0.6605 §PWIN_BOOTSTRAP_SEMANTICS (operator REPAIR L).
+            //   REGRESSION FROM V5.0.6604: the previous version gated on
+            //   `currentAuthority(l) == AUTHORITATIVE` which quietly falls back
+            //   to globalAuthority() when the lane has no own head — so EXPRESS
+            //   with score=0 and 0 own-head samples was being hard-blocked as
+            //   "lane head says this loses" using the GLOBAL bias, not a lane-
+            //   specific learned negative. Operator diagnosis (V5.0.6604
+            //   snapshot): 19 MEME_SPECIALIST_PWIN_GATE_6604 hits on EXPRESS
+            //   with score=0 while EXPRESS has 102 buy intents and 0
+            //   executions. Convert missing learning data (UNKNOWN/BOOTSTRAP)
+            //   into a neutral pass; only allow an actual LEARNED lane head
+            //   to exercise authoritative negative pressure via pWin.
+            val ownTier6605 = com.lifecyclebot.engine.UnifiedPolicyHead.laneOwnHeadAuthority6605(l)
+            val laneLearnedOrBetter6605 = ownTier6605 == com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.LEARNED ||
+                ownTier6605 == com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE
+            if (!laneLearnedOrBetter6605) false else {
                 val sigs6604 = com.lifecyclebot.engine.UnifiedPolicyHead.Signals(
                     mlEntryConf = (ts.entryScore / 100.0).coerceIn(0.0, 1.0),
                     symGreenLight = 0.5,
@@ -11076,7 +11089,9 @@ class BotService : Service() {
                 PipelineHealthCollector.labelInc("MEME_SPECIALIST_PWIN_GATE_6604_$l")
                 ForensicLogger.lifecycle(
                     "MEME_SPECIALIST_PWIN_GATE_6604",
-                    "lane=$l mint=${ts.mint.take(10)} score=${ts.entryScore.toInt()} floor=${"%.2f".format(SPECIALIST_MIN_PWIN_6604)} action=block_specialist_election_lane_head_negative",
+                    "lane=$l mint=${ts.mint.take(10)} score=${ts.entryScore.toInt()} floor=${"%.2f".format(SPECIALIST_MIN_PWIN_6604)} " +
+                        "ownTier=${com.lifecyclebot.engine.UnifiedPolicyHead.laneOwnHeadAuthority6605(l).name} " +
+                        "action=block_specialist_election_lane_head_negative",
                 )
             } catch (_: Throwable) {}
             return false

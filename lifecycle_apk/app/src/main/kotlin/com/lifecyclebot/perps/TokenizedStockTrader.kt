@@ -1179,6 +1179,29 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         // traditional-hours guard is live-only; applying it to paper made
         // Markets scan successfully but execute nothing overnight, starving
         // cross-asset learning and paper/live parity.
+        // V5.0.6605 §REPAIR_B (operator directive Feb 2026 — MARKET SESSION PARITY):
+        //   V5.0.6560 permitted paper stocks to execute 24/7 as "simulated DEX
+        //   assets" but the operator's V5.0.6604 forensic dump captured 51
+        //   STOCK positions opened on a Sunday morning while FOREX/COMMODITY/
+        //   METAL correctly reported SOURCE_CLOSED_WEEKEND. Paper must model
+        //   live behaviour or the paper→live handoff and cross-asset capital
+        //   arbitration are meaningless. Weekend closure applies to paper AND
+        //   live; only the paper 24-hour extended-hours window (weeknights)
+        //   remains open so cross-asset learning still gets samples outside
+        //   the traditional ET 9:30-16:00 regular session.
+        val nowNyCal6605 = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("America/New_York"))
+        val stockDow6605 = nowNyCal6605.get(java.util.Calendar.DAY_OF_WEEK)
+        val stockWeekendClosed6605 = stockDow6605 == java.util.Calendar.SATURDAY || stockDow6605 == java.util.Calendar.SUNDAY
+        if (stockWeekendClosed6605) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_STOCK_SOURCE_CLOSED_WEEKEND_6605")
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.completeProducerWindow6569(
+                    com.lifecyclebot.engine.truth.AssetClass.STOCK,
+                    isEnabled.get(), isRunning.get(), "SOURCE_CLOSED_WEEKEND",
+                )
+            } catch (_: Throwable) {}
+            return
+        }
         if (!isPaperMode.get() && !isStockMarketOpen()) {
             ErrorLogger.debug(TAG, "📉 ${signal.market.symbol}: stock market CLOSED — refusing live open (would flush flat at 30m)")
             return
