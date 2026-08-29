@@ -488,9 +488,32 @@ object GlobalTradeRegistry {
         // from V5.2). When at cap, evict the oldest low-conviction entry
         // (lowest processCount tied → oldest addedAt) so scanner-fanout
         // stays bounded and the bot loop returns to sub-15s cycles.
+        //
+        // V5.0.6598 §LRU_PROTECT_ACTIVE — operator directive Feb 2026:
+        //   > "Do not evict: active evaluation candidates, hot candidates,
+        //   >  token-map in-flight candidates, candidates accumulating
+        //   >  required lane history, candidates with pending canonical
+        //   >  intent, open positions ... Retention horizon must be at
+        //   >  least long enough to satisfy the history requirement used
+        //   >  by EXPRESS/MOONSHOT/SHITCOIN/DIP_HUNTER decisions."
+        // Snapshot 6595: 144 LRU evictions in ~5.5min, victims 7-9s old.
+        // Thin-data lanes then downstream complain hist=2. Fix: exclude
+        // canonical-open mints, recently-admitted entries (< 60s so
+        // hist accumulates), and recently-processed entries (< 30s
+        // means the pipeline is actively working the candidate) from
+        // the eviction pool.
         if (watchlist.size >= MAX_WATCHLIST_SIZE) {
+            val openMints6598: Set<String> = try {
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                    .mapNotNull { it.mint.trim().takeIf { m -> m.isNotBlank() } }.toSet()
+            } catch (_: Throwable) { emptySet() }
+            val MIN_ADMISSION_AGE_MS_6598 = 60_000L
+            val MIN_PROCESSING_IDLE_MS_6598 = 30_000L
             val victim = watchlist.values.asSequence()
                 .filter { it.mint != mint }
+                .filter { it.mint !in openMints6598 }
+                .filter { now - it.addedAt >= MIN_ADMISSION_AGE_MS_6598 }
+                .filter { it.lastProcessedAt == 0L || now - it.lastProcessedAt >= MIN_PROCESSING_IDLE_MS_6598 }
                 .sortedWith(compareBy<WatchlistEntry> { it.processCount }.thenBy { it.addedAt })
                 .firstOrNull()
             if (victim != null) {
@@ -501,6 +524,17 @@ object GlobalTradeRegistry {
                         "victim=${victim.symbol} mint=${victim.mint.take(10)} pc=${victim.processCount} ageMs=${now - victim.addedAt} cap=$MAX_WATCHLIST_SIZE size=${watchlist.size} incoming=$symbol"
                     )
                     PipelineHealthCollector.labelInc("WATCHLIST_LRU_EVICT_6287")
+                } catch (_: Throwable) {}
+            } else {
+                // Every current entry is protected (all hot / open / recent).
+                // Rather than block admission we log and admit anyway; the
+                // hard-cap invariant will surface if this becomes chronic.
+                try {
+                    PipelineHealthCollector.labelInc("WATCHLIST_LRU_EVICT_ALL_PROTECTED_6598")
+                    ForensicLogger.lifecycle(
+                        "WATCHLIST_LRU_EVICT_ALL_PROTECTED_6598",
+                        "size=${watchlist.size} cap=$MAX_WATCHLIST_SIZE incoming=$symbol action=admit_no_eviction"
+                    )
                 } catch (_: Throwable) {}
             }
         }

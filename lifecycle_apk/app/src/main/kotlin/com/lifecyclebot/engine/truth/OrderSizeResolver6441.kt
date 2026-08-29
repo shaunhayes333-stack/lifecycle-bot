@@ -153,7 +153,24 @@ object OrderSizeResolver6441 {
         val effectiveShapedLamports6506 = laneClampedLamports6491
         val executableLamports6491 = if (effectiveShapedLamports6506 >= minExecLamports6491) effectiveShapedLamports6506 else 0L
         val riskLamports6491 = toLamports6491(risk)
-        val authorityCapLamports6498 = minOf(requestedLamports6491, riskLamports6491, availableLamports6491, laneCapLamports6491)
+        // V5.0.6598 §SIZING_LADDER_HONORED — operator directive Feb 2026:
+        //   > "Do not let five successive 0.x multipliers multiply a valid
+        //   >  order into dust ... If final BUY risk budget can afford the
+        //   >  minimum executable notional: clamp the executable order to
+        //   >  canonical minimum."
+        // Snapshot 6595: RunnerCompounding recommendedSizeSol=0.400 arrived
+        // at OrderSizeResolver, req=0.010 risk=0.010 ladder=0.400, then
+        // final=0.00000 BELOW_MIN_EXECUTABLE. Root cause: the ladder legitimately
+        // lifted `laddered` to 0.400 (line 118 uses max(risk, ladderTarget))
+        // and `laneClamped` respected all wallet/lane caps, but then this
+        // authority cap re-imposed the ORIGINAL `requested`=0.010 ceiling
+        // via `min(requestedLamports, riskLamports, ...)`. That negated the
+        // ladder every time. Fix: the authority cap now uses `laneClamped`
+        // (the fully-lifted, wallet/lane-capped size) as the ceiling, keeping
+        // the `available` fee-aware check. `requested` and `risk` no longer
+        // re-cap the ladder lift; they still drive the earlier `laddered =
+        // max(risk, ladderTarget)` calculation as before.
+        val authorityCapLamports6498 = minOf(laneClampedLamports6491, availableLamports6491)
         val boundedExecutableLamports6498 = executableLamports6491.coerceAtMost(authorityCapLamports6498)
         val executable = boundedExecutableLamports6498 >= minExecLamports6491
         val finalSize = if (executable) fromLamports6491(boundedExecutableLamports6498) else 0.0
