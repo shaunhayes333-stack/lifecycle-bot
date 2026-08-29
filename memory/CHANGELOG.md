@@ -1,3 +1,21 @@
+## V5.0.6590 — 6589 compile fix (green)
+- `quarantineReason` is a non-null `String` — replaced `null` with empty-string sentinel. **CI green.** 12-point 6580 directive now COMPLETE.
+
+## V5.0.6589 — P0-6 replay UNIT_MISMATCH migrated to carry
+- 275 legacy SOL-per-token fillPrice events were being QUARANTINED, stranding cost+qty. Now migrated to OPEN carry with `entryPriceSource=REPLAY_UNIT_LEGACY_SOL_PER_TOKEN_6589`. Only entryPriceUsd is lost (unknowable without historical SOL/USD feed); qty and cost basis preserved so future exits work.
+- Regression: `ReplayUnitMigration6589Test`.
+
+## V5.0.6588 — P0-5 + P0-12
+- **P0-5 Fresh-discovery priority**: `getBlendedOpportunityQueue6544` sorts `isFresh6544` DESC first, so fresh (<1h) tokens reach top-25 CryptoBrain scan slots regardless of volume24h.
+- **P0-12 Authoritative header count**: `PipelineHealthCollector.dump` prints one canonical `AUTHORITATIVE LIVE-OPEN POSITIONS: <N>` line sourced from `CanonicalPositionAuthority6441.openPositions()` above every sub-ledger status. Sub-ledger lines explicitly labeled non-competing.
+- Regression: `BuildRepair6588CoverageTest`.
+
+## V5.0.6587 — P0-4 + P0-9
+- **P0-4 Global stale-eval sweep**: `DynamicAltTokenRegistry.markEvaluationProgress6570` now runs a 30s-throttled global sweep of the whole `evaluationProgressStamp6580` map — reaps entries older than 5 min TTL even if the caller never revisits them. Counter `CRYPTO_EVAL_STALE_SWEEP_REAPED_6587`.
+- **P0-9 Paper buy taxonomy bucket**: `markPaperBuyNotOpened` reasons auto-classified into MARK / SIZE / GATE / AUTHZ / ROUTE / CAPITAL / EXCEPTION / OTHER. Bucket counter `PAPER_BUY_NOT_OPENED_BUCKET_<X>_6587`.
+- Regression: `BuildRepair6587CoverageTest`. **CI green.**
+
+
 ## V5.0.6586 — P0-8 refinement (paper compound floor gated to small wallets)
 - Fixes 6584 regression: cold-streak cap on 68 SOL paper wallet must still hold. Paper compound floor now applies only when `walletSol ≤ 10 SOL`. Operator's 4.641 SOL forensic collapse still gets anti-dust protection; large paper wallets keep pre-6584 cold-streak shrink. **CI green.**
 
