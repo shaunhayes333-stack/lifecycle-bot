@@ -303,18 +303,48 @@ object TokenMergeQueue {
     }
 
 
-    /** V5.9.1137 — scanner/tool → lane affinity. Advisory only; never a gate. */
+    /** V5.9.1137 — scanner/tool → lane affinity. Advisory only; never a gate.
+     *  V5.0.6596 §BLUECHIP_CONTAMINATION_FIX — operator directive Feb 2026:
+     *    > "BLUECHIP must require explicit established/large-cap/bluechip
+     *    >  identity criteria. A fresh ~$170k mcap Raydium launch must not
+     *    >  gain BLUECHIP merely from liquidity, pair availability, QUALITY
+     *    >  eligibility or generic source affinity."
+     *  Pre-6596 source-family affinities (SOLANA_RPC / METEORA / ORCA / JUPITER
+     *  / HELIUS / DEX_BOOSTED / DEX_TRENDING / COINGECKO / BIRDEYE / WHALE)
+     *  UNCONDITIONALLY added BLUECHIP, so a fresh $17k-liq $170k-mcap Raydium
+     *  pool routed through DexScreener would inherit BLUECHIP and get executed
+     *  under BLUECHIP sizing/exits (activate=8%/give=4% — the WRONG doctrine
+     *  for a micro-cap meme). Snapshot 6595 confirmed: every canonical open
+     *  attributed to BLUECHIP while SHITCOIN/MOONSHOT/SNIPER stayed 0.
+     *  Fix: BLUECHIP is guarded by a hard economic floor. If the candidate
+     *  fails the floor, source affinity gives the other productive lanes
+     *  (MOONSHOT/QUALITY/PROJECT_SNIPER/STANDARD/CORE/V3) but NEVER BLUECHIP.
+     */
     private fun inferLaneAffinity(scanner: String, marketCapUsd: Double, liquidityUsd: Double): Set<String> {
         val src = scanner.uppercase()
         val out = linkedSetOf<String>()
-        if (src.contains("PUMP") || src.contains("PORTAL")) out += listOf("SHITCOIN", "MOONSHOT", "MANIPULATED", "PROJECT_SNIPER")
-        if (src.contains("RAYDIUM") || src.contains("NEW_POOL")) out += listOf("MOONSHOT", "SHITCOIN", "MANIPULATED", "DIP_HUNTER")
-        if (src.contains("METEORA") || src.contains("ORCA") || src.contains("PUMPSWAP") || src.contains("JUPITER") || src.contains("HELIUS") || src.contains("SOLANA_RPC")) out += listOf("MOONSHOT", "PROJECT_SNIPER", "QUALITY", "BLUECHIP", "STANDARD", "CORE", "V3")
-        if (src.contains("DEX_BOOSTED") || src.contains("DEX_TRENDING") || src.contains("COINGECKO") || src.contains("BIRDEYE")) out += listOf("QUALITY", "BLUECHIP", "TREASURY", "STANDARD", "CORE", "V3")
-        if (src.contains("INSIDER") || src.contains("SHARK")) out += listOf("INSIDER_SHARK", "WHALE_FOLLOW", "COPY_TRADE", "MOONSHOT", "QUALITY")
-        if (src.contains("WHALE")) out += listOf("QUALITY", "BLUECHIP", "TREASURY")
+        // Economic guard for BLUECHIP membership. Both floors must be met.
+        // These are floors, not affinity thresholds — the lane engine still
+        // performs its own scoring.
+        val meetsBluechipFloor6596 =
+            marketCapUsd >= 5_000_000.0 && liquidityUsd >= 200_000.0
+        fun addAll(vararg lanes: String) {
+            for (l in lanes) {
+                if (l == "BLUECHIP" && !meetsBluechipFloor6596) continue
+                out += l
+            }
+        }
+        if (src.contains("PUMP") || src.contains("PORTAL")) addAll("SHITCOIN", "MOONSHOT", "MANIPULATED", "PROJECT_SNIPER")
+        if (src.contains("RAYDIUM") || src.contains("NEW_POOL")) addAll("MOONSHOT", "SHITCOIN", "MANIPULATED", "DIP_HUNTER")
+        if (src.contains("METEORA") || src.contains("ORCA") || src.contains("PUMPSWAP") || src.contains("JUPITER") || src.contains("HELIUS") || src.contains("SOLANA_RPC")) addAll("MOONSHOT", "PROJECT_SNIPER", "QUALITY", "BLUECHIP", "STANDARD", "CORE", "V3")
+        if (src.contains("DEX_BOOSTED") || src.contains("DEX_TRENDING") || src.contains("COINGECKO") || src.contains("BIRDEYE")) addAll("QUALITY", "BLUECHIP", "TREASURY", "STANDARD", "CORE", "V3")
+        if (src.contains("INSIDER") || src.contains("SHARK")) addAll("INSIDER_SHARK", "WHALE_FOLLOW", "COPY_TRADE", "MOONSHOT", "QUALITY")
+        if (src.contains("WHALE")) addAll("QUALITY", "BLUECHIP", "TREASURY")
         if (marketCapUsd in 75_000.0..1_000_000.0) out += "QUALITY"
-        if (marketCapUsd >= 1_000_000.0 || liquidityUsd >= 75_000.0) out += "BLUECHIP"
+        // V5.0.6596 — legacy micro-cap→BLUECHIP shortcut removed. The $1M-mcap
+        // or $75k-liq bar was well below any credible bluechip identity and
+        // let fresh $170k launches inherit BLUECHIP execution/exits.
+        if (meetsBluechipFloor6596) out += "BLUECHIP"
         if (out.isEmpty()) out += listOf("SHITCOIN", "MOONSHOT")
         return out
     }

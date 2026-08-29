@@ -165,6 +165,28 @@ object UnifiedPolicyHead {
     }
 
     fun currentAuthority(): AuthorityTier = currentAuthority("STANDARD")
+    /**
+     * V5.0.6596 §BOOTSTRAP_ADVISORY_ONLY — operator directive Feb 2026:
+     *   > "A bootstrap/warming policy head must be advisory: score shaping,
+     *   >  size shaping, strategy preference, confidence shaping. It must NOT
+     *   >  terminal-veto a candidate until the existing configured statistical
+     *   >  sample/confidence requirement has been satisfied."
+     *
+     * Snapshot 6595 showed EXPRESS thin_data hist=2 (no lane head) being
+     * terminal-vetoed by LEARNED_POLICY_VETO_6593 because the LANE-SPECIFIC
+     * head was missing and currentAuthority(lane) fell back to
+     * globalAuthority() which is AUTHORITATIVE (125 overrides, bias -0.66).
+     * Terminal-vetoing a cold lane on the global bias is exactly what the
+     * directive forbids. `laneHasOwnAuthoritativeHead` returns true ONLY when
+     * the lane has trained its own head to AUTHORITATIVE — the veto callsite
+     * gates on this so cold/warming lanes get advisory shaping, never a
+     * terminal veto.
+     */
+    fun laneHasOwnAuthoritativeHead(lane: String): Boolean {
+        val h = laneHeads[normalizeLane(lane)] ?: return false
+        return h.trained >= AUTHORITY_AUTHORITATIVE
+    }
+
     /** Per-lane authority tier — calibration-aware. A miscalibrated head is
      *  pulled back to a lower tier until it earns trust back. */
     fun currentAuthority(lane: String): AuthorityTier {

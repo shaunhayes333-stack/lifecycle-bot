@@ -10638,19 +10638,25 @@ class BotService : Service() {
             //   > "Lane evidence MAY overcome weak generic scoring only when
             //   >  it provides independent positive evidence. Lane membership
             //   >  alone cannot promote WAIT."
-            // Pre-6593 the DUST_PROBE fallthrough promoted WAIT -> PROBE for
-            // EVERY weakWait candidate whose liquidity was OK, regardless of
-            // what the learned policy stack had to say. Snapshot 6591 counted
-            // 107 LANE_WAIT_OVERRIDE_DUST_PROBE + 80 ZERO_SIGNAL_DUST_PROBE
-            // while learned global bias was -0.62 and every context reported
-            // winP ~11-20%. That is negative causal evidence with zero causal
-            // effect on the WAIT->PROBE conversion. Fix: when the authority-
-            // tier policy head says negative, the WAIT->PROBE promotion must
-            // be vetoed with a distinct telemetry line (never silently kept
-            // as PROBE). The lane is NOT disabled; a positive policy signal
-            // on the next tick reopens promotion.
-            val laneAuthoritativePolicyNegative6593 = agiAuthority6020 ==
-                com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE &&
+            // V5.0.6596 §BOOTSTRAP_ADVISORY_ONLY — REFINEMENT of 6594. The
+            // 6594 veto correctly gated on agiAuthority6020==AUTHORITATIVE
+            // but currentAuthority(lane) falls back to globalAuthority()
+            // when a lane has NO head yet (fresh cold lanes with hist=0).
+            // With global bias -0.66 that produced silent terminal vetoes
+            // on cold EXPRESS/MOONSHOT/SHITCOIN thin_data probes — the exact
+            // pathology the operator's 6595 directive forbade
+            // ("A bootstrap/warming policy head must be advisory ... It must
+            //  NOT terminal-veto a candidate until the existing configured
+            //  statistical sample/confidence requirement has been satisfied").
+            // Fix: the terminal veto now requires the LANE'S OWN HEAD to be
+            // AUTHORITATIVE (via laneHasOwnAuthoritativeHead) — a global
+            // AUTHORITATIVE with a missing lane head only shapes/advises, it
+            // never terminal-rejects. Cold lanes must be allowed to open
+            // their first candidates to collect the sample the head needs.
+            val laneOwnHeadAuthoritative6596 = try {
+                com.lifecyclebot.engine.UnifiedPolicyHead.laneHasOwnAuthoritativeHead(lane)
+            } catch (_: Throwable) { false }
+            val laneAuthoritativePolicyNegative6593 = laneOwnHeadAuthoritative6596 &&
                 !authoritativePolicyPositive6568
             if (laneAuthoritativePolicyNegative6593) {
                 try {
