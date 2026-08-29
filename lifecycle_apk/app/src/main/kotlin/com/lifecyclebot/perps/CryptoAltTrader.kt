@@ -2371,15 +2371,23 @@ object CryptoAltTrader {
             return
         }
         try {
-            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAuthAllow(
-                venue = venue6540, symbol = mktSym,
+            // V5.0.6592 §CLASS_ATTRIBUTED_DISPATCH — operator observed:
+            // CRYPTO_ALT produced candidate=295 → intent=30 but dispatch=0
+            // while SOLANA_TOKEN reported dispatch=30 with zero upstream.
+            // Root cause: this path called the venue-only markers, which
+            // never bumpClass6567(CRYPTO_ALT). Class-attribute the auth,
+            // intent, and dispatch marks so the funnel per-asset counter
+            // reflects reality and the cross-asset "unexplained" balance
+            // stays zero.
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAuthAllowFor6551(
+                com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, mktSym,
             )
-            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markIntentCreated(
-                venue = venue6540, symbol = mktSym,
-                intentId = "ALT_${positionCounter.get() + 1}",
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markIntentCreatedFor6551(
+                com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, mktSym,
+                "ALT_${positionCounter.get() + 1}",
             )
-            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAdapterDispatch(
-                venue = venue6540, symbol = mktSym,
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAdapterDispatchFor6551(
+                com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, mktSym,
             )
         } catch (_: Throwable) {}
 

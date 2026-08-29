@@ -18426,9 +18426,33 @@ if (hotExitHandledSweep) {
             if (ts.position.entryPrice <= 0.0 || ts.lastPrice <= 0.0) {
                 missingMark++
                 if (exitMarkRefreshPending6513.add(cp.mint)) {
+                    // V5.0.6592 §MARK_REFRESH_CLASS_ROUTING — the operator's
+                    // 24,807-mark-refresh storm was driven by STOCK_* /
+                    // FOREX_* / ALT_* positions carrying assetClass=SOLANA_TOKEN
+                    // through the canonical row (upstream leak, patched in
+                    // CanonicalPositionAuthority6441.openPosition). Belt-and-
+                    // braces: if the stored class STILL says SOLANA_TOKEN
+                    // but the positionId prefix implies a non-Solana class,
+                    // route by the inferred class and fire the invariant.
+                    val inferredMarkClass6592 = com.lifecyclebot.engine.truth.AssetClass.fromPositionIdPrefix(cp.positionId)
+                    val effectiveMarkClass6592 = when {
+                        inferredMarkClass6592 == com.lifecyclebot.engine.truth.AssetClass.UNKNOWN -> cp.assetClass
+                        cp.assetClass == com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN &&
+                            inferredMarkClass6592 != com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN -> {
+                            try {
+                                PipelineHealthCollector.labelInc("ASSET_CLASS_MARK_REFRESH_ROUTING_CORRECTED_6592")
+                                ForensicLogger.lifecycle(
+                                    "ASSET_CLASS_MARK_REFRESH_ROUTING_CORRECTED_6592",
+                                    "positionId=${cp.positionId} storedClass=${cp.assetClass.tag} inferredClass=${inferredMarkClass6592.tag} action=route_by_inferred_class",
+                                )
+                            } catch (_: Throwable) {}
+                            inferredMarkClass6592
+                        }
+                        else -> cp.assetClass
+                    }
                     try {
                         PipelineHealthCollector.labelInc("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513")
-                        ForensicLogger.lifecycle("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513", "positionId=${cp.positionId} mint=${cp.mint.take(10)} assetClass=${cp.assetClass.tag} entryPrice=${ts.position.entryPrice} mark=${ts.lastPrice} action=async_refresh_no_silent_eval")
+                        ForensicLogger.lifecycle("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513", "positionId=${cp.positionId} mint=${cp.mint.take(10)} assetClass=${effectiveMarkClass6592.tag} entryPrice=${ts.position.entryPrice} mark=${ts.lastPrice} action=async_refresh_no_silent_eval")
                     } catch (_: Throwable) {}
                     scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                         // V5.0.6530 §CROSS_ASSET_MARK_ROUTING — route non-Solana
@@ -18436,11 +18460,18 @@ if (hotExitHandledSweep) {
                         // PriceAggregator → Yahoo fallback). SOLANA_TOKEN stays
                         // on the Birdeye / DexScreener / pump.fun cascade.
                         try {
-                            if (cp.assetClass == com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN) {
+                            if (effectiveMarkClass6592 == com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN) {
                                 tryFallbackPriceData(cp.mint, ts)
+                            } else if (effectiveMarkClass6592 == com.lifecyclebot.engine.truth.AssetClass.UNKNOWN) {
+                                // V5.0.6592 — refuse to guess a provider for
+                                // an unclassified position; surface the gap
+                                // and skip the network call.
+                                try {
+                                    PipelineHealthCollector.labelInc("MARK_REFRESH_SKIPPED_UNKNOWN_CLASS_6592")
+                                } catch (_: Throwable) {}
                             } else {
                                 com.lifecyclebot.engine.truth.CrossAssetMarkRouter6530.refreshMark(
-                                    cp.assetClass, cp.symbol, ts,
+                                    effectiveMarkClass6592, cp.symbol, ts,
                                 )
                             }
                         } finally { exitMarkRefreshPending6513.remove(cp.mint) }

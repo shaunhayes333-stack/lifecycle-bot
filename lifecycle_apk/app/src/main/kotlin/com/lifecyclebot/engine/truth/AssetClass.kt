@@ -39,8 +39,45 @@ enum class AssetClass {
             "METAL", "METALS" -> METAL
             "CRYPTO_ALT", "CRYPTOALT", "ALTCRYPTO" -> CRYPTO_ALT
             "PERPS", "PERP" -> PERPS
+            // V5.0.6592 §ASSET_CLASS_IMMUTABILITY — operator directive:
+            // "There must be NO fallback/default of unknown/null/non-Solana
+            //  -> SOLANA_TOKEN." Silent coercion of unknown lanes into
+            // SOLANA_TOKEN is exactly how STOCK_* / FOREX_* / CRYPTO_ALT
+            // positions ended up routed through the Solana on-chain mark
+            // path (Birdeye / DexScreener / pump.fun). The correct default
+            // for a lane we cannot classify is UNKNOWN — the mark router
+            // already treats UNKNOWN as non-productive and refuses to
+            // dispatch, so wiring gaps surface as ASSET_CLASS_UNKNOWN_ON_*
+            // telemetry instead of contaminating the Solana pipeline.
             null, "" -> UNKNOWN
-            else -> SOLANA_TOKEN  // Every other lane (SHITCOIN/MOONSHOT/EXPRESS/MEME/etc) is a Solana token
+            // Recognised Solana meme/shitcoin/bluechip lanes stay SOLANA_TOKEN.
+            "SHITCOIN", "MEME", "MOONSHOT", "EXPRESS", "BLUECHIP", "MANIP",
+            "MANIPULATED", "PROJECT_SNIPER", "QUALITY", "TREASURY", "STANDARD",
+            "V3_CORE", "CASHGEN", "DIP_HUNTER", "COPY_TRADE", "COMMUNITY",
+            "CYCLIC", "LAB", "RECOVERED_CARRY_6492" -> SOLANA_TOKEN
+            else -> UNKNOWN
+        }
+
+        /**
+         * V5.0.6592 §ASSET_CLASS_POSITIONID_CONTRACT — infer class from a
+         * canonical positionId prefix. Used ONLY as a repair/invariant
+         * signal, never as the primary source of truth. When a stored
+         * position's `assetClass` disagrees with `fromPositionIdPrefix`,
+         * the invariant `ASSET_CLASS_POSITIONID_MISMATCH_6592` fires and
+         * the mark router routes by the inferred class so a stock
+         * positionId cannot silently become a Birdeye lookup.
+         */
+        fun fromPositionIdPrefix(positionId: String?): AssetClass {
+            val p = positionId?.trim()?.uppercase() ?: return UNKNOWN
+            return when {
+                p.startsWith("STOCK_") || p.startsWith("STOCK:") -> STOCK
+                p.startsWith("FOREX_") || p.startsWith("FX_") || p.startsWith("FOREX:") -> FOREX
+                p.startsWith("METAL_") || p.startsWith("METAL:") -> METAL
+                p.startsWith("COMMODITY_") || p.startsWith("COMMODITY:") -> COMMODITY
+                p.startsWith("ALT_") || p.startsWith("CRYPTOALT_") || p.startsWith("CRYPTO_ALT_") -> CRYPTO_ALT
+                p.startsWith("PERPS_") || p.startsWith("PERP_") || p.startsWith("PERPS:") -> PERPS
+                else -> UNKNOWN
+            }
         }
     }
 }

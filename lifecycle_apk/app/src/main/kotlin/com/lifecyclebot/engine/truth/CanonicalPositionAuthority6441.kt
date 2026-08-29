@@ -213,6 +213,46 @@ object CanonicalPositionAuthority6441 {
             }
             val lifecycle = if (openedQtyRaw == BigInteger.ZERO)
                 Lifecycle.PENDING_ENTRY else Lifecycle.OPEN
+            // V5.0.6592 §ASSET_CLASS_POSITIONID_CONTRACT — invariant.
+            // Operator directive Feb 2026: "There must be NO fallback of
+            // unknown/null/non-Solana -> SOLANA_TOKEN." Detect when a
+            // caller passed SOLANA_TOKEN (either explicit or via the
+            // pre-6592 default) but the positionId prefix implies a
+            // non-Solana class (STOCK_*, FOREX_*, ALT_*, PERPS_*, etc.).
+            // The stored assetClass is corrected to the inferred class so
+            // the mark refresh path never queues Solana lookups on stock
+            // symbols; the invariant is emitted so the owning subsystem
+            // can be repaired at source.
+            val inferredFromId6592 = AssetClass.fromPositionIdPrefix(positionId)
+            val effectiveAssetClass6592 = when {
+                inferredFromId6592 == AssetClass.UNKNOWN -> assetClass
+                assetClass == AssetClass.UNKNOWN -> inferredFromId6592
+                assetClass == inferredFromId6592 -> assetClass
+                assetClass == AssetClass.SOLANA_TOKEN -> {
+                    // Caller-passed SOLANA_TOKEN contradicts a non-Solana
+                    // positionId prefix. Route by the safer inferred class
+                    // and fire the invariant for the owning code path to
+                    // fix at source.
+                    try {
+                        PipelineHealthCollector.labelInc("ASSET_CLASS_POSITIONID_MISMATCH_6592")
+                        ForensicLogger.lifecycle(
+                            "ASSET_CLASS_POSITIONID_MISMATCH_6592",
+                            "positionId=$positionId mint=${mint.take(10)} passedClass=${assetClass.tag} inferredClass=${inferredFromId6592.tag} lane=$lane source=owning_trader",
+                        )
+                    } catch (_: Throwable) {}
+                    inferredFromId6592
+                }
+                else -> assetClass  // caller was explicit and non-Solana; trust them
+            }
+            if (effectiveAssetClass6592 == AssetClass.UNKNOWN) {
+                try {
+                    PipelineHealthCollector.labelInc("ASSET_CLASS_UNKNOWN_ON_OPEN_6592")
+                    ForensicLogger.lifecycle(
+                        "ASSET_CLASS_UNKNOWN_ON_OPEN_6592",
+                        "positionId=$positionId mint=${mint.take(10)} lane=$lane runId=$runId action=stored_as_unknown_repair_at_source",
+                    )
+                } catch (_: Throwable) {}
+            }
             positions[positionId] = Position(
                 positionId = positionId, mode = canonicalMode6490,
                 mint = mint, symbol = symbol, lane = lane, runId = runId,
@@ -233,7 +273,7 @@ object CanonicalPositionAuthority6441 {
                 entryPriceSource = entryPriceSource,
                 entryPoolAddress = entryPoolAddress,
                 entryDex = entryDex,
-                assetClass = assetClass,
+                assetClass = effectiveAssetClass6592,
             )
             markKeyUsed(idempotencyKey)
             try { AateDecisionFabric6512.attachPosition(positionId, canonicalMode6490, mint, lane) } catch (_: Throwable) {}

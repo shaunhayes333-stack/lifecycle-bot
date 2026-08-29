@@ -581,8 +581,12 @@ object PerpsExecutionEngine {
                 return
             }
             try {
-                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAdapterDispatch(
-                    venue = perpsVenue6540, symbol = signal.market.symbol,
+                // V5.0.6592 §CLASS_ATTRIBUTED_DISPATCH — class-attribute
+                // PERPS dispatch so the CanonicalEntryAuthority per-class
+                // counter reflects PERPS reality (was going to Venue only,
+                // never bumpClass6567(PERPS)).
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAdapterDispatchFor6551(
+                    com.lifecyclebot.engine.truth.AssetClass.PERPS, signal.market.symbol,
                 )
             } catch (_: Throwable) {}
 
@@ -617,7 +621,7 @@ object PerpsExecutionEngine {
                 com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(sealedPerpIntent6570, "INVALID_SEALED_SIZE_6570")
                 failedExecutions.incrementAndGet(); return
             }
-            try { com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAdapterDispatch(perpsVenue6540, signal.market.symbol) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAdapterDispatchFor6551(com.lifecyclebot.engine.truth.AssetClass.PERPS, signal.market.symbol) } catch (_: Throwable) {}
             
             // Open position — always recorded in PerpsTraderAI first (in-memory state).
             // In LIVE mode we then fire the real on-chain swap. If that swap fails we
