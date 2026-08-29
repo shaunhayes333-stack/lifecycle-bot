@@ -31,7 +31,7 @@ class ReplayUnitMigration6589Test {
             positionSrc.contains("V5.0.6589 §P0-6 — LEGACY SOL-PER-TOKEN REPLAY MIGRATION") &&
                 positionSrc.contains("REPLAY_UNIT_MIGRATED_TO_CARRY_6589") &&
                 positionSrc.contains("entryPriceSource = \"REPLAY_UNIT_LEGACY_SOL_PER_TOKEN_6589\"") &&
-                positionSrc.contains("lifecycle = Lifecycle.OPEN, lastMutationMs = e.atMs,\n                                quarantineReason = null,")
+                positionSrc.contains("lifecycle = Lifecycle.OPEN, lastMutationMs = e.atMs,\n                                quarantineReason = \"\",")
         )
     }
 }

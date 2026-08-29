@@ -699,7 +699,7 @@ object CanonicalPositionAuthority6441 {
                                 realizedPnlSol = 0.0, realizedProceedsSol = 0.0, feesSol = e.entryFeesSol,
                                 tokenDecimals = e.tokenDecimals, quantityScale = e.quantityScale,
                                 lifecycle = Lifecycle.OPEN, lastMutationMs = e.atMs,
-                                quarantineReason = null,
+                                quarantineReason = "",
                                 entryPriceUsd = 0.0, entryPriceSource = "REPLAY_UNIT_LEGACY_SOL_PER_TOKEN_6589",
                             )
                             continue
