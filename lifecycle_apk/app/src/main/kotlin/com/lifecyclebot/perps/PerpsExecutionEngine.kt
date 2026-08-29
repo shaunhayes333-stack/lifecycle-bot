@@ -79,10 +79,18 @@ object PerpsExecutionEngine {
     // ═══════════════════════════════════════════════════════════════════════════
     
     /**
-     * Start the perps execution engine
+     * Start the perps execution engine.
+     *
+     * V5.0.6584 §P0-10 — PERPS PRODUCER DUPLICATE START GUARD.
+     * Operator forensic (6580): PERPS started=2 scanTick=1 marketDataOk=0.
+     * The STARTED stamp fired BEFORE the isRunning() early-return check,
+     * so a duplicate start() emitted a duplicate STARTED — creating the
+     * illusion of two producers while scan/marketData showed a single-
+     * producer footprint. Now stamped only after we successfully
+     * transition from stopped -> started (immediately before the scan
+     * coroutine launches).
      */
     fun start(context: android.content.Context) {
-        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.PERPS, "STARTED")
         if (isRunning.get()) {
             // Check if jobs are actually alive — they may have died silently
             val scanAlive     = scanJob?.isActive == true
@@ -90,6 +98,7 @@ object PerpsExecutionEngine {
             val scopeAlive    = engineScope?.isActive == true
             if (scanAlive && monitorAlive && scopeAlive) {
                 ErrorLogger.warn(TAG, "Already running and loops are alive — no restart needed")
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PERPS_DUPLICATE_START_SKIPPED_6584") } catch (_: Throwable) {}
                 return
             }
             // Jobs died silently — force cleanup and restart
@@ -100,14 +109,16 @@ object PerpsExecutionEngine {
             engineScope = null
             isRunning.set(false)
         }
-        
+
         // Initialize all perps components
         PerpsTraderAI.init(context)
         PerpsLearningBridge.init(context)
         appContext = context.applicationContext
-        
+
         isRunning.set(true)
         isPaused.set(false)
+        // STARTED stamp ONLY after a genuine stopped→started transition.
+        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.PERPS, "STARTED")
         // V5.9.1441 — bind this engine lifetime to the runtime generation so a
         // stale loop self-terminates if stop() is missed or a new Start bumps gen.
         runtimeGenAtStart = com.lifecyclebot.engine.BotRuntimeController.currentGeneration()
