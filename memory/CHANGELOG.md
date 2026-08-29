@@ -1,3 +1,16 @@
+## V5.0.6580 — 6578 P0-f + P0-g
+- **P0-f Bounded evidence deadline** — `DynamicAltTokenRegistry.markEvaluationProgress6570` now tracks per-(identity, state) first-seen timestamp in `evaluationProgressStamp6580`. After `EVIDENCE_TTL_MS_6580` (5 min), the token reaps into terminal `STALE_EXPIRED_6580_<state>` with `CRYPTO_EVAL_STALE_REAPED_6580` counter. Fixes 159/200 evaluations never terminalizing.
+- **P0-g CryptoAlt STARTED** — `CryptoAltTrader.start()` emits `CanonicalEntryAuthority6540.markProducerStage6569(CRYPTO_ALT, "STARTED")`. Cross-asset funnel now shows `started=1` when running.
+- Regression: `BuildRepair6580CoverageTest`.
+
+## V5.0.6579 — 6578 P0-a / P0-b / P0-d / P0-e (highest-ROI subset)
+- **P0-a BG split-runtime invariant** — `PipelineHealthCollector.dump` emits `BG_SPLIT_RUNTIME_INTAKE_ZOMBIE_6579` when `BG_INTAKE` fresh (<60s) but `BG_SCAN_CB`/`BG_FDG` >10 min stale. Makes the 8.2h zombie condition visible.
+- **P0-b AntiChokeManager real congestion** — `clogged=false` hard-code removed. Derived from `TOKEN_MAP_PENDING > 1000 || PROBATION_HOLD_ADMIT > 1000 || SUPERVISOR_CAP_FIRED > 100`. Emits `ANTI_CHOKE_CLOGGED_DETECTED_6579`.
+- **P0-d ExecutableOpenGate block taxonomy** — Never emits raw `resolvedSize=<positive number>`. New taxonomy: `BELOW_MIN_NOTIONAL / SIZE_ZERO_UNPRICED_INTAKE / SIZE_BELOW_MIN_EXECUTABLE` + counters `EXEC_OPEN_BLOCK_TAXONOMY_<T>_6579`.
+- **P0-e PAPER mark relaxation** — `Executor.paperBuy` accepts EITHER strict `EXECUTABLE_ENTRY_QUOTE` OR fresh `OBSERVATION_SCORING` mark. Live still requires strict. Eliminates `ROUTE_FAILED_PAPER` false blocks. New counter `EXECUTION_PAPER_OBSERVATION_MARK_OK_6579`.
+- Regression: `BuildRepair6579CoverageTest`. **CI green.**
+
+
 ## V5.0.6578 — P1-1 P1-2 P1-4 source-level repairs
 - **P1-1** CryptoAlt paper branch now calls `CanonicalEntryAuthority6551.markDispatch` + `markConfirmed`/`markFailed` in parity with the live branch. Fixes `intent=3 dispatch=0 open=0` forensic.
 - **P1-2** PerpsExecutionEngine emits `PERPS_MARKET_DATA_EMPTY_6578` + `PERPS_SIGNAL_NONE_6578` so every scan has an attributable terminal state (no silent zero-candidate windows).
