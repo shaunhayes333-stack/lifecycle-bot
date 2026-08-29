@@ -1,3 +1,20 @@
+## V5.0.6586 — P0-8 refinement (paper compound floor gated to small wallets)
+- Fixes 6584 regression: cold-streak cap on 68 SOL paper wallet must still hold. Paper compound floor now applies only when `walletSol ≤ 10 SOL`. Operator's 4.641 SOL forensic collapse still gets anti-dust protection; large paper wallets keep pre-6584 cold-streak shrink. **CI green.**
+
+## V5.0.6585 — P0-10 PERPS duplicate-start guard
+- `PerpsExecutionEngine.start`: STARTED stamp moved AFTER the isRunning early-return so `started=2` (with only 1 scan tick) can never happen from a duplicate start. New counter `PERPS_DUPLICATE_START_SKIPPED_6584` for operator visibility.
+- Regression: `PerpsDuplicateStartGuard6585Test`.
+
+## V5.0.6584 — P0-8 paper-mode compound-floor parity
+- `LiveSizingProfile.laneCompoundFloor` no longer bails on `isPaperMode=true`. 15 stacked multipliers can no longer compound-shrink 0.400 SOL recommended to 0.01247 dust while wallet has 4.641 SOL. (Refined by 6586.)
+- `SmartSizer.calculate`: removed `!isPaperMode` gate on the floor branch. Paper reaches the same floor+cap logic as live.
+
+## V5.0.6583 — P0-11 STOCK/CRYPTO/PERPS OPEN double-count eliminated
+- `CanonicalPaperTransaction6486.open` already calls `markConfirmed` on success — but `TokenizedStockTrader` and `CryptoAltTrader` paper branches were calling it AGAIN. Removed the explicit calls. Live branches unchanged.
+- `CryptoAltTrader` and `PerpsExecutionEngine` also called `CanonicalEntryAuthority6540.markOpenConfirmed` directly AFTER `markConfirmed` (which already cascades to the venue counter via `markOpenConfirmedFor6551`). Removed the direct calls.
+- Regression: `StockOpenDoubleCountFixed6583Test`. **CI green.**
+
+
 ## V5.0.6582 — 6580 P0-7 TAKE-PROFIT WIRED
 - **P0-7** `Executor.riskCheck` was calling `ProtectiveExitScheduler6450.evaluate(..., tpPx = 0.0, ...)` with tpPx hard-coded to zero. Explains `eval=13381 SL=0 CATA=0 TP=0 TRAIL=0` with +7.8 SOL unrealised across 61 open positions.
 - Fix: `tpPx = pos.entryPrice * (1 + effTpPct/100)` where `effTpPct = pos.treasuryTakeProfit` if set, else `25.0` (meme-runner default).
