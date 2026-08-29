@@ -48,6 +48,34 @@ object PerformanceAnalytics {
         val profitFactor: Double = 0.0,
         val expectancy: Double = 0.0,
 
+        // V5.0.6592 §PERFORMANCE_COHORT_TRUTH — operator directive Feb 2026:
+        // "For any card, ALL of: N, wins, losses, WR, grossWin, grossLoss,
+        //  PF, expectancy, realizedPnL must come from the exact same
+        //  terminal trade ID set. Never combine AccountLedger.realizedPnl
+        //  with a filtered journal WR."
+        //
+        // Pre-6592 the code overrode totalPnlSol with the account-wide
+        // ledger realized PnL while leaving WR/PF/expectancy on the journal
+        // decisive-trade cohort. That produced e.g. 16 trades / 2W-14L /
+        // PF 0.81 / expectancy -0.0011 SOL with Total P&L +2.6492 SOL —
+        // an impossible mixed cohort. Now:
+        //   - totalPnlSol is authoritatively the journal-cohort PnL
+        //     (sum of pnlSol across the exact decisive trades used for
+        //      WR/PF/expectancy)
+        //   - accountLedgerRealizedPnlSol is a separate field the UI may
+        //     display as a distinct wallet card, never spliced onto the
+        //     journal WR card
+        //   - cohortTerminalIdsHash lets the UI verify all metrics on a
+        //     card share the same cohort (any card mixing hashes fails
+        //     the cohort invariant)
+        val accountLedgerRealizedPnlSol: Double = 0.0,
+        val cohortTerminalN: Int = 0,
+        val cohortTerminalIdsHash: String = "",
+        val cohortJournalRows: Int = 0,
+        val cohortBuyRows: Int = 0,
+        val cohortSellRows: Int = 0,
+        val cohortPartialRows: Int = 0,
+
         val currentStreak: Int = 0,
         val longestWinStreak: Int = 0,
         val longestLossStreak: Int = 0,
@@ -181,12 +209,17 @@ object PerformanceAnalytics {
 
         val winRate = percentage(wins.size, wins.size + losses.size)
         val journalTotalPnl = decisiveTrades.sumOf { sanitizeDouble(it.pnlSol) }
-        // V5.0.6499 §2 — canonical P&L overrides journal aggregate.
-        // Emits CANONICAL_PNL_DIVERGENCE_6499 when the two disagree
-        // materially (> 0.1 SOL absolute or > 20% relative) so the
-        // divergence is visible in the root-cause ENTRY_FINALITY
-        // tier without silencing the analytics.
-        val totalPnl = if (canonicalRealizedPnl.isFinite()) {
+        // V5.0.6592 §PERFORMANCE_COHORT_TRUTH — operator directive: WR / PF /
+        // expectancy / totalPnl on the SAME card must all come from the same
+        // terminal ID set. Pre-6592 the code overrode totalPnl with the
+        // account-wide ledger realized PnL while leaving WR/PF/expectancy on
+        // the decisive-trade cohort — that produced impossible cards like
+        // 16 trades / 2W-14L / PF 0.81 / expectancy -0.0011 SOL / Total PnL
+        // +2.6492 SOL. Journal-cohort totalPnl is now authoritative for this
+        // card. accountLedgerRealizedPnlSol is exposed as a separate field
+        // so the UI can render a distinct wallet card without splicing.
+        val accountLedgerRealizedPnl6592 = if (canonicalRealizedPnl.isFinite()) canonicalRealizedPnl else 0.0
+        if (canonicalRealizedPnl.isFinite()) {
             val absDelta = kotlin.math.abs(canonicalRealizedPnl - journalTotalPnl)
             val relDelta = if (kotlin.math.abs(canonicalRealizedPnl) > 1e-9)
                 absDelta / kotlin.math.abs(canonicalRealizedPnl) else 0.0
@@ -194,13 +227,13 @@ object PerformanceAnalytics {
                 try {
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(
                         "CANONICAL_PNL_DIVERGENCE_6499",
-                        "journal=${"%.4f".format(journalTotalPnl)} canonical=${"%.4f".format(canonicalRealizedPnl)} absDelta=${"%.4f".format(absDelta)} using=canonical",
+                        "journal=${"%.4f".format(journalTotalPnl)} canonical=${"%.4f".format(canonicalRealizedPnl)} absDelta=${"%.4f".format(absDelta)} using=journal_cohort_for_this_card_ledger_separately",
                     )
                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_PNL_DIVERGENCE_6499")
                 } catch (_: Throwable) {}
             }
-            canonicalRealizedPnl
-        } else journalTotalPnl
+        }
+        val totalPnl = journalTotalPnl
         val avgPnl = safeAverage(decisiveTrades.map { sanitizeDouble(it.pnlSol) })
         val avgWin = safeAverage(wins.map { sanitizeDouble(it.pnlSol) })
         val avgLoss = abs(safeAverage(losses.map { sanitizeDouble(it.pnlSol) }))
@@ -267,6 +300,17 @@ object PerformanceAnalytics {
             avgLossSol = sanitizeDouble(avgLoss),
             profitFactor = sanitizeDouble(profitFactor),
             expectancy = sanitizeDouble(expectancy),
+
+            // V5.0.6592 §PERFORMANCE_COHORT_TRUTH — account-ledger PnL is a
+            // SEPARATE field, not spliced onto totalPnlSol. cohortTerminalIdsHash
+            // lets any UI verify all metrics on a card share the same cohort.
+            accountLedgerRealizedPnlSol = sanitizeDouble(accountLedgerRealizedPnl6592),
+            cohortTerminalN = decisiveTrades.size,
+            cohortTerminalIdsHash = com.lifecyclebot.engine.truth.PerformanceCohortHash6592.hash(decisiveTrades),
+            cohortJournalRows = trades.size,
+            cohortBuyRows = 0,  // BUY_ENTRY rows are separate journal writes; TradeRecord already-joined
+            cohortSellRows = closedTradesTerminalOnly.size,
+            cohortPartialRows = trades.count { it.partialSold > 0.0 && !com.lifecyclebot.engine.truth.TerminalCloseAuthority6499.isTerminalClose(it) },
 
             currentStreak = streaks.first,
             longestWinStreak = streaks.second,
