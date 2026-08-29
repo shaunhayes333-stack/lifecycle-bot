@@ -34,14 +34,11 @@ class PaperCompoundFloorParity6584Test {
     }
 
     @Test
-    fun lane_compound_floor_no_longer_bails_on_paper_mode() {
+    fun lane_compound_floor_paper_mode_small_wallet_only() {
         assertTrue(
-            "LiveSizingProfile.laneCompoundFloor must NOT bail out on isPaperMode=true anymore",
-            !profileSrc.contains("if (!enabled || isPaperMode || baseSol <= 0.0) return baseSol")
-        )
-        assertTrue(
-            "LiveSizingProfile.laneCompoundFloor short-circuit is now enabled+baseSol only",
-            profileSrc.contains("if (!enabled || baseSol <= 0.0) return baseSol")
+            "V5.0.6585 refinement: paper compound floor gated to walletSol ≤ 10.0 " +
+                "so large paper wallets keep pre-6584 cold-streak cap behaviour",
+            profileSrc.contains("if (isPaperMode && walletSol > 10.0) return baseSol")
         )
     }
 }
