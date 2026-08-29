@@ -681,12 +681,11 @@ object PerpsExecutionEngine {
 
                 successfulExecutions.incrementAndGet()
                 lastExecutionTime.set(System.currentTimeMillis())
-                try {
-                    com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markOpenConfirmed(
-                        venue = perpsVenue6540, symbol = signal.market.symbol,
-                        positionId = position.id,
-                    )
-                } catch (_: Throwable) {}
+                // V5.0.6583 §P0-11 — REMOVED DIRECT markOpenConfirmed CALL.
+                // CanonicalEntryAuthority6551.markConfirmed above (line 662)
+                // already cascades to markOpenConfirmedFor6551 which bumps
+                // MARKETS_PERPS_OPEN_CONFIRMED_6540. The direct call here
+                // was double-counting every perps open.
                 
                 ErrorLogger.info(TAG, "⚡ EXECUTED [${scanner.displayName}]: " +
                     "${position.direction.emoji} ${position.market.symbol} | " +

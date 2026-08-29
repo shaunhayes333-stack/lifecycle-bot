@@ -2438,7 +2438,13 @@ object CryptoAltTrader {
                 return
             }
             // V5.0.6578 — success confirms the paper dispatch produced a canonical open.
-            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markConfirmed(canonicalCryptoIntent6565, position.id)
+            // V5.0.6583 §P0-11 — CanonicalPaperTransaction6486.open at line 82-86
+            // already calls CanonicalEntryAuthority6551.markConfirmed on
+            // successful commit for non-SOLANA_TOKEN asset classes. An
+            // explicit markConfirmed here would double-count the funnel
+            // opens for CRYPTO_ALT. Keep only the live branch's explicit call
+            // (below) — that path does not run through
+            // CanonicalPaperTransaction6486.open.
             try { com.lifecyclebot.engine.FluidLearning.recordPaperBuy(mktSym, canonicalFinalSize6570) } catch (_: Exception) {}
         } else {
             // LIVE mode — execute Jupiter swap at the exact paper-sized
@@ -2461,11 +2467,11 @@ object CryptoAltTrader {
         positions[position.id]         = position
         if (isSpot) spotPositions[position.id]     = position
         else        leveragePositions[position.id]  = position
-        try {
-            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markOpenConfirmed(
-                venue = venue6540, symbol = mktSym, positionId = position.id,
-            )
-        } catch (_: Throwable) {}
+        // V5.0.6583 §P0-11 — REMOVED DIRECT markOpenConfirmed CALL.
+        // CanonicalEntryAuthority6551.markConfirmed above (paper: line 2441,
+        // live: line 2457) already cascades to markOpenConfirmedFor6551 which
+        // bumps CRYPTO_OPEN_CONFIRMED_6540. The direct call here was
+        // double-counting every crypto/alt open in the funnel.
         com.lifecyclebot.perps.crypto.brain.CryptoFunnel.open(true)
         // V5.0.4581 — CRYPTO CANONICAL OPEN HOOK. The isolated CryptoBrain close
         // path was settling trades without a matching open hook, causing canonical

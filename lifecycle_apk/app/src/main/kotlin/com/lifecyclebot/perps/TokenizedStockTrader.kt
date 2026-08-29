@@ -1360,7 +1360,12 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: ${signal.market.symbol} ${canonicalOpen6486.reason}")
                 return
             }
-            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markConfirmed(marketIntent6561, position.id)
+            // V5.0.6583 §P0-11 — no explicit markConfirmed here.
+            // CanonicalPaperTransaction6486.open at line 82-86 already finds
+            // the pending intent and calls CanonicalEntryAuthority6551
+            // .markConfirmed on successful commit. The pre-6583 explicit call
+            // was double-counting every stock paper open (funnel showed 102
+            // opens for 51 dispatches).
             com.lifecyclebot.engine.FluidLearning.recordPaperBuy("TokenizedStockTrader", fdgSizeSol6561.coerceAtLeast(0.0))
             // V5.9.171 — local orphan failsafe. Refunds paper capital on next
             // startup if the app is wiped mid-trade, even when Turso is offline.
