@@ -726,7 +726,7 @@ object ConfigStore {
             metalsEnabled               = p.getBoolean("metals_enabled", true),
             forexEnabled                = p.getBoolean("forex_enabled", true),
             perpsEnabled                = p.getBoolean("perps_enabled", true),
-            cyclicTradeEnabled          = p.getBoolean("cyclic_trade_enabled", false), // V5.0.4155: default off; no CYCLIC slot/fanout choke
+            cyclicTradeEnabled          = p.getBoolean("cyclic_trade_enabled", true), // V5.0.6599: default flipped to true — align with data-class default so PAPER learns CYCLIC from trade #1 (operator directive: 'from trade 1 including cyclic so the brains and agi can learn'). Live still gated by cyclicTradeLiveEnabled.
             cyclicTradeLiveEnabled      = p.getBoolean("cyclic_trade_live_enabled", false),
             // V5.9.326: classic scoring mode (default true = build ~1920 pipeline)
             classicScoringMode          = p.getBoolean("classic_scoring_mode", false),  // V5.9.957: default flipped
