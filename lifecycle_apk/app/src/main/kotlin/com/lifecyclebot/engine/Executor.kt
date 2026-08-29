@@ -12081,27 +12081,51 @@ class Executor(
         // source. Fresh scanner/TokenMap evidence may establish the first canonical
         // observation mark; this is not live route proof and never relaxes LIVE.
         try {
-            val now6600 = System.currentTimeMillis()
-            val tokenMapFresh6600 = ts.tokenMap.updatedAtMs > 0L && now6600 - ts.tokenMap.updatedAtMs <= 120_000L
-            val stateFresh6600 = ts.lastPriceUpdate > 0L && now6600 - ts.lastPriceUpdate <= 120_000L
-            val bootstrapPrice6600 = ts.tokenMap.priceUsd?.takeIf { tokenMapFresh6600 && it.isFinite() && it > 0.0 }
-                ?: ts.lastPrice.takeIf { stateFresh6600 && it.isFinite() && it > 0.0 }
-            val bootstrapSource6600 = ts.tokenMap.sourceScanner.takeIf { tokenMapFresh6600 && it.isNotBlank() }
+            // V5.0.6607 §REPAIR_F_EXECUTABLE_MARK_PROPAGATION (operator directive
+            //   Feb 2026: 158× missingExecutableMarkWithValidSource against
+            //   184× PAPER_BUY_NOT_OPENED). Root cause: the 6600 bootstrap
+            //   required tokenMap.updatedAtMs OR lastPriceUpdate to be within
+            //   120s. Scans → V3 → FDG → sizing → executor can legitimately
+            //   take 2-3 minutes when the pipeline is under load; a stale-but-
+            //   still-valid price is common. Widen to WINDOW_MS_6607 (300s) so
+            //   an in-flight candidate sourced from a fresh scanner can still
+            //   bootstrap its OBSERVATION_SCORING mark. Also last-resort
+            //   fallback: when a valid priceUsd exists but timestamps are all
+            //   zero (rare, e.g. legacy MEME registry restore), still publish
+            //   with `now` and emit PAPER_ENTRY_OBSERVATION_MARK_STALE_BOOTSTRAPPED_6607
+            //   so the operator can distinguish provisional from fresh.
+            val now6607 = System.currentTimeMillis()
+            val WINDOW_MS_6607 = 300_000L
+            val tokenMapFresh6607 = ts.tokenMap.updatedAtMs > 0L && now6607 - ts.tokenMap.updatedAtMs <= WINDOW_MS_6607
+            val stateFresh6607 = ts.lastPriceUpdate > 0L && now6607 - ts.lastPriceUpdate <= WINDOW_MS_6607
+            val tokenMapAny6607 = (ts.tokenMap.priceUsd ?: 0.0).isFinite() && (ts.tokenMap.priceUsd ?: 0.0) > 0.0
+            val stateAny6607 = ts.lastPrice.isFinite() && ts.lastPrice > 0.0
+            val bootstrapPrice6607 = ts.tokenMap.priceUsd?.takeIf { tokenMapFresh6607 && it.isFinite() && it > 0.0 }
+                ?: ts.lastPrice.takeIf { stateFresh6607 && it.isFinite() && it > 0.0 }
+                // Last-resort: valid source exists but no fresh timestamp (paper only).
+                ?: ts.tokenMap.priceUsd?.takeIf { tokenMapAny6607 }
+                ?: ts.lastPrice.takeIf { stateAny6607 }
+            val bootstrapSource6607 = ts.tokenMap.sourceScanner.takeIf { tokenMapAny6607 && it.isNotBlank() }
                 ?: ts.lastPriceSource.ifBlank { ts.source }
-            val bootstrapPool6600 = ts.tokenMap.poolAddress.ifBlank { ts.tokenMap.pairAddress }
+            val bootstrapPool6607 = ts.tokenMap.poolAddress.ifBlank { ts.tokenMap.pairAddress }
                 .ifBlank { ts.lastPricePoolAddr }.ifBlank { ts.pairAddress }.ifBlank { "MINT_ROUTE:${ts.mint}" }
-            if (bootstrapPrice6600 != null && bootstrapSource6600.isNotBlank()) {
-                val published6600 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.publish(
+            if (bootstrapPrice6607 != null && bootstrapSource6607.isNotBlank()) {
+                val markTs6607 = maxOf(ts.tokenMap.updatedAtMs, ts.lastPriceUpdate).takeIf { it > 0L } ?: now6607
+                val isStale6607 = markTs6607 < now6607 - WINDOW_MS_6607
+                val published6607 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.publish(
                     com.lifecyclebot.engine.truth.CanonicalPriceMark6522(
-                        mint = ts.mint, pairId = bootstrapPool6600, baseMint = ts.mint,
-                        quoteMint = ts.tokenMap.quoteMint.ifBlank { "USD" }, source = bootstrapSource6600,
-                        timestampMs = maxOf(ts.tokenMap.updatedAtMs, ts.lastPriceUpdate).takeIf { it > 0L } ?: now6600,
-                        priceUsd = com.lifecyclebot.engine.truth.PriceUsd(java.math.BigDecimal.valueOf(bootstrapPrice6600)),
+                        mint = ts.mint, pairId = bootstrapPool6607, baseMint = ts.mint,
+                        quoteMint = ts.tokenMap.quoteMint.ifBlank { "USD" }, source = bootstrapSource6607,
+                        timestampMs = if (isStale6607) now6607 else markTs6607,
+                        priceUsd = com.lifecyclebot.engine.truth.PriceUsd(java.math.BigDecimal.valueOf(bootstrapPrice6607)),
                         liquidityUsd = (ts.tokenMap.liquidityUsd ?: ts.lastLiquidityUsd).takeIf { it.isFinite() && it > 0.0 }?.let { java.math.BigDecimal.valueOf(it) },
                         purpose = com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING,
                     )
                 )
-                if (published6600) PipelineHealthCollector.labelInc("PAPER_ENTRY_OBSERVATION_MARK_BOOTSTRAPPED_6600")
+                if (published6607) {
+                    if (isStale6607) PipelineHealthCollector.labelInc("PAPER_ENTRY_OBSERVATION_MARK_STALE_BOOTSTRAPPED_6607")
+                    else PipelineHealthCollector.labelInc("PAPER_ENTRY_OBSERVATION_MARK_BOOTSTRAPPED_6600")
+                }
             }
         } catch (_: Throwable) {}
         val strictMark6575 = try {
@@ -12147,7 +12171,35 @@ class Executor(
         // Streak counter derives from CanonicalTradeFinalizedBus6450 (the
         // SAME event RewardPurity / TacticSwitcher subscribe to), so no
         // pid/source/lane alias can bypass this gate.
-        val gateLane6451 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "STANDARD" }
+        // V5.0.6607 §REPAIR_C_OWNERLANE_IMMUTABILITY (operator directive Feb 2026).
+        //   Operator captured "real PAPER BUY journal rows exist with lane=STANDARD"
+        //   despite STANDARD being a shadow/read-only lane with no FDG/exec. Root
+        //   cause: this gate previously defaulted blank layerTag+source to
+        //   "STANDARD", which then propagated as ownerLane through the ticket,
+        //   journal, and learning bus — silently producing STANDARD-owned
+        //   canonical positions.
+        //   Fix: refuse to synthesize an ownerLane. If BOTH layerTag and
+        //   ts.source are blank at execution time, this is an upstream owner-
+        //   attribution defect (specialist election never sealed a real
+        //   ownerLane). Fail-close with EXECUTOR_OWNERLANE_MISSING_6607 so the
+        //   real owner-attribution bug is surfaced upstream instead of being
+        //   masked by a STANDARD alias.
+        val laneRawSource6607 = layerTag.ifBlank { ts.source }.uppercase().take(24)
+        if (laneRawSource6607.isBlank() || laneRawSource6607 == "STANDARD") {
+            try {
+                PipelineHealthCollector.labelInc("EXECUTOR_OWNERLANE_MISSING_6607")
+                ForensicLogger.lifecycle(
+                    "EXECUTOR_OWNERLANE_MISSING_6607",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} layerTag='$layerTag' " +
+                        "ts.source='${ts.source}' " +
+                        "action=refuse_paperBuy_without_authoritative_ownerLane " +
+                        "reason=STANDARD_is_shadow_read_only_and_must_never_open_positions",
+                )
+            } catch (_: Throwable) {}
+            markPaperBuyNotOpened("OWNERLANE_MISSING_OR_STANDARD_6607")
+            return
+        }
+        val gateLane6451 = laneRawSource6607
         val gateVerdict6451 = try {
             com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.gate(gateLane6451, ts.mint, sol)
         } catch (_: Throwable) {

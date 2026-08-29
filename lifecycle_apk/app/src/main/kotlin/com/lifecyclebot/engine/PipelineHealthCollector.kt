@@ -2821,6 +2821,22 @@ object PipelineHealthCollector {
         return try { labelCounts[key]?.get() ?: 0L } catch (_: Throwable) { 0L }
     }
 
+    /**
+     * V5.0.6607 §REPAIR_C_AUDIT_PREFIX_MATCH (operator directive Feb 2026).
+     *   AcceptanceInvariantAudit6441 needs to enumerate every label matching
+     *   a prefix (e.g. `CANONICAL_SIZING_BRIDGE_6532|CLASS=STOCK|LANE=`)
+     *   because specialists emit lane suffixes (STOCK_SPOT / STOCK_LEV /
+     *   PERPS_SOLUSDT) that the audit's hard-coded lane list never matched.
+     *   Returns key→count for every label whose key starts with [prefix].
+     */
+    fun labelSnapshotByPrefix6607(prefix: String): Map<String, Long> {
+        return try {
+            labelCounts.entries.asSequence()
+                .filter { it.key.startsWith(prefix) }
+                .associate { it.key to (it.value.get()) }
+        } catch (_: Throwable) { emptyMap() }
+    }
+
     // V5.9.1378 (P0 #9) — record an MFE observation for [lane]: the peak gain reached
     // and the realized close pnl (both %). Accumulated as fixed-point x100 sums.
     fun recordMfe(lane: String, peakPct: Double, realizedPct: Double) {
