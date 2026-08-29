@@ -1,10 +1,36 @@
-# AATE PRD — V5.0.6604 (MEME CAUSAL AUTHORITY RESTORED — TROUBLESHOOT_AGENT P0/P1/P2 SHIPPED)
+# AATE PRD — V5.0.6605 (OPERATOR REPAIR L/B/H SHIPPED — 6604 REGRESSION FIXED + 11 REPAIRS REMAIN)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA.
+
+## V5.0.6605 (Feb 2026) — REPAIR L / B / H (operator directive on V5.0.6604 forensic dump)
+
+Operator's V5.0.6604 forensic snapshot exposed three high-priority defects this build repairs at the source.
+
+**REPAIR L §PWIN_BOOTSTRAP_SEMANTICS (V5.0.6604 regression fix)** — `MEME_SPECIALIST_PWIN_GATE_6604` was gating on `currentAuthority(l) == AUTHORITATIVE` which quietly falls back to `globalAuthority()` when a lane has no own head. EXPRESS with `score=0` and zero own-head samples was therefore hard-blocked 19× as "lane head says this loses" using the GLOBAL bias — not a lane-specific learned negative. `UnifiedPolicyHead` now exposes strict own-head accessors (`laneOwnHeadTrainedCount6605` / `laneOwnHeadAuthority6605`); pWin gate armed only when the LANE's own head is LEARNED or AUTHORITATIVE.
+
+**REPAIR B §MARKET_SESSION_PARITY** — V5.0.6560 permitted paper stocks to execute 24/7 as "simulated DEX assets", but operator captured 51 STOCK opens on Sunday morning while FOREX/COMMODITY/METAL correctly emitted `SOURCE_CLOSED_WEEKEND`. Paper must model live behaviour. `TokenizedStockTrader` weekend closure now applies to paper AND live and routes through `CanonicalEntryAuthority6540.completeProducerWindow6569(STOCK, "SOURCE_CLOSED_WEEKEND")`.
+
+**REPAIR H §CANONICAL_SAME_MINT_OCCUPANCY_AT_REDUCER** — operator captured `D1cdMQ` opened in QUALITY at 01:10:43 then again ~15s later in PROJECT_SNIPER despite `SameMintDedupAuthority6441` reporting `blocks=0` across 81 canonical opens. Scan-time dedup only guards within a scan cycle; specialist election → sizing → executor path could accept a second candidate. Invariant now bound at the canonical reducer (`CanonicalPaperTransaction6486.open`) BEFORE ledger debit — refuses any second open on the same `(mode, mint)` even with a unique `positionId`. Emits `CANONICAL_SAME_MINT_OCCUPANCY_BLOCK_6605`.
+
+### V5.0.6604 REMAINING OPERATOR REPAIRS (11 items — priority-ordered)
+
+Operator's forensic ordering (highest leverage first):
+
+1. **REPAIR A** — global capital arbitration across all trading domains (MemeTrader / Crypto Universe / Markets / Stocks / Forex / Metals / Commodities / Perps share ONE authoritative available-cash figure; `capitalStarved` must reflect real cross-domain pressure, not per-lane fictitious 8.33% allocations)
+2. **REPAIR C** — immutable `ownerLane` through candidate → ticket → position → journal → learning; fix `AcceptanceAudit6441.E_no_specialized_trader_routed_through_sizing_bridge` (7/7 fails); STANDARD must not appear in real BUY journal rows
+3. **REPAIR D** — TraderSizingBridge must not erase specialist role; STANDARD received 26 sizing bridge invocations despite being shadow/read-only
+4. **REPAIR F** — executable mark propagation (158× `missingExecutableMarkWithValidSource`, 184× `PAPER_BUY_NOT_OPENED`)
+5. **REPAIR G** — single final sealed notional (60× `EXEC_SIZE_AUTHORITY_MISMATCH_6497` against 62 EXEC_GATE allows)
+6. **REPAIR E** — per-lane causal funnels; every intent must terminate as `FDG_BLOCK / MARK_BLOCK / SIZE_BLOCK / CAPITAL_BLOCK / DEDUP_BLOCK / SAFETY_BLOCK / EXECUTED` (EXPRESS 102 intents → 0 exec unexplained)
+7. **REPAIR J** — Crypto Universe → CryptoBrain → V3/FDG consumer wiring (discovery is producing 31 fresh pools / 105 new identities but `fresh reaching CryptoBrain = 0`)
+8. **REPAIR K** — PERPS producer liveness (`scanTick = 1`, `marketDataOk = 0` on a 24/7 asset)
+9. **REPAIR M** — one canonical FinalizedBus for all learning consumers (Canonical=38 6W/32L vs Growth=24 3W/21L vs MathEdge=18 0W/18L vs PerfAnalytics=5)
+10. **REPAIR I** — fallback-mark trust separation (51 fallback marks currently contribute to authoritative unrealized PnL / runner qualification / SL/TP / learning reward)
+11. **REPAIR N** — paper exit retry/latch convergence (`PAPER_CLOSE_STUCK_TTL_RETRY_6071=32` + `PAPER_CLOSE_FORCE_RESET_6360=15`)
 
 ## V5.0.6604 (Feb 2026) — RESTORE MEME CAUSAL AUTHORITY (troubleshoot_agent P0/P1/P2, CI GREEN)
 

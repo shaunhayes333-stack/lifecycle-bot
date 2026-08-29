@@ -77,7 +77,7 @@ class Aate6605RepairLBHCoverageTest {
             "V5.0.6605: canonical paper open() must refuse a second open on the same mint in the same mode BEFORE ledger debit",
             txSrc.contains("duplicateOpenSameMode6605") &&
                 txSrc.contains("CANONICAL_SAME_MINT_OCCUPANCY_BLOCK_6605") &&
-                txSrc.contains("CANONICAL_SAME_MINT_ALREADY_OPEN_6605") &&
+                txSrc.contains("CANONICAL_SAME_MINT_ALREADY_OPEN_POSITION_6605") &&
                 txSrc.contains("CanonicalPositionAuthority6441.openPositions()")
         )
         // The write barrier must precede PaperAccountLedger6430.onBuy so no

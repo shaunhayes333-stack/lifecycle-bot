@@ -84,7 +84,7 @@ object CanonicalPaperTransaction6486 {
                         "mode=$incomingMode6605 action=refuse_duplicate_open",
                 )
             } catch (_: Throwable) {}
-            return@withLock Result(false, positionId, "CANONICAL_SAME_MINT_ALREADY_OPEN_6605")
+            return@withLock Result(false, positionId, "CANONICAL_SAME_MINT_ALREADY_OPEN_POSITION_6605")
         }
         if (!PaperAccountLedger6430.onBuy(costSol, feeSol))
             return@withLock Result(false, positionId, "INSUFFICIENT_CANONICAL_CASH")
