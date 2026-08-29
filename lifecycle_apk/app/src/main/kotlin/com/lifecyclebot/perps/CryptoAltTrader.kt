@@ -1077,6 +1077,17 @@ object CryptoAltTrader {
                 val terminalTok6567 = sig.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
                     ?: sig.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
                 try {
+                    // V5.0.6581 §P0-3 — CANDIDATE STAMP.
+                    // Operator forensic (6580): CryptoAlt 55 actionable
+                    // signals → 0 candidates → 0 canonical submissions.
+                    // The producer never stamped CANDIDATE at the actionable
+                    // → executeSignal handoff. Executor still runs, but
+                    // the funnel loses the transition. Fixed: stamp
+                    // CANDIDATE just before executeSignal so the funnel
+                    // shows candidate == actionable_after_dedup.
+                    com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(
+                        com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "CANDIDATE"
+                    )
                     executeSignal(sig.copy(leverage = dynLev), isSpot = dynSpot)
                     DynamicAltTokenRegistry.markEvaluationDisposition6567(terminalTok6567, "HANDED_TO_CANONICAL_AUTHORITY")
                 } catch (e: CancellationException) {

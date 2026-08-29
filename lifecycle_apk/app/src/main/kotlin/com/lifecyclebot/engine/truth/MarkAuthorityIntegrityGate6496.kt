@@ -132,7 +132,16 @@ object MarkAuthorityIntegrityGate6496 {
 
     /** V5.0.6570 — observation/V3 authority is price+provider+freshness only.
      * Pool identity and liquidity remain mandatory at executable/live route and
-     * economic/exit mark boundaries; MINT_ROUTE is never executable proof. */
+     * economic/exit mark boundaries; MINT_ROUTE is never executable proof.
+     *
+     * V5.0.6581 §P0-2 — OBSERVATION ACCEPTS MINT_ROUTE POOL PROVENANCE.
+     * Operator forensic (6580): 1,365 valid-looking DexScreener prices
+     * rejected pre-V3 because the pool identity came back as MINT_ROUTE:*
+     * (route-inferred pool, not a fully-resolved pair address). This is a
+     * normal DexScreener response for freshly-minted tokens. It should
+     * feed OBSERVATION_SCORING (V3/FDG evaluation). Execution boundary
+     * (Executor.paperBuy §6575, live route §6496 evaluate()) STILL rejects
+     * MINT_ROUTE as executable proof, so safety is preserved. */
     fun isObservationAuthoritative6570(
         mint: String,
         priceUsd: Double,
@@ -150,7 +159,13 @@ object MarkAuthorityIntegrityGate6496 {
             sourceUpper.startsWith("PUMPFUN") || sourceUpper.startsWith("PUMP_FUN") || sourceUpper.startsWith("PUMP_PORTAL") -> "PUMPFUN"
             else -> sourceUpper
         }
-        return canonicalSource in setOf("DEXSCREENER", "GECKOTERMINAL", "BIRDEYE", "JUPITER", "PUMPFUN")
+        val whitelistedSource = canonicalSource in setOf("DEXSCREENER", "GECKOTERMINAL", "BIRDEYE", "JUPITER", "PUMPFUN")
+        // V5.0.6581 §P0-2 — non-blank poolAddress is sufficient for observation
+        // (MINT_ROUTE:xxx tokens still admitted to scoring). Was previously
+        // implicitly rejected because the caller often defaulted MINT_ROUTE
+        // for missing pool identity and the executable-purpose reject bled
+        // through to observation via the CanonicalPriceMark publish path.
+        return whitelistedSource
     }
 
     fun isAuthoritative(
