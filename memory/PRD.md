@@ -1,10 +1,37 @@
-# AATE PRD — V5.0.6595 (SOURCE-LEVEL AUTHORITY CONVERGENCE)
+# AATE PRD — V5.0.6598 (SOURCE-LEVEL AUTHORITY CONVERGENCE — DIRECTIVE 6595 COMPLETE)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
 **Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA.
+
+## V5.0.6596–6598 (Feb 2026) — 6595 EXECUTION-LIVENESS REPAIR (8 REPAIRS SHIPPED)
+
+Operator's V5.0.6595 snapshot exposed the meme trader remained crippled AFTER V5.0.6595's mark-TTL/§H fixes: 1,107 scan callbacks → 240 FDG decisions → only 6 executor invocations. The bottleneck moved downstream to lane identity → preauth → sizing → canonical execution. 8 P0/P1 repairs shipped across 6596/6597/6598, all CI-green.
+
+**REPAIR 4 — Bootstrap advisory-only (V5.0.6596)**: my V5.0.6594 `LEARNED_POLICY_VETO_6593` was firing on cold lanes because `currentAuthority(lane)` fell back to global for lanes without their own head. Fixed via new `laneHasOwnAuthoritativeHead(lane)`.
+
+**REPAIR 1 — BLUECHIP contamination (V5.0.6596)**: fresh $170k-mcap Raydium pools were inheriting BLUECHIP from DEX_BOOSTED/COINGECKO/etc source affinities and running under BLUECHIP exit doctrine. Fixed via `meetsBluechipFloor6596 := $5M mcap AND $200k liq`.
+
+**REPAIR 6 — Mark authority MINT_ROUTE for known-open (V5.0.6597)**: 55 open positions had 51 missing marks. Fixed via `isKnownOpenMint6596` flag — canonical open positions have proven mint identity.
+
+**REPAIR 7 — Treasury canonical equity (V5.0.6597)**: Treasury showed Tier=None while paper equity was $1,191. Fixed by routing paper Treasury through `PaperCapitalAuthority6577.totalEquitySol()`.
+
+**REPAIR 3 — Sizing ladder rescue (V5.0.6598)**: RunnerCompounding recommendedSizeSol=0.400 was being crushed to 0 BELOW_MIN_EXECUTABLE. Fixed via narrow rescue: `requested < minExec AND ladderTarget >= 3 * minExec` → authority cap uses laneClamped.
+
+**REPAIR 5 — LRU protection (V5.0.6598)**: 7-9s LRU evictions were starving thin-data lanes. Fixed by excluding open mints, recent admissions, and recently-processed entries from the eviction pool.
+
+### STILL TO SHIP (from the 6595 directive)
+
+  * REPAIR 2 — lane intent preservation (`LANE_PREAUTH_SUPPRESSED=630`, `LANE_PRIMARY_RELEASE_FALSE_VISIBLE=692`)
+  * REPAIR 8 — deterministic per-lane fixtures + per-lane funnel
+  * Meme/CryptoAlt hero surfaces on shared PaperCapitalAuthority6577
+  * Causal wiring for MathematicalEdgeEngine + friends (`report+learning_data_only` → executable authority)
+  * Provider circuit routing (Birdeye 401, PumpFun 0%)
+  * Replay/restored provenance separation from clean learning
+  * TacticSwitcher Bayesian pooled parent priors
+  * Snapshot 'Root cause likely' precedence/staleness repair (currently shows resolved `n=0` violations as active)
 
 ## V5.0.6592–6595 (Feb 2026) — CROSS-ASSET IMMUTABILITY, COHORT TRUTH, LEARNED VETO, MARK TTL
 

@@ -1,3 +1,19 @@
+## V5.0.6598 — REPAIR 3 (sizing ladder rescue) + REPAIR 5 (LRU protection) (CI GREEN)
+- **REPAIR 3 (sizing)**: `RunnerCompounding recommendedSizeSol=0.400` was arriving at `OrderSizeResolver` where the authority cap `minOf(requestedLamports, riskLamports, ...)` re-imposed the original request (0.010) on top of the legitimate ladder lift, collapsing to `BELOW_MIN_EXECUTABLE`. Fix: narrow rescue trigger — when `requested < minExec` AND `ladderTarget >= 3 * minExec`, authority cap switches to `laneClamped` (fully-lifted, wallet/lane-capped). Adaptive sub-floor requests without a substantial ladder rescue keep the pre-6598 rejection contract.
+- **REPAIR 5 (LRU)**: 144 evictions in ~5.5min with victims 7-9s old were starving thin-data lanes. Fix: `GlobalTradeRegistry` LRU eviction pool now excludes canonical-open mints, recently-admitted (<60s), and recently-processed (<30s idle) entries. When every entry is protected, admit anyway and emit `WATCHLIST_LRU_EVICT_ALL_PROTECTED_6598`.
+- Updated 2 legacy tests (`Repair6510AuthorityAcceptanceTest`, `Repair6511PaperExecutionSourceTest`) to reflect the operator-mandated ladder-rescue contract.
+- Regression: `Aate6598SizingLadderAndLruProtectionCoverageTest`.
+
+## V5.0.6597 — REPAIR 6 (mark authority) + REPAIR 7 (Treasury canonical equity) (CI GREEN)
+- **REPAIR 6**: 55 open positions with 51 missing marks because exit-mark path defaulted `pool="MINT_ROUTE:<mint>"` and got rejected. Fix: `MarkAuthorityIntegrityGate6496.evaluate/isAuthoritative` gain `isKnownOpenMint6596` flag; when true, MINT_ROUTE:* is acceptable pool identity. `BotService` exit-mark passes `isKnownOpenMint6596=true` (position identity proven by canonical authority). New-entry paths still reject MINT_ROUTE:*.
+- **REPAIR 7**: `MainActivity` paper Treasury tier now reads `PaperCapitalAuthority6577.totalEquitySol()` (was `TreasuryManager.treasurySol` — a 70/30 profit-split sub-allocation, not wallet equity).
+- Regression: `Aate6597MarkAuthorityAndTreasuryCoverageTest`.
+
+## V5.0.6596 — Fix bootstrap-lane over-veto (my 6594 regression) + BLUECHIP contamination (CI GREEN)
+- **BOOTSTRAP OVER-VETO**: my V5.0.6594 `LEARNED_POLICY_VETO_6593` was firing on cold EXPRESS thin_data (hist=2) because `currentAuthority(lane)` falls back to `globalAuthority()` for lanes with no head yet. Fix: new `UnifiedPolicyHead.laneHasOwnAuthoritativeHead(lane)` returns true ONLY when the lane trained its OWN head to AUTHORITATIVE. Cold lanes get advisory shaping, never terminal veto.
+- **BLUECHIP CONTAMINATION**: `TokenMergeQueue.inferLaneAffinity` unconditionally added BLUECHIP for SOLANA_RPC/METEORA/ORCA/JUPITER/HELIUS/DEX_BOOSTED/DEX_TRENDING/COINGECKO/BIRDEYE/WHALE sources — fresh $17k-liq/$170k-mcap Raydium pools inherited BLUECHIP and ran under BLUECHIP exit doctrine. Fix: `meetsBluechipFloor6596 := marketCap >= $5M AND liq >= $200k`; below the floor, BLUECHIP stripped, other productive lanes (MOONSHOT/QUALITY/PROJECT_SNIPER) still attach.
+- Regression: `Aate6596BluechipAndBootstrapVetoCoverageTest`.
+
 ## V5.0.6595 — P1 mark-refresh dedup TTL (kills the 24,807-refresh storm) (CI GREEN)
 - Snapshot 6591 observed 24,807 `CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513` across 51 open positions in ~7 min. Pre-6595 dedup was pending-set only; the 5s exit-feed tick immediately re-queued each mint after the async coroutine cleared it.
 - **FIX**: per-mint attempt + success timestamp maps. TTL 30s on success, 5s on failure. Skips counted as `MARK_REFRESH_TTL_SKIPPED_6594`.
