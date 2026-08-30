@@ -87,6 +87,30 @@ object CanonicalPriceMarkRegistry6522 {
         else PromotionResult6613(null, "REGISTRY_PUBLISH_REJECTED", obs.source, price, age, "${obs.baseMint}->${obs.quoteMint}@${obs.pairId}", "scale=${obs.priceUsd.value.scale()}")
     }
 
+    /** V5.0.6614 — materialize a current executable mark directly from the
+     * existing canonical TokenMap when route, pair/pool, price and liquidity are
+     * already proven. No scanner replay and no secondary-provider wait. */
+    fun refreshFromExecutableTokenMap6614(
+        mint: String, pairOrPool: String, quoteMint: String, source: String,
+        priceUsd: Double, liquidityUsd: Double, routeStatus: String,
+        nowMs: Long = System.currentTimeMillis(),
+    ): PromotionResult6613 {
+        if (routeStatus.uppercase() !in setOf("PUMPFUN_BONDING_CURVE_EXECUTABLE", "DEX_ROUTABLE"))
+            return PromotionResult6613(null, "TOKEN_MAP_ROUTE_NOT_EXECUTABLE", source, priceUsd, identity = mint)
+        if (pairOrPool.isBlank()) return PromotionResult6613(null, "TOKEN_MAP_PAIR_MISSING", source, priceUsd, identity = mint)
+        if (!priceUsd.isFinite() || priceUsd <= 0.0 || !liquidityUsd.isFinite() || liquidityUsd <= 0.0)
+            return PromotionResult6613(null, "TOKEN_MAP_ECONOMICS_INVALID", source, priceUsd, identity = mint)
+        val observation = CanonicalPriceMark6522(
+            mint = mint, pairId = pairOrPool, baseMint = mint,
+            quoteMint = quoteMint.ifBlank { "USD" }, source = source,
+            timestampMs = nowMs, priceUsd = PriceUsd(java.math.BigDecimal.valueOf(priceUsd)),
+            liquidityUsd = java.math.BigDecimal.valueOf(liquidityUsd),
+            purpose = CanonicalMarkPurpose6570.OBSERVATION_SCORING,
+        )
+        if (!publish(observation)) return PromotionResult6613(null, "TOKEN_MAP_OBSERVATION_REJECTED", source, priceUsd, identity = "$mint@$pairOrPool")
+        return promoteObservationToExecutable6613(mint, nowMs)
+    }
+
     /** V5.0.6575 — purpose-aware lookup. Executors MUST use
      *  purpose = EXECUTABLE_ENTRY_QUOTE. Scoring/observation callers may
      *  fall back to OBSERVATION_SCORING when the strict mark is absent. */

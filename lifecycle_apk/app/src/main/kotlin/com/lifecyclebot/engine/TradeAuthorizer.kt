@@ -96,6 +96,7 @@ object TradeAuthorizer {
     enum class ExecutionBook {
         CORE,
         TREASURY,
+        CASHGEN,
         QUALITY,
         SHITCOIN,
         EXPRESS,
@@ -433,8 +434,9 @@ object TradeAuthorizer {
         //     the bleed bug and is blocked.
         if (otherBooks.isNotEmpty()) {
             val memeBooks = setOf(
-                ExecutionBook.CORE, ExecutionBook.TREASURY, ExecutionBook.QUALITY,
-                ExecutionBook.SHITCOIN, ExecutionBook.BLUECHIP, ExecutionBook.MOONSHOT,
+                ExecutionBook.CORE, ExecutionBook.TREASURY, ExecutionBook.CASHGEN, ExecutionBook.QUALITY,
+                ExecutionBook.SHITCOIN, ExecutionBook.EXPRESS, ExecutionBook.PROJECT_SNIPER,
+                ExecutionBook.BLUECHIP, ExecutionBook.MOONSHOT,
                 ExecutionBook.DIP_HUNTER, ExecutionBook.MANIPULATED,
             )
             val requestedIsMeme = requestedBook in memeBooks

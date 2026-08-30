@@ -588,6 +588,7 @@ object ToolkitSignalSheet {
         appendLine("sellCanonicalLookupFailure=${causalIssue6600("sellCanonicalLookupFailure")}")
         appendLine("LANE_EXEC_WITHOUT_SAME_LANE_CANONICAL_INTENT=${causalIssue6600("LANE_EXEC_WITHOUT_SAME_LANE_CANONICAL_INTENT")}")
         appendLine("LANE_EXEC_WITHOUT_SEALED_FDG_PROVENANCE=${causalIssue6600("LANE_EXEC_WITHOUT_SEALED_FDG_PROVENANCE")}")
+        appendLine("SPECIALIST_INTENT_WITHOUT_FDG_OUTCOME=${causalIssue6600("SPECIALIST_INTENT_WITHOUT_FDG_OUTCOME")}")
     }
 
     fun designatedRoleLivenessReport6599(): String = buildString {
@@ -612,7 +613,7 @@ object ToolkitSignalSheet {
                 pool == 0L -> "DEAD"
                 qualified == 0L -> "DISCOVERY_ONLY"
                 intent == 0L -> "INTENT_CHOKED"
-                fdgAllow == 0L -> "FDG_CHOKED"
+                fdgAllow + fdgBlock == 0L -> "FDG_CHOKED"
                 sized == 0L -> "SIZING_CHOKED"
                 mark == 0L -> "MARK_CHOKED"
                 ticket == 0L -> "TICKET_CHOKED"

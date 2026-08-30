@@ -900,7 +900,7 @@ class ExecutionAuthorityInvariantTest {
     }
 
     @Test
-    fun cyclic_can_prime_treasury_election_for_same_tick_authorization() {
+    fun role_fit_treasury_owner_is_not_deferred_or_rewritten() {
         resetAuthorities(paper = true)
         TradeAuthorizer.reset()
         LaneExecutionCoordinator.resetForTests()
@@ -916,7 +916,7 @@ class ExecutionAuthorityInvariantTest {
             safetyTier = "SAFE",
             liquidityUsd = 2500.0,
         )
-        assertFalse(LaneExecutionCoordinator.canRequestExecution(mint, "TREASURY").allowed)
+        assertTrue("selected TREASURY owner must seal immediately", LaneExecutionCoordinator.canRequestExecution(mint, "TREASURY").allowed)
         val auth = TradeAuthorizer.authorize(
             mint = mint,
             symbol = "CYCT",
@@ -928,7 +928,7 @@ class ExecutionAuthorityInvariantTest {
             rugcheckScore = 90,
             liquidity = 2500.0,
         )
-        assertTrue("cyclic's primed Treasury election should authorize on same tick", auth.isExecutable())
+        assertTrue("role-fit Treasury owner should authorize on same tick", auth.isExecutable())
         assertEquals("AUTHORIZED", auth.reason)
     }
 

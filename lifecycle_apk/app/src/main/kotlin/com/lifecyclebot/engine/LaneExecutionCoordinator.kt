@@ -223,69 +223,17 @@ object LaneExecutionCoordinator {
         val mapKey = mapKey(key)
         val now = System.currentTimeMillis()
         val existing = elections[mapKey]?.takeIf { now - it.createdAtMs <= TTL_MS }
-        if (existing == null && laneUpper == "TREASURY") {
-            val deferred = elect(mint, listOf(laneUpper), laneUpper, candidateVersion, runtimeGeneration)
-            // Treasury runs before the specialist lanes in BotService. If we allow
-            // it on the first touch it can consume the one-book executable key and
-            // force Moonshot/Shitcoin/Manip/Dip into telemetry-only. Defer exactly
-            // the first Treasury touch; if no specialist claims this candidate,
-            // Treasury will be allowed on the next pass while the election is live.
-            duplicateOpenSuppressed.incrementAndGet()
-            return Verdict(
-                allowed = false,
-                reason = "TREASURY_DEFER_SPECIALIST_FIRST primary=${deferred.primaryLane}",
-                primaryLane = deferred.primaryLane,
-                candidateVersion = deferred.key.candidateVersion,
-                electionId = deferred.electionId,
-                authorityVersion = deferred.authorityVersion,
-            )
-        }
-        // V5.9.1335 — FAIRNESS-WEIGHTED upgrade decision, hoisted for a clean smart-cast.
-        // The incumbent keeps the book by DEFAULT (pure static priority order). A
-        // challenger only takes it when its claimPriority beats the incumbent's — and
-        // claimPriority only docks a lane once it is winning DISPROPORTIONATELY (leading
-        // the qualified field by more than FAIRNESS_LEAD_GRACE recent wins). So MOONSHOT
-        // still wins normally and only yields to a starved specialist once it is
-        // genuinely hogging the book. No single-win thrash; static priority is never
-        // lost unless a lane is winning over everything else.
-        val challengerUpgrades: Boolean = if (existing == null || existing.sealed) false else {
-            val qualified = qualifiedLanesFor(mint, laneUpper, existing.primaryLane)
-            claimPriority(mint, laneUpper, qualified) > claimPriority(mint, existing.primaryLane, qualified)
-        }
-        val e = when {
-            existing == null -> {
-                val qualified6494 = qualifiedLanesFor(mint, laneUpper)
-                val primary6494 = pickFreshPrimary(mint, qualified6494) ?: laneUpper
-                val fresh = elect(mint, qualified6494, primary6494, candidateVersion, runtimeGeneration)
-                recordPrimaryWin(fresh.primaryLane)
-                fresh
-            }
-            challengerUpgrades -> {
-                val authorityVersion6494 = authoritySeq6494.incrementAndGet()
-                val upgraded = Election(
-                    key = existing.key,
-                    primaryLane = laneUpper,
-                    secondaryTelemetryLane = existing.primaryLane,
-                    createdAtMs = existing.createdAtMs,
-                    electionId = "${runtimeGeneration}:${existing.key.candidateVersion}:$authorityVersion6494",
-                    authorityVersion = authorityVersion6494,
-                )
-                elections[mapKey] = upgraded
-                recordPrimaryWin(laneUpper)
-                try {
-                    val q = qualifiedLanesFor(mint, laneUpper, existing.primaryLane)
-                    ForensicLogger.lifecycle(
-                        "LANE_PRIMARY_UPGRADED",
-                        "mint=${mint.take(10)} from=${existing.primaryLane} to=$laneUpper " +
-                        "claim=${claimPriority(mint, laneUpper, q)}>${claimPriority(mint, existing.primaryLane, q)} " +
-                        "wins=$laneUpper:${recentWins(laneUpper)}/${existing.primaryLane}:${recentWins(existing.primaryLane)} " +
-                        "candidateVersion=${existing.key.candidateVersion}"
-                    )
-                } catch (_: Throwable) {}
-                upgraded
-            }
-            else -> existing
-        }
+        // V5.0.6614 — canonicalCycleLaneFor has already elected the strongest
+        // source-grounded specialist role. Do not re-elect it here using static
+        // priority, fairness counters, first-caller order or Treasury deferral.
+        // This coordinator seals one immutable owner; later callers are telemetry-only.
+        val e = existing ?: elect(
+            mint = mint,
+            lanes = listOf(laneUpper),
+            preferred = laneUpper,
+            candidateVersion = candidateVersion,
+            runtimeGeneration = runtimeGeneration,
+        )
         val allowed = e.primaryLane == laneUpper
         val finalElection6494 = if (allowed && !e.sealed) {
             e.copy(sealed = true).also { elections[mapKey] = it }

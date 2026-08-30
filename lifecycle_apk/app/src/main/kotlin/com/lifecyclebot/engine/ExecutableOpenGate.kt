@@ -78,6 +78,9 @@ object ExecutableOpenGate {
         val executableMarkTimestampMs6613: Long = 0L,
         val executableMarkPriceUsd6613: Double = 0.0,
         val expiresAtMs6613: Long = 0L,
+        val markId6614: String = "",
+        val markVersion6614: Long = 0L,
+        val markTimestampMs6614: Long = 0L,
     ) {
         val lane: String get() = canonicalLane
         val signal: String get() = authoritativeSignal
@@ -272,9 +275,16 @@ object ExecutableOpenGate {
         val decision = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(
             intent.mint, intent.candidateVersion, intent.mode,
         )
-        val decisionCurrent = decision != null && decision.verdict.uppercase() == intent.finalDecision6613.name &&
-            decision.executionLane.equals(intent.canonicalLane, true) &&
-            (intent.authorityVersion <= 0L || decision.authorityVersion == intent.authorityVersion)
+        val sealedRefreshAgeMs6614 = (System.currentTimeMillis() - intent.createdAt).coerceAtLeast(0L)
+        val sealedProvenance6614 = validSealedDecision6613(intent) && sealedRefreshAgeMs6614 <= 10L * 60_000L
+        val decisionContradicts6614 = decision != null && (
+            decision.verdict.uppercase() != intent.finalDecision6613.name ||
+                !decision.executionLane.equals(intent.canonicalLane, true) ||
+                (intent.authorityVersion > 0L && decision.authorityVersion != intent.authorityVersion)
+            )
+        // The immutable ticket is the retained FDG provenance. A missing mutable
+        // snapshot after internal latency is refreshable; an explicit contradiction is not.
+        val decisionCurrent = sealedProvenance6614 && !decisionContradicts6614
         val occupied = try {
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().any {
                 it.mint == intent.mint && it.mode.equals(intent.mode, true)
@@ -282,18 +292,21 @@ object ExecutableOpenGate {
         } catch (_: Throwable) { true }
         val sealedSize = try { com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(intent.mint) } catch (_: Throwable) { null }
         val size = sealedSize?.takeIf { it.isFinite() && it > 0.0 } ?: intent.resolvedSize.takeIf { it.isFinite() && it > 0.0 }
-        val markCurrent = if (!intent.requiresSolanaTokenMap) true else try {
+        val refreshedMark6614 = if (!intent.requiresSolanaTokenMap) null else try {
             val promoted = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.promoteObservationToExecutable6613(intent.mint)
-            val mark = promoted.mark ?: com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(
+            promoted.mark ?: com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(
                 intent.mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
             )
-            mark != null && System.currentTimeMillis() - mark.timestampMs in -5_000L..300_000L
-        } catch (_: Throwable) { false }
+        } catch (_: Throwable) { null }
+        val markCurrent = !intent.requiresSolanaTokenMap || (refreshedMark6614 != null &&
+            System.currentTimeMillis() - refreshedMark6614.timestampMs in -5_000L..300_000L &&
+            refreshedMark6614.liquidityUsd?.signum() == 1)
         if (!decisionCurrent || occupied || size == null || !markCurrent) {
             try {
                 val reason = when { !decisionCurrent -> "AUTHORITY_EXPIRED"; occupied -> "CANONICAL_OCCUPIED"; size == null -> "SIZE_INVALID"; else -> "MARK_INVALID" }
-                PipelineHealthCollector.labelInc("EXPIRED_TICKET_REVALIDATION_REJECTED|$reason")
-                ForensicLogger.lifecycle("EXPIRED_TICKET_REVALIDATION_REJECTED_6613", "ticket=${intent.attemptId.take(28)} mint=${intent.mint.take(10)} lane=${intent.canonicalLane} reason=$reason action=terminal_expire")
+                PipelineHealthCollector.labelInc("EXPIRED_TICKET_ECONOMIC_REJECT_6614|$reason")
+                if (!decisionCurrent) PipelineHealthCollector.labelInc("TICKET_REFRESH_AUTHORITY_FAILURE")
+                ForensicLogger.lifecycle("EXPIRED_TICKET_ECONOMIC_REJECT_6614", "ticket=${intent.attemptId.take(28)} mint=${intent.mint.take(10)} lane=${intent.canonicalLane} reason=$reason sealed=$sealedProvenance6614 contradiction=$decisionContradicts6614 ageMs=$sealedRefreshAgeMs6614 action=explicit_economic_reject")
             } catch (_: Throwable) {}
             return null
         }
@@ -302,6 +315,10 @@ object ExecutableOpenGate {
             attemptId = canonicalExecutionKey(intent.mint, mode = intent.mode, side = "BUY", lane = intent.canonicalLane, candidateVersion = intent.candidateVersion),
             resolvedSize = size, createdAt = now,
             expiresAtMs6613 = now + if (intent.mode.equals("PAPER", true)) PAPER_EXECUTION_TICKET_TTL_MS else LIVE_EXECUTION_TICKET_TTL_MS,
+            liquidityUsd = refreshedMark6614?.liquidityUsd?.toDouble() ?: intent.liquidityUsd,
+            markId6614 = refreshedMark6614?.let { "${it.mint}:${it.pairId}:${it.timestampMs}" } ?: intent.markId6614,
+            markVersion6614 = refreshedMark6614?.timestampMs ?: intent.markVersion6614,
+            markTimestampMs6614 = refreshedMark6614?.timestampMs ?: intent.markTimestampMs6614,
         )
         executionTickets.remove(intent.attemptId, intent)
         executionTickets[replacement.attemptId] = replacement
@@ -999,6 +1016,9 @@ object ExecutableOpenGate {
                             fdgDecisionId6613 = "${mode6512}:${mint}:${winner.candidateVersion}:${canonicalLane6519}",
                             fdgEvidence6613 = "fdgCan=true;preFdg=${winner.preFdgVerdict};safety=${winner.safetyTier};hardNo=0",
                             expiresAtMs6613 = System.currentTimeMillis() + if (paperRuntime) PAPER_EXECUTION_TICKET_TTL_MS else LIVE_EXECUTION_TICKET_TTL_MS,
+                            markId6614 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE)?.let { "${it.mint}:${it.pairId}:${it.timestampMs}" } ?: "",
+                            markVersion6614 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE)?.timestampMs ?: 0L,
+                            markTimestampMs6614 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE)?.timestampMs ?: 0L,
                         ),
                     )
                     try {
@@ -1681,7 +1701,7 @@ object ExecutableOpenGate {
         var immutableTicket = ticketAuthority6564
         if (immutableTicket != null && !ticketLive(immutableTicket)) {
             immutableTicket = revalidateAndResealExpired6613(immutableTicket)
-            if (immutableTicket == null) return blocked("EXEC_OPEN_BLOCKED_STALE_TICKET", "TICKET_REVALIDATION_FAILED")
+            if (immutableTicket == null) return blocked("EXEC_OPEN_BLOCKED_STALE_TICKET", "EXPIRED_TICKET_ECONOMIC_REJECT_6614")
         }
         val immutableFdgBuy6519 = immutableTicket?.fdgAllowed == true && immutableTicket.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY")
         val stateRequiresSolanaTokenMap6533 = immutableTicket?.requiresSolanaTokenMap ?: state?.requiresSolanaTokenMap ?: true

@@ -10831,8 +10831,29 @@ class BotService : Service() {
             val stylePrimary = RuntimeConfigOverlay.normalizeLane(forced ?: styleLanes.firstOrNull() ?: ts.laneAffinity.firstOrNull() ?: "SHITCOIN")
             val metricProposal6599 = TokenMetricStageRouter.preferredPrimaryLane(ts, stylePrimary)
             val metricPrimary = if (forced != null || deskSheet6599.deskHypotheses.isEmpty() || deskSheet6599.deskHypotheses.containsKey(metricProposal6599.uppercase())) metricProposal6599 else stylePrimary
+            val roleHypotheses6614 = deskSheet6599.deskHypotheses.values
+                .filter { it.lane.uppercase() in setOf("CORE", "EXPRESS", "MANIPULATED", "DIP_HUNTER", "TREASURY", "CASHGEN", "QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "MOONSHOT", "PROJECT_SNIPER") }
+                .filter { it.lane.uppercase() != "PROJECT_SNIPER" || it.setup in setOf(ToolkitSignalSheet.Setup.DEGEN_MICRO_SNIPE, ToolkitSignalSheet.Setup.PUMP_GRADUATION_SNIPE) }
+            val rankedRoleHypotheses6614 = roleHypotheses6614
+                .filter { it.lane.uppercase() != "CORE" }
+                .sortedByDescending { h ->
+                    h.conviction + (if (h.lane.equals(stylePrimary, true)) 8.0 else 0.0) +
+                        (if (h.lane.equals(metricPrimary, true)) 6.0 else 0.0) +
+                        (if (ts.laneAffinity.any { it.equals(h.lane, true) }) 4.0 else 0.0)
+                }
+            val strongestRole6614 = rankedRoleHypotheses6614.firstOrNull()
+            val secondRole6614 = rankedRoleHypotheses6614.getOrNull(1)
+            val ensembleCoreFit6614 = strongestRole6614 != null && secondRole6614 != null &&
+                kotlin.math.abs(strongestRole6614.conviction - secondRole6614.conviction) <= 3.0 &&
+                strongestRole6614.conviction < 65.0 && deskSheet6599.deskHypotheses.containsKey("CORE")
+            val roleFitPrimary6614 = when {
+                forced != null -> forced
+                ensembleCoreFit6614 -> "CORE"
+                strongestRole6614 != null -> strongestRole6614.lane
+                else -> metricPrimary
+            }
             val scoreForPivot4524 = (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(0, 100)
-            val electedPrimary4524 = RuntimeConfigOverlay.normalizeLane(forced ?: metricPrimary)
+            val electedPrimary4524 = RuntimeConfigOverlay.normalizeLane(roleFitPrimary6614)
             val pivotedPrimary4524 = if (forced.isNullOrBlank() && LaneToxicityGuard.isNetNegativeDanger(electedPrimary4524, scoreForPivot4524)) {
                 // V5.0.4547 — inner-lane primary doctrine. Do not replace a toxic
                 // primary with QUALITY/DIP/TREASURY/etc. Keep the elected lane and
@@ -10855,7 +10876,9 @@ class BotService : Service() {
     }
 
     private fun executionBookForLane6494(lane: String): TradeAuthorizer.ExecutionBook = when (RuntimeConfigOverlay.normalizeLane(lane)) {
-        "TREASURY", "CASHGEN" -> TradeAuthorizer.ExecutionBook.TREASURY
+        "CORE" -> TradeAuthorizer.ExecutionBook.CORE
+        "TREASURY" -> TradeAuthorizer.ExecutionBook.TREASURY
+        "CASHGEN" -> TradeAuthorizer.ExecutionBook.CASHGEN
         "QUALITY" -> TradeAuthorizer.ExecutionBook.QUALITY
         "BLUECHIP", "BLUE_CHIP" -> TradeAuthorizer.ExecutionBook.BLUECHIP
         "MOONSHOT" -> TradeAuthorizer.ExecutionBook.MOONSHOT
@@ -25095,6 +25118,25 @@ if (hotExitHandledSweep) {
             fresh
         }
         ErrorLogger.info("BotService", "🧬 MEME_SPINE FDG ${identity.symbol} | can=${fdgDecision.canExecute()} | qual=${fdgDecision.quality} | conf=${fdgDecision.confidence.toInt()} | size=${fdgDecision.sizeSol.fmt(4)} | reason=${fdgDecision.blockReason ?: "none"}")
+        // V5.0.6614 — executable TokenMap evidence materializes the canonical
+        // mark immediately; no scanner replay or unrelated provider wait.
+        val tokenMap6614 = try { TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source) } catch (_: Throwable) { ts.tokenMap }
+        val markRefresh6614 = try {
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.refreshFromExecutableTokenMap6614(
+                mint = identity.mint,
+                pairOrPool = tokenMap6614.poolAddress.ifBlank { tokenMap6614.pairAddress.ifBlank { ts.lastPricePoolAddr.ifBlank { ts.pairAddress } } },
+                quoteMint = tokenMap6614.quoteMint.ifBlank { "USD" },
+                source = ts.lastPriceSource.ifBlank { tokenMap6614.sourceScanner.ifBlank { ts.source } },
+                priceUsd = tokenMap6614.priceUsd ?: ts.lastPrice,
+                liquidityUsd = tokenMap6614.liquidityUsd ?: ts.lastLiquidityUsd,
+                routeStatus = tokenMap6614.routeStatus,
+            )
+        } catch (_: Throwable) { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.PromotionResult6613(null, "TOKEN_MAP_MARK_REFRESH_EXCEPTION", identity = identity.mint) }
+        if (markRefresh6614.promoted) {
+            try { ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "MARK_READY", "${identity.mint}:${markRefresh6614.mark?.timestampMs ?: 0L}") } catch (_: Throwable) {}
+        } else try {
+            PipelineHealthCollector.labelInc("MEME_EXECUTABLE_MARK_REFRESH_REJECTED_6614|${markRefresh6614.reason}")
+        } catch (_: Throwable) {}
         // V5.9.669 — operator pipeline-health visibility. FDG previously
         // wasn't wired into the in-app funnel counter (counter stuck at 0
         // even when FDG was firing). Count only fresh FDG evaluations here.
@@ -25386,6 +25428,45 @@ if (hotExitHandledSweep) {
         )
         
         ErrorLogger.info("BotService", "🧬 MEME_SPINE AUTH ${identity.symbol} | verdict=${authResult.verdict} | reason=${authResult.reason} | paper=${cfg.paperMode} | liq=${ts.lastLiquidityUsd.toInt()}")
+
+        // V5.0.6614 — every counted specialist BUY intent receives one
+        // same-identity FDG terminal outcome before any SHADOW/REJECT return.
+        val specialistCausalId6614 = authResult.attemptId.ifBlank {
+            "${BotRuntimeController.currentGeneration()}:${LaneExecutionCoordinator.candidateVersionFor(identity.mint)}:$cyclePrimaryLane"
+        }
+        val candidateVersion6614 = authResult.candidateVersion6494.takeIf { it > 0L }
+            ?: LaneExecutionCoordinator.candidateVersionFor(identity.mint)
+        var specialistIntent6614 = ExecutableOpenGate.activeExecutionIntent6519(
+            if (cfg.paperMode) "PAPER" else "LIVE", identity.mint, candidateVersion6614,
+        )
+        if (authResult.isExecutable() && specialistIntent6614 == null) {
+            specialistIntent6614 = ExecutableOpenGate.recordFdgAndGetIntent6533(
+                mint = identity.mint, symbol = identity.symbol, lane = cyclePrimaryLane,
+                canExecute = fdgDecision.canExecute(), reason = fdgDecision.blockReason,
+                signal = if (fdgDecision.canExecute()) "BUY" else "NO_BUY",
+                rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name,
+                liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons,
+                preFdgVerdict = if (fdgDecision.canExecute()) "BUY" else "NO_BUY",
+                candidateVersion = candidateVersion6614, entryScore = ts.lastV3Score ?: ts.entryScore.toInt(),
+                tokenMapRouteStatus = tokenMap6614.routeStatus,
+                tokenMapHydrationComplete = tokenMap6614.hydrationComplete,
+                tokenMapExpectedOut = tokenMap6614.expectedOutAmount,
+                tokenMapProviderAttempts = tokenMap6614.providerAttempts,
+                requiresSolanaTokenMap = true,
+                allowTrunkExecutionHandoff6533 = true,
+            )
+        }
+        val specialistFdgAllowed6614 = specialistIntent6614?.fdgAllowed == true || fdgDecision.canExecute()
+        try {
+            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, if (specialistFdgAllowed6614) "FDG_ALLOW" else "FDG_BLOCK", specialistCausalId6614)
+        } catch (_: Throwable) {}
+        if (authResult.isExecutable() && (useV3Decision || fdgDecision.canExecute()) && specialistIntent6614 == null) {
+            try {
+                ToolkitSignalSheet.recordCausalIssue6600("SPECIALIST_INTENT_WITHOUT_FDG_OUTCOME", cyclePrimaryLane, "id=$specialistCausalId6614 mint=${identity.mint.take(10)}")
+                ForensicLogger.lifecycle("SPECIALIST_INTENT_WITHOUT_FDG_OUTCOME", "lane=$cyclePrimaryLane id=$specialistCausalId6614 mint=${identity.mint.take(10)} action=explicit_reject_no_bypass")
+            } catch (_: Throwable) {}
+            return
+        }
 
         // If TradeAuthorizer says SHADOW_ONLY, track but don't execute
         if (authResult.isShadowOnly()) {

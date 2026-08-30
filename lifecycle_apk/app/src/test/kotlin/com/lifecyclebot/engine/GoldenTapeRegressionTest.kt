@@ -9057,4 +9057,23 @@ class GoldenTapeRegressionTest {
         assertTrue(crypto.contains("CRYPTO_LEARNED_SIZE_FLOORED_NONZERO_6613") && crypto.contains("terminalDisposition6613"))
     }
 
+
+    @Test
+    fun V5_0_6614_meme_specialist_owner_fdg_mark_and_ticket_identity_is_immutable() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val coordinator = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneExecutionCoordinator.kt").readText()
+        val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val marks = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPriceMark6522.kt").readText()
+        val sheet = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt").readText()
+        assertTrue(bot.contains("roleFitPrimary6614") && bot.contains("strongestRole6614") && bot.contains("ensembleCoreFit6614"))
+        assertTrue(coordinator.contains("Do not re-elect it here using static") && !coordinator.contains("TREASURY_DEFER_SPECIALIST_FIRST"))
+        assertTrue(auth.contains("ExecutionBook.CASHGEN") && auth.contains("ExecutionBook.PROJECT_SNIPER"))
+        assertTrue(bot.contains("SPECIALIST_INTENT_WITHOUT_FDG_OUTCOME") && bot.contains("specialistCausalId6614"))
+        assertTrue(marks.contains("refreshFromExecutableTokenMap6614") && marks.contains("TOKEN_MAP_ROUTE_NOT_EXECUTABLE"))
+        assertTrue(gate.contains("markId6614") && gate.contains("markVersion6614") && gate.contains("sealedProvenance6614"))
+        assertTrue(gate.contains("TICKET_REFRESH_AUTHORITY_FAILURE") && gate.contains("EXPIRED_TICKET_ECONOMIC_REJECT_6614"))
+        assertTrue(sheet.contains("fdgAllow + fdgBlock == 0L") && sheet.contains("SPECIALIST_INTENT_WITHOUT_FDG_OUTCOME="))
+    }
+
 }
