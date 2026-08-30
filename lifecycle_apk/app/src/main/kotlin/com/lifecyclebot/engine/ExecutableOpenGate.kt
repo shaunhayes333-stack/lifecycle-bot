@@ -958,6 +958,16 @@ object ExecutableOpenGate {
                         safetyAuthorityTier = winningState6512?.safetyTier ?: safetyTier,
                         canonicalOccupancy = "${if (paperRuntime) "PAPER" else "LIVE"}:$mint",
                         resolvedOrderSizeSol = resolvedSizeForSeal,
+                        // V5.0.6609 §SEALED_ACTION_IN_SNAPSHOT (operator directive
+                        //   Feb 2026): FDG_ALLOW must persist the sealed action
+                        //   so a subsequent frozen-snapshot restore can honour
+                        //   BUY/PROBE_BUY rather than defaulting to UNKNOWN.
+                        fdgVerdict = finalVerdict,
+                        executionAction = when (finalVerdict.uppercase()) {
+                            "BUY" -> "BUY"
+                            "PROBE_ONLY" -> "PROBE_BUY"
+                            else -> ""
+                        },
                     )
                 } catch (_: Throwable) {}
             } else {
@@ -1266,7 +1276,53 @@ object ExecutableOpenGate {
         val v3Decision = state?.v3Decision ?: "UNKNOWN"
         val fdgCan = if (immutableAuthority6513 != null || ticketAuthority6564?.fdgAllowed == true) true else state?.fdgCan
         val fdgReason = immutableAuthority6513?.verdict ?: ticketAuthority6564?.fdgVerdict ?: state?.fdgReason ?: "n/a"
-        val signal = immutableAuthority6513?.authoritativeSignal ?: ticketAuthority6564?.authoritativeSignal ?: state?.signal ?: "UNKNOWN"
+        val signal: String = run {
+            // V5.0.6609 §POST_FDG_ACTION_RESTORE (operator directive Feb 2026:
+            //   "Once FDG returns BUY/PROBE_ONLY with allowed=true and an
+            //   ExecIntent has been created, the executor MUST NOT re-read any
+            //   mutable candidate.signal, legacy signal, restored signal, V3
+            //   signal or transient enum whose default can become UNKNOWN.").
+            //   The pre-existing chain fell through to `state?.signal ?: "UNKNOWN"`
+            //   after restore-from-frozen-snapshot dropped the FDG-authorized
+            //   action. Consult the sealed snapshot's executionAction as the
+            //   fourth authority — same authority that made FDG_ALLOW.
+            val fromImmutable = immutableAuthority6513?.authoritativeSignal
+            val fromTicket = ticketAuthority6564?.authoritativeSignal
+            val fromState = state?.signal
+            val fromSealed6609 = try {
+                val snap6609 = com.lifecyclebot.engine.truth.ExecutionSnapshotAuthority6496
+                    .sealedSnapshot6609(mint)
+                when (snap6609?.executionAction) {
+                    "BUY"       -> "BUY"
+                    "PROBE_BUY" -> "BUY"  // PROBE_BUY is executable BUY per operator
+                    else        -> null
+                }
+            } catch (_: Throwable) { null }
+            val chosen = fromImmutable ?: fromTicket ?: fromState ?: fromSealed6609 ?: "UNKNOWN"
+            // Invariant counter: FDG allowed via any prior seal but the chain
+            // still resolved UNKNOWN. Zero = healthy.
+            if (chosen == "UNKNOWN" && (fdgCan == true || fromSealed6609 != null)) {
+                try {
+                    PipelineHealthCollector.labelInc("POST_FDG_UNKNOWN_SIGNAL_6609")
+                    if (fromSealed6609 == null && fromImmutable == null && fromTicket == null) {
+                        PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_SEALED_EXEC_ACTION_6609")
+                    }
+                } catch (_: Throwable) {}
+            } else if (chosen != "UNKNOWN" && fromImmutable == null && fromTicket == null &&
+                fromState == null && fromSealed6609 != null) {
+                // Signal recovered ONLY via the sealed snapshot — the exact
+                // frozen-restore repair path the operator's directive spec's.
+                try {
+                    PipelineHealthCollector.labelInc("EXEC_RESTORED_ACTION_REPAIRED_6609")
+                    ForensicLogger.lifecycle(
+                        "EXEC_RESTORED_ACTION_REPAIRED_6609",
+                        "mint=${mint.take(10)} symbol=$symbol chosen=$chosen source=sealedSnapshot6609 " +
+                            "action=recovered_fdg_action_from_snapshot",
+                    )
+                } catch (_: Throwable) {}
+            }
+            chosen
+        }
         val band = state?.decisionBand ?: v3Decision
         val fatalReason = state?.v3FatalReason ?: fdgReason
         // V5.9.1367 — prefer LIVE context (ground truth at decision time) over a stale

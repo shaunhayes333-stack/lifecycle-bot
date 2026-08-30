@@ -41,6 +41,18 @@ object ExecutionSnapshotAuthority6496 {
         val canonicalOccupancy: String,
         val resolvedOrderSizeSol: Double,
         val recordedAtMs: Long,
+        // V5.0.6609 §SEALED_ACTION_IN_SNAPSHOT (operator directive Feb 2026:
+        //   "Snapshot restore must restore the immutable ExecIntent verbatim.
+        //   DO NOT reconstruct it by doing signal = savedSignal ?: UNKNOWN.
+        //   Persist and restore executionAction / fdgVerdict / allowed.").
+        //   Prior Snapshot only carried primaryLane / safety / occupancy /
+        //   size — so when the frozen-snapshot restore fired (118× in the
+        //   6608 dump), downstream signal derivation had no FDG-authorized
+        //   verdict to pick up and defaulted to UNKNOWN, producing 118×
+        //   EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY. Add the sealed FDG action
+        //   here so the restore path can honour it.
+        val fdgVerdict: String = "",
+        val executionAction: String = "",
     )
 
     private val sealed = ConcurrentHashMap<String, Snapshot>()
@@ -60,6 +72,11 @@ object ExecutionSnapshotAuthority6496 {
         safetyAuthorityTier: String,
         canonicalOccupancy: String,
         resolvedOrderSizeSol: Double,
+        // V5.0.6609 §SEALED_ACTION_IN_SNAPSHOT — optional so pre-6609 call
+        // sites keep compiling; callers that have the FDG verdict should
+        // pass it so frozen-snapshot restore honours the sealed action.
+        fdgVerdict: String = "",
+        executionAction: String = "",
     ) {
         if (mint.isBlank()) return
         val snap = Snapshot(
@@ -68,10 +85,25 @@ object ExecutionSnapshotAuthority6496 {
             canonicalOccupancy = canonicalOccupancy,
             resolvedOrderSizeSol = resolvedOrderSizeSol,
             recordedAtMs = System.currentTimeMillis(),
+            fdgVerdict = fdgVerdict.uppercase(),
+            executionAction = executionAction.uppercase(),
         )
         sealed[mint] = snap
         records.incrementAndGet()
         try { PipelineHealthCollector.labelInc("EXEC_SNAPSHOT_RECORDED_6496") } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.6609 §SEALED_ACTION_IN_SNAPSHOT — public read of a still-valid
+     * (within TTL) sealed snapshot so the executor can recover the FDG-
+     * authorized executionAction after a frozen-snapshot restore. Returns
+     * null when no snapshot exists or the TTL has expired.
+     */
+    fun sealedSnapshot6609(mint: String): Snapshot? {
+        if (mint.isBlank()) return null
+        val snap = sealed[mint] ?: return null
+        val age = System.currentTimeMillis() - snap.recordedAtMs
+        return if (age in 0..SNAPSHOT_TTL_MS) snap else null
     }
 
     /**
