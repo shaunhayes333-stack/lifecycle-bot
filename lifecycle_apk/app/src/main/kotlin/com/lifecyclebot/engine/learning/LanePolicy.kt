@@ -281,6 +281,59 @@ object LanePolicy {
         return w.toDouble() / n
     }
 
+    // V5.0.6611 §BAYESIAN_LEARNING_FROM_TRADE_ONE (operator directive Feb 2026:
+    //   "Use Bayesian/regularized adaptation: N=1 gives small influence. N=2
+    //   gives slightly more. Influence rises continuously with evidence
+    //   quality and sample size. Large tactic changes may retain stronger
+    //   posterior/sample requirements. But soft changes begin after the
+    //   first terminal trade.").
+    //   The strict null-until-12 gate on rollingWr* means every learned
+    //   signal is silent for the first ~5-8 minutes of trading each cold
+    //   session — during which the classic 60-loss streak forms. Replace
+    //   with a regularised Beta-Bernoulli posterior:
+    //     α = β = BETA_PRIOR_6611 = 2   (weak prior, WR≈50%)
+    //     posteriorWr = (w + α) / (n + α + β)
+    //   Yields:
+    //     n=0            → 0.500 (neutral, no influence)
+    //     n=1 W          → 0.600 (mild bullish nudge)
+    //     n=1 L          → 0.400 (mild bearish nudge)
+    //     n=5 W=0 L=5    → 0.222 (clear bearish — resize sooner)
+    //     n=12 all L     → 0.125 (matches the DEMOTE_WR 0.18 gate)
+    //   This is a SEPARATE method from rollingWr* so existing callers that
+    //   explicitly check for null (\"no opinion yet\") remain unchanged.
+    //   Callers that want adaptive-from-N=1 behaviour use posteriorWr6611.
+    private const val BETA_PRIOR_6611: Double = 2.0
+
+    fun posteriorWr6611(lane: String): Double {
+        if (lane.isBlank()) return 0.5
+        val cell = getOrCreateLaneCell(lane)
+        val w = cell.winWindow.get().toDouble()
+        val l = cell.lossWindow.get().toDouble()
+        val n = w + l
+        return ((w + BETA_PRIOR_6611) / (n + BETA_PRIOR_6611 * 2.0)).coerceIn(0.0, 1.0)
+    }
+
+    fun posteriorWrForBucket6611(lane: String, scoreBand: String): Double {
+        if (lane.isBlank()) return 0.5
+        val cell = getOrCreateBucketCell(lane, scoreBand)
+        val w = cell.winWindow.get().toDouble()
+        val l = cell.lossWindow.get().toDouble()
+        val n = w + l
+        return ((w + BETA_PRIOR_6611) / (n + BETA_PRIOR_6611 * 2.0)).coerceIn(0.0, 1.0)
+    }
+
+    /**
+     * V5.0.6611 — Effective sample count for the posterior. Zero when only
+     * the prior speaks. Callers that need "how much of this posterior comes
+     * from real evidence vs prior" (e.g. a hard-reject requires stronger
+     * evidence than a soft-shape).
+     */
+    fun evidenceSamples6611(lane: String): Int {
+        if (lane.isBlank()) return 0
+        val cell = getOrCreateLaneCell(lane)
+        return (cell.winWindow.get() + cell.lossWindow.get())
+    }
+
     /**
      * V5.0.3804 — persistent-bleed auto-pivot cap.
      *
@@ -293,7 +346,22 @@ object LanePolicy {
     fun bleedExecutionCap(lane: String, scoreBand: String): Double? {
         val laneWr = rollingWr(lane)
         val bucketWr = rollingWrForBucket(lane, scoreBand)
-        val wr = listOfNotNull(laneWr, bucketWr).minOrNull() ?: return null
+        val wr = listOfNotNull(laneWr, bucketWr).minOrNull() ?: run {
+            // V5.0.6611 §BAYESIAN_FROM_TRADE_ONE — fall back to the
+            //   regularised Beta-Bernoulli posterior when the strict
+            //   window sample size hasn't yet been reached. Only fires
+            //   when at least one real terminal outcome exists AND the
+            //   posterior is meaningfully bearish (< 0.35). Neutral
+            //   posterior (0.50 with n=0) never applies a cap.
+            val postLane6611 = posteriorWr6611(lane)
+            val postBucket6611 = posteriorWrForBucket6611(lane, scoreBand)
+            val minPost6611 = minOf(postLane6611, postBucket6611)
+            val evidenceN6611 = evidenceSamples6611(lane)
+            if (evidenceN6611 >= 1 && minPost6611 < 0.35) {
+                try { PipelineHealthCollector.labelInc("LANE_BLEED_EXECUTION_CAP_POSTERIOR_6611_${laneKey(lane)}") } catch (_: Throwable) {}
+                minPost6611
+            } else return null
+        }
         val regime = try { RegimeDetector.currentRegime() } catch (_: Throwable) { RegimeDetector.Regime.NORMAL }
         val cap = when {
             regime == RegimeDetector.Regime.DEAD && wr < 0.25 -> 0.08
@@ -301,6 +369,7 @@ object LanePolicy {
             regime == RegimeDetector.Regime.DUMP && wr < 0.20 -> 0.18
             wr < DEMOTE_WR -> 0.22
             wr < 0.25 -> 0.35
+            wr < 0.35 -> 0.55  // V5.0.6611 — soft cap for early bearish posterior
             else -> null
         }
         if (cap != null) {
