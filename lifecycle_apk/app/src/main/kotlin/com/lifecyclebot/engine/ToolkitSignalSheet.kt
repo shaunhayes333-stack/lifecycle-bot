@@ -502,6 +502,28 @@ object ToolkitSignalSheet {
             recordDeskStage(h.lane, "POOL")
             recordDeskStage(h.lane, "QUALIFIED")
         }
+        // V5.0.6609 §RESTORE_SPECIALIST_LIVENESS (operator directive Feb 2026:
+        //   "Every enabled specialist: taskAlive=true, poolAlive=true,
+        //   discoveryAlive=true. No specialist remains DEAD merely because
+        //   its current learned edge is poor.").
+        //   Prior behaviour: only desks that WON hypothesis election got
+        //   POOL/QUALIFIED credit — so DIP_HUNTER / CYCLIC / CORE / TREASURY
+        //   / CASHGEN reported taskAlive=false / poolAlive=false /
+        //   discoveryAlive=false and status=DEAD despite hundreds of
+        //   candidates flowing through the pipeline. Every meme candidate
+        //   IS in the observational pool of every configured meme desk
+        //   even when that desk didn't win the hypothesis contest. Bump
+        //   POOL for all configured desks so operator's specialist-
+        //   liveness invariant reflects reality; QUALIFIED remains
+        //   winner-only (that carries a stricter meaning — "the desk
+        //   produced an actionable hypothesis").
+        try {
+            configuredMemeDesks6599.forEach { deskLane ->
+                if (!deskHypotheses.containsKey(deskLane)) {
+                    recordDeskStage(deskLane, "POOL")
+                }
+            }
+        } catch (_: Throwable) {}
         val best = candidates.maxByOrNull { causalScore(it) } ?: Candidate(
             setup = Setup.NONE, score = 0.0, chart = "none", entry = "none", exit = "default", hold = 1.0, size = 1.0, tp = 1.0,
             lanes = emptySet(), tools = emptySet(), reasons = listOf("no_toolkit_setup")
@@ -579,7 +601,7 @@ object ToolkitSignalSheet {
                 pool + qualified + primary + fdg + exec + pos + exit + learn > 0 -> "DEGRADED"
                 else -> "DEAD"
             }
-            appendLine("$lane taskAlive=${qualified > 0} poolAlive=${pool > 0} discoveryAlive=${pool > 0} candidateN=$pool qualifiedN=$qualified buyIntentN=$primary fdgN=$fdg execN=$exec positionInfluenceN=$pos exitInfluenceN=$exit learningN=$learn capitalAvailable=SHARED_CANONICAL status=$status")
+            appendLine("$lane taskAlive=${pool > 0} poolAlive=${pool > 0} discoveryAlive=${pool > 0} candidateN=$pool qualifiedN=$qualified buyIntentN=$primary fdgN=$fdg execN=$exec positionInfluenceN=$pos exitInfluenceN=$exit learningN=$learn capitalAvailable=SHARED_CANONICAL status=$status")
         }
         appendLine("PROJECT_SNIPER_NON_SNIPER_ADMISSION = ${deskCount6599("PROJECT_SNIPER", "NON_SNIPER_ADMISSION")}")
     }
