@@ -1,10 +1,35 @@
-# AATE PRD — V5.0.6608 (SEALED-ENVELOPE + MEMETRADER ORGANISM + REPAIR F/C AUDIT + STANDARD-LANE LEGITIMATE)
+# AATE PRD — V5.0.6609b (SEALED_ACTION_IN_SNAPSHOT + SPECIALIST LIVENESS — P0 REPAIRS SHIPPED)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
-**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6608d CI GREEN.**
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6609 + V5.0.6609b BOTH CI GREEN.**
+
+## V5.0.6609 / 6609b (Feb 2026) — P0 EXECUTION AUTHORITY + SPECIALIST LIVENESS
+
+Operator's V5.0.6608 forensic dump exposed two P0 defects the operator required zeroed:
+
+**§SEALED_ACTION_IN_SNAPSHOT (V5.0.6609 — the 118 = 118 smoking gun).** 118× `EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY` matched exactly 118× `EXEC_STATE_RESTORED_FROM_FROZEN_SNAPSHOT_6499`. Root cause: `ExecutionSnapshotAuthority6496.Snapshot` only carried primaryLane / safety / occupancy / size — no `fdgVerdict` or `executionAction`. When the frozen-snapshot restore fired, downstream signal derivation in `ExecutableOpenGate.canOpenExecutablePosition` fell through to `state?.signal ?: "UNKNOWN"` and blocked the buy despite FDG having already authorised it.
+
+Repair (operator §3 + §5 + §8):
+* `Snapshot` extended with `fdgVerdict` + `executionAction` (defaults preserve backward compat).
+* `record()` at FDG_ALLOW now maps `BUY → BUY` and `PROBE_ONLY → PROBE_BUY` and seals both.
+* New `sealedSnapshot6609(mint)` TTL-bounded public read.
+* Executor signal chain now consults sealed snapshot as **4th authority**: `immutableAuthority6513 ?: ticketAuthority6564 ?: state?.signal ?: sealedSnapshot6609.executionAction ?: "UNKNOWN"`. `PROBE_BUY` resolves to executable BUY per operator §7.
+* Invariant counters (target zero): `POST_FDG_UNKNOWN_SIGNAL_6609`, `FDG_ALLOW_WITHOUT_SEALED_EXEC_ACTION_6609`.
+* Recovery counter: `EXEC_RESTORED_ACTION_REPAIRED_6609` — the exact name operator §3 specced.
+
+**§SPECIALIST_LIVENESS_RESTORATION (V5.0.6609b — telemetry-truth for DEAD desks).** DIP_HUNTER / CYCLIC / CORE / TREASURY / CASHGEN reported `taskAlive=false / poolAlive=false / discoveryAlive=false / status=DEAD` despite hundreds of candidates in scanner. `ToolkitSignalSheet.deskHypothesesFor` only bumped `POOL` for desks that WON hypothesis election. Fix:
+* Every configured meme desk (all 12) that did NOT win a hypothesis now still receives a `POOL` bump per candidate — because every meme candidate IS in the observational pool of every configured desk.
+* `taskAlive` derived from `pool > 0` (desk is running/observing) instead of `qualified > 0` (desk won a hypothesis contest). QUALIFIED remains winner-only.
+
+Followup scope (still open):
+* Bounded contributor merge — specialist opinions influencing owner's sizing/hold/exit/learning (allLaneContribution counter emits now via V5.0.6607b; the merge itself is the next step).
+* Complete EXPRESS executable path (ownerSelected=40 → sizedExecutable=0 handoff break).
+* Formalise position lifecycle state machine so `canonicalClosedDelta` / `closeLedgerClosedDelta` / `terminalSellPublishedDelta` agree.
+* Immutable entry-lane exit policy (stop MOONSHOT inheriting SHITCOIN_STOP_LOSS).
+* Bayesian learning-from-trade-one (kill `specialistLearningMissing`).
 
 ## V5.0.6608 (Feb 2026) — SEALED_ENVELOPE_INVARIANT + MEMETRADER ORGANISM DIRECTIVE
 
