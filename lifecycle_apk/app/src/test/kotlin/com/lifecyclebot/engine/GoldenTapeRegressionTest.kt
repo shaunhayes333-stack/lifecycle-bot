@@ -8193,7 +8193,11 @@ class GoldenTapeRegressionTest {
         assertTrue(boundary.contains("SELL_QTY_BOUNDARY_ADMITTED_" + "6498") && boundary.contains("SELL_QTY_BOUNDARY_REJECTED_" + "6498"))
         assertTrue(parity.contains("canonicalStateByMint" + "6498") && parity.contains("c=$" + "expectedState6498"))
         assertTrue(registry.contains("state = p.state") && registry.contains("PARTIALLY_CLOSED"))
-        assertTrue(sizing.contains("kotlin.math.max(risk, ladderTarget)") && !sizing.contains("kotlin.math.min(risk, ladderFloor)"))
+        assertTrue(
+            "V5.0.6498+6612: laddered must remain the MAX of risk-derived and ladderTarget — accept either `risk` or `nudgedRisk` (bounded contributor merge preserves the doctrine)",
+            (sizing.contains("kotlin.math.max(risk, ladderTarget)") || sizing.contains("kotlin.math.max(nudgedRisk, ladderTarget)")) &&
+                !sizing.contains("kotlin.math.min(risk, ladderFloor)")
+        )
         assertTrue(sizing.contains("authorityCapLamports" + "6498"))
         assertTrue(groq.contains("openai/gpt-oss-20b"))
     }
