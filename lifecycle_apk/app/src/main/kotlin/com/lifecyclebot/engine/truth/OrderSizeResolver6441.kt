@@ -103,6 +103,12 @@ object OrderSizeResolver6441 {
         laneRiskCapSol: Double = DEFAULT_LANE_RISK_CAP_SOL,
         laneMinExecutableSol: Double = ABS_MIN_EXECUTABLE_SOL,
         applyPaperMemeMinimum: Boolean = true,
+        // V5.0.6612 §BOUNDED_CONTRIBUTOR_MERGE (operator directive Feb 2026:
+        //   contributors must influence sizing/hold/exit/learning).
+        //   Optional mint so the resolver can apply the bounded contributor
+        //   multiplier from SpecialistContributorMerge6612. Default blank
+        //   preserves backward compatibility with all pre-6612 callers.
+        mint: String = "",
     ): Resolution {
         totalResolves.incrementAndGet()
 
@@ -110,12 +116,23 @@ object OrderSizeResolver6441 {
         val requested = requestedSol.coerceAtLeast(0.0)
         val risk = requested.coerceAtMost(laneRiskCapSol)
 
+        // V5.0.6612 — bounded contributor merge nudge. Applied BEFORE the
+        // runner ladder so subsequent hard caps (risk/cash/lane/ladder) can
+        // still clip it — the merge cannot break sealed authority.
+        val contribMult6612 = try {
+            if (mint.isNotBlank())
+                com.lifecyclebot.engine.truth.SpecialistContributorMerge6612
+                    .boundedSizeMultiplier6612(mint)
+            else 1.0
+        } catch (_: Throwable) { 1.0 }
+        val nudgedRisk = (risk * contribMult6612).coerceAtMost(laneRiskCapSol)
+
         // V5.0.6552 — the runner ladder is an authorized target input. It may
         // lift a positive proposal, but can never bypass hard risk/cash caps.
         val ladderTarget = try {
             RunnerCompoundingLadder6440.recommendedSizeSol(walletSol)
         } catch (_: Throwable) { 0.0 }
-        val laddered = if (ladderTarget.isFinite() && ladderTarget > 0.0) kotlin.math.max(risk, ladderTarget) else risk
+        val laddered = if (ladderTarget.isFinite() && ladderTarget > 0.0) kotlin.math.max(nudgedRisk, ladderTarget) else nudgedRisk
 
         // 3. wallet / cash cap — final hard cap is supplied by the dynamic
         // wallet-percent/portfolio policy, not a lane's static SOL map.

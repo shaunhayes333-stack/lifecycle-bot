@@ -11352,6 +11352,25 @@ class BotService : Service() {
                         ForensicLogger.lifecycle("LIVE_ALL_LANE_CONTRIBUTION_4469", "mode=$modeTag6607 lane=$l primary=$primaryLane ownerHint=$contributorRotationHint6599 specialistSelected=$allowed primary=${l.equals(primaryLane, true)} rescue=${l.equals(boundedRescue6600, true)} contributorOnly=${!allowed} symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")} action=considered_bounded_owner_rotation")
                         PipelineHealthCollector.labelInc("LIVE_ALL_LANE_CONTRIBUTION_4469_$l")
                         PipelineHealthCollector.labelInc("MEME_ALL_LANE_CONTRIBUTION_6607_${modeTag6607}_$l")
+                        // V5.0.6612 §BOUNDED_CONTRIBUTOR_MERGE (operator directive
+                        //   Feb 2026: contributors must influence sizing/hold/exit/
+                        //   learning). Record every non-owner desk opinion that
+                        //   reached this point. Owner-side sizing reads
+                        //   SpecialistContributorMerge6612.boundedSizeMultiplier6612(mint)
+                        //   which clamps to [0.75, 1.25] — contributors can nudge
+                        //   the owner's sealed size, never break it.
+                        if (!allowed) {
+                            try {
+                                com.lifecyclebot.engine.truth.SpecialistContributorMerge6612.recordContributor(
+                                    mint = ts.mint,
+                                    lane = l,
+                                    laneScore = laneBase.entryScore,
+                                    aiConfidence = laneBase.aiConfidence,
+                                    buyIntent = laneBase.signal.equals("BUY", true) ||
+                                                laneBase.finalSignal.equals("BUY", true),
+                                )
+                            } catch (_: Throwable) {}
+                        }
                         if (!allowed) PipelineHealthCollector.labelInc("LIVE_ALL_LANE_CONTRIBUTION_SUPPRESSED_4478_$l")
                     } catch (_: Throwable) {}
                 }
