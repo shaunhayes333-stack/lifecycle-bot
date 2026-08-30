@@ -10101,8 +10101,23 @@ class Executor(
                 PipelineHealthCollector.labelInc("PAPER_TOPUP_POST_MUTATION_INVARIANT_OK_6539")
             }
         } catch (_: Throwable) {}
+        // V5.0.6610 §IMMUTABLE_ENTRY_LANE_ON_TOPUP (operator directive Feb 2026:
+        //   "A position's exit personality derives from immutable entryLane +
+        //   current learned tactic. Do not allow a MOONSHOT position to
+        //   accidentally acquire SHITCOIN exit logic through a mutable
+        //   current-lane lookup."). Operator's V5.0.6609 dump captured
+        //   pid=907:MOONSHOT lane=STANDARD entry=... reason=top_up_1 — the
+        //   top-up trade was defaulting Trade.tradingMode to "STANDARD"
+        //   (the data-class default) instead of the position's immutable
+        //   entryLane. That produced STANDARD-labelled BUY journal rows
+        //   even though the position was legitimately MOONSHOT. Preserve
+        //   the position's immutable entry-lane through the top-up trade
+        //   so the exit personality is derived from MOONSHOT not STANDARD.
         val trade = Trade("BUY", "paper", sol, tokenPriceUsd,
-                          System.currentTimeMillis(), "top_up_${pos.topUpCount + 1}")
+                          System.currentTimeMillis(), "top_up_${pos.topUpCount + 1}",
+                          tradingMode = pos.tradingMode.ifBlank { "STANDARD" },
+                          tradingModeEmoji = pos.tradingModeEmoji.ifBlank { "📈" },
+                          mint = ts.mint)
         recordTrade(ts, trade)
         security.recordTrade(trade)
         // V5.0.3871 — paper top-ups are BUY legs and must debit available paper cash.

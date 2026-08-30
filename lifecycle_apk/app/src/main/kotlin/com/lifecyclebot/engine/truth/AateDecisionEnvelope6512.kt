@@ -132,6 +132,34 @@ object AateDecisionFabric6512 {
                 ToolkitSignalSheet.recordDeskStage(lane, "LEARNING", env.positionId)
             } catch (_: Throwable) {}
         }
+        // V5.0.6610 §LEARNING_FANOUT_TO_OWNER (operator directive Feb 2026:
+        //   "Every finalized canonical MemeTrader trade must immediately
+        //   update owner specialist... including losing trades.
+        //   specialistLearningMissing must remain zero.").
+        //   Prior behaviour: only cross-lane contributors got a LEARNING
+        //   stage bump — the PRIMARY owner was assumed trained by
+        //   V3JournalRecorder elsewhere and never received the stage
+        //   counter. Operator's V5.0.6609 dump: every specialist
+        //   learningN=0 despite 616 lifetime finalized trades. The
+        //   train-once path elsewhere IS running (LanePolicy state
+        //   proves it) but the report's `learningN` derives from
+        //   recordDeskStage(LEARNING) — so the report showed zero.
+        //   Fix: bump LEARNING for the owner lane on every finalization
+        //   so the operator's learning-fanout invariant reflects
+        //   reality. This does NOT double-train LanePolicy (V3JournalRecorder
+        //   still holds that responsibility); it only bumps the stage
+        //   counter that populates the liveness report.
+        try {
+            val ownerLane6610 = env.lane.uppercase()
+            if (ownerLane6610.isNotBlank() && ownerLane6610 in setOf(
+                    "QUALITY","BLUECHIP","BLUE_CHIP","SHITCOIN","CYCLIC","EXPRESS","CORE",
+                    "MOONSHOT","PROJECT_SNIPER","DIP_HUNTER","MANIPULATED","TREASURY","CASHGEN",
+                )
+            ) {
+                ToolkitSignalSheet.recordDeskStage(ownerLane6610, "LEARNING", env.positionId)
+                PipelineHealthCollector.labelInc("SPECIALIST_LEARNING_OWNER_FANOUT_6610_$ownerLane6610")
+            }
+        } catch (_: Throwable) {}
         val graphBefore = SemanticPatternGraph.nodeCount6512()
         val graphId = try { SemanticPatternGraph.recordOutcome(
             lane = env.lane, source = e?.context?.source ?: "CANONICAL_FINALITY",
