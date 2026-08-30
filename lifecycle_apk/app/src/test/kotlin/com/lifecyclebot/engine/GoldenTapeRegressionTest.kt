@@ -387,7 +387,7 @@ class GoldenTapeRegressionTest {
     fun live_stale_restore_cannot_resurrect_old_fdg_approval() {
         val openGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         assertTrue("LIVE stale-WATCH restore must be ticket based, not global-version based", openGate.contains("data class ExecutionIntent") && openGate.contains("EXEC_TICKET_RESTORED_IMMUTABLE"))
-        assertTrue("LIVE stale-candidate version churn must not kill an immutable ticket", openGate.contains("immutableTicket == null && immutableAuthority6513 == null && !selectedLaneMatchesRequest") && openGate.contains("immutableTicket == null"))
+        assertTrue("LIVE stale-candidate version churn must not kill an immutable ticket", openGate.contains("immutableTicket == null && ticketAuthority6564 == null && immutableAuthority6513 == null && !selectedLaneMatchesRequest") && openGate.contains("immutableTicket == null"))
     }
     @Test
     fun internet_edge_text_fallback_is_not_mislabeled_as_parsed_internet_json() {
@@ -3826,7 +3826,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         assertTrue("Final executable gate must create immutable execution tickets", gate.contains("data class ExecutionIntent") && gate.contains("EXEC_TICKET_CREATED") && gate.contains("allowedAttempts[laneKey(ticket.mint, ticket.lane)]") && gate.contains("EXEC_INTENT_CREATED"))
-        assertTrue("ticket restore must bypass mutable WATCH/version/lane churn", gate.contains("EXEC_TICKET_RESTORED_IMMUTABLE") && gate.contains("immutableTicket == null && immutableAuthority6513 == null && !selectedLaneMatchesRequest") && gate.contains("""safetyTier.equals("UNKNOWN", true) && immutableTicket == null"""))
+        assertTrue("ticket restore must bypass mutable WATCH/version/lane churn", gate.contains("EXEC_TICKET_RESTORED_IMMUTABLE") && gate.contains("immutableTicket == null && ticketAuthority6564 == null && immutableAuthority6513 == null && !selectedLaneMatchesRequest") && gate.contains("""safetyTier.equals("UNKNOWN", true) && immutableTicket == null"""))
         assertTrue("stale/finality failures need separate counters", exec.contains("BUY_FAILED_FINALITY") && exec.contains("BUY_FAILED_STALE_TICKET") && exec.contains("BUY_FAILED_ROUTE") && exec.contains("BUY_FAILED_SAFETY"))
         assertTrue("executor phase counters must represent actual tx progress", listOf("EXEC_SELECTED", "EXEC_TICKET_CREATED", "QUOTE_REQUESTED", "QUOTE_OK", "SWAP_BUILT", "TX_SIGNED", "TX_SUBMITTED", "TX_CONFIRMED", "BUY_JOURNALED").all { (gate + exec).contains(it) })
         assertTrue("tx confirmed without live journal must fail regression guard", pipe.contains("TX_CONFIRMED_WITHOUT_BUY_JOURNALED") && pipe.contains("REGRESSION_GUARDS_FAIL"))
