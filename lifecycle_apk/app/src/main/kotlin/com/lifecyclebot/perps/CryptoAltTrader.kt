@@ -1085,11 +1085,7 @@ object CryptoAltTrader {
                     // the funnel loses the transition. Fixed: stamp
                     // CANDIDATE just before executeSignal so the funnel
                     // shows candidate == actionable_after_dedup.
-                    com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(
-                        com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "CANDIDATE"
-                    )
                     executeSignal(sig.copy(leverage = dynLev), isSpot = dynSpot)
-                    DynamicAltTokenRegistry.markEvaluationDisposition6567(terminalTok6567, "HANDED_TO_CANONICAL_AUTHORITY")
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Throwable) {
@@ -2115,6 +2111,17 @@ object CryptoAltTrader {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private suspend fun executeSignal(signal: AltSignal, isSpot: Boolean) {
+        fun terminalDisposition6613(reason: String) {
+            try {
+                val key = cryptoAssetKey(signal, isSpot)
+                DynamicAltTokenRegistry.markEvaluationDisposition6567(
+                    DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(key), reason,
+                )
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markDispatchRejectFor6569(
+                    com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, signal.marketSymbol, reason,
+                )
+            } catch (_: Throwable) {}
+        }
         // V5.9.1472 — DYNAMIC CRYPTO: resolve the REAL coin symbol once. For DYN
         // sentinel signals (arbitrary non-Solana coin) this is dynSymbol; for
         // hardcoded enum coins it's market.symbol. ALL learning/record/log calls
@@ -2169,13 +2176,13 @@ object CryptoAltTrader {
                 val cryptoBehind = try {
                     com.lifecyclebot.engine.DailyCompoundingTracker.behindTargetPressure()
                 } catch (_: Throwable) { 1.0 }
-                val cryptoBlend = (cryptoTuneMult * cryptoEdge * cryptoBehind).coerceIn(0.0, 2.5)
+                val rawCryptoBlend6613 = cryptoTuneMult * cryptoEdge * cryptoBehind
+                val cryptoBlend = rawCryptoBlend6613.coerceIn(0.20, 2.5)
                 sizeSol *= cryptoBlend
-                if (cryptoBlend <= 0.001) {
-                    ErrorLogger.warn(TAG,
-                        "🚫 CRYPTO_PARITY_ZERO_SIZE ${mktSym} lane=$cryptoLane tune=${"%.2f".format(cryptoTuneMult)} edge=${"%.2f".format(cryptoEdge)} behind=${"%.2f".format(cryptoBehind)} — LiveProbabilityEngine catastrophic bleed-cap fired, skipping")
-                    return
-                }
+                if (rawCryptoBlend6613 < 0.20) try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_LEARNED_SIZE_FLOORED_NONZERO_6613")
+                    ForensicLogger.lifecycle("CRYPTO_LEARNED_SIZE_FLOORED_NONZERO_6613", "symbol=$mktSym lane=$cryptoLane raw=$rawCryptoBlend6613 floor=0.20 action=continue_to_canonical_sizer")
+                } catch (_: Throwable) {}
                 ErrorLogger.debug(TAG,
                     "🧠 CRYPTO_PARITY_SIZING ${mktSym} lane=$cryptoLane baseMult=${"%.2f".format(sizeMult)} tune=${"%.2f".format(cryptoTuneMult)} edge=${"%.2f".format(cryptoEdge)} behind=${"%.2f".format(cryptoBehind)} blend=${"%.2f".format(cryptoBlend)}")
             } catch (_: Throwable) {}
@@ -2203,6 +2210,7 @@ object CryptoAltTrader {
         sizeSol *= cryptoToxicSizeMult6095
 
         if (sizeSol < 0.01) {
+            terminalDisposition6613("PRE_SUBMIT_SIZE_BELOW_FLOOR")
             ErrorLogger.warn(TAG, "Insufficient balance for ${mktSym} (${sizeSol} SOL)")
             return
         }
@@ -2216,22 +2224,28 @@ object CryptoAltTrader {
         val totalRisk = positions.values.sumOf { it.sizeSol }
         val maxRisk   = balance * 0.80
         if (totalRisk + sizeSol > maxRisk) {
+            terminalDisposition6613("PRE_SUBMIT_EXPOSURE_CAP")
             ErrorLogger.info(TAG, "🛑 Exposure cap: ${"%.2f".format(totalRisk)}◎ at risk / ${"%.2f".format(maxRisk)}◎ max — skipping ${mktSym}")
             return
         }
         // V5.9.9: Cross-trader wallet exposure check
         if (!isPaperMode.get()) {
             val walletBal = try { WalletManager.getWallet()?.getSolBalance() ?: 0.0 } catch (_: Exception) { 0.0 }
-            if (!com.lifecyclebot.engine.WalletPositionLock.canOpen("CryptoAlt", sizeSol, walletBal)) return
+            if (!com.lifecyclebot.engine.WalletPositionLock.canOpen("CryptoAlt", sizeSol, walletBal)) {
+                terminalDisposition6613("PRE_SUBMIT_LIVE_WALLET_LOCK")
+                return
+            }
         }
         val cachedPriceData = PerpsMarketDataFetcher.getCachedPrice(signal.market)
         if (signal.price <= 0.0) {
+            terminalDisposition6613("PRE_SUBMIT_PRICE_ZERO")
             ErrorLogger.warn(TAG, "🪙 PRICE ZERO: ${mktSym} — REJECTING trade")
             return
         }
         if (cachedPriceData != null && cachedPriceData.price > 0) {
             val priceDiffPct = kotlin.math.abs(signal.price - cachedPriceData.price) / cachedPriceData.price * 100.0
             if (priceDiffPct > 90.0) {
+                terminalDisposition6613("PRE_SUBMIT_PRICE_SANITY_${priceDiffPct.toInt()}")
                 ErrorLogger.warn(TAG, "🪙 PRICE SANITY FAIL: ${mktSym} signal=\$${signal.price} cached=\$${cachedPriceData.price} diff=${priceDiffPct.toInt()}% — REJECTING")
                 return
             }
@@ -2292,6 +2306,7 @@ object CryptoAltTrader {
                     reason = "SIZE_NOT_EXECUTABLE:${altSizingRes.reason}",
                 )
             } catch (_: Throwable) {}
+            terminalDisposition6613("PRE_SUBMIT_SIZE_NOT_EXECUTABLE:${altSizingRes.reason}")
             ErrorLogger.warn(TAG, "🪙 sizing gate declined ${mktSym}: ${altSizingRes.reason}")
             return
         }
@@ -2335,9 +2350,13 @@ object CryptoAltTrader {
             // blocked candidate does not suppress follow-up CRYPTO attempts for the same
             // asset until TTL. CRYPTO lane is isolated; this never touches Meme lanes.
             try { com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(candidate.assetKey, "CRYPTO", "CRYPTO_EXEC_BLOCKED") } catch (_: Throwable) {}
+            terminalDisposition6613("PRE_SUBMIT_FDG_OR_HARD_NO:${candidate.hardNoReasons.joinToString(",")}")
             return
         }
         try { ForensicLogger.phase(ForensicLogger.PHASE.LANE_EVAL, candidate.symbol, "lane=CRYPTO_ALT source=CANONICAL_HANDOFF_6566 score=${signal.score} confidence=${signal.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
+        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(
+            com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "CANDIDATE"
+        )
         val canonicalCryptoAdmission6565 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.submit(
             com.lifecyclebot.engine.truth.CanonicalAssetEntryCandidate6551(
                 assetId = candidate.assetKey, symbol = mktSym,
@@ -2358,16 +2377,25 @@ object CryptoAltTrader {
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Probe -> canonicalCryptoAdmission6565.intent
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Blocked -> {
                 try { TradeAuthorizer.releasePosition(candidate.assetKey, "CRYPTO_6551_BLOCKED_${canonicalCryptoAdmission6565.reason}", TradeAuthorizer.ExecutionBook.CRYPTO) } catch (_: Throwable) {}
+                terminalDisposition6613("CANONICAL_BLOCKED:${canonicalCryptoAdmission6565.reason}")
                 return
             }
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Deferred -> {
                 try { TradeAuthorizer.releasePosition(candidate.assetKey, "CRYPTO_6551_DEFERRED_${canonicalCryptoAdmission6565.reason}", TradeAuthorizer.ExecutionBook.CRYPTO) } catch (_: Throwable) {}
+                terminalDisposition6613("CANONICAL_DEFERRED:${canonicalCryptoAdmission6565.reason}")
                 return
             }
         }
         val canonicalFinalSize6570 = canonicalCryptoIntent6565.resolvedSize
+        try {
+            DynamicAltTokenRegistry.markEvaluationDisposition6567(
+                DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(candidate.assetKey),
+                "HANDED_TO_CANONICAL_AUTHORITY",
+            )
+        } catch (_: Throwable) {}
         if (!canonicalFinalSize6570.isFinite() || canonicalFinalSize6570 <= 0.0) {
             com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(canonicalCryptoIntent6565, "INVALID_SEALED_SIZE_6570")
+            terminalDisposition6613("CANONICAL_INVALID_SEALED_SIZE")
             return
         }
         try {
@@ -2443,6 +2471,7 @@ object CryptoAltTrader {
                 ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: $mktSym ${canonicalOpen6486.reason}")
                 com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(canonicalCryptoIntent6565, canonicalOpen6486.reason)
                 try { TradeAuthorizer.releasePosition(candidate.assetKey, "CRYPTO_PAPER_CANONICAL_REJECTED", TradeAuthorizer.ExecutionBook.CRYPTO) } catch (_: Throwable) {}
+                terminalDisposition6613("CANONICAL_PAPER_OPEN_REJECTED:${canonicalOpen6486.reason}")
                 return
             }
             // V5.0.6578 — success confirms the paper dispatch produced a canonical open.
@@ -2466,6 +2495,7 @@ object CryptoAltTrader {
                 ErrorLogger.warn(TAG, "🔴 LIVE alt trade failed: ${mktSym} — position not recorded")
                 try { TradeAuthorizer.releasePosition(candidate.assetKey, "CRYPTO_LIVE_BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.CRYPTO) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(candidate.assetKey, "CRYPTO", "CRYPTO_LIVE_BUY_NOT_OPENED") } catch (_: Throwable) {}
+                terminalDisposition6613("CANONICAL_LIVE_OPEN_FAILED")
                 return
             }
             com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markConfirmed(canonicalCryptoIntent6565, position.id)

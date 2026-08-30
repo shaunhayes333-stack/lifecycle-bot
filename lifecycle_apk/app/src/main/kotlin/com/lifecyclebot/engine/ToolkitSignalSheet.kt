@@ -586,22 +586,42 @@ object ToolkitSignalSheet {
         appendLine("missingExecutableMarkWithValidSource=${causalIssue6600("missingExecutableMarkWithValidSource")}")
         appendLine("specialistLearningMissing=${causalIssue6600("specialistLearningMissing")}")
         appendLine("sellCanonicalLookupFailure=${causalIssue6600("sellCanonicalLookupFailure")}")
+        appendLine("LANE_EXEC_WITHOUT_SAME_LANE_CANONICAL_INTENT=${causalIssue6600("LANE_EXEC_WITHOUT_SAME_LANE_CANONICAL_INTENT")}")
+        appendLine("LANE_EXEC_WITHOUT_SEALED_FDG_PROVENANCE=${causalIssue6600("LANE_EXEC_WITHOUT_SEALED_FDG_PROVENANCE")}")
     }
 
     fun designatedRoleLivenessReport6599(): String = buildString {
         appendLine("===== MEME SPECIALIST ROLE LIVENESS =====")
         configuredMemeDesks6599.forEach { lane ->
-            val pool = deskCount6599(lane, "POOL"); val qualified = deskCount6599(lane, "QUALIFIED")
-            val primary = deskCount6599(lane, "BUY_INTENT"); val fdg = deskCount6599(lane, "FDG")
-            val exec = deskCount6599(lane, "EXEC"); val pos = deskCount6599(lane, "POSITION_INFLUENCE")
-            val exit = deskCount6599(lane, "EXIT_INFLUENCE"); val learn = deskCount6599(lane, "LEARNING")
+            val pool = deskCount6599(lane, "POOL")
+            val qualified = deskCount6599(lane, "QUALIFIED")
+            val intent = deskCount6599(lane, "BUY_INTENT")
+            val owner = deskCount6599(lane, "OWNER_SELECTED")
+            val fdgAllow = deskCount6599(lane, "FDG_ALLOW")
+            val fdgBlock = deskCount6599(lane, "FDG_BLOCK")
+            val mark = deskCount6599(lane, "MARK_READY")
+            val sized = deskCount6599(lane, "SIZED_EXECUTABLE")
+            val ticket = deskCount6599(lane, "TICKET")
+            val exec = deskCount6599(lane, "EXEC")
+            val opened = deskCount6599(lane, "POSITION_OPENED")
+            val sellAttempt = deskCount6599(lane, "SELL_ATTEMPT")
+            val sellConfirmed = deskCount6599(lane, "SELL_CONFIRMED")
+            val finalized = deskCount6599(lane, "FINALIZED")
+            val learn = deskCount6599(lane, "LEARNING")
             val status = when {
-                pool > 0 && qualified > 0 && primary > 0 && fdg > 0 && exec > 0 && pos > 0 && exit > 0 && learn > 0 -> "ACTIVE"
-                qualified > 0 && primary == 0L && pos == 0L -> "TELEMETRY_ONLY"
-                pool + qualified + primary + fdg + exec + pos + exit + learn > 0 -> "DEGRADED"
-                else -> "DEAD"
+                pool == 0L -> "DEAD"
+                qualified == 0L -> "DISCOVERY_ONLY"
+                intent == 0L -> "INTENT_CHOKED"
+                fdgAllow == 0L -> "FDG_CHOKED"
+                sized == 0L -> "SIZING_CHOKED"
+                mark == 0L -> "MARK_CHOKED"
+                ticket == 0L -> "TICKET_CHOKED"
+                exec == 0L || opened == 0L -> "EXEC_CHOKED"
+                sellAttempt > 0L && sellConfirmed == 0L -> "EXIT_CHOKED"
+                finalized > 0L && learn == 0L -> "LEARNING_CHOKED"
+                else -> "ACTIVE"
             }
-            appendLine("$lane taskAlive=${pool > 0} poolAlive=${pool > 0} discoveryAlive=${pool > 0} candidateN=$pool qualifiedN=$qualified buyIntentN=$primary fdgN=$fdg execN=$exec positionInfluenceN=$pos exitInfluenceN=$exit learningN=$learn capitalAvailable=SHARED_CANONICAL status=$status")
+            appendLine("$lane taskAlive=${pool > 0} poolAlive=${pool > 0} discoveryAlive=${pool > 0} candidateN=$pool qualifiedN=$qualified ownerSelectedN=$owner buyIntentN=$intent fdgAllowN=$fdgAllow fdgBlockN=$fdgBlock markN=$mark sizedN=$sized ticketN=$ticket execN=$exec positionOpenedN=$opened sellAttemptN=$sellAttempt sellConfirmedN=$sellConfirmed finalizedN=$finalized learningN=$learn capitalAvailable=SHARED_CANONICAL status=$status")
         }
         appendLine("PROJECT_SNIPER_NON_SNIPER_ADMISSION = ${deskCount6599("PROJECT_SNIPER", "NON_SNIPER_ADMISSION")}")
     }

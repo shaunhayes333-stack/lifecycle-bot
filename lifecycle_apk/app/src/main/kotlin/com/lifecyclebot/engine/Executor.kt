@@ -7807,7 +7807,6 @@ class Executor(
                     return false
                 }
                 try { ForensicLogger.lifecycle("PAPER_PARTIAL_CLOSE_REQUESTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} fraction=$sellFraction qty=${pos.qtyToken}") } catch (_: Throwable) {}
-                try { PipelineHealthCollector.labelInc("PAPER_PARTIAL_CLOSE_REQUESTED") } catch (_: Throwable) {}
                 (pos.qtyToken * sellFraction).coerceIn(0.0, pos.qtyToken)
             } else {
                 val resolution = try {
@@ -7952,7 +7951,6 @@ class Executor(
                 remainingRawQty = partial6510.postQty,
                 tokenDecimals = decimals6510)
             recordTrade(ts, trade); security.recordTrade(trade)
-            try { PipelineHealthCollector.labelInc("PAPER_PARTIAL_CLOSE_DONE") } catch (_: Throwable) {}
             // V5.9.743 — wire 70/30 treasury siphon onto the AUTONOMOUS partial-
             // sell ladder. Previously only the manual requestPartialSell entry
             // point siphoned (V5.9.428 wired that one). checkPartialSell fires
@@ -12143,6 +12141,13 @@ class Executor(
                 }
             }
         } catch (_: Throwable) {}
+        val promotion6613 = try {
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.promoteObservationToExecutable6613(ts.mint)
+        } catch (_: Throwable) { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.PromotionResult6613(null, "PROMOTION_EXCEPTION", identity = ts.mint) }
+        if (!promotion6613.promoted) try {
+            PipelineHealthCollector.labelInc("VALID_SOURCE_NO_EXECUTABLE_MARK|${promotion6613.reason}")
+            ForensicLogger.lifecycle("VALID_SOURCE_NO_EXECUTABLE_MARK", "mint=${ts.mint.take(10)} source=${promotion6613.source} price=${promotion6613.price} ageMs=${promotion6613.ageMs} identity=${promotion6613.identity.take(80)} unit=${promotion6613.unitState} reason=${promotion6613.reason}")
+        } catch (_: Throwable) {}
         val strictMark6575 = try {
             com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(
                 ts.mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
@@ -12162,9 +12167,9 @@ class Executor(
                 if (validSource6600) ToolkitSignalSheet.recordCausalIssue6600("missingExecutableMarkWithValidSource", layerTag, "mint=${ts.mint.take(10)}")
             } catch (_: Throwable) {}
             try {
-                PipelineHealthCollector.labelInc("EXECUTION_WITH_PROVISIONAL_MARK_6575")
+                PipelineHealthCollector.labelInc("EXECUTION_BLOCKED_NO_CANONICAL_MARK_6613")
                 ForensicLogger.lifecycle(
-                    "EXECUTION_WITH_PROVISIONAL_MARK_6575",
+                    "EXECUTION_BLOCKED_NO_CANONICAL_MARK_6613",
                     "mint=${ts.mint.take(10)} lane=$layerTag action=refuse_no_mark_paper=true",
                 )
             } catch (_: Throwable) {}
@@ -13149,7 +13154,15 @@ class Executor(
         // current scanner state, latest tactic, or watchlist ownership.
         try {
             val pid6450 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(tradeId.mint)
-            val entryLane6450 = layerTag.ifBlank { ts.position.tradingMode.ifBlank { ts.source } }.uppercase().take(24).ifBlank { "STANDARD" }
+            val sealedIntent6613 = ExecutableOpenGate.activeExecutionIntent6519("PAPER", tradeId.mint, tradeId.fdgCandidateVersion)
+            val sealedDecision6613 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(tradeId.mint, tradeId.fdgCandidateVersion, "PAPER")
+            val entryLane6450 = sealedIntent6613?.canonicalLane
+                ?: sealedDecision6613?.executionLane
+                ?: layerTag.ifBlank { ts.position.tradingMode.ifBlank { ts.source } }.uppercase().take(24).ifBlank { "STANDARD" }
+            if (sealedIntent6613 == null || !sealedIntent6613.canonicalLane.equals(entryLane6450, true)) try {
+                ToolkitSignalSheet.recordCausalIssue6600("LANE_EXEC_WITHOUT_SAME_LANE_CANONICAL_INTENT", entryLane6450, "mint=${tradeId.mint.take(10)} positionId=${pid6450.take(18)}")
+                if (sealedDecision6613 == null) ToolkitSignalSheet.recordCausalIssue6600("LANE_EXEC_WITHOUT_SEALED_FDG_PROVENANCE", entryLane6450, "mint=${tradeId.mint.take(10)}")
+            } catch (_: Throwable) {}
             val entryDeskHypothesis6599 = try { com.lifecyclebot.engine.ToolkitSignalSheet.snapshot(ts).deskHypotheses[entryLane6450] } catch (_: Throwable) { null }
             entryDeskHypothesis6599?.let { ts.styleHoldMult = it.holdMult.coerceIn(0.30, 3.50) }
             com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.setEntry(
@@ -15623,12 +15636,12 @@ class Executor(
                 "MANIP" -> "MANIPULATED"
                 "DIP" -> "DIP_HUNTER"
                 "PROJECT", "SNIPER" -> "PROJECT_SNIPER"
-                "CASHGEN", "CASH_GENERATION" -> "TREASURY"
-                "CORE", "V3" -> "STANDARD"
+                "CASH_GENERATION" -> "CASHGEN"
+                "V3" -> "CORE"
                 else -> r
             }
         }
-        val executableLaneSet = setOf("PROJECT_SNIPER", "MOONSHOT", "SHITCOIN", "EXPRESS", "QUALITY", "BLUECHIP", "TREASURY", "STANDARD", "MANIPULATED", "DIP_HUNTER", "CASHGEN")
+        val executableLaneSet = setOf("PROJECT_SNIPER", "MOONSHOT", "SHITCOIN", "EXPRESS", "QUALITY", "BLUECHIP", "TREASURY", "STANDARD", "CORE", "MANIPULATED", "DIP_HUNTER", "CASHGEN", "CYCLIC")
         fun observeOnlyLiveEntry(reason: String, laneRaw: String, decisionLabel: String): Boolean {
             try {
                 val canon = canonicalExecutableLane(laneRaw)
@@ -17717,7 +17730,15 @@ class Executor(
                         try { ForensicLogger.lifecycle("LIVE_BUY_CANONICAL_COMMIT_REJECTED_6486", "mint=${verifyMint.take(10)} pid=${pidLive6486.take(18)} sig=${verifySig.take(16)}") } catch (_: Throwable) {}
                         return false
                     }
-                    val liveEntryLane6568 = ts.position.tradingMode.uppercase().ifBlank { "STANDARD" }
+                    val sealedLiveIntent6613 = ExecutableOpenGate.activeExecutionIntent6519("LIVE", tradeId.mint, tradeId.fdgCandidateVersion)
+                    val sealedLiveDecision6613 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(tradeId.mint, tradeId.fdgCandidateVersion, "LIVE")
+                    val liveEntryLane6568 = sealedLiveIntent6613?.canonicalLane
+                        ?: sealedLiveDecision6613?.executionLane
+                        ?: ts.position.tradingMode.uppercase().ifBlank { "STANDARD" }
+                    if (sealedLiveIntent6613 == null || !sealedLiveIntent6613.canonicalLane.equals(liveEntryLane6568, true)) try {
+                        ToolkitSignalSheet.recordCausalIssue6600("LANE_EXEC_WITHOUT_SAME_LANE_CANONICAL_INTENT", liveEntryLane6568, "mint=${tradeId.mint.take(10)} positionId=${pidLive6486.take(18)}")
+                        if (sealedLiveDecision6613 == null) ToolkitSignalSheet.recordCausalIssue6600("LANE_EXEC_WITHOUT_SEALED_FDG_PROVENANCE", liveEntryLane6568, "mint=${tradeId.mint.take(10)}")
+                    } catch (_: Throwable) {}
                     val liveDeskHypothesis6599 = try { com.lifecyclebot.engine.ToolkitSignalSheet.snapshot(ts).deskHypotheses[liveEntryLane6568] } catch (_: Throwable) { null }
                     liveDeskHypothesis6599?.let { ts.styleHoldMult = it.holdMult.coerceIn(0.30, 3.50) }
                     com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.setEntry(
@@ -18906,7 +18927,6 @@ class Executor(
                 return
             }
             try { ForensicLogger.lifecycle("PAPER_PARTIAL_CLOSE_REQUESTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pct=$pct qty=${pos.qtyToken}") } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("PAPER_PARTIAL_CLOSE_REQUESTED") } catch (_: Throwable) {}
             val soldValueSol = pos.costSol * pct
             val profitSol = soldValueSol * (pnlPct / 100.0)
             val newSoldPct = pos.partialSoldPct + (pct * 100.0)
@@ -18986,7 +19006,6 @@ class Executor(
             )
             recordTrade(ts, trade)
             try { ForensicLogger.lifecycle("PAPER_PARTIAL_CLOSE_DONE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} soldValue=$soldValueSol remaining=${if (fullyExited) 0.0 else residualQty} fullyExited=$fullyExited") } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("PAPER_PARTIAL_CLOSE_DONE") } catch (_: Throwable) {}
             // V5.9.428 — treasury split on partial sells too (same model as
             // full paperSell): meme wins 70/30, treasury scalps 100%, losers
             // contribute nothing. soldValueSol includes principal+profit share

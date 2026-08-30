@@ -48,6 +48,9 @@ class Repair6533ExecutionAuthorityAcceptanceTest {
                 mint="M$verdict", mode="PAPER", canonicalLane="QUALITY", fdgVerdict=verdict,
                 fdgAllowed=true, authorityVersion=1L, resolvedSize=0.05,
                 createdAt=System.currentTimeMillis(), symbol="C", hardNoReasons=emptyList(),
+                finalDecision6613 = if (verdict == "PROBE_ONLY") ExecutableOpenGate.CanonicalFinalDecision6613.PROBE_ONLY else ExecutableOpenGate.CanonicalFinalDecision6613.BUY,
+                decisionAuthorityId6613 = "TEST_FDG:1", fdgDecisionId6613 = "TEST:$verdict",
+                fdgEvidence6613 = "verdict=$verdict lane=QUALITY",
             )
             assertFalse(ExecutableOpenGate.mutableSignalCanVeto6519(intent, "UNKNOWN"))
             assertFalse(ExecutableOpenGate.mutableSignalCanVeto6519(intent, "WATCH"))

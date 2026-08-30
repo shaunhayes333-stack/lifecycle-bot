@@ -12,6 +12,8 @@ import java.util.concurrent.atomic.AtomicLong
  * positions, live swaps, open-position records, or normal BUY journal rows.
  */
 object ExecutableOpenGate {
+    enum class CanonicalFinalDecision6613 { BUY, PROBE_ONLY, UNKNOWN }
+
     data class EntryState(
         val mint: String,
         val symbol: String,
@@ -67,6 +69,15 @@ object ExecutableOpenGate {
         val action: String = "OPEN",
         val direction: String = "LONG",
         val assetClassTag: String = com.lifecyclebot.engine.truth.AssetClass.fromLane(canonicalLane).tag,
+        // V5.0.6613 — immutable decision authority. UNKNOWN is never executable.
+        val finalDecision6613: CanonicalFinalDecision6613 = CanonicalFinalDecision6613.UNKNOWN,
+        val decisionAuthorityId6613: String = "",
+        val fdgDecisionId6613: String = "",
+        val fdgEvidence6613: String = "",
+        val executableMarkSource6613: String = "",
+        val executableMarkTimestampMs6613: Long = 0L,
+        val executableMarkPriceUsd6613: Double = 0.0,
+        val expiresAtMs6613: Long = 0L,
     ) {
         val lane: String get() = canonicalLane
         val signal: String get() = authoritativeSignal
@@ -147,11 +158,40 @@ object ExecutableOpenGate {
             .maxByOrNull { it.candidateVersion }
     }
 
+    private fun validSealedDecision6613(intent: ExecutionIntent): Boolean {
+        val final = intent.finalDecision6613.name
+        return final in setOf("BUY", "PROBE_ONLY") &&
+            intent.fdgAllowed && intent.fdgVerdict.uppercase() == final &&
+            intent.authoritativeSignal.uppercase() == "BUY" &&
+            intent.decisionAuthorityId6613.isNotBlank() && intent.fdgDecisionId6613.isNotBlank() &&
+            intent.fdgEvidence6613.isNotBlank() && intent.hardNoReasons.isEmpty()
+    }
+
+    private fun resolveSealedIntent6613(
+        attemptId: String, mode: String, mint: String, candidateVersion: Long,
+    ): ExecutionIntent? {
+        val byAttempt = executionTickets[attemptId]
+        val candidate = byAttempt ?: activeExecutionIntent6519(mode, mint, candidateVersion)
+        if (candidate == null) return null
+        if (!validSealedDecision6613(candidate)) {
+            try {
+                if (candidate.finalDecision6613 == CanonicalFinalDecision6613.UNKNOWN)
+                    PipelineHealthCollector.labelInc("EXECUTABLE_TICKET_WITH_UNKNOWN_SIGNAL")
+                else PipelineHealthCollector.labelInc("RESTORED_TICKET_DECISION_DIVERGES_FROM_SEALED_FDG")
+                PipelineHealthCollector.labelInc("RESTORED_ALLOW_TICKET_WITHOUT_BUY_DECISION")
+                ForensicLogger.lifecycle("EXEC_RESTORED_TICKET_REJECTED_6613", "ticket=${candidate.attemptId.take(28)} mint=${mint.take(10)} final=${candidate.finalDecision6613} fdg=${candidate.fdgVerdict} authority=${candidate.decisionAuthorityId6613.ifBlank { "MISSING" }} action=discard_revalidate")
+            } catch (_: Throwable) {}
+            executionTickets.remove(candidate.attemptId, candidate)
+            activeExecutionIntents6519.remove(intentKey6519(candidate.mode, candidate.mint, candidate.candidateVersion), candidate)
+            return null
+        }
+        return candidate
+    }
+
     /** V5.0.6554 — canonical cross-asset callers must publish through this
      * authority, never retain a parallel private execution intent. */
     fun registerCanonicalIntent6554(intent: ExecutionIntent): ExecutionIntent? {
-        if (!intent.fdgAllowed || intent.fdgVerdict.uppercase() !in setOf("BUY", "PROBE_ONLY") ||
-            intent.hardNoReasons.isNotEmpty() ||
+        if (!validSealedDecision6613(intent) ||
             intent.mint.isBlank() || intent.candidateVersion <= 0L) return null
         val key = intentKey6519(intent.mode, intent.mint, intent.candidateVersion)
         val authoritative = activeExecutionIntents6519.putIfAbsent(key, intent) ?: intent
@@ -223,6 +263,54 @@ object ExecutableOpenGate {
     private fun ticketLive(ticket: ExecutionIntent, now: Long = System.currentTimeMillis()): Boolean {
         val ttl = if (ticket.mode.equals("PAPER", true)) PAPER_EXECUTION_TICKET_TTL_MS else LIVE_EXECUTION_TICKET_TTL_MS
         return now - ticket.createdAtMs <= ttl
+    }
+
+    private val resealedTickets6613 = ConcurrentHashMap.newKeySet<String>()
+
+    private fun revalidateAndResealExpired6613(intent: ExecutionIntent): ExecutionIntent? {
+        if (!resealedTickets6613.add(intent.attemptId)) return null
+        val decision = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(
+            intent.mint, intent.candidateVersion, intent.mode,
+        )
+        val decisionCurrent = decision != null && decision.verdict.uppercase() == intent.finalDecision6613.name &&
+            decision.executionLane.equals(intent.canonicalLane, true) &&
+            (intent.authorityVersion <= 0L || decision.authorityVersion == intent.authorityVersion)
+        val occupied = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().any {
+                it.mint == intent.mint && it.mode.equals(intent.mode, true)
+            }
+        } catch (_: Throwable) { true }
+        val sealedSize = try { com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(intent.mint) } catch (_: Throwable) { null }
+        val size = sealedSize?.takeIf { it.isFinite() && it > 0.0 } ?: intent.resolvedSize.takeIf { it.isFinite() && it > 0.0 }
+        val markCurrent = if (!intent.requiresSolanaTokenMap) true else try {
+            val promoted = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.promoteObservationToExecutable6613(intent.mint)
+            val mark = promoted.mark ?: com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(
+                intent.mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
+            )
+            mark != null && System.currentTimeMillis() - mark.timestampMs in -5_000L..300_000L
+        } catch (_: Throwable) { false }
+        if (!decisionCurrent || occupied || size == null || !markCurrent) {
+            try {
+                val reason = when { !decisionCurrent -> "AUTHORITY_EXPIRED"; occupied -> "CANONICAL_OCCUPIED"; size == null -> "SIZE_INVALID"; else -> "MARK_INVALID" }
+                PipelineHealthCollector.labelInc("EXPIRED_TICKET_REVALIDATION_REJECTED|$reason")
+                ForensicLogger.lifecycle("EXPIRED_TICKET_REVALIDATION_REJECTED_6613", "ticket=${intent.attemptId.take(28)} mint=${intent.mint.take(10)} lane=${intent.canonicalLane} reason=$reason action=terminal_expire")
+            } catch (_: Throwable) {}
+            return null
+        }
+        val now = System.currentTimeMillis()
+        val replacement = intent.copy(
+            attemptId = canonicalExecutionKey(intent.mint, mode = intent.mode, side = "BUY", lane = intent.canonicalLane, candidateVersion = intent.candidateVersion),
+            resolvedSize = size, createdAt = now,
+            expiresAtMs6613 = now + if (intent.mode.equals("PAPER", true)) PAPER_EXECUTION_TICKET_TTL_MS else LIVE_EXECUTION_TICKET_TTL_MS,
+        )
+        executionTickets.remove(intent.attemptId, intent)
+        executionTickets[replacement.attemptId] = replacement
+        activeExecutionIntents6519[intentKey6519(replacement.mode, replacement.mint, replacement.candidateVersion)] = replacement
+        try {
+            PipelineHealthCollector.labelInc("EXPIRED_TICKET_REVALIDATED_RESEALED_6613")
+            ForensicLogger.lifecycle("EXPIRED_TICKET_REVALIDATED_RESEALED_6613", "old=${intent.attemptId.take(24)} new=${replacement.attemptId.take(24)} mint=${intent.mint.take(10)} lane=${intent.canonicalLane} size=$size")
+        } catch (_: Throwable) {}
+        return replacement
     }
 
     fun ticketForAttempt(attemptId: String): ExecutionIntent? = executionTickets[attemptId]?.takeIf { ticketLive(it) }
@@ -906,6 +994,11 @@ object ExecutableOpenGate {
                             safetyTier = winner.safetyTier, liquidityUsd = winner.liquidityUsd,
                             rugScore = winner.rugScore, hardNoReasons = winner.hardNoReasons,
                             requiresSolanaTokenMap = winner.requiresSolanaTokenMap,
+                            finalDecision6613 = if (winner.preFdgVerdict == "PROBE_ONLY") CanonicalFinalDecision6613.PROBE_ONLY else CanonicalFinalDecision6613.BUY,
+                            decisionAuthorityId6613 = "FDG_AUTH:${immutableAuthority6519?.authorityVersion ?: winner.candidateVersion}",
+                            fdgDecisionId6613 = "${mode6512}:${mint}:${winner.candidateVersion}:${canonicalLane6519}",
+                            fdgEvidence6613 = "fdgCan=true;preFdg=${winner.preFdgVerdict};safety=${winner.safetyTier};hardNo=0",
+                            expiresAtMs6613 = System.currentTimeMillis() + if (paperRuntime) PAPER_EXECUTION_TICKET_TTL_MS else LIVE_EXECUTION_TICKET_TTL_MS,
                         ),
                     )
                     if (com.lifecyclebot.engine.truth.AateDecisionFabric6512.get(mode6512, mint, winner.candidateVersion, winner.selectedLane) == null) {
@@ -1266,13 +1359,20 @@ object ExecutableOpenGate {
         val immutableAuthority6513 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(
             mint, authorityCandidateVersion6513, modeUpper,
         )
+        val ticketAuthority6564 = resolveSealedIntent6613(attemptId, modeUpper, mint, authorityCandidateVersion6513)
         val state = provisionalState6513 ?: immutableAuthority6513?.let { a ->
             EntryState(mint = mint, symbol = symbol, fdgCan = true, fdgReason = a.verdict,
                 safetyTier = a.safetyVerdict, signal = a.authoritativeSignal, decisionBand = a.verdict,
                 selectedLane = a.executionLane, preFdgVerdict = a.verdict,
                 candidateVersion = a.candidateVersion, updatedAtMs = a.generatedAtMs)
+        } ?: ticketAuthority6564?.let { t ->
+            EntryState(mint = t.mint, symbol = t.symbol, fdgCan = t.fdgAllowed, fdgReason = t.fdgVerdict,
+                safetyTier = t.safetyTier, signal = t.authoritativeSignal, decisionBand = t.finalDecision6613.name,
+                selectedLane = t.canonicalLane, preFdgVerdict = t.finalDecision6613.name,
+                hardNoReasons = t.hardNoReasons, liquidityUsd = t.liquidityUsd, rugScore = t.rugScore,
+                requiresSolanaTokenMap = t.requiresSolanaTokenMap,
+                candidateVersion = t.candidateVersion, updatedAtMs = t.createdAt)
         }
-        val ticketAuthority6564 = ticketForAttempt(attemptId)
         val v3Decision = state?.v3Decision ?: "UNKNOWN"
         val fdgCan = if (immutableAuthority6513 != null || ticketAuthority6564?.fdgAllowed == true) true else state?.fdgCan
         val fdgReason = immutableAuthority6513?.verdict ?: ticketAuthority6564?.fdgVerdict ?: state?.fdgReason ?: "n/a"
@@ -1287,7 +1387,7 @@ object ExecutableOpenGate {
             //   action. Consult the sealed snapshot's executionAction as the
             //   fourth authority — same authority that made FDG_ALLOW.
             val fromImmutable = immutableAuthority6513?.authoritativeSignal
-            val fromTicket = ticketAuthority6564?.authoritativeSignal
+            val fromTicket = ticketAuthority6564?.takeIf { validSealedDecision6613(it) }?.let { "BUY" }
             val fromState = state?.signal
             val fromSealed6609 = try {
                 val snap6609 = com.lifecyclebot.engine.truth.ExecutionSnapshotAuthority6496
@@ -1570,8 +1670,11 @@ object ExecutableOpenGate {
             return blocked("EXEC_OPEN_BLOCKED_RUNTIME_PAUSED", "RUNTIME_MITIGATION_PAUSE")
         }
         val currentCandidateVersion = LaneExecutionCoordinator.candidateVersionFor(mint)
-        val immutableTicket = ticketAuthority6564
-            ?: activeExecutionIntent6519(modeUpper, mint, state?.candidateVersion ?: currentCandidateVersion)
+        var immutableTicket = ticketAuthority6564
+        if (immutableTicket != null && !ticketLive(immutableTicket)) {
+            immutableTicket = revalidateAndResealExpired6613(immutableTicket)
+            if (immutableTicket == null) return blocked("EXEC_OPEN_BLOCKED_STALE_TICKET", "TICKET_REVALIDATION_FAILED")
+        }
         val immutableFdgBuy6519 = immutableTicket?.fdgAllowed == true && immutableTicket.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY")
         val stateRequiresSolanaTokenMap6533 = immutableTicket?.requiresSolanaTokenMap ?: state?.requiresSolanaTokenMap ?: true
         val stateTokenMapRouteStatus = state?.tokenMapRouteStatus ?: "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP"
@@ -1637,9 +1740,7 @@ object ExecutableOpenGate {
                 snapshotCandidateVersion = state?.candidateVersion ?: 0L,
                 snapshotAuthorityVersion = immutableAuthority6513?.authorityVersion ?: 0L,
             )
-            val ticketExpired = !ticketLive(immutableTicket)
             val ticketHardNo = immutableTicket.hardNoReasons.firstOrNull { trueHardTicketKill(it) }
-            if (ticketExpired) return blocked("EXEC_OPEN_BLOCKED_STALE_TICKET", "TICKET_TTL_EXPIRED")
             if (ticketHardNo != null) return blocked("EXEC_OPEN_BLOCKED_TICKET_HARD_SAFETY", ticketHardNo)
             val ticketRouteUpper = stateTokenMapRouteStatus.uppercase()
             val ticketNoRoute = ticketRouteUpper in setOf("NO_ROUTE", "TRUE_ZERO_LIQUIDITY")
@@ -1838,6 +1939,10 @@ object ExecutableOpenGate {
                     ForensicLogger.lifecycle("EXEC_RAW_SIGNAL_DIAGNOSTIC_IGNORED_6509", "symbol=$symbol mint=${mint.take(10)} signal=${signal.ifBlank { "UNKNOWN" }} preFdg=$preFdgVerdict authority=${when { immutableFdgBuy6519 -> "IMMUTABLE_EXECUTION_INTENT_6519"; canonicalExecutableIntent6509 -> "PRE_EXEC_FDG"; else -> "SEALED_ENVELOPE_6608" }}")
                 } catch (_: Throwable) {}
             } else if (mutableSignalCanVeto6519(immutableTicket, signal)) {
+                try {
+                    if (fdgCan == true || immutableAuthority6513 != null || ticketAuthority6564 != null)
+                        PipelineHealthCollector.labelInc("EXEC_SIGNAL_UNKNOWN_AFTER_ANY_AUTHORITY_ALLOW")
+                } catch (_: Throwable) {}
                 // Invariant counter: any veto reaching this point after any
                 // seal signal should be zero once upstream owner election
                 // stops dropping the seal. Operator: FDG_BUY_TO_EXEC_UNKNOWN

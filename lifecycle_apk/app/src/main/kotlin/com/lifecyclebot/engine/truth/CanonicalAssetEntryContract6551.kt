@@ -118,6 +118,15 @@ object CanonicalEntryAuthority6551 {
         CanonicalEntryAuthority6540.markSizedFor6551(candidate.assetClass, candidate.symbol)
 
         val verdict = if (shaping.probe) "PROBE_ONLY" else "BUY"
+        val sealedDecision6613 = ExecutionDecisionSnapshot6510.record(
+            ExecutionDecisionSnapshot(
+                mint = candidate.assetId, candidateVersion = candidate.candidateVersion,
+                verdict = verdict, executionLane = candidate.specialist.ifBlank { candidate.assetClass.tag },
+                score = candidate.score, generatedAtMs = System.currentTimeMillis(), mode = candidate.mode.uppercase(),
+                authorityVersion = 6551L, authoritativeSignal = "BUY", safetyVerdict = "CLEAR",
+                resolvedSizeSol = sizing.finalSizeSol,
+            )
+        )
         val attemptId = ExecutableOpenGate.canonicalExecutionKey(
             mint = candidate.assetId, mode = candidate.mode, side = "BUY",
             lane = candidate.specialist.ifBlank { candidate.assetClass.tag }, candidateVersion = candidate.candidateVersion,
@@ -125,13 +134,18 @@ object CanonicalEntryAuthority6551 {
         val intent = ExecutableOpenGate.ExecutionIntent(
             attemptId = attemptId, candidateId = candidate.assetId, candidateVersion = candidate.candidateVersion,
             mint = candidate.assetId, mode = candidate.mode.uppercase(), canonicalLane = candidate.specialist.ifBlank { candidate.assetClass.tag },
-            fdgVerdict = verdict, fdgAllowed = true, authorityVersion = 6551L,
+            fdgVerdict = verdict, fdgAllowed = true, authorityVersion = sealedDecision6613.authorityVersion,
             resolvedSize = sizing.finalSizeSol, createdAt = System.currentTimeMillis(), symbol = candidate.symbol,
             authoritativeSignal = "BUY", safetyVerdict = "CLEAR", fdgReason = "CANONICAL_FDG_6551",
             diagnosticSignal = candidate.diagnosticSignal, safetyTier = "CLEAR", liquidityUsd = candidate.liquidityUsd,
             hardNoReasons = emptyList(), requiresSolanaTokenMap = candidate.assetClass == AssetClass.SOLANA_TOKEN,
             action = "OPEN", direction = if (candidate.direction.equals("SHORT", true)) "SHORT" else "LONG",
             assetClassTag = candidate.assetClass.tag,
+            finalDecision6613 = if (verdict == "PROBE_ONLY") ExecutableOpenGate.CanonicalFinalDecision6613.PROBE_ONLY else ExecutableOpenGate.CanonicalFinalDecision6613.BUY,
+            decisionAuthorityId6613 = "CANONICAL_ASSET_FDG_6551:${sealedDecision6613.authorityVersion}",
+            fdgDecisionId6613 = "${candidate.mode.uppercase()}:${candidate.assetId}:${candidate.candidateVersion}:${candidate.specialist.ifBlank { candidate.assetClass.tag }}",
+            fdgEvidence6613 = "assetClass=${candidate.assetClass.tag};score=${candidate.score};confidence=${candidate.confidence};hardNo=0",
+            expiresAtMs6613 = System.currentTimeMillis() + if (candidate.mode.equals("PAPER", true)) 180_000L else 45_000L,
         )
         val registered = ExecutableOpenGate.registerCanonicalIntent6554(intent)
             ?: return deferred(candidate, venue, "EXEC_INTENT_REGISTRATION_FAILED")

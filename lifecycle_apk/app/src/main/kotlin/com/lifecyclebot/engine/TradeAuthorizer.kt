@@ -243,6 +243,9 @@ object TradeAuthorizer {
             } catch (_: Throwable) {}
         }
 
+        val causalAttempt6613 = attemptId.ifBlank { "${mint}:${LaneExecutionCoordinator.candidateVersionFor(mint)}:${requestedBook.name}" }
+        try { ToolkitSignalSheet.recordDeskStage(requestedBook.name, "BUY_INTENT", causalAttempt6613) } catch (_: Throwable) {}
+
         // V5.9.1120 — lane election BEFORE finality/open-request side effects.
         // 3086 showed EXEC_OPEN_REQUEST=538 but EXEC_OPEN_BLOCKED_DUPLICATE_KEY=3423:
         // secondary lanes were reaching ExecutableOpenGate just to be rejected
@@ -251,6 +254,7 @@ object TradeAuthorizer {
         // lane execution; suppress secondary lanes as telemetry before finality.
         val laneElection = LaneExecutionCoordinator.canRequestExecution(mint, requestedBook.name)
         electionReceipt6494 = laneElection
+        if (laneElection.allowed) try { ToolkitSignalSheet.recordDeskStage(requestedBook.name, "OWNER_SELECTED", causalAttempt6613) } catch (_: Throwable) {}
         if (!laneElection.allowed) {
             try {
                 ForensicLogger.lifecycle(

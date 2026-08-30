@@ -10680,29 +10680,30 @@ class BotService : Service() {
             // AUTHORITATIVE with a missing lane head only shapes/advises, it
             // never terminal-rejects. Cold lanes must be allowed to open
             // their first candidates to collect the sample the head needs.
+            var learnedWaitShape6613 = 1.0
             val laneOwnHeadAuthoritative6596 = try {
                 com.lifecyclebot.engine.UnifiedPolicyHead.laneHasOwnAuthoritativeHead(lane)
             } catch (_: Throwable) { false }
             val laneAuthoritativePolicyNegative6593 = laneOwnHeadAuthoritative6596 &&
                 !authoritativePolicyPositive6568
             if (laneAuthoritativePolicyNegative6593) {
+                // V5.0.6613 — learned opinion shapes; it is not hard safety.
+                // Continue into the existing lane-local TacticSwitcher/probe composer
+                // below so the lane can pivot timing/style and collect bounded evidence.
                 try {
-                    PipelineHealthCollector.labelInc("LEARNED_POLICY_NEGATIVE_LANE_WAIT_PROMOTION_VETO_6593")
-                    PipelineHealthCollector.labelInc("PREFDG_LEARNED_VETO_${lane.uppercase()}")
+                    PipelineHealthCollector.labelInc("LEARNED_POLICY_NEGATIVE_LANE_WAIT_SHAPED_6613")
+                    PipelineHealthCollector.labelInc("PREFDG_LEARNED_SHAPE_${lane.uppercase()}")
+                    val pivot6613 = com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(lane, laneBase.entryScore.toInt()).name
                     ForensicLogger.lifecycle(
-                        "LEARNED_POLICY_NEGATIVE_LANE_WAIT_PROMOTION_VETO_6593",
-                        "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} action=block_wait_to_probe_until_policy_positive"
+                        "LEARNED_POLICY_NEGATIVE_LANE_WAIT_SHAPED_6613",
+                        "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} tactic=$pivot6613 action=shape_probability_size_confirmation_then_fdg"
                     )
-                    LearningLifecycleBus.preFdgReject(
-                        "LEARNED_POLICY_VETO_6593", lane, sourceForChop, mintForProbe,
+                    LearningLifecycleBus.preFdgProbe(
+                        "LEARNED_POLICY_SHAPED_6613", lane, sourceForChop, mintForProbe,
                         edgeSymbol4529, baseBlock, laneBase.entryScore, laneBase.aiConfidence,
-                        liquidityUsd, edgeMcap4529, edgeRegime4529,
+                        liquidityUsd, edgeMcap4529, 0.55, edgeRegime4529,
                     )
                 } catch (_: Throwable) {}
-                return laneBase.copy(
-                    signal = "WAIT", finalSignal = "WAIT", shouldTrade = false,
-                    blockReason = "LEARNED_POLICY_VETO_6593",
-                )
             }
             // Liquidity OK but still weak → DUST-PROBE only (explicit + tiny size).
             // V5.0.6604 §TACTIC_CAUSAL_AUTHORITY (troubleshoot_agent P0 fix).
@@ -10732,27 +10733,18 @@ class BotService : Service() {
                 )
                 currentTactic6604 != com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.MOMENTUM
             } catch (_: Throwable) { false }
+            val tacticWaitShape6613 = if (tacticGateActive6604) 0.60 else 1.0
             if (tacticGateActive6604) {
                 try {
                     val currentTacticName6604 = com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(
                         lane.uppercase(), laneBase.entryScore.toInt(),
                     ).name
-                    PipelineHealthCollector.labelInc("TACTIC_ROTATED_WEAK_WAIT_BLOCKED_6604_${lane.uppercase()}")
-                    PipelineHealthCollector.labelInc("PREFDG_TACTIC_ROTATED_${lane.uppercase()}")
+                    PipelineHealthCollector.labelInc("TACTIC_ROTATED_WEAK_WAIT_SHAPED_6613_${lane.uppercase()}")
                     ForensicLogger.lifecycle(
-                        "TACTIC_ROTATED_WEAK_WAIT_BLOCKED_6604",
-                        "lane=$lane tactic=$currentTacticName6604 score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} action=block_probe_until_tactic_or_normal_buy",
-                    )
-                    LearningLifecycleBus.preFdgReject(
-                        "TACTIC_ROTATED_WEAK_WAIT_BLOCKED_6604", lane, sourceForChop, mintForProbe,
-                        edgeSymbol4529, baseBlock, laneBase.entryScore, laneBase.aiConfidence,
-                        liquidityUsd, edgeMcap4529, edgeRegime4529,
+                        "TACTIC_ROTATED_WEAK_WAIT_SHAPED_6613",
+                        "lane=$lane tactic=$currentTacticName6604 score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} action=require_confirmation_and_shape_size_then_fdg",
                     )
                 } catch (_: Throwable) {}
-                return laneBase.copy(
-                    signal = "WAIT", finalSignal = "WAIT", shouldTrade = false,
-                    blockReason = "TACTIC_ROTATED_WEAK_WAIT_BLOCKED_6604",
-                )
             }
             try {
                 PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_DUST_PROBE")
@@ -10767,7 +10759,7 @@ class BotService : Service() {
                 edgeVeto = false,
                 edgeQuality = if (laneBase.edgeQuality == "SKIP") "C" else laneBase.edgeQuality,
                 finalQuality = "C",
-                qualityPenalty = (resolveProbeSizeMult(mintForProbe, liquidityUsd) * crossTalkSizeMult4262).coerceIn(0.05, 1.18),
+                qualityPenalty = (resolveProbeSizeMult(mintForProbe, liquidityUsd) * crossTalkSizeMult4262 * learnedWaitShape6613 * tacticWaitShape6613).coerceIn(0.05, 1.18),
                 aiConfidence = laneBase.aiConfidence.coerceAtLeast(entryScoreTightenedFloor4591),
             )
         }
@@ -10986,8 +10978,7 @@ class BotService : Service() {
                 // Do not suppress non-primary meme lanes on a tiny live sample;
                 // let FDG/sizing soft-shape until enough terminal closes exist.
                 if (liveN >= 40 && wr < 45.0) {
-                    PipelineHealthCollector.labelInc("L7_LANE_SUPPRESSED_LOW_WR_$l")
-                    return false
+                    PipelineHealthCollector.labelInc("L7_LANE_NEGATIVE_EDGE_SHAPED_6613_$l")
                 } else if (liveN < 40 && wr < 45.0) {
                     PipelineHealthCollector.labelInc("L7_LANE_SOFT_START_ALLOWED_4300_$l")
                 }
@@ -11061,10 +11052,9 @@ class BotService : Service() {
                 PipelineHealthCollector.labelInc("MEME_SPECIALIST_CONSENSUS_HARD_BLOCK_6604_$l")
                 ForensicLogger.lifecycle(
                     "MEME_SPECIALIST_CONSENSUS_HARD_BLOCK_6604",
-                    "lane=$l mint=${ts.mint.take(10)} score=${ts.entryScore.toInt()} action=block_specialist_election_proven_dead_bucket",
+                    "lane=$l mint=${ts.mint.take(10)} score=${ts.entryScore.toInt()} action=shape_specialist_tactic_and_size_no_lane_disable",
                 )
             } catch (_: Throwable) {}
-            return false
         }
         val lanePWinBelowGate6604 = if (!memeSpecialistLane6604 || !specialistEvaluationAllowed6600) false else try {
             // V5.0.6605 §PWIN_BOOTSTRAP_SEMANTICS (operator REPAIR L).
@@ -11102,10 +11092,9 @@ class BotService : Service() {
                     "MEME_SPECIALIST_PWIN_GATE_6604",
                     "lane=$l mint=${ts.mint.take(10)} score=${ts.entryScore.toInt()} floor=${"%.2f".format(SPECIALIST_MIN_PWIN_6604)} " +
                         "ownTier=${com.lifecyclebot.engine.UnifiedPolicyHead.laneOwnHeadAuthority6605(l).name} " +
-                        "action=block_specialist_election_lane_head_negative",
+                        "action=shape_specialist_tactic_and_size_no_lane_disable",
                 )
             } catch (_: Throwable) {}
-            return false
         }
         if (l == "PROJECT_SNIPER") {
             val sniperSetup6599 = designatedDeskHypothesis6599?.setup
@@ -11120,7 +11109,6 @@ class BotService : Service() {
         if (standaloneMissionDesk6599) {
             try {
                 PipelineHealthCollector.labelInc(if (specialistEvaluationAllowed6600) "MEME_DESK_CANONICAL_PRIMARY_6599_$l" else "MEME_DESK_QUALIFIED_CONTRIBUTOR_ONLY_6599_$l")
-                if (specialistEvaluationAllowed6600) { ToolkitSignalSheet.recordDeskStage(l, "OWNER_SELECTED", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}"); ToolkitSignalSheet.recordDeskStage(l, "BUY_INTENT", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") }
             } catch (_: Throwable) {}
             return specialistEvaluationAllowed6600
         }
@@ -11432,7 +11420,6 @@ class BotService : Service() {
                 } else {
                     try { ForensicLogger.lifecycle("LANE_SUPPRESSED_BY_OWNER_ROTATION", "lane=$l primary=$primaryLane ownerHint=$contributorRotationHint6599 symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
                 }
-                if (allowed) try { ToolkitSignalSheet.recordDeskStage(l, "OWNER_SELECTED", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}"); ToolkitSignalSheet.recordDeskStage(l, "BUY_INTENT", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}
                 return allowed
             }
             return false
@@ -11442,7 +11429,6 @@ class BotService : Service() {
         // the strongest canonical primary reaches specialist FDG/execution.
         val mixedAllowed6533 = specialistEvaluationAllowed6600
         if (!mixedAllowed6533) try { PipelineHealthCollector.labelInc("MEME_DESK_QUALIFIED_CONTRIBUTOR_ONLY_6599_$l") } catch (_: Throwable) {}
-        if (mixedAllowed6533) try { ToolkitSignalSheet.recordDeskStage(l, "OWNER_SELECTED", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}"); ToolkitSignalSheet.recordDeskStage(l, "BUY_INTENT", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}
         return mixedAllowed6533
     }
 
@@ -19540,22 +19526,16 @@ if (hotExitHandledSweep) {
                     com.lifecyclebot.engine.truth.PreV3ReturnTelemetry6525.stamp(ts, "CANONICAL_MARK_REJECTED_INFO_6575")
                 } catch (_: Throwable) {}
             }
-            val executableAccepted6575 = try {
-                com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.publish(
-                    com.lifecyclebot.engine.truth.CanonicalPriceMark6522(
-                        mint = mint, pairId = pair.pairAddress, baseMint = pair.baseTokenAddress,
-                        quoteMint = pair.quoteTokenAddress, source = "DEXSCREENER_PAIR_POLL",
-                        timestampMs = nowMs6575,
-                        priceUsd = priceUsd6575,
-                        liquidityUsd = liquidityUsd6575,
-                        purpose = com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
-                    )
-                )
-            } catch (_: Throwable) { false }
-            if (executableAccepted6575) {
-                try { PipelineHealthCollector.labelInc("CANONICAL_PRICE_MARK_EXECUTABLE_ACCEPTED_6575") } catch (_: Throwable) {}
+            val promotion6613 = try {
+                com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.promoteObservationToExecutable6613(mint, nowMs6575)
+            } catch (_: Throwable) { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.PromotionResult6613(null, "PROMOTION_EXCEPTION", identity = mint) }
+            if (promotion6613.promoted) {
+                try { PipelineHealthCollector.labelInc("CANONICAL_PRICE_MARK_EXECUTABLE_PROMOTED_6613") } catch (_: Throwable) {}
             } else {
-                try { PipelineHealthCollector.labelInc("CANONICAL_PRICE_MARK_EXECUTABLE_DEFERRED_6575") } catch (_: Throwable) {}
+                try {
+                    PipelineHealthCollector.labelInc("VALID_SOURCE_NO_EXECUTABLE_MARK|${promotion6613.reason}")
+                    ForensicLogger.lifecycle("VALID_SOURCE_NO_EXECUTABLE_MARK", "mint=${mint.take(10)} source=${promotion6613.source} price=${promotion6613.price} ageMs=${promotion6613.ageMs} identity=${promotion6613.identity.take(80)} unit=${promotion6613.unitState} reason=${promotion6613.reason}")
+                } catch (_: Throwable) {}
             }
             // No pre-V3 return. Cycle proceeds even when neither mark
             // was accepted — the executor boundary enforces the strict

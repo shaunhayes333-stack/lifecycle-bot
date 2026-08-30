@@ -20,6 +20,9 @@ class Repair6519ExecutionAuthorityAcceptanceTest {
         mint = "M6519", mode = "PAPER", canonicalLane = "WARRIOR", fdgVerdict = "BUY",
         fdgAllowed = true, authorityVersion = authority, resolvedSize = 0.05,
         createdAt = System.currentTimeMillis(), symbol = "WARRIOR", hardNoReasons = emptyList(),
+        finalDecision6613 = ExecutableOpenGate.CanonicalFinalDecision6613.BUY,
+        decisionAuthorityId6613 = "TEST_FDG:11", fdgDecisionId6613 = "TEST:M6519:7",
+        fdgEvidence6613 = "verdict=BUY lane=WARRIOR",
     )
 
     @Test fun `FDG BUY immutable intent makes UNKNOWN diagnostic not veto`() {

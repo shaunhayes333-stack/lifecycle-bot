@@ -9031,4 +9031,29 @@ class GoldenTapeRegressionTest {
         assertTrue(forex.contains("AssetClass.FOREX, \"RAW_SIGNAL\""))
     }
 
+    @Test
+    fun V5_0_6613_causal_execution_memetrader_and_crypto_handoff_contract() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val mark = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPriceMark6522.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val sheet = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt").readText()
+        val partial = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperPartialOperation6510.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+
+        assertTrue(gate.contains("CanonicalFinalDecision6613") && gate.contains("resolveSealedIntent6613"))
+        assertTrue(gate.contains("RESTORED_ALLOW_TICKET_WITHOUT_BUY_DECISION") && gate.contains("RESTORED_TICKET_DECISION_DIVERGES_FROM_SEALED_FDG"))
+        assertTrue(mark.contains("promoteObservationToExecutable6613") && mark.contains("CANONICAL_MINT_SOURCE_MARK_6613"))
+        assertTrue(executor.contains("LANE_EXEC_WITHOUT_SAME_LANE_CANONICAL_INTENT") && executor.contains("LANE_EXEC_WITHOUT_SEALED_FDG_PROVENANCE"))
+        assertTrue(sheet.contains("INTENT_CHOKED") && sheet.contains("MARK_CHOKED") && sheet.contains("EXEC_CHOKED") && sheet.contains("LEARNING_CHOKED"))
+        assertFalse(sheet.contains("""TELEMETRY_ONLY"""))
+        assertTrue(partial.contains("TierState6613") && partial.contains("QUANTITY_RESERVED") && partial.contains("ACCOUNTED") && partial.contains("COMPLETE"))
+        assertTrue(bot.contains("LEARNED_POLICY_NEGATIVE_LANE_WAIT_SHAPED_6613") && bot.contains("TACTIC_ROTATED_WEAK_WAIT_SHAPED_6613"))
+        assertFalse(bot.contains("""blockReason = "LEARNED_POLICY_VETO_6593""""))
+        val candidateStamp = crypto.indexOf("""AssetClass.CRYPTO_ALT, "CANDIDATE"""")
+        val canonicalSubmit = crypto.indexOf("CanonicalEntryAuthority6551.submit", candidateStamp)
+        assertTrue(candidateStamp >= 0 && canonicalSubmit > candidateStamp)
+        assertTrue(crypto.contains("CRYPTO_LEARNED_SIZE_FLOORED_NONZERO_6613") && crypto.contains("terminalDisposition6613"))
+    }
+
 }
