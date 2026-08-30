@@ -115,8 +115,8 @@ class Aate6612BoundedContributorMergeCoverageTest {
             "V5.0.6612: BotService must call recordContributor for non-owner (allowed=false) evaluations",
             bot.contains("§BOUNDED_CONTRIBUTOR_MERGE") &&
                 bot.contains("SpecialistContributorMerge6612.recordContributor(") &&
-                bot.contains("laneScore = laneBase.entryScore") &&
-                bot.contains("aiConfidence = laneBase.aiConfidence")
+                bot.contains("laneScore = ts.entryScore") &&
+                bot.contains("buyIntent = ts.signal.equals(\"BUY\", true)")
         )
     }
 }

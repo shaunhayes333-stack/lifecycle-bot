@@ -11364,10 +11364,15 @@ class BotService : Service() {
                                 com.lifecyclebot.engine.truth.SpecialistContributorMerge6612.recordContributor(
                                     mint = ts.mint,
                                     lane = l,
-                                    laneScore = laneBase.entryScore,
-                                    aiConfidence = laneBase.aiConfidence,
-                                    buyIntent = laneBase.signal.equals("BUY", true) ||
-                                                laneBase.finalSignal.equals("BUY", true),
+                                    laneScore = ts.entryScore,
+                                    // V5.0.6612 note: BotService's all-lane emit block
+                                    //   runs inside the desk owner-election phase — no
+                                    //   per-lane `laneBase` object is in scope. Use
+                                    //   ts.entryScore as a shared proxy for aiConfidence
+                                    //   here; the fine-grained per-lane confidence merge
+                                    //   is downstream FDG scope and lands separately.
+                                    aiConfidence = ts.entryScore,
+                                    buyIntent = ts.signal.equals("BUY", true),
                                 )
                             } catch (_: Throwable) {}
                         }
