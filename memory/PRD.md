@@ -1,18 +1,42 @@
-# AATE PRD — V5.0.6610 (LEARNING FANOUT + IMMUTABLE ENTRY-LANE ON TOP-UP)
+# AATE PRD — V5.0.6612c (BOUNDED CONTRIBUTOR MERGE + BAYESIAN LEARNING FROM TRADE ONE)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
-**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6610 CI GREEN.**
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6612c CI GREEN.**
+
+## V5.0.6611 (Feb 2026) — BAYESIAN_LEARNING_FROM_TRADE_ONE
+
+Operator directive: *"Use Bayesian/regularized adaptation: N=1 gives small influence. N=2 gives slightly more. Influence rises continuously with evidence quality and sample size. But soft changes begin after the first terminal trade."*
+
+Prior `LanePolicy.rollingWr / rollingWrForBucket` returned null until 12 samples accumulated — every learned signal silent for the first ~5-8 min of each cold session (during which the 60-loss streak formed). New Beta(2,2) regularised posterior:
+* `posteriorWr6611(lane)` + `posteriorWrForBucket6611(lane, band)` — return `(w+2)/(n+4)` in `[0,1]`. Neutral 0.5 at N=0, drifts on every terminal.
+* `evidenceSamples6611(lane)` — real terminal count so callers can distinguish "prior speaks" from "real evidence disagrees".
+* `bleedExecutionCap` falls back to the posterior when strict window returns null but ONLY when `evidenceSamples >= 1` AND `posterior < 0.35`. Neutral N=0 never applies a cap so cold sessions retain full discovery breadth.
+* New soft cap tier `0.25 ≤ wr < 0.35 → 0.55x` catches early bearish drift before the strict-window `DEMOTE_WR=0.18` hard cap trips.
+* Label `LANE_BLEED_EXECUTION_CAP_POSTERIOR_6611_<lane>` distinguishes posterior-driven from strict-window-driven caps.
+
+`rollingWr / rollingWrForBucket / OUTCOME_WINDOW_MIN_SAMPLES / DEMOTE_WR / EARLY_DEMOTE_STREAK` ALL UNCHANGED — callers requiring strict evidence keep their contract.
+
+## V5.0.6612 (Feb 2026) — BOUNDED_CONTRIBUTOR_MERGE
+
+Operator directive: *"many active specialists → one canonical execution owner per candidate → every relevant specialist continues contributing to sizing/hold/exit/learning. Contributor influence must never be zero merely because the specialist was not elected owner."*
+
+New authority `SpecialistContributorMerge6612`:
+* `recordContributor(mint, lane, laneScore, aiConfidence, buyIntent)` called from `BotService`'s all-lane emit block for every non-owner evaluation (`allowed=false`).
+* `boundedSizeMultiplier6612(mint)` returns per-mint multiplier **clamped to [0.75, 1.25]**. n=0 returns 1.0 (unchanged for un-observed mints). TTL 5s.
+* Formula: `base = 1.0 + 0.05·(buyAlignment−0.5)·min(n,6)/6 + 0.20·(confidenceMean/100−0.5)·min(n,6)/6`.
+
+`OrderSizeResolver6441.resolve` integration: new optional `mint: String = ""` (backward compat). Multiplier applied BEFORE the runner ladder so hard caps (risk/cash/lane/ladder/min-notional) still clip it — contributors CAN nudge sealed owner sizing, they can NEVER break it.
+
+Telemetry: `CONTRIB_MERGE_RECORDED_6612_<lane>` · `CONTRIB_MERGE_SIZE_MULT_6612_APPLIED` · `CONTRIB_MERGE_SIZE_MULT_6612_{LO|NEUTRAL|HI}`.
 
 ## V5.0.6610 (Feb 2026) — LEARNING_FANOUT_TO_OWNER + IMMUTABLE_ENTRY_LANE_ON_TOPUP
 
-Operator's V5.0.6609 dump exposed two related architectural defects:
+**§LEARNING_FANOUT_TO_OWNER (`AateDecisionEnvelope6512.onFinalized`)** — every specialist reported `learningN=0` across 616 lifetime finalized trades. `LanePolicy` internal state was being trained, but the `designatedRoleLivenessReport6599.learningN` counter only fanned out to non-owner desks. Owner lane now receives `recordDeskStage(LEARNING)` on every finalization. Emits `SPECIALIST_LEARNING_OWNER_FANOUT_6610_<LANE>`.
 
-**§LEARNING_FANOUT_TO_OWNER (`AateDecisionEnvelope6512.onFinalized`)** — every specialist reported `learningN=0` across 616 lifetime finalized trades. `LanePolicy` internal state WAS being trained (V3JournalRecorder path), but the operator's `designatedRoleLivenessReport6599.learningN` counter derived from `recordDeskStage(LEARNING)` — which was only being called for non-owner desk contributors. Fix: bump `recordDeskStage(env.lane, "LEARNING", env.positionId)` for the OWNER lane on every finalization. Emits `SPECIALIST_LEARNING_OWNER_FANOUT_6610_<LANE>` for per-desk grep.
-
-**§IMMUTABLE_ENTRY_LANE_ON_TOPUP (`Executor.recordPaperTopUp`)** — dump captured `pid=907:MOONSHOT lane=STANDARD reason=top_up_1`. Root cause: `Trade.tradingMode` defaults to `"STANDARD"` in the data-class default, and the top-up trade constructor at line 10104 did not pass `tradingMode`. Fix: `tradingMode = pos.tradingMode.ifBlank { "STANDARD" }` so the position's immutable entry-lane survives to the journal and downstream exit-personality resolution — MOONSHOT stays MOONSHOT.
+**§IMMUTABLE_ENTRY_LANE_ON_TOPUP (`Executor.recordPaperTopUp`)** — dump captured `pid=907:MOONSHOT lane=STANDARD reason=top_up_1`. `Trade.tradingMode` defaulted to `"STANDARD"`. Fix: `tradingMode = pos.tradingMode.ifBlank { "STANDARD" }` so the positions immutable entry-lane survives.
 
 ## V5.0.6609 (Feb 2026) — SEALED_ACTION_IN_SNAPSHOT + SPECIALIST LIVENESS
 
