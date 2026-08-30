@@ -228,40 +228,42 @@ class RuntimeSupervisorSmokeTest {
 
 class LaneExecutionCoordinatorSmokeTest {
     @Test
-    fun specialist_lane_can_upgrade_treasury_first_caller_primary() {
+    fun selected_treasury_owner_seals_immediately_without_coordinator_re_election() {
         BotRuntimeController.resetForTests()
         val gen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
         LaneExecutionCoordinator.resetForTests()
-        assertFalse("treasury first touch should defer one cycle for specialists", LaneExecutionCoordinator.canRequestExecution("MintTreasuryFirst", "TREASURY", runtimeGeneration = gen).allowed)
-        assertTrue("specialist lane must be able to supersede treasury first-caller election", LaneExecutionCoordinator.canRequestExecution("MintTreasuryFirst", "MOONSHOT", runtimeGeneration = gen).allowed)
-        assertFalse("treasury should become telemetry after specialist upgrade", LaneExecutionCoordinator.canRequestExecution("MintTreasuryFirst", "TREASURY", runtimeGeneration = gen).allowed)
+        val elected = LaneExecutionCoordinator.canRequestExecution("MintTreasuryFirst", "TREASURY", runtimeGeneration = gen)
+        assertTrue("upstream-selected Treasury owner must seal immediately", elected.allowed)
+        val rewrite = LaneExecutionCoordinator.canRequestExecution("MintTreasuryFirst", "MOONSHOT", runtimeGeneration = gen)
+        assertFalse("later Moonshot must not rewrite immutable Treasury ownership", rewrite.allowed)
+        assertEquals("TREASURY", rewrite.primaryLane)
+        assertEquals(elected.electionId, rewrite.electionId)
     }
 
     @Test
-    fun treasury_can_trade_next_pass_if_no_specialist_claims() {
+    fun treasury_can_trade_on_first_pass_when_selected_by_role_fit() {
         BotRuntimeController.resetForTests()
         val gen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
         LaneExecutionCoordinator.resetForTests()
-        assertFalse(LaneExecutionCoordinator.canRequestExecution("MintTreasuryOnly", "TREASURY", runtimeGeneration = gen).allowed)
-        assertTrue("treasury should be allowed on next pass when no specialist upgraded", LaneExecutionCoordinator.canRequestExecution("MintTreasuryOnly", "TREASURY", runtimeGeneration = gen).allowed)
+        val first = LaneExecutionCoordinator.canRequestExecution("MintTreasuryOnly", "TREASURY", runtimeGeneration = gen)
+        assertTrue("selected Treasury owner must not lose a cycle", first.allowed)
+        val repeat = LaneExecutionCoordinator.canRequestExecution("MintTreasuryOnly", "TREASURY", runtimeGeneration = gen)
+        assertTrue(repeat.allowed)
+        assertEquals(first.electionId, repeat.electionId)
     }
 
     @Test
-    fun affinity_lane_can_upgrade_non_affinity_higher_base_lane() {
+    fun affinity_is_upstream_evidence_not_a_coordinator_owner_rewrite() {
         BotRuntimeController.resetForTests()
         val gen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
         LaneExecutionCoordinator.resetForTests()
         LaneExecutionCoordinator.registerAffinity("MintAffinity", setOf("SHITCOIN"))
-        // V5.0.6494 — affinity is honoured at first election. MOONSHOT never
-        // gets a provisional claim on a mint that is routed to SHITCOIN; the
-        // election is picked from the qualified lanes (which prefer the
-        // affinity lane) and is sealed on the winner's first successful call.
-        assertFalse("affinity lane routes MintAffinity → SHITCOIN, so MOONSHOT is denied on first call",
-            LaneExecutionCoordinator.canRequestExecution("MintAffinity", "MOONSHOT", runtimeGeneration = gen).allowed)
-        assertTrue("affinity boost lets SHITCOIN claim its routed token",
-            LaneExecutionCoordinator.canRequestExecution("MintAffinity", "SHITCOIN", runtimeGeneration = gen).allowed)
-        assertFalse("sealed election refuses subsequent MOONSHOT attempts",
-            LaneExecutionCoordinator.canRequestExecution("MintAffinity", "MOONSHOT", runtimeGeneration = gen).allowed)
+        val elected = LaneExecutionCoordinator.canRequestExecution("MintAffinity", "MOONSHOT", runtimeGeneration = gen)
+        assertTrue("upstream role-fit owner must seal without static affinity re-election", elected.allowed)
+        val rewrite = LaneExecutionCoordinator.canRequestExecution("MintAffinity", "SHITCOIN", runtimeGeneration = gen)
+        assertFalse("affinity must not rewrite an already selected owner", rewrite.allowed)
+        assertEquals("MOONSHOT", rewrite.primaryLane)
+        assertEquals(elected.electionId, rewrite.electionId)
     }
 
     @Test

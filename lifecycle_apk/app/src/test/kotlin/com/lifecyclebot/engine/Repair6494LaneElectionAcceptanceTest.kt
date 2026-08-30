@@ -12,20 +12,17 @@ class Repair6494LaneElectionAcceptanceTest {
         val version = 6494001L
         LaneExecutionCoordinator.registerAffinity(mint, setOf("QUALITY", "MOONSHOT", "SHITCOIN"))
 
-        val first = LaneExecutionCoordinator.canRequestExecution(mint, "QUALITY", version, 77L)
-        assertFalse(first.allowed)
-        assertEquals("MOONSHOT", first.primaryLane)
-
-        val elected = LaneExecutionCoordinator.canRequestExecution(mint, "MOONSHOT", version, 77L)
+        val elected = LaneExecutionCoordinator.canRequestExecution(mint, "QUALITY", version, 77L)
         assertTrue(elected.allowed)
+        assertEquals("QUALITY", elected.primaryLane)
         assertTrue(elected.electionId.isNotBlank())
         assertTrue(elected.authorityVersion > 0L)
 
         val late = LaneExecutionCoordinator.canRequestExecution(mint, "SHITCOIN", version, 77L)
         assertFalse(late.allowed)
         assertEquals(elected.electionId, late.electionId)
-        assertEquals("MOONSHOT", late.primaryLane)
+        assertEquals("QUALITY", late.primaryLane)
 
-        assertTrue(LaneExecutionCoordinator.releaseIfPrimary(mint, "MOONSHOT", "BUY_NOT_OPENED", version + 1L, 77L))
+        assertTrue(LaneExecutionCoordinator.releaseIfPrimary(mint, "QUALITY", "BUY_NOT_OPENED", version + 1L, 77L))
     }
 }

@@ -8145,7 +8145,10 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
 
         assertTrue(coordinator.contains("val electionId: String") && coordinator.contains("val authorityVersion: Long"))
-        assertTrue(coordinator.contains("existing == null || existing.sealed") && coordinator.contains("e.copy(sealed = true)"))
+        assertTrue(coordinator.contains("lanes = listOf(laneUpper)") &&
+            coordinator.contains("preferred = laneUpper") &&
+            coordinator.contains("val allowed = e.primaryLane == laneUpper") &&
+            coordinator.contains("e.copy(sealed = true)"))
         assertTrue(auth.contains("electedLane6494 = laneElection.primaryLane") && auth.contains("electionId6494 = laneElection.electionId"))
         assertFalse("permit must not independently re-elect after authorization", permit.contains("LaneExecutionCoordinator.canRequestExecution(mint, layer)"))
         assertTrue(permit.contains("IMMUTABLE_EXEC_TICKET_MISSING_6494") && permit.contains("IMMUTABLE_ELECTION_LANE_MISMATCH_6494"))
