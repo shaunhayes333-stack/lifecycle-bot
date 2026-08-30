@@ -51,21 +51,16 @@ class Aate6604MemeCausalAuthorityCoverageTest {
     }
 
     @Test
-    fun aate6604_tactic_rotation_binds_weakwait_branch() {
-        val botSrc = java.io.File(
-            "src/main/kotlin/com/lifecyclebot/engine/BotService.kt"
-        ).readText()
+    fun aate6604_tactic_rotation_shapes_weakwait_branch_before_fdg() {
+        val botSrc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(
-            "V5.0.6604: weakWait branch must consult TacticSwitcher.currentTactic and block probes when tactic has rotated",
+            "V5.0.6613: weakWait must consult TacticSwitcher and apply lane-local bounded shaping",
             botSrc.contains("tacticGateActive6604") &&
                 botSrc.contains("com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(") &&
-                botSrc.contains("TACTIC_ROTATED_WEAK_WAIT_BLOCKED_6604")
+                botSrc.contains("TACTIC_ROTATED_WEAK_WAIT_SHAPED_6613") &&
+                botSrc.contains("tacticWaitShape6613")
         )
-        assertTrue(
-            "V5.0.6604: rotation-gated block must emit ForensicLogger + pipeline label with the current tactic name",
-            botSrc.contains("PREFDG_TACTIC_ROTATED_") &&
-                botSrc.contains("blockReason = \"TACTIC_ROTATED_WEAK_WAIT_BLOCKED_6604\"")
-        )
+        assertFalse(botSrc.contains("TACTIC_ROTATED_WEAK_WAIT_BLOCKED_6604"))
     }
 
     @Test

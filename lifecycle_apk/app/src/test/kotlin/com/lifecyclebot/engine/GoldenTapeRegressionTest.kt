@@ -8756,9 +8756,10 @@ class GoldenTapeRegressionTest {
             perps.contains("LaneExecutionCoordinator.candidateVersionFor(signal.market.symbol)"))
         assertFalse(perps.contains("candidateVersion = System.currentTimeMillis()"))
 
-        assertTrue(gate.contains("val ticketAuthority6564 = ticketForAttempt(attemptId)") &&
-            gate.contains("ticketAuthority6564?.authoritativeSignal") &&
-            gate.contains("ticketAuthority6564?.fdgVerdict"))
+        assertTrue(gate.contains("val ticketAuthority6564 = resolveSealedIntent6613(") &&
+            gate.contains("ticketAuthority6564?.fdgAllowed") &&
+            gate.contains("ticketAuthority6564?.fdgVerdict") &&
+            gate.contains("ticketAuthority6564 == null"))
         assertTrue(gate.contains("LIVE_EXECUTION_TICKET_TTL_MS = 45_000L") &&
             gate.contains("PAPER_EXECUTION_TICKET_TTL_MS = 180_000L") &&
             gate.contains("ticket.mode.equals(\"PAPER\", true)"))

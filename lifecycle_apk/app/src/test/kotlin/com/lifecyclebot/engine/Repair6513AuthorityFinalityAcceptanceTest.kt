@@ -34,7 +34,7 @@ class Repair6513AuthorityFinalityAcceptanceTest {
             mint, "RICK", 90, "PAPER", "STANDARD", "test.stale.standard.dispatch",
             liveLiquidityUsd = 5_000.0, liveSafetyTier = "SAFE", preResolvedSizeSol6490 = 0.05,
         )
-        assertTrue(verdict.reason, verdict.allowed)
+        assertTrue("${verdict.reason} active=${ExecutableOpenGate.activeExecutionIntent6519("PAPER", mint, cv)}", verdict.allowed)
         val ticket = requireNotNull(ExecutableOpenGate.ticketForAttempt(verdict.attemptId))
         assertEquals("PROJECT_SNIPER", ticket.primaryLane)
         assertEquals(ticket.primaryLane, ticket.lane)

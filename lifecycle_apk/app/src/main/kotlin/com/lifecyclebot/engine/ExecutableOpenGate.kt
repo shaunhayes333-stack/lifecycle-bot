@@ -905,6 +905,7 @@ object ExecutableOpenGate {
             finalHardNo.isNotEmpty() -> "HARD_NO_BUY"
             !canExecute -> preFdgVerdict.takeIf { it != "BUY" } ?: "NO_BUY"
             incomingProbe -> "PROBE_ONLY"   // approved dust-buy — must NOT become WATCH
+            preFdgVerdict.equals("BUY", true) -> "BUY" // sealed FDG action outranks diagnostic raw signal
             signal.equals("BUY", true) || signal.equals("EXECUTE", true) -> "BUY"
             // canExecute=true with no hard-no is an APPROVAL regardless of the raw
             // signal label — treat as executable PROBE_ONLY rather than WATCH-dropping it.
@@ -954,10 +955,9 @@ object ExecutableOpenGate {
             val winner = resolvedWinner6512
             if (winner?.fdgCan == true && winner.hardNoReasons.isEmpty() && winner.preFdgVerdict in setOf("BUY", "PROBE_ONLY")) {
                 try {
-                    val identity6512 = TradeIdentityManager.getOrCreate(mint, winner.symbol)
-                    identity6512.executionLane = winner.selectedLane
-                    identity6512.fdgCandidateVersion = winner.candidateVersion
-                    identity6512.fdgVerdictSnapshot = winner.preFdgVerdict
+                    // V5.0.6613a — canonical decision snapshot/intent MUST publish before
+                    // projection-side TradeIdentity mutation. A malformed/restored identity
+                    // must not throw inside this broad compatibility block and erase an FDG BUY.
                     com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.record(
                         com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot(
                             mint = mint, candidateVersion = winner.candidateVersion,
@@ -1001,6 +1001,14 @@ object ExecutableOpenGate {
                             expiresAtMs6613 = System.currentTimeMillis() + if (paperRuntime) PAPER_EXECUTION_TICKET_TTL_MS else LIVE_EXECUTION_TICKET_TTL_MS,
                         ),
                     )
+                    try {
+                        val identity6512 = TradeIdentityManager.getOrCreate(mint, winner.symbol)
+                        identity6512.executionLane = winner.selectedLane
+                        identity6512.fdgCandidateVersion = winner.candidateVersion
+                        identity6512.fdgVerdictSnapshot = winner.preFdgVerdict
+                    } catch (_: Throwable) {
+                        try { PipelineHealthCollector.labelInc("TRADE_IDENTITY_PROJECTION_FAILED_AFTER_INTENT_6613A") } catch (_: Throwable) {}
+                    }
                     if (com.lifecyclebot.engine.truth.AateDecisionFabric6512.get(mode6512, mint, winner.candidateVersion, winner.selectedLane) == null) {
                         com.lifecyclebot.engine.truth.AateDecisionFabric6512.record(
                             com.lifecyclebot.engine.truth.PolicySynthesizer6512.synthesize(
@@ -1775,7 +1783,7 @@ object ExecutableOpenGate {
             }
             return dropped(log, reason)
         }
-        if (immutableTicket == null && immutableAuthority6513 == null && !selectedLaneMatchesRequest(selectedLane, lane)) {
+        if (immutableTicket == null && ticketAuthority6564 == null && immutableAuthority6513 == null && !selectedLaneMatchesRequest(selectedLane, lane)) {
             // V5.9.1499 — LANE-CONTENTION DEDUP (not lost volume). When two REAL
             // specialist lanes both qualify the same mint, LaneExecutionCoordinator
             // elects ONE primary (priority + recent-WR based, with upgrade-steal).
@@ -1861,7 +1869,7 @@ object ExecutableOpenGate {
                 return blocked("EXEC_OPEN_BLOCKED_TRUE_ZERO_LIQUIDITY", "TRUE_ZERO_LIQUIDITY", shadow = false)
             }
         }
-        if (fdgCan == true && hardNoReasons.isEmpty() && immutableTicket == null) {
+        if (fdgCan == true && hardNoReasons.isEmpty() && immutableTicket == null && ticketAuthority6564 == null) {
             try {
                 PipelineHealthCollector.labelInc("AUTHORITY_INVARIANT_FAILURE")
                 PipelineHealthCollector.labelInc("EXEC_AUTHORITY_STATE_MISMATCH")

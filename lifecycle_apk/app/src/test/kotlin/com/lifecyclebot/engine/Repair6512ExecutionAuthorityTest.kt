@@ -56,7 +56,7 @@ class Repair6512ExecutionAuthorityTest {
             ExecutableOpenGate.recordEntryAuthority6487(mint, cv, ExecutableEntryAuthority6450.gate(lane, mint, 1.0))
             ExecutableOpenGate.recordFdg(mint, "R$i", lane, true, null, signal = raw, rugScore = 90, safetyTier = "SAFE", liquidityUsd = 3500.0, preFdgVerdict = "BUY", candidateVersion = cv)
             val verdict = ExecutableOpenGate.canOpenExecutablePosition(mint, "R$i", 90, "PAPER", lane, "test.6512.$raw", liveLiquidityUsd = 3500.0, liveSafetyTier = "SAFE", preResolvedSizeSol6490 = 0.05)
-            assertTrue("sealed FDG authority must survive raw $raw", verdict.allowed)
+            assertTrue("sealed FDG authority must survive raw $raw reason=${verdict.reason} active=${ExecutableOpenGate.activeExecutionIntent6519("PAPER", mint, cv)}", verdict.allowed)
             assertNotNull(ExecutableOpenGate.ticketForAttempt(verdict.attemptId))
         }
     }

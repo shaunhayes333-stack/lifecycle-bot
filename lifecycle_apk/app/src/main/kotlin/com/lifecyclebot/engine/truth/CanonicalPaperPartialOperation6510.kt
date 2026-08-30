@@ -20,6 +20,7 @@ object CanonicalPaperPartialOperation6510 {
             r.contains("RAPID_INSTANT") -> "RAPID_INSTANT_PROFIT"
             r.contains("ULTRA_RUNNER") -> "ULTRA_RUNNER"
             r.contains("WALLET_GROWTH_HARVEST") -> "WALLET_GROWTH_HARVEST"
+            r.contains("RUNNER_RUNG") -> "RUNNER_RUNG_${Regex("[0-9]+").find(r)?.value ?: "GENERIC"}"
             r.contains("PROFIT_LOCK") -> "PROFIT_LOCK_${Regex("[0-9]+").find(r)?.value ?: "GENERIC"}"
             r.startsWith("PARTIAL_") -> r.substringBefore("PCT") + "PCT"
             else -> r.replace(Regex("[0-9]+(?:\\.[0-9]+)?"), "N").take(80)

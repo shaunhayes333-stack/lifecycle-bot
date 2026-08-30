@@ -37,28 +37,18 @@ import org.junit.Assert.assertFalse
 class Aate6594EntrySelectivityAndHeroTruthCoverageTest {
 
     @Test
-    fun aate6594_wait_to_probe_vetoed_when_authoritative_policy_negative() {
-        val src = java.io.File(
-            "src/main/kotlin/com/lifecyclebot/engine/BotService.kt"
-        ).readText()
+    fun aate6594_wait_to_probe_is_lane_locally_shaped_when_authoritative_policy_negative() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(
-            "V5.0.6594: authoritative-negative policy must veto WAIT->PROBE promotion " +
-                "with a distinct telemetry line",
-            src.contains("LEARNED_POLICY_NEGATIVE_LANE_WAIT_PROMOTION_VETO_6593") &&
-                src.contains("laneAuthoritativePolicyNegative6593")
+            "V5.0.6613: learned policy must shape rather than terminal-veto lane evidence",
+            src.contains("LEARNED_POLICY_NEGATIVE_LANE_WAIT_SHAPED_6613") &&
+                src.contains("laneAuthoritativePolicyNegative6593") &&
+                src.contains("learnedWaitShape6613")
         )
-        assertTrue(
-            "V5.0.6594: veto must return WAIT (never silently promote)",
-            src.contains("blockReason = \"LEARNED_POLICY_VETO_6593\"")
-        )
-        // Regression: the veto check must live BEFORE the DUST_PROBE
-        // fallthrough; if it moves after, the promotion sneaks through.
-        val vetoIdx = src.indexOf("LEARNED_POLICY_NEGATIVE_LANE_WAIT_PROMOTION_VETO_6593")
+        assertFalse(src.contains("LEARNED_POLICY_NEGATIVE_LANE_WAIT_PROMOTION_VETO_6593"))
+        val shapeIdx = src.indexOf("LEARNED_POLICY_NEGATIVE_LANE_WAIT_SHAPED_6613")
         val dustProbeIdx = src.indexOf("LANE_WAIT_OVERRIDE_DUST_PROBE\")")
-        assertTrue(
-            "V5.0.6594: the veto site must precede the DUST_PROBE fallthrough",
-            vetoIdx > 0 && dustProbeIdx > 0 && vetoIdx < dustProbeIdx
-        )
+        assertTrue(shapeIdx > 0 && dustProbeIdx > 0 && shapeIdx < dustProbeIdx)
     }
 
     @Test
