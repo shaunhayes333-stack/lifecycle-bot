@@ -1,12 +1,20 @@
-# AATE PRD — V5.0.6609b (SEALED_ACTION_IN_SNAPSHOT + SPECIALIST LIVENESS — P0 REPAIRS SHIPPED)
+# AATE PRD — V5.0.6610 (LEARNING FANOUT + IMMUTABLE ENTRY-LANE ON TOP-UP)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
-**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6609 + V5.0.6609b BOTH CI GREEN.**
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6610 CI GREEN.**
 
-## V5.0.6609 / 6609b (Feb 2026) — P0 EXECUTION AUTHORITY + SPECIALIST LIVENESS
+## V5.0.6610 (Feb 2026) — LEARNING_FANOUT_TO_OWNER + IMMUTABLE_ENTRY_LANE_ON_TOPUP
+
+Operator's V5.0.6609 dump exposed two related architectural defects:
+
+**§LEARNING_FANOUT_TO_OWNER (`AateDecisionEnvelope6512.onFinalized`)** — every specialist reported `learningN=0` across 616 lifetime finalized trades. `LanePolicy` internal state WAS being trained (V3JournalRecorder path), but the operator's `designatedRoleLivenessReport6599.learningN` counter derived from `recordDeskStage(LEARNING)` — which was only being called for non-owner desk contributors. Fix: bump `recordDeskStage(env.lane, "LEARNING", env.positionId)` for the OWNER lane on every finalization. Emits `SPECIALIST_LEARNING_OWNER_FANOUT_6610_<LANE>` for per-desk grep.
+
+**§IMMUTABLE_ENTRY_LANE_ON_TOPUP (`Executor.recordPaperTopUp`)** — dump captured `pid=907:MOONSHOT lane=STANDARD reason=top_up_1`. Root cause: `Trade.tradingMode` defaults to `"STANDARD"` in the data-class default, and the top-up trade constructor at line 10104 did not pass `tradingMode`. Fix: `tradingMode = pos.tradingMode.ifBlank { "STANDARD" }` so the position's immutable entry-lane survives to the journal and downstream exit-personality resolution — MOONSHOT stays MOONSHOT.
+
+## V5.0.6609 (Feb 2026) — SEALED_ACTION_IN_SNAPSHOT + SPECIALIST LIVENESS
 
 Operator's V5.0.6608 forensic dump exposed two P0 defects the operator required zeroed:
 
