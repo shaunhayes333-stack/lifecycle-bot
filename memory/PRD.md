@@ -1,10 +1,24 @@
-# AATE PRD — V5.0.6622 (MEME SOURCE-LEVEL EXECUTION PROVENANCE — Slices 1+2+3)
+# AATE PRD — V5.0.6625 (MEME EXECUTION FUNNEL RECEIVERS WIRED — P2/P3/P4/P5/P6)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
-**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6622b Build CI GREEN (16m56s).**
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6625 Build CI GREEN (15m57s, run 33416912552).**
+
+## V5.0.6625 (Feb 2026) — MEME EXECUTION FUNNEL RECEIVERS WIRED (P2/P3/P4/P5/P6)
+
+The five V5.0.6625 receivers (`ExpressHandoffFunnel` / `PendingIntentBacklog` / `MoonshotExitTransaction` / `SpecialistCausalFunnel` / `UiOffMainAudit`) are now driven by a **single fan-out** at `ToolkitSignalSheet.recordDeskStage` so no specialist stage can bypass them:
+
+- **§P2 EXPRESS handoff** — counters advance on the EXPRESS lane only: `intent → markOK/markMissing → sizedPos/sizedZero → ticketSealed → executed`. Operator can now grep the exact 33→0 hop.
+- **§P3 Pending backlog drainage** — `record6625` fires on BUY_INTENT, `consume6625` on TICKET/EXEC/SELL_CONFIRMED/FINALIZED/SIZE_REJECT/MARK_REJECT/FDG_BLOCK. `PipelineHealthCollector` calls `reap6625(30_000L)` each dump cadence so CORE/BLUECHIP backlogs actually drain instead of accumulating.
+- **§P4 MOONSHOT exit tx** — SELL_ATTEMPT begins-or-resumes a positionId-keyed tx; SELL_CONFIRMED/FINALIZED terminate it. Retries no longer open competing state.
+- **§P5 Specialist causal funnel** — every stage stamps one canonical record keyed by `runId + mode + mint + lane + authorityVersion + intentId`. Impossible combos (fdgAllow=0 exec=113 for the same intent) are structurally prevented.
+- **§P6 UI off-main audit** — `MarkAuthorityIntegrityGate6496.isAuthoritative` in the BotService snapshot recompute is wrapped so any ≥32ms Main-thread run surfaces `UI_MAIN_THREAD_LONG_RUN_MARKAUTHORITYINTEGRITYGATE6496_6625`. Actual coroutine offload targets the sites that trip.
+
+`PipelineHealthCollector` appends a `MEME EXECUTION FUNNEL RECEIVERS (V5.0.6625)` status block next to the §6600 causal funnel report.
+
+Test coverage: `Aate6625MemeExecutionFunnelReceiversCoverageTest` — EXPRESS isolation, backlog record/consume/reap, MOONSHOT retry resume, causal-funnel stamping, source authority.
 
 ## V5.0.6620 → V5.0.6622 (Feb 2026) — MEME SOURCE-LEVEL EXECUTION PROVENANCE (Slices 1+2+3)
 
