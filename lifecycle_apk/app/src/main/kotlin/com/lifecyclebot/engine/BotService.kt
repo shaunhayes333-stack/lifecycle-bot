@@ -251,13 +251,22 @@ class BotService : Service() {
          * Safe at startup AND in the watchdog. Used in both places below.
          */
         fun isMarketsLaneEnabled(cfg: com.lifecyclebot.data.BotConfig): Boolean {
-            // V5.0.6069 — PAPER MODE = LEARN EVERYTHING. In paper mode, enable
-            // Markets lane universally (all trading modes) so the learning stack
-            // gets samples across every lane surface. Kill switch still respected.
-            if (cfg.paperMode && !MARKET_TRADER_KILL_SWITCH) return true
-            return !MARKET_TRADER_KILL_SWITCH &&
-                   cfg.marketsTraderEnabled &&
-                   (cfg.tradingMode == 1 || cfg.tradingMode == 2)
+            // V5.0.6618 §MARKETS_TOGGLE_AUTHORITY (operator directive Feb 2026:
+            //   "Markets currently runs even if it's switched off in settings.
+            //    Fix that."). Pre-6618, paper mode short-circuited the master
+            //   toggle: `if (cfg.paperMode && !KILL) return true`. That was
+            //   the V5.0.6069 "PAPER = LEARN EVERYTHING" doctrine — good in
+            //   isolation but it ignored the user's explicit Markets toggle
+            //   because the OR was invisible from Settings.
+            //   6618 correction: the user's `marketsTraderEnabled` toggle
+            //   has authority over paper mode. The "learn everything"
+            //   semantic still applies to sub-lane toggles (stocks/forex/etc.)
+            //   AFTER the master toggle is on — but a master-off toggle now
+            //   shuts Markets down in paper mode too. Kill switch still wins.
+            if (MARKET_TRADER_KILL_SWITCH) return false
+            if (!cfg.marketsTraderEnabled) return false
+            if (cfg.paperMode) return true
+            return cfg.tradingMode == 1 || cfg.tradingMode == 2
         }
 
         // ═══════════════════════════════════════════════════════════════

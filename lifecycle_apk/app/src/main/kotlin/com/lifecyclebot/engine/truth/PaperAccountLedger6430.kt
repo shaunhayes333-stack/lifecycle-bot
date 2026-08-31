@@ -117,6 +117,61 @@ object PaperAccountLedger6430 {
         try { JournalEconomicAuthority6616.notifyEconomicMutation("INITIALIZE") } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.6618 §RESET_PAPER_WALLET_CANONICAL (operator directive Feb 2026:
+     *   "It's drained all the funds and won't reset the wallet balance").
+     *
+     * The pre-6618 BehaviorActivity Reset button wrote to the legacy
+     * `BotService.status.paperWalletSol` mirror + FluidLearning + a
+     * SharedPreferences key — none of which is the canonical authority
+     * since V5.0.6577. Result: user hit Reset, saw a toast, but the
+     * journal-authoritative PaperAccountLedger6430 kept the drained
+     * state and re-published it on the next hero render.
+     *
+     * This is the single canonical reset entry. It:
+     *   1. Purges the durable JSON at STATE_6487 so a subsequent restart
+     *      does not resurrect the drained figures.
+     *   2. Resets startingCash/cash/reserved/openCost/realizedPnl/fees
+     *      to a fresh startingCashSol atomically under the ledger lock.
+     *   3. Notifies JournalEconomicAuthority6616 so all three heroes
+     *      (Meme / Markets / Crypto Universe) render the reset value
+     *      on their next tick.
+     *   4. Emits PAPER_WALLET_RESET_6618 forensic + counter so the
+     *      operator sees the causal reset event in log dumps.
+     *
+     * The caller (BehaviorActivity) is responsible for also purging
+     * canonical positions / fill lots if it wants an absolute clean
+     * slate; this method is deliberately scoped to cash/economics.
+     */
+    @Synchronized
+    fun resetToFreshBalance6618(startingCashSol: Double, reason: String) {
+        val p = toPico(startingCashSol.coerceAtLeast(0.0))
+        // Purge durable state so restart cannot resurrect the drained
+        // figures.
+        try {
+            prefs6487?.edit()?.remove(STATE_6487)?.apply()
+        } catch (_: Throwable) {}
+        startingCashPico.set(p)
+        cashPico.set(p)
+        reservedCashPico.set(0L)
+        openCostBasisPico.set(0L)
+        realizedPnlPico.set(0L)
+        feesPico.set(0L)
+        opCount.set(0L)
+        // Persist the fresh state immediately so any process restart in
+        // the next second still sees the reset value.
+        persistCurrent6487()
+        try {
+            ForensicLogger.lifecycle(
+                "PAPER_WALLET_RESET_6618",
+                "startingSol=${"%.4f".format(startingCashSol)} reason=${reason.take(80)}",
+            )
+            PipelineHealthCollector.labelInc("PAPER_WALLET_RESET_6618")
+        } catch (_: Throwable) {}
+        // Journal authority MUST fan the reset out to the three heroes.
+        try { JournalEconomicAuthority6616.notifyEconomicMutation("RESET_6618") } catch (_: Throwable) {}
+    }
+
     fun canAffordBuy(costSol: Double, feeSol: Double = 0.0): Boolean {
         if (!costSol.isFinite() || costSol <= 0.0) return false
         return cashSol() >= (costSol + feeSol.coerceAtLeast(0.0))

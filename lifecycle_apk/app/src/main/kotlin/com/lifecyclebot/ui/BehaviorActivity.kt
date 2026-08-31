@@ -152,6 +152,19 @@ class BehaviorActivity : AppCompatActivity() {
         }
 
         // V5.9.18: Reset paper wallet only (preserves learning + AI state)
+        // V5.0.6618 §RESET_PAPER_WALLET_CANONICAL — pre-6618 this button
+        //   wrote to BotService.status.paperWalletSol + FluidLearning +
+        //   a SharedPreferences key, NONE of which is the canonical
+        //   authority since V5.0.6577. The user hit Reset, saw a toast,
+        //   but PaperAccountLedger6430 (the journal-authoritative source
+        //   the three heroes now bind to via JournalEconomicAuthority6616)
+        //   kept the drained state and re-published it on the next hero
+        //   render. Fix: route through PaperAccountLedger6430
+        //   .resetToFreshBalance6618 which atomically purges durable
+        //   state, resets all pico atomics, persists the fresh state,
+        //   and notifies the journal authority so all three heroes
+        //   observe the reset on their next tick. Legacy mirrors are
+        //   still kept in sync for older UI surfaces that read them.
         try {
             findViewById<Button>(R.id.btnResetPaperWallet)?.setOnClickListener {
                 android.app.AlertDialog.Builder(this)
@@ -160,8 +173,15 @@ class BehaviorActivity : AppCompatActivity() {
                     .setPositiveButton("Reset") { _, _ ->
                         try {
                             val freshSol = 11.7647
+                            // Canonical reset — the ONLY source that the
+                            // three heroes actually read since V5.0.6577.
+                            com.lifecyclebot.engine.truth.PaperAccountLedger6430
+                                .resetToFreshBalance6618(freshSol, "USER_BEHAVIOR_UI_RESET_6618")
+                            // Legacy mirror kept in sync for older UI
+                            // surfaces (dashboards, alerts, wallet card
+                            // history charts) that still read paperWalletSol.
                             com.lifecyclebot.engine.BotService.status.paperWalletSol = freshSol
-                            com.lifecyclebot.engine.FluidLearning.forceSetBalance(freshSol)
+                            try { com.lifecyclebot.engine.FluidLearning.forceSetBalance(freshSol) } catch (_: Throwable) {}
                             try {
                                 getSharedPreferences("bot_paper_wallet", android.content.Context.MODE_PRIVATE)
                                     .edit().putFloat("paper_wallet_sol", freshSol.toFloat()).apply()
