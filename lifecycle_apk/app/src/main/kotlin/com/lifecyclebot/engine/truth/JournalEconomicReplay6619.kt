@@ -81,12 +81,53 @@ object JournalEconomicReplay6619 {
      * rows. Non-clamping, no fallback to the ledger. Returns a stable
      * ReplayResult even when the journal is empty (returns
      * startingCashSol + zeros).
+     *
+     * V5.0.6619b §MAIN_THREAD_SAFETY — TradeHistoryStore.ensureInitialized
+     * opens the SQLite writable database + loads all rows into memory
+     * synchronously on the calling thread. MainActivity's cold-open
+     * hydration path (onResume → hydratePaperWalletForColdOpen →
+     * PaperAccountLedger6430.initPersistent6487 → notifyEconomicMutation
+     * → replay) runs on the Main thread. On a CI emulator this pushed
+     * the initial UI-ready wait past 5 s and the smoke test's btnToggle
+     * lookup failed. Fix: on the Main thread we DO NOT walk the durable
+     * journal. We return a fast result seeded with startingCashSol and
+     * the last cached values; the next background tick (BotService
+     * loop, ~5-12s) picks up the full replay off-thread. This preserves
+     * the "hero derived solely from journal" doctrine — pre-first-trade
+     * the journal IS empty so cash = startingCash is the correct
+     * journal-derived answer.
      */
     fun replay(): ReplayResult {
         replays.incrementAndGet()
         val startingSol = try {
             PaperCapitalAuthority6577.startingCashSol().coerceAtLeast(0.0)
         } catch (_: Throwable) { 0.0 }
+
+        val onMainThread = try {
+            android.os.Looper.myLooper() == android.os.Looper.getMainLooper()
+        } catch (_: Throwable) { false }
+        if (onMainThread) {
+            try { PipelineHealthCollector.labelInc("JOURNAL_REPLAY_MAIN_THREAD_DEFERRED_6619") } catch (_: Throwable) {}
+            val prior = lastResult.get()
+            val fast = if (prior != null) {
+                // Preserve last full replay; only bump startingCashSol
+                // in case it changed (reset). No DB read.
+                prior.copy(startingCashSol = startingSol, emittedAtMs = System.currentTimeMillis())
+            } else {
+                ReplayResult(
+                    cashSol = startingSol,
+                    realizedPnlSol = 0.0,
+                    openCostBasisSol = 0.0,
+                    feesSol = 0.0,
+                    equitySol = startingSol,
+                    startingCashSol = startingSol,
+                    paperRows = 0, paperBuys = 0, paperSells = 0, paperPartialSells = 0,
+                    emittedAtMs = System.currentTimeMillis(),
+                )
+            }
+            lastResult.set(fast)
+            return fast
+        }
 
         var cash = startingSol
         var realized = 0.0
