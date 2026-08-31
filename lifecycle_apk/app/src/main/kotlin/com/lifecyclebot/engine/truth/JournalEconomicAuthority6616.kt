@@ -101,27 +101,36 @@ object JournalEconomicAuthority6616 {
     fun notifyEconomicMutation(kind: String) {
         mutationsObserved.incrementAndGet()
         val rev = journalEconomicRevision.incrementAndGet()
-        val snap = try {
-            CanonicalCapitalAuthority6450.snapshot()
+        // V5.0.6619 §JOURNAL_DERIVED_HERO_AUTHORITY — the three heroes
+        //   are the journal's mirror. Compute cash/equity/realized from
+        //   the durable journal rows directly (JournalEconomicReplay6619),
+        //   NOT from the ledger accumulators which drift on a fresh
+        //   install (operator screenshot Feb 2026: hero showed +$5,793
+        //   while journal totalled +$146). The ledger keeps running
+        //   for execution paths and the capital-conservation invariant;
+        //   this authority no longer reads it for hero economics.
+        val replay = try {
+            JournalEconomicReplay6619.replay()
         } catch (_: Throwable) { null }
-        val s = if (snap != null) {
+        val s = if (replay != null) {
             CanonicalEconomicSnapshot(
                 revision = rev,
                 mode = "paper",
-                cashSol = snap.cashSol,
-                reservedSol = snap.reservedSol,
-                openMarketValueSol = snap.openMarketValueSol,
-                unrealizedPnlSol = snap.unrealizedPnlSol,
-                realizedPnlSol = snap.realizedPnlSol,
-                feesSol = snap.feesSol,
-                equitySol = snap.totalEquitySol,
-                startingCashSol = snap.startingCashSol,
+                cashSol = replay.cashSol,
+                reservedSol = 0.0,
+                openMarketValueSol = replay.openCostBasisSol, // conservative — cost basis until live marks land
+                unrealizedPnlSol = 0.0,
+                realizedPnlSol = replay.realizedPnlSol,
+                feesSol = replay.feesSol,
+                equitySol = replay.equitySol,
+                startingCashSol = replay.startingCashSol,
                 emittedAtMs = System.currentTimeMillis(),
+                source = "TRADE_JOURNAL_REPLAY_6619",
             )
         } else {
+            // Journal read failed catastrophically — degrade gracefully.
             CanonicalEconomicSnapshot(
-                revision = rev,
-                mode = "paper",
+                revision = rev, mode = "paper",
                 cashSol = 0.0, reservedSol = 0.0, openMarketValueSol = 0.0,
                 unrealizedPnlSol = 0.0, realizedPnlSol = 0.0, feesSol = 0.0,
                 equitySol = 0.0, startingCashSol = 0.0,
@@ -151,19 +160,21 @@ object JournalEconomicAuthority6616 {
      */
     fun forcePublish(source: String) {
         val rev = journalEconomicRevision.get()
-        val snap = try { CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null } ?: return
+        // V5.0.6619 — same doctrine as notifyEconomicMutation: publish
+        //   journal-replay-derived values, not ledger accumulators.
+        val replay = try { JournalEconomicReplay6619.replay() } catch (_: Throwable) { null } ?: return
         cached.set(
             CanonicalEconomicSnapshot(
                 revision = rev, mode = "paper",
-                cashSol = snap.cashSol, reservedSol = snap.reservedSol,
-                openMarketValueSol = snap.openMarketValueSol,
-                unrealizedPnlSol = snap.unrealizedPnlSol,
-                realizedPnlSol = snap.realizedPnlSol,
-                feesSol = snap.feesSol,
-                equitySol = snap.totalEquitySol,
-                startingCashSol = snap.startingCashSol,
+                cashSol = replay.cashSol, reservedSol = 0.0,
+                openMarketValueSol = replay.openCostBasisSol,
+                unrealizedPnlSol = 0.0,
+                realizedPnlSol = replay.realizedPnlSol,
+                feesSol = replay.feesSol,
+                equitySol = replay.equitySol,
+                startingCashSol = replay.startingCashSol,
                 emittedAtMs = System.currentTimeMillis(),
-                source = source.ifBlank { "TRADE_JOURNAL_REPLAY" },
+                source = source.ifBlank { "TRADE_JOURNAL_REPLAY_6619" },
             )
         )
         try { PipelineHealthCollector.labelInc("JOURNAL_ECONOMIC_SNAPSHOT_FORCE_PUBLISH_6616") } catch (_: Throwable) {}

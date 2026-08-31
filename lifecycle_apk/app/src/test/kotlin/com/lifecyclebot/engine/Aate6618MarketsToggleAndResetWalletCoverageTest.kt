@@ -111,7 +111,7 @@ class Aate6618MarketsToggleAndResetWalletCoverageTest {
         ledger.resetForTest()
         // Simulate a drained state with realized losses + fees + open cost.
         ledger.initialize(11.7647)
-        ledger.onBuy(costSol = 5.0, feeSol = 0.05, mint = "MintA")
+        ledger.onBuy(costSol = 5.0, feeSol = 0.05)
         ledger.onSell(grossProceedsSol = 2.0, costBasisSoldSol = 5.0, feeSol = 0.02, mint = "MintA")
         // Now user hits Reset.
         ledger.resetToFreshBalance6618(11.7647, "USER_TEST_RESET")
@@ -134,7 +134,7 @@ class Aate6618MarketsToggleAndResetWalletCoverageTest {
         ledger.resetForTest()
         journal.resetForTest()
         ledger.initialize(5.0)
-        ledger.onBuy(costSol = 3.0, feeSol = 0.03, mint = "MintB")
+        ledger.onBuy(costSol = 3.0, feeSol = 0.03)
         val preSnap = journal.currentSnapshot()!!
         val preRev = preSnap.revision
         // User hits Reset.

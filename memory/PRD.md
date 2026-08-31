@@ -1,10 +1,30 @@
-# AATE PRD — V5.0.6617 (GLOBAL CAPITAL ARBITRATION + POSITION LIFECYCLE FORMALIZATION)
+# AATE PRD — V5.0.6619 (JOURNAL-DERIVED HERO AUTHORITY)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
-**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6617 CI GREEN (14m44s).**
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6619 CI PENDING.**
+
+## V5.0.6619 (Feb 2026) — JOURNAL_DERIVED_HERO_AUTHORITY (+ 6618 test compile fix)
+
+Operator directive: *"The main UI balance is broken. Look at the journal vs the hero balance in the main UI. That figure is impossible and should be solely derived from data directly from the journal."*
+
+**Forensic evidence (fresh install V5.0.6617)**: hero showed **+$5,793** while the journal RAW parity band totalled **+1.5999 SOL (~$136)** and the clean journal tab showed **+$146.08**. The `PaperAccountLedger6430` accumulators drifted; the journal did not. Both journal views (raw and clean) agreed with each other. Doctrine (V5.0.6616): the durable trade journal is the sole economic source of truth.
+
+**NEW `JournalEconomicReplay6619`** — walks `TradeHistoryStore.getAllValidTradesSnapshot(20_000)` filtered to `mode="paper"`, computes deterministically per row:
+- BUY: `cash -= (sol + feeSol); openCost += sol; fees += feeSol`
+- SELL/PARTIAL_SELL: `cash += (grossProceedsSol - feeSol); openCost -= soldCostBasisSol; realizedPnl += netPnlSol`
+- `startingCashSol` from `PaperAccountLedger6430.startingCashSol()` (immutable config, not accumulator)
+- `equitySol = cashSol + openCostBasisSol` (conservative — cost basis instead of live marks)
+
+**`JournalEconomicAuthority6616.currentSnapshot()`** rebinds to feed the three heroes (Meme / Markets / Crypto Universe) from `JournalEconomicReplay6619.replay()` — no longer reads `PaperAccountLedger6430` accumulators. Snapshot source stamps as `TRADE_JOURNAL_REPLAY_6619` so operator can grep the authority.
+
+**Divergence probe** — every replay compares ledger cash vs journal cash and emits `PAPER_LEDGER_VS_JOURNAL_DIVERGENCE_6619 delta=X.YY` when they disagree > 0.001 SOL. Ledger stays alive for execution paths and the capital-conservation invariant; hero binds strictly to the journal.
+
+**V5.0.6618 test compile fix** — `Aate6618MarketsToggleAndResetWalletCoverageTest` erroneously passed `mint = "..."` to `PaperAccountLedger6430.onBuy()` which has no `mint` parameter. Corrected.
+
+## V5.0.6618 (Feb 2026) — MARKETS_TOGGLE_AUTHORITY + RESET_PAPER_WALLET_CANONICAL
 
 ## V5.0.6617 (Feb 2026) — GLOBAL_CAPITAL_ARBITRATION + POSITION_LIFECYCLE_FORMALIZATION
 
