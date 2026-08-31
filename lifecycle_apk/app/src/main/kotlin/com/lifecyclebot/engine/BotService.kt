@@ -26331,7 +26331,7 @@ if (hotExitHandledSweep) {
                 //   Folded into the 6616 patch alongside the journal
                 //   single-authority repair so a single CI cycle validates
                 //   both accounting and exit-lane correctness.
-                val immutableLanePrefix6613 = ts.tradingMode
+                val immutableLanePrefix6613 = ts.position.tradingMode
                     .takeIf { it.isNotBlank() && it.uppercase() != "STANDARD" }
                     ?.uppercase() ?: "SHITCOIN"
                 val sellResult = executor.requestSell(

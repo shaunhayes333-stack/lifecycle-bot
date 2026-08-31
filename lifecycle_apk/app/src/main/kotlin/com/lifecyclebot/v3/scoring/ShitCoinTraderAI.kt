@@ -573,19 +573,21 @@ object ShitCoinTraderAI {
         //   accidentally acquire SHITCOIN exit logic through a mutable
         //   current-lane lookup."). Operator's V5.0.6609 dump captured
         //   TRIGGER|MOONSHOT|SHITCOIN_STOP_LOSS — a MOONSHOT-entered position
-        //   was routed through this ShitCoinTraderAI exit path and the
-        //   reason was hardcoded "SHITCOIN_${exitReason.name}", producing
-        //   a SHITCOIN_STOP_LOSS reason on a MOONSHOT position. That reason
-        //   then re-shaped downstream: Executor.pnlBoundsFor(reason) at
-        //   line 19724 groups SHITCOIN_STOP_LOSS with the tight (-12, -6)
-        //   band, clipping MOONSHOT's asymmetric runner room.
-        //   Fix: prefix with the position's IMMUTABLE entryLane
-        //   (pos.tradingMode) when set. Falls back to "SHITCOIN_" only
-        //   when the position genuinely entered as a SHITCOIN. Folded
-        //   into the 6616 journal-authority patch.
-        val immutableLanePrefix6613 = pos.tradingMode
-            .takeIf { it.isNotBlank() && it.uppercase() != "STANDARD" }
-            ?.uppercase() ?: "SHITCOIN"
+        //   was routed through the ShitCoin exit path (see BotService
+        //   mirror at ~line 26325) and the reason was hardcoded
+        //   "SHITCOIN_${exitReason.name}", producing a SHITCOIN_STOP_LOSS
+        //   reason on a MOONSHOT position. That reason then re-shaped
+        //   downstream: Executor.pnlBoundsFor(reason) at line 19724
+        //   groups SHITCOIN_STOP_LOSS with the tight (-12, -6) band,
+        //   clipping MOONSHOT's asymmetric runner room.
+        //   Fix (BotService side): BotService now prefixes with
+        //   `ts.position.tradingMode`. Positions that reach this
+        //   ShitCoinTraderAI.executeExit path are always ShitCoin
+        //   authoritative because ShitCoinPosition is created only by
+        //   the SHITCOIN entry path — so "SHITCOIN_" here is correct at
+        //   this specific lane's release site. The 6616 comment stays
+        //   as an anchor so future refactors know the causal chain.
+        val immutableLanePrefix6613 = "SHITCOIN"
         try {
             com.lifecyclebot.engine.TradeAuthorizer.releasePosition(
                 mint = mint,
