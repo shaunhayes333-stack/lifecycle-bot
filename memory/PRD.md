@@ -1,10 +1,35 @@
-# AATE PRD — V5.0.6620 (MEME SOURCE-LEVEL EXECUTION PROVENANCE — Slice 1)
+# AATE PRD — V5.0.6622 (MEME SOURCE-LEVEL EXECUTION PROVENANCE — Slices 1+2+3)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
-**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6620 CI PENDING.**
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6622b Build CI GREEN (16m56s).**
+
+## V5.0.6620 → V5.0.6622 (Feb 2026) — MEME SOURCE-LEVEL EXECUTION PROVENANCE (Slices 1+2+3)
+
+Operator directive: full architectural repair of the corrupt chain
+`specialist → owner lane → FDG → immutable execution intent → size/mark → ticket → executor → position → exit → finalize/learn`. Three slices delivered as SOURCE-LEVEL RECEIVERS; Slice 4 mechanical rollout across each specialist entry site is follow-up work.
+
+**Slice 1 (V5.0.6620) — §7 / §9 / §12 receivers**
+- `MemeOwnershipInvariant6620.resolveExecutorLane6620` — Executor.paperBuy now promotes the authority's electionLane. Observer lanes STANDARD/V3_CORE blocked when a specialist (QUALITY/BLUECHIP/SHITCOIN/CYCLIC/EXPRESS/CORE/MOONSHOT/PROJECT_SNIPER/DIP_HUNTER/MANIPULATED/TREASURY/CASHGEN) owns the candidate. Counters `PAPER_BUY_STANDARD_ON_SPECIALIST_OWNED_6620`, `LANE_EXEC_WITHOUT_SAME_LANE_CANONICAL_INTENT_6620`, `LANE_EXEC_CROSS_SPECIALIST_REWRITE_6620`.
+- Two wall-clock candidateVersion sites eliminated (`CanonicalSizingBridge6532` default + BotService V3 handoff) — both route through `LaneExecutionCoordinator.candidateVersionFor(mint)`.
+- `MemeSellFinality6620.awaitConfirmationOrKeepOpen(lane, positionId, sellOutcome, onConfirmed)` — sell-finality receiver. onConfirmed runs ONLY on CONFIRMED/PAPER_CONFIRMED. Kept-open + bypass counters.
+
+**Slice 2 (V5.0.6621) — §2 / §3 / §4 / §5 / §6 / §8 / §11 receivers**
+- `MemeExecutionIntent6621.Intent` immutable envelope + `seal6621` + `validateTicketRestore6621` (§8 all-dimensions ticket restore).
+- `BuyResult6621.Outcome` sealed (Opened / Rejected / Failed) + `record6621` + `assertOpenedOrCountPremature6621` premature-commit probe.
+- `PositionEntryLaneRegistry6621.seal6621` — immutable ENTRY lane, refuses rewrites.
+- `MemeEntryCoordinator6621.submitMemeSpecialistEntry6621` canonical funnel + `probeAliasing6621` detects QUALITY→blueChipBuy / MANIPULATED→shitCoinBuy / EXPRESS→shitCoinBuy / PROJECT_SNIPER→SNIPE/CORE/STANDARD.
+
+**Slice 3 (V5.0.6622) — §10 / §11 / §13 receivers**
+- `V3VerdictContract6622.isFatal6622` — only fatal tokens (UNSELLABLE/HONEYPOT/RUG/BANNED_MINT/SAFETY_HALT/etc.) hard-block. WATCH/REJECT become soft input via `softConfidenceMultiplier6622` (WATCH=0.5, REJECT=0.75). `recordSpecialistOverride6622` counts every specialist that exercised its mandate over V3 soft opinion.
+- `MemeLane6622` canonical enum with `parse6622` boundary parser. 14 values; CORE/STANDARD/V3_CORE distinct per operator §11 explicit rule.
+- `PostHocHealingAudit6622.detect6622` receiver — audits lingering downstream-rewrite sites per §13.
+
+**Slice 4 (upcoming — the mechanical rollout)** — every specialist entry (`paperBuy`/`liveBuy`/`shitCoinBuy`/`blueChipBuy`/`treasuryBuy`/`v3Buy` + `MoonshotTraderAI.requestSell` + all `*TraderAI.addPosition`/`closePosition` sites) rerouted through the Slice-1-2-3 receivers. Requires touching ~12 files; safest as its own patch.
+
+## V5.0.6619 (Feb 2026) — JOURNAL_DERIVED_HERO_AUTHORITY
 
 ## V5.0.6620 (Feb 2026) — MEME_SOURCE_LEVEL_EXECUTION_PROVENANCE (Slice 1)
 
