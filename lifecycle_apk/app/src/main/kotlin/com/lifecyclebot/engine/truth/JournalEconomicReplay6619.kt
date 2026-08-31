@@ -40,8 +40,10 @@ import java.util.concurrent.atomic.AtomicReference
  *                     realizedPnl += netPnlSol
  *                     fees += feeSol
  *
- *   startingCashSol comes from PaperAccountLedger6430.startingCashSol()
- *   (an immutable config, not an accumulator — set at init/reset only).
+ *   startingCashSol comes from the paper-capital facade
+ *   (PaperCapitalAuthority6577.startingCashSol), which delegates to
+ *   an immutable config field set at init/reset only — not an
+ *   accumulator that drifts on trades.
  *
  *   equitySol = cashSol + openCostBasisSol  (conservative — uses cost
  *     basis for open positions; live-mark-based openMV is exposed
