@@ -211,6 +211,49 @@ object PaperPositionCloseAuthority {
         try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed(normMode(mode).lowercase(), mint) } catch (_: Throwable) {}
         emit("PAPER_CLOSE_CLOSED", mint, symbol, "closeId=$cid reason=$reason")
         if (normMode(mode) == "PAPER") emit("PAPER_CLOSE_CONFIRMED_LEDGER_ONLY", mint, symbol, "closeId=$cid reason=$reason")
+        // V5.0.6623 §CANONICAL_SELL_JOURNAL_ATOMICITY (operator directive
+        //   Feb 2026 P0: "PAPER_CLOSE_CONFIRMED_LEDGER_ONLY = 149 while
+        //   PAPER_SELL_JOURNAL_DONE = 16 — 149 closes being confirmed
+        //   directly into the ledger, only a tiny fraction become
+        //   normal journal sell records. That perfectly explains how
+        //   the wallet can apparently make money that you cannot see
+        //   as wins in the journal. There should be one terminal
+        //   economic transaction: CanonicalCloseOutcome. A close should
+        //   not become economically visible until its canonical
+        //   journal/economic transaction has committed.")
+        //
+        // Slice-P0 telemetry-first seal: at markClosed we probe
+        // TradeHistoryStore for a paper SELL row within the last
+        // 60s that matches this mint. If none exists, we emit
+        // PAPER_CLOSE_NO_JOURNAL_ROW_6623 so the operator can grep
+        // the EXACT number of unjournaled closes — a much sharper
+        // number than the CLOSED_LEDGER_ONLY label which fires on
+        // every close regardless of journal state. Steady-state
+        // target = 0. Slice-P0-hard-block (follow-up) will refuse
+        // markClosed until the journal row is present.
+        if (normMode(mode) == "PAPER") try {
+            val recent6623 = com.lifecyclebot.engine.TradeHistoryStore
+                .getAllValidTradesSnapshot(limit = 200)
+            val nowMs6623 = System.currentTimeMillis()
+            val hasJournalSell6623 = recent6623.any { t ->
+                t.mode.equals("paper", ignoreCase = true) &&
+                    t.mint == mint &&
+                    (t.side.equals("SELL", ignoreCase = true) ||
+                     t.side.equals("PARTIAL_SELL", ignoreCase = true)) &&
+                    (nowMs6623 - t.ts) <= 60_000L
+            }
+            if (!hasJournalSell6623) {
+                PipelineHealthCollector.labelInc("PAPER_CLOSE_NO_JOURNAL_ROW_6623")
+                ForensicLogger.lifecycle(
+                    "PAPER_CLOSE_NO_JOURNAL_ROW_6623",
+                    "mint=${mint.take(10)} symbol=$symbol closeId=$cid reason=$reason " +
+                        "action=slice_p0_telemetry_only_hard_block_follow_up " +
+                        "note=journal_missing_terminal_sell_row_for_this_close",
+                )
+            } else {
+                PipelineHealthCollector.labelInc("PAPER_CLOSE_JOURNAL_PARITY_HEALTHY_6623")
+            }
+        } catch (_: Throwable) {}
         // V5.0.6547 §P1-4 — retry recovery marker. Prove the exit-pending
         // latch is unjammable: a prior FAILED / REJECTED / stuck-retried
         // close is now genuinely CLOSED, meaning the TTL retry path did
