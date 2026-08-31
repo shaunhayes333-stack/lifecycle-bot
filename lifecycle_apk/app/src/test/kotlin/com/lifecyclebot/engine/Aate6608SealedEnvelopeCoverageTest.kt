@@ -63,11 +63,14 @@ class Aate6608SealedEnvelopeCoverageTest {
                 gate.contains("if (fdgCan == true) {") &&
                 gate.contains("invariant_failure_no_seal_available")
         )
-        // Original block reason string preserved for backward-compat
-        // dashboard filters.
+        // V5.0.6615 — an unsealed FDG permission is not a direction signal.
+        // Keep the invariant counter, but terminate with typed missing-intent
+        // authority instead of reconstructing the forbidden UNKNOWN action.
         assertTrue(
-            "V5.0.6608: EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY block reason string must remain for dashboards",
-            gate.contains("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY")
+            "V5.0.6615: unsealed FDG allow must terminate as typed NO_EXECUTION_INTENT",
+            gate.contains("EXEC_OPEN_BLOCKED_NO_EXECUTION_INTENT_6615") &&
+                gate.contains("NO_EXECUTION_INTENT") &&
+                !gate.contains("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY")
         )
     }
 }
