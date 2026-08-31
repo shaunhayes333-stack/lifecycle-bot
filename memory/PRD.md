@@ -1,10 +1,20 @@
-# AATE PRD — V5.0.6616 (JOURNAL → BALANCE → HERO SINGLE-AUTHORITY REPAIR)
+# AATE PRD — V5.0.6617 (GLOBAL CAPITAL ARBITRATION + POSITION LIFECYCLE FORMALIZATION)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
-**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6616b CI GREEN (15m34s).**
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6617 CI GREEN (14m44s).**
+
+## V5.0.6617 (Feb 2026) — GLOBAL_CAPITAL_ARBITRATION + POSITION_LIFECYCLE_FORMALIZATION
+
+Operator directives: *"[A] Global capital across trading domains — every lane must read the SAME spendable cash figure from the same authority. Lanes may SHAPE their proposals but must never fabricate a lane-local wallet balance that diverges from the shared account."* + *"Formalise the DISCOVERED → CLOSED → LEARNED → REENTRY_ELIGIBLE transition so canonicalClosedDelta, closeLedgerClosedDelta and terminalSellPublishedDelta agree."*
+
+**Repair A — GlobalCapitalArbitration6617** — single façade over `PaperCapitalAuthority6577`. `availableForLane(lane, paperMode, liveWalletSol)` is the sole call site for lane balance reads. Five perps traders rebound off the legacy `BotService.status.paperWalletSol` mirror (Commodities / Metals / Forex / TokenizedStock / PerpsTraderAI — 10 method rebinds). Every request bumps `LANE_CAPITAL_REQUEST_6617_<lane>`; any lane-local fallback emits `LANE_LOCAL_WALLET_BYPASS_6617_<lane>` (steady-state target 0).
+
+**Position Lifecycle Formalization6617** — additive stage mirror over `PositionStateLedger6454` with the four operator stages. `PSL6454.onEntry` stamps DISCOVERED at the causal open moment. `PSL6454.confirmTerminalSell` stamps CLOSED at the causal close moment. `AateDecisionEnvelope6512.onFinalized` stamps LEARNED at the end of the learner fanout (UPH + AMP + SHE + LanePolicy + SemanticPatternGraph). REENTRY_ELIGIBLE remains manual for a future cooldown scheduler.
+
+**Closure delta reconciler** on the 12-loop BotService health tick emits three counters: `CANONICAL_CLOSED_DELTA_6617` (canonical CLOSED not yet mirrored to PSL6454), `CLOSE_LEDGER_CLOSED_DELTA_6617` (PSL6454 CLOSED not yet mirrored to lifecycle formalization), `TERMINAL_SELL_PUBLISHED_DELTA_6617` (PSL6454 terminalCount>0 without corresponding markClosed). Steady-state target: all three = 0.
 
 ## V5.0.6616 (Feb 2026) — JOURNAL_BALANCE_HERO_SINGLE_AUTHORITY_REPAIR
 
