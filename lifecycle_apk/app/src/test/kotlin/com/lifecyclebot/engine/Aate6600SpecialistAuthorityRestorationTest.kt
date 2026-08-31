@@ -31,7 +31,7 @@ class Aate6600SpecialistAuthorityRestorationTest {
             purpose = CanonicalMarkPurpose6570.OBSERVATION_SCORING,
         )))
         assertNotNull(CanonicalPriceMarkRegistry6522.get(mint, CanonicalMarkPurpose6570.OBSERVATION_SCORING))
-        assertTrue(source("engine/Executor.kt").contains("PAPER_ENTRY_OBSERVATION_MARK_BOOTSTRAPPED_6600"))
+        assertTrue(source("engine/Executor.kt").contains("resolveExecutableFromSourceEvidence6616"))
     }
 
     @Test fun approved_subminimum_order_promotes_once_when_hard_caps_fund_minimum() {

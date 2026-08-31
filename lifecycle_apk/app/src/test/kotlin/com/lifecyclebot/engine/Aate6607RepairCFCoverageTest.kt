@@ -85,15 +85,16 @@ class Aate6607RepairCFCoverageTest {
             "src/main/kotlin/com/lifecyclebot/engine/Executor.kt"
         ).readText()
         assertTrue(
-            "V5.0.6607: bootstrap freshness window must be widened to 300s",
-            exec.contains("WINDOW_MS_6607 = 300_000L") &&
-                exec.contains("tokenMapFresh6607") &&
-                exec.contains("stateFresh6607")
+            "V5.0.6616: canonical source resolver retains the bounded 300s freshness window",
+            exec.contains("WINDOW_MS_6616 = 300_000L") &&
+                exec.contains("tokenMapFresh6616") &&
+                exec.contains("stateFresh6616") &&
+                exec.contains("resolveExecutableFromSourceEvidence6616")
         )
         assertTrue(
-            "V5.0.6607: last-resort provisional bootstrap must be emitted with stale timestamp fallback",
-            exec.contains("PAPER_ENTRY_OBSERVATION_MARK_STALE_BOOTSTRAPPED_6607") &&
-                exec.contains("if (isStale6607) now6607 else markTs6607")
+            "V5.0.6616: stale evidence must not be timestamp-rewritten into a fresh executable mark",
+            !exec.contains("PAPER_ENTRY_OBSERVATION_MARK_STALE_BOOTSTRAPPED_6607") &&
+                !exec.contains("if (isStale6607) now6607 else markTs6607")
         )
     }
 
