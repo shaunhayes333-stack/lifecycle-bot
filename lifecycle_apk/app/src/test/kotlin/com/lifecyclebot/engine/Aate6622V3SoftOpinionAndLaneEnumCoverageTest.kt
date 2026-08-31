@@ -50,28 +50,44 @@ class Aate6622V3SoftOpinionAndLaneEnumCoverageTest {
 
     @Test
     fun aate6622_meme_lane_enum_parses_legacy_aliases() {
-        val L = com.lifecyclebot.engine.truth.MemeLane6622
-        assertEquals("V5.0.6622: BLUE_CHIP → BLUECHIP", L.BLUECHIP, L.parse6622("BLUE_CHIP"))
-        assertEquals("V5.0.6622: SHIT_COIN → SHITCOIN", L.SHITCOIN, L.parse6622("SHIT_COIN"))
-        assertEquals("V5.0.6622: SNIPE → PROJECT_SNIPER", L.PROJECT_SNIPER, L.parse6622("SNIPE"))
-        assertEquals("V5.0.6622: DIPHUNTER → DIP_HUNTER", L.DIP_HUNTER, L.parse6622("DIPHUNTER"))
-        assertEquals("V5.0.6622: blank → STANDARD", L.STANDARD, L.parse6622(""))
-        // CORE / STANDARD / V3_CORE must remain distinct (operator §11 explicit rule)
-        assertEquals("V5.0.6622: CORE preserved", L.CORE, L.parse6622("CORE"))
-        assertEquals("V5.0.6622: STANDARD preserved", L.STANDARD, L.parse6622("STANDARD"))
-        assertEquals("V5.0.6622: V3_CORE preserved", L.V3_CORE, L.parse6622("V3_CORE"))
+        val ML = com.lifecyclebot.engine.truth.MemeLane6622::class.java
+        assertEquals("V5.0.6622: BLUE_CHIP → BLUECHIP",
+            com.lifecyclebot.engine.truth.MemeLane6622.BLUECHIP,
+            com.lifecyclebot.engine.truth.MemeLane6622.parse6622("BLUE_CHIP"))
+        assertEquals("V5.0.6622: SHIT_COIN → SHITCOIN",
+            com.lifecyclebot.engine.truth.MemeLane6622.SHITCOIN,
+            com.lifecyclebot.engine.truth.MemeLane6622.parse6622("SHIT_COIN"))
+        assertEquals("V5.0.6622: SNIPE → PROJECT_SNIPER",
+            com.lifecyclebot.engine.truth.MemeLane6622.PROJECT_SNIPER,
+            com.lifecyclebot.engine.truth.MemeLane6622.parse6622("SNIPE"))
+        assertEquals("V5.0.6622: DIPHUNTER → DIP_HUNTER",
+            com.lifecyclebot.engine.truth.MemeLane6622.DIP_HUNTER,
+            com.lifecyclebot.engine.truth.MemeLane6622.parse6622("DIPHUNTER"))
+        assertEquals("V5.0.6622: blank → STANDARD",
+            com.lifecyclebot.engine.truth.MemeLane6622.STANDARD,
+            com.lifecyclebot.engine.truth.MemeLane6622.parse6622(""))
+        // CORE / STANDARD / V3_CORE must remain distinct (operator §11)
+        assertEquals("V5.0.6622: CORE preserved",
+            com.lifecyclebot.engine.truth.MemeLane6622.CORE,
+            com.lifecyclebot.engine.truth.MemeLane6622.parse6622("CORE"))
+        assertEquals("V5.0.6622: STANDARD preserved",
+            com.lifecyclebot.engine.truth.MemeLane6622.STANDARD,
+            com.lifecyclebot.engine.truth.MemeLane6622.parse6622("STANDARD"))
+        assertEquals("V5.0.6622: V3_CORE preserved",
+            com.lifecyclebot.engine.truth.MemeLane6622.V3_CORE,
+            com.lifecyclebot.engine.truth.MemeLane6622.parse6622("V3_CORE"))
     }
 
     @Test
     fun aate6622_meme_lane_enum_covers_operator_specialist_set() {
-        val L = com.lifecyclebot.engine.truth.MemeLane6622
         val required = listOf("QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "EXPRESS",
             "CORE", "MOONSHOT", "PROJECT_SNIPER", "DIP_HUNTER",
             "MANIPULATED", "TREASURY", "CASHGEN")
+        val allValues = com.lifecyclebot.engine.truth.MemeLane6622.values()
         required.forEach { canonical ->
             assertTrue(
                 "V5.0.6622: MemeLane6622 must include $canonical from operator §1",
-                L.values().any { it.canonical == canonical }
+                allValues.any { it.canonical == canonical }
             )
         }
     }
