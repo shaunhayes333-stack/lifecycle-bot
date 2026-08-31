@@ -552,6 +552,96 @@ object ToolkitSignalSheet {
         val st = stage.uppercase()
         if (eventId.isNotBlank() && !deskStageOnce6599.add("$l|$st|$eventId")) return
         deskStageCounts6599.computeIfAbsent("$l|$st") { java.util.concurrent.atomic.AtomicLong(0L) }.incrementAndGet()
+        // V5.0.6625 — SINGLE SOURCE FAN-OUT into the P2/P3/P4/P5 receivers.
+        // Every specialist stage change goes through this one function, so
+        // wiring here means the receivers cannot drift apart from the desk
+        // counters (P5 SPECIALIST_CAUSAL_FUNNEL invariant) and no callsite
+        // can be forgotten. See MemeExecutionFunnelReceivers6625.kt.
+        try { fanOutToReceivers6625(l, st, eventId) } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.6625 — fan-out helper. Kept private so no other caller can
+     * bypass the desk-stage authority path. `eventId` is intentionally
+     * used only as an idempotency key: parsing structure from it would
+     * couple the receivers to callsite formatting.
+     */
+    private fun fanOutToReceivers6625(lane: String, stage: String, eventId: String) {
+        // Derive a stable attemptId for the backlog. Callers pass either a
+        // positionId (":reason" suffixed) or an attemptId; strip the suffix
+        // so BUY_INTENT / TICKET / EXEC etc. all match on the same key.
+        val attemptId = if (eventId.isBlank()) return else eventId.substringBefore(':')
+        val mint = ""  // opaque here; receivers key on attemptId + lane
+
+        // P3 — pending intent backlog drainage.
+        when (stage) {
+            "BUY_INTENT" -> com.lifecyclebot.engine.truth.PendingIntentBacklog6625
+                .record6625(attemptId, lane, mint)
+            "TICKET", "EXEC", "SELL_CONFIRMED", "FINALIZED", "SIZE_REJECT",
+            "MARK_REJECT", "FDG_BLOCK" -> com.lifecyclebot.engine.truth.PendingIntentBacklog6625
+                .consume6625(attemptId, stage)
+        }
+
+        // P2 — EXPRESS handoff funnel. Stamp the exact hop counters the
+        // operator forensic requested. Non-EXPRESS lanes are ignored so
+        // BLUECHIP/CORE/MOONSHOT counters don't drift into these.
+        if (lane == "EXPRESS") {
+            when (stage) {
+                "BUY_INTENT" -> com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onIntentSeen6625(attemptId)
+                "MARK_READY" -> com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onMarkAcquisition6625(attemptId, true)
+                "MARK_REJECT" -> com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onMarkAcquisition6625(attemptId, false, "MARK_REJECT")
+                "SIZED_EXECUTABLE" -> {
+                    com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onSizingBridgeEntry6625(attemptId)
+                    com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onSizingResult6625(attemptId, sizedSol = 1.0)
+                }
+                "SIZE_REJECT" -> {
+                    com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onSizingBridgeEntry6625(attemptId)
+                    com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onSizingResult6625(attemptId, sizedSol = 0.0, reason = "SIZE_REJECT")
+                }
+                "TICKET" -> com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onTicketSealed6625(attemptId)
+                "EXEC" -> com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onExecuted6625(attemptId)
+            }
+        }
+
+        // P4 — MOONSHOT exit transaction continuity. Retries with the same
+        // positionId (SELL_ATTEMPT re-fires) resume the same tx id instead
+        // of creating competing states; SELL_CONFIRMED terminates it.
+        if (lane == "MOONSHOT") {
+            when (stage) {
+                "SELL_ATTEMPT" -> com.lifecyclebot.engine.truth.MoonshotExitTransaction6625
+                    .beginOrResumeTransaction6625(positionId = attemptId, txIdIfNew = attemptId)
+                "SELL_CONFIRMED", "FINALIZED" -> com.lifecyclebot.engine.truth.MoonshotExitTransaction6625
+                    .terminate6625(positionId = attemptId)
+            }
+        }
+
+        // P5 — SpecialistCausalFunnel keyed by the SAME record every stage
+        // reads/writes from, so it becomes structurally impossible to print
+        // impossible combos like fdgAllow=0 exec=113 for the same intentId.
+        val causalStage = when (stage) {
+            "POOL" -> com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.DISCOVER
+            "QUALIFIED" -> com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.QUALIFY
+            "OWNER_SELECTED" -> com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.OWNER
+            "BUY_INTENT" -> com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.INTENT
+            "FDG_ALLOW", "FDG_BLOCK" -> com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.FDG
+            "MARK_READY", "MARK_REJECT" -> com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.MARK
+            "SIZED_EXECUTABLE", "SIZE_REJECT" -> com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.SIZE
+            "TICKET" -> com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.TICKET
+            "EXEC" -> com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.EXEC
+            "POSITION_OPENED" -> com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.OPEN
+            "EXIT_TRIGGER" -> com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.EXIT
+            "SELL_ATTEMPT", "SELL_CONFIRMED" -> com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.SELL
+            "FINALIZED" -> com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.FINALIZE
+            "LEARNING" -> com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.LEARN
+            else -> null
+        }
+        if (causalStage != null) {
+            val key = com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.CausalKey(
+                runId = "RT", mode = "PAPER", mint = "", lane = lane,
+                authorityVersion = 0L, intentId = attemptId,
+            )
+            com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.stamp6625(key, causalStage)
+        }
     }
 
     fun recordContributorSummary(summary: String, stage: String, eventId: String = "") {

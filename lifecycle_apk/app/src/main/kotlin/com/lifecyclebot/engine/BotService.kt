@@ -4380,7 +4380,12 @@ class BotService : Service() {
                         // phantom +525 SOL / $926M inflation). Only the economic
                         // path is gated; ts.lastPrice for UI is untouched.
                         val provOk = try {
-                            com.lifecyclebot.engine.truth.MarkAuthorityIntegrityGate6496.isAuthoritative(
+                            // V5.0.6625 §P6 — UI-off-main audit wrapper. If this
+                            // evaluation is running on the Main thread and takes
+                            // ≥32 ms it surfaces a UI_MAIN_THREAD_LONG_RUN counter
+                            // so the operator can grep the exact snapshot cost.
+                            val t0_6625 = android.os.SystemClock.uptimeMillis()
+                            val out_6625 = com.lifecyclebot.engine.truth.MarkAuthorityIntegrityGate6496.isAuthoritative(
                                 mint = mint,
                                 priceUsd = ts.lastPrice,
                                 mcapUsd = ts.lastMcap,
@@ -4396,6 +4401,13 @@ class BotService : Service() {
                                 // entry paths continue to reject MINT_ROUTE:* as before.
                                 isKnownOpenMint6596 = true,
                             )
+                            try {
+                                com.lifecyclebot.engine.truth.UiOffMainAudit6625.recordMainThreadWork6625(
+                                    site = "MarkAuthorityIntegrityGate6496.isAuthoritative",
+                                    durationMs = android.os.SystemClock.uptimeMillis() - t0_6625,
+                                )
+                            } catch (_: Throwable) {}
+                            out_6625
                         } catch (_: Throwable) { false }
                         if (!provOk) 0.0
                         else {
