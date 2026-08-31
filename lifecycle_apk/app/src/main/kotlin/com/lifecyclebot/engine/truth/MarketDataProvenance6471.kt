@@ -3,6 +3,7 @@ package com.lifecyclebot.engine.truth
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * V5.0.6471 §P0 (items 16-20) — MARKET DATA PROVENANCE AUTHORITY.
@@ -52,6 +53,18 @@ object MarketDataProvenance6471 {
     private val sentinelHits = AtomicLong(0L)
     private val missingHits = AtomicLong(0L)
     private val executableBlocked = AtomicLong(0L)
+    private val sentinelCoalesced6615 = AtomicLong(0L)
+    private data class SentinelState6615(
+        val mint: String,
+        val sentinelFingerprint: String,
+        val sentinelReason: String,
+        val firstSeenAt: Long,
+        val lastSeenAt: Long,
+        val lastProcessedAt: Long,
+        val occurrenceCount: Long,
+    )
+    private val sentinelStates6615 = ConcurrentHashMap<String, SentinelState6615>()
+    private const val SENTINEL_HEARTBEAT_MS_6615 = 5_000L
 
     // 6470 field-data template tuple. If a mint's (price, mcap, liquidity)
     // matches any of these known synthetic defaults, the tuple is a template.
@@ -75,39 +88,78 @@ object MarketDataProvenance6471 {
         liquidity: Double,
         source: String,
         poolAddress: String,
+        identity: String = "",
     ): Provenance {
         classified.incrementAndGet()
-        // 1. Missing / invalid numeric values.
+        val pool = poolAddress.trim()
+        val identityKey6615 = identity.trim().ifBlank {
+            if (pool.startsWith("MINT_ROUTE:", ignoreCase = true)) pool.substringAfter(':').trim()
+            else pool.ifBlank { source.trim().uppercase().ifBlank { "UNKNOWN" } }
+        }
         if (!price.isFinite() || price <= 0.0) return recordMissing("price_invalid")
         if (!liquidity.isFinite() || liquidity < 0.0) return recordMissing("liquidity_invalid")
-        // 2. Template tuple.
         if (KNOWN_TEMPLATES.any {
                 kotlin.math.abs(price - it.price) < TEMPLATE_EPSILON &&
                     kotlin.math.abs(mcap - it.mcap) < 1.0 &&
                     kotlin.math.abs(liquidity - it.liquidity) < 1.0
-            }) return recordSentinel("template_tuple($price/$mcap/$liquidity)")
-        // 3. Sentinel pool prefix.
-        val pool = poolAddress.trim()
+            }) return recordSentinel(identityKey6615, "template_tuple($price/$mcap/$liquidity)")
         if (pool.isBlank()) return recordMissing("pool_blank")
         if (SENTINEL_POOL_PREFIXES.any { pool.startsWith(it, ignoreCase = true) })
-            return recordSentinel("pool_prefix($pool)")
-        // 4. Sentinel source.
+            return recordSentinel(identityKey6615, "pool_prefix($pool)")
         val src = source.trim().uppercase()
         if (src.isBlank()) return recordMissing("source_blank")
-        if (src in SENTINEL_SOURCES) return recordSentinel("source($src)")
+        if (src in SENTINEL_SOURCES) return recordSentinel(identityKey6615, "source($src)")
+        clearSentinel6615(identityKey6615)
         return Provenance.AUTHORITATIVE
     }
 
-    private fun recordSentinel(reason: String): Provenance {
+    private fun recordSentinel(identity: String, reason: String): Provenance {
         sentinelHits.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("MARKET_DATA_SENTINEL_6471") } catch (_: Throwable) {}
+        val now = System.currentTimeMillis()
+        val fingerprint = "$identity|$reason"
+        var transition = false
+        var heartbeatCount = 0L
+        var firstAt = now
+        sentinelStates6615.compute(identity) { _, prior ->
+            if (prior == null || prior.sentinelFingerprint != fingerprint) {
+                transition = true
+                SentinelState6615(identity, fingerprint, reason, now, now, now, 1L)
+            } else {
+                val count = prior.occurrenceCount + 1L
+                firstAt = prior.firstSeenAt
+                if (now - prior.lastProcessedAt >= SENTINEL_HEARTBEAT_MS_6615) heartbeatCount = count
+                prior.copy(
+                    lastSeenAt = now,
+                    lastProcessedAt = if (heartbeatCount > 0L) now else prior.lastProcessedAt,
+                    occurrenceCount = count,
+                )
+            }
+        }
+        if (!transition) sentinelCoalesced6615.incrementAndGet()
         try {
-            ForensicLogger.lifecycle(
-                "MARKET_DATA_SENTINEL_6471",
-                "reason=$reason",
-            )
-            PipelineHealthCollector.labelInc("MARKET_DATA_SENTINEL_6471")
+            when {
+                transition -> ForensicLogger.lifecycle(
+                    "MARKET_DATA_SENTINEL_6471",
+                    "mint=${identity.take(18)} reason=$reason transition=ACTIVE occurrences=1",
+                )
+                heartbeatCount > 0L -> ForensicLogger.lifecycle(
+                    "MARKET_DATA_SENTINEL_COALESCED_6615",
+                    "mint=${identity.take(18)} reason=$reason occurrences=$heartbeatCount windowMs=${now - firstAt}",
+                )
+            }
         } catch (_: Throwable) {}
         return Provenance.NON_AUTHORITATIVE_SENTINEL
+    }
+
+    private fun clearSentinel6615(identity: String) {
+        val prior = sentinelStates6615.remove(identity) ?: return
+        try {
+            ForensicLogger.lifecycle(
+                "MARKET_DATA_SENTINEL_CLEARED_6615",
+                "mint=${identity.take(18)} reason=${prior.sentinelReason} occurrences=${prior.occurrenceCount}",
+            )
+        } catch (_: Throwable) {}
     }
 
     private fun recordMissing(reason: String): Provenance {
@@ -138,10 +190,12 @@ object MarketDataProvenance6471 {
 
     fun statusLine(): String =
         "classified=${classified.get()} sentinelHits=${sentinelHits.get()} " +
-            "missingHits=${missingHits.get()} executableBlocked=${executableBlocked.get()}"
+            "missingHits=${missingHits.get()} executableBlocked=${executableBlocked.get()} " +
+            "sentinelActive=${sentinelStates6615.size} sentinelCoalesced=${sentinelCoalesced6615.get()}"
 
     internal fun resetForTest() {
         classified.set(0L); sentinelHits.set(0L)
         missingHits.set(0L); executableBlocked.set(0L)
+        sentinelCoalesced6615.set(0L); sentinelStates6615.clear()
     }
 }

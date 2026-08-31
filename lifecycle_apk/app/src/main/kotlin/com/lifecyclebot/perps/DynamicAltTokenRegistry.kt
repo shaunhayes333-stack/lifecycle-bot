@@ -199,6 +199,15 @@ object DynamicAltTokenRegistry {
     private val evaluationStarted6567 = AtomicLong(0L)
     private val evaluationDisposition6567 = ConcurrentHashMap<String, AtomicLong>()
     private val evaluationProgress6570 = ConcurrentHashMap<String, AtomicLong>()
+    // V5.0.6615 — one owner and one terminal outcome per canonical
+    // chain+token + material-market-state generation.
+    private val evaluationInflight6615 = ConcurrentHashMap<String, String>()
+    private val evaluationCompleted6615 = ConcurrentHashMap<String, String>()
+    private val evaluationTerminalKeys6615 = ConcurrentHashMap.newKeySet<String>()
+    private val evaluationProgressKeys6615 = ConcurrentHashMap.newKeySet<String>()
+    private val evaluationCoalesced6615 = AtomicLong(0L)
+    private val evaluationSuperseded6615 = AtomicLong(0L)
+    private val evaluationStaleDropped6615 = AtomicLong(0L)
     // V5.0.6580 §P0-f — bounded evidence deadline. First-seen timestamp per
     // (identity, state-key) so a second stamp of the same non-terminal state
     // more than EVIDENCE_TTL_MS_6580 later reaps into STALE_EXPIRED_6580_<state>.
@@ -698,18 +707,50 @@ object DynamicAltTokenRegistry {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_FRESH_BRAIN_6547") } catch (_: Throwable) {}
         }
     }
-    fun markEvaluationStarted6567(tok: DynToken) {
+    private fun evaluationGeneration6615(tok: DynToken): String = listOf(
+        tok.chainId.trim().lowercase(), tok.tokenAddress.trim().lowercase(), tok.price.toBits(),
+        tok.priceChange24h.toBits(), tok.mcap.toBits(), tok.liquidityUsd.toBits(), tok.volume24h.toBits(),
+        tok.buys24h, tok.sells24h, tok.source.trim().uppercase(), tok.isTrending, tok.isBoosted,
+    ).joinToString("|")
+
+    fun markEvaluationStarted6567(tok: DynToken): Boolean {
+        val identity = tok.canonicalIdentity6544
+        val generation = evaluationGeneration6615(tok)
+        if (evaluationCompleted6615[identity] == generation) {
+            evaluationCoalesced6615.incrementAndGet()
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_GENERATION_COALESCED_6615") } catch (_: Throwable) {}
+            return false
+        }
+        var admitted = false
+        evaluationInflight6615.compute(identity) { _, active ->
+            when {
+                active == generation -> active
+                else -> {
+                    if (active != null) evaluationSuperseded6615.incrementAndGet()
+                    admitted = true
+                    generation
+                }
+            }
+        }
+        if (!admitted) {
+            evaluationCoalesced6615.incrementAndGet()
+            return false
+        }
         evaluationStarted6567.incrementAndGet()
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_STARTED_6567") } catch (_: Throwable) {}
+        return true
     }
     fun markEvaluationProgress6570(tok: DynToken?, state: String) {
         if (tok == null) return
         val key = state.uppercase().replace(Regex("[^A-Z0-9_]+"), "_").take(72)
         evaluationProgress6570.computeIfAbsent(key) { AtomicLong(0L) }.incrementAndGet()
+        val progressGenerationKey6615 = "${tok.canonicalIdentity6544}|${evaluationGeneration6615(tok)}|$key"
+        val firstProgress6615 = evaluationProgressKeys6615.add(progressGenerationKey6615)
         try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_PROGRESS_6570|$key")
-            com.lifecyclebot.engine.ForensicLogger.lifecycle("CRYPTO_EVAL_PROGRESS_6570",
+            if (firstProgress6615) com.lifecyclebot.engine.ForensicLogger.lifecycle("CRYPTO_EVAL_PROGRESS_6570",
                 "identity=${tok.canonicalIdentity6544} symbol=${tok.symbol} chain=${tok.chainId.ifBlank { "unknown" }} state=$key terminal=false coalesced=true")
+            else com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_PROGRESS_COALESCED_6615")
         } catch (_: Throwable) {}
         // V5.0.6580 §P0-f — BOUNDED EVIDENCE DEADLINE.
         // Operator directive (6578 forensic): 159/200 crypto evaluations never
@@ -778,12 +819,27 @@ object DynamicAltTokenRegistry {
 
     fun markEvaluationDisposition6567(tok: DynToken?, reason: String) {
         if (tok == null) return
+        val identity = tok.canonicalIdentity6544
+        val generation = evaluationGeneration6615(tok)
+        val activeGeneration = evaluationInflight6615[identity]
+        if (activeGeneration != null && activeGeneration != generation) {
+            evaluationStaleDropped6615.incrementAndGet()
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_STALE_COMPLETION_DROPPED_6615") } catch (_: Throwable) {}
+            return
+        }
+        val terminalKey6615 = "$identity|$generation"
+        if (!evaluationTerminalKeys6615.add(terminalKey6615)) {
+            evaluationCoalesced6615.incrementAndGet()
+            return
+        }
+        evaluationInflight6615.remove(identity, generation)
+        evaluationCompleted6615[identity] = generation
         val key = reason.uppercase().replace(Regex("[^A-Z0-9_]+"), "_").take(72)
         evaluationDisposition6567.computeIfAbsent(key) { AtomicLong(0L) }.incrementAndGet()
         try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_TERMINAL_6567|$key")
             com.lifecyclebot.engine.ForensicLogger.lifecycle("CRYPTO_EVAL_TERMINAL_6567",
-                "identity=${tok.canonicalIdentity6544} symbol=${tok.symbol} chain=${tok.chainId.ifBlank { "unknown" }} dex=${tok.dexId.ifBlank { "unknown" }} reason=$key")
+                "identity=$identity symbol=${tok.symbol} chain=${tok.chainId.ifBlank { "unknown" }} dex=${tok.dexId.ifBlank { "unknown" }} generation=${generation.hashCode()} reason=$key")
         } catch (_: Throwable) {}
     }
 
@@ -819,6 +875,14 @@ object DynamicAltTokenRegistry {
             append("evaluation terminal dispositions=started:").append(evaluationStarted6567.get())
                 .append(" terminal:").append(terminal6567)
                 .append(" missing:").append((evaluationStarted6567.get() - terminal6567).coerceAtLeast(0L)).append('\n')
+            val oldestInflightAge6615 = evaluationInflight6615.keys.mapNotNull { registry[it]?.lastUpdatedMs }
+                .minOrNull()?.let { (System.currentTimeMillis() - it).coerceAtLeast(0L) } ?: 0L
+            append("evaluation ownership queueSize=0 uniqueCandidateCount=").append(registry.size)
+                .append(" inflightCount=").append(evaluationInflight6615.size)
+                .append(" coalescedCount=").append(evaluationCoalesced6615.get())
+                .append(" supersededCount=").append(evaluationSuperseded6615.get())
+                .append(" staleDroppedCount=").append(evaluationStaleDropped6615.get())
+                .append(" oldestQueueAgeMs=").append(oldestInflightAge6615).append('\n')
             append("evaluation non-terminal progress=").append(evaluationProgress6570.entries
                 .sortedByDescending { it.value.get() }.joinToString { "${it.key}:${it.value.get()}" }).append('\n')
             append("evaluation terminal reasons=").append(evaluationDisposition6567.entries

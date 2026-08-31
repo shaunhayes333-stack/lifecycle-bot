@@ -42,6 +42,18 @@ object MarkAuthorityIntegrityGate6496 {
     private val evaluated = AtomicLong(0L)
     private val authoritativePasses = AtomicLong(0L)
     private val nonAuthoritativeBlocks = AtomicLong(0L)
+    private val markCoalesced6615 = AtomicLong(0L)
+    private data class MarkState6615(
+        val lastMarkAttemptAt: Long,
+        val lastGoodMarkAt: Long,
+        val lastGoodPrice: Double,
+        val lastObservedPriceVersion: Long,
+        val nextMarkEligibleAt: Long,
+        val markState: String,
+        val fingerprint: String,
+        val result: AuthorityResult,
+    )
+    private val markStates6615 = java.util.concurrent.ConcurrentHashMap<String, MarkState6615>()
 
     /**
      * Gate a candidate mark. Callers pass the raw metadata carried on
@@ -101,8 +113,19 @@ object MarkAuthorityIntegrityGate6496 {
         fresh: Boolean,
         isKnownOpenMint6596: Boolean,
     ): AuthorityResult {
+        val now6615 = System.currentTimeMillis()
+        val fingerprint6615 = listOf(
+            priceUsd.toBits(), mcapUsd.toBits(), liquidityUsd.toBits(), source.trim().uppercase(),
+            poolAddress.trim(), fresh, isKnownOpenMint6596,
+        ).joinToString("|")
+        val prior6615 = markStates6615[mint]
+        if (prior6615 != null && prior6615.fingerprint == fingerprint6615 && now6615 < prior6615.nextMarkEligibleAt) {
+            markCoalesced6615.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("PAPER_MARK_UNCHANGED_COALESCED_6615") } catch (_: Throwable) {}
+            return prior6615.result
+        }
         evaluated.incrementAndGet()
-        val provenance = try { MarketDataProvenance6471.classify(priceUsd, mcapUsd, liquidityUsd, source, poolAddress) }
+        val provenance = try { MarketDataProvenance6471.classify(priceUsd, mcapUsd, liquidityUsd, source, poolAddress, identity = mint) }
             catch (_: Throwable) { MarketDataProvenance6471.Provenance.NON_AUTHORITATIVE_MISSING }
         val sourceUpper = source.trim().uppercase()
         // V5.0.6548 §P0-B — CANONICAL PROVIDER IDENTITY.
@@ -165,7 +188,20 @@ object MarkAuthorityIntegrityGate6496 {
                 )
             } catch (_: Throwable) {}
         }
-        return AuthorityResult(priceAuthoritative, observationAuthoritative, routeExecutable, provenance)
+        val result6615 = AuthorityResult(priceAuthoritative, observationAuthoritative, routeExecutable, provenance)
+        val previousGoodAt6615 = prior6615?.lastGoodMarkAt ?: 0L
+        val previousGoodPrice6615 = prior6615?.lastGoodPrice ?: 0.0
+        markStates6615[mint] = MarkState6615(
+            lastMarkAttemptAt = now6615,
+            lastGoodMarkAt = if (priceAuthoritative) now6615 else previousGoodAt6615,
+            lastGoodPrice = if (priceAuthoritative) priceUsd else previousGoodPrice6615,
+            lastObservedPriceVersion = fingerprint6615.hashCode().toLong(),
+            nextMarkEligibleAt = now6615 + if (priceAuthoritative) 5_000L else 15_000L,
+            markState = if (priceAuthoritative) "GOOD" else "DEGRADED",
+            fingerprint = fingerprint6615,
+            result = result6615,
+        )
+        return result6615
     }
 
 
@@ -233,9 +269,11 @@ object MarkAuthorityIntegrityGate6496 {
 
     fun statusLine(): String =
         "evaluated=${evaluated.get()} authoritativePasses=${authoritativePasses.get()} " +
-            "nonAuthoritativeBlocks=${nonAuthoritativeBlocks.get()}"
+            "nonAuthoritativeBlocks=${nonAuthoritativeBlocks.get()} markCoalesced=${markCoalesced6615.get()} " +
+            "markStates=${markStates6615.size}"
 
     internal fun resetForTest() {
         evaluated.set(0L); authoritativePasses.set(0L); nonAuthoritativeBlocks.set(0L)
+        markCoalesced6615.set(0L); markStates6615.clear()
     }
 }

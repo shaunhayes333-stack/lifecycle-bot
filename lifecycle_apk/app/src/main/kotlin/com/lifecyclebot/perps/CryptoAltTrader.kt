@@ -732,8 +732,8 @@ object CryptoAltTrader {
                 return@withContext
             }
             try {
-                DynamicAltTokenRegistry.markEvaluationStarted6567(tok)
                 if (SOL_PERPS_SYMBOLS.contains(tok.symbol)) {
+                    if (!DynamicAltTokenRegistry.markEvaluationStarted6567(tok)) continue
                     DynamicAltTokenRegistry.markEvaluationDisposition6567(tok, "OWNED_BY_SOL_PERPS")
                     continue
                 }
@@ -746,6 +746,7 @@ object CryptoAltTrader {
                 if (priceNow <= 0.0) {
                     priceNow = DynamicAltTokenRegistry.refreshPriceForMintBlocking(tok.canonicalIdentity6544)
                     if (priceNow <= 0.0) {
+                        if (!DynamicAltTokenRegistry.markEvaluationStarted6567(tok)) continue
                         DynamicAltTokenRegistry.markEvaluationDisposition6567(tok, "PRICE_UNAVAILABLE")
                         continue
                     }
@@ -754,6 +755,7 @@ object CryptoAltTrader {
                 // Re-read the freshly hydrated row so downstream fields are current.
                 val refreshed = DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(tok.canonicalIdentity6544)
                     ?: DynamicAltTokenRegistry.getTokenByMint(tok.mint) ?: tok
+                if (!DynamicAltTokenRegistry.markEvaluationStarted6567(refreshed)) continue
                 DynamicAltTokenRegistry.markEvaluation6544(refreshed)
                 com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "MARKET_DATA_OK")
                 val executableSignalCountBefore6567 = dynExecutableSignals.size
@@ -1043,7 +1045,9 @@ object CryptoAltTrader {
             uniqueDynSignals6567.filterNot { it in topDyn }.forEach { observed ->
                 val observedTok6569 = observed.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
                     ?: observed.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
-                DynamicAltTokenRegistry.markEvaluationProgress6570(observedTok6569, "SHARED_INTELLIGENCE_BACKLOG_COALESCED_REQUEUE")
+                // Compatibility counter only: one per terminalized material generation.
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SHARED_INTELLIGENCE_BACKLOG_COALESCED_REQUEUE") } catch (_: Throwable) {}
+                DynamicAltTokenRegistry.markEvaluationDisposition6567(observedTok6569, "SHARED_INTELLIGENCE_BACKLOG_COALESCED")
             }
             for ((signalIndex6567, sig) in topDyn.withIndex()) {
                 if (positions.size >= MAX_POSITIONS) {

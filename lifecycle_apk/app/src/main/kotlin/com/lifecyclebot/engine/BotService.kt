@@ -11623,6 +11623,24 @@ class BotService : Service() {
             t.contains("TRENDING") || t.contains("V3_PREMIUM")
     }
 
+    // V5.0.6615 — intake is admission-only. Every sighting sets one cheap
+    // request bit; the existing bounded maintenance owner performs at most one
+    // global rebalance for the accumulated burst, off the control loop.
+    private val hotWatchlistRebalanceRequested6615 = java.util.concurrent.atomic.AtomicBoolean(false)
+    private fun requestHotWatchlistRebalance6615(reason: String) {
+        hotWatchlistRebalanceRequested6615.set(true)
+        com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
+            name = "hot_watchlist_rebalance_6615", budgetMs = 2_500L,
+        ) {
+            kotlinx.coroutines.delay(750L)
+            var pass = 0
+            while (hotWatchlistRebalanceRequested6615.getAndSet(false) && pass++ < 2) {
+                rebalanceHotWatchlistSources(reason)
+                if (hotWatchlistRebalanceRequested6615.get()) kotlinx.coroutines.delay(250L)
+            }
+        }
+    }
+
     /** V5.9.1560 — actively drain existing pump.fun dominance from hot runtime. */
     private fun rebalanceHotWatchlistSources(reason: String) {
         try {
@@ -12363,7 +12381,7 @@ class BotService : Service() {
         }
 
 
-        rebalanceHotWatchlistSources("post_intake")
+        requestHotWatchlistRebalance6615("post_intake")
 
         // V5.0.6354 — route the intaked mint into the scanner/hydration
         // queue router. A newly-intaked candidate is HYDRATING until the
@@ -13447,6 +13465,12 @@ class BotService : Service() {
     private fun runCanonicalCycleEndHooks6443(loopCount: Int, cycleElapsedMs: Long) {
         try { com.lifecyclebot.engine.truth.SlowCycleDiagnostic6437.noteCycleEnd(loopCount, cycleElapsedMs) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.truth.RootCauseTelemetry6441.classifyCycle(cycleElapsedMs) } catch (_: Throwable) {}
+        // V5.0.6615 — everything below is audit/reconciliation/learning
+        // maintenance. Snapshot it off the control loop under one atomic
+        // single-flight owner so exits and executable tickets never wait for it.
+        com.lifecyclebot.engine.truth.MaintenanceWorker6448.submit(
+            name = "canonical_cycle_end_6615", budgetMs = 3_500L,
+        ) {
         if (loopCount % 9 == 0) {
             // V5.0.6450 §P0 — wrap reconciler calls with the watchdog so
             // healthStatus() cannot stay UNKNOWN. The prior UNKNOWN was
@@ -13554,6 +13578,7 @@ class BotService : Service() {
                 com.lifecyclebot.engine.truth.SentienceLabRewardBridge6444
                     .alignWithCanonicalIfDivergent("LlmLabEngine", w, l)
             } catch (_: Throwable) {}
+        }
         }
     }
 
@@ -16639,7 +16664,11 @@ val orderedMintsRaw = (forcedOpenMints + otherMintsDeduped).distinct()
 // watchlist covered every 2-3 ticks.
 val orderedMints: List<String> = selectOrderedMintsForCycle(forcedOpenMints, otherMintsDeduped, orderedMintsRaw)
 
-val maxBatchMillis = if (cfg.paperMode) 15_000L else 18_000L  // V5.0.6288 25s→18s live: fresh pump.fun launches die in 30-90s, cycle must be tight
+// V5.0.6615 — strict control-work admission deadline. Supervisor workers
+// remain detached/non-blocking; lower-priority candidates are deferred and
+// rotated, never discarded. Background/network completion cannot extend the
+// control-cycle scheduling window beyond 7.5 seconds.
+val maxBatchMillis = 7_500L
 val perTokenTimeoutMs = if (cfg.paperMode) 1_200L else 1_800L  // V5.0.6288 2.5s→1.8s live: skip laggy tokens, catch fresh ones
 // V5.9.106: widen concurrency for fat watchlists. User logs showed
 // processed=20 / total=64 (44 deferred per tick) — the existing caps

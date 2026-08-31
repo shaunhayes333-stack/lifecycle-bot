@@ -9021,9 +9021,11 @@ class GoldenTapeRegressionTest {
 
         assertTrue(mark.contains("CanonicalMarkPurpose6570.OBSERVATION_SCORING") && bot.contains("purpose = com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING"))
         assertTrue(markGate.contains("isObservationAuthoritative6570") && markGate.contains("GECKOTERMINAL"))
-        assertTrue(crypto.contains("markEvaluationProgress6570(refreshed") && crypto.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED_REQUEUE"))
-        assertFalse(crypto.contains("markEvaluationDisposition6567(refreshed, \"OBSERVE_SPECIALIST_SILENCE_6569\")"))
-        assertTrue(registry.contains("evaluation non-terminal progress=") && registry.contains("terminal=false coalesced=true"))
+        assertTrue(crypto.contains("markEvaluationProgress6570(refreshed") && crypto.contains("markEvaluationDisposition6567(observedTok6569") &&
+            crypto.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED"))
+        assertEquals(1, Regex("SHARED_INTELLIGENCE_BACKLOG_COALESCED_REQUEUE").findAll(crypto).count())
+        assertTrue(registry.contains("evaluationGeneration6615") && registry.contains("evaluationInflight6615") &&
+            registry.contains("CRYPTO_EVAL_GENERATION_COALESCED_6615"))
         assertTrue(crypto.contains("canonicalFinalSize6570 = canonicalCryptoIntent6565.resolvedSize") && crypto.contains("markFailed(canonicalCryptoIntent6565"))
         assertTrue(cyclic.contains("CanonicalMintOccupancyRegistry6464.isOpen") && cyclic.contains("if (isLiveMode) evidence == CyclicSellabilityEvidence6567.CONFIRMED_TRUE"))
         assertTrue(perps.contains("CanonicalAssetEntryCandidate6551") && perps.contains("assetClass = com.lifecyclebot.engine.truth.AssetClass.PERPS") && perps.contains("sealedPerpIntent6570"))
@@ -9077,6 +9079,27 @@ class GoldenTapeRegressionTest {
         assertTrue(gate.contains("markId6614") && gate.contains("markVersion6614") && gate.contains("sealedProvenance6614"))
         assertTrue(gate.contains("TICKET_REFRESH_AUTHORITY_FAILURE") && gate.contains("EXPIRED_TICKET_ECONOMIC_REJECT_6614"))
         assertTrue(sheet.contains("fdgAllow + fdgBlock == 0L") && sheet.contains("SPECIALIST_INTENT_WITHOUT_FDG_OUTCOME="))
+    }
+
+
+    @Test
+    fun V5_0_6615_loop_starvation_work_is_single_flight_and_generation_owned() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val worker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MaintenanceWorker6448.kt").readText()
+        val sentinel = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MarketDataProvenance6471.kt").readText()
+        val marks = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MarkAuthorityIntegrityGate6496.kt").readText()
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/perps/DynamicAltTokenRegistry.kt").readText()
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue(worker.contains("runningNames6615.add(name)") && worker.contains("runningNames6615.remove(name)"))
+        assertTrue(bot.contains("requestHotWatchlistRebalance6615") && bot.contains("hot_watchlist_rebalance_6615") &&
+            bot.contains("canonical_cycle_end_6615") && bot.contains("val maxBatchMillis = 7_500L"))
+        assertTrue(sentinel.contains("SentinelState6615") && sentinel.contains("MARKET_DATA_SENTINEL_COALESCED_6615"))
+        assertTrue(marks.contains("MarkState6615") && marks.contains("PAPER_MARK_UNCHANGED_COALESCED_6615"))
+        assertTrue(registry.contains("evaluationGeneration6615") && registry.contains("evaluationInflight6615") && registry.contains("CRYPTO_EVAL_STALE_COMPLETION_DROPPED_6615"))
+        assertTrue(crypto.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED") &&
+            Regex("SHARED_INTELLIGENCE_BACKLOG_COALESCED_REQUEUE").findAll(crypto).count() == 1)
+        assertTrue(gate.contains("EXEC_OPEN_BLOCKED_NO_EXECUTION_INTENT_6615") && gate.contains("NO_EXECUTION_INTENT"))
     }
 
 }

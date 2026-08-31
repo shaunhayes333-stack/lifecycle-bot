@@ -1986,7 +1986,9 @@ object ExecutableOpenGate {
                         )
                     }
                 } catch (_: Throwable) {}
-                return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", "SIGNAL_NOT_BUY:${signal.ifBlank { "UNKNOWN" }}", shadow = mode == "PAPER")
+                val typedNoIntent6615 = if (signal.isBlank() || signal.equals("UNKNOWN", true))
+                    "NO_EXECUTION_INTENT" else "SIGNAL_NOT_ACTIONABLE:${signal.uppercase()}"
+                return blocked("EXEC_OPEN_BLOCKED_NO_EXECUTION_INTENT_6615", typedNoIntent6615, shadow = mode == "PAPER")
             }
         }
         if (fdgCan != true) {

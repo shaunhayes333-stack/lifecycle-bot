@@ -53,6 +53,9 @@ object MaintenanceWorker6448 {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
 
     private val inFlight = ConcurrentHashMap<String, Job>()
+    // V5.0.6615 — atomic owner set closes the submit-before-map race: two
+    // simultaneous periodic ticks can no longer launch the same job twice.
+    private val runningNames6615 = ConcurrentHashMap.newKeySet<String>()
     private val timings = ConcurrentHashMap<String, TaskStat>()
 
     private val submitted = AtomicLong(0L)
@@ -79,13 +82,12 @@ object MaintenanceWorker6448 {
      */
     fun submit(name: String, budgetMs: Long = 8_000L, block: suspend () -> Unit) {
         submitted.incrementAndGet()
-        val existing = inFlight[name]
-        if (existing != null && existing.isActive) {
+        if (!runningNames6615.add(name)) {
             coalesced.incrementAndGet()
             try { PipelineHealthCollector.labelInc("MAINTENANCE_COALESCED_6448") } catch (_: Throwable) {}
             return
         }
-        val job = scope.launch {
+        val job = try { scope.launch {
             val t0 = System.currentTimeMillis()
             val ok = try {
                 withTimeoutOrNull(budgetMs) {
@@ -134,9 +136,16 @@ object MaintenanceWorker6448 {
                 }
                 try { PipelineHealthCollector.labelInc("MAINTENANCE_COMPLETED_6448") } catch (_: Throwable) {}
             }
+        } } catch (t: Throwable) {
+            runningNames6615.remove(name)
+            failed.incrementAndGet()
+            return
         }
         inFlight[name] = job
-        job.invokeOnCompletion { inFlight.remove(name, job) }
+        job.invokeOnCompletion {
+            inFlight.remove(name, job)
+            runningNames6615.remove(name)
+        }
     }
 
     fun statusLine(): String {
