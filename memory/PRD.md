@@ -4,7 +4,7 @@
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
-**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6619 CI PENDING.**
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6619d Build CI GREEN (15m48s).** Runtime Smoke workflow is red on the same UI-timing flake that failed on V5.0.6617 & V5.0.6618 (pre-existing infra — `btnToggle` UI-dump race — unrelated to journal repair).
 
 ## V5.0.6619 (Feb 2026) — JOURNAL_DERIVED_HERO_AUTHORITY (+ 6618 test compile fix)
 
