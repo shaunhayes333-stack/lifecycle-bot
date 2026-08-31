@@ -567,10 +567,29 @@ object ShitCoinTraderAI {
         // V5.2 FIX: RELEASE TRADE AUTHORIZER LOCK
         // This allows the token to be re-entered or promoted to another layer
         // ═══════════════════════════════════════════════════════════════════
+        // V5.0.6616 §IMMUTABLE_ENTRY_LANE_EXIT_REASON (operator directive Feb 2026:
+        //   "A position's exit personality derives from immutable entryLane +
+        //   current learned tactic. Do not allow a MOONSHOT position to
+        //   accidentally acquire SHITCOIN exit logic through a mutable
+        //   current-lane lookup."). Operator's V5.0.6609 dump captured
+        //   TRIGGER|MOONSHOT|SHITCOIN_STOP_LOSS — a MOONSHOT-entered position
+        //   was routed through this ShitCoinTraderAI exit path and the
+        //   reason was hardcoded "SHITCOIN_${exitReason.name}", producing
+        //   a SHITCOIN_STOP_LOSS reason on a MOONSHOT position. That reason
+        //   then re-shaped downstream: Executor.pnlBoundsFor(reason) at
+        //   line 19724 groups SHITCOIN_STOP_LOSS with the tight (-12, -6)
+        //   band, clipping MOONSHOT's asymmetric runner room.
+        //   Fix: prefix with the position's IMMUTABLE entryLane
+        //   (pos.tradingMode) when set. Falls back to "SHITCOIN_" only
+        //   when the position genuinely entered as a SHITCOIN. Folded
+        //   into the 6616 journal-authority patch.
+        val immutableLanePrefix6613 = pos.tradingMode
+            .takeIf { it.isNotBlank() && it.uppercase() != "STANDARD" }
+            ?.uppercase() ?: "SHITCOIN"
         try {
             com.lifecyclebot.engine.TradeAuthorizer.releasePosition(
                 mint = mint,
-                reason = "SHITCOIN_${exitReason.name}",
+                reason = "${immutableLanePrefix6613}_${exitReason.name}",
                 book = com.lifecyclebot.engine.TradeAuthorizer.ExecutionBook.SHITCOIN
             )
         } catch (e: Exception) {

@@ -1,10 +1,24 @@
-# AATE PRD — V5.0.6612c (BOUNDED CONTRIBUTOR MERGE + BAYESIAN LEARNING FROM TRADE ONE)
+# AATE PRD — V5.0.6616 (JOURNAL → BALANCE → HERO SINGLE-AUTHORITY REPAIR)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
-**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6612c CI GREEN.**
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6616 CI PENDING.**
+
+## V5.0.6616 (Feb 2026) — JOURNAL_BALANCE_HERO_SINGLE_AUTHORITY_REPAIR
+
+Operator directive (verbatim): *"THE DURABLE TRADE JOURNAL IS THE ECONOMIC SOURCE OF TRUTH. There must be exactly one derivation chain: Durable Trade Journal → Journal economic replay → Canonical Paper Economic Snapshot → HeroSnapshotAuthority → Main/Meme, Markets, Crypto Universe screens. All three heroes must satisfy MEME.cash == MARKETS.cash == CRYPTO.cash within the same canonical snapshot revision."*
+
+**Forensic evidence (5.0.6616 dump)**: `PAPER_UI_CASH_DIVERGENCE_6577=3`, `PAPER_CLOSE_UNJOURNALED_LEAK_6581=30`, canonical `cash=36.3987 SOL` / `equity=65.4560 SOL` — three heroes displaying three different "Balance" answers because Main showed equity, Markets showed equity, Crypto showed cash.
+
+**New authority `JournalEconomicAuthority6616`** — one facade with a monotonic `journalEconomicRevision`. Every `PaperAccountLedger6430` mutation (`onBuy` / `onSell` / `rollbackBuy` / `onPositionPurged` / `initialize`) calls `notifyEconomicMutation(kind)` which atomically increments the revision and republishes an immutable `CanonicalEconomicSnapshot(revision, mode, cashSol, reservedSol, openMarketValueSol, unrealizedPnlSol, realizedPnlSol, feesSol, equitySol, source)`. `forcePublish("TRADE_JOURNAL_REPLAY_RESTORE_6487")` is called after the durable restore path so UI attaches to a real balance the first frame.
+
+**Hero rebindings** — Meme / Markets / Crypto Universe now consume the same journal snapshot for spendable CASH. Every render emits `HERO_BALANCE_RENDER_6616 screen=X rev=N cash=... equity=... source=TRADE_JOURNAL` and calls `probeHeroBinding(surface, cash, equity)` which increments `HERO_JOURNAL_PARITY_OK_6616` / `HERO_JOURNAL_PARITY_FAIL_6616` at the causal origin. `HeroSnapshotAuthority6503.Hero` now carries `journalRevision` + `source`.
+
+**30 unjournaled leaks fixed at source** — `TokenizedStockTrader.closePosition` double-refusal fallback no longer calls `PaperAccountLedger6430.onSell(...)` directly. When the canonical close AND canonical refund both refuse, the local phantom slot is freed but the ledger is untouched — the journal remains the sole economic writer. New label `PAPER_CLOSE_JOURNAL_REFUSED_NO_LEDGER_MUTATION_6616` replaces the pre-6616 `PAPER_CLOSE_UNJOURNALED_LEAK_6581` counter.
+
+**Companion repairs folded into V5.0.6616** — the pending WakeLock/Doze/App-Standby telemetry (`BACKGROUND_DOZE_RISK_NOT_WHITELISTED_6616` / `BACKGROUND_ANDROID_RESTRICTED_6616` / `BACKGROUND_ANDROID_STANDBY_BUCKET_*_6616`) and the immutable-entry-lane exit-reason repair (`ShitCoinTraderAI.executeExit` + `BotService` mirror) that were originally staged as V5.0.6613 land on the same 6616 patch so one CI cycle validates all three.
 
 ## V5.0.6611 (Feb 2026) — BAYESIAN_LEARNING_FROM_TRADE_ONE
 

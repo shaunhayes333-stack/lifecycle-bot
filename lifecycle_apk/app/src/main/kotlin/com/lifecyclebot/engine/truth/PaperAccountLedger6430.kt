@@ -72,6 +72,11 @@ object PaperAccountLedger6430 {
             openCostBasisPico.set(open); realizedPnlPico.set(realized); feesPico.set(fees)
             opCount.set(o.optLong("ops", 0L))
             try { PipelineHealthCollector.labelInc("PAPER_LEDGER_AUTHORITY_RESTORED_6487") } catch (_: Throwable) {}
+            // V5.0.6616 §STARTUP_ORDER — journal replay complete;
+            //   publish the authoritative snapshot at rev 0 so UI
+            //   attaches to a real balance the first frame instead of
+            //   showing 0.0 SOL until the first mutation.
+            try { JournalEconomicAuthority6616.forcePublish("TRADE_JOURNAL_REPLAY_RESTORE_6487") } catch (_: Throwable) {}
             true
         } catch (t: Throwable) {
             initialize(startingCashSol)
@@ -106,6 +111,10 @@ object PaperAccountLedger6430 {
         realizedPnlPico.set(0L)
         feesPico.set(0L)
         opCount.set(0L)
+        // V5.0.6616 — cold-start publishes a rev-0 economic snapshot so
+        //   hero binders never fall back to a stale SharedPreferences
+        //   value between initialize() and the first onBuy/onSell.
+        try { JournalEconomicAuthority6616.notifyEconomicMutation("INITIALIZE") } catch (_: Throwable) {}
     }
 
     fun canAffordBuy(costSol: Double, feeSol: Double = 0.0): Boolean {
@@ -130,6 +139,11 @@ object PaperAccountLedger6430 {
         feesPico.addAndGet(toPico(feeSol.coerceAtLeast(0.0)))
         opCount.incrementAndGet()
         persistCurrent6487()
+        // V5.0.6616 §JOURNAL_BALANCE_HERO_SINGLE_AUTHORITY_REPAIR —
+        //   Every ledger mutation increments the monotonic
+        //   journalEconomicRevision so the hero surfaces observe one
+        //   causal chain. See JournalEconomicAuthority6616 for doctrine.
+        try { JournalEconomicAuthority6616.notifyEconomicMutation("BUY") } catch (_: Throwable) {}
         return true
     }
 
@@ -145,6 +159,8 @@ object PaperAccountLedger6430 {
         opCount.incrementAndGet()
         persistCurrent6487()
         try { ForensicLogger.lifecycle("PAPER_BUY_ROLLED_BACK_6485", "cost=$costSol fee=$fee reason=${reason.take(100)}") } catch (_: Throwable) {}
+        // V5.0.6616 — rollback is a journal-visible mutation too.
+        try { JournalEconomicAuthority6616.notifyEconomicMutation("ROLLBACK_BUY") } catch (_: Throwable) {}
         return true
     }
 
@@ -200,6 +216,9 @@ object PaperAccountLedger6430 {
             ForensicLogger.lifecycle("PAPER_ORPHAN_COST_RELEASED_6475", "source=$source released=$release before=$before after=${openCostBasisSol()}")
             PipelineHealthCollector.labelInc("PAPER_ORPHAN_COST_RELEASED_6475")
         } catch (_: Throwable) {}
+        // V5.0.6616 — orphan-cost release mutates open-cost basis, so
+        //   equity/openMV must refresh through the journal authority.
+        try { JournalEconomicAuthority6616.notifyEconomicMutation("PURGE") } catch (_: Throwable) {}
         return true
     }
 
@@ -256,6 +275,11 @@ object PaperAccountLedger6430 {
         feesPico.addAndGet(toPico(fee))
         opCount.incrementAndGet()
         persistCurrent6487()
+        // V5.0.6616 §JOURNAL_BALANCE_HERO_SINGLE_AUTHORITY_REPAIR —
+        //   Sell is the primary mutation that must fan out one causal
+        //   chain to every hero surface. Increment revision + republish
+        //   snapshot so all three screens observe the same rev at read.
+        try { JournalEconomicAuthority6616.notifyEconomicMutation("SELL") } catch (_: Throwable) {}
         return true
     }
 

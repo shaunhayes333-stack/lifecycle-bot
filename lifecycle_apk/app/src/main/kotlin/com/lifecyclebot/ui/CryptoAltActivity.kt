@@ -369,7 +369,18 @@ class CryptoAltActivity : AppCompatActivity() {
 
     private fun applyHeroStats() {
         // V5.9.5: reads from FluidLearning shared pool — same balance as main AATE
-        val bal    = CryptoAltTrader.getBalance()
+        //
+        // V5.0.6616 §JOURNAL_BALANCE_HERO_SINGLE_AUTHORITY_REPAIR — prefer
+        //   the revision-tracked JournalEconomicAuthority6616 cashSol so
+        //   this hero, the Meme hero, and the Markets hero all render
+        //   the same journal revision. CryptoAltTrader.getBalance()
+        //   already delegates to PaperCapitalAuthority6577 in paper
+        //   mode, so the fallback preserves live-mode behaviour.
+        val journalSnap6616 = try {
+            com.lifecyclebot.engine.truth.JournalEconomicAuthority6616.currentSnapshot()
+        } catch (_: Throwable) { null }
+        val bal    = journalSnap6616?.cashSol ?: CryptoAltTrader.getBalance()
+        val equity = journalSnap6616?.equitySol ?: bal
         val pnl    = CryptoAltTrader.getTotalPnlSol()
         val wr     = CryptoAltTrader.getWinRate()
         val trades = CryptoAltTrader.getTotalTrades()
@@ -390,6 +401,13 @@ class CryptoAltActivity : AppCompatActivity() {
         tvHeroTrades.text  = "$trades · ${wins}W / ${losses}L / ${scratches}S"
         tvHeroPhase.text   = phase
         tvHeroPhase.setTextColor(phaseColor(phase))
+        // V5.0.6616 §HERO_BALANCE_RENDER + PARITY PROBE.
+        try {
+            com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
+                .recordHeroRender("CRYPTO", bal, equity)
+            com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
+                .probeHeroBinding("CRYPTO", bal, equity)
+        } catch (_: Throwable) {}
     }
 
     private fun refreshWalletCapacityAsync() {

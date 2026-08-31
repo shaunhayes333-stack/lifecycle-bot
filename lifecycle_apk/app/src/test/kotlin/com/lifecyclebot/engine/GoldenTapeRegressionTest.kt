@@ -3066,8 +3066,8 @@ class GoldenTapeRegressionTest {
     fun main_ui_money_and_pricing_surfaces_use_display_authority() {
         val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
         val mainLayout = java.io.File("src/main/res/layout/activity_main.xml").readText()
-        assertTrue("Paper hero headline must render canonical total equity and show ledger cash separately",
-            main.contains("walletSnap6451?.totalEquitySol") && main.contains("PAPER · CASH") &&
+        assertTrue("Paper hero headline must render canonical spendable CASH and show equity in the accessible breakdown (V5.0.6616 §JOURNAL_BALANCE_HERO_SINGLE_AUTHORITY_REPAIR)",
+            main.contains("journalSnap6616?.cashSol ?: walletSnap6451?.cashSol") && main.contains("PAPER · CASH") &&
                 main.contains("walletSnap6451?.cashSol") && main.contains("tvBalanceLarge.setTextIfChanged(compactHeroBalance(balSol))") &&
                 !main.contains("PaperWalletStore.restore"))
         assertTrue("Paper hero must remain mobile-safe while exposing the canonical five-surface breakdown",
@@ -7956,9 +7956,9 @@ class GoldenTapeRegressionTest {
         assertTrue("6490 canonical positions enforce one active economic position per mode and mint",
             canonical.contains("data class ActiveMintProjection6489") && canonical.contains("groupBy { \"" + "$" + "{it.mode.lowercase()}|" + "$" + "{it.mint}\" }") &&
                 canonical.contains("CANONICAL_SAME_MODE_MINT_OPEN_REJECTED_6490") && occupancy.contains("reconcileActiveFromCanonical6489"))
-        assertTrue("6490 equity values each paper mode mint once and the PAPER hero shows equity plus separate cash",
+        assertTrue("6490 equity values each paper mode mint once and the PAPER hero shows CASH plus equity in accessible breakdown (V5.0.6616)",
             capital.contains("activeMintProjections6490(\"paper\")") && capital.contains("markProvider(aggregate.mint)") &&
-                main.contains("walletSnap6451?.totalEquitySol") && main.contains("PAPER · CASH") && !main.contains("PaperWalletStore.restore"))
+                main.contains("journalSnap6616?.cashSol ?: walletSnap6451?.cashSol") && main.contains("PAPER · CASH") && !main.contains("PaperWalletStore.restore"))
         assertTrue("6489 replay carries pre-authority history and folds bounded-event eviction without rewriting money or lots",
             replay.contains("establishReplayCarry6489") && events.contains("foldEvictedIntoReplayCarry6489") &&
                 events.contains("REPLAY_CARRY_MIGRATED_FROM_LEDGER_6489"))

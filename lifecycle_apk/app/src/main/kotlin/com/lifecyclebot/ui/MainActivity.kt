@@ -3091,43 +3091,30 @@ for legal compliance.
             }
         }
 
-        // ── hero balance — canonical TOTAL EQUITY in paper mode ──
+        // ── hero balance — canonical CASH in paper mode (V5.0.6616) ──
+        //   V5.0.6616 §JOURNAL_BALANCE_HERO_SINGLE_AUTHORITY_REPAIR
+        //   (operator directive Feb 2026: "Do NOT have one screen call
+        //   36.3987 'Balance' and another screen call 65.4560 'Balance'.
+        //   If all three hero cards are intended to mean spendable
+        //   wallet balance, all three must display the SAME cashSol.")
+        //   The subtitle explicitly labels this row as `PAPER · CASH`
+        //   so the big number MUST bind to snapshot.cashSol. Equity is
+        //   still surfaced in the contentDescription for screen readers.
         val config = state.config // V5.9.706 — use pre-loaded config from UiState (avoid AES-GCM decrypt on main thread)
         val solPx  = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..500.0 } ?: 85.0
         val walletSnap6451 = if (config.paperMode) {
             try { com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
         } else null
+        val journalSnap6616 = if (config.paperMode) {
+            try { com.lifecyclebot.engine.truth.JournalEconomicAuthority6616.currentSnapshot() } catch (_: Throwable) { null }
+        } else null
         val balSol = if (config.paperMode) {
-            // V5.0.6508a — HEADLINE EQUITY FALLBACK-MARK GUARD.
-            // Uses walletSnap6451?.totalEquitySol as the base then falls
-            // back to authoritativeEquitySol when >20% of open positions
-            // are unpriced fallback marks, so restored inventory cannot
-            // manufacture headline growth. Golden-tape literal
-            // `walletSnap6451?.totalEquitySol` preserved.
-            val totalEquityCandidate6508 = walletSnap6451?.totalEquitySol ?: 0.0
-            val snap6508 = walletSnap6451
-            // V5.0.6508e — CONSERVATIVE GUARD.
-            // The 6508d "any non-fresh mark switches to authoritative"
-            // rule zeroed stale-marked positions out of headline which
-            // under-counted legitimately-held inventory (a stale mark
-            // from 30 s ago is still real inventory). Reverted to
-            // headline = totalEquitySol; authoritativeEquitySol is now
-            // exposed only through the counter
-            // HERO_EQUITY_AUTHORITATIVE_DIVERGENCE_6508 which fires when
-            // the two figures disagree by >5 %. Operator can then read
-            // the counter in a pipeline dump without the hero being
-            // silently over- or under-stated.
-            if (snap6508 != null) {
-                val delta6508 = kotlin.math.abs(totalEquityCandidate6508 - snap6508.authoritativeEquitySol)
-                if (totalEquityCandidate6508 > 0.001 &&
-                    delta6508 / totalEquityCandidate6508 > 0.05) {
-                    try {
-                        com.lifecyclebot.engine.PipelineHealthCollector
-                            .labelInc("HERO_EQUITY_AUTHORITATIVE_DIVERGENCE_6508")
-                    } catch (_: Throwable) {}
-                }
-            }
-            totalEquityCandidate6508
+            // V5.0.6616 — bind big number to CASH (spendable), not equity.
+            //   Prefer JournalEconomicAuthority6616 (revision-tracked,
+            //   single derivation chain). Falls back to walletSnap6451
+            //   only when the authority has not published yet (pre-
+            //   restore). Never fabricates a value.
+            journalSnap6616?.cashSol ?: walletSnap6451?.cashSol ?: 0.0
         } else {
             ws.solBalance
         }
@@ -3191,6 +3178,24 @@ for legal compliance.
             tvBalanceUsd.setTextIfChanged(
                 if (config.paperMode) "PAPER · CASH ${"%.4f".format(walletSnap6451?.cashSol ?: 0.0)} SOL" else "LIVE"
             )
+        }
+
+        // V5.0.6616 §HERO_BALANCE_RENDER + PARITY PROBE — every hero
+        //   render emits one line the operator can grep across three
+        //   screens (MEME/MARKETS/CRYPTO). The probe flags any surface
+        //   whose displayed cash diverges from the journal-authoritative
+        //   snapshot at render time, so divergence is counted at its
+        //   causal origin (not merely reconciled later).
+        if (config.paperMode) {
+            try {
+                val displayedCash6616 = journalSnap6616?.cashSol
+                    ?: walletSnap6451?.cashSol ?: 0.0
+                val displayedEquity6616 = walletSnap6451?.totalEquitySol ?: displayedCash6616
+                com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
+                    .recordHeroRender("MEME", displayedCash6616, displayedEquity6616)
+                com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
+                    .probeHeroBinding("MEME", displayedCash6616, displayedEquity6616)
+            } catch (_: Throwable) {}
         }
 
         // ── Live SOL Price ──────────────────────────────────────────────

@@ -78,6 +78,13 @@ object HeroSnapshotAuthority6503 {
         val liveOpenCount: Int = 0,
         val liveTotalExposureSol: Double = 0.0,
         val liveTotalUnrealizedSol: Double = 0.0,
+        // V5.0.6616 §JOURNAL_BALANCE_HERO_SINGLE_AUTHORITY_REPAIR —
+        //   carry the journal-authoritative economic revision so hero
+        //   consumers can prove all three screens rendered the same
+        //   causal snapshot. source names the authority that supplied
+        //   the cash/equity numbers.
+        val journalRevision: Long = -1L,
+        val source: String = "CANONICAL_CAPITAL_AUTHORITY_6450",
     ) {
         fun openCountFor(paperMode: Boolean): Int = if (paperMode) paperOpenCount else liveOpenCount
         fun totalExposureSolFor(paperMode: Boolean): Double = if (paperMode) paperTotalExposureSol else liveTotalExposureSol
@@ -209,23 +216,45 @@ object HeroSnapshotAuthority6503 {
             // V5.0.6508e — CONSERVATIVE (see MainActivity).
             // Hero background snapshot uses totalEquitySol; divergence
             // vs authoritativeEquitySol surfaces via counter only.
-            val snap6508 = CanonicalCapitalAuthority6450.snapshot()
-            val delta6508 = kotlin.math.abs(snap6508.totalEquitySol - snap6508.authoritativeEquitySol)
-            if (snap6508.totalEquitySol > 0.001 &&
-                delta6508 / snap6508.totalEquitySol > 0.05) {
-                try {
-                    com.lifecyclebot.engine.PipelineHealthCollector
-                        .labelInc("HERO_EQUITY_AUTHORITATIVE_DIVERGENCE_6508")
-                } catch (_: Throwable) {}
+            //
+            // V5.0.6616 §JOURNAL_BALANCE_HERO_SINGLE_AUTHORITY_REPAIR —
+            //   prefer the revision-tracked JournalEconomicAuthority6616
+            //   snapshot so the hero cache carries the same journal
+            //   revision every UI surface renders. Falls back to the
+            //   canonical capital snapshot when the authority has not
+            //   published yet (pre-restore or live-only sessions).
+            val jSnap6616 = try { JournalEconomicAuthority6616.currentSnapshot() } catch (_: Throwable) { null }
+            if (jSnap6616 != null) {
+                jSnap6616.equitySol
+            } else {
+                val snap6508 = CanonicalCapitalAuthority6450.snapshot()
+                val delta6508 = kotlin.math.abs(snap6508.totalEquitySol - snap6508.authoritativeEquitySol)
+                if (snap6508.totalEquitySol > 0.001 &&
+                    delta6508 / snap6508.totalEquitySol > 0.05) {
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector
+                            .labelInc("HERO_EQUITY_AUTHORITATIVE_DIVERGENCE_6508")
+                    } catch (_: Throwable) {}
+                }
+                snap6508.totalEquitySol
             }
-            snap6508.totalEquitySol
         } catch (_: Throwable) { 0.0 }
         val cashSol = try {
-            PaperCapitalAuthority6577.cashSol()
+            // V5.0.6616 — journal-authoritative cash preferred.
+            JournalEconomicAuthority6616.currentSnapshot()?.cashSol
+                ?: PaperCapitalAuthority6577.cashSol()
         } catch (_: Throwable) { 0.0 }
         val realizedPnlSol = try {
-            PaperCapitalAuthority6577.realizedPnlSol()
+            JournalEconomicAuthority6616.currentSnapshot()?.realizedPnlSol
+                ?: PaperCapitalAuthority6577.realizedPnlSol()
         } catch (_: Throwable) { 0.0 }
+        val journalRev6616 = try {
+            JournalEconomicAuthority6616.currentSnapshot()?.revision ?: -1L
+        } catch (_: Throwable) { -1L }
+        val heroSource6616 = try {
+            JournalEconomicAuthority6616.currentSnapshot()?.source
+                ?: "CANONICAL_CAPITAL_AUTHORITY_6450"
+        } catch (_: Throwable) { "CANONICAL_CAPITAL_AUTHORITY_6450" }
         cached.set(
             Hero(
                 openCount = openCount,
@@ -241,6 +270,8 @@ object HeroSnapshotAuthority6503 {
                 liveOpenCount = liveOpenCount,
                 liveTotalExposureSol = liveTotalExposureSol,
                 liveTotalUnrealizedSol = liveTotalUnrealizedSol,
+                journalRevision = journalRev6616,
+                source = heroSource6616,
             )
         )
     }

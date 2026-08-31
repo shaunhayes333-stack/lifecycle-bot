@@ -1279,8 +1279,20 @@ class MultiAssetActivity : AppCompatActivity() {
                 // The pre-6577 formula (paperBaseSol + marketsPnlSol) computed
                 // a lane-specific view that diverged from other screens —
                 // Meme could refuse trades while Markets still displayed funds.
+                //
+                // V5.0.6616 §JOURNAL_BALANCE_HERO_SINGLE_AUTHORITY_REPAIR
+                //   (operator directive Feb 2026: "If all three hero cards
+                //   are intended to mean spendable wallet balance, all
+                //   three must display the SAME cashSol"). Rebind hero to
+                //   CASH (was totalEquitySol). Prefer the revision-tracked
+                //   JournalEconomicAuthority6616 snapshot — falls back to
+                //   PaperCapitalAuthority6577 only before first publish.
+                val journalSnap6616 = try {
+                    com.lifecyclebot.engine.truth.JournalEconomicAuthority6616.currentSnapshot()
+                } catch (_: Throwable) { null }
                 val paperSnap6577 = com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.snapshot()
-                val paperBalanceSol = paperSnap6577.totalEquitySol
+                val paperBalanceSol = journalSnap6616?.cashSol ?: paperSnap6577.availableCashSol
+                val paperEquitySol = journalSnap6616?.equitySol ?: paperSnap6577.totalEquitySol
                 // Legacy telemetry only — divergence between the old lane-PnL
                 // formula and the canonical authority is recorded but does not
                 // authoritatively drive the UI anymore.
@@ -1329,7 +1341,14 @@ class MultiAssetActivity : AppCompatActivity() {
                         }
                         tvTotalBalance.setTextColor(0xFFF59E0B.toInt())
                         balanceContainer.contentDescription =
-                            "Paper: \$${"%,.0f".format(usdValue)} (${"%.2f".format(paperBalanceSol)} SOL)"
+                            "Paper: \$${"%,.0f".format(usdValue)} (${"%.2f".format(paperBalanceSol)} SOL · equity ${"%.2f".format(paperEquitySol)})"
+                        // V5.0.6616 §HERO_BALANCE_RENDER + PARITY PROBE.
+                        try {
+                            com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
+                                .recordHeroRender("MARKETS", paperBalanceSol, paperEquitySol)
+                            com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
+                                .probeHeroBinding("MARKETS", paperBalanceSol, paperEquitySol)
+                        } catch (_: Throwable) {}
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {

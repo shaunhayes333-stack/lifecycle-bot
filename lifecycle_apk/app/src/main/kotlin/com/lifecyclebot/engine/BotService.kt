@@ -767,6 +767,56 @@ class BotService : Service() {
         }
         ensureRuntimeWakeLock6031(reason)
         ensureRuntimeWifiLock6032(reason)
+        // V5.0.6616 §BACKGROUND_DOZE_EXEMPTION_AUDIT (operator directive
+        //   Feb 2026: "Trading pauses when Android throttles the process
+        //   at screen-off"). The service holds PARTIAL_WAKE_LOCK + WiFi
+        //   lock + foreground service, but Doze / App Standby / background
+        //   restriction can still throttle the process's Alarm/Job
+        //   cadence if the user hasn't whitelisted the app in Battery
+        //   Optimization. Emit a health label on every guard pass so the
+        //   operator can grep for the exact throttling class active while
+        //   trading is stalled at screen-off. No behaviour change here —
+        //   this surfaces the root cause so the user can whitelist via
+        //   Settings → Battery → Battery Optimization → LifecycleBot →
+        //   "Don't optimize". Folded into the 6616 patch as a companion
+        //   background-liveness diagnostic; the journal repair proper
+        //   lives in JournalEconomicAuthority6616.
+        try {
+            val pm6613 = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            val whitelisted6613 = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M)
+                pm6613?.isIgnoringBatteryOptimizations(packageName) ?: false else true
+            if (!whitelisted6613) {
+                PipelineHealthCollector.labelInc("BACKGROUND_DOZE_RISK_NOT_WHITELISTED_6616")
+                ForensicLogger.lifecycle(
+                    "BACKGROUND_DOZE_RISK_NOT_WHITELISTED_6616",
+                    "reason=$reason whitelisted=false action=user_must_whitelist_in_battery_opt_settings " +
+                        "note=partial_wake_lock_alone_cannot_prevent_doze_throttling",
+                )
+            } else {
+                PipelineHealthCollector.labelInc("BACKGROUND_DOZE_EXEMPT_WHITELISTED_6616")
+            }
+            val am6613 = getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+            val restricted6613 = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P)
+                am6613?.isBackgroundRestricted ?: false else false
+            if (restricted6613) {
+                PipelineHealthCollector.labelInc("BACKGROUND_ANDROID_RESTRICTED_6616")
+                ForensicLogger.lifecycle(
+                    "BACKGROUND_ANDROID_RESTRICTED_6616",
+                    "reason=$reason isBackgroundRestricted=true action=user_must_disable_restrict_background_activity",
+                )
+            }
+            val usm6613 = getSystemService(Context.USAGE_STATS_SERVICE) as? android.app.usage.UsageStatsManager
+            val bucket6613 = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P)
+                usm6613?.appStandbyBucket ?: -1 else -1
+            // Bucket >= 30 (RARE) or 40 (RESTRICTED) severely throttles alarms.
+            if (bucket6613 >= 30) {
+                PipelineHealthCollector.labelInc("BACKGROUND_ANDROID_STANDBY_BUCKET_${bucket6613}_6616")
+                ForensicLogger.lifecycle(
+                    "BACKGROUND_ANDROID_STANDBY_RESTRICTED_6616",
+                    "reason=$reason bucket=$bucket6613 action=doze_and_alarm_throttling_active",
+                )
+            }
+        } catch (_: Throwable) {}
         try { scheduleKeepAliveAlarm() } catch (_: Throwable) {}
         try { ServiceWatchdog.scheduleAlarm(applicationContext) } catch (_: Throwable) {}
         val held = try { heldPositionCountForRescue() } catch (_: Throwable) { 0 }
@@ -26272,9 +26322,21 @@ if (hotExitHandledSweep) {
 
                 // Full exit for all other signals
                 // V5.6.9g: Only close strategy position if sell was confirmed
+                // V5.0.6616 §IMMUTABLE_ENTRY_LANE_EXIT_REASON — prefix with the
+                //   position's immutable tradingMode instead of the hardcoded
+                //   "SHITCOIN_" so a MOONSHOT-entered position that got routed
+                //   through the ShitCoin exit branch still journals as
+                //   MOONSHOT_<SIGNAL>. See ShitCoinTraderAI.executeExit for
+                //   the full rationale — this is the mirror of that repair.
+                //   Folded into the 6616 patch alongside the journal
+                //   single-authority repair so a single CI cycle validates
+                //   both accounting and exit-lane correctness.
+                val immutableLanePrefix6613 = ts.tradingMode
+                    .takeIf { it.isNotBlank() && it.uppercase() != "STANDARD" }
+                    ?.uppercase() ?: "SHITCOIN"
                 val sellResult = executor.requestSell(
                     ts = ts,
-                    reason = "SHITCOIN_${exitSignal.name}",
+                    reason = "${immutableLanePrefix6613}_${exitSignal.name}",
                     wallet = wallet,
                     walletSol = effectiveBalance
                 )

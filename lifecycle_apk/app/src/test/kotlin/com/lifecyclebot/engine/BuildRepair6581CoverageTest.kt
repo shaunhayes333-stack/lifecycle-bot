@@ -35,12 +35,22 @@ class BuildRepair6581CoverageTest {
                 stockSrc.contains("PAPER_CLOSE_CANONICAL_REFUND_6581")
         )
         // The pre-6581 direct-onSell fallback lived under PAPER_CLOSE_FALLBACK_6572;
-        // it may remain as a last-resort branch but must NOT be the primary fallback.
+        // V5.0.6581 replaced it with the canonical refund path. V5.0.6616
+        // §JOURNAL_BALANCE_HERO_SINGLE_AUTHORITY_REPAIR now goes further:
+        // when the canonical refund ALSO refuses, we must NOT mutate the
+        // ledger via a fallback onSell — the journal is the sole economic
+        // authority. The 6581 PAPER_CLOSE_UNJOURNALED_LEAK label was
+        // superseded by PAPER_CLOSE_JOURNAL_REFUSED_NO_LEDGER_MUTATION_6616
+        // and the historical mention lives only inside the 6616 rationale
+        // comment. Accept either token so this earlier acceptance test
+        // stays valid across the 6616 patch.
         assertTrue(
-            "The PAPER_CLOSE_FALLBACK_6572 label must no longer be the primary counter " +
-                "for the canonical sell divergence — 6581 replaced it with the canonical " +
-                "refund path counter",
-            stockSrc.contains("PAPER_CLOSE_UNJOURNALED_LEAK_6581")
+            "The 6581 divergence signal must still be counted (either as the historical " +
+                "PAPER_CLOSE_UNJOURNALED_LEAK_6581 label OR as the 6616 successor " +
+                "PAPER_CLOSE_JOURNAL_REFUSED_NO_LEDGER_MUTATION_6616 that removed the ledger " +
+                "bypass entirely)",
+            stockSrc.contains("PAPER_CLOSE_UNJOURNALED_LEAK_6581") ||
+                stockSrc.contains("PAPER_CLOSE_JOURNAL_REFUSED_NO_LEDGER_MUTATION_6616")
         )
     }
 

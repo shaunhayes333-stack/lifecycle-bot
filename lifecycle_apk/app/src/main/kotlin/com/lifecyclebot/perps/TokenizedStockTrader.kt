@@ -1605,27 +1605,36 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                         )
                     } catch (_: Throwable) {}
                 } else {
-                    // Absolute last resort — canonical refund also refused.
-                    // Now we must still free the slot AND emit an explicit
-                    // divergence counter so operator sees the true leak count.
+                    // V5.0.6616 §HARD_AUTHORITY_DOCTRINE — canonical refuse
+                    //   MUST NOT trigger a ledger-only mutation. Operator
+                    //   directive Feb 2026: "If the journal write cannot
+                    //   be committed, the economic close must not become
+                    //   canonical." Previously (V5.0.6581) we fell back
+                    //   to PaperAccountLedger6430.onSell directly which
+                    //   produced 30 PAPER_CLOSE_UNJOURNALED_LEAK_6581
+                    //   occurrences per run — a second economic writer
+                    //   that mutated cash outside the journal chain.
+                    //
+                    //   Correct behaviour: the canonical authority has
+                    //   proven the position is not owned by the paper
+                    //   account (either it was already closed canonically
+                    //   or the mint identity mismatches the canonical
+                    //   row). The ledger cash is therefore ALREADY
+                    //   correct. Free the local phantom slot, count the
+                    //   refusal, do NOT mutate cash. The single
+                    //   derivation chain remains journal→balance→hero.
                     ErrorLogger.warn(TAG, "PAPER CLOSE CANONICAL_REFUND ALSO REJECTED: ${position.market.symbol} " +
-                        "refundReason=${refundResult6581?.reason ?: "NULL"} — capital reconstitution only")
+                        "refundReason=${refundResult6581?.reason ?: "NULL"} — journal-authoritative: NO ledger mutation")
                     try {
-                        val grossProceedsSol = (position.sizeSol + grossPnlSol).coerceAtLeast(0.0)
-                        val sellFeeSol = position.sizeSol * feePercent
-                        com.lifecyclebot.engine.truth.PaperAccountLedger6430.onSell(
-                            grossProceedsSol = grossProceedsSol,
-                            costBasisSoldSol = position.sizeSol,
-                            feeSol = sellFeeSol,
-                            mint = position.market.symbol,
-                        )
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_CLOSE_UNJOURNALED_LEAK_6581")
+                        com.lifecyclebot.engine.PipelineHealthCollector
+                            .labelInc("PAPER_CLOSE_JOURNAL_REFUSED_NO_LEDGER_MUTATION_6616")
                         com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                            "PAPER_CLOSE_UNJOURNALED_LEAK_6581",
+                            "PAPER_CLOSE_JOURNAL_REFUSED_NO_LEDGER_MUTATION_6616",
                             "positionId=${position.id} symbol=${position.market.symbol} " +
                                 "reason=${canonicalClose6486.reason} exitReason=$reason " +
                                 "refundReason=${refundResult6581?.reason ?: "NULL"} " +
-                                "action=ledger_only_refund lane=STOCKS SEVERITY=canonical_journal_bypass",
+                                "action=free_local_slot_only lane=STOCKS " +
+                                "doctrine=journal_is_authority_no_second_writer",
                         )
                     } catch (_: Throwable) {}
                 }
