@@ -91,7 +91,7 @@ class CanonicalMarkNotAPreV3Veto6575Test {
         assertTrue(
             "BotService must publish observation + executable marks under new P0-2 counters",
             botSrc.contains("CANONICAL_PRICE_MARK_OBSERVATION_ACCEPTED_6575") &&
-                botSrc.contains("CANONICAL_PRICE_MARK_EXECUTABLE_PROMOTED_6613")
+                botSrc.contains("CANONICAL_PRICE_MARK_EXECUTABLE_PROMOTED_6616")
         )
         assertTrue(
             "BotService must still stamp *_INFO_6575 so operators can audit rejection counts",

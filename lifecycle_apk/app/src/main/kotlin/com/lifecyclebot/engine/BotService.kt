@@ -17654,14 +17654,14 @@ if (hotExitHandledSweep) {
     // and cause ghost opens — exactly the storm the operator observed.
     private data class SupervisorLease(
         val mint: String,
-        val startedMs: Long,
+        val startedMonotonicMs: Long,
         val leaseId: Long,
         val task: String = "processTokenCycle",
         val phase: String = "SUPERVISOR",
         val acquisitionCallsite: String = "fireSupervisorWorkers",
         val dispatcher: String = "Dispatchers.IO",
         val threadName: java.util.concurrent.atomic.AtomicReference<String> = java.util.concurrent.atomic.AtomicReference(""),
-        val lastProgressMs: java.util.concurrent.atomic.AtomicLong = java.util.concurrent.atomic.AtomicLong(startedMs),
+        val lastProgressMs: java.util.concurrent.atomic.AtomicLong = java.util.concurrent.atomic.AtomicLong(startedMonotonicMs),
         val completionState: java.util.concurrent.atomic.AtomicReference<String> = java.util.concurrent.atomic.AtomicReference("ACQUIRED"),
         val jobRef: java.util.concurrent.atomic.AtomicReference<kotlinx.coroutines.Job?> =
             java.util.concurrent.atomic.AtomicReference(null),
@@ -17697,7 +17697,8 @@ if (hotExitHandledSweep) {
     // releaseSlot AND the watchdog also missed it — genuine bug case).
     // Original V5.9.1319 comment already asserted this doctrine but the
     // constant value shipped as 6000ms which contradicted it.
-    private val SUPERVISOR_LEASE_TTL_MS: Long = 12_000L
+    private val SUPERVISOR_LEASE_TTL_MS: Long = 18_000L
+    private val SUPERVISOR_LEASE_PROGRESS_TTL_MS: Long = 15_000L
     // Back-pressure: if the underlying IO is wedged, don't launch another full
     // 100 workers every 5s forever. This still preserves throughput while avoiding
     // runaway thread/network pressure.
@@ -18254,15 +18255,21 @@ if (hotExitHandledSweep) {
     }
 
     private fun supervisorPruneExpiredLeases(reason: String = "cycle"): Int {
-        val now = System.currentTimeMillis()
+        val nowMonotonic = android.os.SystemClock.elapsedRealtime()
         var expired = 0
         try {
             val it = supervisorLeases.entries.iterator()
             while (it.hasNext()) {
                 val e = it.next()
-                val age = now - e.value.startedMs
-                if (age >= SUPERVISOR_LEASE_TTL_MS) {
-                    if (supervisorLeases.remove(e.key, e.value)) expired++
+                val lease = e.value
+                val age = nowMonotonic - lease.startedMonotonicMs
+                val sinceProgress = nowMonotonic - lease.lastProgressMs.get()
+                val job = lease.jobRef.get()
+                val genuinelyStuck6616 = age >= SUPERVISOR_LEASE_TTL_MS &&
+                    sinceProgress >= SUPERVISOR_LEASE_PROGRESS_TTL_MS && job?.isActive == true
+                if (genuinelyStuck6616) {
+                    try { job?.cancel() } catch (_: Throwable) {}
+                    if (supervisorLeases.remove(e.key, lease)) expired++
                 }
             }
         } catch (_: Throwable) {}
@@ -18288,7 +18295,7 @@ if (hotExitHandledSweep) {
         // during an emergency-throttle window). Replaces the old fixed 140 firehose.
         if (live >= supervisorEffectiveCap()) return -1L
         val id = supervisorLeaseSeq.incrementAndGet()
-        supervisorLeases[id] = SupervisorLease(mint = mint, startedMs = System.currentTimeMillis(), leaseId = id)
+        supervisorLeases[id] = SupervisorLease(mint = mint, startedMonotonicMs = android.os.SystemClock.elapsedRealtime(), leaseId = id)
         supervisorActive.set(supervisorLeases.size)
         return id
     }
@@ -18303,19 +18310,19 @@ if (hotExitHandledSweep) {
     private fun supervisorLeaseProgress6448(leaseId: Long, state: String) {
         try {
             val l = supervisorLeases[leaseId] ?: return
-            l.lastProgressMs.set(System.currentTimeMillis())
+            l.lastProgressMs.set(android.os.SystemClock.elapsedRealtime())
             l.completionState.set(state.take(40))
             if (l.threadName.get().isBlank()) l.threadName.set(Thread.currentThread().name.take(80))
         } catch (_: Throwable) {}
     }
 
     private fun supervisorTimeoutDetail6448(leaseId: Long, mint: String): String {
-        val now = System.currentTimeMillis()
+        val nowMonotonic = android.os.SystemClock.elapsedRealtime()
         val l = supervisorLeases[leaseId]
         val job = try { l?.jobRef?.get() } catch (_: Throwable) { null }
-        val started = l?.startedMs ?: now
+        val started = l?.startedMonotonicMs ?: nowMonotonic
         val last = l?.lastProgressMs?.get() ?: started
-        return "leaseId=${l?.leaseId ?: leaseId} mint=${mint.take(10)} task=${l?.task ?: "processTokenCycle"} phase=${l?.phase ?: "SUPERVISOR"} callsite=${l?.acquisitionCallsite ?: "fireSupervisorWorkers"} startedMs=$started elapsedMs=${(now-started).coerceAtLeast(0L)} lastProgressMs=$last sinceProgressMs=${(now-last).coerceAtLeast(0L)} dispatcher=${l?.dispatcher ?: "Dispatchers.IO"} thread=${l?.threadName?.get().orEmpty()} job=${job?.toString()?.take(80).orEmpty()} cancelling=${job?.isCancelled ?: false} completed=${job?.isCompleted ?: false} state=${l?.completionState?.get().orEmpty()}"
+        return "leaseId=${l?.leaseId ?: leaseId} mint=${mint.take(10)} task=${l?.task ?: "processTokenCycle"} phase=${l?.phase ?: "SUPERVISOR"} callsite=${l?.acquisitionCallsite ?: "fireSupervisorWorkers"} startedMonotonicMs=$started elapsedMs=${(nowMonotonic-started).coerceAtLeast(0L)} lastProgressMonotonicMs=$last sinceProgressMs=${(nowMonotonic-last).coerceAtLeast(0L)} dispatcher=${l?.dispatcher ?: "Dispatchers.IO"} thread=${l?.threadName?.get().orEmpty()} job=${job?.toString()?.take(80).orEmpty()} cancelling=${job?.isCancelled ?: false} completed=${job?.isCompleted ?: false} state=${l?.completionState?.get().orEmpty()}"
     }
 
     /**
@@ -18332,8 +18339,19 @@ if (hotExitHandledSweep) {
             while (it.hasNext()) {
                 val e = it.next()
                 if (e.value.mint == mint) {
-                    try { e.value.jobRef.get()?.cancel() } catch (_: Throwable) {}
-                    if (supervisorLeases.remove(e.key, e.value)) cancelled++
+                    val lease = e.value
+                    val nowMonotonic = android.os.SystemClock.elapsedRealtime()
+                    val age = nowMonotonic - lease.startedMonotonicMs
+                    val sinceProgress = nowMonotonic - lease.lastProgressMs.get()
+                    val job = lease.jobRef.get()
+                    val genuinelyStuck6616 = age >= SUPERVISOR_LEASE_TTL_MS &&
+                        sinceProgress >= SUPERVISOR_LEASE_PROGRESS_TTL_MS && job?.isActive == true
+                    if (genuinelyStuck6616) {
+                        try { job?.cancel() } catch (_: Throwable) {}
+                        if (supervisorLeases.remove(e.key, lease)) cancelled++
+                    } else if (age < SUPERVISOR_LEASE_TTL_MS) {
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SUPERVISOR_FORCE_RELEASE_DEFERRED_YOUNG_6616") } catch (_: Throwable) {}
+                    }
                 }
             }
         } catch (_: Throwable) {}
@@ -18513,7 +18531,7 @@ if (hotExitHandledSweep) {
                     // cancellation into JVM thread interrupt, which the
                     // vast majority of blocking I/O honors — so the
                     // worker actually dies and the finally block fires.
-                    val workerStartedAtMs = System.currentTimeMillis()
+                    val workerStartedAtMs = android.os.SystemClock.elapsedRealtime()
                     val ok = kotlinx.coroutines.withTimeoutOrNull(SUPERVISOR_WORKER_TIMEOUT_MS) {
                         kotlinx.coroutines.runInterruptible(kotlinx.coroutines.Dispatchers.IO) {
                             supervisorLeaseProgress6448(leaseId, "PROCESS_TOKEN_START")
@@ -18532,7 +18550,7 @@ if (hotExitHandledSweep) {
                         // Any timeout event with elapsedMs < threshold is impossible
                         // and must NOT increment workerTimeoutStorm (which the
                         // governor / sell-pressure / entry authority currently reads).
-                        val actualElapsedMs6457 = System.currentTimeMillis() - workerStartedAtMs
+                        val actualElapsedMs6457 = android.os.SystemClock.elapsedRealtime() - workerStartedAtMs
                         if (actualElapsedMs6457 < SUPERVISOR_WORKER_TIMEOUT_MS) {
                             try {
                                 ForensicLogger.lifecycle(
@@ -19555,38 +19573,31 @@ if (hotExitHandledSweep) {
             val nowMs6575 = System.currentTimeMillis()
             val priceUsd6575 = com.lifecyclebot.engine.truth.PriceUsd(java.math.BigDecimal.valueOf(validatedPrice))
             val liquidityUsd6575 = pair.liquidity.takeIf { it.isFinite() && it > 0.0 }?.let { java.math.BigDecimal.valueOf(it) }
-            val observationAccepted6575 = try {
-                com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.publish(
-                    com.lifecyclebot.engine.truth.CanonicalPriceMark6522(
-                        mint = mint, pairId = pair.pairAddress, baseMint = pair.baseTokenAddress,
-                        quoteMint = pair.quoteTokenAddress, source = "DEXSCREENER_PAIR_POLL",
-                        timestampMs = nowMs6575,
-                        priceUsd = priceUsd6575,
-                        liquidityUsd = liquidityUsd6575,
-                        purpose = com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING,
-                    )
+            val promotion6616 = try {
+                com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.resolveExecutableFromSourceEvidence6616(
+                    mint = mint,
+                    observedBaseMint = pair.baseTokenAddress,
+                    pairOrPool = pair.pairAddress,
+                    quoteMint = pair.quoteTokenAddress,
+                    source = "DEXSCREENER_PAIR_POLL",
+                    priceUsd = validatedPrice,
+                    liquidityUsd = pair.liquidity,
+                    evidenceTimestampMs = nowMs6575,
+                    nowMs = nowMs6575,
                 )
-            } catch (_: Throwable) { false }
-            if (observationAccepted6575) {
-                try { PipelineHealthCollector.labelInc("CANONICAL_PRICE_MARK_OBSERVATION_ACCEPTED_6575") } catch (_: Throwable) {}
-            } else {
-                try {
-                    PipelineHealthCollector.labelInc("CANONICAL_PRICE_MARK_OBSERVATION_REJECTED_6575")
-                    // V5.0.6575 — stamp the reason for forensic parity with the
-                    // pre-6575 CANONICAL_MARK_REJECTED counter, but this is now
-                    // *informational* and does not return the cycle.
-                    com.lifecyclebot.engine.truth.PreV3ReturnTelemetry6525.stamp(ts, "CANONICAL_MARK_REJECTED_INFO_6575")
-                } catch (_: Throwable) {}
+            } catch (_: Throwable) {
+                com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.PromotionResult6613(null, "SOURCE_RESOLUTION_EXCEPTION", identity = mint)
             }
-            val promotion6613 = try {
-                com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.promoteObservationToExecutable6613(mint, nowMs6575)
-            } catch (_: Throwable) { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.PromotionResult6613(null, "PROMOTION_EXCEPTION", identity = mint) }
-            if (promotion6613.promoted) {
-                try { PipelineHealthCollector.labelInc("CANONICAL_PRICE_MARK_EXECUTABLE_PROMOTED_6613") } catch (_: Throwable) {}
+            if (promotion6616.promoted) {
+                try {
+                    PipelineHealthCollector.labelInc("CANONICAL_PRICE_MARK_OBSERVATION_ACCEPTED_6575")
+                    PipelineHealthCollector.labelInc("CANONICAL_PRICE_MARK_EXECUTABLE_PROMOTED_6616")
+                } catch (_: Throwable) {}
             } else {
                 try {
-                    PipelineHealthCollector.labelInc("VALID_SOURCE_NO_EXECUTABLE_MARK|${promotion6613.reason}")
-                    ForensicLogger.lifecycle("VALID_SOURCE_NO_EXECUTABLE_MARK", "mint=${mint.take(10)} source=${promotion6613.source} price=${promotion6613.price} ageMs=${promotion6613.ageMs} identity=${promotion6613.identity.take(80)} unit=${promotion6613.unitState} reason=${promotion6613.reason}")
+                    PipelineHealthCollector.labelInc("CANONICAL_MARK_REJECTED_INFO|${promotion6616.reason}")
+                    com.lifecyclebot.engine.truth.PreV3ReturnTelemetry6525.stamp(ts, "CANONICAL_MARK_REJECTED_INFO_6575")
+                    ForensicLogger.lifecycle("CANONICAL_MARK_REJECTED_INFO", "mint=${mint.take(10)} source=${promotion6616.source} price=${promotion6616.price} ageMs=${promotion6616.ageMs} identity=${promotion6616.identity.take(80)} reason=${promotion6616.reason}")
                 } catch (_: Throwable) {}
             }
             // No pre-V3 return. Cycle proceeds even when neither mark

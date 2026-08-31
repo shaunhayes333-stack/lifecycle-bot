@@ -12092,58 +12092,40 @@ class Executor(
         // the observation mark got through.
         // V5.0.6600 — restore the existing 6579 PAPER observation path at its
         // source. Fresh scanner/TokenMap evidence may establish the first canonical
-        // observation mark; this is not live route proof and never relaxes LIVE.
-        try {
-            // V5.0.6607 §REPAIR_F_EXECUTABLE_MARK_PROPAGATION (operator directive
-            //   Feb 2026: 158× missingExecutableMarkWithValidSource against
-            //   184× PAPER_BUY_NOT_OPENED). Root cause: the 6600 bootstrap
-            //   required tokenMap.updatedAtMs OR lastPriceUpdate to be within
-            //   120s. Scans → V3 → FDG → sizing → executor can legitimately
-            //   take 2-3 minutes when the pipeline is under load; a stale-but-
-            //   still-valid price is common. Widen to WINDOW_MS_6607 (300s) so
-            //   an in-flight candidate sourced from a fresh scanner can still
-            //   bootstrap its OBSERVATION_SCORING mark. Also last-resort
-            //   fallback: when a valid priceUsd exists but timestamps are all
-            //   zero (rare, e.g. legacy MEME registry restore), still publish
-            //   with `now` and emit PAPER_ENTRY_OBSERVATION_MARK_STALE_BOOTSTRAPPED_6607
-            //   so the operator can distinguish provisional from fresh.
-            val now6607 = System.currentTimeMillis()
-            val WINDOW_MS_6607 = 300_000L
-            val tokenMapFresh6607 = ts.tokenMap.updatedAtMs > 0L && now6607 - ts.tokenMap.updatedAtMs <= WINDOW_MS_6607
-            val stateFresh6607 = ts.lastPriceUpdate > 0L && now6607 - ts.lastPriceUpdate <= WINDOW_MS_6607
-            val tokenMapAny6607 = (ts.tokenMap.priceUsd ?: 0.0).isFinite() && (ts.tokenMap.priceUsd ?: 0.0) > 0.0
-            val stateAny6607 = ts.lastPrice.isFinite() && ts.lastPrice > 0.0
-            val bootstrapPrice6607 = ts.tokenMap.priceUsd?.takeIf { tokenMapFresh6607 && it.isFinite() && it > 0.0 }
-                ?: ts.lastPrice.takeIf { stateFresh6607 && it.isFinite() && it > 0.0 }
-                // Last-resort: valid source exists but no fresh timestamp (paper only).
-                ?: ts.tokenMap.priceUsd?.takeIf { tokenMapAny6607 }
-                ?: ts.lastPrice.takeIf { stateAny6607 }
-            val bootstrapSource6607 = ts.tokenMap.sourceScanner.takeIf { tokenMapAny6607 && it.isNotBlank() }
-                ?: ts.lastPriceSource.ifBlank { ts.source }
-            val bootstrapPool6607 = ts.tokenMap.poolAddress.ifBlank { ts.tokenMap.pairAddress }
-                .ifBlank { ts.lastPricePoolAddr }.ifBlank { ts.pairAddress }.ifBlank { "MINT_ROUTE:${ts.mint}" }
-            if (bootstrapPrice6607 != null && bootstrapSource6607.isNotBlank()) {
-                val markTs6607 = maxOf(ts.tokenMap.updatedAtMs, ts.lastPriceUpdate).takeIf { it > 0L } ?: now6607
-                val isStale6607 = markTs6607 < now6607 - WINDOW_MS_6607
-                val published6607 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.publish(
-                    com.lifecyclebot.engine.truth.CanonicalPriceMark6522(
-                        mint = ts.mint, pairId = bootstrapPool6607, baseMint = ts.mint,
-                        quoteMint = ts.tokenMap.quoteMint.ifBlank { "USD" }, source = bootstrapSource6607,
-                        timestampMs = if (isStale6607) now6607 else markTs6607,
-                        priceUsd = com.lifecyclebot.engine.truth.PriceUsd(java.math.BigDecimal.valueOf(bootstrapPrice6607)),
-                        liquidityUsd = (ts.tokenMap.liquidityUsd ?: ts.lastLiquidityUsd).takeIf { it.isFinite() && it > 0.0 }?.let { java.math.BigDecimal.valueOf(it) },
-                        purpose = com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING,
-                    )
-                )
-                if (published6607) {
-                    if (isStale6607) PipelineHealthCollector.labelInc("PAPER_ENTRY_OBSERVATION_MARK_STALE_BOOTSTRAPPED_6607")
-                    else PipelineHealthCollector.labelInc("PAPER_ENTRY_OBSERVATION_MARK_BOOTSTRAPPED_6600")
-                }
-            }
-        } catch (_: Throwable) {}
-        val promotion6613 = try {
-            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.promoteObservationToExecutable6613(ts.mint)
-        } catch (_: Throwable) { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.PromotionResult6613(null, "PROMOTION_EXCEPTION", identity = ts.mint) }
+        // V5.0.6616 — resolve the same source evidence synchronously through
+        // the sole canonical mark authority. No second ad-hoc writer and no
+        // wait for an asynchronous TokenMap refresh.
+        val now6616 = System.currentTimeMillis()
+        val WINDOW_MS_6616 = 300_000L
+        val tokenMapFresh6616 = ts.tokenMap.updatedAtMs > 0L && now6616 - ts.tokenMap.updatedAtMs <= WINDOW_MS_6616
+        val stateFresh6616 = ts.lastPriceUpdate > 0L && now6616 - ts.lastPriceUpdate <= WINDOW_MS_6616
+        val bootstrapPrice6616 = ts.tokenMap.priceUsd?.takeIf { tokenMapFresh6616 && it.isFinite() && it > 0.0 }
+            ?: ts.lastPrice.takeIf { stateFresh6616 && it.isFinite() && it > 0.0 }
+        val bootstrapSource6616 = ts.tokenMap.sourceScanner.takeIf { tokenMapFresh6616 && it.isNotBlank() }
+            ?: ts.lastPriceSource.takeIf { stateFresh6616 && it.isNotBlank() }
+            ?: ""
+        val bootstrapTimestamp6616 = maxOf(ts.tokenMap.updatedAtMs, ts.lastPriceUpdate)
+        val bootstrapPool6616 = ts.tokenMap.poolAddress.ifBlank { ts.tokenMap.pairAddress }
+            .ifBlank { ts.lastPricePoolAddr }.ifBlank { ts.pairAddress }
+        val promotion6613 = if (bootstrapPrice6616 != null && bootstrapSource6616.isNotBlank()) try {
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.resolveExecutableFromSourceEvidence6616(
+                mint = ts.mint,
+                observedBaseMint = ts.mint,
+                pairOrPool = bootstrapPool6616,
+                quoteMint = ts.tokenMap.quoteMint,
+                source = bootstrapSource6616,
+                priceUsd = bootstrapPrice6616,
+                liquidityUsd = ts.tokenMap.liquidityUsd ?: ts.lastLiquidityUsd,
+                evidenceTimestampMs = bootstrapTimestamp6616,
+                nowMs = now6616,
+            )
+        } catch (_: Throwable) {
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.PromotionResult6613(null, "SOURCE_RESOLUTION_EXCEPTION", identity = ts.mint)
+        } else try {
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.promoteObservationToExecutable6613(ts.mint, now6616)
+        } catch (_: Throwable) {
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.PromotionResult6613(null, "PROMOTION_EXCEPTION", identity = ts.mint)
+        }
         if (!promotion6613.promoted) try {
             PipelineHealthCollector.labelInc("VALID_SOURCE_NO_EXECUTABLE_MARK|${promotion6613.reason}")
             ForensicLogger.lifecycle("VALID_SOURCE_NO_EXECUTABLE_MARK", "mint=${ts.mint.take(10)} source=${promotion6613.source} price=${promotion6613.price} ageMs=${promotion6613.ageMs} identity=${promotion6613.identity.take(80)} unit=${promotion6613.unitState} reason=${promotion6613.reason}")

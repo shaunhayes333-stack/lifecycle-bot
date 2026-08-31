@@ -9019,7 +9019,9 @@ class GoldenTapeRegressionTest {
         val commodities = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CommoditiesTrader.kt").readText()
         val metals = java.io.File("src/main/kotlin/com/lifecyclebot/perps/MetalsTrader.kt").readText()
 
-        assertTrue(mark.contains("CanonicalMarkPurpose6570.OBSERVATION_SCORING") && bot.contains("purpose = com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING"))
+        assertTrue(mark.contains("CanonicalMarkPurpose6570.OBSERVATION_SCORING") &&
+            mark.contains("resolveExecutableFromSourceEvidence6616") &&
+            bot.contains("CanonicalPriceMarkRegistry6522.resolveExecutableFromSourceEvidence6616"))
         assertTrue(markGate.contains("isObservationAuthoritative6570") && markGate.contains("GECKOTERMINAL"))
         assertTrue(crypto.contains("markEvaluationProgress6570(refreshed") && crypto.contains("markEvaluationDisposition6567(observedTok6569") &&
             crypto.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED"))
@@ -9100,6 +9102,23 @@ class GoldenTapeRegressionTest {
         assertTrue(crypto.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED") &&
             Regex("SHARED_INTELLIGENCE_BACKLOG_COALESCED_REQUEUE").findAll(crypto).count() == 1)
         assertTrue(gate.contains("EXEC_OPEN_BLOCKED_NO_EXECUTION_INTENT_6615") && gate.contains("NO_EXECUTION_INTENT"))
+    }
+
+
+    @Test
+    fun V5_0_6616_canonical_mark_and_supervisor_generation_lifetime_are_causal() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val marks = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPriceMark6522.kt").readText()
+        assertTrue(marks.contains("resolveExecutableFromSourceEvidence6616") &&
+            marks.contains("SOURCE_BASE_IDENTITY_MISMATCH") && marks.contains("SOURCE_EVIDENCE_STALE") &&
+            marks.contains("return promoteObservationToExecutable6613(mint, nowMs)"))
+        assertTrue(bot.contains("resolveExecutableFromSourceEvidence6616") &&
+            executor.contains("resolveExecutableFromSourceEvidence6616"))
+        assertTrue(bot.contains("startedMonotonicMs") && bot.contains("SystemClock.elapsedRealtime()") &&
+            bot.contains("sinceProgress >= SUPERVISOR_LEASE_PROGRESS_TTL_MS") &&
+            bot.contains("job?.isActive == true") && bot.contains("SUPERVISOR_FORCE_RELEASE_DEFERRED_YOUNG_6616"))
+        assertFalse(bot.contains("SupervisorLease(mint = mint, startedMs = System.currentTimeMillis()"))
     }
 
 }
