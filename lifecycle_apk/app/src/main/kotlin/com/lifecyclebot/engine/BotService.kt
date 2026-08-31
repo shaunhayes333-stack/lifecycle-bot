@@ -13572,6 +13572,11 @@ class BotService : Service() {
             // installed BEFORE any close fires. Idempotent — no-op after
             // the first successful install.
             try { com.lifecyclebot.engine.truth.CanonicalRewardBootstrap6453.ensureBootstrapped() } catch (_: Throwable) {}
+            // V5.0.6617 §POSITION_LIFECYCLE_FORMALIZATION — reconcile
+            //   canonicalClosedDelta / closeLedgerClosedDelta /
+            //   terminalSellPublishedDelta on the shared 12-loop
+            //   audit tick. Steady-state target: all three deltas = 0.
+            try { com.lifecyclebot.engine.truth.PositionLifecycleFormalization6617.reconcileClosureDeltas6617() } catch (_: Throwable) {}
         }
         // V5.0.6450 §P0 — ProtectiveExitScheduler6450 must never go silent.
         // Every 3 loops, check its heartbeat and log SCHEDULER_STARVATION

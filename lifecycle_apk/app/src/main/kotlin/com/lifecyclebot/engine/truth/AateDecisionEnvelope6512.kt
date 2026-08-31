@@ -168,6 +168,13 @@ object AateDecisionFabric6512 {
         ) } catch (_: Throwable) { "" }
         if (graphId.isNotBlank() && SemanticPatternGraph.nodeCount6512() > graphBefore) updated += "SemanticPatternGraph"
         rewards.incrementAndGet()
+        // V5.0.6617 §POSITION_LIFECYCLE_FORMALIZATION — the learner has
+        //   consumed the finalized envelope (UnifiedPolicyHead +
+        //   AutonomousMetaPolicy + StrategyHypothesisEngine + LanePolicy
+        //   + SemanticPatternGraph all trained). Stamp the position's
+        //   LEARNED stage so the closureDelta reconciler can advance
+        //   CLOSED → LEARNED and eventually REENTRY_ELIGIBLE.
+        try { PositionLifecycleFormalization6617.markLearned(env.positionId) } catch (_: Throwable) {}
         val credit = contributors.joinToString(",") { c ->
             val v = if (env.realizedPnlSol >= 0.0) c.weight * c.effect else -c.weight * c.effect
             "${c.brain}:${"%.4f".format(v)}"

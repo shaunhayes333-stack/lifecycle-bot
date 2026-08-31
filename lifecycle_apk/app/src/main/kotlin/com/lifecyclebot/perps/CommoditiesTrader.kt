@@ -1155,7 +1155,9 @@ if (signal.tradeType == TradeType.SPOT) {
         closePosition(pos, map, reason)
         return true
     }
-    fun getBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.BotService.status.paperWalletSol else liveWalletBalance
+    fun getBalance(): Double = if (isPaperMode.get())
+        com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("COMMODITIES", paperMode = true)
+        else com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("COMMODITIES", paperMode = false, liveWalletSol = liveWalletBalance)
     fun getTotalTrades(): Int = totalTrades.get()
     fun getTotalPnlSol(): Double = totalPnlSol
     fun getWinningTrades(): Int = winningTrades.get()
@@ -1288,7 +1290,9 @@ if (signal.tradeType == TradeType.SPOT) {
         liveWalletBalance = balanceSol
     }
     
-    fun getEffectiveBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.BotService.status.paperWalletSol else liveWalletBalance
+    fun getEffectiveBalance(): Double = if (isPaperMode.get())
+        com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("COMMODITIES", paperMode = true)
+        else com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("COMMODITIES", paperMode = false, liveWalletSol = liveWalletBalance)
 
     /**
      * Add SOL to an existing open position (scale-in / pyramid).

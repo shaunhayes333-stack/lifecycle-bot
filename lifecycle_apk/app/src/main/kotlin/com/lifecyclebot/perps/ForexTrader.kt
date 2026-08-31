@@ -1221,7 +1221,9 @@ positionMap[position.id] = position
         closePosition(pos, map, reason)
         return true
     }
-    fun getBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.BotService.status.paperWalletSol else liveWalletBalance
+    fun getBalance(): Double = if (isPaperMode.get())
+        com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("FOREX", paperMode = true)
+        else com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("FOREX", paperMode = false, liveWalletSol = liveWalletBalance)
     fun getTotalTrades(): Int = totalTrades.get()
     fun getTotalPnlSol(): Double = totalPnlSol
     fun getWinningTrades(): Int = winningTrades.get()
@@ -1365,7 +1367,9 @@ positionMap[position.id] = position
         liveWalletBalance = balanceSol
     }
     
-    fun getEffectiveBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.BotService.status.paperWalletSol else liveWalletBalance
+    fun getEffectiveBalance(): Double = if (isPaperMode.get())
+        com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("FOREX", paperMode = true)
+        else com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("FOREX", paperMode = false, liveWalletSol = liveWalletBalance)
 
     /**
      * Add SOL to an existing open position (scale-in / pyramid).

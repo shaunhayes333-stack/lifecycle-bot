@@ -1545,13 +1545,18 @@ object PerpsTraderAI {
     
     fun getBalance(isPaper: Boolean): Double {
         // V5.9.249: paper → unified wallet; live → real chain balance via BotService.status.walletSol
-        return if (isPaper) com.lifecyclebot.engine.BotService.status.paperWalletSol
-               else com.lifecyclebot.engine.BotService.status.walletSol.takeIf { it > 0.0 }
-                    ?: (liveBalanceBps.get() / 10000.0)  // fallback until first refresh
+        // V5.0.6617 §GLOBAL_CAPITAL_ARBITRATION — paper now routes through
+        //   GlobalCapitalArbitration6617 so every lane reads the same
+        //   canonical PaperCapitalAuthority6577 cash.
+        return if (isPaper) com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("PERPS", paperMode = true)
+               else com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("PERPS", paperMode = false,
+                   liveWalletSol = com.lifecyclebot.engine.BotService.status.walletSol.takeIf { it > 0.0 } ?: (liveBalanceBps.get() / 10000.0))
     }
     
     // V5.7.6b: Simple getBalance for UI (defaults to paper)
-    fun getBalance(): Double = if (isPaperMode) com.lifecyclebot.engine.BotService.status.paperWalletSol else liveBalanceBps.get() / 10000.0
+    fun getBalance(): Double = if (isPaperMode)
+        com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("PERPS", paperMode = true)
+        else com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("PERPS", paperMode = false, liveWalletSol = liveBalanceBps.get() / 10000.0)
     
     // Shared wallet: sync live SOL balance from WalletManager (called by BotService)
     fun setLiveBalance(sol: Double) {
@@ -1564,8 +1569,11 @@ object PerpsTraderAI {
     }
 
     // Effective balance depending on mode
+    // V5.0.6617 §GLOBAL_CAPITAL_ARBITRATION — paper now uses the shared
+    //   authority instead of the lane-local paperBalanceBps mirror.
     fun getEffectiveBalance(): Double =
-        if (isPaperMode) paperBalanceBps.get() / 10000.0 else liveBalanceBps.get() / 10000.0
+        if (isPaperMode) com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("PERPS", paperMode = true)
+        else com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("PERPS", paperMode = false, liveWalletSol = liveBalanceBps.get() / 10000.0)
 
     // V5.7.6b: Set balance for paper trading
     fun setBalance(balanceSol: Double) {

@@ -2027,7 +2027,9 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     // PUBLIC API
     // ═══════════════════════════════════════════════════════════════════════════
     
-    fun getBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.BotService.status.paperWalletSol else liveWalletBalance
+    fun getBalance(): Double = if (isPaperMode.get())
+        com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("STOCKS", paperMode = true)
+        else com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("STOCKS", paperMode = false, liveWalletSol = liveWalletBalance)
     
     // V5.7.6b: Set balance for paper trading
     fun setBalance(balance: Double) {
@@ -2192,10 +2194,13 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     
     /** Get balance based on current mode */
     // V5.9.8: Read from shared BotService pool — same wallet as main AATE and CryptoAlt
+    // V5.0.6617 §GLOBAL_CAPITAL_ARBITRATION — every lane now routes
+    //   through GlobalCapitalArbitration6617 so paper cash reads the
+    //   same PaperCapitalAuthority6577 the journal writes to.
     fun getEffectiveBalance(): Double {
         return if (isPaperMode.get())
-            com.lifecyclebot.engine.BotService.status.paperWalletSol
-        else liveWalletBalance
+            com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("STOCKS", paperMode = true)
+        else com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("STOCKS", paperMode = false, liveWalletSol = liveWalletBalance)
     }
     
     /** Execute LIVE trade via MarketsLiveExecutor

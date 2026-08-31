@@ -66,6 +66,14 @@ object PositionStateLedger6454 {
     fun onEntry(positionId: String) {
         if (positionId.isBlank()) return
         states.putIfAbsent(positionId, Lifecycle.OPEN)
+        // V5.0.6617 §POSITION_LIFECYCLE_FORMALIZATION — mirror DISCOVERED
+        //   into the formalized lifecycle. The formalization module
+        //   backfills mint/symbol/lane later via markDiscovered when the
+        //   trader calls it explicitly; this call only stamps the
+        //   discoveredAtMs so the sequence is preserved.
+        try {
+            PositionLifecycleFormalization6617.markDiscovered(positionId, mint = "", symbol = "", lane = "")
+        } catch (_: Throwable) {}
     }
 
     /** Called on any partial sell that leaves >0 remaining. */
@@ -190,6 +198,12 @@ object PositionStateLedger6454 {
         terminalCount.getOrPut(positionId) { AtomicLong(0L) }.incrementAndGet()
         confirms.incrementAndGet()
         try { PipelineHealthCollector.labelInc("TERMINAL_SELL_CONFIRMED_6454") } catch (_: Throwable) {}
+        // V5.0.6617 §POSITION_LIFECYCLE_FORMALIZATION — mirror the
+        //   confirmed terminal into the formalized lifecycle so the
+        //   closureDelta reconciler sees CLOSED at the same causal
+        //   moment PSL6454 does. Idempotent — markClosed no-ops on
+        //   duplicate calls per positionId.
+        try { PositionLifecycleFormalization6617.markClosed(positionId) } catch (_: Throwable) {}
         return ConfirmResult.CONFIRMED
     }
 
