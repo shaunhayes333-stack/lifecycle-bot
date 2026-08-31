@@ -83,7 +83,7 @@ object JournalEconomicReplay6619 {
     fun replay(): ReplayResult {
         replays.incrementAndGet()
         val startingSol = try {
-            PaperAccountLedger6430.startingCashSol().coerceAtLeast(0.0)
+            PaperCapitalAuthority6577.startingCashSol().coerceAtLeast(0.0)
         } catch (_: Throwable) { 0.0 }
 
         var cash = startingSol
@@ -156,7 +156,7 @@ object JournalEconomicReplay6619 {
         // when they disagree by > 0.001 SOL so operator sees exactly
         // how much the ledger drifted from the journal.
         try {
-            val ledgerCash = PaperAccountLedger6430.cashSol()
+            val ledgerCash = PaperCapitalAuthority6577.cashSol()
             val delta = ledgerCash - cash
             ledgerDivergenceLast.set(delta)
             if (kotlin.math.abs(delta) > 0.001) {
