@@ -44,9 +44,32 @@ object CanonicalSizingBridge6532 {
         canonicalAssetId: String = "",
         symbol: String = laneName,
         price: Double = 1.0,
-        candidateVersion: Long = System.currentTimeMillis(),
+        candidateVersion: Long = -1L,
         source: String = "specialist",
     ): OrderSizeResolver6441.Resolution {
+        // V5.0.6620 §MEME_SOURCE_LEVEL_EXECUTION_PROVENANCE §9 —
+        //   candidateVersion authority MUST be
+        //   LaneExecutionCoordinator.candidateVersionFor(mint). The
+        //   previous default `System.currentTimeMillis()` created a
+        //   second authority (raw wall-clock ms) that never matched
+        //   the executor's bucket-based check → EXEC_TICKET_RESTORED_
+        //   IMMUTABLE reported ticket versions in the trillions while
+        //   the executor saw the bucket in the tens of millions,
+        //   guaranteeing mismatch and the "NO_EXECUTION_INTENT" bug.
+        //   Sentinel -1L means the caller didn't provide a version; we
+        //   derive it from the canonical authority. Sentinel > 0L is
+        //   respected verbatim (caller has sealed a version).
+        val resolvedCandidateVersion6620 = if (candidateVersion > 0L) candidateVersion
+            else try {
+                com.lifecyclebot.engine.LaneExecutionCoordinator
+                    .candidateVersionFor(canonicalAssetId.ifBlank { symbol })
+            } catch (_: Throwable) { 0L }
+        try {
+            if (candidateVersion <= 0L) {
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("CANDIDATE_VERSION_WALLCLOCK_ELIMINATED_6620")
+            }
+        } catch (_: Throwable) {}
         // V5.0.6542 §ASSET_AWARE_PAPER_MIN — operator: PAPER cross-asset
         // learning must be able to take legitimate smaller probes. Cash
         // is 1.6 SOL, a 2% cross-asset recommendation is only 0.032 SOL —
@@ -79,7 +102,7 @@ object CanonicalSizingBridge6532 {
         try {
             ForensicLogger.lifecycle(
                 "CANONICAL_SIZING_BRIDGE_6532",
-                "class=${assetClass.tag} lane=$laneName ${res.trace()}",
+                "class=${assetClass.tag} lane=$laneName candidateVersion6620=$resolvedCandidateVersion6620 ${res.trace()}",
             )
         } catch (_: Throwable) {}
         return res

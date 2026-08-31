@@ -12187,8 +12187,29 @@ class Executor(
         //   AND blank ts.source — that's a genuine owner-attribution
         //   gap (not a STANDARD problem) and should be surfaced without
         //   blocking the buy.
-        val gateLane6451 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "STANDARD" }
-        if (layerTag.isBlank() && ts.source.isBlank()) {
+        // V5.0.6620 §MEME_SOURCE_LEVEL_EXECUTION_PROVENANCE §7 —
+        //   STANDARD/V3_CORE MUST NOT steal execution when a specialist
+        //   owns the candidate. Pre-6620 this site synthesized "STANDARD"
+        //   whenever layerTag/ts.source were blank, ignoring the
+        //   canonical authority that had already elected (e.g.)
+        //   PROJECT_SNIPER. The specialist's ticket was then unreachable
+        //   because the executor was probing for a STANDARD-owned
+        //   ticket that never existed → NO_EXECUTION_INTENT → PROBE_ONLY
+        //   fallback → cross-lane theft. Fix: resolveExecutorLane6620
+        //   promotes the authority's electionLane when the caller's
+        //   derived lane disagrees, and refuses observer-lane theft.
+        val derivedLane6620 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "STANDARD" }
+        val authorityOwner6620 = authority6513?.executionLane?.uppercase()?.takeIf { it.isNotBlank() }
+        val ownershipResolution6620 = try {
+            com.lifecyclebot.engine.truth.MemeOwnershipInvariant6620
+                .resolveExecutorLane6620(ts.mint, ts.symbol, derivedLane6620, authorityOwner6620)
+        } catch (_: Throwable) {
+            com.lifecyclebot.engine.truth.MemeOwnershipInvariant6620.OwnershipResolution(
+                derivedLane6620, promoted = false, observerBlocked = false, reason = "resolver_threw",
+            )
+        }
+        val gateLane6451 = ownershipResolution6620.lane
+        if (layerTag.isBlank() && ts.source.isBlank() && !ownershipResolution6620.promoted) {
             try {
                 PipelineHealthCollector.labelInc("EXECUTOR_OWNERLANE_SYNTHESIZED_STANDARD_6607")
                 ForensicLogger.lifecycle(

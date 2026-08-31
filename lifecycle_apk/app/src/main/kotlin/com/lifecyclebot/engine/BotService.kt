@@ -21276,8 +21276,17 @@ if (hotExitHandledSweep) {
                             liquidityUsd = ts.lastLiquidityUsd,
                             hardNoReasons = emptyList(),
                             preFdgVerdict = "BUY",
-                            candidateVersion = System.currentTimeMillis(),
+                            // V5.0.6620 §9 — canonical candidateVersion
+                            //   authority. Was `System.currentTimeMillis()`
+                            //   raw wall-clock; that created a second
+                            //   version authority that never matched the
+                            //   executor's LaneExecutionCoordinator bucket.
+                            candidateVersion = try {
+                                com.lifecyclebot.engine.LaneExecutionCoordinator
+                                    .candidateVersionFor(ts.mint)
+                            } catch (_: Throwable) { 0L },
                         )
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANDIDATE_VERSION_WALLCLOCK_ELIMINATED_6620") } catch (_: Throwable) {}
                         PipelineHealthCollector.labelInc("V3_EXECUTABLE_TRUNK_HANDOFF_6534")
                     } catch (_: Throwable) {}
                     // V5.9.1323 — V3 Verdict Reconciliation (P0-4 surgical).

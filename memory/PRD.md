@@ -1,10 +1,26 @@
-# AATE PRD — V5.0.6619 (JOURNAL-DERIVED HERO AUTHORITY)
+# AATE PRD — V5.0.6620 (MEME SOURCE-LEVEL EXECUTION PROVENANCE — Slice 1)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
-**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6619d Build CI GREEN (15m48s).** Runtime Smoke workflow is red on the same UI-timing flake that failed on V5.0.6617 & V5.0.6618 (pre-existing infra — `btnToggle` UI-dump race — unrelated to journal repair).
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6620 CI PENDING.**
+
+## V5.0.6620 (Feb 2026) — MEME_SOURCE_LEVEL_EXECUTION_PROVENANCE (Slice 1)
+
+Operator directive: *"Repair the architectural corruption between specialist decision → owner lane → FDG → immutable execution intent → size/mark → execution ticket → executor → canonical position → exit confirmation → finalization/learning. STANDARD and V3_CORE MUST NEVER call execution when a MemeTrader specialist owns the candidate."*
+
+**§7 Ownership Gate** — `MemeOwnershipInvariant6620.resolveExecutorLane6620` at Executor.paperBuy entry. Authority-owner-lane is promoted; observer lanes (STANDARD, V3_CORE) refused when a specialist (QUALITY, BLUECHIP, SHITCOIN, CYCLIC, EXPRESS, CORE, MOONSHOT, PROJECT_SNIPER, DIP_HUNTER, MANIPULATED, TREASURY, CASHGEN) owns the candidate. New counters: `PAPER_BUY_STANDARD_ON_SPECIALIST_OWNED_6620`, `LANE_EXEC_WITHOUT_SAME_LANE_CANONICAL_INTENT_6620`, `LANE_EXEC_CROSS_SPECIALIST_REWRITE_6620`.
+
+**§9 candidateVersion Authority** — two wall-clock defaults eliminated (`CanonicalSizingBridge6532` param + `BotService` V3 handoff). Both routed through `LaneExecutionCoordinator.candidateVersionFor(mint)` — the single canonical generator. Counter: `CANDIDATE_VERSION_WALLCLOCK_ELIMINATED_6620`. Fixes the `ticketVersion=1788184983843 vs currentVersion=59606166` mismatch the operator captured on V5.0.6619.
+
+**§12 Sell Finality Receiver** — `MemeSellFinality6620.awaitConfirmationOrKeepOpen(lane, positionId, sellOutcome, onConfirmed)` is the single receiver for every MemeTrader exit. State release / registry closure / exposure clear / learning arm happen ONLY inside the onConfirmed block. Kept-open counter: `MEME_SELL_KEPT_OPEN_<OUTCOME>_6620`. Bypass counter for lingering old sites: `MEME_SELL_STATE_RELEASED_WITHOUT_CONFIRMATION_6620`. Broad rollout across every specialist requestSell caller is Slice 2.
+
+**Slice 2 (upcoming)** — §2/§5/§6 MemeExecutionIntent + BuyResult sealed contract + submitMemeSpecialistEntry coordinator + §3 immutable entryLane vs mutable activeLane / strategyMode + §4 remove QUALITY→blueChipBuy / EXPRESS→shitCoinBuy aliasing. Tests B + C.
+
+**Slice 3 (later)** — §10 V3 soft-opinion contract + §11 canonical MemeLane enum with boundary parser + §13 remove post-hoc healing patches.
+
+## V5.0.6619 (Feb 2026) — JOURNAL_DERIVED_HERO_AUTHORITY
 
 ## V5.0.6619 (Feb 2026) — JOURNAL_DERIVED_HERO_AUTHORITY (+ 6618 test compile fix)
 
