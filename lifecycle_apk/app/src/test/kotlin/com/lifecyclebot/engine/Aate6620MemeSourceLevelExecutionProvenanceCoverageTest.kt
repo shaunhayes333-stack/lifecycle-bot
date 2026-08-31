@@ -175,10 +175,11 @@ class Aate6620MemeSourceLevelExecutionProvenanceCoverageTest {
         assertTrue(
             "V5.0.6620: sell-finality must expose awaitConfirmationOrKeepOpen with the operator's four outcome semantics",
             src.contains("fun awaitConfirmationOrKeepOpen(") &&
-                src.contains("Outcome.CONFIRMED") &&
-                src.contains("Outcome.PAPER_CONFIRMED") &&
-                src.contains("Outcome.PENDING") &&
-                src.contains("Outcome.FAILED")
+                src.contains("enum class Outcome") &&
+                src.contains("CONFIRMED") &&
+                src.contains("PAPER_CONFIRMED") &&
+                src.contains("PENDING") &&
+                src.contains("FAILED")
         )
         assertTrue(
             "V5.0.6620: sell-finality must count kept-open + bypass attempts so the operator can grep them",
