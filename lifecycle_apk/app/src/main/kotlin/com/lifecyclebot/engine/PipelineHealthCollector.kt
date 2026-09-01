@@ -1782,6 +1782,15 @@ object PipelineHealthCollector {
                 sb.append("  §2 CAUSAL_INVARIANTS    ${com.lifecyclebot.engine.truth.SpecialistCausalInvariants6627.statusLine6627()}\n")
                 sb.append("  §7 OPEN_BASIS_INVARIANT ${com.lifecyclebot.engine.truth.OpenPositionBasisInvariant6627.statusLine6627()}\n")
             } catch (_: Throwable) {}
+            // V5.0.6629 §HERO_SNAPSHOT_SINGLE_AUTHORITY + §SPECIALIST_ARBITER
+            // — surface per-surface hero reads, journal/ledger divergence
+            // counter, and specialist proposal contest outcome so the
+            // operator can grep both from one place.
+            try {
+                sb.append("===== CAUSAL AUTHORITY REPAIR (V5.0.6629) =====\n")
+                sb.append("  §6 HERO_SNAPSHOT        ${com.lifecyclebot.engine.truth.PaperEconomicSnapshot6629.statusLine6629()}\n")
+                sb.append("  §8 SPECIALIST_ARBITER   ${com.lifecyclebot.engine.truth.SpecialistProposalArbiter6629.statusLine6629()}\n")
+            } catch (_: Throwable) {}
         } catch (_: Throwable) {}
 
         // ── V5.0.6428 §AP — CORRECTNESS GUARDS status ───────────────

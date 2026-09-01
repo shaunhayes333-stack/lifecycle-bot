@@ -3105,16 +3105,23 @@ for legal compliance.
         val walletSnap6451 = if (config.paperMode) {
             try { com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
         } else null
+        // V5.0.6629 §6 PAPER_ECONOMIC_SNAPSHOT_SINGLE_AUTHORITY — every hero
+        // surface now reads through PaperEconomicSnapshot6629 so the MEME
+        // hero, CRYPTO hero and MARKETS hero all consume the same revision
+        // and any per-surface drift is counted at its causal origin.
+        val heroSnap6629 = if (config.paperMode) {
+            try { com.lifecyclebot.engine.truth.PaperEconomicSnapshot6629.read6629("MEME") } catch (_: Throwable) { null }
+        } else null
         val journalSnap6616 = if (config.paperMode) {
             try { com.lifecyclebot.engine.truth.JournalEconomicAuthority6616.currentSnapshot() } catch (_: Throwable) { null }
         } else null
         val balSol = if (config.paperMode) {
-            // V5.0.6616 — bind big number to CASH (spendable), not equity.
-            //   Prefer JournalEconomicAuthority6616 (revision-tracked,
-            //   single derivation chain). Falls back to walletSnap6451
-            //   only when the authority has not published yet (pre-
-            //   restore). Never fabricates a value.
-            journalSnap6616?.cashSol ?: walletSnap6451?.cashSol ?: 0.0
+            // V5.0.6629 — bind big number to canonical PaperEconomicSnapshot6629.
+            //   Falls back to JournalEconomicAuthority6616 (same source, older
+            //   path) and then to CanonicalCapitalAuthority6450 only when the
+            //   journal authority has not published yet (pre-restore).
+            //   Never fabricates a value.
+            heroSnap6629?.cashSol ?: journalSnap6616?.cashSol ?: walletSnap6451?.cashSol ?: 0.0
         } else {
             ws.solBalance
         }
@@ -3135,7 +3142,10 @@ for legal compliance.
         if (balSol > 0.001) {
             tvBalanceLarge.setTextIfChanged(compactHeroBalance(balSol))
             tvBalanceUsd.setTextIfChanged(
-                if (config.paperMode) "PAPER · CASH ${"%.4f".format(walletSnap6451?.cashSol ?: 0.0)} SOL" else "LIVE"
+                // V5.0.6629 §6 — subtitle CASH also reads from the canonical
+                // hero snapshot so the big number and the subtitle can never
+                // disagree (was walletSnap6451?.cashSol which is ledger-derived).
+                if (config.paperMode) "PAPER · CASH ${"%.4f".format(heroSnap6629?.cashSol ?: journalSnap6616?.cashSol ?: walletSnap6451?.cashSol ?: 0.0)} SOL" else "LIVE"
             )
             tvBalanceUsd.contentDescription = if (config.paperMode && walletSnap6451 != null) {
                 // 5-surface canonical breakdown (§6451). Operator now sees
@@ -3176,7 +3186,8 @@ for legal compliance.
                 tvBalanceLarge.setTextIfChanged("—")
             }
             tvBalanceUsd.setTextIfChanged(
-                if (config.paperMode) "PAPER · CASH ${"%.4f".format(walletSnap6451?.cashSol ?: 0.0)} SOL" else "LIVE"
+                // V5.0.6629 §6 — canonical hero snapshot for the fallback subtitle.
+                if (config.paperMode) "PAPER · CASH ${"%.4f".format(heroSnap6629?.cashSol ?: journalSnap6616?.cashSol ?: walletSnap6451?.cashSol ?: 0.0)} SOL" else "LIVE"
             )
         }
 
@@ -3188,9 +3199,14 @@ for legal compliance.
         //   causal origin (not merely reconciled later).
         if (config.paperMode) {
             try {
-                val displayedCash6616 = journalSnap6616?.cashSol
+                // V5.0.6629 §6 — every hero render uses the canonical snapshot
+                // so the parity probe reads the SAME values the operator sees.
+                val displayedCash6616 = heroSnap6629?.cashSol
+                    ?: journalSnap6616?.cashSol
                     ?: walletSnap6451?.cashSol ?: 0.0
-                val displayedEquity6616 = walletSnap6451?.totalEquitySol ?: displayedCash6616
+                val displayedEquity6616 = heroSnap6629?.equitySol
+                    ?: journalSnap6616?.equitySol
+                    ?: walletSnap6451?.totalEquitySol ?: displayedCash6616
                 com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
                     .recordHeroRender("MEME", displayedCash6616, displayedEquity6616)
                 com.lifecyclebot.engine.truth.JournalEconomicAuthority6616

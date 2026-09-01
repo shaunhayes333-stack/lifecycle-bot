@@ -379,8 +379,14 @@ class CryptoAltActivity : AppCompatActivity() {
         val journalSnap6616 = try {
             com.lifecyclebot.engine.truth.JournalEconomicAuthority6616.currentSnapshot()
         } catch (_: Throwable) { null }
-        val bal    = journalSnap6616?.cashSol ?: CryptoAltTrader.getBalance()
-        val equity = journalSnap6616?.equitySol ?: bal
+        // V5.0.6629 §6 PAPER_ECONOMIC_SNAPSHOT_SINGLE_AUTHORITY — hero
+        // read via the canonical facade so CRYPTO hero shares the same
+        // revision as MEME and MARKETS.
+        val heroSnap6629 = try {
+            com.lifecyclebot.engine.truth.PaperEconomicSnapshot6629.read6629("CRYPTO")
+        } catch (_: Throwable) { null }
+        val bal    = heroSnap6629?.cashSol ?: journalSnap6616?.cashSol ?: CryptoAltTrader.getBalance()
+        val equity = heroSnap6629?.equitySol ?: journalSnap6616?.equitySol ?: bal
         val pnl    = CryptoAltTrader.getTotalPnlSol()
         val wr     = CryptoAltTrader.getWinRate()
         val trades = CryptoAltTrader.getTotalTrades()

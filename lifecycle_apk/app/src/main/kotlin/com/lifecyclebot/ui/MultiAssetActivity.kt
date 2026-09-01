@@ -1291,8 +1291,13 @@ class MultiAssetActivity : AppCompatActivity() {
                     com.lifecyclebot.engine.truth.JournalEconomicAuthority6616.currentSnapshot()
                 } catch (_: Throwable) { null }
                 val paperSnap6577 = com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.snapshot()
-                val paperBalanceSol = journalSnap6616?.cashSol ?: paperSnap6577.availableCashSol
-                val paperEquitySol = journalSnap6616?.equitySol ?: paperSnap6577.totalEquitySol
+                // V5.0.6629 §6 PAPER_ECONOMIC_SNAPSHOT_SINGLE_AUTHORITY — MARKETS
+                // hero reads the same canonical snapshot as MEME and CRYPTO.
+                val heroSnap6629 = try {
+                    com.lifecyclebot.engine.truth.PaperEconomicSnapshot6629.read6629("MARKETS")
+                } catch (_: Throwable) { null }
+                val paperBalanceSol = heroSnap6629?.cashSol ?: journalSnap6616?.cashSol ?: paperSnap6577.availableCashSol
+                val paperEquitySol = heroSnap6629?.equitySol ?: journalSnap6616?.equitySol ?: paperSnap6577.totalEquitySol
                 // Legacy telemetry only — divergence between the old lane-PnL
                 // formula and the canonical authority is recorded but does not
                 // authoritatively drive the UI anymore.
