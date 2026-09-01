@@ -74,15 +74,12 @@ object ForensicReconciliation6635 {
     fun reconcile6635() {
         checks.incrementAndGet()
         val cashLedger = try { PaperAccountLedger6430.cashSol() } catch (_: Throwable) { Double.NaN }
-        val cashJournalRow = try { JournalEconomicAuthority6616.snapshot() } catch (_: Throwable) { null }
-        val cashJournal = try { cashJournalRow?.cashSol } catch (_: Throwable) { null } ?: cashLedger
+        val cashJournalRow = try { JournalEconomicAuthority6616.currentSnapshot() } catch (_: Throwable) { null }
+        val cashJournal = cashJournalRow?.cashSol ?: cashLedger
         val realizedLedger = try { PaperAccountLedger6430.realizedPnlSol() } catch (_: Throwable) { 0.0 }
-        val realizedJournal = try { cashJournalRow?.realizedPnlSol ?: realizedLedger } catch (_: Throwable) { realizedLedger }
+        val realizedJournal = cashJournalRow?.realizedPnlSol ?: realizedLedger
         val openCostLedger = try { PaperAccountLedger6430.openCostBasisSol() } catch (_: Throwable) { 0.0 }
-        // Journal's canonical open-cost view = the openMarketValueSol
-        // it publishes (conservative-cost-basis fallback per 6616
-        // doctrine).
-        val openCostJournal = try { cashJournalRow?.openMarketValueSol ?: openCostLedger } catch (_: Throwable) { openCostLedger }
+        val openCostJournal = cashJournalRow?.openMarketValueSol ?: openCostLedger
 
         val cashDelta = kotlin.math.abs(cashJournal - cashLedger)
         val realizedDelta = kotlin.math.abs(realizedJournal - realizedLedger)
