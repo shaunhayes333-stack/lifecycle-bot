@@ -308,6 +308,21 @@ object CanonicalPositionAuthority6441 {
                             locked6634.originalQtyRaw.toBigDecimal().movePointLeft(locked6634.quantityScale).toDouble()
                         else 0.0
                     } catch (_: Throwable) { 0.0 }
+                    // V5.0.6634 §BUY_PATH_SOL_USD_CAPTURE — capture the
+                    //   SOL/USD reference and the SOL-denominated entry
+                    //   price at lock time so downstream USD↔SOL
+                    //   conversion NEVER re-derives at exit / mark
+                    //   time.  CurrencyManager holds the last observed
+                    //   SOL/USD; if missing we fall back to WalletManager
+                    //   lastKnownSolPrice (still an entry-time snapshot
+                    //   the operator's rules allow).
+                    val solUsd6634 = try {
+                        val fromCurrency = com.lifecyclebot.engine.CurrencyManager.getSolUsd()
+                        if (fromCurrency > 0.0) fromCurrency
+                        else com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 0.0
+                    } catch (_: Throwable) { 0.0 }
+                    val entryPriceSol6634 = if (solUsd6634 > 0.0 && locked6634.entryPriceUsd > 0.0)
+                        locked6634.entryPriceUsd / solUsd6634 else 0.0
                     LockedEntryMetrics6634.lockAtBuy6634(
                         LockedEntryMetrics6634.EntrySnapshot(
                             positionId = positionId,
@@ -315,14 +330,14 @@ object CanonicalPositionAuthority6441 {
                             symbol = locked6634.symbol,
                             assetClass = locked6634.assetClass,
                             entryPriceUsd = locked6634.entryPriceUsd,
-                            entryPriceSol = 0.0,   // set by caller when known
+                            entryPriceSol = entryPriceSol6634,
                             entryCostSol = locked6634.entryCostSol,
                             qtyRaw = locked6634.originalQtyRaw,
                             qtyTokens = qtyTokens6634,
                             tokenDecimals = locked6634.tokenDecimals,
                             quantityScale = locked6634.quantityScale,
                             entryPriceSource = locked6634.entryPriceSource,
-                            solUsdAtEntry = 0.0,   // set by caller when known
+                            solUsdAtEntry = solUsd6634,
                             lockedAtMs = System.currentTimeMillis(),
                         )
                     )
@@ -552,6 +567,14 @@ object CanonicalPositionAuthority6441 {
                     else "CANONICAL_POSITION_PARTIAL_6441",
                 )
             } catch (_: Throwable) {}
+            // V5.0.6634 §UNLOCK_ON_TERMINAL_CLOSE — release the locked
+            //   entry snapshot when the position reaches a terminal
+            //   CLOSED state so the ring buffer stays clean and a
+            //   subsequent re-open under the same positionId can lock
+            //   a fresh snapshot.
+            if (newLifecycle == Lifecycle.CLOSED) try {
+                LockedEntryMetrics6634.unlock6634(positionId, "CANONICAL_POSITION_CLOSE_6441")
+            } catch (_: Throwable) {}
             return MutateResult.APPLIED
         } finally { lock.unlock() }
     }
@@ -586,6 +609,12 @@ object CanonicalPositionAuthority6441 {
                 )
             } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("CANONICAL_POSITION_QUARANTINED_6441") } catch (_: Throwable) {}
+            // V5.0.6634 §UNLOCK_ON_QUARANTINE — quarantined positions
+            //   are structurally terminal; release the locked entry so
+            //   the ring stays bounded and any subsequent re-open under
+            //   the same positionId (rare, but possible via replay) can
+            //   lock a fresh snapshot.
+            try { LockedEntryMetrics6634.unlock6634(positionId, "QUARANTINE:${reason.take(40)}") } catch (_: Throwable) {}
         } finally { lock.unlock() }
     }
 

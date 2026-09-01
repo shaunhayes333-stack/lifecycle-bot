@@ -134,4 +134,45 @@ class Aate6633SourceLevelAcceptanceTest {
         assertTrue("Metals analyzer must stamp CrossAssetRawSignalReceipt6633",
             metal.contains("CrossAssetRawSignalReceipt6633.stamp("))
     }
+
+    @Test fun p0_6634_locked_entry_metrics_authority_present() {
+        val src = read("engine/truth/LockedEntryMetrics6634.kt")
+        assertTrue("LockedEntryMetrics6634 must exist", src.isNotEmpty())
+        assertTrue(src.contains("fun lockAtBuy6634("))
+        assertTrue(src.contains("fun read6634("))
+        assertTrue(src.contains("fun assertLocked6634("))
+        assertTrue(src.contains("fun unlock6634("))
+    }
+
+    @Test fun p0_6634_open_position_auto_locks_entry_metrics() {
+        val src = read("engine/truth/CanonicalPositionAuthority6441.kt")
+        assertTrue("openPosition must auto-lock LockedEntryMetrics6634",
+            src.contains("LockedEntryMetrics6634.lockAtBuy6634("))
+        assertTrue("terminal close must unlock",
+            src.contains("LockedEntryMetrics6634.unlock6634("))
+        assertTrue("quarantine must unlock",
+            src.contains("QUARANTINE:"))
+    }
+
+    @Test fun p0_6634_buy_path_captures_sol_usd() {
+        val src = read("engine/truth/CanonicalPositionAuthority6441.kt")
+        assertTrue("must capture CurrencyManager.getSolUsd at lock time",
+            src.contains("CurrencyManager.getSolUsd()"))
+        assertTrue("must derive entryPriceSol from entryPriceUsd / solUsd",
+            src.contains("entryPriceUsd / solUsd6634"))
+    }
+
+    @Test fun p0_6634_open_positions_ui_reads_locked_entry_metrics() {
+        val src = read("ui/MainActivity.kt")
+        assertTrue("Open Positions card must prefer LockedEntryMetrics6634.read6634",
+            src.contains("LockedEntryMetrics6634.read6634(pos.positionId)"))
+        assertTrue("Open Positions card must probe divergence",
+            src.contains("LockedEntryMetrics6634.assertLocked6634("))
+    }
+
+    @Test fun p0_6634_qty_invariant_parity_in_strict_filter() {
+        val src = read("engine/truth/CanonicalPositionAuthority6441.kt")
+        assertTrue("isEconomicallyValidOpen6631 must consult QuantityInvariantAuthority6500",
+            src.contains("CANONICAL_OPEN_FILTERED_QTY_INVARIANT_QUARANTINE_6634"))
+    }
 }

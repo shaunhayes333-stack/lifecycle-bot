@@ -5741,12 +5741,29 @@ for legal compliance.
                 com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.isQuarantined(ts.mint) ||
                     !com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.check(ts.mint, pos).ok
             } catch (_: Throwable) { false }
+            // V5.0.6634 §DOWNSTREAM_READER — prefer the locked entry
+            //   snapshot for the UI's entry-price/qty rendering. When
+            //   the buy locked the snapshot at commit time, we render
+            //   that; otherwise we fall back to the mutable
+            //   Position.entryPriceUsd and stamp a divergence probe.
+            val lockedEntry6634 = try {
+                com.lifecyclebot.engine.truth.LockedEntryMetrics6634.read6634(pos.positionId)
+            } catch (_: Throwable) { null }
+            if (lockedEntry6634 != null && entryPriceForCard6321 > 0.0) try {
+                com.lifecyclebot.engine.truth.LockedEntryMetrics6634.assertLocked6634(
+                    positionId = pos.positionId,
+                    fieldName = "entryPriceUsd",
+                    currentDoubleValue = entryPriceForCard6321,
+                    callSite = "MainActivity.openPositionCard",
+                )
+            } catch (_: Throwable) {}
+            val entryToRender6634 = lockedEntry6634?.entryPriceUsd?.takeIf { it > 0.0 } ?: entryPriceForCard6321
             // Entry price per token and time — V5.0.6321 prefer canonical fill
             info.addView(TextView(this).apply {
                 text = if (invariantBroken6500) {
                     "Entry: INVARIANT_BROKEN_6500  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
                 } else {
-                    "Entry: ${if (entryPriceForCard6321 > 0.0) entryPriceForCard6321.fmtPrice() else "pricing wait"}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
+                    "Entry: ${if (entryToRender6634 > 0.0) entryToRender6634.fmtPrice() else "pricing wait"}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
                 }
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(if (invariantBroken6500) 0xFFFBBF24.toInt() else muted)
