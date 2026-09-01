@@ -1790,6 +1790,8 @@ object PipelineHealthCollector {
                 sb.append("===== CAUSAL AUTHORITY REPAIR (V5.0.6629) =====\n")
                 sb.append("  §6 HERO_SNAPSHOT        ${com.lifecyclebot.engine.truth.PaperEconomicSnapshot6629.statusLine6629()}\n")
                 sb.append("  §8 SPECIALIST_ARBITER   ${com.lifecyclebot.engine.truth.SpecialistProposalArbiter6629.statusLine6629()}\n")
+                sb.append("===== CRITICAL AUTHORITY RECOVERY (V5.0.6630) =====\n")
+                sb.append("  §C LEGACY_REPLAY_ISOL   ${com.lifecyclebot.engine.truth.LegacyReplayIsolation6630.statusLine6630()}\n")
             } catch (_: Throwable) {}
         } catch (_: Throwable) {}
 

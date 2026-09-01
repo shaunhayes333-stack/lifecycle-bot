@@ -710,6 +710,36 @@ object CanonicalPositionAuthority6441 {
                             } catch (_: Throwable) {}
                         }
                         if (trustedPrice6541 < 0.0) {
+                            // V5.0.6630 §C LEGACY_REPLAY_ISOLATION (operator Feb 2026:
+                            //   "This repair system is no longer safe as a balance
+                            //    writer. Make all replay/parity/migration code
+                            //    DIAGNOSTIC ONLY until validation passes.")
+                            // If the migration gate is CLOSED (default), quarantine
+                            // the position instead of opening it with entryPriceUsd
+                            // =0.0. That preserves the durable journal event for
+                            // history/tax/audit but stops REPLAY_UNIT_MIGRATED_TO_
+                            // CARRY_6589 from injecting 482 basis-untrusted OPEN
+                            // rows into canonical capital.
+                            val migrationAuthorized6630 = com.lifecyclebot.engine.truth
+                                .LegacyReplayIsolation6630.migrationAuthorized6630()
+                            if (!migrationAuthorized6630) {
+                                positions[e.positionId] = Position(
+                                    positionId = e.positionId, mode = "paper", mint = e.mint, symbol = e.symbol,
+                                    lane = "REPLAY_6486", runId = e.idempotencyKey, openedAtMs = e.atMs,
+                                    entryCostSol = e.executedCostSol, remainingQtyRaw = e.filledQty,
+                                    originalQtyRaw = e.filledQty, soldCostBasisSol = 0.0,
+                                    realizedPnlSol = 0.0, realizedProceedsSol = 0.0, feesSol = e.entryFeesSol,
+                                    tokenDecimals = e.tokenDecimals, quantityScale = e.quantityScale,
+                                    lifecycle = Lifecycle.QUARANTINED, lastMutationMs = e.atMs,
+                                    quarantineReason = "LEGACY_SOL_PER_TOKEN_QUARANTINED_6630",
+                                    entryPriceUsd = 0.0, entryPriceSource = "LEGACY_REPLAY_QUARANTINED_6630",
+                                )
+                                try {
+                                    com.lifecyclebot.engine.truth.LegacyReplayIsolation6630
+                                        .recordDisposition6630(migrated = false, positionId = e.positionId, mint = e.mint)
+                                } catch (_: Throwable) {}
+                                continue
+                            }
                             // V5.0.6589 §P0-6 — LEGACY SOL-PER-TOKEN REPLAY MIGRATION.
                             // Prior behaviour quarantined these events entirely.
                             // Operator directive: 'replay produces exactly zero
@@ -742,6 +772,10 @@ object CanonicalPositionAuthority6441 {
                                 quarantineReason = "",
                                 entryPriceUsd = 0.0, entryPriceSource = "REPLAY_UNIT_LEGACY_SOL_PER_TOKEN_6589",
                             )
+                            try {
+                                com.lifecyclebot.engine.truth.LegacyReplayIsolation6630
+                                    .recordDisposition6630(migrated = true, positionId = e.positionId, mint = e.mint)
+                            } catch (_: Throwable) {}
                             continue
                         }
                         val entrySource6541 = when {
