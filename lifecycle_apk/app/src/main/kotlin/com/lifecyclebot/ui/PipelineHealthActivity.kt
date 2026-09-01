@@ -468,7 +468,7 @@ class PipelineHealthActivity : AppCompatActivity() {
             .ifBlank { "  none" }
         val avgCycle = if (snap.cycleCount > 0) snap.totalCycleMs / snap.cycleCount else 0L
         buildString(12_000) {
-            appendLine("===== AATE PIPELINE EMERGENCY REPORT V5.0.6635b =====")
+            appendLine("===== AATE PIPELINE EMERGENCY REPORT V5.0.6308 =====")
             appendLine("reason=$reason generatedAtMs=${System.currentTimeMillis()}")
             appendLine("uptimeMs=${snap.nowMs - snap.startedAtMs} anrHints=${snap.anrHints} maxFrameGapMs=${snap.maxFrameGapMs}")
             appendLine("cycles count=${snap.cycleCount} avgMs=$avgCycle maxMs=${snap.maxCycleMs} recent=${snap.recentCycleMsSamples.takeLast(20).joinToString(",")}")
@@ -497,7 +497,7 @@ class PipelineHealthActivity : AppCompatActivity() {
             appendLine("NOTE: emergency fallback copied because the full report builder stalled/failed. This is enough to debug ANR/loop choke while preserving bot loop isolation.")
         }
     } catch (t: Throwable) {
-        "===== AATE PIPELINE EMERGENCY REPORT V5.0.6635b =====\nreason=$reason\nfallbackError=${t.javaClass.simpleName}:${t.message?.take(120) ?: ""}\n"
+        "===== AATE PIPELINE EMERGENCY REPORT V5.0.6308 =====\nreason=$reason\nfallbackError=${t.javaClass.simpleName}:${t.message?.take(120) ?: ""}\n"
     }
 
     private fun formatBig(v: Long): String = when {

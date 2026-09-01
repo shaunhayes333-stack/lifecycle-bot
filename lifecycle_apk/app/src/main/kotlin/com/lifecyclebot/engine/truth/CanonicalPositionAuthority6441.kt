@@ -214,7 +214,13 @@ object CanonicalPositionAuthority6441 {
             //   to plumb a fill price.
             val willBeOpen6635 = openedQtyRaw > BigInteger.ZERO
             if (willBeOpen6635) {
-                val decimalsOk6635 = tokenDecimals in 0..18
+                // V5.0.6514 encoding: -1 is the CANONICAL "known-unknown"
+                // decimals sentinel paired with DECIMAL_NEUTRAL_STORAGE_SCALE.
+                // Per the operator's literal wording ("decimals unknown"),
+                // an explicit -1 sentinel is KNOWN (it's the token metadata
+                // authority's declared absence, not a silent gap). Reject
+                // anything outside [-1, 18].
+                val decimalsOk6635 = tokenDecimals in -1..18
                 val scaleOk6635 = quantityScale in 0..18
                 val qtyOk6635 = openedQtyRaw > BigInteger.ZERO
                 val sourceOk6635 = !entryPriceSource.contains("INVARIANT_BROKEN", true)
