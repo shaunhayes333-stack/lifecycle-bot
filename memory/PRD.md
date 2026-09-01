@@ -1,10 +1,22 @@
-# AATE PRD — V5.0.6627 (CAUSAL AUTHORITY REPAIR — items 1, 2-lite, 3, 7-lite)
+# AATE PRD — V5.0.6628 (CAUSAL AUTHORITY REPAIR CONTINUED — items 5 + 4)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
-**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6627a Build CI GREEN (13m6s, run 33474863068).**
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6628 Build CI GREEN (15m42s, run 33486885655).**
+
+## V5.0.6628 (Feb 2026) — CAUSAL AUTHORITY REPAIR CONTINUED (items 5 + 4)
+
+- **§5 CANONICAL_CLOSE_JOURNAL_ATOMICITY** — The 33× `PAPER_CLOSE_NO_JOURNAL_ROW_6623` in the V5.0.6626 dump was a **race** between async `recordTrade` (on `GlobalScope.launch`) and synchronous `PaperPositionCloseAuthority.markClosed` inside `PaperTerminalProjectionConvergence6509.converge`. Fix: move the `recordTrade` (TradeHistoryStore journal write) OUT of the coroutine into the synchronous close path so `markClosed` can observe the row. ML / security / perps fanout stay async. New counter: `PAPER_SELL_JOURNAL_SYNC_APPENDED_6628`.
+- **§4 MARK_SPLIT_OBSERVATION_VS_EXECUTABLE** — New `CanonicalPriceMarkRegistry6522.resolveObservationFromSourceEvidence6628` publishes an `OBSERVATION_SCORING` mark WITHOUT requiring liquidity (only price finite/positive, mint identity exact, evidence fresh, provider valid). Executable path (`resolveExecutableFromSourceEvidence6616`) still requires liquidity for `EXECUTABLE_ENTRY_QUOTE`. BotService pre-V3 mark path now falls back to observation-only when the executable resolver rejects with `SOURCE_LIQUIDITY_INVALID`, so a valid PumpFun-executable token no longer disappears from V3 just because DexScreener's liquidity field is empty. New counter: `CANONICAL_MARK_OBSERVATION_FALLBACK_ADMITTED_6628`.
+
+Test coverage: `Aate6628CausalAuthorityRepairContinuedCoverageTest` (6 tests) — observation resolver semantics (admit / stale reject / price reject / identity mismatch) and source authority of both wired callsites.
+
+### Deferred to V5.0.6629+
+- **Item 6** — single `PaperEconomicSnapshot` for MEME/CRYPTO/MARKETS hero surfaces
+- **Item 8** — specialist proposals arbitration (multi-eligible, single-BUY-per-mint/version)
+- **Item 9** — 10-min acceptance test on the operator's invariant checklist
 
 ## V5.0.6627 (Feb 2026) — CAUSAL AUTHORITY REPAIR (items 1, 2-lite, 3, 7-lite)
 
