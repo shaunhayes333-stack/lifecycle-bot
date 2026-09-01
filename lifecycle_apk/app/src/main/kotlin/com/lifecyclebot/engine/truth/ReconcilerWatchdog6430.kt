@@ -83,6 +83,12 @@ object ReconcilerWatchdog6430 {
         try {
             CanonicalEconomicEvent6635.sweepPending6635()
         } catch (_: Throwable) {}
+        // V5.0.6635 §4 CONTINUOUS_FORENSIC_RECONCILIATION — every
+        //   reconciler cadence probes ledger vs journal deltas + event
+        //   parity, emits counters at the source.  Non-mutating.
+        try {
+            ForensicReconciliation6635.reconcile6635()
+        } catch (_: Throwable) {}
     }
 
     fun healthStatus(): Status {
