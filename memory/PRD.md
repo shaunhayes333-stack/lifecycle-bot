@@ -1,10 +1,28 @@
-# AATE PRD — V5.0.6626 (RUNTIME LOOP UNCHOKE — P0 emergency response)
+# AATE PRD — V5.0.6627 (CAUSAL AUTHORITY REPAIR — items 1, 2-lite, 3, 7-lite)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
-**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6626 Build CI GREEN (15m24s, run 33467635223).**
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6627a Build CI GREEN (13m6s, run 33474863068).**
+
+## V5.0.6627 (Feb 2026) — CAUSAL AUTHORITY REPAIR (items 1, 2-lite, 3, 7-lite)
+
+The operator's post-V5.0.6626 forensic identified six remaining defects. This commit lands the highest-leverage subset; items 4/5/6/8 defer to V5.0.6628+.
+
+- **§1 EXECUTION_INTENT_LOSS_AT_SOURCE** — `ExecutableOpenGate.candidateInvalidReason` frozen-snapshot fast-path now requires `ExecutionSnapshotAuthority6496.sealedSnapshot6609(mint).fdgVerdict ∈ {BUY, PROBE_ONLY}` and a non-blank `executionAction` before returning `null` (allow). Missing intent authority → drop with reason `FROZEN_SNAPSHOT_NEEDS_REVALIDATION_6627` so the mint re-enters canonical FDG on the next scan cycle. Prevents the 41× `EXEC_STATE_RESTORED_FROM_FROZEN_SNAPSHOT_6499 == EXEC_OPEN_BLOCKED_NO_EXECUTION_INTENT_6615` pathology.
+- **§2 SPECIALIST_CAUSAL_INVARIANTS (telemetry only)** — new `SpecialistCausalInvariants6627.scan6627()` walks every meme lane and stamps `CAUSAL_COUNTER_CORRUPTION_6627` on: `EXEC > 0 && FDG == 0`, `FINALIZE > SELL`, `EXEC > INTENT`, `TICKET > SIZE`. Reads only from `SpecialistCausalFunnel6625`.
+- **§3 EXPRESS_RECEIVER_TERMINAL_ENFORCEMENT** — `ExpressHandoffFunnel6625` now tracks live intents with a 30s TTL. `reap6627(maxAgeMs)` terminalizes stale intents as `EXPRESS_INTENT_TERMINALIZED_STALE_6627 + EXPRESS_INTENT_WITHOUT_HANDOFF_TERMINAL_6627`; same-mint re-emit records `EXPRESS_INTENT_SUPERSEDED_6627`; `onMarkAcquisition/onTicketSealed/onExecuted` remove the intent. Status now exposes `superseded/stale/liveNoTerminal`.
+- **§7 OPEN_POSITION_ENTRY_BASIS_INVARIANT (proactive)** — `OpenPositionBasisInvariant6627.onCanonicalOpen6627` wired into `Executor.kt` at the paper `POSITION_OPENED` transition. Fires `OPEN_POSITION_ZERO_ENTRY_PRICE_6627 / OPEN_POSITION_ZERO_ENTRY_QTY_6627` on non-authoritative basis. Reactive `OpenPnlSanity` heal path unchanged.
+
+`PipelineHealthCollector` runs `reap6627 + scan6627` on the dump cadence and prints a `CAUSAL AUTHORITY REPAIR (V5.0.6627)` status block. Test coverage: `Aate6627CausalAuthorityRepairCoverageTest`.
+
+### Deferred to V5.0.6628+
+- **Item 4** — split observation mark from executable liquidity proof (MarkAuthority contract)
+- **Item 5** — journal close atomicity (`PAPER_CLOSE_NO_JOURNAL_ROW = 33` → 0)
+- **Item 6** — single `PaperEconomicSnapshot` for MEME/CRYPTO/MARKETS hero surfaces
+- **Item 8** — specialist proposals arbitration (multi-eligible, single-BUY-per-mint/version)
+- **Item 9** — acceptance test on the operator's 10-min PAPER run invariants
 
 ## V5.0.6626 (Feb 2026) — RUNTIME LOOP UNCHOKE (P0 emergency response)
 
