@@ -35,10 +35,11 @@ class Aate6631InvariantBrokenPurgeCoverageTest {
         assertTrue("V5.0.6631 §B: gate must reject invalid raw quantity",
             src.contains("CANONICAL_OPEN_FILTERED_INVALID_QTY_6631") &&
                 src.contains("remainingQtyRaw.signum() <= 0"))
-        assertTrue("V5.0.6631 §B: gate must reject zero/negative entry price",
-            src.contains("CANONICAL_OPEN_FILTERED_ZERO_ENTRY_PRICE_6631") &&
-                src.contains("entryPriceUsd") &&
-                src.contains("entry <= 0.0"))
+        assertTrue("V5.0.6631 §B: gate must reject non-finite entry price",
+            src.contains("CANONICAL_OPEN_FILTERED_NON_FINITE_ENTRY_PRICE_6631") &&
+                src.contains("entryPriceUsd"))
+        assertTrue("V5.0.6631a §B: zero-but-finite entry price admitted pending heal (diagnostic label)",
+            src.contains("CANONICAL_OPEN_ZERO_ENTRY_PRICE_PENDING_HEAL_6631"))
         assertTrue("V5.0.6631 §B: gate must reject INVARIANT_BROKEN_6500 entryPriceSource",
             src.contains("CANONICAL_OPEN_FILTERED_INVARIANT_BROKEN_SOURCE_6631") &&
                 src.contains("INVARIANT_BROKEN_6500"))
