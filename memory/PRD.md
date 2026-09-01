@@ -4,7 +4,7 @@
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
-**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6630 Build CI GREEN (9m54s, run 33491191980).**
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6630 sub-commits all GREEN**: main (9m54s, run 33491191980) · §C isolation (15m44s, run 33492162108) · §D misroute (16m29s, run 33492334261) · PRD (15m44s, run 33492605032). Runtime Smoke Test flake unchanged (pre-existing btnToggle UI issue).
 
 ## V5.0.6630 (Feb 2026) — CRITICAL AUTHORITY RECOVERY (operator P0)
 
