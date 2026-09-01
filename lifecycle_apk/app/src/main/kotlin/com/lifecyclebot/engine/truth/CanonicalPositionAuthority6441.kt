@@ -755,6 +755,20 @@ object CanonicalPositionAuthority6441 {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_QTY_INVARIANT_QUARANTINE_6634")
                 return false
             }
+            // V5.0.6635f §CANONICAL_ECONOMIC_INVARIANT — even when the
+            //   mint has never been quarantined by a runtime check,
+            //   the canonical row itself may violate the economic
+            //   notional invariant (qty × entryPriceUsd vs
+            //   entryCostSol × solPrice). Run the canonical-only
+            //   check here to catch that class of defect at the
+            //   strict filter, not merely in the UI's separate probe.
+            //   Any failure atomically quarantines the mint inside
+            //   the authority so the next tick sees it.
+            val canonicalCheck6635f = QuantityInvariantAuthority6500.checkCanonical6635(p)
+            if (!canonicalCheck6635f.ok) {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_ECONOMIC_INVARIANT_6635F")
+                return false
+            }
         } catch (_: Throwable) {}
         // V5.0.6631c §B — strict per operator directive: entryPrice
         // <= 0 MUST be excluded. Legacy callers now derive

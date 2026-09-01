@@ -62,6 +62,73 @@ object QuantityInvariantAuthority6500 {
         val reason: String,
     )
 
+    /**
+     * V5.0.6635f §CANONICAL_ECONOMIC_INVARIANT — runs the economic
+     * notional check on the CANONICAL position fields directly, no
+     * runtime `data.Position` projection required.  The strict
+     * `openPositions()` filter uses this to catch canonical-side
+     * invariant breaks even when no runtime `check(mint, pos)` call
+     * has been made yet.  On failure, atomically quarantines the mint
+     * so subsequent `isQuarantined(mint)` reads return true.
+     *
+     * OPERATOR SCREENSHOT (Feb 2026, second dump): 8+ positions
+     * (HzmASEo..., GPRO, GASSPAS, CHOMP, DONK, Ape-1, NICKGPRO,
+     * catfish) rendered `Entry: INVARIANT_BROKEN_6500` / `qty INVALID`
+     * after V5.0.6634's isQuarantined-only strict filter — because
+     * the RUNTIME check(mint, pos) failed BUT the mint was never yet
+     * quarantined by a prior call.  This method closes that loophole
+     * at the canonical layer.
+     */
+    fun checkCanonical6635(canonical: CanonicalPositionAuthority6441.Position): InvariantCheck {
+        val scale = canonical.quantityScale
+        if (scale !in 0..18 || canonical.remainingQtyRaw <= java.math.BigInteger.ZERO) {
+            return InvariantCheck(false, Double.POSITIVE_INFINITY, 0.0, canonical.entryCostSol,
+                "canonical_qty_or_scale_invalid")
+        }
+        val qtyToken = try { canonical.remainingQtyRaw.toBigDecimal().movePointLeft(scale).toDouble() } catch (_: Throwable) { 0.0 }
+        val entry = canonical.entryPriceUsd
+        val cost = canonical.entryCostSol.coerceAtLeast(0.0)
+        // Only run the economic invariant when all three fields carry
+        // real values.  A partially-populated canonical row (e.g.
+        // freshly opened, entry not yet stamped) is allowed to pass
+        // — the strict filter's entryPriceUsd > 0 gate catches those.
+        if (!qtyToken.isFinite() || qtyToken <= 0.0) return InvariantCheck(false, 0.0, 0.0, cost, "qty_nonpositive")
+        if (!entry.isFinite() || entry <= 0.0) return InvariantCheck(true, 0.0, 0.0, cost, "entry_price_not_set")
+        if (!cost.isFinite() || cost <= 0.0) return InvariantCheck(true, 0.0, 0.0, cost, "cost_not_set")
+        // Same economic-notional math as economicNotionalCheck6537:
+        //   qty_notional_usd  = qty × entryPriceUsd
+        //   impliedSolPriceUsd = qty_notional_usd / costSol
+        //   must fall in [MIN_PLAUSIBLE_SOL_USD .. MAX_PLAUSIBLE_SOL_USD]
+        val src = canonical.entryPriceSource.uppercase()
+        // Skip synthetic bases (same doctrine as economicNotionalCheck6537).
+        if (src.contains("SYNTH") || src.contains("PUMP_FUN_BC")) {
+            return InvariantCheck(true, 0.0, 0.0, cost, "synthetic_basis_skipped")
+        }
+        // DERIVED_CARRY_COST_QTY_6631 & DURABLE_CARRY sources produce
+        // entry prices in SOL/token space, not USD/token, so the
+        // economic notional check would collapse to ratio~1 and
+        // false-positive quarantine every legitimate carry-replay
+        // position.  Skip them.
+        if (src.contains("DERIVED_CARRY_COST_QTY_6631") || src.contains("DURABLE_CARRY_COST_QTY_REPAIR_6519") ||
+            src.contains("REPLAY_CARRY") || src.contains("RECOVERED_CARRY")) {
+            return InvariantCheck(true, 0.0, 0.0, cost, "carry_basis_skipped")
+        }
+        val qtyNotionalUsd = qtyToken * entry
+        if (!qtyNotionalUsd.isFinite() || qtyNotionalUsd <= 0.0) return InvariantCheck(false, 0.0, 0.0, cost, "qty_notional_nonpositive")
+        val impliedSolPriceUsd = qtyNotionalUsd / cost.coerceAtLeast(1e-18)
+        val ok = impliedSolPriceUsd.isFinite() &&
+            impliedSolPriceUsd in MIN_PLAUSIBLE_SOL_USD..MAX_PLAUSIBLE_SOL_USD
+        val reason = if (ok) "canonical_econ_ok_impliedSolUsd=$impliedSolPriceUsd"
+            else "canonical_econ_notional_mismatch impliedSolUsd=$impliedSolPriceUsd " +
+                "band=[$MIN_PLAUSIBLE_SOL_USD,$MAX_PLAUSIBLE_SOL_USD] " +
+                "qtyNotional=$qtyNotionalUsd costSol=$cost"
+        if (!ok && canonical.mint.isNotBlank()) {
+            markInvariantBroken(canonical.mint, reason)
+            try { PipelineHealthCollector.labelInc("QUANTITY_INVARIANT_CANONICAL_BROKEN_6635") } catch (_: Throwable) {}
+        }
+        return InvariantCheck(ok, impliedSolPriceUsd, qtyNotionalUsd, cost, reason)
+    }
+
     /** V5.0.6521 — validate mutable runtime projection against canonical raw lot truth. */
     fun check(mint: String, pos: Position): InvariantCheck {
         validations.incrementAndGet()
@@ -115,6 +182,28 @@ object QuantityInvariantAuthority6500 {
                 ForensicLogger.lifecycle("QUANTITY_INVARIANT_REPAIRED_RELEASED_6521", "mint=${mint.take(10)} qtyRatio=$qtyRatio costRatio=$costRatio priceRatio=$priceRatio")
                 PipelineHealthCollector.labelInc("QUANTITY_INVARIANT_REPAIRED_RELEASED_6521")
             } catch (_: Throwable) {}
+        }
+        // V5.0.6635f — projection-vs-canonical failures MUST quarantine
+        //   the mint atomically so the strict openPositions() filter
+        //   (which reads isQuarantined) catches every subsequent
+        //   render before the UI paints INVARIANT_BROKEN_6500. Prior
+        //   to 6635f, only the ECONOMIC branch quarantined; a
+        //   projection-only failure returned ok=false without
+        //   quarantining, which is exactly the loophole the operator's
+        //   HzmASEo / GPRO / GASSPAS / CHOMP / DONK / Ape-1 /
+        //   NICKGPRO / catfish screenshot exposed.
+        if (!ok && mint.isNotBlank()) {
+            val reason6635f = "runtime_projection_vs_canonical_raw qtyRatio=$qtyRatio costRatio=$costRatio priceRatio=$priceRatio"
+            if (quarantined.putIfAbsent(mint, reason6635f) == null) {
+                breaks.incrementAndGet()
+                try {
+                    ForensicLogger.lifecycle(
+                        "QUANTITY_PROJECTION_INVARIANT_BROKEN_6635F",
+                        "mint=${mint.take(10)} reason=$reason6635f",
+                    )
+                    PipelineHealthCollector.labelInc("QUANTITY_PROJECTION_INVARIANT_BROKEN_6635F")
+                } catch (_: Throwable) {}
+            }
         }
         return InvariantCheck(ok, ratio, canonicalQty * (canonicalEntry ?: pos.entryPrice), canonicalCost,
             if (ok) "ok_canonical_raw" else "runtime_projection_vs_canonical_raw qtyRatio=$qtyRatio costRatio=$costRatio priceRatio=$priceRatio")
