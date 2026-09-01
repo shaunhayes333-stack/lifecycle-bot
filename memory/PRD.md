@@ -1,10 +1,60 @@
-# AATE PRD — V5.0.6630 (CRITICAL AUTHORITY RECOVERY — operator P0 directive)
+# AATE PRD — V5.0.6632 (P0-A→M SOURCE-LEVEL AUTHORITY CONVERGENCE)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
-**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6630 sub-commits all GREEN**: main (9m54s, run 33491191980) · §C isolation (15m44s, run 33492162108) · §D misroute (16m29s, run 33492334261) · PRD (15m44s, run 33492605032). Runtime Smoke Test flake unchanged (pre-existing btnToggle UI issue).
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI.
+
+## V5.0.6632 (Feb 2026) — P0-A→M SOURCE-LEVEL AUTHORITY CONVERGENCE
+
+Operator's massive P0-A→P0-M directive (Feb 2026) attacked in a slice train. **Every sub-commit CI GREEN**. Verification counters are grep-visible in the pipeline dump.
+
+### V5.0.6631d — §B DERIVED_CARRY_ENTRY_PRICE (CI GREEN, run 33499851533)
+Legacy `EconomicEventSchema6464.establishReplayCarry6489` was creating OPEN carry positions with `entryPriceUsd = 0`, which the 6631c strict filter (per P0-B/L directive) correctly rejected — but that regressed legitimate carry-recovery + the `Repair6492AcceptanceTest`. **Fix**: `CanonicalPositionAuthority6441.rebuildPaperFromEvents6486` now derives the implied basis price from `(carryCostSol / qtyToken)` when no durable USD/token fill price is available. Stamped `DERIVED_CARRY_COST_QTY_6631` so downstream exit/mark logic identifies it as basis-only. Operator invariant preserved: `entryPriceUsd > 0` for every open position; `INVARIANT_BROKEN_6500` and `LEGACY_REPLAY_QUARANTINED` sources still excluded.
+
+### V5.0.6632 — P0-A: ONE PAPER ECONOMIC EVENT AUTHORITY (CI GREEN, run 33500301066)
+Operator directive: *"Establish EXACTLY ONE durable paper economic event authority based on `attemptId + side + terminalFillIndex`. Make BUY/SELL commits perfectly atomic across position, ledger, snapshot, and journal."*
+
+New authority `PaperEconomicAtomicCommit6632` witnesses every paper economic mutation against a paired counterpart via an idempotency-keyed slot:
+- `keyFromAttempt(attemptId, side, terminalFillIndex)` — canonical key.
+- `keyFromMintSide(mint, side, sigBucket)` — payload-derived key for legacy callers that don't surface `attemptId`.
+- `stampLedger(key, ...)` / `stampJournal(key, ...)` — witnesses both sides. Both stamped ⇒ `PAPER_ATOMIC_COMMIT_OK_6632` + `JournalEconomicAuthority6616.notifyEconomicMutation("ATOMIC_...")` snapshot bump.
+- Duplicate stamp ⇒ `Verdict.DUPLICATE_IGNORED` — caller bails out (idempotent).
+- `sweepUnpaired6632(ttlMs)` (wired into `ReconcilerWatchdog6430.afterAttempt`) surfaces half-writes at the causal write site:
+  - `PAPER_ATOMIC_COMMIT_LEDGER_ONLY_6632` (ledger mutated without journal row)
+  - `PAPER_ATOMIC_COMMIT_JOURNAL_ONLY_6632` (journal row without ledger mutation)
+
+Wiring:
+- `PaperAccountLedger6430.onBuy/onSell` (both existing + new `*Atomic6632` variants) stamp the LEDGER side.
+- `TradeHistoryStore.recordTrade` stamps the JOURNAL side for every paper row.
+- Duplicate stamps refuse mutation, subsuming ad-hoc idempotency latches with one canonical key.
+
+### V5.0.6632a — P0-J: ADAPTIVE_SHARED_INTELLIGENCE_DEADLINE (CI GREEN, run 33500568425)
+Operator directive: *"adaptive evaluation deadline max(4 × rollingAverageBotCycleMs, reasonable provider floor)."* Replaced fixed 5-minute `EVIDENCE_TTL_MS_6580` in `DynamicAltTokenRegistry` with `adaptiveEvidenceTtlMs6632() = (4 × rollingAvgCycleMs6626()).coerceIn(40s, 300s)`. Both per-token TTL check and global sweep now use the adaptive value. New counters: `CRYPTO_EVAL_STALE_REAPED_ADAPTIVE_6632`, `CRYPTO_EVAL_STALE_SWEEP_REAPED_ADAPTIVE_6632`.
+
+### V5.0.6632b — P0-D: CRYPTO_ALT_ALIAS_NORMALIZATION (CI GREEN, run 33501348547)
+`AssetClass.fromLane` extended to normalise every observed crypto-alt spelling to canonical `AssetClass.CRYPTO_ALT`: `ALT`, `ALTS`, `ALT_CRYPTO`, `ALTCOIN`, `ALTCOINS`, `CRYPTOALTS`, `CRYPTO_ALTS`, `BLUECHIP_CRYPTO`, `CRYPTO_UNIVERSE`, `CRYPTOUNIVERSE`. Preserves `6592 §ASSET_CLASS_IMMUTABILITY` — unknown lanes still return UNKNOWN (no silent SOLANA_TOKEN coercion). Coverage: `CryptoAltAliasNormalization6632bTest`.
+
+### V5.0.6632c — P0-E: TRANSACTIONAL_PERPS_HANDOFF_IDEMPOTENCY
+Operator directive: *"Replace `markOwnedByPerps()` with transactional handoff `perpsReceiver.offer(candidate)`. Ensure candidate isn't marked PERPS unless ACKNOWLEDGED."*
+
+New authority `PerpsHandoffIdempotency6632` provides two-phase transactional handoff:
+1. `offerToPerps(id, symbol, callSite)` — records OFFERED state. Emits `PERPS_HANDOFF_OFFERED_6632`. Repeated offers return `ALREADY_OFFERED`/`ALREADY_OWNED`. Rejected/expired offers may be re-offered.
+2. `acknowledgeReceipt(id, accepted, reason)` — perps receiver ACKs. Accepted ⇒ `OWNED_BY_PERPS`; rejected ⇒ `REJECTED` (dispatcher may re-route). Stale ACK without offer ⇒ `PERPS_HANDOFF_ACK_STALE_6632`.
+3. `sweepUnacknowledged6632(ttlMs)` — reaps OFFERED entries whose ACK never arrived, transitions to EXPIRED so dispatcher's next tick can re-route the candidate.
+
+Coverage: `PerpsHandoffIdempotency6632Test`.
+
+### Items already satisfied by prior work
+- **P0-C** (One economic snapshot for every screen): DONE via V5.0.6629 `PaperEconomicSnapshot6629`. All three hero surfaces (MainActivity, MultiAssetActivity, CryptoAltActivity) already consume `PaperEconomicSnapshot6629.read6629(surface)`.
+- **P0-K** (Unified BLUECHIP/MOONSHOT/EXPRESS resolver): Diagnostic already installed via V5.0.6630 §D `SPECIALIST_GENERIC_BRIDGE_MISROUTE_6630`. Full per-specialist canonical-sizing-bridge routing refactor deferred (MoonshotTraderAI:840 identified).
+- **P0-M** (UI accurate free cash + equity): DONE via `PaperCapitalAuthority6577.snapshot` + `PaperEconomicSnapshot6629`. Each surface probes `probeHeroBinding` (`HERO_JOURNAL_PARITY_FAIL_6616`).
+
+### Deferred to V5.0.6633+
+- **P0-G/H/I full remediation** — Forex/Commodity/Metals batch loops already have per-market try/catch + continue; remaining "collapse to WAIT / discard all on failure" symptoms need a fresh field dump from operator to pinpoint the exact call-site.
+- **P0-K full specialist refactor** — route MoonshotTraderAI + ShitcoinTraderAI through `CanonicalSizingBridge6532` with per-asset-class shaping.
+- **G acceptance test** — automated 60-120s PAPER acceptance harness on 8-invariant checklist.
 
 ## V5.0.6630 (Feb 2026) — CRITICAL AUTHORITY RECOVERY (operator P0)
 
