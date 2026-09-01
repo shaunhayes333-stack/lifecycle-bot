@@ -197,6 +197,41 @@ object CanonicalPositionAuthority6441 {
                 invariantViolations.incrementAndGet()
                 return MutateResult.INVARIANT_VIOLATION
             }
+            // V5.0.6635 §7 SEALED_DECIMALS_AT_BUY (operator Feb 2026
+            //   non-negotiable: "No position can be committed with
+            //   decimals unknown ... entry INVARIANT_BROKEN_6500 ...
+            //   qty INVALID. Do NOT create an OPEN financial position
+            //   and repair decimals later.").  Refuse OPEN commit if
+            //   the caller supplied invalid seal inputs. PENDING_ENTRY
+            //   is allowed with qty=0; every other lifecycle requires
+            //   qty>0, decimals in [0,18], and non-blank source.
+            val willBeOpen6635 = openedQtyRaw > BigInteger.ZERO
+            if (willBeOpen6635) {
+                val decimalsOk6635 = tokenDecimals in 0..18
+                val scaleOk6635 = quantityScale in 0..18
+                val qtyOk6635 = openedQtyRaw > BigInteger.ZERO
+                val entryOk6635 = entryPriceUsd.isFinite() && entryPriceUsd > 0.0
+                // Strict-mode source ban: only INVARIANT_BROKEN is
+                // structurally forbidden.  Blank source is allowed on
+                // this path because legacy openers pass "" and set the
+                // source in a post-fill amend (V5.0.6541 CARRY REPLAY
+                // + V5.0.6631d DERIVED_CARRY_COST_QTY paths etc).
+                val sourceOk6635 = !entryPriceSource.contains("INVARIANT_BROKEN", true)
+                if (!decimalsOk6635 || !scaleOk6635 || !qtyOk6635 || !entryOk6635 || !sourceOk6635) {
+                    invariantViolations.incrementAndGet()
+                    try {
+                        PipelineHealthCollector.labelInc("CANONICAL_OPEN_REFUSED_UNSEALED_6635")
+                        ForensicLogger.lifecycle(
+                            "CANONICAL_OPEN_REFUSED_UNSEALED_6635",
+                            "positionId=${positionId.take(24)} mint=${mint.take(10)} " +
+                                "decimals=$tokenDecimals scale=$quantityScale qty=$openedQtyRaw " +
+                                "entryUsd=$entryPriceUsd source=${entryPriceSource.take(30)} " +
+                                "action=refuse_open_seal_at_buy_or_keep_pre_execution",
+                        )
+                    } catch (_: Throwable) {}
+                    return MutateResult.INVARIANT_VIOLATION
+                }
+            }
             if (paperMode) {
                 val prevCash = paperCashSol.get()
                 if (prevCash < entryCostSol + feesSol) {

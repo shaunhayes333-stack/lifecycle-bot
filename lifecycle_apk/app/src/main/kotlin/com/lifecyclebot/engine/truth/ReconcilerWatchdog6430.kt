@@ -77,6 +77,12 @@ object ReconcilerWatchdog6430 {
         try {
             PaperEconomicAtomicCommit6632.sweepUnpaired6632()
         } catch (_: Throwable) {}
+        // V5.0.6635 §CANONICAL_ECONOMIC_EVENT — sweep events with
+        //   partial commits into ACCOUNTING_RECONCILIATION_PENDING so
+        //   the operator has a live per-event forensic view.
+        try {
+            CanonicalEconomicEvent6635.sweepPending6635()
+        } catch (_: Throwable) {}
     }
 
     fun healthStatus(): Status {

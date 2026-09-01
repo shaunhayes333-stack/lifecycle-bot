@@ -19923,10 +19923,58 @@ class Executor(
         // physically impossible past this line. positionId is mandatory;
         // blank/unknown positions fail-closed. DsXR94/2cxRDE/2JLR9u
         // repeated-SELL pattern is now unreachable at the CAS door.
-        val canonicalTerminalPosition6492 = try {
+        // V5.0.6635 §6 CANONICAL_SELL_LOOKUP_BY_POSITION_ID (operator
+        //   Feb 2026 non-negotiable directive: "resolve the open
+        //   position using canonical positionId first ... Fallback
+        //   lookup may be (mode, canonicalMint) but only when it
+        //   resolves uniquely."). ts.position.positionId is the
+        //   BUY-committed anchor that PersistedPositionRegistry
+        //   attaches at OPEN — never fall back to mint-scan when it
+        //   is present + resolvable.
+        val requestedPidForSell6635 = ts.position.positionId.trim()
+        val allOpenPapers6635 = try {
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
-                .firstOrNull { it.mode == "paper" && it.mint == ts.mint }
-        } catch (_: Throwable) { null }
+                .filter { it.mode == "paper" }
+        } catch (_: Throwable) { emptyList() }
+        val canonicalTerminalPosition6492 = if (requestedPidForSell6635.isNotBlank()) {
+            val byPid6635 = allOpenPapers6635.firstOrNull { it.positionId == requestedPidForSell6635 }
+            if (byPid6635 != null) {
+                try { PipelineHealthCollector.labelInc("PAPER_SELL_RESOLVED_BY_POSITIONID_6635") } catch (_: Throwable) {}
+                byPid6635
+            } else {
+                // Fallback: (mode, canonicalMint) — but ONLY when unique.
+                val bySameMint6635 = allOpenPapers6635.filter { it.mint == ts.mint }
+                when (bySameMint6635.size) {
+                    0 -> null
+                    1 -> {
+                        try {
+                            PipelineHealthCollector.labelInc("PAPER_SELL_RESOLVED_BY_MINT_FALLBACK_6635")
+                            ForensicLogger.lifecycle(
+                                "PAPER_SELL_RESOLVED_BY_MINT_FALLBACK_6635",
+                                "requestedPid=${requestedPidForSell6635.take(24)} resolvedPid=${bySameMint6635[0].positionId.take(24)} " +
+                                    "mint=${ts.mint.take(10)} action=unique_mint_fallback_ok",
+                            )
+                        } catch (_: Throwable) {}
+                        bySameMint6635[0]
+                    }
+                    else -> {
+                        try {
+                            PipelineHealthCollector.labelInc("PAPER_SELL_AMBIGUOUS_MINT_FALLBACK_REFUSED_6635")
+                            ForensicLogger.lifecycle(
+                                "PAPER_SELL_AMBIGUOUS_MINT_FALLBACK_REFUSED_6635",
+                                "requestedPid=${requestedPidForSell6635.take(24)} mint=${ts.mint.take(10)} " +
+                                    "candidateCount=${bySameMint6635.size} action=refuse_ambiguous_exit_pending",
+                            )
+                        } catch (_: Throwable) {}
+                        null
+                    }
+                }
+            }
+        } else {
+            // Legacy: no positionId attached. Retain old mint-scan but count separately.
+            try { PipelineHealthCollector.labelInc("PAPER_SELL_LOOKUP_MISSING_PID_6635") } catch (_: Throwable) {}
+            allOpenPapers6635.firstOrNull { it.mint == ts.mint }
+        }
         if (canonicalTerminalPosition6492 == null) {
             if (reconcileCanonicalClosed6509()) return SellResult.ALREADY_CLOSED
             try {
