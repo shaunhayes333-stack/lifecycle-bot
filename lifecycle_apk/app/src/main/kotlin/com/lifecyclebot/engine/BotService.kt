@@ -19670,7 +19670,37 @@ if (hotExitHandledSweep) {
                     PipelineHealthCollector.labelInc("CANONICAL_PRICE_MARK_EXECUTABLE_PROMOTED_6616")
                 } catch (_: Throwable) {}
             } else {
-                try {
+                // V5.0.6628 §4 MARK_SPLIT — when the executable resolver rejects
+                // on SOURCE_LIQUIDITY_INVALID, retry with the observation-only
+                // path so V3/lifecycle scoring can still consume a valid fresh
+                // price even when this ONE provider's liquidity field is
+                // empty. Executable/route boundary remains strict downstream.
+                var observationAdmitted6628 = false
+                if (promotion6616.reason == "SOURCE_LIQUIDITY_INVALID") try {
+                    val obs6628 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522
+                        .resolveObservationFromSourceEvidence6628(
+                            mint = mint,
+                            observedBaseMint = pair.baseTokenAddress,
+                            pairOrPool = pair.pairAddress,
+                            quoteMint = pair.quoteTokenAddress,
+                            source = "DEXSCREENER_PAIR_POLL",
+                            priceUsd = validatedPrice,
+                            evidenceTimestampMs = nowMs6575,
+                            nowMs = nowMs6575,
+                        )
+                    if (obs6628.promoted) {
+                        observationAdmitted6628 = true
+                        try {
+                            PipelineHealthCollector.labelInc("CANONICAL_MARK_OBSERVATION_FALLBACK_ADMITTED_6628")
+                            ForensicLogger.lifecycle(
+                                "CANONICAL_MARK_OBSERVATION_FALLBACK_ADMITTED_6628",
+                                "mint=${mint.take(10)} source=DEXSCREENER_PAIR_POLL " +
+                                    "price=$validatedPrice reason=6616_liquidity_invalid_promoted_observation_only",
+                            )
+                        } catch (_: Throwable) {}
+                    }
+                } catch (_: Throwable) {}
+                if (!observationAdmitted6628) try {
                     PipelineHealthCollector.labelInc("CANONICAL_MARK_REJECTED_INFO|${promotion6616.reason}")
                     com.lifecyclebot.engine.truth.PreV3ReturnTelemetry6525.stamp(ts, "CANONICAL_MARK_REJECTED_INFO_6575")
                     ForensicLogger.lifecycle("CANONICAL_MARK_REJECTED_INFO", "mint=${mint.take(10)} source=${promotion6616.source} price=${promotion6616.price} ageMs=${promotion6616.ageMs} identity=${promotion6616.identity.take(80)} reason=${promotion6616.reason}")

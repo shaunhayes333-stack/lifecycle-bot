@@ -163,5 +163,73 @@ object CanonicalPriceMarkRegistry6522 {
             ?: marks[mint to CanonicalMarkPurpose6570.EXIT_ECONOMIC]
             ?: marks[mint to CanonicalMarkPurpose6570.OBSERVATION_SCORING]
 
+    /**
+     * V5.0.6628 §4 MARK_SPLIT_OBSERVATION_VS_EXECUTABLE — operator directive
+     * Feb 2026:
+     *   > "MarkAuthority must accept an OBSERVATION_MARK when: price finite,
+     *   >  price > 0, mint identity exact, timestamp fresh, provider identity
+     *   >  valid. Source liquidity must NOT invalidate an otherwise valid
+     *   >  observation mark. Strict executable liquidity/route proof belongs
+     *   >  later, before sizing/execution."
+     *
+     * The pre-existing `resolveExecutableFromSourceEvidence6616` refuses
+     * to even publish an OBSERVATION_SCORING mark when liquidity is
+     * missing (line 114-115 rejects with SOURCE_LIQUIDITY_INVALID). That
+     * produced 116× CANONICAL_MARK_REJECTED_INFO_6575 hits in the
+     * V5.0.6626 dump, killing pre-V3 admittance for tokens whose TokenMap
+     * already proved PUMPFUN_BONDING_CURVE_EXECUTABLE.
+     *
+     * This variant publishes only an OBSERVATION_SCORING mark. It does
+     * NOT chain into `promoteObservationToExecutable6613`, so no strict
+     * executable mark is produced without liquidity — the execution
+     * boundary still gates on the full canonical mark.
+     *
+     * Callers use this when they need V3/scoring/lifecycle/momentum
+     * evidence for a mint whose one source has invalid liquidity but
+     * whose price/identity/freshness are all provable.
+     */
+    fun resolveObservationFromSourceEvidence6628(
+        mint: String,
+        observedBaseMint: String,
+        pairOrPool: String,
+        quoteMint: String,
+        source: String,
+        priceUsd: Double,
+        evidenceTimestampMs: Long,
+        nowMs: Long = System.currentTimeMillis(),
+    ): PromotionResult6613 {
+        if (mint.isBlank()) return PromotionResult6613(null, "SOURCE_MINT_MISSING")
+        if (observedBaseMint.isNotBlank() && observedBaseMint != mint)
+            return PromotionResult6613(null, "SOURCE_BASE_IDENTITY_MISMATCH", source, priceUsd, identity = "$observedBaseMint!=$mint")
+        val ageMs = nowMs - evidenceTimestampMs
+        if (evidenceTimestampMs <= 0L || ageMs !in -5_000L..300_000L)
+            return PromotionResult6613(null, "SOURCE_EVIDENCE_STALE", source, priceUsd, ageMs = ageMs, identity = mint)
+        if (!priceUsd.isFinite() || priceUsd <= 0.0 || priceUsd < 1e-18 || priceUsd > 1e12)
+            return PromotionResult6613(null, "SOURCE_PRICE_INVALID", source, priceUsd, ageMs = ageMs, identity = mint)
+        val normalizedPair = pairOrPool.ifBlank { "MINT_ROUTE:$mint" }
+        val normalizedQuote = quoteMint.ifBlank { "USD" }
+        val observation = CanonicalPriceMark6522(
+            mint = mint,
+            pairId = normalizedPair,
+            baseMint = mint,
+            quoteMint = normalizedQuote,
+            source = source,
+            timestampMs = evidenceTimestampMs,
+            priceUsd = PriceUsd(java.math.BigDecimal.valueOf(priceUsd)),
+            liquidityUsd = null,   // observation only — no liquidity claimed
+            purpose = CanonicalMarkPurpose6570.OBSERVATION_SCORING,
+            identityProof6613 = if (normalizedPair.startsWith("MINT_ROUTE:", true)) "CANONICAL_MINT_SOURCE_MARK_6613" else "",
+        )
+        if (!publish(observation)) return PromotionResult6613(
+            null, "SOURCE_OBSERVATION_REJECTED", source, priceUsd, ageMs,
+            "$mint->$normalizedQuote@$normalizedPair", "scale=${observation.priceUsd.value.scale()}",
+        )
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_PRICE_MARK_OBSERVATION_ADMITTED_6628") } catch (_: Throwable) {}
+        return PromotionResult6613(
+            observation, "OBSERVATION_ADMITTED_6628", source, priceUsd, ageMs,
+            "$mint->$normalizedQuote@$normalizedPair", "scale=${observation.priceUsd.value.scale()}",
+        )
+    }
+
     internal fun resetForTest() = marks.clear()
 }

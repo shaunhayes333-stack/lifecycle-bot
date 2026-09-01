@@ -20371,9 +20371,38 @@ class Executor(
             } catch (_: Throwable) {}
             return SellResult.FAILED_FATAL
         }
+        // V5.0.6628 §5 CANONICAL_CLOSE_JOURNAL_ATOMICITY (operator directive Feb 2026:
+        //   "A canonical PAPER close is NOT transactionally complete until its
+        //    economic journal event exists. Use one terminal close transaction:
+        //      append immutable economic journal SELL/PARTIAL event
+        //      mutate canonical PaperAccountLedger
+        //      stamp canonical position
+        //      publish finalized event
+        //    Retry is idempotent by terminalMutationId.")
+        //
+        // PaperAccountLedger already mutated synchronously above via
+        // CanonicalPaperTerminalBridge6469.finalizeSell. The TradeHistoryStore
+        // journal write, however, ran on GlobalScope.launch — meaning
+        // PaperTerminalProjectionConvergence6509.converge (which calls
+        // PaperPositionCloseAuthority.markClosed and probes the journal row)
+        // ALWAYS raced ahead of the write. That produced the 33
+        // PAPER_CLOSE_NO_JOURNAL_ROW_6623 hits in the operator's V5.0.6626
+        // dump. Run the journal write synchronously HERE so markClosed can
+        // observe the row; keep ML / security / perps fanout async.
+        try {
+            recordTrade(tsLearningSnap, tradeSnap)
+            try { PipelineHealthCollector.labelInc("PAPER_SELL_JOURNAL_SYNC_APPENDED_6628") } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_SELL_JOURNAL_SYNC_ERR_6628")
+                ForensicLogger.lifecycle(
+                    "PAPER_SELL_JOURNAL_SYNC_ERR_6628",
+                    "mint=${tradeSnap.mint.take(10)} err=${t.message?.take(80)}",
+                )
+            } catch (_: Throwable) {}
+        }
         kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
             try {
-                recordTrade(tsLearningSnap, tradeSnap)
                 try { security.recordTrade(tradeSnap) } catch (_: Throwable) {}
                 // V5.0.6531 §PERPS_NEURAL_BRIDGE — feed cross-asset terminal
                 // outcomes into the perps sizer now that AssetClass tags every
