@@ -718,7 +718,8 @@ object DynamicAltTokenRegistry {
         val generation = evaluationGeneration6615(tok)
         if (evaluationCompleted6615[identity] == generation) {
             evaluationCoalesced6615.incrementAndGet()
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_GENERATION_COALESCED_6615") } catch (_: Throwable) {}
+            // V5.0.6626 §RUNTIME_LOOP_UNCHOKE §1 — coalesced hot-label increment.
+            try { com.lifecyclebot.engine.truth.HotLabelCoalescer6626.inc6626("CRYPTO_EVAL_GENERATION_COALESCED_6615") } catch (_: Throwable) {}
             return false
         }
         var admitted = false

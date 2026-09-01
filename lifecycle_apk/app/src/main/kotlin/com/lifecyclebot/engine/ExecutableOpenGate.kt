@@ -264,7 +264,13 @@ object ExecutableOpenGate {
     fun consumeRestorePenalty(attemptId: String): OpenVerdict? = restorePenalties.remove(attemptId)
 
     private fun ticketLive(ticket: ExecutionIntent, now: Long = System.currentTimeMillis()): Boolean {
-        val ttl = if (ticket.mode.equals("PAPER", true)) PAPER_EXECUTION_TICKET_TTL_MS else LIVE_EXECUTION_TICKET_TTL_MS
+        val ttl = if (ticket.mode.equals("PAPER", true))
+            // V5.0.6626 §RUNTIME_LOOP_UNCHOKE §2 — adaptive floor so
+            // 30-373s cycle-time bursts stop economic-rejecting still-
+            // valid buy intents. AdaptiveTicketTtl6626 keeps the 180s
+            // floor when cycles are healthy.
+            com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()
+        else LIVE_EXECUTION_TICKET_TTL_MS
         return now - ticket.createdAtMs <= ttl
     }
 
@@ -314,7 +320,10 @@ object ExecutableOpenGate {
         val replacement = intent.copy(
             attemptId = canonicalExecutionKey(intent.mint, mode = intent.mode, side = "BUY", lane = intent.canonicalLane, candidateVersion = intent.candidateVersion),
             resolvedSize = size, createdAt = now,
-            expiresAtMs6613 = now + if (intent.mode.equals("PAPER", true)) PAPER_EXECUTION_TICKET_TTL_MS else LIVE_EXECUTION_TICKET_TTL_MS,
+            expiresAtMs6613 = now + if (intent.mode.equals("PAPER", true))
+                // V5.0.6626 §RUNTIME_LOOP_UNCHOKE §2 — adaptive TTL on re-seal.
+                com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()
+            else LIVE_EXECUTION_TICKET_TTL_MS,
             liquidityUsd = refreshedMark6614?.liquidityUsd?.toDouble() ?: intent.liquidityUsd,
             markId6614 = refreshedMark6614?.let { "${it.mint}:${it.pairId}:${it.timestampMs}" } ?: intent.markId6614,
             markVersion6614 = refreshedMark6614?.timestampMs ?: intent.markVersion6614,
@@ -1015,7 +1024,10 @@ object ExecutableOpenGate {
                             decisionAuthorityId6613 = "FDG_AUTH:${immutableAuthority6519?.authorityVersion ?: winner.candidateVersion}",
                             fdgDecisionId6613 = "${mode6512}:${mint}:${winner.candidateVersion}:${canonicalLane6519}",
                             fdgEvidence6613 = "fdgCan=true;preFdg=${winner.preFdgVerdict};safety=${winner.safetyTier};hardNo=0",
-                            expiresAtMs6613 = System.currentTimeMillis() + if (paperRuntime) PAPER_EXECUTION_TICKET_TTL_MS else LIVE_EXECUTION_TICKET_TTL_MS,
+                            expiresAtMs6613 = System.currentTimeMillis() + if (paperRuntime)
+                                // V5.0.6626 §RUNTIME_LOOP_UNCHOKE §2 — adaptive TTL on fresh ticket seal.
+                                com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()
+                            else LIVE_EXECUTION_TICKET_TTL_MS,
                             markId6614 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE)?.let { "${it.mint}:${it.pairId}:${it.timestampMs}" } ?: "",
                             markVersion6614 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE)?.timestampMs ?: 0L,
                             markTimestampMs6614 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE)?.timestampMs ?: 0L,

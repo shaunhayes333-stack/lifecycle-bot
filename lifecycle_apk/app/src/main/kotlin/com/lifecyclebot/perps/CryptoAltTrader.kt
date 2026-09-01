@@ -504,7 +504,8 @@ object CryptoAltTrader {
         val paperRuntime6559 = (cfg?.paperMode == true) || try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
         if (paperRuntime6559) {
             if (!isEnabled.get()) return "disabled"
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_PAPER_RUNTIME_PRECEDENCE_6559") } catch (_: Throwable) {}
+            // V5.0.6626 §RUNTIME_LOOP_UNCHOKE §1 — coalesced hot-label increment.
+            try { com.lifecyclebot.engine.truth.HotLabelCoalescer6626.inc6626("CRYPTO_PAPER_RUNTIME_PRECEDENCE_6559") } catch (_: Throwable) {}
             return null
         }
         val operatorExplicitlyEnabled = cfg != null &&

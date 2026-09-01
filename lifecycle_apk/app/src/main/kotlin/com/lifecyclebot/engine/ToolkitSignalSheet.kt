@@ -565,8 +565,37 @@ object ToolkitSignalSheet {
      * bypass the desk-stage authority path. `eventId` is intentionally
      * used only as an idempotency key: parsing structure from it would
      * couple the receivers to callsite formatting.
+     *
+     * V5.0.6626 §RUNTIME_LOOP_UNCHOKE §3 — 500ms per-key debounce.
+     * Even though recordDeskStage already dedupes on (lane|stage|eventId)
+     * via `deskStageOnce6599`, the fan-out itself walks five receivers
+     * per call. Under a hot burst that dedupe cache can be reset or
+     * skipped by a caller passing an empty eventId; the debounce here
+     * guarantees the receivers themselves see at most one fan-out per
+     * 500ms per key, protecting the Main thread even in pathological
+     * cases. The receivers are idempotent so this is behaviour-preserving.
      */
+    private val fanOutDebounce6626 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private const val FAN_OUT_DEBOUNCE_MS_6626 = 500L
     private fun fanOutToReceivers6625(lane: String, stage: String, eventId: String) {
+        // V5.0.6626 §RUNTIME_LOOP_UNCHOKE §3 — 500ms per-key debounce.
+        val nowMs6626 = System.currentTimeMillis()
+        val debounceKey6626 = "$lane|$stage|$eventId"
+        val prev6626 = fanOutDebounce6626.put(debounceKey6626, nowMs6626)
+        if (prev6626 != null && nowMs6626 - prev6626 < FAN_OUT_DEBOUNCE_MS_6626) {
+            try {
+                com.lifecyclebot.engine.truth.HotLabelCoalescer6626
+                    .inc6626("MEME_FANOUT_DEBOUNCED_6626")
+            } catch (_: Throwable) {}
+            return
+        }
+        // Opportunistic garbage-collect: keep the debounce map bounded.
+        if (fanOutDebounce6626.size > 4096) {
+            try {
+                val cutoff6626 = nowMs6626 - (FAN_OUT_DEBOUNCE_MS_6626 * 4L)
+                fanOutDebounce6626.entries.removeIf { it.value < cutoff6626 }
+            } catch (_: Throwable) {}
+        }
         // Derive a stable attemptId for the backlog. Callers pass either a
         // positionId (":reason" suffixed) or an attemptId; strip the suffix
         // so BUY_INTENT / TICKET / EXEC etc. all match on the same key.

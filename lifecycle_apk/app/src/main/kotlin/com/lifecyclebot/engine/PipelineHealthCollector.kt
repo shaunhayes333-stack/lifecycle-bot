@@ -1764,6 +1764,12 @@ object PipelineHealthCollector {
             sb.append("  §P4 MOONSHOT_EXIT_TX    ${com.lifecyclebot.engine.truth.MoonshotExitTransaction6625.statusLine()}\n")
             sb.append("  §P5 CAUSAL_FUNNEL       ${com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.statusLine()}\n")
             sb.append("  §P6 UI_OFF_MAIN_AUDIT   ${com.lifecyclebot.engine.truth.UiOffMainAudit6625.statusLine()}\n")
+            // V5.0.6626 §RUNTIME_LOOP_UNCHOKE — coalescer + adaptive TTL status.
+            try {
+                sb.append("===== RUNTIME LOOP UNCHOKE (V5.0.6626) =====\n")
+                sb.append("  §1 HOT_LABEL_COALESCER  ${com.lifecyclebot.engine.truth.HotLabelCoalescer6626.statusLine6626()}\n")
+                sb.append("  §2 ADAPTIVE_TICKET_TTL  ${com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.statusLine6626()}\n")
+            } catch (_: Throwable) {}
         } catch (_: Throwable) {}
 
         // ── V5.0.6428 §AP — CORRECTNESS GUARDS status ───────────────
@@ -2825,6 +2831,20 @@ object PipelineHealthCollector {
     fun labelInc(key: String) {
         if (!attached) return
         bump(labelCounts, key)
+    }
+
+    /**
+     * V5.0.6626 §RUNTIME_LOOP_UNCHOKE §2 — public read of the rolling
+     * average cycle-time in ms, used by AdaptiveTicketTtl6626 to size
+     * PAPER execution-ticket TTL against actual loop tempo. Uses the
+     * lifetime average when available (already tracked by the cycle
+     * counters). Returns 0L if no cycle has been recorded yet.
+     */
+    fun rollingAvgCycleMs6626(): Long {
+        val n = cycleCount.get()
+        if (n <= 0L) return 0L
+        val t = totalCycleMs.get()
+        return t / n
     }
 
     /** V5.0.6312 — public read of a specific label counter for the live-entry safety-hold sampler. */

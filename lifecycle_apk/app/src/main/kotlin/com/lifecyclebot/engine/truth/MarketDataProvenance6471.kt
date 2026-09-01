@@ -115,7 +115,11 @@ object MarketDataProvenance6471 {
 
     private fun recordSentinel(identity: String, reason: String): Provenance {
         sentinelHits.incrementAndGet()
-        try { PipelineHealthCollector.labelInc("MARKET_DATA_SENTINEL_6471") } catch (_: Throwable) {}
+        // V5.0.6626 §RUNTIME_LOOP_UNCHOKE §1 — coalesced hot-label
+        // increment. Under 290k hits/uptime the direct labelInc call
+        // was compounding Main-thread frame gaps; the coalescer flushes
+        // once per second while preserving counter accuracy.
+        try { HotLabelCoalescer6626.inc6626("MARKET_DATA_SENTINEL_6471") } catch (_: Throwable) {}
         val now = System.currentTimeMillis()
         val fingerprint = "$identity|$reason"
         var transition = false
