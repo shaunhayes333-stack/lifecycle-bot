@@ -269,8 +269,26 @@ object CanonicalPositionAuthority6441 {
                 lifecycle = lifecycle,
                 lastMutationMs = System.currentTimeMillis(),
                 quarantineReason = "",
-                entryPriceUsd = entryPriceUsd,
-                entryPriceSource = entryPriceSource,
+                // V5.0.6631c §B — auto-compute entryPriceUsd from
+                // (entryCostSol / qtyToken) when the caller did not
+                // provide one. Legacy paths (Repair6487/6489/6492/6514
+                // acceptance tests + a handful of production callsites)
+                // pass cost + qty but never set entryPriceUsd, and the
+                // strict openPositions() filter now rejects zero-entry
+                // basis per operator directive. Deriving the price here
+                // lets the strict rejection stand without breaking those
+                // legitimate reconstruction paths.
+                entryPriceUsd = if (entryPriceUsd > 0.0) entryPriceUsd else run {
+                    val qtyToken6631 = try {
+                        if (quantityScale in 0..18)
+                            openedQtyRaw.toBigDecimal().movePointLeft(quantityScale).toDouble()
+                        else 0.0
+                    } catch (_: Throwable) { 0.0 }
+                    if (entryCostSol > 0.0 && qtyToken6631 > 0.0) entryCostSol / qtyToken6631 else 0.0
+                },
+                entryPriceSource = if (entryPriceUsd > 0.0) entryPriceSource
+                    else if (entryPriceSource.isBlank()) "OPEN_POSITION_DERIVED_FROM_COST_QTY_6631"
+                    else entryPriceSource,
                 entryPoolAddress = entryPoolAddress,
                 entryDex = entryDex,
                 assetClass = effectiveAssetClass6592,
@@ -617,24 +635,14 @@ object CanonicalPositionAuthority6441 {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_INVARIANT_BROKEN_SOURCE_6631") } catch (_: Throwable) {}
             return false
         }
-        // V5.0.6631 §B — non-finite entry price is impossible economics.
-        // A legitimate legacy path that has not yet set entryPriceUsd
-        // (still 0.0 with a valid source) is admitted as OPEN so the
-        // reactive OpenPnlSanity heal path can reconstruct basis on
-        // its next inspect() cycle. Emit a diagnostic label so the
-        // operator can grep the zero-basis population count without
-        // waiting for the heal cycle.
+        // V5.0.6631c §B — strict per operator directive: entryPrice
+        // <= 0 MUST be excluded. Legacy callers now derive
+        // entryPriceUsd from entryCostSol/qtyToken at openPosition()
+        // so legitimate reconstruction paths still admit as OPEN.
         val entry = p.entryPriceUsd
-        if (!entry.isFinite()) {
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_NON_FINITE_ENTRY_PRICE_6631") } catch (_: Throwable) {}
+        if (!entry.isFinite() || entry <= 0.0) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_ZERO_ENTRY_PRICE_6631") } catch (_: Throwable) {}
             return false
-        }
-        if (entry <= 0.0) {
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_ZERO_ENTRY_PRICE_PENDING_HEAL_6631") } catch (_: Throwable) {}
-            // Admitted — reactive heal path OpenPnlSanity will reject/
-            // reconstruct basis. Do NOT drop from open inventory or
-            // legitimate PENDING_ENTRY/OPEN transitions and legacy
-            // pre-6631 rows disappear from the hero.
         }
         return true
     }
