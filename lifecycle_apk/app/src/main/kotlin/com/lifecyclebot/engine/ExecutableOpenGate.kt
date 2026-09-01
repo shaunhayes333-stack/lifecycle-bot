@@ -599,12 +599,53 @@ object ExecutableOpenGate {
                         } catch (_: Throwable) { false }
                 } catch (_: Throwable) { false }
                 if (hasFrozenSnap) {
+                    // V5.0.6627 §1 EXECUTION_INTENT_LOSS_AT_SOURCE (operator directive
+                    // Feb 2026:
+                    //   "Frozen snapshot restore MUST restore intentId + FDG seal +
+                    //    candidateVersion + ownerLane. If old snapshot cannot provide
+                    //    them → state = NEEDS_REVALIDATION → re-enter canonical
+                    //    authority/FDG. NOT: executable=true + missing intent."
+                    // The frozen-snapshot fast-path used to return null (allow) as
+                    // long as ExecutionSnapshotAuthority6496 + SealedOrderSize
+                    // matched, regardless of whether an ExecutionIntent existed
+                    // downstream. That produced 41× EXEC_STATE_RESTORED_FROM_FROZEN_
+                    // SNAPSHOT_6499 == 41× EXEC_OPEN_BLOCKED_NO_EXECUTION_INTENT_6615
+                    // in the V5.0.6626 dump. Refuse the fast-path unless the
+                    // canonical ExecutionIntent authority is present.
+                    val intentPresent6627 = try {
+                        immutableTicket != null ||
+                            ticketAuthority6564 != null ||
+                            (immutableAuthority6513 != null &&
+                                immutableAuthority6513.verdict.uppercase() in setOf("BUY", "PROBE_ONLY") &&
+                                immutableAuthority6513.authoritativeSignal.equals("BUY", true))
+                    } catch (_: Throwable) { false }
+                    if (!intentPresent6627) {
+                        try {
+                            PipelineHealthCollector.labelInc(
+                                "EXEC_FROZEN_SNAPSHOT_MISSING_INTENT_NEEDS_REVALIDATION_6627",
+                            )
+                            ForensicLogger.lifecycle(
+                                "EXEC_FROZEN_SNAPSHOT_MISSING_INTENT_NEEDS_REVALIDATION_6627",
+                                "mint=${mint.take(10)} symbol=$symbol selected=$selected " +
+                                    "safety=$currentSafetyTier immTicket=${immutableTicket != null} " +
+                                    "ticketAuthority=${ticketAuthority6564 != null} " +
+                                    "immAuth=${immutableAuthority6513?.verdict} " +
+                                    "action=drop_and_revalidate",
+                            )
+                        } catch (_: Throwable) {}
+                        // Drop through to the standard "no final candidate"
+                        // path so the mint re-enters canonical FDG on the
+                        // next scan cycle with fresh authority.
+                        return "EXEC_OPEN_DROPPED_TOKEN_STATE_CHANGED" to
+                            "FROZEN_SNAPSHOT_NEEDS_REVALIDATION_6627"
+                    }
                     try {
                         ForensicLogger.lifecycle(
                             "EXEC_STATE_RESTORED_FROM_FROZEN_SNAPSHOT_6499",
                             "mint=${mint.take(10)} symbol=$symbol selected=$selected safety=$currentSafetyTier liq=${currentLiquidityUsd.toInt()} action=allow_from_snapshot",
                         )
                         PipelineHealthCollector.labelInc("EXEC_STATE_RESTORED_FROM_FROZEN_SNAPSHOT_6499")
+                        PipelineHealthCollector.labelInc("EXEC_FROZEN_SNAPSHOT_INTENT_VERIFIED_6627")
                     } catch (_: Throwable) {}
                     return null
                 }

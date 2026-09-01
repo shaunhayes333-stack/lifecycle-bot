@@ -33,9 +33,32 @@ object ExpressHandoffFunnel6625 {
     private val ticketSealed = AtomicLong(0L)
     private val executed = AtomicLong(0L)
 
+    // V5.0.6627 §3 EXPRESS_RECEIVER_TERMINAL_ENFORCEMENT (operator Feb 2026:
+    //   "It should be impossible for intent > markOK + markRejected +
+    //    markMissing + superseded after the handoff TTL expires").
+    // Live intents are tracked with wall-clock birth timestamps and a
+    // 30s TTL. Reap6627(...) MUST be called from the pipeline dump
+    // cadence and terminalizes every intent that never received a
+    // downstream handoff terminal. Adds two invariant counters:
+    //   EXPRESS_INTENT_TERMINALIZED_STALE_6627
+    //   EXPRESS_INTENT_WITHOUT_HANDOFF_TERMINAL_6627 (alarm only)
+    private val liveIntents6627 = ConcurrentHashMap<String, Long>() // attemptId -> birthMs
+    private val terminalizedStale6627 = AtomicLong(0L)
+    private val superseded6627 = AtomicLong(0L)
+    private val invariantAlarms6627 = AtomicLong(0L)
+    private const val INTENT_TTL_MS_6627 = 30_000L
+
     fun onIntentSeen6625(mint: String) {
         intentSeen.incrementAndGet()
         try { PipelineHealthCollector.labelInc("EXPRESS_FUNNEL_INTENT_SEEN_6625") } catch (_: Throwable) {}
+        // V5.0.6627 §3 — track live intent for TTL-based terminal enforcement.
+        // Same-key re-emit supersedes the previous (only one live intent per
+        // attemptId at a time).
+        val prev6627 = liveIntents6627.put(mint, System.currentTimeMillis())
+        if (prev6627 != null) {
+            superseded6627.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("EXPRESS_INTENT_SUPERSEDED_6627") } catch (_: Throwable) {}
+        }
     }
     fun onMarkAcquisition6625(mint: String, ok: Boolean, reason: String = "") {
         if (ok) {
@@ -49,6 +72,8 @@ object ExpressHandoffFunnel6625 {
                     "mint=${mint.take(10)} reason=${reason.take(60)}")
             } catch (_: Throwable) {}
         }
+        // V5.0.6627 §3 — mark acquisition is a terminal handoff outcome.
+        liveIntents6627.remove(mint)
     }
     fun onSizingBridgeEntry6625(mint: String) {
         sizingEntered.incrementAndGet()
@@ -70,19 +95,61 @@ object ExpressHandoffFunnel6625 {
     fun onTicketSealed6625(mint: String) {
         ticketSealed.incrementAndGet()
         try { PipelineHealthCollector.labelInc("EXPRESS_FUNNEL_TICKET_SEALED_6625") } catch (_: Throwable) {}
+        // V5.0.6627 §3 — ticket sealing is also a valid terminal outcome
+        // (mark was OK upstream but wasn't recorded via onMarkAcquisition
+        // for this handoff path). Idempotent remove.
+        liveIntents6627.remove(mint)
     }
     fun onExecuted6625(mint: String) {
         executed.incrementAndGet()
         try { PipelineHealthCollector.labelInc("EXPRESS_FUNNEL_EXECUTED_6625") } catch (_: Throwable) {}
+        liveIntents6627.remove(mint)
     }
-    fun statusLine(): String =
-        "intent=${intentSeen.get()} markOK=${markAcquired.get()} markMissing=${markMissing.get()} " +
+
+    /**
+     * V5.0.6627 §3 — reap intents whose handoff never terminalized within
+     * INTENT_TTL_MS_6627. Terminalized as STALE and stamped on the
+     * EXPRESS_INTENT_WITHOUT_HANDOFF_TERMINAL_6627 invariant counter so the
+     * operator can grep the exact count. Returns the number reaped.
+     * Called from PipelineHealthCollector on each dump cadence.
+     */
+    fun reap6627(maxAgeMs: Long = INTENT_TTL_MS_6627): Long {
+        if (liveIntents6627.isEmpty()) return 0L
+        val nowMs = System.currentTimeMillis()
+        var n = 0L
+        val toRemove = liveIntents6627.entries.filter { nowMs - it.value >= maxAgeMs }
+        for (e in toRemove) {
+            if (liveIntents6627.remove(e.key, e.value)) {
+                n++
+                terminalizedStale6627.incrementAndGet()
+                invariantAlarms6627.incrementAndGet()
+                try {
+                    PipelineHealthCollector.labelInc("EXPRESS_INTENT_TERMINALIZED_STALE_6627")
+                    PipelineHealthCollector.labelInc("EXPRESS_INTENT_WITHOUT_HANDOFF_TERMINAL_6627")
+                } catch (_: Throwable) {}
+            }
+        }
+        return n
+    }
+
+    fun statusLine(): String {
+        val i = intentSeen.get()
+        val ok = markAcquired.get()
+        val miss = markMissing.get()
+        val sup = superseded6627.get()
+        val stale = terminalizedStale6627.get()
+        val diff6627 = i - (ok + miss + sup + stale)
+        return "intent=$i markOK=$ok markMissing=$miss " +
             "sizedPos=${sizingReturnedPositive.get()} sizedZero=${sizingReturnedZero.get()} " +
-            "ticketSealed=${ticketSealed.get()} executed=${executed.get()}"
+            "ticketSealed=${ticketSealed.get()} executed=${executed.get()} " +
+            "superseded=$sup stale=$stale liveNoTerminal=$diff6627"
+    }
     internal fun resetForTest() {
         intentSeen.set(0L); markAcquired.set(0L); markMissing.set(0L)
         sizingEntered.set(0L); sizingReturnedZero.set(0L); sizingReturnedPositive.set(0L)
         ticketSealed.set(0L); executed.set(0L)
+        liveIntents6627.clear(); terminalizedStale6627.set(0L)
+        superseded6627.set(0L); invariantAlarms6627.set(0L)
     }
 }
 

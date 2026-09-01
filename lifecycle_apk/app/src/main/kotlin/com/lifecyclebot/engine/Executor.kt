@@ -13208,6 +13208,19 @@ class Executor(
             )
             com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(entryLane6450, "EXEC", pid6450)
             com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(entryLane6450, "POSITION_OPENED", pid6450)
+            // V5.0.6627 §7 OPEN_POSITION_ENTRY_BASIS_INVARIANT — proactive alarm
+            // at canonical OPEN transition. Fires OPEN_POSITION_ZERO_ENTRY_PRICE_
+            // 6627 if the sealed entry basis is not authoritative, so the source
+            // is visible without waiting for the first inspect() cycle to reject.
+            try {
+                com.lifecyclebot.engine.truth.OpenPositionBasisInvariant6627.onCanonicalOpen6627(
+                    mint = ts.mint,
+                    lane = entryLane6450,
+                    entryPrice = effectivePrice,
+                    entryQty = ts.position.qtyToken,
+                    entryNotionalSol = ts.position.costSol,
+                )
+            } catch (_: Throwable) {}
             // V5.0.6455 §SELL_DOOR_MIGRATION — seed PositionStateLedger6454
             // with lifecycle=OPEN so subsequent terminal sell reservations
             // (reserveTerminalSell CAS OPEN/PARTIAL -> CLOSING) know this

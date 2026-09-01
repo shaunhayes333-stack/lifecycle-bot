@@ -1770,6 +1770,18 @@ object PipelineHealthCollector {
                 sb.append("  §1 HOT_LABEL_COALESCER  ${com.lifecyclebot.engine.truth.HotLabelCoalescer6626.statusLine6626()}\n")
                 sb.append("  §2 ADAPTIVE_TICKET_TTL  ${com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.statusLine6626()}\n")
             } catch (_: Throwable) {}
+            // V5.0.6627 §CAUSAL_AUTHORITY_REPAIR — reap stale EXPRESS intents
+            // (P0 handoff invariant), scan specialist causal counters for
+            // impossible combinations, and surface open-position basis alarm
+            // counts. All three are read-only reporting side effects on the
+            // pipeline dump cadence; none touch execution authority.
+            try {
+                com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.reap6627()
+                com.lifecyclebot.engine.truth.SpecialistCausalInvariants6627.scan6627()
+                sb.append("===== CAUSAL AUTHORITY REPAIR (V5.0.6627) =====\n")
+                sb.append("  §2 CAUSAL_INVARIANTS    ${com.lifecyclebot.engine.truth.SpecialistCausalInvariants6627.statusLine6627()}\n")
+                sb.append("  §7 OPEN_BASIS_INVARIANT ${com.lifecyclebot.engine.truth.OpenPositionBasisInvariant6627.statusLine6627()}\n")
+            } catch (_: Throwable) {}
         } catch (_: Throwable) {}
 
         // ── V5.0.6428 §AP — CORRECTNESS GUARDS status ───────────────
