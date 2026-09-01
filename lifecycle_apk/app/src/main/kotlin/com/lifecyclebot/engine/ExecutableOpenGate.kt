@@ -607,19 +607,24 @@ object ExecutableOpenGate {
                     //    authority/FDG. NOT: executable=true + missing intent."
                     // The frozen-snapshot fast-path used to return null (allow) as
                     // long as ExecutionSnapshotAuthority6496 + SealedOrderSize
-                    // matched, regardless of whether an ExecutionIntent existed
-                    // downstream. That produced 41× EXEC_STATE_RESTORED_FROM_FROZEN_
-                    // SNAPSHOT_6499 == 41× EXEC_OPEN_BLOCKED_NO_EXECUTION_INTENT_6615
-                    // in the V5.0.6626 dump. Refuse the fast-path unless the
-                    // canonical ExecutionIntent authority is present.
-                    val intentPresent6627 = try {
-                        immutableTicket != null ||
-                            ticketAuthority6564 != null ||
-                            (immutableAuthority6513 != null &&
-                                immutableAuthority6513.verdict.uppercase() in setOf("BUY", "PROBE_ONLY") &&
-                                immutableAuthority6513.authoritativeSignal.equals("BUY", true))
-                    } catch (_: Throwable) { false }
-                    if (!intentPresent6627) {
+                    // matched, regardless of whether the sealed FDG verdict /
+                    // executionAction were present. That produced 41× EXEC_STATE_
+                    // RESTORED_FROM_FROZEN_SNAPSHOT_6499 == 41× EXEC_OPEN_BLOCKED_
+                    // NO_EXECUTION_INTENT_6615 in the V5.0.6626 dump. Refuse the
+                    // fast-path unless the sealed snapshot carries an actionable
+                    // FDG verdict (BUY / PROBE_ONLY) — that IS the ExecutionIntent
+                    // authority proof available in this function's scope
+                    // (immutableTicket / ticketAuthority6564 live at the main
+                    // callsite, not here).
+                    val sealedIntent6627 = try {
+                        com.lifecyclebot.engine.truth.ExecutionSnapshotAuthority6496
+                            .sealedSnapshot6609(mint)
+                    } catch (_: Throwable) { null }
+                    val intentAuthoritative6627 = sealedIntent6627 != null &&
+                        sealedIntent6627.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY") &&
+                        sealedIntent6627.executionAction.isNotBlank() &&
+                        !sealedIntent6627.executionAction.equals("UNKNOWN", true)
+                    if (!intentAuthoritative6627) {
                         try {
                             PipelineHealthCollector.labelInc(
                                 "EXEC_FROZEN_SNAPSHOT_MISSING_INTENT_NEEDS_REVALIDATION_6627",
@@ -627,9 +632,8 @@ object ExecutableOpenGate {
                             ForensicLogger.lifecycle(
                                 "EXEC_FROZEN_SNAPSHOT_MISSING_INTENT_NEEDS_REVALIDATION_6627",
                                 "mint=${mint.take(10)} symbol=$symbol selected=$selected " +
-                                    "safety=$currentSafetyTier immTicket=${immutableTicket != null} " +
-                                    "ticketAuthority=${ticketAuthority6564 != null} " +
-                                    "immAuth=${immutableAuthority6513?.verdict} " +
+                                    "safety=$currentSafetyTier fdgVerdict=${sealedIntent6627?.fdgVerdict ?: "null"} " +
+                                    "executionAction=${sealedIntent6627?.executionAction ?: "null"} " +
                                     "action=drop_and_revalidate",
                             )
                         } catch (_: Throwable) {}
