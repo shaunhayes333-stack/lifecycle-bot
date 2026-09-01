@@ -71,6 +71,12 @@ object ReconcilerWatchdog6430 {
                 PipelineHealthCollector.labelInc("RECONCILER_WATCHDOG_FAIL_6430")
             } catch (_: Throwable) {}
         }
+        // V5.0.6632 §P0-A — sweep any half-committed atomic keys so
+        // ledger-only / journal-only mutations surface as counters at
+        // their source, not merely as an aggregate cash-divergence.
+        try {
+            PaperEconomicAtomicCommit6632.sweepUnpaired6632()
+        } catch (_: Throwable) {}
     }
 
     fun healthStatus(): Status {

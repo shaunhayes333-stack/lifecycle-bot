@@ -883,6 +883,41 @@ object TradeHistoryStore {
         }
         bumpLifetimeFor(tradeToStore)
         insertTradeAsync(tradeToStore)
+        // V5.0.6632 §P0-A — atomic-commit witness (journal side).
+        //   Every paper journal row stamps its atomic-commit key so
+        //   the paired ledger mutation can be witnessed. Half-writes
+        //   (journal row without ledger mutation, or vice versa) are
+        //   emitted as PAPER_ATOMIC_COMMIT_LEDGER_ONLY_6632 /
+        //   PAPER_ATOMIC_COMMIT_JOURNAL_ONLY_6632 by the sweeper.
+        if (tradeToStore.mode.equals("paper", true)) try {
+            val side6632 = when (tradeToStore.side.uppercase()) {
+                "BUY" -> com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.Side.BUY
+                "SELL" -> com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.Side.SELL
+                "PARTIAL_SELL" -> com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.Side.PARTIAL_SELL
+                else -> null
+            }
+            if (side6632 != null && tradeToStore.mint.isNotBlank()) {
+                val sig6632 = when (side6632) {
+                    com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.Side.BUY ->
+                        "%.6f_%.6f".format(tradeToStore.sol.coerceAtLeast(0.0), tradeToStore.feeSol.coerceAtLeast(0.0))
+                    else -> {
+                        val gross = if (tradeToStore.grossProceedsSol > 0.0) tradeToStore.grossProceedsSol
+                                    else tradeToStore.sol.coerceAtLeast(0.0)
+                        val basis = if (tradeToStore.soldCostBasisSol > 0.0) tradeToStore.soldCostBasisSol
+                                    else (gross - tradeToStore.pnlSol).coerceAtLeast(0.0)
+                        "%.6f_%.6f_%.6f".format(gross, basis, tradeToStore.feeSol.coerceAtLeast(0.0))
+                    }
+                }
+                val key6632 = com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632
+                    .keyFromMintSide(tradeToStore.mint, side6632, sig6632)
+                com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.stampJournal(
+                    key = key6632,
+                    mint = tradeToStore.mint,
+                    side = side6632,
+                    callSite = "TradeHistoryStore.recordTrade",
+                )
+            }
+        } catch (_: Throwable) {}
         // V5.9.658 — operator triage: user reports "Journal shows 0 trades but
         // bot is clearly trading (875 24h trades, 15 open positions)." Emit a
         // structured INFO log on every recordTrade so the operator can grep

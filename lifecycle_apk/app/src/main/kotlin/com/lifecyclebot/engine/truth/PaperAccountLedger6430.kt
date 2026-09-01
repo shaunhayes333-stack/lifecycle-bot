@@ -180,6 +180,17 @@ object PaperAccountLedger6430 {
     /** Paper BUY: debit cash, add to open cost basis. Default=no leverage. */
     @Synchronized
     fun onBuy(costSol: Double, feeSol: Double = 0.0): Boolean {
+        return onBuyAtomic6632(costSol, feeSol, mint = "", attemptKey = "")
+    }
+
+    /**
+     * V5.0.6632 §P0-A — attempt-keyed BUY. Wired to
+     * PaperEconomicAtomicCommit6632 so every ledger mutation is
+     * witnessed against the paired journal write. Legacy callers
+     * pass "" and degrade to signature-derived keying.
+     */
+    @Synchronized
+    fun onBuyAtomic6632(costSol: Double, feeSol: Double, mint: String, attemptKey: String): Boolean {
         if (!costSol.isFinite() || costSol <= 0.0) return false
         val total = costSol + feeSol.coerceAtLeast(0.0)
         if (!canAffordBuy(costSol, feeSol)) {
@@ -188,6 +199,24 @@ object PaperAccountLedger6430 {
                 PipelineHealthCollector.labelInc("PAPER_LEDGER_BUY_REJECTED_NO_CASH_6448")
             } catch (_: Throwable) {}
             return false
+        }
+        val k6632 = attemptKey.ifBlank {
+            PaperEconomicAtomicCommit6632.keyFromMintSide(
+                mint = mint,
+                side = PaperEconomicAtomicCommit6632.Side.BUY,
+                sigBucket = "%.6f_%.6f".format(costSol, feeSol.coerceAtLeast(0.0)),
+            )
+        }
+        if (k6632.isNotBlank()) {
+            val v = PaperEconomicAtomicCommit6632.stampLedger(
+                key = k6632, mint = mint,
+                side = PaperEconomicAtomicCommit6632.Side.BUY,
+                callSite = "PaperAccountLedger6430.onBuy",
+            )
+            if (v == PaperEconomicAtomicCommit6632.Verdict.DUPLICATE_IGNORED) {
+                try { PipelineHealthCollector.labelInc("PAPER_LEDGER_BUY_ATOMIC_DUP_SKIPPED_6632") } catch (_: Throwable) {}
+                return false
+            }
         }
         cashPico.addAndGet(-toPico(total))
         openCostBasisPico.addAndGet(toPico(costSol))
@@ -284,6 +313,24 @@ object PaperAccountLedger6430 {
 
     @Synchronized
     fun onSell(grossProceedsSol: Double, costBasisSoldSol: Double, feeSol: Double = 0.0, mint: String = ""): Boolean {
+        return onSellAtomic6632(grossProceedsSol, costBasisSoldSol, feeSol, mint, attemptKey = "")
+    }
+
+    /**
+     * V5.0.6632 §P0-A — attempt-keyed SELL. Wired to
+     * PaperEconomicAtomicCommit6632 so every terminal or partial
+     * sell that mutates the ledger is witnessed against the paired
+     * journal write. Legacy callers pass attemptKey="" and degrade
+     * to signature-derived keying (mint|SIDE|sigBucket).
+     */
+    @Synchronized
+    fun onSellAtomic6632(
+        grossProceedsSol: Double,
+        costBasisSoldSol: Double,
+        feeSol: Double,
+        mint: String,
+        attemptKey: String,
+    ): Boolean {
         if (!grossProceedsSol.isFinite() || !costBasisSoldSol.isFinite()) return false
         // V5.0.6502 §1 — LEDGER QUARANTINE REJECT. Positions whose qty
         // invariant was violated (compassSOL-class phantom) or whose
@@ -323,6 +370,30 @@ object PaperAccountLedger6430 {
         if (!canApplySell6486(basis) || gross + 1e-9 < fee) {
             try { PipelineHealthCollector.labelInc("PAPER_SELL_LEDGER_REJECTED_6486") } catch (_: Throwable) {}
             return false
+        }
+        // V5.0.6632 §P0-A — atomic-commit witness. Stamp the LEDGER
+        // side under an attempt-keyed idempotency slot. A duplicate
+        // stamp means this exact terminalFillIndex (or gross/basis
+        // signature for legacy callers) has already committed on the
+        // ledger — MUST NOT mutate again. Journal writer (paper
+        // recordTrade) stamps the same key so both sides converge.
+        val k6632 = attemptKey.ifBlank {
+            PaperEconomicAtomicCommit6632.keyFromMintSide(
+                mint = mint,
+                side = PaperEconomicAtomicCommit6632.Side.SELL,
+                sigBucket = "%.6f_%.6f_%.6f".format(gross, basis, fee),
+            )
+        }
+        if (k6632.isNotBlank()) {
+            val v = PaperEconomicAtomicCommit6632.stampLedger(
+                key = k6632, mint = mint,
+                side = PaperEconomicAtomicCommit6632.Side.SELL,
+                callSite = "PaperAccountLedger6430.onSell",
+            )
+            if (v == PaperEconomicAtomicCommit6632.Verdict.DUPLICATE_IGNORED) {
+                try { PipelineHealthCollector.labelInc("PAPER_LEDGER_SELL_ATOMIC_DUP_SKIPPED_6632") } catch (_: Throwable) {}
+                return false
+            }
         }
         cashPico.addAndGet(toPico(gross - fee))
         openCostBasisPico.addAndGet(-toPico(basis))
