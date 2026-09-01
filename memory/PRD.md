@@ -1,10 +1,31 @@
-# AATE PRD — V5.0.6628 (CAUSAL AUTHORITY REPAIR CONTINUED — items 5 + 4)
+# AATE PRD — V5.0.6630 (CRITICAL AUTHORITY RECOVERY — operator P0 directive)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
-**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6628 Build CI GREEN (15m42s, run 33486885655).**
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6630 Build CI GREEN (9m54s, run 33491191980).**
+
+## V5.0.6630 (Feb 2026) — CRITICAL AUTHORITY RECOVERY (operator P0)
+
+Post-V5.0.6629 emergency forensic surfaced 6 critical defects. This commit train delivers the highest-priority repairs per operator's mandated order (A→B→C→D→F). Items D-full-refactor / G (acceptance test) will follow.
+
+- **§A EXIT_COORDINATOR_CONSUMER_MISSING_RECOVERED_6630** — 60× `EXIT_COORDINATOR_REQUESTED` with 0/0 sweeps. `BotService.requestExitSweeps` now detects `(fullExitSweepPending || universalSlSweepPending) && exitSweepCoordinatorJob?.isActive != true` and forcibly cancels + relaunches the coordinator, emitting the recovery counter.
+- **§B PAPER_CAPITAL_AUTHORITY_NEGATIVE_CASH_HELD_6630** — `syncPaperCapitalAuthority6448`'s `coerceAtLeast(0.0)` was manufacturing 0.0 from a negative-cash invariant violation, starving OrderSizeResolver with `NO_WALLET`. Now returns early with a diagnostic label; downstream projections retain last-known-good instead of a phantom 0.0.
+- **§C LEGACY_REPLAY_ISOLATION** — new `LegacyReplayIsolation6630` gate; default CLOSED per operator directive. `CanonicalPositionAuthority6441` replay now QUARANTINES legacy SOL-per-token positions (was: migrated 482 basis-untrusted rows into canonical capital, producing ~127 SOL cash divergence). Operator can flip `setMigrationAuthorized6630(true, source)` at runtime after a validated accounting-epoch reset.
+- **§D SPECIALIST_GENERIC_BRIDGE_MISROUTE_6630** — `TraderSizingBridge6444.resolveForLane` now stamps `SPECIALIST_GENERIC_BRIDGE_MISROUTE_6630` + per-lane suffix whenever any of the 12 canonical meme lane keys (SHITCOIN/MOONSHOT/CORE/BLUECHIP/EXPRESS/PROJECT_SNIPER/CYCLIC/QUALITY/DIP_HUNTER/MANIPULATED/TREASURY/CASHGEN) hits the generic bridge. Telemetry alarm only — the full per-specialist canonical-sizing-bridge routing refactor is deferred.
+- **§F PaperEconomicSnapshot6629 rebound** — hero snapshot now reads `PaperCapitalAuthority6577.snapshot()` (canonical mutable authority) instead of `JournalEconomicAuthority6616` (journal replay). Journal replay demoted to diagnostic-only divergence probe.
+
+`PipelineHealthCollector` prints a `CRITICAL AUTHORITY RECOVERY (V5.0.6630)` block next to V5.0.6629's block with the isolation status line.
+
+Test coverage: three new suites — `Aate6630CriticalAuthorityRecoveryCoverageTest`, `Aate6630LegacyReplayIsolationCoverageTest`, `Aate6630SpecialistMisrouteCoverageTest`.
+
+### Deferred to V5.0.6631+
+- **Item D full refactor** — route every meme specialist through `CanonicalSizingBridge6532` per-asset-class (MoonshotTraderAI:840 identified; ShitcoinTraderAI + others to audit)
+- **Item G acceptance test** — automated 60-120s PAPER acceptance harness on the operator's 8-invariant checklist
+- **BG_SPLIT_RUNTIME_INTAKE_ZOMBIE_6579 self-heal** — restart canonical scan consumer when intake alive but scan/FDG stale (currently alarm-only)
+
+## V5.0.6629 (Feb 2026) — CAUSAL AUTHORITY REPAIR items 6 + 8 (hero snapshot + arbiter)
 
 ## V5.0.6628 (Feb 2026) — CAUSAL AUTHORITY REPAIR CONTINUED (items 5 + 4)
 
