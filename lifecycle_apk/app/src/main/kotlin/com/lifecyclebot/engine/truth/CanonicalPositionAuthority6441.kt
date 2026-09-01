@@ -295,6 +295,39 @@ object CanonicalPositionAuthority6441 {
             )
             markKeyUsed(idempotencyKey)
             try { AateDecisionFabric6512.attachPosition(positionId, canonicalMode6490, mint, lane) } catch (_: Throwable) {}
+            // V5.0.6634 §LOCKED_ENTRY_METRICS — lock the entry-time
+            //   snapshot at BUY commit so downstream mark/exit/UI paths
+            //   cannot re-derive a divergent entry price / qty / decimals
+            //   later.  Only OPEN or PARTIALLY_CLOSED lifecycles lock —
+            //   PENDING_ENTRY is not yet committed.
+            if (lifecycle == Lifecycle.OPEN || lifecycle == Lifecycle.PARTIALLY_CLOSED) try {
+                val locked6634 = positions[positionId]
+                if (locked6634 != null) {
+                    val qtyTokens6634 = try {
+                        if (locked6634.quantityScale in 0..18)
+                            locked6634.originalQtyRaw.toBigDecimal().movePointLeft(locked6634.quantityScale).toDouble()
+                        else 0.0
+                    } catch (_: Throwable) { 0.0 }
+                    LockedEntryMetrics6634.lockAtBuy6634(
+                        LockedEntryMetrics6634.EntrySnapshot(
+                            positionId = positionId,
+                            mint = locked6634.mint,
+                            symbol = locked6634.symbol,
+                            assetClass = locked6634.assetClass,
+                            entryPriceUsd = locked6634.entryPriceUsd,
+                            entryPriceSol = 0.0,   // set by caller when known
+                            entryCostSol = locked6634.entryCostSol,
+                            qtyRaw = locked6634.originalQtyRaw,
+                            qtyTokens = qtyTokens6634,
+                            tokenDecimals = locked6634.tokenDecimals,
+                            quantityScale = locked6634.quantityScale,
+                            entryPriceSource = locked6634.entryPriceSource,
+                            solUsdAtEntry = 0.0,   // set by caller when known
+                            lockedAtMs = System.currentTimeMillis(),
+                        )
+                    )
+                }
+            } catch (_: Throwable) {}
             muts.incrementAndGet()
             try {
                 PipelineHealthCollector.labelInc(
@@ -635,6 +668,31 @@ object CanonicalPositionAuthority6441 {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_INVARIANT_BROKEN_SOURCE_6631") } catch (_: Throwable) {}
             return false
         }
+        // V5.0.6634 §OPEN_POSITIONS_INVARIANT_PARITY (operator Feb 2026
+        //   dump: MACRODUCK / LEGO / fone / CLAWCORP / CROAK / TOESCOIN /
+        //   BUNK / catfish all rendered "Entry: INVARIANT_BROKEN_6500"
+        //   at +0.0/+0.1/+1.9% while the strict filter passed them
+        //   through). Root cause: the UI card's own invariant check
+        //   consults QuantityInvariantAuthority6500 (mint-keyed
+        //   quarantine + qty×price parity), but the strict filter only
+        //   inspected the entryPriceSource string. Positions where the
+        //   invariant fails on the mint quarantine or the check(mint,
+        //   pos).ok returns false but the entryPriceSource never had
+        //   the INVARIANT_BROKEN token stamped were leaking. Consult
+        //   both authorities here so the two never diverge again.
+        val mint6634 = p.mint
+        if (mint6634.isNotBlank()) try {
+            val quarantined = QuantityInvariantAuthority6500.isQuarantined(mint6634)
+            if (quarantined) {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_QTY_INVARIANT_QUARANTINE_6634")
+                return false
+            }
+            val checkOk = QuantityInvariantAuthority6500.check(mint6634, p).ok
+            if (!checkOk) {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_QTY_INVARIANT_CHECK_FAILED_6634")
+                return false
+            }
+        } catch (_: Throwable) {}
         // V5.0.6631c §B — strict per operator directive: entryPrice
         // <= 0 MUST be excluded. Legacy callers now derive
         // entryPriceUsd from entryCostSol/qtyToken at openPosition()
