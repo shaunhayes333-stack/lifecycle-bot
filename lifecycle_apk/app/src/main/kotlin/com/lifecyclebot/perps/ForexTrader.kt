@@ -428,6 +428,17 @@ object ForexTrader {
 
         val change = data.priceChange24hPct
 
+        // V5.0.6633 §P0-G — stamp analyzer entry so operator can grep
+        //   the exact per-symbol Forex funnel loss between analyzer
+        //   front door and executable queue.
+        try {
+            com.lifecyclebot.engine.truth.CrossAssetRawSignalReceipt6633.stamp(
+                com.lifecyclebot.engine.truth.AssetClass.FOREX,
+                market.symbol,
+                com.lifecyclebot.engine.truth.CrossAssetRawSignalReceipt6633.Stage.ANALYZE_ENTERED,
+            )
+        } catch (_: Throwable) {}
+
         // V5.9.376 — consult the dedicated forex strategy for session-aware,
         // bidirectional, pip-based decision. If it stands down (off-session
         // or insufficient edge), skip this pair entirely.
@@ -445,6 +456,15 @@ object ForexTrader {
             isOverbought = isOverbought,
         ) ?: run {
             ErrorLogger.debug(TAG, "💱 ${market.symbol}: ForexStrategy stand-down (off-session or no edge)")
+            try {
+                com.lifecyclebot.engine.truth.CrossAssetRawSignalReceipt6633.stamp(
+                    com.lifecyclebot.engine.truth.AssetClass.FOREX,
+                    market.symbol,
+                    com.lifecyclebot.engine.truth.CrossAssetRawSignalReceipt6633.Stage.ANALYZE_STOOD_DOWN,
+                    com.lifecyclebot.engine.truth.CrossAssetRawSignalReceipt6633.Verdict.WAIT,
+                    reason = "forex_strategy_stand_down",
+                )
+            } catch (_: Throwable) {}
             return null
         }
         val direction = setup.direction

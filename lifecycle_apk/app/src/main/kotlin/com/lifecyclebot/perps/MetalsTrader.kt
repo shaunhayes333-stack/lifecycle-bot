@@ -332,6 +332,14 @@ object MetalsTrader {
         for (market in metalMarkets) {
             try {
                 val data = PerpsMarketDataFetcher.getMarketData(market)
+                // V5.0.6633 §P0-I — per-symbol analyzer entry receipt.
+                try {
+                    com.lifecyclebot.engine.truth.CrossAssetRawSignalReceipt6633.stamp(
+                        com.lifecyclebot.engine.truth.AssetClass.METAL,
+                        market.symbol,
+                        com.lifecyclebot.engine.truth.CrossAssetRawSignalReceipt6633.Stage.ANALYZE_ENTERED,
+                    )
+                } catch (_: Throwable) {}
                 if (data.price > 0.0) com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.METAL, "MARKET_DATA_OK")
                 if (data.price <= 0) {
                     ErrorLogger.warn(TAG, "🥇 ${market.symbol}: SKIPPED - price=0")
@@ -355,6 +363,13 @@ object MetalsTrader {
                 }
                 if (signal != null && (isPaperMode.get() || (signal.score >= spotScoreThresh && signal.confidence >= spotConfThresh))) {
                     try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FUNNEL_6567|FAMILY=METALS|STAGE=SIGNAL_SELECTED") } catch (_: Throwable) {}
+                    try {
+                        com.lifecyclebot.engine.truth.CrossAssetRawSignalReceipt6633.stamp(
+                            com.lifecyclebot.engine.truth.AssetClass.METAL,
+                            market.symbol,
+                            com.lifecyclebot.engine.truth.CrossAssetRawSignalReceipt6633.Stage.ANALYZE_ACTIONABLE,
+                        )
+                    } catch (_: Throwable) {}
                     // SPOT signal if no spot position
                     if (!spotPositions.values.any { it.market == market }) {
                         spotSignals.add(signal.copy(leverage = 1.0))

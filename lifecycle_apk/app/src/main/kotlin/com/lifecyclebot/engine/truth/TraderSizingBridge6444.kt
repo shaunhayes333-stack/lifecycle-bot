@@ -81,6 +81,35 @@ object TraderSizingBridge6444 {
                     .labelInc("SPECIALIST_GENERIC_BRIDGE_MISROUTE_6630")
                 com.lifecyclebot.engine.PipelineHealthCollector
                     .labelInc("SPECIALIST_GENERIC_BRIDGE_MISROUTE_${laneKey}_6630")
+                // V5.0.6633 §P0-K SPECIALIST_AUTO_REROUTE (operator Feb 2026:
+                //   "BLUECHIP/MOONSHOT/EXPRESS/... must use ONE common
+                //    canonical mark/sizing resolver."). Auto-reroute the
+                //   misroute through CanonicalSizingBridge6532 so a
+                //   specialist lane accidentally hitting the generic bridge
+                //   is still resolved by the correct authority. Alarm-only
+                //   diagnostic (previous behaviour) is preserved via the
+                //   two labels above.
+                val classForRoute6633 = AssetClass.fromLane(laneKey)
+                val rerouted6633 = CanonicalSizingBridge6532.resolve(
+                    requestedSol = requestedSol,
+                    assetClass = classForRoute6633,
+                    laneName = laneKey,
+                    walletSol = walletSol,
+                    paperMode = paperMode,
+                    laneRiskCapSol = overrideLaneRiskCapSol ?: DEFAULT_PORTFOLIO_CAP_SOL_6552,
+                    laneMinExecutableSol = if (paperMode) OrderSizeResolver6441.paperExecutableMinimumSol() else 0.001,
+                    canonicalAssetId = mintForSeal,
+                    symbol = mintForSeal.ifBlank { laneKey },
+                    source = "TraderSizingBridge6444.auto_reroute_6633",
+                )
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("SPECIALIST_AUTO_REROUTED_TO_CANONICAL_6633")
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("SPECIALIST_AUTO_REROUTED_${laneKey}_6633")
+                if (mintForSeal.isNotBlank() && rerouted6633.executable) {
+                    try { SealedOrderSizeAuthority6497.sealFor(mintForSeal, rerouted6633, laneKey) } catch (_: Throwable) {}
+                }
+                return rerouted6633
             }
         } catch (_: Throwable) {}
         val dynamicWalletCap = (walletSol.coerceAtLeast(0.0) * walletRiskPct.coerceIn(0.0, 1.0))

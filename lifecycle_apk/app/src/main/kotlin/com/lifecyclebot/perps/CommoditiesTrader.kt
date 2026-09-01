@@ -333,6 +333,14 @@ object CommoditiesTrader {
         for (market in commodityMarkets) {
             try {
                 val data = PerpsMarketDataFetcher.getMarketData(market)
+                // V5.0.6633 §P0-H — per-symbol analyzer entry receipt.
+                try {
+                    com.lifecyclebot.engine.truth.CrossAssetRawSignalReceipt6633.stamp(
+                        com.lifecyclebot.engine.truth.AssetClass.COMMODITY,
+                        market.symbol,
+                        com.lifecyclebot.engine.truth.CrossAssetRawSignalReceipt6633.Stage.ANALYZE_ENTERED,
+                    )
+                } catch (_: Throwable) {}
                 if (data.price > 0.0) com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.COMMODITY, "MARKET_DATA_OK")
                 if (data.price <= 0) {
                     ErrorLogger.warn(TAG, "🛢️ ${market.symbol}: SKIPPED - price=0")
@@ -363,6 +371,13 @@ object CommoditiesTrader {
                         spotSignals.add(spotSignal)
                         com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.COMMODITY, "ACTIONABLE_SIGNAL")
                         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FUNNEL_6567|FAMILY=COMMODITIES|STAGE=SIGNAL_SELECTED") } catch (_: Throwable) {}
+                        try {
+                            com.lifecyclebot.engine.truth.CrossAssetRawSignalReceipt6633.stamp(
+                                com.lifecyclebot.engine.truth.AssetClass.COMMODITY,
+                                market.symbol,
+                                com.lifecyclebot.engine.truth.CrossAssetRawSignalReceipt6633.Stage.ANALYZE_ACTIONABLE,
+                            )
+                        } catch (_: Throwable) {}
                     }
                 }
                 
