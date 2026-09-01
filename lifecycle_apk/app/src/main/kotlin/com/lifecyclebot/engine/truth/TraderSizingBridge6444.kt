@@ -31,6 +31,14 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object TraderSizingBridge6444 {
 
+    // V5.0.6630 §D — set of MEME specialist lane keys that must NOT
+    // use this generic bridge. Alarm-only for now.
+    private val SPECIALIST_LANE_KEYS_6630 = setOf(
+        "SHITCOIN", "MOONSHOT", "CORE", "BLUECHIP", "EXPRESS",
+        "PROJECT_SNIPER", "CYCLIC", "QUALITY", "DIP_HUNTER",
+        "MANIPULATED", "TREASURY", "CASHGEN",
+    )
+
     // V5.0.6552 — lane names are attribution, not eternal SOL ceilings.
     // Hard limits come from wallet-percent, liquidity, and portfolio risk at
     // resolution time; learned lane conviction may shape the proposal.
@@ -57,6 +65,24 @@ object TraderSizingBridge6444 {
         invocations.incrementAndGet()
         perLaneInvocations.computeIfAbsent(laneName) { AtomicLong(0L) }.incrementAndGet()
         val laneKey = laneName.uppercase()
+        // V5.0.6630 §D SPECIALIST_MISROUTE_DIAGNOSTIC (operator Feb 2026:
+        //   "SHITCOIN/MOONSHOT/BLUECHIP and the other specialist lanes must
+        //    NOT be routed through TraderSizingBridge6444 as generic traders.
+        //    The generic TraderSizingBridge remains for genuinely generic/
+        //    non-specialist trading only.")
+        // Alarm-only diagnostic: increment SPECIALIST_GENERIC_BRIDGE_
+        // MISROUTE_6630 when a known meme specialist lane hits the generic
+        // bridge. The full refactor (routing every specialist through
+        // CanonicalSizingBridge6532 with per-asset-class shaping) is a
+        // follow-up; the alarm makes the misroute grep-visible today.
+        try {
+            if (laneKey in SPECIALIST_LANE_KEYS_6630) {
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("SPECIALIST_GENERIC_BRIDGE_MISROUTE_6630")
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("SPECIALIST_GENERIC_BRIDGE_MISROUTE_${laneKey}_6630")
+            }
+        } catch (_: Throwable) {}
         val dynamicWalletCap = (walletSol.coerceAtLeast(0.0) * walletRiskPct.coerceIn(0.0, 1.0))
         val laneCap = overrideLaneRiskCapSol ?: dynamicWalletCap.coerceAtMost(portfolioCapSol)
         return try {
