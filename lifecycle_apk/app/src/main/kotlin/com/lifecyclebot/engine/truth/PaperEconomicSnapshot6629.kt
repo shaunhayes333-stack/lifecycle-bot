@@ -61,43 +61,56 @@ object PaperEconomicSnapshot6629 {
         readsTotal.incrementAndGet()
         readsPerSurface.computeIfAbsent(surface.uppercase()) { AtomicLong(0L) }.incrementAndGet()
         try { PipelineHealthCollector.labelInc("PAPER_ECONOMIC_SNAPSHOT_HERO_READ_${surface.uppercase()}_6629") } catch (_: Throwable) {}
-        val journal = try {
-            JournalEconomicAuthority6616.currentSnapshot()
+        // V5.0.6630 §CRITICAL_CAPITAL_AUTHORITY_RECOVERY (operator Feb 2026:
+        //   "The Main hero must no longer use TRADE_JOURNAL_REPLAY_6619 as
+        //    its money source. Hero money comes from the canonical
+        //    PaperCapitalSnapshot. Journal rows remain historical
+        //    transaction truth. Capital snapshot remains current economic
+        //    truth. They are reconciled, but neither UI nor journal replay
+        //    owns capital.")
+        // Bind hero reads to the canonical PaperCapitalAuthority6577
+        // snapshot (which is derived from PaperAccountLedger6430, the ONE
+        // mutable writer). Journal replay is diagnostic only now.
+        val canonical = try {
+            PaperCapitalAuthority6577.snapshot()
         } catch (_: Throwable) { null }
-        if (journal == null) {
+        if (canonical == null || !canonical.initialized) {
             nullSnapshotReads.incrementAndGet()
             try { PipelineHealthCollector.labelInc("PAPER_ECONOMIC_SNAPSHOT_NULL_6629") } catch (_: Throwable) {}
             return null
         }
-        // Divergence probe — compare journal cash to the ledger cash the
-        // hero surfaces used to consume. Fires on drift so the operator
-        // can grep the exact moment the two sources disagreed.
+        // Divergence probe — compare canonical cash with the LEGACY journal
+        // replay. Fires diagnostic label so the operator can grep the
+        // drift, but hero rendering trusts canonical.
         try {
-            val ledgerCash = CanonicalCapitalAuthority6450.snapshot().cashSol
-            val delta = kotlin.math.abs(ledgerCash - journal.cashSol)
-            if (delta > TOLERANCE_SOL_6629) {
-                divergences.incrementAndGet()
-                PipelineHealthCollector.labelInc("PAPER_ECONOMIC_SNAPSHOT_DIVERGENCE_6629")
-                PipelineHealthCollector.labelInc("PAPER_ECONOMIC_SNAPSHOT_DIVERGENCE_${surface.uppercase()}_6629")
-                ForensicLogger.lifecycle(
-                    "PAPER_ECONOMIC_SNAPSHOT_DIVERGENCE_6629",
-                    "surface=${surface.uppercase()} rev=${journal.revision} " +
-                        "journalCash=${"%.6f".format(journal.cashSol)} " +
-                        "ledgerCash=${"%.6f".format(ledgerCash)} " +
-                        "delta=${"%.6f".format(delta)} action=hero_uses_journal",
-                )
+            val journal = JournalEconomicAuthority6616.currentSnapshot()
+            if (journal != null) {
+                val delta = kotlin.math.abs(journal.cashSol - canonical.availableCashSol)
+                if (delta > TOLERANCE_SOL_6629) {
+                    divergences.incrementAndGet()
+                    PipelineHealthCollector.labelInc("PAPER_ECONOMIC_SNAPSHOT_DIVERGENCE_6629")
+                    PipelineHealthCollector.labelInc("PAPER_ECONOMIC_SNAPSHOT_DIVERGENCE_${surface.uppercase()}_6629")
+                    ForensicLogger.lifecycle(
+                        "PAPER_ECONOMIC_SNAPSHOT_DIVERGENCE_6629",
+                        "surface=${surface.uppercase()} " +
+                            "canonicalCash=${"%.6f".format(canonical.availableCashSol)} " +
+                            "journalCash=${"%.6f".format(journal.cashSol)} " +
+                            "delta=${"%.6f".format(delta)} " +
+                            "action=hero_uses_canonical_journal_is_diagnostic_only_6630",
+                    )
+                }
             }
         } catch (_: Throwable) {}
         return Snapshot6629(
-            revision = journal.revision,
-            cashSol = journal.cashSol,
-            reservedSol = journal.reservedSol,
-            openMarketValueSol = journal.openMarketValueSol,
-            unrealizedPnlSol = journal.unrealizedPnlSol,
-            realizedPnlSol = journal.realizedPnlSol,
-            feesSol = journal.feesSol,
-            equitySol = journal.equitySol,
-            source = journal.source,
+            revision = canonical.timestampMs,   // no atomic revision on this snapshot; use monotonic timestamp
+            cashSol = canonical.availableCashSol,
+            reservedSol = 0.0,
+            openMarketValueSol = canonical.openMarketValueSol,
+            unrealizedPnlSol = 0.0,
+            realizedPnlSol = canonical.realizedPnlSol,
+            feesSol = canonical.feesSol,
+            equitySol = canonical.totalEquitySol,
+            source = "PAPER_CAPITAL_AUTHORITY_6577_6630",
         )
     }
 

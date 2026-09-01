@@ -3691,7 +3691,37 @@ class BotService : Service() {
                 ?: try { FluidLearning.getPaperBalance() } catch (_: Throwable) { 0.0 }
             // V5.0.6475 — do not repair canonical ledger cash from displayed UI
             // cash. Displayed cash is projection-only; ledger is authority.
-            val ledgerCash = try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol().coerceAtLeast(0.0) } catch (_: Throwable) { displayedCash.coerceAtLeast(0.0) }
+            // V5.0.6630 §CRITICAL_CAPITAL_AUTHORITY_RECOVERY (operator Feb 2026:
+            //   "REMOVE any bot_loop_top/UI/replay code that writes 0.0 back
+            //    into capital. PAPER_CAPITAL_AUTHORITY_SYNCED must publish
+            //    the canonical snapshot. It must not manufacture
+            //    ledgerCash=0.00000.")
+            // The previous `coerceAtLeast(0.0)` FLOORED negative ledger cash
+            // (an invariant violation) to zero and then wrote 0.0 into
+            // CanonicalPositionAuthority and FluidLearning. That produced
+            // the operator-reported "PAPER_CAPITAL_AUTHORITY_SYNCED
+            // ledgerCash=0.00000 while ledger says -28.7230" contradiction
+            // and starved the sizing resolver with NO_WALLET.
+            val ledgerCashRaw = try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { Double.NaN }
+            if (!ledgerCashRaw.isFinite()) return
+            if (ledgerCashRaw < 0.0) {
+                // Negative cash is an accounting invariant violation. Do NOT
+                // silently write 0.0 into every downstream projection — that
+                // manufactures a phantom balance that hides the defect and
+                // kills entries via NO_WALLET. Emit a diagnostic label and
+                // return without mutating projections.
+                try {
+                    PipelineHealthCollector.labelInc("PAPER_CAPITAL_AUTHORITY_NEGATIVE_CASH_HELD_6630")
+                    ForensicLogger.lifecycle(
+                        "PAPER_CAPITAL_AUTHORITY_NEGATIVE_CASH_HELD_6630",
+                        "source=$source ledgerCash=${"%.5f".format(ledgerCashRaw)} " +
+                            "displayedWas=${"%.5f".format(displayedCash)} " +
+                            "action=do_not_write_zero_to_projections",
+                    )
+                } catch (_: Throwable) {}
+                return
+            }
+            val ledgerCash = ledgerCashRaw
             status.paperWalletSol = ledgerCash
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(ledgerCash, "paper_account_ledger_facade_6448:$source")
             try { FluidLearning.forceSetBalance(ledgerCash) } catch (_: Throwable) {}
@@ -17376,6 +17406,36 @@ if (hotExitHandledSweep) {
             }
             if (universal && universalSlSweepPending.get()) {
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_COORD_BACKUP_DEDUPE") } catch (_: Throwable) {}
+            }
+            // V5.0.6630 §CRITICAL_EXIT_COORDINATOR_RECOVERY (operator Feb 2026:
+            //   "EXIT_COORDINATOR_REQUESTED continues firing. pendingFull=true /
+            //    pendingUniversal=true are being set. But EXIT sweep start/done
+            //    remains 0/0. The request producer is alive and the request
+            //    consumer is not. If EXIT_COORDINATOR_REQUESTED > 0 and no
+            //    sweep START has occurred within two bot cycles, restart the
+            //    coordinator consumer and emit EXIT_COORDINATOR_CONSUMER_
+            //    MISSING_RECOVERED_6629.")
+            // If a pending flag was ALREADY set when this request arrived AND
+            // the previous coordinator job is not active, forcibly cancel and
+            // relaunch the coordinator so a dead consumer cannot silently
+            // hold pending forever.
+            val staleConsumer6630 = (fullExitSweepPending.get() || universalSlSweepPending.get()) &&
+                (exitSweepCoordinatorJob?.isActive != true)
+            if (staleConsumer6630) {
+                try {
+                    exitSweepCoordinatorJob?.cancel()
+                    exitSweepCoordinatorJob = null
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                        "EXIT_COORDINATOR_CONSUMER_MISSING_RECOVERED_6630",
+                    )
+                    ForensicLogger.lifecycle(
+                        "EXIT_COORDINATOR_CONSUMER_MISSING_RECOVERED_6630",
+                        "reason=$reason full=$full universal=$universal " +
+                            "pendingFull=${fullExitSweepPending.get()} " +
+                            "pendingUniversal=${universalSlSweepPending.get()} " +
+                            "action=force_relaunch",
+                    )
+                } catch (_: Throwable) {}
             }
             if (full) fullExitSweepPending.set(true)
             if (universal) universalSlSweepPending.set(true)
