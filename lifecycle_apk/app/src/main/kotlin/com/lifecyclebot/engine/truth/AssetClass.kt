@@ -37,7 +37,16 @@ enum class AssetClass {
             "FOREX", "FX" -> FOREX
             "COMMODITY", "COMMODITIES" -> COMMODITY
             "METAL", "METALS" -> METAL
-            "CRYPTO_ALT", "CRYPTOALT", "ALTCRYPTO" -> CRYPTO_ALT
+            "CRYPTO_ALT", "CRYPTOALT", "ALTCRYPTO",
+            // V5.0.6632b §P0-D — CRYPTO_ALT_ALIAS_NORMALIZATION (operator
+            //   Feb 2026: "Crypto Alt / non-Solana feeds are being
+            //   silently coerced to UNKNOWN when the source lane is
+            //   spelled differently across the ingest tree. Normalise
+            //   every crypto-alt spelling to a single canonical
+            //   CRYPTO_ALT before it hits mark/sizing.")
+            "ALT", "ALTS", "ALT_CRYPTO", "ALTCOIN", "ALTCOINS",
+            "CRYPTOALTS", "CRYPTO_ALTS", "BLUECHIP_CRYPTO",
+            "CRYPTO_UNIVERSE", "CRYPTOUNIVERSE" -> CRYPTO_ALT
             "PERPS", "PERP" -> PERPS
             // V5.0.6592 §ASSET_CLASS_IMMUTABILITY — operator directive:
             // "There must be NO fallback/default of unknown/null/non-Solana
