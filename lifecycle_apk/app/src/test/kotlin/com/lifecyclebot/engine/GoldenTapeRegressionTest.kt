@@ -6242,7 +6242,14 @@ class GoldenTapeRegressionTest {
         val vm = java.io.File("src/main/kotlin/com/lifecyclebot/ui/BotViewModel.kt").readText()
         assertTrue("V5.0.4479: open-position panels must use a shared basis-guarded display helper, not raw token ref gain math", activity.contains("uiComparableOpenPrice4479") && activity.contains("OPEN_POSITION_UI_BASIS_REBASED_4479") && activity.contains("display_only_wallet_correspondence"))
         assertTrue("V5.0.4479: open-position gain rows must route through the helper before formatting percent/SOL", activity.contains("uiGainPct4479") && !activity.contains("BotService.status.tokens[pos.mint]?.ref?.takeIf { it > 0 } ?: pos.entryPrice"))
-        assertTrue("V5.0.4479: aggregate unrealised PnL must also use the same basis guard", vm.contains("val raw = ts.ref") && vm.contains("OPEN_POSITION_UI_AGG_BASIS_REBASED_4479") && vm.contains("entry * (currentMcap / entryMcap)"))
+        assertTrue(
+            "V5.0.6636: aggregate unrealised PnL must use the canonical-gated snapshot and shared pricing authority",
+            vm.contains("totalUnrealisedPnlSol = openSnapshot.sumOf") &&
+                vm.contains("OpenPnlSanity.pricingTruth") &&
+                vm.contains("BotViewModel.totalUnrealised6636") &&
+                vm.contains("if (truth?.trusted == true) truth.pnlSol else 0.0") &&
+                !vm.contains("entry * (currentMcap / entryMcap)"),
+        )
     }
 
 
@@ -7317,7 +7324,15 @@ class GoldenTapeRegressionTest {
         val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/lab/LlmLabEngine.kt").readText()
         val ssi = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SsiPilotCouncil.kt").readText()
         assertTrue("V5.0.6078: UI/readiness stats must use StrategyTruthLedger-clean truth and no-data must not fake 50% WR", store.contains("return try { getCleanStatsSnapshot4517() }") && store.contains("val winRate:            Double = 0.0") && store.contains("val avgHoldTimeMinutes: Int    = 0") && !store.contains("else 50.0"))
-        assertTrue("V5.0.6078: Open Positions contract must preserve top ten held rows and footer-held remainder ordered by gain", main.contains("OpenPositionsModel6078") && main.contains("cachedOpenPositionsModel6078") && main.contains("precomputeTotalUpnl6078") && main.contains("preSorted6078 = true") && main.contains("val RENDER_CAP = OPENPOS_ROW_CAP"))
+        assertTrue(
+            "V5.0.6636: Open Positions contract must preserve the top-ten/footer model while aggregating only canonical trusted PnL",
+            main.contains("OpenPositionsModel6078") &&
+                main.contains("cachedOpenPositionsModel6078") &&
+                main.contains("precomputeTotalUpnl6636") &&
+                main.contains("OpenPnlSanity.pricingTruth") &&
+                main.contains("preSorted6078 = true") &&
+                main.contains("val RENDER_CAP = OPENPOS_ROW_CAP"),
+        )
         assertTrue("V5.0.6078: Runtime report export button must always copy an observable unified-report fallback", err.contains("UNIFIED_REPORT_EXPORT_CLICK_6078") && err.contains("Unified report copied") && err.contains("PipelineHealthCollector.dumpText().take(24_000)"))
         assertTrue("V5.0.6078: all sell-like results must feed LLM/SSI context with accepted/trainable flags while policy heads remain clean-gated", exec.contains("ALL_RESULT_CONTEXT_OBSERVED_6078") && exec.contains("recordExternalOutcome6078") && lab.contains("externalOutcomeSummary6078") && ssi.contains("RESULTS6078"))
         assertTrue("V5.0.6078: live positions must preserve AgenticStyleRouter style surface instead of collapsing to generic lane emoji", exec.contains("preserve the full AgenticStyleRouter style surface") && exec.contains("tradingModeEmoji = listOf") && exec.contains("routedStyleTag.ifBlank"))
