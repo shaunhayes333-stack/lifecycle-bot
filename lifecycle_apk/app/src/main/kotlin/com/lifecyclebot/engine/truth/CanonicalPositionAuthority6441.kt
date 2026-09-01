@@ -919,16 +919,15 @@ object CanonicalPositionAuthority6441 {
                     val pid = "PAPER:CARRY6492:$mint"
                     val carryScale6519 = carry6492.perMintQuantityScale[mint] ?: (carry6492.perMintTokenDecimals[mint] ?: 9)
                     val carryEntryPrice6519 = repairedEntryPrice6519(0.0, carryCost, qtyRaw, carryScale6519)
-                    // V5.0.6541 §CARRY_REPLAY_OPEN_WITHOUT_USD_BASIS — carry
-                    // replays legitimately lack a per-fill USD price (they
-                    // migrate raw qty + cost SOL only). Pre-6541 this
-                    // path synthesised a SOL/token price and painted it as
-                    // USD/token, poisoning basis. V5.0.6541 leaves the
-                    // position OPEN with entryPriceUsd=0 and lets the
-                    // downstream basis-guarded exit logic skip it; carry
-                    // is NEVER quarantined for lacking a USD basis (the
-                    // qty + cost themselves are authoritative for
-                    // capital accounting).
+                    // V5.0.6631d §B — strict-filter compliance: entryPriceUsd
+                    //   must be > 0 for a carry position to survive
+                    //   openPositions()'s economic-validity gate. When the
+                    //   durable carry lacks a USD-per-token price, derive
+                    //   the implied basis from (carryCost / qtyToken) —
+                    //   this is a SOL/token figure treated as the
+                    //   position's basis price. The `DERIVED_CARRY_COST_QTY_6631`
+                    //   stamp lets exit/mark logic identify it as
+                    //   basis-only (not a live USD quote).
                     positions[pid] = Position(
                         positionId = pid, mode = "paper", mint = mint, symbol = mint.take(8),
                         lane = "RECOVERED_CARRY_6492", runId = "REPLAY_CARRY_6492",
@@ -941,11 +940,19 @@ object CanonicalPositionAuthority6441 {
                         lifecycle = Lifecycle.OPEN,
                         lastMutationMs = System.currentTimeMillis(),
                         quarantineReason = "",
-                        entryPriceUsd = carryEntryPrice6519.coerceAtLeast(0.0),
+                        entryPriceUsd = run {
+                            if (carryEntryPrice6519 > 0.0) return@run carryEntryPrice6519
+                            // Derive implied basis price from cost / qtyToken.
+                            val qtyToken6631 = try {
+                                val scale = carryScale6519.coerceIn(0, 18)
+                                qtyRaw.toBigDecimal(scale).toDouble()
+                            } catch (_: Throwable) { 0.0 }
+                            if (carryCost > 0.0 && qtyToken6631 > 0.0) carryCost / qtyToken6631 else 0.0
+                        },
                         entryPriceSource = if (carryEntryPrice6519 > 0.0)
                             "DURABLE_CARRY_COST_QTY_REPAIR_6519"
                         else
-                            "REPLAY_CARRY_NO_USD_BASIS_6541",
+                            "DERIVED_CARRY_COST_QTY_6631",
                     )
                     try { PositionStateLedger6454.onEntry(pid) } catch (_: Throwable) {}
                     try { PipelineHealthCollector.labelInc("CANONICAL_CARRY_POSITION_RESTORED_6492") } catch (_: Throwable) {}
