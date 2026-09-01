@@ -73,12 +73,12 @@ object ForensicReconciliation6635 {
      */
     fun reconcile6635() {
         checks.incrementAndGet()
-        val cashLedger = try { PaperAccountLedger6430.cashSol() } catch (_: Throwable) { Double.NaN }
+        val cashLedger = try { PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { Double.NaN }
         val cashJournalRow = try { JournalEconomicAuthority6616.currentSnapshot() } catch (_: Throwable) { null }
         val cashJournal = cashJournalRow?.cashSol ?: cashLedger
-        val realizedLedger = try { PaperAccountLedger6430.realizedPnlSol() } catch (_: Throwable) { 0.0 }
+        val realizedLedger = try { PaperCapitalAuthority6577.realizedPnlSol() } catch (_: Throwable) { 0.0 }
         val realizedJournal = cashJournalRow?.realizedPnlSol ?: realizedLedger
-        val openCostLedger = try { PaperAccountLedger6430.openCostBasisSol() } catch (_: Throwable) { 0.0 }
+        val openCostLedger = try { PaperCapitalAuthority6577.openCostBasisSol() } catch (_: Throwable) { 0.0 }
         val openCostJournal = cashJournalRow?.openMarketValueSol ?: openCostLedger
 
         val cashDelta = kotlin.math.abs(cashJournal - cashLedger)

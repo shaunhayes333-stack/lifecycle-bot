@@ -74,9 +74,9 @@ object UnifiedAccountSnapshot6635 {
         // delta counters rather than a cached stale line.
         try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
 
-        val cashLedger = try { PaperAccountLedger6430.cashSol() } catch (_: Throwable) { 0.0 }
-        val realized = try { PaperAccountLedger6430.realizedPnlSol() } catch (_: Throwable) { 0.0 }
-        val openCost = try { PaperAccountLedger6430.openCostBasisSol() } catch (_: Throwable) { 0.0 }
+        val cashLedger = try { PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { 0.0 }
+        val realized = try { PaperCapitalAuthority6577.realizedPnlSol() } catch (_: Throwable) { 0.0 }
+        val openCost = try { PaperCapitalAuthority6577.openCostBasisSol() } catch (_: Throwable) { 0.0 }
         val openPositions = try { CanonicalPositionAuthority6441.openPositions().count { it.mode == mode } } catch (_: Throwable) { 0 }
         // Unrealized = current-market snapshot from PaperEconomicSnapshot6629.
         val econ6629 = try { PaperEconomicSnapshot6629.read6629(surface) } catch (_: Throwable) { null }
