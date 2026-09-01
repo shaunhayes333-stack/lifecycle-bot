@@ -140,6 +140,13 @@ object QuantityInvariantAuthority6500 {
     /** V5.0.6521 — validate mutable runtime projection against canonical raw lot truth. */
     fun check(mint: String, pos: Position): InvariantCheck {
         validations.incrementAndGet()
+        if (mint.isBlank() || !pos.isOpen || !pos.qtyToken.isFinite() || pos.qtyToken <= 0.0 ||
+            !pos.entryPrice.isFinite() || pos.entryPrice <= 0.0 ||
+            !pos.costSol.isFinite() || pos.costSol <= 0.0
+        ) {
+            return InvariantCheck(false, Double.POSITIVE_INFINITY, 0.0, 0.0,
+                "runtime_projection_structurally_invalid")
+        }
         // V5.0.6537 §ECONOMIC_INVARIANT — the operator's original 6499 mandate
         // was: "qty × entryPrice_usd disagrees with costSol × solPrice → quarantine
         // immediately". Pre-6537 the check only compared runtime pos to the
@@ -169,10 +176,44 @@ object QuantityInvariantAuthority6500 {
             }
             return econ6537
         }
-        val canonical = CanonicalPositionAuthority6441.openPositions()
-            .filter { it.mint == mint && it.mode == if (pos.isPaperPosition) "paper" else "live" }
-            .maxByOrNull { it.lastMutationMs }
-            ?: return InvariantCheck(true, 0.0, 0.0, 0.0, "canonical_raw_pending_deferred")
+        val expectedMode = if (pos.isPaperPosition) "paper" else "live"
+        // V5.0.6636 — bind by positionId first. The previous mint-only lookup
+        // could compare a re-entry against the previous generation and, worse,
+        // returned ok=true when canonical openPositions() had already filtered
+        // the broken row. Missing canonical truth is now fail-closed.
+        val canonical = if (pos.positionId.isNotBlank()) {
+            CanonicalPositionAuthority6441.getPosition(pos.positionId)
+                ?.takeIf { it.mint == mint && it.mode == expectedMode }
+        } else {
+            // Compatibility for pre-6512 persisted projections. New commits
+            // always carry positionId; this fallback still reads the strict
+            // CanonicalPositionAuthority6441.openPositions() inventory.
+            CanonicalPositionAuthority6441.openPositions()
+                .filter { it.mint == mint && it.mode == expectedMode }
+                .maxByOrNull { it.lastMutationMs }
+        } ?: return InvariantCheck(false, Double.POSITIVE_INFINITY, 0.0, 0.0,
+            "canonical_open_missing_or_identity_mismatch")
+        if (canonical.lifecycle !in setOf(
+                CanonicalPositionAuthority6441.Lifecycle.OPEN,
+                CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED,
+            ) || canonical.quarantineReason.isNotBlank()
+        ) {
+            return InvariantCheck(false, Double.POSITIVE_INFINITY, 0.0, canonical.entryCostSol,
+                "canonical_lifecycle_or_quarantine_invalid")
+        }
+        val canonicalSource = canonical.entryPriceSource.uppercase()
+        if (canonicalSource.contains("INVARIANT_BROKEN") ||
+            canonicalSource.contains("QUARANTINED") ||
+            canonicalSource.contains("LEGACY_REPLAY_QUARANTINED")
+        ) {
+            return InvariantCheck(false, Double.POSITIVE_INFINITY, 0.0, canonical.entryCostSol,
+                "canonical_entry_source_invalid")
+        }
+        val canonicalEconomic = checkCanonical6635(canonical)
+        if (!canonicalEconomic.ok || !canonical.entryPriceUsd.isFinite() || canonical.entryPriceUsd <= 0.0) {
+            return InvariantCheck(false, canonicalEconomic.ratio, canonicalEconomic.qtyNotionalUsd,
+                canonicalEconomic.costNotionalUsd, "canonical_economic_or_entry_invalid: ${canonicalEconomic.reason}")
+        }
         val scale = canonical.quantityScale
         if (scale !in 0..18 || canonical.remainingQtyRaw <= java.math.BigInteger.ZERO) {
             return InvariantCheck(false, Double.POSITIVE_INFINITY, 0.0, canonical.entryCostSol, "canonical_raw_or_scale_invalid")
@@ -185,7 +226,13 @@ object QuantityInvariantAuthority6500 {
         val priceRatio = canonicalEntry?.let { kotlin.math.abs(pos.entryPrice - it) / it.coerceAtLeast(1e-18) } ?: 0.0
         val ratio = maxOf(qtyRatio, costRatio, priceRatio)
         val ok = canonicalQty.isFinite() && canonicalQty > 0.0 && canonicalCost.isFinite() && canonicalCost > 0.0 && ratio <= TOLERANCE_RATIO
-        if (ok && quarantined.remove(mint) != null) {
+        val priorQuarantine = quarantined[mint]
+        // Only a projection mismatch may self-release after reconstruction.
+        // A route/basis/economic quarantine must remain sticky until its owning
+        // authority explicitly proves and releases it.
+        if (ok && priorQuarantine?.startsWith("runtime_projection_vs_canonical_raw") == true &&
+            quarantined.remove(mint, priorQuarantine)
+        ) {
             try {
                 ForensicLogger.lifecycle("QUANTITY_INVARIANT_REPAIRED_RELEASED_6521", "mint=${mint.take(10)} qtyRatio=$qtyRatio costRatio=$costRatio priceRatio=$priceRatio")
                 PipelineHealthCollector.labelInc("QUANTITY_INVARIANT_REPAIRED_RELEASED_6521")
@@ -215,6 +262,29 @@ object QuantityInvariantAuthority6500 {
         }
         return InvariantCheck(ok, ratio, canonicalQty * (canonicalEntry ?: pos.entryPrice), canonicalCost,
             if (ok) "ok_canonical_raw" else "runtime_projection_vs_canonical_raw qtyRatio=$qtyRatio costRatio=$costRatio priceRatio=$priceRatio")
+    }
+
+    /**
+     * V5.0.6636 — the single admission gate for every runtime OPEN consumer
+     * (UI list, hero totals, exposure, and ViewModel snapshots).
+     *
+     * A row is not open merely because qtyToken > 1. It must be linked to a
+     * canonical OPEN lot, match its raw quantity/cost/entry projection, pass
+     * the economic invariant, and (for current-schema rows) have the immutable
+     * BUY snapshot that downstream readers depend on.
+     */
+    fun isRuntimeOpenEligible6636(mint: String, pos: Position): Boolean {
+        val check = check(mint, pos)
+        if (!check.ok || isQuarantined(mint)) {
+            try { PipelineHealthCollector.labelInc("RUNTIME_OPEN_REJECTED_INVARIANT_6636") } catch (_: Throwable) {}
+            return false
+        }
+        if (pos.positionId.isNotBlank() && LockedEntryMetrics6634.read6634(pos.positionId) == null) {
+            markInvariantBroken(mint, "LOCKED_ENTRY_MISSING_6636 positionId=${pos.positionId.take(24)}")
+            try { PipelineHealthCollector.labelInc("RUNTIME_OPEN_REJECTED_LOCK_MISSING_6636") } catch (_: Throwable) {}
+            return false
+        }
+        return true
     }
 
     /** Legacy non-authorizing structural check; callers with a mint must use check(mint, pos). */
@@ -252,6 +322,15 @@ object QuantityInvariantAuthority6500 {
         // USD notional. The rebase authority handles those separately.
         val src = pos.entryPriceSource.uppercase()
         if (src.contains("SYNTH") || src.contains("PUMP_FUN_BC")) return null
+        // These legacy/carry sources are explicitly SOL/token or otherwise
+        // lack a proven USD/token unit. They may preserve inventory, but this
+        // USD-notional invariant cannot classify them.
+        if (src.contains("DERIVED_CARRY_COST_QTY_6631") ||
+            src.contains("DURABLE_CARRY_COST_QTY_REPAIR_6519") ||
+            src.contains("REPLAY_CARRY") || src.contains("RECOVERED_CARRY") ||
+            src.contains("OPEN_POSITION_DERIVED_FROM_COST_QTY_6631") ||
+            src.contains("DERIVED_FROM_COST")
+        ) return null
         val qtyNotionalUsd = pos.qtyToken * pos.entryPrice
         if (!qtyNotionalUsd.isFinite() || qtyNotionalUsd <= 0.0) return null
         // impliedSolPriceUsd = notional_usd / cost_sol. If entry is genuinely

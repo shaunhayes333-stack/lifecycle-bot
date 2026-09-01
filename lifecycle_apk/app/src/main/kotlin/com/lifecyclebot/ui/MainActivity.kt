@@ -2940,13 +2940,19 @@ for legal compliance.
                 val hero6503 = try {
                     com.lifecyclebot.engine.truth.HeroSnapshotAuthority6503.current()
                 } catch (_: Throwable) { null }
-                val totalExposure = if (hero6503 != null) hero6503.totalExposureSolFor(paperMode6523)
+                // A 500ms hero cache may straddle the exact tick where an
+                // invariant quarantine removes a row. Only reuse it when its
+                // partition count equals the canonical-gated row set.
+                val heroMatchesRows6636 = hero6503 != null &&
+                    hero6503.openCountFor(paperMode6523) == allOpen.size
+                val totalExposure = if (heroMatchesRows6636) hero6503!!.totalExposureSolFor(paperMode6523)
                     else allOpen.sumOf { it.position.costSol }
-                val totalUpnl = if (hero6503 != null) hero6503.totalUnrealizedSolFor(paperMode6523)
+                val totalUpnl = if (heroMatchesRows6636) hero6503!!.totalUnrealizedSolFor(paperMode6523)
                     else allOpen.sumOf { token ->
-                        val pos = token.position
-                        val verdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(token, "MainActivity.precomputeTotalUpnl6078/${token.symbol}/${token.mint.take(8)}", emit = false)
-                        if (verdict.ok) pos.costSol * verdict.pnlPct / 100.0 else 0.0
+                        val truth = com.lifecyclebot.engine.OpenPnlSanity.pricingTruth(
+                            token, "MainActivity.precomputeTotalUpnl6636/${token.symbol}/${token.mint.take(8)}", emit = false,
+                        )
+                        if (truth.trusted) truth.pnlSol else 0.0
                     }
                 val h = (allOpen.joinToString("|") { t ->
                     val p = t.position
@@ -4930,6 +4936,12 @@ for legal compliance.
         val merged = state.openPositions
             .filter { it.position.isPaperPosition == isPaperMode }
             .filter { isPaperMode || liveOpenPanelTruth4570(it.mint) }
+            .filter { ts ->
+                try {
+                    com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
+                        .isRuntimeOpenEligible6636(ts.mint, ts.position)
+                } catch (_: Throwable) { false }
+            }
             .toMutableList()
         val alreadyRendered = merged.map { it.mint }.toMutableSet()
         var latestBuyByMint: Map<String, com.lifecyclebot.data.Trade>? = null
@@ -5009,12 +5021,24 @@ for legal compliance.
                 entryPriceSource = existingPos?.entryPriceSource ?: "",
                 entryPoolAddress = existingPos?.entryPoolAddress ?: "",
                 entryDex = existingPos?.entryDex ?: "",
+                positionId = existingPos?.positionId ?: buy?.positionId.orEmpty(),
                 isShitCoinPosition = (layer == "SHITCOIN"),
                 isBlueChipPosition = (layer == "BLUE_CHIP"),
                 isTreasuryPosition = (layer == "TREASURY"),
             )
             synth.lastPrice = recoveredCurrent
             synth.lastPriceUpdate = System.currentTimeMillis()
+            // V5.0.6636 — sub-trader maps are display mirrors, never OPEN
+            // authority. A stale lane map may only synthesize a row when its
+            // recovered projection still matches the canonical funded lot.
+            val canonicalMatch6636 = try {
+                com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
+                    .isRuntimeOpenEligible6636(mint, synth.position)
+            } catch (_: Throwable) { false }
+            if (!canonicalMatch6636) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_PANEL_SYNTH_REJECTED_CANONICAL_6636") } catch (_: Throwable) {}
+                return
+            }
             merged += synth
             alreadyRendered += mint
         }
@@ -5175,10 +5199,19 @@ for legal compliance.
                         entryPriceSource = "HOST_WALLET_TRACKER_6040",
                         entryPoolAddress = "HOST_WALLET_TRACKER_6040",
                         entryDex = "HOST_WALLET_TRACKER",
+                        positionId = state.tokens[hp.mint]?.position?.positionId.orEmpty(),
                     )
-                    merged += synth6040
-                    alreadyRendered += hp.mint
-                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_PANEL_HOST_TRACKER_SYNTH_6040") } catch (_: Throwable) {}
+                    val canonicalMatch6636 = try {
+                        com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
+                            .isRuntimeOpenEligible6636(hp.mint, synth6040.position)
+                    } catch (_: Throwable) { false }
+                    if (canonicalMatch6636) {
+                        merged += synth6040
+                        alreadyRendered += hp.mint
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_PANEL_HOST_TRACKER_SYNTH_6040") } catch (_: Throwable) {}
+                    } else {
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_PANEL_HOST_TRACKER_REJECTED_CANONICAL_6636") } catch (_: Throwable) {}
+                    }
                 }
             }
         } catch (_: Throwable) {}
@@ -5191,7 +5224,12 @@ for legal compliance.
         // Falls back to entryTime when entryPrice/ref aren't set yet
         // (a fresh open with no tick yet) so newly-opened positions
         // still appear before stale ones at 0%/0%.
-        return merged.sortedWith(
+        return merged.filter { ts ->
+            try {
+                com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
+                    .isRuntimeOpenEligible6636(ts.mint, ts.position)
+            } catch (_: Throwable) { false }
+        }.sortedWith(
             compareByDescending<com.lifecyclebot.data.TokenState> { ts ->
                 val verdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "MainActivity.openSort/${ts.symbol}/${ts.mint.take(8)}", emit = false)
                 if (verdict.ok) verdict.pnlPct else Double.NEGATIVE_INFINITY
@@ -5436,6 +5474,16 @@ for legal compliance.
         val renderedMints = HashSet<String>(capped.size * 2)
         capped.forEach { ts ->
             val pos     = ts.position
+            // Defense in depth against a snapshot/quarantine race: an
+            // invariant-broken row can never authorize PnL, peak, trail, or
+            // lock calculations even for the few milliseconds before the
+            // next canonical-gated list refresh removes it.
+            val invariantBroken6500 = try {
+                // QuantityInvariantAuthority6500.check(ts.mint, pos).ok is
+                // enforced inside the unified 6636 admission gate below.
+                !com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
+                    .isRuntimeOpenEligible6636(ts.mint, pos)
+            } catch (_: Throwable) { true }
             // V5.0.6321 → 6323 — CANONICAL FILL OVERRIDE (§8 continued).
             // If the wallet has verified the fill for this mint, prefer the
             // immutable on-chain entry snapshot over ts.position.entryPrice
@@ -5481,7 +5529,7 @@ for legal compliance.
             // fall through to its untrusted verdict. Otherwise we prefer
             // the canonical price over ts.position.entryPrice which can
             // drift from lane reclassification / WebSocket healers.
-            var basisTrusted = pnlVerdict.ok
+            var basisTrusted = pnlVerdict.ok && !invariantBroken6500
             var gainPct = if (basisTrusted) pnlVerdict.pnlPct else 0.0
             if (basisTrusted) {
                 val canonicalEntryUsd = fill6321?.entryPriceUsd?.takeIf { it > 0.0 } ?: 0.0
@@ -5582,6 +5630,7 @@ for legal compliance.
                 pos.costSol.hashCode() * 13 +
                 pos.qtyToken.hashCode() * 7 +
                 pos.isPaperPosition.hashCode() * 5 +
+                invariantBroken6500.hashCode() * 11 +
                 (if (duplicateSymbols.contains(ts.symbol.uppercase())) 1 else 0) * 3 +
                 (if (pos.entryTime > 0L) 0 else 1)
             )
@@ -5737,10 +5786,8 @@ for legal compliance.
             // violates qty × entryPrice ≈ costSol × solPrice, do not show
             // phantom qty/notional. Render "INVARIANT_BROKEN" so the
             // operator sees the fault and equity/analytics exclude it.
-            val invariantBroken6500 = try {
-                com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.isQuarantined(ts.mint) ||
-                    !com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.check(ts.mint, pos).ok
-            } catch (_: Throwable) { false }
+            // Computed before PnL above so the same verdict controls both the
+            // static entry/qty labels and every dynamic money field.
             // V5.0.6634 §DOWNSTREAM_READER — prefer the locked entry
             //   snapshot for the UI's entry-price/qty rendering. When
             //   the buy locked the snapshot at commit time, we render

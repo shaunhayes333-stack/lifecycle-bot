@@ -4394,10 +4394,15 @@ class BotService : Service() {
                     val pos = ts.position
                     val px = ts.lastPrice
                     if (!px.isFinite() || px <= 0.0 || !pos.isOpen) 0.0
-                    else if (try { com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.isQuarantined(mint) } catch (_: Throwable) { false }) {
-                        // V5.0.6500 — broken-invariant positions contribute
-                        // 0.0 to openMarketValueSol so equity display stays
-                        // honest. UI still shows the position but flagged.
+                    else if (try {
+                        !com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
+                            .isRuntimeOpenEligible6636(mint, pos)
+                    } catch (_: Throwable) { true }) {
+                        // V5.0.6636 — the mark provider and UI now consume the
+                        // same canonical projection verdict. A row that fails
+                        // identity/qty/cost/entry/lock contributes zero market
+                        // value immediately; it cannot inflate equity during
+                        // the interval before a separate quarantine sweep.
                         0.0
                     }
                     else {
@@ -28357,4 +28362,3 @@ internal fun resolveLivePrice(ts: com.lifecyclebot.data.TokenState): Double {
 // runs SmartChartScanner.scan() multi-TF so longer-horizon patterns
 // (Cup & Handle, Wedges, Dead Cat Bounce…) can actually fire.
 private val smartChartScanCounter = java.util.concurrent.atomic.AtomicLong(0)
-

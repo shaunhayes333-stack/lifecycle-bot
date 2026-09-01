@@ -98,7 +98,10 @@ object UiSnapshotAuthority6496 {
                 try {
                     val pos = ts.position
                     if (com.lifecyclebot.engine.PositionCloseLedger.isClosed(ts.mint)) return@filter false
-                    pos.isOpen
+                    // V5.0.6636 — qtyToken alone is not OPEN authority. Feed
+                    // the UI only projections that match an economically valid
+                    // canonical lot and its immutable BUY snapshot.
+                    QuantityInvariantAuthority6500.isRuntimeOpenEligible6636(ts.mint, pos)
                 } catch (_: Throwable) { false }
             }
         } catch (_: Throwable) { emptyList() }

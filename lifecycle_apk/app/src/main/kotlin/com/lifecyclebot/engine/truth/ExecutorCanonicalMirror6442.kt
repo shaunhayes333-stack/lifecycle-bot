@@ -140,6 +140,10 @@ object ExecutorCanonicalMirror6442 {
         tokenDecimals: Int,
         paperMode: Boolean,
         quantityScale: Int = tokenDecimals,
+        actualEntryPriceUsd: Double = 0.0,
+        actualEntryPriceSource: String = "",
+        actualEntryPoolAddress: String = "",
+        actualEntryDex: String = "",
     ): Boolean {
         return try {
             val positionId = positionIdOf(mint)
@@ -151,6 +155,10 @@ object ExecutorCanonicalMirror6442 {
                 tokenDecimals = tokenDecimals,
                 paperMode = paperMode,
                 quantityScale = quantityScale,
+                actualEntryPriceUsd = actualEntryPriceUsd,
+                actualEntryPriceSource = actualEntryPriceSource,
+                actualEntryPoolAddress = actualEntryPoolAddress,
+                actualEntryDex = actualEntryDex,
             )
             if (result == CanonicalPositionAuthority6441.MutateResult.APPLIED) {
                 try { IdempotencyKeyStore6437.markTerminal(buyIdempotencyKey(positionId), "BUY_CONFIRMED") } catch (_: Throwable) {}

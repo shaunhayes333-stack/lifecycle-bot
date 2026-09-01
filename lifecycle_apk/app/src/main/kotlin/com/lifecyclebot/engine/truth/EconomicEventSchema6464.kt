@@ -58,7 +58,9 @@ object EconomicEventSchema6464 {
         val executedCostSol: Double,      // principal token cost; excludes entry fee
         val entryFeesSol: Double = 0.0,    // typed separately for conservation
         val filledQty: java.math.BigInteger,
-        val fillPrice: Double,             // executedCostSol / filledQty (in SOL/token)
+        // USD per token. The canonical replay validates this against
+        // executedCostSol + filledQty and quarantines legacy SOL/token rows.
+        val fillPrice: Double,
         val tokenDecimals: Int = 9,        // actual metadata; -1 when unknown
         val quantityScale: Int = tokenDecimals, // immutable raw accounting representation
     ) : Event()

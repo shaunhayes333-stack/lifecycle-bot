@@ -149,6 +149,46 @@ object CanonicalPositionAuthority6441 {
 
     fun observeLiveCash(sol: Double) { if (sol >= 0.0) liveCashObservedSol.set(sol) }
 
+    /**
+     * V5.0.6636 — one BUY-commit hook for the immutable entry witness.
+     *
+     * Both direct OPENs and the normal PENDING_ENTRY -> OPEN promotion must
+     * execute this hook. 6634 only wired the direct-open branch, while every
+     * Executor paper/live buy uses the promotion branch; consequently the UI
+     * could never resolve a locked snapshot for a normal fresh position.
+     */
+    private fun lockEntryMetricsAtOpen6636(position: Position) {
+        if (position.lifecycle != Lifecycle.OPEN && position.lifecycle != Lifecycle.PARTIALLY_CLOSED) return
+        val qtyTokens = try {
+            if (position.quantityScale in 0..18)
+                position.originalQtyRaw.toBigDecimal().movePointLeft(position.quantityScale).toDouble()
+            else 0.0
+        } catch (_: Throwable) { 0.0 }
+        val solUsd6634 = try {
+            com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 0.0
+        } catch (_: Throwable) { 0.0 }
+        val entryPriceSol = if (solUsd6634 > 0.0 && position.entryPriceUsd > 0.0)
+            position.entryPriceUsd / solUsd6634 else 0.0
+        LockedEntryMetrics6634.lockAtBuy6634(
+            LockedEntryMetrics6634.EntrySnapshot(
+                positionId = position.positionId,
+                mint = position.mint,
+                symbol = position.symbol,
+                assetClass = position.assetClass,
+                entryPriceUsd = position.entryPriceUsd,
+                entryPriceSol = entryPriceSol,
+                entryCostSol = position.entryCostSol,
+                qtyRaw = position.originalQtyRaw,
+                qtyTokens = qtyTokens,
+                tokenDecimals = position.tokenDecimals,
+                quantityScale = position.quantityScale,
+                entryPriceSource = position.entryPriceSource,
+                solUsdAtEntry = solUsd6634,
+                lockedAtMs = System.currentTimeMillis(),
+            )
+        )
+    }
+
     // ─── Position mutation gate ────────────────────────────────────────────
 
     fun openPosition(
@@ -337,51 +377,8 @@ object CanonicalPositionAuthority6441 {
             )
             markKeyUsed(idempotencyKey)
             try { AateDecisionFabric6512.attachPosition(positionId, canonicalMode6490, mint, lane) } catch (_: Throwable) {}
-            // V5.0.6634 §LOCKED_ENTRY_METRICS — lock the entry-time
-            //   snapshot at BUY commit so downstream mark/exit/UI paths
-            //   cannot re-derive a divergent entry price / qty / decimals
-            //   later.  Only OPEN or PARTIALLY_CLOSED lifecycles lock —
-            //   PENDING_ENTRY is not yet committed.
-            if (lifecycle == Lifecycle.OPEN || lifecycle == Lifecycle.PARTIALLY_CLOSED) try {
-                val locked6634 = positions[positionId]
-                if (locked6634 != null) {
-                    val qtyTokens6634 = try {
-                        if (locked6634.quantityScale in 0..18)
-                            locked6634.originalQtyRaw.toBigDecimal().movePointLeft(locked6634.quantityScale).toDouble()
-                        else 0.0
-                    } catch (_: Throwable) { 0.0 }
-                    // V5.0.6634 §BUY_PATH_SOL_USD_CAPTURE — capture the
-                    //   SOL/USD reference at lock time so downstream
-                    //   USD↔SOL conversion NEVER re-derives at exit /
-                    //   mark time.  WalletManager.lastKnownSolPrice
-                    //   holds the last successful oracle read across
-                    //   CoinGecko / Binance / Jupiter (see
-                    //   WalletManager.getSolPrice fallback chain).
-                    val solUsd6634 = try {
-                        com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 0.0
-                    } catch (_: Throwable) { 0.0 }
-                    val entryPriceSol6634 = if (solUsd6634 > 0.0 && locked6634.entryPriceUsd > 0.0)
-                        locked6634.entryPriceUsd / solUsd6634 else 0.0
-                    LockedEntryMetrics6634.lockAtBuy6634(
-                        LockedEntryMetrics6634.EntrySnapshot(
-                            positionId = positionId,
-                            mint = locked6634.mint,
-                            symbol = locked6634.symbol,
-                            assetClass = locked6634.assetClass,
-                            entryPriceUsd = locked6634.entryPriceUsd,
-                            entryPriceSol = entryPriceSol6634,
-                            entryCostSol = locked6634.entryCostSol,
-                            qtyRaw = locked6634.originalQtyRaw,
-                            qtyTokens = qtyTokens6634,
-                            tokenDecimals = locked6634.tokenDecimals,
-                            quantityScale = locked6634.quantityScale,
-                            entryPriceSource = locked6634.entryPriceSource,
-                            solUsdAtEntry = solUsd6634,
-                            lockedAtMs = System.currentTimeMillis(),
-                        )
-                    )
-                }
-            } catch (_: Throwable) {}
+            // V5.0.6636 — direct OPEN and promoted OPEN share one commit hook.
+            try { positions[positionId]?.let(::lockEntryMetricsAtOpen6636) } catch (_: Throwable) {}
             muts.incrementAndGet()
             try {
                 PipelineHealthCollector.labelInc(
@@ -406,6 +403,10 @@ object CanonicalPositionAuthority6441 {
         tokenDecimals: Int,
         paperMode: Boolean,
         quantityScale: Int = tokenDecimals,
+        actualEntryPriceUsd: Double = 0.0,
+        actualEntryPriceSource: String = "",
+        actualEntryPoolAddress: String = "",
+        actualEntryDex: String = "",
     ): MutateResult {
         lock.lock()
         try {
@@ -475,7 +476,7 @@ object CanonicalPositionAuthority6441 {
                 }
                 paperCashSol.set(newCash)
             }
-            positions[positionId] = prev.copy(
+            val promoted = prev.copy(
                 entryCostSol = actualEntryCostSol,
                 remainingQtyRaw = actualQtyRaw,
                 originalQtyRaw = actualQtyRaw,
@@ -484,7 +485,19 @@ object CanonicalPositionAuthority6441 {
                 quantityScale = quantityScale,
                 lifecycle = Lifecycle.OPEN,
                 lastMutationMs = System.currentTimeMillis(),
+                // The verified fill is the final entry authority. This is
+                // essential for LIVE, whose attempt is reserved before a
+                // wallet proof and therefore has no trustworthy entry basis.
+                entryPriceUsd = actualEntryPriceUsd.takeIf { it.isFinite() && it > 0.0 }
+                    ?: prev.entryPriceUsd,
+                entryPriceSource = actualEntryPriceSource.ifBlank { prev.entryPriceSource },
+                entryPoolAddress = actualEntryPoolAddress.ifBlank { prev.entryPoolAddress },
+                entryDex = actualEntryDex.ifBlank { prev.entryDex },
             )
+            positions[positionId] = promoted
+            // V5.0.6636 root fix: normal Executor buys take this promotion
+            // branch, so lock the final fill here, not only in openPosition().
+            try { lockEntryMetricsAtOpen6636(promoted) } catch (_: Throwable) {}
             muts.incrementAndGet()
             try { PipelineHealthCollector.labelInc("CANONICAL_POSITION_PROMOTED_6441") } catch (_: Throwable) {}
             return MutateResult.APPLIED
@@ -1099,6 +1112,12 @@ object CanonicalPositionAuthority6441 {
                 it.mode == "paper" && it.lifecycle in setOf(Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED) &&
                     it.remainingQtyRaw > BigInteger.ZERO && it.entryPriceUsd.isFinite() && it.entryPriceUsd > 0.0
             }
+            // Rebuild the in-memory immutable witness after durable replay.
+            // Without this, a process restart loses every 6634 lock even
+            // though the canonical position itself was restored correctly.
+            canonicalOpen6519.forEach { p ->
+                try { lockEntryMetricsAtOpen6636(p) } catch (_: Throwable) {}
+            }
             try { PositionStateLedger6454.syncFromCanonical6519(canonicalOpen6519) } catch (_: Throwable) {}
             try { SellQtyBoundaryClamp6427.syncFromCanonical6519(canonicalOpen6519) } catch (_: Throwable) {}
             try { CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(canonicalOpen6519) } catch (_: Throwable) {}
@@ -1214,6 +1233,7 @@ object CanonicalPositionAuthority6441 {
         lock.lock()
         try {
             positions.clear(); mutationKeys.clear()
+            LockedEntryMetrics6634.resetForTest()
             paperCashSol.set(0.0); paperCashInitialisedMs.set(0L); liveCashObservedSol.set(0.0)
             muts.set(0L); duplicates.set(0L); invariantViolations.set(0L); quarantines.set(0L)
         } finally { lock.unlock() }

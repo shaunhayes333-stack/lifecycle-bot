@@ -54,6 +54,18 @@ object OpenPnlSanity {
 
         val eSrc = entrySource.trim().uppercase()
         val cSrc = currentSource.trim().uppercase()
+        // V5.0.6636 — carry/recovery entries derived from cost/qty are
+        // SOL/token (or unit-unknown), not USD/token. They preserve inventory
+        // but can never authorize a numeric USD-mark PnL. Likewise, an explicit
+        // invariant/quarantine stamp is terminal for display trust.
+        val entryUnitUntrusted = eSrc.contains("DERIVED_CARRY") ||
+            eSrc.contains("DURABLE_CARRY") || eSrc.contains("REPLAY_CARRY") ||
+            eSrc.contains("RECOVERED_CARRY") || eSrc.contains("DERIVED_FROM_COST") ||
+            eSrc.contains("OPEN_POSITION_DERIVED_FROM_COST_QTY") ||
+            eSrc.contains("INVARIANT_BROKEN") || eSrc.contains("QUARANTINED")
+        if (entryUnitUntrusted) {
+            return reject("ENTRY_PRICE_UNIT_UNTRUSTED", entryPrice, currentPrice, context, emit, mint)
+        }
         val sameSource = eSrc.isNotBlank() && cSrc.isNotBlank() && eSrc == cSrc
         val samePool = entryPool.isNotBlank() && currentPool.isNotBlank() && entryPool == currentPool
         val explicitComparable = samePool || sameSource || priceBasisRescaled

@@ -527,7 +527,8 @@ data class BotStatus(
                 val pos = ts.position
                 // V5.9.1530 — UI/COUNT AUTHORITY: a CLOSED-ledger mint is never open.
                 if (com.lifecyclebot.engine.PositionCloseLedger.isClosed(ts.mint)) return@filter false
-                if (pos.isOpen) return@filter true
+                if (com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
+                        .isRuntimeOpenEligible6636(ts.mint, pos)) return@filter true
                 // V5.0.3760 — no 120s invisibility window. Confirmed/pending-proof
                 // live positions are already returned by pos.isOpen above.
                 false

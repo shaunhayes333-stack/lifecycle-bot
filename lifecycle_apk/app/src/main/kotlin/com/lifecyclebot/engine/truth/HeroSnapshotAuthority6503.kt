@@ -154,7 +154,7 @@ object HeroSnapshotAuthority6503 {
             try {
                 val pos = ts.position
                 if (com.lifecyclebot.engine.PositionCloseLedger.isClosed(ts.mint)) continue
-                if (!pos.isOpen) continue
+                if (!QuantityInvariantAuthority6500.isRuntimeOpenEligible6636(ts.mint, pos)) continue
                 openCount++
                 totalExposureSol += pos.costSol
                 val verdict = try {

@@ -1259,6 +1259,7 @@ class Executor(
         // rebase block on isPaperPosition so live entries stay sacred.
         if (livePrice != null && pos.isOpen && pos.entryPrice > 0 &&
             pos.isPaperPosition &&  // V5.9.747 — live positions never rebase
+            pos.positionId.isBlank() && // V5.0.6636 — immutable canonical fills never rebase in a shadow store
             !pos.priceBasisRescaled &&
             pos.entryPriceSource.isNotBlank() &&
             ts.lastPriceSource.isNotBlank() &&
@@ -1388,6 +1389,12 @@ class Executor(
     private fun normalizePositionScaleIfNeeded(ts: TokenState) {
         val pos = ts.position
         if (!pos.isOpen) return
+        // V5.0.6636 — this heuristic predates canonical raw lots. Mutating a
+        // committed position's entry price without changing canonical truth
+        // manufactures the projection mismatch shown in the operator's six
+        // INVARIANT_BROKEN_6500 screenshots. Canonical positions are immutable;
+        // only unlinked legacy projections may use this migration helper.
+        if (pos.positionId.isNotBlank()) return
 
         val currentPrice = getActualPrice(ts)
         val entryPrice = pos.entryPrice
@@ -13086,6 +13093,10 @@ class Executor(
                     mint = tradeId.mint, actualQtyRaw = buyQtyRaw6485, actualCostSol = actualSol,
                     actualFeesSol = fee6485, tokenDecimals = paperTokenDecimals6509, paperMode = true,
                     quantityScale = paperQuantityScale6514,
+                    actualEntryPriceUsd = effectivePrice,
+                    actualEntryPriceSource = entryMarketSnapshot?.priceSource ?: ts.lastPriceSource,
+                    actualEntryPoolAddress = entryMarketSnapshot?.poolAddress ?: ts.lastPricePoolAddr.ifBlank { ts.pairAddress },
+                    actualEntryDex = entryMarketSnapshot?.dex ?: ts.lastPriceDex,
                 )) {
                 rollbackPaperEntry6485("CANONICAL_OPEN_REJECTED")
                 return
@@ -13096,8 +13107,11 @@ class Executor(
                 rollbackPaperEntry6485("FUNDED_LOT_MISSING")
                 return
             }
-            val fillPrice6485 = actualSol / com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509
-                .decode(buyQtyRaw6485, paperQuantityScale6514).coerceAtLeast(1e-12)
+            // V5.0.6636 — durable replay consumes this field as USD/token.
+            // The previous writer stored actualSol/qty (SOL/token), so every
+            // restart either rebuilt a ~SOL/USD-scaled entry or quarantined a
+            // perfectly good fresh fill as a unit mismatch.
+            val fillPrice6485 = effectivePrice
             com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(
                 mode = "paper", positionId = pid6485, mint = tradeId.mint,
                 symbol = ts.symbol.ifBlank { tradeId.symbol },
@@ -13140,7 +13154,10 @@ class Executor(
             com.lifecyclebot.engine.truth.PositionStateLedger6427.registerOpen(ledgerKey6591)
             com.lifecyclebot.engine.truth.PositionStateLedger6454.onEntry(pid6485)
             com.lifecyclebot.engine.truth.SellQtyBoundaryClamp6427.syncAuthoritativeRaw(pid6485, buyQtyRaw6485, buyQtyRaw6485)
-            ts.position = fundedPaperPosition6485
+            // Bind the mutable runtime projection to the exact canonical lot.
+            // Without this ID the 6634 lock is unreachable and mint fallback
+            // can select the wrong generation after a restart/re-entry.
+            ts.position = fundedPaperPosition6485.copy(positionId = pid6485)
             if (!positionDidOpen(ts)) {
                 rollbackPaperEntry6485("POST_COMMIT_PROOF_FAILED")
                 return
@@ -17506,7 +17523,13 @@ class Executor(
                         )
                     }
                 }
-                fun promoteVerifiedLiveBuy(qtyUi: Double, stage: String, decimals: Int = -1, actualCostSol6486: Double) {
+                fun promoteVerifiedLiveBuy(
+                    qtyUi: Double,
+                    stage: String,
+                    decimals: Int = -1,
+                    actualCostSol6486: Double,
+                    canonicalPositionId6636: String,
+                ) {
                     // V5.0.6311 → 6320 — WALLET-VERIFIED FILL LATCH.
                     if (decimals >= 0) {
                         try { walletDecimalsByMint6311[verifyMint] = decimals } catch (_: Throwable) {}
@@ -17594,6 +17617,7 @@ class Executor(
                     val promoted = ts.position.copy(
                         qtyToken = qtyUi,
                         pendingVerify = false,
+                        positionId = canonicalPositionId6636,
                     )
                     ts.position = promoted
                     // V5.0.3686 — SOURCE FIX: every verified live-buy promotion must
@@ -17741,6 +17765,10 @@ class Executor(
                         actualFeesSol = actualFeeSol6486,
                         tokenDecimals = proof.decimals,
                         paperMode = false,
+                        actualEntryPriceUsd = ts.position.entryPrice,
+                        actualEntryPriceSource = ts.position.entryPriceSource,
+                        actualEntryPoolAddress = ts.position.entryPoolAddress,
+                        actualEntryDex = ts.position.entryDex,
                     )
                     if (!canonicalOpen6486) {
                         try { ForensicLogger.lifecycle("LIVE_BUY_CANONICAL_COMMIT_REJECTED_6486", "mint=${verifyMint.take(10)} pid=${pidLive6486.take(18)} sig=${verifySig.take(16)}") } catch (_: Throwable) {}
@@ -17798,11 +17826,18 @@ class Executor(
                         idempotencyKey = "buy_live_tx_${verifySig}",
                         executedCostSol = actualCostSol6486, entryFeesSol = actualFeeSol6486,
                         filledQty = proof.amountRaw,
-                        fillPrice = actualCostSol6486 / qtyUi.coerceAtLeast(1e-12),
+                        // Typed durable field is USD/token; SOL/token belongs
+                        // only in CanonicalBuyFillRegistry.entryPriceSol.
+                        fillPrice = ts.position.entryPrice,
+                        tokenDecimals = proof.decimals,
+                        quantityScale = proof.decimals,
                     )
                     com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen("live", verifyMint, verifySymbol, "TradeVerifier.LANDED.6486")
                     try { PipelineHealthCollector.labelInc("LIVE_BUY_CANONICAL_TX_TRUTH_COMMITTED_6486") } catch (_: Throwable) {}
-                    promoteVerifiedLiveBuy(qtyUi, stage, proof.decimals, actualCostSol6486)
+                    promoteVerifiedLiveBuy(
+                        qtyUi, stage, proof.decimals, actualCostSol6486,
+                        canonicalPositionId6636 = pidLive6486,
+                    )
                     // V5.0.6325 — CANONICAL POSITION AUTHORITY WIRE-IN. Upsert
                     // the WALLET_TX_DELTA into CanonicalPositionRegistry so
                     // downstream sell qty, learning eligibility, and health

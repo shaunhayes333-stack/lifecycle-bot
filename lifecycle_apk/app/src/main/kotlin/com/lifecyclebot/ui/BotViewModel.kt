@@ -205,24 +205,17 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                 copyWallets    = try { com.lifecyclebot.engine.BotService.instance
                     ?.copyTradeEngine?.getWallets() ?: emptyList() } catch (_: Exception) { emptyList() },
                 totalExposureSol = status.totalExposureSol,
-                totalUnrealisedPnlSol = status.openPositions.sumOf { ts ->
-                    val entry = ts.position.entryPrice
-                    val raw = ts.ref
-                    val mark = try {
-                        val entryMcap = ts.position.entryMcap
-                        val currentMcap = ts.lastMcap
-                        if (entry > 0.0 && raw > 0.0 && entryMcap > 0.0 && currentMcap > 0.0) {
-                            val rawGain = ((raw - entry) / entry) * 100.0
-                            val mcapGain = ((currentMcap - entryMcap) / entryMcap) * 100.0
-                            if ((kotlin.math.abs(rawGain - mcapGain) >= 250.0 && kotlin.math.abs(rawGain) >= 500.0) || (rawGain > 250.0 && mcapGain < 0.0)) {
-                                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_POSITION_UI_AGG_BASIS_REBASED_4479") } catch (_: Throwable) {}
-                                entry * (currentMcap / entryMcap)
-                            } else raw
-                        } else raw
-                    } catch (_: Throwable) { raw }
-                    if (ts.position.isOpen && mark > 0 && entry > 0)
-                        ts.position.costSol * ((mark - entry) / entry)
-                    else 0.0
+                // V5.0.6636 — use the already-gated immutable open snapshot
+                // and the shared PnL authority. The deleted local mcap rebase
+                // could reintroduce astronomical totals after a row had failed
+                // the canonical quantity invariant.
+                totalUnrealisedPnlSol = openSnapshot.sumOf { ts ->
+                    val truth = try {
+                        com.lifecyclebot.engine.OpenPnlSanity.pricingTruth(
+                            ts, "BotViewModel.totalUnrealised6636/${ts.symbol}/${ts.mint.take(8)}", emit = false,
+                        )
+                    } catch (_: Throwable) { null }
+                    if (truth?.trusted == true) truth.pnlSol else 0.0
                 },
                 circuitBreaker = sg?.getCircuitBreakerState() ?: com.lifecyclebot.engine.CircuitBreakerState(),
                 auditLog       = sg?.getAuditLog()?.takeLast(50) ?: emptyList(),
