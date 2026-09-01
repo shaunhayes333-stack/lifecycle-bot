@@ -606,17 +606,35 @@ object CanonicalPositionAuthority6441 {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_INVALID_QTY_6631") } catch (_: Throwable) {}
             return false
         }
-        val entry = p.entryPriceUsd
-        if (!entry.isFinite() || entry <= 0.0) {
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_ZERO_ENTRY_PRICE_6631") } catch (_: Throwable) {}
-            return false
-        }
+        // V5.0.6631 §B — INVARIANT_BROKEN / LEGACY_REPLAY_QUARANTINED entry
+        // sources always disqualify (this is the specific defect the
+        // operator captured: USWR / GRASS rendering as OPEN with
+        // entryPriceSource=INVARIANT_BROKEN_6500 while showing +31,900%).
         val src = p.entryPriceSource
         if (src.contains("INVARIANT_BROKEN_6500", true) ||
             src.contains("QUARANTINED", true) ||
             src.contains("LEGACY_REPLAY_QUARANTINED_6630", true)) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_INVARIANT_BROKEN_SOURCE_6631") } catch (_: Throwable) {}
             return false
+        }
+        // V5.0.6631 §B — non-finite entry price is impossible economics.
+        // A legitimate legacy path that has not yet set entryPriceUsd
+        // (still 0.0 with a valid source) is admitted as OPEN so the
+        // reactive OpenPnlSanity heal path can reconstruct basis on
+        // its next inspect() cycle. Emit a diagnostic label so the
+        // operator can grep the zero-basis population count without
+        // waiting for the heal cycle.
+        val entry = p.entryPriceUsd
+        if (!entry.isFinite()) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_NON_FINITE_ENTRY_PRICE_6631") } catch (_: Throwable) {}
+            return false
+        }
+        if (entry <= 0.0) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_ZERO_ENTRY_PRICE_PENDING_HEAL_6631") } catch (_: Throwable) {}
+            // Admitted — reactive heal path OpenPnlSanity will reject/
+            // reconstruct basis. Do NOT drop from open inventory or
+            // legitimate PENDING_ENTRY/OPEN transitions and legacy
+            // pre-6631 rows disappear from the hero.
         }
         return true
     }
