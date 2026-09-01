@@ -687,11 +687,6 @@ object CanonicalPositionAuthority6441 {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_QTY_INVARIANT_QUARANTINE_6634")
                 return false
             }
-            val checkOk = QuantityInvariantAuthority6500.check(mint6634, p).ok
-            if (!checkOk) {
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_QTY_INVARIANT_CHECK_FAILED_6634")
-                return false
-            }
         } catch (_: Throwable) {}
         // V5.0.6631c §B — strict per operator directive: entryPrice
         // <= 0 MUST be excluded. Legacy callers now derive
