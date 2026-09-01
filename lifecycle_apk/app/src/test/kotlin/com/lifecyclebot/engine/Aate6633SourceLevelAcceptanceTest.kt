@@ -156,8 +156,8 @@ class Aate6633SourceLevelAcceptanceTest {
 
     @Test fun p0_6634_buy_path_captures_sol_usd() {
         val src = read("engine/truth/CanonicalPositionAuthority6441.kt")
-        assertTrue("must capture CurrencyManager.getSolUsd at lock time",
-            src.contains("CurrencyManager.getSolUsd()"))
+        assertTrue("must capture SOL/USD reference at lock time",
+            src.contains("WalletManager.lastKnownSolPrice"))
         assertTrue("must derive entryPriceSol from entryPriceUsd / solUsd",
             src.contains("entryPriceUsd / solUsd6634"))
     }

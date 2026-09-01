@@ -309,17 +309,14 @@ object CanonicalPositionAuthority6441 {
                         else 0.0
                     } catch (_: Throwable) { 0.0 }
                     // V5.0.6634 §BUY_PATH_SOL_USD_CAPTURE — capture the
-                    //   SOL/USD reference and the SOL-denominated entry
-                    //   price at lock time so downstream USD↔SOL
-                    //   conversion NEVER re-derives at exit / mark
-                    //   time.  CurrencyManager holds the last observed
-                    //   SOL/USD; if missing we fall back to WalletManager
-                    //   lastKnownSolPrice (still an entry-time snapshot
-                    //   the operator's rules allow).
+                    //   SOL/USD reference at lock time so downstream
+                    //   USD↔SOL conversion NEVER re-derives at exit /
+                    //   mark time.  WalletManager.lastKnownSolPrice
+                    //   holds the last successful oracle read across
+                    //   CoinGecko / Binance / Jupiter (see
+                    //   WalletManager.getSolPrice fallback chain).
                     val solUsd6634 = try {
-                        val fromCurrency = com.lifecyclebot.engine.CurrencyManager.getSolUsd()
-                        if (fromCurrency > 0.0) fromCurrency
-                        else com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 0.0
+                        com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 0.0
                     } catch (_: Throwable) { 0.0 }
                     val entryPriceSol6634 = if (solUsd6634 > 0.0 && locked6634.entryPriceUsd > 0.0)
                         locked6634.entryPriceUsd / solUsd6634 else 0.0
