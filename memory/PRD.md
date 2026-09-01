@@ -1,10 +1,20 @@
-# AATE PRD — V5.0.6625 (MEME EXECUTION FUNNEL RECEIVERS WIRED — P2/P3/P4/P5/P6)
+# AATE PRD — V5.0.6626 (RUNTIME LOOP UNCHOKE — P0 emergency response)
 
 **Status:** PAPER TRADING ONLY.
 
 **Operator mantra:** "$50 → $1M thru Autonomous Intelligent Trading." Data integrity enforced at the SOURCE, never by strangling flow.
 
-**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6625 Build CI GREEN (15m57s, run 33416912552).**
+**Compile / test / ship contract:** NO LOCAL COMPILER. Every change lands via `git push` → GitHub Actions CI. Verification is `Build AATE APK` green on the head SHA. **V5.0.6626 Build CI GREEN (15m24s, run 33467635223).**
+
+## V5.0.6626 (Feb 2026) — RUNTIME LOOP UNCHOKE (P0 emergency response)
+
+Emergency dump V5.0.6308 showed the runtime collapsing: cycles avgMs=31_295 maxMs=373_256, anrHints=79, maxFrameGapMs=17_418, EXPIRED_TICKET_ECONOMIC_REJECT_6614=235. RCA (troubleshoot_agent) fingered synchronous `PipelineHealthCollector.labelInc` on the emit thread as the dominant Main-thread contention point, amplified 5× by the V5.0.6625 receiver fan-out.
+
+- **§1 HotLabelCoalescer6626 (new)** — per-key AtomicLong accumulator with a 1s daemon flush thread. The three hottest callsites (MarketDataProvenance6471.recordSentinel at ~8.5/sec, DynamicAltTokenRegistry.markEvaluationStarted6567 at ~4.7/sec, CryptoAltTrader.runtimeDisabledReason at ~6.4/sec) now route through it. Counter accuracy preserved; observable Main-thread cost drops from ~139 ops/sec to ~1 op/sec per label. Fail-open at every call.
+- **§2 AdaptiveTicketTtl6626 (new)** — PAPER ticket TTL becomes `max(180_000L, 3 × rollingAvgCycleMs)` capped at `600_000L`. Reads `PipelineHealthCollector.rollingAvgCycleMs6626` (new public API). `ExecutableOpenGate.ticketLive`, `revalidateAndResealExpired6613` and fresh-ticket seal all route through it. Behaviour unchanged when cycles are healthy (floor kept). Revalidation gates (authority / occupancy / size / mark) are UNCHANGED — TTL only picks when the ticket is FORCED to prove itself again.
+- **§3 fanOutToReceivers6625 debounce** — 500ms per `(lane|stage|eventId)` in ToolkitSignalSheet, bounded map. Receivers stay accurate (already idempotent via deskStageOnce6599); debounce protects against pathological cases.
+
+`PipelineHealthCollector` appends a `RUNTIME LOOP UNCHOKE (V5.0.6626)` status block next to V5.0.6625's block. Test coverage: `Aate6626RuntimeLoopUnchokeCoverageTest` — flush semantics, TTL bounds, fan-out debounce, source authority of every wired callsite.
 
 ## V5.0.6625 (Feb 2026) — MEME EXECUTION FUNNEL RECEIVERS WIRED (P2/P3/P4/P5/P6)
 
