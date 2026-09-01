@@ -109,9 +109,17 @@ object QuantityInvariantAuthority6500 {
         // economic notional check would collapse to ratio~1 and
         // false-positive quarantine every legitimate carry-replay
         // position.  Skip them.
+        //
+        // Also skip OPEN_POSITION_DERIVED_FROM_COST_QTY_6631 — the
+        // 6631d openPosition() fallback derives entry from
+        // entryCostSol/qtyToken when the caller passed 0. The result
+        // is in SOL/token, not USD/token, and would trip the same
+        // impliedSolPriceUsd~=1 false-positive.
         if (src.contains("DERIVED_CARRY_COST_QTY_6631") || src.contains("DURABLE_CARRY_COST_QTY_REPAIR_6519") ||
-            src.contains("REPLAY_CARRY") || src.contains("RECOVERED_CARRY")) {
-            return InvariantCheck(true, 0.0, 0.0, cost, "carry_basis_skipped")
+            src.contains("REPLAY_CARRY") || src.contains("RECOVERED_CARRY") ||
+            src.contains("OPEN_POSITION_DERIVED_FROM_COST_QTY_6631") ||
+            src.contains("DERIVED_FROM_COST")) {
+            return InvariantCheck(true, 0.0, 0.0, cost, "carry_or_derived_basis_skipped")
         }
         val qtyNotionalUsd = qtyToken * entry
         if (!qtyNotionalUsd.isFinite() || qtyNotionalUsd <= 0.0) return InvariantCheck(false, 0.0, 0.0, cost, "qty_notional_nonpositive")
