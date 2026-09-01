@@ -212,7 +212,27 @@ object DynamicAltTokenRegistry {
     // (identity, state-key) so a second stamp of the same non-terminal state
     // more than EVIDENCE_TTL_MS_6580 later reaps into STALE_EXPIRED_6580_<state>.
     private val evaluationProgressStamp6580 = ConcurrentHashMap<String, Long>()
-    private val EVIDENCE_TTL_MS_6580: Long = 5L * 60L * 1000L  // 5 minutes
+    // V5.0.6632 §P0-J — ADAPTIVE_SHARED_INTELLIGENCE_DEADLINE (operator
+    //   directive Feb 2026: "adaptive evaluation deadline = max(4 *
+    //   rollingAverageBotCycleMs, reasonable provider floor)"). A fixed
+    //   5-minute TTL was too long relative to actual loop cadence on
+    //   healthy runs (355s stuck-inflight seen with 8-12s cycles) and
+    //   too short during a choke recovery. The provider floor stays at
+    //   the historical 5-minute value so the previous safety-net
+    //   behaviour is preserved when the loop is temporarily slow; a
+    //   healthy loop (~10s cycles) sees a much tighter 40s adaptive
+    //   deadline so specialists that go silent on a candidate cannot
+    //   suspend it indefinitely.
+    private const val ADAPTIVE_TTL_FLOOR_MS_6632: Long = 40_000L
+    private const val ADAPTIVE_TTL_CEIL_MS_6632: Long = 5L * 60L * 1000L
+    private fun adaptiveEvidenceTtlMs6632(): Long {
+        val avg = try {
+            com.lifecyclebot.engine.PipelineHealthCollector.rollingAvgCycleMs6626()
+        } catch (_: Throwable) { 0L }
+        val computed = if (avg > 0L) 4L * avg else ADAPTIVE_TTL_CEIL_MS_6632
+        return computed.coerceIn(ADAPTIVE_TTL_FLOOR_MS_6632, ADAPTIVE_TTL_CEIL_MS_6632)
+    }
+    private val EVIDENCE_TTL_MS_6580: Long = 5L * 60L * 1000L  // legacy fallback (unused post-6632)
     // V5.0.6587 §P0-4 — global sweep bookkeeping. Reaper runs at most once
     // per SWEEP_INTERVAL_MS regardless of how many progress stamps arrive.
     private val lastGlobalSweepMs6587 = java.util.concurrent.atomic.AtomicLong(0L)
@@ -768,10 +788,12 @@ object DynamicAltTokenRegistry {
             val firstSeenAt = evaluationProgressStamp6580.putIfAbsent(progressKey6580, System.currentTimeMillis())
             if (firstSeenAt != null) {
                 val age = System.currentTimeMillis() - firstSeenAt
-                if (age > EVIDENCE_TTL_MS_6580) {
+                val ttl6632 = adaptiveEvidenceTtlMs6632()
+                if (age > ttl6632) {
                     evaluationProgressStamp6580.remove(progressKey6580)
                     markEvaluationDisposition6567(tok, "STALE_EXPIRED_6580_$key")
                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_STALE_REAPED_6580")
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_STALE_REAPED_ADAPTIVE_6632")
                 }
             }
         } catch (_: Throwable) {}
@@ -790,10 +812,11 @@ object DynamicAltTokenRegistry {
             if (nowMs6587 - lastGlobalSweepMs6587.get() > SWEEP_INTERVAL_MS_6587) {
                 lastGlobalSweepMs6587.set(nowMs6587)
                 val iter = evaluationProgressStamp6580.entries.iterator()
+                val ttl6632 = adaptiveEvidenceTtlMs6632()
                 var reaped = 0
                 while (iter.hasNext()) {
                     val entry = iter.next()
-                    if (nowMs6587 - entry.value > EVIDENCE_TTL_MS_6580) {
+                    if (nowMs6587 - entry.value > ttl6632) {
                         val split = entry.key.indexOf('|')
                         if (split > 0) {
                             val identity6587 = entry.key.substring(0, split)
@@ -807,6 +830,7 @@ object DynamicAltTokenRegistry {
                 }
                 if (reaped > 0) {
                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_STALE_SWEEP_REAPED_6587")
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_STALE_SWEEP_REAPED_ADAPTIVE_6632")
                     try {
                         com.lifecyclebot.engine.ForensicLogger.lifecycle(
                             "CRYPTO_EVAL_STALE_SWEEP_6587",
