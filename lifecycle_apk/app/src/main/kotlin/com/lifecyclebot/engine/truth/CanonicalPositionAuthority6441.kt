@@ -560,13 +560,65 @@ object CanonicalPositionAuthority6441 {
 
     // ─── Read-only accessors for consumers ─────────────────────────────────
     fun getPosition(positionId: String): Position? = positions[positionId]
-    fun openPositions(): List<Position> = positions.values.filter {
-        it.lifecycle == Lifecycle.OPEN || it.lifecycle == Lifecycle.PARTIALLY_CLOSED
-    }
+
+    /**
+     * V5.0.6631 §B/§L PURGE_INVARIANT_BROKEN_POSITIONS (operator P0
+     * Feb 2026):
+     *   > "Any position for which entryPrice <= 0, qty <= 0, qty
+     *   >  non-finite, price non-finite, decimal conversion unresolved,
+     *   >  price basis invariant failed, fill-unit replay failed OR
+     *   >  economic identity unresolved MUST be excluded from
+     *   >  CanonicalPositionAuthority.openPositions()."
+     *
+     * The prior openPositions() only filtered on lifecycle
+     * (OPEN|PARTIALLY_CLOSED), so quarantined-but-not-yet-lifecycled
+     * positions and rows with entryPriceUsd=0 (V5.0.6589 legacy
+     * SOL-per-token replays) were leaking into openMarketValue and
+     * inflating hero equity (operator saw USWR/GRASS at +31,900% /
+     * +12,470% dominating a $583 hero). This filter is the single
+     * source of "canonical valid open inventory" per operator §L.
+     */
+    fun openPositions(): List<Position> = positions.values.filter { isEconomicallyValidOpen6631(it) }
     fun closedPositions(): List<Position> = positions.values.filter { it.lifecycle == Lifecycle.CLOSED }
     fun openCount(): Int = openPositions().size
     fun hasOpenMint(mint: String): Boolean = positions.values.any {
-        it.mint == mint && (it.lifecycle == Lifecycle.OPEN || it.lifecycle == Lifecycle.PARTIALLY_CLOSED)
+        it.mint == mint && isEconomicallyValidOpen6631(it)
+    }
+
+    /**
+     * V5.0.6631 §B — economic-validity gate for open inventory. Rejects:
+     *   - non-OPEN/PARTIALLY_CLOSED lifecycle,
+     *   - quarantined rows,
+     *   - non-finite / non-positive quantity,
+     *   - non-finite / non-positive entry price (USD basis),
+     *   - INVARIANT_BROKEN_6500 entry-price-source stamps.
+     * Counts each rejection so the operator can grep the purged
+     * population from the pipeline dump.
+     */
+    private fun isEconomicallyValidOpen6631(p: Position): Boolean {
+        if (p.lifecycle != Lifecycle.OPEN && p.lifecycle != Lifecycle.PARTIALLY_CLOSED) return false
+        if (p.quarantineReason.isNotBlank()) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_QUARANTINED_6631") } catch (_: Throwable) {}
+            return false
+        }
+        // remainingQtyRaw is BigInteger — reject zero or negative raw qty.
+        if (p.remainingQtyRaw.signum() <= 0) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_INVALID_QTY_6631") } catch (_: Throwable) {}
+            return false
+        }
+        val entry = p.entryPriceUsd
+        if (!entry.isFinite() || entry <= 0.0) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_ZERO_ENTRY_PRICE_6631") } catch (_: Throwable) {}
+            return false
+        }
+        val src = p.entryPriceSource
+        if (src.contains("INVARIANT_BROKEN_6500", true) ||
+            src.contains("QUARANTINED", true) ||
+            src.contains("LEGACY_REPLAY_QUARANTINED_6630", true)) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_INVARIANT_BROKEN_SOURCE_6631") } catch (_: Throwable) {}
+            return false
+        }
+        return true
     }
 
     /**
