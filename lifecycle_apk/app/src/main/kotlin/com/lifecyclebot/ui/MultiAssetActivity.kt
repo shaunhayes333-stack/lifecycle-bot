@@ -2907,7 +2907,8 @@ class MultiAssetActivity : AppCompatActivity() {
                     fileName
                 } else {
                     @Suppress("DEPRECATION")
-                    val dir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                    val dir = getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
+                        ?: filesDir
                     val file = java.io.File(dir, fileName)
                     file.writeText(sb.toString())
                     file.name
@@ -2997,7 +2998,6 @@ class MultiAssetActivity : AppCompatActivity() {
         builder.show()
     }
 }
-
 
 
 

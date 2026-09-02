@@ -4,8 +4,6 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.PowerManager
-import android.provider.Settings
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -44,6 +42,88 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var vm: BotViewModel
     private lateinit var currency: com.lifecyclebot.engine.CurrencyManager
+    private var pendingLearningBackup: java.io.File? = null
+
+    // 5.0.6637c — explicit Storage Access Framework boundary. Learning backups
+    // are written only to a document the operator selects; AATE no longer asks
+    // for blanket MANAGE_EXTERNAL_STORAGE access on every launch.
+    private val createLearningBackupDocument = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json")
+    ) { destination ->
+        val source = pendingLearningBackup
+        pendingLearningBackup = null
+        if (destination != null && source != null) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                val outcome = try {
+                    val output = contentResolver.openOutputStream(destination, "wt")
+                        ?: throw IllegalStateException("Selected destination is not writable")
+                    output.use { out -> source.inputStream().use { input -> input.copyTo(out) } }
+                    true to "Learning backup exported"
+                } catch (e: Exception) {
+                    com.lifecyclebot.engine.ErrorLogger.warn(
+                        "MainActivity",
+                        "LEARNING_BACKUP_EXPORT_FAILED_6637C: ${e.message}"
+                    )
+                    false to "Export failed: ${e.message ?: "unknown error"}"
+                }
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (outcome.first) "OK ${outcome.second}" else "FAIL ${outcome.second}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
+    private val openLearningBackupDocument = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { source ->
+        if (source != null) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                val staged = java.io.File.createTempFile("aate_learning_import_", ".json", cacheDir)
+                val outcome = try {
+                    val input = contentResolver.openInputStream(source)
+                        ?: throw IllegalStateException("Selected backup is not readable")
+                    input.use { stream ->
+                        staged.outputStream().use { output ->
+                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                            var total = 0L
+                            while (true) {
+                                val count = stream.read(buffer)
+                                if (count < 0) break
+                                total += count
+                                if (total > MAX_LEARNING_BACKUP_BYTES_6637C) {
+                                    throw IllegalArgumentException("Backup exceeds 10 MB limit")
+                                }
+                                output.write(buffer, 0, count)
+                            }
+                        }
+                    }
+                    val restored = com.lifecyclebot.engine.PersistentLearning
+                        .importFullBackup(this@MainActivity, staged)
+                    if (!restored) throw IllegalArgumentException("Backup schema was rejected")
+                    true to "Learning backup imported; restart AATE to apply it"
+                } catch (e: Exception) {
+                    com.lifecyclebot.engine.ErrorLogger.warn(
+                        "MainActivity",
+                        "LEARNING_BACKUP_IMPORT_REJECTED_6637C: ${e.message}"
+                    )
+                    false to "Import rejected: ${e.message ?: "invalid backup"}"
+                } finally {
+                    runCatching { staged.delete() }
+                }
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (outcome.first) "OK ${outcome.second}" else "FAIL ${outcome.second}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
 
     // top bar
     private lateinit var tvNetworkLabel: TextView
@@ -886,8 +966,6 @@ class MainActivity : AppCompatActivity() {
             // not required before render; defer to avoid starving BotService/UI handoff.
             window.decorView.postDelayed({
                 try { requestNotifPermission() } catch (_: Throwable) {}
-                try { requestStoragePermission() } catch (_: Throwable) {}
-                try { checkBatteryOptimisation() } catch (_: Throwable) {}
             }, 1_500L)
 
             // V5.9.713 — AUTO-RESTART on cold-open after process kill.
@@ -1252,6 +1330,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val BATTERY_OPT_BANNER_VIEW_ID = 0x7F990001
+        private const val MAX_LEARNING_BACKUP_BYTES_6637C = 10L * 1024L * 1024L
 
         // V5.9.1265 — ANR KILL: drawable XML-inflation cache.
         // Build 3231 ANR forensics: renderMemeReadiness + token-card renders
@@ -1425,24 +1504,6 @@ class MainActivity : AppCompatActivity() {
             )
             vm.saveConfig(cfg, allowRestart = false)
         } catch (_: Exception) {}
-    }
-
-    private fun checkBatteryOptimisation() {
-        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-            AlertDialog.Builder(this)
-                .setTitle("Battery Optimisation")
-                .setMessage("AATE needs to be excluded from battery optimisation " +
-                    "so trading continues in the background. Tap OK to open settings.")
-                .setPositiveButton("OK") { dialog: android.content.DialogInterface, _: Int ->
-                    startActivity(Intent(
-                        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                        Uri.parse("package:$packageName")
-                    ))
-                }
-                .setNegativeButton("Later", null)
-                .show()
-        }
     }
 
     // ── First Time Disclaimer ───────────────────────────────────────────
@@ -9879,26 +9940,18 @@ This cannot be undone!
     // ═══════════════════════════════════════════════════════════════════════════
 
     private fun exportLearningData() {
-        // Request storage permission if needed
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!android.os.Environment.isExternalStorageManager()) {
-                requestStoragePermission()
-                Toast.makeText(this, "Please grant storage permission, then try again", Toast.LENGTH_LONG).show()
-                return
-            }
-        }
-
         // Show confirmation dialog
         android.app.AlertDialog.Builder(this)
             .setTitle("EXPORT Learning Data")
-            .setMessage("This will export all learned AI data to Downloads/AATE_Backups/\n\nThe backup file survives app uninstall and can be imported after reinstall.\n\nExport now?")
+            .setMessage("This exports learned model parameters only. Wallet keys and API credentials are never included. You will choose the destination.\n\nExport now?")
             .setPositiveButton("Export") { _, _ ->
                 try {
                     val backupFile = com.lifecyclebot.engine.PersistentLearning.exportFullBackup(this)
                     if (backupFile != null) {
-                        Toast.makeText(this, "OK Exported to:\n${backupFile.absolutePath}", Toast.LENGTH_LONG).show()
+                        pendingLearningBackup = backupFile
+                        createLearningBackupDocument.launch(backupFile.name)
                     } else {
-                        Toast.makeText(this, "FAIL Export failed - check storage permission", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this, "FAIL Export failed", Toast.LENGTH_LONG).show()
                     }
                 } catch (e: Exception) {
                     Toast.makeText(this, "FAIL Export error: ${e.message}", Toast.LENGTH_LONG).show()
@@ -9909,51 +9962,7 @@ This cannot be undone!
     }
 
     private fun importLearningData() {
-        // Request storage permission if needed
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!android.os.Environment.isExternalStorageManager()) {
-                requestStoragePermission()
-                Toast.makeText(this, "Please grant storage permission, then try again", Toast.LENGTH_LONG).show()
-                return
-            }
-        }
-
-        // Find available backups
-        val backups = com.lifecyclebot.engine.PersistentLearning.listBackups()
-
-        if (backups.isEmpty()) {
-            Toast.makeText(this, "No backups found in Downloads/AATE_Backups/", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        // Show backup selection dialog with OK button
-        val backupNames = backups.map { file ->
-            val date = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(java.util.Date(file.lastModified()))
-            "${file.name} ($date)"
-        }.toTypedArray()
-
-        var selectedIndex = 0  // Default to first backup
-
-        android.app.AlertDialog.Builder(this)
-            .setTitle("IMPORT Learning Data")
-            .setSingleChoiceItems(backupNames, 0) { _, which ->
-                selectedIndex = which
-            }
-            .setPositiveButton("Import") { _, _ ->
-                val selectedBackup = backups[selectedIndex]
-                try {
-                    val success = com.lifecyclebot.engine.PersistentLearning.importFullBackup(this, selectedBackup)
-                    if (success) {
-                        Toast.makeText(this, "OK Learning data + API keys restored!\n\nRestart app for changes.", Toast.LENGTH_LONG).show()
-                    } else {
-                        Toast.makeText(this, "FAIL Import failed", Toast.LENGTH_SHORT).show()
-                    }
-                } catch (e: Exception) {
-                    Toast.makeText(this, "FAIL Import error: ${e.message}", Toast.LENGTH_LONG).show()
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+        openLearningBackupDocument.launch(arrayOf("application/json", "text/json", "text/plain"))
     }
 
     // ── permissions ───────────────────────────────────────────────────
@@ -9964,33 +9973,6 @@ This cannot be undone!
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(this,
                     arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
-            }
-        }
-    }
-
-    private fun requestStoragePermission() {
-        // For Android 11+ (API 30+), we need MANAGE_EXTERNAL_STORAGE for full access
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!android.os.Environment.isExternalStorageManager()) {
-                try {
-                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                    intent.data = Uri.parse("package:$packageName")
-                    startActivity(intent)
-                } catch (e: Exception) {
-                    // Fallback to general settings
-                    val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                    startActivity(intent)
-                }
-            }
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            // For Android 6-10, request legacy permissions
-            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this,
-                    arrayOf(
-                        android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                        android.Manifest.permission.READ_EXTERNAL_STORAGE
-                    ), 1002)
             }
         }
     }

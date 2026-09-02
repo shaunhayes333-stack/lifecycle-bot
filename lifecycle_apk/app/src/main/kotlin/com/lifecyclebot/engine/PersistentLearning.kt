@@ -26,6 +26,13 @@ object PersistentLearning {
     private const val TAG = "PersistentLearning"
     private const val FOLDER_NAME = "AATE"
     private const val VERSION = 2
+    private const val MAX_BACKUP_BYTES_6637C = 10L * 1024L * 1024L
+    private val IMPORTABLE_COMPONENTS_6637C = setOf(
+        "edge_learning",
+        "entry_intelligence",
+        "exit_intelligence",
+        "token_win_memory",
+    )
 
     @Volatile
     private var storageDir: File? = null
@@ -400,17 +407,41 @@ object PersistentLearning {
                 ErrorLogger.warn(TAG, "Backup file not found: ${backupFile.absolutePath}")
                 return false
             }
+            if (backupFile.length() !in 1..MAX_BACKUP_BYTES_6637C) {
+                ErrorLogger.warn(TAG, "Backup rejected: invalid size=${backupFile.length()}")
+                return false
+            }
 
             val root = JSONObject(backupFile.readText())
             val dir = storageDir ?: return false
-            var restored = 0
+            val backupVersion = root.optInt("version", -1)
+            if (backupVersion !in 1..VERSION) {
+                ErrorLogger.warn(TAG, "Backup rejected: unsupported version=$backupVersion")
+                return false
+            }
 
+            val stagedComponents = linkedMapOf<String, JSONObject>()
             val keys = root.keys()
             while (keys.hasNext()) {
                 val key = keys.next()
                 if (key in setOf("version", "exportTime")) continue
+                if (key !in IMPORTABLE_COMPONENTS_6637C) {
+                    ErrorLogger.warn(TAG, "Backup rejected: unknown component=$key")
+                    return false
+                }
+                val obj = root.optJSONObject(key) ?: run {
+                    ErrorLogger.warn(TAG, "Backup rejected: component is not an object=$key")
+                    return false
+                }
+                stagedComponents[key] = obj
+            }
+            if (stagedComponents.isEmpty()) {
+                ErrorLogger.warn(TAG, "Backup rejected: no importable components")
+                return false
+            }
 
-                val obj = root.optJSONObject(key) ?: continue
+            var restored = 0
+            stagedComponents.forEach { (key, obj) ->
                 val outFile = File(dir, "$key.json")
                 atomicWrite(outFile, obj.toString(2))
                 restored++

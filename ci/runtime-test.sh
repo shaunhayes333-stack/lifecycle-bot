@@ -62,9 +62,10 @@ echo "::group::Install APK + grant runtime perms"
 # don't want that here (we want a clean slate every run anyway).
 adb uninstall com.lifecyclebot.aate || true
 adb install -r -t "$APK"
-adb shell pm grant com.lifecyclebot.aate android.permission.POST_NOTIFICATIONS || true
-adb shell pm grant com.lifecyclebot.aate android.permission.READ_EXTERNAL_STORAGE || true
-adb shell pm grant com.lifecyclebot.aate android.permission.WRITE_EXTERNAL_STORAGE || true
+DEVICE_SDK=$(adb shell getprop ro.build.version.sdk | tr -d '\r')
+if [ "${DEVICE_SDK:-0}" -ge 33 ]; then
+  adb shell pm grant com.lifecyclebot.aate android.permission.POST_NOTIFICATIONS || true
+fi
 adb shell appops set com.lifecyclebot.aate RUN_IN_BACKGROUND allow || true
 echo "::endgroup::"
 

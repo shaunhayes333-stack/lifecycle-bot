@@ -24,6 +24,22 @@ class Phase0Security6637Test {
     }
 
     @Test
+    fun backups_use_operator_selected_documents_without_blanket_storage_access() {
+        val manifest = File("src/main/AndroidManifest.xml").readText()
+        val main = File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        val learning = File("src/main/kotlin/com/lifecyclebot/engine/PersistentLearning.kt").readText()
+        assertFalse(manifest.contains("MANAGE_EXTERNAL_STORAGE"))
+        assertFalse(manifest.contains("requestLegacyExternalStorage"))
+        assertFalse(main.contains("requestStoragePermission"))
+        assertFalse(main.contains("isExternalStorageManager"))
+        assertFalse(main.contains("checkBatteryOptimisation"))
+        assertTrue(main.contains("ActivityResultContracts.CreateDocument"))
+        assertTrue(main.contains("ActivityResultContracts.OpenDocument"))
+        assertTrue(learning.contains("IMPORTABLE_COMPONENTS_6637C"))
+        assertTrue(learning.contains("Backup rejected: unknown component"))
+    }
+
+    @Test
     fun live_buy_journal_and_fee_are_proof_gated() {
         val executor = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertFalse(executor.contains("entryQtyToken = if (price > 0.0) sol / price else 0.0"))
