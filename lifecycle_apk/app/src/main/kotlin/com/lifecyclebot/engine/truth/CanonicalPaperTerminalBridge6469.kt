@@ -142,6 +142,23 @@ object CanonicalPaperTerminalBridge6469 {
             return Result(applied = false, terminalClaimed = false, busPublished = false, reason = claim.reason)
         }
 
+        val event6635 = CanonicalEconomicEvent6635.Event(
+            economicEventId = sellSig, positionId = positionId, mint = mint,
+            canonicalMint = ExecutorCanonicalMirror6442.canonicalMint(mint), symbol = symbol,
+            mode = "paper", lane = lane,
+            side = if (terminal) CanonicalEconomicEvent6635.Side.SELL else CanonicalEconomicEvent6635.Side.PARTIAL_SELL,
+            timestampMs = System.currentTimeMillis(), qtyRaw = soldQtyRaw,
+            decimals = sellDecimals6522, executionPriceUsd = 0.0,
+            executionPriceSol = 0.0, notionalSol = grossProceedsSol, feeSol = feesSol,
+            cashDeltaSol = grossProceedsSol - feesSol, positionQtyDeltaRaw = soldQtyRaw.negate(),
+            realizedPnlDeltaSol = grossProceedsSol - soldCostBasisSol - feesSol,
+            terminalFillIndex = if (terminal) 1 else 0,
+        )
+        if (!CanonicalEconomicEvent6635.openEvent(event6635)) {
+            try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_EVENT_OPEN_REJECTED_6641") } catch (_: Throwable) {}
+            return Result(false, true, false, "CANONICAL_EVENT_OPEN_REJECTED")
+        }
+
         var busPublished = false
         try {
             if (!PaperAccountLedger6430.canApplySell6486(soldCostBasisSol)) {
@@ -179,20 +196,37 @@ object CanonicalPaperTerminalBridge6469 {
                 try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_POSITION_REJECTED_6486") } catch (_: Throwable) {}
                 return Result(applied = false, terminalClaimed = true, busPublished = false, reason = "POSITION_MUTATION_REJECTED")
             }
+            CanonicalEconomicEvent6635.markCommitted(sellSig, CanonicalEconomicEvent6635.Store.POSITION, "CanonicalPaperTerminalBridge6469")
             if (!SellQtyBoundaryClamp6427.commitRaw(positionId, soldQtyRaw, terminal)) {
                 try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_QTY_COMMIT_FAILED_6498") } catch (_: Throwable) {}
                 return Result(applied = false, terminalClaimed = true, busPublished = false, reason = "SELL_QTY_COMMIT_FAILED_6498")
             }
-            val ledgerApplied6486 = PaperAccountLedger6430.onSell(
+            val ledgerApplied6486 = PaperAccountLedger6430.onSellAtomic6632(
                 grossProceedsSol = grossProceedsSol,
                 costBasisSoldSol = soldCostBasisSol,
                 feeSol = feesSol,
                 mint = mint,  // V5.0.6502 §1 — enable quarantine reject at ledger source
+                attemptKey = sellSig,
+                side = if (terminal) PaperEconomicAtomicCommit6632.Side.SELL
+                    else PaperEconomicAtomicCommit6632.Side.PARTIAL_SELL,
             )
             if (!ledgerApplied6486) {
                 try { PipelineHealthCollector.labelInc("PAPER_TERMINAL_LEDGER_COMMIT_FAILED_6486") } catch (_: Throwable) {}
                 return Result(false, true, false, "LEDGER_COMMIT_FAILED")
             }
+            CanonicalEconomicEvent6635.markCommitted(sellSig, CanonicalEconomicEvent6635.Store.LEDGER, "CanonicalPaperTerminalBridge6469")
+
+            val sellLotRow6641 = FillLotLedger6504.recordSellFill(
+                mint = mint, lotId = sellSig, qtyTokenRaw = soldQtyRaw,
+                lamports = BigInteger.valueOf((grossProceedsSol.coerceAtLeast(0.0) * 1_000_000_000.0).toLong().coerceAtLeast(0L)),
+                finalized = true, isPaper = true, source = lane,
+                note = "paperSell.atomic6641.${exitReason}".take(120),
+            )
+            if (sellLotRow6641 <= 0L) {
+                try { PipelineHealthCollector.labelInc("PAPER_SELL_FILL_LOT_COMMIT_FAILED_6641") } catch (_: Throwable) {}
+                return Result(false, true, false, "FILL_LOT_COMMIT_FAILED")
+            }
+            CanonicalEconomicEvent6635.markCommitted(sellSig, CanonicalEconomicEvent6635.Store.FILL_LOT, "CanonicalPaperTerminalBridge6469")
 
             busPublished = applyFanoutAfterClaim(
                 idKey = claim.idKey,
@@ -209,6 +243,7 @@ object CanonicalPaperTerminalBridge6469 {
                 terminal = terminal,
                 suppressLearningFanout6490 = suppressLearningFanout6490,
             )
+            CanonicalEconomicEvent6635.markCommitted(sellSig, CanonicalEconomicEvent6635.Store.TERMINAL_EXEC, "CanonicalPaperTerminalBridge6469")
             if (terminal) {
                 fullSells.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("CANONICAL_TERMINAL_SELL") } catch (_: Throwable) {}

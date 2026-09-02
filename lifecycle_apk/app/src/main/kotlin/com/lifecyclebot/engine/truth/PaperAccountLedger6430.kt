@@ -330,6 +330,7 @@ object PaperAccountLedger6430 {
         feeSol: Double,
         mint: String,
         attemptKey: String,
+        side: PaperEconomicAtomicCommit6632.Side = PaperEconomicAtomicCommit6632.Side.SELL,
     ): Boolean {
         if (!grossProceedsSol.isFinite() || !costBasisSoldSol.isFinite()) return false
         // V5.0.6502 §1 — LEDGER QUARANTINE REJECT. Positions whose qty
@@ -380,14 +381,14 @@ object PaperAccountLedger6430 {
         val k6632 = attemptKey.ifBlank {
             PaperEconomicAtomicCommit6632.keyFromMintSide(
                 mint = mint,
-                side = PaperEconomicAtomicCommit6632.Side.SELL,
+                side = side,
                 sigBucket = "%.6f_%.6f_%.6f".format(gross, basis, fee),
             )
         }
         if (k6632.isNotBlank()) {
             val v = PaperEconomicAtomicCommit6632.stampLedger(
                 key = k6632, mint = mint,
-                side = PaperEconomicAtomicCommit6632.Side.SELL,
+                side = side,
                 callSite = "PaperAccountLedger6430.onSell",
             )
             if (v == PaperEconomicAtomicCommit6632.Verdict.DUPLICATE_IGNORED) {

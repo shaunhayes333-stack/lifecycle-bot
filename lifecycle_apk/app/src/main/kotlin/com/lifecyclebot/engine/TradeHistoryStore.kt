@@ -225,7 +225,7 @@ object TradeHistoryStore {
             // The DB on device is at v3 from a previous experiment, so returning
             // the codebase to v1 throws SQLiteException on startup and breaks
             // the entire learning pipeline. Bump to v4 to force an upgrade instead.
-            const val DB_VERSION = 7
+            const val DB_VERSION = 8
             const val TABLE = "trades"
         }
 
@@ -263,6 +263,7 @@ object TradeHistoryStore {
                     token_decimals INTEGER NOT NULL DEFAULT -1,
                     entry_price_source TEXT NOT NULL DEFAULT '',
                     entry_pool_address TEXT NOT NULL DEFAULT '',
+                    economic_event_id TEXT NOT NULL DEFAULT '',
                     dedup_key     TEXT    UNIQUE
                 )
             """.trimIndent())
@@ -293,6 +294,10 @@ object TradeHistoryStore {
                 try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN canonical_consumed_raw TEXT NOT NULL DEFAULT '0'") } catch (_: Throwable) {}
                 try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN remaining_raw_qty TEXT NOT NULL DEFAULT '0'") } catch (_: Throwable) {}
                 try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN token_decimals INTEGER NOT NULL DEFAULT -1") } catch (_: Throwable) {}
+            }
+            if (oldVersion < 8) {
+                try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN economic_event_id TEXT NOT NULL DEFAULT ''") } catch (_: Throwable) {}
+                try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_economic_event_id ON $TABLE(economic_event_id)") } catch (_: Throwable) {}
             }
         }
     }
@@ -883,41 +888,10 @@ object TradeHistoryStore {
         }
         bumpLifetimeFor(tradeToStore)
         insertTradeAsync(tradeToStore)
-        // V5.0.6632 §P0-A — atomic-commit witness (journal side).
-        //   Every paper journal row stamps its atomic-commit key so
-        //   the paired ledger mutation can be witnessed. Half-writes
-        //   (journal row without ledger mutation, or vice versa) are
-        //   emitted as PAPER_ATOMIC_COMMIT_LEDGER_ONLY_6632 /
-        //   PAPER_ATOMIC_COMMIT_JOURNAL_ONLY_6632 by the sweeper.
-        if (tradeToStore.mode.equals("paper", true)) try {
-            val side6632 = when (tradeToStore.side.uppercase()) {
-                "BUY" -> com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.Side.BUY
-                "SELL" -> com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.Side.SELL
-                "PARTIAL_SELL" -> com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.Side.PARTIAL_SELL
-                else -> null
-            }
-            if (side6632 != null && tradeToStore.mint.isNotBlank()) {
-                val sig6632 = when (side6632) {
-                    com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.Side.BUY ->
-                        "%.6f_%.6f".format(tradeToStore.sol.coerceAtLeast(0.0), tradeToStore.feeSol.coerceAtLeast(0.0))
-                    else -> {
-                        val gross = if (tradeToStore.grossProceedsSol > 0.0) tradeToStore.grossProceedsSol
-                                    else tradeToStore.sol.coerceAtLeast(0.0)
-                        val basis = if (tradeToStore.soldCostBasisSol > 0.0) tradeToStore.soldCostBasisSol
-                                    else (gross - tradeToStore.pnlSol).coerceAtLeast(0.0)
-                        "%.6f_%.6f_%.6f".format(gross, basis, tradeToStore.feeSol.coerceAtLeast(0.0))
-                    }
-                }
-                val key6632 = com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632
-                    .keyFromMintSide(tradeToStore.mint, side6632, sig6632)
-                com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.stampJournal(
-                    key = key6632,
-                    mint = tradeToStore.mint,
-                    side = side6632,
-                    callSite = "TradeHistoryStore.recordTrade",
-                )
-            }
-        } catch (_: Throwable) {}
+        // Journal commit is stamped by insertTradeAsync only after SQLite
+        // confirms the durable row. Never advertise an enqueued write as
+        // committed: process death between post() and INSERT caused false
+        // canonical parity and replay holes.
         // V5.9.658 — operator triage: user reports "Journal shows 0 trades but
         // bot is clearly trading (875 24h trades, 15 open positions)." Emit a
         // structured INFO log on every recordTrade so the operator can grep
@@ -1459,6 +1433,7 @@ object TradeHistoryStore {
                         tokenDecimals = c.intOrZero("token_decimals").takeIf { it >= 0 } ?: -1,
                         entryPriceSource = c.stringOrBlank("entry_price_source"),
                         entryPoolAddress = c.stringOrBlank("entry_pool_address"),
+                        economicEventId = c.stringOrBlank("economic_event_id"),
                     )
                     val displayRow = CloseOutcomeLabelSanitizer.canonicalize(row, emit = false)
                     if (isValidAccountingTrade(displayRow)) loaded.add(displayRow)
@@ -2147,12 +2122,36 @@ object TradeHistoryStore {
         ioHandler?.post {
             try {
                 val cv = tradeToContentValues(trade)
-                db?.insertWithOnConflict(
-                    TradeDbHelper.TABLE, null, cv, SQLiteDatabase.CONFLICT_IGNORE)
+                val rowId = db?.insertWithOnConflict(
+                    TradeDbHelper.TABLE, null, cv, SQLiteDatabase.CONFLICT_IGNORE) ?: -1L
+                if (rowId > 0L) stampDurableJournalCommit6641(trade)
+                else try { PipelineHealthCollector.labelInc("PAPER_JOURNAL_DURABLE_INSERT_FAILED_6641") } catch (_: Throwable) {}
             } catch (e: Exception) {
                 ErrorLogger.error("TradeHistoryStore", "SQLite insert failed: ${e.message}")
             }
         }
+    }
+
+    private fun stampDurableJournalCommit6641(trade: Trade) {
+        if (!trade.mode.equals("paper", true) || trade.mint.isBlank()) return
+        val side = when (trade.side.uppercase()) {
+            "BUY" -> com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.Side.BUY
+            "SELL" -> com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.Side.SELL
+            "PARTIAL_SELL" -> com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.Side.PARTIAL_SELL
+            else -> return
+        }
+        val key = trade.economicEventId.ifBlank { trade.operationId }
+        if (key.isBlank()) {
+            try { PipelineHealthCollector.labelInc("PAPER_JOURNAL_MISSING_ECONOMIC_EVENT_ID_6641") } catch (_: Throwable) {}
+            return
+        }
+        com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.stampJournal(
+            key, trade.mint, side, "TradeHistoryStore.SQLite.durable6641",
+        )
+        com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.markCommitted(
+            key, com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.Store.JOURNAL,
+            "TradeHistoryStore.SQLite.durable6641",
+        )
     }
 
     private fun tradeToContentValues(t: Trade): ContentValues = ContentValues().apply {
@@ -2186,6 +2185,7 @@ object TradeHistoryStore {
         put("token_decimals", t.tokenDecimals)
         put("entry_price_source", t.entryPriceSource)
         put("entry_pool_address", t.entryPoolAddress)
+        put("economic_event_id", t.economicEventId)
         put("dedup_key",     "${t.ts}_${t.mint}_${t.side}_${tradeSeq.incrementAndGet()}")
     }
 
@@ -2230,6 +2230,7 @@ object TradeHistoryStore {
                         tokenDecimals = c.intOrZero("token_decimals").takeIf { it >= 0 } ?: -1,
                         entryPriceSource = c.stringOrBlank("entry_price_source"),
                         entryPoolAddress = c.stringOrBlank("entry_pool_address"),
+                        economicEventId = c.stringOrBlank("economic_event_id"),
                     )
                     if (isValidAccountingTrade(row)) loaded.add(row)
                     else try { ErrorLogger.warn("TradeHistoryStore", "TRADE_ACCOUNTING_DB_INIT_FILTERED mint=${row.mint.take(8)} side=${row.side} pnlPct=${row.pnlPct} pnl=${row.pnlSol} reason=${row.reason}") } catch (_: Throwable) {}

@@ -255,6 +255,10 @@ data class Trade(
     val soldCostBasisSol: Double = 0.0,
     val postCostSol: Double = 0.0,
     val grossProceedsSol: Double = 0.0,
+    // V5.0.6641 — immutable economic identity shared by position, ledger,
+    // fill-lot and journal writers.  Never derive transaction identity from
+    // floating-point proceeds/basis/fee values.
+    val economicEventId: String = "",
 )
 
 data class StrategyMeta(
