@@ -193,6 +193,13 @@ object BotRuntimeController {
             base.state == RuntimeState.STOPPING -> RuntimeState.STOPPING
             botLoop -> RuntimeState.RUNNING
             base.state == RuntimeState.STARTING -> RuntimeState.STARTING
+            // A published RUNNING bit is not runtime authority.  The registered
+            // bot-loop Job is.  Keeping RUNNING after that Job completed made
+            // Main report ACTIVE forever while SCAN/V3/EXEC were all dead, and
+            // caused later ACTION_START intents to take the "already running"
+            // no-op path.  Collapse that impossible state immediately so the
+            // next user/keepalive start receives a fresh generation.
+            base.state == RuntimeState.RUNNING -> RuntimeState.STOPPED
             else -> base.state
         }
         return base.copy(

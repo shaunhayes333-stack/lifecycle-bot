@@ -20608,6 +20608,42 @@ class Executor(
         } else {
             onPaperBalanceChange?.invoke(value - treasuryShare)
         }
+
+        // BOT-SHUTDOWN FAST PATH — immediately after the durable canonical close,
+        // synchronous journal append, projection convergence, and UI balance
+        // projection.  This used to sit *after* fluid learning, alerts,
+        // auto-compounding and nine per-lane close callbacks.  With 94 paper
+        // positions that made stopBot() run for minutes; its 30s restart waiter
+        // then launched a replacement inside the dying service and the old tail
+        // cancelled it.  Shutdown exits are forced outcomes and must not train the
+        // strategy stack.  BotService clears every lane registry in bulk later.
+        if (reason == "bot_shutdown") {
+            val shutdownCostSol = pos.costSol
+            tradeId.closed(price, pnlP, pnl, reason)
+            try { GlobalTradeRegistry.closePosition(tradeId.mint) } catch (_: Exception) {}
+            try { EmergentGuardrails.unregisterPosition(tradeId.mint) } catch (_: Exception) {}
+            try { com.lifecyclebot.v4.meta.PortfolioHeatAI.removePosition(tradeId.mint) } catch (_: Throwable) {}
+            ts.position = Position()
+            ts.lastExitTs = System.currentTimeMillis()
+            ts.lastExitPrice = price
+            ts.lastExitPnlPct = pnlP
+            ts.lastExitWasWin = pnlP >= 1.0
+            try { PositionPersistence.removePosition(ts.mint) } catch (_: Exception) {}
+            try { PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "bot_shutdown") } catch (_: Throwable) {}
+            try {
+                TokenLifecycleTracker.onSellSettled(
+                    mint = ts.mint,
+                    sig = "PAPER:bot_shutdown",
+                    solReceived = shutdownCostSol.coerceAtLeast(0.0),
+                    walletTokenAfter = 0.0,
+                )
+            } catch (_: Throwable) {}
+            try { BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis() } catch (_: Throwable) {}
+            try { WalletPositionLock.recordClose("Meme", shutdownCostSol) } catch (_: Exception) {}
+            try { TradeAuthorizer.releasePosition(ts.mint, "SELL_$reason", TradeAuthorizer.ExecutionBook.CORE) } catch (_: Exception) {}
+            onLog("🛑 SHUTDOWN CLOSE: ${ts.symbol} @ ${pnlP.toInt()}% (learning skipped)", tradeId.mint)
+            return SellResult.PAPER_CONFIRMED
+        }
         
         if (cfg().fluidLearningEnabled) {
             FluidLearning.recordPaperSell(tradeId.mint, pos.costSol, pnl)
@@ -20792,37 +20828,6 @@ class Executor(
             (pos.entryTime - ts.addedToWatchlistAt) / 60_000.0
         } else 0.0
         
-        // V5.9.720: BOT-SHUTDOWN FAST PATH.
-        // For bot_shutdown sells, skip all 44-layer AI learning — it's a forced
-        // exit, not a real signal. The position is closed and wallet is credited
-        // above; learning from a shutdown sell is pure noise and takes 2-4s/position.
-        // With 17+ open positions this was causing the 60-90s freeze on restart.
-        if (reason == "bot_shutdown") {
-            val shutdownCostSol = pos.costSol  // capture BEFORE position reset
-            tradeId.closed(price, pnlP, pnl, reason)
-            try { GlobalTradeRegistry.closePosition(tradeId.mint) } catch (_: Exception) {}
-            try { EmergentGuardrails.unregisterPosition(tradeId.mint) } catch (_: Exception) {}
-            try { com.lifecyclebot.v4.meta.PortfolioHeatAI.removePosition(tradeId.mint) } catch (_: Throwable) {}
-            ts.position      = Position()
-            ts.lastExitTs    = System.currentTimeMillis()
-            ts.lastExitPrice = price
-            ts.lastExitPnlPct = pnlP
-            ts.lastExitWasWin = pnlP >= 1.0
-            try { PositionPersistence.removePosition(ts.mint) } catch (_: Exception) {}
-            try { PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "bot_shutdown") } catch (_: Throwable) {}
-            // V5.9.1369 — same deterministic paper lifecycle settle on the shutdown fast path.
-            try {
-                TokenLifecycleTracker.onSellSettled(
-                    mint = ts.mint, sig = "PAPER:bot_shutdown",
-                    solReceived = shutdownCostSol.coerceAtLeast(0.0), walletTokenAfter = 0.0,
-                )
-            } catch (_: Throwable) {}
-            try { WalletPositionLock.recordClose("Meme", shutdownCostSol) } catch (_: Exception) {}
-            try { TradeAuthorizer.releasePosition(ts.mint, "SELL_$reason", TradeAuthorizer.ExecutionBook.CORE) } catch (_: Exception) {}
-            onLog("🛑 SHUTDOWN CLOSE: ${ts.symbol} @ ${pnlP.toInt()}% (learning skipped)", tradeId.mint)
-            return SellResult.PAPER_CONFIRMED
-        }
-
         // V5.9.363 — SYMMETRIC SCRATCH ZONE.
         // Old: WIN ≥ +2.0%, LOSS ≤ -3.0%. The asymmetric -3% loss threshold
         // meant winners that retraced from +50% back to +1% got hidden as

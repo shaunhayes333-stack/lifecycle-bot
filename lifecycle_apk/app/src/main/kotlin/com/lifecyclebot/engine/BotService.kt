@@ -486,6 +486,14 @@ class BotService : Service() {
         @Volatile
         var userStartQueuedDuringStop = false
 
+        // A restart requested while the old service is draining must be delivered
+        // to a fresh Service instance.  Starting inside the old service scope lets
+        // onDestroy()/scope.cancel() kill the replacement.  This latch covers the
+        // short interval between stopBot() completing and the fresh ACTION_START
+        // being dispatched on the Android main looper.
+        @Volatile
+        private var restartAfterStopDispatchPending6518 = false
+
         /**
          * V5.9.1071 — service-owned runtime truth for UI.
          *
@@ -553,17 +561,18 @@ class BotService : Service() {
 
         fun isRuntimeActive(): Boolean {
             return try {
-                val svcLoopActive = try { instance?.loopJob?.isActive == true } catch (_: Throwable) { false }
-                // V5.9.1167 — runtime truth must include the real service job even
-                // when BotRuntimeController got stale STOPPED after lifecycle churn.
-                // This is the exact split-brain where UI says Start Bot but START
-                // no-ops because loopJob is already alive.
-                BotRuntimeController.snapshot().runtimeActive || svcLoopActive || stopInProgress || status.running
+                val svc = instance
+                val svcLoopActive = try { svc?.loopJob?.isActive == true } catch (_: Throwable) { false }
+                // Executing coroutine truth only.  stopInProgress and status.running
+                // are intent/UI mirrors, not proof that the pipeline can scan or
+                // execute.  Including either produced the operator's impossible
+                // "ACTIVE + botLoopActive=false + EXEC=0" snapshot.
+                BotRuntimeController.snapshot().runtimeActive || svcLoopActive || svc?.startInProgress == true
             } catch (_: Throwable) {
                 try {
                     val svc = instance
-                    status.running || stopInProgress || (svc?.loopJob?.isActive == true)
-                } catch (_: Throwable) { status.running || stopInProgress }
+                    (svc?.loopJob?.isActive == true) || svc?.startInProgress == true
+                } catch (_: Throwable) { false }
             }
         }
 
@@ -872,7 +881,7 @@ class BotService : Service() {
     lateinit var tradeJournal: TradeJournal
     lateinit var autoMode: AutoModeEngine
     lateinit var copyTradeEngine: CopyTradeEngine
-    private var loopJob: Job? = null
+    @Volatile private var loopJob: Job? = null
     @Volatile private var rapidStopLossMonitorJob: Job? = null
     @Volatile private var openPositionTickJob: Job? = null
     private val tokenMintUploadInFlight = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -1499,6 +1508,10 @@ class BotService : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // A service object reaching onCreate is the fresh owner requested by the
+        // post-stop dispatcher.  It is now safe for ACTION_START to proceed.
+        stopInProgress = false
+        restartAfterStopDispatchPending6518 = false
 
         // Must call startForeground() within 5 seconds of startForegroundService() or Android
         // throws ForegroundServiceDidNotStartInTimeException. Do it here before any slow init.
@@ -2743,13 +2756,33 @@ class BotService : Service() {
                     return START_NOT_STICKY
                 }
                 if (userRequested) {
-                    userStartQueuedDuringStop = stopInProgress
+                    userStartQueuedDuringStop = stopInProgress || restartAfterStopDispatchPending6518
                     try {
                         getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
                             .edit()
                             .putBoolean(KEY_MANUAL_STOP_REQUESTED, false)
                             .apply()
                     } catch (_: Exception) {}
+                }
+
+                // STOP OWNS THIS SERVICE INSTANCE.  Queue before inspecting the
+                // old loop Job: that Job can still be active while teardown is in
+                // progress, and treating it as a healthy "already running" loop
+                // was the race that lost Start and later killed its replacement.
+                // No coroutine is launched here; stopBot() dispatches ACTION_START
+                // only after its complete tail and Android destroys this instance.
+                if (stopInProgress || restartAfterStopDispatchPending6518) {
+                    userStartQueuedDuringStop = true
+                    serviceStartRequested6517.set(true)
+                    addLog("⏳ Stop in progress — restart queued for a fresh runtime")
+                    ErrorLogger.warn("BotService", "Start requested during teardown — queued for fresh service")
+                    try {
+                        ForensicLogger.lifecycle(
+                            "LIFECYCLE_START_QUEUED_STOP_IN_PROGRESS",
+                            "userRequested=$userRequested stopInProgress=$stopInProgress dispatchPending=$restartAfterStopDispatchPending6518",
+                        )
+                    } catch (_: Throwable) {}
+                    return START_STICKY
                 }
 
                 // V5.9.1081 — strict idempotency. Three early-exit checks BEFORE
@@ -2815,39 +2848,7 @@ class BotService : Service() {
                     return START_STICKY
                 }
 
-                if (stopInProgress) {
-                    // V5.9.148 — queue the start until stopBot() has fully drained.
-                    // Otherwise the tail of stopBot stops the traders we just started.
-                    addLog("⏳ Stop in progress — restart queued (will auto-start when clean)")
-                    ErrorLogger.warn("BotService", "Start requested while stopInProgress — queued")
-                    try { ForensicLogger.lifecycle("LIFECYCLE_START_QUEUED_STOP_IN_PROGRESS", "userRequested=$userRequested") } catch (_: Throwable) {}
-                    startInProgress = true
-                    scope.launch {
-                        try {
-                            // V5.9.720: increased from 60s to 30s — shutdown is now near-instant
-                            // (bot_shutdown sells skip heavy AI learning via the fast path).
-                            // 30s is plenty of headroom; if it still hangs, something else is wrong.
-                            val deadline = System.currentTimeMillis() + 30_000L
-                            while (stopInProgress && System.currentTimeMillis() < deadline) {
-                                kotlinx.coroutines.delay(200)
-                            }
-                            if (stopInProgress) {
-                                ErrorLogger.error("BotService", "stopBot() did not complete in 30s — force-clearing flag")
-                                stopInProgress = false
-                            }
-                            if (loopJob?.isActive != true && (userStartQueuedDuringStop || !isManualStopRequested(applicationContext))) {
-                                userStartQueuedDuringStop = false
-                                try { ForensicLogger.lifecycle("LIFECYCLE_START_ACCEPTED", "drained_after_stop=true") } catch (_: Throwable) {}
-                                startBot()
-                                try { ForensicLogger.lifecycle("LIFECYCLE_RUNTIME_JOB_CREATED", "drained_after_stop=true loopActive=${loopJob?.isActive == true}") } catch (_: Throwable) {}
-                            } else {
-                                try { ForensicLogger.lifecycle("LIFECYCLE_START_IGNORED_ALREADY_RUNNING", "drained_after_stop=true loopActive=${loopJob?.isActive == true}") } catch (_: Throwable) {}
-                            }
-                        } finally {
-                            startInProgress = false
-                        }
-                    }
-                } else if (forceRestartConfirmed && loopJob?.isActive == true) {
+                if (forceRestartConfirmed && loopJob?.isActive == true) {
                     // V5.9.1081 — explicit operator-confirmed force-restart (e.g.
                     // halt_reset, or a future "rescue stuck loop" debug button).
                     // The normal UI START button does NOT set this extra, so it
@@ -2916,6 +2917,15 @@ class BotService : Service() {
                     return START_STICKY
                 }
                 try { ForensicLogger.lifecycle("LIFECYCLE_STOP_ACCEPTED", "source=$stopSource manual=$isConfirmedManualStop") } catch (_: Throwable) {}
+                // Close the race before launching the teardown coroutine.  The old
+                // code set this only inside stopBot(), leaving a window where an
+                // ACTION_START saw the still-active old Job and was discarded as
+                // "already running".  Duplicate stops are idempotent.
+                if (stopInProgress) {
+                    try { ForensicLogger.lifecycle("LIFECYCLE_STOP_DUPLICATE_IGNORED_6518", "source=$stopSource") } catch (_: Throwable) {}
+                    return START_STICKY
+                }
+                stopInProgress = true
                 serviceStartRequested6517.set(false)
                 try { ForensicLogger.lifecycle("DEFERRED_START_CANCELLED_BY_STOP_6517", "source=$stopSource") } catch (_: Throwable) {}
                 // V5.9.1078 — STOP LOOP != LIQUIDATE POSITIONS.
@@ -5465,12 +5475,13 @@ class BotService : Service() {
         botStartTimeMs = System.currentTimeMillis()
 
         addLog("✓ Starting bot loop...")
-        loopJob = scope.launch(botLoopDispatcher) { botLoop() } // V5.9.1023: dedicated single-thread dispatcher prevents Dispatchers.IO pool starvation from wedged supervisor workers
+        val createdLoopJob6518 = scope.launch(botLoopDispatcher) { botLoop() } // V5.9.1023: dedicated single-thread dispatcher prevents Dispatchers.IO pool starvation from wedged supervisor workers
+        synchronized(loopJobLock) { loopJob = createdLoopJob6518 }
         try {
             com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.setRuntimeActive(true, "BotService.startBot.launch6487")
             com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.registerRuntimeJob("BotService.startBot.launch6487")
         } catch (_: Throwable) {}
-        BotRuntimeController.registerJob(runtimeGeneration, "botLoop", loopJob)
+        BotRuntimeController.registerJob(runtimeGeneration, "botLoop", createdLoopJob6518)
         BotRuntimeController.publishRunning(runtimeGeneration, enabledTraders = try { EnabledTraderAuthority.snapshotStr() } catch (_: Throwable) { "" })
         runtimeCommitted = true
         try {
@@ -7447,10 +7458,14 @@ class BotService : Service() {
         }
         val softStopPreservePositions = !liquidateOnStop
         isShuttingDown = liquidateOnStop  // V5.9.1078: only liquidation stops use fast-close shutdown paths
+        // Capture immutable ownership before teardown starts.  Every cancellation
+        // in this stop must target this Job, never whatever a later start/rescue
+        // may install in the shared field.
+        val stoppingLoopJob = synchronized(loopJobLock) { loopJob }
         // V5.9.1016 — forensic stop source marker. Report/navigation bugs must
         // never be allowed to hide behind a generic BOT_STOP_REQUESTED again.
         val stopGeneration = BotRuntimeController.beginStopping(source)
-        ForensicLogger.lifecycle("BOT_STOP_REQUESTED", "gen=$stopGeneration source=$source liquidate=$liquidateOnStop softPreserve=$softStopPreservePositions loopActive=${loopJob?.isActive == true} statusRunning=${status.running} openPositions=${status.tokens.values.count { it.position.isOpen }}")
+        try { ForensicLogger.lifecycle("BOT_STOP_REQUESTED", "gen=$stopGeneration source=$source liquidate=$liquidateOnStop softPreserve=$softStopPreservePositions loopActive=${stoppingLoopJob?.isActive == true} statusRunning=${status.running} openPositions=${status.tokens.values.count { it.position.isOpen }}") } catch (_: Throwable) {}
         // V5.9.148 — gate so a concurrent ACTION_START queues instead of racing
         // the tail of this method. Cleared in the `finally` block below.
         stopInProgress = true
@@ -7474,8 +7489,8 @@ class BotService : Service() {
         //    supervisor's awaitAll() returns within ms with IOException
         //    instead of waiting 4.8s budget × 3 chunks = 14.4s drain.
         try {
-            loopJob?.cancel(kotlinx.coroutines.CancellationException("stopBot:$source"))
-            BotRuntimeController.registerJob(stopGeneration, "botLoop", loopJob)
+            stoppingLoopJob?.cancel(kotlinx.coroutines.CancellationException("stopBot:$source"))
+            BotRuntimeController.registerJob(stopGeneration, "botLoop", stoppingLoopJob)
             try { ForensicLogger.lifecycle("LIFECYCLE_RUNTIME_JOB_CANCELLED", "gen=$stopGeneration source=$source") } catch (_: Throwable) {}
         } catch (_: Throwable) {}
         try {
@@ -7499,6 +7514,11 @@ class BotService : Service() {
         } catch (e: Throwable) {
             try { ForensicLogger.lifecycle("STOP_DATAFEEDS_DISCONNECT_ERR", "err=${e.message?.take(60)}") } catch (_: Throwable) {}
         }
+        // PumpPortal and the other push streams are wired separately from the
+        // scanner/orchestrator.  Leaving this until the teardown tail caused the
+        // exact split-runtime signature in 6637: BG_INTAKE stayed fresh while
+        // BG_SCAN/FDG and botLoop were dead.
+        try { unwireExternalStreams() } catch (_: Throwable) {}
         try {
             try {
                 getSharedPreferences(RUNTIME_PREFS, android.content.Context.MODE_PRIVATE)
@@ -8066,7 +8086,10 @@ class BotService : Service() {
         }
 
         status.running = false
-        loopJob?.cancel()
+        stoppingLoopJob?.cancel()
+        synchronized(loopJobLock) {
+            if (loopJob === stoppingLoopJob) loopJob = null
+        }
         orchestrator?.stop()
         orchestrator = null
         marketScanner?.stop(); marketScanner = null
@@ -8220,11 +8243,57 @@ class BotService : Service() {
             NotificationHistory.NotifEntry.NotifType.INFO
         )
         } finally {
-            // V5.9.148 — always clear, even on early return/exception, so any
-            // queued restart in onStartCommand can proceed.
+            val restartQueued6518 = userStartQueuedDuringStop
+            if (restartQueued6518) restartAfterStopDispatchPending6518 = true
+            synchronized(loopJobLock) {
+                if (loopJob === stoppingLoopJob) loopJob = null
+            }
             stopInProgress = false
             BotRuntimeController.publishStopped(stopGeneration, source)
             try { ForensicLogger.lifecycle("LIFECYCLE_STOP_COMPLETE", "source=$source liquidate=$liquidateOnStop softPreserve=$softStopPreservePositions") } catch (_: Throwable) {}
+            // An exception anywhere in the long teardown must not leave this old
+            // service instance alive.  Idempotent when the normal tail already
+            // called both methods.
+            try { stopForeground(STOP_FOREGROUND_REMOVE) } catch (_: Throwable) {}
+            serviceForegroundActive6487 = false
+            try { stopSelf() } catch (_: Throwable) {}
+            if (restartQueued6518) {
+                userStartQueuedDuringStop = false
+                scheduleFreshStartAfterStop6518(source)
+            }
+        }
+    }
+
+    /**
+     * Deliver a queued restart outside this service's coroutine scope.  stopBot()
+     * has already called stopSelf(); posting on Android's main looper guarantees
+     * onDestroy() (including scope.cancel()) completes before a fresh service owns
+     * ACTION_START.  This prevents the old teardown from cancelling/stopping the
+     * replacement runtime it just created.
+     */
+    private fun scheduleFreshStartAfterStop6518(source: String) {
+        val appContext6518 = applicationContext
+        val posted6518 = android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            try {
+                val restart6518 = Intent(appContext6518, BotService::class.java).apply {
+                    action = ACTION_START
+                    putExtra(EXTRA_USER_REQUESTED, true)
+                }
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    appContext6518.startForegroundService(restart6518)
+                } else {
+                    appContext6518.startService(restart6518)
+                }
+                try { ForensicLogger.lifecycle("LIFECYCLE_FRESH_START_DISPATCHED_6518", "afterStop=$source") } catch (_: Throwable) {}
+            } catch (t: Throwable) {
+                restartAfterStopDispatchPending6518 = false
+                try { ForensicLogger.lifecycle("LIFECYCLE_FRESH_START_DISPATCH_FAILED_6518", "afterStop=$source err=${t.message?.take(80)}") } catch (_: Throwable) {}
+                ErrorLogger.error("BotService", "Fresh post-stop restart dispatch failed: ${t.message}", t)
+            }
+        }, 750L)
+        if (!posted6518) {
+            restartAfterStopDispatchPending6518 = false
+            try { ForensicLogger.lifecycle("LIFECYCLE_FRESH_START_DISPATCH_FAILED_6518", "afterStop=$source err=main_handler_rejected") } catch (_: Throwable) {}
         }
     }
     
@@ -13770,6 +13839,9 @@ class BotService : Service() {
                 }
             }
             loopJob = newJob
+            val rescueGeneration6518 = BotRuntimeController.currentGeneration()
+            BotRuntimeController.registerJob(rescueGeneration6518, "botLoop", newJob)
+            BotRuntimeController.publishRunning(rescueGeneration6518)
             try {
                 com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.setRuntimeActive(true, "BotService.rescueRelaunch6487")
                 com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.registerRuntimeJob("BotService.rescueRelaunch6487")

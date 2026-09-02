@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine
 
+import kotlinx.coroutines.Job
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -202,20 +203,43 @@ class RuntimeSupervisorSmokeTest {
     fun runtime_job_active_cannot_report_stopped() {
         BotRuntimeController.resetForTests()
         val gen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
+        val job = Job()
+        BotRuntimeController.registerJob(gen, "botLoop", job)
         BotRuntimeController.publishRunning(gen)
         val snap = BotRuntimeController.snapshot()
         assertTrue(snap.runtimeActive)
         assertTrue("UI stopped while runtime active must be a regression", BotRuntimeController.runtimeJobActiveButUiStopped(uiRunning = false) || snap.state == BotRuntimeController.RuntimeState.RUNNING)
+        job.cancel()
     }
 
     @Test
     fun runtime_export_state_has_generation() {
         BotRuntimeController.resetForTests()
         val gen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
+        val job = Job()
+        BotRuntimeController.registerJob(gen, "botLoop", job)
         BotRuntimeController.publishRunning(gen)
         val snap = BotRuntimeController.snapshot()
         assertTrue("runtime generation must be non-zero after start", snap.runtimeGeneration > 0)
         assertEquals(BotRuntimeController.RuntimeState.RUNNING, snap.state)
+        job.cancel()
+    }
+
+    @Test
+    fun completed_runtime_job_cannot_leave_false_active_state() {
+        BotRuntimeController.resetForTests()
+        val firstGen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
+        val job = Job()
+        BotRuntimeController.registerJob(firstGen, "botLoop", job)
+        BotRuntimeController.publishRunning(firstGen)
+
+        job.cancel()
+        val dead = BotRuntimeController.snapshot()
+        assertFalse("completed botLoop must not report runtime active", dead.runtimeActive)
+        assertEquals(BotRuntimeController.RuntimeState.STOPPED, dead.state)
+
+        val replacementGen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
+        assertTrue("restart after a dead loop must receive a fresh generation", replacementGen > firstGen)
     }
 
     @Test
