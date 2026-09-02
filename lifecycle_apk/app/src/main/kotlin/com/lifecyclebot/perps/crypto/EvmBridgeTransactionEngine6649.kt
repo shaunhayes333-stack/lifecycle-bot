@@ -137,10 +137,11 @@ object EvmBridgeTransactionEngine6649 {
             }
         }
 
+        val submittedRecord = requireNotNull(record) { "EVM_RECORD_MISSING_AFTER_SUBMIT" }
         repeat(maxReceiptPolls.coerceAtLeast(1)) {
-            settlement(record, request.minimumConfirmations, rpc, store)?.let { return it }
+            settlement(submittedRecord, request.minimumConfirmations, rpc, store)?.let { return it }
         }
-        return Outcome.Pending(record, "EVM_RECEIPT_PENDING")
+        return Outcome.Pending(submittedRecord, "EVM_RECEIPT_PENDING")
     }
 
     fun approvalData(spender: String, amount: BigInteger): String {
