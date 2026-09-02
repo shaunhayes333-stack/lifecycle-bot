@@ -14,6 +14,8 @@ name: Runtime Smoke Test
 # Cost: ~10-15 min wall clock. Free on public repos.
 
 on:
+  pull_request:
+    branches: [ main, master ]
   workflow_dispatch:
     inputs:
       capture_seconds:
@@ -24,11 +26,14 @@ on:
     workflows: ["Build AATE APK"]
     types: [completed]
 
+permissions:
+  contents: read
+
 jobs:
   smoke:
     runs-on: ubuntu-latest
     # Don't run when the upstream build failed.
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     timeout-minutes: 35
 
     defaults:
@@ -106,7 +111,7 @@ jobs:
             ui_first_cycle_logcat.txt
             logcat_second_start.txt
 
-      - name: Fail job if pipeline funnel collapsed
+      - name: Enforce 120-second execution-spine acceptance
         if: always()
         # Hard gate: if INTAKE>0 but SAFETY+V3+LANE_EVAL all zero, the
         # pipeline is silently choked. Mark the job as failed so the
@@ -116,13 +121,14 @@ jobs:
             echo "No summary produced — emulator step likely failed."
             exit 1
           fi
-          INTAKE=$(grep -oP 'INTAKE:\s+\K\d+' "$GITHUB_WORKSPACE/funnel_summary.txt" || echo 0)
-          SAFETY=$(grep -oP 'SAFETY:\s+\K\d+' "$GITHUB_WORKSPACE/funnel_summary.txt" || echo 0)
-          V3=$(grep -oP 'V3:\s+\K\d+' "$GITHUB_WORKSPACE/funnel_summary.txt" || echo 0)
-          LANE=$(grep -oP 'LANE_EVAL:\s+\K\d+' "$GITHUB_WORKSPACE/funnel_summary.txt" || echo 0)
-          if [ "$INTAKE" -gt 0 ] && [ "$SAFETY" -eq 0 ] && [ "$V3" -eq 0 ] && [ "$LANE" -eq 0 ]; then
-            echo "::error::Pipeline funnel collapsed: INTAKE=$INTAKE but SAFETY/V3/LANE_EVAL all zero. Bot is silently choked."
+          if grep -q 'EXECUTION_SPINE_ACCEPTANCE_6647_FAIL' "$GITHUB_WORKSPACE/logcat_full.txt"; then
+            grep 'EXECUTION_SPINE_ACCEPTANCE_6647_FAIL' "$GITHUB_WORKSPACE/logcat_full.txt" | tail -5
+            echo "::error::Mandatory execution-spine acceptance reported a failed invariant."
             exit 1
           fi
-          echo "Pipeline funnel OK: INTAKE=$INTAKE SAFETY=$SAFETY V3=$V3 LANE=$LANE"
+          if ! grep -q 'EXECUTION_SPINE_ACCEPTANCE_6647_OK' "$GITHUB_WORKSPACE/logcat_full.txt"; then
+            echo "::error::No completed passing 120-second execution-spine window was observed."
+            exit 1
+          fi
+          echo "Mandatory 120-second execution-spine acceptance passed."
         working-directory: .
