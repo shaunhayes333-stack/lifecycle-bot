@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 
@@ -67,7 +68,9 @@ object RegimeDetector {
 
     private fun recompute(now: Long): RegimeSnapshot {
         val recentSells = try {
-            TradeHistoryStore.getRecentValidClosedTrades(limit = 100, includePartials = false)
+            TradeHistoryStore.getRecentValidClosedTrades(limit = 2_000, includePartials = false)
+                .filter { DeskPerformanceAuthority6648.classify(it) == DeskPerformanceAuthority6648.Book.MEME }
+                .takeLast(100)
         } catch (_: Throwable) { emptyList() }
 
         val v3Median = try {
