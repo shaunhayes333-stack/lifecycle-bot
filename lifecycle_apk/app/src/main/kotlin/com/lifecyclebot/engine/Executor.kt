@@ -21640,6 +21640,7 @@ class Executor(
                 ((ts.position.highestPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
             } else pnlP
             
+            val durableEventId6643 = tradeSnap.economicEventId
             val outcomeData = com.lifecyclebot.v3.scoring.EducationSubLayerAI.TradeOutcomeData(
                 mint = tradeId.mint,
                 symbol = ts.symbol,
@@ -21690,10 +21691,10 @@ class Executor(
                 pnlSol = pnl,
                 executionMode = if (ts.position.isPaperPosition) "paper" else "live",
                 proofState = "canonical_finalized",
-                economicEventId = terminalId6474,
+                economicEventId = durableEventId6643,
             )
 
-            val queued6643 = com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.afterCommitted(terminalId6474) {
+            val queued6643 = com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.afterCommitted(durableEventId6643) {
                 com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
                 try { com.lifecyclebot.engine.AutonomousMetaPolicy.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("POLICY_HEAD_DIRECT_FANOUT_SUPPRESSED_4542") } catch (_: Throwable) {}
@@ -21701,11 +21702,11 @@ class Executor(
                 try { com.lifecyclebot.engine.LayerBrain.recordOutcomeAll(ts.mint, pnlP) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("INTELLIGENCE_DURABLE_SETTLEMENT_DELIVERED_6643") } catch (_: Throwable) {}
-                ErrorLogger.info("Executor", "🎓 HARVARD BRAIN: durable outcome ${ts.symbol} | event=${terminalId6474.take(24)} | PnL=${pnlP.toInt()}%")
+                ErrorLogger.info("Executor", "🎓 HARVARD BRAIN: durable outcome ${ts.symbol} | event=${durableEventId6643.take(24)} | PnL=${pnlP.toInt()}%")
             }
             if (!queued6643) {
                 try { PipelineHealthCollector.labelInc("INTELLIGENCE_DURABLE_SETTLEMENT_MISSING_6643") } catch (_: Throwable) {}
-                ErrorLogger.warn("Executor", "Harvard outcome rejected: missing canonical event $terminalId6474")
+                ErrorLogger.warn("Executor", "Harvard outcome rejected: missing canonical event $durableEventId6643")
             }
         } catch (e: Exception) {
             ErrorLogger.warn("Executor", "🎓 Harvard Brain recording failed: ${e.message}")
