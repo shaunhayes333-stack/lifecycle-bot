@@ -13,10 +13,8 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * V5.9.855 — Passive API key validator.
  *
- * Problem: Several keys ship dead by default — operator-confirmed via live
- * probe (memory #146):
- *   - sk-emergent-431Dd41D3F186C0E0B (Gemini default) → API_KEY_INVALID
- *   - "hive-pattern-learn" (Helius placeholder) → 401 on Enhanced API
+ * Problem: Missing or placeholder keys must be rejected without burning a
+ * network call for every candidate.
  *
  * When a consumer (BotBrain LLM analysis, NarrativeDetector, GeminiCopilot)
  * calls these keys, the request burns latency + a network round-trip on every
@@ -57,9 +55,8 @@ object KeyValidator {
 
     /** Known dead default keys — auto-flagged at startup. */
     private val knownDeadDefaults = setOf(
-        "sk-emergent-431Dd41D3F186C0E0B",   // Emergent Gemini default — invalid
-        "hive-pattern-learn",                // Helius placeholder
-        "",                                  // empty key
+        "hive-pattern-learn",
+        "",
     )
 
     /** V5.9.1340 — true only for a Helius key that can actually hit the paid

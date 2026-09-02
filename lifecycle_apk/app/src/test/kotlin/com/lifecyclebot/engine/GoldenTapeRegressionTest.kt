@@ -1716,12 +1716,12 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun wallet_rpc_has_scoped_tls_fallback_for_android_trust_anchor_failures() {
+    fun wallet_rpc_rejects_tls_trust_failures_without_bypass() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
-        assertTrue(src.contains("WALLET_RPC_TLS_FALLBACK_USED"))
-        assertTrue(src.contains("isTlsTrustFailure"))
-        assertTrue(src.contains("Trust anchor"))
-        assertTrue(src.contains("unsafeWalletRpcClient"))
+        assertTrue(src.contains("WALLET_RPC_TLS_REJECTED"))
+        assertFalse(src.contains("WALLET_RPC_TLS_FALLBACK_USED"))
+        assertFalse(src.contains("unsafeWalletRpcClient"))
+        assertFalse(src.contains("hostnameVerifier"))
     }
 
     @Test
@@ -1866,16 +1866,13 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(exec.contains("LIVE_ENTRY_PRICE_FROM_PROOF"))
         // V5.0.6405 §18 — the (sol/qty)×solUsd formula was refactored into
-        // EntryPriceIntegrityAuthority6405.deriveTrustedEntryUsd which
-        // ALWAYS returns a non-zero basis (never defers) and falls back
-        // to SOL_USD_COLD_FALLBACK when the wallet feed is cold. Verify
-        // the authority is called at the buy-verify site instead of the
-        // literal inline formula.
+        // EntryPriceIntegrityAuthority6405.deriveTrustedEntryUsd requires
+        // the immutable event-time SOL/USD witness. Missing price truth
+        // keeps the fill pending; it never substitutes a fixed price.
         assertTrue(exec.contains("EntryPriceIntegrityAuthority6405"))
         assertTrue(exec.contains("deriveTrustedEntryUsd"))
-        // entryPriceSource may now be either LIVE_PROOF_COST_BASIS (feed
-        // warm) or LIVE_PROOF_COST_BASIS_SOL_USD_FALLBACK (feed cold);
-        // both are trusted labels — reject the pre-6405 hard-coded literal.
+        assertTrue(exec.contains("entrySolUsdWitness6637"))
+        assertFalse(exec.contains("SOL_USD_COLD_FALLBACK"))
         assertTrue(exec.contains("trustedEntry6405?.source ?: \"LIVE_PROOF_COST_BASIS\""))
         assertTrue(exec.contains("entrySupplyAssumed = 0.0"))
         assertTrue(exec.contains("priceBasisRescaled = true"))
@@ -3828,9 +3825,9 @@ class GoldenTapeRegressionTest {
         assertTrue("Final executable gate must create immutable execution tickets", gate.contains("data class ExecutionIntent") && gate.contains("EXEC_TICKET_CREATED") && gate.contains("allowedAttempts[laneKey(ticket.mint, ticket.lane)]") && gate.contains("EXEC_INTENT_CREATED"))
         assertTrue("ticket restore must bypass mutable WATCH/version/lane churn", gate.contains("EXEC_TICKET_RESTORED_IMMUTABLE") && gate.contains("immutableTicket == null && ticketAuthority6564 == null && immutableAuthority6513 == null && !selectedLaneMatchesRequest") && gate.contains("""safetyTier.equals("UNKNOWN", true) && immutableTicket == null"""))
         assertTrue("stale/finality failures need separate counters", exec.contains("BUY_FAILED_FINALITY") && exec.contains("BUY_FAILED_STALE_TICKET") && exec.contains("BUY_FAILED_ROUTE") && exec.contains("BUY_FAILED_SAFETY"))
-        assertTrue("executor phase counters must represent actual tx progress", listOf("EXEC_SELECTED", "EXEC_TICKET_CREATED", "QUOTE_REQUESTED", "QUOTE_OK", "SWAP_BUILT", "TX_SIGNED", "TX_SUBMITTED", "TX_CONFIRMED", "BUY_JOURNALED").all { (gate + exec).contains(it) })
-        assertTrue("tx confirmed without live journal must fail regression guard", pipe.contains("TX_CONFIRMED_WITHOUT_BUY_JOURNALED") && pipe.contains("REGRESSION_GUARDS_FAIL"))
-        assertTrue("confirmed live BUY must journal after tx confirmation", exec.indexOf("TX_CONFIRMED") < exec.indexOf("BUY_JOURNALED") && exec.contains("recordTrade(ts, trade)"))
+        assertTrue("executor phase counters must represent proof-first tx progress", listOf("EXEC_SELECTED", "EXEC_TICKET_CREATED", "QUOTE_REQUESTED", "QUOTE_OK", "SWAP_BUILT", "TX_SIGNED", "TX_SUBMITTED", "TX_CONFIRMED", "BUY_PENDING_BALANCE_PROOF", "BUY_JOURNALED").all { (gate + exec).contains(it) })
+        assertTrue("only a verified BUY without a journal may fail the regression guard", pipe.contains("VERIFIED_BUY_WITHOUT_JOURNAL") && pipe.contains("LIVE_BUY_PROOF_SIDE_EFFECTS_COMMITTED_6637") && pipe.contains("REGRESSION_GUARDS_FAIL"))
+        assertTrue("confirmed live BUY must defer side effects until authoritative proof", exec.contains("LIVE_BUY_SIDE_EFFECTS_DEFERRED_6637") && exec.contains("LIVE_BUY_PROOF_SIDE_EFFECTS_COMMITTED_6637") && exec.indexOf("BUY_PENDING_BALANCE_PROOF") < exec.indexOf("BUY_JOURNALED"))
         assertTrue("live hard-safety residues must keep confirmed fatal terminal while pending proof is penalty-only", pre.contains("MINT_AUTHORITY_ACTIVE") && pre.contains("TOP_HOLDER_CONCENTRATION") && pre.contains("FATAL_WALLET_RISK_TEXT") && pre.contains("PRETRADE_PENDING_PROOF_PENALTY_ALLOW") && pre.contains("LIVE_ROUTE_LIQUIDITY_PROOF_PENDING"))
         assertFalse("active authority/high-holder live risks must not remain size-clamp penalty-only", pre.contains("MINT_AUTHORITY_ACTIVE_SIZE_CLAMP") || pre.contains("TOP_HOLDER_SIZE_CLAMP"))
         assertTrue("live outcome learning must not treat unknown top-holder as safe zero", exec.contains("if (ts.position.isPaperPosition) 0.0 else 50.0") && exec.contains("if (pos.isPaperPosition) 0.0 else 50.0"))

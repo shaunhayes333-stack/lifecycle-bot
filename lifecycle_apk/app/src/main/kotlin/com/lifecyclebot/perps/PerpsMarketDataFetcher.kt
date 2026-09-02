@@ -48,8 +48,12 @@ object PerpsMarketDataFetcher {
     
     private val yahooChangeCache = ConcurrentHashMap<String, Double>()
     private val priceSourceCache = ConcurrentHashMap<String, String>()  // Track which source worked
+    private val verifiedPriceUpdatedAt = ConcurrentHashMap<String, Long>()
+    private const val VERIFIED_PRICE_MAX_AGE_MS = 60_000L
     
-    // Stock price cache (fallback prices if Pyth fails) - V5.7.6: Full asset coverage
+    // Legacy display seeds. V5.0.6637 forbids these values from becoming
+    // tradable: the fallback path also requires a recent verified timestamp,
+    // which only a successful live provider response can create.
     private val stockPrices = ConcurrentHashMap<String, Double>().apply {
         // MEGA TECH (prices as of Apr 2026)
         put("AAPL", 260.50)
@@ -555,6 +559,7 @@ object PerpsMarketDataFetcher {
                     // Update the stockPrices cache with real Pyth price
                     if (market.isStock) {
                         stockPrices[market.symbol] = pythPrice.price
+                        verifiedPriceUpdatedAt[market.symbol] = System.currentTimeMillis()
                     }
                     
                     // Real 24h change from PriceAggregator (CoinGecko/Binance — cached 3s)
@@ -707,8 +712,8 @@ object PerpsMarketDataFetcher {
             )
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "Failed to fetch SOL data: ${e.message}")
-            // Return mock data as fallback
-            return@withContext createSolMarketData(150.0)
+            // No synthetic SOL price may enter sizing, PnL, or execution.
+            return@withContext createSolMarketData(0.0)
         }
     }
     
@@ -905,7 +910,7 @@ object PerpsMarketDataFetcher {
             }
         } catch (_: Exception) {}
         
-        return@withContext createSolMarketData(150.0)
+        return@withContext createSolMarketData(0.0)
     }
     
     /**
@@ -922,6 +927,7 @@ object PerpsMarketDataFetcher {
         
         if (result != null && result.price > 0) {
             stockPrices[market.symbol] = result.price
+            verifiedPriceUpdatedAt[market.symbol] = System.currentTimeMillis()
             yahooChangeCache[market.symbol] = result.change24h
             priceSourceCache[market.symbol] = result.source
             
@@ -948,8 +954,19 @@ object PerpsMarketDataFetcher {
         // Previously defaulted to $100 which produced bogus signals (e.g. BABYDOGE at $100
         // while real price is ~$0.0000000009) and risked catastrophic live fills.
         val cachedPrice = stockPrices[market.symbol]
-        if (cachedPrice == null) {
-            ErrorLogger.warn(TAG, "⚠️ ALL SOURCES FAILED for ${market.symbol} — returning price=0 (no cached fallback)")
+        val cachedAt = verifiedPriceUpdatedAt[market.symbol] ?: 0L
+        val cacheAgeMs = System.currentTimeMillis() - cachedAt
+        val verifiedCacheUsable =
+            cachedPrice != null &&
+                cachedPrice.isFinite() &&
+                cachedPrice > 0.0 &&
+                cachedAt > 0L &&
+                cacheAgeMs in 0..VERIFIED_PRICE_MAX_AGE_MS
+        if (!verifiedCacheUsable) {
+            ErrorLogger.warn(
+                TAG,
+                "⚠️ ALL SOURCES FAILED for ${market.symbol} — returning price=0 (verified cache age=${cacheAgeMs}ms)",
+            )
             priceSourceCache[market.symbol] = "DEAD"
             return@withContext PerpsMarketData(
                 market = market,
@@ -967,8 +984,8 @@ object PerpsMarketDataFetcher {
                 priceChange24hPct = 0.0,
             )
         }
-        val price = cachedPrice
-        priceSourceCache[market.symbol] = "CACHED"
+        val price = checkNotNull(cachedPrice)
+        priceSourceCache[market.symbol] = "VERIFIED_CACHE"
         
         return@withContext PerpsMarketData(
             market = market,
@@ -987,4 +1004,3 @@ object PerpsMarketDataFetcher {
         )
     }
 }
-

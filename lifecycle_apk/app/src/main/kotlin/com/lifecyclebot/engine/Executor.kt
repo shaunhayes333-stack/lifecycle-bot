@@ -924,6 +924,10 @@ class Executor(
         // thread reaches its normal recordTrade(BUY) section. The recovery path
         // must backfill a missing BUY row, but never duplicate one for the same tx.
         private val liveBuyJournaledSigs4576 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        // V5.0.6637 — proof-gated BUY side effects. Journal, learning,
+        // notifications, sounds, and platform-fee accrual are committed once
+        // per finalized transaction signature and never at quote/broadcast time.
+        private val liveBuyProofSideEffects6637 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
         // V5.0.4585 — real-money notification idempotency. Win/capital alerts
         // must be emitted only after wallet-finalized SOL accounting, never from
         // mark-price trigger paths, and never more than once for the same sell tx.
@@ -17052,6 +17056,24 @@ class Executor(
                     } catch (_: Throwable) { null }
                     rawTokenAmountToUiAmount(ts, quote!!.outAmount, solAmount = sol, priceUsd = price, explicitDecimals = buyExplicitDecimals)
                 }
+            if (!finalQty.isFinite() || finalQty < 0.0) {
+                throw IllegalStateException("Invalid provisional token quantity for ${ts.symbol}: $finalQty")
+            }
+            // V5.0.6637 — immutable event-time SOL/USD witness. Prefer the
+            // live wallet oracle captured at entry; if it is cold, derive the
+            // same unit from the accepted USD/token quote and quoted token
+            // quantity. Never substitute a fixed SOL price during replay.
+            val entrySolUsdWitness6637 = run {
+                val observed = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+                val implied = if (sol > 0.0 && finalQty > 0.0 && price > 0.0) {
+                    (price * finalQty) / sol
+                } else {
+                    0.0
+                }
+                observed.takeIf { it.isFinite() && it in 5.0..10_000.0 }
+                    ?: implied.takeIf { it.isFinite() && it in 5.0..10_000.0 }
+                    ?: 0.0
+            }
 
             if (ts.position.isOpen) {
                 // V5.0.4576 — SOURCE FIX, not just telemetry. This idempotent
@@ -17064,7 +17086,10 @@ class Executor(
                 onLog("✅ Position opened during confirmation wait — late-confirm success (idempotent)", ts.mint)
                 val existingPos4576 = ts.position
                 val journalKey4576 = sig.ifBlank { "${ts.mint}:${existingPos4576.entryTime}:${existingPos4576.costSol}" }
-                if (liveBuyJournaledSigs4576.add(journalKey4576)) {
+                if (!existingPos4576.pendingVerify &&
+                    existingPos4576.qtyToken > 0.0 &&
+                    liveBuyJournaledSigs4576.add(journalKey4576)
+                ) {
                     val recoveredBuy4576 = Trade(
                         side = "BUY",
                         mode = "live",
@@ -17099,6 +17124,14 @@ class Executor(
                             "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} finalSol=${recoveredBuy4576.sol.fmt(4)} route=$routerLabel signature=${sig.take(16)} reason=already_open_backfill_4576"
                         )
                     } catch (_: Throwable) { }
+                } else if (existingPos4576.pendingVerify) {
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_BUY_JOURNAL_DEFERRED_PENDING_PROOF_6637")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "LIVE_BUY_JOURNAL_DEFERRED_PENDING_PROOF_6637",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} sig=${sig.take(16)}",
+                        )
+                    } catch (_: Throwable) {}
                 } else {
                     try {
                         com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_BUY_JOURNAL_BACKFILL_DUP_SUPPRESSED_4576")
@@ -17203,201 +17236,228 @@ class Executor(
                     (baseFluidTp * ts.styleTpMult).coerceIn(5.0, 500.0)
                 } catch (_: Throwable) { 0.0 },
             )
-            // V5.0.6486 — canonical LIVE open is intentionally deferred until
-            // TradeVerifier proves owner token delta + owner SOL delta + chain fee.
-            // Quote output and requested SOL remain provisional only.
-            val trade = Trade(
-                side = "BUY", 
-                mode = "live", 
-                sol = sol, 
-                price = price, 
-                ts = System.currentTimeMillis(),
-                score = score, 
-                sig = sig,
-                // V5.9.386 — sub-trader tag in journal
-                tradingMode = routedLaneTag.ifBlank { if (layerTag.isNotBlank()) layerTag else currentMode.name },
-                tradingModeEmoji = if (layerTagEmoji.isNotBlank()) layerTagEmoji else currentMode.emoji,
-                entryPriceSnapshot = price,
-                entryMcapUsd = entryMarketSnapshot.marketCapUsd,
-                entryCostSol = sol,
-                entryQtyToken = if (price > 0.0) sol / price else 0.0,
-                remainingQtyToken = if (price > 0.0) sol / price else 0.0,
-                entryPriceSource = entryMarketSnapshot.priceSource,
-                entryPoolAddress = entryMarketSnapshot.poolAddress,
-            )
-            val normalBuyJournalKey4576 = sig.ifBlank { "${ts.mint}:${trade.ts}:${trade.sol}" }
-            if (liveBuyJournaledSigs4576.add(normalBuyJournalKey4576)) {
-                recordTrade(ts, trade)
-            } else {
-                try {
-                    ForensicLogger.lifecycle("LIVE_BUY_JOURNAL_DUP_SUPPRESSED_4576", "mint=${ts.mint.take(10)} symbol=${ts.symbol} sig=${sig.take(16)} lane=${trade.tradingMode}")
-                    PipelineHealthCollector.labelInc("LIVE_BUY_JOURNAL_DUP_SUPPRESSED_4576")
-                } catch (_: Throwable) {}
-            }
-            liveStage("JOURNAL_WRITE_OK", "signature=${sig.take(16)} lane=${trade.tradingMode}")
-            buyAttemptTrace4576("POSITION_STAMPED", "route=$routerLabel signature=${sig.take(16)} lane=${trade.tradingMode}")
+            // V5.0.6637 — signature confirmation creates a provisional
+            // wallet liability only. Journal, learning, alerts, sounds, and fee
+            // accrual are committed by promoteVerifiedLiveBuy after finalized
+            // transaction metadata proves owner token and SOL deltas.
             try {
-                ForensicLogger.lifecycle("LIVE_POSITION_STAMPED", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} positionId=${trade.positionId.ifBlank { tradeId.mint.take(10) }} finalSol=${sol.fmt(4)} route=$routerLabel signature=${sig.take(16)} policy=${livePolicySnapshot.take(220)}")
-                PipelineHealthCollector.labelInc("LIVE_POSITION_STAMPED")
+                ForensicLogger.lifecycle(
+                    "LIVE_BUY_SIDE_EFFECTS_DEFERRED_6637",
+                    "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} sig=${sig.take(16)} provisionalQty=$finalQty",
+                )
+                PipelineHealthCollector.labelInc("LIVE_BUY_SIDE_EFFECTS_DEFERRED_6637")
                 PipelineHealthCollector.labelInc("TRADE_POLICY_SNAPSHOT_STAMPED_4193")
             } catch (_: Throwable) {}
-            buyPhase("BUY_JOURNALED")
-            security.recordTrade(trade)
-
-            // V5.9.602 — no route gets inline HELD registration here.
-            // Pump-first and Jupiter both create a pending live position, then
-            // the common verifier below promotes it only after tx/wallet proof
-            // shows tokens actually landed. This prevents ghost positions where
-            // a submitted/confirmed tx signature produced no wallet token delta.
-
-            // V5.9.15: PHANTOM GUARD — DO NOT persist or register in guardrails until
-            // post-buy verification confirms tokens actually arrived on-chain.
-            // Previously these ran immediately, leaking phantoms into UI + persistence.
+            liveStage("POSITION_PENDING_PROOF", "signature=${sig.take(16)} qty=$finalQty")
+            buyAttemptTrace4576("POSITION_PENDING_PROOF", "route=$routerLabel signature=${sig.take(16)}")
+            buyPhase("BUY_PENDING_BALANCE_PROOF")
             
-            sounds?.playBuySound()
-            
-            // V5.7.3: Split trading fee across two wallets (V5.9.1451: 0.5%/side, 1% round-trip)
-            try {
-                val feeAmountSol = sol * MEME_TRADING_FEE_PERCENT
-                if (feeAmountSol >= FEE_SEND_MIN_SOL) {
-                    val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
-                    val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
-                    
-                    // V5.9.1504 — single resolver call handles BOTH shares,
-                    // redirecting any self-addressed fee wallet to the other.
-                    sendFeeSplit(wallet, feeWallet1, feeWallet2, "fee")
-                    
-                    onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.5% of $sol) split 50/50", tradeId.mint)
-                    ErrorLogger.info("Executor", "💸 LIVE BUY FEE: ${feeAmountSol} SOL split to both wallets")
+            fun commitVerifiedLiveBuySideEffects6637(
+                qtyUi: Double,
+                actualCostSol: Double,
+                decimals: Int,
+                actualRawQty: java.math.BigInteger,
+                canonicalPositionId: String,
+            ) {
+                val proofKey = sig.ifBlank { "${ts.mint}:${ts.position.entryTime}:$actualCostSol" }
+                if (!liveBuyProofSideEffects6637.add(proofKey)) {
+                    try { PipelineHealthCollector.labelInc("LIVE_BUY_PROOF_SIDE_EFFECT_DUP_6637") } catch (_: Throwable) {}
+                    return
                 }
-            } catch (feeEx: Exception) {
-                ErrorLogger.error("Executor", "🚨 FEE SEND FAILED — TRADING fee NOT sent, will retry next trade: ${feeEx.message}")
-                // V5.9.226: Bug #7 — enqueue for retry
-                val feeAmt4 = sol * MEME_TRADING_FEE_PERCENT
-                if (feeAmt4 >= FEE_SEND_MIN_SOL) {
-                    FeeRetryQueue.enqueue(TRADING_FEE_WALLET_1, feeAmt4 * FEE_SPLIT_RATIO, "buy_fee_w1")
-                    FeeRetryQueue.enqueue(TRADING_FEE_WALLET_2, feeAmt4 * (1.0 - FEE_SPLIT_RATIO), "buy_fee_w2")
-                }
-            }
-            
-            tradeId.executed(price, sol, isPaper = false, signature = sig)
-            try {
-                com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                    "LIVE_POSITION_CONFIRMED_FROM_SIGNATURE",
-                    "symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$sol price=$price signature=${sig.take(16)}"
+
+                val verifiedEntryPrice = ts.position.entryPrice.takeIf { it.isFinite() && it > 0.0 }
+                    ?: throw IllegalStateException("Verified BUY has no valid USD/token entry price")
+                val verifiedTrade = Trade(
+                    side = "BUY",
+                    mode = "live",
+                    sol = actualCostSol,
+                    price = verifiedEntryPrice,
+                    ts = ts.position.entryTime.takeIf { it > 0L } ?: System.currentTimeMillis(),
+                    score = score,
+                    sig = sig,
+                    tradingMode = ts.position.tradingMode.ifBlank {
+                        routedLaneTag.ifBlank { if (layerTag.isNotBlank()) layerTag else currentMode.name }
+                    },
+                    tradingModeEmoji = ts.position.tradingModeEmoji.ifBlank {
+                        if (layerTagEmoji.isNotBlank()) layerTagEmoji else currentMode.emoji
+                    },
+                    mint = ts.mint,
+                    proofState = "LIVE_FINALIZED",
+                    positionId = canonicalPositionId,
+                    entryTsMs = ts.position.entryTime,
+                    entryPriceSnapshot = verifiedEntryPrice,
+                    entryMcapUsd = entryMarketSnapshot.marketCapUsd,
+                    entryQtyToken = qtyUi,
+                    entryCostSol = actualCostSol,
+                    entryDecimals = decimals,
+                    remainingQtyToken = qtyUi,
+                    entryRawQty = actualRawQty,
+                    remainingRawQty = actualRawQty,
+                    tokenDecimals = decimals,
+                    entryPriceSource = ts.position.entryPriceSource,
+                    entryPoolAddress = ts.position.entryPoolAddress,
                 )
-            } catch (_: Throwable) {}
 
-            // V5.0.3705 — LIVE BUY MANAGEMENT HANDOFF.
-            // Operator 2026-06-15: live buys land in Phantom but bot shows open=0
-            // and leaves them unmanaged. Root pattern: the buy signature is confirmed
-            // and a BUY journal row is written, but wallet/tx indexers can return empty
-            // maps for 60s+. During that window pendingVerify=true makes Position.isOpen
-            // false, and the legacy pending-only tracker refuses to track it.
-            // Result: real wallet tokens with no exit monitor. Once a live swap returns a
-            // non-blank signature and expected token qty/cost, record a pending buy only.
-            // The verifier below must produce authoritative owner/mint BalanceProof
-            // before the position becomes OPEN_TRACKING / sellable.
-            val signatureManagedAtEntry: Boolean = try {
-                val provisional = ts.position
-                if (!provisional.isPaperPosition && provisional.pendingVerify && provisional.qtyToken > 0.0 && sig.isNotBlank()) {
-                    // V5.0.3757 — proof-first live buy doctrine.
-                    // A broadcast/confirmed signature is not sell authority. Do not flip
-                    // pendingVerify=false, do not OPEN_TRACKING, and do not call legacy
-                    // the legacy live final path here. The verifier below must produce an
-                    // authoritative BalanceProof and then call recordBuyConfirmedWithProof().
-                    try { HostWalletTokenTracker.recordBuyPending(ts.mint, ts.symbol, sig) } catch (_: Throwable) {}
+                val journalKey = sig.ifBlank { "${ts.mint}:${verifiedTrade.ts}:${verifiedTrade.sol}" }
+                if (liveBuyJournaledSigs4576.add(journalKey)) {
+                    recordTrade(ts, verifiedTrade)
+                    security.recordTrade(verifiedTrade)
+                    liveStage("JOURNAL_WRITE_OK", "proof=LIVE_FINALIZED signature=${sig.take(16)} lane=${verifiedTrade.tradingMode}")
+                    buyPhase("BUY_JOURNALED")
+                } else {
                     try {
-                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                            "BUY_PENDING_BALANCE_PROOF",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} sig=${sig.take(16)} reason=SIGNATURE_CONFIRMED_AWAITING_BALANCE_PROOF provisionalQty=${provisional.qtyToken}"
+                        ForensicLogger.lifecycle(
+                            "LIVE_BUY_JOURNAL_DUP_SUPPRESSED_4576",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} sig=${sig.take(16)} lane=${verifiedTrade.tradingMode}",
                         )
                     } catch (_: Throwable) {}
-                    try { ExecutionRootCauseTrace.authority("BUY", "BUY_CONFIRMED_AWAITING_BALANCE_PROOF", ts, "sig=${sig.take(16)} provisionalQty=${provisional.qtyToken} pendingVerify=${provisional.pendingVerify}") } catch (_: Throwable) {}
-                    false
-                } else false
-            } catch (_: Throwable) { false }
-            tradeId.monitoring()
-            
-            TradeLifecycle.executed(tradeId.mint, price, sol)
-            TradeLifecycle.monitoring(tradeId.mint, 0.0)
-
-            EdgeLearning.recordEntry(
-                mint = tradeId.mint,
-                symbol = tradeId.symbol,
-                buyPct = ts.meta.pressScore,
-                volumeScore = ts.meta.volScore,
-                phase = ts.phase,
-                edgeQuality = quality,
-                wasVetoed = false,
-                vetoReason = null,
-                entryPrice = price,
-                isPaperMode = false,
-            )
-            
-            val entryConditionsLive = EntryIntelligence.EntryConditions(
-                buyPressure = ts.meta.pressScore,
-                volumeScore = ts.meta.volScore,
-                priceVsEma = ts.meta.posInRange - 50.0,
-                rsi = ts.meta.rsi,
-                momentum = ts.entryScore,
-                hourOfDay = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).get(java.util.Calendar.HOUR_OF_DAY),
-                volatility = ts.meta.avgAtr,
-                liquidityUsd = ts.lastLiquidityUsd,
-                topHolderPct = ts.safety.topHolderPct,
-                isNearSupport = ts.meta.posInRange < 25.0,
-                isNearResistance = ts.meta.posInRange > 75.0,
-                candlePattern = "none",
-            )
-            EntryIntelligence.recordEntry(tradeId.mint, entryConditionsLive)
-            
-            LiquidityDepthAI.recordEntryLiquidity(tradeId.mint, ts.lastLiquidityUsd)
-            
-            onLog("LIVE BUY  @ ${price.fmt()} | ${sol.fmt(4)} SOL | " +
-                  "impact=${priceImpactPct.fmt(2)}% | router=${routerLabel} | sig=${sig.take(16)}…", tradeId.mint)
-            onNotify("✅ Live Buy", "${tradeId.symbol}  ${sol.fmt(3)} SOL", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-            
-            TradeAlerts.onBuy(cfg(), tradeId.symbol, sol, score, walletSol, ts.position.tradingMode, isPaper = false)
-
-            // V5.9.170 — stamp entry reason (LIVE mode) into firehose.
-            try {
-                val reason = buildString {
-                    append(ts.position.tradingMode.ifBlank { "LIVE" })
-                    if (ts.phase.isNotBlank()) { append("|phase="); append(ts.phase) }
-                    append("|q=$quality")
-                    append("|src=${ts.source.ifBlank { "UNKNOWN" }}")
-                    if (ts.meta.emafanAlignment.isNotBlank()) { append("|emafan="); append(ts.meta.emafanAlignment) }
                 }
-                com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordEntryReason(
+
+                tradeId.executed(verifiedEntryPrice, actualCostSol, isPaper = false, signature = sig)
+                tradeId.monitoring()
+                TradeLifecycle.executed(tradeId.mint, verifiedEntryPrice, actualCostSol)
+                TradeLifecycle.monitoring(tradeId.mint, 0.0)
+
+                EdgeLearning.recordEntry(
                     mint = tradeId.mint,
-                    traderSource = ts.position.tradingMode.ifEmpty { "MEME" },  // V5.9.320: was hardcoded "Meme"
-                    reason = reason,
-                    scoreHint = score,
+                    symbol = tradeId.symbol,
+                    buyPct = ts.meta.pressScore,
+                    volumeScore = ts.meta.volScore,
+                    phase = ts.phase,
+                    edgeQuality = quality,
+                    wasVetoed = false,
+                    vetoReason = null,
+                    entryPrice = verifiedEntryPrice,
+                    isPaperMode = false,
                 )
-            } catch (_: Exception) {}
-            
-            onToast("✅ LIVE BUY: ${tradeId.symbol}\n${sol.fmt(4)} SOL @ ${price.fmt()}")
-            
-            GlobalScope.launch(AppDispatchers.sideEffect) {
+
+                val entryConditionsLive = EntryIntelligence.EntryConditions(
+                    buyPressure = ts.meta.pressScore,
+                    volumeScore = ts.meta.volScore,
+                    priceVsEma = ts.meta.posInRange - 50.0,
+                    rsi = ts.meta.rsi,
+                    momentum = ts.entryScore,
+                    hourOfDay = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+                        .get(java.util.Calendar.HOUR_OF_DAY),
+                    volatility = ts.meta.avgAtr,
+                    liquidityUsd = ts.lastLiquidityUsd,
+                    topHolderPct = ts.safety.topHolderPct,
+                    isNearSupport = ts.meta.posInRange < 25.0,
+                    isNearResistance = ts.meta.posInRange > 75.0,
+                    candlePattern = "none",
+                )
+                EntryIntelligence.recordEntry(tradeId.mint, entryConditionsLive)
+                LiquidityDepthAI.recordEntryLiquidity(tradeId.mint, ts.lastLiquidityUsd)
+
+                sounds?.playBuySound()
                 try {
-                    val aiLayers = mapOf(
-                        "Entry Score" to "${score.toInt()}/100",
-                        "Phase" to ts.phase,
-                        "Quality" to quality,
-                        "Buy Pressure" to "${ts.meta.pressScore.toInt()}%",
-                        "Volume" to "${ts.meta.volScore.toInt()}%",
-                    )
-                    val reasoning = GeminiCopilot.explainTrade(
-                        ts = ts,
-                        action = "BUY",
-                        entryScore = score,
-                        exitScore = ts.exitScore,
-                        aiLayers = aiLayers,
-                    )
-                    if (reasoning != null) {
-                        onLog("🤖 GEMINI: ${reasoning.humanSummary.take(100)}", tradeId.mint)
+                    val feeAmountSol = actualCostSol * MEME_TRADING_FEE_PERCENT
+                    if (feeAmountSol >= FEE_SEND_MIN_SOL) {
+                        sendFeeSplit(
+                            wallet,
+                            feeAmountSol * FEE_SPLIT_RATIO,
+                            feeAmountSol * (1.0 - FEE_SPLIT_RATIO),
+                            "buy_finalized_6637",
+                        )
+                        onLog(
+                            "💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (finalized BUY) split 50/50",
+                            tradeId.mint,
+                        )
                     }
+                } catch (feeEx: Exception) {
+                    ErrorLogger.error(
+                        "Executor",
+                        "🚨 FINALIZED BUY FEE SEND FAILED — queued for retry: ${feeEx.message}",
+                    )
+                    val retryFee = actualCostSol * MEME_TRADING_FEE_PERCENT
+                    if (retryFee >= FEE_SEND_MIN_SOL) {
+                        FeeRetryQueue.enqueue(
+                            TRADING_FEE_WALLET_1,
+                            retryFee * FEE_SPLIT_RATIO,
+                            "buy_finalized_w1",
+                        )
+                        FeeRetryQueue.enqueue(
+                            TRADING_FEE_WALLET_2,
+                            retryFee * (1.0 - FEE_SPLIT_RATIO),
+                            "buy_finalized_w2",
+                        )
+                    }
+                }
+
+                onLog(
+                    "LIVE BUY VERIFIED @ ${verifiedEntryPrice.fmt()} | ${actualCostSol.fmt(4)} SOL | qty=${qtyUi.fmt(4)} | router=$routerLabel | sig=${sig.take(16)}…",
+                    tradeId.mint,
+                )
+                onNotify(
+                    "✅ Live Buy Verified",
+                    "${tradeId.symbol}  ${actualCostSol.fmt(3)} SOL",
+                    com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO,
+                )
+                TradeAlerts.onBuy(
+                    cfg(),
+                    tradeId.symbol,
+                    actualCostSol,
+                    score,
+                    walletSol,
+                    ts.position.tradingMode,
+                    isPaper = false,
+                )
+
+                try {
+                    val reason = buildString {
+                        append(ts.position.tradingMode.ifBlank { "LIVE" })
+                        if (ts.phase.isNotBlank()) {
+                            append("|phase=")
+                            append(ts.phase)
+                        }
+                        append("|q=$quality")
+                        append("|src=${ts.source.ifBlank { "UNKNOWN" }}")
+                        if (ts.meta.emafanAlignment.isNotBlank()) {
+                            append("|emafan=")
+                            append(ts.meta.emafanAlignment)
+                        }
+                    }
+                    com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordEntryReason(
+                        mint = tradeId.mint,
+                        traderSource = ts.position.tradingMode.ifEmpty { "MEME" },
+                        reason = reason,
+                        scoreHint = score,
+                    )
                 } catch (_: Exception) {}
+
+                onToast(
+                    "✅ LIVE BUY VERIFIED: ${tradeId.symbol}\n${actualCostSol.fmt(4)} SOL @ ${verifiedEntryPrice.fmt()}",
+                )
+
+                GlobalScope.launch(AppDispatchers.sideEffect) {
+                    try {
+                        val aiLayers = mapOf(
+                            "Entry Score" to "${score.toInt()}/100",
+                            "Phase" to ts.phase,
+                            "Quality" to quality,
+                            "Buy Pressure" to "${ts.meta.pressScore.toInt()}%",
+                            "Volume" to "${ts.meta.volScore.toInt()}%",
+                        )
+                        val reasoning = GeminiCopilot.explainTrade(
+                            ts = ts,
+                            action = "BUY",
+                            entryScore = score,
+                            exitScore = ts.exitScore,
+                            aiLayers = aiLayers,
+                        )
+                        if (reasoning != null) {
+                            onLog("🤖 GEMINI: ${reasoning.humanSummary.take(100)}", tradeId.mint)
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_BUY_PROOF_SIDE_EFFECTS_COMMITTED_6637",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} sig=${sig.take(16)} qty=$qtyUi costSol=$actualCostSol",
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_BUY_PROOF_SIDE_EFFECTS_COMMITTED_6637")
+                } catch (_: Throwable) {}
             }
 
             // V5.9.15 / V5.9.102: PHANTOM GUARD — verify tokens on-chain BEFORE lifting the
@@ -17528,6 +17588,7 @@ class Executor(
                     stage: String,
                     decimals: Int = -1,
                     actualCostSol6486: Double,
+                    actualRawQty6637: java.math.BigInteger,
                     canonicalPositionId6636: String,
                 ) {
                     // V5.0.6311 → 6320 — WALLET-VERIFIED FILL LATCH.
@@ -17544,9 +17605,9 @@ class Executor(
                     // position card $0.00000587 vs sell toast −31%) stops.
                     try {
                         val entryPxSol = if (qtyUi > 0.0 && actualCostSol6486 > 0.0) actualCostSol6486 / qtyUi else 0.0
-                        val entryPxUsd = try {
-                            if (WalletManager.lastKnownSolPrice > 0.0) entryPxSol * WalletManager.lastKnownSolPrice else 0.0
-                        } catch (_: Throwable) { 0.0 }
+                        val entryPxUsd = ts.position.entryPrice
+                            .takeIf { it.isFinite() && it > 0.0 }
+                            ?: 0.0
                         com.lifecyclebot.engine.CanonicalBuyFillRegistry.record(
                             com.lifecyclebot.engine.CanonicalBuyFillRegistry.CanonicalBuyFill(
                                 mint = verifyMint,
@@ -17555,7 +17616,7 @@ class Executor(
                                 entryPriceSol = entryPxSol,
                                 entryPriceUsd = entryPxUsd,
                                 solSpentNet = actualCostSol6486,
-                                entryTsMs = System.currentTimeMillis(),
+                                entryTsMs = ts.position.entryTime,
                                 buySignature = try { verifySig } catch (_: Throwable) { "" },
                                 fillIndex = 0,
                                 lane = com.lifecyclebot.engine.LaneAlias.normalize(layerTag).ifBlank { layerTag },
@@ -17571,9 +17632,9 @@ class Executor(
                     // [RealizedPnlConduit6344].
                     try {
                         val entryPxSol6344 = if (qtyUi > 0.0 && actualCostSol6486 > 0.0) actualCostSol6486 / qtyUi else 0.0
-                        val entryPxUsd6344 = try {
-                            if (WalletManager.lastKnownSolPrice > 0.0) entryPxSol6344 * WalletManager.lastKnownSolPrice else 0.0
-                        } catch (_: Throwable) { 0.0 }
+                        val entryPxUsd6344 = ts.position.entryPrice
+                            .takeIf { it.isFinite() && it > 0.0 }
+                            ?: 0.0
                         com.lifecyclebot.engine.FillLotLedger6344.appendBuy(
                             walletAddress = verifyWallet.publicKeyB58,
                             mintAddress = verifyMint,
@@ -17584,7 +17645,7 @@ class Executor(
                             entryPriceUsdPerToken = PriceUsdPerToken.of(entryPxUsd6344),
                             decimals = decimals,
                             laneCanonical = com.lifecyclebot.engine.LaneAlias.normalize(layerTag).ifBlank { layerTag },
-                            entryTsMs = System.currentTimeMillis(),
+                            entryTsMs = ts.position.entryTime,
                         )
                     } catch (_: Throwable) {}
 
@@ -17637,6 +17698,13 @@ class Executor(
                         ErrorLogger.error("Executor", "💾 persist after $stage failed: ${e.message}", e)
                     }
                     try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}
+                    commitVerifiedLiveBuySideEffects6637(
+                        qtyUi = qtyUi,
+                        actualCostSol = actualCostSol6486,
+                        decimals = decimals,
+                        actualRawQty = actualRawQty6637,
+                        canonicalPositionId = canonicalPositionId6636,
+                    )
                     try {
                         ForensicLogger.lifecycle(
                             "LIVE_POSITION_PROMOTED_VISIBLE",
@@ -17715,13 +17783,14 @@ class Executor(
                     // WRONG provisional entry price in place (typically
                     // DexScreener priceNative in SOL, off by ~2500× vs true
                     // USD basis — the NUCWAR +22 944.5 % phantom-PnL row).
-                    // The new authority ALWAYS derives a trusted entry when
-                    // costSol and qtyUi are known, falling back to a
-                    // conservative SOL/USD floor if the wallet feed is cold.
-                    val solUsdForBasis = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+                    // The new authority derives a trusted entry only when
+                    // costSol, qtyUi, and an event-time SOL/USD witness exist.
+                    // Missing price truth leaves the position pending.
                     val trustedEntry6405 = com.lifecyclebot.engine.truth
                         .EntryPriceIntegrityAuthority6405.deriveTrustedEntryUsd(
-                            costSol = actualCostSol6486, qtyUi = qtyUi, knownSolUsd = solUsdForBasis,
+                            costSol = actualCostSol6486,
+                            qtyUi = qtyUi,
+                            knownSolUsd = entrySolUsdWitness6637,
                         )
                     val proofEntryUsd = trustedEntry6405?.usdPerToken ?: 0.0
                     if (proofEntryUsd > 0.0 && proofEntryUsd.isFinite()) {
@@ -17755,7 +17824,13 @@ class Executor(
                             }
                         } catch (_: Throwable) {}
                     } else {
-                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_ENTRY_PRICE_PROOF_DEFERRED", "mint=${verifyMint.take(10)} symbol=$verifySymbol reason=missing_sol_or_qty sol=$actualCostSol6486 qty=$qtyUi solUsd=$solUsdForBasis") } catch (_: Throwable) {}
+                        try {
+                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                "LIVE_ENTRY_PRICE_PROOF_DEFERRED",
+                                "mint=${verifyMint.take(10)} symbol=$verifySymbol reason=missing_event_time_sol_usd sol=$actualCostSol6486 qty=$qtyUi solUsdWitness=$entrySolUsdWitness6637",
+                            )
+                        } catch (_: Throwable) {}
+                        return false
                     }
                     val pidLive6486 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(verifyMint)
                     val canonicalOpen6486 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyFill(
@@ -17836,6 +17911,7 @@ class Executor(
                     try { PipelineHealthCollector.labelInc("LIVE_BUY_CANONICAL_TX_TRUTH_COMMITTED_6486") } catch (_: Throwable) {}
                     promoteVerifiedLiveBuy(
                         qtyUi, stage, proof.decimals, actualCostSol6486,
+                        actualRawQty6637 = proof.amountRaw,
                         canonicalPositionId6636 = pidLive6486,
                     )
                     // V5.0.6325 — CANONICAL POSITION AUTHORITY WIRE-IN. Upsert
@@ -17946,7 +18022,7 @@ class Executor(
                 }
 
                 if (verifiedQty > 0.0) {
-                    if (ts.position.pendingVerify || signatureManagedAtEntry) {
+                    if (ts.position.pendingVerify) {
                         val proof = verifiedProof
                         if (proof == null || !proof.authoritative || proof.amountRaw.signum() <= 0) {
                             try { HostWalletTokenTracker.recordBuyPending(verifyMint, verifySymbol, verifySig) } catch (_: Throwable) {}
@@ -18012,7 +18088,7 @@ class Executor(
                             ErrorLogger.warn("Executor", "recordEntryMetadata after verify failed (non-fatal): ${e.message}")
                         }
                     }
-                } else if (anyRpcError && (ts.position.pendingVerify || signatureManagedAtEntry)) {
+                } else if (anyRpcError && ts.position.pendingVerify) {
                     // All polls returned 0 OR errored. If ANY error masked the
                     // result, we cannot safely conclude phantom — keep the
                     // position pendingVerify so the periodic reconciler /
@@ -18029,7 +18105,7 @@ class Executor(
                         traderTag = "MEME",
                     )
                     buyAttemptTrace4576("WALLET_PROOF_PENDING", "reason=rpc_error_inconclusive sig=${verifySig.take(16)}")
-                } else if (!sigParseConfirmedZero && (ts.position.pendingVerify || signatureManagedAtEntry)) {
+                } else if (!sigParseConfirmedZero && ts.position.pendingVerify) {
                     // V5.9.265 — All ATA polls returned 0 BUT the tx-parse never
                     // explicitly returned 0 (it returned null = "tx not yet
                     // indexed"). With Jupiter Ultra/RFQ this is the common case:
@@ -18048,7 +18124,7 @@ class Executor(
                         traderTag = "MEME",
                     )
                     buyAttemptTrace4576("WALLET_PROOF_PENDING", "reason=tx_not_indexed sig=${verifySig.take(16)}")
-                } else if (ts.position.pendingVerify || signatureManagedAtEntry) {
+                } else if (ts.position.pendingVerify) {
                     // All polls OK and all returned 0 → true phantom
                     // V5.9.495s — operator: "every buy lands as a phaeton".
                     // V5.9.495t — operator triage: "still logging everything
@@ -18199,10 +18275,10 @@ class Executor(
                 }
             }
 
-            // V5.0.3745 — committed live-open source truth. At this point the
-            // route returned a confirmed signature, ts.position was created,
-            // the trade was recorded, and verifier/reconciler was queued. Later
-            // wallet proof still emits LIVE_BUY_OK or phantom cleanup.
+            // V5.0.6637 — submitted live-open liability. The signature is
+            // finalized and verifier/reconciler is queued, but no journal,
+            // learning, fee, or success notification is committed until
+            // finalized owner balance deltas prove the fill.
             liveStage("POSITION_TRACKED", "signature=${sig.take(16)} pendingVerify=${ts.position.pendingVerify}")
             buyTerminalOk("BUY_TERMINAL_OK:TX_CONFIRMED_PENDING_WALLET_DELTA")
             return true
@@ -25665,7 +25741,9 @@ class Executor(
             val priceMathQty = if (price != null && price > 0.0 && solPriceUsd > 0.0) {
                 (buySol * solPriceUsd) / price
             } else {
-                1.0
+                // Unknown quantity remains pending until wallet/tx proof.
+                // A one-token placeholder corrupts cost basis and PnL.
+                0.0
             }
 
             // Trust the wallet read if it returned a non-trivial delta

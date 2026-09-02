@@ -15,16 +15,13 @@ class Bundle6405EntryPriceIntegrityTest {
             .deriveTrustedEntryUsd(costSol = 0.0254, qtyUi = 702_120.0, knownSolUsd = 180.0)
         assertNotNull(e)
         assertTrue(e!!.usdPerToken in 6.0e-6..7.0e-6)
-        assertEquals("LIVE_PROOF_COST_BASIS", e.source)
+        assertEquals("LIVE_PROOF_COST_BASIS_EVENT_WITNESS_6637", e.source)
     }
 
-    @Test fun falls_back_to_cold_sol_usd_when_feed_zero() {
+    @Test fun rejects_missing_sol_usd_witness_instead_of_inventing_cost_basis() {
         val e = EntryPriceIntegrityAuthority6405
             .deriveTrustedEntryUsd(costSol = 0.0254, qtyUi = 702_120.0, knownSolUsd = 0.0)
-        assertNotNull(e)
-        assertEquals("LIVE_PROOF_COST_BASIS_SOL_USD_FALLBACK", e!!.source)
-        assertEquals(EntryPriceIntegrityAuthority6405.SOL_USD_COLD_FALLBACK, e.solUsdUsed, 0.0)
-        assertTrue(e.usdPerToken > 0.0)
+        assertNull(e)
     }
 
     @Test fun returns_null_when_costSol_or_qty_missing() {
@@ -34,6 +31,8 @@ class Bundle6405EntryPriceIntegrityTest {
             .deriveTrustedEntryUsd(costSol = 0.02, qtyUi = 0.0, knownSolUsd = 180.0))
         assertNull(EntryPriceIntegrityAuthority6405
             .deriveTrustedEntryUsd(costSol = Double.NaN, qtyUi = 1.0, knownSolUsd = 180.0))
+        assertNull(EntryPriceIntegrityAuthority6405
+            .deriveTrustedEntryUsd(costSol = 0.02, qtyUi = 1.0, knownSolUsd = 20_000.0))
     }
 
     @Test fun detects_priceNative_vs_priceUsd_wire_cross() {

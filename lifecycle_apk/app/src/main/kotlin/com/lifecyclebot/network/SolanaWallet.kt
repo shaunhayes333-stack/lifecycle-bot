@@ -5,7 +5,6 @@ import com.lifecyclebot.engine.truth.CanonicalTokenAmount
 import com.iwebpp.crypto.TweetNaclFast
 import io.github.novacrypto.base58.Base58
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
@@ -13,9 +12,6 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import javax.net.ssl.SSLHandshakeException
-import javax.net.ssl.SSLContext
-import javax.net.ssl.X509TrustManager
-import javax.net.ssl.TrustManager
 
 /**
  * Minimal Solana wallet for:
@@ -138,28 +134,6 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             }
         }
 
-        @Volatile private var unsafeWalletRpcHttp: OkHttpClient? = null
-        private fun unsafeWalletRpcClient(): OkHttpClient {
-            unsafeWalletRpcHttp?.let { return it }
-            synchronized(this) {
-                unsafeWalletRpcHttp?.let { return it }
-                val trustAll = object : X509TrustManager {
-                    override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
-                    override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
-                    override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = emptyArray()
-                }
-                val ssl = SSLContext.getInstance("TLS").apply { init(null, arrayOf<TrustManager>(trustAll), java.security.SecureRandom()) }
-                val client = SharedHttpClient.builder()
-                    .sslSocketFactory(ssl.socketFactory, trustAll)
-                    .hostnameVerifier { _, _ -> true }
-                    .connectTimeout(10, TimeUnit.SECONDS)
-                    .readTimeout(15, TimeUnit.SECONDS)
-                    .build()
-                unsafeWalletRpcHttp = client
-                return client
-            }
-        }
-
         private fun isTlsTrustFailure(t: Throwable?): Boolean {
             var cur = t
             var depth = 0
@@ -224,10 +198,20 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * 
      * If useJito=true, sends via Jito bundle for MEV protection.
      */
-    fun signAndSend(txBase64: String, useJito: Boolean = false, jitoTipLamports: Long = 10000, senderCompatible: Boolean = false): String {
+    fun signAndSend(
+        txBase64: String,
+        useJito: Boolean = false,
+        jitoTipLamports: Long = 10000,
+        senderCompatible: Boolean = false,
+        awaitFinality: Boolean = true,
+    ): String {
         val txBytes    = android.util.Base64.decode(txBase64, android.util.Base64.DEFAULT)
         val signedBytes = signVersionedTx(txBytes)
         val signedB64   = android.util.Base64.encodeToString(signedBytes, android.util.Base64.NO_WRAP)
+        fun finalized(signature: String): String {
+            if (awaitFinality) awaitConfirmation(signature)
+            return signature
+        }
         
         // V5.9.1524 — HELIUS SENDER FIRST. When useJito=true the router baked a
         // Jito tip into this tx (PumpPortal priorityFee==tip / Jupiter prio fee),
@@ -242,7 +226,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             if (!senderSig.isNullOrBlank()) {
                 com.lifecyclebot.engine.ErrorLogger.info("SolanaWallet",
                     "⚡ Broadcast via Helius Sender: ${senderSig.take(16)}…")
-                return senderSig
+                return finalized(senderSig)
             }
             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("HELIUS_SENDER_DEGRADED",
                 "action=rotate_sender_not_jupiter err=${com.lifecyclebot.network.HeliusSender.lastError?.take(80)}") } catch (_: Throwable) {}
@@ -268,7 +252,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                     // If Jito succeeded and landed, we need to get the actual tx signature
                     // For now, fall through to normal send as backup confirmation
                     if (jitoResult.landed && jitoResult.signature != null) {
-                        return jitoResult.signature
+                        return finalized(jitoResult.signature)
                     }
                 } else {
                     // V5.9.1533 — spec item 8: a JITO_PAYLOAD_INVALID (undecodable signed
@@ -307,7 +291,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             val errorMsg = errorObj?.optString("message", "unknown RPC error") ?: "unknown error"
             throw RuntimeException("sendTransaction failed: $errorMsg")
         }
-        return result
+        return finalized(result)
     }
 
     /**
@@ -320,16 +304,14 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * into the first signature slot.
      */
     private fun signVersionedTx(txBytes: ByteArray): ByteArray {
-        val numSigs    = txBytes[0].toInt() and 0xFF
-        val sigsEnd    = 1 + numSigs * 64
-        val msgBytes   = txBytes.sliceArray(sigsEnd until txBytes.size)
+        val envelope = SolanaSigningEnvelope.validate(txBytes, keyPair.publicKey)
+        val msgBytes = txBytes.sliceArray(envelope.messageOffset until txBytes.size)
 
         val sig        = TweetNaclFast.Signature(null, keyPair.secretKey)
             .detached(msgBytes)
 
         val result     = txBytes.copyOf()
-        // Write sig into first slot (offset 1)
-        System.arraycopy(sig, 0, result, 1, 64)
+        System.arraycopy(sig, 0, result, envelope.signatureOffset, 64)
         return result
     }
 
@@ -379,7 +361,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                     }
                     else -> {
                         val status = value.optString("confirmationStatus", "")
-                        if (status in listOf("confirmed", "finalized")) return true
+                        if (status == "finalized") return true
                         Thread.sleep(1_500)
                     }
                 }
@@ -416,7 +398,13 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             return signAndExecuteUltra(txBase64, ultraRequestId, jupiterApiKey, isRfqRoute)
         }
         
-        val sig = signAndSend(txBase64, useJito, jitoTipLamports, senderCompatible)
+        val sig = signAndSend(
+            txBase64,
+            useJito,
+            jitoTipLamports,
+            senderCompatible,
+            awaitFinality = false,
+        )
         awaitConfirmation(sig)
         return sig
     }
@@ -586,18 +574,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                     val req = Request.Builder().url(endpoint)
                         .header("Content-Type", "application/json")
                         .post(body.toRequestBody(JSON_MT)).build()
-                    val resp = try {
-                        http.newCall(req).execute()
-                    } catch (tls: Throwable) {
-                        if (!isTlsTrustFailure(tls)) throw tls
-                        try {
-                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                                "WALLET_RPC_TLS_FALLBACK_USED",
-                                "method=$method endpoint=${endpoint.take(48)} err=${tls.message?.take(80)}",
-                            )
-                        } catch (_: Throwable) {}
-                        unsafeWalletRpcClient().newCall(req).execute()
-                    }
+                    val resp = http.newCall(req).execute()
                     val code = resp.code
                     lastBody = resp.body?.string() ?: "{}"
 
@@ -634,6 +611,17 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                     if (attempt == 0) Thread.sleep(1_000)
                 } catch (e: Exception) {
                     lastError = e
+                    if (isTlsTrustFailure(e)) {
+                        markEndpointUnhealthy(endpoint, "TLS_REJECTED")
+                        try {
+                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                "WALLET_RPC_TLS_REJECTED",
+                                "method=$method endpoint=${endpoint.take(48)} action=failover err=${e.message?.take(80)}",
+                            )
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("WALLET_RPC_TLS_REJECTED")
+                        } catch (_: Throwable) {}
+                        break
+                    }
                     if (attempt == 0) Thread.sleep(500)
                 }
             }

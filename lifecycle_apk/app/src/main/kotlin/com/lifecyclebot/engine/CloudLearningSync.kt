@@ -2,6 +2,7 @@ package com.lifecyclebot.engine
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.lifecyclebot.data.ConfigStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -12,6 +13,10 @@ import java.security.MessageDigest
 import java.util.UUID
 
 object CloudLearningSync {
+    // Direct database writes from untrusted mobile clients are not a hive
+    // protocol. Keep cross-instance sync disabled until contributions pass a
+    // signed, rate-limited gateway with provenance and poisoning controls.
+    private const val SECURE_HIVE_GATEWAY_READY_6637 = false
 
     private const val PREFS_NAME = "cloud_learning_sync"
     private const val KEY_INSTANCE_ID = "instance_id"
@@ -28,12 +33,10 @@ object CloudLearningSync {
     private const val KEY_SCHEMA_VERSION = "schema_version"
     private const val CURRENT_SCHEMA_VERSION = 2
 
-    // TURSO CONFIG
-    // NOTE: You exposed this token in chat. Rotate it after using this file.
-    private const val TURSO_HTTP_URL =
-        "https://superbrain-shaunhayes333-stack.aws-ap-northeast-1.turso.io"
-    private const val TURSO_AUTH_TOKEN =
-        "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NzU1NTE3MzQsImlkIjoiMDE5ZDMwNjYtMmUwMS03NzcyLTgyMTYtMDIyYzY1YzRmNmVjIiwicmlkIjoiMGExMzRiY2EtZmY1YS00NmQ2LWI2ZWYtYmU4MjAyYWE1ZWI4In0.PNhzeQw2rXloG3cDJaOPRg-Kq6rCpOy5kk6Q6GCD8Ar_AKC2iiW5OTKoK-q3Y78LFPWp_8ttrEhtlPz0VJ_VDw"
+    // Credentials are loaded from ConfigStore's encrypted settings at init.
+    // No shared database token is compiled into the APK.
+    @Volatile private var tursoHttpUrl: String = ""
+    @Volatile private var tursoAuthToken: String = ""
 
     private const val MIN_TRADES_TO_CONTRIBUTE = 20
     private const val UPLOAD_INTERVAL_MS = 4 * 60 * 60 * 1000L
@@ -45,8 +48,8 @@ object CloudLearningSync {
 
     private var prefs: SharedPreferences? = null
     private var instanceId: String = ""
-    private var optedIn: Boolean = true
-    private var usingCommunityWeights: Boolean = true
+    private var optedIn: Boolean = false
+    private var usingCommunityWeights: Boolean = false
     private var lastUploadTs: Long = 0L
     private var lastDownloadTs: Long = 0L
     private var schemaReady: Boolean = false
@@ -79,6 +82,16 @@ object CloudLearningSync {
     )
 
     fun init(context: Context) {
+        val configured = try { ConfigStore.load(context.applicationContext) } catch (_: Throwable) { null }
+        tursoAuthToken = configured?.tursoAuthToken.orEmpty()
+        tursoHttpUrl = configured?.tursoDbUrl.orEmpty()
+            .trim()
+            .removePrefix("libsql://")
+            .removePrefix("https://")
+            .removePrefix("http://")
+            .takeIf { it.isNotBlank() }
+            ?.let { "https://$it" }
+            .orEmpty()
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         loadState()
 
@@ -99,8 +112,8 @@ object CloudLearningSync {
         instanceId = p.getString(KEY_INSTANCE_ID, "") ?: ""
         lastUploadTs = p.getLong(KEY_LAST_UPLOAD, 0L)
         lastDownloadTs = p.getLong(KEY_LAST_DOWNLOAD, 0L)
-        optedIn = p.getBoolean(KEY_OPT_IN, true)
-        usingCommunityWeights = p.getBoolean(KEY_USE_COMMUNITY, true)
+        optedIn = p.getBoolean(KEY_OPT_IN, false)
+        usingCommunityWeights = p.getBoolean(KEY_USE_COMMUNITY, false)
         schemaReady = p.getBoolean(KEY_SCHEMA_READY, false)
 
         try {
@@ -151,7 +164,9 @@ object CloudLearningSync {
     }
 
     private fun isConfigured(): Boolean {
-        return TURSO_HTTP_URL.isNotBlank() && TURSO_AUTH_TOKEN.isNotBlank()
+        return SECURE_HIVE_GATEWAY_READY_6637 &&
+            tursoHttpUrl.isNotBlank() &&
+            tursoAuthToken.isNotBlank()
     }
 
     private suspend fun ensureSchema(): Boolean = withContext(Dispatchers.IO) {
@@ -784,7 +799,7 @@ object CloudLearningSync {
     }
 
     private fun pipeline(requests: JSONArray): JSONObject? {
-        val baseUrl = TURSO_HTTP_URL.removeSuffix("/")
+        val baseUrl = tursoHttpUrl.removeSuffix("/")
         val endpoint = "$baseUrl/v2/pipeline"
         val conn = (URL(endpoint).openConnection() as HttpURLConnection)
 
@@ -795,7 +810,7 @@ object CloudLearningSync {
             conn.useCaches = false
             conn.doInput = true
             conn.doOutput = true
-            conn.setRequestProperty("Authorization", "Bearer $TURSO_AUTH_TOKEN")
+            conn.setRequestProperty("Authorization", "Bearer $tursoAuthToken")
             conn.setRequestProperty("Content-Type", "application/json")
             conn.setRequestProperty("Accept", "application/json")
 

@@ -38,7 +38,7 @@ object VoiceManager {
     // One-time seed of the user's ElevenLabs key on first boot. Stored in
     // SharedPrefs (device-local, never round-tripped to the repo). User can
     // rotate via Settings sheet at any time.
-    private const val ELEVEN_SEED_KEY = "sk_2468d0f6f4ba96ef5877a9db238f3b277e3899905b27fe90"
+    private const val ELEVEN_SEED_KEY = ""
     private const val ELEVEN_SEED_FLAG = "tts_eleven_seeded_v361"
     private const val DEFAULT_BACKEND_AUTO = "auto"
 

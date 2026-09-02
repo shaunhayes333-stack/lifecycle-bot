@@ -1,12 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- V5.0.3770: Android trust-source repair for Solana RPC / Helius / Jupiter / Pump endpoints.
-         Use platform + user CAs so devices with updated user-installed roots or OEM CA drift do not
-         fail wallet proof with CertPathValidatorException: Trust anchor not found. No cleartext. -->
+    <!-- V5.0.6637: wallet and execution traffic trusts platform CAs only.
+         User-installed CAs must never become transaction-signing authorities. -->
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
-            <certificates src="user" />
         </trust-anchors>
     </base-config>
     <domain-config cleartextTrafficPermitted="false">
@@ -21,7 +19,6 @@
         <domain includeSubdomains="true">public-rpc.com</domain>
         <trust-anchors>
             <certificates src="system" />
-            <certificates src="user" />
         </trust-anchors>
     </domain-config>
 </network-security-config>

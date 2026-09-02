@@ -239,9 +239,15 @@ object JupiterPerps {
         totalOrders.incrementAndGet()
         val orderId = "JPP_${System.currentTimeMillis()}_${(Math.random() * 10000).toInt()}"
         
-        // Get current price
-        val currentPrice = PythOracle.getPrice(market.symbol)?.price ?: 150.0
-        val collateralUsd = sizeSol * currentPrice / leverage
+        // V5.0.6637: market price and SOL/USD are separate units. Never
+        // substitute a hardcoded price or multiply SOL by the traded asset's
+        // USD price when calculating collateral.
+        val currentPrice = PythOracle.getPrice(market.symbol)?.price
+            ?: throw IllegalStateException("No fresh Pyth price for ${market.symbol}; refusing position open")
+        val solUsd = PythOracle.getPrice("SOL")?.price
+            ?: throw IllegalStateException("No fresh SOL/USD price; refusing position open")
+        require(leverage.isFinite() && leverage >= 1.0) { "Invalid leverage: $leverage" }
+        val collateralUsd = sizeSol * solUsd / leverage
         
         ErrorLogger.info(TAG, "⚡ OPEN ${direction.symbol} ${market.symbol} | " +
             "size=${sizeSol.fmt(4)}◎ | lev=${leverage.fmt(1)}x | " +
@@ -352,7 +358,11 @@ object JupiterPerps {
             return@withContext false
         }
         
-        val currentPrice = PythOracle.getPrice(order.market.symbol)?.price ?: 150.0
+        val currentPrice = PythOracle.getPrice(order.market.symbol)?.price
+        if (currentPrice == null) {
+            ErrorLogger.warn(TAG, "No fresh Pyth price for ${order.market.symbol}; close remains pending")
+            return@withContext false
+        }
         
         // Calculate P&L
         val pnlPct = when (order.direction) {

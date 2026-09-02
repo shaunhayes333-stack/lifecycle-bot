@@ -6,14 +6,14 @@ import androidx.security.crypto.MasterKey
 
 object TursoDefaults {
     const val DB_URL = "libsql://superbrain-shaunhayes333-stack.aws-ap-northeast-1.turso.io"
-    const val AUTH_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NzU1NTE3MzQsImlkIjoiMDE5ZDMwNjYtMmUwMS03NzcyLTgyMTYtMDIyYzY1YzRmNmVjIiwicmlkIjoiMGExMzRiY2EtZmY1YS00NmQ2LWI2ZWYtYmU4MjAyYWE1ZWI4In0.PNhzeQw2rXloG3cDJaOPRg-Kq6rCpOy5kk6Q6GCD8Ar_AKC2iiW5OTKoK-q3Y78LFPWp_8ttrEhtlPz0VJ_VDw"
+    const val AUTH_TOKEN = ""
     fun validOrDefaultUrl(raw: String?): String {
         val v = raw?.trim().orEmpty()
         return if (v.isBlank() || v.equals("null", true) || v.equals("none", true) || v.equals("unset", true)) DB_URL else v
     }
     fun validOrDefaultToken(raw: String?): String {
         val v = raw?.trim().orEmpty()
-        return if (v.isBlank() || v.equals("null", true) || v.equals("none", true) || v.equals("unset", true)) AUTH_TOKEN else v
+        return if (v.equals("null", true) || v.equals("none", true) || v.equals("unset", true)) "" else v
     }
 }
 
@@ -114,16 +114,12 @@ data class BotConfig(
     val circuitBreakerPauseMin: Int = 15,
     val maxPriceImpactPct: Double = 3.0,
     val closePositionsOnStop: Boolean = true, // SAFETY: close all positions when bot stops
-    // external API keys (V5.9.915 — hardcoded operator defaults).
-    //
-    // Defaults are obfuscated via Base64 in DefaultKeys.dec() to avoid
-    // GitHub Push Protection / secret-scanning heuristics matching the
-    // raw key formats. User edits in Settings still survive saves via
-    // the fallback-when-blank pattern in ConfigStore.load.
+    // External API keys. Production credentials never ship in source or APK;
+    // the operator supplies them through encrypted settings.
     val heliusApiKey: String  = DefaultKeys.HELIUS,
     val birdeyeApiKey: String = DefaultKeys.BIRDEYE,
     val groqApiKey: String    = DefaultKeys.GROQ,
-    val geminiApiKey: String  = "sk-emergent-431Dd41D3F186C0E0B",      // Emergent universal LLM key — hardcoded default
+    val geminiApiKey: String  = "",
     val jupiterApiKey: String = DefaultKeys.JUPITER,
     val openRouterApiKey: String = DefaultKeys.OPENROUTER,
     val cerebrasApiKey: String   = DefaultKeys.CEREBRAS,
@@ -601,12 +597,8 @@ object ConfigStore {
             circuitBreakerPauseMin      = p.getInt("circuit_breaker_pause_min", 15),
             maxPriceImpactPct           = p.getFloat("max_price_impact_pct", 3.0f).toDouble(),
             closePositionsOnStop        = p.getBoolean("close_positions_on_stop", true),
-            // V5.9.915 — fallback-when-blank for ALL operator-hardcoded keys.
-            // User-supplied keys (Settings page) survive saves; blank/missing
-            // values revert to the hardcoded defaults so the bot ships with
-            // working keys out of the box. Same pattern as the existing
-            // Gemini / Turso fallbacks. Defaults are Base64-obfuscated to
-            // avoid GitHub Push Protection secret-scanning matches.
+            // Missing credentials remain blank. Provider health must expose
+            // the missing key; it must never be hidden by an APK-bundled key.
             heliusApiKey                = s.getString("helius_api_key", "").let {
                 if (it.isNullOrBlank()) DefaultKeys.HELIUS else it
             },
@@ -616,14 +608,7 @@ object ConfigStore {
             groqApiKey                  = s.getString("groq_api_key", "").let {
                 if (it.isNullOrBlank()) DefaultKeys.GROQ else it
             },
-            geminiApiKey                = s.getString("gemini_api_key", "").let {
-                // V5.9.79: previously this stripped ANY AIza... key and
-                // force-reverted to the Emergent proxy, silently destroying
-                // every user-pasted personal Google key. Now we only fall
-                // back to the Emergent proxy when the stored value is
-                // actually blank. User-supplied keys survive saves.
-                if (it.isNullOrBlank()) "sk-emergent-431Dd41D3F186C0E0B" else it
-            },
+            geminiApiKey                = s.getString("gemini_api_key", "").orEmpty(),
             jupiterApiKey               = s.getString("jupiter_api_key", "").let {
                 if (it.isNullOrBlank()) DefaultKeys.JUPITER else it
             },
@@ -795,21 +780,16 @@ object ConfigStore {
                     EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                     EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
                 )
-            } catch (e: Exception) {
-                // V5.0: If encryption fails (e.g., MasterKey invalidated after signing key change),
-                // the old encrypted data is unrecoverable. Fall back to unencrypted storage.
-                //
-                // This is a ONE-TIME issue: after this update, the consistent release.keystore
-                // ensures future updates won't change the signing key or invalidate MasterKey.
-                //
-                // User will need to re-enter API keys once after this update.
-                android.util.Log.w("ConfigStore", "EncryptedPrefs failed (signing key changed?): ${e.message}")
-                android.util.Log.w("ConfigStore", "Using fallback storage - API keys will need to be re-entered once")
-
-                // Return regular SharedPreferences as fallback
-                // NOT ideal for security but preserves functionality
-                // Future versions can migrate back to encrypted once signing is stable
-                ctx.applicationContext.getSharedPreferences("${KEY_FILE}_fallback", Context.MODE_PRIVATE)
+            } catch (cause: Exception) {
+                // V5.0.6637: never fall back to plaintext and never delete an
+                // encrypted credential store merely because Keystore is
+                // temporarily unavailable (for example, before first unlock).
+                // Recovery/reset must be an explicit operator action.
+                android.util.Log.e("ConfigStore", "Encrypted secrets unavailable; failing closed", cause)
+                throw IllegalStateException(
+                    "Android Keystore unavailable; refusing plaintext secret storage",
+                    cause,
+                )
             }
             cachedSecrets = built
             return built
@@ -818,4 +798,3 @@ object ConfigStore {
 }
 // Build 1775478652
 // V5.6.11 - Paper→Live learning transfer
-

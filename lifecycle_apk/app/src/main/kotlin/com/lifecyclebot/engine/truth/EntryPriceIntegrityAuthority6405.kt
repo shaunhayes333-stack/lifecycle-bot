@@ -30,10 +30,9 @@ import com.lifecyclebot.engine.PipelineHealthCollector
  *
  * FIX (root cause, no bandaid)
  * ────────────────────────────
- * 1. deriveTrustedEntryUsd() ALWAYS returns a non-zero value when it
- *    has costSol and qtyUi — using a floor SOL/USD fallback of $150
- *    when the wallet price feed hasn't warmed up. The result is
- *    tagged with a source label so callers can trust it.
+ * 1. deriveTrustedEntryUsd() requires an event-time SOL/USD witness.
+ *    Missing price truth returns null and keeps the position pending;
+ *    a fixed fallback must never become cost basis.
  * 2. detectBasisDivergence() flags positions whose entryPrice diverges
  *    from the tx-derived truth by > 100× either direction — the
  *    signature of the priceNative-vs-priceUsd wire cross. Callers
@@ -44,15 +43,13 @@ import com.lifecyclebot.engine.PipelineHealthCollector
  */
 object EntryPriceIntegrityAuthority6405 {
 
-    /** Conservative floor for SOL/USD when the wallet feed is cold. */
-    const val SOL_USD_COLD_FALLBACK: Double = 150.0
-
     /** Ratio at which we're certain the basis was captured in the wrong quote. */
     const val BASIS_DIVERGENCE_THRESHOLD: Double = 100.0
 
     /** Labels the executor stamps when the entry is proven from the tx. */
     private val TRUSTED_SOURCES = setOf(
         "LIVE_PROOF_COST_BASIS",
+        "LIVE_PROOF_COST_BASIS_EVENT_WITNESS_6637",
         "WALLET_TX_DELTA",
         "CANONICAL_BUY_FILL",
     )
@@ -60,10 +57,9 @@ object EntryPriceIntegrityAuthority6405 {
     data class TrustedEntry(val usdPerToken: Double, val source: String, val solUsdUsed: Double)
 
     /**
-     * Compute a canonical USD entry from the tx alone. Never returns
-     * zero when both costSol and qtyUi are > 0 — falls back to the
-     * cold SOL/USD floor rather than deferring, so the position never
-     * carries a wrong provisional basis into downstream PnL.
+     * Compute canonical USD/token from verified tx economics and an
+     * immutable event-time SOL/USD witness. Missing oracle truth is not
+     * recoverable by inventing a price.
      */
     fun deriveTrustedEntryUsd(
         costSol: Double,
@@ -72,13 +68,15 @@ object EntryPriceIntegrityAuthority6405 {
     ): TrustedEntry? {
         if (costSol <= 0.0 || !costSol.isFinite()) return null
         if (qtyUi <= 0.0 || !qtyUi.isFinite()) return null
-        val solUsd = if (knownSolUsd > 0.0 && knownSolUsd.isFinite()) knownSolUsd
-        else SOL_USD_COLD_FALLBACK
+        if (!knownSolUsd.isFinite() || knownSolUsd !in 5.0..10_000.0) return null
+        val solUsd = knownSolUsd
         val usdPerToken = (costSol / qtyUi) * solUsd
         if (!usdPerToken.isFinite() || usdPerToken <= 0.0) return null
-        val source = if (knownSolUsd > 0.0) "LIVE_PROOF_COST_BASIS"
-        else "LIVE_PROOF_COST_BASIS_SOL_USD_FALLBACK"
-        return TrustedEntry(usdPerToken, source, solUsd)
+        return TrustedEntry(
+            usdPerToken,
+            "LIVE_PROOF_COST_BASIS_EVENT_WITNESS_6637",
+            solUsd,
+        )
     }
 
     /**

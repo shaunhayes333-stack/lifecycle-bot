@@ -30,6 +30,10 @@ import java.util.TimeZone
 object CollectiveLearning {
 
     private const val TAG = "CollectiveLearning"
+    // V5.0.6637: direct client-to-database hive writes are quarantined until
+    // the signed gateway/attestation protocol exists. Local per-device
+    // learning remains enabled; only untrusted cross-instance influence stops.
+    private val secureHiveGatewayReady = false
 
     private var client: TursoClient? = null
     private var isInitialized = false
@@ -92,6 +96,17 @@ object CollectiveLearning {
         client = null
         lastInitError = ""
         appContext = ctx.applicationContext
+
+        if (!secureHiveGatewayReady) {
+            cachedBlacklist.clear()
+            cachedPatterns.clear()
+            cachedModeStats.clear()
+            cachedWhaleStats.clear()
+            cachedTokenMints.clear()
+            lastInitError = "SECURE_HIVE_GATEWAY_REQUIRED_6637"
+            Log.w(TAG, "Collective network quarantined: signed gateway and verified contributions required")
+            return@withLock false
+        }
 
         return@withLock try {
             prefs = ctx.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
