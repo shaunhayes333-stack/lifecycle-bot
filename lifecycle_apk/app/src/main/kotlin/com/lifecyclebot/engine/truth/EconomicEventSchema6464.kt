@@ -7,6 +7,7 @@ import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import com.lifecyclebot.engine.PipelineHealthCollector
 import java.util.concurrent.ConcurrentLinkedDeque
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -102,6 +103,10 @@ object EconomicEventSchema6464 {
     private const val REPLAY_CARRY_KEY_6489 = "replay_carry_6489"
     private val events = ConcurrentLinkedDeque<Event>()
     private val eventKeys = ConcurrentHashMap.newKeySet<String>()
+    // ConcurrentLinkedDeque.size walks the entire deque. Calling it for every
+    // restored event made the 8,192-row cold-start path quadratic and could
+    // hold service bootstrap past the runtime-smoke deadline.
+    private val eventCount = AtomicInteger(0)
     @Volatile private var prefs: SharedPreferences? = null
     @Volatile private var initialized = false
     @Volatile private var replayCarry6489 = ReplayCarry6489()
@@ -257,10 +262,12 @@ object EconomicEventSchema6464 {
             return false
         }
         events.addFirst(e)
+        eventCount.incrementAndGet()
         eventVersion.incrementAndGet()
         if (persist) prefs?.edit()?.putString(KEY_PREFIX + durableKey, encode6486(e))?.apply()
-        while (events.size > CAP) {
+        while (eventCount.get() > CAP) {
             val evicted = events.pollLast() ?: break
+            eventCount.decrementAndGet()
             val evictedKey = "${evicted.mode}:${evicted.idempotencyKey}"
             foldEvictedIntoReplayCarry6489(evicted)
             eventKeys.remove(evictedKey)
@@ -418,12 +425,13 @@ object EconomicEventSchema6464 {
     fun version(): Long = eventVersion.get()
 
     fun statusLine(): String =
-        "events=${events.size} buys=${recordedBuys.get()} sells=${recordedSells.get()} " +
+        "events=${eventCount.get()} buys=${recordedBuys.get()} sells=${recordedSells.get()} " +
             "partials=${recordedPartials.get()} arithDivergences=${arithDivergences.get()}"
 
     internal fun resetForTest() {
         events.clear()
         eventKeys.clear()
+        eventCount.set(0)
         recordedBuys.set(0L); recordedSells.set(0L); recordedPartials.set(0L)
         arithDivergences.set(0L); eventVersion.set(0L); replayCarry6489 = ReplayCarry6489()
     }
