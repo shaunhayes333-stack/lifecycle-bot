@@ -35,6 +35,7 @@ object ToolkitSignalSheet {
         "QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "EXPRESS", "CORE", "MOONSHOT",
         "PROJECT_SNIPER", "DIP_HUNTER", "MANIPULATED", "TREASURY", "CASHGEN",
     )
+    fun configuredMemeDesks6647(): List<String> = configuredMemeDesks6599.toList()
 
     enum class Setup {
         NONE,
@@ -499,8 +500,9 @@ object ToolkitSignalSheet {
             )
         }
         deskHypotheses.values.forEach { h ->
-            recordDeskStage(h.lane, "POOL")
-            recordDeskStage(h.lane, "QUALIFIED")
+            val causalId6647 = "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}"
+            recordDeskStage(h.lane, "POOL", causalId6647)
+            recordDeskStage(h.lane, "QUALIFIED", causalId6647)
         }
         // V5.0.6609 §RESTORE_SPECIALIST_LIVENESS (operator directive Feb 2026:
         //   "Every enabled specialist: taskAlive=true, poolAlive=true,
@@ -517,13 +519,8 @@ object ToolkitSignalSheet {
         //   liveness invariant reflects reality; QUALIFIED remains
         //   winner-only (that carries a stricter meaning — "the desk
         //   produced an actionable hypothesis").
-        try {
-            configuredMemeDesks6599.forEach { deskLane ->
-                if (!deskHypotheses.containsKey(deskLane)) {
-                    recordDeskStage(deskLane, "POOL")
-                }
-            }
-        } catch (_: Throwable) {}
+        // No fabricated pool/liveness credit for desks that did not observe
+        // this candidate. Runtime liveness is owned by registered jobs below.
         val best = candidates.maxByOrNull { causalScore(it) } ?: Candidate(
             setup = Setup.NONE, score = 0.0, chart = "none", entry = "none", exit = "default", hold = 1.0, size = 1.0, tp = 1.0,
             lanes = emptySet(), tools = emptySet(), reasons = listOf("no_toolkit_setup")
@@ -550,8 +547,16 @@ object ToolkitSignalSheet {
         val l = lane.uppercase().replace("BLUE_CHIP", "BLUECHIP").replace("SHITCOIN_EXPRESS", "EXPRESS")
         if (l.isBlank()) return
         val st = stage.uppercase()
-        if (eventId.isNotBlank() && !deskStageOnce6599.add("$l|$st|$eventId")) return
+        if (eventId.isBlank()) {
+            try {
+                PipelineHealthCollector.labelInc("SPECIALIST_STAGE_BLANK_CAUSAL_ID_REJECTED_6647")
+                ForensicLogger.lifecycle("SPECIALIST_STAGE_BLANK_CAUSAL_ID_REJECTED_6647", "lane=$l stage=$st")
+            } catch (_: Throwable) {}
+            return
+        }
+        if (!deskStageOnce6599.add("$l|$st|$eventId")) return
         deskStageCounts6599.computeIfAbsent("$l|$st") { java.util.concurrent.atomic.AtomicLong(0L) }.incrementAndGet()
+        try { com.lifecyclebot.engine.truth.SpecialistRuntimeRegistry6647.offer(l, st, eventId) } catch (_: Throwable) {}
         // V5.0.6625 — SINGLE SOURCE FAN-OUT into the P2/P3/P4/P5 receivers.
         // Every specialist stage change goes through this one function, so
         // wiring here means the receivers cannot drift apart from the desk
@@ -599,16 +604,37 @@ object ToolkitSignalSheet {
         // Derive a stable attemptId for the backlog. Callers pass either a
         // positionId (":reason" suffixed) or an attemptId; strip the suffix
         // so BUY_INTENT / TICKET / EXEC etc. all match on the same key.
-        val attemptId = if (eventId.isBlank()) return else eventId.substringBefore(':')
-        val mint = ""  // opaque here; receivers key on attemptId + lane
+        val attemptId = eventId
+        val parts6647 = eventId.split(':')
+        val canonicalAttempt6647 = parts6647.size >= 7 && parts6647[1].uppercase() in setOf("PAPER", "LIVE")
+        val positionEvent6647 = parts6647.size >= 2 && parts6647[0].uppercase() in setOf("PAPER", "LIVE")
+        val mint = when {
+            canonicalAttempt6647 -> parts6647[2]
+            positionEvent6647 -> parts6647[1]
+            parts6647.size >= 2 && parts6647[1].toLongOrNull() != null -> parts6647[0]
+            else -> ""
+        }
+        val candidateVersion6647 = when {
+            canonicalAttempt6647 -> parts6647[5].toLongOrNull() ?: 0L
+            positionEvent6647 -> com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625
+                .latestCandidateVersion6647(mint, lane)
+                ?: LaneExecutionCoordinator.candidateVersionFor(mint)
+            parts6647.size >= 2 -> parts6647[1].toLongOrNull() ?: 0L
+            else -> 0L
+        }
+        val priorCausalKey6647 = if (mint.isNotBlank())
+            com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.latestKey6647(mint, lane)
+        else null
+        val causalIdentity6647 = if (mint.isNotBlank() && candidateVersion6647 > 0L)
+            "$mint:$candidateVersion6647:$lane" else attemptId
 
         // P3 — pending intent backlog drainage.
         when (stage) {
             "BUY_INTENT" -> com.lifecyclebot.engine.truth.PendingIntentBacklog6625
-                .record6625(attemptId, lane, mint)
+                .record6625(causalIdentity6647, lane, mint)
             "TICKET", "EXEC", "SELL_CONFIRMED", "FINALIZED", "SIZE_REJECT",
             "MARK_REJECT", "FDG_BLOCK" -> com.lifecyclebot.engine.truth.PendingIntentBacklog6625
-                .consume6625(attemptId, stage)
+                .consume6625(causalIdentity6647, stage)
         }
 
         // P2 — EXPRESS handoff funnel. Stamp the exact hop counters the
@@ -616,19 +642,19 @@ object ToolkitSignalSheet {
         // BLUECHIP/CORE/MOONSHOT counters don't drift into these.
         if (lane == "EXPRESS") {
             when (stage) {
-                "BUY_INTENT" -> com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onIntentSeen6625(attemptId)
-                "MARK_READY" -> com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onMarkAcquisition6625(attemptId, true)
-                "MARK_REJECT" -> com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onMarkAcquisition6625(attemptId, false, "MARK_REJECT")
+                "BUY_INTENT" -> com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onIntentSeen6625(causalIdentity6647)
+                "MARK_READY" -> com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onMarkAcquisition6625(causalIdentity6647, true)
+                "MARK_REJECT" -> com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onMarkAcquisition6625(causalIdentity6647, false, "MARK_REJECT")
                 "SIZED_EXECUTABLE" -> {
-                    com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onSizingBridgeEntry6625(attemptId)
-                    com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onSizingResult6625(attemptId, sizedSol = 1.0)
+                    com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onSizingBridgeEntry6625(causalIdentity6647)
+                    com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onSizingResult6625(causalIdentity6647, sizedSol = 1.0)
                 }
                 "SIZE_REJECT" -> {
-                    com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onSizingBridgeEntry6625(attemptId)
-                    com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onSizingResult6625(attemptId, sizedSol = 0.0, reason = "SIZE_REJECT")
+                    com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onSizingBridgeEntry6625(causalIdentity6647)
+                    com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onSizingResult6625(causalIdentity6647, sizedSol = 0.0, reason = "SIZE_REJECT")
                 }
-                "TICKET" -> com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onTicketSealed6625(attemptId)
-                "EXEC" -> com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onExecuted6625(attemptId)
+                "TICKET" -> com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onTicketSealed6625(causalIdentity6647)
+                "EXEC" -> com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onExecuted6625(causalIdentity6647)
             }
         }
 
@@ -665,11 +691,23 @@ object ToolkitSignalSheet {
             else -> null
         }
         if (causalStage != null) {
-            val key = com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.CausalKey(
-                runId = "RT", mode = "PAPER", mint = "", lane = lane,
-                authorityVersion = 0L, intentId = attemptId,
-            )
-            com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.stamp6625(key, causalStage)
+            if (mint.isNotBlank() && candidateVersion6647 > 0L) {
+                val expectedIntentId6647 = "$mint:$candidateVersion6647:$lane"
+                val key = priorCausalKey6647?.takeIf { !canonicalAttempt6647 && it.intentId == expectedIntentId6647 }
+                    ?: com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.CausalKey(
+                        runId = if (canonicalAttempt6647) parts6647[0] else BotRuntimeController.currentGeneration().toString(),
+                        mode = when {
+                            canonicalAttempt6647 -> parts6647[1].uppercase()
+                            positionEvent6647 -> parts6647[0].uppercase()
+                            else -> try { RuntimeModeAuthority.authority().name } catch (_: Throwable) { "PAPER" }
+                        },
+                        mint = mint, lane = lane, authorityVersion = 6551L,
+                        intentId = expectedIntentId6647,
+                    )
+                com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.stamp6625(key, causalStage, stage)
+            } else {
+                try { PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_UNRESOLVED_ID_REJECTED_6647") } catch (_: Throwable) {}
+            }
         }
     }
 
@@ -697,7 +735,10 @@ object ToolkitSignalSheet {
     fun specialistCausalFunnel6600(): String = buildString {
         appendLine("===== MEME SPECIALIST CAUSAL FUNNEL =====")
         configuredMemeDesks6599.forEach { lane ->
-            appendLine("$lane discovered=${deskCount6599(lane, "POOL")} qualified=${deskCount6599(lane, "QUALIFIED")} ownerSelected=${deskCount6599(lane, "OWNER_SELECTED")} buyIntent=${deskCount6599(lane, "BUY_INTENT")} fdgAllow=${deskCount6599(lane, "FDG_ALLOW")} fdgBlock=${deskCount6599(lane, "FDG_BLOCK")} sizedExecutable=${deskCount6599(lane, "SIZED_EXECUTABLE")} sizeReject=${deskCount6599(lane, "SIZE_REJECT")} markReady=${deskCount6599(lane, "MARK_READY")} markReject=${deskCount6599(lane, "MARK_REJECT")} ticket=${deskCount6599(lane, "TICKET")} exec=${deskCount6599(lane, "EXEC")} positionOpened=${deskCount6599(lane, "POSITION_OPENED")} exitTrigger=${deskCount6599(lane, "EXIT_TRIGGER")} sellAttempt=${deskCount6599(lane, "SELL_ATTEMPT")} sellConfirmed=${deskCount6599(lane, "SELL_CONFIRMED")} finalized=${deskCount6599(lane, "FINALIZED")} learningDelivered=${deskCount6599(lane, "LEARNING")}")
+            val s = com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.laneSnapshot6647(lane)
+            fun n(stage: com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage) = s.counts[stage] ?: 0
+            fun o(outcome: String) = s.outcomes[outcome] ?: 0
+            appendLine("$lane discovered=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.DISCOVER)} qualified=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.QUALIFY)} ownerSelected=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.OWNER)} buyIntent=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.INTENT)} fdgAllow=${o("FDG_ALLOW")} fdgBlock=${o("FDG_BLOCK")} markReady=${o("MARK_READY")} markReject=${o("MARK_REJECT")} sizedExecutable=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.SIZE)} sizeReject=${o("SIZE_REJECT")} ticket=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.TICKET)} exec=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.EXEC)} positionOpened=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.OPEN)} exit=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.EXIT)} sellAttempt=${o("SELL_ATTEMPT")} sellConfirmed=${o("SELL_CONFIRMED")} finalized=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.FINALIZE)} learningDelivered=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.LEARN)} phantomSizedOnly=${s.phantomSizedOnly}")
         }
         appendLine("ownerLaneChangedAfterSelection=${causalIssue6600("ownerLaneChangedAfterSelection")}")
         appendLine("crossLaneExecutionRewrite=${causalIssue6600("crossLaneExecutionRewrite")}")
@@ -713,21 +754,25 @@ object ToolkitSignalSheet {
     fun designatedRoleLivenessReport6599(): String = buildString {
         appendLine("===== MEME SPECIALIST ROLE LIVENESS =====")
         configuredMemeDesks6599.forEach { lane ->
-            val pool = deskCount6599(lane, "POOL")
-            val qualified = deskCount6599(lane, "QUALIFIED")
-            val intent = deskCount6599(lane, "BUY_INTENT")
-            val owner = deskCount6599(lane, "OWNER_SELECTED")
-            val fdgAllow = deskCount6599(lane, "FDG_ALLOW")
-            val fdgBlock = deskCount6599(lane, "FDG_BLOCK")
-            val mark = deskCount6599(lane, "MARK_READY")
-            val sized = deskCount6599(lane, "SIZED_EXECUTABLE")
-            val ticket = deskCount6599(lane, "TICKET")
-            val exec = deskCount6599(lane, "EXEC")
-            val opened = deskCount6599(lane, "POSITION_OPENED")
-            val sellAttempt = deskCount6599(lane, "SELL_ATTEMPT")
-            val sellConfirmed = deskCount6599(lane, "SELL_CONFIRMED")
-            val finalized = deskCount6599(lane, "FINALIZED")
-            val learn = deskCount6599(lane, "LEARNING")
+            val causal = com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.laneSnapshot6647(lane)
+            val runtime = com.lifecyclebot.engine.truth.SpecialistRuntimeRegistry6647.snapshot(lane)
+            fun n(stage: com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage) = (causal.counts[stage] ?: 0).toLong()
+            val pool = n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.DISCOVER)
+            val qualified = n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.QUALIFY)
+            val intent = n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.INTENT)
+            val owner = n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.OWNER)
+            fun o(outcome: String) = (causal.outcomes[outcome] ?: 0).toLong()
+            val fdgAllow = o("FDG_ALLOW")
+            val fdgBlock = o("FDG_BLOCK")
+            val mark = n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.MARK)
+            val sized = n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.SIZE)
+            val ticket = n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.TICKET)
+            val exec = n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.EXEC)
+            val opened = n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.OPEN)
+            val sellAttempt = o("SELL_ATTEMPT")
+            val sellConfirmed = o("SELL_CONFIRMED")
+            val finalized = n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.FINALIZE)
+            val learn = n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.LEARN)
             val status = when {
                 pool == 0L -> "DEAD"
                 qualified == 0L -> "DISCOVERY_ONLY"
@@ -741,7 +786,8 @@ object ToolkitSignalSheet {
                 finalized > 0L && learn == 0L -> "LEARNING_CHOKED"
                 else -> "ACTIVE"
             }
-            appendLine("$lane taskAlive=${pool > 0} poolAlive=${pool > 0} discoveryAlive=${pool > 0} candidateN=$pool qualifiedN=$qualified ownerSelectedN=$owner buyIntentN=$intent fdgAllowN=$fdgAllow fdgBlockN=$fdgBlock markN=$mark sizedN=$sized ticketN=$ticket execN=$exec positionOpenedN=$opened sellAttemptN=$sellAttempt sellConfirmedN=$sellConfirmed finalizedN=$finalized learningN=$learn capitalAvailable=SHARED_CANONICAL status=$status")
+            val executionEligible = ticket > 0L && exec > 0L
+            appendLine("$lane runtimeAlive=${runtime.runtimeAlive} trafficSeen=${runtime.trafficSeen} candidateQualified=${qualified > 0L} executionEligible=$executionEligible heartbeatAtMs=${runtime.heartbeatAtMs} queueOwner=${runtime.queueOwner.ifBlank { "NONE" }} queueDepth=${runtime.queueDepth} candidateN=$pool qualifiedN=$qualified ownerSelectedN=$owner buyIntentN=$intent fdgN=$fdgAllow markN=$mark sizedN=$sized ticketN=$ticket execN=$exec positionOpenedN=$opened finalizedN=$finalized learningN=$learn phantomSizedOnly=${causal.phantomSizedOnly} capitalAvailable=SHARED_CANONICAL status=$status")
         }
         appendLine("PROJECT_SNIPER_NON_SNIPER_ADMISSION = ${deskCount6599("PROJECT_SNIPER", "NON_SNIPER_ADMISSION")}")
     }

@@ -109,6 +109,7 @@ object OrderSizeResolver6441 {
         //   multiplier from SpecialistContributorMerge6612. Default blank
         //   preserves backward compatibility with all pre-6612 callers.
         mint: String = "",
+        causalEventId: String = "",
     ): Resolution {
         totalResolves.incrementAndGet()
 
@@ -231,7 +232,11 @@ object OrderSizeResolver6441 {
         // still show up because the resolver's own emission is invariant-
         // guarded. Non-blocking; log-only.
         try { OrderSizeResolverInvariant6468.check(res) } catch (_: Throwable) {}
-        try { com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(laneName, if (res.executable) "SIZED_EXECUTABLE" else "SIZE_REJECT") } catch (_: Throwable) {}
+        if (causalEventId.isNotBlank()) try {
+            com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(
+                laneName, if (res.executable) "SIZED_EXECUTABLE" else "SIZE_REJECT", causalEventId,
+            )
+        } catch (_: Throwable) {}
         return res
     }
 

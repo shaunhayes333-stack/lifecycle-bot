@@ -116,9 +116,10 @@ object CanonicalPaperTransaction6486 {
         // V5.0.6551 — intent/dispatch were sealed before debit; only the
         // successful canonical commit emits OPEN_CONFIRMED.
         if (assetClass != AssetClass.SOLANA_TOKEN) {
-            CanonicalEntryAuthority6551.findPending(mint, "PAPER")?.let { intent ->
-                CanonicalEntryAuthority6551.markConfirmed(intent, positionId)
-            }
+            // Confirm the exact immutable intent supplied by the caller. A
+            // mint/mode lookup can select a different concurrent attempt and
+            // break the one-intent/one-terminal invariant.
+            executionIntent?.let { CanonicalEntryAuthority6551.markConfirmed(it, positionId) }
         }
         // Canonical BUY projection — one journal event per canonical open.
         // It is emitted only after the authority-backed commit succeeds.

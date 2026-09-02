@@ -34,6 +34,34 @@ object CryptoBridgeAdapter {
     @Volatile private var appContext: Context? = null
 
     data class Chain(val id: Long, val rpc: String)
+    data class LiveRouteReadiness6647(
+        val chainSigning: Boolean = false,
+        val transactionConstruction: Boolean = false,
+        val nonceOrUtxo: Boolean = false,
+        val feeEstimation: Boolean = false,
+        val submission: Boolean = false,
+        val finalityProof: Boolean = false,
+        val retryAndIdempotency: Boolean = false,
+        val reconciliation: Boolean = false,
+        val crashRecovery: Boolean = false,
+        val integrationTests: Boolean = false,
+    ) {
+        val executable: Boolean get() = chainSigning && transactionConstruction && nonceOrUtxo &&
+            feeEstimation && submission && finalityProof && retryAndIdempotency && reconciliation &&
+            crashRecovery && integrationTests
+        fun missing(): List<String> = buildList {
+            if (!chainSigning) add("CHAIN_SIGNING")
+            if (!transactionConstruction) add("TX_CONSTRUCTION")
+            if (!nonceOrUtxo) add("NONCE_OR_UTXO")
+            if (!feeEstimation) add("FEE_ESTIMATION")
+            if (!submission) add("SUBMISSION")
+            if (!finalityProof) add("FINALITY_PROOF")
+            if (!retryAndIdempotency) add("RETRY_IDEMPOTENCY")
+            if (!reconciliation) add("RECONCILIATION")
+            if (!crashRecovery) add("CRASH_RECOVERY")
+            if (!integrationTests) add("CHAIN_INTEGRATION_TESTS")
+        }
+    }
     private val chains = mapOf(
         "ethereum" to Chain(1, "https://ethereum-rpc.publicnode.com"),
         "eth" to Chain(1, "https://ethereum-rpc.publicnode.com"),
@@ -46,16 +74,22 @@ object CryptoBridgeAdapter {
         "optimism" to Chain(10, "https://optimism-rpc.publicnode.com"),
         "linea" to Chain(59144, "https://linea-rpc.publicnode.com"),
     )
+    // Wallet/address derivation is foundation only.  No EVM chain is promoted
+    // by address presence; each must explicitly graduate every capability.
+    private val liveReadiness6647 = chains.keys.associateWith { LiveRouteReadiness6647() }
     private val http = SharedHttpClient.builder().connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(25, TimeUnit.SECONDS).build()
+        .readTimeout(25, TimeUnit.SECONDS).callTimeout(30, TimeUnit.SECONDS).build()
     private val jsonType = "application/json".toMediaType()
 
     fun init(context: Context) { appContext = context.applicationContext }
-    fun isConfigured(): Boolean = FULL_ROUND_TRIP_IMPLEMENTED && appContext?.let {
+    fun readiness6647(targetChain: String?): LiveRouteReadiness6647? =
+        liveReadiness6647[targetChain?.trim()?.lowercase()]
+    fun isConfigured(): Boolean = FULL_ROUND_TRIP_IMPLEMENTED && liveReadiness6647.values.any { it.executable } && appContext?.let {
         try { MultiChainWalletVault6546.executable(it) != null } catch (_: Throwable) { false }
     } ?: false
     fun supportsRoundTrip(targetChain: String?, targetToken: String?): Boolean =
-        isConfigured() && chains.containsKey(targetChain?.trim()?.lowercase()) && isEvmAddress(targetToken)
+        isConfigured() && chains.containsKey(targetChain?.trim()?.lowercase()) &&
+            readiness6647(targetChain)?.executable == true && isEvmAddress(targetToken)
 
     sealed class Execution {
         data class Fulfilled(
@@ -71,7 +105,7 @@ object CryptoBridgeAdapter {
         targetToken: String?, sizeSol: Double,
     ): Execution = withContext(Dispatchers.IO) {
         if (!FULL_ROUND_TRIP_IMPLEMENTED)
-            return@withContext Execution.Rejected("ROUND_TRIP_EXECUTOR_INCOMPLETE", "destination sell-back signer/settlement is not enabled")
+            return@withContext Execution.Rejected("ROUND_TRIP_EXECUTOR_INCOMPLETE", "paper-only/unavailable; missing=${readiness6647(targetChain)?.missing()?.joinToString(",") ?: "UNSUPPORTED_CHAIN"}")
         val ctx = appContext ?: return@withContext Execution.Rejected("BRIDGE_NOT_INITIALISED", "adapter context missing")
         val stored = MultiChainWalletVault6546.executable(ctx)
             ?: return@withContext Execution.Rejected("MULTICHAIN_WALLET_NOT_ACTIVE", "backup-confirmed main wallet required")

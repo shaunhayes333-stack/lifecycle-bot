@@ -278,16 +278,32 @@ object SpecialistCausalFunnel6625 {
         val runId: String, val mode: String, val mint: String,
         val lane: String, val authorityVersion: Long, val intentId: String,
     )
-    private data class Record(val key: CausalKey, val stages: MutableMap<Stage, Long> = mutableMapOf())
+    private data class Record(
+        val key: CausalKey,
+        val stages: MutableMap<Stage, Long> = mutableMapOf(),
+        val outcomes: MutableSet<String> = mutableSetOf(),
+    )
     private val records = ConcurrentHashMap<String, Record>()
+    private val rejectedBlankIds = AtomicLong(0L)
 
     private fun keyString(k: CausalKey): String =
         "${k.runId}|${k.mode}|${k.mint}|${k.lane}|${k.authorityVersion}|${k.intentId}"
 
-    fun stamp6625(key: CausalKey, stage: Stage) {
+    fun stamp6625(key: CausalKey, stage: Stage, outcome: String = stage.name) {
+        if (key.intentId.isBlank() || key.mint.isBlank() || key.lane.isBlank()) {
+            rejectedBlankIds.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_BLANK_ID_REJECTED_6647")
+                ForensicLogger.lifecycle("SPECIALIST_CAUSAL_BLANK_ID_REJECTED_6647", "stage=$stage lane=${key.lane} mintBlank=${key.mint.isBlank()} intentBlank=${key.intentId.isBlank()}")
+            } catch (_: Throwable) {}
+            return
+        }
         val ks = keyString(key)
         val rec = records.computeIfAbsent(ks) { Record(key) }
-        synchronized(rec) { rec.stages[stage] = System.currentTimeMillis() }
+        synchronized(rec) {
+            rec.stages[stage] = System.currentTimeMillis()
+            rec.outcomes += outcome.uppercase()
+        }
         try {
             PipelineHealthCollector.labelInc("CAUSAL_FUNNEL_STAGE_${stage.name}_${key.lane}_6625")
         } catch (_: Throwable) {}
@@ -302,8 +318,95 @@ object SpecialistCausalFunnel6625 {
         }
         return result
     }
+    data class LaneSnapshot6647(
+        val lane: String,
+        val counts: Map<Stage, Int>,
+        val outcomes: Map<String, Int>,
+        val phantomSizedOnly: Int,
+    )
+    fun laneSnapshot6647(lane: String): LaneSnapshot6647 {
+        val counts = mutableMapOf<Stage, Int>()
+        val outcomes = mutableMapOf<String, Int>()
+        var phantom = 0
+        for (r in records.values) {
+            if (!r.key.lane.equals(lane, true)) continue
+            synchronized(r) {
+                r.outcomes.forEach { outcome -> outcomes[outcome] = (outcomes[outcome] ?: 0) + 1 }
+                val executableSize = "SIZED_EXECUTABLE" in r.outcomes || "SIZE" in r.outcomes
+                val fdgAllowed = "FDG_ALLOW" in r.outcomes || "FDG" in r.outcomes
+                val markReady = "MARK_READY" in r.outcomes || "MARK" in r.outcomes
+                if (executableSize && (Stage.DISCOVER !in r.stages || Stage.INTENT !in r.stages || !markReady)) phantom++
+                for (stage in r.stages.keys) {
+                    // Later stages are executable telemetry only when the
+                    // same keyed record contains its causal predecessors.
+                    val valid = when (stage) {
+                        Stage.FDG -> fdgAllowed
+                        Stage.MARK -> markReady
+                        Stage.SIZE -> executableSize && Stage.DISCOVER in r.stages && Stage.INTENT in r.stages && markReady
+                        Stage.TICKET, Stage.EXEC, Stage.OPEN ->
+                            Stage.INTENT in r.stages && fdgAllowed && executableSize && markReady
+                        else -> true
+                    }
+                    if (valid) counts[stage] = (counts[stage] ?: 0) + 1
+                }
+            }
+        }
+        return LaneSnapshot6647(lane, counts, outcomes, phantom)
+    }
+
+    /** Resolve position/finality telemetry back to the newest keyed record
+     * for the same mint and lane without inventing a new aggregate identity. */
+    fun latestCandidateVersion6647(mint: String, lane: String): Long? = records.values
+        .asSequence()
+        .filter { it.key.mint == mint && it.key.lane.equals(lane, true) }
+        .maxByOrNull { record -> synchronized(record) { record.stages.values.maxOrNull() ?: 0L } }
+        ?.key?.intentId?.split(':')?.getOrNull(1)?.toLongOrNull()
+    fun latestKey6647(mint: String, lane: String): CausalKey? = records.values
+        .asSequence()
+        .filter { it.key.mint == mint && it.key.lane.equals(lane, true) }
+        .maxByOrNull { record -> synchronized(record) { record.stages.values.maxOrNull() ?: 0L } }
+        ?.key
     fun statusLine(): String = "records=${records.size}"
-    internal fun resetForTest() { records.clear() }
+    internal fun resetForTest() { records.clear(); rejectedBlankIds.set(0L) }
+}
+
+/** Actual worker/heartbeat/queue ownership for each enabled specialist. */
+object SpecialistRuntimeRegistry6647 {
+    data class Traffic(val stage: String, val eventId: String, val atMs: Long = System.currentTimeMillis())
+    data class Snapshot(
+        val lane: String,
+        val runtimeAlive: Boolean,
+        val trafficSeen: Boolean,
+        val heartbeatAtMs: Long,
+        val queueOwner: String,
+        val queueDepth: Int,
+    )
+    private data class State(
+        val queue: java.util.concurrent.ArrayBlockingQueue<Traffic> = java.util.concurrent.ArrayBlockingQueue(256),
+        val heartbeat: AtomicLong = AtomicLong(0L),
+        val trafficAt: AtomicLong = AtomicLong(0L),
+        @Volatile var owner: String = "",
+        @Volatile var job: kotlinx.coroutines.Job? = null,
+    )
+    private val states = ConcurrentHashMap<String, State>()
+    private fun state(lane: String) = states.computeIfAbsent(lane.uppercase()) { State() }
+    fun offer(lane: String, stage: String, eventId: String) {
+        if (eventId.isBlank()) return
+        val s = state(lane)
+        if (!s.queue.offer(Traffic(stage, eventId))) {
+            s.queue.poll(); s.queue.offer(Traffic(stage, eventId))
+            try { PipelineHealthCollector.labelInc("SPECIALIST_RUNTIME_QUEUE_OVERFLOW_6647") } catch (_: Throwable) {}
+        }
+    }
+    fun register(lane: String, owner: String, job: kotlinx.coroutines.Job) { state(lane).apply { this.owner = owner; this.job = job; heartbeat.set(System.currentTimeMillis()) } }
+    fun heartbeat(lane: String) { state(lane).heartbeat.set(System.currentTimeMillis()) }
+    fun poll(lane: String): Traffic? = state(lane).queue.poll()?.also { state(lane).trafficAt.set(System.currentTimeMillis()) }
+    fun stopped(lane: String, job: kotlinx.coroutines.Job) { state(lane).apply { if (this.job === job) this.job = null } }
+    fun snapshot(lane: String, nowMs: Long = System.currentTimeMillis()): Snapshot {
+        val s = state(lane)
+        return Snapshot(lane, s.job?.isActive == true && s.owner.isNotBlank() && nowMs - s.heartbeat.get() <= 15_000L,
+            s.trafficAt.get() > 0L, s.heartbeat.get(), s.owner, s.queue.size)
+    }
 }
 
 /**

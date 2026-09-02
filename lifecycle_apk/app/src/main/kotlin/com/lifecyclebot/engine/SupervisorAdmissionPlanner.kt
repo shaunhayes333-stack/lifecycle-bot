@@ -12,8 +12,8 @@ package com.lifecyclebot.engine
  * This helper only plans the PER-CYCLE selection slice. It does NOT relax gates,
  * does NOT raise caps, and does NOT touch exits/positions. Healthy runtime returns
  * maxInFlight unchanged, so normal throughput is preserved. Under pressure it aligns
- * selection with the effective live-worker budget plus mandatory forced-open rows,
- * preventing admission churn while keeping enough surface area for discovery.
+ * selection with the effective live-worker budget. Canonical open positions are
+ * exit-coordinator work and never participate in this discovery calculation.
  */
 object SupervisorAdmissionPlanner {
     data class Plan(
@@ -27,12 +27,10 @@ object SupervisorAdmissionPlanner {
         liveCap: Int,
         currentLoad: Int,
         timeoutCount10m: Int,
-        forcedOpenCount: Int,
     ): Plan {
         val maxCap = maxInFlight.coerceAtLeast(1)
         val live = liveCap.coerceAtLeast(1)
         val active = currentLoad.coerceAtLeast(0)
-        val forced = forcedOpenCount.coerceAtLeast(0)
 
         val pressureBand = when {
             timeoutCount10m >= 500 -> "severe_timeout_pressure"
@@ -71,13 +69,11 @@ object SupervisorAdmissionPlanner {
             (target * 2).coerceAtMost(maxCap)
         } else target
 
-        // Forced-open rows are mandatory management surface. Include them in the slice,
-        // but never let pressure planning expand beyond the legacy ceiling.
-        val cap = maxOf(forced, cap6267).coerceIn(1, maxCap)
+        val cap = cap6267.coerceIn(1, maxCap)
         return Plan(
             perCycleCap = cap,
             pressureBand = pressureBand,
-            reason = "band=$pressureBand active=$active liveCap=$live max=$maxCap forced=$forced timeouts10m=$timeoutCount10m cap=$cap lift6267=${cap6267 != target}",
+            reason = "band=$pressureBand active=$active liveCap=$live max=$maxCap timeouts10m=$timeoutCount10m cap=$cap lift6267=${cap6267 != target}",
         )
     }
 }

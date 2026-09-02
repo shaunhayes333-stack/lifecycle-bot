@@ -3,12 +3,15 @@ package com.lifecyclebot.collective
 import android.util.Base64
 import android.util.Log
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.network.SharedHttpClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
+import java.util.concurrent.TimeUnit
 
 /**
  * TursoClient
@@ -35,6 +38,9 @@ class TursoClient(
     }
 
     private val httpDbUrl: String = normalizeDbUrl(dbUrl)
+    private val httpClient = SharedHttpClient.builder()
+        .callTimeout(TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
+        .build()
 
     data class QueryResult(
         val success: Boolean,
@@ -281,42 +287,21 @@ class TursoClient(
     }
 
     private fun httpPost(body: String): String {
-        val url = URL("$httpDbUrl$PIPELINE_PATH")
-        val conn = url.openConnection() as HttpURLConnection
-
-        try {
-            conn.requestMethod = "POST"
-            conn.connectTimeout = TIMEOUT_MS
-            conn.readTimeout = TIMEOUT_MS
-            conn.doOutput = true
-            conn.setRequestProperty("Authorization", "Bearer $authToken")
-            conn.setRequestProperty("Content-Type", "application/json")
-
-            Log.d(TAG, "POST $url")
-            Log.d(TAG, "BODY ${body.take(1500)}")
-
-            conn.outputStream.use { os ->
-                os.write(body.toByteArray(Charsets.UTF_8))
-            }
-
-            val responseCode = conn.responseCode
-            val responseText = if (responseCode in 200..299) {
-                conn.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                conn.errorStream?.bufferedReader()?.use { it.readText() }
-                    ?: "HTTP $responseCode with empty error body"
-            }
-
-            Log.d(TAG, "HTTP $responseCode")
+        val url = "$httpDbUrl$PIPELINE_PATH"
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", "Bearer $authToken")
+            .header("Content-Type", "application/json")
+            .post(body.toRequestBody("application/json".toMediaType()))
+            .build()
+        Log.d(TAG, "POST $url")
+        Log.d(TAG, "BODY ${body.take(1500)}")
+        httpClient.newCall(request).execute().use { response ->
+            val responseText = response.body?.string() ?: "HTTP ${response.code} with empty body"
+            Log.d(TAG, "HTTP ${response.code}")
             Log.d(TAG, "RESP ${responseText.take(1500)}")
-
-            if (responseCode !in 200..299) {
-                throw RuntimeException("HTTP $responseCode: $responseText")
-            }
-
+            if (!response.isSuccessful) throw RuntimeException("HTTP ${response.code}: $responseText")
             return responseText
-        } finally {
-            conn.disconnect()
         }
     }
 

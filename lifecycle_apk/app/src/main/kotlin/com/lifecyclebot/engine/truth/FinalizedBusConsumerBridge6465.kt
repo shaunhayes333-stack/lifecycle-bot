@@ -56,6 +56,28 @@ object FinalizedBusConsumerBridge6465 {
             } catch (_: Throwable) {}
             return true
         }
+        if (consumer !in NON_LEARNING_CONSUMERS) {
+            // Learning is an economic publication. It is forbidden while
+            // ledger/journal/event/lot reconciliation is failed, and while
+            // any open-paper mark is stale/fallback (UNPRICED COST).
+            try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
+            val reconciled6647 = try { ForensicReconciliation6635.deltas6647().reconciled } catch (_: Throwable) { false }
+            if (!reconciled6647) {
+                try {
+                    PipelineHealthCollector.labelInc("LEARNING_BLOCKED_FAILED_RECONCILIATION_6647")
+                    ForensicLogger.lifecycle("LEARNING_BLOCKED_FAILED_RECONCILIATION_6647", "consumer=$consumer positionId=${env.positionId} action=no_mutation_no_ack")
+                } catch (_: Throwable) {}
+                return false
+            }
+            val markState6647 = try { CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
+            if (markState6647 == null || markState6647.fallbackMarkMints > 0 || markState6647.staleMarkMints > 0) {
+                try {
+                    PipelineHealthCollector.labelInc("LEARNING_BLOCKED_UNPRICED_COST_6647")
+                    ForensicLogger.lifecycle("LEARNING_BLOCKED_UNPRICED_COST_6647", "consumer=$consumer positionId=${env.positionId} fallback=${markState6647?.fallbackMarkMints ?: -1} stale=${markState6647?.staleMarkMints ?: -1} action=no_mutation_no_ack")
+                } catch (_: Throwable) {}
+                return false
+            }
+        }
         val ok = when (consumer) {
             "LearnerRewardBridge" -> deliverToLearnerRewardBridge(env)
             "LosingStreakReflex"  -> deliverToLosingStreakReflex(env)

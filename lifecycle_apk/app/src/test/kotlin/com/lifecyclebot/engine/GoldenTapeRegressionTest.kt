@@ -254,12 +254,13 @@ class GoldenTapeRegressionTest {
     }
 
     @Test
-    fun forced_open_supervisor_is_bounded_under_timeout_pressure() {
+    fun forced_open_positions_never_enter_discovery_supervisor() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(bot.contains("forcedOpenForSupervisor"))
-        assertTrue(bot.contains("FORCED_OPEN_SUPERVISOR_ROUND_ROBIN"))
-        assertTrue(bot.contains("forcedSupervisor="))
-        assertFalse("forcedOpen must not remain an unbounded mandatory supervisor prefix", bot.contains("val mustInclude = forcedOpenMints.toMutableList()"))
+        val selector = bot.substringAfter("private fun selectOrderedMintsForCycle(").substringBefore("private fun emitWatchlistCapTrace")
+        assertTrue(selector.contains("val forcedOpenForSupervisor: List<String> = emptyList()"))
+        assertTrue(selector.contains("val mustInclude = mutableListOf<String>()"))
+        assertFalse("canonical opens must never consume discovery supervisor slots", selector.contains("val mustInclude = forcedOpenMints.toMutableList()"))
+        assertFalse("forced opens must not inflate discovery admission capacity", java.io.File("src/main/kotlin/com/lifecyclebot/engine/SupervisorAdmissionPlanner.kt").readText().contains("forcedOpenCount"))
     }
 
     @Test
@@ -8374,7 +8375,7 @@ class GoldenTapeRegressionTest {
         val sandbox = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PerpsSandbox6463.kt").readText()
         assertTrue(sizing.contains("sizing is advisory input, never a pre-FDG"))
         assertTrue(gate.contains("resolvedSizeSol6558") && gate.contains("CROSS_ASSET_LEGACY_SIGNAL_DIVERGENCE_6554") && gate.contains("action=diagnostic_only"))
-        assertTrue(crypto.contains("resolvedSizeSol6558 = candidate.finalSize"))
+        assertTrue(crypto.contains("CanonicalEntryAuthority6551.submit") && crypto.contains("canonicalCryptoIntent6565.resolvedSize"))
         assertTrue(perpsEngine.contains("CanonicalEntryAuthority6551.submit") && perpsEngine.contains("sealedPerpIntent6570") && perpsEngine.contains("canonicalPerpsSize6570 = sealedPerpIntent6570.resolvedSizeSol"))
         assertTrue(perpsTrader.contains("PerpsSandbox6463.openLeveragedPaper") && perpsTrader.contains("CanonicalPaperTransaction6486.refund"))
         assertTrue(sandbox.contains("PERPS_EXEC_DISPATCH_6554") && sandbox.contains("PERPS_OPEN_CONFIRMED_6554") && sandbox.contains("PERPS_OPEN_REFUSED_6554"))
@@ -8687,7 +8688,7 @@ class GoldenTapeRegressionTest {
         assertTrue(gate.contains("intent.fdgVerdict.uppercase() in setOf(") && gate.contains("PROBE_ONLY"))
         assertTrue(crypto.contains("CRYPTO_SHORT_REROUTED_TO_PERP_6533") && crypto.contains("ADAPTER_DIRECTION_UNSUPPORTED"))
         assertFalse(crypto.contains("SPOT_SHORT_UNSUPPORTED"))
-        assertTrue(crypto.contains("requiresSolanaTokenMap = ExecutionAuthorityPolicy6533.requiresSolanaTokenMap"))
+        assertTrue(crypto.contains("CanonicalEntryAuthority6551.submit") && crypto.contains("finalExecutableVerdict6647"))
         assertTrue(plan.contains("paperLearnEverything6533") && bot.contains("publish(plan6526.enabledTraderSet())"))
         assertTrue(report.contains("EXECUTION AUTHORITY INVARIANTS 6533") &&
             report.contains("NON_SOLANA_TOKENMAP_HARDNO") && report.contains("EXECUTABLE_FANOUT_PER_CANDIDATE_GT_2"))

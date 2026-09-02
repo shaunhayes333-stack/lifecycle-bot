@@ -18,16 +18,10 @@ import java.util.concurrent.atomic.AtomicReference
  *   Journal clean tab:        +$146.08     (5W/7L, 79 trades)
  *   PaperAccountLedger:       +$5,793.45   (+476% start)   ← impossible
  *
- * The ledger's accumulator atomics (cashPico / realizedPnlPico) are
- * inflated relative to the journal. Since operator doctrine (V5.0.6616)
- * declares the durable trade journal as the sole economic source of
- * truth, this authority replaces the ledger read as the input to
- * JournalEconomicAuthority6616.currentSnapshot() — the three heroes
- * (Meme / Markets / Crypto Universe) now render values computed
- * DETERMINISTICALLY from the journal rows themselves. The ledger keeps
- * running (execution paths still credit/debit it and the capital-
- * conservation invariant is still enforced) but it no longer feeds
- * the hero.
+ * This reducer is one side of continuous reconciliation. It never
+ * replaces the ledger or publishes UI equity by itself: a unified account
+ * snapshot is publishable only when this result, the ledger, canonical
+ * lots, and the immutable event registry agree exactly.
  *
  * REPLAY EQUATION (walked over paper journal rows):
  *
@@ -37,7 +31,7 @@ import java.util.concurrent.atomic.AtomicReference
  *                     fees += feeSol
  *     SELL/PARTIAL:   cash += (grossProceedsSol - feeSol)
  *                     openCost -= soldCostBasisSol
- *                     realizedPnl += netPnlSol
+ *                     realizedPnl += (grossProceedsSol - soldCostBasisSol)
  *                     fees += feeSol
  *
  *   startingCashSol comes from the paper-capital facade
@@ -70,6 +64,9 @@ object JournalEconomicReplay6619 {
         val paperSells: Int,
         val paperPartialSells: Int,
         val emittedAtMs: Long,
+        val reconciled: Boolean = true,
+        val invariantFailures: List<String> = emptyList(),
+        val openRawQtyByPosition: Map<String, java.math.BigInteger> = emptyMap(),
     )
 
     private val replays = AtomicLong(0L)
@@ -123,17 +120,16 @@ object JournalEconomicReplay6619 {
                     startingCashSol = startingSol,
                     paperRows = 0, paperBuys = 0, paperSells = 0, paperPartialSells = 0,
                     emittedAtMs = System.currentTimeMillis(),
+                    reconciled = false,
+                    invariantFailures = listOf("MAIN_THREAD_REPLAY_DEFERRED"),
                 )
             }
             lastResult.set(fast)
             return fast
         }
 
-        // V5.0.6640 — observed transaction cash is diagnostic only.  The
-        // authoritative cash value is derived from the conservation identity
-        // after every row has been reduced.  A malformed-but-bounds-valid SELL
-        // must never turn its gross proceeds into fabricated hero wealth.
-        var observedTransactionCash = startingSol
+        data class Lot(var basisSol: Double, var rawQty: java.math.BigInteger, var displayQty: Double)
+        var cash = startingSol
         var realized = 0.0
         var openCost = 0.0
         var fees = 0.0
@@ -144,60 +140,118 @@ object JournalEconomicReplay6619 {
 
         val rows = try {
             TradeHistoryStore.getAllValidTradesSnapshot(limit = 20_000)
-        } catch (_: Throwable) { emptyList() }
+        } catch (_: Throwable) { emptyList() }.sortedBy { it.ts }
+        val lots = mutableMapOf<String, Lot>()
+        val seenEvents = mutableSetOf<String>()
+        val seenFills = mutableSetOf<String>()
+        val failures = mutableListOf<String>()
+
+        fun displayToRaw(value: Double, decimals: Int): java.math.BigInteger {
+            if (!value.isFinite() || value <= 0.0 || decimals !in 0..18) return java.math.BigInteger.ZERO
+            return try {
+                java.math.BigDecimal.valueOf(value)
+                    .movePointRight(decimals)
+                    .setScale(0, java.math.RoundingMode.HALF_UP)
+                    .toBigIntegerExact()
+            } catch (_: Throwable) { java.math.BigInteger.ZERO }
+        }
+
+        fun reject(t: com.lifecyclebot.data.Trade, eventId: String, reason: String) {
+            val identity = "$eventId:$reason"
+            failures += identity
+            try {
+                LearningQuarantineGate6470.quarantinePositionId("EVENT:$eventId", reason)
+                if (t.positionId.isNotBlank()) LearningQuarantineGate6470.quarantinePositionId(t.positionId, "EVENT:$eventId:$reason")
+                PipelineHealthCollector.labelInc("JOURNAL_LOT_REPLAY_INVARIANT_FAILURE_6647")
+                ForensicLogger.lifecycle("JOURNAL_LOT_REPLAY_INVARIANT_FAILURE_6647", "economicEventId=$eventId positionId=${t.positionId} side=${t.side} fillIndex=${t.partialSequence} reason=$reason action=quarantine_exact_event")
+            } catch (_: Throwable) {}
+        }
 
         for (t in rows) {
             if (!t.mode.equals("paper", ignoreCase = true)) continue
             totalRows++
             val side = t.side.uppercase()
+            val eventId = t.economicEventId.ifBlank {
+                // Deterministic legacy repair identity. Historical rows are
+                // retained; no purge/reset or floating-value identity is used.
+                "LEGACY:${t.positionId}:${t.ts}:$side:${t.partialSequence}"
+            }
+            if (t.positionId.isBlank()) { reject(t, eventId, "MISSING_POSITION_ID"); continue }
+            if (!seenEvents.add(eventId)) { reject(t, eventId, "DUPLICATE_EVENT_ID"); continue }
+            // BUY/ADD rows historically share partialSequence=0. Their sealed
+            // economic event is the fill identity; sell rows use the terminal
+            // or partial fill index supplied by the canonical reducer.
+            val fillKey = if (side == "BUY") eventId else "${t.positionId}:$side:${t.partialSequence}"
+            if (!seenFills.add(fillKey)) { reject(t, eventId, "DUPLICATE_FILL_INDEX"); continue }
             when {
                 side == "BUY" -> {
-                    val cost = t.sol.coerceAtLeast(0.0)
-                    val fee = t.feeSol.coerceAtLeast(0.0)
-                    observedTransactionCash -= (cost + fee)
+                    val cost = t.sol
+                    val fee = t.feeSol
+                    if (!cost.isFinite() || cost <= 0.0 || !fee.isFinite() || fee < 0.0) {
+                        reject(t, eventId, "INVALID_BUY_BASIS_OR_FEE"); continue
+                    }
+                    // Deterministic legacy repair: old rows may lack raw fields
+                    // but retain quantity + decimals. Convert once with decimal
+                    // arithmetic; never infer quantity from price or PnL.
+                    val raw = t.entryRawQty.takeIf { it > java.math.BigInteger.ZERO }
+                        ?: displayToRaw(t.entryQtyToken, t.tokenDecimals.takeIf { it >= 0 } ?: t.entryDecimals)
+                    val display = t.entryQtyToken.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+                    val prior = lots[t.positionId]
+                    if (prior == null) lots[t.positionId] = Lot(cost, raw, display)
+                    else { prior.basisSol += cost; prior.rawQty += raw; prior.displayQty += display }
+                    cash -= (cost + fee)
                     openCost += cost
                     fees += fee
                     buys++
                 }
                 side == "SELL" || side == "PARTIAL_SELL" -> {
-                    // Prefer explicit canonical fields, fall back to
-                    // legacy row fields for older journal rows.
-                    val gross = if (t.grossProceedsSol > 0.0) t.grossProceedsSol
-                                else t.sol.coerceAtLeast(0.0)
-                    val basis = if (t.soldCostBasisSol > 0.0) t.soldCostBasisSol
-                                else (gross - t.pnlSol).coerceAtLeast(0.0)
-                    val fee = t.feeSol.coerceAtLeast(0.0)
-                    // pnlSol is gross realized P&L; fees remain a separate
-                    // double-entry line. netPnlSol must not be combined with a
-                    // second fee subtraction in the account identity.
-                    val grossPnl = if (t.pnlSol.isFinite()) t.pnlSol
-                                   else (gross - basis)
-                    observedTransactionCash += (gross - fee)
+                    val lot = lots[t.positionId]
+                    // A sealed modern row may legitimately have zero proceeds.
+                    // Legacy rows predate the explicit field and are repaired
+                    // deterministically from their historical `sol` column.
+                    val gross = if (t.economicEventId.isNotBlank()) t.grossProceedsSol
+                        else t.grossProceedsSol.takeIf { it.isFinite() && it > 0.0 } ?: t.sol
+                    val basis = t.soldCostBasisSol
+                    val fee = t.feeSol
+                    if (lot == null) { reject(t, eventId, "SELL_WITHOUT_MATCHING_BUY_LOT"); continue }
+                    if (!basis.isFinite() || basis <= 0.0) { reject(t, eventId, "MISSING_OR_NEGATIVE_BASIS"); continue }
+                    if (basis > lot.basisSol + 1e-9) { reject(t, eventId, "BASIS_EXCEEDS_REMAINING_LOT"); continue }
+                    if (!gross.isFinite() || gross < 0.0 || !fee.isFinite() || fee < 0.0) { reject(t, eventId, "INVALID_PROCEEDS_OR_FEE"); continue }
+                    val soldRaw = t.canonicalConsumedRaw.takeIf { it > java.math.BigInteger.ZERO }
+                        ?: displayToRaw(t.soldQtyToken, t.tokenDecimals.takeIf { it >= 0 } ?: t.entryDecimals)
+                    if (soldRaw > java.math.BigInteger.ZERO && lot.rawQty > java.math.BigInteger.ZERO && soldRaw > lot.rawQty) {
+                        reject(t, eventId, "SELL_QTY_EXCEEDS_REMAINING_LOT"); continue
+                    }
+                    val soldDisplay = t.soldQtyToken.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+                    val nextBasis = lot.basisSol - basis
+                    val nextRaw = if (soldRaw > java.math.BigInteger.ZERO) lot.rawQty - soldRaw else lot.rawQty
+                    val nextDisplay = if (soldDisplay > 0.0) lot.displayQty - soldDisplay else lot.displayQty
+                    if (nextBasis < -1e-9 || nextRaw < java.math.BigInteger.ZERO || nextDisplay < -1e-9) {
+                        reject(t, eventId, "NEGATIVE_REMAINING_LOT"); continue
+                    }
+                    if (side == "SELL" && (kotlin.math.abs(nextBasis) > 1e-9 ||
+                            (lot.rawQty > java.math.BigInteger.ZERO && nextRaw != java.math.BigInteger.ZERO))) {
+                        reject(t, eventId, "TERMINAL_SELL_INCOMPLETE_LOT"); continue
+                    }
+                    cash += (gross - fee)
                     openCost -= basis
-                    realized += grossPnl
+                    // Match PaperAccountLedger6430 exactly: realized is gross
+                    // P&L and fees remain a separate economic line.
+                    realized += (gross - basis)
                     fees += fee
+                    lot.basisSol = nextBasis
+                    lot.rawQty = nextRaw
+                    lot.displayQty = nextDisplay
+                    if (side == "SELL" || lot.basisSol <= 1e-9) lots.remove(t.positionId)
                     if (side == "SELL") sells++ else partials++
                 }
             }
         }
-
-        // openCost may drift slightly negative for legacy rows missing
-        // soldCostBasisSol; clamp to zero for presentation (never
-        // negative-cost basis is economic).
-        if (openCost < 0.0) openCost = 0.0
-        val cash = startingSol + realized - fees - openCost
-        val equity = cash + openCost
-        if (kotlin.math.abs(observedTransactionCash - cash) > 0.001) {
-            try {
-                PipelineHealthCollector.labelInc("JOURNAL_TRANSACTION_CASH_IDENTITY_DIVERGENCE_6640")
-                ForensicLogger.lifecycle(
-                    "JOURNAL_TRANSACTION_CASH_IDENTITY_DIVERGENCE_6640",
-                    "observed=${"%.6f".format(observedTransactionCash)} " +
-                        "identity=${"%.6f".format(cash)} delta=${"%.6f".format(observedTransactionCash - cash)} " +
-                        "action=identity_authoritative",
-                )
-            } catch (_: Throwable) {}
+        if (openCost < -1e-9) {
+            failures += "GLOBAL:NEGATIVE_OPEN_BASIS"
+            try { PipelineHealthCollector.labelInc("JOURNAL_NEGATIVE_BASIS_INVARIANT_6647") } catch (_: Throwable) {}
         }
+        val equity = cash + openCost
         val result = ReplayResult(
             cashSol = cash,
             realizedPnlSol = realized,
@@ -210,6 +264,9 @@ object JournalEconomicReplay6619 {
             paperSells = sells,
             paperPartialSells = partials,
             emittedAtMs = System.currentTimeMillis(),
+            reconciled = failures.isEmpty(),
+            invariantFailures = failures.toList(),
+            openRawQtyByPosition = lots.mapValues { it.value.rawQty },
         )
         lastResult.set(result)
 
@@ -229,7 +286,7 @@ object JournalEconomicReplay6619 {
                         "journalCash=${"%.6f".format(cash)} " +
                         "delta=${"%.6f".format(delta)} " +
                         "paperRows=$totalRows buys=$buys sells=$sells partials=$partials " +
-                        "action=hero_uses_journal_ledger_stays_for_execution",
+                        "action=fail_closed_retain_last_reconciled_account",
                 )
             } else {
                 PipelineHealthCollector.labelInc("PAPER_LEDGER_JOURNAL_PARITY_HEALTHY_6619")

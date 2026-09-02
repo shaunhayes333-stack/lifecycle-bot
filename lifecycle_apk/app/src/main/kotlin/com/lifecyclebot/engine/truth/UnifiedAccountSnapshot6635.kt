@@ -54,6 +54,8 @@ object UnifiedAccountSnapshot6635 {
         val forensicLine: String,
         val readAtMs: Long,
         val openMarketValueSol: Double = 0.0,
+        val accountAvailable: Boolean = true,
+        val authoritativePrices: Boolean = true,
     )
 
     private val reads = AtomicLong(0L)
@@ -65,6 +67,7 @@ object UnifiedAccountSnapshot6635 {
             forensicLine = "", readAtMs = 0L,
         )
     )
+    private val lastReconciled = java.util.concurrent.ConcurrentHashMap<String, Snapshot>()
 
     @Synchronized
     fun read(surface: String, mode: String = "paper"): Snapshot {
@@ -77,6 +80,7 @@ object UnifiedAccountSnapshot6635 {
         try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
 
         val capital = try { PaperCapitalAuthority6577.snapshot() } catch (_: Throwable) { null }
+        val markAuthority = try { CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
         val cashLedger = capital?.availableCashSol ?: 0.0
         val realized = capital?.realizedPnlSol ?: 0.0
         val openCost = capital?.openMarketValueSol ?: 0.0
@@ -99,9 +103,31 @@ object UnifiedAccountSnapshot6635 {
             openPositionsCount = openPositions, status = status,
             forensicLine = forensicLine, readAtMs = System.currentTimeMillis(),
             openMarketValueSol = openCost,
+            accountAvailable = status == Status.RECONCILED,
+            authoritativePrices = status == Status.RECONCILED &&
+                (markAuthority?.fallbackMarkMints ?: Int.MAX_VALUE) == 0 &&
+                (markAuthority?.staleMarkMints ?: Int.MAX_VALUE) == 0,
         )
-        lastRead.set(snap)
-        return snap
+        if (status == Status.RECONCILED) {
+            lastReconciled[mode] = snap
+            lastRead.set(snap)
+            return snap
+        }
+        val retained = lastReconciled[mode]?.copy(
+            status = Status.FAILED,
+            forensicLine = "$forensicLine accountAction=RETAIN_LAST_RECONCILED",
+            readAtMs = System.currentTimeMillis(),
+            accountAvailable = true,
+        ) ?: Snapshot(
+            mode = mode, cashSol = 0.0, equitySol = 0.0,
+            realizedPnlSol = 0.0, unrealizedPnlSol = 0.0,
+            openPositionsCount = openPositions, status = Status.FAILED,
+            forensicLine = "$forensicLine ACCOUNT_UNAVAILABLE",
+            readAtMs = System.currentTimeMillis(), openMarketValueSol = 0.0,
+            accountAvailable = false, authoritativePrices = false,
+        )
+        lastRead.set(retained)
+        return retained
     }
 
     fun lastSnapshot(): Snapshot = lastRead.get()
@@ -110,6 +136,7 @@ object UnifiedAccountSnapshot6635 {
 
     internal fun resetForTest() {
         reads.set(0L)
+        lastReconciled.clear()
         lastRead.set(Snapshot("paper", 0.0, 0.0, 0.0, 0.0, 0, Status.WARMUP, "", 0L))
     }
 }

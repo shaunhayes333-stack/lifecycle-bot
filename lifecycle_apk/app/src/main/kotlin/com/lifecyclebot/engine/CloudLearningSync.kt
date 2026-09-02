@@ -3,13 +3,16 @@ package com.lifecyclebot.engine
 import android.content.Context
 import android.content.SharedPreferences
 import com.lifecyclebot.data.ConfigStore
+import com.lifecyclebot.network.SharedHttpClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 import java.security.MessageDigest
+import java.util.concurrent.TimeUnit
 import java.util.UUID
 
 object CloudLearningSync {
@@ -45,6 +48,12 @@ object CloudLearningSync {
     private const val MAX_EFFECTIVE_TRADE_WEIGHT = 250
     private const val CONNECT_TIMEOUT_MS = 15_000
     private const val READ_TIMEOUT_MS = 30_000
+    private const val CALL_TIMEOUT_MS = 12_000L
+    private val httpClient = SharedHttpClient.builder()
+        .connectTimeout(CONNECT_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
+        .readTimeout(READ_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
+        .callTimeout(CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        .build()
 
     private var prefs: SharedPreferences? = null
     private var instanceId: String = ""
@@ -801,42 +810,22 @@ object CloudLearningSync {
     private fun pipeline(requests: JSONArray): JSONObject? {
         val baseUrl = tursoHttpUrl.removeSuffix("/")
         val endpoint = "$baseUrl/v2/pipeline"
-        val conn = (URL(endpoint).openConnection() as HttpURLConnection)
-
         return try {
-            conn.requestMethod = "POST"
-            conn.connectTimeout = CONNECT_TIMEOUT_MS
-            conn.readTimeout = READ_TIMEOUT_MS
-            conn.useCaches = false
-            conn.doInput = true
-            conn.doOutput = true
-            conn.setRequestProperty("Authorization", "Bearer $tursoAuthToken")
-            conn.setRequestProperty("Content-Type", "application/json")
-            conn.setRequestProperty("Accept", "application/json")
-
             val body = JSONObject().put("requests", requests).toString()
-            conn.outputStream.bufferedWriter().use { it.write(body) }
-
-            val code = conn.responseCode
-            val text = if (code in 200..299) {
-                conn.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                conn.errorStream?.bufferedReader()?.use { it.readText() }
-                    ?: "{\"error\":\"HTTP $code\"}"
+            val request = Request.Builder()
+                .url(endpoint)
+                .header("Authorization", "Bearer $tursoAuthToken")
+                .header("Accept", "application/json")
+                .post(body.toRequestBody("application/json".toMediaType()))
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                val text = response.body?.string() ?: "{\"error\":\"HTTP ${response.code}\"}"
+                if (!response.isSuccessful) ErrorLogger.error("CloudSync", "Turso HTTP ${response.code}: $text")
+                JSONObject(text)
             }
-
-            val obj = JSONObject(text)
-
-            if (code !in 200..299) {
-                ErrorLogger.error("CloudSync", "Turso HTTP $code: $text")
-            }
-
-            obj
         } catch (e: Exception) {
             ErrorLogger.error("CloudSync", "Turso pipeline error: ${e.message}")
             null
-        } finally {
-            conn.disconnect()
         }
     }
 

@@ -2165,7 +2165,7 @@ object ExecutableOpenGate {
                 PipelineHealthCollector.labelInc("EXEC_OPEN_PRECHECK_SIZE_PENDING_6491")
                 ForensicLogger.lifecycle("EXEC_OPEN_PRECHECK_SIZE_PENDING_6491", "attemptId=$execKey mint=${mint.take(10)} symbol=$symbol mode=$modeUpper lane=$lane action=safety_precheck_only_no_claim_no_ticket_no_allow")
             } catch (_: Throwable) {}
-            return OpenVerdict(true, "SIZE_PENDING_PRECHECK_ONLY_6491", shadowOnly = true,
+            return OpenVerdict(false, "SIZE_PENDING_PRECHECK_ONLY_6491", shadowOnly = true,
                 logName = "EXEC_OPEN_PRECHECK_SIZE_PENDING_6491", attemptId = execKey)
         }
         if (!com.lifecyclebot.engine.truth.OrderSizeResolver6441.meetsMinimum6491(effectiveResolvedSize6497, minExecutable6491)) {

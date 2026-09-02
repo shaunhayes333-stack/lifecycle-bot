@@ -112,32 +112,29 @@ object JournalEconomicAuthority6616 {
         val replay = try {
             JournalEconomicReplay6619.replay()
         } catch (_: Throwable) { null }
-        val s = if (replay != null) {
-            CanonicalEconomicSnapshot(
-                revision = rev,
-                mode = "paper",
-                cashSol = replay.cashSol,
-                reservedSol = 0.0,
-                openMarketValueSol = replay.openCostBasisSol, // conservative — cost basis until live marks land
-                unrealizedPnlSol = 0.0,
-                realizedPnlSol = replay.realizedPnlSol,
-                feesSol = replay.feesSol,
-                equitySol = replay.equitySol,
-                startingCashSol = replay.startingCashSol,
-                emittedAtMs = System.currentTimeMillis(),
-                source = "TRADE_JOURNAL_REPLAY_6619",
-            )
-        } else {
-            // Journal read failed catastrophically — degrade gracefully.
-            CanonicalEconomicSnapshot(
-                revision = rev, mode = "paper",
-                cashSol = 0.0, reservedSol = 0.0, openMarketValueSol = 0.0,
-                unrealizedPnlSol = 0.0, realizedPnlSol = 0.0, feesSol = 0.0,
-                equitySol = 0.0, startingCashSol = 0.0,
-                emittedAtMs = System.currentTimeMillis(),
-                source = "TRADE_JOURNAL_DEGRADED",
-            )
+        try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
+        val globallyReconciled6647 = try { ForensicReconciliation6635.deltas6647().reconciled } catch (_: Throwable) { false }
+        if (replay == null || !replay.reconciled || !globallyReconciled6647) {
+            try {
+                PipelineHealthCollector.labelInc("JOURNAL_ECONOMIC_PUBLISH_BLOCKED_FAILED_REPLAY_6647")
+                ForensicLogger.lifecycle("JOURNAL_ECONOMIC_PUBLISH_BLOCKED_FAILED_REPLAY_6647", "kind=$kind replayOk=${replay?.reconciled == true} globallyReconciled=$globallyReconciled6647 failures=${replay?.invariantFailures?.take(3)} action=retain_last_reconciled")
+            } catch (_: Throwable) {}
+            return
         }
+        val s = CanonicalEconomicSnapshot(
+            revision = rev,
+            mode = "paper",
+            cashSol = replay.cashSol,
+            reservedSol = 0.0,
+            openMarketValueSol = replay.openCostBasisSol, // UNPRICED COST until authoritative marks land
+            unrealizedPnlSol = 0.0,
+            realizedPnlSol = replay.realizedPnlSol,
+            feesSol = replay.feesSol,
+            equitySol = replay.equitySol,
+            startingCashSol = replay.startingCashSol,
+            emittedAtMs = System.currentTimeMillis(),
+            source = "TRADE_JOURNAL_REPLAY_6619",
+        )
         cached.set(s)
         try {
             PipelineHealthCollector.labelInc("JOURNAL_ECONOMIC_SNAPSHOT_PUBLISHED_6616")
@@ -163,6 +160,9 @@ object JournalEconomicAuthority6616 {
         // V5.0.6619 — same doctrine as notifyEconomicMutation: publish
         //   journal-replay-derived values, not ledger accumulators.
         val replay = try { JournalEconomicReplay6619.replay() } catch (_: Throwable) { null } ?: return
+        try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
+        val globallyReconciled6647 = try { ForensicReconciliation6635.deltas6647().reconciled } catch (_: Throwable) { false }
+        if (!replay.reconciled || !globallyReconciled6647) return
         cached.set(
             CanonicalEconomicSnapshot(
                 revision = rev, mode = "paper",

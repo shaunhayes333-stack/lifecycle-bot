@@ -628,7 +628,37 @@ class BotService : Service() {
         // The SupervisorJob ensures child coroutines don't cancel siblings
     }
 
-    private val scope  = CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler)
+    // V5.0.6647 — structured service ownership.  Supervisor and exit work
+    // are children of this job and run on separate bounded executors, so
+    // provider/discovery pressure cannot queue the exit consumer indefinitely.
+    private val serviceJob6647 = SupervisorJob()
+    private val serviceExecutor6647: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newFixedThreadPool(6) { r ->
+            Thread(r, "AATE-Service-6647").apply { isDaemon = true }
+        }
+    private val supervisorExecutor6647: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newFixedThreadPool(16) { r ->
+            Thread(r, "AATE-Entry-6647").apply { isDaemon = true }
+        }
+    private val exitExecutor6647: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "AATE-Exit-Coordinator-6647").apply { isDaemon = true; priority = Thread.NORM_PRIORITY + 1 }
+        }
+    private val exitWorkerExecutor6647: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newFixedThreadPool(3) { r ->
+            Thread(r, "AATE-Exit-Policy-6647").apply { isDaemon = true; priority = Thread.NORM_PRIORITY + 1 }
+        }
+    private val serviceDispatcher6647 = serviceExecutor6647.asCoroutineDispatcher()
+    private val supervisorDispatcher6647 = supervisorExecutor6647.asCoroutineDispatcher()
+    private val exitDispatcher6647 = exitExecutor6647.asCoroutineDispatcher()
+    private val exitWorkerDispatcher6647 = exitWorkerExecutor6647.asCoroutineDispatcher()
+    private val scope = CoroutineScope(serviceJob6647 + serviceDispatcher6647 + exceptionHandler)
+    private val exitScope6647 = CoroutineScope(serviceJob6647 + exitDispatcher6647 + exceptionHandler + CoroutineName("exit-coordinator-6647"))
+    private val exitWorkerScope6647 = CoroutineScope(serviceJob6647 + exitWorkerDispatcher6647 + exceptionHandler + CoroutineName("exit-policy-6647"))
+    private val specialistWorkerJobs6647 = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
+    private val specialistRestartAfterMs6647 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val specialistRestartFailures6647 = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
+    @Volatile private var specialistWorkerSupervisor6647: kotlinx.coroutines.Job? = null
 
     // V5.0.6515 — canonical durable replay must never run in Service.onCreate's main thread.
     @Volatile private var canonicalBootstrapReady6515 = false
@@ -694,16 +724,61 @@ class BotService : Service() {
     // state machine. Inline launches made the already-huge botLoop trip Kotlin's
     // CoroutineTransformer StackOverflowError in release CI.
     private fun startSingletonRuntimeMonitors() {
+        ensureSpecialistWorkers6647()
         try {
             if (rapidStopLossMonitorJob?.isActive != true) {
-                rapidStopLossMonitorJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) { rapidStopLossMonitor() }
+                rapidStopLossMonitorJob = exitWorkerScope6647.launch(CoroutineName("rapid-stop-6647")) { rapidStopLossMonitor() }
             }
         } catch (_: Throwable) {}
         try {
             if (openPositionTickJob?.isActive != true) {
-                openPositionTickJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) { openPositionTickLoop() }
+                openPositionTickJob = exitWorkerScope6647.launch(CoroutineName("open-mark-6647")) { openPositionTickLoop() }
             }
         } catch (_: Throwable) {}
+    }
+
+    private fun ensureSpecialistWorkers6647() {
+        if (specialistWorkerSupervisor6647?.isActive == true) return
+        specialistWorkerSupervisor6647 = scope.launch(CoroutineName("specialist-supervisor-6647")) {
+            while (status.running) {
+                val now = System.currentTimeMillis()
+                ToolkitSignalSheet.configuredMemeDesks6647().forEach { lane ->
+                    val current = specialistWorkerJobs6647[lane]
+                    if (current?.isActive == true || now < (specialistRestartAfterMs6647[lane] ?: 0L)) return@forEach
+                    val worker = scope.launch(CoroutineName("specialist-${lane.lowercase()}-6647")) {
+                        val healthySince6647 = System.currentTimeMillis()
+                        val registeredJob6647 = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
+                            ?: error("SPECIALIST_JOB_CONTEXT_MISSING")
+                        com.lifecyclebot.engine.truth.SpecialistRuntimeRegistry6647.register(lane, "BotService:$lane", registeredJob6647)
+                        try {
+                            while (status.running) {
+                                com.lifecyclebot.engine.truth.SpecialistRuntimeRegistry6647.heartbeat(lane)
+                                com.lifecyclebot.engine.truth.SpecialistRuntimeRegistry6647.poll(lane)
+                                if (System.currentTimeMillis() - healthySince6647 >= 30_000L) {
+                                    specialistRestartFailures6647.remove(lane)
+                                }
+                                delay(250L)
+                            }
+                        } finally {
+                            com.lifecyclebot.engine.truth.SpecialistRuntimeRegistry6647.stopped(lane, registeredJob6647)
+                        }
+                    }
+                    worker.invokeOnCompletion { cause ->
+                        specialistWorkerJobs6647.remove(lane, worker)
+                        if (status.running) {
+                            val failures = specialistRestartFailures6647
+                                .computeIfAbsent(lane) { java.util.concurrent.atomic.AtomicInteger(0) }
+                                .incrementAndGet()
+                            val backoff = (1_000L shl (failures - 1).coerceIn(0, 5)).coerceAtMost(30_000L)
+                            specialistRestartAfterMs6647[lane] = System.currentTimeMillis() + backoff
+                            try { ForensicLogger.lifecycle("SPECIALIST_WORKER_RESTART_SCHEDULED_6647", "lane=$lane backoffMs=$backoff cause=${cause?.javaClass?.simpleName ?: "completed"}") } catch (_: Throwable) {}
+                        }
+                    }
+                    specialistWorkerJobs6647[lane] = worker
+                }
+                delay(1_000L)
+            }
+        }
     }
 
     // V5.9.1023 — DEDICATED BOT-LOOP DISPATCHER.
@@ -1710,7 +1785,7 @@ class BotService : Service() {
                     addLog("📋 COPY BUY triggered: ${mint.take(8)}… from ${wallet.take(8)}…", mint)
                     // V5.9: also fire copy-perps trade on SOL via MarketsLiveExecutor
                     if (!c.paperMode && c.heliusApiKey.isNotBlank()) {
-                        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                             try {
                                 val copySizeSol = (c.smallBuySol * 0.5).coerceIn(0.01, 0.5)
                                 val copyPositionId6486 = "COPY_PERPS:${mint}:${System.currentTimeMillis()}"
@@ -3518,7 +3593,16 @@ class BotService : Service() {
             ErrorLogger.debug("BotService", "V3 ShadowLearning shutdown error: ${e.message}")
         }
         
-        scope.cancel()
+        serviceJob6647.cancel()
+        try { exitDispatcher6647.close() } catch (_: Throwable) {}
+        try { exitWorkerDispatcher6647.close() } catch (_: Throwable) {}
+        try { supervisorDispatcher6647.close() } catch (_: Throwable) {}
+        try { serviceDispatcher6647.close() } catch (_: Throwable) {}
+        try { exitExecutor6647.shutdownNow() } catch (_: Throwable) {}
+        try { exitWorkerExecutor6647.shutdownNow() } catch (_: Throwable) {}
+        try { supervisorExecutor6647.shutdownNow() } catch (_: Throwable) {}
+        try { serviceExecutor6647.shutdownNow() } catch (_: Throwable) {}
+        try { botLoopExecutor.shutdownNow() } catch (_: Throwable) {}
     }
 
     /**
@@ -3758,7 +3842,7 @@ class BotService : Service() {
             //   coroutine. Offload both to AppDispatchers.sideEffect so the
             //   bot loop never blocks on XML flush or forensic file I/O.
             //   Reads (cashSol) stay in-line (cheap atomic).
-            kotlinx.coroutines.GlobalScope.launch(com.lifecyclebot.util.AppDispatchers.sideEffect) {
+            scope.launch(com.lifecyclebot.util.AppDispatchers.sideEffect) {
                 try { PaperWalletStore.persist(applicationContext, ledgerCash) } catch (_: Throwable) {}
                 try {
                     PipelineHealthCollector.labelInc("PAPER_CAPITAL_AUTHORITY_SYNCED_6448")
@@ -6780,7 +6864,7 @@ class BotService : Service() {
             
             // Wire Turso persistence + load saved memory
             com.lifecyclebot.v4.meta.TradeLessonRecorder.tursoClient = com.lifecyclebot.collective.CollectiveLearning.getClient()
-            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     com.lifecyclebot.v4.meta.TradeLessonRecorder.loadFromTurso()
                     addLog("🧠 V4 Memory loaded from Turso: ${com.lifecyclebot.v4.meta.TradeLessonRecorder.getTotalLessons()} lessons")
@@ -9786,11 +9870,10 @@ class BotService : Service() {
 
         while (status.running) {
             try {
-                val openMints = synchronized(status.tokens) {
-                    status.tokens.values
-                        .filter { it.position.isOpen && it.mint.isNotBlank() }
-                        .map { it.mint }
-                }
+                val openMints = canonicalExitTokenSnapshot6512()
+                    .map { it.mint }
+                    .filter { it.isNotBlank() }
+                    .distinct()
 
                 if (openMints.isEmpty()) {
                     kotlinx.coroutines.delay(IDLE_MS)
@@ -12867,7 +12950,7 @@ class BotService : Service() {
                 val uploadNow = System.currentTimeMillis()
                 val priorUpload = tokenMintUploadInFlight.put(mint, uploadNow) ?: 0L
                 val shouldUploadMintMeta = uploadNow - priorUpload >= 60_000L
-                if (shouldUploadMintMeta) kotlinx.coroutines.GlobalScope.launch(com.lifecyclebot.util.AppDispatchers.sideEffect) {
+                if (shouldUploadMintMeta) scope.launch(com.lifecyclebot.util.AppDispatchers.sideEffect) {
                     try {
                         val tsShared = synchronized(status.tokens) { status.tokens[mint] }
                         val creation = com.lifecyclebot.engine.BirdeyeCreationInfoProvider.peekCached(mint)
@@ -13003,7 +13086,7 @@ class BotService : Service() {
         // bucket — only rotates its entry tactic (MOMENTUM→PULLBACK→...).
         if (loopCount % 30 == 0) {
             try {
-                kotlinx.coroutines.GlobalScope.launch(com.lifecyclebot.util.AppDispatchers.sideEffect) {
+                scope.launch(com.lifecyclebot.util.AppDispatchers.sideEffect) {
                     try { com.lifecyclebot.engine.learning.TacticSwitcher.sweepAllBuckets() } catch (_: Throwable) {}
                 }
             } catch (_: Throwable) {}
@@ -13171,6 +13254,13 @@ class BotService : Service() {
     private val universalSlSweepPending = AtomicBoolean(false)
     private val exitCoordinatorLastFullMs = java.util.concurrent.atomic.AtomicLong(0L)
     private val exitCoordinatorLastUniversalMs = java.util.concurrent.atomic.AtomicLong(0L)
+    private val executionSpineCycle6647 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val exitCoordinatorRequestedAtMs6647 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val exitCoordinatorRequestedCycle6647 = java.util.concurrent.atomic.AtomicLong(-1L)
+    private val exitCoordinatorStartedAtMs6647 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val exitCoordinatorStartHeartbeatMs6647 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val exitCoordinatorCompletedAtMs6647 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val exitCoordinatorErrorAtMs6647 = java.util.concurrent.atomic.AtomicLong(0L)
     private val EXIT_COORDINATOR_FULL_MIN_MS: Long = 30_000L
     private val EXIT_COORDINATOR_UNIVERSAL_MIN_MS: Long = 30_000L
 
@@ -13961,7 +14051,6 @@ class BotService : Service() {
             liveCap = effectiveSupervisorCap,
             currentLoad = currentSupervisorLoad,
             timeoutCount10m = supervisorTimeoutsForPlanning,
-            forcedOpenCount = forcedOpenMints.size,
         )
         val PER_CYCLE_CAP = admissionPlan.perCycleCap
         if (PER_CYCLE_CAP != basePerCycleCap || admissionPlan.pressureBand != "healthy") {
@@ -14019,44 +14108,13 @@ class BotService : Service() {
             return processCount == 0 && (liq >= 10_000.0 || score >= 70.0 || multiAffinity)
         }
 
-        // V5.9.1572 — SOURCE FIX: forced-open rows are mandatory EXIT surface,
-        // but they must not be an unbounded SUPERVISOR prefix. Snapshot 5.0.3627
-        // froze with forcedOpen=28, active=24/24, spawned=0 skipped=28; every loop
-        // reselected the same open mints first, so fresh candidates never reached
-        // workers. ExitCoordinator/open-position tick already protect hard floor and
-        // sells; supervisor is only expensive re-evaluation. Under timeout pressure,
-        // round-robin a bounded subset of forcedOpen through supervisor and leave the
-        // rest to exit-specific loops this cycle. Healthy runtime still includes all.
-        val forcedOpenForSupervisor: List<String> = try {
-            val pressure = admissionPlan.pressureBand
-            val forced = forcedOpenMints.distinct()
-            val forcedBudget = when {
-                // V5.0.3819 — forced-open paper rows are mandatory EXIT surface, not
-                // mandatory supervisor prefix. When selector capacity is degraded/cooling
-                // (report: cap=24 forcedOpen=21 picked=3), bound forced rows to half the
-                // work slice and let ExitCoordinator/open-position tick own exits. This
-                // preserves fresh discovery without dropping exit safety.
-                pressure == "healthy" && !selectorHealthy -> maxOf(6, PER_CYCLE_CAP / 2)
-                pressure == "healthy" -> forced.size
-                pressure == "live_cap_near_full" -> maxOf(6, effectiveSupervisorCap / 2)
-                pressure == "live_cap_saturated" -> maxOf(4, effectiveSupervisorCap / 3)
-                pressure == "moderate_timeout_pressure" -> maxOf(6, effectiveSupervisorCap / 2)
-                pressure == "heavy_timeout_pressure" -> maxOf(5, effectiveSupervisorCap / 3)
-                else -> maxOf(4, effectiveSupervisorCap / 4) // severe timeout pressure
-            }.coerceAtMost(forced.size)
-            if (forcedBudget >= forced.size) forced else {
-                val start = ((nowMs / 5_000L) % forced.size).toInt()
-                (0 until forcedBudget).map { forced[(start + it) % forced.size] }
-            }
-        } catch (_: Throwable) { forcedOpenMints.distinct() }
-
-        val mustInclude = forcedOpenForSupervisor.toMutableList()
+        // V5.0.6647 — forced/canonical opens are exit work, never discovery
+        // workers.  All 104+ opens remain owned by the dedicated exit paths.
+        val forcedOpenForSupervisor: List<String> = emptyList()
+        val mustInclude = mutableListOf<String>()
         val budget = (PER_CYCLE_CAP - mustInclude.size).coerceAtLeast(0)
         if (budget == 0 || otherMints.isEmpty()) {
             try { emitWatchlistCapTrace(PER_CYCLE_CAP, orderedMintsRaw.size, forcedOpenMints.size) } catch (_: Throwable) {}
-            if (forcedOpenForSupervisor.size < forcedOpenMints.size) {
-                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("FORCED_OPEN_SUPERVISOR_ROUND_ROBIN", "pressure=${admissionPlan.pressureBand} picked=${forcedOpenForSupervisor.size}/${forcedOpenMints.size} cap=$PER_CYCLE_CAP effectiveCap=$effectiveSupervisorCap budget=$budget") } catch (_: Throwable) {}
-            }
             return mustInclude.distinct()
         }
 
@@ -15296,7 +15354,7 @@ class BotService : Service() {
             // V5.9.362 — Regime pulse (every 60s, side-effect-only, never blocks)
             if (System.currentTimeMillis() - lastRegimePulseAt > regimePulseIntervalMs) {
                 lastRegimePulseAt = System.currentTimeMillis()
-                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     try { runRegimePulse() } catch (_: Throwable) {}
                 }
             }
@@ -16469,7 +16527,18 @@ class BotService : Service() {
                     // V5.5 FIX: Paper mode now also triggers milestones so scaling tiers work in testing
                     run {
                         val solPx = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
-                        val balanceSol = if (cfg.paperMode) status.paperWalletSol else freshSol
+                        val paperAccount6647 = if (cfg.paperMode) try {
+                            com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.read("GROWTH_RING", "paper")
+                        } catch (_: Throwable) { null } else null
+                        if (cfg.paperMode && (paperAccount6647?.status != com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED ||
+                                paperAccount6647.authoritativePrices.not())) {
+                            try {
+                                PipelineHealthCollector.labelInc("GROWTH_MILESTONE_BLOCKED_UNRECONCILED_OR_UNPRICED_6647")
+                                ForensicLogger.lifecycle("GROWTH_MILESTONE_BLOCKED_UNRECONCILED_OR_UNPRICED_6647", "status=${paperAccount6647?.status ?: "UNAVAILABLE"} authoritativePrices=${paperAccount6647?.authoritativePrices ?: false}")
+                            } catch (_: Throwable) {}
+                            return@run
+                        }
+                        val balanceSol = if (cfg.paperMode) paperAccount6647!!.equitySol else freshSol
                         TreasuryManager.onWalletUpdate(
                             walletSol    = balanceSol,
                             solPrice     = solPx,
@@ -16839,7 +16908,7 @@ val otherMints = prioritizedWatchlist.filterNot { mint ->
 // V5.9.1319 (Item 7) — collapse same-symbol families on the per-cycle slice BEFORE the
 // expensive supervisor/V3/lane work. Protected 500-token intake pool is untouched.
 val otherMintsDeduped = dedupeWatchlistByFamily(otherMints)
-val orderedMintsRaw = (forcedOpenMints + otherMintsDeduped).distinct()
+val orderedMintsRaw = otherMintsDeduped
 
 // V5.9.960 — SMART WATCHLIST ROUND-ROBIN.
 //
@@ -16851,22 +16920,21 @@ val orderedMintsRaw = (forcedOpenMints + otherMintsDeduped).distinct()
 // tokens, so those must be evaluated every tick. The cold tail
 // rotates so it gets covered every 2-3 cycles instead of every cycle.
 //
-// Selection priority (in order, capped at 100 = one supervisor range = ~2.4s):
-//   1. forcedOpenMints — ALL open positions always evaluated (was
-//      already true). These are the mints with skin in the game.
-//   2. Fresh mints (addedAt < 60s ago) — pump.fun graduations and
+// Discovery selection priority (canonical opens are owned by the exit
+// dispatcher and are deliberately absent from this list):
+//   1. Fresh mints (addedAt < 60s ago) — pump.fun graduations and
 //      newly-trending tokens. This is where the entry alpha lives.
-//   3. Never-processed mints (processCount == 0) — first-evaluation
+//   2. Never-processed mints (processCount == 0) — first-evaluation
 //      priority so we don't sit on stale candidates.
-//   4. Stale mints (oldest lastProcessedAt) — round-robin coverage of
+//   3. Stale mints (oldest lastProcessedAt) — round-robin coverage of
 //      the cold tail. ~1/3 of the tail per cycle.
 //
 // Result: ~5-8s round-trip cycle, fresh mints every tick, full
 // watchlist covered every 2-3 ticks.
 val orderedMints: List<String> = selectOrderedMintsForCycle(forcedOpenMints, otherMintsDeduped, orderedMintsRaw)
 
-// V5.0.6615 — strict control-work admission deadline. Supervisor workers
-// remain detached/non-blocking; lower-priority candidates are deferred and
+// V5.0.6615 — strict control-work admission deadline. Structured supervisor
+// workers remain non-blocking; lower-priority candidates are deferred and
 // rotated, never discarded. Background/network completion cannot extend the
 // control-cycle scheduling window beyond 7.5 seconds.
 val maxBatchMillis = 7_500L
@@ -16974,7 +17042,7 @@ try {
 //      OkHttp blocks in JNI socket-read — withTimeoutOrNull cannot
 //      interrupt native blocking calls), the forEach never advances to
 //      the second iteration, so the abort check NEVER runs again.
-//   3. V5.9.1012's detached GlobalScope.async workers don't help here:
+//   3. V5.9.1012's former detached workers did not help here:
 //      jobs.awaitAll() inside withTimeoutOrNull DOES wake up on chunk
 //      timeout BUT the cleanup path returns and the outer forEach
 //      iterates to the next chunk only after the chunk's own try/finally
@@ -17008,10 +17076,10 @@ val supervisorOuterBudget = maxBatchMillis + 5_000L
 // per-chunk withTimeoutOrNull which was burning ~14s per cycle on
 // SUPERVISOR_CHUNK_TIMEOUT (operator V5.9.1036 snapshot: 23 chunk timeouts
 // in 150s, processed=0 deferred=100 every cycle). Workers ALREADY run on
-// detached GlobalScope.async(Dispatchers.IO) — the bot loop's await was
+// detached shared-IO workers — the bot loop's await was
 // pure dead waiting, since `processed/deferred` only feed log strings and
 // no downstream control flow depends on them. fireSupervisorWorkers spawns
-// workers via GlobalScope.launch (no await), bounds in-flight concurrency
+// workers via service-owned launch (no await), bounds in-flight concurrency
 // via supervisorActive counter, and returns immediately. Workers complete
 // in their own time silently. The bot loop now sees ~0ms supervisor cost.
 val supRes = fireSupervisorWorkers(
@@ -17052,9 +17120,14 @@ try {
 // paperSell() heavy learning fanout, parking the cycle in POST_SUPERVISOR.
 // openPositionTickLoop owns exit management; botLoop only requests a
 // single-flight async sweep and immediately continues toward CYCLE_EXIT.
+executionSpineCycle6647.incrementAndGet()
+enforceExitStartDeadline6647()
 val postSupervisorOpenCount = try {
-    synchronized(status.tokens) { status.tokens.values.count { isCapCountableLiveToken(it.mint, it) } }
+    com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().size
 } catch (_: Throwable) { 0 }
+try {
+    ForensicLogger.lifecycle("POST_SUPERVISOR_CANONICAL_OPEN_PARITY_6647", "postSupervisorOpen=$postSupervisorOpenCount canonicalOpen=$postSupervisorOpenCount equal=true")
+} catch (_: Throwable) {}
 val postSupervisorNowMs = System.currentTimeMillis()
 val postSupervisorBackupDue = (postSupervisorNowMs - lastPostSupervisorExitBackupMs) >= POST_SUPERVISOR_EXIT_BACKUP_MS
 val tickExitSweepFresh = postSupervisorOpenCount > 0
@@ -17176,7 +17249,7 @@ if (hotExitHandledSweep) {
         // SAFETY: all five callees handle null ctx (return early), throttle
         // by SAVE_THROTTLE_MS, and catch their own exceptions. Dispatching
         // to IO is safe — saveAll() in LearningPersistence uses the same
-        // pattern (line 94: GlobalScope.launch(Dispatchers.IO)).
+        // pattern (line 94: detached shared-IO launch).
         try { markProgress("POST_SUPERVISOR/PERSIST_QUEUE") } catch (_: Throwable) {}
         // Periodically persist session state - use synchronized copy
             val tradeCount = synchronized(status.tokens) {
@@ -17192,7 +17265,7 @@ if (hotExitHandledSweep) {
                 } else emptyMap()
                 val ctxSnap = applicationContext
                 val paperSnap = cfg.paperMode
-                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     if (shouldSaveSession) {
                         try { SessionStore.save(ctxSnap, paperSnap) } catch (_: Exception) {}
                     }
@@ -17492,6 +17565,18 @@ if (hotExitHandledSweep) {
     }
 
     private fun requestExitSweepCoordinator(reason: String, full: Boolean, universal: Boolean) {
+        val requestNow6647 = System.currentTimeMillis()
+        val requestCycle6647 = executionSpineCycle6647.get()
+        // Preserve the first unacknowledged request. Repeated/coalesced
+        // requests must not keep moving the two-cycle deadline forward.
+        val priorRequest6647 = exitCoordinatorRequestedAtMs6647.get()
+        val priorUnacknowledged6647 = priorRequest6647 > 0L &&
+            exitCoordinatorStartHeartbeatMs6647.get() < priorRequest6647
+        if (!priorUnacknowledged6647) {
+            exitCoordinatorRequestedAtMs6647.set(requestNow6647)
+            exitCoordinatorRequestedCycle6647.set(requestCycle6647)
+            com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onExitRequested(requestCycle6647)
+        }
         try {
             // V5.9.1361 P0.6 — count requests that collapse into an already-pending
             // bit (no new work admitted) so the operator can see how much of the old
@@ -17542,16 +17627,43 @@ if (hotExitHandledSweep) {
         ensureExitSweepCoordinator()
     }
 
+    /** A Job may be active while still queued.  A request with no actual
+     * coroutine start heartbeat after two completed bot cycles is cancelled
+     * and relaunched on the isolated exit executor. */
+    private fun enforceExitStartDeadline6647() {
+        if (!fullExitSweepPending.get() && !universalSlSweepPending.get()) return
+        val requestedCycle = exitCoordinatorRequestedCycle6647.get()
+        if (requestedCycle < 0L || executionSpineCycle6647.get() - requestedCycle < 2L) return
+        val requestedAt = exitCoordinatorRequestedAtMs6647.get()
+        if (exitCoordinatorStartHeartbeatMs6647.get() >= requestedAt) return
+        synchronized(exitSweepCoordinatorLock) {
+            if (exitCoordinatorStartHeartbeatMs6647.get() >= requestedAt) return
+            exitSweepCoordinatorJob?.cancel()
+            exitSweepCoordinatorJob = null
+            try {
+                PipelineHealthCollector.labelInc("EXIT_COORDINATOR_NO_START_RELAUNCHED_6647")
+                ForensicLogger.lifecycle("EXIT_COORDINATOR_NO_START_RELAUNCHED_6647", "requestedAt=$requestedAt requestedCycle=$requestedCycle currentCycle=${executionSpineCycle6647.get()} dispatcher=dedicated_exit")
+            } catch (_: Throwable) {}
+        }
+        ensureExitSweepCoordinator()
+    }
+
     private fun ensureExitSweepCoordinator() {
         val existing = exitSweepCoordinatorJob
         if (existing?.isActive == true) return
         synchronized(exitSweepCoordinatorLock) {
             val again = exitSweepCoordinatorJob
             if (again?.isActive == true) return
-            exitSweepCoordinatorJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                try { ForensicLogger.lifecycle("EXIT_COORDINATOR_STARTED", "thread=io") } catch (_: Throwable) {}
+            exitSweepCoordinatorJob = exitScope6647.launch {
+                val start6647 = System.currentTimeMillis()
+                exitCoordinatorStartedAtMs6647.set(start6647)
+                exitCoordinatorStartHeartbeatMs6647.set(start6647)
+                com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onCoordinatorStarted(executionSpineCycle6647.get())
+                try { ForensicLogger.lifecycle("EXIT_COORDINATOR_STARTED", "thread=dedicated_exit requestedAt=${exitCoordinatorRequestedAtMs6647.get()} startDelayMs=${start6647 - exitCoordinatorRequestedAtMs6647.get()}") } catch (_: Throwable) {}
                 while (status.running) {
                     try {
+                        exitCoordinatorStartHeartbeatMs6647.set(System.currentTimeMillis())
+                        com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onCoordinatorStarted(executionSpineCycle6647.get())
                         val now = System.currentTimeMillis()
                         // V5.9.1361 P0.6 — DEDUPE-PRESERVING DRAIN. The old code did
                         // getAndSet(false) on the pending flag BEFORE the rate-limit
@@ -17586,10 +17698,14 @@ if (hotExitHandledSweep) {
                                     // structurally impossible.
                                     val fullSweepId = com.lifecyclebot.engine.truth.UniversalSlLeaseRegistry6402.acquire()
                                     try {
+                                        com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onExitSweepStarted()
                                         try { ForensicLogger.lifecycle("EXIT_COORDINATOR_FULL_START", "ageMs=$age sweepId=$fullSweepId") } catch (_: Throwable) {}
                                         try { sweepUniversalExits(snap.cfg, snap.wallet, snap.balance) }
                                         catch (t: Throwable) { ErrorLogger.warn("BotService", "exit coordinator full sweep error: ${t.message}") }
                                     } finally {
+                                        com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onExitSweepDone()
+                                        exitCoordinatorCompletedAtMs6647.set(System.currentTimeMillis())
+                                        if (!fullExitSweepPending.get() && !universalSlSweepPending.get()) exitCoordinatorRequestedCycle6647.set(-1L)
                                         try { ForensicLogger.lifecycle("EXIT_COORDINATOR_FULL_DONE", "ageMs=$age sweepId=$fullSweepId") } catch (_: Throwable) {}
                                         try { com.lifecyclebot.engine.truth.UniversalSlLeaseRegistry6402.release(fullSweepId) } catch (_: Throwable) {}
                                     }
@@ -17629,10 +17745,14 @@ if (hotExitHandledSweep) {
                                     // guarantees start==done from here on.
                                     val sweepId = com.lifecyclebot.engine.truth.UniversalSlLeaseRegistry6402.acquire()
                                     try {
+                                        com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onExitSweepStarted()
                                         try { ForensicLogger.lifecycle("EXIT_COORDINATOR_UNIVERSAL_START", "ageMs=$age sweepId=$sweepId") } catch (_: Throwable) {}
                                         try { runUniversalSlSafetyNetSweep(snap.cfg, snap.wallet) }
                                         catch (t: Throwable) { ErrorLogger.warn("BotService", "exit coordinator universal sweep error: ${t.message}") }
                                     } finally {
+                                        com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onExitSweepDone()
+                                        exitCoordinatorCompletedAtMs6647.set(System.currentTimeMillis())
+                                        if (!fullExitSweepPending.get() && !universalSlSweepPending.get()) exitCoordinatorRequestedCycle6647.set(-1L)
                                         try { ForensicLogger.lifecycle("EXIT_COORDINATOR_UNIVERSAL_DONE", "ageMs=$age sweepId=$sweepId") } catch (_: Throwable) {}
                                         try { com.lifecyclebot.engine.truth.UniversalSlLeaseRegistry6402.release(sweepId) } catch (_: Throwable) {}
                                     }
@@ -17655,6 +17775,7 @@ if (hotExitHandledSweep) {
                     } catch (ce: kotlinx.coroutines.CancellationException) {
                         throw ce
                     } catch (t: Throwable) {
+                        exitCoordinatorErrorAtMs6647.set(System.currentTimeMillis())
                         ErrorLogger.debug("BotService", "exit coordinator loop error: ${t.message}")
                         try { kotlinx.coroutines.delay(1_000L) } catch (_: Throwable) { break }
                     }
@@ -17681,7 +17802,7 @@ if (hotExitHandledSweep) {
      * Behaviour-equivalent to the V5.9.1020 inline block:
      *   • Hard outer time fence via withTimeoutOrNull(supervisorOuterBudget)
      *     guarantees botLoop advances within ~maxBatchMillis+5s.
-     *   • Chunked iteration with detached GlobalScope.async per-token
+     *   • Chunked iteration with service-owned bounded per-token workers
      *     workers (V5.9.1012) and per-chunk withTimeoutOrNull (V5.9.914).
      *   • Per-iteration supervisorAbort elapsed check (V5.9.1020 fix).
      *   • markProgress("SUPERVISOR") between chunks (no lying progress
@@ -17890,7 +18011,7 @@ if (hotExitHandledSweep) {
         val task: String = "processTokenCycle",
         val phase: String = "SUPERVISOR",
         val acquisitionCallsite: String = "fireSupervisorWorkers",
-        val dispatcher: String = "Dispatchers.IO",
+        val dispatcher: String = "AATE-Entry-6647",
         val threadName: java.util.concurrent.atomic.AtomicReference<String> = java.util.concurrent.atomic.AtomicReference(""),
         val lastProgressMs: java.util.concurrent.atomic.AtomicLong = java.util.concurrent.atomic.AtomicLong(startedMonotonicMs),
         val completionState: java.util.concurrent.atomic.AtomicReference<String> = java.util.concurrent.atomic.AtomicReference("ACQUIRED"),
@@ -17979,7 +18100,7 @@ if (hotExitHandledSweep) {
     // balances/positions here beyond what StartupReconciler/phantom-sweep already did.
     private fun launchPeriodicReconcile(rescueOnly: Boolean, wallet: SolanaWallet?) {
         val singletonWallet = try { WalletManager.getWallet() } catch (_: Throwable) { null }
-        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val w = if (rescueOnly) singletonWallet else wallet
                 if (w != null && w.publicKeyB58.isNotEmpty()) {
@@ -18621,8 +18742,8 @@ if (hotExitHandledSweep) {
     /**
      * V5.9.1037 — fire-and-forget supervisor. Replaces the chunk-await
      * loop in runSupervisorPhase. Each mint that fits within the
-     * SUPERVISOR_MAX_INFLIGHT budget gets a detached GlobalScope.launch
-     * worker on Dispatchers.IO; the rest are dropped (re-attempted next
+     * SUPERVISOR_MAX_INFLIGHT budget gets a service-owned worker on the
+     * bounded entry dispatcher; the rest are deferred to the next
      * cycle's fresh ordering). The bot loop returns immediately — no
      * chunked await, no per-chunk timeout, no SUPERVISOR_CHUNK_TIMEOUT
      * forensic noise. Worker admission is bounded by expiring lease slots
@@ -18728,7 +18849,7 @@ if (hotExitHandledSweep) {
                 if (released.compareAndSet(false, true)) supervisorReleaseSlot(leaseId)
                 Unit
             }
-            val workerJob = kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val workerJob = scope.launch(supervisorDispatcher6647 + CoroutineName("entry-$leaseId")) {
                 try {
                     if (!status.running) return@launch
                     supervisorLeaseProgress6448(leaseId, "WORKER_STARTED")
@@ -18764,7 +18885,7 @@ if (hotExitHandledSweep) {
                     // worker actually dies and the finally block fires.
                     val workerStartedAtMs = android.os.SystemClock.elapsedRealtime()
                     val ok = kotlinx.coroutines.withTimeoutOrNull(SUPERVISOR_WORKER_TIMEOUT_MS) {
-                        kotlinx.coroutines.runInterruptible(kotlinx.coroutines.Dispatchers.IO) {
+                        kotlinx.coroutines.runInterruptible(supervisorDispatcher6647) {
                             supervisorLeaseProgress6448(leaseId, "PROCESS_TOKEN_START")
                             val cycleCfg = cfg.copy(paperMode = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { cfg.paperMode })
                             processTokenCycle(mint, cycleCfg, wallet, lastSuccessfulPollMs)
@@ -18850,7 +18971,7 @@ if (hotExitHandledSweep) {
             // If the worker is still alive (non-cooperative blocking IO that
             // ignored the withTimeoutOrNull interrupt), cancel it and free the
             // slot. Never races ahead of the worker's own timeout/finally.
-            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            scope.launch(serviceDispatcher6647 + CoroutineName("entry-watchdog-$leaseId")) {
                 try {
                     kotlinx.coroutines.delay(SUPERVISOR_WORKER_TIMEOUT_MS + 750L)
                     if (!released.get()) {
@@ -19048,7 +19169,7 @@ if (hotExitHandledSweep) {
                         PipelineHealthCollector.labelInc("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513")
                         ForensicLogger.lifecycle("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513", "positionId=${cp.positionId} mint=${cp.mint.take(10)} assetClass=${effectiveMarkClass6592.tag} entryPrice=${ts.position.entryPrice} mark=${ts.lastPrice} action=async_refresh_no_silent_eval")
                     } catch (_: Throwable) {}
-                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    exitWorkerScope6647.launch {
                         // V5.0.6530 §CROSS_ASSET_MARK_ROUTING — route non-Solana
                         // canonical marks through PerpsMarketDataFetcher (Pyth →
                         // PriceAggregator → Yahoo fallback). SOLANA_TOKEN stays
@@ -19249,6 +19370,7 @@ if (hotExitHandledSweep) {
         try {
             val openTokens = canonicalExitTokenSnapshot6512()
             openTokens.forEach { ts ->
+                com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onExitEvaluation()
                 try { executor.runManageOnly(ts, wallet, effectiveBalance) }
                 catch (e: Exception) {
                     ErrorLogger.debug("BotService", "Sweep manage(${ts.symbol}): ${e.message}")
@@ -19456,6 +19578,23 @@ if (hotExitHandledSweep) {
      * V4.1: Extracted from botLoop to reduce compiler complexity (was causing StackOverflow).
      */
     private fun processTokenCycle(mint: String, cfg: BotConfig, wallet: SolanaWallet?, lastSuccessfulPollMs: Long) {
+        // V5.0.6647 — canonical position authority is resolved before any
+        // entry hydration, safety, V3, or provider work.  OPEN and
+        // PARTIALLY_CLOSED positions are exit-only and leave this discovery
+        // worker immediately; their mark/evaluation runs on the isolated exit
+        // dispatcher through the canonical sweep.
+        val canonicalOpen6647 = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                .firstOrNull { it.mint == mint }
+        } catch (_: Throwable) { null }
+        if (canonicalOpen6647 != null) {
+            try {
+                PipelineHealthCollector.labelInc("CANONICAL_OPEN_ROUTED_DIRECT_TO_EXIT_6647")
+                ForensicLogger.lifecycle("CANONICAL_OPEN_ROUTED_DIRECT_TO_EXIT_6647", "positionId=${canonicalOpen6647.positionId} mint=${mint.take(10)} state=OPEN_OR_PARTIALLY_CLOSED dispatcher=dedicated_exit")
+            } catch (_: Throwable) {}
+            requestExitSweepCoordinator(reason = "PROCESS_TOKEN_CANONICAL_OPEN", full = true, universal = true)
+            return
+        }
         // V5.0.6399 — SCANNER HEAT WIRE-UP. Every hydrated token that
         // enters the process cycle counts as one live scanner-heat
         // sample. The publisher normalises hydrated-per-second against
@@ -19605,7 +19744,12 @@ if (hotExitHandledSweep) {
                         return@run fastSynth6401
                     }
                 }
-                val refreshed = tryFallbackPriceData(mint, ts)
+                // V5.0.6647 — the legacy Birdeye → DS oracle → Birdeye
+                // oracle → pump.fun serial chain may take 15–20 seconds.  It
+                // is now requested out-of-lease; this entry worker returns and
+                // a later cycle consumes the hydrated mark.
+                requestEntryHydration6647(mint, ts)
+                val refreshed = false
                 val synth = if (ts.lastPrice > 0.0) synthesizeFallbackPair(ts) else null
                 if (synth == null) {
                     // V5.0.6401 §9 — record hydration state so
@@ -25443,7 +25587,7 @@ if (hotExitHandledSweep) {
             )
         } catch (_: Throwable) { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.PromotionResult6613(null, "TOKEN_MAP_MARK_REFRESH_EXCEPTION", identity = identity.mint) }
         if (markRefresh6614.promoted) {
-            try { ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "MARK_READY", "${identity.mint}:${markRefresh6614.mark?.timestampMs ?: 0L}") } catch (_: Throwable) {}
+            try { ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "MARK_READY", "${identity.mint}:${LaneExecutionCoordinator.candidateVersionFor(identity.mint)}") } catch (_: Throwable) {}
         } else try {
             PipelineHealthCollector.labelInc("MEME_EXECUTABLE_MARK_REFRESH_REJECTED_6614|${markRefresh6614.reason}")
         } catch (_: Throwable) {}
@@ -28070,6 +28214,22 @@ if (hotExitHandledSweep) {
             } catch (_: Exception) {}
         }
         return false
+    }
+
+    private val entryHydrationPending6647 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private fun requestEntryHydration6647(mint: String, ts: TokenState) {
+        if (!entryHydrationPending6647.add(mint)) return
+        scope.launch(supervisorDispatcher6647 + CoroutineName("entry-hydration-${mint.take(8)}")) {
+            try {
+                tryFallbackPriceData(mint, ts)
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                try { ForensicLogger.lifecycle("ENTRY_HYDRATION_ERROR_6647", "mint=${mint.take(10)} error=${t.javaClass.simpleName}:${t.message?.take(80)}") } catch (_: Throwable) {}
+            } finally {
+                entryHydrationPending6647.remove(mint)
+            }
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

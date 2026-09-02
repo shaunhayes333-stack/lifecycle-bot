@@ -60,6 +60,10 @@ object CanonicalEntryAuthority6551 {
     private const val PENDING_TTL_MS_6554 = 2 * 60 * 1000L
     private val pending = ConcurrentHashMap<String, ExecutableOpenGate.ExecutionIntent>()
     private val dispatchedAttempts6569 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val immutableIntentAttempts6647 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val dispatchHistory6647 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val dispatchedAtMs6647 = ConcurrentHashMap<String, Long>()
+    private val terminalByAttempt6647 = ConcurrentHashMap<String, String>()
     private fun intentAssetClass6569(intent: ExecutableOpenGate.ExecutionIntent): AssetClass =
         AssetClass.values().firstOrNull { it.tag == intent.assetClassTag } ?: AssetClass.UNKNOWN
 
@@ -68,7 +72,9 @@ object CanonicalEntryAuthority6551 {
         pending.entries.removeIf { (_, intent) ->
             val expired = now - intent.createdAt > PENDING_TTL_MS_6554
             if (expired) try {
-                if (!dispatchedAttempts6569.remove(intent.attemptId))
+                val firstTerminal6647 = terminalByAttempt6647.putIfAbsent(intent.attemptId, "EXPIRED") == null
+                dispatchedAttempts6569.remove(intent.attemptId)
+                if (firstTerminal6647 && intent.attemptId !in dispatchHistory6647)
                     CanonicalEntryAuthority6540.markDispatchRejectFor6569(intentAssetClass6569(intent), intent.symbol, "PENDING_EXPIRED")
                 ForensicLogger.lifecycle("CANONICAL_PENDING_EXPIRED", "attemptId=${intent.attemptId} asset=${intent.mint.take(16)} mode=${intent.mode}")
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_PENDING_EXPIRED")
@@ -105,6 +111,10 @@ object CanonicalEntryAuthority6551 {
             reasons = candidate.evidence.entries.take(4).map { "${it.key}=${it.value}" },
         )
         val shapedSize = candidate.requestedSizeSol * shaping.sizeMultiplier
+        val attemptId = ExecutableOpenGate.canonicalExecutionKey(
+            mint = candidate.assetId, mode = candidate.mode, side = "BUY",
+            lane = candidate.specialist.ifBlank { candidate.assetClass.tag }, candidateVersion = candidate.candidateVersion,
+        )
         val sizing = OrderSizeResolver6441.resolve(
             requestedSol = shapedSize,
             laneName = candidate.specialist.ifBlank { candidate.assetClass.tag },
@@ -113,6 +123,8 @@ object CanonicalEntryAuthority6551 {
             laneRiskCapSol = candidate.evidence["laneRiskCapSol"]?.toDoubleOrNull() ?: OrderSizeResolver6441.DEFAULT_LANE_RISK_CAP_SOL,
             laneMinExecutableSol = candidate.evidence["laneMinExecutableSol"]?.toDoubleOrNull() ?: 0.001,
             applyPaperMemeMinimum = candidate.assetClass == AssetClass.SOLANA_TOKEN,
+            mint = candidate.assetId,
+            causalEventId = attemptId,
         )
         if (!sizing.executable) return blocked(candidate, venue, "SIZE_NOT_EXECUTABLE:${sizing.reason}")
         CanonicalEntryAuthority6540.markSizedFor6551(candidate.assetClass, candidate.symbol)
@@ -126,10 +138,6 @@ object CanonicalEntryAuthority6551 {
                 authorityVersion = 6551L, authoritativeSignal = "BUY", safetyVerdict = "CLEAR",
                 resolvedSizeSol = sizing.finalSizeSol,
             )
-        )
-        val attemptId = ExecutableOpenGate.canonicalExecutionKey(
-            mint = candidate.assetId, mode = candidate.mode, side = "BUY",
-            lane = candidate.specialist.ifBlank { candidate.assetClass.tag }, candidateVersion = candidate.candidateVersion,
         )
         val intent = ExecutableOpenGate.ExecutionIntent(
             attemptId = attemptId, candidateId = candidate.assetId, candidateVersion = candidate.candidateVersion,
@@ -158,6 +166,7 @@ object CanonicalEntryAuthority6551 {
             return blocked(candidate, venue, "UPSTREAM_INTENT_CONFLICT")
         }
         pending["${registered.mode}:${candidate.assetId}:${candidate.candidateVersion}"] = registered
+        immutableIntentAttempts6647.add(registered.attemptId)
         CanonicalEntryAuthority6540.markAuthAllowFor6551(candidate.assetClass, candidate.symbol)
         CanonicalEntryAuthority6540.markIntentCreatedFor6551(candidate.assetClass, candidate.symbol, registered.attemptId)
         try {
@@ -181,11 +190,19 @@ object CanonicalEntryAuthority6551 {
     }
 
     fun markDispatch(intent: ExecutableOpenGate.ExecutionIntent) {
-        if (dispatchedAttempts6569.add(intent.attemptId))
+        if (intent.attemptId in terminalByAttempt6647) return
+        if (dispatchedAttempts6569.add(intent.attemptId)) {
+            dispatchHistory6647.add(intent.attemptId)
+            dispatchedAtMs6647.putIfAbsent(intent.attemptId, System.currentTimeMillis())
             CanonicalEntryAuthority6540.markAdapterDispatchFor6551(intentAssetClass6569(intent), intent.symbol)
+        }
     }
 
     fun markConfirmed(intent: ExecutableOpenGate.ExecutionIntent, positionId: String) {
+        if (terminalByAttempt6647.putIfAbsent(intent.attemptId, "CONFIRMED:$positionId") != null) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_DUPLICATE_TERMINAL_SUPPRESSED_6647") } catch (_: Throwable) {}
+            return
+        }
         pending.remove("${intent.mode}:${intent.mint}:${intent.candidateVersion}")
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_PENDING_CONFIRMED_RELEASE") } catch (_: Throwable) {}
         dispatchedAttempts6569.remove(intent.attemptId)
@@ -197,7 +214,12 @@ object CanonicalEntryAuthority6551 {
     fun markCancelled(intent: ExecutableOpenGate.ExecutionIntent, reason: String) = releasePending6554(intent, "CANCELLED", reason)
 
     private fun releasePending6554(intent: ExecutableOpenGate.ExecutionIntent, state: String, reason: String) {
-        if (!dispatchedAttempts6569.remove(intent.attemptId))
+        if (terminalByAttempt6647.putIfAbsent(intent.attemptId, "$state:$reason") != null) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_DUPLICATE_TERMINAL_SUPPRESSED_6647") } catch (_: Throwable) {}
+            return
+        }
+        val wasDispatched6647 = dispatchedAttempts6569.remove(intent.attemptId)
+        if (!wasDispatched6647)
             CanonicalEntryAuthority6540.markDispatchRejectFor6569(intentAssetClass6569(intent), intent.symbol, "$state:$reason")
         if (pending.remove("${intent.mode}:${intent.mint}:${intent.candidateVersion}") != null) {
             try {
@@ -205,6 +227,34 @@ object CanonicalEntryAuthority6551 {
                 ForensicLogger.lifecycle("CANONICAL_PENDING_${state}_RELEASE", "attemptId=${intent.attemptId} asset=${intent.mint.take(16)} reason=${reason.take(120)}")
             } catch (_: Throwable) {}
         }
+    }
+
+    data class CardinalitySnapshot6647(
+        val immutableIntentsForDispatches: Long,
+        val dispatches: Long,
+        val terminalResultsForDispatches: Long,
+    )
+
+    fun cardinalitySnapshot6647(): CardinalitySnapshot6647 = CardinalitySnapshot6647(
+        immutableIntentsForDispatches = dispatchHistory6647.count { it in immutableIntentAttempts6647 }.toLong(),
+        dispatches = dispatchHistory6647.size.toLong(),
+        terminalResultsForDispatches = dispatchHistory6647.count { it in terminalByAttempt6647 }.toLong(),
+    )
+
+    /** Cardinality for attempts whose one dispatch began inside the acceptance
+     * window. Terminal state is read at window close, so an attempt dispatched
+     * just before the boundary cannot be miscounted as a terminal-only event in
+     * the following window. */
+    fun cardinalityForWindow6647(fromInclusiveMs: Long, toInclusiveMs: Long): CardinalitySnapshot6647 {
+        val attempts = dispatchedAtMs6647.entries.asSequence()
+            .filter { (_, atMs) -> atMs in fromInclusiveMs..toInclusiveMs }
+            .map { it.key }
+            .toList()
+        return CardinalitySnapshot6647(
+            immutableIntentsForDispatches = attempts.count { it in immutableIntentAttempts6647 }.toLong(),
+            dispatches = attempts.size.toLong(),
+            terminalResultsForDispatches = attempts.count { it in terminalByAttempt6647 }.toLong(),
+        )
     }
 
     private fun deferred(c: CanonicalAssetEntryCandidate6551, venue: String, reason: String): CanonicalAssetEntryResult6551.Deferred {

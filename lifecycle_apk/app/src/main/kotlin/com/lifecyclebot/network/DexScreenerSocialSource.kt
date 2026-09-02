@@ -37,9 +37,10 @@ object DexScreenerSocialSource {
     private const val BASE = "https://api.dexscreener.com"
     private const val REFRESH_MS = 90_000L
 
-    private val http: OkHttpClient = OkHttpClient.Builder()
+    private val http: OkHttpClient = SharedHttpClient.builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
+        .callTimeout(10, TimeUnit.SECONDS)
         .build()
 
     data class Social(
