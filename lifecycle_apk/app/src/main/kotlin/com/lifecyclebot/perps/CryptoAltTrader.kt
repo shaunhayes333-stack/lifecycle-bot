@@ -1939,7 +1939,12 @@ object CryptoAltTrader {
             CryptoFinalBuyCandidate.MarketCapLane.MICRO_CAP -> 1.25
         }
         val slippage = spread * 2.0
-        if (spread > 1.0) hardNo += "SPREAD_TOO_HIGH"
+        // V5.0.6644 — this is inferred from the market-cap lane, not measured
+        // from an executable quote. It previously hard-blocked every dynamic
+        // MICRO_CAP candidate (the inferred value is always 1.25), including
+        // paper candidates. Live execution already rejects measured Jupiter
+        // price impact fail-closed, so retain this heuristic as evidence only.
+        if (spread > 1.0) soft += "ESTIMATED_SPREAD_HIGH_UNVERIFIED_6644"
         // V5.0.6536 §HARD_ACCEPTANCE_INVARIANT_D — detect regression:
         // if a SPOT+SHORT combination has been stamped HARD_NO_BUY via
         // adapter-direction reasons instead of being rerouted, bump the
@@ -2037,7 +2042,22 @@ object CryptoAltTrader {
             val effectivePause4151 = pauseDefensive4151 && !topLane4151
             // (d) Scanner→lane bridge toxicity veto.
             val bridgeToxic4151 = !com.lifecyclebot.perps.crypto.brain.CryptoScannerLaneBridge.shouldRoute(srcTag4151, lane4151)
-            if (effectivePause4151 || laneTimedOut4151 || bridgeToxic4151) {
+            // V5.0.6644 — performance memory may fail closed in LIVE, but it
+            // cannot permanently deadlock PAPER: paper is where fresh evidence
+            // is generated to recover/calibrate those memories. Canonical FDG,
+            // sizing, exposure, rug and atomic-accounting safety remain active.
+            val learnedDisciplineVeto6644 = effectivePause4151 || laneTimedOut4151 || bridgeToxic4151
+            if (learnedDisciplineVeto6644 && isPaperMode.get()) {
+                try {
+                    PipelineHealthCollector.labelInc("CRYPTO_PAPER_LEARNED_DISCIPLINE_DIAGNOSTIC_6644")
+                    ForensicLogger.lifecycle(
+                        "CRYPTO_PAPER_LEARNED_DISCIPLINE_DIAGNOSTIC_6644",
+                        "symbol=${candidate.symbol} assetKey=$assetKey4151 lane=$lane4151 src=$srcTag4151 " +
+                            "pause=$effectivePause4151 timeout=$laneTimedOut4151 bridgeToxic=$bridgeToxic4151 action=continue_to_fdg",
+                    )
+                } catch (_: Throwable) {}
+            }
+            if (learnedDisciplineVeto6644 && !isPaperMode.get()) {
                 val reasonTag4151 = when {
                     effectivePause4151 -> "CRYPTO_PAUSE_DEFENSIVE"
                     laneTimedOut4151   -> "CRYPTO_LANE_TIMEOUT"
@@ -4026,6 +4046,5 @@ object CryptoAltTrader {
 
     // V5.9.321: Removed private Double.fmt — uses public PerpsModels.fmt
 }
-
 
 
