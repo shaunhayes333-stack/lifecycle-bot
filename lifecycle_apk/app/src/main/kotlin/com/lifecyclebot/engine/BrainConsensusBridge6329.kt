@@ -21,7 +21,7 @@ import kotlin.math.min
  *   • SuperBrainEnhancements.entrySizeMultiplier (per-mint memory)
  *   • BotBrain phase/source boost            (recent behaviour)
  *   • BrainConsensusGate (advisor pass)      (proven-dead veto)
- *   • SentienceOrchestrator reflections      (recent narrative bias)
+ *   • SentienceOrchestrator reflections      (diagnostic only)
  *
  * The output is a single, sanitised `consensusMultiplier` in [0.05, 1.10]
  * that liveBuy stacks with governor and collapse guard multipliers,
@@ -78,30 +78,19 @@ object BrainConsensusBridge6329 {
         val botBrainMult = 1.0
         readings["BotBrain"] = botBrainMult
 
-        // 5) BrainConsensusGate — proven-dead advisory (label scan of pipeline dump).
-        //    Never hard-block from here; the authority stays with LiveEntrySafetyHold.
-        val provenDead = try {
-            val dump = BrainConsensusGate.formatForPipelineDump()
-            dump.uppercase().contains("PROVEN_DEAD") && dump.uppercase().contains(lane.uppercase())
-        } catch (_: Throwable) { false }
-        if (provenDead) labels += "BRAIN_CONSENSUS_PROVEN_DEAD"
+        // BrainConsensusGate owns proven-dead evaluation because it has the
+        // sealed score band. Parsing a human-readable aggregate dump here
+        // could never establish per-lane/per-score causality.
+        val provenDead = false
 
-        // 6) SentienceOrchestrator — recent reflection bias
-        val sentienceMult = try {
-            val reflections = SentienceOrchestrator.recentReflections(5)
-            var bias = 1.0
-            for (r in reflections) {
-                val text = r.toString().uppercase()
-                if (text.contains("RUG") || text.contains("BLEED") || text.contains("CATASTROPHIC")) bias -= 0.08
-                else if (text.contains("PROFIT") || text.contains("WIN") || text.contains("STRONG")) bias += 0.02
-            }
-            bias.coerceIn(0.5, 1.2)
-        } catch (_: Throwable) { 1.0 }
+        // LLM/personality prose is unverified narrative, never market evidence.
+        // Keep it visible in diagnostics but neutral in real-money sizing.
+        val sentienceMult = 1.0
         readings["SentienceOrchestrator"] = sentienceMult
 
         // Geometric mean protects against any one brain dominating.
-        val product = capitalMult * metaCogMult * superBrainMult * botBrainMult * sentienceMult
-        val geoMean = Math.pow(product, 1.0 / 5.0)
+        val product = capitalMult * metaCogMult * superBrainMult * botBrainMult
+        val geoMean = Math.pow(product, 1.0 / 4.0)
         val consensus = geoMean.coerceIn(0.05, 1.10)
 
         // Emit a lightweight event so the operator can see the brains

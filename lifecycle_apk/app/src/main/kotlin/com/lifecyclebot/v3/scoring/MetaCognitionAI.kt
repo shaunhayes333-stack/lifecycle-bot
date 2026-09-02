@@ -191,8 +191,8 @@ object MetaCognitionAI {
                 val ewmaComponent = when {
                     recentAccuracyEwma >= 70.0 -> 1.07
                     recentAccuracyEwma >= 60.0 -> 1.03
-                    recentAccuracyEwma <= 40.0 -> 0.93
                     recentAccuracyEwma <= 32.0 -> 0.88
+                    recentAccuracyEwma <= 40.0 -> 0.93
                     else -> 1.0
                 }
 
@@ -334,6 +334,18 @@ object MetaCognitionAI {
     ) {
         if (mint.isBlank() || predictions.isEmpty()) return
 
+        // Once a canonical position is OPEN, its entry prediction roster is
+        // immutable. Scanner rescoring used to overwrite this map throughout
+        // the hold, so MetaCognition graded the latest observation rather than
+        // the signals that actually authorized the trade.
+        val alreadyOpen = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(mint)
+        } catch (_: Throwable) { false }
+        if (alreadyOpen && pendingPredictions.containsKey(mint)) return
+        // A fresh entry lifecycle for a previously traded mint must not be
+        // mistaken for the prior settlement in canonical-bus dedupe.
+        recentlyCountedMints.remove(mint)
+
         val normalized = predictions.map { (layer, pair) ->
             Prediction(
                 layer = layer,
@@ -395,7 +407,33 @@ object MetaCognitionAI {
             "gemini" -> AILayer.GEMINI_COPILOT
             "groq", "groq_narrative" -> AILayer.GROQ_NARRATIVE
             "orthogonal" -> AILayer.ORTHOGONAL_SIGNALS
-            "crosstalk", "cross_talk" -> AILayer.AI_CROSSTALK
+            "crosstalk", "cross_talk", "v4_crosstalk" -> AILayer.AI_CROSSTALK
+            "correlationhedgeai", "correlation_hedge" -> AILayer.CORRELATION_HEDGE
+            "liquidityexitpathai", "liquidity_exit_path" -> AILayer.LIQUIDITY_EXIT_PATH
+            "mevdetectionai", "mev_detection" -> AILayer.MEV_DETECTION
+            "stablecoinflowai", "stablecoin_flow" -> AILayer.STABLECOIN_FLOW
+            "operatorfingerprintai", "operator_fingerprint" -> AILayer.OPERATOR_FINGERPRINT
+            "sessionedgeai", "session_edge" -> AILayer.SESSION_EDGE
+            "executioncostpredictorai", "execution_cost" -> AILayer.EXECUTION_COST_PREDICTOR
+            "drawdowncircuitai", "drawdown_circuit" -> AILayer.DRAWDOWN_CIRCUIT
+            "capitalefficiencyai", "capital_efficiency" -> AILayer.CAPITAL_EFFICIENCY
+            "tokendnaclusteringai", "token_dna" -> AILayer.TOKEN_DNA_CLUSTERING
+            "peeralphaverificationai", "peer_alpha" -> AILayer.PEER_ALPHA_VERIFICATION
+            "newsshockai", "news_shock" -> AILayer.NEWS_SHOCK
+            "fundingrateawarenessai", "funding_rate" -> AILayer.FUNDING_RATE_AWARENESS
+            "orderbookimbalancepulseai", "orderbook_pulse" -> AILayer.ORDERBOOK_IMBALANCE_PULSE
+            "aitrustnetworkai", "ai_trust_network" -> AILayer.AI_TRUST_NETWORK
+            "reflexai", "reflex" -> AILayer.REFLEX_AI
+            "shitcointraderai", "shitcoin" -> AILayer.SHITCOIN_TRADER
+            "shitcoinexpress", "express" -> AILayer.SHITCOIN_EXPRESS
+            "qualitytraderai", "quality" -> AILayer.QUALITY_TRADER
+            "moonshottraderai", "moonshot" -> AILayer.MOONSHOT_TRADER
+            "bluechiptraderai", "bluechip", "blue_chip" -> AILayer.BLUECHIP_TRADER
+            "diphunterai", "dip_hunter" -> AILayer.DIP_HUNTER
+            "behaviorai", "behavior" -> AILayer.BEHAVIOR_AI
+            "insidertrackerai", "insider_tracker" -> AILayer.INSIDER_TRACKER
+            "feargreedai", "fear_greed" -> AILayer.FEAR_GREED
+            "socialvelocityai", "social_velocity" -> AILayer.SOCIAL_VELOCITY
             else -> null
         }
     }
@@ -1147,10 +1185,8 @@ object MetaCognitionAI {
         // (e.g. ShitCoin, Treasury short-circuit paths) — count it here as originally intended.
         if (mint.isNotBlank() && recentlyCountedMints.contains(mint)) return
         totalTradesAnalyzed++
-        // Apply a very gentle EWMA nudge to metaAccuracy so calibration tracking
-        // drifts toward the actual win rate of canonical settled trades over time.
-        val syntheticAccuracy = if (isWin) 1.0 else 0.0
-        metaAccuracy = ewma(metaAccuracy, syntheticAccuracy * 100.0, 0.02)
+        // No prediction roster exists on this path. Count exposure/readiness,
+        // but never relabel raw strategy win-rate as metacognitive accuracy.
     }
 
     // -------------------------------------------------------------------------

@@ -671,7 +671,10 @@ object SentientPersonality {
             }
         }
 
-        addThought(mood, msg, category, 0.25)
+        // These lines are randomly selected personality copy, not observations.
+        // Make provenance explicit so an operator cannot mistake invented asset,
+        // oracle, whale, correlation, or sizing claims for live telemetry.
+        addThought(mood, "Creative musing (not live telemetry): $msg", category, 0.25)
     }
 
     fun respondToUser(userMessage: String, onResponse: (() -> Unit)? = null) {

@@ -627,13 +627,11 @@ object EducationSubLayerAI {
         // their Bayesian prior of 0.5 forever and appeared "dormant/red" on the
         // dashboard even after thousands of trades.
         //
-        // FIX: Iterate ALL 41 REGISTERED_LAYERS on every trade:
+        // Iterate every registered layer, but only credit layers that actually
+        // emitted an entry-time observation in the matching asset lane.
         //   • Layer had a real opinion (|score| > threshold)  → directional accuracy
-        //   • Layer was neutral / absent from pendingEntryScores → activity-touch only
-        //     (lastRecordedTimestamp refreshed, no pnlPct impact, stays "green alive")
-        //
-        // This means every layer is always learning something on every trade.
-        // The universe sees and hears every closed trade.
+        // An absent or wrong-lane layer remains visibly dormant. Painting its
+        // timestamp green without a prediction concealed broken wiring.
 
         val snap = pendingEntryScores.remove(outcome.mint)
         val snappedScores: Map<String, Int> = snap?.scores ?: emptyMap()
@@ -671,11 +669,9 @@ object EducationSubLayerAI {
                 // return@forEach skipped the activity-touch as well.
                 val laneMatches = LayerLaneRegistry.shouldLearn(layerName, outcome.tradingMode)
                 if (!laneMatches) {
-                    val m = layerPerformance.getOrPut(layerName) { LayerPerformanceMetrics(layerName) }
-                    m.lastRecordedTimestamp = System.currentTimeMillis()
                     return@forEach
                 }
-                val score = snappedScores[layerName] ?: 0
+                val score = snappedScores[layerName] ?: return@forEach
                 if (abs(score) > REAL_ACCURACY_NEUTRAL_THRESHOLD && !isScratchOutcome) {
                     // Layer had a real directional opinion AND outcome was decisive — score it
                     val predictedBullish = score > 0
@@ -820,7 +816,6 @@ object EducationSubLayerAI {
      * @param outcome Complete trade outcome data
      */
     fun recordTradeOutcomeAcrossAllLayers(outcome: TradeOutcomeData) {
-        if (!shouldProcessOutcomeOnce(outcome)) return
         val eduPnlVerdict4505 = try {
             LearningPnlSanitizer.inspectPct(
                 pnlPct = outcome.pnlPct,
@@ -860,6 +855,10 @@ object EducationSubLayerAI {
             )
             return
         }
+        // Claim dedupe only after economic validation and trainability gates.
+        // Previously a quarantined/route-failure callback consumed the key and
+        // suppressed the later valid canonical settlement for the same entry.
+        if (!shouldProcessOutcomeOnce(outcome)) return
 
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.388 — ASSET-CLASS ROUTING GATE (FIX A).

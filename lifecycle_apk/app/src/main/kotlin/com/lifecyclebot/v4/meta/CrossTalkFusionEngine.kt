@@ -83,19 +83,19 @@ object CrossTalkFusionEngine {
     // ═══════════════════════════════════════════════════════════════════════
 
     fun publish(signal: AATESignal) {
+        val now = System.currentTimeMillis()
+        // Bound by age and by source on every publish. The former loop only
+        // trimmed when the global queue exceeded 500 and stopped if its head
+        // was fresh, so a noisy source could grow the bus without bound.
+        signalBuffer.removeIf { now - it.timestamp >= SIGNAL_TTL_MS }
+        val sameSource = signalBuffer.filter { it.source == signal.source }
+        if (sameSource.size >= MAX_SIGNALS_PER_SOURCE) {
+            sameSource.sortedBy { it.timestamp }
+                .take(sameSource.size - MAX_SIGNALS_PER_SOURCE + 1)
+                .forEach { signalBuffer.remove(it) }
+        }
         signalBuffer.add(signal)
         latestBySource[signal.source] = signal
-
-        // Trim old signals
-        val now = System.currentTimeMillis()
-        while (signalBuffer.size > MAX_SIGNALS_PER_SOURCE * 10) {
-            val oldest = signalBuffer.peek()
-            if (oldest != null && now - oldest.timestamp > SIGNAL_TTL_MS) {
-                signalBuffer.poll()
-            } else {
-                break
-            }
-        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -207,9 +207,23 @@ object CrossTalkFusionEngine {
     // QUERY — Quick access for any module
     // ═══════════════════════════════════════════════════════════════════════
 
-    fun getSnapshot(): CrossTalkSnapshot? = currentSnapshot.get()
+    fun getSnapshot(): CrossTalkSnapshot? {
+        val snapshot = currentSnapshot.get() ?: return null
+        if (System.currentTimeMillis() - snapshot.timestamp >= SIGNAL_TTL_MS) {
+            currentSnapshot.compareAndSet(snapshot, null)
+            return null
+        }
+        return snapshot
+    }
 
-    fun getLatestSignal(source: String): AATESignal? = latestBySource[source]
+    fun getLatestSignal(source: String): AATESignal? {
+        val signal = latestBySource[source] ?: return null
+        if (System.currentTimeMillis() - signal.timestamp >= SIGNAL_TTL_MS) {
+            latestBySource.remove(source, signal)
+            return null
+        }
+        return signal
+    }
 
     fun getSignalsForMarket(market: String): List<AATESignal> {
         val now = System.currentTimeMillis()
@@ -232,7 +246,7 @@ object CrossTalkFusionEngine {
         symbol: String? = null,
         leverageRequested: Double = 1.0
     ): GatedScore {
-        val snapshot = currentSnapshot.get() ?: return GatedScore(
+        val snapshot = getSnapshot() ?: return GatedScore(
             baseScore, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, emptyList()
         )
 

@@ -2,8 +2,6 @@ package com.lifecyclebot.engine
 
 import android.content.Context
 import com.lifecyclebot.v3.scoring.EducationSubLayerAI
-import com.lifecyclebot.v4.meta.CrossTalkFusionEngine
-import com.lifecyclebot.v4.meta.AATESignal
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -27,23 +25,21 @@ import kotlin.math.abs
  *      symbolic composites, recent thoughts).
  *   2. ASKS the LLM to speak AS the bot — a first-person inner monologue
  *      plus a small JSON payload of proposed self-mutations.
- *   3. APPLIES the mutations:
- *        - trait nudges (±0.06 max per cycle, already clamped downstream)
- *        - symbolic pokes (±0.08 max on risk/conf/health/edge; mood label)
+ *   3. RECORDS proposed mutations for operator diagnostics only. LLM output
+ *      is never an economic authority and cannot mutate live sizing, floors,
+ *      exits, leverage, personality traits, or SymbolicContext.
  *        - a musing milestone (weight 0.6)
  *        - the monologue becomes a visible thought (highest intensity)
  *   4. STORES a terse reflection log for UI surfacing.
  *
- * The orchestrator never forces a trade, never unlocks risk caps, and every
- * mutation is bounded. The bot is free to evolve; the guardrails remain.
+ * The orchestrator never forces or shapes a trade. Deterministic, provenance-
+ * sealed learning owns all economic adaptation.
  * ─────────────────────────────────────────────────────────────────────────
  */
 object SentienceOrchestrator {
 
     private const val TAG = "Sentience"
     private const val REFLECT_INTERVAL_MS = 6 * 60_000L   // 6 minutes
-    private const val MAX_TRAIT_DELTA     = 0.06          // per-cycle clamp
-    private const val MAX_SYMBOLIC_DELTA  = 0.08          // per-cycle clamp
     private const val MAX_REFLECTION_LOG  = 100
 
     @Volatile private var running = false
@@ -158,7 +154,7 @@ object SentienceOrchestrator {
         }
 
         val (monologue, mutations) = parseResponse(raw)
-        val applied = applyMutations(mutations)
+        val applied = recordProposedMutations(mutations)
 
         if (monologue.isNotBlank()) {
             try {
@@ -177,25 +173,10 @@ object SentienceOrchestrator {
                 )
             } catch (_: Exception) {}
 
-            // V5.9.210 — LLM publishes its self-awareness back into CrossTalk bus.
-            // The universe hears the sentient brain's reflection. V4 FDE and V3
-            // UnifiedScorer can both see LLM-level mood/risk signals.
-            try {
-                val conf = SymbolicContext.overallConfidence.coerceIn(0.0, 1.0)
-                val risk = SymbolicContext.overallRisk.coerceIn(0.0, 1.0)
-                val mood = SymbolicContext.emotionalState
-                CrossTalkFusionEngine.publish(
-                    AATESignal(
-                        source     = "SentienceOrchestrator",
-                        market     = "ALL",
-                        confidence = conf,
-                        horizonSec = 360,    // 6 min — matches reflect interval
-                        regimeTag  = "LLM_REFLECT:$mood",
-                        fragilityScore = risk,
-                        riskFlags  = if (risk > 0.7) listOf("LLM_HIGH_RISK") else emptyList(),
-                    )
-                )
-            } catch (_: Exception) {}
+            // LLM reflection is introspection, not a price/risk observation.
+            // Publishing it to CrossTalk let hallucinated prose create kill
+            // flags and size changes. Preserve it for operator review only.
+            try { PipelineHealthCollector.labelInc("SENTIENCE_REFLECTION_DIAGNOSTIC_ONLY_6641") } catch (_: Throwable) {}
         }
 
         log.addLast(Reflection(System.currentTimeMillis(), monologue, applied))
@@ -595,57 +576,30 @@ Omit zero fields. Only emit what you actually want to change.
     }
 
     // ═════════════════════════════════════════════════════════════════════
-    // APPLY
+    // DIAGNOSTIC-ONLY PROPOSALS
     // ═════════════════════════════════════════════════════════════════════
-    private fun applyMutations(m: Mutations): String {
+    private fun recordProposedMutations(m: Mutations): String {
         val notes = StringBuilder()
         if (m.traits.isNotEmpty()) {
-            val clamped = m.traits.mapValues { it.value.coerceIn(-MAX_TRAIT_DELTA, MAX_TRAIT_DELTA) }
-            try {
-                PersonalityMemoryStore.nudgeTrait(
-                    discipline = clamped["discipline"] ?: 0.0,
-                    patience   = clamped["patience"]   ?: 0.0,
-                    aggression = clamped["aggression"] ?: 0.0,
-                    paranoia   = clamped["paranoia"]   ?: 0.0,
-                    euphoria   = clamped["euphoria"]   ?: 0.0,
-                    loyalty    = clamped["loyalty"]    ?: 0.0,
-                )
-                notes.append("traits[")
-                clamped.entries.forEach { notes.append("${it.key}${fmtSigned(it.value)} ") }
-                notes.append("] ")
-            } catch (e: Exception) {
-                ErrorLogger.debug(TAG, "trait nudge failed: ${e.message}")
-            }
+            notes.append("proposed-traits[")
+            m.traits.entries.forEach { notes.append("${it.key}${fmtSigned(it.value)} ") }
+            notes.append("] ")
         }
 
         if (m.symbolic.isNotEmpty()) {
             m.symbolic.forEach { (k, v) ->
-                val d = v.coerceIn(-MAX_SYMBOLIC_DELTA, MAX_SYMBOLIC_DELTA)
-                try {
-                    when (k) {
-                        "risk"   -> SymbolicContext.overallRisk       = (SymbolicContext.overallRisk + d).coerceIn(0.0, 1.0)
-                        "conf"   -> SymbolicContext.overallConfidence = (SymbolicContext.overallConfidence + d).coerceIn(0.0, 1.0)
-                        "health" -> SymbolicContext.marketHealth      = (SymbolicContext.marketHealth + d).coerceIn(0.0, 1.0)
-                        "edge"   -> SymbolicContext.edgeStrength      = (SymbolicContext.edgeStrength + d).coerceIn(0.0, 1.0)
-                    }
-                    notes.append("sym:$k${fmtSigned(d)} ")
-                } catch (_: Exception) {}
+                notes.append("proposed-sym:$k${fmtSigned(v)} ")
             }
         }
 
         if (!m.mood.isNullOrBlank()) {
             val upper = m.mood.uppercase()
             if (upper in MOOD_VOCAB) {
-                try {
-                    SymbolicContext.emotionalState = upper
-                    notes.append("mood→$upper ")
-                } catch (_: Exception) {}
+                notes.append("proposed-mood→$upper ")
             }
         }
-
-        try { SymbolicContext.save() } catch (_: Exception) {}
-
-        return notes.toString().trim().ifEmpty { "(no mutations)" }
+        try { PipelineHealthCollector.labelInc("SENTIENCE_MUTATION_DIAGNOSTIC_ONLY_6642") } catch (_: Throwable) {}
+        return notes.toString().trim().ifEmpty { "(no proposed mutations)" }
     }
 
     private val MOOD_VOCAB = setOf(
