@@ -406,6 +406,7 @@ object CryptoAltTrader {
         try { com.lifecyclebot.perps.crypto.brain.CryptoLivePauseButton.init(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "CryptoLivePauseButton: ${e.message}") }
         try { com.lifecyclebot.perps.crypto.brain.CryptoLaneTimeoutGate.init(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "CryptoLaneTimeoutGate: ${e.message}") }
         try { com.lifecyclebot.perps.crypto.brain.CryptoScannerLaneBridge.init(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "CryptoScannerLaneBridge: ${e.message}") }
+        try { com.lifecyclebot.perps.crypto.CryptoBridgeAdapter.init(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "CryptoBridgeAdapter: ${e.message}") }
         try { StrategyTrustAI.init() }                             catch (e: Exception) { ErrorLogger.debug(TAG, "StrategyTrustAI: ${e.message}") }
         try { NarrativeFlowAI.init() }                             catch (e: Exception) { ErrorLogger.debug(TAG, "NarrativeFlowAI: ${e.message}") }
         try { RunTracker30D.init(context.applicationContext) }     catch (e: Exception) { ErrorLogger.debug(TAG, "RunTracker30D: ${e.message}") }
@@ -4046,5 +4047,4 @@ object CryptoAltTrader {
 
     // V5.9.321: Removed private Double.fmt — uses public PerpsModels.fmt
 }
-
 
