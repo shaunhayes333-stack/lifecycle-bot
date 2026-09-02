@@ -701,7 +701,8 @@ class GoldenTapeRegressionTest {
     @Test
     fun live_buy_signature_confirmation_must_wait_for_authoritative_balance_proof() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(exec.contains("BUY_CONFIRMED_AWAITING_BALANCE_PROOF"))
+        assertTrue(exec.contains("LIVE_BUY_SIDE_EFFECTS_DEFERRED_6637"))
+        assertTrue(exec.contains("BUY_PENDING_BALANCE_PROOF"))
         assertTrue(exec.contains("completeVerifiedLiveBuyWithProof"))
         assertTrue(exec.contains("SellAmountAuthority.recordTxParseBalance"))
         assertTrue(exec.contains("HostWalletTokenTracker.recordBuyConfirmedWithProof(ts, proof, verifySig)"))
@@ -1255,7 +1256,8 @@ class GoldenTapeRegressionTest {
 
         assertTrue(exec.contains("private fun liveBuy"))
         assertTrue(exec.contains("): Boolean {    // V5.9.386"))
-        assertTrue(exec.contains("committed live-open source truth"))
+        assertTrue(exec.contains("submitted live-open liability"))
+        assertTrue(exec.contains("LIVE_BUY_PROOF_SIDE_EFFECTS_COMMITTED_6637"))
         assertTrue("generic meme spine must call liveBuy with named args so laneTag survives into live lane/journal stamping",
             exec.contains("val liveOpened = liveBuy(") &&
                 exec.contains("sol = liveSol") &&
@@ -1775,7 +1777,7 @@ class GoldenTapeRegressionTest {
         val net = java.io.File("src/main/res/xml/network_security_config.xml").readText()
         assertTrue(manifest.contains("android:networkSecurityConfig=\"@xml/network_security_config\""))
         assertTrue(net.contains("<certificates src=\"system\""))
-        assertTrue(net.contains("<certificates src=\"user\""))
+        assertFalse("transaction-signing traffic must not trust user-installed CAs", net.contains("<certificates src=\"user\""))
         assertTrue(net.contains("helius-rpc.com"))
         assertTrue(net.contains("solana.com"))
     }
@@ -2702,7 +2704,12 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4153: cumulative 100pct partials must stamp terminal FULL_EXIT_100PCT, not partial_100pct", exec4153.contains("FULL_EXIT_100PCT") && exec4153.contains("newSoldPct >= 99.9") && !exec4153.contains("partial_100pct"))
         assertTrue("BleederMemoryRouter must use live-only recent closed rows", bleeder.contains("mode.equals(\"live\"") && bleeder.contains("n20") && bleeder.contains("n50") && bleeder.contains("n100") && bleeder.contains("deepLosses50") && bleeder.contains("failedBasisCount") && bleeder.contains("orphanCount"))
         assertTrue("liveBuy must emit decision before lease/quote, apply pivot size, and bucket style-pivot advisory reasons", exec.contains("LIVE_ENTRY_DECISION") && exec.contains("LiveStylePivotRouter.route") && exec.contains("LIVE_STYLE_PIVOT_SIZE_APPLIED") && exec.contains("STYLE_PIVOT_ADVISORY") && exec.contains("STYLE_PIVOT_ADVISORY_REASON_"))
-        assertTrue("live journal mode should use pivoted lane", exec.contains("tradingMode  = routedLaneTag") && exec.contains("tradingMode = routedLaneTag"))
+        assertTrue(
+            "proof-finalized live journal must preserve the pivoted lane stamped on the provisional position",
+            exec.contains("tradingMode  = routedLaneTag") &&
+                exec.contains("tradingMode = ts.position.tradingMode.ifBlank") &&
+                exec.contains("routedLaneTag.ifBlank"),
+        )
     }
 
 
