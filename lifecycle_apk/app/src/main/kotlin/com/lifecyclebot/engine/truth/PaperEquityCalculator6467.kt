@@ -29,8 +29,8 @@ object PaperEquityCalculator6467 {
         val fees = try { PaperCapitalAuthority6577.feesSol() } catch (_: Throwable) { 0.0 }
         val openCost = try { PaperCapitalAuthority6577.openCostBasisSol() } catch (_: Throwable) { 0.0 }
         // V5.0.6640 — conservation is a cost-basis identity.  The previous
-        // `equity - expected - mv` reduced to cash-baseline-realized and
-        // therefore reported every deployed/fee-paying account as corrupt.
+        // The legacy equity/expected/market-value subtraction reduced to
+        // cash-baseline-realized and therefore reported every deployed/fee-paying account as corrupt.
         // Mark-to-market value belongs to displayed equity, not this invariant.
         val expectedAccounted = baselineSol + realized - fees
         val actualAccounted = cash + openCost
