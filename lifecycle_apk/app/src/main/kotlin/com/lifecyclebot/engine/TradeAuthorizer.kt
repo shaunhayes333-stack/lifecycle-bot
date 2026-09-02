@@ -170,6 +170,7 @@ object TradeAuthorizer {
         rugcheckScore: Int = 100,
         liquidity: Double = 0.0,
         isBanned: Boolean = false,
+        preResolvedSizeSol: Double,
         attemptId: String = "",
     ): AuthorizationResult {
         val now = System.currentTimeMillis()
@@ -285,6 +286,7 @@ object TradeAuthorizer {
             source = "TradeAuthorizer.preAuth",
             attemptId = finalityAttemptId,
             liveLiquidityUsd = liquidity,
+            preResolvedSizeSol6490 = preResolvedSizeSol,
             electedLane6494 = laneElection.primaryLane,
             electedCandidateVersion6494 = laneElection.candidateVersion,
             electionId6494 = laneElection.electionId,

@@ -1344,6 +1344,53 @@ object MarketsLiveExecutor {
         if (!eligibility6570.eligible) return@withContext MarketsClose6486(false, positionId, null, 0.0, java.math.BigInteger.ZERO, eligibility6570.reason)
         val wallet = WalletManager.getWallet()
             ?: return@withContext MarketsClose6486(false, positionId, null, 0.0, java.math.BigInteger.ZERO, "NO_WALLET")
+        if (com.lifecyclebot.perps.crypto.CryptoBridgeAdapter.ownsPosition6649(positionId)) {
+            val bridgeExit = com.lifecyclebot.perps.crypto.CryptoBridgeAdapter.sellEvmToSol(wallet, positionId)
+            when (bridgeExit) {
+                is com.lifecyclebot.perps.crypto.CryptoBridgeAdapter.Exit.Pending ->
+                    return@withContext MarketsClose6486(false, positionId, null, 0.0, java.math.BigInteger.ZERO,
+                        "${bridgeExit.code}:${bridgeExit.reason}")
+                is com.lifecyclebot.perps.crypto.CryptoBridgeAdapter.Exit.Rejected ->
+                    return@withContext MarketsClose6486(false, positionId, null, 0.0, java.math.BigInteger.ZERO,
+                        "${bridgeExit.code}:${bridgeExit.reason}")
+                is com.lifecyclebot.perps.crypto.CryptoBridgeAdapter.Exit.Settled -> {
+                    val basis = pos.entryCostSol - pos.soldCostBasisSol
+                    if (!basis.isFinite() || basis <= 0.0) return@withContext MarketsClose6486(false, positionId,
+                        bridgeExit.evmTransactionHash, bridgeExit.receivedSol, bridgeExit.soldRaw, "MISSING_OR_NEGATIVE_COST_BASIS")
+                    val mutation = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.partialSell(
+                        "CRYPTO_BRIDGE6649:CLOSE:$positionId:${bridgeExit.evmTransactionHash}",
+                        positionId, bridgeExit.soldRaw, bridgeExit.receivedSol, basis, 0.0, false,
+                    )
+                    if (mutation != com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.APPLIED &&
+                        mutation != com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.DUPLICATE
+                    ) return@withContext MarketsClose6486(false, positionId, bridgeExit.evmTransactionHash,
+                        bridgeExit.receivedSol, bridgeExit.soldRaw, "CANONICAL_REDUCER_$mutation")
+                    val closed = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId)
+                        ?: return@withContext MarketsClose6486(false, positionId, bridgeExit.evmTransactionHash,
+                            bridgeExit.receivedSol, bridgeExit.soldRaw, "CANONICAL_ROW_MISSING")
+                    if (closed.lifecycle != com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.CLOSED)
+                        return@withContext MarketsClose6486(false, positionId, bridgeExit.evmTransactionHash,
+                            bridgeExit.receivedSol, bridgeExit.soldRaw, "NOT_TERMINAL_${closed.lifecycle}")
+                    val pnl = closed.realizedPnlSol
+                    val pct = if (closed.entryCostSol > 0.0) pnl / closed.entryCostSol * 100.0 else 0.0
+                    com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.publish(
+                        com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Event(
+                            positionId, closed.mint,
+                            when { pnl > 0.0 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.WIN
+                                pnl < 0.0 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.LOSS
+                                else -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN },
+                            pnl, closed.realizedProceedsSol - closed.soldCostBasisSol,
+                            if (closed.entryCostSol > 0.0) pnl / closed.entryCostSol else 0.0, pct,
+                            closed.feesSol, closed.lane, closed.runId, entryTactic, exitReason,
+                            (System.currentTimeMillis() - closed.openedAtMs).coerceAtLeast(0L),
+                            "DLN_REVERSE_FINALIZED_SOURCE_SOL_DELTA", "ROUTE_VERIFIED_SELLABLE", "live", System.currentTimeMillis(),
+                        )
+                    )
+                    return@withContext MarketsClose6486(true, positionId, bridgeExit.evmTransactionHash,
+                        bridgeExit.receivedSol, bridgeExit.soldRaw, "DLN_ROUND_TRIP_FINALIZED")
+                }
+            }
+        }
         val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 10.0 } ?: 150.0
         val beforeSol = try { wallet.getSolBalance() } catch (_: Throwable) { 0.0 }
         val beforeUsdc = try { wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: 0.0 } catch (_: Throwable) { 0.0 }
@@ -1657,4 +1704,3 @@ object MarketsLiveExecutor {
     // Helper
     // V5.9.321: Removed private Double.fmt — uses public PerpsModels.fmt
 }
-

@@ -921,6 +921,7 @@ class ExecutionAuthorityInvariantTest {
             source = "test",
             liveLiquidityUsd = 2500.0,
             liveSafetyTier = "SAFE",
+            preResolvedSizeSol6490 = 0.05,
         )
         assertTrue("RC=1 is pending/more-data, not confirmed rug; FDG-approved live candidates must reach executor", v.allowed)
     }
@@ -953,6 +954,7 @@ class ExecutionAuthorityInvariantTest {
             requestedBook = TradeAuthorizer.ExecutionBook.TREASURY,
             rugcheckScore = 90,
             liquidity = 2500.0,
+            preResolvedSizeSol = 0.05,
         )
         assertTrue("role-fit Treasury owner should authorize on same tick", auth.isExecutable())
         assertEquals("AUTHORIZED", auth.reason)
@@ -996,6 +998,7 @@ class ExecutionAuthorityInvariantTest {
             requestedBook = TradeAuthorizer.ExecutionBook.SHITCOIN,
             rugcheckScore = 90,
             liquidity = 5000.0,
+            preResolvedSizeSol = 0.05,
         )
         assertTrue("stale CORE auth lock must not cause ALREADY_OPEN_CROSS_BOOK live death: ${auth.reason}", auth.isExecutable())
         assertEquals("AUTHORIZED", auth.reason)
@@ -1019,6 +1022,7 @@ class ExecutionAuthorityInvariantTest {
             requestedBook = TradeAuthorizer.ExecutionBook.SHITCOIN,
             rugcheckScore = 90,
             liquidity = 2500.0,
+            preResolvedSizeSol = 0.05,
         )
         assertTrue(auth.isExecutable())
         assertTrue("authorized execution must carry the finality attemptId contract", auth.attemptId.isNotBlank())

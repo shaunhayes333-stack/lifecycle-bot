@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine
 
 import java.io.File
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -30,5 +31,12 @@ class DeskLearningIsolation6649Test {
         val stock = source("perps/TokenizedStockTrader.kt")
         assertTrue(stock.contains("FreeRangeMode.isWideOpen("))
         assertTrue(stock.contains("DeskPerformanceAuthority6648.Book.STOCKS"))
+    }
+
+    @Test fun dashboard_learning_and_markets_readiness_do_not_consume_global_journal_winrate() {
+        val main = source("ui/MainActivity.kt")
+        assertEquals(1, Regex("journalParityStatsSnapshot6085\\(\\)").findAll(main).count())
+        assertTrue(main.contains("val memeLearning6649 =") && main.contains("DeskPerformanceAuthority6648.Book.MEME"))
+        assertTrue(main.contains("Markets readiness explicitly combines only its child desks"))
     }
 }

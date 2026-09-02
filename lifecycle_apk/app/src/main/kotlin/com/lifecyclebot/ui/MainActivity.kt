@@ -682,29 +682,12 @@ class MainActivity : AppCompatActivity() {
     )
     @Volatile private var cachedOpenPositionsModel6078: OpenPositionsModel6078 = OpenPositionsModel6078()
     private val mainModelRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
-    private data class JournalParityUiSnapshot6085(
-        val updatedAtMs: Long = 0L,
-        val rowCount: Int = 0,
-        val totalWins: Int = 0,
-        val totalLosses: Int = 0,
-        val scratchCount: Int = 0,
-        val winRate: Double = 0.0,
-        val totalPnlSol: Double = 0.0,
-        val avgWinPct: Double = 0.0,
-        val avgLossPct: Double = 0.0,
-    )
-    @Volatile private var cachedJournalParity6085: JournalParityUiSnapshot6085 = JournalParityUiSnapshot6085()
-
     // V5.0.6254 — rate-limit the OPEN count divergence diagnostic added in
     // V5.0.6252 to at most one iteration per minute. Original impl ran per
     // dashboard paint, iterating HostWalletTokenTracker.positions +
     // TokenLifecycleTracker.records (both O(n) over up to 38k mints) and
     // triggered an ANR storm.
     @Volatile private var lastOpenDivergenceCheckMs6254: Long = 0L
-    private val journalParityRefreshInFlight6085 = java.util.concurrent.atomic.AtomicBoolean(false)
-    private val JOURNAL_PARITY_REFRESH_MS_6085: Long = 1_000L
-
-
     // V5.9.1474 — hard global repaint gate. While the bot is running, the live
     // dashboard repaint is observability-only and must never exceed ~1Hz, no
     // matter how many code paths call updateUi(). Start/Stop truth + runtime bar
@@ -3117,7 +3100,6 @@ for legal compliance.
         // binders below consume the previously-published immutable model. This is
         // the single point that feeds renderWatchlist + renderOpenPositions.
         precomputeMainRenderModelAsync(state)
-        refreshJournalParitySnapshot6085Async(state)
 
         // V5.9.1416 — reset the per-tick heavy-render budget at the start of each
         // pass. Caps synchronous panel re-inflation per frame; overflow defers.
@@ -4151,12 +4133,14 @@ for legal compliance.
 
         // ── Brain Learning Indicator ─────────────────────────────────
         try {
-            // V5.0.6086 — dashboard/global learning progress must follow the
-            // same JournalActivity lifecycle-row parity source as the visible
-            // trade/WR tiles, not WalletState's stale in-memory counters.
-            val jp6086 = journalParityStatsSnapshot6085()
-            val totalTrades = jp6086?.totalStoredTrades ?: ws.totalTrades
-            val winRate = (jp6086?.winRate ?: ws.winRate.toDouble()).toInt()
+            // Main is the MEME desk. Its learning phase must never ingest
+            // Crypto/Markets/Perps outcomes from a global journal projection.
+            val memeLearning6649 = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+                com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME,
+                if (state.config.paperMode) "paper" else "live",
+            )
+            val totalTrades = memeLearning6649.trades
+            val winRate = memeLearning6649.winRate.toInt()
             val learningProgress = com.lifecyclebot.engine.FinalDecisionGate.getLearningProgress(totalTrades, winRate.toDouble())
             val progressPct = (learningProgress * 100).toInt()
 
@@ -8679,19 +8663,14 @@ This cannot be undone!
             )
         } catch (_: Exception) {}
 
-        // V5.0.6086 — unified/main readiness uses the same JournalActivity parity
-        // source as the dashboard and Journal header. Bucket math remains useful for
-        // lane drill-down breakdowns, but the global readiness count/WR/PnL must not
-        // print a different universe from the Journal screen.
-        val jpReadiness6086 = journalParityStatsSnapshot6085()
-        val totalTrades = jpReadiness6086?.totalStoredTrades ?: buckets.sumOf { it.trades }
-        val totalWins   = jpReadiness6086?.totalWins ?: buckets.sumOf { it.wins }
-        val totalPnlSol = jpReadiness6086?.totalPnlSol ?: buckets.sumOf { it.pnlSol }
+        // Markets readiness explicitly combines only its child desks. It must
+        // not consume the global journal, MEME, or Crypto books.
+        val totalTrades = buckets.sumOf { it.trades }
+        val totalWins   = buckets.sumOf { it.wins }
+        val totalPnlSol = buckets.sumOf { it.pnlSol }
 
-        // Trade-weighted WR — fallback only when the Journal parity snapshot has not
-        // published yet (first second after Activity creation).
         val wrActive = buckets.filter { it.trades > 0 }
-        val unifiedWinRate = jpReadiness6086?.winRate ?: if (wrActive.isNotEmpty()) {
+        val unifiedWinRate = if (wrActive.isNotEmpty()) {
             val totalW = wrActive.sumOf { it.trades.toDouble() * it.winRate }
             val totalT = wrActive.sumOf { it.trades.toDouble() }
             if (totalT > 0) totalW / totalT else 0.0
@@ -12629,11 +12608,13 @@ Quick trade or open detailed dialog?
     private fun showLearningStats() {
         // V5.9.230: Full Sentience + MetaCognition + Education + Symbolic dialog
         try {
-            val ws = vm.ui.value.walletState
-            // V5.0.6086 — dialog/global learning stats match the Journal/header source.
-            val jp6086 = journalParityStatsSnapshot6085()
-            val totalTrades = jp6086?.totalStoredTrades ?: ws.totalTrades
-            val winRate = (jp6086?.winRate ?: ws.winRate.toDouble()).toInt()
+            val paper = vm.ui.value.config.paperMode
+            val memeLearning6649 = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+                com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME,
+                if (paper) "paper" else "live",
+            )
+            val totalTrades = memeLearning6649.trades
+            val winRate = memeLearning6649.winRate.toInt()
             val learningProgress = com.lifecyclebot.engine.FinalDecisionGate.getLearningProgress(totalTrades, winRate.toDouble())
             val phase = com.lifecyclebot.engine.FinalDecisionGate.getLearningPhase(totalTrades)
 

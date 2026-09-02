@@ -315,6 +315,36 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         return result
     }
 
+    /** V5.0.6649 — split signing from submission for crash-safe bridge jobs.
+     * The deterministic signature is persisted before broadcast, so restart
+     * recovery can rebroadcast the exact same bytes instead of creating a
+     * second order with a fresh blockhash. */
+    data class SignedSerializedTransaction6649(val signature: String, val signedBase64: String)
+
+    fun signSerializedTransaction6649(txBase64: String): SignedSerializedTransaction6649 {
+        val txBytes = android.util.Base64.decode(txBase64, android.util.Base64.DEFAULT)
+        val signedBytes = signVersionedTx(txBytes)
+        val envelope = SolanaSigningEnvelope.validate(signedBytes, keyPair.publicKey)
+        val signatureBytes = signedBytes.copyOfRange(envelope.signatureOffset, envelope.signatureOffset + 64)
+        return SignedSerializedTransaction6649(
+            signature = Base58.base58Encode(signatureBytes),
+            signedBase64 = android.util.Base64.encodeToString(signedBytes, android.util.Base64.NO_WRAP),
+        )
+    }
+
+    fun sendSignedAndConfirm6649(signed: SignedSerializedTransaction6649): String {
+        val returned = try {
+            sendRawTransaction(signed.signedBase64)
+        } catch (t: Throwable) {
+            val message = t.message.orEmpty().lowercase()
+            if (!message.contains("already processed") && !message.contains("already known")) throw t
+            signed.signature
+        }
+        check(returned == signed.signature) { "SOLANA_SIGNATURE_MISMATCH expected=${signed.signature} returned=$returned" }
+        awaitConfirmation(signed.signature)
+        return signed.signature
+    }
+
     // ── transaction confirmation ──────────────────────────
 
     /**

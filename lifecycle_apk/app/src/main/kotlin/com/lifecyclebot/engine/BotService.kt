@@ -22194,6 +22194,7 @@ if (hotExitHandledSweep) {
                                 rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
+                                preResolvedSizeSol = adjustedSize,
                             )
                             
                             if (!authResult.isExecutable()) {
@@ -22484,6 +22485,7 @@ if (hotExitHandledSweep) {
                                 quality = "QUALITY", isPaperMode = cfg.paperMode,
                                 requestedBook = TradeAuthorizer.ExecutionBook.QUALITY,
                                 rugcheckScore = ts.safety.rugcheckScore, liquidity = ts.lastLiquidityUsd,
+                                preResolvedSizeSol = qualitySignal6022.positionSizeSol,
                             )
                             val canExecute = qualityAuth6494.isExecutable() && FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
@@ -22688,6 +22690,7 @@ if (hotExitHandledSweep) {
                                 quality = "BLUECHIP", isPaperMode = cfg.paperMode,
                                 requestedBook = TradeAuthorizer.ExecutionBook.BLUECHIP,
                                 rugcheckScore = ts.safety.rugcheckScore, liquidity = ts.lastLiquidityUsd,
+                                preResolvedSizeSol = blueChipSignal6022.positionSizeSol,
                             )
                             val canExecute = blueChipAuth6494.isExecutable() && FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
@@ -23013,6 +23016,16 @@ if (hotExitHandledSweep) {
                                     RejectionTelemetry.record("MOONSHOT_FDG", moonshotFdgDecision?.blockReason ?: "fdg_block")
                                 } else {
 
+                                // Resolve and seal the exact Moonshot size before
+                                // authorization; downstream execution reuses it.
+                                val _msCalMult = try {
+                                    com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("MOONSHOT", moonshotScore.score)
+                                } catch (_: Throwable) { 1.0 }
+                                val legacyMoonshotSize = ((if (fdgReducedSize)
+                                    (moonshotScore.suggestedSizeSol * 0.5).coerceAtLeast(cfg.smallBuySol)
+                                else moonshotScore.suggestedSizeSol) * _msCalMult).coerceAtLeast(0.01)
+                                val msEffectiveSize = moonshotFdgDecision?.sizeSol
+                                    ?: legacyMoonshotSize.coerceIn(0.01, moonshotScore.suggestedSizeSol.coerceAtLeast(0.01))
                                 // V5.2: Authorize through TradeAuthorizer
                                 val authResult = TradeAuthorizer.authorize(
                                     mint = ts.mint,
@@ -23024,6 +23037,7 @@ if (hotExitHandledSweep) {
                                     requestedBook = TradeAuthorizer.ExecutionBook.MOONSHOT,
                                     rugcheckScore = ts.safety.rugcheckScore,
                                     liquidity = ts.lastLiquidityUsd,
+                                    preResolvedSizeSol = msEffectiveSize,
                                 )
                                 
                                 if (!authResult.isExecutable()) {
@@ -23032,9 +23046,6 @@ if (hotExitHandledSweep) {
                                     val moonshotAttemptId = authResult.attemptId
                                     // Acquire final execution permit
                                     // V5.9.691 — apply FDG probe reduction if FDG disagreed
-                                    val _msCalMult = try {
-                                        com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("MOONSHOT", moonshotScore.score)
-                                    } catch (_: Throwable) { 1.0 }
                                     // V5.9.1575 — obey FDG final size exactly when present.
                                     // Moonshot previously proposed a calibrated size to FDG,
                                     // then recomputed its own size downstream and registered
@@ -23042,15 +23053,10 @@ if (hotExitHandledSweep) {
                                     // the lane-policy/style surface from being reflected in
                                     // actual exposure. Fallback preserves legacy behaviour if
                                     // FDG errors.
-                                    val legacyMoonshotSize = ((if (fdgReducedSize)
-                                        (moonshotScore.suggestedSizeSol * 0.5).coerceAtLeast(cfg.smallBuySol)
-                                    else moonshotScore.suggestedSizeSol) * _msCalMult).coerceAtLeast(0.01)
                                     // V5.0.4527 — if FDG exists, obey its final size exactly.
                                     // 4526 can restore AATE core live size after old micro/probe
                                     // semantics collapse it below core; this downstream lane cap
                                     // must not silently clamp it back to raw suggestedSizeSol.
-                                    val msEffectiveSize = moonshotFdgDecision?.sizeSol
-                                        ?: legacyMoonshotSize.coerceIn(0.01, moonshotScore.suggestedSizeSol.coerceAtLeast(0.01))
                                     if (FinalExecutionPermit.tryAcquireExecution(
                                         mint = ts.mint,
                                         symbol = ts.symbol,
@@ -23666,6 +23672,7 @@ if (hotExitHandledSweep) {
                                 rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
+                                preResolvedSizeSol = adjustedSize,
                             )
                             
                             if (!authResult.isExecutable()) {
@@ -23957,6 +23964,7 @@ if (hotExitHandledSweep) {
                             rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
                             liquidity = ts.lastLiquidityUsd,
                             isBanned = BannedTokens.isBanned(ts.mint),
+                            preResolvedSizeSol = manipSignal.positionSizeSol,
                         )
 
                         if (!manipAuthResult.isExecutable()) {
@@ -24222,6 +24230,10 @@ if (hotExitHandledSweep) {
                             } catch (w: Throwable) {
                                 ErrorLogger.warn("BotService", "EXPRESS recordFdg failed: ${w.message} — continuing to auth")
                             }
+                            // Seal the exact size before authorization. The same value
+                            // is passed unchanged to the executor below.
+                            val expressFinalSize = expressFdg?.sizeSol
+                                ?: expressSignal.positionSizeSol.coerceAtLeast(0.01)
                             // V5.2: MUST check TradeAuthorizer BEFORE any execution
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
@@ -24234,6 +24246,7 @@ if (hotExitHandledSweep) {
                                 rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
+                                preResolvedSizeSol = expressFinalSize,
                             )
                             if (!authResult.isExecutable()) {
                                 ErrorLogger.info("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | ${if (authResult.isShadowOnly()) "SHADOW_ONLY" else "REJECTED"} | ${authResult.reason}")
@@ -24248,7 +24261,6 @@ if (hotExitHandledSweep) {
                                 // dust sizing. From here down, use the final FDG size.
                                 // V5.0.4527 — if FDG exists, obey its final size exactly.
                                 // Do not cap restored/core FDG size back down to raw Express signal size.
-                                val expressFinalSize = expressFdg?.sizeSol ?: expressSignal.positionSizeSol.coerceAtLeast(0.01)
                                 ErrorLogger.info("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | RIDE | " +
                                     "${expressSignal.rideType.emoji} ${expressSignal.rideType.name} | " +
                                     "mom=${(ts.momentum ?: 0.0).fmt(1)}% | " +
@@ -24423,6 +24435,7 @@ if (hotExitHandledSweep) {
                                 rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
+                                preResolvedSizeSol = assessment.positionSizeSol,
                             )
                             
                             if (authResult.isExecutable()) {
@@ -24625,6 +24638,7 @@ if (hotExitHandledSweep) {
                                 rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
+                                preResolvedSizeSol = dipSignal.positionSizeSol,
                             )
                             
                             if (!authResult.isExecutable()) {
@@ -24803,6 +24817,7 @@ if (hotExitHandledSweep) {
                             rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
                             liquidity = ts.lastLiquidityUsd,
                             isBanned = BannedTokens.isBanned(ts.mint),
+                            preResolvedSizeSol = result.sizeSol,
                         )
                         
                         if (!authResult.isExecutable()) {
@@ -25864,6 +25879,23 @@ if (hotExitHandledSweep) {
             }
         }
         
+        // Resolve the immutable size before authorization. No authorization
+        // may own a token lock from a SIZE_PENDING safety-only verdict.
+        var finalSizeForAuth6649 = if (useV3Decision && v3SizeSol > 0) {
+            v3SizeSol
+        } else {
+            fdgDecision.sizeSol
+        }
+        if (!useV3Decision) {
+            modeConf?.let { finalSizeForAuth6649 *= it.positionSizeMultiplier }
+        }
+        val isGraduatedForAuth6649 = !useV3Decision && decision.setupQuality in listOf("A+", "B")
+        val actualInitialSizeForAuth6649 = if (isGraduatedForAuth6649) {
+            executor.graduatedInitialSize(finalSizeForAuth6649, decision.setupQuality)
+        } else {
+            finalSizeForAuth6649
+        }
+
         // ═══════════════════════════════════════════════════════════════════
         // V5.0: TRADE AUTHORIZER - Check BEFORE any execution
         // This is the unified gate that prevents post-execution gating drift
@@ -25879,6 +25911,7 @@ if (hotExitHandledSweep) {
             rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
             liquidity = ts.lastLiquidityUsd,
             isBanned = BannedTokens.isBanned(mint),
+            preResolvedSizeSol = actualInitialSizeForAuth6649,
         )
         
         ErrorLogger.info("BotService", "🧬 MEME_SPINE AUTH ${identity.symbol} | verdict=${authResult.verdict} | reason=${authResult.reason} | paper=${cfg.paperMode} | liq=${ts.lastLiquidityUsd.toInt()}")
@@ -25960,24 +25993,9 @@ if (hotExitHandledSweep) {
             // ═══════════════════════════════════════════════════════════════════
             // COMPUTE FINAL SIZE: Use V3 size if available, otherwise FDG size
             // ═══════════════════════════════════════════════════════════════════
-            var finalSize = if (useV3Decision && v3SizeSol > 0) {
-                v3SizeSol
-            } else {
-                fdgDecision.sizeSol
-            }
-            
-            // Apply mode multiplier if present (only for FDG path)
-            if (!useV3Decision) {
-                modeConf?.let { finalSize *= it.positionSizeMultiplier }
-            }
-            
-            // Apply graduated building reduction for B+ setups (only for FDG path)
-            val isGraduated = !useV3Decision && decision.setupQuality in listOf("A+", "B")
-            val actualInitialSize = if (isGraduated) {
-                executor.graduatedInitialSize(finalSize, decision.setupQuality)
-            } else {
-                finalSize
-            }
+            val finalSize = finalSizeForAuth6649
+            val isGraduated = isGraduatedForAuth6649
+            val actualInitialSize = actualInitialSizeForAuth6649
             
             // Determine approval class and confidence
             val approvalClass = if (useV3Decision) {

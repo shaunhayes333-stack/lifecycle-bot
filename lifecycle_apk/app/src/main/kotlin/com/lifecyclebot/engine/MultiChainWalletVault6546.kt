@@ -3,6 +3,7 @@ package com.lifecyclebot.engine
 import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import org.web3j.crypto.Credentials
 
 /** V5.0.6546 — encrypted persistence for one multi-chain recovery wallet. */
 object MultiChainWalletVault6546 {
@@ -93,6 +94,15 @@ object MultiChainWalletVault6546 {
 
     fun executable(context: Context): StoredWallet? =
         load(context)?.takeIf { it.backupConfirmed && it.activeMain }
+
+    fun evmCredentials6649(context: Context): Credentials? {
+        val wallet = executable(context) ?: return null
+        val credentials = MultiChainWalletGenerator6546.evmCredentialsFromMnemonic6649(wallet.mnemonic)
+        check(credentials.address.equals(wallet.ethereumAddress, ignoreCase = true)) {
+            "MULTICHAIN_EVM_SIGNER_MISMATCH"
+        }
+        return credentials
+    }
 
     fun clear(context: Context) {
         prefs(context).edit().clear().commit()
