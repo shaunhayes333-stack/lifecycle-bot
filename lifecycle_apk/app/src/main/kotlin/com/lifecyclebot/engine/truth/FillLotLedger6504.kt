@@ -51,6 +51,10 @@ object FillLotLedger6504 {
     private const val DB_VERSION = 1
 
     private val helperRef = AtomicReference<Helper?>(null)
+    @Volatile private var testMemoryMode6641: Boolean = false
+
+    /** JVM unit tests have no Android SQLite runtime. Production never calls this. */
+    internal fun setTestMemoryMode6641(enabled: Boolean) { testMemoryMode6641 = enabled }
 
     fun attach(context: Context) {
         if (helperRef.get() != null) return
@@ -96,7 +100,7 @@ object FillLotLedger6504 {
         source: String = "",
         note: String = "",
     ): Long {
-        val h = helperRef.get() ?: return -1L
+        val h = helperRef.get() ?: return if (testMemoryMode6641 && mint.isNotBlank() && lotId.isNotBlank() && qtyTokenRaw.signum() > 0) 1L else -1L
         if (mint.isBlank() || lotId.isBlank() || qtyTokenRaw.signum() <= 0) return -1L
         return try {
             val db = h.writableDatabase
@@ -157,7 +161,7 @@ object FillLotLedger6504 {
         source: String = "",
         note: String = "",
     ): Long {
-        val h = helperRef.get() ?: return -1L
+        val h = helperRef.get() ?: return if (testMemoryMode6641 && mint.isNotBlank() && lotId.isNotBlank() && qtyTokenRaw.signum() > 0) 1L else -1L
         if (mint.isBlank() || lotId.isBlank() || qtyTokenRaw.signum() <= 0) return -1L
         return try {
             val db = h.writableDatabase

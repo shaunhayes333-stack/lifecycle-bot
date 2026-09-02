@@ -9,6 +9,7 @@ import org.junit.Test
 
 class CanonicalEntryAuthority6551Test {
     @Before fun reset() {
+        FillLotLedger6504.setTestMemoryMode6641(true)
         CanonicalEntryAuthority6540.clearAllForTest()
         CanonicalPositionAuthority6441.resetForTest()
         PaperAccountLedger6430.resetForTest()

@@ -22,7 +22,7 @@ class Repair6513AuthorityFinalityAcceptanceTest {
         RuntimeModeAuthority.publishPipelineMode(true)
     }
 
-    @Test fun projectSniperAuthorityRebindsStaleStandardRequestAndTicketIsImmutableBuy() {
+    @Test fun projectSniperAuthorityRejectsStaleStandardAndSealsOnlySameLaneTicket() {
         val mint = "Authority6513${System.nanoTime()}"
         val cv = LaneExecutionCoordinator.candidateVersionFor(mint)
         ExecutableOpenGate.recordEntryAuthority6487(mint, cv, ExecutableEntryAuthority6450.gate("PROJECT_SNIPER", mint, 1.0))
@@ -30,8 +30,14 @@ class Repair6513AuthorityFinalityAcceptanceTest {
             signal = "WATCH", rugScore = 90, safetyTier = "SAFE", liquidityUsd = 5_000.0,
             preFdgVerdict = "BUY", candidateVersion = cv, entryScore = 84)
 
-        val verdict = ExecutableOpenGate.canOpenExecutablePosition(
+        val staleVerdict = ExecutableOpenGate.canOpenExecutablePosition(
             mint, "RICK", 90, "PAPER", "STANDARD", "test.stale.standard.dispatch",
+            liveLiquidityUsd = 5_000.0, liveSafetyTier = "SAFE", preResolvedSizeSol6490 = 0.05,
+        )
+        assertFalse(staleVerdict.allowed)
+        assertEquals("SPECIALIST_NOT_ELECTED", staleVerdict.reason)
+        val verdict = ExecutableOpenGate.canOpenExecutablePosition(
+            mint, "RICK", 90, "PAPER", "PROJECT_SNIPER", "test.same.lane.dispatch",
             liveLiquidityUsd = 5_000.0, liveSafetyTier = "SAFE", preResolvedSizeSol6490 = 0.05,
         )
         assertTrue("${verdict.reason} active=${ExecutableOpenGate.activeExecutionIntent6519("PAPER", mint, cv)}", verdict.allowed)

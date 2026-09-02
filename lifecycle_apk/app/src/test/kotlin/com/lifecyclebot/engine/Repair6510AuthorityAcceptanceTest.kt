@@ -9,6 +9,7 @@ import org.junit.Test
 
 class Repair6510AuthorityAcceptanceTest {
     private fun resetPaper() {
+        FillLotLedger6504.setTestMemoryMode6641(true)
         PaperAccountLedger6430.resetForTest(); PaperAccountLedger6430.initialize(10.0)
         CanonicalPositionAuthority6441.resetForTest(); CanonicalLotQuantity6464.resetForTest()
         EconomicEventSchema6464.resetForTest(); SellQtyBoundaryClamp6427.resetForTest()

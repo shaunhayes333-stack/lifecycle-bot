@@ -17,6 +17,7 @@ import kotlin.math.abs
 /** V5.0.6486 funded transaction + conservation acceptance contracts. */
 class CanonicalClosureAcceptanceTest6486 {
     private fun reset(starting: Double) {
+        com.lifecyclebot.engine.truth.FillLotLedger6504.setTestMemoryMode6641(true)
         PaperAccountLedger6430.resetForTest()
         CanonicalPositionAuthority6441.resetForTest()
         SellQtyBoundaryClamp6427.resetForTest()
