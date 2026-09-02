@@ -1581,11 +1581,20 @@ class BotService : Service() {
             serviceBootstrapSucceeded6516 = false
             serviceBootstrapJob6516 = scope.launch(kotlinx.coroutines.CoroutineName("service-bootstrap-6516")) {
                 val serviceStarted6516 = android.os.SystemClock.elapsedRealtime()
+                val bootstrapPhase6516: (String) -> Unit = { phase ->
+                    try {
+                        ForensicLogger.lifecycle(
+                            "SERVICE_BOOTSTRAP_PHASE_6516",
+                            "phase=$phase durMs=${android.os.SystemClock.elapsedRealtime() - serviceStarted6516}",
+                        )
+                    } catch (_: Throwable) {}
+                }
                 try {
                     canonicalBootstrapJob6515?.join()
                     check(canonicalBootstrapReady6515 && canonicalBootstrapSucceeded6515) {
                         "canonical bootstrap unavailable"
                     }
+                    bootstrapPhase6516("CANONICAL_READY")
                     FeeRetryQueue.init(applicationContext)
                     FeeAccumulator.init(applicationContext)
                     ScannerHardRejectStore.init(applicationContext)
@@ -1769,6 +1778,7 @@ class BotService : Service() {
         // and closeout sentinels. No scanner, FDG, sizing, routing, wallet, or
         // execution authority; this only makes theatre-vs-runtime visible.
         try { SmartSystemRuntimeRegistry.emitStartupProof() } catch (_: Throwable) {}
+        bootstrapPhase6516("CORE_STORES_READY")
 
 
         // V5.9.69: Initialize PatternClassifier — online logistic-regression
@@ -2067,6 +2077,7 @@ class BotService : Service() {
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "LiveExecutionGate configure error: ${e.message}", e)
         }
+        bootstrapPhase6516("LEARNING_AND_EXECUTION_STORES_READY")
         
         // V5.6.28: Initialize CashGenerationAI for treasury persistence
         try {
@@ -2162,6 +2173,7 @@ class BotService : Service() {
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "PerpsLearningBridge init error: ${e.message}", e)
         }
+        bootstrapPhase6516("MODEL_AND_LAYER_STATE_READY")
         
         // V5.7.3: Start ALL market traders — ALWAYS run when bot is active
         // V5.7.7: Apply individual sub-trader enabled flags from config before starting
@@ -2433,6 +2445,7 @@ class BotService : Service() {
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "CryptoAltTrader start error: ${e.message}", e)
         }
+        bootstrapPhase6516("TRADER_ENGINES_STARTED")
 
         // V5.9.54: One-time unified-paper-wallet reconciliation migration.
         // V5.9.48 started crediting every sub-trader open/close into
@@ -2596,6 +2609,7 @@ class BotService : Service() {
         } catch (e: Exception) {
             ErrorLogger.debug("BotService", "Markets trust quarantine error: ${e.message}")
         }
+        bootstrapPhase6516("AUXILIARY_FEEDS_READY")
 
         // V5.9.646 — onCreate-anchored meme scanner self-heal.
         //

@@ -215,6 +215,16 @@ wait_log_marker() {
         sleep 2
     done
     echo "::error::$label timed out waiting for $marker"
+    # Preserve the device state before `set -e` tears down the emulator. The
+    # previous timeout uploaded only UI XML, which made a genuine bootstrap
+    # stall impossible to distinguish from a crash or rejected Start intent.
+    adb logcat -d -v time > "$WS/logcat_full.txt" || true
+    adb shell dumpsys activity activities > "$WS/activity_dump.txt" || true
+    adb shell dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' || true
+    echo "=== timeout diagnostics: AATE lifecycle/bootstrap tail ==="
+    adb logcat -d -v time | grep -E \
+        'AATE|BotService|AndroidRuntime|FATAL EXCEPTION|ANR|UI_START|LIFECYCLE_START|SERVICE_BOOTSTRAP|CANONICAL_BOOTSTRAP|START_DEFERRED|START_RESUMED' \
+        | tail -n 240 || true
     return 1
 }
 
@@ -238,7 +248,11 @@ fi
 # First real UI Start from a cold service + max persisted state.
 ui_tap id btnToggle ui_start_1.xml
 wait_log_marker "UI_RUNTIME_TOGGLE_TAP_6517" 20 "first UI tap"
-wait_log_marker "SERVICE_BOOTSTRAP_READY_6516" 180 "persisted bootstrap"
+wait_log_marker "UI_START_DISPATCHED_6517" 20 "first UI dispatch"
+# The test deliberately loads the hard-cap 8,192-event ledger on a throttled
+# emulator. Keep a finite six-minute ceiling while the phase diagnostics below
+# identify any pathological initializer; readiness is still mandatory.
+wait_log_marker "SERVICE_BOOTSTRAP_READY_6516" 360 "persisted bootstrap"
 wait_log_marker "BOT_LOOP_TICK" 60 "first runtime loop"
 
 # Real UI Stop, including the confirmation dialog.
