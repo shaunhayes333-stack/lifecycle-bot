@@ -70,11 +70,12 @@ object PaperCapitalAuthority6577 {
     private val equityConservationViolations = AtomicLong(0L)
 
     fun snapshot(): PaperAccountSnapshot {
-        val cash = try { PaperAccountLedger6430.cashSol() } catch (_: Throwable) { 0.0 }
-        val open = try { PaperAccountLedger6430.openCostBasisSol() } catch (_: Throwable) { 0.0 }
-        val realized = try { PaperAccountLedger6430.realizedPnlSol() } catch (_: Throwable) { 0.0 }
-        val fees = try { PaperAccountLedger6430.feesSol() } catch (_: Throwable) { 0.0 }
-        val start = try { PaperAccountLedger6430.startingCashSol() } catch (_: Throwable) { 0.0 }
+        val ledger = try { PaperAccountLedger6430.snapshotAtomic6643() } catch (_: Throwable) { null }
+        val cash = ledger?.cashSol ?: 0.0
+        val open = ledger?.openCostBasisSol ?: 0.0
+        val realized = ledger?.realizedPnlSol ?: 0.0
+        val fees = ledger?.feesSol ?: 0.0
+        val start = ledger?.startingCashSol ?: 0.0
         return PaperAccountSnapshot(
             accountId = ACCOUNT_ID,
             availableCashSol = cash,
@@ -83,7 +84,7 @@ object PaperCapitalAuthority6577 {
             feesSol = fees,
             totalEquitySol = cash + open,
             startingCashSol = start,
-            timestampMs = System.currentTimeMillis(),
+            timestampMs = ledger?.capturedAtMs ?: System.currentTimeMillis(),
         )
     }
 

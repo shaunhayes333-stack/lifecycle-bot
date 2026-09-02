@@ -47,4 +47,27 @@ class Aate6641IntelligenceAuthorityTest {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SentientPersonality.kt").readText()
         assertTrue(src.contains("Creative musing (not live telemetry):"))
     }
+
+    @Test fun paper_pattern_learning_waits_for_durable_economic_settlement() {
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val classifier = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PatternClassifier.kt").readText()
+        assertTrue(executor.contains("CanonicalEconomicEvent6635.afterCommitted(eventId, patternEntry6643)"))
+        assertTrue(executor.contains("CanonicalEconomicEvent6635.afterCommitted(eventId, patternExit6643)"))
+        assertTrue(classifier.contains("pending.putIfAbsent(positionKey, features.copyOf())"))
+        assertFalse(classifier.contains("val paperGraduated = totalSamples >= 200"))
+    }
+
+    @Test fun paper_ui_renders_only_unified_account_snapshot() {
+        val uiRoot = java.io.File("src/main/kotlin/com/lifecyclebot/ui")
+        val files = listOf("MainActivity.kt", "CryptoAltActivity.kt", "MultiAssetActivity.kt")
+        files.forEach { name ->
+            val src = java.io.File(uiRoot, name).readText()
+            assertTrue("$name must consume unified account authority", src.contains("UnifiedAccountSnapshot6635"))
+        }
+        val behavior = java.io.File(uiRoot, "BehaviorActivity.kt").readText()
+        val reset = behavior.substringAfter("USER_BEHAVIOR_UI_RESET_6618").substringBefore("setNegativeButton")
+        assertFalse(reset.contains("paperWalletSol ="))
+        assertFalse(reset.contains("forceSetBalance"))
+        assertFalse(reset.contains("paper_wallet_sol"))
+    }
 }

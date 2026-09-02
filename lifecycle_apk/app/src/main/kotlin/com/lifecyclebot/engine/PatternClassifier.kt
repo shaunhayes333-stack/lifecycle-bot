@@ -75,7 +75,7 @@ object PatternClassifier {
     private const val MIN_LIVE_GRADUATION = 50
     private const val MIN_LIVE_WINRATE = 0.55
 
-    // ── pending entries, keyed by mint ──────────────────────────────────
+    // ── pending entries, keyed by sealed position identity ──────────────
     private val pending = ConcurrentHashMap<String, DoubleArray>()
 
     private var prefs: SharedPreferences? = null
@@ -179,18 +179,18 @@ object PatternClassifier {
     // LEARN
     // ═══════════════════════════════════════════════════════════════════
     /** Stash feature vector at BUY time. */
-    fun noteEntry(mint: String, features: DoubleArray) {
-        if (mint.isBlank()) return
-        pending[mint] = features
+    fun noteEntry(positionKey: String, features: DoubleArray) {
+        if (positionKey.isBlank()) return
+        pending.putIfAbsent(positionKey, features.copyOf())
     }
 
     /**
      * On SELL, look up the stashed vector and run one SGD step.
      * pnlPct convention: >=0.5 => win, <=-2.0 => loss, else scratch (ignored).
      */
-    fun noteExit(mint: String, pnlPct: Double, isLive: Boolean) {
-        if (mint.isBlank()) return
-        val x = pending.remove(mint) ?: return
+    fun noteExit(positionKey: String, pnlPct: Double, isLive: Boolean) {
+        if (positionKey.isBlank()) return
+        val x = pending.remove(positionKey) ?: return
 
         val isWin = pnlPct >= 1.0  // V5.9.185: unified 1%
         val isLoss = pnlPct <= -2.0
@@ -246,7 +246,7 @@ object PatternClassifier {
         // Persist every 10 samples so we don't thrash SharedPreferences.
         if (totalSamples % 10 == 0) save()
 
-        ErrorLogger.debug(TAG, "step mint=${mint.take(8)} y=${if (isWin) "W" else "L"} " +
+        ErrorLogger.debug(TAG, "step position=${positionKey.take(16)} y=${if (isWin) "W" else "L"} " +
             "p=${"%.3f".format(p)} err=${"%.3f".format(err)} α=${"%.4f".format(alpha)} " +
             "total=$totalSamples")
     }
@@ -294,8 +294,7 @@ object PatternClassifier {
         // classifier is paper-graduated (≥200 total samples and predictWinProb
         // not at chance), live inherits the same boost as paper.
         if (!isPaperMode) {
-            val paperGraduated = totalSamples >= 200
-            if (!paperGraduated && trainedLiveSamples < MIN_LIVE_GRADUATION) return 0
+            if (trainedLiveSamples < MIN_LIVE_GRADUATION) return 0
             // Tier 2: even if paper-graduated, if a live mini-cohort exists
             // and is severely underwater, throttle confidence (legitimate
             // real-money safety). Don't gate on liveWinRate alone — it could
@@ -320,8 +319,7 @@ object PatternClassifier {
     fun getSizeMultiplier(features: DoubleArray, isPaperMode: Boolean): Double {
         if (totalSamples < 20) return 1.0
         if (!isPaperMode) {
-            val paperGraduated = totalSamples >= 200
-            if (!paperGraduated && trainedLiveSamples < MIN_LIVE_GRADUATION) return 1.0
+            if (trainedLiveSamples < MIN_LIVE_GRADUATION) return 1.0
             if (trainedLiveSamples >= MIN_LIVE_GRADUATION && liveWinRate() < MIN_LIVE_WINRATE) return 1.0
         }
         val p = predictWinProb(features)

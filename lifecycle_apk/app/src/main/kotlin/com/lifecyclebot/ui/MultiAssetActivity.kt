@@ -718,7 +718,7 @@ class MultiAssetActivity : AppCompatActivity() {
     private suspend fun checkAndRefreshBalance() {
         // Sync Markets sub-traders from FluidLearning (meme bot master balance)
         val masterSol = try {
-            com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+            com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.read("MARKETS_SYNC").cashSol
         } catch (_: Exception) { 0.0 }
 
         if (masterSol <= 0.0) return // Nothing to sync yet
@@ -735,7 +735,9 @@ class MultiAssetActivity : AppCompatActivity() {
     
     // V5.9.8: All traders share one wallet — total IS the shared balance
     private fun getTotalMarketsBalance(): Double {
-        return com.lifecyclebot.engine.BotService.status.paperWalletSol
+        return try {
+            com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.read("MARKETS_DIALOG").cashSol
+        } catch (_: Throwable) { 0.0 }
     }
     
     // V5.9.8: No-op — all traders read from shared BotService.status.paperWalletSol
@@ -1287,21 +1289,14 @@ class MultiAssetActivity : AppCompatActivity() {
                 //   CASH (was totalEquitySol). Prefer the revision-tracked
                 //   JournalEconomicAuthority6616 snapshot — falls back to
                 //   PaperCapitalAuthority6577 only before first publish.
-                val journalSnap6616 = try {
-                    com.lifecyclebot.engine.truth.JournalEconomicAuthority6616.currentSnapshot()
+                val unified6635 = try {
+                    com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.read("MARKETS")
                 } catch (_: Throwable) { null }
-                val paperSnap6577 = com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.snapshot()
-                // V5.0.6629 §6 PAPER_ECONOMIC_SNAPSHOT_SINGLE_AUTHORITY — MARKETS
-                // hero reads the same canonical snapshot as MEME and CRYPTO.
-                val heroSnap6629 = try {
-                    com.lifecyclebot.engine.truth.PaperEconomicSnapshot6629.read6629("MARKETS")
-                } catch (_: Throwable) { null }
-                val paperBalanceSol = heroSnap6629?.cashSol ?: journalSnap6616?.cashSol ?: paperSnap6577.availableCashSol
-                val paperEquitySol = heroSnap6629?.equitySol ?: journalSnap6616?.equitySol ?: paperSnap6577.totalEquitySol
+                val paperBalanceSol = unified6635?.cashSol ?: 0.0
+                val paperEquitySol = unified6635?.equitySol ?: 0.0
                 // Legacy telemetry only — divergence between the old lane-PnL
                 // formula and the canonical authority is recorded but does not
                 // authoritatively drive the UI anymore.
-                val paperBaseSol = com.lifecyclebot.engine.BotService.status.paperWalletSol
                 val marketsPnlSol = try {
                     TokenizedStockTrader.getTotalPnlSol() +
                     CommoditiesTrader.getTotalPnlSol() +
@@ -1311,9 +1306,9 @@ class MultiAssetActivity : AppCompatActivity() {
                     PerpsTraderAI.getLifetimePnlSol()
                 } catch (_: Exception) { 0.0 }
                 try {
-                    com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.probeUiCash(
-                        "MultiAssetActivity", paperBaseSol + marketsPnlSol - paperSnap6577.openMarketValueSol
-                    )
+                    // Lane PnL is diagnostic only; never recombine it into cash.
+                    if (marketsPnlSol.isFinite()) com.lifecyclebot.engine.PipelineHealthCollector
+                        .labelInc("MARKETS_LANE_PNL_DIAGNOSTIC_ONLY_6643")
                 } catch (_: Throwable) {}
 
                 // Get SOL price — Pyth first, cached fallback
@@ -1337,6 +1332,11 @@ class MultiAssetActivity : AppCompatActivity() {
                         tvTotalBalance.setTextColor(0xFF00FF88.toInt())
                         balanceContainer.contentDescription =
                             "Live: \$${"%,.0f".format(usdValue)} (${"%.2f".format(liveWalletSol)} SOL)"
+                    } else if (unified6635?.status != com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED) {
+                        tvTotalBalance.text = "ACCOUNTING ERROR"
+                        tvTotalBalance.setTextColor(0xFFEF4444.toInt())
+                        balanceContainer.contentDescription = unified6635?.forensicLine
+                            ?: "Paper accounting has not reconciled. Balance withheld."
                     } else {
                         val usdValue = paperBalanceSol * solPriceUsd
                         tvTotalBalance.text = "\$${"%,.0f".format(usdValue)} PAPER"
@@ -2998,7 +2998,6 @@ class MultiAssetActivity : AppCompatActivity() {
         builder.show()
     }
 }
-
 
 
 

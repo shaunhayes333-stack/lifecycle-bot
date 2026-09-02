@@ -104,6 +104,7 @@ object CanonicalEconomicEvent6635 {
     }
 
     private val events = ConcurrentHashMap<String, CommitState>()
+    private val commitListeners = ConcurrentHashMap<String, java.util.concurrent.ConcurrentLinkedQueue<() -> Unit>>()
     private val positionIndex = ConcurrentHashMap<String, String>() // positionId → last-opening event
     private val byMint = ConcurrentHashMap<String, MutableList<String>>() // canonicalMint → eventIds
     private val lock = ReentrantLock()
@@ -113,6 +114,32 @@ object CanonicalEconomicEvent6635 {
     private val committed = AtomicLong(0L)
     private val pending = AtomicLong(0L)
     private val stuck = AtomicLong(0L)
+
+    /** Queue learning/analytics until every economic store has committed. */
+    fun afterCommitted(economicEventId: String, listener: () -> Unit): Boolean {
+        if (economicEventId.isBlank() || !events.containsKey(economicEventId)) return false
+        val queue = commitListeners.computeIfAbsent(economicEventId) {
+            java.util.concurrent.ConcurrentLinkedQueue()
+        }
+        queue.add(listener)
+        if (events[economicEventId]?.terminal == Terminal.COMMITTED) {
+            drainCommitListeners(economicEventId)
+        }
+        return true
+    }
+
+    fun isCommitted(economicEventId: String): Boolean =
+        events[economicEventId]?.terminal == Terminal.COMMITTED
+
+    private fun drainCommitListeners(economicEventId: String) {
+        val queue = commitListeners.remove(economicEventId) ?: return
+        while (true) {
+            val listener = queue.poll() ?: break
+            try { listener() } catch (_: Throwable) {
+                try { PipelineHealthCollector.labelInc("CANONICAL_POST_COMMIT_LISTENER_FAILED_6643") } catch (_: Throwable) {}
+            }
+        }
+    }
 
     /** Mint an event ID.  UUID-based for uniqueness across process restarts. */
     fun mintEventId(prefix: String = "AATE"): String =
@@ -205,6 +232,7 @@ object CanonicalEconomicEvent6635 {
                 PipelineHealthCollector.labelInc("CANONICAL_EVENT_COMMITTED_${state.event.side.name}_6635")
                 PipelineHealthCollector.labelInc("PAPER_ATOMIC_COMMIT_OK_6635")
             } catch (_: Throwable) {}
+            drainCommitListeners(state.event.economicEventId)
         }
     }
 
@@ -306,6 +334,7 @@ object CanonicalEconomicEvent6635 {
             .minByOrNull { it.value.completedAtMs }
             ?.key ?: return
         events.remove(oldest)
+        commitListeners.remove(oldest)
     }
 
     fun statusLine6635(): String =
@@ -313,7 +342,7 @@ object CanonicalEconomicEvent6635 {
             "stuck=${stuck.get()} inRing=${events.size}"
 
     internal fun resetForTest() {
-        events.clear(); positionIndex.clear(); byMint.clear()
+        events.clear(); positionIndex.clear(); byMint.clear(); commitListeners.clear()
         opened.set(0L); committed.set(0L); pending.set(0L); stuck.set(0L)
     }
 }

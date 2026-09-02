@@ -2471,11 +2471,9 @@ for legal compliance.
             if (!ledger.isAuthorityInitialized6489()) {
                 ledger.initPersistent6487(applicationContext, cfg.paperSimulatedBalance)
             }
-            // Legacy status is a projection of canonical deployable cash only;
-            // the headline wallet surface reads CanonicalCapitalAuthority equity.
-            com.lifecyclebot.engine.BotService.status.paperWalletSol = ledger.cashSol()
-            com.lifecyclebot.engine.BotService.status.paperWalletInitialized = true
-            com.lifecyclebot.engine.BotService.status.paperWalletLastRefreshMs = System.currentTimeMillis()
+            // UI cold-open may initialise persistence, but must never publish a
+            // competing balance projection into BotService status. Every screen
+            // renders UnifiedAccountSnapshot6635 only.
             com.lifecyclebot.engine.ErrorLogger.info(
                 "MainActivity",
                 "PAPER_CANONICAL_COLD_OPEN_6489 ($reason): cash=${"%.4f".format(ledger.cashSol())} SOL"
@@ -3169,31 +3167,13 @@ for legal compliance.
         //   still surfaced in the contentDescription for screen readers.
         val config = state.config // V5.9.706 — use pre-loaded config from UiState (avoid AES-GCM decrypt on main thread)
         val solPx  = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..500.0 } ?: 85.0
-        val walletSnap6451 = if (config.paperMode) {
-            try { com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
-        } else null
-        // V5.0.6629 §6 PAPER_ECONOMIC_SNAPSHOT_SINGLE_AUTHORITY — every hero
-        // surface now reads through PaperEconomicSnapshot6629 so the MEME
-        // hero, CRYPTO hero and MARKETS hero all consume the same revision
-        // and any per-surface drift is counted at its causal origin.
-        val heroSnap6629 = if (config.paperMode) {
-            try { com.lifecyclebot.engine.truth.PaperEconomicSnapshot6629.read6629("MEME") } catch (_: Throwable) { null }
-        } else null
-        val journalSnap6616 = if (config.paperMode) {
-            try { com.lifecyclebot.engine.truth.JournalEconomicAuthority6616.currentSnapshot() } catch (_: Throwable) { null }
-        } else null
         val unifiedSnap6635 = if (config.paperMode) {
             try { com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.read("MEME") } catch (_: Throwable) { null }
         } else null
         val paperAccountingSafe6640 = !config.paperMode ||
             unifiedSnap6635?.status == com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED
         val balSol = if (config.paperMode) {
-            // V5.0.6629 — bind big number to canonical PaperEconomicSnapshot6629.
-            //   Falls back to JournalEconomicAuthority6616 (same source, older
-            //   path) and then to CanonicalCapitalAuthority6450 only when the
-            //   journal authority has not published yet (pre-restore).
-            //   Never fabricates a value.
-            heroSnap6629?.cashSol ?: journalSnap6616?.cashSol ?: walletSnap6451?.cashSol ?: 0.0
+            unifiedSnap6635?.cashSol ?: 0.0
         } else {
             ws.solBalance
         }
@@ -3226,17 +3206,14 @@ for legal compliance.
                 // V5.0.6629 §6 — subtitle CASH also reads from the canonical
                 // hero snapshot so the big number and the subtitle can never
                 // disagree (was walletSnap6451?.cashSol which is ledger-derived).
-                if (config.paperMode) "PAPER · CASH ${"%.4f".format(heroSnap6629?.cashSol ?: journalSnap6616?.cashSol ?: walletSnap6451?.cashSol ?: 0.0)} SOL" else "LIVE"
+                if (config.paperMode) "PAPER · CASH ${"%.4f".format(unifiedSnap6635?.cashSol ?: 0.0)} SOL" else "LIVE"
             )
-            tvBalanceUsd.contentDescription = if (config.paperMode && walletSnap6451 != null) {
-                // 5-surface canonical breakdown (§6451). Operator now sees
-                // CASH / OPEN_MV / UNREALIZED / REALIZED / EQUITY as
-                // distinct numbers, not one conflated "wallet balance".
-                "CASH ${"%.4f".format(walletSnap6451.cashSol)} SOL · " +
-                    "OPEN_MV ${"%.4f".format(walletSnap6451.openMarketValueSol)} SOL · " +
-                    "UNREALIZED ${"%.4f".format(walletSnap6451.unrealizedPnlSol)} SOL · " +
-                    "REALIZED ${"%.4f".format(walletSnap6451.realizedPnlSol)} SOL · " +
-                    "EQUITY ${"%.4f".format(walletSnap6451.totalEquitySol)} SOL"
+            tvBalanceUsd.contentDescription = if (config.paperMode && unifiedSnap6635 != null) {
+                "CASH ${"%.4f".format(unifiedSnap6635.cashSol)} SOL · " +
+                    "UNREALIZED ${"%.4f".format(unifiedSnap6635.unrealizedPnlSol)} SOL · " +
+                    "REALIZED ${"%.4f".format(unifiedSnap6635.realizedPnlSol)} SOL · " +
+                    "EQUITY ${"%.4f".format(unifiedSnap6635.equitySol)} SOL · " +
+                    "POSITIONS ${unifiedSnap6635.openPositionsCount}"
             } else if (config.paperMode) {
                 "Paper total equity ${"%.4f".format(balSol)} SOL. Cash unavailable until ledger hydration."
             } else "Live wallet ${"%.4f".format(balSol)} SOL."
@@ -3268,7 +3245,7 @@ for legal compliance.
             }
             tvBalanceUsd.setTextIfChanged(
                 // V5.0.6629 §6 — canonical hero snapshot for the fallback subtitle.
-                if (config.paperMode) "PAPER · CASH ${"%.4f".format(heroSnap6629?.cashSol ?: journalSnap6616?.cashSol ?: walletSnap6451?.cashSol ?: 0.0)} SOL" else "LIVE"
+                if (config.paperMode) "PAPER · CASH ${"%.4f".format(unifiedSnap6635?.cashSol ?: 0.0)} SOL" else "LIVE"
             )
         }
 
@@ -3282,12 +3259,8 @@ for legal compliance.
             try {
                 // V5.0.6629 §6 — every hero render uses the canonical snapshot
                 // so the parity probe reads the SAME values the operator sees.
-                val displayedCash6616 = heroSnap6629?.cashSol
-                    ?: journalSnap6616?.cashSol
-                    ?: walletSnap6451?.cashSol ?: 0.0
-                val displayedEquity6616 = heroSnap6629?.equitySol
-                    ?: journalSnap6616?.equitySol
-                    ?: walletSnap6451?.totalEquitySol ?: displayedCash6616
+                val displayedCash6616 = unifiedSnap6635?.cashSol ?: 0.0
+                val displayedEquity6616 = unifiedSnap6635?.equitySol ?: displayedCash6616
                 com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
                     .recordHeroRender("MEME", displayedCash6616, displayedEquity6616)
                 com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
@@ -3692,7 +3665,8 @@ for legal compliance.
                 // equity, not the treasury sub-account. If canonical is
                 // unavailable, fall back to the legacy counter.
                 val canonicalPaperEquitySol6596 = try {
-                    com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.totalEquitySol()
+                    val snap = com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.read("TREASURY_TIER")
+                    if (snap.status == com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED) snap.equitySol else 0.0
                 } catch (_: Throwable) { 0.0 }
                 trs = if (canonicalPaperEquitySol6596 > 0.0) canonicalPaperEquitySol6596
                       else com.lifecyclebot.engine.TreasuryManager.treasurySol
@@ -7922,7 +7896,8 @@ for legal compliance.
             // every hero reads the same immutable snapshot.
             val balance = if (cfg.paperMode) {
                 try {
-                    com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.totalEquitySol()
+                    val snap = com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.read("PERPS_CARD")
+                    if (snap.status == com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED) snap.equitySol else 0.0
                 } catch (_: Throwable) { state.paperBalanceSol }
             } else state.liveBalanceSol
             tvPerpsBalance?.text = "%.4f".format(balance)
@@ -8329,7 +8304,8 @@ This cannot be undone!
             .setPositiveButton("RESET") { dialog, _ ->
                 try {
                     // Get current wallet balance for fresh start
-                    val currentWalletBalance = com.lifecyclebot.engine.BotService.status.paperWalletSol
+                    val currentWalletBalance = com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635
+                        .read("RUN_TRACKER_RESET").cashSol
 
                     // Reset the tracker
                     tracker.reset()

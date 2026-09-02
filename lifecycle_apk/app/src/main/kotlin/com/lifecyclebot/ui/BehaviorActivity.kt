@@ -177,15 +177,9 @@ class BehaviorActivity : AppCompatActivity() {
                             // three heroes actually read since V5.0.6577.
                             com.lifecyclebot.engine.truth.PaperAccountLedger6430
                                 .resetToFreshBalance6618(freshSol, "USER_BEHAVIOR_UI_RESET_6618")
-                            // Legacy mirror kept in sync for older UI
-                            // surfaces (dashboards, alerts, wallet card
-                            // history charts) that still read paperWalletSol.
-                            com.lifecyclebot.engine.BotService.status.paperWalletSol = freshSol
-                            try { com.lifecyclebot.engine.FluidLearning.forceSetBalance(freshSol) } catch (_: Throwable) {}
-                            try {
-                                getSharedPreferences("bot_paper_wallet", android.content.Context.MODE_PRIVATE)
-                                    .edit().putFloat("paper_wallet_sol", freshSol.toFloat()).apply()
-                            } catch (_: Exception) {}
+                            // No legacy balance mirrors: duplicating canonical
+                            // cash into status, learning, and SharedPreferences
+                            // creates multiple future writers after reset.
                             android.widget.Toast.makeText(this, "Paper wallet reset to \$1000 (~11.76 SOL)", android.widget.Toast.LENGTH_SHORT).show()
                         } catch (e: Exception) {
                             ErrorLogger.warn("BehaviorUI", "Paper wallet reset failed: ${e.message}")

@@ -33,6 +33,17 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object PaperAccountLedger6430 {
 
+    data class LedgerSnapshot6643(
+        val startingCashSol: Double,
+        val cashSol: Double,
+        val reservedCashSol: Double,
+        val openCostBasisSol: Double,
+        val realizedPnlSol: Double,
+        val feesSol: Double,
+        val operationCount: Long,
+        val capturedAtMs: Long,
+    )
+
     private const val PICO_UNIT: Long = 1_000_000_000L  // 9 dp
 
     private fun toPico(sol: Double): Long =
@@ -101,6 +112,19 @@ object PaperAccountLedger6430 {
 
     fun hasPersistentState6487(): Boolean = prefs6487?.contains(STATE_6487) == true
     fun isAuthorityInitialized6489(): Boolean = startingCashPico.get() > 0L
+
+    /** One lock, one instant: readers cannot combine fields across a mutation. */
+    @Synchronized
+    fun snapshotAtomic6643(): LedgerSnapshot6643 = LedgerSnapshot6643(
+        startingCashSol = fromPico(startingCashPico.get()),
+        cashSol = fromPico(cashPico.get()),
+        reservedCashSol = fromPico(reservedCashPico.get()),
+        openCostBasisSol = fromPico(openCostBasisPico.get()),
+        realizedPnlSol = fromPico(realizedPnlPico.get()),
+        feesSol = fromPico(feesPico.get()),
+        operationCount = opCount.get(),
+        capturedAtMs = System.currentTimeMillis(),
+    )
 
     fun initialize(startingCashSol: Double) {
         val p = toPico(startingCashSol.coerceAtLeast(0.0))

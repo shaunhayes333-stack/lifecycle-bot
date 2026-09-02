@@ -1347,6 +1347,8 @@ object EducationSubLayerAI {
         val pnlSol: Double = 0.0,
         val executionMode: String = "unknown",
         val proofState: String = "unknown",
+        // Canonical economic settlement that authorized this lesson.
+        val economicEventId: String = "",
     ) {
         // V5.9.342 — REVERT V5.9.341 isWin tweak.
         // After audit the >-0.5% threshold turned out to be inert for layer

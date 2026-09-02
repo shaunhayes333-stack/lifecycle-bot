@@ -376,24 +376,25 @@ class CryptoAltActivity : AppCompatActivity() {
         //   the same journal revision. CryptoAltTrader.getBalance()
         //   already delegates to PaperCapitalAuthority6577 in paper
         //   mode, so the fallback preserves live-mode behaviour.
-        val journalSnap6616 = try {
-            com.lifecyclebot.engine.truth.JournalEconomicAuthority6616.currentSnapshot()
-        } catch (_: Throwable) { null }
-        // V5.0.6629 §6 PAPER_ECONOMIC_SNAPSHOT_SINGLE_AUTHORITY — hero
-        // read via the canonical facade so CRYPTO hero shares the same
-        // revision as MEME and MARKETS.
-        val heroSnap6629 = try {
-            com.lifecyclebot.engine.truth.PaperEconomicSnapshot6629.read6629("CRYPTO")
-        } catch (_: Throwable) { null }
-        val bal    = heroSnap6629?.cashSol ?: journalSnap6616?.cashSol ?: CryptoAltTrader.getBalance()
-        val equity = heroSnap6629?.equitySol ?: journalSnap6616?.equitySol ?: bal
+        val isLive = CryptoAltTrader.isLiveMode()
+        val unified = if (!isLive) try {
+            com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.read("CRYPTO")
+        } catch (_: Throwable) { null } else null
+        val bal = if (isLive) CryptoAltTrader.getBalance() else unified?.cashSol ?: 0.0
+        val equity = if (isLive) bal else unified?.equitySol ?: bal
         val pnl    = CryptoAltTrader.getTotalPnlSol()
         val wr     = CryptoAltTrader.getWinRate()
         val trades = CryptoAltTrader.getTotalTrades()
         val phase  = getPhaseLabel()
         // V5.9.5: Show USD as main balance
         val solUsdPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..500.0 } ?: 85.0 //
-        tvHeroBalance.text = if (solUsdPrice >= 50.0) "$${"%,.0f".format(bal * solUsdPrice)}" else "◎ ${"%.4f".format(bal)}"
+        val paperSafe = isLive || unified?.status == com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED
+        tvHeroBalance.text = if (!paperSafe) "ACCOUNTING ERROR"
+            else if (solUsdPrice >= 50.0) "$${"%,.0f".format(bal * solUsdPrice)}"
+            else "◎ ${"%.4f".format(bal)}"
+        tvHeroBalance.contentDescription = if (!paperSafe) unified?.forensicLine
+            ?: "Paper accounting has not reconciled. Balance withheld."
+        else "Cash ${"%.4f".format(bal)} SOL, equity ${"%.4f".format(equity)} SOL"
         val pnlUsd = pnl * solUsdPrice
         tvHeroPnl.text     = "${if (pnlUsd >= 0) "+" else ""}$${"%.2f".format(pnlUsd)} (${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)} SOL)"
         tvHeroPnl.setTextColor(if (pnl >= 0) green else red)

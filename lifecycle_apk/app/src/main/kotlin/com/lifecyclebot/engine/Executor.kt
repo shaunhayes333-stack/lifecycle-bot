@@ -4272,7 +4272,18 @@ class Executor(
         // BUY: stash features. SELL: run one SGD step on the outcome.
         try {
             if (trade.side == "BUY") {
-                PatternClassifier.noteEntry(ts.mint, PatternClassifier.extract(ts))
+                val patternKey6643 = tradeWithMint.positionId.ifBlank { ts.mint }
+                val patternFeatures6643 = PatternClassifier.extract(ts)
+                val patternEntry6643 = {
+                    PatternClassifier.noteEntry(patternKey6643, patternFeatures6643)
+                    try { PipelineHealthCollector.labelInc("PATTERN_ENTRY_DURABLE_DELIVERED_6643") } catch (_: Throwable) {}
+                }
+                if (tradeWithMint.mode.equals("paper", true)) {
+                    val eventId = tradeWithMint.economicEventId
+                    if (!com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.afterCommitted(eventId, patternEntry6643)) {
+                        try { PipelineHealthCollector.labelInc("PATTERN_ENTRY_MISSING_ECONOMIC_EVENT_6643") } catch (_: Throwable) {}
+                    }
+                } else patternEntry6643()
                 // V5.9.380 — capture each of the 26 meme layers' votes at
                 // entry. On SELL closeout (below, ~line 803) we replay each
                 // vote into PerpsLearningBridge so layers diverge in accuracy
@@ -4286,11 +4297,21 @@ class Executor(
                 // not the final movement result; consuming the pending entry on the
                 // first partial made live learning miss the runner/round-trip label
                 // and made the bot feel like it never learned the real move.
-                PatternClassifier.noteExit(
-                    mint = ts.mint,
-                    pnlPct = trade.pnlPct,
-                    isLive = trade.mode.equals("live", ignoreCase = true)
-                )
+                val patternKey6643 = tradeWithMint.positionId.ifBlank { ts.mint }
+                val patternExit6643 = {
+                    PatternClassifier.noteExit(
+                        positionKey = patternKey6643,
+                        pnlPct = trade.pnlPct,
+                        isLive = trade.mode.equals("live", ignoreCase = true)
+                    )
+                    try { PipelineHealthCollector.labelInc("PATTERN_OUTCOME_DURABLE_DELIVERED_6643") } catch (_: Throwable) {}
+                }
+                if (tradeWithMint.mode.equals("paper", true)) {
+                    val eventId = tradeWithMint.economicEventId
+                    if (!com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.afterCommitted(eventId, patternExit6643)) {
+                        try { PipelineHealthCollector.labelInc("PATTERN_OUTCOME_MISSING_ECONOMIC_EVENT_6643") } catch (_: Throwable) {}
+                    }
+                } else patternExit6643()
             }
         } catch (_: Exception) {}
 
@@ -21669,21 +21690,23 @@ class Executor(
                 pnlSol = pnl,
                 executionMode = if (ts.position.isPaperPosition) "paper" else "live",
                 proofState = "canonical_finalized",
+                economicEventId = terminalId6474,
             )
-            
-            com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
-            try { com.lifecyclebot.engine.AutonomousMetaPolicy.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
-            // V5.0.4542 — do NOT train ForwardOutcomeModel/UnifiedPolicyHead/
-            // UnifiedExitPolicyHead from this legacy sell-local callback. V5.0.4514
-            // centralized those heads at Executor.recordTrade after TradeRowSanityCheck
-            // and StrategyTruthLedger gates. Training here duplicates/dirty-trains the
-            // policy heads and is one reason massive module wiring did not translate
-            // into profitable authority. Keep non-policy legacy learners below.
-            try { PipelineHealthCollector.labelInc("POLICY_HEAD_DIRECT_FANOUT_SUPPRESSED_4542") } catch (_: Throwable) {}
-            try { com.lifecyclebot.engine.SignalQualityTracker.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
-            try { com.lifecyclebot.engine.LayerBrain.recordOutcomeAll(ts.mint, pnlP) } catch (_: Throwable) {}  // V5.0.4111
-            try { com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
-            ErrorLogger.info("Executor", "🎓 HARVARD BRAIN: Recorded outcome for ${ts.symbol} | PnL=${pnlP.toInt()}% | Active layers will increase")
+
+            val queued6643 = com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.afterCommitted(terminalId6474) {
+                com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
+                try { com.lifecyclebot.engine.AutonomousMetaPolicy.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("POLICY_HEAD_DIRECT_FANOUT_SUPPRESSED_4542") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.SignalQualityTracker.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.LayerBrain.recordOutcomeAll(ts.mint, pnlP) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("INTELLIGENCE_DURABLE_SETTLEMENT_DELIVERED_6643") } catch (_: Throwable) {}
+                ErrorLogger.info("Executor", "🎓 HARVARD BRAIN: durable outcome ${ts.symbol} | event=${terminalId6474.take(24)} | PnL=${pnlP.toInt()}%")
+            }
+            if (!queued6643) {
+                try { PipelineHealthCollector.labelInc("INTELLIGENCE_DURABLE_SETTLEMENT_MISSING_6643") } catch (_: Throwable) {}
+                ErrorLogger.warn("Executor", "Harvard outcome rejected: missing canonical event $terminalId6474")
+            }
         } catch (e: Exception) {
             ErrorLogger.warn("Executor", "🎓 Harvard Brain recording failed: ${e.message}")
         }

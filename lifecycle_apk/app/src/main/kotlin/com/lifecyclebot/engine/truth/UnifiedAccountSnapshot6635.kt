@@ -65,6 +65,7 @@ object UnifiedAccountSnapshot6635 {
         )
     )
 
+    @Synchronized
     fun read(surface: String, mode: String = "paper"): Snapshot {
         reads.incrementAndGet()
         try { PipelineHealthCollector.labelInc("HERO_UNIFIED_SNAPSHOT_READ_6635") } catch (_: Throwable) {}
@@ -74,13 +75,15 @@ object UnifiedAccountSnapshot6635 {
         // delta counters rather than a cached stale line.
         try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
 
-        val cashLedger = try { PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { 0.0 }
-        val realized = try { PaperCapitalAuthority6577.realizedPnlSol() } catch (_: Throwable) { 0.0 }
-        val openCost = try { PaperCapitalAuthority6577.openCostBasisSol() } catch (_: Throwable) { 0.0 }
+        val capital = try { PaperCapitalAuthority6577.snapshot() } catch (_: Throwable) { null }
+        val cashLedger = capital?.availableCashSol ?: 0.0
+        val realized = capital?.realizedPnlSol ?: 0.0
+        val openCost = capital?.openMarketValueSol ?: 0.0
         val openPositions = try { CanonicalPositionAuthority6441.openPositions().count { it.mode == mode } } catch (_: Throwable) { 0 }
-        // Unrealized = current-market snapshot from PaperEconomicSnapshot6629.
-        val econ6629 = try { PaperEconomicSnapshot6629.read6629(surface) } catch (_: Throwable) { null }
-        val unrealized = try { econ6629?.unrealizedPnlSol ?: 0.0 } catch (_: Throwable) { 0.0 }
+        // Ledger currently carries cost-basis equity. Market marks remain
+        // diagnostic until they are captured in the same immutable account
+        // transaction; never splice a second-time snapshot into this read.
+        val unrealized = 0.0
         val equity = cashLedger + openCost + unrealized
 
         val forensicLine = try { ForensicReconciliation6635.healthLine6635() } catch (_: Throwable) { "" }
