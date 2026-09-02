@@ -190,7 +190,7 @@ object CanonicalEntryAuthority6551 {
     }
 
     fun markDispatch(intent: ExecutableOpenGate.ExecutionIntent) {
-        if (intent.attemptId in terminalByAttempt6647) return
+        if (terminalByAttempt6647.containsKey(intent.attemptId)) return
         if (dispatchedAttempts6569.add(intent.attemptId)) {
             dispatchHistory6647.add(intent.attemptId)
             dispatchedAtMs6647.putIfAbsent(intent.attemptId, System.currentTimeMillis())
@@ -238,7 +238,7 @@ object CanonicalEntryAuthority6551 {
     fun cardinalitySnapshot6647(): CardinalitySnapshot6647 = CardinalitySnapshot6647(
         immutableIntentsForDispatches = dispatchHistory6647.count { it in immutableIntentAttempts6647 }.toLong(),
         dispatches = dispatchHistory6647.size.toLong(),
-        terminalResultsForDispatches = dispatchHistory6647.count { it in terminalByAttempt6647 }.toLong(),
+        terminalResultsForDispatches = dispatchHistory6647.count { terminalByAttempt6647.containsKey(it) }.toLong(),
     )
 
     /** Cardinality for attempts whose one dispatch began inside the acceptance
@@ -253,7 +253,7 @@ object CanonicalEntryAuthority6551 {
         return CardinalitySnapshot6647(
             immutableIntentsForDispatches = attempts.count { it in immutableIntentAttempts6647 }.toLong(),
             dispatches = attempts.size.toLong(),
-            terminalResultsForDispatches = attempts.count { it in terminalByAttempt6647 }.toLong(),
+            terminalResultsForDispatches = attempts.count { terminalByAttempt6647.containsKey(it) }.toLong(),
         )
     }
 
