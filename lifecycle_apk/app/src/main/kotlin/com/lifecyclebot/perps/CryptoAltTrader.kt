@@ -2356,11 +2356,6 @@ object CryptoAltTrader {
         }
 
         val candidate = buildCryptoFinalBuyCandidate(signal, isSpot, finalSize)
-        try {
-            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markSized(
-                venue = venue6540, symbol = mktSym,
-            )
-        } catch (_: Throwable) {}
         com.lifecyclebot.perps.crypto.brain.CryptoFunnel.preFdg(candidate.canEnterFdg)
         val authResult = authorizeCryptoFinalCandidate(candidate)
         com.lifecyclebot.perps.crypto.brain.CryptoFunnel.execGate(authResult != null)
@@ -2380,9 +2375,6 @@ object CryptoAltTrader {
             return
         }
         try { ForensicLogger.phase(ForensicLogger.PHASE.LANE_EVAL, candidate.symbol, "lane=CRYPTO_ALT source=CANONICAL_HANDOFF_6566 score=${signal.score} confidence=${signal.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
-        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(
-            com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "CANDIDATE"
-        )
         val canonicalCryptoAdmission6565 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.submit(
             com.lifecyclebot.engine.truth.CanonicalAssetEntryCandidate6551(
                 assetId = candidate.assetKey, symbol = mktSym,
@@ -2429,30 +2421,11 @@ object CryptoAltTrader {
             // CRYPTO_ALT produced candidate=295 → intent=30 but dispatch=0
             // while SOLANA_TOKEN reported dispatch=30 with zero upstream.
             // Root cause: this path called the venue-only markers, which
-            // never bumpClass6567(CRYPTO_ALT). Class-attribute the auth,
-            // intent, and dispatch marks so the funnel per-asset counter
-            // reflects reality and the cross-asset "unexplained" balance
-            // stays zero.
-            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAuthAllowFor6551(
-                com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, mktSym,
-            )
-            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markIntentCreatedFor6551(
-                com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, mktSym,
-                "ALT_${positionCounter.get() + 1}",
-            )
-            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAdapterDispatchFor6551(
-                com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, mktSym,
-            )
-        } catch (_: Throwable) {}
-
-        val position = AltPosition(
-            id             = "ALT_${positionCounter.incrementAndGet()}",
-            market         = signal.market,
-            dynSymbol      = signal.dynSymbol,
-            dynName        = signal.dynName,
-            dynEmoji       = signal.dynEmoji,
-            dynMint        = signal.dynMint,
-            direction      = signal.direction,
+            // never bumpClass6567(CRYPTO_ALT). Class-attri        // V5.0.6647 — submit() owns CANDIDATE/SUBMIT/SIZED/ALLOW/INTENT,
+        // and markDispatch() owns DISPATCH. Do not mirror those transitions.
+        val cryptoPositionSeq6647 = positionCounter.incrementAndGet()
+        val cryptoPositionId6647 = "ALT_${System.currentTimeMillis()}_${candidate.candidateVersion}_${cryptoPositionSeq6647}"
+al.direction,
             isSpot         = isSpot,
             isPaper        = isPaperMode.get(),
             canonicalAssetKey = candidate.assetKey,
