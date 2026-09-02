@@ -1,0 +1,2 @@
+Build trigger for V5.0.6640 accounting-truth repair.
+Parent implementation commit: 894a24ec6a6d035ca99165e5e54be5c5ad43aac9
