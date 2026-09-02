@@ -8581,6 +8581,7 @@ class GoldenTapeRegressionTest {
         val smoke = java.io.File("../../ci/runtime-test.sh").readText()
         val receiver = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmokeTestReceiver.kt").readText()
         assertTrue(receiver.contains("start_service") && receiver.contains("SMOKE_UI_SETUP_ONLY_" + "6517"))
+        assertTrue("debug smoke setup must hit disk before force-stopping its auth task", receiver.contains(".commit()") && smoke.contains("am force-stop com.lifecyclebot.aate"))
         assertTrue(smoke.contains("--ez start_service false"))
         assertTrue(smoke.contains("ui_tap id btnToggle ui_start_1.xml"))
         assertTrue(smoke.contains("ui_tap text " + "\"Stop bot\""))

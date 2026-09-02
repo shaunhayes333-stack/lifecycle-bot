@@ -71,7 +71,7 @@ class SmokeTestReceiver : BroadcastReceiver() {
                 .putBoolean("is_setup", true)
                 .putString("pin_hash", "smoke-test-bypass-not-a-real-hash")
                 .putBoolean("use_biometric", false)
-                .apply()
+                .commit()
 
             // 2) Force paperMode in BotConfig so the smoke test never
             //    accidentally fires a live order on a CI emulator.
@@ -80,7 +80,7 @@ class SmokeTestReceiver : BroadcastReceiver() {
                 ctx.getSharedPreferences("bot_config", Context.MODE_PRIVATE)
             botPrefs.edit()
                 .putBoolean("paper_mode", paper)
-                .apply()
+                .commit()
 
             // V5.0.6517 — UI-only runtime smoke mode. Open MainActivity from
             // inside the debug app but DO NOT start BotService; ci/runtime-test.sh

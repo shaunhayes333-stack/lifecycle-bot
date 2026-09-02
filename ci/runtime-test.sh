@@ -147,6 +147,12 @@ echo "::group::V5.0.6517 — UI-only Start → Stop → Start-again acceptance"
 # MainActivity directly via `adb shell am start` — adb shell has the
 # START_ACTIVITIES_FROM_BACKGROUND privilege and can open exported=false
 # activities in the same package.
+# V5.0.6637b — the initial LAUNCHER probe leaves SecurityActivity as the
+# task root. Starting MainActivity over that unauthenticated Activity makes
+# SecurityActivity.onPause() correctly call finishAndRemoveTask(), which
+# removes the just-started MainActivity and returns CI to the launcher. The
+# receiver commits its debug-only prefs synchronously; force-stop then closes
+# the stale auth task before a clean explicit MainActivity launch.
 adb shell am broadcast \
     -a com.lifecyclebot.aate.SMOKE_AUTOSTART \
     -n com.lifecyclebot.aate/com.lifecyclebot.engine.SmokeTestReceiver \
@@ -154,6 +160,8 @@ adb shell am broadcast \
     --ez open_main false \
     --ez start_service false
 sleep 2
+adb shell am force-stop com.lifecyclebot.aate
+sleep 1
 adb shell am start -n com.lifecyclebot.aate/com.lifecyclebot.ui.MainActivity \
     --activity-clear-top --activity-single-top
 sleep 5
@@ -184,7 +192,13 @@ for node in root.iter("node"):
 raise SystemExit(1)
 PYTAP
 ) || true
-    [ -n "$coords" ] || { echo "::error::UI target missing/disabled mode=$mode value=$value dump=$dump"; return 1; }
+    if [ -z "$coords" ]; then
+        echo "::error::UI target missing/disabled mode=$mode value=$value dump=$dump"
+        adb logcat -d -v time > "$WS/logcat_full.txt" || true
+        adb shell dumpsys activity activities > "$WS/activity_dump.txt" || true
+        adb shell dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' || true
+        return 1
+    fi
     echo "UI tap mode=$mode value=$value coords=$coords"
     adb shell input tap $coords
 }

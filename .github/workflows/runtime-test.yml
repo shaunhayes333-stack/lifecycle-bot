@@ -102,6 +102,7 @@ jobs:
             funnel_summary.txt
             ui_dump.xml
             ui_*.xml
+            activity_dump.txt
             ui_first_cycle_logcat.txt
             logcat_second_start.txt
 
