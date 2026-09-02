@@ -56,7 +56,7 @@ class ExecutionSpineAcceptance6647Test {
         assertTrue(bot.contains("CANONICAL_OPEN_ROUTED_DIRECT_TO_EXIT_6647"))
         assertFalse(crypto.contains("positionCounter"))
         assertFalse(crypto.contains("TradeAuthorizer.authorize("))
-        assertTrue(crypto.contains("id             = \"ALT:${canonicalCryptoIntent6565.attemptId}\""))
+        assertTrue(crypto.contains("id             = \"ALT:${'$'}{canonicalCryptoIntent6565.attemptId}\""))
         assertTrue(authorizer.contains("!finality.allowed || finality.shadowOnly"))
         assertFalse(replay.contains("gross - t.pnlSol"))
         assertFalse(replay.contains("if (openCost < 0.0) openCost = 0.0"))
