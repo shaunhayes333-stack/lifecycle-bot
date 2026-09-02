@@ -26,8 +26,15 @@ object PaperEquityCalculator6467 {
         val mv = if (markedOpenValueSol.isFinite() && markedOpenValueSol >= 0.0) markedOpenValueSol else 0.0
         val equity = cash + mv
         val realized = try { PaperCapitalAuthority6577.realizedPnlSol() } catch (_: Throwable) { 0.0 }
-        val expected = baselineSol + realized
-        val delta = equity - expected - mv // mv is unrealized, not in expected
+        val fees = try { PaperCapitalAuthority6577.feesSol() } catch (_: Throwable) { 0.0 }
+        val openCost = try { PaperCapitalAuthority6577.openCostBasisSol() } catch (_: Throwable) { 0.0 }
+        // V5.0.6640 — conservation is a cost-basis identity.  The previous
+        // `equity - expected - mv` reduced to cash-baseline-realized and
+        // therefore reported every deployed/fee-paying account as corrupt.
+        // Mark-to-market value belongs to displayed equity, not this invariant.
+        val expectedAccounted = baselineSol + realized - fees
+        val actualAccounted = cash + openCost
+        val delta = actualAccounted - expectedAccounted
         val snap = Snapshot(cash, mv, equity, baselineSol, delta)
         lastSnap.set(snap)
         if (kotlin.math.abs(delta) > 0.02) {
@@ -36,7 +43,8 @@ object PaperEquityCalculator6467 {
             try {
                 ForensicLogger.lifecycle("PAPER_EQUITY_CONSERVATION_VIOLATION_6467",
                     "cash=${"%.4f".format(cash)} mv=${"%.4f".format(mv)} equity=${"%.4f".format(equity)} " +
-                    "baseline=${"%.4f".format(baselineSol)} realized=${"%.4f".format(realized)} delta=${"%.4f".format(delta)}")
+                    "baseline=${"%.4f".format(baselineSol)} realized=${"%.4f".format(realized)} fees=${"%.4f".format(fees)} " +
+                    "openCost=${"%.4f".format(openCost)} delta=${"%.4f".format(delta)}")
                 PipelineHealthCollector.labelInc("PAPER_EQUITY_CONSERVATION_VIOLATION_6467")
             } catch (_: Throwable) {}
         } else {

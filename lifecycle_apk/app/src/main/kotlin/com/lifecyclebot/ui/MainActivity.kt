@@ -3182,6 +3182,11 @@ for legal compliance.
         val journalSnap6616 = if (config.paperMode) {
             try { com.lifecyclebot.engine.truth.JournalEconomicAuthority6616.currentSnapshot() } catch (_: Throwable) { null }
         } else null
+        val unifiedSnap6635 = if (config.paperMode) {
+            try { com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.read("MEME") } catch (_: Throwable) { null }
+        } else null
+        val paperAccountingSafe6640 = !config.paperMode ||
+            unifiedSnap6635?.status == com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED
         val balSol = if (config.paperMode) {
             // V5.0.6629 — bind big number to canonical PaperEconomicSnapshot6629.
             //   Falls back to JournalEconomicAuthority6616 (same source, older
@@ -3206,7 +3211,16 @@ for legal compliance.
         // gives the operator every canonical number in accessible text
         // and adds an emission label so the pipeline dump can quote it.
 
-        if (balSol > 0.001) {
+        if (config.paperMode && !paperAccountingSafe6640) {
+            // V5.0.6640 — never render unreconciled paper economics as wealth.
+            // A loud unavailable state is safer than a plausible-looking but
+            // impossible USD balance while stores disagree.
+            tvBalanceLarge.setTextIfChanged("ACCOUNTING ERROR")
+            tvBalanceUsd.setTextIfChanged("PAPER · BALANCE WITHHELD")
+            tvBalanceUsd.contentDescription = unifiedSnap6635?.forensicLine
+                ?: "Paper accounting has not reconciled. Balance withheld."
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HERO_BALANCE_WITHHELD_UNRECONCILED_6640") } catch (_: Throwable) {}
+        } else if (balSol > 0.001) {
             tvBalanceLarge.setTextIfChanged(compactHeroBalance(balSol))
             tvBalanceUsd.setTextIfChanged(
                 // V5.0.6629 §6 — subtitle CASH also reads from the canonical

@@ -134,7 +134,20 @@ object InvariantGuardian {
         // made phaseCounts[FDG]/intake report a fake fanout explosion. Diagnose
         // fanout from unique gate outcomes (allow+block); keep raw FDG rows only
         // as telemetry.
-        val fdgDecisions = pipe?.let { (it.phaseAllow["FDG"] ?: 0L) + (it.phaseBlock["FDG"] ?: 0L) }?.takeIf { it > 0L } ?: s.fdg
+        // V5.0.6640 — `ExecutableOpenGate.recordFdg()` emits one canonical
+        // decision row per verdict, while some legacy lane paths also emit an
+        // informational FDG phase row and no gate row.  Falling back directly
+        // to phaseCounts therefore counted each verdict twice (e.g. 100 BLOCK
+        // verdicts became fdgDecisions=200) and raised a false fanout fault.
+        // Prefer canonical verdict outcomes, then gate outcomes, and use raw
+        // phase rows only for old builds that expose neither authority.
+        val canonicalVerdicts6640 = pipe?.verdictCounts?.values?.sum() ?: 0L
+        val gateVerdicts6640 = pipe?.let {
+            (it.phaseAllow["FDG"] ?: 0L) + (it.phaseBlock["FDG"] ?: 0L)
+        } ?: 0L
+        val fdgDecisions = canonicalVerdicts6640.takeIf { it > 0L }
+            ?: gateVerdicts6640.takeIf { it > 0L }
+            ?: s.fdg
         val fdgRatio = if (s.intake > 0) fdgDecisions.toDouble() / s.intake else 0.0
         // V5.0.6591 — accept multi-lane FDG breadth up to 4x/intake when the
         // pipeline is producing journal rows. 3.0 was set before FdgReEvalThrottle

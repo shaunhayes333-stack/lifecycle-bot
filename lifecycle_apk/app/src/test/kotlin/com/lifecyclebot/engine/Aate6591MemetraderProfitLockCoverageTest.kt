@@ -136,5 +136,12 @@ class Aate6591MemetraderProfitLockCoverageTest {
             "V5.0.6591: old bare fdgRatio > 3.0 must be replaced",
             Regex("""fdgRatio\s*>\s*3\.0\)\s*out\s*\+=\s*Fault""").containsMatchIn(guardian)
         )
+        assertTrue(
+            "V5.0.6640: FDG fanout must prefer canonical verdict outcomes so " +
+                "legacy phase+decision logging cannot double-count decisions",
+            guardian.contains("canonicalVerdicts6640") &&
+                guardian.contains("pipe?.verdictCounts?.values?.sum()") &&
+                guardian.indexOf("canonicalVerdicts6640.takeIf") < guardian.indexOf("gateVerdicts6640.takeIf")
+        )
     }
 }

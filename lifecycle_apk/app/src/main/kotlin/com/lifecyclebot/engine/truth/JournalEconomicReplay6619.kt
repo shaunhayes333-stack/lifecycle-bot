@@ -129,7 +129,11 @@ object JournalEconomicReplay6619 {
             return fast
         }
 
-        var cash = startingSol
+        // V5.0.6640 — observed transaction cash is diagnostic only.  The
+        // authoritative cash value is derived from the conservation identity
+        // after every row has been reduced.  A malformed-but-bounds-valid SELL
+        // must never turn its gross proceeds into fabricated hero wealth.
+        var observedTransactionCash = startingSol
         var realized = 0.0
         var openCost = 0.0
         var fees = 0.0
@@ -150,7 +154,7 @@ object JournalEconomicReplay6619 {
                 side == "BUY" -> {
                     val cost = t.sol.coerceAtLeast(0.0)
                     val fee = t.feeSol.coerceAtLeast(0.0)
-                    cash -= (cost + fee)
+                    observedTransactionCash -= (cost + fee)
                     openCost += cost
                     fees += fee
                     buys++
@@ -163,11 +167,14 @@ object JournalEconomicReplay6619 {
                     val basis = if (t.soldCostBasisSol > 0.0) t.soldCostBasisSol
                                 else (gross - t.pnlSol).coerceAtLeast(0.0)
                     val fee = t.feeSol.coerceAtLeast(0.0)
-                    val net = if (t.netPnlSol != 0.0) t.netPnlSol
-                              else (gross - basis - fee)
-                    cash += (gross - fee)
+                    // pnlSol is gross realized P&L; fees remain a separate
+                    // double-entry line. netPnlSol must not be combined with a
+                    // second fee subtraction in the account identity.
+                    val grossPnl = if (t.pnlSol.isFinite()) t.pnlSol
+                                   else (gross - basis)
+                    observedTransactionCash += (gross - fee)
                     openCost -= basis
-                    realized += net
+                    realized += grossPnl
                     fees += fee
                     if (side == "SELL") sells++ else partials++
                 }
@@ -178,7 +185,19 @@ object JournalEconomicReplay6619 {
         // soldCostBasisSol; clamp to zero for presentation (never
         // negative-cost basis is economic).
         if (openCost < 0.0) openCost = 0.0
+        val cash = startingSol + realized - fees - openCost
         val equity = cash + openCost
+        if (kotlin.math.abs(observedTransactionCash - cash) > 0.001) {
+            try {
+                PipelineHealthCollector.labelInc("JOURNAL_TRANSACTION_CASH_IDENTITY_DIVERGENCE_6640")
+                ForensicLogger.lifecycle(
+                    "JOURNAL_TRANSACTION_CASH_IDENTITY_DIVERGENCE_6640",
+                    "observed=${"%.6f".format(observedTransactionCash)} " +
+                        "identity=${"%.6f".format(cash)} delta=${"%.6f".format(observedTransactionCash - cash)} " +
+                        "action=identity_authoritative",
+                )
+            } catch (_: Throwable) {}
+        }
         val result = ReplayResult(
             cashSol = cash,
             realizedPnlSol = realized,
