@@ -7943,6 +7943,10 @@ class BotService : Service() {
                 catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear Quality: ${e.message}") }
             try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.clearAllPositions() }
                 catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear Moonshot: ${e.message}") }
+            try { com.lifecyclebot.v3.scoring.ProjectSniperAI.clearAllMissions() }
+                catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear ProjectSniper: ${e.message}") }
+            try { com.lifecyclebot.v3.scoring.DipHunterAI.clearAllDips() }
+                catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear DipHunter: ${e.message}") }
             // V5.9.665 — operator regression fix.
             // Before wiping HostWalletTokenTracker / TokenLifecycleTracker,
             // give LiveWalletReconciler one synchronous pass so any swap

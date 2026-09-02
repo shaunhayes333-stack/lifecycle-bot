@@ -46,4 +46,17 @@ class Repair6518StopRestartOwnershipTest {
         val laneFanout = sell.indexOf("CashGenerationAI.closePosition")
         assertTrue(fast > 0 && fluid > fast && laneFanout > fast)
     }
+
+    @Test
+    fun `fast shutdown bulk clears every private strategy registry`() {
+        assertTrue(service.contains("CashGenerationAI.clearAllPositions()"))
+        assertTrue(service.contains("BlueChipTraderAI.clearAllPositions()"))
+        assertTrue(service.contains("ShitCoinTraderAI.clearAllPositions()"))
+        assertTrue(service.contains("ShitCoinExpress.clearAllRides()"))
+        assertTrue(service.contains("ManipulatedTraderAI.clearAll()"))
+        assertTrue(service.contains("QualityTraderAI.clearAllPositions()"))
+        assertTrue(service.contains("MoonshotTraderAI.clearAllPositions()"))
+        assertTrue(service.contains("ProjectSniperAI.clearAllMissions()"))
+        assertTrue(service.contains("DipHunterAI.clearAllDips()"))
+    }
 }

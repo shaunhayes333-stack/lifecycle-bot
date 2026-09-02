@@ -217,6 +217,12 @@ object DipHunterAI {
         recentDips.clear()
         ErrorLogger.info(TAG, "📉🎯 DipHunter daily stats reset")
     }
+
+    /** Runtime-stop projection cleanup; does not grade forced exits as trades. */
+    fun clearAllDips() {
+        synchronized(activeDips) { activeDips.clear() }
+        ErrorLogger.info(TAG, "📉🎯 All active dips cleared")
+    }
     
     fun isEnabled(): Boolean = true
     
