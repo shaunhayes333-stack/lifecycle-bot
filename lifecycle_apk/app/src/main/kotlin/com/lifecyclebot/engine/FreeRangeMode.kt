@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648
+
 /**
  * V5.9.716 — GRADUATED AIR CONTROL (Wide-Open redesign)
  *
@@ -92,12 +94,12 @@ object FreeRangeMode {
      * Returns 0–5 indicating how many guard layers are active.
      * 0 = wide-open, 5 = full air control. Fail-open: returns 0 on any error.
      */
-    fun guardLevel(): Int {
+    fun guardLevel(book: DeskPerformanceAuthority6648.Book = DeskPerformanceAuthority6648.Book.MEME): Int {
         if (operatorForceOn)  return 0
         if (operatorForceOff) return 5
         return try {
-            val snap   = TradeHistoryStore.getLifetimeStats()
-            val trades = snap.totalSells
+            val snap   = deskSnapshot6648(book)
+            val trades = snap.trades
             val wr     = snap.winRate
             // V5.9.1333 — FROZEN-WR FIX. Previously AntiChokeManager.isSoftening()
             // short-circuited the WHOLE maturity ladder back to guardLevel 0
@@ -133,7 +135,8 @@ object FreeRangeMode {
      * True only when the bot is in pure exploration mode (< 500 trades).
      * All existing isWideOpen() callers get the correct semantics.
      */
-    fun isWideOpen(): Boolean = guardLevel() == 0
+    fun isWideOpen(book: DeskPerformanceAuthority6648.Book = DeskPerformanceAuthority6648.Book.MEME): Boolean =
+        guardLevel(book) == 0
 
     // ── Per-lane WR-sensitive size multiplier ────────────────────────
     /**
@@ -152,8 +155,11 @@ object FreeRangeMode {
      *   When no data exists, returns 1.0 during Phase 0-1, 0.80 during
      *   Phase 2+, ensuring new lanes stay active but earn their way up.
      */
-    fun laneSizeMultiplier(laneWinRate: Double): Double {
-        val level = guardLevel()
+    fun laneSizeMultiplier(
+        laneWinRate: Double,
+        book: DeskPerformanceAuthority6648.Book = DeskPerformanceAuthority6648.Book.MEME,
+    ): Double {
+        val level = guardLevel(book)
         if (level == 0) return 1.0   // wide-open: no size adjustment
 
         if (laneWinRate < 0.0) {
@@ -161,9 +167,7 @@ object FreeRangeMode {
             return if (level <= 1) 1.0 else 0.80
         }
 
-        val targetWr = phaseTargetWr(
-            try { TradeHistoryStore.getLifetimeStats().totalSells } catch (_: Throwable) { 0 }
-        )
+        val targetWr = phaseTargetWr(try { deskSnapshot6648(book).trades } catch (_: Throwable) { 0 })
         if (laneWinRate >= targetWr) return 1.0   // lane is on target → no reduction
 
         // Scale: 0% WR → FLOOR, targetWr → 1.0
@@ -202,9 +206,11 @@ object FreeRangeMode {
      * Fail-open: any error → 1.0 (never starve sizing).
      */
     const val EXPLORE_SIZE_FLOOR = 0.20
-    fun explorationSizeMultiplier(): Double = try {
+    fun explorationSizeMultiplier(
+        book: DeskPerformanceAuthority6648.Book = DeskPerformanceAuthority6648.Book.MEME,
+    ): Double = try {
         if (operatorForceOn) 1.0 else {
-            val trades = TradeHistoryStore.getLifetimeStats().totalSells
+            val trades = deskSnapshot6648(book).trades
             if (trades >= PHASE1_START) 1.0
             else {
                 val frac = (trades.toDouble() / PHASE1_START).coerceIn(0.0, 1.0)
@@ -230,9 +236,11 @@ object FreeRangeMode {
      * 1.0 = full authority. V5.9.716: reaches 1.0 at 1000 trades (not 3000)
      * so quality feedback kicks in much earlier.
      */
-    fun adjustmentStrength(): Double {
+    fun adjustmentStrength(
+        book: DeskPerformanceAuthority6648.Book = DeskPerformanceAuthority6648.Book.MEME,
+    ): Double {
         return try {
-            val trades = TradeHistoryStore.getLifetimeStats().totalSells
+            val trades = deskSnapshot6648(book).trades
             when {
                 trades < TUNER_RAMP_START -> 0.0
                 trades >= TUNER_RAMP_END  -> 1.0
@@ -250,12 +258,12 @@ object FreeRangeMode {
         return try { QualityLadder.tier() >= 1 } catch (_: Throwable) { false }
     }
 
-    fun statusLine(): String {
+    fun statusLine(book: DeskPerformanceAuthority6648.Book = DeskPerformanceAuthority6648.Book.MEME): String {
         return try {
-            val snap   = try { TradeHistoryStore.getLifetimeStats() } catch (_: Throwable) { null }
-            val trades = snap?.totalSells ?: 0
+            val snap   = try { deskSnapshot6648(book) } catch (_: Throwable) { null }
+            val trades = snap?.trades ?: 0
             val wr     = snap?.winRate ?: 0.0
-            val level  = guardLevel()
+            val level  = guardLevel(book)
             val phase  = when {
                 level == 0 -> "WIDE-OPEN"
                 level == 1 -> "SOFT-SIFT"
@@ -272,7 +280,7 @@ object FreeRangeMode {
             }
             val target = phaseTargetWr(trades)
             val ladder = try { QualityLadder.statusLine() } catch (_: Throwable) { "" }
-            val base = "$icon $phase · T$trades · WR=${"%.1f".format(wr)}% (tgt ${"%.0f".format(target)}%)"
+            val base = "$icon ${book.name} $phase · T$trades · WR=${"%.1f".format(wr)}% (tgt ${"%.0f".format(target)}%)"
             if (ladder.isNotBlank()) "$base · $ladder" else base
         } catch (_: Throwable) {
             "🔓 WIDE-OPEN · (history unavailable)"
@@ -285,4 +293,7 @@ object FreeRangeMode {
 
     private fun lerp(a: Double, b: Double, t: Double): Double =
         a + (b - a) * t.coerceIn(0.0, 1.0)
+
+    private fun deskSnapshot6648(book: DeskPerformanceAuthority6648.Book): DeskPerformanceAuthority6648.Snapshot =
+        DeskPerformanceAuthority6648.snapshot(book, if (RuntimeModeAuthority.isLive()) "live" else "paper")
 }
