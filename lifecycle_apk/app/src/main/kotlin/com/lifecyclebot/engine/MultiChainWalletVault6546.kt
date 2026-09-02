@@ -13,6 +13,8 @@ object MultiChainWalletVault6546 {
     private const val BSC = "bsc_address"
     private const val BITCOIN = "bitcoin_address"
     private const val SOLANA_PRIVATE = "solana_private_key_b58"
+    private const val BACKUP_CONFIRMED = "backup_confirmed"
+    private const val ACTIVE_MAIN = "active_main"
 
     data class StoredWallet(
         val mnemonic: String,
@@ -21,6 +23,8 @@ object MultiChainWalletVault6546 {
         val bscAddress: String,
         val bitcoinAddress: String,
         val solanaPrivateKeyB58: String,
+        val backupConfirmed: Boolean,
+        val activeMain: Boolean,
     )
 
     private fun prefs(context: Context): android.content.SharedPreferences {
@@ -49,6 +53,8 @@ object MultiChainWalletVault6546 {
             .putString(BSC, wallet.bscAddress)
             .putString(BITCOIN, wallet.bitcoinAddress)
             .putString(SOLANA_PRIVATE, wallet.solanaPrivateKeyB58)
+            .putBoolean(BACKUP_CONFIRMED, false)
+            .putBoolean(ACTIVE_MAIN, false)
             .commit()
             .also { check(it) { "MULTICHAIN_VAULT_WRITE_FAILED" } }
     }
@@ -68,8 +74,25 @@ object MultiChainWalletVault6546 {
             bscAddress = values[3]!!,
             bitcoinAddress = values[4]!!,
             solanaPrivateKeyB58 = values[5]!!,
+            backupConfirmed = p.getBoolean(BACKUP_CONFIRMED, false),
+            activeMain = p.getBoolean(ACTIVE_MAIN, false),
         )
     }
+
+    /** Activation is a separate durable step so generation can never silently
+     * replace the funded/main signer. The UI must show the recovery phrase and
+     * obtain an explicit backup acknowledgement first. */
+    fun confirmBackupAndActivate(context: Context): StoredWallet {
+        val staged = load(context) ?: error("MULTICHAIN_WALLET_NOT_STAGED")
+        check(prefs(context).edit()
+            .putBoolean(BACKUP_CONFIRMED, true)
+            .putBoolean(ACTIVE_MAIN, true)
+            .commit()) { "MULTICHAIN_ACTIVATION_WRITE_FAILED" }
+        return staged.copy(backupConfirmed = true, activeMain = true)
+    }
+
+    fun executable(context: Context): StoredWallet? =
+        load(context)?.takeIf { it.backupConfirmed && it.activeMain }
 
     fun clear(context: Context) {
         prefs(context).edit().clear().commit()

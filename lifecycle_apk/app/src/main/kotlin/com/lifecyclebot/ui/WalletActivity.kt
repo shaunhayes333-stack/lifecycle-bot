@@ -110,9 +110,80 @@ class WalletActivity : AppCompatActivity() {
         setupListeners()
         // V5.9.495z26 — inject Treasury Wallet card into the connected layout.
         injectTreasuryWalletCard()
+        injectMainMultiChainWalletCard6645()
 
         lifecycleScope.launch {
             vm.ui.collect { state -> updateUi(state) }
+        }
+    }
+
+    /** Clean-install main-wallet path: one recovery phrase owns Solana, every
+     * EVM chain, and Bitcoin. Generation is staged; the derived Solana signer
+     * becomes ConfigStore's main wallet only after explicit backup confirmation. */
+    private fun injectMainMultiChainWalletCard6645() {
+        try {
+            val container = layoutDisconnected as? android.view.ViewGroup ?: return
+            val pad = (14 * resources.displayMetrics.density).toInt()
+            val card = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                setPadding(pad, pad, pad, pad)
+                setBackgroundColor(android.graphics.Color.parseColor("#101827"))
+            }
+            card.addView(android.widget.TextView(this).apply {
+                text = "🌐 Create Main Multi-Chain Wallet"
+                textSize = 16f
+                setTextColor(android.graphics.Color.parseColor("#00E5A0"))
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            })
+            card.addView(android.widget.TextView(this).apply {
+                text = "One recovery phrase derives Solana, EVM/BSC and Bitcoin addresses. The wallet is not activated until you confirm the phrase is backed up."
+                textSize = 12f
+                setTextColor(android.graphics.Color.parseColor("#B8C2D1"))
+            })
+            card.addView(android.widget.Button(this).apply {
+                text = "Generate Main Wallet"
+                setOnClickListener {
+                    val cfgNow = com.lifecyclebot.data.ConfigStore.load(this@WalletActivity)
+                    if (cfgNow.privateKeyB58.isNotBlank()) {
+                        Toast.makeText(this@WalletActivity, "A main wallet already exists; use the migration flow.", Toast.LENGTH_LONG).show()
+                        return@setOnClickListener
+                    }
+                    val generated = com.lifecyclebot.engine.WalletManager
+                        .getInstance(applicationContext).generateMultiChainWallet()
+                    android.app.AlertDialog.Builder(this@WalletActivity)
+                        .setTitle("Back up this recovery phrase")
+                        .setMessage(
+                            generated.mnemonic + "\n\n" +
+                                "Solana: ${generated.solanaAddress}\n" +
+                                "EVM: ${generated.ethereumAddress}\n" +
+                                "Bitcoin: ${generated.bitcoinAddress}\n\n" +
+                                "Write the phrase down offline. It will control real funds on every derived chain."
+                        )
+                        .setCancelable(false)
+                        .setNegativeButton("Not backed up", null)
+                        .setPositiveButton("I BACKED IT UP") { _, _ ->
+                            val requestedRpc6645 = etRpcUrl.text.toString().trim()
+                            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                val ok = try {
+                                    com.lifecyclebot.engine.WalletManager.getInstance(applicationContext)
+                                        .activateStagedMultiChainAsMain(requestedRpc6645)
+                                } catch (t: Throwable) {
+                                    com.lifecyclebot.engine.ErrorLogger.error("WalletActivity", "multichain activation failed: ${t.message}", t)
+                                    false
+                                }
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    Toast.makeText(this@WalletActivity,
+                                        if (ok) "Main multi-chain wallet activated" else "Activation failed—wallet remains staged",
+                                        Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                        .show()
+                }
+            })
+            container.addView(card, 0)
+        } catch (t: Throwable) {
+            com.lifecyclebot.engine.ErrorLogger.warn("WalletActivity", "multichain card failed: ${t.message}")
         }
     }
 

@@ -215,6 +215,33 @@ class WalletManager private constructor(private val ctx: Context) {
     fun loadMultiChainWallet(): MultiChainWalletVault6546.StoredWallet? =
         MultiChainWalletVault6546.load(ctx)
 
+    /**
+     * Promotes the staged recovery wallet to the sole main signer only after
+     * the operator has acknowledged backup. Existing connected/imported keys
+     * are never overwritten by this method.
+     */
+    fun activateStagedMultiChainAsMain(rpcUrl: String = ""): Boolean {
+        val current = ConfigStore.load(ctx)
+        check(current.privateKeyB58.isBlank()) {
+            "MAIN_WALLET_ALREADY_CONFIGURED_MIGRATION_REQUIRED"
+        }
+        val activated = MultiChainWalletVault6546.confirmBackupAndActivate(ctx)
+        val chosenRpc = sanitizeWalletRpcUrl(rpcUrl).ifBlank { FALLBACK_RPCS.first() }
+        if (!connect(activated.solanaPrivateKeyB58, chosenRpc)) return false
+        ConfigStore.save(ctx, current.copy(
+            privateKeyB58 = activated.solanaPrivateKeyB58,
+            rpcUrl = chosenRpc,
+            walletAddress = activated.solanaAddress,
+        ))
+        try {
+            ForensicLogger.lifecycle(
+                "MULTICHAIN_MAIN_WALLET_ACTIVATED_6645",
+                "solana=${activated.solanaAddress.take(12)} evm=${activated.ethereumAddress.take(12)} btc=${activated.bitcoinAddress.take(12)} backupConfirmed=true",
+            )
+        } catch (_: Throwable) {}
+        return true
+    }
+
     // ── connect / disconnect ──────────────────────────────────────────
 
     fun connect(privateKeyB58: String, rpcUrl: String): Boolean {
