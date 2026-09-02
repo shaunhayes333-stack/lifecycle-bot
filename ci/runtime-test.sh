@@ -218,6 +218,23 @@ wait_log_marker() {
     return 1
 }
 
+# A clean install legitimately shows the non-cancelable risk agreement before
+# the runtime controls. Exercise the real consent button in CI instead of
+# teaching the debug receiver to forge acceptance in SharedPreferences. This
+# keeps the smoke path aligned with a user's first launch while still making
+# the Start -> Stop -> Start test deterministic.
+if grep -q 'text="I AGREE"' "$WS/ui_after_launch.xml" 2>/dev/null; then
+    echo "First-run risk disclaimer detected; accepting through the UI"
+    ui_tap text "I AGREE" ui_disclaimer_accept.xml
+    sleep 2
+    adb shell uiautomator dump /sdcard/ui_post_disclaimer.xml >/dev/null 2>&1 || true
+    adb pull /sdcard/ui_post_disclaimer.xml "$WS/ui_post_disclaimer.xml" >/dev/null 2>&1 || true
+    if grep -q 'text="I AGREE"' "$WS/ui_post_disclaimer.xml" 2>/dev/null; then
+        echo "::error::Risk disclaimer remained open after acceptance"
+        exit 1
+    fi
+fi
+
 # First real UI Start from a cold service + max persisted state.
 ui_tap id btnToggle ui_start_1.xml
 wait_log_marker "UI_RUNTIME_TOGGLE_TAP_6517" 20 "first UI tap"
