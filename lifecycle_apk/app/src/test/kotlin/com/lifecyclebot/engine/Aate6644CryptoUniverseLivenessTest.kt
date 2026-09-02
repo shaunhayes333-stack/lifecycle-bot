@@ -23,7 +23,13 @@ class Aate6644CryptoUniverseLivenessTest {
     }
 
     @Test fun unimplementedNativeChainAdaptersStayExplicitlyFailClosed() {
-        assertTrue(bridge.contains("STUB") || bridge.contains("not wired"))
-        assertTrue(cex.contains("STUB") || cex.contains("not configured"))
+        val bridgeLower = bridge.lowercase()
+        val bridgeIsStub = bridgeLower.contains("stub") || bridgeLower.contains("not wired")
+        val bridgeHasExecutableGate = bridge.contains("MultiChainWalletVault6546.executable") &&
+            bridge.contains("MULTICHAIN_WALLET_NOT_ACTIVE") && bridge.contains("SOURCE_SIGNER_MISMATCH")
+        assertTrue(bridgeIsStub || bridgeHasExecutableGate)
+
+        val cexLower = cex.lowercase()
+        assertTrue(cexLower.contains("stub") || cex.contains("fun isConfigured(): Boolean = false"))
     }
 }

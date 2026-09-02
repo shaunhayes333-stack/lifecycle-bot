@@ -53,6 +53,7 @@ object UnifiedAccountSnapshot6635 {
         val status: Status,
         val forensicLine: String,
         val readAtMs: Long,
+        val openMarketValueSol: Double = 0.0,
     )
 
     private val reads = AtomicLong(0L)
@@ -97,6 +98,7 @@ object UnifiedAccountSnapshot6635 {
             realizedPnlSol = realized, unrealizedPnlSol = unrealized,
             openPositionsCount = openPositions, status = status,
             forensicLine = forensicLine, readAtMs = System.currentTimeMillis(),
+            openMarketValueSol = openCost,
         )
         lastRead.set(snap)
         return snap

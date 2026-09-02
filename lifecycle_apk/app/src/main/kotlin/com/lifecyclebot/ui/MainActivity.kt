@@ -3162,7 +3162,8 @@ for legal compliance.
         //   36.3987 'Balance' and another screen call 65.4560 'Balance'.
         //   If all three hero cards are intended to mean spendable
         //   wallet balance, all three must display the SAME cashSol.")
-        //   The subtitle explicitly labels this row as `PAPER · CASH`
+        //   Legacy direct read `CanonicalCapitalAuthority6450.snapshot()` is retired;
+        //   the subtitle explicitly labels this row as `PAPER · CASH`
         //   so the big number MUST bind to snapshot.cashSol. Equity is
         //   still surfaced in the contentDescription for screen readers.
         val config = state.config // V5.9.706 — use pre-loaded config from UiState (avoid AES-GCM decrypt on main thread)
@@ -3210,6 +3211,7 @@ for legal compliance.
             )
             tvBalanceUsd.contentDescription = if (config.paperMode && unifiedSnap6635 != null) {
                 "CASH ${"%.4f".format(unifiedSnap6635.cashSol)} SOL · " +
+                    "OPEN_MV ${"%.4f".format(unifiedSnap6635.openMarketValueSol)} SOL · " +
                     "UNREALIZED ${"%.4f".format(unifiedSnap6635.unrealizedPnlSol)} SOL · " +
                     "REALIZED ${"%.4f".format(unifiedSnap6635.realizedPnlSol)} SOL · " +
                     "EQUITY ${"%.4f".format(unifiedSnap6635.equitySol)} SOL · " +
