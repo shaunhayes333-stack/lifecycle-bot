@@ -96,12 +96,13 @@ class PaperCapitalAuthorityP0_1_6577Test {
     @Test
     fun multi_asset_ui_reads_shared_snapshot_and_probes_divergence() {
         assertTrue(
-            "MultiAssetActivity must derive the displayed paper equity from PaperCapitalAuthority6577.snapshot()",
-            multiAssetSrc.contains("PaperCapitalAuthority6577.snapshot()")
+            "MultiAssetActivity must derive displayed paper equity from the unified atomic snapshot",
+            multiAssetSrc.contains("UnifiedAccountSnapshot6635.read(\"MARKETS\")")
         )
         assertTrue(
-            "MultiAssetActivity must probe divergence against the shared authority",
-            multiAssetSrc.contains("PaperCapitalAuthority6577.probeUiCash(")
+            "MultiAssetActivity must withhold money when unified accounting is not reconciled",
+            multiAssetSrc.contains("UnifiedAccountSnapshot6635.Status.RECONCILED") &&
+                multiAssetSrc.contains("ACCOUNTING ERROR")
         )
     }
 }

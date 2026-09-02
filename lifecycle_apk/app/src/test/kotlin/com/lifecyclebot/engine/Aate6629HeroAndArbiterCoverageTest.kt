@@ -184,17 +184,17 @@ class Aate6629HeroAndArbiterCoverageTest {
         val mainSrc = java.io.File(
             "src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt"
         ).readText()
-        assertTrue("V5.0.6629 §6: MEME hero must read via PaperEconomicSnapshot6629",
-            mainSrc.contains("PaperEconomicSnapshot6629.read6629(\"MEME\")"))
+        assertTrue("V5.0.6643: MEME hero must read unified account snapshot",
+            mainSrc.contains("UnifiedAccountSnapshot6635.read(\"MEME\")"))
         val cryptoSrc = java.io.File(
             "src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt"
         ).readText()
-        assertTrue("V5.0.6629 §6: CRYPTO hero must read via PaperEconomicSnapshot6629",
-            cryptoSrc.contains("PaperEconomicSnapshot6629.read6629(\"CRYPTO\")"))
+        assertTrue("V5.0.6643: CRYPTO hero must read unified account snapshot",
+            cryptoSrc.contains("UnifiedAccountSnapshot6635.read(\"CRYPTO\")"))
         val marketsSrc = java.io.File(
             "src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt"
         ).readText()
-        assertTrue("V5.0.6629 §6: MARKETS hero must read via PaperEconomicSnapshot6629",
-            marketsSrc.contains("PaperEconomicSnapshot6629.read6629(\"MARKETS\")"))
+        assertTrue("V5.0.6643: MARKETS hero must read unified account snapshot",
+            marketsSrc.contains("UnifiedAccountSnapshot6635.read(\"MARKETS\")"))
     }
 }

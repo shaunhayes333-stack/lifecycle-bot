@@ -57,9 +57,8 @@ class Aate6594EntrySelectivityAndHeroTruthCoverageTest {
             "src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt"
         ).readText()
         assertTrue(
-            "V5.0.6594: Perps card must consume PaperCapitalAuthority6577.totalEquitySol() " +
-                "in paper mode (not a trader-local cache)",
-            src.contains("com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.totalEquitySol()") &&
+            "V5.0.6643: Perps card must consume the unified atomic account snapshot",
+            src.contains("UnifiedAccountSnapshot6635.read(\"PERPS_CARD\")") &&
                 src.contains("§SHARED_WALLET_HERO_TRUTH")
         )
     }

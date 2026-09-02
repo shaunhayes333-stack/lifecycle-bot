@@ -64,12 +64,9 @@ class Aate6633SourceLevelAcceptanceTest {
         val meme = read("ui/MainActivity.kt")
         val markets = read("ui/MultiAssetActivity.kt")
         val crypto = read("ui/CryptoAltActivity.kt")
-        assertTrue("MEME hero (MainActivity) must read PaperEconomicSnapshot6629",
-            meme.contains("PaperEconomicSnapshot6629.read6629"))
-        assertTrue("MARKETS hero must read PaperEconomicSnapshot6629",
-            markets.contains("PaperEconomicSnapshot6629.read6629"))
-        assertTrue("CRYPTO hero must read PaperEconomicSnapshot6629",
-            crypto.contains("PaperEconomicSnapshot6629.read6629"))
+        assertTrue(meme.contains("UnifiedAccountSnapshot6635.read(\"MEME\")"))
+        assertTrue(markets.contains("UnifiedAccountSnapshot6635.read(\"MARKETS\")"))
+        assertTrue(crypto.contains("UnifiedAccountSnapshot6635.read(\"CRYPTO\")"))
     }
 
     @Test fun p0d_crypto_alt_aliases_normalise() {

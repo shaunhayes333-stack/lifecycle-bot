@@ -67,9 +67,9 @@ class Aate6597MarkAuthorityAndTreasuryCoverageTest {
             "src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt"
         ).readText()
         assertTrue(
-            "V5.0.6597: paper Treasury tier must read PaperCapitalAuthority6577.totalEquitySol()",
+            "V5.0.6643: paper Treasury tier must read unified reconciled equity",
             ui.contains("canonicalPaperEquitySol6596") &&
-                ui.contains("com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.totalEquitySol()") &&
+                ui.contains("UnifiedAccountSnapshot6635.read(\"TREASURY_TIER\")") &&
                 ui.contains("§TREASURY_CAPITAL_AUTHORITY")
         )
         assertFalse(

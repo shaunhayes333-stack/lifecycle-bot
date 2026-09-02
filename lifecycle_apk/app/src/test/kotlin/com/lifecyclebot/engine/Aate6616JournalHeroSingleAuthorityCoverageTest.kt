@@ -186,10 +186,10 @@ class Aate6616JournalHeroSingleAuthorityCoverageTest {
         )
         assertTrue(
             "V5.0.6616: Markets hero (MultiAssetActivity) must recordHeroRender + probeHeroBinding on MARKETS surface + bind to CASH",
-            markets.contains("JournalEconomicAuthority6616") &&
+            markets.contains("UnifiedAccountSnapshot6635.read(\"MARKETS\")") &&
                 markets.contains(".recordHeroRender(\"MARKETS\"") &&
                 markets.contains(".probeHeroBinding(\"MARKETS\"") &&
-                markets.contains("journalSnap6616?.cashSol")
+                markets.contains("unified6635?.cashSol")
         )
         assertTrue(
             "V5.0.6616: Crypto Universe hero (CryptoAltActivity) must recordHeroRender + probeHeroBinding on CRYPTO surface",
@@ -225,8 +225,9 @@ class Aate6616JournalHeroSingleAuthorityCoverageTest {
             "src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt"
         ).readText()
         assertTrue(
-            "V5.0.6616: MainActivity hero big-number must bind to journalSnap6616?.cashSol (fallback walletSnap6451?.cashSol)",
-            meme.contains("journalSnap6616?.cashSol ?: walletSnap6451?.cashSol")
+            "V5.0.6643: MainActivity hero must bind to reconciled unified cash",
+            meme.contains("UnifiedAccountSnapshot6635.read(\"MEME\")") &&
+                meme.contains("unifiedSnap6635?.cashSol") && meme.contains("ACCOUNTING ERROR")
         )
     }
 
