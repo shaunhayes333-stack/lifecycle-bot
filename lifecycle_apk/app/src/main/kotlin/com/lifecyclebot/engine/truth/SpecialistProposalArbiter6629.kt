@@ -36,9 +36,8 @@ import java.util.concurrent.atomic.AtomicLong
  * proposals and elects the causal winner. Callers still route the
  * elected proposal through the existing ExecutableOpenGate /
  * TradeAuthorizer / CanonicalEntryAuthority path. Wiring the meme
- * specialists to consult this arbiter is a follow-up commit; landing
- * the module + coverage first lets us hook every eligible lane
- * incrementally without breaking CI.
+ * V5.0.6641 wires FDG proposals and the executable-open boundary to this
+ * authority. A lane mismatch is fail-closed before a ticket can execute.
  */
 object SpecialistProposalArbiter6629 {
 
@@ -132,9 +131,10 @@ object SpecialistProposalArbiter6629 {
         decisions[key]?.let { return it }
         val list = contests[key].orEmpty().toList()
         if (list.isEmpty()) {
-            val empty = Election6629(mint, candidateVersion, null, emptyList())
-            decisions[key] = empty
-            return empty
+            // Do not memoize an empty lookup. Open-gate timing may inspect the
+            // contest before every specialist FDG callback has arrived; caching
+            // that absence permanently made the arbiter causally inert.
+            return Election6629(mint, candidateVersion, null, emptyList())
         }
         val ranked = list.sortedWith(
             compareByDescending<Proposal6629> { it.confidence }

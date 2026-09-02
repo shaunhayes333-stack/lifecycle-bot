@@ -172,9 +172,27 @@ object ExecutableOpenGate {
 
     private fun resolveSealedIntent6613(
         attemptId: String, mode: String, mint: String, candidateVersion: Long,
+        requestedLane: String,
     ): ExecutionIntent? {
         val byAttempt = executionTickets[attemptId]
-        val candidate = byAttempt ?: activeExecutionIntent6519(mode, mint, candidateVersion)
+        val candidate = sequenceOf(byAttempt, activeExecutionIntent6519(mode, mint, candidateVersion))
+            .filterNotNull()
+            .firstOrNull {
+                it.mint == mint && it.mode.equals(mode, true) &&
+                    it.candidateVersion == candidateVersion &&
+                    it.canonicalLane.equals(requestedLane, true)
+            }
+        if (byAttempt != null && candidate == null) {
+            try {
+                PipelineHealthCollector.labelInc("RESTORED_TICKET_IMMUTABLE_IDENTITY_MISMATCH_6641")
+                ForensicLogger.lifecycle(
+                    "RESTORED_TICKET_IMMUTABLE_IDENTITY_MISMATCH_6641",
+                    "requested=$mode:${mint.take(10)}:$candidateVersion:$requestedLane " +
+                        "ticket=${byAttempt.mode}:${byAttempt.mint.take(10)}:${byAttempt.candidateVersion}:${byAttempt.canonicalLane} " +
+                        "attemptId=${attemptId.take(32)} action=reject_no_cross_lane_restore",
+                )
+            } catch (_: Throwable) {}
+        }
         if (candidate == null) return null
         if (!validSealedDecision6613(candidate)) {
             try {
@@ -982,6 +1000,23 @@ object ExecutableOpenGate {
             // signal label — treat as executable PROBE_ONLY rather than WATCH-dropping it.
             else -> "PROBE_ONLY"
         }
+        if (canExecute && finalHardNo.isEmpty() && finalVerdict in setOf("BUY", "PROBE_ONLY")) {
+            try {
+                val laneUpper6641 = canonicalLane(lane)
+                val priority6641 = listOf(
+                    "PROJECT_SNIPER", "MOONSHOT", "EXPRESS", "MANIPULATED", "DIP_HUNTER",
+                    "SHITCOIN", "QUALITY", "BLUECHIP", "CORE", "CYCLIC", "TREASURY", "CASHGEN",
+                ).indexOf(laneUpper6641).let { if (it >= 0) it else 99 }
+                com.lifecyclebot.engine.truth.SpecialistProposalArbiter6629.submitProposal6629(
+                    com.lifecyclebot.engine.truth.SpecialistProposalArbiter6629.Proposal6629(
+                        mint = mint, candidateVersion = candidateVersion, lane = laneUpper6641,
+                        score = entryScore.coerceAtLeast(0).toDouble(),
+                        confidence = (entryScore.coerceIn(0, 100) / 100.0),
+                        lanePriority = priority6641, reason = reason.orEmpty(),
+                    )
+                )
+            } catch (_: Throwable) {}
+        }
         val winningState6512 = synchronized(fdgElectionLocks6512.computeIfAbsent(mint) { Any() }) {
             var resolvedWinner6512: EntryState? = null
             put(mint) { old ->
@@ -1444,7 +1479,25 @@ object ExecutableOpenGate {
         val immutableAuthority6513 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(
             mint, authorityCandidateVersion6513, modeUpper,
         )
-        val ticketAuthority6564 = resolveSealedIntent6613(attemptId, modeUpper, mint, authorityCandidateVersion6513)
+        val specialistElection6641 = try {
+            com.lifecyclebot.engine.truth.SpecialistProposalArbiter6629
+                .elect6629(mint, authorityCandidateVersion6513)
+        } catch (_: Throwable) { null }
+        val electedLane6641 = specialistElection6641?.elected?.lane
+        if (!electedLane6641.isNullOrBlank() && !electedLane6641.equals(requestedLaneForSynth, true)) {
+            try {
+                PipelineHealthCollector.labelInc("SPECIALIST_NON_ELECTED_EXECUTION_REJECTED_6641")
+                ForensicLogger.lifecycle(
+                    "SPECIALIST_NON_ELECTED_EXECUTION_REJECTED_6641",
+                    "mint=${mint.take(10)} version=$authorityCandidateVersion6513 requested=$requestedLaneForSynth elected=$electedLane6641 action=one_mint_version_one_owner",
+                )
+            } catch (_: Throwable) {}
+            return OpenVerdict(false, "SPECIALIST_NOT_ELECTED", shadowOnly = false,
+                logName = "SPECIALIST_NON_ELECTED_EXECUTION_REJECTED_6641", attemptId = attemptId)
+        }
+        val ticketAuthority6564 = resolveSealedIntent6613(
+            attemptId, modeUpper, mint, authorityCandidateVersion6513, requestedLaneForSynth,
+        )
         val state = provisionalState6513 ?: immutableAuthority6513?.let { a ->
             EntryState(mint = mint, symbol = symbol, fdgCan = true, fdgReason = a.verdict,
                 safetyTier = a.safetyVerdict, signal = a.authoritativeSignal, decisionBand = a.verdict,

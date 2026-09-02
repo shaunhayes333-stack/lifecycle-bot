@@ -136,6 +136,21 @@ class Aate6629HeroAndArbiterCoverageTest {
     }
 
     @Test
+    fun aate6641_empty_lookup_does_not_poison_late_specialist_proposal() {
+        com.lifecyclebot.engine.truth.SpecialistProposalArbiter6629.resetForTest()
+        val mint = "aate6641-late-proposal"
+        val cv = 6641L
+        assertNull(com.lifecyclebot.engine.truth.SpecialistProposalArbiter6629.elect6629(mint, cv).elected)
+        com.lifecyclebot.engine.truth.SpecialistProposalArbiter6629.submitProposal6629(
+            com.lifecyclebot.engine.truth.SpecialistProposalArbiter6629.Proposal6629(
+                mint, cv, "EXPRESS", 77.0, 0.77, 2, "LATE_FDG_CALLBACK",
+            )
+        )
+        assertEquals("EXPRESS",
+            com.lifecyclebot.engine.truth.SpecialistProposalArbiter6629.elect6629(mint, cv).elected?.lane)
+    }
+
+    @Test
     fun aate6629_arbiter_status_line_exposes_duplicate_buy_suppression() {
         com.lifecyclebot.engine.truth.SpecialistProposalArbiter6629.resetForTest()
         val mint = "aate6629-arbiter-mintE"

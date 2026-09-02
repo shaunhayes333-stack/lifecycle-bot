@@ -5789,6 +5789,7 @@ class Executor(
             pnlSol, paperLegPct,
             feeSol = paperFee, netPnlSol = paperNetPnl,
             positionId = partial6510.positionId, operationId = partial6510.operationId,
+            economicEventId = partial6510.operationId,
             partialSequence = partial6510.partialSequence,
             preQtyToken = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.decode(partial6510.preQty, decimals6510),
             soldQtyToken = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.decode(partial6510.soldQty, decimals6510),
@@ -7951,6 +7952,7 @@ class Executor(
                 netPnlSol = paperPartialNetPnl, tradingMode = pos.tradingMode,
                 tradingModeEmoji = pos.tradingModeEmoji, mint = ts.mint,
                 positionId = partial6510.positionId, operationId = partial6510.operationId,
+                economicEventId = partial6510.operationId,
                 partialSequence = partial6510.partialSequence,
                 preQtyToken = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.decode(partial6510.preQty, decimals6510),
                 soldQtyToken = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.decode(partial6510.soldQty, decimals6510),
@@ -13129,20 +13131,6 @@ class Executor(
             // atomically so this fill is authoritative even after a
             // process restart. Downstream sell paths sum ΣbuyLots −
             // ΣfinalizedSellLots for the canonical qty invariant.
-            try {
-                val lamports6504 = java.math.BigInteger.valueOf(
-                    (actualSol * 1_000_000_000.0).toLong().coerceAtLeast(0L)
-                )
-                com.lifecyclebot.engine.truth.FillLotLedger6504.recordBuyFill(
-                    mint = tradeId.mint,
-                    lotId = pid6485.ifBlank { com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.buyIdempotencyKey(pid6485) },
-                    qtyTokenRaw = buyQtyRaw6485,
-                    lamports = lamports6504,
-                    isPaper = true,
-                    source = entryLane6485,
-                    note = "paperBuy.atomic6485",
-                )
-            } catch (_: Throwable) {}
             com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen("paper", tradeId.mint, ts.symbol, "Executor.paperBuy.atomic6485")
             // V5.0.6591 — §H POSITION LEDGER KEY ALIGNMENT.
             // ExecutorCanonicalMirror6442 registers with canonicalMint(mint) at
@@ -13166,7 +13154,53 @@ class Executor(
                 rollbackPaperEntry6485("POST_COMMIT_PROOF_FAILED")
                 return
             }
+            val canonicalEvent6485 = com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.Event(
+                economicEventId = entryFinalityId6497, positionId = pid6485,
+                mint = tradeId.mint, canonicalMint = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.canonicalMint(tradeId.mint),
+                symbol = ts.symbol.ifBlank { tradeId.symbol }, mode = "paper", lane = entryLane6485,
+                side = com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.Side.BUY,
+                timestampMs = System.currentTimeMillis(), qtyRaw = buyQtyRaw6485,
+                decimals = paperTokenDecimals6509, executionPriceUsd = effectivePrice,
+                executionPriceSol = fillPrice6485, notionalSol = actualSol, feeSol = fee6485,
+                cashDeltaSol = -(actualSol + fee6485), positionQtyDeltaRaw = buyQtyRaw6485,
+                realizedPnlDeltaSol = 0.0, terminalFillIndex = 0,
+            )
+            if (!com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.openEvent(canonicalEvent6485)) {
+                rollbackPaperEntry6485("CANONICAL_EVENT_OPEN_FAILED")
+                return
+            }
+            // Durable fill-lot persistence is the last rollback-capable write.
+            // Persisting it earlier left an immutable BUY lot behind when a
+            // later position/occupancy proof failed and the ledger rolled back.
+            val fillLotRow6485 = try {
+                val lamports6504 = java.math.BigInteger.valueOf(
+                    (actualSol * 1_000_000_000.0).toLong().coerceAtLeast(0L)
+                )
+                com.lifecyclebot.engine.truth.FillLotLedger6504.recordBuyFill(
+                    mint = tradeId.mint, lotId = entryFinalityId6497,
+                    qtyTokenRaw = buyQtyRaw6485, lamports = lamports6504,
+                    isPaper = true, source = entryLane6485, note = "paperBuy.atomic6485",
+                )
+            } catch (_: Throwable) { -1L }
+            if (fillLotRow6485 <= 0L) {
+                rollbackPaperEntry6485("FILL_LOT_PERSIST_FAILED")
+                return
+            }
             try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol(), "paper_ledger_projection_6485") } catch (_: Throwable) {}
+            // Stamp only after every rollback-capable open mutation succeeded.
+            // Previously onBuyAtomic stamped before canonical/fill-lot finality,
+            // so a later rollback was permanently reported as LEDGER_ONLY.
+            com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.stampLedger(
+                entryFinalityId6497, tradeId.mint,
+                com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.Side.BUY,
+                "Executor.paperBuy.atomic6485.finalized",
+            )
+            listOf(
+                com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.Store.POSITION,
+                com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.Store.LEDGER,
+                com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.Store.FILL_LOT,
+                com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.Store.TERMINAL_EXEC,
+            ).forEach { com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.markCommitted(entryFinalityId6497, it, "Executor.paperBuy.atomic6485") }
             try { PipelineHealthCollector.labelInc("PAPER_BUY_ATOMIC_COMMIT_6485") } catch (_: Throwable) {}
         } catch (t: Throwable) {
             rollbackPaperEntry6485("EXCEPTION_${t.javaClass.simpleName}")
@@ -13306,6 +13340,7 @@ class Executor(
             entryRawQty = buyQtyRaw6485,
             remainingRawQty = buyQtyRaw6485,
             tokenDecimals = paperTokenDecimals6509,
+            economicEventId = entryFinalityId6497,
         )
         recordTrade(ts, trade)
         security.recordTrade(trade)
@@ -19124,6 +19159,7 @@ class Executor(
                 tradingModeEmoji = pos.tradingModeEmoji,
                 mint             = ts.mint,
                 positionId = partial6510.positionId, operationId = partial6510.operationId,
+                economicEventId = partial6510.operationId,
                 partialSequence = partial6510.partialSequence,
                 preQtyToken = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.decode(partial6510.preQty, decimals6510),
                 soldQtyToken = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.decode(partial6510.soldQty, decimals6510),
@@ -20483,6 +20519,7 @@ class Executor(
                     canonicalConsumedRaw = rawVerdict6520.normalizedRaw,
                     remainingRawQty = close6474.postRemainingRaw,
                     tokenDecimals = close6474.tokenDecimals.takeIf { it >= 0 } ?: terminalDecimals6492,
+                    economicEventId = terminalId6474,
                 )
                 try { ts.trades.add(tradeSnap) } catch (_: Throwable) {}
             }
