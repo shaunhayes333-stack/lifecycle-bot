@@ -695,6 +695,8 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var lastHeavyRepaintMs: Long = 0L
     @Volatile private var anrHeavyRenderShedUntilMs: Long = 0L
     @Volatile private var lastAnrHeavyRenderShedLogMs: Long = 0L
+    @Volatile private var lastObservedAnrHintCount6655: Int = 0
+    @Volatile private var lastAnrHeavyRenderShedArmMs6655: Long = 0L
     // V5.9.1569 — runtime UI must not compete with bot-loop. Snapshot 5.0.3621
     // still showed 18.9s frame gaps with renderWatchlist/renderOpenPositions and
     // TextView highlight/layout work. While running, dashboard rows are observability
@@ -4057,8 +4059,19 @@ for legal compliance.
         // updateUi pass add another removeAllViews/TextView/layout storm.
         val anrHintsForRenderShed = try { com.lifecyclebot.engine.PipelineHealthCollector.anrHintCountNow() } catch (_: Throwable) { 0 }
         val nowForRenderShed = System.currentTimeMillis()
-        if (runtimeActiveForUi && anrHintsForRenderShed >= 100) {
-            anrHeavyRenderShedUntilMs = maxOf(anrHeavyRenderShedUntilMs, nowForRenderShed + 15_000L)
+        // V5.0.6655 — anrHintCountNow() is a lifetime counter. The old >=100
+        // check re-armed this timeout on every paint forever, permanently
+        // blanking Decision Log and every panel below this return. Shed only
+        // for a short, bounded interval when a NEW hint arrives, and allow a
+        // full render window between arms.
+        val newAnrHint6655 = anrHintsForRenderShed > lastObservedAnrHintCount6655
+        if (anrHintsForRenderShed < lastObservedAnrHintCount6655 || newAnrHint6655) {
+            lastObservedAnrHintCount6655 = anrHintsForRenderShed
+        }
+        if (runtimeActiveForUi && newAnrHint6655 &&
+            nowForRenderShed - lastAnrHeavyRenderShedArmMs6655 >= 30_000L) {
+            lastAnrHeavyRenderShedArmMs6655 = nowForRenderShed
+            anrHeavyRenderShedUntilMs = nowForRenderShed + 4_000L
         }
         if (runtimeActiveForUi && nowForRenderShed < anrHeavyRenderShedUntilMs) {
             // V5.0.6040 — ANR shed may skip non-critical heavy panels, but it may
@@ -4068,12 +4081,9 @@ for legal compliance.
             val openModelDuringShed6078 = cachedOpenPositionsModel6078
             val openPosDuringShed6040 = openModelDuringShed6078.allSorted
             cardOpenPositions.visibility = if (openPosDuringShed6040.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
-            if (openPosDuringShed6040.isNotEmpty()) {
-                tvTotalExposure.setTextIfChanged(openModelDuringShed6078.totalExposureSol.fastFixed(3) + "◎ at risk")
-                tvTotalUnrealisedPnl.setTextIfChanged(openModelDuringShed6078.totalUnrealizedSol.fastSigned(4) + "◎")
-                tvTotalUnrealisedPnl.setTextColor(if (openModelDuringShed6078.totalUnrealizedSol >= 0) green else red)
-                renderOpenPositions(openPosDuringShed6040, preSorted6078 = true)
-            }
+            // Keep the already-rendered rows in place. Rebuilding the open list
+            // inside the ANR branch defeated the shed and was itself sampled as
+            // main-thread work. The next bounded repaint refreshes all panels.
             if (nowForRenderShed - lastAnrHeavyRenderShedLogMs > 10_000L) {
                 lastAnrHeavyRenderShedLogMs = nowForRenderShed
                 try {

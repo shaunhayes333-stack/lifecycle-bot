@@ -135,6 +135,27 @@ object GlobalTradeRegistry {
     // ample bench for source-balance policies while restoring sub-15s cycles.
     const val MAX_WATCHLIST_SIZE = 220  // V5.0.6480: canonical cap shared by admission/selector/config/audit
     private const val MAX_PROBATION_SIZE = 500
+    @Volatile private var cachedCanonicalOpenMints6655: Set<String> = emptySet()
+    @Volatile private var cachedCanonicalOpenMintsAt6655: Long = 0L
+
+    /** Held inventory is retained for exit ownership but is not discovery work. */
+    private fun canonicalOpenMints6655(nowMs: Long = System.currentTimeMillis()): Set<String> {
+        val cached = cachedCanonicalOpenMints6655
+        if (nowMs - cachedCanonicalOpenMintsAt6655 < 2_000L) return cached
+        val refreshed = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                .mapNotNull { it.mint.trim().takeIf(String::isNotBlank) }
+                .toSet()
+        } catch (_: Throwable) { cached }
+        cachedCanonicalOpenMints6655 = refreshed
+        cachedCanonicalOpenMintsAt6655 = nowMs
+        return refreshed
+    }
+
+    fun discoveryWatchlistSize6655(): Int {
+        val held = canonicalOpenMints6655()
+        return watchlist.keys.count { it !in held }
+    }
 
     // V5.0.3708 — STRICT SOURCE-BALANCED HOT WATCHLIST CAP.
     // Operator: "it isn't just a pumpfun bot — where are all the other exchanges,
@@ -162,15 +183,23 @@ object GlobalTradeRegistry {
     }
 
     /** Count of current pump-source entries (cheap, scans the small watchlist map). */
-    fun pumpPortalConcurrentCount(): Int =
-        watchlist.values.count { isPumpPortalSource(it.addedBy, it.source) }
+    fun pumpPortalConcurrentCount(): Int {
+        val held = canonicalOpenMints6655()
+        return watchlist.values.count { it.mint !in held && isPumpPortalSource(it.addedBy, it.source) }
+    }
 
-    fun sourceMixSnapshot(): Map<String, Int> = mapOf(
-        "pump" to pumpPortalConcurrentCount(),
-        "nonPump" to watchlist.values.count { !isPumpPortalSource(it.addedBy, it.source) },
-        "total" to watchlist.size,
-        "probation" to probation.size,
-    )
+    fun sourceMixSnapshot(): Map<String, Int> {
+        val held = canonicalOpenMints6655()
+        val discovery = watchlist.values.filter { it.mint !in held }
+        return mapOf(
+            "pump" to discovery.count { isPumpPortalSource(it.addedBy, it.source) },
+            "nonPump" to discovery.count { !isPumpPortalSource(it.addedBy, it.source) },
+            "total" to discovery.size,
+            "heldRetained" to watchlist.keys.count { it in held },
+            "physical" to watchlist.size,
+            "probation" to probation.size,
+        )
+    }
 
     private fun pumpHotCapFor(totalHot: Int): Int {
         val total = totalHot.coerceAtLeast(1)
@@ -502,11 +531,14 @@ object GlobalTradeRegistry {
         // hist accumulates), and recently-processed entries (< 30s
         // means the pipeline is actively working the candidate) from
         // the eviction pool.
-        if (watchlist.size >= MAX_WATCHLIST_SIZE) {
-            val openMints6598: Set<String> = try {
-                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
-                    .mapNotNull { it.mint.trim().takeIf { m -> m.isNotBlank() } }.toSet()
-            } catch (_: Throwable) { emptySet() }
+        val openMints6598 = canonicalOpenMints6655(now)
+        val discoverySize6655 = watchlist.keys.count { it !in openMints6598 }
+        val incomingIsHeld6655 = mint in openMints6598
+        // V5.0.6655 — MAX_WATCHLIST_SIZE is the discovery-work cap. Canonical
+        // held inventory is retained for the exit scheduler but must not consume
+        // 200 of 220 discovery slots and reduce the learning loop to a 20-token
+        // churn ring.
+        if (!incomingIsHeld6655 && discoverySize6655 >= MAX_WATCHLIST_SIZE) {
             val MIN_ADMISSION_AGE_MS_6598 = 60_000L
             val MIN_PROCESSING_IDLE_MS_6598 = 30_000L
             val victim = watchlist.values.asSequence()
@@ -521,7 +553,7 @@ object GlobalTradeRegistry {
                 try {
                     ForensicLogger.lifecycle(
                         "WATCHLIST_LRU_EVICT_6287",
-                        "victim=${victim.symbol} mint=${victim.mint.take(10)} pc=${victim.processCount} ageMs=${now - victim.addedAt} cap=$MAX_WATCHLIST_SIZE size=${watchlist.size} incoming=$symbol"
+                        "victim=${victim.symbol} mint=${victim.mint.take(10)} pc=${victim.processCount} ageMs=${now - victim.addedAt} cap=$MAX_WATCHLIST_SIZE discovery=$discoverySize6655 held=${watchlist.keys.count { it in openMints6598 }} physical=${watchlist.size} incoming=$symbol"
                     )
                     PipelineHealthCollector.labelInc("WATCHLIST_LRU_EVICT_6287")
                 } catch (_: Throwable) {}
@@ -533,7 +565,7 @@ object GlobalTradeRegistry {
                     PipelineHealthCollector.labelInc("WATCHLIST_LRU_EVICT_ALL_PROTECTED_6598")
                     ForensicLogger.lifecycle(
                         "WATCHLIST_LRU_EVICT_ALL_PROTECTED_6598",
-                        "size=${watchlist.size} cap=$MAX_WATCHLIST_SIZE incoming=$symbol action=admit_no_eviction"
+                        "discovery=$discoverySize6655 held=${watchlist.keys.count { it in openMints6598 }} physical=${watchlist.size} cap=$MAX_WATCHLIST_SIZE incoming=$symbol action=admit_no_eviction"
                     )
                 } catch (_: Throwable) {}
             }
@@ -554,9 +586,14 @@ object GlobalTradeRegistry {
             entry.toolAffinity.addAll(toolAffinity.map { it.uppercase() })
         }
 
-        // V5.0.6480 — admission is synchronized, so physical size can never
-        // pass the canonical cap between size-check, eviction, and insertion.
-        try { com.lifecyclebot.engine.truth.WatchlistHardCapInvariant6473.assertSize(watchlist.size, MAX_WATCHLIST_SIZE, "global_registry") } catch (_: Throwable) {}
+        // Held rows are outside the discovery budget by design.
+        try {
+            val heldAfter6655 = canonicalOpenMints6655(now)
+            val discoveryAfter6655 = watchlist.keys.count { it !in heldAfter6655 }
+            com.lifecyclebot.engine.truth.WatchlistHardCapInvariant6473.assertSize(
+                discoveryAfter6655, MAX_WATCHLIST_SIZE, "global_registry_discovery",
+            )
+        } catch (_: Throwable) {}
         totalTokensAdded.incrementAndGet()
         ErrorLogger.debug(TAG, "➕ Added $symbol | by=$addedBy | source=$source | mcap=\$${initialMcap.toLong()}")
 
@@ -1500,6 +1537,8 @@ object GlobalTradeRegistry {
         rejectedTokens.clear()
         activePositions.clear()
         probation.clear()
+        cachedCanonicalOpenMints6655 = emptySet()
+        cachedCanonicalOpenMintsAt6655 = 0L
         totalTokensAdded.set(0)
         totalTokensRemoved.set(0)
         duplicatesBlocked.set(0)

@@ -220,6 +220,7 @@ object CryptoAltTrader {
     private const val KEY_WR_CONTRACT_MIGRATED_358 = "wr_contract_v358_migrated"
     private const val KEY_LIVE    = "is_live_mode"
     private const val DYNAMIC_MARK_MAX_AGE_MS_6654 = 10L * 60L * 1000L
+    private const val MAX_SINGLE_MARK_RATIO_6655 = 10.0
 
     // ─── Position model ───────────────────────────────────────────────────────
     data class AltPosition(
@@ -239,6 +240,7 @@ object CryptoAltTrader {
         // been resolved.  Legacy rows intentionally restore with a blank key.
         var markAssetKey  : String = "",
         var markUpdatedAtMs: Long = 0L,
+        var markContinuityValidated6655: Boolean = false,
         val entryPrice    : Double,
         var currentPrice  : Double,
         val sizeSol       : Double,
@@ -270,6 +272,10 @@ object CryptoAltTrader {
             val positionKey = canonicalAssetKey.trim().lowercase()
             val markKey = markAssetKey.trim().lowercase()
             if (positionKey.isBlank() || markKey.isBlank() || positionKey != markKey) return false
+            if (!markContinuityValidated6655) {
+                val bootstrapRatio = currentPrice / entryPrice
+                if (bootstrapRatio !in (1.0 / MAX_SINGLE_MARK_RATIO_6655)..MAX_SINGLE_MARK_RATIO_6655) return false
+            }
             return markUpdatedAtMs > 0L &&
                 nowMs - markUpdatedAtMs in 0L..DYNAMIC_MARK_MAX_AGE_MS_6654
         }
@@ -315,6 +321,7 @@ object CryptoAltTrader {
             .put("canonicalAssetKey", p.canonicalAssetKey)
             .put("markAssetKey",    p.markAssetKey)
             .put("markUpdatedAtMs", p.markUpdatedAtMs)
+            .put("markContinuityValidated6655", p.markContinuityValidated6655)
             .put("entryPrice",      p.entryPrice)
             .put("currentPrice",    p.currentPrice)
             .put("sizeSol",         p.sizeSol)
@@ -355,6 +362,7 @@ object CryptoAltTrader {
                 j.optString("dynMint", j.optString("dynSymbol", j.optString("market", "UNKNOWN")))),
             markAssetKey    = j.optString("markAssetKey", ""),
             markUpdatedAtMs = j.optLong("markUpdatedAtMs", 0L),
+            markContinuityValidated6655 = j.optBoolean("markContinuityValidated6655", false),
             entryPrice      = j.getDouble("entryPrice"),
             currentPrice    = j.getDouble("currentPrice"),
             sizeSol         = j.getDouble("sizeSol"),
@@ -370,11 +378,16 @@ object CryptoAltTrader {
             // Pre-6654 DYN rows may already contain a sentinel-derived mark.
             // Neutralise it on restore; the exact-identity monitor will replace
             // it with a fresh mark before any exit or accounting mutation.
-            if (isDynamic && markAssetKey.isBlank()) {
+            val restoredRatio6655 = if (entryPrice > 0.0) currentPrice / entryPrice else Double.NaN
+            if (isDynamic && (markAssetKey.isBlank() ||
+                    (!markContinuityValidated6655 &&
+                        (!restoredRatio6655.isFinite() || restoredRatio6655 !in
+                            (1.0 / MAX_SINGLE_MARK_RATIO_6655)..MAX_SINGLE_MARK_RATIO_6655)))) {
                 currentPrice = entryPrice
                 highestPnlPct = 0.0
                 markUpdatedAtMs = 0L
-                try { PipelineHealthCollector.labelInc("CRYPTO_DYN_LEGACY_MARK_NEUTRALISED_6654") } catch (_: Throwable) {}
+                markContinuityValidated6655 = false
+                try { PipelineHealthCollector.labelInc("CRYPTO_DYN_LEGACY_MARK_NEUTRALISED_6655") } catch (_: Throwable) {}
             }
             val fk = j.optString("flashPositionKey", "")
             if (fk.isNotBlank()) flashPositionKey = fk
@@ -2436,6 +2449,7 @@ object CryptoAltTrader {
             canonicalAssetKey = candidate.assetKey,
             markAssetKey   = candidate.assetKey,
             markUpdatedAtMs= System.currentTimeMillis(),
+            markContinuityValidated6655 = true,
             entryPrice     = signal.price,
             currentPrice   = signal.price,
             sizeSol        = canonicalFinalSize6570,
@@ -2889,18 +2903,26 @@ object CryptoAltTrader {
                     validatedMarkKey = position.market.name
                 }
 
-                // Static enum feeds retain the legacy spike guard.  Exact-identity
-                // dynamic marks may legitimately run beyond 10x and are protected
-                // by the canonical identity/freshness gates above.
-                val priceRatio = if (position.entryPrice > 0) markPrice / position.entryPrice else 1.0
-                if (!position.isDynamic && (priceRatio > 10.0 || priceRatio < 0.1)) {
-                    ErrorLogger.warn(TAG, "🪙 SPIKE GUARD: ${position.marketSymbol} entry=${position.entryPrice} new=$markPrice ratio=${"%.2f".format(priceRatio)}x — skipping")
+                // Validate against the last trusted mark, not forever against
+                // entry. A one-tick unit/feed swap is rejected, while genuine
+                // runners can compound through 10x/100x/500x over sequential
+                // validated ticks.
+                val referenceMark6655 = position.currentPrice.takeIf {
+                    position.hasTrustedMark() && it.isFinite() && it > 0.0
+                } ?: position.entryPrice
+                val priceRatio = if (referenceMark6655 > 0) markPrice / referenceMark6655 else Double.NaN
+                if (!priceRatio.isFinite() || priceRatio !in
+                    (1.0 / MAX_SINGLE_MARK_RATIO_6655)..MAX_SINGLE_MARK_RATIO_6655) {
+                    val label6655 = if (position.isDynamic) "CRYPTO_DYN_MARK_UNIT_JUMP_REJECTED_6655" else "CRYPTO_STATIC_MARK_SPIKE_REJECTED_6655"
+                    try { PipelineHealthCollector.labelInc(label6655) } catch (_: Throwable) {}
+                    ErrorLogger.warn(TAG, "🪙 MARK UNIT/JUMP GUARD: ${position.marketSymbol} prior=$referenceMark6655 new=$markPrice ratio=${"%.2f".format(priceRatio)}x — skipping")
                     continue
                 }
                 val updated = position.copy(
                     currentPrice = markPrice,
                     markAssetKey = validatedMarkKey,
                     markUpdatedAtMs = System.currentTimeMillis(),
+                    markContinuityValidated6655 = true,
                 )
                 // Exit functions read the map. Publish the validated tick before
                 // any SL/TP/floor decision so settlement cannot use the old mark.

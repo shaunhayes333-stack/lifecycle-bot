@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicReference
  * ──────
  * `UnifiedAccountSnapshot6635.read(mode, surface)` is the ONLY
  * function the UI is allowed to call.  It:
- *   1. Runs `ForensicReconciliation6635.reconcile6635()`
+ *   1. Reads the latest background reconciler verdict
  *   2. Reads canonical event registry + ledger + journal + positions
  *   3. Returns an immutable `Snapshot` with two possible statuses:
  *      RECONCILED — the four stores agree; safe to render
@@ -75,9 +75,11 @@ object UnifiedAccountSnapshot6635 {
         try { PipelineHealthCollector.labelInc("HERO_UNIFIED_SNAPSHOT_READ_6635") } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("HERO_UNIFIED_SNAPSHOT_READ_${surface.uppercase()}_6635") } catch (_: Throwable) {}
 
-        // Force reconciliation pass so every UI read observes fresh
-        // delta counters rather than a cached stale line.
-        try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
+        // V5.0.6655 — UI is a renderer, never a reconciler. The old call here
+        // traversed ledger/journal/quantity state synchronously on Main for
+        // every hero repaint and is present in the captured ANR stacks.
+        // ReconcilerWatchdog6430 and the wall-clock reconciler keep the verdict
+        // fresh off-thread; this read only consumes their latest health line.
 
         val capital = try { PaperCapitalAuthority6577.snapshot() } catch (_: Throwable) { null }
         val markAuthority = try { CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }

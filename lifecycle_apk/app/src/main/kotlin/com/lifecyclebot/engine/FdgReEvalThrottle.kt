@@ -13,11 +13,9 @@ import java.util.concurrent.ConcurrentHashMap
  * execution authority in the meme spine and the gate inputs barely move
  * tick-to-tick.
  *
- * This throttle seals one FDG verdict per canonical candidate version and lane
- * for a short TTL.  BUY is included: the executable decision is immutable for
- * that candidate version and duplicate execution is guarded by the canonical
- * mint/version claim downstream.  Re-running FDG does not make a BUY safer; it
- * creates a second decision for the same causal candidate.
+ * This throttle caches only non-executable observations. An executable FDG
+ * verdict is a one-shot causal event: replaying it without replaying its exact
+ * ExecutionIntent produced FDG_ALLOW_WITHOUT_EXECUTION_INTENT storms.
  *
  * IMPORTANT — this does NOT loosen any gate:
  *  - Safety/evidence changes are part of [evidenceVersion] and bust the seal.
@@ -62,6 +60,7 @@ object FdgReEvalThrottle {
         val now = System.currentTimeMillis()
         if (now - e.atMs > TTL_MS) { cache.remove(key); return null }
         if (kotlin.math.abs(scoreNow - e.score) >= SCORE_DELTA_BUST) { cache.remove(key); return null }
+        if (e.verdict.canExecute()) { cache.remove(key); return null }
         return e.verdict
     }
 
@@ -73,8 +72,12 @@ object FdgReEvalThrottle {
         score: Int,
         verdict: FinalDecisionGate.FinalDecision,
     ) {
-        cache[Key(mint, candidateVersion, lane.uppercase(), evidenceVersion)] =
-            Entry(verdict, score, System.currentTimeMillis())
+        val key = Key(mint, candidateVersion, lane.uppercase(), evidenceVersion)
+        if (verdict.canExecute()) {
+            cache.remove(key)
+            return
+        }
+        cache[key] = Entry(verdict, score, System.currentTimeMillis())
     }
 
     fun invalidate(mint: String) { cache.keys.removeIf { it.mint == mint } }
