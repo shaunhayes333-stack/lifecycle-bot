@@ -2301,6 +2301,18 @@ object CryptoAltTrader {
             return
         }
         try { ForensicLogger.phase(ForensicLogger.PHASE.LANE_EVAL, candidate.symbol, "lane=CRYPTO_ALT source=CANONICAL_HANDOFF_6566 score=${signal.score} confidence=${signal.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
+        // V5.0.6649a §P0-3 CRYPTO_ALT_CANDIDATE_STAMP — mark the
+        //   producer stage transition at the moment the candidate
+        //   is handed off to the CanonicalEntryAuthority6551.submit
+        //   spine so the crypto funnel counter shows CANDIDATE
+        //   -> ACTIONABLE_SIGNAL -> EXECUTE_BUY explicitly for
+        //   every crypto candidate. BuildRepair6581CoverageTest
+        //   asserts the literal source pair below.
+        try {
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(
+                com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "CANDIDATE"
+            )
+        } catch (_: Throwable) {}
         val canonicalCryptoAdmission6565 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.submit(
             com.lifecyclebot.engine.truth.CanonicalAssetEntryCandidate6551(
                 assetId = candidate.assetKey, symbol = mktSym,
