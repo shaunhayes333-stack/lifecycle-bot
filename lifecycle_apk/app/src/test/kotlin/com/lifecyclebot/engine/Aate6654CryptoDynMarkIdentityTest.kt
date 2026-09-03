@@ -30,6 +30,7 @@ class Aate6654CryptoDynMarkIdentityTest {
         canonicalAssetKey = canonicalKey,
         markAssetKey = markKey,
         markUpdatedAtMs = markAt,
+        markContinuityValidated6655 = false,
         entryPrice = entry,
         currentPrice = current,
         sizeSol = 0.1,
@@ -67,6 +68,30 @@ class Aate6654CryptoDynMarkIdentityTest {
     }
 
     @Test
+    fun `unproven cross unit dynamic mark cannot create million percent pnl`() {
+        val poisoned = position(
+            canonicalKey = "solana:asset-a",
+            markKey = "solana:asset-a",
+            entry = 0.0000000134,
+            current = 0.0138,
+        )
+        assertFalse(poisoned.hasTrustedMark())
+        assertEquals(0.0, poisoned.getPnlPct(), 0.0)
+    }
+
+    @Test
+    fun `continuity validated runner may exceed ten times entry`() {
+        val runner = position(
+            canonicalKey = "solana:asset-a",
+            markKey = "solana:asset-a",
+            entry = 0.001,
+            current = 0.5,
+        ).apply { markContinuityValidated6655 = true }
+        assertTrue(runner.hasTrustedMark())
+        assertEquals(149700.0, runner.getPnlPct(), 1e-9)
+    }
+
+    @Test
     fun `stale exact identity mark is economically neutral`() {
         val stale = position(
             canonicalKey = "solana:asset-a",
@@ -85,6 +110,7 @@ class Aate6654CryptoDynMarkIdentityTest {
         val ui = File("src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt").readText()
         val registry = File("src/main/kotlin/com/lifecyclebot/perps/DynamicAltTokenRegistry.kt").readText()
         assertTrue(trader.contains("CRYPTO_DYN_MARK_IDENTITY_REJECTED_6654"))
+        assertTrue(trader.contains("CRYPTO_DYN_MARK_UNIT_JUMP_REJECTED_6655"))
         assertTrue(trader.contains("markAssetKey = validatedMarkKey"))
         assertTrue(trader.contains("positions[id] = updated"))
         assertTrue(registry.contains("forceRefresh: Boolean = false"))

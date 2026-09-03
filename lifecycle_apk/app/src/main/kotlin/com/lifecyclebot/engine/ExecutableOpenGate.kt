@@ -1033,7 +1033,11 @@ object ExecutableOpenGate {
                 "NO_BUY" -> 0; "HARD_NO_BUY" -> 0; else -> 1
             }
             val sameVersion = old != null && old.candidateVersion == candidateVersion
-            val keepOld = sameVersion && rank(old?.preFdgVerdict) >= rank(finalVerdict)
+            // The trunk handoff is the already-elected execution owner. It must
+            // replace an equal-rank specialist proposal for this version or the
+            // sealed ticket will carry the wrong lane into TradeAuthorizer.
+            val keepOld = sameVersion && !allowTrunkExecutionHandoff6533 &&
+                rank(old?.preFdgVerdict) >= rank(finalVerdict)
             val effectiveVerdict = if (keepOld) old!!.preFdgVerdict else finalVerdict
             val effectiveCan = if (keepOld) old!!.fdgCan else canExecute
             (old ?: EntryState(mint = mint, symbol = symbol)).copy(
@@ -1086,6 +1090,12 @@ object ExecutableOpenGate {
                         ?: resolvedSizeSol6558.takeIf { it.isFinite() && it > 0.0 }
                         ?: 0.0
                     val canonicalLane6519 = winner.selectedLane.uppercase()
+                    if (allowTrunkExecutionHandoff6533) {
+                        val key6519 = intentKey6519(mode6512, mint, winner.candidateVersion)
+                        activeExecutionIntents6519.remove(key6519)?.let { stale ->
+                            executionTickets.remove(stale.attemptId, stale)
+                        }
+                    }
                     publishFdgIntent6519(
                         ExecutionIntent(
                             attemptId = canonicalExecutionKey(mint, mode = mode6512, side = "BUY", lane = canonicalLane6519, candidateVersion = winner.candidateVersion),

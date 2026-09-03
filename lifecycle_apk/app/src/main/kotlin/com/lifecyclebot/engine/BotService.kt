@@ -5640,12 +5640,10 @@ class BotService : Service() {
         loopHeartbeatJob = null
         scheduleLoopHeartbeatAlarm()
 
-        // V5.9.675 — battery-optimisation gate. Even with a foreground
-        // service + PARTIAL_WAKE_LOCK, Doze suspends the process unless
-        // the user has explicitly whitelisted the app. Check on every
-        // start and broadcast the result so MainActivity can surface
-        // a banner. On the first start where the app is NOT whitelisted,
-        // we also kick the system dialog so the user can fix it in one tap.
+        // V5.9.675/V5.0.6655 — battery-optimisation status. Check on every
+        // start so MainActivity can surface its user-operated banner. Never
+        // open Settings from the service: that covers AATE's controls and
+        // made the runtime/UI smoke unable to stop or restart the bot.
         try { checkAndPromptBatteryOptimisation() } catch (e: Throwable) {
             ErrorLogger.warn("BotService", "battery-opt check failed: ${e.message}")
         }
@@ -6775,31 +6773,14 @@ class BotService : Service() {
             try {
                 com.lifecyclebot.v3.V3EngineManager.initialize(
                     botCfg = cfg,
-                    // V5.9.669 — operator regression fix.
-                    //   V3 is a MAIN TRADER (wired to the learning loop)
-                    //   and was previously passed onExecute=null with the
-                    //   wrong assumption that 'V3 doesn't execute directly'.
-                    //   Result: every V3 EXECUTE_AGGRESSIVE decision threw
-                    //   'No execution callback configured' and trades fell
-                    //   back to legacy traders (ShitCoinAI / MoonshotAI)
-                    //   which execute at a fraction of V3's intended size
-                    //   and are NOT wired into the V3 learning loop. V3
-                    //   was learning nothing because nothing was reaching
-                    //   its outcome tracker.
-                    //
-                    //   Now: route V3's execution requests to the real
-                    //   executor.doBuy() at V3's chosen size. The same
-                    //   wallet/walletSol resolution used by manualBuy
-                    //   (V5.9.495o pattern) so live mode picks the cached
-                    //   balance and paper mode reads CashGenerationAI.
-                    //   Legacy traders continue feeding signals INTO V3's
-                    //   scoring matrix as designed, but V3 owns the
-                    //   execution side. Existing V3_EXECUTE_SAME_TICK
-                    //   guards prevent legacy from double-trading the
-                    //   same token in the same tick.
-                    onExecute = { req ->
-                        runV3Execution(req)
-                    },
+                    // V5.0.6655 — V3 produces a decision here; it must not
+                    // transact from inside processToken(). The old callback
+                    // called runV3Execution/doBuy before processToken returned,
+                    // therefore before the canonical FDG decision and immutable
+                    // execution intent existed. The later canonical trunk owns
+                    // the single transaction and records V3 learning only after
+                    // a canonical position is confirmed open.
+                    onExecute = null,
                     onLog = { msg, mint -> addLog("⚡ $msg", mint) }
                 )
                 
@@ -8535,25 +8516,14 @@ class BotService : Service() {
         }
         ErrorLogger.warn(
             "BotService",
-            "⚠️ Battery optimisation NOT whitelisted — Doze will suspend bot loop on screen-off. Prompting user."
+            "⚠️ Battery optimisation NOT whitelisted — Doze may suspend the bot loop on screen-off. Waiting for explicit banner tap."
         )
         addLog("⚠️ Battery optimisation must be disabled for 24/7 trading. Tap the banner to fix.")
-        // Fire the system dialog at most once per process start. The dialog
-        // launches the per-app exemption screen; on Samsung this is a
-        // confirmation popup with "Allow" / "Cancel".
-        val prefs = getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
-        val alreadyPromptedThisSession = prefs.getBoolean("battery_opt_prompted_session", false)
-        if (alreadyPromptedThisSession) return
-        try {
-            @android.annotation.SuppressLint("BatteryLife")
-            val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
-                .setData(android.net.Uri.parse("package:$packageName"))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            startActivity(intent)
-            prefs.edit().putBoolean("battery_opt_prompted_session", true).apply()
-        } catch (e: Throwable) {
-            ErrorLogger.warn("BotService", "Battery-opt prompt failed: ${e.message}")
-        }
+        // Never launch Settings from a service start. Smoke 3077 proved this
+        // stole foreground ownership from MainActivity, making every AATE
+        // control/window appear missing. MainActivity already exposes the
+        // exemption action behind an explicit banner tap.
+        try { PipelineHealthCollector.labelInc("BATTERY_OPT_PROMPT_DEFERRED_TO_USER_6655") } catch (_: Throwable) {}
     }
 
     /** V5.9.675 — read-only accessor used by MainActivity for the banner. */
@@ -15290,11 +15260,11 @@ class BotService : Service() {
                         // sees the invariant break at telemetry level rather than
                         // watching thousands of downstream rebalance events.
                         try {
-                            val currentWatchlist = com.lifecyclebot.engine.GlobalTradeRegistry.size()
+                            val currentWatchlist = com.lifecyclebot.engine.GlobalTradeRegistry.discoveryWatchlistSize6655()
                             val configuredCap = com.lifecyclebot.engine.GlobalTradeRegistry.MAX_WATCHLIST_SIZE
                             if (configuredCap > 0) {
                                 com.lifecyclebot.engine.truth.WatchlistHardCapInvariant6473
-                                    .assertSize(currentWatchlist, configuredCap, "hot_watchlist")
+                                    .assertSize(currentWatchlist, configuredCap, "hot_discovery_watchlist")
                             }
                         } catch (_: Throwable) {}
                     }
@@ -24821,43 +24791,10 @@ if (hotExitHandledSweep) {
                             }
                         }
 
-                        // V5.2: MUST check TradeAuthorizer BEFORE any execution
-                        val authResult = TradeAuthorizer.authorize(
-                            mint = ts.mint,
-                            symbol = identity.symbol,
-                            score = result.score,
-                            confidence = result.confidence.toDouble(),
-                            quality = decision.finalQuality,
-                            isPaperMode = cfg.paperMode,
-                            requestedBook = TradeAuthorizer.ExecutionBook.CORE,
-                            rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
-                            liquidity = ts.lastLiquidityUsd,
-                            isBanned = BannedTokens.isBanned(ts.mint),
-                            preResolvedSizeSol = result.sizeSol,
-                        )
-                        
-                        if (!authResult.isExecutable()) {
-                            // NOT AUTHORIZED - log and skip execution
-                            if (authResult.isShadowOnly()) {
-                                ErrorLogger.info("BotService", "[V3|AUTH] ${identity.symbol} | SHADOW_ONLY | ${authResult.reason}")
-                                // Track for shadow learning
-                                ShadowLearningEngine.onFdgBlockedTrade(
-                                    mint = ts.mint,
-                                    symbol = identity.symbol,
-                                    blockReason = "V3_AUTH_SHADOW_${authResult.reason}",
-                                    blockLevel = "TRADE_AUTHORIZER",
-                                    currentPrice = ts.ref,
-                                    proposedSizeSol = result.sizeSol,
-                                    quality = decision.finalQuality,
-                                    confidence = result.confidence.toDouble(),
-                                    phase = decision.phase,
-                                )
-                            } else {
-                                ErrorLogger.info("BotService", "[V3|AUTH] ${identity.symbol} | REJECTED | ${authResult.reason}")
-                                RejectionTelemetry.record("V3_AUTH", authResult.reason)
-                            }
-                        } else {
-                            // AUTHORIZED - proceed with execution
+                        // V5.0.6656 — this active V3 branch returns before the
+                        // later canonical trunk. Authorization therefore belongs
+                        // after this branch's own FDG intent is sealed below.
+                        run {
                             // V3 CONTROLS EXECUTION
                             val v3SizeSol = result.sizeSol
                             val v3Thesis = "V3 score=${result.score} band=${result.band}"
@@ -25057,6 +24994,44 @@ if (hotExitHandledSweep) {
                             }
                             if (v3Fdg6533.sizeSol > 0.0) proposedSize = v3Fdg6533.sizeSol
                             val v3AttemptId = v3Intent6533.attemptId
+                            // V5.0.6656 — consume the exact intent just sealed by
+                            // this FDG evaluation. The former pre-FDG call above
+                            // could only reject with missing execution intent.
+                            val sealedV3Auth6656 = TradeAuthorizer.authorize(
+                                mint = ts.mint,
+                                symbol = identity.symbol,
+                                score = result.score,
+                                confidence = result.confidence.toDouble(),
+                                quality = decision.finalQuality,
+                                isPaperMode = cfg.paperMode,
+                                requestedBook = executionBookForLane6494(cyclePrimaryLane),
+                                rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
+                                liquidity = ts.lastLiquidityUsd,
+                                isBanned = BannedTokens.isBanned(ts.mint),
+                                preResolvedSizeSol = proposedSize,
+                                attemptId = v3AttemptId,
+                            )
+                            if (!sealedV3Auth6656.isExecutable()) {
+                                if (sealedV3Auth6656.isShadowOnly()) {
+                                    ErrorLogger.info("BotService", "[V3|AUTH] ${identity.symbol} | SHADOW_ONLY | ${sealedV3Auth6656.reason}")
+                                    ShadowLearningEngine.onFdgBlockedTrade(
+                                        mint = ts.mint,
+                                        symbol = identity.symbol,
+                                        blockReason = "V3_AUTH_SHADOW_${sealedV3Auth6656.reason}",
+                                        blockLevel = "TRADE_AUTHORIZER",
+                                        currentPrice = ts.ref,
+                                        proposedSizeSol = proposedSize,
+                                        quality = decision.finalQuality,
+                                        confidence = result.confidence.toDouble(),
+                                        phase = decision.phase,
+                                    )
+                                } else {
+                                    ErrorLogger.info("BotService", "[V3|AUTH] ${identity.symbol} | REJECTED | ${sealedV3Auth6656.reason}")
+                                    RejectionTelemetry.record("V3_AUTH", sealedV3Auth6656.reason)
+                                }
+                                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, cyclePrimaryLane, "V3_AUTH_REJECT_6656") } catch (_: Throwable) {}
+                                return
+                            }
                             ErrorLogger.info("BotService", "[EXECUTION] ${identity.symbol} | ${if (cfg.paperMode) "PAPER" else "LIVE"}_BUY | ${proposedSize.fmt(4)} SOL")
                             
                             // Record proposal for dedupe
@@ -25079,7 +25054,7 @@ if (hotExitHandledSweep) {
                         )
                         
                         addLog("⚡ V3 EXECUTE: ${identity.symbol} | ${result.band} | ${proposedSize.fmt(4)} SOL", ts.mint)
-                        } // end authResult.isExecutable() else block
+                        } // end sealed V3 FDG → intent → authorization → execution
                     } else {
                         // Shadow mode - log only
                         ErrorLogger.info("BotService", "[SHADOW] ${identity.symbol} | WOULD_EXECUTE | ${result.band} | ${result.sizeSol.fmt(4)} SOL")
@@ -25609,9 +25584,9 @@ if (hotExitHandledSweep) {
                 brain = executor.brain,
                 tradingModeTag = tradingModeTag,
             )
-            // One immutable FDG result per candidate/evidence version.  BUY
-            // decisions are sealed too; downstream mint/version claims prevent
-            // a second execution while evidence changes bust this key.
+            // Non-executable observations may be throttled. Executable verdicts
+            // are never cached: each BUY must create and consume one exact
+            // causal execution intent.
             FdgReEvalThrottle.put(
                 identity.mint, fdgCandidateVersion6653, cyclePrimaryLane,
                 fdgEvidenceVersion6653, fdgScoreNow, fresh,
@@ -25672,6 +25647,9 @@ if (hotExitHandledSweep) {
         var useV3Decision = false
         var v3SizeSol = 0.0
         var v3Thesis = ""
+        var v3ScoreForLearning6655 = ts.lastV3Score ?: ts.entryScore.toInt()
+        var v3BandForLearning6655 = "V3"
+        var v3ConfidenceForLearning6655 = 0.0
         var v3ControlsExecution = false  // V3 is the boss when enabled
         
         if (cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()) {
@@ -25734,6 +25712,9 @@ if (hotExitHandledSweep) {
                                 useV3Decision = true
                                 v3SizeSol = result.sizeSol
                                 v3Thesis = "V3 score=${result.score} band=${result.band}"
+                                v3ScoreForLearning6655 = result.score
+                                v3BandForLearning6655 = result.band
+                                v3ConfidenceForLearning6655 = result.confidence
                                 addLog("⚡ V3+FDG: ${identity.symbol} | ${result.band} | " +
                                     "${v3SizeSol.fmt(4)} SOL | conf=${result.confidence.toInt()}%", mint)
                             }
@@ -25791,6 +25772,9 @@ if (hotExitHandledSweep) {
                                 useV3Decision = true
                                 v3SizeSol = probeSize
                                 v3Thesis = "V3-WATCH-COMPOUND-FLOOR score=${result.score} conf=${result.confidence} (FDG=green, V3 shrunk then floor-aware)"
+                                v3ScoreForLearning6655 = result.score
+                                v3BandForLearning6655 = "WATCH_COMPOUND"
+                                v3ConfidenceForLearning6655 = result.confidence.toDouble()
                                 ErrorLogger.info("BotService", "⚡ V3 WATCH→COMPOUND: ${identity.symbol} | size=${probeSize.fmt(4)} SOL raw=${rawProbeSize.fmt(4)} (FDG approved)")
                                 addLog("⚡ V3 WATCH→COMPOUND: ${identity.symbol} | score=${result.score} | ${probeSize.fmt(4)} SOL", mint)
                             } else {
@@ -25861,6 +25845,9 @@ if (hotExitHandledSweep) {
                                     useV3Decision = true
                                     v3SizeSol = bridgeSize
                                     v3Thesis  = "MemeBridge tech=${verdict.techScore} v3=${verdict.v3Score} blend=${verdict.blendedScore} mult=${"%.2f".format(verdict.trustMultiplier)} mode=${if (cfg.paperMode) "paper" else "live-learning"}"
+                                    v3ScoreForLearning6655 = verdict.v3Score
+                                    v3BandForLearning6655 = "MEME_BRIDGE"
+                                    v3ConfidenceForLearning6655 = verdict.blendedScore.toDouble()
                                     ErrorLogger.info("BotService", "🌉 BRIDGE OVERRIDE on V3-REJECT: ${identity.symbol} | $v3Thesis")
                                     addLog("🌉 Bridge BUY: ${identity.symbol} | tech=${verdict.techScore} blend=${verdict.blendedScore} | ${bridgeSize} SOL", mint)
                                     }
@@ -25928,6 +25915,40 @@ if (hotExitHandledSweep) {
             finalSizeForAuth6649
         }
 
+        // V5.0.6655 — seal the FDG decision before TradeAuthorizer asks the
+        // executable-open gate to consume it. The previous ordering called
+        // authorize first and only created this intent after authorization,
+        // forming a circular dependency that generated hundreds of
+        // FDG_ALLOW_WITHOUT_EXECUTION_INTENT blocks.
+        // When V3 owns execution, its WATCH/REJECT remains final; a green FDG
+        // is necessary but cannot resurrect a V3 reject. In shadow/legacy mode
+        // FDG remains the executable authority.
+        val shouldExecute = if (v3ControlsExecution) useV3Decision else fdgDecision.canExecute()
+        if (!shouldExecute) return
+        val candidateVersion6655 = LaneExecutionCoordinator.candidateVersionFor(identity.mint)
+        val sealedIntent6655 = ExecutableOpenGate.recordFdgAndGetIntent6533(
+            mint = identity.mint, symbol = identity.symbol, lane = cyclePrimaryLane,
+            canExecute = fdgDecision.canExecute(), reason = fdgDecision.blockReason,
+            signal = "BUY", rugScore = ts.safety.rugcheckScore,
+            safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd,
+            hardNoReasons = ts.safety.hardBlockReasons, preFdgVerdict = "BUY",
+            candidateVersion = candidateVersion6655,
+            entryScore = ts.lastV3Score ?: ts.entryScore.toInt(),
+            tokenMapRouteStatus = tokenMap6614.routeStatus,
+            tokenMapHydrationComplete = tokenMap6614.hydrationComplete,
+            tokenMapExpectedOut = tokenMap6614.expectedOutAmount,
+            tokenMapProviderAttempts = tokenMap6614.providerAttempts,
+            requiresSolanaTokenMap = true,
+            allowTrunkExecutionHandoff6533 = true,
+            resolvedSizeSol6558 = actualInitialSizeForAuth6649,
+        ) ?: run {
+            try {
+                PipelineHealthCollector.labelInc("TRUNK_FDG_INTENT_SEAL_FAILED_6655")
+                ForensicLogger.lifecycle("TRUNK_FDG_INTENT_SEAL_FAILED_6655", "mint=${identity.mint.take(10)} lane=$cyclePrimaryLane version=$candidateVersion6655 action=reject_before_authorizer")
+            } catch (_: Throwable) {}
+            return
+        }
+
         // ═══════════════════════════════════════════════════════════════════
         // V5.0: TRADE AUTHORIZER - Check BEFORE any execution
         // This is the unified gate that prevents post-execution gating drift
@@ -25944,6 +25965,7 @@ if (hotExitHandledSweep) {
             liquidity = ts.lastLiquidityUsd,
             isBanned = BannedTokens.isBanned(mint),
             preResolvedSizeSol = actualInitialSizeForAuth6649,
+            attemptId = sealedIntent6655.attemptId,
         )
         
         ErrorLogger.info("BotService", "🧬 MEME_SPINE AUTH ${identity.symbol} | verdict=${authResult.verdict} | reason=${authResult.reason} | paper=${cfg.paperMode} | liq=${ts.lastLiquidityUsd.toInt()}")
@@ -25955,26 +25977,7 @@ if (hotExitHandledSweep) {
         }
         val candidateVersion6614 = authResult.candidateVersion6494.takeIf { it > 0L }
             ?: LaneExecutionCoordinator.candidateVersionFor(identity.mint)
-        var specialistIntent6614 = ExecutableOpenGate.activeExecutionIntent6519(
-            if (cfg.paperMode) "PAPER" else "LIVE", identity.mint, candidateVersion6614,
-        )
-        if (authResult.isExecutable() && specialistIntent6614 == null) {
-            specialistIntent6614 = ExecutableOpenGate.recordFdgAndGetIntent6533(
-                mint = identity.mint, symbol = identity.symbol, lane = cyclePrimaryLane,
-                canExecute = fdgDecision.canExecute(), reason = fdgDecision.blockReason,
-                signal = if (fdgDecision.canExecute()) "BUY" else "NO_BUY",
-                rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name,
-                liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons,
-                preFdgVerdict = if (fdgDecision.canExecute()) "BUY" else "NO_BUY",
-                candidateVersion = candidateVersion6614, entryScore = ts.lastV3Score ?: ts.entryScore.toInt(),
-                tokenMapRouteStatus = tokenMap6614.routeStatus,
-                tokenMapHydrationComplete = tokenMap6614.hydrationComplete,
-                tokenMapExpectedOut = tokenMap6614.expectedOutAmount,
-                tokenMapProviderAttempts = tokenMap6614.providerAttempts,
-                requiresSolanaTokenMap = true,
-                allowTrunkExecutionHandoff6533 = true,
-            )
-        }
+        val specialistIntent6614 = sealedIntent6655
         val specialistFdgAllowed6614 = specialistIntent6614?.fdgAllowed == true || fdgDecision.canExecute()
         try {
             ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, if (specialistFdgAllowed6614) "FDG_ALLOW" else "FDG_BLOCK", specialistCausalId6614)
@@ -26013,8 +26016,6 @@ if (hotExitHandledSweep) {
         // ═══════════════════════════════════════════════════════════════════
         // EXECUTION PATH: Use V3 decision if active, otherwise FDG
         // ═══════════════════════════════════════════════════════════════════
-        val shouldExecute = useV3Decision || fdgDecision.canExecute()
-        
         if (shouldExecute) {
             // ═══════════════════════════════════════════════════════════════════
             // RECORD PROPOSAL: Track that we proposed (for dedupe)
@@ -26084,6 +26085,7 @@ if (hotExitHandledSweep) {
                         fields = "size=${actualInitialSize.fmt(4)} v3=$useV3Decision conf=${if (useV3Decision) 0 else fdgDecision.confidence.toInt()}"
                     )
                 } catch (_: Throwable) {}
+                val wasOpenBeforeCanonicalAttempt6655 = executor.positionDidOpen(ts)
                 executor.maybeActWithDecision(
                     ts                 = ts,
                     decision           = decision,
@@ -26100,10 +26102,25 @@ if (hotExitHandledSweep) {
                     } catch (_: Exception) { 0 },
                     tradeIdentity      = identity,  // Pass canonical identity
                     fdgApprovalClass   = approvalClass,  // Pass approval class for learning
+                    executionAttemptId = sealedIntent6655.attemptId,
                 )
                 
-                // Record V3 position opened
-                if (useV3Decision) {
+                // Record V3 learning only after this exact canonical attempt
+                // created a new open. Routed/blocked attempts are not trades.
+                val didOpenAfterCanonicalAttempt6655 = executor.positionDidOpen(ts)
+                if (useV3Decision && !wasOpenBeforeCanonicalAttempt6655 && didOpenAfterCanonicalAttempt6655) {
+                    com.lifecyclebot.v3.V3EngineManager.recordEntry(
+                        mint = identity.mint,
+                        symbol = identity.symbol,
+                        entryPrice = ts.position.entryPrice,
+                        sizeSol = ts.position.costSol.takeIf { it > 0.0 } ?: actualInitialSize,
+                        v3Score = v3ScoreForLearning6655,
+                        v3Band = v3BandForLearning6655,
+                        v3Confidence = v3ConfidenceForLearning6655,
+                        source = ts.source,
+                        liquidityUsd = ts.lastLiquidityUsd,
+                        isPaper = cfg.paperMode,
+                    )
                     com.lifecyclebot.v3.V3EngineManager.setCooldown(identity.mint, 60_000L)
                 }
             }

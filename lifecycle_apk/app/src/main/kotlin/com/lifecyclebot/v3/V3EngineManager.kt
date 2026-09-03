@@ -983,6 +983,13 @@ object V3EngineManager {
     }
 
     private fun wireTradeExecutorCallbackLocked() {
+        // V5.0.6655 — null means decision-only. Clear the process-global
+        // callback as well so a prior service generation cannot retain a
+        // transaction closure and execute before the canonical FDG trunk.
+        if (onExecuteCallback == null) {
+            com.lifecyclebot.v3.execution.TradeExecutor.executeCallback = null
+            return
+        }
         com.lifecyclebot.v3.execution.TradeExecutor.executeCallback = { candidate, size, decision, _ ->
             val callback = onExecuteCallback
 
