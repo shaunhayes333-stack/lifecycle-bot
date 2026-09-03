@@ -13,13 +13,14 @@ import java.util.concurrent.ConcurrentHashMap
  * execution authority in the meme spine and the gate inputs barely move
  * tick-to-tick.
  *
- * This throttle caches the last NON-EXECUTABLE FDG verdict per mint for a short
- * TTL and lets the spine reuse it instead of recomputing, unless the proposed
- * entry score moved materially (a genuine signal change earns a fresh verdict).
+ * This throttle seals one FDG verdict per canonical candidate version and lane
+ * for a short TTL.  BUY is included: the executable decision is immutable for
+ * that candidate version and duplicate execution is guarded by the canonical
+ * mint/version claim downstream.  Re-running FDG does not make a BUY safer; it
+ * creates a second decision for the same causal candidate.
  *
  * IMPORTANT — this does NOT loosen any gate:
- *  - Only NON-executable (NOT_BUY / blocked) verdicts are cached. An executable
- *    verdict is never cached, so a real BUY always gets a live, current eval.
+ *  - Safety/evidence changes are part of [evidenceVersion] and bust the seal.
  *  - The reused verdict is exactly the verdict the gate itself just produced;
  *    we only skip recomputing an identical answer within the TTL window.
  *  - A score delta >= SCORE_DELTA_BUST busts the cache so improving setups are
@@ -34,29 +35,49 @@ object FdgReEvalThrottle {
     private const val TTL_MS = 8_000L
     private const val SCORE_DELTA_BUST = 5
 
+    private data class Key(
+        val mint: String,
+        val candidateVersion: Long,
+        val lane: String,
+        val evidenceVersion: String,
+    )
+
     private data class Entry(
         val verdict: FinalDecisionGate.FinalDecision,
         val score: Int,
         val atMs: Long,
     )
 
-    private val cache = ConcurrentHashMap<String, Entry>()
+    private val cache = ConcurrentHashMap<Key, Entry>()
 
-    fun get(mint: String, scoreNow: Int): FinalDecisionGate.FinalDecision? {
-        val e = cache[mint] ?: return null
+    fun get(
+        mint: String,
+        candidateVersion: Long,
+        lane: String,
+        evidenceVersion: String,
+        scoreNow: Int,
+    ): FinalDecisionGate.FinalDecision? {
+        val key = Key(mint, candidateVersion, lane.uppercase(), evidenceVersion)
+        val e = cache[key] ?: return null
         val now = System.currentTimeMillis()
-        if (now - e.atMs > TTL_MS) { cache.remove(mint); return null }
-        if (kotlin.math.abs(scoreNow - e.score) >= SCORE_DELTA_BUST) { cache.remove(mint); return null }
-        if (e.verdict.canExecute()) { cache.remove(mint); return null }
+        if (now - e.atMs > TTL_MS) { cache.remove(key); return null }
+        if (kotlin.math.abs(scoreNow - e.score) >= SCORE_DELTA_BUST) { cache.remove(key); return null }
         return e.verdict
     }
 
-    fun put(mint: String, score: Int, verdict: FinalDecisionGate.FinalDecision) {
-        if (verdict.canExecute()) { cache.remove(mint); return }
-        cache[mint] = Entry(verdict, score, System.currentTimeMillis())
+    fun put(
+        mint: String,
+        candidateVersion: Long,
+        lane: String,
+        evidenceVersion: String,
+        score: Int,
+        verdict: FinalDecisionGate.FinalDecision,
+    ) {
+        cache[Key(mint, candidateVersion, lane.uppercase(), evidenceVersion)] =
+            Entry(verdict, score, System.currentTimeMillis())
     }
 
-    fun invalidate(mint: String) { cache.remove(mint) }
+    fun invalidate(mint: String) { cache.keys.removeIf { it.mint == mint } }
     fun clear() { cache.clear() }
     fun size(): Int = cache.size
 }

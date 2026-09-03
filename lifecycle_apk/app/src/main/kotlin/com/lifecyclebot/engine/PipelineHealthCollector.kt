@@ -1758,11 +1758,9 @@ object PipelineHealthCollector {
             sb.append(com.lifecyclebot.engine.ToolkitSignalSheet.designatedRoleLivenessReport6599()).append("\n")
             sb.append(com.lifecyclebot.engine.ToolkitSignalSheet.specialistCapitalReport6599()).append("\n")
             sb.append(com.lifecyclebot.engine.ToolkitSignalSheet.specialistCausalFunnel6600()).append("\n")
-            // V5.0.6625 — reap stale pending intents and surface the P2/P3/P4/P5/P6
-            // receiver statuses next to §6600. Reap runs here (called each
-            // pipeline dump cadence) so the CORE/BLUECHIP 168+51 backlog can
-            // actually drain without threading a new coroutine into hot paths.
-            try { com.lifecyclebot.engine.truth.PendingIntentBacklog6625.reap6625(30_000L) } catch (_: Throwable) {}
+            // V5.0.6653 — reports are read-only.  Runtime-owned maintenance in
+            // BotService terminalizes stale intents; copying a health report
+            // must never mutate execution state.
             sb.append("===== MEME EXECUTION FUNNEL RECEIVERS (V5.0.6625) =====\n")
             sb.append("  §P2 EXPRESS_HANDOFF     ${com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.statusLine()}\n")
             sb.append("  §P3 PENDING_BACKLOG     ${com.lifecyclebot.engine.truth.PendingIntentBacklog6625.statusLine()}\n")

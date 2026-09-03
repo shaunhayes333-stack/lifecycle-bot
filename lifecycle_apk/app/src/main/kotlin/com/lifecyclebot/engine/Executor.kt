@@ -20041,7 +20041,7 @@ class Executor(
         // but cannot silently turn an executable buy into dust.
         val runtimeMinimum6511 = try { cfg().minLiveBuySol } catch (_: Throwable) { 0.005 }
         val boundedMinimum6511 = PaperPreTicketSizeFloor6511.boundedMinimum(runtimeMinimum6511)
-        return com.lifecyclebot.engine.truth.OrderSizeResolver6441.updatePaperExecutableMinimumSol(boundedMinimum6511)
+        return boundedMinimum6511
     }
 
     private fun clampPaperTradeSol(requested: Double, mint: String = "", symbol: String = "", source: String = "paper", maxOverrideSol: Double? = null): Double {

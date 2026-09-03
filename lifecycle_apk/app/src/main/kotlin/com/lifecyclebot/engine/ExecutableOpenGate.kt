@@ -1479,21 +1479,25 @@ object ExecutableOpenGate {
         val immutableAuthority6513 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(
             mint, authorityCandidateVersion6513, modeUpper,
         )
-        val specialistElection6641 = try {
-            com.lifecyclebot.engine.truth.SpecialistProposalArbiter6629
-                .elect6629(mint, authorityCandidateVersion6513)
-        } catch (_: Throwable) { null }
-        val electedLane6641 = specialistElection6641?.elected?.lane
-        if (!electedLane6641.isNullOrBlank() && !electedLane6641.equals(requestedLaneForSynth, true)) {
+        // V5.0.6653 — never run a second specialist election after FDG.  The
+        // LaneExecutionCoordinator receipt passed by TradeAuthorizer is the
+        // immutable owner selected before finality.  SpecialistProposalArbiter
+        // remains proposal/learning telemetry only; re-electing here produced
+        // thousands of post-FDG SPECIALIST_NOT_ELECTED rejects and broke lane
+        // identity between intent and execution.
+        val sealedReceiptLane6653 = electedLane6494.takeIf { it.isNotBlank() }
+            ?.let(::canonicalLane)
+        if (!sealedReceiptLane6653.isNullOrBlank() &&
+            !sealedReceiptLane6653.equals(requestedLaneForSynth, true)) {
             try {
-                PipelineHealthCollector.labelInc("SPECIALIST_NON_ELECTED_EXECUTION_REJECTED_6641")
+                PipelineHealthCollector.labelInc("IMMUTABLE_ELECTION_LANE_MISMATCH_6653")
                 ForensicLogger.lifecycle(
-                    "SPECIALIST_NON_ELECTED_EXECUTION_REJECTED_6641",
-                    "mint=${mint.take(10)} version=$authorityCandidateVersion6513 requested=$requestedLaneForSynth elected=$electedLane6641 action=one_mint_version_one_owner",
+                    "IMMUTABLE_ELECTION_LANE_MISMATCH_6653",
+                    "mint=${mint.take(10)} version=$authorityCandidateVersion6513 requested=$requestedLaneForSynth receipt=$sealedReceiptLane6653 electionId=$electionId6494 authority=$authorityVersion6494 action=reject_mutated_caller_no_second_election",
                 )
             } catch (_: Throwable) {}
-            return OpenVerdict(false, "SPECIALIST_NOT_ELECTED", shadowOnly = false,
-                logName = "SPECIALIST_NON_ELECTED_EXECUTION_REJECTED_6641", attemptId = attemptId)
+            return OpenVerdict(false, "IMMUTABLE_ELECTION_LANE_MISMATCH", shadowOnly = false,
+                logName = "IMMUTABLE_ELECTION_LANE_MISMATCH_6653", attemptId = attemptId)
         }
         val ticketAuthority6564 = resolveSealedIntent6613(
             attemptId, modeUpper, mint, authorityCandidateVersion6513, requestedLaneForSynth,

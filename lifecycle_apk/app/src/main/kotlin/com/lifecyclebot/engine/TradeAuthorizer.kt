@@ -232,9 +232,14 @@ object TradeAuthorizer {
             }
         }
 
+        val causalAttempt6613 = attemptId.ifBlank { "${mint}:${LaneExecutionCoordinator.candidateVersionFor(mint)}:${requestedBook.name}" }
         var electionReceipt6494: LaneExecutionCoordinator.Verdict? = null
         fun releasePrimaryAfterAuthFailure(reason: String) {
             val receipt = electionReceipt6494
+            // V5.0.6653 — every created intent receives an explicit terminal
+            // outcome.  Previously release only freed the election while the
+            // causal backlog stayed PENDING until the report builder deleted it.
+            try { ToolkitSignalSheet.recordDeskStage(requestedBook.name, "AUTH_REJECT", causalAttempt6613) } catch (_: Throwable) {}
             try {
                 LaneExecutionCoordinator.releaseIfPrimary(
                     mint = mint,
@@ -245,7 +250,6 @@ object TradeAuthorizer {
             } catch (_: Throwable) {}
         }
 
-        val causalAttempt6613 = attemptId.ifBlank { "${mint}:${LaneExecutionCoordinator.candidateVersionFor(mint)}:${requestedBook.name}" }
         try { ToolkitSignalSheet.recordDeskStage(requestedBook.name, "BUY_INTENT", causalAttempt6613) } catch (_: Throwable) {}
 
         // V5.9.1120 — lane election BEFORE finality/open-request side effects.
@@ -258,6 +262,7 @@ object TradeAuthorizer {
         electionReceipt6494 = laneElection
         if (laneElection.allowed) try { ToolkitSignalSheet.recordDeskStage(requestedBook.name, "OWNER_SELECTED", causalAttempt6613) } catch (_: Throwable) {}
         if (!laneElection.allowed) {
+            try { ToolkitSignalSheet.recordDeskStage(requestedBook.name, "SUPERSEDED", causalAttempt6613) } catch (_: Throwable) {}
             try {
                 ForensicLogger.lifecycle(
                     "LANE_PREAUTH_SUPPRESSED",

@@ -3,6 +3,7 @@ package com.lifecyclebot.engine
 import com.lifecyclebot.data.BotConfig
 import com.lifecyclebot.data.CandidateDecision
 import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.data.minLiveBuySol
 import com.lifecyclebot.engine.quant.EVCalculator
 import com.lifecyclebot.engine.sell.LiveBuyAdmissionGate
 import com.lifecyclebot.v3.scoring.FluidLearningAI
@@ -118,27 +119,33 @@ object FinalDecisionGate {
     private val fdgVerdictCache = ConcurrentHashMap<String, FdgVerdictCacheEntry>()
     private const val FDG_VERDICT_CACHE_TTL_MS = 12_000L
 
-    private fun candidateVersionOf(candidate: CandidateDecision, laneScore: Double): String = listOf(
-        candidate.signal,
-        candidate.finalSignal,
-        candidate.blockReason,
-        candidate.entryScore.toInt(),
-        candidate.exitScore.toInt(),
-        candidate.aiConfidence.toInt(),
-        candidate.setupQuality,
-        candidate.edgeQuality,
-        candidate.finalQuality,
-        candidate.edgeVeto,
-        candidate.qualityPenalty,
-        laneScore.toInt(),
-    ).joinToString("|").hashCode().toString()
+    private fun candidateVersionOf(ts: TokenState, candidate: CandidateDecision, laneScore: Double): String {
+        // V5.0.6653 — use the same 30-second candidate authority as execution.
+        // The former key hashed every mutable score/quality field, so harmless
+        // one-point changes manufactured a fresh FDG decision on each scan and
+        // defeated the cache.  Coarse score bands still re-evaluate meaningful
+        // moves; safety/liquidity fingerprints bust immediately.
+        val canonicalVersion = try { LaneExecutionCoordinator.candidateVersionFor(ts.mint) }
+            catch (_: Throwable) { System.currentTimeMillis() / 30_000L }
+        val scoreBand = (laneScore.coerceIn(0.0, 100.0).toInt() / 5) * 5
+        return listOf(
+            canonicalVersion,
+            candidate.finalSignal.ifBlank { candidate.signal },
+            candidate.blockReason,
+            scoreBand,
+            ts.safety.tier.name,
+            ts.safety.rugcheckScore,
+            ts.safety.hardBlockReasons.sorted().joinToString(","),
+            if (ts.lastLiquidityUsd > 0.0) "LIQUID" else "NO_LIQ",
+        ).joinToString("|")
+    }
 
     private fun runtimeGenerationKey(): String = try {
         BotRuntimeController.currentGeneration().toString()
     } catch (_: Throwable) { "0" }
 
     private fun fdgCacheKey(ts: TokenState, candidate: CandidateDecision, lane: String, side: String, laneScore: Double): String =
-        "${runtimeGenerationKey()}|${ts.mint}|${candidateVersionOf(candidate, laneScore)}|${lane.uppercase()}|${side.uppercase()}"
+        "${runtimeGenerationKey()}|${ts.mint}|${candidateVersionOf(ts, candidate, laneScore)}|${lane.uppercase()}|${side.uppercase()}"
 
     private fun cachedFdgVerdict(key: String): FinalDecision? {
         val now = System.currentTimeMillis()
@@ -4916,13 +4923,21 @@ object FinalDecisionGate {
         // any market change requires a fresh ticket rather than mutation.
         if (shouldTradeFinal && finalSize >= 0.005 && ts.mint.isNotBlank()) {
             try {
+                val paperMinimum6653 = if (config.paperMode)
+                    PaperPreTicketSizeFloor6511.boundedMinimum(config.minLiveBuySol)
+                else 0.001
+                val sizingCash6653 = try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { 0.0 }
                 val sealed6552 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.resolve(
                     requestedSol = finalSize,
                     laneName = laneName,
-                    walletSol = try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { 0.0 },
+                    walletSol = sizingCash6653,
                     paperMode = config.paperMode,
-                    laneRiskCapSol = (try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { 0.0 }) * 0.12,
-                    laneMinExecutableSol = 0.005,
+                    // A configured executable minimum and a smaller percentage
+                    // cap are mutually impossible.  Fund the minimum only when
+                    // canonical cash can afford it; all portfolio/slot/safety
+                    // gates remain upstream and unchanged.
+                    laneRiskCapSol = maxOf(sizingCash6653 * 0.12, paperMinimum6653),
+                    laneMinExecutableSol = paperMinimum6653,
                     // V5.0.6651 — telemetry identity only: SIZE must join
                     // the same candidate record as intent/FDG/mark.
                     causalEventId = "${ts.mint}:${com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)}",

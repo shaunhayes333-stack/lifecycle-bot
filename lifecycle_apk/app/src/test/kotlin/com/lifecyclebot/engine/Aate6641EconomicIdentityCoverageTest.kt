@@ -12,7 +12,8 @@ class Aate6641EconomicIdentityCoverageTest {
         assertTrue(src.contains("economic_event_id TEXT NOT NULL DEFAULT ''"))
         assertTrue(src.contains("put(\"economic_event_id\", t.economicEventId)"))
         assertTrue(src.contains("trade.economicEventId.ifBlank { trade.operationId }"))
-        assertTrue(src.contains("if (rowId > 0L) stampDurableJournalCommit6641(trade)"))
+        assertTrue(src.contains("if (rowId > 0L)"))
+        assertTrue(src.contains("stampDurableJournalCommit6641(trade)"))
         assertTrue(src.contains("CanonicalEconomicEvent6635.Store.JOURNAL"))
     }
 
@@ -39,6 +40,7 @@ class Aate6641EconomicIdentityCoverageTest {
         assertTrue(gate.contains("it.candidateVersion == candidateVersion"))
         assertTrue(gate.contains("it.canonicalLane.equals(requestedLane, true)"))
         assertTrue(gate.contains("RESTORED_TICKET_IMMUTABLE_IDENTITY_MISMATCH_6641"))
-        assertTrue(gate.contains("SPECIALIST_NON_ELECTED_EXECUTION_REJECTED_6641"))
+        assertTrue(gate.contains("IMMUTABLE_ELECTION_LANE_MISMATCH_6653"))
+        assertFalse(gate.contains("SpecialistProposalArbiter6629.elect6629"))
     }
 }

@@ -742,6 +742,10 @@ class BotService : Service() {
         specialistWorkerSupervisor6647 = scope.launch(CoroutineName("specialist-supervisor-6647")) {
             while (status.running) {
                 val now = System.currentTimeMillis()
+                // V5.0.6653 — runtime-owned terminalization.  Stale intents
+                // must not depend on the operator opening/copying a report.
+                try { com.lifecyclebot.engine.truth.PendingIntentBacklog6625.reap6625(30_000L) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.reap6627(30_000L) } catch (_: Throwable) {}
                 ToolkitSignalSheet.configuredMemeDesks6647().forEach { lane ->
                     val current = specialistWorkerJobs6647[lane]
                     if (current?.isActive == true || now < (specialistRestartAfterMs6647[lane] ?: 0L)) return@forEach
@@ -25579,7 +25583,19 @@ if (hotExitHandledSweep) {
         // verdict is the SAME verdict the gate just produced, only reused briefly
         // to avoid redundant compute. Throughput-positive, doctrine rule #3.
         val fdgScoreNow: Int = try { decision.entryScore.toInt() } catch (_: Throwable) { 0 }
-        val cachedFdg = FdgReEvalThrottle.get(identity.mint, fdgScoreNow)
+        val fdgCandidateVersion6653 = LaneExecutionCoordinator.candidateVersionFor(identity.mint)
+        val fdgEvidenceVersion6653 = listOf(
+            ts.safety.tier.name,
+            ts.safety.rugcheckScore,
+            ts.safety.hardBlockReasons.sorted().joinToString(","),
+            if (ts.lastLiquidityUsd > 0.0) "LIQUID" else "NO_LIQ",
+            decision.finalSignal,
+            decision.blockReason,
+        ).joinToString("|")
+        val cachedFdg = FdgReEvalThrottle.get(
+            identity.mint, fdgCandidateVersion6653, cyclePrimaryLane,
+            fdgEvidenceVersion6653, fdgScoreNow,
+        )
         val fdgWasCached = cachedFdg != null
         val fdgDecision = if (cachedFdg != null) {
             try { ForensicLogger.lifecycle("FDG_CACHED_REUSE", "mint=${identity.mint.take(10)} reusedVerdict can=${cachedFdg.canExecute()} score=$fdgScoreNow") } catch (_: Throwable) {}
@@ -25593,9 +25609,13 @@ if (hotExitHandledSweep) {
                 brain = executor.brain,
                 tradingModeTag = tradingModeTag,
             )
-            // Only cache NON-executable verdicts; executable ones must always
-            // re-evaluate live so we never sit on a stale BUY.
-            if (!fresh.canExecute()) FdgReEvalThrottle.put(identity.mint, fdgScoreNow, fresh)
+            // One immutable FDG result per candidate/evidence version.  BUY
+            // decisions are sealed too; downstream mint/version claims prevent
+            // a second execution while evidence changes bust this key.
+            FdgReEvalThrottle.put(
+                identity.mint, fdgCandidateVersion6653, cyclePrimaryLane,
+                fdgEvidenceVersion6653, fdgScoreNow, fresh,
+            )
             fresh
         }
         ErrorLogger.info("BotService", "🧬 MEME_SPINE FDG ${identity.symbol} | can=${fdgDecision.canExecute()} | qual=${fdgDecision.quality} | conf=${fdgDecision.confidence.toInt()} | size=${fdgDecision.sizeSol.fmt(4)} | reason=${fdgDecision.blockReason ?: "none"}")

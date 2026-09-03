@@ -62,15 +62,19 @@ object OrderSizeResolver6441 {
     private fun fromLamports6491(lamports: Long): Double = lamports.toDouble() / SOL_LAMPORTS_6491.toDouble()
     fun meetsMinimum6491(valueSol: Double, minimumSol: Double): Boolean =
         toLamports6491(valueSol) >= toLamports6491(minimumSol)
-    // Exchange minimum is distinct from the strategy's meaningful notional.
-    // The proposal/policy decides meaningful size; this only prevents dust.
-    private val paperExecutableMinimum = AtomicReference(0.005)
+    // V5.0.6653 — one immutable paper executable floor.  The previous global
+    // AtomicReference was mutated by whichever Executor instance happened to
+    // size first.  FDG could therefore resolve against 0.005 and the executor
+    // later reject against 0.05 (or vice versa).  Per-call lane minimums remain
+    // dynamic; this value is only the configured paper ticket floor.
+    private const val PAPER_EXECUTABLE_MINIMUM_SOL = 0.05
 
-    fun paperExecutableMinimumSol(): Double = paperExecutableMinimum.get()
+    fun paperExecutableMinimumSol(): Double = PAPER_EXECUTABLE_MINIMUM_SOL
+
+    @Deprecated("V5.0.6653: executable minimum is immutable; pass laneMinExecutableSol per resolution")
+    @Suppress("UNUSED_PARAMETER")
     fun updatePaperExecutableMinimumSol(value: Double): Double {
-        val v = value.takeIf { it.isFinite() && it > 0.0 }?.coerceAtLeast(ABS_MIN_EXECUTABLE_SOL) ?: paperExecutableMinimum.get()
-        paperExecutableMinimum.set(v)
-        return v
+        return PAPER_EXECUTABLE_MINIMUM_SOL
     }
 
     private val totalResolves = AtomicLong(0L)
@@ -156,7 +160,7 @@ object OrderSizeResolver6441 {
         // account and lane can genuinely fund the minimum, preserve that floor;
         // otherwise resolve non-executable BEFORE an execution ticket exists.
         val minExecRaw6491 = when {
-            paperMode && applyPaperMemeMinimum -> maxOf(laneMinExecutableSol, paperExecutableMinimumSol())
+            paperMode && applyPaperMemeMinimum -> maxOf(laneMinExecutableSol, PAPER_EXECUTABLE_MINIMUM_SOL)
             else -> laneMinExecutableSol.coerceAtLeast(ABS_MIN_EXECUTABLE_SOL)
         }
         val minExecLamports6491 = toLamports6491(minExecRaw6491)

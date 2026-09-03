@@ -72,6 +72,7 @@ object JournalEconomicReplay6619 {
     private val replays = AtomicLong(0L)
     private val lastResult = AtomicReference<ReplayResult?>(null)
     private val ledgerDivergenceLast = AtomicReference<Double>(0.0)
+    private val reportedInvariantFailures6653 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     /**
      * Deterministically compute paper economics from durable journal
@@ -162,8 +163,13 @@ object JournalEconomicReplay6619 {
             try {
                 LearningQuarantineGate6470.quarantinePositionId("EVENT:$eventId", reason)
                 if (t.positionId.isNotBlank()) LearningQuarantineGate6470.quarantinePositionId(t.positionId, "EVENT:$eventId:$reason")
-                PipelineHealthCollector.labelInc("JOURNAL_LOT_REPLAY_INVARIANT_FAILURE_6647")
-                ForensicLogger.lifecycle("JOURNAL_LOT_REPLAY_INVARIANT_FAILURE_6647", "economicEventId=$eventId positionId=${t.positionId} side=${t.side} fillIndex=${t.partialSequence} reason=$reason action=quarantine_exact_event")
+                // V5.0.6653 — one alarm per immutable bad event.  A single
+                // legacy row used to increment on every 5-second replay and
+                // masquerade as hundreds of new accounting failures.
+                if (reportedInvariantFailures6653.add(identity)) {
+                    PipelineHealthCollector.labelInc("JOURNAL_LOT_REPLAY_INVARIANT_FAILURE_6647")
+                    ForensicLogger.lifecycle("JOURNAL_LOT_REPLAY_INVARIANT_FAILURE_6647", "economicEventId=$eventId positionId=${t.positionId} side=${t.side} fillIndex=${t.partialSequence} reason=$reason action=quarantine_exact_event_once")
+                }
             } catch (_: Throwable) {}
         }
 

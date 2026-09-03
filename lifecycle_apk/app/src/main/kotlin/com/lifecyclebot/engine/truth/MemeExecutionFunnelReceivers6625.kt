@@ -4,6 +4,7 @@ import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * V5.0.6625 — MEME EXECUTION FUNNEL RECEIVERS (P2/P3/P4/P5/P6 of
@@ -38,13 +39,14 @@ object ExpressHandoffFunnel6625 {
     //    markMissing + superseded after the handoff TTL expires").
     // Live intents are tracked with wall-clock birth timestamps and a
     // 30s TTL. Reap6627(...) MUST be called from the pipeline dump
-    // cadence and terminalizes every intent that never received a
+    // runtime maintenance cadence and terminalizes every intent that never received a
     // downstream handoff terminal. Adds two invariant counters:
     //   EXPRESS_INTENT_TERMINALIZED_STALE_6627
     //   EXPRESS_INTENT_WITHOUT_HANDOFF_TERMINAL_6627 (alarm only)
     private val liveIntents6627 = ConcurrentHashMap<String, Long>() // attemptId -> birthMs
     private val terminalizedStale6627 = AtomicLong(0L)
     private val superseded6627 = AtomicLong(0L)
+    private val terminalRejected6653 = AtomicLong(0L)
     private val invariantAlarms6627 = AtomicLong(0L)
     private const val INTENT_TTL_MS_6627 = 30_000L
 
@@ -106,12 +108,20 @@ object ExpressHandoffFunnel6625 {
         liveIntents6627.remove(mint)
     }
 
+    fun onTerminalized6625(intentId: String, outcome: String) {
+        if (liveIntents6627.remove(intentId) == null) return
+        terminalRejected6653.incrementAndGet()
+        try {
+            PipelineHealthCollector.labelInc("EXPRESS_INTENT_TERMINALIZED_${outcome.uppercase()}_6653")
+        } catch (_: Throwable) {}
+    }
+
     /**
      * V5.0.6627 §3 — reap intents whose handoff never terminalized within
      * INTENT_TTL_MS_6627. Terminalized as STALE and stamped on the
      * EXPRESS_INTENT_WITHOUT_HANDOFF_TERMINAL_6627 invariant counter so the
      * operator can grep the exact count. Returns the number reaped.
-     * Called from PipelineHealthCollector on each dump cadence.
+     * Called by BotService maintenance; reports remain read-only.
      */
     fun reap6627(maxAgeMs: Long = INTENT_TTL_MS_6627): Long {
         if (liveIntents6627.isEmpty()) return 0L
@@ -138,11 +148,12 @@ object ExpressHandoffFunnel6625 {
         val miss = markMissing.get()
         val sup = superseded6627.get()
         val stale = terminalizedStale6627.get()
-        val diff6627 = i - (ok + miss + sup + stale)
+        val rejected = terminalRejected6653.get()
+        val diff6627 = (i - (ok + miss + sup + stale + rejected)).coerceAtLeast(0L)
         return "intent=$i markOK=$ok markMissing=$miss " +
             "sizedPos=${sizingReturnedPositive.get()} sizedZero=${sizingReturnedZero.get()} " +
             "ticketSealed=${ticketSealed.get()} executed=${executed.get()} " +
-            "superseded=$sup stale=$stale liveNoTerminal=$diff6627"
+            "superseded=$sup rejected=$rejected stale=$stale liveNoTerminal=$diff6627"
     }
     internal fun resetForTest() {
         intentSeen.set(0L); markAcquired.set(0L); markMissing.set(0L)
@@ -150,6 +161,7 @@ object ExpressHandoffFunnel6625 {
         ticketSealed.set(0L); executed.set(0L)
         liveIntents6627.clear(); terminalizedStale6627.set(0L)
         superseded6627.set(0L); invariantAlarms6627.set(0L)
+        terminalRejected6653.set(0L)
     }
 }
 
@@ -184,7 +196,7 @@ object PendingIntentBacklog6625 {
         var reaped = 0
         val expired = pending.entries.filter { now - it.value.bornAtMs > maxAgeMs }
         for (e in expired) {
-            pending.remove(e.key)
+            if (!pending.remove(e.key, e.value)) continue
             agedOut.incrementAndGet()
             reaped++
             try {
@@ -193,7 +205,7 @@ object PendingIntentBacklog6625 {
                 ForensicLogger.lifecycle("PENDING_INTENT_AGED_OUT_6625",
                     "attemptId=${e.key} lane=${e.value.lane} " +
                         "mint=${e.value.mint.take(10)} ageMs=${now - e.value.bornAtMs} " +
-                        "action=drain_stale_intent_from_backlog")
+                        "outcome=STALE_TERMINAL action=runtime_owned_terminal_no_report_dependency")
             } catch (_: Throwable) {}
         }
         return reaped
@@ -382,7 +394,13 @@ object SpecialistRuntimeRegistry6647 {
         val queueDepth: Int,
     )
     private data class State(
-        val queue: java.util.concurrent.ArrayBlockingQueue<Traffic> = java.util.concurrent.ArrayBlockingQueue(256),
+        // V5.0.6653 — this is a liveness sample, not a work queue.  The old
+        // ArrayBlockingQueue accumulated every causal event even though the
+        // worker only discarded one item per poll, producing permanent 255/256
+        // saturation and misleading "runtime alive" signals.  Stage counters
+        // remain lossless in ToolkitSignalSheet; this slot coalesces only the
+        // newest heartbeat sample.
+        val latestTraffic: AtomicReference<Traffic?> = AtomicReference(null),
         val heartbeat: AtomicLong = AtomicLong(0L),
         val trafficAt: AtomicLong = AtomicLong(0L),
         @Volatile var owner: String = "",
@@ -393,19 +411,22 @@ object SpecialistRuntimeRegistry6647 {
     fun offer(lane: String, stage: String, eventId: String) {
         if (eventId.isBlank()) return
         val s = state(lane)
-        if (!s.queue.offer(Traffic(stage, eventId))) {
-            s.queue.poll(); s.queue.offer(Traffic(stage, eventId))
-            try { PipelineHealthCollector.labelInc("SPECIALIST_RUNTIME_QUEUE_OVERFLOW_6647") } catch (_: Throwable) {}
-        }
+        val now = System.currentTimeMillis()
+        val previous = s.latestTraffic.getAndSet(Traffic(stage, eventId, now))
+        s.trafficAt.set(now)
+        if (previous != null) try { PipelineHealthCollector.labelInc("SPECIALIST_RUNTIME_SAMPLE_COALESCED_6653") } catch (_: Throwable) {}
     }
     fun register(lane: String, owner: String, job: kotlinx.coroutines.Job) { state(lane).apply { this.owner = owner; this.job = job; heartbeat.set(System.currentTimeMillis()) } }
     fun heartbeat(lane: String) { state(lane).heartbeat.set(System.currentTimeMillis()) }
-    fun poll(lane: String): Traffic? = state(lane).queue.poll()?.also { state(lane).trafficAt.set(System.currentTimeMillis()) }
+    fun poll(lane: String): Traffic? = state(lane).latestTraffic.getAndSet(null)
     fun stopped(lane: String, job: kotlinx.coroutines.Job) { state(lane).apply { if (this.job === job) this.job = null } }
     fun snapshot(lane: String, nowMs: Long = System.currentTimeMillis()): Snapshot {
         val s = state(lane)
-        return Snapshot(lane, s.job?.isActive == true && s.owner.isNotBlank() && nowMs - s.heartbeat.get() <= 15_000L,
-            s.trafficAt.get() > 0L, s.heartbeat.get(), s.owner, s.queue.size)
+        val recentCausalWork = s.trafficAt.get() > 0L && nowMs - s.trafficAt.get() <= 15_000L
+        return Snapshot(lane, s.job?.isActive == true && s.owner.isNotBlank() &&
+            nowMs - s.heartbeat.get() <= 15_000L && recentCausalWork,
+            s.trafficAt.get() > 0L, s.heartbeat.get(), s.owner,
+            if (s.latestTraffic.get() == null) 0 else 1)
     }
 }
 

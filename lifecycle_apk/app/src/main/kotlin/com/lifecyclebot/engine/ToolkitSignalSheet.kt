@@ -633,7 +633,7 @@ object ToolkitSignalSheet {
             "BUY_INTENT" -> com.lifecyclebot.engine.truth.PendingIntentBacklog6625
                 .record6625(causalIdentity6647, lane, mint)
             "TICKET", "EXEC", "SELL_CONFIRMED", "FINALIZED", "SIZE_REJECT",
-            "MARK_REJECT", "FDG_BLOCK" -> com.lifecyclebot.engine.truth.PendingIntentBacklog6625
+            "MARK_REJECT", "FDG_BLOCK", "AUTH_REJECT", "SUPERSEDED", "STALE" -> com.lifecyclebot.engine.truth.PendingIntentBacklog6625
                 .consume6625(causalIdentity6647, stage)
         }
 
@@ -655,6 +655,8 @@ object ToolkitSignalSheet {
                 }
                 "TICKET" -> com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onTicketSealed6625(causalIdentity6647)
                 "EXEC" -> com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onExecuted6625(causalIdentity6647)
+                "AUTH_REJECT", "SUPERSEDED", "STALE", "FDG_BLOCK" ->
+                    com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.onTerminalized6625(causalIdentity6647, stage)
             }
         }
 

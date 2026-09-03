@@ -192,6 +192,8 @@ object TradeHistoryStore {
     private var db:        SQLiteDatabase? = null
     private var ioThread:  HandlerThread?  = null
     private var ioHandler: Handler?        = null
+    private val durableEconomicEventIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val economicEventWritesInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     // V5.9.476 — JOURNAL UNIQUE-KEY COLLISION FIX.
     //
@@ -720,6 +722,24 @@ object TradeHistoryStore {
 
     fun recordTrade(trade: Trade) {
         ensureInitialized()
+        // V5.0.6653 — canonical economic identity outranks heuristic mint/time
+        // dedupe.  The old 30-second mint+size filter could discard the real
+        // terminal SELL because an unrelated exit path emitted first.  That
+        // left JOURNAL uncommitted forever and trapped every learning consumer.
+        // An already-loaded exact event is known durable (loaded from SQLite),
+        // so acknowledge that same event idempotently; otherwise allow it to
+        // persist regardless of nearby same-mint rows.
+        if (trade.economicEventId.isNotBlank()) {
+            if (trade.economicEventId in durableEconomicEventIds) {
+                stampDurableJournalCommit6641(trade)
+                try { PipelineHealthCollector.labelInc("PAPER_JOURNAL_EXACT_EVENT_IDEMPOTENT_6653") } catch (_: Throwable) {}
+                return
+            }
+            if (!economicEventWritesInFlight.add(trade.economicEventId)) {
+                try { PipelineHealthCollector.labelInc("PAPER_JOURNAL_EXACT_EVENT_WRITE_INFLIGHT_6653") } catch (_: Throwable) {}
+                return
+            }
+        }
         // V5.0.6373d — PHANTOM PNL% RECOMPUTE (Bug A of the wide bundle).
         // Operator saw journal display +$7,819.45 with +1003.5% AVG WIN while
         // the ACTUAL wallet was -65% from start. Root cause: stored pnlPct on
@@ -765,7 +785,7 @@ object TradeHistoryStore {
         // does not eat real partials.
         // V5.9.1038 — choke-point dedupe gate. SELL-only (BUY tradeIds are
         // not double-fired — only SELL exits go through both paths).
-        if (trade.side.equals("SELL", ignoreCase = true)) {
+        if (trade.side.equals("SELL", ignoreCase = true) && trade.economicEventId.isBlank()) {
             // V5.9.1040 — key on (mint, SELL) without ts. Cross-path duplicates
             // fire ms apart with different Trade.ts values; the 1500ms window
             // catches them while letting legitimate partial sells (which are
@@ -859,6 +879,7 @@ object TradeHistoryStore {
         // without changing accounting/PnL/lane/proof data.
         val tradeToStore = CloseOutcomeLabelSanitizer.canonicalize(enrichJournalLinkage(normalizedTrade))
         if (!isValidAccountingTrade(tradeToStore)) {
+            if (trade.economicEventId.isNotBlank()) economicEventWritesInFlight.remove(trade.economicEventId)
             try { SourceChokeDiagnostics4584.sellJournal("accounting_quarantined", tradeToStore.tradingMode, tradeToStore.reason) } catch (_: Throwable) {}
             try {
                 ErrorLogger.warn(
@@ -2119,16 +2140,31 @@ object TradeHistoryStore {
 
     /** Insert a single trade row asynchronously (off main thread). */
     private fun insertTradeAsync(trade: Trade) {
-        ioHandler?.post {
+        val handler6653 = ioHandler
+        if (handler6653 == null) {
+            if (trade.economicEventId.isNotBlank()) economicEventWritesInFlight.remove(trade.economicEventId)
+            try { PipelineHealthCollector.labelInc("PAPER_JOURNAL_HANDLER_UNAVAILABLE_6653") } catch (_: Throwable) {}
+            return
+        }
+        val posted6653 = handler6653.post {
             try {
                 val cv = tradeToContentValues(trade)
                 val rowId = db?.insertWithOnConflict(
                     TradeDbHelper.TABLE, null, cv, SQLiteDatabase.CONFLICT_IGNORE) ?: -1L
-                if (rowId > 0L) stampDurableJournalCommit6641(trade)
+                if (rowId > 0L) {
+                    if (trade.economicEventId.isNotBlank()) durableEconomicEventIds.add(trade.economicEventId)
+                    stampDurableJournalCommit6641(trade)
+                }
                 else try { PipelineHealthCollector.labelInc("PAPER_JOURNAL_DURABLE_INSERT_FAILED_6641") } catch (_: Throwable) {}
             } catch (e: Exception) {
                 ErrorLogger.error("TradeHistoryStore", "SQLite insert failed: ${e.message}")
+            } finally {
+                if (trade.economicEventId.isNotBlank()) economicEventWritesInFlight.remove(trade.economicEventId)
             }
+        }
+        if (!posted6653 && trade.economicEventId.isNotBlank()) {
+            economicEventWritesInFlight.remove(trade.economicEventId)
+            try { PipelineHealthCollector.labelInc("PAPER_JOURNAL_POST_REJECTED_6653") } catch (_: Throwable) {}
         }
     }
 
@@ -2232,7 +2268,10 @@ object TradeHistoryStore {
                         entryPoolAddress = c.stringOrBlank("entry_pool_address"),
                         economicEventId = c.stringOrBlank("economic_event_id"),
                     )
-                    if (isValidAccountingTrade(row)) loaded.add(row)
+                    if (isValidAccountingTrade(row)) {
+                        loaded.add(row)
+                        if (row.economicEventId.isNotBlank()) durableEconomicEventIds.add(row.economicEventId)
+                    }
                     else try { ErrorLogger.warn("TradeHistoryStore", "TRADE_ACCOUNTING_DB_INIT_FILTERED mint=${row.mint.take(8)} side=${row.side} pnlPct=${row.pnlPct} pnl=${row.pnlSol} reason=${row.reason}") } catch (_: Throwable) {}
                 }
             }

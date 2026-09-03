@@ -391,24 +391,41 @@ object CanonicalPaperTerminalBridge6469 {
                 CanonicalOutcomeClassifier6576.Class.LOSS -> CanonicalTradeFinalizedBus6450.Outcome.LOSS
                 CanonicalOutcomeClassifier6576.Class.BREAKEVEN -> CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN
             }
-            busPublished = CanonicalTradeFinalizedBus6450.publish(
-                CanonicalTradeFinalizedBus6450.Event(
-                    positionId = positionId, mint = mint, outcome = outcome6485,
-                    netRealizedPnlSol = realizedSol, grossRealizedPnlSol = grossProceedsSol - soldCostBasisSol,
-                    returnFraction = realizedPct / 100.0, netReturnPct = realizedPct, feesSol = feesSol,
-                    entryLane = entrySnap6485?.entryLane ?: lane,
-                    entryStrategyPid = entrySnap6485?.entryStrategyPid ?: "",
-                    entryTactic = entrySnap6485?.entryTactic ?: "",
-                    exitReason = exitReason, holdingTimeMs = if (entrySnap6485 != null) settledAt6485 - entrySnap6485.entryTimestampMs else 0L,
-                    dataQuality = "canonical_paper_fill", priceIntegrity = "canonical_paper_fill",
-                    mode = "paper", settledAtMs = settledAt6485,
-                    assetClassTag = entrySnap6485?.assetClassTag ?: CanonicalPositionAuthority6441.getPosition(positionId)?.assetClass?.tag.orEmpty(),
-                    economicEventId = economicEventId,
-                )
+            val finalizedEvent6653 = CanonicalTradeFinalizedBus6450.Event(
+                positionId = positionId, mint = mint, outcome = outcome6485,
+                netRealizedPnlSol = realizedSol, grossRealizedPnlSol = grossProceedsSol - soldCostBasisSol,
+                returnFraction = realizedPct / 100.0, netReturnPct = realizedPct, feesSol = feesSol,
+                entryLane = entrySnap6485?.entryLane ?: lane,
+                entryStrategyPid = entrySnap6485?.entryStrategyPid ?: "",
+                entryTactic = entrySnap6485?.entryTactic ?: "",
+                exitReason = exitReason, holdingTimeMs = if (entrySnap6485 != null) settledAt6485 - entrySnap6485.entryTimestampMs else 0L,
+                dataQuality = "canonical_paper_fill", priceIntegrity = "canonical_paper_fill",
+                mode = "paper", settledAtMs = settledAt6485,
+                assetClassTag = entrySnap6485?.assetClassTag ?: CanonicalPositionAuthority6441.getPosition(positionId)?.assetClass?.tag.orEmpty(),
+                economicEventId = economicEventId,
             )
-            if (busPublished) {
-                busPublishes.incrementAndGet()
-                try { PipelineHealthCollector.labelInc("FINALIZED_BUS_PUBLISHED") } catch (_: Throwable) {}
+
+            fun publishCommitted6653() {
+                if (CanonicalTradeFinalizedBus6450.publish(finalizedEvent6653)) {
+                    busPublishes.incrementAndGet()
+                    try { PipelineHealthCollector.labelInc("FINALIZED_BUS_PUBLISHED") } catch (_: Throwable) {}
+                }
+            }
+
+            // V5.0.6653 — finalized learning is a post-COMMIT event.  Before
+            // this repair the bus published after POSITION/LEDGER/FILL_LOT but
+            // before JOURNAL and TERMINAL_EXEC, causing every consumer to retry
+            // a non-existent exact event thousands of times.  Queue one
+            // idempotent callback on the economic transaction itself instead.
+            busPublished = if (CanonicalEconomicEvent6635.isCommitted(economicEventId)) {
+                publishCommitted6653()
+                true
+            } else {
+                CanonicalEconomicEvent6635.afterCommitted(economicEventId) {
+                    publishCommitted6653()
+                }.also { queued ->
+                    if (queued) try { PipelineHealthCollector.labelInc("FINALIZED_BUS_QUEUED_AFTER_COMMIT_6653") } catch (_: Throwable) {}
+                }
             }
         } catch (_: Throwable) {}
 
