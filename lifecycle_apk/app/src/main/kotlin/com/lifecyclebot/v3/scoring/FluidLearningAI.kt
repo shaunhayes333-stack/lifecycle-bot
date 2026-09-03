@@ -56,7 +56,9 @@ object FluidLearningAI {
         isInitialized = true
         // V5.9.695 — snap lifetime sells as session baseline
         sessionLifetimeBaseline = try {
-            TradeHistoryStore.getLifetimeStats().totalSells
+            com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+                com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME,
+            ).trades
         } catch (_: Exception) { 0 }
         ErrorLogger.info(TAG, "🧠 FluidLearningAI initialized (ONE-TIME) | " +
             "bootstrap=0-$BOOTSTRAP_PHASE_END | mature=$BOOTSTRAP_PHASE_END-$MATURE_PHASE_END | continuous=$MATURE_PHASE_END+ | " +
@@ -248,12 +250,12 @@ object FluidLearningAI {
         // lifetimeSells grows in-session as trades close (bumpLifetimeFor fires immediately),
         // so the old formula counted every session close twice. Correct total =
         // sessionLifetimeBaseline (snapped at boot) + sessionTrades (delta only).
-        val canonicalDelta = try {
-            (com.lifecyclebot.engine.CanonicalLearningCounters.settledWins.get() +
-             com.lifecyclebot.engine.CanonicalLearningCounters.settledLosses.get()).toInt()
+        val persistedMeme = try {
+            com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+                com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME,
+            ).trades
         } catch (_: Throwable) { 0 }
-        val sessionDelta = if (canonicalDelta > 0) canonicalDelta else sessionTrades.get()
-        return sessionLifetimeBaseline + sessionDelta
+        return maxOf(persistedMeme, sessionLifetimeBaseline + sessionTrades.get())
     }
 
     /** V5.9.719 — session-only trade count (excludes Turso historical baseline).
@@ -484,7 +486,8 @@ object FluidLearningAI {
         // bootstrap while RunTracker30D showed 1550 trades). If we have
         // ANY real multi-trade history we're past cold-start.
         try {
-            if (com.lifecyclebot.engine.RunTracker30D.totalTrades >= EARLY_BOOTSTRAP_TRADES) return false
+            val memeTrades = (com.lifecyclebot.engine.RunTracker30D.getLaneStats("MEME")["trades"] as? Int) ?: 0
+            if (memeTrades >= EARLY_BOOTSTRAP_TRADES) return false
         } catch (_: Throwable) {}
 
         // After first 50 trades, no blocking
@@ -621,11 +624,13 @@ object FluidLearningAI {
         // Get historical + session trades
         // V5.9.115: Use lifetime stats so journal clears don't wipe progress.
         val lifetime = try {
-            TradeHistoryStore.getLifetimeStats()
+            com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+                com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME,
+            )
         } catch (_: Exception) { null }
 
-        val historicalTrades = lifetime?.totalSells ?: 0
-        val historicalWinRate = lifetime?.winRate ?: 50.0
+        val historicalTrades = lifetime?.trades ?: 0
+        val historicalWinRate = lifetime?.winRate ?: 0.0
         
         // V5.9.1117 — Journal is source of truth. Do NOT add sessionTrades on
         // top of lifetimeSells; the journal counter already bumps on close.
@@ -1840,9 +1845,13 @@ object FluidLearningAI {
     fun getState(): FluidState {
         val progress = getLearningProgress()
         // V5.9.115: Lifetime counter survives journal clears.
-        val lifetime = try { TradeHistoryStore.getLifetimeStats() } catch (_: Exception) { null }
-        val historicalTrades = lifetime?.totalSells ?: 0
-        val totalTrades = historicalTrades + sessionTrades.get()
+        val lifetime = try {
+            com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+                com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME,
+            )
+        } catch (_: Exception) { null }
+        val historicalTrades = lifetime?.trades ?: 0
+        val totalTrades = maxOf(historicalTrades, sessionLifetimeBaseline + sessionTrades.get())
         val sessionWinRate = if (sessionTrades.get() > 0) {
             sessionWins.get().toDouble() / sessionTrades.get() * 100
         } else 0.0

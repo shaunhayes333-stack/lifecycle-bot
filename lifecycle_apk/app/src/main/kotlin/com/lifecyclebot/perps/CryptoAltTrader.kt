@@ -11,8 +11,6 @@ import com.lifecyclebot.engine.TradeHistoryStore
 import com.lifecyclebot.engine.WalletManager
 import com.lifecyclebot.engine.ExecutableOpenGate
 import com.lifecyclebot.engine.PipelineHealthCollector
-import com.lifecyclebot.engine.ExecutionAuthorityPolicy6533
-import com.lifecyclebot.engine.TradeAuthorizer
 import com.lifecyclebot.engine.LaneExecutionCoordinator
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.perps.crypto.CryptoFinalBuyCandidate
@@ -180,7 +178,6 @@ object CryptoAltTrader {
     private val preferLeverage   = AtomicBoolean(false)  // V5.9.3: mirrors UI SPOT/LEVERAGE toggle
     private val isPaperMode      = AtomicBoolean(true)
     private val scanCount        = AtomicInteger(0)
-    private val positionCounter  = AtomicInteger(0)
     private val totalTrades      = AtomicInteger(0)
     private val winningTrades    = AtomicInteger(0)
     private val losingTrades     = AtomicInteger(0)
@@ -347,6 +344,44 @@ object CryptoAltTrader {
         } catch (_: Exception) {}
     }
 
+    /** CanonicalPositionAuthority6441 is the sole open-position source.
+     * Local JSON supplies presentation/execution details only and is rebound
+     * to the immutable canonical positionId. Historical rows are retained. */
+    private fun rehydrateCanonicalPositions6647() {
+        val context = ctx ?: return
+        try {
+            PerpsPositionStore.init(context, "crypto_alt")
+            val stored = PerpsPositionStore.loadAll("crypto_alt").mapNotNull { j ->
+                try { altPositionFromJson(j) } catch (_: Throwable) { null }
+            }
+            val canonicalOpen = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                .filter { it.assetClass == com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT }
+            var rehydratedCount = 0
+            canonicalOpen.forEach { cp ->
+                val persisted = stored.firstOrNull { it.id == cp.positionId }
+                    ?: stored.firstOrNull { it.canonicalAssetKey == cp.mint }
+                if (persisted == null) {
+                    try { ForensicLogger.lifecycle("CRYPTO_CANONICAL_REHYDRATE_MISSING_LOCAL_6647", "positionId=${cp.positionId} asset=${cp.mint} action=retain_canonical_no_purge") } catch (_: Throwable) {}
+                    return@forEach
+                }
+                val pos = if (persisted.id == cp.positionId) persisted else persisted.copy(id = cp.positionId)
+                if (positions.putIfAbsent(pos.id, pos) != null) return@forEach
+                if (pos.isSpot) spotPositions[pos.id] = pos else leveragePositions[pos.id] = pos
+                com.lifecyclebot.engine.WalletPositionLock.recordOpen("CryptoAlt", pos.sizeSol)
+                rehydratedCount++
+            }
+            if (rehydratedCount > 0) {
+                ErrorLogger.info(TAG, "🪙 REHYDRATED $rehydratedCount canonical CryptoAlt positions by immutable positionId")
+            }
+            val legacyUnmatched = stored.count { p -> canonicalOpen.none { it.positionId == p.id || it.mint == p.canonicalAssetKey } }
+            if (legacyUnmatched > 0) {
+                try { ForensicLogger.lifecycle("CRYPTO_LEGACY_POSITION_HISTORY_RETAINED_6647", "unmatched=$legacyUnmatched action=no_delete_no_silent_migration") } catch (_: Throwable) {}
+            }
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "position rehydrate failed: ${e.message}")
+        }
+    }
+
     // ─── Alt signal model ─────────────────────────────────────────────────────
     data class AltSignal(
         val market      : PerpsMarket,
@@ -421,47 +456,9 @@ object CryptoAltTrader {
         try { PerpsLearningBridge.init(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "PerpsLearningBridge: ${e.message}") }
         try { FluidLearningAI.initAltsPrefs(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "FluidLearningAI.initMarketsPrefs: ${e.message}") }
 
-        // V5.9.189: Rehydrate persisted positions with staleness guard + cap.
-        // Positions older than 4 hours are expired — close them at entry (no loss/win).
-        // Cap at MAX_POSITIONS so 108-position bloat can never happen again.
-        try {
-            PerpsPositionStore.init(context.applicationContext, "crypto_alt")
-            val rehydrated = PerpsPositionStore.loadAll("crypto_alt")
-            val maxAgeMs = 4 * 60 * 60 * 1_000L  // 4 hours
-            val now = System.currentTimeMillis()
-            var staleCount = 0
-            var rehydratedCount = 0
-            rehydrated.forEach { j ->
-                try {
-                    val pos = altPositionFromJson(j)
-                    val ageMs = now - pos.openTime
-                    if (ageMs > maxAgeMs) {
-                        // Stale — drop silently (don't add to WalletPositionLock)
-                        staleCount++
-                        return@forEach
-                    }
-                    if (rehydratedCount >= MAX_POSITIONS) {
-                        staleCount++
-                        return@forEach
-                    }
-                    positions[pos.id] = pos
-                    if (pos.isSpot) spotPositions[pos.id] = pos
-                    else            leveragePositions[pos.id] = pos
-                    com.lifecyclebot.engine.WalletPositionLock.recordOpen("CryptoAlt", pos.sizeSol)
-                    rehydratedCount++
-                } catch (_: Exception) {}
-            }
-            if (staleCount > 0) {
-                // Clear the full store so stale positions don't come back next restart
-                PerpsPositionStore.saveAll("crypto_alt", emptyList())
-                ErrorLogger.warn(TAG, "🪙 PURGED $staleCount stale CryptoAlt positions (>4h old or over cap)")
-            }
-            if (rehydratedCount > 0) {
-                ErrorLogger.info(TAG, "🪙 REHYDRATED $rehydratedCount CryptoAlt positions from persistence (app-update recovery)")
-            }
-        } catch (e: Exception) {
-            ErrorLogger.warn(TAG, "position rehydrate failed: ${e.message}")
-        }
+        // Canonical bootstrap may still be running at init; start() repeats
+        // this idempotent rehydrate after service bootstrap has completed.
+        rehydrateCanonicalPositions6647()
         // V5.9.1: Eagerly sync real wallet balance on init (live mode)
         if (!isPaperMode.get()) {
             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -548,6 +545,7 @@ object CryptoAltTrader {
     }
 
     fun start() {
+        rehydrateCanonicalPositions6647()
         runtimeDisabledReason()?.let { reason ->
             isEnabled.set(false)
             isRunning.set(false)
@@ -667,28 +665,16 @@ object CryptoAltTrader {
             try { closePosition(id, "USER_STOP"); true }
             catch (_: Exception) { false }
         }
-        // V5.9.720: force-clear any that failed to close individually.
-        // Without this, a single exception leaves ghosts that re-appear after restart
-        // because persistAltPositions() may have already serialized them.
+        // Failed closes remain durable and canonical so the next bootstrap can
+        // resume the same position identity. Never erase history to make STOP
+        // appear clean.
         if (closedCount < ids.size) {
             val remaining = ids.size - closedCount
-            ErrorLogger.warn(TAG, "🪙 $remaining CryptoAlt position(s) failed individual close — force-clearing")
-            positions.clear()
-            spotPositions.clear()
-            leveragePositions.clear()
-            // Wipe the persistence store so they don't come back on next start.
-            try { PerpsPositionStore.clear("crypto_alt") } catch (_: Exception) {}
-            // Return capital to unified paper wallet for any that weren't individually settled.
-            try {
-                val unclosedCapital = ids.drop(closedCount).mapNotNull { id ->
-                    // Already removed from positions map — use a fallback delta of 0
-                    null
-                }
-            } catch (_: Exception) {}
+            ErrorLogger.warn(TAG, "🪙 $remaining CryptoAlt position(s) failed individual close — retained for canonical retry")
+            try { ForensicLogger.lifecycle("CRYPTO_STOP_CLOSE_RETRY_RETAINED_6647", "remaining=$remaining action=no_purge_resume_same_position_id") } catch (_: Throwable) {}
         }
         ErrorLogger.info(TAG, "🪙 All crypto alt positions closed on STOP (${ids.size} positions, $closedCount individual closes)")
-        // Belt-and-braces: always wipe persistence after stop to prevent ghost reload.
-        try { PerpsPositionStore.clear("crypto_alt") } catch (_: Exception) {}
+        persistAltPositions()
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -2013,7 +1999,7 @@ object CryptoAltTrader {
         )
     }
 
-    private fun authorizeCryptoFinalCandidate(candidate: CryptoFinalBuyCandidate): TradeAuthorizer.AuthorizationResult? {
+    private fun passesCryptoDiscipline6647(candidate: CryptoFinalBuyCandidate): Boolean {
         // V5.0.4151 — CRYPTO DISCIPLINE PACK (isolated). Mirrors the meme
         // Executor.kt liveBuy() veto stack (V5.0.4133/4134/4148/4149) but
         // uses fully isolated persistence + state so crypto closes NEVER
@@ -2033,7 +2019,7 @@ object CryptoAltTrader {
             // (a) Rug-blacklist — non-negotiable, immune to all bypasses.
             if (com.lifecyclebot.perps.crypto.brain.CryptoRugMintBlacklist.isBlacklisted(assetKey4151)) {
                 try { ForensicLogger.lifecycle("CRYPTO_RUG_BLACKLIST_VETO_V4151", "symbol=${candidate.symbol} assetKey=$assetKey4151 lane=$lane4151 src=$srcTag4151") } catch (_: Throwable) {}
-                return null
+                return false
             }
             // (b) Per-lane timeout. Crypto-specific lane WR memory.
             val laneTimedOut4151 = com.lifecyclebot.perps.crypto.brain.CryptoLaneTimeoutGate.isTimedOut(lane4151)
@@ -2065,71 +2051,11 @@ object CryptoAltTrader {
                     else               -> "CRYPTO_SCANNER_BRIDGE_VETO"
                 }
                 try { ForensicLogger.lifecycle("CRYPTO_DISCIPLINE_VETO_V4151", "symbol=${candidate.symbol} assetKey=$assetKey4151 lane=$lane4151 src=$srcTag4151 reason=$reasonTag4151 pause=$pauseDefensive4151 topLane=$topLane4151 timeout=$laneTimedOut4151 bridge=$bridgeToxic4151") } catch (_: Throwable) {}
-                return null
+                return false
             }
         }
 
-        try {
-            ErrorLogger.info(TAG, "CRYPTO_FINAL_CANDIDATE_CREATED universe=${candidate.universe} symbol=${candidate.symbol} marketCapLane=${candidate.marketCapLane} selectedLane=${candidate.selectedLane} selectedSpecialist=${candidate.selectedSpecialist} preFdgVerdict=${candidate.preFdgVerdict} hardNo=${candidate.hardNoReasons} routeQuality=${candidate.routeQuality} adapter=${candidate.executionAdapter} liquidityUsd=${candidate.liquidityUsd.toInt()} spread=${candidate.spread} size=${candidate.finalSize} candidateVersion=${candidate.candidateVersion}")
-            ForensicLogger.lifecycle("CRYPTO_FINAL_CANDIDATE_CREATED", "universe=${candidate.universe} symbol=${candidate.symbol} assetKey=${candidate.assetKey} marketCapLane=${candidate.marketCapLane} selectedLane=${candidate.selectedLane} preFdg=${candidate.preFdgVerdict} hardNo=${candidate.hardNoReasons.joinToString(prefix="[", postfix="]")} routeType=${candidate.routeQuality} adapter=${candidate.executionAdapter} liq=${candidate.liquidityUsd.toInt()} spread=${candidate.spread} size=${candidate.finalSize} version=${candidate.candidateVersion}")
-        } catch (_: Throwable) {}
-        ExecutableOpenGate.recordV3(
-            mint = candidate.assetKey,
-            symbol = candidate.symbol,
-            decision = "WATCH_SOFT",
-            fatalReason = null,
-            decisionBand = "WATCH_SOFT",
-            rugScore = 100,
-            safetyTier = candidate.safetyTier,
-        )
-        val cryptoIntent6533 = ExecutableOpenGate.recordFdgAndGetIntent6533(
-            mint = candidate.assetKey,
-            symbol = candidate.symbol,
-            lane = candidate.selectedLane,
-            canExecute = candidate.canEnterFdg,
-            reason = candidate.hardNoReasons.firstOrNull(),
-            signal = if (candidate.preFdgVerdict == CryptoFinalBuyCandidate.PreFdgVerdict.BUY) "BUY" else candidate.preFdgVerdict.name,
-            rugScore = 100,
-            safetyTier = candidate.safetyTier,
-            liquidityUsd = candidate.liquidityUsd,
-            hardNoReasons = candidate.hardNoReasons,
-            preFdgVerdict = candidate.preFdgVerdict.name,
-            candidateVersion = candidate.candidateVersion,
-            requiresSolanaTokenMap = ExecutionAuthorityPolicy6533.requiresSolanaTokenMap(candidate.chain, candidate.assetKey),
-            resolvedSizeSol6558 = candidate.finalSize,
-        )
-        if (cryptoIntent6533 != null) {
-            try { ForensicLogger.phase(ForensicLogger.PHASE.FDG, candidate.symbol, "path=CRYPTO_ALT mode=${cryptoIntent6533.mode} verdict=${cryptoIntent6533.fdgVerdict} sealed=true version=${cryptoIntent6533.candidateVersion}") } catch (_: Throwable) {}
-        }
-        if (candidate.canEnterFdg && cryptoIntent6533 == null) {
-            try { ForensicLogger.lifecycle("CRYPTO_FDG_ALLOW_WITHOUT_INTENT_REJECTED_6533", "symbol=${candidate.symbol} assetKey=${candidate.assetKey} version=${candidate.candidateVersion}") } catch (_: Throwable) {}
-            return null
-        }
-        if (!candidate.canEnterFdg) {
-            try { ForensicLogger.lifecycle("EXEC_GATE_BLOCK", "universe=CRYPTO symbol=${candidate.symbol} assetKey=${candidate.assetKey} reason=${candidate.hardNoReasons.firstOrNull() ?: candidate.preFdgVerdict.name} candidateVersion=${candidate.candidateVersion}") } catch (_: Throwable) {}
-            return null
-        }
-        val auth = TradeAuthorizer.authorize(
-            mint = candidate.assetKey,
-            symbol = candidate.symbol,
-            score = candidate.score,
-            confidence = candidate.confidence.toDouble(),
-            quality = when {
-                candidate.score >= 85 -> "A"
-                candidate.score >= 70 -> "B"
-                else -> "C"
-            },
-            isPaperMode = isPaperMode.get(),
-            requestedBook = TradeAuthorizer.ExecutionBook.CRYPTO,
-            rugcheckScore = 100,
-            liquidity = candidate.liquidityUsd,
-        )
-        if (auth.isExecutable()) {
-            try { ForensicLogger.lifecycle("EXEC_GATE_ALLOW", "universe=CRYPTO symbol=${candidate.symbol} assetKey=${candidate.assetKey} attemptId=${auth.attemptId} routeType=${candidate.routeQuality} adapter=${candidate.executionAdapter} candidateVersion=${candidate.candidateVersion}") } catch (_: Throwable) {}
-        } else {
-            try { ForensicLogger.lifecycle("EXEC_GATE_BLOCK", "universe=CRYPTO symbol=${candidate.symbol} assetKey=${candidate.assetKey} reason=${auth.reason} candidateVersion=${candidate.candidateVersion}") } catch (_: Throwable) {}
-        }
-        return auth.takeIf { it.isExecutable() }
+        return candidate.canEnterFdg
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -2357,9 +2283,9 @@ object CryptoAltTrader {
 
         val candidate = buildCryptoFinalBuyCandidate(signal, isSpot, finalSize)
         com.lifecyclebot.perps.crypto.brain.CryptoFunnel.preFdg(candidate.canEnterFdg)
-        val authResult = authorizeCryptoFinalCandidate(candidate)
-        com.lifecyclebot.perps.crypto.brain.CryptoFunnel.execGate(authResult != null)
-        if (authResult == null) {
+        val disciplinePassed6647 = passesCryptoDiscipline6647(candidate)
+        if (!disciplinePassed6647) {
+            com.lifecyclebot.perps.crypto.brain.CryptoFunnel.execGate(false)
             try {
                 com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAuthBlock(
                     venue = venue6540, symbol = mktSym,
@@ -2394,17 +2320,43 @@ object CryptoAltTrader {
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Allowed -> canonicalCryptoAdmission6565.intent
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Probe -> canonicalCryptoAdmission6565.intent
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Blocked -> {
-                try { TradeAuthorizer.releasePosition(candidate.assetKey, "CRYPTO_6551_BLOCKED_${canonicalCryptoAdmission6565.reason}", TradeAuthorizer.ExecutionBook.CRYPTO) } catch (_: Throwable) {}
                 terminalDisposition6613("CANONICAL_BLOCKED:${canonicalCryptoAdmission6565.reason}")
                 return
             }
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Deferred -> {
-                try { TradeAuthorizer.releasePosition(candidate.assetKey, "CRYPTO_6551_DEFERRED_${canonicalCryptoAdmission6565.reason}", TradeAuthorizer.ExecutionBook.CRYPTO) } catch (_: Throwable) {}
                 terminalDisposition6613("CANONICAL_DEFERRED:${canonicalCryptoAdmission6565.reason}")
                 return
             }
         }
         val canonicalFinalSize6570 = canonicalCryptoIntent6565.resolvedSize
+        try { ForensicLogger.phase(ForensicLogger.PHASE.FDG, candidate.symbol, "path=CRYPTO_ALT mode=${canonicalCryptoIntent6565.mode} verdict=${canonicalCryptoIntent6565.fdgVerdict} sealed=true attemptId=${canonicalCryptoIntent6565.attemptId}") } catch (_: Throwable) {}
+        val finalExecutableVerdict6647 = ExecutableOpenGate.canOpenExecutablePosition(
+            mint = canonicalCryptoIntent6565.mint,
+            symbol = canonicalCryptoIntent6565.symbol,
+            rugScore = 100,
+            mode = canonicalCryptoIntent6565.mode,
+            lane = canonicalCryptoIntent6565.canonicalLane,
+            source = "CanonicalEntryAuthority6551.finalExecutableGate6647",
+            attemptId = canonicalCryptoIntent6565.attemptId,
+            liveLiquidityUsd = canonicalCryptoIntent6565.liquidityUsd,
+            liveSafetyTier = canonicalCryptoIntent6565.safetyTier,
+            lastSafetyCheckMs = System.currentTimeMillis(),
+            preResolvedSizeSol6490 = canonicalCryptoIntent6565.resolvedSize,
+            electedLane6494 = canonicalCryptoIntent6565.canonicalLane,
+            electedCandidateVersion6494 = canonicalCryptoIntent6565.candidateVersion,
+            authorityVersion6494 = canonicalCryptoIntent6565.authorityVersion,
+        )
+        val executable6647 = finalExecutableVerdict6647.allowed && !finalExecutableVerdict6647.shadowOnly &&
+            !finalExecutableVerdict6647.reason.contains("SIZE_PENDING", ignoreCase = true)
+        com.lifecyclebot.perps.crypto.brain.CryptoFunnel.execGate(executable6647)
+        if (!executable6647) {
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(
+                canonicalCryptoIntent6565,
+                "FINAL_EXECUTABLE_GATE:${finalExecutableVerdict6647.logName}:${finalExecutableVerdict6647.reason}",
+            )
+            terminalDisposition6613("FINAL_EXECUTABLE_GATE_BLOCKED:${finalExecutableVerdict6647.reason}")
+            return
+        }
         try {
             DynamicAltTokenRegistry.markEvaluationDisposition6567(
                 DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(candidate.assetKey),
@@ -2416,16 +2368,14 @@ object CryptoAltTrader {
             terminalDisposition6613("CANONICAL_INVALID_SEALED_SIZE")
             return
         }
-        try {
-            // V5.0.6592 §CLASS_ATTRIBUTED_DISPATCH — operator observed:
-            // CRYPTO_ALT produced candidate=295 → intent=30 but dispatch=0
-            // while SOLANA_TOKEN reported dispatch=30 with zero upstream.
-            // Root cause: this path called the venue-only markers, which
-            // never bumpClass6567(CRYPTO_ALT). Class-attri        // V5.0.6647 — submit() owns CANDIDATE/SUBMIT/SIZED/ALLOW/INTENT,
-        // and markDispatch() owns DISPATCH. Do not mirror those transitions.
-        val cryptoPositionSeq6647 = positionCounter.incrementAndGet()
-        val cryptoPositionId6647 = "ALT_${System.currentTimeMillis()}_${candidate.candidateVersion}_${cryptoPositionSeq6647}"
-al.direction,
+        val position = AltPosition(
+            id             = "ALT:${canonicalCryptoIntent6565.attemptId}",
+            market         = signal.market,
+            dynSymbol      = signal.dynSymbol,
+            dynName        = signal.dynName,
+            dynEmoji       = signal.dynEmoji,
+            dynMint        = signal.dynMint,
+            direction      = signal.direction,
             isSpot         = isSpot,
             isPaper        = isPaperMode.get(),
             canonicalAssetKey = candidate.assetKey,
@@ -2455,21 +2405,34 @@ al.direction,
             // regardless of open outcome. Live branch was correct; paper
             // is now brought into parity: markDispatch before the canonical
             // open, markConfirmed on success, markFailed on rejection.
-            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markDispatch(canonicalCryptoIntent6565)
-            val canonicalOpen6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(
-                positionId = position.id, mint = position.canonicalAssetKey, symbol = mktSym,
-                lane = if (isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV", source = "CryptoAltTrader",
-                costSol = canonicalFinalSize6570, entryScore = signal.score, tactic = if (isSpot) "SPOT" else "LEVERAGE",
-                // V5.0.6525 §ASSET_CLASS + §ENTRY_PRICE.
-                assetClass = com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT,
-                entryPriceUsd = signal.price,
-                entryPriceSource = "CryptoAltTrader/signal.price",
-                executionIntent = canonicalCryptoIntent6565,
-            )
+            val canonicalOpen6486 = try {
+                com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(
+                    positionId = position.id, mint = position.canonicalAssetKey, symbol = mktSym,
+                    lane = if (isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV", source = "CryptoAltTrader",
+                    costSol = canonicalFinalSize6570, entryScore = signal.score, tactic = if (isSpot) "SPOT" else "LEVERAGE",
+                    // V5.0.6525 §ASSET_CLASS + §ENTRY_PRICE.
+                    assetClass = com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT,
+                    entryPriceUsd = signal.price,
+                    entryPriceSource = "CryptoAltTrader/signal.price",
+                    executionIntent = canonicalCryptoIntent6565,
+                )
+            } catch (t: Throwable) {
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(
+                    canonicalCryptoIntent6565,
+                    "CANONICAL_PAPER_OPEN_EXCEPTION:${t.javaClass.simpleName}",
+                )
+                terminalDisposition6613("CANONICAL_PAPER_OPEN_EXCEPTION:${t.javaClass.simpleName}")
+                if (t is kotlinx.coroutines.CancellationException) throw t
+                return
+            }
             if (!canonicalOpen6486.applied) {
-                ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: $mktSym ${canonicalOpen6486.reason}")
+                val rejectionBucket6647 = canonicalOpen6486.reason.uppercase().replace(Regex("[^A-Z0-9_]+"), "_").trim('_')
+                ErrorLogger.warn(TAG, "CRYPTO_CANONICAL_OPEN_REJECT[$rejectionBucket6647]: symbol=$mktSym positionId=${position.id} reason=${canonicalOpen6486.reason}")
+                try {
+                    PipelineHealthCollector.labelInc("CRYPTO_CANONICAL_OPEN_REJECT_$rejectionBucket6647")
+                    ForensicLogger.lifecycle("CRYPTO_CANONICAL_OPEN_REJECT_6647", "bucket=$rejectionBucket6647 symbol=$mktSym positionId=${position.id} attemptId=${canonicalCryptoIntent6565.attemptId} exactReason=${canonicalOpen6486.reason}")
+                } catch (_: Throwable) {}
                 com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(canonicalCryptoIntent6565, canonicalOpen6486.reason)
-                try { TradeAuthorizer.releasePosition(candidate.assetKey, "CRYPTO_PAPER_CANONICAL_REJECTED", TradeAuthorizer.ExecutionBook.CRYPTO) } catch (_: Throwable) {}
                 terminalDisposition6613("CANONICAL_PAPER_OPEN_REJECTED:${canonicalOpen6486.reason}")
                 return
             }
@@ -2489,10 +2452,20 @@ al.direction,
             // because MarketsLiveExecutor only returns success after the
             // target mint actually arrived on-chain).
             com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markDispatch(canonicalCryptoIntent6565)
-            val liveOk = executeLiveTradeAtSize(position.id, signal, isSpot, canonicalFinalSize6570)
+            val liveOk = try {
+                executeLiveTradeAtSize(position.id, signal, isSpot, canonicalFinalSize6570)
+            } catch (t: Throwable) {
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(
+                    canonicalCryptoIntent6565,
+                    "CRYPTO_LIVE_BUY_EXCEPTION:${t.javaClass.simpleName}",
+                )
+                terminalDisposition6613("CRYPTO_LIVE_BUY_EXCEPTION:${t.javaClass.simpleName}")
+                if (t is kotlinx.coroutines.CancellationException) throw t
+                return
+            }
             if (!liveOk) {
                 ErrorLogger.warn(TAG, "🔴 LIVE alt trade failed: ${mktSym} — position not recorded")
-                try { TradeAuthorizer.releasePosition(candidate.assetKey, "CRYPTO_LIVE_BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.CRYPTO) } catch (_: Throwable) {}
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(canonicalCryptoIntent6565, "CRYPTO_LIVE_BUY_NOT_OPENED")
                 try { com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(candidate.assetKey, "CRYPTO", "CRYPTO_LIVE_BUY_NOT_OPENED") } catch (_: Throwable) {}
                 terminalDisposition6613("CANONICAL_LIVE_OPEN_FAILED")
                 return
@@ -4020,4 +3993,3 @@ al.direction,
 
     // V5.9.321: Removed private Double.fmt — uses public PerpsModels.fmt
 }
-

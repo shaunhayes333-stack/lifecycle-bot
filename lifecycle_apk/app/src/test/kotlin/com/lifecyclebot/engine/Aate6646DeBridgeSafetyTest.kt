@@ -16,6 +16,8 @@ class Aate6646DeBridgeSafetyTest {
         assertTrue(bridge.contains("FULL_ROUND_TRIP_IMPLEMENTED = false"))
         assertTrue(bridge.contains("ROUND_TRIP_EXECUTOR_INCOMPLETE"))
         assertTrue(bridge.contains("isConfigured() && chains.containsKey"))
+        assertTrue(bridge.contains("LiveRouteReadiness6647()"))
+        assertTrue(bridge.contains("paper-only/unavailable"))
         assertTrue(trader.contains("CryptoBridgeAdapter.init(context.applicationContext)"))
     }
 }

@@ -69,6 +69,11 @@ object SharedHttpClient {
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
+        // V5.0.6647 — every provider call has a hard wall-clock ceiling.
+        // Individual execution/LLM clients may deliberately override this on
+        // their derived builder, but no inherited provider client is allowed
+        // to wait forever in DNS, connect, write, redirects, or body reads.
+        .callTimeout(12, TimeUnit.SECONDS)
         // V5.0.4170 — HOST CIRCUIT INTERCEPTOR.
         // Every HTTP call across the app routes through SharedHttpClient
         // (BotBrain, BirdeyeSecurityProvider, TokenSafetyChecker, etc.).
@@ -119,10 +124,6 @@ object SharedHttpClient {
                 response
             }
         }
-        // NOTE: deliberately NO callTimeout on the BASE client — ~36 callers
-        // inherit this builder and several legitimately need long calls (LLM 30-60s,
-        // Jito/Markets live execution 30s). callTimeout is applied PER-CALLER on the
-        // per-token hot path only (DexscreenerApi) where the 8s worker budget binds.
         .build()
 
     /**

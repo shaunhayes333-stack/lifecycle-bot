@@ -87,6 +87,21 @@ object MultiChainWalletGenerator6546 {
         }
     }
 
+    /** Derive the EVM signer on demand from the encrypted recovery phrase.
+     * No additional private-key projection is persisted. */
+    fun evmCredentialsFromMnemonic6649(mnemonic: String, passphrase: String = ""): Credentials {
+        require(MnemonicUtils.validateMnemonic(mnemonic)) { "INVALID_BIP39_MNEMONIC" }
+        val seed = MnemonicUtils.generateSeed(mnemonic, passphrase)
+        return try {
+            val master = Bip32ECKeyPair.generateKeyPair(seed)
+            Credentials.create(Bip32ECKeyPair.deriveKeyPair(master, intArrayOf(
+                44 or HARDENED, 60 or HARDENED, EVM_PATH_ACCOUNT or HARDENED, 0, 0,
+            )))
+        } finally {
+            seed.fill(0)
+        }
+    }
+
     private fun derive(master: org.bitcoinj.crypto.DeterministicKey, path: IntArray): org.bitcoinj.crypto.DeterministicKey {
         var current = master
         for (index in path) current = HDKeyDerivation.deriveChildKey(current, index)

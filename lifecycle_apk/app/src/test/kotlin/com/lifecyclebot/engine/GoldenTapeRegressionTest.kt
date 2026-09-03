@@ -254,12 +254,13 @@ class GoldenTapeRegressionTest {
     }
 
     @Test
-    fun forced_open_supervisor_is_bounded_under_timeout_pressure() {
+    fun forced_open_positions_never_enter_discovery_supervisor() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(bot.contains("forcedOpenForSupervisor"))
-        assertTrue(bot.contains("FORCED_OPEN_SUPERVISOR_ROUND_ROBIN"))
-        assertTrue(bot.contains("forcedSupervisor="))
-        assertFalse("forcedOpen must not remain an unbounded mandatory supervisor prefix", bot.contains("val mustInclude = forcedOpenMints.toMutableList()"))
+        val selector = bot.substringAfter("private fun selectOrderedMintsForCycle(").substringBefore("private fun emitWatchlistCapTrace")
+        assertTrue(selector.contains("val forcedOpenForSupervisor: List<String> = emptyList()"))
+        assertTrue(selector.contains("val mustInclude = mutableListOf<String>()"))
+        assertFalse("canonical opens must never consume discovery supervisor slots", selector.contains("val mustInclude = forcedOpenMints.toMutableList()"))
+        assertFalse("forced opens must not inflate discovery admission capacity", java.io.File("src/main/kotlin/com/lifecyclebot/engine/SupervisorAdmissionPlanner.kt").readText().contains("forcedOpenCount"))
     }
 
     @Test
@@ -301,7 +302,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun express_execution_uses_fdg_final_size() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(bot.contains("val expressFinalSize = expressFdg?.sizeSol ?: expressSignal.positionSizeSol.coerceAtLeast(0.01)"))
+        assertTrue(bot.contains("val expressFinalSize = expressFdg?.sizeSol") && bot.contains("?: expressSignal.positionSizeSol.coerceAtLeast(0.01)"))
         assertTrue(bot.contains("sizeSol = expressFinalSize"))
         assertTrue(bot.contains("entrySol = expressFinalSize"))
         val start = bot.indexOf("val expressFinalSize")
@@ -972,7 +973,7 @@ class GoldenTapeRegressionTest {
         assertTrue(service.contains("SUPERVISOR_HEALTHY_MEME_MAX_INFLIGHT: Int = 48"))
         assertTrue(service.contains("supervisorTimeoutsForPlanning = if ((nowMs - supervisorTimeoutWindowStartMs) < 600_000L) supervisorTimeoutWindowCount else 0"))
         assertTrue("selector should tolerate timeout noise below the planner pressure band", service.contains("val lowTimeoutNoise = supervisorTimeoutsForPlanning < 30") && service.contains("selectorHealthy = lowTimeoutNoise"))
-        assertTrue("degraded selector must cap forced-open supervisor prefix", service.contains("pressure == \"healthy\" && !selectorHealthy -> maxOf(6, PER_CYCLE_CAP / 2)"))
+        assertTrue("forced opens must never consume the discovery supervisor", service.contains("val forcedOpenForSupervisor: List<String> = emptyList()"))
         assertTrue(service.contains("selectorMaxInFlight = if (selectorHealthy) SUPERVISOR_HEALTHY_MEME_MAX_INFLIGHT else SUPERVISOR_MAX_INFLIGHT"))
         assertTrue("fresh-source demotion protection must now be Solana-wide, not pump/meme-only", service.contains("val demoteProcessFloor = if (solanaFresh) 6 else 3"))
         assertTrue("fresh-source age protection must now be Solana-wide, not pump/meme-only", service.contains("val demoteAgeFloorMs = if (solanaFresh) 5L * 60_000L else 120_000L"))
@@ -3079,7 +3080,7 @@ class GoldenTapeRegressionTest {
             main.contains("compactHeroBalance") && main.contains("PAPER · CASH") &&
                 main.contains("OPEN_MV") && main.contains("UNREALIZED") && main.contains("REALIZED") && main.contains("EQUITY") &&
                 !main.contains("📝 PAPER CASH ◎") && !main.contains("equity≈◎") && !main.contains("displayBankrollSol"))
-        assertTrue("Paper PnL percent must not derive from current cash minus lifetime journal PnL and must render short on mobile", main.contains("paperReturnBasisSol") && main.contains("%+.0f%% start") && main.contains(" · ${'$'}journalWinRate% WR") && !main.contains("val startCapitalSol = (balSol - pnl)"))
+        assertTrue("Paper PnL and win rate must be fail-closed account/portfolio values, never a mixed MEME/global percentage", main.contains("DeskPerformanceAuthority6648.Book.PORTFOLIO") && main.contains("ACCOUNT REALIZED") && main.contains("PORTFOLIO WR") && main.contains("ACCOUNT UNAVAILABLE") && !main.contains("val startCapitalSol = (balSol - pnl)"))
         assertTrue("Paper equity detail must come only from canonical capital authority, not an open-position UI projection", main.contains("CanonicalCapitalAuthority6450.snapshot()") && main.contains("contentDescription") && !main.contains("paperEquityAtCostSol") && !main.contains("paperOpenCostSol"))
         assertTrue("Hero XML must be a premium command card, not a flat debug balance row", mainLayout.contains("commandHeroCard") && mainLayout.contains("@drawable/aate_hero_premium_bg") && mainLayout.contains("AATE COMMAND") && mainLayout.contains("rowSymTelemetry"))
         assertTrue("Hero XML must protect mobile width with auto-size headline and capped mode chip", mainLayout.contains("android:autoSizeTextType=\"uniform\"") && mainLayout.contains("android:maxWidth=\"66dp\"") && mainLayout.contains("android:ellipsize=\"end\"") && mainLayout.contains("android:autoSizeMaxTextSize=\"32sp\""))
@@ -3102,7 +3103,7 @@ class GoldenTapeRegressionTest {
         assertTrue("AATE universe screens must use shared premium panel/list surfaces instead of debug-card chrome", activityLayouts.all { layout -> val xml = layout.readText(); !xml.contains("@drawable/aate_debug_card_bg") && (xml.contains("@drawable/aate_universe_panel_bg") || xml.contains("@drawable/aate_universe_list_bg") || xml.contains("@drawable/aate_readiness_card_bg") || xml.contains("@drawable/aate_nav_tile_bg") || xml.contains("@drawable/lab_neon_card")) })
         val consumerEmojiChrome = listOf("🧠", "💎", "🪙", "📈", "📊", "👛", "🐛", "🎚", "🎭", "🧪", "🔥", "🛡", "⚡", "📥", "📦", "💾", "🗑", "🔔", "🔒", "🚀", "🏆", "🌡")
         assertTrue("AATE XML chrome must read like an institutional product, not emoji-labeled consumer crypto UI", activityLayouts.all { layout -> val xml = layout.readText(); consumerEmojiChrome.none { token -> xml.contains("android:text=\"$token") || xml.contains("$token ") } })
-        assertTrue("Main runtime chrome must render institutional readiness/trader copy", !main.contains("🚀 Live Readiness") && !main.contains("🧠 All Traders") && !main.contains("📊 ${'$'}perAssetLine") && !main.contains("🛡 Guards") && !main.contains("🏆 Top-3") && main.contains("LIVE READINESS · MEME") && main.contains("ALL TRADERS ·"))
+        assertTrue("Main runtime chrome must render institutional readiness/trader copy", !main.contains("🚀 Live Readiness") && !main.contains("🧠 All Traders") && !main.contains("📊 ${'$'}perAssetLine") && !main.contains("🛡 Guards") && !main.contains("🏆 Top-3") && main.contains("LIVE READINESS · MEME") && main.contains("PORTFOLIO · ${'$'}totalTrades trades"))
         assertTrue("Paper hero must not sanitize/delete the headline balance", !main.contains("PAPER_HERO_BANKROLL_DISPLAY_SANITIZED") && !main.contains("rawBankrollSol > sanePaperCeiling"))
         assertTrue("Open-position UI must wait on executor-stamped mint market snapshots, not repair basis itself", main.contains("recoverRenderablePricing") && main.contains("UI is not a price-basis authority") && main.contains("OPEN_POSITION_UI_BASIS_WAIT") && !main.contains("OPEN_POSITION_PRICE_RECOVERED_FOR_UI"))
         assertTrue("Open-position UI must not invent entry basis from current price/ref/lastPrice", !main.contains("journalEntryPrice(buy), ts.lastPrice, ts.ref") && !main.contains("journalEntryPrice(buy), currentPrice, existing?.lastPrice") && main.contains("OPEN_POSITION_UI_BASIS_WAIT"))
@@ -6602,7 +6603,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.4527: Moonshot must not cap FDG final size back to raw suggestedSizeSol", bot.contains("val msEffectiveSize = moonshotFdgDecision?.sizeSol") && bot.contains("must not silently clamp it back to raw suggestedSizeSol"))
         assertTrue("V5.0.4527: ShitCoin must apply executable FDG size before permit/executor", bot.contains("SHITCOIN_FDG_FINAL_SIZE_APPLIED_4527") && bot.contains("adjustedSize = shitCoinFdg.sizeSol"))
-        assertTrue("V5.0.4527: Express must not cap FDG final size back to raw Express signal size", bot.contains("val expressFinalSize = expressFdg?.sizeSol ?: expressSignal.positionSizeSol.coerceAtLeast(0.01)") && bot.contains("Do not cap restored/core FDG size back down"))
+        assertTrue("V5.0.4527: Express must not cap FDG final size back to raw Express signal size", bot.contains("val expressFinalSize = expressFdg?.sizeSol") && bot.contains("?: expressSignal.positionSizeSol.coerceAtLeast(0.01)") && bot.contains("Do not cap restored/core FDG size back down"))
     }
 
 
@@ -7010,7 +7011,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6022: Toolkit good-lane setups must bridge pre-FDG lane starvation into real FDG candidates", bot6020.contains("ToolkitGoodLaneBridge6022") && bot6020.contains("TOOLKIT_GOOD_LANE_BRIDGE_6022") && bot6020.contains("TOOLKIT_BRIDGE_${'$'}{laneKey}") && bot6020.contains("action=send_to_fdg"))
         assertTrue("V5.0.6022: Quality BlueChip and Treasury must consume bridged signal copies instead of requiring legacy shouldEnter", bot6020.contains("qualitySignal6022") && bot6020.contains("blueChipSignal6022") && bot6020.contains("treasurySignal6022") && bot6020.contains("qualitySignal.copy") && bot6020.contains("blueChipSignal.copy") && bot6020.contains("treasurySignal.copy"))
         val main6024 = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
-        assertTrue("V5.0.6085: main dashboard headline must use the exact JournalActivity lifecycle-row parity helper, not cached clean stats", main6024.contains("EXACT JOURNAL HEADER PARITY HELPER") && main6024.contains("getAllValidTradesSnapshot(5_000)") && main6024.contains("getAllTradesFromDb()") && main6024.contains("TradeJournal(applicationContext).getStatsFiltered(entries)") && main6024.contains("journalParityStatsSnapshot6085() ?: com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()") && !main6024.contains("ALL TRADERS headline uses StrategyTruthLedger-clean truth"))
+        assertTrue("V5.0.6648: main dashboard headline must explicitly use the portfolio book and fail closed when account reconciliation is unavailable", main6024.contains("DeskPerformanceAuthority6648.Book.PORTFOLIO") && main6024.contains("unifiedSnap6635?.realizedPnlSol") && main6024.contains("ACCOUNT UNAVAILABLE") && main6024.contains("PORTFOLIO WR"))
         val fdg6025 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue("V5.0.6025: FDG score gates must consume effective lane/AGI consensus score from trade 1", fdg6025.contains("effectiveGateScore6025") && fdg6025.contains("FDG_EFFECTIVE_GATE_SCORE_6025") && fdg6025.contains("score_gates_use_consensus_from_trade1") && fdg6025.contains("UnifiedPolicyHead.currentAuthority(laneName)"))
         assertTrue("V5.0.6025: FDG unknown-phase and live-edge gates must use effective score while logging raw/lane split", fdg6025.contains("val isHighScore = effectiveGateScore6025 >= minScore") && fdg6025.contains("val hasDecentScore = effectiveGateScore6025 >= liveMinEntryScore") && fdg6025.contains("raw=${'$'}{candidate.entryScore.toInt()} lane=${'$'}{laneConsensusScore6025.toInt()}"))
@@ -7079,7 +7080,7 @@ class GoldenTapeRegressionTest {
         val bot6083 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.6083: tick-time hard-floor/profit-lock shell must cover all paper/live lanes, not skip BLUECHIP/PRESALE/LONG_HOLD", bot6083.contains("V5.0.6083") && bot6083.contains("val tickProfitLockEligible = true") && !bot6083.contains("""ForensicLogger.lifecycle("TICK_PROFIT_LOCK_SKIPPED_LANE"""))
         val main6084 = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
-        assertTrue("V5.0.6086: all global/main UI stat displays must consume JournalActivity parity before stale wallet/cache/bucket sources", main6084.contains("V5.0.6086") && main6084.contains("EXACT JOURNAL HEADER PARITY HELPER") && main6084.contains("JournalParityUiSnapshot6085") && main6084.contains("refreshJournalParitySnapshot6085Async(state)") && main6084.contains("val persistedStats = journalParityStatsSnapshot6085() ?: com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()") && main6084.contains("val rawStats6084 = try { journalParityStatsSnapshot6085() ?: com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()") && main6084.contains("val journalStats = journalParityStatsSnapshot6085() ?: try { com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()") && main6084.contains("val jpReadiness6086 = journalParityStatsSnapshot6085()") && main6084.contains("val jp6086 = journalParityStatsSnapshot6085()") && main6084.contains("journal raw parity") && !main6084.contains("val persistedStats = try { com.lifecyclebot.engine.TradeHistoryStore.getCleanStatsSnapshot4517()") && !main6084.contains("val cleanStats6024 = try { com.lifecyclebot.engine.TradeHistoryStore.getCleanStatsSnapshot4517()"))
+        assertTrue("V5.0.6649: main UI learning/readiness must use explicit desk books and contain no global journal win-rate projection", main6084.contains("DeskPerformanceAuthority6648.Book.MEME") && main6084.contains("DeskPerformanceAuthority6648.Book.PORTFOLIO") && main6084.contains("Markets readiness explicitly combines only its child desks") && !main6084.contains("JournalParityUiSnapshot6085") && !main6084.contains("journalParityStatsSnapshot6085()"))
         val sentience6090 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt").readText()
         val lab6090 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsyncStrategyLab.kt").readText()
         val meta6090 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt").readText()
@@ -7201,13 +7202,11 @@ class GoldenTapeRegressionTest {
     fun aate4581CryptoUniverseCanonicalLearningIsPostCommitAndIsolated() {
         val trader = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
         val brain = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/brain/CryptoBrain.kt").readText()
-        // V5.0.6570a — trader now uses positions[pos.id] (short-var) at the
-        // canonical open site; expand the substring anchor to that literal
-        // rather than the older positions[position.id] name.
-        val postCommit = trader.substringAfter("positions[pos.id]").substringBefore("// V5.9.320")
+        // Anchor the committed canonical position before any learning side effects.
+        val postCommit = trader.substringAfter("positions[position.id]").substringBefore("// V5.9.320")
         val dynScan = trader.substringAfter("Dynamic token scan").substringBefore("private suspend fun runScanCycle")
         val closeBlock = trader.substringAfter("// V5.0.4581 — CRYPTO ISOLATION WALL").substringBefore("// ── PerpsLearningBridge")
-        assertTrue("V5.0.4581: CryptoBrain.onTradeStart must fire only after a paper/live open is committed", postCommit.contains("CryptoBrain.onTradeStart()") && postCommit.contains("WalletPositionLock.recordOpen") && postCommit.contains("CryptoAlt") && postCommit.contains("finalSize"))
+        assertTrue("V5.0.4581: CryptoBrain.onTradeStart must fire only after a paper/live open is committed", postCommit.contains("CryptoBrain.onTradeStart()") && postCommit.contains("WalletPositionLock.recordOpen") && postCommit.contains("CryptoAlt") && postCommit.contains("canonicalFinalSize6570"))
         assertFalse("V5.0.4581: dynamic crypto signal generation must not fake canonical opens", dynScan.contains("CryptoBrain.onTradeStart()"))
         assertTrue("V5.0.4581: CryptoBrain close reconciliation must never decrement canonical/open below zero", brain.contains("openTrades.get() > 0L") && brain.contains("canonicalTotal.get() > 0L") && brain.contains("recoveredTrades.incrementAndGet()"))
         assertTrue("V5.0.4581: CryptoAlt closes must stay isolated from meme/global learners", closeBlock.contains("meme/global learners skipped") && !closeBlock.contains("MetaCognitionAI.recordTradeOutcome") && !closeBlock.contains("ShadowLearningEngine.onLiveTradeExit"))
@@ -8374,7 +8373,7 @@ class GoldenTapeRegressionTest {
         val sandbox = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PerpsSandbox6463.kt").readText()
         assertTrue(sizing.contains("sizing is advisory input, never a pre-FDG"))
         assertTrue(gate.contains("resolvedSizeSol6558") && gate.contains("CROSS_ASSET_LEGACY_SIGNAL_DIVERGENCE_6554") && gate.contains("action=diagnostic_only"))
-        assertTrue(crypto.contains("resolvedSizeSol6558 = candidate.finalSize"))
+        assertTrue(crypto.contains("CanonicalEntryAuthority6551.submit") && crypto.contains("canonicalCryptoIntent6565.resolvedSize"))
         assertTrue(perpsEngine.contains("CanonicalEntryAuthority6551.submit") && perpsEngine.contains("sealedPerpIntent6570") && perpsEngine.contains("canonicalPerpsSize6570 = sealedPerpIntent6570.resolvedSizeSol"))
         assertTrue(perpsTrader.contains("PerpsSandbox6463.openLeveragedPaper") && perpsTrader.contains("CanonicalPaperTransaction6486.refund"))
         assertTrue(sandbox.contains("PERPS_EXEC_DISPATCH_6554") && sandbox.contains("PERPS_OPEN_CONFIRMED_6554") && sandbox.contains("PERPS_OPEN_REFUSED_6554"))
@@ -8687,7 +8686,7 @@ class GoldenTapeRegressionTest {
         assertTrue(gate.contains("intent.fdgVerdict.uppercase() in setOf(") && gate.contains("PROBE_ONLY"))
         assertTrue(crypto.contains("CRYPTO_SHORT_REROUTED_TO_PERP_6533") && crypto.contains("ADAPTER_DIRECTION_UNSUPPORTED"))
         assertFalse(crypto.contains("SPOT_SHORT_UNSUPPORTED"))
-        assertTrue(crypto.contains("requiresSolanaTokenMap = ExecutionAuthorityPolicy6533.requiresSolanaTokenMap"))
+        assertTrue(crypto.contains("CanonicalEntryAuthority6551.submit") && crypto.contains("finalExecutableVerdict6647"))
         assertTrue(plan.contains("paperLearnEverything6533") && bot.contains("publish(plan6526.enabledTraderSet())"))
         assertTrue(report.contains("EXECUTION AUTHORITY INVARIANTS 6533") &&
             report.contains("NON_SOLANA_TOKENMAP_HARDNO") && report.contains("EXECUTABLE_FANOUT_PER_CANDIDATE_GT_2"))

@@ -27,13 +27,13 @@ class P1RepairSourceCoverage6578Test {
     @Test
     fun p1_1_crypto_alt_paper_dispatch_parity() {
         assertTrue(
-            "Paper branch must call CanonicalEntryAuthority6551.markDispatch before the canonical open",
-            cryptoAltSrc.contains("CanonicalEntryAuthority6551.markDispatch(canonicalCryptoIntent6565)\n            val canonicalOpen6486")
+            "Paper branch must pass the immutable intent to the canonical transaction reducer, which owns dispatch",
+            cryptoAltSrc.contains("executionIntent = canonicalCryptoIntent6565")
         )
         assertTrue(
-            "Paper branch must call CanonicalEntryAuthority6551.markConfirmed after a successful open",
+            "Paper branch must rely on the canonical transaction's single confirmation path",
             cryptoAltSrc.contains("V5.0.6578 — success confirms the paper dispatch produced a canonical open") &&
-                cryptoAltSrc.contains("CanonicalEntryAuthority6551.markConfirmed(canonicalCryptoIntent6565, position.id)")
+                cryptoAltSrc.contains("explicit markConfirmed here would double-count")
         )
     }
 

@@ -120,7 +120,7 @@ class Aate6625MemeExecutionFunnelReceiversCoverageTest {
 
     @Test
     fun aate6625_causal_funnel_records_stages_under_one_key() {
-        val id = "aate6625-cf-D"
+        val id = "aate6625cfD:1"
         ToolkitSignalSheet.recordDeskStage("CORE", "BUY_INTENT", id)
         ToolkitSignalSheet.recordDeskStage("CORE", "FDG_ALLOW", id)
         ToolkitSignalSheet.recordDeskStage("CORE", "TICKET", id)

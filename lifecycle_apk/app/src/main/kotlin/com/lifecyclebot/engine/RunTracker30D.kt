@@ -70,6 +70,8 @@ object RunTracker30D {
     val forexBucket  = AssetBucket()
     val metalsBucket = AssetBucket()
     val commodBucket = AssetBucket()
+    /** Unknown/legacy outcomes are evidence gaps, never meme trades. */
+    val unclassifiedBucket = AssetBucket()
 
     /**
      * V5.9.432 — unified per-lane stats accessor so UI (Alt Trader card,
@@ -715,6 +717,14 @@ SYSTEM
                 putFloat("totalRealizedPnlSol", totalRealizedPnlSol.toFloat())
                 putFloat("bestTradePnlPct", bestTradePnlPct.toFloat())
                 putFloat("worstTradePnlPct", worstTradePnlPct.toFloat())
+                saveBucket6648(this, "meme", memeBucket)
+                saveBucket6648(this, "crypto", altsBucket)
+                saveBucket6648(this, "perps", perpsBucket)
+                saveBucket6648(this, "stocks", stocksBucket)
+                saveBucket6648(this, "forex", forexBucket)
+                saveBucket6648(this, "metals", metalsBucket)
+                saveBucket6648(this, "commodities", commodBucket)
+                saveBucket6648(this, "unclassified", unclassifiedBucket)
                 putInt("executionFailures", executionFailures)
                 putInt("missedTrades", missedTrades)
                 putString("equityCurve", equityCurveToJson())
@@ -742,6 +752,14 @@ SYSTEM
             totalRealizedPnlSol = prefs.getFloat("totalRealizedPnlSol", 0f).toDouble()
             bestTradePnlPct = prefs.getFloat("bestTradePnlPct", 0f).toDouble()
             worstTradePnlPct = prefs.getFloat("worstTradePnlPct", 0f).toDouble()
+            loadBucket6648(prefs, "meme", memeBucket)
+            loadBucket6648(prefs, "crypto", altsBucket)
+            loadBucket6648(prefs, "perps", perpsBucket)
+            loadBucket6648(prefs, "stocks", stocksBucket)
+            loadBucket6648(prefs, "forex", forexBucket)
+            loadBucket6648(prefs, "metals", metalsBucket)
+            loadBucket6648(prefs, "commodities", commodBucket)
+            loadBucket6648(prefs, "unclassified", unclassifiedBucket)
             executionFailures = prefs.getInt("executionFailures", 0)
             missedTrades = prefs.getInt("missedTrades", 0)
             
@@ -846,6 +864,7 @@ SYSTEM
         forexBucket.trades = 0;  forexBucket.wins = 0;  forexBucket.losses = 0;  forexBucket.scratches = 0;  forexBucket.pnlSol = 0.0
         metalsBucket.trades = 0; metalsBucket.wins = 0; metalsBucket.losses = 0; metalsBucket.scratches = 0; metalsBucket.pnlSol = 0.0
         commodBucket.trades = 0; commodBucket.wins = 0; commodBucket.losses = 0; commodBucket.scratches = 0; commodBucket.pnlSol = 0.0
+        unclassifiedBucket.trades = 0; unclassifiedBucket.wins = 0; unclassifiedBucket.losses = 0; unclassifiedBucket.scratches = 0; unclassifiedBucket.pnlSol = 0.0
         save()
         ErrorLogger.info(TAG, "🧹 RunTracker30D trade stats reset (proof-run timeline preserved)")
     }
@@ -896,15 +915,15 @@ SYSTEM
     }
 
     // V5.9.369 — asset-class bucket helpers.
-    private fun bucketFor(assetClass: String): AssetBucket = when (assetClass.uppercase()) {
-        "MEME"      -> memeBucket
+    private fun bucketFor(assetClass: String): AssetBucket = when (assetClass.uppercase().trim()) {
+        "MEME", "SOLANA_TOKEN"                    -> memeBucket
         "ALT", "ALTS", "CRYPTOALT", "CRYPTO_ALT" -> altsBucket
         "PERP", "PERPS"                           -> perpsBucket
         "STOCK", "STOCKS"                         -> stocksBucket
         "FOREX", "FX"                             -> forexBucket
         "METAL", "METALS"                         -> metalsBucket
         "COMMODITY", "COMMOD", "COMMODITIES"      -> commodBucket
-        else                                       -> memeBucket   // legacy default
+        else                                       -> unclassifiedBucket
     }
 
     /**
@@ -921,8 +940,34 @@ SYSTEM
             m.startsWith("COMMOD") || m.contains("COMMODITIES_") -> "COMMODITY"
             m.startsWith("PERP")  || m.contains("PERPS_")  -> "PERP"
             m.startsWith("ALT")   || m.contains("ALTSPOT") || m.contains("CRYPTO_ALT") -> "ALT"
-            else                                             -> "MEME"
+            // Fail closed. Legacy/novel modes need an explicit mapping before
+            // they may affect any desk's WR, PnL, streak, sizing or learning.
+            else                                             -> "UNKNOWN"
         }
+    }
+
+    private fun saveBucket6648(
+        editor: android.content.SharedPreferences.Editor,
+        key: String,
+        bucket: AssetBucket,
+    ) {
+        editor.putInt("book_${key}_trades", bucket.trades)
+        editor.putInt("book_${key}_wins", bucket.wins)
+        editor.putInt("book_${key}_losses", bucket.losses)
+        editor.putInt("book_${key}_scratches", bucket.scratches)
+        editor.putString("book_${key}_pnl_sol", bucket.pnlSol.toString())
+    }
+
+    private fun loadBucket6648(
+        prefs: android.content.SharedPreferences,
+        key: String,
+        bucket: AssetBucket,
+    ) {
+        bucket.trades = prefs.getInt("book_${key}_trades", 0)
+        bucket.wins = prefs.getInt("book_${key}_wins", 0)
+        bucket.losses = prefs.getInt("book_${key}_losses", 0)
+        bucket.scratches = prefs.getInt("book_${key}_scratches", 0)
+        bucket.pnlSol = prefs.getString("book_${key}_pnl_sol", "0")?.toDoubleOrNull() ?: 0.0
     }
 
     // -------------------------------------------------------------------------

@@ -113,7 +113,8 @@ object CryptoUniverseRouteResolver {
         // 2. No real SPL mint means the bridge rail has no target. This is a
         // route-discovery outcome, not a tx failure. Do not call live executor.
         return when {
-            cfg.cryptoUniverseAllowBridgeAdapters && CryptoBridgeAdapter.isConfigured() ->
+            cfg.cryptoUniverseAllowBridgeAdapters &&
+                CryptoBridgeAdapter.supportsRoundTrip(targetChainId6544, targetMint6493) ->
                 Resolution(sym, CryptoExecutionRoute.BRIDGE_REQUIRED, null,
                     CryptoUniverseDiagCodes.ROUTE_BRIDGE_REQUIRED,
                     "No Solana mint resolved; external bridge adapter required/configured.",

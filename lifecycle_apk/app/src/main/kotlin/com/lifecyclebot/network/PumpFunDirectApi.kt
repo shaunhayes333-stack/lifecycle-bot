@@ -44,9 +44,10 @@ object PumpFunDirectApi {
     private const val URL = "https://pumpportal.fun/api/trade-local"
 
     private val httpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        SharedHttpClient.builder()
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
+            .callTimeout(12, TimeUnit.SECONDS)
             .build()
     }
 

@@ -83,7 +83,7 @@ enum class AssetClass {
                 p.startsWith("FOREX_") || p.startsWith("FX_") || p.startsWith("FOREX:") -> FOREX
                 p.startsWith("METAL_") || p.startsWith("METAL:") -> METAL
                 p.startsWith("COMMODITY_") || p.startsWith("COMMODITY:") -> COMMODITY
-                p.startsWith("ALT_") || p.startsWith("CRYPTOALT_") || p.startsWith("CRYPTO_ALT_") -> CRYPTO_ALT
+                p.startsWith("ALT_") || p.startsWith("ALT:") || p.startsWith("CRYPTOALT_") || p.startsWith("CRYPTO_ALT_") -> CRYPTO_ALT
                 p.startsWith("PERPS_") || p.startsWith("PERP_") || p.startsWith("PERPS:") -> PERPS
                 else -> UNKNOWN
             }

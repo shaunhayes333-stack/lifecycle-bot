@@ -108,6 +108,7 @@ object CanonicalCapitalAuthority6450 {
         // downstream consumers can gate WR/EV/tactic training on
         // authoritativeOpenMv rather than the fallback-inflated total.
         var authoritativeOpenMv6508 = 0.0
+        var authoritativeOpenCost6508 = 0.0
         val activeMintSet6492 = activeMints.map { it.mint }.toSet()
         lastGoodMark6492.keys.removeIf { it !in activeMintSet6492 }
         val markedValue6492 = activeMints.sumOf { aggregate ->
@@ -144,6 +145,7 @@ object CanonicalCapitalAuthority6450 {
                 fresh.isFinite() && fresh > 0.0 -> {
                     lastGoodMark6492[aggregate.mint] = GoodMark6492(fresh, System.currentTimeMillis())
                     authoritativeOpenMv6508 += fresh
+                    authoritativeOpenCost6508 += aggregate.remainingCostBasisSol
                     fresh
                 }
                 lastGoodMark6492[aggregate.mint] != null -> {
@@ -191,7 +193,10 @@ object CanonicalCapitalAuthority6450 {
             openCost
         } else openMvRaw6602
         if (staleMarkMints6492 > 0) try { PipelineHealthCollector.labelInc("CAPITAL_STALE_LAST_GOOD_MARK_6492") } catch (_: Throwable) {}
-        val unrealized = openMv - openCost
+        // Only fresh, authoritative marks may produce unrealized profit.
+        // Stale/fallback positions remain UNPRICED COST and contribute zero
+        // to growth, compounding, sizing, or learning rewards.
+        val unrealized = authoritativeOpenMv6508 - authoritativeOpenCost6508
         val equity = cash + reserved + openMv
         val expected = startingCash + realized - fees
         val actual = cash + reserved + openCost

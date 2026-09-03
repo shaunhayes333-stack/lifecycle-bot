@@ -258,6 +258,16 @@ object AcceptanceInvariantAudit6441 {
                 candWithoutSubmit6540.joinToString(",") { "${it.venue}(cand=${it.candidates})" }
         )
 
+        // V5.0.6647 — a completed mandatory paper window is part of the
+        // same fail-closed audit. Before 120 seconds, report warm-up rather
+        // than fabricating a pass from zero counters.
+        val spineRead6647 = runCatching { ExecutionSpineAcceptanceWindow6647.closeCompletedWindow() }
+        val spine6647 = spineRead6647.getOrNull()
+        if (spineRead6647.isFailure) failed.add("J_execution_spine_collector_failed")
+        else if (spine6647 == null) passed.add("J_execution_spine_window_warming")
+        else if (spine6647.passed) passed.add("J_execution_spine_120s_pass")
+        else failed.addAll(spine6647.failures.map { "J_$it" })
+
         val report = AuditReport(
             whenMs = System.currentTimeMillis(),
             passed = passed,

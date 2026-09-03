@@ -200,7 +200,7 @@ class Aate6616JournalHeroSingleAuthorityCoverageTest {
     }
 
     @Test
-    fun aate6616_hero_snapshot_authority_carries_journal_revision() {
+    fun aate6647_hero_snapshot_authority_consumes_unified_fail_closed_snapshot() {
         val src = java.io.File(
             "src/main/kotlin/com/lifecyclebot/engine/truth/HeroSnapshotAuthority6503.kt"
         ).readText()
@@ -210,8 +210,10 @@ class Aate6616JournalHeroSingleAuthorityCoverageTest {
                 src.contains("val source: String")
         )
         assertTrue(
-            "V5.0.6616: HeroSnapshotAuthority must prefer JournalEconomicAuthority6616.currentSnapshot() for cash",
-            src.contains("JournalEconomicAuthority6616.currentSnapshot()?.cashSol")
+            "V5.0.6647: HeroSnapshotAuthority must not publish a ledger- or journal-only fallback",
+            src.contains("UnifiedAccountSnapshot6635.lastSnapshot()") &&
+                src.contains("UNIFIED_ACCOUNT_SNAPSHOT_6635") &&
+                !src.contains("JournalEconomicAuthority6616.currentSnapshot()?.cashSol")
         )
     }
 

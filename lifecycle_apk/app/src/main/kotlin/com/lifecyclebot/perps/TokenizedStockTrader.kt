@@ -803,7 +803,9 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                     // because of this gate. Wide-open mode lets them keep firing
                     // so trust can recover via fresh data.
                     val wideOpen = try {
-                        com.lifecyclebot.engine.FreeRangeMode.isWideOpen()
+                        com.lifecyclebot.engine.FreeRangeMode.isWideOpen(
+                            com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.STOCKS,
+                        )
                     } catch (_: Throwable) { false }
                     val trustLevel = try {
                         com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel("TokenizedStockAI")
@@ -2279,6 +2281,5 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     // one is functionally identical (uses String.format) and is already
     // imported by sibling perps files.
 }
-
 
 

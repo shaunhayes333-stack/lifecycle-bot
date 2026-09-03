@@ -919,6 +919,7 @@ object CyclicTradeEngine {
             rugcheckScore = best.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
             liquidity = best.lastLiquidityUsd,
             isBanned = BannedTokens.isBanned(best.mint),
+            preResolvedSizeSol = sizeSol,
         )
         if (!cyclicAuth.isExecutable()) {
             statusMessage = "⏸️ Cyclic finality blocked ${best.symbol}: ${cyclicAuth.reason.take(60)}"

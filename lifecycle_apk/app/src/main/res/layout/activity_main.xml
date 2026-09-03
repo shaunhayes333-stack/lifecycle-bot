@@ -534,7 +534,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="TRADES"
+                        android:text="PORTFOLIO TRADES"
                         android:textColor="#6B7280"
                         android:textSize="9sp"/>
                 </LinearLayout>
@@ -560,7 +560,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="WIN RATE"
+                        android:text="PORTFOLIO WR"
                         android:textColor="#6B7280"
                         android:textSize="9sp"/>
                 </LinearLayout>
@@ -6518,4 +6518,3 @@
     </LinearLayout>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
-

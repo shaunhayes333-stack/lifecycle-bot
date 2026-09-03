@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine
 
 import org.junit.Test
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 
 /**
@@ -37,19 +38,20 @@ class Aate6606BotLoopAnrReliefCoverageTest {
         val body = bot.substring(start, end)
         assertTrue(
             "V5.0.6606: syncPaperCapitalAuthority6448 must offload PaperWalletStore.persist to AppDispatchers.sideEffect",
-            body.contains("GlobalScope.launch(com.lifecyclebot.util.AppDispatchers.sideEffect)") &&
+            body.contains("scope.launch(com.lifecyclebot.util.AppDispatchers.sideEffect)") &&
                 body.contains("PaperWalletStore.persist(applicationContext, ledgerCash)")
         )
+        assertFalse("V5.0.6647: service work must not escape into GlobalScope", body.contains("GlobalScope.launch"))
         assertTrue(
             "V5.0.6606: per-cycle ForensicLogger emit must be inside the sideEffect launch, not on the loop coroutine",
-            body.indexOf("GlobalScope.launch") < body.indexOf("PAPER_CAPITAL_AUTHORITY_SYNCED_6448")
+            body.indexOf("scope.launch") < body.indexOf("PAPER_CAPITAL_AUTHORITY_SYNCED_6448")
         )
         // Cheap read (cashSol) must still be in-line so status.paperWalletSol
         // and CanonicalPositionAuthority6441.setPaperCash reflect the ledger
         // BEFORE the bot loop makes its next capital decision.
         assertTrue(
             "V5.0.6606: PaperCapitalAuthority6577.cashSol() read must stay in-line",
-            body.indexOf("PaperCapitalAuthority6577.cashSol()") < body.indexOf("GlobalScope.launch")
+            body.indexOf("PaperCapitalAuthority6577.cashSol()") < body.indexOf("scope.launch")
         )
     }
 }

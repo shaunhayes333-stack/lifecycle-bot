@@ -39,6 +39,7 @@ object RewardPurityGate6441 {
     private val accepted = AtomicLong(0L)
     private val rejectedLifecycle = AtomicLong(0L)
     private val rejectedDuplicate = AtomicLong(0L)
+    private val rejectedAccounting = AtomicLong(0L)
     private val shadowAccepted = AtomicLong(0L)
 
     /**
@@ -62,6 +63,25 @@ object RewardPurityGate6441 {
                 )
             } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("REWARD_PURITY_REJECT_LIFECYCLE_6441") } catch (_: Throwable) {}
+            return false
+        }
+        // A finalized close is still not learnable economic truth until the
+        // ledger, journal, event stream and lot reducer reconcile. Likewise,
+        // fallback/stale marks anywhere in the account make reward and
+        // compounding inputs non-authoritative. Leave the id unconsumed so the
+        // canonical bus can retry after reconciliation recovers.
+        try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
+        val reconciliationOk = try { ForensicReconciliation6635.deltas6647().reconciled } catch (_: Throwable) { false }
+        val marks = try { CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
+        if (!reconciliationOk || marks == null || marks.fallbackMarkMints > 0 || marks.staleMarkMints > 0) {
+            rejectedAccounting.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("REWARD_PURITY_BLOCKED_UNRECONCILED_OR_UNPRICED_6647")
+                ForensicLogger.lifecycle(
+                    "REWARD_PURITY_BLOCKED_UNRECONCILED_OR_UNPRICED_6647",
+                    "positionId=$positionId reconciled=$reconciliationOk fallback=${marks?.fallbackMarkMints ?: -1} stale=${marks?.staleMarkMints ?: -1}",
+                )
+            } catch (_: Throwable) {}
             return false
         }
         val costBasis6576 = try {
@@ -120,6 +140,6 @@ object RewardPurityGate6441 {
         val (w, l, b) = canonicalCounts()
         return "finalized=${finalizedIds.size} W=$w L=$l BE=$b " +
             "shadow=${shadowSignals.size} accepted=${accepted.get()} " +
-            "rejectLifecycle=${rejectedLifecycle.get()} rejectDup=${rejectedDuplicate.get()}"
+            "rejectLifecycle=${rejectedLifecycle.get()} rejectDup=${rejectedDuplicate.get()} rejectAccounting=${rejectedAccounting.get()}"
     }
 }

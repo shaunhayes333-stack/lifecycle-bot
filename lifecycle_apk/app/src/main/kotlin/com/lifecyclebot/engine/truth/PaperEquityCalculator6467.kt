@@ -61,7 +61,16 @@ object PaperEquityCalculator6467 {
      * milestones.
      */
     fun observeGrowthRing(snap: Snapshot, solPriceUsd: Double) {
-        try { GrowthCompoundRing6550.observe(snap.equitySol, solPriceUsd) } catch (_: Throwable) {}
+        try {
+            val account = UnifiedAccountSnapshot6635.read("GROWTH_COMPOUND_RING_6647", "paper")
+            if (account.status != UnifiedAccountSnapshot6635.Status.RECONCILED || !account.authoritativePrices) {
+                PipelineHealthCollector.labelInc("GROWTH_MILESTONE_BLOCKED_UNRECONCILED_OR_UNPRICED_6647")
+                return
+            }
+            // Use the exact reconciled snapshot, not the caller's earlier
+            // point-in-time calculation, as the milestone economic input.
+            GrowthCompoundRing6550.observe(account.equitySol, solPriceUsd)
+        } catch (_: Throwable) {}
     }
 
     fun lastSnapshot(): Snapshot? = lastSnap.get()

@@ -212,49 +212,17 @@ object HeroSnapshotAuthority6503 {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HERO_UNREALIZED_BREAKDOWN_6523")
             }
         } catch (_: Throwable) {}
-        val equitySol = try {
-            // V5.0.6508e — CONSERVATIVE (see MainActivity).
-            // Hero background snapshot uses totalEquitySol; divergence
-            // vs authoritativeEquitySol surfaces via counter only.
-            //
-            // V5.0.6616 §JOURNAL_BALANCE_HERO_SINGLE_AUTHORITY_REPAIR —
-            //   prefer the revision-tracked JournalEconomicAuthority6616
-            //   snapshot so the hero cache carries the same journal
-            //   revision every UI surface renders. Falls back to the
-            //   canonical capital snapshot when the authority has not
-            //   published yet (pre-restore or live-only sessions).
-            val jSnap6616 = try { JournalEconomicAuthority6616.currentSnapshot() } catch (_: Throwable) { null }
-            if (jSnap6616 != null) {
-                jSnap6616.equitySol
-            } else {
-                val snap6508 = CanonicalCapitalAuthority6450.snapshot()
-                val delta6508 = kotlin.math.abs(snap6508.totalEquitySol - snap6508.authoritativeEquitySol)
-                if (snap6508.totalEquitySol > 0.001 &&
-                    delta6508 / snap6508.totalEquitySol > 0.05) {
-                    try {
-                        com.lifecyclebot.engine.PipelineHealthCollector
-                            .labelInc("HERO_EQUITY_AUTHORITATIVE_DIVERGENCE_6508")
-                    } catch (_: Throwable) {}
-                }
-                snap6508.totalEquitySol
-            }
-        } catch (_: Throwable) { 0.0 }
-        val cashSol = try {
-            // V5.0.6616 — journal-authoritative cash preferred.
-            JournalEconomicAuthority6616.currentSnapshot()?.cashSol
-                ?: PaperCapitalAuthority6577.cashSol()
-        } catch (_: Throwable) { 0.0 }
-        val realizedPnlSol = try {
-            JournalEconomicAuthority6616.currentSnapshot()?.realizedPnlSol
-                ?: PaperCapitalAuthority6577.realizedPnlSol()
-        } catch (_: Throwable) { 0.0 }
-        val journalRev6616 = try {
-            JournalEconomicAuthority6616.currentSnapshot()?.revision ?: -1L
-        } catch (_: Throwable) { -1L }
-        val heroSource6616 = try {
-            JournalEconomicAuthority6616.currentSnapshot()?.source
-                ?: "CANONICAL_CAPITAL_AUTHORITY_6450"
-        } catch (_: Throwable) { "CANONICAL_CAPITAL_AUTHORITY_6450" }
+        // V5.0.6647 — background aggregation may cache row totals, but it
+        // may not create another account authority. Consume only the last
+        // UnifiedAccountSnapshot. FAILED snapshots already retain the last
+        // RECONCILED values (or ACCOUNT_UNAVAILABLE zeros), so no fresh
+        // ledger/journal-only equity escapes through this older hero cache.
+        val account6647 = try { UnifiedAccountSnapshot6635.lastSnapshot() } catch (_: Throwable) { null }
+        val equitySol = account6647?.equitySol ?: 0.0
+        val cashSol = account6647?.cashSol ?: 0.0
+        val realizedPnlSol = account6647?.realizedPnlSol ?: 0.0
+        val journalRev6616 = -1L
+        val heroSource6616 = "UNIFIED_ACCOUNT_SNAPSHOT_6635:${account6647?.status ?: "UNAVAILABLE"}"
         cached.set(
             Hero(
                 openCount = openCount,

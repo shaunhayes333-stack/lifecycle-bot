@@ -87,6 +87,47 @@ object CryptoUniverseExecutor {
             message = resolution.humanMessage,
         )
 
+        if (resolution.route == CryptoExecutionRoute.BRIDGE_REQUIRED && resolution.executable) {
+            if (direction != PerpsDirection.LONG) {
+                return@runAwaited Outcome.RouteDeferred(resolution.copy(
+                    route = CryptoExecutionRoute.PAPER_ONLY,
+                    diagCode = CryptoUniverseDiagCodes.ROUTE_PAPER_ONLY,
+                    humanMessage = "Cross-chain spot opens LONG only; short routes remain unavailable.",
+                    executable = false,
+                ))
+            }
+            val bridge = CryptoBridgeAdapter.buySolToEvm(
+                wallet = wallet,
+                targetSymbol = symbol,
+                targetChain = targetChainId6544,
+                targetToken = targetMint6493,
+                sizeSol = sizeSol,
+                positionId = positionId,
+            )
+            return@runAwaited when (bridge) {
+                is CryptoBridgeAdapter.Execution.Fulfilled -> {
+                    val mutation = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPosition(
+                        idempotencyKey = "CRYPTO_BRIDGE6649:OPEN:$positionId:${bridge.sourceSignature}",
+                        positionId = positionId, mint = bridge.destinationToken, symbol = symbol,
+                        lane = traderType.uppercase(), runId = bridge.sourceSignature,
+                        entryCostSol = sizeSol, openedQtyRaw = bridge.receivedRaw,
+                        tokenDecimals = bridge.decimals, feesSol = 0.0, paperMode = false,
+                        entryPriceUsd = priceUsd,
+                        entryPriceSource = "DLN_DESTINATION_BALANCE_CONFIRMED",
+                        assetClass = com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT,
+                    )
+                    if (mutation == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.APPLIED ||
+                        mutation == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.DUPLICATE
+                    ) Outcome.Executed(
+                        bridge.sourceSignature, bridge.destinationToken, bridge.receivedRaw,
+                        bridge.decimals, "DLN_${bridge.destinationTx}_FULFILLED_BALANCE_CONFIRMED",
+                    ) else Outcome.ExecFailed(resolution, "Canonical bridge open rejected: $mutation")
+                }
+                is CryptoBridgeAdapter.Execution.Rejected ->
+                    Outcome.ExecFailed(resolution, "${bridge.code}:${bridge.reason}")
+            }
+        }
+
         if (!resolution.executable || mint.isNullOrBlank()) {
             CryptoUniverseForensics.logPhase(
                 phase = "CU_ROUTE_FORCED_PAPER",

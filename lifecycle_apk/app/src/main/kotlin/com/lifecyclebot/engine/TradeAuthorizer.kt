@@ -170,6 +170,7 @@ object TradeAuthorizer {
         rugcheckScore: Int = 100,
         liquidity: Double = 0.0,
         isBanned: Boolean = false,
+        preResolvedSizeSol: Double,
         attemptId: String = "",
     ): AuthorizationResult {
         val now = System.currentTimeMillis()
@@ -285,12 +286,17 @@ object TradeAuthorizer {
             source = "TradeAuthorizer.preAuth",
             attemptId = finalityAttemptId,
             liveLiquidityUsd = liquidity,
+            preResolvedSizeSol6490 = preResolvedSizeSol,
             electedLane6494 = laneElection.primaryLane,
             electedCandidateVersion6494 = laneElection.candidateVersion,
             electionId6494 = laneElection.electionId,
             authorityVersion6494 = laneElection.authorityVersion,
         )
-        if (!finality.allowed) {
+        // A queued safety precheck/shadow verdict is explicitly non-executable.
+        // `allowed=true` historically let SIZE_PENDING_PRECHECK_ONLY flow on to
+        // the PAPER_OPEN token-lock mutation below.  The final executable gate
+        // must be both allowed and non-shadow before authorization owns a lock.
+        if (!finality.allowed || finality.shadowOnly) {
             ErrorLogger.info(TAG, "❌ REJECT $symbol: FINALITY_${finality.logName} attemptId=${finality.attemptId} reason=${finality.reason}")
             releasePrimaryAfterAuthFailure("FINALITY_${finality.logName}")
             return rejectAuth4424(

@@ -13,9 +13,12 @@ class Aate6640AccountingTruthCoverageTest {
         val src = File(
             "src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt"
         ).readText()
-        assertTrue(src.contains("val cash = startingSol + realized - fees - openCost"))
-        assertTrue(src.contains("JOURNAL_TRANSACTION_CASH_IDENTITY_DIVERGENCE_6640"))
-        assertFalse(src.contains("cash += (gross - fee)"))
+        assertTrue(src.contains("val lots = mutableMapOf<String, Lot>()"))
+        assertTrue(src.contains("SELL_WITHOUT_MATCHING_BUY_LOT"))
+        assertTrue(src.contains("MISSING_OR_NEGATIVE_BASIS"))
+        assertTrue(src.contains("action=quarantine_exact_event"))
+        assertFalse(src.contains("gross - t.pnlSol"))
+        assertFalse(src.contains("if (openCost < 0.0) openCost = 0.0"))
     }
 
     @Test

@@ -45,9 +45,10 @@ object EmergentLlmClient {
     @Volatile private var enabled: Boolean = false
 
     private val httpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        SharedHttpClient.builder()
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(8, TimeUnit.SECONDS)
+            .callTimeout(10, TimeUnit.SECONDS)
             .build()
     }
 

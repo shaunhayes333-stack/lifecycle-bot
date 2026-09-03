@@ -33,34 +33,22 @@ import org.junit.Assert.assertTrue
 class Aate6609bSpecialistLivenessCoverageTest {
 
     @Test
-    fun aate6609b_all_configured_desks_receive_pool_bump() {
+    fun aate6609b_no_configured_desk_receives_fabricated_pool_bump() {
         val src = java.io.File(
             "src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt"
         ).readText()
-        assertTrue(
-            "V5.0.6609b: every configured meme desk that did not win a hypothesis must still get a POOL bump",
-            src.contains("§RESTORE_SPECIALIST_LIVENESS") &&
-                src.contains("configuredMemeDesks6599.forEach { deskLane ->") &&
-                src.contains("!deskHypotheses.containsKey(deskLane)") &&
-                src.contains("recordDeskStage(deskLane, \"POOL\")")
-        )
-        // QUALIFIED must remain winner-only.
-        val poolBumpIdx = src.indexOf("§RESTORE_SPECIALIST_LIVENESS")
-        val qualifiedBumpIdxAfter = src.indexOf("recordDeskStage(deskLane, \"QUALIFIED\")", poolBumpIdx)
-        assertTrue(
-            "V5.0.6609b: QUALIFIED must NOT be bumped for non-winning desks — the fix is POOL-only",
-            qualifiedBumpIdxAfter < 0 || qualifiedBumpIdxAfter > poolBumpIdx + 2000
-        )
+        assertTrue(src.contains("No fabricated pool/liveness credit"))
+        assertTrue(!src.contains("recordDeskStage(deskLane, \"POOL\")"))
     }
 
     @Test
-    fun aate6609b_task_alive_reports_pool_not_qualified() {
+    fun aate6609b_runtime_liveness_comes_from_registered_jobs() {
         val src = java.io.File(
             "src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt"
         ).readText()
         assertTrue(
-            "V5.0.6609b: taskAlive must derive from pool > 0 (desk is running/observing), not qualified > 0 (desk won a hypothesis)",
-            src.contains("taskAlive=\${pool > 0} poolAlive=\${pool > 0} discoveryAlive=\${pool > 0}")
+            "runtime liveness must use job heartbeat and queue ownership",
+            src.contains("SpecialistRuntimeRegistry6647.snapshot") && src.contains("runtimeAlive=\${runtime.runtimeAlive}")
         )
     }
 }

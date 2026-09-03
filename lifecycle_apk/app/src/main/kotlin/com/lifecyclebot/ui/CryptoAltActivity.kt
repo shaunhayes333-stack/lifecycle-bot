@@ -382,13 +382,18 @@ class CryptoAltActivity : AppCompatActivity() {
         } catch (_: Throwable) { null } else null
         val bal = if (isLive) CryptoAltTrader.getBalance() else unified?.cashSol ?: 0.0
         val equity = if (isLive) bal else unified?.equitySol ?: bal
-        val pnl    = CryptoAltTrader.getTotalPnlSol()
-        val wr     = CryptoAltTrader.getWinRate()
-        val trades = CryptoAltTrader.getTotalTrades()
+        val performance = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+            com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.CRYPTO,
+            if (isLive) "live" else "paper",
+        )
+        val pnl    = performance.realizedPnlSol ?: 0.0
+        val wr     = performance.winRate
+        val trades = performance.trades
         val phase  = getPhaseLabel()
         // V5.9.5: Show USD as main balance
         val solUsdPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..500.0 } ?: 85.0 //
         val paperSafe = isLive || unified?.status == com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED
+        val performanceSafe = performance.realizedPnlSol != null
         tvHeroBalance.text = if (!paperSafe) "ACCOUNTING ERROR"
             else if (solUsdPrice >= 50.0) "$${"%,.0f".format(bal * solUsdPrice)}"
             else "◎ ${"%.4f".format(bal)}"
@@ -396,15 +401,15 @@ class CryptoAltActivity : AppCompatActivity() {
             ?: "Paper accounting has not reconciled. Balance withheld."
         else "Cash ${"%.4f".format(bal)} SOL, equity ${"%.4f".format(equity)} SOL"
         val pnlUsd = pnl * solUsdPrice
-        tvHeroPnl.text     = "${if (pnlUsd >= 0) "+" else ""}$${"%.2f".format(pnlUsd)} (${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)} SOL)"
+        tvHeroPnl.text     = if (performanceSafe) "${if (pnlUsd >= 0) "+" else ""}$${"%.2f".format(pnlUsd)} (${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)} SOL)" else "ACCOUNT UNAVAILABLE"
         tvHeroPnl.setTextColor(if (pnl >= 0) green else red)
         tvHeroWinRate.text = "${"%.1f".format(wr)}% WR"
         // V5.9.358 — show W/L/S breakdown so the previous "62% WR / -13 SOL"
         // data drift cannot hide again. The WR shown above now uses the
         // honest contract: wins (≥1%) / decisive (wins + losses).
-        val wins = CryptoAltTrader.getWinCount()
-        val losses = CryptoAltTrader.getLossCount()
-        val scratches = CryptoAltTrader.getScratchCount()
+        val wins = performance.wins
+        val losses = performance.losses
+        val scratches = performance.scratches
         tvHeroTrades.text  = "$trades · ${wins}W / ${losses}L / ${scratches}S"
         tvHeroPhase.text   = phase
         tvHeroPhase.setTextColor(phaseColor(phase))
@@ -475,7 +480,7 @@ class CryptoAltActivity : AppCompatActivity() {
     }
 
     private fun updateBrainIndicator() {
-        val progress = (FluidLearningAI.getMarketsLearningProgress() * 100).toInt()
+        val progress = com.lifecyclebot.perps.crypto.brain.CryptoBrain.progressPct()
         pbBrainProgress.progress = progress.coerceIn(0, 100)
     }
 
@@ -890,11 +895,18 @@ class CryptoAltActivity : AppCompatActivity() {
     }
 
     private fun buildHeroSection() {
-        // V5.9.5: reads from FluidLearning shared pool — same balance as main AATE
-        val bal    = CryptoAltTrader.getBalance()
-        val pnl    = CryptoAltTrader.getTotalPnlSol()
-        val wr     = CryptoAltTrader.getWinRate()
-        val trades = CryptoAltTrader.getTotalTrades()
+        val isLive = CryptoAltTrader.isLiveMode()
+        val unified = if (!isLive) try {
+            com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.read("CRYPTO")
+        } catch (_: Throwable) { null } else null
+        val bal    = if (isLive) CryptoAltTrader.getBalance() else unified?.cashSol ?: 0.0
+        val performance = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+            com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.CRYPTO,
+            if (isLive) "live" else "paper",
+        )
+        val pnl    = performance.realizedPnlSol ?: 0.0
+        val wr     = performance.winRate
+        val trades = performance.trades
         val phase  = getPhaseLabel()
         val dynCnt = DynamicAltTokenRegistry.getTokenCount()
         val open   = CryptoAltTrader.getAllPositions().count { it.closeTime == null }
@@ -912,7 +924,8 @@ class CryptoAltActivity : AppCompatActivity() {
             gravity = Gravity.BOTTOM
         }
         // V5.9.5: Show USD as main balance (same as main AATE), SOL in badge
-        val balUsdStr = if (solUsd >= 1.0) "$${"%,.0f".format(bal * solUsd)}" else "◎ ${"%.4f".format(bal)}"
+        val accountReady = isLive || unified?.status == com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED
+        val balUsdStr = if (!accountReady) "ACCOUNT UNAVAILABLE" else if (solUsd >= 1.0) "$${"%,.0f".format(bal * solUsd)}" else "◎ ${"%.4f".format(bal)}"
         tvHeroBalance = tv(balUsdStr, 28f, white, bold = true).apply {
             layoutParams = llp(0, wrap, 1f)
         }
@@ -950,7 +963,7 @@ class CryptoAltActivity : AppCompatActivity() {
         val winPct = wr.toInt()
         val pnlColor = if (pnl >= 0) green else red
         tvHeroPnl = tv(
-            "${if (pnlUsd >= 0) "" else ""}${"$"}${"%.2f".format(pnlUsd)}  ${if (pnlPct >= 0) "+" else ""}${"%.1f".format(pnlPct)}%  •  ${winPct}% wins",
+            if (performance.realizedPnlSol == null) "ACCOUNT UNAVAILABLE · ${winPct}% CRYPTO wins" else "${if (pnlUsd >= 0) "" else ""}${"$"}${"%.2f".format(pnlUsd)}  ${if (pnlPct >= 0) "+" else ""}${"%.1f".format(pnlPct)}%  •  ${winPct}% CRYPTO wins",
             12f, pnlColor, mono = true
         ).apply { setPadding(20, 4, 20, 8) }
         tvHeroWinRate = TextView(this)  // unused — data merged into pnl row
@@ -1009,27 +1022,29 @@ class CryptoAltActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private fun buildReadinessTile() {
-        val trades   = FluidLearningAI.getMarketsTradeCount()
-        val mTrades  = FluidLearningAI.getMarketsTradeCount()
-        val boost    = FluidLearningAI.getBootstrapConfidenceBoost()
-        val sizeMult = FluidLearningAI.getBootstrapSizeMultiplier()
+        val brain    = com.lifecyclebot.perps.crypto.brain.CryptoBrain
+        val trades   = brain.tradeCount()
+        val wr       = brain.winRate()
+        val spotFloor = brain.getSpotScoreFloor()
+        val levFloor = brain.getLevScoreFloor()
         val phase    = getPhaseLabel()
         val tile     = buildTile(phaseColor(phase), "🚦 Live Readiness", phase, phaseColor(phase)) { showReadinessDetailDialog() }
-        tile.addView(progressBar(phaseColor(phase), (FluidLearningAI.getMarketsLearningProgress() * 100).toInt()))
+        tile.addView(progressBar(phaseColor(phase), brain.progressPct()))
         val row = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
-        addStatChip(row, "V3 Trades",  "$trades",    white,  1f)
-        addStatChip(row, "Mkts Trades","$mTrades",   teal,   1f)
-        addStatChip(row, "Conf Boost", "+${(boost*100).toInt()}%", purple, 1f)
-        addStatChip(row, "Size Mult",  "${"%.2f".format(sizeMult)}x", amber, 1f)
+        addStatChip(row, "Crypto Trades", "$trades", white, 1f)
+        addStatChip(row, "Crypto WR", "${"%.1f".format(wr)}%", teal, 1f)
+        addStatChip(row, "Spot Floor", "$spotFloor", purple, 1f)
+        addStatChip(row, "Lev Floor", "$levFloor", amber, 1f)
         tile.addView(row); llContent.addView(tile)
     }
 
     private fun buildProofRunTile() {
         val isActive  = RunTracker30D.isRunActive()
         val day       = if (isActive) RunTracker30D.getCurrentDay() else 0
-        val total     = RunTracker30D.totalTrades
-        val wr        = if (total > 0) RunTracker30D.wins.toDouble() / total * 100 else 0.0
-        val pnl       = RunTracker30D.totalRealizedPnlSol
+        val lane      = RunTracker30D.getLaneStats("CRYPTO_ALT")
+        val total     = (lane["trades"] as? Int) ?: 0
+        val wr        = (lane["winRate"] as? Double) ?: 0.0
+        val pnl       = (lane["pnlSol"] as? Double) ?: 0.0
         val integrity = if (isActive) RunTracker30D.integrityScore() else 0
         val tile      = buildTile(teal, "📈 30-Day Proof Run", if (isActive) "Day $day / 30" else "NOT STARTED", if (isActive) teal else muted) { showProofRunDetailDialog() }
         val row = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
@@ -1408,8 +1423,9 @@ class CryptoAltActivity : AppCompatActivity() {
                 append("10x Lifetime: ${MoonshotTraderAI.getLifetimeTenX()}")
             }) })
 
-        val flTrades = FluidLearningAI.getMarketsTradeCount()
-        val flPct    = (FluidLearningAI.getMarketsLearningProgress() * 100).toInt()
+        val cryptoBrain = com.lifecyclebot.perps.crypto.brain.CryptoBrain
+        val flTrades = cryptoBrain.tradeCount()
+        val flPct    = cryptoBrain.progressPct()
         row1.addView(buildIconTile("🧠", "Learn",
             "$flTrades | $flPct%",
             if (flPct >= 80) green else if (flPct >= 40) blue else muted
@@ -1418,8 +1434,8 @@ class CryptoAltActivity : AppCompatActivity() {
                 append("Learning Phase: ${getPhaseLabel()}\n")
                 append("Progress: $flPct%\n")
                 append("Total Trades: $flTrades\n")
-                append("Confidence Boost: +${"%.1f".format(FluidLearningAI.getBootstrapConfidenceBoost())}\n")
-                append("Size Multiplier: ${"%.2f".format(FluidLearningAI.getBootstrapSizeMultiplier())}x")
+                append("Data Book: CRYPTO (isolated)\n")
+                append("Spot / Lev Floors: ${cryptoBrain.getSpotScoreFloor()} / ${cryptoBrain.getLevScoreFloor()}")
             }) })
 
         grid.addView(row1)
@@ -3590,26 +3606,25 @@ class CryptoAltActivity : AppCompatActivity() {
         addInfoRow("Total Trades", "${CryptoAltTrader.getTotalTrades()}")
         addInfoRow("Phase",        getPhaseLabel())
 
-        // ── Fluid Learning (shared across all layers) ──────────────────────────
-        addSectionHeader("🧠 Fluid Learning — All Layers", blue)
-        val flProgress = (FluidLearningAI.getMarketsLearningProgress() * 100).toInt()
-        val mkProgress = try { (FluidLearningAI.getMarketsLearningProgress() * 100).toInt() } catch (_: Exception) { 0 }
-        val flThresh   = try { FluidLearningAI.getMarketsSpotScoreThreshold() } catch (_: Exception) { 50 }
-        addInfoRow("V3 Trades",      "${FluidLearningAI.getMarketsTradeCount()}")
-        addInfoRow("Markets Trades", "${FluidLearningAI.getMarketsTradeCount()}")
-        addInfoRow("V3 Progress",    "${flProgress}%")
-        addInfoRow("Markets Progress","${mkProgress}%")
-        addInfoRow("Conf Boost",     "+${(FluidLearningAI.getBootstrapConfidenceBoost() * 100).toInt()}%")
-        addInfoRow("Size Mult",      "${"%.2f".format(FluidLearningAI.getBootstrapSizeMultiplier())}×")
-        addInfoRow("Spot Score Thresh","${FluidLearningAI.getMarketsSpotScoreThreshold()}")
-        addInfoRow("Cross-Learn",    "ShitCoin + BlueChip + Express + Moonshot + Manip + AltTrader → FluidLearningAI")
+        // ── Crypto learning only. Market learning is a different book. ─────────
+        addSectionHeader("🧠 Crypto Learning", blue)
+        val cryptoBrain = com.lifecyclebot.perps.crypto.brain.CryptoBrain
+        val flProgress = cryptoBrain.progressPct()
+        addInfoRow("Crypto Trades",   "${cryptoBrain.tradeCount()}")
+        addInfoRow("Crypto Progress", "${flProgress}%")
+        addInfoRow("Crypto Win Rate", "${"%.1f".format(cryptoBrain.winRate())}%")
+        addInfoRow("Spot Score Thresh","${cryptoBrain.getSpotScoreFloor()}")
+        addInfoRow("Leverage Score Thresh","${cryptoBrain.getLevScoreFloor()}")
+        addInfoRow("Data Book",       "CRYPTO (isolated)")
 
         llContent.addView(progressBar(blue, flProgress).apply { layoutParams = llp(match, 8).apply { leftMargin = 16; rightMargin = 16; topMargin = 4; bottomMargin = 8 } })
 
         // ── 30-Day Run ─────────────────────────────────────────────────────────
         addSectionHeader("📈 30-Day Run Tracker", teal)
         addInfoRow("Day",          if (RunTracker30D.isRunActive()) "Day ${RunTracker30D.getCurrentDay()} / 30" else "Not started")
-        addInfoRow("Realized PnL", "${if (RunTracker30D.totalRealizedPnlSol >= 0) "+" else ""}${"%.4f".format(RunTracker30D.totalRealizedPnlSol)}◎")
+        val cryptoRun = RunTracker30D.getLaneStats("CRYPTO_ALT")
+        val cryptoRunPnl = (cryptoRun["pnlSol"] as? Double) ?: 0.0
+        addInfoRow("Realized PnL", "${if (cryptoRunPnl >= 0) "+" else ""}${"%.4f".format(cryptoRunPnl)}◎")
         addInfoRow("Max Drawdown", "${"%.1f".format(RunTracker30D.maxDrawdown)}%")
 
         // ── Shadow FDG ─────────────────────────────────────────────────────────
@@ -3913,10 +3928,9 @@ class CryptoAltActivity : AppCompatActivity() {
     private fun llp(w: Int, h: Int, weight: Float = 0f) = LinearLayout.LayoutParams(w, h, weight)
 
     private fun getPhaseLabel(): String {
-        // V5.9.217: phases now match FluidLearningAI constants
-        // BOOTSTRAP 0-1000 | LEARNING 1000-3000 | VALIDATING 3000-5000 | MATURITY 5000+ | READY = WR>=55%
-        val trades = FluidLearningAI.getMarketsTradeCount()
-        val wr     = CryptoAltTrader.getWinRate()
+        val brain = com.lifecyclebot.perps.crypto.brain.CryptoBrain
+        val trades = brain.tradeCount()
+        val wr     = brain.winRate()
         return when {
             trades == 0    -> "INIT — tap ▶ Run"
             trades < 50    -> "SEEDING ($trades/50)"
@@ -3943,13 +3957,11 @@ class CryptoAltActivity : AppCompatActivity() {
     private fun showReadinessDetailDialog() {
         try {
             val phase      = getPhaseLabel()
-            val wr         = CryptoAltTrader.getWinRate()
-            val trades     = CryptoAltTrader.getTotalTrades()
-            val flProgress = (FluidLearningAI.getMarketsLearningProgress() * 100).toInt()
-            val flTrades   = FluidLearningAI.getMarketsTradeCount()
-            val confBoost  = FluidLearningAI.getBootstrapConfidenceBoost()
-            val sizeMult   = FluidLearningAI.getBootstrapSizeMultiplier()
-            val threshold  = FluidLearningAI.getMarketsSpotScoreThreshold()
+            val brain      = com.lifecyclebot.perps.crypto.brain.CryptoBrain
+            val wr         = brain.winRate()
+            val trades     = brain.tradeCount()
+            val flProgress = brain.progressPct()
+            val threshold  = brain.getSpotScoreFloor()
             val msg = buildString {
                 appendLine("🚦 LIVE READINESS — ALT TRADER")
                 appendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -3961,9 +3973,7 @@ class CryptoAltActivity : AppCompatActivity() {
                 appendLine("📚 FLUID LEARNING")
                 appendLine("━━━━━━━━━━━━━━━━━")
                 appendLine("Progress: $flProgress%")
-                appendLine("Markets Trades: $flTrades")
-                appendLine("Confidence Boost: +${"%.1f".format(confBoost * 100)}%")
-                appendLine("Size Multiplier: ${"%.2f".format(sizeMult)}x")
+                appendLine("Data Book: CRYPTO (isolated)")
                 appendLine("Score Threshold: $threshold")
                 appendLine()
                 appendLine("Requirements to go LIVE:")
@@ -3985,7 +3995,8 @@ class CryptoAltActivity : AppCompatActivity() {
         try {
             val isActive  = RunTracker30D.isRunActive()
             val day       = RunTracker30D.getCurrentDay()
-            val pnl       = RunTracker30D.totalRealizedPnlSol
+            val lane      = RunTracker30D.getLaneStats("CRYPTO_ALT")
+            val pnl       = (lane["pnlSol"] as? Double) ?: 0.0
             val maxDD     = RunTracker30D.maxDrawdown
             val integrity = RunTracker30D.integrityScore()
             val msg = buildString {

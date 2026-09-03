@@ -682,29 +682,12 @@ class MainActivity : AppCompatActivity() {
     )
     @Volatile private var cachedOpenPositionsModel6078: OpenPositionsModel6078 = OpenPositionsModel6078()
     private val mainModelRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
-    private data class JournalParityUiSnapshot6085(
-        val updatedAtMs: Long = 0L,
-        val rowCount: Int = 0,
-        val totalWins: Int = 0,
-        val totalLosses: Int = 0,
-        val scratchCount: Int = 0,
-        val winRate: Double = 0.0,
-        val totalPnlSol: Double = 0.0,
-        val avgWinPct: Double = 0.0,
-        val avgLossPct: Double = 0.0,
-    )
-    @Volatile private var cachedJournalParity6085: JournalParityUiSnapshot6085 = JournalParityUiSnapshot6085()
-
     // V5.0.6254 — rate-limit the OPEN count divergence diagnostic added in
     // V5.0.6252 to at most one iteration per minute. Original impl ran per
     // dashboard paint, iterating HostWalletTokenTracker.positions +
     // TokenLifecycleTracker.records (both O(n) over up to 38k mints) and
     // triggered an ANR storm.
     @Volatile private var lastOpenDivergenceCheckMs6254: Long = 0L
-    private val journalParityRefreshInFlight6085 = java.util.concurrent.atomic.AtomicBoolean(false)
-    private val JOURNAL_PARITY_REFRESH_MS_6085: Long = 1_000L
-
-
     // V5.9.1474 — hard global repaint gate. While the bot is running, the live
     // dashboard repaint is observability-only and must never exceed ~1Hz, no
     // matter how many code paths call updateUi(). Start/Stop truth + runtime bar
@@ -2759,154 +2742,6 @@ for legal compliance.
     // Non-blocking: the binders read whatever snapshot is currently cached (instant),
     // this recompute publishes the next frame in the background. Always coherent,
     // never half-sorted, never stalls the loop.
-    private fun refreshJournalParitySnapshot6085Async(state: UiState) {
-        val now = System.currentTimeMillis()
-        if (now - cachedJournalParity6085.updatedAtMs < JOURNAL_PARITY_REFRESH_MS_6085) return
-        if (!journalParityRefreshInFlight6085.compareAndSet(false, true)) return
-        val tokensSnapshot = try { state.tokens.values.toList() } catch (_: Throwable) { emptyList<com.lifecyclebot.data.TokenState>() }
-        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                // V5.0.6085 — EXACT JOURNAL HEADER PARITY HELPER.
-                // JournalActivity.refreshTrades() builds its header from:
-                // getAllValidTradesSnapshot(5000) / DB fallback + current TokenState.trades,
-                // then TradeJournal.getStatsFiltered(filtered). Dashboard must use this
-                // same lifecycle-row pipeline or the main UI and Journal will drift forever.
-                val rawTrades = run {
-                    val mem = com.lifecyclebot.engine.TradeHistoryStore.getAllValidTradesSnapshot(5_000)
-                    if (mem.isNotEmpty()) mem else com.lifecyclebot.engine.TradeHistoryStore.getAllTradesFromDb()
-                }
-                val seenKeys = rawTrades.map { t -> jfKey6085(t.ts, t.mint, t.side) }.toHashSet()
-                val tokenTrades = mutableListOf<com.lifecyclebot.data.Trade>()
-                tokensSnapshot.forEach { ts ->
-                    ts.trades.forEach { t ->
-                        val k = jfKey6085(t.ts, t.mint, t.side)
-                        if (k !in seenKeys) {
-                            seenKeys.add(k)
-                            tokenTrades.add(t)
-                        }
-                    }
-                }
-                val symbolByMint = tokensSnapshot.associate { it.mint to it.symbol }
-                val entries = (rawTrades + tokenTrades)
-                    .filter { com.lifecyclebot.engine.TradeHistoryStore.isValidAccountingTrade(it) }
-                    .sortedByDescending { it.ts }
-                    .map { t -> journalEntryForDashboard6085(t, symbolByMint[t.mint] ?: t.mint.take(8)) }
-                val stats = com.lifecyclebot.engine.TradeJournal(applicationContext).getStatsFiltered(entries)
-                val fresh = JournalParityUiSnapshot6085(
-                    updatedAtMs = System.currentTimeMillis(),
-                    rowCount = entries.size,
-                    totalWins = stats.totalWins,
-                    totalLosses = stats.totalLosses,
-                    scratchCount = stats.scratchCount,
-                    winRate = stats.winRate,
-                    totalPnlSol = stats.totalPnlSol,
-                    avgWinPct = stats.avgWinPct,
-                    avgLossPct = stats.avgLossPct,
-                )
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    cachedJournalParity6085 = fresh
-                }
-            } catch (e: Throwable) {
-                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_JOURNAL_PARITY_REFRESH_FAIL_6085", "${e.javaClass.simpleName}:${e.message}") } catch (_: Throwable) {}
-            } finally {
-                journalParityRefreshInFlight6085.set(false)
-            }
-        }
-    }
-
-    private fun jfKey6085(ts: Long, mint: String, side: String): String = "${ts}_${mint}_${side}"
-
-    private fun journalParityStatsSnapshot6085(): com.lifecyclebot.engine.TradeHistoryStore.StatsSnapshot? {
-        val j = cachedJournalParity6085
-        // V5.0.6256 — NEVER RETURN NULL. Operator directive: "the whole ui
-        // repaint thing is bullshit. I want the real data displayed all the
-        // time. no excuses." Prior impl returned null when parity data
-        // hadn't yet published (first paint after cold boot, first 500ms
-        // after any config toggle), forcing every caller to hit its
-        // '?: getStatsCached()' fallback — which is the CLEAN
-        // StrategyTruthLedger source (24% WR, 1295 trades) — causing the
-        // dashboard to flip between raw (44.6%) and clean (24%) between
-        // paints. Fix: even when parity isn't ready, synthesise a snapshot
-        // from getLifetimeStats() (raw lifetime persisted counters). Every
-        // paint from t=0 sees raw truth. The '?: getStatsCached()' literal
-        // remains in caller code for Golden Tape V5.0.6086 but is now dead
-        // code because this function never returns null.
-        val life = try { com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats() } catch (_: Throwable) { null }
-        val paritySeeded = j.updatedAtMs > 0L
-        // V5.0.6508a — OPERATOR MANDATE: "the journal must supply the
-        // information to the UI." Main-UI and journal previously diverged
-        // (Main showed 230 trades / 37 % WR while the journal itself
-        // reported 387 trades / 30 % WR) because Main preferred the
-        // TradeHistoryStore `getLifetimeStats()` aggregate while the
-        // journal read `TradeJournal.rowCount` directly. Now we prefer
-        // the journal-derived counts when the journal is seeded — Main
-        // and journal see the same rows and same WR from the same source.
-        // The lifetime aggregate remains a fallback for the pre-seed
-        // paint window.
-        val truthWr        = if (paritySeeded) j.winRate     else (life?.winRate        ?: 0.0)
-        val truthWins      = if (paritySeeded) j.totalWins   else (life?.totalWins      ?: 0)
-        val truthLosses    = if (paritySeeded) j.totalLosses else (life?.totalLosses    ?: 0)
-        val truthScratches = if (paritySeeded) j.scratchCount else (life?.totalScratches ?: 0)
-        val truthTrades    = if (paritySeeded) j.rowCount    else (life?.totalSells     ?: 0)
-        val truthPnl       = if (paritySeeded) j.totalPnlSol else (life?.realizedPnlSol  ?: 0.0)
-        if (!paritySeeded && truthTrades == 0) return null  // truly no data yet — let callers decide
-        return com.lifecyclebot.engine.TradeHistoryStore.StatsSnapshot(
-            trades24h = j.rowCount,
-            winRate24h = truthWr.toInt(),
-            pnl24hSol = j.totalPnlSol,
-            totalStoredTrades = truthTrades,
-            totalTrades = truthWins + truthLosses,
-            winRate = truthWr,
-            avgWinPct = j.avgWinPct,
-            avgLossPct = j.avgLossPct,
-            profitFactor = 0.0,
-            totalPnlSol = truthPnl,
-            avgHoldTimeMinutes = 0,
-            totalWins = truthWins,
-            totalLosses = truthLosses,
-            totalScratches = truthScratches,
-            wins24h = j.totalWins,
-            losses24h = j.totalLosses,
-            scratches24h = j.scratchCount,
-        )
-    }
-
-    private fun journalEntryForDashboard6085(t: com.lifecyclebot.data.Trade, symbol: String): com.lifecyclebot.engine.TradeJournal.JournalEntry {
-        val sellLike = t.side.equals("SELL", true) || t.side.equals("PARTIAL_SELL", true)
-        val entryPx = t.entryPriceSnapshot.takeIf { it > 0.0 } ?: if (!sellLike) t.price else 0.0
-        return com.lifecyclebot.engine.TradeJournal.JournalEntry(
-            ts = t.ts,
-            symbol = symbol,
-            mint = t.mint,
-            side = t.side,
-            entryPrice = entryPx,
-            exitPrice = if (sellLike) t.price else 0.0,
-            solAmount = t.sol,
-            pnlSol = t.pnlSol,
-            pnlPct = t.pnlPct,
-            reason = t.reason,
-            mode = t.mode,
-            score = t.score,
-            durationMins = 0.0,
-            phase = "",
-            tradingMode = t.tradingMode,
-            tradingModeEmoji = t.tradingModeEmoji,
-            feeSol = t.feeSol,
-            netPnlSol = t.netPnlSol,
-            proofState = t.proofState,
-            positionId = t.positionId,
-            entryTsMs = t.entryTsMs,
-            entryMcapUsd = t.entryMcapUsd,
-            entryQtyToken = t.entryQtyToken,
-            entryCostSol = t.entryCostSol,
-            entryDecimals = t.entryDecimals,
-            soldQtyToken = t.soldQtyToken,
-            remainingQtyToken = t.remainingQtyToken,
-            entryPriceSource = t.entryPriceSource,
-            entryPoolAddress = t.entryPoolAddress,
-        )
-    }
-
     private fun precomputeMainRenderModelAsync(state: UiState) {
         if (!mainModelRefreshInFlight.compareAndSet(false, true)) return
         // Snapshot token refs NOW on the calling thread (cheap shallow copy) so the
@@ -3117,7 +2952,6 @@ for legal compliance.
         // binders below consume the previously-published immutable model. This is
         // the single point that feeds renderWatchlist + renderOpenPositions.
         precomputeMainRenderModelAsync(state)
-        refreshJournalParitySnapshot6085Async(state)
 
         // V5.9.1416 — reset the per-tick heavy-render budget at the start of each
         // pass. Caps synchronous panel re-inflation per frame; overflow defers.
@@ -3300,60 +3134,24 @@ for legal compliance.
         // explicitly paper-start/lifetime-journal based in paper mode; never derive
         // it from current cash, because cash excludes open deployed capital and may
         // be a different wallet epoch than the lifetime journal.
-        val journalStats = try {
-            // V5.0.6085 — use the same cached JournalActivity parity snapshot as the
-            // stats tiles. Fallback only exists for the first second before the async
-            // Journal-equivalent refresh publishes.
-            journalParityStatsSnapshot6085() ?: com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
-        } catch (_: Throwable) { null }
-        val realizedPnlSol = journalStats?.totalPnlSol ?: ws.totalPnlSol
-        // V5.0.6252 — GROWTH MATH COHERENCE. Operator flagged +A$18,763 gain
-        // shown against A$876 balance ("very sus"). Root cause: realizedPnlSol
-        // is lifetime realized journal PnL (~194 SOL) while balSol is current
-        // free paper cash (~5-10 SOL) — the realized PnL was mostly redeployed
-        // into open positions, so the two numbers don't reconcile visually
-        // even though both are individually correct. Display the balance-delta
-        // (current - start) so the +A$ gain always agrees with what the operator
-        // sees in the wallet. Lifetime realized PnL is still available via the
-        // Journal tab; the header now shows a single coherent story.
-        val paperReturnBasisSol = config.paperSimulatedBalance.takeIf { it.isFinite() && it > 0.001 }
-        val startCapitalSol = if (config.paperMode) paperReturnBasisSol ?: 0.0 else (balSol - realizedPnlSol)
-        // V5.0.6256 — LIVE MODE PnL SANITY. Prior impl showed
-        // 'pnl = realizedPnlSol' in live mode — but realizedPnlSol is
-        // TradeHistoryStore.lifetime SOL which sums both paper AND live
-        // trades in one counter. Operator screenshot showed +A$21,987.28
-        // and +62457.2% against a live balance of A$29.77 because the
-        // journal was 193 SOL of mostly-paper realized PnL. Fix at source:
-        // in live mode, cap pnl to |balSol × 5| so we can never show a
-        // gain 5× larger than the current live wallet. If realized
-        // journal PnL is bigger than that, treat it as paper contamination
-        // and clamp — the operator sees a coherent 'live wallet delta'
-        // instead of a paper-fantasy number. Paper mode already uses
-        // (balSol - startCapitalSol) via V5.0.6252, unaffected.
-        val liveSanityCap6256 = kotlin.math.abs(balSol) * 5.0
-        val rawPnl = realizedPnlSol
-        val pnl = when {
-            config.paperMode && startCapitalSol > 0.0001 -> (balSol - startCapitalSol)
-            !config.paperMode && kotlin.math.abs(rawPnl) > liveSanityCap6256 -> rawPnl.coerceIn(-liveSanityCap6256, liveSanityCap6256)
-            else -> rawPnl
-        }
-        val pnlPct = if (startCapitalSol > 0.0001) (pnl / startCapitalSol) * 100.0 else ws.totalPnlPct
-        if ((journalStats?.totalTrades ?: 0) > 0) {
-            tvPnlChange.setTextIfChanged(currency.format(pnl, showPlus = true))
-            tvPnlChange.setTextColor(if (pnl >= 0) green else red)
-            // V5.9.810 — journal is source of truth for win%. V5.9.1248 — same
-            // source now drives the $ and % too. One source, one number, everywhere.
-            val journalWinRate = journalStats?.winRate?.toInt() ?: ws.winRate
-            val pnlLabel = if (config.paperMode) {
-                if (startCapitalSol > 0.0001) "%+.0f%% start".format(pnlPct) else "journal"
-            } else "%+.1f%%".format(pnlPct)
-            tvPnlChangePct.setTextIfChanged("$pnlLabel · $journalWinRate% WR")
-            tvPnlChangePct.contentDescription = if (config.paperMode) {
-                "Lifetime journal return ${"%+.1f".format(pnlPct)} percent versus start. $journalWinRate percent wins."
-            } else "$pnlLabel. $journalWinRate percent wins."
+        val portfolioPerformance = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+            com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.PORTFOLIO,
+            if (config.paperMode) "paper" else "live",
+        )
+        val authoritativePnl = if (config.paperMode && paperAccountingSafe6640) {
+            unifiedSnap6635?.realizedPnlSol
+        } else if (!config.paperMode) {
+            portfolioPerformance.realizedPnlSol
+        } else null
+        if (portfolioPerformance.trades > 0 && authoritativePnl != null) {
+            tvPnlChange.setTextIfChanged(currency.format(authoritativePnl, showPlus = true))
+            tvPnlChange.setTextColor(if (authoritativePnl >= 0) green else red)
+            tvPnlChangePct.setTextIfChanged("ACCOUNT REALIZED · ${portfolioPerformance.winRate.toInt()}% PORTFOLIO WR")
+            tvPnlChangePct.contentDescription =
+                "Reconciled account realized P and L. Portfolio win rate ${portfolioPerformance.winRate.toInt()} percent."
         } else {
-            tvPnlChange.setTextIfChanged("")
-            tvPnlChangePct.setTextIfChanged("")
+            tvPnlChange.setTextIfChanged(if (config.paperMode && !paperAccountingSafe6640) "ACCOUNT UNAVAILABLE" else "")
+            tvPnlChangePct.setTextIfChanged(if (config.paperMode && !paperAccountingSafe6640) "RECONCILIATION FAILED" else "")
         }
 
         // ═══════════════════════════════════════════════════════════════════
@@ -3459,9 +3257,11 @@ for legal compliance.
                 // Run; V5.9.462 then aligned ladder pill to the same source so both
                 // halves agreed. Now V5.9.809 mandate "journal is source of truth"
                 // wins — the Journal source is TradeHistoryStore.getStatsCached().)
-                val stats = journalParityStatsSnapshot6085() ?: com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
-                val trades = stats.totalStoredTrades
-                val meaningful = stats.totalWins + stats.totalLosses
+                val stats = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+                    com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME,
+                )
+                val trades = stats.trades
+                val meaningful = stats.decisive
                 val actual = stats.winRate
                 val target = com.lifecyclebot.engine.QualityLadder.targetWrForTrades(trades)
                 val tier = com.lifecyclebot.engine.QualityLadder.tier()
@@ -3874,7 +3674,11 @@ for legal compliance.
             // report card, so it must mirror the Journal header byte-for-byte. Keep
             // StrategyTruthLedger-clean stats for reports/diagnostics; do not mux them
             // into the dashboard headline and make the app look like two bots.
-            val persistedStats = journalParityStatsSnapshot6085() ?: com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
+            val portfolioMode = if (getSharedPreferences("bot_config", MODE_PRIVATE).getBoolean("paper_mode", true)) "paper" else "live"
+            val portfolioStats = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+                com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.PORTFOLIO,
+                portfolioMode,
+            )
             // V5.9.355 — Pull meme WR + W/L/S from RunTracker30D so the hero
             // tile matches the 30-Day Proof card byte-for-byte. User report:
             // "the meme coin 30 day is at 26% the livereadiness is drawing
@@ -3882,13 +3686,6 @@ for legal compliance.
             // TradeHistoryStore and RunTracker30D were painting 20% vs 26%
             // on the same meme data. RunTracker30D is the proof-run source
             // of truth so we align everything to it.
-            val tracker30d    = com.lifecyclebot.engine.RunTracker30D
-            val memeWinsRT    = tracker30d.wins
-            val memeLossesRT  = tracker30d.losses
-            val memeScratchRT = tracker30d.scratches
-            val memeDecisive  = memeWinsRT + memeLossesRT
-            val memeWrRT      = if (memeDecisive > 0) (memeWinsRT * 100.0) / memeDecisive else 0.0
-
             // 24H trades from persisted journal
             // V5.9.386 — On MEME tab, match the 30-Day Proof Run card byte-for-byte:
             // use RunTracker30D.totalTrades (same field the card shows) so the
@@ -3900,8 +3697,7 @@ for legal compliance.
             // for drill-down on the per-lane Live Readiness tiles BELOW.
             // The top-bar is now the cross-lane journal total — same numbers
             // shown when you open the Trade Journal screen.
-            val trades24h = persistedStats.trades24h
-            val topBarTradeCount = persistedStats.totalStoredTrades
+            val topBarTradeCount = portfolioStats.trades
             // V5.0.6068 — UI STICKINESS: prevent tiles from flashing "0" during
             // initial load or transient store misses (operator P0: "all blank",
             // "main ui isnt locking the data display"). Only display the count
@@ -3936,13 +3732,12 @@ for legal compliance.
             // Journal reads) and show it as the headline regardless of tab.
             // Per-lane Live Readiness tiles below still display their own
             // lane-specific WR for drill-down (those are correct in context).
-            val journalWr = persistedStats.winRate.toInt()
-            val winRate = if (persistedStats.totalTrades >= 1) journalWr else 0
+            val winRate = if (portfolioStats.trades >= 1) portfolioStats.winRate.toInt() else 0
 
             // V5.0.6068 — UI STICKINESS: don't overwrite an already-displayed
             // WR with "0%" when the store transiently returns 0 trades. Keep
             // the last shown value until we have a real read.
-            if (persistedStats.totalTrades >= 1) {
+            if (portfolioStats.trades >= 1) {
                 tvStatsWinRate.setTextIfChanged("$winRate%")
             } else {
                 val cur = tvStatsWinRate.text?.toString()?.trim() ?: ""
@@ -3976,9 +3771,9 @@ for legal compliance.
                     // cross-lane truth, not per-lane RunTracker30D. Headline,
                     // WR, and subline now all agree byte-for-byte with the
                     // Trade Journal screen.
-                    val w = persistedStats.totalWins
-                    val l = persistedStats.totalLosses
-                    val s = persistedStats.totalScratches
+                    val w = portfolioStats.wins
+                    val l = portfolioStats.losses
+                    val s = portfolioStats.scratches
                     val totalNonScratch = w + l
                     val rawWr = if (totalNonScratch > 0) w * 100.0 / totalNonScratch else 0.0
                     val totalAll = w + l + s
@@ -4043,8 +3838,8 @@ for legal compliance.
                     // so scratches don't dilute the signal — scratches contribute
                     // ~0 to EV anyway since they're by definition flat.
                     if (totalNonScratch >= 5) {
-                        val aw = persistedStats.avgWinPct
-                        val al = persistedStats.avgLossPct  // already negative
+                        val aw = portfolioStats.avgWinPct
+                        val al = portfolioStats.avgLossPct  // already negative
                         val pWin = rawWr / 100.0
                         val pLoss = 1.0 - pWin
                         val evPct = pWin * aw + pLoss * al
@@ -4190,12 +3985,14 @@ for legal compliance.
 
         // ── Brain Learning Indicator ─────────────────────────────────
         try {
-            // V5.0.6086 — dashboard/global learning progress must follow the
-            // same JournalActivity lifecycle-row parity source as the visible
-            // trade/WR tiles, not WalletState's stale in-memory counters.
-            val jp6086 = journalParityStatsSnapshot6085()
-            val totalTrades = jp6086?.totalStoredTrades ?: ws.totalTrades
-            val winRate = (jp6086?.winRate ?: ws.winRate.toDouble()).toInt()
+            // Main is the MEME desk. Its learning phase must never ingest
+            // Crypto/Markets/Perps outcomes from a global journal projection.
+            val memeLearning6649 = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+                com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME,
+                if (state.config.paperMode) "paper" else "live",
+            )
+            val totalTrades = memeLearning6649.trades
+            val winRate = memeLearning6649.winRate.toInt()
             val learningProgress = com.lifecyclebot.engine.FinalDecisionGate.getLearningProgress(totalTrades, winRate.toDouble())
             val progressPct = (learningProgress * 100).toInt()
 
@@ -8065,16 +7862,11 @@ for legal compliance.
         val currentDay = tracker.getCurrentDay()
         tv30DayCounter.text = "Day $currentDay/30"
 
-        // Balance
-        tv30DayBalance.text = String.format("%.4f SOL", tracker.currentBalance)
-
-        // Return percentage
-        val returnPct = if (tracker.startBalance > 0) {
-            ((tracker.currentBalance - tracker.startBalance) / tracker.startBalance) * 100
-        } else 0.0
-        val returnSign = if (returnPct >= 0) "+" else ""
-        tv30DayReturn.text = "$returnSign${String.format("%.2f", returnPct)}%"
-        tv30DayReturn.setTextColor(if (returnPct >= 0) green else red)
+        val account = com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.read("MEME_30D")
+        tv30DayBalance.text = if (account.accountAvailable) String.format("%.4f SOL", account.cashSol) else "ACCOUNT UNAVAILABLE"
+        // A desk return cannot divide desk PnL by the shared account balance.
+        tv30DayReturn.text = "N/A"
+        tv30DayReturn.setTextColor(muted)
 
         // Max Drawdown
         tv30DayDrawdown.text = "N/A"
@@ -8085,16 +7877,20 @@ for legal compliance.
         // the same JournalActivity parity snapshot as the Journal header. Strategy-
         // clean/proof-run internals can remain diagnostic, but visible count/WR/PnL
         // must not contradict the Journal.
-        val journalStats = journalParityStatsSnapshot6085() ?: try { com.lifecyclebot.engine.TradeHistoryStore.getStatsCached() } catch (_: Throwable) { com.lifecyclebot.engine.TradeHistoryStore.getCleanStatsSnapshot4517() }
-        tv30DayTrades.text = journalStats.totalStoredTrades.toString()
+        val meme = tracker.getLaneStats("MEME")
+        val memeTrades = (meme["trades"] as? Int) ?: 0
+        val memeWins = (meme["wins"] as? Int) ?: 0
+        val memeLosses = (meme["losses"] as? Int) ?: 0
+        val memeScratches = (meme["scratches"] as? Int) ?: 0
+        tv30DayTrades.text = memeTrades.toString()
 
         // W/L/S
-        tv30DayWLS.text = "${journalStats.totalWins} / ${journalStats.totalLosses} / ${journalStats.totalScratches}"
+        tv30DayWLS.text = "$memeWins / $memeLosses / $memeScratches"
 
         // Win rate - exclude scratches from calculation
-        val meaningfulTrades = journalStats.totalWins + journalStats.totalLosses
+        val meaningfulTrades = memeWins + memeLosses
         val winRate = if (meaningfulTrades > 0) {
-            (journalStats.totalWins * 100 / meaningfulTrades)
+            (memeWins * 100 / meaningfulTrades)
         } else 0
         tv30DayWinRate.text = "$winRate%"
         tv30DayWinRate.setTextColor(when {
@@ -8104,13 +7900,12 @@ for legal compliance.
         })
 
         // Intelligence metrics
-        val metrics = tracker.metrics
-        val journalLearningPct = (journalStats.totalStoredTrades.toDouble() / 5_000.0).coerceIn(0.0, 1.0) * 100.0
+        val journalLearningPct = (memeTrades.toDouble() / 5_000.0).coerceIn(0.0, 1.0) * 100.0
         tv30DayLearning.text = String.format("%.1f", journalLearningPct) + "%"
-        tv30DayAccuracy.text = String.format("%.1f", metrics.decisionAccuracy) + "%"
+        tv30DayAccuracy.text = "$winRate%"
         tv30DayAccuracy.setTextColor(when {
-            metrics.decisionAccuracy >= 60 -> green
-            metrics.decisionAccuracy >= 45 -> amber
+            winRate >= 60 -> green
+            winRate >= 45 -> amber
             else -> red
         })
 
@@ -8127,24 +7922,21 @@ for legal compliance.
     /** V5.9.348: Alts "Lifetime" proof card (CryptoAltTrader has no 30-day window). */
     private fun render30DayAlts() {
         card30DayRun.visibility = View.VISIBLE
-        val stats = try { com.lifecyclebot.perps.CryptoAltTrader.getStats() } catch (_: Exception) { emptyMap<String, Any>() }
-        val totalTrades   = (stats["totalTrades"]    as? Int)    ?: 0
-        val wins          = (stats["winningTrades"]  as? Int)    ?: 0
-        val losses        = (stats["losingTrades"]   as? Int)    ?: 0
-        // V5.9.419 — show real scratches (default 0 if older getStats build).
-        val scratches     = (stats["scratchTrades"]  as? Int)
-            ?: (totalTrades - wins - losses).coerceAtLeast(0)
-        val paperBalance  = (stats["paperBalance"]   as? Double) ?: 0.0
-        val openPositions = (stats["openPositions"]  as? Int)    ?: 0
-        val phaseLabel    = (stats["learningPhase"]  as? String) ?: "BOOTSTRAP"
-        val initialBalance = try { com.lifecyclebot.perps.CryptoAltTrader.getInitialBalance() } catch (_: Exception) { paperBalance }
+        val stats = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+            com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.CRYPTO,
+        )
+        val totalTrades = stats.trades
+        val wins = stats.wins
+        val losses = stats.losses
+        val scratches = stats.scratches
+        val account = com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.read("CRYPTO_30D")
+        val openPositions = try { com.lifecyclebot.perps.CryptoAltTrader.getAllPositions().count { it.closeTime == null } } catch (_: Throwable) { 0 }
+        val phaseLabel = com.lifecyclebot.perps.crypto.brain.CryptoBrain.maturity().name
 
         tv30DayCounter.text = "CRYPTO · LIFETIME"
-        tv30DayBalance.text = String.format("%.4f SOL", paperBalance)
-        val returnPct = if (initialBalance > 0) ((paperBalance - initialBalance) / initialBalance) * 100 else 0.0
-        val sign = if (returnPct >= 0) "+" else ""
-        tv30DayReturn.text = "$sign${String.format("%.2f", returnPct)}%"
-        tv30DayReturn.setTextColor(if (returnPct >= 0) green else red)
+        tv30DayBalance.text = if (account.accountAvailable) String.format("%.4f SOL", account.cashSol) else "ACCOUNT UNAVAILABLE"
+        tv30DayReturn.text = "N/A"
+        tv30DayReturn.setTextColor(muted)
 
         tv30DayDrawdown.text = "N/A"
         tv30DayDrawdown.setTextColor(muted)
@@ -8394,8 +8186,12 @@ This cannot be undone!
             // issue is real but tiny (a few stock trades in 3000+); will
             // be addressed properly when 30-Day Proof Run itself is
             // asset-segregated (so the proof card shows MEME-only too).
-            val rt = com.lifecyclebot.engine.RunTracker30D
-            val stats = journalParityStatsSnapshot6085() ?: com.lifecyclebot.engine.TradeHistoryStore.getStatsCached() // V5.0.6086 Journal parity
+            // V5.0.6648: an all-market journal snapshot is not a meme metric.
+            // Unknown legacy rows remain UNCLASSIFIED; there is deliberately no
+            // global/portfolio fallback for a desk readiness decision.
+            val stats = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+                com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME,
+            )
             // V5.9.815 — operator screenshot 2026-05-18: Journal shows
             // 21% WR / 100W-355L / 455 decisive + 60 scratch = 515 sells,
             // but Live Readiness MEME card showed 349 trades / 19.1% WR
@@ -8413,11 +8209,12 @@ This cannot be undone!
             // live?" — that has to use the same lifetime data the Journal
             // reports, otherwise an operator sees one truth in the readiness
             // tile and a different truth in the Journal and can't reconcile.
-            val totalTrades = stats.totalTrades        // = TradeHistoryStore lifetimeCompleted (wins+losses), matches Journal
-            val meaningfulTrades = stats.totalTrades   // same definition; alias kept for readability below
-            val winRate = stats.winRate                // = lifetime WR, matches Journal byte-for-byte
-            val profitFactor = stats.profitFactor      // unchanged — recent-in-memory avg w / avg l
-            val totalPnlSol = stats.totalPnlSol        // = lifetimeRealizedPnlSol — matches Journal P&L
+            val totalTrades = stats.trades
+            val meaningfulTrades = stats.decisive
+            val winRate = stats.winRate
+            val profitFactor = stats.profitFactor
+            val accountingAvailable = stats.realizedPnlSol != null
+            val totalPnlSol = stats.realizedPnlSol ?: 0.0
 
             // V5.9.620 — Profitability gates re-baselined to the 5000-trade
             // maturity ladder (V5.9.616 / FDG.LearningPhase). Previously this
@@ -8431,7 +8228,7 @@ This cannot be undone!
             val TRADES_READY  = 5000     // matches FDG MATURE phase (V5.9.616 ladder)
             val TRADES_ALMOST = 3000     // matches FDG LEARNING→MATURE transition
 
-            val isProfitable   = totalPnlSol > 0.0
+            val isProfitable   = accountingAvailable && totalPnlSol > 0.0
             val wrOk           = winRate >= WR_READY
             val pfOk           = profitFactor >= PF_READY
             val tradesOk       = meaningfulTrades >= TRADES_READY
@@ -8514,7 +8311,8 @@ This cannot be undone!
                     if (meaningfulTrades < TRADES_READY)  needed.add("${TRADES_READY - meaningfulTrades} more trades")
                     if (winRate < WR_READY)               needed.add("${String.format("%.1f", WR_READY - winRate)}% more WR (need $WR_READY%)")
                     if (profitFactor < PF_READY)          needed.add("PF ${String.format("%.2f", profitFactor)} → need $PF_READY")
-                    if (!isProfitable)                    needed.add("positive total PnL")
+                    if (!accountingAvailable)             needed.add("ACCOUNT UNAVAILABLE")
+                    else if (!isProfitable)               needed.add("positive total PnL")
                     tvReadinessRecommendation.text = "ALMOST READY · Need: ${needed.joinToString(" · ")}"
                     tvReadinessRecommendation.setTextColor(amber)
                 }
@@ -8526,7 +8324,8 @@ This cannot be undone!
                     if (meaningfulTrades < TRADES_READY)  needed.add("${TRADES_READY - meaningfulTrades} more trades")
                     if (winRate < WR_READY)               needed.add("WR ${winRate.toInt()}% → need $WR_READY%")
                     if (profitFactor < PF_READY)          needed.add("PF ${String.format("%.2f", profitFactor)} → need $PF_READY")
-                    if (!isProfitable)                    needed.add("positive total PnL")
+                    if (!accountingAvailable)             needed.add("ACCOUNT UNAVAILABLE")
+                    else if (!isProfitable)               needed.add("positive total PnL")
                     tvReadinessRecommendation.text = "NOT READY · ${needed.joinToString(" · ")}"
                     tvReadinessRecommendation.setTextColor(red)
                 }
@@ -8535,15 +8334,19 @@ This cannot be undone!
 
     /** V5.9.348: Crypto Alts trader readiness — uses CryptoAltTrader.getStats(). */
     private fun renderAltsReadiness() {
-        val stats = try { com.lifecyclebot.perps.CryptoAltTrader.getStats() } catch (_: Exception) { emptyMap<String, Any>() }
-        val totalTrades    = (stats["totalTrades"] as? Int) ?: 0
-        val wins           = (stats["winningTrades"] as? Int) ?: 0
-        val losses         = (stats["losingTrades"] as? Int) ?: 0
-        val winRate        = (stats["winRate"] as? Double) ?: 0.0
-        val totalPnlSol    = (stats["totalPnlSol"] as? Double) ?: 0.0
-        val phase          = (stats["learningPhase"] as? String) ?: "BOOTSTRAP"
-        val layerPolicy    = (stats["layerPolicy"] as? String) ?: "41+ MEME+CRYPTO layers"
-        val sizePolicy     = (stats["sizePolicy"] as? String) ?: "MEME_PARITY sizing"
+        val traderMeta = try { com.lifecyclebot.perps.CryptoAltTrader.getStats() } catch (_: Exception) { emptyMap<String, Any>() }
+        val stats = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+            com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.CRYPTO,
+        )
+        val totalTrades    = stats.trades
+        val wins           = stats.wins
+        val losses         = stats.losses
+        val winRate        = stats.winRate
+        val accountingAvailable = stats.realizedPnlSol != null
+        val totalPnlSol    = stats.realizedPnlSol ?: 0.0
+        val phase          = (traderMeta["learningPhase"] as? String) ?: "BOOTSTRAP"
+        val layerPolicy    = (traderMeta["layerPolicy"] as? String) ?: "41+ MEME+CRYPTO layers"
+        val sizePolicy     = (traderMeta["sizePolicy"] as? String) ?: "MEME_PARITY sizing"
 
         // Alts readiness thresholds (mirrors CryptoAltTrader.isLiveReady)
         val WR_READY      = 52.0
@@ -8556,7 +8359,7 @@ This cannot be undone!
         // user saw 0/5000 forever even after 40 alt trades had fired).
         val gatingTrades = totalTrades
 
-        val isProfitable   = totalPnlSol > 0.0
+        val isProfitable   = accountingAvailable && totalPnlSol > 0.0
         val isReady        = gatingTrades >= TRADES_READY && winRate >= WR_READY && isProfitable
         val isAlmostReady  = gatingTrades >= TRADES_ALMOST && winRate >= WR_ALMOST
 
@@ -8608,7 +8411,8 @@ This cannot be undone!
                 val needed = mutableListOf<String>()
                 if (gatingTrades < TRADES_READY) needed.add("${TRADES_READY - gatingTrades} more trades")
                 if (winRate < WR_READY)              needed.add("WR ${winRate.toInt()}% → need ${WR_READY.toInt()}%")
-                if (!isProfitable)                   needed.add("positive PnL")
+                if (!accountingAvailable)            needed.add("ACCOUNT UNAVAILABLE")
+                else if (!isProfitable)              needed.add("positive PnL")
                 tvReadinessRecommendation.text = "ALMOST READY · Need: ${needed.joinToString(" · ")} · $layerPolicy"
                 tvReadinessRecommendation.setTextColor(amber)
             }
@@ -8619,7 +8423,8 @@ This cannot be undone!
                 val needed = mutableListOf<String>()
                 if (gatingTrades < TRADES_READY) needed.add("${TRADES_READY - gatingTrades} more trades")
                 if (winRate < WR_READY)              needed.add("WR ${winRate.toInt()}% → need ${WR_READY.toInt()}%")
-                if (!isProfitable)                   needed.add("positive PnL")
+                if (!accountingAvailable)            needed.add("ACCOUNT UNAVAILABLE")
+                else if (!isProfitable)              needed.add("positive PnL")
                 tvReadinessRecommendation.text = "LEARNING · ${needed.joinToString(" · ")} · $layerPolicy"
                 tvReadinessRecommendation.setTextColor(red)
             }
@@ -8710,19 +8515,14 @@ This cannot be undone!
             )
         } catch (_: Exception) {}
 
-        // V5.0.6086 — unified/main readiness uses the same JournalActivity parity
-        // source as the dashboard and Journal header. Bucket math remains useful for
-        // lane drill-down breakdowns, but the global readiness count/WR/PnL must not
-        // print a different universe from the Journal screen.
-        val jpReadiness6086 = journalParityStatsSnapshot6085()
-        val totalTrades = jpReadiness6086?.totalStoredTrades ?: buckets.sumOf { it.trades }
-        val totalWins   = jpReadiness6086?.totalWins ?: buckets.sumOf { it.wins }
-        val totalPnlSol = jpReadiness6086?.totalPnlSol ?: buckets.sumOf { it.pnlSol }
+        // Markets readiness explicitly combines only its child desks. It must
+        // not consume the global journal, MEME, or Crypto books.
+        val totalTrades = buckets.sumOf { it.trades }
+        val totalWins   = buckets.sumOf { it.wins }
+        val totalPnlSol = buckets.sumOf { it.pnlSol }
 
-        // Trade-weighted WR — fallback only when the Journal parity snapshot has not
-        // published yet (first second after Activity creation).
         val wrActive = buckets.filter { it.trades > 0 }
-        val unifiedWinRate = jpReadiness6086?.winRate ?: if (wrActive.isNotEmpty()) {
+        val unifiedWinRate = if (wrActive.isNotEmpty()) {
             val totalW = wrActive.sumOf { it.trades.toDouble() * it.winRate }
             val totalT = wrActive.sumOf { it.trades.toDouble() }
             if (totalT > 0) totalW / totalT else 0.0
@@ -8875,29 +8675,16 @@ This cannot be undone!
     /** V5.9.1425 — heavy journal aggregation, runs OFF the main thread. */
     private fun computeAndPostTradersSummary(tv: android.widget.TextView) {
         try {
-            // Meme
-            val memeStats = journalParityStatsSnapshot6085() ?: com.lifecyclebot.engine.TradeHistoryStore.getStatsCached() // V5.0.6086 Journal parity
-            val memeWins   = memeStats.totalWins
-            val memeLosses = memeStats.totalLosses
-            val memeTrades = memeWins + memeLosses
-            val memePnl    = memeStats.totalPnlSol
-            // Alts
-            val altsStats = try { com.lifecyclebot.perps.CryptoAltTrader.getStats() } catch (_: Exception) { emptyMap<String, Any>() }
-            val altsWins   = (altsStats["winningTrades"] as? Int) ?: 0
-            val altsLosses = (altsStats["losingTrades"] as? Int) ?: 0
-            val altsTrades = altsWins + altsLosses
-            val altsPnl    = (altsStats["totalPnlSol"] as? Double) ?: 0.0
-            // Perps
-            var perpsTrades = 0
-            var perpsWins   = 0
-            var perpsLosses = 0
-            var perpsPnl    = 0.0
-            try {
-                perpsTrades = com.lifecyclebot.perps.PerpsTraderAI.getLifetimeTrades()
-                perpsWins   = com.lifecyclebot.perps.PerpsTraderAI.getLifetimeWins()
-                perpsLosses = com.lifecyclebot.perps.PerpsTraderAI.getLifetimeLosses()
-                perpsPnl    = com.lifecyclebot.perps.PerpsTraderAI.getLifetimePnlSol()
-            } catch (_: Exception) { }
+            val books = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648
+            val mode = if (getSharedPreferences("bot_config", MODE_PRIVATE).getBoolean("paper_mode", true)) "paper" else "live"
+            val memeStats = books.snapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME, mode)
+            val altsStats = books.snapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.CRYPTO, mode)
+            val perpsStats = books.snapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.PERPS, mode)
+            val stockStats = books.snapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.STOCKS, mode)
+            val forexStats = books.snapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.FOREX, mode)
+            val metalStats = books.snapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.METALS, mode)
+            val commodityStats = books.snapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.COMMODITIES, mode)
+            val portfolio = books.snapshot(com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.PORTFOLIO, mode)
 
             // V5.9.1354 — CANONICAL TOTALS from the journal (single source of truth).
             // Was summing memeTrades+altsTrades+perpsTrades from THREE independent
@@ -8911,48 +8698,31 @@ This cannot be undone!
             // The Journal tab is what the operator uses to audit actual persisted rows;
             // this footer must not silently switch to StrategyTruth-clean rows and print
             // a different trade count / WR / PnL from the Journal screen above it.
-            val rawStats6084 = try { journalParityStatsSnapshot6085() ?: com.lifecyclebot.engine.TradeHistoryStore.getStatsCached() } catch (_: Throwable) { null }
-            val canon = try { com.lifecyclebot.engine.TradeHistoryStore.getCanonicalTotals() } catch (_: Throwable) { null }
-            val totalTrades = rawStats6084?.totalStoredTrades ?: canon?.trades ?: (memeTrades + altsTrades + perpsTrades)
-            val totalWins   = rawStats6084?.totalWins ?: canon?.wins   ?: (memeWins + altsWins + perpsWins)
-            val totalLoss   = rawStats6084?.totalLosses ?: canon?.losses ?: (memeLosses + altsLosses + perpsLosses)
+            val totalTrades = portfolio.trades
+            val totalWins   = portfolio.wins
+            val totalLoss   = portfolio.losses
             val totalDecisive = totalWins + totalLoss
-            val blendedWR = rawStats6084?.winRate ?: if (totalDecisive > 0) totalWins * 100.0 / totalDecisive else 0.0
-            val totalPnl  = rawStats6084?.totalPnlSol ?: canon?.pnlSol ?: (memePnl + altsPnl + perpsPnl)
+            val blendedWR = portfolio.winRate
+            val totalPnl  = portfolio.realizedPnlSol
 
             val wrLabel = if (totalDecisive > 0) "${blendedWR.toInt()}% WR" else "--% WR"
-            val pnlSign = if (totalPnl >= 0) "+" else ""
+            val pnlSign = if ((totalPnl ?: 0.0) >= 0) "+" else ""
             // V5.9.370 — per-asset breakdown line. Pulls from the V5.9.369
             // RunTracker30D.AssetBucket so MEME/ALT/PERP/STOCK/FOREX/METAL/COMMOD
             // each show their own clean WR and trade count.
             // V5.9.1354 — per-asset line from the SAME canonical journal breakdown
             // as the total above, so the breakdown always sums to the headline
             // count (was RunTracker30D buckets, a separate counter that drifts).
-            val perAssetLine = try {
-                if (rawStats6084 != null) {
-                    "journal raw parity"
-                } else {
-                    val bd = com.lifecyclebot.engine.TradeHistoryStore.getAssetBreakdown()
-                    fun fmt(label: String, key: String): String {
-                        val a = bd[key]
-                        val dec = (a?.wins ?: 0) + (a?.losses ?: 0)
-                        return if (dec == 0) "$label —" else "$label ${dec}t/${a!!.winRate.toInt()}%"
-                    }
-                    listOf(
-                        fmt("M",  "MEME"),
-                        fmt("A",  "ALT"),
-                        fmt("P",  "PERP"),
-                        fmt("S",  "STOCK"),
-                        fmt("FX", "FOREX"),
-                        fmt("MT", "METAL"),
-                        fmt("CD", "COMMODITY"),
-                    ).joinToString(" · ")
-                }
-            } catch (_: Exception) { "" }
+            fun fmt(label: String, s: com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Snapshot): String =
+                if (s.trades == 0) "$label —" else "$label ${s.trades}t/${s.winRate.toInt()}%"
+            val perAssetLine = listOf(
+                fmt("M", memeStats), fmt("C", altsStats), fmt("P", perpsStats),
+                fmt("S", stockStats), fmt("FX", forexStats), fmt("MT", metalStats), fmt("CD", commodityStats),
+            ).joinToString(" · ")
             val finalText = if (perAssetLine.isNotEmpty()) {
-                "ALL TRADERS · $totalTrades trades · $wrLabel · $pnlSign${String.format("%.4f", totalPnl)} SOL\n$perAssetLine"
+                "PORTFOLIO · $totalTrades trades · $wrLabel · ${if (totalPnl == null) "ACCOUNT UNAVAILABLE" else "$pnlSign${String.format("%.4f", totalPnl)} SOL"}\n$perAssetLine"
             } else {
-                "ALL TRADERS · $totalTrades trades · $wrLabel · $pnlSign${String.format("%.4f", totalPnl)} SOL"
+                "PORTFOLIO · $totalTrades trades · $wrLabel · ${if (totalPnl == null) "ACCOUNT UNAVAILABLE" else "$pnlSign${String.format("%.4f", totalPnl)} SOL"}"
             }
             val finalColor = when {
                 blendedWR >= 50.0 -> green
@@ -12690,11 +12460,13 @@ Quick trade or open detailed dialog?
     private fun showLearningStats() {
         // V5.9.230: Full Sentience + MetaCognition + Education + Symbolic dialog
         try {
-            val ws = vm.ui.value.walletState
-            // V5.0.6086 — dialog/global learning stats match the Journal/header source.
-            val jp6086 = journalParityStatsSnapshot6085()
-            val totalTrades = jp6086?.totalStoredTrades ?: ws.totalTrades
-            val winRate = (jp6086?.winRate ?: ws.winRate.toDouble()).toInt()
+            val paper = vm.ui.value.config.paperMode
+            val memeLearning6649 = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+                com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME,
+                if (paper) "paper" else "live",
+            )
+            val totalTrades = memeLearning6649.trades
+            val winRate = memeLearning6649.winRate.toInt()
             val learningProgress = com.lifecyclebot.engine.FinalDecisionGate.getLearningProgress(totalTrades, winRate.toDouble())
             val phase = com.lifecyclebot.engine.FinalDecisionGate.getLearningPhase(totalTrades)
 

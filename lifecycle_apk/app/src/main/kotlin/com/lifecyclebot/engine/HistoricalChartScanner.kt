@@ -2,11 +2,13 @@ package com.lifecyclebot.engine
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.lifecyclebot.network.SharedHttpClient
 import kotlinx.coroutines.*
+import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -32,6 +34,9 @@ object HistoricalChartScanner {
     private const val PREFS_NAME = "historical_scanner_v1"
     private const val BIRDEYE_BASE = "https://public-api.birdeye.so"
     private const val DEXSCREENER_BASE = "https://api.dexscreener.com"
+    private val httpClient = SharedHttpClient.builder()
+        .callTimeout(10, TimeUnit.SECONDS)
+        .build()
     
     private var ctx: Context? = null
     private var birdeyeApiKey: String = ""
@@ -275,7 +280,10 @@ object HistoricalChartScanner {
         try {
             // Use DexScreener boosted tokens (these are typically graduated)
             val url = "$DEXSCREENER_BASE/token-boosts/top/v1?chainIds=solana"
-            val response = URL(url).readText()
+            val response = httpClient.newCall(Request.Builder().url(url).build()).execute().use { r ->
+                if (!r.isSuccessful) return tokens
+                r.body?.string() ?: return tokens
+            }
             val json = JSONArray(response)
             
             val cutoffTime = System.currentTimeMillis() - (hoursBack * 60 * 60 * 1000L)
@@ -314,11 +322,14 @@ object HistoricalChartScanner {
         com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
         try {
             val url = "$BIRDEYE_BASE/defi/tokenlist?sort_by=v24hChangePercent&sort_type=desc&offset=0&limit=100"
-            val connection = URL(url).openConnection()
-            connection.setRequestProperty("X-API-KEY", birdeyeApiKey)
-            connection.setRequestProperty("x-chain", "solana")
-            
-            val response = connection.getInputStream().bufferedReader().readText()
+            val request = Request.Builder().url(url)
+                .header("X-API-KEY", birdeyeApiKey)
+                .header("x-chain", "solana")
+                .build()
+            val response = httpClient.newCall(request).execute().use { r ->
+                if (!r.isSuccessful) return tokens
+                r.body?.string() ?: return tokens
+            }
             val json = JSONObject(response)
             val data = json.optJSONObject("data")?.optJSONArray("tokens") ?: return tokens
             
@@ -364,7 +375,10 @@ object HistoricalChartScanner {
     private suspend fun fetchDexScreenerHistory(mint: String): JSONObject? {
         return try {
             val url = "$DEXSCREENER_BASE/latest/dex/tokens/$mint"
-            val response = URL(url).readText()
+            val response = httpClient.newCall(Request.Builder().url(url).build()).execute().use { r ->
+                if (!r.isSuccessful) return null
+                r.body?.string() ?: return null
+            }
             JSONObject(response)
         } catch (e: Exception) {
             null
@@ -384,11 +398,14 @@ object HistoricalChartScanner {
         return try {
             // OHLCV data
             val url = "$BIRDEYE_BASE/defi/ohlcv?address=$mint&type=15m&time_from=${System.currentTimeMillis()/1000 - 86400}&time_to=${System.currentTimeMillis()/1000}"
-            val connection = URL(url).openConnection()
-            connection.setRequestProperty("X-API-KEY", birdeyeApiKey)
-            connection.setRequestProperty("x-chain", "solana")
-            
-            val response = connection.getInputStream().bufferedReader().readText()
+            val request = Request.Builder().url(url)
+                .header("X-API-KEY", birdeyeApiKey)
+                .header("x-chain", "solana")
+                .build()
+            val response = httpClient.newCall(request).execute().use { r ->
+                if (!r.isSuccessful) return null
+                r.body?.string() ?: return null
+            }
             JSONObject(response)
         } catch (e: Exception) {
             null

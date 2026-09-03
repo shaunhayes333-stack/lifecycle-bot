@@ -2,15 +2,16 @@ package com.lifecyclebot.engine
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.lifecyclebot.network.SharedHttpClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import okhttp3.Request
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.random.Random
 
@@ -49,6 +50,9 @@ object DailyCorpusRefresher {
     // Boot delay so we don't hammer the network the same second the app cold-starts.
     private const val BOOT_DELAY_MS = 90_000L
     private const val REQUEST_TIMEOUT_MS = 15_000
+    private val httpClient = SharedHttpClient.builder()
+        .callTimeout(REQUEST_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
+        .build()
     private const val SLEEP_BETWEEN_QUERIES_MS = 400L
     private const val TARGET_ROWS = 200
     // Reuse the same search vocabulary as the python fetcher.
@@ -122,15 +126,13 @@ object DailyCorpusRefresher {
     }
 
     private fun fetchSearch(term: String): List<JSONObject> {
-        val url = URL("https://api.dexscreener.com/latest/dex/search?q=$term")
-        val conn = url.openConnection() as HttpURLConnection
-        try {
-            conn.connectTimeout = REQUEST_TIMEOUT_MS
-            conn.readTimeout = REQUEST_TIMEOUT_MS
-            conn.requestMethod = "GET"
-            conn.setRequestProperty("Accept", "application/json")
-            if (conn.responseCode != 200) return emptyList()
-            val body = conn.inputStream.bufferedReader().use { it.readText() }
+        val request = Request.Builder()
+            .url("https://api.dexscreener.com/latest/dex/search?q=$term")
+            .header("Accept", "application/json")
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return emptyList()
+            val body = response.body?.string() ?: return emptyList()
             val root = JSONObject(body)
             val arr = root.optJSONArray("pairs") ?: return emptyList()
             val out = ArrayList<JSONObject>(arr.length())
@@ -139,8 +141,6 @@ object DailyCorpusRefresher {
                 if (p.optString("chainId").equals("solana", ignoreCase = true)) out.add(p)
             }
             return out
-        } finally {
-            try { conn.disconnect() } catch (_: Throwable) {}
         }
     }
 

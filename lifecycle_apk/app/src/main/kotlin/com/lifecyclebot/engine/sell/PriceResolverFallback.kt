@@ -4,10 +4,11 @@ import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.HostWalletTokenTracker
 import com.lifecyclebot.network.DexscreenerApi
 import com.lifecyclebot.network.JupiterApi
+import com.lifecyclebot.network.SharedHttpClient
+import okhttp3.Request
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 
 /**
  * V5.9.495z48 — operator P0 (Message 472):
@@ -32,6 +33,9 @@ object PriceResolverFallback {
     /** Last successful price + ts, keyed by mint. Survives until process death. */
     private data class Cached(val priceUsd: Double, val source: String, val tsMs: Long)
     private val cache = ConcurrentHashMap<String, Cached>()
+    private val httpClient = SharedHttpClient.builder()
+        .callTimeout(4, TimeUnit.SECONDS)
+        .build()
 
     enum class Source { DEXSCREENER, GECKOTERMINAL, JUPITER, CACHED, ENTRY, UNKNOWN }
 
@@ -100,33 +104,31 @@ object PriceResolverFallback {
      * https://api.geckoterminal.com/api/v2/networks/solana/tokens/<mint>
      */
     private fun fetchGeckoTerminalPrice(mint: String): Double {
-        val url = URL("https://api.geckoterminal.com/api/v2/networks/solana/tokens/$mint")
-        val conn = (url.openConnection() as HttpURLConnection).apply {
-            connectTimeout = 4_000
-            readTimeout = 4_000
+        val request = Request.Builder()
+            .url("https://api.geckoterminal.com/api/v2/networks/solana/tokens/$mint")
             // V5.9.1567 — GECKO HEADER FIX. Plain `Accept: application/json`
             // was returning 4xx ~47% of the time. GeckoTerminal v2 requires
             // (or strongly prefers) the version-pinned Accept header and a
             // real User-Agent; many Android-default UAs get 403/406'd. Adding
             // both lifts the sell-side fallback price-resolver hit rate so
             // tick-time exits don't fall through to Jupiter probes.
-            setRequestProperty("Accept", "application/json;version=20230302")
-            setRequestProperty(
+            .header("Accept", "application/json;version=20230302")
+            .header(
                 "User-Agent",
                 "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
             )
-            setRequestProperty("Accept-Language", "en-US,en;q=0.9")
-        }
-        try {
-            if (conn.responseCode != 200) return 0.0
-            val body = conn.inputStream.bufferedReader().use { it.readText() }
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return 0.0
+            val body = response.body?.string() ?: return 0.0
             val root = JSONObject(body)
             val data = root.optJSONObject("data") ?: return 0.0
             val attrs = data.optJSONObject("attributes") ?: return 0.0
             // GeckoTerminal returns price_usd as a string.
             val priceStr = attrs.optString("price_usd", "")
             return priceStr.toDoubleOrNull() ?: 0.0
-        } finally { conn.disconnect() }
+        }
     }
 
     /**

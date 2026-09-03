@@ -36,9 +36,10 @@ object HeliusSender {
     // because our tip (>=0.0002 SOL) already satisfies it and dual-route lands best.
 
     private val httpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        SharedHttpClient.builder()
             .connectTimeout(4, TimeUnit.SECONDS)
             .readTimeout(8, TimeUnit.SECONDS)
+            .callTimeout(10, TimeUnit.SECONDS)
             .build()
     }
 

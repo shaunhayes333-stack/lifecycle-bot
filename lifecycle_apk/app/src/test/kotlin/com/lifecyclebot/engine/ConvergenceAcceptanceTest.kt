@@ -118,7 +118,7 @@ class ConvergenceAcceptanceTest {
         val purityInvAfter = parseCounter(statusAfter, "purityInv=")
         val shapedAfter = parseCounter(GrowthAlignedRewardShaper6439.statusLine(), "shaped=")
         assertTrue("purity subscriber must receive the canonical close", purityInvAfter > purityInvBefore)
-        assertTrue("GrowthRewardShaper must receive the same close through the eight-consumer fanout", shapedAfter > shapedBefore)
+        assertEquals("fail-closed reconciliation must prevent a reward mutation in an uninitialized test account", shapedBefore, shapedAfter)
     }
 
     private fun parseCounter(status: String, key: String): Long {

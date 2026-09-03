@@ -80,7 +80,7 @@ class Aate6627CausalAuthorityRepairCoverageTest {
         // captured in the V5.0.6626 dump by stamping only EXEC (no FDG)
         // via the recordDeskStage authority path.
         repeat(3) {
-            ToolkitSignalSheet.recordDeskStage("CORE", "EXEC", "aate6627-fdg0-exec3-$it")
+            ToolkitSignalSheet.recordDeskStage("CORE", "EXEC", "aate6627fdg0exec3$it:1")
         }
         val alarms = com.lifecyclebot.engine.truth.SpecialistCausalInvariants6627.scan6627()
         assertTrue("V5.0.6627 §2: EXEC without FDG must raise a corruption alarm",

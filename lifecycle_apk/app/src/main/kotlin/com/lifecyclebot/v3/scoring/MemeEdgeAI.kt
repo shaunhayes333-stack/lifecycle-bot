@@ -248,7 +248,10 @@ object MemeEdgeAI {
     }
 
     fun throughputStatus(): String = try {
-        val n = TradeHistoryStore.getTradeCount24h()
+        val n = TradeHistoryStore.getSells24h().count {
+            com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.classify(it) ==
+                com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME
+        }
         val target = 500
         val pct = (n.toDouble() / target.toDouble() * 100.0).toInt()
         when {

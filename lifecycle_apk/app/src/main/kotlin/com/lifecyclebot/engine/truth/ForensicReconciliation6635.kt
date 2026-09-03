@@ -61,6 +61,7 @@ object ForensicReconciliation6635 {
     private val lastOpenCostLedger = AtomicReference(0.0)
     private val lastOpenCostJournal = AtomicReference(0.0)
     private val lastOpenCostDelta = AtomicReference(0.0)
+    private val lastQuantityDeltaRaw = AtomicReference(java.math.BigInteger.ZERO)
     private val lastMissingJournal = AtomicLong(0L)
     private val lastMissingLedger = AtomicLong(0L)
     private val lastReconciledStatus = AtomicReference("UNKNOWN")
@@ -74,20 +75,31 @@ object ForensicReconciliation6635 {
     fun reconcile6635() {
         checks.incrementAndGet()
         val cashLedger = try { PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { Double.NaN }
-        val cashJournalRow = try { JournalEconomicAuthority6616.currentSnapshot() } catch (_: Throwable) { null }
-        val cashJournal = cashJournalRow?.cashSol ?: cashLedger
+        val replay6647 = try { JournalEconomicReplay6619.replay() } catch (_: Throwable) { null }
+        val cashJournal = replay6647?.cashSol ?: Double.NaN
         val realizedLedger = try { PaperCapitalAuthority6577.realizedPnlSol() } catch (_: Throwable) { 0.0 }
-        val realizedJournal = cashJournalRow?.realizedPnlSol ?: realizedLedger
+        val realizedJournal = replay6647?.realizedPnlSol ?: Double.NaN
         val openCostLedger = try { PaperCapitalAuthority6577.openCostBasisSol() } catch (_: Throwable) { 0.0 }
-        val openCostJournal = cashJournalRow?.openMarketValueSol ?: openCostLedger
+        val openCostJournal = replay6647?.openCostBasisSol ?: Double.NaN
 
         val cashDelta = kotlin.math.abs(cashJournal - cashLedger)
         val realizedDelta = kotlin.math.abs(realizedJournal - realizedLedger)
         val openCostDelta = kotlin.math.abs(openCostJournal - openCostLedger)
+        val journalRaw6647 = replay6647?.openRawQtyByPosition.orEmpty()
+        val canonicalRaw6647 = try {
+            CanonicalPositionAuthority6441.openPositions()
+                .filter { it.mode.equals("paper", true) }
+                .associate { it.positionId to it.remainingQtyRaw }
+        } catch (_: Throwable) { emptyMap() }
+        val quantityDeltaRaw6647 = (journalRaw6647.keys + canonicalRaw6647.keys).fold(java.math.BigInteger.ZERO) { acc, positionId ->
+            acc + ((journalRaw6647[positionId] ?: java.math.BigInteger.ZERO) -
+                (canonicalRaw6647[positionId] ?: java.math.BigInteger.ZERO)).abs()
+        }
 
         lastCashLedger.set(cashLedger); lastCashJournal.set(cashJournal); lastCashDelta.set(cashDelta)
         lastRealizedLedger.set(realizedLedger); lastRealizedJournal.set(realizedJournal); lastRealizedDelta.set(realizedDelta)
         lastOpenCostLedger.set(openCostLedger); lastOpenCostJournal.set(openCostJournal); lastOpenCostDelta.set(openCostDelta)
+        lastQuantityDeltaRaw.set(quantityDeltaRaw6647)
 
         if (cashDelta > DELTA_TOLERANCE_SOL) {
             failedChecks.incrementAndGet()
@@ -122,10 +134,21 @@ object ForensicReconciliation6635 {
                 )
             } catch (_: Throwable) {}
         }
+        if (quantityDeltaRaw6647 != java.math.BigInteger.ZERO) {
+            failedChecks.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("FORENSIC_QUANTITY_DELTA_6647")
+                ForensicLogger.lifecycle(
+                    "FORENSIC_QUANTITY_DELTA_6647",
+                    "absoluteRawDelta=$quantityDeltaRaw6647 journalPositions=${journalRaw6647.size} canonicalPositions=${canonicalRaw6647.size}",
+                )
+            } catch (_: Throwable) {}
+        }
 
-        val allZero = cashDelta <= DELTA_TOLERANCE_SOL &&
+        val allZero = replay6647?.reconciled == true && cashDelta.isFinite() && realizedDelta.isFinite() && openCostDelta.isFinite() &&
+            cashDelta <= DELTA_TOLERANCE_SOL &&
             realizedDelta <= DELTA_TOLERANCE_SOL &&
-            openCostDelta <= DELTA_TOLERANCE_SOL
+            openCostDelta <= DELTA_TOLERANCE_SOL && quantityDeltaRaw6647 == java.math.BigInteger.ZERO
         lastReconciledStatus.set(if (allZero) "RECONCILED" else "FAILED")
     }
 
@@ -141,6 +164,7 @@ object ForensicReconciliation6635 {
         val openCostLedger = lastOpenCostLedger.get()
         val openCostJournal = lastOpenCostJournal.get()
         val openCostDelta = lastOpenCostDelta.get()
+        val quantityDeltaRaw = lastQuantityDeltaRaw.get()
         val eventStatus = if (eventLine.contains("status=RECONCILED")) "RECONCILED" else "FAILED"
         val cashStatus = lastReconciledStatus.get()
         val overallStatus = if (eventStatus == "RECONCILED" && cashStatus == "RECONCILED") "RECONCILED" else "FAILED"
@@ -155,15 +179,34 @@ object ForensicReconciliation6635 {
             append("openCostLedger=${"%.6f".format(openCostLedger)} ")
             append("openCostJournal=${"%.6f".format(openCostJournal)} ")
             append("openCostDelta=${"%.6f".format(openCostDelta)} ")
+            append("quantityDeltaRaw=$quantityDeltaRaw ")
             append("| $eventLine ")
             append("status=$overallStatus")
         }
     }
 
+    data class Deltas6647(
+        val cashSol: Double,
+        val basisSol: Double,
+        val realizedSol: Double,
+        val quantityRaw: java.math.BigInteger,
+        val reconciled: Boolean,
+    )
+
+    fun deltas6647(): Deltas6647 = Deltas6647(
+        cashSol = lastCashDelta.get(),
+        basisSol = lastOpenCostDelta.get(),
+        realizedSol = lastRealizedDelta.get(),
+        quantityRaw = lastQuantityDeltaRaw.get(),
+        reconciled = lastReconciledStatus.get() == "RECONCILED" &&
+            (try { CanonicalEconomicEvent6635.forensicReconciliationLine6635().contains("status=RECONCILED") } catch (_: Throwable) { false }),
+    )
+
     internal fun resetForTest() {
         lastCashLedger.set(0.0); lastCashJournal.set(0.0); lastCashDelta.set(0.0)
         lastRealizedLedger.set(0.0); lastRealizedJournal.set(0.0); lastRealizedDelta.set(0.0)
         lastOpenCostLedger.set(0.0); lastOpenCostJournal.set(0.0); lastOpenCostDelta.set(0.0)
+        lastQuantityDeltaRaw.set(java.math.BigInteger.ZERO)
         checks.set(0L); failedChecks.set(0L)
         lastReconciledStatus.set("UNKNOWN")
     }

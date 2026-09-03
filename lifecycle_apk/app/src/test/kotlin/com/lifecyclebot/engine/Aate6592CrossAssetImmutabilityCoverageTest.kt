@@ -105,14 +105,19 @@ class Aate6592CrossAssetImmutabilityCoverageTest {
         val altSrc = java.io.File(
             "src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt"
         ).readText()
+        val contractSrc = java.io.File(
+            "src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt"
+        ).readText()
         assertTrue(
-            "V5.0.6592: CryptoAltTrader must class-attribute dispatch via markAdapterDispatchFor6551(CRYPTO_ALT, ...)",
-            altSrc.contains("markAdapterDispatchFor6551(") &&
-                altSrc.contains("AssetClass.CRYPTO_ALT")
+            "CryptoAltTrader must submit CRYPTO_ALT once to canonical authority",
+            altSrc.contains("CanonicalEntryAuthority6551.submit(") && altSrc.contains("AssetClass.CRYPTO_ALT")
         )
         assertTrue(
-            "V5.0.6592: CryptoAltTrader must class-attribute auth allow + intent",
-            altSrc.contains("markAuthAllowFor6551(") && altSrc.contains("markIntentCreatedFor6551(")
+            "Class-attributed auth/intent/dispatch belongs to the canonical authority, not CryptoAltTrader",
+            contractSrc.contains("markAuthAllowFor6551(candidate.assetClass") &&
+                contractSrc.contains("markIntentCreatedFor6551(candidate.assetClass") &&
+                contractSrc.contains("markAdapterDispatchFor6551(intentAssetClass6569(intent)") &&
+                !altSrc.contains("markAuthAllowFor6551(") && !altSrc.contains("markIntentCreatedFor6551(")
         )
     }
 

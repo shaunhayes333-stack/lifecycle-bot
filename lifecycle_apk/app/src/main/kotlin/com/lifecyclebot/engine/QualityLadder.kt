@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648
+
 /**
  * V5.9.716 — QUALITY LADDER (early-activation rebuild)
  *
@@ -35,7 +37,7 @@ object QualityLadder {
     fun tier(): Int = computeTier()
 
     fun targetWr(): Double = try {
-        FreeRangeMode.phaseTargetWr(TradeHistoryStore.getLifetimeStats().totalSells)
+        FreeRangeMode.phaseTargetWr(memeSnapshot6648().trades)
     } catch (_: Throwable) { 0.0 }
 
     /** Size multiplier 0.50–1.00. Never zeros a lane. */
@@ -45,8 +47,8 @@ object QualityLadder {
     }
 
     fun statusLine(): String = try {
-        val snap   = TradeHistoryStore.getLifetimeStats()
-        val trades = snap.totalSells
+        val snap   = memeSnapshot6648()
+        val trades = snap.trades
         val actual = snap.winRate
         val target = FreeRangeMode.phaseTargetWr(trades)
         val t      = computeTier()
@@ -96,8 +98,8 @@ object QualityLadder {
 
     private fun computeTier(): Int {
         return try {
-            val snap   = TradeHistoryStore.getLifetimeStats()
-            val trades = snap.totalSells
+            val snap   = memeSnapshot6648()
+            val trades = snap.trades
             val cap    = phaseCap(trades)
             if (cap == 0) return 0          // exploration — no tiers
             val target = FreeRangeMode.phaseTargetWr(trades)
@@ -108,4 +110,10 @@ object QualityLadder {
             0  // fail-open
         }
     }
+
+    private fun memeSnapshot6648(): DeskPerformanceAuthority6648.Snapshot =
+        DeskPerformanceAuthority6648.snapshot(
+            DeskPerformanceAuthority6648.Book.MEME,
+            if (RuntimeModeAuthority.isLive()) "live" else "paper",
+        )
 }

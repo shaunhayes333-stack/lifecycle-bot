@@ -1,10 +1,10 @@
 package com.lifecyclebot.network
 
 import com.lifecyclebot.engine.ErrorLogger
+import okhttp3.Request
 import org.json.JSONArray
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.TimeUnit
 
 /**
  * V5.9.483 — Dynamic Jito tip fetcher.
@@ -37,6 +37,9 @@ object JitoTipFetcher {
     @Volatile private var cachedTipLamports: Long = -1L
     @Volatile private var cacheTimestampMs: Long = 0L
     private val fetchInFlight = AtomicLong(0L)
+    private val httpClient = SharedHttpClient.builder()
+        .callTimeout(4, TimeUnit.SECONDS)
+        .build()
 
     /**
      * Returns the current 75th-percentile Jito bundle tip in lamports.
@@ -79,19 +82,13 @@ object JitoTipFetcher {
     }
 
     private fun fetchFromApi(): Long {
-        val conn = (URL(URL_STR).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 3500
-            readTimeout = 3500
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("User-Agent", "LifecycleBot/5.9 JitoTipFetcher")
-        }
-        try {
-            val code = conn.responseCode
-            if (code !in 200..299) {
-                throw RuntimeException("HTTP $code")
-            }
-            val body = conn.inputStream.bufferedReader().use { it.readText() }
+        val request = Request.Builder().url(URL_STR)
+            .header("Accept", "application/json")
+            .header("User-Agent", "LifecycleBot/5.9 JitoTipFetcher")
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw RuntimeException("HTTP ${response.code}")
+            val body = response.body?.string() ?: throw RuntimeException("empty response")
             val arr = JSONArray(body)
             if (arr.length() == 0) {
                 throw RuntimeException("empty array response")
@@ -102,8 +99,6 @@ object JitoTipFetcher {
             val lamports = (tipSol * 1_000_000_000.0).toLong()
             // Sanity bound: 1k - 1M lamports (0.000001 - 0.001 SOL).
             return lamports.coerceIn(1_000L, 1_000_000L)
-        } finally {
-            try { conn.disconnect() } catch (_: Exception) {}
         }
     }
 }
