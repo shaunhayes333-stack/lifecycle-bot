@@ -3,7 +3,6 @@ package com.lifecyclebot.engine.truth
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 
 /**
  * V5.0.6453 §P0-#6 — ONE REWARD OWNER (SINGLE SUBSCRIBER BOOTSTRAP).
@@ -13,16 +12,10 @@ import java.util.concurrent.atomic.AtomicLong
  *    .markClosed(). Settlement emits exactly ONE persisted
  *    PositionFinalizedEvent."
  *
- * DESIGN
- * ──────
- * On classload, subscribes GrowthAlignedRewardShaper6439 +
- * RewardPurityGate6441 to CanonicalTradeFinalizedBus6450 exactly once.
- * From this point forward, `PositionCloseLedger.markClosed` /
- * `markClosedFull` publish to the bus and the shaper + purity gate
- * receive their signal AS BUS SUBSCRIBERS — never via direct call. This
- * eliminates the parallel reward writer paths the operator's dump
- * exposed (RewardPurity 4/77 vs GrowthShaper 13/45/35 vs RewardBridge
- * 22/125 — all now derived from ONE event).
+ * V5.0.6651: RewardPurity is a named 6464 consumer. That consumer retries
+ * only after the exact economicEventId is durable in every required store.
+ * The old immediate 6450 subscriber raced the asynchronous journal insert
+ * and permanently rejected otherwise valid closes.
  *
  * The bootstrap is triggered by touching `ensureBootstrapped()` from any
  * code path that publishes a finalize (currently `PositionCloseLedger`).
@@ -31,29 +24,13 @@ import java.util.concurrent.atomic.AtomicLong
 object CanonicalRewardBootstrap6453 {
 
     private val bootstrapped = AtomicBoolean(false)
-    private val shaperInvocations = AtomicLong(0L)
-    private val purityInvocations = AtomicLong(0L)
-    private val bootstrapErrors = AtomicLong(0L)
+    private val bootstrapErrors = java.util.concurrent.atomic.AtomicLong(0L)
 
     fun ensureBootstrapped() {
         try { FinalizedFanoutParity6459.ensureInstalled() } catch (_: Throwable) {}
         if (!bootstrapped.compareAndSet(false, true)) return
         try {
-            CanonicalTradeFinalizedBus6450.subscribe { event ->
-                // V5.0.6485 — GrowthRewardShaper is delivered exactly once by FinalizedBusConsumerBridge6465.
-                // Purity gate: authoritative finalized-close ledger.
-                try {
-                    RewardPurityGate6441.acceptFinalizedClose(event.positionId, event.netRealizedPnlSol)
-                    purityInvocations.incrementAndGet()
-                } catch (t: Throwable) {
-                    try {
-                        ForensicLogger.lifecycle(
-                            "CANONICAL_REWARD_BOOTSTRAP_PURITY_FAIL_6453",
-                            "pid=${event.positionId.take(12)} err=${t.message?.take(80)}",
-                        )
-                    } catch (_: Throwable) {}
-                }
-            }
+            CanonicalFinalizedTradeBus6464.ensureCanonicalConsumers6485()
             try { PipelineHealthCollector.labelInc("CANONICAL_REWARD_BOOTSTRAP_INSTALLED_6453") } catch (_: Throwable) {}
         } catch (t: Throwable) {
             bootstrapErrors.incrementAndGet()
@@ -68,7 +45,9 @@ object CanonicalRewardBootstrap6453 {
         }
     }
 
-    fun statusLine(): String = "installed=${bootstrapped.get()} " +
-        "shaperInv=${shaperInvocations.get()} purityInv=${purityInvocations.get()} " +
-        "installErrors=${bootstrapErrors.get()}"
+    fun statusLine(): String {
+        val (w, l, be) = RewardPurityGate6441.canonicalCounts()
+        return "installed=${bootstrapped.get()} fanout=CanonicalFinalizedTradeBus6464 " +
+            "purityAccepted=${w + l + be} installErrors=${bootstrapErrors.get()}"
+    }
 }

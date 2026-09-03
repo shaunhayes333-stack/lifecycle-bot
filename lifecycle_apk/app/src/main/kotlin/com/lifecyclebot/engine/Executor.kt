@@ -7072,6 +7072,19 @@ class Executor(
                 val FEED_DEAD_MS = 10L * 60_000L
                 val MIN_HELD_MIN = 20.0
                 if (fastDeadFeed || (feedAgeMs != null && feedAgeMs >= FEED_DEAD_MS && heldMin >= MIN_HELD_MIN)) {
+                    val executableFresh6651 = try {
+                        com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.isFresh(ts.mint, 60_000L)
+                    } catch (_: Throwable) { false }
+                    // A 4-minute fast cull may recycle only after a trusted
+                    // fresh quote confirms the flat mark. Otherwise the exit
+                    // snapshot refresh path gets time to recover the provider.
+                    if (fastDeadFeed && !executableFresh6651) {
+                        try {
+                            PipelineHealthCollector.labelInc("STALE_FEED_FAST_EVICT_HELD_FOR_REFRESH_6651")
+                            ForensicLogger.lifecycle("STALE_FEED_FAST_EVICT_HELD_FOR_REFRESH_6651", "mint=${ts.mint.take(10)} feedAgeMs=${feedAgeMs ?: -1L} action=refresh_before_exit")
+                        } catch (_: Throwable) {}
+                        return@run
+                    }
                     // RUNNER BYPASS — don't evict a position that ran and is
                     // still near its peak (mirrors maybeAct runner-bypass).
                     val curPnlVerdict6038 = OpenPnlSanity.inspectPosition(ts.position, currentPrice, "Executor.dead_feed_runner_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
@@ -7088,7 +7101,10 @@ class Executor(
                     if (!runnerIntact && !settleIn) {
                         val feedAgeMin = (feedAgeMs ?: 0L) / 60_000L
                         onLog("💀 STALE_FEED_EVICT: ${ts.symbol} feedAge=${feedAgeMin}min held=${heldMin.toInt()}min pnl=${"%+.0f".format(curPnl)}% — dead feed, recycling slot", ts.mint)
-                        doSell(ts, "stale_feed_evict_feedAge${feedAgeMin}m_held${heldMin.toInt()}m", wallet, walletSol)
+                        // Long-dead positions still close to free canonical
+                        // inventory, but the terminal is explicitly a data-
+                        // quality exit and is excluded from strategy WR/learning.
+                        doSell(ts, "data_quality_stale_feed_evict_feedAge${feedAgeMin}m_held${heldMin.toInt()}m", wallet, walletSol)
                         return
                     }
                 }
@@ -13282,8 +13298,10 @@ class Executor(
             com.lifecyclebot.engine.ToolkitSignalSheet.recordContributorSummary(
                 com.lifecyclebot.engine.ToolkitSignalSheet.contributionSummary(ts), "POSITION_INFLUENCE", pid6450,
             )
-            com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(entryLane6450, "EXEC", pid6450)
-            com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(entryLane6450, "POSITION_OPENED", pid6450)
+            // Keep execution telemetry on the sealed attempt record. The
+            // positionId remains the canonical inventory identity.
+            com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(entryLane6450, "EXEC", executionAttemptId6514)
+            com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(entryLane6450, "POSITION_OPENED", executionAttemptId6514)
             // V5.0.6627 §7 OPEN_POSITION_ENTRY_BASIS_INVARIANT — proactive alarm
             // at canonical OPEN transition. Fires OPEN_POSITION_ZERO_ENTRY_PRICE_
             // 6627 if the sealed entry basis is not authoritative, so the source
@@ -17948,8 +17966,9 @@ class Executor(
                     com.lifecyclebot.engine.ToolkitSignalSheet.recordContributorSummary(
                         com.lifecyclebot.engine.ToolkitSignalSheet.contributionSummary(ts), "POSITION_INFLUENCE", pidLive6486,
                     )
-                    com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(liveEntryLane6568, "EXEC", pidLive6486)
-                    com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(liveEntryLane6568, "POSITION_OPENED", pidLive6486)
+                    val liveCausalAttempt6651 = sealedLiveIntent6613?.attemptId ?: pidLive6486
+                    com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(liveEntryLane6568, "EXEC", liveCausalAttempt6651)
+                    com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(liveEntryLane6568, "POSITION_OPENED", liveCausalAttempt6651)
                     try { PipelineHealthCollector.labelInc("LIVE_ENTRY_POLICY_SNAPSHOT_CANONICAL_6568") } catch (_: Throwable) {}
                     com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.onBuyFilled(pidLive6486, verifyMint, proof.amountRaw)
                     com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(
@@ -20522,6 +20541,8 @@ class Executor(
                 lane = pos.tradingMode.ifBlank { tradeId.symbol },
                 exitReason = reason,
                 terminal = true,
+                suppressLearningFanout6490 = reason.contains("stale_feed", ignoreCase = true) ||
+                    reason.contains("data_quality", ignoreCase = true),
             )
             canonicalPaperSellCommitted6474 = close6474.applied
             if (canonicalPaperSellCommitted6474) {
@@ -20536,11 +20557,28 @@ class Executor(
                     return SellResult.FAILED_RETRYABLE
                 }
                 tradeSnap = tradeSnap.copy(
+                    // V5.0.6651 — immutable receipt projection. Never
+                    // recalculate terminal economics from TokenState/UI fields.
+                    sol = close6474.grossProceedsSol,
+                    pnlSol = close6474.grossProceedsSol - close6474.soldCostBasisSol - close6474.feesSol,
+                    netPnlSol = close6474.grossProceedsSol - close6474.soldCostBasisSol - close6474.feesSol,
+                    pnlPct = if (close6474.soldCostBasisSol > 0.0)
+                        ((close6474.grossProceedsSol - close6474.soldCostBasisSol - close6474.feesSol) /
+                            close6474.soldCostBasisSol) * 100.0 else 0.0,
+                    feeSol = close6474.feesSol,
+                    entryCostSol = close6474.soldCostBasisSol,
+                    preCostSol = close6474.preRemainingCostBasisSol,
+                    soldCostBasisSol = close6474.soldCostBasisSol,
+                    postCostSol = close6474.postRemainingCostBasisSol,
+                    grossProceedsSol = close6474.grossProceedsSol,
+                    preQtyToken = soldQtyToken6449,
+                    postQtyToken = 0.0,
+                    remainingQtyToken = 0.0,
                     entryRawQty = close6474.preRemainingRaw,
                     canonicalConsumedRaw = rawVerdict6520.normalizedRaw,
                     remainingRawQty = close6474.postRemainingRaw,
                     tokenDecimals = close6474.tokenDecimals.takeIf { it >= 0 } ?: terminalDecimals6492,
-                    economicEventId = terminalId6474,
+                    economicEventId = close6474.economicEventId,
                 )
                 try { ts.trades.add(tradeSnap) } catch (_: Throwable) {}
             }

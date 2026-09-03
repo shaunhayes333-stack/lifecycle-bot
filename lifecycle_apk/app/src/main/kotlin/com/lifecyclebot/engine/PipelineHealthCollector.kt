@@ -185,12 +185,17 @@ object PipelineHealthCollector {
     // beside PerformanceAnalytics WR=9.2% / RANGE-only.
     private fun canonicalPerformanceTrades(limit: Int = 1000): List<TradeRecord> {
         fun sellLike(side: String): Boolean = side.equals("SELL", true) || side.equals("PARTIAL_SELL", true)
-        fun isWinPct(p: Double): Boolean = p >= 0.5
-        fun isLossPct(p: Double): Boolean = p <= -2.0
+        fun isLossPct(p: Double): Boolean = p < -com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.BREAKEVEN_BAND_PCT
+        fun isWinPct(p: Double): Boolean = p > com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.BREAKEVEN_BAND_PCT
+        val currentMode6651 = if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) "live" else "paper"
         return try {
-            com.lifecyclebot.engine.TradeHistoryStore.getRecentValidClosedTrades(limit.coerceAtLeast(1), includePartials = true)
+            // Final WR is a StrategyTruth projection: full, trainable terminal
+            // closes only. Raw/partial/data-quality rows must never be counted.
+            com.lifecyclebot.engine.TradeHistoryStore.getRecentCleanStrategyTerminalTrades(limit.coerceAtLeast(1))
                 .asSequence()
                 .filter { sellLike(it.side) }
+                .filter { it.mode.equals(currentMode6651, true) }
+                .filter { com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.classify(it) == com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME }
                 .map { t ->
                     val entryTs = t.entryTsMs.takeIf { it > 0L } ?: t.ts
                     val entryPrice = t.entryPriceSnapshot.takeIf { it.isFinite() && it > 0.0 } ?: t.price

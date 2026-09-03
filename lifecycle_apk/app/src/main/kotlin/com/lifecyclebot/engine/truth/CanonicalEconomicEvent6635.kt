@@ -318,6 +318,23 @@ object CanonicalEconomicEvent6635 {
 
     fun eventById(economicEventId: String): Event? = events[economicEventId]?.event
 
+    /** Exact terminal-event proof used by reward/report consumers. This is
+     * deliberately per event: an unrelated open position with a fallback mark
+     * cannot invalidate an already-settled close. */
+    fun committedTerminalEventForPosition(positionId: String, economicEventId: String = ""): Event? {
+        if (positionId.isBlank()) return null
+        val candidates = if (economicEventId.isNotBlank()) {
+            listOfNotNull(events[economicEventId])
+        } else {
+            events.values.filter { it.event.positionId == positionId }
+        }
+        return candidates.asSequence()
+            .filter { it.terminal == Terminal.COMMITTED }
+            .map { it.event }
+            .filter { it.positionId == positionId && (it.side == Side.SELL || it.side == Side.PARTIAL_SELL) }
+            .maxByOrNull { it.timestampMs }
+    }
+
     fun eventsForCanonicalMint(canonicalMint: String): List<Event> {
         val ids = byMint[canonicalMint] ?: return emptyList()
         return ids.mapNotNull { events[it]?.event }

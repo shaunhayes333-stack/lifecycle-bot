@@ -107,12 +107,12 @@ object DeskPerformanceAuthority6648 {
         for (book in deskBooks) {
             val bookRows = grouped[book].orEmpty()
             val pnl = if (accountingAvailable) bookRows.sumOf(::economicPnl) else null
-            val wins = bookRows.count { economicPnl(it) > 0.0 }
-            val losses = bookRows.count { economicPnl(it) < 0.0 }
+            val wins = bookRows.count { outcome(it) == CanonicalOutcomeClassifier6576.Class.WIN }
+            val losses = bookRows.count { outcome(it) == CanonicalOutcomeClassifier6576.Class.LOSS }
             val grossWin = bookRows.sumOf { economicPnl(it).coerceAtLeast(0.0) }
             val grossLoss = -bookRows.sumOf { economicPnl(it).coerceAtMost(0.0) }
-            val winPcts = bookRows.filter { economicPnl(it) > 0.0 }.map { it.pnlPct }
-            val lossPcts = bookRows.filter { economicPnl(it) < 0.0 }.map { it.pnlPct }
+            val winPcts = bookRows.filter { outcome(it) == CanonicalOutcomeClassifier6576.Class.WIN }.map { canonicalReturnPct(it) }
+            val lossPcts = bookRows.filter { outcome(it) == CanonicalOutcomeClassifier6576.Class.LOSS }.map { canonicalReturnPct(it) }
             reduced[book] = Snapshot(
                 book = book,
                 mode = normalizedMode,
@@ -129,12 +129,12 @@ object DeskPerformanceAuthority6648 {
             )
         }
         val portfolioRows = modeRows.filter { classify(it) != Book.UNCLASSIFIED }
-        val portfolioWins = portfolioRows.count { economicPnl(it) > 0.0 }
-        val portfolioLosses = portfolioRows.count { economicPnl(it) < 0.0 }
+        val portfolioWins = portfolioRows.count { outcome(it) == CanonicalOutcomeClassifier6576.Class.WIN }
+        val portfolioLosses = portfolioRows.count { outcome(it) == CanonicalOutcomeClassifier6576.Class.LOSS }
         val portfolioGrossWin = portfolioRows.sumOf { economicPnl(it).coerceAtLeast(0.0) }
         val portfolioGrossLoss = -portfolioRows.sumOf { economicPnl(it).coerceAtMost(0.0) }
-        val portfolioWinPcts = portfolioRows.filter { economicPnl(it) > 0.0 }.map { it.pnlPct }
-        val portfolioLossPcts = portfolioRows.filter { economicPnl(it) < 0.0 }.map { it.pnlPct }
+        val portfolioWinPcts = portfolioRows.filter { outcome(it) == CanonicalOutcomeClassifier6576.Class.WIN }.map { canonicalReturnPct(it) }
+        val portfolioLossPcts = portfolioRows.filter { outcome(it) == CanonicalOutcomeClassifier6576.Class.LOSS }.map { canonicalReturnPct(it) }
         reduced[Book.PORTFOLIO] = Snapshot(
             book = Book.PORTFOLIO,
             mode = normalizedMode,
@@ -173,6 +173,17 @@ object DeskPerformanceAuthority6648 {
         row.pnlSol.isFinite() -> row.pnlSol
         else -> 0.0
     }
+
+    private fun canonicalReturnPct(row: Trade): Double {
+        if (row.pnlPct.isFinite()) return row.pnlPct
+        val basis = row.soldCostBasisSol.takeIf { it.isFinite() && it > 0.0 }
+            ?: row.entryCostSol.takeIf { it.isFinite() && it > 0.0 }
+            ?: return 0.0
+        return economicPnl(row) * 100.0 / basis
+    }
+
+    private fun outcome(row: Trade): CanonicalOutcomeClassifier6576.Class =
+        CanonicalOutcomeClassifier6576.classifyReadonly(canonicalReturnPct(row))
 
     private fun requestedMode(mode: String): String = if (mode.equals("live", true)) "live" else "paper"
     private fun rowMode(mode: String): String = when {

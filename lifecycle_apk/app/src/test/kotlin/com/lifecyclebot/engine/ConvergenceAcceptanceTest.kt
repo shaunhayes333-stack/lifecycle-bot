@@ -4,6 +4,7 @@ import com.lifecyclebot.engine.truth.CanonicalRewardBootstrap6453
 import com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450
 import com.lifecyclebot.engine.truth.GrowthAlignedRewardShaper6439
 import com.lifecyclebot.engine.truth.MintWorkCoordinator6450
+import com.lifecyclebot.engine.truth.RewardPurityGate6441
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -82,14 +83,13 @@ class ConvergenceAcceptanceTest {
     }
 
     @Test
-    fun `CanonicalRewardBootstrap subscriber receives finalized events with net-realized pnl`() {
-        // V5.0.6453 §P0-#6 — publishing a finalized event must fan out
-        // to the bootstrap-installed subscribers (shaper + purity gate).
-        // We measure by inspecting the bootstrap invocation counter
-        // before and after a bus publish.
+    fun `CanonicalRewardBootstrap does not reward before exact economic commit`() {
+        // V5.0.6651 — a rich finalized notification without a matching
+        // committed economicEventId is not durable economic truth. It must
+        // not mutate purity or shaping; the exact-event consumer retries
+        // after CanonicalEconomicEvent reaches COMMITTED.
         CanonicalRewardBootstrap6453.ensureBootstrapped()
-        val statusBefore = CanonicalRewardBootstrap6453.statusLine()
-        val purityInvBefore = parseCounter(statusBefore, "purityInv=")
+        val purityBefore = RewardPurityGate6441.canonicalCounts()
         val shapedBefore = parseCounter(GrowthAlignedRewardShaper6439.statusLine(), "shaped=")
 
         val pid = "TEST_PID_BOOT_${System.nanoTime()}"
@@ -114,11 +114,10 @@ class ConvergenceAcceptanceTest {
                 settledAtMs = System.currentTimeMillis(),
             ),
         )
-        val statusAfter = CanonicalRewardBootstrap6453.statusLine()
-        val purityInvAfter = parseCounter(statusAfter, "purityInv=")
+        val purityAfter = RewardPurityGate6441.canonicalCounts()
         val shapedAfter = parseCounter(GrowthAlignedRewardShaper6439.statusLine(), "shaped=")
-        assertTrue("purity subscriber must receive the canonical close", purityInvAfter > purityInvBefore)
-        assertEquals("fail-closed reconciliation must prevent a reward mutation in an uninitialized test account", shapedBefore, shapedAfter)
+        assertEquals("purity must wait for exact committed event", purityBefore, purityAfter)
+        assertEquals("uncommitted event must not shape reward", shapedBefore, shapedAfter)
     }
 
     private fun parseCounter(status: String, key: String): Long {

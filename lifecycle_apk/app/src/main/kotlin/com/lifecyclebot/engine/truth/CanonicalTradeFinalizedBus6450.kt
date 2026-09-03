@@ -51,6 +51,7 @@ object CanonicalTradeFinalizedBus6450 {
         val mode: String,
         val settledAtMs: Long,
         val assetClassTag: String = "",
+        val economicEventId: String = "",
     )
 
     fun interface Subscriber { fun onEvent(event: Event) }
@@ -167,8 +168,18 @@ object CanonicalTradeFinalizedBus6450 {
                 learningEligible = learningEligibility6519.eligible,
                 learningEligibilityReason = learningEligibility6519.reason,
                 assetClassTag = event.assetClassTag.ifBlank { entrySnap6567?.assetClassTag ?: AssetClass.fromLane(event.entryLane).tag },
+                economicEventId = event.economicEventId,
             )
             if (CanonicalFinalizedTradeBus6464.publish(env)) {
+                // The rich event is published while the journal durability
+                // commit may still be in flight. Redeliver exactly when the
+                // matching canonical economic event reaches COMMITTED; this
+                // removes timing-based reward loss and keeps delivery idempotent.
+                if (event.economicEventId.isNotBlank()) {
+                    CanonicalEconomicEvent6635.afterCommitted(event.economicEventId) {
+                        CanonicalFinalizedTradeBus6464.redeliverPending6486()
+                    }
+                }
                 CanonicalFinalizedTradeBus6464.deliverToConsumers(env) { name, e ->
                     FinalizedBusConsumerBridge6465.deliver(name, e)
                 }

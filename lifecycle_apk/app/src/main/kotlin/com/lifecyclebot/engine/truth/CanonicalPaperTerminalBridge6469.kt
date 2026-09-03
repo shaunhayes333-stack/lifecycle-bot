@@ -34,6 +34,15 @@ object CanonicalPaperTerminalBridge6469 {
         val terminalClaimed: Boolean,
         val busPublished: Boolean,
         val reason: String,
+        /** Immutable economic receipt. Journal/report writers must project
+         * these values verbatim; they must never recalculate them from UI
+         * quantity, price, TokenState, or PnL. */
+        val economicEventId: String = "",
+        val grossProceedsSol: Double = 0.0,
+        val soldCostBasisSol: Double = 0.0,
+        val feesSol: Double = 0.0,
+        val preRemainingCostBasisSol: Double = 0.0,
+        val postRemainingCostBasisSol: Double = 0.0,
         val canonicalConsumedRaw: BigInteger = BigInteger.ZERO,
         val preRemainingRaw: BigInteger = BigInteger.ZERO,
         val postRemainingRaw: BigInteger = BigInteger.ZERO,
@@ -229,7 +238,7 @@ object CanonicalPaperTerminalBridge6469 {
             CanonicalEconomicEvent6635.markCommitted(sellSig, CanonicalEconomicEvent6635.Store.FILL_LOT, "CanonicalPaperTerminalBridge6469")
 
             busPublished = applyFanoutAfterClaim(
-                idKey = claim.idKey,
+                economicEventId = sellSig,
                 positionId = positionId,
                 mint = mint,
                 symbol = symbol,
@@ -240,6 +249,7 @@ object CanonicalPaperTerminalBridge6469 {
                 soldCostBasisSol = soldCostBasisSol,
                 feesSol = feesSol,
                 lane = lane,
+                exitReason = exitReason,
                 terminal = terminal,
                 suppressLearningFanout6490 = suppressLearningFanout6490,
             )
@@ -252,6 +262,10 @@ object CanonicalPaperTerminalBridge6469 {
                 try { PipelineHealthCollector.labelInc("CANONICAL_TERMINAL_PARTIAL") } catch (_: Throwable) {}
             }
             return Result(applied = true, terminalClaimed = true, busPublished = busPublished, reason = "GRANTED",
+                economicEventId = sellSig, grossProceedsSol = grossProceedsSol,
+                soldCostBasisSol = soldCostBasisSol, feesSol = feesSol,
+                preRemainingCostBasisSol = preRemainingCostBasisSol,
+                postRemainingCostBasisSol = (preRemainingCostBasisSol - soldCostBasisSol).coerceAtLeast(0.0),
                 canonicalConsumedRaw = soldQtyRaw, preRemainingRaw = preRemainingRaw,
                 postRemainingRaw = preRemainingRaw.subtract(soldQtyRaw).coerceAtLeast(BigInteger.ZERO),
                 tokenDecimals = CanonicalPositionAuthority6441.getPosition(positionId)?.quantityScale ?: -1)
@@ -265,6 +279,10 @@ object CanonicalPaperTerminalBridge6469 {
                 PipelineHealthCollector.labelInc("CANONICAL_PAPER_TERMINAL_BRIDGE_FANOUT_THREW_6469")
             } catch (_: Throwable) {}
             return Result(applied = true, terminalClaimed = true, busPublished = busPublished, reason = "APPLIED_WITH_FANOUT_ERROR",
+                economicEventId = sellSig, grossProceedsSol = grossProceedsSol,
+                soldCostBasisSol = soldCostBasisSol, feesSol = feesSol,
+                preRemainingCostBasisSol = preRemainingCostBasisSol,
+                postRemainingCostBasisSol = (preRemainingCostBasisSol - soldCostBasisSol).coerceAtLeast(0.0),
                 canonicalConsumedRaw = soldQtyRaw, preRemainingRaw = preRemainingRaw,
                 postRemainingRaw = preRemainingRaw.subtract(soldQtyRaw).coerceAtLeast(BigInteger.ZERO),
                 tokenDecimals = CanonicalPositionAuthority6441.getPosition(positionId)?.quantityScale ?: -1)
@@ -303,7 +321,7 @@ object CanonicalPaperTerminalBridge6469 {
         )
         if (!claim.granted) return Result(applied = false, terminalClaimed = false, busPublished = false, reason = claim.reason)
         val bus = applyFanoutAfterClaim(
-            idKey = claim.idKey,
+            economicEventId = sellSig,
             positionId = positionId,
             mint = mint,
             symbol = symbol,
@@ -314,6 +332,7 @@ object CanonicalPaperTerminalBridge6469 {
             soldCostBasisSol = soldCostBasisSol,
             feesSol = feesSol,
             lane = lane,
+            exitReason = exitReason,
             terminal = terminal,
         )
         if (terminal) fullSells.incrementAndGet() else partialSells.incrementAndGet()
@@ -321,7 +340,7 @@ object CanonicalPaperTerminalBridge6469 {
     }
 
     private fun applyFanoutAfterClaim(
-        idKey: String,
+        economicEventId: String,
         positionId: String,
         mint: String,
         symbol: String,
@@ -332,6 +351,7 @@ object CanonicalPaperTerminalBridge6469 {
         soldCostBasisSol: Double,
         feesSol: Double,
         lane: String,
+        exitReason: String,
         terminal: Boolean,
         suppressLearningFanout6490: Boolean = false,
     ): Boolean {
@@ -348,7 +368,9 @@ object CanonicalPaperTerminalBridge6469 {
                 positionId = positionId,
                 mint = mint,
                 symbol = symbol,
-                idempotencyKey = idKey,
+                // One immutable identity across canonical event, durable
+                // economic schema, journal and terminal execution.
+                idempotencyKey = economicEventId,
                 partial = !terminal,
                 soldQty = soldQtyRaw,
                 preRemainingQty = preRemainingRaw,
@@ -364,10 +386,10 @@ object CanonicalPaperTerminalBridge6469 {
             val realizedPct = if (soldCostBasisSol > 0.0) (realizedSol / soldCostBasisSol) * 100.0 else 0.0
             val settledAt6485 = System.currentTimeMillis()
             val entrySnap6485 = EntryStrategySnapshot6450.snapshot(positionId)
-            val outcome6485 = when {
-                realizedSol > 0.0001 -> CanonicalTradeFinalizedBus6450.Outcome.WIN
-                realizedSol < -0.0001 -> CanonicalTradeFinalizedBus6450.Outcome.LOSS
-                else -> CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN
+            val outcome6485 = when (CanonicalOutcomeClassifier6576.classifyReadonly(realizedPct)) {
+                CanonicalOutcomeClassifier6576.Class.WIN -> CanonicalTradeFinalizedBus6450.Outcome.WIN
+                CanonicalOutcomeClassifier6576.Class.LOSS -> CanonicalTradeFinalizedBus6450.Outcome.LOSS
+                CanonicalOutcomeClassifier6576.Class.BREAKEVEN -> CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN
             }
             busPublished = CanonicalTradeFinalizedBus6450.publish(
                 CanonicalTradeFinalizedBus6450.Event(
@@ -377,10 +399,11 @@ object CanonicalPaperTerminalBridge6469 {
                     entryLane = entrySnap6485?.entryLane ?: lane,
                     entryStrategyPid = entrySnap6485?.entryStrategyPid ?: "",
                     entryTactic = entrySnap6485?.entryTactic ?: "",
-                    exitReason = "CANONICAL_PAPER_FILL", holdingTimeMs = if (entrySnap6485 != null) settledAt6485 - entrySnap6485.entryTimestampMs else 0L,
+                    exitReason = exitReason, holdingTimeMs = if (entrySnap6485 != null) settledAt6485 - entrySnap6485.entryTimestampMs else 0L,
                     dataQuality = "canonical_paper_fill", priceIntegrity = "canonical_paper_fill",
                     mode = "paper", settledAtMs = settledAt6485,
                     assetClassTag = entrySnap6485?.assetClassTag ?: CanonicalPositionAuthority6441.getPosition(positionId)?.assetClass?.tag.orEmpty(),
+                    economicEventId = economicEventId,
                 )
             )
             if (busPublished) {

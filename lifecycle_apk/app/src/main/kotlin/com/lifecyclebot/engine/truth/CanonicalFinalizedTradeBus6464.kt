@@ -61,6 +61,7 @@ object CanonicalFinalizedTradeBus6464 {
         val learningEligible: Boolean = true,
         val learningEligibilityReason: String = "ELIGIBLE",
         val assetClassTag: String = AssetClass.fromLane(lane).tag,
+        val economicEventId: String = "",
     )
 
     private val canonicalSeen = ConcurrentHashMap<String, Envelope>()
@@ -70,7 +71,7 @@ object CanonicalFinalizedTradeBus6464 {
     private val retryRunning6486 = AtomicBoolean(false)
 
     private val CANONICAL_CONSUMERS_6485 = listOf(
-        "LearnerRewardBridge", "LosingStreakReflex", "GrowthRewardShaper", "TacticSwitcher",
+        "RewardPurity", "LearnerRewardBridge", "LosingStreakReflex", "GrowthRewardShaper", "TacticSwitcher",
         "Governor", "CapitalCreed", "EVEstimator", "AatePolicyReward", "StrategyHypothesisEngine", "MemeCausalLearning6568", "Dashboard",
     )
     fun ensureCanonicalConsumers6485() { CANONICAL_CONSUMERS_6485.forEach(::registerConsumer) }

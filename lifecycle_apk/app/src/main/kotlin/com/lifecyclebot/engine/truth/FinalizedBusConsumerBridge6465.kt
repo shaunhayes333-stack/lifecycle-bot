@@ -41,44 +41,38 @@ object FinalizedBusConsumerBridge6465 {
         // (encoded as env.tradeId) or mint has been quarantined by
         // `LearningQuarantineGate6470` is dropped before it reaches any
         // learner. Learning consumers only see clean canonical outcomes.
-        if (consumer !in NON_LEARNING_CONSUMERS && !env.learningEligible) {
+        if (!env.learningEligible) {
             try {
                 PipelineHealthCollector.labelInc("FINALIZED_LEARNING_INELIGIBLE_ACK_NO_MUTATION_6519_${consumer}".take(60))
                 ForensicLogger.lifecycle("FINALIZED_LEARNING_INELIGIBLE_6519", "consumer=$consumer positionId=${env.positionId} mint=${env.mint.take(10)} reason=${env.learningEligibilityReason.take(120)}")
             } catch (_: Throwable) {}
             return true
         }
+        // Paper analytics and learning share the same exact committed event
+        // cohort. Dashboard is intentionally included: it must not race ahead
+        // and display a WR that the learners cannot consume.
+        if (env.mode.equals("paper", true) || env.economicEventId.isNotBlank()) {
+            val exactEvent6651 = try {
+                CanonicalEconomicEvent6635.committedTerminalEventForPosition(env.positionId, env.economicEventId)
+            } catch (_: Throwable) { null }
+            if (exactEvent6651 == null) {
+                try {
+                    PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_EXACT_EVENT_PENDING_6651")
+                    ForensicLogger.lifecycle("FINALIZED_CONSUMER_EXACT_EVENT_PENDING_6651", "consumer=$consumer positionId=${env.positionId} economicEventId=${env.economicEventId.take(40)} action=no_mutation_no_ack_retry")
+                } catch (_: Throwable) {}
+                return false
+            }
+        }
         if (consumer !in NON_LEARNING_CONSUMERS &&
-            LearningQuarantineGate6470.shouldDropForLearning(positionId = env.tradeId, mint = env.mint)
+            LearningQuarantineGate6470.shouldDropForLearning(positionId = env.positionId, mint = env.mint)
         ) {
             try {
                 PipelineHealthCollector.labelInc("LEARNING_QUARANTINE_HANDLED_NO_MUTATION_6486_${consumer}".take(60))
             } catch (_: Throwable) {}
             return true
         }
-        if (consumer !in NON_LEARNING_CONSUMERS) {
-            // Learning is an economic publication. It is forbidden while
-            // ledger/journal/event/lot reconciliation is failed, and while
-            // any open-paper mark is stale/fallback (UNPRICED COST).
-            try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
-            val reconciled6647 = try { ForensicReconciliation6635.deltas6647().reconciled } catch (_: Throwable) { false }
-            if (!reconciled6647) {
-                try {
-                    PipelineHealthCollector.labelInc("LEARNING_BLOCKED_FAILED_RECONCILIATION_6647")
-                    ForensicLogger.lifecycle("LEARNING_BLOCKED_FAILED_RECONCILIATION_6647", "consumer=$consumer positionId=${env.positionId} action=no_mutation_no_ack")
-                } catch (_: Throwable) {}
-                return false
-            }
-            val markState6647 = try { CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
-            if (markState6647 == null || markState6647.fallbackMarkMints > 0 || markState6647.staleMarkMints > 0) {
-                try {
-                    PipelineHealthCollector.labelInc("LEARNING_BLOCKED_UNPRICED_COST_6647")
-                    ForensicLogger.lifecycle("LEARNING_BLOCKED_UNPRICED_COST_6647", "consumer=$consumer positionId=${env.positionId} fallback=${markState6647?.fallbackMarkMints ?: -1} stale=${markState6647?.staleMarkMints ?: -1} action=no_mutation_no_ack")
-                } catch (_: Throwable) {}
-                return false
-            }
-        }
         val ok = when (consumer) {
+            "RewardPurity"       -> deliverToRewardPurity(env)
             "LearnerRewardBridge" -> deliverToLearnerRewardBridge(env)
             "LosingStreakReflex"  -> deliverToLosingStreakReflex(env)
             "GrowthRewardShaper"  -> deliverToGrowthRewardShaper(env)
@@ -104,6 +98,11 @@ object FinalizedBusConsumerBridge6465 {
 
     /** Consumers that are NOT learning targets — quarantine does not gate them. */
     private val NON_LEARNING_CONSUMERS = setOf("Dashboard")
+
+    private fun deliverToRewardPurity(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean =
+        RewardPurityGate6441.acceptFinalizedClose(
+            env.positionId, env.realizedPnlSol, env.economicEventId,
+        )
 
     private fun deliverToLearnerRewardBridge(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         com.lifecyclebot.engine.truth.LearnerRewardBridge6440.acceptFinalized6486(

@@ -7526,7 +7526,9 @@ class GoldenTapeRegressionTest {
                 exec.contains("SELL mirror moved to confirmed paper fill") &&
                 closeLedger.contains("PositionCloseLedger is a close metadata ledger only") &&
                 mirror.contains("lastClosedPositionIdByMint") &&
-                mirror.contains("RewardPurityGate6441.acceptFinalizedClose"))
+                mirror.contains("reward purity is delivered only after") &&
+                java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt").readText()
+                    .contains("deliverToRewardPurity"))
         assertTrue("V5.0.6448: paper account ledger must credit confirmed sells/partials and resolver must read it as paper authority",
             paperLedger.contains("canAffordBuy") &&
                 !bot.contains("repairCashFromDisplayed6448(displayedCash") &&

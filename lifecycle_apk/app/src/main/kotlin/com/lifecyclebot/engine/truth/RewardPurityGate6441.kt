@@ -52,7 +52,7 @@ object RewardPurityGate6441 {
      * other terminal learner (previously ">0 WIN" → contradicted
      * PerformanceAnalytics and LearnerRewardBridge on the same closes).
      */
-    fun acceptFinalizedClose(positionId: String, realizedPnlSol: Double): Boolean {
+    fun acceptFinalizedClose(positionId: String, realizedPnlSol: Double, economicEventId: String = ""): Boolean {
         val pos = CanonicalPositionAuthority6441.getPosition(positionId)
         if (pos == null || pos.lifecycle != CanonicalPositionAuthority6441.Lifecycle.CLOSED) {
             rejectedLifecycle.incrementAndGet()
@@ -65,21 +65,21 @@ object RewardPurityGate6441 {
             try { PipelineHealthCollector.labelInc("REWARD_PURITY_REJECT_LIFECYCLE_6441") } catch (_: Throwable) {}
             return false
         }
-        // A finalized close is still not learnable economic truth until the
-        // ledger, journal, event stream and lot reducer reconcile. Likewise,
-        // fallback/stale marks anywhere in the account make reward and
-        // compounding inputs non-authoritative. Leave the id unconsumed so the
-        // canonical bus can retry after reconciliation recovers.
-        try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
-        val reconciliationOk = try { ForensicReconciliation6635.deltas6647().reconciled } catch (_: Throwable) { false }
-        val marks = try { CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
-        if (!reconciliationOk || marks == null || marks.fallbackMarkMints > 0 || marks.staleMarkMints > 0) {
+        // Per-terminal-event proof. The old account-wide reconciliation/mark
+        // check starved every learner whenever any unrelated open mint carried
+        // a fallback mark. A close is pure when its own immutable event is fully
+        // committed across position, ledger, journal, fill-lot and terminal.
+        val terminalEvent = try {
+            CanonicalEconomicEvent6635.committedTerminalEventForPosition(positionId, economicEventId)
+        } catch (_: Throwable) { null }
+        if (terminalEvent == null || terminalEvent.qtyRaw <= java.math.BigInteger.ZERO ||
+            !terminalEvent.realizedPnlDeltaSol.isFinite() || !terminalEvent.notionalSol.isFinite()) {
             rejectedAccounting.incrementAndGet()
             try {
-                PipelineHealthCollector.labelInc("REWARD_PURITY_BLOCKED_UNRECONCILED_OR_UNPRICED_6647")
+                PipelineHealthCollector.labelInc("REWARD_PURITY_BLOCKED_EXACT_EVENT_PENDING_6651")
                 ForensicLogger.lifecycle(
-                    "REWARD_PURITY_BLOCKED_UNRECONCILED_OR_UNPRICED_6647",
-                    "positionId=$positionId reconciled=$reconciliationOk fallback=${marks?.fallbackMarkMints ?: -1} stale=${marks?.staleMarkMints ?: -1}",
+                    "REWARD_PURITY_BLOCKED_EXACT_EVENT_PENDING_6651",
+                    "positionId=$positionId economicEventId=${economicEventId.take(40)} action=no_mutation_retry_exact_event",
                 )
             } catch (_: Throwable) {}
             return false

@@ -4923,6 +4923,9 @@ object FinalDecisionGate {
                     paperMode = config.paperMode,
                     laneRiskCapSol = (try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { 0.0 }) * 0.12,
                     laneMinExecutableSol = 0.005,
+                    // V5.0.6651 — telemetry identity only: SIZE must join
+                    // the same candidate record as intent/FDG/mark.
+                    causalEventId = "${ts.mint}:${com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)}",
                 )
                 if (sealed6552.executable) com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealFor(ts.mint, sealed6552, laneName)
             } catch (_: Throwable) {}

@@ -274,10 +274,19 @@ object StrategyTruthLedger {
     private fun forensicRejectReason(t: Trade): String? {
         val side = t.side.trim().uppercase()
         if (side != "SELL" && side != "PARTIAL_SELL") return null
+        val terminalReason = t.reason.trim().uppercase()
+        if (terminalReason.contains("STALE_FEED") || terminalReason.contains("DATA_QUALITY")) {
+            return "DATA_QUALITY_EXIT"
+        }
         val mode = t.mode.trim().uppercase()
         val live = mode == "LIVE"
         val proof = t.proofState.trim().uppercase()
         val basis = t.entryCostSol.takeIf { it.isFinite() && it > 0.0 } ?: return "MISSING_ENTRY_COST_BASIS"
+        if (mode == "PAPER" && t.economicEventId.isNotBlank()) {
+            if (!t.soldCostBasisSol.isFinite() || t.soldCostBasisSol <= 0.0) return "MISSING_CANONICAL_SOLD_BASIS"
+            if (!t.grossProceedsSol.isFinite() || t.grossProceedsSol < 0.0) return "MISSING_CANONICAL_GROSS_PROCEEDS"
+            if (t.canonicalConsumedRaw <= java.math.BigInteger.ZERO) return "MISSING_CANONICAL_CONSUMED_RAW"
+        }
         val realized = when {
             t.netPnlSol.isFinite() && t.netPnlSol != 0.0 -> t.netPnlSol
             t.pnlSol.isFinite() -> t.pnlSol

@@ -19124,7 +19124,19 @@ if (hotExitHandledSweep) {
                 )
                 projected++
             }
-            if (ts.position.entryPrice <= 0.0 || ts.lastPrice <= 0.0) {
+            // V5.0.6651 — a positive price is not necessarily an executable
+            // mark. The old gate refreshed only zero prices, allowing a
+            // positive 3-4 minute-old value to flow into stale-feed eviction.
+            val markAgeMs6651 = ts.lastPriceUpdate.takeIf { it > 0L }
+                ?.let { (System.currentTimeMillis() - it).coerceAtLeast(0L) }
+                ?: Long.MAX_VALUE
+            val stateMarkStale6651 = markAgeMs6651 > 60_000L
+            val provenanceFresh6651 = try {
+                com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.isFresh(cp.mint, 60_000L)
+            } catch (_: Throwable) { false }
+            val refreshNeeded6651 = ts.position.entryPrice <= 0.0 || ts.lastPrice <= 0.0 ||
+                stateMarkStale6651 || !provenanceFresh6651
+            if (refreshNeeded6651) {
                 missingMark++
                 // V5.0.6594 §MARK_REFRESH_DEDUP_TTL — enforce a per-mint TTL
                 // so the exit-feed 5s cadence cannot re-queue the same
@@ -19167,7 +19179,7 @@ if (hotExitHandledSweep) {
                     }
                     try {
                         PipelineHealthCollector.labelInc("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513")
-                        ForensicLogger.lifecycle("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513", "positionId=${cp.positionId} mint=${cp.mint.take(10)} assetClass=${effectiveMarkClass6592.tag} entryPrice=${ts.position.entryPrice} mark=${ts.lastPrice} action=async_refresh_no_silent_eval")
+                        ForensicLogger.lifecycle("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513", "positionId=${cp.positionId} mint=${cp.mint.take(10)} assetClass=${effectiveMarkClass6592.tag} entryPrice=${ts.position.entryPrice} mark=${ts.lastPrice} markAgeMs=$markAgeMs6651 provenanceFresh=$provenanceFresh6651 action=async_refresh_no_silent_eval")
                     } catch (_: Throwable) {}
                     exitWorkerScope6647.launch {
                         // V5.0.6530 §CROSS_ASSET_MARK_ROUTING — route non-Solana

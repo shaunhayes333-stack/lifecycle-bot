@@ -223,7 +223,9 @@ object ExecutorCanonicalMirror6442 {
                     try { PositionStateLedger6427.confirmTerminalSell(canonicalMint(mint)) } catch (_: Throwable) {}
                     try { LaneAttributionLedger6427.recordExitPolicy(positionId, lane.ifBlank { posAfter.lane }, reason, if (paperMode) "PAPER" else "LIVE", "ExecutorCanonicalMirror6448") } catch (_: Throwable) {}
                     try { IdempotencyKeyStore6437.markTerminal(idem, "SELL_CONFIRMED") } catch (_: Throwable) {}
-                    try { RewardPurityGate6441.acceptFinalizedClose(positionId, posAfter.realizedPnlSol) } catch (_: Throwable) {}
+                    // V5.0.6651 — reward purity is delivered only after the
+                    // exact canonical economic event reaches COMMITTED. The
+                    // mirror runs before journal durability and must not race it.
                     lastClosedPositionIdByMint[canonicalMint(mint)] = positionId
                     activePositionIdByMint.remove(canonicalMint(mint), positionId)
                     try { PipelineHealthCollector.labelInc("CANONICAL_SELL_CONFIRMED_CLOSED_6448") } catch (_: Throwable) {}
