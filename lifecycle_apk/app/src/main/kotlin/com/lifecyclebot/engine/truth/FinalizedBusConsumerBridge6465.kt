@@ -71,6 +71,30 @@ object FinalizedBusConsumerBridge6465 {
             } catch (_: Throwable) {}
             return true
         }
+        // V5.0.6651 §RECONCILED_ACCOUNT_REQUIRED_FOR_LEARNING — clean
+        //   identity alone cannot bypass failed/unavailable account
+        //   reconciliation. Any learning consumer refuses delivery
+        //   while UnifiedAccountSnapshot6635 status is not RECONCILED.
+        //   Dashboard (non-learning) is exempt and always receives.
+        //   Placed AFTER the quarantine ack so a quarantined mint's
+        //   handled-no-mutation return is preserved (test contract).
+        if (consumer !in NON_LEARNING_CONSUMERS) {
+            val recStatus6651 = try {
+                UnifiedAccountSnapshot6635.lastSnapshot().status
+            } catch (_: Throwable) { UnifiedAccountSnapshot6635.Status.WARMUP }
+            if (recStatus6651 != UnifiedAccountSnapshot6635.Status.RECONCILED) {
+                try {
+                    PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_REFUSED_UNRECONCILED_${consumer}_6651".take(60))
+                    ForensicLogger.lifecycle(
+                        "FINALIZED_CONSUMER_REFUSED_UNRECONCILED_6651",
+                        "consumer=$consumer positionId=${env.positionId.take(24)} " +
+                            "reconciliationStatus=$recStatus6651 " +
+                            "action=learners_refuse_delivery_until_reconciled",
+                    )
+                } catch (_: Throwable) {}
+                return false
+            }
+        }
         val ok = when (consumer) {
             "RewardPurity"       -> deliverToRewardPurity(env)
             "LearnerRewardBridge" -> deliverToLearnerRewardBridge(env)
