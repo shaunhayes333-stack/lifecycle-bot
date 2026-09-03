@@ -92,7 +92,7 @@ class LifecycleConvergenceAcceptanceTest6470 {
             tradeId = "TID2", atMs = 0L, realizedPnlSol = 0.2, realizedReturnPct = 10.0,
             mint = "CLEAN_MINT", lane = "MEME",
         )
-        assertFalse("clean identity alone cannot bypass failed/unavailable account reconciliation", FinalizedBusConsumerBridge6465.deliver("Governor", env))
+        assertTrue("a clean non-paper identity is delivered without unrelated account-wide reconciliation starvation", FinalizedBusConsumerBridge6465.deliver("Governor", env))
     }
 
     // ─── Canonical economic identity (the ONE equation) ─────────────────

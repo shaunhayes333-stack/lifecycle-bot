@@ -60,12 +60,6 @@ class BusFanoutAndAutoHealAcceptanceTest6465 {
     @Test
     fun `FinalizedBusConsumerBridge6465 deliver returns true for known consumers`() {
         FinalizedBusConsumerBridge6465.resetForTest()
-        // V5.0.6651a — the bridge added a RECONCILED_ACCOUNT_REQUIRED
-        //   gate; in an empty test env one snapshot read forces
-        //   reconcile6635 which returns RECONCILED for a zeroed
-        //   ledger/journal state.  Without this, WARMUP status
-        //   refuses every learning consumer.
-        try { com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.read("test-bus-fanout") } catch (_: Throwable) {}
         val env = CanonicalFinalizedTradeBus6464.Envelope(
             tradeId = "T_${System.nanoTime()}", atMs = 0L,
             realizedPnlSol = -0.02, realizedReturnPct = -10.0,
