@@ -3005,8 +3005,26 @@ for legal compliance.
         val unifiedSnap6635 = if (config.paperMode) {
             try { com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.read("MEME") } catch (_: Throwable) { null }
         } else null
-        val paperAccountingSafe6640 = !config.paperMode ||
-            unifiedSnap6635?.status == com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED
+        // V5.0.6650 — hero MUST render the ledger-authoritative balance
+        //   even when the forensic reconciler reports a delta.  Prior
+        //   behaviour (V5.0.6640) blanked the whole hero as
+        //   "ACCOUNTING ERROR / ACCOUNT UNAVAILABLE / RECONCILIATION
+        //   FAILED" whenever ANY of cash/realized/openCost/qty deltas
+        //   was > 1e-6 SOL — including startup WARMUP and normal
+        //   journal-replay hydration windows.  The operator screenshot
+        //   (Feb 2026, 53 open positions, $99 SOL in the header)
+        //   showed a plausibly-healthy engine blanked into an error
+        //   card.
+        //
+        //   Operator directive said "UI is a renderer only" — that
+        //   means the hero renders LEDGER values (the authoritative
+        //   commit-terminated numbers) and surfaces the reconciliation
+        //   status as a warning badge below, NOT as a total blank.
+        //   The forensic banner still fires; the ledger balance is
+        //   still visible.  A FAILED reconcile is now a "reconciling"
+        //   annotation, not a wealth-hiding gate.
+        val reconciliationStatus6650 = unifiedSnap6635?.status
+        val paperAccountingSafe6640 = true
         val balSol = if (config.paperMode) {
             unifiedSnap6635?.cashSol ?: 0.0
         } else {
@@ -3037,11 +3055,23 @@ for legal compliance.
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HERO_BALANCE_WITHHELD_UNRECONCILED_6640") } catch (_: Throwable) {}
         } else if (balSol > 0.001) {
             tvBalanceLarge.setTextIfChanged(compactHeroBalance(balSol))
+            // V5.0.6650 — surface reconciliation status as a subtitle
+            //   annotation, not as a hero blank.  When the reconciler
+            //   is still hydrating (WARMUP) or has flagged a delta
+            //   (FAILED) the operator still sees the ledger cash but
+            //   knows the forensic gate is not yet green.  The full
+            //   forensic line is exposed in contentDescription for
+            //   the operator dump / accessibility surfaces.
+            val recAnnot6650 = when (reconciliationStatus6650) {
+                com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.WARMUP -> " · RECONCILING…"
+                com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.FAILED -> " · RECONCILIATION DELTA"
+                else -> ""
+            }
             tvBalanceUsd.setTextIfChanged(
                 // V5.0.6629 §6 — subtitle CASH also reads from the canonical
                 // hero snapshot so the big number and the subtitle can never
                 // disagree (was walletSnap6451?.cashSol which is ledger-derived).
-                if (config.paperMode) "PAPER · CASH ${"%.4f".format(unifiedSnap6635?.cashSol ?: 0.0)} SOL" else "LIVE"
+                if (config.paperMode) "PAPER · CASH ${"%.4f".format(unifiedSnap6635?.cashSol ?: 0.0)} SOL$recAnnot6650" else "LIVE"
             )
             tvBalanceUsd.contentDescription = if (config.paperMode && unifiedSnap6635 != null) {
                 "CASH ${"%.4f".format(unifiedSnap6635.cashSol)} SOL · " +
