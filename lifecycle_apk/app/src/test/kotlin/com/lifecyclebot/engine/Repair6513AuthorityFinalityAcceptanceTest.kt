@@ -33,13 +33,15 @@ class Repair6513AuthorityFinalityAcceptanceTest {
         val staleVerdict = ExecutableOpenGate.canOpenExecutablePosition(
             mint, "RICK", 90, "PAPER", "STANDARD", "test.stale.standard.dispatch",
             liveLiquidityUsd = 5_000.0, liveSafetyTier = "SAFE", preResolvedSizeSol6490 = 0.05,
+            electedLane6494 = "PROJECT_SNIPER", electedCandidateVersion6494 = cv,
         )
         assertFalse(staleVerdict.allowed)
-        assertEquals("PRIMARY_PROJECT_SNIPER_LOST_STANDARD", staleVerdict.reason)
-        assertEquals("EXEC_OPEN_DEDUP_LANE_CONTENTION", staleVerdict.logName)
+        assertEquals("IMMUTABLE_ELECTION_LANE_MISMATCH", staleVerdict.reason)
+        assertEquals("IMMUTABLE_ELECTION_LANE_MISMATCH_6653", staleVerdict.logName)
         val verdict = ExecutableOpenGate.canOpenExecutablePosition(
             mint, "RICK", 90, "PAPER", "PROJECT_SNIPER", "test.same.lane.dispatch",
             liveLiquidityUsd = 5_000.0, liveSafetyTier = "SAFE", preResolvedSizeSol6490 = 0.05,
+            electedLane6494 = "PROJECT_SNIPER", electedCandidateVersion6494 = cv,
         )
         assertTrue("${verdict.reason} active=${ExecutableOpenGate.activeExecutionIntent6519("PAPER", mint, cv)}", verdict.allowed)
         val ticket = requireNotNull(ExecutableOpenGate.ticketForAttempt(verdict.attemptId))
