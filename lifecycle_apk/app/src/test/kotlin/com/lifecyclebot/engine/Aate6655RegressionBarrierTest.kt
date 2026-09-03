@@ -63,4 +63,29 @@ class Aate6655RegressionBarrierTest {
         val readBody = account.substring(account.indexOf("fun read("), account.indexOf("fun lastSnapshot"))
         assertFalse(readBody.contains("ForensicReconciliation6635.reconcile6635()"))
     }
+
+    @Test
+    fun `v3 scores before the canonical trunk and sizing bounds cannot invert`() {
+        val bot = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val executor = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val v3Manager = File("src/main/kotlin/com/lifecyclebot/v3/V3EngineManager.kt").readText()
+        val v3Init = bot.substring(bot.indexOf("V3EngineManager.initialize"), bot.indexOf("val v3Status"))
+        assertTrue(v3Init.contains("onExecute = null"))
+        assertFalse(v3Init.contains("runV3Execution(req)"))
+        assertTrue(v3Manager.contains("TradeExecutor.executeCallback = null"))
+        assertTrue(bot.contains("executionAttemptId = sealedIntent6655.attemptId"))
+        assertTrue(executor.contains("val effectiveLower4129 = requestedLower4129.coerceAtMost(effectiveUpper4129)"))
+        assertFalse(executor.contains(".coerceIn(maxOf(relMinSol4129, absMinSol4129), upperCap4129 * laneTilt4132)"))
+    }
+
+    @Test
+    fun `service never covers the app with an unsolicited battery settings dialog`() {
+        val bot = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val check = bot.substring(
+            bot.indexOf("private fun checkAndPromptBatteryOptimisation"),
+            bot.indexOf("fun isBatteryOptWhitelisted"),
+        )
+        assertFalse(check.contains("startActivity("))
+        assertTrue(check.contains("BATTERY_OPT_PROMPT_DEFERRED_TO_USER_6655"))
+    }
 }

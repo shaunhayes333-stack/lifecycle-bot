@@ -9494,6 +9494,7 @@ class Executor(
         walletTotalTrades: Int = 0,
         tradeIdentity: TradeIdentity? = null,
         fdgApprovalClass: FinalDecisionGate.ApprovalClass? = null,
+        executionAttemptId: String = "",
     ) {
         normalizePositionScaleIfNeeded(ts)
         val identity = tradeIdentity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
@@ -9917,7 +9918,8 @@ class Executor(
         )
         
         val skipGraduated = fdgApprovedSize != null
-        doBuy(ts, size, decision.entryScore, wallet, walletSol, identity, decision.setupQuality, skipGraduated)
+        doBuy(ts, size, decision.entryScore, wallet, walletSol, identity, decision.setupQuality,
+            skipGraduated, executionAttemptId)
     }
 
     // ── top-up (pyramid add) ─────────────────────────────────────────
@@ -10586,7 +10588,8 @@ class Executor(
                       wallet: SolanaWallet?, walletSol: Double,
                       identity: TradeIdentity? = null,
                       quality: String = "C",
-                      skipGraduated: Boolean = false) {
+                      skipGraduated: Boolean = false,
+                      attemptId: String = "") {
         // V5.0.6504 §6 — ENTRY BRIDGE FUNNEL: FDG_BUY_TO_AUTH edge.
         // Every doBuy call bumps FDG_BUY_TO_AUTH; every early return
         // bumps FDG_BUY_TO_AUTH_DROP_<reason>. Together with the
@@ -11474,8 +11477,29 @@ class Executor(
         } else 0.0
         val relMinSol4129 = sol * liveFloorMult
         val upperCap4129 = sol * winnerMaxBoost * gooseUpperMult4129
-        val effSolRaw = (sol * multiplierProduct * laneTilt4132 * bridgeMult4132).coerceIn(maxOf(relMinSol4129, absMinSol4129), upperCap4129 * laneTilt4132)
-        if (absMinSol4129 > 0.0 && (sol * multiplierProduct) < absMinSol4129) {
+        // V5.0.6655 — the money-mode floor is aspirational; the risk ceiling
+        // is authoritative. Smoke 3075 proved small V3 sizes could produce
+        // lower=0.06 and upper≈0.01, throwing on every empty coerceIn range.
+        val effectiveUpper4129 = (upperCap4129 * laneTilt4132)
+            .takeIf { it.isFinite() && it > 0.0 }
+            ?: 0.0
+        val requestedLower4129 = maxOf(relMinSol4129, absMinSol4129)
+            .takeIf { it.isFinite() && it > 0.0 }
+            ?: 0.0
+        val effectiveLower4129 = requestedLower4129.coerceAtMost(effectiveUpper4129)
+        if (requestedLower4129 > effectiveUpper4129) {
+            try {
+                ForensicLogger.lifecycle(
+                    "SIZING_FLOOR_CAPPED_BY_RISK_CEILING_6655",
+                    "symbol=${ts.symbol} lane=$laneTag requestedFloor=${requestedLower4129.fmt(4)} riskCeiling=${effectiveUpper4129.fmt(4)} base=${sol.fmt(4)} action=ceiling_wins_no_promotion",
+                )
+                PipelineHealthCollector.labelInc("SIZING_FLOOR_CAPPED_BY_RISK_CEILING_6655")
+            } catch (_: Throwable) {}
+        }
+        val effSolRaw = (sol * multiplierProduct * laneTilt4132 * bridgeMult4132)
+            .coerceIn(effectiveLower4129, effectiveUpper4129)
+        if (absMinSol4129 > 0.0 && (sol * multiplierProduct) < absMinSol4129 &&
+            requestedLower4129 <= effectiveUpper4129) {
             try { ForensicLogger.lifecycle("MONEY_MODE_ABS_FLOOR_LIFT_6082", "symbol=${ts.symbol} lane=$laneTag mode=${if (RuntimeModeAuthority.isPaper()) "paper" else "live"} goose=${gooseVerdict4129.name} raw=${(sol*multiplierProduct).fmt(4)} → lift=${absMinSol4129.fmt(4)} wallet=${walletSol.fmt(3)}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("MONEY_MODE_ABS_FLOOR_LIFT_6082_${gooseVerdict4129.name}") } catch (_: Throwable) {}
         }
@@ -11526,7 +11550,8 @@ class Executor(
         }
         ErrorLogger.info("Executor", "🧬 MEME_SPINE DO_BUY_ROUTE ${ts.symbol} | route=$spineRoute | authPaper=$isPaperMode | walletLoaded=${wallet != null} | size=${effSol.fmt(4)} | walletSol=${walletSol.fmt(4)}")
         if (isPaperMode) {
-            paperBuy(ts, effSol, score, tradeId, quality, skipGraduated, wallet, walletSol)
+            paperBuy(ts, effSol, score, tradeId, quality, skipGraduated, wallet, walletSol,
+                attemptId = attemptId)
         } else if (wallet == null) {
             ErrorLogger.error("Executor",
                 "🚫 MEME_SPINE LIVE_BUY_REFUSED: ${ts.symbol} — config is LIVE but wallet is NULL. Refusing to fall back to paperBuy.")
@@ -11607,6 +11632,7 @@ class Executor(
                         quality = quality,
                         skipGraduated = skipGraduated,
                         layerTag = laneTag.takeIf { it.isNotBlank() && it != "STANDARD" } ?: "",
+                        attemptId = attemptId,
                     )
                     val pendingLiveCommit = try {
                         !ts.position.isPaperPosition && ts.position.pendingVerify && ts.position.qtyToken > 0.0 && ts.position.costSol > 0.0

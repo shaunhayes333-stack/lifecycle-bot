@@ -5640,12 +5640,10 @@ class BotService : Service() {
         loopHeartbeatJob = null
         scheduleLoopHeartbeatAlarm()
 
-        // V5.9.675 — battery-optimisation gate. Even with a foreground
-        // service + PARTIAL_WAKE_LOCK, Doze suspends the process unless
-        // the user has explicitly whitelisted the app. Check on every
-        // start and broadcast the result so MainActivity can surface
-        // a banner. On the first start where the app is NOT whitelisted,
-        // we also kick the system dialog so the user can fix it in one tap.
+        // V5.9.675/V5.0.6655 — battery-optimisation status. Check on every
+        // start so MainActivity can surface its user-operated banner. Never
+        // open Settings from the service: that covers AATE's controls and
+        // made the runtime/UI smoke unable to stop or restart the bot.
         try { checkAndPromptBatteryOptimisation() } catch (e: Throwable) {
             ErrorLogger.warn("BotService", "battery-opt check failed: ${e.message}")
         }
@@ -6775,31 +6773,14 @@ class BotService : Service() {
             try {
                 com.lifecyclebot.v3.V3EngineManager.initialize(
                     botCfg = cfg,
-                    // V5.9.669 — operator regression fix.
-                    //   V3 is a MAIN TRADER (wired to the learning loop)
-                    //   and was previously passed onExecute=null with the
-                    //   wrong assumption that 'V3 doesn't execute directly'.
-                    //   Result: every V3 EXECUTE_AGGRESSIVE decision threw
-                    //   'No execution callback configured' and trades fell
-                    //   back to legacy traders (ShitCoinAI / MoonshotAI)
-                    //   which execute at a fraction of V3's intended size
-                    //   and are NOT wired into the V3 learning loop. V3
-                    //   was learning nothing because nothing was reaching
-                    //   its outcome tracker.
-                    //
-                    //   Now: route V3's execution requests to the real
-                    //   executor.doBuy() at V3's chosen size. The same
-                    //   wallet/walletSol resolution used by manualBuy
-                    //   (V5.9.495o pattern) so live mode picks the cached
-                    //   balance and paper mode reads CashGenerationAI.
-                    //   Legacy traders continue feeding signals INTO V3's
-                    //   scoring matrix as designed, but V3 owns the
-                    //   execution side. Existing V3_EXECUTE_SAME_TICK
-                    //   guards prevent legacy from double-trading the
-                    //   same token in the same tick.
-                    onExecute = { req ->
-                        runV3Execution(req)
-                    },
+                    // V5.0.6655 — V3 produces a decision here; it must not
+                    // transact from inside processToken(). The old callback
+                    // called runV3Execution/doBuy before processToken returned,
+                    // therefore before the canonical FDG decision and immutable
+                    // execution intent existed. The later canonical trunk owns
+                    // the single transaction and records V3 learning only after
+                    // a canonical position is confirmed open.
+                    onExecute = null,
                     onLog = { msg, mint -> addLog("⚡ $msg", mint) }
                 )
                 
@@ -8535,25 +8516,14 @@ class BotService : Service() {
         }
         ErrorLogger.warn(
             "BotService",
-            "⚠️ Battery optimisation NOT whitelisted — Doze will suspend bot loop on screen-off. Prompting user."
+            "⚠️ Battery optimisation NOT whitelisted — Doze may suspend the bot loop on screen-off. Waiting for explicit banner tap."
         )
         addLog("⚠️ Battery optimisation must be disabled for 24/7 trading. Tap the banner to fix.")
-        // Fire the system dialog at most once per process start. The dialog
-        // launches the per-app exemption screen; on Samsung this is a
-        // confirmation popup with "Allow" / "Cancel".
-        val prefs = getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
-        val alreadyPromptedThisSession = prefs.getBoolean("battery_opt_prompted_session", false)
-        if (alreadyPromptedThisSession) return
-        try {
-            @android.annotation.SuppressLint("BatteryLife")
-            val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
-                .setData(android.net.Uri.parse("package:$packageName"))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            startActivity(intent)
-            prefs.edit().putBoolean("battery_opt_prompted_session", true).apply()
-        } catch (e: Throwable) {
-            ErrorLogger.warn("BotService", "Battery-opt prompt failed: ${e.message}")
-        }
+        // Never launch Settings from a service start. Smoke 3077 proved this
+        // stole foreground ownership from MainActivity, making every AATE
+        // control/window appear missing. MainActivity already exposes the
+        // exemption action behind an explicit banner tap.
+        try { PipelineHealthCollector.labelInc("BATTERY_OPT_PROMPT_DEFERRED_TO_USER_6655") } catch (_: Throwable) {}
     }
 
     /** V5.9.675 — read-only accessor used by MainActivity for the banner. */
@@ -25672,6 +25642,9 @@ if (hotExitHandledSweep) {
         var useV3Decision = false
         var v3SizeSol = 0.0
         var v3Thesis = ""
+        var v3ScoreForLearning6655 = ts.lastV3Score ?: ts.entryScore.toInt()
+        var v3BandForLearning6655 = "V3"
+        var v3ConfidenceForLearning6655 = 0.0
         var v3ControlsExecution = false  // V3 is the boss when enabled
         
         if (cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()) {
@@ -25734,6 +25707,9 @@ if (hotExitHandledSweep) {
                                 useV3Decision = true
                                 v3SizeSol = result.sizeSol
                                 v3Thesis = "V3 score=${result.score} band=${result.band}"
+                                v3ScoreForLearning6655 = result.score
+                                v3BandForLearning6655 = result.band
+                                v3ConfidenceForLearning6655 = result.confidence
                                 addLog("⚡ V3+FDG: ${identity.symbol} | ${result.band} | " +
                                     "${v3SizeSol.fmt(4)} SOL | conf=${result.confidence.toInt()}%", mint)
                             }
@@ -25791,6 +25767,9 @@ if (hotExitHandledSweep) {
                                 useV3Decision = true
                                 v3SizeSol = probeSize
                                 v3Thesis = "V3-WATCH-COMPOUND-FLOOR score=${result.score} conf=${result.confidence} (FDG=green, V3 shrunk then floor-aware)"
+                                v3ScoreForLearning6655 = result.score
+                                v3BandForLearning6655 = "WATCH_COMPOUND"
+                                v3ConfidenceForLearning6655 = result.confidence.toDouble()
                                 ErrorLogger.info("BotService", "⚡ V3 WATCH→COMPOUND: ${identity.symbol} | size=${probeSize.fmt(4)} SOL raw=${rawProbeSize.fmt(4)} (FDG approved)")
                                 addLog("⚡ V3 WATCH→COMPOUND: ${identity.symbol} | score=${result.score} | ${probeSize.fmt(4)} SOL", mint)
                             } else {
@@ -25861,6 +25840,9 @@ if (hotExitHandledSweep) {
                                     useV3Decision = true
                                     v3SizeSol = bridgeSize
                                     v3Thesis  = "MemeBridge tech=${verdict.techScore} v3=${verdict.v3Score} blend=${verdict.blendedScore} mult=${"%.2f".format(verdict.trustMultiplier)} mode=${if (cfg.paperMode) "paper" else "live-learning"}"
+                                    v3ScoreForLearning6655 = verdict.v3Score
+                                    v3BandForLearning6655 = "MEME_BRIDGE"
+                                    v3ConfidenceForLearning6655 = verdict.blendedScore.toDouble()
                                     ErrorLogger.info("BotService", "🌉 BRIDGE OVERRIDE on V3-REJECT: ${identity.symbol} | $v3Thesis")
                                     addLog("🌉 Bridge BUY: ${identity.symbol} | tech=${verdict.techScore} blend=${verdict.blendedScore} | ${bridgeSize} SOL", mint)
                                     }
@@ -26098,6 +26080,7 @@ if (hotExitHandledSweep) {
                         fields = "size=${actualInitialSize.fmt(4)} v3=$useV3Decision conf=${if (useV3Decision) 0 else fdgDecision.confidence.toInt()}"
                     )
                 } catch (_: Throwable) {}
+                val wasOpenBeforeCanonicalAttempt6655 = executor.positionDidOpen(ts)
                 executor.maybeActWithDecision(
                     ts                 = ts,
                     decision           = decision,
@@ -26114,10 +26097,25 @@ if (hotExitHandledSweep) {
                     } catch (_: Exception) { 0 },
                     tradeIdentity      = identity,  // Pass canonical identity
                     fdgApprovalClass   = approvalClass,  // Pass approval class for learning
+                    executionAttemptId = sealedIntent6655.attemptId,
                 )
                 
-                // Record V3 position opened
-                if (useV3Decision) {
+                // Record V3 learning only after this exact canonical attempt
+                // created a new open. Routed/blocked attempts are not trades.
+                val didOpenAfterCanonicalAttempt6655 = executor.positionDidOpen(ts)
+                if (useV3Decision && !wasOpenBeforeCanonicalAttempt6655 && didOpenAfterCanonicalAttempt6655) {
+                    com.lifecyclebot.v3.V3EngineManager.recordEntry(
+                        mint = identity.mint,
+                        symbol = identity.symbol,
+                        entryPrice = ts.position.entryPrice,
+                        sizeSol = ts.position.costSol.takeIf { it > 0.0 } ?: actualInitialSize,
+                        v3Score = v3ScoreForLearning6655,
+                        v3Band = v3BandForLearning6655,
+                        v3Confidence = v3ConfidenceForLearning6655,
+                        source = ts.source,
+                        liquidityUsd = ts.lastLiquidityUsd,
+                        isPaper = cfg.paperMode,
+                    )
                     com.lifecyclebot.v3.V3EngineManager.setCooldown(identity.mint, 60_000L)
                 }
             }
