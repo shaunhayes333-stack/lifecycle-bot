@@ -24791,43 +24791,10 @@ if (hotExitHandledSweep) {
                             }
                         }
 
-                        // V5.2: MUST check TradeAuthorizer BEFORE any execution
-                        val authResult = TradeAuthorizer.authorize(
-                            mint = ts.mint,
-                            symbol = identity.symbol,
-                            score = result.score,
-                            confidence = result.confidence.toDouble(),
-                            quality = decision.finalQuality,
-                            isPaperMode = cfg.paperMode,
-                            requestedBook = TradeAuthorizer.ExecutionBook.CORE,
-                            rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
-                            liquidity = ts.lastLiquidityUsd,
-                            isBanned = BannedTokens.isBanned(ts.mint),
-                            preResolvedSizeSol = result.sizeSol,
-                        )
-                        
-                        if (!authResult.isExecutable()) {
-                            // NOT AUTHORIZED - log and skip execution
-                            if (authResult.isShadowOnly()) {
-                                ErrorLogger.info("BotService", "[V3|AUTH] ${identity.symbol} | SHADOW_ONLY | ${authResult.reason}")
-                                // Track for shadow learning
-                                ShadowLearningEngine.onFdgBlockedTrade(
-                                    mint = ts.mint,
-                                    symbol = identity.symbol,
-                                    blockReason = "V3_AUTH_SHADOW_${authResult.reason}",
-                                    blockLevel = "TRADE_AUTHORIZER",
-                                    currentPrice = ts.ref,
-                                    proposedSizeSol = result.sizeSol,
-                                    quality = decision.finalQuality,
-                                    confidence = result.confidence.toDouble(),
-                                    phase = decision.phase,
-                                )
-                            } else {
-                                ErrorLogger.info("BotService", "[V3|AUTH] ${identity.symbol} | REJECTED | ${authResult.reason}")
-                                RejectionTelemetry.record("V3_AUTH", authResult.reason)
-                            }
-                        } else {
-                            // AUTHORIZED - proceed with execution
+                        // V5.0.6656 — this active V3 branch returns before the
+                        // later canonical trunk. Authorization therefore belongs
+                        // after this branch's own FDG intent is sealed below.
+                        run {
                             // V3 CONTROLS EXECUTION
                             val v3SizeSol = result.sizeSol
                             val v3Thesis = "V3 score=${result.score} band=${result.band}"
@@ -25027,6 +24994,44 @@ if (hotExitHandledSweep) {
                             }
                             if (v3Fdg6533.sizeSol > 0.0) proposedSize = v3Fdg6533.sizeSol
                             val v3AttemptId = v3Intent6533.attemptId
+                            // V5.0.6656 — consume the exact intent just sealed by
+                            // this FDG evaluation. The former pre-FDG call above
+                            // could only reject with missing execution intent.
+                            val sealedV3Auth6656 = TradeAuthorizer.authorize(
+                                mint = ts.mint,
+                                symbol = identity.symbol,
+                                score = result.score,
+                                confidence = result.confidence.toDouble(),
+                                quality = decision.finalQuality,
+                                isPaperMode = cfg.paperMode,
+                                requestedBook = executionBookForLane6494(cyclePrimaryLane),
+                                rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
+                                liquidity = ts.lastLiquidityUsd,
+                                isBanned = BannedTokens.isBanned(ts.mint),
+                                preResolvedSizeSol = proposedSize,
+                                attemptId = v3AttemptId,
+                            )
+                            if (!sealedV3Auth6656.isExecutable()) {
+                                if (sealedV3Auth6656.isShadowOnly()) {
+                                    ErrorLogger.info("BotService", "[V3|AUTH] ${identity.symbol} | SHADOW_ONLY | ${sealedV3Auth6656.reason}")
+                                    ShadowLearningEngine.onFdgBlockedTrade(
+                                        mint = ts.mint,
+                                        symbol = identity.symbol,
+                                        blockReason = "V3_AUTH_SHADOW_${sealedV3Auth6656.reason}",
+                                        blockLevel = "TRADE_AUTHORIZER",
+                                        currentPrice = ts.ref,
+                                        proposedSizeSol = proposedSize,
+                                        quality = decision.finalQuality,
+                                        confidence = result.confidence.toDouble(),
+                                        phase = decision.phase,
+                                    )
+                                } else {
+                                    ErrorLogger.info("BotService", "[V3|AUTH] ${identity.symbol} | REJECTED | ${sealedV3Auth6656.reason}")
+                                    RejectionTelemetry.record("V3_AUTH", sealedV3Auth6656.reason)
+                                }
+                                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, cyclePrimaryLane, "V3_AUTH_REJECT_6656") } catch (_: Throwable) {}
+                                return
+                            }
                             ErrorLogger.info("BotService", "[EXECUTION] ${identity.symbol} | ${if (cfg.paperMode) "PAPER" else "LIVE"}_BUY | ${proposedSize.fmt(4)} SOL")
                             
                             // Record proposal for dedupe
@@ -25049,7 +25054,7 @@ if (hotExitHandledSweep) {
                         )
                         
                         addLog("⚡ V3 EXECUTE: ${identity.symbol} | ${result.band} | ${proposedSize.fmt(4)} SOL", ts.mint)
-                        } // end authResult.isExecutable() else block
+                        } // end sealed V3 FDG → intent → authorization → execution
                     } else {
                         // Shadow mode - log only
                         ErrorLogger.info("BotService", "[SHADOW] ${identity.symbol} | WOULD_EXECUTE | ${result.band} | ${result.sizeSol.fmt(4)} SOL")

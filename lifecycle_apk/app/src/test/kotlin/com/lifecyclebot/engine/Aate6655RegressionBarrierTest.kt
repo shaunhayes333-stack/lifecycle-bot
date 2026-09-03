@@ -47,6 +47,19 @@ class Aate6655RegressionBarrierTest {
         assertTrue(seal >= 0 && auth > seal)
         val authEnd = bot.indexOf("ErrorLogger.info", auth)
         assertTrue(bot.substring(auth, authEnd).contains("attemptId = sealedIntent6655.attemptId"))
+
+        // V3-enabled runs return before the newer trunk above. Guard the
+        // actually active V3 path independently so this ordering cannot
+        // regress behind a passing test of unreachable code.
+        val activeV3 = bot.indexOf("V5.0.6656 — this active V3 branch")
+        val activeSeal = bot.indexOf("val v3Intent6533 = ExecutableOpenGate.recordFdgAndGetIntent6533", activeV3)
+        val activeAuth = bot.indexOf("val sealedV3Auth6656 = TradeAuthorizer.authorize", activeSeal)
+        assertTrue(activeV3 >= 0 && activeSeal > activeV3 && activeAuth > activeSeal)
+        assertFalse(bot.substring(activeV3, activeSeal).contains("TradeAuthorizer.authorize("))
+        val activeAuthEnd = bot.indexOf("if (!sealedV3Auth6656.isExecutable())", activeAuth)
+        val activeAuthBody = bot.substring(activeAuth, activeAuthEnd)
+        assertTrue(activeAuthBody.contains("attemptId = v3AttemptId"))
+        assertTrue(activeAuthBody.contains("requestedBook = executionBookForLane6494(cyclePrimaryLane)"))
     }
 
     @Test
