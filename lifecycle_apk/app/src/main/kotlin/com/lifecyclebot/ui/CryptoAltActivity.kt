@@ -684,12 +684,12 @@ class CryptoAltActivity : AppCompatActivity() {
 
                 // Logo
                 val dynTok = pos.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
-                    ?: if (pos.dynMint == null) DynamicAltTokenRegistry.getTokenBySymbol(pos.market.symbol) else null
+                    ?: if (pos.dynMint == null) DynamicAltTokenRegistry.getTokenBySymbol(pos.marketSymbol) else null
                 val logoUrl2 = when {
                     dynTok != null && dynTok.mint.length > 20 && !dynTok.mint.startsWith("static:") && !dynTok.mint.startsWith("cg:") ->
                         "https://cdn.dexscreener.com/tokens/solana/${dynTok.mint}.png"
                     dynTok?.logoUrl?.isNotBlank() == true -> dynTok.logoUrl
-                    else -> DynamicAltTokenRegistry.getCoinGeckoLogoUrl(pos.market.symbol)
+                    else -> DynamicAltTokenRegistry.getCoinGeckoLogoUrl(pos.marketSymbol)
                 }
                 val logoImg2 = android.widget.ImageView(this).apply {
                     val sz = (36 * resources.displayMetrics.density).toInt()
@@ -1948,7 +1948,10 @@ class CryptoAltActivity : AppCompatActivity() {
         val change    = tok.priceChange24h
         val changeCol = if (change >= 0) green else red
         val openPos   = CryptoAltTrader.getAllPositions().filter {
-            it.closeTime == null && it.market.symbol.equals(tok.symbol, ignoreCase = true)
+            it.closeTime == null && (
+                it.canonicalAssetKey.equals(tok.canonicalIdentity6544, ignoreCase = true) ||
+                (it.dynMint != null && it.dynMint.equals(tok.mint, ignoreCase = true))
+            )
         }
         val hasPos = openPos.isNotEmpty()
 
@@ -2927,7 +2930,11 @@ class CryptoAltActivity : AppCompatActivity() {
                 val tok  = DynamicAltTokenRegistry.getTokenByMint(item.assetId)
                 val chg  = tok?.priceChange24h ?: item.change24hPct
                 val col  = if (chg >= 0) green else red
-                val pos  = openPositions.filter { it.market.symbol.equals(sym, ignoreCase = true) }
+                val watchIdentity = tok?.canonicalIdentity6544 ?: item.assetId
+                val pos  = openPositions.filter {
+                    it.canonicalAssetKey.equals(watchIdentity, ignoreCase = true) ||
+                        (it.dynMint != null && it.dynMint.equals(item.assetId, ignoreCase = true))
+                }
                 val hasP = pos.isNotEmpty()
 
                 val wCard = LinearLayout(this).apply {
@@ -3067,7 +3074,7 @@ class CryptoAltActivity : AppCompatActivity() {
                     background = try { ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.card_selected_bg) } catch (_: Exception) { null.also { setBackgroundColor(0xFF0D1F2D.toInt()) } }
                 }
                 pCard.addView(TextView(this).apply {
-                    text = pos.market.symbol; textSize = 12f * scaleFactor
+                    text = pos.marketSymbol; textSize = 12f * scaleFactor
                     setTextColor(white); typeface = android.graphics.Typeface.DEFAULT_BOLD
                 })
                 pCard.addView(TextView(this).apply {
@@ -3206,12 +3213,12 @@ class CryptoAltActivity : AppCompatActivity() {
         val valueUsd = (pos.sizeSol + pnlSol) * solPrice
 
         val dynTok  = pos.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
-            ?: if (pos.dynMint == null) DynamicAltTokenRegistry.getTokenBySymbol(pos.market.symbol) else null
+            ?: if (pos.dynMint == null) DynamicAltTokenRegistry.getTokenBySymbol(pos.marketSymbol) else null
         val logoUrl = when {
             dynTok != null && dynTok.mint.length > 20 && !dynTok.mint.startsWith("static:") && !dynTok.mint.startsWith("cg:") ->
                 "https://cdn.dexscreener.com/tokens/solana/${dynTok.mint}.png"
             dynTok?.logoUrl?.isNotBlank() == true -> dynTok.logoUrl
-            else -> DynamicAltTokenRegistry.getCoinGeckoLogoUrl(pos.market.symbol)
+            else -> DynamicAltTokenRegistry.getCoinGeckoLogoUrl(pos.marketSymbol)
         }
 
         val outer = LinearLayout(this).apply {
@@ -3251,7 +3258,7 @@ class CryptoAltActivity : AppCompatActivity() {
 
         // Line 1: SYMBOL  ↑/↓ LEVx  [SPOT/LEV badge]
         val line1 = hBox(0, 0, 0).apply { gravity = Gravity.CENTER_VERTICAL }
-        line1.addView(tv(pos.market.symbol, 13f, white, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
+        line1.addView(tv(pos.marketSymbol, 13f, white, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
         // Direction pill
         val dirColor = if (pos.direction == com.lifecyclebot.perps.PerpsDirection.LONG) 0xFF10B981.toInt() else 0xFFEF4444.toInt()
         line1.addView(tv("${pos.direction.emoji} ${pos.leverageLabel}", 10f, dirColor, bold = true).apply {
@@ -3269,7 +3276,9 @@ class CryptoAltActivity : AppCompatActivity() {
         centre.addView(line1)
 
         // Line 2: entry → current  ·  Xm ago
-        val curStr   = if (dynTok != null && dynTok.price > 0) fmtPrice(dynTok.price) else fmtPrice(pos.currentPrice)
+        // Render the same validated position mark used by PnL.  Registry metadata
+        // is never allowed to paint a different instrument's price beside it.
+        val curStr   = fmtPrice(pos.currentPrice)
         val elapsed  = (System.currentTimeMillis() - pos.openTime) / 60_000
         val timeStr  = if (elapsed < 60) "${elapsed}m" else if (elapsed < 1440) "${elapsed / 60}h" else "${elapsed / 1440}d"
         centre.addView(tv("${fmtPrice(pos.entryPrice)} → $curStr  ·  $timeStr", 10f, muted, mono = true))
@@ -3362,7 +3371,7 @@ class CryptoAltActivity : AppCompatActivity() {
             dynTok != null && dynTok.mint.length > 20 && !dynTok.mint.startsWith("static:") && !dynTok.mint.startsWith("cg:") ->
                 "https://cdn.dexscreener.com/tokens/solana/${dynTok.mint}.png"
             dynTok?.logoUrl?.isNotBlank() == true -> dynTok.logoUrl
-            else -> DynamicAltTokenRegistry.getCoinGeckoLogoUrl(pos.market.symbol)
+            else -> DynamicAltTokenRegistry.getCoinGeckoLogoUrl(pos.marketSymbol)
         }
         val logoImg = android.widget.ImageView(this).apply {
             val sz = (44 * resources.displayMetrics.density).toInt()
@@ -3379,7 +3388,7 @@ class CryptoAltActivity : AppCompatActivity() {
         }
         header.addView(logoImg)
         val titleCol = vBox(0, 0, 0).apply { layoutParams = llp(0, wrap, 1f) }
-        titleCol.addView(tv("${pos.market.symbol}  ${pos.direction.emoji} ${pos.leverageLabel}", 17f, white, bold = true))
+        titleCol.addView(tv("${pos.marketSymbol}  ${pos.direction.emoji} ${pos.leverageLabel}", 17f, white, bold = true))
         titleCol.addView(tv("${if (elapsed < 60) "${elapsed}m" else if (elapsed < 1440) "${elapsed/60}h ${elapsed%60}m" else "${elapsed/1440}d"} open", 10f, muted))
         header.addView(titleCol)
         header.addView(tv("${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%", 20f, pnlColor, bold = true).apply { gravity = Gravity.END })
@@ -3408,7 +3417,7 @@ class CryptoAltActivity : AppCompatActivity() {
                     setDrawAxisLine(false)
                 }
                 // Build price points: entry → current with intermediate steps simulated
-                val currentP = if (dynTok != null && dynTok.price > 0) dynTok.price else pos.currentPrice
+                val currentP = pos.currentPrice
                 val entries  = mutableListOf<com.github.mikephil.charting.data.Entry>()
                 val steps    = 20
                 for (i in 0..steps) {

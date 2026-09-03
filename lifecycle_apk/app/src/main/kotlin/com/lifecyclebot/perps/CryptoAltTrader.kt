@@ -219,6 +219,7 @@ object CryptoAltTrader {
     // collecting honest data. Meme/Perps/RunTracker30D untouched.
     private const val KEY_WR_CONTRACT_MIGRATED_358 = "wr_contract_v358_migrated"
     private const val KEY_LIVE    = "is_live_mode"
+    private const val DYNAMIC_MARK_MAX_AGE_MS_6654 = 10L * 60L * 1000L
 
     // ─── Position model ───────────────────────────────────────────────────────
     data class AltPosition(
@@ -233,6 +234,11 @@ object CryptoAltTrader {
         val isSpot        : Boolean,
         val isPaper       : Boolean,
         val canonicalAssetKey: String,
+        // V5.0.6654 — a DYN sentinel is not an instrument identity.  A mark may
+        // affect PnL/exit/accounting only after the exact canonical asset key has
+        // been resolved.  Legacy rows intentionally restore with a blank key.
+        var markAssetKey  : String = "",
+        var markUpdatedAtMs: Long = 0L,
         val entryPrice    : Double,
         var currentPrice  : Double,
         val sizeSol       : Double,
@@ -257,10 +263,34 @@ object CryptoAltTrader {
         val isDynamic: Boolean get() = market == PerpsMarket.DYN || dynSymbol != null
         val leverageLabel: String get() = if (isSpot) "SPOT" else "${leverage.toInt()}x"
 
+        fun hasTrustedMark(nowMs: Long = System.currentTimeMillis()): Boolean {
+            if (!entryPrice.isFinite() || entryPrice <= 0.0 ||
+                !currentPrice.isFinite() || currentPrice <= 0.0) return false
+            if (!isDynamic) return true
+            val positionKey = canonicalAssetKey.trim().lowercase()
+            val markKey = markAssetKey.trim().lowercase()
+            if (positionKey.isBlank() || markKey.isBlank() || positionKey != markKey) return false
+            return markUpdatedAtMs > 0L &&
+                nowMs - markUpdatedAtMs in 0L..DYNAMIC_MARK_MAX_AGE_MS_6654
+        }
+
         fun getPnlPct(): Double {
-            val diff = currentPrice - entryPrice
-            val dir  = if (direction == PerpsDirection.LONG) 1.0 else -1.0
-            return (diff / entryPrice) * dir * leverage * 100.0
+            if (!hasTrustedMark()) return 0.0
+            val identity = if (isDynamic) canonicalAssetKey else market.name
+            val verdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(
+                entryPrice = entryPrice,
+                currentPrice = currentPrice,
+                entrySource = "CRYPTO_ALT_CANONICAL",
+                currentSource = "CRYPTO_ALT_CANONICAL",
+                entryPool = identity,
+                currentPool = if (isDynamic) markAssetKey else identity,
+                context = "CryptoAltTrader/${marketSymbol}/${canonicalAssetKey.take(24)}",
+                emit = false,
+                mint = canonicalAssetKey,
+            )
+            if (!verdict.ok) return 0.0
+            val dir = if (direction == PerpsDirection.LONG) 1.0 else -1.0
+            return verdict.pnlPct * dir * leverage
         }
 
         fun getPnlSol(): Double = sizeSol * (getPnlPct() / 100.0)
@@ -283,6 +313,8 @@ object CryptoAltTrader {
             .put("isSpot",          p.isSpot)
             .put("isPaper",         p.isPaper)
             .put("canonicalAssetKey", p.canonicalAssetKey)
+            .put("markAssetKey",    p.markAssetKey)
+            .put("markUpdatedAtMs", p.markUpdatedAtMs)
             .put("entryPrice",      p.entryPrice)
             .put("currentPrice",    p.currentPrice)
             .put("sizeSol",         p.sizeSol)
@@ -321,6 +353,8 @@ object CryptoAltTrader {
             isPaper         = j.optBoolean("isPaper", true),
             canonicalAssetKey = j.optString("canonicalAssetKey",
                 j.optString("dynMint", j.optString("dynSymbol", j.optString("market", "UNKNOWN")))),
+            markAssetKey    = j.optString("markAssetKey", ""),
+            markUpdatedAtMs = j.optLong("markUpdatedAtMs", 0L),
             entryPrice      = j.getDouble("entryPrice"),
             currentPrice    = j.getDouble("currentPrice"),
             sizeSol         = j.getDouble("sizeSol"),
@@ -333,6 +367,15 @@ object CryptoAltTrader {
             openTime        = j.optLong("openTime", System.currentTimeMillis()),
         ).apply {
             highestPnlPct = j.optDouble("highestPnlPct", 0.0)
+            // Pre-6654 DYN rows may already contain a sentinel-derived mark.
+            // Neutralise it on restore; the exact-identity monitor will replace
+            // it with a fresh mark before any exit or accounting mutation.
+            if (isDynamic && markAssetKey.isBlank()) {
+                currentPrice = entryPrice
+                highestPnlPct = 0.0
+                markUpdatedAtMs = 0L
+                try { PipelineHealthCollector.labelInc("CRYPTO_DYN_LEGACY_MARK_NEUTRALISED_6654") } catch (_: Throwable) {}
+            }
             val fk = j.optString("flashPositionKey", "")
             if (fk.isNotBlank()) flashPositionKey = fk
         }
@@ -2391,6 +2434,8 @@ object CryptoAltTrader {
             isSpot         = isSpot,
             isPaper        = isPaperMode.get(),
             canonicalAssetKey = candidate.assetKey,
+            markAssetKey   = candidate.assetKey,
+            markUpdatedAtMs= System.currentTimeMillis(),
             entryPrice     = signal.price,
             currentPrice   = signal.price,
             sizeSol        = canonicalFinalSize6570,
@@ -2694,6 +2739,8 @@ object CryptoAltTrader {
     private fun evictStagnantAndLosers() {
         val now = System.currentTimeMillis()
         for ((id, pos) in positions.toMap()) {
+            // A stale/mismatched DYN mark is a HOLD, never a zero-PnL exit.
+            if (pos.isDynamic && !pos.hasTrustedMark(now)) continue
             val holdMs = now - pos.openTime
             val pnlPct = pos.getPnlPct()
 
@@ -2803,18 +2850,62 @@ object CryptoAltTrader {
 
         for ((id, position) in positions.toMap()) {
             try {
-                val data = PerpsMarketDataFetcher.getMarketData(position.market)
-                if (data.price <= 0) continue
+                // V5.0.6654 — never ask PerpsMarketDataFetcher for DYN.  DYN is
+                // one enum sentinel shared by thousands of instruments, so its
+                // enum-keyed cache can only return another asset's quote.
+                val markPrice: Double
+                val validatedMarkKey: String
+                if (position.isDynamic) {
+                    val positionKey = position.canonicalAssetKey.trim()
+                    val resolved = DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(positionKey)
+                        ?: position.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
+                    val identityMatches = resolved != null && (
+                        resolved.canonicalIdentity6544.equals(positionKey, true) ||
+                        resolved.mint.equals(positionKey, true) ||
+                        resolved.tokenAddress.equals(positionKey, true)
+                    )
+                    if (!identityMatches) {
+                        try { PipelineHealthCollector.labelInc("CRYPTO_DYN_MARK_IDENTITY_REJECTED_6654") } catch (_: Throwable) {}
+                        ErrorLogger.warn(TAG, "🪙 DYN MARK BLOCKED: ${position.marketSymbol} positionKey=${positionKey.take(28)} resolved=${resolved?.canonicalIdentity6544?.take(28)}")
+                        continue
+                    }
+                    val ageMs = (System.currentTimeMillis() - resolved!!.lastUpdatedMs).coerceAtLeast(0L)
+                    val refreshedPrice = if (ageMs > 60_000L) {
+                        DynamicAltTokenRegistry.refreshPriceForMintBlocking(resolved.canonicalIdentity6544, forceRefresh = true)
+                    } else resolved.price
+                    val refreshed = DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(resolved.canonicalIdentity6544) ?: resolved
+                    val refreshedAgeMs = (System.currentTimeMillis() - refreshed.lastUpdatedMs).coerceAtLeast(0L)
+                    if (!refreshedPrice.isFinite() || refreshedPrice <= 0.0 ||
+                        refreshedAgeMs > DYNAMIC_MARK_MAX_AGE_MS_6654) {
+                        try { PipelineHealthCollector.labelInc("CRYPTO_DYN_MARK_STALE_OR_MISSING_6654") } catch (_: Throwable) {}
+                        continue
+                    }
+                    markPrice = refreshedPrice
+                    validatedMarkKey = position.canonicalAssetKey
+                } else {
+                    val data = PerpsMarketDataFetcher.getMarketData(position.market)
+                    if (!data.price.isFinite() || data.price <= 0.0) continue
+                    markPrice = data.price
+                    validatedMarkKey = position.market.name
+                }
 
-
-                // V5.9.5 FIX: Spike guard — reject price if >10x or <0.1x entry price.
-                // Prevents false TP/SL triggers from bad API responses.
-                val priceRatio = if (position.entryPrice > 0) data.price / position.entryPrice else 1.0
-                if (priceRatio > 10.0 || priceRatio < 0.1) {
-                    ErrorLogger.warn(TAG, "🪙 SPIKE GUARD: ${position.market.symbol} entry=\$${position.entryPrice} new=\$${data.price} ratio=${"%.2f".format(priceRatio)}x — skipping")
+                // Static enum feeds retain the legacy spike guard.  Exact-identity
+                // dynamic marks may legitimately run beyond 10x and are protected
+                // by the canonical identity/freshness gates above.
+                val priceRatio = if (position.entryPrice > 0) markPrice / position.entryPrice else 1.0
+                if (!position.isDynamic && (priceRatio > 10.0 || priceRatio < 0.1)) {
+                    ErrorLogger.warn(TAG, "🪙 SPIKE GUARD: ${position.marketSymbol} entry=${position.entryPrice} new=$markPrice ratio=${"%.2f".format(priceRatio)}x — skipping")
                     continue
                 }
-                val updated = position.copy(currentPrice = data.price)
+                val updated = position.copy(
+                    currentPrice = markPrice,
+                    markAssetKey = validatedMarkKey,
+                    markUpdatedAtMs = System.currentTimeMillis(),
+                )
+                // Exit functions read the map. Publish the validated tick before
+                // any SL/TP/floor decision so settlement cannot use the old mark.
+                positions[id] = updated
+                if (updated.isSpot) spotPositions[id] = updated else leveragePositions[id] = updated
 
                 // ═══════════════════════════════════════════════════════════════
                 // V5.9.1455 — TICK-TIME CATASTROPHIC FLOOR (-10% kill-switch).
@@ -2828,7 +2919,7 @@ object CryptoAltTrader {
                 val tickPnl = updated.getPnlPct()
                 if (tickPnl <= -10.0) {
                     ErrorLogger.warn(TAG,
-                        "🛑 TICK_HARD_FLOOR ${updated.market.symbol} " +
+                        "🛑 TICK_HARD_FLOOR ${updated.marketSymbol} " +
                         "${"%.1f".format(tickPnl)}% ≤ -10.0% — immediate exit " +
                         "(peak=${"%.1f".format(updated.highestPnlPct)}%)")
                     closePosition(id, "TICK_HARD_FLOOR_${tickPnl.toInt()}PCT")
@@ -2847,7 +2938,7 @@ object CryptoAltTrader {
                     val tickLockedFloor = tickPeak - (tickPeak * tickGiveBackRatio)
                     if (tickPnl < tickLockedFloor && tickPnl > 0.0) {
                         ErrorLogger.warn(TAG,
-                            "🔒 TICK_PROFIT_LOCK ${updated.market.symbol} " +
+                            "🔒 TICK_PROFIT_LOCK ${updated.marketSymbol} " +
                             "peak=${"%.1f".format(tickPeak)}% now=${"%.1f".format(tickPnl)}% " +
                             "floor=${"%.1f".format(tickLockedFloor)}% — locking profit")
                         closePosition(id, "TICK_PROFIT_LOCK_peak${tickPeak.toInt()}_now${tickPnl.toInt()}")
@@ -2860,11 +2951,11 @@ object CryptoAltTrader {
                 val tpPriceOk = updated.takeProfitPrice > 0 && updated.entryPrice > 0
                 if (slPriceOk) {
                     val hitSl = when (updated.direction) {
-                        com.lifecyclebot.perps.PerpsDirection.LONG  -> data.price <= updated.stopLossPrice
-                        com.lifecyclebot.perps.PerpsDirection.SHORT -> data.price >= updated.stopLossPrice
+                        com.lifecyclebot.perps.PerpsDirection.LONG  -> markPrice <= updated.stopLossPrice
+                        com.lifecyclebot.perps.PerpsDirection.SHORT -> markPrice >= updated.stopLossPrice
                     }
                     if (hitSl) {
-                        closePosition(id, "HARD_SL: price=${data.price.fmt(6)} crossed SL=${updated.stopLossPrice.fmt(6)} (${updated.getPnlPct().let { if (it>=0) "+${"%.2f".format(it)}" else "${"%.2f".format(it)}" }}%)")
+                        closePosition(id, "HARD_SL: price=${markPrice.fmt(6)} crossed SL=${updated.stopLossPrice.fmt(6)} (${updated.getPnlPct().let { if (it>=0) "+${"%.2f".format(it)}" else "${"%.2f".format(it)}" }}%)")
                         continue
                     }
                 }
@@ -2878,8 +2969,8 @@ object CryptoAltTrader {
                 // V5.9.899-902: runners must be allowed to run.
                 if (tpPriceOk) {
                     val hitTp = when (updated.direction) {
-                        com.lifecyclebot.perps.PerpsDirection.LONG  -> data.price >= updated.takeProfitPrice
-                        com.lifecyclebot.perps.PerpsDirection.SHORT -> data.price <= updated.takeProfitPrice
+                        com.lifecyclebot.perps.PerpsDirection.LONG  -> markPrice >= updated.takeProfitPrice
+                        com.lifecyclebot.perps.PerpsDirection.SHORT -> markPrice <= updated.takeProfitPrice
                     }
                     // Compute implied TP% from entry vs tpPrice — used to detect
                     // whether peakPnlPct has already exceeded TP territory by 1.5x.
@@ -2889,7 +2980,7 @@ object CryptoAltTrader {
                     } else 999.0
                     val _runnerProven = updated.highestPnlPct >= _tpImpliedPct * 1.5
                     if (hitTp && !_runnerProven) {
-                        closePosition(id, "HARD_TP: price=${data.price.fmt(6)} crossed TP=${updated.takeProfitPrice.fmt(6)} (+${"%.2f".format(updated.getPnlPct())}%)")
+                        closePosition(id, "HARD_TP: price=${markPrice.fmt(6)} crossed TP=${updated.takeProfitPrice.fmt(6)} (+${"%.2f".format(updated.getPnlPct())}%)")
                         continue
                     }
                 }
@@ -3006,6 +3097,11 @@ object CryptoAltTrader {
 
     private fun closePosition(positionId: String, reason: String) {
         val pos = positions[positionId] ?: return
+        if (pos.isDynamic && !pos.hasTrustedMark()) {
+            try { PipelineHealthCollector.labelInc("CRYPTO_DYN_UNTRUSTED_CLOSE_BLOCKED_6654") } catch (_: Throwable) {}
+            ErrorLogger.warn(TAG, "🪙 DYN CLOSE BLOCKED: ${pos.marketSymbol} has no fresh exact-identity mark; reason=$reason")
+            return
+        }
         val mktSym = pos.marketSymbol
         val settlementPnl6486 = pos.getPnlSol()
         if (pos.isPaper) {

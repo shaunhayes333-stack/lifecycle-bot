@@ -183,6 +183,7 @@ class Aate6625MemeExecutionFunnelReceiversCoverageTest {
         ).readText()
         assertTrue("V5.0.6625: pipeline dump must include the receiver status block",
             src.contains("MEME EXECUTION FUNNEL RECEIVERS (V5.0.6625)") &&
-                src.contains("PendingIntentBacklog6625.reap6625"))
+                src.contains("PendingIntentBacklog6625.statusLine()") &&
+                !src.contains("PendingIntentBacklog6625.reap6625"))
     }
 }

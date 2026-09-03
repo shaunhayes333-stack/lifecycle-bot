@@ -944,13 +944,19 @@ object DynamicAltTokenRegistry {
      * 45s-cached and RateLimiter-gated, so it will silently return null under
      * load rather than hammering the API.
      */
-    fun refreshPriceForMintBlocking(identityOrAddress: String): Double {
+    fun refreshPriceForMintBlocking(identityOrAddress: String, forceRefresh: Boolean = false): Double {
         val existing = registry[identityOrAddress] ?: getTokenByMint(identityOrAddress) ?: return 0.0
-        if (existing.price > 0.0) return existing.price
-        if (existing.tokenAddress.startsWith("cg:") || existing.tokenAddress.startsWith("static:")) return 0.0
+        val ageMs = (System.currentTimeMillis() - existing.lastUpdatedMs).coerceAtLeast(0L)
+        if (existing.price > 0.0 && (!forceRefresh || ageMs <= PRICE_TTL_MS)) return existing.price
+        // CoinGecko/static identities cannot use a DEX mint route.  Their
+        // discovery-owned mark is usable only while still within its own TTL.
+        if (existing.tokenAddress.startsWith("cg:") || existing.tokenAddress.startsWith("static:")) {
+            return existing.price.takeIf { it.isFinite() && it > 0.0 && ageMs <= DISCOVERY_TTL_MS } ?: 0.0
+        }
         val chain = existing.chainId.trim().lowercase()
         if (chain.isBlank() || chain == "unknown" || chain == "established") return 0.0
-        val pair = try { dex.getBestPair(chain, existing.tokenAddress) } catch (_: Exception) { null } ?: return 0.0
+        val pair = try { dex.getBestPair(chain, existing.tokenAddress) } catch (_: Exception) { null }
+            ?: return existing.price.takeIf { it.isFinite() && it > 0.0 && ageMs <= PRICE_TTL_MS } ?: 0.0
         val price = pair.candle.priceUsd
         if (price <= 0.0) return 0.0
         val key = existing.canonicalIdentity6544

@@ -395,7 +395,7 @@ object SpecialistRuntimeRegistry6647 {
     )
     private data class State(
         // V5.0.6653 — this is a liveness sample, not a work queue.  The old
-        // ArrayBlockingQueue accumulated every causal event even though the
+        // former bounded queue accumulated every causal event even though the
         // worker only discarded one item per poll, producing permanent 255/256
         // saturation and misleading "runtime alive" signals.  Stage counters
         // remain lossless in ToolkitSignalSheet; this slot coalesces only the

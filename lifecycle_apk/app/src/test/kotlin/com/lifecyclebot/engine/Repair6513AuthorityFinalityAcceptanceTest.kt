@@ -35,7 +35,7 @@ class Repair6513AuthorityFinalityAcceptanceTest {
             liveLiquidityUsd = 5_000.0, liveSafetyTier = "SAFE", preResolvedSizeSol6490 = 0.05,
         )
         assertFalse(staleVerdict.allowed)
-        assertEquals("SPECIALIST_NOT_ELECTED", staleVerdict.reason)
+        assertEquals("IMMUTABLE_ELECTION_LANE_MISMATCH_6653", staleVerdict.reason)
         val verdict = ExecutableOpenGate.canOpenExecutablePosition(
             mint, "RICK", 90, "PAPER", "PROJECT_SNIPER", "test.same.lane.dispatch",
             liveLiquidityUsd = 5_000.0, liveSafetyTier = "SAFE", preResolvedSizeSol6490 = 0.05,
