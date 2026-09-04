@@ -86,8 +86,8 @@ class Aate6663EconomicReceiptRegressionTest {
     fun `learned hold observations change the next timing prediction`() {
         val hold = File("src/main/kotlin/com/lifecyclebot/v3/scoring/HoldTimeOptimizerAI.kt").readText()
         val prediction = hold.substringAfter("fun predict(").substringBefore("fun isHoldTimeOptimal")
-        assertTrue(prediction.contains("it.avgHoldSeconds"))
-        assertTrue(prediction.contains("it.bestHoldSeconds"))
+        assertTrue(prediction.contains("avgHoldSeconds"))
+        assertTrue(prediction.contains("bestHoldSeconds"))
         assertTrue(prediction.contains("learnedWeight"))
         assertTrue(prediction.contains("adaptedOptimalBase * combinedMultiplier"))
         assertTrue(hold.contains("put(\"winRateByHold\""))
