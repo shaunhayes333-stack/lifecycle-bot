@@ -12,6 +12,24 @@ import kotlin.concurrent.withLock
 object CanonicalPaperTransaction6486 {
     private val lock = ReentrantLock()
     private val syntheticUnit = BigInteger.valueOf(1_000_000_000L)
+
+    /** Background startup reconciliation. Scalars move only after durable
+     * journal and canonical raw lots agree exactly. */
+    fun reconcileJournalAuthority6663(): Boolean = lock.withLock {
+        JournalEconomicReplay6619.repairOrphanedOpenLots6662()
+        val replay = JournalEconomicReplay6619.replay()
+        if (!replay.reconciled) return@withLock false
+        val canonicalRaw = CanonicalPositionAuthority6441.openPositions()
+            .filter { it.mode.equals("paper", true) }
+            .associate { it.positionId to it.remainingQtyRaw }
+        if (canonicalRaw != replay.openRawQtyByPosition) {
+            try { PipelineHealthCollector.labelInc("JOURNAL_CANONICAL_RAW_MISMATCH_BLOCKED_6663") } catch (_: Throwable) {}
+            return@withLock false
+        }
+        PaperAccountLedger6430.reconcileFromJournal6663(
+            replay.cashSol, replay.openCostBasisSol, replay.realizedPnlSol, replay.feesSol,
+        )
+    }
     data class Result(
         val applied: Boolean,
         val positionId: String,

@@ -133,6 +133,25 @@ class Repair6533ExecutionAuthorityAcceptanceTest {
         assertNotEquals("QUALITY", rescueCalls.first())
     }
 
+    @Test fun `G preliminary zero sized intent is upgraded by immutable resolved size`() {
+        val mint = "SizedUpgrade6663${System.nanoTime()}"
+        val cv = LaneExecutionCoordinator.candidateVersionFor(mint)
+        ExecutableOpenGate.recordFdg(
+            mint, "SIZE", "QUALITY", true, null,
+            signal = "BUY", rugScore = 90, safetyTier = "SAFE", liquidityUsd = 5_000.0,
+            preFdgVerdict = "BUY", candidateVersion = cv, entryScore = 80,
+        )
+        assertEquals(0.0, requireNotNull(ExecutableOpenGate.activeExecutionIntent6519("PAPER", mint, cv)).resolvedSize, 0.0)
+        val sized = ExecutableOpenGate.recordFdgAndGetIntent6533(
+            mint, "SIZE", "QUALITY", true, null,
+            signal = "BUY", rugScore = 90, safetyTier = "SAFE", liquidityUsd = 5_000.0,
+            preFdgVerdict = "BUY", candidateVersion = cv, entryScore = 80,
+            resolvedSizeSol6558 = 0.0715,
+        )
+        assertEquals(0.0715, requireNotNull(sized).resolvedSize, 1e-12)
+        assertEquals(sized.attemptId, ExecutableOpenGate.activeExecutionIntent6519("PAPER", mint, cv)?.attemptId)
+    }
+
     @Test fun `G true zero rug invalid route and mechanical impossibility remain hard`() {
         fun intentFor(tag: String, rug: Int = 90, hard: List<String> = emptyList(), hydrated: Boolean = false): ExecutableOpenGate.ExecutionIntent? {
             val mint = "${tag}6533${System.nanoTime()}"

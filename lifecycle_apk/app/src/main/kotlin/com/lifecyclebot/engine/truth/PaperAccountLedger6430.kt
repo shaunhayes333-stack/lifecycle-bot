@@ -611,6 +611,35 @@ object PaperAccountLedger6430 {
         return recomputed
     }
 
+    /** Replace paper economic scalars from one reconciled journal replay.
+     * Starting capital remains immutable and the identity must balance. */
+    @Synchronized
+    fun reconcileFromJournal6663(
+        cashSol: Double, openCostSol: Double, realizedSol: Double, feesSol: Double,
+    ): Boolean {
+        val values = listOf(cashSol, openCostSol, realizedSol, feesSol)
+        if (values.any { !it.isFinite() } || openCostSol < -1e-9 || feesSol < -1e-9) return false
+        val starting = fromPico(startingCashPico.get())
+        val identityDelta = (starting + realizedSol - feesSol) - (cashSol + openCostSol)
+        if (kotlin.math.abs(identityDelta) > 1e-6) return false
+        cashPico.set(toPico(cashSol))
+        openCostBasisPico.set(toPico(openCostSol.coerceAtLeast(0.0)))
+        realizedPnlPico.set(toPico(realizedSol))
+        feesPico.set(toPico(feesSol.coerceAtLeast(0.0)))
+        reservedCashPico.set(0L)
+        opCount.incrementAndGet()
+        persistCurrent6487()
+        try {
+            PipelineHealthCollector.labelInc("PAPER_LEDGER_RECONCILED_FROM_JOURNAL_6663")
+            ForensicLogger.lifecycle(
+                "PAPER_LEDGER_RECONCILED_FROM_JOURNAL_6663",
+                "cash=${"%.6f".format(cashSol)} openCost=${"%.6f".format(openCostSol)} " +
+                    "realized=${"%.6f".format(realizedSol)} fees=${"%.6f".format(feesSol)} delta=${"%.9f".format(identityDelta)}",
+            )
+        } catch (_: Throwable) {}
+        return true
+    }
+
     @Synchronized
     fun rebuildRealizedFromCanonicalEvents6502(): Double {
         val events = try {

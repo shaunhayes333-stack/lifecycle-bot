@@ -15066,6 +15066,14 @@ class BotService : Service() {
         ErrorLogger.info("BotService", "botLoop() started")
         ForensicLogger.lifecycle("BOTLOOP_STARTED", "scope.active=${scope.coroutineContext[kotlinx.coroutines.Job]?.isActive}")
 
+        // startBot enters from Main, where journal replay intentionally avoids
+        // DB work. Reconcile on this dedicated background dispatcher before
+        // the meme loop can admit another trade.
+        try {
+            com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486
+                .reconcileJournalAuthority6663()
+        } catch (_: Throwable) {}
+
         // V5.9.1027 — orphan exit. See checkBotLoopOrphan() doc.
         val myJob: kotlinx.coroutines.Job? = try {
             currentCoroutineContext()[kotlinx.coroutines.Job]
@@ -26085,6 +26093,7 @@ if (hotExitHandledSweep) {
                 tokenMapProviderAttempts = tokenMap6614.providerAttempts,
                 requiresSolanaTokenMap = true,
                 allowTrunkExecutionHandoff6533 = true,
+                resolvedSizeSol6558 = actualInitialSizeForAuth6649,
             )
         }
         // V5.0.6658 §TICKET_STAMP_RETRIEVAL_PARITY — operator dump Feb 2026:
@@ -26104,6 +26113,10 @@ if (hotExitHandledSweep) {
         //   stamp per intent so a subsequent retrieve is a no-op.
         val ticketStampIntent6658 = specialistIntent6614
         if (ticketStampIntent6658 != null) try {
+            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "POOL", ticketStampIntent6658.attemptId)
+            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "BUY_INTENT", ticketStampIntent6658.attemptId)
+            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "MARK_READY", ticketStampIntent6658.attemptId)
+            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "SIZED_EXECUTABLE", ticketStampIntent6658.attemptId)
             ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "TICKET", ticketStampIntent6658.attemptId)
         } catch (_: Throwable) {}
         val specialistFdgAllowed6614 = specialistIntent6614?.fdgAllowed == true || fdgDecision.canExecute()

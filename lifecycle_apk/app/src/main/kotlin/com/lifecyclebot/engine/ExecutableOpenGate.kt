@@ -215,8 +215,18 @@ object ExecutableOpenGate {
         if (!validSealedDecision6613(intent) ||
             intent.mint.isBlank() || intent.candidateVersion <= 0L) return null
         val key = intentKey6519(intent.mode, intent.mint, intent.candidateVersion)
-        val authoritative = activeExecutionIntents6519.putIfAbsent(key, intent) ?: intent
-        executionTickets.putIfAbsent(authoritative.attemptId, authoritative)
+        // A preliminary FDG pass can seal the decision before the canonical
+        // size resolver runs. When that same immutable attempt returns with a
+        // positive size, upgrade it instead of retaining a zero-sized shell.
+        val authoritative = activeExecutionIntents6519.compute(key) { _, existing ->
+            when {
+                existing == null -> intent
+                existing.attemptId == intent.attemptId && existing.resolvedSize <= 0.0 && intent.resolvedSize > 0.0 ->
+                    existing.copy(resolvedSize = intent.resolvedSize)
+                else -> existing
+            }
+        } ?: return null
+        executionTickets[authoritative.attemptId] = authoritative
         try { PipelineHealthCollector.labelInc("EXEC_INTENT_CREATED")
             ForensicLogger.lifecycle("EXEC_INTENT_CREATED", "attemptId=${authoritative.attemptId} candidateId=${authoritative.candidateId} mint=${authoritative.mint.take(10)} mode=${authoritative.mode} lane=${authoritative.canonicalLane} fdg=${authoritative.fdgVerdict} allowed=${authoritative.fdgAllowed} authority=${authoritative.authorityVersion} size=${authoritative.resolvedSize}")
         } catch (_: Throwable) {}

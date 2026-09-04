@@ -5010,7 +5010,9 @@ object FinalDecisionGate {
                     laneMinExecutableSol = paperMinimum6653,
                     // V5.0.6651 — telemetry identity only: SIZE must join
                     // the same candidate record as intent/FDG/mark.
-                    causalEventId = "${ts.mint}:${com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)}",
+                    // Stamp SIZE only at executable handoff, after the causal
+                    // DISCOVER/INTENT/MARK predecessors are known.
+                    causalEventId = "",
                 )
                 if (sealed6552.executable) com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealFor(ts.mint, sealed6552, laneName)
             } catch (_: Throwable) {}

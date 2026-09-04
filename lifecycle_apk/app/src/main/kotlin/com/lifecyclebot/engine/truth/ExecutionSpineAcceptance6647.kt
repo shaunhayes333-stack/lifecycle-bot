@@ -176,7 +176,11 @@ object ExecutionSpineAcceptanceWindow6647 {
         val heartbeatCount = desks.count { SpecialistRuntimeRegistry6647.snapshot(it, nowMs).runtimeAlive }
         val phantom = (end.phantomSizedOnly - start.phantomSizedOnly).coerceAtLeast(0L)
         val forensic = ForensicReconciliation6635.deltas6647()
-        val cardinality = CanonicalEntryAuthority6551.cardinalityForWindow6647(start.atMs, end.atMs)
+        // A dispatch begun at the sampling edge may still be legitimately in
+        // flight; terminal-cardinality applies after a bounded grace period.
+        val cardinality = CanonicalEntryAuthority6551.cardinalityForWindow6647(
+            start.atMs, (end.atMs - 10_000L).coerceAtLeast(start.atMs),
+        )
         val reconciledDelta: (Double) -> Double = { value -> if (forensic.reconciled) value else Double.NaN }
         val observation = ExecutionSpineAcceptance6647.Observation(
             durationMs = duration,
