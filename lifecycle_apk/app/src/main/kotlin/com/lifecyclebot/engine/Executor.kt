@@ -12512,7 +12512,6 @@ class Executor(
         // downstream executable minimum may reject/shadow a reduced request, but
         // must never inflate it back into a normal position.
         val effectiveRequestedSol6511 = sealedNotional6552?.takeIf { it > 0.0 } ?: effectiveBuySol6451
-        val floorPromotionRequested6511 = false
         val preTicketSize6490 = try {
             com.lifecyclebot.engine.truth.TraderSizingBridge6444.resolveForLane(
                 laneName = finalityLane,
@@ -12527,7 +12526,6 @@ class Executor(
                 effectiveBuySol6451, 0.0, 0.0, 0.0, 0.0, 0.0, false, "PRE_TICKET_SIZE_RESOLUTION_FAILED_6490",
             )
         }
-        if (floorPromotionRequested6511) error("unreachable: paper floor promotion disabled by 6567")
         if (!preTicketSize6490.executable) {
             try {
                 PipelineHealthCollector.labelInc("PAPER_BUY_REJECTED_BEFORE_TICKET_SIZE_6490")
@@ -16935,12 +16933,11 @@ class Executor(
                 } catch (e: Exception) {
                     lastQuoteError = e
                     val msg = e.message ?: "unknown"
-                    val deterministicProviderFailure = false // Jupiter quote never disables/backoff-rotates; exhaust local ladder only.
                     onLog("BUY: quote ${slip}bps failed — ${msg.take(50)}", ts.mint)
                     LiveTradeLogStore.log(
                         tradeKey, ts.mint, ts.symbol, "BUY",
                         LiveTradeLogStore.Phase.BUY_QUOTE_FAIL,
-                        "Quote ${slip}bps FAILED: ${msg.take(80)}${if (deterministicProviderFailure) " | rotate_provider_no_ladder_burn" else ""}",
+                        "Quote ${slip}bps FAILED: ${msg.take(80)}",
                         slippageBps = slip, traderTag = "MEME",
                     )
                     Thread.sleep(250)
@@ -22214,29 +22211,11 @@ class Executor(
         var tokenUnits = resolveSellUnits(ts, pos.qtyToken)
         onLog("📊 SELL DEBUG: Initial tokenUnits from tracker = $tokenUnits", tradeId.mint)
 
-        // V5.9.458 — SELL LATENCY FIX (operator directive: 'meme trader
-        // should make live sells as fast as it makes live buys').
-        // Buys go straight to quote; sells previously did a synchronous
-        // wallet.getTokenAccountsWithDecimalsBounded() network call first and,
-        // on a stale RPC indexer, silently bailed via the zero-balance
-        // gate — turning a TP/SL trigger into an orphan loop.
-        //
-        // Trust the tracker qty for the first 60s after a verified BUY.
-        // The buy pipeline already verified token arrival via
-        // TX-PARSE (BUY_VERIFIED_LANDED), so tokens are definitively
-        // on-chain; a zero reading this early is indexer lag, not
-        // reality. After 60s we fall back to the on-chain sanity
-        // check to keep orphan protection for genuinely rugged tokens.
-        val ageMs = System.currentTimeMillis() - pos.entryTime
-        // V5.9.601: live sells may not skip exact owner+mint balance verification.
-        val skipOnChainCheck = false
-        if (skipOnChainCheck) {
-            onLog("⚡ FAST PATH: tokens verified on buy ${ageMs / 1000}s ago — skipping on-chain " +
-                  "balance pre-check (tracker qty=$tokenUnits)", tradeId.mint)
-        }
-
+        // V5.9.601: every live sell requires current exact owner+mint balance
+        // verification. Older tracker-only fast-path scaffolding is removed;
+        // bounded RPC/owner-delta recovery below is the single authority.
         var confirmedSellUiQty = 0.0
-        if (!skipOnChainCheck) try {
+        try {
             onLog("📊 SELL DEBUG: Fetching on-chain token balances...", tradeId.mint)
             // V5.9.751 — `var` so the RPC-RECOVERY refresh below can rebind
             // if the first read returned an empty map.
@@ -22289,7 +22268,6 @@ class Executor(
             // we don't risk false sells. The orphan-alert path (line
             // below) still fires when the map is NON-EMPTY but this mint
             // is absent — that's the real "externally sold/rugged" case.
-            val rpcRescue = false
             if (mapEmpty) {
                 // V5.9.751 — Base44 ticket item #5. Previously we returned
                 // FAILED_RETRYABLE immediately and spammed SELL_BLOCKED to

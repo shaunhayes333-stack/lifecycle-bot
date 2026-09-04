@@ -10295,8 +10295,6 @@ class BotService : Service() {
                             // has the freshest price and must provide the universal hard-floor +
                             // peak/giveback shell for ALL open positions. Lane-specific exits can
                             // still add smarter behavior; they cannot be the only runner safety net.
-                            val tickProfitLockEligible = true
-                            if (tickProfitLockEligible) {
                                 val rawTickPnlPctNow = (priceUsd - entryPx) / entryPx * 100.0
                                 // V5.0.4152 — UI/EXEC HIGH-LOCK PARITY.
                                 // Operator screenshot: TARGET Peak +2600% / lock +2600%,
@@ -10477,7 +10475,6 @@ class BotService : Service() {
                                         }
                                     }
                                 }
-                            }
                         }
                     } catch (_: Throwable) { /* never break the tick loop */ }
 

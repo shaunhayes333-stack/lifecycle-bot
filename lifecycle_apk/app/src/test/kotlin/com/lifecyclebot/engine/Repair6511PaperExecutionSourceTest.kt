@@ -52,7 +52,7 @@ class Repair6511PaperExecutionSourceTest {
         val commit = executor.indexOf("V5.0.6485 — ATOMIC PAPER BUY COMMIT", ticket)
         assertTrue(promotion >= 0 && promotion < bridge && bridge < reject && reject < ticket && ticket < commit)
         assertTrue(executor.contains("PAPER_SEALED_NOTIONAL_CONSUMED_6552") && executor.contains("sealedNotional6552"))
-        assertTrue(executor.contains("val floorPromotionRequested6511 = false"))
+        assertFalse(executor.contains("floorPromotionRequested6511"))
         assertFalse(executor.contains("PAPER_BUY_SIZE_FLOOR_PROMOTED_6511"))
     }
 }

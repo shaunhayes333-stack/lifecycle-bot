@@ -2696,7 +2696,8 @@ class GoldenTapeRegressionTest {
         val growth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveGrowthDoctrine.kt").readText()
         assertTrue("Live growth doctrine must be materially aggressive for 2x-5x/day target", growth.contains("AGGRESSIVE_2X_5X_LIVE_WALLET_GROWTH") && growth.contains("\"MOONSHOT\" -> 0.35") && growth.contains("walletSol < 10.0 -> 1.250"))
         assertTrue("Final live sizing must emit full growth/cap telemetry", exec.contains("GROWTH_MODE_TRACE") && exec.contains("liquidityCap") && exec.contains("walletCap") && exec.contains("minExec"))
-        assertTrue("V5.0.6083: all paper/live lanes must receive tick-time runner/hard-floor protection", bot.contains("V5.0.6083") && bot.contains("val tickProfitLockEligible = true") && !bot.contains("""ForensicLogger.lifecycle("TICK_PROFIT_LOCK_SKIPPED_LANE"""))
+        assertTrue("V5.0.6083: all paper/live lanes must receive tick-time runner/hard-floor protection", bot.contains("V5.0.6083") && bot.contains("TICK_HARD_FLOOR") && bot.contains("TICK_PROFIT_LOCK") && !bot.contains("""ForensicLogger.lifecycle("TICK_PROFIT_LOCK_SKIPPED_LANE"""))
+        assertFalse("V5.0.6083: universal tick protection must not retain an always-true wrapper", bot.contains("tickProfitLockEligible"))
         assertTrue("V5.0.4152: tick/universal peak-lock exits must use the same FluidLearningAI high-lock floor shown in UI, not stale loose peak ratios",
             bot.contains("UI/EXEC HIGH-LOCK PARITY") && bot.contains("TICK_PROFIT_LOCK_EXEC_PRICE_REBASE") &&
             bot.contains("FluidLearningAI.getDynamicFluidStop") && bot.contains("pnlPctNow >= lockedFloor") &&
@@ -4424,7 +4425,13 @@ class GoldenTapeRegressionTest {
     @Test
     fun shitcoin4230LiveVolumeAndReleaseHygiene() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.4230: live V3 readiness must not suppress direct ShitCoin executor fallback", bot.contains("SHITCOIN_LIVE_V3_PARALLEL_FALLBACK_4230") && !bot.contains("val v3OwnsMemes = false") && bot.contains("does not replace this executor authority") && bot.contains("v3RejectedIsRouting4230"))
+        assertTrue(
+            "V5.0.4230: live V3 readiness must not suppress the direct ShitCoin executor lane or retain the stale constant-false ownership branch",
+            bot.contains("SHITCOIN_LIVE_V3_PARALLEL_FALLBACK_4230") &&
+                bot.contains("v3RejectedIsRouting4230") &&
+                bot.contains("LIVE and paper both retain the direct lane") &&
+                !bot.contains("val v3OwnsMemes = false")
+        )
         assertTrue("V5.0.4230: ShitCoin StrategyTrust distrust must recovery-probe, not hard-return", bot.contains("SHITCOIN_STRATEGY_DISTRUST_RECOVERY_PROBE_4230") && bot.contains("strategyDistrustSizeMult4230") && bot.contains("* strategyDistrustSizeMult4230"))
         assertTrue("V5.0.4230: ShitCoin FDG must evaluate actual adjusted size", bot.contains("proposedSizeSol = adjustedSize"))
         assertTrue("V5.0.4230: ShitCoin bootstrap block must be branch-local and not abort sibling lanes", bot.contains("paperBootstrapBlocked4230") && bot.contains("SHITCOIN_BOOTSTRAP_BRANCH_LOCAL_SKIP_4230") && bot.contains("shouldEnter = false"))
@@ -7080,7 +7087,8 @@ class GoldenTapeRegressionTest {
         val exec6082 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("V5.0.6082: paper sizing must exercise live-money compounding floors and winner ceiling for parity", exec6082.contains("moneySizingMode6082") && exec6082.contains("RuntimeModeAuthority.isPaper()") && exec6082.contains("winnerMaxBoost = if (moneySizingMode6082") && exec6082.contains("MONEY_MODE_ABS_FLOOR_LIFT_6082"))
         val bot6083 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.6083: tick-time hard-floor/profit-lock shell must cover all paper/live lanes, not skip BLUECHIP/PRESALE/LONG_HOLD", bot6083.contains("V5.0.6083") && bot6083.contains("val tickProfitLockEligible = true") && !bot6083.contains("""ForensicLogger.lifecycle("TICK_PROFIT_LOCK_SKIPPED_LANE"""))
+        assertTrue("V5.0.6083: tick-time hard-floor/profit-lock shell must cover all paper/live lanes, not skip BLUECHIP/PRESALE/LONG_HOLD", bot6083.contains("V5.0.6083") && bot6083.contains("TICK_HARD_FLOOR") && bot6083.contains("TICK_PROFIT_LOCK") && !bot6083.contains("""ForensicLogger.lifecycle("TICK_PROFIT_LOCK_SKIPPED_LANE"""))
+        assertFalse("V5.0.6083: universal tick protection must not retain an always-true wrapper", bot6083.contains("tickProfitLockEligible"))
         val main6084 = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
         assertTrue("V5.0.6649: main UI learning/readiness must use explicit desk books and contain no global journal win-rate projection", main6084.contains("DeskPerformanceAuthority6648.Book.MEME") && main6084.contains("DeskPerformanceAuthority6648.Book.PORTFOLIO") && main6084.contains("Markets readiness explicitly combines only its child desks") && !main6084.contains("JournalParityUiSnapshot6085") && !main6084.contains("journalParityStatsSnapshot6085()"))
         val sentience6090 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt").readText()
@@ -8298,7 +8306,8 @@ class GoldenTapeRegressionTest {
         val ticket = exec.indexOf("ExecutableOpenGate.canOpenExecutablePosition", reject)
         val commit = exec.indexOf("V5.0.6485 — ATOMIC PAPER BUY COMMIT", ticket)
         assertTrue(promote >= 0 && promote < bridge && bridge < reject && reject < ticket && ticket < commit)
-        assertTrue(exec.contains("val floorPromotionRequested6511 = false") && exec.contains("sealedNotional6552") && exec.contains("PAPER_BUY_REJECTED_BEFORE_TICKET_SIZE_6490"))
+        assertTrue(exec.contains("sealedNotional6552") && exec.contains("PAPER_BUY_REJECTED_BEFORE_TICKET_SIZE_6490"))
+        assertFalse("V5.0.6567: dead floor-promotion sentinels must not wrap canonical resolution", exec.contains("floorPromotionRequested6511"))
         assertFalse("V5.0.6567: reduced adaptive requests must never be inflated by a downstream floor", exec.contains("PAPER_BUY_SIZE_FLOOR_PROMOTED_6511"))
     }
 
@@ -8935,7 +8944,7 @@ class GoldenTapeRegressionTest {
         assertTrue(sizing.contains("applyPaperMemeMinimum") && sizingBridge.contains("applyPaperMemeMinimum = assetClass == AssetClass.SOLANA_TOKEN"))
         assertTrue(sizing.contains("val effectiveShapedLamports6506 = laneClampedLamports6491"))
         assertFalse(sizing.contains("ORDER_SIZE_PROMOTED_TO_MIN_EXECUTABLE_6506"))
-        assertTrue(executor.contains("val floorPromotionRequested6511 = false"))
+        assertFalse(executor.contains("floorPromotionRequested6511"))
 
         val specialists = listOf("BlueChipTraderAI.kt", "CashGenerationAI.kt", "ManipulatedTraderAI.kt",
             "MoonshotTraderAI.kt", "QualityTraderAI.kt", "ShitCoinExpress.kt", "ShitCoinTraderAI.kt")
