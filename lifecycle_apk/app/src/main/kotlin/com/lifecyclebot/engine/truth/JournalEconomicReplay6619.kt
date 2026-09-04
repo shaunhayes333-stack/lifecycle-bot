@@ -3,6 +3,7 @@ package com.lifecyclebot.engine.truth
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
 import com.lifecyclebot.engine.TradeHistoryStore
+import com.lifecyclebot.data.Trade
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
@@ -67,6 +68,7 @@ object JournalEconomicReplay6619 {
         val reconciled: Boolean = true,
         val invariantFailures: List<String> = emptyList(),
         val openRawQtyByPosition: Map<String, java.math.BigInteger> = emptyMap(),
+        val openBasisByPosition: Map<String, Double> = emptyMap(),
     )
 
     private val replays = AtomicLong(0L)
@@ -284,6 +286,7 @@ object JournalEconomicReplay6619 {
             reconciled = failures.isEmpty(),
             invariantFailures = failures.toList(),
             openRawQtyByPosition = lots.mapValues { it.value.rawQty },
+            openBasisByPosition = lots.mapValues { it.value.basisSol },
         )
         lastResult.set(result)
 
@@ -311,6 +314,92 @@ object JournalEconomicReplay6619 {
         } catch (_: Throwable) {}
 
         return result
+    }
+
+    /**
+     * V5.0.6662 — settle durable journal lots whose canonical position was
+     * deliberately removed by an earlier Stop/restart implementation.
+     *
+     * The startup ledger rebuild already returns this basis to cash after the
+     * canonical projection is gone.  Historically it did not append the paired
+     * journal terminal, leaving the journal lower than the ledger forever.
+     * Preserve every BUY and append one immutable, zero-PnL refund SELL instead
+     * of deleting history or forcing the UI balance.
+     */
+    @Synchronized
+    fun repairOrphanedOpenLots6662(): Int {
+        val replay = replay()
+        if (replay.openBasisByPosition.isEmpty()) return 0
+        val buys = try {
+            TradeHistoryStore.getAllValidTradesSnapshot(limit = 20_000)
+                .asSequence()
+                .filter { it.mode.equals("paper", true) && it.side.equals("BUY", true) }
+                .filter { it.positionId.isNotBlank() }
+                .sortedBy { it.ts }
+                .groupBy { it.positionId }
+        } catch (_: Throwable) { emptyMap() }
+        var repaired = 0
+        replay.openBasisByPosition.forEach { (positionId, basis) ->
+            if (!basis.isFinite() || basis <= 1e-9) return@forEach
+            val canonical = try { CanonicalPositionAuthority6441.getPosition(positionId) } catch (_: Throwable) { null }
+            val canonicallyOpen = canonical != null &&
+                canonical.mode.equals("paper", true) &&
+                canonical.remainingQtyRaw > java.math.BigInteger.ZERO &&
+                canonical.lifecycle in setOf(
+                    CanonicalPositionAuthority6441.Lifecycle.OPEN,
+                    CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED,
+                )
+            if (canonicallyOpen) return@forEach
+
+            val positionBuys = buys[positionId].orEmpty()
+            val seed = positionBuys.firstOrNull() ?: return@forEach
+            val eventId = "PAPER6619:ORPHAN_REFUND:$positionId"
+            val raw = replay.openRawQtyByPosition[positionId] ?: java.math.BigInteger.ZERO
+            val scale = seed.tokenDecimals.takeIf { it in 0..18 }
+                ?: seed.entryDecimals.coerceIn(0, 18)
+            val displayQty = try {
+                raw.toBigDecimal().movePointLeft(scale).toDouble()
+            } catch (_: Throwable) { 0.0 }
+
+            // The ledger side was already applied by the identity rebuild.
+            // Witness it with the same immutable id before durable journaling.
+            PaperEconomicAtomicCommit6632.stampLedger(
+                eventId, seed.mint, PaperEconomicAtomicCommit6632.Side.SELL,
+                "JournalEconomicReplay6619.orphanRefund6662",
+            )
+            TradeHistoryStore.recordTrade(Trade(
+                side = "SELL", mode = "paper", sol = basis,
+                price = seed.entryPriceSnapshot.takeIf { it.isFinite() && it > 0.0 }
+                    ?: seed.price.coerceAtLeast(0.000000000001),
+                ts = System.currentTimeMillis(),
+                reason = "ORPHANED_STOP_LOT_REFUND_6662",
+                pnlSol = 0.0, pnlPct = 0.0, feeSol = 0.0, netPnlSol = 0.0,
+                tradingMode = seed.tradingMode, tradingModeEmoji = seed.tradingModeEmoji,
+                mint = seed.mint, proofState = "PAPER_SIMULATED",
+                positionId = positionId, entryTsMs = seed.entryTsMs.takeIf { it > 0L } ?: seed.ts,
+                entryPriceSnapshot = seed.entryPriceSnapshot.takeIf { it.isFinite() && it > 0.0 }
+                    ?: seed.price.coerceAtLeast(0.000000000001),
+                entryQtyToken = positionBuys.sumOf { it.entryQtyToken.coerceAtLeast(0.0) },
+                entryCostSol = basis, entryDecimals = scale,
+                soldQtyToken = displayQty, remainingQtyToken = 0.0,
+                entryRawQty = positionBuys.fold(java.math.BigInteger.ZERO) { acc, row -> acc + row.entryRawQty },
+                canonicalConsumedRaw = raw, remainingRawQty = java.math.BigInteger.ZERO,
+                tokenDecimals = scale, soldCostBasisSol = basis,
+                grossProceedsSol = basis, economicEventId = eventId,
+            ))
+            repaired++
+            try {
+                PipelineHealthCollector.labelInc("JOURNAL_ORPHAN_LOT_REFUNDED_6662")
+                ForensicLogger.lifecycle(
+                    "JOURNAL_ORPHAN_LOT_REFUNDED_6662",
+                    "positionId=${positionId.take(24)} mint=${seed.mint.take(10)} basis=${"%.6f".format(basis)} action=durable_zero_pnl_terminal",
+                )
+            } catch (_: Throwable) {}
+        }
+        if (repaired > 0) {
+            try { JournalEconomicAuthority6616.forcePublish("ORPHAN_LOT_REFUND_6662") } catch (_: Throwable) {}
+        }
+        return repaired
     }
 
     fun latest(): ReplayResult? = lastResult.get()

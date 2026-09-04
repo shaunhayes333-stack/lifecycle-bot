@@ -4736,6 +4736,15 @@ class BotService : Service() {
         try {
             com.lifecyclebot.engine.truth.PaperAccountLedger6430.rebuildPaperCashFromIdentity6505()
         } catch (_: Throwable) {}
+        // V5.0.6662 — old Stop paths could remove canonical positions and let
+        // the identity rebuild return their basis to ledger cash without the
+        // matching durable journal terminal.  Close those journal-only lots
+        // at zero PnL so ledger, journal and hero converge without deleting
+        // history or inventing profit.
+        try {
+            com.lifecyclebot.engine.truth.JournalEconomicReplay6619
+                .repairOrphanedOpenLots6662()
+        } catch (_: Throwable) {}
         // V5.0.6504 §5 — clear zombie latch on startBot so a
         // legitimately re-opened mint's stale-price timeout can fire
         // its one-shot again in the new session.
