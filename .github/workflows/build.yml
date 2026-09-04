@@ -82,6 +82,9 @@ jobs:
       - name: Authority contradiction source scan
         run: python3 ci/authority_contradiction_scan.py
 
+      - name: Repository patch-rot scan
+        run: python3 ci/patch_rot_scan.py
+
       - name: Build Release APK
         run: |
           chmod +x gradlew || true
