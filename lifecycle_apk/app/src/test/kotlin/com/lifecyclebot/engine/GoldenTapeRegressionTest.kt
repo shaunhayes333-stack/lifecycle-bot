@@ -7385,7 +7385,9 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6370: paperBuy must consult global EmergentGuardrails owner before price/size work so separate TokenState aliases cannot reopen the same mint after the short lease expires",
             paperBuy.contains("GLOBAL SAME-MINT PAPER OPEN GUARD") &&
                 paperBuy.contains("EmergentGuardrails.getPositionLayer(tradeId.mint)") &&
-                paperBuy.indexOf("EmergentGuardrails.getPositionLayer(tradeId.mint)") < paperBuy.indexOf("val price = getActualPrice(ts)") &&
+                paperBuy.contains("val entryMarketSnapshot = mintEntryMarketSnapshot(ts)") &&
+                paperBuy.indexOf("EmergentGuardrails.getPositionLayer(tradeId.mint)") < paperBuy.indexOf("val entryMarketSnapshot = mintEntryMarketSnapshot(ts)") &&
+                paperBuy.indexOf("val entryMarketSnapshot = mintEntryMarketSnapshot(ts)") < paperBuy.indexOf("val price = entryMarketSnapshot.priceUsd") &&
                 paperBuy.contains("PAPER_BUY_SAME_MINT_OPEN_SUPPRESSED_6370"))
         val registryWrite6370 = paperBuy.indexOf("EmergentGuardrails.registerPosition")
         val globalWrite6370 = paperBuy.indexOf("GlobalTradeRegistry.registerPosition", registryWrite6370)
@@ -9143,7 +9145,4 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("startedMonotonicMs") && bot.contains("SystemClock.elapsedRealtime()") &&
             bot.contains("sinceProgress >= SUPERVISOR_LEASE_PROGRESS_TTL_MS") &&
             bot.contains("job?.isActive == true") && bot.contains("SUPERVISOR_FORCE_RELEASE_DEFERRED_YOUNG_6616"))
-        assertFalse(bot.contains("SupervisorLease(mint = mint, startedMs = System.currentTimeMillis()"))
-    }
-
-}
+        assertFalse(bot.contains("Supervisor
