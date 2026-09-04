@@ -75,6 +75,7 @@ object JournalEconomicReplay6619 {
     private val lastResult = AtomicReference<ReplayResult?>(null)
     private val ledgerDivergenceLast = AtomicReference<Double>(0.0)
     private val reportedInvariantFailures6653 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val reportedEmbeddedEntryRecoveries6664 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     /**
      * Deterministically compute paper economics from durable journal
@@ -224,7 +225,6 @@ object JournalEconomicReplay6619 {
                     buys++
                 }
                 side == "SELL" || side == "PARTIAL_SELL" -> {
-                    val lot = lots[t.positionId]
                     // A sealed modern row may legitimately have zero proceeds.
                     // Legacy rows predate the explicit field and are repaired
                     // deterministically from their historical `sol` column.
@@ -232,6 +232,45 @@ object JournalEconomicReplay6619 {
                         else t.grossProceedsSol.takeIf { it.isFinite() && it > 0.0 } ?: t.sol
                     val basis = t.soldCostBasisSol
                     val fee = t.feeSol
+                    var lot = lots[t.positionId]
+                    // V5.0.6664 — historical canonical terminals can outlive the
+                    // pre-6659 BUY projection that created their position.  6648's
+                    // strict lot replay correctly detected the missing row, but then
+                    // made every later valid mutation unreconciled forever.  A modern
+                    // immutable terminal receipt already carries the exact entry basis,
+                    // consumed raw quantity, decimals and entry-price snapshot.  For a
+                    // FULL SELL only, reconstruct that missing opening leg in the replay
+                    // before applying the terminal.  This is not a balance clamp and it
+                    // does not invent PnL: debit the receipt's sealed basis, then credit
+                    // its sealed proceeds.  Partials and incomplete receipts remain hard
+                    // failures because their original full lot cannot be proven.
+                    if (lot == null && side == "SELL" && t.economicEventId.startsWith("paper_full_")) {
+                        val recoveredRaw = t.canonicalConsumedRaw.takeIf { it > java.math.BigInteger.ZERO }
+                            ?: displayToRaw(t.soldQtyToken, t.tokenDecimals.takeIf { it >= 0 } ?: t.entryDecimals)
+                        val recoveredDisplay = t.soldQtyToken.takeIf { it.isFinite() && it > 0.0 }
+                            ?: t.entryQtyToken.takeIf { it.isFinite() && it > 0.0 }
+                            ?: 0.0
+                        val receiptProvesEntry = basis.isFinite() && basis > 0.0 &&
+                            recoveredRaw > java.math.BigInteger.ZERO &&
+                            t.entryPriceSnapshot.isFinite() && t.entryPriceSnapshot > 0.0
+                        if (receiptProvesEntry) {
+                            lot = Lot(basis, recoveredRaw, recoveredDisplay)
+                            lots[t.positionId] = lot
+                            cash -= basis
+                            openCost += basis
+                            try {
+                                if (reportedEmbeddedEntryRecoveries6664.add(eventId)) {
+                                    PipelineHealthCollector.labelInc("JOURNAL_EMBEDDED_ENTRY_RECOVERED_6664")
+                                    ForensicLogger.lifecycle(
+                                        "JOURNAL_EMBEDDED_ENTRY_RECOVERED_6664",
+                                        "economicEventId=${eventId.take(40)} positionId=${t.positionId.take(24)} " +
+                                            "mint=${t.mint.take(10)} basis=${"%.6f".format(basis)} raw=$recoveredRaw " +
+                                            "action=replay_sealed_terminal_entry_then_close",
+                                    )
+                                }
+                            } catch (_: Throwable) {}
+                        }
+                    }
                     if (lot == null) { reject(t, eventId, "SELL_WITHOUT_MATCHING_BUY_LOT"); continue }
                     if (!basis.isFinite() || basis <= 0.0) { reject(t, eventId, "MISSING_OR_NEGATIVE_BASIS"); continue }
                     if (basis > lot.basisSol + 1e-9) { reject(t, eventId, "BASIS_EXCEEDS_REMAINING_LOT"); continue }
@@ -420,5 +459,6 @@ object JournalEconomicReplay6619 {
 
     internal fun resetForTest() {
         replays.set(0L); lastResult.set(null); ledgerDivergenceLast.set(0.0)
+        reportedEmbeddedEntryRecoveries6664.clear()
     }
 }
