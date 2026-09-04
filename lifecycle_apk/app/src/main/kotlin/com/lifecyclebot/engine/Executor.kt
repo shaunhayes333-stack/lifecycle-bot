@@ -12462,11 +12462,16 @@ class Executor(
             } catch (_: Throwable) {}
         }
         shouldSuppressPaperLearningEntry(ts, score, layerTag, identity)?.let { why ->
-            paperLearningEligible6519 = false
-            paperLearningReason6519 = "QUALITY_SUPPRESSED:$why"
-            try { PipelineHealthCollector.labelInc("PAPER_LEARNING_QUALITY_SUPPRESSED") } catch (_: Throwable) {}
-            try { ForensicLogger.lifecycle("PAPER_LEARNING_QUALITY_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$why learningEligible=false openTrade=true terminalBlock=false") } catch (_: Throwable) {}
-            ErrorLogger.debug("Executor", "🧪 PAPER_LEARNING_QUALITY_SUPPRESSED: ${ts.symbol} | $why | execution continues")
+            // V5.0.6663 — canonical paper capital may not be spent on an
+            // outcome the learner is forbidden to consume.  That split made
+            // weak BLUECHIP/SHITCOIN/EXPRESS entries lose money while the
+            // self-tuner saw no terminal sample. Keep the candidate visible in
+            // telemetry, but do not open a canonical position.
+            try { PipelineHealthCollector.labelInc("PAPER_ENTRY_QUALITY_REJECTED_6663") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("PAPER_ENTRY_QUALITY_REJECTED_6663", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$why learningEligible=false openTrade=false") } catch (_: Throwable) {}
+            ErrorLogger.debug("Executor", "🧪 PAPER_ENTRY_QUALITY_REJECTED_6663: ${ts.symbol} | $why")
+            markPaperBuyNotOpened("LEARNING_QUALITY_REJECTED_6663")
+            return
         }
         // V5.9.1129 — route authority must run before open authority for direct
         // paperBuy() callers. In LIVE mode with shadowPaperEnabled=true this is
@@ -12701,12 +12706,17 @@ class Executor(
         }
 
         normalizePositionScaleIfNeeded(ts)
-        val price = getActualPrice(ts)
-        if (price <= 0) {
-            ErrorLogger.debug("Executor", "Paper buy skipped: no valid price for ${tradeId.symbol}")
-            markPaperBuyNotOpened("NO_VALID_PRICE")
+        // V5.0.6663 — seal and validate one market tuple.  The old path checked
+        // getActualPrice + discovery source/tokenMap pool, then persisted a
+        // different lastPrice/lastPriceSource/lastPricePool snapshot.  That
+        // source-of-creation split admitted template prices into canonical lots.
+        val entryMarketSnapshot = mintEntryMarketSnapshot(ts)
+        if (entryMarketSnapshot == null) {
+            ErrorLogger.debug("Executor", "Paper buy skipped: no authoritative market snapshot for ${tradeId.symbol}")
+            markPaperBuyNotOpened("NO_VALID_MARKET_SNAPSHOT")
             return
         }
+        val price = entryMarketSnapshot.priceUsd
         // V5.0.6658 §ENTRY_PRICE_PROVENANCE_ENFORCEMENT — operator dump Feb
         //   2026 UI screenshot showed dozens of open positions with
         //   fabricated entry prices ($0.05025 / $50M mcap / $0.00005253
@@ -12724,20 +12734,21 @@ class Executor(
         //   phantom trail/runner-bypass fired, and exits stalled with
         //   102 open positions carrying dead marks.
         //
-        //   Consult MarketDataProvenance6471 with the same (price, mcap,
-        //   liquidity, source, pool) tuple the mark gate uses. Reject
+        //   Consult MarketDataProvenance6471 with the exact immutable snapshot
+        //   tuple that quantity calculation and journal persistence use. Reject
         //   NON_AUTHORITATIVE at entry so no template price can seal a
-        //   canonical position. Fail-open on classifier exceptions so a
-        //   classifier bug never blocks a legitimate entry — the
-        //   MarkAuthorityIntegrityGate6496 mark-path check remains as a
-        //   second line of defence on every subsequent quote.
+        //   canonical position. Classifier failure is fail-closed at this
+        //   economic boundary; discovery remains live and can refresh/retry.
         val entryProvenance6658 = try {
             com.lifecyclebot.engine.truth.MarketDataProvenance6471.classify(
-                price = price, mcap = ts.lastMcap, liquidity = ts.lastLiquidityUsd,
-                source = ts.source, poolAddress = ts.tokenMap.poolAddress.ifBlank { ts.tokenMap.routeStatus },
+                price = entryMarketSnapshot.priceUsd,
+                mcap = entryMarketSnapshot.marketCapUsd,
+                liquidity = entryMarketSnapshot.liquidityUsd,
+                source = entryMarketSnapshot.priceSource,
+                poolAddress = entryMarketSnapshot.poolAddress,
                 identity = tradeId.mint,
             )
-        } catch (_: Throwable) { com.lifecyclebot.engine.truth.MarketDataProvenance6471.Provenance.AUTHORITATIVE }
+        } catch (_: Throwable) { com.lifecyclebot.engine.truth.MarketDataProvenance6471.Provenance.NON_AUTHORITATIVE_MISSING }
         if (entryProvenance6658 != com.lifecyclebot.engine.truth.MarketDataProvenance6471.Provenance.AUTHORITATIVE) {
             try {
                 PipelineHealthCollector.labelInc("PAPER_BUY_ENTRY_PROVENANCE_REJECTED_6658")
@@ -12745,7 +12756,8 @@ class Executor(
                 ForensicLogger.lifecycle(
                     "PAPER_BUY_ENTRY_PROVENANCE_REJECTED_6658",
                     "mint=${tradeId.mint.take(10)} symbol=${tradeId.symbol} price=${"%.9f".format(price)} " +
-                        "mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} src=${ts.source} " +
+                        "mcap=${entryMarketSnapshot.marketCapUsd.toInt()} liq=${entryMarketSnapshot.liquidityUsd.toInt()} " +
+                        "src=${entryMarketSnapshot.priceSource} pool=${entryMarketSnapshot.poolAddress.take(18)} " +
                         "provenance=${entryProvenance6658.name} action=reject_sentinel_entry",
                 )
             } catch (_: Throwable) {}
@@ -12936,8 +12948,7 @@ class Executor(
             ) am.copyTriggerWallet else ""
         } catch (_: Throwable) { "" }
 
-        val entryMarketSnapshot = mintEntryMarketSnapshot(ts)
-        if (entryMarketSnapshot != null) persistMintEntryMarketSnapshot(ts, entryMarketSnapshot, "paperBuy")
+        persistMintEntryMarketSnapshot(ts, entryMarketSnapshot, "paperBuy.authoritative.6663")
         val paperPolicySnapshot = buildTradePolicySnapshot(
             ts = ts,
             mode = "PAPER",
@@ -20638,7 +20649,9 @@ class Executor(
                 soldQtyRaw = soldQtyRaw6474,
                 preRemainingRaw = terminalRemainingRaw6492,
                 preRemainingCostBasisSol = terminalRemainingCost6492,
-                grossProceedsSol = (value - treasuryShare).coerceAtLeast(0.0),
+                // `value` is already net of simulatedFeeSol.  The terminal
+                // reducer subtracts fees exactly once, so pass pre-fee gross.
+                grossProceedsSol = (grossNoFrictionValue - treasuryShare).coerceAtLeast(0.0),
                 soldCostBasisSol = terminalRemainingCost6492,
                 feesSol = simulatedFeeSol.coerceAtLeast(0.0),
                 lane = pos.tradingMode.ifBlank { tradeId.symbol },
@@ -20694,7 +20707,7 @@ class Executor(
             if (canonicalPaperSellCommitted6474) {
                 try {
                     val proceedsLamports6504 = java.math.BigInteger.valueOf(
-                        ((value - treasuryShare).coerceAtLeast(0.0) * 1_000_000_000.0).toLong().coerceAtLeast(0L)
+                        ((close6474.grossProceedsSol - close6474.feesSol).coerceAtLeast(0.0) * 1_000_000_000.0).toLong().coerceAtLeast(0L)
                     )
                     com.lifecyclebot.engine.truth.FillLotLedger6504.recordSellFill(
                         mint = tradeId.mint,

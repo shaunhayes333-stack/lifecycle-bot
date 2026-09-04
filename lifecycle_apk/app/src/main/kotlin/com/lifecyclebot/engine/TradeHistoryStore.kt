@@ -227,7 +227,7 @@ object TradeHistoryStore {
             // The DB on device is at v3 from a previous experiment, so returning
             // the codebase to v1 throws SQLiteException on startup and breaks
             // the entire learning pipeline. Bump to v4 to force an upgrade instead.
-            const val DB_VERSION = 8
+            const val DB_VERSION = 9
             const val TABLE = "trades"
         }
 
@@ -266,6 +266,8 @@ object TradeHistoryStore {
                     entry_price_source TEXT NOT NULL DEFAULT '',
                     entry_pool_address TEXT NOT NULL DEFAULT '',
                     economic_event_id TEXT NOT NULL DEFAULT '',
+                    sold_cost_basis_sol REAL NOT NULL DEFAULT 0,
+                    gross_proceeds_sol REAL NOT NULL DEFAULT 0,
                     dedup_key     TEXT    UNIQUE
                 )
             """.trimIndent())
@@ -300,6 +302,10 @@ object TradeHistoryStore {
             if (oldVersion < 8) {
                 try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN economic_event_id TEXT NOT NULL DEFAULT ''") } catch (_: Throwable) {}
                 try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_economic_event_id ON $TABLE(economic_event_id)") } catch (_: Throwable) {}
+            }
+            if (oldVersion < 9) {
+                try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN sold_cost_basis_sol REAL NOT NULL DEFAULT 0") } catch (_: Throwable) {}
+                try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN gross_proceeds_sol REAL NOT NULL DEFAULT 0") } catch (_: Throwable) {}
             }
         }
     }
@@ -483,7 +489,16 @@ object TradeHistoryStore {
         // The row is genuine forensic history — accept it.
         val isRugClose6382 = t.reason.contains("EXTERNAL_RUG_CLOSE", ignoreCase = true) &&
             t.pnlPct <= -99.9 && t.entryCostSol > 0.0
-        if (t.price <= 0.0 && kotlin.math.abs(t.pnlSol) > 0.0000001 && !isRugClose6382) return false
+        // V5.0.6663 — an immutable canonical receipt may legitimately prove
+        // zero proceeds (worthless token / no recoverable value) even when the
+        // reason label is a lane-specific catastrophe rather than the legacy
+        // EXTERNAL_RUG_CLOSE string.  Rejecting that terminal row left the lot
+        // economically closed but absent from learning and reporting.
+        val isCanonicalZeroProceedsLoss6663 = t.economicEventId.isNotBlank() &&
+            t.soldCostBasisSol > 0.0 && t.grossProceedsSol == 0.0 &&
+            t.pnlSol <= -t.soldCostBasisSol + 0.0000001 && t.pnlPct <= -99.0
+        if (t.price <= 0.0 && kotlin.math.abs(t.pnlSol) > 0.0000001 &&
+            !isRugClose6382 && !isCanonicalZeroProceedsLoss6663) return false
         // SELL `sol` is gross proceeds throughout Executor (and typed rows
         // repeat that value in grossProceedsSol).  It is not cost basis.
         // Adding P&L to it a second time made every genuine loss beyond
@@ -1460,6 +1475,8 @@ object TradeHistoryStore {
                         entryPriceSource = c.stringOrBlank("entry_price_source"),
                         entryPoolAddress = c.stringOrBlank("entry_pool_address"),
                         economicEventId = c.stringOrBlank("economic_event_id"),
+                        soldCostBasisSol = c.doubleOrZero("sold_cost_basis_sol"),
+                        grossProceedsSol = c.doubleOrZero("gross_proceeds_sol"),
                     )
                     val displayRow = CloseOutcomeLabelSanitizer.canonicalize(row, emit = false)
                     if (isValidAccountingTrade(displayRow)) loaded.add(displayRow)
@@ -2227,6 +2244,8 @@ object TradeHistoryStore {
         put("entry_price_source", t.entryPriceSource)
         put("entry_pool_address", t.entryPoolAddress)
         put("economic_event_id", t.economicEventId)
+        put("sold_cost_basis_sol", t.soldCostBasisSol)
+        put("gross_proceeds_sol", t.grossProceedsSol)
         put("dedup_key",     "${t.ts}_${t.mint}_${t.side}_${tradeSeq.incrementAndGet()}")
     }
 
@@ -2272,6 +2291,8 @@ object TradeHistoryStore {
                         entryPriceSource = c.stringOrBlank("entry_price_source"),
                         entryPoolAddress = c.stringOrBlank("entry_pool_address"),
                         economicEventId = c.stringOrBlank("economic_event_id"),
+                        soldCostBasisSol = c.doubleOrZero("sold_cost_basis_sol"),
+                        grossProceedsSol = c.doubleOrZero("gross_proceeds_sol"),
                     )
                     if (isValidAccountingTrade(row)) {
                         loaded.add(row)

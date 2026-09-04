@@ -1058,6 +1058,24 @@ class BotService : Service() {
      * Cancelled in stopBot() / startBot crash paths.
      */
     private var hotExitJob: Job? = null
+    private val hotExitCoverageCursor6663 = java.util.concurrent.atomic.AtomicInteger(0)
+    private val fullExitCoverageCursor6663 = java.util.concurrent.atomic.AtomicInteger(0)
+    private val manageExitCoverageCursor6663 = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** Bounded, rotating coverage prevents a stable canonical list from always
+     * starting at index zero.  With a large inventory, one slow early position
+     * can no longer starve every position behind it from mid-hold and exit
+     * management. */
+    private fun <T> rotatingExitSlice6663(
+        items: List<T>,
+        maxItems: Int,
+        cursor: java.util.concurrent.atomic.AtomicInteger,
+    ): List<T> {
+        if (items.isEmpty() || maxItems <= 0) return emptyList()
+        if (items.size <= maxItems) return items
+        val start = Math.floorMod(cursor.getAndAdd(maxItems), items.size)
+        return List(maxItems) { offset -> items[(start + offset) % items.size] }
+    }
 
 
 
@@ -1455,7 +1473,10 @@ class BotService : Service() {
                         // Updating this timestamp lets botLoop/openPositionTick defer
                         // to the hot path without weakening hard-floor management.
                         lastTickExitSweepMs = System.currentTimeMillis()
-                        openTokens.forEach { ts ->
+                        val managedThisTick6663 = rotatingExitSlice6663(
+                            openTokens, maxItems = 24, cursor = hotExitCoverageCursor6663,
+                        )
+                        managedThisTick6663.forEach { ts ->
                             try {
                                 executor.runManageOnly(ts, curWallet, curSol)
                             } catch (e: Exception) {
@@ -1567,7 +1588,7 @@ class BotService : Service() {
                                 ForensicLogger.phase(
                                     ForensicLogger.PHASE.EXIT_GATE,
                                     "_hotExit",
-                                    "tick=$tick managed=${openTokens.size} openMints",
+                                    "tick=$tick managed=${managedThisTick6663.size} canonicalOpen=${openTokens.size} openMints cursor=${hotExitCoverageCursor6663.get()}",
                                 )
                             } catch (_: Throwable) {}
                         }
@@ -19296,7 +19317,10 @@ if (hotExitHandledSweep) {
         // 45s post-buy grace honored (consistent with Part 1) so we never
         // clip a position before the first scanner refresh has populated it.
         try {
-            val openTokensForFloor = canonicalExitTokenSnapshot6512()
+            val canonicalOpenTokensForFloor6663 = canonicalExitTokenSnapshot6512()
+            val openTokensForFloor = rotatingExitSlice6663(
+                canonicalOpenTokensForFloor6663, maxItems = 24, cursor = fullExitCoverageCursor6663,
+            )
             val nowMs = System.currentTimeMillis()
             // V5.0.6402 §C — hard deadline for the full exit sweep too.
             // 6402 snapshot cycles hit 94-173s despite Universal SL being
@@ -19316,7 +19340,7 @@ if (hotExitHandledSweep) {
                             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FULL_EXIT_SWEEP_HARD_DEADLINE_6402")
                             com.lifecyclebot.engine.ForensicLogger.lifecycle(
                                 "FULL_EXIT_SWEEP_HARD_DEADLINE_6402",
-                                "elapsedMs=${System.currentTimeMillis() - fullSweepStartedAt} positionsSeen=${openTokensForFloor.size} processed=$floorPositionsProcessed budgetMs=$FULL_SWEEP_HARD_DEADLINE_MS",
+                                "elapsedMs=${System.currentTimeMillis() - fullSweepStartedAt} positionsSeen=${canonicalOpenTokensForFloor6663.size} slice=${openTokensForFloor.size} processed=$floorPositionsProcessed budgetMs=$FULL_SWEEP_HARD_DEADLINE_MS cursor=${fullExitCoverageCursor6663.get()}",
                             )
                         } catch (_: Throwable) {}
                     }
@@ -19427,7 +19451,10 @@ if (hotExitHandledSweep) {
         // Part 2 — V3 lane: ensure profit-lock + partial + risk fire on
         // every open position, not just those with fresh scanner data.
         try {
-            val openTokens = canonicalExitTokenSnapshot6512()
+            val canonicalManageTokens6663 = canonicalExitTokenSnapshot6512()
+            val openTokens = rotatingExitSlice6663(
+                canonicalManageTokens6663, maxItems = 24, cursor = manageExitCoverageCursor6663,
+            )
             openTokens.forEach { ts ->
                 com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onExitEvaluation()
                 try { executor.runManageOnly(ts, wallet, effectiveBalance) }
@@ -22025,6 +22052,25 @@ if (hotExitHandledSweep) {
                         var shouldEnter = !v3HardReject && !dumpBlocks && (treasurySignal6022.shouldEnter || (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && forceBootstrapEntry))
                         var treasuryBlockedReason: String? = null
 
+                        // V5.0.6663 — Treasury's dedicated scanner contract is
+                        // established/liquid tokens, not fresh pump.fun launches.
+                        // The producer enforced these floors but the consumer
+                        // treated them as an optional affinity boost, allowing
+                        // $3K-mcap launches into Treasury through bootstrap and
+                        // the toolkit bridge. Make the existing role boundary
+                        // binding only for this lane; rejected candidates remain
+                        // available to Sniper/Moonshot/Shitcoin evaluation.
+                        val treasuryRoleEligible6663 = ts.lastMcap >= TreasuryScannerFeed.MIN_TREASURY_MCAP &&
+                            ts.lastLiquidityUsd >= TreasuryScannerFeed.MIN_TREASURY_LIQUIDITY
+                        if (shouldEnter && !treasuryRoleEligible6663) {
+                            treasuryBlockedReason = "TREASURY_ROLE_METRICS mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()}"
+                            shouldEnter = false
+                            try {
+                                PipelineHealthCollector.labelInc("TREASURY_ROLE_REJECTED_6663")
+                                ForensicLogger.lifecycle("TREASURY_ROLE_REJECTED_6663", "mint=${ts.mint.take(10)} symbol=${ts.symbol} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} action=yield_to_meme_lanes")
+                            } catch (_: Throwable) {}
+                        }
+
                         // V5.9.1091 — Treasury is only ONE lane. Its private skip
                         // conditions must not return from processTokenCycle(), because
                         // that starves Quality/BlueChip/Moonshot/ShitCoin/Manip/Sniper/Dip.
@@ -22213,6 +22259,7 @@ if (hotExitHandledSweep) {
                             run {
 
                             // V5.9.688 — FDG gate for Treasury path
+                            var treasuryFdgFailure6663: String? = null
                             val treasuryFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
@@ -22225,25 +22272,28 @@ if (hotExitHandledSweep) {
                                     specialistLane = "TREASURY",
                                 )
                             } catch (fdgEx: Exception) {
-                                ErrorLogger.warn("BotService", "🏦 [TREASURY] FDG error: ${fdgEx.message} — proceeding fail-open")
+                                treasuryFdgFailure6663 = "FDG_EXCEPTION:${fdgEx.javaClass.simpleName}:${fdgEx.message.orEmpty().take(80)}"
+                                ErrorLogger.warn("BotService", "🏦 [TREASURY] FDG error: ${fdgEx.message} — entry rejected, scanner remains live")
                                 null
                             }
+                            val treasuryFdgCanExecute6663 = treasuryFdg?.canExecute() == true
+                            val treasuryFdgReason6663 = treasuryFdg?.blockReason ?: treasuryFdgFailure6663 ?: "FDG_RESULT_MISSING"
                             // V5.9.689 — bump FDG forensic counter for TREASURY path
             try {
                 ForensicLogger.phase(ForensicLogger.PHASE.FDG, ts.symbol,
-                    "path=TREASURY can=${treasuryFdg?.canExecute() ?: true} reason=${treasuryFdg?.blockReason ?: "n/a"}")
+                    "path=TREASURY can=$treasuryFdgCanExecute6663 reason=$treasuryFdgReason6663")
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
-                    allow = treasuryFdg?.canExecute() ?: true,
-                    reason = treasuryFdg?.blockReason ?: "ok")
+                    allow = treasuryFdgCanExecute6663,
+                    reason = treasuryFdgReason6663)
             } catch (_: Throwable) {}
-            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "TREASURY", treasuryFdg?.canExecute() ?: true, treasuryFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
+            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "TREASURY", treasuryFdgCanExecute6663, treasuryFdgReason6663, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, Treasury signals
-                            val trsFdgStructural = treasuryFdg != null && !treasuryFdg.canExecute() &&
-                                treasuryFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
+                            val trsFdgStructural = !treasuryFdgCanExecute6663 &&
+                                (treasuryFdg == null || treasuryFdgReason6663.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") })
                             val trsFdgProbe = treasuryFdg != null && !treasuryFdg.canExecute() && !trsFdgStructural
                             if (trsFdgStructural) {
-                                ErrorLogger.info("BotService", "🚫 FDG STRUCTURAL BLOCK on TREASURY: ${ts.symbol} | ${treasuryFdg?.blockReason ?: "fdg_block"}")
-                                RejectionTelemetry.record("TREASURY_FDG", treasuryFdg?.blockReason ?: "fdg_block")
+                                ErrorLogger.info("BotService", "🚫 FDG STRUCTURAL BLOCK on TREASURY: ${ts.symbol} | $treasuryFdgReason6663")
+                                RejectionTelemetry.record("TREASURY_FDG", treasuryFdgReason6663)
                             } else {
                             if (trsFdgProbe) {
                                 ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on TREASURY: ${ts.symbol} | ${treasuryFdg?.blockReason ?: "fdg_caution"} | probe trade")

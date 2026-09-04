@@ -254,6 +254,8 @@ object TokenizedStockTrader {
         val aiScore: Int = 50,
         val aiConfidence: Int = 50,
         val reasons: List<String> = emptyList(),
+        val holdSetupQuality: String = "C",
+        val adaptiveMaxHoldSeconds: Int = 0,
         var peakPnlPct: Double = 0.0,    // V5.9.9: Track peak PnL for symbolic reasoning
         // V5.9.742 — stamp open-mode for correct close routing. See ForexTrader
         // V5.9.740. Unlike Forex/Commodities/Metals, some stocks (NVDAx etc.)
@@ -391,6 +393,8 @@ object TokenizedStockTrader {
             .put("sizeSol", p.sizeSol).put("leverage", p.leverage)
             .put("entryTime", p.entryTime).put("aiScore", p.aiScore)
             .put("aiConfidence", p.aiConfidence).put("reasons", org.json.JSONArray(p.reasons))
+            .put("holdSetupQuality", p.holdSetupQuality)
+            .put("adaptiveMaxHoldSeconds", p.adaptiveMaxHoldSeconds)
             .put("peakPnlPct", p.peakPnlPct)
             .put("isPaper", p.isPaper)  // V5.9.742
         p.takeProfitPrice?.let { j.put("takeProfitPrice", it) }
@@ -410,7 +414,10 @@ object TokenizedStockTrader {
             takeProfitPrice = if (j.has("takeProfitPrice")) j.getDouble("takeProfitPrice") else null,
             stopLossPrice   = if (j.has("stopLossPrice"))   j.getDouble("stopLossPrice")   else null,
             aiScore = j.optInt("aiScore", 50), aiConfidence = j.optInt("aiConfidence", 50),
-            reasons = reasons, peakPnlPct = j.optDouble("peakPnlPct", 0.0),
+            reasons = reasons,
+            holdSetupQuality = j.optString("holdSetupQuality", "C"),
+            adaptiveMaxHoldSeconds = j.optInt("adaptiveMaxHoldSeconds", 0),
+            peakPnlPct = j.optDouble("peakPnlPct", 0.0),
             // V5.9.742 — legacy entries default to PAPER (safe).
             isPaper = j.optBoolean("isPaper", true),
         )
@@ -1345,6 +1352,23 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             }
         }
         
+        val holdSetupQuality6663 = when {
+            signal.score >= 80 && signal.confidence >= 70 -> "A+"
+            signal.score >= 70 -> "A"
+            signal.score >= 55 -> "B"
+            else -> "C"
+        }
+        val holdRecommendation6663 = try {
+            com.lifecyclebot.v3.scoring.HoldTimeOptimizerAI.predict(
+                mint = signal.market.symbol,
+                symbol = signal.market.symbol,
+                setupQuality = holdSetupQuality6663,
+                liquidityUsd = 10_000_000.0,
+                volatilityRegime = if (kotlin.math.abs(signal.priceChange24h) >= 5.0) "HIGH" else "NORMAL",
+                marketRegime = "NEUTRAL",
+                entryScore = signal.score,
+            )
+        } catch (_: Throwable) { null }
         val position = StockPosition(
             id = "STOCK_${positionIdCounter.incrementAndGet()}",
             market = signal.market,
@@ -1358,6 +1382,8 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             aiScore = signal.score,
             aiConfidence = signal.confidence,
             reasons = signal.reasons,
+            holdSetupQuality = holdSetupQuality6663,
+            adaptiveMaxHoldSeconds = holdRecommendation6663?.maxSeconds?.coerceIn(60, 7_200) ?: 7_200,
             // V5.9.742 — stamp open-mode for correct close routing.
             isPaper = isPaperMode.get(),
         )
@@ -1474,6 +1500,10 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             try {
                 // Update current price
                 val data = PerpsMarketDataFetcher.getMarketData(position.market)
+                if (!data.price.isFinite() || data.price <= 0.0) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_STOCK_INVALID_EXIT_MARK_6663") } catch (_: Throwable) {}
+                    continue
+                }
                 position.currentPrice = data.price
                 
                 // V5.9.9: FULLY AGENTIC EXIT — SymbolicExitReasoner every cycle
@@ -1498,6 +1528,11 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 val marketOpen = isStockMarketOpen()
                 var timeExited = false
                 when {
+                    holdSec >= (position.adaptiveMaxHoldSeconds.takeIf { it > 0 } ?: 7_200) -> {
+                        val maxHold = position.adaptiveMaxHoldSeconds.takeIf { it > 0 } ?: 7_200
+                        closePosition(id, "ADAPTIVE_HOLD_MAX_6663:${maxHold}s pnl=${"%.2f".format(pnlPct)}%")
+                        timeExited = true
+                    }
                     holdSec > 7200 -> { closePosition(id, "TIME_CAP_2H: pnl=${"%.2f".format(pnlPct)}%"); timeExited = true }
                     holdSec > 2700 && pnlPct < 0.0 -> { closePosition(id, "TIME_CUT_45MIN_LOSS: pnl=${"%.2f".format(pnlPct)}%"); timeExited = true }
                     holdSec > 1800 && pnlPct < 1.0 && marketOpen -> { closePosition(id, "TIME_FLUSH_30MIN_FLAT: pnl=${"%.2f".format(pnlPct)}%"); timeExited = true }
@@ -1679,6 +1714,15 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             ErrorLogger.info(TAG, "🏃 FAST_CLOSE [${position.market.symbol}] on shutdown — AI learning skipped")
             return
         }
+
+        try {
+            com.lifecyclebot.v3.scoring.HoldTimeOptimizerAI.recordOutcomeSeconds(
+                mint = position.market.symbol,
+                actualHoldSeconds = ((System.currentTimeMillis() - position.entryTime) / 1000L).toInt().coerceAtLeast(0),
+                pnlPct = netPnlPct,
+                setupQuality = position.holdSetupQuality,
+            )
+        } catch (_: Throwable) {}
 
         // V5.9.130: close V3 learning loop → drives real accuracy update on
         // every one of the 41 AI layers based on how this stock trade resolved
@@ -2281,4 +2325,3 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     // one is functionally identical (uses String.format) and is already
     // imported by sibling perps files.
 }
-

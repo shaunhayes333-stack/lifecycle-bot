@@ -2242,7 +2242,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Trade row must persist cost basis snapshot", models.contains("val entryCostSol: Double"))
         assertTrue("Trade row must persist partial accounting quantities", models.contains("val soldQtyToken: Double") && models.contains("val remainingQtyToken: Double"))
 
-        assertTrue("SQLite schema must version linkage columns", store.contains("const val DB_VERSION = 8"))
+        assertTrue("SQLite schema must version immutable receipt columns", store.contains("const val DB_VERSION = 9"))
         assertTrue("SQLite schema must store position_id", store.contains("position_id   TEXT"))
         assertTrue("SQLite schema must store entry price snapshot", store.contains("entry_price_snapshot"))
         assertTrue("TradeHistoryStore must enrich missing sell linkage from prior BUY", store.contains("fun enrichJournalLinkage") && store.contains("TRADE_JOURNAL_LINKAGE_ENRICHED"))
@@ -2257,7 +2257,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Journal rows must expose lifecycle position id", journal.contains("val positionId: String"))
         assertTrue("Journal must build rows through canonical trade conversion", journal.contains("journalEntryFromTrade"))
         assertTrue("Journal sell entryPrice must use entryPriceSnapshot not row-local sell price", journal.contains("val entryPx = trade.entryPriceSnapshot"))
-        assertTrue("CSV must expose entry snapshot and exit execution price separately", journal.contains("Entry Price Snapshot (SOL)") && journal.contains("Exit Price (SOL)"))
+        assertTrue("CSV must expose USD entry snapshot and exit execution price separately", journal.contains("Entry Price Snapshot (USD)") && journal.contains("Exit Price (USD)"))
         assertTrue("CSV must expose partial quantity accounting", journal.contains("Sold Token Qty") && journal.contains("Remaining Token Qty"))
         assertTrue("JournalActivity UI mapper must use stored entry snapshot", journalActivity.contains("t.entryPriceSnapshot.takeIf"))
         assertTrue("JournalActivity UI mapper must expose lifecycle linkage fields", journalActivity.contains("positionId      = t.positionId") && journalActivity.contains("remainingQtyToken = t.remainingQtyToken"))

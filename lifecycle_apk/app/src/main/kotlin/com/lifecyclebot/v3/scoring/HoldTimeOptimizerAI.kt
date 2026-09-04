@@ -127,6 +127,38 @@ object HoldTimeOptimizerAI {
         // Base recommendation from setup quality (returns seconds)
         val baseCategory = getBaseCategory(setupQuality, entryScore)
         val baseTimes = getCategoryTimesInSeconds(baseCategory)
+
+        // V5.0.6663 — the optimiser persisted avg/best hold observations but
+        // never fed either value back into its next timing prediction.  The
+        // only learned effect was a runner-probability decoration, so the
+        // advertised self-tuning hold duration remained hard-coded forever.
+        // Blend learned timing in gradually after eight closes and cap its
+        // influence at 60%; bootstrap behaviour therefore stays stable while
+        // a mature cohort can actually move the exit deadline.
+        val learnedWeight = if (pattern != null && pattern.totalTrades >= 8) {
+            ((pattern.totalTrades - 7) / 32.0).coerceIn(0.10, 0.60)
+        } else 0.0
+        val learnedTarget = pattern?.let {
+            val best = it.bestHoldSeconds.takeIf { seconds -> seconds > 0 }?.toDouble()
+            val avg = it.avgHoldSeconds.takeIf { seconds -> seconds.isFinite() && seconds > 0.0 }
+            when {
+                best != null && avg != null -> best * 0.60 + avg * 0.40
+                best != null -> best
+                else -> avg
+            }
+        }
+        val adaptedOptimalBase = if (learnedTarget != null && learnedWeight > 0.0) {
+            (baseTimes.second * (1.0 - learnedWeight) + learnedTarget * learnedWeight)
+                .toInt().coerceIn(baseTimes.first, 28_800)
+        } else baseTimes.second
+        val adaptedMinBase = if (learnedWeight > 0.0) {
+            (baseTimes.first * (1.0 - learnedWeight) + adaptedOptimalBase * 0.50 * learnedWeight)
+                .toInt().coerceIn(5, adaptedOptimalBase)
+        } else baseTimes.first
+        val adaptedMaxBase = if (learnedWeight > 0.0) {
+            (baseTimes.third * (1.0 - learnedWeight) + adaptedOptimalBase * 2.0 * learnedWeight)
+                .toInt().coerceAtLeast(adaptedOptimalBase)
+        } else baseTimes.third
         
         // Adjust for volatility
         val volMultiplier = when (volatilityRegime.uppercase()) {
@@ -159,9 +191,9 @@ object HoldTimeOptimizerAI {
         
         // Calculate final times IN SECONDS
         val combinedMultiplier = volMultiplier * liqMultiplier * regimeMultiplier * goldenMultiplier
-        val optimalSeconds = (baseTimes.second * combinedMultiplier).toInt().coerceIn(10, 28800)  // 10sec to 8hr
-        val minSeconds = (baseTimes.first * combinedMultiplier).toInt().coerceIn(5, optimalSeconds)
-        val maxSeconds = (baseTimes.third * combinedMultiplier).toInt().coerceIn(optimalSeconds, 57600)  // max 16hr
+        val optimalSeconds = (adaptedOptimalBase * combinedMultiplier).toInt().coerceIn(10, 28800)  // 10sec to 8hr
+        val minSeconds = (adaptedMinBase * combinedMultiplier).toInt().coerceIn(5, optimalSeconds)
+        val maxSeconds = (adaptedMaxBase * combinedMultiplier).toInt().coerceIn(optimalSeconds, 57600)  // max 16hr
         
         // Determine final category
         val finalCategory = categorizeHoldTimeSeconds(optimalSeconds)
@@ -570,6 +602,9 @@ object HoldTimeOptimizerAI {
                     put("avgHoldSeconds", pattern.avgHoldSeconds)
                     put("avgPnl", pattern.avgPnl)
                     put("bestHoldSeconds", pattern.bestHoldSeconds)
+                    put("winRateByHold", JSONObject().apply {
+                        pattern.winRateByHold.forEach { (category, rate) -> put(category.name, rate) }
+                    })
                 })
             }
             put("patterns", patternsJson)
@@ -584,13 +619,20 @@ object HoldTimeOptimizerAI {
             val patternsJson = json.optJSONObject("patterns")
             patternsJson?.keys()?.forEach { quality ->
                 val patternJson = patternsJson.getJSONObject(quality)
+                val winRates = mutableMapOf<HoldCategory, Double>()
+                patternJson.optJSONObject("winRateByHold")?.let { rates ->
+                    rates.keys().forEach { key ->
+                        try { winRates[HoldCategory.valueOf(key)] = rates.optDouble(key, 50.0) } catch (_: Throwable) {}
+                    }
+                }
                 patternsBySetup[quality] = HoldPattern(
                     totalTrades = patternJson.optInt("totalTrades", 0),
                     avgHoldSeconds = patternJson.optDouble("avgHoldSeconds", 
                         patternJson.optDouble("avgHoldMinutes", 0.0) * 60),  // Legacy: convert minutes to seconds
                     avgPnl = patternJson.optDouble("avgPnl", 0.0),
                     bestHoldSeconds = patternJson.optInt("bestHoldSeconds",
-                        patternJson.optInt("bestHoldMinutes", 0) * 60)  // Legacy: convert minutes to seconds
+                        patternJson.optInt("bestHoldMinutes", 0) * 60),  // Legacy: convert minutes to seconds
+                    winRateByHold = winRates,
                 )
             }
         } catch (e: Exception) {

@@ -249,6 +249,8 @@ object CryptoAltTrader {
         val aiConfidence  : Int,
         val reasons       : List<String>,
         val openTime      : Long = System.currentTimeMillis(),
+        val holdSetupQuality: String = "C",
+        val adaptiveMaxHoldSeconds: Int = 0,
         var closeTime     : Long? = null,
         var closePrice    : Double? = null,
         var realizedPnl   : Double? = null,
@@ -325,6 +327,8 @@ object CryptoAltTrader {
             .put("aiConfidence",    p.aiConfidence)
             .put("reasons",         org.json.JSONArray(p.reasons))
             .put("openTime",         p.openTime)
+            .put("holdSetupQuality", p.holdSetupQuality)
+            .put("adaptiveMaxHoldSeconds", p.adaptiveMaxHoldSeconds)
             .put("highestPnlPct",    p.highestPnlPct)
             // V5.9.1472 — persist dynamic-crypto identity so DYN positions
             // restore as the real coin, not the bare sentinel.
@@ -365,6 +369,8 @@ object CryptoAltTrader {
             aiConfidence    = j.optInt("aiConfidence", 50),
             reasons         = reasons,
             openTime        = j.optLong("openTime", System.currentTimeMillis()),
+            holdSetupQuality = j.optString("holdSetupQuality", "C"),
+            adaptiveMaxHoldSeconds = j.optInt("adaptiveMaxHoldSeconds", 0),
         ).apply {
             highestPnlPct = j.optDouble("highestPnlPct", 0.0)
             // Pre-6654 DYN rows may already contain a sentinel-derived mark.
@@ -2431,6 +2437,23 @@ object CryptoAltTrader {
             terminalDisposition6613("CANONICAL_INVALID_SEALED_SIZE")
             return
         }
+        val holdSetupQuality6663 = when {
+            signal.score >= 80 && signal.confidence >= 70 -> "A+"
+            signal.score >= 70 -> "A"
+            signal.score >= 55 -> "B"
+            else -> "C"
+        }
+        val holdRecommendation6663 = try {
+            com.lifecyclebot.v3.scoring.HoldTimeOptimizerAI.predict(
+                mint = candidate.assetKey,
+                symbol = mktSym,
+                setupQuality = holdSetupQuality6663,
+                liquidityUsd = candidate.liquidityUsd,
+                volatilityRegime = if (kotlin.math.abs(signal.priceChange24h) >= 15.0) "HIGH" else "NORMAL",
+                marketRegime = "NEUTRAL",
+                entryScore = signal.score,
+            )
+        } catch (_: Throwable) { null }
         val position = AltPosition(
             id             = "ALT:${canonicalCryptoIntent6565.attemptId}",
             market         = signal.market,
@@ -2452,7 +2475,9 @@ object CryptoAltTrader {
             stopLossPrice  = sl,
             aiScore        = signal.score,
             aiConfidence   = signal.confidence,
-            reasons        = signal.reasons + "CRYPTO_CANDIDATE:${candidate.assetKey}"
+            reasons        = signal.reasons + "CRYPTO_CANDIDATE:${candidate.assetKey}",
+            holdSetupQuality = holdSetupQuality6663,
+            adaptiveMaxHoldSeconds = holdRecommendation6663?.maxSeconds?.coerceIn(60, 3_600) ?: 3_600,
         )
 
         // Note: totalTrades incremented at CLOSE, not open, for accurate win rate
@@ -2875,6 +2900,9 @@ object CryptoAltTrader {
                     if (!identityMatches) {
                         try { PipelineHealthCollector.labelInc("CRYPTO_DYN_MARK_IDENTITY_REJECTED_6654") } catch (_: Throwable) {}
                         ErrorLogger.warn(TAG, "🪙 DYN MARK BLOCKED: ${position.marketSymbol} positionKey=${positionKey.take(28)} resolved=${resolved?.canonicalIdentity6544?.take(28)}")
+                        if (position.isPaper && System.currentTimeMillis() - position.openTime >= DYNAMIC_MARK_MAX_AGE_MS_6654) {
+                            settleUntrustedDynamicPaperPosition6663(position, "IDENTITY_UNRESOLVED")
+                        }
                         continue
                     }
                     val ageMs = (System.currentTimeMillis() - resolved!!.lastUpdatedMs).coerceAtLeast(0L)
@@ -2886,6 +2914,9 @@ object CryptoAltTrader {
                     if (!refreshedPrice.isFinite() || refreshedPrice <= 0.0 ||
                         refreshedAgeMs > DYNAMIC_MARK_MAX_AGE_MS_6654) {
                         try { PipelineHealthCollector.labelInc("CRYPTO_DYN_MARK_STALE_OR_MISSING_6654") } catch (_: Throwable) {}
+                        if (position.isPaper && System.currentTimeMillis() - position.openTime >= DYNAMIC_MARK_MAX_AGE_MS_6654) {
+                            settleUntrustedDynamicPaperPosition6663(position, "MARK_STALE_OR_MISSING")
+                        }
                         continue
                     }
                     markPrice = refreshedPrice
@@ -3013,6 +3044,19 @@ object CryptoAltTrader {
                 val holdSec = (System.currentTimeMillis() - updated.openTime) / 1000
                 val peakPnl = if (updated.highestPnlPct > updated.getPnlPct()) updated.highestPnlPct else updated.getPnlPct()
 
+                // V5.0.6663 — Crypto previously registered no position with
+                // HoldTimeOptimizerAI and therefore ignored its learned exit
+                // horizon.  The fixed 45/60-minute cleanup only touched flat
+                // or losing positions, allowing small winners to occupy a slot
+                // indefinitely.  Every new position now carries its immutable
+                // entry-time recommendation; legacy restores retain a one-hour
+                // safety cap.
+                val adaptiveMaxHold6663 = updated.adaptiveMaxHoldSeconds.takeIf { it > 0 } ?: 3_600
+                if (holdSec >= adaptiveMaxHold6663) {
+                    closePosition(id, "ADAPTIVE_HOLD_MAX_6663:${adaptiveMaxHold6663}s pnl=${"%.2f".format(updated.getPnlPct())}%")
+                    continue
+                }
+
                 // Calculate price velocity (% change per minute over hold period)
                 val priceVelocity = if (holdSec > 30) updated.getPnlPct() / (holdSec / 60.0) else 0.0
 
@@ -3103,9 +3147,51 @@ object CryptoAltTrader {
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_PARTIAL_APPLIED_6566_CRYPTO") } catch (_: Throwable) {}
     }
 
+    /** A missing DYN mark must not be converted into invented PnL, but it also
+     * must not make a paper position immortal.  After the exact-mark freshness
+     * window expires, return canonical cost basis through the one paper
+     * authority and remove the local execution projection. */
+    private fun settleUntrustedDynamicPaperPosition6663(pos: AltPosition, cause: String): Boolean {
+        if (!pos.isPaper || !pos.isDynamic) return false
+        val receipt = try {
+            com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.refund(
+                positionId = pos.id,
+                mint = pos.canonicalAssetKey,
+                symbol = pos.marketSymbol,
+                reason = "UNTRUSTED_DYNAMIC_MARK_ADMIN_REFUND_6663:$cause",
+            )
+        } catch (_: Throwable) { null }
+        if (receipt?.applied != true) {
+            ErrorLogger.warn(TAG, "🪙 DYN ADMIN REFUND REJECTED: ${pos.marketSymbol} cause=$cause result=${receipt?.reason ?: "NULL"}")
+            return false
+        }
+        positions.remove(pos.id)
+        spotPositions.remove(pos.id)
+        leveragePositions.remove(pos.id)
+        momentumSnapshots.remove(pos.id)
+        partialLadderHit.remove(pos.id)
+        trailPeakPct.remove(pos.id)
+        try { com.lifecyclebot.collective.LocalOrphanStore.clear(pos.id) } catch (_: Throwable) {}
+        try {
+            val bucket = com.lifecyclebot.engine.CryptoPositionState.Bucket.PAPER
+            com.lifecyclebot.engine.CryptoPositionState.release(pos.marketSymbol, bucket)
+        } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.WalletPositionLock.recordClose("CryptoAlt", pos.sizeSol) } catch (_: Throwable) {}
+        persistAltPositions()
+        try {
+            PipelineHealthCollector.labelInc("CRYPTO_DYN_UNTRUSTED_CANONICAL_REFUND_6663")
+            ForensicLogger.lifecycle(
+                "CRYPTO_DYN_UNTRUSTED_CANONICAL_REFUND_6663",
+                "positionId=${pos.id} asset=${pos.canonicalAssetKey.take(32)} symbol=${pos.marketSymbol} cause=$cause action=canonical_basis_refund",
+            )
+        } catch (_: Throwable) {}
+        return true
+    }
+
     private fun closePosition(positionId: String, reason: String) {
         val pos = positions[positionId] ?: return
         if (pos.isDynamic && !pos.hasTrustedMark()) {
+            if (pos.isPaper && settleUntrustedDynamicPaperPosition6663(pos, "CLOSE_REQUEST:${reason.take(80)}")) return
             try { PipelineHealthCollector.labelInc("CRYPTO_DYN_UNTRUSTED_CLOSE_BLOCKED_6654") } catch (_: Throwable) {}
             ErrorLogger.warn(TAG, "🪙 DYN CLOSE BLOCKED: ${pos.marketSymbol} has no fresh exact-identity mark; reason=$reason")
             return
@@ -3237,6 +3323,15 @@ object CryptoAltTrader {
             persistAltPositions()
             return
         }
+
+        try {
+            com.lifecyclebot.v3.scoring.HoldTimeOptimizerAI.recordOutcomeSeconds(
+                mint = pos.canonicalAssetKey,
+                actualHoldSeconds = ((System.currentTimeMillis() - pos.openTime) / 1000L).toInt().coerceAtLeast(0),
+                pnlPct = pos.getPnlPct(),
+                setupQuality = pos.holdSetupQuality,
+            )
+        } catch (_: Throwable) {}
 
         // V5.9.134 — delete the OPEN row from Turso so it doesn't linger
         // as an orphan that wipes paper balance on the next app update.

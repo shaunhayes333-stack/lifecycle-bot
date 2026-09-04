@@ -18,6 +18,48 @@ import java.util.Date
 import java.util.Locale
 
 /**
+ * V5.0.6663 — canonical journal economics.
+ *
+ * New SELL rows carry the immutable terminal receipt.  Legacy rows overloaded
+ * Trade.sol with either gross proceeds or net cash, so they are normalized once
+ * here instead of allowing every report to invent a different cost/proceeds
+ * interpretation.
+ */
+internal object JournalReceiptAccounting6663 {
+    data class SolAmounts(
+        val costBasis: Double,
+        val grossProceeds: Double,
+        val grossGain: Double,
+        val fee: Double,
+        val netGain: Double,
+    )
+
+    fun sell(
+        solAmount: Double,
+        recordedPnl: Double,
+        recordedFee: Double,
+        entryCost: Double,
+        soldCostBasis: Double,
+        grossProceeds: Double,
+    ): SolAmounts {
+        val fee = recordedFee.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
+        val hasReceipt = soldCostBasis.isFinite() && soldCostBasis > 0.0
+        val cost = if (hasReceipt) soldCostBasis else entryCost.takeIf { it.isFinite() && it > 0.0 }
+            ?: solAmount.coerceAtLeast(0.0)
+        val gross = if (hasReceipt) {
+            grossProceeds.takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 0.0
+        } else {
+            val legacyCash = solAmount.takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 0.0
+            val legacyLooksNet = kotlin.math.abs(recordedPnl - (legacyCash - cost)) <=
+                maxOf(0.0000001, cost * 0.000001)
+            if (legacyLooksNet) legacyCash + fee else legacyCash
+        }
+        val gain = gross - cost
+        return SolAmounts(cost, gross, gain, fee, gain - fee)
+    }
+}
+
+/**
  * TradeJournal
  *
  * Aggregates all trades across all tokens and exports them in multiple formats:
@@ -79,6 +121,8 @@ class TradeJournal(private val ctx: Context) {
             tokenDecimals = e.tokenDecimals,
             entryPriceSource = e.entryPriceSource,
             entryPoolAddress = e.entryPoolAddress,
+            soldCostBasisSol = e.soldCostBasisSol,
+            grossProceedsSol = e.grossProceedsSol,
         )
         return !TradeHistoryStore.isValidAccountingTrade(t)
     }
@@ -117,6 +161,8 @@ class TradeJournal(private val ctx: Context) {
         val tokenDecimals: Int = -1,
         val entryPriceSource: String = "",
         val entryPoolAddress: String = "",
+        val soldCostBasisSol: Double = 0.0,
+        val grossProceedsSol: Double = 0.0,
     )
 
     private fun journalEntryFromTrade(trade: Trade, symbol: String, mint: String): JournalEntry {
@@ -156,6 +202,8 @@ class TradeJournal(private val ctx: Context) {
             tokenDecimals = trade.tokenDecimals,
             entryPriceSource = trade.entryPriceSource,
             entryPoolAddress = trade.entryPoolAddress,
+            soldCostBasisSol = trade.soldCostBasisSol,
+            grossProceedsSol = trade.grossProceedsSol,
         )
     }
 
@@ -266,13 +314,12 @@ class TradeJournal(private val ctx: Context) {
     /**
      * V5.0.3683 — Canonical per-row accounting derivation. Doctrine:
      *
-     *   trade.sol (for sells) = COST BASIS allocated to the portion sold.
-     *   trade.pnlSol           = REALIZED gain on that portion (proceeds-cost).
-     *   trade.feeSol           = total fees paid on that exit leg.
+     *   soldCostBasisSol = immutable receipt cost basis allocated to the leg.
+     *   grossProceedsSol = immutable receipt proceeds before exit fee.
+     *   feeSol           = total fees paid on that exit leg.
      *
-     * Every Trade emitted by Executor.kt now stores trade.sol consistently as
-     * cost basis (the old live SELL leg used solBack/proceeds; corrected in
-     * V5.0.3683). This function is the SINGLE ledger calculator — every
+     * Trade.sol is a legacy presentation field and is not authoritative for
+     * typed receipt rows. This function is the SINGLE ledger calculator — every
      * exporter (CSV / PDF / 8949 / Summary) must call it so footer totals
      * exactly equal the sum of emitted rows.
      */
@@ -295,20 +342,20 @@ class TradeJournal(private val ctx: Context) {
         val isBuy  = e.side.equals("BUY", ignoreCase = true)
         val isSell = isSellLike(e.side)
 
-        // trade.sol is cost basis allocated. trade.pnlSol is realized gain.
-        val costBasisSol = e.solAmount.coerceAtLeast(0.0)
-        val gainLossSol  = if (isBuy) 0.0 else e.pnlSol
-        val proceedsSol  = if (isBuy) 0.0 else (costBasisSol + gainLossSol).coerceAtLeast(0.0)
-
-        // Fee: trust the recorded value; fall back to 0.5% of cost basis on
-        // sells where the legacy paper paths failed to populate it.
-        val feeSol = if (e.feeSol > 0.0) e.feeSol
-                     else if (isSell) costBasisSol * 0.005
-                     else 0.0
-
-        // Net gain ALWAYS = gain - fee. Never zero when gain is non-zero
-        // unless fees exactly offset (catastrophe).
-        val netGainSol = if (isBuy) 0.0 else (gainLossSol - feeSol)
+        val sellAmounts = if (isSell) JournalReceiptAccounting6663.sell(
+            solAmount = e.solAmount,
+            recordedPnl = e.pnlSol,
+            recordedFee = e.feeSol,
+            entryCost = e.entryCostSol,
+            soldCostBasis = e.soldCostBasisSol,
+            grossProceeds = e.grossProceedsSol,
+        ) else null
+        val costBasisSol = if (isBuy) e.entryCostSol.takeIf { it > 0.0 } ?: e.solAmount.coerceAtLeast(0.0)
+            else sellAmounts?.costBasis ?: 0.0
+        val proceedsSol = sellAmounts?.grossProceeds ?: 0.0
+        val gainLossSol = sellAmounts?.grossGain ?: 0.0
+        val feeSol = sellAmounts?.fee ?: 0.0
+        val netGainSol = sellAmounts?.netGain ?: 0.0
 
         val costBasisUsd = costBasisSol * solUsd
         val proceedsUsd  = proceedsSol  * solUsd
@@ -390,8 +437,8 @@ class TradeJournal(private val ctx: Context) {
                 "Notes",
                 "Position ID",
                 "Entry Timestamp",
-                "Entry Price Snapshot (SOL)",
-                "Exit Price (SOL)",
+                "Entry Price Snapshot (USD)",
+                "Exit Price (USD)",
                 "Entry Market Cap (USD)",
                 "Entry Token Qty",
                 "Sold Token Qty",
@@ -428,7 +475,7 @@ class TradeJournal(private val ctx: Context) {
                     e.tradingMode.ifEmpty { "STANDARD" },
                     e.tradingModeEmoji.ifEmpty { "📈" },
                     "%.6f".format(acct.costBasisSol),
-                    "%.10f".format((if (isSellLike(e.side) && e.exitPrice > 0.0) e.exitPrice else e.entryPrice) * solPrice),
+                    "%.10f".format(if (isSellLike(e.side) && e.exitPrice > 0.0) e.exitPrice else e.entryPrice),
                     "%.2f".format(acct.costBasisUsd),
                     "%.2f".format(acct.proceedsUsd),
                     "%.6f".format(acct.gainLossSol),
