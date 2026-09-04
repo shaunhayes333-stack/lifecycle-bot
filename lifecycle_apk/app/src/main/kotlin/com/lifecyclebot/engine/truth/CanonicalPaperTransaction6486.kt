@@ -10,7 +10,9 @@ import kotlin.concurrent.withLock
 
 /** V5.0.6486 — one typed paper transaction reducer for every trader family. */
 object CanonicalPaperTransaction6486 {
-    private val lock = ReentrantLock()
+    // Fairness prevents the wall-clock acceptance/reconciler task from being
+    // starved indefinitely by a continuous stream of entry/exit mutations.
+    private val lock = ReentrantLock(true)
     private val syntheticUnit = BigInteger.valueOf(1_000_000_000L)
 
     /** Background startup reconciliation. Scalars move only after durable

@@ -44,6 +44,7 @@ class Aate6662JournalOrphanSettlementCoverageTest {
         assertTrue(service.contains(".beginWindow6662()"))
         assertTrue(service.contains("scheduleExecutionSpineAcceptance6666(runtimeGeneration)"))
         assertTrue(service.contains("ExecutionSpineAcceptance6647.MIN_WINDOW_MS + 2_000L"))
+        assertTrue(service.contains("exitWorkerScope6647.launch(kotlinx.coroutines.Dispatchers.IO + CoroutineName(\"spine-acceptance-${'$'}generation\"))"))
         assertTrue(acceptance.contains("CanonicalPaperTransaction6486.reconcileForensicBoundary6666()"))
         val transaction = File(root,
             "src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()

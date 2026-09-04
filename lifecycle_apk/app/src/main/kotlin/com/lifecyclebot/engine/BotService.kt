@@ -1784,7 +1784,10 @@ class BotService : Service() {
             // which contributed to the ~2-minute freeze users reported on
             // "Start Live". It's fully optional to the critical boot path
             // (the tick consumer is null-safe via ctxRef) so defer it.
-            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            // Bot stop cancels/rebinds jobs on the general execution scope.
+            // The independent exit-worker scope deliberately survives that
+            // transition and therefore owns the Stop -> Start smoke timer.
+            exitWorkerScope6647.launch(kotlinx.coroutines.Dispatchers.IO + CoroutineName("spine-acceptance-$generation")) {
                 try { com.lifecyclebot.engine.lab.LlmLabEngine.start(applicationContext) } catch (_: Throwable) {}
             }
             ErrorLogger.info("BotService", "onCreate starting")
