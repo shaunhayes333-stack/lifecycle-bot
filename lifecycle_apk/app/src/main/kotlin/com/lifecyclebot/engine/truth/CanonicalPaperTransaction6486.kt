@@ -17,11 +17,13 @@ object CanonicalPaperTransaction6486 {
      * journal and canonical raw lots agree exactly. */
     fun reconcileJournalAuthority6663(): Boolean = lock.withLock {
         JournalEconomicReplay6619.repairOrphanedOpenLots6662()
-        val replay = JournalEconomicReplay6619.replay()
+        var replay = JournalEconomicReplay6619.replay()
         if (!replay.reconciled) return@withLock false
         val canonicalRaw = CanonicalPositionAuthority6441.openPositions()
             .filter { it.mode.equals("paper", true) }
             .associate { it.positionId to it.remainingQtyRaw }
+        repairJournalQuantityDrift6666(replay.openRawQtyByPosition, canonicalRaw)
+        replay = JournalEconomicReplay6619.replay()
         if (canonicalRaw != replay.openRawQtyByPosition) {
             try { PipelineHealthCollector.labelInc("JOURNAL_CANONICAL_RAW_MISMATCH_BLOCKED_6663") } catch (_: Throwable) {}
             return@withLock false
@@ -29,6 +31,52 @@ object CanonicalPaperTransaction6486 {
         PaperAccountLedger6430.reconcileFromJournal6663(
             replay.cashSol, replay.openCostBasisSol, replay.realizedPnlSol, replay.feesSol,
         )
+    }
+
+    /** Append an immutable raw-quantity correction for old split close paths.
+     * It carries no cash, basis, fee or PnL and therefore cannot conceal an
+     * economic mismatch; it only makes the journal lot equal the canonical
+     * integer quantity which actually remained after the close. */
+    private fun repairJournalQuantityDrift6666(
+        journalRaw: Map<String, BigInteger>,
+        canonicalRaw: Map<String, BigInteger>,
+    ) {
+        val rows = TradeHistoryStore.getAllValidTradesSnapshot(limit = 20_000)
+        canonicalRaw.forEach { (positionId, targetRaw) ->
+            val currentRaw = journalRaw[positionId] ?: return@forEach
+            if (currentRaw == targetRaw) return@forEach
+            val seed = rows.firstOrNull {
+                it.mode.equals("paper", true) && it.side.equals("BUY", true) && it.positionId == positionId
+            } ?: return@forEach
+            val subtract = (currentRaw - targetRaw).coerceAtLeast(BigInteger.ZERO)
+            val add = (targetRaw - currentRaw).coerceAtLeast(BigInteger.ZERO)
+            val eventId = "PAPER6486:QTY_RECONCILE:$positionId:$currentRaw:$targetRaw"
+            PaperEconomicAtomicCommit6632.stampLedger(
+                eventId, seed.mint,
+                if (subtract > BigInteger.ZERO) PaperEconomicAtomicCommit6632.Side.SELL
+                else PaperEconomicAtomicCommit6632.Side.BUY,
+                "CanonicalPaperTransaction6486.quantityReconcile6666",
+            )
+            TradeHistoryStore.recordTrade(Trade(
+                side = "QTY_RECONCILE", mode = "paper", sol = 0.0,
+                price = seed.entryPriceSnapshot.takeIf { it.isFinite() && it > 0.0 } ?: seed.price,
+                ts = System.currentTimeMillis(), reason = "CANONICAL_RAW_QTY_REPAIR_6666",
+                mint = seed.mint, proofState = "PAPER_SIMULATED",
+                tradingMode = seed.tradingMode, tradingModeEmoji = seed.tradingModeEmoji,
+                positionId = positionId, entryTsMs = seed.entryTsMs.takeIf { it > 0L } ?: seed.ts,
+                entryPriceSnapshot = seed.entryPriceSnapshot.takeIf { it.isFinite() && it > 0.0 } ?: seed.price,
+                entryQtyToken = 0.0, entryCostSol = 0.0,
+                entryDecimals = seed.entryDecimals, tokenDecimals = seed.tokenDecimals,
+                entryRawQty = add, canonicalConsumedRaw = subtract,
+                remainingRawQty = targetRaw, economicEventId = eventId,
+            ))
+            try {
+                ForensicLogger.lifecycle(
+                    "JOURNAL_QTY_RECONCILED_TO_CANONICAL_6666",
+                    "positionId=$positionId fromRaw=$currentRaw toRaw=$targetRaw subtract=$subtract add=$add",
+                )
+            } catch (_: Throwable) {}
+        }
     }
     data class Result(
         val applied: Boolean,

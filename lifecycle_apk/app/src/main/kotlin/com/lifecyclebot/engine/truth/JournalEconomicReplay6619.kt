@@ -201,9 +201,25 @@ object JournalEconomicReplay6619 {
             // BUY/ADD rows historically share partialSequence=0. Their sealed
             // economic event is the fill identity; sell rows use the terminal
             // or partial fill index supplied by the canonical reducer.
-            val fillKey = if (side == "BUY") eventId else "${t.positionId}:$side:${t.partialSequence}"
+            val fillKey = if (side == "BUY" || side == "QTY_RECONCILE") eventId
+                else "${t.positionId}:$side:${t.partialSequence}"
             if (!seenFills.add(fillKey)) { reject(t, eventId, "DUPLICATE_FILL_INDEX"); continue }
             when {
+                side == "QTY_RECONCILE" -> {
+                    val lot = lots[t.positionId]
+                    if (lot == null) { reject(t, eventId, "QTY_RECONCILE_WITHOUT_LOT"); continue }
+                    val subtract = t.canonicalConsumedRaw.coerceAtLeast(java.math.BigInteger.ZERO)
+                    val add = t.entryRawQty.coerceAtLeast(java.math.BigInteger.ZERO)
+                    if ((subtract == java.math.BigInteger.ZERO) == (add == java.math.BigInteger.ZERO)) {
+                        reject(t, eventId, "QTY_RECONCILE_DIRECTION_INVALID"); continue
+                    }
+                    val nextRaw = lot.rawQty - subtract + add
+                    if (nextRaw < java.math.BigInteger.ZERO) {
+                        reject(t, eventId, "QTY_RECONCILE_NEGATIVE_LOT"); continue
+                    }
+                    lot.rawQty = nextRaw
+                    try { PipelineHealthCollector.labelInc("JOURNAL_QTY_RECONCILED_TO_CANONICAL_6666") } catch (_: Throwable) {}
+                }
                 side == "BUY" -> {
                     val cost = t.sol
                     val fee = t.feeSol
@@ -392,6 +408,11 @@ object JournalEconomicReplay6619 {
 
             val positionBuys = buys[positionId].orEmpty()
             val seed = positionBuys.firstOrNull() ?: return@forEach
+            // Canonical position and journal terminal persistence are not one
+            // CPU instruction. Never refund a just-written BUY while its
+            // canonical/open or close receipt is still crossing that boundary.
+            val newestBuyAt = positionBuys.maxOfOrNull { it.ts } ?: 0L
+            if (System.currentTimeMillis() - newestBuyAt < 10_000L) return@forEach
             val eventId = "PAPER6619:ORPHAN_REFUND:$positionId"
             val raw = replay.openRawQtyByPosition[positionId] ?: java.math.BigInteger.ZERO
             val scale = seed.tokenDecimals.takeIf { it in 0..18 }

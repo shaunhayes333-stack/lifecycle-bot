@@ -41,5 +41,16 @@ class Aate6662JournalOrphanSettlementCoverageTest {
         assertTrue(acceptance.contains("baseline = capture(nowMs)"))
         assertTrue(service.contains("ExecutionSpineAcceptanceWindow6647"))
         assertTrue(service.contains(".beginWindow6662()"))
+        assertTrue(service.contains("scheduleExecutionSpineAcceptance6666(runtimeGeneration)"))
+        assertTrue(service.contains("ExecutionSpineAcceptance6647.MIN_WINDOW_MS + 2_000L"))
+        assertTrue(acceptance.contains("CanonicalPaperTransaction6486.reconcileJournalAuthority6663()"))
+    }
+
+    @Test
+    fun `independent reconciler continuously heals journal authority`() {
+        assertTrue(service.contains("IndependentReconcilerScheduler6431.start"))
+        assertTrue(service.contains("CanonicalPaperTransaction6486\n                            .reconcileJournalAuthority6663()"))
+        assertTrue(replay.contains("side == \"QTY_RECONCILE\""))
+        assertTrue(replay.contains("JOURNAL_QTY_RECONCILED_TO_CANONICAL_6666"))
     }
 }

@@ -1658,7 +1658,15 @@ class BotService : Service() {
                     com.lifecyclebot.engine.EmergentGuardrails.rebuildFromCanonical6475(repairedPaperPositions6490)
                     com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(repairedPaperPositions6490)
                     try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol(), "startup_duplicate_inventory_repair_6490") } catch (_: Throwable) {}
-                    com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431.start { /* full reconcile callback: wired in Phase 2 */ }
+                    com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431.start {
+                        // The independent 30-second cadence is the durable
+                        // account healer. Keep it off the trading loop so a
+                        // choked meme cycle cannot also freeze reconciliation.
+                        com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486
+                            .reconcileJournalAuthority6663()
+                        com.lifecyclebot.engine.truth.ForensicReconciliation6635
+                            .reconcile6635()
+                    }
                     canonicalBootstrapSucceeded6515 = true
                     try {
                         ForensicLogger.lifecycle("CANONICAL_BOOTSTRAP_READY_6515", "events=${durableEconomicEvents6486.size} positions=${repairedPaperPositions6490.size} duplicateMints=${inventoryRepair6490.duplicateMints} durMs=${android.os.SystemClock.elapsedRealtime() - started6515} thread=${Thread.currentThread().name}")
@@ -4873,6 +4881,10 @@ class BotService : Service() {
             BotRuntimeController.registerJob(runtimeGeneration, "botLoop", loopJob)
             BotRuntimeController.publishRunning(runtimeGeneration, enabledTraders = try { EnabledTraderAuthority.snapshotStr() } catch (_: Throwable) { "" })
             status.running = true
+            // A Stop -> Start may deliberately rebind the still-draining loop.
+            // That is nevertheless a new accepted runtime session, so reset and
+            // independently close its mandatory evidence window here too.
+            scheduleExecutionSpineAcceptance6666(runtimeGeneration)
             try { com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.setRuntimeActive(true, "BotService.startBot.rebind6487") } catch (_: Throwable) {}
             ErrorLogger.warn("BotService", "startBot() called but botLoop is already active — rebinding runtime state")
             return
@@ -4912,10 +4924,7 @@ class BotService : Service() {
             // V5.0.6662 — anchor the mandatory 120-second acceptance window
             // to the accepted runtime start.  The audit cadence is longer than
             // the smoke capture, so lazy baseline creation could never finish.
-            try {
-                com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647
-                    .beginWindow6662()
-            } catch (_: Throwable) {}
+            scheduleExecutionSpineAcceptance6666(runtimeGeneration)
             // Note: startForeground is already called in onStartCommand to meet Android's 5-second requirement
             ErrorLogger.info("BotService", "Foreground service started")
             addLog("✓ Foreground service started")
@@ -7255,6 +7264,24 @@ class BotService : Service() {
                 }
             }
         }
+    }
+
+    /** Close the smoke/runtime acceptance window on wall clock, independent
+     * of bot-loop throughput. A generation guard prevents a stopped session's
+     * delayed task from closing a later session's freshly reset window. */
+    private fun scheduleExecutionSpineAcceptance6666(generation: Long) {
+        try {
+            com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.beginWindow6662()
+            scope.launch {
+                delay(com.lifecyclebot.engine.truth.ExecutionSpineAcceptance6647.MIN_WINDOW_MS + 2_000L)
+                if (status.running && BotRuntimeController.currentGeneration() == generation) {
+                    try {
+                        com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647
+                            .closeCompletedWindow()
+                    } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) {}
     }
 
     /**

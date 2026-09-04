@@ -169,6 +169,10 @@ object ExecutionSpineAcceptanceWindow6647 {
         val duration = nowMs - start.atMs
         if (duration < ExecutionSpineAcceptance6647.MIN_WINDOW_MS) return null
 
+        // Close against durable economic truth, not a stale periodic sample.
+        // This also settles stop/restart journal lots which no longer have a
+        // canonical owner before enforcing exact scalar and quantity parity.
+        try { CanonicalPaperTransaction6486.reconcileJournalAuthority6663() } catch (_: Throwable) {}
         try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
         val end = capture(nowMs)
         val delta: (String) -> Long = { key -> ((end.labels[key] ?: 0L) - (start.labels[key] ?: 0L)).coerceAtLeast(0L) }
