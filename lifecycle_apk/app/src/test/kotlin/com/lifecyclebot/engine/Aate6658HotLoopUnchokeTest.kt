@@ -28,9 +28,14 @@ class Aate6658HotLoopUnchokeTest {
             "processTokenCycle must call firstOpenForMint(mint) rather than openPositions().firstOrNull",
             prelude.contains("CanonicalPositionAuthority6441.firstOpenForMint(mint)"),
         )
+        // Strip the code comments (// … end of line) so we don't match ourselves
+        // — the change-log inside the fix references the old scan by name.
+        val code = prelude.lineSequence().filterNot { it.trimStart().startsWith("//") }.joinToString("\n")
         assertFalse(
             "processTokenCycle must not re-introduce openPositions().firstOrNull { it.mint == mint }",
-            prelude.contains("openPositions()") && prelude.contains(".firstOrNull { it.mint == mint }"),
+            code.contains("CanonicalPositionAuthority6441.openPositions()") &&
+                code.substringAfter("CanonicalPositionAuthority6441.openPositions()")
+                    .take(200).contains(".firstOrNull { it.mint == mint }"),
         )
     }
 
