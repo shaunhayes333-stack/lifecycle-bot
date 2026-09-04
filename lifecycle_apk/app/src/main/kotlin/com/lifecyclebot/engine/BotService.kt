@@ -23335,7 +23335,8 @@ if (hotExitHandledSweep) {
                 // V3-only meme gate is too tight. In paper mode, parallel
                 // ShitCoin gives the bot LEARNING exposure on the meme stream
                 // and lets us see actual rejection reasons in the log.
-                // LIVE mode is unchanged — V3 still owns memes there.
+                // LIVE and paper both retain the direct lane; V3 contributes
+                // scoring/safety but does not replace this executor authority.
                 val v3ReadyForMemeSpine = try {
                     !cfg.paperMode && cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()
                 } catch (_: Throwable) { false }
@@ -23344,15 +23345,10 @@ if (hotExitHandledSweep) {
                 // authorizer path in live too; true V3 fatal safety still terminates the
                 // lane below. This removes the hidden live-volume choke where V3 WATCH /
                 // routing rejects meant ShitCoin never reached executable-open.
-                val v3OwnsMemes = false
                 if (v3ReadyForMemeSpine) {
                     try { PipelineHealthCollector.labelInc("SHITCOIN_LIVE_V3_PARALLEL_FALLBACK_4230") } catch (_: Throwable) {}
                     if (ts.position.tradingMode.isBlank()) ts.position.tradingMode = "SHITCOIN"
                 }
-                if (v3OwnsMemes) {
-                    // Dead branch retained only as a structural guard for stale merge context.
-                    if (ts.position.tradingMode.isBlank()) ts.position.tradingMode = "SHITCOIN"
-                } else {
                 // V5.7.8: ShitCoin runs independently — Treasury positions don't block it
                 fun releaseShitCoinAttempt4230(reason: String, releasePermit: Boolean = true, releaseAuth: Boolean = true) {
                     try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "SHITCOIN", reason) } catch (_: Throwable) {}
@@ -23977,7 +23973,6 @@ if (hotExitHandledSweep) {
                     ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | ERROR | ${scEx.message}")
                     releaseShitCoinAttempt4230("EXCEPTION")
                 }
-                } // V5.9.409: close else-branch of v3OwnsMemes (ShitCoin legacy path)
             }
             // ═══════════════════════════════════════════════════════════════════
             // END ShitCoin evaluation
