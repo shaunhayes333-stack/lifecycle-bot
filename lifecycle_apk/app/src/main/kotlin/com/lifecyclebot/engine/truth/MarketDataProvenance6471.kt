@@ -74,6 +74,23 @@ object MarketDataProvenance6471 {
     )
     private const val TEMPLATE_EPSILON = 1e-6
 
+    // V5.0.6658 §SENTINEL_PRICE_STANDALONE — operator dump Feb 2026 open
+    //   positions UI showed dozens of open positions at exact template
+    //   prices ($0.05025, $0.00005253, $0.0000005896, ...) sourced from
+    //   DEXSCREENER_PAIR_P with varying mcap/liquidity so the strict
+    //   3-tuple check missed them. These are provider-fallback prices
+    //   the operator's mandate calls out as NON_AUTHORITATIVE — flag
+    //   the price alone. If a real market ever quotes exactly the same
+    //   sentinel value, the classify caller can still admit it via
+    //   whitelisting the pool/source; the mandate is that placeholder
+    //   prices don't get to seal a canonical entry.
+    private val SENTINEL_PRICES_STANDALONE_6658 = doubleArrayOf(
+        0.050250000,
+        0.000052530,
+        0.000000589600,
+    )
+    private const val SENTINEL_PRICE_RELATIVE_EPSILON_6658 = 1e-6
+
     // Source / pool tokens that mean "no real provider answered"
     private val SENTINEL_POOL_PREFIXES = listOf(
         "MINT_ROUTE:", "UNKNOWN", "PLACEHOLDER", "SENTINEL",
@@ -103,6 +120,11 @@ object MarketDataProvenance6471 {
                     kotlin.math.abs(mcap - it.mcap) < 1.0 &&
                     kotlin.math.abs(liquidity - it.liquidity) < 1.0
             }) return recordSentinel(identityKey6615, "template_tuple($price/$mcap/$liquidity)")
+        // V5.0.6658 §SENTINEL_PRICE_STANDALONE — flag exact provider-fallback
+        // prices regardless of the (mcap, liquidity) pair. See list above.
+        if (SENTINEL_PRICES_STANDALONE_6658.any {
+                it > 0.0 && kotlin.math.abs(price - it) <= it * SENTINEL_PRICE_RELATIVE_EPSILON_6658
+            }) return recordSentinel(identityKey6615, "sentinel_price_standalone($price)")
         if (pool.isBlank()) return recordMissing("pool_blank")
         if (SENTINEL_POOL_PREFIXES.any { pool.startsWith(it, ignoreCase = true) })
             return recordSentinel(identityKey6615, "pool_prefix($pool)")

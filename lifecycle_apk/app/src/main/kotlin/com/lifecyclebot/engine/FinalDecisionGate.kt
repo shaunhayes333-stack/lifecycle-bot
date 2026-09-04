@@ -765,6 +765,17 @@ object FinalDecisionGate {
         // still near V3-zero, then get treated as weak unknown-phase junk. Hard safety
         // remains separate; this only fixes score/quality/behavior gates.
         laneScore: Double = candidate.entryScore,
+        // V5.0.6658 §SPECIALIST_LANE_STAMP_ALIGNMENT — operator dump Feb 2026:
+        //   FDG/SIZE/hypothesis stamps must land on the ExecutionBook desk
+        //   the caller owns (QUALITY, BLUECHIP, SHITCOIN, PROJECT_SNIPER, ...)
+        //   — the exact labels the SPECIALIST_ROLE_LIVENESS report and the
+        //   MemeExecutionFunnelReceivers6625 read back. Callers pass their
+        //   own book here so the causal record converges with BUY_INTENT,
+        //   MARK_READY, TICKET, EXEC and POSITION_OPENED, all of which
+        //   already use the ExecutionBook name. Default null retains the
+        //   old TradingModeTag-derived label for callers that have not
+        //   been updated yet (Cyclic ring, tests).
+        specialistLane: String? = null,
     ): FinalDecision {
         // V5.0.6548 §P0-C — FDG background progress beacon. Every FDG
         // evaluation is a decision boundary that must show up in the
@@ -825,10 +836,12 @@ object FinalDecisionGate {
         //   mislabeled lanes converge onto the right causal record.
         //   `tradingModeTag.name` still drives every non-funnel
         //   caller (cache keys, logging labels, per-lane multipliers).
-        val canonicalPrimaryLane6658 = try {
-            com.lifecyclebot.engine.LaneExecutionCoordinator
-                .currentElection6600(ts.mint)?.primaryLane?.uppercase()?.takeIf { it.isNotBlank() }
-        } catch (_: Throwable) { null } ?: laneName
+        val canonicalPrimaryLane6658 = specialistLane?.uppercase()?.takeIf { it.isNotBlank() }
+            ?: try {
+                com.lifecyclebot.engine.LaneExecutionCoordinator
+                    .currentElection6600(ts.mint)?.primaryLane?.uppercase()?.takeIf { it.isNotBlank() }
+            } catch (_: Throwable) { null }
+            ?: laneName
         val fdgSide = candidate.finalSignal.ifBlank { candidate.signal }.ifBlank { "UNKNOWN" }
         val fdgCacheKey = fdgCacheKey(ts, candidate, laneName, fdgSide, laneScore)
         cachedFdgVerdict(fdgCacheKey)?.let { return it }

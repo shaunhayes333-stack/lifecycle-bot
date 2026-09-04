@@ -12679,6 +12679,52 @@ class Executor(
             markPaperBuyNotOpened("NO_VALID_PRICE")
             return
         }
+        // V5.0.6658 §ENTRY_PRICE_PROVENANCE_ENFORCEMENT — operator dump Feb
+        //   2026 UI screenshot showed dozens of open positions with
+        //   fabricated entry prices ($0.05025 / $50M mcap / $0.00005253
+        //   template), producing display PnLs like +604,752,538%. These
+        //   are the MarketDataProvenance6471 §P0 sentinel templates — the
+        //   operator's own mandate:
+        //     "NON_AUTHORITATIVE market data MUST NOT calculate
+        //      executable quantity, satisfy FDG, or create canonical
+        //      entry snapshot."
+        //   MarkAuthorityIntegrityGate6496 enforces this on the mark path
+        //   after entry, but paperBuy consulted `getActualPrice(ts)`
+        //   without a provenance check, so a template price sailed into
+        //   `effectivePrice` and became the sealed entry. Every downstream
+        //   PnL then compared a real quote against a fabricated basis,
+        //   phantom trail/runner-bypass fired, and exits stalled with
+        //   102 open positions carrying dead marks.
+        //
+        //   Consult MarketDataProvenance6471 with the same (price, mcap,
+        //   liquidity, source, pool) tuple the mark gate uses. Reject
+        //   NON_AUTHORITATIVE at entry so no template price can seal a
+        //   canonical position. Fail-open on classifier exceptions so a
+        //   classifier bug never blocks a legitimate entry — the
+        //   MarkAuthorityIntegrityGate6496 mark-path check remains as a
+        //   second line of defence on every subsequent quote.
+        val entryProvenance6658 = try {
+            com.lifecyclebot.engine.truth.MarketDataProvenance6471.classify(
+                price = price, mcap = ts.lastMcap, liquidity = ts.lastLiquidityUsd,
+                source = ts.source, poolAddress = ts.tokenMap.poolAddress.ifBlank { ts.tokenMap.routeStatus },
+                identity = tradeId.mint,
+            )
+        } catch (_: Throwable) { com.lifecyclebot.engine.truth.MarketDataProvenance6471.Provenance.AUTHORITATIVE }
+        if (entryProvenance6658 != com.lifecyclebot.engine.truth.MarketDataProvenance6471.Provenance.AUTHORITATIVE) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_BUY_ENTRY_PROVENANCE_REJECTED_6658")
+                PipelineHealthCollector.labelInc("PAPER_BUY_ENTRY_PROVENANCE_REJECTED_6658|${entryProvenance6658.name}")
+                ForensicLogger.lifecycle(
+                    "PAPER_BUY_ENTRY_PROVENANCE_REJECTED_6658",
+                    "mint=${tradeId.mint.take(10)} symbol=${tradeId.symbol} price=${"%.9f".format(price)} " +
+                        "mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} src=${ts.source} " +
+                        "provenance=${entryProvenance6658.name} action=reject_sentinel_entry",
+                )
+            } catch (_: Throwable) {}
+            onLog("⚠ Buy skipped: ${tradeId.symbol} sentinel/missing price basis (provenance=${entryProvenance6658.name})", tradeId.mint)
+            markPaperBuyNotOpened("ENTRY_PROVENANCE_${entryProvenance6658.name}")
+            return
+        }
         if (ts.position.isOpen) {
             onLog("⚠ Buy skipped: position already open", tradeId.mint); markPaperBuyNotOpened("POSITION_ALREADY_OPEN"); return
         }

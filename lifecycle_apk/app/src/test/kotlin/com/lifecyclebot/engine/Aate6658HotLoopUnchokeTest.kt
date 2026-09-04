@@ -118,4 +118,40 @@ class Aate6658HotLoopUnchokeTest {
             src.contains("val preTicketLane6514 = authority6513?.executionLane\n            ?: activeIntentLane6658\n            ?: layerTag"),
         )
     }
+
+    @Test
+    fun `paper buy rejects sentinel provenance at entry so template prices cannot seal a canonical position`() {
+        val src = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(
+            "paperBuy must consult MarketDataProvenance6471 before sealing entry",
+            src.contains("V5.0.6658 §ENTRY_PRICE_PROVENANCE_ENFORCEMENT"),
+        )
+        assertTrue(
+            "paperBuy must reject when entryProvenance6658 is not AUTHORITATIVE",
+            src.contains("MarketDataProvenance6471.classify(") &&
+                src.contains("if (entryProvenance6658 != com.lifecyclebot.engine.truth.MarketDataProvenance6471.Provenance.AUTHORITATIVE)"),
+        )
+        assertTrue(
+            "paperBuy must stamp markPaperBuyNotOpened(\"ENTRY_PROVENANCE_...\") to keep finality reconciliation intact",
+            src.contains("markPaperBuyNotOpened(\"ENTRY_PROVENANCE_"),
+        )
+    }
+
+    @Test
+    fun `market data provenance flags standalone sentinel prices even when tuple varies`() {
+        val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/MarketDataProvenance6471.kt").readText()
+        assertTrue(
+            "SENTINEL_PRICES_STANDALONE_6658 list must exist",
+            src.contains("SENTINEL_PRICES_STANDALONE_6658 = doubleArrayOf"),
+        )
+        assertTrue(
+            "classify() must consult the standalone sentinel-price list independent of the (mcap, liquidity) tuple",
+            src.contains("V5.0.6658 §SENTINEL_PRICE_STANDALONE") &&
+                src.contains("sentinel_price_standalone(\$price)"),
+        )
+        // The three observed operator sentinel prices must be listed.
+        listOf("0.050250000", "0.000052530", "0.000000589600").forEach { p ->
+            assertTrue("standalone sentinel-price list must contain $p", src.contains(p))
+        }
+    }
 }
