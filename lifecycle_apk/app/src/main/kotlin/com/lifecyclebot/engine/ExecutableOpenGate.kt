@@ -2195,6 +2195,14 @@ object ExecutableOpenGate {
             return blocked("EXEC_OPEN_BLOCKED_SIZE_NOT_EXECUTABLE_6491",
                 "taxonomy=$taxonomyReason6579 resolvedSize=$effectiveResolvedSize6497 minimum=$minExecutable6491 sealedSize=${try { com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint) } catch (_: Throwable) { null }}", shadow = true)
         }
+        // V5.0.6661 - Validate immutable authority before claiming the
+        // mint/version or publishing any allowed-attempt residue. Previously
+        // a missing/misaligned intent claimed this key first, returned from
+        // final bind, and caused the later correctly sealed attempt to die as
+        // ONE_EXECUTABLE_BUY_PER_MINT_VERSION.
+        val fdgIntent6519 = immutableTicket ?: return blocked(
+            "AUTHORITY_INVARIANT_FAILURE", "EXEC_INTENT_MISSING_AT_FINAL_BIND_6519", shadow = mode == "PAPER",
+        )
         val claimKey6487 = executableClaimKey6487(modeUpper, mint, candidateVersion)
         val priorClaim6487 = executableBuyClaim6487.putIfAbsent(claimKey6487, execKey)
         if (priorClaim6487 != null && priorClaim6487 != execKey) {
@@ -2236,9 +2244,6 @@ object ExecutableOpenGate {
             allowedAttempts[laneAttemptKey] = execKey to System.currentTimeMillis()
             allowedAttempts[mint.trim()] = execKey to System.currentTimeMillis()
             if (executionTickets[execKey] == null) {
-                val fdgIntent6519 = immutableTicket ?: return blocked(
-                    "AUTHORITY_INVARIANT_FAILURE", "EXEC_INTENT_MISSING_AT_FINAL_BIND_6519", shadow = mode == "PAPER",
-                )
                 publishTicket(
                     fdgIntent6519.copy(
                         attemptId = execKey,

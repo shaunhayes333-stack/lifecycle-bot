@@ -46,6 +46,25 @@ internal object PaperPreTicketSizeFloor6511 {
         else requestedSol
 }
 
+/**
+ * V5.0.6661 - Keep the adaptive sizing interval mathematically valid.
+ *
+ * Money mode may promote a small shaped request to the absolute executable
+ * floor.  The old caller left the upper bound tied to the unpromoted request,
+ * so Kotlin's coerceIn threw when lower > upper and aborted the execution
+ * spine.  A promoted floor is itself the minimum permitted cap whenever the
+ * wallet eligibility check has already admitted that floor.
+ */
+internal object MoneyModeSizeBounds6661 {
+    fun clamp(raw: Double, lower: Double, upper: Double): Double {
+        val safeLower = lower.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
+        val safeUpper = upper.takeIf { it.isFinite() && it >= 0.0 } ?: safeLower
+        val normalizedUpper = maxOf(safeLower, safeUpper)
+        val safeRaw = raw.takeIf { it.isFinite() } ?: safeLower
+        return safeRaw.coerceIn(safeLower, normalizedUpper)
+    }
+}
+
 data class MintEntryMarketSnapshot(
     val priceUsd: Double,
     val marketCapUsd: Double,
@@ -11474,7 +11493,11 @@ class Executor(
         } else 0.0
         val relMinSol4129 = sol * liveFloorMult
         val upperCap4129 = sol * winnerMaxBoost * gooseUpperMult4129
-        val effSolRaw = (sol * multiplierProduct * laneTilt4132 * bridgeMult4132).coerceIn(maxOf(relMinSol4129, absMinSol4129), upperCap4129 * laneTilt4132)
+        val effSolRaw = MoneyModeSizeBounds6661.clamp(
+            raw = sol * multiplierProduct * laneTilt4132 * bridgeMult4132,
+            lower = maxOf(relMinSol4129, absMinSol4129),
+            upper = upperCap4129 * laneTilt4132,
+        )
         if (absMinSol4129 > 0.0 && (sol * multiplierProduct) < absMinSol4129) {
             try { ForensicLogger.lifecycle("MONEY_MODE_ABS_FLOOR_LIFT_6082", "symbol=${ts.symbol} lane=$laneTag mode=${if (RuntimeModeAuthority.isPaper()) "paper" else "live"} goose=${gooseVerdict4129.name} raw=${(sol*multiplierProduct).fmt(4)} → lift=${absMinSol4129.fmt(4)} wallet=${walletSol.fmt(3)}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("MONEY_MODE_ABS_FLOOR_LIFT_6082_${gooseVerdict4129.name}") } catch (_: Throwable) {}
@@ -12028,8 +12051,13 @@ class Executor(
             ExecutableOpenGate.activeExecutionIntent6519("PAPER", ts.mint, authorityVersion6513)
                 ?.canonicalLane?.uppercase()?.takeIf { it.isNotBlank() }
         } catch (_: Throwable) { null }
-        val preTicketLane6514 = authority6513?.executionLane
-            ?: activeIntentLane6658
+        // The active intent is the sealed FDG execution owner.  A snapshot is
+        // a supporting projection and currentForMint() can legally return a
+        // newer/different lane from the same multi-lane candidate.  Preferring
+        // that projection manufactured a fresh attemptId for the wrong lane,
+        // then resolveSealedIntent6613 could not find the real ticket.
+        val preTicketLane6514 = activeIntentLane6658
+            ?: authority6513?.executionLane
             ?: layerTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source.orEmpty().ifBlank { "STANDARD" } } }
         // V5.0.6548 §P0-A — RESUME EXISTING RETRY-PENDING TICKET.
         // Operator mandate: after EXEC_OPEN_ALLOWED, a paper ticket must not

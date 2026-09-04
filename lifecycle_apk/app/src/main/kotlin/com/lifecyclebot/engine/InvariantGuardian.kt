@@ -145,8 +145,13 @@ object InvariantGuardian {
         val gateVerdicts6640 = pipe?.let {
             (it.phaseAllow["FDG"] ?: 0L) + (it.phaseBlock["FDG"] ?: 0L)
         } ?: 0L
-        val fdgDecisions = canonicalVerdicts6640.takeIf { it > 0L }
-            ?: gateVerdicts6640.takeIf { it > 0L }
+        // Gate allow+block is the canonical count of FDG outcomes.  verdictCounts
+        // also contains per-lane proposal/read-model decisions and therefore
+        // reported 3205 decisions for only 1353 real FDG outcomes in 5.0.6660.
+        // Prefer the actual gate boundary; retain verdict/raw fallbacks solely
+        // for historical builds which did not populate phaseAllow/phaseBlock.
+        val fdgDecisions = gateVerdicts6640.takeIf { it > 0L }
+            ?: canonicalVerdicts6640.takeIf { it > 0L }
             ?: s.fdg
         val fdgRatio = if (s.intake > 0) fdgDecisions.toDouble() / s.intake else 0.0
         // V5.0.6591 — accept multi-lane FDG breadth up to 4x/intake when the

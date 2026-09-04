@@ -114,8 +114,8 @@ class Aate6658HotLoopUnchokeTest {
             src.contains("V5.0.6658 §PRE_TICKET_LANE_INTENT_CONVERGENCE"),
         )
         assertTrue(
-            "preTicketLane6514 fallback must include activeIntentLane6658 between authority6513 and layerTag",
-            src.contains("val preTicketLane6514 = authority6513?.executionLane\n            ?: activeIntentLane6658\n            ?: layerTag"),
+            "preTicketLane6514 must prefer the sealed active intent before snapshot and legacy fallbacks",
+            src.contains("val preTicketLane6514 = activeIntentLane6658\n            ?: authority6513?.executionLane\n            ?: layerTag"),
         )
     }
 
