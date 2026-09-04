@@ -5552,3 +5552,60 @@ V5.0.6233 (029973eb6, 10 Jul 2026) — BOOTSTRAP AGI FROM TRADE 1 + SIZE-SHRINK 
     0.25-damped ramp). AGI never dumb at trade 1 when global experience exists.
   • SsiPilotCouncil: warmup 3min → 30s — LLM pilot directive before first entries.
   • ReportingHub: "HistoricalCorpus:" status line added to toolkit sheet.
+
+## V5.0.6658 (Feb 2026) — pipeline choke + data-integrity repair pass
+Operator dumps (build 5.0.6657, 3140s uptime, then 5.0.6658 after) showed:
+  • bot cycle > 35s (avg 10.7s / max 89s), 219 open positions
+  • QUALITY status=SIZING_CHOKED, BLUECHIP/SHITCOIN status=TICKET_CHOKED
+  • Top block: EXEC_GATE/FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519 = 910 → 4899
+  • Open positions carrying phantom PnLs +604,752,538% (WBTC) from template
+    entry prices (\$0.05025, \$0.00005253, \$0.0000005896) on DEXSCREENER_PAIR_P.
+
+P0-3 §HOT_LOOP_UNCHOKE — added CanonicalPositionAuthority6441.firstOpenForMint(mint)
+  and routed BotService.processTokenCycle through it. Replaces per-mint full
+  openPositions() scans that fired isEconomicallyValidOpen6631 on every stored
+  position. Loop dropped avg 10.7s → 5.8s post-deploy.
+
+P0-1 §TICKET_STAMP_RETRIEVAL_PARITY — BotService stamps TICKET on cyclePrimaryLane
+  whenever specialistIntent6614 is non-null (retrieved OR created), not only when
+  recordFdgAndGetIntent6533 minted the intent. Missing TICKET stamps for lanes
+  that publish via publishFdgIntent6519.
+
+§STATUS_DETECTION_DECISION_AWARENESS — added FDG_BLOCKED_ALL between FDG_CHOKED
+  and SIZING_CHOKED so lanes whose FDG outcomes are all blocks stop being
+  mislabeled as downstream-choked.
+
+§SPECIALIST_LANE_STAMP_ALIGNMENT — FinalDecisionGate.evaluate now takes
+  specialistLane: String? = null and prefers it over LaneExecutionCoordinator
+  election / tradingModeTag.name for FDG_ALLOW/FDG_BLOCK/SIZED_EXECUTABLE
+  stamps. Fixes ExecutionBook(QUALITY, BLUECHIP) vs TradingModeTag(BLUE_CHIP,
+  no QUALITY) fork that made specialist funnel counters lose stamps.
+
+§PRE_TICKET_LANE_INTENT_CONVERGENCE — Executor.paperBuy consults
+  ExecutableOpenGate.activeExecutionIntent6519 to derive preTicketLane6514
+  when ExecutionDecisionSnapshot6510 lags. Ratio of
+  FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519 blocks dropped from 89% → 64% of
+  FDG allows after this landed.
+
+§ENTRY_PRICE_PROVENANCE_ENFORCEMENT (data-integrity, operator screenshot Feb 2026)
+  — Executor.paperBuy now consults MarketDataProvenance6471.classify(...) after
+  getActualPrice() and rejects NON_AUTHORITATIVE at entry via
+  markPaperBuyNotOpened(\"ENTRY_PROVENANCE_<name>\"). Fabricated template prices
+  can no longer seal a canonical open snapshot; MarkAuthorityIntegrityGate6496
+  keeps enforcing on the mark path.
+
+§SENTINEL_PRICE_STANDALONE — MarketDataProvenance6471 now flags exact
+  provider-fallback prices (\$0.05025, \$0.00005253, \$0.0000005896) even when
+  the (mcap, liquidity) tuple varies (relative epsilon 1e-6). The strict
+  3-tuple check missed operator-observed sentinels because mcap/liq shifted
+  per mint from the same fallback price.
+
+Coverage: Aate6658HotLoopUnchokeTest asserts every source-level guard above.
+Loop-time / stamp / provenance regressions will now fail the CI build.
+
+Known residual work (Feb 2026):
+  • Exit sweep tempo: 156 buys / 27 sells / 102 open (75min uptime). Once
+    template entries stop opening, exit sweep tempo should recover; if not,
+    revisit runManageOnly runner-bypass gating on untrusted marks.
+  • Skew Quarantine sweep (195-438 quarantined) — trace markSkew for tokens
+    with -1 decimals metadata bypass.
