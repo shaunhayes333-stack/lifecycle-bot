@@ -33,10 +33,12 @@ class Aate6640AccountingTruthCoverageTest {
     }
 
     @Test
-    fun mainHeroWithholdsUnreconciledPaperBalance() {
+    fun mainHeroRendersCanonicalBalanceWithReconciliationAnnotation() {
         val src = File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
         assertTrue(src.contains("UnifiedAccountSnapshot6635.read(\"MEME\")"))
-        assertTrue(src.contains("HERO_BALANCE_WITHHELD_UNRECONCILED_6640"))
-        assertTrue(src.contains("PAPER · BALANCE WITHHELD"))
+        assertTrue(src.contains("reconciliationStatus6650"))
+        assertTrue(src.contains("PAPER · RECONCILING"))
+        assertFalse(src.contains("HERO_BALANCE_WITHHELD_UNRECONCILED_6640"))
+        assertFalse(src.contains("PAPER · BALANCE WITHHELD"))
     }
 }
