@@ -58,6 +58,31 @@ class Repair6533ExecutionAuthorityAcceptanceTest {
         assertTrue(ExecutableOpenGate.mutableSignalCanVeto6519(null, "UNKNOWN"))
     }
 
+    @Test fun `C2 published PROBE keeps one sealed verdict tuple`() {
+        val mint = "ProbeTuple6533${System.nanoTime()}"
+        val cv = LaneExecutionCoordinator.candidateVersionFor(mint)
+        val intent = ExecutableOpenGate.recordFdgAndGetIntent6533(
+            mint, "PROBE", "QUALITY", true, null,
+            signal = "WAIT", rugScore = 90, safetyTier = "SAFE", liquidityUsd = 5_000.0,
+            preFdgVerdict = "PROBE_ONLY", candidateVersion = cv, entryScore = 80,
+        )
+        assertNotNull(intent)
+        assertEquals("PROBE_ONLY", intent!!.fdgVerdict)
+        assertEquals(ExecutableOpenGate.CanonicalFinalDecision6613.PROBE_ONLY, intent.finalDecision6613)
+        assertSame(intent, ExecutableOpenGate.activeExecutionIntent6519("PAPER", mint, cv))
+    }
+
+    @Test fun `C3 missing intent guard respects immutable FDG authority`() {
+        val source = java.io.File(
+            "src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt"
+        ).readText()
+        val guard = source.substringAfter(
+            "if (fdgCan == true && hardNoReasons.isEmpty() && immutableTicket == null"
+        ).substringBefore("return blocked(\"AUTHORITY_INVARIANT_FAILURE\"")
+        assertTrue(guard.contains("ticketAuthority6564 == null && immutableAuthority6513 == null"))
+        assertTrue(guard.contains("labelInc(\"FDG_ALLOW_WITHOUT_EXEC_INTENT\")"))
+    }
+
     @Test fun `D five hundred cross chain candidates do not acquire Solana TokenMap hard no`() {
         val intents = (1..500).map { n ->
             val asset = "unresolved:${if (n % 2 == 0) "XMR" else "BTC"}_${n}_${System.nanoTime()}"

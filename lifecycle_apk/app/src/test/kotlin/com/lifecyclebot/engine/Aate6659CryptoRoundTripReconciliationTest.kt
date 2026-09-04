@@ -6,7 +6,7 @@ import org.junit.Test
 import java.io.File
 
 /**
- * V5.0.6659 — source-level acceptance locks for Crypto Universe paper
+ * V5.0.6659/6660 — source-level acceptance locks for cross-asset paper
  * round trips and account reconciliation.
  *
  * The broken path debited/credited the canonical ledger and mutated the
@@ -39,6 +39,9 @@ class Aate6659CryptoRoundTripReconciliationTest {
         assertTrue(transaction.contains("economicEventId = eventId"))
         assertTrue(transaction.contains("positionId = position.positionId"))
         assertTrue(transaction.contains("entryRawQty = position.originalQtyRaw"))
+        assertTrue(transaction.contains("PaperAccountLedger6430.onBuyAtomic6632(costSol, feeSol, mint, idem)"))
+        assertTrue(transaction.contains("PaperEconomicAtomicCommit6632.stampLedger("))
+        assertTrue(transaction.contains("CanonicalPaperTransaction6486.openProjection6659"))
         assertTrue(journal.contains("CanonicalEconomicEvent6635.Store.JOURNAL"))
         assertTrue(
             "generic open must project only after the canonical position commits",
@@ -48,14 +51,16 @@ class Aate6659CryptoRoundTripReconciliationTest {
     }
 
     @Test
-    fun `legacy crypto positions are repaired idempotently during rehydrate`() {
+    fun `legacy cross asset positions are repaired idempotently during rehydrate`() {
         val rehydrate = crypto.substringAfter("private fun rehydrateCanonicalPositions6647")
             .substringBefore("private fun persistAltPositions")
         assertTrue(rehydrate.contains("CanonicalPaperTransaction6486.ensureOpenProjection6659(cp)"))
         assertTrue(rehydrate.contains("if (cp.mode.equals(\"paper\", true))"))
         assertTrue(rehydrate.contains("CanonicalPaperTransaction6486.repairCryptoHistory6659()"))
         assertTrue(transaction.contains("EconomicEventSchema6464.snapshot()"))
-        assertTrue(transaction.contains("CRYPTO_ALT_HISTORY_REPAIR_6659"))
+        assertTrue(transaction.contains("it.assetClass != AssetClass.SOLANA_TOKEN"))
+        assertTrue(transaction.contains("CROSS_ASSET_HISTORY_REPAIR_6660"))
+        assertTrue(transaction.contains("CROSS_ASSET_HISTORY_REPROJECTED_6660"))
         assertTrue(replay.contains("CRYPTO_LEGACY_DISPLAY_ROW_SUPERSEDED_6659"))
     }
 
@@ -77,6 +82,16 @@ class Aate6659CryptoRoundTripReconciliationTest {
         assertTrue(close.contains("canonicalConsumedRaw = receipt.canonicalConsumedRaw"))
         assertTrue(close.contains("soldCostBasisSol = basis, grossProceedsSol = gross"))
         assertTrue(close.contains("positionId = pos.id"))
+
+        val reducerClose = transaction.substringAfter("fun close(positionId: String")
+            .substringBefore("fun refund(positionId: String")
+        val terminalMutation = reducerClose.indexOf("CanonicalPaperTerminalBridge6469.finalizeSell(")
+        val canonicalJournal = reducerClose.indexOf("recordCloseProjection6659(pos, r, exitReason, terminal)")
+        val reducerReturn = reducerClose.indexOf("applied = true", canonicalJournal)
+        assertTrue("canonical reducer must journal after terminal mutation", terminalMutation in 1 until canonicalJournal)
+        assertTrue("canonical reducer must journal before returning to any trader", canonicalJournal in 1 until reducerReturn)
+        assertTrue(reducerClose.contains("economicEventId = receipt.economicEventId"))
+        assertTrue(reducerClose.contains("grossProceedsSol = gross"))
     }
 
     @Test

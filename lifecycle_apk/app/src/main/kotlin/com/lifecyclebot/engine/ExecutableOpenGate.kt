@@ -1091,7 +1091,12 @@ object ExecutableOpenGate {
                             attemptId = canonicalExecutionKey(mint, mode = mode6512, side = "BUY", lane = canonicalLane6519, candidateVersion = winner.candidateVersion),
                             candidateId = "$mint:${winner.candidateVersion}", candidateVersion = winner.candidateVersion,
                             mint = mint, mode = mode6512, canonicalLane = canonicalLane6519,
-                            fdgVerdict = if (winner.preFdgVerdict in setOf("BUY", "PROBE_ONLY")) "BUY" else winner.preFdgVerdict,
+                            // The sealed verdict and final decision are one
+                            // immutable tuple.  Mapping PROBE_ONLY to BUY here
+                            // made valid probe tickets fail validSealedDecision6613
+                            // (fdgVerdict != finalDecision) before EXEC could
+                            // consume them.
+                            fdgVerdict = winner.preFdgVerdict,
                             fdgAllowed = true, authorityVersion = immutableAuthority6519?.authorityVersion ?: 0L,
                             resolvedSize = resolvedSize6519, createdAt = System.currentTimeMillis(), symbol = winner.symbol,
                             authoritativeSignal = "BUY", safetyVerdict = winner.safetyTier,
@@ -2003,10 +2008,15 @@ object ExecutableOpenGate {
                 return blocked("EXEC_OPEN_BLOCKED_TRUE_ZERO_LIQUIDITY", "TRUE_ZERO_LIQUIDITY", shadow = false)
             }
         }
-        if (fdgCan == true && hardNoReasons.isEmpty() && immutableTicket == null && ticketAuthority6564 == null) {
+        if (fdgCan == true && hardNoReasons.isEmpty() && immutableTicket == null &&
+            ticketAuthority6564 == null && immutableAuthority6513 == null) {
             try {
                 PipelineHealthCollector.labelInc("AUTHORITY_INVARIANT_FAILURE")
                 PipelineHealthCollector.labelInc("EXEC_AUTHORITY_STATE_MISMATCH")
+                // ExecutionSpineAcceptanceWindow6647 watches this exact
+                // counter.  Previously the violation only appeared as a gate
+                // reason, so smoke acceptance could report a false clean zero.
+                PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT")
                 ForensicLogger.lifecycle("AUTHORITY_INVARIANT_FAILURE", "attemptId=$attemptId mint=${mint.take(10)} candidateVersion=$candidateVersion currentVersion=$currentCandidateVersion requestedLane=$requestedLane selectedLane=$canonicalSelectedLane preFdg=$preFdgVerdict reason=FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519")
             } catch (_: Throwable) {}
             return blocked("AUTHORITY_INVARIANT_FAILURE", "FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519", shadow = mode == "PAPER")
