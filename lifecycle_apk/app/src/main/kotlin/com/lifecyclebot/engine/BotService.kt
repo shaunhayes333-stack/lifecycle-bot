@@ -25087,6 +25087,7 @@ if (hotExitHandledSweep) {
                                 tokenMapProviderAttempts = ts.tokenMap.providerAttempts,
                                 requiresSolanaTokenMap = true,
                                 allowTrunkExecutionHandoff6533 = true,
+                                resolvedSizeSol6558 = proposedSize,
                             )
                             if (!v3Fdg6533.canExecute() || v3Intent6533 == null) {
                                 val explicitReason6533 = v3Fdg6533.blockReason ?: "FDG_ALLOW_WITHOUT_EXEC_INTENT"

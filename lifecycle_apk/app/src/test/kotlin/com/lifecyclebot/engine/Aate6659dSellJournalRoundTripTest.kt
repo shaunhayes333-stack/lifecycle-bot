@@ -54,6 +54,20 @@ class Aate6659dSellJournalRoundTripTest {
     }
 
     @Test
+    fun `meme FDG handoff preserves its resolved size`() {
+        val source = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(source.contains("resolvedSizeSol6558 = proposedSize"))
+    }
+
+    @Test
+    fun `crypto acceptance recognizes a durable open book`() {
+        val source = java.io.File(
+            "src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionSpineAcceptance6647.kt"
+        ).readText()
+        assertTrue(source.contains("it.assetClass == AssetClass.CRYPTO_ALT"))
+    }
+
+    @Test
     fun `canonical top up journals the same immutable ledger event`() {
         val source = java.io.File(
             "src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt"

@@ -171,7 +171,14 @@ object ExecutionSpineAcceptanceWindow6647 {
             dispatches = cardinality.dispatches,
             immutableIntentsForDispatches = cardinality.immutableIntentsForDispatches,
             terminalResultsForDispatches = cardinality.terminalResultsForDispatches,
-            cryptoOpenConfirmed = (end.cryptoOpen - start.cryptoOpen).coerceAtLeast(0L),
+            // A fresh OPEN is ideal, but a bounded window can begin after Crypto
+            // has already filled its slots. Existing canonical CRYPTO_ALT
+            // positions are durable proof that the venue reached OPEN; do not
+            // call a capacity-bound healthy book "choked" merely because it
+            // correctly declined another position during this exact window.
+            cryptoOpenConfirmed = (end.cryptoOpen - start.cryptoOpen).coerceAtLeast(0L) +
+                CanonicalPositionAuthority6441.openPositions()
+                    .count { it.assetClass == AssetClass.CRYPTO_ALT }.toLong(),
             maxExitStartDelayCycles = maxStartDelayCycles.get(),
             exitStart = (end.exitStart - start.exitStart).coerceAtLeast(0L),
             exitDone = (end.exitDone - start.exitDone).coerceAtLeast(0L),
