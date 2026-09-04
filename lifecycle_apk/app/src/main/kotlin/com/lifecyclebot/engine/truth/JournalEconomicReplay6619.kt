@@ -175,13 +175,24 @@ object JournalEconomicReplay6619 {
 
         for (t in rows) {
             if (!t.mode.equals("paper", ignoreCase = true)) continue
-            totalRows++
             val side = t.side.uppercase()
             val eventId = t.economicEventId.ifBlank {
                 // Deterministic legacy repair identity. Historical rows are
                 // retained; no purge/reset or floating-value identity is used.
                 "LEGACY:${t.positionId}:${t.ts}:$side:${t.partialSequence}"
             }
+            // V5.0.6659 — pre-repair CryptoAlt SELL rows were display-only
+            // duplicates of EconomicEventSchema receipts: no position id and
+            // no immutable event id. repairCryptoHistory6659 projects the
+            // typed receipt, so never apply (or fail on) the legacy duplicate.
+            if (t.economicEventId.isBlank() &&
+                t.tradingMode.contains("CryptoAlt", ignoreCase = true) &&
+                (side == "SELL" || side == "PARTIAL_SELL")
+            ) {
+                try { PipelineHealthCollector.labelInc("CRYPTO_LEGACY_DISPLAY_ROW_SUPERSEDED_6659") } catch (_: Throwable) {}
+                continue
+            }
+            totalRows++
             if (t.positionId.isBlank()) { reject(t, eventId, "MISSING_POSITION_ID"); continue }
             if (!seenEvents.add(eventId)) { reject(t, eventId, "DUPLICATE_EVENT_ID"); continue }
             // BUY/ADD rows historically share partialSequence=0. Their sealed

@@ -2,6 +2,8 @@ package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.engine.PipelineHealthCollector
 import com.lifecyclebot.engine.ForensicLogger
+import com.lifecyclebot.engine.TradeHistoryStore
+import com.lifecyclebot.data.Trade
 import java.math.BigInteger
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
@@ -10,7 +12,194 @@ import kotlin.concurrent.withLock
 object CanonicalPaperTransaction6486 {
     private val lock = ReentrantLock()
     private val syntheticUnit = BigInteger.valueOf(1_000_000_000L)
-    data class Result(val applied: Boolean, val positionId: String, val reason: String)
+    data class Result(
+        val applied: Boolean,
+        val positionId: String,
+        val reason: String,
+        val economicEventId: String = "",
+        val grossProceedsSol: Double = 0.0,
+        val soldCostBasisSol: Double = 0.0,
+        val feesSol: Double = 0.0,
+        val canonicalConsumedRaw: BigInteger = BigInteger.ZERO,
+        val preRemainingRaw: BigInteger = BigInteger.ZERO,
+        val postRemainingRaw: BigInteger = BigInteger.ZERO,
+        val tokenDecimals: Int = -1,
+    )
+
+    /**
+     * V5.0.6659 — project a cross-asset paper open through the same immutable
+     * economic identity used by the canonical position, fill-lot ledger and
+     * durable journal.  The old generic open path mutated cash + position but
+     * emitted no BUY journal row and no fill-lot row.  Crypto Universe could
+     * therefore show funded open positions while UnifiedAccountSnapshot6635
+     * correctly failed reconciliation with ACCOUNT_UNAVAILABLE.
+     *
+     * The identity is stable across process restarts.  TradeHistoryStore and
+     * FillLotLedger are independently idempotent, so calling this during both
+     * open and rehydrate repairs already-funded legacy positions without a
+     * second debit or a duplicate journal row.
+     */
+    fun ensureOpenProjection6659(position: CanonicalPositionAuthority6441.Position): String {
+        if (!position.mode.equals("paper", true) || position.positionId.isBlank() ||
+            position.mint.isBlank() || position.entryCostSol <= 0.0 ||
+            position.originalQtyRaw <= BigInteger.ZERO
+        ) return ""
+
+        val eventId = "PAPER6486:OPEN:${position.positionId}"
+        val event = CanonicalEconomicEvent6635.Event(
+            economicEventId = eventId,
+            positionId = position.positionId,
+            mint = position.mint,
+            canonicalMint = ExecutorCanonicalMirror6442.canonicalMint(position.mint),
+            symbol = position.symbol,
+            mode = "paper",
+            lane = position.lane,
+            side = CanonicalEconomicEvent6635.Side.BUY,
+            timestampMs = position.openedAtMs,
+            qtyRaw = position.originalQtyRaw,
+            decimals = position.quantityScale,
+            executionPriceUsd = position.entryPriceUsd,
+            executionPriceSol = position.entryPriceUsd,
+            notionalSol = position.entryCostSol,
+            feeSol = position.feesSol,
+            cashDeltaSol = -(position.entryCostSol + position.feesSol),
+            positionQtyDeltaRaw = position.originalQtyRaw,
+            realizedPnlDeltaSol = 0.0,
+            terminalFillIndex = 0,
+        )
+        CanonicalEconomicEvent6635.openEvent(event) // false means the stable event already exists
+
+        val fillId = FillLotLedger6504.recordBuyFill(
+            mint = position.mint,
+            lotId = eventId,
+            qtyTokenRaw = position.originalQtyRaw,
+            lamports = BigInteger.valueOf(
+                (position.entryCostSol.coerceAtLeast(0.0) * 1_000_000_000.0).toLong().coerceAtLeast(0L)
+            ),
+            isPaper = true,
+            source = position.lane,
+            note = "paperOpen.crossAsset6659",
+        )
+        listOf(
+            CanonicalEconomicEvent6635.Store.POSITION,
+            CanonicalEconomicEvent6635.Store.LEDGER,
+            CanonicalEconomicEvent6635.Store.TERMINAL_EXEC,
+        ).forEach { CanonicalEconomicEvent6635.markCommitted(eventId, it, "CanonicalPaperTransaction6486.open6659") }
+        if (fillId > 0L) {
+            CanonicalEconomicEvent6635.markCommitted(
+                eventId, CanonicalEconomicEvent6635.Store.FILL_LOT,
+                "CanonicalPaperTransaction6486.open6659",
+            )
+        } else {
+            try { PipelineHealthCollector.labelInc("CROSS_ASSET_OPEN_FILL_LOT_PENDING_6659") } catch (_: Throwable) {}
+        }
+
+        val qtyToken = try {
+            position.originalQtyRaw.toBigDecimal().movePointLeft(position.quantityScale.coerceIn(0, 18)).toDouble()
+        } catch (_: Throwable) { 0.0 }
+        TradeHistoryStore.recordTrade(
+            Trade(
+                side = "BUY", mode = "paper", sol = position.entryCostSol,
+                price = position.entryPriceUsd, ts = position.openedAtMs,
+                reason = "CROSS_ASSET_CANONICAL_OPEN_6659",
+                score = 0.0, feeSol = position.feesSol,
+                tradingMode = position.lane, tradingModeEmoji = "🪙",
+                mint = position.mint, proofState = "PAPER_SIMULATED",
+                positionId = position.positionId, entryTsMs = position.openedAtMs,
+                entryPriceSnapshot = position.entryPriceUsd,
+                entryQtyToken = qtyToken, remainingQtyToken = qtyToken,
+                entryCostSol = position.entryCostSol,
+                entryDecimals = position.quantityScale,
+                entryRawQty = position.originalQtyRaw,
+                remainingRawQty = position.originalQtyRaw,
+                tokenDecimals = position.quantityScale,
+                entryPriceSource = position.entryPriceSource,
+                entryPoolAddress = position.entryPoolAddress,
+                economicEventId = eventId,
+            )
+        )
+        try { PipelineHealthCollector.labelInc("CROSS_ASSET_OPEN_JOURNAL_PROJECTED_6659") } catch (_: Throwable) {}
+        return eventId
+    }
+
+    /** Restore the durable journal side of historical Crypto paper events.
+     * Legacy CryptoAlt closes wrote a display-only row after the canonical
+     * mutation (and stop closes wrote none). The typed economic sidecar still
+     * has the exact basis/proceeds/quantity receipt, so project it rather than
+     * inventing values or resetting the operator's account. */
+    fun repairCryptoHistory6659() {
+        val positions = (CanonicalPositionAuthority6441.openPositions() +
+            CanonicalPositionAuthority6441.closedPositions())
+            .filter { it.mode.equals("paper", true) && it.assetClass == AssetClass.CRYPTO_ALT }
+            .associateBy { it.positionId }
+        if (positions.isEmpty()) return
+
+        positions.values.forEach { ensureOpenProjection6659(it) }
+        val typedEvents = EconomicEventSchema6464.snapshot()
+            .filter { it.mode.equals("paper", true) && positions.containsKey(it.positionId) }
+            .sortedBy { it.atMs }
+        val buyByPosition = typedEvents.filterIsInstance<EconomicEventSchema6464.Buy>()
+            .associateBy { it.positionId }
+        val sellSequence = mutableMapOf<String, Long>()
+        typedEvents.filterIsInstance<EconomicEventSchema6464.Sell>().forEach { sell ->
+            val position = positions[sell.positionId] ?: return@forEach
+            val eventId = sell.idempotencyKey.ifBlank {
+                "PAPER6486:SELL:${sell.positionId}:${sell.atMs}"
+            }
+            val scale = position.quantityScale.coerceIn(0, 18)
+            val soldQty = try { sell.soldQty.toBigDecimal().movePointLeft(scale).toDouble() } catch (_: Throwable) { 0.0 }
+            val remainingQty = try { sell.remainingQty.toBigDecimal().movePointLeft(scale).toDouble() } catch (_: Throwable) { 0.0 }
+            val originalQty = try { position.originalQtyRaw.toBigDecimal().movePointLeft(scale).toDouble() } catch (_: Throwable) { 0.0 }
+            val exitPrice = if (soldQty > 0.0) sell.grossProceedsSol / soldQty else position.entryPriceUsd
+            val sequence = (sellSequence[sell.positionId] ?: 0L) + 1L
+            sellSequence[sell.positionId] = sequence
+
+            CanonicalEconomicEvent6635.openEvent(CanonicalEconomicEvent6635.Event(
+                economicEventId = eventId, positionId = sell.positionId,
+                mint = sell.mint, canonicalMint = ExecutorCanonicalMirror6442.canonicalMint(sell.mint),
+                symbol = sell.symbol, mode = "paper", lane = position.lane,
+                side = if (sell.partial) CanonicalEconomicEvent6635.Side.PARTIAL_SELL else CanonicalEconomicEvent6635.Side.SELL,
+                timestampMs = sell.atMs, qtyRaw = sell.soldQty, decimals = scale,
+                executionPriceUsd = exitPrice, executionPriceSol = exitPrice,
+                notionalSol = sell.grossProceedsSol, feeSol = sell.exitFeesSol,
+                cashDeltaSol = sell.grossProceedsSol - sell.exitFeesSol,
+                positionQtyDeltaRaw = sell.soldQty.negate(),
+                realizedPnlDeltaSol = sell.realizedPnlSol - sell.exitFeesSol,
+                terminalFillIndex = sequence.toInt(),
+            ))
+            val fillId = FillLotLedger6504.recordSellFill(
+                mint = sell.mint, lotId = eventId, qtyTokenRaw = sell.soldQty,
+                lamports = BigInteger.valueOf((sell.grossProceedsSol.coerceAtLeast(0.0) * 1_000_000_000.0).toLong()),
+                finalized = true, isPaper = true, source = position.lane,
+                note = "cryptoHistory.repair6659",
+            )
+            listOf(CanonicalEconomicEvent6635.Store.POSITION, CanonicalEconomicEvent6635.Store.LEDGER,
+                CanonicalEconomicEvent6635.Store.TERMINAL_EXEC).forEach {
+                CanonicalEconomicEvent6635.markCommitted(eventId, it, "repairCryptoHistory6659")
+            }
+            if (fillId > 0L) CanonicalEconomicEvent6635.markCommitted(
+                eventId, CanonicalEconomicEvent6635.Store.FILL_LOT, "repairCryptoHistory6659")
+            val buy = buyByPosition[sell.positionId]
+            val grossPnl = sell.grossProceedsSol - sell.allocatedCostBasisSol
+            TradeHistoryStore.recordTrade(Trade(
+                side = if (sell.partial) "PARTIAL_SELL" else "SELL", mode = "paper",
+                sol = sell.allocatedCostBasisSol, price = exitPrice, ts = sell.atMs,
+                reason = "CRYPTO_ALT_HISTORY_REPAIR_6659", pnlSol = grossPnl,
+                pnlPct = sell.realizedReturnPct, feeSol = sell.exitFeesSol,
+                netPnlSol = grossPnl - sell.exitFeesSol, tradingMode = position.lane,
+                tradingModeEmoji = "🪙", mint = sell.mint, proofState = "PAPER_SIMULATED",
+                positionId = sell.positionId, entryTsMs = buy?.atMs ?: position.openedAtMs,
+                entryPriceSnapshot = buy?.fillPrice ?: position.entryPriceUsd,
+                entryQtyToken = originalQty, entryCostSol = buy?.executedCostSol ?: position.entryCostSol,
+                entryDecimals = scale, soldQtyToken = soldQty, remainingQtyToken = remainingQty,
+                entryRawQty = position.originalQtyRaw, canonicalConsumedRaw = sell.soldQty,
+                remainingRawQty = sell.remainingQty, tokenDecimals = scale,
+                partialSequence = sequence, soldCostBasisSol = sell.allocatedCostBasisSol,
+                grossProceedsSol = sell.grossProceedsSol, economicEventId = eventId,
+            ))
+        }
+        try { PipelineHealthCollector.labelInc("CRYPTO_HISTORY_REPROJECTED_6659") } catch (_: Throwable) {}
+    }
 
     fun open(positionId: String, mint: String, symbol: String, lane: String, source: String,
              costSol: Double, feeSol: Double = 0.0, qtyRaw: BigInteger = syntheticUnit,
@@ -112,6 +301,7 @@ object CanonicalPaperTransaction6486 {
             entryMarketRegime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" },
             assetClassTag = assetClass.tag))
         CanonicalMintOccupancyRegistry6464.markOpen("paper", mint, symbol, source)
+        CanonicalPositionAuthority6441.getPosition(positionId)?.let { ensureOpenProjection6659(it) }
         try { PipelineHealthCollector.labelInc("PAPER_TRANSACTION_OPEN_COMMITTED_6486") } catch (_: Throwable) {}
         // V5.0.6551 — intent/dispatch were sealed before debit; only the
         // successful canonical commit emits OPEN_CONFIRMED.
@@ -243,7 +433,19 @@ object CanonicalPaperTransaction6486 {
         if (!r.applied) return@withLock Result(false, positionId, r.reason)
         if (terminal) CanonicalMintOccupancyRegistry6464.markClosed("paper", mint)
         try { PipelineHealthCollector.labelInc(if (terminal) "PAPER_TRANSACTION_CLOSE_COMMITTED_6486" else "PAPER_TRANSACTION_PARTIAL_COMMITTED_6486") } catch (_: Throwable) {}
-        Result(true, positionId, if (terminal) "CLOSE_COMMITTED" else "PARTIAL_COMMITTED")
+        Result(
+            applied = true,
+            positionId = positionId,
+            reason = if (terminal) "CLOSE_COMMITTED" else "PARTIAL_COMMITTED",
+            economicEventId = r.economicEventId,
+            grossProceedsSol = r.grossProceedsSol,
+            soldCostBasisSol = r.soldCostBasisSol,
+            feesSol = r.feesSol,
+            canonicalConsumedRaw = r.canonicalConsumedRaw,
+            preRemainingRaw = r.preRemainingRaw,
+            postRemainingRaw = r.postRemainingRaw,
+            tokenDecimals = r.tokenDecimals,
+        )
     }
 
     fun refund(positionId: String, reason: String): Result {
