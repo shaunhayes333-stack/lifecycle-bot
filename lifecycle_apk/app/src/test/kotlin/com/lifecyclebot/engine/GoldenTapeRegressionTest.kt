@@ -3839,7 +3839,9 @@ class GoldenTapeRegressionTest {
         assertTrue("confirmed live BUY must defer side effects until authoritative proof", exec.contains("LIVE_BUY_SIDE_EFFECTS_DEFERRED_6637") && exec.contains("LIVE_BUY_PROOF_SIDE_EFFECTS_COMMITTED_6637") && exec.indexOf("BUY_PENDING_BALANCE_PROOF") < exec.indexOf("BUY_JOURNALED"))
         assertTrue("live hard-safety residues must keep confirmed fatal terminal while pending proof is penalty-only", pre.contains("MINT_AUTHORITY_ACTIVE") && pre.contains("TOP_HOLDER_CONCENTRATION") && pre.contains("FATAL_WALLET_RISK_TEXT") && pre.contains("PRETRADE_PENDING_PROOF_PENALTY_ALLOW") && pre.contains("LIVE_ROUTE_LIQUIDITY_PROOF_PENDING"))
         assertFalse("active authority/high-holder live risks must not remain size-clamp penalty-only", pre.contains("MINT_AUTHORITY_ACTIVE_SIZE_CLAMP") || pre.contains("TOP_HOLDER_SIZE_CLAMP"))
-        assertTrue("live outcome learning must not treat unknown top-holder as safe zero", exec.contains("if (ts.position.isPaperPosition) 0.0 else 50.0") && exec.contains("if (pos.isPaperPosition) 0.0 else 50.0"))
+        // V5.0.6665 — both close paths now read immutable pre-close `pos`.
+        // Requiring the cleared mutable ts.position was itself stale patch rot.
+        assertTrue("live outcome learning must not treat unknown top-holder as safe zero", exec.contains("if (pos.isPaperPosition) 0.0 else 50.0") && !exec.contains("if (ts.position.isPaperPosition) 0.0 else 50.0"))
         assertTrue("V3 terminal early return must keep only mechanical hard reasons", bot.contains("NO_EXECUTABLE_ROUTE") && bot.contains("NO_SELL_ROUTE") && !bot.contains("""result.reason.contains("SCORE_TOO_LOW", ignoreCase = true) ||"""))
     }
 
@@ -6404,7 +6406,7 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("V5.0.4505: EducationSubLayerAI must carry SOL basis fields", edu.contains("val entryCostSol: Double = 0.0") && edu.contains("val pnlSol: Double = 0.0"))
         assertTrue("V5.0.4505: education firehose must quarantine SOL-basis mismatches before TokenWinMemory/PatternMemory training", edu.contains("LearningPnlSanitizer.inspectPct") && edu.contains("EducationSubLayerAI.firehose4505") && edu.contains("EDUCATION_FIREHOSE_QUARANTINED_4505") && edu.indexOf("LearningPnlSanitizer.inspectPct") < edu.indexOf("TokenWinMemory.recordTradeOutcome"))
-        assertTrue("V5.0.4505: Executor close paths must populate education SOL basis", exec.contains("entryCostSol = ts.position.costSol") && exec.contains("entryCostSol = pos.costSol") && exec.contains("pnlSol = pnl"))
+        assertTrue("V5.0.4505: Executor close paths must populate education SOL basis from immutable pre-close position", !exec.contains("entryCostSol = ts.position.costSol") && exec.contains("entryCostSol = pos.costSol") && exec.contains("pnlSol = pnl"))
     }
 
 
