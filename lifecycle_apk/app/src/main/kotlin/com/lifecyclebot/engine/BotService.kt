@@ -19599,9 +19599,17 @@ if (hotExitHandledSweep) {
         // PARTIALLY_CLOSED positions are exit-only and leave this discovery
         // worker immediately; their mark/evaluation runs on the isolated exit
         // dispatcher through the canonical sweep.
+        //
+        // V5.0.6658 §HOT_LOOP_UNCHOKE — replaced
+        //   openPositions().firstOrNull { it.mint == mint }
+        // with the targeted `firstOpenForMint(mint)` accelerator so the
+        // per-mint discovery worker no longer builds a full validity-filtered
+        // snapshot of every position (with per-position label writes and
+        // canonical invariant lookups) on every tick. Behaviour is
+        // preserved — the same isEconomicallyValidOpen6631 authority
+        // decides membership.
         val canonicalOpen6647 = try {
-            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
-                .firstOrNull { it.mint == mint }
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.firstOpenForMint(mint)
         } catch (_: Throwable) { null }
         if (canonicalOpen6647 != null) {
             try {
@@ -25975,6 +25983,25 @@ if (hotExitHandledSweep) {
                 allowTrunkExecutionHandoff6533 = true,
             )
         }
+        // V5.0.6658 §TICKET_STAMP_RETRIEVAL_PARITY — operator dump Feb 2026:
+        //   BLUECHIP/SHITCOIN buyIntent, fdg, size, mark all non-zero,
+        //   ticketN=0 (TICKET_CHOKED). Root cause: TICKET is only stamped
+        //   inside `recordFdgAndGetIntent6533` (ExecutableOpenGate.kt:895).
+        //   When an ExecutionIntent was already materialised in a prior
+        //   phase — the primary path publishes it via
+        //   `publishFdgIntent6519` inside recordFdg() at
+        //   ExecutableOpenGate.kt:1089 without a TICKET stamp — the retrieve
+        //   at line above returns non-null and the `recordFdgAndGetIntent6533`
+        //   branch (which does the TICKET stamp) never runs. The specialist
+        //   causal record therefore never sees a TICKET stage even though a
+        //   valid sealed ticket exists and downstream EXEC has been fired.
+        //   Same-lane stamp with the intent's canonical attemptId; the
+        //   recordDeskStage (lane|stage|eventId) dedupe still enforces one
+        //   stamp per intent so a subsequent retrieve is a no-op.
+        val ticketStampIntent6658 = specialistIntent6614
+        if (ticketStampIntent6658 != null) try {
+            ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "TICKET", ticketStampIntent6658.attemptId)
+        } catch (_: Throwable) {}
         val specialistFdgAllowed6614 = specialistIntent6614?.fdgAllowed == true || fdgDecision.canExecute()
         try {
             ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, if (specialistFdgAllowed6614) "FDG_ALLOW" else "FDG_BLOCK", specialistCausalId6614)

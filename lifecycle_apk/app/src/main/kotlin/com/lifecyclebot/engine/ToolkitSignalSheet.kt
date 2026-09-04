@@ -775,11 +775,26 @@ object ToolkitSignalSheet {
             val sellConfirmed = o("SELL_CONFIRMED")
             val finalized = n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.FINALIZE)
             val learn = n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.LEARN)
+            // V5.0.6658 §STATUS_DETECTION_DECISION_AWARENESS (operator Feb
+            //   2026 P0 mandate: authority/routing/state repair, no
+            //   threshold tuning, no fallback masking).
+            //   SIZE/MARK/TICKET/EXEC are executable-side stamps. When
+            //   every FDG outcome for a lane was FDG_BLOCK there is no
+            //   sized/ticket/exec work to observe, so declaring the lane
+            //   SIZING_CHOKED / TICKET_CHOKED misleads the operator into
+            //   thinking the specialist is broken when in fact the lane
+            //   emitted verdicts and the block was authorised. Guard the
+            //   post-FDG chokes on `fdgAllow > 0`; if only blocks were
+            //   emitted the status is FDG_BLOCKED_ALL (the operator's
+            //   real state) rather than a downstream choke. When
+            //   fdgAllow > 0 and the downstream stage still is 0, the
+            //   choke label remains correct and actionable.
             val status = when {
                 pool == 0L -> "DEAD"
                 qualified == 0L -> "DISCOVERY_ONLY"
                 intent == 0L -> "INTENT_CHOKED"
                 fdgAllow + fdgBlock == 0L -> "FDG_CHOKED"
+                fdgAllow == 0L -> "FDG_BLOCKED_ALL"
                 sized == 0L -> "SIZING_CHOKED"
                 mark == 0L -> "MARK_CHOKED"
                 ticket == 0L -> "TICKET_CHOKED"

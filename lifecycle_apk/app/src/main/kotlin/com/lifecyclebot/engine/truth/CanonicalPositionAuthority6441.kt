@@ -718,6 +718,40 @@ object CanonicalPositionAuthority6441 {
     }
 
     /**
+     * V5.0.6658 §HOT_LOOP_UNCHOKE (operator Feb 2026):
+     *   > "processTokenCycle stalls >30s. Sweep openPositions() calls
+     *   >  iterating full lists inside hot paths and convert them to
+     *   >  bounded incremental projections or indexed lookups."
+     *
+     * `openPositions()` builds an entire filtered snapshot AND invokes
+     * `isEconomicallyValidOpen6631` on every position (which fires
+     * PipelineHealthCollector labels + QuantityInvariantAuthority
+     * lookups). Called per-mint inside `processTokenCycle`, that
+     * grows as O(mints_in_watchlist × total_positions) with heavy
+     * per-position work. On the operator's install (392 watchlist
+     * mints, 156 open positions) this alone burned ~60k label
+     * writes + quarantine map lookups per cycle.
+     *
+     * `firstOpenForMint(mint)` short-circuits: it iterates
+     * `positions.values` once but only applies the expensive
+     * economic-validity gate to positions whose `mint` matches the
+     * lookup key (usually 0 or 1 per mint). The cheap `mint == m`
+     * compare dominates and total heavy-filter work drops to
+     * O(mints_in_watchlist). Behaviour is identical to
+     * `openPositions().firstOrNull { it.mint == mint }` — the same
+     * authority (`isEconomicallyValidOpen6631`) decides validity.
+     */
+    fun firstOpenForMint(mint: String): Position? {
+        if (mint.isBlank()) return null
+        val values = positions.values
+        for (p in values) {
+            if (p.mint != mint) continue
+            if (isEconomicallyValidOpen6631(p)) return p
+        }
+        return null
+    }
+
+    /**
      * V5.0.6631 §B — economic-validity gate for open inventory. Rejects:
      *   - non-OPEN/PARTIALLY_CLOSED lifecycle,
      *   - quarantined rows,
