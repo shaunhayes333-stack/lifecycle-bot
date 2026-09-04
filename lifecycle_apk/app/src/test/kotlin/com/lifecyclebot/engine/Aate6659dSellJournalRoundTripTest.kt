@@ -58,8 +58,9 @@ class Aate6659dSellJournalRoundTripTest {
         val source = java.io.File(
             "src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt"
         ).readText()
-        assertTrue(source.contains("private fun projectSellJournal6659("))
+        assertTrue(source.contains("private fun recordCloseProjection6659("))
+        assertTrue(source.contains("recordCloseProjection6659(pos, r, exitReason, terminal)"))
         assertTrue(source.contains("sol = gross"))
-        assertTrue(source.contains("reason = \"CROSS_ASSET_CANONICAL_CLOSE_6659:${'$'}exitReason\""))
+        assertTrue(source.contains("economicEventId = receipt.economicEventId"))
     }
 }
