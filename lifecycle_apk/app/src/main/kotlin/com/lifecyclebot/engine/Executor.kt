@@ -14162,9 +14162,14 @@ class Executor(
         attemptId: String = "",
         entryScore: Int = 70,
         entryConfidence: Int = 70,
+        // V5.0.6664 — this transport is shared by SHITCOIN, MANIPULATED,
+        // EXPRESS and PROJECT_SNIPER.  Preserve the specialist's canonical
+        // lane through preflight, journal, position and learning instead of
+        // relabelling every successful open as SHITCOIN after final bind.
+        executionLane: String = "SHITCOIN",
     ): Boolean {
         val preflight = if (finalityPrechecked) ExecutableOpenGate.OpenVerdict(true, "prechecked", attemptId = attemptId)
-            else preflightExecutableOpen(ts, isPaper, "SHITCOIN", "Executor.shitCoinBuy", attemptId)
+            else preflightExecutableOpen(ts, isPaper, executionLane, "Executor.shitCoinBuy", attemptId)
         if (!preflight.allowed) {
             ErrorLogger.warn("Executor", "🚫 SHITCOIN_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${preflight.attemptId} | ${preflight.reason}")
             return false
@@ -14193,12 +14198,12 @@ class Executor(
                 sol = sizeSol,
                 score = laneScore,
                 identity = identity,
-                quality = "SHITCOIN",
+                quality = executionLane,
                 skipGraduated = true,
                 wallet = wallet,
                 walletSol = walletSol,
-                layerTag = "SHITCOIN",          // V5.9.386 — journal tag
-                layerTagEmoji = "💩",
+                layerTag = executionLane,          // V5.0.6664 — canonical specialist journal tag
+                layerTagEmoji = if (executionLane == "SHITCOIN") "💩" else "🎯",
                 finalityPrechecked = true, attemptId = preflight.attemptId,
             )
         } else {
@@ -14213,10 +14218,10 @@ class Executor(
                 wallet = wallet,
                 walletSol = walletSol,
                 identity = identity,
-                quality = "SHITCOIN",
+                quality = executionLane,
                 skipGraduated = true,
-                layerTag = "SHITCOIN",          // V5.9.386 — journal tag
-                layerTagEmoji = "💩",
+                layerTag = executionLane,          // V5.0.6664 — canonical specialist journal tag
+                layerTagEmoji = if (executionLane == "SHITCOIN") "💩" else "🎯",
                 finalityPrechecked = true, attemptId = preflight.attemptId,
             )
             if (!liveOpened) return false
@@ -14227,9 +14232,9 @@ class Executor(
             return false
         }
         
-        ts.position.tradingMode = "SHITCOIN"
-        ts.position.tradingModeEmoji = "💩"
-        ts.position.isShitCoinPosition = true
+        ts.position.tradingMode = executionLane
+        ts.position.tradingModeEmoji = if (executionLane == "SHITCOIN") "💩" else "🎯"
+        ts.position.isShitCoinPosition = executionLane == "SHITCOIN"
         
         ts.position.shitCoinTakeProfit = takeProfitPct
         ts.position.shitCoinStopLoss = stopLossPct
@@ -14241,8 +14246,8 @@ class Executor(
                     side = "BUY",
                     symbol = ts.symbol,
                     mint = ts.mint,
-                    mode = "SHITCOIN",
-                    source = ts.source.ifBlank { "SHITCOIN_SCAN" },
+                    mode = executionLane,
+                    source = ts.source.ifBlank { "${executionLane}_SCAN" },
                     liquidityUsd = ts.lastLiquidityUsd,
                     marketSentiment = marketSentiment,
                     entryScore = entryScore.coerceIn(0, 100),
@@ -20852,7 +20857,11 @@ class Executor(
             } catch (_: Throwable) {}
             try { BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis() } catch (_: Throwable) {}
             try { WalletPositionLock.recordClose("Meme", shutdownCostSol) } catch (_: Exception) {}
-            try { TradeAuthorizer.releasePosition(ts.mint, "SELL_$reason", TradeAuthorizer.ExecutionBook.CORE) } catch (_: Exception) {}
+            // V5.0.6664 — a terminal close must clear the book that actually
+            // opened the mint.  CORE was a stale hard-coded default and left
+            // specialist locks behind.  Full-terminal inventory is mint
+            // canonical, so clear every residual book for this mint.
+            try { TradeAuthorizer.releasePosition(ts.mint, "SELL_$reason") } catch (_: Exception) {}
             onLog("🛑 SHUTDOWN CLOSE: ${ts.symbol} @ ${pnlP.toInt()}% (learning skipped)", tradeId.mint)
             return SellResult.PAPER_CONFIRMED
         }
@@ -21025,11 +21034,10 @@ class Executor(
             TradeAuthorizer.releasePosition(
                 mint = ts.mint,
                 reason = "SELL_$reason",
-                book = TradeAuthorizer.ExecutionBook.CORE
             )
-            ErrorLogger.debug("Executor", "🔓 CORE LOCK RELEASED: ${ts.symbol}")
+            ErrorLogger.debug("Executor", "🔓 TERMINAL BOOK LOCKS RELEASED: ${ts.symbol}")
         } catch (e: Exception) {
-            ErrorLogger.debug("Executor", "Failed to release CORE lock: ${e.message}")
+            ErrorLogger.debug("Executor", "Failed to release terminal book locks: ${e.message}")
         }
 
         val maxGainPct = if (pos.entryPrice > 0 && pos.highestPrice > 0) {
@@ -21786,12 +21794,16 @@ class Executor(
             val currentHolderCount = ts.history.lastOrNull()?.holderCount ?: 0
             val currentVolume = ts.history.lastOrNull()?.vol ?: 0.0
             // V5.9.127: guard against unset entryTime (raw epoch leak → 56-year hold)
-            val entryTimeSafeEdu = if (ts.position.entryTime > 1_000_000_000_000L)
-                ts.position.entryTime else System.currentTimeMillis()
+            // V5.0.6664 — 1133 intentionally clears ts.position before this
+            // offloaded learning work.  Read the immutable pre-close snapshot;
+            // otherwise every specialist terminal is silently learned as
+            // STANDARD/MEME with zero entry economics.
+            val entryTimeSafeEdu = if (pos.entryTime > 1_000_000_000_000L)
+                pos.entryTime else System.currentTimeMillis()
             val holdTimeDouble = (System.currentTimeMillis() - entryTimeSafeEdu) / 60000.0
             val approxTokenAgeMinutes = holdTimeDouble + 5.0
-            val peakPnl = if (ts.position.entryPrice > 0 && ts.position.highestPrice > 0) {
-                ((ts.position.highestPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
+            val peakPnl = if (pos.entryPrice > 0 && pos.highestPrice > 0) {
+                ((pos.highestPrice - pos.entryPrice) / pos.entryPrice) * 100.0
             } else pnlP
             
             val durableEventId6643 = tradeSnap.economicEventId
@@ -21803,47 +21815,49 @@ class Executor(
                 holdTimeMinutes = holdTimeDouble,
                 entryTimeMs = entryTimeSafeEdu,
                 exitReason = reason,
-                entryPhase = ts.position.entryPhase.ifEmpty { "UNKNOWN" },
-                tradingMode = ts.position.tradingMode.ifEmpty { "STANDARD" },
+                entryPhase = pos.entryPhase.ifEmpty { "UNKNOWN" },
+                tradingMode = pos.tradingMode.ifEmpty { "STANDARD" },
                 discoverySource = ts.source.ifEmpty { "UNKNOWN" },
                 setupQuality = setupQualityStr,
-                entryMcapUsd = ts.position.entryMcap.takeIf { it > 0 } ?: (ts.position.entryLiquidityUsd * 2),
+                entryMcapUsd = pos.entryMcap.takeIf { it > 0 } ?: (pos.entryLiquidityUsd * 2),
                 exitMcapUsd = ts.lastMcap,
                 tokenAgeMinutes = approxTokenAgeMinutes,
                 buyRatioPct = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0,
                 volumeUsd = currentVolume,
                 liquidityUsd = ts.lastLiquidityUsd,
                 holderCount = currentHolderCount,
-                topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0.0 } ?: if (ts.position.isPaperPosition) 0.0 else 50.0,
+                topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0.0 } ?: if (pos.isPaperPosition) 0.0 else 50.0,
                 holderGrowthRate = ts.holderGrowthRate,
                 devWalletPct = 0.0,
                 bondingCurveProgress = 0.0,
                 rugcheckScore = ts.safety.rugcheckScore.toDouble().coerceAtLeast(0.0),
                 emaFanState = ts.meta.emafanAlignment.ifEmpty { "UNKNOWN" },
-                entryScore = ts.entryScore,
+                entryScore = pos.entryScore,
                 priceFromAth = 0.0,
                 maxGainPct = peakPnl,
-                maxDrawdownPct = ts.position.lowestPrice.let { low ->
-                    if (low > 0 && ts.position.entryPrice > 0) {
-                        ((low - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
+                maxDrawdownPct = pos.lowestPrice.let { low ->
+                    if (low > 0 && pos.entryPrice > 0) {
+                        ((low - pos.entryPrice) / pos.entryPrice) * 100.0
                     } else 0.0
                 },
                 timeToPeakMins = holdTimeDouble * 0.5,
                 // V5.9.320: derive traderSource from actual trading mode, not hardcoded
                 traderSource = when {
-                    ts.position.tradingMode.startsWith("MOONSHOT") -> "MOONSHOT"
-                    ts.position.tradingMode == "SHITCOIN"   -> "SHITCOIN"
-                    ts.position.tradingMode == "BLUE_CHIP"  -> "BLUECHIP"
-                    ts.position.tradingMode == "QUALITY"    -> "QUALITY"
-                    ts.position.tradingMode == "TREASURY"   -> "TREASURY"
-                    ts.position.tradingMode == "DIP_HUNTER" -> "DIP_HUNTER"
-                    ts.position.tradingMode == "MANIPULATED" -> "MANIPULATED"
+                    pos.tradingMode.startsWith("MOONSHOT") -> "MOONSHOT"
+                    pos.tradingMode == "SHITCOIN"   -> "SHITCOIN"
+                    pos.tradingMode == "BLUE_CHIP" || pos.tradingMode == "BLUECHIP" -> "BLUECHIP"
+                    pos.tradingMode == "QUALITY"    -> "QUALITY"
+                    pos.tradingMode == "TREASURY"   -> "TREASURY"
+                    pos.tradingMode == "DIP_HUNTER" -> "DIP_HUNTER"
+                    pos.tradingMode == "MANIPULATED" -> "MANIPULATED"
+                    pos.tradingMode == "EXPRESS" -> "EXPRESS"
+                    pos.tradingMode == "PROJECT_SNIPER" -> "PROJECT_SNIPER"
                     else -> "MEME"
                 },
                 lossReason = if (pnlP < -2.0) reason else "",
-                entryCostSol = ts.position.costSol,
+                entryCostSol = pos.costSol,
                 pnlSol = pnl,
-                executionMode = if (ts.position.isPaperPosition) "paper" else "live",
+                executionMode = if (pos.isPaperPosition) "paper" else "live",
                 proofState = "canonical_finalized",
                 economicEventId = durableEventId6643,
             )
@@ -24575,7 +24589,6 @@ class Executor(
             TradeAuthorizer.releasePosition(
                 mint = tradeId.mint,
                 reason = "SELL_$reason",
-                book = TradeAuthorizer.ExecutionBook.CORE
             )
             
             ErrorLogger.debug("Executor", "🔓 LIVE SELL: Released all locks for ${ts.symbol}")
