@@ -137,6 +137,26 @@ object ExecutionSpineAcceptanceWindow6647 {
         )
     }
 
+    /**
+     * Start the mandatory window at the accepted runtime start boundary.
+     * AcceptanceInvariantAudit runs on a slower cadence than the CI capture;
+     * lazily creating the baseline on its first audit meant a healthy
+     * three-minute smoke could finish before any 120-second window closed.
+     */
+    @Synchronized
+    fun beginWindow6662(nowMs: Long = System.currentTimeMillis()) {
+        baseline = capture(nowMs)
+        requestedCycle.set(-1L)
+        maxStartDelayCycles.set(0L)
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_WINDOW_STARTED_6662")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "EXECUTION_SPINE_WINDOW_STARTED_6662",
+                "atMs=$nowMs source=accepted_runtime_start",
+            )
+        } catch (_: Throwable) {}
+    }
+
     /** Returns null while the mandatory window is still warming. */
     @Synchronized
     fun closeCompletedWindow(nowMs: Long = System.currentTimeMillis()): ExecutionSpineAcceptance6647.Result? {

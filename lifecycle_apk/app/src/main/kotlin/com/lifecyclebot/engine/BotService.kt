@@ -4888,6 +4888,13 @@ class BotService : Service() {
             } catch (_: Throwable) { /* fail-open — never block startBot on coordinator surface */ }
 
             status.running = true
+            // V5.0.6662 — anchor the mandatory 120-second acceptance window
+            // to the accepted runtime start.  The audit cadence is longer than
+            // the smoke capture, so lazy baseline creation could never finish.
+            try {
+                com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647
+                    .beginWindow6662()
+            } catch (_: Throwable) {}
             // Note: startForeground is already called in onStartCommand to meet Android's 5-second requirement
             ErrorLogger.info("BotService", "Foreground service started")
             addLog("✓ Foreground service started")

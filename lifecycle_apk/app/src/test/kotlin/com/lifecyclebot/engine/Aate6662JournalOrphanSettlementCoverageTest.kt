@@ -32,4 +32,14 @@ class Aate6662JournalOrphanSettlementCoverageTest {
         assertTrue(identity >= 0)
         assertTrue(journal > identity)
     }
+
+    @Test
+    fun `accepted runtime start anchors the smoke acceptance window`() {
+        val acceptance = File(root,
+            "src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionSpineAcceptance6647.kt").readText()
+        assertTrue(acceptance.contains("fun beginWindow6662"))
+        assertTrue(acceptance.contains("baseline = capture(nowMs)"))
+        assertTrue(service.contains("ExecutionSpineAcceptanceWindow6647"))
+        assertTrue(service.contains(".beginWindow6662()"))
+    }
 }
