@@ -54,6 +54,17 @@ class Aate6659dSellJournalRoundTripTest {
     }
 
     @Test
+    fun `canonical top up journals the same immutable ledger event`() {
+        val source = java.io.File(
+            "src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt"
+        ).readText()
+        assertTrue(source.contains("onBuyAtomic6632(addedCostSol, addedFeeSol, mint, idem)"))
+        assertTrue(source.contains("reason = \"CANONICAL_POSITION_ADD_6660\""))
+        assertTrue(source.contains("entryRawQty = addedQtyRaw"))
+        assertTrue(source.contains("economicEventId = idem"))
+    }
+
+    @Test
     fun `canonical cross asset close owns its journal projection`() {
         val source = java.io.File(
             "src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt"

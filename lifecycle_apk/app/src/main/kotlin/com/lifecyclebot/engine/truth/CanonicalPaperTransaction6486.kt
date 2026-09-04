@@ -358,9 +358,11 @@ object CanonicalPaperTransaction6486 {
             ?: return@withLock Result(false, positionId, "UNKNOWN_POSITION")
         if (!addedCostSol.isFinite() || addedCostSol <= 0.0 || addedQtyRaw <= BigInteger.ZERO)
             return@withLock Result(false, positionId, "INVALID_ADD")
-        if (!PaperAccountLedger6430.onBuy(addedCostSol, addedFeeSol))
-            return@withLock Result(false, positionId, "INSUFFICIENT_CANONICAL_CASH")
         val idem = "PAPER6486:ADD:$positionId:${pos.originalQtyRaw}"
+        // Top-ups are full economic fills, not an in-memory position detail.
+        // Key ledger debit and journal projection with the same immutable id.
+        if (!PaperAccountLedger6430.onBuyAtomic6632(addedCostSol, addedFeeSol, mint, idem))
+            return@withLock Result(false, positionId, "INSUFFICIENT_CANONICAL_CASH")
         val applied = CanonicalPositionAuthority6441.addToPosition6486(
             idem, positionId, addedCostSol, addedQtyRaw, addedFeeSol, addedEntryPriceUsd)
         if (applied != CanonicalPositionAuthority6441.MutateResult.APPLIED) {
@@ -380,6 +382,28 @@ object CanonicalPaperTransaction6486 {
             addedEntryPriceUsd else addedCostSol / addedQtyRaw.toDouble()
         EconomicEventSchema6464.recordBuy("paper", positionId, mint, symbol, idem, addedCostSol,
             addedQtyRaw, fillPrice6539, addedFeeSol, tokenDecimals = quantityScale, quantityScale = quantityScale)
+        val updated = CanonicalPositionAuthority6441.getPosition(positionId)
+        fun displayAdded(raw: BigInteger): Double = try {
+            raw.toBigDecimal().movePointLeft(quantityScale.coerceIn(0, 18)).toDouble()
+        } catch (_: Throwable) { 0.0 }
+        TradeHistoryStore.recordTrade(Trade(
+            side = "BUY", mode = "paper", sol = addedCostSol,
+            price = fillPrice6539.coerceAtLeast(0.000000000001),
+            ts = System.currentTimeMillis(), reason = "CANONICAL_POSITION_ADD_6660",
+            feeSol = addedFeeSol, tradingMode = pos.lane, tradingModeEmoji = "🪙",
+            mint = mint, proofState = "PAPER_SIMULATED",
+            positionId = positionId, entryTsMs = pos.openedAtMs,
+            entryPriceSnapshot = fillPrice6539.coerceAtLeast(0.000000000001),
+            entryQtyToken = displayAdded(addedQtyRaw),
+            remainingQtyToken = displayAdded(updated?.remainingQtyRaw ?: BigInteger.ZERO),
+            entryCostSol = addedCostSol, entryDecimals = quantityScale,
+            entryRawQty = addedQtyRaw,
+            remainingRawQty = updated?.remainingQtyRaw ?: BigInteger.ZERO,
+            tokenDecimals = quantityScale,
+            entryPriceSource = pos.entryPriceSource,
+            entryPoolAddress = pos.entryPoolAddress,
+            economicEventId = idem,
+        ))
         try { PipelineHealthCollector.labelInc("PAPER_TRANSACTION_ADD_COMMITTED_6486") } catch (_: Throwable) {}
         Result(true, positionId, "ADD_COMMITTED")
     }
