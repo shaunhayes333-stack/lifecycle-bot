@@ -66,9 +66,16 @@ object PaperAccountReplay6461 {
      * once per pipeline audit tick (bounded by getAllValidTradesSnapshot
      * limit). Returns Snapshot even when store empty.
      */
-    fun replay(startingCashSol: Double): Snapshot {
+    fun replay(startingCashSol: Double): Snapshot = replayRows(startingCashSol, null)
+
+    /** Deterministic isolated entrypoint for unit tests. Production callers
+     * always use the durable TradeHistoryStore through replay(). */
+    internal fun replayForTest(startingCashSol: Double, trades: List<Trade>): Snapshot =
+        replayRows(startingCashSol, trades)
+
+    private fun replayRows(startingCashSol: Double, tradesOverride: List<Trade>?): Snapshot {
         replays.incrementAndGet()
-        val trades: List<Trade> = try {
+        val trades: List<Trade> = tradesOverride ?: try {
             TradeHistoryStore.getAllValidTradesSnapshot(limit = 20_000)
         } catch (_: Throwable) { emptyList() }
 

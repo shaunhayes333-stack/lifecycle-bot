@@ -8,6 +8,7 @@ class Repair6517StartStopFunctionTest {
     private val service = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
     private val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
     private val vm = java.io.File("src/main/kotlin/com/lifecyclebot/ui/BotViewModel.kt").readText()
+    private val smoke = java.io.File("../../ci/runtime-test.sh").readText()
 
     @Test
     fun `start stop listener is bound and enabled during bindViews independent of rendering`() {
@@ -52,5 +53,16 @@ class Repair6517StartStopFunctionTest {
         assertTrue(vm.contains("UI_START_DISPATCH_FAILED_6517"))
         assertTrue(vm.contains("ctx.startForegroundService(intent)"))
         assertTrue(vm.contains("ctx.startService(intent)"))
+    }
+
+    @Test
+    fun `runtime smoke clears Android background permission before looking for stop`() {
+        val loopReady = smoke.indexOf("wait_log_marker \"BOT_LOOP_TICK\"")
+        val platformPrompt = smoke.indexOf("ui_post_start_system.xml", loopReady)
+        val allow = smoke.indexOf("ui_tap text \"Allow\"", platformPrompt)
+        val stop = smoke.indexOf("ui_tap id btnToggle ui_stop_button.xml", allow)
+        assertTrue(loopReady > 0 && platformPrompt > loopReady && allow > platformPrompt && stop > allow)
+        assertTrue(smoke.contains("package=\"com.android.settings\""))
+        assertTrue(smoke.contains("Let app always run in background?"))
     }
 }

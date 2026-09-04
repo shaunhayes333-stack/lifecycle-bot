@@ -135,7 +135,9 @@ class PartialPnlUnitCorrectnessTest6461 {
     @Test
     fun `replay on empty ledger returns starting cash and zero deltas`() {
         PaperAccountReplay6461.resetForTest()
-        val snap = PaperAccountReplay6461.replay(startingCashSol = 5.0)
+        // Supply an explicit empty tape: the full suite intentionally shares
+        // TradeHistoryStore state, so test order must not change this case.
+        val snap = PaperAccountReplay6461.replayForTest(startingCashSol = 5.0, trades = emptyList())
         assertEquals(5.0, snap.cashSol, 1e-9)
         assertEquals(0.0, snap.openCostBasisSol, 1e-9)
         assertEquals(0.0, snap.realizedPnlSol, 1e-9)

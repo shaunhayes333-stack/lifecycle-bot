@@ -255,6 +255,20 @@ wait_log_marker "UI_START_DISPATCHED_6517" 20 "first UI dispatch"
 wait_log_marker "SERVICE_BOOTSTRAP_READY_6516" 360 "persisted bootstrap"
 wait_log_marker "BOT_LOOP_TICK" 60 "first runtime loop"
 
+# V5.0.6659a — Android 11 may put its own battery-optimization permission
+# Activity in front of AATE immediately after the first Start. The prior smoke
+# then searched that Settings dialog for btnToggle and failed even though the
+# service bootstrap and runtime loop had both passed. Accept the real platform
+# prompt, wait for MainActivity to regain focus, and only then exercise Stop.
+adb shell uiautomator dump /sdcard/ui_post_start_system.xml >/dev/null 2>&1 || true
+adb pull /sdcard/ui_post_start_system.xml "$WS/ui_post_start_system.xml" >/dev/null 2>&1 || true
+if grep -q 'package="com.android.settings"' "$WS/ui_post_start_system.xml" 2>/dev/null &&
+   grep -q 'text="Let app always run in background?"' "$WS/ui_post_start_system.xml" 2>/dev/null; then
+    echo "Android background-run permission prompt detected; accepting through the platform UI"
+    ui_tap text "Allow" ui_background_allow.xml
+    sleep 2
+fi
+
 # Real UI Stop, including the confirmation dialog.
 sleep 3
 ui_tap id btnToggle ui_stop_button.xml
