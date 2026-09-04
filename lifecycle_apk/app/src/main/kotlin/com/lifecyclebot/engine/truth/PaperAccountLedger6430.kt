@@ -355,6 +355,7 @@ object PaperAccountLedger6430 {
         mint: String,
         attemptKey: String,
         side: PaperEconomicAtomicCommit6632.Side = PaperEconomicAtomicCommit6632.Side.SELL,
+        enforceSolanaMintQuarantine: Boolean = true,
     ): Boolean {
         if (!grossProceedsSol.isFinite() || !costBasisSoldSol.isFinite()) return false
         // V5.0.6502 §1 — LEDGER QUARANTINE REJECT. Positions whose qty
@@ -365,7 +366,7 @@ object PaperAccountLedger6430 {
         // Executor.requestSell but the LEDGER now refuses the phantom
         // credit. Kills the +38.12 SOL phantom the operator saw on the
         // 6501 dump when 752 quarantined rows were being credited.
-        if (mint.isNotBlank()) {
+        if (mint.isNotBlank() && enforceSolanaMintQuarantine) {
             val invariantBroken = try {
                 com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.isQuarantined(mint)
             } catch (_: Throwable) { false }

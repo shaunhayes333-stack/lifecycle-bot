@@ -8307,7 +8307,19 @@ class BotService : Service() {
                 "STOP_COMPLETE",
                 "gen=$stopGeneration tokens=$_finalTokens host=$_finalHostOpen life=$_finalLifeOpen"
             )
+            // V5.0.6659b — publish the terminal lifecycle state before
+            // stopSelf(). onDestroy cancels this service scope, so leaving
+            // these writes for the coroutine's tail/finally could strand
+            // stopInProgress=true and make Start-again wait forever.
+            synchronized(loopJobLock) {
+                if (loopJob === stoppingLoopJob) loopJob = null
+            }
+            stopInProgress = false
             BotRuntimeController.publishStopped(stopGeneration, source)
+            ForensicLogger.lifecycle(
+                "LIFECYCLE_STOP_COMPLETE",
+                "source=$source liquidate=$liquidateOnStop softPreserve=$softStopPreservePositions beforeStopSelf=true",
+            )
         } catch (_: Throwable) {}
         stopForeground(STOP_FOREGROUND_REMOVE)
         serviceForegroundActive6487 = false

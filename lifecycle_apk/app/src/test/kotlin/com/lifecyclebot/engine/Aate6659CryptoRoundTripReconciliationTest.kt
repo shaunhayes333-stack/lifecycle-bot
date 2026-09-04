@@ -88,4 +88,17 @@ class Aate6659CryptoRoundTripReconciliationTest {
         assertTrue(exactPaperBlock.contains("mint = pos.canonicalAssetKey"))
         assertFalse(exactPaperBlock.contains("mint = mktSym"))
     }
+
+    @Test
+    fun `typed crypto close bypasses only the Solana mint quarantine domain`() {
+        val bridge = File(
+            "src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt"
+        ).readText()
+        val ledger = File(
+            "src/main/kotlin/com/lifecyclebot/engine/truth/PaperAccountLedger6430.kt"
+        ).readText()
+        assertTrue(ledger.contains("enforceSolanaMintQuarantine: Boolean = true"))
+        assertTrue(ledger.contains("mint.isNotBlank() && enforceSolanaMintQuarantine"))
+        assertTrue(bridge.contains("enforceSolanaMintQuarantine = canonicalBefore6522?.assetClass == AssetClass.SOLANA_TOKEN"))
+    }
 }

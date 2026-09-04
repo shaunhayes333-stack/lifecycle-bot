@@ -218,6 +218,14 @@ object CanonicalPaperTerminalBridge6469 {
                 attemptKey = sellSig,
                 side = if (terminal) PaperEconomicAtomicCommit6632.Side.SELL
                     else PaperEconomicAtomicCommit6632.Side.PARTIAL_SELL,
+                // V5.0.6659b — QuantityInvariantAuthority6500's mint
+                // quarantine is a Solana-token domain. Applying it to
+                // canonical cross-asset identifiers (eth|..., robinhood|...)
+                // rejected every Crypto Universe close after the position had
+                // already transitioned terminal. Keep the guard strict for
+                // Solana positions and bypass only for an explicitly typed
+                // non-Solana canonical asset.
+                enforceSolanaMintQuarantine = canonicalBefore6522?.assetClass == AssetClass.SOLANA_TOKEN,
             )
             if (!ledgerApplied6486) {
                 try { PipelineHealthCollector.labelInc("PAPER_TERMINAL_LEDGER_COMMIT_FAILED_6486") } catch (_: Throwable) {}

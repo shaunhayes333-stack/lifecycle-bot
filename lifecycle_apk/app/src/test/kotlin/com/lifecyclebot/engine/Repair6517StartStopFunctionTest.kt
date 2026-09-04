@@ -40,6 +40,11 @@ class Repair6517StartStopFunctionTest {
         val cancel = service.indexOf("serviceStartRequested6517.set(false)", stopAccepted)
         assertTrue(stopAccepted > 0 && cancel > stopAccepted)
         assertTrue(service.contains("DEFERRED_START_CANCELLED_BY_STOP_6517"))
+        val economicStop = service.indexOf("\"STOP_COMPLETE\",")
+        val clearStop = service.indexOf("stopInProgress = false", economicStop)
+        val lifecycleStop = service.indexOf("\"LIFECYCLE_STOP_COMPLETE\"", economicStop)
+        val stopSelf = service.indexOf("stopSelf()", economicStop)
+        assertTrue(economicStop > 0 && clearStop > economicStop && lifecycleStop > clearStop && stopSelf > lifecycleStop)
     }
 
     @Test
