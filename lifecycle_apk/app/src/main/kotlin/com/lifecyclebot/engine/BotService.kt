@@ -24126,6 +24126,7 @@ if (hotExitHandledSweep) {
                                 attemptId = manipAttemptId,
                                 entryScore = manipSignal.manipScore,
                                 entryConfidence = manipSignal.manipScore,
+                                executionLane = "MANIPULATED",
                             )
 
   
@@ -24344,7 +24345,13 @@ if (hotExitHandledSweep) {
                                 ExecutableOpenGate.recordFdg(
                                     mint = ts.mint,
                                     symbol = ts.symbol,
-                                    lane = "SHITCOIN",
+                                    // V5.0.6664 — preserve the lane identity created by
+                                    // the Express specialist.  The original 1570 repair
+                                    // accidentally sealed the FDG intent as SHITCOIN,
+                                    // while TradeAuthorizer and the executor requested
+                                    // EXPRESS below.  Final bind correctly refused that
+                                    // contradictory tuple as a missing immutable intent.
+                                    lane = "EXPRESS",
                                     canExecute = expressFdg?.canExecute() ?: true,
                                     reason = expressFdg?.blockReason ?: "EXPRESS_OK",
                                     signal = "BUY",
@@ -24414,13 +24421,14 @@ if (hotExitHandledSweep) {
                                     attemptId = expressAttemptId,
                                     entryScore = expressSignal.confidence,
                                     entryConfidence = expressSignal.confidence,
+                                    executionLane = "EXPRESS",
                                 )
                                 if (!expressOpened) {
                                     ErrorLogger.warn("BotService", "EXPRESS ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
                                     try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=EXPRESS symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
                                     try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "EXPRESS", "BUY_NOT_OPENED") } catch (_: Throwable) {}
                                     try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
-                                    try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.SHITCOIN) } catch (_: Throwable) {}
+                                    try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.EXPRESS) } catch (_: Throwable) {}
                                     return
                                 }
 
@@ -24605,6 +24613,7 @@ if (hotExitHandledSweep) {
                                     attemptId = projectSniperAttemptId,
                                     entryScore = assessment.confidence,
                                     entryConfidence = assessment.confidence,
+                                    executionLane = "PROJECT_SNIPER",
                                 )
 
                                 if (!sniperOpened) {
@@ -24612,7 +24621,7 @@ if (hotExitHandledSweep) {
                                     try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=PROJECT_SNIPER symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
                                     try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "PROJECT_SNIPER", "BUY_NOT_OPENED") } catch (_: Throwable) {}
                                     try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
-                                    try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.SHITCOIN) } catch (_: Throwable) {}
+                                    try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.PROJECT_SNIPER) } catch (_: Throwable) {}
                                     return
                                 }
 
