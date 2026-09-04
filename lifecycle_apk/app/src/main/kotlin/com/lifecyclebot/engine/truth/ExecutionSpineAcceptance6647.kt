@@ -172,8 +172,7 @@ object ExecutionSpineAcceptanceWindow6647 {
         // Close against durable economic truth, not a stale periodic sample.
         // This also settles stop/restart journal lots which no longer have a
         // canonical owner before enforcing exact scalar and quantity parity.
-        try { CanonicalPaperTransaction6486.reconcileJournalAuthority6663() } catch (_: Throwable) {}
-        try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
+        try { CanonicalPaperTransaction6486.reconcileForensicBoundary6666() } catch (_: Throwable) {}
         val end = capture(nowMs)
         val delta: (String) -> Long = { key -> ((end.labels[key] ?: 0L) - (start.labels[key] ?: 0L)).coerceAtLeast(0L) }
         val desks = com.lifecyclebot.engine.ToolkitSignalSheet.configuredMemeDesks6647()

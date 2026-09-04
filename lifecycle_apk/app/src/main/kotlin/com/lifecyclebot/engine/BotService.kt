@@ -739,7 +739,10 @@ class BotService : Service() {
 
     private fun ensureSpecialistWorkers6647() {
         if (specialistWorkerSupervisor6647?.isActive == true) return
-        specialistWorkerSupervisor6647 = scope.launch(CoroutineName("specialist-supervisor-6647")) {
+        // Keep specialist liveness off the saturated scan/execution scope.
+        // The exit worker scope is independently dispatched and already owns
+        // other latency-critical runtime monitors.
+        specialistWorkerSupervisor6647 = exitWorkerScope6647.launch(CoroutineName("specialist-supervisor-6647")) {
             while (status.running) {
                 val now = System.currentTimeMillis()
                 // V5.0.6653 — runtime-owned terminalization.  Stale intents
@@ -749,7 +752,7 @@ class BotService : Service() {
                 ToolkitSignalSheet.configuredMemeDesks6647().forEach { lane ->
                     val current = specialistWorkerJobs6647[lane]
                     if (current?.isActive == true || now < (specialistRestartAfterMs6647[lane] ?: 0L)) return@forEach
-                    val worker = scope.launch(CoroutineName("specialist-${lane.lowercase()}-6647")) {
+                    val worker = exitWorkerScope6647.launch(CoroutineName("specialist-${lane.lowercase()}-6647")) {
                         val healthySince6647 = System.currentTimeMillis()
                         val registeredJob6647 = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
                             ?: error("SPECIALIST_JOB_CONTEXT_MISSING")
@@ -1781,7 +1784,7 @@ class BotService : Service() {
             // which contributed to the ~2-minute freeze users reported on
             // "Start Live". It's fully optional to the critical boot path
             // (the tick consumer is null-safe via ctxRef) so defer it.
-            scope.launch {
+            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try { com.lifecyclebot.engine.lab.LlmLabEngine.start(applicationContext) } catch (_: Throwable) {}
             }
             ErrorLogger.info("BotService", "onCreate starting")

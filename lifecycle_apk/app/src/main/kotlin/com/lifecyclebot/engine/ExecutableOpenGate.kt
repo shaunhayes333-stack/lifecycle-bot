@@ -897,7 +897,34 @@ object ExecutableOpenGate {
             resolvedSizeSol6558)
         if (!canExecute) return null
         val mode = if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
-        val intent = activeExecutionIntent6519(mode, mint, candidateVersion)
+        // The recordFdg compatibility block also projects optional policy and
+        // identity telemetry. None of those secondary stores may erase the
+        // mandatory immutable intent if they throw under runtime contention.
+        val intent = activeExecutionIntent6519(mode, mint, candidateVersion) ?: run {
+            val verdict = preFdgVerdict.uppercase()
+            if (hardNoReasons.isEmpty() && verdict in setOf("BUY", "PROBE_ONLY") &&
+                resolvedSizeSol6558.isFinite() && resolvedSizeSol6558 > 0.0
+            ) registerCanonicalIntent6554(
+                ExecutionIntent(
+                    attemptId = canonicalExecutionKey(mint, mode = mode, side = "BUY", lane = lane, candidateVersion = candidateVersion),
+                    candidateId = "$mint:$candidateVersion", candidateVersion = candidateVersion,
+                    mint = mint, mode = mode, canonicalLane = lane.uppercase(),
+                    fdgVerdict = verdict, fdgAllowed = true, authorityVersion = 0L,
+                    resolvedSize = resolvedSizeSol6558, createdAt = System.currentTimeMillis(), symbol = symbol,
+                    authoritativeSignal = "BUY", safetyVerdict = safetyTier,
+                    fdgReason = reason, diagnosticSignal = signal, safetyTier = safetyTier,
+                    liquidityUsd = liquidityUsd, rugScore = rugScore, hardNoReasons = emptyList(),
+                    requiresSolanaTokenMap = requiresSolanaTokenMap,
+                    finalDecision6613 = if (verdict == "PROBE_ONLY") CanonicalFinalDecision6613.PROBE_ONLY else CanonicalFinalDecision6613.BUY,
+                    decisionAuthorityId6613 = "FDG_FALLBACK:$candidateVersion",
+                    fdgDecisionId6613 = "$mode:$mint:$candidateVersion:${lane.uppercase()}",
+                    fdgEvidence6613 = "fdgCan=true;preFdg=$verdict;safety=$safetyTier;hardNo=0;fallback=secondary_projection_failure",
+                    expiresAtMs6613 = System.currentTimeMillis() + if (mode == "PAPER")
+                        com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()
+                    else LIVE_EXECUTION_TICKET_TTL_MS,
+                )
+            ) else null
+        }
         if (intent == null) try {
             PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT")
             ForensicLogger.lifecycle("FDG_ALLOW_WITHOUT_EXEC_INTENT", "mint=${mint.take(10)} symbol=$symbol lane=$lane version=$candidateVersion action=explicit_reject")

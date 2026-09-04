@@ -43,7 +43,7 @@ class Aate6662JournalOrphanSettlementCoverageTest {
         assertTrue(service.contains(".beginWindow6662()"))
         assertTrue(service.contains("scheduleExecutionSpineAcceptance6666(runtimeGeneration)"))
         assertTrue(service.contains("ExecutionSpineAcceptance6647.MIN_WINDOW_MS + 2_000L"))
-        assertTrue(acceptance.contains("CanonicalPaperTransaction6486.reconcileJournalAuthority6663()"))
+        assertTrue(acceptance.contains("CanonicalPaperTransaction6486.reconcileForensicBoundary6666()"))
     }
 
     @Test

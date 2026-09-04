@@ -33,6 +33,14 @@ object CanonicalPaperTransaction6486 {
         )
     }
 
+    /** Reconcile and take the forensic boundary while typed paper mutations
+     * remain excluded by the same transaction lock. */
+    fun reconcileForensicBoundary6666(): Boolean = lock.withLock {
+        val reconciled = reconcileJournalAuthority6663()
+        ForensicReconciliation6635.reconcile6635()
+        reconciled
+    }
+
     /** Append an immutable raw-quantity correction for old split close paths.
      * It carries no cash, basis, fee or PnL and therefore cannot conceal an
      * economic mismatch; it only makes the journal lot equal the canonical

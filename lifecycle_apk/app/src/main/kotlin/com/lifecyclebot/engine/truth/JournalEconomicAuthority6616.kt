@@ -196,10 +196,18 @@ object JournalEconomicAuthority6616 {
         displayedEquitySol: Double = -1.0,
         toleranceSol: Double = 0.001,
     ): Boolean {
-        val snap = cached.get() ?: return false
-        val cashDelta = kotlin.math.abs(displayedCashSol - snap.cashSol)
+        val journalSnap = cached.get() ?: return false
+        // Hero surfaces render UnifiedAccountSnapshot6635, including its
+        // retained last-reconciled value during an in-flight transaction.
+        // Probe that same immutable snapshot; comparing it with an older,
+        // independently cached journal facade manufactured false parity alarms.
+        val unified = UnifiedAccountSnapshot6635.lastSnapshot()
+        val snapCash = unified.cashSol.takeIf { unified.readAtMs > 0L } ?: journalSnap.cashSol
+        val snapEquity = unified.equitySol.takeIf { unified.readAtMs > 0L } ?: journalSnap.equitySol
+        val snapRevision = journalSnap.revision
+        val cashDelta = kotlin.math.abs(displayedCashSol - snapCash)
         val equityDelta = if (displayedEquitySol >= 0.0)
-            kotlin.math.abs(displayedEquitySol - snap.equitySol) else 0.0
+            kotlin.math.abs(displayedEquitySol - snapEquity) else 0.0
         val cashOk = cashDelta <= toleranceSol
         val equityOk = equityDelta <= toleranceSol
         val ok = cashOk && equityOk
@@ -213,12 +221,12 @@ object JournalEconomicAuthority6616 {
                 PipelineHealthCollector.labelInc("HERO_JOURNAL_PARITY_FAIL_${surface.uppercase()}_6616")
                 ForensicLogger.lifecycle(
                     "HERO_JOURNAL_PARITY_FAIL_6616",
-                    "screen=$surface rev=${snap.revision} " +
+                    "screen=$surface rev=$snapRevision " +
                         "heroCash=${"%.6f".format(displayedCashSol)} " +
-                        "journalCash=${"%.6f".format(snap.cashSol)} " +
+                        "journalCash=${"%.6f".format(snapCash)} " +
                         "cashDelta=${"%.6f".format(cashDelta)} " +
                         "heroEquity=${"%.6f".format(displayedEquitySol)} " +
-                        "journalEquity=${"%.6f".format(snap.equitySol)} " +
+                        "journalEquity=${"%.6f".format(snapEquity)} " +
                         "equityDelta=${"%.6f".format(equityDelta)}"
                 )
             } catch (_: Throwable) {}
