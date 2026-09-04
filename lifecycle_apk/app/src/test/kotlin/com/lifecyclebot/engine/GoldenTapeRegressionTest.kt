@@ -9145,4 +9145,7 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("startedMonotonicMs") && bot.contains("SystemClock.elapsedRealtime()") &&
             bot.contains("sinceProgress >= SUPERVISOR_LEASE_PROGRESS_TTL_MS") &&
             bot.contains("job?.isActive == true") && bot.contains("SUPERVISOR_FORCE_RELEASE_DEFERRED_YOUNG_6616"))
-        assertFalse(bot.contains("Supervisor
+        assertFalse(bot.contains("SupervisorLease(mint = mint, startedMs = System.currentTimeMillis()"))
+    }
+
+}
