@@ -22179,6 +22179,7 @@ if (hotExitHandledSweep) {
                                     proposedSizeSol = adjustedSize,
                                     brain = executor.brain,
                                     tradingModeTag = try { ModeSpecificGates.fromTradingMode("TREASURY") } catch (_: Exception) { null },
+                                    specialistLane = "TREASURY",
                                 )
                             } catch (fdgEx: Exception) {
                                 ErrorLogger.warn("BotService", "🏦 [TREASURY] FDG error: ${fdgEx.message} — proceeding fail-open")
@@ -22476,6 +22477,7 @@ if (hotExitHandledSweep) {
                                     proposedSizeSol = qualitySignal6022.positionSizeSol,
                                     brain = executor.brain,
                                     tradingModeTag = try { ModeSpecificGates.fromTradingMode("QUALITY") } catch (_: Exception) { null },
+                                    specialistLane = "QUALITY",
                                 )
                             } catch (fdgEx: Exception) {
                                 ErrorLogger.warn("BotService", "⭐ [QUALITY] FDG error: ${fdgEx.message} — proceeding fail-open")
@@ -22680,6 +22682,7 @@ if (hotExitHandledSweep) {
                                     proposedSizeSol = blueChipSignal6022.positionSizeSol,
                                     brain = executor.brain,
                                     tradingModeTag = try { ModeSpecificGates.fromTradingMode("BLUE_CHIP") } catch (_: Exception) { null },
+                                    specialistLane = "BLUECHIP",
                                 )
                             } catch (fdgEx: Exception) {
                                 ErrorLogger.warn("BotService", "🔵 [BLUECHIP] FDG error: ${fdgEx.message} — proceeding fail-open")
@@ -23011,6 +23014,7 @@ if (hotExitHandledSweep) {
                                         proposedSizeSol = moonshotScore.suggestedSizeSol,
                                         brain = executor.brain,
                                         tradingModeTag = moonshotModeTag,
+                                        specialistLane = "MOONSHOT",
                                     )
                                 } catch (fdgEx: Exception) {
                                     ErrorLogger.warn("BotService", "🚀 [MOONSHOT] FDG error: ${fdgEx.message} — proceeding without FDG veto")
@@ -23614,6 +23618,7 @@ if (hotExitHandledSweep) {
                                     proposedSizeSol = adjustedSize,
                                     brain = executor.brain,
                                     tradingModeTag = try { ModeSpecificGates.fromTradingMode("SHIT_COIN") } catch (_: Exception) { null },
+                                    specialistLane = "SHITCOIN",
                                 )
                             } catch (fdgEx: Exception) {
                                 ErrorLogger.warn("BotService", "💩 [SHITCOIN] FDG error: ${fdgEx.message} — proceeding fail-open")
@@ -23951,6 +23956,7 @@ if (hotExitHandledSweep) {
                                 proposedSizeSol = manipSignal.positionSizeSol,
                                 brain = executor.brain,
                                 tradingModeTag = try { ModeSpecificGates.fromTradingMode("MANIPULATED") } catch (_: Exception) { null },
+                                specialistLane = "MANIPULATED",
                             )
                         } catch (fdgEx: Exception) {
                             ErrorLogger.warn("BotService", "🎭 [MANIP] FDG error: ${fdgEx.message} — proceeding fail-open")
@@ -24208,6 +24214,7 @@ if (hotExitHandledSweep) {
                                     proposedSizeSol = expressSignal.positionSizeSol,
                                     brain = executor.brain,
                                     tradingModeTag = try { ModeSpecificGates.fromTradingMode("EXPRESS") } catch (_: Exception) { null },
+                                    specialistLane = "EXPRESS",
                                 )
                             } catch (fdgEx: Exception) {
                                 ErrorLogger.warn("BotService", "🚂 [EXPRESS] FDG error: ${fdgEx.message} — proceeding fail-open")
@@ -24624,6 +24631,7 @@ if (hotExitHandledSweep) {
                                     proposedSizeSol = dipSignal.positionSizeSol,
                                     brain = executor.brain,
                                     tradingModeTag = try { ModeSpecificGates.fromTradingMode("DIP_HUNTER") } catch (_: Exception) { null },
+                                    specialistLane = "DIP_HUNTER",
                                 )
                             } catch (fdgEx: Exception) {
                                 ErrorLogger.warn("BotService", "📉 [DIPHUNTER] FDG error: ${fdgEx.message} — proceeding fail-open")
@@ -25035,6 +25043,7 @@ if (hotExitHandledSweep) {
                                 ts = ts, candidate = v3Candidate6533, config = cfg,
                                 proposedSizeSol = proposedSize, brain = executor.brain,
                                 tradingModeTag = modeTag, laneScore = result.score.toDouble(),
+                                specialistLane = cyclePrimaryLane,
                             )
                             val v3CandidateVersion6533 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
                             val v3Intent6533 = ExecutableOpenGate.recordFdgAndGetIntent6533(
@@ -25616,6 +25625,7 @@ if (hotExitHandledSweep) {
                 proposedSizeSol = proposedSize,
                 brain = executor.brain,
                 tradingModeTag = tradingModeTag,
+                specialistLane = cyclePrimaryLane,
             )
             // One immutable FDG result per candidate/evidence version.  BUY
             // decisions are sealed too; downstream mint/version claims prevent

@@ -154,4 +154,29 @@ class Aate6658HotLoopUnchokeTest {
             assertTrue("standalone sentinel-price list must contain $p", src.contains(p))
         }
     }
+
+    @Test
+    fun `every BotService caller of FinalDecisionGate wires specialistLane to the ExecutionBook desk`() {
+        val bot = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        // Every call site must pass specialistLane so canonicalPrimaryLane6658
+        // converges on the funnel desk instead of falling through to
+        // tradingModeTag.name. Enumerate the operator lanes explicitly.
+        val required = listOf(
+            "specialistLane = \"TREASURY\"",
+            "specialistLane = \"QUALITY\"",
+            "specialistLane = \"BLUECHIP\"",
+            "specialistLane = \"SHITCOIN\"",
+            "specialistLane = \"MOONSHOT\"",
+            "specialistLane = \"MANIPULATED\"",
+            "specialistLane = \"EXPRESS\"",
+            "specialistLane = \"DIP_HUNTER\"",
+            "specialistLane = cyclePrimaryLane",
+        )
+        required.forEach { needle ->
+            assertTrue(
+                "BotService must wire $needle into FinalDecisionGate.evaluate — otherwise the funnel loses stamps",
+                bot.contains(needle),
+            )
+        }
+    }
 }
