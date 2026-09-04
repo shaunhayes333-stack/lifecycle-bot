@@ -12001,7 +12001,36 @@ class Executor(
         val authorityVersion6513 = identity?.fdgCandidateVersion?.takeIf { it > 0L }
             ?: try { LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
         val authority6513 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(ts.mint, authorityVersion6513, "PAPER")
-        val preTicketLane6514 = authority6513?.executionLane ?: layerTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source.orEmpty().ifBlank { "STANDARD" } } }
+        // V5.0.6658 §PRE_TICKET_LANE_INTENT_CONVERGENCE — operator dump Feb
+        //   2026 (build 5.0.6657, 3140s uptime):
+        //     Top block: EXEC_GATE/FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519: 910
+        //
+        //   ExecutableOpenGate.publishFdgIntent6519 registers an active
+        //   ExecutionIntent with canonicalLane derived from the recordFdg
+        //   caller (QUALITY, BLUECHIP, MOONSHOT, etc). If ExecutionDecisionSnapshot
+        //   is missing or lags (currentForMint returns null when
+        //   authorityVersion drifts), preTicketLane6514 falls through to
+        //   layerTag → position.tradingMode → identity.source → "STANDARD".
+        //   nextAttemptId is then keyed on "STANDARD", so
+        //   ExecutableOpenGate.ticketForAttempt(...) misses the ticket
+        //   and canOpenExecutablePosition receives requestedLane="STANDARD".
+        //   `resolveSealedIntent6613` filters intents by
+        //   canonicalLane.equals(requestedLane, true) → the QUALITY/BLUECHIP
+        //   intent is silently rejected and canOpen blocks with
+        //   FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519.
+        //
+        //   Source-level convergence: the ExecutionIntent authority IS the
+        //   sealed source of truth. When authority6513 is missing, prefer
+        //   the intent's canonicalLane over any downstream fallback so
+        //   attemptId synthesis and lane-filter both see the same lane.
+        //   No new state — read-only lookup of the already-published intent.
+        val activeIntentLane6658 = try {
+            ExecutableOpenGate.activeExecutionIntent6519("PAPER", ts.mint, authorityVersion6513)
+                ?.canonicalLane?.uppercase()?.takeIf { it.isNotBlank() }
+        } catch (_: Throwable) { null }
+        val preTicketLane6514 = authority6513?.executionLane
+            ?: activeIntentLane6658
+            ?: layerTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source.orEmpty().ifBlank { "STANDARD" } } }
         // V5.0.6548 §P0-A — RESUME EXISTING RETRY-PENDING TICKET.
         // Operator mandate: after EXEC_OPEN_ALLOWED, a paper ticket must not
         // be discarded by a nonterminal release. ExecutableOpenGate now

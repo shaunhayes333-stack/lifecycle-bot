@@ -797,6 +797,38 @@ object FinalDecisionGate {
             else configIn.copy(paperMode = authoritativePaperMode)
         val mode = if (config.paperMode) TradeMode.PAPER else TradeMode.LIVE
         val laneName = tradingModeTag?.name ?: "STANDARD"
+        // V5.0.6658 §SPECIALIST_LANE_STAMP_ALIGNMENT — operator dump Feb
+        //   2026 (build 5.0.6657, 3140s uptime):
+        //     QUALITY sizedN=0 phantomSizedOnly=0
+        //     BLUECHIP sizedN=6 phantomSizedOnly=117
+        //     SHITCOIN sizedN=81 phantomSizedOnly=532
+        //
+        //   Root cause found via source-level authority convergence:
+        //     * BUY_INTENT / OWNER_SELECTED / MARK_READY / TICKET / EXEC /
+        //       POSITION_OPENED stamps use the ExecutionBook name
+        //       ({QUALITY, BLUECHIP, SHITCOIN, PROJECT_SNIPER, ...}) —
+        //       these ARE the specialist funnel desk labels.
+        //     * FDG_ALLOW / FDG_BLOCK / SIZED_EXECUTABLE stamps used
+        //       `tradingModeTag.name` from ModeSpecificGates.TradingModeTag
+        //       which has no QUALITY at all and spells BLUECHIP as
+        //       BLUE_CHIP (underscore). The stamps therefore landed on
+        //       lane="STANDARD" or lane="BLUE_CHIP" records that the
+        //       specialist funnel never reads back — QUALITY silently
+        //       loses every SIZE stamp; BLUECHIP loses most of them and
+        //       accrues 117 phantoms; SHITCOIN survives only because
+        //       "SHITCOIN" happens to spell identically in both enums.
+        //
+        //   Resolve the ExecutionBook-aligned primary lane once at FDG
+        //   entry and reuse it for every specialist funnel stamp
+        //   emitted from this gate. Behaviour is preserved for lanes
+        //   that already agree (SHITCOIN/MOONSHOT/MANIPULATED); only
+        //   mislabeled lanes converge onto the right causal record.
+        //   `tradingModeTag.name` still drives every non-funnel
+        //   caller (cache keys, logging labels, per-lane multipliers).
+        val canonicalPrimaryLane6658 = try {
+            com.lifecyclebot.engine.LaneExecutionCoordinator
+                .currentElection6600(ts.mint)?.primaryLane?.uppercase()?.takeIf { it.isNotBlank() }
+        } catch (_: Throwable) { null } ?: laneName
         val fdgSide = candidate.finalSignal.ifBlank { candidate.signal }.ifBlank { "UNKNOWN" }
         val fdgCacheKey = fdgCacheKey(ts, candidate, laneName, fdgSide, laneScore)
         cachedFdgVerdict(fdgCacheKey)?.let { return it }
@@ -4854,7 +4886,7 @@ object FinalDecisionGate {
             } catch (_: Throwable) {}
         }
 
-        try { com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(laneName, if (shouldTradeFinal) "FDG_ALLOW" else "FDG_BLOCK", "${ts.mint}:${com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(canonicalPrimaryLane6658, if (shouldTradeFinal) "FDG_ALLOW" else "FDG_BLOCK", "${ts.mint}:${com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}
         // V5.0.6657 §FDG_STAMP_FANOUT — operator dump Feb 2026:
         //   QUALITY buyIntent=287 fdg=0 (FDG_CHOKED). Root cause:
         //   line 4857 only stamps the cycle-primary lane. Every
@@ -4873,7 +4905,7 @@ object FinalDecisionGate {
             val fdgCvers6657 = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)
             val fdgStage6657 = if (shouldTradeFinal) "FDG_ALLOW" else "FDG_BLOCK"
             com.lifecyclebot.engine.ToolkitSignalSheet.snapshot(ts).deskHypotheses.values.forEach { h ->
-                if (!h.lane.equals(laneName, true) && h.lane.isNotBlank()) {
+                if (!h.lane.equals(canonicalPrimaryLane6658, true) && h.lane.isNotBlank()) {
                     com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(
                         h.lane, fdgStage6657, "${ts.mint}:$fdgCvers6657",
                     )
@@ -4954,7 +4986,7 @@ object FinalDecisionGate {
                 val sizingCash6653 = try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { 0.0 }
                 val sealed6552 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.resolve(
                     requestedSol = finalSize,
-                    laneName = laneName,
+                    laneName = canonicalPrimaryLane6658,
                     walletSol = sizingCash6653,
                     paperMode = config.paperMode,
                     // A configured executable minimum and a smaller percentage

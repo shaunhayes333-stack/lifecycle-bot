@@ -79,4 +79,38 @@ class Aate6658HotLoopUnchokeTest {
             block.contains("fdgAllow == 0L -> \"FDG_BLOCKED_ALL\""),
         )
     }
+
+    @Test
+    fun `final decision gate stamps use ExecutionBook-aligned primary lane not TradingModeTag`() {
+        val src = File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(
+            "FinalDecisionGate must resolve the ExecutionBook-aligned primary lane at FDG entry",
+            src.contains("V5.0.6658 §SPECIALIST_LANE_STAMP_ALIGNMENT"),
+        )
+        assertTrue(
+            "canonicalPrimaryLane6658 must be pulled from LaneExecutionCoordinator.currentElection6600",
+            src.contains("LaneExecutionCoordinator") && src.contains("currentElection6600(ts.mint)?.primaryLane"),
+        )
+        assertTrue(
+            "FDG_ALLOW/FDG_BLOCK stamp must use canonicalPrimaryLane6658",
+            src.contains("recordDeskStage(canonicalPrimaryLane6658, if (shouldTradeFinal)"),
+        )
+        assertTrue(
+            "OrderSizeResolver.resolve must receive canonicalPrimaryLane6658 as laneName",
+            src.contains("laneName = canonicalPrimaryLane6658,"),
+        )
+    }
+
+    @Test
+    fun `executor preflight pins pre-ticket lane to active intent when authority snapshot lags`() {
+        val src = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(
+            "Executor must consult ExecutableOpenGate.activeExecutionIntent6519 to converge preTicketLane6514",
+            src.contains("V5.0.6658 §PRE_TICKET_LANE_INTENT_CONVERGENCE"),
+        )
+        assertTrue(
+            "preTicketLane6514 fallback must include activeIntentLane6658 between authority6513 and layerTag",
+            src.contains("val preTicketLane6514 = authority6513?.executionLane\n            ?: activeIntentLane6658\n            ?: layerTag"),
+        )
+    }
 }
