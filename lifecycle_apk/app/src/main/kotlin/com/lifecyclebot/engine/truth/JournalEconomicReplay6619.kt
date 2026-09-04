@@ -454,9 +454,10 @@ object JournalEconomicReplay6619 {
                 )
             } catch (_: Throwable) {}
         }
-        if (repaired > 0) {
-            try { JournalEconomicAuthority6616.forcePublish("ORPHAN_LOT_REFUND_6662") } catch (_: Throwable) {}
-        }
+        // Publishing here races the asynchronous SQLite insert above and can
+        // replay the half-written repair repeatedly on the journal Handler.
+        // CanonicalPaperTransaction6486 drains that Handler, adopts the durable
+        // replay into the ledger, and publishes exactly once afterward.
         return repaired
     }
 

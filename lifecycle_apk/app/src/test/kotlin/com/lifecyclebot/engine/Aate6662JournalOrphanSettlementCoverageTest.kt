@@ -53,6 +53,14 @@ class Aate6662JournalOrphanSettlementCoverageTest {
         val transaction = File(root,
             "src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
         assertTrue(transaction.contains("forcePublish(\"JOURNAL_AUTHORITY_RECONCILED_6667\")"))
+        assertTrue(transaction.contains("awaitJournalBoundary6669(\"pre_replay\")"))
+        assertTrue(transaction.contains("awaitJournalBoundary6669(\"post_orphan_repair\")"))
+        assertTrue(transaction.contains("awaitJournalBoundary6669(\"post_quantity_repair\")"))
+        assertTrue(service.contains("acceptanceWindowExecutor6668.schedule"))
+        val history = File(root,
+            "src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        assertTrue(history.contains("fun awaitDurableJournalBoundary6669"))
+        assertTrue(history.contains("CountDownLatch(1)"))
     }
 
     @Test

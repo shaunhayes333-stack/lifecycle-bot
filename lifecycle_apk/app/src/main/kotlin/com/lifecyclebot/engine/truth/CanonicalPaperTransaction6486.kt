@@ -18,13 +18,16 @@ object CanonicalPaperTransaction6486 {
     /** Background startup reconciliation. Scalars move only after durable
      * journal and canonical raw lots agree exactly. */
     fun reconcileJournalAuthority6663(): Boolean = lock.withLock {
+        if (!awaitJournalBoundary6669("pre_replay")) return@withLock false
         JournalEconomicReplay6619.repairOrphanedOpenLots6662()
+        if (!awaitJournalBoundary6669("post_orphan_repair")) return@withLock false
         var replay = JournalEconomicReplay6619.replay()
         if (!replay.reconciled) return@withLock false
         val canonicalRaw = CanonicalPositionAuthority6441.openPositions()
             .filter { it.mode.equals("paper", true) }
             .associate { it.positionId to it.remainingQtyRaw }
         repairJournalQuantityDrift6666(replay.openRawQtyByPosition, canonicalRaw)
+        if (!awaitJournalBoundary6669("post_quantity_repair")) return@withLock false
         replay = JournalEconomicReplay6619.replay()
         if (canonicalRaw != replay.openRawQtyByPosition) {
             try { PipelineHealthCollector.labelInc("JOURNAL_CANONICAL_RAW_MISMATCH_BLOCKED_6663") } catch (_: Throwable) {}
@@ -40,6 +43,22 @@ object CanonicalPaperTransaction6486 {
             JournalEconomicAuthority6616.forcePublish("JOURNAL_AUTHORITY_RECONCILED_6667")
         }
         reconciled
+    }
+
+    private fun awaitJournalBoundary6669(stage: String): Boolean {
+        val reached = TradeHistoryStore.awaitDurableJournalBoundary6669()
+        try {
+            PipelineHealthCollector.labelInc(
+                if (reached) "PAPER_JOURNAL_BOUNDARY_REACHED_6669"
+                else "PAPER_JOURNAL_BOUNDARY_TIMEOUT_6669",
+            )
+            ForensicLogger.lifecycle(
+                if (reached) "PAPER_JOURNAL_BOUNDARY_REACHED_6669"
+                else "PAPER_JOURNAL_BOUNDARY_TIMEOUT_6669",
+                "stage=$stage",
+            )
+        } catch (_: Throwable) {}
+        return reached
     }
 
     /** Reconcile and take the forensic boundary while typed paper mutations
@@ -122,7 +141,7 @@ object CanonicalPaperTransaction6486 {
      * open and rehydrate repairs already-funded legacy positions without a
      * second debit or a duplicate journal row.
      */
-    fun ensureOpenProjection6659(position: CanonicalPositionAuthority6441.Position): String {
+    fun ensureOpenProjection6659(position: CanonicalPositionAuthority6441.Position): String = lock.withLock {
         if (!position.mode.equals("paper", true) || position.positionId.isBlank() ||
             position.mint.isBlank() || position.entryCostSol <= 0.0 ||
             position.originalQtyRaw <= BigInteger.ZERO

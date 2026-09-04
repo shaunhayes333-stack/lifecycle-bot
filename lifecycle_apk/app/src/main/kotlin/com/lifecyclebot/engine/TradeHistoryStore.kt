@@ -2190,6 +2190,26 @@ object TradeHistoryStore {
         }
     }
 
+    /**
+     * V5.0.6669 — enqueue a marker behind every journal write accepted before
+     * this call and wait until that marker runs. Reconciliation uses this while
+     * holding the canonical paper-transaction lock, so its replay cannot race
+     * ledger mutations whose durable SQLite row is still queued.
+     */
+    fun awaitDurableJournalBoundary6669(timeoutMs: Long = 30_000L): Boolean {
+        ensureInitialized()
+        val handler = ioHandler ?: return false
+        if (android.os.Looper.myLooper() == handler.looper) return true
+        val reached = java.util.concurrent.CountDownLatch(1)
+        if (!handler.post { reached.countDown() }) return false
+        return try {
+            reached.await(timeoutMs.coerceAtLeast(1L), java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        }
+    }
+
     private fun stampDurableJournalCommit6641(trade: Trade) {
         if (!trade.mode.equals("paper", true) || trade.mint.isBlank()) return
         val side = when (trade.side.uppercase()) {
