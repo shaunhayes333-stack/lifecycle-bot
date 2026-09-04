@@ -4855,6 +4855,31 @@ object FinalDecisionGate {
         }
 
         try { com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(laneName, if (shouldTradeFinal) "FDG_ALLOW" else "FDG_BLOCK", "${ts.mint}:${com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}
+        // V5.0.6657 §FDG_STAMP_FANOUT — operator dump Feb 2026:
+        //   QUALITY buyIntent=287 fdg=0 (FDG_CHOKED). Root cause:
+        //   line 4857 only stamps the cycle-primary lane. Every
+        //   specialist desk hypothesis (QUALITY as a shadow desk on
+        //   a PROJECT_SNIPER primary tick, etc.) got BUY_INTENT
+        //   recorded upstream but its FDG stamp never landed, so
+        //   MEME_SPECIALIST_ROLE_LIVENESS shows fdgN=0 and the
+        //   status flips FDG_CHOKED. Line 4864-4865 already fans
+        //   out a "FDG" stage stamp per hypothesis — extend that
+        //   same iteration to emit the FDG_ALLOW/FDG_BLOCK stamp so
+        //   the specialist funnel counters converge with the
+        //   primary-lane stamp. Idempotency: recordDeskStage dedupes
+        //   on (lane|stage|eventId) via deskStageOnce6599 so repeat
+        //   fan-outs for the same intent produce one stamp per lane.
+        try {
+            val fdgCvers6657 = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+            val fdgStage6657 = if (shouldTradeFinal) "FDG_ALLOW" else "FDG_BLOCK"
+            com.lifecyclebot.engine.ToolkitSignalSheet.snapshot(ts).deskHypotheses.values.forEach { h ->
+                if (!h.lane.equals(laneName, true) && h.lane.isNotBlank()) {
+                    com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(
+                        h.lane, fdgStage6657, "${ts.mint}:$fdgCvers6657",
+                    )
+                }
+            }
+        } catch (_: Throwable) {}
 
         val aateEnvelope6512 = try {
             val hardReason6512 = blockReasonFinal?.uppercase().orEmpty()
