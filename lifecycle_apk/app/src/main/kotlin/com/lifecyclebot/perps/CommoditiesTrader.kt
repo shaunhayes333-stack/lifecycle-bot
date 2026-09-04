@@ -1082,10 +1082,10 @@ if (signal.tradeType == TradeType.SPOT) {
 
         // V5.9.248: Log ALL universe trades to shared TradeHistoryStore so they appear in Live/Paper journal
         if (!position.isPaper) try {
-            val modeStr248 = if (isPaperMode.get()) "paper" else "live"
             TradeHistoryStore.recordTrade(Trade(
                 side             = "SELL",
-                mode             = modeStr248,
+                // V5.0.6665 — preserve immutable terminal provenance.
+                mode             = "live",
                 sol              = position.size,
                 price            = position.currentPrice,
                 ts               = System.currentTimeMillis(),
@@ -1336,6 +1336,5 @@ if (signal.tradeType == TradeType.SPOT) {
     }
 
 }
-
 
 
