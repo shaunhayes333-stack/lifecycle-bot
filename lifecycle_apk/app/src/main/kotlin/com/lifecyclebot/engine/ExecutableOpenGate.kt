@@ -215,17 +215,22 @@ object ExecutableOpenGate {
         if (!validSealedDecision6613(intent) ||
             intent.mint.isBlank() || intent.candidateVersion <= 0L) return null
         val key = intentKey6519(intent.mode, intent.mint, intent.candidateVersion)
+        var displacedLaneIntent: ExecutionIntent? = null
         // A preliminary FDG pass can seal the decision before the canonical
         // size resolver runs. When that same immutable attempt returns with a
         // positive size, upgrade it instead of retaining a zero-sized shell.
         val authoritative = activeExecutionIntents6519.compute(key) { _, existing ->
             when {
                 existing == null -> intent
+                !existing.canonicalLane.equals(intent.canonicalLane, true) -> intent.also {
+                    displacedLaneIntent = existing
+                }
                 existing.resolvedSize <= 0.0 && intent.resolvedSize > 0.0 ->
                     existing.copy(resolvedSize = intent.resolvedSize)
                 else -> existing
             }
         } ?: return null
+        displacedLaneIntent?.let { executionTickets.remove(it.attemptId, it) }
         executionTickets[authoritative.attemptId] = authoritative
         try { PipelineHealthCollector.labelInc("EXEC_INTENT_CREATED")
             ForensicLogger.lifecycle("EXEC_INTENT_CREATED", "attemptId=${authoritative.attemptId} candidateId=${authoritative.candidateId} mint=${authoritative.mint.take(10)} mode=${authoritative.mode} lane=${authoritative.canonicalLane} fdg=${authoritative.fdgVerdict} allowed=${authoritative.fdgAllowed} authority=${authoritative.authorityVersion} size=${authoritative.resolvedSize}")
@@ -1070,7 +1075,13 @@ object ExecutableOpenGate {
                 "NO_BUY" -> 0; "HARD_NO_BUY" -> 0; else -> 1
             }
             val sameVersion = old != null && old.candidateVersion == candidateVersion
-            val keepOld = sameVersion && rank(old?.preFdgVerdict) >= rank(finalVerdict)
+            // Equal-ranked approval from the current elected lane must replace
+            // an earlier lane's state. Retaining the old lane published (for
+            // example) a BLUECHIP intent to a CORE caller; final bind then
+            // rejected the otherwise valid FDG allow as intent-missing.
+            val sameLane = old?.selectedLane?.equals(lane, ignoreCase = true) == true
+            val keepOld = sameVersion && (rank(old?.preFdgVerdict) > rank(finalVerdict) ||
+                (sameLane && rank(old?.preFdgVerdict) == rank(finalVerdict)))
             val effectiveVerdict = if (keepOld) old!!.preFdgVerdict else finalVerdict
             val effectiveCan = if (keepOld) old!!.fdgCan else canExecute
             (old ?: EntryState(mint = mint, symbol = symbol)).copy(

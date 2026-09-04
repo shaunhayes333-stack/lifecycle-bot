@@ -3024,7 +3024,6 @@ for legal compliance.
         //   still visible.  A FAILED reconcile is now a "reconciling"
         //   annotation, not a wealth-hiding gate.
         val reconciliationStatus6650 = unifiedSnap6635?.status
-        val paperAccountingSafe6640 = true
         val balSol = if (config.paperMode) {
             unifiedSnap6635?.cashSol ?: 0.0
         } else {
@@ -3044,16 +3043,7 @@ for legal compliance.
         // gives the operator every canonical number in accessible text
         // and adds an emission label so the pipeline dump can quote it.
 
-        if (config.paperMode && !paperAccountingSafe6640) {
-            // V5.0.6640 — never render unreconciled paper economics as wealth.
-            // A loud unavailable state is safer than a plausible-looking but
-            // impossible USD balance while stores disagree.
-            tvBalanceLarge.setTextIfChanged("ACCOUNTING ERROR")
-            tvBalanceUsd.setTextIfChanged("PAPER · BALANCE WITHHELD")
-            tvBalanceUsd.contentDescription = unifiedSnap6635?.forensicLine
-                ?: "Paper accounting has not reconciled. Balance withheld."
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HERO_BALANCE_WITHHELD_UNRECONCILED_6640") } catch (_: Throwable) {}
-        } else if (balSol > 0.001) {
+        if (balSol > 0.001) {
             tvBalanceLarge.setTextIfChanged(compactHeroBalance(balSol))
             // V5.0.6650 — surface reconciliation status as a subtitle
             //   annotation, not as a hero blank.  When the reconciler
@@ -3168,11 +3158,11 @@ for legal compliance.
             com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.PORTFOLIO,
             if (config.paperMode) "paper" else "live",
         )
-        val authoritativePnl = if (config.paperMode && paperAccountingSafe6640) {
+        val authoritativePnl = if (config.paperMode) {
             unifiedSnap6635?.realizedPnlSol
-        } else if (!config.paperMode) {
+        } else {
             portfolioPerformance.realizedPnlSol
-        } else null
+        }
         if (portfolioPerformance.trades > 0 && authoritativePnl != null) {
             tvPnlChange.setTextIfChanged(currency.format(authoritativePnl, showPlus = true))
             tvPnlChange.setTextColor(if (authoritativePnl >= 0) green else red)
@@ -3180,8 +3170,8 @@ for legal compliance.
             tvPnlChangePct.contentDescription =
                 "Reconciled account realized P and L. Portfolio win rate ${portfolioPerformance.winRate.toInt()} percent."
         } else {
-            tvPnlChange.setTextIfChanged(if (config.paperMode && !paperAccountingSafe6640) "ACCOUNT UNAVAILABLE" else "")
-            tvPnlChangePct.setTextIfChanged(if (config.paperMode && !paperAccountingSafe6640) "RECONCILIATION FAILED" else "")
+            tvPnlChange.setTextIfChanged("")
+            tvPnlChangePct.setTextIfChanged("")
         }
 
         // ═══════════════════════════════════════════════════════════════════

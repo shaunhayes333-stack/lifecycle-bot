@@ -397,15 +397,13 @@ object JournalEconomicReplay6619 {
         replay.openBasisByPosition.forEach { (positionId, basis) ->
             if (!basis.isFinite() || basis <= 1e-9) return@forEach
             val canonical = try { CanonicalPositionAuthority6441.getPosition(positionId) } catch (_: Throwable) { null }
-            val canonicallyOpen = canonical != null &&
-                canonical.mode.equals("paper", true) &&
-                canonical.remainingQtyRaw > java.math.BigInteger.ZERO &&
-                canonical.lifecycle in setOf(
-                    CanonicalPositionAuthority6441.Lifecycle.OPEN,
-                    CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED,
-                )
-            if (canonicallyOpen) return@forEach
-
+            // A CLOSED canonical row is not an orphan. Its terminal journal
+            // insert is asynchronous and may still be crossing the durable
+            // boundary. Refunding it here creates a second SELL; when the real
+            // terminal arrives replay correctly rejects the over-consumption
+            // as NEGATIVE_REMAINING_LOT. Only positions absent from canonical
+            // authority altogether are eligible for the legacy stop repair.
+            if (canonical != null) return@forEach
             val positionBuys = buys[positionId].orEmpty()
             val seed = positionBuys.firstOrNull() ?: return@forEach
             // Canonical position and journal terminal persistence are not one

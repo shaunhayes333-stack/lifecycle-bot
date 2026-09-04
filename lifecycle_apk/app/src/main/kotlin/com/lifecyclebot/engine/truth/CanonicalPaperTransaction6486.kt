@@ -28,9 +28,16 @@ object CanonicalPaperTransaction6486 {
             try { PipelineHealthCollector.labelInc("JOURNAL_CANONICAL_RAW_MISMATCH_BLOCKED_6663") } catch (_: Throwable) {}
             return@withLock false
         }
-        PaperAccountLedger6430.reconcileFromJournal6663(
+        val reconciled = PaperAccountLedger6430.reconcileFromJournal6663(
             replay.cashSol, replay.openCostBasisSol, replay.realizedPnlSol, replay.feesSol,
         )
+        if (reconciled) {
+            // Publish only after the ledger has adopted the exact durable
+            // replay. Otherwise hero surfaces can retain a pre-window cached
+            // snapshot even though closing reconciliation succeeded.
+            JournalEconomicAuthority6616.forcePublish("JOURNAL_AUTHORITY_RECONCILED_6667")
+        }
+        reconciled
     }
 
     /** Reconcile and take the forensic boundary while typed paper mutations

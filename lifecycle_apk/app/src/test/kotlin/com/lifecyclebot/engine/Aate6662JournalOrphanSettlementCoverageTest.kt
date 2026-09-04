@@ -18,6 +18,7 @@ class Aate6662JournalOrphanSettlementCoverageTest {
             .substringBefore("\n    fun statusLine")
         assertTrue(repair.contains("openBasisByPosition"))
         assertTrue(repair.contains("CanonicalPositionAuthority6441.getPosition(positionId)"))
+        assertTrue(repair.contains("if (canonical != null) return@forEach"))
         assertTrue(repair.contains("ORPHANED_STOP_LOT_REFUND_6662"))
         assertTrue(repair.contains("soldCostBasisSol = basis"))
         assertTrue(repair.contains("grossProceedsSol = basis"))
@@ -44,6 +45,9 @@ class Aate6662JournalOrphanSettlementCoverageTest {
         assertTrue(service.contains("scheduleExecutionSpineAcceptance6666(runtimeGeneration)"))
         assertTrue(service.contains("ExecutionSpineAcceptance6647.MIN_WINDOW_MS + 2_000L"))
         assertTrue(acceptance.contains("CanonicalPaperTransaction6486.reconcileForensicBoundary6666()"))
+        val transaction = File(root,
+            "src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
+        assertTrue(transaction.contains("forcePublish(\"JOURNAL_AUTHORITY_RECONCILED_6667\")"))
     }
 
     @Test
@@ -52,5 +56,7 @@ class Aate6662JournalOrphanSettlementCoverageTest {
         assertTrue(service.contains("CanonicalPaperTransaction6486\n                            .reconcileJournalAuthority6663()"))
         assertTrue(replay.contains("side == \"QTY_RECONCILE\""))
         assertTrue(replay.contains("JOURNAL_QTY_RECONCILED_TO_CANONICAL_6666"))
+        assertTrue(service.contains("specialistWorkerSupervisor6647 = exitWorkerScope6647.launch"))
+        assertTrue(service.contains("val worker = exitWorkerScope6647.launch"))
     }
 }

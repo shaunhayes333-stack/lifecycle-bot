@@ -152,6 +152,25 @@ class Repair6533ExecutionAuthorityAcceptanceTest {
         assertEquals(sized.attemptId, ExecutableOpenGate.activeExecutionIntent6519("PAPER", mint, cv)?.attemptId)
     }
 
+    @Test fun `G2 equal approved handoff follows the current elected lane`() {
+        val mint = "LaneHandoff6667${System.nanoTime()}"
+        val cv = LaneExecutionCoordinator.candidateVersionFor(mint)
+        val first = ExecutableOpenGate.recordFdgAndGetIntent6533(
+            mint, "LANE", "BLUECHIP", true, null,
+            signal="BUY", rugScore=90, safetyTier="SAFE", liquidityUsd=5_000.0,
+            preFdgVerdict="BUY", candidateVersion=cv, entryScore=82,
+        )
+        assertEquals("BLUECHIP", requireNotNull(first).canonicalLane)
+        val elected = ExecutableOpenGate.recordFdgAndGetIntent6533(
+            mint, "LANE", "CORE", true, null,
+            signal="BUY", rugScore=90, safetyTier="SAFE", liquidityUsd=5_000.0,
+            preFdgVerdict="BUY", candidateVersion=cv, entryScore=82,
+        )
+        assertEquals("CORE", requireNotNull(elected).canonicalLane)
+        assertTrue(elected.attemptId.contains(":CORE:"))
+        assertNull(ExecutableOpenGate.ticketForAttempt(first.attemptId))
+    }
+
     @Test fun `G true zero rug invalid route and mechanical impossibility remain hard`() {
         fun intentFor(tag: String, rug: Int = 90, hard: List<String> = emptyList(), hydrated: Boolean = false): ExecutableOpenGate.ExecutionIntent? {
             val mint = "${tag}6533${System.nanoTime()}"

@@ -251,7 +251,12 @@ object PaperAccountLedger6430 {
         //   Every ledger mutation increments the monotonic
         //   journalEconomicRevision so the hero surfaces observe one
         //   causal chain. See JournalEconomicAuthority6616 for doctrine.
-        try { JournalEconomicAuthority6616.notifyEconomicMutation("BUY") } catch (_: Throwable) {}
+        // Canonical keyed transactions publish from
+        // PaperEconomicAtomicCommit6632 only after the durable journal side is
+        // stamped. Publishing here exposes a half-commit to hero/forensic
+        // readers. Preserve immediate notification only for unkeyed legacy
+        // callers which have no paired atomic-commit callback.
+        if (attemptKey.isBlank()) try { JournalEconomicAuthority6616.notifyEconomicMutation("BUY") } catch (_: Throwable) {}
         return true
     }
 
@@ -431,7 +436,7 @@ object PaperAccountLedger6430 {
         //   Sell is the primary mutation that must fan out one causal
         //   chain to every hero surface. Increment revision + republish
         //   snapshot so all three screens observe the same rev at read.
-        try { JournalEconomicAuthority6616.notifyEconomicMutation("SELL") } catch (_: Throwable) {}
+        if (attemptKey.isBlank()) try { JournalEconomicAuthority6616.notifyEconomicMutation("SELL") } catch (_: Throwable) {}
         return true
     }
 
