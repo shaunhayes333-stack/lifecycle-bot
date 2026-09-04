@@ -80,12 +80,12 @@ class Aate6605RepairLBHCoverageTest {
                 txSrc.contains("CANONICAL_SAME_MINT_ALREADY_OPEN_POSITION_6605") &&
                 txSrc.contains("CanonicalPositionAuthority6441.openPositions()")
         )
-        // The write barrier must precede PaperAccountLedger6430.onBuy so no
+        // The write barrier must precede the attempt-keyed ledger debit so no
         // ledger debit occurs on the second attempt.
-        val onBuyIdx = txSrc.indexOf("PaperAccountLedger6430.onBuy(costSol, feeSol)")
+        val onBuyIdx = txSrc.indexOf("PaperAccountLedger6430.onBuyAtomic6632(costSol, feeSol, mint, idem)")
         val barrierIdx = txSrc.indexOf("duplicateOpenSameMode6605")
         assertTrue(
-            "V5.0.6605: same-mint occupancy barrier must precede PaperAccountLedger6430.onBuy",
+            "V5.0.6605: same-mint occupancy barrier must precede the atomic ledger debit",
             barrierIdx in 1 until onBuyIdx
         )
     }
