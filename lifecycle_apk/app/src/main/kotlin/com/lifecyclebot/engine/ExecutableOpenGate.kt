@@ -221,7 +221,7 @@ object ExecutableOpenGate {
         val authoritative = activeExecutionIntents6519.compute(key) { _, existing ->
             when {
                 existing == null -> intent
-                existing.attemptId == intent.attemptId && existing.resolvedSize <= 0.0 && intent.resolvedSize > 0.0 ->
+                existing.resolvedSize <= 0.0 && intent.resolvedSize > 0.0 ->
                     existing.copy(resolvedSize = intent.resolvedSize)
                 else -> existing
             }

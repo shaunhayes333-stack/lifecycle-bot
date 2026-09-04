@@ -138,15 +138,15 @@ object HoldTimeOptimizerAI {
         val learnedWeight = if (pattern != null && pattern.totalTrades >= 8) {
             ((pattern.totalTrades - 7) / 32.0).coerceIn(0.10, 0.60)
         } else 0.0
-        val learnedTarget = pattern?.let {
-            val best = it.bestHoldSeconds.takeIf { seconds -> seconds > 0 }?.toDouble()
-            val avg = it.avgHoldSeconds.takeIf { seconds -> seconds.isFinite() && seconds > 0.0 }
+        val learnedTarget = if (pattern != null) {
+            val best = pattern.bestHoldSeconds.takeIf { seconds -> seconds > 0 }?.toDouble()
+            val avg = pattern.avgHoldSeconds.takeIf { seconds -> seconds.isFinite() && seconds > 0.0 }
             when {
                 best != null && avg != null -> best * 0.60 + avg * 0.40
                 best != null -> best
                 else -> avg
             }
-        }
+        } else null
         val adaptedOptimalBase = if (learnedTarget != null && learnedWeight > 0.0) {
             (baseTimes.second * (1.0 - learnedWeight) + learnedTarget * learnedWeight)
                 .toInt().coerceIn(baseTimes.first, 28_800)

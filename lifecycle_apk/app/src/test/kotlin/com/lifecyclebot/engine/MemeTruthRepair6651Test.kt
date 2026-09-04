@@ -84,6 +84,8 @@ class MemeTruthRepair6651Test {
         val fdg = File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(executor.contains("recordDeskStage(entryLane6450, \"EXEC\", executionAttemptId6514)"))
         assertTrue(executor.contains("recordDeskStage(entryLane6450, \"POSITION_OPENED\", executionAttemptId6514)"))
-        assertTrue(fdg.contains("causalEventId = \"${'$'}{ts.mint}:${'$'}{com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)}\""))
+        assertTrue(fdg.contains("causalEventId = \"\""))
+        val bot = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("recordDeskStage(cyclePrimaryLane, \"SIZED_EXECUTABLE\", ticketStampIntent6658.attemptId)"))
     }
 }
