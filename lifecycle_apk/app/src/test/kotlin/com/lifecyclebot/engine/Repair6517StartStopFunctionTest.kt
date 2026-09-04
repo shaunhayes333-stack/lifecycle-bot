@@ -43,7 +43,9 @@ class Repair6517StartStopFunctionTest {
         val economicStop = service.indexOf("\"STOP_COMPLETE\",")
         val clearStop = service.indexOf("stopInProgress = false", economicStop)
         val lifecycleStop = service.indexOf("\"LIFECYCLE_STOP_COMPLETE\"", economicStop)
-        val stopSelf = service.indexOf("stopSelf()", economicStop)
+        // Search from the marker so explanatory comments mentioning stopSelf()
+        // cannot be mistaken for the executable shutdown call.
+        val stopSelf = service.indexOf("stopSelf()", lifecycleStop)
         assertTrue(economicStop > 0 && clearStop > economicStop && lifecycleStop > clearStop && stopSelf > lifecycleStop)
     }
 
