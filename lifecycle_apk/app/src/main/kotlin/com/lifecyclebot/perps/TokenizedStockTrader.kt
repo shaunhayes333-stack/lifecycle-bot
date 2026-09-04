@@ -1862,7 +1862,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
 
 
         // V5.9.248: Log stocks trades to shared TradeHistoryStore (live journal)
-        try {
+        if (!position.isPaper) try {
             val modeStr248 = if (isPaperMode.get()) "paper" else "live"
             TradeHistoryStore.recordTrade(Trade(
                 side             = "SELL",
@@ -2281,5 +2281,4 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     // one is functionally identical (uses String.format) and is already
     // imported by sibling perps files.
 }
-
 

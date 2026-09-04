@@ -49,7 +49,9 @@ object ExecutionSpineAcceptance6647 {
         if (o.cryptoOpenConfirmed <= 0L) f += "CRYPTO_OPEN_CONFIRMED_ZERO"
         if (o.maxExitStartDelayCycles > 2L) f += "EXIT_START_LATE"
         if (o.exitStart <= 0L) f += "EXIT_START_ZERO"
-        if (o.exitStart != o.exitDone) f += "EXIT_START_DONE_GAP"
+        // Sampling may land while exactly one coordinator sweep is in flight.
+        // A completed window fails only for impossible ordering or backlog.
+        if (o.exitDone > o.exitStart || o.exitStart - o.exitDone > 1L) f += "EXIT_START_DONE_GAP"
         if (o.canonicalOpen > 0L && o.exitEvaluations <= 0L) f += "OPEN_WITHOUT_EXIT_EVALUATION"
         if (o.supervisorForcedLeaseReleases != 0L) f += "SUPERVISOR_FORCED_LEASE_RELEASE"
         if (!o.cashDeltaSol.isFinite() || kotlin.math.abs(o.cashDeltaSol) > 1e-9) f += "CASH_DELTA"
@@ -80,6 +82,7 @@ object ExecutionSpineAcceptanceWindow6647 {
         val exitStart: Long,
         val exitDone: Long,
         val exitEvaluations: Long,
+        val phantomSizedOnly: Long,
     )
 
     private val exitSweepStart = java.util.concurrent.atomic.AtomicLong(0L)
@@ -129,6 +132,8 @@ object ExecutionSpineAcceptanceWindow6647 {
             exitStart = exitSweepStart.get(),
             exitDone = exitSweepDone.get(),
             exitEvaluations = exitEvaluations.get(),
+            phantomSizedOnly = com.lifecyclebot.engine.ToolkitSignalSheet.configuredMemeDesks6647()
+                .sumOf { SpecialistCausalFunnel6625.laneSnapshot6647(it).phantomSizedOnly }.toLong(),
         )
     }
 
@@ -149,7 +154,7 @@ object ExecutionSpineAcceptanceWindow6647 {
         val delta: (String) -> Long = { key -> ((end.labels[key] ?: 0L) - (start.labels[key] ?: 0L)).coerceAtLeast(0L) }
         val desks = com.lifecyclebot.engine.ToolkitSignalSheet.configuredMemeDesks6647()
         val heartbeatCount = desks.count { SpecialistRuntimeRegistry6647.snapshot(it, nowMs).runtimeAlive }
-        val phantom = desks.sumOf { SpecialistCausalFunnel6625.laneSnapshot6647(it).phantomSizedOnly }.toLong()
+        val phantom = (end.phantomSizedOnly - start.phantomSizedOnly).coerceAtLeast(0L)
         val forensic = ForensicReconciliation6635.deltas6647()
         val cardinality = CanonicalEntryAuthority6551.cardinalityForWindow6647(start.atMs, end.atMs)
         val reconciledDelta: (Double) -> Double = { value -> if (forensic.reconciled) value else Double.NaN }

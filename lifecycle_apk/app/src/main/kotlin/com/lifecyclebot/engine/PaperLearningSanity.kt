@@ -43,8 +43,11 @@ object PaperLearningSanity {
         if (!t.sol.isFinite()) return Verdict(false, "PAPER_SOL_NOT_FINITE")
         if (t.side.equals("BUY", true) && t.sol <= 0.0) return Verdict(false, "PAPER_BUY_SOL_NON_POSITIVE")
         if (t.side.equals("BUY", true) && (t.price <= 0.0 || t.entryPriceSnapshot <= 0.0 || t.entryCostSol <= 0.0)) return Verdict(false, "PAPER_BUY_ENTRY_BASIS_MISSING")
-        if (t.sol > maxSol + 0.0000001) return Verdict(false, "PAPER_SOL_ABOVE_CONFIG_MAX")
-        if ((t.side.equals("SELL", true) || t.side.equals("PARTIAL_SELL", true)) && t.sol <= 0.0) return Verdict(false, "PAPER_SELL_COST_NON_POSITIVE")
+        // The configured ceiling is an entry-size guard. On SELL, `sol` is
+        // gross proceeds and may legitimately exceed the original size (a
+        // runner) or be exactly zero (a total-loss close).
+        if (t.side.equals("BUY", true) && t.sol > maxSol + 0.0000001) return Verdict(false, "PAPER_SOL_ABOVE_CONFIG_MAX")
+        if ((t.side.equals("SELL", true) || t.side.equals("PARTIAL_SELL", true)) && t.sol < 0.0) return Verdict(false, "PAPER_SELL_PROCEEDS_NEGATIVE")
         if ((t.side.equals("SELL", true) || t.side.equals("PARTIAL_SELL", true)) && t.sol > 0.0) {
             val pnlAbs = kotlin.math.abs(t.netPnlSol.takeIf { it != 0.0 } ?: t.pnlSol)
             // Very loose: allows 1000x runners on valid configured entry sizes, but catches

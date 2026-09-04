@@ -198,7 +198,7 @@ object CanonicalPaperTransaction6486 {
             val grossPnl = sell.grossProceedsSol - sell.allocatedCostBasisSol
             TradeHistoryStore.recordTrade(Trade(
                 side = if (sell.partial) "PARTIAL_SELL" else "SELL", mode = "paper",
-                sol = sell.allocatedCostBasisSol, price = exitPrice, ts = sell.atMs,
+                sol = sell.grossProceedsSol, price = exitPrice, ts = sell.atMs,
                 reason = "CROSS_ASSET_HISTORY_REPAIR_6660", pnlSol = grossPnl,
                 pnlPct = sell.realizedReturnPct, feeSol = sell.exitFeesSol,
                 netPnlSol = grossPnl - sell.exitFeesSol, tradingMode = position.lane,
@@ -498,7 +498,7 @@ object CanonicalPaperTransaction6486 {
             Trade(
                 side = if (terminal) "SELL" else "PARTIAL_SELL",
                 mode = "paper",
-                sol = basis,
+                sol = gross,
                 price = exitPrice,
                 ts = System.currentTimeMillis(),
                 reason = exitReason,

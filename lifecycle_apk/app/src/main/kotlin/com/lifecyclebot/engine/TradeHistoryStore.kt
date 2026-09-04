@@ -484,8 +484,13 @@ object TradeHistoryStore {
         val isRugClose6382 = t.reason.contains("EXTERNAL_RUG_CLOSE", ignoreCase = true) &&
             t.pnlPct <= -99.9 && t.entryCostSol > 0.0
         if (t.price <= 0.0 && kotlin.math.abs(t.pnlSol) > 0.0000001 && !isRugClose6382) return false
-        val proceeds = t.sol + (t.netPnlSol.takeIf { it != 0.0 } ?: t.pnlSol)
-        if (proceeds < -0.0000001) return false
+        // SELL `sol` is gross proceeds throughout Executor (and typed rows
+        // repeat that value in grossProceedsSol).  It is not cost basis.
+        // Adding P&L to it a second time made every genuine loss beyond
+        // roughly 50% look like negative proceeds, so the ledger closed the
+        // position while the journal quarantined its terminal SELL.
+        val proceeds = if (t.economicEventId.isNotBlank()) t.grossProceedsSol else t.sol
+        if (!proceeds.isFinite() || proceeds < -0.0000001) return false
         // V5.9.1440 / V5.0.3724 — JOURNAL SANITY GUARD (P0). This predicate is
         // the canonical filter behind every realized-total / expectancy / tax-export
         // / lane-tuner / UI read. A row that fails here is quarantined before memory

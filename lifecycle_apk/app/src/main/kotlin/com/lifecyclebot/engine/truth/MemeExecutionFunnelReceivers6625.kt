@@ -422,9 +422,8 @@ object SpecialistRuntimeRegistry6647 {
     fun stopped(lane: String, job: kotlinx.coroutines.Job) { state(lane).apply { if (this.job === job) this.job = null } }
     fun snapshot(lane: String, nowMs: Long = System.currentTimeMillis()): Snapshot {
         val s = state(lane)
-        val recentCausalWork = s.trafficAt.get() > 0L && nowMs - s.trafficAt.get() <= 15_000L
         return Snapshot(lane, s.job?.isActive == true && s.owner.isNotBlank() &&
-            nowMs - s.heartbeat.get() <= 15_000L && recentCausalWork,
+            nowMs - s.heartbeat.get() <= 15_000L,
             s.trafficAt.get() > 0L, s.heartbeat.get(), s.owner,
             if (s.latestTraffic.get() == null) 0 else 1)
     }

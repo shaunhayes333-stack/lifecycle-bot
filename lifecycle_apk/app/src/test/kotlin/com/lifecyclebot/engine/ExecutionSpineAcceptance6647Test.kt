@@ -26,6 +26,11 @@ class ExecutionSpineAcceptance6647Test {
         assertTrue(ExecutionSpineAcceptance6647.evaluate(clean()).passed)
     }
 
+    @Test fun one_exit_sweep_may_be_in_flight_at_sampling_boundary() {
+        assertTrue(ExecutionSpineAcceptance6647.evaluate(clean().copy(exitStart = 2L, exitDone = 1L)).passed)
+        assertFalse(ExecutionSpineAcceptance6647.evaluate(clean().copy(exitStart = 3L, exitDone = 1L)).passed)
+    }
+
     @Test fun every_mandatory_fault_fails_the_build_contract() {
         val bad = clean().copy(
             durationMs = 119_999L, safety = 0L, v3 = 0L,

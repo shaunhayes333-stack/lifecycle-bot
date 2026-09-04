@@ -4482,6 +4482,21 @@ class BotService : Service() {
     fun startBot() {
         if (deferStartUntilServiceReady6516()) return
         isShuttingDown = false  // V5.9.721: clear shutdown flag so traders run normally
+        // V5.0.6659d — a fresh service is initialized while the prior static
+        // shutdown flag is still true. CryptoAltTrader's bootstrap start then
+        // fail-closes itself as runtime_stopping. Rearm it only after the
+        // operator start has cleared that flag; start() is idempotent.
+        try {
+            val startCfg6659d = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+            val startPlan6659d = com.lifecyclebot.engine.truth.TraderRuntimePlan6526.from(
+                cfg = startCfg6659d, marketsKill = MARKET_TRADER_KILL_SWITCH,
+                marketsLaneOnFn = { isMarketsLaneEnabled(it) },
+            )
+            com.lifecyclebot.perps.CryptoAltTrader.setEnabled(startPlan6659d.cryptoUniverseOn)
+            if (startPlan6659d.cryptoUniverseOn) com.lifecyclebot.perps.CryptoAltTrader.start()
+        } catch (t: Throwable) {
+            try { ForensicLogger.lifecycle("CRYPTO_REARM_FAILED_6659D", "err=${t.message?.take(100)}") } catch (_: Throwable) {}
+        }
         // V5.0.6464 §P0-#7 — REGISTER CANONICAL FINALIZED-TRADE BUS CONSUMERS.
         // The 8 acknowledged learners/EV/dashboard subscribers each get a
         // slot in CanonicalFinalizedTradeBus6464 so the parity report
