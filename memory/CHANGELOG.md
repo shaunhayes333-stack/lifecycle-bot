@@ -5647,3 +5647,26 @@ failed on the ordering assertion.
 
 Coverage: Aate6658HotLoopUnchokeTest now asserts the layerTag chain
 literal so a future edit can't drop activeIntentLane6658 silently.
+
+## V5.0.6670 (Feb 2026) — data-integrity source repair
+Operator dump on 5.0.6669 surfaced:
+  QTY_DECIMAL_SKEW_6309: 7GCihg buyQty=97.49 sellQty=9.826e+10
+  QTY_DECIMAL_SKEW_6309: kZbqhb buyQty=2073   sellQty=53.36
+  Skew learning quarantine: 74
+  Repeated "+0.368 SOL" profits on STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP at sell
+    prices like 5.1489110e-11 while the buy was at 0.05197 — decimal illusions.
+  Prior UI: WBTC +604,752,538% held past every stop by runner-bypass.
+
+§DECIMAL_SKEW_ROOT_AUTHORITY — Executor.getTokenDecimals now consults
+  MintDecimalsAuthority6392 (the same source DecimalIntegrityAuthority6405
+  uses) BEFORE falling into inferUiScaleFromTrade. Every verified-decimals
+  hit (wallet cache, tokenMap, authority itself) seeds the authority so
+  BUY and SELL and MARK legs read the same integer scale.
+
+§RUNNER_BYPASS_PROVENANCE_GUARD — every one of the three runner-bypass
+  branches (stale-feed evict, mode max-hold #1, mode max-hold #2) now
+  requires MarketDataProvenance6471.classify(...) == AUTHORITATIVE
+  before applying the bypass. Sentinel/dead-feed marks can no longer
+  inflate peak/curPnl and hold a losing position past its stop.
+
+Coverage: Aate6670DataIntegrityGuardTest.
