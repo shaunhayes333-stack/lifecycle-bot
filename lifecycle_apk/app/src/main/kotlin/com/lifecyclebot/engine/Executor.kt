@@ -12036,7 +12036,7 @@ class Executor(
         //   layerTag → position.tradingMode → identity.source → "STANDARD".
         //   nextAttemptId is then keyed on "STANDARD", so
         //   ExecutableOpenGate.ticketForAttempt(...) misses the ticket
-        //   and canOpenExecutablePosition receives requestedLane="STANDARD".
+        //   and canOpen receives requestedLane="STANDARD".
         //   `resolveSealedIntent6613` filters intents by
         //   canonicalLane.equals(requestedLane, true) → the QUALITY/BLUECHIP
         //   intent is silently rejected and canOpen blocks with
@@ -12092,14 +12092,14 @@ class Executor(
         //      from 4899 → 6 but the SAME lane fork surfaced one hop later).
         //
         //   layerTag is what downstream `finalityLane` and every subsequent
-        //   `canOpenExecutablePosition` call reads to name the request lane.
+        //   canonical open-gate call reads to name the request lane.
         //   When ticket6513 and authority6513 both miss (which is the exact
         //   window the intent-authority already handled for preTicketLane6514),
         //   the previous chain fell through to the outer `layerTag` function
         //   parameter — which callers routinely pass as the lane string that
         //   birthed the TradingModeTag path (STANDARD, MEME_GENERIC, BLUE_CHIP).
-        //   That value then re-entered ExecutableOpenGate.canOpenExecutablePosition
-        //   as `requestedLane`, `resolveSealedIntent6613` filtered the
+        //   That value then re-entered ExecutableOpenGate as the request
+        //   lane, resolveSealedIntent6613 filtered the
         //   QUALITY/BLUECHIP intent out by canonicalLane, immutableTicket
         //   was null and the gate blocked at final bind. Same activeIntentLane6658
         //   convergence point already applied to the pre-ticket lane; do the
