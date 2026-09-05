@@ -92,6 +92,27 @@ object CanonicalEntryAuthority6551 {
         if (candidate.assetId.isBlank()) return blocked(candidate, venue, "INVALID_CANONICAL_ASSET_ID")
         if (!candidate.price.isFinite() || candidate.price <= 0.0)
             return blocked(candidate, venue, "INVALID_OR_STALE_PRICE")
+
+        // V5.0.6677 §CRYPTO_SENTINEL_ENTRY_PRICE — source-level write barrier.
+        // CryptoAlt previously admitted the known placeholder fingerprints
+        // (0.050250, 0.00005253, ...) because its local cached-price cross-check
+        // compared the same placeholder to itself. Once committed, the next real
+        // USD mark produced million-percent phantom PnL and reconciliation failed.
+        // Reuse MarketDataProvenance6471's single sentinel authority; do not copy
+        // the fingerprint list into this class or into CryptoAltTrader.
+        if (candidate.assetClass == AssetClass.CRYPTO_ALT &&
+            MarketDataProvenance6471.isKnownStandaloneSentinelPrice6658(candidate.price)
+        ) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_SENTINEL_ENTRY_PRICE_BLOCKED_6677")
+                ForensicLogger.lifecycle(
+                    "CRYPTO_SENTINEL_ENTRY_PRICE_BLOCKED_6677",
+                    "asset=${candidate.assetId.take(32)} symbol=${candidate.symbol} price=${candidate.price} mode=${candidate.mode} source=${candidate.source.take(48)} action=block_before_sizing_intent_open",
+                )
+            } catch (_: Throwable) {}
+            return blocked(candidate, venue, "CRYPTO_SENTINEL_ENTRY_PRICE_6677")
+        }
+
         if (candidate.hardSafetyReasons.isNotEmpty())
             return blocked(candidate, venue, candidate.hardSafetyReasons.joinToString(","))
         if (candidate.mode.equals("LIVE", true) && !candidate.routeAvailable)
