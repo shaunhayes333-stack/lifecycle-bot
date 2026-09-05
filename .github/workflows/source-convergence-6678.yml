@@ -18,214 +18,146 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Remove stacked CryptoAlt paper journal writer and stale test contract
+      - name: Converge CryptoAlt paper close onto canonical writer
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           root = Path('lifecycle_apk')
           crypto_path = root / 'app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt'
           test_path = root / 'app/src/test/kotlin/com/lifecyclebot/engine/Aate6659CryptoRoundTripReconciliationTest.kt'
           guard_path = root / 'ci/patch_rot_scan.py'
 
+          # ------------------------------------------------------------------
+          # 1) Production source: canonical reducer owns PAPER close journal.
+          # ------------------------------------------------------------------
           crypto = crypto_path.read_text()
 
-          stale_locals = '''        var canonicalCloseReceipt6659: com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.Result? = null
-          val canonicalBeforeClose6659 = if (pos.isPaper) try {
-              com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pos.id)
-          } catch (_: Throwable) { null } else null
-          '''
-          if stale_locals not in crypto:
-              raise SystemExit('6678 convergence: expected stale CryptoAlt receipt locals not found')
-          crypto = crypto.replace(stale_locals, '', 1)
+          crypto, n_receipt = re.subn(
+              r'\n\s*var canonicalCloseReceipt6659: com\.lifecyclebot\.engine\.truth\.CanonicalPaperTransaction6486\.Result\? = null\s*\n',
+              '\n', crypto, count=1,
+          )
+          crypto, n_before = re.subn(
+              r'\n\s*val canonicalBeforeClose6659 = if \(pos\.isPaper\) try \{.*?\n\s*\} catch \(_:\s*Throwable\) \{ null \} else null\s*\n',
+              '\n', crypto, count=1, flags=re.S,
+          )
+          crypto, n_assign = re.subn(
+              r'^\s*canonicalCloseReceipt6659 = canonicalClose6486\s*\n',
+              '', crypto, count=1, flags=re.M,
+          )
+          if (n_receipt, n_before, n_assign) != (1, 1, 1):
+              raise SystemExit(
+                  f'6678 convergence: stale receipt structure mismatch receipt={n_receipt} before={n_before} assign={n_assign}'
+              )
 
-          stale_assignment = '            canonicalCloseReceipt6659 = canonicalClose6486\n'
-          if stale_assignment not in crypto:
-              raise SystemExit('6678 convergence: expected stale CryptoAlt receipt assignment not found')
-          crypto = crypto.replace(stale_assignment, '', 1)
-
-          start_marker = '        // V5.0.6659 — the old CryptoAlt close discarded the canonical receipt\n'
-          end_marker = '        positions.remove(positionId)\n'
-          start = crypto.find(start_marker)
-          if start < 0:
-              raise SystemExit('6678 convergence: stacked 6659 paper journal block start not found')
-          end = crypto.find(end_marker, start)
-          if end < 0:
-              raise SystemExit('6678 convergence: stacked 6659 paper journal block end not found')
+          marker = '// V5.0.6659 — the old CryptoAlt close discarded the canonical receipt'
+          marker_at = crypto.find(marker)
+          if marker_at < 0:
+              raise SystemExit('6678 convergence: caller-side 6659 paper journal block not found')
+          block_start = crypto.rfind('\n', 0, marker_at) + 1
+          cleanup_at = crypto.find('        positions.remove(positionId)', marker_at)
+          if cleanup_at < 0:
+              raise SystemExit('6678 convergence: CryptoAlt local-cleanup boundary not found')
           replacement = '''        // V5.0.6678 — PAPER CLOSE JOURNAL AUTHORITY CONVERGENCE.
-          // CanonicalPaperTransaction6486.close() performs the terminal mutation and
+          // CanonicalPaperTransaction6486.close() performs terminal mutation and
           // durably projects that exact receipt into TradeHistoryStore before it
           // returns. CryptoAlt owns only local position cleanup after that boundary.
-          // Do not add a second paper TradeHistoryStore writer here: doing so stacks
-          // caller-side projection over the canonical reducer and can split accounting,
-          // reward populations and stop/replay semantics when either payload evolves.
-          '''
-          crypto = crypto[:start] + replacement + crypto[end:]
+          // A second paper journal write here would be a contradictory patch stack.
+          '''.replace('\n          ', '\n')
+          crypto = crypto[:block_start] + replacement + crypto[cleanup_at:]
 
-          if 'canonicalCloseReceipt6659' in crypto:
-              raise SystemExit('6678 convergence: stale canonicalCloseReceipt6659 still referenced')
-          if 'CRYPTO_ROUND_TRIP_JOURNAL_COMMITTED_6659' in crypto:
-              raise SystemExit('6678 convergence: retired caller-side journal marker still referenced')
-          close = crypto.split('private fun closePosition(positionId: String, reason: String)', 1)[1]
+          close = crypto.split('private fun closePosition(positionId: String, reason: String)', 1)[-1]
           paper_prefix = close.split('positions.remove(positionId)', 1)[0]
           if 'CanonicalPaperTransaction6486.close(' not in paper_prefix:
-              raise SystemExit('6678 convergence: canonical paper close missing')
+              raise SystemExit('6678 convergence: canonical PAPER close owner missing')
           if 'TradeHistoryStore.recordTrade(' in paper_prefix:
-              raise SystemExit('6678 convergence: caller-side paper journal writer survived')
+              raise SystemExit('6678 convergence: caller-side PAPER journal writer survived')
+          for retired in ('canonicalCloseReceipt6659', 'CRYPTO_ROUND_TRIP_JOURNAL_COMMITTED_6659'):
+              if retired in crypto:
+                  raise SystemExit(f'6678 convergence: retired CryptoAlt patch survived: {retired}')
           crypto_path.write_text(crypto)
 
-          test_path.write_text(r'''package com.lifecyclebot.engine
+          # ------------------------------------------------------------------
+          # 2) Acceptance test: never positively require the retired writer.
+          # Keep all unrelated 6659/6660 coverage intact.
+          # ------------------------------------------------------------------
+          test = test_path.read_text()
+          third_start = test.index('    @Test\n    fun `paper close carries exact canonical receipt into journal before stop return`()')
+          fourth_start = test.index('    @Test\n    fun `paper close has one terminal publisher and no legacy symbol keyed sell`()', third_start)
+          fifth_start = test.index('    @Test\n    fun `typed crypto close bypasses only the Solana mint quarantine domain`()', fourth_start)
 
-          import org.junit.Assert.assertFalse
-          import org.junit.Assert.assertTrue
-          import org.junit.Test
-          import java.io.File
+          third = r'''    @Test
+          fun `paper close journal belongs only to canonical reducer before stop return`() {
+              listOf(
+                  "economicEventId = r.economicEventId",
+                  "grossProceedsSol = r.grossProceedsSol",
+                  "soldCostBasisSol = r.soldCostBasisSol",
+                  "canonicalConsumedRaw = r.canonicalConsumedRaw",
+                  "postRemainingRaw = r.postRemainingRaw",
+              ).forEach { field -> assertTrue("canonical close result must preserve $field", transaction.contains(field)) }
 
-          /**
-           * V5.0.6659/6660/6678 — source-level acceptance locks for cross-asset
-           * paper round trips, reconciliation, and single-writer authority.
-           */
-          class Aate6659CryptoRoundTripReconciliationTest {
+              val reducerClose = transaction.substringAfter("fun close(positionId: String")
+                  .substringBefore("fun refund(positionId: String")
+              val terminalMutation = reducerClose.indexOf("CanonicalPaperTerminalBridge6469.finalizeSell(")
+              val canonicalJournal = reducerClose.indexOf("recordCloseProjection6659(pos, r, exitReason, terminal)")
+              val reducerReturn = reducerClose.indexOf("applied = true", canonicalJournal)
+              assertTrue("canonical reducer must journal after terminal mutation", terminalMutation in 1 until canonicalJournal)
+              assertTrue("canonical reducer must journal before returning to any trader", canonicalJournal in 1 until reducerReturn)
+              assertTrue(reducerClose.contains("economicEventId = receipt.economicEventId"))
+              assertTrue(reducerClose.contains("grossProceedsSol = gross"))
 
-              private val transaction = File(
-                  "src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt"
-              ).readText()
-              private val crypto = File(
-                  "src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt"
-              ).readText()
-              private val journal = File(
-                  "src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt"
-              ).readText()
-              private val replay = File(
-                  "src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt"
-              ).readText()
-
-              @Test
-              fun `cross asset paper buy projects one stable event to fill lot and journal`() {
-                  assertTrue(transaction.contains("fun ensureOpenProjection6659(position:"))
-                  assertTrue(transaction.contains("val eventId = \"PAPER6486:OPEN:${position.positionId}\""))
-                  assertTrue(transaction.contains("FillLotLedger6504.recordBuyFill("))
-                  assertTrue(transaction.contains("lotId = eventId"))
-                  assertTrue(transaction.contains("economicEventId = eventId"))
-                  assertTrue(transaction.contains("positionId = position.positionId"))
-                  assertTrue(transaction.contains("entryRawQty = position.originalQtyRaw"))
-                  assertTrue(transaction.contains("PaperAccountLedger6430.onBuyAtomic6632(costSol, feeSol, mint, idem)"))
-                  assertTrue(transaction.contains("PaperEconomicAtomicCommit6632.stampLedger("))
-                  assertTrue(transaction.contains("CanonicalPaperTransaction6486.openProjection6659"))
-                  assertTrue(journal.contains("CanonicalEconomicEvent6635.Store.JOURNAL"))
-                  assertTrue(
-                      "generic open must project only after the canonical position commits",
-                      transaction.indexOf("CanonicalPositionAuthority6441.getPosition(positionId)?.let { ensureOpenProjection6659(it) }") >
-                          transaction.indexOf("if (opened != CanonicalPositionAuthority6441.MutateResult.APPLIED)"),
-                  )
-              }
-
-              @Test
-              fun `legacy cross asset positions are repaired idempotently during rehydrate`() {
-                  val rehydrate = crypto.substringAfter("private fun rehydrateCanonicalPositions6647")
-                      .substringBefore("private fun persistAltPositions")
-                  assertTrue(rehydrate.contains("CanonicalPaperTransaction6486.ensureOpenProjection6659(cp)"))
-                  assertTrue(rehydrate.contains("if (cp.mode.equals(\"paper\", true))"))
-                  assertTrue(rehydrate.contains("CanonicalPaperTransaction6486.repairCryptoHistory6659()"))
-                  assertTrue(transaction.contains("EconomicEventSchema6464.snapshot()"))
-                  assertTrue(transaction.contains("it.assetClass != AssetClass.SOLANA_TOKEN"))
-                  assertTrue(transaction.contains("CROSS_ASSET_HISTORY_REPAIR_6660"))
-                  assertTrue(transaction.contains("CROSS_ASSET_HISTORY_REPROJECTED_6660"))
-                  assertTrue(replay.contains("CRYPTO_LEGACY_DISPLAY_ROW_SUPERSEDED_6659"))
-              }
-
-              @Test
-              fun `paper close journal belongs only to canonical reducer before stop return`() {
-                  listOf(
-                      "economicEventId = r.economicEventId",
-                      "grossProceedsSol = r.grossProceedsSol",
-                      "soldCostBasisSol = r.soldCostBasisSol",
-                      "canonicalConsumedRaw = r.canonicalConsumedRaw",
-                      "postRemainingRaw = r.postRemainingRaw",
-                  ).forEach { field -> assertTrue("canonical close result must preserve $field", transaction.contains(field)) }
-
-                  val reducerClose = transaction.substringAfter("fun close(positionId: String")
-                      .substringBefore("fun refund(positionId: String")
-                  val terminalMutation = reducerClose.indexOf("CanonicalPaperTerminalBridge6469.finalizeSell(")
-                  val canonicalJournal = reducerClose.indexOf("recordCloseProjection6659(pos, r, exitReason, terminal)")
-                  val reducerReturn = reducerClose.indexOf("applied = true", canonicalJournal)
-                  assertTrue("canonical reducer must journal after terminal mutation", terminalMutation in 1 until canonicalJournal)
-                  assertTrue("canonical reducer must journal before returning to any trader", canonicalJournal in 1 until reducerReturn)
-                  assertTrue(reducerClose.contains("economicEventId = receipt.economicEventId"))
-                  assertTrue(reducerClose.contains("grossProceedsSol = gross"))
-
-                  val close = crypto.substringAfter("private fun closePosition(positionId: String, reason: String)")
-                  val localCleanup = close.indexOf("positions.remove(positionId)")
-                  val canonicalClose = close.indexOf("CanonicalPaperTransaction6486.close(")
-                  val fastStop = close.indexOf("if (reason == \"USER_STOP\"")
-                  assertTrue("canonical close must finish before local cleanup", canonicalClose in 1 until localCleanup)
-                  assertTrue("canonical close must finish before USER_STOP can return", canonicalClose in 1 until fastStop)
-                  val paperPrefix = close.substring(0, localCleanup)
-                  assertFalse("CryptoAlt caller must not write a second paper journal row", paperPrefix.contains("TradeHistoryStore.recordTrade("))
-                  assertFalse(crypto.contains("CRYPTO_ROUND_TRIP_JOURNAL_COMMITTED_6659"))
-                  assertFalse(crypto.contains("canonicalCloseReceipt6659"))
-              }
-
-              @Test
-              fun `paper close has one terminal publisher and live journal remains live only`() {
-                  assertTrue(crypto.contains("if (!paper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit("))
-                  assertTrue(crypto.contains("if (!paper) try {\n            TradeHistoryStore.recordTrade(Trade("))
-                  val close = crypto.substringAfter("private fun closePosition(positionId: String, reason: String)")
-                  val paperPrefix = close.substringBefore("positions.remove(positionId)")
-                  assertTrue(paperPrefix.contains("CanonicalPaperTransaction6486.close("))
-                  assertFalse(paperPrefix.contains("TradeHistoryStore.recordTrade("))
-              }
-
-              @Test
-              fun `typed crypto close bypasses only the Solana mint quarantine domain`() {
-                  val bridge = File(
-                      "src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt"
-                  ).readText()
-                  val ledger = File(
-                      "src/main/kotlin/com/lifecyclebot/engine/truth/PaperAccountLedger6430.kt"
-                  ).readText()
-                  assertTrue(ledger.contains("enforceSolanaMintQuarantine: Boolean = true"))
-                  assertTrue(ledger.contains("mint.isNotBlank() && enforceSolanaMintQuarantine"))
-                  assertTrue(bridge.contains("enforceSolanaMintQuarantine = canonicalBefore6522?.assetClass == AssetClass.SOLANA_TOKEN"))
-              }
+              val close = crypto.substringAfter("private fun closePosition(positionId: String, reason: String)")
+              val localCleanup = close.indexOf("positions.remove(positionId)")
+              val canonicalClose = close.indexOf("CanonicalPaperTransaction6486.close(")
+              val fastStop = close.indexOf("if (reason == \"USER_STOP\"")
+              assertTrue("canonical close must finish before local cleanup", canonicalClose in 1 until localCleanup)
+              assertTrue("canonical close must finish before USER_STOP can return", canonicalClose in 1 until fastStop)
+              val paperPrefix = close.substring(0, localCleanup)
+              assertFalse("CryptoAlt caller must not write a second paper journal row", paperPrefix.contains("TradeHistoryStore.recordTrade("))
+              assertFalse(crypto.contains("CRYPTO_ROUND_TRIP_JOURNAL_COMMITTED_6659"))
+              assertFalse(crypto.contains("canonicalCloseReceipt6659"))
           }
-          '''.replace('\n          ', '\n').lstrip())
 
+          '''.replace('\n          ', '\n')
+
+          fourth = r'''    @Test
+          fun `paper close has one canonical terminal publisher and live journal stays live only`() {
+              assertTrue(crypto.contains("if (!paper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit("))
+              assertTrue(crypto.contains("if (!paper) try {\n            TradeHistoryStore.recordTrade(Trade("))
+              val close = crypto.substringAfter("private fun closePosition(positionId: String, reason: String)")
+              val paperPrefix = close.substringBefore("positions.remove(positionId)")
+              assertTrue(paperPrefix.contains("CanonicalPaperTransaction6486.close("))
+              assertFalse(paperPrefix.contains("TradeHistoryStore.recordTrade("))
+          }
+
+          '''.replace('\n          ', '\n')
+
+          test = test[:third_start] + third + fourth + test[fifth_start:]
+          test_path.write_text(test)
+
+          # ------------------------------------------------------------------
+          # 3) Repository ratchet: retired writer/marker may never return.
+          # ------------------------------------------------------------------
           guard = guard_path.read_text()
-          retired_anchor = '''    "CANONICAL_MISSING_PARTIAL_JOURNAL_PROJECTED_6677": (
-                  "missing partial journal projection must be fixed at the canonical writer"
-              ),
-          }'''.replace('\n          ', '\n').lstrip('\n')
-          retired_replacement = '''    "CANONICAL_MISSING_PARTIAL_JOURNAL_PROJECTED_6677": (
-                  "missing partial journal projection must be fixed at the canonical writer"
-              ),
-              "CRYPTO_ROUND_TRIP_JOURNAL_COMMITTED_6659": (
-                  "CryptoAlt caller-side paper journal projection was superseded by CanonicalPaperTransaction6486.close"
-              ),
-          }'''.replace('\n          ', '\n').lstrip('\n')
-          if retired_anchor not in guard:
-              raise SystemExit('6678 convergence: retired-symbol anchor not found in patch-rot scan')
-          guard = guard.replace(retired_anchor, retired_replacement, 1)
+          retired = '    "CRYPTO_ROUND_TRIP_JOURNAL_COMMITTED_6659": (\n        "CryptoAlt caller-side paper journal projection is retired; canonical reducer owns it"\n    ),\n'
+          if '"CRYPTO_ROUND_TRIP_JOURNAL_COMMITTED_6659"' not in guard:
+              dict_start = guard.index('RETIRED_PRODUCTION_SYMBOLS = {')
+              dict_end = guard.index('\n}\n\n\ndef require', dict_start)
+              guard = guard[:dict_end] + '\n' + retired + guard[dict_end:]
 
-          contract_anchor = '''    require(
-                  errors,
-                  canonical_paper,
-                  "CanonicalPositionAuthority6441.getPosition(positionId)?.let { ensureOpenProjection6659(it) }",
-                  "PAPER_OPEN_MUTATION_SOURCE_PROJECTION_6678",
-              )
-          '''.replace('\n          ', '\n').lstrip('\n')
-          contract_insert = contract_anchor + '''
-              crypto_alt = (SRC / "com/lifecyclebot/perps/CryptoAltTrader.kt").read_text()
+          contract = '''    crypto_alt = (SRC / "com/lifecyclebot/perps/CryptoAltTrader.kt").read_text()
               crypto_close = crypto_alt.split("private fun closePosition(positionId: String, reason: String)", 1)[-1]
               crypto_paper_prefix = crypto_close.split("positions.remove(positionId)", 1)[0]
               require(errors, crypto_paper_prefix, "CanonicalPaperTransaction6486.close(", "CRYPTO_PAPER_CLOSE_CANONICAL_OWNER_6678")
               forbid(errors, crypto_paper_prefix, "TradeHistoryStore.recordTrade(", "CRYPTO_PAPER_CLOSE_SINGLE_WRITER_6678")
               forbid(errors, crypto_alt, "canonicalCloseReceipt6659", "CRYPTO_PAPER_CLOSE_STALE_RECEIPT_PATCH_6678")
-          '''.replace('\n              ', '\n').lstrip('\n')
-          if contract_anchor not in guard:
-              raise SystemExit('6678 convergence: canonical contract anchor not found in patch-rot scan')
-          guard = guard.replace(contract_anchor, contract_insert, 1)
+
+          '''.replace('\n              ', '\n')
+          if 'CRYPTO_PAPER_CLOSE_CANONICAL_OWNER_6678' not in guard:
+              insertion = guard.index('    # A prior Golden Tape assertion')
+              guard = guard[:insertion] + contract + guard[insertion:]
           guard_path.write_text(guard)
           PY
 
