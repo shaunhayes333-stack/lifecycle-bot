@@ -12085,8 +12085,29 @@ class Executor(
         }
         val entryFinalityId6497 = executionAttemptId6514
         val ticket6513 = ExecutableOpenGate.ticketForAttempt(executionAttemptId6514)
+        // V5.0.6669 §LAYER_TAG_INTENT_CONVERGENCE — operator dump Feb 2026
+        //   (build 5.0.6669, 208s uptime):
+        //     EXEC_GATE/EXEC_INTENT_MISSING_AT_FINAL_BIND_6519: 441
+        //     (top block; previous fix cut FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519
+        //      from 4899 → 6 but the SAME lane fork surfaced one hop later).
+        //
+        //   layerTag is what downstream `finalityLane` and every subsequent
+        //   `canOpenExecutablePosition` call reads to name the request lane.
+        //   When ticket6513 and authority6513 both miss (which is the exact
+        //   window the intent-authority already handled for preTicketLane6514),
+        //   the previous chain fell through to the outer `layerTag` function
+        //   parameter — which callers routinely pass as the lane string that
+        //   birthed the TradingModeTag path (STANDARD, MEME_GENERIC, BLUE_CHIP).
+        //   That value then re-entered ExecutableOpenGate.canOpenExecutablePosition
+        //   as `requestedLane`, `resolveSealedIntent6613` filtered the
+        //   QUALITY/BLUECHIP intent out by canonicalLane, immutableTicket
+        //   was null and the gate blocked at final bind. Same activeIntentLane6658
+        //   convergence point already applied to the pre-ticket lane; do the
+        //   equivalent for layerTag so the request name matches the intent
+        //   canonicalLane everywhere downstream.
         @Suppress("NAME_SHADOWING") val layerTag = ticket6513?.primaryLane
             ?: authority6513?.executionLane
+            ?: activeIntentLane6658
             ?: layerTag
         // V5.0.6514 — ticket lifecycle authority must exist above EVERY return.
         var paperBuyLeaseKey6369 = ""

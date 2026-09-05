@@ -117,6 +117,17 @@ class Aate6658HotLoopUnchokeTest {
             "preTicketLane6514 must prefer the sealed active intent before snapshot and legacy fallbacks",
             src.contains("val preTicketLane6514 = activeIntentLane6658\n            ?: authority6513?.executionLane\n            ?: layerTag"),
         )
+        // V5.0.6669 §LAYER_TAG_INTENT_CONVERGENCE — same fix on the derived
+        // layerTag so requestedLane sent into canOpenExecutablePosition
+        // matches the intent's canonicalLane.
+        assertTrue(
+            "Executor.layerTag derivation must consult activeIntentLane6658 (V5.0.6669)",
+            src.contains("V5.0.6669 §LAYER_TAG_INTENT_CONVERGENCE"),
+        )
+        assertTrue(
+            "layerTag chain must be ticket6513?.primaryLane -> authority6513?.executionLane -> activeIntentLane6658 -> outer layerTag",
+            src.contains("val layerTag = ticket6513?.primaryLane\n            ?: authority6513?.executionLane\n            ?: activeIntentLane6658\n            ?: layerTag"),
+        )
     }
 
     @Test
