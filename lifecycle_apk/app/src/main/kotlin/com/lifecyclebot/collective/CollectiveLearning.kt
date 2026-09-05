@@ -30,10 +30,16 @@ import java.util.TimeZone
 object CollectiveLearning {
 
     private const val TAG = "CollectiveLearning"
-    // V5.0.6637: direct client-to-database hive writes are quarantined until
-    // the signed gateway/attestation protocol exists. Local per-device
-    // learning remains enabled; only untrusted cross-instance influence stops.
-    private val secureHiveGatewayReady = false
+    // V5.0.6672 — HIVE MIND RESTORE.
+    //
+    // The V5.0.6637 quarantine (`= false`) blocked every device from
+    // read/write to the operator's own Superbrain DB. Operator directive:
+    // this build is bound to a single operator's Turso instance, so the
+    // "unauthenticated cross-instance learning" concern does not apply —
+    // there is exactly one instance owner. Re-enabled + honored explicitly
+    // by TursoClient's Bearer auth. If a future multi-tenant fork is
+    // deployed, add signed attestation there, not here.
+    private val secureHiveGatewayReady = true
 
     private var client: TursoClient? = null
     private var isInitialized = false

@@ -10,25 +10,23 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * V5.9.484 — Lightweight Kotlin LLM client for trade-decision validation
+ * V5.0.6672 — Lightweight Kotlin LLM client for trade-decision validation
  * and exit-reasoning narration.
  *
- * Powered by Anthropic Claude Sonnet 4.5 via direct HTTP. The Emergent
- * Universal Key (sk-emergent-…) routes through Emergent's transparent
- * proxy and is accepted at api.anthropic.com. Operator can swap to a
- * personal Anthropic key via BotConfig.llmApiKey if Emergent quota is
- * exhausted or they prefer direct billing.
- *
- * Defaults:
- *   model    = claude-sonnet-4-5-20250929  (per Emergent playbook)
- *   endpoint = https://api.anthropic.com/v1/messages
+ * Powered by a keyless fallback chain (Pollinations.ai → DuckDuckGo AI →
+ * operator-supplied Groq/OpenRouter/Anthropic keys, in that order). No
+ * API key is required for the bot to have LLM capability out of the box —
+ * "LLM is gone" cannot recur because Pollinations is anonymous per-IP and
+ * every Android device brings its own IP. Operator may still paste a
+ * personal Anthropic key (sk-ant-…) into BotConfig.geminiApiKey and it
+ * will be preferred whenever available.
  *
  * Two purpose-built helpers:
  *   validateTradeSignal(...)  → returns "PROCEED" / "BLOCK: <reason>" / "CAUTION: <note>"
  *   narrateExit(...)          → returns one short symbolic sentence describing the exit
  *
- * Neither is required for the bot to operate — both fail open: if the
- * API call errors out, validateTradeSignal returns "PROCEED" (let the
+ * Neither is required for the bot to operate — both fail open: if every
+ * provider errors out, validateTradeSignal returns "PROCEED" (let the
  * existing AI scoring layers decide) and narrateExit returns a default
  * string. No silent trade blocking on LLM downtime.
  */
@@ -42,7 +40,10 @@ object EmergentLlmClient {
     @Volatile private var apiKey: String = ""
     @Volatile private var endpoint: String = DEFAULT_ENDPOINT
     @Volatile private var model: String = DEFAULT_MODEL
-    @Volatile private var enabled: Boolean = false
+    // V5.0.6672 — always enabled. When apiKey is blank, runChat() routes to
+    // KeylessLlmClient. When apiKey is set (sk-ant-…), we prefer the direct
+    // Anthropic path for lower latency + higher quality.
+    @Volatile private var enabled: Boolean = true
 
     private val httpClient: OkHttpClient by lazy {
         SharedHttpClient.builder()
@@ -60,11 +61,11 @@ object EmergentLlmClient {
         this.apiKey = apiKey.trim()
         this.endpoint = endpoint.trim().ifBlank { DEFAULT_ENDPOINT }
         this.model = model.trim().ifBlank { DEFAULT_MODEL }
-        this.enabled = this.apiKey.isNotBlank()
-        if (enabled) {
-            ErrorLogger.info(TAG, "🧠 LLM enabled (model=${this.model}, endpoint=${this.endpoint.take(40)}…)")
+        this.enabled = true // V5.0.6672 — always on; falls back to keyless chain when no key
+        if (this.apiKey.isNotBlank()) {
+            ErrorLogger.info(TAG, "🧠 LLM enabled — Anthropic direct (model=${this.model}, endpoint=${this.endpoint.take(40)}…)")
         } else {
-            ErrorLogger.info(TAG, "LLM disabled (no API key configured)")
+            ErrorLogger.info(TAG, "🧠 LLM enabled — keyless fallback chain (Pollinations → DuckDuckGo → operator keys)")
         }
     }
 
@@ -83,7 +84,6 @@ object EmergentLlmClient {
         sizeSol: Double,
         recentPnlPct: Double,
     ): String {
-        if (!enabled) return "PROCEED"
         val sys = "You are a Solana trading bot's risk validator. Reply with EXACTLY one of: " +
                   "'PROCEED', 'BLOCK: <reason in 8 words>', or 'CAUTION: <note in 8 words>'. " +
                   "Block obviously bad signals (low conf + low score, recent string of losses, " +
@@ -103,7 +103,6 @@ object EmergentLlmClient {
         pnlPct: Double,
         holdMinutes: Int,
     ): String {
-        if (!enabled) return "Exited $symbol on $reason (${pnlPct.toInt()}%)"
         val sys = "You narrate Solana trade exits. One short symbolic sentence (max 12 words), " +
                   "vivid imagery, no jargon. No quotes."
         val user = "Exit $symbol after ${holdMinutes}m, reason=$reason, pnl=${"%.1f".format(pnlPct)}%."
@@ -135,6 +134,11 @@ object EmergentLlmClient {
     /** Generic single-turn chat. Returns null on any error (caller decides fallback). */
     fun runChat(system: String, user: String, maxTokens: Int = DEFAULT_MAX_TOKENS): String? {
         if (!enabled) return null
+        // V5.0.6672 — when no Anthropic key is configured, route through the
+        // keyless fallback chain (Pollinations → DuckDuckGo → operator keys).
+        if (apiKey.isBlank()) {
+            return KeylessLlmClient.runChat(system, user, maxTokens)
+        }
         return try {
             val payload = JSONObject().apply {
                 put("model", model)
@@ -154,8 +158,12 @@ object EmergentLlmClient {
                 .build()
             httpClient.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) {
-                    ErrorLogger.warn(TAG, "LLM HTTP ${resp.code}: ${resp.body?.string()?.take(120)}")
-                    return null
+                    ErrorLogger.warn(TAG, "LLM HTTP ${resp.code}: ${resp.body?.string()?.take(120)} — falling back to keyless")
+                    // V5.0.6672 — on Anthropic failure, seamlessly fall back
+                    // to the keyless chain instead of returning null. Keeps
+                    // the pipeline speaking even if the operator key has
+                    // rotated / rate-limited.
+                    return KeylessLlmClient.runChat(system, user, maxTokens)
                 }
                 val body = resp.body?.string() ?: return null
                 val j = JSONObject(body)
@@ -164,8 +172,8 @@ object EmergentLlmClient {
                 first.optString("text", "").trim().ifBlank { null }
             }
         } catch (e: Exception) {
-            ErrorLogger.warn(TAG, "LLM error: ${e.message?.take(120)}")
-            null
+            ErrorLogger.warn(TAG, "LLM error: ${e.message?.take(120)} — falling back to keyless")
+            KeylessLlmClient.runChat(system, user, maxTokens)
         }
     }
 }

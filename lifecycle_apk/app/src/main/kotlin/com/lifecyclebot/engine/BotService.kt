@@ -8892,18 +8892,22 @@ class BotService : Service() {
             ErrorLogger.warn("BotService", "PythHermesStream start failed: ${e.message}")
         }
 
-        // 4) EmergentLlmClient — Claude Sonnet 4.5 (opt-in, personal key only)
+        // 4) EmergentLlmClient — V5.0.6672 always-on with keyless fallback chain
+        //    (Pollinations.ai → DuckDuckGo AI → operator keys). Personal
+        //    Anthropic key still preferred when configured.
         try {
-            val key = cfg.geminiApiKey.trim()
-            if (key.startsWith("sk-ant-")) {
-                com.lifecyclebot.network.EmergentLlmClient.configure(apiKey = key)
-            } else {
-                ErrorLogger.info("BotService",
-                    "EmergentLlmClient disabled — paste a personal Anthropic key (sk-ant-…) into " +
-                    "BotConfig.geminiApiKey to enable Claude trade-risk validation. The Emergent " +
-                    "universal sk-emergent-… key cannot be used from native Kotlin (proxy is " +
-                    "Python-SDK only).")
-            }
+            val antKey = cfg.geminiApiKey.trim()
+            // Feed operator-supplied paid keys to the keyless client so it can
+            // upgrade to them when available, but keyless providers remain the
+            // default so "LLM is gone" can't recur.
+            com.lifecyclebot.network.KeylessLlmClient.setOperatorKeys(
+                groq       = cfg.groqApiKey.trim(),
+                openRouter = cfg.openRouterApiKey.trim(),
+                anthropic  = if (antKey.startsWith("sk-ant-")) antKey else "",
+            )
+            com.lifecyclebot.network.EmergentLlmClient.configure(
+                apiKey = if (antKey.startsWith("sk-ant-")) antKey else ""
+            )
         } catch (e: Exception) {
             ErrorLogger.warn("BotService", "EmergentLlmClient configure failed: ${e.message}")
         }
