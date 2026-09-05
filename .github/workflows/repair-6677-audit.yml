@@ -17,22 +17,52 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           p = Path('lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt')
-          s = p.read_text()
-          lines = s.splitlines()
+          lines = p.read_text().splitlines()
           print('BOT_SERVICE_LINES', len(lines))
-          needles = ['onPartialSell', 'PARTIAL_TAKE', 'PARTIAL:', 'requestPartial', 'partialSell', 'SellResult', 'QualityTraderAI', 'MoonshotTraderAI', 'BlueChipTraderAI', 'ShitCoinExpress', 'ManipulatedTraderAI', 'ShitCoinTraderAI']
+
+          needles = [
+              'requestPartialSell', 'partialSell', 'PARTIAL_TAKE', 'SellResult',
+              'CanonicalPaperPartialOperation', 'markApplied', 'confirmed',
+              'QualityTraderAI', 'MoonshotTraderAI', 'BlueChipTraderAI',
+              'ShitCoinExpress', 'ManipulatedTraderAI', 'ShitCoinTraderAI'
+          ]
+          seen = set()
           for needle in needles:
-              hits = [i for i,l in enumerate(lines) if needle in l]
-              print(f'\n=== {needle} count={len(hits)} ===')
-              for i in hits[:80]:
-                  lo=max(0,i-10); hi=min(len(lines),i+16)
-                  block='\n'.join(f'{j+1:05d}: {lines[j]}' for j in range(lo,hi))
-                  print(block)
+              hits = [i for i,l in enumerate(lines) if needle.lower() in l.lower()]
+              print(f'\n=== BOT {needle} count={len(hits)} ===')
+              for i in hits[:100]:
+                  key = (max(0,i-12), min(len(lines),i+20))
+                  if key in seen:
+                      continue
+                  seen.add(key)
+                  lo,hi = key
+                  print('\n'.join(f'{j+1:05d}: {lines[j]}' for j in range(lo,hi)))
                   print('---')
 
-          print('\n=== lane finality anti-patterns ===')
-          for f in Path('lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v3/scoring').glob('*.kt'):
-              t=f.read_text()
-              if 'partialRungsTaken' in t:
-                  print(f.name, 'preincrement=', 'partialRungsTaken += 1' in t, 'callback=', 'fun onPartialSell' in t)
+          ep = Path('lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt')
+          elines = ep.read_text().splitlines()
+          for needle in ['requestPartialSell', 'CanonicalPaperPartialOperation', 'markApplied', 'partial sell', 'confirmedSell', 'sellCommitted']:
+              hits = [i for i,l in enumerate(elines) if needle.lower() in l.lower()]
+              print(f'\n=== EXEC {needle} count={len(hits)} ===')
+              for i in hits[:80]:
+                  lo=max(0,i-15); hi=min(len(elines),i+28)
+                  print('\n'.join(f'{j+1:05d}: {elines[j]}' for j in range(lo,hi)))
+                  print('---')
+
+          print('\n=== specialist rung mutation / callback audit ===')
+          names = ['QualityTraderAI.kt','MoonshotTraderAI.kt','BlueChipTraderAI.kt','ShitCoinExpress.kt','ShitCoinTraderAI.kt','ManipulatedTraderAI.kt']
+          base = Path('lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v3/scoring')
+          for name in names:
+              f = base/name
+              if not f.exists():
+                  print(name, 'MISSING')
+                  continue
+              ls = f.read_text().splitlines()
+              print(f'\n--- {name} ---')
+              for needle in ['partialRungsTaken += 1','partialRungsTaken++','fun onPartialSell','PARTIAL_TAKE','getPartialSellPct','PaperCapitalAuthority6577.cashSol','paperMode = true','paperMode = isPaper']:
+                  hits=[i for i,l in enumerate(ls) if needle in l]
+                  print(needle, [i+1 for i in hits])
+                  for i in hits[:10]:
+                      lo=max(0,i-5); hi=min(len(ls),i+9)
+                      print('\n'.join(f'{j+1:05d}: {ls[j]}' for j in range(lo,hi)))
           PY
