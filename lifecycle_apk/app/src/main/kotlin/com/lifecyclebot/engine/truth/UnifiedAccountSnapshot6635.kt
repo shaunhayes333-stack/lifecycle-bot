@@ -75,15 +75,13 @@ object UnifiedAccountSnapshot6635 {
         try { PipelineHealthCollector.labelInc("HERO_UNIFIED_SNAPSHOT_READ_6635") } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("HERO_UNIFIED_SNAPSHOT_READ_${surface.uppercase()}_6635") } catch (_: Throwable) {}
 
-        // V5.0.6677 — source repair, not a display fallback. Historical
-        // CRYPTO_ALT builds could persist a known template/sentinel price as the
-        // canonical entry basis. Those lots can never reconcile honestly once a
-        // real market mark arrives. Neutral-refund only the exact known poisoned
-        // paper lots through CanonicalPaperTransaction6486 BEFORE the unified
-        // account pass. The normal four-store reconciliation remains mandatory;
-        // this does not promote FAILED to RECONCILED or invent a hero balance.
+        // V5.0.6677 — request convergence, never execute durable journal/canonical
+        // mutation on the UI thread. The repair worker is idempotent and uses only
+        // typed economic receipts + the exact sentinel fingerprint authority.
+        // This preserves the prior 6619 main-thread smoke/ANR fix while still
+        // allowing a failed account snapshot to self-heal on the next refresh.
         if (mode.equals("paper", true)) {
-            try { CanonicalSentinelEntryRepair6677.repairOpenPaperCryptoAltSentinels() } catch (_: Throwable) {}
+            try { CanonicalJournalProjectionRepair6677.scheduleRepair6677() } catch (_: Throwable) {}
         }
 
         // Force reconciliation pass so every UI read observes fresh
