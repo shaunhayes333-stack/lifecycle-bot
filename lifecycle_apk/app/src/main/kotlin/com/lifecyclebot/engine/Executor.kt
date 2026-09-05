@@ -1574,7 +1574,13 @@ class Executor(
         // promoteVerifiedLiveBuy once the RPC returns the token account's
         // authoritative decimals. This is the only source that is ever
         // trustworthy on a fresh mint; every other path is heuristic.
-        walletDecimalsByMint6311[ts.mint]?.takeIf { it >= 0 }?.let { return it }
+        // V5.0.6670 §DECIMAL_SEED_AUTHORITY_ON_WALLET_HIT — every path that
+        // reads verified decimals must also seed MintDecimalsAuthority6392
+        // so BUY and SELL and MARK all converge on one integer scale.
+        walletDecimalsByMint6311[ts.mint]?.takeIf { it >= 0 }?.let {
+            try { com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.resolveAndCache(ts.mint, it.coerceAtMost(18)) } catch (_: Throwable) {}
+            return it
+        }
 
         // V5.0.6330 — WADDLE root repair. Prefer the CanonicalTokenMap
         // decimals field (populated from token metadata / RPC on
@@ -1587,6 +1593,7 @@ class Executor(
             // Warm the wallet cache too so downstream callers hit it
             // immediately rather than repeating this lookup.
             walletDecimalsByMint6311.putIfAbsent(ts.mint, it)
+            try { com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.resolveAndCache(ts.mint, it.coerceAtMost(18)) } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("TOKEN_DECIMALS_FROM_TOKEN_MAP_6330") } catch (_: Throwable) {}
             return it
         }
@@ -1594,6 +1601,40 @@ class Executor(
         val reflected = reflectInt(ts, "decimals", "tokenDecimals", "baseDecimals", "mintDecimals")
             ?: reflectInt(ts.meta, "decimals", "tokenDecimals", "baseDecimals")
             ?: reflectInt(ts.position, "decimals", "tokenDecimals")
+
+        // V5.0.6670 §DECIMAL_SKEW_ROOT_AUTHORITY — operator dump Feb 2026:
+        //   QTY_DECIMAL_SKEW_6309: 7GCihg buyQty=97.49 sellQty=9.826e+10
+        //   kZbqhb buyQty=2073 sellQty=53.36   (skew learning quarantine=74)
+        //
+        //   BUY vs SELL journal legs called getTokenDecimals() → -1 at
+        //   different times: BUY hit while ts.tokenMap.decimals was
+        //   populated (say 6) so the qty was 97.49 tokens; by the time the
+        //   SELL leg ran the reflection field had rotated out (fresh
+        //   TokenState after a re-hydration) and getTokenDecimals returned
+        //   -1, so rawTokenAmountToUiAmount fell into
+        //   inferUiScaleFromTrade with a different priceUsd → picked a
+        //   different scale → sell qty landed at 9.826e+10. Same mint,
+        //   two decimal interpretations → phantom +0.368 SOL profits and
+        //   +74 rows in the skew-learning quarantine.
+        //
+        //   MintDecimalsAuthority6392 already caches chain-resolved
+        //   decimals across the process lifetime — that's the source
+        //   DecimalIntegrityAuthority6405 reads first in its strict
+        //   resolver, so BUY-side wallet verification writes there and
+        //   SELL-side sees the same value. Consult it before falling
+        //   to the inferUiScaleFromTrade heuristic. Warms the wallet
+        //   cache and the ts.tokenMap.decimals too so subsequent BUY /
+        //   SELL / MARK all converge on the same integer scale.
+        val authority6670 = if (reflected == null) {
+            try { com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.get(ts.mint)?.takeIf { it in 0..24 } }
+            catch (_: Throwable) { null }
+        } else null
+        if (authority6670 != null) {
+            walletDecimalsByMint6311.putIfAbsent(ts.mint, authority6670)
+            try { ts.tokenMap.decimals = authority6670 } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("TOKEN_DECIMALS_FROM_AUTHORITY_6670") } catch (_: Throwable) {}
+            return authority6670
+        }
 
         val resolved = reflected?.coerceAtLeast(0) ?: -1
         if (resolved < 0) {
@@ -7109,7 +7150,40 @@ class Executor(
                     val curPnlVerdict6038 = OpenPnlSanity.inspectPosition(ts.position, currentPrice, "Executor.dead_feed_runner_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
                     val curPnl = if (curPnlVerdict6038.ok) curPnlVerdict6038.pnlPct else 0.0
                     val peak = ts.position.peakGainPct
-                    val runnerIntact = peak >= 20.0 && curPnl >= peak * 0.70
+                    // V5.0.6670 §RUNNER_BYPASS_PROVENANCE_GUARD — operator dumps
+                    //   showed phantom PnLs like +604,752,538% and +3,414% on
+                    //   positions whose current mark had NON_AUTHORITATIVE
+                    //   provenance (sentinel prices, dead feeds, stale
+                    //   tokenmap routes). Those phantom numbers pushed
+                    //   `peak >= 20.0 && curPnl >= peak * 0.70` to true and
+                    //   runner-bypass kept the position alive past every
+                    //   stop — the operator's "tokens bought and never sold"
+                    //   choke.
+                    //
+                    //   MarketDataProvenance6471 is the authority. If the
+                    //   quote backing this PnL isn't AUTHORITATIVE, distrust
+                    //   the peak/curPnl and let the stale-feed evict path
+                    //   drain the position — the same authority
+                    //   §ENTRY_PRICE_PROVENANCE_ENFORCEMENT uses to reject
+                    //   sentinel entries. Fail-open on classifier exceptions
+                    //   so a classifier bug never blocks a legitimate
+                    //   runner. AUTHORITATIVE runners still bypass.
+                    val markProvenance6670 = try {
+                        com.lifecyclebot.engine.truth.MarketDataProvenance6471.classify(
+                            price = currentPrice, mcap = ts.lastMcap, liquidity = ts.lastLiquidityUsd,
+                            source = ts.source,
+                            poolAddress = ts.tokenMap.poolAddress.ifBlank { ts.tokenMap.routeStatus },
+                            identity = ts.mint,
+                        )
+                    } catch (_: Throwable) { com.lifecyclebot.engine.truth.MarketDataProvenance6471.Provenance.AUTHORITATIVE }
+                    val markTrusted6670 = markProvenance6670 == com.lifecyclebot.engine.truth.MarketDataProvenance6471.Provenance.AUTHORITATIVE
+                    val runnerIntact = markTrusted6670 && peak >= 20.0 && curPnl >= peak * 0.70
+                    if (!markTrusted6670 && peak >= 20.0) {
+                        try {
+                            PipelineHealthCollector.labelInc("RUNNER_BYPASS_UNTRUSTED_MARK_6670")
+                            PipelineHealthCollector.labelInc("RUNNER_BYPASS_UNTRUSTED_MARK_6670|${markProvenance6670.name}")
+                        } catch (_: Throwable) {}
+                    }
                     // Paper settle-in: brand-new paper entries are born at the
                     // slippage-band PnL; never evict before they've settled.
                     val settleIn = run {
@@ -9159,7 +9233,23 @@ class Executor(
             val _peakGain = ts.position.peakGainPct
             val _runnerHwGate = _peakGain >= 20.0
             val _runnerTrendIntact = _peakGain > 0.0 && _curPnl >= _peakGain * 0.70
-            val _runnerBypass = _runnerHwGate && _runnerTrendIntact
+            // V5.0.6670 §RUNNER_BYPASS_PROVENANCE_GUARD (max-hold branch) —
+            //   distrust runner-bypass when the current mark's provenance is
+            //   NON_AUTHORITATIVE. Otherwise a sentinel or dead-feed quote
+            //   inflates _peakGain / _curPnl, _runnerBypass stays true and
+            //   the position holds forever past every time exit.
+            val _markTrusted6670 = try {
+                com.lifecyclebot.engine.truth.MarketDataProvenance6471.classify(
+                    price = getActualPrice(ts), mcap = ts.lastMcap, liquidity = ts.lastLiquidityUsd,
+                    source = ts.source,
+                    poolAddress = ts.tokenMap.poolAddress.ifBlank { ts.tokenMap.routeStatus },
+                    identity = ts.mint,
+                ) == com.lifecyclebot.engine.truth.MarketDataProvenance6471.Provenance.AUTHORITATIVE
+            } catch (_: Throwable) { true }
+            val _runnerBypass = _markTrusted6670 && _runnerHwGate && _runnerTrendIntact
+            if (!_markTrusted6670 && _runnerHwGate) {
+                try { PipelineHealthCollector.labelInc("RUNNER_BYPASS_UNTRUSTED_MARK_6670|max_hold_branch") } catch (_: Throwable) {}
+            }
             val _hardCeiling = _effectiveMaxHold * 4.0
             val _shouldForceExit = when {
                 _held > _hardCeiling           -> true   // zombie catch
@@ -9707,7 +9797,19 @@ class Executor(
                 val _peakGain2 = ts.position.peakGainPct
                 val _runnerHwGate2 = _peakGain2 >= 20.0
                 val _runnerTrendIntact2 = _peakGain2 > 0.0 && _curPnl2 >= _peakGain2 * 0.70
-                val _runnerBypass2 = _runnerHwGate2 && _runnerTrendIntact2
+                // V5.0.6670 §RUNNER_BYPASS_PROVENANCE_GUARD (max-hold branch #2).
+                val _markTrusted6670_2 = try {
+                    com.lifecyclebot.engine.truth.MarketDataProvenance6471.classify(
+                        price = getActualPrice(ts), mcap = ts.lastMcap, liquidity = ts.lastLiquidityUsd,
+                        source = ts.source,
+                        poolAddress = ts.tokenMap.poolAddress.ifBlank { ts.tokenMap.routeStatus },
+                        identity = ts.mint,
+                    ) == com.lifecyclebot.engine.truth.MarketDataProvenance6471.Provenance.AUTHORITATIVE
+                } catch (_: Throwable) { true }
+                val _runnerBypass2 = _markTrusted6670_2 && _runnerHwGate2 && _runnerTrendIntact2
+                if (!_markTrusted6670_2 && _runnerHwGate2) {
+                    try { PipelineHealthCollector.labelInc("RUNNER_BYPASS_UNTRUSTED_MARK_6670|max_hold_branch2") } catch (_: Throwable) {}
+                }
                 val _hardCeiling2 = effectiveMaxHold2 * 4.0
                 val _shouldForceExit2 = when {
                     held > _hardCeiling2          -> true
