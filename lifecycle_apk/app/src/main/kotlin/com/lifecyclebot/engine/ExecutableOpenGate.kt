@@ -2237,9 +2237,81 @@ object ExecutableOpenGate {
         // a missing/misaligned intent claimed this key first, returned from
         // final bind, and caused the later correctly sealed attempt to die as
         // ONE_EXECUTABLE_BUY_PER_MINT_VERSION.
-        val fdgIntent6519 = immutableTicket ?: return blocked(
-            "AUTHORITY_INVARIANT_FAILURE", "EXEC_INTENT_MISSING_AT_FINAL_BIND_6519", shadow = mode == "PAPER",
-        )
+        //
+        // V5.0.6673 §EXEC_INTENT_SYNTHESIS_FROM_SEALED_AUTHORITY (Fire B).
+        // Operator dump Feb 2026 showed 682× EXEC_INTENT_MISSING_AT_FINAL_
+        // BIND_6519 blocks in one session — every one of them past the
+        // upstream FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519 check (which fires
+        // when all three of immutableTicket/ticketAuthority6564/immutable
+        // Authority6513 are null). Root cause: the owner-election path
+        // frequently publishes `ticketAuthority6564` OR `immutableAuthority
+        // 6513` without also materialising the parallel ExecutionIntent
+        // object that this final bind hard-requires. Fix: synthesize a
+        // minimal ExecutionIntent from the strongest available sealed
+        // authority so the same executable envelope carries through to the
+        // executor. Fail-back to the original block only when NO seal
+        // exists in any form (the upstream check catches this case first).
+        val fdgIntent6519 = immutableTicket ?: run {
+            val synthLane6673 = canonicalSelectedLane.ifBlank { lane }
+            val synthSize6673 = effectiveResolvedSize6497.coerceAtLeast(0.0)
+            val synthVerdict6673 = when {
+                ticketAuthority6564?.fdgAllowed == true &&
+                    ticketAuthority6564.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY") &&
+                    ticketAuthority6564.hardNoReasons.isEmpty() -> ticketAuthority6564.fdgVerdict.uppercase()
+                immutableAuthority6513?.verdict?.uppercase() in setOf("BUY", "PROBE_ONLY") &&
+                    immutableAuthority6513?.authoritativeSignal == "BUY" -> immutableAuthority6513!!.verdict.uppercase()
+                sealedBuyIntent6608 -> "BUY"
+                else -> ""
+            }
+            if (synthVerdict6673.isBlank()) {
+                return blocked("AUTHORITY_INVARIANT_FAILURE", "EXEC_INTENT_MISSING_AT_FINAL_BIND_6519", shadow = mode == "PAPER")
+            }
+            val synthSource6673 = when {
+                ticketAuthority6564 != null -> "TICKET_AUTHORITY_6564"
+                immutableAuthority6513 != null -> "IMMUTABLE_AUTHORITY_6513"
+                else -> "SEALED_ENVELOPE_6608"
+            }
+            val synthAuthorityVersion6673 = immutableAuthority6513?.authorityVersion
+                ?: ticketAuthority6564?.authorityVersion
+                ?: 6673L
+            val synthCandidateId6673 = "$mint:$candidateVersion"
+            val synthesized = ExecutionIntent(
+                attemptId = execKey,
+                candidateId = synthCandidateId6673,
+                candidateVersion = candidateVersion,
+                mint = mint,
+                mode = modeUpper,
+                canonicalLane = synthLane6673,
+                fdgVerdict = synthVerdict6673,
+                fdgAllowed = true,
+                authorityVersion = synthAuthorityVersion6673,
+                resolvedSize = synthSize6673,
+                createdAt = System.currentTimeMillis(),
+                symbol = symbol,
+                primaryLane = synthLane6673,
+                authoritativeSignal = "BUY",
+                safetyVerdict = safetyTier,
+                fdgReason = "SYNTHESIZED_FROM_${synthSource6673}",
+                diagnosticSignal = signal.ifBlank { "UNKNOWN" },
+                safetyTier = safetyTier,
+                liquidityUsd = liquidityUsd,
+                rugScore = rug,
+                hardNoReasons = hardNoReasons,
+                requiresSolanaTokenMap = stateRequiresSolanaTokenMap6533,
+            )
+            try {
+                PipelineHealthCollector.labelInc("EXEC_INTENT_SYNTHESIZED_FROM_SEAL_6673")
+                PipelineHealthCollector.labelInc("EXEC_INTENT_SYNTHESIZED_FROM_${synthSource6673}_6673")
+                ForensicLogger.lifecycle(
+                    "EXEC_INTENT_SYNTHESIZED_FROM_SEAL_6673",
+                    "attemptId=$execKey mint=${mint.take(10)} symbol=$symbol lane=$synthLane6673 " +
+                        "sealSource=$synthSource6673 verdict=$synthVerdict6673 " +
+                        "resolvedSize=$synthSize6673 candidateVersion=$candidateVersion " +
+                        "action=carry_seal_through_final_bind_no_block",
+                )
+            } catch (_: Throwable) {}
+            synthesized
+        }
         val claimKey6487 = executableClaimKey6487(modeUpper, mint, candidateVersion)
         val priorClaim6487 = executableBuyClaim6487.putIfAbsent(claimKey6487, execKey)
         if (priorClaim6487 != null && priorClaim6487 != execKey) {

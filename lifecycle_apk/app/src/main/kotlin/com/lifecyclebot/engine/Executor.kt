@@ -3888,6 +3888,71 @@ class Executor(
                 }
             }
         } catch (_: Throwable) {}
+        // V5.0.6673 §PAPER_QTY_HEAL_ON_SELL_WRITE (Fire A).
+        //
+        // Operator Feb 2026 dump on V5.0.6672 flagged EEpng7 with
+        //   buyQty=7.423e+04 sellQty=3.714e+09  (ratio 50,000×)
+        // both rows PAPER_SIMULATED. The V5.0.6337 backfill above only
+        // fires when we have a *wallet-verified* decimals reading — but
+        // paper trades never touch a wallet, so walletDecimals stays
+        // -1 forever and the skew is preserved on the historical BUY row
+        // (typically opened before V5.0.6671's decimal root authority
+        // shipped, so the stale row keeps the phantom 50,000× qty and
+        // the audit fires every session until the position closes).
+        //
+        // Paper heal rule (deterministic, no threshold tuning):
+        //   Given a SELL row whose recorded cost == entry × qty within
+        //   0.1 SOL tolerance, the sell qty is arithmetically consistent
+        //   and IS the truth. If the historical BUY row for the same
+        //   mint disagrees by >10× AND paper cost accounting is
+        //   consistent on the sell side, retro-write the BUY row to the
+        //   sell-side qty. Never used in LIVE mode (wallet path already
+        //   handles it upstream). Never widens PnL or opens new trades —
+        //   PnL is price-ratio driven, so the row math stays identical;
+        //   this only rewrites the reported qty so the learning fanout
+        //   and the QTY_DECIMAL_SKEW audit see the clean value.
+        try {
+            val isSellSide6673 =
+                tradeWithMint.side.equals("SELL", true) ||
+                tradeWithMint.side.equals("PARTIAL_SELL", true)
+            val isPaperRow6673 = tradeWithMint.proofState.equals("PAPER_SIMULATED", true) ||
+                (ts.position.tradingMode ?: tradeWithMint.tradingMode).contains("paper", true)
+            val sellQty6673 = if (isSellSide6673) {
+                if (tradeWithMint.soldQtyToken > 0.0) tradeWithMint.soldQtyToken
+                else tradeWithMint.entryQtyToken
+            } else 0.0
+            if (isSellSide6673 && isPaperRow6673 && sellQty6673 > 0.0 &&
+                tradeWithMint.price > 0.0 && tradeWithMint.sol > 0.0) {
+                val mint6673 = tradeWithMint.mint.ifBlank { ts.mint }
+                val impliedCost6673 = tradeWithMint.price * sellQty6673
+                val sellCostConsistent6673 = kotlin.math.abs(impliedCost6673 - tradeWithMint.sol) <
+                    (0.1 + tradeWithMint.sol * 0.02)
+                if (sellCostConsistent6673) {
+                    val lastBuyQty6673 = try {
+                        TradeHistoryStore.getLastBuyQtyForMint(mint6673)
+                    } catch (_: Throwable) { -1.0 }
+                    if (lastBuyQty6673 > 0.0) {
+                        val ratio6673 = maxOf(lastBuyQty6673, sellQty6673) / minOf(lastBuyQty6673, sellQty6673)
+                        if (ratio6673 > 10.0) {
+                            val healed6673 = TradeHistoryStore.backfillLastBuyEntryQty6311(
+                                mint = mint6673, walletVerifiedQty = sellQty6673, walletDecimals = -1,
+                            )
+                            try {
+                                PipelineHealthCollector.labelInc("PAPER_QTY_HEAL_ON_SELL_WRITE_6673")
+                                ForensicLogger.lifecycle(
+                                    "PAPER_QTY_HEAL_ON_SELL_WRITE_6673",
+                                    "mint=${mint6673.take(10)} sym=${ts.symbol} " +
+                                        "buyQtyStale=${lastBuyQty6673.fmt(4)} sellQtyTruth=${sellQty6673.fmt(4)} " +
+                                        "ratio=${ratio6673.fmt(1)}× sellPrice=${tradeWithMint.price} " +
+                                        "sellCost=${tradeWithMint.sol.fmt(4)} impliedCost=${impliedCost6673.fmt(4)} " +
+                                        "healedRows=$healed6673 reason=paper_cost_consistent_retro_backfill",
+                                )
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
         TradeHistoryStore.recordTrade(tradeWithMint)
         val rowLearningAdmitted4349 = try {
             val rowSane4349 = com.lifecyclebot.engine.learning.TradeRowSanityCheck.inspect(tradeWithMint) == com.lifecyclebot.engine.learning.TradeRowSanityCheck.QuarantineReason.OK

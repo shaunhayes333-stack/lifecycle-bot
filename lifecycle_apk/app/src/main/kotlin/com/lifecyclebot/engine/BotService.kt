@@ -26138,13 +26138,34 @@ if (hotExitHandledSweep) {
 
         // V5.0.6614 — every counted specialist BUY intent receives one
         // same-identity FDG terminal outcome before any SHADOW/REJECT return.
+        val candidateVersion6614 = LaneExecutionCoordinator.candidateVersionFor(identity.mint)
+            .takeIf { it > 0L } ?: 1L
         val specialistCausalId6614 = authResult.attemptId.ifBlank {
-            "${BotRuntimeController.currentGeneration()}:${LaneExecutionCoordinator.candidateVersionFor(identity.mint)}:$cyclePrimaryLane"
+            // V5.0.6673 §SPECIALIST_CAUSAL_ID_CANONICAL_FORMAT (Fire C).
+            // Previously the fallback emitted 3-part "gen:ver:lane" which the
+            // ToolkitSignalSheet parser at line 617 mis-decoded: it treated
+            // the generation as mint and the lane as an untyped tail. Every
+            // SIZED_EXECUTABLE / TICKET / EXEC stamp after that indexed into
+            // a bogus record whose mint was the generation number — so the
+            // laneSnapshot6647 invariant (SIZE requires DISCOVER+INTENT+MARK
+            // on the SAME record) always failed and sizedN reported 0 even
+            // though trades sized/ticketed/executed correctly. Every meme
+            // specialist role liveness line showed SIZING_CHOKED even while
+            // finalizedN > 0. Fix: emit the same 7-part canonical execution
+            // key that the primary path uses so the parser recovers the real
+            // mint and version. Now sizedN/ticketN reflect real state.
+            ExecutableOpenGate.canonicalExecutionKey(
+                mint = identity.mint,
+                mode = if (cfg.paperMode) "PAPER" else "LIVE",
+                side = "BUY",
+                lane = cyclePrimaryLane,
+                candidateVersion = candidateVersion6614,
+            )
         }
-        val candidateVersion6614 = authResult.candidateVersion6494.takeIf { it > 0L }
-            ?: LaneExecutionCoordinator.candidateVersionFor(identity.mint)
+        val effectiveCandidateVersion6614 = authResult.candidateVersion6494.takeIf { it > 0L }
+            ?: candidateVersion6614
         var specialistIntent6614 = ExecutableOpenGate.activeExecutionIntent6519(
-            if (cfg.paperMode) "PAPER" else "LIVE", identity.mint, candidateVersion6614,
+            if (cfg.paperMode) "PAPER" else "LIVE", identity.mint, effectiveCandidateVersion6614,
         )
         if (authResult.isExecutable() && specialistIntent6614 == null) {
             specialistIntent6614 = ExecutableOpenGate.recordFdgAndGetIntent6533(
@@ -26154,7 +26175,7 @@ if (hotExitHandledSweep) {
                 rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name,
                 liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons,
                 preFdgVerdict = if (fdgDecision.canExecute()) "BUY" else "NO_BUY",
-                candidateVersion = candidateVersion6614, entryScore = ts.lastV3Score ?: ts.entryScore.toInt(),
+                candidateVersion = effectiveCandidateVersion6614, entryScore = ts.lastV3Score ?: ts.entryScore.toInt(),
                 tokenMapRouteStatus = tokenMap6614.routeStatus,
                 tokenMapHydrationComplete = tokenMap6614.hydrationComplete,
                 tokenMapExpectedOut = tokenMap6614.expectedOutAmount,
