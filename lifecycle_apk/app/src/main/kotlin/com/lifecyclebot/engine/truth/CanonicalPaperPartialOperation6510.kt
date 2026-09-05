@@ -127,11 +127,11 @@ object CanonicalPaperPartialOperation6510 {
                     positionId = pre.positionId,
                     entryTsMs = pre.openedAtMs,
                     entryPriceSnapshot = pre.entryPriceUsd,
-                    // The journal row represents the disposed slice. Using the
-                    // original whole-lot qty/cost here triggers the legacy
-                    // phantom-basis recomputer and rewrites a valid partial as a
-                    // large loss. Bind qty and cost to this exact sold slice.
-                    entryQtyToken = soldQtyToken,
+                    // This is a modern typed receipt; raw fields are the quantity
+                    // authority. Keep display entryQty at zero so 6373D's legacy
+                    // qty×USD-price-vs-SOL-basis heuristic cannot rewrite this
+                    // canonical receipt's PnL. soldQtyToken remains populated for UI.
+                    entryQtyToken = 0.0,
                     entryCostSol = basis,
                     entryDecimals = scale,
                     soldQtyToken = soldQtyToken,
@@ -140,6 +140,7 @@ object CanonicalPaperPartialOperation6510 {
                     canonicalConsumedRaw = r.canonicalConsumedRaw,
                     remainingRawQty = r.postRemainingRaw,
                     tokenDecimals = scale,
+                    operationId = r.economicEventId,
                     partialSequence = sequence,
                     soldCostBasisSol = basis,
                     grossProceedsSol = gross,
