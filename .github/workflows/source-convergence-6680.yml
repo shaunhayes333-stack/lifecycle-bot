@@ -1,0 +1,80 @@
+name: One-shot source convergence 6680
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/source-convergence-6680.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  converge-paper-reject-telemetry:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Remove stacked PAPER_BUY_NOT_OPENED counters
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path('lifecycle_apk')
+          executor_path = root / 'app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt'
+          guard_path = root / 'ci/patch_rot_scan.py'
+
+          executor = executor_path.read_text()
+          duplicate = (
+              '                try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED") } catch (_: Throwable) {}\n'
+              '                try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_PRESALE_SNIPE_51K_RUG_6373F") } catch (_: Throwable) {}\n'
+          )
+          duplicate_count = executor.count(duplicate)
+          if duplicate_count != 1:
+              raise SystemExit(f'6680: expected one stacked presale PAPER_BUY_NOT_OPENED counter pair, found {duplicate_count}')
+          executor = executor.replace(
+              duplicate,
+              '                // V5.0.6680 — terminal reject telemetry is emitted exactly once by markPaperBuyNotOpened below.\n',
+              1,
+          )
+          if executor.count('PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED")') != 1:
+              raise SystemExit('6680: aggregate PAPER_BUY_NOT_OPENED must have exactly one production increment owner')
+          if 'PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_PRESALE_SNIPE_51K_RUG_6373F")' in executor:
+              raise SystemExit('6680: presale reason-specific manual increment survived')
+          executor_path.write_text(executor)
+
+          guard = guard_path.read_text()
+          if 'PAPER_BUY_NOT_OPENED_SINGLE_COUNTER_OWNER_6680' not in guard:
+              insertion = guard.index('    # A prior Golden Tape assertion')
+              lines = [
+                  '    executor = (SRC / "com/lifecyclebot/engine/Executor.kt").read_text()',
+                  '    paper_not_opened_owners = executor.count(\'PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED")\')',
+                  '    if paper_not_opened_owners != 1:',
+                  '        errors.append(f"PAPER_BUY_NOT_OPENED_SINGLE_COUNTER_OWNER_6680: expected 1 owner, found {paper_not_opened_owners}")',
+                  '    forbid(errors, executor, \'PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_PRESALE_SNIPE_51K_RUG_6373F")\', "PAPER_PRESALE_REJECT_DYNAMIC_REASON_ONLY_6680")',
+                  '',
+                  '',
+              ]
+              guard = guard[:insertion] + '\n'.join(lines) + guard[insertion:]
+          guard_path.write_text(guard)
+          PY
+
+      - name: Verify authority and patch-rot guards
+        working-directory: lifecycle_apk
+        run: |
+          python3 ci/authority_contradiction_scan.py
+          python3 ci/patch_rot_scan.py
+
+      - name: Commit converged source and remove one-shot workflow
+        shell: bash
+        run: |
+          git config user.name 'AATE Source Convergence'
+          git config user.email 'actions@users.noreply.github.com'
+          git rm .github/workflows/source-convergence-6680.yml
+          git add lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt \
+                  lifecycle_apk/ci/patch_rot_scan.py
+          git commit -m 'fix: make paper reject telemetry single-owner [skip-source-convergence-6680]'
+          git push origin HEAD:main
