@@ -65,44 +65,46 @@ class Aate6659CryptoRoundTripReconciliationTest {
     }
 
     @Test
-    fun `paper close carries exact canonical receipt into journal before stop return`() {
-        listOf(
-            "economicEventId = r.economicEventId",
-            "grossProceedsSol = r.grossProceedsSol",
-            "soldCostBasisSol = r.soldCostBasisSol",
-            "canonicalConsumedRaw = r.canonicalConsumedRaw",
-            "postRemainingRaw = r.postRemainingRaw",
-        ).forEach { field -> assertTrue("canonical close result must preserve $field", transaction.contains(field)) }
+fun `paper close journal belongs only to canonical reducer before stop return`() {
+    listOf(
+        "economicEventId = r.economicEventId",
+        "grossProceedsSol = r.grossProceedsSol",
+        "soldCostBasisSol = r.soldCostBasisSol",
+        "canonicalConsumedRaw = r.canonicalConsumedRaw",
+        "postRemainingRaw = r.postRemainingRaw",
+    ).forEach { field -> assertTrue("canonical close result must preserve $field", transaction.contains(field)) }
 
-        val close = crypto.substringAfter("private fun closePosition(positionId: String, reason: String)")
-        val exactJournal = close.indexOf("CRYPTO_ROUND_TRIP_JOURNAL_COMMITTED_6659")
-        val fastStop = close.indexOf("if (reason == \"USER_STOP\"")
-        assertTrue("exact SELL journal must run before USER_STOP can return", exactJournal in 1 until fastStop)
-        assertTrue(close.contains("economicEventId = receipt.economicEventId"))
-        assertTrue(close.contains("canonicalConsumedRaw = receipt.canonicalConsumedRaw"))
-        assertTrue(close.contains("soldCostBasisSol = basis, grossProceedsSol = gross"))
-        assertTrue(close.contains("positionId = pos.id"))
+    val reducerClose = transaction.substringAfter("fun close(positionId: String")
+        .substringBefore("fun refund(positionId: String")
+    val terminalMutation = reducerClose.indexOf("CanonicalPaperTerminalBridge6469.finalizeSell(")
+    val canonicalJournal = reducerClose.indexOf("recordCloseProjection6659(pos, r, exitReason, terminal)")
+    val reducerReturn = reducerClose.indexOf("applied = true", canonicalJournal)
+    assertTrue("canonical reducer must journal after terminal mutation", terminalMutation in 1 until canonicalJournal)
+    assertTrue("canonical reducer must journal before returning to any trader", canonicalJournal in 1 until reducerReturn)
+    assertTrue(reducerClose.contains("economicEventId = receipt.economicEventId"))
+    assertTrue(reducerClose.contains("grossProceedsSol = gross"))
 
-        val reducerClose = transaction.substringAfter("fun close(positionId: String")
-            .substringBefore("fun refund(positionId: String")
-        val terminalMutation = reducerClose.indexOf("CanonicalPaperTerminalBridge6469.finalizeSell(")
-        val canonicalJournal = reducerClose.indexOf("recordCloseProjection6659(pos, r, exitReason, terminal)")
-        val reducerReturn = reducerClose.indexOf("applied = true", canonicalJournal)
-        assertTrue("canonical reducer must journal after terminal mutation", terminalMutation in 1 until canonicalJournal)
-        assertTrue("canonical reducer must journal before returning to any trader", canonicalJournal in 1 until reducerReturn)
-        assertTrue(reducerClose.contains("economicEventId = receipt.economicEventId"))
-        assertTrue(reducerClose.contains("grossProceedsSol = gross"))
-    }
+    val close = crypto.substringAfter("private fun closePosition(positionId: String, reason: String)")
+    val localCleanup = close.indexOf("positions.remove(positionId)")
+    val canonicalClose = close.indexOf("CanonicalPaperTransaction6486.close(")
+    val fastStop = close.indexOf("if (reason == \"USER_STOP\"")
+    assertTrue("canonical close must finish before local cleanup", canonicalClose in 1 until localCleanup)
+    assertTrue("canonical close must finish before USER_STOP can return", canonicalClose in 1 until fastStop)
+    val paperPrefix = close.substring(0, localCleanup)
+    assertFalse("CryptoAlt caller must not write a second paper journal row", paperPrefix.contains("TradeHistoryStore.recordTrade("))
+    assertFalse(crypto.contains("CRYPTO_ROUND_TRIP_JOURNAL_COMMITTED_6659"))
+    assertFalse(crypto.contains("canonicalCloseReceipt6659"))
+}
 
     @Test
-    fun `paper close has one terminal publisher and no legacy symbol keyed sell`() {
-        assertTrue(crypto.contains("if (!paper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit("))
-        assertTrue(crypto.contains("if (!paper) try {\n            TradeHistoryStore.recordTrade(Trade("))
-        val exactPaperBlock = crypto.substringAfter("if (pos.isPaper) {\n            val receipt = canonicalCloseReceipt6659")
-            .substringBefore("positions.remove(positionId)")
-        assertTrue(exactPaperBlock.contains("mint = pos.canonicalAssetKey"))
-        assertFalse(exactPaperBlock.contains("mint = mktSym"))
-    }
+fun `paper close has one canonical terminal publisher and live journal stays live only`() {
+    assertTrue(crypto.contains("if (!paper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit("))
+    assertTrue(crypto.contains("if (!paper) try {\n            TradeHistoryStore.recordTrade(Trade("))
+    val close = crypto.substringAfter("private fun closePosition(positionId: String, reason: String)")
+    val paperPrefix = close.substringBefore("positions.remove(positionId)")
+    assertTrue(paperPrefix.contains("CanonicalPaperTransaction6486.close("))
+    assertFalse(paperPrefix.contains("TradeHistoryStore.recordTrade("))
+}
 
     @Test
     fun `typed crypto close bypasses only the Solana mint quarantine domain`() {

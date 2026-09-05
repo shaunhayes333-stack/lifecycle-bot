@@ -3198,10 +3198,6 @@ object CryptoAltTrader {
         }
         val mktSym = pos.marketSymbol
         val settlementPnl6486 = pos.getPnlSol()
-        var canonicalCloseReceipt6659: com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.Result? = null
-        val canonicalBeforeClose6659 = if (pos.isPaper) try {
-            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pos.id)
-        } catch (_: Throwable) { null } else null
         if (pos.isPaper) {
             val canonicalClose6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.close(
                 positionId = pos.id, mint = pos.canonicalAssetKey, symbol = mktSym,
@@ -3214,7 +3210,6 @@ object CryptoAltTrader {
                 ErrorLogger.warn(TAG, "PAPER CLOSE REJECTED: $mktSym ${canonicalClose6486.reason}")
                 return
             }
-            canonicalCloseReceipt6659 = canonicalClose6486
         } else {
             val closeSuccess6486 = try {
                 kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
@@ -3237,44 +3232,11 @@ object CryptoAltTrader {
             if (!closeSuccess6486) return
         }
 
-        // V5.0.6659 — the old CryptoAlt close discarded the canonical receipt
-        // and later wrote a legacy SELL keyed only by display symbol.  The
-        // ledger mutated under one identity while the journal used another,
-        // leaving the event permanently uncommitted and the Crypto hero at
-        // ACCOUNT_UNAVAILABLE.  Persist the exact canonical receipt before any
-        // fast-stop return or optional learning side effect.
-        if (pos.isPaper) {
-            val receipt = canonicalCloseReceipt6659 ?: return
-            val basis = receipt.soldCostBasisSol.takeIf { it > 0.0 }
-                ?: canonicalBeforeClose6659?.let { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
-                ?: pos.sizeSol
-            val gross = receipt.grossProceedsSol
-            val fees = receipt.feesSol
-            val realized = gross - basis - fees
-            val pnlPct = if (basis > 0.0) realized * 100.0 / basis else 0.0
-            val scale = receipt.tokenDecimals.takeIf { it in 0..18 }
-                ?: canonicalBeforeClose6659?.quantityScale?.coerceIn(0, 18) ?: 9
-            val originalRaw = canonicalBeforeClose6659?.originalQtyRaw ?: receipt.preRemainingRaw
-            val originalQty = try { originalRaw.toBigDecimal().movePointLeft(scale).toDouble() } catch (_: Throwable) { 0.0 }
-            val soldQty = try { receipt.canonicalConsumedRaw.toBigDecimal().movePointLeft(scale).toDouble() } catch (_: Throwable) { 0.0 }
-            val remainingQty = try { receipt.postRemainingRaw.toBigDecimal().movePointLeft(scale).toDouble() } catch (_: Throwable) { 0.0 }
-            TradeHistoryStore.recordTrade(Trade(
-                side = "SELL", mode = "paper", sol = basis, price = pos.currentPrice,
-                ts = System.currentTimeMillis(), reason = "CryptoAlt:$reason",
-                pnlSol = realized, pnlPct = pnlPct, netPnlSol = realized,
-                score = pos.aiScore.toDouble(), tradingMode = if (pos.isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV",
-                tradingModeEmoji = "🪙", mint = pos.canonicalAssetKey,
-                proofState = "PAPER_SIMULATED", positionId = pos.id,
-                entryTsMs = pos.openTime, entryPriceSnapshot = pos.entryPrice,
-                entryQtyToken = originalQty, entryCostSol = canonicalBeforeClose6659?.entryCostSol ?: basis,
-                entryDecimals = scale, soldQtyToken = soldQty, remainingQtyToken = remainingQty,
-                entryRawQty = originalRaw, canonicalConsumedRaw = receipt.canonicalConsumedRaw,
-                remainingRawQty = receipt.postRemainingRaw, tokenDecimals = scale,
-                soldCostBasisSol = basis, grossProceedsSol = gross,
-                economicEventId = receipt.economicEventId,
-            ))
-            try { PipelineHealthCollector.labelInc("CRYPTO_ROUND_TRIP_JOURNAL_COMMITTED_6659") } catch (_: Throwable) {}
-        }
+        // V5.0.6678 — PAPER CLOSE JOURNAL AUTHORITY CONVERGENCE.
+// CanonicalPaperTransaction6486.close() performs terminal mutation and
+// durably projects that exact receipt into TradeHistoryStore before it
+// returns. CryptoAlt owns only local position cleanup after that boundary.
+// A second paper journal write here would be a contradictory patch stack.
         positions.remove(positionId)
         spotPositions.remove(positionId)
         leveragePositions.remove(positionId)

@@ -44,6 +44,10 @@ RETIRED_PRODUCTION_SYMBOLS = {
     "CANONICAL_MISSING_PARTIAL_JOURNAL_PROJECTED_6677": (
         "missing partial journal projection must be fixed at the canonical writer"
     ),
+    "CRYPTO_ROUND_TRIP_JOURNAL_COMMITTED_6659": (
+        "CryptoAlt caller-side paper journal projection is retired; canonical reducer owns it"
+    ),
+
 }
 
 
@@ -136,6 +140,13 @@ def main() -> int:
         "CanonicalPositionAuthority6441.getPosition(positionId)?.let { ensureOpenProjection6659(it) }",
         "PAPER_OPEN_MUTATION_SOURCE_PROJECTION_6678",
     )
+
+    crypto_alt = (SRC / "com/lifecyclebot/perps/CryptoAltTrader.kt").read_text()
+    crypto_close = crypto_alt.split("private fun closePosition(positionId: String, reason: String)", 1)[-1]
+    crypto_paper_prefix = crypto_close.split("positions.remove(positionId)", 1)[0]
+    require(errors, crypto_paper_prefix, "CanonicalPaperTransaction6486.close(", "CRYPTO_PAPER_CLOSE_CANONICAL_OWNER_6678")
+    forbid(errors, crypto_paper_prefix, "TradeHistoryStore.recordTrade(", "CRYPTO_PAPER_CLOSE_SINGLE_WRITER_6678")
+    forbid(errors, crypto_alt, "canonicalCloseReceipt6659", "CRYPTO_PAPER_CLOSE_STALE_RECEIPT_PATCH_6678")
 
     # A prior Golden Tape assertion required production to retain a deleted
     # constant-false branch, turning a correct source cleanup into a red build.
