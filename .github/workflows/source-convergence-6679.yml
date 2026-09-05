@@ -29,89 +29,128 @@ jobs:
           stock_path = root / 'app/src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt'
           guard_path = root / 'ci/patch_rot_scan.py'
 
-          # Perps: CanonicalPaperTransaction6486.close already journals and its
-          # TradeHistoryStore projection publishes the canonical outcome bus.
+          # --------------------------------------------------------------
+          # Perps: one PAPER terminal mutation/journal/outcome authority.
+          # --------------------------------------------------------------
           perps = perps_path.read_text()
-          old_publish = '        com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(\n            tradeIdSeed = trade.id,'
-          new_publish = '        if (!position.isPaper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(\n            tradeIdSeed = trade.id,'
-          if perps.count(old_publish) != 1:
-              raise SystemExit(f'6679: expected one unguarded Perps outcome publisher, found {perps.count(old_publish)}')
-          perps = perps.replace(old_publish, new_publish, 1)
 
-          old_journal_head = '''        // V5.9.248: Wire perps trades into shared journal (live + paper tabs)
-          try {
-              val modeStr248 = if (position.isPaper) "paper" else "live"
-              val dirEmoji = if (position.direction.name == "LONG") "📈" else "📉"
-              TradeHistoryStore.recordTrade(Trade(
-                  side             = "SELL",
-                  mode             = modeStr248,
-          '''.replace('\n          ', '\n')
-          new_journal_head = '''        // V5.0.6679 — PAPER is already journaled by CanonicalPaperTransaction6486.close.
-          // Keep this legacy presentation receipt LIVE-only; otherwise it creates an
-          // unkeyed second SELL and a second CanonicalOutcomeBus terminal event.
-          if (!position.isPaper) try {
-              val dirEmoji = if (position.direction.name == "LONG") "📈" else "📉"
-              TradeHistoryStore.recordTrade(Trade(
-                  side             = "SELL",
-                  mode             = "live",
-          '''.replace('\n          ', '\n')
-          if perps.count(old_journal_head) != 1:
-              raise SystemExit(f'6679: expected one Perps legacy journal head, found {perps.count(old_journal_head)}')
-          perps = perps.replace(old_journal_head, new_journal_head, 1)
-
-          duplicate_fluid = '''                // V5.9.8: Sync to FluidLearning shared pool
-                          try {
-                              val pnlSolVal = pnlSol
-                              if (position.isPaper) com.lifecyclebot.engine.FluidLearning.recordPaperSell(position.market.symbol, position.sizeSol, pnlSolVal)
-                          } catch (_: Exception) {}
-          '''.replace('\n                          ', '\n')
-          if perps.count(duplicate_fluid) != 1:
-              raise SystemExit(f'6679: expected one duplicate Perps FluidLearning fanout, found {perps.count(duplicate_fluid)}')
-          perps = perps.replace(
-              duplicate_fluid,
-              '                // V5.0.6679: paper FluidLearning SELL is recorded once on the synchronous close path.\n',
+          publish_marker = '        // V5.0.6564 — Perps local learning is not sufficient:'
+          publish_start = perps.index(publish_marker)
+          publish_end = perps.index('        // Add to recent trades', publish_start)
+          publish_block = perps[publish_start:publish_end]
+          publish_call = '        com.lifecyclebot.engine.CanonicalPublishHelper.publishExit('
+          if publish_block.count(publish_call) != 1:
+              raise SystemExit(f'6679: expected one Perps explicit outcome publisher, found {publish_block.count(publish_call)}')
+          publish_block = publish_block.replace(
+              publish_call,
+              '        if (!position.isPaper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(',
               1,
+          )
+          perps = perps[:publish_start] + publish_block + perps[publish_end:]
+
+          journal_marker = '        // V5.9.248: Wire perps trades into shared journal (live + paper tabs)'
+          journal_start = perps.index(journal_marker)
+          journal_end = perps.index('\n        save()', journal_start)
+          journal_block = perps[journal_start:journal_end]
+          if journal_block.count('TradeHistoryStore.recordTrade(Trade(') != 1:
+              raise SystemExit(f'6679: expected one legacy Perps direct journal writer, found {journal_block.count("TradeHistoryStore.recordTrade(Trade(")}')
+          if 'val modeStr248 = if (position.isPaper) "paper" else "live"' not in journal_block:
+              raise SystemExit('6679: expected mutable Perps journal mode selector not found')
+          if 'mode             = modeStr248,' not in journal_block:
+              raise SystemExit('6679: expected mutable Perps journal mode assignment not found')
+          if '\n        try {\n' not in journal_block:
+              raise SystemExit('6679: expected Perps journal try boundary not found')
+
+          journal_block = journal_block.replace(
+              journal_marker,
+              '        // V5.0.6679 — PAPER is already journaled by CanonicalPaperTransaction6486.close.\n'
+              '        // This legacy presentation receipt is LIVE-only so PAPER cannot create a second\n'
+              '        // unkeyed SELL or a second CanonicalOutcomeBus terminal event.',
+              1,
+          )
+          journal_block = journal_block.replace('\n        try {\n', '\n        if (!position.isPaper) try {\n', 1)
+          journal_block = ''.join(
+              line for line in journal_block.splitlines(keepends=True)
+              if 'val modeStr248 = if (position.isPaper)' not in line
+          )
+          journal_block = journal_block.replace('mode             = modeStr248,', 'mode             = "live",', 1)
+          perps = perps[:journal_start] + journal_block + perps[journal_end:]
+
+          fluid_marker = '                // V5.9.8: Sync to FluidLearning shared pool'
+          fluid_start = perps.index(fluid_marker)
+          fluid_end = perps.index('                ErrorLogger.debug(TAG, "🎬 Trade recorded for learning:', fluid_start)
+          fluid_block = perps[fluid_start:fluid_end]
+          if fluid_block.count('FluidLearning.recordPaperSell(') != 1:
+              raise SystemExit(f'6679: expected one duplicate async FluidLearning SELL, found {fluid_block.count("FluidLearning.recordPaperSell(")}')
+          perps = (
+              perps[:fluid_start]
+              + '                // V5.0.6679: PAPER FluidLearning SELL is recorded once on the synchronous close path.\n'
+              + perps[fluid_end:]
           )
 
           close = perps.split('fun closePosition(positionId: String, exitPrice: Double, exitReason: PerpsExitSignal)', 1)[-1]
+          if 'CanonicalPaperTransaction6486.close(' not in close:
+              raise SystemExit('6679: canonical Perps PAPER close owner missing')
           if 'if (!position.isPaper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(' not in close:
-              raise SystemExit('6679: Perps outcome publisher is not live-only')
-          if 'if (!position.isPaper) try {\n            val dirEmoji' not in close:
-              raise SystemExit('6679: Perps direct journal is not live-only')
+              raise SystemExit('6679: Perps explicit outcome publisher is not live-only')
           if 'modeStr248' in close:
-              raise SystemExit('6679: mutable Perps journal mode patch survived')
+              raise SystemExit('6679: mutable Perps terminal journal mode survived')
           if close.count('FluidLearning.recordPaperSell(') != 1:
               raise SystemExit(f'6679: Perps close has {close.count("FluidLearning.recordPaperSell(")} FluidLearning SELL fanouts, expected 1')
+          journal_check = close.split('// V5.0.6679 — PAPER is already journaled', 1)[-1].split('\n        save()', 1)[0]
+          if 'if (!position.isPaper) try {' not in journal_check or 'mode             = "live",' not in journal_check:
+              raise SystemExit('6679: Perps direct TradeHistoryStore receipt is not structurally live-only')
           perps_path.write_text(perps)
 
-          # Tokenized stocks use the same canonical paper close, so their
-          # explicit CanonicalPublishHelper terminal is also live-only.
+          # --------------------------------------------------------------
+          # Tokenized stock PAPER already uses canonical paper close.
+          # Keep its explicit outcome helper LIVE-only, matching CryptoAlt.
+          # --------------------------------------------------------------
           stock = stock_path.read_text()
-          old_stock_publish = '        com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(\n            tradeIdSeed = "${position.id}_$stockExitTs6564",'
-          new_stock_publish = '        if (!position.isPaper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(\n            tradeIdSeed = "${position.id}_$stockExitTs6564",'
-          if stock.count(old_stock_publish) != 1:
-              raise SystemExit(f'6679: expected one unguarded stock outcome publisher, found {stock.count(old_stock_publish)}')
-          stock = stock.replace(old_stock_publish, new_stock_publish, 1)
+          stock_marker = '        val stockExitTs6564 = System.currentTimeMillis()'
+          stock_start = stock.index(stock_marker)
+          stock_end = stock.index('\n        ', stock_start + len(stock_marker) + 1)
+          # Bound a larger local window because publishExit has a multiline payload.
+          stock_window_end = stock.index('        //', stock_start + len(stock_marker))
+          stock_block = stock[stock_start:stock_window_end]
+          stock_call = '        com.lifecyclebot.engine.CanonicalPublishHelper.publishExit('
+          if stock_block.count(stock_call) != 1:
+              # Fall back to the first helper call after the timestamp and bound by its closing parenthesis.
+              call_at = stock.index(stock_call, stock_start)
+              stock_window_end = stock.index('\n        )', call_at) + len('\n        )')
+              stock_block = stock[stock_start:stock_window_end]
+          if stock_block.count(stock_call) != 1:
+              raise SystemExit(f'6679: expected one tokenized-stock explicit outcome publisher, found {stock_block.count(stock_call)}')
+          stock_block = stock_block.replace(
+              stock_call,
+              '        if (!position.isPaper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(',
+              1,
+          )
+          stock = stock[:stock_start] + stock_block + stock[stock_window_end:]
           if 'if (!position.isPaper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(' not in stock:
-              raise SystemExit('6679: tokenized-stock outcome publisher is not live-only')
+              raise SystemExit('6679: tokenized-stock explicit outcome publisher is not live-only')
           stock_path.write_text(stock)
 
-          # Repository-level ratchet for these exact authority contracts.
+          # --------------------------------------------------------------
+          # Permanent repository ratchet for the exact authority contracts.
+          # --------------------------------------------------------------
           guard = guard_path.read_text()
-          contract = '''    perps_ai = (SRC / "com/lifecyclebot/perps/PerpsTraderAI.kt").read_text()
-              perps_close = perps_ai.split("fun closePosition(positionId: String, exitPrice: Double, exitReason: PerpsExitSignal)", 1)[-1]
-              require(errors, perps_close, "if (!position.isPaper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(", "PERPS_PAPER_OUTCOME_SINGLE_PUBLISHER_6679")
-              require(errors, perps_close, "if (!position.isPaper) try {\\n            val dirEmoji", "PERPS_PAPER_JOURNAL_CANONICAL_ONLY_6679")
-              forbid(errors, perps_close, "modeStr248", "PERPS_MUTABLE_TERMINAL_MODE_RETIRED_6679")
-              if perps_close.count("FluidLearning.recordPaperSell(") != 1:
-                  errors.append(f"PERPS_PAPER_FLUID_SINGLE_FANOUT_6679: expected 1 FluidLearning SELL, found {perps_close.count('FluidLearning.recordPaperSell(')}")
-
-              stock_trader = (SRC / "com/lifecyclebot/perps/TokenizedStockTrader.kt").read_text()
-              require(errors, stock_trader, "if (!position.isPaper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(", "STOCK_PAPER_OUTCOME_SINGLE_PUBLISHER_6679")
-
-          '''.replace('\n              ', '\n')
           if 'PERPS_PAPER_OUTCOME_SINGLE_PUBLISHER_6679' not in guard:
               insertion = guard.index('    # A prior Golden Tape assertion')
+              contract = '''    perps_ai = (SRC / "com/lifecyclebot/perps/PerpsTraderAI.kt").read_text()
+    perps_close = perps_ai.split("fun closePosition(positionId: String, exitPrice: Double, exitReason: PerpsExitSignal)", 1)[-1]
+    require(errors, perps_close, "if (!position.isPaper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(", "PERPS_PAPER_OUTCOME_SINGLE_PUBLISHER_6679")
+    forbid(errors, perps_close, "modeStr248", "PERPS_MUTABLE_TERMINAL_MODE_RETIRED_6679")
+    if perps_close.count("FluidLearning.recordPaperSell(") != 1:
+        errors.append(f"PERPS_PAPER_FLUID_SINGLE_FANOUT_6679: expected 1 FluidLearning SELL, found {perps_close.count('FluidLearning.recordPaperSell(')}")
+    perps_journal = perps_close.split("// V5.0.6679 — PAPER is already journaled", 1)[-1].split("\\n        save()", 1)[0]
+    require(errors, perps_journal, "if (!position.isPaper) try {", "PERPS_PAPER_JOURNAL_CANONICAL_ONLY_6679")
+    require(errors, perps_journal, 'mode             = "live",', "PERPS_LEGACY_JOURNAL_LIVE_MODE_6679")
+
+    stock_trader = (SRC / "com/lifecyclebot/perps/TokenizedStockTrader.kt").read_text()
+    require(errors, stock_trader, "if (!position.isPaper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(", "STOCK_PAPER_OUTCOME_SINGLE_PUBLISHER_6679")
+
+'''
               guard = guard[:insertion] + contract + guard[insertion:]
           guard_path.write_text(guard)
           PY
