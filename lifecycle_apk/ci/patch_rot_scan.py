@@ -162,6 +162,12 @@ def main() -> int:
     stock_trader = (SRC / "com/lifecyclebot/perps/TokenizedStockTrader.kt").read_text()
     require(errors, stock_trader, "if (!position.isPaper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(", "STOCK_PAPER_OUTCOME_SINGLE_PUBLISHER_6679")
 
+    executor = (SRC / "com/lifecyclebot/engine/Executor.kt").read_text()
+    paper_not_opened_owners = executor.count('PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED")')
+    if paper_not_opened_owners != 1:
+        errors.append(f"PAPER_BUY_NOT_OPENED_SINGLE_COUNTER_OWNER_6680: expected 1 owner, found {paper_not_opened_owners}")
+    forbid(errors, executor, 'PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_PRESALE_SNIPE_51K_RUG_6373F")', "PAPER_PRESALE_REJECT_DYNAMIC_REASON_ONLY_6680")
+
     # A prior Golden Tape assertion required production to retain a deleted
     # constant-false branch, turning a correct source cleanup into a red build.
     # Reject positive test contracts for the proven dead-patch sentinels while

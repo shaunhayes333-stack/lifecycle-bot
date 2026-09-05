@@ -12548,8 +12548,7 @@ class Executor(
                             "reason=resale_snipe_51k_rug_pattern_operator_snapshot",
                     )
                 } catch (_: Throwable) {}
-                try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED") } catch (_: Throwable) {}
-                try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_PRESALE_SNIPE_51K_RUG_6373F") } catch (_: Throwable) {}
+                // V5.0.6680 — terminal reject telemetry is emitted exactly once by markPaperBuyNotOpened below.
                 // V5.0.6497 §2 — terminal reject in the entry finality authority.
                 markPaperBuyNotOpened("PRESALE_SNIPE_51K_RUG_6373F")
                 return
