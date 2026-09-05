@@ -1,0 +1,38 @@
+name: Repair 6677 audit
+
+on:
+  push:
+    branches: [ 'repair/6677-nonregressive-finality' ]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect current partial finality wiring
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt')
+          s = p.read_text()
+          lines = s.splitlines()
+          print('BOT_SERVICE_LINES', len(lines))
+          needles = ['onPartialSell', 'PARTIAL_TAKE', 'PARTIAL:', 'requestPartial', 'partialSell', 'SellResult', 'QualityTraderAI', 'MoonshotTraderAI', 'BlueChipTraderAI', 'ShitCoinExpress', 'ManipulatedTraderAI', 'ShitCoinTraderAI']
+          for needle in needles:
+              hits = [i for i,l in enumerate(lines) if needle in l]
+              print(f'\n=== {needle} count={len(hits)} ===')
+              for i in hits[:80]:
+                  lo=max(0,i-10); hi=min(len(lines),i+16)
+                  block='\n'.join(f'{j+1:05d}: {lines[j]}' for j in range(lo,hi))
+                  print(block)
+                  print('---')
+
+          print('\n=== lane finality anti-patterns ===')
+          for f in Path('lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v3/scoring').glob('*.kt'):
+              t=f.read_text()
+              if 'partialRungsTaken' in t:
+                  print(f.name, 'preincrement=', 'partialRungsTaken += 1' in t, 'callback=', 'fun onPartialSell' in t)
+          PY
