@@ -25,21 +25,6 @@ import java.util.concurrent.ConcurrentHashMap
  *    classification / raise score / satisfy FDG / calculate
  *    executable quantity / create canonical entry snapshot / enter
  *    learner terminal truth."
- *
- * DESIGN
- * ──────
- *   fun classify(price, mcap, liquidity, source, poolAddress) :
- *       Provenance ∈ { AUTHORITATIVE, NON_AUTHORITATIVE_SENTINEL,
- *                      NON_AUTHORITATIVE_MISSING }
- *
- *   fun isExecutable(provenance)  ⇒ Boolean  (source of truth
- *       for the "is this data allowed to authorize a trade?" question)
- *
- * Detectors:
- *   1. Exact template tuple hits (0.05025 / 50m / 5m — 6470 field data).
- *   2. Zero/NaN/negative values.
- *   3. Pool address is a sentinel string ("MINT_ROUTE:...", "UNKNOWN", "").
- *   4. Source string is "UNKNOWN" / "fallback" / "cache_default".
  */
 object MarketDataProvenance6471 {
 
@@ -66,24 +51,12 @@ object MarketDataProvenance6471 {
     private val sentinelStates6615 = ConcurrentHashMap<String, SentinelState6615>()
     private const val SENTINEL_HEARTBEAT_MS_6615 = 5_000L
 
-    // 6470 field-data template tuple. If a mint's (price, mcap, liquidity)
-    // matches any of these known synthetic defaults, the tuple is a template.
     private data class TemplateTuple(val price: Double, val mcap: Double, val liquidity: Double)
     private val KNOWN_TEMPLATES = listOf(
         TemplateTuple(0.050250000, 50_000_000.0, 5_000_000.0),
     )
     private const val TEMPLATE_EPSILON = 1e-6
 
-    // V5.0.6658 §SENTINEL_PRICE_STANDALONE — operator dump Feb 2026 open
-    //   positions UI showed dozens of open positions at exact template
-    //   prices ($0.05025, $0.00005253, $0.0000005896, ...) sourced from
-    //   DEXSCREENER_PAIR_P with varying mcap/liquidity so the strict
-    //   3-tuple check missed them. These are provider-fallback prices
-    //   the operator's mandate calls out as NON_AUTHORITATIVE — flag
-    //   the price alone. If a real market ever quotes exactly the same
-    //   sentinel value, the classify caller can still admit it via
-    //   whitelisting the pool/source; the mandate is that placeholder
-    //   prices don't get to seal a canonical entry.
     private val SENTINEL_PRICES_STANDALONE_6658 = doubleArrayOf(
         0.050250000,
         0.000052530,
@@ -91,13 +64,74 @@ object MarketDataProvenance6471 {
     )
     private const val SENTINEL_PRICE_RELATIVE_EPSILON_6658 = 1e-6
 
-    // Source / pool tokens that mean "no real provider answered"
     private val SENTINEL_POOL_PREFIXES = listOf(
         "MINT_ROUTE:", "UNKNOWN", "PLACEHOLDER", "SENTINEL",
     )
     private val SENTINEL_SOURCES = setOf(
         "UNKNOWN", "FALLBACK", "CACHE_DEFAULT", "CACHE_TEMPLATE", "SYNTHETIC",
     )
+
+    private fun canonicalSource6674(source: String): String {
+        val s = source.trim().uppercase()
+        return when {
+            s.startsWith("DEXSCREENER") -> "DEXSCREENER"
+            s.startsWith("BIRDEYE") -> "BIRDEYE"
+            s.startsWith("GECKOTERMINAL") || s.startsWith("GECKO_TERMINAL") -> "GECKOTERMINAL"
+            s.startsWith("JUPITER") -> "JUPITER"
+            s.startsWith("PUMPFUN") || s.startsWith("PUMP_FUN") || s.startsWith("PUMP_PORTAL") -> "PUMPFUN"
+            else -> s
+        }
+    }
+
+    /**
+     * V5.0.6674 §CANONICALLY_PROVEN_MINT_ROUTE_EXECUTABLE.
+     *
+     * A MINT_ROUTE alias is still NON_AUTHORITATIVE by default. The only
+     * exception is when CanonicalPriceMarkRegistry6522 already contains an
+     * EXECUTABLE_ENTRY_QUOTE for the exact mint, produced by the existing
+     * source-evidence promotion path, and the immutable price/liquidity/source
+     * tuple reaching the executor matches that mark.
+     *
+     * This closes the source/patch contradiction where the registry had already
+     * proved the executable quote but Executor.mintEntryMarketSnapshot later
+     * rendered a temporary `MINT_ROUTE:<mint-prefix>` alias and the generic
+     * provenance classifier rejected the same trade. No unproven sentinel is
+     * promoted; absence or mismatch remains fail-closed.
+     */
+    private fun canonicallyProvenMintRoute6674(
+        identity: String,
+        pool: String,
+        source: String,
+        price: Double,
+        liquidity: Double,
+    ): Boolean {
+        if (identity.isBlank() || !pool.startsWith("MINT_ROUTE:", ignoreCase = true)) return false
+        val routeId = pool.substringAfter(':').trim()
+        if (routeId.isBlank()) return false
+        val identityMatchesAlias = identity.equals(routeId, ignoreCase = true) ||
+            identity.startsWith(routeId, ignoreCase = true)
+        if (!identityMatchesAlias) return false
+
+        val mark = try {
+            CanonicalPriceMarkRegistry6522.get(identity, CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE)
+        } catch (_: Throwable) { null } ?: return false
+        if (mark.mint != identity || mark.baseMint != identity) return false
+        if (!mark.pairId.equals("MINT_ROUTE:$identity", ignoreCase = true)) return false
+        if (mark.identityProof6613 != "CANONICAL_MINT_SOURCE_MARK_6613") return false
+        if (canonicalSource6674(mark.source) != canonicalSource6674(source)) return false
+
+        val markPrice = try { mark.priceUsd.value.toDouble() } catch (_: Throwable) { return false }
+        if (!markPrice.isFinite() || markPrice <= 0.0) return false
+        val priceTol = maxOf(1e-18, kotlin.math.abs(markPrice) * 1e-9)
+        if (kotlin.math.abs(markPrice - price) > priceTol) return false
+
+        val markLiq = try { mark.liquidityUsd?.toDouble() ?: return false } catch (_: Throwable) { return false }
+        if (!markLiq.isFinite() || markLiq <= 0.0 || !liquidity.isFinite() || liquidity <= 0.0) return false
+        val liqTol = maxOf(0.01, kotlin.math.abs(markLiq) * 1e-6)
+        if (kotlin.math.abs(markLiq - liquidity) > liqTol) return false
+
+        return true
+    }
 
     fun classify(
         price: Double,
@@ -120,12 +154,25 @@ object MarketDataProvenance6471 {
                     kotlin.math.abs(mcap - it.mcap) < 1.0 &&
                     kotlin.math.abs(liquidity - it.liquidity) < 1.0
             }) return recordSentinel(identityKey6615, "template_tuple($price/$mcap/$liquidity)")
-        // V5.0.6658 §SENTINEL_PRICE_STANDALONE — flag exact provider-fallback
-        // prices regardless of the (mcap, liquidity) pair. See list above.
         if (SENTINEL_PRICES_STANDALONE_6658.any {
                 it > 0.0 && kotlin.math.abs(price - it) <= it * SENTINEL_PRICE_RELATIVE_EPSILON_6658
             }) return recordSentinel(identityKey6615, "sentinel_price_standalone($price)")
         if (pool.isBlank()) return recordMissing("pool_blank")
+
+        // V5.0.6674 — consult existing executable mark proof BEFORE the generic
+        // MINT_ROUTE sentinel rule. This is a proof lookup, not a relaxation.
+        if (canonicallyProvenMintRoute6674(identity.trim(), pool, source, price, liquidity)) {
+            clearSentinel6615(identityKey6615)
+            try {
+                PipelineHealthCollector.labelInc("CANONICAL_MINT_ROUTE_EXECUTABLE_ADMITTED_6674")
+                ForensicLogger.lifecycle(
+                    "CANONICAL_MINT_ROUTE_EXECUTABLE_ADMITTED_6674",
+                    "mint=${identity.take(18)} pool=${pool.take(24)} src=$source price=$price liq=$liquidity action=admit_existing_executable_quote_proof",
+                )
+            } catch (_: Throwable) {}
+            return Provenance.AUTHORITATIVE
+        }
+
         if (SENTINEL_POOL_PREFIXES.any { pool.startsWith(it, ignoreCase = true) })
             return recordSentinel(identityKey6615, "pool_prefix($pool)")
         val src = source.trim().uppercase()
@@ -137,10 +184,6 @@ object MarketDataProvenance6471 {
 
     private fun recordSentinel(identity: String, reason: String): Provenance {
         sentinelHits.incrementAndGet()
-        // V5.0.6626 §RUNTIME_LOOP_UNCHOKE §1 — coalesced hot-label
-        // increment. Under 290k hits/uptime the direct labelInc call
-        // was compounding Main-thread frame gaps; the coalescer flushes
-        // once per second while preserving counter accuracy.
         try { HotLabelCoalescer6626.inc6626("MARKET_DATA_SENTINEL_6471") } catch (_: Throwable) {}
         val now = System.currentTimeMillis()
         val fingerprint = "$identity|$reason"
@@ -194,11 +237,6 @@ object MarketDataProvenance6471 {
         return Provenance.NON_AUTHORITATIVE_MISSING
     }
 
-    /**
-     * Source of truth for the "is this data allowed to authorize a trade?" question.
-     * The mandate demands NON_AUTHORITATIVE data MUST NOT calculate executable quantity,
-     * satisfy FDG, or create a canonical entry snapshot.
-     */
     fun isExecutable(p: Provenance): Boolean {
         val ok = p == Provenance.AUTHORITATIVE
         if (!ok) {
@@ -208,7 +246,6 @@ object MarketDataProvenance6471 {
         return ok
     }
 
-    /** Convenience: classify + return true only when executable. */
     fun isExecutable(
         price: Double, mcap: Double, liquidity: Double,
         source: String, poolAddress: String,
