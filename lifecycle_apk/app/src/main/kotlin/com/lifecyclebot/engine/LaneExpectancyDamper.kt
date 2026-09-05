@@ -3,12 +3,13 @@ package com.lifecyclebot.engine
 /**
  * V5.9.1273 — LaneExpectancyDamper
  *
- * DOCTRINE-CLEAN bleeder control. Reads the LIVE per-lane expectancy from
- * StrategyTelemetry (the same data shown in the pipeline "Strategy expectancy"
- * block) and returns a SIZE multiplier only — it NEVER vetoes a candidate.
- * Per operator doctrine #86 ("help don't hinder") and the PERFORMANCE_DOCTRINE
- * soft-shape rule, only the original veto whitelist may kill a candidate; this
- * organ may only shrink size on a PROVEN, statistically-meaningful bleeder.
+ * DOCTRINE-CLEAN bleeder control. Reads the CURRENT RUNTIME per-lane expectancy
+ * from StrategyTelemetry — PAPER terminal truth while paper trading and LIVE
+ * terminal truth while live trading — and returns a SIZE multiplier only. It
+ * NEVER vetoes a candidate. Per operator doctrine #86 ("help don't hinder")
+ * and the PERFORMANCE_DOCTRINE soft-shape rule, only the original veto whitelist
+ * may kill a candidate; this organ may only shrink size on a PROVEN,
+ * statistically-meaningful bleeder.
  *
  * Why this exists:
  *   The 3240 snapshot showed two pure capital incinerators that survive purely
@@ -19,10 +20,16 @@ package com.lifecyclebot.engine
  *   shrink the LANE's average exposure rather than blocking it, letting the
  *   learning loop (fixed in 1272) keep sampling and the good sub-slices survive.
  *
- * SELF-HEALING: the multiplier is recomputed from live telemetry every call. The
- * moment a lane's mean expectancy climbs back above the floor (because 1272's
- * clean labels let the scorer actually learn), the haircut releases automatically.
- * No persisted state, no manual re-enable.
+ * SELF-HEALING: the multiplier is recomputed from the active runtime's canonical
+ * terminal telemetry. The moment a lane's expectancy climbs back above the floor,
+ * the haircut releases automatically. No persisted state, no manual re-enable.
+ *
+ * V5.0.6675 §RUNTIME_EXPECTANCY_AUTHORITY — closes a source/patch contradiction:
+ * LiveStrategyTuner already switched between PAPER/LIVE truth using
+ * RuntimeModeAuthority, while this damper always read LIVE truth. In PAPER that
+ * made losing lanes appear absent ("no bleeders") and prevented paper learning
+ * from shaping the specialist allocator. The cache is now keyed by runtime mode
+ * as well, so a PAPER↔LIVE switch cannot reuse stale evidence from the other book.
  */
 object LaneExpectancyDamper {
 
@@ -133,9 +140,11 @@ object LaneExpectancyDamper {
     }
 
     // Cheap cache so we don't recompute the leaderboard on every single entry in
-    // a hot scan burst. Refresh window keeps it live without thrashing.
+    // a hot scan burst. V5.0.6675 keys it by runtime mode so PAPER/LIVE evidence
+    // can never leak across an execution-mode switch.
     private const val CACHE_MS = 5_000L
     @Volatile private var cacheAtMs = 0L
+    @Volatile private var cachePaperMode: Boolean? = null
     @Volatile private var cached: Map<String, Double> = emptyMap()
 
     /**
@@ -158,8 +167,9 @@ object LaneExpectancyDamper {
     /** Human-readable line for the pipeline dump (operator visibility). */
     fun statusLine(): String = try {
         val map = snapshot()
-        if (map.isEmpty()) "LaneExpectancyDamper: no bleeders (all lanes ≥ ${BLEEDER_MEAN_PCT}% or < $MIN_TRADES trades)"
-        else "LaneExpectancyDamper: " + map.entries.sortedBy { it.value }
+        val env = try { if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "LIVE" }
+        if (map.isEmpty()) "LaneExpectancyDamper[$env]: no bleeders (all lanes ≥ ${BLEEDER_MEAN_PCT}% or < $MIN_TRADES trades)"
+        else "LaneExpectancyDamper[$env]: " + map.entries.sortedBy { it.value }
             .joinToString(" · ") { "${it.key}×${"%.2f".format(it.value)}" }
     } catch (_: Throwable) {
         "LaneExpectancyDamper: unavailable"
@@ -167,17 +177,20 @@ object LaneExpectancyDamper {
 
     private fun snapshot(): Map<String, Double> {
         val now = System.currentTimeMillis()
+        val paperRuntime6675 = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
         val c = cached
-        if (now - cacheAtMs < CACHE_MS && c.isNotEmpty()) return c
-        val fresh = compute()
+        if (now - cacheAtMs < CACHE_MS && cachePaperMode == paperRuntime6675) return c
+        val fresh = compute(paperRuntime6675)
         cached = fresh
+        cachePaperMode = paperRuntime6675
         cacheAtMs = now
         return fresh
     }
 
-    private fun compute(): Map<String, Double> {
+    private fun compute(paperRuntime6675: Boolean): Map<String, Double> {
         val board = try {
-            StrategyTelemetry.computeCleanLiveTerminalLeaderboard()
+            if (paperRuntime6675) StrategyTelemetry.computeCleanPaperTerminalLeaderboard(limit = 1_500)
+            else StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
         } catch (_: Throwable) {
             return emptyMap()
         }

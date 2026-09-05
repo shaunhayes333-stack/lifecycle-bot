@@ -57,6 +57,10 @@ object MarketDataProvenance6471 {
     )
     private const val TEMPLATE_EPSILON = 1e-6
 
+    // V5.0.6658 §SENTINEL_PRICE_STANDALONE — observed template prices are
+    // non-authoritative even when mcap/liquidity drift away from the original
+    // template tuple. Keep this check independent of KNOWN_TEMPLATES so a
+    // sentinel price cannot become executable merely because another field varied.
     private val SENTINEL_PRICES_STANDALONE_6658 = doubleArrayOf(
         0.050250000,
         0.000052530,
