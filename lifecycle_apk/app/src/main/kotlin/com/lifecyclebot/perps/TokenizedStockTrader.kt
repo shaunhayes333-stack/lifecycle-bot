@@ -1743,7 +1743,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         // Publish the settled, event-local outcome to the shared causal bus so
         // entry tactic/score/mode can train the same intelligence stack as Meme.
         val stockExitTs6564 = System.currentTimeMillis()
-        com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(
+        if (!position.isPaper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(
             tradeIdSeed = "${position.id}_$stockExitTs6564",
             mint = position.market.symbol,
             symbol = position.market.symbol,

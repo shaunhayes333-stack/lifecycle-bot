@@ -148,6 +148,20 @@ def main() -> int:
     forbid(errors, crypto_paper_prefix, "TradeHistoryStore.recordTrade(", "CRYPTO_PAPER_CLOSE_SINGLE_WRITER_6678")
     forbid(errors, crypto_alt, "canonicalCloseReceipt6659", "CRYPTO_PAPER_CLOSE_STALE_RECEIPT_PATCH_6678")
 
+    perps_ai = (SRC / "com/lifecyclebot/perps/PerpsTraderAI.kt").read_text()
+    perps_close = perps_ai.split("fun closePosition(positionId: String, exitPrice: Double, exitReason: PerpsExitSignal)", 1)[-1]
+    require(errors, perps_close, "if (!position.isPaper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(", "PERPS_PAPER_OUTCOME_SINGLE_PUBLISHER_6679")
+    forbid(errors, perps_close, "modeStr248", "PERPS_MUTABLE_TERMINAL_MODE_RETIRED_6679")
+    perps_fluid_count = perps_close.count("FluidLearning.recordPaperSell(")
+    if perps_fluid_count != 1:
+        errors.append(f"PERPS_PAPER_FLUID_SINGLE_FANOUT_6679: expected 1 FluidLearning SELL, found {perps_fluid_count}")
+    perps_journal = perps_close.split("// V5.0.6679 — PAPER is already journaled", 1)[-1].split("\n        save()", 1)[0]
+    require(errors, perps_journal, "if (!position.isPaper) try {", "PERPS_PAPER_JOURNAL_CANONICAL_ONLY_6679")
+    require(errors, perps_journal, 'mode             = "live",', "PERPS_LEGACY_JOURNAL_LIVE_MODE_6679")
+
+    stock_trader = (SRC / "com/lifecyclebot/perps/TokenizedStockTrader.kt").read_text()
+    require(errors, stock_trader, "if (!position.isPaper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(", "STOCK_PAPER_OUTCOME_SINGLE_PUBLISHER_6679")
+
     # A prior Golden Tape assertion required production to retain a deleted
     # constant-false branch, turning a correct source cleanup into a red build.
     # Reject positive test contracts for the proven dead-patch sentinels while

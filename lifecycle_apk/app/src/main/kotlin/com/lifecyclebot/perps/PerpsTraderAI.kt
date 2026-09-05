@@ -1078,7 +1078,7 @@ object PerpsTraderAI {
         // V5.0.6564 — Perps local learning is not sufficient: publish the
         // settled event to the shared causal outcome bus with immutable entry
         // context so cross-lane intelligence can learn from paper Perps.
-        com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(
+        if (!position.isPaper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(
             tradeIdSeed = trade.id,
             mint = position.market.symbol,
             symbol = position.market.symbol,
@@ -1126,11 +1126,7 @@ object PerpsTraderAI {
                 val entryMarketData = PerpsMarketDataFetcher.getMarketData(position.market)
                 val exitMarketData = entryMarketData.copy(price = exitPrice)  // Use exit price
                 PerpsAutoReplayLearner.recordTrade(trade, entryMarketData, exitMarketData)
-                // V5.9.8: Sync to FluidLearning shared pool
-                try {
-                    val pnlSolVal = pnlSol
-                    if (position.isPaper) com.lifecyclebot.engine.FluidLearning.recordPaperSell(position.market.symbol, position.sizeSol, pnlSolVal)
-                } catch (_: Exception) {}
+                // V5.0.6679: PAPER FluidLearning SELL is recorded once on the synchronous close path.
                 ErrorLogger.debug(TAG, "🎬 Trade recorded for learning: ${trade.market.symbol} ${trade.direction.symbol}")
             } catch (e: Exception) {
                 ErrorLogger.debug(TAG, "🎬 Trade recording failed: ${e.message}")
@@ -1255,13 +1251,14 @@ object PerpsTraderAI {
             android.util.Log.d("PerpsTraderAI", "Sentience hook error: ${e.message}")
         }
 
-        // V5.9.248: Wire perps trades into shared journal (live + paper tabs)
-        try {
-            val modeStr248 = if (position.isPaper) "paper" else "live"
+        // V5.0.6679 — PAPER is already journaled by CanonicalPaperTransaction6486.close.
+        // Keep this presentation receipt LIVE-only so PAPER cannot create a second
+        // unkeyed SELL or a second CanonicalOutcomeBus terminal event.
+        if (!position.isPaper) try {
             val dirEmoji = if (position.direction.name == "LONG") "📈" else "📉"
             TradeHistoryStore.recordTrade(Trade(
                 side             = "SELL",
-                mode             = modeStr248,
+                mode             = "live",
                 sol              = position.sizeSol,
                 price            = exitPrice,
                 ts               = System.currentTimeMillis(),
