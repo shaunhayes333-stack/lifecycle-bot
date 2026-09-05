@@ -5670,3 +5670,34 @@ Operator dump on 5.0.6669 surfaced:
   inflate peak/curPnl and hold a losing position past its stop.
 
 Coverage: Aate6670DataIntegrityGuardTest.
+
+## V5.0.6671 (Feb 2026) — kill the wrapper-level lane fork
+Operator dump on 5.0.6670 showed EXEC_INTENT_MISSING_AT_FINAL_BIND_6519
+at 1885 hits (79% of allows) — every wrapper buy (dipHunter, moonshot,
+core, projectSniper, cyclic, express, shitcoin, manipulated, treasury,
+cryptoAlt) funnels through Executor.preflightExecutableOpen and passes
+its own lane. If the caller drifted from the sealed intent's canonicalLane,
+resolveSealedIntent6613 filtered the intent out and the gate blocked.
+
+§PREFLIGHT_LANE_INTENT_CONVERGENCE — preflightExecutableOpen now consults
+ExecutableOpenGate.activeExecutionIntent6519 first. When a sealed intent
+exists and its canonicalLane disagrees with the caller, substitutes the
+intent's canonicalLane for the request. Fail-open on exceptions —
+caller's lane is used unchanged. Emits PREFLIGHT_LANE_CONVERGED_TO_INTENT_6671
+so drift is measurable.
+
+Winrate impact: every wrapper specialist (BLUECHIP/MOONSHOT/DIP_HUNTER/
+EXPRESS/CORE/CYCLIC/MANIPULATED) stops rejecting at final-bind; SIZE/
+TICKET/EXEC stamps start incrementing on the specialist funnel; the
+1885 top-block collapses like FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519
+did (4899 → 6).
+
+ExitCoordinator stale resets (24) intentionally left alone — legitimate
+fencing of abandoned sweeps as the runner-bypass guard drains zombies.
+Skew learning quarantine (96) intentionally left alone — per-row learning
+exclusion, not mint block; source is sealed, count plateaus naturally.
+Wallet vs journal 3.863 SOL delta intentionally left alone — accumulated
+pre-fix leakage; sealed now at entry provenance + decimal-skew authority.
+Perps Neural Bridge P1 backlog — needs proper design pass.
+
+Coverage: Aate6670DataIntegrityGuardTest locks the convergence.
