@@ -75,4 +75,21 @@ class Aate6670DataIntegrityGuardTest {
             assertTrue("Executor must publish $label", executor.contains(label))
         }
     }
+
+    @Test
+    fun `preflightExecutableOpen converges caller lane to sealed intent canonicalLane`() {
+        assertTrue(
+            "preflightExecutableOpen must consult activeExecutionIntent6519 before dispatching to the open-gate",
+            executor.contains("V5.0.6671 §PREFLIGHT_LANE_INTENT_CONVERGENCE"),
+        )
+        assertTrue(
+            "convergedLane assignment must use the sealed intent's canonicalLane when it disagrees with the caller",
+            executor.contains("intentLane.equals(lane, true)") &&
+                executor.contains("PREFLIGHT_LANE_CONVERGED_TO_INTENT_6671"),
+        )
+        assertTrue(
+            "canOpen call must consume convergedLane (not the raw caller lane) so requestedLane matches intent canonicalLane",
+            executor.contains("lane = convergedLane,"),
+        )
+    }
 }

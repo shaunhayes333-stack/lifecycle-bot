@@ -13949,14 +13949,38 @@ class Executor(
         source: String,
         attemptId: String,
     ): ExecutableOpenGate.OpenVerdict {
+        // V5.0.6671 §PREFLIGHT_LANE_INTENT_CONVERGENCE — operator dump Feb
+        //   2026 (build 5.0.6670, 2872s uptime):
+        //     EXEC_GATE/EXEC_INTENT_MISSING_AT_FINAL_BIND_6519: 1885 (79%)
+        //
+        //   V5.0.6669 §LAYER_TAG_INTENT_CONVERGENCE fixed one derivation
+        //   of `finalityLane` but every wrapper buy (dipHunterBuy,
+        //   moonshotBuy, coreBuy, projectSniperBuy, etc.) still funnels
+        //   through this preflight and passes its own `lane` string
+        //   directly. If the caller drifted from the intent's canonicalLane
+        //   (TradingModeTag mapping, cached bot mode, tokenmap re-hydrate),
+        //   resolveSealedIntent6613 filters the sealed intent out by
+        //   canonicalLane and the gate blocks at final bind. Same
+        //   convergence trick: prefer the sealed intent's own canonicalLane
+        //   whenever the wrapper caller's lane disagrees.
+        //   Fail-open on any exception: caller's lane is used unchanged.
+        val convergedLane = try {
+            val version = try { LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
+            val intentLane = ExecutableOpenGate.activeExecutionIntent6519(if (isPaper) "PAPER" else "LIVE", ts.mint, version)
+                ?.canonicalLane?.takeIf { it.isNotBlank() }
+            if (!intentLane.isNullOrBlank() && !intentLane.equals(lane, true)) {
+                try { PipelineHealthCollector.labelInc("PREFLIGHT_LANE_CONVERGED_TO_INTENT_6671") } catch (_: Throwable) {}
+                intentLane
+            } else lane
+        } catch (_: Throwable) { lane }
         return ExecutableOpenGate.canOpenExecutablePosition(
             ts = ts,
             mode = if (isPaper) "PAPER" else "LIVE",
-            lane = lane,
+            lane = convergedLane,
             source = source,
             attemptId = attemptId.ifBlank {
-                ExecutableOpenGate.recentAllowedAttemptId(ts.mint, lane)
-                    ?: ExecutableOpenGate.nextAttemptId(ts.mint, lane)
+                ExecutableOpenGate.recentAllowedAttemptId(ts.mint, convergedLane)
+                    ?: ExecutableOpenGate.nextAttemptId(ts.mint, convergedLane)
             },
         )
     }
