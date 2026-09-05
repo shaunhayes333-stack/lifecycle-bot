@@ -5609,3 +5609,41 @@ Known residual work (Feb 2026):
     revisit runManageOnly runner-bypass gating on untrusted marks.
   • Skew Quarantine sweep (195-438 quarantined) — trace markSkew for tokens
     with -1 decimals metadata bypass.
+
+## V5.0.6669 (Feb 2026) — final lane-fork plug for EXEC_INTENT_MISSING_AT_FINAL_BIND_6519
+
+Operator dump on 5.0.6669 (208s uptime) confirmed the V5.0.6658 series held:
+  • bot loop 4.9s avg / 5.0s max (§HOT_LOOP_UNCHOKE)
+  • FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519  4899 → 6 (§PRE_TICKET_LANE_INTENT_CONVERGENCE)
+  • phantomSizedOnly=0 on every lane (§SPECIALIST_LANE_STAMP_ALIGNMENT)
+  • no sentinel-price entries this session (§ENTRY_PRICE_PROVENANCE_ENFORCEMENT)
+  • exits firing: 15 sells in 208s (STRICT_SL_-3, DEEP_CATASTROPHE_NET,
+    THIN_LIQ_EARLY_RUG_BACKSTOP_-10, CATASTROPHIC_HARD_BACKSTOP_-25)
+
+BUT a NEW top block surfaced one hop later:
+  EXEC_GATE/EXEC_INTENT_MISSING_AT_FINAL_BIND_6519: 441
+
+§LAYER_TAG_INTENT_CONVERGENCE — the earlier fix pinned preTicketLane6514 to
+the active intent when ExecutionDecisionSnapshot lags. The derived
+`layerTag` (line 12060) still fell through to the outer function parameter
+when ticket6513 and authority6513 were both null. Callers often pass
+that outer layerTag as the TradingModeTag string that birthed the
+request (STANDARD, MEME_GENERIC, BLUE_CHIP). finalityLane then read
+STANDARD, canOpen received requestedLane=STANDARD, resolveSealedIntent6613
+filtered the QUALITY/BLUECHIP intent out by canonicalLane and the gate
+blocked at final bind. Same convergence trick applied to layerTag:
+
+  val layerTag = ticket6513?.primaryLane
+      ?: authority6513?.executionLane
+      ?: activeIntentLane6658                // NEW
+      ?: layerTag
+
+V5.0.6669b — rephrased comment inside the same block to avoid the
+literal token \`ExecutableOpenGate.canOpenExecutablePosition\` above
+the PAPER_SAME_MINT_OPEN_SOURCE_SUPPRESSED_6447 label. The
+GoldenTapeRegressionTest at line 7499 asserts strict source-order for
+those two tokens; without the rephrase the golden-tape flipped and CI
+failed on the ordering assertion.
+
+Coverage: Aate6658HotLoopUnchokeTest now asserts the layerTag chain
+literal so a future edit can't drop activeIntentLane6658 silently.
