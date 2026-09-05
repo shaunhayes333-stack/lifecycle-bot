@@ -4,7 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
-import com.lifecyclebot.engine.truth.CanonicalSentinelEntryRepair6677
+import com.lifecyclebot.engine.truth.CanonicalJournalProjectionRepair6677
 import com.lifecyclebot.engine.truth.MarketDataProvenance6471
 import org.json.JSONArray
 import org.json.JSONObject
@@ -65,11 +65,11 @@ object PerpsPositionStore {
             // ENTRY basis is one of the canonical sentinel fingerprints. These
             // are not legitimate low-priced assets: the exact values are owned
             // by MarketDataProvenance6471 as known placeholder fingerprints.
-            // First settle any matching canonical paper lot at neutral remaining
-            // basis; then purge only the local poisoned mirror. Valid rows and
-            // every non-CryptoAlt trader remain untouched.
+            // Local JSON sanitisation is cheap and synchronous; canonical refund
+            // + journal repair is scheduled off-thread so app/bootstrap UI cannot
+            // regress into the old main-thread ANR/smoke-test failure.
             val sanitized = if (traderKey.equals("crypto_alt", ignoreCase = true)) {
-                try { CanonicalSentinelEntryRepair6677.repairOpenPaperCryptoAltSentinels() } catch (_: Throwable) {}
+                try { CanonicalJournalProjectionRepair6677.scheduleRepair6677() } catch (_: Throwable) {}
                 val valid = out.filterNot { row ->
                     MarketDataProvenance6471.isKnownStandaloneSentinelPrice6658(
                         row.optDouble("entryPrice", Double.NaN)
@@ -79,7 +79,7 @@ object PerpsPositionStore {
                 if (removed > 0) {
                     saveAll(traderKey, valid)
                     try { PipelineHealthCollector.labelInc("CRYPTO_SENTINEL_PERSISTED_ROWS_PURGED_6677") } catch (_: Throwable) {}
-                    ErrorLogger.warn(TAG, "[crypto_alt] purged $removed persisted sentinel-entry row(s); canonical lots routed through neutral repair")
+                    ErrorLogger.warn(TAG, "[crypto_alt] purged $removed persisted sentinel-entry row(s); canonical neutral repair scheduled")
                 }
                 valid
             } else {
