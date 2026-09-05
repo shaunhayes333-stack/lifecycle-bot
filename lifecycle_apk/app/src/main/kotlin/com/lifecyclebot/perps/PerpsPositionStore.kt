@@ -3,6 +3,9 @@ package com.lifecyclebot.perps
 import android.content.Context
 import android.content.SharedPreferences
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.engine.truth.CanonicalSentinelEntryRepair6677
+import com.lifecyclebot.engine.truth.MarketDataProvenance6471
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -57,10 +60,36 @@ object PerpsPositionStore {
             for (i in 0 until arr.length()) {
                 arr.optJSONObject(i)?.let { out.add(it) }
             }
-            if (out.isNotEmpty()) {
-                ErrorLogger.info(TAG, "[$traderKey] rehydrated ${out.size} open positions from SharedPrefs")
+
+            // V5.0.6677 — never rehydrate a CryptoAlt presentation row whose
+            // ENTRY basis is one of the canonical sentinel fingerprints. These
+            // are not legitimate low-priced assets: the exact values are owned
+            // by MarketDataProvenance6471 as known placeholder fingerprints.
+            // First settle any matching canonical paper lot at neutral remaining
+            // basis; then purge only the local poisoned mirror. Valid rows and
+            // every non-CryptoAlt trader remain untouched.
+            val sanitized = if (traderKey.equals("crypto_alt", ignoreCase = true)) {
+                try { CanonicalSentinelEntryRepair6677.repairOpenPaperCryptoAltSentinels() } catch (_: Throwable) {}
+                val valid = out.filterNot { row ->
+                    MarketDataProvenance6471.isKnownStandaloneSentinelPrice6658(
+                        row.optDouble("entryPrice", Double.NaN)
+                    )
+                }
+                val removed = out.size - valid.size
+                if (removed > 0) {
+                    saveAll(traderKey, valid)
+                    try { PipelineHealthCollector.labelInc("CRYPTO_SENTINEL_PERSISTED_ROWS_PURGED_6677") } catch (_: Throwable) {}
+                    ErrorLogger.warn(TAG, "[crypto_alt] purged $removed persisted sentinel-entry row(s); canonical lots routed through neutral repair")
+                }
+                valid
+            } else {
+                out
             }
-            out
+
+            if (sanitized.isNotEmpty()) {
+                ErrorLogger.info(TAG, "[$traderKey] rehydrated ${sanitized.size} open positions from SharedPrefs")
+            }
+            sanitized
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "[$traderKey] load failed: ${e.message}")
             emptyList()
