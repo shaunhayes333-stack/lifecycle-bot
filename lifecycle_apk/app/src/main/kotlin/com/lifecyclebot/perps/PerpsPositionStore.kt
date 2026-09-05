@@ -4,10 +4,11 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
-import com.lifecyclebot.engine.truth.CanonicalJournalProjectionRepair6677
+import com.lifecyclebot.engine.truth.CanonicalSentinelEntryRepair6677
 import com.lifecyclebot.engine.truth.MarketDataProvenance6471
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * PerpsPositionStore — V5.9.178
@@ -19,20 +20,17 @@ import org.json.JSONObject
  * positions so the bot keeps tracking them after an update instead of
  * silently closing them and wiping the user's entries.
  *
- * USAGE (per trader):
- *
- *   // At init, once:
- *   PerpsPositionStore.init(context, TRADER_KEY)
- *   val saved: List<JSONObject> = PerpsPositionStore.loadAll(TRADER_KEY)
- *   saved.forEach { json -> positions[json.getString("id")] = Position.fromJson(json) }
- *
- *   // After every open / close / update of the maps:
- *   PerpsPositionStore.saveAll(TRADER_KEY, positions.values.map { it.toJson() })
+ * V5.0.6678 — persistence reads may sanitize their own presentation rows, but
+ * they must not invoke a global typed-event -> journal projection repair. The
+ * only asynchronous repair retained here is the narrow CryptoAlt sentinel
+ * refund, which mutates through CanonicalPaperTransaction6486 and is guarded
+ * so repeated UI/bootstrap reads cannot stack repair workers.
  */
 object PerpsPositionStore {
 
     private const val TAG = "PerpsPositionStore"
     private val prefsByTrader = mutableMapOf<String, SharedPreferences>()
+    private val sentinelRepairRunning6678 = AtomicBoolean(false)
 
     fun init(context: Context, traderKey: String) {
         if (prefsByTrader.containsKey(traderKey)) return
@@ -51,6 +49,25 @@ object PerpsPositionStore {
         }
     }
 
+    private fun scheduleSentinelRepair6678() {
+        if (!sentinelRepairRunning6678.compareAndSet(false, true)) return
+        Thread({
+            try {
+                CanonicalSentinelEntryRepair6677.repairOpenPaperCryptoAltSentinels()
+            } catch (t: Throwable) {
+                try {
+                    PipelineHealthCollector.labelInc("CRYPTO_SENTINEL_REPAIR_FAILED_6678")
+                    ErrorLogger.warn(TAG, "[crypto_alt] sentinel repair failed: ${t.message}")
+                } catch (_: Throwable) {}
+            } finally {
+                sentinelRepairRunning6678.set(false)
+            }
+        }, "aate-crypto-sentinel-repair-6678").apply {
+            isDaemon = true
+            start()
+        }
+    }
+
     fun loadAll(traderKey: String): List<JSONObject> {
         val p = prefsByTrader[traderKey] ?: return emptyList()
         return try {
@@ -61,15 +78,10 @@ object PerpsPositionStore {
                 arr.optJSONObject(i)?.let { out.add(it) }
             }
 
-            // V5.0.6677 — never rehydrate a CryptoAlt presentation row whose
-            // ENTRY basis is one of the canonical sentinel fingerprints. These
-            // are not legitimate low-priced assets: the exact values are owned
-            // by MarketDataProvenance6471 as known placeholder fingerprints.
-            // Local JSON sanitisation is cheap and synchronous; canonical refund
-            // + journal repair is scheduled off-thread so app/bootstrap UI cannot
-            // regress into the old main-thread ANR/smoke-test failure.
+            // Never rehydrate a CryptoAlt presentation row whose ENTRY basis is
+            // a known canonical sentinel fingerprint. Local JSON cleanup stays
+            // synchronous; the narrow canonical refund runs once off-thread.
             val sanitized = if (traderKey.equals("crypto_alt", ignoreCase = true)) {
-                try { CanonicalJournalProjectionRepair6677.scheduleRepair6677() } catch (_: Throwable) {}
                 val valid = out.filterNot { row ->
                     MarketDataProvenance6471.isKnownStandaloneSentinelPrice6658(
                         row.optDouble("entryPrice", Double.NaN)
@@ -78,8 +90,9 @@ object PerpsPositionStore {
                 val removed = out.size - valid.size
                 if (removed > 0) {
                     saveAll(traderKey, valid)
+                    scheduleSentinelRepair6678()
                     try { PipelineHealthCollector.labelInc("CRYPTO_SENTINEL_PERSISTED_ROWS_PURGED_6677") } catch (_: Throwable) {}
-                    ErrorLogger.warn(TAG, "[crypto_alt] purged $removed persisted sentinel-entry row(s); canonical neutral repair scheduled")
+                    ErrorLogger.warn(TAG, "[crypto_alt] purged $removed persisted sentinel-entry row(s); narrow canonical refund scheduled")
                 }
                 valid
             } else {

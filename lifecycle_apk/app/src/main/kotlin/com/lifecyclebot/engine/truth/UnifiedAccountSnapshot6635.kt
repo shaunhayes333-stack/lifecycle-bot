@@ -38,6 +38,12 @@ import java.util.concurrent.atomic.AtomicReference
  * wired to.  6635 adds the reconciliation gate + the operator-mandated
  * FORENSIC banner semantics on top; existing 6629 callers can be
  * migrated one-by-one to 6635 without changing rendering behaviour.
+ *
+ * V5.0.6678 — READ PATH PURITY.
+ * Account/UI reads are observational only. They must never schedule or execute
+ * journal projection, canonical position mutation, refunds, or migration work.
+ * Repair/migration belongs at controlled bootstrap boundaries where one writer
+ * owns the economic transaction and stop/start cannot be starved by read churn.
  */
 object UnifiedAccountSnapshot6635 {
 
@@ -75,17 +81,9 @@ object UnifiedAccountSnapshot6635 {
         try { PipelineHealthCollector.labelInc("HERO_UNIFIED_SNAPSHOT_READ_6635") } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("HERO_UNIFIED_SNAPSHOT_READ_${surface.uppercase()}_6635") } catch (_: Throwable) {}
 
-        // V5.0.6677 — request convergence, never execute durable journal/canonical
-        // mutation on the UI thread. The repair worker is idempotent and uses only
-        // typed economic receipts + the exact sentinel fingerprint authority.
-        // This preserves the prior 6619 main-thread smoke/ANR fix while still
-        // allowing a failed account snapshot to self-heal on the next refresh.
-        if (mode.equals("paper", true)) {
-            try { CanonicalJournalProjectionRepair6677.scheduleRepair6677() } catch (_: Throwable) {}
-        }
-
-        // Force reconciliation pass so every UI read observes fresh
-        // delta counters rather than a cached stale line.
+        // Read-path purity: reconciliation may observe and report deltas, but
+        // this UI-facing method must never repair, project, refund, or mutate
+        // canonical economic state as a side effect of rendering a balance.
         try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
 
         val capital = try { PaperCapitalAuthority6577.snapshot() } catch (_: Throwable) { null }

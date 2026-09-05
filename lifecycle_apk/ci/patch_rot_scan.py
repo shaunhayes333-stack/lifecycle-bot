@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
 """Repository-wide guards for proven patch-stacking failure shapes.
 
-This intentionally scans all production Kotlin, not a single hot file.  Add a
-rule only after a concrete rot pattern is proven, so CI rejects regressions
-without pretending every repeated strategy implementation is a defect.
+V5.0.6678 extends this from syntax-only dead-branch checks into authority
+contracts.  The rules deliberately scan production Kotlin across the whole
+repository so a later patch cannot re-introduce a retired writer from another
+screen, persistence adapter, or specialist lane.
+
+Policy:
+  * one canonical writer per economic mutation domain;
+  * read/presentation paths are observational only;
+  * retired patches stay at zero references;
+  * source cleanup may reduce legacy scaffolding, but CI may never require it
+    to come back.
 """
 
 from pathlib import Path
@@ -13,6 +21,40 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "app/src/main/kotlin"
 TEST_SRC = ROOT / "app/src/test/kotlin"
+
+# These are source-level retirements, not warning counters. Once a patch is
+# superseded, any production reference is a hard regression. Add new entries
+# here when source convergence makes an older patch obsolete.
+RETIRED_PRODUCTION_SYMBOLS = {
+    "CanonicalJournalProjectionRepair6677": (
+        "global typed-event journal repair was superseded by canonical mutation-source projection"
+    ),
+    "TYPED_ECONOMIC_BUY_PROJECTION_REPAIR_6677": (
+        "repair-generated BUY rows must not return"
+    ),
+    "TYPED_ECONOMIC_SELL_PROJECTION_REPAIR_6677": (
+        "repair-generated SELL rows must not return"
+    ),
+    "CANONICAL_MISSING_BUY_JOURNAL_PROJECTED_6677": (
+        "missing BUY journal projection must be fixed at the canonical writer"
+    ),
+    "CANONICAL_MISSING_SELL_JOURNAL_PROJECTED_6677": (
+        "missing SELL journal projection must be fixed at the canonical writer"
+    ),
+    "CANONICAL_MISSING_PARTIAL_JOURNAL_PROJECTED_6677": (
+        "missing partial journal projection must be fixed at the canonical writer"
+    ),
+}
+
+
+def require(errors: list[str], body: str, needle: str, contract: str) -> None:
+    if needle not in body:
+        errors.append(f"{contract}: missing {needle!r}")
+
+
+def forbid(errors: list[str], body: str, needle: str, contract: str) -> None:
+    if needle in body:
+        errors.append(f"{contract}: contradictory/retired {needle!r}")
 
 
 def main() -> int:
@@ -51,6 +93,50 @@ def main() -> int:
         if immutable_true_guard.search(text):
             errors.append(f"{rel}: immutable true flag feeds a redundant branch wrapper")
 
+        for symbol, reason in RETIRED_PRODUCTION_SYMBOLS.items():
+            if symbol in text:
+                errors.append(f"{rel}: retired production symbol {symbol!r} returned — {reason}")
+
+    # ------------------------------------------------------------------
+    # 6678 authority contracts: prevent the exact source/patch contradiction
+    # that let account reads manufacture duplicate BUY/SELL journal rows.
+    # ------------------------------------------------------------------
+    unified = (SRC / "com/lifecyclebot/engine/truth/UnifiedAccountSnapshot6635.kt").read_text()
+    for mutation in (
+        "CanonicalJournalProjectionRepair6677",
+        "repairMissingPaperProjections6677",
+        "scheduleRepair6677",
+        "TradeHistoryStore.recordTrade",
+        "CanonicalPaperTransaction6486.",
+    ):
+        forbid(errors, unified, mutation, "UNIFIED_ACCOUNT_READ_PURITY_6678")
+    require(errors, unified, "ForensicReconciliation6635.reconcile6635()", "UNIFIED_ACCOUNT_OBSERVATION_6678")
+
+    perps_store = (SRC / "com/lifecyclebot/perps/PerpsPositionStore.kt").read_text()
+    forbid(errors, perps_store, "CanonicalJournalProjectionRepair6677", "PERPS_PERSISTENCE_READ_PURITY_6678")
+    require(
+        errors,
+        perps_store,
+        "CanonicalSentinelEntryRepair6677.repairOpenPaperCryptoAltSentinels()",
+        "CRYPTO_SENTINEL_NARROW_REPAIR_6678",
+    )
+    require(errors, perps_store, "sentinelRepairRunning6678", "CRYPTO_SENTINEL_SINGLE_WORKER_6678")
+
+    canonical_paper = (SRC / "com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").read_text()
+    require(
+        errors,
+        canonical_paper,
+        'val eventId = "PAPER6486:OPEN:${position.positionId}"',
+        "PAPER_OPEN_CANONICAL_IDENTITY_6678",
+    )
+    require(errors, canonical_paper, "economicEventId = eventId", "PAPER_OPEN_JOURNAL_IDENTITY_6678")
+    require(
+        errors,
+        canonical_paper,
+        "CanonicalPositionAuthority6441.getPosition(positionId)?.let { ensureOpenProjection6659(it) }",
+        "PAPER_OPEN_MUTATION_SOURCE_PROJECTION_6678",
+    )
+
     # A prior Golden Tape assertion required production to retain a deleted
     # constant-false branch, turning a correct source cleanup into a red build.
     # Reject positive test contracts for the proven dead-patch sentinels while
@@ -82,7 +168,10 @@ def main() -> int:
         for error in errors:
             print(f"  - {error}", file=sys.stderr)
         return 1
-    print(f"Patch-rot scan passed ({len(files)} production Kotlin files)")
+    print(
+        f"Patch-rot scan passed ({len(files)} production Kotlin files; "
+        f"{len(RETIRED_PRODUCTION_SYMBOLS)} retired writer markers pinned at zero)"
+    )
     return 0
 
 
