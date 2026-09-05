@@ -68,6 +68,20 @@ object MarketDataProvenance6471 {
     )
     private const val SENTINEL_PRICE_RELATIVE_EPSILON_6658 = 1e-6
 
+    /**
+     * V5.0.6677 — one public, side-effect-free sentinel fingerprint authority.
+     *
+     * Cross-asset admission and persisted-position recovery previously had no
+     * way to ask the provenance authority whether a standalone price was one of
+     * the known template fingerprints. Re-declaring these values in CryptoAlt
+     * would create exactly the source/patch duplication that has caused prior
+     * regressions. Keep the values private here and expose only the predicate.
+     */
+    fun isKnownStandaloneSentinelPrice6658(price: Double): Boolean =
+        price.isFinite() && price > 0.0 && SENTINEL_PRICES_STANDALONE_6658.any {
+            it > 0.0 && kotlin.math.abs(price - it) <= it * SENTINEL_PRICE_RELATIVE_EPSILON_6658
+        }
+
     private val SENTINEL_POOL_PREFIXES = listOf(
         "MINT_ROUTE:", "UNKNOWN", "PLACEHOLDER", "SENTINEL",
     )
@@ -158,9 +172,8 @@ object MarketDataProvenance6471 {
                     kotlin.math.abs(mcap - it.mcap) < 1.0 &&
                     kotlin.math.abs(liquidity - it.liquidity) < 1.0
             }) return recordSentinel(identityKey6615, "template_tuple($price/$mcap/$liquidity)")
-        if (SENTINEL_PRICES_STANDALONE_6658.any {
-                it > 0.0 && kotlin.math.abs(price - it) <= it * SENTINEL_PRICE_RELATIVE_EPSILON_6658
-            }) return recordSentinel(identityKey6615, "sentinel_price_standalone($price)")
+        if (isKnownStandaloneSentinelPrice6658(price))
+            return recordSentinel(identityKey6615, "sentinel_price_standalone($price)")
         if (pool.isBlank()) return recordMissing("pool_blank")
 
         // V5.0.6674 — consult existing executable mark proof BEFORE the generic
