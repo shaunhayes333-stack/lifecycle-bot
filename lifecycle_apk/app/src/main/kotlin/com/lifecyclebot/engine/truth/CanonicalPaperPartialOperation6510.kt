@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine.truth
 
+import com.lifecyclebot.data.Trade
+import com.lifecyclebot.engine.TradeHistoryStore
 import java.math.BigDecimal
 import java.math.BigInteger
 import java.math.RoundingMode
@@ -33,10 +35,10 @@ object CanonicalPaperPartialOperation6510 {
     private fun nextSequence(positionId: String, requestKey: String): Long {
         return requestSequences.computeIfAbsent("$positionId|$requestKey") {
             val seq = sequences.computeIfAbsent(positionId) {
-            // Restart-safe seed: persisted economic events are authoritative.
-            val prior = EconomicEventSchema6464.snapshot().count { e ->
-                e is EconomicEventSchema6464.Sell && e.positionId == positionId && e.partial
-            }.toLong()
+                // Restart-safe seed: persisted economic events are authoritative.
+                val prior = EconomicEventSchema6464.snapshot().count { e ->
+                    e is EconomicEventSchema6464.Sell && e.positionId == positionId && e.partial
+                }.toLong()
                 AtomicLong(prior)
             }
             seq.incrementAndGet()
@@ -84,6 +86,70 @@ object CanonicalPaperPartialOperation6510 {
         )
         val post = CanonicalPositionAuthority6441.getPosition(positionId) ?: pre
         if (r.applied) {
+            // V5.0.6677 — JOURNAL THE SAME IMMUTABLE PARTIAL RECEIPT HERE.
+            //
+            // Before this repair CanonicalPaperPartialOperation6510 mutated the
+            // canonical position + paper ledger + EconomicEventSchema, then
+            // returned without writing TradeHistoryStore. That manufactured the
+            // exact split seen in forensics: typed `partials>0` while journal
+            // replay reported `partials=0`, which forced UnifiedAccountSnapshot
+            // into ACCOUNT_UNAVAILABLE. Do not add another caller-side patch;
+            // the mutation source owns its matching durable projection.
+            val scale = r.tokenDecimals.takeIf { it in 0..18 }
+                ?: pre.quantityScale.coerceIn(0, 18)
+            fun tokenQty(raw: BigInteger): Double = try {
+                raw.toBigDecimal().movePointLeft(scale).toDouble()
+            } catch (_: Throwable) { 0.0 }
+            val basis = r.soldCostBasisSol
+            val gross = r.grossProceedsSol
+            val fee = r.feesSol
+            val realizedNet = gross - basis - fee
+            val pnlPct = if (basis > 0.0) realizedNet * 100.0 / basis else 0.0
+            val soldQtyToken = tokenQty(r.canonicalConsumedRaw)
+            val exitPrice = if (soldQtyToken > 0.0) gross / soldQtyToken else pre.entryPriceUsd
+
+            TradeHistoryStore.recordTrade(
+                Trade(
+                    side = if (r.postRemainingRaw <= BigInteger.ZERO) "SELL" else "PARTIAL_SELL",
+                    mode = "paper",
+                    sol = gross,
+                    price = exitPrice,
+                    ts = System.currentTimeMillis(),
+                    reason = exitReason,
+                    pnlSol = realizedNet,
+                    pnlPct = pnlPct,
+                    feeSol = fee,
+                    netPnlSol = realizedNet,
+                    tradingMode = pre.lane,
+                    tradingModeEmoji = "🪙",
+                    mint = pre.mint,
+                    proofState = "PAPER_SIMULATED",
+                    positionId = pre.positionId,
+                    entryTsMs = pre.openedAtMs,
+                    entryPriceSnapshot = pre.entryPriceUsd,
+                    // The journal row represents the disposed slice. Using the
+                    // original whole-lot qty/cost here triggers the legacy
+                    // phantom-basis recomputer and rewrites a valid partial as a
+                    // large loss. Bind qty and cost to this exact sold slice.
+                    entryQtyToken = soldQtyToken,
+                    entryCostSol = basis,
+                    entryDecimals = scale,
+                    soldQtyToken = soldQtyToken,
+                    remainingQtyToken = tokenQty(r.postRemainingRaw),
+                    entryRawQty = pre.originalQtyRaw,
+                    canonicalConsumedRaw = r.canonicalConsumedRaw,
+                    remainingRawQty = r.postRemainingRaw,
+                    tokenDecimals = scale,
+                    partialSequence = sequence,
+                    soldCostBasisSol = basis,
+                    grossProceedsSol = gross,
+                    economicEventId = r.economicEventId,
+                )
+            )
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_PARTIAL_JOURNAL_PROJECTED_6677")
+            } catch (_: Throwable) {}
+
             tierStates6613[tierKey] = TierState6613.CONFIRMED
             tierStates6613[tierKey] = TierState6613.ACCOUNTED
             tierStates6613[tierKey] = TierState6613.COMPLETE
