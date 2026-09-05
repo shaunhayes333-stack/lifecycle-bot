@@ -46,6 +46,7 @@ object CanonicalSizingBridge6532 {
         price: Double = 1.0,
         candidateVersion: Long = -1L,
         source: String = "specialist",
+        causalEventId: String = "",
     ): OrderSizeResolver6441.Resolution {
         // V5.0.6620 §MEME_SOURCE_LEVEL_EXECUTION_PROVENANCE §9 —
         //   candidateVersion authority MUST be
@@ -70,6 +71,32 @@ object CanonicalSizingBridge6532 {
                     .labelInc("CANDIDATE_VERSION_WALLCLOCK_ELIMINATED_6620")
             }
         } catch (_: Throwable) {}
+
+        // V5.0.6674 §SPECIALIST_CAUSAL_SIZING_CONTINUITY — source repair.
+        // V5.0.6673 repaired one BotService fallback identity, but the actual
+        // specialist auto-reroute comes through TraderSizingBridge6444 -> this
+        // bridge. That path invoked OrderSizeResolver6441 with a BLANK
+        // causalEventId, so thousands of executable resolutions could never
+        // stamp SIZED_EXECUTABLE onto the same SpecialistCausalFunnel record.
+        // Prefer the already-sealed execution intent. When sizing legitimately
+        // precedes ticket materialisation, synthesize the same canonical
+        // seven-field identity shape consumed by ToolkitSignalSheet; it is
+        // telemetry identity only and grants no execution authority.
+        val resolvedCausalEventId6674 = causalEventId.ifBlank {
+            if (assetClass == AssetClass.SOLANA_TOKEN && canonicalAssetId.isNotBlank() && resolvedCandidateVersion6620 > 0L) {
+                val mode6674 = if (paperMode) "PAPER" else "LIVE"
+                val activeAttempt6674 = try {
+                    com.lifecyclebot.engine.ExecutableOpenGate
+                        .activeExecutionIntent6519(mode6674, canonicalAssetId, resolvedCandidateVersion6620)
+                        ?.attemptId
+                } catch (_: Throwable) { null }
+                activeAttempt6674?.takeIf { it.isNotBlank() } ?: run {
+                    val generation6674 = try { com.lifecyclebot.engine.BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L }
+                    "$generation6674:$mode6674:$canonicalAssetId:BUY:${laneName.uppercase()}:$resolvedCandidateVersion6620:SIZE"
+                }
+            } else ""
+        }
+
         // V5.0.6542 §ASSET_AWARE_PAPER_MIN — operator: PAPER cross-asset
         // learning must be able to take legitimate smaller probes. Cash
         // is 1.6 SOL, a 2% cross-asset recommendation is only 0.032 SOL —
@@ -88,11 +115,15 @@ object CanonicalSizingBridge6532 {
             laneRiskCapSol = laneRiskCapSol,
             laneMinExecutableSol = effectiveMinSol6542,
             applyPaperMemeMinimum = assetClass == AssetClass.SOLANA_TOKEN,
+            causalEventId = resolvedCausalEventId6674,
         )
         try {
             PipelineHealthCollector.labelInc(
                 "CANONICAL_SIZING_BRIDGE_6532|CLASS=${assetClass.tag}|LANE=$laneName|EXEC=${res.executable}"
             )
+            if (resolvedCausalEventId6674.isNotBlank()) {
+                PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_SIZING_ID_PROPAGATED_6674")
+            }
         } catch (_: Throwable) {}
         // V5.0.6558 — sizing is advisory input, never a pre-FDG
         // authorization. The actual typed candidate is submitted exactly
@@ -102,7 +133,7 @@ object CanonicalSizingBridge6532 {
         try {
             ForensicLogger.lifecycle(
                 "CANONICAL_SIZING_BRIDGE_6532",
-                "class=${assetClass.tag} lane=$laneName candidateVersion6620=$resolvedCandidateVersion6620 ${res.trace()}",
+                "class=${assetClass.tag} lane=$laneName candidateVersion6620=$resolvedCandidateVersion6620 causal=${resolvedCausalEventId6674.take(48)} ${res.trace()}",
             )
         } catch (_: Throwable) {}
         return res
