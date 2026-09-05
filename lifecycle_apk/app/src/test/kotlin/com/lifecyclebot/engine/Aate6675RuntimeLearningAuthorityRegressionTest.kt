@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine
 
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -7,13 +8,12 @@ import java.io.File
 class Aate6675RuntimeLearningAuthorityRegressionTest {
 
     @Test
-    fun `lane expectancy damper follows runtime paper live truth and mode keyed cache`() {
+    fun `decision facing lane expectancy remains clean live terminal only`() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt").readText()
-        assertTrue("damper must resolve current runtime mode", src.contains("RuntimeModeAuthority.isPaper()"))
-        assertTrue("paper runtime must use clean paper terminal leaderboard", src.contains("computeCleanPaperTerminalLeaderboard"))
-        assertTrue("live runtime must use clean live terminal leaderboard", src.contains("computeCleanLiveTerminalLeaderboard"))
-        assertTrue("damper cache must be keyed by paper/live runtime mode", src.contains("cachePaperMode"))
-        assertTrue("repair marker must remain grep-visible", src.contains("V5.0.6675 §RUNTIME_EXPECTANCY_AUTHORITY"))
+        assertTrue(src.contains("computeCleanLiveTerminalLeaderboard"))
+        assertFalse(src.contains("computeCleanPaperTerminalLeaderboard"))
+        assertFalse(src.contains("computeLiveTerminalLeaderboard("))
+        assertFalse(src.contains("computePaperTerminalLeaderboard("))
     }
 
     @Test
