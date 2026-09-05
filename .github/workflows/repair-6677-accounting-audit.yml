@@ -1,0 +1,63 @@
+name: Repair 6677 accounting audit
+
+on:
+  push:
+    branches: [ 'repair/6677-accounting-sentinel' ]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect crypto price/accounting authority boundaries
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def show(path, needles, radius=18, limit=80):
+              p=Path(path); ls=p.read_text().splitlines()
+              print(f'FILE {path} lines={len(ls)}')
+              seen=set()
+              for needle in needles:
+                  hits=[i for i,l in enumerate(ls) if needle.lower() in l.lower()]
+                  print(f'\n=== {needle} count={len(hits)} ===')
+                  for i in hits[:limit]:
+                      lo=max(0,i-radius); hi=min(len(ls),i+radius+1)
+                      key=(lo,hi)
+                      if key in seen: continue
+                      seen.add(key)
+                      print('\n'.join(f'{j+1:05d}: {ls[j]}' for j in range(lo,hi)))
+                      print('---')
+
+          show('lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt', [
+              'CanonicalPaperTransaction6486.open(', 'AltPosition(', 'signal.price', 'currentPrice =',
+              'currentPrice=', 'markAssetKey', 'markUpdatedAtMs', 'getCachedPrice(',
+              'refreshPriceForMintBlocking', 'MarketDataProvenance6471', 'entryPrice =',
+              'entryPrice=', 'PerpsMarketDataFetcher', 'DynamicAltTokenRegistry.getTokenBy',
+          ], radius=22)
+
+          show('lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/perps/PerpsMarketDataFetcher.kt', [
+              '0.05025', 'fallback', 'synthetic', 'default', 'price =', 'PerpsMarketData(',
+          ], radius=18)
+
+          show('lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/perps/DynamicAltTokenRegistry.kt', [
+              '0.05025', '0.00005253', 'fallback', 'template', 'sentinel', 'refreshPriceForMintBlocking',
+          ], radius=18)
+
+          show('lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt', [
+              'ensureOpenProjection6659', 'repairCryptoHistory6659', 'entryPriceUsd',
+              'executionPriceUsd', 'reconcileJournalAuthority6663', 'onBuyAtomic6632',
+          ], radius=18)
+
+          show('lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt', [
+              'QTY_RECONCILE', 'PARTIAL_SELL', 'economicEventId', 'openRawQtyByPosition',
+          ], radius=14)
+
+          show('lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt', [
+              'buildHeroSection', 'UnifiedAccountSnapshot6635.read', 'buildCompactPositionRow',
+              'highestPnlPct', 'getPnlPct()', 'ACCOUNT UNAVAILABLE',
+          ], radius=16)
+          PY
