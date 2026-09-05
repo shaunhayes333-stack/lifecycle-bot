@@ -40,24 +40,32 @@ class Aate6673SurgicalTripleFixTest {
     // ── Fire A ─────────────────────────────────────────────────────────────
 
     @Test
-    fun `Fire A — paper qty heal path exists and only fires on paper SELL`() {
-        assertTrue(
-            "Executor must expose PAPER_QTY_HEAL_ON_SELL_WRITE_6673 counter emit",
+    fun `Fire A REVERTED — paper qty heal code path is removed no writes on paper leg`() {
+        // V5.0.6673b: Fire A was surgically wrong. `backfillLastBuyEntryQty6311`
+        // finds the MOST RECENT BUY for a mint; when a stale/replayed SELL fires
+        // against a mint that already has a fresh reopen, the heal rewrites the
+        // fresh OPEN position's qty to the skewed sell qty, producing
+        // "qty INVALID (invariant broken)" rows on the operator's dashboard
+        // (USMS/STEP screenshot). The paper journal also uses distinct internal
+        // decimal representations for price vs sol so the cost-consistency
+        // check was structurally unreliable. Fully reverted; stale pre-6671
+        // positions self-drain as they close. LIVE wallet-verified backfill
+        // (V5.0.6337) is untouched.
+        assertFalse(
+            "PAPER_QTY_HEAL_ON_SELL_WRITE_6673 counter emit must be absent",
             executor.contains("PAPER_QTY_HEAL_ON_SELL_WRITE_6673"),
         )
-        assertTrue(
-            "Heal must gate on isPaperRow6673 (never fire on LIVE rows)",
-            executor.contains("isPaperRow6673") &&
-                executor.contains("PAPER_SIMULATED"),
+        assertFalse(
+            "sellCostConsistent6673 predicate must be removed",
+            executor.contains("sellCostConsistent6673"),
         )
         assertTrue(
-            "Heal must require cost-consistency (price*qty ≈ cost) before rewriting",
-            executor.contains("sellCostConsistent6673") &&
-                executor.contains("impliedCost6673"),
+            "PAPER_QTY_HEAL_REVERTED marker must be present so future readers know why",
+            executor.contains("PAPER_QTY_HEAL_REVERTED"),
         )
         assertTrue(
-            "Heal must use existing backfillLastBuyEntryQty6311 (no schema churn)",
-            executor.contains("TradeHistoryStore.backfillLastBuyEntryQty6311"),
+            "LIVE wallet-verified backfill (V5.0.6337) must remain untouched",
+            executor.contains("BUY_QTY_BACKFILL_ON_SELL_WRITE_6337"),
         )
     }
 
