@@ -54,6 +54,25 @@ object CanonicalPriceMarkRegistry6522 {
         val identity: String = "", val unitState: String = "",
     ) { val promoted: Boolean get() = mark != null }
 
+    /**
+     * V5.0.6681 §SYNTHETIC_PRICE_UNIT_EXECUTION_FIREWALL.
+     *
+     * Pump.fun intake may seed an observation price from mcap/supply so fresh
+     * launches remain visible and scoreable before a route quote arrives. That
+     * synthetic observation is deliberately NOT executable USD/token truth.
+     * The old promotion path treated provider-family validity as sufficient and
+     * could promote PUMP_FUN_BC/SYNTH observations into EXECUTABLE_ENTRY_QUOTE,
+     * then a later real DEX quote produced fake -90%/-94% closes and poisoned
+     * exit learning. Keep observation liveness; block only executable promotion
+     * until a real route-priced source replaces the synthetic basis.
+     */
+    private fun sourceHasSyntheticPriceUnit6681(source: String): Boolean {
+        val s = source.trim().uppercase()
+        return s.contains("SYNTH") ||
+            s.contains("PUMP_FUN_BC") || s.contains("PUMPFUN_BC") ||
+            s.contains("MCAP_DIV_SUPPLY") || s.contains("MCAP/1B")
+    }
+
     /** Promote one already-validated observation into the executable price slot.
      * Route/sellability remain independent live-execution requirements. */
     fun promoteObservationToExecutable6613(mint: String, nowMs: Long = System.currentTimeMillis()): PromotionResult6613 {
@@ -65,6 +84,7 @@ object CanonicalPriceMarkRegistry6522 {
             !obs.pairId.startsWith("MINT_ROUTE:", true) || obs.pairId.equals("MINT_ROUTE:$mint", true)
         )
         val unitOk = price.isFinite() && price > 0.0 && price >= 1e-18 && price <= 1e12 && obs.priceUsd.value.scale() <= 30
+        val executableUnitOk6681 = !sourceHasSyntheticPriceUnit6681(obs.source)
         val sourceOk = MarkAuthorityIntegrityGate6496.isObservationAuthoritative6570(
             mint, price, obs.source, obs.pairId, age in -5_000L..300_000L,
         )
@@ -73,18 +93,20 @@ object CanonicalPriceMarkRegistry6522 {
             !exactIdentity -> "IDENTITY_MISMATCH"
             age !in -5_000L..300_000L -> "STALE_SOURCE_MARK"
             !unitOk -> "PRICE_UNIT_DECIMAL_INVALID"
+            !executableUnitOk6681 -> "SYNTHETIC_PRICE_UNIT_NOT_EXECUTABLE_6681"
             !sourceOk -> "SOURCE_PROVENANCE_REJECTED"
             !liquidityOk -> "LIQUIDITY_MISSING"
             obs.quoteMint.isBlank() -> "QUOTE_IDENTITY_MISSING"
             else -> "PROMOTED"
         }
-        if (reason != "PROMOTED") return PromotionResult6613(null, reason, obs.source, price, age, "${obs.baseMint}->${obs.quoteMint}@${obs.pairId}", "scale=${obs.priceUsd.value.scale()}")
+        val unitState6681 = "scale=${obs.priceUsd.value.scale()} syntheticUnit=${!executableUnitOk6681}"
+        if (reason != "PROMOTED") return PromotionResult6613(null, reason, obs.source, price, age, "${obs.baseMint}->${obs.quoteMint}@${obs.pairId}", unitState6681)
         val promoted = obs.copy(
             purpose = CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
             identityProof6613 = if (obs.pairId.startsWith("MINT_ROUTE:", true)) "CANONICAL_MINT_SOURCE_MARK_6613" else obs.identityProof6613,
         )
-        return if (publish(promoted)) PromotionResult6613(promoted, reason, obs.source, price, age, "${obs.baseMint}->${obs.quoteMint}@${obs.pairId}", "scale=${obs.priceUsd.value.scale()}")
-        else PromotionResult6613(null, "REGISTRY_PUBLISH_REJECTED", obs.source, price, age, "${obs.baseMint}->${obs.quoteMint}@${obs.pairId}", "scale=${obs.priceUsd.value.scale()}")
+        return if (publish(promoted)) PromotionResult6613(promoted, reason, obs.source, price, age, "${obs.baseMint}->${obs.quoteMint}@${obs.pairId}", unitState6681)
+        else PromotionResult6613(null, "REGISTRY_PUBLISH_REJECTED", obs.source, price, age, "${obs.baseMint}->${obs.quoteMint}@${obs.pairId}", unitState6681)
     }
 
 
