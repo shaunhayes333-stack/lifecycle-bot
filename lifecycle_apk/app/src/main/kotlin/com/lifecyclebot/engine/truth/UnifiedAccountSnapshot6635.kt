@@ -13,17 +13,17 @@ import java.util.concurrent.atomic.AtomicReference
  *
  * V5.0.6681 — READ PATH FINALITY.
  *
- * UI/account reads are observational and non-blocking. A render must never run
- * the full forensic journal replay or mutate/reconstruct economic state. The
- * independent reconciler owns those expensive checks and publishes its latest
- * health line; this object only reads that cached status plus the canonical
- * current capital snapshot.
+ * There are two deliberately separate health concepts:
+ *  - status: whether CURRENT canonical account capital is available to render;
+ *  - forensicStatus: whether historical journal replay is fully reconciled.
  *
- * A historical reconciliation failure does NOT make current canonical capital
- * disappear. FAILED means "render the canonical values with a forensic warning",
- * not "replace the account with zero / ACCOUNT_UNAVAILABLE". This restores the
- * original 6635 contract and prevents old/quarantined journal history from
- * blanking an otherwise conserving current account.
+ * Historical dirt must continue to block learning/milestone consumers, but it
+ * must not erase a conserving current account from the UI. This distinction
+ * prevents ACCOUNT UNAVAILABLE / ACCOUNTING ERROR surfaces from being driven by
+ * quarantined historical rows while preserving fail-closed training semantics.
+ *
+ * UI/account reads are observational and non-blocking. A render never runs the
+ * full forensic journal replay or mutates/reconstructs economic state.
  */
 object UnifiedAccountSnapshot6635 {
 
@@ -42,6 +42,7 @@ object UnifiedAccountSnapshot6635 {
         val openMarketValueSol: Double = 0.0,
         val accountAvailable: Boolean = true,
         val authoritativePrices: Boolean = true,
+        val forensicStatus: Status = Status.WARMUP,
     )
 
     private val reads = AtomicLong(0L)
@@ -50,7 +51,7 @@ object UnifiedAccountSnapshot6635 {
             mode = "paper", cashSol = 0.0, equitySol = 0.0,
             realizedPnlSol = 0.0, unrealizedPnlSol = 0.0,
             openPositionsCount = 0, status = Status.WARMUP,
-            forensicLine = "", readAtMs = 0L,
+            forensicLine = "", readAtMs = 0L, forensicStatus = Status.WARMUP,
         )
     )
     private val lastReconciled = java.util.concurrent.ConcurrentHashMap<String, Snapshot>()
@@ -61,13 +62,11 @@ object UnifiedAccountSnapshot6635 {
         try { PipelineHealthCollector.labelInc("HERO_UNIFIED_SNAPSHOT_READ_${surface.uppercase()}_6635") } catch (_: Throwable) {}
 
         // V5.0.6681 — never execute the full forensic reconciliation from a
-        // renderer. It can replay thousands of rows and was the dominant
-        // main-thread ANR frame. The independent reconciler publishes the
-        // cached health line consumed below.
+        // renderer. The independent reconciler publishes the cached health line.
         val capital = try { PaperCapitalAuthority6577.snapshot() } catch (_: Throwable) { null }
         val markAuthority = try { CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
         val forensicLine = try { ForensicReconciliation6635.healthLine6635() } catch (_: Throwable) { "" }
-        val status = when {
+        val forensicStatus = when {
             forensicLine.contains("status=RECONCILED") -> Status.RECONCILED
             forensicLine.contains("status=FAILED") -> Status.FAILED
             else -> Status.WARMUP
@@ -76,17 +75,20 @@ object UnifiedAccountSnapshot6635 {
         if (capital == null) {
             val retained = lastReconciled[mode]?.copy(
                 status = Status.WARMUP,
+                forensicStatus = forensicStatus,
                 forensicLine = "$forensicLine accountAction=RETAIN_LAST_RECONCILED_CAPITAL_WARMUP",
                 readAtMs = System.currentTimeMillis(),
                 accountAvailable = true,
             ) ?: lastRead.get().takeIf { it.mode == mode && it.accountAvailable }?.copy(
                 status = Status.WARMUP,
+                forensicStatus = forensicStatus,
                 forensicLine = "$forensicLine accountAction=RETAIN_LAST_CANONICAL_CAPITAL_WARMUP",
                 readAtMs = System.currentTimeMillis(),
             ) ?: Snapshot(
                 mode = mode, cashSol = 0.0, equitySol = 0.0,
                 realizedPnlSol = 0.0, unrealizedPnlSol = 0.0,
                 openPositionsCount = 0, status = Status.WARMUP,
+                forensicStatus = forensicStatus,
                 forensicLine = "$forensicLine CANONICAL_CAPITAL_WARMUP",
                 readAtMs = System.currentTimeMillis(),
                 accountAvailable = false, authoritativePrices = false,
@@ -108,6 +110,9 @@ object UnifiedAccountSnapshot6635 {
             (markAuthority?.fallbackMarkMints ?: Int.MAX_VALUE) == 0 &&
             (markAuthority?.staleMarkMints ?: Int.MAX_VALUE) == 0
 
+        // Current canonical capital exists, so presentation status is reconciled.
+        // Historical forensicStatus remains independent and fail-closed for any
+        // consumer that trains, compounds or attributes performance from history.
         val snap = Snapshot(
             mode = mode,
             cashSol = cashLedger,
@@ -115,8 +120,9 @@ object UnifiedAccountSnapshot6635 {
             realizedPnlSol = realized,
             unrealizedPnlSol = unrealized,
             openPositionsCount = openPositions,
-            status = status,
-            forensicLine = if (status == Status.FAILED)
+            status = Status.RECONCILED,
+            forensicStatus = forensicStatus,
+            forensicLine = if (forensicStatus == Status.FAILED)
                 "$forensicLine accountAction=RENDER_CURRENT_CANONICAL_WITH_FORENSIC_WARNING"
             else forensicLine,
             readAtMs = System.currentTimeMillis(),
@@ -125,18 +131,21 @@ object UnifiedAccountSnapshot6635 {
             authoritativePrices = pricesAuthoritative,
         )
 
-        if (status == Status.RECONCILED) lastReconciled[mode] = snap
+        lastReconciled[mode] = snap
         lastRead.set(snap)
         return snap
     }
 
     fun lastSnapshot(): Snapshot = lastRead.get()
 
-    fun statusLine6635(): String = "reads=${reads.get()} lastStatus=${lastRead.get().status}"
+    fun statusLine6635(): String {
+        val s = lastRead.get()
+        return "reads=${reads.get()} current=${s.status} forensic=${s.forensicStatus} available=${s.accountAvailable}"
+    }
 
     internal fun resetForTest() {
         reads.set(0L)
         lastReconciled.clear()
-        lastRead.set(Snapshot("paper", 0.0, 0.0, 0.0, 0.0, 0, Status.WARMUP, "", 0L))
+        lastRead.set(Snapshot("paper", 0.0, 0.0, 0.0, 0.0, 0, Status.WARMUP, "", 0L, forensicStatus = Status.WARMUP))
     }
 }
