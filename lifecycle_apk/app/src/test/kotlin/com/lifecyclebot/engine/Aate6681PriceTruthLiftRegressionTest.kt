@@ -16,36 +16,50 @@ import org.junit.Test
  *  1. synthetic Pump.fun mcap/supply prices remain available as observations,
  *     so discovery/scoring volume is not choked;
  *  2. those synthetic units can never become executable entry truth;
- *  3. a real route-priced DEX observation still promotes normally;
- *  4. legacy synthetic->real extreme basis flips are held instead of being
+ *  3. the ACTUAL no-pair fallback tag PUMP_FUN_SOURCE_NATIVE_MCAP_SEED_6401
+ *     is covered, not merely an idealized SYNTH spelling;
+ *  4. a real route-priced DEX observation still promotes normally;
+ *  5. legacy synthetic->real extreme basis flips are held instead of being
  *     trained/exited as fake -90% losses;
- *  5. genuine same-source DEX collapses still pass through as real losses;
- *  6. canonical basis rebase explicitly restores comparability.
+ *  6. genuine same-source DEX collapses still pass through as real losses;
+ *  7. canonical basis rebase explicitly restores comparability.
  */
 class Aate6681PriceTruthLiftRegressionTest {
 
-    @Test
-    fun `synthetic pump observation remains scoreable but is not executable`() {
+    private fun assertSyntheticObservationOnly(source: String, mint: String) {
         CanonicalPriceMarkRegistry6522.resetForTest()
-        val mint = "Mint6681Synthetic111111111111111111111111111"
         val now = System.currentTimeMillis()
-
         val result = CanonicalPriceMarkRegistry6522.resolveExecutableFromSourceEvidence6616(
             mint = mint,
             observedBaseMint = mint,
             pairOrPool = "",
             quoteMint = "USD",
-            source = "PUMP_FUN_BC_SYNTHETIC",
+            source = source,
             priceUsd = 0.000055,
             liquidityUsd = 5_500.0,
             evidenceTimestampMs = now,
             nowMs = now,
         )
-
         assertFalse(result.promoted)
         assertEquals("SYNTHETIC_PRICE_UNIT_NOT_EXECUTABLE_6681", result.reason)
         assertNotNull(CanonicalPriceMarkRegistry6522.get(mint, CanonicalMarkPurpose6570.OBSERVATION_SCORING))
         assertNull(CanonicalPriceMarkRegistry6522.get(mint, CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE))
+    }
+
+    @Test
+    fun `actual mcap seed remains scoreable but is not executable`() {
+        assertSyntheticObservationOnly(
+            source = "PUMP_FUN_SOURCE_NATIVE_MCAP_SEED_6401",
+            mint = "Mint6681McapSeed111111111111111111111111111",
+        )
+    }
+
+    @Test
+    fun `explicit pump bc synthetic spelling remains non executable`() {
+        assertSyntheticObservationOnly(
+            source = "PUMP_FUN_BC_SYNTHETIC",
+            mint = "Mint6681Synthetic111111111111111111111111111",
+        )
     }
 
     @Test
@@ -71,11 +85,11 @@ class Aate6681PriceTruthLiftRegressionTest {
     }
 
     @Test
-    fun `synthetic to dex extreme downward basis flip is rejected`() {
+    fun `actual mcap seed to dex extreme downward basis flip is rejected`() {
         val verdict = OpenPnlSanity.inspect(
             entryPrice = 0.000056640836,
             currentPrice = 0.000003495,
-            entrySource = "PUMP_FUN_BC_SYNTHETIC",
+            entrySource = "PUMP_FUN_SOURCE_NATIVE_MCAP_SEED_6401",
             currentSource = "DEXSCREENER_PAIR_POLL",
             entryPool = "MINT_ROUTE:Mint6681",
             currentPool = "MINT_ROUTE:Mint6681",
@@ -103,11 +117,11 @@ class Aate6681PriceTruthLiftRegressionTest {
     }
 
     @Test
-    fun `ordinary synthetic source transition is not overblocked`() {
+    fun `ordinary mcap-seed to dex move is not overblocked`() {
         val verdict = OpenPnlSanity.inspect(
             entryPrice = 0.000010,
             currentPrice = 0.000008,
-            entrySource = "PUMP_FUN_BC_SYNTHETIC",
+            entrySource = "PUMP_FUN_SOURCE_NATIVE_MCAP_SEED_6401",
             currentSource = "DEXSCREENER_PAIR_POLL",
             entryPool = "MINT_ROUTE:Mint6681",
             currentPool = "MINT_ROUTE:Mint6681",
@@ -122,7 +136,7 @@ class Aate6681PriceTruthLiftRegressionTest {
         val verdict = OpenPnlSanity.inspect(
             entryPrice = 0.000056640836,
             currentPrice = 0.000003495,
-            entrySource = "PUMP_FUN_BC_SYNTHETIC",
+            entrySource = "PUMP_FUN_SOURCE_NATIVE_MCAP_SEED_6401",
             currentSource = "DEXSCREENER_PAIR_POLL",
             entryPool = "MINT_ROUTE:Mint6681",
             currentPool = "MINT_ROUTE:Mint6681",
