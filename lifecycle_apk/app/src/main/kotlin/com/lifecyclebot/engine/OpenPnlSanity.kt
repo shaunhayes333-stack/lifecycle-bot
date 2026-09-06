@@ -16,6 +16,12 @@ object OpenPnlSanity {
     const val MAX_UNKNOWN_BASIS_PNL_PCT = 5_000.0
     private const val MAX_UNKNOWN_BASIS_RATIO = 51.0
     private const val MIN_PNL_PCT = -100.0001
+    // V5.0.6681 — defense-in-depth for legacy/pre-repair positions whose entry
+    // source was a synthetic Pump.fun price basis. Only an EXTREME cross-source
+    // transition is held; ordinary same-source/same-concrete-pool losses still
+    // pass through so real rugs and real catastrophic exits are never masked.
+    private const val SYNTHETIC_TRANSITION_MIN_RATIO_6681 = 0.25
+    private const val SYNTHETIC_TRANSITION_MAX_RATIO_6681 = 4.0
 
     data class Verdict(
         val ok: Boolean,
@@ -69,7 +75,29 @@ object OpenPnlSanity {
         val sameSource = eSrc.isNotBlank() && cSrc.isNotBlank() && eSrc == cSrc
         val samePool = entryPool.isNotBlank() && currentPool.isNotBlank() && entryPool == currentPool
         val explicitComparable = samePool || sameSource || priceBasisRescaled
-        val syntheticInvolved = eSrc.contains("SYNTH") || cSrc.contains("SYNTH") || eSrc.contains("PUMP_FUN_BC") || cSrc.contains("PUMP_FUN_BC")
+        val syntheticInvolved = eSrc.contains("SYNTH") || cSrc.contains("SYNTH") || eSrc.contains("PUMP_FUN_BC") || cSrc.contains("PUMP_FUN_BC") ||
+            eSrc.contains("PUMPFUN_BC") || cSrc.contains("PUMPFUN_BC")
+
+        // V5.0.6681 §SYNTHETIC_TRANSITION_ASYMMETRY_REPAIR.
+        // The legacy guard was effectively one-sided: a synthetic->real source
+        // switch at 0.06x looked like a legitimate -94% rug because only >51x
+        // upward ratios were treated as basis corruption. MINT_ROUTE is an alias,
+        // not proof that both observations share one concrete price basis, so it
+        // must not exempt this exact transition. This is intentionally narrow:
+        //  - requires a synthetic source on one side,
+        //  - requires an actual source/basis transition,
+        //  - requires an extreme >4x or <0.25x ratio,
+        //  - never fires after the canonical rebase completed.
+        // A real DEX->DEX -94% collapse therefore remains executable.
+        val sameConcretePool6681 = samePool &&
+            !entryPool.startsWith("MINT_ROUTE:", ignoreCase = true) &&
+            !currentPool.startsWith("MINT_ROUTE:", ignoreCase = true)
+        val syntheticBasisTransition6681 = syntheticInvolved && !priceBasisRescaled &&
+            !sameSource && !sameConcretePool6681 &&
+            (ratio < SYNTHETIC_TRANSITION_MIN_RATIO_6681 || ratio > SYNTHETIC_TRANSITION_MAX_RATIO_6681)
+        if (syntheticBasisTransition6681) {
+            return reject("PRICE_BASIS_UNTRUSTED_SYNTHETIC_TRANSITION_6681", entryPrice, currentPrice, context, emit, mint)
+        }
 
         if (ratio > MAX_UNKNOWN_BASIS_RATIO && (!explicitComparable || syntheticInvolved)) {
             return reject("PRICE_BASIS_UNTRUSTED_EXTREME_RATIO", entryPrice, currentPrice, context, emit, mint)
