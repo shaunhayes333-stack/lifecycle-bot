@@ -65,12 +65,17 @@ object CanonicalPriceMarkRegistry6522 {
      * then a later real DEX quote produced fake -90%/-94% closes and poisoned
      * exit learning. Keep observation liveness; block only executable promotion
      * until a real route-priced source replaces the synthetic basis.
+     *
+     * IMPORTANT: the live no-pair source path stamps the derived 1B-supply value
+     * as PUMP_FUN_SOURCE_NATIVE_MCAP_SEED_6401. MCAP_SEED is therefore part of
+     * the price-unit contract, not merely a diagnostic label.
      */
     private fun sourceHasSyntheticPriceUnit6681(source: String): Boolean {
         val s = source.trim().uppercase()
         return s.contains("SYNTH") ||
             s.contains("PUMP_FUN_BC") || s.contains("PUMPFUN_BC") ||
-            s.contains("MCAP_DIV_SUPPLY") || s.contains("MCAP/1B")
+            s.contains("MCAP_DIV_SUPPLY") || s.contains("MCAP/1B") ||
+            s.contains("MCAP_SEED")
     }
 
     /** Promote one already-validated observation into the executable price slot.
