@@ -71,7 +71,19 @@ object ExecutionSpineAcceptance6647 {
 
 /** Rolling runtime evidence collector. Counters are sampled as deltas from
  * one uninterrupted 120-second paper window; current-state invariants are
- * read at the closing boundary. */
+ * read at the closing boundary.
+ *
+ * V5.0.6681 restart-finality repair:
+ * The window now owns a process-lifetime wall-clock closer in addition to the
+ * BotService caller. BotService intentionally shuts its service-owned scheduled
+ * executor down on Stop. Android can reuse that same service object during the
+ * smoke/user Stop -> Start sequence, so the next schedule() is rejected after
+ * beginWindow6662() has already reset the baseline. That produced a real running
+ * bot with no EXECUTION_SPINE_ACCEPTANCE_6647_* terminal marker. The autonomous
+ * closer below is generation/epoch scoped, daemon-only, and does not perform
+ * trading work. Whichever legitimate closer fires first closes the same window;
+ * the second sees a fresh <120s baseline and is therefore harmless/idempotent.
+ */
 object ExecutionSpineAcceptanceWindow6647 {
     private data class Baseline(
         val atMs: Long,
@@ -92,6 +104,16 @@ object ExecutionSpineAcceptanceWindow6647 {
     private val maxStartDelayCycles = java.util.concurrent.atomic.AtomicLong(0L)
     @Volatile private var baseline: Baseline? = null
 
+    // V5.0.6681 — process-lifetime acceptance infrastructure. It is deliberately
+    // not owned by BotService.stopBot(), because a Stop -> Start can reuse the
+    // same service instance after its service-owned executor was shutdown.
+    private val windowEpoch6681 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val autonomousCloser6681: java.util.concurrent.ScheduledExecutorService =
+        java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->
+            Thread(r, "AATE-Spine-Acceptance-6681").apply { isDaemon = true }
+        }
+    @Volatile private var autonomousCloseFuture6681: java.util.concurrent.ScheduledFuture<*>? = null
+
     private val watchedLabels = listOf(
         "BG_SPLIT_RUNTIME_INTAKE_ZOMBIE_6579",
         "EXEC_OPEN_PRECHECK_SIZE_PENDING_6491",
@@ -111,9 +133,6 @@ object ExecutionSpineAcceptanceWindow6647 {
                 val prior = maxStartDelayCycles.get()
                 if (delay <= prior || maxStartDelayCycles.compareAndSet(prior, delay)) break
             }
-            // Record only the first real coroutine heartbeat acknowledging
-            // this request. Later heartbeats must not manufacture a growing
-            // delay for coordinator work that already began.
             requestedCycle.compareAndSet(requested, -1L)
         }
     }
@@ -145,6 +164,8 @@ object ExecutionSpineAcceptanceWindow6647 {
      */
     @Synchronized
     fun beginWindow6662(nowMs: Long = System.currentTimeMillis()) {
+        val epoch6681 = windowEpoch6681.incrementAndGet()
+        try { autonomousCloseFuture6681?.cancel(false) } catch (_: Throwable) {}
         baseline = capture(nowMs)
         requestedCycle.set(-1L)
         maxStartDelayCycles.set(0L)
@@ -152,9 +173,33 @@ object ExecutionSpineAcceptanceWindow6647 {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_WINDOW_STARTED_6662")
             com.lifecyclebot.engine.ForensicLogger.lifecycle(
                 "EXECUTION_SPINE_WINDOW_STARTED_6662",
-                "atMs=$nowMs source=accepted_runtime_start",
+                "atMs=$nowMs source=accepted_runtime_start epoch6681=$epoch6681",
             )
         } catch (_: Throwable) {}
+
+        // Close independently of the service executor. A later begin invalidates
+        // this task by epoch, so a stopped generation can never close a new run.
+        val closeDelayMs6681 = ExecutionSpineAcceptance6647.MIN_WINDOW_MS + 2_500L
+        autonomousCloseFuture6681 = autonomousCloser6681.schedule({
+            try {
+                if (windowEpoch6681.get() != epoch6681) return@schedule
+                val active = try { BackgroundTradingAuthority6469.isRuntimeActive() } catch (_: Throwable) { false }
+                if (!active) return@schedule
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "EXECUTION_SPINE_AUTONOMOUS_CLOSE_FIRED_6681",
+                    "epoch=$epoch6681 delayMs=$closeDelayMs6681",
+                )
+                closeCompletedWindow()
+            } catch (t: Throwable) {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_AUTONOMOUS_CLOSE_ERROR_6681")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "EXECUTION_SPINE_AUTONOMOUS_CLOSE_ERROR_6681",
+                        "epoch=$epoch6681 error=${t.javaClass.simpleName}:${t.message ?: ""}",
+                    )
+                } catch (_: Throwable) {}
+            }
+        }, closeDelayMs6681, java.util.concurrent.TimeUnit.MILLISECONDS)
     }
 
     /** Returns null while the mandatory window is still warming. */
