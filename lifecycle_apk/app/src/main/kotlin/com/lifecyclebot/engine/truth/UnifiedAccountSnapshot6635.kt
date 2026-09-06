@@ -7,50 +7,30 @@ import java.util.concurrent.atomic.AtomicReference
 /**
  * V5.0.6635 §5 UNIFIED_ACCOUNT_SNAPSHOT.
  *
- * OPERATOR DIRECTIVE (verbatim):
- *   > "Delete the current 'HERO USES JOURNAL' workaround.
- *   >  Remove this architecture: action=hero_uses_journal_ledger_stays_for_execution.
- *   >  That masks the accounting fault.
- *   >  UI must receive one reconciled AccountSnapshot generated only
- *   >  after: ledger == journal == canonical positions.
- *   >  The UI is a renderer only.
- *   >  MainActivity, MemeTrader screen, Crypto Universe screen,
- *   >  Markets screen must all render the same AccountSnapshot for
- *   >  the same trading account/mode.
- *   >  No screen may recalculate balance locally."
+ * The UI is a renderer only. MainActivity, MemeTrader, Crypto Universe and
+ * Markets must consume the same immutable account snapshot for the same mode.
+ * No screen may recalculate balance locally.
  *
- * DESIGN
- * ──────
- * `UnifiedAccountSnapshot6635.read(mode, surface)` is the ONLY
- * function the UI is allowed to call.  It:
- *   1. Runs `ForensicReconciliation6635.reconcile6635()`
- *   2. Reads canonical event registry + ledger + journal + positions
- *   3. Returns an immutable `Snapshot` with two possible statuses:
- *      RECONCILED — the four stores agree; safe to render
- *      FAILED     — a delta exists; UI renders values BUT is REQUIRED
- *                    to display the FORENSIC_ACCOUNTING banner
- *   4. Emits `HERO_UNIFIED_SNAPSHOT_READ_6635` per surface
+ * V5.0.6681 — READ PATH FINALITY.
  *
- * The status is authoritative — no screen may promote a FAILED
- * snapshot to RECONCILED via local computation.
+ * UI/account reads are observational and non-blocking. A render must never run
+ * the full forensic journal replay or mutate/reconstruct economic state. The
+ * independent reconciler owns those expensive checks and publishes its latest
+ * health line; this object only reads that cached status plus the canonical
+ * current capital snapshot.
  *
- * NOTE: This is the ONE place `PaperEconomicSnapshot6629` was already
- * wired to.  6635 adds the reconciliation gate + the operator-mandated
- * FORENSIC banner semantics on top; existing 6629 callers can be
- * migrated one-by-one to 6635 without changing rendering behaviour.
- *
- * V5.0.6678 — READ PATH PURITY.
- * Account/UI reads are observational only. They must never schedule or execute
- * journal projection, canonical position mutation, refunds, or migration work.
- * Repair/migration belongs at controlled bootstrap boundaries where one writer
- * owns the economic transaction and stop/start cannot be starved by read churn.
+ * A historical reconciliation failure does NOT make current canonical capital
+ * disappear. FAILED means "render the canonical values with a forensic warning",
+ * not "replace the account with zero / ACCOUNT_UNAVAILABLE". This restores the
+ * original 6635 contract and prevents old/quarantined journal history from
+ * blanking an otherwise conserving current account.
  */
 object UnifiedAccountSnapshot6635 {
 
     enum class Status { RECONCILED, FAILED, WARMUP }
 
     data class Snapshot(
-        val mode: String,           // "paper" or "live"
+        val mode: String,
         val cashSol: Double,
         val equitySol: Double,
         val realizedPnlSol: Double,
@@ -75,66 +55,82 @@ object UnifiedAccountSnapshot6635 {
     )
     private val lastReconciled = java.util.concurrent.ConcurrentHashMap<String, Snapshot>()
 
-    @Synchronized
     fun read(surface: String, mode: String = "paper"): Snapshot {
         reads.incrementAndGet()
         try { PipelineHealthCollector.labelInc("HERO_UNIFIED_SNAPSHOT_READ_6635") } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("HERO_UNIFIED_SNAPSHOT_READ_${surface.uppercase()}_6635") } catch (_: Throwable) {}
 
-        // Read-path purity: reconciliation may observe and report deltas, but
-        // this UI-facing method must never repair, project, refund, or mutate
-        // canonical economic state as a side effect of rendering a balance.
-        try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
-
+        // V5.0.6681 — NEVER call ForensicReconciliation6635.reconcile6635()
+        // here. It can replay thousands of rows and was the dominant main-thread
+        // ANR frame. The independent reconciler already updates healthLine6635().
         val capital = try { PaperCapitalAuthority6577.snapshot() } catch (_: Throwable) { null }
         val markAuthority = try { CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
-        val cashLedger = capital?.availableCashSol ?: 0.0
-        val realized = capital?.realizedPnlSol ?: 0.0
-        val openCost = capital?.openMarketValueSol ?: 0.0
-        val openPositions = try { CanonicalPositionAuthority6441.openPositions().count { it.mode == mode } } catch (_: Throwable) { 0 }
-        // Ledger currently carries cost-basis equity. Market marks remain
-        // diagnostic until they are captured in the same immutable account
-        // transaction; never splice a second-time snapshot into this read.
-        val unrealized = 0.0
-        val equity = cashLedger + openCost + unrealized
-
         val forensicLine = try { ForensicReconciliation6635.healthLine6635() } catch (_: Throwable) { "" }
         val status = when {
             forensicLine.contains("status=RECONCILED") -> Status.RECONCILED
             forensicLine.contains("status=FAILED") -> Status.FAILED
             else -> Status.WARMUP
         }
-        val snap = Snapshot(
-            mode = mode, cashSol = cashLedger, equitySol = equity,
-            realizedPnlSol = realized, unrealizedPnlSol = unrealized,
-            openPositionsCount = openPositions, status = status,
-            forensicLine = forensicLine, readAtMs = System.currentTimeMillis(),
-            openMarketValueSol = openCost,
-            accountAvailable = status == Status.RECONCILED,
-            authoritativePrices = status == Status.RECONCILED &&
-                (markAuthority?.fallbackMarkMints ?: Int.MAX_VALUE) == 0 &&
-                (markAuthority?.staleMarkMints ?: Int.MAX_VALUE) == 0,
-        )
-        if (status == Status.RECONCILED) {
-            lastReconciled[mode] = snap
-            lastRead.set(snap)
-            return snap
+
+        // If canonical capital itself has not initialized, retain the last good
+        // snapshot rather than manufacturing a zero-balance accounting error.
+        if (capital == null) {
+            val retained = lastReconciled[mode]?.copy(
+                status = Status.WARMUP,
+                forensicLine = "$forensicLine accountAction=RETAIN_LAST_RECONCILED_CAPITAL_WARMUP",
+                readAtMs = System.currentTimeMillis(),
+                accountAvailable = true,
+            ) ?: lastRead.get().takeIf { it.mode == mode && it.accountAvailable }?.copy(
+                status = Status.WARMUP,
+                forensicLine = "$forensicLine accountAction=RETAIN_LAST_CANONICAL_CAPITAL_WARMUP",
+                readAtMs = System.currentTimeMillis(),
+            ) ?: Snapshot(
+                mode = mode, cashSol = 0.0, equitySol = 0.0,
+                realizedPnlSol = 0.0, unrealizedPnlSol = 0.0,
+                openPositionsCount = 0, status = Status.WARMUP,
+                forensicLine = "$forensicLine CANONICAL_CAPITAL_WARMUP",
+                readAtMs = System.currentTimeMillis(),
+                accountAvailable = false, authoritativePrices = false,
+            )
+            lastRead.set(retained)
+            return retained
         }
-        val retained = lastReconciled[mode]?.copy(
-            status = Status.FAILED,
-            forensicLine = "$forensicLine accountAction=RETAIN_LAST_RECONCILED",
+
+        val cashLedger = capital.availableCashSol
+        val realized = capital.realizedPnlSol
+        val openCost = capital.openMarketValueSol
+        val openPositions = try {
+            CanonicalPositionAuthority6441.openPositions().count { it.mode.equals(mode, ignoreCase = true) }
+        } catch (_: Throwable) { 0 }
+
+        // Current ledger carries the current canonical market/cost projection.
+        // Do not splice a second historical replay into a UI read.
+        val unrealized = 0.0
+        val equity = cashLedger + openCost + unrealized
+        val pricesAuthoritative =
+            (markAuthority?.fallbackMarkMints ?: Int.MAX_VALUE) == 0 &&
+            (markAuthority?.staleMarkMints ?: Int.MAX_VALUE) == 0
+
+        val snap = Snapshot(
+            mode = mode,
+            cashSol = cashLedger,
+            equitySol = equity,
+            realizedPnlSol = realized,
+            unrealizedPnlSol = unrealized,
+            openPositionsCount = openPositions,
+            status = status,
+            forensicLine = if (status == Status.FAILED)
+                "$forensicLine accountAction=RENDER_CURRENT_CANONICAL_WITH_FORENSIC_WARNING"
+            else forensicLine,
             readAtMs = System.currentTimeMillis(),
+            openMarketValueSol = openCost,
             accountAvailable = true,
-        ) ?: Snapshot(
-            mode = mode, cashSol = 0.0, equitySol = 0.0,
-            realizedPnlSol = 0.0, unrealizedPnlSol = 0.0,
-            openPositionsCount = openPositions, status = Status.FAILED,
-            forensicLine = "$forensicLine ACCOUNT_UNAVAILABLE",
-            readAtMs = System.currentTimeMillis(), openMarketValueSol = 0.0,
-            accountAvailable = false, authoritativePrices = false,
+            authoritativePrices = pricesAuthoritative,
         )
-        lastRead.set(retained)
-        return retained
+
+        if (status == Status.RECONCILED) lastReconciled[mode] = snap
+        lastRead.set(snap)
+        return snap
     }
 
     fun lastSnapshot(): Snapshot = lastRead.get()
