@@ -31,15 +31,10 @@ class Aate6672KeylessLlmFallbackTest {
     private val botService  = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
 
     @Test
-    fun `KeylessLlmClient exists and wires Pollinations plus DuckDuckGo endpoints`() {
-        assertTrue(
-            "KeylessLlmClient must call Pollinations OpenAI-compatible endpoint",
-            keylessLlm.contains("text.pollinations.ai/openai"),
-        )
-        assertTrue(
-            "KeylessLlmClient must call DuckDuckGo duckchat endpoint",
-            keylessLlm.contains("duckduckgo.com/duckchat/v1/chat"),
-        )
+    fun `KeylessLlmClient exists and exposes setOperatorKeys and fail-open contract (V5-0-6678 chain)`() {
+        // V5.0.6678: Pollinations + DuckDuckGo were both dead in Feb 2026;
+        // chain was rewired to the Emergent OpenAI-compat proxy. Provider-
+        // level endpoint locks live in Aate6678KeylessChainRepairTest.
         assertTrue(
             "KeylessLlmClient must expose setOperatorKeys(...) for optional paid-key upgrade",
             keylessLlm.contains("fun setOperatorKeys("),
