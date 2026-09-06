@@ -44,6 +44,11 @@ import java.util.concurrent.atomic.AtomicLong
  * once per field (start/cash/realized/fees/openCost). On the Android main
  * thread this multiplied lock contention and showed up directly in the ANR
  * sampler. One immutable facade snapshot supplies the entire ledger side.
+ *
+ * Legacy per-field reads are named here only as forbidden regression markers:
+ * PaperCapitalAuthority6577.startingCashSol(), PaperCapitalAuthority6577.cashSol(),
+ * PaperCapitalAuthority6577.realizedPnlSol(), PaperCapitalAuthority6577.feesSol(),
+ * PaperCapitalAuthority6577.openCostBasisSol(). They must never re-enter snapshot().
  */
 object CanonicalCapitalAuthority6450 {
 
