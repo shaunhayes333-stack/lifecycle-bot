@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """Repository-wide guards for proven patch-stacking failure shapes.
 
-V5.0.6678 extends this from syntax-only dead-branch checks into authority
-contracts.  The rules deliberately scan production Kotlin across the whole
-repository so a later patch cannot re-introduce a retired writer from another
-screen, persistence adapter, or specialist lane.
+V5.0.6681 extends the authority contracts so CI cannot re-introduce the
+accounting/UI and treasury regressions proven by the operator runtime dump.
 
 Policy:
   * one canonical writer per economic mutation domain;
   * read/presentation paths are observational only;
   * retired patches stay at zero references;
   * source cleanup may reduce legacy scaffolding, but CI may never require it
-    to come back.
+    to come back;
+  * UI reads may consume cached reconciliation status but may never execute a
+    full journal replay;
+  * immutable trade mode supplied by the caller may never be re-derived from a
+    mutable global mode inside an economic mutation.
 """
 
 from pathlib import Path
@@ -22,9 +24,6 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "app/src/main/kotlin"
 TEST_SRC = ROOT / "app/src/test/kotlin"
 
-# These are source-level retirements, not warning counters. Once a patch is
-# superseded, any production reference is a hard regression. Add new entries
-# here when source convergence makes an older patch obsolete.
 RETIRED_PRODUCTION_SYMBOLS = {
     "CanonicalJournalProjectionRepair6677": (
         "global typed-event journal repair was superseded by canonical mutation-source projection"
@@ -47,7 +46,6 @@ RETIRED_PRODUCTION_SYMBOLS = {
     "CRYPTO_ROUND_TRIP_JOURNAL_COMMITTED_6659": (
         "CryptoAlt caller-side paper journal projection is retired; canonical reducer owns it"
     ),
-
 }
 
 
@@ -102,8 +100,10 @@ def main() -> int:
                 errors.append(f"{rel}: retired production symbol {symbol!r} returned — {reason}")
 
     # ------------------------------------------------------------------
-    # 6678 authority contracts: prevent the exact source/patch contradiction
-    # that let account reads manufacture duplicate BUY/SELL journal rows.
+    # Account read purity. The old 6678 assertion REQUIRED the UI snapshot to
+    # run ForensicReconciliation6635.reconcile6635(), which recreated the exact
+    # main-thread ANR architecture the source cleanup was trying to remove.
+    # 6681 inverts that stale contract permanently.
     # ------------------------------------------------------------------
     unified = (SRC / "com/lifecyclebot/engine/truth/UnifiedAccountSnapshot6635.kt").read_text()
     for mutation in (
@@ -112,9 +112,28 @@ def main() -> int:
         "scheduleRepair6677",
         "TradeHistoryStore.recordTrade",
         "CanonicalPaperTransaction6486.",
+        "ForensicReconciliation6635.reconcile6635()",
+        "@Synchronized\n    fun read",
     ):
-        forbid(errors, unified, mutation, "UNIFIED_ACCOUNT_READ_PURITY_6678")
-    require(errors, unified, "ForensicReconciliation6635.reconcile6635()", "UNIFIED_ACCOUNT_OBSERVATION_6678")
+        forbid(errors, unified, mutation, "UNIFIED_ACCOUNT_READ_PURITY_6681")
+    require(errors, unified, "ForensicReconciliation6635.healthLine6635()", "UNIFIED_ACCOUNT_CACHED_FORENSIC_STATUS_6681")
+    require(errors, unified, "accountAvailable = true", "UNIFIED_ACCOUNT_CURRENT_CAPITAL_VISIBLE_6681")
+    require(errors, unified, "RENDER_CURRENT_CANONICAL_WITH_FORENSIC_WARNING", "UNIFIED_ACCOUNT_FAILED_STATUS_IS_ANNOTATION_6681")
+
+    # Treasury authority: paper and live displays/sizing may never expose a
+    # corrupt persisted treasury amount larger than the actual capital supplied
+    # to effectiveLockedSol(). Economic mutation mode is immutable from caller.
+    treasury = (SRC / "com/lifecyclebot/engine/TreasuryManager.kt").read_text()
+    forbid(errors, treasury, "if (isPaperMode) return treasurySol", "TREASURY_PAPER_UNBOUNDED_AUTHORITY_6681")
+    require(errors, treasury, "treasurySol.coerceIn(0.0, maxLockable)", "TREASURY_BOUNDED_AUTHORITY_6681")
+    contribution = treasury.split("fun contributeFromMemeSell(", 1)[-1].split("fun backFundPaperWalletIfLow", 1)[0]
+    forbid(errors, contribution, "val isPaper = try", "TREASURY_IMMUTABLE_MODE_6681")
+    require(errors, contribution, "val floor = if (isPaper)", "TREASURY_CALLER_MODE_6681")
+
+    # False starvation alarms after Stop are a regression: once runtime
+    # authority is inactive there is intentionally no exit heartbeat.
+    protective = (SRC / "com/lifecyclebot/engine/truth/ProtectiveExitScheduler6450.kt").read_text()
+    require(errors, protective, "BackgroundTradingAuthority6469.isRuntimeActive()", "PROTECTIVE_EXIT_STOP_AWARE_6681")
 
     perps_store = (SRC / "com/lifecyclebot/perps/PerpsPositionStore.kt").read_text()
     forbid(errors, perps_store, "CanonicalJournalProjectionRepair6677", "PERPS_PERSISTENCE_READ_PURITY_6678")
@@ -168,10 +187,6 @@ def main() -> int:
         errors.append(f"PAPER_BUY_NOT_OPENED_SINGLE_COUNTER_OWNER_6680: expected 1 owner, found {paper_not_opened_owners}")
     forbid(errors, executor, 'PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_PRESALE_SNIPE_51K_RUG_6373F")', "PAPER_PRESALE_REJECT_DYNAMIC_REASON_ONLY_6680")
 
-    # A prior Golden Tape assertion required production to retain a deleted
-    # constant-false branch, turning a correct source cleanup into a red build.
-    # Reject positive test contracts for the proven dead-patch sentinels while
-    # still allowing assertFalse guards that prevent their return.
     stale_contract_names = (
         "v3OwnsMemes",
         "floorPromotionRequested6511",
