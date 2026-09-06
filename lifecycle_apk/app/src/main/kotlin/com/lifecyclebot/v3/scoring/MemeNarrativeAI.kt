@@ -13,11 +13,12 @@ import org.json.JSONObject
  * "alive" right now (see CultMomentumAI for the temporal half).
  *
  * Output: a `(cluster, baseBonus)` pair that scoreToken adds to its composite.
- * Defaults to (`UNKNOWN`, 0) when nothing matches — additive, never subtractive.
+ * Defaults to (`UNKNOWN`, 0) when nothing matches.
  *
- * Clusters are intentionally simple keyword sets. The LLM Lab can grow this
- * over time via SentienceHooks.requestLlmMemeBuy + persona memory; this is the
- * deterministic backbone.
+ * Clusters are intentionally simple keyword sets. The LLM layer can review the
+ * deterministic narrative classification asynchronously via SentienceHooks;
+ * V5.0.6678 consumes that cached review as a bounded score shape rather than
+ * merely logging that an LLM review was requested.
  */
 object MemeNarrativeAI {
 
@@ -97,27 +98,44 @@ object MemeNarrativeAI {
             bestKwLen >= 3 -> 55
             else           -> 40
         }
-        val match = NarrativeMatch(
-            cluster = best,
-            baseBonus = best.baseBonus,
-            matchedKeyword = bestKw,
-            confidence = confidence,
-        )
 
-        // V5.9.418 — Sentience hook: surface high-confidence narrative matches
-        // to the LLM so the chat / persona layer can act on them (e.g. "frog
-        // cluster is alive — open a small paper meme buy"). Pure log/telegraph
-        // — actual entries still flow through the normal Executor + V3 path.
-        if (confidence >= 70 && best != Cluster.UNKNOWN) {
+        // V5.0.6678 §TRADE_QUALITY_SENTIENCE_LOOP
+        // The pre-existing hook was log-only, so the LLM could not influence an
+        // entry even after V5.0.6677 restored provider connectivity. Prime the
+        // async single-flight review for meaningful narrative matches, then use
+        // any already-cached vote as a bounded score shape. Cache miss remains
+        // neutral; no network call blocks this scorer.
+        if (confidence >= 55) {
             try {
                 com.lifecyclebot.engine.SentienceHooks.requestLlmMemeBuy(
-                    symbol  = symbol,
-                    sizeSol = 0.0,   // narrative-only signal; no size proposed
-                    reason  = "${best.emoji} ${best.name} cluster (kw=$bestKw conf=$confidence)",
+                    symbol = symbol,
+                    sizeSol = 0.0,
+                    reason = "${best.emoji} ${best.name} cluster (kw=$bestKw conf=$confidence)",
+                    score = confidence,
+                    confidence = confidence,
                 )
             } catch (_: Throwable) { /* fail-open */ }
         }
-        return match
+        val llmBias6678 = try {
+            com.lifecyclebot.engine.SentienceHooks.entryQualityScoreBias6678(symbol)
+        } catch (_: Throwable) { 0 }
+        val shapedBonus6678 = (best.baseBonus + llmBias6678).coerceIn(-10, 12)
+        if (llmBias6678 != 0) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_ENTRY_SCORE_SHAPED_6678")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "LLM_ENTRY_SCORE_SHAPED_6678",
+                    "symbol=$symbol cluster=${best.name} base=${best.baseBonus} llmBias=$llmBias6678 final=$shapedBonus6678 vote=${com.lifecyclebot.engine.SentienceHooks.llmVote(symbol)}",
+                )
+            } catch (_: Throwable) {}
+        }
+
+        return NarrativeMatch(
+            cluster = best,
+            baseBonus = shapedBonus6678,
+            matchedKeyword = bestKw,
+            confidence = confidence,
+        )
     }
 
     private val UNKNOWN_MATCH = NarrativeMatch(Cluster.UNKNOWN, 0, "", 0)
