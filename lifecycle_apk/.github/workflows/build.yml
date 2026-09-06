@@ -30,20 +30,16 @@ jobs:
       - name: Compute AATE build number
         id: aate_build
         run: |
+          # V5.0.6677 — mirror the root workflow's full-version authority.
+          CANONICAL_VERSION="$(tr -d '[:space:]' < AATE_VERSION)"
+          CANONICAL_BUILD_NUMBER="$(printf '%s' "$CANONICAL_VERSION" | awk -F. '{print $NF}')"
+          BASE="$(printf '%s' "$CANONICAL_VERSION" | awk -F. '{print $1"."$2}')"
           RUN_BUILD_NUMBER=$((GITHUB_RUN_NUMBER + 1))
-          # V5.0.4571 — VERSION REALIGNMENT.
-          # Runtime reports read BuildConfig.VERSION_NAME, while operator patches
-          # are named in git commits (V5.0.xxxx). GITHUB_RUN_NUMBER can lag the
-          # patch stack, making the latest APK report an older build number.
-          # Use the larger of CI run number and latest V5.0.xxxx commit subject.
-          COMMIT_BUILD_NUMBER=$(git log -1 --pretty=%s | sed -n 's/^V5\.0\.\([0-9][0-9]*\).*/\1/p')
+          COMMIT_BUILD_NUMBER=$(git log -20 --pretty=%s | grep -oE 'V5\.0\.[0-9]+' | sed -E 's/V5\.0\.//' | sort -n | tail -1)
           if [ -z "$COMMIT_BUILD_NUMBER" ]; then COMMIT_BUILD_NUMBER=0; fi
-          if [ "$COMMIT_BUILD_NUMBER" -gt "$RUN_BUILD_NUMBER" ]; then
-            BUILD_NUMBER="$COMMIT_BUILD_NUMBER"
-          else
-            BUILD_NUMBER="$RUN_BUILD_NUMBER"
-          fi
-          BASE="$(cat AATE_VERSION)"
+          BUILD_NUMBER="$CANONICAL_BUILD_NUMBER"
+          if [ "$RUN_BUILD_NUMBER" -gt "$BUILD_NUMBER" ]; then BUILD_NUMBER="$RUN_BUILD_NUMBER"; fi
+          if [ "$COMMIT_BUILD_NUMBER" -gt "$BUILD_NUMBER" ]; then BUILD_NUMBER="$COMMIT_BUILD_NUMBER"; fi
           VERSION_NAME="${BASE}.${BUILD_NUMBER}"
           echo "AATE_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "AATE_VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"

@@ -24,6 +24,17 @@ object CanonicalPriceMarkRegistry6522 {
     // reads whichever slot has fresher data.
     private val marks = ConcurrentHashMap<Pair<String, CanonicalMarkPurpose6570>, CanonicalPriceMark6522>()
 
+    /**
+     * V5.0.6682 — publish means "the registry has a valid mark for this key after
+     * this call", not "this exact object won the timestamp race".
+     *
+     * The old return `marks[key] == mark` made a perfectly valid observation look
+     * rejected whenever a slightly fresher observation had already landed. That
+     * propagated as SOURCE_OBSERVATION_REJECTED -> VALID_SOURCE_NO_EXECUTABLE_MARK
+     * even though the registry already held better evidence. We still reject bad
+     * identity/provenance/units up front; an older VALID observation simply reuses
+     * the newer canonical mark instead of turning freshness into a false veto.
+     */
     fun publish(mark: CanonicalPriceMark6522): Boolean {
         if (mark.mint.isBlank() || mark.baseMint != mark.mint) return false
         if (mark.pairId.isBlank()) return false
@@ -43,8 +54,13 @@ object CanonicalPriceMarkRegistry6522 {
             if (!observationOk) return false
         }
         val key = mark.mint to mark.purpose
-        marks.compute(key) { _, current -> if (current == null || mark.timestampMs >= current.timestampMs) mark else current }
-        return marks[key] == mark
+        val resolved = marks.compute(key) { _, current ->
+            if (current == null || mark.timestampMs >= current.timestampMs) mark else current
+        }
+        // A fresher mark for the exact mint/purpose is a successful publish result:
+        // callers can immediately resolve/promote it. Invalid incoming evidence has
+        // already been rejected above, so this does not weaken provenance checks.
+        return resolved != null && resolved.mint == mark.mint && resolved.purpose == mark.purpose
     }
 
 
@@ -83,8 +99,13 @@ object CanonicalPriceMarkRegistry6522 {
             purpose = CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
             identityProof6613 = if (obs.pairId.startsWith("MINT_ROUTE:", true)) "CANONICAL_MINT_SOURCE_MARK_6613" else obs.identityProof6613,
         )
-        return if (publish(promoted)) PromotionResult6613(promoted, reason, obs.source, price, age, "${obs.baseMint}->${obs.quoteMint}@${obs.pairId}", "scale=${obs.priceUsd.value.scale()}")
-        else PromotionResult6613(null, "REGISTRY_PUBLISH_REJECTED", obs.source, price, age, "${obs.baseMint}->${obs.quoteMint}@${obs.pairId}", "scale=${obs.priceUsd.value.scale()}")
+        return if (publish(promoted)) {
+            // If an even fresher executable mark won the race, return that mark;
+            // callers need usable canonical truth, not object-identity equality.
+            val current = marks[mint to CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE] ?: promoted
+            PromotionResult6613(current, reason, current.source, current.priceUsd.value.toDouble(), nowMs - current.timestampMs,
+                "${current.baseMint}->${current.quoteMint}@${current.pairId}", "scale=${current.priceUsd.value.scale()}")
+        } else PromotionResult6613(null, "REGISTRY_PUBLISH_REJECTED", obs.source, price, age, "${obs.baseMint}->${obs.quoteMint}@${obs.pairId}", "scale=${obs.priceUsd.value.scale()}")
     }
 
 
@@ -226,7 +247,8 @@ object CanonicalPriceMarkRegistry6522 {
         )
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_PRICE_MARK_OBSERVATION_ADMITTED_6628") } catch (_: Throwable) {}
         return PromotionResult6613(
-            observation, "OBSERVATION_ADMITTED_6628", source, priceUsd, ageMs,
+            marks[mint to CanonicalMarkPurpose6570.OBSERVATION_SCORING] ?: observation,
+            "OBSERVATION_ADMITTED_6628", source, priceUsd, ageMs,
             "$mint->$normalizedQuote@$normalizedPair", "scale=${observation.priceUsd.value.scale()}",
         )
     }

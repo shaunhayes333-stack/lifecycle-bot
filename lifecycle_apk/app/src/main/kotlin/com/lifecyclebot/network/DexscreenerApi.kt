@@ -37,6 +37,24 @@ data class PairInfo(
     val hasImage: Boolean = false,                // imageUrl present in info block
 )
 
+/**
+ * V5.0.6682 — provider-boundary chain canonicalization.
+ * Crypto Universe intentionally keeps source-native identities, but DexScreener's
+ * token-pairs endpoint expects its own canonical chain ids. Passing discovery
+ * aliases such as `eth`, `matic`, `arb`, or `op` straight through caused healthy
+ * DexScreener to answer with no pair, which surfaced downstream as PRICE_UNAVAILABLE.
+ */
+internal fun normalizeDexscreenerChain6682(raw: String): String = when (raw.trim().lowercase()) {
+    "eth", "ethereum", "erc20", "ethereum-mainnet" -> "ethereum"
+    "sol", "solana", "solana-mainnet" -> "solana"
+    "bnb", "bnbchain", "bsc", "binance-smart-chain", "binance_smart_chain" -> "bsc"
+    "matic", "polygon", "polygon-pos", "polygon_pos" -> "polygon"
+    "arb", "arbitrum", "arbitrum-one", "arbitrum_one" -> "arbitrum"
+    "op", "optimism", "optimism-mainnet" -> "optimism"
+    "base-mainnet", "base_mainnet", "base" -> "base"
+    else -> raw.trim().lowercase()
+}
+
 class DexscreenerApi {
 
     private val http = SharedHttpClient.builder()
@@ -71,12 +89,17 @@ class DexscreenerApi {
      * This does not change MemeTrader's Solana-specialized getBestPair(mint).
      */
     fun getBestPair(chainId: String, tokenAddress: String): PairInfo? {
-        val chain = chainId.trim().lowercase()
-        if (chain.isBlank() || tokenAddress.isBlank()) return null
-        return getBestPairInternal(chain, tokenAddress.trim(), allowDexPaprika = chain == "solana")
+        val canonicalChainId = normalizeDexscreenerChain6682(chainId)
+        if (canonicalChainId.isBlank() || tokenAddress.isBlank()) return null
+        return getBestPairInternal(canonicalChainId, tokenAddress.trim(), allowDexPaprika = canonicalChainId == "solana")
     }
 
-    private fun getBestPairInternal(chainId: String, tokenAddress: String, allowDexPaprika: Boolean): PairInfo? {
+    private fun getBestPairInternal(rawChainId: String, tokenAddress: String, allowDexPaprika: Boolean): PairInfo? {
+        // V5.0.6683 — normalize once at the provider boundary and keep the
+        // canonical provider identity named `chainId` throughout URL selection,
+        // response-chain validation and address case-sensitivity. This preserves
+        // the V5.0.6493/6544 mint-identity Golden Tape while retaining 6682 aliases.
+        val chainId = normalizeDexscreenerChain6682(rawChainId)
         val cacheKey = "$chainId|$tokenAddress"
         val cached = pairCache[cacheKey]
         val now = System.currentTimeMillis()
@@ -110,6 +133,8 @@ class DexscreenerApi {
         var bestScore = -1.0
         for (i in 0 until pairs.length()) {
             val row = pairs.getJSONObject(i)
+            val rowChain = normalizeDexscreenerChain6682(row.optString("chainId", ""))
+            if (rowChain.isNotBlank() && rowChain != chainId) continue
             val baseAddress = row.optJSONObject("baseToken")?.optString("address", "") ?: ""
             if (!baseAddress.equals(tokenAddress, ignoreCase = chainId != "solana")) continue
             val score = scorePair(row)
@@ -136,7 +161,6 @@ class DexscreenerApi {
         return (0 until minOf(arr.length(), 20)).mapNotNull { parsePair(arr.getJSONObject(it)) }
             .filter { it.candle.priceUsd > 0 }
     }
-
     // ── internals ──────────────────────────────────────────
 
     private fun fetchDexPaprikaToken6512(mint: String): PairInfo? {
@@ -244,7 +268,7 @@ class DexscreenerApi {
             fdv              = p.optDouble("fdv", 0.0),
             baseTokenAddress = base?.optString("address", "") ?: "",
             quoteTokenAddress = quote?.optString("address", "") ?: "",
-            chainId          = p.optString("chainId", ""),
+            chainId          = normalizeDexscreenerChain6682(p.optString("chainId", "")),
             dexId            = p.optString("dexId", ""),
             tokenAddress     = base?.optString("address", "") ?: "",
             quoteAddress     = quote?.optString("address", "") ?: "",

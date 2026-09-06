@@ -4,30 +4,42 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-// V5.0 - Clean start with auto-incrementing version
-// versionCode increments with each CI build for seamless updates
+// V5.0.6677 — checked-in version authority.
+// AATE_VERSION is the canonical full version (for example 5.0.6677). CI run
+// numbers may be lower than the operator patch stack, so they must never drag
+// BuildConfig/versionCode backwards. Treat the checked-in patch as a floor.
 val baseVersionCode = 500
-val ciBuildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 0
+val checkedInVersionName = rootProject.file("AATE_VERSION")
+    .takeIf { it.exists() }
+    ?.readText()
+    ?.trim()
+    ?.takeIf { it.isNotBlank() }
+val checkedInBuildNumber = checkedInVersionName
+    ?.substringAfterLast('.')
+    ?.toIntOrNull()
+    ?: 0
+val requestedBuildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 0
+val ciBuildNumber = maxOf(requestedBuildNumber, checkedInBuildNumber)
 val finalVersionCode = baseVersionCode + ciBuildNumber
 
-// V5.0.4025: explicit patch version authority. CI run numbers drifted from
-// operator patch numbers, so APK artifacts/reports showed 5.0.4023 while the
-// code was already 4024. Prefer -PaateVersionName, then checked-in AATE_VERSION,
-// then timestamp fallback for ad-hoc local builds.
+// Explicit CI version names remain supported, but ordinary/debug/smoke builds
+// use the checked-in canonical full version instead of collapsing to bare 5.0.
 val explicitVersionName = (project.findProperty("aateVersionName") as String?)
-    ?: rootProject.file("AATE_VERSION").takeIf { it.exists() }?.readText()?.trim()?.takeIf { it.isNotBlank() }
+    ?.trim()
+    ?.takeIf { it.isNotBlank() }
 val timestampSuffix = if (ciBuildNumber == 0) {
     (System.currentTimeMillis() / 60000).toString().takeLast(6)
 } else {
     ciBuildNumber.toString()
 }
-val finalVersionName = explicitVersionName ?: "5.0.$timestampSuffix"
+val finalVersionName = explicitVersionName ?: checkedInVersionName ?: "5.0.$timestampSuffix"
 
 // Debug: Print version info during build
 println("========================================")
 println("Building AATE v$finalVersionName")
 println("versionCode = $finalVersionCode")
 println("ciBuildNumber = $ciBuildNumber")
+println("checkedInBuildNumber = $checkedInBuildNumber")
 println("timestampSuffix = $timestampSuffix")
 println("buildNumber property = ${project.findProperty("buildNumber")}")
 println("========================================")

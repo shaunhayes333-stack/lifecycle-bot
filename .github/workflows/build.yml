@@ -43,29 +43,18 @@ jobs:
       - name: Compute AATE build number
         id: aate_build
         run: |
+          # V5.0.6677 — AATE_VERSION is the checked-in full version authority.
+          # CI run numbers and commit scans are secondary monotonic fallbacks only;
+          # neither may drag a 6677 source tree back to a 3xxx/5xxx build.
+          CANONICAL_VERSION="$(tr -d '[:space:]' < AATE_VERSION)"
+          CANONICAL_BUILD_NUMBER="$(printf '%s' "$CANONICAL_VERSION" | awk -F. '{print $NF}')"
+          BASE="$(printf '%s' "$CANONICAL_VERSION" | awk -F. '{print $1"."$2}')"
           RUN_BUILD_NUMBER=$((GITHUB_RUN_NUMBER + 1))
-          # V5.0.4571 — VERSION REALIGNMENT.
-          # Runtime reports read BuildConfig.VERSION_NAME, while operator patches
-          # are named in git commits (V5.0.xxxx). GITHUB_RUN_NUMBER can lag the
-          # patch stack, making the latest APK report an older build number
-          # (e.g. report 4550 while git head is 4570). Use the larger of the CI
-          # run number and the latest V5.0.xxxx commit subject so report/build/git
-          # numbers line up again without ever decreasing versionCode.
-          # V5.0.6550b — regex tightening. Prior form required the subject to
-          # START with V5.0.NNNN, so any non-version-bump commit (PRD.md,
-          # ci/*, tests-only) collapsed COMMIT_BUILD_NUMBER to 0 and CI fell
-          # back to GITHUB_RUN_NUMBER — producing a "weird" small build
-          # number in the APK filename and BuildConfig. Fix: match V5.0.NNNN
-          # ANYWHERE in the subject AND scan the last 20 commits so the
-          # highest patch stamp always wins.
           COMMIT_BUILD_NUMBER=$(git log -20 --pretty=%s | grep -oE 'V5\.0\.[0-9]+' | sed -E 's/V5\.0\.//' | sort -n | tail -1)
           if [ -z "$COMMIT_BUILD_NUMBER" ]; then COMMIT_BUILD_NUMBER=0; fi
-          if [ "$COMMIT_BUILD_NUMBER" -gt "$RUN_BUILD_NUMBER" ]; then
-            BUILD_NUMBER="$COMMIT_BUILD_NUMBER"
-          else
-            BUILD_NUMBER="$RUN_BUILD_NUMBER"
-          fi
-          BASE="$(cat AATE_VERSION)"
+          BUILD_NUMBER="$CANONICAL_BUILD_NUMBER"
+          if [ "$RUN_BUILD_NUMBER" -gt "$BUILD_NUMBER" ]; then BUILD_NUMBER="$RUN_BUILD_NUMBER"; fi
+          if [ "$COMMIT_BUILD_NUMBER" -gt "$BUILD_NUMBER" ]; then BUILD_NUMBER="$COMMIT_BUILD_NUMBER"; fi
           VERSION_NAME="${BASE}.${BUILD_NUMBER}"
           echo "AATE_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "AATE_VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
@@ -121,7 +110,7 @@ jobs:
           python3 ci/build_gate_summary.py
           echo "Built APK:"
           ls -la app/build/outputs/apk/release/
-          # APK is already named AATE_v5.0.{buildNumber}.apk by gradle
+          # APK is named from the canonical full version authority.
 
       - uses: actions/upload-artifact@v4
         with:
