@@ -42,7 +42,12 @@ object SentienceHooks {
     private val vetoCache = ConcurrentHashMap<String, VetoResult>()
     private val exitCache = ConcurrentHashMap<String, ExitResult>()
     private val sizeCache = ConcurrentHashMap<String, SizeResult>()
+    private val vetoInFlight6678 = ConcurrentHashMap.newKeySet<String>()
     private const val CACHE_TTL_MS = 60_000L
+
+    private val llmEntryRequests6678 = AtomicLong(0L)
+    private val llmEntryVotes6678 = AtomicLong(0L)
+    private val llmEntryVetoes6678 = AtomicLong(0L)
 
     private const val SYS_TRADE = "You are a concise trading risk officer. Reply in <= 40 chars."
 
@@ -83,7 +88,15 @@ object SentienceHooks {
 
     // ─── Auto-tune state ─────────────────────────────────────────────────────
     private val lastAutoTuneMs = AtomicLong(0)
-    private const val AUTOTUNE_INTERVAL_MS = 6L * 60L * 60L * 1000L   // 6h
+    // V5.0.6678 §TRADE_QUALITY_SENTIENCE_LOOP — six hours was effectively
+    // static at current trade velocity. Review frequently, but only after a
+    // fresh canonical outcome batch and still let LlmParameterTuner enforce
+    // its allowlist, phase ramp and bounded step size.
+    private const val AUTOTUNE_INTERVAL_MS = 5L * 60L * 1000L
+    private const val AUTOTUNE_MIN_NEW_OUTCOMES_6678 = 10L
+    private val canonicalOutcomesSinceTune6678 = AtomicLong(0L)
+    private val autoTuneReplies6678 = AtomicLong(0L)
+    private val autoTuneApplied6678 = AtomicLong(0L)
 
     // ─── Distrust pause state ────────────────────────────────────────────────
     @Volatile private var pausedStrategies: Set<String> = emptySet()
@@ -123,6 +136,18 @@ object SentienceHooks {
         } else "NEUTRAL"
     }
 
+    /**
+     * V5.0.6678 — bounded entry-score hand consumed by the meme narrative
+     * scorer. The LLM never bypasses FDG/safety and never hard-opens a trade:
+     * an explicit cached VETO subtracts score, ALLOW adds only a tiny nudge,
+     * and a missing/stale vote remains exactly neutral.
+     */
+    fun entryQualityScoreBias6678(symbol: String): Int = when (llmVote(symbol)) {
+        "VETO" -> -12
+        "ALLOW" -> 2
+        else -> 0
+    }
+
     private fun ask(prompt: String, system: String = SYS_TRADE, maxTokens: Int = 96): String? =
         try { GeminiCopilot.rawText(prompt, system, temperature = 0.4, maxTokens = maxTokens) } catch (_: Throwable) { null }
 
@@ -139,17 +164,34 @@ object SentienceHooks {
         val cached = vetoCache[symbol]
         if (cached != null && now - cached.ts < CACHE_TTL_MS) return cached.allow
 
-        if (llmReady()) {
+        // V5.0.6678 — this hook was defined but no entry scorer actually
+        // primed/consumed it. MemeNarrativeAI now does. Single-flight here is
+        // required because a hot mint can be evaluated by several lanes before
+        // the first keyless/paid LLM reply lands.
+        if (llmReady() && vetoInFlight6678.add(symbol)) {
+            llmEntryRequests6678.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("SENTIENCE_ENTRY_REVIEW_REQUESTED_6678") } catch (_: Throwable) {}
             GlobalScope.launch(AppDispatchers.sideEffect) {
-                runCatching {
-                    val q = "Trade entry sanity check. Symbol=$symbol score=$score conf=$conf. " +
-                            "Reasons: ${reasons.take(140)}. Reply VETO if obvious rug/avoid, else OK."
-                    val advice = ask(q) ?: return@runCatching
-                    val allow = !advice.contains("VETO", ignoreCase = true) &&
-                                !advice.contains("avoid", ignoreCase = true) &&
-                                !advice.contains("rug",   ignoreCase = true)
-                    vetoCache[symbol] = VetoResult(allow, System.currentTimeMillis())
-                    if (!allow) ErrorLogger.info(TAG, "🛑 LLM VETO suggested for $symbol: ${advice.take(80)}")
+                try {
+                    runCatching {
+                        val q = "Trade entry sanity check. Symbol=$symbol score=$score conf=$conf. " +
+                                "Reasons: ${reasons.take(180)}. Reply VETO if obvious rug/avoid/poor-quality entry, else OK."
+                        val advice = ask(q) ?: return@runCatching
+                        val allow = !advice.contains("VETO", ignoreCase = true) &&
+                                    !advice.contains("avoid", ignoreCase = true) &&
+                                    !advice.contains("rug",   ignoreCase = true)
+                        vetoCache[symbol] = VetoResult(allow, System.currentTimeMillis())
+                        llmEntryVotes6678.incrementAndGet()
+                        if (!allow) {
+                            llmEntryVetoes6678.incrementAndGet()
+                            try { PipelineHealthCollector.labelInc("SENTIENCE_ENTRY_VETO_6678") } catch (_: Throwable) {}
+                            ErrorLogger.info(TAG, "🛑 LLM VETO suggested for $symbol: ${advice.take(80)}")
+                        } else {
+                            try { PipelineHealthCollector.labelInc("SENTIENCE_ENTRY_ALLOW_6678") } catch (_: Throwable) {}
+                        }
+                    }
+                } finally {
+                    vetoInFlight6678.remove(symbol)
                 }
             }
         }
@@ -187,15 +229,22 @@ object SentienceHooks {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 3. UNIVERSE-WIDE LLM TRADING — meme version (ready, not auto-wired)
+    // 3. UNIVERSE-WIDE LLM TRADING — meme version
     // ─────────────────────────────────────────────────────────────────────────
     /**
-     * Hook for SentientPersonality / chat layer to request a paper buy on a
-     * MEME token (mirrors CryptoAltTrader.llmOpenPaperBuy). Logs the request;
-     * actual entry still goes through Executor + TradeAuth so all guardrails apply.
+     * V5.0.6678: this used to be a log-only telegraph. It now primes the
+     * asynchronous entry-quality review used by MemeNarrativeAI. It still does
+     * NOT place a buy itself; Executor + TradeAuth + FDG remain authoritative.
      */
-    fun requestLlmMemeBuy(symbol: String, sizeSol: Double, reason: String) {
-        ErrorLogger.info(TAG, "🤖 LLM-MEME BUY request: $symbol size=${sizeSol}◎ reason=$reason")
+    fun requestLlmMemeBuy(
+        symbol: String,
+        sizeSol: Double,
+        reason: String,
+        score: Int = 70,
+        confidence: Int = 70,
+    ) {
+        ErrorLogger.info(TAG, "🤖 LLM-MEME REVIEW request: $symbol size=${sizeSol}◎ reason=$reason")
+        preTradeVeto(symbol, score, confidence, reason)
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -210,6 +259,7 @@ object SentienceHooks {
     fun recordCanonicalEngineOutcome6486(positionId: String, engine: String, pnlSol: Double, isWin: Boolean): Boolean {
         if (positionId.isBlank() || !canonicalEngineOutcomeIds6486.add(positionId)) return false
         applyCanonicalEngineOutcome6486(engine, pnlSol, isWin)
+        canonicalOutcomesSinceTune6678.incrementAndGet()
         try { PipelineHealthCollector.labelInc("SENTIENCE_CANONICAL_OUTCOME_CONSUMED_6486") } catch (_: Throwable) {}
         return true
     }
@@ -377,23 +427,91 @@ object SentienceHooks {
     // ─────────────────────────────────────────────────────────────────────────
     // 9. PERIODIC AUTO-TUNE
     // ─────────────────────────────────────────────────────────────────────────
+    private fun autoTunePerformanceContext6678(context: android.content.Context): String {
+        val engineRows = engineState.entries
+            .map { (engine, s) ->
+                synchronized(s) {
+                    val wr = if (s.trades > 0) s.wins * 100.0 / s.trades else 0.0
+                    "$engine n=${s.trades} wr=${"%.1f".format(wr)}% pnl=${"%+.4f".format(s.pnlSol)}SOL"
+                }
+            }
+            .sorted()
+            .joinToString(" | ")
+            .ifBlank { "no fresh canonical outcomes" }
+
+        val cfgLine = try {
+            val c = com.lifecyclebot.data.ConfigStore.load(context)
+            "minDiscoveryScore=${"%.2f".format(c.minDiscoveryScore)} " +
+                "minLiquidityUsd=${"%.0f".format(c.minLiquidityUsd)} " +
+                "sentimentBlockThreshold=${"%.1f".format(c.sentimentBlockThreshold)} " +
+                "behaviorAggressionLevel=${c.behaviorAggressionLevel} " +
+                "aggressiveWhaleThreshold=${"%.1f".format(c.aggressiveWhaleThreshold)}"
+        } catch (_: Throwable) { "config unavailable" }
+
+        val quality = try { QualityLadder.statusLine().take(220) } catch (_: Throwable) { "QualityLadder unavailable" }
+        val council = try { SsiPilotCouncil.statusLine().take(220) } catch (_: Throwable) { "SsiPilotCouncil unavailable" }
+        val pivot = try { LaneBucketPivot.statusLine().take(220) } catch (_: Throwable) { "LaneBucketPivot unavailable" }
+        val policy = try {
+            "UnifiedPolicy trained=${UnifiedPolicyHead.trainedCount()} authority=${UnifiedPolicyHead.currentAuthority().name}"
+        } catch (_: Throwable) { "UnifiedPolicy unavailable" }
+
+        return "canonical=[$engineRows]\nconfig=[$cfgLine]\nquality=[$quality]\ncouncil=[$council]\npivot=[$pivot]\npolicy=[$policy]\npostMortem=${lastPostMortemHint.take(120)}"
+    }
+
     /**
-     * Every 6h, asks LLM to review recent performance and propose ONE
-     * parameter nudge via LlmParameterTuner.
+     * V5.0.6678 — evidence-driven LLM quality tuning. The previous version
+     * asked for `set <param>=<value>` while LlmParameterTuner accepts only a
+     * <<TUNE>> JSON block, so replies were logged but could never mutate config.
+     * It also supplied no actual performance evidence. This path now provides
+     * canonical closes + existing brain/council state and requests the exact
+     * parser contract. Only bounded allowlisted parameters can still change.
      */
     fun maybeAutoTune(context: android.content.Context) {
         val now = System.currentTimeMillis()
         if (now - lastAutoTuneMs.get() < AUTOTUNE_INTERVAL_MS) return
+        val freshOutcomes = canonicalOutcomesSinceTune6678.get()
+        if (freshOutcomes < AUTOTUNE_MIN_NEW_OUTCOMES_6678) return
         if (!llmReady()) return
         lastAutoTuneMs.set(now)
+
+        val contextBlock = autoTunePerformanceContext6678(context)
+        val qualityKeys = listOf(
+            "minDiscoveryScore",
+            "minLiquidityUsd",
+            "sentimentBlockThreshold",
+            "behaviorAggressionLevel",
+            "aggressiveWhaleThreshold",
+        ).filter { LlmParameterTuner.isAllowedKey(it) }
+
+        try { PipelineHealthCollector.labelInc("SENTIENCE_AUTOTUNE_ATTEMPT_6678") } catch (_: Throwable) {}
         GlobalScope.launch(AppDispatchers.sideEffect) {
             runCatching {
-                val q = "Self-review: based on the last 6 hours, suggest exactly ONE parameter nudge " +
-                        "to improve win rate. Format: 'set <param>=<value>' on a single line."
-                val reply = ask(q, system = "You are a quantitative tuner. Reply <=80 chars.", maxTokens = 120)
-                    ?: return@runCatching
-                LlmParameterTuner.extractAndApply(context, reply)
-                ErrorLogger.info(TAG, "🔧 LLM auto-tune cycle: ${reply.take(80)}")
+                val q = "Improve ENTRY QUALITY / WIN RATE only. Do not optimize throughput. " +
+                    "Use the canonical outcomes and existing brain state below. Choose exactly ONE small bounded adjustment. " +
+                    "Allowed quality keys=${qualityKeys.joinToString()}. Delta is a signed CHANGE, not an absolute value. " +
+                    "Return ONLY this exact wrapper with valid JSON: " +
+                    "<<TUNE>>{\"adjustments\":[{\"key\":\"minDiscoveryScore\",\"delta\":1.0,\"reason\":\"brief evidence\"}]}<<ENDTUNE>>\n" +
+                    contextBlock
+                val reply = ask(
+                    q,
+                    system = "You are AATE's quantitative trade-quality tuner. Prefer selectivity and calibrated pWin over trade count. Never disable a lane.",
+                    maxTokens = 220,
+                ) ?: return@runCatching
+
+                autoTuneReplies6678.incrementAndGet()
+                val applied = LlmParameterTuner.extractAndApply(context, reply)
+                if (applied.changes.isNotEmpty()) {
+                    autoTuneApplied6678.addAndGet(applied.changes.size.toLong())
+                    canonicalOutcomesSinceTune6678.set(0L)
+                    try { PipelineHealthCollector.labelInc("SENTIENCE_AUTOTUNE_APPLIED_6678") } catch (_: Throwable) {}
+                    ErrorLogger.info(TAG, "🔧 LLM trade-quality tune: ${applied.changes.joinToString { "${it.key} ${it.oldValue}->${it.newValue}" }}")
+                } else {
+                    // A valid no-op/reject still consumed this evidence batch;
+                    // don't hammer the same outcomes every five minutes.
+                    canonicalOutcomesSinceTune6678.set(0L)
+                    try { PipelineHealthCollector.labelInc("SENTIENCE_AUTOTUNE_NO_APPLY_6678") } catch (_: Throwable) {}
+                    ErrorLogger.info(TAG, "🔧 LLM trade-quality review no-op: reply=${reply.take(120)} rejected=${applied.rejected.take(2)}")
+                }
             }
         }
     }
@@ -402,7 +520,9 @@ object SentienceHooks {
     fun statusSummary(): String {
         val biases = crossEngineBias.entries.joinToString { "${it.key}=${"%.2f".format(it.value)}×" }
         val pending = synchronized(recentLosers) { recentLosers.size }
-        return "biases=[$biases] losersBuffered=$pending paused=${pausedStrategies.size} hint=${lastPostMortemHint.take(40)}"
+        return "llm=${llmStatus()} entryReq=${llmEntryRequests6678.get()} votes=${llmEntryVotes6678.get()} veto=${llmEntryVetoes6678.get()} " +
+            "tuneFresh=${canonicalOutcomesSinceTune6678.get()} tuneReplies=${autoTuneReplies6678.get()} tuneApplied=${autoTuneApplied6678.get()} " +
+            "biases=[$biases] losersBuffered=$pending paused=${pausedStrategies.size} hint=${lastPostMortemHint.take(40)}"
     }
     // ═══════════════════════════════════════════════════════════════════════
     // V5.9.988 — PERSISTENCE (Doctrine #25 + Hard Rule #3.36 SAFETY-FIRST)
