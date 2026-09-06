@@ -10,8 +10,11 @@ Policy:
   * retired patches stay at zero references;
   * source cleanup may reduce legacy scaffolding, but CI may never require it
     to come back;
-  * UI reads may consume cached reconciliation status but may never execute a
-    full journal replay;
+  * UI reads consume cached reconciliation status but never execute a full
+    journal replay;
+  * current account availability and historical replay integrity are separate;
+  * a marked wallet snapshot takes one paper-ledger facade snapshot, not one
+    lock acquisition per field;
   * immutable trade mode supplied by the caller may never be re-derived from a
     mutable global mode inside an economic mutation.
 """
@@ -99,12 +102,7 @@ def main() -> int:
             if symbol in text:
                 errors.append(f"{rel}: retired production symbol {symbol!r} returned — {reason}")
 
-    # ------------------------------------------------------------------
-    # Account read purity. The old 6678 assertion REQUIRED the UI snapshot to
-    # run ForensicReconciliation6635.reconcile6635(), which recreated the exact
-    # main-thread ANR architecture the source cleanup was trying to remove.
-    # 6681 inverts that stale contract permanently.
-    # ------------------------------------------------------------------
+    # Account read purity. Historical replay is background diagnostics only.
     unified = (SRC / "com/lifecyclebot/engine/truth/UnifiedAccountSnapshot6635.kt").read_text()
     for mutation in (
         "CanonicalJournalProjectionRepair6677",
@@ -116,16 +114,35 @@ def main() -> int:
         "@Synchronized\n    fun read",
     ):
         forbid(errors, unified, mutation, "UNIFIED_ACCOUNT_READ_PURITY_6681")
+    require(errors, unified, "CanonicalCapitalAuthority6450.snapshot()", "UNIFIED_ACCOUNT_MARKED_CAPITAL_AUTHORITY_6681")
+    forbid(errors, unified, "PaperCapitalAuthority6577.snapshot()", "UNIFIED_ACCOUNT_NO_COST_BASIS_AS_EQUITY_6681")
     require(errors, unified, "ForensicReconciliation6635.healthLine6635()", "UNIFIED_ACCOUNT_CACHED_FORENSIC_STATUS_6681")
-    require(errors, unified, "accountAvailable = true", "UNIFIED_ACCOUNT_CURRENT_CAPITAL_VISIBLE_6681")
+    require(errors, unified, "forensicStatus", "UNIFIED_ACCOUNT_CURRENT_VS_HISTORY_SEPARATION_6681")
+    require(errors, unified, "status = Status.RECONCILED", "UNIFIED_ACCOUNT_CURRENT_CAPITAL_VISIBLE_6681")
     require(errors, unified, "RENDER_CURRENT_CANONICAL_WITH_FORENSIC_WARNING", "UNIFIED_ACCOUNT_FAILED_STATUS_IS_ANNOTATION_6681")
 
-    # Treasury authority: paper and live displays/sizing may never expose a
-    # corrupt persisted treasury amount larger than the actual capital supplied
-    # to effectiveLockedSol(). Economic mutation mode is immutable from caller.
+    # Marked capital must take ONE facade snapshot. Five field-specific facade
+    # calls reacquire the synchronized paper ledger five times and recreated the
+    # exact PaperAccountLedger6430.snapshotAtomic6643 ANR signature.
+    capital = (SRC / "com/lifecyclebot/engine/truth/CanonicalCapitalAuthority6450.kt").read_text()
+    capital_snapshot = capital.split("fun snapshot(", 1)[-1].split("fun assertInvariant", 1)[0]
+    if capital_snapshot.count("PaperCapitalAuthority6577.snapshot()") != 1:
+        errors.append("CANONICAL_CAPITAL_ONE_LEDGER_SNAPSHOT_6681: expected exactly one PaperCapitalAuthority6577.snapshot()")
+    for accessor in (
+        "PaperCapitalAuthority6577.startingCashSol()",
+        "PaperCapitalAuthority6577.cashSol()",
+        "PaperCapitalAuthority6577.realizedPnlSol()",
+        "PaperCapitalAuthority6577.feesSol()",
+        "PaperCapitalAuthority6577.openCostBasisSol()",
+    ):
+        forbid(errors, capital_snapshot, accessor, "CANONICAL_CAPITAL_NO_PER_FIELD_LEDGER_LOCK_6681")
+
+    # Treasury authority: persisted bookkeeping may never claim more current
+    # capital than the account actually owns; economic mutation mode is sealed.
     treasury = (SRC / "com/lifecyclebot/engine/TreasuryManager.kt").read_text()
     forbid(errors, treasury, "if (isPaperMode) return treasurySol", "TREASURY_PAPER_UNBOUNDED_AUTHORITY_6681")
     require(errors, treasury, "treasurySol.coerceIn(0.0, maxLockable)", "TREASURY_BOUNDED_AUTHORITY_6681")
+    require(errors, treasury, "TREASURY_PAPER_AUTHORITY_HEALED_6681", "TREASURY_PERSISTED_CORRUPTION_HEAL_6681")
     contribution = treasury.split("fun contributeFromMemeSell(", 1)[-1].split("fun backFundPaperWalletIfLow", 1)[0]
     forbid(errors, contribution, "val isPaper = try", "TREASURY_IMMUTABLE_MODE_6681")
     require(errors, contribution, "val floor = if (isPaper)", "TREASURY_CALLER_MODE_6681")
