@@ -86,7 +86,15 @@ object GeminiCopilot {
 
     private enum class ProviderKind {
         GEMINI_DIRECT,
-        OPENAI_COMPAT
+        OPENAI_COMPAT,
+        // V5.0.6677 §KEYLESS_SENTIENCE_BRIDGE — pseudo-provider that
+        // delegates every call to com.lifecyclebot.network.KeylessLlmClient
+        // (Pollinations.ai + DuckDuckGo AI + any operator-supplied paid
+        // keys). Ensures buildProviders() is never empty so
+        // SentienceHooks.llmStatus() reports READY, preTradeVeto /
+        // shouldExit / sizeMult actually vote, and the UI stops showing
+        // "no connection". No API key required.
+        KEYLESS_FALLBACK
     }
 
     private data class ProviderSpec(
@@ -571,10 +579,22 @@ Default to a natural, normal LLM-style reply with emotional range.
             }
 
             try {
-                val text = if (provider.kind == ProviderKind.GEMINI_DIRECT) {
-                    callGeminiDirect(provider, userPrompt, systemPrompt, asJson, temperature, maxTokens)
-                } else {
-                    callOpenAiCompat(provider, userPrompt, systemPrompt, asJson, temperature, maxTokens)
+                val text = when (provider.kind) {
+                    ProviderKind.GEMINI_DIRECT ->
+                        callGeminiDirect(provider, userPrompt, systemPrompt, asJson, temperature, maxTokens)
+                    ProviderKind.OPENAI_COMPAT ->
+                        callOpenAiCompat(provider, userPrompt, systemPrompt, asJson, temperature, maxTokens)
+                    // V5.0.6677 §KEYLESS_SENTIENCE_BRIDGE — delegate to the
+                    // keyless chain (Pollinations.ai / DuckDuckGo AI / any
+                    // operator-supplied paid keys). Fail-open: returns null
+                    // when every keyless endpoint is throttled, caller uses
+                    // its safe default (usually ALLOW / no-op / 1.0×).
+                    ProviderKind.KEYLESS_FALLBACK ->
+                        com.lifecyclebot.network.KeylessLlmClient.runChat(
+                            system = systemPrompt,
+                            user = userPrompt,
+                            maxTokens = maxTokens,
+                        )
                 }
 
                 if (!text.isNullOrBlank()) {
@@ -1410,6 +1430,25 @@ Not one sentence unless the moment truly calls for it.
                 )
             )
         }
+
+        // V5.0.6677 §KEYLESS_SENTIENCE_BRIDGE — always append a keyless
+        // fallback so isConfigured() cannot return false. Operator report
+        // Feb 2026: "the llm is all there but says no connection, its
+        // not self tuning or adjusting at all therefore winrate is at
+        // 8%." Root cause: no personal API keys → buildProviders()
+        // empty → SentienceHooks.llmStatus()=UNAVAILABLE → preTradeVeto
+        // /shouldExit/sizeMult all returned NEUTRAL and the self-tuner
+        // never spoke. Keyless client (Pollinations + DuckDuckGo) needs
+        // no key so this pseudo-provider guarantees availability.
+        providers.add(
+            ProviderSpec(
+                name = "keyless_fallback",
+                kind = ProviderKind.KEYLESS_FALLBACK,
+                apiKey = "",
+                model = "keyless-chain",
+                url = ""
+            )
+        )
 
         return providers
     }
