@@ -17,6 +17,10 @@ import java.util.concurrent.atomic.AtomicLong
  * terminal is assigned to exactly one explicit book. Unknown legacy rows stay
  * in UNCLASSIFIED and cannot affect a desk WR, streak, reward, sizing or PnL.
  * PORTFOLIO is the only deliberately mixed projection and remains named as such.
+ *
+ * V5.0.6681: presentation availability and historical forensic integrity are
+ * distinct. Desk statistics remain historical consumers and therefore require
+ * forensicStatus=RECONCILED; current account money may still render separately.
  */
 object DeskPerformanceAuthority6648 {
     enum class Book { MEME, CRYPTO, PERPS, STOCKS, FOREX, METALS, COMMODITIES, UNCLASSIFIED, PORTFOLIO }
@@ -158,7 +162,9 @@ object DeskPerformanceAuthority6648 {
         for (mode in listOf("paper", "live")) {
             val account = UnifiedAccountSnapshot6635.lastSnapshot()
             val available = mode == "live" ||
-                (account.mode == mode && account.status == UnifiedAccountSnapshot6635.Status.RECONCILED && account.accountAvailable)
+                (account.mode == mode &&
+                    account.forensicStatus == UnifiedAccountSnapshot6635.Status.RECONCILED &&
+                    account.accountAvailable)
             reduce(clean, mode, available).forEach { (book, snapshot) -> cache[key(book, mode)] = snapshot }
         }
         val unclassified = listOf("paper", "live").sumOf { cache[key(Book.UNCLASSIFIED, it)]?.trades ?: 0 }
