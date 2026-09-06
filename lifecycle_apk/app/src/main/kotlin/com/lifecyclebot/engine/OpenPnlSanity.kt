@@ -15,6 +15,13 @@ import com.lifecyclebot.data.TokenState
 object OpenPnlSanity {
     const val MAX_UNKNOWN_BASIS_PNL_PCT = 5_000.0
     private const val MAX_UNKNOWN_BASIS_RATIO = 51.0
+    // V5.0.6682 — absolute scale-corruption backstop. Same-source/same-pool used
+    // to bypass every extreme-ratio guard, so a single provider unit/decimal
+    // error could render +72,000,000% and poison peak/lock logic. Keep this far
+    // above the operator's 500x moonshot target: legitimate 500x/1000x runners
+    // remain representable, while 10,000x+ single-mark jumps are held until a
+    // sane mark arrives instead of being banked as economic truth.
+    const val MAX_CANONICAL_OPEN_RATIO = 10_000.0
     private const val MIN_PNL_PCT = -100.0001
 
     data class Verdict(
@@ -51,6 +58,13 @@ object OpenPnlSanity {
         val pnl = (ratio - 1.0) * 100.0
         if (!pnl.isFinite()) return reject("OPEN_PNL_NOT_FINITE", entryPrice, currentPrice, context, emit, mint)
         if (pnl < MIN_PNL_PCT) return reject("OPEN_PNL_BELOW_TOTAL_LOSS", entryPrice, currentPrice, context, emit, mint)
+
+        // This check is deliberately independent of source/pool equality. Source
+        // identity proves provenance, not numeric scale. A decimal-shifted quote
+        // from the exact same pool is still wrong and must not become PnL truth.
+        if (ratio > MAX_CANONICAL_OPEN_RATIO) {
+            return reject("PRICE_RATIO_HYPER_EXTREME_SCALE_GUARD_6682", entryPrice, currentPrice, context, emit, mint)
+        }
 
         val eSrc = entrySource.trim().uppercase()
         val cSrc = currentSource.trim().uppercase()
