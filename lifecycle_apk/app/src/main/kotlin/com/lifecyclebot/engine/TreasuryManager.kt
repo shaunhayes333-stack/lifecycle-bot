@@ -60,13 +60,11 @@ import org.json.JSONObject
  */
 object TreasuryManager {
 
-    // ── Milestone definitions ─────────────────────────────────────────
-
     data class Milestone(
-        val thresholdUsd: Double,     // wallet USD value that triggers this tier
-        val lockPct: Double,          // fraction of incremental profits to lock
-        val label: String,            // display name
-        val celebrateOnHit: Boolean,  // play sound + big notification
+        val thresholdUsd: Double,
+        val lockPct: Double,
+        val label: String,
+        val celebrateOnHit: Boolean,
     )
 
     val MILESTONES = listOf(
@@ -80,104 +78,60 @@ object TreasuryManager {
         Milestone(100_000.0, 0.40, "\$100K milestone",    true),
     )
 
-    /** Minimum amount to prevent dust transactions */
-    const val MIN_WITHDRAWAL_SOL = 0.001  // lowered to allow small wallets to fully exit
-
-    /**
-     * Default suggested reinvestment floor shown in the UI.
-     * The user can override this down to 0% for a full exit.
-     * We no longer enforce a hard floor — it was a SOL trap.
-     */
+    const val MIN_WITHDRAWAL_SOL = 0.001
     const val DEFAULT_FLOOR_PCT  = 0.50
     const val PREFS_NAME         = "treasury_state"
 
-    // ── In-memory state ───────────────────────────────────────────────
-
-    /** Total SOL locked in treasury (never traded) */
     @Volatile var treasurySol: Double = 0.0
         private set
-
-    /** USD value of treasury at time of locking (informational) */
     @Volatile var treasuryUsd: Double = 0.0
         private set
-
-    /** Which milestones have been hit (index into MILESTONES list) */
     @Volatile var highestMilestoneHit: Int = -1
         private set
-
-    /** Total SOL ever locked into treasury (including withdrawals) */
     @Volatile var lifetimeLocked: Double = 0.0
         private set
-
-    /** Total SOL ever withdrawn from treasury */
     @Volatile var lifetimeWithdrawn: Double = 0.0
         private set
-
-    /**
-     * V5.9.495z17 — Last wallet pubkey this treasury was associated with.
-     * Used by `handleWalletChange()` to detect a fresh wallet connection
-     * and archive+reset the treasury so accounting never cross-contaminates
-     * between two different wallets.
-     */
     @Volatile var lastWalletPubkey: String = ""
         private set
-
-    /** Previous poll cycle wallet USD value (for delta tracking) */
     @Volatile private var lastWalletUsd: Double = 0.0
-
-    /** Peak wallet USD seen (resets on new session, not on drawdown) */
     @Volatile var peakWalletUsd: Double = 0.0
         private set
 
-    /** History of treasury events for display */
     private val _events = ArrayDeque<TreasuryEvent>(50)
     val events: List<TreasuryEvent> get() = _events.toList().reversed()
 
-    // V5.9.495g — LIVE treasury <-> wallet linkage.
-    // ────────────────────────────────────────────────────────────
-    // Operator forensics (06 May 2026): wallet shows 0.1197 SOL on-chain
-    // but UI Treasury Tile reports LOCKED 5.908 SOL ($512). That gap is
-    // paper-mode `treasurySol` accumulation leaking into the live view.
-    //
-    // In LIVE mode, the locked amount must be derived from the actual
-    // on-chain wallet — you can't "lock" SOL you don't own. This helper
-    // caps the display + sizing-deduction at:
-    //
-    //   max_lock = walletSol × maxLockPctForCurrentTier
-    //   tradeable_floor = walletSol × MIN_TRADEABLE_PCT
-    //   effective_lock = min(treasurySol, walletSol - tradeable_floor)
-    //
-    // MIN_TRADEABLE_PCT = 30%. Even at maximum milestone (40% lock at
-    // $50K+ tier), the bot ALWAYS has 30%+ of wallet free to trade so
-    // the treasury never strangles trading. As the wallet grows past
-    // thresholds, the reserved lock SOL is implicitly freed for
-    // compounding (since the cap floats with walletSol).
-    const val MIN_TRADEABLE_PCT = 0.30  // never let treasury cap > 70% of wallet
-    const val LIVE_TRADE_BUFFER_SOL = 0.005  // always leave 0.005 SOL for fees/rent
+    const val MIN_TRADEABLE_PCT = 0.30
+    const val LIVE_TRADE_BUFFER_SOL = 0.005
 
     /**
-     * V5.9.495g — Get the effective locked treasury for the current mode.
+     * V5.0.6681 — ONE bounded treasury authority.
      *
-     * In PAPER mode: returns `treasurySol` directly (legacy paper accounting).
-     * In LIVE mode: caps at `walletSol × (1 - MIN_TRADEABLE_PCT) - LIVE_TRADE_BUFFER_SOL`
-     * so we never claim to lock more SOL than is on-chain, and always
-     * leave 30%+ of the wallet free to trade.
+     * A persisted treasury figure is bookkeeping, never permission to claim or
+     * reserve capital that the current account does not own. PAPER therefore
+     * caps against the canonical shared paper equity; LIVE caps against the
+     * supplied on-chain wallet balance. At least 30% remains tradeable.
+     *
+     * This fixes the 2.5M-SOL paper treasury surface and prevents the same bad
+     * persisted value from starving sizing. The raw value remains available to
+     * restore/forensics until restore() can prove the mode and heal it safely.
      */
     fun effectiveLockedSol(walletSol: Double, isPaperMode: Boolean): Double {
-        if (isPaperMode) return treasurySol
-        if (walletSol <= 0.0 || walletSol.isNaN() || walletSol.isInfinite()) return 0.0
-        val maxLockable = (walletSol * (1.0 - MIN_TRADEABLE_PCT) - LIVE_TRADE_BUFFER_SOL).coerceAtLeast(0.0)
+        val capitalSol = if (isPaperMode) {
+            try {
+                com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.totalEquitySol()
+                    .takeIf { it.isFinite() && it > 0.0 } ?: walletSol
+            } catch (_: Throwable) { walletSol }
+        } else walletSol
+        if (!capitalSol.isFinite() || capitalSol <= 0.0) return 0.0
+        val bufferSol = if (isPaperMode) 0.0 else LIVE_TRADE_BUFFER_SOL
+        val maxLockable = (capitalSol * (1.0 - MIN_TRADEABLE_PCT) - bufferSol).coerceAtLeast(0.0)
         return treasurySol.coerceIn(0.0, maxLockable)
     }
 
-    // V5.9.433 — cached Context so contribute* / lock* / withdraw* helpers
-    // can persist state immediately instead of waiting for BotService to
-    // call save() on the next cycle. Set on restore() and on save() from
-    // BotService/Activity; cleared on reset(). Always checked non-null
-    // before use (best-effort; falls back to next explicit save()).
     @Volatile private var cachedCtx: Context? = null
     @Volatile private var lastAutoSaveMs: Long = 0L
-    private const val AUTO_SAVE_MIN_INTERVAL_MS = 5_000L  // avoid IO spam
+    private const val AUTO_SAVE_MIN_INTERVAL_MS = 5_000L
 
     private fun autoSave() {
         val ctx = cachedCtx ?: return
@@ -189,14 +143,6 @@ object TreasuryManager {
         }
     }
 
-    // V5.9.1473 — operator: "updates wipe held tokens and the treasury balance."
-    // autoSave() has a 5s throttle to avoid IO spam, but an APK update is an
-    // UNCONTROLLED process kill — any treasury gain locked within 5s of the
-    // kill was swallowed by the throttle and lost on relaunch. forceSave()
-    // bypasses the throttle so every realized lock / contribution is written
-    // through to BOTH encrypted + backup prefs the instant it happens. Cheap:
-    // fires only on actual treasury mutations (locks/contributions/back-funds),
-    // not on a hot loop.
     private fun forceSave() {
         val ctx = cachedCtx ?: return
         lastAutoSaveMs = System.currentTimeMillis()
@@ -205,16 +151,6 @@ object TreasuryManager {
         }
     }
 
-    // ── Core update logic ─────────────────────────────────────────────
-
-    /**
-     * Called every poll cycle with current wallet balance.
-     * Checks milestones, locks profits, updates treasury.
-     *
-     * @param walletSol  current on-chain SOL balance (gross, including treasury)
-     * @param solPrice   current SOL/USD price
-     * @param onMilestone callback when a new milestone is crossed
-     */
     fun onWalletUpdate(
         walletSol: Double,
         solPrice: Double,
@@ -225,17 +161,12 @@ object TreasuryManager {
         val walletUsd = walletSol * solPrice
         peakWalletUsd = maxOf(peakWalletUsd, walletUsd)
 
-        // Check for new milestones crossed since last update
-        val previousMilestone = highestMilestoneHit
         MILESTONES.forEachIndexed { idx, milestone ->
             if (idx > highestMilestoneHit && walletUsd >= milestone.thresholdUsd) {
                 highestMilestoneHit = idx
-                
-                // Log milestone hit
-                ErrorLogger.info("Treasury", 
+                ErrorLogger.info("Treasury",
                     "🏆 MILESTONE HIT: ${milestone.label} | Lock rate now ${(milestone.lockPct*100).toInt()}% | " +
                     "Wallet: ${walletUsd.fmtUsd()}")
-                
                 addEvent(TreasuryEvent(
                     type        = TreasuryEventType.MILESTONE_HIT,
                     amountSol   = 0.0,
@@ -246,38 +177,21 @@ object TreasuryManager {
                 onMilestone(milestone, walletUsd)
             }
         }
-
-        // FIX #5: DON'T lock profits from wallet delta (unrealized gains)
-        // Treasury should ONLY grow from realized closed PnL
-        // The old code here locked on wallet growth which included unrealized gains
-        // Now we use lockRealizedProfit() called from Executor on trade close
-        
         lastWalletUsd = walletUsd
     }
-    
-    /**
-     * FIX #5: Lock profits from REALIZED closed trades only.
-     * Called by Executor after a winning trade is closed.
-     * 
-     * @param realizedProfitSol  The actual SOL profit from a closed trade
-     * @param solPrice           Current SOL/USD price
-     */
+
     fun lockRealizedProfit(realizedProfitSol: Double, solPrice: Double) {
         if (realizedProfitSol <= 0 || highestMilestoneHit < 0) return
-        
         val lockPct = MILESTONES[highestMilestoneHit].lockPct
         val lockSol = realizedProfitSol * lockPct
         val lockUsd = lockSol * solPrice
-        
         if (lockSol >= 0.0001) {
             treasurySol += lockSol
             treasuryUsd += lockUsd
             lifetimeLocked += lockSol
-            
             ErrorLogger.info("Treasury",
                 "🏦 REALIZED LOCK: +${realizedProfitSol.fmtSol()}◎ profit → locked ${lockSol.fmtSol()}◎ (${(lockPct*100).toInt()}%) | " +
                 "Treasury: ${treasurySol.fmtSol()}◎")
-            
             addEvent(TreasuryEvent(
                 type = TreasuryEventType.PROFIT_LOCKED,
                 amountSol = lockSol,
@@ -285,21 +199,10 @@ object TreasuryManager {
                 walletUsd = peakWalletUsd,
                 solPrice = solPrice,
             ))
-            forceSave()  // V5.9.1473 — write-through (was throttled autoSave); APK-update-safe
+            forceSave()
         }
     }
-    
-    /**
-     * Record a Profit Lock System event (capital recovery or profit lock sell).
-     * This is informational - the profit from these sells will flow through
-     * lockRealizedProfit() when the trade is recorded.
-     * 
-     * @param eventType  CAPITAL_RECOVERED or PROFIT_LOCK_SELL
-     * @param soldSol    Amount of SOL received from the sell
-     * @param symbol     Token symbol for display
-     * @param gainMultiple  The gain multiple at time of lock (e.g., 2.0 for 2x)
-     * @param solPrice   Current SOL/USD price
-     */
+
     fun recordProfitLockEvent(
         eventType: TreasuryEventType,
         soldSol: Double,
@@ -308,15 +211,13 @@ object TreasuryManager {
         solPrice: Double,
     ) {
         val description = when (eventType) {
-            TreasuryEventType.CAPITAL_RECOVERED -> 
+            TreasuryEventType.CAPITAL_RECOVERED ->
                 "🔒 Capital recovered: $symbol @ ${gainMultiple.fmtX()}x → ${soldSol.fmtSol()}◎"
             TreasuryEventType.PROFIT_LOCK_SELL ->
                 "🔐 Profit locked: $symbol @ ${gainMultiple.fmtX()}x → ${soldSol.fmtSol()}◎"
             else -> "Profit lock: $symbol → ${soldSol.fmtSol()}◎"
         }
-        
         ErrorLogger.info("Treasury", description)
-        
         addEvent(TreasuryEvent(
             type = eventType,
             amountSol = soldSol,
@@ -325,71 +226,15 @@ object TreasuryManager {
             solPrice = solPrice,
         ))
     }
-    
+
     private fun Double.fmtX() = "%.1f".format(this)
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // V5.9.399 — 70/30 MEME SELL CONTRIBUTION (option B: profit-only)
-    // ═══════════════════════════════════════════════════════════════════════════
-    //
-    // Every winning meme sell now routes 30% of REALIZED PROFIT into the
-    // treasury, regardless of whether a wallet milestone has been hit.
-    // The remaining 70% stays in the trading wallet (handled by the existing
-    // onPaperBalanceChange / on-chain proceeds flow — we only siphon the 30%
-    // here). Losing or scratch sells contribute nothing — principal is
-    // protected, only green pays in.
-    //
-    // Companion: backFundPaperWalletIfLow() pulls treasury back into the
-    // paper wallet when the wallet drops below a floor, so the bot can
-    // self-cycle indefinitely on a chronically losing streak.
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    /**
-     * V5.9.448 — explicit constant for the $500 seed floor. Used in three
-     * places:
-     *  1. `restore()` seed (treasury starts at this value)
-     *  2. `restore()` re-seed top-up (any state below the floor on restore
-     *     is healed back UP to the floor — the $500 default is a hard floor)
-     *  3. `backFundPaperWalletIfLow()` floor (back-fund will refuse to pull
-     *     below this so the user always retains the $500 default minimum)
-     *
-     * User (build 2316, multiple requests): "the treasury balance not
-     * increasing and why isn't it persisting … its meant to have $500 by
-     * default". Root cause was back-fund halving the treasury every cycle
-     * the wallet dipped below floor — 9 pulls = 5.8824 × 0.5^9 ≈ 0.011 SOL,
-     * exactly what the user saw on screen ($1).
-     */
-    const val SEED_FLOOR_SOL = 5.8824    // ≈ $500 USD at $85/SOL
+    const val SEED_FLOOR_SOL = 5.8824
     const val SEED_FLOOR_USD = 500.0
+    const val MEME_SELL_TREASURY_PCT = 0.25
+    const val MEME_SELL_MIN_PROFIT_SOL = 0.003
+    const val MEME_SELL_MIN_PROFIT_SOL_PAPER = 0.0001
 
-    /** V5.9.399 — fraction of realized profit siphoned into treasury per meme sell. */
-    const val MEME_SELL_TREASURY_PCT = 0.25  // V5.9.1543 — operator: profit split is 75/25 (75% trading wallet / 25% treasury), was 0.30
-
-    /**
-     * V5.9.495z17 — operator-mandated dust filter. Profits below this floor
-     * skip the 70/30 split entirely so we don't spam the treasury ledger
-     * with sub-cent contributions (e.g. a +$0.05 sell would otherwise
-     * produce a $0.015 lock event). 0.003 SOL ≈ $0.40-0.50 USD at typical
-     * SOL prices.
-     *
-     * V5.9.663b — operator: 'the 70/30 profit split isnt working anymore.
-     * its meant to be in paper and live. the architecture is there already'.
-     * In paper-learning the bot does many small fast trades — most close
-     * below 0.003 SOL profit → ALL got skipped → treasury never grew. The
-     * 0.003 floor exists to protect the LIVE on-chain ledger from rounding
-     * noise + gas-vs-reward asymmetry. Paper has no gas cost, so its floor
-     * can be far lower without polluting anything. Use 0.0001 SOL
-     * (~$0.015) in paper, keep 0.003 SOL in live.
-     */
-    const val MEME_SELL_MIN_PROFIT_SOL = 0.003          // live floor
-    const val MEME_SELL_MIN_PROFIT_SOL_PAPER = 0.0001   // paper floor
-
-    /**
-     * V5.9.428 — 100% of realized profit from a treasury-scalp sell goes to
-     * the treasury wallet (not split). Principal stays with the trading
-     * wallet; only the profit is siphoned. Caller is expected to deduct this
-     * amount from the wallet credit so accounting stays consistent.
-     */
     fun contributeFullyFromTreasuryScalp(realizedProfitSol: Double, solPrice: Double, isPaper: Boolean = false): Double {
         if (realizedProfitSol <= 0.0) return 0.0
         if (realizedProfitSol < 1e-6) return 0.0
@@ -408,74 +253,49 @@ object TreasuryManager {
             walletUsd = peakWalletUsd,
             solPrice = safePx,
         ))
-        forceSave()  // V5.9.1473 — write-through (was throttled autoSave); APK-update-safe
-        // V5.9.495z26 — live mode: physically move the SOL on-chain to the
-        // treasury wallet so the operator's two-wallet separation is real,
-        // not virtual. Paper mode keeps the virtual ledger only (no transfer).
+        forceSave()
         triggerOnChainTransferIfLive(realizedProfitSol, "TREASURY_SCALP_100", isPaperSell = isPaper)
         return realizedProfitSol
     }
 
     /**
-     * Called from Executor.paperSell / liveSell when a meme position closes.
-     * Splits realized profit 70/30: 70% remains in trading wallet (already
-     * credited by paperSell/liveSell), 30% is siphoned into the treasury.
-     * No milestone gate — every green meme trade contributes.
-     *
-     * @param realizedProfitSol  net profit on the closed trade (negative → no-op)
-     * @param solPrice           current SOL/USD price (for USD bookkeeping + events)
-     * @return amount actually moved to treasury (0 if profit was non-positive)
+     * V5.0.6681 — the caller's sealed position mode is authoritative. Never
+     * re-read ConfigStore here: a mixed PAPER/LIVE population can exist and a
+     * mutable global mode must not rewrite an individual sell's economics.
      */
     fun contributeFromMemeSell(realizedProfitSol: Double, solPrice: Double, isPaper: Boolean = false): Double {
         if (realizedProfitSol <= 0.0) return 0.0
-        // V5.9.495z17 — operator: skip dust splits below ~$0.40 USD so the
-        // treasury ledger doesn't fill with rounding-error events.
-        // V5.9.663b — paper mode uses a 30x lower floor because there's no
-        // gas cost. See MEME_SELL_MIN_PROFIT_SOL_PAPER doc.
-        val isPaper = try {
-            val svc = BotService.instance
-            if (svc != null) com.lifecyclebot.data.ConfigStore.load(svc.applicationContext).paperMode else true
-        } catch (_: Throwable) { true }  // default to paper-floor on error
         val floor = if (isPaper) MEME_SELL_MIN_PROFIT_SOL_PAPER else MEME_SELL_MIN_PROFIT_SOL
         if (realizedProfitSol < floor) {
             ErrorLogger.debug("Treasury",
                 "🪙 75/25 SPLIT skipped: profit=${realizedProfitSol.fmtSol()}◎ < ${if (isPaper) "paper" else "live"} dust floor ${floor}◎")
             return 0.0
         }
-        // V5.0.4112 — COMPOUND-AWARE SPLIT RATIO.
-        // Operator: "treasury split is dragging the sustainability down,
-        // especially with such tiny returns." Below ~$50 USD trading wallet
-        // the 25% cut starves compounding (the bot needs every basis-point
-        // to scale the position floor / aggression ramp). Above ~$500 the
-        // standard 25% applies; in between we ramp linearly. This lets the
-        // bot compound out of the dust regime fast, then siphon profits
-        // normally once it has real capital to protect.
         val splitPct: Double = try {
-            val walletSolNow = com.lifecyclebot.engine.WalletManager.cachedSolBalance()
+            val walletSolNow = if (isPaper) {
+                com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.availableCashSol()
+            } else {
+                com.lifecyclebot.engine.WalletManager.cachedSolBalance()
+            }
             val px = if (solPrice > 0.0) solPrice else 0.0
             val walletUsd = walletSolNow * px
             when {
-                walletUsd <= 0.0   -> MEME_SELL_TREASURY_PCT       // unknown → safe default
-                walletUsd < 50.0   -> 0.05                          // microcap: keep 95% to compound
+                walletUsd <= 0.0   -> MEME_SELL_TREASURY_PCT
+                walletUsd < 50.0   -> 0.05
                 walletUsd < 150.0  -> 0.10
                 walletUsd < 500.0  -> 0.15
-                else               -> MEME_SELL_TREASURY_PCT       // 25% normal regime
+                else               -> MEME_SELL_TREASURY_PCT
             }
         } catch (_: Throwable) { MEME_SELL_TREASURY_PCT }
         val contribSol = realizedProfitSol * splitPct
-        // V5.9.425 — removed the 0.0001 SOL floor so small wins still accumulate;
-        // negligible rounding (<1e-6) is the only thing skipped.
         if (contribSol < 1e-6) return 0.0
-        // V5.9.425 — don't silently drop on missing SOL price (cold-start before
-        // WalletManager populates lastKnownSolPrice). Use 0 for USD bookkeeping;
-        // the SOL-side ledger is the source of truth.
         val safePx = if (solPrice > 0.0) solPrice else 0.0
         val contribUsd = contribSol * safePx
         treasurySol += contribSol
         treasuryUsd += contribUsd
         lifetimeLocked += contribSol
         ErrorLogger.info("Treasury",
-            "🪙 PROFIT SPLIT (V5.0.4112 compound-aware): profit=${realizedProfitSol.fmtSol()}◎ → treasury +${contribSol.fmtSol()}◎ " +
+            "🪙 PROFIT SPLIT (V5.0.6681 mode-sealed): profit=${realizedProfitSol.fmtSol()}◎ → treasury +${contribSol.fmtSol()}◎ " +
             "(${(splitPct * 100).toInt()}%) | balance=${treasurySol.fmtSol()}◎"
         )
         addEvent(TreasuryEvent(
@@ -485,30 +305,13 @@ object TreasuryManager {
             walletUsd = peakWalletUsd,
             solPrice = safePx,
         ))
-        forceSave()  // V5.9.1473 — write-through (was throttled autoSave); APK-update-safe
-        // V5.9.495z26 — live mode: also push the SOL on-chain trading→treasury.
+        forceSave()
         triggerOnChainTransferIfLive(contribSol, "MEME_SELL_75_25", isPaperSell = isPaper)
         return contribSol
     }
 
-    /**
-     * V5.9.399 — paper-mode back-fund. When the paper trading wallet falls
-     * below `floorSol`, pull up to `(floorSol - walletSol)` from the treasury
-     * (capped at half the treasury balance so we never drain it dry).
-     * Returns the amount pulled (caller should credit the paper wallet).
-     *
-     * Live mode is intentionally NOT supported — moving SOL between a treasury
-     * vault and the trading wallet on-chain is a separate flow.
-     */
     fun backFundPaperWalletIfLow(walletSol: Double, floorSol: Double, solPrice: Double): Double {
         if (walletSol >= floorSol) return 0.0
-        // V5.9.495q — operator: "treasury default $0.00 unless its seen
-        // profit input". The previous floor `maxOf(SEED_FLOOR_SOL,
-        // lifetimeLocked)` reserved a phantom $500 even when the bot had
-        // never earned a real lock. Now the back-fund floor is only the
-        // *real* lifetime-locked profit; if the user has never locked
-        // anything, the entire treasury is available to the trading
-        // wallet (as it should be — there's nothing to "protect" yet).
         val effectiveFloor = lifetimeLocked.coerceAtLeast(0.0)
         val available = (treasurySol - effectiveFloor).coerceAtLeast(0.0)
         if (available <= 0.0001) {
@@ -517,7 +320,7 @@ object TreasuryManager {
             return 0.0
         }
         val deficit = floorSol - walletSol
-        val maxPull = available * 0.50    // never drain more than half of the *available* (unlocked) treasury
+        val maxPull = available * 0.50
         val pull = minOf(deficit, maxPull, available)
         if (pull < 0.0001) return 0.0
         treasurySol -= pull
@@ -535,35 +338,18 @@ object TreasuryManager {
             walletUsd = peakWalletUsd,
             solPrice = solPrice,
         ))
-        forceSave()  // V5.9.1473 — back-fund mutates treasury; persist write-through
+        forceSave()
         return pull
     }
 
-    // ── Withdrawal ────────────────────────────────────────────────────
-
-    /**
-     * Request a withdrawal from the treasury.
-     *
-     * @param pct  Fraction of treasury to withdraw, 0.01–1.0.
-     *             1.0 = full exit (100% of treasury).
-     *             The UI default is 0.50 (50%) but users can select any amount.
-     * @param solPrice  Current SOL/USD price for display.
-     *
-     * There is NO hard reinvestment floor enforced here. Users own their funds
-     * and can always get out completely. The UI shows a warning when pct > 0.80.
-     */
     fun requestWithdrawal(pct: Double, solPrice: Double): WithdrawalResult {
         if (treasurySol <= 0.0) return WithdrawalResult(0.0, "Treasury is empty")
-
         val clampedPct = pct.coerceIn(0.0, 1.0)
         val requested  = treasurySol * clampedPct
-
         if (requested < MIN_WITHDRAWAL_SOL)
             return WithdrawalResult(0.0,
                 "Amount too small (min ${MIN_WITHDRAWAL_SOL}◎ — treasury: ${treasurySol.fmtSol()}◎)")
-
         val remaining = (treasurySol - requested).coerceAtLeast(0.0)
-
         return WithdrawalResult(
             approvedSol = requested,
             message     = "Withdraw ${(clampedPct*100).toInt()}%: ${requested.fmtSol()}◎" +
@@ -572,10 +358,6 @@ object TreasuryManager {
         )
     }
 
-    /**
-     * Convenience overload — withdraw a specific SOL amount directly.
-     * Used when user types a custom amount rather than selecting a %.
-     */
     fun requestWithdrawalAmount(amountSol: Double, solPrice: Double): WithdrawalResult {
         if (treasurySol <= 0.0) return WithdrawalResult(0.0, "Treasury is empty")
         if (amountSol < MIN_WITHDRAWAL_SOL)
@@ -590,16 +372,11 @@ object TreasuryManager {
         )
     }
 
-    /**
-     * Execute a previously approved withdrawal.
-     * Call this AFTER the on-chain transfer succeeds (or paper mode confirmation).
-     */
     fun executeWithdrawal(approvedSol: Double, solPrice: Double, destination: String) {
         val actual = approvedSol.coerceAtMost(treasurySol)
         treasurySol       -= actual
         treasuryUsd       -= actual * solPrice
         lifetimeWithdrawn += actual
-
         addEvent(TreasuryEvent(
             type        = TreasuryEventType.WITHDRAWAL,
             amountSol   = actual,
@@ -607,23 +384,23 @@ object TreasuryManager {
             walletUsd   = (treasurySol * solPrice),
             solPrice    = solPrice,
         ))
+        forceSave()
     }
 
-    // ── Tradeable balance ─────────────────────────────────────────────
-
     /**
-     * Returns the SOL balance available for trading.
-     * SmartSizer should use this instead of the raw wallet balance.
-     * treasurySol is always excluded from trading.
+     * Never let a corrupt treasury reservation reduce the account below the
+     * documented minimum tradeable fraction. This is mode-agnostic because
+     * callers of this legacy helper do not carry sealed mode.
      */
-    fun tradeableBalance(walletSol: Double, reserveSol: Double): Double =
-        (walletSol - reserveSol - treasurySol).coerceAtLeast(0.0)
-
-    // ── Persistence ───────────────────────────────────────────────────
+    fun tradeableBalance(walletSol: Double, reserveSol: Double): Double {
+        if (!walletSol.isFinite() || walletSol <= 0.0) return 0.0
+        val maxLockable = (walletSol * (1.0 - MIN_TRADEABLE_PCT) - reserveSol.coerceAtLeast(0.0)).coerceAtLeast(0.0)
+        val boundedTreasury = treasurySol.coerceIn(0.0, maxLockable)
+        return (walletSol - reserveSol.coerceAtLeast(0.0) - boundedTreasury).coerceAtLeast(0.0)
+    }
 
     fun save(ctx: Context) {
-        cachedCtx = ctx   // V5.9.433 — cache for autoSave() after contribute*/lock*/withdraw*
-        // V5.6.17: Save to both encrypted AND regular prefs for redundancy
+        cachedCtx = ctx
         val obj = JSONObject().apply {
             put("treasury_sol",        treasurySol)
             put("treasury_usd",        treasuryUsd)
@@ -635,8 +412,6 @@ object TreasuryManager {
             put("last_wallet_pubkey",  lastWalletPubkey)
             put("saved_at",            System.currentTimeMillis())
         }
-        
-        // Primary: Encrypted SharedPreferences
         try {
             val mk = MasterKey.Builder(ctx)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
@@ -649,8 +424,6 @@ object TreasuryManager {
         } catch (e: Exception) {
             ErrorLogger.warn("Treasury", "Encrypted save failed: ${e.message}")
         }
-        
-        // Backup: Regular SharedPreferences (survives app updates better)
         try {
             val backupPrefs = ctx.getSharedPreferences("${PREFS_NAME}_backup", Context.MODE_PRIVATE)
             backupPrefs.edit().putString("state", obj.toString()).apply()
@@ -660,10 +433,8 @@ object TreasuryManager {
     }
 
     fun restore(ctx: Context) {
-        cachedCtx = ctx   // V5.9.433 — cache for autoSave()
+        cachedCtx = ctx
         var restored = false
-        
-        // Try primary: Encrypted SharedPreferences
         try {
             val mk = MasterKey.Builder(ctx)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
@@ -681,8 +452,6 @@ object TreasuryManager {
         } catch (e: Exception) {
             ErrorLogger.warn("Treasury", "Encrypted restore failed: ${e.message}, trying backup...")
         }
-        
-        // Fallback: Regular SharedPreferences backup
         if (!restored) {
             try {
                 val backupPrefs = ctx.getSharedPreferences("${PREFS_NAME}_backup", Context.MODE_PRIVATE)
@@ -691,30 +460,50 @@ object TreasuryManager {
                     restoreFromJson(json)
                     restored = true
                     ErrorLogger.info("Treasury", "📂 Restored from backup prefs: ${treasurySol.fmtSol()}◎")
-                    
-                    // Re-save to encrypted prefs to heal the primary storage
                     save(ctx)
                 }
             } catch (e: Exception) {
                 ErrorLogger.error("Treasury", "Backup restore also failed: ${e.message}")
             }
         }
-        
         if (!restored) {
             ErrorLogger.warn("Treasury", "No treasury state found - starting fresh")
         }
 
-    // V5.9.495q — operator: "we need to set the treasury default balance to
-    // $0.00 unless its seen profit input". The previous HEALING SEED block
-    // re-seeded treasury to $500 SOL on EVERY restore (line 622-647) even
-    // when state was at 0, masking real losses and showing a phantom
-    // "Treasury Tier $500 milestone | LOCKED 5.882 SOL ($509)" balance the
-    // bot never actually earned. Removed the heal-up; treasury now stays at
-    // whatever the real state was (0.0 on fresh install) and only grows
-    // when realised profits are deposited via lockProfit/addToTreasury.
-    // The lifetimeLocked floor is also removed for the same reason.
+        // V5.0.6681 — mode-proven persisted-state sanitation. The operator
+        // runtime contained 2,505,298 SOL of PAPER treasury against ~52 SOL of
+        // canonical equity. Preserve LIVE bookkeeping, but when ConfigStore
+        // proves PAPER, a treasury larger than the maximum capital reservation
+        // is impossible by construction. Clamp it once and persist the healed
+        // state so every legacy raw-treasury consumer is safe as well.
+        try {
+            val paperMode = com.lifecyclebot.data.ConfigStore.load(ctx).paperMode
+            if (paperMode) {
+                val equity = com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.totalEquitySol()
+                if (equity.isFinite() && equity > 0.0) {
+                    val maxPaperLock = (equity * (1.0 - MIN_TRADEABLE_PCT)).coerceAtLeast(0.0)
+                    if (!treasurySol.isFinite() || treasurySol < 0.0 || treasurySol > maxPaperLock + 1e-9) {
+                        val before = treasurySol
+                        treasurySol = treasurySol.takeIf { it.isFinite() }?.coerceIn(0.0, maxPaperLock) ?: 0.0
+                        val px = WalletManager.lastKnownSolPrice.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+                        treasuryUsd = treasurySol * px
+                        ErrorLogger.warn("Treasury", "V5.0.6681 healed impossible PAPER treasury $before → $treasurySol SOL (equity=$equity)")
+                        try {
+                            ForensicLogger.lifecycle(
+                                "TREASURY_PAPER_AUTHORITY_HEALED_6681",
+                                "before=$before after=$treasurySol equity=$equity max=$maxPaperLock",
+                            )
+                            PipelineHealthCollector.labelInc("TREASURY_PAPER_AUTHORITY_HEALED_6681")
+                        } catch (_: Throwable) {}
+                        save(ctx)
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            ErrorLogger.debug("Treasury", "6681 paper authority heal deferred: ${t.message}")
+        }
     }
-    
+
     private fun restoreFromJson(json: String) {
         val obj = JSONObject(json)
         treasurySol          = obj.optDouble("treasury_sol", 0.0)
@@ -725,24 +514,17 @@ object TreasuryManager {
         lastWalletUsd        = obj.optDouble("last_wallet_usd", 0.0)
         peakWalletUsd        = obj.optDouble("peak_wallet_usd", 0.0)
         lastWalletPubkey     = obj.optString("last_wallet_pubkey", "")
-        
-        // V5.9.445 / V5.9.448 — keep the corruption guard for clearly-bogus
-        // states (wildly inflated treasury with no lock history), but the
-        // $500 healing seed in restore() handles the common drain/wipe case.
+
         val looksLikeSeed  = kotlin.math.abs(treasurySol - SEED_FLOOR_SOL) < 0.01 &&
                              kotlin.math.abs(lifetimeLocked - SEED_FLOOR_SOL) < 0.01
         val hasLockHistory = lifetimeLocked > 0.0 || lifetimeWithdrawn > 0.0
         if (highestMilestoneHit < 0 && treasurySol > SEED_FLOOR_SOL * 2.0 && !hasLockHistory && !looksLikeSeed) {
-            ErrorLogger.warn("Treasury", "Corrupted state detected: treasury=${treasurySol} but no milestones/history. Resetting (heal-up will reseed).")
+            ErrorLogger.warn("Treasury", "Corrupted state detected: treasury=${treasurySol} but no milestones/history. Resetting.")
             treasurySol = 0.0
             treasuryUsd = 0.0
         }
     }
-    
-    /**
-     * Emergency unlock - allows user to fully unlock treasury if it's blocking trades.
-     * Called from settings UI or when user explicitly requests it.
-     */
+
     fun emergencyUnlock(ctx: Context) {
         val unlocked = treasurySol
         treasurySol = 0.0
@@ -779,34 +561,18 @@ object TreasuryManager {
         } catch (_: Exception) {}
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // V5.9.495z17 — WALLET-CHANGE DETECTION
-    // ═══════════════════════════════════════════════════════════════════════════
-    //
-    // Operator mandate: "treasury starts at $0 on a new wallet connection".
-    // When the user connects a different Solana pubkey than the one last
-    // associated with this treasury, we:
-    //   1. Snapshot the current treasury state under
-    //      `treasury_archive_<oldPubkey>` so it can be reviewed later.
-    //   2. Hard-reset all treasury counters to 0 and persist.
-    //   3. Stamp the new pubkey as `lastWalletPubkey`.
-    //
-    // No-op if the pubkey is empty, identical, or this is the first ever
-    // connection (lastWalletPubkey blank → just stamp + save, no archive).
     fun handleWalletChange(ctx: Context, newPubkey: String) {
         cachedCtx = ctx
         if (newPubkey.isBlank()) return
         val previous = lastWalletPubkey
-        if (previous == newPubkey) return  // same wallet — nothing to do
+        if (previous == newPubkey) return
         if (previous.isBlank()) {
-            // First connection ever — just stamp & persist, don't archive.
             lastWalletPubkey = newPubkey
             ErrorLogger.info("Treasury",
                 "🔗 Wallet first-stamp: pubkey=${newPubkey.take(8)}… (treasury=${treasurySol.fmtSol()}◎)")
             save(ctx)
             return
         }
-        // Different pubkey → archive and reset.
         try {
             val archive = JSONObject().apply {
                 put("treasury_sol",        treasurySol)
@@ -827,7 +593,6 @@ object TreasuryManager {
         } catch (e: Exception) {
             ErrorLogger.warn("Treasury", "Archive failed: ${e.message}")
         }
-        // Hard reset → fresh $0 treasury for the new wallet.
         treasurySol = 0.0
         treasuryUsd = 0.0
         highestMilestoneHit = -1
@@ -849,8 +614,6 @@ object TreasuryManager {
             "🆕 Wallet-change reset: ${previous.take(8)}… → ${newPubkey.take(8)}… | treasury=\$0")
     }
 
-    // ── Status summary ────────────────────────────────────────────────
-
     fun statusSummary(solPrice: Double): String = buildString {
         val currentMilestone = if (highestMilestoneHit >= 0)
             MILESTONES[highestMilestoneHit] else null
@@ -867,43 +630,16 @@ object TreasuryManager {
             appendLine("  Next milestone: ${nextMilestone.thresholdUsd.fmtUsd()}")
     }
 
-    /** Full treasury is always withdrawable. UI may suggest a floor but never enforces one. */
     fun maxWithdrawable(): Double = treasurySol.coerceAtLeast(0.0)
-
-    /** Suggested default withdrawal (50%) — displayed in UI as starting slider value */
     fun defaultWithdrawal(): Double = treasurySol * DEFAULT_FLOOR_PCT
-
-    // ── Private helpers ───────────────────────────────────────────────
 
     private fun addEvent(event: TreasuryEvent) {
         if (_events.size >= 50) _events.removeFirst()
         _events.addLast(event)
     }
 
-    /**
-     * V5.9.495z26 — Live mode: trigger an async SOL transfer from trading
-     * wallet → treasury wallet. Runs on a fire-and-forget IO scope so it
-     * never blocks the calling Executor sell path. In paper mode this is a
-     * no-op (the virtual treasurySol ledger is the source of truth).
-     *
-     * Failures here do NOT roll back the virtual treasury ledger — the SOL
-     * is still earmarked as treasury, and the next reconciliation / manual
-     * sweep will move it. Same defensive pattern as RecoveryExecutionLoop.
-     */
     private fun triggerOnChainTransferIfLive(amountSol: Double, memo: String, isPaperSell: Boolean = false) {
         if (amountSol < 0.000001) return
-        // V5.0.3679 — DRAIN ROOT-CAUSE FIX. A paper SELL must NEVER move real
-        // SOL on-chain, regardless of the global cfg.paperMode flag. The
-        // previous gate at line 884 (cfg.paperMode) only protected when the
-        // ENTIRE bot was in paper mode. But the runtime supports mixed
-        // populations: paper-restored / sub-trader paper positions can exist
-        // while the global runtime is LIVE. A paper PARTIAL_SELL with broken
-        // (astronomical) PnL then computed contribSol = pnl * 0.25 → e.g.
-        // 105 SOL, which the working-capital clamp at line 909 silently
-        // capped at (liveBal - floorKeep) ≈ the operator's full wallet
-        // minus 0.13 SOL — repeatedly draining the trading wallet every few
-        // seconds as fake paper partial sells streamed in. Fix at SOURCE:
-        // paper-tagged contributions go straight to the virtual ledger only.
         if (isPaperSell) {
             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("TREASURY_PAPER_SELL_NO_ONCHAIN",
                 "memo=$memo amt=${"%.6f".format(amountSol)} (virtual ledger only)") } catch (_: Throwable) {}
@@ -911,8 +647,6 @@ object TreasuryManager {
         }
         val tradingWallet = try { com.lifecyclebot.engine.WalletManager.getWallet() } catch (_: Throwable) { null }
             ?: return
-        // Skip if the bot is configured paperMode=true (shadow learning still
-        // gets a trading wallet but we don't want phantom transfers).
         val ctx = cachedCtx
         var reserveSol = 0.05
         if (ctx != null) {
@@ -920,18 +654,9 @@ object TreasuryManager {
                 val cfg = com.lifecyclebot.data.ConfigStore.load(ctx)
                 if (cfg.paperMode) return
                 reserveSol = cfg.walletReserveSol.coerceAtLeast(0.05)
-            } catch (_: Throwable) { /* config read fail — safer to attempt */ }
+            } catch (_: Throwable) { }
         }
 
-        // V5.9.1502 — WORKING-CAPITAL FLOOR on the 70/30 sweep.
-        // Operator: "splitting profit perfectly but too aggressively — the main
-        // wallet is going backwards." The sweep was asymmetric: 30% of every WIN
-        // left the trading wallet, while losses, fees, and failed/slipped sells
-        // stayed 100% in trading. With no floor, the trading wallet ratcheted
-        // below the size needed to fund the next entry + gas. We now only sweep
-        // the portion that keeps the trading wallet above (reserve + one working
-        // buffer), and defer the rest — treasury still accrues, but never by
-        // starving live trading. floorKeep = reserve + max(reserve, 0.08) buffer.
         val liveBal = com.lifecyclebot.engine.WalletManager.cachedSolBalance()
         val workingBuffer = maxOf(reserveSol, 0.08)
         val floorKeep = reserveSol + workingBuffer
@@ -949,7 +674,7 @@ object TreasuryManager {
                 "🪙 SWEEP CLAMPED ($memo): wanted ${"%.4f".format(amountSol)}◎ → ${"%.4f".format(toSweep)}◎ to hold floor ${"%.4f".format(floorKeep)}◎")
         }
 
-        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+        GlobalScope.launch(Dispatchers.IO) {
             try {
                 com.lifecyclebot.engine.TreasuryWalletManager.transferFromTrading(
                     tradingWallet = tradingWallet,
@@ -965,8 +690,6 @@ object TreasuryManager {
     private fun Double.fmtUsd() = "\$%,.2f".format(this)
     private fun Double.fmtSol() = "%.4f".format(this)
 }
-
-// ── Supporting types ──────────────────────────────────────────────────────────
 
 enum class TreasuryEventType {
     MILESTONE_HIT, PROFIT_LOCKED, WITHDRAWAL, MANUAL_ADJUST, CAPITAL_RECOVERED, PROFIT_LOCK_SELL
