@@ -60,9 +60,10 @@ object UnifiedAccountSnapshot6635 {
         try { PipelineHealthCollector.labelInc("HERO_UNIFIED_SNAPSHOT_READ_6635") } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("HERO_UNIFIED_SNAPSHOT_READ_${surface.uppercase()}_6635") } catch (_: Throwable) {}
 
-        // V5.0.6681 — NEVER call ForensicReconciliation6635.reconcile6635()
-        // here. It can replay thousands of rows and was the dominant main-thread
-        // ANR frame. The independent reconciler already updates healthLine6635().
+        // V5.0.6681 — never execute the full forensic reconciliation from a
+        // renderer. It can replay thousands of rows and was the dominant
+        // main-thread ANR frame. The independent reconciler publishes the
+        // cached health line consumed below.
         val capital = try { PaperCapitalAuthority6577.snapshot() } catch (_: Throwable) { null }
         val markAuthority = try { CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
         val forensicLine = try { ForensicReconciliation6635.healthLine6635() } catch (_: Throwable) { "" }
@@ -72,8 +73,6 @@ object UnifiedAccountSnapshot6635 {
             else -> Status.WARMUP
         }
 
-        // If canonical capital itself has not initialized, retain the last good
-        // snapshot rather than manufacturing a zero-balance accounting error.
         if (capital == null) {
             val retained = lastReconciled[mode]?.copy(
                 status = Status.WARMUP,
@@ -103,8 +102,6 @@ object UnifiedAccountSnapshot6635 {
             CanonicalPositionAuthority6441.openPositions().count { it.mode.equals(mode, ignoreCase = true) }
         } catch (_: Throwable) { 0 }
 
-        // Current ledger carries the current canonical market/cost projection.
-        // Do not splice a second historical replay into a UI read.
         val unrealized = 0.0
         val equity = cashLedger + openCost + unrealized
         val pricesAuthoritative =
