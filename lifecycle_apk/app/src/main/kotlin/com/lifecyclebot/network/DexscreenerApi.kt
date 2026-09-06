@@ -89,14 +89,18 @@ class DexscreenerApi {
      * This does not change MemeTrader's Solana-specialized getBestPair(mint).
      */
     fun getBestPair(chainId: String, tokenAddress: String): PairInfo? {
-        val chain = normalizeDexscreenerChain6682(chainId)
-        if (chain.isBlank() || tokenAddress.isBlank()) return null
-        return getBestPairInternal(chain, tokenAddress.trim(), allowDexPaprika = chain == "solana")
+        val canonicalChainId = normalizeDexscreenerChain6682(chainId)
+        if (canonicalChainId.isBlank() || tokenAddress.isBlank()) return null
+        return getBestPairInternal(canonicalChainId, tokenAddress.trim(), allowDexPaprika = canonicalChainId == "solana")
     }
 
-    private fun getBestPairInternal(chainId: String, tokenAddress: String, allowDexPaprika: Boolean): PairInfo? {
-        val chain = normalizeDexscreenerChain6682(chainId)
-        val cacheKey = "$chain|$tokenAddress"
+    private fun getBestPairInternal(rawChainId: String, tokenAddress: String, allowDexPaprika: Boolean): PairInfo? {
+        // V5.0.6683 — normalize once at the provider boundary and keep the
+        // canonical provider identity named `chainId` throughout URL selection,
+        // response-chain validation and address case-sensitivity. This preserves
+        // the V5.0.6493/6544 mint-identity Golden Tape while retaining 6682 aliases.
+        val chainId = normalizeDexscreenerChain6682(rawChainId)
+        val cacheKey = "$chainId|$tokenAddress"
         val cached = pairCache[cacheKey]
         val now = System.currentTimeMillis()
         if (cached != null && now - cached.timestamp < CACHE_TTL_MS) return cached.pair
@@ -115,7 +119,7 @@ class DexscreenerApi {
             if (!RateLimiter.allowRequest("dexscreener")) return cached.pair
         } else if (!RateLimiter.allowRequest("dexscreener")) return null
 
-        val url = "https://api.dexscreener.com/token-pairs/v1/${encode(chain)}/${encode(tokenAddress)}"
+        val url = "https://api.dexscreener.com/token-pairs/v1/${encode(chainId)}/${encode(tokenAddress)}"
         val body = get(url) ?: run {
             pairCache[cacheKey] = CachedPair(null, System.currentTimeMillis())
             return null
@@ -130,9 +134,9 @@ class DexscreenerApi {
         for (i in 0 until pairs.length()) {
             val row = pairs.getJSONObject(i)
             val rowChain = normalizeDexscreenerChain6682(row.optString("chainId", ""))
-            if (rowChain.isNotBlank() && rowChain != chain) continue
+            if (rowChain.isNotBlank() && rowChain != chainId) continue
             val baseAddress = row.optJSONObject("baseToken")?.optString("address", "") ?: ""
-            if (!baseAddress.equals(tokenAddress, ignoreCase = chain != "solana")) continue
+            if (!baseAddress.equals(tokenAddress, ignoreCase = chainId != "solana")) continue
             val score = scorePair(row)
             if (score > bestScore) { bestScore = score; best = row }
         }
@@ -157,7 +161,6 @@ class DexscreenerApi {
         return (0 until minOf(arr.length(), 20)).mapNotNull { parsePair(arr.getJSONObject(it)) }
             .filter { it.candle.priceUsd > 0 }
     }
-
     // ── internals ──────────────────────────────────────────
 
     private fun fetchDexPaprikaToken6512(mint: String): PairInfo? {
