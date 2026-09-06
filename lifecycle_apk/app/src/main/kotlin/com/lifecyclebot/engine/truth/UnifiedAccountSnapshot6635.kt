@@ -24,6 +24,11 @@ import java.util.concurrent.atomic.AtomicReference
  *
  * UI/account reads are observational and non-blocking. A render never runs the
  * full forensic journal replay or mutates/reconstructs economic state.
+ *
+ * IMPORTANT: equity/open value come from CanonicalCapitalAuthority6450, not
+ * PaperCapitalAuthority6577.openMarketValueSol(). The latter is intentionally
+ * cost basis; treating it as marked value recreated a second, false equity
+ * formula. 6450 is the one mark-aware read authority used by wallet surfaces.
  */
 object UnifiedAccountSnapshot6635 {
 
@@ -61,18 +66,17 @@ object UnifiedAccountSnapshot6635 {
         try { PipelineHealthCollector.labelInc("HERO_UNIFIED_SNAPSHOT_READ_6635") } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("HERO_UNIFIED_SNAPSHOT_READ_${surface.uppercase()}_6635") } catch (_: Throwable) {}
 
-        // V5.0.6681 — never execute the full forensic reconciliation from a
-        // renderer. The independent reconciler publishes the cached health line.
-        val capital = try { PaperCapitalAuthority6577.snapshot() } catch (_: Throwable) { null }
-        val markAuthority = try { CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
+        // One current account read. Never execute full historical replay here.
+        val current = try { CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
         val forensicLine = try { ForensicReconciliation6635.healthLine6635() } catch (_: Throwable) { "" }
         val forensicStatus = when {
             forensicLine.contains("status=RECONCILED") -> Status.RECONCILED
             forensicLine.contains("status=FAILED") -> Status.FAILED
             else -> Status.WARMUP
         }
+        val initialized = current != null && current.startingCashSol.isFinite() && current.startingCashSol > 0.0
 
-        if (capital == null) {
+        if (!initialized || current == null) {
             val retained = lastReconciled[mode]?.copy(
                 status = Status.WARMUP,
                 forensicStatus = forensicStatus,
@@ -97,28 +101,17 @@ object UnifiedAccountSnapshot6635 {
             return retained
         }
 
-        val cashLedger = capital.availableCashSol
-        val realized = capital.realizedPnlSol
-        val openCost = capital.openMarketValueSol
         val openPositions = try {
             CanonicalPositionAuthority6441.openPositions().count { it.mode.equals(mode, ignoreCase = true) }
         } catch (_: Throwable) { 0 }
+        val pricesAuthoritative = current.fallbackMarkMints == 0 && current.staleMarkMints == 0
 
-        val unrealized = 0.0
-        val equity = cashLedger + openCost + unrealized
-        val pricesAuthoritative =
-            (markAuthority?.fallbackMarkMints ?: Int.MAX_VALUE) == 0 &&
-            (markAuthority?.staleMarkMints ?: Int.MAX_VALUE) == 0
-
-        // Current canonical capital exists, so presentation status is reconciled.
-        // Historical forensicStatus remains independent and fail-closed for any
-        // consumer that trains, compounds or attributes performance from history.
         val snap = Snapshot(
             mode = mode,
-            cashSol = cashLedger,
-            equitySol = equity,
-            realizedPnlSol = realized,
-            unrealizedPnlSol = unrealized,
+            cashSol = current.cashSol,
+            equitySol = current.totalEquitySol,
+            realizedPnlSol = current.realizedPnlSol,
+            unrealizedPnlSol = current.unrealizedPnlSol,
             openPositionsCount = openPositions,
             status = Status.RECONCILED,
             forensicStatus = forensicStatus,
@@ -126,7 +119,7 @@ object UnifiedAccountSnapshot6635 {
                 "$forensicLine accountAction=RENDER_CURRENT_CANONICAL_WITH_FORENSIC_WARNING"
             else forensicLine,
             readAtMs = System.currentTimeMillis(),
-            openMarketValueSol = openCost,
+            openMarketValueSol = current.openMarketValueSol,
             accountAvailable = true,
             authoritativePrices = pricesAuthoritative,
         )
