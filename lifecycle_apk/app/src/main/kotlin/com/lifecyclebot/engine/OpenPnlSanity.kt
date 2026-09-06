@@ -75,8 +75,10 @@ object OpenPnlSanity {
         val sameSource = eSrc.isNotBlank() && cSrc.isNotBlank() && eSrc == cSrc
         val samePool = entryPool.isNotBlank() && currentPool.isNotBlank() && entryPool == currentPool
         val explicitComparable = samePool || sameSource || priceBasisRescaled
-        val syntheticInvolved = eSrc.contains("SYNTH") || cSrc.contains("SYNTH") || eSrc.contains("PUMP_FUN_BC") || cSrc.contains("PUMP_FUN_BC") ||
-            eSrc.contains("PUMPFUN_BC") || cSrc.contains("PUMPFUN_BC")
+        val syntheticInvolved = eSrc.contains("SYNTH") || cSrc.contains("SYNTH") ||
+            eSrc.contains("PUMP_FUN_BC") || cSrc.contains("PUMP_FUN_BC") ||
+            eSrc.contains("PUMPFUN_BC") || cSrc.contains("PUMPFUN_BC") ||
+            eSrc.contains("MCAP_SEED") || cSrc.contains("MCAP_SEED")
 
         // V5.0.6681 §SYNTHETIC_TRANSITION_ASYMMETRY_REPAIR.
         // The legacy guard was effectively one-sided: a synthetic->real source
