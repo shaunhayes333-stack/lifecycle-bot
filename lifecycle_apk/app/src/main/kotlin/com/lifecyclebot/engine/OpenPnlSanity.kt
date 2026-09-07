@@ -15,6 +15,12 @@ import com.lifecyclebot.data.TokenState
 object OpenPnlSanity {
     const val MAX_UNKNOWN_BASIS_PNL_PCT = 5_000.0
     private const val MAX_UNKNOWN_BASIS_RATIO = 51.0
+    // V5.0.6680 — 1000x+ remains possible in the real world, so it is not
+    // clamped or declared impossible. But source-name equality alone is not
+    // sufficient proof for an astronomical move. Above this ratio we require
+    // immutable same-pool continuity; otherwise the correct state is basis-wait
+    // until the mark is reproved. Genuine 500x moonshots remain untouched.
+    private const val ASTRONOMICAL_RATIO_REPROOF_6680 = 1_001.0
     private const val MIN_PNL_PCT = -100.0001
 
     data class Verdict(
@@ -31,6 +37,14 @@ object OpenPnlSanity {
         val reason: String,
         val source: String,
     )
+
+    private fun concretePool6680(pool: String): String? {
+        val p = pool.trim().uppercase()
+        if (p.isBlank()) return null
+        if (p == "UNKNOWN" || p == "PLACEHOLDER" || p == "SENTINEL") return null
+        if (p.startsWith("MINT_ROUTE:")) return null
+        return p
+    }
 
     fun inspect(
         entryPrice: Double,
@@ -66,9 +80,31 @@ object OpenPnlSanity {
         if (entryUnitUntrusted) {
             return reject("ENTRY_PRICE_UNIT_UNTRUSTED", entryPrice, currentPrice, context, emit, mint)
         }
+
+        // V5.0.6680 — persisted sentinel entries must never become trusted merely
+        // because a later real provider/pool produced a valid mark. V5.0.6658
+        // blocks these values at new PAPER entry, but older persisted positions
+        // can still be rehydrated; reject them at the shared PnL authority too.
+        val knownSentinelEntry6680 = try {
+            com.lifecyclebot.engine.truth.MarketDataProvenance6471
+                .isKnownStandaloneSentinelPrice6658(entryPrice)
+        } catch (_: Throwable) { false }
+        if (knownSentinelEntry6680) {
+            return reject("ENTRY_PRICE_SENTINEL_6680", entryPrice, currentPrice, context, emit, mint)
+        }
+
         val sameSource = eSrc.isNotBlank() && cSrc.isNotBlank() && eSrc == cSrc
-        val samePool = entryPool.isNotBlank() && currentPool.isNotBlank() && entryPool == currentPool
-        val explicitComparable = samePool || sameSource || priceBasisRescaled
+        val entryConcretePool6680 = concretePool6680(entryPool)
+        val currentConcretePool6680 = concretePool6680(currentPool)
+        val samePool = entryConcretePool6680 != null && currentConcretePool6680 != null &&
+            entryConcretePool6680 == currentConcretePool6680
+
+        // V5.0.6116b RESTORED BY V5.0.6680 — PATCH-ROT FIX.
+        // Do NOT re-add `|| priceBasisRescaled` here. That historical flag is
+        // stamped by ordinary proof/recovery paths and is not proof that the
+        // CURRENT mark shares the entry basis. Reintroducing it permanently
+        // waived the extreme-ratio guard and recreated phantom mega-PnL.
+        val explicitComparable = samePool || sameSource
         val syntheticInvolved = eSrc.contains("SYNTH") || cSrc.contains("SYNTH") || eSrc.contains("PUMP_FUN_BC") || cSrc.contains("PUMP_FUN_BC")
 
         if (ratio > MAX_UNKNOWN_BASIS_RATIO && (!explicitComparable || syntheticInvolved)) {
@@ -79,6 +115,16 @@ object OpenPnlSanity {
         }
         if (pnl > MAX_UNKNOWN_BASIS_PNL_PCT && syntheticInvolved && !priceBasisRescaled) {
             return reject("SYNTHETIC_PRICE_BASIS_EXTREME_PNL", entryPrice, currentPrice, context, emit, mint)
+        }
+
+        // V5.0.6680 — same provider family is not immutable asset/basis proof.
+        // A symbol/alias/template collision can report the same source string on
+        // both sides while being thousands/millions of times apart. For >1000x
+        // require the exact concrete pool to survive from entry to current mark.
+        // This is a reproof requirement, not a profit cap: true same-pool moves
+        // remain fully represented, and 500x moves never hit this branch.
+        if (ratio > ASTRONOMICAL_RATIO_REPROOF_6680 && !samePool) {
+            return reject("ASTRONOMICAL_RATIO_REQUIRES_SAME_POOL_PROOF_6680", entryPrice, currentPrice, context, emit, mint)
         }
         return Verdict(true, pnl)
     }
@@ -106,9 +152,8 @@ object OpenPnlSanity {
         // having valid costSol + qtyToken (persistence race or force-load). If
         // we can reconstruct entryPrice = costSol / qtyToken (in SOL-per-token
         // terms), we heal the basis and let inspect() proceed. The reconstructed
-        // basis is marked priceBasisRescaled=true so downstream trust guards
-        // treat it as authoritative for the sanity check but not for banked-win
-        // verification (RealPriceLock still gates real harvests).
+        // basis no longer waives source/pool trust; V5.0.6680 restored the 6116b
+        // rule that a historical rescale flag is not current-mark proof.
         val healedEntryPrice = if (pos.entryPrice.isFinite() && pos.entryPrice > 0.0) pos.entryPrice
         // V5.0.6308 — heal threshold widened from qty>1.0 to qty>1e-9. Operator
         // emergency report showed 31,050 ENTRY_PRICE_INVALID rejects because
