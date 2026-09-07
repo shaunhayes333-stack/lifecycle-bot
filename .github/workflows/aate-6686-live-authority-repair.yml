@@ -1,0 +1,85 @@
+name: AATE 6686 Live Wallet and Position Authority Repair
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/aate-6686-live-authority-repair.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
+      - name: Apply V5.0.6686 live authority repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ci/aate_6686_live_authority_repair.py
+
+      - name: Verify repaired source contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd lifecycle_apk
+          grep -q 'WALLET_RPC_PROVIDER_ERROR_FAILOVER_6686' app/src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt
+          grep -q 'RuntimeProviderAuthority6685' app/src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt
+          grep -q 'object LiveCanonicalRecovery6686' app/src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt
+          grep -q 'LIVE_WALLET_CANONICAL_POSITION_RECOVERED_6686' app/src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt
+          grep -q 'LiveCanonicalRecovery6686.recoverWalletSnapshot(status, walletMints)' app/src/main/kotlin/com/lifecyclebot/engine/WalletReconciler.kt
+          grep -q 'object CanonicalUiPositionProjection6686' app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalUiPositionProjection6686.kt
+          grep -q 'CanonicalUiPositionProjection6686.project(status)' app/src/main/kotlin/com/lifecyclebot/engine/truth/UiSnapshotAuthority6496.kt
+          grep -q 'LIVE_WALLET_AUTHORITY_6686' app/src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt
+
+      - name: Repository contradiction and patch-rot scans
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd lifecycle_apk
+          python3 ci/golden_tape_literal_scan.py
+          python3 ci/authority_contradiction_scan.py
+          python3 ci/patch_rot_scan.py
+
+      - name: Compile and run complete release unit suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd lifecycle_apk
+          chmod +x gradlew
+          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=6686 -PaateVersionName=5.0.6686
+
+      - name: Commit clean V5.0.6686 production repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f ci/aate_6686_live_authority_repair.py
+          rm -f .github/workflows/aate-6686-live-authority-repair.yml
+          git config user.name 'AATE CI Repair'
+          git config user.email 'aate-ci-repair@users.noreply.github.com'
+          git add -A
+          git status --short
+          if git diff --cached --quiet; then
+            echo 'No 6686 source repair changes to commit' >&2
+            exit 1
+          fi
+          git commit -m 'V5.0.6686 repair live wallet tracking and canonical position authority'
+          git push origin main
