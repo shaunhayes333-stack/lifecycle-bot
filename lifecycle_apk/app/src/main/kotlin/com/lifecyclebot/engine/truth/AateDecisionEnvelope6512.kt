@@ -88,10 +88,25 @@ object AateDecisionFabric6512 {
 
     fun attachPosition(positionId: String, mode: String, mint: String, lane: String): Boolean {
         if (positionId.isBlank() || mint.isBlank() || lane.isBlank()) return false
+
+        // V5.0.6681 §CAUSAL_POLICY_POSITION_BINDING — the canonical open itself
+        // is sufficient authority to freeze the owner-lane entry sample. Do this
+        // BEFORE the AATE envelope lookup: envelope attribution can be missing
+        // (specialistLearningMissing), but that must not poison/skip the primary
+        // entry learner for an otherwise valid canonical position.
+        val policyBound6681 = try { UnifiedPolicyHead.bindPosition6681(positionId, mint, lane) } catch (_: Throwable) { false }
+        try {
+            PipelineHealthCollector.labelInc(if (policyBound6681) "AATE_POLICY_POSITION_BOUND_6681" else "AATE_POLICY_POSITION_BIND_MISSING_6681")
+        } catch (_: Throwable) {}
+
         val e = byAuthority.values.asSequence()
             .filter { it.context.runtimeGeneration == BotRuntimeController.currentGeneration() }
             .filter { it.context.mode.equals(mode, true) && it.context.mint == mint && it.context.primaryStrategy.equals(lane, true) }
-            .maxByOrNull { it.revision } ?: return false
+            .maxByOrNull { it.revision }
+        if (e == null) {
+            try { PipelineHealthCollector.labelInc("AATE_POSITION_ATTRIBUTION_MISSING_6681") } catch (_: Throwable) {}
+            return false
+        }
         byPosition[positionId] = e.copy(positionId = positionId)
         try { PipelineHealthCollector.labelInc("AATE_POSITION_ATTRIBUTION_LINKED_6512") } catch (_: Throwable) {}
         return true
@@ -107,7 +122,10 @@ object AateDecisionFabric6512 {
         }
         val contributors = e?.contributors.orEmpty(); val updated = mutableListOf<String>()
         val uphBefore = UnifiedPolicyHead.trainedCount()
-        try { UnifiedPolicyHead.recordOutcome(env.mint, env.realizedReturnPct) } catch (_: Throwable) {}
+        // V5.0.6681 — canonical owner-bound learning. Do not call the legacy
+        // mint-wide recordOutcome path: one terminal trade must update global
+        // exactly once and only its actual execution owner lane.
+        try { UnifiedPolicyHead.recordOutcome6681(env.positionId, env.mint, env.lane, env.realizedReturnPct) } catch (_: Throwable) {}
         if (UnifiedPolicyHead.trainedCount() > uphBefore) updated += "UnifiedPolicyHead"
         val metaBefore = AutonomousMetaPolicy.totalUpdateCount6512()
         try { AutonomousMetaPolicy.recordOutcome(env.mint, env.realizedReturnPct) } catch (_: Throwable) {}
@@ -132,23 +150,8 @@ object AateDecisionFabric6512 {
                 ToolkitSignalSheet.recordDeskStage(lane, "LEARNING", env.positionId)
             } catch (_: Throwable) {}
         }
-        // V5.0.6610 §LEARNING_FANOUT_TO_OWNER (operator directive Feb 2026:
-        //   "Every finalized canonical MemeTrader trade must immediately
-        //   update owner specialist... including losing trades.
-        //   specialistLearningMissing must remain zero.").
-        //   Prior behaviour: only cross-lane contributors got a LEARNING
-        //   stage bump — the PRIMARY owner was assumed trained by
-        //   V3JournalRecorder elsewhere and never received the stage
-        //   counter. Operator's V5.0.6609 dump: every specialist
-        //   learningN=0 despite 616 lifetime finalized trades. The
-        //   train-once path elsewhere IS running (LanePolicy state
-        //   proves it) but the report's `learningN` derives from
-        //   recordDeskStage(LEARNING) — so the report showed zero.
-        //   Fix: bump LEARNING for the owner lane on every finalization
-        //   so the operator's learning-fanout invariant reflects
-        //   reality. This does NOT double-train LanePolicy (V3JournalRecorder
-        //   still holds that responsibility); it only bumps the stage
-        //   counter that populates the liveness report.
+        // V5.0.6610 §LEARNING_FANOUT_TO_OWNER — liveness-stage accounting only;
+        // the primary LanePolicy training remains owned by V3JournalRecorder.
         try {
             val ownerLane6610 = env.lane.uppercase()
             if (ownerLane6610.isNotBlank() && ownerLane6610 in setOf(
@@ -168,12 +171,7 @@ object AateDecisionFabric6512 {
         ) } catch (_: Throwable) { "" }
         if (graphId.isNotBlank() && SemanticPatternGraph.nodeCount6512() > graphBefore) updated += "SemanticPatternGraph"
         rewards.incrementAndGet()
-        // V5.0.6617 §POSITION_LIFECYCLE_FORMALIZATION — the learner has
-        //   consumed the finalized envelope (UnifiedPolicyHead +
-        //   AutonomousMetaPolicy + StrategyHypothesisEngine + LanePolicy
-        //   + SemanticPatternGraph all trained). Stamp the position's
-        //   LEARNED stage so the closureDelta reconciler can advance
-        //   CLOSED → LEARNED and eventually REENTRY_ELIGIBLE.
+        // V5.0.6617 §POSITION_LIFECYCLE_FORMALIZATION — learner consumed finality.
         try { PositionLifecycleFormalization6617.markLearned(env.positionId) } catch (_: Throwable) {}
         val credit = contributors.joinToString(",") { c ->
             val v = if (env.realizedPnlSol >= 0.0) c.weight * c.effect else -c.weight * c.effect

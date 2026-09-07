@@ -22,16 +22,21 @@ import kotlin.math.exp
  *             score per lane → calibration-aware authority: a head with bad
  *             calibration gets pulled back to ADVISORY tier until it earns
  *             trust back.
+ * V5.0.6681 — CAUSAL ENTRY BINDING. Entry features are frozen against the
+ *             canonical opened position + owner lane. A terminal outcome trains
+ *             exactly one owner-lane head and the global head exactly once.
+ *             Contributor/read-only lanes can no longer receive the owner's
+ *             realised label, and later same-mint evaluations cannot overwrite
+ *             the entry features that actually caused the position.
  *
  * MODEL: online logistic regression, NF features + bias, SGD per-lane.
  *
  * DOCTRINE COMPLIANCE:
- *   • Per-lane sub-head + global head still update together. Global serves
- *     as warm-start for new lanes AND as fallback when a lane head fails.
+ *   • Per-lane sub-head + global head update together ONCE per real terminal trade.
  *   • Soft-shape only — multiplier in [0.60, 1.40] (LEARNED) or [0.30, 1.80]
- *     (AUTHORITATIVE). Never veto, never zero.
- *   • Bootstrap-safe — neutral 1.0 until per-lane head crosses ADVISORY (40).
- *   • Persisted per-lane weights, fail-open.
+ *     (AUTHORITATIVE). Terminal-veto authority is lane-own only.
+ *   • Bootstrap-safe — trade-one shaping ramps into lane-local authority.
+ *   • Persisted per-lane weights and position-bound causal snapshots, fail-open.
  *   • Brier-calibrated — bad calibration demotes authority but never disables.
  */
 object UnifiedPolicyHead {
@@ -43,97 +48,75 @@ object UnifiedPolicyHead {
     private const val MULT_CAP       = 1.40
     private const val MULT_FLOOR_AUTH = 0.30
     private const val MULT_CAP_AUTH   = 1.80
-    // V5.0.4179 — F4 force-graduate. Operator directive: bot has been stuck
-    // BOOTSTRAP with trained=25 for too long. With trades coming in 6/min
-    // post-unchoke the head should grow authority WAY faster than the old
-    // 40/100/250 doctrine ("we need 250 samples before we trust the head"
-    // = months of live trading). Lower threshold lets the policy signals
-    // actually influence decisions at realistic sample sizes:
-    //   • ADVISORY at 20 (was 40)  — signals start contributing
-    //   • LEARNED at 60 (was 100)   — signals get authority weighting
-    //   • AUTHORITATIVE at 150 (was 250) — full authority
-    // V5.0.6005 — LOWER AUTHORITY THRESHOLDS. Same rationale as
-    // UnifiedExitPolicyHead: current thresholds meant global brain hit
-    // trained=25 after weeks with authority=ADVISORY still. Operator
-    // directive: the AGI stack MUST take command decisions across all
-    // lanes and self-tune to compounding. Brier calibration guard-rail
-    // still auto-demotes noisy brains, so aggressive promotion is safe.
+    // V5.0.4179 / V5.0.6005 — aggressive online authority thresholds.
     private const val AUTHORITY_ADVISORY      = 3L
     private const val AUTHORITY_LEARNED       = 10L
     private const val AUTHORITY_AUTHORITATIVE = 25L
-    // V5.0.4094 — calibration thresholds. Brier score (mean squared err of
-    // pWin vs outcome) below this is "well-calibrated"; above is "drifting".
-    // Random guessing scores ~0.25; a calibrated head should be below 0.22.
     private const val BRIER_HEALTHY_MAX = 0.22
     private const val BRIER_DRIFTING_MAX = 0.27
 
-    // V5.0.6009 — model-version tag for poisoned-state reset.
-    private const val MODEL_VERSION_V6009 = 6009
+    // V5.0.6681 — old persisted weights were trained by mint-wide multi-lane
+    // fanout (one close could update global N times and label non-owner lanes).
+    // They are not statistically compatible with owner-bound training.
+    private const val MODEL_VERSION_V6681 = 6681
 
-    // V5.0.6604 §MEME_CAUSAL_AUTHORITY (troubleshoot_agent P0 fix). Threshold
-    // above which the global head is trusted to bind MEME lanes even before
-    // their own per-lane head trains up. See laneHasOwnAuthoritativeHead
-    // for the full rationale.
-    private const val MEME_GLOBAL_AUTHORITY_TRAINED_6604 = 50L
-
-    // Global head (warm-start source + fallback)
     private val w = DoubleArray(NF) { 0.0 }
     @Volatile private var bias = 0.0
     @Volatile private var trained = 0L
     private val featMean = DoubleArray(NF) { 0.5 }
 
-    // V5.0.4094 — per-lane state
     private data class LaneHead(
         val w: DoubleArray = DoubleArray(NF) { 0.0 },
         var bias: Double = 0.0,
         var trained: Long = 0L,
         val featMean: DoubleArray = DoubleArray(NF) { 0.5 },
-        // Brier accumulator: running sum of (p - y)^2 across recent trades
         var brierSum: Double = 0.0,
         var brierN: Long = 0L,
     )
 
+    private data class BoundEntry6681(
+        val mint: String,
+        val ownerLane: String,
+        val features: DoubleArray,
+    )
+
     private val laneHeads = java.util.concurrent.ConcurrentHashMap<String, LaneHead>()
-    // V5.0.4470 — all-lane contribution parity. Pending entry signals must be keyed
-    // by mint AND lane; live now evaluates every internal trader like paper, so a
-    // mint-only stamp lets the last lane overwrite every sibling lane and only one
-    // head learns on terminal close.
+
+    // Decision-time scratchpad. Multiple desks may evaluate the same mint, but
+    // these observations are NOT outcomes. At canonical open, only the elected
+    // owner's feature vector is copied into pendingByPosition6681 and this map is
+    // cleared for that mint.
     private val pending = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, DoubleArray>>()
+    private val pendingByPosition6681 = java.util.concurrent.ConcurrentHashMap<String, BoundEntry6681>()
+    private val trainingLock6681 = Any()
+
     private val advisoryUsageCount = java.util.concurrent.atomic.AtomicLong(0)
     private val authoritativeOverrideCount = java.util.concurrent.atomic.AtomicLong(0)
     private val calibrationDemoteCount = java.util.concurrent.atomic.AtomicLong(0)
+    private val causalBoundCount6681 = java.util.concurrent.atomic.AtomicLong(0)
+    private val causalOutcomeCount6681 = java.util.concurrent.atomic.AtomicLong(0)
+    private val causalMissCount6681 = java.util.concurrent.atomic.AtomicLong(0)
+    private val legacyAmbiguousDropCount6681 = java.util.concurrent.atomic.AtomicLong(0)
     @Volatile private var appContext: Context? = null
 
     fun trainedCount(): Long = trained
     fun advisoryUsageHits(): Long = advisoryUsageCount.get()
     fun authoritativeOverrideHits(): Long = authoritativeOverrideCount.get()
     fun calibrationDemoteHits(): Long = calibrationDemoteCount.get()
+    fun causalBoundCount6681(): Long = causalBoundCount6681.get()
+    fun causalOutcomeCount6681(): Long = causalOutcomeCount6681.get()
+    fun causalMissCount6681(): Long = causalMissCount6681.get()
 
     /**
-     * V5.0.6605 §PWIN_BOOTSTRAP_SEMANTICS (operator REPAIR L).
-     *   Returns the LANE'S OWN-head trained count with no global-fallback.
-     *   Callers that need to distinguish an UNKNOWN/BOOTSTRAP lane (no
-     *   own-head samples) from a genuinely LEARNED lane must use this
-     *   rather than `currentAuthority(lane)`, which quietly falls back
-     *   to `globalAuthority()` when a lane has no head. Zero-signal
-     *   candidates in an unbootstrapped lane must not be classified as
-     *   "the learned head says this loses" — that's the operator regression
-     *   from V5.0.6604 where EXPRESS score=0 got hard-blocked by the pWin
-     *   gate despite EXPRESS having 0 own-head samples.
+     * V5.0.6605 §PWIN_BOOTSTRAP_SEMANTICS.
+     * Returns the LANE'S OWN-head trained count with no global fallback.
      */
     fun laneOwnHeadTrainedCount6605(lane: String): Long {
         val h = laneHeads[normalizeLane(lane)] ?: return 0L
         return h.trained
     }
 
-    /**
-     * V5.0.6605 §PWIN_BOOTSTRAP_SEMANTICS (operator REPAIR L).
-     *   Explicit BOOTSTRAP / ADVISORY / LEARNED / AUTHORITATIVE tier of
-     *   the LANE'S OWN head, without global fallback. When the lane has
-     *   no own head at all this returns BOOTSTRAP (never AUTHORITATIVE
-     *   via global fallback). This is the correct gate for turning a
-     *   pWin estimate into an authoritative negative signal.
-     */
+    /** Explicit tier of the LANE'S OWN head, without global fallback. */
     fun laneOwnHeadAuthority6605(lane: String): AuthorityTier {
         val n = laneOwnHeadTrainedCount6605(lane)
         return when {
@@ -143,7 +126,6 @@ object UnifiedPolicyHead {
             else                          -> AuthorityTier.BOOTSTRAP
         }
     }
-
 
     enum class AuthorityTier(val minSamples: Long) {
         BOOTSTRAP(0L),
@@ -183,7 +165,6 @@ object UnifiedPolicyHead {
 
     private fun normalizeLane(lane: String): String = lane.trim().uppercase().ifBlank { "STANDARD" }
 
-    /** Lazily create a per-lane head, warm-started from the GLOBAL head's weights. */
     private fun getOrCreateLaneHead(lane: String): LaneHead {
         return laneHeads.computeIfAbsent(lane) {
             LaneHead().also { h ->
@@ -193,64 +174,37 @@ object UnifiedPolicyHead {
         }
     }
 
-    /** Predicted win-probability given lane + committee signals. */
     fun predictWinProb(s: Signals): Double = predictWinProb("STANDARD", s)
     fun predictWinProb(lane: String, s: Signals): Double = try {
         val h = laneHeads[normalizeLane(lane)]
         if (h != null && h.trained >= 8L) rawProbLane(h, s.toArray()) else rawProbGlobal(s.toArray())
     } catch (_: Throwable) { 0.5 }
 
-    /** Brier score for a lane (mean squared error of predicted pWin vs outcome). */
     fun brierScore(lane: String): Double {
         val h = laneHeads[normalizeLane(lane)] ?: return 0.25
         return if (h.brierN > 0L) h.brierSum / h.brierN else 0.25
     }
 
     fun currentAuthority(): AuthorityTier = currentAuthority("STANDARD")
+
     /**
-     * V5.0.6596 §BOOTSTRAP_ADVISORY_ONLY — operator directive Feb 2026:
-     *   > "A bootstrap/warming policy head must be advisory: score shaping,
-     *   >  size shaping, strategy preference, confidence shaping. It must NOT
-     *   >  terminal-veto a candidate until the existing configured statistical
-     *   >  sample/confidence requirement has been satisfied."
+     * V5.0.6681 §LANE_OWN_TERMINAL_AUTHORITY.
      *
-     * Snapshot 6595 showed EXPRESS thin_data hist=2 (no lane head) being
-     * terminal-vetoed by LEARNED_POLICY_VETO_6593 because the LANE-SPECIFIC
-     * head was missing and currentAuthority(lane) fell back to
-     * globalAuthority() which is AUTHORITATIVE (125 overrides, bias -0.66).
-     * Terminal-vetoing a cold lane on the global bias is exactly what the
-     * directive forbids. `laneHasOwnAuthoritativeHead` returns true ONLY when
-     * the lane has trained its own head to AUTHORITATIVE — the veto callsite
-     * gates on this so cold/warming lanes get advisory shaping, never a
-     * terminal veto.
+     * V5.0.6596 correctly prevented a cold lane from being terminal-vetoed by
+     * the global head. V5.0.6604 later reintroduced that exact failure for the
+     * MEME family by treating global trained>=50 as if the lane itself were
+     * authoritative. That made a cross-lane/global bias capable of vetoing a
+     * fresh specialist before the specialist had causal owner-labelled samples.
+     *
+     * The global head remains a warm-start and soft-shaping fallback, but a
+     * terminal learned veto requires the lane's OWN calibrated sample history.
      */
     fun laneHasOwnAuthoritativeHead(lane: String): Boolean {
-        val laneKey = normalizeLane(lane)
-        val h = laneHeads[laneKey]
-        if (h != null && h.trained >= AUTHORITY_AUTHORITATIVE) return true
-        // V5.0.6604 §MEME_CAUSAL_AUTHORITY (troubleshoot_agent P0 fix).
-        //   Root cause of the <10% MemeTrader WR: fresh MEME lanes (SHITCOIN /
-        //   EXPRESS / MOONSHOT / PROJECT_SNIPER) rarely accumulate 25 own-head
-        //   samples fast enough because entries are already being throttled
-        //   elsewhere. Meanwhile the GLOBAL head has learned a strong bias
-        //   (e.g. -0.66 at trained≈150) that KNOWS these lanes bleed, but the
-        //   6596 fix required the LANE'S OWN head to be AUTHORITATIVE before
-        //   the LEARNED_POLICY_VETO_6593 could fire. Result: the veto never
-        //   fires for MEME, weak-WAIT probes bleed at 90%+ loss, brains are
-        //   telemetry-only. Fix: for MEME-family lanes, once the GLOBAL head
-        //   has hit MEME_GLOBAL_AUTHORITY_TRAINED_6604 (50) samples, treat the
-        //   veto as authoritative even when the lane's own head is still cold.
-        //   Non-MEME lanes are unchanged (cold BLUECHIP/STANDARD must still
-        //   collect their own sample before the global bias binds them).
-        val isMemeLane = laneKey.let { it.contains("SHITCOIN") || it.contains("EXPRESS") ||
-            it.contains("MOONSHOT") || it.contains("MEMETRADER") || it.contains("MEME") ||
-            it.contains("PROJECT_SNIPER") }
-        if (isMemeLane && trained >= MEME_GLOBAL_AUTHORITY_TRAINED_6604) return true
-        return false
+        val h = laneHeads[normalizeLane(lane)] ?: return false
+        return h.trained >= AUTHORITY_AUTHORITATIVE
     }
 
-    /** Per-lane authority tier — calibration-aware. A miscalibrated head is
-     *  pulled back to a lower tier until it earns trust back. */
+    /** Per-lane authority tier — calibration-aware. */
     fun currentAuthority(lane: String): AuthorityTier {
         val h = laneHeads[normalizeLane(lane)] ?: return globalAuthority()
         val rawTier = when {
@@ -259,14 +213,10 @@ object UnifiedPolicyHead {
             h.trained >= AUTHORITY_ADVISORY      -> AuthorityTier.ADVISORY
             else                                  -> AuthorityTier.BOOTSTRAP
         }
-        // Calibration demote: if Brier score is bad, drop one tier.
         if (h.brierN >= 20L) {
             val brier = h.brierSum / h.brierN
             if (brier > BRIER_DRIFTING_MAX && rawTier != AuthorityTier.BOOTSTRAP) {
                 calibrationDemoteCount.incrementAndGet()
-                // V5.0.4096 — narrate the demote into the sentience family so
-                // the bot recognizes it's losing a read on this lane and the
-                // personality can reflect on it ('I'm second-guessing STANDARD…').
                 try { com.lifecyclebot.engine.SentienceOrchestrator.noteRuntimeEvent(
                     "AGI_BRAIN_DEMOTED",
                     "lane=${normalizeLane(lane)} brier=${"%.3f".format(brier)} from=${rawTier.name} brain=entry",
@@ -293,7 +243,6 @@ object UnifiedPolicyHead {
         else                                -> AuthorityTier.BOOTSTRAP
     }
 
-    /** Advisory conviction (still runs alongside rule stack at low authority). */
     fun conviction(s: Signals): Double = conviction("STANDARD", s)
     fun conviction(lane: String, s: Signals): Double {
         return try {
@@ -311,11 +260,6 @@ object UnifiedPolicyHead {
         } catch (_: Throwable) { 1.0 }
     }
 
-    /**
-     * Authoritative conviction — null when lane head is still in BOOTSTRAP/ADVISORY
-     * (caller falls back to rule stack). Non-null at LEARNED+; AUTHORITATIVE gets
-     * the widest range. Calibration check already applied via currentAuthority.
-     */
     fun authoritativeConviction(s: Signals): Double? = authoritativeConviction("STANDARD", s)
     fun authoritativeConviction(lane: String, s: Signals): Double? {
         return try {
@@ -333,8 +277,7 @@ object UnifiedPolicyHead {
         } catch (_: Throwable) { null }
     }
 
-    /** Stamp the signals + lane at decision time so the settled outcome trains
-     *  both the per-lane head AND the global head. */
+    /** Decision-time observation only; no outcome is attached here. */
     fun stamp(mint: String, s: Signals) { stamp(mint, "STANDARD", s) }
     fun stamp(mint: String, lane: String, s: Signals) {
         try {
@@ -344,75 +287,200 @@ object UnifiedPolicyHead {
         } catch (_: Throwable) {}
     }
 
-    /** Train every stamped per-lane head plus the global head on a settled outcome. */
+    private fun ownerFeatureCandidateKeys6681(ownerLane: String): List<String> {
+        val owner = normalizeLane(ownerLane)
+        val keys = mutableListOf(owner)
+        when (owner) {
+            "BLUECHIP" -> keys += "BLUE_CHIP"
+            "BLUE_CHIP" -> keys += "BLUECHIP"
+        }
+        if (owner in setOf(
+                "QUALITY", "BLUECHIP", "BLUE_CHIP", "SHITCOIN", "CYCLIC", "EXPRESS", "CORE",
+                "MOONSHOT", "PROJECT_SNIPER", "DIP_HUNTER", "MANIPULATED", "TREASURY", "CASHGEN",
+            )
+        ) {
+            // FDG still has legacy TradingModeTag stamps (notably MEME_GENERIC /
+            // BLUE_CHIP) in some paths. At the canonical open boundary we may
+            // use that feature vector, but the TRAINING IDENTITY is always the
+            // real ExecutionBook owner lane supplied by the canonical position.
+            keys += "MEME_GENERIC"
+        }
+        keys += "STANDARD"
+        return keys.distinct()
+    }
+
+    /**
+     * V5.0.6681 — freeze the exact entry observation against the canonical
+     * position ID. This is called only after an executable position exists.
+     */
+    fun bindPosition6681(positionId: String, mint: String, ownerLane: String): Boolean {
+        if (positionId.isBlank() || mint.isBlank() || ownerLane.isBlank()) return false
+        return try {
+            val observations = pending.remove(mint)
+            if (observations == null || observations.isEmpty()) {
+                causalMissCount6681.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("UNIFIED_POLICY_POSITION_BIND_MISSING_6681") } catch (_: Throwable) {}
+                false
+            } else {
+                val owner = normalizeLane(ownerLane)
+                var selected: DoubleArray? = null
+                var sourceLane = ""
+                for (k in ownerFeatureCandidateKeys6681(owner)) {
+                    val x = observations[k]
+                    if (x != null) { selected = x.copyOf(); sourceLane = k; break }
+                }
+                if (selected == null && observations.size == 1) {
+                    val only = observations.entries.first()
+                    selected = only.value.copyOf(); sourceLane = only.key
+                }
+                if (selected == null) {
+                    causalMissCount6681.incrementAndGet()
+                    try { PipelineHealthCollector.labelInc("UNIFIED_POLICY_POSITION_BIND_AMBIGUOUS_6681") } catch (_: Throwable) {}
+                    false
+                } else {
+                    pendingByPosition6681[positionId] = BoundEntry6681(mint, owner, selected)
+                    causalBoundCount6681.incrementAndGet()
+                    try {
+                        ForensicLogger.lifecycle(
+                            "UNIFIED_POLICY_POSITION_BOUND_6681",
+                            "positionId=$positionId mint=$mint ownerLane=$owner sourceLane=$sourceLane observations=${observations.keys.sorted().joinToString(",")}",
+                        )
+                        PipelineHealthCollector.labelInc("UNIFIED_POLICY_POSITION_BOUND_6681")
+                    } catch (_: Throwable) {}
+                    appContext?.let { ctx -> GlobalScope.launch(AppDispatchers.sideEffect) { save(ctx) } }
+                    true
+                }
+            }
+        } catch (_: Throwable) { false }
+    }
+
+    private fun trainOneOutcome6681(lane: String, x: DoubleArray, pnlPct: Double) {
+        val y = if (pnlPct > 0.0) 1.0 else 0.0
+
+        // Exactly ONE global update per terminal canonical position.
+        val pG = rawProbGlobal(x)
+        val errG = pG - y
+        for (i in 0 until NF) {
+            val g = errG * (x[i] - featMean[i]) + L2 * w[i]
+            w[i] -= LR * g
+            featMean[i] += 0.01 * (x[i] - featMean[i])
+        }
+        bias -= LR * errG
+        trained += 1
+
+        // Exactly ONE owner-lane update. Contributors/read-only lanes are not
+        // labelled as if they executed this trade.
+        val h = getOrCreateLaneHead(lane)
+        val pL = rawProbLane(h, x)
+        val errL = pL - y
+        for (i in 0 until NF) {
+            val g = errL * (x[i] - h.featMean[i]) + L2 * h.w[i]
+            h.w[i] -= LR * g
+            h.featMean[i] += 0.01 * (x[i] - h.featMean[i])
+        }
+        h.bias -= LR * errL
+        h.trained += 1
+        if (h.trained == AUTHORITY_ADVISORY || h.trained == AUTHORITY_LEARNED || h.trained == AUTHORITY_AUTHORITATIVE) {
+            val tierName = when (h.trained) {
+                AUTHORITY_ADVISORY      -> "ADVISORY"
+                AUTHORITY_LEARNED       -> "LEARNED"
+                AUTHORITY_AUTHORITATIVE -> "AUTHORITATIVE"
+                else                     -> "?"
+            }
+            try { com.lifecyclebot.engine.SentienceOrchestrator.noteRuntimeEvent(
+                "AGI_BRAIN_TIER_GRADUATED",
+                "lane=$lane tier=$tierName n=${h.trained} brain=entry",
+                "INFO"
+            ) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.SentientPersonality.injectAutonomousThought(
+                "I just leveled up on $lane. Tier=$tierName at n=${h.trained}. The signals are clearer now."
+            ) } catch (_: Throwable) {}
+        }
+        h.brierSum += (pL - y) * (pL - y)
+        h.brierN += 1
+        if (h.brierN > 200L) {
+            h.brierSum *= (200.0 / h.brierN)
+            h.brierN = 200L
+        }
+    }
+
+    /**
+     * V5.0.6681 canonical training path. The position-bound entry snapshot must
+     * match the finalized mint and owner lane; otherwise we SKIP rather than
+     * poison the model with a guessed attribution.
+     */
+    fun recordOutcome6681(positionId: String, mint: String, ownerLane: String, pnlPct: Double): Boolean {
+        if (positionId.isBlank() || mint.isBlank() || ownerLane.isBlank()) return false
+        return try {
+            val bound = pendingByPosition6681.remove(positionId)
+            // Discard any observations accumulated while this mint was already
+            // open. They were not entry causes and must not leak into re-entry.
+            pending.remove(mint)
+            val owner = normalizeLane(ownerLane)
+            if (bound == null || bound.mint != mint || bound.ownerLane != owner) {
+                causalMissCount6681.incrementAndGet()
+                try {
+                    ForensicLogger.lifecycle(
+                        "UNIFIED_POLICY_CAUSAL_OUTCOME_MISSING_6681",
+                        "positionId=$positionId mint=$mint ownerLane=$owner boundMint=${bound?.mint ?: "none"} boundLane=${bound?.ownerLane ?: "none"}",
+                    )
+                    PipelineHealthCollector.labelInc("UNIFIED_POLICY_CAUSAL_OUTCOME_MISSING_6681")
+                } catch (_: Throwable) {}
+                false
+            } else {
+                synchronized(trainingLock6681) {
+                    trainOneOutcome6681(owner, bound.features, pnlPct)
+                }
+                causalOutcomeCount6681.incrementAndGet()
+                try {
+                    ForensicLogger.lifecycle(
+                        "UNIFIED_POLICY_CAUSAL_OUTCOME_6681",
+                        "positionId=$positionId mint=$mint ownerLane=$owner pnlPct=$pnlPct globalTrained=$trained laneTrained=${laneOwnHeadTrainedCount6605(owner)}",
+                    )
+                    PipelineHealthCollector.labelInc("UNIFIED_POLICY_CAUSAL_OUTCOME_6681")
+                } catch (_: Throwable) {}
+                appContext?.let { ctx -> GlobalScope.launch(AppDispatchers.sideEffect) { save(ctx) } }
+                true
+            }
+        } catch (_: Throwable) { false }
+    }
+
+    /**
+     * Compatibility path for any old caller/test. It is intentionally strict:
+     * if more than one lane observation exists, no guessed multi-lane training
+     * occurs. Production finality uses recordOutcome6681(positionId,...).
+     */
     fun recordOutcome(mint: String, pnlPct: Double) {
         try {
             val recs = pending.remove(mint) ?: return
-            val y = if (pnlPct > 0.0) 1.0 else 0.0
-            for ((lane, x) in recs) {
-                // ── Train global head (warm-start authority for new lanes) ──
-                val pG = rawProbGlobal(x)
-                val errG = pG - y
-                for (i in 0 until NF) {
-                    val g = errG * (x[i] - featMean[i]) + L2 * w[i]
-                    w[i] -= LR * g
-                    featMean[i] += 0.01 * (x[i] - featMean[i])
-                }
-                bias -= LR * errG
-                trained += 1
-
-                // ── Train per-lane head + accumulate Brier score ──
-                val h = getOrCreateLaneHead(lane)
-                val pL = rawProbLane(h, x)
-                val errL = pL - y
-                for (i in 0 until NF) {
-                    val g = errL * (x[i] - h.featMean[i]) + L2 * h.w[i]
-                    h.w[i] -= LR * g
-                    h.featMean[i] += 0.01 * (x[i] - h.featMean[i])
-                }
-                h.bias -= LR * errL
-                h.trained += 1
-                // V5.0.4096 — AGI ↔ SENTIENCE SYMBIOSIS. On authority tier crossings,
-                // emit lifecycle events into the cross-talk + sentience family so the
-                // rest of the AI stack sees each lane head mature independently.
-                if (h.trained == AUTHORITY_ADVISORY || h.trained == AUTHORITY_LEARNED || h.trained == AUTHORITY_AUTHORITATIVE) {
-                    val tierName = when (h.trained) {
-                        AUTHORITY_ADVISORY      -> "ADVISORY"
-                        AUTHORITY_LEARNED       -> "LEARNED"
-                        AUTHORITY_AUTHORITATIVE -> "AUTHORITATIVE"
-                        else                     -> "?"
-                    }
-                    try { com.lifecyclebot.engine.SentienceOrchestrator.noteRuntimeEvent(
-                        "AGI_BRAIN_TIER_GRADUATED",
-                        "lane=$lane tier=$tierName n=${h.trained} brain=entry",
-                        "INFO"
-                    ) } catch (_: Throwable) {}
-                    try { com.lifecyclebot.engine.SentientPersonality.injectAutonomousThought(
-                        "I just leveled up on $lane. Tier=$tierName at n=${h.trained}. The signals are clearer now."
-                    ) } catch (_: Throwable) {}
-                }
-                // rolling Brier: sum of (p - y)^2 windowed over last 200
-                h.brierSum += (pL - y) * (pL - y)
-                h.brierN += 1
-                if (h.brierN > 200L) {
-                    h.brierSum *= (200.0 / h.brierN)
-                    h.brierN = 200L
-                }
+            if (recs.size != 1) {
+                legacyAmbiguousDropCount6681.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("UNIFIED_POLICY_LEGACY_AMBIGUOUS_DROP_6681") } catch (_: Throwable) {}
+                return
             }
-            try { PipelineHealthCollector.labelInc("UNIFIED_POLICY_HEAD_ALL_LANE_OUTCOME_4470") } catch (_: Throwable) {}
+            val (lane, x) = recs.entries.first()
+            synchronized(trainingLock6681) { trainOneOutcome6681(normalizeLane(lane), x.copyOf(), pnlPct) }
+            try { PipelineHealthCollector.labelInc("UNIFIED_POLICY_LEGACY_SINGLE_OUTCOME_6681") } catch (_: Throwable) {}
             appContext?.let { ctx -> GlobalScope.launch(AppDispatchers.sideEffect) { save(ctx) } }
         } catch (_: Throwable) {}
     }
 
     fun attachContext(context: Context) { try { appContext = context.applicationContext; load(context) } catch (_: Throwable) {} }
 
+    private fun resetModelState6681() {
+        synchronized(trainingLock6681) {
+            for (i in 0 until NF) { w[i] = 0.0; featMean[i] = 0.5 }
+            bias = 0.0
+            trained = 0L
+            laneHeads.clear()
+        }
+        pending.clear()
+        pendingByPosition6681.clear()
+    }
+
     fun exportState(): String = try {
         JSONObject().apply {
-            // V5.0.6009 — model-version tag for poisoned-state reset. If
-            // UnifiedExitPolicyHead was training on inverted labels, other
-            // heads that received cross-training signals may also carry
-            // poisoned weights. Bump this version to force a clean retrain.
-            put("modelVersion", MODEL_VERSION_V6009)
+            put("modelVersion", MODEL_VERSION_V6681)
             put("trained", trained); put("bias", bias)
             put("w", JSONArray().also { for (v in w) it.put(v) })
             put("fm", JSONArray().also { for (v in featMean) it.put(v) })
@@ -431,6 +499,15 @@ object UnifiedPolicyHead {
                     for ((lane, features) in byLane) lo.put(lane, JSONArray().also { a -> features.forEach(a::put) })
                 })
             })
+            put("boundPositions6681", JSONObject().also { bo ->
+                for ((positionId, b) in pendingByPosition6681) {
+                    bo.put(positionId, JSONObject().apply {
+                        put("mint", b.mint)
+                        put("ownerLane", b.ownerLane)
+                        put("features", JSONArray().also { a -> b.features.forEach(a::put) })
+                    })
+                }
+            })
         }.toString()
     } catch (_: Throwable) { "{}" }
 
@@ -438,33 +515,34 @@ object UnifiedPolicyHead {
         try {
             if (json.isBlank() || json == "{}") return
             val o = JSONObject(json)
-            // V5.0.6009 — POISONED-STATE RESET. See UnifiedExitPolicyHead
-            // for full RCA. Any saved state without a matching modelVersion
-            // tag is discarded so the head retrains cleanly.
             val savedVersion = o.optInt("modelVersion", 0)
-            if (savedVersion < MODEL_VERSION_V6009) {
+            if (savedVersion < MODEL_VERSION_V6681) {
+                resetModelState6681()
                 try {
                     ForensicLogger.lifecycle(
-                        "UNIFIED_POLICY_HEAD_POISONED_STATE_RESET_6009",
-                        "savedModelVersion=$savedVersion currentModelVersion=$MODEL_VERSION_V6009 note=fresh_retrain_on_fixed_labels",
+                        "UNIFIED_POLICY_HEAD_CAUSAL_STATE_RESET_6681",
+                        "savedModelVersion=$savedVersion currentModelVersion=$MODEL_VERSION_V6681 reason=multi_lane_outcome_contamination",
                     )
+                    PipelineHealthCollector.labelInc("UNIFIED_POLICY_HEAD_CAUSAL_STATE_RESET_6681")
                 } catch (_: Throwable) {}
                 return
             }
             trained = o.optLong("trained", 0L); bias = o.optDouble("bias", 0.0)
             o.optJSONArray("w")?.let { for (i in 0 until minOf(NF, it.length())) w[i] = it.optDouble(i, 0.0) }
             o.optJSONArray("fm")?.let { for (i in 0 until minOf(NF, it.length())) featMean[i] = it.optDouble(i, 0.5) }
-            val lanes = o.optJSONObject("lanes") ?: return
-            val keys = lanes.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                val lo = lanes.optJSONObject(key) ?: continue
-                val h = LaneHead()
-                h.trained = lo.optLong("trained", 0L); h.bias = lo.optDouble("bias", 0.0)
-                lo.optJSONArray("w")?.let { for (i in 0 until minOf(NF, it.length())) h.w[i] = it.optDouble(i, 0.0) }
-                lo.optJSONArray("fm")?.let { for (i in 0 until minOf(NF, it.length())) h.featMean[i] = it.optDouble(i, 0.5) }
-                h.brierSum = lo.optDouble("brierSum", 0.0); h.brierN = lo.optLong("brierN", 0L)
-                laneHeads[key] = h
+            laneHeads.clear()
+            o.optJSONObject("lanes")?.let { lanes ->
+                val keys = lanes.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    val lo = lanes.optJSONObject(key) ?: continue
+                    val h = LaneHead()
+                    h.trained = lo.optLong("trained", 0L); h.bias = lo.optDouble("bias", 0.0)
+                    lo.optJSONArray("w")?.let { for (i in 0 until minOf(NF, it.length())) h.w[i] = it.optDouble(i, 0.0) }
+                    lo.optJSONArray("fm")?.let { for (i in 0 until minOf(NF, it.length())) h.featMean[i] = it.optDouble(i, 0.5) }
+                    h.brierSum = lo.optDouble("brierSum", 0.0); h.brierN = lo.optLong("brierN", 0L)
+                    laneHeads[key] = h
+                }
             }
             pending.clear()
             o.optJSONObject("pending")?.let { po ->
@@ -482,6 +560,21 @@ object UnifiedPolicyHead {
                     if (byLane.isNotEmpty()) pending[mint] = byLane
                 }
             }
+            pendingByPosition6681.clear()
+            o.optJSONObject("boundPositions6681")?.let { bo ->
+                val ids = bo.keys()
+                while (ids.hasNext()) {
+                    val positionId = ids.next()
+                    val b = bo.optJSONObject(positionId) ?: continue
+                    val mint = b.optString("mint", "")
+                    val ownerLane = normalizeLane(b.optString("ownerLane", ""))
+                    val a = b.optJSONArray("features") ?: continue
+                    if (mint.isBlank() || ownerLane.isBlank() || a.length() != NF) continue
+                    pendingByPosition6681[positionId] = BoundEntry6681(
+                        mint, ownerLane, DoubleArray(NF) { i -> a.optDouble(i, 0.0) }
+                    )
+                }
+            }
         } catch (_: Throwable) {}
     }
 
@@ -492,13 +585,14 @@ object UnifiedPolicyHead {
 
     fun formatForPipelineDump(): String {
         return try {
-            if (trained < 1 && laneHeads.isEmpty()) return ""
+            if (trained < 1 && laneHeads.isEmpty() && pendingByPosition6681.isEmpty()) return ""
             val names = listOf("mlConf","symGreen","evRatio","metaConv","fwdPWin","candConf")
-            val sb = StringBuilder("\n===== Unified Policy Head (V5.9.1262, multi-head AGI V5.0.4094) — per-lane learned signal weighting =====\n")
+            val sb = StringBuilder("\n===== Unified Policy Head (V5.9.1262, multi-head AGI V5.0.6681) — position-bound owner learning =====\n")
             sb.append("  global: trained=$trained  bias=${"%+.2f".format(bias)}  authority=${globalAuthority().name}\n  ")
             for (i in 0 until NF) sb.append("${names[i]}=${"%+.2f".format(w[i])}  ")
             sb.append("\n")
             sb.append("  authority hits: advisoryUsage=${advisoryUsageCount.get()}  authoritativeOverrides=${authoritativeOverrideCount.get()}  calibrationDemotes=${calibrationDemoteCount.get()}\n")
+            sb.append("  causal6681: bound=${causalBoundCount6681.get()} outcomes=${causalOutcomeCount6681.get()} misses=${causalMissCount6681.get()} pendingPositions=${pendingByPosition6681.size} legacyAmbiguousDrops=${legacyAmbiguousDropCount6681.get()}\n")
             if (laneHeads.isNotEmpty()) {
                 sb.append("  per-lane heads:\n")
                 laneHeads.entries.sortedByDescending { it.value.trained }.forEach { (lane, h) ->
