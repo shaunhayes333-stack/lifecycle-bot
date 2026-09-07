@@ -60,6 +60,13 @@ object SlotHealthGate {
             .count { it.lane.uppercase() in MEME_LANES_6689 }
     } catch (_: Throwable) { -1 }
 
+    // V5.0.6689 — shared writer-side turnover contract. Executor's canonical
+    // mirror uses these exact definitions so the pre-auth gate and the final
+    // canonical reservation cannot drift into two different lane/cap policies.
+    fun isMemeLane6689(lane: String): Boolean = lane.trim().uppercase() in MEME_LANES_6689
+    fun memeTurnoverAbsoluteCap6689(): Int = MEME_TURNOVER_ABSOLUTE_CAP_6689
+    fun canonicalMemeOpenCount6689(mode: String): Int = canonicalMemeOpenCount(mode)
+
     // Compatibility name retained deliberately: Golden Tape 3837/6490 asserts
     // that PAPER slot-health is rebuilt from canonical current-mode inventory.
     // The implementation is now Meme-scoped (6689), but the source-level
