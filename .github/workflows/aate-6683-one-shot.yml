@@ -2,6 +2,10 @@ name: AATE 6683 Shadow Train Authority Repair
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/aate-6683-one-shot.yml'
 
 permissions:
   contents: write
