@@ -2,6 +2,7 @@ package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.engine.SlotHealthGate
 import java.math.BigInteger
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -125,7 +126,13 @@ object ExecutorCanonicalMirror6442 {
      * Mirror a BUY attempt/reservation. Called at buy attempt BEFORE fill —
      * qtyRaw is not known yet, so a PENDING_ENTRY row is created. On fill,
      * call [mirrorBuyFill] to promote to OPEN with the actual qty + cost.
+     *
+     * V5.0.6689 — this function is synchronized because the Meme turnover
+     * ceiling has to cover OPEN + PENDING_ENTRY as one atomic admission domain.
+     * Without the writer lock, multiple specialist lanes can all observe 23
+     * opens and concurrently manufacture several pending entries past the cap.
      */
+    @Synchronized
     fun mirrorBuyAttempt(
         mint: String,
         symbol: String,
@@ -142,6 +149,33 @@ object ExecutorCanonicalMirror6442 {
         quantityScale: Int = tokenDecimals,
     ): Boolean {
         return try {
+            if (SlotHealthGate.isMemeLane6689(lane)) {
+                val mode6689 = modeName(paperMode)
+                val open6689 = SlotHealthGate.canonicalMemeOpenCount6689(mode6689).coerceAtLeast(0)
+                val pending6689 = try {
+                    CanonicalPositionAuthority6441.pendingEntryPositions6461().count { p ->
+                        p.mode.equals(mode6689, ignoreCase = true) && SlotHealthGate.isMemeLane6689(p.lane)
+                    }
+                } catch (_: Throwable) { 0 }
+                val totalReserved6689 = open6689 + pending6689
+                if (totalReserved6689 >= SlotHealthGate.memeTurnoverAbsoluteCap6689()) {
+                    try {
+                        PipelineHealthCollector.labelInc("MEME_CANONICAL_ADMISSION_CAP_6689")
+                        PipelineHealthCollector.labelInc(
+                            if (paperMode) "MEME_CANONICAL_ADMISSION_CAP_PAPER_6689"
+                            else "MEME_CANONICAL_ADMISSION_CAP_LIVE_6689",
+                        )
+                        ForensicLogger.lifecycle(
+                            "MEME_CANONICAL_ADMISSION_CAP_6689",
+                            "mode=${mode6689.uppercase()} mint=${mint.take(10)} lane=$lane open=$open6689 pending=$pending6689 " +
+                                "reserved=$totalReserved6689 cap=${SlotHealthGate.memeTurnoverAbsoluteCap6689()} " +
+                                "action=refuse_new_pending_entry_until_confirmed_exit",
+                        )
+                    } catch (_: Throwable) {}
+                    return false
+                }
+            }
+
             val positionId = allocatePositionId(mint, paperMode)
             val idem = buyIdempotencyKey(positionId)
             // Reserve in the SQLite idempotency store first so a mid-tx restart
