@@ -9,6 +9,10 @@ package com.lifecyclebot.engine
  * truth. The two environments are never blended, so paper evidence cannot authorize
  * live sizing while paper mode can still learn and self-adjust from its own closes.
  *
+ * WALLET GROWTH ALLOCATOR: profitable clean same-mode lanes may be pressed while
+ * proven bleeders are reduced. This is the V5.0.4580 contract and remains sizing
+ * only; it never disables a lane and never lets PAPER evidence authorize LIVE.
+ *
  * Per operator doctrine #86 ("help don't hinder") and the PERFORMANCE_DOCTRINE
  * soft-shape rule, only the original veto whitelist may kill a candidate; this
  * organ may only shrink size on a PROVEN, statistically-meaningful bleeder.
