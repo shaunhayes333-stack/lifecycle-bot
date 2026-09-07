@@ -3,9 +3,12 @@ package com.lifecyclebot.engine
 /**
  * V5.9.1273 — LaneExpectancyDamper
  *
- * DOCTRINE-CLEAN bleeder control. Reads the LIVE per-lane expectancy from
- * StrategyTelemetry (the same data shown in the pipeline "Strategy expectancy"
- * block) and returns a SIZE multiplier only — it NEVER vetoes a candidate.
+ * DOCTRINE-CLEAN bleeder control. Reads the mode-matched clean per-lane expectancy
+ * from StrategyTelemetry and returns a SIZE multiplier only — it NEVER vetoes a
+ * candidate. PAPER reads clean PAPER terminal truth; LIVE reads clean LIVE terminal
+ * truth. The two environments are never blended, so paper evidence cannot authorize
+ * live sizing while paper mode can still learn and self-adjust from its own closes.
+ *
  * Per operator doctrine #86 ("help don't hinder") and the PERFORMANCE_DOCTRINE
  * soft-shape rule, only the original veto whitelist may kill a candidate; this
  * organ may only shrink size on a PROVEN, statistically-meaningful bleeder.
@@ -17,110 +20,54 @@ package com.lifecyclebot.engine
  *     MANIPULATED  n=21  WR 0.0%  meanPnl -12.9%  PnL -0.05 SOL
  *   Meanwhile their +EV sub-contexts (e.g. MANIPULATED|DUMP) still print — so we
  *   shrink the LANE's average exposure rather than blocking it, letting the
- *   learning loop (fixed in 1272) keep sampling and the good sub-slices survive.
+ *   learning loop keep sampling and the good sub-slices survive.
  *
- * SELF-HEALING: the multiplier is recomputed from live telemetry every call. The
- * moment a lane's mean expectancy climbs back above the floor (because 1272's
- * clean labels let the scorer actually learn), the haircut releases automatically.
+ * V5.0.6679 — MODE_MATCHED_EXPECTANCY_AUTHORITY.
+ * A V5.0.3974 guard deliberately made this object LIVE-only to stop PAPER history
+ * authorizing LIVE sizing. That contract remained correct, but after the later
+ * clean-paper authority was introduced it became patch rot: in PAPER mode this
+ * object saw zero LIVE closes, so severe paper bleeders printed as "no bleeders"
+ * and the capital allocator never reacted. The correct boundary is same-mode clean
+ * terminal truth, not permanently-live truth.
+ *
+ * SELF-HEALING: the multiplier is recomputed from current same-mode clean telemetry.
+ * The moment a lane's expectancy recovers, the haircut releases automatically.
  * No persisted state, no manual re-enable.
  */
 object LaneExpectancyDamper {
 
-    // Only act on lanes with enough closed trades to be real signal, not noise.
     private const val MIN_TRADES = 8
     private const val WINNER_MIN_TRADES = 8
-    // V5.0.4580 — rapid compounding tier. Runtime 4578 showed the bot had
-    // enough clean truth to know BLUECHIP/MOONSHOT were the current green lanes,
-    // but this allocator only exempted/ignored them because winner authority
-    // required 8 closes or runner exemption used `continue`. The daily 2x–5x
-    // doctrine requires pressing early clean live winners while the opportunity
-    // is fresh, bounded and self-healing.
     private const val EARLY_WINNER_MIN_TRADES = 2
     private const val EARLY_WINNER_MIN_WR_PCT = 30.0
 
-    // A lane is a "bleeder" once its mean PnL% is this negative (below the -15%
-    // hard-floor magnitude is deep red; -12% is a confirmed structural loss).
     private const val BLEEDER_MEAN_PCT = -12.0
-
-    // Damper never sizes below this for a NORMAL bleeder (keep a probe alive so
-    // the lane can recover and the learning loop keeps getting samples —
-    // throughput-before-cleverness).
     private const val MIN_MULT = 0.18
 
-    // V5.9.1298 — CATASTROPHIC tier. A lane that is BOTH deep-negative EV AND
-    // near-zero WR with a solid sample size is not "a bit weak", it's a confirmed
-    // capital incinerator (3264 snapshot: TREASURY n=83 WR 3.6% EV -23.5% PnL
-    // -1.01 SOL; Stocks n=55 WR 9.1% EV -12.7% -0.53 SOL). The 0.50 floor still
-    // lets these print at half size and keep bleeding. For PROVEN catastrophes we
-    // allow a deeper haircut floor — still a PROBE (never 0, never a veto), still
-    // self-healing the instant EV/WR recover. Doctrine: soft-shape > veto; this
-    // only shrinks size on statistically-overwhelming evidence.
-    private const val CATASTROPHIC_MEAN_PCT = -20.0   // mean PnL% this deep …
-    private const val CATASTROPHIC_WR_PCT   = 8.0     // … AND WR below this …
-    private const val CATASTROPHIC_MIN_TRADES = 20    // … AND this many closes.
-    private const val CATASTROPHIC_MIN_MULT = 0.08    // deeper probe floor
+    private const val CATASTROPHIC_MEAN_PCT = -20.0
+    private const val CATASTROPHIC_WR_PCT   = 8.0
+    private const val CATASTROPHIC_MIN_TRADES = 20
+    private const val CATASTROPHIC_MIN_MULT = 0.08
 
-    // V5.0.6055 — MODERATE-CATASTROPHIC tier. Fills the gap between the
-    // normal BLEEDER floor (0.18) and CATASTROPHIC (0.08). Targets lanes
-    // that are clearly sustained losers but not full incinerators — e.g.
-    // QUALITY n=40 WR=27.8% mean=-12.06% totalSol=-0.135 SOL from the
-    // V5.0.6053 runtime report. Shrinks faster than the vanilla bleeder
-    // haircut while still holding a probe alive for self-healing.
     private const val MODERATE_CATASTROPHIC_MEAN_PCT   = -8.0
     private const val MODERATE_CATASTROPHIC_WR_PCT     = 30.0
     private const val MODERATE_CATASTROPHIC_MIN_TRADES = 25
     private const val MODERATE_CATASTROPHIC_MIN_MULT   = 0.15
 
-    // V5.0.6055 — HEALTHY-MEAN threshold above which a lane is NEVER
-    // treated as a pf-edge bleeder. A lane averaging ≥+5% per trade is
-    // a genuine positive-EV lane; do not damp it just because
-    // pfExpectancyPp (a proxy) came out slightly negative.
     private const val HEALTHY_MEAN_PCT = 5.0
-
-    // V5.0.6059 — WR SUPPLEMENT. The clean leaderboard deduplicates fat-
-    // tail winners (e.g. QUALITY_PROMOTE_MOONSHOT +103.7%) out of the
-    // aggregate mean, which can force a proven-winner lane's clean mean
-    // below HEALTHY_MEAN_PCT. WR is a base-rate signal that survives
-    // deduplication: >=45% WR with a meaningful sample = winner.
     private const val HEALTHY_WR_PCT = 45.0
     private const val HEALTHY_WR_MIN_TRADES = 15
-
-    // Worst-case mean PnL% that maps to MIN_MULT. Between BLEEDER_MEAN_PCT and
-    // this, the haircut scales linearly.
     private const val FLOOR_MEAN_PCT = -30.0
 
-    // V5.9.1489 — pf-edge bleeder tunables (net-negative-SOL lanes that the
-    // mean-based check misses). A lane losing money with non-positive per-trade
-    // edge starts at PF_START_MULT and scales toward MIN_MULT as the edge
-    // (pp/trade) gets more negative, reaching MIN_MULT at -PF_FLOOR_PP.
-    private const val PF_START_MULT = 0.65   // capital allocator first touch — still a probe
-    private const val PF_FLOOR_PP = 8.0      // edge this negative ⇒ full haircut
+    private const val PF_START_MULT = 0.65
+    private const val PF_FLOOR_PP = 8.0
 
     private const val WINNER_START_MULT = 1.12
     private const val WINNER_MAX_MULT = 1.45
-
-    // V5.0.4082 — RUNNER threshold for asymmetric-strategy exemption.
-    // Any lane with mean-PnL/trade at or above this value is treated as an
-    // asymmetric runner and never damped, regardless of total SOL pnl or
-    // WR — the variance is the cost of the upside.
     private const val RUNNER_MEAN_PCT = 20.0
-
-    // V5.0.4085/4086 — WR-based RUNNER exemption gate. ops snapshot @ 5.0.4085
-    // showed MOONSHOT n=176 WR=35%(rounded) still getting damped to ×0.18 — my
-    // 4085 threshold of 35 missed because tuner saw ~34.x% which rounds to 35
-    // for display only. Lower to 30 to keep the asymmetric runner exempt with
-    // headroom; the operator mandate is "meme trader must never choke once
-    // learnt".
     private const val WR_RUNNER_MIN_TRADES = 30
     private const val WR_RUNNER_MIN_PCT = 30.0
 
-    // V5.0.4086 — HARD RUNNER-LANE EXEMPTION (operator P0: stop the choke).
-    // These lanes are asymmetric by design — frequent small losses paid by
-    // rare huge winners — and have their own per-lane tuners (LiveStrategyTuner
-    // + LaneExitTuner) that already control risk. The global LaneExpectancyDamper
-    // was originally built for BLUECHIP/STANDARD-style mean-stable bleeders and
-    // is structurally wrong for runner profiles. Skip these entirely so the
-    // damper cannot stack-damp the lanes the operator depends on for upside.
     private val RUNNER_LANE_KEYS = arrayOf(
         "MOONSHOT", "SHITCOIN", "MEME", "EXPRESS",
         "MANIPULATED", "MANIP", "PRESALE", "PROJECT_SNIPER", "DIP_HUNTER",
@@ -132,34 +79,26 @@ object LaneExpectancyDamper {
         return false
     }
 
-    // Cheap cache so we don't recompute the leaderboard on every single entry in
-    // a hot scan burst. Refresh window keeps it live without thrashing.
     private const val CACHE_MS = 5_000L
     @Volatile private var cacheAtMs = 0L
     @Volatile private var cached: Map<String, Double> = emptyMap()
+    @Volatile private var cachedMode6679: String = ""
 
-    /**
-     * Returns a capital-allocation multiplier for the given lane.
-     * <1.0 = shrink proven bleeders to probes; >1.0 = press proven winners.
-     * 1.0 = no change (unknown or too few samples).
-     * Fail-open: any error → 1.0.
-     */
     fun sizeMultiplier(lane: String?): Double {
         if (lane.isNullOrBlank()) return 1.0
         return try {
             val key = lane.trim().uppercase()
-            val map = snapshot()
-            map[key] ?: 1.0
+            snapshot()[key] ?: 1.0
         } catch (_: Throwable) {
             1.0
         }
     }
 
-    /** Human-readable line for the pipeline dump (operator visibility). */
     fun statusLine(): String = try {
         val map = snapshot()
-        if (map.isEmpty()) "LaneExpectancyDamper: no bleeders (all lanes ≥ ${BLEEDER_MEAN_PCT}% or < $MIN_TRADES trades)"
-        else "LaneExpectancyDamper: " + map.entries.sortedBy { it.value }
+        val env6679 = try { if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "LIVE" }
+        if (map.isEmpty()) "LaneExpectancyDamper[$env6679]: no shaped lanes (all lanes ≥ ${BLEEDER_MEAN_PCT}% or < $MIN_TRADES trades)"
+        else "LaneExpectancyDamper[$env6679]: " + map.entries.sortedBy { it.value }
             .joinToString(" · ") { "${it.key}×${"%.2f".format(it.value)}" }
     } catch (_: Throwable) {
         "LaneExpectancyDamper: unavailable"
@@ -167,17 +106,24 @@ object LaneExpectancyDamper {
 
     private fun snapshot(): Map<String, Double> {
         val now = System.currentTimeMillis()
+        val mode6679 = try { if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "LIVE" }
         val c = cached
-        if (now - cacheAtMs < CACHE_MS && c.isNotEmpty()) return c
-        val fresh = compute()
+        // Cache EMPTY snapshots too. In a cold/live-zero-terminal run the old
+        // `c.isNotEmpty()` condition caused every hot sizing query to rebuild the
+        // same empty board. Mode is part of the cache key so a PAPER→LIVE switch
+        // can never carry a paper multiplier across the boundary even for 5s.
+        if (now - cacheAtMs < CACHE_MS && cachedMode6679 == mode6679) return c
+        val fresh = compute(paperRuntime6679 = mode6679 == "PAPER")
         cached = fresh
+        cachedMode6679 = mode6679
         cacheAtMs = now
         return fresh
     }
 
-    private fun compute(): Map<String, Double> {
+    private fun compute(paperRuntime6679: Boolean): Map<String, Double> {
         val board = try {
-            StrategyTelemetry.computeCleanLiveTerminalLeaderboard()
+            if (paperRuntime6679) StrategyTelemetry.computeCleanPaperTerminalLeaderboard()
+            else StrategyTelemetry.computeCleanLiveTerminalLeaderboard()
         } catch (_: Throwable) {
             return emptyMap()
         }
@@ -185,14 +131,8 @@ object LaneExpectancyDamper {
         for (m in board) {
             if (m.trades < MIN_TRADES) continue
 
-            // V5.0.4124 — DATA-DRIVEN RUNNER EXEMPTION. The blanket isRunnerLane
-            // exemption was letting MOONSHOT (n=166, WR=22%, SOL=-0.69) bypass the
-            // bleeder math entirely, forcing laneEvMult=1.0. This cascaded to
-            // laneSizeCap=1.0 (Executor line 7701 checks laneEvMult>=1.0) and
-            // regimeMult=1.0, meaning THREE sizing slots did nothing for a
-            // catastrophically bleeding lane. V5.0.4580 upgrades exemption into
-            // a compounding boost, but only for net-positive runners. WR without
-            // real SOL profit is not enough to receive capital.
+            // Proven profitable asymmetric runners may be pressed, but only when
+            // the same-mode terminal ledger is actually net positive.
             if (isRunnerLane(m.strategy) && m.totalSolPnl > 0.0 && m.winRatePct >= EARLY_WINNER_MIN_WR_PCT) {
                 val earlyEdge = ((m.winRatePct - EARLY_WINNER_MIN_WR_PCT) / 45.0).coerceIn(0.0, 1.0)
                 val solEdge = (m.totalSolPnl / 0.08).coerceIn(0.0, 1.0)
@@ -201,30 +141,11 @@ object LaneExpectancyDamper {
                 continue
             }
 
-            // V5.0.3956 — WALLET GROWTH ALLOCATOR.
-            // Before this, live execution bypassed this organ and, even when enabled,
-            // it could only shrink to ~half-size. That is incompatible with the
-            // operator's 2–5x/day wallet-growth target: negative-SOL lanes must become
-            // cheap learning probes, while positive PF/WR lanes get more capital.
-            // V5.0.4082 — ASYMMETRIC-RUNNER EXEMPTION (operator P0: "we win
-            // when we hold"). A lane with high mean-PnL but low WR is the
-            // exact signature of meme-runner strategy — frequent small losses
-            // paid for by a few asymmetric 50×+ winners. The pre-V5.0.4082
-            // damper was EV-blind: it saw MOONSHOT (EV=+80%/trade, WR=45%,
-            // net SOL barely positive) and damped to ×0.18, strangling the
-            // exact lane that pays. The runner doctrine: any lane with
-            // mean-PnL >= +20% over a meaningful sample is NEVER damped.
-            // Variance is the price of the asymmetric upside, not a defect.
             if (m.trades >= MIN_TRADES && m.meanPnlPct >= RUNNER_MEAN_PCT) {
                 out[m.strategy.trim().uppercase()] = 1.0
                 continue
             }
 
-            // V5.0.4085 — WR-BASED RUNNER EXEMPTION (operator P0: MOONSHOT
-            // n=141 WR=36% had gross EV +80%/trade but realized mean ≈ flat
-            // due to TP cuts + slippage. The mean-only gate above never
-            // fires; switch to WR + sample-count, but V5.0.4580 requires real
-            // net-SOL non-negative truth before exemption. WR alone can still bleed.
             if (m.trades >= WR_RUNNER_MIN_TRADES && m.winRatePct >= WR_RUNNER_MIN_PCT && m.totalSolPnl >= 0.0) {
                 out[m.strategy.trim().uppercase()] = 1.0
                 continue
@@ -246,79 +167,33 @@ object LaneExpectancyDamper {
                 continue
             }
 
-            // V5.9.1489 — TWO-SIGNAL BLEEDER DETECTION (source fix for the
-            // skew-masked bleeder). The old check used meanPnlPct alone, but a
-            // lane with a fat take-profit tail (e.g. MANIPULATED μ=+86% yet
-            // net-negative SOL, WR 24%) reads as "not a bleeder" and never gets
-            // sized down — even though it loses money in expectation. We now also
-            // catch lanes that are NET-NEGATIVE in real SOL AND fail the doctrine
-            // profit-factor edge (avg_win*WR ≤ avg_loss*(1-WR)). Either signal
-            // qualifies a lane as a bleeder; both stay fully self-healing (recompute
-            // every call) and size-only (never a veto, per doctrine #86).
             val meanBleeder = m.meanPnlPct < BLEEDER_MEAN_PCT
-            // V5.0.6055 — HEALTHY-MEAN GUARD (operator report V5.0.6054).
-            // MOONSHOT n=42 WR=53.8% meanPnl=+14.93% totalSol=-0.0197 was
-            // getting damped to ×0.18 because pfExpectancyPp was slightly
-            // negative from micro net-SOL loss over compounded small trades.
-            // A lane with a HEALTHY positive per-trade mean is not a bleeder
-            // regardless of what the pf-edge proxy says — the mean is ground
-            // truth EV per trade. Skip pf-bleeder detection when mean is
-            // meaningfully positive so proven winners can compound.
-            //
-            // V5.0.6059 — WR SUPPLEMENT (operator report V5.0.6058).
-            // The V5.0.6055 mean threshold reads the CLEAN leaderboard
-            // which dedupes + removes recovered/partial rows. That can
-            // strip a lane's fat-tail winner (e.g. QUALITY_PROMOTE_MOONSHOT
-            // +103.7%) from the aggregate and drop the clean mean below
-            // +5% even though the underlying lane is winning. WR is a
-            // structurally-different signal that survives deduplication:
-            // any lane with WR >= 45% over a meaningful sample is a
-            // proven winner by base-rate alone. Skip pf-bleeder
-            // detection when EITHER signal fires.
             val healthyMean = m.meanPnlPct >= HEALTHY_MEAN_PCT
             val healthyWr = m.trades >= HEALTHY_WR_MIN_TRADES && m.winRatePct >= HEALTHY_WR_PCT
             val healthyLane = healthyMean || healthyWr
-            // pf-edge bleeder: real net loss over a meaningful sample AND the
-            // per-trade expectancy edge is non-positive. The net-SOL gate prevents
-            // flagging a high-variance lane that is actually net-positive.
             val pfEdge = m.pfExpectancyPp
             val pfBleeder = !healthyLane && m.totalSolPnl < 0.0 && pfEdge <= 0.0
             if (!meanBleeder && !pfBleeder) continue
 
-            // V5.0.6055 — MODERATE-CATASTROPHIC tier. Between the normal
-            // BLEEDER floor (0.18) and the CATASTROPHIC floor (0.08) there
-            // was no rung for lanes that are clearly bleeding but haven't
-            // reached the deepest tier yet (e.g. QUALITY n=40 WR=27.8%
-            // mean=-12.06% totalSol=-0.135 SOL — a confirmed sustained
-            // loser but not "capital incinerator" catastrophic). Give it a
-            // deeper haircut than the normal floor so QUALITY-shaped
-            // tumors shrink faster while still keeping a learning probe.
             val moderateCatastrophic = m.trades >= MODERATE_CATASTROPHIC_MIN_TRADES &&
                 m.meanPnlPct <= MODERATE_CATASTROPHIC_MEAN_PCT &&
                 m.winRatePct <= MODERATE_CATASTROPHIC_WR_PCT &&
                 m.totalSolPnl < 0.0
-            // Is this a PROVEN catastrophe (deep -EV + near-zero WR + big sample)?
             val catastrophic = m.trades >= CATASTROPHIC_MIN_TRADES &&
                 m.meanPnlPct <= CATASTROPHIC_MEAN_PCT &&
                 m.winRatePct <= CATASTROPHIC_WR_PCT
-            // Floor depends on tier: catastrophic lanes may be cut deeper (still a probe).
             val floorMult = when {
-                catastrophic          -> CATASTROPHIC_MIN_MULT
-                moderateCatastrophic  -> MODERATE_CATASTROPHIC_MIN_MULT
-                else                  -> MIN_MULT
+                catastrophic         -> CATASTROPHIC_MIN_MULT
+                moderateCatastrophic -> MODERATE_CATASTROPHIC_MIN_MULT
+                else                 -> MIN_MULT
             }
 
-            // Haircut depth. For a mean-bleeder use the existing linear mean map.
-            // For a pf-edge-only bleeder (positive/near-zero mean but losing money),
-            // scale by how negative the pf edge is so a marginal lane is barely
-            // trimmed while a deep -edge lane is trimmed toward the floor.
             val mult: Double = if (meanBleeder) {
                 val span = (BLEEDER_MEAN_PCT - FLOOR_MEAN_PCT).coerceAtLeast(1.0)
                 val depth = (BLEEDER_MEAN_PCT - m.meanPnlPct).coerceIn(0.0, span)
                 val frac = depth / span
                 (1.0 - frac * (1.0 - floorMult)).coerceIn(floorMult, 1.0)
             } else {
-                // pf-edge bleeder: map edge 0 → 0.85 (gentle), edge ≤ -PF_FLOOR_PP → MIN_MULT.
                 val edgeDepth = (-pfEdge).coerceIn(0.0, PF_FLOOR_PP)
                 val frac = edgeDepth / PF_FLOOR_PP
                 (PF_START_MULT - frac * (PF_START_MULT - MIN_MULT)).coerceIn(MIN_MULT, 1.0)
