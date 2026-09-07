@@ -57,13 +57,18 @@ jobs:
           p.write_text(s.replace(old, new, 1))
           PY
           python3 ci/aate_6687_repair.py
-          # The generated Kotlin regression literal needs ONE escape before '$'.
-          # The staging script intentionally lives only on this repair branch, so
-          # normalize it here without polluting production with another patcher.
+          # Normalize the generated regression test to the repository's existing
+          # JUnit 4 dependency and ensure the literal '$laneChip' is not parsed as
+          # Kotlin string interpolation. This keeps the production dependency graph
+          # unchanged while making the release unit suite compile deterministically.
           python3 - <<'PY'
           from pathlib import Path
           p = Path('lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate6687RuntimeTruthRepairTest.kt')
           s = p.read_text()
+          s = s.replace(
+              'import kotlin.test.Test\nimport kotlin.test.assertFalse\nimport kotlin.test.assertTrue',
+              'import org.junit.Test\nimport org.junit.Assert.assertFalse\nimport org.junit.Assert.assertTrue',
+          )
           s = s.replace('LIVE LIVE\\\\$laneChip', 'LIVE LIVE\\$laneChip')
           p.write_text(s)
           PY
