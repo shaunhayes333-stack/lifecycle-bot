@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: write
-  actions: read
+  actions: write
 
 jobs:
   repair:
@@ -57,6 +57,16 @@ jobs:
           p.write_text(s.replace(old, new, 1))
           PY
           python3 ci/aate_6687_repair.py
+          # The generated Kotlin regression literal needs ONE escape before '$'.
+          # The staging script intentionally lives only on this repair branch, so
+          # normalize it here without polluting production with another patcher.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate6687RuntimeTruthRepairTest.kt')
+          s = p.read_text()
+          s = s.replace('LIVE LIVE\\\\$laneChip', 'LIVE LIVE\\$laneChip')
+          p.write_text(s)
+          PY
 
       - name: Verify targeted repair contracts
         shell: bash
@@ -88,9 +98,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          set -o pipefail
           cd lifecycle_apk
           chmod +x gradlew
-          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=6687 -PaateVersionName=5.0.6687
+          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=6687 -PaateVersionName=5.0.6687 2>&1 | tee /tmp/aate-6687-gradle.log
+
+      - name: Upload compile diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aate-6687-gradle-log
+          path: /tmp/aate-6687-gradle.log
+          if-no-files-found: ignore
 
       - name: Commit repaired production source and push main
         shell: bash
@@ -108,3 +127,8 @@ jobs:
           fi
           git commit -m 'V5.0.6687 repair live execution floor, treasury authority, lane patch rot and open-position UI'
           git push origin HEAD:main
+
+      - name: Dispatch normal AATE APK build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run build.yml --ref main
