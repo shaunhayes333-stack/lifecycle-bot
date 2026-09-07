@@ -28,10 +28,6 @@ object PaperEquityCalculator6467 {
         val realized = try { PaperCapitalAuthority6577.realizedPnlSol() } catch (_: Throwable) { 0.0 }
         val fees = try { PaperCapitalAuthority6577.feesSol() } catch (_: Throwable) { 0.0 }
         val openCost = try { PaperCapitalAuthority6577.openCostBasisSol() } catch (_: Throwable) { 0.0 }
-        // V5.0.6640 — conservation is a cost-basis identity.  The previous
-        // The legacy equity/expected/market-value subtraction reduced to
-        // cash-baseline-realized and therefore reported every deployed/fee-paying account as corrupt.
-        // Mark-to-market value belongs to displayed equity, not this invariant.
         val expectedAccounted = baselineSol + realized - fees
         val actualAccounted = cash + openCost
         val delta = actualAccounted - expectedAccounted
@@ -54,21 +50,17 @@ object PaperEquityCalculator6467 {
     }
 
     /**
-     * V5.0.6550c — GROWTH COMPOUND RING driver. Feed the just-computed
-     * equity + a fresh SOL/USD quote into GrowthCompoundRing6550 so
-     * the milestone tape stays live. Ring is READ-ONLY over this snap;
-     * bad SOL/USD holds prior USD equity instead of driving false
-     * milestones.
+     * V5.0.6550c + V5.0.6681 — Growth is historical/reward authority, not a
+     * presentation surface. It therefore remains fail-closed on the separate
+     * forensic replay status even though current canonical money stays visible.
      */
     fun observeGrowthRing(snap: Snapshot, solPriceUsd: Double) {
         try {
             val account = UnifiedAccountSnapshot6635.read("GROWTH_COMPOUND_RING_6647", "paper")
-            if (account.status != UnifiedAccountSnapshot6635.Status.RECONCILED || !account.authoritativePrices) {
+            if (account.forensicStatus != UnifiedAccountSnapshot6635.Status.RECONCILED || !account.authoritativePrices) {
                 PipelineHealthCollector.labelInc("GROWTH_MILESTONE_BLOCKED_UNRECONCILED_OR_UNPRICED_6647")
                 return
             }
-            // Use the exact reconciled snapshot, not the caller's earlier
-            // point-in-time calculation, as the milestone economic input.
             GrowthCompoundRing6550.observe(account.equitySol, solPriceUsd)
         } catch (_: Throwable) {}
     }

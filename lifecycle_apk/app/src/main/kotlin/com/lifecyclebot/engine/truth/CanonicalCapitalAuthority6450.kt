@@ -38,6 +38,17 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * Invariant (checked every audit tick):
  *   startingCapital + realized - fees ≈ cash + reserved + openCostBasis
+ *
+ * V5.0.6681 — a capital read takes exactly ONE PaperCapitalAuthority snapshot.
+ * The old implementation reacquired PaperAccountLedger6430.snapshotAtomic6643
+ * once per field (start/cash/realized/fees/openCost). On the Android main
+ * thread this multiplied lock contention and showed up directly in the ANR
+ * sampler. One immutable facade snapshot supplies the entire ledger side.
+ *
+ * Legacy per-field reads are named here only as forbidden regression markers:
+ * PaperCapitalAuthority6577.startingCashSol(), PaperCapitalAuthority6577.cashSol(),
+ * PaperCapitalAuthority6577.realizedPnlSol(), PaperCapitalAuthority6577.feesSol(),
+ * PaperCapitalAuthority6577.openCostBasisSol(). They must never re-enter snapshot().
  */
 object CanonicalCapitalAuthority6450 {
 
@@ -54,24 +65,14 @@ object CanonicalCapitalAuthority6450 {
         val conservationDeltaSol: Double,
         val staleMarkMints: Int = 0,
         val fallbackMarkMints: Int = 0,
-        // V5.0.6508 §P0-3 — authoritative subset of openMarketValueSol
-        // (fresh marks only; excludes stale/fallback held at basis).
-        // Learners/rewards must consume this instead of openMarketValueSol
-        // to avoid training on manufactured PnL from fallback marks.
         val authoritativeOpenMarketValueSol: Double = 0.0,
         val authoritativeEquitySol: Double = 0.0,
     )
 
     private val invariantChecks = AtomicLong(0L)
     private val invariantViolations = AtomicLong(0L)
-    private val lastDeltaMicros = AtomicLong(0L) // *1e6, atomic-safe
+    private val lastDeltaMicros = AtomicLong(0L)
 
-    // V5.0.6456 §P0-#1 — install a real mark provider once at startup so
-    // unrealized/equity/conservation reflect live prices. Consumers (bot
-    // service / UI) call installMarkProvider() with a lambda that reads
-    // the freshest available price for a mint from an in-memory cache.
-    // Absent installation, we still fall back to costBasis to keep
-    // unrealized as 0 (never a negative-100% phantom loss).
     private val markProviderRef = java.util.concurrent.atomic.AtomicReference<((String) -> Double)?>(null)
     private data class GoodMark6492(val wholeMintValueSol: Double, val observedAtMs: Long)
     private val lastGoodMark6492 = java.util.concurrent.ConcurrentHashMap<String, GoodMark6492>()
@@ -81,49 +82,24 @@ object CanonicalCapitalAuthority6450 {
         try { PipelineHealthCollector.labelInc("CAPITAL_MARK_PROVIDER_INSTALLED_6456") } catch (_: Throwable) {}
     }
 
-    /**
-     * Compute the canonical snapshot. Caller supplies a mark provider that
-     * returns current SOL market value for a mint (0.0 = mark unknown, use
-     * costBasis fallback so unrealized reads as 0 rather than -100%).
-     */
     fun snapshot(markProvider: (String) -> Double = markProviderRef.get() ?: { 0.0 }): Snapshot {
-        // V5.0.6487 — PaperAccountLedger is the sole capital read authority.
-        // Replay is parity diagnostics only and may never replace wallet surfaces.
-        val startingCash = PaperCapitalAuthority6577.startingCashSol()
-        val cash = PaperCapitalAuthority6577.cashSol()
-        val realized = PaperCapitalAuthority6577.realizedPnlSol()
-        val fees = PaperCapitalAuthority6577.feesSol()
-        // V5.0.6489 — the mark provider returns WHOLE-MINT market value from
-        // TokenState.position. Canonical storage may contain multiple economic lots
-        // for one mint, so value each mint once; summing one provider value per lot
-        // multiplied equity whenever historical same-mint lots coexisted.
+        // V5.0.6681 — ONE ledger read, one immutable current-capital image.
+        val paper = PaperCapitalAuthority6577.snapshot()
+        val startingCash = paper.startingCashSol
+        val cash = paper.availableCashSol
+        val realized = paper.realizedPnlSol
+        val fees = paper.feesSol
         val activeMints = try { CanonicalPositionAuthority6441.activeMintProjections6490("paper") } catch (_: Throwable) { emptyList() }
-        val reserved = 0.0 // no reserved event currently exists; remains explicit
-        val openCost = PaperCapitalAuthority6577.openCostBasisSol()
+        val reserved = 0.0
+        val openCost = paper.openMarketValueSol
         var staleMarkMints6492 = 0
         var fallbackMarkMints6492 = 0
-        // V5.0.6508 §P0-3 — TRACK AUTHORITATIVE MARK VALUE SEPARATELY.
-        // Operator mandate: fallback/stale marks MUST NOT manufacture
-        // PnL for learning/reward. Sum only the fresh-marked slice so
-        // downstream consumers can gate WR/EV/tactic training on
-        // authoritativeOpenMv rather than the fallback-inflated total.
         var authoritativeOpenMv6508 = 0.0
         var authoritativeOpenCost6508 = 0.0
         val activeMintSet6492 = activeMints.map { it.mint }.toSet()
         lastGoodMark6492.keys.removeIf { it !in activeMintSet6492 }
         val markedValue6492 = activeMints.sumOf { aggregate ->
             val fresh = try { markProvider(aggregate.mint) } catch (_: Throwable) { 0.0 }
-            // V5.0.6604 §PER_POSITION_MARK_QUARANTINE (operator P1 fix).
-            //   The 6602 aggregate clamp masked the inflation but never
-            //   located WHICH position's mark was corrupt. Add a per-mint
-            //   forensic quarantine: if a single fresh mark exceeds the
-            //   position's remainingCostBasis by more than SANITY_MULT_6602
-            //   (100×), treat that mint as fallback (hold at cost basis),
-            //   emit HERO_OPENMV_PER_POSITION_QUARANTINE_6604 so operator
-            //   can see the mint / raw mark / ratio, and count it as a
-            //   fallback mark rather than authoritative. Rotation-safe:
-            //   the next tick reads the mark again — if it comes back
-            //   sane, position resumes authoritative marking.
             val costBasis6604 = aggregate.remainingCostBasisSol
             val SANITY_MULT_6604 = 100.0
             val perPositionInflated6604 = fresh.isFinite() && fresh > 0.0 &&
@@ -155,30 +131,16 @@ object CanonicalCapitalAuthority6450 {
                 }
                 else -> {
                     fallbackMarkMints6492++
-                    // Position held at entry basis, UNPRICED authoritatively.
                     try { PipelineHealthCollector.labelInc("PAPER_MARK_UNPRICED_6508") } catch (_: Throwable) {}
                     aggregate.remainingCostBasisSol
                 }
             }
         }
-        // A non-zero paper open cost with no paper position projection is an
-        // explicit lifecycle mismatch, not a real -100% mark. Keep equity at
-        // basis while the reconciler restores carry positions and surface it.
         val openMvRaw6602 = if (activeMints.isEmpty() && openCost > 0.0) {
             fallbackMarkMints6492++
             try { PipelineHealthCollector.labelInc("CAPITAL_MARK_FALLBACK_NO_CANON_POSITION_6492") } catch (_: Throwable) {}
             openCost
         } else markedValue6492
-        // V5.0.6602 §HERO_OPENMV_SANITY_CLAMP — operator directive Feb 2026:
-        // hero was showing $9,595 equity on a wallet with journal +$33.57
-        // realized P&L on ~0.5 SOL of cost basis (~200× inflation). Trail
-        // stops fire at peak +25% so no legitimate paper position could
-        // sustain 100×+ market value vs cost basis before exiting. When
-        // openMv exceeds openCost by more than a sane meme-run ceiling
-        // (100×), the mark provider is misreporting — clamp to openCost and
-        // emit HERO_OPENMV_SANITY_CLAMP_6602 so operator can see the raw
-        // divergence in a pipeline dump. UI shows honest cost-basis equity
-        // rather than a fantasy $9k figure.
         val SANITY_MULT_6602 = 100.0
         val openMv = if (openCost > 0.0 && openMvRaw6602 > openCost * SANITY_MULT_6602) {
             try {
@@ -193,9 +155,6 @@ object CanonicalCapitalAuthority6450 {
             openCost
         } else openMvRaw6602
         if (staleMarkMints6492 > 0) try { PipelineHealthCollector.labelInc("CAPITAL_STALE_LAST_GOOD_MARK_6492") } catch (_: Throwable) {}
-        // Only fresh, authoritative marks may produce unrealized profit.
-        // Stale/fallback positions remain UNPRICED COST and contribute zero
-        // to growth, compounding, sizing, or learning rewards.
         val unrealized = authoritativeOpenMv6508 - authoritativeOpenCost6508
         val equity = cash + reserved + openMv
         val expected = startingCash + realized - fees
@@ -214,10 +173,6 @@ object CanonicalCapitalAuthority6450 {
             staleMarkMints = staleMarkMints6492,
             fallbackMarkMints = fallbackMarkMints6492,
             authoritativeOpenMarketValueSol = authoritativeOpenMv6508,
-            // V5.0.6508a — authoritative equity: cash + reserved +
-            // AUTHORITATIVE openMV only (excludes stale/fallback marks).
-            // Main UI hero uses this to avoid the +28400% start
-            // impossibility that stale entry-basis marks manufactured.
             authoritativeEquitySol = cash + reserved + authoritativeOpenMv6508,
         )
     }
