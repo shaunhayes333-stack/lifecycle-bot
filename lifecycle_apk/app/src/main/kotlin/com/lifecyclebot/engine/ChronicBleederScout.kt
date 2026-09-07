@@ -5,47 +5,33 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * ChronicBleederScout — V5.0.6265
- * ════════════════════════════════════════════════════════════════════════════
- * Op-report V5.0.6263 showed persistent bleeders that never recovered:
- *   EXPRESS   n=16 WR= 0.0% EV=-66.67%/trade  ← never won ANYTHING
- *   TREASURY  n=48 WR=12.5% EV=-13.88%/trade
- *   QUALITY   n=178 WR=29.2% (below 30% floor)
- *   BLUECHIP toxic_reclaim_tactic_pivot n=9 WR=13% PnL=-0.009
  *
- * These lanes were locked in a bleed cycle: LiveStrategyTuner damped their
- * size but they kept trading small losses. Nothing was actively rebuilding
- * a WINNING strategy for the lane.
+ * Finds chronic bleeder lanes and seeds the LLM Lab with an autopivot strategy.
  *
- * This scout finds chronic bleeder lanes (>=MIN_TRADES trades AND
- * WR<=MAX_WR AND avgPnl<=MAX_AVG_PNL) and seeds the LLM Lab with an
- * autopivot strategy for that lane. LabPromotedFeed already auto-
- * reimplements strategies that prove out in the lab (forwardWinRate >=
- * 60%, sufficient sample size), so this closes the loop:
- *
- *   CHRONIC BLEEDER → LLM LAB REPROVE → AUTO-REIMPLEMENT WHEN PROVEN
- *
- * Idempotent — LlmLabEngine.seedFromTacticFailure has its own 20-min
- * per-lane dedupe.
+ * V5.0.6679 — MODE-MATCHED REPROVE AUTHORITY.
+ * The original scout was permanently wired to clean LIVE terminal truth even
+ * though BotService calls it in PAPER as well. In a paper learning session that
+ * made the scout silently return on an empty live board, so catastrophic PAPER
+ * lanes never entered the LLM re-prove loop. PAPER now reads clean PAPER truth;
+ * LIVE reads clean LIVE truth. Scout dedupe is keyed by environment + lane so a
+ * paper seed can never suppress a later live re-prove.
  */
 object ChronicBleederScout {
 
-    // Chronic-bleeder criteria.
     private const val MIN_TRADES = 15
-    private const val MAX_WR = 0.20            // <= 20% win rate
-    private const val MAX_AVG_PNL = -10.0      // <= -10% average pnl
+    private const val MAX_WR = 0.20
+    private const val MAX_AVG_PNL = -10.0
 
     private val lastScoutedAt = ConcurrentHashMap<String, Long>()
-    private const val SCOUT_TTL_MS = 30L * 60_000L   // one seed per lane per 30 min
+    private const val SCOUT_TTL_MS = 30L * 60_000L
 
-    /**
-     * Called periodically from BotService main loop.
-     * Reads per-lane live stats from StrategyTruthLedger; for each chronic
-     * bleeder lane emits an LlmLab autopivot seed with a mutated tactic.
-     */
     fun tick() {
         try {
+            val paper6679 = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+            val env6679 = if (paper6679) "PAPER" else "LIVE"
             val laneStats = try {
-                StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
+                if (paper6679) StrategyTelemetry.computeCleanPaperTerminalLeaderboard(limit = 1_500)
+                else StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
             } catch (_: Throwable) { emptyList() }
             if (laneStats.isEmpty()) return
             val now = System.currentTimeMillis()
@@ -57,13 +43,14 @@ object ChronicBleederScout {
                 if (wr > MAX_WR) return@forEach
                 if (s.meanPnlPct > MAX_AVG_PNL) return@forEach
 
-                val last = lastScoutedAt[laneU] ?: 0L
+                val scoutKey6679 = "$env6679|$laneU"
+                val last = lastScoutedAt[scoutKey6679] ?: 0L
                 if (now - last < SCOUT_TTL_MS) return@forEach
-                lastScoutedAt[laneU] = now
+                lastScoutedAt[scoutKey6679] = now
 
                 val nextTactic = pickReproveTactic(laneU, wr, s.meanPnlPct)
                 val scoreBand = pickScoreBand(laneU)
-                val reason = "chronic_bleeder_reprove_6265 n=${s.trades} wr=${"%.0f".format(wr * 100)}% avgPnl=${"%.1f".format(s.meanPnlPct)}%"
+                val reason = "chronic_bleeder_reprove_6679 env=$env6679 n=${s.trades} wr=${"%.0f".format(wr * 100)}% avgPnl=${"%.1f".format(s.meanPnlPct)}%"
 
                 try {
                     LlmLabEngine.seedFromTacticFailure(
@@ -74,39 +61,35 @@ object ChronicBleederScout {
                         reason = reason,
                     )
                     ForensicLogger.lifecycle(
-                        "CHRONIC_BLEEDER_LAB_REPROVE_6265",
-                        "lane=$laneU n=${s.trades} wr=${"%.0f".format(wr * 100)}% avgPnl=${"%.1f".format(s.meanPnlPct)}% nextTactic=$nextTactic",
+                        "CHRONIC_BLEEDER_LAB_REPROVE_6679",
+                        "env=$env6679 lane=$laneU n=${s.trades} wr=${"%.0f".format(wr * 100)}% avgPnl=${"%.1f".format(s.meanPnlPct)}% nextTactic=$nextTactic",
                     )
-                    PipelineHealthCollector.labelInc("CHRONIC_BLEEDER_LAB_REPROVE_6265")
+                    PipelineHealthCollector.labelInc("CHRONIC_BLEEDER_LAB_REPROVE_6679|mode=$env6679|lane=$laneU")
                 } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}
     }
 
-    /** Pick a reprove tactic that ROTATES between lab strategy families so
-     *  the lab explores different edges on the same failing lane. */
     private fun pickReproveTactic(lane: String, wr: Double, avgPnl: Double): String {
         return when {
-            lane.contains("EXPRESS") -> "BREAKOUT"      // 0% WR — needs momentum play
-            lane.contains("TREASURY") -> "REACCUM"      // slow bleed — needs patience play
-            lane.contains("MOON") || lane.contains("SHIT") -> "PULLBACK"  // volatility — needs entry timing
-            lane.contains("QUALITY") -> "LAB"           // meta — needs full lab exploration
-            wr < 0.10 -> "BREAKOUT"                     // catastrophic — swing hard
-            avgPnl < -30.0 -> "REACCUM"                 // deep bleed — reset entry
+            lane.contains("EXPRESS") -> "BREAKOUT"
+            lane.contains("TREASURY") -> "REACCUM"
+            lane.contains("MOON") || lane.contains("SHIT") -> "PULLBACK"
+            lane.contains("QUALITY") -> "LAB"
+            wr < 0.10 -> "BREAKOUT"
+            avgPnl < -30.0 -> "REACCUM"
             else -> "PULLBACK"
         }
     }
 
-    private fun pickScoreBand(lane: String): String {
-        // Reprove focus band — bleeders typically live in mid-score range.
-        return when {
-            lane.contains("EXPRESS") -> "S0-10"
-            lane.contains("TREASURY") -> "S0-10"
-            lane.contains("MOON") -> "S26-40"
-            lane.contains("QUALITY") -> "S41-60"
-            else -> "S26-40"
-        }
+    private fun pickScoreBand(lane: String): String = when {
+        lane.contains("EXPRESS") -> "S0-10"
+        lane.contains("TREASURY") -> "S0-10"
+        lane.contains("MOON") -> "S26-40"
+        lane.contains("QUALITY") -> "S41-60"
+        else -> "S26-40"
     }
 
-    fun statusLine(): String = "V5.0.6265_CHRONIC_BLEEDER_SCOUT: lanesScoutedThisSession=${lastScoutedAt.size}"
+    fun statusLine(): String =
+        "V5.0.6679_CHRONIC_BLEEDER_SCOUT: mode=${try { if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "LIVE" }} cohortsScoutedThisSession=${lastScoutedAt.size}"
 }
