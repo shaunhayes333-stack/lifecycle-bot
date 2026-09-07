@@ -73,15 +73,6 @@ object CanonicalSizingBridge6532 {
         } catch (_: Throwable) {}
 
         // V5.0.6674 §SPECIALIST_CAUSAL_SIZING_CONTINUITY — source repair.
-        // V5.0.6673 repaired one BotService fallback identity, but the actual
-        // specialist auto-reroute comes through TraderSizingBridge6444 -> this
-        // bridge. That path invoked OrderSizeResolver6441 with a BLANK
-        // causalEventId, so thousands of executable resolutions could never
-        // stamp SIZED_EXECUTABLE onto the same SpecialistCausalFunnel record.
-        // Prefer the already-sealed execution intent. When sizing legitimately
-        // precedes ticket materialisation, synthesize the same canonical
-        // seven-field identity shape consumed by ToolkitSignalSheet; it is
-        // telemetry identity only and grants no execution authority.
         val resolvedCausalEventId6674 = causalEventId.ifBlank {
             if (assetClass == AssetClass.SOLANA_TOKEN && canonicalAssetId.isNotBlank() && resolvedCandidateVersion6620 > 0L) {
                 val mode6674 = if (paperMode) "PAPER" else "LIVE"
@@ -97,12 +88,36 @@ object CanonicalSizingBridge6532 {
             } else ""
         }
 
+        // V5.0.6689 §SHARED_CAPITAL_COMPOUNDING — paper callers are not
+        // permitted to drive the compounding ladder from a lane-local/status
+        // wallet mirror. OrderSizeResolver already hard-caps affordability
+        // against PaperCapitalAuthority6577; bind its walletSol/ladder input to
+        // that SAME cash authority here so realized proceeds immediately become
+        // the sizing bankroll for the next trade. LIVE keeps the observed wallet
+        // passed by the wallet/finality path.
+        val effectiveWalletSol6689 = if (paperMode) {
+            try {
+                val sharedCash6689 = PaperCapitalAuthority6577.cashSol().coerceAtLeast(0.0)
+                try {
+                    PipelineHealthCollector.labelInc("PAPER_SIZING_SHARED_CASH_BOUND_6689")
+                    if (walletSol.isFinite() && kotlin.math.abs(walletSol - sharedCash6689) > 0.001) {
+                        PipelineHealthCollector.labelInc("PAPER_SIZING_CALLER_CASH_DIVERGENCE_6689")
+                        ForensicLogger.lifecycle(
+                            "PAPER_SIZING_CALLER_CASH_DIVERGENCE_6689",
+                            "lane=$laneName caller=${"%.6f".format(walletSol)} shared=${"%.6f".format(sharedCash6689)} " +
+                                "action=shared_cash_wins_for_compounding",
+                        )
+                    }
+                } catch (_: Throwable) {}
+                sharedCash6689
+            } catch (_: Throwable) {
+                try { PipelineHealthCollector.labelInc("PAPER_SIZING_SHARED_CASH_UNAVAILABLE_6689") } catch (_: Throwable) {}
+                0.0
+            }
+        } else walletSol.coerceAtLeast(0.0)
+
         // V5.0.6542 §ASSET_AWARE_PAPER_MIN — operator: PAPER cross-asset
-        // learning must be able to take legitimate smaller probes. Cash
-        // is 1.6 SOL, a 2% cross-asset recommendation is only 0.032 SOL —
-        // below the meme-shaped 0.05 SOL PAPER floor. Lower the effective
-        // minimum for non-Solana asset classes in PAPER mode so the
-        // canonical funnel doesn't SIZE_NOT_EXECUTABLE-block them.
+        // learning must be able to take legitimate smaller probes.
         val effectiveMinSol6542 = if (paperMode && assetClass != AssetClass.SOLANA_TOKEN)
             minOf(laneMinExecutableSol, 0.005)
         else
@@ -110,7 +125,7 @@ object CanonicalSizingBridge6532 {
         val res = OrderSizeResolver6441.resolve(
             requestedSol = requestedSol,
             laneName = laneName,
-            walletSol = walletSol,
+            walletSol = effectiveWalletSol6689,
             paperMode = paperMode,
             laneRiskCapSol = laneRiskCapSol,
             laneMinExecutableSol = effectiveMinSol6542,
@@ -125,15 +140,12 @@ object CanonicalSizingBridge6532 {
                 PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_SIZING_ID_PROPAGATED_6674")
             }
         } catch (_: Throwable) {}
-        // V5.0.6558 — sizing is advisory input, never a pre-FDG
-        // authorization. The actual typed candidate is submitted exactly
-        // once by the specialist's FDG path after safety/decision context
-        // is complete. This prevents synthetic LONG intents and duplicate
-        // pending authority rows from being created here.
+        // V5.0.6558 — sizing is advisory input, never a pre-FDG authorization.
         try {
             ForensicLogger.lifecycle(
                 "CANONICAL_SIZING_BRIDGE_6532",
-                "class=${assetClass.tag} lane=$laneName candidateVersion6620=$resolvedCandidateVersion6620 causal=${resolvedCausalEventId6674.take(48)} ${res.trace()}",
+                "class=${assetClass.tag} lane=$laneName candidateVersion6620=$resolvedCandidateVersion6620 " +
+                    "cash6689=${"%.5f".format(effectiveWalletSol6689)} causal=${resolvedCausalEventId6674.take(48)} ${res.trace()}",
             )
         } catch (_: Throwable) {}
         return res
