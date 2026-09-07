@@ -221,7 +221,15 @@ object AdaptiveLaneReproof6684 {
         val byId = strategiesById()
         var mutated = false
         targets.values.forEach { t ->
-            val s = byId[t.strategyId] ?: return@forEach
+            var s = byId[t.strategyId] ?: return@forEach
+            val rawProof6684 = s.paperTrades >= LlmLabStore.MIN_TRADES_BEFORE_PROMOTION &&
+                s.winRatePct() >= LlmLabStore.MIN_WR_FOR_PROMOTION_PCT &&
+                s.paperPnlSol >= LlmLabStore.MIN_PAPER_PNL_SOL_FOR_PROMOTION
+            if (s.status == LabStrategyStatus.ACTIVE && rawProof6684) {
+                s = s.copy(status = LabStrategyStatus.PROMOTED)
+                try { LlmLabStore.updateStrategy(s) } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("LAB_IMMEDIATE_PROMOTION_6684_${t.lane}") } catch (_: Throwable) {}
+            }
             if (s.status == LabStrategyStatus.ARCHIVED && t.promotedAtMs != 0L) {
                 t.promotedAtMs = 0L
                 mutated = true

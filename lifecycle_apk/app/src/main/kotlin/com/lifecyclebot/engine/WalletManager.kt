@@ -91,28 +91,11 @@ class WalletManager private constructor(private val ctx: Context) {
         // Solana RPC endpoints so a single-provider 429 becomes invisible.
         // Total fallback layers: 12 -> 17. All new endpoints are keyless and
         // documented as public (BlastAPI, BlockPI, OmniaTech, Jito, BlockEden).
-        val FALLBACK_RPCS: List<String> get() = listOf(
-            "https://mainnet.helius-rpc.com/?api-key=${com.lifecyclebot.data.DefaultKeys.HELIUS}",  // PAID Helius (primary)
-            // V5.0.6074 — operator's own Alchemy key (300M CU/mo free) as #2 layer.
-            "https://solana-mainnet.g.alchemy.com/v2/${com.lifecyclebot.data.DefaultKeys.ALCHEMY}",
-            "https://mainnet.helius-rpc.com/?api-key=hive-pattern-learn",  // legacy free Helius
-            "https://api.mainnet-beta.solana.com",              // Official Solana Foundation (stable but rate-limited)
-            "https://rpc.ankr.com/solana",                      // Ankr public
-            "https://solana-rpc.publicnode.com",                // PublicNode (V5.0.6051 add)
-            "https://solana.drpc.org",                          // dRPC public (V5.0.6051 add)
-            "https://api.mainnet.rpcpool.com",                  // RPC Pool alt path (V5.0.6051 add)
-            "https://solana-mainnet.core.chainstack.com/1",     // Chainstack public (V5.0.6051 add)
-            "https://free.rpcpool.com",                         // RPC Pool free (V5.0.6051 add)
-            "https://solana-mainnet.g.alchemy.com/v2/demo",     // Alchemy demo
-            "https://mainnet.rpcpool.com",                      // RPC Pool
-            "https://solana-mainnet.rpc.extrnode.com",          // Extrnode
-            // V5.0.6065 — additional keyless public RPCs (no signup required)
-            "https://solana-mainnet.public.blastapi.io",        // BlastAPI public (V5.0.6065 add)
-            "https://solana.blockpi.network/v1/rpc/public",     // BlockPI public (V5.0.6065 add)
-            "https://endpoints.omniatech.io/v1/sol/mainnet/public", // OmniaTech public (V5.0.6065 add)
-            "https://mainnet.rpc.jito.wtf",                     // Jito public RPC (V5.0.6065 add)
-            "https://api.blockeden.xyz/solana/67nCBdZQSH9z3YqDDjdm", // BlockEden shared demo (V5.0.6065 add)
-        )
+        // V5.0.6685 — compatibility surface only. Credentialed providers
+        // are resolved from encrypted runtime config by RuntimeProviderAuthority6685.
+        // Never manufacture Helius/Alchemy URLs from blank DefaultKeys.
+        val FALLBACK_RPCS: List<String> get() = RuntimeProviderAuthority6685.PUBLIC_SOLANA_RPCS
+
         
 
         private fun sanitizeWalletRpcUrl(raw: String): String {
@@ -172,7 +155,7 @@ class WalletManager private constructor(private val ctx: Context) {
                 // Get saved config with credentials using instance's context
                 val config = ConfigStore.load(instance.ctx)
                 val savedKey = config.privateKeyB58
-                val savedRpc = sanitizeWalletRpcUrl(config.rpcUrl).ifBlank { FALLBACK_RPCS.first() }
+                val savedRpc = RuntimeProviderAuthority6685.preferredRpc(config.rpcUrl, instance.ctx)
                 
                 if (savedKey.isBlank()) {
                     ErrorLogger.warn("Wallet", "❌ attemptReconnect: No saved private key")
@@ -226,7 +209,7 @@ class WalletManager private constructor(private val ctx: Context) {
             "MAIN_WALLET_ALREADY_CONFIGURED_MIGRATION_REQUIRED"
         }
         val activated = MultiChainWalletVault6546.confirmBackupAndActivate(ctx)
-        val chosenRpc = sanitizeWalletRpcUrl(rpcUrl).ifBlank { FALLBACK_RPCS.first() }
+        val chosenRpc = RuntimeProviderAuthority6685.preferredRpc(rpcUrl, ctx)
         if (!connect(activated.solanaPrivateKeyB58, chosenRpc)) return false
         ConfigStore.save(ctx, current.copy(
             privateKeyB58 = activated.solanaPrivateKeyB58,
@@ -245,119 +228,107 @@ class WalletManager private constructor(private val ctx: Context) {
     // ── connect / disconnect ──────────────────────────────────────────
 
     fun connect(privateKeyB58: String, rpcUrl: String): Boolean {
-        ErrorLogger.info("Wallet", "connect() called with RPC: ${rpcUrl.take(30)}...")
-        _state.value = _state.value.copy(
+        ErrorLogger.info("Wallet", "connect() called; resolving runtime RPC authority")
+        val previousWallet = wallet
+        val previousState = _state.value
+        _state.value = previousState.copy(
             connectionState = WalletConnectionState.CONNECTING,
-            errorMessage    = "",
+            errorMessage = "",
         )
-        
-        // Validate input first
+
         if (privateKeyB58.isBlank()) {
-            ErrorLogger.warn("Wallet", "Private key is empty")
-            _state.value = _state.value.copy(
-                connectionState = WalletConnectionState.ERROR,
-                errorMessage    = "Private key is empty",
-            )
+            val msg = "Private key is empty"
+            ErrorLogger.warn("Wallet", msg)
+            _state.value = if (previousWallet != null) previousState.copy(errorMessage = msg)
+                else WalletState(connectionState = WalletConnectionState.ERROR, errorMessage = msg)
             return false
         }
-        
-        // Build list of RPCs to try: user's RPC first, then fallbacks.
-        // V5.0.3773: never let cert-broken public-rpc become wallet authority.
-        val rpcsToTry = mutableListOf<String>()
-        val sanitizedPrimaryRpc = sanitizeWalletRpcUrl(rpcUrl)
-        if (sanitizedPrimaryRpc.isNotBlank()) {
-            rpcsToTry.add(sanitizedPrimaryRpc)
+
+        val rpcsToTry = RuntimeProviderAuthority6685.rpcCandidates(rpcUrl, ctx)
+        if (rpcsToTry.isEmpty()) {
+            val msg = "No usable Solana RPC endpoints configured"
+            _state.value = if (previousWallet != null) previousState.copy(errorMessage = msg)
+                else WalletState(connectionState = WalletConnectionState.ERROR, errorMessage = msg)
+            return false
         }
-        rpcsToTry.addAll(FALLBACK_RPCS.filter { sanitizeWalletRpcUrl(it).isNotBlank() })
-        val dedupedRpcsToTry = rpcsToTry.distinct()
-        
-        // V5.9.454 — WALLET PRESERVATION FIX.
-        // Previously this function nulled the `wallet` field on *every*
-        // catch (lines 210 + 219 of the old version) which meant a single
-        // transient RPC hiccup during a retry destroyed the previously-
-        // working wallet reference. Downstream sells then hit the
-        // "CRITICAL: Live mode sell attempted but WALLET IS NULL!" loop
-        // and could never recover.
-        //
-        // New behaviour: stage candidate wallets in a local `candidate`
-        // var. Only commit to `this.wallet` on a successful connect.
-        // If every RPC fails, leave the existing `this.wallet` alone —
-        // the prior good wallet stays usable for sells.
-        val previousWallet = wallet
-        var candidate: SolanaWallet? = null
 
-        // Try each RPC until one works
-        var lastError: String = "Unknown error"
-        for (tryRpc in dedupedRpcsToTry) {
-            ErrorLogger.info("Wallet", "Trying RPC: ${tryRpc.take(50)}...")
+        // V5.0.6685 — validate signer exactly once, outside all network/price
+        // try/catch blocks. An RPC/price IllegalArgumentException can never be
+        // misreported as an invalid private key, and a mistyped replacement key
+        // never destroys an already-connected funded wallet.
+        val pubkey = try {
+            SolanaWallet(privateKeyB58, rpcsToTry.first()).publicKeyB58
+        } catch (e: IllegalArgumentException) {
+            ErrorLogger.warn("Wallet", "Signer validation failed: ${e.message}")
+            val msg = "Invalid private key format"
+            _state.value = if (previousWallet != null) previousState.copy(errorMessage = msg)
+                else WalletState(connectionState = WalletConnectionState.ERROR, errorMessage = msg)
+            return false
+        } catch (e: Throwable) {
+            val msg = "Wallet signer initialization failed: ${e.message ?: e.javaClass.simpleName}"
+            ErrorLogger.error("Wallet", msg, e)
+            _state.value = if (previousWallet != null) previousState.copy(errorMessage = msg)
+                else WalletState(connectionState = WalletConnectionState.ERROR, errorMessage = msg)
+            return false
+        }
+
+        var lastError = "Unknown RPC error"
+        for (tryRpc in rpcsToTry) {
             try {
-                ErrorLogger.debug("Wallet", "Creating SolanaWallet with key length: ${privateKeyB58.length}")
-                candidate = SolanaWallet(privateKeyB58, tryRpc)
-                val pubkey = candidate.publicKeyB58
-                ErrorLogger.debug("Wallet", "Wallet created, pubkey: ${pubkey.take(12)}...")
-                
-                // Test the connection by getting balance
-                ErrorLogger.debug("Wallet", "Testing connection with getBalance...")
-                val testBalance = candidate.getSolBalance()
-                
-                ErrorLogger.info("Wallet", "SUCCESS! Connected via ${tryRpc.take(35)}! Balance: $testBalance SOL")
-                currentRpcUrl = tryRpc
-                wallet = candidate                 // commit only on success
-                
-                // Also fetch SOL price for USD conversion
-                val solPrice = fetchSolPrice()
-                if (solPrice in 50.0..1000.0) WalletManager.lastKnownSolPrice = solPrice
-                
-                _state.value = _state.value.copy(
-                    connectionState = WalletConnectionState.CONNECTED,
-                    publicKey       = pubkey,
-                    solBalance      = testBalance,
-                    balanceUsd      = testBalance * solPrice,
-                    solPriceUsd     = solPrice,
-                    lastRefreshed   = System.currentTimeMillis(),
-                )
+                val candidate = SolanaWallet(privateKeyB58, tryRpc)
+                // One endpoint, one probe. WalletManager owns connect-time failover;
+                // SolanaWallet must not recursively walk the whole fallback fleet.
+                val testBalance = candidate.getSolBalancePrimaryOnly6685()
 
-                // V5.9.495z17 — operator-mandated treasury reset on new wallet
-                // pubkey. Archives the previous wallet's treasury state then
-                // hard-resets counters to $0 so accounting never cross-
-                // contaminates between two different wallets.
+                currentRpcUrl = tryRpc
+                wallet = candidate
+
+                // Price discovery is presentation/accounting enrichment, not signer
+                // connectivity. Never disconnect a valid wallet because CoinGecko/
+                // another SOL/USD source is temporarily unavailable.
+                var solPrice = lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 0.0
                 try {
-                    com.lifecyclebot.engine.TreasuryManager.handleWalletChange(ctx, pubkey)
-                } catch (e: Exception) {
-                    ErrorLogger.warn("Wallet", "treasury wallet-change hook failed: ${e.message}")
+                    val fresh = fetchSolPrice()
+                    if (fresh in 50.0..1000.0) {
+                        solPrice = fresh
+                        lastKnownSolPrice = fresh
+                    }
+                } catch (priceErr: Throwable) {
+                    ErrorLogger.debug("Wallet", "SOL price refresh non-fatal: ${priceErr.message}")
                 }
-                return true
-            } catch (e: IllegalArgumentException) {
-                // Invalid key format - don't try other RPCs.
-                // A bad key can never yield a usable wallet, so it IS
-                // correct to drop the previous one here.
-                ErrorLogger.error("Wallet", "INVALID KEY FORMAT: ${e.message}", e)
-                wallet = null
-                _state.value = _state.value.copy(
-                    connectionState = WalletConnectionState.ERROR,
-                    errorMessage    = "Invalid private key format",
+
+                _state.value = previousState.copy(
+                    connectionState = WalletConnectionState.CONNECTED,
+                    publicKey = pubkey,
+                    solBalance = testBalance,
+                    balanceUsd = testBalance * solPrice,
+                    solPriceUsd = solPrice,
+                    lastRefreshed = System.currentTimeMillis(),
+                    errorMessage = "",
                 )
-                return false
-            } catch (e: Exception) {
-                lastError = e.message ?: "Unknown"
-                ErrorLogger.warn("Wallet", "RPC FAILED [${tryRpc.take(35)}]: $lastError")
-                candidate = null
-                // Continue to next RPC — DO NOT null `this.wallet`; the
-                // previous wallet may still be usable for sells.
+                try {
+                    ForensicLogger.lifecycle(
+                        "WALLET_CONNECTED_RUNTIME_RPC_6685",
+                        "pubkey=${pubkey.take(12)} provider=${if (tryRpc.contains("helius", true)) "helius" else "fallback"} balanceRead=true",
+                    )
+                    PipelineHealthCollector.labelInc("WALLET_CONNECTED_RUNTIME_RPC_6685")
+                } catch (_: Throwable) {}
+                try { TreasuryManager.handleWalletChange(ctx, pubkey) }
+                catch (e: Throwable) { ErrorLogger.warn("Wallet", "treasury wallet-change hook failed: ${e.message}") }
+                return true
+            } catch (e: Throwable) {
+                lastError = e.message ?: e.javaClass.simpleName
+                ErrorLogger.warn(
+                    "Wallet",
+                    "RPC connect probe failed provider=${if (tryRpc.contains("helius", true)) "helius" else "fallback"}: ${lastError.take(120)}",
+                )
             }
         }
-        
-        // All RPCs failed — preserve the previous wallet so in-flight
-        // live sells can still succeed if RPC transiently fails.
-        ErrorLogger.error("Wallet",
-            "ALL ${dedupedRpcsToTry.size} RPCs FAILED. Last error: $lastError" +
-            (if (previousWallet != null) " — preserving previous wallet for in-flight sells" else ""))
-        _state.value = _state.value.copy(
-            connectionState = if (previousWallet != null) WalletConnectionState.CONNECTED
-                              else                         WalletConnectionState.ERROR,
-            errorMessage    = if (previousWallet != null) ""
-                              else                         "All RPC endpoints failed: $lastError",
-        )
+
+        val msg = "All ${rpcsToTry.size} RPC endpoints failed: ${lastError.take(120)}"
+        ErrorLogger.error("Wallet", msg + if (previousWallet != null) " — preserving previous wallet" else "")
+        _state.value = if (previousWallet != null) previousState.copy(errorMessage = msg)
+            else WalletState(connectionState = WalletConnectionState.ERROR, errorMessage = msg)
         return false
     }
 

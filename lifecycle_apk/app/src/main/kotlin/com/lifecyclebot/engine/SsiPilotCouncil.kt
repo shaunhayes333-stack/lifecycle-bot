@@ -187,7 +187,7 @@ Respond ONLY with JSON:
  "laneFocus": [<0-3 lane names to overweight>],
  "laneAvoid": [<0-3 lane names to underweight>],
  "exitPatience": <0.65-1.55, >1 = let runners breathe, <1 = bank faster>,
- "resumeLane": <lane name to un-pause, or "">,
+ "resumeLane": <paused lane to request exact Lab re-proof for, or "">,
  "note": "<one-sentence pilot rationale>"}
 """.trim()
 
@@ -221,15 +221,21 @@ Respond ONLY with JSON:
         return out
     }
 
-    /** V5.0.6090: pilot flies autonomously in PAPER and LIVE for non-safety lane pauses only. */
+    /** V5.0.6684 — SSI may nominate re-proof, never bypass it. */
     private fun handleResumeRequest(laneRaw: String, paper: Boolean) {
         val lane = laneRaw.trim().uppercase()
         if (lane.isBlank() || !KNOWN_LANES.contains(lane)) return
         try {
             if (lane !in LaneAutoPauseGuard.pausedLanes()) return
-            LaneAutoPauseGuard.manualResume(lane, "ssi_pilot_autonomous_${if (paper) "paper" else "live"}_6090_non_safety")
-            ForensicLogger.lifecycle("SSI_PILOT_LANE_RESUMED_6090", "lane=$lane mode=${if (paper) "paper" else "live"} authority=pilot_autonomous non_safety_pause_only=true")
-            PipelineHealthCollector.labelInc("SSI_PILOT_LANE_RESUMED_6090_$lane")
+            AdaptiveLaneReproof6684.requestReproof(
+                lane,
+                "ssi_pilot_reproof_request_6684 mode=${if (paper) "paper" else "live"}",
+            )
+            ForensicLogger.lifecycle(
+                "SSI_PILOT_REPROOF_REQUEST_6684",
+                "lane=$lane mode=${if (paper) "paper" else "live"} authority=lab_proof_required",
+            )
+            PipelineHealthCollector.labelInc("SSI_PILOT_REPROOF_REQUEST_6684_$lane")
         } catch (_: Throwable) {}
     }
 

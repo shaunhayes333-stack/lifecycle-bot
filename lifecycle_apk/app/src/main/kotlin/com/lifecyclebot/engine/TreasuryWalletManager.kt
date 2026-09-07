@@ -63,10 +63,7 @@ object TreasuryWalletManager {
     fun init(ctx: Context) {
         appCtx = ctx.applicationContext
         val cfg = ConfigStore.load(ctx)
-        val rpc = cfg.rpcUrl.ifBlank {
-            // Fall back to the same Helius free endpoint WalletManager defaults to.
-            "https://mainnet.helius-rpc.com/?api-key=${com.lifecyclebot.data.DefaultKeys.HELIUS}"
-        }
+        val rpc = RuntimeProviderAuthority6685.preferredRpc(cfg.rpcUrl, ctx)
 
         var keyB58 = cfg.treasuryPrivateKeyB58
         if (keyB58.isBlank()) {
@@ -129,9 +126,7 @@ object TreasuryWalletManager {
         if (privateKeyB58.isBlank()) return false
         return try {
             // Validate by trying to construct a SolanaWallet first — throws on bad key.
-            val rpc = ConfigStore.load(ctx).rpcUrl.ifBlank {
-                "https://mainnet.helius-rpc.com/?api-key=${com.lifecyclebot.data.DefaultKeys.HELIUS}"
-            }
+            val rpc = RuntimeProviderAuthority6685.preferredRpc(ConfigStore.load(ctx).rpcUrl, ctx)
             val test = SolanaWallet(privateKeyB58, rpc)
             // Persist.
             val cfg = ConfigStore.load(ctx)

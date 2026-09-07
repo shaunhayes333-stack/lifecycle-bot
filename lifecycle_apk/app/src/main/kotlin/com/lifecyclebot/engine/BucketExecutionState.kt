@@ -46,6 +46,11 @@ object BucketExecutionState {
      */
     fun stateFor(lane: String, score: Int): State {
         return try {
+            // V5.0.6684 — old failed-strategy bucket history cannot permanently
+            // shadow a new exact Lab-proven replacement.
+            if (AdaptiveLaneReproof6684.activeStrategy(lane, LosingPatternMemory.scoreBand(score)) != null) {
+                return State.EXECUTABLE
+            }
             val samples = ScoreExpectancyTracker.bucketSamples(lane, score)
             if (samples < MIN_SAMPLES) return State.EXECUTABLE
 

@@ -190,6 +190,38 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         throw lastEx ?: RuntimeException("getSolBalance: unknown error")
     }
 
+    /**
+     * V5.0.6685 — connect-time primary-only balance probe.
+     * WalletManager owns endpoint failover. This method deliberately performs
+     * exactly one JSON-RPC call to this wallet's rpcUrl so Connect cannot create
+     * an outer-RPC × inner-RPC × retry explosion.
+     */
+    fun getSolBalancePrimaryOnly6685(): Double {
+        if (android.os.Looper.myLooper() === android.os.Looper.getMainLooper()) {
+            throw IllegalStateException("SolanaWallet.getSolBalancePrimaryOnly6685 called from Dispatchers.Main")
+        }
+        val payload = JSONObject()
+            .put("jsonrpc", "2.0")
+            .put("id", idGen.getAndIncrement())
+            .put("method", "getBalance")
+            .put("params", JSONArray().put(publicKeyB58))
+        val req = Request.Builder().url(rpcUrl)
+            .header("Content-Type", "application/json")
+            .post(payload.toString().toRequestBody(JSON_MT))
+            .build()
+        val text = http.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) throw RuntimeException("RPC HTTP ${resp.code}")
+            resp.body?.string() ?: throw RuntimeException("RPC empty response")
+        }
+        val json = JSONObject(text)
+        val err = json.optJSONObject("error")
+        if (err != null) throw RuntimeException("RPC error: ${err.optString("message", "unknown")}")
+        val result = json.optJSONObject("result") ?: throw RuntimeException("RPC missing result")
+        val lamports = result.optLong("value", Long.MIN_VALUE)
+        if (lamports == Long.MIN_VALUE) throw RuntimeException("RPC missing result.value")
+        return lamports / 1_000_000_000.0
+    }
+
     // ── sign + broadcast ───────────────────────────────────
 
     /**
@@ -589,11 +621,9 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             .put("params",  params)
         val body = payload.toString()
 
-        // V5.7.8: Try primary RPC first, then ALL fallback RPCs
-        val rpcsToTry = mutableListOf(rpcUrl)
-        com.lifecyclebot.engine.WalletManager.FALLBACK_RPCS.forEach { fallback ->
-            if (fallback != rpcUrl && fallback !in rpcsToTry) rpcsToTry.add(fallback)
-        }
+        // V5.0.6685 — one runtime provider authority. Explicit wallet RPC
+        // stays first; configured encrypted Helius precedes keyless fallbacks.
+        val rpcsToTry = com.lifecyclebot.engine.RuntimeProviderAuthority6685.rpcCandidates(rpcUrl)
 
         var lastBody = "{}"
         var lastError: Exception? = null
@@ -762,7 +792,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     }
 
     private fun heliusDasFungibleTokensByOwner(): Map<String, CanonicalTokenAmount> {
-        val apiKey = try { com.lifecyclebot.data.DefaultKeys.HELIUS } catch (_: Throwable) { "" }
+        val apiKey = com.lifecyclebot.engine.RuntimeProviderAuthority6685.configuredHeliusKey()
         if (apiKey.isBlank()) throw RuntimeException("Helius DAS unavailable: missing api key")
         val url = "https://mainnet.helius-rpc.com/?api-key=$apiKey"
         val payload = JSONObject()

@@ -27,19 +27,32 @@ object LabPromotedFeed {
 
     // Strategies that have user-granted live spend authority.
     private val liveAuthorised = ConcurrentHashMap.newKeySet<String>()
+    private val liveRevoked = ConcurrentHashMap.newKeySet<String>()
 
     fun grantLiveAuthority(strategyId: String) {
+        liveRevoked.remove(strategyId)
         liveAuthorised.add(strategyId)
         ErrorLogger.info(TAG, "🧪 Granted live spend authority to $strategyId")
     }
 
     fun revokeLiveAuthority(strategyId: String) {
         liveAuthorised.remove(strategyId)
+        liveRevoked.add(strategyId)
     }
 
-    fun requireLiveApproval(strategyId: String): Boolean = !liveAuthorised.contains(strategyId)
+    // V5.0.6684 — paper proof is autonomous live authority unless the operator
+    // explicitly revoked this strategy. Hard trade safety remains downstream.
+    fun isLiveAuthorised(strategyId: String): Boolean {
+        if (liveRevoked.contains(strategyId)) return false
+        if (liveAuthorised.contains(strategyId)) return true
+        val s = try { LlmLabStore.getStrategy(strategyId) } catch (_: Throwable) { null } ?: return false
+        return s.status == LabStrategyStatus.PROMOTED &&
+            s.paperTrades >= LlmLabStore.MIN_TRADES_BEFORE_PROMOTION &&
+            s.winRatePct() >= LlmLabStore.MIN_WR_FOR_PROMOTION_PCT &&
+            s.paperPnlSol >= LlmLabStore.MIN_PAPER_PNL_SOL_FOR_PROMOTION
+    }
 
-    fun isLiveAuthorised(strategyId: String): Boolean = liveAuthorised.contains(strategyId)
+    fun requireLiveApproval(strategyId: String): Boolean = !isLiveAuthorised(strategyId)
 
     // ────────────────────────────────────────────────────────────────────────
     // ENTRY NUDGE — applied by Executor.doBuy on top of legacy logic.
@@ -60,6 +73,7 @@ object LabPromotedFeed {
      */
     fun entryNudge(asset: LabAssetClass, score: Int): EntryNudge? {
         val candidates = LlmLabStore.allStrategies()
+            .filter { !com.lifecyclebot.engine.AdaptiveLaneReproof6684.isTargetedStrategy(it.id) }
             .filter { it.status == LabStrategyStatus.PROMOTED &&
                       (it.asset == LabAssetClass.ANY || it.asset == asset) &&
                       score >= it.entryScoreMin }
@@ -91,6 +105,7 @@ object LabPromotedFeed {
      */
     fun shouldExitByPromotedRule(asset: LabAssetClass, pnlPct: Double, holdMinutes: Long): Boolean {
         val promoted = LlmLabStore.allStrategies()
+            .filter { !com.lifecyclebot.engine.AdaptiveLaneReproof6684.isTargetedStrategy(it.id) }
             .filter { it.status == LabStrategyStatus.PROMOTED &&
                       (it.asset == LabAssetClass.ANY || it.asset == asset) }
         if (promoted.isEmpty()) return false

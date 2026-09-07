@@ -173,9 +173,20 @@ object HoldingLogicLayer {
             // conviction runners breathe; patience <1 banks faster. Hard stop-loss and
             // AEM hard-safety exits above remain untouched.
             val ssiExitPatience6091 = try { SsiPilotCouncil.exitPatience().coerceIn(0.65, 1.55) } catch (_: Throwable) { 1.0 }
-            val targetProfit6091 = params.targetProfitPct * ssiExitPatience6091
+            // V5.0.6684 — exact promoted Lab strategy becomes this lane's
+            // TP/SL/hold profile. It cannot loosen the existing hard stop.
+            val labExit6684 = try { AdaptiveLaneReproof6684.exitStrategy(mode) } catch (_: Throwable) { null }
+            val baseTarget6684 = labExit6684?.takeProfitPct?.coerceIn(3.0, 100.0) ?: params.targetProfitPct
+            val activeStopLoss6684 = maxOf(
+                params.stopLossPct,
+                labExit6684?.stopLossPct?.coerceIn(-30.0, -2.0) ?: params.stopLossPct,
+            )
+            val baseMaxHoldMs6684 = labExit6684?.maxHoldMins?.coerceIn(15, 480)?.toLong()?.times(60_000L)
+                ?: params.maxHoldTimeMs
+            val targetProfit6091 = baseTarget6684 * ssiExitPatience6091
             val trailingStopPct6091 = params.trailingStopPct * ssiExitPatience6091
-            val maxHoldTimeMs6091 = (params.maxHoldTimeMs.toDouble() * ssiExitPatience6091).toLong().coerceAtLeast(params.maxHoldTimeMs / 2L)
+            val maxHoldTimeMs6091 = (baseMaxHoldMs6684.toDouble() * ssiExitPatience6091).toLong()
+                .coerceAtLeast(baseMaxHoldMs6684 / 2L)
             
             // ─────────────────────────────────────────────────────────────────
             // V5.2: Get fluid hold time parameters from FluidLearningAI
@@ -255,10 +266,10 @@ object HoldingLogicLayer {
             // ─────────────────────────────────────────────────────────────────
             
             // Stop loss hit
-            if (currentPnlPct <= params.stopLossPct) {
+            if (currentPnlPct <= activeStopLoss6684) {
                 return HoldEvaluation(
                     action = HoldAction.EXIT_NOW,
-                    reason = "Stop loss triggered: ${currentPnlPct.toInt()}% <= ${params.stopLossPct.toInt()}%",
+                    reason = "Stop loss triggered: ${currentPnlPct.toInt()}% <= ${activeStopLoss6684.toInt()}%${if (labExit6684 != null) " lab=${labExit6684.id}" else ""}",
                     confidence = 95.0,
                     urgency = Urgency.CRITICAL,
                 )

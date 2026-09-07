@@ -705,15 +705,19 @@ class JupiterApi(private val apiKey: String = "") {
         // errors only. A GENUINE simulation reject (bad accounts, insufficient
         // funds, slippage, custom program error) is returned immediately and still
         // blocks the broadcast — the no-preflight-skip safety (V5.9.753) is intact.
-        val paidRpc = "https://mainnet.helius-rpc.com/?api-key=${com.lifecyclebot.data.DefaultKeys.HELIUS}"
-        // Ordered, de-duplicated failover ladder. Caller RPC first (may be blank →
-        // skipped), then paid Helius, then public fallbacks.
-        val ladder = LinkedHashSet<String>().apply {
-            if (rpcUrl.isNotBlank()) add(rpcUrl)
-            add(paidRpc)
-            add("https://api.mainnet-beta.solana.com")
-            add("https://rpc.ankr.com/solana")
-        }.toList()
+        val paidRpc = com.lifecyclebot.engine.RuntimeProviderAuthority6685.configuredHeliusRpc()
+        // V5.0.6685 — caller first, encrypted configured Helius second, then
+        // keyless public RPCs. Blank credential URLs never enter the ladder.
+        val ladder = com.lifecyclebot.engine.RuntimeProviderAuthority6685
+            .rpcCandidates(rpcUrl)
+            .let { candidates ->
+                if (paidRpc.isBlank()) candidates
+                else LinkedHashSet<String>().apply {
+                    if (rpcUrl.isNotBlank()) add(rpcUrl)
+                    add(paidRpc)
+                    candidates.forEach(::add)
+                }.toList()
+            }
 
         fun isTransient(err: String): Boolean =
             err.startsWith("RPC error:") && (

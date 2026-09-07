@@ -64,6 +64,16 @@ class AATEApp : Application() {
             ErrorLogger.error("App", "TradeHistoryStore init failed: ${e.message}", e)
         }
 
+        // V5.0.6684 — one durable adaptive-control-plane lifecycle.
+        // Non-blocking/idempotent: Lab, Sentience, SSI and lane re-proof remain
+        // alive even if BotService is split/refactored again.
+        try {
+            com.lifecyclebot.engine.AdaptiveIntelligenceRuntime6684.start(applicationContext)
+            ErrorLogger.info("App", "AdaptiveIntelligenceRuntime6684 started")
+        } catch (e: Throwable) {
+            ErrorLogger.warn("App", "AdaptiveIntelligenceRuntime6684 start failed: ${e.message}")
+        }
+
         // V5.9.433 — restore TreasuryManager here too, so the 70/30 splits
         // and 100% scalp deposits can auto-persist (cachedCtx is seeded on
         // restore). Previously only BotService.startBot did this, which

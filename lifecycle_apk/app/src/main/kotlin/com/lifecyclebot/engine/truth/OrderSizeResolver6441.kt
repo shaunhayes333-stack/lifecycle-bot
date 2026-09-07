@@ -117,9 +117,24 @@ object OrderSizeResolver6441 {
     ): Resolution {
         totalResolves.incrementAndGet()
 
-        // 1. requested -> strategy/risk floor
-        val requested = requestedSol.coerceAtLeast(0.0)
+        // 1. requested -> adaptive strategy/risk -> hard caps.
+        // V5.0.6684 restores the severed SSI sizing hand and exact Lab-proven
+        // replacement at the ONE mandatory size authority.
+        val ssiMult6684 = try {
+            com.lifecyclebot.engine.SsiPilotCouncil.sizeMultiplierForLane(laneName)
+        } catch (_: Throwable) { 1.0 }
+        val labMult6684 = try {
+            com.lifecyclebot.engine.AdaptiveLaneReproof6684.sizeMultiplierForLane(laneName)
+        } catch (_: Throwable) { 1.0 }
+        val adaptiveMult6684 = (ssiMult6684 * labMult6684).coerceIn(0.35, 2.50)
+        val requested = (requestedSol.coerceAtLeast(0.0) * adaptiveMult6684).coerceAtLeast(0.0)
         val risk = requested.coerceAtMost(laneRiskCapSol)
+        if (kotlin.math.abs(adaptiveMult6684 - 1.0) > 0.001) {
+            try {
+                PipelineHealthCollector.labelInc("CANONICAL_ADAPTIVE_SIZE_6684")
+                PipelineHealthCollector.labelInc("CANONICAL_ADAPTIVE_SIZE_6684_${laneName.uppercase().take(24)}")
+            } catch (_: Throwable) {}
+        }
 
         // V5.0.6612 — bounded contributor merge nudge. Applied BEFORE the
         // runner ladder so subsequent hard caps (risk/cash/lane/ladder) can

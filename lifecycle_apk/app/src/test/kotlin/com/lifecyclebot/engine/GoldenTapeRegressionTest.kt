@@ -7115,7 +7115,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6090: sentience events must feed autonomous strategy authority, not powerless no-mutation commentary", sentience6090.contains("REINS-OFF AUTONOMY") && sentience6090.contains("feeding this into autonomous strategy authority") && sentience6090.contains("event_to_strategy_authority_6090") && !sentience6090.contains("without changing gates, sizing, or execution"))
         assertTrue("V5.0.6090: reviewed async/LLM lab hypotheses must have real non-safety sizing authority", lab6090.contains("reviewed hypotheses are now real strategy authority") && lab6090.contains("coerceIn(0.60, 1.55)") && lab6090.contains("actuated_authority_6090=true") && !lab6090.contains("coerceIn(0.92, 1.08)"))
         assertTrue("V5.0.6090: meta-cognition bridge must materially control non-safety sizing from early trades", meta6090.contains("V5.0.6090") && meta6090.contains("coerceIn(0.55, 1.65)") && meta6090.contains("coerceIn(0.65, 1.45)") && !meta6090.contains("coerceIn(0.94, 1.08)"))
-        assertTrue("V5.0.6090: SSI pilot must autonomously control paper/live non-safety strategy with wider authority", ssi6090.contains("live 0.55..1.80, paper 0.45..2.10") && ssi6090.contains("return if (paper) m.coerceIn(0.40, 2.25) else m.coerceIn(0.45, 1.90)") && ssi6090.contains("SSI_PILOT_LANE_RESUMED_6090") && !ssi6090.contains("awaiting_control_tower_manualResume"))
+        assertTrue("V5.0.6685: SSI retains autonomous sizing authority but failed lanes must re-enter only through exact Lab proof", ssi6090.contains("live 0.55..1.80, paper 0.45..2.10") && ssi6090.contains("return if (paper) m.coerceIn(0.40, 2.25) else m.coerceIn(0.45, 1.90)") && ssi6090.contains("SSI_PILOT_REPROOF_REQUEST_6684") && !ssi6090.contains("SSI_PILOT_LANE_RESUMED_6090") && !ssi6090.contains("awaiting_control_tower_manualResume"))
         assertTrue("V5.0.6090: executor AGI size stack ceiling must open when AI authority is active while preserving safety clamps", exec6082.contains("REINS-OFF AI STRATEGY AUTHORITY") && exec6082.contains("agiAuthorityActive6090") && exec6082.contains("if (RuntimeModeAuthority.isPaper()) 2.50 else 2.00") && (exec6082.contains("product.coerceIn(posEvFloor, agiCeiling6090)") || exec6082.contains("product.coerceIn(posEvFloor, agiCeiling6406)") || exec6082.contains("product.coerceIn(posEvFloor, agiCeiling6409)")))
         val holding6091 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HoldingLogicLayer.kt").readText()
         val exec6091 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
@@ -7431,12 +7431,14 @@ class GoldenTapeRegressionTest {
     fun V5_0_6371_open_gate_same_mint_paper_cooldown_and_ghost_zero_mint_only_lockout() {
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         val reentry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReEntryLockout.kt").readText()
-        assertTrue("V5.0.6371: same-mint PAPER duplicates must be blocked in ExecutableOpenGate before paperBuy so blocked() installs a cooldown and repeated aliases stop burning buy-path work",
+        assertTrue("V5.0.6685: same-mint PAPER duplicate cooldown remains while 6683 shadow-train is a real no-open authority",
             gate.contains("OPEN-GATE SAME-MINT PAPER COOLDOWN") &&
                 gate.contains("EmergentGuardrails.getPositionLayer(mint)") &&
                 gate.contains("EXEC_OPEN_SAME_MINT_ALREADY_OPEN_COOLDOWN_6371") &&
                 gate.contains("EXEC_OPEN_BLOCKED_SAME_MINT_ALREADY_OPEN_6371") &&
-                gate.indexOf("OPEN-GATE SAME-MINT PAPER COOLDOWN") < gate.indexOf("SHADOW_TRAIN_ONLY is NOT an execution veto"))
+                gate.contains("BucketExecutionState.isShadowTrainOnly(canonicalSelectedLane, gateScore)") &&
+                gate.contains("EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY_6683") &&
+                !gate.contains("EXEC_OPEN_SHADOW_TRAIN_SOFT_ALLOW"))
         assertTrue("V5.0.6371: GHOST_REAP_ZERO_BALANCE must mint-lock only, not family-lock, so ghost cleanup does not choke fresh family candidates",
             reentry.contains("ghostZeroCleanup6371") &&
                 reentry.contains("REENTRY_LOCKOUT_ARMED_MINT_ONLY_GHOST_ZERO_6371") &&

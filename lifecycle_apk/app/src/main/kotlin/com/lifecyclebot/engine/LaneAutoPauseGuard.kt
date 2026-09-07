@@ -52,8 +52,8 @@ object LaneAutoPauseGuard {
     //   TOXIC_EV_PCT        -40 -> -20 (much stricter EV floor)
     // Non-priority safety: MOONSHOT/STANDARD are handled by the compound
     // sizing floor (V5.0.6066), not this guard. Manual resume remains.
-    private const val MIN_SAMPLE = 8
-    private const val ZERO_WIN_MIN_SAMPLE = 8
+    private const val MIN_SAMPLE = 5
+    private const val ZERO_WIN_MIN_SAMPLE = 5
     private const val TOXIC_WR_PCT = 20.0
     // V5.0.6305 — LANE BLEED AUTO-RECOVERY thresholds. A paused lane can be
     // auto-unpaused once its RECENT trainable sample climbs back to WR>=25%
@@ -62,8 +62,8 @@ object LaneAutoPauseGuard {
     private const val RECOVERY_MIN_SAMPLE = 20
     private const val RECOVERY_WR_PCT = 25.0
     private const val RECOVERY_EV_PCT = 0.0
-    private const val TOXIC_EV_PCT = -20.0
-    private const val TOXIC_MIN_SAMPLE = 12
+    private const val TOXIC_EV_PCT = -8.0
+    private const val TOXIC_MIN_SAMPLE = 8
 
     data class PauseState(
         val lane: String,
@@ -249,9 +249,12 @@ object LaneAutoPauseGuard {
             for (t in clean) {
                 val lane = canonLane(t.tradingMode.trim())
                 if (lane.isBlank()) continue
+                val promotionEpoch6684 = try { AdaptiveLaneReproof6684.activationEpochMs(lane) } catch (_: Throwable) { 0L }
+                if (promotionEpoch6684 > 0L && t.ts < promotionEpoch6684) continue
                 val agg = byLane.getOrPut(lane) { Agg() }
                 agg.sample += 1
-                if (t.pnlPct >= 5.0) agg.wins += 1
+                val outcome6684 = com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(t.pnlPct)
+                if (outcome6684 == com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.WIN) agg.wins += 1
                 agg.pnlSum += t.pnlPct
             }
             try {
@@ -291,10 +294,14 @@ object LaneAutoPauseGuard {
                         PipelineHealthCollector.labelInc("LANE_AUTO_PAUSED_$lane")
                         PipelineHealthCollector.labelInc("LANE_AUTO_PAUSED_DIRECT_JOURNAL_4592")
                     } catch (_: Throwable) {}
+                    try { AdaptiveLaneReproof6684.onLaneFailed(lane, reason) } catch (_: Throwable) {}
                 }
             }
 
-            // V5.0.6305 — LANE BLEED AUTO-RECOVERY. Operator directive 2026-07:
+            // V5.0.6684 — PROOF-GATED RECOVERY ONLY. A paused lane cannot
+            // resurrect from aggregate WR alone; an exact Lab replacement must
+            // paper-prove, promote, and open a fresh strategy epoch.
+
             // "let a paused live lane auto-reset when its recent-100 WR climbs
             // back above 25% so stale toxic_wr8 tags don't hold live capacity
             // hostage forever". Previously only manualResume() (LLM-Lab shadow
@@ -303,25 +310,7 @@ object LaneAutoPauseGuard {
             // bypass), so its WR can legitimately climb back. If the RECENT
             // window (same clean-truth journal read) shows n>=RECOVERY_MIN_SAMPLE
             // and WR>=RECOVERY_WR_PCT and EV>=RECOVERY_EV_PCT, auto-unpause.
-            for ((lane, pauseState) in paused.toMap()) {
-                val agg = byLane[lane] ?: continue
-                if (agg.sample < RECOVERY_MIN_SAMPLE) continue
-                val wrPct = agg.wins.toDouble() / agg.sample.toDouble() * 100.0
-                val evPct = agg.pnlSum / agg.sample
-                if (wrPct >= RECOVERY_WR_PCT && evPct >= RECOVERY_EV_PCT) {
-                    val heldForMinutes = (now - pauseState.pausedAt) / 60_000L
-                    paused.remove(lane)
-                    mutated = true
-                    try {
-                        ErrorLogger.info(
-                            "LaneAutoPauseGuard",
-                            "✅ LANE_AUTO_RECOVERED lane=$lane n=${agg.sample} wr=${"%.1f".format(wrPct)}% ev=${"%.1f".format(evPct)}% heldForMin=$heldForMinutes originalReason=${pauseState.reason}",
-                        )
-                        PipelineHealthCollector.labelInc("LANE_AUTO_RECOVERED_$lane")
-                        PipelineHealthCollector.labelInc("LANE_AUTO_RECOVERED_6305")
-                    } catch (_: Throwable) {}
-                }
-            }
+            // Legacy V5.0.6305 WR-only auto-recovery removed by 6684.
             if (mutated) persistAsync()
         } catch (_: Throwable) {}
     }

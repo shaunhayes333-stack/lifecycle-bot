@@ -1389,6 +1389,26 @@ object ExecutableOpenGate {
                 attemptId = attemptId,
             )
         }
+        // V5.0.6684 — exact Lab-promoted strategy entry contract.
+        // WAIT remains shadow/trainable; it must not become an economic open.
+        try {
+            val labDirective6684 = AdaptiveLaneReproof6684.entryDirective(lane, ts.entryScore.toInt())
+            if (labDirective6684 != null && !labDirective6684.allow) {
+                PipelineHealthCollector.labelInc("EXEC_OPEN_LAB_STRATEGY_WAIT_6684_${canonicalLane(lane)}")
+                ForensicLogger.lifecycle(
+                    "EXEC_OPEN_LAB_STRATEGY_WAIT_6684",
+                    "attemptId=$attemptId mint=${ts.mint.take(10)} lane=${canonicalLane(lane)} score=${ts.entryScore.toInt()} floor=${labDirective6684.minScore} strategy=${labDirective6684.strategyId}",
+                )
+                return OpenVerdict(
+                    allowed = false,
+                    reason = "LAB_STRATEGY_WAIT_6684:${labDirective6684.strategyId}",
+                    shadowOnly = true,
+                    logName = "EXEC_OPEN_LAB_STRATEGY_WAIT_6684",
+                    attemptId = attemptId,
+                )
+            }
+        } catch (_: Throwable) {}
+
         // V5.0.6382 — WAVE ENTRY QUALITY GATE (operator directive: "buys in the
         // wrong waves of the chart"). Reject candidates already blown off the top
         // of their own recent wave before any lane finality logic runs. Fail-open
