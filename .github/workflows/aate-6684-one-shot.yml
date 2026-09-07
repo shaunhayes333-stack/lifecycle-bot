@@ -26,13 +26,15 @@ jobs:
           set -euo pipefail
           python ci/aate_6684_adaptive_closed_loop_repair.py
 
-          # The replacement script intentionally changes the recovery doctrine
-          # marker before removing the old V5.0.6305 loop. Remove that stale
-          # loop explicitly so aggregate WR can never bypass exact Lab proof.
+          # Clean the stale 6305 tail completely. The source transform replaces
+          # the old comment prefix, so also remove the orphaned suffix from that
+          # original line before deleting the legacy recovery loop.
           python - <<'PY'
           from pathlib import Path
+          import re
           p = Path('lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/LaneAutoPauseGuard.kt')
           s = p.read_text()
+          s = re.sub(r'(?m)^\s*Operator directive 2026-07:\s*$', '', s)
           marker = '            // V5.0.6684 — PROOF-GATED RECOVERY ONLY. A paused lane cannot\n'
           a = s.find(marker)
           if a < 0:
@@ -43,6 +45,8 @@ jobs:
               s = s[:loop] + '            // Legacy V5.0.6305 WR-only auto-recovery removed by 6684.\n' + s[end:]
           if 'LANE_AUTO_RECOVERED_6305' in s:
               raise SystemExit('stale LANE_AUTO_RECOVERED_6305 logic remains')
+          if re.search(r'(?m)^\s*Operator directive 2026-07:\s*$', s):
+              raise SystemExit('orphaned 6305 comment suffix remains')
           p.write_text(s)
           PY
 
