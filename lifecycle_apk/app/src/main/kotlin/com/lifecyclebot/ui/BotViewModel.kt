@@ -78,7 +78,7 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
         // UI frame, no 2.5s empty flash.
         try {
             val status = BotService.status
-            val openSnap = try { status.openPositions.toList() } catch (_: Throwable) { emptyList() }
+            val openSnap = try { com.lifecyclebot.engine.truth.CanonicalUiPositionProjection6686.project(status) } catch (_: Throwable) { emptyList() }
             val tokenSnap: Map<String, TokenState> = try {
                 status.tokens.entries.associate { it.key to it.value }
             } catch (_: Throwable) { emptyMap() }
@@ -149,7 +149,7 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
         // We are already on Dispatchers.Default, so create a full immutable
         // snapshot here. MainActivity caps row rendering; the count/header must
         // still reflect real BotService state without owning the live CHM.
-        val openSnapshot = try { status.openPositions.toList() } catch (_: Throwable) { emptyList() }
+        val openSnapshot = try { com.lifecyclebot.engine.truth.CanonicalUiPositionProjection6686.project(status) } catch (_: Throwable) { emptyList() }
         val tokenSnapshot: Map<String, TokenState> = try {
             // V5.9.1202 — snapshot via entries iterator, then repair from values
             // if the live map mutates mid-copy. Runtime snapshots showed Main UI

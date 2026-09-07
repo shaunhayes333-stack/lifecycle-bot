@@ -89,21 +89,10 @@ object UiSnapshotAuthority6496 {
 
     private fun refresh(status: BotStatus) {
         refreshes.incrementAndGet()
+        // V5.0.6686 — canonical-first. Do not rebuild open inventory from
+        // status.tokens: that map is discovery/render state and can be pruned.
         val list = try {
-            // Read-through-copy: ConcurrentHashMap values() is a live view,
-            // but we materialise it to a fresh ArrayList before filtering so
-            // downstream iteration is on an immutable snapshot.
-            val values = ArrayList(status.tokens.values)
-            values.filter { ts ->
-                try {
-                    val pos = ts.position
-                    if (com.lifecyclebot.engine.PositionCloseLedger.isClosed(ts.mint)) return@filter false
-                    // V5.0.6636 — qtyToken alone is not OPEN authority. Feed
-                    // the UI only projections that match an economically valid
-                    // canonical lot and its immutable BUY snapshot.
-                    QuantityInvariantAuthority6500.isRuntimeOpenEligible6636(ts.mint, pos)
-                } catch (_: Throwable) { false }
-            }
+            CanonicalUiPositionProjection6686.project(status)
         } catch (_: Throwable) { emptyList() }
         cached.set(Snapshot(list, System.currentTimeMillis()))
     }

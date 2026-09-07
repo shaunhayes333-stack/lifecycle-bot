@@ -7556,7 +7556,8 @@ class GoldenTapeRegressionTest {
                 exec.contains("mirrorBuyFill") &&
                 exec.contains("SELL mirror moved to confirmed paper fill") &&
                 closeLedger.contains("PositionCloseLedger is a close metadata ledger only") &&
-                mirror.contains("lastClosedPositionIdByMint") &&
+                mirror.contains("lastClosedPositionIdByModeMint") &&
+                mirror.contains("activePositionIdByModeMint") &&
                 mirror.contains("reward purity is delivered only after") &&
                 java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt").readText()
                     .contains("deliverToRewardPurity"))

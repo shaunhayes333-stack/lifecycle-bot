@@ -812,9 +812,11 @@ object ToolkitSignalSheet {
     fun specialistCapitalReport6599(): String = buildString {
         appendLine("===== MEME SPECIALIST CAPITAL =====")
         val positions = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }
-        val capital = try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.snapshot() } catch (_: Throwable) { null }
-        val sharedCash = capital?.availableCashSol ?: 0.0
-        val sharedEquity = capital?.totalEquitySol ?: sharedCash
+        val paperMode6686 = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }
+        val capital = if (paperMode6686) try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.snapshot() } catch (_: Throwable) { null } else null
+        val sharedCash = if (paperMode6686) capital?.availableCashSol ?: 0.0 else try { BotService.status.walletSol.coerceAtLeast(0.0) } catch (_: Throwable) { 0.0 }
+        val sharedEquity = if (paperMode6686) capital?.totalEquitySol ?: sharedCash else sharedCash
+        val capitalSource6686 = if (paperMode6686) "PAPER_CAPITAL_AUTHORITY_6577" else "LIVE_WALLET_AUTHORITY_6686"
         val weights = configuredMemeDesks6599.associateWith { lane ->
             val expectancy = try { LaneExpectancyDamper.sizeMultiplier(lane) } catch (_: Throwable) { 1.0 }
             val opportunity = (1.0 + kotlin.math.ln1p(deskCount6599(lane, "QUALIFIED").toDouble())).coerceAtMost(4.0)
@@ -827,7 +829,7 @@ object ToolkitSignalSheet {
             val pending = (deskCount6599(lane, "BUY_INTENT") - deskCount6599(lane, "EXEC")).coerceAtLeast(0L)
             val targetPct = (weights.getValue(lane) / weightSum * 100.0).coerceIn(0.0, 100.0)
             val targetSol = sharedEquity * (targetPct / 100.0)
-            appendLine("$lane targetAllocation=${"%.2f".format(targetPct)}% targetSol=${"%.4f".format(targetSol)} availableAllocation=sharedCash:${"%.4f".format(sharedCash)} usedAllocation=${"%.4f".format(used)} openPositions=${owned.size} pendingIntents=$pending capitalStarved=${pending > 0L && sharedCash <= 0.0} starvedByLane=NONE allocationDecisionSource=PAPER_CAPITAL_AUTHORITY_6577+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE")
+            appendLine("$lane targetAllocation=${"%.2f".format(targetPct)}% targetSol=${"%.4f".format(targetSol)} availableAllocation=sharedCash:${"%.4f".format(sharedCash)} usedAllocation=${"%.4f".format(used)} openPositions=${owned.size} pendingIntents=$pending capitalStarved=${pending > 0L && sharedCash <= 0.0} starvedByLane=NONE allocationDecisionSource=${capitalSource6686}+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE")
         }
     }
 

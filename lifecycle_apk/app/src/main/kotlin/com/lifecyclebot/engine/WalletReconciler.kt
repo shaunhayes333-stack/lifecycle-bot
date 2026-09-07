@@ -99,6 +99,20 @@ object WalletReconciler {
             changes++
         }
 
+        // V5.0.6686 — after status/HostWallet recovery, bind every wallet-positive
+        // LIVE holding with proven economic basis back into the canonical authority.
+        // This closes the HostWalletTokenTracker > canonical LIVE gap that made real
+        // bags disappear from canonical exit/UI management after token-map drift.
+        try {
+            val canonicalRecovered6686 = LiveCanonicalRecovery6686.recoverWalletSnapshot(status, walletMints)
+            changes += canonicalRecovered6686
+            if (canonicalRecovered6686 > 0) {
+                ForensicLogger.lifecycle("LIVE_CANONICAL_RECOVERY_6686", "recovered=$canonicalRecovered6686 walletMints=${walletMints.size}")
+            }
+        } catch (t: Throwable) {
+            try { ForensicLogger.lifecycle("LIVE_CANONICAL_RECOVERY_FAILED_6686", "err=${t.message?.take(120)} action=retain_wallet_tracking") } catch (_: Throwable) {}
+        }
+
         // ── Pass 2: zombie closure ──────────────────────────────────────────
         // Every open position with zero wallet balance must be closed —
         // unless a sell is actively VERIFYING (we let the verifier own it).

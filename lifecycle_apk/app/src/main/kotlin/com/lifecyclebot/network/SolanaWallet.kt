@@ -707,21 +707,14 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     }
 
     private fun walletRpcEndpointsForTokenSnapshot(): List<String> {
-        val endpoints = mutableListOf<String>()
-        fun addClean(raw: String) {
-            val v = raw.trim()
-            if (v.isBlank()) return
-            // V5.0.3775: solana.public-rpc.com is cert-broken on some Android trust stores.
-            // It must never be used as wallet balance authority / reconciler proof.
-            if (v.contains("solana.public-rpc.com", ignoreCase = true)) {
-                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_RPC_ENDPOINT_SKIPPED_BAD_TLS", "endpoint=solana.public-rpc.com site=token_snapshot") } catch (_: Throwable) {}
-                return
-            }
-            if (v !in endpoints) endpoints.add(v)
-        }
-        addClean(rpcUrl)
-        try { com.lifecyclebot.engine.WalletManager.FALLBACK_RPCS.forEach { addClean(it) } } catch (_: Throwable) {}
-        return endpoints
+        // V5.0.6686 — PATCH-ROT REPAIR. 6685 migrated generic RPC calls to the
+        // encrypted runtime provider authority but this token-account path was
+        // accidentally left on rpcUrl + the legacy fallback list. That made
+        // wallet reconciliation use a different provider ladder from execution.
+        // One authority, one round-robin/cooldown policy, no credential drift.
+        val candidates = com.lifecyclebot.engine.RuntimeProviderAuthority6685
+            .rpcCandidates(rpcUrl)
+        return applyRoundRobin(candidates)
     }
 
     private fun rpcTokenAccountsByOwnerFast(programId: String): JSONObject {
@@ -772,14 +765,23 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                 val json = JSONObject(text)
                 val err = json.optJSONObject("error")
                 if (err != null) {
+                    // V5.0.6686 — ANY JSON-RPC error from getTokenAccountsByOwner
+                    // is an endpoint failure, never a usable wallet snapshot.
+                    // In 6685 an unsupported/free-plan provider returned
+                    // "chain is not available on free plan"; because it was not
+                    // classified as auth/rate-limit, the function returned that
+                    // JSON immediately and never tried the next healthy RPC.
                     val msg = err.optString("message", err.toString())
-                    val low = msg.lowercase()
-                    if (low.contains("rate") || low.contains("limit") || low.contains("unauthorized") || low.contains("forbidden") || low.contains("api key") || low.contains("invalid key")) {
-                        // V5.0.4595 — RPC-level rate-limit / auth-fail → cooldown
-                        markEndpointUnhealthy(endpoint, "RPC:${msg.take(24)}")
-                        failures.add("${endpoint.take(24)}:RPC:${msg.take(36)}")
-                        continue
-                    }
+                    markEndpointUnhealthy(endpoint, "RPC:${msg.take(24)}")
+                    failures.add("${endpoint.take(24)}:RPC:${msg.take(48)}")
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "WALLET_RPC_PROVIDER_ERROR_FAILOVER_6686",
+                            "program=${programId.take(8)} endpoint=${endpoint.take(48)} err=${msg.take(96)} action=continue_next_rpc",
+                        )
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("WALLET_RPC_PROVIDER_ERROR_FAILOVER_6686")
+                    } catch (_: Throwable) {}
+                    continue
                 }
                 return json
             } catch (e: Throwable) {

@@ -64,7 +64,9 @@ class Aate6600SpecialistAuthorityRestorationTest {
         val report = source("engine/PipelineHealthCollector.kt")
         assertTrue(toolkit.contains("===== MEME SPECIALIST CAUSAL FUNNEL ====="))
         listOf("ownerLaneChangedAfterSelection", "crossLaneExecutionRewrite", "telemetryOnlySuppression", "missingExecutableMarkWithValidSource", "specialistLearningMissing", "sellCanonicalLookupFailure").forEach { assertTrue(toolkit.contains(it)) }
-        assertTrue(toolkit.contains("PAPER_CAPITAL_AUTHORITY_6577+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE"))
+        assertTrue(toolkit.contains("capitalSource6686"))
+        assertTrue(toolkit.contains("LIVE_WALLET_AUTHORITY_6686"))
+        assertTrue(!toolkit.contains("allocationDecisionSource=PAPER_CAPITAL_AUTHORITY_6577+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE"))
         assertTrue(!toolkit.contains("targetAllocation=UNPROVEN_SOURCE"))
         assertTrue(report.contains("specialistCausalFunnel6600()"))
     }

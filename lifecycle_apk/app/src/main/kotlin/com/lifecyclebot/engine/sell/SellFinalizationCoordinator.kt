@@ -200,7 +200,7 @@ object SellFinalizationCoordinator {
             //   §P0-#7 publish to the canonical finalized-trade bus
             // Duplicate observations bail before any of the above.
             try {
-                val positionId = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(intent.mint)
+                val positionId = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(intent.mint, paperMode = false)
                 val canonicalPosition6522 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId) ?: return@run
                 val partial = fin.finalState != TxMetaSellFinalizer.FinalState.CLEARED
                 val qtyValidation6522 = com.lifecyclebot.engine.truth.CanonicalSellQuantityGuard6522.validate(
