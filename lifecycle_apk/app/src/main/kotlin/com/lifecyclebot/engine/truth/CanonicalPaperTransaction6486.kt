@@ -558,15 +558,33 @@ object CanonicalPaperTransaction6486 {
         val canonicalRealizedPnl6569 = grossProceedsSol - basis - sellFeeSol
         val expected6569 = expectedRealizedPnlSol6569
         val return6569 = leveragedReturnPct6569
-        val tolerance6569 = maxOf(0.000001, kotlin.math.abs(expected6569 ?: 0.0) * 0.02)
-        val arithmeticDivergence6569 = expected6569 != null && kotlin.math.abs(canonicalRealizedPnl6569 - expected6569) > tolerance6569
+        // V5.0.6689 — limited-liability paper settlement floors gross proceeds
+        // at zero. A leveraged analytical return can therefore imply a raw loss
+        // below -100% of funded basis, while the economic account can lose at
+        // most that basis (plus an explicitly charged exit fee). Compare the
+        // canonical receipt to the economically settleable expectation, not the
+        // unbounded leveraged analytics value.
+        val economicallyCappedExpected6569 = expected6569?.coerceAtLeast(-basis)?.minus(sellFeeSol)
+        val tolerance6569 = maxOf(0.000001, kotlin.math.abs(economicallyCappedExpected6569 ?: 0.0) * 0.02)
+        val arithmeticDivergence6569 = economicallyCappedExpected6569 != null &&
+            kotlin.math.abs(canonicalRealizedPnl6569 - economicallyCappedExpected6569) > tolerance6569
         val impossibleZero6569 = return6569 != null && kotlin.math.abs(return6569) > 5.0 && kotlin.math.abs(canonicalRealizedPnl6569) < 0.0005
+        if (expected6569 != null && expected6569 < -basis) {
+            try {
+                PipelineHealthCollector.labelInc("LEVERAGED_TERMINAL_LIMITED_LIABILITY_CAP_6689")
+                ForensicLogger.lifecycle(
+                    "LEVERAGED_TERMINAL_LIMITED_LIABILITY_CAP_6689",
+                    "positionId=$positionId symbol=$symbol basis=$basis rawExpected=$expected6569 " +
+                        "settleableExpected=$economicallyCappedExpected6569 returnPct=$return6569",
+                )
+            } catch (_: Throwable) {}
+        }
         if (arithmeticDivergence6569 || impossibleZero6569) {
             CanonicalPerformanceFilter6395.quarantine(positionId, CanonicalPerformanceFilter6395.QuarantineReason.REPLAY_UNIT_MISMATCH)
             PaperLearningEligibility6519.record(mint, positionId, false, "LEVERAGED_TERMINAL_ARITHMETIC_DIVERGENCE_6569")
             try {
                 PipelineHealthCollector.labelInc("LEVERAGED_TERMINAL_ARITHMETIC_DIVERGENCE_6569")
-                ForensicLogger.lifecycle("LEVERAGED_TERMINAL_ARITHMETIC_DIVERGENCE_6569", "positionId=$positionId symbol=$symbol basis=$basis gross=$grossProceedsSol fee=$sellFeeSol expected=$expected6569 realized=$canonicalRealizedPnl6569 returnPct=$return6569 action=settle_but_quarantine_learning")
+                ForensicLogger.lifecycle("LEVERAGED_TERMINAL_ARITHMETIC_DIVERGENCE_6569", "positionId=$positionId symbol=$symbol basis=$basis gross=$grossProceedsSol fee=$sellFeeSol rawExpected=$expected6569 settleableExpected=$economicallyCappedExpected6569 realized=$canonicalRealizedPnl6569 returnPct=$return6569 action=settle_but_quarantine_learning")
             } catch (_: Throwable) {}
         }
         val r = CanonicalPaperTerminalBridge6469.finalizeSell(
@@ -700,7 +718,19 @@ object CanonicalPaperTransaction6486 {
                     exitReason = "DUPLICATE_SAME_MINT_REFUND_6490", terminal = true,
                     directPositionMutation6486 = true, suppressLearningFanout6490 = true,
                 )
-                if (result.applied) { refunded++; basisTotal += basis } else failures++
+                if (result.applied) {
+                    // V5.0.6689 — the old duplicate repair stopped after the
+                    // bridge. That closed canonical inventory and credited cash
+                    // but never projected the matching immutable SELL to the
+                    // journal, creating a permanent ledger-vs-journal delta on
+                    // every startup repair. Complete the same receipt before
+                    // reporting the refund successful.
+                    recordCloseProjection6659(pos, result, "DUPLICATE_SAME_MINT_REFUND_6490", terminal = true)
+                    CanonicalMintOccupancyRegistry6464.markClosed("paper", pos.mint)
+                    try { PipelineHealthCollector.labelInc("DUPLICATE_REFUND_JOURNAL_COMMITTED_6689") } catch (_: Throwable) {}
+                    refunded++
+                    basisTotal += basis
+                } else failures++
             }
         }
         if (groups.isNotEmpty()) try {
