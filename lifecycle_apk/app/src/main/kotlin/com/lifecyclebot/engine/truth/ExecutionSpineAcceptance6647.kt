@@ -121,20 +121,45 @@ object ExecutionSpineAcceptanceWindow6647 {
     fun onExitSweepDone() { exitSweepDone.incrementAndGet() }
     fun onExitEvaluation() { exitEvaluations.incrementAndGet() }
 
+    /**
+     * V5.0.6689 — startup capture must be total. This witness is invoked at the
+     * accepted service-start boundary, when one of the specialist registries can
+     * legitimately still be initializing. The old all-or-nothing capture threw
+     * before beginWindow6662 emitted its START marker; BotService deliberately
+     * swallowed acceptance exceptions, leaving CI with no START and no RESULT.
+     * Missing sources now sample as zero and therefore produce an explicit FAIL
+     * at the closing boundary instead of silently deleting the witness.
+     */
     private fun capture(nowMs: Long): Baseline {
-        val health = com.lifecyclebot.engine.PipelineHealthCollector.snapshot()
+        val health = try { com.lifecyclebot.engine.PipelineHealthCollector.snapshot() } catch (_: Throwable) { null }
+        val desks = try { com.lifecyclebot.engine.ToolkitSignalSheet.configuredMemeDesks6647() } catch (_: Throwable) { emptyList() }
+        val phantom = try {
+            desks.sumOf { SpecialistCausalFunnel6625.laneSnapshot6647(it).phantomSizedOnly }.toLong()
+        } catch (_: Throwable) { 0L }
         return Baseline(
             atMs = nowMs,
-            phaseSafety = health.phaseCounts["SAFETY"] ?: 0L,
-            phaseV3 = health.phaseCounts["V3"] ?: 0L,
-            labels = watchedLabels.associateWith { health.labelCounts[it] ?: 0L },
-            cryptoOpen = CanonicalEntryAuthority6540.snapshot(CanonicalEntryAuthority6540.Venue.CRYPTO).opensConfirmed,
+            phaseSafety = health?.phaseCounts?.get("SAFETY") ?: 0L,
+            phaseV3 = health?.phaseCounts?.get("V3") ?: 0L,
+            labels = watchedLabels.associateWith { key -> health?.labelCounts?.get(key) ?: 0L },
+            cryptoOpen = try {
+                CanonicalEntryAuthority6540.snapshot(CanonicalEntryAuthority6540.Venue.CRYPTO).opensConfirmed
+            } catch (_: Throwable) { 0L },
             exitStart = exitSweepStart.get(),
             exitDone = exitSweepDone.get(),
             exitEvaluations = exitEvaluations.get(),
-            phantomSizedOnly = com.lifecyclebot.engine.ToolkitSignalSheet.configuredMemeDesks6647()
-                .sumOf { SpecialistCausalFunnel6625.laneSnapshot6647(it).phantomSizedOnly }.toLong(),
+            phantomSizedOnly = phantom,
         )
+    }
+
+    private fun emitFailure6689(durationMs: Long, failures: List<String>, error: Throwable? = null) {
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_ACCEPTANCE_6647_FAIL")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "EXECUTION_SPINE_ACCEPTANCE_6647_FAIL",
+                "durationMs=$durationMs failures=${failures.joinToString("|")}" +
+                    (error?.let { " err=${it.javaClass.simpleName}:${it.message?.take(120)}" } ?: ""),
+            )
+        } catch (_: Throwable) {}
     }
 
     /**
@@ -145,9 +170,9 @@ object ExecutionSpineAcceptanceWindow6647 {
      */
     @Synchronized
     fun beginWindow6662(nowMs: Long = System.currentTimeMillis()) {
-        baseline = capture(nowMs)
-        requestedCycle.set(-1L)
-        maxStartDelayCycles.set(0L)
+        // Emit the start witness BEFORE touching optional runtime registries.
+        // Even if a future capture regression reappears, CI gets a precise
+        // start marker rather than an unexplained missing acceptance window.
         try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_WINDOW_STARTED_6662")
             com.lifecyclebot.engine.ForensicLogger.lifecycle(
@@ -155,6 +180,9 @@ object ExecutionSpineAcceptanceWindow6647 {
                 "atMs=$nowMs source=accepted_runtime_start",
             )
         } catch (_: Throwable) {}
+        baseline = capture(nowMs)
+        requestedCycle.set(-1L)
+        maxStartDelayCycles.set(0L)
     }
 
     /** Returns null while the mandatory window is still warming. */
@@ -164,78 +192,97 @@ object ExecutionSpineAcceptanceWindow6647 {
         if (start == null) {
             baseline = capture(nowMs)
             maxStartDelayCycles.set(0L)
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_WINDOW_REBASED_6689")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "EXECUTION_SPINE_WINDOW_REBASED_6689",
+                    "atMs=$nowMs reason=missing_start_baseline",
+                )
+            } catch (_: Throwable) {}
             return null
         }
         val duration = nowMs - start.atMs
         if (duration < ExecutionSpineAcceptance6647.MIN_WINDOW_MS) return null
 
-        // Close against durable economic truth, not a stale periodic sample.
-        // This also settles stop/restart journal lots which no longer have a
-        // canonical owner before enforcing exact scalar and quantity parity.
-        try { CanonicalPaperTransaction6486.reconcileForensicBoundary6666() } catch (_: Throwable) {}
-        val end = capture(nowMs)
-        val delta: (String) -> Long = { key -> ((end.labels[key] ?: 0L) - (start.labels[key] ?: 0L)).coerceAtLeast(0L) }
-        val desks = com.lifecyclebot.engine.ToolkitSignalSheet.configuredMemeDesks6647()
-        val heartbeatCount = desks.count { SpecialistRuntimeRegistry6647.snapshot(it, nowMs).runtimeAlive }
-        val phantom = (end.phantomSizedOnly - start.phantomSizedOnly).coerceAtLeast(0L)
-        val forensic = ForensicReconciliation6635.deltas6647()
-        // A dispatch begun at the sampling edge may still be legitimately in
-        // flight; terminal-cardinality applies after a bounded grace period.
-        val cardinality = CanonicalEntryAuthority6551.cardinalityForWindow6647(
-            start.atMs, (end.atMs - 10_000L).coerceAtLeast(start.atMs),
-        )
-        val reconciledDelta: (Double) -> Double = { value -> if (forensic.reconciled) value else Double.NaN }
-        val observation = ExecutionSpineAcceptance6647.Observation(
-            durationMs = duration,
-            safety = (end.phaseSafety - start.phaseSafety).coerceAtLeast(0L),
-            v3 = (end.phaseV3 - start.phaseV3).coerceAtLeast(0L),
-            bgSplitRuntimeIntakeZombie = delta("BG_SPLIT_RUNTIME_INTAKE_ZOMBIE_6579"),
-            configuredWorkers = desks.size,
-            currentWorkerHeartbeats = heartbeatCount,
-            phantomSizedOnly = phantom,
-            sizePending = delta("EXEC_OPEN_PRECHECK_SIZE_PENDING_6491"),
-            fdgAllowWithoutIntent = delta("FDG_ALLOW_WITHOUT_EXEC_INTENT"),
-            dispatches = cardinality.dispatches,
-            immutableIntentsForDispatches = cardinality.immutableIntentsForDispatches,
-            terminalResultsForDispatches = cardinality.terminalResultsForDispatches,
-            // A fresh OPEN is ideal, but a bounded window can begin after Crypto
-            // has already filled its slots. Existing canonical CRYPTO_ALT
-            // positions are durable proof that the venue reached OPEN; do not
-            // call a capacity-bound healthy book "choked" merely because it
-            // correctly declined another position during this exact window.
-            cryptoOpenConfirmed = (end.cryptoOpen - start.cryptoOpen).coerceAtLeast(0L) +
-                CanonicalPositionAuthority6441.openPositions()
-                    .count { it.assetClass == AssetClass.CRYPTO_ALT }.toLong(),
-            maxExitStartDelayCycles = maxStartDelayCycles.get(),
-            exitStart = (end.exitStart - start.exitStart).coerceAtLeast(0L),
-            exitDone = (end.exitDone - start.exitDone).coerceAtLeast(0L),
-            canonicalOpen = CanonicalPositionAuthority6441.openPositions().size.toLong(),
-            exitEvaluations = (end.exitEvaluations - start.exitEvaluations).coerceAtLeast(0L),
-            supervisorForcedLeaseReleases = delta("SUPERVISOR_LEASE_FORCE_RELEASED"),
-            cashDeltaSol = reconciledDelta(forensic.cashSol),
-            basisDeltaSol = reconciledDelta(forensic.basisSol),
-            realizedDeltaSol = reconciledDelta(forensic.realizedSol),
-            quantityDeltaRaw = if (forensic.reconciled) forensic.quantityRaw else java.math.BigInteger.ONE,
-            heroJournalParityFail = delta("HERO_JOURNAL_PARITY_FAIL_6616"),
-            invalidGrowthOrLearningUpdates = delta("GROWTH_RING_INVALID_ACCOUNT_UPDATE_6647") +
-                delta("LEARNING_INVALID_ACCOUNT_UPDATE_6647"),
-        )
-        val result = ExecutionSpineAcceptance6647.evaluate(observation)
-        baseline = end
-        maxStartDelayCycles.set(0L)
-        try {
-            if (result.passed) {
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_ACCEPTANCE_6647_OK")
-                com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                    "EXECUTION_SPINE_ACCEPTANCE_6647_OK",
-                    "durationMs=$duration safety=${observation.safety} v3=${observation.v3} workers=${observation.currentWorkerHeartbeats}/${observation.configuredWorkers} dispatches=${observation.dispatches} cryptoOpen=${observation.cryptoOpenConfirmed} exit=${observation.exitStart}/${observation.exitDone} canonicalOpen=${observation.canonicalOpen} exitEval=${observation.exitEvaluations}",
+        return try {
+            // Close against durable economic truth, not a stale periodic sample.
+            // This also settles stop/restart journal lots which no longer have a
+            // canonical owner before enforcing exact scalar and quantity parity.
+            try { CanonicalPaperTransaction6486.reconcileForensicBoundary6666() } catch (_: Throwable) {}
+            val end = capture(nowMs)
+            val delta: (String) -> Long = { key -> ((end.labels[key] ?: 0L) - (start.labels[key] ?: 0L)).coerceAtLeast(0L) }
+            val desks = try { com.lifecyclebot.engine.ToolkitSignalSheet.configuredMemeDesks6647() } catch (_: Throwable) { emptyList() }
+            val heartbeatCount = desks.count { desk ->
+                try { SpecialistRuntimeRegistry6647.snapshot(desk, nowMs).runtimeAlive } catch (_: Throwable) { false }
+            }
+            val phantom = (end.phantomSizedOnly - start.phantomSizedOnly).coerceAtLeast(0L)
+            val forensic = try { ForensicReconciliation6635.deltas6647() } catch (_: Throwable) { null }
+            // A dispatch begun at the sampling edge may still be legitimately in
+            // flight; terminal-cardinality applies after a bounded grace period.
+            val cardinality = try {
+                CanonicalEntryAuthority6551.cardinalityForWindow6647(
+                    start.atMs, (end.atMs - 10_000L).coerceAtLeast(start.atMs),
                 )
+            } catch (_: Throwable) { null }
+            val reconciledDelta: (Double?) -> Double = { value ->
+                if (forensic?.reconciled == true && value != null) value else Double.NaN
             }
-            else {
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_ACCEPTANCE_6647_FAIL")
-                com.lifecyclebot.engine.ForensicLogger.lifecycle("EXECUTION_SPINE_ACCEPTANCE_6647_FAIL", "durationMs=$duration failures=${result.failures.joinToString("|")}")
-            }
-        } catch (_: Throwable) {}
-        return result
+            val canonicalOpenPositions = try { CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }
+            val observation = ExecutionSpineAcceptance6647.Observation(
+                durationMs = duration,
+                safety = (end.phaseSafety - start.phaseSafety).coerceAtLeast(0L),
+                v3 = (end.phaseV3 - start.phaseV3).coerceAtLeast(0L),
+                bgSplitRuntimeIntakeZombie = delta("BG_SPLIT_RUNTIME_INTAKE_ZOMBIE_6579"),
+                configuredWorkers = desks.size,
+                currentWorkerHeartbeats = heartbeatCount,
+                phantomSizedOnly = phantom,
+                sizePending = delta("EXEC_OPEN_PRECHECK_SIZE_PENDING_6491"),
+                fdgAllowWithoutIntent = delta("FDG_ALLOW_WITHOUT_EXEC_INTENT"),
+                dispatches = cardinality?.dispatches ?: -1L,
+                immutableIntentsForDispatches = cardinality?.immutableIntentsForDispatches ?: -2L,
+                terminalResultsForDispatches = cardinality?.terminalResultsForDispatches ?: -3L,
+                // A fresh OPEN is ideal, but a bounded window can begin after Crypto
+                // has already filled its slots. Existing canonical CRYPTO_ALT
+                // positions are durable proof that the venue reached OPEN; do not
+                // call a capacity-bound healthy book "choked" merely because it
+                // correctly declined another position during this exact window.
+                cryptoOpenConfirmed = (end.cryptoOpen - start.cryptoOpen).coerceAtLeast(0L) +
+                    canonicalOpenPositions.count { it.assetClass == AssetClass.CRYPTO_ALT }.toLong(),
+                maxExitStartDelayCycles = maxStartDelayCycles.get(),
+                exitStart = (end.exitStart - start.exitStart).coerceAtLeast(0L),
+                exitDone = (end.exitDone - start.exitDone).coerceAtLeast(0L),
+                canonicalOpen = canonicalOpenPositions.size.toLong(),
+                exitEvaluations = (end.exitEvaluations - start.exitEvaluations).coerceAtLeast(0L),
+                supervisorForcedLeaseReleases = delta("SUPERVISOR_LEASE_FORCE_RELEASED"),
+                cashDeltaSol = reconciledDelta(forensic?.cashSol),
+                basisDeltaSol = reconciledDelta(forensic?.basisSol),
+                realizedDeltaSol = reconciledDelta(forensic?.realizedSol),
+                quantityDeltaRaw = if (forensic?.reconciled == true) forensic.quantityRaw else java.math.BigInteger.ONE,
+                heroJournalParityFail = delta("HERO_JOURNAL_PARITY_FAIL_6616"),
+                invalidGrowthOrLearningUpdates = delta("GROWTH_RING_INVALID_ACCOUNT_UPDATE_6647") +
+                    delta("LEARNING_INVALID_ACCOUNT_UPDATE_6647"),
+            )
+            val result = ExecutionSpineAcceptance6647.evaluate(observation)
+            baseline = end
+            maxStartDelayCycles.set(0L)
+            try {
+                if (result.passed) {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_ACCEPTANCE_6647_OK")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "EXECUTION_SPINE_ACCEPTANCE_6647_OK",
+                        "durationMs=$duration safety=${observation.safety} v3=${observation.v3} workers=${observation.currentWorkerHeartbeats}/${observation.configuredWorkers} dispatches=${observation.dispatches} cryptoOpen=${observation.cryptoOpenConfirmed} exit=${observation.exitStart}/${observation.exitDone} canonicalOpen=${observation.canonicalOpen} exitEval=${observation.exitEvaluations}",
+                    )
+                } else {
+                    emitFailure6689(duration, result.failures)
+                }
+            } catch (_: Throwable) {}
+            result
+        } catch (t: Throwable) {
+            val result = ExecutionSpineAcceptance6647.Result(listOf("ACCEPTANCE_CAPTURE_EXCEPTION_6689"))
+            emitFailure6689(duration, result.failures, t)
+            baseline = try { capture(nowMs) } catch (_: Throwable) { null }
+            maxStartDelayCycles.set(0L)
+            result
+        }
     }
 }
