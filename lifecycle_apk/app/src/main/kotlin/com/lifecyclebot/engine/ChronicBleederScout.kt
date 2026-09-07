@@ -64,6 +64,10 @@ object ChronicBleederScout {
                         "CHRONIC_BLEEDER_LAB_REPROVE_6679",
                         "env=$env6679 lane=$laneU n=${s.trades} wr=${"%.0f".format(wr * 100)}% avgPnl=${"%.1f".format(s.meanPnlPct)}% nextTactic=$nextTactic",
                     )
+                    // Preserve the pre-6679 aggregate label because AutoPipelineAdvisor6462
+                    // intentionally consumes it as its deterministic R8 trigger. The new
+                    // dimensional label adds mode/lane attribution without breaking that bus.
+                    PipelineHealthCollector.labelInc("CHRONIC_BLEEDER_LAB_REPROVE_6265")
                     PipelineHealthCollector.labelInc("CHRONIC_BLEEDER_LAB_REPROVE_6679|mode=$env6679|lane=$laneU")
                 } catch (_: Throwable) {}
             }
