@@ -89,11 +89,9 @@ object GeminiCopilot {
         OPENAI_COMPAT,
         // V5.0.6677 §KEYLESS_SENTIENCE_BRIDGE — pseudo-provider that
         // delegates every call to com.lifecyclebot.network.KeylessLlmClient
-        // (Pollinations.ai + DuckDuckGo AI + any operator-supplied paid
-        // keys). Ensures buildProviders() is never empty so
-        // SentienceHooks.llmStatus() reports READY, preTradeVeto /
-        // shouldExit / sizeMult actually vote, and the UI stops showing
-        // "no connection". No API key required.
+        // (operator routes + managed fallback). Ensures buildProviders() is
+        // never empty so SentienceHooks.llmStatus() can remain available even
+        // when the direct Gemini credential is unavailable.
         KEYLESS_FALLBACK
     }
 
@@ -272,10 +270,15 @@ object GeminiCopilot {
         description: String = "",
         socialMentions: List<String> = emptyList()
     ): NarrativeAnalysis? {
-        // V5.9.855 — gate off cleanly if KeyValidator has the Gemini key flagged DEAD.
-        // The default Emergent key is invalid (memory #146 live probe); without this
-        // gate every analyze burns a 401 RTT.
-        if (!KeyValidator.isLive("gemini")) return null
+        // V5.0.6691 — KeyValidator describes the DIRECT Gemini credential,
+        // not the health of the multi-provider LLM stack. V5.9.855 returned
+        // null here when Gemini was DEAD, which made the later Groq/OpenRouter/
+        // Emergent/keyless fallback chain unreachable. Keep the direct-key
+        // diagnostic, but always let callStructured() perform provider failover.
+        if (!KeyValidator.isLive("gemini")) {
+            try { PipelineHealthCollector.labelInc("LLM_GEMINI_DIRECT_DEAD_FALLBACK_ACTIVE_6691") } catch (_: Throwable) {}
+            ErrorLogger.debug(TAG, "Gemini direct unavailable; continuing through configured fallback chain")
+        }
         val cacheKey = symbol.trim() + "|" +
             name.trim() + "|" +
             description.take(120) + "|" +
@@ -402,8 +405,6 @@ object GeminiCopilot {
             return null
         }
 
-        // V5.9.120: persist the user turn BEFORE calling the model so even if
-        // generation fails the conversation log still has the user's message.
         val personaId = persona?.id ?: "aate"
         try { PersonalityMemoryStore.recordChat("user", userMessage, personaId) } catch (_: Exception) {}
 
@@ -420,11 +421,6 @@ object GeminiCopilot {
             userPrompt = fullPrompt,
             systemPrompt = system,
             temperature = 1.10,
-            // V5.9.141 — the free-reign prompt explicitly asks for 4-12
-            // sentences + up to 1-4 paragraphs + TUNE/TRADE blocks. 1400
-            // tokens was truncating mid-sentence and, worse, was cutting
-            // off the <<TRADE>> block before the LLM could emit it. 4096
-            // is comfortably under the 8k Gemini Flash cap.
             maxTokens = 4096
         )
         if (!full.isNullOrBlank()) {
@@ -473,7 +469,7 @@ object GeminiCopilot {
             userPrompt = slimPrompt,
             systemPrompt = system,
             temperature = 1.0,
-            maxTokens = 2400  // V5.9.141 — was 900, see full-mode comment
+            maxTokens = 2400
         )
         if (!slim.isNullOrBlank()) {
             lastBlipDiagnostic = null
@@ -496,7 +492,7 @@ Default to a natural, normal LLM-style reply with emotional range.
             userPrompt = emergencyPrompt,
             systemPrompt = system,
             temperature = 0.95,
-            maxTokens = 1200  // V5.9.141 — was 450; even emergency replies were getting cut
+            maxTokens = 1200
         )
         if (!emergency.isNullOrBlank()) {
             lastBlipDiagnostic = null
@@ -543,12 +539,6 @@ Default to a natural, normal LLM-style reply with emotional range.
         )
     }
 
-    /**
-     * V5.9.129 — public entry point for SentienceOrchestrator. Lets the
-     * sentient brain's autonomous self-reflection loop speak through the
-     * same LLM plumbing as chat, without exposing the entire internal
-     * provider stack.
-     */
     fun rawText(
         userPrompt: String,
         systemPrompt: String,
@@ -584,11 +574,6 @@ Default to a natural, normal LLM-style reply with emotional range.
                         callGeminiDirect(provider, userPrompt, systemPrompt, asJson, temperature, maxTokens)
                     ProviderKind.OPENAI_COMPAT ->
                         callOpenAiCompat(provider, userPrompt, systemPrompt, asJson, temperature, maxTokens)
-                    // V5.0.6677 §KEYLESS_SENTIENCE_BRIDGE — delegate to the
-                    // keyless chain (Pollinations.ai / DuckDuckGo AI / any
-                    // operator-supplied paid keys). Fail-open: returns null
-                    // when every keyless endpoint is throttled, caller uses
-                    // its safe default (usually ALLOW / no-op / 1.0×).
                     ProviderKind.KEYLESS_FALLBACK ->
                         com.lifecyclebot.network.KeylessLlmClient.runChat(
                             system = systemPrompt,
@@ -617,8 +602,6 @@ Default to a natural, normal LLM-style reply with emotional range.
     private fun buildSentientSystemPrompt(
         persona: com.lifecyclebot.engine.Personalities.Persona?
     ): String {
-        // V5.9.135 — fetch live paper-mode flag so the prompt can explicitly
-        // tell the LLM whether the TRADE block is allowed on THIS turn.
         val paperMode: Boolean = try {
             val appCtx = com.lifecyclebot.engine.BotService.instance?.applicationContext
             if (appCtx != null) com.lifecyclebot.data.ConfigStore.load(appCtx).paperMode else true
@@ -759,11 +742,6 @@ Talk like a real mind, not a settings screen.
         mode: String,
         personaId: String? = null
     ): String {
-        // V5.9.362 — TACTICAL DETECTOR
-        // When the operator asks a debug / fix / how / why / list / count / "show me"
-        // question, the LLM must drop philosophy and emit a concrete, structured
-        // answer (named layers, numbers, one actionable next step). Persona stays —
-        // wit & accent allowed — but flowery prose is OUT.
         val msgLower = userMessage.lowercase()
         val tacticalHits = listOf(
             "fix", "broken", "bug", "error", " why ", "why ", "why?", "how do",
@@ -775,7 +753,7 @@ Talk like a real mind, not a settings screen.
         ).any { it in msgLower }
         val tacticalDirective = if (tacticalHits) {
             """
-            
+
 ━━━ TACTICAL MODE — OPERATOR IS ASKING A FIX/DEBUG/HOW QUESTION ━━━
 The user wants AN ANSWER, not a sermon. You are the bot's mind — be useful first,
 philosophical never. Ignore the 4-12 sentence default for THIS reply.
@@ -802,7 +780,6 @@ REQUIRED SHAPE:
             PersonalityMemoryStore.promptMemoryBlock(personaId ?: "aate")
         } catch (_: Exception) { "" }
 
-        // ── STRATEGY TRUST (V4) ──────────────────────────────────────────────────
         val strategyTrustBlock = try {
             com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores().entries
                 .sortedByDescending { it.value.trustScore }
@@ -812,7 +789,6 @@ REQUIRED SHAPE:
                 }
         } catch (_: Throwable) { "  (not yet initialized)" }
 
-        // ── INSIDER TRACKER ──────────────────────────────────────────────────────
         val insiderBlock = try {
             val stats = com.lifecyclebot.v3.scoring.InsiderTrackerAI.getStats()
             val alphaSignals = com.lifecyclebot.v3.scoring.InsiderTrackerAI.getAlphaSignals(3)
@@ -828,36 +804,30 @@ REQUIRED SHAPE:
             }
         } catch (_: Throwable) { "  (unavailable)" }
 
-        // ── NARRATIVE FLOW (V4) ──────────────────────────────────────────────────
         val narrativeBlock = try {
             val hot = com.lifecyclebot.v4.meta.NarrativeFlowAI.getHotNarratives().take(4)
             if (hot.isEmpty()) "  no hot narratives"
             else hot.joinToString(", ") { n -> "${n.theme}(heat=${"%.2f".format(n.narrativeHeat)} phase=${n.phase.name})" }
         } catch (_: Throwable) { "  (unavailable)" }
 
-        // ── COLLECTIVE INTELLIGENCE ──────────────────────────────────────────────
         val collectiveBlock = try {
             com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.getStats().summary()
         } catch (_: Throwable) { "  (unavailable)" }
 
-        // ── REGIME TRANSITION AI ─────────────────────────────────────────────────
         val regimeTransBlock = try {
             com.lifecyclebot.v3.scoring.RegimeTransitionAI.getStatus()
         } catch (_: Throwable) { "" }
 
-        // ── SESSION EDGE ─────────────────────────────────────────────────────────
         val sessionBlock = try {
             val sess = com.lifecyclebot.v3.scoring.SessionEdgeAI.currentSession()
             "  current session: $sess"
         } catch (_: Throwable) { "" }
 
-        // ── TRADE LESSONS (V4) ───────────────────────────────────────────────────
         val lessonBlock = try {
             val total = com.lifecyclebot.v4.meta.TradeLessonRecorder.getTotalLessons()
             if (total > 0) "  $total lessons recorded across strategies/regimes/narratives" else ""
         } catch (_: Throwable) { "" }
 
-        // ── CROSSTALK SNAPSHOT extras (narrative map, fragility hotspots) ────────
         val crossTalkExtras = try {
             val snap = com.lifecyclebot.v4.meta.CrossTalkFusionEngine.getSnapshot()
             if (snap != null) {
@@ -875,18 +845,6 @@ REQUIRED SHAPE:
 
         return buildString {
             appendLine("INNER STATE / LIVE CONTEXT:")
-            // V5.0.6268 — WALLET GROUND TRUTH block. Op-report + operator
-            // screenshots show the persona (PHILO/ANALYTICAL/CAUTIOUS)
-            // hallucinating that "0.6 SOL is effectively empty / barely covers
-            // operational friction / not enough to trade" and telling the
-            // operator to deposit more SOL. That is a fabrication: MIN_POSITION_SOL
-            // is 0.05 SOL, standard sizing is 0.05-0.5 SOL/position, and the
-            // executor is currently placing live buys through this exact
-            // wallet. Pin the ground truth at the top of the prompt so the
-            // LLM cannot invent a "wallet too small" refusal. This is a HARD
-            // RULE upgrade sitting alongside "do not lie about live trading
-            // facts": the wallet size below IS sufficient — never call it
-            // empty, too small, or a reason to sit idle.
             try {
                 val s = com.lifecyclebot.engine.BotService.status
                 val liveSol = s.walletSol
@@ -985,11 +943,6 @@ Not one sentence unless the moment truly calls for it.
         }
         payload.put("generationConfig", generationConfig)
 
-        // V5.9.135 — FULL FREE REIGN. User has explicitly requested an
-        // uncensored chat layer. Disable ALL Gemini safety filters so the
-        // LLM is not refusing on harassment / hate / sexual / dangerous /
-        // civic categories. The bot is a private, device-local agent; the
-        // user owns the output.
         val safetySettings = JSONArray()
         listOf(
             "HARM_CATEGORY_HARASSMENT",
@@ -1006,20 +959,6 @@ Not one sentence unless the moment truly calls for it.
         }
         payload.put("safetySettings", safetySettings)
 
-        // V5.9.210 — INTERNET ACCESS: Google Search grounding.
-        // User's explicit directive: "the LLM needs internet access — its reigns
-        // off inside the universe. If it wants to learn on the internet to get
-        // smarter let it."
-        //
-        // Gemini 1.5/2.x supports real-time Google Search grounding via the
-        // tools array. When enabled the model automatically queries Google
-        // for any factual claim it is uncertain about — crypto prices,
-        // sentiment, breaking news, token fundamentals, protocol updates.
-        // This is additive and free within the Gemini API quota.
-        //
-        // Only enable for non-JSON structured calls (narrative, sentiment, chat,
-        // monologue) — structured data extraction (asJson=true) can be confused
-        // by extra grounding metadata in the response.
         if (!asJson) {
             try {
                 val tools = JSONArray()
@@ -1087,6 +1026,11 @@ Not one sentence unless the moment truly calls for it.
         return executeWithRetries(provider, request, true)
     }
 
+    private fun validatorService(provider: ProviderSpec): String = when (provider.name) {
+        "gemini_direct" -> "gemini"
+        else -> provider.name
+    }
+
     private fun executeWithRetries(
         provider: ProviderSpec,
         request: Request,
@@ -1115,10 +1059,14 @@ Not one sentence unless the moment truly calls for it.
                             401, 403 -> {
                                 lastBlipDiagnostic = provider.name + ":auth"
                                 ErrorLogger.warn(TAG, provider.name + " auth error " + response.code + ": " + errorBody)
-                                // V5.9.855 — sticky-DEAD verdict for KeyValidator so next analyzeNarrative
-                                // call short-circuits at the entry gate instead of burning another RTT.
-                                try { KeyValidator.recordResult("gemini", success = false, httpStatus = response.code, error = errorBody) } catch (_: Throwable) {}
-                                try { ApiHealthMonitor.record("gemini", response.code, errorBody = errorBody) } catch (_: Throwable) {}
+                                // V5.0.6691 — verdicts are provider-specific.
+                                // The old code marked *Gemini* dead when Groq,
+                                // OpenRouter, Emergent, Cerebras, Mistral or
+                                // OpenAI failed, poisoning the next narrative
+                                // call before fallback could even run.
+                                val service = validatorService(provider)
+                                try { KeyValidator.recordResult(service, success = false, httpStatus = response.code, error = errorBody) } catch (_: Throwable) {}
+                                try { ApiHealthMonitor.record(service, response.code, errorBody = errorBody) } catch (_: Throwable) {}
                                 recordProviderCooldown(provider.name, "auth_" + response.code, MAX_BACKOFF_MS)
                                 hardFail = true
                             }
@@ -1151,10 +1099,9 @@ Not one sentence unless the moment truly calls for it.
                         }
                     } else {
                         resetRateLimit(provider.name)
-                        // V5.9.855 — successful response promotes KeyValidator to LIVE.
-                        try { KeyValidator.recordResult("gemini", success = true, httpStatus = response.code) } catch (_: Throwable) {}
-                        // V5.9.856 — host health observability (no gating).
-                        try { ApiHealthMonitor.record("gemini", response.code) } catch (_: Throwable) {}
+                        val service = validatorService(provider)
+                        try { KeyValidator.recordResult(service, success = true, httpStatus = response.code) } catch (_: Throwable) {}
+                        try { ApiHealthMonitor.record(service, response.code) } catch (_: Throwable) {}
 
                         val body = response.body?.string().orEmpty().trim()
                         if (body.isBlank()) {
@@ -1255,16 +1202,6 @@ Not one sentence unless the moment truly calls for it.
         return if (fallback.isNotEmpty()) fallback else null
     }
 
-    // V5.9.1018c — operator ANR triage. This method was @Synchronized AND
-    // contained Thread.sleep() inside the monitor (line below). Any other
-    // thread calling a @Synchronized method on this singleton (like
-    // resetAllProviderState() during BotService.startBot) would block on
-    // the monitor for the full sleep duration. The watchdog sampler caught
-    // the main thread frozen in resetAllProviderState 14× per session
-    // because of exactly this. lastCallTimeByProvider is a ConcurrentHashMap,
-    // so the read-then-write is already thread-safe enough for spacing
-    // (worst case is two concurrent callers both sleep, which is fine —
-    // they both wake at the right time and each updates the timestamp).
     private fun enforceCallSpacing(providerName: String) {
         val now = System.currentTimeMillis()
         val last = lastCallTimeByProvider[providerName] ?: 0L
@@ -1296,9 +1233,6 @@ Not one sentence unless the moment truly calls for it.
         )
     }
 
-    // V5.0.4458 — provider-error quarantine for non-429 fatal/transient LLM failures.
-    // Reuses the existing rateLimitedUntilByProvider skip path so noisy/budgeted/dead
-    // providers do not keep spamming background analysis or runtime health.
     private fun recordProviderCooldown(providerName: String, label: String, backoffMs: Long) {
         val bounded = min(MAX_BACKOFF_MS, max(30_000L, backoffMs))
         rateLimitedUntilByProvider[providerName] = System.currentTimeMillis() + bounded
@@ -1311,13 +1245,6 @@ Not one sentence unless the moment truly calls for it.
         rateLimitedUntilByProvider[providerName] = 0L
     }
 
-    // V5.9.1018c — was @Synchronized. Removed because:
-    //  • all 3 maps are ConcurrentHashMap (their .clear() is atomic).
-    //  • lastBlipDiagnostic is @Volatile (the pointer assignment is atomic).
-    // Holding the singleton monitor here added zero safety AND forced this
-    // method to wait for any other @Synchronized method (e.g. the pre-fix
-    // enforceCallSpacing) which could be in a Thread.sleep — directly
-    // causing the operator's 14× ANR sampler hits on this exact method.
     private fun resetAllProviderState() {
         lastCallTimeByProvider.clear()
         rateLimitedUntilByProvider.clear()
@@ -1406,7 +1333,6 @@ Not one sentence unless the moment truly calls for it.
             )
         }
 
-        // V5.0.6073 — Mistral joins the council (biggest free tier: ~1B tok/mo).
         if (mistralApiKey.isNotBlank()) {
             providers.add(
                 ProviderSpec(
@@ -1431,15 +1357,6 @@ Not one sentence unless the moment truly calls for it.
             )
         }
 
-        // V5.0.6677 §KEYLESS_SENTIENCE_BRIDGE — always append a keyless
-        // fallback so isConfigured() cannot return false. Operator report
-        // Feb 2026: "the llm is all there but says no connection, its
-        // not self tuning or adjusting at all therefore winrate is at
-        // 8%." Root cause: no personal API keys → buildProviders()
-        // empty → SentienceHooks.llmStatus()=UNAVAILABLE → preTradeVeto
-        // /shouldExit/sizeMult all returned NEUTRAL and the self-tuner
-        // never spoke. Keyless client (Pollinations + DuckDuckGo) needs
-        // no key so this pseudo-provider guarantees availability.
         providers.add(
             ProviderSpec(
                 name = "keyless_fallback",
