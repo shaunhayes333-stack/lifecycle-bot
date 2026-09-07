@@ -102,9 +102,9 @@ jobs:
         run: |
           set -euo pipefail
           cd lifecycle_apk
-          python3 ../ci/golden_tape_literal_scan.py
-          python3 ../ci/authority_contradiction_scan.py
-          python3 ../ci/patch_rot_scan.py
+          python3 ci/golden_tape_literal_scan.py
+          python3 ci/authority_contradiction_scan.py
+          python3 ci/patch_rot_scan.py
 
       - name: Compile and run complete release unit suite
         shell: bash
