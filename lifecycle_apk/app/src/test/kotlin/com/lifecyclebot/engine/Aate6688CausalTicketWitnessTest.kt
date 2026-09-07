@@ -28,8 +28,7 @@ class Aate6688CausalTicketWitnessTest {
 
     @Test
     fun causalExecBackfillsTicketOnSameImmutableRecord() {
-        val funnel = SpecialistCausalFunnel6625
-        val key = funnel.CausalKey(
+        val key = SpecialistCausalFunnel6625.CausalKey(
             runId = "1",
             mode = "PAPER",
             mint = "mint6688",
@@ -37,22 +36,21 @@ class Aate6688CausalTicketWitnessTest {
             authorityVersion = 6551L,
             intentId = "mint6688:42:EXPRESS",
         )
-        funnel.stamp6625(key, funnel.Stage.DISCOVER, "POOL")
-        funnel.stamp6625(key, funnel.Stage.INTENT, "BUY_INTENT")
-        funnel.stamp6625(key, funnel.Stage.FDG, "FDG_ALLOW")
-        funnel.stamp6625(key, funnel.Stage.MARK, "MARK_READY")
-        funnel.stamp6625(key, funnel.Stage.SIZE, "SIZED_EXECUTABLE")
-        funnel.stamp6625(key, funnel.Stage.EXEC, "EXEC")
+        SpecialistCausalFunnel6625.stamp6625(key, SpecialistCausalFunnel6625.Stage.DISCOVER, "POOL")
+        SpecialistCausalFunnel6625.stamp6625(key, SpecialistCausalFunnel6625.Stage.INTENT, "BUY_INTENT")
+        SpecialistCausalFunnel6625.stamp6625(key, SpecialistCausalFunnel6625.Stage.FDG, "FDG_ALLOW")
+        SpecialistCausalFunnel6625.stamp6625(key, SpecialistCausalFunnel6625.Stage.MARK, "MARK_READY")
+        SpecialistCausalFunnel6625.stamp6625(key, SpecialistCausalFunnel6625.Stage.SIZE, "SIZED_EXECUTABLE")
+        SpecialistCausalFunnel6625.stamp6625(key, SpecialistCausalFunnel6625.Stage.EXEC, "EXEC")
 
-        val snap = funnel.laneSnapshot6647("EXPRESS")
-        assertEquals(1, snap.counts[funnel.Stage.TICKET])
-        assertEquals(1, snap.counts[funnel.Stage.EXEC])
+        val snap = SpecialistCausalFunnel6625.laneSnapshot6647("EXPRESS")
+        assertEquals(1, snap.counts[SpecialistCausalFunnel6625.Stage.TICKET])
+        assertEquals(1, snap.counts[SpecialistCausalFunnel6625.Stage.EXEC])
     }
 
     @Test
     fun causalOpenBackfillsBothTicketAndExecButNoEconomicPredecessors() {
-        val funnel = SpecialistCausalFunnel6625
-        val key = funnel.CausalKey(
+        val key = SpecialistCausalFunnel6625.CausalKey(
             runId = "1",
             mode = "PAPER",
             mint = "mint6688open",
@@ -60,20 +58,20 @@ class Aate6688CausalTicketWitnessTest {
             authorityVersion = 6551L,
             intentId = "mint6688open:43:QUALITY",
         )
-        funnel.stamp6625(key, funnel.Stage.DISCOVER, "POOL")
-        funnel.stamp6625(key, funnel.Stage.INTENT, "BUY_INTENT")
-        funnel.stamp6625(key, funnel.Stage.FDG, "FDG_ALLOW")
-        funnel.stamp6625(key, funnel.Stage.MARK, "MARK_READY")
-        funnel.stamp6625(key, funnel.Stage.SIZE, "SIZED_EXECUTABLE")
-        funnel.stamp6625(key, funnel.Stage.OPEN, "POSITION_OPENED")
+        SpecialistCausalFunnel6625.stamp6625(key, SpecialistCausalFunnel6625.Stage.DISCOVER, "POOL")
+        SpecialistCausalFunnel6625.stamp6625(key, SpecialistCausalFunnel6625.Stage.INTENT, "BUY_INTENT")
+        SpecialistCausalFunnel6625.stamp6625(key, SpecialistCausalFunnel6625.Stage.FDG, "FDG_ALLOW")
+        SpecialistCausalFunnel6625.stamp6625(key, SpecialistCausalFunnel6625.Stage.MARK, "MARK_READY")
+        SpecialistCausalFunnel6625.stamp6625(key, SpecialistCausalFunnel6625.Stage.SIZE, "SIZED_EXECUTABLE")
+        SpecialistCausalFunnel6625.stamp6625(key, SpecialistCausalFunnel6625.Stage.OPEN, "POSITION_OPENED")
 
-        val snap = funnel.laneSnapshot6647("QUALITY")
-        assertEquals(1, snap.counts[funnel.Stage.TICKET])
-        assertEquals(1, snap.counts[funnel.Stage.EXEC])
-        assertEquals(1, snap.counts[funnel.Stage.OPEN])
-        assertEquals(1, snap.counts[funnel.Stage.INTENT])
-        assertEquals(1, snap.counts[funnel.Stage.FDG])
-        assertEquals(1, snap.counts[funnel.Stage.MARK])
-        assertEquals(1, snap.counts[funnel.Stage.SIZE])
+        val snap = SpecialistCausalFunnel6625.laneSnapshot6647("QUALITY")
+        assertEquals(1, snap.counts[SpecialistCausalFunnel6625.Stage.TICKET])
+        assertEquals(1, snap.counts[SpecialistCausalFunnel6625.Stage.EXEC])
+        assertEquals(1, snap.counts[SpecialistCausalFunnel6625.Stage.OPEN])
+        assertEquals(1, snap.counts[SpecialistCausalFunnel6625.Stage.INTENT])
+        assertEquals(1, snap.counts[SpecialistCausalFunnel6625.Stage.FDG])
+        assertEquals(1, snap.counts[SpecialistCausalFunnel6625.Stage.MARK])
+        assertEquals(1, snap.counts[SpecialistCausalFunnel6625.Stage.SIZE])
     }
 }
