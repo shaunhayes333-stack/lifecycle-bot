@@ -6,6 +6,9 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/aate-6686-live-authority-repair-v2.yml'
+      - 'ci/aate_6686_live_authority_repair.py'
+      - 'ci/aate_6686_runner_hotfix.py'
+      - 'ci/aate_6686_finalizer.py'
 
 permissions:
   contents: write
@@ -30,12 +33,13 @@ jobs:
           accept-android-sdk-licenses: true
           packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
 
-      - name: Correct staged runner and apply V5.0.6686
+      - name: Apply complete V5.0.6686 repair
         shell: bash
         run: |
           set -euo pipefail
           python3 ci/aate_6686_runner_hotfix.py
           python3 ci/aate_6686_live_authority_repair.py
+          python3 ci/aate_6686_finalizer.py
 
       - name: Verify repaired source contracts
         shell: bash
@@ -44,12 +48,17 @@ jobs:
           cd lifecycle_apk
           grep -q 'WALLET_RPC_PROVIDER_ERROR_FAILOVER_6686' app/src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt
           grep -q 'rpcCandidates(rpcUrl)' app/src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt
+          ! grep -q 'rpcUrl + WalletManager.FALLBACK_RPCS' app/src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt
           grep -q 'object LiveCanonicalRecovery6686' app/src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt
           grep -q 'LIVE_WALLET_CANONICAL_POSITION_RECOVERED_6686' app/src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt
           grep -q 'LiveCanonicalRecovery6686.recoverWalletSnapshot(status, walletMints)' app/src/main/kotlin/com/lifecyclebot/engine/WalletReconciler.kt
           grep -q 'object CanonicalUiPositionProjection6686' app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalUiPositionProjection6686.kt
           grep -q 'CanonicalUiPositionProjection6686.project(status)' app/src/main/kotlin/com/lifecyclebot/engine/truth/UiSnapshotAuthority6496.kt
           grep -q 'LIVE_WALLET_AUTHORITY_6686' app/src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt
+          grep -q 'activePositionIdByModeMint' app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt
+          grep -q 'positionIdOf(mint, paperMode)' app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt
+          ! grep -q 'activePositionIdByMint' app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt
+          grep -q 'positionIdOf(intent.mint, paperMode = false)' app/src/main/kotlin/com/lifecyclebot/engine/sell/SellFinalizationCoordinator.kt
 
       - name: Repository contradiction and patch-rot scans
         shell: bash
@@ -74,6 +83,7 @@ jobs:
           set -euo pipefail
           rm -f ci/aate_6686_live_authority_repair.py
           rm -f ci/aate_6686_runner_hotfix.py
+          rm -f ci/aate_6686_finalizer.py
           rm -f .github/workflows/aate-6686-live-authority-repair.yml
           rm -f .github/workflows/aate-6686-live-authority-repair-v2.yml
           git config user.name 'AATE CI Repair'
