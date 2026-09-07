@@ -14,12 +14,13 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * BotService publishes live slot-health each cycle via publish(); TradeAuthorizer reads
  * shouldDeferBuy() at the top of authorize() and returns a SOFT, retryable reject when
- * dirty. PROBE_ONLY / already-confirmed-high-edge candidates bypass (handled by caller).
+ * dirty. PROBE_ONLY / already-confirmed-high-edge candidates bypass the soft pressure.
  *
- * SAFETY: pure observation/admission timing. Never disables a lane, never blocks exits
- * (exits run on their own dispatcher and never call authorize()), never touches
- * positions or balances. A high-edge confirmed candidate is allowed through even when
- * dirty so genuine alpha is never starved.
+ * V5.0.6689 adds a different invariant: Meme inventory is working capital, not an
+ * unbounded sample reservoir. Soft dirty-slot pressure may fail open, but the canonical
+ * Meme inventory turnover ceiling MUST NOT. Once the ceiling is reached, exits continue
+ * while new Meme entries wait for confirmed closes to recycle cash back into the shared
+ * paper/live wallet. No lane is disabled and no exit is blocked.
  */
 object SlotHealthGate {
 
@@ -30,31 +31,33 @@ object SlotHealthGate {
     private val supervisorCap = AtomicInteger(48)
     private val exitPending = AtomicBoolean(false)
     private val lastPublishMs = AtomicLong(0L)
-    // V5.9.1498 — ghost-defer aging. A persistent ghost count must NEVER park
-    // the bot indefinitely (operator: 6h dead with ghosts dominating). We DEFER
-    // while ghosts are fresh (gives the reaper a chance), but FAIL-OPEN once the
-    // ghost condition has been continuously stuck past GHOST_DEFER_GRACE_MS — at
-    // that point the reaper is clearly not clearing them and starving entries is
-    // worse than running with a few stale slots. Mirrors the FDG fail-open rule.
+
     private val ghostStuckSinceMs = AtomicLong(0L)
-    private const val GHOST_DEFER_GRACE_MS = 60_000L  // 1 min of deferring, then fail-open
-    // V5.9.1547 — forced-open defer aging. The forcedOpen counter can wedge HIGH
-    // (snapshot 5.0.3575: forcedOpen=46 vs only 13 real lane positions) and, unlike
-    // the ghost path, the forced-open defer had NO fail-open — so every non-high-edge
-    // buy deferred FOREVER (EXEC frozen at 9, parked 11min at 501 closes with a healthy
-    // 5s loop). Mirror the ghost fail-open: defer while fresh so cleanup can catch up,
-    // then fail-open once the condition is clearly stuck past the grace window. The
-    // real risk backstops (-15% hard floor, FDG, per-lane slot caps) are unaffected.
+    private const val GHOST_DEFER_GRACE_MS = 60_000L
     private val forcedStuckSinceMs = AtomicLong(0L)
-    private const val FORCED_DEFER_GRACE_MS = 60_000L  // 1 min of deferring, then fail-open
+    private const val FORCED_DEFER_GRACE_MS = 60_000L
 
-    // Thresholds straight from the spec.
     private const val FORCED_OPEN_DIRTY = 20
-    // V5.9.1530 — open-position hard cap above which entries defer to in-flight exits.
-    private const val ENTRY_HARD_CAP = 12
+    // V5.0.6689 — 12 remains the soft exit-priority threshold. The old name
+    // ENTRY_HARD_CAP was misleading because it only applied while a sell job
+    // was already active and was bypassed by high-edge candidates.
+    private const val ENTRY_SOFT_CAP = 12
+    // Economic safety/turnover ceiling, not a strategy quota. With 14 Meme
+    // lanes this still allows broad simultaneous expression while preventing
+    // 100-250 funded positions from trapping the shared wallet indefinitely.
+    private const val MEME_TURNOVER_ABSOLUTE_CAP_6689 = 24
 
-    private fun canonicalPaperOpenCount(): Int = try {
-        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.activeMintProjections6490("paper").size
+    private val MEME_LANES_6689 = setOf(
+        "QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "EXPRESS",
+        "CORE", "MOONSHOT", "PROJECT_SNIPER", "DIP_HUNTER",
+        "MANIPULATED", "TREASURY", "CASHGEN", "STANDARD", "V3_CORE",
+        "REPLAY_6486", "SNIPER", "CASH", "BLUE", "FAST", "MANIP", "MOON",
+    )
+
+    private fun canonicalMemeOpenCount(mode: String): Int = try {
+        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+            .activeMintProjections6490(mode)
+            .count { it.lane.uppercase() in MEME_LANES_6689 }
     } catch (_: Throwable) { -1 }
 
     fun publish(
@@ -66,12 +69,20 @@ object SlotHealthGate {
         exitInFlight: Boolean,
     ) {
         val paperRuntime = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
-        val canonicalPaperOpen = if (paperRuntime) canonicalPaperOpenCount() else -1
-        val effectiveOpen = if (paperRuntime && canonicalPaperOpen >= 0) canonicalPaperOpen else openPositions.coerceAtLeast(0)
-        val effectiveForced = if (paperRuntime && canonicalPaperOpen >= 0) forcedOpen.coerceAtLeast(0).coerceAtMost(canonicalPaperOpen) else forcedOpen.coerceAtLeast(0)
-        if (paperRuntime && canonicalPaperOpen >= 0 && (effectiveForced != forcedOpen.coerceAtLeast(0) || effectiveOpen != openPositions.coerceAtLeast(0))) {
+        val canonicalMemeOpen = if (paperRuntime) canonicalMemeOpenCount("paper") else -1
+        val effectiveOpen = if (paperRuntime && canonicalMemeOpen >= 0) canonicalMemeOpen else openPositions.coerceAtLeast(0)
+        val effectiveForced = if (paperRuntime && canonicalMemeOpen >= 0)
+            forcedOpen.coerceAtLeast(0).coerceAtMost(canonicalMemeOpen)
+        else forcedOpen.coerceAtLeast(0)
+        if (paperRuntime && canonicalMemeOpen >= 0 &&
+            (effectiveForced != forcedOpen.coerceAtLeast(0) || effectiveOpen != openPositions.coerceAtLeast(0))) {
             try { PipelineHealthCollector.labelInc("PAPER_SLOT_HEALTH_REBUILT_FROM_LEDGER") } catch (_: Throwable) {}
-            try { ForensicLogger.lifecycle("PAPER_SLOT_HEALTH_REBUILT_FROM_LEDGER", "rawForced=$forcedOpen rawOpen=$openPositions canonicalPaperOpen=$canonicalPaperOpen") } catch (_: Throwable) {}
+            try {
+                ForensicLogger.lifecycle(
+                    "PAPER_SLOT_HEALTH_REBUILT_FROM_LEDGER",
+                    "rawForced=$forcedOpen rawOpen=$openPositions canonicalMemeOpen=$canonicalMemeOpen",
+                )
+            } catch (_: Throwable) {}
         }
         ghostOpenCount.set(ghostOpen.coerceAtLeast(0))
         forcedOpenCount.set(effectiveForced)
@@ -80,38 +91,52 @@ object SlotHealthGate {
         supervisorCap.set(supCap.coerceAtLeast(1))
         exitPending.set(exitInFlight)
         lastPublishMs.set(System.currentTimeMillis())
-        // V5.9.1498 — track how long ghosts have been continuously > 0.
-        if (ghostOpen > 0) {
-            ghostStuckSinceMs.compareAndSet(0L, System.currentTimeMillis())
-        } else {
-            ghostStuckSinceMs.set(0L)
-        }
-        // V5.9.1547 — track how long forcedOpen has been continuously over the dirty floor.
-        if (effectiveForced > FORCED_OPEN_DIRTY) {
-            forcedStuckSinceMs.compareAndSet(0L, System.currentTimeMillis())
-        } else {
-            forcedStuckSinceMs.set(0L)
-        }
+        if (ghostOpen > 0) ghostStuckSinceMs.compareAndSet(0L, System.currentTimeMillis())
+        else ghostStuckSinceMs.set(0L)
+        if (effectiveForced > FORCED_OPEN_DIRTY) forcedStuckSinceMs.compareAndSet(0L, System.currentTimeMillis())
+        else forcedStuckSinceMs.set(0L)
     }
 
     data class DeferDecision(val defer: Boolean, val reason: String)
 
     /**
      * Decide whether a NEW executable buy should defer one cycle.
-     * @param candidateConfirmedHighEdge true if the candidate is already confirmed
-     *        high-edge (then it bypasses the pending-exit defer, per spec).
+     * High-edge may bypass soft cleanup pressure, but never the V5.0.6689
+     * canonical turnover ceiling.
      */
     fun shouldDeferBuy(candidateConfirmedHighEdge: Boolean): DeferDecision {
-        // Stale snapshot (BotService not publishing) → never defer (fail-open).
+        // V5.0.6689 — source-of-truth turnover seal. This MUST run before the
+        // stale-snapshot fail-open and before every high-edge/forced-open bypass.
+        // A stale publisher is not permission to keep allocating capital when
+        // canonical Meme inventory is already saturated.
+        val paperRuntime6689 = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        val canonicalMemeOpen6689 = canonicalMemeOpenCount(if (paperRuntime6689) "paper" else "live")
+        val effectiveMemeOpen6689 = if (canonicalMemeOpen6689 >= 0)
+            canonicalMemeOpen6689 else openPositionCount.get()
+        if (effectiveMemeOpen6689 >= MEME_TURNOVER_ABSOLUTE_CAP_6689) {
+            try {
+                PipelineHealthCollector.labelInc("MEME_INVENTORY_TURNOVER_CAP_6689")
+                PipelineHealthCollector.labelInc(
+                    if (paperRuntime6689) "MEME_INVENTORY_TURNOVER_CAP_PAPER_6689"
+                    else "MEME_INVENTORY_TURNOVER_CAP_LIVE_6689",
+                )
+                ForensicLogger.lifecycle(
+                    "MEME_INVENTORY_TURNOVER_CAP_6689",
+                    "mode=${if (paperRuntime6689) "PAPER" else "LIVE"} open=$effectiveMemeOpen6689 " +
+                        "cap=$MEME_TURNOVER_ABSOLUTE_CAP_6689 action=defer_entries_until_confirmed_exits_recycle_capital",
+                )
+            } catch (_: Throwable) {}
+            return DeferDecision(
+                true,
+                "MEME_TURNOVER_CAP=$effectiveMemeOpen6689>=$MEME_TURNOVER_ABSOLUTE_CAP_6689",
+            )
+        }
+
+        // Stale soft telemetry still fails open; canonical turnover above did not.
         if (System.currentTimeMillis() - lastPublishMs.get() > 15_000L) {
             return DeferDecision(false, "stale_snapshot_fail_open")
         }
-        // V5.9.1498 — AGING GHOST DEFER (fail-open). Defer while ghosts are fresh
-        // so the reaper can catch up, but never permanently. Once the ghost
-        // condition has been continuously stuck past the grace window, fail-open:
-        // the reaper is not clearing them and parking all entries (the 6h-dead
-        // failure mode) is far worse than trading with a few stale slots. Exits
-        // and the -15% hard floor are unaffected.
+
         val ghosts = ghostOpenCount.get()
         if (ghosts > 0) {
             val stuckSince = ghostStuckSinceMs.get()
@@ -119,56 +144,42 @@ object SlotHealthGate {
             if (stuckMs <= GHOST_DEFER_GRACE_MS) {
                 return DeferDecision(true, "GHOST_OPEN=$ghosts(stuck=${stuckMs}ms)")
             }
-            // Grace exceeded → fail-open so entries resume; reaper keeps working.
             return DeferDecision(false, "GHOST_OPEN=${ghosts}_FAIL_OPEN_stuck=${stuckMs}ms")
         }
+
         val forced = forcedOpenCount.get()
         if (forced > FORCED_OPEN_DIRTY) {
-            // V5.9.1570 — PAPER forcedOpen is training state, not wallet capital.
-            // Runtime log 6dc6f73a showed EXPRESS FDG_ALLOW then TradeAuthorizer
-            // rejected 82% of Express with DEFER_SLOT_HEALTH_FORCED_OPEN=22>20.
-            // That turns normal paper bootstrap inventory into a throughput veto.
-            // Keep live conservative, but paper must fail-open so it can keep
-            // producing labelled samples while exit sweeps/reaper drain positions.
-            val paperRuntime = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+            // Below the absolute turnover ceiling PAPER may still fail open after
+            // cleanup pressure; this preserves throughput without permitting
+            // unlimited inventory accumulation.
             val stuckSince = forcedStuckSinceMs.get()
             val stuckMs = if (stuckSince > 0L) System.currentTimeMillis() - stuckSince else 0L
-            if (paperRuntime) {
+            if (paperRuntime6689) {
                 return DeferDecision(false, "PAPER_FORCED_OPEN_FAIL_OPEN=$forced>$FORCED_OPEN_DIRTY(stuck=${stuckMs}ms)")
             }
-            // LIVE: aging forced-open defer remains, but the grace is bounded.
             if (stuckMs <= FORCED_DEFER_GRACE_MS) {
                 return DeferDecision(true, "FORCED_OPEN=$forced>$FORCED_OPEN_DIRTY(stuck=${stuckMs}ms)")
             }
             return DeferDecision(false, "FORCED_OPEN=${forced}_FAIL_OPEN_stuck=${stuckMs}ms")
         }
+
         if (supervisorActive.get() > supervisorCap.get()) {
             return DeferDecision(true, "SUPERVISOR_OVER_CAP=${supervisorActive.get()}/${supervisorCap.get()}")
         }
-        // V5.9.1530 — ACTIVE SELL-JOB CHOKE (prioritize exits over entries when dirty).
-        // Gates on the FINITE in-flight sell-job count (self-clears on markLanded), NOT
-        // the always-on exitPending that caused the V5.9.1487 stall. Only fires at/over
-        // the open hard cap, so exits drain first without ever parking the bot.
+
+        // Soft turnover pressure: when exits are already working and inventory
+        // is above 12, ordinary candidates wait. High-edge may pass here while
+        // the absolute 24-position ceiling above remains non-bypassable.
         if (!candidateConfirmedHighEdge) {
             val activeSellJobs = try { com.lifecyclebot.engine.sell.SellJobRegistry.activeCount() } catch (_: Throwable) { 0 }
-            if (activeSellJobs > 0 && openPositionCount.get() >= ENTRY_HARD_CAP) {
-                return DeferDecision(true, "EXITS_PRIORITY sellJobsActive=$activeSellJobs open=${openPositionCount.get()}>=$ENTRY_HARD_CAP")
+            if (activeSellJobs > 0 && openPositionCount.get() >= ENTRY_SOFT_CAP) {
+                return DeferDecision(
+                    true,
+                    "EXITS_PRIORITY sellJobsActive=$activeSellJobs open=${openPositionCount.get()}>=$ENTRY_SOFT_CAP",
+                )
             }
         }
-        // V5.9.1487 — REMOVED the exitPending defer (was the executor stall).
-        // Snapshot 5.0.3492 showed EXEC_DEFERRED_SLOT_HEALTH/EXIT_PENDING_NOT_HIGH_EDGE
-        // firing nonstop, throttling the executor to ~10 trades/hour. Root cause: the
-        // universal stop-loss sweep is REQUESTED EVERY CYCLE (correct — it enforces SLs
-        // on open positions) and is only briefly consumed on the exit dispatcher, so
-        // universalSlSweepPending — and thus exitPending — is true essentially always.
-        // In bootstrap almost nothing is "confirmed high-edge", so this clause deferred
-        // virtually every buy on a permanent basis. That is a volume veto, not the
-        // one-cycle cleanup pause it was meant to be, and the routine SL sweep should
-        // NEVER gate entries (exits run on their own dispatcher and don't share slots
-        // with entry admission). The real dirty-slot pressure is already fully covered
-        // by the ghost / forced-open / supervisor-over-cap checks above, which DO clear
-        // once cleanup catches up. Exits are unaffected; the -15% hard floor and all FDG
-        // vetoes remain. The candidateConfirmedHighEdge param is retained for callers.
+
         @Suppress("UNUSED_PARAMETER")
         val highEdgeBypassRetained = candidateConfirmedHighEdge
         return DeferDecision(false, "slot_health_ok")
@@ -176,5 +187,6 @@ object SlotHealthGate {
 
     fun snapshotLine(): String =
         "ghost=${ghostOpenCount.get()} forced=${forcedOpenCount.get()} open=${openPositionCount.get()} " +
-        "sup=${supervisorActive.get()}/${supervisorCap.get()} exitPending=${exitPending.get()}"
+        "sup=${supervisorActive.get()}/${supervisorCap.get()} exitPending=${exitPending.get()} " +
+        "memeTurnoverCap=$MEME_TURNOVER_ABSOLUTE_CAP_6689"
 }
