@@ -66,6 +66,6 @@ class Aate6689InventoryTurnoverCompoundingTest {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt").readText()
         assertTrue(src.contains("ENTRY_SOFT_CAP = 12"))
         assertTrue(src.contains("activeSellJobs > 0 && openPositionCount.get() >= ENTRY_SOFT_CAP"))
-        assertTrue(src.contains("memeTurnoverCap=$MEME_TURNOVER_ABSOLUTE_CAP_6689"))
+        assertTrue(src.contains("memeTurnoverCap=\$MEME_TURNOVER_ABSOLUTE_CAP_6689"))
     }
 }
