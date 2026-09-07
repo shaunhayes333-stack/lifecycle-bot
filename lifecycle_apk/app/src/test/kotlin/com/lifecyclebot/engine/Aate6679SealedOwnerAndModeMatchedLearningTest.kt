@@ -82,12 +82,14 @@ class Aate6679SealedOwnerAndModeMatchedLearningTest {
     }
 
     @Test
-    fun `chronic bleeder scout feeds llm reprove from same runtime mode`() {
+    fun `chronic bleeder scout feeds llm reprove from same runtime mode and preserves advisor bus`() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/ChronicBleederScout.kt").readText()
         assertTrue(src.contains("RuntimeModeAuthority.isPaper()"))
         assertTrue(src.contains("computeCleanPaperTerminalLeaderboard(limit = 1_500)"))
         assertTrue(src.contains("computeCleanLiveTerminalLeaderboard(limit = 1_500)"))
         assertTrue(src.contains("scoutKey6679 = \"\$env6679|\$laneU\""))
         assertTrue(src.contains("CHRONIC_BLEEDER_LAB_REPROVE_6679"))
+        assertTrue("legacy aggregate event remains wired into AutoPipelineAdvisor R8",
+            src.contains("labelInc(\"CHRONIC_BLEEDER_LAB_REPROVE_6265\")"))
     }
 }
