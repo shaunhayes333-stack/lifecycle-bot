@@ -68,4 +68,24 @@ class Aate6689InventoryTurnoverCompoundingTest {
         assertTrue(src.contains("activeSellJobs > 0 && openPositionCount.get() >= ENTRY_SOFT_CAP"))
         assertTrue(src.contains("memeTurnoverCap=\$MEME_TURNOVER_ABSOLUTE_CAP_6689"))
     }
+
+    @Test
+    fun `executor canonical writer counts open plus pending atomically`() {
+        val mirror = File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt").readText()
+        assertTrue(mirror.contains("@Synchronized\n    fun mirrorBuyAttempt"))
+        assertTrue(mirror.contains("pendingEntryPositions6461()"))
+        assertTrue(mirror.contains("val totalReserved6689 = open6689 + pending6689"))
+        assertTrue(mirror.contains("MEME_CANONICAL_ADMISSION_CAP_6689"))
+        assertTrue(mirror.contains("SlotHealthGate.memeTurnoverAbsoluteCap6689()"))
+    }
+
+    @Test
+    fun `duplicate refunds journal the exact terminal receipt and leveraged losses respect limited liability`() {
+        val tx = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
+        assertTrue(tx.contains("val economicallyCappedExpected6569 = expected6569?.coerceAtLeast(-basis)?.minus(sellFeeSol)"))
+        assertTrue(tx.contains("LEVERAGED_TERMINAL_LIMITED_LIABILITY_CAP_6689"))
+        assertTrue(tx.contains("recordCloseProjection6659(pos, result, \"DUPLICATE_SAME_MINT_REFUND_6490\", terminal = true)"))
+        assertTrue(tx.contains("CanonicalMintOccupancyRegistry6464.markClosed(\"paper\", pos.mint)"))
+        assertTrue(tx.contains("DUPLICATE_REFUND_JOURNAL_COMMITTED_6689"))
+    }
 }
