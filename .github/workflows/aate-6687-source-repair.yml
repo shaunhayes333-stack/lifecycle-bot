@@ -38,6 +38,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('ci/aate_6687_repair.py')
+          s = p.read_text()
+          old = '''def replace_once(text: str, old: str, new: str, label: str) -> str:
+              if old not in text:
+          '''
+          new = '''def replace_once(text: str, old: str, new: str, label: str) -> str:
+              if label == "Main open-position right-column width":
+                  marker = "            // P&L (right column)\\n" + old
+                  if marker in text:
+                      return text.replace(marker, "            // P&L (right column)\\n" + new, 1)
+              if old not in text:
+          '''
+          if old not in s:
+              raise SystemExit('6687 workflow hotfix could not locate replace_once helper')
+          p.write_text(s.replace(old, new, 1))
+          PY
           python3 ci/aate_6687_repair.py
 
       - name: Verify targeted repair contracts
