@@ -43,8 +43,6 @@ class Aate6679SealedOwnerAndModeMatchedLearningTest {
             )
         )
 
-        // Reproduces the operator's ENA failure: CORE wrapper arrives first even
-        // though FDG already sealed PROJECT_SNIPER. Caller order must not steal it.
         val genericFirst = LaneExecutionCoordinator.canRequestExecution(
             mint = mint,
             lane = "CORE",
@@ -72,5 +70,24 @@ class Aate6679SealedOwnerAndModeMatchedLearningTest {
         assertTrue(src.contains("computeCleanLiveTerminalLeaderboard()"))
         assertTrue(src.contains("cachedMode6679"))
         assertFalse(src.contains("StrategyTelemetry.computeLeaderboard("))
+    }
+
+    @Test
+    fun `regime detector does not blend environments and its lane exemption is mode matched`() {
+        val src = File("src/main/kotlin/com/lifecyclebot/engine/RegimeDetector.kt").readText()
+        assertTrue(src.contains("it.mode.equals(mode6679, ignoreCase = true)"))
+        assertTrue(src.contains("computeCleanPaperTerminalLeaderboard(limit = 1_500)"))
+        assertTrue(src.contains("computeCleanLiveTerminalLeaderboard(limit = 1_500)"))
+        assertTrue(src.contains("cachedMode6679"))
+    }
+
+    @Test
+    fun `chronic bleeder scout feeds llm reprove from same runtime mode`() {
+        val src = File("src/main/kotlin/com/lifecyclebot/engine/ChronicBleederScout.kt").readText()
+        assertTrue(src.contains("RuntimeModeAuthority.isPaper()"))
+        assertTrue(src.contains("computeCleanPaperTerminalLeaderboard(limit = 1_500)"))
+        assertTrue(src.contains("computeCleanLiveTerminalLeaderboard(limit = 1_500)"))
+        assertTrue(src.contains("scoutKey6679 = \"\$env6679|\$laneU\""))
+        assertTrue(src.contains("CHRONIC_BLEEDER_LAB_REPROVE_6679"))
     }
 }
