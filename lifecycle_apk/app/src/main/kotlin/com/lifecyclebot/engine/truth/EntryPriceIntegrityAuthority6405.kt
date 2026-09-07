@@ -111,9 +111,17 @@ object EntryPriceIntegrityAuthority6405 {
         qtyUi: Double,
         knownSolUsd: Double,
     ): Boolean {
-        val srcOk = entrySource in TRUSTED_SOURCES
         val trusted = deriveTrustedEntryUsd(costSol, qtyUi, knownSolUsd)
         val divergent = trusted != null && detectBasisDivergence(stampedEntryUsd, trusted.usdPerToken)
+        // V5.0.6687 — economic witness outranks a descriptive provider label.
+        // If immutable cost/qty/SOL-USD reconstruction agrees with the stamped
+        // USD/token basis within 2%, the basis is proven even when the original
+        // display source was DEXSCREENER_PAIR_POLL (6686 SPFOX false hold).
+        val txEconomicsDeltaPct6687 = if (trusted != null && stampedEntryUsd > 0.0) {
+            kotlin.math.abs(stampedEntryUsd - trusted.usdPerToken) / trusted.usdPerToken * 100.0
+        } else Double.POSITIVE_INFINITY
+        val txEconomicsMatch6687 = txEconomicsDeltaPct6687.isFinite() && txEconomicsDeltaPct6687 <= 2.0
+        val srcOk = entrySource in TRUSTED_SOURCES || txEconomicsMatch6687
         val ok = srcOk && !divergent && stampedEntryUsd > 0.0
         if (!ok) {
             try {
@@ -122,7 +130,7 @@ object EntryPriceIntegrityAuthority6405 {
                     "mint=${mint.take(10)} sym=$symbol stampedEntry=$stampedEntryUsd " +
                         "entrySrc=$entrySource costSol=$costSol qtyUi=$qtyUi " +
                         "trustedEntry=${trusted?.usdPerToken ?: "null"} " +
-                        "divergent=$divergent srcOk=$srcOk",
+                        "divergent=$divergent srcOk=$srcOk txEconomicsMatch6687=$txEconomicsMatch6687 deltaPct6687=$txEconomicsDeltaPct6687",
                 )
                 PipelineHealthCollector.labelInc("RUNNER_EXIT_BASIS_UNTRUSTED_6405")
             } catch (_: Throwable) {}

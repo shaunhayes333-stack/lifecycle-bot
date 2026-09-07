@@ -139,7 +139,7 @@ object SmartSizer {
         }
 
         // ── Tradeable balance (reserve + treasury excluded) ──────────
-        val treasuryFloor = TreasuryManager.treasurySol
+        val treasuryFloor = TreasuryManager.effectiveLockedSol(effectiveWallet, isPaperMode) // V5.0.6687 mode-safe treasury authority
 
         // V5.9.61: For small-wallet users the configured reserve (default
         // 0.05 SOL) can eat the ENTIRE tradeable balance. Paper mode

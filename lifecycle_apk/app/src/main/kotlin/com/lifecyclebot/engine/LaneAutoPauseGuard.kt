@@ -102,52 +102,25 @@ object LaneAutoPauseGuard {
                     )
                 }
             } catch (_: Throwable) {}
-            // V5.0.4594 — HARD SEED for proven-toxic lanes (operator P0 4593
-            // dump: wallet dropped -0.154 SOL/hr because evaluateLive path
-            // never latched pauses despite direct-journal rewrite). Seed
-            // EXPRESS (0/31 lifetime WR) and MANIPULATED (14.6% WR, -0.48 SOL
-            // cumulative) as paused-at-load so they're locked out from
-            // module init regardless of evaluateLive execution. Both
-            // buckets are already flagged in LosingPatternMemory danger set;
-            // operator can manualResume() after LLM Lab shadow proof.
-            val nowSeed4594 = System.currentTimeMillis()
-            listOf(
-                Triple("EXPRESS", "hard_seed_4594_zero_win_31_trades", -91.6),
-                Triple("MANIPULATED", "hard_seed_4594_wr14pct_ev48neg", -48.2),
-                // V5.0.6067 — SEED PROVEN-TOXIC LANES from V5.0.6066 operator report.
-                // These four burned wallet from 0.6022 -> 0.4938 SOL in 40 minutes.
-                // PRESALE_SNIPE n=10 WR=0% ev=-21% PnL=-0.2473 SOL (biggest bleeder)
-                // QUALITY       n=10 WR=0% ev=-32.6% PnL=-0.0615 SOL
-                // TREASURY      n=13 WR=7.7% ev=-13% (only 1 fluke +0.10 SOL trade)
-                // Operator can manualResume() any of them if desired.
-                Triple("PRESALE_SNIPE", "hard_seed_6067_zero_win_10_trades_ev_-21pct", -21.03),
-                Triple("QUALITY", "hard_seed_6067_zero_win_10_trades_ev_-32pct", -32.61),
-                // V5.0.6072 — BLUECHIP emergency pause (operator report: 0 wins
-                // in 7 trades — just under ZERO_WIN_MIN_SAMPLE=8 so the guard
-                // mathematically could not latch). Paper still learns BLUECHIP
-                // (isPaused() paper bypass); live entries blocked until
-                // manualResume() after a shadow proof.
-                Triple("BLUECHIP", "hard_seed_6072_zero_win_7_trades", -15.0),
-            ).forEach { (lane, reason, ev) ->
-                if (!paused.containsKey(lane)) {
-                    paused[lane] = PauseState(
-                        lane = lane,
-                        pausedAt = nowSeed4594,
-                        reason = reason,
-                        sample = 30,
-                        wins = 0,
-                        wrPct = 0.0,
-                        evPct = ev,
+            // V5.0.6687 — PATCH-ROT PURGE. Historical hard_seed_* pauses were
+            // baked from old runtime samples and recreated after every restart,
+            // contradicting the current adaptive tactic/reproof architecture. Remove
+            // those persisted seeds once. Fresh runtime evidence may still create a
+            // normal adaptive pause and AdaptiveLaneReproof can still promote it.
+            val staleHardSeeds6687 = paused.entries
+                .filter { it.value.reason.startsWith("hard_seed_", ignoreCase = true) }
+                .map { it.key }
+            if (staleHardSeeds6687.isNotEmpty()) {
+                staleHardSeeds6687.forEach { paused.remove(it) }
+                try {
+                    PipelineHealthCollector.labelInc("LANE_HARD_SEED_PATCH_ROT_PURGED_6687")
+                    ForensicLogger.lifecycle(
+                        "LANE_HARD_SEED_PATCH_ROT_PURGED_6687",
+                        "lanes=${staleHardSeeds6687.sorted().joinToString(",")} action=retain_adaptive_runtime_evidence_only",
                     )
-                    try {
-                        ErrorLogger.warn(
-                            "LaneAutoPauseGuard",
-                            "🔒 LANE_HARD_SEED_PAUSED_4594 lane=$lane reason=$reason — pre-paused at guard init; manualResume() to lift",
-                        )
-                    } catch (_: Throwable) {}
-                }
+                } catch (_: Throwable) {}
+                try { persistAsync() } catch (_: Throwable) {}
             }
-            try { persistAsync() } catch (_: Throwable) {}
         }
     }
 

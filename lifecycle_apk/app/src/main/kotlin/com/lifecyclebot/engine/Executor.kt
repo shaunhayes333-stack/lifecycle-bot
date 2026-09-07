@@ -16835,6 +16835,23 @@ class Executor(
         } else {
             sol = realisticSol
         }
+        // V5.0.6687 — FINAL EXECUTABLE SIZE INVARIANT. No downstream shaper may
+        // leave a positive LIVE order below the executable floor. Earlier code
+        // raised to the floor, then pending-proof realistic sizing could shrink it
+        // again (runtime 6686: finalSol=0.0048 < minLiveBuySol=0.0050). Restore the
+        // floor exactly once at the true last mile. maxSpendable was already proven
+        // >= floor above, so this never manufactures unavailable capital.
+        if (sol > 0.0 && sol < liveMinExecutableBuySol && maxSpendableSol >= liveMinExecutableBuySol) {
+            val beforeFloor6687 = sol
+            sol = liveMinExecutableBuySol
+            try {
+                ForensicLogger.lifecycle(
+                    "LIVE_FINAL_EXECUTABLE_FLOOR_RESTORED_6687",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=$beforeFloor6687 to=$sol min=$liveMinExecutableBuySol spendable=$maxSpendableSol",
+                )
+                PipelineHealthCollector.labelInc("LIVE_FINAL_EXECUTABLE_FLOOR_RESTORED_6687")
+            } catch (_: Throwable) {}
+        }
         val assumedSolUsd = 200.0
         // V5.0.4020 — IMPACT CALC LIQUIDITY CASCADE (operator P0: "stabilise
         // our data providers AND fix this issue at the source"). The previous

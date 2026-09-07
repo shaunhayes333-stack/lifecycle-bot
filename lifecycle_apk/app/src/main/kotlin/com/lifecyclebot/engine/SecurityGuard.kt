@@ -154,7 +154,7 @@ class SecurityGuard(
         // Available = gross balance minus operating reserve
         // Treasury lock is now OPTIONAL and only applies if milestones were actually hit
         val treasuryLocked = if (TreasuryManager.highestMilestoneHit >= 0) {
-            TreasuryManager.treasurySol
+            TreasuryManager.effectiveLockedSol(walletSol, c.paperMode) // V5.0.6687 mode-safe live lock
         } else {
             0.0  // No milestones hit = no lock
         }
@@ -176,7 +176,7 @@ class SecurityGuard(
         var effectiveSol = solAmount
         val solPxGuard = WalletManager.lastKnownSolPrice
         if (liquidityUsd > 0.0 && solPxGuard > 0.0) {
-            val trsGuard = TreasuryManager.treasurySol * solPxGuard
+            val trsGuard = TreasuryManager.effectiveLockedSol(walletSol, c.paperMode) * solPxGuard // V5.0.6687
             val (gTier, hardCapSol) = ScalingMode.maxPositionForToken(
                 liquidityUsd = liquidityUsd, mcapUsd = 0.0,
                 treasuryUsd  = trsGuard,     solPriceUsd = solPxGuard,

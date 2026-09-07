@@ -3495,10 +3495,12 @@ for legal compliance.
                 trsUsd = if (canonicalPaperEquitySol6596 > 0.0) trs * solPrice
                          else if (ws.treasuryUsd > 0) ws.treasuryUsd else trs * solPrice
             } else {
-                // In live mode, show the TreasuryManager live treasury
-                trs = ws.treasurySol
-                // V5.6.20: Also recalculate USD in live mode if ws.treasuryUsd is 0
-                trsUsd = if (ws.treasuryUsd > 0) ws.treasuryUsd else trs * solPrice
+                // V5.0.6687 — live Treasury tile must use the same capped on-chain
+                // authority as sizing/WalletActivity, never the persisted raw ledger.
+                val liveWalletForTreasury6687 = ws.solBalance.takeIf { it > 0.0 }
+                    ?: try { com.lifecyclebot.engine.BotService.status.walletSol.coerceAtLeast(0.0) } catch (_: Throwable) { 0.0 }
+                trs = com.lifecyclebot.engine.TreasuryManager.effectiveLockedSol(liveWalletForTreasury6687, isPaperMode = false)
+                trsUsd = trs * solPrice
             }
 
             // V5.6.21: Calculate milestone tier DYNAMICALLY based on actual treasury USD value
@@ -5293,7 +5295,7 @@ for legal compliance.
                 chip.text = when {
                     positions.isEmpty()     -> ""
                     liveCount == 0          -> "PAPER$laneChip"
-                    paperCount == 0         -> "LIVE LIVE$laneChip"
+                    paperCount == 0         -> "LIVE$laneChip"
                     else                    -> "PAPER ${paperCount} paper · LIVE ${liveCount} live$laneChip"
                 }
                 chip.setTextColor(when {
@@ -5706,6 +5708,12 @@ for legal compliance.
             val right = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = android.view.Gravity.END
+                // V5.0.6687 — bound the money column so long TARGET/lock text cannot
+                // collapse the weighted symbol/entry column to a few pixels.
+                layoutParams = LinearLayout.LayoutParams(
+                    (132f * resources.displayMetrics.density).toInt(),
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                )
             }
             // PnL percentage
             right.addView(TextView(this).apply {
