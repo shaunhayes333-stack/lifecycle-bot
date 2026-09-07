@@ -12,7 +12,6 @@ permissions:
 
 jobs:
   repair:
-    if: contains(github.event.head_commit.message, 'V5.0.6682 one-shot repair stale Golden Tape contract')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,54 +26,54 @@ jobs:
 
           path = Path('lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt')
           text = path.read_text()
-          old = '''    @Test
-    fun unifiedPolicyHead_4470StoresPendingSignalsPerMintAndLane() {
-        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt").readText()
-        assertTrue("V5.0.4470: UnifiedPolicyHead pending stamps must store all lanes per mint, not overwrite siblings", src.contains("ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, DoubleArray>>") && src.contains("pending.computeIfAbsent(mint)"))
-        assertTrue("V5.0.4470: settled outcome must train every stamped lane head for paper/live contribution parity", src.contains("for ((lane, x) in recs)") && src.contains("UNIFIED_POLICY_HEAD_ALL_LANE_OUTCOME_4470"))
-        assertTrue("V5.0.4470: per-lane heads must still train independently while global warm-start also updates", src.contains("getOrCreateLaneHead(lane)") && src.contains("trained += 1") && src.contains("h.trained += 1"))
-    }
-'''
-          new = '''    @Test
-    fun unifiedPolicyHead_6682BindsOwnerSnapshotAndTrainsSingleCausalLane() {
-        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt").readText()
-        assertTrue(
-            "V5.0.6682: pre-open observations may remain keyed by mint and lane until canonical owner election",
-            src.contains("ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, DoubleArray>>") &&
-                src.contains("pending.computeIfAbsent(mint)"),
-        )
-        assertTrue(
-            "V5.0.6682: canonical open must freeze one immutable owner-bound entry snapshot",
-            src.contains("fun bindPosition6681(positionId: String, mint: String, ownerLane: String): Boolean") &&
-                src.contains("pendingByPosition6681[positionId] = BoundEntry6681(mint, owner, selected)"),
-        )
-        assertTrue(
-            "V5.0.6682: terminal finality must train exactly one global update and the actual owner lane only",
-            src.contains("fun recordOutcome6681(positionId: String, mint: String, ownerLane: String, pnlPct: Double): Boolean") &&
-                src.contains("trainOneOutcome6681(owner, bound.features, pnlPct)") &&
-                src.contains("Exactly ONE global update per terminal canonical position") &&
-                src.contains("Exactly ONE owner-lane update"),
-        )
-        assertTrue(
-            "V5.0.6682: legacy settled-outcome multi-lane fanout must stay removed",
-            !src.contains("for ((lane, x) in recs)") &&
-                !src.contains("UNIFIED_POLICY_HEAD_ALL_LANE_OUTCOME_4470"),
-        )
-    }
-'''
-          count = text.count(old)
-          if count != 1:
-              raise SystemExit(f'expected exactly one stale 4470 block, found {count}')
-          path.write_text(text.replace(old, new, 1))
+          marker = '    @Test\n    fun unifiedPolicyHead_4470StoresPendingSignalsPerMintAndLane() {'
+          start = text.find(marker)
+          if start < 0:
+              raise SystemExit('stale 4470 UnifiedPolicyHead Golden Tape test marker not found')
+          next_test = text.find('\n    @Test\n', start + len(marker))
+          if next_test < 0:
+              raise SystemExit('next Golden Tape test marker not found')
+          new_lines = [
+              '    @Test',
+              '    fun unifiedPolicyHead_6682BindsOwnerSnapshotAndTrainsSingleCausalLane() {',
+              '        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt").readText()',
+              '        assertTrue(',
+              '            "V5.0.6682: pre-open observations may remain keyed by mint and lane until canonical owner election",',
+              '            src.contains("ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, DoubleArray>>") &&',
+              '                src.contains("pending.computeIfAbsent(mint)"),',
+              '        )',
+              '        assertTrue(',
+              '            "V5.0.6682: canonical open must freeze one immutable owner-bound entry snapshot",',
+              '            src.contains("fun bindPosition6681(positionId: String, mint: String, ownerLane: String): Boolean") &&',
+              '                src.contains("pendingByPosition6681[positionId] = BoundEntry6681(mint, owner, selected)"),',
+              '        )',
+              '        assertTrue(',
+              '            "V5.0.6682: terminal finality must train exactly one global update and the actual owner lane only",',
+              '            src.contains("fun recordOutcome6681(positionId: String, mint: String, ownerLane: String, pnlPct: Double): Boolean") &&',
+              '                src.contains("trainOneOutcome6681(owner, bound.features, pnlPct)") &&',
+              '                src.contains("Exactly ONE global update per terminal canonical position") &&',
+              '                src.contains("Exactly ONE owner-lane update"),',
+              '        )',
+              '        assertTrue(',
+              '            "V5.0.6682: legacy settled-outcome multi-lane fanout must stay removed",',
+              '            !src.contains("for ((lane, x) in recs)") &&',
+              '                !src.contains("UNIFIED_POLICY_HEAD_ALL_LANE_OUTCOME_4470"),',
+              '        )',
+              '    }',
+              '',
+          ]
+          replacement = '\n'.join(new_lines)
+          updated = text[:start] + replacement + text[next_test:]
+          if updated.count('unifiedPolicyHead_6682BindsOwnerSnapshotAndTrainsSingleCausalLane') != 1:
+              raise SystemExit('6682 replacement test count is not exactly one')
+          if 'settled outcome must train every stamped lane head' in updated:
+              raise SystemExit('stale multi-lane settled-outcome assertion remains')
+          path.write_text(updated)
           print('Replaced stale 4470 multi-lane outcome contract with 6682 causal owner-bound contract')
           PY
 
-          # Prove the stale positive requirement is gone before committing.
-          if grep -Fq 'settled outcome must train every stamped lane head' lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt; then
-            echo 'stale multi-lane Golden Tape assertion remains' >&2
-            exit 1
-          fi
           grep -Fq 'unifiedPolicyHead_6682BindsOwnerSnapshotAndTrainsSingleCausalLane' lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt
+          ! grep -Fq 'settled outcome must train every stamped lane head' lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt
 
       - name: Commit repair and remove one-shot helper
         shell: bash
