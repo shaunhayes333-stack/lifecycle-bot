@@ -1,6 +1,7 @@
 package com.lifecyclebot.network
 
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.engine.GroqRouteConfig6498
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -33,7 +34,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * OpenRouter / Anthropic key take priority if configured.
  *
  * Providers (priority order):
- *   1. Operator Groq        (if configured — llama-3.3-70b-versatile)
+ *   1. Operator Groq        (if configured — canonical GroqRouteConfig6498 model)
  *   2. Operator OpenRouter  (if configured — free-tier llama-3.3-70b)
  *   3. Operator Anthropic   (if configured — claude-sonnet-4-5)
  *   4. Emergent keyless     (always available — gpt-4o-mini via proxy)
@@ -165,7 +166,10 @@ object KeylessLlmClient {
     // ── Groq (operator key) ────────────────────────────────────────────────
     private fun callGroq(system: String, user: String, maxTokens: Int): String? {
         val payload = JSONObject().apply {
-            put("model", "llama-3.3-70b-versatile")
+            // V5.0.6691 — one model authority. A stale hard-coded Groq model
+            // here could fail independently of the canonical route used by
+            // every other Groq client and silently collapse the fallback chain.
+            put("model", GroqRouteConfig6498.PRIMARY_MODEL)
             put("max_tokens", maxTokens)
             put("temperature", 0.2)
             put("messages", JSONArray()
