@@ -1,0 +1,2 @@
+AATE V5.0.6686 post-repair verification trigger.
+App production source remains the 5053e87 repaired tree; this file only triggers the normal APK workflow.
