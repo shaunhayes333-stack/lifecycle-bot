@@ -75,4 +75,13 @@ class Aate6680OpenPnlIntegrityRegressionTest {
         assertFalse(src.contains("val explicitComparable = samePool || sameSource || priceBasisRescaled"))
         assertTrue(src.contains("ASTRONOMICAL_RATIO_REPROOF_6680"))
     }
+
+    @Test
+    fun live_fill_registry_is_runtime_fenced_from_paper_legacy_readers() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalBuyFillRegistry.kt").readText()
+        assertTrue(src.contains("V5.0.6680 §LIVE_FILL_PAPER_FENCE"))
+        assertTrue(src.contains("prefs != null && RuntimeModeAuthority.isPaper()"))
+        assertTrue(src.contains("LIVE_CANONICAL_FILL_READ_BLOCKED_IN_PAPER_6680"))
+        assertTrue(src.contains("return null"))
+    }
 }
