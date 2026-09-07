@@ -187,6 +187,9 @@ object LaneExecutionCoordinator {
      * order has zero authority. Bind the election to ExecutionDecisionSnapshot6510.
      * If no sealed FDG snapshot exists yet, preserve the legacy pre-seal behavior;
      * nothing is fabricated and no lane is disabled.
+     *
+     * Do not re-elect it here using static priority once a sealed FDG owner exists;
+     * the sealed specialist decision is the causal execution authority.
      */
     private fun sealedFdgOwnerLane6679(mint: String, candidateVersion: Long): String? = try {
         val mode6679 = if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
