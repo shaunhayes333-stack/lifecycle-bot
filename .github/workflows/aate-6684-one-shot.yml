@@ -1,0 +1,101 @@
+name: AATE 6684 Adaptive Closed Loop Repair
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/aate-6684-one-shot.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Apply expanded V5.0.6684 source repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python ci/aate_6684_adaptive_closed_loop_repair.py
+
+          # The replacement script intentionally changes the recovery doctrine
+          # marker before removing the old V5.0.6305 loop. Remove that stale
+          # loop explicitly so aggregate WR can never bypass exact Lab proof.
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/LaneAutoPauseGuard.kt')
+          s = p.read_text()
+          marker = '            // V5.0.6684 — PROOF-GATED RECOVERY ONLY. A paused lane cannot\n'
+          a = s.find(marker)
+          if a < 0:
+              raise SystemExit('6684 proof-gated recovery marker missing')
+          loop = s.find('            for ((lane, pauseState) in paused.toMap()) {', a)
+          end = s.find('            if (mutated) persistAsync()', a)
+          if loop >= 0 and end > loop:
+              s = s[:loop] + '            // Legacy V5.0.6305 WR-only auto-recovery removed by 6684.\n' + s[end:]
+          if 'LANE_AUTO_RECOVERED_6305' in s:
+              raise SystemExit('stale LANE_AUTO_RECOVERED_6305 logic remains')
+          p.write_text(s)
+          PY
+
+          # Staging/runner files must not survive the repair commit.
+          rm -f ci/aate_6684_adaptive_closed_loop_repair.py
+          rm -f .github/workflows/aate-6684-one-shot.yml
+
+      - name: Adaptive closed-loop static contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd lifecycle_apk
+          grep -q 'AdaptiveIntelligenceRuntime6684.start(applicationContext)' app/src/main/kotlin/com/lifecyclebot/AATEApp.kt
+          grep -q 'LlmLabEngine.tick { buildUniverse() }' app/src/main/kotlin/com/lifecyclebot/engine/AdaptiveIntelligenceRuntime6684.kt
+          grep -q 'AdaptiveLaneReproof6684.onLaneFailed(lane, reason)' app/src/main/kotlin/com/lifecyclebot/engine/LaneAutoPauseGuard.kt
+          grep -q 'CanonicalOutcomeClassifier6576.classifyReadonly' app/src/main/kotlin/com/lifecyclebot/engine/LaneAutoPauseGuard.kt
+          grep -q 'AdaptiveLaneReproof6684.sizeMultiplierForLane' app/src/main/kotlin/com/lifecyclebot/engine/truth/OrderSizeResolver6441.kt
+          grep -q 'SsiPilotCouncil.sizeMultiplierForLane' app/src/main/kotlin/com/lifecyclebot/engine/truth/OrderSizeResolver6441.kt
+          grep -q 'EXEC_OPEN_LAB_STRATEGY_WAIT_6684' app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt
+          grep -q 'AdaptiveLaneReproof6684.exitStrategy(mode)' app/src/main/kotlin/com/lifecyclebot/engine/HoldingLogicLayer.kt
+          grep -q 'SSI_PILOT_REPROOF_REQUEST_6684' app/src/main/kotlin/com/lifecyclebot/engine/SsiPilotCouncil.kt
+          ! grep -q 'SSI_PILOT_LANE_RESUMED_6090' app/src/main/kotlin/com/lifecyclebot/engine/SsiPilotCouncil.kt
+          ! grep -q 'LANE_AUTO_RECOVERED_6305' app/src/main/kotlin/com/lifecyclebot/engine/LaneAutoPauseGuard.kt
+          ! grep -q 'resumeBlacklist' app/src/main/kotlin/com/lifecyclebot/engine/LaneShadowProofLoop.kt
+          ! grep -q 'maybeScanLabForAutoResume' app/src/main/kotlin/com/lifecyclebot/engine/LaneQuarantineController.kt
+
+      - name: Compile and run release unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd lifecycle_apk
+          chmod +x gradlew
+          ./gradlew testReleaseUnitTest --no-daemon --stacktrace
+
+      - name: Commit clean V5.0.6684 repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'AATE CI Repair'
+          git config user.email 'aate-ci-repair@users.noreply.github.com'
+          git add -A
+          git status --short
+          if git diff --cached --quiet; then
+            echo 'No repair changes to commit' >&2
+            exit 1
+          fi
+          git commit -m 'V5.0.6684 close adaptive lab reproof control loop'
+          git push origin main
+
+      - name: Dispatch canonical APK build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run build.yml --ref main
