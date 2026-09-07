@@ -13,38 +13,9 @@
  * call sites would either drop those features or require touching every
  * call site in the trade-close path.
  *
- * Compromise: dedupe-aware mirrors. Each subscriber maintains a small LRU
- * of seen tradeIds. If a tradeId arrives that the subscriber has already
- * processed (because a direct call happened first), the canonical mirror
- * is a no-op. Otherwise the mirror calls the consumer's cheapest entry
- * point so its counter advances. This guarantees:
- *   - No double-counting (LRU dedupe).
- *   - Existing direct call sites keep working (zero invasive change).
- *   - Any trade NOT going through a direct call site (e.g. recovery
- *     from wallet, shadow trade) still educates the consumers.
- *
- * Consumers wired here:
- *   • FluidLearningAI.recordLiveTrade / recordTrade (paper) — has the
- *     simplest signature (isWin: Boolean) so we can safely mirror.
- *
- * Consumers NOT wired here (intentionally, per scope/safety):
- *   • AdaptiveLearningEngine.learnFromTrade(features) — needs
- *     rich TradeFeatures we cannot reconstruct. Must be wired at the
- *     emit site that already has the features.
- *   • RunTracker30D.recordTrade — needs entryPrice/exitPrice/sizeSol/
- *     score/confidence/decision/assetClass — already wired at proper
- *     emit sites; will move to bus subscription in a follow-up commit.
- *   • BehaviorLearning.recordTrade — needs sentiment/volatility/volume
- *     signals; same plan.
- *   • MetaCognitionAI.recordTradeOutcome — keyed by pendingPredictions
- *     map, must be called from the same path that recordEntryPredictions
- *     came from.
- *   • ShadowFDGLearning — settlement engine is a separate spec item (9).
- *
- * The canonical pipeline observes ALL of them via the same bus, so the
- * UI can compare canonical totals vs each consumer's local count and
- * surface drift (which is the operator's goal — eliminate the
- * '722 vs 5 vs 10' confusion at the dashboard level).
+ * Canonical close outcomes now fan out to the real learner adapters. Each
+ * adapter retains its own dedup so direct legacy close sites can coexist
+ * while migration completes without double-learning.
  */
 package com.lifecyclebot.engine
 
@@ -53,6 +24,41 @@ import java.util.Collections
 
 object CanonicalSubscribers {
     private const val TAG = "CanonicalSubscribers"
+
+    /**
+     * V5.0.6690 — Meme Trader is a desk, not one source enum.
+     *
+     * A V5.9.792 isolation patch narrowed the accepted cohort to only five
+     * sources. That accidentally cut Quality/Lab/Project/Dip/Standard (V3),
+     * Treasury/CashGen, CopyTrade and BlueChip specialist outcomes out of the
+     * meme feedback loop. Those lanes could execute while the core meme brain
+     * never learned from their results.
+     *
+     * Keep foreign domains isolated, but restore every source that is part of
+     * the Meme Trader desk. BLUECHIP is accepted only with the exact BlueChip
+     * source+mode tuple so unrelated bluechip-domain events cannot bleed in.
+     */
+    private val MEME_LEARNING_SOURCES = setOf(
+        TradeSource.V3,
+        TradeSource.TREASURY,
+        TradeSource.BLUECHIP,
+        TradeSource.SHITCOIN,
+        TradeSource.MOONSHOT,
+        TradeSource.MANIP,
+        TradeSource.EXPRESS,
+        TradeSource.COPYTRADE,
+        TradeSource.CYCLIC,
+    )
+
+    private fun isMemeLearningOutcome(outcome: CanonicalTradeOutcome): Boolean {
+        if (outcome.source !in MEME_LEARNING_SOURCES) return false
+        return when (outcome.assetClass) {
+            AssetClass.MEME -> true
+            AssetClass.BLUECHIP ->
+                outcome.source == TradeSource.BLUECHIP && outcome.mode == TradeMode.BLUECHIP
+            else -> false
+        }
+    }
 
     /** Bounded LRU of recently-mirrored tradeIds to prevent double-counting. */
     private const val LRU_MAX = 1024
@@ -80,26 +86,26 @@ object CanonicalSubscribers {
             CanonicalOutcomeBus.subscribe { outcome ->
                 if (!recordOnce(outcome.tradeId, "FluidLearningAI")) return@subscribe
                 if (!outcome.isTrainable) {
-                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("INVALID_ACCOUNTING_NOT_TRAINED") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("INVALID_ACCOUNTING_NOT_TRAINED") } catch (_: Throwable) {}
                     return@subscribe
                 }
                 // Only educate on settled outcomes, not OPEN / INCONCLUSIVE.
                 if (outcome.result != TradeResult.WIN && outcome.result != TradeResult.LOSS) return@subscribe
-                // V5.9.1355 P0.1 — HARD DOMAIN GATE (always on, not just memeOnly).
-                // Meme brains may ONLY train on meme-domain outcomes. A Stocks/
-                // Forex/Perps/Metals/Commodities/CryptoAlt close must never reach
-                // FluidLearningAI regardless of which traders are enabled.
-                if (outcome.assetClass != AssetClass.MEME) {
+
+                // V5.0.6690 — hard domain gate by canonical Meme Trader desk
+                // membership, not a five-source subset. This restores specialist
+                // lane education without allowing Markets/Forex/Stocks/etc in.
+                if (!isMemeLearningOutcome(outcome)) {
                     try {
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LEARNING_DOMAIN_REJECTED|src=${outcome.assetClass.name}|targetBrain=MEME|reason=CROSS_DOMAIN")
+                        PipelineHealthCollector.labelInc(
+                            "LEARNING_DOMAIN_REJECTED|src=${outcome.assetClass.name}|targetBrain=MEME|reason=CROSS_DOMAIN"
+                        )
                     } catch (_: Throwable) {}
                     return@subscribe
                 }
-                // V5.9.1355 P0.2 — LABEL INTEGRITY. The bridge must never train a
-                // negative-PnL close as WIN (or positive as LOSS). Validate the
-                // declared result against the realized pnlPct sign; on mismatch,
-                // REJECT (do not silently correct — a mismatch means upstream
-                // accounting is corrupt and the sample is untrustworthy).
+
+                // LABEL INTEGRITY. Never train a declared WIN with negative PnL
+                // or a declared LOSS with positive PnL.
                 run {
                     val p = outcome.realizedPnlPct
                     if (p != null) {
@@ -107,52 +113,25 @@ object CanonicalSubscribers {
                         val mismatch = (declaredWin && p < 0.0) || (!declaredWin && p > 0.0)
                         if (mismatch) {
                             try {
-                                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LEARNING_LABEL_MISMATCH_REJECTED|pnlPct=${"%.2f".format(p)}|requested=${if (declaredWin) "WIN" else "LOSS"}|corrected=${if (p < 0.0) "LOSS" else "WIN"}")
-                                ForensicLogger.lifecycle("LEARNING_LABEL_MISMATCH_REJECTED", "mint=${outcome.mint} pnlPct=${"%.2f".format(p)} declared=${outcome.result.name}")
-                            } catch (_: Throwable) {}
-                            return@subscribe
-                        }
-                    }
-                }
-                // V5.9.495z21 — skip if the target token never actually landed.
-                // Prevents phantom partial-bridge outcomes from moving the
-                // learning-progress needle or biasing the trust layer.
-                if (!com.lifecyclebot.engine.execution.ExecutionStatusRegistry.shouldTrainStrategy(outcome.mint)) {
-                    return@subscribe
-                }
-                // V5.9.792 — operator audit Item 3: MEME_ONLY_TEST_MODE isolation.
-                // When the operator runs Meme Trader only, ProjectSniper / CopyTrade /
-                // Treasury / BlueChip / CashGen close events must NOT contaminate the
-                // meme WR via FluidLearningAI. Two-layer guard:
-                //   (a) if only MEME is enabled in EnabledTraderAuthority, drop any
-                //       outcome whose source is not in the canonical meme set.
-                //   (b) restored non-meme positions (cold-start adoption) come in as
-                //       UNKNOWN source and must also be excluded from meme WR.
-                try {
-                    val memeOnly = try {
-                        com.lifecyclebot.engine.EnabledTraderAuthority.snapshot() ==
-                            setOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME)
-                    } catch (_: Throwable) { false }
-                    if (memeOnly) {
-                        val memeSources = setOf(
-                            TradeSource.SHITCOIN, TradeSource.MOONSHOT, TradeSource.EXPRESS,
-                            TradeSource.MANIP, TradeSource.CYCLIC,
-                        )
-                        if (outcome.source !in memeSources) {
-                            try {
+                                PipelineHealthCollector.labelInc(
+                                    "LEARNING_LABEL_MISMATCH_REJECTED|pnlPct=${"%.2f".format(p)}|requested=${if (declaredWin) "WIN" else "LOSS"}|corrected=${if (p < 0.0) "LOSS" else "WIN"}"
+                                )
                                 ForensicLogger.lifecycle(
-                                    "MEME_TRAINING_FILTERED_NONMEME_SOURCE",
-                                    "mint=${outcome.mint} src=${outcome.source.name} mode=${outcome.mode.name}",
+                                    "LEARNING_LABEL_MISMATCH_REJECTED",
+                                    "mint=${outcome.mint} pnlPct=${"%.2f".format(p)} declared=${outcome.result.name}",
                                 )
                             } catch (_: Throwable) {}
                             return@subscribe
                         }
                     }
-                } catch (_: Throwable) {}
-                // V5.9.793 — operator audit Item 5: BC-sim-only outcomes never train
-                // the production WR. They close against a pump.fun bonding-curve
-                // estimate (no executable pool) so the realized P&L is fiction —
-                // letting them into Fluid would falsely lift / drop the trust band.
+                }
+
+                // Skip phantom / unlanded entries.
+                if (!com.lifecyclebot.engine.execution.ExecutionStatusRegistry.shouldTrainStrategy(outcome.mint)) {
+                    return@subscribe
+                }
+
+                // BC-sim-only outcomes never train production WR.
                 if (outcome.bcSimOnly) {
                     try {
                         ForensicLogger.lifecycle(
@@ -162,16 +141,23 @@ object CanonicalSubscribers {
                     } catch (_: Throwable) {}
                     return@subscribe
                 }
+
                 val isWin = outcome.result == TradeResult.WIN
                 try {
-                    // V5.9.694 — pass tradeId as dedupKey so FluidLearning's
-                    // internal guard can enforce once-only semantics even if
-                    // some legacy code path manages to call recordPaperTrade
-                    // directly for the same close event.
                     val fluidDedupKey = "bus_${outcome.tradeId}"
                     when (outcome.environment) {
-                        TradeEnvironment.LIVE -> FluidLearningAI.recordLiveTrade(isWin, outcome.realizedPnlPct ?: 0.0)
-                        TradeEnvironment.PAPER -> FluidLearningAI.recordPaperTrade(isWin, dedupKey = fluidDedupKey)
+                        TradeEnvironment.LIVE -> FluidLearningAI.recordLiveTrade(
+                            isWin,
+                            outcome.realizedPnlPct ?: 0.0,
+                        )
+                        // V5.0.6690 — the old subscriber omitted pnlPct here.
+                        // W/L moved but expectancy stayed pinned at 0%, so the
+                        // adaptive loop could not learn magnitude/quality.
+                        TradeEnvironment.PAPER -> FluidLearningAI.recordPaperTrade(
+                            isWin = isWin,
+                            pnlPct = outcome.realizedPnlPct ?: 0.0,
+                            dedupKey = fluidDedupKey,
+                        )
                         TradeEnvironment.SHADOW -> { /* shadow doesn't affect Fluid trust */ }
                     }
                     LayerReadinessRegistry.recordEducationDetailed(
@@ -185,16 +171,7 @@ object CanonicalSubscribers {
                 }
             }
 
-            // V5.9.495z9 — readiness-only mirrors for the rich-feature consumers.
-            // The actual learnFromTrade() / recordTrade() / recordTradeOutcome()
-            // calls still happen at the existing emit sites in Executor.kt
-            // (lines 939, 1111, 6469, 6534) where the full features are
-            // already constructed. The bus subscriber here only updates
-            // LayerReadinessRegistry so the Learning Pipeline UI shows
-            // these layers' sample counts climbing in lockstep with the
-            // canonical bus — which is the operator-visible 'fragmentation
-            // collapses' signal. No double-counting because these mirrors
-            // do NOT call the consumers' actual learning methods.
+            // Canonical adapters for rich-feature consumers.
             for (layer in listOf(
                 "AdaptiveLearningEngine",
                 "RunTracker30D",
@@ -204,33 +181,39 @@ object CanonicalSubscribers {
                 CanonicalOutcomeBus.subscribe { outcome ->
                     if (!recordOnce(outcome.tradeId, layer)) return@subscribe
                     if (!outcome.isTrainable) {
-                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("INVALID_ACCOUNTING_NOT_TRAINED") } catch (_: Throwable) {}
+                        try { PipelineHealthCollector.labelInc("INVALID_ACCOUNTING_NOT_TRAINED") } catch (_: Throwable) {}
                         return@subscribe
                     }
                     if (outcome.result != TradeResult.WIN && outcome.result != TradeResult.LOSS) return@subscribe
-                    // V5.9.1355 P0.1 — HARD DOMAIN GATE for the rich-feature meme
-                    // strategy learners (BehaviorLearning / MetaCognitionAI /
-                    // AdaptiveLearningEngine). Same fire-wall as the Fluid mirror:
-                    // foreign-domain outcomes must never train meme pattern memory.
-                    if (outcome.assetClass != AssetClass.MEME) {
+
+                    // V5.0.6690 — same canonical Meme Trader desk firewall as
+                    // FluidLearningAI. This restores BlueChip/Quality/Lab/
+                    // Project/Dip/Treasury/CopyTrade feedback while keeping
+                    // foreign markets out of meme strategy memory.
+                    if (!isMemeLearningOutcome(outcome)) {
                         try {
-                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LEARNING_DOMAIN_REJECTED|src=${outcome.assetClass.name}|targetBrain=${layer}|reason=CROSS_DOMAIN")
+                            PipelineHealthCollector.labelInc(
+                                "LEARNING_DOMAIN_REJECTED|src=${outcome.assetClass.name}|targetBrain=${layer}|reason=CROSS_DOMAIN"
+                            )
                         } catch (_: Throwable) {}
                         return@subscribe
                     }
-                    // V5.9.1355 P0.2 — LABEL INTEGRITY for strategy learners.
+
                     run {
                         val p = outcome.realizedPnlPct
                         if (p != null) {
                             val declaredWin = outcome.result == TradeResult.WIN
                             if ((declaredWin && p < 0.0) || (!declaredWin && p > 0.0)) {
                                 try {
-                                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LEARNING_LABEL_MISMATCH_REJECTED|pnlPct=${"%.2f".format(p)}|requested=${if (declaredWin) "WIN" else "LOSS"}|corrected=${if (p < 0.0) "LOSS" else "WIN"}")
+                                    PipelineHealthCollector.labelInc(
+                                        "LEARNING_LABEL_MISMATCH_REJECTED|pnlPct=${"%.2f".format(p)}|requested=${if (declaredWin) "WIN" else "LOSS"}|corrected=${if (p < 0.0) "LOSS" else "WIN"}"
+                                    )
                                 } catch (_: Throwable) {}
                                 return@subscribe
                             }
                         }
                     }
+
                     val isWin = outcome.result == TradeResult.WIN
                     LayerReadinessRegistry.recordEducationDetailed(
                         layer = layer,
@@ -238,61 +221,41 @@ object CanonicalSubscribers {
                         positiveEvDelta = if (isWin) 1L else 0L,
                         isRichSample = !outcome.featuresIncomplete,
                     )
-                    // V5.9.683-FIX: MetaCognitionAI.totalTradesAnalyzed was never
-                    // incremented by the bus because recordTradeOutcome() requires
-                    // a matching pendingPredictions entry (only registered on V3 Execute).
-                    // Tokens that don't reach V3 Execute never register predictions, so
-                    // their outcomes are invisible to MetaCognition. Wire a lightweight
-                    // canonical bump so the counter advances with real settled trades
-                    // and the WalletDigest stops showing Δ=-48 shrinkage.
-                    // V5.9.717 — pass mint for dedup: if recordTradeOutcome/recordTrade
-                    // already counted this trade via the direct Executor path, the
-                    // onCanonicalSettlement impl will skip the increment to avoid double-count.
+
                     if (layer == "MetaCognitionAI") {
                         try {
-                            com.lifecyclebot.v3.scoring.MetaCognitionAI.onCanonicalSettlement(isWin, outcome.mint)
+                            // V5.0.6690 — use the real canonical adapter, not
+                            // the old counter-only settlement shim. The adapter
+                            // preserves direct-path dedup internally.
+                            com.lifecyclebot.v3.scoring.MetaCognitionAI.onCanonicalOutcome(outcome)
                         } catch (_: Throwable) {}
                     }
                     if (layer == "BehaviorLearning") {
                         try {
-                            // V5.9.782 — operator audit items A, C, D, J:
-                            // BehaviorLearning now consumes the FULL canonical outcome
-                            // (with rich CandidateFeatures payload) instead of only
-                            // a counter no-op. Strategy learning is skipped when
-                            // outcome.featuresIncomplete=true so feature-poor legacy
-                            // bridge samples never pollute the pattern table.
-                            com.lifecyclebot.engine.BehaviorLearning.onCanonicalOutcome(outcome)
-                            // Keep the legacy settlement no-op call for API surface
-                            // compatibility (it's still a no-op internally).
-                            com.lifecyclebot.engine.BehaviorLearning.onCanonicalSettlement(isWin, outcome.mint)
+                            BehaviorLearning.onCanonicalOutcome(outcome)
+                            BehaviorLearning.onCanonicalSettlement(isWin, outcome.mint)
                         } catch (_: Throwable) {}
                     }
                     if (layer == "AdaptiveLearningEngine") {
                         try {
-                            // V5.9.783 — operator audit item B:
-                            // AdaptiveLearningEngine consumes the canonical outcome too.
-                            // Skips when outcome.featuresIncomplete=true. learnFromTrade()
-                            // has its own (mcap_hold_pnl_minute) dedup so duplicate
-                            // publishes don't double-count vs the legacy direct path.
-                            com.lifecyclebot.engine.AdaptiveLearningEngine.onCanonicalOutcome(outcome)
+                            AdaptiveLearningEngine.onCanonicalOutcome(outcome)
+                        } catch (_: Throwable) {}
+                    }
+                    if (layer == "RunTracker30D") {
+                        try {
+                            // V5.0.6690 — this adapter existed but was never
+                            // subscribed, so proof-run feedback could drift from
+                            // the canonical close stream.
+                            RunTracker30D.onCanonicalOutcome(outcome)
                         } catch (_: Throwable) {}
                     }
                 }
             }
 
-            // V5.9.1146 — UNIVERSAL MEME LAYER VOTE CLOSEOUT.
-            // Votes are captured when ANY meme trade opens in Executor.recordTrade.
-            // Before this, votes were drained only from Executor's base-meme SELL
-            // fanout and only when isMemeBaseClose=true. Specialist closes
-            // (ShitCoin/Moonshot/BlueChip/Quality/Manip/Express/Dip/Sniper), which
-            // publish through CanonicalPublishHelper, bypassed that path, leaving
-            // LayerVoteStore votes undrained and the 26 meme layers ungraded.
-            // Subscribe once to the canonical bus so every real settled MEME close
-            // grades the layers that actually voted on the entry — no duplicate
-            // side path, no extra execution authority, pure learning fanout.
+            // UNIVERSAL MEME LAYER VOTE CLOSEOUT.
             CanonicalOutcomeBus.subscribe { outcome ->
                 if (!recordOnce(outcome.tradeId, "LayerVoteStore")) return@subscribe
-                if (outcome.assetClass != AssetClass.MEME) return@subscribe
+                if (!isMemeLearningOutcome(outcome)) return@subscribe
                 if (outcome.result != TradeResult.WIN && outcome.result != TradeResult.LOSS) return@subscribe
                 if (outcome.bcSimOnly) return@subscribe
                 try {
@@ -308,23 +271,12 @@ object CanonicalSubscribers {
                 }
             }
 
-            // Generic readiness recorder for the strategy/execution layers
-            // that don't yet have a direct mirror but DO need their readiness
-            // sample count to advance every time a relevant outcome lands.
-            // This populates LayerReadinessRegistry so the new UI screen
-            // shows non-DISCONNECTED states for layers that participate.
+            // Generic readiness recorder for strategy/execution layers.
             CanonicalOutcomeBus.subscribe { outcome ->
-                // V5.9.1235 — readiness must track learner-eligible settled
-                // samples, not every diagnostic event on the canonical bus.
-                // 3200/3202 screenshots showed canonicalRaw≈2043 but true
-                // settled learner baseline=221, while LayerReadiness displayed
-                // n≈1900 because UNKNOWN_LANE / bad-label execution events still
-                // flowed here. Keep those outcomes visible in counters/recent log,
-                // but do NOT educate readiness from them.
                 if (!outcome.isTrainable) return@subscribe
                 if (outcome.bcSimOnly) return@subscribe
                 val isStrategySettlement = outcome.result == TradeResult.WIN ||
-                                           outcome.result == TradeResult.LOSS
+                    outcome.result == TradeResult.LOSS
                 if (!isStrategySettlement) return@subscribe
                 val isExecOutcome = outcome.executionResult != ExecutionResult.UNKNOWN
 
@@ -348,7 +300,6 @@ object CanonicalSubscribers {
     }
 
     private fun recordOnce(tradeId: String, layer: String): Boolean {
-        // Returns true if first time we've seen this (tradeId, layer) pair.
         val key = "${layer}_$tradeId"
         synchronized(seenTradeIds) {
             return seenTradeIds.add(key)
