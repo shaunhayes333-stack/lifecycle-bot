@@ -45,12 +45,6 @@ object LaneExecutionCoordinator {
     private val affinities = ConcurrentHashMap<String, Set<String>>()
 
     // V5.9.1135 — lane election must be priority-based, not first-caller-wins.
-    // 3102 showed TREASURY evaluating first in BotService and becoming primary
-    // for fresh meme candidates, after which SHITCOIN/MOONSHOT/MANIP/DIP got
-    // LANE_PREAUTH_SUPPRESSED. That starves the exact specialist lanes that had
-    // been carrying ~40% WR the prior night. Treasury is still allowed to trade
-    // when no specialist requests the book; it just cannot steal the book solely
-    // because it ran earlier in the loop.
     private val lanePriority = mapOf(
         "MOONSHOT" to 100,
         "SHITCOIN" to 95,
@@ -85,37 +79,12 @@ object LaneExecutionCoordinator {
     }
 
     // ── FAIR LANE ROTATION (V5.9.1335) ───────────────────────────────
-    // ROOT CAUSE of "half the meme trader isn't working": every pump.fun
-    // candidate is blanket-tagged SHITCOIN+MOONSHOT+MANIPULATED+PROJECT_SNIPER
-    // (BotService.inferIntakeLaneAffinity / TokenMergeQueue), so the per-mint
-    // election was decided purely by STATIC priority — and MOONSHOT (100) wins
-    // every single time. SHITCOIN / MANIPULATED / PROJECT_SNIPER got
-    // LANE_TELEMETRY_ONLY on ~everything → they never opened a trade → they
-    // never learned. The lanes were alive but starved.
-    //
-    // FIX: weight the election by FAIRNESS. Each lane keeps a decaying count of
-    // recent primary wins; a lane that has been hogging primary gets a penalty
-    // subtracted from its effective priority, so a starved peer can take the next
-    // qualifying candidate. Static priority remains the baseline and the final
-    // tiebreaker, so the order is deterministic and Treasury still can't steal the
-    // book from specialists. This is load-balancing, NOT a veto — every lane still
-    // trades AND learns, and one-lane-per-mint (no double-buy) is preserved.
-    //
-    // FAIRNESS_WEIGHT scales how hard recent wins push a lane down. With weight 8
-    // and base gaps of ~5 between specialists, a lane that is ~3-4 wins ahead of a
-    // peer yields the next candidate to that peer — fast enough to keep all four
-    // specialists fed on the pump.fun firehose, slow enough not to thrash.
-    // Fairness only influences FRESH elections (who claims an UNCLAIMED book).
-    // It NEVER yanks an active primary mid-window — upgrades stay pure static
-    // priority — so there is no thrash and no stealing a candidate another lane
-    // is already opening. A lane only gets pushed down once it is winning
-    // DISPROPORTIONATELY (a real lead over the field), never on a single win,
-    // honouring "nothing loses its static priority unless it is winning over
-    // everything else."
-    private const val FAIRNESS_DECAY_MS = 120_000L    // a win's fairness weight decays over ~2 min
-    private const val FAIRNESS_LEAD_GRACE = 3         // a lane may lead the field by up to this many
-                                                      // wins before any penalty applies
-    private const val FAIRNESS_PER_LEAD = 6.0         // penalty per excess win beyond the grace lead
+    // Fairness remains available for pre-seal/fresh elections. Once FDG has
+    // published an immutable ExecutionDecisionSnapshot, V5.0.6679 binds this
+    // coordinator to that sealed owner instead of re-running any local contest.
+    private const val FAIRNESS_DECAY_MS = 120_000L
+    private const val FAIRNESS_LEAD_GRACE = 3
+    private const val FAIRNESS_PER_LEAD = 6.0
     private val laneWinTimestamps = ConcurrentHashMap<String, ArrayDeque<Long>>()
 
     private fun recordPrimaryWin(lane: String) {
@@ -128,7 +97,6 @@ object LaneExecutionCoordinator {
         }
     }
 
-    /** Recent (decaying) primary-win count for a lane. */
     private fun recentWins(lane: String): Int {
         val dq = laneWinTimestamps[lane.uppercase()] ?: return 0
         val now = System.currentTimeMillis()
@@ -141,27 +109,17 @@ object LaneExecutionCoordinator {
     private fun minRecentWinsAcross(lanes: Collection<String>): Int =
         lanes.minOfOrNull { recentWins(it) } ?: 0
 
-    /**
-     * Claim priority for a FRESH election among [qualified] lanes: static/affinity
-     * priority MINUS a fairness penalty that only bites a lane leading the field by
-     * more than FAIRNESS_LEAD_GRACE wins. A lane at or near the field minimum keeps
-     * its full static priority — so MOONSHOT still wins by default and only yields
-     * once it is genuinely hogging the book. Fail-open to raw priority.
-     */
     private fun claimPriority(mint: String, lane: String, qualified: Collection<String>): Int = try {
         val floor = minRecentWinsAcross(qualified)
         val lead = (recentWins(lane) - floor - FAIRNESS_LEAD_GRACE).coerceAtLeast(0)
         effectivePriority(mint, lane) - (lead * FAIRNESS_PER_LEAD).toInt()
     } catch (_: Throwable) { effectivePriority(mint, lane) }
 
-    /** Pick the fairest claimant for a fresh election from the qualified lane set. */
     private fun pickFreshPrimary(mint: String, qualified: List<String>): String? {
         if (qualified.isEmpty()) return null
         return qualified.maxByOrNull { claimPriority(mint, it, qualified) }
     }
 
-    /** Full set of lanes considered "in the running" for a mint's fairness math:
-     *  the registered affinity set plus the two lanes currently contesting the book. */
     private fun qualifiedLanesFor(mint: String, vararg contesting: String): List<String> {
         val registryAffinity = try { GlobalTradeRegistry.getLaneAffinity(mint) } catch (_: Throwable) { emptySet() }
         val all = ((affinities[mint] ?: emptySet()) + registryAffinity + contesting.map { it.uppercase() })
@@ -170,8 +128,6 @@ object LaneExecutionCoordinator {
     }
 
     fun candidateVersionFor(mint: String): Long {
-        // 15-30s window bucket + monotonic suffix avoids same-second duplicate opens
-        // while still letting genuinely new candidate data re-elect shortly after.
         val bucket = System.currentTimeMillis() / TTL_MS
         return bucket
     }
@@ -193,7 +149,10 @@ object LaneExecutionCoordinator {
         if (old != null && now - old.createdAtMs <= TTL_MS) return old
         val authorityVersion6494 = authoritySeq6494.incrementAndGet()
         val e = Election(
-            key = key, primaryLane = primary, secondaryTelemetryLane = secondary, createdAtMs = now,
+            key = key,
+            primaryLane = primary,
+            secondaryTelemetryLane = secondary,
+            createdAtMs = now,
             electionId = "${runtimeGeneration}:${candidateVersion}:$authorityVersion6494",
             authorityVersion = authorityVersion6494,
         )
@@ -212,6 +171,35 @@ object LaneExecutionCoordinator {
             ?.takeIf { now - it.createdAtMs <= TTL_MS }
     }
 
+    /**
+     * V5.0.6679 §SEALED_FDG_OWNER_BEFORE_CALLER_ORDER.
+     *
+     * The V5.0.6614 implementation assumed canonicalCycleLaneFor had already
+     * elected the strongest specialist, but the coordinator did not actually
+     * consume that authority. On a fresh key it simply elected `listOf(laneUpper)`,
+     * making the first wrapper caller the immutable owner. Runtime 5.0.5720
+     * captured the failure directly: FDG sealed PROJECT_SNIPER, then a CORE
+     * TradeAuthorizer wrapper reached this method first, CORE won the election,
+     * claimed the mint/version, and the true PROJECT_SNIPER attempt was later
+     * suppressed by ONE_EXECUTABLE_BUY_PER_MINT_VERSION.
+     *
+     * Once FDG has a canonical decision for this exact mint/version/mode, caller
+     * order has zero authority. Bind the election to ExecutionDecisionSnapshot6510.
+     * If no sealed FDG snapshot exists yet, preserve the legacy pre-seal behavior;
+     * nothing is fabricated and no lane is disabled.
+     */
+    private fun sealedFdgOwnerLane6679(mint: String, candidateVersion: Long): String? = try {
+        val mode6679 = if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
+        com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510
+            .currentForMint(mint, candidateVersion, mode6679)
+            ?.executionLane
+            ?.trim()
+            ?.uppercase()
+            ?.takeIf {
+                it.isNotBlank() && it !in setOf("UNKNOWN", "STANDARD", "V3_CORE", "SHADOW")
+            }
+    } catch (_: Throwable) { null }
+
     fun canRequestExecution(
         mint: String,
         lane: String,
@@ -223,17 +211,38 @@ object LaneExecutionCoordinator {
         val mapKey = mapKey(key)
         val now = System.currentTimeMillis()
         val existing = elections[mapKey]?.takeIf { now - it.createdAtMs <= TTL_MS }
-        // V5.0.6614 — canonicalCycleLaneFor has already elected the strongest
-        // source-grounded specialist role. Do not re-elect it here using static
-        // priority, fairness counters, first-caller order or Treasury deferral.
-        // This coordinator seals one immutable owner; later callers are telemetry-only.
-        val e = existing ?: elect(
-            mint = mint,
-            lanes = listOf(laneUpper),
-            preferred = laneUpper,
-            candidateVersion = candidateVersion,
-            runtimeGeneration = runtimeGeneration,
-        )
+
+        val sealedFdgOwner6679 = if (existing == null) sealedFdgOwnerLane6679(mint, candidateVersion) else null
+        val e = existing ?: if (sealedFdgOwner6679 != null) {
+            if (sealedFdgOwner6679 != laneUpper) {
+                try {
+                    PipelineHealthCollector.labelInc("LANE_CALLER_DEFERRED_TO_SEALED_FDG_OWNER_6679")
+                    ForensicLogger.lifecycle(
+                        "LANE_ELECTION_BOUND_TO_SEALED_FDG_6679",
+                        "mint=${mint.take(10)} version=$candidateVersion caller=$laneUpper sealedOwner=$sealedFdgOwner6679 action=caller_order_has_no_authority",
+                    )
+                } catch (_: Throwable) {}
+            }
+            try { PipelineHealthCollector.labelInc("LANE_ELECTION_BOUND_TO_SEALED_FDG_6679") } catch (_: Throwable) {}
+            elect(
+                mint = mint,
+                lanes = listOf(sealedFdgOwner6679),
+                preferred = sealedFdgOwner6679,
+                candidateVersion = candidateVersion,
+                runtimeGeneration = runtimeGeneration,
+            )
+        } else {
+            // Pre-FDG compatibility: if no canonical snapshot exists yet, keep the
+            // existing claimant behavior. The later sealed FDG path is authoritative.
+            elect(
+                mint = mint,
+                lanes = listOf(laneUpper),
+                preferred = laneUpper,
+                candidateVersion = candidateVersion,
+                runtimeGeneration = runtimeGeneration,
+            )
+        }
+
         val allowed = e.primaryLane == laneUpper
         val finalElection6494 = if (allowed && !e.sealed) {
             e.copy(sealed = true).also { elections[mapKey] = it }
@@ -251,14 +260,6 @@ object LaneExecutionCoordinator {
 
     fun duplicateOpenSuppressions(): Long = duplicateOpenSuppressed.get()
 
-    /**
-     * V5.9.1138 — release a primary election when the winning lane fails before
-     * actually opening a trade. Without this, the first primary lane can fail
-     * FDG/finality/buy-open and still suppress every other lane for the full
-     * candidate window, making runtime look like "only one layer trades".
-     * This is fail-open for learning: it only releases when the caller is the
-     * current primary for that mint/window.
-     */
     fun releaseIfPrimary(
         mint: String,
         lane: String,
@@ -322,7 +323,7 @@ object LaneExecutionCoordinator {
         duplicateOpenSuppressed.set(0L)
         versionSeq.set(0L)
         authoritySeq6494.set(0L)
-        laneWinTimestamps.clear()   // V5.9.1335a — fairness state must reset per test
+        laneWinTimestamps.clear()
     }
 
     private fun mapKey(key: CandidateKey): String = "${key.runtimeGeneration}:${key.mint}:${key.candidateVersion}"
