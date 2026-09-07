@@ -57,10 +57,24 @@ class Bundle6405EntryPriceIntegrityTest {
         )
     }
 
-    @Test fun runner_untrusted_when_source_is_unknown_label() {
+    @Test fun runner_trusted_when_unknown_label_is_backed_by_matching_tx_economics() {
+        // V5.0.6687: immutable transaction economics outrank a descriptive provider
+        // label when the stamped USD/token basis agrees within the 2% witness band.
         val ok = EntryPriceIntegrityAuthority6405.isTrustworthyForRunnerExit(
             mint = "M", symbol = "SYM",
             stampedEntryUsd = 6.5e-6,
+            entrySource = "SCANNER_FEED_PRICE",
+            costSol = 0.0254, qtyUi = 702_120.0, knownSolUsd = 180.0,
+        )
+        assertTrue(ok)
+    }
+
+    @Test fun runner_untrusted_when_unknown_label_lacks_matching_tx_economics() {
+        // Unknown descriptive sources remain untrusted when the immutable tx witness
+        // does not corroborate the stamped basis closely enough.
+        val ok = EntryPriceIntegrityAuthority6405.isTrustworthyForRunnerExit(
+            mint = "M", symbol = "SYM",
+            stampedEntryUsd = 6.2e-6,
             entrySource = "SCANNER_FEED_PRICE",
             costSol = 0.0254, qtyUi = 702_120.0, knownSolUsd = 180.0,
         )
