@@ -9,6 +9,7 @@ on:
       - 'ci/aate_6686_live_authority_repair.py'
       - 'ci/aate_6686_runner_hotfix.py'
       - 'ci/aate_6686_finalizer.py'
+      - 'ci/aate_6686_golden_tape_fix.py'
 
 permissions:
   contents: write
@@ -40,6 +41,7 @@ jobs:
           python3 ci/aate_6686_runner_hotfix.py
           python3 ci/aate_6686_live_authority_repair.py
           python3 ci/aate_6686_finalizer.py
+          python3 ci/aate_6686_golden_tape_fix.py
 
       - name: Verify repaired source contracts
         shell: bash
@@ -59,6 +61,8 @@ jobs:
           grep -q 'positionIdOf(mint, paperMode)' app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt
           ! grep -q 'activePositionIdByMint' app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt
           grep -q 'positionIdOf(intent.mint, paperMode = false)' app/src/main/kotlin/com/lifecyclebot/engine/sell/SellFinalizationCoordinator.kt
+          grep -q 'lastClosedPositionIdByModeMint' app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt
+          ! grep -q 'mirror.contains("lastClosedPositionIdByMint")' app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt
 
       - name: Repository contradiction and patch-rot scans
         shell: bash
@@ -84,6 +88,7 @@ jobs:
           rm -f ci/aate_6686_live_authority_repair.py
           rm -f ci/aate_6686_runner_hotfix.py
           rm -f ci/aate_6686_finalizer.py
+          rm -f ci/aate_6686_golden_tape_fix.py
           rm -f .github/workflows/aate-6686-live-authority-repair.yml
           rm -f .github/workflows/aate-6686-live-authority-repair-v2.yml
           git config user.name 'AATE CI Repair'
