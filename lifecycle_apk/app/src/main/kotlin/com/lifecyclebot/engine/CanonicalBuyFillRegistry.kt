@@ -14,9 +14,10 @@ import java.util.concurrent.ConcurrentHashMap
  * by [Executor.promoteVerifiedLiveBuy] at the moment wallet-verify
  * completes (i.e. the moment the true raw qty and decimals are known).
  *
- * Every downstream surface that needs to display, compute, or journal
- * the entry side of a trade MUST read from here rather than from
- * ts.position, Trade.entryPriceSnapshot, or the WebSocket mark:
+ * Every LIVE downstream surface that needs to display, compute, or journal
+ * the entry side of a trade may read from here while the legacy migration
+ * remains in progress. PAPER must never consume this registry: its canonical
+ * entry/cost authority is the paper transaction/position ledger.
  *
  *   * SELL journal row's entryQtyToken / entryPriceSnapshot
  *   * Open Position card (Entry price, Size, tokens)
@@ -186,6 +187,28 @@ object CanonicalBuyFillRegistry {
         // migration debt in the pipeline dump. When the counter reaches zero,
         // the entire object can be deleted.
         try { PipelineHealthCollector.labelInc("LEGACY_CANONICAL_BUY_FILL_READ_6386") } catch (_: Throwable) {}
+
+        // V5.0.6680 §LIVE_FILL_PAPER_FENCE — PATCH-ROT / AUTHORITY REPAIR.
+        // This registry contains persisted on-chain LIVE fills only. MainActivity
+        // and other legacy readers used get(mint) unconditionally, so a PAPER
+        // position on a mint that had a historical LIVE fill could silently have
+        // its entry price/quantity replaced by the unrelated LIVE acquisition.
+        // That is cross-mode data corruption. Runtime reads in PAPER return null;
+        // callers must use the PAPER position/ledger basis instead.
+        //
+        // Unit tests often exercise this storage object before Android init; prefs
+        // is null there, so raw registry semantics remain available to the legacy
+        // persistence tests without weakening the actual runtime fence.
+        if (prefs != null && RuntimeModeAuthority.isPaper()) {
+            try {
+                PipelineHealthCollector.labelInc("LIVE_CANONICAL_FILL_READ_BLOCKED_IN_PAPER_6680")
+                ForensicLogger.lifecycle(
+                    "LIVE_CANONICAL_FILL_READ_BLOCKED_IN_PAPER_6680",
+                    "mint=${mint.take(18)} action=return_null_use_paper_basis",
+                )
+            } catch (_: Throwable) {}
+            return null
+        }
         return fills[mint]
     }
 
