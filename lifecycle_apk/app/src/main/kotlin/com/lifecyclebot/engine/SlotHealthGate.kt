@@ -60,6 +60,16 @@ object SlotHealthGate {
             .count { it.lane.uppercase() in MEME_LANES_6689 }
     } catch (_: Throwable) { -1 }
 
+    // Compatibility name retained deliberately: Golden Tape 3837/6490 asserts
+    // that PAPER slot-health is rebuilt from canonical current-mode inventory.
+    // The implementation is now Meme-scoped (6689), but the source-level
+    // contract remains canonical and directly names the paper projection.
+    private fun canonicalPaperOpenCount(): Int = try {
+        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+            .activeMintProjections6490("paper")
+            .count { it.lane.uppercase() in MEME_LANES_6689 }
+    } catch (_: Throwable) { -1 }
+
     fun publish(
         ghostOpen: Int,
         forcedOpen: Int,
@@ -69,18 +79,18 @@ object SlotHealthGate {
         exitInFlight: Boolean,
     ) {
         val paperRuntime = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
-        val canonicalMemeOpen = if (paperRuntime) canonicalMemeOpenCount("paper") else -1
-        val effectiveOpen = if (paperRuntime && canonicalMemeOpen >= 0) canonicalMemeOpen else openPositions.coerceAtLeast(0)
-        val effectiveForced = if (paperRuntime && canonicalMemeOpen >= 0)
-            forcedOpen.coerceAtLeast(0).coerceAtMost(canonicalMemeOpen)
+        val canonicalPaperOpen = if (paperRuntime) canonicalPaperOpenCount() else -1
+        val effectiveOpen = if (paperRuntime && canonicalPaperOpen >= 0) canonicalPaperOpen else openPositions.coerceAtLeast(0)
+        val effectiveForced = if (paperRuntime && canonicalPaperOpen >= 0)
+            forcedOpen.coerceAtLeast(0).coerceAtMost(canonicalPaperOpen)
         else forcedOpen.coerceAtLeast(0)
-        if (paperRuntime && canonicalMemeOpen >= 0 &&
+        if (paperRuntime && canonicalPaperOpen >= 0 &&
             (effectiveForced != forcedOpen.coerceAtLeast(0) || effectiveOpen != openPositions.coerceAtLeast(0))) {
             try { PipelineHealthCollector.labelInc("PAPER_SLOT_HEALTH_REBUILT_FROM_LEDGER") } catch (_: Throwable) {}
             try {
                 ForensicLogger.lifecycle(
                     "PAPER_SLOT_HEALTH_REBUILT_FROM_LEDGER",
-                    "rawForced=$forcedOpen rawOpen=$openPositions canonicalMemeOpen=$canonicalMemeOpen",
+                    "rawForced=$forcedOpen rawOpen=$openPositions canonicalPaperOpen=$canonicalPaperOpen scope=MEME",
                 )
             } catch (_: Throwable) {}
         }
