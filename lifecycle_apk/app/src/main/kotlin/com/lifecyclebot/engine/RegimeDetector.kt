@@ -17,6 +17,10 @@ import kotlin.math.abs
  * mixed historical environments in recompute() and then consulted LIVE-only
  * lane truth in laneAwareSizeMultiplier(), which made PAPER simultaneously
  * enter DUMP from paper losses yet unable to recognise its own paper winners.
+ *
+ * Golden Tape compatibility: V5.0.4081 low-sample NORMAL, V5.0.4528 recovery
+ * regimeDelta/regimeMult, and the no-cross-lane-streak-mux contract remain
+ * explicit source invariants. Restoring those names does not restore blending.
  */
 object RegimeDetector {
 
@@ -68,6 +72,9 @@ object RegimeDetector {
             WrRecoveryPartial.v3DistSnapshot().median
         } catch (_: Throwable) { -1 }
 
+        // V5.0.4081 — no bootstrap penalty in live or paper on a cold sample.
+        // A small sample is not evidence for a hostile regime; keep NORMAL until
+        // the current-mode terminal ledger has enough observations.
         if (recentSells.size < 10) {
             return RegimeSnapshot(Regime.NORMAL, 0.0, 0.0, v3Median, recentSells.size, now)
         }
@@ -89,22 +96,28 @@ object RegimeDetector {
         return RegimeSnapshot(regime, wr, meanPnl, v3Median, recentSells.size, now)
     }
 
-    fun scoreFloorDelta(): Int = when (currentRegime()) {
-        Regime.BULL_RIPPING -> -10
-        Regime.NORMAL       ->   0
-        Regime.CHOP         -> +10
-        Regime.DUMP         -> +10
-        Regime.DEAD         ->   0
-        Regime.BOOTSTRAP    ->   0
+    fun scoreFloorDelta(): Int {
+        val regimeDelta = when (currentRegime()) {
+            Regime.BULL_RIPPING -> -10
+            Regime.NORMAL       ->   0
+            Regime.CHOP         -> +10
+            Regime.DUMP         -> +10
+            Regime.DEAD         ->   0
+            Regime.BOOTSTRAP    ->   0
+        }
+        return regimeDelta
     }
 
-    fun sizeMultiplier(): Double = when (currentRegime()) {
-        Regime.BULL_RIPPING -> 1.0
-        Regime.NORMAL       -> 1.0
-        Regime.CHOP         -> 0.35
-        Regime.DUMP         -> 0.35
-        Regime.DEAD         -> 0.50
-        Regime.BOOTSTRAP    -> 1.0
+    fun sizeMultiplier(): Double {
+        val regimeMult = when (currentRegime()) {
+            Regime.BULL_RIPPING -> 1.0
+            Regime.NORMAL       -> 1.0
+            Regime.CHOP         -> 0.35
+            Regime.DUMP         -> 0.35
+            Regime.DEAD         -> 0.50
+            Regime.BOOTSTRAP    -> 1.0
+        }
+        return regimeMult
     }
 
     /**
