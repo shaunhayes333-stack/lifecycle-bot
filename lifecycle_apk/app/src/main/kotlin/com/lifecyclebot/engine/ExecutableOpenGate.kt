@@ -1764,23 +1764,31 @@ object ExecutableOpenGate {
         }
 
         // ──────────────────────────────────────────────────────────────────
-        // V5.9.1549 — SHADOW_TRAIN_ONLY is NOT an execution veto.
-        // Operator hard rule: the bot has to trade to learn, and LIVE should mirror
-        // PAPER volume/decision shape while respecting real-money sizing/settlement.
-        // A learned toxic bucket is valuable telemetry for soft shaping, but using it
-        // as an EXEC hard block created the observed 36× TREASURY shadow-train choke
-        // and kept live at ~3 trades. FDG/original hard vetoes remain authoritative;
-        // this layer now emits telemetry and allows the executable BUY to proceed.
+        // V5.0.6683 — RESTORE SHADOW_TRAIN EXECUTION SEPARATION.
+        // BucketExecutionState is the matured lane×score-bucket authority. Once a
+        // bucket has enough canonical evidence to become SHADOW_TRAIN_ONLY, opening
+        // another economic paper/live position would contradict the learner: reducing
+        // size cannot improve headline WR because a micro loss is still a loss.
+        // Keep discovery, qualification, tactic rotation and NoTradeObservation
+        // learning alive, but do not turn this already-proven toxic bucket into a
+        // canonical BUY until its learned bucket state recovers.
         run {
             val gateScore = state?.entryScore ?: -1
             if (gateScore >= 0 && isRealExecutionLane(canonicalSelectedLane)) {
                 if (BucketExecutionState.isShadowTrainOnly(canonicalSelectedLane, gateScore)) {
                     try {
+                        PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY_6683")
+                        PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY_6683|${canonicalSelectedLane.uppercase().take(24)}")
                         ForensicLogger.lifecycle(
-                            "EXEC_OPEN_SHADOW_TRAIN_SOFT_ALLOW",
-                            "lane=$canonicalSelectedLane score=$gateScore mode=$modeUpper ${BucketExecutionState.describe(canonicalSelectedLane, gateScore)} attemptId=$attemptId"
+                            "EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY_6683",
+                            "lane=$canonicalSelectedLane score=$gateScore mode=$modeUpper ${BucketExecutionState.describe(canonicalSelectedLane, gateScore)} attemptId=$attemptId action=shadow_train_counterfactual_no_economic_open"
                         )
                     } catch (_: Throwable) {}
+                    return blocked(
+                        "EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY_6683",
+                        "SHADOW_TRAIN_ONLY_6683 lane=$canonicalSelectedLane score=$gateScore mode=$modeUpper ${BucketExecutionState.describe(canonicalSelectedLane, gateScore)}",
+                        shadow = true,
+                    )
                 }
             }
         }

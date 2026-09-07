@@ -9176,4 +9176,24 @@ class GoldenTapeRegressionTest {
         assertFalse(bot.contains("SupervisorLease(mint = mint, startedMs = System.currentTimeMillis()"))
     }
 
+    @Test
+    fun shadowTrainOnly_6683CannotBeReopenedByLateExecPatch() {
+        val bucket = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BucketExecutionState.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        org.junit.Assert.assertTrue(
+            "V5.0.6683: matured toxic lane×score buckets must remain SHADOW_TRAIN_ONLY at executable open",
+            bucket.contains("must NOT create an executable paper/live BUY") &&
+                gate.contains("EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY_6683") &&
+                gate.contains("shadow = true"),
+        )
+        org.junit.Assert.assertFalse(
+            "V5.0.6683: later patches must never soft-allow SHADOW_TRAIN_ONLY back into economic execution",
+            gate.contains("EXEC_OPEN_SHADOW_TRAIN_SOFT_ALLOW"),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.6683: blocked toxic buckets must remain trainable through NoTradeObservation",
+            gate.contains("NoTradeObservationStore.recordBlock"),
+        )
+    }
+
 }
