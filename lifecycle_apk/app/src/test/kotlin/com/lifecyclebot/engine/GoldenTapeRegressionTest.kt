@@ -6242,14 +6242,31 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun unifiedPolicyHead_4470StoresPendingSignalsPerMintAndLane() {
+    fun unifiedPolicyHead_6682BindsOwnerSnapshotAndTrainsSingleCausalLane() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt").readText()
-        assertTrue("V5.0.4470: UnifiedPolicyHead pending stamps must store all lanes per mint, not overwrite siblings", src.contains("ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, DoubleArray>>") && src.contains("pending.computeIfAbsent(mint)"))
-        assertTrue("V5.0.4470: settled outcome must train every stamped lane head for paper/live contribution parity", src.contains("for ((lane, x) in recs)") && src.contains("UNIFIED_POLICY_HEAD_ALL_LANE_OUTCOME_4470"))
-        assertTrue("V5.0.4470: per-lane heads must still train independently while global warm-start also updates", src.contains("getOrCreateLaneHead(lane)") && src.contains("trained += 1") && src.contains("h.trained += 1"))
+        assertTrue(
+            "V5.0.6682: pre-open observations may remain keyed by mint and lane until canonical owner election",
+            src.contains("ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, DoubleArray>>") &&
+                src.contains("pending.computeIfAbsent(mint)"),
+        )
+        assertTrue(
+            "V5.0.6682: canonical open must freeze one immutable owner-bound entry snapshot",
+            src.contains("fun bindPosition6681(positionId: String, mint: String, ownerLane: String): Boolean") &&
+                src.contains("pendingByPosition6681[positionId] = BoundEntry6681(mint, owner, selected)"),
+        )
+        assertTrue(
+            "V5.0.6682: terminal finality must train exactly one global update and the actual owner lane only",
+            src.contains("fun recordOutcome6681(positionId: String, mint: String, ownerLane: String, pnlPct: Double): Boolean") &&
+                src.contains("trainOneOutcome6681(owner, bound.features, pnlPct)") &&
+                src.contains("Exactly ONE global update per terminal canonical position") &&
+                src.contains("Exactly ONE owner-lane update"),
+        )
+        assertTrue(
+            "V5.0.6682: legacy settled-outcome multi-lane fanout must stay removed",
+            !src.contains("for ((lane, x) in recs)") &&
+                !src.contains("UNIFIED_POLICY_HEAD_ALL_LANE_OUTCOME_4470"),
+        )
     }
-
-
 
     @Test
     fun openPositionUi_4479UsesBasisGuardedWalletCorrespondentGainDisplay() {
