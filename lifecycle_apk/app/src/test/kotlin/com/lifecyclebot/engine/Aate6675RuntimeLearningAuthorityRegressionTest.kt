@@ -8,12 +8,16 @@ import java.io.File
 class Aate6675RuntimeLearningAuthorityRegressionTest {
 
     @Test
-    fun `decision facing lane expectancy remains clean live terminal only`() {
+    fun `decision facing lane expectancy remains clean and mode isolated`() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt").readText()
+        // V5.0.6679 — preserve the original 3974 PAPER/LIVE isolation contract
+        // without making PAPER mode blind to its own clean terminal outcomes.
+        assertTrue(src.contains("RuntimeModeAuthority.isPaper()"))
         assertTrue(src.contains("computeCleanLiveTerminalLeaderboard"))
-        assertFalse(src.contains("computeCleanPaperTerminalLeaderboard"))
+        assertTrue(src.contains("computeCleanPaperTerminalLeaderboard"))
         assertFalse(src.contains("computeLiveTerminalLeaderboard("))
         assertFalse(src.contains("computePaperTerminalLeaderboard("))
+        assertTrue(src.contains("cachedMode6679"))
     }
 
     @Test
