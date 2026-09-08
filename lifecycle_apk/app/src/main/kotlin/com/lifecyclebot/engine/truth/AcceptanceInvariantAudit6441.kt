@@ -7,32 +7,12 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * V5.0.6441 §12 — ACCEPTANCE INVARIANT AUDIT.
+ * Pure observer: never mutates runtime state.
  *
- * OPERATOR MANDATE §12:
- *   "ACCEPTANCE — MUST PASS BEFORE STRATEGY TUNING:
- *      - PAPER cash never negative.
- *      - Actual order size always equals canonical FINAL SIZE.
- *      - Runner compounding resolver is demonstrably queried on
- *        eligible entries.
- *      - Every 100% exit => canonical CLOSED.
- *      - Journal terminal closes == position CLOSED transitions.
- *      - No oversold quantity.
- *      - Same execution cannot mutate state twice.
- *      - Idempotency counters active during trades.
- *      - Same-open-mint duplicate entry work is removed upstream.
- *      - Scanner dedup telemetry reflects real callbacks.
- *      - QUICK reconciler runs within first cadence.
- *      - FULL reconstruction matches runtime account exactly.
- *      - Learner final W/L exactly matches canonical finalized
- *        position population.
- *      - Partial exits never inflate win counts.
- *      - Lab/maintenance work cannot produce pathological 30s+
- *        trading-cycle stalls.
- *      - UI/reporting cannot block trading runtime."
- *
- * This module runs on demand (e.g. every 60 seconds from the bot loop)
- * and emits `ACCEPTANCE_AUDIT_6441` with a pass/fail breakdown. It
- * NEVER mutates any state — it is a pure observer.
+ * V5.0.6699 — reward-population parity follows the canonical finalized-bus
+ * contract introduced by 6697: an outcome is terminally handled when the
+ * consumer either actually processed it or explicitly EXCLUDED it from
+ * learning. EXCLUDED is not a fake ACK and does not inflate W/L/BE.
  */
 object AcceptanceInvariantAudit6441 {
 
@@ -69,17 +49,37 @@ object AcceptanceInvariantAudit6441 {
         if (!closedWithQty) passed.add("closed=>zero_qty") else failed.add("closed_with_qty")
 
         // 3. Idempotency counters active during trades.
-        val muts = CanonicalPositionAuthority6441.openCount() + allPositions.size
         val idempotencyRows = try { IdempotencyKeyStore6437.rowCount() } catch (_: Throwable) { 0 }
         if (allPositions.isEmpty() || idempotencyRows > 0) passed.add("idempotency_active")
         else failed.add("executions_but_no_idempotency_rows=positions=${allPositions.size},idemRows=$idempotencyRows")
 
-        // 4. Reward purity — final W/L population equals canonical CLOSED
-        // positions (each CLOSED position must have one finalized outcome).
+        // 4. Reward purity / canonical terminal population.
+        // 6697 deliberately separated ACK (consumer mutation) from EXCLUDED
+        // (terminally ineligible for that learner). The pre-6697 equality
+        // closed == W+L+BE therefore became a contradictory invariant and
+        // produced reward_pop_mismatch forever for correctly quarantined rows.
+        // Correct parity is:
+        //   canonical CLOSED == finalized bus canonical population
+        //   canonical CLOSED == RewardPurity processed + RewardPurity excluded
+        // while W/L/BE itself remains processed-only and unpolluted.
         val (w, l, b) = RewardPurityGate6441.canonicalCounts()
+        val rewardProcessed6699 = (w + l + b).toInt()
+        val rewardExcluded6699 = try {
+            CanonicalFinalizedTradeBus6464.consumerExcludedUnique("RewardPurity")
+        } catch (_: Throwable) { 0 }
+        val busCanonical6699 = try { CanonicalFinalizedTradeBus6464.canonicalUnique() } catch (_: Throwable) { 0 }
         val closedCount = CanonicalPositionAuthority6441.closedPositions().size
-        if (closedCount == (w + l + b).toInt() || closedCount == 0) passed.add("reward_pop==closed")
-        else failed.add("reward_pop_mismatch:closed=$closedCount,finalized=${w + l + b}")
+        val rewardHandled6699 = rewardProcessed6699 + rewardExcluded6699
+        val rewardParity6699 = closedCount == 0 ||
+            (busCanonical6699 == closedCount && rewardHandled6699 == closedCount)
+        if (rewardParity6699) {
+            passed.add("reward_terminal_pop==closed(processed=$rewardProcessed6699,excluded=$rewardExcluded6699)")
+        } else {
+            failed.add(
+                "reward_pop_mismatch:closed=$closedCount,bus=$busCanonical6699," +
+                    "processed=$rewardProcessed6699,excluded=$rewardExcluded6699,handled=$rewardHandled6699"
+            )
+        }
 
         // 5. OrderSizeResolver must have been queried on eligible entries.
         val resolverLine = OrderSizeResolver6441.statusLine()
@@ -91,166 +91,81 @@ object AcceptanceInvariantAudit6441 {
         val budgetLine = LearnerRuntimeBudgetGuard6441.statusLine()
         passed.add("learner_budget_$budgetLine".take(50))
 
-        // 7. RECONCILER heartbeat sane (last quick or full < 5 min old).
+        // 7. RECONCILER heartbeat sane.
         val reconStat = CanonicalReconciler6441.statusLine()
         passed.add("recon_$reconStat".take(50))
 
-        // ─────────────────────────────────────────────────────────────
-        // V5.0.6536 §HARD_ACCEPTANCE_INVARIANTS — operator directive:
-        // encode Tests A–G as CI-assertable invariants so the funnel can
-        // never silently amputate lanes or fan-out incoherent candidates.
-        //
-        //  A. EXECUTABLE_FANOUT_PER_CANDIDATE ≤ 2
-        //     Bounded fanout: a single canonical candidate may spawn at
-        //     most 2 executable emissions (paper + shadow). Anything
-        //     higher means a lane is duplicating executables — the
-        //     "split-brain" pathology from audit #1.
-        //
-        //  B. V3_ALLOW_WITHOUT_FDG_OR_EXPLICIT_REJECT == 0
-        //     Every V3 admission must have a matching FDG verdict OR an
-        //     explicit reject. A V3 admission without either represents
-        //     execution authority silently bypassing the FDG gate.
-        //
-        //  C. INTAKE→V3 conversion ≥ 20 % when INTAKE ≥ 700
-        //     Lane-amputation guard: 700+ intake collapsing to <20 % V3
-        //     eligible means non-primary lanes were amputated before
-        //     evaluation (the pathology described in audit #2).
-        //
-        //  D. SPOT_SHORT_ADAPTER_MISMATCH_HARD_SAFETY == 0
-        //     Enforce §SPOT_SHORT_ADAPTER_REROUTE (V5.0.6536): a SHORT
-        //     signal on a SPOT-only adapter must reroute to PERP, never
-        //     stamp HARD_SAFETY on the canonical candidate.
-        //
-        //  E. Every specialized trader routes through CanonicalSizingBridge
-        //     — matches OrderSizeResolver invariant #5 but per-class.
-        //
-        //  F. Providers degraded ⇒ HYDRATION_DEFERRED, not ZERO_LIQUIDITY
-        //     hard-block. Ensures the fix at V5.0.6536 §PROVIDER_DEGRADATION
-        //     stays honoured.
-        //
-        //  G. Crypto Universe Ownership — established tokens keep their
-        //     CRYPTO_ALT identity (guarded by V5.0.6535).
-        // ─────────────────────────────────────────────────────────────
-
-        // A. Fanout guard.
+        // A. Bounded executable fanout.
         val fanoutFail = try {
-            val over = com.lifecyclebot.engine.PipelineHealthCollector
-                .labelCountSnapshot("EXECUTABLE_FANOUT_OVER_LIMIT_6536")
-            over > 0L
+            PipelineHealthCollector.labelCountSnapshot("EXECUTABLE_FANOUT_OVER_LIMIT_6536") > 0L
         } catch (_: Throwable) { false }
         if (!fanoutFail) passed.add("A_fanout_bounded") else failed.add("A_executable_fanout_exceeded_2")
 
-        // B. V3 admission ⇒ FDG verdict OR explicit reject.
+        // B. V3 admission must have FDG or explicit reject.
         val v3OrphanFail = try {
-            val orphan = com.lifecyclebot.engine.PipelineHealthCollector
-                .labelCountSnapshot("V3_ADMIT_WITHOUT_FDG_OR_REJECT_6536")
-            orphan > 0L
+            PipelineHealthCollector.labelCountSnapshot("V3_ADMIT_WITHOUT_FDG_OR_REJECT_6536") > 0L
         } catch (_: Throwable) { false }
         if (!v3OrphanFail) passed.add("B_v3_admits_have_fdg_or_reject") else failed.add("B_v3_admit_without_fdg_or_reject")
 
-        // C. Lane-amputation guard: only enforce when INTAKE ≥ 700.
+        // C. Lane-amputation guard: enforce only after meaningful intake.
         val laneAmputationFail = try {
-            val intake = com.lifecyclebot.engine.PipelineHealthCollector
-                .labelCountSnapshot("INTAKE_TOTAL_6536")
-            val v3Eligible = com.lifecyclebot.engine.PipelineHealthCollector
-                .labelCountSnapshot("V3_ELIGIBLE_TOTAL_6536")
+            val intake = PipelineHealthCollector.labelCountSnapshot("INTAKE_TOTAL_6536")
+            val v3Eligible = PipelineHealthCollector.labelCountSnapshot("V3_ELIGIBLE_TOTAL_6536")
             intake >= 700L && v3Eligible * 5L < intake
         } catch (_: Throwable) { false }
         if (!laneAmputationFail) passed.add("C_intake_to_v3_conversion_healthy")
         else failed.add("C_intake_to_v3_lt_20pct_lane_amputation_suspected")
 
-        // D. SPOT+SHORT hard-safety leak.
+        // D. SPOT+SHORT must reroute, never hard-safety leak.
         val spotShortHardFail = try {
-            val leak = com.lifecyclebot.engine.PipelineHealthCollector
-                .labelCountSnapshot("SPOT_SHORT_ADAPTER_MISMATCH_HARD_SAFETY_6536")
-            leak > 0L
+            PipelineHealthCollector.labelCountSnapshot("SPOT_SHORT_ADAPTER_MISMATCH_HARD_SAFETY_6536") > 0L
         } catch (_: Throwable) { false }
         if (!spotShortHardFail) passed.add("D_spot_short_reroutes_not_hard_safety")
         else failed.add("D_spot_short_stamped_hard_safety_leak")
 
-        // E. Specialized traders routed through CanonicalSizingBridge6532.
-        // V5.0.6542 §INVARIANT_E_TAG_ALIGNMENT — operator: pre-6542 used
-        // plural strings (STOCKS/COMMODITIES/METALS) while the actual
-        // AssetClass.tag emits singular STOCK/COMMODITY/METAL and lane
-        // names include "FOREX_GBPJPY", "PERPS_SOL" etc. Match by prefix
-        // so the invariant reflects real invocations regardless of the
-        // per-lane suffix used by each specialist.
+        // E. Specialized traders must visit CanonicalSizingBridge6532.
         val bridgeSitesSeen = try {
-            // V5.0.6607 §REPAIR_C_ACCEPTANCE_AUDIT_LANE_NAME_ALIGNMENT
-            //   (operator directive Feb 2026: fix 7/7 E_no_specialized_
-            //   trader_routed_through_sizing_bridge). Root cause was NOT
-            //   that specialists bypass the sizing bridge — they call
-            //   CanonicalSizingBridge6532 correctly. The AUDIT'S lane
-            //   candidate list was hard-coded to short names (STOCK,
-            //   PERPS) but specialists emit suffixes (STOCK_SPOT,
-            //   STOCK_LEV, CRYPTO_SPOT, PERPS_SOLUSDT). Sunday dump: only
-            //   STOCK was active → emitted LANE=STOCK_SPOT →
-            //   never matched LANE=STOCK. Fix: enumerate every label whose
-            //   key starts with `CANONICAL_SIZING_BRIDGE_6532|CLASS=<klass>|`
-            //   and count the class as visited if ANY lane suffix
-            //   emitted a count > 0.
             listOf("FOREX", "STOCK", "COMMODITY", "METAL", "CRYPTO_ALT", "PERPS").count { klass ->
                 val classPrefix = "CANONICAL_SIZING_BRIDGE_6532|CLASS=$klass|LANE="
-                val hits = com.lifecyclebot.engine.PipelineHealthCollector
-                    .labelSnapshotByPrefix6607(classPrefix)
+                val hits = PipelineHealthCollector.labelSnapshotByPrefix6607(classPrefix)
                 hits.values.any { it > 0L }
             }
         } catch (_: Throwable) { 0 }
-        // We only assert once ANY execution has happened. If nothing
-        // has traded yet, bridgeSitesSeen == 0 and we don't penalise.
         if (allPositions.isEmpty() || bridgeSitesSeen >= 1) passed.add("E_sizing_bridge_visited_$bridgeSitesSeen")
         else failed.add("E_no_specialized_trader_routed_through_sizing_bridge")
 
-        // F. Provider degradation ⇒ HYDRATION_DEFERRED, not hard-zero.
+        // F. Provider degradation must soft-defer, not manufacture hard zero liquidity.
         val providerHardZeroFail = try {
-            val cb = com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
-            val birdeyeDown = cb.isAuthTerminal(
-                com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE
-            ) || cb.isRateLimited(
-                com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE
-            )
-            val geckoDown = cb.isAuthTerminal(
-                com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.COINGECKO
-            ) || cb.isRateLimited(
-                com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.COINGECKO
-            )
+            val cb = ProviderCircuitBreaker6402
+            val birdeyeDown = cb.isAuthTerminal(ProviderCircuitBreaker6402.Provider.BIRDEYE) ||
+                cb.isRateLimited(ProviderCircuitBreaker6402.Provider.BIRDEYE)
+            val geckoDown = cb.isAuthTerminal(ProviderCircuitBreaker6402.Provider.COINGECKO) ||
+                cb.isRateLimited(ProviderCircuitBreaker6402.Provider.COINGECKO)
             val degraded = birdeyeDown && geckoDown
-            val hardZero = com.lifecyclebot.engine.PipelineHealthCollector
+            val hardZero = PipelineHealthCollector
                 .labelCountSnapshot("ELIGIBILITY_ZERO_LIQUIDITY_HARD_WHILE_DEGRADED_6536")
             degraded && hardZero > 0L
         } catch (_: Throwable) { false }
         if (!providerHardZeroFail) passed.add("F_provider_degradation_soft_defer")
         else failed.add("F_zero_liquidity_hard_fail_while_providers_degraded")
 
-        // G. Crypto Universe Ownership stays honoured (V5.0.6535).
+        // G. Crypto Universe identity must remain with its canonical asset class.
         val universeOwnershipFail = try {
-            val hijack = com.lifecyclebot.engine.PipelineHealthCollector
-                .labelCountSnapshot("CRYPTO_UNIVERSE_IDENTITY_HIJACK_6535")
-            hijack > 0L
+            PipelineHealthCollector.labelCountSnapshot("CRYPTO_UNIVERSE_IDENTITY_HIJACK_6535") > 0L
         } catch (_: Throwable) { false }
         if (!universeOwnershipFail) passed.add("G_crypto_universe_identity_preserved")
         else failed.add("G_crypto_universe_identity_hijacked_by_meme_lane")
 
-        // ─────────────────────────────────────────────────────────────
-        // V5.0.6540 §ONE_EXECUTION_AUTHORITY — additional invariants
-        //
-        //  H. NO_LEVERAGED_CLOSE_AS_SPOT
-        //     Emitted every time CryptoAltTrader closes a leveraged
-        //     position with assetClass=CRYPTO_ALT_SPOT (must NEVER fire).
-        //  I. CANDIDATES_WITHOUT_AUTH_SUBMIT (fail-build guard)
-        //     Any venue with candidates > 0 must also have
-        //     authSubmit > 0 over the observation window.
-        // ─────────────────────────────────────────────────────────────
+        // H. No leveraged close may be stamped as spot.
         val closeAsSpotFail6540 = try {
-            val leak = com.lifecyclebot.engine.PipelineHealthCollector
-                .labelCountSnapshot("CRYPTO_LEVERAGED_CLOSE_STAMPED_SPOT_6540")
-            leak > 0L
+            PipelineHealthCollector.labelCountSnapshot("CRYPTO_LEVERAGED_CLOSE_STAMPED_SPOT_6540") > 0L
         } catch (_: Throwable) { false }
         if (!closeAsSpotFail6540) passed.add("H_leveraged_close_not_stamped_spot")
         else failed.add("H_leveraged_close_stamped_spot_6540")
 
+        // I. Venues with candidates must submit to canonical authority.
         val candWithoutSubmit6540 = try {
-            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.candidatesWithoutAuthSubmit()
+            CanonicalEntryAuthority6540.candidatesWithoutAuthSubmit()
         } catch (_: Throwable) { emptyList() }
         if (candWithoutSubmit6540.isEmpty()) passed.add("I_all_venues_submit_when_they_have_candidates")
         else failed.add(
@@ -258,9 +173,7 @@ object AcceptanceInvariantAudit6441 {
                 candWithoutSubmit6540.joinToString(",") { "${it.venue}(cand=${it.candidates})" }
         )
 
-        // V5.0.6647 — a completed mandatory paper window is part of the
-        // same fail-closed audit. Before 120 seconds, report warm-up rather
-        // than fabricating a pass from zero counters.
+        // J. Mandatory execution-spine window.
         val spineRead6647 = runCatching { ExecutionSpineAcceptanceWindow6647.closeCompletedWindow() }
         val spine6647 = spineRead6647.getOrNull()
         if (spineRead6647.isFailure) failed.add("J_execution_spine_collector_failed")
@@ -293,7 +206,9 @@ object AcceptanceInvariantAudit6441 {
         val runs = runCount.get()
         val fails = failureCount.get()
         val last = lastReport
-        val lastStat = if (last == null) "none" else "passed=${last.passed.size} failed=${last.failed.size} ok=${last.ok} failedInvariants=${last.failed.joinToString("|") { it.take(100) }.ifBlank { "none" }}"
+        val lastStat = if (last == null) "none" else
+            "passed=${last.passed.size} failed=${last.failed.size} ok=${last.ok} " +
+                "failedInvariants=${last.failed.joinToString("|") { it.take(100) }.ifBlank { "none" }}"
         return "runs=$runs failures=$fails last=[$lastStat]"
     }
 }
