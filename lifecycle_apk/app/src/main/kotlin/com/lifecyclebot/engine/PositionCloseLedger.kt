@@ -130,21 +130,50 @@ object PositionCloseLedger {
         return walletBalanceUi <= dustUi
     }
 
+    /**
+     * V5.0.6699 — a fresh canonical BUY outranks stale close metadata. The old
+     * implementation required every buy path to remember to call reopen(); no
+     * production caller did, so a legitimately re-entered mint could remain
+     * CLOSED for the full 10-minute TTL and be suppressed by paper/live exit
+     * guards. Self-heal only when a canonical open position is newer than the
+     * close stamp; an older held position can never erase a genuine close.
+     */
+    private fun clearIfCanonicallyReopened6699(mint: String, rec: CloseRecord): Boolean {
+        val freshOpen = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().any { p ->
+                p.mint == mint && p.openedAtMs > rec.closedAtMs && p.remainingQtyRaw > java.math.BigInteger.ZERO
+            }
+        } catch (_: Throwable) { false }
+        if (!freshOpen) return false
+        if (!closed.remove(mint, rec)) return false
+        try { PaperPositionCloseAuthority.reopen("PAPER", mint) } catch (_: Throwable) {}
+        try { PaperPositionCloseAuthority.reopen("LIVE", mint) } catch (_: Throwable) {}
+        try {
+            PipelineHealthCollector.labelInc("POSITION_CLOSE_LEDGER_CANONICAL_REOPEN_6699")
+            ForensicLogger.lifecycle(
+                "POSITION_CLOSE_LEDGER_CANONICAL_REOPEN_6699",
+                "mint=${mint.take(10)} priorCloseId=${rec.closeId} closedAt=${rec.closedAtMs} action=clear_stale_close_for_new_canonical_open",
+            )
+        } catch (_: Throwable) {}
+        return true
+    }
+
     /** True if this mint has a live (within-TTL) close stamp. */
     fun isClosed(mint: String): Boolean {
         if (mint.isBlank()) return false
         val rec = closed[mint] ?: return false
+        if (clearIfCanonicallyReopened6699(mint, rec)) return false
         if (System.currentTimeMillis() - rec.closedAtMs >= CLOSE_TTL_MS) {
-            closed.remove(mint)
+            closed.remove(mint, rec)
             return false
         }
         return true
     }
 
     /** The existing close id for a mint, or null. */
-    fun closeIdOf(mint: String): String? = closed[mint]?.closeId
+    fun closeIdOf(mint: String): String? = if (isClosed(mint)) closed[mint]?.closeId else null
 
-    fun recordOf(mint: String): CloseRecord? = closed[mint]
+    fun recordOf(mint: String): CloseRecord? = if (isClosed(mint)) closed[mint] else null
 
     /**
      * Clear the close stamp — call ONLY when a mint is legitimately re-opened
@@ -153,6 +182,8 @@ object PositionCloseLedger {
     fun reopen(mint: String) {
         if (mint.isBlank()) return
         closed.remove(mint)
+        try { PaperPositionCloseAuthority.reopen("PAPER", mint) } catch (_: Throwable) {}
+        try { PaperPositionCloseAuthority.reopen("LIVE", mint) } catch (_: Throwable) {}
     }
 
     /** Prune expired records. Cheap; safe to call each cycle. */
