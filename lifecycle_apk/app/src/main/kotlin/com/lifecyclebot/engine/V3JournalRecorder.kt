@@ -3,42 +3,24 @@ package com.lifecyclebot.engine
 import com.lifecyclebot.data.Trade
 
 /**
- * V5.9.434 — Central journal recorder for the V3 meme sub-traders
- * (ShitCoinTraderAI, MoonshotTraderAI, QualityTraderAI, BlueChipTraderAI,
- * CashGenerationAI, ManipulatedTraderAI).
- *
- * V5.9.436 — Now ALSO the central outcome-attribution hub. Every V3
- * close is automatically fed into:
- *   - ScoreExpectancyTracker  (per-layer score-bucket P&L)
- *   - HoldDurationTracker     (per-layer hold-time-bucket P&L)
- *   - ExitReasonTracker       (per-layer exit-reason P&L)
- *
- * V5.9.447 — UNIVERSAL JOURNAL COVERAGE.
- * recordOpen is only for sub-traders whose entry bypasses Executor.
- * Executor-routed entries must never write a second economic BUY here.
+ * V5.9.434 — Central journal recorder for V3 meme sub-traders.
+ * recordOpen/recordClose are direct-journal fallbacks for trader paths that
+ * BYPASS Executor. Executor-routed economic entries/exits must have one writer.
  */
 object V3JournalRecorder {
 
     private val recentCloseDedup = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private const val CLOSE_DEDUP_MS = 60_000L
+    private const val EXECUTOR_PROOF_WINDOW_MS_6699 = 20_000L
 
     /**
-     * V5.0.6699 — SINGLE BUY WRITER GUARD.
-     *
-     * CYCLIC reuses Executor.treasuryBuy as its low-level execution path. That
-     * path already commits the canonical position and durable BUY journal row.
-     * CyclicTradeEngine then historically called recordOpen again, creating a
-     * second BUY with sizeSol/entryPrice-derived quantity. Runtime 5.0.6698
-     * captured the exact corruption: two CYCLIC BUY rows for one mint seconds
-     * apart followed by QTY_DECIMAL_SKEW and an orphan refund.
-     *
-     * recordOpen exists for V3 traders that BYPASS Executor, so only suppress
-     * the known executor-routed CYCLIC case, and only when both canonical open
-     * inventory and a recent durable BUY prove that the executor already owns
-     * the economic entry. This keeps the fallback writer available if CYCLIC
-     * ever reaches this method without a committed executor entry.
+     * V5.0.6699 — CYCLIC uses Executor.treasuryBuy, which already commits the
+     * canonical position and durable BUY journal row. Runtime 5.0.6698 showed
+     * the second V3 recordOpen BUY seconds later with an incompatible quantity.
+     * Suppress only when a current canonical open AND a recent durable executor
+     * row carrying a real positionId prove that the economic BUY already exists.
      */
-    private fun executorAlreadyJournaledCyclic6699(mint: String, isPaper: Boolean, layer: String): Boolean {
+    private fun executorAlreadyJournaledCyclicOpen6699(mint: String, isPaper: Boolean, layer: String): Boolean {
         if (!layer.equals("CYCLIC", ignoreCase = true) || mint.isBlank()) return false
         val mode = if (isPaper) "paper" else "live"
         val canonicalOpen = try {
@@ -53,26 +35,55 @@ object V3JournalRecorder {
             TradeHistoryStore.getAllValidTradesSnapshot(limit = 160).any { t ->
                 t.mint == mint && t.mode.equals(mode, ignoreCase = true) &&
                     t.side.equals("BUY", ignoreCase = true) &&
-                    now - t.ts in 0L..20_000L &&
-                    !t.reason.contains("CYCLIC_RING_ENTRY", ignoreCase = true)
+                    t.positionId.isNotBlank() &&
+                    now - t.ts in 0L..EXECUTOR_PROOF_WINDOW_MS_6699
             }
         } catch (_: Throwable) { false }
-        if (durableBuy) {
-            try {
-                PipelineHealthCollector.labelInc("V3_RECORD_OPEN_SUPERSEDED_BY_EXECUTOR_6699")
-                ForensicLogger.lifecycle(
-                    "V3_RECORD_OPEN_SUPERSEDED_BY_EXECUTOR_6699",
-                    "mint=${mint.take(10)} mode=${mode.uppercase()} layer=$layer action=skip_duplicate_buy_writer canonicalOpen=true durableBuy=true",
-                )
-            } catch (_: Throwable) {}
-        }
+        if (durableBuy) emitExecutorSupersession6699(mint, mode, layer, "BUY")
         return durableBuy
     }
 
     /**
-     * V5.9.447 — record a BUY row for sub-traders whose entry path bypasses
-     * the main Executor. Use recordClose() for the matching SELL.
+     * V5.0.6699 — CYCLIC closeCycle calls Executor.paperSell/requestSell and only
+     * proceeds after CONFIRMED/PAPER_CONFIRMED. The old follow-up recordClose then
+     * manufactured a second SELL journal row. Suppress it only when canonical
+     * CLOSED inventory plus a recent durable terminal row with a real positionId
+     * proves the executor has already written the economic close.
      */
+    private fun executorAlreadyJournaledCyclicClose6699(mint: String, isPaper: Boolean, layer: String): Boolean {
+        if (!layer.equals("CYCLIC", ignoreCase = true) || mint.isBlank()) return false
+        val mode = if (isPaper) "paper" else "live"
+        val canonicalClosed = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.closedPositions().any {
+                it.mint == mint && it.mode.equals(mode, ignoreCase = true) &&
+                    it.remainingQtyRaw == java.math.BigInteger.ZERO
+            }
+        } catch (_: Throwable) { false }
+        if (!canonicalClosed) return false
+        val now = System.currentTimeMillis()
+        val durableSell = try {
+            TradeHistoryStore.getAllValidTradesSnapshot(limit = 160).any { t ->
+                t.mint == mint && t.mode.equals(mode, ignoreCase = true) &&
+                    (t.side.equals("SELL", ignoreCase = true) || t.side.equals("PARTIAL_SELL", ignoreCase = true)) &&
+                    t.positionId.isNotBlank() &&
+                    now - t.ts in 0L..EXECUTOR_PROOF_WINDOW_MS_6699
+            }
+        } catch (_: Throwable) { false }
+        if (durableSell) emitExecutorSupersession6699(mint, mode, layer, "SELL")
+        return durableSell
+    }
+
+    private fun emitExecutorSupersession6699(mint: String, mode: String, layer: String, side: String) {
+        try {
+            PipelineHealthCollector.labelInc("V3_${side}_JOURNAL_SUPERSEDED_BY_EXECUTOR_6699")
+            ForensicLogger.lifecycle(
+                "V3_JOURNAL_SUPERSEDED_BY_EXECUTOR_6699",
+                "mint=${mint.take(10)} mode=${mode.uppercase()} layer=$layer side=$side action=skip_duplicate_economic_writer canonicalProof=true durablePositionRow=true",
+            )
+        } catch (_: Throwable) {}
+    }
+
+    /** Record a BUY only for V3 paths that do not already have an Executor BUY. */
     fun recordOpen(
         symbol: String,
         mint: String,
@@ -83,22 +94,22 @@ object V3JournalRecorder {
         entryScore: Int = 0,
         entryReason: String = "",
     ) {
-        if (executorAlreadyJournaledCyclic6699(mint, isPaper, layer)) return
+        if (executorAlreadyJournaledCyclicOpen6699(mint, isPaper, layer)) return
         try {
             val t = Trade(
-                side       = "BUY",
-                mode       = if (isPaper) "paper" else "live",
-                sol        = sizeSol,
-                price      = entryPrice,
-                ts         = System.currentTimeMillis(),
-                reason     = if (entryReason.isBlank()) "${layer}_ENTRY" else "${layer}_$entryReason",
-                pnlSol     = 0.0,
-                pnlPct     = 0.0,
-                netPnlSol  = 0.0,
-                score      = entryScore.toDouble(),
+                side = "BUY",
+                mode = if (isPaper) "paper" else "live",
+                sol = sizeSol,
+                price = entryPrice,
+                ts = System.currentTimeMillis(),
+                reason = if (entryReason.isBlank()) "${layer}_ENTRY" else "${layer}_$entryReason",
+                pnlSol = 0.0,
+                pnlPct = 0.0,
+                netPnlSol = 0.0,
+                score = entryScore.toDouble(),
                 tradingMode = layer,
                 tradingModeEmoji = layerEmoji(layer),
-                mint       = mint,
+                mint = mint,
                 entryTsMs = System.currentTimeMillis(),
                 entryPriceSnapshot = entryPrice,
                 entryCostSol = sizeSol,
@@ -113,9 +124,7 @@ object V3JournalRecorder {
                         mint = mint, symbol = symbol, venue = layer, sizeSol = sizeSol,
                     )
                     TokenLifecycleTracker.recordEntryMetadata(
-                        mint = mint,
-                        entryPriceSol = entryPrice,
-                        entryDecimals = 6,
+                        mint = mint, entryPriceSol = entryPrice, entryDecimals = 6,
                     )
                 }
             } catch (_: Throwable) {}
@@ -135,12 +144,8 @@ object V3JournalRecorder {
                             positionId = positionId, mint = mint, symbol = symbol,
                             lane = layer, tactic = "V3_ENTRY", strategy = layer,
                             executionAuthority = "V3_JOURNAL_6395",
-                            governorState = try {
-                                LiveEntrySafetyHold.currentGovernorState().name
-                            } catch (_: Throwable) { "BASELINE" },
-                            recoveryState = try {
-                                com.lifecyclebot.engine.truth.GovernorRecovery6388.state().name
-                            } catch (_: Throwable) { "BASELINE" },
+                            governorState = try { LiveEntrySafetyHold.currentGovernorState().name } catch (_: Throwable) { "BASELINE" },
+                            recoveryState = try { com.lifecyclebot.engine.truth.GovernorRecovery6388.state().name } catch (_: Throwable) { "BASELINE" },
                             evidenceEpoch = com.lifecyclebot.engine.truth.EvidenceEpochFilter6388.EPOCH,
                             signature = signature, slot = 0L, blockTime = System.currentTimeMillis(),
                             requestedSol = sizeSol, actualSolSpentGross = sizeSol,
@@ -151,9 +156,7 @@ object V3JournalRecorder {
                             marketCapAtEntryUsd = 0.0, liquidityAtEntryUsd = 0.0,
                             quoteProvider = layer, executionRoute = layer,
                             slippageBps = 100, finality = "FINALIZED",
-                            runtimeGeneration = try {
-                                BotRuntimeController.currentGeneration()
-                            } catch (_: Throwable) { 0L },
+                            runtimeGeneration = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L },
                             createdAtMs = System.currentTimeMillis(),
                         )
                     )
@@ -162,26 +165,21 @@ object V3JournalRecorder {
             ErrorLogger.info("V3JournalRecorder",
                 "📓 [$layer] BUY $symbol @ ${"%.6f".format(entryPrice)} | size=${"%.4f".format(sizeSol)}◎ | score=$entryScore")
         } catch (e: Exception) {
-            ErrorLogger.error("V3JournalRecorder",
-                "⚠️ JOURNAL OPEN FAILED for $symbol ($layer): ${e.message}", e)
+            ErrorLogger.error("V3JournalRecorder", "⚠️ JOURNAL OPEN FAILED for $symbol ($layer): ${e.message}", e)
         }
     }
 
     private fun layerEmoji(layer: String): String = when (layer.uppercase()) {
-        "SHITCOIN"          -> "💩"
-        "SHITCOINEXPRESS",
-        "EXPRESS"           -> "🎫"
-        "MOONSHOT"          -> "🚀"
-        "BLUECHIP"          -> "💎"
-        "CASHGEN",
-        "CASHGENERATION"    -> "💰"
-        "MANIPULATED"       -> "🎭"
-        "QUALITY"           -> "⭐"
-        "LAB",
-        "LLMLAB"            -> "🧪"
-        "STALE_REFUND",
-        "EXPIRED_REFUND"    -> "♻️"
-        else                -> "📈"
+        "SHITCOIN" -> "💩"
+        "SHITCOINEXPRESS", "EXPRESS" -> "🎫"
+        "MOONSHOT" -> "🚀"
+        "BLUECHIP" -> "💎"
+        "CASHGEN", "CASHGENERATION" -> "💰"
+        "MANIPULATED" -> "🎭"
+        "QUALITY" -> "⭐"
+        "LAB", "LLMLAB" -> "🧪"
+        "STALE_REFUND", "EXPIRED_REFUND" -> "♻️"
+        else -> "📈"
     }
 
     fun recordClose(
@@ -200,6 +198,8 @@ object V3JournalRecorder {
         peakGainPct: Double = 0.0,
         isCanonicalFinalized: Boolean = false,
     ) {
+        if (executorAlreadyJournaledCyclicClose6699(mint, isPaper, layer)) return
+
         if (isCanonicalFinalized) {
             try {
                 val fam = symbol.uppercase().trim().filter { it.isLetterOrDigit() }.take(8)
@@ -241,19 +241,19 @@ object V3JournalRecorder {
         var wrote = false
         try {
             val t = Trade(
-                side       = "SELL",
-                mode       = if (isPaper) "paper" else "live",
-                sol        = sizeSol,
-                price      = exitPrice,
-                ts         = System.currentTimeMillis(),
-                reason     = "${layer}_${exitReason}",
-                pnlSol     = pnlSol,
-                pnlPct     = pnlPct,
-                netPnlSol  = pnlSol,
-                score      = entryScore.toDouble(),
+                side = "SELL",
+                mode = if (isPaper) "paper" else "live",
+                sol = sizeSol,
+                price = exitPrice,
+                ts = System.currentTimeMillis(),
+                reason = "${layer}_${exitReason}",
+                pnlSol = pnlSol,
+                pnlPct = pnlPct,
+                netPnlSol = pnlSol,
+                score = entryScore.toDouble(),
                 tradingMode = layer,
                 tradingModeEmoji = layerEmoji(layer),
-                mint       = mint,
+                mint = mint,
                 entryPriceSnapshot = entryPrice,
                 entryCostSol = sizeSol,
                 entryQtyToken = if (entryPrice > 0.0 && sizeSol > 0.0) sizeSol / entryPrice else 0.0,
@@ -263,17 +263,16 @@ object V3JournalRecorder {
             TradeHistoryStore.recordTrade(t)
             wrote = true
             ErrorLogger.info("V3JournalRecorder",
-                "📓 [$layer] $symbol ${exitReason} | " +
-                    "pnl=${"%+.2f".format(pnlPct)}% (${"%+.4f".format(pnlSol)} SOL) | score=$entryScore hold=${holdMinutes}m")
+                "📓 [$layer] $symbol $exitReason | pnl=${"%+.2f".format(pnlPct)}% (${"%+.4f".format(pnlSol)} SOL) | score=$entryScore hold=${holdMinutes}m")
         } catch (e: Exception) {
             ErrorLogger.error("V3JournalRecorder",
-                "⚠️ JOURNAL WRITE FAILED for $symbol ($layer/${exitReason}): ${e.message}", e)
+                "⚠️ JOURNAL WRITE FAILED for $symbol ($layer/$exitReason): ${e.message}", e)
         }
 
         if (wrote) {
             val skewTainted6373: Boolean = try {
                 val buySnap = try { TradeHistoryStore.getLatestBuyByMintSnapshot()[mint] } catch (_: Throwable) { null }
-                val buyQty  = buySnap?.entryQtyToken ?: 0.0
+                val buyQty = buySnap?.entryQtyToken ?: 0.0
                 val sellQty = if (entryPrice > 0.0 && sizeSol > 0.0) sizeSol / entryPrice else 0.0
                 if (buyQty > 0.0 && sellQty > 0.0) {
                     val ratio = maxOf(buyQty, sellQty) / minOf(buyQty, sellQty)
@@ -342,8 +341,7 @@ object V3JournalRecorder {
                     val signature = "V3_SELL_${System.currentTimeMillis()}_${mint.take(8)}"
                     val proceedsSol = sizeSol * (1.0 + pnlPctLearn / 100.0)
                     val rawConsumed = java.math.BigInteger.valueOf(
-                        (sizeSol / exitPrice.coerceAtLeast(1e-12) * 1_000_000.0)
-                            .toLong().coerceAtLeast(0L)
+                        (sizeSol / exitPrice.coerceAtLeast(1e-12) * 1_000_000.0).toLong().coerceAtLeast(0L)
                     )
                     val buys = com.lifecyclebot.engine.truth.BuyFillLedger6388.forPosition(positionId)
                     if (buys.isNotEmpty()) {
@@ -366,8 +364,7 @@ object V3JournalRecorder {
                             fillId = "sf_$signature", positionId = positionId,
                             mint = mint, symbol = symbol, signature = signature,
                             slot = 0L, blockTime = System.currentTimeMillis(),
-                            exitIntentId = com.lifecyclebot.engine.truth.PositionIdentity6395
-                                .openOrGetExitIntent(positionId, layer),
+                            exitIntentId = com.lifecyclebot.engine.truth.PositionIdentity6395.openOrGetExitIntent(positionId, layer),
                             exitReason = if (pnlPctLearn >= 0) "PROFIT" else "STOP",
                             requestedRaw = rawConsumed, requestedUi = rawConsumed.toDouble() / 1_000_000.0,
                             actualConsumedRaw = rawConsumed,
