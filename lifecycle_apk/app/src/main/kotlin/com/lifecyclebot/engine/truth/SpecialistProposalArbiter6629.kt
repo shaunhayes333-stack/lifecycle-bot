@@ -68,7 +68,11 @@ object SpecialistProposalArbiter6629 {
         }
         if (contestPruned > 0L) {
             staleContestsPruned6699.addAndGet(contestPruned)
-            try { PipelineHealthCollector.labelInc("SPECIALIST_STALE_CONTEST_PRUNED_6699", contestPruned) } catch (_: Throwable) {}
+            try {
+                repeat(contestPruned.coerceAtMost(1_000L).toInt()) {
+                    PipelineHealthCollector.labelInc("SPECIALIST_STALE_CONTEST_PRUNED_6699")
+                }
+            } catch (_: Throwable) {}
         }
 
         var decisionPruned = 0L
