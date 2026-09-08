@@ -145,6 +145,22 @@ object JournalEconomicReplay6619 {
         val rows = try {
             TradeHistoryStore.getAllValidTradesSnapshot(limit = 20_000)
         } catch (_: Throwable) { emptyList() }.sortedBy { it.ts }
+
+        // V5.0.6697 — 6659 is a historical cross-asset repair projection, not
+        // permission to create a second economic BUY for a position that already
+        // has a native durable BUY. Runtime 6696 showed the repair projected
+        // CROSS_ASSET_CANONICAL_OPEN_6659 onto meme positions too, double-debiting
+        // journal replay and then quarantining otherwise-valid terminal outcomes.
+        // Precompute native BUY identity independent of row ordering; if a native
+        // BUY exists, the 6659 projection is superseded and contributes no cash,
+        // quantity, basis, fee, or learning quarantine.
+        val nativeBuyPositions6697 = rows.asSequence()
+            .filter { it.mode.equals("paper", true) && it.side.equals("BUY", true) }
+            .filter { it.positionId.isNotBlank() }
+            .filterNot { it.reason.contains("CROSS_ASSET_CANONICAL_OPEN_6659", ignoreCase = true) }
+            .map { it.positionId }
+            .toSet()
+
         val lots = mutableMapOf<String, Lot>()
         val seenEvents = mutableSetOf<String>()
         val seenFills = mutableSetOf<String>()
@@ -193,6 +209,19 @@ object JournalEconomicReplay6619 {
                 (side == "SELL" || side == "PARTIAL_SELL")
             ) {
                 try { PipelineHealthCollector.labelInc("CRYPTO_LEGACY_DISPLAY_ROW_SUPERSEDED_6659") } catch (_: Throwable) {}
+                continue
+            }
+            if (side == "BUY" &&
+                t.reason.contains("CROSS_ASSET_CANONICAL_OPEN_6659", ignoreCase = true) &&
+                t.positionId in nativeBuyPositions6697
+            ) {
+                try {
+                    PipelineHealthCollector.labelInc("JOURNAL_CROSS_ASSET_OPEN_SUPERSEDED_6697")
+                    ForensicLogger.lifecycle(
+                        "JOURNAL_CROSS_ASSET_OPEN_SUPERSEDED_6697",
+                        "positionId=${t.positionId.take(24)} mint=${t.mint.take(10)} eventId=${eventId.take(40)} action=ignore_repair_projection_native_buy_exists",
+                    )
+                } catch (_: Throwable) {}
                 continue
             }
             totalRows++
@@ -385,14 +414,24 @@ object JournalEconomicReplay6619 {
     fun repairOrphanedOpenLots6662(): Int {
         val replay = replay()
         if (replay.openBasisByPosition.isEmpty()) return 0
-        val buys = try {
+        val allBuys6697 = try {
             TradeHistoryStore.getAllValidTradesSnapshot(limit = 20_000)
                 .asSequence()
                 .filter { it.mode.equals("paper", true) && it.side.equals("BUY", true) }
                 .filter { it.positionId.isNotBlank() }
                 .sortedBy { it.ts }
-                .groupBy { it.positionId }
-        } catch (_: Throwable) { emptyMap() }
+                .toList()
+        } catch (_: Throwable) { emptyList() }
+        val nativeBuyPositions6697 = allBuys6697.asSequence()
+            .filterNot { it.reason.contains("CROSS_ASSET_CANONICAL_OPEN_6659", ignoreCase = true) }
+            .map { it.positionId }
+            .toSet()
+        val buys = allBuys6697
+            .filterNot {
+                it.reason.contains("CROSS_ASSET_CANONICAL_OPEN_6659", ignoreCase = true) &&
+                    it.positionId in nativeBuyPositions6697
+            }
+            .groupBy { it.positionId }
         var repaired = 0
         replay.openBasisByPosition.forEach { (positionId, basis) ->
             if (!basis.isFinite() || basis <= 1e-9) return@forEach
