@@ -440,12 +440,31 @@ class DataOrchestrator(
                 val ts = synchronized(status.tokens) {
                     status.tokens.values.find { it.mint == mint }
                 } ?: return@DexScreenerWebSocket
-                
-                // Update token state with real-time data
+
+                // V5.0.6701 — PRICE + PROVENANCE ARE ONE ATOMIC FACT.
+                // Before this fix the WS callback overwrote lastPrice but left the
+                // previous provider's lastPriceSource/lastPricePoolAddr/lastPriceDex
+                // in place. OpenPnlSanity could therefore see a new DexScreener
+                // number wearing stale same-source/same-pool proof and authorize a
+                // 10^6 decimal/basis jump as real PnL. Stamp the actual WS source and
+                // concrete subscribed pair at the same time as the price mutation.
+                val dexPair6701 = ts.pairAddress.ifBlank {
+                    ts.tokenMap.poolAddress.ifBlank { ts.tokenMap.pairAddress }
+                }
+                ts.lastPriceSource = "DEXSCREENER_WS"
+                ts.lastPricePoolAddr = dexPair6701
+                ts.lastPriceDex = ts.tokenMap.dexId.ifBlank { "DEXSCREENER" }
                 ts.lastPrice = priceUsd
                 ts.lastPriceUpdate = System.currentTimeMillis()
                 ts.lastMcap = mcap
                 ts.lastLiquidityUsd = liquidity
+                // Keep the token-map observation coherent with the same stamped mark.
+                ts.tokenMap.priceUsd = priceUsd.takeIf { it.isFinite() && it > 0.0 }
+                ts.tokenMap.poolAddress = dexPair6701
+                ts.tokenMap.pairAddress = ts.tokenMap.pairAddress.ifBlank { dexPair6701 }
+                ts.tokenMap.dexId = ts.lastPriceDex
+                ts.tokenMap.venue = ts.lastPriceDex
+                ts.tokenMap.updatedAtMs = ts.lastPriceUpdate
                 ts.lastBuyPressurePct = if (txns5m > 0) (buys5m.toDouble() / txns5m) * 100 else 50.0
                 // V5.9.827 — wire previously-dropped distribution + hourly signals
                 ts.lastSellPressurePct = if (txns5m > 0) (sells5m.toDouble() / txns5m) * 100 else 50.0
