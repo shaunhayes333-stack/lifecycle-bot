@@ -30,7 +30,8 @@ class Aate6696LearningHoldExitRepairTest {
         assertTrue(bridge.contains("deliverToTacticSwitcher(env)"))
         assertTrue(bridge.contains("deliverToForwardOutcomeModel6696(env)"))
         assertTrue(bridge.contains("deliverToUnifiedExitPolicyHead6696(env)"))
-        assertTrue(bridge.contains("committedTerminalEventForPosition"))
+        assertTrue(bridge.contains("CanonicalTerminalProof6699.resolve(env.positionId, env.economicEventId)"))
+        assertTrue(bridge.contains("EXACT_EVENT_GRACE_MS_6699"))
     }
 
     @Test fun exit_reason_is_preserved_into_post_commit_credit() {

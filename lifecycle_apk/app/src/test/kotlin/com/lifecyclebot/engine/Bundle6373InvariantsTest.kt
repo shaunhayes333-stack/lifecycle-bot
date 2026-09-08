@@ -7,23 +7,6 @@ import java.io.File
 /**
  * V5.0.6373 — Fanout Same-Mint Cut · Trade-1 Catastrophic Rotation ·
  *              Skew-Taint Learning Quarantine · CryptoAlt Content-Diff Skip.
- *
- * P0.1: V3 execute route must skip doBuy when EmergentGuardrails already
- *       has an open position for the mint (source of 523 EXEC_GATE blocks
- *       observed in operator snapshot).
- *
- * P0.2: TacticSwitcher must rotate ANY tactic on a single n=1 close with
- *       pnl <= -90% (operator: "self-learning from trade 1"). Was
- *       gated to MOMENTUM-only in V5.0.6367a; now unconditional.
- *
- * P0.3: V3JournalRecorder must skip all learning writes when buy/sell qty
- *       ratio exceeds 10× AND resulting pnl% <= -80% (decimal skew
- *       contamination — μ pollution from wallet-verified vs heuristic-
- *       inferred qty divergence).
- *
- * P0.4: CryptoAltActivity.renderTokenList must skip the full LinearLayout
- *       rebuild when the page signature (tab/sort/sector/search/page +
- *       per-token symbol/price/mcap) is identical to the last render.
  */
 class Bundle6373InvariantsTest {
 
@@ -63,18 +46,18 @@ class Bundle6373InvariantsTest {
     fun v3JournalRecorder_quarantines_skew_tainted_learning_writes() {
         val txt = File("src/main/kotlin/com/lifecyclebot/engine/V3JournalRecorder.kt").readText()
         assertTrue(
-            "V5.0.6373: skew-taint check must gate all learning writes (TacticSwitcher / RetrainingDecay / ExplorationBudget etc.)",
-            txt.contains("V5.0.6373 — SKEW-TAINT LEARNING QUARANTINE") &&
-                txt.contains("val skewTainted6373") &&
+            "V5.0.6373: skew-taint predicate and quarantine telemetry must remain active",
+            txt.contains("val skewTainted6373: Boolean") &&
                 txt.contains("SKEW_TAINT_LEARNING_QUARANTINE_6373"),
         )
+        val quarantineReturn = txt.indexOf("if (skewTainted6373) return")
+        val firstLearningWrite = txt.indexOf("ScoreExpectancyTracker.record(layer")
         assertTrue(
-            "V5.0.6373: quarantine gate must return before feeding ScoreExpectancy/TacticSwitcher/RetrainingDecay",
-            // return must appear BEFORE the ScoreExpectancyTracker.record call so learners are skipped
-            txt.indexOf("if (skewTainted6373) return") in 0..txt.indexOf("ScoreExpectancyTracker.record(layer"),
+            "V5.0.6373: quarantine must return before feeding ScoreExpectancy/TacticSwitcher/RetrainingDecay",
+            quarantineReturn >= 0 && firstLearningWrite > quarantineReturn,
         )
         assertTrue(
-            "V5.0.6373: quarantine must trigger only when ratio > 10× AND pnl <= -80% (source-of-creation precision)",
+            "V5.0.6373: quarantine must trigger only when ratio > 10× AND pnl <= -80%",
             txt.contains("ratio > 10.0 && pnlPctLearn <= -80.0"),
         )
     }

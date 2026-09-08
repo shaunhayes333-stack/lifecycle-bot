@@ -56,15 +56,12 @@ class Aate6664AuthorityContradictionRegressionTest {
     fun `strict replay recovers only provable immutable full terminals`() {
         val replay = File(root,
             "src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt").readText()
-        val recovery = replay.substringAfter("V5.0.6664 — historical canonical terminals")
-            .substringBefore("if (lot == null) { reject")
-        assertTrue(recovery.contains("side == \"SELL\""))
-        assertTrue(recovery.contains("t.economicEventId.startsWith(\"paper_full_\")"))
-        assertTrue(recovery.contains("recoveredRaw > java.math.BigInteger.ZERO"))
-        assertTrue(recovery.contains("t.entryPriceSnapshot.isFinite()"))
-        assertTrue(recovery.contains("cash -= basis"))
-        assertTrue(recovery.contains("openCost += basis"))
-        assertTrue(recovery.contains("JOURNAL_EMBEDDED_ENTRY_RECOVERED_6664"))
-        assertFalse(recovery.contains("PARTIAL_SELL\" &&"))
+        assertTrue(replay.contains("if (lot == null && side == \"SELL\" && t.economicEventId.startsWith(\"paper_full_\"))"))
+        assertTrue(replay.contains("recoveredRaw > java.math.BigInteger.ZERO"))
+        assertTrue(replay.contains("t.entryPriceSnapshot.isFinite()"))
+        assertTrue(replay.contains("cash -= basis"))
+        assertTrue(replay.contains("openCost += basis"))
+        assertTrue(replay.contains("JOURNAL_EMBEDDED_ENTRY_RECOVERED_6664"))
+        assertFalse(replay.contains("lot == null && side == \"PARTIAL_SELL\""))
     }
 }

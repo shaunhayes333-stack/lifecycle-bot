@@ -5,17 +5,13 @@ import org.junit.Test
 import java.io.File
 
 /**
- * V5.0.6361 — Paper full-exit qty preservation + CanonicalLearningContract
- * end-to-end wire-up. Golden-tape guard for the two behavioural fixes.
+ * V5.0.6361 — Paper full-exit qty preservation + canonical learning wire-up.
  */
 class PaperFullExitAndLearningWireUp6361Test {
 
     @Test
     fun paper_sell_carries_full_qty_cost_and_entry_price_on_the_trade_row() {
         val txt = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        // The SELL Trade record built inside paperSell must populate the qty
-        // fields so downstream display + learning path see the true round-
-        // trip position size, not a back-computed sol/price slice.
         assertTrue("paper SELL Trade row must set entryQtyToken from canonical-locked qty (§6449)",
             txt.contains("entryQtyToken = soldQtyToken6449"))
         assertTrue("paper SELL Trade row must set soldQtyToken from canonical-locked qty (§6449 full exit)",
@@ -35,41 +31,25 @@ class PaperFullExitAndLearningWireUp6361Test {
     }
 
     @Test
-    fun v3_journal_recorder_no_longer_gates_learning_on_broken_shim_contract() {
-        // V5.0.6365 — the V5.0.6361 shim was reverted after operator report
-        // showed WR dropped 80% → 32% and wallet started shrinking on hourly
-        // scale. Root cause: recordClose has NO qty parameter, so the shim
-        // hardcoded `entryQtyToken=0.0, soldQtyToken=0.0, tokenDecimals=6`.
-        // The contract's SELL missing-basis branch (lines 115-122) then
-        // QUARANTINED any close reaching this recorder with sizeSol<=0 or
-        // entryPrice<=0 — starving every learning aggregator that decides
-        // sizing, tactic, exit rule. Canonical eligibility must be enforced
-        // at the layer that HAS qty (Executor / FillLotLedger6344), not
-        // via a shim.
+    fun v3_journal_recorder_keeps_legacy_metrics_but_terminal_learning_is_canonical() {
         val txt = File("src/main/kotlin/com/lifecyclebot/engine/V3JournalRecorder.kt").readText()
         assertFalse(
-            "V5.0.6365: the recordClose canonical shim gate must be removed.",
+            "the broken recordClose canonical shim gate must remain removed",
             txt.contains("if (canonicalAdmitted6361)"),
         )
         assertFalse(
-            "V5.0.6365: the recordClose canonical shim label must be removed.",
+            "the broken recordClose canonical shim label must remain removed",
             txt.contains("CANONICAL_LEARNING_AGGREGATOR_SKIPPED_6361"),
         )
-        assertTrue(
-            "V5.0.6365: the revert reason must be documented inline.",
-            txt.contains("V5.0.6365"),
-        )
+        assertTrue(txt.contains("isCanonicalFinalized: Boolean = false"))
+        assertTrue(txt.contains("PaperLearningEligibility6519.decision(null, mint).eligible"))
+        val bridge = File("src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt").readText()
+        assertTrue(bridge.contains("TacticSwitcher.onCanonicalTradeClosed6486("))
     }
 
     @Test
     fun aggregator_calls_remain_inside_the_admitted_block() {
         val txt = File("src/main/kotlin/com/lifecyclebot/engine/V3JournalRecorder.kt").readText()
-        // Sanity: the three top-priority aggregators the operator flagged
-        // (AdaptiveLearningEngine surface via ScoreExpectancy/HoldDuration/
-        // ExitReason, LaneEdgeConcentrator surface via LaneExitTuner /
-        // LanePolicy / RetrainingDecay, TacticSwitcher) MUST still be
-        // present after the wire-up — otherwise we'd be dropping learning
-        // entirely instead of just quarantining bad rows.
         assertTrue(txt.contains("ScoreExpectancyTracker.record("))
         assertTrue(txt.contains("HoldDurationTracker.record("))
         assertTrue(txt.contains("ExitReasonTracker.record("))

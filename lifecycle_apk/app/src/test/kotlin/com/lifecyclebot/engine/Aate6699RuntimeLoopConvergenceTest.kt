@@ -5,7 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Source-level locks for the 5.0.6698 runtime loop regression. */
+/** Source-level locks for the 5.0.6699 runtime loop convergence repair. */
 class Aate6699RuntimeLoopConvergenceTest {
     private fun src(path: String) = File("src/main/kotlin/com/lifecyclebot/$path").readText()
 
@@ -71,17 +71,20 @@ class Aate6699RuntimeLoopConvergenceTest {
         assertTrue(replay.contains("supersessionIncidents="))
     }
 
-    @Test fun cyclic_executor_routed_entry_cannot_write_a_second_buy() {
+    @Test fun cyclic_executor_routed_entry_and_exit_cannot_write_second_economic_rows() {
         val cyclic = src("engine/CyclicTradeEngine.kt")
         val recorder = src("engine/V3JournalRecorder.kt")
         assertTrue(cyclic.contains("executor.treasuryBuy("))
         assertTrue(cyclic.contains("V3JournalRecorder.recordOpen("))
-        assertTrue(recorder.contains("executorAlreadyJournaledCyclic6699"))
+        assertTrue(recorder.contains("executorAlreadyJournaledCyclicOpen6699"))
+        assertTrue(recorder.contains("executorAlreadyJournaledCyclicClose6699"))
         assertTrue(recorder.contains("layer.equals(\"CYCLIC\", ignoreCase = true)"))
         assertTrue(recorder.contains("CanonicalPositionAuthority6441.openPositions()"))
+        assertTrue(recorder.contains("CanonicalPositionAuthority6441.closedPositions()"))
         assertTrue(recorder.contains("t.side.equals(\"BUY\", ignoreCase = true)"))
-        assertTrue(recorder.contains("V3_RECORD_OPEN_SUPERSEDED_BY_EXECUTOR_6699"))
-        assertTrue(recorder.contains("if (executorAlreadyJournaledCyclic6699(mint, isPaper, layer)) return"))
+        assertTrue(recorder.contains("V3_\${side}_JOURNAL_SUPERSEDED_BY_EXECUTOR_6699"))
+        assertTrue(recorder.contains("if (executorAlreadyJournaledCyclicOpen6699(mint, isPaper, layer)) return"))
+        assertTrue(recorder.contains("if (executorAlreadyJournaledCyclicClose6699(mint, isPaper, layer)) return"))
     }
 
     @Test fun stale_close_metadata_self_heals_only_for_newer_canonical_open() {
