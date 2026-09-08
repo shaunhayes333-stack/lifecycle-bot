@@ -65,15 +65,15 @@ object RewardPurityGate6441 {
             try { PipelineHealthCollector.labelInc("REWARD_PURITY_REJECT_LIFECYCLE_6441") } catch (_: Throwable) {}
             return false
         }
-        // Per-terminal-event proof. The old account-wide reconciliation/mark
-        // check starved every learner whenever any unrelated open mint carried
-        // a fallback mark. A close is pure when its own immutable event is fully
-        // committed across position, ledger, journal, fill-lot and terminal.
-        val terminalEvent = try {
-            CanonicalEconomicEvent6635.committedTerminalEventForPosition(positionId, economicEventId)
+        // V5.0.6699 — per-terminal-event proof survives process restart. The
+        // current-process 6635 commit remains first authority; persisted finality
+        // may recover only from the exact durable typed terminal SELL carrying
+        // the same economicEventId/idempotencyKey.
+        val terminalProof = try {
+            CanonicalTerminalProof6699.resolve(positionId, economicEventId)
         } catch (_: Throwable) { null }
-        if (terminalEvent == null || terminalEvent.qtyRaw <= java.math.BigInteger.ZERO ||
-            !terminalEvent.realizedPnlDeltaSol.isFinite() || !terminalEvent.notionalSol.isFinite()) {
+        if (terminalProof == null || terminalProof.qtyRaw <= java.math.BigInteger.ZERO ||
+            !terminalProof.realizedPnlSol.isFinite() || !terminalProof.notionalSol.isFinite()) {
             rejectedAccounting.incrementAndGet()
             try {
                 PipelineHealthCollector.labelInc("REWARD_PURITY_BLOCKED_EXACT_EVENT_PENDING_6651")
@@ -104,7 +104,7 @@ object RewardPurityGate6441 {
         try {
             ForensicLogger.lifecycle(
                 "REWARD_PURITY_FINAL_6441",
-                "positionId=$positionId outcome=$outcome realizedPnlSol=${"%.6f".format(realizedPnlSol)}",
+                "positionId=$positionId outcome=$outcome realizedPnlSol=${"%.6f".format(realizedPnlSol)} proof=${terminalProof.source}",
             )
         } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("REWARD_PURITY_FINAL_6441") } catch (_: Throwable) {}
