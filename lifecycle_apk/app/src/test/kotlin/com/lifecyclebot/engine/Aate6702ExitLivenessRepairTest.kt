@@ -11,9 +11,11 @@ import java.io.File
  * Proven failure shape:
  *  1) duplicate CLOSE_REQUESTED/CLOSING signals refreshed updatedAtMs every tick,
  *     so the 30s stuck-close retry could be starved forever;
- *  2) PendingSellQueue dropped still-open positions after an age/retry budget;
- *  3) requeue accounting incremented retryCount twice per failed attempt;
- *  4) the queue consulted LIVE terminal state even while PAPER was authoritative.
+ *  2) a one-shot stale/zombie emergency exit could be consumed by that transient
+ *     close state and never get another attempt;
+ *  3) PendingSellQueue dropped still-open positions after an age/retry budget;
+ *  4) requeue accounting incremented retryCount twice per failed attempt;
+ *  5) the queue consulted LIVE terminal state even while PAPER was authoritative.
  */
 class Aate6702ExitLivenessRepairTest {
 
@@ -33,6 +35,22 @@ class Aate6702ExitLivenessRepairTest {
         assertTrue(src.contains("State.CLOSE_REQUESTED, State.CLOSING ->"))
         assertTrue(src.contains("State.CLOSING ->"))
         assertTrue(src.contains("STUCK_CLOSE_TTL_MS = 30_000L"))
+    }
+
+    @Test
+    fun `one shot emergency exit can break stale transient close state`() {
+        val src = paperCloseSource()
+        assertTrue(src.contains("isEmergencyRetryReason6702"))
+        assertTrue(src.contains("EMERGENCY_TRANSIENT_RETRY_GRACE_MS_6702 = 2_000L"))
+        assertTrue(src.contains("PAPER_EMERGENCY_CLOSE_STALE_STATE_BYPASSED_6702"))
+        assertTrue(src.contains("emergency_stale_state_bypass_6702"))
+        assertTrue(src.contains("\"STALE\""))
+        assertTrue(src.contains("\"MAX_HOLD\""))
+        assertTrue(src.contains("\"ZOMBIE\""))
+        // CLOSED must remain terminal; the bypass is restricted to the two
+        // transient states only.
+        val bypass = src.substringAfter("PAPER_EMERGENCY_CLOSE_STALE_STATE_BYPASSED_6702")
+        assertFalse(bypass.take(500).contains("st.state == State.CLOSED"))
     }
 
     @Test
