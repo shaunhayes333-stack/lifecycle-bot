@@ -9677,6 +9677,26 @@ class Executor(
                 val causalPositionId6599 = try { com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint) } catch (_: Throwable) { ts.mint }
                 val causalEntry6599 = try { com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(causalPositionId6599) } catch (_: Throwable) { null }
                 causalEntry6599?.let { com.lifecyclebot.engine.ToolkitSignalSheet.recordContributorSummary(it.specialistContributions, "EXIT_INFLUENCE", causalPositionId6599) }
+                // V5.0.6696 — activate the dormant predictive mid-hold arbiter.
+                // Entry ownership remains in EntryStrategySnapshot/CanonicalPositionAuthority;
+                // this mutable tradingMode is the live EXIT technique consumed below.
+                try {
+                    val heldFor6696 = (System.currentTimeMillis() - ts.position.entryTime).coerceAtLeast(0L)
+                    val pivot6696 = HeldPositionPivotArbiter.evaluate(
+                        ts = ts,
+                        pnlPct = currentPnlPct,
+                        peakPnlPct = ts.position.peakGainPct,
+                        holdTimeMs = heldFor6696,
+                    )
+                    if (pivot6696.pivoted) {
+                        PipelineHealthCollector.labelInc("HELD_POSITION_FLUID_PIVOT_APPLIED_6696")
+                        ForensicLogger.lifecycle(
+                            "HELD_POSITION_FLUID_PIVOT_APPLIED_6696",
+                            "mint=${ts.mint.take(10)} ${pivot6696.fromMode}->${pivot6696.toMode} score=${pivot6696.score} incumbent=${pivot6696.incumbentScore} reason=${pivot6696.reason}",
+                        )
+                    }
+                } catch (_: Throwable) {}
+
                 val holdEval = HoldingLogicLayer.evaluatePosition(
                     position = ts.position,
                     ts = ts,
@@ -12592,11 +12612,16 @@ class Executor(
                 markPaperBuyNotOpened("HARD_SAFETY_ADVISOR_${advisor.second.substringBefore(':')}")
                 return
             }
-            paperLearningEligible6519 = false
-            paperLearningReason6519 = "ADVISOR_SOFT_${advisor.second.take(120)}"
+            // V5.0.6696 — an executed trade is a causal learning sample.
+            // Soft advisors may shape size/score, but cannot make the eventual
+            // canonical outcome invisible. Hard-safety advisor failures return
+            // above and therefore still never execute or train.
+            paperLearningEligible6519 = true
+            paperLearningReason6519 = "ELIGIBLE_SOFT_ADVISOR_OBSERVED_6696:${advisor.second.take(100)}"
             try {
                 PipelineHealthCollector.labelInc("PAPER_BUY_ADVISOR_SOFT_SHAPED_6519")
-                ForensicLogger.lifecycle("PAPER_BUY_ADVISOR_SOFT_SHAPED_6519", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=${advisor.second} action=execute_learning_ineligible")
+                PipelineHealthCollector.labelInc("PAPER_BUY_ADVISOR_SOFT_OBSERVED_TRAINABLE_6696")
+                ForensicLogger.lifecycle("PAPER_BUY_ADVISOR_SOFT_SHAPED_6519", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=${advisor.second} action=execute_and_learn_soft_advisor_6696")
             } catch (_: Throwable) {}
         }
         shouldSuppressPaperLearningEntry(ts, score, layerTag, identity)?.let { why ->

@@ -43,13 +43,22 @@ object LearningEligibility {
         if (!(side == "SELL" || side == "PARTIAL_SELL")) {
             return Classification(Eligibility.PENDING_FINALITY, "NOT_A_SELL_ROW")
         }
-        if (!t.mode.equals("live", true)) {
-            return Classification(Eligibility.EXCLUDED_EXTERNAL_UNRESOLVED, "PAPER_OR_SYNTHETIC")
+        val live = t.mode.equals("live", true)
+        val paper = t.mode.equals("paper", true)
+        if (!live && !paper) {
+            return Classification(Eligibility.EXCLUDED_EXTERNAL_UNRESOLVED, "MODE=${t.mode}")
         }
-        if (proof.equals("LIVE_BROADCAST", true)) {
+        // V5.0.6696 — paper outcomes are legitimate self-learning samples when
+        // they carry explicit paper finality. The old 6324 rule labelled every
+        // paper close PAPER_OR_SYNTHETIC even while the newer canonical 6450/6464
+        // bus intentionally trained from committed paper economics.
+        if (paper && !(proof.equals("PAPER_SIMULATED", true) || proof.equals("PAPER_RECONCILED", true) || proof.equals("PAPER_FINALIZED", true))) {
+            return Classification(Eligibility.PENDING_FINALITY, "PAPER_PROOF=$proof")
+        }
+        if (live && proof.equals("LIVE_BROADCAST", true)) {
             return Classification(Eligibility.EXCLUDED_BROADCAST_ONLY, "PROOF=LIVE_BROADCAST")
         }
-        if (!(proof.equals("LIVE_FINALIZED", true) || proof.equals("LIVE_RECONCILED", true))) {
+        if (live && !(proof.equals("LIVE_FINALIZED", true) || proof.equals("LIVE_RECONCILED", true))) {
             return Classification(Eligibility.PENDING_FINALITY, "PROOF=$proof")
         }
         if (t.ts in 1L..(windowStartMs - 1L)) {

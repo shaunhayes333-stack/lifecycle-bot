@@ -62,6 +62,7 @@ object CanonicalFinalizedTradeBus6464 {
         val learningEligibilityReason: String = "ELIGIBLE",
         val assetClassTag: String = AssetClass.fromLane(lane).tag,
         val economicEventId: String = "",
+        val exitReason: String = "",
     )
 
     private val canonicalSeen = ConcurrentHashMap<String, Envelope>()
@@ -72,7 +73,8 @@ object CanonicalFinalizedTradeBus6464 {
 
     private val CANONICAL_CONSUMERS_6485 = listOf(
         "RewardPurity", "LearnerRewardBridge", "LosingStreakReflex", "GrowthRewardShaper", "TacticSwitcher",
-        "Governor", "CapitalCreed", "EVEstimator", "AatePolicyReward", "StrategyHypothesisEngine", "MemeCausalLearning6568", "Dashboard",
+        "Governor", "CapitalCreed", "EVEstimator", "AatePolicyReward", "StrategyHypothesisEngine", "MemeCausalLearning6568",
+        "ForwardOutcomeModel", "UnifiedExitPolicyHead", "Dashboard",
     )
     fun ensureCanonicalConsumers6485() { CANONICAL_CONSUMERS_6485.forEach(::registerConsumer) }
 

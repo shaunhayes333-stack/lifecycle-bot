@@ -169,6 +169,7 @@ object CanonicalTradeFinalizedBus6450 {
                 learningEligibilityReason = learningEligibility6519.reason,
                 assetClassTag = event.assetClassTag.ifBlank { entrySnap6567?.assetClassTag ?: AssetClass.fromLane(event.entryLane).tag },
                 economicEventId = event.economicEventId,
+                exitReason = event.exitReason,
             )
             if (CanonicalFinalizedTradeBus6464.publish(env)) {
                 // The rich event is published while the journal durability

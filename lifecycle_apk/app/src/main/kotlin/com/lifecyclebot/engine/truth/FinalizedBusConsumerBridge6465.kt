@@ -83,6 +83,8 @@ object FinalizedBusConsumerBridge6465 {
             "AatePolicyReward"    -> deliverToAatePolicyReward(env)
             "StrategyHypothesisEngine" -> deliverToStrategyHypothesis(env)
             "MemeCausalLearning6568" -> deliverToMemeCausalLearning6568(env)
+            "ForwardOutcomeModel" -> deliverToForwardOutcomeModel6696(env)
+            "UnifiedExitPolicyHead" -> deliverToUnifiedExitPolicyHead6696(env)
             "Dashboard"           -> deliverToDashboard(env)
             else -> false
         }
@@ -162,6 +164,35 @@ object FinalizedBusConsumerBridge6465 {
             com.lifecyclebot.engine.runtime.DamageControlGate.noteOutcome(env.realizedReturnPct)
             MemeCausalLearning6568.record(env)
         } else true
+    } catch (_: Throwable) { false }
+
+    // V5.0.6696 — these two heads previously depended on Executor's
+    // synchronous REWARD_PURITY outcome lookup. RewardPurity cannot accept until
+    // the exact economic event is committed, so that lookup raced finality and
+    // permanently dropped valid samples. 6465 runs only after the exact-event
+    // check above succeeds and retries until durability is visible.
+    private fun deliverToForwardOutcomeModel6696(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
+        com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(env.mint, env.realizedReturnPct)
+        true
+    } catch (_: Throwable) { false }
+
+    private fun deliverToUnifiedExitPolicyHead6696(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
+        val exitReason = env.exitReason.uppercase()
+        val exitWasOptimal = when {
+            exitReason.contains("STOP_LOSS") || exitReason.contains("STRICT_SL") || exitReason.contains("STOPLOSS") -> false
+            exitReason.contains("TAKE_PROFIT") || exitReason.contains("TRAILING_STOP") || exitReason.contains("TP_") -> true
+            env.realizedReturnPct >= 2.0 -> true
+            else -> false
+        }
+        com.lifecyclebot.engine.UnifiedExitPolicyHead.recordOutcome(env.mint, exitWasOptimal)
+        try {
+            PipelineHealthCollector.labelInc("UNIFIED_EXIT_POLICY_POST_COMMIT_CREDIT_6696")
+            ForensicLogger.lifecycle(
+                "UNIFIED_EXIT_POLICY_POST_COMMIT_CREDIT_6696",
+                "positionId=${env.positionId.take(18)} lane=${env.lane} mint=${env.mint.take(10)} pnl=${env.realizedReturnPct} exit=${env.exitReason.take(80)} optimal=$exitWasOptimal",
+            )
+        } catch (_: Throwable) {}
+        true
     } catch (_: Throwable) { false }
 
     private fun deliverToDashboard(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
