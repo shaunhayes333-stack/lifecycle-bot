@@ -46,6 +46,27 @@ object OpenPnlSanity {
         return p
     }
 
+    /**
+     * V5.0.6701 — detect the exact corruption signature captured in the Meme
+     * Trader screenshot: several unrelated positions simultaneously jumped by
+     * ~0.93M–1.00M× while their entries were 1e-8..1e-7. That is a token-unit
+     * discontinuity, not independent market alpha: the mark has moved by about
+     * 10^tokenDecimals because one writer supplied UI-token pricing and another
+     * supplied raw-token pricing.
+     *
+     * This is NOT a profit cap. It only rejects a narrow band around the token's
+     * own decimal scale. A 500×, 5,000× or 50,000× coherent move remains fully
+     * representable. A decimal-scale discontinuity must be re-proved on a
+     * coherent basis before it can mutate PnL, peak, locks, exits or learning.
+     */
+    private fun tokenDecimalScaleDiscontinuity6701(ratio: Double, tokenDecimals: Int): Boolean {
+        if (!ratio.isFinite() || ratio <= 0.0 || tokenDecimals !in 3..12) return false
+        val scale = Math.pow(10.0, tokenDecimals.toDouble())
+        if (!scale.isFinite() || scale <= 0.0) return false
+        val relative = ratio / scale
+        return ratio >= 1_000.0 && relative in 0.50..2.00
+    }
+
     fun inspect(
         entryPrice: Double,
         currentPrice: Double,
@@ -57,6 +78,7 @@ object OpenPnlSanity {
         context: String = "",
         emit: Boolean = true,
         mint: String = "",
+        tokenDecimals: Int = -1,
     ): Verdict {
         if (!entryPrice.isFinite() || entryPrice <= 0.0) return reject("ENTRY_PRICE_INVALID", entryPrice, currentPrice, context, emit, mint)
         if (!currentPrice.isFinite() || currentPrice <= 0.0) return reject("CURRENT_PRICE_INVALID", entryPrice, currentPrice, context, emit, mint)
@@ -65,6 +87,14 @@ object OpenPnlSanity {
         val pnl = (ratio - 1.0) * 100.0
         if (!pnl.isFinite()) return reject("OPEN_PNL_NOT_FINITE", entryPrice, currentPrice, context, emit, mint)
         if (pnl < MIN_PNL_PCT) return reject("OPEN_PNL_BELOW_TOTAL_LOSS", entryPrice, currentPrice, context, emit, mint)
+
+        // V5.0.6701 — this must run BEFORE source/pool comparability. The defect
+        // that produced the operator screenshot was precisely a new numeric mark
+        // wearing stale same-source/same-pool metadata. Decimal-unit continuity is
+        // an independent invariant and cannot be waived by provenance equality.
+        if (tokenDecimalScaleDiscontinuity6701(ratio, tokenDecimals)) {
+            return reject("TOKEN_DECIMAL_SCALE_DISCONTINUITY_6701", entryPrice, currentPrice, context, emit, mint)
+        }
 
         val eSrc = entrySource.trim().uppercase()
         val cSrc = currentSource.trim().uppercase()
@@ -142,6 +172,7 @@ object OpenPnlSanity {
             context = context.ifBlank { "${ts.symbol}/${ts.mint.take(8)}" },
             emit = emit,
             mint = ts.mint,
+            tokenDecimals = ts.tokenMap.decimals ?: -1,
         )
     }
 
