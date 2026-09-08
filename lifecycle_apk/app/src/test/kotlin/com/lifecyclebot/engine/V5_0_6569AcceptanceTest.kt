@@ -57,13 +57,15 @@ class V5_0_6569AcceptanceTest {
         assertFalse(advisor.contains("""Candidate("entryCooldownSec", +3.0"""))
     }
 
-    @Test fun leveraged_paper_terminal_uses_proceeds_and_quarantines_arithmetic_divergence() {
+    @Test fun leveraged_paper_terminal_uses_effective_proceeds_and_quarantines_arithmetic_divergence() {
         val crypto=src("perps/CryptoAltTrader.kt")
         val paper=src("engine/truth/CanonicalPaperTransaction6486.kt")
         assertTrue(crypto.contains("sol              = (pos.sizeSol + pnlSol).coerceAtLeast(0.0)"))
         assertTrue(crypto.contains("expectedRealizedPnlSol6569 = pos.sizeSol * (pos.getPnlPct() / 100.0)"))
         assertTrue(paper.contains("LEVERAGED_TERMINAL_ARITHMETIC_DIVERGENCE_6569"))
         assertTrue(paper.contains("PaperLearningEligibility6519.record"))
-        assertTrue(paper.contains("grossProceedsSol - basis - sellFeeSol"))
+        assertTrue(paper.contains("val canonicalRealizedPnl6569 = effectiveGrossProceeds6692 - basis - sellFeeSol"))
+        assertTrue(paper.contains("STALE_QUOTE_PAPER_PROCEEDS_CLAMPED_6692"))
+        assertTrue(paper.contains("minOf(grossProceedsSol, boundedGross6692)"))
     }
 }

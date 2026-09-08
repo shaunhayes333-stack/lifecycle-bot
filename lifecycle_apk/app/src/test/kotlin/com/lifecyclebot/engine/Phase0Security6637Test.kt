@@ -61,11 +61,14 @@ class Phase0Security6637Test {
     }
 
     @Test
-    fun no_bundled_provider_defaults_or_plaintext_secret_fallback() {
+    fun bundled_operator_defaults_are_obfuscated_and_plaintext_secret_fallback_is_forbidden() {
         val defaults = File("src/main/kotlin/com/lifecyclebot/data/DefaultKeys.kt").readText()
         val config = File("src/main/kotlin/com/lifecyclebot/data/BotConfig.kt").readText()
-        assertFalse(defaults.contains("private fun dec"))
-        assertFalse(defaults.contains("_X"))
+        // V5.0.6694 — operator-owned clean-install provider defaults are allowed,
+        // but they must remain encoded/obfuscated rather than plaintext literals.
+        assertTrue(defaults.contains("private fun dec"))
+        assertTrue(defaults.contains("HELIUS_X") && defaults.contains("GROQ_X"))
+        assertTrue(defaults.contains("by lazy { dec("))
         assertFalse(config.contains("bot_secrets_fallback"))
         assertFalse(config.contains("KEY_FILE}_fallback"))
         assertTrue(config.contains("refusing plaintext secret storage"))

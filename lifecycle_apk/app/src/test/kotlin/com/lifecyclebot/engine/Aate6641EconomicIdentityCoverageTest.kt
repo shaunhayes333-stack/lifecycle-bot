@@ -35,12 +35,17 @@ class Aate6641EconomicIdentityCoverageTest {
     }
 
     @Test
-    fun restored_ticket_must_match_full_immutable_identity_tuple() {
+    fun restored_ticket_preserves_immutable_owner_across_volatile_version_and_trunk_drift() {
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
-        assertTrue(gate.contains("it.candidateVersion == candidateVersion"))
-        assertTrue(gate.contains("it.canonicalLane.equals(requestedLane, true)"))
-        assertTrue(gate.contains("RESTORED_TICKET_IMMUTABLE_IDENTITY_MISMATCH_6641"))
-        assertTrue(gate.contains("IMMUTABLE_ELECTION_LANE_MISMATCH_6653"))
-        assertFalse(gate.contains("SpecialistProposalArbiter6629.elect6629"))
+        val boundary = gate.substringAfter("private fun resolveSealedIntent6613(")
+            .substringBefore("/** V5.0.6554")
+        assertTrue(boundary.contains("it.mint == mint && it.mode.equals(mode, true)"))
+        assertTrue(boundary.contains("it.canonicalLane.equals(requestedLane, true)"))
+        assertTrue(boundary.contains("isSourceBucketLane(requestedLane)"))
+        assertTrue(boundary.contains("RESTORED_TICKET_IMMUTABLE_IDENTITY_MISMATCH_6641"))
+        assertTrue(boundary.contains("EXEC_RESTORED_TICKET_VERSION_DRIFT_6692"))
+        assertTrue(boundary.contains("EXEC_RESTORED_SPECIALIST_VIA_TRUNK_6692"))
+        assertTrue(boundary.contains("validSealedDecision6613(candidate)"))
+        assertFalse(boundary.contains(".elect6629("))
     }
 }
