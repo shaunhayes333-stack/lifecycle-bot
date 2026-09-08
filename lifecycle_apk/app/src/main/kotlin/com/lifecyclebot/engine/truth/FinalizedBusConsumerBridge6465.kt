@@ -7,47 +7,37 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * V5.0.6465 §P0-#2 — CONSUMER BRIDGE for CanonicalFinalizedTradeBus6464.
  *
- * OPERATOR MANDATE:
- *   "Have each of the 8 registered bus consumers (LearnerRewardBridge,
- *    LosingStreakReflex, GrowthRewardShaper, TacticSwitcher, Governor,
- *    CapitalCreed, EVEstimator, Dashboard) actually call
- *    CanonicalFinalizedTradeBus6464.ack(name, tradeId) on each
- *    finalized trade."
- *
- * DESIGN
- * ──────
- * SellFinalizationCoordinator publishes to the bus and calls
- * `deliverToConsumers(envelope, ::deliver)` — this dispatcher routes
- * each envelope to the right consumer's real API and returns TRUE
- * when the consumer accepted the delivery (bus keeps the ack), FALSE
- * when the consumer refused (bus removes the ack so the parity report
- * shows the miss).
- *
- * Consumers that don't exist as objects (Governor, CapitalCreed,
- * EVEstimator, Dashboard) still receive a passive "counted" ack so
- * they don't sit at zero forever — the bus telemetry captures the
- * fanout, and future ships can hook their real APIs.
- *
- * All calls are best-effort. Exceptions are absorbed so a single
- * consumer crash cannot break the fanout for the other seven.
+ * V5.0.6697 — learning exclusion is no longer reported as a successful
+ * consumer mutation. Learning-ineligible/quarantined envelopes are explicitly
+ * marked EXCLUDED on the canonical bus and return false; the bus treats that as
+ * terminal exclusion rather than retry/failure. Dashboard remains non-learning
+ * and still receives the exact canonical terminal event.
  */
 object FinalizedBusConsumerBridge6465 {
 
     private val delivered = AtomicLong(0L)
     private val refused = AtomicLong(0L)
+    private val excluded = AtomicLong(0L)
 
     fun deliver(consumer: String, env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
-        // V5.0.6470 §P1 — learning purity gate. Any envelope whose position id
-        // (encoded as env.tradeId) or mint has been quarantined by
-        // `LearningQuarantineGate6470` is dropped before it reaches any
-        // learner. Learning consumers only see clean canonical outcomes.
-        if (!env.learningEligible) {
+        // Learning purity metadata applies only to actual learning consumers.
+        // Dashboard must still observe the same canonical terminal cohort.
+        if (!env.learningEligible && consumer !in NON_LEARNING_CONSUMERS) {
             try {
-                PipelineHealthCollector.labelInc("FINALIZED_LEARNING_INELIGIBLE_ACK_NO_MUTATION_6519_${consumer}".take(60))
-                ForensicLogger.lifecycle("FINALIZED_LEARNING_INELIGIBLE_6519", "consumer=$consumer positionId=${env.positionId} mint=${env.mint.take(10)} reason=${env.learningEligibilityReason.take(120)}")
+                CanonicalFinalizedTradeBus6464.exclude(
+                    consumer, env.tradeId,
+                    "LEARNING_INELIGIBLE:${env.learningEligibilityReason}",
+                )
+                excluded.incrementAndGet()
+                PipelineHealthCollector.labelInc("FINALIZED_LEARNING_INELIGIBLE_EXCLUDED_6697")
+                ForensicLogger.lifecycle(
+                    "FINALIZED_LEARNING_INELIGIBLE_EXCLUDED_6697",
+                    "consumer=$consumer positionId=${env.positionId} mint=${env.mint.take(10)} reason=${env.learningEligibilityReason.take(120)}",
+                )
             } catch (_: Throwable) {}
-            return true
+            return false
         }
+
         // Paper analytics and learning share the same exact committed event
         // cohort. Dashboard is intentionally included: it must not race ahead
         // and display a WR that the learners cannot consume.
@@ -58,19 +48,29 @@ object FinalizedBusConsumerBridge6465 {
             if (exactEvent6651 == null) {
                 try {
                     PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_EXACT_EVENT_PENDING_6651")
-                    ForensicLogger.lifecycle("FINALIZED_CONSUMER_EXACT_EVENT_PENDING_6651", "consumer=$consumer positionId=${env.positionId} economicEventId=${env.economicEventId.take(40)} action=no_mutation_no_ack_retry")
+                    ForensicLogger.lifecycle(
+                        "FINALIZED_CONSUMER_EXACT_EVENT_PENDING_6651",
+                        "consumer=$consumer positionId=${env.positionId} economicEventId=${env.economicEventId.take(40)} action=no_mutation_no_ack_retry",
+                    )
                 } catch (_: Throwable) {}
                 return false
             }
         }
+
         if (consumer !in NON_LEARNING_CONSUMERS &&
             LearningQuarantineGate6470.shouldDropForLearning(positionId = env.positionId, mint = env.mint)
         ) {
+            val reason = try {
+                LearningQuarantineGate6470.quarantineReason(env.positionId, env.mint) ?: "LEARNING_QUARANTINE"
+            } catch (_: Throwable) { "LEARNING_QUARANTINE" }
             try {
-                PipelineHealthCollector.labelInc("LEARNING_QUARANTINE_HANDLED_NO_MUTATION_6486_${consumer}".take(60))
+                CanonicalFinalizedTradeBus6464.exclude(consumer, env.tradeId, reason)
+                excluded.incrementAndGet()
+                PipelineHealthCollector.labelInc("LEARNING_QUARANTINE_EXCLUDED_NO_MUTATION_6697")
             } catch (_: Throwable) {}
-            return true
+            return false
         }
+
         val ok = when (consumer) {
             "RewardPurity"       -> deliverToRewardPurity(env)
             "LearnerRewardBridge" -> deliverToLearnerRewardBridge(env)
@@ -200,7 +200,10 @@ object FinalizedBusConsumerBridge6465 {
         true
     } catch (_: Throwable) { false }
 
-    fun statusLine(): String = "delivered=${delivered.get()} refused=${refused.get()}"
+    fun statusLine(): String =
+        "delivered=${delivered.get()} refused=${refused.get()} excluded=${excluded.get()}"
 
-    internal fun resetForTest() { delivered.set(0L); refused.set(0L) }
+    internal fun resetForTest() {
+        delivered.set(0L); refused.set(0L); excluded.set(0L)
+    }
 }
